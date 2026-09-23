@@ -14,7 +14,20 @@ exist, who leads them, or where the army is.
 This addon answers exactly that. It adds up every Olympus guild live, in a window that
 looks like Blizzard's Guild window and docks right next to it.
 
-<p align="center"><img src="docs/census.png" width="340" alt="The Olympus window next to the Guild window (demo data)"></p>
+<p align="center"><img src="docs/1-census.png" width="640" alt="The Olympus window next to the Guild window (demo data)"></p>
+
+<table>
+<tr>
+<td><img src="docs/2-the-realm.png" alt="The Realm: King, Lords, Captains, ranks"></td>
+<td><img src="docs/3-person-card.png" alt="Person card with Whisper, Invite and Who"></td>
+</tr>
+<tr>
+<td><img src="docs/4-decrees.png" alt="Decrees: call to arms, muster, royal decree"></td>
+<td><img src="docs/5-tabards-wall-of-shame.png" alt="Tabard inspection and the Wall of Shame"></td>
+</tr>
+</table>
+
+<sub>Screenshots use the built-in demo data.</sub>
 
 > **Status:** built for WoW: Forever and tested on Classic Era (1.15) and Anniversary (2.5).
 > The author has no Forever beta access yet, so please report anything that behaves
