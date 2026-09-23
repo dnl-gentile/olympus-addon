@@ -23,6 +23,7 @@ function seterrorhandler() end
 function debugprofilestop() return os.clock() * 1000 end
 time, date = os.time, os.date
 SlashCmdList = {}
+StaticPopupDialogs = {}
 function GetTime() return os.clock() end
 function LibStub() return nil end
 function strsplit(sep, s)
@@ -66,7 +67,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Data", "Roster", "Comm", "Map", "Layers", "Positions", "Decree", "Inspect", "Views" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Data", "Roster", "Comm", "Map", "Layers", "Positions", "Decree", "Inspect", "Recruit", "Views" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -346,6 +347,24 @@ test("sealed channel name comes from the key", function()
 	eq(name, "Oly" .. a); eq(password, "secret-one")
 	ns.db.realmKey = nil
 	eq((ns.Comm.ChannelSpec()), "OlympusNet")
+end)
+
+test("join flow groups online Olympus players and never asks twice", function()
+	local R = ns.Recruit
+	R.found = {
+		{ name = "A", guild = "Olympus II" }, { name = "B", guild = "Olympus II" }, { name = "C", guild = "Olympus" },
+	}
+	local g = R.Guilds()
+	eq(g[1].name, "Olympus II"); eq(#g[1].members, 2)
+	eq(R.NextContact("Olympus II").name, "A")
+	R.asked.A = 1
+	eq(R.NextContact("Olympus II").name, "B")
+	R.asked.B = 1
+	eq(R.NextContact("Olympus II"), nil)
+	function UnitLevel() return 12 end
+	function UnitClass() return "Mage", "MAGE" end
+	assert(R.Message({ guild = "Olympus II" }):find("Olympus II"))
+	assert(#ns.Views.RecruitLines() > 3)
 end)
 
 test("every tab builds", function()

@@ -55,6 +55,13 @@ local BUTTONS = {
 	},
 }
 
+-- Buttons shown to players who are not in an Olympus guild.
+local RECRUIT_BUTTONS = {
+	{ "RECRUIT_FIND", function() ns.Recruit.Search() end },
+	{ "RECRUIT_NEXT", function() ns.Recruit.PromptNext(ns.Recruit.lastContact and ns.Recruit.lastContact.guild) end },
+	{ "RECRUIT_DEMO", function() ns.Data.SetDemo(true) end },
+}
+
 -- Small extra buttons inside the detail box (only where needed).
 local DETAIL_BUTTONS = {
 	heraldry = {
@@ -130,24 +137,16 @@ local function CreateMain()
 
 	-- One dark panel over the whole interior, like the Guild window (its inside is near
 	-- black, not the lighter marble of the plain portrait frame).
-	-- Same tones as the Guild window, measured from a screenshot: the header strip is a
-	-- warm grey-brown, the list and everything below it is near black. Textures (not child
-	-- frames) so they stay behind the window's own header text.
-	local head = f:CreateTexture(nil, "BACKGROUND", nil, 7)
-	head:SetPoint("TOPLEFT", 4, -24)
-	head:SetPoint("TOPRIGHT", -6, -24)
-	head:SetHeight(34)
-	head:SetColorTexture(1, 1, 1, 1)
-	if head.SetGradient and CreateColor then
-		pcall(head.SetGradient, head, "VERTICAL", CreateColor(0.16, 0.145, 0.13, 1), CreateColor(0.09, 0.08, 0.07, 1))
-	else
-		head:SetColorTexture(0.14, 0.125, 0.11, 1)
+	-- Like the Guild window: the frame keeps its own mottled grey texture, and the list
+	-- (with its column headers) sits in a dark mottled box with a border, the same box
+	-- style as the detail box below (Blizzard's inset). Created early so later frames
+	-- (column headers, list) draw on top of it.
+	local okBox, box = pcall(CreateFrame, "Frame", nil, f, "InsetFrameTemplate")
+	if okBox and box then
+		box:SetPoint("TOPLEFT", 6, -56)
+		box:SetPoint("BOTTOMRIGHT", -6, 36 + DETAIL_H + 4)
+		f.listBox = box
 	end
-	local body = f:CreateTexture(nil, "BACKGROUND", nil, 7)
-	body:SetPoint("TOPLEFT", 4, -58)
-	body:SetPoint("BOTTOMRIGHT", -6, 32)
-	body:SetColorTexture(0.051, 0.051, 0.051, 1)
-	f.head, f.body = head, body
 
 	-- Header row (where the Guild window has "Show Offline Members")
 	local hx = f.hasPortrait and 62 or 12
@@ -161,6 +160,7 @@ local function CreateMain()
 	f.colHeader:SetPoint("TOPLEFT", 8, -58)
 	f.colHeader:SetPoint("TOPRIGHT", -28, -58)
 	f.colHeader:SetHeight(20)
+	if f.listBox then f.colHeader:SetFrameLevel(f.listBox:GetFrameLevel() + 2) end
 	f.colHeader.buttons = {}
 	for c = 1, 4 do
 		local b
@@ -185,6 +185,7 @@ local function CreateMain()
 
 	-- List
 	local scroll = CreateFrame("ScrollFrame", "OlympusScroll", f, "UIPanelScrollFrameTemplate")
+	if f.listBox then scroll:SetFrameLevel(f.listBox:GetFrameLevel() + 2) end
 	scroll:SetPoint("BOTTOMRIGHT", -30, 36 + DETAIL_H + 8)
 	f.scroll = scroll
 	f.views = {}
@@ -391,20 +392,19 @@ function UI.Refresh()
 		local locked = not ns.IsMember() and not ns.db.demo
 		local lines, title, text
 		if locked then
-			lines = {
-				{ header = true, text = L.MEMBERS_ONLY },
-				{ text = "|cff9d9d9d" .. L.MEMBERS_ONLY_HINT .. "|r" },
-			}
-			title, text = L.MEMBERS_ONLY, L.MEMBERS_ONLY_DEMO
-			main.total:SetText(L.TITLE)
-			main.sub:SetText("")
+			-- Not an Olympus member yet: the only thing on offer is joining one.
+			lines = ns.Views.RecruitLines()
+			title, text = L.MEMBERS_ONLY, L.MEMBERS_ONLY_HINT .. "\n|cff9d9d9d" .. L.MEMBERS_ONLY_DEMO .. "|r"
+			main.total:SetText(L.RECRUIT_HEADER)
+			main.sub:SetText(L.RECRUIT_SUB)
 		else
 			lines, title, text = ns.Views.Build(main.tab)
 		end
 		ns.Views.Render(main.views[main.tab], lines, not locked and ns.Views.COLUMNS[main.tab] or nil)
 		main.detailTitle:SetText(title or "")
 		main.detailText:SetText(text or "")
-		SetButtons(main.buttons, not locked and BUTTONS[main.tab] or nil)
+		SetButtons(main.buttons, locked and RECRUIT_BUTTONS or BUTTONS[main.tab])
+		for _, tab in ipairs(main.tabs) do tab:SetShown(not locked) end
 		SetButtons(main.detailButtons, not locked and DETAIL_BUTTONS[main.tab] or nil)
 		local hasDetailButtons = DETAIL_BUTTONS[main.tab] ~= nil
 		main.detailText:SetHeight(DETAIL_H - (hasDetailButtons and 46 or 26))
@@ -548,6 +548,7 @@ ns.On("MAP_TOGGLED", function() UI.Refresh() end)
 ns.On("INSPECT_CHANGED", function() if main and main.tab == "heraldry" then UI.Refresh() end end)
 ns.On("LAYERS_CHANGED", function() if main and main.tab == "decrees" then UI.Refresh() end end)
 ns.On("DECREES_CHANGED", function() UI.Refresh() end)
+ns.On("RECRUIT_CHANGED", function() UI.Refresh() end)
 
 ---------------------------------------------------------------------------
 ---------------------------------------------------------------------------

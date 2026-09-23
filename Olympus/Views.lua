@@ -512,6 +512,48 @@ local function HeraldryDetail()
 end
 
 ---------------------------------------------------------------------------
+-- Join Olympus (what non-members see)
+---------------------------------------------------------------------------
+
+function Views.RecruitLines()
+	local R = ns.Recruit
+	local lines = { { header = true, text = L.RECRUIT_TITLE } }
+	local guilds = R.Guilds()
+	if #guilds == 0 then
+		lines[#lines + 1] = { text = Grey(#R.found == 0 and R.lastWho == 0 and L.RECRUIT_START or L.RECRUIT_NONE_FOUND) }
+		return lines
+	end
+	for _, g in ipairs(guilds) do
+		lines[#lines + 1] = {
+			text = Green("<" .. g.name .. ">"),
+			right = Grey(L.RECRUIT_ONLINE:format(#g.members)) .. "  " .. Gold(L.RECRUIT_ASK),
+			onClick = function() R.PromptNext(g.name) end,
+			tooltip = function(tt)
+				tt:AddLine("<" .. g.name .. ">", 0.25, 1, 0.25)
+				tt:AddLine(L.RECRUIT_ASK_TIP, 1, 1, 1, true)
+			end,
+		}
+		for _, p in ipairs(g.members) do
+			local state = ""
+			if R.replied[p.name] then state = Green(L.RECRUIT_STATE_REPLIED)
+			elseif R.asked[p.name] then state = Grey(L.RECRUIT_STATE_ASKED) end
+			lines[#lines + 1] = {
+				indent = 1,
+				text = ClassColored(ns.ShortName(p.name), p.class) .. "  " .. Grey((p.level and L.LEVEL_N:format(p.level) or "") .. (p.zone and ("  " .. p.zone) or "")),
+				right = state,
+				onClick = function() StaticPopup_Show("OLYMPUS_RECRUIT", p.name, p.guild, p) end,
+				tooltip = R.replied[p.name] and function(tt)
+					tt:AddLine(ns.ShortName(p.name), 1, 0.82, 0)
+					tt:AddLine('"' .. R.replied[p.name] .. '"', 1, 1, 1, true)
+				end or nil,
+			}
+		end
+		lines[#lines].gapAfter = true
+	end
+	return lines
+end
+
+---------------------------------------------------------------------------
 -- Entry point used by UI.lua
 ---------------------------------------------------------------------------
 

@@ -26,8 +26,16 @@ looks like Blizzard's Guild window and docks right next to it.
 
 **Only members of a guild with "Olympus" in its name.** The check is fixed in the code and
 cannot be switched off with a command. Outside an Olympus guild the addon joins no channel,
-sends nothing, receives nothing and shows *Olympus members only*. Anyone can still open a
+sends nothing and receives nothing. The only thing it offers there is the **Join Olympus**
+screen described below. Anyone can still open a
 **demo preview** with `/oly demo`, which uses made-up data and connects to nothing.
+
+### Not in Olympus yet?
+The addon still helps you get in. The **Join Olympus** screen uses the game's own `/who` to
+find Olympus members online, groups them by guild, and whispers one of them a ready-made
+request that you can edit ("Hi! I'd love to join Olympus. Does <Olympus II> have room for
+one more?"). No answer? **Try someone else** picks a member you have not asked yet. Replies
+are highlighted. It is rate limited, so nobody gets spammed.
 
 ## What it does
 
