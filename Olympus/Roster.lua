@@ -56,11 +56,13 @@ function Roster.Scan()
 
 	local seen, seenOffline, zoneCount, levelSum = 0, 0, 0, 0
 	local everyone = {}
+	local byName = {}
 	for i = 1, numTotal do
 		local name, rankName, rankIndex, level, _, zone, _, _, isOnline, _, classFile = GetGuildRosterInfo(i)
 		if name then
 			seen = seen + 1
 			local short = ns.ShortName(name)
+			byName[short] = rankIndex or 9
 			local days = DaysOffline(i, isOnline)
 			level = level or 1
 			levelSum = levelSum + level
@@ -111,6 +113,7 @@ function Roster.Scan()
 	end)
 	for i = 1, math.min(5, #everyone) do r.top[i] = everyone[i] end
 	r.avgLevel = seen > 0 and levelSum / seen or 0
+	Roster.byName = byName
 	if numOnline and numOnline > r.online then r.online = numOnline end
 	local ms = debugprofilestop and (debugprofilestop() - started) or 0
 	Roster.lastStats = {
@@ -121,6 +124,11 @@ function Roster.Scan()
 	ns.Log("scan %s: total=%d online=%d rows=%d offlineRows=%d leader=%s ranks=%d officers=%d zones=%d %.1fms",
 		guild, numTotal, r.online, seen, seenOffline, tostring(r.leader), #r.ranks, #r.officers, zoneCount, ms)
 	return r
+end
+
+-- Rank of a member of OUR guild, from the roster the server gave us (nil if not a member).
+function Roster.RankOf(name)
+	return Roster.byName and Roster.byName[ns.ShortName(name)]
 end
 
 -- Our own rank index (0 = guild master), used for layer names and decree permission.

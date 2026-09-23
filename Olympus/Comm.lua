@@ -31,6 +31,7 @@ end
 
 function Comm.Stats()
 	return {
+		channelName = joinedName, sealed = ns.db and ns.db.realmKey ~= nil,
 		channel = channelIndex, peers = Comm.PeerCount(), reporter = Comm.reporterName,
 		isReporter = Comm.isReporter, sent = stats.sent, recv = stats.recv, reports = stats.reports,
 		fails = stats.fails, bad = stats.bad, queue = #queue, lastFail = stats.lastFail,
@@ -78,6 +79,10 @@ end
 local function Pump()
 	local item = queue[1]
 	if not item then return end
+	if not ns.IsMember() then
+		wipe(queue) -- outside an Olympus guild the addon sends nothing
+		return
+	end
 	local dist, msg = item[1], item[2]
 	local target
 	if dist == "CHANNEL" then
@@ -95,28 +100,85 @@ local function Pump()
 	end
 end
 
-local function HideChannelFromChat()
+---------------------------------------------------------------------------
+-- The shared channel. Without a key it is the public "OlympusNet". With a realm key (set by
+-- an officer with /oly key, then passed to guildmates over GUILD messages, which the server
+-- only delivers to members of that guild) the channel gets a name derived from the key and
+-- the key as its password: outsiders can neither find it nor join it, edited code or not.
+---------------------------------------------------------------------------
+
+local function Hash36(text)
+	local h1, h2 = 5381, 52711
+	for i = 1, #text do
+		local c = text:byte(i)
+		h1 = (h1 * 33 + c) % 2147483647
+		h2 = (h2 * 31 + c * 7) % 2147483647
+	end
+	local digits, out, n = "0123456789abcdefghijklmnopqrstuvwxyz", "", h1 * 1000 + (h2 % 1000)
+	for _ = 1, 8 do
+		local d = n % 36
+		out = digits:sub(d + 1, d + 1) .. out
+		n = math.floor(n / 36)
+	end
+	return out
+end
+Comm.Hash36 = Hash36
+
+function Comm.ChannelSpec()
+	local key = ns.db and ns.db.realmKey
+	if key and key ~= "" then return "Oly" .. Hash36(key), key end
+	return ns.CHANNEL, nil
+end
+
+local joinedName
+local function HideChannelFromChat(name)
 	for i = 1, (NUM_CHAT_WINDOWS or 10) do
 		local cf = _G["ChatFrame" .. i]
-		if cf and ChatFrame_RemoveChannel then pcall(ChatFrame_RemoveChannel, cf, ns.CHANNEL) end
+		if cf and ChatFrame_RemoveChannel then pcall(ChatFrame_RemoveChannel, cf, name) end
 	end
 end
 
 function Comm.JoinChannel()
-	local id = GetChannelName(ns.CHANNEL)
+	if not ns.IsMember() then return end
+	local name, password = Comm.ChannelSpec()
+	if joinedName and joinedName ~= name and GetChannelName(joinedName) > 0 then
+		LeaveChannelByName(joinedName) -- the key changed: leave the old channel
+		channelIndex = 0
+	end
+	joinedName = name
+	local id = GetChannelName(name)
 	if id and id > 0 then
-		if channelIndex ~= id then ns.Log("channel %s is #%d", ns.CHANNEL, id) end
+		if channelIndex ~= id then ns.Log("channel %s is #%d", name, id) end
 		channelIndex = id
-		HideChannelFromChat()
+		HideChannelFromChat(name)
 		return
 	end
-	ns.Log("joining channel %s", ns.CHANNEL)
-	JoinChannelByName(ns.CHANNEL)
+	ns.Log("joining channel %s%s", name, password and " (sealed)" or "")
+	JoinChannelByName(name, password)
 	ns.After(3, "channel check", function()
-		channelIndex = GetChannelName(ns.CHANNEL) or 0
-		ns.Log("channel %s -> #%d", ns.CHANNEL, channelIndex)
-		HideChannelFromChat()
+		channelIndex = GetChannelName(name) or 0
+		ns.Log("channel %s -> #%d", name, channelIndex)
+		HideChannelFromChat(name)
 	end)
+end
+
+function Comm.ChannelName() return joinedName end
+
+-- /oly key <secret>: officers seal the channel; guildmates receive the key automatically.
+function Comm.SetRealmKey(secret)
+	if not ns.IsMember() or not ns.Roster.IsOfficer() then
+		ns.Print(ns.L.KEY_OFFICERS_ONLY)
+		return
+	end
+	secret = (secret or ""):gsub("[~|\n]", "")
+	if #secret < 6 then
+		ns.Print(ns.L.KEY_TOO_SHORT)
+		return
+	end
+	ns.db.realmKey = secret
+	Enqueue("GUILD", "K1~" .. secret, "key")
+	ns.Print(ns.L.KEY_SET)
+	Comm.JoinChannel()
 end
 
 -- In a full guild, 1000 members saying hello every minute would be ~16 messages per second.
@@ -151,8 +213,31 @@ end
 local function OnAddonMessage(prefix, text, dist, sender)
 	if prefix ~= ns.PREFIX then return end
 	if sender == ns.me or sender == ns.ShortName(ns.me) then return end -- our own echo
+	if not ns.IsMember() then return end -- outside an Olympus guild the addon hears nothing
+	if ns.db.blocked[ns.ShortName(sender):lower()] then return end
 	stats.recv = stats.recv + 1
 	local now = ns.Now()
+	-- Realm key, only over GUILD (server-verified guildmates) and only from our officers.
+	if dist == "GUILD" and text:sub(1, 3) == "K1~" then
+		local rank = ns.Roster.RankOf(sender)
+		if rank and rank <= ((ns.db and ns.db.officerRank) or 1) then
+			local key = text:sub(4)
+			if key ~= "" and key ~= ns.db.realmKey then
+				ns.db.realmKey = key
+				ns.Log("realm key received from officer %s", sender)
+				Comm.JoinChannel()
+			end
+		end
+		return
+	end
+	if dist == "GUILD" and text:sub(1, 3) == "K0~" then
+		-- A guildmate asks for the key: officers who have it answer (at most once a minute).
+		if ns.db.realmKey and ns.Roster.IsOfficer() and now - (Comm.lastKeyAnswer or 0) > 60 then
+			Comm.lastKeyAnswer = now
+			ns.After(math.random(1, 5), "key answer", function() Enqueue("GUILD", "K1~" .. ns.db.realmKey, "key") end)
+		end
+		return
+	end
 	if dist == "GUILD" and text:sub(1, 3) == "H1~" then
 		if not peers[sender] then ns.Log("peer %s (%s)", sender, text:sub(4)) end
 		peers[sender] = now
@@ -186,6 +271,10 @@ end
 
 ns.On("LOGIN", function()
 	C_ChatInfo.RegisterAddonMessagePrefix(ns.PREFIX)
+	-- No key yet? Ask our guild once (officers who have it answer).
+	ns.After(20, "key request", function()
+		if ns.IsMember() and not ns.db.realmKey then Enqueue("GUILD", "K0~", "keyreq") end
+	end)
 	ns.RegisterEvent("CHAT_MSG_ADDON", OnAddonMessage)
 	-- Join late so General/Trade/LocalDefense keep their usual numbers (/1, /2...).
 	ns.After(15, "join channel", Comm.JoinChannel)
@@ -194,6 +283,6 @@ ns.On("LOGIN", function()
 	ns.Every(SEND_INTERVAL, "send pump", Pump)
 	ns.Every(60, "housekeeping", function()
 		Codec.Gc(asm, ns.Now())
-		if channelIndex == 0 or GetChannelName(ns.CHANNEL) == 0 then Comm.JoinChannel() end
+		if channelIndex == 0 or GetChannelName(joinedName or ns.CHANNEL) == 0 then Comm.JoinChannel() end
 	end)
 end)

@@ -64,6 +64,7 @@ function Map.Refresh()
 		active[i] = nil
 	end
 	if not ns.db.showMap then return end
+	if not ns.IsMember() and not ns.db.demo then return end
 	local s = ns.Data.Summary()
 	for _, z in ipairs(s.zoneList) do
 		local mapID = ns.Zones.MapID(z.key)

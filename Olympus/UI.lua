@@ -387,12 +387,25 @@ function UI.Refresh()
 		local F = ns.FormatNumber
 		main.total:SetText(L.ARMY_TOTAL:format(F(s.total)))
 		main.sub:SetText(L.ARMY_SUB:format(F(s.online), s.fresh, ns.Ago(s.newest)))
-		local lines, title, text = ns.Views.Build(main.tab)
-		ns.Views.Render(main.views[main.tab], lines, ns.Views.COLUMNS[main.tab])
+		-- Outside an Olympus guild only the demo can be seen.
+		local locked = not ns.IsMember() and not ns.db.demo
+		local lines, title, text
+		if locked then
+			lines = {
+				{ header = true, text = L.MEMBERS_ONLY },
+				{ text = "|cff9d9d9d" .. L.MEMBERS_ONLY_HINT .. "|r" },
+			}
+			title, text = L.MEMBERS_ONLY, L.MEMBERS_ONLY_DEMO
+			main.total:SetText(L.TITLE)
+			main.sub:SetText("")
+		else
+			lines, title, text = ns.Views.Build(main.tab)
+		end
+		ns.Views.Render(main.views[main.tab], lines, not locked and ns.Views.COLUMNS[main.tab] or nil)
 		main.detailTitle:SetText(title or "")
 		main.detailText:SetText(text or "")
-		SetButtons(main.buttons, BUTTONS[main.tab])
-		SetButtons(main.detailButtons, DETAIL_BUTTONS[main.tab])
+		SetButtons(main.buttons, not locked and BUTTONS[main.tab] or nil)
+		SetButtons(main.detailButtons, not locked and DETAIL_BUTTONS[main.tab] or nil)
 		local hasDetailButtons = DETAIL_BUTTONS[main.tab] ~= nil
 		main.detailText:SetHeight(DETAIL_H - (hasDetailButtons and 46 or 26))
 	end)

@@ -1,90 +1,177 @@
+<p align="center"><img src="docs/logo.png" width="96" alt=""></p>
+
 # Olympus
 
-**A live census of every Olympus guild in World of Warcraft: Forever.**
-Army size, who leads each guild, where everyone is on the map, royal decrees and the
-tabard inspection, in one window that looks and docks like Blizzard's own Guild window.
+**The whole Olympus army in one window, inside World of Warcraft: Forever.**
 
-<p align="center"><img src="docs/census.png" width="360" alt="Olympus window (demo data)"></p>
+Olympus is Asmongold's guild for *World of Warcraft: Forever*: Alliance, PvP ruleset, a
+place to find dungeon groups, organize raids, share class knowledge and build the guild
+together. It grew past **10,000 members during the beta**. A WoW guild caps at 1,000
+members, so Olympus is really a *realm* of many Olympus guilds. In game each player
+only ever sees the roster of their own guild. Nobody could tell how many Olympus guilds
+exist, who leads them, or where the army is.
 
-> Built for WoW: Forever. Developed and tested on Classic Era (1.15) and Anniversary (2.5).
-> The Forever client is expected to behave the same; please report anything that breaks.
+This addon answers exactly that. It adds up every Olympus guild live, in a window that
+looks like Blizzard's Guild window and docks right next to it.
 
-## Why
+<p align="center"><img src="docs/census.png" width="340" alt="The Olympus window next to the Guild window (demo data)"></p>
 
-Olympus is not one guild. It is a realm of many guilds, and a guild caps at 1,000 members.
-Nobody can see all of them at once in game: you only see the roster of your own guild.
-This addon puts them together, so the whole army fits in one place.
+> **Status:** built for WoW: Forever and tested on Classic Era (1.15) and Anniversary (2.5).
+> The author has no Forever beta access yet, so please report anything that behaves
+> differently there (`/oly bug`).
 
-## Features
+---
 
-| Tab / place | What you get |
-|---|---|
-| **Census** | Every Olympus guild in columns (Guild, Members, Online, Lord), sortable like the Guild window. Total soldiers, online, and where the army stands per zone and per continent |
-| **The Realm** | The hierarchy: King, the Lord of each guild and their Captains (officers) with level, class and last seen, ranks with head counts, inactive members (7+ and 30+ days), the level race, guilds with free slots, and layers named after the highest ranked member on them |
-| **Decrees** | *Call to arms!* (alarm with a map marker), *Muster here* (rally point), *Royal decree* (proclamation). Captains call to arms and muster, the Crown issues royal decrees |
-| **Tabards** | Tabard inspection: patrol mode inspects Olympus members near you, marks players or whole guilds, and the Crown can publish the **Wall of Shame** to everyone |
-| **Person details** | Click any Lord, Captain or player: level, class, zone, status, with **Whisper**, **Invite** and **Who** buttons |
-| **World map** | Olympus soldiers per zone and per continent, toggled from the round Olympus button in the bottom right corner of the map |
-| **Guild window** | A round Olympus button in Blizzard's Guild window opens this window glued to its right |
-| **Copy** | Every tab can copy a ready-to-paste text for Discord |
+## Who can use it
 
-Any guild with **"Olympus"** in its name counts (not case sensitive).
+**Only members of a guild with "Olympus" in its name.** The check is fixed in the code and
+cannot be switched off with a command. Outside an Olympus guild the addon joins no channel,
+sends nothing, receives nothing and shows *Olympus members only*. Anyone can still open a
+**demo preview** with `/oly demo`, which uses made-up data and connects to nothing.
+
+## What it does
+
+### Census: the army at a glance
+- Every Olympus guild in one list: **Guild · Members · Online · Lord**. Columns sort by
+  clicking, like the Guild window.
+- **Total soldiers** and **online now** across the whole realm.
+- **Where the army stands**: top zones ("Stormwind City 742") and totals per continent
+  (Eastern Kingdoms, Kalimdor).
+- Hover a guild: members, online, free slots, average level, inactive members, classes online, top zones.
+
+### The Realm: the hierarchy
+- The **King**, then every guild's **Lord** (guild master) and **Captains** (officers).
+  Each shows level, class and online or *offline 3d*. Long absences show in red.
+- The **ranks** of each guild with how many members hold them.
+- **Inactive members**: offline 7+ and 30+ days, per guild.
+- **Level race**: the highest level players of the realm.
+- **Recruiting**: the guilds that still have free slots, so new players go where there is room.
+- **Layers** of your zone, named after the highest ranked Olympus member on each one
+  ("Asmongold's layer"), with how many members are there.
+
+### Person details
+Click any Lord, Captain, racer or inspected player. You get the same card the Guild window
+shows: level, class, zone, rank and status, with **Whisper**, **Invite** and **Who** buttons.
+Any soldier can reach the Lord of another Olympus guild in two clicks.
+
+### Decrees
+| Decree | Who | What happens |
+|---|---|---|
+| **Call to arms!** | Captains | Alarm for every Olympus guild: raid warning, sound, red marker at the caller's position for 5 min |
+| **Muster here** | Captains | Rally point: horn marker on the map for 30 min, soft alert |
+| **Royal decree** | The Crown | A proclamation with free text, as a raid warning to the whole army |
+| **Tabard inspection** | The Crown | Announces an inspection at the caller's position: wear your colors |
+
+*The Crown* means the guild masters of Olympus guilds and the officers of the main
+`<Olympus>` guild. Everyone else gets a local preview when they press the buttons.
+
+### Tabards: tabard inspection and the Wall of Shame
+- **Patrol**: walk through the crowd and the addon inspects nearby Olympus members one by
+  one (about 28 yards). It records who wears a tabard, who wears the wrong one and who
+  wears none. Players it could not see properly are never accused.
+- **Mark** a player (with a note: `/oly mark complained about the rule`) or a whole guild.
+- Per guild: *"5 of 20 with problems"*.
+- **Wall of Shame**: the Crown publishes the list, and every Olympus member with the addon sees it.
+- Hover any player in the world to see their last inspection in the tooltip.
+
+### World map
+- Soldiers per zone on zone and continent maps, and per continent on the world map.
+- The round **Olympus** button in the bottom right corner of the map switches markers
+  (army per zone, decrees) on and off.
+
+### Everywhere
+- **Copy**: every tab produces a ready-to-paste text for Discord.
+- The window opens from `/oly`, the minimap button, or the round button in your Guild window.
+- English and Portuguese (follows the game language).
 
 ## Install
 
-1. Download `Olympus-x.y.z.zip` from [Releases](../../releases).
-2. Extract it into `World of Warcraft/<version>/Interface/AddOns/` so you get `.../AddOns/Olympus/Olympus.toc`.
-3. Restart the game. If it is marked out of date, tick **Load out of date AddOns**.
+1. Download `Olympus-x.y.z.zip` from **[Releases](../../releases)**.
+2. Extract it into `World of Warcraft/<game version>/Interface/AddOns/` so that the file
+   `AddOns/Olympus/Olympus.toc` exists.
+3. **Restart the game.** If the addon list says *out of date*, tick **Load out of date AddOns**.
 
-Open it with `/oly`, the minimap button, or the round button in your Guild window.
-Demo data is on the first time, so you can see everything right away. Type `/oly demo` for live data.
+**One member per guild is enough** for that guild to appear for everyone. The more guilds
+have at least one install, the more complete the census gets.
+
+### For officers: seal the channel (recommended)
+Type once, with a secret the Olympus officers agree on:
+```
+/oly key <secret>
+```
+Your guildmates with the addon receive it automatically through guild chat. From then on
+the Olympus channel has a name and password derived from the secret, and outsiders can't
+find or join it. Share the same secret with the officers of the other Olympus guilds
+(for example in the officers' Discord), so all guilds meet on the same sealed channel.
 
 ## How it works
 
-- Any guild member can read their own guild's roster: name, level, class, zone and online status.
-- So **one member per guild** with the addon is enough for that guild to show up.
-- Members with the addon find each other in guild chat (hidden addon messages) and pick
-  **one reporter per guild**. Everyone picks the same one, so there is no negotiation.
-- The reporter sends a short summary every 2 minutes on a hidden channel (`OlympusNet`).
-  Every client adds up all the summaries.
-- Nothing leaves the game. There is no server, no account and no tracking. Everything is in this repository.
+1. Every guild member can read their own guild's roster: name, level, class, zone, rank,
+   online and last seen.
+2. Members with the addon find each other through hidden addon messages in guild chat and
+   **elect one reporter per guild**. The first name alphabetically wins, and every client
+   computes the same answer.
+3. The reporter sends a compact summary of its guild every 2 minutes on the hidden Olympus channel.
+4. Every client adds up all the summaries: that is the census.
 
-### Built for a big crowd
+Nothing leaves the game. There is no server, no website, no account and no tracking.
+
+## Security and trust
+
+The addon is plain Lua running on each player's computer, so anyone can edit their own
+copy. No addon can prevent that. What this one does is make an edited copy useless:
+
+- **Guild traffic is verified by Blizzard's servers.** Guild addon messages only reach
+  members of that guild, so the realm key and guild elections can't be faked from outside.
+- **Sender names cannot be forged.** The server stamps every message with its sender.
+  - A decree counts only if the sender really is the Lord or a Captain of that guild,
+    according to that guild's own roster report, or our own roster for our own guild.
+    The rank written inside the message is ignored.
+  - A sender can report only one guild.
+  - A guild whose reports disagree about its leader or size is flagged, and its ranks are not trusted.
+- **Sealed channel** (`/oly key`): outsiders can't find the channel or join it.
+- **Validation**: every number is range checked, names are length limited, and malformed
+  messages are dropped. Decrees are rate limited per sender and in total.
+- `/oly block <name>` ignores a player completely.
+
+Limits, stated honestly: a real Olympus member who edits their copy could still send a
+wrong report for **their own** guild. Their guildmates' reports and the conflict flag make
+that visible, but it can't be made impossible.
+
+## Built for a crowd of thousands
 
 - One summary per guild every 2 minutes, not one per player.
-- In a full guild, only the members who could be elected keep saying hello. The rest go
-  quiet after 10 are known.
+- In a full guild only the members who could be elected keep saying hello; the rest go quiet.
 - Layers are announced by officers plus a stable 1 in 8 sample, every 10 minutes.
-- Decrees are rate limited per sender and in total. Sounds play at most once every 15 seconds.
-- The send queue spaces messages 1.2 s apart, below Blizzard's addon message limits.
-- Received data is validated and clamped, so a malformed or hostile message is dropped.
+- Messages are spaced 1.2 s apart, below Blizzard's addon message limits, and alert sounds
+  play at most once every 15 seconds.
 
 ## Commands
 
 | Command | |
 |---|---|
 | `/oly` | open or close the window |
-| `/oly realm`, `/oly decrees`, `/oly tabard` | open a tab |
+| `/oly realm` · `/oly decrees` · `/oly tabard` | open a tab |
 | `/oly patrol` | start or stop the tabard patrol |
-| `/oly mark [reason]` | mark your target |
-| `/oly arms [text]`, `/oly muster [text]` | decrees (`test` = local preview) |
-| `/oly map` | zone counts on the world map |
+| `/oly mark [note]` | mark your target |
+| `/oly arms [text]` · `/oly muster [text]` | send a decree (`test` = local preview) |
+| `/oly key <secret>` | officers: seal the Olympus channel |
+| `/oly block <name>` | ignore a player |
+| `/oly map` | zone markers on the world map |
 | `/oly demo` | demo data on or off |
 | `/oly sound` | alert sounds on or off |
-| `/oly bug` | copyable bug report (errors + diagnostics) |
+| `/oly bug` | copyable bug report |
 | `/oly status` | diagnostics in chat |
-| `/oly pattern <text>` | which guild names count (`*` = any) |
-| `/oly officer <n>` | ranks 1..n count as officers |
 
 ## Reporting a bug
 
-Type `/oly bug` (or click **Report a bug**), copy the text and paste it in an issue. Errors
-are also saved in `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.
+Type `/oly bug` (or press **Report a bug**), copy the text and open an issue. Errors are
+also saved in `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.
 
 ## Development
 
 ```bash
-luajit tests/run.lua                      # offline tests (codec, roster, hierarchy, layers, decrees)
+luajit tests/run.lua                      # offline tests: codec, roster, hierarchy, security, layers, decrees
 scripts/package.sh                        # dist/Olympus-<version>.zip
 WOW_HOST=user@pc scripts/deploy.sh        # copy to a Windows PC over SSH
 WOW_HOST=user@pc scripts/logs.sh          # read the log and captured errors from that PC
@@ -95,4 +182,9 @@ HereBeDragons by Nevcairiel (BSD), the map library Questie uses.
 
 ## License
 
-MIT. Not affiliated with Blizzard Entertainment or the Olympus guild leadership.
+MIT. A fan project, not affiliated with Blizzard Entertainment, Asmongold or the
+Olympus leadership. The Olympus emblem belongs to its owners and is used for the community.
+
+*Sources for the Olympus description: the Olympus Discord welcome message,
+[Prism on X](https://x.com/fwprism/status/2101809316382847172) (10K+ members in the beta),
+[Dexerto](https://www.dexerto.com/world-of-warcraft/asmongold-responds-as-wow-forever-players-want-him-banned-over-massive-olympus-guild-3411199/).*

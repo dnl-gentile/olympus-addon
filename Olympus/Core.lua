@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.5.0"
+ns.VERSION = "0.6.0"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild
 ns.ICON = "Interface\\AddOns\\Olympus\\media\\logo64"
@@ -11,7 +11,6 @@ ns.EMBLEM = "Interface\\AddOns\\Olympus\\media\\emblem128"
 ns.COLOR = "ffe6c35c"
 
 local DEFAULTS = {
-	pattern = "olympus",   -- a guild is part of the federation if its name contains this ("*" = any guild)
 	showMap = true,
 	minimapAngle = 200,
 	hideMinimap = false,
@@ -120,11 +119,16 @@ function ns.IsCrown()
 	return ns.IsFederation(guild) and ns.IsCrownRank(guild, rankIndex)
 end
 
+-- Fixed on purpose: only guilds with "Olympus" in their name belong to the realm.
+local REALM_WORD = "olympus"
 function ns.IsFederation(guild)
 	if not guild or guild == "" then return false end
-	local p = ((ns.db and ns.db.pattern) or DEFAULTS.pattern):lower()
-	if p == "*" then return true end
-	return guild:lower():find(p, 1, true) ~= nil
+	return guild:lower():find(REALM_WORD, 1, true) ~= nil
+end
+
+-- The addon only works for members of an Olympus guild (demo data excepted).
+function ns.IsMember()
+	return IsInGuild() and ns.IsFederation(GetGuildInfo("player"))
 end
 
 ---------------------------------------------------------------------------
@@ -204,6 +208,8 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 		if db[k] == nil then db[k] = v end
 	end
 	db.guilds = db.guilds or {}
+	db.blocked = db.blocked or {}
+	db.pattern = nil
 	db.log = db.log or {}
 	db.errors = db.errors or {}
 	db.sessions = (db.sessions or 0) + 1
@@ -244,7 +250,8 @@ local function Help()
 	print("  /oly demo - toggle demo data")
 	print("  /oly bug - copy a bug report (errors + diagnostics)")
 	print("  /oly status - print diagnostics in chat")
-	print("  /oly pattern <text> - which guild names count as Olympus (* = any)")
+	print("  /oly key <secret> - officers: seal the Olympus channel with a shared secret")
+	print("  /oly block <name> - ignore everything a player sends")
 	print("  /oly layer - show the layer id of your target (test)")
 	print("  /oly minimap - show/hide the minimap button")
 	print("  /oly debug - verbose log in chat")
@@ -292,11 +299,13 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.UI.ShowCopy(ns.L.REPORT_BUG, ns.BuildBugReport())
 		elseif cmd == "status" then
 			for line in ns.StatusText():gmatch("[^\n]+") do print("  " .. line) end
-		elseif cmd == "pattern" then
-			if rest ~= "" then ns.db.pattern = rest end
-			ns.Print("pattern = " .. ns.db.pattern)
-			ns.Roster.RequestScan(true)
-			ns.Fire("DATA_CHANGED")
+		elseif cmd == "key" then
+			ns.Comm.SetRealmKey(rest)
+		elseif cmd == "block" then
+			if rest ~= "" then
+				ns.db.blocked[ns.ShortName(rest):lower()] = true
+				ns.Print("blocked " .. rest)
+			end
 		elseif cmd == "layer" then
 			ns.PrintLayer()
 		elseif cmd == "minimap" then

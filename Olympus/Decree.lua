@@ -108,6 +108,10 @@ function Decree.CanSend(kind)
 end
 
 function Decree.Send(kind, text)
+	if not ns.IsMember() then
+		ns.Print(L.MEMBERS_ONLY)
+		return
+	end
 	if CROWN_ONLY[kind] and not ns.IsCrown() then
 		ns.Print(L.CROWN_ONLY)
 		return
@@ -157,9 +161,16 @@ ns.Comm.Handle("D1", function(dist, sender, text)
 	if dist ~= "CHANNEL" then return end
 	local d = ns.Codec.DecodeDecree(text)
 	if not d or not ns.IsFederation(d.guild) then return end
+	-- Trust the rank we can verify, never the rank written in the message.
+	local rank = ns.Data.KnownRank(sender, d.guild)
+	if not rank then
+		ns.Log("decree from %s ignored: rank in %s not verified", sender, d.guild)
+		return
+	end
+	d.rank = rank
 	if CROWN_ONLY[d.kind] then
-		if not ns.IsCrownRank(d.guild, d.rank) then return end
-	elseif d.rank > ((ns.db and ns.db.officerRank) or 1) then
+		if not ns.IsCrownRank(d.guild, rank) then return end
+	elseif rank > ((ns.db and ns.db.officerRank) or 1) then
 		return
 	end
 	local now = ns.Now()

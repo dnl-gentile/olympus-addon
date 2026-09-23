@@ -68,7 +68,7 @@ function ns.StatusText()
 	local function add(fmt, ...) lines[#lines + 1] = fmt:format(...) end
 	local guild = GetGuildInfo("player")
 	add("Olympus v%s  |  %s", ns.VERSION, ClientInfo())
-	add("player %s  |  guild %s  |  olympus guild: %s  |  pattern '%s'", tostring(ns.me), tostring(guild), tostring(ns.IsFederation(guild)), ns.db.pattern)
+	add("player %s  |  guild %s  |  olympus member: %s", tostring(ns.me), tostring(guild), tostring(ns.IsMember()))
 	local st = ns.Roster and ns.Roster.lastStats
 	if st then
 		add("roster: total=%s online=%s rowsRead=%d offlineRows=%d leader=%s (%s) zones=%d scanMs=%.1f %s",
@@ -79,7 +79,7 @@ function ns.StatusText()
 	end
 	local c = ns.Comm and ns.Comm.Stats()
 	if c then
-		add("channel '%s' = #%s  |  peers in guild=%d  |  reporter=%s (me: %s)", ns.CHANNEL, tostring(c.channel), c.peers, tostring(c.reporter), tostring(c.isReporter))
+		add("channel '%s' = #%s  sealed=%s  |  peers in guild=%d  |  reporter=%s (me: %s)", tostring(c.channelName), tostring(c.channel), tostring(c.sealed), c.peers, tostring(c.reporter), tostring(c.isReporter))
 		add("sent=%d recv=%d reports=%d sendFails=%d badMsgs=%d queue=%d lastFail=%s", c.sent, c.recv, c.reports, c.fails, c.bad, c.queue, tostring(c.lastFail))
 	end
 	local n = 0

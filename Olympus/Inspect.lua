@@ -143,6 +143,10 @@ local function OnInspectReady(guid)
 end
 
 function Inspect.SetPatrol(on)
+	if on and not ns.IsMember() then
+		ns.Print(L.MEMBERS_ONLY)
+		return
+	end
 	patrol = on and true or false
 	ns.Print(patrol and L.PATROL_ON or L.PATROL_OFF)
 	ns.Log("patrol = %s", tostring(patrol))
@@ -321,7 +325,9 @@ end
 ns.Comm.Handle("S1", function(dist, sender, text)
 	if dist ~= "CHANNEL" then return end
 	local s = ns.Codec.DecodeShame(text)
-	if not s or not ns.IsFederation(s.guild) or not ns.IsCrownRank(s.guild, s.rank) then return end
+	if not s or not ns.IsFederation(s.guild) then return end
+	local rank = ns.Data.KnownRank(sender, s.guild)
+	if not rank or not ns.IsCrownRank(s.guild, rank) then return end
 	Inspect.ShowShame({ by = ns.ShortName(sender), guild = s.guild, list = s.list, t = ns.Now() })
 end)
 

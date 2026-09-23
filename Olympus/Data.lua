@@ -29,15 +29,47 @@ function Data.SetLocal(r)
 	ns.Fire("DATA_CHANGED")
 end
 
+-- Sender names are set by the server and cannot be forged, so we tie every sender to the
+-- one guild it reports. A (modified) client that reports several guilds is ignored, and a
+-- guild whose reports disagree about its leader is flagged as a conflict.
+local senderGuild = {}
 function Data.Receive(r, sender)
 	if not ns.IsFederation(r.guild) then return false end
 	-- Our own guild comes straight from our roster, never from someone else's claim.
 	if r.guild == GetGuildInfo("player") then return false end
+	local who = ns.ShortName(sender)
+	if senderGuild[who] and senderGuild[who] ~= r.guild then
+		ns.Log("ignored %s: already reported %s, now claims %s", who, senderGuild[who], r.guild)
+		return false
+	end
+	senderGuild[who] = r.guild
+	local previous = ns.db.guilds[r.guild]
+	if previous and previous.reporter and previous.reporter ~= who and not ns.db.demo then
+		if (previous.leader or "") ~= (r.leader or "") or math.abs((previous.total or 0) - (r.total or 0)) > 25 then
+			r.conflict = true
+			ns.Log("conflict on %s: %s says %s/%d, %s says %s/%d", r.guild, previous.reporter, tostring(previous.leader),
+				previous.total or 0, who, tostring(r.leader), r.total or 0)
+		end
+	end
 	r.t = ns.Now()
-	r.reporter = ns.ShortName(sender)
+	r.reporter = who
 	ns.db.guilds[r.guild] = r
 	ns.Fire("DATA_CHANGED")
 	return true
+end
+
+-- What rank does this sender really have in that guild? Our own guild: from our roster.
+-- Other guilds: from that guild's report (leader = 0, officers = 1). nil = unknown.
+function Data.KnownRank(sender, guild)
+	local who = ns.ShortName(sender)
+	if guild == GetGuildInfo("player") then return ns.Roster.RankOf(who) end
+	local g = ns.db.guilds[guild]
+	if not g or g.conflict then return nil end
+	if g.leader == who then return 0 end
+	for _, o in ipairs(g.officers or {}) do
+		if o.name == who then return 1 end
+	end
+	return nil
 end
 
 local function Source()

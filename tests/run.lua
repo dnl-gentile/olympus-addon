@@ -70,7 +70,7 @@ for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", 
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
-ns.db = { pattern = "olympus", guilds = {}, log = {}, errors = {}, demo = false, showMap = true }
+ns.db = { guilds = {}, log = {}, errors = {}, blocked = {}, demo = false, showMap = true }
 ns.me = "Tester-Realm"
 function ns.Fire() end
 
@@ -307,6 +307,45 @@ test("person details travel in the report", function()
 	eq(d.top[1].class ~= nil, true, "top class")
 	local old = ns.Codec.DecodeReport("R2~Olympus~10~2~Boss~1~2~~~0,0,0,0,0,0,0~~Cap:1:0~0~0~0~0~Top:20")
 	eq(old.officers[1].name, "Cap"); eq(old.top[1].level, 20); eq(old.leaderClass, nil)
+end)
+
+test("only Olympus guilds count, the filter cannot be changed", function()
+	eq(ns.IsFederation("House of Guedes"), false)
+	eq(ns.IsMember(), true, "tests run as a member of Olympus II")
+	local saved = GetGuildInfo
+	GetGuildInfo = function() return "House of Guedes" end
+	eq(ns.IsMember(), false)
+	GetGuildInfo = saved
+end)
+
+test("ranks are verified, not taken from the message", function()
+	ns.Roster.Scan()
+	ns.db.guilds = {
+		["Olympus"] = { guild = "Olympus", leader = "Asmongold", officers = { { name = "Capt" } }, total = 1000, online = 1, zones = {}, t = os.time() },
+		["Olympus Bad"] = { guild = "Olympus Bad", leader = "X", conflict = true, total = 1, online = 1, zones = {}, t = os.time() },
+	}
+	eq(ns.Data.KnownRank("Asmongold-Realm", "Olympus"), 0)
+	eq(ns.Data.KnownRank("Capt-Realm", "Olympus"), 1)
+	eq(ns.Data.KnownRank("Random-Realm", "Olympus"), nil, "claims mean nothing")
+	eq(ns.Data.KnownRank("X-Realm", "Olympus Bad"), nil, "conflicting guild is not trusted")
+	eq(ns.Data.KnownRank("Member1-Realm", "Olympus II"), 0, "own guild from our roster")
+end)
+
+test("a sender can only report one guild", function()
+	ns.db.guilds = {}
+	eq(ns.Data.Receive({ guild = "Olympus Zeus", total = 5, online = 1, zones = {} }, "Liar2-Realm"), true)
+	eq(ns.Data.Receive({ guild = "Olympus Fake", total = 900, online = 1, zones = {} }, "Liar2-Realm"), false)
+end)
+
+test("sealed channel name comes from the key", function()
+	local a, b = ns.Comm.Hash36("secret-one"), ns.Comm.Hash36("secret-one")
+	eq(a, b); eq(#a, 8)
+	assert(ns.Comm.Hash36("secret-two") ~= a)
+	ns.db.realmKey = "secret-one"
+	local name, password = ns.Comm.ChannelSpec()
+	eq(name, "Oly" .. a); eq(password, "secret-one")
+	ns.db.realmKey = nil
+	eq((ns.Comm.ChannelSpec()), "OlympusNet")
 end)
 
 test("every tab builds", function()
