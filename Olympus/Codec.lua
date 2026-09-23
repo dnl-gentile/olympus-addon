@@ -15,7 +15,7 @@ local Codec = {}
 ns.Codec = Codec
 
 Codec.CHUNK = 220
-Codec.MAX_CHUNKS = 20
+Codec.MAX_CHUNKS = 30
 local MAX_COUNT = 10000
 
 local function clean(s)
@@ -44,13 +44,20 @@ local function num(v)
 	return n
 end
 
-local function encMap(t)
-	local parts = {}
+-- "key=count" pairs, biggest counts first, at most `max` of them (so one guild spread over
+-- many zones can never push its report past the message limits).
+local function encMap(t, max)
+	local list = {}
 	for k, v in pairs(t or {}) do
 		local key = clean(k)
-		if key ~= "" and v and v > 0 then parts[#parts + 1] = key .. "=" .. math.floor(v) end
+		if key ~= "" and v and v > 0 then list[#list + 1] = { key, math.floor(v) } end
 	end
-	table.sort(parts)
+	table.sort(list, function(a, b)
+		if a[2] ~= b[2] then return a[2] > b[2] end
+		return a[1] < b[1]
+	end)
+	local parts = {}
+	for i = 1, math.min(#list, max or 60) do parts[i] = list[i][1] .. "=" .. list[i][2] end
 	return table.concat(parts, ",")
 end
 
@@ -140,7 +147,7 @@ local function decTop(s, max)
 	return out
 end
 
-Codec.MAX_OFFICERS = 12
+Codec.MAX_OFFICERS = 30
 Codec.MAX_RANKS = 10
 Codec.MAX_TOP = 5
 

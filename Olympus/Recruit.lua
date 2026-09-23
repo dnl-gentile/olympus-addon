@@ -50,6 +50,13 @@ function Recruit.Search()
 	local query = 'g-"Olympus"'
 	if C_FriendList and C_FriendList.SendWho then C_FriendList.SendWho(query) else SendWho(query) end
 	ns.Print(L.RECRUIT_SEARCHING)
+	-- If the server never answers, give the Friends window its /who results back anyway.
+	ns.After(6, "who restore", function()
+		if whoPending then
+			whoPending = false
+			if FriendsFrame then FriendsFrame:RegisterEvent("WHO_LIST_UPDATE") end
+		end
+	end)
 end
 
 local function OnWho()

@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.7.2"
+ns.VERSION = "0.7.3"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild
 ns.ICON = "Interface\\AddOns\\Olympus\\media\\logo64"
@@ -15,7 +15,7 @@ local DEFAULTS = {
 	minimapAngle = 200,
 	hideMinimap = false,
 	debug = false,
-	demo = true,           -- ships with demo data on, so the UI is never empty on first open
+	demo = false,          -- live data by default; /oly demo shows made-up data
 	officerRank = 1,       -- rank index 1 (right below guild master) and above count as officers
 	warnDays = 3,          -- leaders/officers offline this many days are flagged
 	sharePosition = false, -- guildmate dots are disabled: positions are not live enough

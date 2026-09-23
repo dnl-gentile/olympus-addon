@@ -372,6 +372,24 @@ test("join flow groups online Olympus players and never asks twice", function()
 	GetGuildInfo = saved
 end)
 
+test("worst case report still fits the message limits", function()
+	local C = ns.Codec
+	local r = { guild = "Olympus Longest NameHer", total = 1000, online = 1000, leader = "Averylongname", leaderOnline = true,
+		users = 999, zones = {}, classes = {}, levels = { 1, 2, 3, 4, 5, 6, 7 }, ranks = {}, officers = {}, top = {},
+		leaderClass = "WARRIOR", leaderLevel = 60, leaderZone = "tThe Temple of Atal'Hakkar" }
+	for i = 1, 120 do r.zones["tSome Long Zone Name " .. i] = 999 end
+	for _, c in ipairs({ "WA", "PA", "HU", "RO", "PR", "SH", "MA", "WL", "DR", "DK" }) do r.classes[c] = 999 end
+	for i = 1, 10 do r.ranks[i] = { name = "Rank Name Number " .. i, count = 999 } end
+	for i = 1, 30 do r.officers[i] = { name = "Officername" .. i, online = true, days = 99, class = "WARLOCK", level = 60, zone = "tSome Long Zone Name " .. i } end
+	for i = 1, 5 do r.top[i] = { name = "Topplayer" .. i, level = 60, class = "PRIEST" } end
+	local payload = C.EncodeReport(r)
+	local chunks = C.Chunk(payload, "999")
+	assert(#chunks <= C.MAX_CHUNKS, "too many chunks: " .. #chunks)
+	for _, c in ipairs(chunks) do assert(#c <= 255) end
+	local d = C.DecodeReport(payload)
+	eq(#d.officers, 30); eq(#d.ranks, 10)
+end)
+
 test("every tab builds", function()
 	ns.db.demo = true
 	ns.Data.BuildDemo(); ns.Inspect.BuildDemo(); ns.Layers.BuildDemo()
