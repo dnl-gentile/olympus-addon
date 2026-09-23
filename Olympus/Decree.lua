@@ -88,7 +88,7 @@ local function Show(d)
 	ns.Fire("DECREES_CHANGED")
 end
 
-function Decree.RefreshPins()
+local function RefreshPinsNow()
 	if not Pins then return end
 	for _, d in ipairs(active) do
 		if d.pin then
@@ -100,6 +100,10 @@ function Decree.RefreshPins()
 			end
 		end
 	end
+end
+
+function Decree.RefreshPins()
+	ns.SafeCall("decree pins", RefreshPinsNow)
 end
 
 function Decree.CanSend(kind)

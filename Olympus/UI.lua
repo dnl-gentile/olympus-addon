@@ -258,7 +258,7 @@ local function CreateMain()
 		else
 			tab:SetPoint("LEFT", f.tabs[i - 1], "RIGHT", -15, 0)
 		end
-		tab:SetScript("OnClick", function() UI.SelectTab(t.key) end)
+		tab:SetScript("OnClick", function() ns.SafeCall("tab " .. t.key, UI.SelectTab, t.key) end)
 		tab.key = t.key
 		f.tabs[i] = tab
 	end
@@ -644,7 +644,9 @@ local function CreateMinimapButton()
 	b:RegisterForDrag("LeftButton")
 
 	b:SetScript("OnClick", function(_, button)
-		if button == "RightButton" then ns.Map.SetEnabled(not ns.db.showMap) else UI.Toggle() end
+		ns.SafeCall("minimap click", function()
+			if button == "RightButton" then ns.Map.SetEnabled(not ns.db.showMap) else UI.Toggle() end
+		end)
 	end)
 	b:SetScript("OnDragStart", function(self)
 		self:SetScript("OnUpdate", function()

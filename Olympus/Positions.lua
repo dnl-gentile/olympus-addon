@@ -65,7 +65,7 @@ local function Color(frame, name, class)
 	frame.label = c and ("|c%s%s|r"):format(c.colorStr, name) or name
 end
 
-function Positions.Refresh()
+local function RefreshNow()
 	if not Pins then return end
 	local now = ns.Now()
 	for name, p in pairs(pins) do
@@ -90,6 +90,10 @@ function Positions.Refresh()
 		Pins:AddWorldMapIconMap(Positions, p.world, m.mapID, m.x, m.y, SHOW_FLAG)
 		Pins:AddMinimapIconMap(Positions, p.mini, m.mapID, m.x, m.y, true, false)
 	end
+end
+
+function Positions.Refresh()
+	ns.SafeCall("positions refresh", RefreshNow)
 end
 
 function Positions.Count()

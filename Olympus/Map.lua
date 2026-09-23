@@ -13,7 +13,7 @@ Map.libOk = Pins ~= nil
 
 local SHOW_FLAG = HBD_PINS_WORLDMAP_SHOW_CONTINENT or 2
 local pool, active = {}, {}
-local AddContinentTotals -- defined below, used by Map.Refresh
+local AddContinentTotals -- defined below, used by RefreshNow
 local refreshQueued = false
 
 local function ShortCount(n)
@@ -55,7 +55,7 @@ local function CreatePin()
 	return p
 end
 
-function Map.Refresh()
+local function RefreshNow()
 	refreshQueued = false
 	if not Pins then return end
 	Pins:RemoveAllWorldMapIcons(Map)
@@ -117,29 +117,66 @@ function Map.ContinentTotals(s)
 	return totals, guilds
 end
 
+-- Continent totals are drawn straight on the world map canvas. The pin library places
+-- pins through world coordinates, which the Azeroth map does not have, so it put every
+-- continent total inside Eastern Kingdoms.
+local overlay, overlayData = {}, {}
+
+local function Canvas()
+	return WorldMapFrame and WorldMapFrame.GetCanvas and WorldMapFrame:GetCanvas()
+end
+
+local function CanvasScale()
+	local sc = WorldMapFrame and WorldMapFrame.ScrollContainer
+	local scale = sc and sc.GetCanvasScale and sc:GetCanvasScale()
+	if not scale or scale <= 0 then
+		local canvas = Canvas()
+		scale = canvas and canvas:GetScale() or 1
+	end
+	return (scale and scale > 0) and scale or 1
+end
+
+function Map.LayoutOverlay()
+	for _, f in ipairs(overlay) do f:Hide() end
+	local canvas = Canvas()
+	if not canvas or not WorldMapFrame:IsShown() or not ns.db.showMap then return end
+	if not WorldMapFrame.GetMapID or WorldMapFrame:GetMapID() ~= WORLD_MAP then return end
+	local w, h, scale = canvas:GetWidth(), canvas:GetHeight(), CanvasScale()
+	for i, d in ipairs(overlayData) do
+		local f = overlay[i]
+		if not f then
+			f = CreatePin()
+			f:SetParent(canvas)
+			overlay[i] = f
+		end
+		f:SetFrameLevel(canvas:GetFrameLevel() + 100)
+		-- Undo the canvas zoom so the circle keeps the same size on screen; SetPoint offsets
+		-- are in the frame's own (scaled) units, hence the * scale.
+		f:SetScale(1 / scale)
+		f:SetSize(44, 44)
+		f.text:SetText(ShortCount(d.count))
+		f.key, f.count, f.guilds = "m" .. d.cont, d.count, d.guilds
+		f:ClearAllPoints()
+		f:SetPoint("CENTER", canvas, "TOPLEFT", d.x * w * scale, -d.y * h * scale)
+		f:Show()
+	end
+end
+
 function AddContinentTotals(s)
-	local totals, guilds = {}, {}
-	for _, z in ipairs(s.zoneList) do
-		local mapID = ns.Zones.MapID(z.key)
-		local cont = mapID and ContinentOf(mapID)
-		if cont then
-			totals[cont] = (totals[cont] or 0) + z.count
-			guilds[cont] = guilds[cont] or {}
-			for name, n in pairs(s.zoneGuilds[z.key] or {}) do guilds[cont][name] = (guilds[cont][name] or 0) + n end
-		end
-	end
+	wipe(overlayData)
+	local totals, guilds = Map.ContinentTotals(s)
 	for cont, count in pairs(totals) do
-		local left, right, top, bottom
-		if C_Map.GetMapRectOnMap then left, right, top, bottom = C_Map.GetMapRectOnMap(cont, WORLD_MAP) end
-		if left then
-			local p = table.remove(pool) or CreatePin()
-			p:SetSize(40, 40)
-			p.text:SetText(ShortCount(count))
-			p.key, p.count, p.guilds = "m" .. cont, count, guilds[cont]
-			Pins:AddWorldMapIconMap(Map, p, WORLD_MAP, (left + right) / 2, (top + bottom) / 2, HBD_PINS_WORLDMAP_SHOW_CURRENT or 0)
-			active[#active + 1] = p
+		local minX, maxX, minY, maxY
+		if C_Map.GetMapRectOnMap then minX, maxX, minY, maxY = C_Map.GetMapRectOnMap(cont, WORLD_MAP) end
+		if minX and maxX and minY and maxY then
+			overlayData[#overlayData + 1] = { cont = cont, count = count, guilds = guilds[cont], x = (minX + maxX) / 2, y = (minY + maxY) / 2 }
 		end
 	end
+	Map.LayoutOverlay()
+end
+
+function Map.Refresh()
+	ns.SafeCall("map refresh", RefreshNow)
 end
 
 local function QueueRefresh()
@@ -218,7 +255,23 @@ end
 
 ns.On("DATA_CHANGED", QueueRefresh)
 
+local hooked = false
+local function HookWorldMap()
+	if hooked or not WorldMapFrame then return end
+	hooked = true
+	local function relayout() ns.SafeCall("map overlay", Map.LayoutOverlay) end
+	if WorldMapFrame.OnMapChanged then pcall(hooksecurefunc, WorldMapFrame, "OnMapChanged", relayout) end
+	WorldMapFrame:HookScript("OnShow", relayout)
+	WorldMapFrame:HookScript("OnHide", relayout)
+	local sc = WorldMapFrame.ScrollContainer
+	if sc then
+		sc:HookScript("OnMouseWheel", relayout)
+		sc:HookScript("OnSizeChanged", relayout)
+	end
+end
+
 ns.On("LOGIN", function()
+	ns.SafeCall("map hooks", HookWorldMap)
 	if not Pins then
 		local raw = LibStub and LibStub("HereBeDragons-Pins-2.0", true)
 		-- A half-loaded library can still run its per-frame update and raise an error on
@@ -243,7 +296,7 @@ ns.On("LOGIN", function()
 	CreateMapToggle()
 	if not toggle then
 		ns.RegisterEvent("ADDON_LOADED", function(name)
-			if name == "Blizzard_WorldMap" then CreateMapToggle() end
+			if name == "Blizzard_WorldMap" then CreateMapToggle(); ns.SafeCall("map hooks", HookWorldMap) end
 		end)
 	end
 	QueueRefresh()

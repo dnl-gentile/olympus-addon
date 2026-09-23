@@ -426,5 +426,48 @@ test("realm view lists king, lords, captains and level race", function()
 	ns.db.demo = false
 end)
 
+test("map refresh runs end to end with a map library (continent totals included)", function()
+	-- A stub where every method returns another stub, so frame building code can run.
+	local function deep()
+		return setmetatable({}, { __index = function() return function() return deep() end end })
+	end
+	local calls = { world = 0 }
+	local fakePins = setmetatable({
+		AddWorldMapIconMap = function() calls.world = calls.world + 1 end,
+		RemoveAllWorldMapIcons = function() end,
+		AddMinimapIconMap = function() end,
+		RemoveWorldMapIcon = function() end,
+		RemoveMinimapIcon = function() end,
+	}, { __index = function() return function() end end })
+	local savedLibStub, savedCreateFrame, savedWMF = LibStub, CreateFrame, WorldMapFrame
+	LibStub = function(name) if name == "HereBeDragons-Pins-2.0" then return fakePins end end
+	CreateFrame = function() return deep() end
+	WorldMapFrame = deep()
+	C_Map.GetMapRectOnMap = function() return 0.1, 0.3, 0.2, 0.8 end
+	MAPS[947] = { "Azeroth", 1 }; MAPS[1415] = { "Eastern Kingdoms", 2, 947 }
+	local oldInfo = C_Map.GetMapInfo
+	C_Map.GetMapInfo = function(id)
+		local m = MAPS[id]
+		if not m then return nil end
+		local parent = ({ [1429] = 1415, [1453] = 1415, [1436] = 1415, [1415] = 947 })[id]
+		return { mapID = id, name = m[1], mapType = m[2], parentMapID = parent }
+	end
+	local mapChunk = assert(loadfile(ADDON_DIR .. "Map.lua"))
+	local captured
+	local savedCapture = ns.CaptureError
+	ns.CaptureError = function(where, err) captured = where .. ": " .. tostring(err) end
+	mapChunk("Olympus", ns)
+	ns.db.showMap = true
+	ns.db.demo = false
+	ns.db.guilds = { ["Olympus"] = { total = 100, online = 10, zones = { m1453 = 7, m1429 = 3 }, t = os.time() } }
+	ns.Map.Refresh()
+	ns.CaptureError = savedCapture
+	LibStub, CreateFrame, WorldMapFrame, C_Map.GetMapInfo = savedLibStub, savedCreateFrame, savedWMF, oldInfo
+	eq(captured, nil, "map refresh raised an error")
+	assert(calls.world >= 2, "zone pins were not added")
+	local totals = ns.Map.ContinentTotals(ns.Data.Summary())
+	eq(totals[1415], 10, "continent total")
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
