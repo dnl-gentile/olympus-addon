@@ -395,8 +395,9 @@ function UI.Refresh()
 			-- Not an Olympus member yet: the only thing on offer is joining one.
 			lines = ns.Views.RecruitLines()
 			title, text = L.MEMBERS_ONLY, L.MEMBERS_ONLY_HINT .. "\n|cff9d9d9d" .. L.MEMBERS_ONLY_DEMO .. "|r"
-			main.total:SetText(L.RECRUIT_HEADER)
-			main.sub:SetText(L.RECRUIT_SUB)
+			local header, sub = ns.Recruit.Roast()
+			main.total:SetText(header)
+			main.sub:SetText(sub)
 		else
 			lines, title, text = ns.Views.Build(main.tab)
 		end

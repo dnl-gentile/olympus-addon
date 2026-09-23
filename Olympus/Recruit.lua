@@ -126,7 +126,27 @@ function Recruit.PromptNext(guild)
 	StaticPopup_Show("OLYMPUS_RECRUIT", contact.name, contact.guild, contact)
 end
 
+-- The tone of the Join screen, in the spirit of Olympus: other guilds should not exist.
+function Recruit.Roast()
+	local guild = GetGuildInfo("player")
+	if guild and guild ~= "" then
+		return L.ROAST_GUILD:format(guild), L.ROAST_GUILD_SUB
+	end
+	return L.ROAST_NOGUILD, L.ROAST_NOGUILD_SUB
+end
+
+-- Once a day, a reminder in chat for players outside Olympus.
+local function DailyNag()
+	if ns.IsMember() then return end
+	local today = date("%Y-%m-%d")
+	if ns.db.lastNag == today then return end
+	ns.db.lastNag = today
+	local header, sub = Recruit.Roast()
+	ns.Print("|cffff4040" .. header .. "|r " .. sub .. " |cffffd200/oly|r")
+end
+
 ns.On("LOGIN", function()
+	ns.After(12, "daily nag", DailyNag)
 	ns.RegisterEvent("WHO_LIST_UPDATE", OnWho)
 	ns.RegisterEvent("CHAT_MSG_WHISPER", function(text, sender)
 		local who = ns.ShortName(sender)

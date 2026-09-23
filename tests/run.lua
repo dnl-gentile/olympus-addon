@@ -365,6 +365,11 @@ test("join flow groups online Olympus players and never asks twice", function()
 	function UnitClass() return "Mage", "MAGE" end
 	assert(R.Message({ guild = "Olympus II" }):find("Olympus II"))
 	assert(#ns.Views.RecruitLines() > 3)
+	eq((R.Roast()), "<Olympus II>? Disband immediately.")
+	local saved = GetGuildInfo
+	GetGuildInfo = function() return nil end
+	eq((R.Roast()), "No guild? What are you doing?")
+	GetGuildInfo = saved
 end)
 
 test("every tab builds", function()
