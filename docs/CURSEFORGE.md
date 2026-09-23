@@ -123,6 +123,10 @@ find or join it. Share the same secret with the officers of the other Olympus gu
 
 Nothing leaves the game. There is no server, no website, no account and no tracking.
 
+**The census is per realm.** Chat channels, including the hidden Olympus one, only exist
+inside a realm, so Olympus guilds on different realms (for example ClassicBetaPvP and
+ClassicBetaPvP2) can't see each other. The window shows which realm you are counting.
+
 ## Security and trust
 
 The addon is plain Lua running on each player's computer, so anyone can edit their own

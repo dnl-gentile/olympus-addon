@@ -232,9 +232,23 @@ local function CreateMain()
 	-- Tabs
 	f.tabs = {}
 	for i, t in ipairs(TABS) do
-		local okTab, tab = pcall(CreateFrame, "Button", f:GetName() .. "Tab" .. i, f, "CharacterFrameTabButtonTemplate")
-		if not okTab or not tab then
+		-- Tab templates differ between clients (Classic has CharacterFrameTabButtonTemplate,
+		-- newer clients like Forever have PanelTabButtonTemplate). Use the first that really
+		-- builds a tab; otherwise fall back to a plain button and mark selection ourselves.
+		local tab
+		for n, template in ipairs({ "PanelTabButtonTemplate", "CharacterFrameTabButtonTemplate", "TabButtonTemplate" }) do
+			local name = f:GetName() .. "Tab" .. n .. "_" .. i
+			local okTab, res = pcall(CreateFrame, "Button", name, f, template)
+			if okTab and res and (res.Left or res.LeftActive or _G[name .. "Left"] or _G[name .. "LeftDisabled"]) then
+				tab = res
+				break
+			elseif okTab and res then
+				res:Hide()
+			end
+		end
+		if not tab then
 			tab = Button(f, 80, 22)
+			tab.isFallback = true
 		end
 		tab:SetID(i)
 		tab:SetText(L[t.label])
@@ -370,7 +384,17 @@ function UI.SelectTab(key)
 	main.scroll:SetScrollChild(main.views[key])
 	main.scroll:SetVerticalScroll(0)
 	for i, tab in ipairs(main.tabs) do
-		if tab.key == key then
+		if tab.isFallback then
+			-- Plain buttons: the selected one stays lit and uses white text.
+			if tab.key == key then
+				tab:LockHighlight()
+				tab:SetNormalFontObject("GameFontHighlight")
+				main.selectedTab = i
+			else
+				tab:UnlockHighlight()
+				tab:SetNormalFontObject("GameFontNormal")
+			end
+		elseif tab.key == key then
 			if PanelTemplates_SelectTab then pcall(PanelTemplates_SelectTab, tab) end
 			main.selectedTab = i
 		elseif PanelTemplates_DeselectTab then
@@ -388,7 +412,7 @@ function UI.Refresh()
 		local s = ns.Data.Summary()
 		local F = ns.FormatNumber
 		main.total:SetText(L.ARMY_TOTAL:format(F(s.total)))
-		main.sub:SetText(L.ARMY_SUB:format(F(s.online), s.fresh, ns.Ago(s.newest)))
+		main.sub:SetText(L.ARMY_SUB:format(F(s.online), s.fresh, ns.Ago(s.newest)) .. "  ·  " .. (GetRealmName and GetRealmName() or ""))
 		-- Outside an Olympus guild only the demo can be seen.
 		local locked = not ns.IsMember() and not ns.db.demo
 		local lines, title, text

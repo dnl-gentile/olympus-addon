@@ -19,7 +19,7 @@ local asm = Codec.NewAssembler()
 local msgId = 0
 local lastBroadcast = 0
 local channelIndex = 0
-local stats = { sent = 0, recv = 0, reports = 0, fails = 0, bad = 0 }
+local stats = { sent = 0, recv = 0, reports = 0, fails = 0, bad = 0, partial = 0, byType = {} }
 local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
 
 function Comm.PeerCount()
@@ -36,6 +36,7 @@ function Comm.Stats()
 		channel = channelIndex, peers = Comm.PeerCount(), reporter = Comm.reporterName,
 		isReporter = Comm.isReporter, sent = stats.sent, recv = stats.recv, reports = stats.reports,
 		fails = stats.fails, bad = stats.bad, queue = #queue, lastFail = stats.lastFail,
+		partial = stats.partial, byType = stats.byType, pending = (function() local n = 0 for _ in pairs(asm.buf) do n = n + 1 end return n end)(),
 	}
 end
 
@@ -216,6 +217,8 @@ local function OnAddonMessage(prefix, text, dist, sender)
 	if not ns.IsMember() then return end -- outside an Olympus guild the addon hears nothing
 	if ns.db.blocked[ns.ShortName(sender):lower()] then return end
 	stats.recv = stats.recv + 1
+	local kind = (dist == "CHANNEL" and "ch:" or "g:") .. (text:match("^C%w+:") and "chunk" or text:sub(1, 2))
+	stats.byType[kind] = (stats.byType[kind] or 0) + 1
 	local now = ns.Now()
 	-- Realm key, only over GUILD (server-verified guildmates) and only from our officers.
 	if dist == "GUILD" and text:sub(1, 3) == "K1~" then
@@ -282,7 +285,11 @@ ns.On("LOGIN", function()
 	ns.Every(HELLO_EVERY, "hello ticker", Comm.Hello)
 	ns.Every(SEND_INTERVAL, "send pump", Pump)
 	ns.Every(60, "housekeeping", function()
-		Codec.Gc(asm, ns.Now())
+		local dropped, sample = Codec.Gc(asm, ns.Now())
+		if dropped > 0 then
+			stats.partial = stats.partial + dropped
+			ns.Log("incomplete report dropped: %s", tostring(sample))
+		end
 		if channelIndex == 0 or GetChannelName(joinedName or ns.CHANNEL) == 0 then Comm.JoinChannel() end
 	end)
 end)

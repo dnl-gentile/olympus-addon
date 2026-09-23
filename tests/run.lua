@@ -19,12 +19,14 @@ function geterrorhandler() return function() end end
 C_AddOns = { LoadAddOn = function() end }
 WorldMapFrame = {}
 function GetTime() return os.clock() end
+function GetRealmName() return "Realm" end
 function seterrorhandler() end
 function debugprofilestop() return os.clock() * 1000 end
 time, date = os.time, os.date
 SlashCmdList = {}
 StaticPopupDialogs = {}
 function GetTime() return os.clock() end
+function GetRealmName() return "Realm" end
 function LibStub() return nil end
 function strsplit(sep, s)
 	local out = {}

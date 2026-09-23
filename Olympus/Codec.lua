@@ -315,10 +315,18 @@ function Codec.Feed(asm, sender, msg, now)
 	return nil
 end
 
+-- Drops assemblies older than 60 s and returns how many were incomplete, with a sample
+-- ("sender#id 2/3") so lost chunks show up in the diagnostics.
 function Codec.Gc(asm, now)
+	local dropped, sample = 0, nil
 	for k, e in pairs(asm.buf) do
-		if now - e.t > 60 then asm.buf[k] = nil end
+		if now - e.t > 60 then
+			dropped = dropped + 1
+			sample = sample or ("%s %d/%d"):format(k, e.got, e.n)
+			asm.buf[k] = nil
+		end
 	end
+	return dropped, sample
 end
 
 -- One reporter per guild: the alphabetically first member that has the addon and was

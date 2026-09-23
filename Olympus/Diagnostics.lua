@@ -68,7 +68,7 @@ function ns.StatusText()
 	local function add(fmt, ...) lines[#lines + 1] = fmt:format(...) end
 	local guild = GetGuildInfo("player")
 	add("Olympus v%s  |  %s", ns.VERSION, ClientInfo())
-	add("player %s  |  guild %s  |  olympus member: %s", tostring(ns.me), tostring(guild), tostring(ns.IsMember()))
+	add("player %s  |  realm %s  |  guild %s  |  olympus member: %s", tostring(ns.me), tostring(GetRealmName and GetRealmName()), tostring(guild), tostring(ns.IsMember()))
 	local st = ns.Roster and ns.Roster.lastStats
 	if st then
 		add("roster: total=%s online=%s rowsRead=%d offlineRows=%d leader=%s (%s) zones=%d scanMs=%.1f %s",
@@ -81,6 +81,10 @@ function ns.StatusText()
 	if c then
 		add("channel '%s' = #%s  sealed=%s  |  peers in guild=%d  |  reporter=%s (me: %s)", tostring(c.channelName), tostring(c.channel), tostring(c.sealed), c.peers, tostring(c.reporter), tostring(c.isReporter))
 		add("sent=%d recv=%d reports=%d sendFails=%d badMsgs=%d queue=%d lastFail=%s", c.sent, c.recv, c.reports, c.fails, c.bad, c.queue, tostring(c.lastFail))
+		local types = {}
+		for k, v in pairs(c.byType or {}) do types[#types + 1] = k .. "=" .. v end
+		table.sort(types)
+		add("received by type: %s  |  incomplete reports: %d waiting, %d dropped", #types > 0 and table.concat(types, " ") or "none", c.pending or 0, c.partial or 0)
 	end
 	local n = 0
 	for _ in pairs(ns.db.guilds) do n = n + 1 end
