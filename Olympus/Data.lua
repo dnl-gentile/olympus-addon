@@ -17,10 +17,6 @@ ns.On("INIT", function()
 	end
 end)
 
-ns.On("LOGIN", function()
-	if ns.db.demo then Data.BuildDemo() end
-end)
-
 function Data.SetLocal(r)
 	r.t = ns.Now()
 	r.reporter = ns.DisplayName(ns.me)
@@ -47,7 +43,7 @@ function Data.Receive(r, sender)
 	senderGuild[who] = r.guild
 	local previous = ns.rdb.guilds[r.guild]
 	local previousWho = previous and (previous.reporterFull or ns.FullName(previous.reporter))
-	if previousWho and previousWho ~= who and not ns.db.demo then
+	if previousWho and previousWho ~= who then
 		if (previous.leader or "") ~= (r.leader or "") or math.abs((previous.total or 0) - (r.total or 0)) > 25 then
 			r.conflict = true
 			ns.Log("conflict on %s: %s says %s/%d, %s says %s/%d", r.guild, previousWho, tostring(previous.leader),
@@ -71,7 +67,8 @@ function Data.KnownRank(sender, guild)
 	local who = ns.FullName(sender)
 	if guild == GetGuildInfo("player") then return ns.Roster.RankOf(who) end
 	local g = ns.rdb.guilds[guild]
-	if not g or g.conflict then return nil end
+	-- A report kept from an earlier session proves nothing about who leads the guild now.
+	if not g or g.conflict or ns.Now() - (g.t or 0) > Data.FRESH then return nil end
 	local home = g.realm or ns.realm
 	if g.leader and ns.FullName(g.leader, home) == who then return 0 end
 	for _, o in ipairs(g.officers or {}) do
@@ -80,16 +77,11 @@ function Data.KnownRank(sender, guild)
 	return nil
 end
 
-local function Source()
-	if ns.db.demo then return ns.demoGuilds or {} end
-	return ns.rdb.guilds
-end
-
 function Data.Summary()
 	local now = ns.Now()
 	local s = { total = 0, online = 0, fresh = 0, newest = 0, guilds = {}, zones = {}, zoneGuilds = {}, zoneList = {} }
-	for name, g in pairs(Source()) do
-		if ns.db.demo or ns.IsFederation(name) then
+	for name, g in pairs(ns.rdb.guilds) do
+		if ns.IsFederation(name) then
 			local fresh = now - (g.t or 0) <= Data.FRESH
 			s.guilds[#s.guilds + 1] = { name = name, g = g, fresh = fresh }
 			if fresh then
@@ -137,99 +129,6 @@ function Data.DiscordText()
 		out[#out + 1] = ("%-22s %7s %7s  %s%s"):format(e.name, F(g.total), F(g.online), leader, e.fresh and "" or "  [stale]")
 	end
 	out[#out + 1] = "```"
-	out[#out + 1] = ("_Olympus addon v%s%s_"):format(ns.VERSION, ns.db.demo and " - DEMO DATA" or "")
+	out[#out + 1] = ("_Olympus addon v%s_"):format(ns.VERSION)
 	return table.concat(out, "\n")
-end
-
----------------------------------------------------------------------------
--- Demo data: lets anyone see the full UI and map without a guild.
----------------------------------------------------------------------------
-
-local DEMO_GUILDS = {
-	"Olympus", "Olympus II", "Olympus III", "Olympus IV", "Olympus V",
-	"Olympus Ares", "Olympus Athena", "Olympus Zeus", "Olympus Hermes", "Olympus Apollo",
-	"Olympus Hades", "Olympus Poseidon", "Olympus Artemis", "Olympus Nike",
-}
-local DEMO_LEADERS = {
-	"Asmongold", "Zeuslord", "Tankmoose", "Holyrina", "Bladeon", "Aresbro", "Owlwise",
-	"Thunderpaw", "Swiftfeet", "Sunbow", "Gravemist", "Tidecall", "Moonarrow", "Victora",
-}
-local DEMO_OFFICERS = { "Brava", "Kellan", "Mirra", "Torvald", "Isolde", "Garrick", "Seraphine", "Doran", "Lyra", "Bram" }
--- Weighted: cities and early zones get the crowds, like a fresh launch.
-local DEMO_ZONES = {
-	{ "Stormwind City", 30 }, { "Elwynn Forest", 14 }, { "Westfall", 10 }, { "Ironforge", 9 },
-	{ "Dun Morogh", 8 }, { "Loch Modan", 6 }, { "Redridge Mountains", 6 }, { "Darkshore", 4 },
-	{ "Teldrassil", 4 }, { "Darnassus", 3 }, { "Wetlands", 3 }, { "Duskwood", 3 },
-}
-local DEMO_CLASSES = { "WA", "PA", "HU", "RO", "PR", "MA", "WL", "DR" }
-
-local function WeightedZone()
-	local total = 0
-	for _, z in ipairs(DEMO_ZONES) do total = total + z[2] end
-	local r = math.random() * total
-	for _, z in ipairs(DEMO_ZONES) do
-		r = r - z[2]
-		if r <= 0 then return z[1] end
-	end
-	return DEMO_ZONES[1][1]
-end
-
-function Data.BuildDemo()
-	local now = ns.Now()
-	local t = {}
-	for i, name in ipairs(DEMO_GUILDS) do
-		local total = i <= 5 and 1000 or math.random(180, 980)
-		local online = math.floor(total * (0.12 + math.random() * 0.22))
-		local zones, classes, levels = {}, {}, { 0, 0, 0, 0, 0, 0, 0 }
-		for _ = 1, online do
-			local key = ns.Zones.KeyForName(WeightedZone())
-			zones[key] = (zones[key] or 0) + 1
-			local c = DEMO_CLASSES[math.random(#DEMO_CLASSES)]
-			classes[c] = (classes[c] or 0) + 1
-			local band = math.random(1, 3) -- beta cap is 20-30
-			levels[band] = levels[band] + 1
-		end
-		local officers = {}
-		for o = 1, math.random(3, 7) do
-			local on = math.random() > 0.4
-			officers[o] = {
-				name = DEMO_OFFICERS[math.random(#DEMO_OFFICERS)] .. o, online = on, days = on and 0 or math.random(0, 9),
-				class = DEMO_CLASSES[math.random(#DEMO_CLASSES)], level = math.random(12, 22),
-				zone = on and ns.Zones.KeyForName(WeightedZone()) or nil,
-			}
-		end
-		table.sort(officers, function(a, b)
-			if a.online ~= b.online then return a.online end
-			return a.days < b.days
-		end)
-		local ranks, left = {}, total - 1 - #officers
-		ranks[1] = { name = "Zeus", count = 1 }
-		ranks[2] = { name = "Titan", count = #officers }
-		ranks[3] = { name = "Hero", count = math.floor(left * 0.15) }
-		ranks[4] = { name = "Hoplite", count = math.floor(left * 0.35) }
-		ranks[5] = { name = "Recruit", count = left - math.floor(left * 0.15) - math.floor(left * 0.35) }
-		local top = {}
-		for k = 1, 5 do top[k] = { name = DEMO_OFFICERS[math.random(#DEMO_OFFICERS)] .. "x" .. k, level = math.random(17, 22) - k + 1, class = DEMO_CLASSES[math.random(#DEMO_CLASSES)] } end
-		local leaderOnline = math.random() > 0.3
-		t[name] = {
-			guild = name, total = total, online = online,
-			leader = DEMO_LEADERS[i], leaderOnline = leaderOnline, leaderDays = leaderOnline and 0 or math.random(0, 6),
-			leaderClass = DEMO_CLASSES[math.random(#DEMO_CLASSES)], leaderLevel = math.random(16, 24),
-			leaderZone = leaderOnline and ns.Zones.KeyForName(WeightedZone()) or nil,
-			users = math.random(1, 60), zones = zones, classes = classes, levels = levels,
-			ranks = ranks, officers = officers, top = top, avgLevel = 8 + math.random() * 6,
-			inactive7 = math.floor(total * 0.1 * math.random()), inactive30 = math.floor(total * 0.04 * math.random()),
-			reporter = "Demo", t = now - math.random(5, 300) - (i == 13 and 3600 or 0),
-		}
-	end
-	ns.demoGuilds = t
-end
-
-function Data.SetDemo(on)
-	ns.db.demo = on and true or false
-	if on then Data.BuildDemo() end
-	ns.Print(on and L.DEMO_ON or L.DEMO_OFF)
-	ns.Log("demo = %s", tostring(on))
-	ns.Fire("DEMO_CHANGED", ns.db.demo)
-	ns.Fire("DATA_CHANGED")
 end

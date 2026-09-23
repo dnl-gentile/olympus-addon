@@ -23,18 +23,16 @@ local queue, queued = {}, {}
 local pending -- { guid, unit, at }
 Inspect.stats = { requests = 0, ready = 0, timeouts = 0 }
 
+-- Kept per realm (ns.rdb): the players of one realm say nothing about another one.
 local function Store()
-	local db = ns.db
+	local db = ns.rdb
 	db.inspect = db.inspect or {}
 	db.inspect.players = db.inspect.players or {}
 	db.inspect.guildMarks = db.inspect.guildMarks or {}
 	return db.inspect
 end
 
-local function Source()
-	if ns.db.demo and ns.demoInspect then return ns.demoInspect end
-	return Store()
-end
+local Source = Store
 
 -- itemID nil + some other gear visible = really no tabard. Nothing visible at all usually
 -- means the inspect data did not load, so we call it UNKNOWN instead of accusing anyone.
@@ -258,7 +256,6 @@ function Inspect.DiscordText()
 	end
 	if not any then out[#out + 1] = L.DISCORD_INSPECT_CLEAN end
 	out[#out + 1] = "```"
-	if ns.db.demo then out[#out + 1] = "_DEMO DATA_" end
 	return table.concat(out, "\n")
 end
 
@@ -316,9 +313,6 @@ function Inspect.ShowShame(shame)
 end
 
 function Inspect.Shame()
-	if ns.db.demo and not Inspect.shame then
-		return { by = "Asmongold", guild = "Olympus", t = ns.Now() - 120, list = Inspect.ShameList() }
-	end
 	return Inspect.shame
 end
 
@@ -330,31 +324,6 @@ ns.Comm.Handle("S1", function(dist, sender, text)
 	if not rank or not ns.IsCrownRank(s.guild, rank) then return end
 	Inspect.ShowShame({ by = ns.DisplayName(sender), guild = s.guild, list = s.list, t = ns.Now() })
 end)
-
----------------------------------------------------------------------------
--- Demo data
----------------------------------------------------------------------------
-
-function Inspect.BuildDemo()
-	local guilds = { "Olympus", "Olympus II", "Olympus III", "Olympus Ares", "Olympus Zeus", "Olympus Hermes" }
-	local classes = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "MAGE", "WARLOCK", "DRUID" }
-	local syll = { "Gor", "Thal", "Bri", "Mor", "Kel", "Dra", "Ael", "Vor", "Lun", "Sar", "Tor", "Zan" }
-	local ends = { "ric", "wyn", "dor", "ath", "iel", "gar", "ith", "os", "ara", "unn" }
-	local d = { players = {}, guildMarks = { ["Olympus Hermes"] = true } }
-	local now = ns.Now()
-	for i = 1, 48 do
-		local name = syll[math.random(#syll)] .. ends[math.random(#ends)] .. (i % 3 == 0 and "a" or "")
-		local r = math.random()
-		local status = r < 0.18 and "NONE" or r < 0.24 and "OTHER" or r < 0.27 and "UNKNOWN" or "GUILD"
-		d.players[name] = {
-			name = name, guild = guilds[math.random(#guilds)], class = classes[math.random(#classes)],
-			level = math.random(14, 20), status = status, item = status == "GUILD" and 5976 or status == "OTHER" and 23192 or nil,
-			t = now - math.random(10, 1500), marked = status == "NONE" and math.random() < 0.3 or nil,
-			note = status == "NONE" and math.random() < 0.3 and "complained about the rule" or nil,
-		}
-	end
-	ns.demoInspect = d
-end
 
 ---------------------------------------------------------------------------
 -- Wiring
@@ -372,7 +341,6 @@ end
 ns.On("INIT", function() Store() end)
 
 ns.On("LOGIN", function()
-	if ns.db.demo then Inspect.BuildDemo() end
 	ns.RegisterEvent("INSPECT_READY", OnInspectReady)
 	ns.Every(INTERVAL, "inspect pump", Pump)
 	local hooked = false
@@ -389,7 +357,3 @@ ns.On("LOGIN", function()
 	ns.Log("tooltip hook: %s", hooked and "TooltipDataProcessor" or "OnTooltipSetUnit")
 end)
 
-ns.On("DEMO_CHANGED", function(on)
-	if on then Inspect.BuildDemo() end
-	ns.Fire("INSPECT_CHANGED")
-end)

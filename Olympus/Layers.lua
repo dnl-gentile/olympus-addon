@@ -108,8 +108,6 @@ end
 -- Layers seen in a zone, each with its name, head count and whether we are on it.
 function Layers.ForMap(mapID)
 	local source = seen
-	-- Demo layers follow you to whatever zone you are in.
-	if ns.db.demo and ns.demoLayers then source = { [mapID] = ns.demoLayers } end
 	local sizes = {}
 	for _, e in ipairs(ns.Data.Summary().guilds) do sizes[e.name] = e.g.total or 0 end
 	local now, out = ns.Now(), {}
@@ -152,20 +150,6 @@ end
 
 function Layers.CurrentMap() return CurrentMap() end
 
-function Layers.BuildDemo()
-	local now = ns.Now()
-	local function crowd(n, head, headRank, headGuild)
-		local t = { [head] = { rank = headRank, guild = headGuild, t = now } }
-		for i = 1, n do t["Soldier" .. i .. head] = { rank = 5, guild = "Olympus II", t = now } end
-		return t
-	end
-	ns.demoLayers = {
-		[4101] = crowd(38, "Asmongold", 0, "Olympus"),
-		[4102] = crowd(21, "Zeuslord", 0, "Olympus II"),
-		[4103] = crowd(9, "Owlwise", 1, "Olympus Athena"),
-	}
-end
-
 ns.Comm.Handle("L1", function(dist, sender, text)
 	if dist ~= "CHANNEL" then return end
 	local l = ns.Codec.DecodeLayer(text)
@@ -173,7 +157,6 @@ ns.Comm.Handle("L1", function(dist, sender, text)
 end)
 
 ns.On("LOGIN", function()
-	if ns.db.demo then Layers.BuildDemo() end
 	ns.RegisterEvent("PLAYER_TARGET_CHANGED", function() Observe("target") end)
 	ns.RegisterEvent("UPDATE_MOUSEOVER_UNIT", function() Observe("mouseover") end)
 	ns.RegisterEvent("NAME_PLATE_UNIT_ADDED", function(unit) Observe(unit) end)
@@ -184,7 +167,3 @@ ns.On("LOGIN", function()
 	end)
 end)
 
-ns.On("DEMO_CHANGED", function(on)
-	if on then Layers.BuildDemo() end
-	ns.Fire("LAYERS_CHANGED")
-end)

@@ -43,7 +43,7 @@ function Roster.Scan()
 	local started = debugprofilestop and debugprofilestop() or 0
 	local numTotal, numOnline = GetNumGuildMembers()
 	numTotal = numTotal or 0
-	local officerRank = ns.db and ns.db.officerRank or 1
+	local officerRank = ns.CAPTAIN_RANK
 	local r = {
 		guild = guild, total = numTotal, online = 0,
 		zones = {}, classes = {}, levels = { 0, 0, 0, 0, 0, 0, 0 },
@@ -144,7 +144,7 @@ function Roster.MyRank()
 end
 
 function Roster.IsOfficer()
-	return IsInGuild() and Roster.MyRank() <= ((ns.db and ns.db.officerRank) or 1)
+	return IsInGuild() and Roster.MyRank() <= ns.CAPTAIN_RANK
 end
 
 function Roster.TryScan()
@@ -172,7 +172,12 @@ ns.RegisterEvent("GUILD_ROSTER_UPDATE", function()
 end)
 
 ns.RegisterEvent("PLAYER_GUILD_UPDATE", function()
-	ns.After(2, "guild changed", function() Roster.RequestScan(true) end)
+	ns.After(2, "guild changed", function()
+		Roster.RequestScan(true)
+		-- Left an Olympus guild (or joined one): leave the channel, redraw the map and window.
+		ns.Comm.CheckMembership()
+		ns.Fire("DATA_CHANGED")
+	end)
 end)
 
 ns.On("LOGIN", function()

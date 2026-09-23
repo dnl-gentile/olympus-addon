@@ -60,7 +60,6 @@ local BUTTONS = {
 local RECRUIT_BUTTONS = {
 	{ "RECRUIT_FIND", function() ns.Recruit.Search() end },
 	{ "RECRUIT_NEXT", function() ns.Recruit.PromptNext(ns.Recruit.lastContact and ns.Recruit.lastContact.guild) end },
-	{ "RECRUIT_DEMO", function() ns.Data.SetDemo(true) end },
 }
 
 -- Small extra buttons inside the detail box (only where needed).
@@ -241,6 +240,7 @@ local function CreateMain()
 			local okTab, res = pcall(CreateFrame, "Button", name, f, template)
 			if okTab and res and (res.Left or res.LeftActive or _G[name .. "Left"] or _G[name .. "LeftDisabled"]) then
 				tab = res
+				UI.tabTemplate = template
 				break
 			elseif okTab and res then
 				res:Hide()
@@ -249,6 +249,7 @@ local function CreateMain()
 		if not tab then
 			tab = Button(f, 80, 22)
 			tab.isFallback = true
+			UI.tabTemplate = "fallback"
 		end
 		tab:SetID(i)
 		tab:SetText(L[t.label])
@@ -413,13 +414,13 @@ function UI.Refresh()
 		local F = ns.FormatNumber
 		main.total:SetText(L.ARMY_TOTAL:format(F(s.total)))
 		main.sub:SetText(L.ARMY_SUB:format(F(s.online), s.fresh, ns.Ago(s.newest)) .. "  ·  " .. (GetRealmName and GetRealmName() or ""))
-		-- Outside an Olympus guild only the demo can be seen.
-		local locked = not ns.IsMember() and not ns.db.demo
+		-- Outside an Olympus guild nothing but the Join Olympus screen is shown.
+		local locked = not ns.IsMember()
 		local lines, title, text
 		if locked then
 			-- Not an Olympus member yet: the only thing on offer is joining one.
 			lines = ns.Views.RecruitLines()
-			title, text = L.MEMBERS_ONLY, L.MEMBERS_ONLY_HINT .. "\n|cff9d9d9d" .. L.MEMBERS_ONLY_DEMO .. "|r"
+			title, text = L.MEMBERS_ONLY, L.MEMBERS_ONLY_HINT
 			local header, sub = ns.Recruit.Roast()
 			main.total:SetText(header)
 			main.sub:SetText(sub)
@@ -549,7 +550,6 @@ function UI.IsShown() return main and main:IsShown() end
 function UI.IsDocked() return main and main.docked end
 
 function UI.StatusLine()
-	if ns.db.demo then return L.STATUS_DEMO end
 	local guild = GetGuildInfo("player")
 	if not guild then return L.STATUS_NOGUILD end
 	if not ns.IsFederation(guild) then return L.STATUS_NOTFED:format(guild) end

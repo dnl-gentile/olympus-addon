@@ -4,7 +4,7 @@ local L = ns.L
 -- Royal decrees sent to every Olympus guild over OlympusNet:
 --   ARMS   "Call to Arms!"  (Horde attacking here) - raid warning + sound, marker for 5 min
 --   MUSTER "Muster here"    (gather point)          - softer alert, marker for 30 min
--- Only officers (rank <= officerRank) can send. Receivers rate-limit per sender.
+-- Only Captains (rank <= ns.CAPTAIN_RANK) can send. Receivers rate-limit per sender.
 
 local Decree = {}
 ns.Decree = Decree
@@ -174,7 +174,7 @@ ns.Comm.Handle("D1", function(dist, sender, text)
 	d.rank = rank
 	if CROWN_ONLY[d.kind] then
 		if not ns.IsCrownRank(d.guild, rank) then return end
-	elseif rank > ((ns.db and ns.db.officerRank) or 1) then
+	elseif rank > ns.CAPTAIN_RANK then
 		return
 	end
 	local now = ns.Now()

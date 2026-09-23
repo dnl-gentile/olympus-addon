@@ -123,8 +123,9 @@ function ns.StatusText()
 	end
 	local n = 0
 	for _ in pairs(ns.rdb.guilds) do n = n + 1 end
-	add("cached guilds=%d  |  demo=%s  |  map=%s  |  errors=%d  |  sessions=%d", n, tostring(ns.db.demo), tostring(ns.db.showMap), #ns.db.errors, ns.db.sessions or 0)
-	add("map lib: %s  |  zones indexed=%d", tostring(ns.Map and ns.Map.libOk), ns.Zones and ns.Zones.Count() or 0)
+	add("cached guilds=%d  |  map=%s  |  errors=%d  |  sessions=%d", n, tostring(ns.db.showMap), #ns.db.errors, ns.db.sessions or 0)
+	add("map lib: %s  |  zones indexed=%d  |  tabs: %s", tostring(ns.Map and ns.Map.libOk), ns.Zones and ns.Zones.Count() or 0,
+		tostring(ns.UI and ns.UI.tabTemplate or "not built"))
 	return table.concat(lines, "\n")
 end
 

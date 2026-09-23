@@ -8,7 +8,8 @@ ns.Comm = Comm
 local Codec = ns.Codec
 
 local HELLO_EVERY = 60
-local PEER_WINDOW = 180 -- quiet members re-hello every 10 min; counted separately below
+local PEER_WINDOW = 180  -- the election only trusts peers heard in the last 3 minutes
+local COUNT_WINDOW = 720 -- quiet members say hello every 10 min: count them for 12
 local BROADCAST_EVERY = 170
 local SEND_INTERVAL = 1.2
 local MAX_QUEUE = 60
@@ -25,7 +26,7 @@ local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
 function Comm.PeerCount()
 	local now, n = ns.Now(), 0
 	for _, t in pairs(peers) do
-		if now - t <= PEER_WINDOW then n = n + 1 end
+		if now - t <= COUNT_WINDOW then n = n + 1 end
 	end
 	return n
 end
@@ -202,13 +203,15 @@ function Comm.Hello()
 end
 
 function Comm.MaybeBroadcast(report)
-	-- Demo mode only changes what we display; our real roster is still reported.
 	local now = ns.Now()
 	-- Peers are keyed "Name-Realm" like ns.me, so every client compares the same strings.
 	local best = Codec.PickReporter(ns.me, peers, now, PEER_WINDOW)
 	Comm.isReporter = best == ns.me
 	Comm.reporterName = ns.DisplayName(best)
 	if not Comm.isReporter or now - lastBroadcast < BROADCAST_EVERY then return end
+	-- Right after login we don't know our guildmates yet and would wrongly think we are the
+	-- reporter: wait one hello round first.
+	if now - (Comm.loginAt or 0) < HELLO_EVERY + 10 then return end
 	lastBroadcast = now
 	msgId = (msgId + 1) % 1000
 	local payload = Codec.EncodeReport(report)
@@ -238,7 +241,7 @@ local function OnAddonMessage(prefix, text, dist, sender)
 	-- Realm key, only over GUILD (server-verified guildmates) and only from our officers.
 	if dist == "GUILD" and text:sub(1, 3) == "K1~" then
 		local rank = ns.Roster.RankOf(sender)
-		if rank and rank <= ((ns.db and ns.db.officerRank) or 1) then
+		if rank and rank <= ns.CAPTAIN_RANK then
 			local key = text:sub(4)
 			if key ~= "" and key ~= ns.rdb.realmKey then
 				ns.rdb.realmKey = key
@@ -287,7 +290,20 @@ local function OnAddonMessage(prefix, text, dist, sender)
 	end
 end
 
+-- Outside an Olympus guild the addon stays out of the channel (called when the guild changes).
+-- Joining is left to the housekeeping ticker, so we never jump ahead of General/Trade at login.
+function Comm.CheckMembership()
+	if ns.IsMember() then return end
+	if joinedName and GetChannelName(joinedName) > 0 then
+		LeaveChannelByName(joinedName)
+		ns.Log("left channel %s: not in an Olympus guild", joinedName)
+		joinedName, channelIndex = nil, 0
+		wipe(queue)
+	end
+end
+
 ns.On("LOGIN", function()
+	Comm.loginAt = ns.Now()
 	C_ChatInfo.RegisterAddonMessagePrefix(ns.PREFIX)
 	-- No key yet? Ask our guild once (officers who have it answer).
 	ns.After(20, "key request", function()

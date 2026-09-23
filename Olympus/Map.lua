@@ -64,8 +64,10 @@ local function RefreshNow()
 		pool[#pool + 1] = active[i]
 		active[i] = nil
 	end
-	if not ns.db.showMap then return end
-	if not ns.IsMember() and not ns.db.demo then return end
+	if not ns.db.showMap or not ns.IsMember() then
+		AddContinentTotals({ zoneList = {}, zoneGuilds = {} }) -- also clears the continent circles
+		return
+	end
 	local s = ns.Data.Summary()
 	for _, z in ipairs(s.zoneList) do
 		local mapID = ns.Zones.MapID(z.key)
@@ -139,7 +141,7 @@ end
 function Map.LayoutOverlay()
 	for _, f in ipairs(overlay) do f:Hide() end
 	local canvas = Canvas()
-	if not canvas or not WorldMapFrame:IsShown() or not ns.db.showMap then return end
+	if not canvas or not WorldMapFrame:IsShown() or not ns.db.showMap or not ns.IsMember() then return end
 	if not WorldMapFrame.GetMapID or WorldMapFrame:GetMapID() ~= WORLD_MAP then return end
 	local w, h, scale = canvas:GetWidth(), canvas:GetHeight(), CanvasScale()
 	for i, d in ipairs(overlayData) do

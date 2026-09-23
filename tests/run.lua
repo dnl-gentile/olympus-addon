@@ -8,7 +8,11 @@ local ADDON_DIR = ROOT .. "Olympus/"
 -- Minimal WoW API stubs
 ---------------------------------------------------------------------------
 local stub = setmetatable({}, { __index = function() return function() end end })
-function CreateFrame() return stub end
+EVENT_SCRIPTS = {}
+function CreateFrame()
+	return setmetatable({ SetScript = function(_, kind, fn) if kind == "OnEvent" then EVENT_SCRIPTS[#EVENT_SCRIPTS + 1] = fn end end },
+		{ __index = function() return function() end end })
+end
 C_Timer = { After = function() end, NewTicker = function() end }
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function GetLocale() return "enUS" end
@@ -178,11 +182,51 @@ test("receive refuses reports about our own guild", function()
 	eq(ns.rdb.guilds["Olympus Zeus"].reporter, "Zed")
 end)
 
-test("demo data builds 14 guilds", function()
-	ns.Data.BuildDemo()
-	local n = 0
-	for _ in pairs(ns.demoGuilds) do n = n + 1 end
-	eq(n, 14)
+test("demo data is gone and old installs forget the setting", function()
+	eq(ns.Data.BuildDemo, nil); eq(ns.Data.SetDemo, nil); eq(ns.Inspect.BuildDemo, nil); eq(ns.Layers.BuildDemo, nil)
+	local savedDB, savedR, savedRealm = ns.db, ns.rdb, ns.realm
+	for _, old in ipairs({ { demo = true }, { demo = true, configVersion = 2 }, { demo = true, configVersion = 3 } }) do
+		OlympusDB = old
+		for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "ADDON_LOADED", "Olympus") end
+		eq(OlympusDB.demo, nil, "demo setting cleared (configVersion " .. tostring(old.configVersion) .. ")")
+		eq(OlympusDB.configVersion, 3)
+	end
+	ns.db, ns.rdb, ns.realm = savedDB, savedR, savedRealm
+end)
+
+test("upgrade from account-wide data: block list, old census and key, inspections", function()
+	local savedDB, savedR, savedRealm = ns.db, ns.rdb, ns.realm
+	local blocked = {}
+	for i = 1, 40 do blocked["troll" .. i] = true end
+	blocked["far-other"] = true
+	OlympusDB = { configVersion = 3, blocked = blocked, realmKey = "old-secret",
+		guilds = { ["Olympus Far"] = { total = 5, t = os.time() } },
+		inspect = { players = { Naked = { status = "NONE" } }, guildMarks = {} } }
+	local errors = 0
+	local savedCapture = ns.CaptureError
+	ns.CaptureError = function() errors = errors + 1 end
+	for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "ADDON_LOADED", "Olympus") end
+	ns.CaptureError = savedCapture
+	eq(errors, 0, "no error while migrating")
+	local short, full = 0, 0
+	for k in pairs(OlympusDB.blocked) do if k:find("-", 1, true) then full = full + 1 else short = short + 1 end end
+	eq(short, 0, "every short name converted"); eq(full, 41)
+	eq(OlympusDB.blocked["troll7-realm"], true)
+	eq(OlympusDB.realmKey, nil, "old key dropped, officers resend it")
+	eq(OlympusDB.guilds, nil, "old census dropped")
+	eq(OlympusDB.realms.Realm.realmKey, nil)
+	eq(OlympusDB.realms.Realm.guilds["Olympus Far"], nil, "not moved into this realm")
+	eq(OlympusDB.inspect, nil)
+	eq(OlympusDB.realms.Realm.inspect.players.Naked.status, "NONE", "inspections kept on this realm")
+	ns.db, ns.rdb, ns.realm = savedDB, savedR, savedRealm
+end)
+
+test("an old saved report does not grant rank", function()
+	ns.rdb.guilds = { ["Olympus Zeus"] = { total = 10, online = 1, zones = {}, t = os.time() - 3600, leader = "Zed", realm = "Realm" } }
+	eq(ns.Data.KnownRank("Zed-Realm", "Olympus Zeus"), nil, "report from an hour ago")
+	ns.rdb.guilds["Olympus Zeus"].t = os.time()
+	eq(ns.Data.KnownRank("Zed-Realm", "Olympus Zeus"), 0, "fresh report")
+	ns.rdb.guilds = {}
 end)
 
 test("errors are captured with dedupe", function()
@@ -202,7 +246,6 @@ test("tabard classification", function()
 end)
 
 test("inspection summary, marks and discord text", function()
-	ns.db.demo = false
 	ns.db.inspect = nil
 	local I = ns.Inspect
 	I.Record("Good-Realm", "Olympus", "WARRIOR", 20, 5976, true)
@@ -219,13 +262,6 @@ test("inspection summary, marks and discord text", function()
 	local text = I.DiscordText()
 	assert(text:find("NO TABARD") and text:find("Naked"), text)
 	assert(I.TooltipLine("Naked-Realm"):find("NO TABARD"))
-end)
-
-test("inspection demo data", function()
-	ns.Inspect.BuildDemo()
-	local n = 0
-	for _ in pairs(ns.demoInspect.players) do n = n + 1 end
-	assert(n > 20)
 end)
 
 test("roster reads ranks, officers, inactivity and top levels", function()
@@ -269,7 +305,6 @@ test("position, layer and decree messages", function()
 end)
 
 test("layer named after the highest rank present", function()
-	ns.db.demo = false
 	C_Map.GetBestMapForUnit = function() return 1453 end
 	ns.Data.Summary = ns.Data.Summary
 	ns.rdb.guilds = { ["Olympus"] = { total = 1000, online = 1, zones = {}, t = os.time(), leader = "Kingy" },
@@ -286,10 +321,7 @@ test("layer named after the highest rank present", function()
 	-- A sender who moves counts on the new layer only.
 	ns.Layers.Receive("Grunt-Realm", { mapID = 1453, zoneUID = 8, rank = 4, guild = "Olympus" })
 	eq(ns.Layers.ForMap(1453)[1].count, 3, "moved sender left the old layer")
-	ns.db.demo = true
-	ns.Layers.BuildDemo()
-	eq(#ns.Layers.ForMap(1437), 3, "demo layers follow any zone")
-	ns.db.demo = false
+	eq(#ns.Layers.ForMap(1437), 0, "no made-up layers in other zones")
 	eq(ns.Layers.Name(layers[2]), "Solo's layer")
 end)
 
@@ -427,15 +459,26 @@ test("worst case report still fits the message limits", function()
 	eq(#d.officers, 30); eq(#d.ranks, 10)
 end)
 
+local function SampleGuilds()
+	local now = os.time()
+	return {
+		["Olympus"] = { total = 990, online = 210, zones = { m1453 = 120, m1429 = 40 }, t = now, leader = "Asmongold",
+			leaderOnline = true, leaderLevel = 24, leaderClass = "WA", ranks = { { name = "King", count = 1 }, { name = "Knight", count = 989 } },
+			officers = { { name = "Capt", online = true, days = 0, class = "PA", level = 22 } },
+			top = { { name = "Racer", level = 25, class = "MA" } }, inactive7 = 10, inactive30 = 2, avgLevel = 14 },
+		["Olympus II"] = { total = 500, online = 80, zones = { m1453 = 30 }, t = now, leader = "Lordy", leaderOnline = false, leaderDays = 4,
+			officers = {}, top = { { name = "Other", level = 20, class = "RO" } } },
+	}
+end
+
 test("every tab builds", function()
-	ns.db.demo = true
-	ns.Data.BuildDemo(); ns.Inspect.BuildDemo(); ns.Layers.BuildDemo()
+	ns.rdb.guilds = SampleGuilds()
 	ns.UI = { StatusLine = function() return "status" end }
 	for _, tab in ipairs({ "census", "realm", "decrees", "heraldry" }) do
 		local lines, title = ns.Views.Build(tab)
 		assert(#lines > 0 and title, tab)
 	end
-	ns.db.demo = false
+	ns.rdb.guilds = {}
 end)
 
 test("layer sample is stable and about 1 in 8", function()
@@ -451,14 +494,21 @@ test("layer sample is stable and about 1 in 8", function()
 end)
 
 test("realm view lists king, lords, captains and level race", function()
-	ns.db.demo = true
-	ns.Data.BuildDemo()
+	ns.rdb.guilds = SampleGuilds()
 	local lines = ns.Views.RealmLines()
 	assert(lines[1].text:find("King") and lines[1].text:find("Asmongold"), lines[1].text)
 	local sawRace = false
 	for _, l in ipairs(lines) do if l.text == "Level race" then sawRace = true end end
 	assert(sawRace)
-	ns.db.demo = false
+	ns.rdb.guilds = {}
+end)
+
+test("captains in the report are rank 1 whatever /oly officer says", function()
+	local saved = ns.db.officerRank
+	ns.db.officerRank = 9
+	local r = ns.Roster.Scan()
+	eq(#r.officers, 5, "only the rank 1 members")
+	ns.db.officerRank = saved
 end)
 
 test("map refresh runs end to end with a map library (continent totals included)", function()
@@ -493,7 +543,6 @@ test("map refresh runs end to end with a map library (continent totals included)
 	ns.CaptureError = function(where, err) captured = where .. ": " .. tostring(err) end
 	mapChunk("Olympus", ns)
 	ns.db.showMap = true
-	ns.db.demo = false
 	ns.rdb.guilds = { ["Olympus"] = { total = 100, online = 10, zones = { m1453 = 7, m1429 = 3 }, t = os.time() } }
 	ns.Map.Refresh()
 	ns.CaptureError = savedCapture

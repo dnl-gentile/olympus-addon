@@ -121,42 +121,10 @@ ns.Comm.Handle("P1", function(dist, sender, text)
 	mates[ns.DisplayName(sender)] = p
 end)
 
--- Demo: a dozen fake guildmates wandering around you, so the map can be shown off.
-local demoMates
-local function DemoTick()
-	if not ns.db.demo or not ns.db.showMates then
-		if demoMates then
-			for name in pairs(demoMates) do mates[name] = nil end
-			demoMates = nil
-		end
-		return
-	end
-	local mapID = C_Map.GetBestMapForUnit("player")
-	local pos = mapID and C_Map.GetPlayerMapPosition(mapID, "player")
-	if not pos then return end
-	local px, py = pos:GetXY()
-	if not demoMates then
-		demoMates = {}
-		local names = { "Brava", "Kellan", "Mirra", "Torvald", "Isolde", "Garrick", "Seraphine", "Doran", "Lyra", "Bram", "Eldra", "Quinn" }
-		local classes = { "WA", "PA", "HU", "RO", "PR", "MA", "WL", "DR" }
-		for i, n in ipairs(names) do
-			local a = i / #names * math.pi * 2
-			demoMates[n] = { dx = math.cos(a) * 0.03, dy = math.sin(a) * 0.03, class = classes[(i % #classes) + 1] }
-		end
-	end
-	local now = ns.Now()
-	for name, d in pairs(demoMates) do
-		d.dx = d.dx + (math.random() - 0.5) * 0.004
-		d.dy = d.dy + (math.random() - 0.5) * 0.004
-		mates[name] = { mapID = mapID, x = math.min(0.99, math.max(0.01, px + d.dx)), y = math.min(0.99, math.max(0.01, py + d.dy)), class = d.class, t = now }
-	end
-end
-
 ns.On("LOGIN", function()
 	if not Pins then return end
 	ns.Every(5, "positions", function()
 		SendPosition()
-		DemoTick()
 		Positions.Refresh()
 	end)
 end)

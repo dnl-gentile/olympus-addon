@@ -14,7 +14,7 @@ exist, who leads them, or where the army is.
 This addon answers exactly that. It adds up every Olympus guild live, in a window that
 looks like Blizzard's Guild window and docks right next to it.
 
-<p align="center"><img src="docs/1-census.png" width="640" alt="The Olympus window next to the Guild window (demo data)"></p>
+<p align="center"><img src="docs/1-census.png" width="640" alt="The Olympus window next to the Guild window (example data)"></p>
 
 <table>
 <tr>
@@ -27,7 +27,7 @@ looks like Blizzard's Guild window and docks right next to it.
 </tr>
 </table>
 
-<sub>Screenshots use the built-in demo data.</sub>
+<sub>Screenshots were taken with example data.</sub>
 
 > **Status:** built for WoW: Forever and tested on Classic Era (1.15) and Anniversary (2.5).
 > The author has no Forever beta access yet, so please report anything that behaves
@@ -40,8 +40,7 @@ looks like Blizzard's Guild window and docks right next to it.
 **Only members of a guild with "Olympus" in its name.** The check is fixed in the code and
 cannot be switched off with a command. Outside an Olympus guild the addon joins no channel,
 sends nothing and receives nothing. The only thing it offers there is the **Join Olympus**
-screen described below. Anyone can still open a
-**demo preview** with `/oly demo`, which uses made-up data and connects to nothing.
+screen described below.
 
 ### Not in Olympus yet?
 First it asks the obvious question: *"<Your Guild>? Disband immediately. What are you
@@ -62,7 +61,8 @@ are highlighted. It is rate limited, so nobody gets spammed.
 - Hover a guild: members, online, free slots, average level, inactive members, classes online, top zones.
 
 ### The Realm: the hierarchy
-- The **King**, then every guild's **Lord** (guild master) and **Captains** (officers).
+- The **King**, then every guild's **Lord** (guild master) and **Captains** (the officer rank
+  right below the guild master).
   Each shows level, class and online or *offline 3d*. Long absences show in red.
 - The **ranks** of each guild with how many members hold them.
 - **Inactive members**: offline 7+ and 30+ days, per guild.
@@ -109,20 +109,25 @@ Any soldier can reach the Lord of another Olympus guild in two clicks.
 ## Install
 
 **Easiest:** install **Olympus Guild** from the CurseForge app or WowUp. It installs in the
-right place and keeps it updated.
+right place and keeps it updated. For Forever, pick the Forever (beta) installation of the
+game in the app, not Classic Era.
 
 **By hand:**
 1. Download `Olympus-x.y.z.zip` from **[Releases](../../releases)**.
 2. Open your World of Warcraft folder. On Windows it is usually
-   `C:\Program Files (x86)\World of Warcraft\`.
+   `C:\Program Files (x86)\World of Warcraft\` (on Mac: `/Applications/World of Warcraft/`).
 3. Open the folder of the game version you play. For the **Forever beta** it is the one with
-   *beta* in its name (for example `_classic_beta_`); Classic Era is `_classic_era_`.
+   *beta* in its name (for example `_classic_beta_`); Classic Era is `_classic_era_`, TBC
+   Anniversary is `_anniversary_`.
 4. Go into `Interface\AddOns\` (create `Interface` and `AddOns` if they don't exist) and
    extract the zip there, so you end up with `...\Interface\AddOns\Olympus\Olympus.toc`.
+   Careful: Windows' *Extract All* adds a folder named after the zip
+   (`AddOns\Olympus-0.7.9\Olympus\...`). If that happens, move the `Olympus` folder up into
+   `AddOns`; the game only loads it from `AddOns\Olympus\`.
 5. **Restart the game.** If the addon list says *out of date*, tick **Load out of date AddOns**.
 
-The addon opens with **live data**. Demo data (made-up guilds, for screenshots) only shows
-if you type `/oly demo`, and the window says **DEMO DATA** when it is on.
+The addon only shows **live data**: guilds appear as soon as one of their members with the
+addon is online (give it a few minutes). There is no demo mode any more.
 
 **One member per guild is enough** for that guild to appear for everyone. The more guilds
 have at least one install, the more complete the census gets.
@@ -198,7 +203,6 @@ that visible, but it can't be made impossible.
 | `/oly key <secret>` | officers: seal the Olympus channel |
 | `/oly block <name>` | ignore a player |
 | `/oly map` | zone markers on the world map |
-| `/oly demo` | demo data on or off |
 | `/oly sound` | alert sounds on or off |
 | `/oly bug` | copyable bug report |
 | `/oly status` | diagnostics in chat |

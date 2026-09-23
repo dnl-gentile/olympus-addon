@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.7.8"
+ns.VERSION = "0.7.9"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild
 ns.ICON = "Interface\\AddOns\\Olympus\\media\\logo64"
@@ -15,8 +15,6 @@ local DEFAULTS = {
 	minimapAngle = 200,
 	hideMinimap = false,
 	debug = false,
-	demo = false,          -- live data by default; /oly demo shows made-up data
-	officerRank = 1,       -- rank index 1 (right below guild master) and above count as officers
 	warnDays = 3,          -- leaders/officers offline this many days are flagged
 	sharePosition = false, -- guildmate dots are disabled: positions are not live enough
 	showMates = false,
@@ -135,11 +133,15 @@ function ns.PlayAlert(kind)
 	if id then pcall(PlaySound, id) end
 end
 
+-- Captains (officers) are rank index 1, right below the guild master, in every guild. It is
+-- fixed so that senders and receivers always agree on who may send decrees.
+ns.CAPTAIN_RANK = 1
+
 -- The Crown: guild masters of any Olympus guild, and the officers of the main "Olympus" guild.
 function ns.IsCrownRank(guild, rankIndex)
 	if not guild or not rankIndex then return false end
 	if rankIndex == 0 then return true end
-	return guild:lower() == "olympus" and rankIndex <= ((ns.db and ns.db.officerRank) or 1)
+	return guild:lower() == "olympus" and rankIndex <= ns.CAPTAIN_RANK
 end
 
 function ns.IsCrown()
@@ -154,7 +156,7 @@ function ns.IsFederation(guild)
 	return guild:lower():find(REALM_WORD, 1, true) ~= nil
 end
 
--- The addon only works for members of an Olympus guild (demo data excepted).
+-- The addon only works for members of an Olympus guild.
 function ns.IsMember()
 	return IsInGuild() and ns.IsFederation(GetGuildInfo("player"))
 end
@@ -245,12 +247,9 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 		db.showMates, db.sharePosition = false, false
 		db.configVersion = 2
 	end
-	-- v0.7.7: early versions shipped with demo data on, which testers mistook for real
-	-- data. Switch it off once for everyone (they can still turn it on with /oly demo).
-	if db.configVersion < 3 then
-		db.demo = false
-		db.configVersion = 3
-	end
+	-- v0.7.9: demo data is gone (testers took it for real data). Forget the old setting.
+	db.demo = nil
+	if db.configVersion < 3 then db.configVersion = 3 end
 	-- Guild reports and the realm key belong to one realm: alts on another realm (PvP and
 	-- PvP 2 in the beta) must not mix their census or join the other realm's sealed channel.
 	ns.realm = ns.CurrentRealm()
@@ -258,15 +257,23 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 	local R = db.realms[ns.realm] or {}
 	db.realms[ns.realm] = R
 	R.guilds = R.guilds or {}
-	if db.guilds or db.realmKey then
-		-- One-time move of the old account-wide data to the realm we are on now.
-		if R.realmKey == nil then R.realmKey = db.realmKey end
-		for k, v in pairs(db.guilds or {}) do if R.guilds[k] == nil then R.guilds[k] = v end end
-		db.guilds, db.realmKey = nil, nil
+	-- Old account-wide census and key: there is no telling which realm they came from, so
+	-- drop them. The census refills from the channel within minutes and officers hand the
+	-- key out again over guild chat (K0/K1) at login.
+	db.guilds, db.realmKey, db.officerRank = nil, nil, nil
+	-- Tabard inspections are about the players of one realm too.
+	if db.inspect then
+		if R.inspect == nil then R.inspect = db.inspect end
+		db.inspect = nil
 	end
 	-- Block list keys become "name-realm" (old keys were short names from this realm).
-	for k in pairs(db.blocked) do
-		if not k:find("-", 1, true) then
+	-- Collect first: adding keys while pairs() walks the table is an error in Lua 5.1.
+	if ns.realm ~= "?" then
+		local short = {}
+		for k in pairs(db.blocked) do
+			if not k:find("-", 1, true) then short[#short + 1] = k end
+		end
+		for _, k in ipairs(short) do
 			db.blocked[k] = nil
 			db.blocked[(k .. "-" .. ns.realm):lower()] = true
 		end
@@ -296,12 +303,11 @@ local function Help()
 	print("  /oly mark [reason] - mark your target")
 	print("  /oly map - show/hide zone counts on the world map")
 	print("  /oly realm - the Realm tree (leaders, officers, ranks)")
-	print("  /oly layers - layers & decrees")
+	print("  /oly layers - layers of your zone (in the Realm tab)")
+	print("  /oly decrees - decrees")
 	print("  /oly arms [text] | /oly muster [text] - decree (officers; 'test' = local preview)")
 	print("  /oly mates - show/hide guildmates on map and minimap")
 	print("  /oly share - share/stop sharing your position with your guild")
-	print("  /oly officer <n> - ranks 1..n count as officers")
-	print("  /oly demo - toggle demo data")
 	print("  /oly bug - copy a bug report (errors + diagnostics)")
 	print("  /oly status - print diagnostics in chat")
 	print("  /oly key <secret> - officers: seal the Olympus channel with a shared secret")
@@ -331,9 +337,9 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Inspect.MarkTarget(rest)
 		elseif cmd == "map" then
 			ns.Map.SetEnabled(not ns.db.showMap)
-		elseif cmd == "realm" or cmd == "tree" then
+		elseif cmd == "realm" or cmd == "tree" or cmd == "layers" then
 			ns.UI.SelectTab("realm")
-		elseif cmd == "layers" or cmd == "decrees" then
+		elseif cmd == "decrees" then
 			ns.UI.SelectTab("decrees")
 		elseif cmd == "arms" or cmd == "muster" then
 			local kind = cmd == "arms" and "ARMS" or "MUSTER"
@@ -343,12 +349,9 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "share" then
 			ns.Positions.SetSharing(not ns.db.sharePosition)
 		elseif cmd == "officer" then
-			local n = tonumber(rest)
-			if n then ns.db.officerRank = n end
-			ns.Print("officerRank = " .. ns.db.officerRank .. " (0 = guild master)")
-			ns.Roster.RequestScan(true)
+			ns.Print(ns.L.OFFICER_FIXED)
 		elseif cmd == "demo" then
-			ns.Data.SetDemo(not ns.db.demo)
+			ns.Print(ns.L.DEMO_REMOVED)
 		elseif cmd == "bug" then
 			ns.UI.ShowCopy(ns.L.REPORT_BUG, ns.BuildBugReport())
 		elseif cmd == "status" then
