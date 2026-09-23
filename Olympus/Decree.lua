@@ -137,7 +137,7 @@ function Decree.Send(kind, text)
 	lastSent = now
 	local guild = GetGuildInfo("player") or ""
 	ns.Comm.Send("CHANNEL", ns.Codec.EncodeDecree(kind, mapID, x, y, guild, ns.Roster.MyRank(), text))
-	Show({ kind = kind, mapID = mapID, x = x, y = y, guild = guild, rank = ns.Roster.MyRank(), text = text or "", sender = ns.ShortName(ns.me), t = now })
+	Show({ kind = kind, mapID = mapID, x = x, y = y, guild = guild, rank = ns.Roster.MyRank(), text = text or "", sender = ns.DisplayName(ns.me), t = now })
 end
 
 -- Local-only preview so anyone can see what a decree looks like (nothing is sent).
@@ -145,7 +145,7 @@ function Decree.Preview(kind)
 	local mapID, x, y = Where()
 	if not mapID then return end
 	Show({ kind = kind, mapID = mapID, x = x, y = y, guild = GetGuildInfo("player") or "Olympus", rank = 0,
-		text = L.DECREE_PREVIEW_TEXT, sender = ns.ShortName(ns.me), t = ns.Now() })
+		text = L.DECREE_PREVIEW_TEXT, sender = ns.DisplayName(ns.me), t = ns.Now() })
 end
 
 function Decree.Active()
@@ -183,7 +183,7 @@ ns.Comm.Handle("D1", function(dist, sender, text)
 	if #recent >= MAX_PER_MINUTE then return end
 	lastBySender[sender] = now
 	recent[#recent + 1] = now
-	d.sender, d.t = ns.ShortName(sender), now
+	d.sender, d.t = ns.DisplayName(sender), now
 	Show(d)
 end)
 

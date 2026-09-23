@@ -144,14 +144,17 @@ find or join it. Share the same secret with the officers of the other Olympus gu
 2. Members with the addon find each other through hidden addon messages in guild chat and
    **elect one reporter per guild**. The first name alphabetically wins, and every client
    computes the same answer.
-3. The reporter sends a compact summary of its guild every 2 minutes on the hidden Olympus channel.
+3. The reporter sends a compact summary of its guild about every 3 minutes on the hidden Olympus channel.
 4. Every client adds up all the summaries: that is the census.
 
 Nothing leaves the game. There is no server, no website, no account and no tracking.
 
-**The census is per realm.** Chat channels, including the hidden Olympus one, only exist
-inside a realm, so Olympus guilds on different realms (for example ClassicBetaPvP and
-ClassicBetaPvP2) can't see each other. The window shows which realm you are counting.
+**Realms vs layers.** A realm (ClassicBetaPvP, ClassicBetaPvP2...) is a separate world
+with its own guilds; layers are copies of a zone *inside* one realm. Guilds on the same
+realm always see each other, whatever layer they are on. Whether the hidden channel also
+reaches another realm is not confirmed yet (`/oly bug` shows which realms messages come
+from). Data is stored per realm, so alts on different realms never mix their census, and
+the window shows which realm you are counting.
 
 ## Security and trust
 
@@ -177,7 +180,7 @@ that visible, but it can't be made impossible.
 
 ## Built for a crowd of thousands
 
-- One summary per guild every 2 minutes, not one per player.
+- One summary per guild about every 3 minutes, not one per player.
 - In a full guild only the members who could be elected keep saying hello; the rest go quiet.
 - Layers are announced by officers plus a stable 1 in 8 sample, every 10 minutes.
 - Messages are spaced 1.2 s apart, below Blizzard's addon message limits, and alert sounds

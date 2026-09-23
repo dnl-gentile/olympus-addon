@@ -101,7 +101,7 @@ local function decPerson(entry)
 	local p = split(entry, ":")
 	if not p[1] or p[1] == "" or not p[2] then return nil end
 	return {
-		name = p[1]:sub(1, 24),
+		name = p[1]:sub(1, 48),
 		online = p[2] == "1",
 		days = num(p[3]) or 0,
 		class = (p[4] and p[4] ~= "") and p[4]:sub(1, 12) or nil,
@@ -141,7 +141,7 @@ local function decTop(s, max)
 		if #out >= max then break end
 		local p = split(entry, ":")
 		if p[1] and p[1] ~= "" and num(p[2]) then
-			out[#out + 1] = { name = p[1]:sub(1, 24), level = math.min(num(p[2]), 100), class = (p[3] and p[3] ~= "") and p[3]:sub(1, 12) or nil }
+			out[#out + 1] = { name = p[1]:sub(1, 48), level = math.min(num(p[2]), 100), class = (p[3] and p[3] ~= "") and p[3]:sub(1, 12) or nil }
 		end
 	end
 	return out
@@ -189,7 +189,7 @@ function Codec.DecodeReport(s)
 	local levels = {}
 	local lv = split(f[10], ",")
 	for i = 1, 7 do levels[i] = num(lv[i]) or 0 end
-	local leader = f[5] ~= "" and f[5]:sub(1, 24) or nil
+	local leader = f[5] ~= "" and f[5]:sub(1, 48) or nil
 	return {
 		guild = guild,
 		total = total,
@@ -261,7 +261,7 @@ function Codec.DecodeShame(s)
 	local list = {}
 	for name, g in body:gmatch("([^,:]+):([^,]*)") do
 		if #list >= Codec.MAX_SHAME then break end
-		list[#list + 1] = { name = name:sub(1, 24), guild = g:sub(1, 24) }
+		list[#list + 1] = { name = name:sub(1, 48), guild = g:sub(1, 24) }
 	end
 	return { guild = guild, rank = tonumber(rank), list = list }
 end

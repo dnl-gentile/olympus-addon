@@ -9,7 +9,7 @@ local Codec = ns.Codec
 
 local HELLO_EVERY = 60
 local PEER_WINDOW = 180 -- quiet members re-hello every 10 min; counted separately below
-local BROADCAST_EVERY = 120
+local BROADCAST_EVERY = 170
 local SEND_INTERVAL = 1.2
 local MAX_QUEUE = 60
 
@@ -19,7 +19,7 @@ local asm = Codec.NewAssembler()
 local msgId = 0
 local lastBroadcast = 0
 local channelIndex = 0
-local stats = { sent = 0, recv = 0, reports = 0, fails = 0, bad = 0, partial = 0, byType = {} }
+local stats = { sent = 0, recv = 0, reports = 0, fails = 0, bad = 0, partial = 0, echo = 0, byType = {}, realms = {} }
 local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
 
 function Comm.PeerCount()
@@ -32,11 +32,11 @@ end
 
 function Comm.Stats()
 	return {
-		channelName = joinedName, sealed = ns.db and ns.db.realmKey ~= nil,
+		channelName = joinedName, sealed = ns.rdb and ns.rdb.realmKey ~= nil,
 		channel = channelIndex, peers = Comm.PeerCount(), reporter = Comm.reporterName,
 		isReporter = Comm.isReporter, sent = stats.sent, recv = stats.recv, reports = stats.reports,
 		fails = stats.fails, bad = stats.bad, queue = #queue, lastFail = stats.lastFail,
-		partial = stats.partial, byType = stats.byType, pending = (function() local n = 0 for _ in pairs(asm.buf) do n = n + 1 end return n end)(),
+		partial = stats.partial, echo = stats.echo, byType = stats.byType, realms = stats.realms, pending = (function() local n = 0 for _ in pairs(asm.buf) do n = n + 1 end return n end)(),
 	}
 end
 
@@ -79,19 +79,23 @@ local function IsSuccess(res)
 end
 
 local function Pump()
-	local item = queue[1]
-	if not item then return end
+	if not queue[1] then return end
 	if not ns.IsMember() then
 		wipe(queue) -- outside an Olympus guild the addon sends nothing
 		return
 	end
-	local dist, msg = item[1], item[2]
-	local target
-	if dist == "CHANNEL" then
-		if channelIndex == 0 then return end -- wait until we joined
-		target = channelIndex
+	-- Channel messages wait until we joined; guild messages behind them go out meanwhile.
+	local index
+	for i, item in ipairs(queue) do
+		if item[1] ~= "CHANNEL" or channelIndex > 0 then
+			index = i
+			break
+		end
 	end
-	table.remove(queue, 1)
+	if not index then return end
+	local dist, msg = queue[index][1], queue[index][2]
+	local target = dist == "CHANNEL" and channelIndex or nil
+	table.remove(queue, index)
 	local ok, res = pcall(C_ChatInfo.SendAddonMessage, ns.PREFIX, msg, dist, target)
 	if ok and IsSuccess(res) then
 		stats.sent = stats.sent + 1
@@ -127,7 +131,7 @@ end
 Comm.Hash36 = Hash36
 
 function Comm.ChannelSpec()
-	local key = ns.db and ns.db.realmKey
+	local key = ns.rdb and ns.rdb.realmKey
 	if key and key ~= "" then return "Oly" .. Hash36(key), key end
 	return ns.CHANNEL, nil
 end
@@ -176,7 +180,7 @@ function Comm.SetRealmKey(secret)
 		ns.Print(ns.L.KEY_TOO_SHORT)
 		return
 	end
-	ns.db.realmKey = secret
+	ns.rdb.realmKey = secret
 	Enqueue("GUILD", "K1~" .. secret, "key")
 	ns.Print(ns.L.KEY_SET)
 	Comm.JoinChannel()
@@ -200,8 +204,10 @@ end
 function Comm.MaybeBroadcast(report)
 	-- Demo mode only changes what we display; our real roster is still reported.
 	local now = ns.Now()
-	Comm.reporterName = ns.ShortName(Codec.PickReporter(ns.me, peers, now, PEER_WINDOW))
-	Comm.isReporter = Comm.reporterName == ns.ShortName(ns.me)
+	-- Peers are keyed "Name-Realm" like ns.me, so every client compares the same strings.
+	local best = Codec.PickReporter(ns.me, peers, now, PEER_WINDOW)
+	Comm.isReporter = best == ns.me
+	Comm.reporterName = ns.DisplayName(best)
 	if not Comm.isReporter or now - lastBroadcast < BROADCAST_EVERY then return end
 	lastBroadcast = now
 	msgId = (msgId + 1) % 1000
@@ -213,20 +219,29 @@ end
 
 local function OnAddonMessage(prefix, text, dist, sender)
 	if prefix ~= ns.PREFIX then return end
-	if sender == ns.me or sender == ns.ShortName(ns.me) then return end -- our own echo
+	-- Same-realm senders arrive without "-Realm": make every name "Name-Realm" once, here.
+	sender = ns.FullName(sender)
+	if not sender or sender == "" then return end
+	if sender == ns.me then
+		stats.echo = stats.echo + 1 -- our own message coming back (proves the channel works)
+		return
+	end
 	if not ns.IsMember() then return end -- outside an Olympus guild the addon hears nothing
-	if ns.db.blocked[ns.ShortName(sender):lower()] then return end
+	if ns.db.blocked[sender:lower()] then return end
 	stats.recv = stats.recv + 1
 	local kind = (dist == "CHANNEL" and "ch:" or "g:") .. (text:match("^C%w+:") and "chunk" or text:sub(1, 2))
 	stats.byType[kind] = (stats.byType[kind] or 0) + 1
+	-- Which realms our messages come from answers whether the channel crosses realms.
+	local realmKey = (dist == "CHANNEL" and "ch:" or "g:") .. (ns.RealmOf(sender) or "?")
+	stats.realms[realmKey] = (stats.realms[realmKey] or 0) + 1
 	local now = ns.Now()
 	-- Realm key, only over GUILD (server-verified guildmates) and only from our officers.
 	if dist == "GUILD" and text:sub(1, 3) == "K1~" then
 		local rank = ns.Roster.RankOf(sender)
 		if rank and rank <= ((ns.db and ns.db.officerRank) or 1) then
 			local key = text:sub(4)
-			if key ~= "" and key ~= ns.db.realmKey then
-				ns.db.realmKey = key
+			if key ~= "" and key ~= ns.rdb.realmKey then
+				ns.rdb.realmKey = key
 				ns.Log("realm key received from officer %s", sender)
 				Comm.JoinChannel()
 			end
@@ -235,9 +250,9 @@ local function OnAddonMessage(prefix, text, dist, sender)
 	end
 	if dist == "GUILD" and text:sub(1, 3) == "K0~" then
 		-- A guildmate asks for the key: officers who have it answer (at most once a minute).
-		if ns.db.realmKey and ns.Roster.IsOfficer() and now - (Comm.lastKeyAnswer or 0) > 60 then
+		if ns.rdb.realmKey and ns.Roster.IsOfficer() and now - (Comm.lastKeyAnswer or 0) > 60 then
 			Comm.lastKeyAnswer = now
-			ns.After(math.random(1, 5), "key answer", function() Enqueue("GUILD", "K1~" .. ns.db.realmKey, "key") end)
+			ns.After(math.random(1, 5), "key answer", function() Enqueue("GUILD", "K1~" .. ns.rdb.realmKey, "key") end)
 		end
 		return
 	end
@@ -276,7 +291,7 @@ ns.On("LOGIN", function()
 	C_ChatInfo.RegisterAddonMessagePrefix(ns.PREFIX)
 	-- No key yet? Ask our guild once (officers who have it answer).
 	ns.After(20, "key request", function()
-		if ns.IsMember() and not ns.db.realmKey then Enqueue("GUILD", "K0~", "keyreq") end
+		if ns.IsMember() and not ns.rdb.realmKey then Enqueue("GUILD", "K0~", "keyreq") end
 	end)
 	ns.RegisterEvent("CHAT_MSG_ADDON", OnAddonMessage)
 	-- Join late so General/Trade/LocalDefense keep their usual numbers (/1, /2...).

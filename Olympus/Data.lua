@@ -12,8 +12,8 @@ Data.KEEP = 24 * 60 * 60   -- older than this is forgotten at login
 
 ns.On("INIT", function()
 	local now = ns.Now()
-	for name, g in pairs(ns.db.guilds) do
-		if type(g) ~= "table" or now - (g.t or 0) > Data.KEEP then ns.db.guilds[name] = nil end
+	for name, g in pairs(ns.rdb.guilds) do
+		if type(g) ~= "table" or now - (g.t or 0) > Data.KEEP then ns.rdb.guilds[name] = nil end
 	end
 end)
 
@@ -23,9 +23,11 @@ end)
 
 function Data.SetLocal(r)
 	r.t = ns.Now()
-	r.reporter = ns.ShortName(ns.me)
+	r.reporter = ns.DisplayName(ns.me)
+	r.reporterFull = ns.me
+	r.realm = ns.realm
 	r.mine = true
-	ns.db.guilds[r.guild] = r
+	ns.rdb.guilds[r.guild] = r
 	ns.Fire("DATA_CHANGED")
 end
 
@@ -37,44 +39,50 @@ function Data.Receive(r, sender)
 	if not ns.IsFederation(r.guild) then return false end
 	-- Our own guild comes straight from our roster, never from someone else's claim.
 	if r.guild == GetGuildInfo("player") then return false end
-	local who = ns.ShortName(sender)
+	local who = ns.FullName(sender)
 	if senderGuild[who] and senderGuild[who] ~= r.guild then
 		ns.Log("ignored %s: already reported %s, now claims %s", who, senderGuild[who], r.guild)
 		return false
 	end
 	senderGuild[who] = r.guild
-	local previous = ns.db.guilds[r.guild]
-	if previous and previous.reporter and previous.reporter ~= who and not ns.db.demo then
+	local previous = ns.rdb.guilds[r.guild]
+	local previousWho = previous and (previous.reporterFull or ns.FullName(previous.reporter))
+	if previousWho and previousWho ~= who and not ns.db.demo then
 		if (previous.leader or "") ~= (r.leader or "") or math.abs((previous.total or 0) - (r.total or 0)) > 25 then
 			r.conflict = true
-			ns.Log("conflict on %s: %s says %s/%d, %s says %s/%d", r.guild, previous.reporter, tostring(previous.leader),
+			ns.Log("conflict on %s: %s says %s/%d, %s says %s/%d", r.guild, previousWho, tostring(previous.leader),
 				previous.total or 0, who, tostring(r.leader), r.total or 0)
 		end
 	end
 	r.t = ns.Now()
-	r.reporter = who
-	ns.db.guilds[r.guild] = r
+	r.reporter = ns.DisplayName(who)
+	r.reporterFull = who
+	r.realm = ns.RealmOf(who) or ns.realm
+	ns.rdb.guilds[r.guild] = r
 	ns.Fire("DATA_CHANGED")
 	return true
 end
 
 -- What rank does this sender really have in that guild? Our own guild: from our roster.
 -- Other guilds: from that guild's report (leader = 0, officers = 1). nil = unknown.
+-- Names in a report without a realm belong to the reporter's realm, so a same-named
+-- player from another realm never matches.
 function Data.KnownRank(sender, guild)
-	local who = ns.ShortName(sender)
+	local who = ns.FullName(sender)
 	if guild == GetGuildInfo("player") then return ns.Roster.RankOf(who) end
-	local g = ns.db.guilds[guild]
+	local g = ns.rdb.guilds[guild]
 	if not g or g.conflict then return nil end
-	if g.leader == who then return 0 end
+	local home = g.realm or ns.realm
+	if g.leader and ns.FullName(g.leader, home) == who then return 0 end
 	for _, o in ipairs(g.officers or {}) do
-		if o.name == who then return 1 end
+		if ns.FullName(o.name, home) == who then return 1 end
 	end
 	return nil
 end
 
 local function Source()
 	if ns.db.demo then return ns.demoGuilds or {} end
-	return ns.db.guilds
+	return ns.rdb.guilds
 end
 
 function Data.Summary()

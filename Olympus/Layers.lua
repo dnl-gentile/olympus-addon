@@ -12,11 +12,12 @@ ns.Layers = Layers
 
 local ANNOUNCE_EVERY = 600
 local MIN_GAP = 30
-local EXPIRE = 10 * 60
+local EXPIRE = 2 * ANNOUNCE_EVERY + 60 -- a missed announce does not drop anyone
 
 local mine          -- { mapID, zoneUID, t }
 local lastAnnounce = 0
-local seen = {}     -- [mapID][zoneUID][sender] = { rank, guild, t }
+local seen = {}     -- [mapID][zoneUID]["Name-Realm"] = { rank, guild, t }
+local where = {}    -- ["Name-Realm"] = { mapID, zoneUID }: each sender counts on one layer only
 
 local function ZoneUIDFromGUID(guid)
 	if not guid then return nil end
@@ -67,10 +68,33 @@ end
 
 function Layers.Receive(sender, l)
 	if not ns.IsFederation(l.guild) then return end
+	sender = ns.FullName(sender)
+	local old = where[sender]
+	if old and seen[old[1]] and seen[old[1]][old[2]] then seen[old[1]][old[2]][sender] = nil end
+	where[sender] = { l.mapID, l.zoneUID }
 	seen[l.mapID] = seen[l.mapID] or {}
 	seen[l.mapID][l.zoneUID] = seen[l.mapID][l.zoneUID] or {}
-	seen[l.mapID][l.zoneUID][ns.ShortName(sender)] = { rank = l.rank, guild = l.guild, t = ns.Now() }
+	-- The rank written in the message is not trusted: only verified Lords and Captains
+	-- (or ranks from our own roster) can give a layer its name.
+	local rank = ns.Data.KnownRank(sender, l.guild) or 9
+	seen[l.mapID][l.zoneUID][sender] = { rank = rank, guild = l.guild, t = ns.Now() }
 	ns.Fire("LAYERS_CHANGED")
+end
+
+local function Prune()
+	local now = ns.Now()
+	for mapID, layers in pairs(seen) do
+		for zoneUID, members in pairs(layers) do
+			for name, m in pairs(members) do
+				if now - m.t > EXPIRE then
+					members[name] = nil
+					where[name] = nil
+				end
+			end
+			if not next(members) then layers[zoneUID] = nil end
+		end
+		if not next(layers) then seen[mapID] = nil end
+	end
 end
 
 -- Seniority: rank first (0 = guild master), then the bigger guild, then name.
@@ -94,14 +118,14 @@ function Layers.ForMap(mapID)
 		for name, m in pairs(members) do
 			if now - m.t <= EXPIRE then
 				count = count + 1
-				local cand = { name = name, rank = m.rank, guild = m.guild }
+				local cand = { name = ns.DisplayName(name), rank = m.rank, guild = m.guild }
 				if not best or Better(cand, best, sizes) then best = cand end
 			end
 		end
 		local isMine = mine and mine.mapID == mapID and mine.zoneUID == zoneUID
 		if isMine then
 			count = count + 1
-			local me = { name = ns.ShortName(ns.me), rank = ns.Roster.MyRank(), guild = GetGuildInfo("player") or "" }
+			local me = { name = ns.DisplayName(ns.me), rank = ns.Roster.MyRank(), guild = GetGuildInfo("player") or "" }
 			if not best or Better(me, best, sizes) then best = me end
 		end
 		if count > 0 then
@@ -111,7 +135,7 @@ function Layers.ForMap(mapID)
 	if mine and mine.mapID == mapID and not (source[mapID] and source[mapID][mine.zoneUID]) then
 		out[#out + 1] = {
 			zoneUID = mine.zoneUID, count = 1, mine = true,
-			head = { name = ns.ShortName(ns.me), rank = ns.Roster.MyRank(), guild = GetGuildInfo("player") or "" },
+			head = { name = ns.DisplayName(ns.me), rank = ns.Roster.MyRank(), guild = GetGuildInfo("player") or "" },
 		}
 	end
 	table.sort(out, function(a, b)
@@ -154,7 +178,10 @@ ns.On("LOGIN", function()
 	ns.RegisterEvent("UPDATE_MOUSEOVER_UNIT", function() Observe("mouseover") end)
 	ns.RegisterEvent("NAME_PLATE_UNIT_ADDED", function(unit) Observe(unit) end)
 	ns.RegisterEvent("ZONE_CHANGED_NEW_AREA", function() mine = nil; ns.Fire("LAYERS_CHANGED") end)
-	ns.Every(60, "layer announce", function() Announce(false) end)
+	ns.Every(60, "layer announce", function()
+		Prune()
+		Announce(false)
+	end)
 end)
 
 ns.On("DEMO_CHANGED", function(on)

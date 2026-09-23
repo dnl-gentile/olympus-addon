@@ -57,12 +57,17 @@ function Roster.Scan()
 	local seen, seenOffline, zoneCount, levelSum = 0, 0, 0, 0
 	local everyone = {}
 	local byName = {}
+	local realms = {} -- realm suffixes seen in the roster, for diagnostics
 	for i = 1, numTotal do
 		local name, rankName, rankIndex, level, _, zone, _, _, isOnline, _, classFile = GetGuildRosterInfo(i)
 		if name then
 			seen = seen + 1
-			local short = ns.ShortName(name)
-			byName[short] = rankIndex or 9
+			-- Identity is "Name-Realm"; reports carry the short form for our own realm.
+			local full = ns.FullName(name)
+			local short = ns.DisplayName(full)
+			byName[full] = rankIndex or 9
+			local suffix = ns.RealmOf(full) or "?"
+			realms[suffix] = (realms[suffix] or 0) + 1
 			local days = DaysOffline(i, isOnline)
 			level = level or 1
 			levelSum = levelSum + level
@@ -114,6 +119,7 @@ function Roster.Scan()
 	for i = 1, math.min(5, #everyone) do r.top[i] = everyone[i] end
 	r.avgLevel = seen > 0 and levelSum / seen or 0
 	Roster.byName = byName
+	Roster.realms = realms
 	if numOnline and numOnline > r.online then r.online = numOnline end
 	local ms = debugprofilestop and (debugprofilestop() - started) or 0
 	Roster.lastStats = {
@@ -128,7 +134,7 @@ end
 
 -- Rank of a member of OUR guild, from the roster the server gave us (nil if not a member).
 function Roster.RankOf(name)
-	return Roster.byName and Roster.byName[ns.ShortName(name)]
+	return Roster.byName and name and Roster.byName[ns.FullName(name)]
 end
 
 -- Our own rank index (0 = guild master), used for layer names and decree permission.

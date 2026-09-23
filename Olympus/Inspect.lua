@@ -301,7 +301,7 @@ function Inspect.PublishShame()
 	end
 	local guild, _, rankIndex = GetGuildInfo("player")
 	ns.Comm.SendChunked(ns.Codec.EncodeShame(guild, rankIndex, list))
-	Inspect.ShowShame({ by = ns.ShortName(ns.me), guild = guild, list = list, t = ns.Now() })
+	Inspect.ShowShame({ by = ns.DisplayName(ns.me), guild = guild, list = list, t = ns.Now() })
 end
 
 function Inspect.ShowShame(shame)
@@ -328,7 +328,7 @@ ns.Comm.Handle("S1", function(dist, sender, text)
 	if not s or not ns.IsFederation(s.guild) then return end
 	local rank = ns.Data.KnownRank(sender, s.guild)
 	if not rank or not ns.IsCrownRank(s.guild, rank) then return end
-	Inspect.ShowShame({ by = ns.ShortName(sender), guild = s.guild, list = s.list, t = ns.Now() })
+	Inspect.ShowShame({ by = ns.DisplayName(sender), guild = s.guild, list = s.list, t = ns.Now() })
 end)
 
 ---------------------------------------------------------------------------

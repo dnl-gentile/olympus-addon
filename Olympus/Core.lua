@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.7.7"
+ns.VERSION = "0.7.8"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild
 ns.ICON = "Interface\\AddOns\\Olympus\\media\\logo64"
@@ -56,11 +56,39 @@ function ns.ShortName(name)
 	return (name:gsub("%-.*$", ""))
 end
 
+-- This realm's key, the same form the server uses in "Name-Realm" (no spaces or dashes).
+function ns.CurrentRealm()
+	local realm = GetNormalizedRealmName and GetNormalizedRealmName()
+	if not realm or realm == "" then realm = ((GetRealmName and GetRealmName()) or ""):gsub("[%s%-]", "") end
+	return realm ~= "" and realm or "?"
+end
+
+-- Identity is always "Name-Realm". Names without a realm belong to `realm` (default: ours).
+-- Comparing short names let a same-named player from another realm pass as someone else.
+function ns.FullName(name, realm)
+	if not name or name == "" or name:find("-", 1, true) then return name end
+	realm = realm or ns.realm
+	if not realm or realm == "" or realm == "?" then return name end
+	return name .. "-" .. realm
+end
+
+function ns.RealmOf(name)
+	return name and name:match("%-(.+)$")
+end
+
+-- Short name for people on our realm, Name-Realm for anyone else.
+function ns.DisplayName(name)
+	if not name then return nil end
+	local realm = ns.RealmOf(name)
+	if not realm or realm == ns.realm then return ns.ShortName(name) end
+	return name
+end
+
 function ns.PlayerName()
 	local name, realm = UnitFullName("player")
-	if not realm or realm == "" then realm = GetNormalizedRealmName and GetNormalizedRealmName() or "" end
 	if not name then return "?" end
-	if realm and realm ~= "" then return name .. "-" .. realm end
+	if not realm or realm == "" then realm = ns.realm or ns.CurrentRealm() end
+	if realm and realm ~= "" and realm ~= "?" then return name .. "-" .. realm end
 	return name
 end
 
@@ -207,7 +235,6 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 	for k, v in pairs(DEFAULTS) do
 		if db[k] == nil then db[k] = v end
 	end
-	db.guilds = db.guilds or {}
 	db.blocked = db.blocked or {}
 	db.pattern = nil
 	db.log = db.log or {}
@@ -224,8 +251,29 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 		db.demo = false
 		db.configVersion = 3
 	end
+	-- Guild reports and the realm key belong to one realm: alts on another realm (PvP and
+	-- PvP 2 in the beta) must not mix their census or join the other realm's sealed channel.
+	ns.realm = ns.CurrentRealm()
+	db.realms = db.realms or {}
+	local R = db.realms[ns.realm] or {}
+	db.realms[ns.realm] = R
+	R.guilds = R.guilds or {}
+	if db.guilds or db.realmKey then
+		-- One-time move of the old account-wide data to the realm we are on now.
+		if R.realmKey == nil then R.realmKey = db.realmKey end
+		for k, v in pairs(db.guilds or {}) do if R.guilds[k] == nil then R.guilds[k] = v end end
+		db.guilds, db.realmKey = nil, nil
+	end
+	-- Block list keys become "name-realm" (old keys were short names from this realm).
+	for k in pairs(db.blocked) do
+		if not k:find("-", 1, true) then
+			db.blocked[k] = nil
+			db.blocked[(k .. "-" .. ns.realm):lower()] = true
+		end
+	end
+	ns.rdb = R
 	ns.db = db
-	ns.Log("---- session %d, v%s ----", db.sessions, ns.VERSION)
+	ns.Log("---- session %d, v%s, realm %s ----", db.sessions, ns.VERSION, ns.realm)
 	ns.Fire("INIT")
 end)
 
@@ -309,7 +357,7 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Comm.SetRealmKey(rest)
 		elseif cmd == "block" then
 			if rest ~= "" then
-				ns.db.blocked[ns.ShortName(rest):lower()] = true
+				ns.db.blocked[ns.FullName(rest):lower()] = true
 				ns.Print("blocked " .. rest)
 			end
 		elseif cmd == "layer" then
@@ -321,7 +369,7 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.db.debug = not ns.db.debug
 			ns.Print("debug = " .. tostring(ns.db.debug))
 		elseif cmd == "reset" then
-			wipe(ns.db.guilds)
+			wipe(ns.rdb.guilds)
 			ns.Fire("DATA_CHANGED")
 			ns.Print("cache cleared")
 		elseif cmd == "error" then

@@ -118,7 +118,7 @@ ns.Comm.Handle("P1", function(dist, sender, text)
 	local p = ns.Codec.DecodePosition(text)
 	if not p then return end
 	p.t = ns.Now()
-	mates[ns.ShortName(sender)] = p
+	mates[ns.DisplayName(sender)] = p
 end)
 
 -- Demo: a dozen fake guildmates wandering around you, so the map can be shown off.

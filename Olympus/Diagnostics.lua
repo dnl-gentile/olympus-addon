@@ -63,12 +63,46 @@ for _, event in ipairs({ "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }) do
 	end)
 end
 
+-- "a=3 b=1", sorted, for small count tables.
+local function CountList(t)
+	local out = {}
+	for k, v in pairs(t or {}) do out[#out + 1] = k .. "=" .. v end
+	table.sort(out)
+	return #out > 0 and table.concat(out, " ") or "none"
+end
+
+-- Everything that tells two realms apart, to settle whether PvP and PvP 2 share anything.
+local function RealmLine()
+	local guid = UnitGUID and UnitGUID("player")
+	local serverID = guid and guid:match("^Player%-(%d+)%-")
+	local linked = GetAutoCompleteRealms and GetAutoCompleteRealms() or nil
+	local _, _, _, guildRealm = GetGuildInfo("player")
+	return ("%s (normalized %s, stored as %s)  serverID=%s  guildRealm=%s  connected=%s  roster realms: %s"):format(
+		tostring(GetRealmName and GetRealmName()), tostring(GetNormalizedRealmName and GetNormalizedRealmName()),
+		tostring(ns.realm), tostring(serverID), tostring(guildRealm),
+		linked and #linked > 0 and table.concat(linked, ",") or "none",
+		CountList(ns.Roster and ns.Roster.realms))
+end
+
+-- How many players are in our channel, when the client knows (it may not until asked).
+local function ChannelMembers(name)
+	if not name or not GetNumDisplayChannels or not GetChannelDisplayInfo then return nil end
+	local ok, n = pcall(function()
+		for i = 1, GetNumDisplayChannels() do
+			local cname, _, _, _, count = GetChannelDisplayInfo(i)
+			if cname == name then return count end
+		end
+	end)
+	return ok and n or nil
+end
+
 function ns.StatusText()
 	local lines = {}
 	local function add(fmt, ...) lines[#lines + 1] = fmt:format(...) end
 	local guild = GetGuildInfo("player")
 	add("Olympus v%s  |  %s", ns.VERSION, ClientInfo())
-	add("player %s  |  realm %s  |  guild %s  |  olympus member: %s", tostring(ns.me), tostring(GetRealmName and GetRealmName()), tostring(guild), tostring(ns.IsMember()))
+	add("player %s  |  guild %s  |  olympus member: %s", tostring(ns.me), tostring(guild), tostring(ns.IsMember()))
+	add("realm: %s", RealmLine())
 	local st = ns.Roster and ns.Roster.lastStats
 	if st then
 		add("roster: total=%s online=%s rowsRead=%d offlineRows=%d leader=%s (%s) zones=%d scanMs=%.1f %s",
@@ -85,9 +119,10 @@ function ns.StatusText()
 		for k, v in pairs(c.byType or {}) do types[#types + 1] = k .. "=" .. v end
 		table.sort(types)
 		add("received by type: %s  |  incomplete reports: %d waiting, %d dropped", #types > 0 and table.concat(types, " ") or "none", c.pending or 0, c.partial or 0)
+		add("senders by realm: %s  |  own echoes: %d  |  channel members: %s", CountList(c.realms), c.echo or 0, tostring(ChannelMembers(c.channelName)))
 	end
 	local n = 0
-	for _ in pairs(ns.db.guilds) do n = n + 1 end
+	for _ in pairs(ns.rdb.guilds) do n = n + 1 end
 	add("cached guilds=%d  |  demo=%s  |  map=%s  |  errors=%d  |  sessions=%d", n, tostring(ns.db.demo), tostring(ns.db.showMap), #ns.db.errors, ns.db.sessions or 0)
 	add("map lib: %s  |  zones indexed=%d", tostring(ns.Map and ns.Map.libOk), ns.Zones and ns.Zones.Count() or 0)
 	return table.concat(lines, "\n")

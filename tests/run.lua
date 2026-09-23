@@ -75,6 +75,8 @@ for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", 
 end
 ns.db = { guilds = {}, log = {}, errors = {}, blocked = {}, demo = false, showMap = true }
 ns.me = "Tester-Realm"
+ns.realm = "Realm"
+ns.rdb = { guilds = {} }
 function ns.Fire() end
 
 ---------------------------------------------------------------------------
@@ -156,7 +158,7 @@ end)
 
 test("summary sums fresh guilds and ignores stale ones and non-Olympus", function()
 	local now = os.time()
-	ns.db.guilds = {
+	ns.rdb.guilds = {
 		["Olympus"] = { total = 1000, online = 200, zones = { m1453 = 150, m1429 = 50 }, t = now },
 		["Olympus II"] = { total = 800, online = 100, zones = { m1453 = 100 }, t = now - 60 },
 		["Olympus Old"] = { total = 500, online = 50, zones = { m1436 = 50 }, t = now - 3600 },
@@ -170,10 +172,10 @@ test("summary sums fresh guilds and ignores stale ones and non-Olympus", functio
 end)
 
 test("receive refuses reports about our own guild", function()
-	ns.db.guilds = {}
+	ns.rdb.guilds = {}
 	eq(ns.Data.Receive({ guild = MY_GUILD, total = 1, online = 1, zones = {} }, "Liar-Realm"), false)
 	eq(ns.Data.Receive({ guild = "Olympus Zeus", total = 1, online = 1, zones = {} }, "Zed-Realm"), true)
-	eq(ns.db.guilds["Olympus Zeus"].reporter, "Zed")
+	eq(ns.rdb.guilds["Olympus Zeus"].reporter, "Zed")
 end)
 
 test("demo data builds 14 guilds", function()
@@ -270,20 +272,53 @@ test("layer named after the highest rank present", function()
 	ns.db.demo = false
 	C_Map.GetBestMapForUnit = function() return 1453 end
 	ns.Data.Summary = ns.Data.Summary
-	ns.db.guilds = { ["Olympus"] = { total = 1000, online = 1, zones = {}, t = os.time() },
-		["Olympus II"] = { total = 500, online = 1, zones = {}, t = os.time() } }
+	ns.rdb.guilds = { ["Olympus"] = { total = 1000, online = 1, zones = {}, t = os.time(), leader = "Kingy" },
+		["Olympus II"] = { total = 500, online = 1, zones = {}, t = os.time(), leader = "Lordy" } }
 	ns.Layers.Receive("Grunt-Realm", { mapID = 1453, zoneUID = 7, rank = 4, guild = "Olympus" })
+	-- Claims rank 0 but is nobody's Lord: counted, but cannot name the layer.
+	ns.Layers.Receive("Aaron-Realm", { mapID = 1453, zoneUID = 7, rank = 0, guild = "Olympus" })
 	ns.Layers.Receive("Lordy-Realm", { mapID = 1453, zoneUID = 7, rank = 0, guild = "Olympus II" })
 	ns.Layers.Receive("Kingy-Realm", { mapID = 1453, zoneUID = 7, rank = 0, guild = "Olympus" })
 	ns.Layers.Receive("Solo-Realm", { mapID = 1453, zoneUID = 8, rank = 3, guild = "Olympus" })
 	local layers = ns.Layers.ForMap(1453)
-	eq(#layers, 2); eq(layers[1].count, 3)
+	eq(#layers, 2); eq(layers[1].count, 4)
 	eq(ns.Layers.Name(layers[1]), "Kingy's layer", "rank 0 of the bigger guild wins")
+	-- A sender who moves counts on the new layer only.
+	ns.Layers.Receive("Grunt-Realm", { mapID = 1453, zoneUID = 8, rank = 4, guild = "Olympus" })
+	eq(ns.Layers.ForMap(1453)[1].count, 3, "moved sender left the old layer")
 	ns.db.demo = true
 	ns.Layers.BuildDemo()
 	eq(#ns.Layers.ForMap(1437), 3, "demo layers follow any zone")
 	ns.db.demo = false
 	eq(ns.Layers.Name(layers[2]), "Solo's layer")
+end)
+
+test("names carry the realm, so namesakes on other realms stay apart", function()
+	eq(ns.FullName("Zed"), "Zed-Realm")
+	eq(ns.FullName("Zed-Other"), "Zed-Other")
+	eq(ns.DisplayName("Zed-Realm"), "Zed", "own realm shows short")
+	eq(ns.DisplayName("Zed-Other"), "Zed-Other", "other realm keeps the suffix")
+	ns.rdb.guilds = { ["Olympus Zeus"] = { total = 10, online = 1, zones = {}, t = os.time(), leader = "Zed", realm = "Realm",
+		officers = { { name = "Capt", online = true, days = 0 } } } }
+	eq(ns.Data.KnownRank("Zed", "Olympus Zeus"), 0, "short name from our realm")
+	eq(ns.Data.KnownRank("Zed-Realm", "Olympus Zeus"), 0)
+	eq(ns.Data.KnownRank("Zed-Other", "Olympus Zeus"), nil, "namesake on another realm is not the Lord")
+	eq(ns.Data.KnownRank("Capt-Other", "Olympus Zeus"), nil, "namesake officer rejected")
+	eq(ns.Data.KnownRank("Capt-Realm", "Olympus Zeus"), 1)
+	-- A guild reported from another realm: its short names belong to that realm.
+	ns.rdb.guilds["Olympus Far"] = { total = 10, online = 1, zones = {}, t = os.time(), leader = "Kay", realm = "Other" }
+	eq(ns.Data.KnownRank("Kay-Other", "Olympus Far"), 0)
+	eq(ns.Data.KnownRank("Kay-Realm", "Olympus Far"), nil)
+	ns.rdb.guilds = {}
+end)
+
+test("reporter election compares full names", function()
+	local now = os.time()
+	eq(ns.Codec.PickReporter("Tester-Realm", { ["Abe-Realm"] = now }, now, 180), "Abe-Realm")
+	eq(ns.Codec.PickReporter("Tester-Realm", { ["Abe-Realm"] = now - 999 }, now, 180), "Tester-Realm", "stale peer ignored")
+	eq(ns.Roster.RankOf("Member1"), 0, "our roster answers short names")
+	eq(ns.Roster.RankOf("Member1-Realm"), 0)
+	eq(ns.Roster.RankOf("Member1-Other"), nil, "namesake from another realm is not in our guild")
 end)
 
 test("crown permissions", function()
@@ -323,7 +358,7 @@ end)
 
 test("ranks are verified, not taken from the message", function()
 	ns.Roster.Scan()
-	ns.db.guilds = {
+	ns.rdb.guilds = {
 		["Olympus"] = { guild = "Olympus", leader = "Asmongold", officers = { { name = "Capt" } }, total = 1000, online = 1, zones = {}, t = os.time() },
 		["Olympus Bad"] = { guild = "Olympus Bad", leader = "X", conflict = true, total = 1, online = 1, zones = {}, t = os.time() },
 	}
@@ -335,7 +370,7 @@ test("ranks are verified, not taken from the message", function()
 end)
 
 test("a sender can only report one guild", function()
-	ns.db.guilds = {}
+	ns.rdb.guilds = {}
 	eq(ns.Data.Receive({ guild = "Olympus Zeus", total = 5, online = 1, zones = {} }, "Liar2-Realm"), true)
 	eq(ns.Data.Receive({ guild = "Olympus Fake", total = 900, online = 1, zones = {} }, "Liar2-Realm"), false)
 end)
@@ -344,10 +379,10 @@ test("sealed channel name comes from the key", function()
 	local a, b = ns.Comm.Hash36("secret-one"), ns.Comm.Hash36("secret-one")
 	eq(a, b); eq(#a, 8)
 	assert(ns.Comm.Hash36("secret-two") ~= a)
-	ns.db.realmKey = "secret-one"
+	ns.rdb.realmKey = "secret-one"
 	local name, password = ns.Comm.ChannelSpec()
 	eq(name, "Oly" .. a); eq(password, "secret-one")
-	ns.db.realmKey = nil
+	ns.rdb.realmKey = nil
 	eq((ns.Comm.ChannelSpec()), "OlympusNet")
 end)
 
@@ -459,7 +494,7 @@ test("map refresh runs end to end with a map library (continent totals included)
 	mapChunk("Olympus", ns)
 	ns.db.showMap = true
 	ns.db.demo = false
-	ns.db.guilds = { ["Olympus"] = { total = 100, online = 10, zones = { m1453 = 7, m1429 = 3 }, t = os.time() } }
+	ns.rdb.guilds = { ["Olympus"] = { total = 100, online = 10, zones = { m1453 = 7, m1429 = 3 }, t = os.time() } }
 	ns.Map.Refresh()
 	ns.CaptureError = savedCapture
 	LibStub, CreateFrame, WorldMapFrame, C_Map.GetMapInfo = savedLibStub, savedCreateFrame, savedWMF, oldInfo
