@@ -1,0 +1,248 @@
+local ADDON, ns = ...
+local L = ns.L
+
+-- World map markers: one circle per zone with the number of Olympus members there.
+-- Uses HereBeDragons-Pins (the same library Questie uses), shown on the zone map,
+-- its parent and the continent. A checkbox on the map toggles them, like Questie.
+
+local Map = {}
+ns.Map = Map
+
+local Pins = ns.Pins()
+Map.libOk = Pins ~= nil
+
+local SHOW_FLAG = HBD_PINS_WORLDMAP_SHOW_CONTINENT or 2
+local pool, active = {}, {}
+local refreshQueued = false
+
+local function ShortCount(n)
+	if n >= 10000 then return ("%dk"):format(math.floor(n / 1000)) end
+	if n >= 1000 then return ("%.1fk"):format(n / 1000) end
+	return tostring(n)
+end
+
+local function PinEnter(self)
+	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+	GameTooltip:AddLine(ns.Zones.NameForKey(self.key), 1, 0.82, 0)
+	GameTooltip:AddLine(L.PIN_TOTAL:format(ns.FormatNumber(self.count)), 1, 1, 1)
+	local list = {}
+	for name, n in pairs(self.guilds or {}) do list[#list + 1] = { name, n } end
+	table.sort(list, function(a, b) return a[2] > b[2] end)
+	for i = 1, math.min(10, #list) do
+		GameTooltip:AddDoubleLine(list[i][1], ns.FormatNumber(list[i][2]), 0.8, 0.8, 0.8, 1, 1, 1)
+	end
+	GameTooltip:Show()
+end
+
+local function CreatePin()
+	local p = CreateFrame("Frame", nil, UIParent)
+	p:SetSize(20, 20)
+	p:EnableMouse(true)
+	p.edge = p:CreateTexture(nil, "BACKGROUND", nil, -1)
+	p.edge:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
+	p.edge:SetVertexColor(0.9, 0.76, 0.36, 0.95)
+	p.edge:SetPoint("TOPLEFT", -2, 2)
+	p.edge:SetPoint("BOTTOMRIGHT", 2, -2)
+	p.bg = p:CreateTexture(nil, "BACKGROUND", nil, 1)
+	p.bg:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
+	p.bg:SetVertexColor(0.12, 0.07, 0.02, 0.9)
+	p.bg:SetAllPoints()
+	p.text = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	p.text:SetPoint("CENTER", 0, 0)
+	p:SetScript("OnEnter", PinEnter)
+	p:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	return p
+end
+
+function Map.Refresh()
+	refreshQueued = false
+	if not Pins then return end
+	Pins:RemoveAllWorldMapIcons(Map)
+	for i = #active, 1, -1 do
+		active[i]:Hide()
+		pool[#pool + 1] = active[i]
+		active[i] = nil
+	end
+	if not ns.db.showMap then return end
+	local s = ns.Data.Summary()
+	for _, z in ipairs(s.zoneList) do
+		local mapID = ns.Zones.MapID(z.key)
+		if mapID and z.count > 0 then
+			local p = table.remove(pool) or CreatePin()
+			local size = math.min(34, 16 + math.floor(5 * math.log10(z.count)))
+			p:SetSize(size, size)
+			p.text:SetText(ShortCount(z.count))
+			p.key, p.count, p.guilds = z.key, z.count, s.zoneGuilds[z.key]
+			Pins:AddWorldMapIconMap(Map, p, mapID, 0.5, 0.5, SHOW_FLAG)
+			active[#active + 1] = p
+		end
+	end
+	AddContinentTotals(s)
+end
+
+-- Totals per continent, drawn only on the world (Azeroth) map.
+local WORLD_MAP = 947
+local CONTINENT = (Enum and Enum.UIMapType and Enum.UIMapType.Continent) or 2
+local continentOf = {}
+local function ContinentOf(mapID)
+	if continentOf[mapID] ~= nil then return continentOf[mapID] end
+	local id, guard = mapID, 0
+	while id and guard < 10 do
+		local info = C_Map.GetMapInfo(id)
+		if not info then break end
+		if info.mapType == CONTINENT then
+			continentOf[mapID] = id
+			return id
+		end
+		id, guard = info.parentMapID, guard + 1
+	end
+	continentOf[mapID] = false
+	return false
+end
+
+-- { [continentMapID] = count } plus per-guild breakdown, from a Data.Summary().
+function Map.ContinentTotals(s)
+	local totals, guilds = {}, {}
+	for _, z in ipairs(s.zoneList) do
+		local mapID = ns.Zones.MapID(z.key)
+		local cont = mapID and ContinentOf(mapID)
+		if cont then
+			totals[cont] = (totals[cont] or 0) + z.count
+			guilds[cont] = guilds[cont] or {}
+			for name, n in pairs(s.zoneGuilds[z.key] or {}) do guilds[cont][name] = (guilds[cont][name] or 0) + n end
+		end
+	end
+	return totals, guilds
+end
+
+local function AddContinentTotals(s)
+	local totals, guilds = {}, {}
+	for _, z in ipairs(s.zoneList) do
+		local mapID = ns.Zones.MapID(z.key)
+		local cont = mapID and ContinentOf(mapID)
+		if cont then
+			totals[cont] = (totals[cont] or 0) + z.count
+			guilds[cont] = guilds[cont] or {}
+			for name, n in pairs(s.zoneGuilds[z.key] or {}) do guilds[cont][name] = (guilds[cont][name] or 0) + n end
+		end
+	end
+	for cont, count in pairs(totals) do
+		local left, right, top, bottom
+		if C_Map.GetMapRectOnMap then left, right, top, bottom = C_Map.GetMapRectOnMap(cont, WORLD_MAP) end
+		if left then
+			local p = table.remove(pool) or CreatePin()
+			p:SetSize(40, 40)
+			p.text:SetText(ShortCount(count))
+			p.key, p.count, p.guilds = "m" .. cont, count, guilds[cont]
+			Pins:AddWorldMapIconMap(Map, p, WORLD_MAP, (left + right) / 2, (top + bottom) / 2, HBD_PINS_WORLDMAP_SHOW_CURRENT or 0)
+			active[#active + 1] = p
+		end
+	end
+end
+
+local function QueueRefresh()
+	if refreshQueued then return end
+	refreshQueued = true
+	ns.After(1, "map refresh", Map.Refresh)
+end
+
+-- "Olympus" menu on the world map: everything map related lives here, like Questie's toggle.
+local toggle, menu
+local OPTIONS = {
+	{ key = "showMap", label = "MAPOPT_ZONES", apply = function() Map.Refresh() end },
+	{ key = "showDecrees", label = "MAPOPT_DECREES", apply = function() ns.Decree.RefreshPins() end },
+}
+
+local function CreateMapToggle()
+	if toggle or not WorldMapFrame then return end
+	local anchor = WorldMapFrame.ScrollContainer or WorldMapFrame
+	-- Round, bottom right corner of the map (Questie uses the top right).
+	toggle = ns.MakeRoundButton("OlympusMapToggle", WorldMapFrame, 30)
+	toggle:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -6, 6)
+	toggle:SetFrameLevel(anchor:GetFrameLevel() + 50)
+
+	local okMenu, m = pcall(CreateFrame, "Frame", "OlympusMapMenu", toggle, "BackdropTemplate")
+	menu = okMenu and m or CreateFrame("Frame", "OlympusMapMenuPlain", toggle)
+	menu:SetSize(170, 24 + #OPTIONS * 22)
+	menu:SetPoint("BOTTOMRIGHT", toggle, "TOPRIGHT", 0, 2)
+	if menu.SetBackdrop then
+		menu:SetBackdrop({
+			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			tile = true, tileSize = 16, edgeSize = 14,
+			insets = { left = 3, right = 3, top = 3, bottom = 3 },
+		})
+		menu:SetBackdropColor(0, 0, 0, 0.9)
+	end
+	local title = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	title:SetPoint("TOPLEFT", 10, -8)
+	title:SetText(L.TITLE)
+	menu.checks = {}
+	for i, opt in ipairs(OPTIONS) do
+		local cb = CreateFrame("CheckButton", nil, menu, "UICheckButtonTemplate")
+		cb:SetSize(20, 20)
+		cb:SetPoint("TOPLEFT", 6, -20 - (i - 1) * 22)
+		local label = menu:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		label:SetPoint("LEFT", cb, "RIGHT", 2, 1)
+		label:SetText(L[opt.label])
+		cb:SetScript("OnClick", function(self)
+			ns.db[opt.key] = self:GetChecked() and true or false
+			ns.SafeCall("map option", opt.apply)
+		end)
+		cb.opt = opt
+		menu.checks[i] = cb
+	end
+	menu:SetScript("OnShow", function(self)
+		for _, cb in ipairs(self.checks) do cb:SetChecked(ns.db[cb.opt.key]) end
+	end)
+	menu:Hide()
+	toggle:SetScript("OnClick", function() menu:SetShown(not menu:IsShown()) end)
+	toggle:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		GameTooltip:AddLine(L.TITLE, 1, 0.82, 0)
+		GameTooltip:AddLine(L.MAPOPT_TIP, 1, 1, 1)
+		GameTooltip:Show()
+	end)
+	toggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
+function Map.SetEnabled(on)
+	ns.db.showMap = on and true or false
+	if menu and menu:IsShown() then menu:GetScript("OnShow")(menu) end
+	ns.Print(ns.db.showMap and L.MAP_ON or L.MAP_OFF)
+	Map.Refresh()
+	ns.Fire("MAP_TOGGLED")
+end
+
+ns.On("DATA_CHANGED", QueueRefresh)
+
+ns.On("LOGIN", function()
+	if not Pins then
+		local raw = LibStub and LibStub("HereBeDragons-Pins-2.0", true)
+		-- A half-loaded library can still run its per-frame update and raise an error on
+		-- every frame. Stop it: no map features is fine, a flood of errors is not.
+		if raw and raw.updateFrame then
+			raw.updateFrame:SetScript("OnUpdate", nil)
+			raw.updateFrame:SetScript("OnEvent", nil)
+			raw.updateFrame:UnregisterAllEvents()
+			ns.Log("stopped the broken map library update loop")
+		end
+		local minors = LibStub and LibStub.minors or {}
+		ns.Log("map library unavailable: pins=%s minor=%s hbd=%s AddWorldMapIconMap=%s RemoveAll=%s AddMinimap=%s",
+			tostring(raw ~= nil), tostring(minors["HereBeDragons-Pins-2.0"]), tostring(minors["HereBeDragons-2.0"]),
+			tostring(raw and raw.AddWorldMapIconMap ~= nil), tostring(raw and raw.RemoveAllWorldMapIcons ~= nil),
+			tostring(raw and raw.AddMinimapIconMap ~= nil))
+		ns.Log("map env: WorldMapFrame=%s GetCanvas=%s pinPools=%s AddDataProvider=%s CreateUnsecuredRegionPoolInstance=%s CreateFramePool=%s MapCanvasPinMixin=%s Minimap=%s",
+			tostring(WorldMapFrame ~= nil), tostring(WorldMapFrame and WorldMapFrame.GetCanvas ~= nil),
+			type(WorldMapFrame and WorldMapFrame.pinPools), tostring(WorldMapFrame and WorldMapFrame.AddDataProvider ~= nil),
+			tostring(CreateUnsecuredRegionPoolInstance ~= nil), tostring(CreateFramePool ~= nil),
+			tostring(MapCanvasPinMixin ~= nil), tostring(Minimap ~= nil))
+	end
+	CreateMapToggle()
+	if not toggle then
+		ns.RegisterEvent("ADDON_LOADED", function(name)
+			if name == "Blizzard_WorldMap" then CreateMapToggle() end
+		end)
+	end
+	QueueRefresh()
+end)

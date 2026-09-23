@@ -1,0 +1,325 @@
+local ADDON, ns = ...
+
+-- Wire format. Pure functions, no WoW API, covered by tests/run.lua.
+--
+-- Report:  R2~guild~total~online~leader~leaderOnline~users~zones~classes~levels
+--             ~ranks~officers~leaderDays~inactive7~inactive30~avgLevel10~top
+--             ~leaderClass~leaderLevel~leaderZone
+--   zones   "m1453=204,m1429=61,tThe Stockade=5"   (m = uiMapID, t = zone text we could not resolve)
+--   classes "WA=40,PA=12,..."
+--   levels  7 comma separated counts: 1-9, 10-19, ..., 50-59, 60+
+-- Chunk:   C<id>:<i>:<n>:<piece>   (addon messages are limited to 255 bytes)
+-- Hello:   H1~<version>            (sent on GUILD so members with the addon find each other)
+
+local Codec = {}
+ns.Codec = Codec
+
+Codec.CHUNK = 220
+Codec.MAX_CHUNKS = 20
+local MAX_COUNT = 10000
+
+local function clean(s)
+	return (tostring(s or ""):gsub("[~=,:|\n\r]", ""))
+end
+
+local function split(s, sep)
+	local out, start = {}, 1
+	while true do
+		local i = s:find(sep, start, true)
+		if not i then
+			out[#out + 1] = s:sub(start)
+			return out
+		end
+		out[#out + 1] = s:sub(start, i - 1)
+		start = i + #sep
+	end
+end
+Codec.Split = split
+
+local function num(v)
+	local n = tonumber(v)
+	if not n or n ~= n then return nil end
+	n = math.floor(n)
+	if n < 0 then n = 0 elseif n > MAX_COUNT then n = MAX_COUNT end
+	return n
+end
+
+local function encMap(t)
+	local parts = {}
+	for k, v in pairs(t or {}) do
+		local key = clean(k)
+		if key ~= "" and v and v > 0 then parts[#parts + 1] = key .. "=" .. math.floor(v) end
+	end
+	table.sort(parts)
+	return table.concat(parts, ",")
+end
+
+local function decMap(s, maxEntries)
+	local t, n = {}, 0
+	for k, v in (s or ""):gmatch("([^,=]+)=(%d+)") do
+		n = n + 1
+		if n > maxEntries then break end
+		t[k:sub(1, 48)] = num(v)
+	end
+	return t
+end
+
+-- Ordered list of "name=count" (rank names keep their rank order).
+local function encList(list, max)
+	local parts = {}
+	for i = 1, math.min(#(list or {}), max) do
+		local e = list[i]
+		parts[#parts + 1] = clean(e.name) .. "=" .. math.floor(e.count or 0)
+	end
+	return table.concat(parts, ",")
+end
+
+local function decList(s, max)
+	local out = {}
+	for k, v in (s or ""):gmatch("([^,=]+)=(%d+)") do
+		if #out >= max then break end
+		out[#out + 1] = { name = k:sub(1, 32), count = num(v) or 0 }
+	end
+	return out
+end
+
+-- A person: "name:online:daysOffline:class:level:zoneKey" (the last three are optional,
+-- older versions sent only the first three). Used for officers.
+local function encPerson(o)
+	return ("%s:%d:%d:%s:%d:%s"):format(clean(o.name), o.online and 1 or 0, math.floor(o.days or 0),
+		clean(o.class or ""), math.floor(o.level or 0), clean(o.zone or ""))
+end
+
+local function decPerson(entry)
+	local p = split(entry, ":")
+	if not p[1] or p[1] == "" or not p[2] then return nil end
+	return {
+		name = p[1]:sub(1, 24),
+		online = p[2] == "1",
+		days = num(p[3]) or 0,
+		class = (p[4] and p[4] ~= "") and p[4]:sub(1, 12) or nil,
+		level = num(p[5]),
+		zone = (p[6] and p[6] ~= "") and p[6]:sub(1, 40) or nil,
+	}
+end
+
+local function encOfficers(list, max)
+	local parts = {}
+	for i = 1, math.min(#(list or {}), max) do parts[#parts + 1] = encPerson(list[i]) end
+	return table.concat(parts, ",")
+end
+
+local function decOfficers(s, max)
+	local out = {}
+	for entry in (s or ""):gmatch("[^,]+") do
+		if #out >= max then break end
+		local o = decPerson(entry)
+		if o then out[#out + 1] = o end
+	end
+	return out
+end
+
+-- Top levels: "name:level:class".
+local function encTop(list, max)
+	local parts = {}
+	for i = 1, math.min(#(list or {}), max) do
+		parts[#parts + 1] = ("%s:%d:%s"):format(clean(list[i].name), math.floor(list[i].level or 0), clean(list[i].class or ""))
+	end
+	return table.concat(parts, ",")
+end
+
+local function decTop(s, max)
+	local out = {}
+	for entry in (s or ""):gmatch("[^,]+") do
+		if #out >= max then break end
+		local p = split(entry, ":")
+		if p[1] and p[1] ~= "" and num(p[2]) then
+			out[#out + 1] = { name = p[1]:sub(1, 24), level = math.min(num(p[2]), 100), class = (p[3] and p[3] ~= "") and p[3]:sub(1, 12) or nil }
+		end
+	end
+	return out
+end
+
+Codec.MAX_OFFICERS = 12
+Codec.MAX_RANKS = 10
+Codec.MAX_TOP = 5
+
+function Codec.EncodeReport(r)
+	local levels = {}
+	for i = 1, 7 do levels[i] = math.floor((r.levels and r.levels[i]) or 0) end
+	return table.concat({
+		"R2",
+		clean(r.guild),
+		math.floor(r.total or 0),
+		math.floor(r.online or 0),
+		clean(r.leader or ""),
+		r.leaderOnline and 1 or 0,
+		math.floor(r.users or 0),
+		encMap(r.zones),
+		encMap(r.classes),
+		table.concat(levels, ","),
+		encList(r.ranks, Codec.MAX_RANKS),
+		encOfficers(r.officers, Codec.MAX_OFFICERS),
+		math.floor(r.leaderDays or 0),
+		math.floor(r.inactive7 or 0),
+		math.floor(r.inactive30 or 0),
+		math.floor((r.avgLevel or 0) * 10),
+		encTop(r.top, Codec.MAX_TOP),
+		clean(r.leaderClass or ""),
+		math.floor(r.leaderLevel or 0),
+		clean(r.leaderZone or ""),
+	}, "~")
+end
+
+function Codec.DecodeReport(s)
+	if type(s) ~= "string" or #s > Codec.CHUNK * Codec.MAX_CHUNKS then return nil end
+	local f = split(s, "~")
+	if (f[1] ~= "R1" and f[1] ~= "R2") or #f < 10 then return nil end
+	local guild = f[2]
+	if guild == "" or #guild > 24 then return nil end
+	local total, online = num(f[3]), num(f[4])
+	if not total or not online then return nil end
+	local levels = {}
+	local lv = split(f[10], ",")
+	for i = 1, 7 do levels[i] = num(lv[i]) or 0 end
+	local leader = f[5] ~= "" and f[5]:sub(1, 24) or nil
+	return {
+		guild = guild,
+		total = total,
+		online = math.min(online, total > 0 and total or online),
+		leader = leader,
+		leaderOnline = f[6] == "1",
+		users = num(f[7]) or 0,
+		zones = decMap(f[8], 120),
+		classes = decMap(f[9], 20),
+		levels = levels,
+		ranks = decList(f[11], Codec.MAX_RANKS),
+		officers = decOfficers(f[12], Codec.MAX_OFFICERS),
+		leaderDays = num(f[13]) or 0,
+		inactive7 = num(f[14]) or 0,
+		inactive30 = num(f[15]) or 0,
+		avgLevel = (num(f[16]) or 0) / 10,
+		top = decTop(f[17], Codec.MAX_TOP),
+		leaderClass = (f[18] and f[18] ~= "") and f[18]:sub(1, 12) or nil,
+		leaderLevel = num(f[19]),
+		leaderZone = (f[20] and f[20] ~= "") and f[20]:sub(1, 40) or nil,
+	}
+end
+
+---------------------------------------------------------------------------
+-- Small single-message types (always < 255 bytes, never chunked)
+--   P1~mapID~x~y~class          guild only: my position (x, y in 0..1000)
+--   L1~mapID~zoneUID~rankIndex~guild     channel: the layer I am on
+--   D1~kind~mapID~x~y~guild~rankIndex~text   channel: decree (ARMS / MUSTER)
+---------------------------------------------------------------------------
+
+function Codec.EncodePosition(mapID, x, y, class)
+	return ("P1~%d~%d~%d~%s"):format(mapID, math.floor(x * 1000 + 0.5), math.floor(y * 1000 + 0.5), clean(class or ""))
+end
+
+function Codec.DecodePosition(s)
+	local mapID, x, y, class = s:match("^P1~(%d+)~(%d+)~(%d+)~(%w*)$")
+	if not mapID then return nil end
+	x, y = tonumber(x), tonumber(y)
+	if x > 1000 or y > 1000 then return nil end
+	return { mapID = tonumber(mapID), x = x / 1000, y = y / 1000, class = class ~= "" and class or nil }
+end
+
+function Codec.EncodeLayer(mapID, zoneUID, rankIndex, guild)
+	return ("L1~%d~%d~%d~%s"):format(mapID, zoneUID, rankIndex or 9, clean(guild or ""))
+end
+
+function Codec.DecodeLayer(s)
+	local mapID, zoneUID, rank, guild = s:match("^L1~(%d+)~(%d+)~(%d+)~(.*)$")
+	if not mapID or #guild > 24 then return nil end
+	return { mapID = tonumber(mapID), zoneUID = tonumber(zoneUID), rank = math.min(tonumber(rank), 9), guild = guild }
+end
+
+Codec.DECREE_KINDS = { ARMS = true, MUSTER = true, ROYAL = true, HERALDRY = true }
+
+-- Wall of Shame (chunked, channel): S1~guild~rankIndex~name:guild,name:guild,...
+Codec.MAX_SHAME = 40
+
+function Codec.EncodeShame(guild, rankIndex, list)
+	local parts = {}
+	for i = 1, math.min(#list, Codec.MAX_SHAME) do
+		parts[#parts + 1] = clean(list[i].name) .. ":" .. clean(list[i].guild or "")
+	end
+	return ("S1~%s~%d~%s"):format(clean(guild), rankIndex or 9, table.concat(parts, ","))
+end
+
+function Codec.DecodeShame(s)
+	local guild, rank, body = s:match("^S1~([^~]*)~(%d+)~(.*)$")
+	if not guild or #guild > 24 then return nil end
+	local list = {}
+	for name, g in body:gmatch("([^,:]+):([^,]*)") do
+		if #list >= Codec.MAX_SHAME then break end
+		list[#list + 1] = { name = name:sub(1, 24), guild = g:sub(1, 24) }
+	end
+	return { guild = guild, rank = tonumber(rank), list = list }
+end
+
+function Codec.EncodeDecree(kind, mapID, x, y, guild, rankIndex, text)
+	local msg = ("D1~%s~%d~%d~%d~%s~%d~"):format(kind, mapID, math.floor(x * 1000 + 0.5), math.floor(y * 1000 + 0.5), clean(guild or ""), rankIndex or 9)
+	return msg .. clean(text or ""):sub(1, 250 - #msg)
+end
+
+function Codec.DecodeDecree(s)
+	local kind, mapID, x, y, guild, rank, text = s:match("^D1~(%u+)~(%d+)~(%d+)~(%d+)~([^~]*)~(%d+)~(.*)$")
+	if not kind or not Codec.DECREE_KINDS[kind] or #guild > 24 then return nil end
+	x, y = tonumber(x), tonumber(y)
+	if x > 1000 or y > 1000 then return nil end
+	return { kind = kind, mapID = tonumber(mapID), x = x / 1000, y = y / 1000, guild = guild, rank = tonumber(rank), text = text:sub(1, 120) }
+end
+
+function Codec.Chunk(payload, id)
+	local n = math.max(1, math.ceil(#payload / Codec.CHUNK))
+	local out = {}
+	for i = 1, n do
+		out[i] = ("C%s:%d:%d:"):format(id, i, n) .. payload:sub((i - 1) * Codec.CHUNK + 1, i * Codec.CHUNK)
+	end
+	return out
+end
+
+function Codec.NewAssembler()
+	return { buf = {} }
+end
+
+-- Returns the full payload once every chunk from this sender/id arrived.
+function Codec.Feed(asm, sender, msg, now)
+	local id, i, n, body = msg:match("^C(%w+):(%d+):(%d+):(.*)$")
+	if not id then return nil end
+	i, n = tonumber(i), tonumber(n)
+	if n < 1 or n > Codec.MAX_CHUNKS or i < 1 or i > n then return nil end
+	local key = sender .. "#" .. id
+	local e = asm.buf[key]
+	if not e or e.n ~= n then
+		e = { n = n, parts = {}, got = 0, t = now }
+		asm.buf[key] = e
+	end
+	if not e.parts[i] then
+		e.parts[i] = body
+		e.got = e.got + 1
+	end
+	if e.got == n then
+		asm.buf[key] = nil
+		return table.concat(e.parts)
+	end
+	return nil
+end
+
+function Codec.Gc(asm, now)
+	for k, e in pairs(asm.buf) do
+		if now - e.t > 60 then asm.buf[k] = nil end
+	end
+end
+
+-- One reporter per guild: the alphabetically first member that has the addon and was
+-- seen recently. Everyone computes the same answer, so no negotiation is needed.
+function Codec.PickReporter(selfName, peers, now, window)
+	local best = selfName
+	for name, t in pairs(peers) do
+		if now - t <= window and name < best then best = name end
+	end
+	return best
+end

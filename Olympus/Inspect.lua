@@ -1,0 +1,389 @@
+local ADDON, ns = ...
+local L = ns.L
+
+-- Tabard Inspection: inspects nearby Olympus members and records whether they wear a
+-- tabard. "Patrol" mode scans target, mouseover, party/raid and friendly nameplates on
+-- its own; officers can also mark any player or whole guild by hand. Results are kept in
+-- OlympusDB.inspect and can be copied to Discord.
+
+local Inspect = {}
+ns.Inspect = Inspect
+
+local TABARD_SLOT = INVSLOT_TABARD or 19
+Inspect.GUILD_TABARDS = { [5976] = true } -- "Guild Tabard"
+local RECHECK = 10 * 60   -- do not re-inspect the same player on patrol for 10 minutes
+local INTERVAL = 1.5      -- one inspect request at a time, spaced out
+local TIMEOUT = 4
+
+local STATUS_ORDER = { NONE = 1, OTHER = 2, UNKNOWN = 3, UNCHECKED = 4, GUILD = 5 }
+Inspect.STATUS_ORDER = STATUS_ORDER
+
+local patrol = false
+local queue, queued = {}, {}
+local pending -- { guid, unit, at }
+Inspect.stats = { requests = 0, ready = 0, timeouts = 0 }
+
+local function Store()
+	local db = ns.db
+	db.inspect = db.inspect or {}
+	db.inspect.players = db.inspect.players or {}
+	db.inspect.guildMarks = db.inspect.guildMarks or {}
+	return db.inspect
+end
+
+local function Source()
+	if ns.db.demo and ns.demoInspect then return ns.demoInspect end
+	return Store()
+end
+
+-- itemID nil + some other gear visible = really no tabard. Nothing visible at all usually
+-- means the inspect data did not load, so we call it UNKNOWN instead of accusing anyone.
+function Inspect.Classify(tabardID, anyGearVisible)
+	if tabardID then return Inspect.GUILD_TABARDS[tabardID] and "GUILD" or "OTHER" end
+	return anyGearVisible and "NONE" or "UNKNOWN"
+end
+
+function Inspect.IsPatrolling() return patrol end
+
+function Inspect.Record(name, guild, classFile, level, tabardID, anyGear)
+	local s = Store()
+	local p = s.players[name] or {}
+	local previous = p.status
+	p.name, p.guild, p.class, p.level = name, guild, classFile, level
+	p.item = tabardID
+	p.status = Inspect.Classify(tabardID, anyGear)
+	p.t = ns.Now()
+	s.players[name] = p
+	ns.Log("inspect %s <%s>: %s (%s)", name, tostring(guild), p.status, tostring(tabardID))
+	if (p.status == "NONE" or p.status == "OTHER") and previous ~= p.status then
+		local label = p.status == "NONE" and L.TABARD_NONE or L.TABARD_OTHER
+		ns.Print(("|cffff4040%s|r <%s>: %s"):format(ns.ShortName(name), guild or "?", label))
+		ns.PlayAlert("soft")
+	end
+	ns.Fire("INSPECT_CHANGED")
+	return p
+end
+
+local function Enqueue(unit, force)
+	if not UnitExists(unit) or not UnitIsPlayer(unit) or UnitIsUnit(unit, "player") then return end
+	local guid = UnitGUID(unit)
+	if not guid or queued[guid] or (pending and pending.guid == guid) then return end
+	local guild = GetGuildInfo(unit)
+	if not force and not ns.IsFederation(guild) then return end
+	if not force then
+		local p = Store().players[GetUnitName(unit, true)]
+		if p and p.status ~= "UNKNOWN" and p.status ~= "UNCHECKED" and ns.Now() - (p.t or 0) < RECHECK then return end
+	end
+	queued[guid] = true
+	table.insert(queue, force and 1 or #queue + 1, { unit = unit, guid = guid })
+end
+
+local function ScanNearby()
+	Enqueue("target")
+	Enqueue("mouseover")
+	if IsInRaid() then
+		for i = 1, 40 do Enqueue("raid" .. i) end
+	else
+		for i = 1, 4 do Enqueue("party" .. i) end
+	end
+	for i = 1, 40 do
+		local unit = "nameplate" .. i
+		if UnitExists(unit) then Enqueue(unit) end
+	end
+end
+
+local function Pump()
+	if pending then
+		if GetTime() - pending.at < TIMEOUT then return end
+		Inspect.stats.timeouts = Inspect.stats.timeouts + 1
+		pending = nil
+	end
+	if InCombatLockdown() then return end
+	if InspectFrame and InspectFrame:IsShown() then return end -- the player is inspecting by hand
+	if patrol then ScanNearby() end
+	while #queue > 0 do
+		local item = table.remove(queue, 1)
+		queued[item.guid] = nil
+		local unit = item.unit
+		if UnitGUID(unit) == item.guid and CanInspect(unit) and CheckInteractDistance(unit, 1) then
+			pending = { guid = item.guid, unit = unit, at = GetTime() }
+			Inspect.stats.requests = Inspect.stats.requests + 1
+			NotifyInspect(unit)
+			return
+		end
+	end
+end
+
+local function FindUnit(guid, hint)
+	if hint and UnitGUID(hint) == guid then return hint end
+	for _, u in ipairs({ "target", "mouseover", "focus" }) do
+		if UnitGUID(u) == guid then return u end
+	end
+	for i = 1, 40 do
+		if UnitGUID("nameplate" .. i) == guid then return "nameplate" .. i end
+	end
+	return nil
+end
+
+local function OnInspectReady(guid)
+	if not pending or pending.guid ~= guid then return end
+	local unit = FindUnit(guid, pending.unit)
+	pending = nil
+	Inspect.stats.ready = Inspect.stats.ready + 1
+	if unit then
+		local anyGear = false
+		for slot = 1, 18 do
+			if GetInventoryItemID(unit, slot) then anyGear = true break end
+		end
+		local _, classFile = UnitClass(unit)
+		Inspect.Record(GetUnitName(unit, true), GetGuildInfo(unit), classFile, UnitLevel(unit),
+			GetInventoryItemID(unit, TABARD_SLOT), anyGear)
+	end
+	if not (InspectFrame and InspectFrame:IsShown()) and ClearInspectPlayer then ClearInspectPlayer() end
+end
+
+function Inspect.SetPatrol(on)
+	patrol = on and true or false
+	ns.Print(patrol and L.PATROL_ON or L.PATROL_OFF)
+	ns.Log("patrol = %s", tostring(patrol))
+	ns.Fire("INSPECT_CHANGED")
+end
+
+function Inspect.InspectTarget()
+	if not UnitIsPlayer("target") then
+		ns.Print(L.NEED_PLAYER_TARGET)
+		return
+	end
+	Enqueue("target", true)
+	Pump()
+end
+
+function Inspect.MarkTarget(note)
+	if not UnitIsPlayer("target") then
+		ns.Print(L.NEED_PLAYER_TARGET)
+		return
+	end
+	local name = GetUnitName("target", true)
+	local s = Store()
+	local p = s.players[name] or { name = name, status = "UNCHECKED", t = ns.Now() }
+	local _, classFile = UnitClass("target")
+	p.guild, p.class, p.level = GetGuildInfo("target"), classFile, UnitLevel("target")
+	p.marked = true
+	if note and note ~= "" then p.note = note end
+	s.players[name] = p
+	ns.Print(L.MARKED:format(ns.ShortName(name), p.guild or "?"))
+	Enqueue("target", true)
+	ns.Fire("INSPECT_CHANGED")
+end
+
+function Inspect.ToggleMark(name)
+	local p = Source().players[name]
+	if not p then return end
+	p.marked = not p.marked
+	ns.Fire("INSPECT_CHANGED")
+end
+
+function Inspect.ToggleGuildMark(guild)
+	local marks = Source().guildMarks
+	marks[guild] = not marks[guild] or nil
+	ns.Fire("INSPECT_CHANGED")
+end
+
+function Inspect.Clear()
+	local s = Store()
+	wipe(s.players)
+	wipe(s.guildMarks)
+	ns.Fire("INSPECT_CHANGED")
+end
+
+function Inspect.Summary()
+	local src = Source()
+	local out = { players = {}, guilds = {}, counts = { GUILD = 0, OTHER = 0, NONE = 0, UNKNOWN = 0, UNCHECKED = 0 }, total = 0 }
+	local byGuild = {}
+	for _, p in pairs(src.players) do
+		out.players[#out.players + 1] = p
+		out.total = out.total + 1
+		out.counts[p.status] = (out.counts[p.status] or 0) + 1
+		local gname = p.guild or "?"
+		local g = byGuild[gname]
+		if not g then
+			g = { name = gname, total = 0, bad = 0, marked = src.guildMarks[gname] and true or false }
+			byGuild[gname] = g
+			out.guilds[#out.guilds + 1] = g
+		end
+		g.total = g.total + 1
+		if p.status == "NONE" or p.status == "OTHER" or p.marked then g.bad = g.bad + 1 end
+	end
+	for gname in pairs(src.guildMarks) do
+		if not byGuild[gname] then out.guilds[#out.guilds + 1] = { name = gname, total = 0, bad = 0, marked = true } end
+	end
+	table.sort(out.players, function(a, b)
+		if (a.marked and true or false) ~= (b.marked and true or false) then return a.marked and true or false end
+		local oa, ob = STATUS_ORDER[a.status] or 9, STATUS_ORDER[b.status] or 9
+		if oa ~= ob then return oa < ob end
+		return (a.t or 0) > (b.t or 0)
+	end)
+	table.sort(out.guilds, function(a, b)
+		if a.marked ~= b.marked then return a.marked end
+		if a.bad ~= b.bad then return a.bad > b.bad end
+		return a.name < b.name
+	end)
+	return out
+end
+
+function Inspect.DiscordText()
+	local s = Inspect.Summary()
+	local c = s.counts
+	local out = {}
+	out[#out + 1] = L.DISCORD_INSPECT_HEADER:format(s.total, c.GUILD, c.NONE, c.OTHER)
+	local guilds = {}
+	for _, g in ipairs(s.guilds) do
+		if g.bad > 0 or g.marked then
+			guilds[#guilds + 1] = ("%s%s %d/%d"):format(g.marked and "[!] " or "", g.name, g.bad, g.total)
+		end
+	end
+	if #guilds > 0 then out[#out + 1] = "**Guilds:** " .. table.concat(guilds, " · ") end
+	out[#out + 1] = "```"
+	local any = false
+	for _, p in ipairs(s.players) do
+		if p.status == "NONE" or p.status == "OTHER" or p.marked then
+			any = true
+			local label = p.status == "NONE" and "NO TABARD" or p.status == "OTHER" and "WRONG TABARD" or "MARKED"
+			out[#out + 1] = ("%-14s %-20s %-12s %s"):format(ns.ShortName(p.name), "<" .. (p.guild or "?") .. ">", label, p.note or "")
+		end
+	end
+	if not any then out[#out + 1] = L.DISCORD_INSPECT_CLEAN end
+	out[#out + 1] = "```"
+	if ns.db.demo then out[#out + 1] = "_DEMO DATA_" end
+	return table.concat(out, "\n")
+end
+
+function Inspect.TooltipLine(name)
+	local p = Source().players[name]
+	if not p then return nil end
+	local text
+	if p.status == "GUILD" then text = "|cff40ff40" .. L.TABARD_OK .. "|r"
+	elseif p.status == "NONE" then text = "|cffff4040" .. L.TABARD_NONE .. "|r"
+	elseif p.status == "OTHER" then text = "|cffffd200" .. L.TABARD_OTHER .. "|r"
+	else text = "|cff9d9d9d" .. L.TABARD_UNKNOWN .. "|r" end
+	if p.marked then text = text .. "  |cffff4040[" .. L.MARK .. "]|r" end
+	return L.TABARD .. ": " .. text .. "  |cff9d9d9d" .. ns.Ago(p.t) .. "|r"
+end
+
+---------------------------------------------------------------------------
+-- Wall of Shame: the Crown publishes the list of players caught without the colors,
+-- every Olympus member with the addon sees it (chat, raid warning, Heraldry tab).
+---------------------------------------------------------------------------
+
+function Inspect.ShameList()
+	local out = {}
+	for _, p in ipairs(Inspect.Summary().players) do
+		if p.status == "NONE" or p.status == "OTHER" or p.marked then
+			out[#out + 1] = { name = ns.ShortName(p.name), guild = p.guild }
+		end
+	end
+	return out
+end
+
+function Inspect.PublishShame()
+	if not ns.IsCrown() then
+		ns.Print(L.CROWN_ONLY)
+		return
+	end
+	local list = Inspect.ShameList()
+	if #list == 0 then
+		ns.Print(L.DISCORD_INSPECT_CLEAN)
+		return
+	end
+	local guild, _, rankIndex = GetGuildInfo("player")
+	ns.Comm.SendChunked(ns.Codec.EncodeShame(guild, rankIndex, list))
+	Inspect.ShowShame({ by = ns.ShortName(ns.me), guild = guild, list = list, t = ns.Now() })
+end
+
+function Inspect.ShowShame(shame)
+	Inspect.shame = shame
+	local text = L.SHAME_PUBLISHED:format(#shame.list, shame.by)
+	ns.Print("|cffff4040" .. text .. "|r")
+	if RaidNotice_AddMessage and RaidWarningFrame then
+		RaidNotice_AddMessage(RaidWarningFrame, text, ChatTypeInfo and ChatTypeInfo["RAID_WARNING"] or { r = 1, g = 0.3, b = 0.1 })
+	end
+	ns.PlayAlert("loud")
+	ns.Fire("INSPECT_CHANGED")
+end
+
+function Inspect.Shame()
+	if ns.db.demo and not Inspect.shame then
+		return { by = "Asmongold", guild = "Olympus", t = ns.Now() - 120, list = Inspect.ShameList() }
+	end
+	return Inspect.shame
+end
+
+ns.Comm.Handle("S1", function(dist, sender, text)
+	if dist ~= "CHANNEL" then return end
+	local s = ns.Codec.DecodeShame(text)
+	if not s or not ns.IsFederation(s.guild) or not ns.IsCrownRank(s.guild, s.rank) then return end
+	Inspect.ShowShame({ by = ns.ShortName(sender), guild = s.guild, list = s.list, t = ns.Now() })
+end)
+
+---------------------------------------------------------------------------
+-- Demo data
+---------------------------------------------------------------------------
+
+function Inspect.BuildDemo()
+	local guilds = { "Olympus", "Olympus II", "Olympus III", "Olympus Ares", "Olympus Zeus", "Olympus Hermes" }
+	local classes = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "MAGE", "WARLOCK", "DRUID" }
+	local syll = { "Gor", "Thal", "Bri", "Mor", "Kel", "Dra", "Ael", "Vor", "Lun", "Sar", "Tor", "Zan" }
+	local ends = { "ric", "wyn", "dor", "ath", "iel", "gar", "ith", "os", "ara", "unn" }
+	local d = { players = {}, guildMarks = { ["Olympus Hermes"] = true } }
+	local now = ns.Now()
+	for i = 1, 48 do
+		local name = syll[math.random(#syll)] .. ends[math.random(#ends)] .. (i % 3 == 0 and "a" or "")
+		local r = math.random()
+		local status = r < 0.18 and "NONE" or r < 0.24 and "OTHER" or r < 0.27 and "UNKNOWN" or "GUILD"
+		d.players[name] = {
+			name = name, guild = guilds[math.random(#guilds)], class = classes[math.random(#classes)],
+			level = math.random(14, 20), status = status, item = status == "GUILD" and 5976 or status == "OTHER" and 23192 or nil,
+			t = now - math.random(10, 1500), marked = status == "NONE" and math.random() < 0.3 or nil,
+			note = status == "NONE" and math.random() < 0.3 and "complained about the rule" or nil,
+		}
+	end
+	ns.demoInspect = d
+end
+
+---------------------------------------------------------------------------
+-- Wiring
+---------------------------------------------------------------------------
+
+local function OnTooltipUnit(tooltip)
+	if tooltip ~= GameTooltip then return end
+	local _, unit = tooltip:GetUnit()
+	if not unit or not UnitIsPlayer(unit) then return end
+	local line = Inspect.TooltipLine(GetUnitName(unit, true))
+	if line then tooltip:AddLine(line) end
+	if patrol then Enqueue(unit) end
+end
+
+ns.On("INIT", function() Store() end)
+
+ns.On("LOGIN", function()
+	if ns.db.demo then Inspect.BuildDemo() end
+	ns.RegisterEvent("INSPECT_READY", OnInspectReady)
+	ns.Every(INTERVAL, "inspect pump", Pump)
+	local hooked = false
+	if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
+		hooked = pcall(TooltipDataProcessor.AddTooltipPostCall, Enum.TooltipDataType.Unit, function(tt)
+			ns.SafeCall("tooltip", OnTooltipUnit, tt)
+		end)
+	end
+	if not hooked then
+		pcall(GameTooltip.HookScript, GameTooltip, "OnTooltipSetUnit", function(tt)
+			ns.SafeCall("tooltip", OnTooltipUnit, tt)
+		end)
+	end
+	ns.Log("tooltip hook: %s", hooked and "TooltipDataProcessor" or "OnTooltipSetUnit")
+end)
+
+ns.On("DEMO_CHANGED", function(on)
+	if on then Inspect.BuildDemo() end
+	ns.Fire("INSPECT_CHANGED")
+end)
