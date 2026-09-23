@@ -93,10 +93,21 @@ Any soldier can reach the Lord of another Olympus guild in two clicks.
 
 ## Install
 
+**Easiest:** install **Olympus Guild** from the CurseForge app or WowUp. It installs in the
+right place and keeps it updated.
+
+**By hand:**
 1. Download `Olympus-x.y.z.zip` from the **Files** tab here (or [GitHub Releases](https://github.com/dnl-gentile/olympus-addon/releases)).
-2. Extract it into `World of Warcraft/<game version>/Interface/AddOns/` so that the file
-   `AddOns/Olympus/Olympus.toc` exists.
-3. **Restart the game.** If the addon list says *out of date*, tick **Load out of date AddOns**.
+2. Open your World of Warcraft folder. On Windows it is usually
+   `C:\Program Files (x86)\World of Warcraft\`.
+3. Open the folder of the game version you play. For the **Forever beta** it is the one with
+   *beta* in its name (for example `_classic_beta_`); Classic Era is `_classic_era_`.
+4. Go into `Interface\AddOns\` (create `Interface` and `AddOns` if they don't exist) and
+   extract the zip there, so you end up with `...\Interface\AddOns\Olympus\Olympus.toc`.
+5. **Restart the game.** If the addon list says *out of date*, tick **Load out of date AddOns**.
+
+The addon opens with **live data**. Demo data (made-up guilds, for screenshots) only shows
+if you type `/oly demo`, and the window says **DEMO DATA** when it is on.
 
 **One member per guild is enough** for that guild to appear for everyone. The more guilds
 have at least one install, the more complete the census gets.

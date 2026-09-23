@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.7.6"
+ns.VERSION = "0.7.7"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild
 ns.ICON = "Interface\\AddOns\\Olympus\\media\\logo64"
@@ -217,6 +217,12 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 	if (db.configVersion or 0) < 2 then
 		db.showMates, db.sharePosition = false, false
 		db.configVersion = 2
+	end
+	-- v0.7.7: early versions shipped with demo data on, which testers mistook for real
+	-- data. Switch it off once for everyone (they can still turn it on with /oly demo).
+	if db.configVersion < 3 then
+		db.demo = false
+		db.configVersion = 3
 	end
 	ns.db = db
 	ns.Log("---- session %d, v%s ----", db.sessions, ns.VERSION)
