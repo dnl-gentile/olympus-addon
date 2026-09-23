@@ -20,6 +20,7 @@ local msgId = 0
 local lastBroadcast = 0
 local channelIndex = 0
 local stats = { sent = 0, recv = 0, reports = 0, fails = 0, bad = 0 }
+local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
 
 function Comm.PeerCount()
 	local now, n = ns.Now(), 0
@@ -130,7 +131,6 @@ function Comm.ChannelSpec()
 	return ns.CHANNEL, nil
 end
 
-local joinedName
 local function HideChannelFromChat(name)
 	for i = 1, (NUM_CHAT_WINDOWS or 10) do
 		local cf = _G["ChatFrame" .. i]

@@ -194,6 +194,7 @@ also saved in `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.
 
 ```bash
 luajit tests/run.lua                      # offline tests: codec, roster, hierarchy, security, layers, decrees
+scripts/lint-globals.sh                   # catches locals used before they are declared
 scripts/package.sh                        # dist/Olympus-<version>.zip
 WOW_HOST=user@pc scripts/deploy.sh        # copy to a Windows PC over SSH
 WOW_HOST=user@pc scripts/logs.sh          # read the log and captured errors from that PC

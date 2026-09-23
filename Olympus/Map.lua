@@ -13,6 +13,7 @@ Map.libOk = Pins ~= nil
 
 local SHOW_FLAG = HBD_PINS_WORLDMAP_SHOW_CONTINENT or 2
 local pool, active = {}, {}
+local AddContinentTotals -- defined below, used by Map.Refresh
 local refreshQueued = false
 
 local function ShortCount(n)
@@ -116,7 +117,7 @@ function Map.ContinentTotals(s)
 	return totals, guilds
 end
 
-local function AddContinentTotals(s)
+function AddContinentTotals(s)
 	local totals, guilds = {}, {}
 	for _, z in ipairs(s.zoneList) do
 		local mapID = ns.Zones.MapID(z.key)

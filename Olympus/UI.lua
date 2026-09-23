@@ -12,6 +12,7 @@ ns.UI = UI
 local DEFAULT_W, DEFAULT_H = 338, 424
 local DETAIL_H = 78
 local main
+local personFrame -- the person details panel (created on first use, further below)
 
 local TABS = {
 	{ key = "census", label = "TAB_CENSUS" },
@@ -432,8 +433,6 @@ end
 -- person = { name, class (code), level, zone (key), guild, rank (label), online, days,
 --            note, tabard (status), onMark (function, tabards tab only) }
 ---------------------------------------------------------------------------
-
-local personFrame
 
 local function Whisper(name)
 	if ChatFrame_SendTell then ChatFrame_SendTell(name) else ChatFrame_OpenChat("/w " .. name .. " ") end
