@@ -612,12 +612,16 @@ local function CreateMain(style)
 		end
 		f.tabStyle = "side"
 	else
+		-- Tab templates differ between clients. The Classic clients' own windows (Friends, Who,
+		-- Guild, Raid) use the older tab with small text: ours match them there. Forever's tab
+		-- code (PanelTemplates_AnchorTabs) goes with the atlas one. The first template that really
+		-- builds a tab is used; otherwise a plain button, its selection marked by us.
+		local templates = PanelTemplates_AnchorTabs
+			and { "PanelTabButtonTemplate", "CharacterFrameTabButtonTemplate", "TabButtonTemplate" }
+			or { "CharacterFrameTabButtonTemplate", "PanelTabButtonTemplate", "TabButtonTemplate" }
 		for i, t in ipairs(TABS) do
-			-- Tab templates differ between clients (Classic has CharacterFrameTabButtonTemplate,
-			-- newer clients like Forever have PanelTabButtonTemplate). Use the first that really
-			-- builds a tab; otherwise fall back to a plain button and mark selection ourselves.
 			local tab
-			for n, template in ipairs({ "PanelTabButtonTemplate", "CharacterFrameTabButtonTemplate", "TabButtonTemplate" }) do
+			for n, template in ipairs(templates) do
 				local name = f:GetName() .. "Tab" .. n .. "_" .. i
 				local okTab, res = pcall(CreateFrame, "Button", name, f, template)
 				if okTab and res and (res.Left or res.LeftActive or _G[name .. "Left"] or _G[name .. "LeftDisabled"]) then
