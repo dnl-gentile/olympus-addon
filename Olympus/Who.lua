@@ -281,6 +281,15 @@ function Who.SendPlain(query)
 	return true
 end
 
+-- The guild's name without a "-Realm" the server may add (fullGuildName). A realm whose census
+-- we share names the same guild as its reports, so the suffix goes: kept, the guild would
+-- show twice (its report and a grey row). Returns the name and the suffix, if any.
+function Who.GuildName(guild)
+	local base, realm = guild:match("^(.-)%-([^%-]+)$")
+	if base and base ~= "" and ns.InGroup(realm) then return base, realm end
+	return guild, realm
+end
+
 -- The answer's Olympus players, each once.
 local function Read()
 	local shown, total = Counts()
@@ -288,7 +297,8 @@ local function Read()
 	for i = 1, shown do
 		local name, guild, level, class, zone = Info(i)
 		if name and name ~= "" and not byName[name] and ns.IsFederation(guild) then
-			local p = { name = name, guild = guild, level = tonumber(level), class = class, zone = zone }
+			local gname, gRealm = Who.GuildName(guild)
+			local p = { name = name, guild = gname, guildRealm = gRealm, level = tonumber(level), class = class, zone = zone }
 			byName[name] = p
 			rows[#rows + 1] = p
 		end
@@ -360,6 +370,13 @@ local function OnAnswer()
 end
 ns.RegisterEvent(EVENT, OnAnswer)
 
+-- A /reload while our search waited leaves the client's who flag on (it outlives the UI):
+-- the player's own /who would then open the list instead of answering in chat. Reset it once
+-- at login, unless one of the player's who windows is open (it manages the flag itself).
+ns.On("LOGIN", function()
+	if not Who.WindowOpen() then pcall(SetWhoToUi, false) end
+end)
+
 function Who.Searched() return Who.lastSend > 0 end
 function Who.IsPending() return pending ~= nil end
 
@@ -386,6 +403,19 @@ function Who.StatusLines()
 		first = known and L.WHO_SO_FAR:format(found, math.max(found, s.total)) or L.WHO_SO_FAR_CAP:format(found)
 	end
 	return { first, L.WHO_NEXT:format(Range(s.brackets[s.step]), s.step, #s.brackets) }
+end
+
+-- For /oly status (names raw): the players of the round by the realm on their name as the
+-- server sent it ("bare" = none), how many guild names carried a realm, and one name as sent.
+function Who.RawCounts()
+	local names, guildSuffix, sample = {}, 0, nil
+	for _, p in ipairs(sweep.list) do
+		local realm = p.name:match("%-(.+)$")
+		names[realm or "bare"] = (names[realm or "bare"] or 0) + 1
+		if p.guildRealm then guildSuffix = guildSuffix + 1 end
+		if not sample or (realm and not sample:find("-", 1, true)) then sample = p.name end
+	end
+	return names, guildSuffix, sample
 end
 
 -- For /oly status.

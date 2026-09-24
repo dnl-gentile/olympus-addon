@@ -94,6 +94,18 @@ local function test(name, fn)
 end
 local function eq(a, b, msg) if a ~= b then error((msg or "") .. " expected " .. tostring(b) .. ", got " .. tostring(a), 2) end end
 
+-- A stored report as if `...` (other senders) had each just reported the same ranks: ranks
+-- from other guilds count only when someone else's recent report names them (Data.KnownRank).
+local function Vouched(g, ...)
+	local home, ranks = g.realm or "Realm", {}
+	local function full(name) return name:find("-", 1, true) and name or (name .. "-" .. home) end
+	for _, o in ipairs(g.officers or {}) do ranks[full(o.name)] = 1 end
+	if g.leader then ranks[full(g.leader)] = 0 end
+	g.vouch = {}
+	for _, src in ipairs({ ... }) do g.vouch[src] = { t = g.t, sig = "fixture", ranks = ranks } end
+	return g
+end
+
 local Codec = ns.Codec
 
 test("federation filter matches any guild with 'olympus' in the name", function()
@@ -228,9 +240,10 @@ test("upgrade from account-wide data: block list, old census and key, inspection
 end)
 
 test("an old saved report does not grant rank", function()
-	ns.rdb.guilds = { ["Olympus Zeus"] = { total = 10, online = 1, zones = {}, t = os.time() - 3600, leader = "Zed", realm = "Realm" } }
+	ns.rdb.guilds = { ["Olympus Zeus"] = Vouched({ total = 10, online = 1, zones = {}, t = os.time() - 3600, leader = "Zed", realm = "Realm" }, "W1-Realm", "W2-Realm") }
 	eq(ns.Data.KnownRank("Zed-Realm", "Olympus Zeus"), nil, "report from an hour ago")
-	ns.rdb.guilds["Olympus Zeus"].t = os.time()
+	Vouched(ns.rdb.guilds["Olympus Zeus"], "W1-Realm", "W2-Realm").t = os.time()
+	for _, v in pairs(ns.rdb.guilds["Olympus Zeus"].vouch) do v.t = os.time() end
 	eq(ns.Data.KnownRank("Zed-Realm", "Olympus Zeus"), 0, "fresh report")
 	ns.rdb.guilds = {}
 end)
@@ -313,8 +326,8 @@ end)
 test("layer named after the highest rank present", function()
 	C_Map.GetBestMapForUnit = function() return 1453 end
 	ns.Data.Summary = ns.Data.Summary
-	ns.rdb.guilds = { ["Olympus"] = { total = 1000, online = 1, zones = {}, t = os.time(), leader = "Kingy" },
-		["Olympus II"] = { total = 500, online = 1, zones = {}, t = os.time(), leader = "Lordy" } }
+	ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1000, online = 1, zones = {}, t = os.time(), leader = "Kingy" }, "W1-Realm", "W2-Realm"),
+		["Olympus II"] = Vouched({ total = 500, online = 1, zones = {}, t = os.time(), leader = "Lordy" }, "W1-Realm", "W2-Realm") }
 	ns.Layers.Receive("Grunt-Realm", { mapID = 1453, zoneUID = 7, rank = 4, guild = "Olympus" })
 	-- Claims rank 0 but is nobody's Lord: counted, but cannot name the layer.
 	ns.Layers.Receive("Aaron-Realm", { mapID = 1453, zoneUID = 7, rank = 0, guild = "Olympus" })
@@ -336,15 +349,15 @@ test("names carry the realm, so namesakes on other realms stay apart", function(
 	eq(ns.FullName("Zed-Other"), "Zed-Other")
 	eq(ns.DisplayName("Zed-Realm"), "Zed", "own realm shows short")
 	eq(ns.DisplayName("Zed-Other"), "Zed-Other", "other realm keeps the suffix")
-	ns.rdb.guilds = { ["Olympus Zeus"] = { total = 10, online = 1, zones = {}, t = os.time(), leader = "Zed", realm = "Realm",
-		officers = { { name = "Capt", online = true, days = 0 } } } }
+	ns.rdb.guilds = { ["Olympus Zeus"] = Vouched({ total = 10, online = 1, zones = {}, t = os.time(), leader = "Zed", realm = "Realm",
+		officers = { { name = "Capt", online = true, days = 0 } } }, "W1-Realm", "W2-Realm") }
 	eq(ns.Data.KnownRank("Zed", "Olympus Zeus"), 0, "short name from our realm")
 	eq(ns.Data.KnownRank("Zed-Realm", "Olympus Zeus"), 0)
 	eq(ns.Data.KnownRank("Zed-Other", "Olympus Zeus"), nil, "namesake on another realm is not the Lord")
 	eq(ns.Data.KnownRank("Capt-Other", "Olympus Zeus"), nil, "namesake officer rejected")
 	eq(ns.Data.KnownRank("Capt-Realm", "Olympus Zeus"), 1)
 	-- A guild reported from another realm: its short names belong to that realm.
-	ns.rdb.guilds["Olympus Far"] = { total = 10, online = 1, zones = {}, t = os.time(), leader = "Kay", realm = "Other" }
+	ns.rdb.guilds["Olympus Far"] = Vouched({ total = 10, online = 1, zones = {}, t = os.time(), leader = "Kay", realm = "Other" }, "W1-Other", "W2-Other")
 	eq(ns.Data.KnownRank("Kay-Other", "Olympus Far"), 0)
 	eq(ns.Data.KnownRank("Kay-Realm", "Olympus Far"), nil)
 	ns.rdb.guilds = {}
@@ -397,7 +410,7 @@ end)
 test("ranks are verified, not taken from the message", function()
 	ns.Roster.Scan()
 	ns.rdb.guilds = {
-		["Olympus"] = { guild = "Olympus", leader = "Asmongold", officers = { { name = "Capt" } }, total = 1000, online = 1, zones = {}, t = os.time() },
+		["Olympus"] = Vouched({ guild = "Olympus", leader = "Asmongold", officers = { { name = "Capt" } }, total = 1000, online = 1, zones = {}, t = os.time() }, "W1-Realm", "W2-Realm"),
 		["Olympus Bad"] = { guild = "Olympus Bad", leader = "X", conflict = true, total = 1, online = 1, zones = {}, t = os.time() },
 	}
 	eq(ns.Data.KnownRank("Asmongold-Realm", "Olympus"), 0)
@@ -451,7 +464,8 @@ test("worst case report still fits the message limits", function()
 	local C = ns.Codec
 	local r = { guild = "Olympus Longest NameHer", total = 1000, online = 1000, leader = "Averylongname", leaderOnline = true,
 		users = 999, zones = {}, classes = {}, levels = { 1, 2, 3, 4, 5, 6, 7 }, ranks = {}, officers = {}, top = {},
-		leaderClass = "WARRIOR", leaderLevel = 60, leaderZone = "tThe Temple of Atal'Hakkar" }
+		leaderClass = "WARRIOR", leaderLevel = 60, leaderZone = "tThe Temple of Atal'Hakkar",
+		from = ("F"):rep(40), home = ("H"):rep(40) }
 	for i = 1, 120 do r.zones["tSome Long Zone Name " .. i] = 999 end
 	for _, c in ipairs({ "WA", "PA", "HU", "RO", "PR", "SH", "MA", "WL", "DR", "DK" }) do r.classes[c] = 999 end
 	for i = 1, 10 do r.ranks[i] = { name = "Rank Name Number " .. i, count = 999 } end
@@ -463,6 +477,7 @@ test("worst case report still fits the message limits", function()
 	for _, c in ipairs(chunks) do assert(#c <= 255) end
 	local d = C.DecodeReport(payload)
 	eq(#d.officers, 30); eq(#d.ranks, 10)
+	eq(d.from, r.from, "the longest realm fits"); eq(d.home, r.home)
 end)
 
 local function SampleGuilds()
@@ -572,8 +587,9 @@ local function FakeFrame(name, parent, w, h)
 	function f:GetParent() return self.parent end
 	function f:GetWidth() return self.w end
 	function f:GetHeight() return self.h end
-	function f:GetFrameLevel() return 5 end
+	function f:GetFrameLevel() return self.level or 5 end
 	function f:GetEffectiveScale() return 1 end
+	function f:GetAlpha() return self.alpha or 1 end
 	function f:GetRect() if self.rect then return unpack(self.rect) end end -- where a test put it
 	function f:IsShown() return self.shown end
 	function f:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
@@ -600,6 +616,7 @@ local function LoadGuildFrame(realUI)
 		local b = setmetatable({ name = name, parent = parent, size = size, scripts = {} }, { __index = function() return function() end end })
 		function b:SetScript(kind, fn) self.scripts[kind] = fn end
 		function b:SetPoint(...) self.point = { ... } end
+		function b:SetFrameLevel(level) self.level = level end
 		function b:Click() self.scripts.OnClick(self) end
 		world.buttons[#world.buttons + 1] = b
 		return b
@@ -607,7 +624,9 @@ local function LoadGuildFrame(realUI)
 	gns.UI = realUI and gns.UI or {
 		IsShown = function() return dock.shown end,
 		DockedTo = function() return dock.host end,
-		OpenDocked = function(host, tab, heightOnly) dock.shown, dock.host, dock.tab, dock.heightOnly = true, host, tab, heightOnly end,
+		OpenDocked = function(host, tab, heightOnly, style)
+			dock.shown, dock.host, dock.tab, dock.heightOnly, dock.style = true, host, tab, heightOnly, style
+		end,
 		CloseIfDocked = function(host) if dock.shown and (host == nil or dock.host == host) then dock.shown = false end end,
 		FollowHost = function(host) dock.followed = host end,
 	}
@@ -630,6 +649,7 @@ local function WithGuildWindows(fn)
 	local ok, err = pcall(fn)
 	ns.CaptureError = savedCapture
 	for _, name in ipairs(GUILD_GLOBALS) do _G[name] = nil end
+	PanelTemplates_AnchorTabs = nil -- the Mainline tab code, set by the Forever tests
 	if not ok then error(err, 0) end
 	eq(captured, nil, "error caught")
 end
@@ -667,6 +687,7 @@ test("guild button: new UI loaded at login (Forever: Communities window only)", 
 		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
 		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
 		CommunitiesFrame.MaximizeMinimizeFrame = FakeFrame(nil, CommunitiesFrame, 24, 24)
+		PanelTemplates_AnchorTabs = function() end -- Forever's (Mainline) tab code
 		local w = LoadGuildFrame()
 		w.Login()
 		local hosts = w.hook.Hosts()
@@ -678,6 +699,7 @@ test("guild button: new UI loaded at login (Forever: Communities window only)", 
 		eq(w.hook.ActiveHost(), hosts[1], "in use")
 		b:Click()
 		eq(w.dock.host, CommunitiesFrame, "docks to the Communities window"); eq(w.dock.heightOnly, true)
+		eq(w.dock.style, "hd", "in the new window's look")
 		-- No Guild tab in the Social window, so nothing of ours listens to it closing (the
 		-- other way round is covered in the "both windows" and real-window tests).
 		eq(FriendsFrame.hooks.OnHide, nil, "no Social window hook without a Guild tab")
@@ -828,6 +850,97 @@ test("docked size: the old Guild tab is copied, the new windows lend only their 
 	eq(size(nil, nil, true), "338x424", "nothing known")
 end)
 
+test("HD look: Forever's new guild window gets it, the old Guild tabs never do", function()
+	WithGuildWindows(function()
+		-- Forever: no Guild tab in the Social window, and the Mainline tab code.
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		PanelTemplates_AnchorTabs = function() end
+		local w = LoadGuildFrame()
+		w.Login()
+		eq(w.hook.IsHDClient(), true)
+		eq(w.hook.IsHD(), true, "nothing opened yet: the client decides")
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		eq(w.dock.host, CommunitiesFrame); eq(w.dock.style, "hd")
+		local status = w.hook.StatusLine()
+		assert(status:find("hd client=true", 1, true), status)
+		-- ClassicUI Forever's old Guild tab: the old look there, and while it is on screen.
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", FriendsFrame)
+		FriendsFrame:Show(); ClassicUIForeverGuildPanel:Show()
+		eq(w.hook.Hosts()[2].kind, "classicui")
+		w.buttons[2]:Click()
+		eq(w.dock.host, FriendsFrame); eq(w.dock.style, "old")
+		eq(w.hook.IsHD(), false, "the old tab in use")
+		-- Only the Communities window left, then not even that: the last one shown decides.
+		ClassicUIForeverGuildPanel:Hide(); FriendsFrame:Hide()
+		eq(w.hook.IsHD(), true, "the new window on screen")
+		CommunitiesFrame:Hide(); CommunitiesFrame:Show(); CommunitiesFrame:Hide()
+		eq(w.hook.IsHD(), true, "the new window was the last one shown")
+		-- ClassicUI Forever's roster opens the Communities window unseen (alpha 0, off the
+		-- screen) for its notes and closes it with the Social window: not a window in use.
+		FriendsFrame:Show(); ClassicUIForeverGuildPanel:Show()
+		CommunitiesFrame.alpha = 0
+		CommunitiesFrame:Show()
+		eq(w.hook.IsHD(), false, "the old tab on screen")
+		ClassicUIForeverGuildPanel:Hide(); FriendsFrame:Hide()
+		CommunitiesFrame:Hide(); CommunitiesFrame.alpha = 1
+		eq(w.hook.IsHD(), false, "the old tab was the last one the player saw")
+	end)
+	WithGuildWindows(function()
+		-- ClassicUI Forever's tab built after the scan at login (a login in combat): the old
+		-- look, before the Social window is ever opened.
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		PanelTemplates_AnchorTabs = function() end
+		local w = LoadGuildFrame()
+		w.Login()
+		eq(w.hook.IsHD(), true)
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", FriendsFrame)
+		eq(#w.hook.Hosts(), 1, "not hooked yet"); eq(w.hook.IsHD(), false)
+	end)
+	WithGuildWindows(function()
+		-- ClassicUI Forever's tab already there, nothing opened yet: the old look.
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", FriendsFrame)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		PanelTemplates_AnchorTabs = function() end
+		local w = LoadGuildFrame()
+		w.Login()
+		eq(w.hook.IsHDClient(), true); eq(w.hook.IsHD(), false)
+	end)
+	WithGuildWindows(function()
+		-- Classic Era: its Guild tab is always there (hidden when the new window is used).
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 338, 424)
+		GuildFrame = FakeFrame("GuildFrame", FriendsFrame, 338, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 322, 406)
+		PanelTemplates_AnchorTabs = function() end -- even with the Mainline tab code
+		local w = LoadGuildFrame()
+		w.Login()
+		eq(w.hook.IsHDClient(), false)
+		CommunitiesFrame:Show(); w.buttons[2]:Click()
+		eq(w.dock.host, CommunitiesFrame); eq(w.dock.style, "old")
+		assert(w.hook.StatusLine():find("hd client=false", 1, true))
+	end)
+end)
+
+test("guild button: over Forever's metal title bar, where it always was on Classic", function()
+	for _, forever in ipairs({ true, false }) do
+		WithGuildWindows(function()
+			FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+			if not forever then GuildFrame = FakeFrame("GuildFrame", FriendsFrame, 338, 424) end
+			CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+			CommunitiesFrame.MaximizeMinimizeFrame = FakeFrame(nil, CommunitiesFrame, 24, 24)
+			CommunitiesFrame.MaximizeMinimizeFrame.level = 515 -- frameLevel 510, over the NineSlice's 500
+			PanelTemplates_AnchorTabs = forever and function() end or nil
+			local w = LoadGuildFrame()
+			w.Login()
+			local b = w.buttons[#w.buttons]
+			eq(b.parent, CommunitiesFrame)
+			eq(b.level, forever and 515 or 15, forever and "Forever" or "Classic")
+		end)
+	end
+end)
+
 ---------------------------------------------------------------------------
 -- The Olympus window itself (UI.lua), on a small widget toolkit: frames keep their size,
 -- anchors and shown state, scripts can be fired, rects are worked out from the anchors
@@ -877,6 +990,13 @@ function Widget:IsVisible() return self.shown and (not self.parent or self.paren
 function Widget:GetEffectiveScale() return self.scale or (self.parent and self.parent:GetEffectiveScale()) or 1 end
 function Widget:GetFrameLevel() return self.level or 1 end
 function Widget:SetFrameLevel(level) self.level = level end
+function Widget:SetChecked(checked) self.checked = checked and true or false end
+function Widget:GetChecked() return self.checked or false end
+function Widget:LockHighlight() self.locked = true end
+function Widget:UnlockHighlight() self.locked = false end
+function Widget:SetHighlightTexture(texture) self.highlightTexture = texture end
+function Widget:SetTexture(texture) self.texture = texture end
+function Widget:SetClampRectInsets(...) self.clampInsets = { ... } end
 
 function Widget:SetSize(w, h)
 	local changed = self.w ~= w or self.h ~= h
@@ -957,7 +1077,12 @@ function Widget:StopMovingOrSizing()
 end
 
 function Widget:CreateFontString(name, _, font) local fs = NewWidget("FontString", name, self); fs.font = font; return fs end
-function Widget:CreateTexture(name) return NewWidget("Texture", name, self) end
+function Widget:CreateTexture(name)
+	local t = NewWidget("Texture", name, self)
+	self.textures = self.textures or {}
+	table.insert(self.textures, t)
+	return t
+end
 function Widget:SetText(text)
 	if self.kind == "FontString" then self.text = text return end
 	self.fontString = self.fontString or self:CreateFontString(nil, "OVERLAY", self.normalFont or "GameFontNormal")
@@ -996,11 +1121,33 @@ local TEMPLATES = {
 		w.parent.Tabs = w.parent.Tabs or {}
 		table.insert(w.parent.Tabs, w)
 	end,
+	-- The Guild & Communities window's parts (Blizzard_SharedXML, loaded on every client
+	-- family but not all of them on every client).
+	RightSideTabTemplate = function(w)
+		w.w, w.h = 32, 32
+		w.Icon = NewWidget("Texture", nil, w)
+		-- RightSideTabMixin:OnClick: its sound, and the check.
+		w.scripts.OnClick = function(self) self.clickSound = true; self:SetChecked(true) end
+	end,
+	ColumnDisplayButtonNoScriptsTemplate = function(w)
+		w.h = 24
+		for _, key in ipairs({ "Left", "Middle", "Right" }) do w[key] = NewWidget("Texture", nil, w) end
+	end,
+	ScrollFrameTemplate = function(w)
+		w.ScrollBar = NewWidget("EventFrame", nil, w)
+		w.ScrollBar.w = 8
+	end,
+	DialogBorderDarkTemplate = function(w)
+		w.Bg = NewWidget("Texture", nil, w)
+	end,
 }
 
+local createdWidgets = {} -- everything FakeCreateFrame made in the current WithUI
 local function FakeCreateFrame(kind, name, parent, template)
 	local w = NewWidget(kind, name, parent)
+	w.template = template
 	if TEMPLATES[template] then TEMPLATES[template](w) end
+	createdWidgets[#createdWidgets + 1] = w
 	return w
 end
 
@@ -1036,7 +1183,7 @@ local function WithUI(fn)
 	local ok, err = pcall(fn)
 	CreateFrame, ns.CaptureError, ns.UI, GetGuildInfo = saved.CreateFrame, saved.CaptureError, saved.UI, saved.GetGuildInfo
 	for _, name in ipairs(widgetNames) do _G[name] = nil end
-	widgetNames = {}
+	widgetNames, createdWidgets = {}, {}
 	for _, name in ipairs(GUILD_GLOBALS) do _G[name] = nil end
 	for _, name in ipairs(TAB_GLOBALS) do _G[name] = nil end
 	for _, font in ipairs(FONT_GLOBALS) do _G[font] = nil end
@@ -1077,6 +1224,22 @@ test("tab spacing: Blizzard's on Forever (Mainline tab code), the old overlap on
 	eq(select(2, UI.TabAnchor("mainline", 2, f, prev)), prev)
 	eq(table.concat({ UI.TabAnchor("classic", 1, f) }, " ", 3), "BOTTOMLEFT 10 2")
 	eq(table.concat({ UI.TabAnchor("classic", 3, f, prev) }, " ", 3), "RIGHT -15 0")
+end)
+
+test("HD docking gap and side tabs: Blizzard's own numbers", function()
+	local uns = setmetatable({}, { __index = ns })
+	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+	local UI = uns.UI
+	eq(UI.DockOffset("old", true), -2, "the old window overlaps the border, as always")
+	eq(UI.DockOffset("old", false), -2)
+	eq(UI.DockOffset("hd", true), 64, "past the Communities side tabs (32), then Blizzard's gap (32)")
+	eq(UI.DockOffset("hd", false), 32, "no side tabs: Blizzard's gap between two windows")
+	local f, prev = {}, {}
+	eq(table.concat({ UI.TabAnchor("side", 1, f) }, " ", 3), "TOPRIGHT 0 -36", "like the Communities ChatTab")
+	eq(select(2, UI.TabAnchor("side", 1, f)), f)
+	eq(table.concat({ UI.TabAnchor("side", 2, f, prev) }, " ", 3), "BOTTOMLEFT 0 -20")
+	eq(select(2, UI.TabAnchor("side", 2, f, prev)), prev)
+	eq(UI.Style(), "old", "without GuildFrame.lua: the old look")
 end)
 
 test("tabs on the real window: side by side on Forever, unchanged on Classic", function()
@@ -1220,7 +1383,406 @@ test("docking with the real window: follows the guild window it was clicked in",
 		eq(UI.DockedTo(), FriendsFrame); eq(size(), "338x424")
 		GuildFrame:Hide()
 		eq(main:IsShown(), false, "leaving the Guild tab closes it")
+		-- Classic Era: its Communities window gets the old window too.
+		eq(rawget(_G, "OlympusFrameHD"), nil, "no HD window on Classic")
 	end)
+end)
+
+-- Forever with the new guild window (in WithUI): the Social window without a Guild tab, the
+-- Communities window with its side tabs shown or not (a guild member or not), the Mainline
+-- tab code, and GuildFrame.lua with the real UI.lua.
+local function ForeverWorld(sideTabs)
+	TabCode("mainline")
+	FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+	FriendsFrame.rect = { 20, 200, 385, 424 }
+	CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+	CommunitiesFrame.rect = { 16, 180, 814, 426 }
+	CommunitiesFrame.MaximizeMinimizeFrame = FakeFrame(nil, CommunitiesFrame, 24, 24)
+	CommunitiesFrame.ChatTab = FakeFrame(nil, CommunitiesFrame, 32, 32)
+	CommunitiesFrame.ChatTab.shown = sideTabs
+	local w = LoadGuildFrame(true)
+	ns.UI = w.ns.UI
+	w.Login()
+	return w, w.ns.UI
+end
+
+test("HD window: docked past the Communities window's side tabs, with icon tabs of its own", function()
+	WithUI(function()
+		local w, UI = ForeverWorld(true)
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		local main = OlympusFrameHD
+		eq(main:IsShown(), true); eq(UI.WindowStyle(), "hd")
+		eq(rawget(_G, "OlympusFrame"), nil, "the old window is not even built")
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0"); eq(main:GetNumPoints(), 1)
+		eq(main:GetWidth() .. "x" .. main:GetHeight(), "385x426", "the Social window's width, the host's height")
+		eq(main.clampInsets[2], 40, "its side tabs stay on the screen too")
+		-- Blizzard's icon tabs down the right side, one per TABS entry, the first one checked.
+		local tabs = main.tabs
+		eq(#tabs, #UI.TABS); eq(UI.tabTemplate, "RightSideTabTemplate"); eq(UI.tabStyle, "side")
+		for i, tab in ipairs(tabs) do
+			eq(tab.template, "RightSideTabTemplate")
+			if i == 1 then
+				eq(Anchor(tab), "TOPLEFT OlympusFrameHD TOPRIGHT 0 -36")
+			else
+				eq(tab.points[1][2], tabs[i - 1]); eq(Anchor(tab), "TOPLEFT nil BOTTOMLEFT 0 -20")
+			end
+			assert(tab.Icon.texture and tab.Icon.texture:find("Interface\\Icons\\", 1, true), "icon of tab " .. i)
+			eq(tab.tooltip, ns.L[UI.TABS[i].label])
+			eq(tab:GetChecked(), i == 1, "checked: tab " .. i)
+			assert(tab.level > main:GetFrameLevel(), "over the frame's border")
+		end
+		eq(tabs[2].Icon.texture, "Interface\\Icons\\INV_BannerPVP_02", "the Alliance banner")
+		tabs[3]:Click()
+		eq(main.tab, "decrees"); eq(tabs[3].clickSound, true, "Blizzard's own click ran too")
+		for i, tab in ipairs(tabs) do eq(tab:GetChecked(), i == 3, "after the click: tab " .. i) end
+		for _, wdg in ipairs(createdWidgets) do
+			assert(wdg.template ~= "PanelTabButtonTemplate", "no bottom tabs in the HD window")
+		end
+		-- The Communities window's buttons: 20 tall, 5 from the corner.
+		for _, b in ipairs(main.buttons) do eq(b.h, 20); eq(b.w, 123) end
+		eq(Anchor(main.buttons[1]), "BOTTOMLEFT OlympusFrameHD BOTTOMLEFT 5 5")
+		eq(Anchor(main.detail), "BOTTOMLEFT OlympusFrameHD BOTTOMLEFT 4 28")
+		-- The roster's column headers over the census, sorting on click, its thin scroll bar.
+		tabs[1]:Click()
+		eq(main.colHeader:IsShown(), true)
+		eq(Anchor(main.colHeader), "TOPLEFT OlympusFrameHD TOPLEFT 6 -59"); eq(main.colHeader.h, 24)
+		eq(main.listBox:Anchor("TOPLEFT")[5], -81); eq(main.scroll:Anchor("TOPLEFT")[5], -84)
+		eq(main.scroll.template, "ScrollFrameTemplate"); eq(main.scroll:Anchor("BOTTOMRIGHT")[4], -24)
+		eq(main.views.census:GetWidth(), 385 - 33)
+		local header = main.colHeader.buttons[1]
+		eq(header.template, "ColumnDisplayButtonNoScriptsTemplate"); eq(header.h, 24); eq(header:GetName(), nil)
+		eq(header:GetText(), ns.L.COL_GUILD)
+		local sort = ns.Views.sort
+		header:Click()
+		eq(ns.Views.sort.key, "name", "sorted by guild")
+		ns.Views.sort = sort
+		eq(main.views.census.rows[1].h, 20, "the roster's rows")
+		-- The Communities side tabs go (minimized, Guild Finder) and come back.
+		CommunitiesFrame.ChatTab:Hide()
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 32 0", "Blizzard's gap only")
+		CommunitiesFrame.ChatTab:Show()
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0")
+		-- Minimized: its height.
+		CommunitiesFrame.w, CommunitiesFrame.h = 322, 406
+		CommunitiesFrame:Run("OnSizeChanged")
+		eq(main:GetWidth() .. "x" .. main:GetHeight(), "385x406")
+		eq(main.buttons[1].w, 123)
+		local status = ns.StatusText()
+		assert(status:find("tabs: RightSideTabTemplate (side spacing), window hd", 1, true), status)
+	end)
+end)
+
+test("HD and old windows: each guild window gets its look, switched without /reload", function()
+	WithUI(function()
+		local w, UI = ForeverWorld(true)
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", FriendsFrame)
+		FriendsFrame:Show(); ClassicUIForeverGuildPanel:Show() -- found when the Social window opens
+		FriendsFrame:Hide()
+		local new, classic = w.buttons[1], w.buttons[2]
+		eq(w.hook.Hosts()[2].kind, "classicui")
+		-- The new window in use, on the Realm tab.
+		CommunitiesFrame:Show(); new:Click()
+		local hd = OlympusFrameHD
+		UI.SelectTab("realm")
+		eq(hd.tab, "realm")
+		-- Clicked in ClassicUI Forever's Guild tab: the old window, exactly as always.
+		FriendsFrame:Show(); classic:Click()
+		local old = OlympusFrame
+		eq(hd:IsShown(), false, "the HD window closes"); eq(old:IsShown(), true)
+		eq(UI.WindowStyle(), "old"); eq(UI.DockedTo(), FriendsFrame)
+		eq(Anchor(old), "TOPLEFT FriendsFrame TOPRIGHT -2 0")
+		eq(old:GetWidth() .. "x" .. old:GetHeight(), "385x424")
+		eq(UI.tabTemplate, "PanelTabButtonTemplate"); eq(UI.tabStyle, "mainline")
+		eq(Anchor(old.tabs[1]), "TOPLEFT OlympusFrame BOTTOMLEFT 5 2")
+		eq(old.tab, "census", "a guild window's button opens the Census, as always")
+		eq(Anchor(old.buttons[1]), "BOTTOMLEFT OlympusFrame BOTTOMLEFT 8 8"); eq(old.buttons[1].h, 22)
+		eq(Anchor(old.scroll), "TOPLEFT OlympusFrame TOPLEFT 10 -80"); eq(old.views.census:GetWidth(), 385 - 42)
+		eq(old.views.census.rows[1].h, 16)
+		-- Back in the Communities window: the HD one again.
+		new:Click()
+		eq(hd:IsShown(), true); eq(old:IsShown(), false); eq(UI.DockedTo(), CommunitiesFrame)
+		eq(Anchor(hd), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0"); eq(UI.tabTemplate, "RightSideTabTemplate")
+		-- /oly with the old tab the guild window in use: the old window, on the HD one's tab.
+		UI.SelectTab("heraldry")
+		CommunitiesFrame:Hide()
+		eq(hd:IsShown(), false, "closed with the Communities window")
+		UI.Toggle()
+		eq(old:IsShown(), true); eq(hd:IsShown(), false); eq(old.tab, "heraldry")
+		UI.Toggle()
+		-- Only the Communities window used since: the HD one.
+		ClassicUIForeverGuildPanel:Hide(); FriendsFrame:Hide()
+		CommunitiesFrame:Show(); CommunitiesFrame:Hide()
+		UI.Toggle()
+		eq(hd:IsShown(), true); eq(old:IsShown(), false); eq(hd.tab, "heraldry")
+		-- Docked with no tab asked for: the tab in use carries over to the other window.
+		UI.SelectTab("decrees")
+		FriendsFrame:Show(); UI.OpenDocked(FriendsFrame, nil, false, "old")
+		eq(old:IsShown(), true); eq(hd:IsShown(), false); eq(old.tab, "decrees")
+	end)
+end)
+
+test("ClassicUI Forever's unseen Communities window: /oly keeps the old window", function()
+	WithUI(function()
+		local _, UI = ForeverWorld(true)
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", FriendsFrame)
+		-- Its roster open: the Communities window comes up unseen (alpha 0, off the screen)
+		-- for the notes, and goes when the Social window closes.
+		FriendsFrame:Show(); ClassicUIForeverGuildPanel:Show()
+		CommunitiesFrame.alpha = 0
+		CommunitiesFrame:Show()
+		ClassicUIForeverGuildPanel:Hide(); FriendsFrame:Hide()
+		CommunitiesFrame:Hide(); CommunitiesFrame.alpha = 1
+		UI.Toggle()
+		eq(UI.WindowStyle(), "old"); eq(OlympusFrame:IsShown(), true)
+		eq(rawget(_G, "OlympusFrameHD"), nil, "the HD window is not even built")
+	end)
+end)
+
+test("HD window from /oly before the Communities window has loaded, docked once it has", function()
+	WithUI(function()
+		TabCode("mainline")
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		FriendsFrame.rect = { 20, 200, 385, 424 }
+		local w = LoadGuildFrame(true)
+		ns.UI = w.ns.UI
+		w.Login()
+		local UI = w.ns.UI
+		UI.Toggle()
+		local main = OlympusFrameHD
+		eq(UI.WindowStyle(), "hd"); eq(main:IsShown(), true); eq(UI.DockedTo(), nil)
+		eq(main:GetWidth() .. "x" .. main:GetHeight(), "385x426", "the Social window's width, the Communities window's height")
+		eq(Anchor(main), "CENTER UIParent CENTER 0 40")
+		UI.Toggle()
+		-- Blizzard_Communities loads: its window gets the button, which docks the HD window
+		-- and keeps it clear of the side tabs.
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		CommunitiesFrame.rect = { 16, 180, 814, 426 }
+		CommunitiesFrame.ChatTab = FakeFrame(nil, CommunitiesFrame, 32, 32)
+		CommunitiesFrame.ChatTab.shown = true
+		w.Fire("ADDON_LOADED", "Blizzard_Communities")
+		eq(#w.hook.Hosts(), 1); eq(w.hook.Hosts()[1].kind, "communities")
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		eq(main:IsShown(), true); eq(UI.DockedTo(), CommunitiesFrame)
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0")
+		CommunitiesFrame.ChatTab:Hide()
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 32 0", "its side tabs are followed")
+	end)
+end)
+
+test("rows: the HD window's like the Communities roster's, the old window's unchanged", function()
+	WithUI(function()
+		local Views = ns.Views
+		local function Content(style)
+			local c = NewWidget("Frame", nil, UIParent)
+			c.w, c.style = 300, style
+			return c
+		end
+		local clicked
+		local lines = {
+			{ header = true, text = "Header" },
+			{ text = "Plain" },
+			{ text = "Lord", key = "Lordy", onClick = function() clicked = "Lordy" end },
+			{ cols = { "a", "b", "c", "d" } },
+			{ text = "Racer", key = "Racer", onClick = function() clicked = "Racer" end },
+		}
+		local hd = Content("hd")
+		hd.selectedKey = "Racer"
+		Views.Render(hd, lines, Views.COLUMNS.census)
+		local rows = hd.rows
+		eq(rows[1].h, 20, "20 tall, like the roster")
+		eq(rows[2].points[1][5], -2 - 24, "a header line takes 4 more")
+		eq(rows[3].points[1][5], -2 - 24 - 20)
+		assert(rows[1].highlightTexture:find("UI-FriendsFrame-HighlightBar", 1, true), "the roster's gold bar")
+		eq(rows[3].stripe.texture, "Interface\\GuildFrame\\GuildFrame")
+		eq(rows[1].stripe:IsShown(), false, "no row background on a header")
+		eq(rows[2].stripe:IsShown(), false, "nor on a line that cannot be clicked")
+		eq(rows[3].stripe:IsShown(), true); eq(rows[4].stripe:IsShown(), true, "a table row")
+		eq(rows[5].locked, true, "the person open stays lit"); eq(rows[3].locked, false)
+		rows[3]:Click()
+		eq(clicked, "Lordy"); eq(hd.selectedKey, "Lordy")
+		eq(rows[3].locked, true); eq(rows[5].locked, false)
+		Views.ClearSelection(hd)
+		eq(rows[3].locked, false); eq(hd.selectedKey, nil)
+		-- The old window's rows, as always: 16 tall, their own highlight, never kept lit.
+		local old = Content("old")
+		old.selectedKey = "Racer"
+		Views.Render(old, lines, Views.COLUMNS.census)
+		rows = old.rows
+		eq(rows[1].h, 16); eq(rows[2].points[1][5], -2 - 20)
+		eq(rows[1].stripe, nil); eq(rows[1].highlightTexture, nil)
+		eq(rows[1].textures[1].texture, "Interface\\QuestFrame\\UI-QuestTitleHighlight")
+		rows[3]:Click()
+		eq(clicked, "Lordy"); eq(old.selectedKey, "Racer")
+		for i = 1, #lines do eq(rows[i].locked, nil, "never lit: row " .. i) end
+	end)
+end)
+
+test("HD person panel: the roster's member card, hanging off the HD window", function()
+	WithUI(function()
+		local w, UI = ForeverWorld(true)
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		local main = OlympusFrameHD
+		ns.Views.ExpandAll(true)
+		UI.SelectTab("realm")
+		-- The Lord of Olympus: his line opens his card and stays lit while it is open.
+		local row
+		for _, r in ipairs(main.views.realm.rows) do
+			if r:IsShown() and r.line and r.line.key == "Asmongold" and r.line.indent == 1 then row = r break end
+		end
+		assert(row, "the Lord's line")
+		row:Click()
+		local person = OlympusPersonFrameHD
+		eq(person:IsShown(), true); eq(person.parent, main)
+		-- Docked to the maximized Communities window on the 1366 wide screen, the card would
+		-- run past the edge onto our list: it hangs off the window's left side instead.
+		eq(Anchor(person), "TOPRIGHT OlympusFrameHD TOPLEFT 4 -76")
+		eq(person.w .. "x" .. person.h, "214x226")
+		eq(person.Border.template, "DialogBorderDarkTemplate")
+		assert(person.level >= main:GetFrameLevel() + 1000, "over the window and its tabs")
+		eq(person.name.font, "GameFontNormal"); eq(person.guild:GetText(), "<Olympus>")
+		eq(person.whisper.w .. "x" .. person.whisper.h, "96x22"); eq(person.whisper.small, true)
+		-- (its `name` is the name line, as on the old panel: anchors are read by hand)
+		local p = person.whisper.points[1]
+		eq(p[1] .. " " .. p[3] .. " " .. p[4] .. " " .. p[5], "BOTTOMLEFT BOTTOMLEFT 12 36"); eq(p[2], person)
+		p = person.mark.points[1]
+		eq(p[2], person.who); eq(p[1] .. " " .. p[3] .. " " .. p[4] .. " " .. p[5], "LEFT RIGHT 1 0")
+		eq(row.locked, true, "its line stays lit")
+		eq(rawget(_G, "OlympusPersonFrame"), nil, "the old panel is not built")
+		-- Its buttons: Who through Who.lua, Mark (Heraldry players) runs and closes it.
+		local sent, savedSend = nil, ns.Who.SendPlain
+		ns.Who.SendPlain = function(query) sent = query end
+		person.who:Click()
+		ns.Who.SendPlain = savedSend
+		eq(sent, 'n-"Asmongold"')
+		eq(person.mark:IsShown(), false, "no Mark outside the Heraldry tab")
+		person:Hide()
+		eq(row.locked, false, "closing the card lets the line go")
+		-- Its close button and Escape close it too.
+		row:Click()
+		person.CloseButton:Click()
+		eq(person:IsShown(), false, "closed by its button"); eq(row.locked, false)
+		local escape
+		for _, name in ipairs(UISpecialFrames) do if name == "OlympusPersonFrameHD" then escape = true end end
+		eq(escape, true, "closed by Escape")
+		local marked
+		row:Click()
+		UI.ShowPerson({ name = "Asmongold", guild = "Olympus", onMark = function() marked = true end })
+		person.mark:Click()
+		eq(marked, true); eq(person:IsShown(), false, "Mark closes it"); eq(row.locked, false)
+		-- With room on the right (the Communities window minimized), it hangs off the right side
+		-- like Blizzard's.
+		CommunitiesFrame.w, CommunitiesFrame.h, CommunitiesFrame.rect = 322, 406, { 16, 200, 322, 406 }
+		CommunitiesFrame:Run("OnSizeChanged")
+		row:Click()
+		eq(Anchor(person), "TOPLEFT OlympusFrameHD TOPRIGHT -4 -76")
+		main:Hide()
+		eq(person:IsShown(), false, "closed with the window"); eq(row.locked, false)
+		ns.Views.ExpandAll(false)
+	end)
+end)
+
+test("HD Join screen: no tabs or column titles, next to a Communities window without side tabs", function()
+	WithUI(function()
+		GetGuildInfo = function() return nil end
+		local w, UI = ForeverWorld(false)
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		local main = OlympusFrameHD
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 32 0", "no side tabs there: Blizzard's gap")
+		for _, tab in ipairs(main.tabs) do eq(tab:IsShown(), false) end
+		eq(main.colHeader:IsShown(), false)
+		eq(main.listBox:Anchor("TOPLEFT")[5], -60); eq(main.scroll:Anchor("TOPLEFT")[5], -63)
+		local shown = {}
+		for _, b in ipairs(main.buttons) do if b:IsShown() then shown[#shown + 1] = b end end
+		eq(#shown, 2); eq(shown[1].w, 186); eq(shown[2].w, 186); eq(shown[1].h, 20)
+		-- Joins an Olympus guild with both windows open: the Communities side tabs appear too.
+		GetGuildInfo = function() return "Olympus II" end
+		CommunitiesFrame.ChatTab:Show()
+		UI.Refresh()
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0")
+		for _, tab in ipairs(main.tabs) do eq(tab:IsShown(), true) end
+		eq(main.colHeader:IsShown(), true)
+		eq(main.listBox:Anchor("TOPLEFT")[5], -81); eq(main.scroll:Anchor("TOPLEFT")[5], -84)
+	end)
+end)
+
+test("HD window on a client without Blizzard's new parts: built from what is there", function()
+	local missing, saved = { "RightSideTabTemplate", "ColumnDisplayButtonNoScriptsTemplate", "ScrollFrameTemplate", "DialogBorderDarkTemplate" }, {}
+	for _, name in ipairs(missing) do saved[name], TEMPLATES[name] = TEMPLATES[name], nil end
+	local ok, err = pcall(WithUI, function()
+		local w, UI = ForeverWorld(true)
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		local main = OlympusFrameHD
+		-- Side tabs made here, like RightSideTab.xml.
+		eq(UI.tabTemplate, "fallback"); eq(UI.tabStyle, "side")
+		local tab = main.tabs[1]
+		eq(tab.w .. "x" .. tab.h, "32x32"); eq(tab.Icon.texture, UI.TABS[1].icon)
+		eq(tab.highlightTexture, "Interface\\Buttons\\ButtonHilight-Square"); eq(tab:GetChecked(), true)
+		main.tabs[2]:Click()
+		eq(main.tab, "realm"); eq(main.tabs[2]:GetChecked(), true); eq(main.tabs[1]:GetChecked(), false)
+		-- The old scroll bar, with the room it needs.
+		eq(main.scroll:GetName(), "OlympusScrollHDOld"); eq(main.scroll:Anchor("BOTTOMRIGHT")[4], -30)
+		eq(main.views.census:GetWidth(), 385 - 39)
+		eq(OlympusScrollHD:IsShown(), false, "the one without a scroll bar is hidden")
+		-- Plain column titles, the rejected ones hidden.
+		main.tabs[1]:Click()
+		local header = main.colHeader.buttons[1]
+		eq(header.template, nil); eq(header:IsShown(), true); eq(header:GetText(), ns.L.COL_GUILD)
+		eq(OlympusColumnHeaderHD1:IsShown(), false)
+		-- The old person panel, next to the HD window: the row it was opened from is let go
+		-- when it closes, as with the HD one.
+		ns.Views.ExpandAll(true)
+		UI.SelectTab("realm")
+		local row
+		for _, r in ipairs(main.views.realm.rows) do
+			if r:IsShown() and r.line and r.line.key == "Asmongold" and r.line.indent == 1 then row = r break end
+		end
+		assert(row, "the Lord's line")
+		row:Click()
+		eq(OlympusPersonFrame:IsShown(), true); eq(OlympusPersonFrameHD:IsShown(), false)
+		eq(Anchor(OlympusPersonFrame), "TOPLEFT OlympusFrameHD TOPRIGHT -2 -28")
+		eq(row.locked, true)
+		OlympusPersonFrame:Hide()
+		eq(row.locked, false, "let go"); UI.Refresh(); eq(row.locked, false, "and stays so")
+		row:Click()
+		main:Hide()
+		eq(OlympusPersonFrame:IsShown(), false, "closed with the window"); eq(row.locked, false)
+		ns.Views.ExpandAll(false)
+	end)
+	for _, name in ipairs(missing) do TEMPLATES[name] = saved[name] end
+	if not ok then error(err, 0) end
+end)
+
+test("a new tab is one entry in UI.TABS: an icon tab in the HD window, a bottom tab in the old", function()
+	local channels = { key = "channels", label = "TAB_CHANNELS", icon = "Interface\\Icons\\INV_Misc_Note_02" }
+	for _, hdLook in ipairs({ true, false }) do
+		WithUI(function()
+			local UI, main
+			if hdLook then
+				local w
+				w, UI = ForeverWorld(true)
+				table.insert(UI.TABS, channels)
+				CommunitiesFrame:Show(); w.buttons[1]:Click()
+				main = OlympusFrameHD
+			else
+				TabCode("mainline")
+				UI = LoadUI()
+				table.insert(UI.TABS, channels)
+				UI.Toggle()
+				main = OlympusFrame
+			end
+			eq(#main.tabs, 5)
+			local last = main.tabs[5]
+			if hdLook then
+				eq(last.points[1][2], main.tabs[4]); eq(Anchor(last), "TOPLEFT nil BOTTOMLEFT 0 -20")
+				eq(last.Icon.texture, channels.icon); eq(last.tooltip, "TAB_CHANNELS")
+			else
+				eq(last.template, "PanelTabButtonTemplate"); eq(last:GetText(), "TAB_CHANNELS")
+			end
+			UI.SelectTab("channels")
+			eq(main.tab, "channels"); eq(#(main.views.channels.rows or {}), 0, "an empty list")
+			for _, b in ipairs(main.buttons) do eq(b:IsShown(), false, "no buttons") end
+		end)
+	end
 end)
 
 test("clearing a rect: up just enough, never off the screen", function()
@@ -2066,7 +2628,7 @@ end)
 test("sender ranks are verified on receipt, never taken from the message", function()
 	ns.Roster.Scan()
 	ns.rdb.guilds = {
-		["Olympus"] = { guild = "Olympus", leader = "Asmongold", officers = { { name = "Capt" } }, total = 1000, online = 1, zones = {}, t = os.time() },
+		["Olympus"] = Vouched({ guild = "Olympus", leader = "Asmongold", officers = { { name = "Capt" } }, total = 1000, online = 1, zones = {}, t = os.time() }, "W1-Realm", "W2-Realm"),
 		["Olympus Bad"] = { guild = "Olympus Bad", leader = "X", conflict = true, total = 1, online = 1, zones = {}, t = os.time() },
 	}
 	eq(ns.Data.Receive({ guild = "Olympus Zeus", total = 5, online = 1, zones = {} }, "Liar2-Realm"), true)
@@ -2258,6 +2820,161 @@ test("a report never vouches for its own sender", function()
 	ns.rdb.guilds = {}
 end)
 
+test("ranks come from the picture most senders agree on; forgers can't move it", function()
+	ns.Roster.Scan()
+	ns.rdb.guilds = {}
+	local D = ns.Data
+	local LEVELS = "~0,0,0,0,0,0,0~~"
+	local function Report(guild, leader, officers, sender)
+		return D.Receive(Codec.DecodeReport("R2~" .. guild .. "~900~90~" .. leader .. "~1~1~~" .. LEVELS .. officers), sender)
+	end
+	local savedNow = ns.Now
+	local clock = os.time()
+	ns.Now = function() return clock end
+	local ok, err = pcall(function()
+		-- <Olympus> as its reporter and runner-up send it.
+		eq(Report("Olympus", "King", "Duke:1:0", "Crier-Realm"), true)
+		eq(Report("Olympus", "King", "Duke:1:0", "Clerk-Realm"), true)
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "two senders name the officer")
+		eq(D.KnownRank("King-Realm", "Olympus"), 0, "and the King")
+		-- One outsider copies the report (fine), then adds an accomplice: one vote against two.
+		clock = clock + 60
+		eq(Report("Olympus", "King", "Duke:1:0", "Aaa-Realm"), true)
+		clock = clock + 1
+		eq(Report("Olympus", "King", "Duke:1:0,Bbb:1:0", "Aaa-Realm"), true)
+		eq(D.KnownRank("Bbb-Realm", "Olympus"), nil, "the copy-then-add trick gives nothing")
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "and costs the real officers nothing")
+		eq(ns.rdb.guilds.Olympus.conflict, true, "the forged report shows as a conflict")
+		-- Its own report never makes a sender anything.
+		eq(Report("Olympus", "King", "Duke:1:0,Aaa:1:0", "Aaa-Realm"), true)
+		eq(D.KnownRank("Aaa-Realm", "Olympus"), nil)
+		-- Two forgers against two reporters: contested, nobody's rank counts until it is settled.
+		eq(Report("Olympus", "King", "Duke:1:0,Aaa:1:0", "Ccc-Realm"), true)
+		eq(D.KnownRank("Aaa-Realm", "Olympus"), nil, "a tie is no majority")
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "contested: what both pictures agree on still counts")
+		-- Their votes expire when they stop; the real reporters' stay fresh.
+		clock = clock + 20 * 60
+		eq(Report("Olympus", "King", "Duke:1:0", "Crier-Realm"), true)
+		eq(Report("Olympus", "King", "Duke:1:0", "Clerk-Realm"), true)
+		clock = clock + 11 * 60
+		eq(Report("Olympus", "King", "Duke:1:0", "Crier-Realm"), true)
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "the forgers' votes are over 30 minutes old")
+		eq(D.KnownRank("Aaa-Realm", "Olympus"), nil)
+		-- A real promotion: split while only one of the two has reported it, then agreed.
+		eq(Report("Olympus", "King", "Duke:1:0,Earl:1:0", "Clerk-Realm"), true)
+		eq(D.KnownRank("Earl-Realm", "Olympus"), nil, "one sender so far")
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "the others keep their ranks meanwhile")
+		eq(D.KnownRank("King-Realm", "Olympus"), 0)
+		eq(Report("Olympus", "King", "Duke:1:0,Earl:1:0", "Crier-Realm"), true)
+		eq(D.KnownRank("Earl-Realm", "Olympus"), 1, "both reporters name him")
+		-- Another guild: an outsider swapping the leader for an accomplice gets no Lord.
+		eq(Report("Olympus Zeus", "Zeus", "", "Zclerk-Realm"), true)
+		eq(Report("Olympus Zeus", "Zeus", "", "Zcrier-Realm"), true)
+		eq(Report("Olympus Zeus", "Bbb2", "", "Aaa2-Realm"), true)
+		eq(D.KnownRank("Bbb2-Realm", "Olympus Zeus"), nil, "leader swap: one vote against two")
+		eq(D.KnownRank("Zeus-Realm", "Olympus Zeus"), 0)
+	end)
+	ns.Now = savedNow
+	ns.rdb.guilds = {}
+	if not ok then error(err, 0) end
+end)
+
+test("cut officer lists, channel changes and the first minutes after login", function()
+	ns.rdb.guilds = {}
+	local D = ns.Data
+	local LEVELS = "~0,0,0,0,0,0,0~~"
+	local function Officers(extra)
+		local t = {}
+		for i = 1, 30 do t[#t + 1] = "Off" .. i .. ":1:0" end
+		if extra then t[#t] = extra .. ":1:0" end
+		return table.concat(t, ",")
+	end
+	local function Report(guild, officers, sender)
+		return D.Receive(Codec.DecodeReport("R2~" .. guild .. "~900~90~Boss~1~1~~" .. LEVELS .. officers), sender)
+	end
+	-- 30 officers: the list is cut, the picture is the leader only.
+	eq(Report("Olympus Ares", Officers(), "Rep-Realm"), true)
+	eq(Report("Olympus Ares", Officers(), "Run-Realm"), true)
+	eq(D.KnownRank("Off3-Realm", "Olympus Ares"), 1, "named by both senders")
+	eq(Report("Olympus Ares", Officers("Mallory"), "Pad-Realm"), true)
+	eq(D.KnownRank("Mallory-Realm", "Olympus Ares"), nil, "a padded list gives nobody a rank")
+	eq(D.KnownRank("Off3-Realm", "Olympus Ares"), 1, "the real officers keep theirs")
+	-- Moving to another channel forgets every vote.
+	D.ForgetVotes()
+	eq(D.KnownRank("Off3-Realm", "Olympus Ares"), nil)
+	eq(ns.rdb.guilds["Olympus Ares"].total, 900, "the census numbers stay")
+	-- No Crown in the first minutes after login.
+	local savedLogin = ns.Comm.loginAt
+	eq(Report("Olympus Zeus2", "", "Zr-Realm"), true)
+	eq(Report("Olympus Zeus2", "", "Zs-Realm"), true)
+	ns.Comm.loginAt = ns.Now() - 30
+	eq(D.KnownRank("Boss-Realm", "Olympus Zeus2"), nil, "30 s after login: not yet")
+	ns.Comm.loginAt = ns.Now() - D.CROWN_AFTER - 1
+	eq(D.KnownRank("Boss-Realm", "Olympus Zeus2"), 0, "after a reporting cycle")
+	ns.Comm.loginAt = savedLogin
+	ns.rdb.guilds = {}
+end)
+
+test("reporter and runner-up on two realms of the group picture the guild the same way", function()
+	ns.rdb.guilds = {}
+	local D = ns.Data
+	local LEVELS = "~0,0,0,0,0,0,0~~"
+	-- Boss plays on our realm. Our reporter names him bare; the runner-up plays on PvP 2, where
+	-- Boss carries his realm, and reaches us with its own.
+	eq(D.Receive(Codec.DecodeReport("R2~Olympus Span2~50~5~Boss~1~1~~" .. LEVELS .. "Capt:1:0"), "Here"), true)
+	eq(D.Receive(Codec.DecodeReport("R2~Olympus Span2~50~5~Boss-Realm~1~1~~" .. LEVELS .. "Capt-Realm:1:0"), "There-Other"), true)
+	eq(ns.rdb.guilds["Olympus Span2"].conflict, nil, "the same people, not a conflict")
+	eq(D.KnownRank("Boss-Realm", "Olympus Span2"), 0, "a Lord on two senders' word")
+	eq(D.KnownRank("Capt", "Olympus Span2"), 1)
+	ns.rdb.guilds = {}
+end)
+
+test("ranks of other guilds: never your own word, the Crown on two, and only while recent", function()
+	ns.rdb.guilds = {}
+	local D = ns.Data
+	local LEVELS = "~0,0,0,0,0,0,0~~"
+	local function Report(guild, leader, officers, sender)
+		return D.Receive(Codec.DecodeReport("R2~" .. guild .. "~40~9~" .. leader .. "~1~1~~" .. LEVELS .. officers), sender)
+	end
+	local savedNow = ns.Now
+	local clock = os.time()
+	ns.Now = function() return clock end
+	local ok, err = pcall(function()
+		-- A guild master who is his guild's only reporter: his own report proves nothing.
+		eq(Report("Olympus Hermes", "Hermes", "Aide:1:0", "Hermes-Realm"), true)
+		eq(D.KnownRank("Hermes-Realm", "Olympus Hermes"), nil, "own report")
+		eq(D.KnownRank("Aide-Realm", "Olympus Hermes"), 1, "his officer, named by someone else")
+		-- The runner-up reports too (Comm): now two senders, and one of them names Hermes.
+		clock = clock + 30
+		eq(Report("Olympus Hermes", "Hermes", "Aide:1:0", "Runner-Realm"), true)
+		eq(D.KnownRank("Hermes-Realm", "Olympus Hermes"), 0, "a guild master on two senders' word")
+		-- One sender only never makes anyone the Crown.
+		eq(Report("Olympus Iris", "Iris", "", "Lone-Realm"), true)
+		eq(D.KnownRank("Iris-Realm", "Olympus Iris"), nil, "the Crown needs two senders")
+		-- Vouches expire: 40 minutes later only a fresh report counts.
+		clock = clock + 40 * 60
+		eq(Report("Olympus Hermes", "Hermes", "Aide:1:0", "Hermes-Realm"), true)
+		eq(D.KnownRank("Hermes-Realm", "Olympus Hermes"), nil, "the runner-up's word is 40 minutes old")
+		eq(D.KnownRank("Aide-Realm", "Olympus Hermes"), 1, "Hermes still vouches for his officer")
+	end)
+	ns.Now = savedNow
+	ns.rdb.guilds = {}
+	if not ok then error(err, 0) end
+end)
+
+test("a player who changed guilds can speak for the new one after a quiet while", function()
+	local D = ns.Data
+	local savedNow = ns.Now
+	local clock = os.time()
+	ns.Now = function() return clock end
+	eq(D.ClaimGuild("Mover-Realm", "Olympus Alpha"), true)
+	eq(D.ClaimGuild("Mover-Realm", "Olympus Beta"), false, "not right away")
+	clock = clock + D.CLAIM_TTL + 1
+	eq(D.ClaimGuild("Mover-Realm", "Olympus Beta"), true, "after CLAIM_TTL quiet")
+	eq(D.ClaimGuild("Mover-Realm", "Olympus Alpha"), false, "and now bound to the new one")
+	ns.Now = savedNow
+end)
+
 test("guild names ignore case, so another spelling can't pass for a guild", function()
 	ns.Roster.Scan()
 	ns.rdb.guilds = {}
@@ -2425,6 +3142,773 @@ test("chat lines arrive through CHAT_MSG_ADDON_LOGGED, without our echo or block
 	SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = slash[1], slash[2], slash[3]
 	C_ChatInfo = nil
 	if not ok then error(err, 0) end
+end)
+
+---------------------------------------------------------------------------
+-- Realm groups: PvP and PvP 2 share one census (Core.lua), and what tells realms apart
+-- (names as the server sent them, the realm a report was sent from, guild peers by realm).
+---------------------------------------------------------------------------
+
+local BETA = "ClassicBetaPvP+ClassicBetaPvP2"
+
+-- A table as text, keys sorted: two runs of the migration can be compared.
+local function Dump(v)
+	if type(v) ~= "table" then return type(v) == "string" and ("%q"):format(v) or tostring(v) end
+	local keys, out = {}, {}
+	for k in pairs(v) do keys[#keys + 1] = k end
+	table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+	for _, k in ipairs(keys) do out[#out + 1] = tostring(k) .. "=" .. Dump(v[k]) end
+	return "{" .. table.concat(out, ",") .. "}"
+end
+
+-- ADDON_LOADED on the saved variables `saved`, played on the realm named `realmName`.
+-- Returns OlympusDB, the store it opened and its group; ns is put back afterwards.
+local function LoadAs(realmName, saved)
+	local keep = { db = ns.db, rdb = ns.rdb, realm = ns.realm, group = ns.group, name = GetRealmName, capture = ns.CaptureError }
+	local captured
+	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
+	GetRealmName = function() return realmName end
+	OlympusDB = saved
+	for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "ADDON_LOADED", "Olympus") end
+	local rdb, group = ns.rdb, ns.group
+	ns.db, ns.rdb, ns.realm, ns.group, GetRealmName, ns.CaptureError = keep.db, keep.rdb, keep.realm, keep.group, keep.name, keep.capture
+	eq(captured, nil, "error caught")
+	return OlympusDB, rdb, group
+end
+
+test("realm groups: the beta PvP realms start as one, learned links override, other realms stay alone", function()
+	local savedDB = ns.db
+	ns.db = { log = {} }
+	eq(ns.GroupOf("ClassicBetaPvP"), BETA); eq(ns.GroupOf("ClassicBetaPvP2"), BETA)
+	eq(ns.GroupOf("Realm"), "Realm", "any other realm is a group of its own")
+	eq(ns.GroupSource("ClassicBetaPvP2"), "seed"); eq(ns.GroupSource("Realm"), "own")
+	local realms = ns.GroupRealms(BETA)
+	eq(#realms, 2); eq(realms[1], "ClassicBetaPvP"); eq(realms[2], "ClassicBetaPvP2")
+	ns.db.links = { ClassicBetaPvP = BETA .. "+Other" }
+	eq(ns.GroupOf("ClassicBetaPvP"), BETA .. "+Other", "a learned link overrides the seed")
+	eq(ns.GroupSource("ClassicBetaPvP"), "learned")
+	ns.db = savedDB
+end)
+
+test("realm groups: the PvP and PvP 2 stores merge into one, newest wins, nothing of ours lost", function()
+	local now = os.time()
+	local chatA, chatB = {}, {}
+	for i = 1, 60 do chatA[i] = { t = now - 1000 + i * 2, sender = "A" .. i, text = "a" } end
+	for i = 1, 60 do chatB[i] = { t = now - 999 + i * 2, sender = "B" .. i, text = "b" } end
+	chatB[61] = chatA[60] -- one line in both stores
+	local saved = { configVersion = 3, blocked = { troll = true }, realms = {
+		ClassicBetaPvP = {
+			guilds = { ["OLYMPUS I"] = { total = 500, t = now - 50, mine = true }, ["OLYMPUS VII"] = { total = 40, t = now - 3000 },
+				["OLYMPUS XXL"] = { total = 90, t = now - 10 } },
+			seen = { ["OLYMPUS LXIX"] = { online = 3, t = now - 100 } },
+			inspect = { players = { ["Naked-ClassicBetaPvP"] = { status = "NONE", t = now - 100 }, ["Both-X"] = { status = "OTHER", t = now - 500 },
+				["Bob Smith"] = { status = "GUILD", t = now - 900, marked = true, note = "ganker" }, ["Cy Jones"] = { status = "GUILD", t = now - 5 },
+				["Undone"] = { status = "GUILD", t = now - 900, marked = true, note = "old" } },
+				guildMarks = { ["OLYMPUS II"] = true } },
+			chat = { A = chatA },
+			realmKey = "same-secret",
+		},
+		ClassicBetaPvP2 = {
+			guilds = { ["OLYMPUS I"] = { total = 480, t = now - 5000 }, ["OLYMPUS VII"] = { total = 45, t = now - 20 },
+				["OLYMPUS XIV"] = { total = 60, t = now - 30, mine = true } },
+			seen = { ["OLYMPUS LXIX"] = { online = 7, t = now - 5 }, ["OLYMPUS X"] = { online = 1, t = now - 9 } },
+			inspect = { players = { ["Both-X"] = { status = "GUILD", t = now - 5 }, ["Bob Smith"] = { status = "NONE", t = now - 5 },
+				["Cy Jones"] = { status = "GUILD", t = now - 900, marked = true, note = "spy" }, ["Undone"] = { status = "GUILD", t = now - 5, marked = false } },
+				guildMarks = { ["OLYMPUS III"] = true } },
+			chat = { A = chatB, C = { { t = now, sender = "Cap", text = "c" } } },
+			realmKey = "same-secret",
+			shared = { realm = "ClassicBetaPvP", to = "ClassicBetaPvP2", t = now - 60 },
+		},
+		Faraway = { guilds = { ["Olympus Far"] = { total = 5, t = now } } },
+	} }
+	local db, R, group = LoadAs("Classic Beta PvP", saved)
+	eq(group, BETA); eq(db.realms[BETA], R, "one store for both realms")
+	eq(db.realms.ClassicBetaPvP, nil, "the per-realm stores are gone"); eq(db.realms.ClassicBetaPvP2, nil)
+	eq(db.realms.Faraway.guilds["Olympus Far"].total, 5, "another realm's store is untouched")
+	eq(R.guilds["OLYMPUS I"].total, 500, "our own guild's newer report stays"); eq(R.guilds["OLYMPUS I"].mine, true)
+	eq(R.guilds["OLYMPUS VII"].total, 45, "the newer report wins"); eq(R.guilds["OLYMPUS XXL"].total, 90)
+	eq(R.guilds["OLYMPUS XIV"].total, 60, "an alt's own guild is kept"); eq(R.guilds["OLYMPUS XIV"].mine, true)
+	eq(R.seen["OLYMPUS LXIX"].online, 7, "the newer sighting wins"); eq(R.seen["OLYMPUS X"].online, 1)
+	eq(R.inspect.players["Naked-ClassicBetaPvP"].status, "NONE"); eq(R.inspect.players["Both-X"].status, "GUILD", "newest inspection")
+	eq(R.inspect.guildMarks["OLYMPUS II"], true); eq(R.inspect.guildMarks["OLYMPUS III"], true, "the marks of both")
+	local bob, cy = R.inspect.players["Bob Smith"], R.inspect.players["Cy Jones"]
+	eq(bob.status, "NONE", "the newer inspection..."); eq(bob.marked, true, "...keeps the older one's mark"); eq(bob.note, "ganker")
+	eq(cy.t, now - 5, "the newer entry stays..."); eq(cy.marked, true, "...and takes the mark merged in"); eq(cy.note, "spy")
+	eq(R.inspect.players["Undone"].marked, false, "an explicit unmark stays"); eq(R.inspect.players["Undone"].note, "old")
+	eq(R.guilds["OLYMPUS VII"].heardOn, "ClassicBetaPvP2", "a realm's store: its reports were heard there")
+	eq(R.guilds["OLYMPUS XXL"].heardOn, "ClassicBetaPvP")
+	-- 121 lines, one of them twice: 120, of which the oldest 20 go.
+	eq(#R.chat.A, 100, "capped"); eq(R.chat.A[1].sender, "A11", "oldest dropped"); eq(R.chat.A[100].sender, "B60", "newest last")
+	for i = 2, #R.chat.A do assert(R.chat.A[i - 1].t < R.chat.A[i].t, "chat in time order, each line once") end
+	eq(#R.chat.C, 1)
+	eq(R.realmKey, "same-secret", "the same key on both realms is kept")
+	eq(R.shared.realm, "ClassicBetaPvP", "anything else is carried over")
+	eq(db.blocked["troll-classicbetapvp"], true, "block list keys take the character's own realm")
+	-- Running it again changes nothing, and PvP 2 opens the same store.
+	local before = Dump(db.realms) .. Dump(db.links) .. Dump(db.blocked)
+	local db2, R2 = LoadAs("Classic Beta PvP", db)
+	eq(Dump(db2.realms) .. Dump(db2.links) .. Dump(db2.blocked), before, "second run")
+	eq(R2, R)
+	local _, R3, group3 = LoadAs("Classic Beta PvP 2", db)
+	eq(group3, BETA); eq(R3, R, "PvP 2 reads the same census")
+	eq(Dump(db.realms), Dump(db2.realms))
+end)
+
+test("realm groups: sightings kept with a realm of the group on the guild's name go under its plain name", function()
+	local now = os.time()
+	local _, R = LoadAs("Classic Beta PvP", { configVersion = 3, realms = {
+		ClassicBetaPvP = { seen = { ["OLYMPUS XIV"] = { online = 2, t = now - 500 }, ["OLYMPUS V-ClassicBetaPvP"] = { online = 1, t = now - 10 } } },
+		ClassicBetaPvP2 = { seen = { ["OLYMPUS XIV-ClassicBetaPvP2"] = { online = 4, t = now - 50 }, ["OLYMPUS X-Faraway"] = { online = 3, t = now - 9 },
+			["OLYMPUS X"] = { online = 6, t = now - 20 }, ["OLYMPUS X-ClassicBetaPvP"] = { online = 5, t = now - 400 } } },
+	} })
+	local keep = { rdb = ns.rdb, group = ns.group, capture = ns.CaptureError }
+	local captured
+	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
+	ns.rdb, ns.group = R, BETA
+	CoreFire("INIT") -- as ADDON_LOADED does, with the group's store open
+	ns.rdb, ns.group, ns.CaptureError = keep.rdb, keep.group, keep.capture
+	eq(captured, nil, "error caught")
+	eq(R.seen["OLYMPUS XIV"].online, 4, "the newer one, whatever its name"); eq(R.seen["OLYMPUS XIV-ClassicBetaPvP2"], nil)
+	eq(R.seen["OLYMPUS V"].online, 1); eq(R.seen["OLYMPUS V-ClassicBetaPvP"], nil)
+	eq(R.seen["OLYMPUS X"].online, 6, "an older one does not replace it"); eq(R.seen["OLYMPUS X-ClassicBetaPvP"], nil)
+	eq(R.seen["OLYMPUS X-Faraway"].online, 3, "a realm outside the group keeps its name")
+end)
+
+test("realm groups: realm keys, one is taken, the same is kept, different ones are dropped", function()
+	local function Key(a, b, group)
+		local realms = { ClassicBetaPvP = { realmKey = a }, ClassicBetaPvP2 = { realmKey = b } }
+		if group then realms[BETA] = { realmKey = group } end
+		local db, R = LoadAs("Classic Beta PvP 2", { configVersion = 3, realms = realms })
+		eq(db.realms.ClassicBetaPvP, nil); eq(db.realms.ClassicBetaPvP2, nil)
+		return R.realmKey
+	end
+	eq(Key("one-secret", nil), "one-secret", "only one realm had a key: taken")
+	eq(Key(nil, "two-secret"), "two-secret")
+	eq(Key("same-secret", "same-secret"), "same-secret")
+	eq(Key("one-secret", "two-secret"), nil, "two keys: dropped, our officers send ours again")
+	eq(Key(nil, nil), nil)
+	eq(Key("one-secret", nil, "one-secret"), "one-secret", "the group's own key counts too")
+	eq(Key(nil, "two-secret", "one-secret"), nil)
+end)
+
+test("realm groups: a link learned mid-session moves the census over at once", function()
+	local keep = { db = ns.db, rdb = ns.rdb, realm = ns.realm, group = ns.group, Fire = ns.Fire, print = print,
+		Join = ns.Comm.JoinChannel, Name = ns.Comm.ChannelName, Ask = ns.Comm.RequestKey }
+	local fired, joins, asks, channel = {}, 0, 0, "OlympusNet"
+	local ok, err = pcall(function()
+		print = function() end
+		ns.Fire = function(name) fired[#fired + 1] = name end
+		ns.Comm.JoinChannel = function() joins = joins + 1 end
+		ns.Comm.ChannelName = function() return channel end
+		ns.Comm.RequestKey = function() asks = asks + 1 end
+		local now = os.time()
+		local R0 = { guilds = { ["Olympus Here"] = { total = 10, t = now } }, seen = {} }
+		ns.db = { log = {}, realms = { Realm = R0, Other = { guilds = { ["Olympus There"] = { total = 20, t = now } } } } }
+		ns.realm, ns.group, ns.rdb = "Realm", "Realm", R0
+		eq(ns.LinkRealms("Realm", nil), false); eq(ns.LinkRealms("Realm", "?"), false); eq(ns.LinkRealms("Realm", "Realm"), false)
+		eq(ns.LinkRealms("Realm", "Other"), true)
+		eq(ns.group, "Other+Realm"); eq(ns.db.links.Realm, "Other+Realm"); eq(ns.db.links.Other, "Other+Realm")
+		eq(ns.rdb, ns.db.realms["Other+Realm"], "the census now lives in the group's store")
+		eq(ns.rdb.guilds["Olympus Here"].total, 10, "what we had is carried over")
+		eq(ns.rdb.guilds["Olympus There"].total, 20, "and the other realm's census joins it")
+		eq(ns.db.realms.Realm, nil); eq(ns.db.realms.Other, nil)
+		eq(fired[#fired], "DATA_CHANGED"); eq(joins, 0, "no key changed: same channel")
+		eq(ns.LinkRealms("Other", "Realm"), false, "nothing new")
+		-- A realm with another key: both keys go, and we move to the channel without one.
+		ns.rdb.realmKey = "our-secret"
+		ns.db.realms.Third = { realmKey = "their-secret" }
+		eq(ns.LinkRealms("Realm", "Third"), true)
+		eq(ns.group, "Other+Realm+Third", "the whole group grows"); eq(ns.db.links.Other, "Other+Realm+Third")
+		eq(ns.rdb.guilds["Olympus Here"].total, 10, "the old group's store is merged too")
+		eq(ns.db.realms["Other+Realm"], nil)
+		eq(ns.rdb.realmKey, nil); eq(joins, 1, "the key changed: so does the channel")
+		eq(asks, 1, "ours was dropped: our officers are asked for it again")
+		ns.rdb.realmKey = "our-secret"
+		ns.db.realms.Fourth = { realmKey = "our-secret" }
+		eq(ns.LinkRealms("Realm", "Fourth"), true); eq(ns.rdb.realmKey, "our-secret"); eq(joins, 1, "same key"); eq(asks, 1)
+		channel = nil
+		ns.db.realms.Fifth = { realmKey = "their-secret" }
+		eq(ns.LinkRealms("Fifth", "Realm"), true); eq(ns.rdb.realmKey, nil)
+		eq(joins, 1, "not joined yet: the first join takes the new key"); eq(asks, 1, "and the login's request asks")
+	end)
+	ns.db, ns.rdb, ns.realm, ns.group, ns.Fire, print = keep.db, keep.rdb, keep.realm, keep.group, keep.Fire, keep.print
+	ns.Comm.JoinChannel, ns.Comm.ChannelName, ns.Comm.RequestKey = keep.Join, keep.Name, keep.Ask
+	if not ok then error(err, 0) end
+end)
+
+test("realm groups: our guild homed on another realm links it; roster names are counted as sent", function()
+	local keep = { db = ns.db, rdb = ns.rdb, realm = ns.realm, group = ns.group, print = print,
+		info = GetGuildInfo, roster = GetGuildRosterInfo }
+	local ok, err = pcall(function()
+		print = function() end
+		ns.db = { log = {}, blocked = {}, realms = { Realm = { guilds = {}, seen = {} } } }
+		ns.realm, ns.group, ns.rdb = "Realm", "Realm", ns.db.realms.Realm
+		GetGuildInfo = function() return MY_GUILD, "Hero", 3, "Other" end
+		GetGuildRosterInfo = function(i)
+			local far = i % 3 == 0
+			return far and ("Far" .. i .. "-Other") or ("Near" .. i), "rank", i == 1 and 0 or 3, 10, "class", "Elwynn Forest",
+				"", "", true, 0, "MAGE", nil, nil, nil, nil, nil, ("Player-%d-%08X"):format(far and 4620 or 4619, i)
+		end
+		ns.Roster.RequestScan(true)
+		ns.Roster.TryScan()
+		eq(ns.db.links.Realm, "Other+Realm", "learned from our own guild's home")
+		eq(ns.group, "Other+Realm")
+		local mine = ns.rdb.guilds[MY_GUILD]
+		eq(mine.home, "Other"); eq(mine.from, "Realm")
+		local d = ns.Codec.DecodeReport(ns.Codec.EncodeReport(mine))
+		eq(d.home, "Other"); eq(d.from, "Realm")
+		eq(ns.Roster.rawRealms.bare, 667); eq(ns.Roster.rawRealms.Other, 333)
+		eq(ns.Roster.servers["4619"], 667); eq(ns.Roster.servers["4620"], 333)
+		eq(ns.Roster.rawSample, "Far3-Other", "an example with its realm, when there is one")
+		-- Guild on our own realm: 4th return nil, home is ours, nothing to link.
+		GetGuildInfo = function() return MY_GUILD, "Hero", 3 end
+		eq(ns.Roster.Scan().home, "Realm")
+	end)
+	ns.db, ns.rdb, ns.realm, ns.group, print = keep.db, keep.rdb, keep.realm, keep.group, keep.print
+	GetGuildInfo, GetGuildRosterInfo = keep.info, keep.roster
+	ns.Roster.Scan() -- the roster of the other tests back
+	if not ok then error(err, 0) end
+end)
+
+test("reports: fields 21 and 22 (reporter's realm, guild's home) are optional both ways", function()
+	local C = ns.Codec
+	local r = { guild = "Olympus Span", total = 9, online = 1, zones = {}, from = "ClassicBetaPvP2", home = "ClassicBetaPvP" }
+	local payload = C.EncodeReport(r)
+	local d = C.DecodeReport(payload)
+	eq(d.from, "ClassicBetaPvP2"); eq(d.home, "ClassicBetaPvP")
+	local f = C.Split(payload, "~")
+	eq(#f, 22)
+	local old = C.DecodeReport(table.concat(f, "~", 1, 20))
+	eq(old.total, 9); eq(old.from, nil, "a 20-field report (older versions)"); eq(old.home, nil)
+	local newer = C.DecodeReport(payload .. "~some field of a later version")
+	eq(newer.from, "ClassicBetaPvP2", "a 23-field report still decodes")
+	f[21], f[22] = "Bad|cffRealm", ("x"):rep(41)
+	d = C.DecodeReport(table.concat(f, "~"))
+	eq(d.from, nil, "no escape codes"); eq(d.home, nil, "no more than 40 characters")
+	eq(C.RealmField("Two words"), nil); eq(C.RealmField(""), nil); eq(C.RealmField(("x"):rep(40)), ("x"):rep(40))
+end)
+
+test("a bare officer of a report sent from another realm keeps its rank (names as the sender sent them)", function()
+	local saved = ns.rdb.guilds
+	ns.rdb.guilds = {}
+	eq(ns.Data.Receive({ guild = "Olympus Span", total = 9, online = 1, zones = {}, leader = "Spanboss", from = "Other",
+		officers = { { name = "Spancapt", online = true, days = 0 } } }, "Spanboss"), true)
+	eq(ns.rdb.guilds["Olympus Span"].realm, "Realm", "the realm of the sender's name, not the report's")
+	eq(ns.Data.KnownRank("Spancapt", "Olympus Span"), 1, "a bare guildmate of the reporter matches")
+	eq(ns.Data.KnownRank("Spancapt-Other", "Olympus Span"), nil)
+	ns.rdb.guilds = saved
+end)
+
+test("a report heard by a character on another realm of the group is no previous report here", function()
+	local saved = ns.rdb.guilds
+	local ok, err = pcall(function()
+		ns.rdb.guilds = {}
+		local function Rep() return { guild = "Olympus Span", total = 9, online = 1, zones = {}, leader = "Spanboss",
+			officers = { { name = "Spancapt", online = true, days = 0 } } } end
+		-- Heard by our alt on Other: every bare name took Other.
+		local keep = ns.realm
+		ns.realm = "Other"
+		eq(ns.Data.Receive(Rep(), "Spanboss"), true)
+		ns.realm = keep
+		local there = ns.rdb.guilds["Olympus Span"]
+		eq(there.heardOn, "Other"); eq(there.reporterFull, "Spanboss-Other")
+		eq(ns.Data.Receive(Rep(), "Spanboss"), true)
+		local here = ns.rdb.guilds["Olympus Span"]
+		eq(here.heardOn, "Realm"); eq(here.conflict, nil, "the same reporter and officers, not added ones")
+		eq(here.vouch["Spanboss-Other"], nil, "nor a voucher in another form")
+		-- Heard here: compared as always.
+		eq(ns.Data.Receive(Rep(), "Otherguy"), true)
+		eq(ns.rdb.guilds["Olympus Span"].conflict, nil); eq(ns.rdb.guilds["Olympus Span"].vouch["Otherguy-Realm"].ranks["Spancapt-Realm"], 1)
+		local r = Rep()
+		r.leader = "Usurper"
+		ns.Data.Receive(r, "Thirdguy")
+		eq(ns.rdb.guilds["Olympus Span"].conflict, true, "a real conflict still shows")
+	end)
+	ns.rdb.guilds = saved
+	if not ok then error(err, 0) end
+end)
+
+-- Comm.lua loaded into a namespace of its own (fresh peers, stats and guard) with a clock the
+-- test moves. Deliver(dist, sender, text) goes through the real CHAT_MSG_ADDON handler.
+local function FreshComm()
+	local events, login = {}, {}
+	local cns = setmetatable({}, { __index = ns })
+	cns.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
+	cns.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
+	cns.After, cns.Every = function() end, function() end
+	cns.clock = 100000
+	cns.Now = function() return cns.clock end
+	C_ChatInfo = { RegisterAddonMessagePrefix = function() end }
+	assert(loadfile(ADDON_DIR .. "Comm.lua"))("Olympus", cns)
+	for _, fn in ipairs(login) do fn() end
+	local function Deliver(dist, sender, text)
+		for _, fn in ipairs(events.CHAT_MSG_ADDON) do fn(ns.PREFIX, text, dist, sender) end
+	end
+	local id = 0
+	local function Report(sender, r)
+		id = id + 1
+		for _, c in ipairs(ns.Codec.Chunk(ns.Codec.EncodeReport(r), tostring(id))) do Deliver("CHANNEL", sender, c) end
+	end
+	return cns, Deliver, Report
+end
+
+test("runner-up: only a 0.7.11+ peer on the reporter's channel", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		local cns, Deliver, Report = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		C.JoinChannel()
+		-- Aaa reports; Bob (before us in the election) runs 0.7.10 and never backs anyone.
+		Deliver("GUILD", "Aaa", "H1~0.7.11~Realm~p")
+		Deliver("GUILD", "Bob", "H1~0.7.10")
+		Report("Aaa", { guild = MY_GUILD, total = 1000, online = 300, zones = {} })
+		C.MaybeBroadcast(ours)
+		eq(C.isRunnerUp, true, "the old peer is skipped: we back the reporter")
+		-- Bcc (before us) is on the sealed channel, the reporter on the public one: skipped too.
+		Deliver("GUILD", "Bcc", "H1~0.7.11~Realm~s")
+		C.MaybeBroadcast(ours)
+		eq(C.isRunnerUp, true, "a peer on the other channel can't back this reporter")
+		Deliver("GUILD", "Bdd", "H1~0.7.11~Realm~p")
+		C.MaybeBroadcast(ours)
+		eq(C.isRunnerUp, false, "a 0.7.11 peer on the same channel comes first")
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("runner-up backs an active reporter; census on request, bounded", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		local cns, Deliver, Report = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		GetChannelName = function() return 5 end
+		C.JoinChannel()
+		local sent = {}
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
+		local function Flush() for _ = 1, 40 do C.Pump() end end
+		local function Chunks() local n = 0 for _, m in ipairs(sent) do if m:find("^CHANNEL C") then n = n + 1 end end return n end
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {}, leader = "Member1" }
+		-- Abe (first in the election) is elected; we are the runner-up. Abe is not heard yet.
+		Deliver("GUILD", "Abe", "H1~0.7.11~Realm~p")
+		C.MaybeBroadcast(ours)
+		eq(C.isReporter, false); eq(C.isRunnerUp, false, "reporter not heard: nothing to back")
+		Flush(); eq(Chunks(), 0)
+		-- Abe reports on the channel: now we back him, once every 10 minutes.
+		Report("Abe", { guild = MY_GUILD, total = 1000, online = 300, zones = {} })
+		C.MaybeBroadcast(ours)
+		eq(C.isRunnerUp, true)
+		Flush(); local first = Chunks(); assert(first > 0, "runner-up report sent")
+		cns.clock = cns.clock + 300
+		Deliver("GUILD", "Abe", "H1~0.7.11~Realm~p")
+		Report("Abe", { guild = MY_GUILD, total = 1000, online = 300, zones = {} })
+		C.MaybeBroadcast(ours)
+		Flush(); eq(Chunks(), first, "not before 10 minutes")
+		cns.clock = cns.clock + 301
+		Deliver("GUILD", "Abe", "H1~0.7.11~Realm~p")
+		Report("Abe", { guild = MY_GUILD, total = 1000, online = 300, zones = {} })
+		C.MaybeBroadcast(ours)
+		Flush(); eq(Chunks(), first * 2, "again after 10 minutes")
+		-- Census requests: only the elected reporter answers, at most every 2 minutes.
+		cns.After = function(_, _, fn) fn() end
+		local before = Chunks()
+		Deliver("CHANNEL", "Newbie", "Q1~")
+		Flush(); eq(Chunks(), before, "the runner-up does not answer")
+		cns.clock = cns.clock + 200
+		C.MaybeBroadcast(ours) -- Abe was not heard for 200 s but is still elected
+		local cns2, Deliver2 = FreshComm()
+		local C2 = cns2.Comm
+		C2.loginAt = cns2.clock - 1000
+		C2.JoinChannel()
+		cns2.After = function(_, _, fn) fn() end
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
+		C2.MaybeBroadcast(ours) -- alone: we are the reporter, and report now
+		eq(C2.isReporter, true)
+		sent = {}
+		Flush()
+		for _ = 1, 40 do C2.Pump() end
+		local afterOwn = Chunks()
+		cns2.clock = cns2.clock + 60
+		Deliver2("CHANNEL", "Newbie", "Q1~")
+		for _ = 1, 40 do C2.Pump() end
+		assert(Chunks() > afterOwn, "the reporter answers a request")
+		local afterAnswer = Chunks()
+		cns2.clock = cns2.clock + 50
+		Deliver2("CHANNEL", "Other", "Q1~")
+		for _ = 1, 40 do C2.Pump() end
+		eq(Chunks(), afterAnswer, "not twice within 2 minutes")
+		eq(C2.Stats().answered, 1)
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("census requests: nobody answers in their first minute, the runner-up answers too", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		-- Just logged in: alone so far, so we think we are the reporter, but must not answer.
+		local cns, Deliver = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock
+		C.JoinChannel()
+		local fired = 0
+		cns.After = function(_, _, fn) fired = fired + 1; fn() end
+		C.MaybeBroadcast(ours)
+		cns.clock = cns.clock + 30
+		Deliver("CHANNEL", "Newbie", "Q1~")
+		eq(C.Stats().answered, 0, "not in the first minute after login")
+		-- Settled, and the runner-up of an active reporter: answers.
+		local cns2, Deliver2, Report2 = FreshComm()
+		local C2 = cns2.Comm
+		C2.loginAt = cns2.clock - 1000
+		C2.JoinChannel()
+		cns2.After = function(_, _, fn) fn() end
+		Deliver2("GUILD", "Abe", "H1~0.7.11~Realm~p")
+		Report2("Abe", { guild = MY_GUILD, total = 1000, online = 300, zones = {} })
+		C2.MaybeBroadcast(ours)
+		eq(C2.isRunnerUp, true)
+		cns2.clock = cns2.clock + 60
+		Deliver2("CHANNEL", "Newbie", "Q1~")
+		eq(C2.Stats().answered, 1, "the runner-up answers")
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("only our channel counts, and chat only through the logged API", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		local cns, Deliver = FreshComm()
+		local C = cns.Comm
+		GetChannelName = function() return 5 end
+		C.JoinChannel()
+		-- Deliver with the channel number the client gives (7th argument of CHAT_MSG_ADDON).
+		local handlers = {}
+		local seen = 0
+		C.Handle("Z9", function() seen = seen + 1 end)
+		Deliver("CHANNEL", "Outsider", "Z9~x")
+		eq(seen, 1, "no channel number given: accepted, as before")
+		local events = {}
+		-- The real handler with all arguments: another channel's number is dropped.
+		local cns3 = setmetatable({}, { __index = ns })
+		local login = {}
+		cns3.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
+		cns3.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
+		cns3.After, cns3.Every = function() end, function() end
+		C_ChatInfo = { RegisterAddonMessagePrefix = function() end, SendAddonMessageLogged = function() end }
+		assert(loadfile(ADDON_DIR .. "Comm.lua"))("Olympus", cns3)
+		for _, fn in ipairs(login) do fn() end
+		cns3.Comm.JoinChannel()
+		local got = 0
+		cns3.Comm.Handle("Z9", function() got = got + 1 end)
+		for _, fn in ipairs(events.CHAT_MSG_ADDON) do fn(ns.PREFIX, "Z9~x", "CHANNEL", "Outsider", "", 0, 9, "SomeoneElsesChannel") end
+		eq(got, 0, "a message on channel #9 is not ours (#5)")
+		eq(cns3.Comm.Stats().otherChannel, 1)
+		for _, fn in ipairs(events.CHAT_MSG_ADDON) do fn(ns.PREFIX, "Z9~x", "CHANNEL", "Friend", "", 0, 5, "OlympusNet") end
+		eq(got, 1, "ours (#5) is")
+		assert(cns3.Comm.Stats().chanArgs:find("localID=9", 1, true), "the first channel's arguments are kept for /oly status")
+		eq(cns3.Comm.DeliveredLogged(), false)
+		local inside
+		cns3.Comm.Handle("Z8", function() inside = cns3.Comm.DeliveredLogged() end)
+		for _, fn in ipairs(events.CHAT_MSG_ADDON_LOGGED) do fn(ns.PREFIX, "Z8~x", "CHANNEL", "Friend", "", 0, 5, "OlympusNet") end
+		eq(inside, true, "handlers know a message came through the logged API")
+		eq(cns3.Comm.DeliveredLogged(), false, "and only while it is handled")
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("a channel number that changed under us holds channel messages", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		local cns = FreshComm()
+		local C = cns.Comm
+		local id = 5
+		GetChannelName = function() return id end
+		C.JoinChannel()
+		local sent = {}
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist, target) sent[#sent + 1] = dist .. "#" .. tostring(target) .. " " .. msg end
+		C.Send("CHANNEL", "Z9~one")
+		id = 0 -- the player left the channel (Chat Channels panel)
+		C.Pump()
+		eq(#sent, 0, "nothing goes to a number that is no longer ours")
+		id = 5
+		C.JoinChannel()
+		C.Pump()
+		eq(sent[1], "CHANNEL#5 Z9~one", "sent once we are back")
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("hello: guild peers say their realm, older versions count as old", function()
+	local ok, err = pcall(function()
+		local cns, Deliver = FreshComm()
+		Deliver("GUILD", "Abe-ClassicBetaPvP2", "H1~0.7.11~ClassicBetaPvP2")
+		Deliver("GUILD", "Bob", "H1~0.7.10")
+		Deliver("GUILD", "Cy", "H1~0.7.11~Bad|cffRealm")
+		local st = cns.Comm.Stats()
+		eq(st.peers, 3); eq(st.peerRealms.ClassicBetaPvP2, 1); eq(st.peerRealms.old, 2, "no realm, or not a realm")
+		eq(st.raw.g.bare, 2, "counted as sent, before our realm is added"); eq(st.raw.g.ClassicBetaPvP2, 1)
+		eq(st.rawSample.g, "Abe-ClassicBetaPvP2")
+		local sent = {}
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
+		cns.Comm.Hello()
+		cns.Comm.Pump()
+		eq(sent[1], "GUILD H1~" .. ns.VERSION .. "~Realm~p", "ours names our realm and channel (public)")
+		local savedKey = ns.rdb.realmKey
+		ns.rdb.realmKey = "secret"
+		cns.clock = cns.clock + 600
+		cns.Comm.Hello()
+		cns.Comm.Pump()
+		ns.rdb.realmKey = savedKey
+		eq(sent[2], "GUILD H1~" .. ns.VERSION .. "~Realm~s", "sealed")
+	end)
+	C_ChatInfo = nil
+	if not ok then error(err, 0) end
+end)
+
+test("a report sent from another realm proves the channel is shared", function()
+	local saved = { guilds = ns.rdb.guilds, shared = ns.rdb.shared }
+	local ok, err = pcall(function()
+		local cns, _, Report = FreshComm()
+		ns.rdb.guilds, ns.rdb.shared = {}, nil
+		Report("Nearby", { guild = "Olympus Near", total = 5, online = 1, zones = {}, from = "Realm" })
+		eq(ns.rdb.shared, nil, "a report from our own realm proves nothing")
+		Report("Faraway-Other", { guild = "Olympus Far", total = 7, online = 2, zones = {}, from = "Other" })
+		eq(ns.rdb.shared.realm, "Other"); eq(ns.rdb.shared.to, "Realm")
+		Report("Oldtimer-Realm", { guild = "Olympus Old", total = 3, online = 1, zones = {} })
+		local st = cns.Comm.Stats()
+		eq(st.reportRealms.Realm, 1); eq(st.reportRealms.Other, 1); eq(st.reportRealms.old, 1, "older versions send no realm")
+		eq(st.raw.ch.bare, 1, "Nearby came without a realm..."); eq(ns.rdb.guilds["Olympus Near"].reporterFull, "Nearby-Realm", "...and got ours")
+		eq(st.raw.ch.Other, 1); eq(st.raw.ch.Realm, 1)
+		eq(ns.rdb.guilds["Olympus Far"].from, "Other")
+		assert(ns.StatusText():find("channel SHARED (Other -> Realm", 1, true), "in /oly status")
+	end)
+	ns.rdb.guilds, ns.rdb.shared = saved.guilds, saved.shared
+	C_ChatInfo = nil
+	if not ok then error(err, 0) end
+end)
+
+test("election guard: a reporter never heard on the channel is left out a while, one that is heard stays", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		local cns, Deliver, Report = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		local function Tick(seconds, hellos, heard)
+			cns.clock = cns.clock + seconds
+			for _, name in ipairs(hellos) do Deliver("GUILD", name, "H1~0.7.11~Realm") end
+			for _, name in ipairs(heard or {}) do Report(name, ours) end
+			C.MaybeBroadcast(ours)
+		end
+		Tick(0, { "Abe" })
+		eq(C.reporterName, "Abe", "Abe sorts first")
+		for _ = 1, 10 do Tick(60, { "Abe" }) end
+		eq(C.reporterName, "Abe", "we are not on the channel: we could not have heard it")
+		GetChannelName = function() return 5 end
+		C.JoinChannel()
+		Tick(0, { "Abe" })
+		for _ = 1, 6 do Tick(60, { "Abe" }) end
+		eq(C.reporterName, "Abe", "on the channel 360 s: not yet")
+		Tick(60, { "Abe" })
+		eq(C.reporterName, "Tester", "never heard in 400 s: left out, we report"); eq(C.isReporter, true)
+		eq(C.Stats().benched[1], "Abe")
+		eq(C.Stats().queue > 0, true, "and our report goes out")
+		-- Aaron sorts first and is heard every 180 s: elected and kept.
+		for _ = 1, 8 do Tick(180, { "Abe", "Aaron" }, { "Aaron" }) end
+		eq(C.reporterName, "Aaron", "heard: stays elected")
+		eq(C.Stats().heardOwn, "Aaron")
+		-- Aaron logs off; 30 minutes after it was left out, Abe may be elected again.
+		Tick(1800 - 8 * 180, { "Abe" })
+		eq(#C.Stats().benched, 0); eq(C.reporterName, "Abe")
+		-- A peer left out is back as soon as it is heard.
+		for _ = 1, 7 do Tick(60, { "Abe" }) end
+		eq(C.reporterName, "Tester")
+		Report("Abe", ours)
+		Tick(0, { "Abe" })
+		eq(C.reporterName, "Abe", "heard: in again")
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("election guard: a reporter named with its realm over GUILD and without it on the channel is heard", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		local cns, Deliver, Report = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		GetChannelName = function() return 5 end
+		C.JoinChannel()
+		local function Tick(seconds, heard)
+			cns.clock = cns.clock + seconds
+			Deliver("GUILD", "Abe-ClassicBetaPvP2", "H1~0.7.11~ClassicBetaPvP2~p")
+			if heard then Report("Abe", ours) end
+			C.MaybeBroadcast(ours)
+		end
+		Tick(0)
+		for _ = 1, 8 do Tick(180, true) end
+		eq(C.reporterName, "Abe-ClassicBetaPvP2", "heard as Abe: stays elected"); eq(#C.Stats().benched, 0)
+		for _ = 1, 3 do Tick(180) end
+		eq(C.reporterName, "Tester", "silent: left out"); eq(C.Stats().benched[1], "Abe-ClassicBetaPvP2")
+		Tick(0, true)
+		eq(C.reporterName, "Abe-ClassicBetaPvP2", "heard as Abe: in again")
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("election guard: a sealed reporter is not judged without the key, and another channel starts the watch again", function()
+	local savedChannel, savedKey, savedLeave = GetChannelName, ns.rdb.realmKey, LeaveChannelByName
+	local ok, err = pcall(function()
+		LeaveChannelByName = function() end
+		local cns, Deliver = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		local sent = {}
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
+		ns.rdb.realmKey = nil
+		GetChannelName = function() return 5 end
+		C.JoinChannel()
+		eq(C.ChannelName(), "OlympusNet")
+		local function Tick(seconds, flag)
+			cns.clock = cns.clock + seconds
+			Deliver("GUILD", "Abe", "H1~0.7.11~Realm" .. (flag and ("~" .. flag) or ""))
+			C.MaybeBroadcast(ours)
+		end
+		for _ = 1, 12 do Tick(60, "s") end
+		eq(C.reporterName, "Abe", "on the sealed channel: we can't hear it, so we don't judge it"); eq(#C.Stats().benched, 0)
+		eq(C.Stats().queue, 1, "we ask for the key instead...")
+		C.Pump()
+		eq(sent[1], "GUILD K0~")
+		for _ = 1, 5 do Tick(60, "s") end
+		eq(C.Stats().queue, 0, "...not every minute")
+		-- An older version says nothing about its channel: judged as before, watched from now.
+		for _ = 1, 5 do Tick(60) end
+		eq(C.reporterName, "Abe")
+		-- The key arrives: another channel, and what we did not hear on the public one says nothing.
+		ns.rdb.realmKey = "secret"
+		C.JoinChannel()
+		assert(C.ChannelName() ~= "OlympusNet", "sealed channel")
+		Tick(0)
+		for _ = 1, 6 do Tick(60) end
+		eq(C.reporterName, "Abe", "360 s on the sealed channel: not yet")
+		Tick(60)
+		eq(C.reporterName, "Tester", "400 s there: left out")
+		-- We have the key: a peer on the public channel is judged like any other.
+		local cns2, Deliver2 = FreshComm()
+		local C2 = cns2.Comm
+		C2.loginAt = cns2.clock - 1000
+		C2.JoinChannel()
+		for _ = 1, 8 do
+			cns2.clock = cns2.clock + 60
+			Deliver2("GUILD", "Abe", "H1~0.7.11~Realm~p")
+			C2.MaybeBroadcast(ours)
+		end
+		eq(C2.reporterName, "Tester", "public reporter, never heard on our sealed channel: left out")
+	end)
+	GetChannelName, C_ChatInfo, ns.rdb.realmKey, LeaveChannelByName = savedChannel, nil, savedKey, savedLeave
+	if not ok then error(err, 0) end
+end)
+
+test("who: a guild named with a realm of our census group is the same guild", function()
+	local savedGroup = ns.group
+	local ok, err = pcall(WithWho, function(server)
+		ns.group = "Other+Realm"
+		ns.Who.Search()
+		server.Answer({
+			{ "Aa", "OLYMPUS VII-Other", 12 }, { "Bb", "OLYMPUS VII", 14 }, { "Cc-Far", "OLYMPUS VII-Faraway", 9 },
+			{ "Dd", "OLYMPUS I-Realm", 20 },
+		})
+		server.Run()
+		local seen = ns.rdb.seen
+		eq(seen["OLYMPUS VII"].online, 2, "OLYMPUS VII-Other is OLYMPUS VII"); eq(seen["OLYMPUS VII-Other"], nil)
+		eq(seen["OLYMPUS I"].online, 1, "so is a guild named with our own realm")
+		eq(seen["OLYMPUS VII-Faraway"].online, 1, "a realm outside the group keeps its name")
+		local names, suffixed, sample = ns.Who.RawCounts()
+		eq(names.bare, 3); eq(names.Far, 1); eq(suffixed, 3); eq(sample, "Cc-Far")
+	end)
+	ns.group = savedGroup
+	if not ok then error(err, 0) end
+end)
+
+test("/oly status: realm, census, raw names and topology, short, and without the newer realm APIs", function()
+	local keep = { group = ns.group, realm = ns.realm, shared = ns.rdb.shared, info = GetGuildInfo, Stats = ns.Comm.Stats, RawCounts = ns.Who.RawCounts }
+	local ok, err = pcall(function()
+		eq(C_AutoComplete, nil); eq(GetNativeRealmID, nil); eq(RegionalUniqueNamesEnabled, nil); eq(GetRealmID, nil)
+		local text = ns.StatusText()
+		for _, want in ipairs({ "id=nil native=nil guid=nil", "unique names=?", "connected=n/a", "shared: not seen yet" }) do
+			assert(text:find(want, 1, true), want .. "\n" .. text)
+		end
+		ns.realm, ns.group = "ClassicBetaPvP", BETA
+		C_AutoComplete = { GetAutoCompleteRealms = function() return {} end }
+		GetRealmID = function() return 4619 end
+		GetNativeRealmID = function() error("not on this client") end
+		RegionalUniqueNamesEnabled = function() return true end
+		UnitGUID = function() return "Player-4619-0A1B2C3D" end
+		GetRealmName = function() return "Classic Beta PvP" end
+		ns.rdb.shared = { realm = "ClassicBetaPvP2", to = "ClassicBetaPvP", t = os.time() - 250 }
+		text = ns.StatusText()
+		for _, want in ipairs({ "realm: Classic Beta PvP = ClassicBetaPvP  id=4619 native=nil guid=4619  guild home=ours",
+			"census: " .. BETA .. " (seed)  unique names=true  connected=none", "names raw: roster Realm=1000  e.g. [Member1-Realm]",
+			"names raw: roster by server (GUID) ?=1000", "topology: channel SHARED (ClassicBetaPvP2 -> ClassicBetaPvP, 4m ago)",
+			"topology: guild peers by realm" }) do
+			assert(text:find(want, 1, true), want .. "\n" .. text)
+		end
+		-- The longest these lines get on the beta: still short.
+		local long = "Bellattrixx Lesstrange-ClassicBetaPvP2"
+		GetGuildInfo = function() return MY_GUILD, "Hero", 3, "ClassicBetaPvP2" end
+		GetNativeRealmID = function() return 4620 end
+		C_AutoComplete.GetAutoCompleteRealms = function() return { "Classic Beta PvP", "Classic Beta PvP 2", "Classic Beta PvE", "Classic Beta RP" } end
+		local R = ns.Roster
+		local raw = { bare = 300, ClassicBetaPvP2 = 263 } -- names as sent: bare, or with PvP 2
+		local realms = { ClassicBetaPvP = 300, ClassicBetaPvP2 = 263, old = 12 }
+		R.rawRealms, R.servers, R.rawSample = raw, { ["4619"] = 300, ["4620"] = 263 }, long
+		ns.Comm.Stats = function()
+			local c = keep.Stats()
+			c.raw, c.rawSample = { ch = raw, g = raw }, { ch = long, g = long }
+			c.reportRealms, c.peerRealms, c.heardOwn, c.heardOwnAt, c.benched = realms, realms, long, os.time() - 100, { long }
+			return c
+		end
+		ns.Who.RawCounts = function() return raw, 30, long end
+		text = ns.StatusText()
+		local checked = 0
+		for line in text:gmatch("[^\n]+") do
+			if line:find("^realm:") or line:find("^census:") or line:find("^names raw:") or line:find("^topology:") then
+				checked = checked + 1
+				assert(#line <= 110, ("too long for the /oly bug window (%d): %s"):format(#line, line))
+			end
+		end
+		eq(checked, 12)
+		assert(text:find("connected=ClassicBetaPvP2,ClassicBetaPvE,+1", 1, true), "ours left out, two named\n" .. text)
+	end)
+	C_AutoComplete, GetRealmID, GetNativeRealmID, RegionalUniqueNamesEnabled, UnitGUID = nil, nil, nil, nil, nil
+	GetRealmName = function() return "Realm" end
+	GetGuildInfo, ns.Comm.Stats, ns.Who.RawCounts = keep.info, keep.Stats, keep.RawCounts
+	ns.group, ns.realm, ns.rdb.shared = keep.group, keep.realm, keep.shared
+	ns.Roster.Scan() -- the roster counts of the other tests back
+	if not ok then error(err, 0) end
+end)
+
+test("census subtitle names the realms sharing it", function()
+	local savedGroup = ns.group
+	local uns = setmetatable({}, { __index = ns })
+	uns.On = function() end
+	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+	ns.group = BETA
+	eq(uns.UI.CensusName(), "ClassicBetaPvP + ClassicBetaPvP2")
+	ns.group = "Realm"
+	eq(uns.UI.CensusName(), "Realm", "one realm: its name")
+	ns.group = savedGroup
 end)
 
 ---------------------------------------------------------------------------

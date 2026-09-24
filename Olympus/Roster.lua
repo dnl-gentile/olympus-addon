@@ -37,9 +37,18 @@ local function DaysOffline(i, isOnline)
 	return (y or 0) * 365 + (m or 0) * 30 + (d or 0) + (h or 0) / 24
 end
 
+-- Where the counts below come from: the name as the server sent it ("bare" = no realm) and the
+-- server id of the member's GUID. ns.FullName gives bare names our realm, so counting after
+-- it could never tell two realms apart.
+local function CountRaw(t, key)
+	t[key] = (t[key] or 0) + 1
+end
+
 function Roster.Scan()
-	local guild = GetGuildInfo("player")
+	-- The 4th return is the guild's home realm, nil when it is ours.
+	local guild, _, _, home = GetGuildInfo("player")
 	if not guild then return nil end
+	home = type(home) == "string" and home:gsub("[%s%-]", "") or ""
 	local started = debugprofilestop and debugprofilestop() or 0
 	local numTotal, numOnline = GetNumGuildMembers()
 	numTotal = numTotal or 0
@@ -57,17 +66,19 @@ function Roster.Scan()
 	local seen, seenOffline, zoneCount, levelSum = 0, 0, 0, 0
 	local everyone = {}
 	local byName = {}
-	local realms = {} -- realm suffixes seen in the roster, for diagnostics
+	local rawRealms, servers, sample = {}, {}, nil -- for /oly status (names raw)
 	for i = 1, numTotal do
-		local name, rankName, rankIndex, level, _, zone, _, _, isOnline, _, classFile = GetGuildRosterInfo(i)
+		local name, rankName, rankIndex, level, _, zone, _, _, isOnline, _, classFile, _, _, _, _, _, guid = GetGuildRosterInfo(i)
 		if name then
 			seen = seen + 1
+			local rawRealm = name:match("%-(.+)$")
+			CountRaw(rawRealms, rawRealm or "bare")
+			CountRaw(servers, type(guid) == "string" and guid:match("^Player%-(%d+)%-") or "?")
+			if not sample or (rawRealm and not sample:find("-", 1, true)) then sample = name end
 			-- Identity is "Name-Realm"; reports carry the short form for our own realm.
 			local full = ns.FullName(name)
 			local short = ns.DisplayName(full)
 			byName[full] = rankIndex or 9
-			local suffix = ns.RealmOf(full) or "?"
-			realms[suffix] = (realms[suffix] or 0) + 1
 			local days = DaysOffline(i, isOnline)
 			level = level or 1
 			levelSum = levelSum + level
@@ -119,7 +130,8 @@ function Roster.Scan()
 	for i = 1, math.min(5, #everyone) do r.top[i] = everyone[i] end
 	r.avgLevel = seen > 0 and levelSum / seen or 0
 	Roster.byName = byName
-	Roster.realms = realms
+	Roster.rawRealms, Roster.servers, Roster.rawSample = rawRealms, servers, sample
+	r.home = home ~= "" and home or ns.realm
 	if numOnline and numOnline > r.online then r.online = numOnline end
 	local ms = debugprofilestop and (debugprofilestop() - started) or 0
 	Roster.lastStats = {
@@ -153,6 +165,9 @@ function Roster.TryScan()
 	lastScan = ns.Now()
 	local r = Roster.Scan()
 	if not r or not ns.IsFederation(r.guild) then return end
+	-- Our guild lives on another realm: that realm shares our guilds, so it shares our census
+	-- (first, so our report lands in the shared store).
+	if r.home ~= ns.realm then ns.LinkRealms(ns.realm, r.home) end
 	r.users = ns.Comm.PeerCount() + 1
 	ns.Data.SetLocal(r)
 	ns.Comm.MaybeBroadcast(r)

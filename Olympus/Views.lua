@@ -5,12 +5,14 @@ local L = ns.L
 -- a detail box (title + text, like the guild "Message of the Day" box) and three buttons.
 -- The renderer draws lines with Blizzard fonts; a line is either
 --   { text, right, indent, header, color, onClick, tooltip = function(tt) end }
--- or a table row { cols = { ... } } drawn with the tab's column layout.
+-- or a table row { cols = { ... } } drawn with the tab's column layout. `key` (a player's
+-- name) marks a line that opens a person: the HD window keeps it lit while it is open.
 
 local Views = {}
 ns.Views = Views
 
 local ROW_H = 16
+local ROW_H_HD = 20 -- the Guild & Communities roster's rows (CommunitiesMemberList.xml)
 local expanded = {}
 local CROWN = "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:13:13|t "
 local ASSIST = "|TInterface\\GroupFrame\\UI-Group-AssistantIcon:12:12|t "
@@ -58,17 +60,29 @@ Views.COLUMNS = {
 -- Renderer
 ---------------------------------------------------------------------------
 
+-- Rows follow the look of the window they are in (content.style, see UI.lua): the old one's,
+-- or the HD one's like the Guild & Communities roster (20 tall, its row background on the
+-- rows that can be clicked, its gold bar under the mouse and under the person open).
 local function Row(content, i)
 	content.rows = content.rows or {}
 	local r = content.rows[i]
 	if r then return r end
 	r = CreateFrame("Button", nil, content)
-	r:SetHeight(ROW_H)
-	local hl = r:CreateTexture(nil, "HIGHLIGHT")
-	hl:SetAllPoints()
-	hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-	hl:SetBlendMode("ADD")
-	hl:SetAlpha(0.35)
+	if content.style == "hd" then
+		r:SetHeight(ROW_H_HD)
+		r.stripe = r:CreateTexture(nil, "BACKGROUND")
+		r.stripe:SetAllPoints()
+		r.stripe:SetTexture("Interface\\GuildFrame\\GuildFrame")
+		r.stripe:SetTexCoord(0.36230469, 0.38183594, 0.95898438, 0.99804688)
+		r:SetHighlightTexture("Interface\\FriendsFrame\\UI-FriendsFrame-HighlightBar", "ADD")
+	else
+		r:SetHeight(ROW_H)
+		local hl = r:CreateTexture(nil, "HIGHLIGHT")
+		hl:SetAllPoints()
+		hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+		hl:SetBlendMode("ADD")
+		hl:SetAlpha(0.35)
+	end
 	r.left = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	r.left:SetJustifyH("LEFT")
 	r.left:SetWordWrap(false)
@@ -82,7 +96,12 @@ local function Row(content, i)
 		fs:SetWordWrap(false)
 		r.cols[c] = fs
 	end
-	r:SetScript("OnClick", function(self) if self.line and self.line.onClick then ns.SafeCall("view click", self.line.onClick) end end)
+	r:SetScript("OnClick", function(self)
+		if not self.line then return end
+		-- HD: the person opened stays lit, like the roster's selected member.
+		if content.style == "hd" and self.line.key then ns.SafeCall("view select", Views.Select, content, self.line.key) end
+		if self.line.onClick then ns.SafeCall("view click", self.line.onClick) end
+	end)
 	r:SetScript("OnEnter", function(self)
 		if not (self.line and self.line.tooltip) then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -109,8 +128,20 @@ function Views.LayoutColumns(fontStrings, layout, width, offset)
 	end
 end
 
+-- The row whose line has `key` stays lit (nil: none). HD rows only.
+function Views.Select(content, key)
+	content.selectedKey = key
+	for _, r in ipairs(content.rows or {}) do
+		if key and r.line and r.line.key == key then r:LockHighlight() else r:UnlockHighlight() end
+	end
+end
+
+function Views.ClearSelection(content) Views.Select(content, nil) end
+
 function Views.Render(content, lines, layout)
 	local width = content:GetWidth()
+	local hd = content.style == "hd"
+	local rowH = hd and ROW_H_HD or ROW_H
 	local y = -2
 	for i, line in ipairs(lines) do
 		local r = Row(content, i)
@@ -137,8 +168,12 @@ function Views.Render(content, lines, layout)
 			r.right:SetText(line.right or "")
 		end
 		r:EnableMouse(line.onClick ~= nil or line.tooltip ~= nil)
+		if hd then
+			r.stripe:SetShown(line.cols ~= nil or line.onClick ~= nil)
+			if line.key and line.key == content.selectedKey then r:LockHighlight() else r:UnlockHighlight() end
+		end
 		r:Show()
-		y = y - (line.header and ROW_H + 4 or ROW_H)
+		y = y - (line.header and rowH + 4 or rowH)
 		if line.gapAfter then y = y - 6 end
 	end
 	for i = #lines + 1, #(content.rows or {}) do content.rows[i]:Hide() end
@@ -328,6 +363,7 @@ local function RealmLines(s)
 				local lord = { name = g.leader, class = g.leaderClass, level = g.leaderLevel, zone = g.leaderZone,
 					guild = e.name, rank = L.LORD, online = g.leaderOnline, days = g.leaderDays }
 				lines[#lines + 1] = {
+					key = g.leader,
 					indent = 1, text = CROWN .. Gold(L.LORD) .. "  " .. ClassColored(g.leader, lord.class and ns.CLASS_FILES[lord.class]),
 					right = Presence(g.leaderOnline, g.leaderDays),
 					onClick = function() ns.UI.ShowPerson(lord) end,
@@ -339,6 +375,7 @@ local function RealmLines(s)
 				local person = { name = o.name, class = o.class, level = o.level, zone = o.zone, guild = e.name,
 					rank = L.CAPTAIN, online = o.online, days = o.days }
 				lines[#lines + 1] = {
+					key = o.name,
 					indent = 2, text = ASSIST .. ClassColored(o.name, o.class and ns.CLASS_FILES[o.class]),
 					right = (o.level and Grey(L.LEVEL_N:format(o.level)) .. "  " or "") .. Presence(o.online, o.days),
 					onClick = function() ns.UI.ShowPerson(person) end,
@@ -369,6 +406,7 @@ local function RealmLines(s)
 	for i = 1, math.min(10, #racers) do
 		local p = racers[i]
 		lines[#lines + 1] = {
+			key = p.name,
 			text = ("%d. %s  %s"):format(i, ClassColored(p.name, p.class and ns.CLASS_FILES[p.class]), Grey("<" .. p.guild .. ">")),
 			right = Gold(L.LEVEL_N:format(p.level)),
 			onClick = function() ns.UI.ShowPerson({ name = p.name, class = p.class, level = p.level, guild = p.guild }) end,
@@ -507,6 +545,7 @@ local function HeraldryLines()
 	lines[#lines + 1] = { header = true, text = L.INSPECTED_PLAYERS }
 	for _, p in ipairs(s.players) do
 		lines[#lines + 1] = {
+			key = p.name,
 			cols = {
 				(p.marked and Red("! ") or "") .. ClassColored(ns.ShortName(p.name), p.class),
 				Grey(p.guild and ("<" .. p.guild .. ">") or ""),
@@ -588,23 +627,33 @@ end
 -- Entry point used by UI.lua
 ---------------------------------------------------------------------------
 
-function Views.Build(tab)
-	local s = ns.Data.Summary()
-	if tab == "census" then
+-- Each tab's lines, detail title and detail text. A tab missing here (a new one being
+-- added) is an empty list.
+local BUILD = {
+	census = function(s)
 		local title, text = CensusDetail(s)
 		return CensusLines(s), title, text
-	elseif tab == "realm" then
+	end,
+	realm = function(s)
 		local title, text = RealmDetail(s)
 		return RealmLines(s), title, text
-	elseif tab == "decrees" then
+	end,
+	decrees = function()
 		local title, text = DecreeDetail()
 		local lines = DecreeLines()
 		DecreeHelp(lines)
 		return lines, title, text
-	else
+	end,
+	heraldry = function()
 		local title, text = HeraldryDetail()
 		return HeraldryLines(), title, text
-	end
+	end,
+}
+
+function Views.Build(tab)
+	local build = BUILD[tab]
+	if not build then return {}, nil, nil end
+	return build(ns.Data.Summary())
 end
 
 -- Kept for the tests: the Realm tree lines.

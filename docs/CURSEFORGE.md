@@ -114,6 +114,8 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 - **Copy**: every tab produces a ready-to-paste text for Discord.
 - The window opens from `/oly`, the minimap button, or the round button in your guild window:
   the old Guild tab or the new Guild & Communities window, whichever one you use.
+- Next to Forever's Guild & Communities window it takes that window's look: icon tabs down
+  the right side, its rows, column headers, buttons and member card.
 - English and Portuguese (follows the game language).
 
 ## Install
@@ -132,7 +134,7 @@ game in the app, not Classic Era.
 4. Go into `Interface\AddOns\` (create `Interface` and `AddOns` if they don't exist) and
    extract the zip there, so you end up with `...\Interface\AddOns\Olympus\Olympus.toc`.
    Careful: Windows' *Extract All* adds a folder named after the zip
-   (`AddOns\Olympus-0.7.10\Olympus\...`). If that happens, move the `Olympus` folder up into
+   (`AddOns\Olympus-0.7.11\Olympus\...`). If that happens, move the `Olympus` folder up into
    `AddOns`; the game only loads it from `AddOns\Olympus\`.
 5. **Restart the game.** If the addon list says *out of date*, tick **Load out of date AddOns**.
 
@@ -167,9 +169,11 @@ Nothing leaves the game. There is no server, no website, no account and no track
 **Realms vs layers.** A realm (ClassicBetaPvP, ClassicBetaPvP2...) is a separate world
 with its own guilds; layers are copies of a zone *inside* one realm. Guilds on the same
 realm always see each other, whatever layer they are on. Whether the hidden channel also
-reaches another realm is not confirmed yet (`/oly bug` shows which realms messages come
-from). Data is stored per realm, so alts on different realms never mix their census, and
-the window shows which realm you are counting.
+reaches another realm is not confirmed yet (the "topology" lines of `/oly bug` say so once
+a report from the other realm arrives). Realms whose guilds span each other share one
+census and one realm key: PvP and PvP 2 on the beta from the start, and any realm your
+guild turns out to be homed on. Alts on any other realm keep their census apart, and the
+window shows which realms you are counting.
 
 ## Security and trust
 
@@ -182,24 +186,41 @@ copy. No addon can prevent that. What this one does is make an edited copy usele
   - A decree counts only if the sender really is the Lord or a Captain of that guild,
     according to that guild's own roster report, or our own roster for our own guild.
     The rank written inside the message is ignored.
-  - A report never proves its own sender's rank: the last report someone else sent about that
-    guild must name them too. (So an officer who is the only one of their guild with the addon
-    is not verified by other guilds.)
-  - A sender can report only one guild.
-  - A guild whose reports disagree about its leader, its size or its officers is flagged, and
-    its ranks are not trusted. So are two spellings of a guild name that differ only in capitals.
+  - **Ranks come from the picture most senders agree on.** Every report from the last 30
+    minutes is its sender's vote on who leads the guild and who its officers are. One sender
+    changing or repeating a report can't move the majority. When two pictures have as many
+    senders each, only what both agree on counts. No Crown rank counts in a client's first
+    3 minutes, so a guild's own reporters have voted before anyone else can win.
+  - A report never proves its own sender's rank: someone else's vote must name them. The
+    runner-up of each guild's election also reports every 10 minutes (and answers census
+    requests), so a Lord or officer who is the elected reporter is still verified. (An officer
+    who is the only one of their guild with the addon is not.)
+  - **The Crown** (any guild master, the officers of `<Olympus>`) needs two senders naming them.
+  - A sender speaks for one guild only (a player who changed guilds can speak for the new one
+    after 15 quiet minutes). Two spellings of a guild name that differ only in capitals both
+    lose their ranks while both are fresh.
+- **Only our channel counts**: addon messages that arrive on any other chat channel are
+  ignored, so the sealed channel really keeps outsiders out.
 - **Sealed channel** (`/oly key`): outsiders can't find the channel or join it.
 - **Validation**: every number is range checked, names are length limited, and malformed
   messages are dropped. Decrees are rate limited per sender and in total.
 - **Channels**: [Captains]/[Lords] lines count only if the sender's rank is verified like
   decrees; everyone else can use [Olympus] only. Sent with Blizzard's logged addon-message
-  function; rate limited per sender and per channel, and no single sender can fill a channel.
+  function (lines sent any other way are dropped); rate limited per sender and per channel, and
+  no single sender can fill a channel.
 - `/oly block <name>` ignores a player completely.
 
 Limits, stated honestly:
-- Two cooperating characters can still invent a guild with "Olympus" in its name (one sends
-  its report and names the other as its leader) and so reach [Lords] and the Crown's decrees.
-  So can anyone who really founds such a guild.
+- Votes are counted per sender name, and nothing the server tells an addon proves which guild
+  a sender belongs to. So cooperating characters can still invent a guild with "Olympus" in
+  its name (two of them naming a third as its leader), and reach [Lords] and the Crown's
+  decrees. So can anyone who really founds such a guild. Against a real guild they need more
+  senders than it has reporting (its reporter and runner-up: two at most). On the public
+  channel anyone can try; **seal it with `/oly key`** and only members of Olympus guilds can.
+- **The Forever beta forgets addon data at every login**: its client saves it but never loads
+  it back ([a known beta bug](https://us.forums.blizzard.com/en/wow/t/savedvariables-never-load-in-the-beta-%E2%80%94-all-addon-settings-reset-on-login-69913/2354798)),
+  so settings and the realm key reset every session. The census still refills in seconds: a
+  client that logs in asks the channel, and each guild's reporter and runner-up answer at once.
 - A real Olympus member who edits their copy could still send a wrong report for **their own**
   guild. Their guildmates' reports and the conflict flag make a changed leader, size or officer
   list visible, but it can't be made impossible.

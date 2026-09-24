@@ -6,21 +6,36 @@ local L = ns.L
 -- and tabs along the bottom. Opened from the guild window (the old Guild tab or the new
 -- Guild & Communities window, see GuildFrame.lua) it docks right next to it, so it reads
 -- as a continuation of that window. Created on first open.
+--
+-- Two looks, each its own frame, picked again on every open (no /reload): "old" is the
+-- window above, next to the old Guild window (Classic Era, Anniversary, ClassicUI Forever's
+-- Guild tab). "hd" mirrors Forever's Guild & Communities window: the same metal frame,
+-- icon tabs on the right side, 20 px rows, Blizzard's column headers, buttons and member
+-- card. The old one is built exactly as it always was.
 
 local UI = {}
 ns.UI = UI
 
 local DEFAULT_W, DEFAULT_H = 338, 424
 local DETAIL_H = 78
-local main
-local personFrame -- the person details panel (created on first use, further below)
+local HD_TABS_W, PANEL_GAP = 32, 32 -- RightSideTab.xml (32 wide); UIPanelLayoutFrame.lua PANEl_SPACING_X
+local HD_TABS_REACH = 40            -- a side tab and its art, past the window's right edge
+local HD_DEFAULT_H = 426            -- CommunitiesFrame.xml
+local main                          -- the window in use: frames.old or frames.hd
+local frames = {}                   -- style -> window, each created on first use
+local personFrames = {}             -- style -> person details panel (created on first use, further below)
 
+-- icon: the side tab's (HD window), a texture or a function giving one. A new tab is one
+-- entry here, its L.TAB_ label and, if it has any, its BUTTONS.
 local TABS = {
-	{ key = "census", label = "TAB_CENSUS" },
-	{ key = "realm", label = "TAB_REALM" },
-	{ key = "decrees", label = "TAB_DECREES" },
-	{ key = "heraldry", label = "TAB_HERALDRY" },
+	{ key = "census", label = "TAB_CENSUS", icon = "Interface\\Icons\\achievement_guildperk_havegroup willtravel" },
+	{ key = "realm", label = "TAB_REALM", icon = function()
+		return UnitFactionGroup and UnitFactionGroup("player") == "Horde" and "Interface\\Icons\\INV_BannerPVP_01" or "Interface\\Icons\\INV_BannerPVP_02"
+	end },
+	{ key = "decrees", label = "TAB_DECREES", icon = "Interface\\Icons\\INV_Scroll_04" },
+	{ key = "heraldry", label = "TAB_HERALDRY", icon = "Interface\\Icons\\INV_Shirt_GuildTabard_01" },
 }
+UI.TABS = TABS
 
 local function DecreeAction(kind)
 	return function()
@@ -138,14 +153,36 @@ function UI.TabStyle(tab)
 	return "classic"
 end
 
--- The anchor of tab i (prev is tab i - 1) under `frame`.
+-- The anchor of tab i (prev is tab i - 1) under `frame`, or beside it for "side" (the HD
+-- window's icon tabs, placed like the Guild & Communities window's in CommunitiesFrame.xml).
 function UI.TabAnchor(style, i, frame, prev)
+	if style == "side" then
+		if i == 1 then return "TOPLEFT", frame, "TOPRIGHT", 0, -36 end
+		return "TOPLEFT", prev, "BOTTOMLEFT", 0, -20
+	end
 	if style == "mainline" then
 		if i == 1 then return "TOPLEFT", frame, "BOTTOMLEFT", 5, 2 end
 		return "TOPLEFT", prev, "TOPRIGHT", 3, 0
 	end
 	if i == 1 then return "TOPLEFT", frame, "BOTTOMLEFT", 10, 2 end
 	return "LEFT", prev, "RIGHT", -15, 0
+end
+
+-- The look for our window: "hd" next to (or in place of) Forever's Guild & Communities
+-- window, "old" anywhere else (GuildFrame.lua decides, from the guild window in use or
+-- `host`, one of its hosts).
+function UI.Style(host)
+	local hook = ns.GuildFrameHook
+	return hook and hook.IsHD and hook.IsHD(host) and "hd" or "old"
+end
+
+-- How far right of the guild window ours docks. The old one overlaps the Social window's
+-- border by 2, as always. The HD one leaves the gap Blizzard leaves between two windows
+-- (PANEl_SPACING_X), past the side tabs when the Communities window shows them (it then
+-- asks for 32 more, its extraWidth): where Blizzard would put the next window.
+function UI.DockOffset(style, sideTabsShown)
+	if style == "hd" then return (sideTabsShown and HD_TABS_W or 0) + PANEL_GAP end
+	return -2
 end
 
 -- Blizzard's Issue Reporter (Blizzard_PTRFeedback, only on beta and PTR clients such as
@@ -250,30 +287,118 @@ function UI.DockSize(hostW, hostH, heightOnly, baseW, baseH)
 end
 
 -- Size of a new window: as if docked to the guild window in use (GuildFrame.lua knows
--- which), else the Social window's.
-local function HostSize()
+-- which), else the Social window's (the HD one with the Communities window's height).
+local function HostSize(style)
 	local hook = ns.GuildFrameHook
 	local host = hook and hook.ActiveHost and hook.ActiveHost()
 	if host and host.dock and host.dock.GetWidth then
 		return UI.DockSize(host.dock:GetWidth(), host.dock:GetHeight(), host.heightOnly, SocialSize())
 	end
-	return SocialSize()
+	local w, h = SocialSize()
+	if style == "hd" then return w, HD_DEFAULT_H end
+	return w, h
 end
 
-local function CreateMain()
-	local ok, f = pcall(CreateFrame, "Frame", "OlympusFrame", UIParent, "PortraitFrameTemplate")
+-- Where the parts of each window sit. old: the numbers the window always had. hd: those of
+-- the Guild & Communities window (ButtonFrameTemplate's Inset at 4,-60 / -6,26, buttons 20
+-- tall at y 5, ColumnDisplay headers 24 tall on the list's top border, the thin scroll bar
+-- of ScrollFrameTemplate). topNoCols: without column titles (other tabs, the Join screen);
+-- the old list box never moves.
+local GEOMETRY = {
+	old = {
+		box = { left = 6, top = -56, right = -6, bottom = 36 + DETAIL_H + 4 },
+		header = { left = 8, right = -28, y = -58, h = 20 },
+		scroll = { left = 10, top = -80, topNoCols = -64, right = -30, bottom = 36 + DETAIL_H + 8 },
+		detail = { left = 6, right = -6, y = 36 },
+		buttons = { x = 8, y = 8, h = 22, margin = 16 },
+	},
+	hd = {
+		box = { left = 4, top = -81, topNoCols = -60, right = -6, bottom = 110 },
+		header = { left = 6, right = -24, y = -59, h = 24 },
+		scroll = { left = 7, top = -84, topNoCols = -63, right = -24, bottom = 113 },
+		detail = { left = 4, right = -6, y = 28 },
+		buttons = { x = 5, y = 5, h = 20, margin = 10 },
+	},
+}
+
+-- A column title. The old window: the old Guild or Who window's (named, for
+-- WhoFrameColumn_SetWidth). The HD one: the Communities roster's, ColumnDisplay (the variant
+-- without scripts: the other calls its parent's OnClick), not named; the Who one is named
+-- apart, since its parts are named after it. A plain button where the client has neither.
+local function ColumnHeader(f, c)
+	local parent = f.colHeader
+	if f.style == "hd" then
+		for _, template in ipairs({ "ColumnDisplayButtonNoScriptsTemplate", "WhoFrameColumnHeaderTemplate" }) do
+			local who = template == "WhoFrameColumnHeaderTemplate"
+			local okB, res = pcall(CreateFrame, "Button", who and ("OlympusColumnHeaderHD" .. c) or nil, parent, template)
+			if okB and res and res.Left and res.Right then
+				res.whoTemplate = who
+				return res
+			elseif okB and res then
+				res:Hide()
+			end
+		end
+	else
+		for _, template in ipairs({ "GuildFrameColumnHeaderTemplate", "WhoFrameColumnHeaderTemplate" }) do
+			local okB, res = pcall(CreateFrame, "Button", "OlympusColumnHeader" .. c .. template, parent, template)
+			if okB and res and res.GetFontString then return res end
+		end
+	end
+	local b = CreateFrame("Button", nil, parent)
+	b:SetNormalFontObject("GameFontNormalSmall")
+	b:SetText(" ")
+	return b
+end
+
+-- One of the HD window's tabs: an icon down its right side, like the Guild & Communities
+-- window's (RightSideTabTemplate brings the click sound, the check and the tooltip), or the
+-- same built here (RightSideTab.xml) where the client lacks the template.
+local function SideTab(f)
+	local ok, tab = pcall(CreateFrame, "CheckButton", nil, f, "RightSideTabTemplate")
+	if ok and tab and tab.Icon then return tab, "RightSideTabTemplate" end
+	if ok and tab then tab:Hide() end
+	tab = CreateFrame("CheckButton", nil, f)
+	tab:SetSize(32, 32)
+	local art = tab:CreateTexture(nil, "BORDER")
+	art:SetTexture("Interface\\SpellBook\\SpellBook-SkillLineTab")
+	art:SetSize(64, 64)
+	art:SetPoint("TOPLEFT", -3, 11)
+	tab.Icon = tab:CreateTexture(nil, "ARTWORK")
+	tab.Icon:SetSize(30, 30)
+	tab.Icon:SetPoint("CENTER")
+	tab.Icon:SetTexCoord(0.03125, 0.96875, 0.03125, 0.96875)
+	tab:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	tab:SetCheckedTexture("Interface\\Buttons\\CheckButtonHilight")
+	local checked = tab.GetCheckedTexture and tab:GetCheckedTexture()
+	if checked and checked.SetBlendMode then checked:SetBlendMode("ADD") end
+	tab:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(self.tooltip or "")
+		GameTooltip:Show()
+	end)
+	tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	return tab, "fallback"
+end
+
+local function CreateMain(style)
+	local g = GEOMETRY[style]
+	local hd = style == "hd"
+	local ok, f = pcall(CreateFrame, "Frame", hd and "OlympusFrameHD" or "OlympusFrame", UIParent, "PortraitFrameTemplate")
 	if ok and f and f.CloseButton then
 		f.hasPortrait = true
 	else
 		if ok and f then f:Hide() end
 		ns.Log("PortraitFrameTemplate unavailable, using BasicFrameTemplateWithInset")
-		f = CreateFrame("Frame", "OlympusFrameBasic", UIParent, "BasicFrameTemplateWithInset")
+		f = CreateFrame("Frame", hd and "OlympusFrameHDBasic" or "OlympusFrameBasic", UIParent, "BasicFrameTemplateWithInset")
 	end
-	f:SetSize(HostSize())
+	f.style = style
+	f:SetSize(HostSize(style))
 	f:SetPoint("CENTER", 0, 40)
 	f:SetFrameStrata("MEDIUM")
 	f:SetToplevel(true)
 	f:SetClampedToScreen(true)
+	-- The side tabs hang past the right edge: they stay on the screen too.
+	if hd and f.SetClampRectInsets then f:SetClampRectInsets(0, HD_TABS_REACH, 0, 0) end
 	f:SetMovable(true)
 	f:EnableMouse(true)
 	f:RegisterForDrag("LeftButton")
@@ -314,8 +439,8 @@ local function CreateMain()
 	-- (column headers, list) draw on top of it.
 	local okBox, box = pcall(CreateFrame, "Frame", nil, f, "InsetFrameTemplate")
 	if okBox and box then
-		box:SetPoint("TOPLEFT", 6, -56)
-		box:SetPoint("BOTTOMRIGHT", -6, 36 + DETAIL_H + 4)
+		box:SetPoint("TOPLEFT", g.box.left, g.box.top)
+		box:SetPoint("BOTTOMRIGHT", g.box.right, g.box.bottom)
 		f.listBox = box
 	end
 
@@ -334,23 +459,14 @@ local function CreateMain()
 
 	-- Column titles
 	f.colHeader = CreateFrame("Frame", nil, f)
-	f.colHeader:SetPoint("TOPLEFT", 8, -58)
-	f.colHeader:SetPoint("TOPRIGHT", -28, -58)
-	f.colHeader:SetHeight(20)
+	f.colHeader:SetPoint("TOPLEFT", g.header.left, g.header.y)
+	f.colHeader:SetPoint("TOPRIGHT", g.header.right, g.header.y)
+	f.colHeader:SetHeight(g.header.h)
 	if f.listBox then f.colHeader:SetFrameLevel(f.listBox:GetFrameLevel() + 2) end
 	f.colHeader.buttons = {}
 	for c = 1, 4 do
-		local b
-		for _, template in ipairs({ "GuildFrameColumnHeaderTemplate", "WhoFrameColumnHeaderTemplate" }) do
-			local okB, res = pcall(CreateFrame, "Button", "OlympusColumnHeader" .. c .. template, f.colHeader, template)
-			if okB and res and res.GetFontString then b = res break end
-		end
-		if not b then
-			b = CreateFrame("Button", nil, f.colHeader)
-			b:SetNormalFontObject("GameFontNormalSmall")
-			b:SetText(" ")
-		end
-		b:SetHeight(20)
+		local b = ColumnHeader(f, c)
+		b:SetHeight(g.header.h)
 		b:SetScript("OnClick", function(self)
 			if self.sortKey then
 				ns.Views.SortBy(self.sortKey)
@@ -360,24 +476,38 @@ local function CreateMain()
 		f.colHeader.buttons[c] = b
 	end
 
-	-- List
-	local scroll = CreateFrame("ScrollFrame", "OlympusScroll", f, "UIPanelScrollFrameTemplate")
+	-- List. The HD one has the Communities roster's thin scroll bar (ScrollFrameTemplate,
+	-- Mainline); a client without it gets the old one, which needs more room on the right.
+	local scroll
+	if hd then
+		local okScroll, res = pcall(CreateFrame, "ScrollFrame", "OlympusScrollHD", f, "ScrollFrameTemplate")
+		if okScroll and res and res.ScrollBar then
+			scroll = res
+		else
+			if okScroll and res then res:Hide() end
+			scroll = CreateFrame("ScrollFrame", "OlympusScrollHDOld", f, "UIPanelScrollFrameTemplate")
+			f.scrollRight = -30
+		end
+	else
+		scroll = CreateFrame("ScrollFrame", "OlympusScroll", f, "UIPanelScrollFrameTemplate")
+	end
 	if f.listBox then scroll:SetFrameLevel(f.listBox:GetFrameLevel() + 2) end
-	scroll:SetPoint("BOTTOMRIGHT", -30, 36 + DETAIL_H + 8)
+	scroll:SetPoint("BOTTOMRIGHT", f.scrollRight or g.scroll.right, g.scroll.bottom)
 	f.scroll = scroll
 	f.views = {}
 	for _, t in ipairs(TABS) do
 		local v = CreateFrame("Frame", nil, scroll)
 		v:SetSize(10, 10)
 		v:Hide()
+		v.style = style -- rows are drawn in the window's look (Views.lua)
 		f.views[t.key] = v
 	end
 
 	-- Detail box (like "Guild Message Of The Day")
 	local okDetail, detail = pcall(CreateFrame, "Frame", nil, f, "InsetFrameTemplate")
 	if not okDetail or not detail then detail = CreateFrame("Frame", nil, f) end
-	detail:SetPoint("BOTTOMLEFT", 6, 36)
-	detail:SetPoint("BOTTOMRIGHT", -6, 36)
+	detail:SetPoint("BOTTOMLEFT", g.detail.left, g.detail.y)
+	detail:SetPoint("BOTTOMRIGHT", g.detail.right, g.detail.y)
 	detail:SetHeight(DETAIL_H)
 	f.detailTitle = detail:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	f.detailTitle:SetPoint("TOPLEFT", 8, -6)
@@ -398,44 +528,71 @@ local function CreateMain()
 		f.detailButtons[i] = b
 	end
 
-	-- Bottom buttons
+	-- Bottom buttons (the HD ones as low as "View Log" and "Invite Member", CommunitiesFrame.xml)
 	f.buttons = {}
 	for i = 1, 3 do
 		local b = Button(f, 10, 22)
+		if hd then b:SetHeight(g.buttons.h) end
 		f.buttons[i] = b
 	end
 
 	-- Tabs
 	f.tabs = {}
-	for i, t in ipairs(TABS) do
-		-- Tab templates differ between clients (Classic has CharacterFrameTabButtonTemplate,
-		-- newer clients like Forever have PanelTabButtonTemplate). Use the first that really
-		-- builds a tab; otherwise fall back to a plain button and mark selection ourselves.
-		local tab
-		for n, template in ipairs({ "PanelTabButtonTemplate", "CharacterFrameTabButtonTemplate", "TabButtonTemplate" }) do
-			local name = f:GetName() .. "Tab" .. n .. "_" .. i
-			local okTab, res = pcall(CreateFrame, "Button", name, f, template)
-			if okTab and res and (res.Left or res.LeftActive or _G[name .. "Left"] or _G[name .. "LeftDisabled"]) then
-				tab = res
-				UI.tabTemplate = template
-				break
-			elseif okTab and res then
-				res:Hide()
+	if hd then
+		-- Above the metal border, like the Communities window's (frameLevel 510).
+		local level = (f.NineSlice and f.NineSlice.GetFrameLevel and f.NineSlice:GetFrameLevel() or f:GetFrameLevel()) + 10
+		for i, t in ipairs(TABS) do
+			local tab, template = SideTab(f)
+			local icon = t.icon
+			if type(icon) == "function" then
+				local okIcon, res = pcall(icon)
+				icon = okIcon and res or nil
 			end
+			tab.Icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+			tab.tooltip = L[t.label] -- shown by RightSideTabMixin:OnEnter
+			tab.key = t.key
+			tab:SetID(i)
+			tab:SetFrameLevel(level)
+			tab:SetPoint(UI.TabAnchor("side", i, f, f.tabs[i - 1]))
+			local function Select() ns.SafeCall("tab " .. t.key, UI.SelectTab, t.key) end
+			-- Hooked: the template's own click (its sound, the check) runs first.
+			if template == "fallback" then tab:SetScript("OnClick", Select) else tab:HookScript("OnClick", Select) end
+			f.tabs[i] = tab
+			f.tabTemplate = template
 		end
-		if not tab then
-			tab = Button(f, 80, 22)
-			tab.isFallback = true
-			UI.tabTemplate = "fallback"
+		f.tabStyle = "side"
+	else
+		for i, t in ipairs(TABS) do
+			-- Tab templates differ between clients (Classic has CharacterFrameTabButtonTemplate,
+			-- newer clients like Forever have PanelTabButtonTemplate). Use the first that really
+			-- builds a tab; otherwise fall back to a plain button and mark selection ourselves.
+			local tab
+			for n, template in ipairs({ "PanelTabButtonTemplate", "CharacterFrameTabButtonTemplate", "TabButtonTemplate" }) do
+				local name = f:GetName() .. "Tab" .. n .. "_" .. i
+				local okTab, res = pcall(CreateFrame, "Button", name, f, template)
+				if okTab and res and (res.Left or res.LeftActive or _G[name .. "Left"] or _G[name .. "LeftDisabled"]) then
+					tab = res
+					UI.tabTemplate = template
+					break
+				elseif okTab and res then
+					res:Hide()
+				end
+			end
+			if not tab then
+				tab = Button(f, 80, 22)
+				tab.isFallback = true
+				UI.tabTemplate = "fallback"
+			end
+			tab:SetID(i)
+			tab:SetText(L[t.label])
+			if PanelTemplates_TabResize then pcall(PanelTemplates_TabResize, tab, 0) end
+			UI.tabStyle = UI.TabStyle(tab)
+			tab:SetPoint(UI.TabAnchor(UI.tabStyle, i, f, f.tabs[i - 1]))
+			tab:SetScript("OnClick", function() ns.SafeCall("tab " .. t.key, UI.SelectTab, t.key) end)
+			tab.key = t.key
+			f.tabs[i] = tab
 		end
-		tab:SetID(i)
-		tab:SetText(L[t.label])
-		if PanelTemplates_TabResize then pcall(PanelTemplates_TabResize, tab, 0) end
-		UI.tabStyle = UI.TabStyle(tab)
-		tab:SetPoint(UI.TabAnchor(UI.tabStyle, i, f, f.tabs[i - 1]))
-		tab:SetScript("OnClick", function() ns.SafeCall("tab " .. t.key, UI.SelectTab, t.key) end)
-		tab.key = t.key
-		f.tabs[i] = tab
+		f.tabTemplate, f.tabStyle = UI.tabTemplate, UI.tabStyle
 	end
 	f.numTabs = #TABS
 
@@ -451,23 +608,42 @@ local function CreateMain()
 		UI.Refresh()
 		ns.SafeCall("issue reporter", ClearOfIssueReporter, MainClearOfIssueReporter)
 	end)
-	f:SetScript("OnHide", function() if personFrame then personFrame:Hide() end end)
-	f:SetScript("OnSizeChanged", function() UI.Layout() end)
+	f:SetScript("OnHide", function(self)
+		local person = personFrames[self.style]
+		if person then person:Hide() end
+	end)
+	f:SetScript("OnSizeChanged", function(self) if self == main then UI.Layout() end end)
 	return f
+end
+
+-- The window in `style`, made the one in use. The other one closes (with its person
+-- panel) and hands over its tab.
+local function UseStyle(style)
+	if main and main.style == style then return main end
+	local previous = main
+	frames[style] = frames[style] or CreateMain(style)
+	main = frames[style]
+	if previous then
+		main.tab = previous.tab or main.tab
+		if previous:IsShown() then previous:Hide() end
+	end
+	UI.tabTemplate, UI.tabStyle = main.tabTemplate, main.tabStyle
+	return main
 end
 
 -- The bottom buttons share the window width: three on a tab, two on the Join screen.
 local function LayoutButtons()
+	local g = GEOMETRY[main.style].buttons
 	local shown = {}
 	for _, b in ipairs(main.buttons) do
 		if b:IsShown() then shown[#shown + 1] = b end
 	end
 	if #shown == 0 then shown = main.buttons end
-	local bw = math.floor((main:GetWidth() - 16 - 2 * (#shown - 1)) / #shown)
+	local bw = math.floor((main:GetWidth() - g.margin - 2 * (#shown - 1)) / #shown)
 	for i, b in ipairs(shown) do
 		b:SetWidth(bw)
 		b:ClearAllPoints()
-		if i == 1 then b:SetPoint("BOTTOMLEFT", 8, 8) else b:SetPoint("LEFT", shown[i - 1], "RIGHT", 2, 0) end
+		if i == 1 then b:SetPoint("BOTTOMLEFT", g.x, g.y) else b:SetPoint("LEFT", shown[i - 1], "RIGHT", 2, 0) end
 		FitLabel(b)
 	end
 end
@@ -484,16 +660,24 @@ end
 -- membership (the Join screen has no column titles).
 function UI.Layout()
 	if not main then return end
+	local g = GEOMETRY[main.style]
 	local w = main:GetWidth()
 	LayoutButtons()
 	FitHeader()
 	main.layoutLocked = not ns.IsMember()
 	local hasCols = not main.layoutLocked and ns.Views.COLUMNS[main.tab] ~= nil and main.tab == "census"
 	main.colHeader:SetShown(hasCols)
+	-- The HD list box starts right under the column titles, higher without them.
+	if g.box.topNoCols and main.listBox then
+		main.listBox:ClearAllPoints()
+		main.listBox:SetPoint("TOPLEFT", g.box.left, hasCols and g.box.top or g.box.topNoCols)
+		main.listBox:SetPoint("BOTTOMRIGHT", g.box.right, g.box.bottom)
+	end
+	local right = main.scrollRight or g.scroll.right
 	main.scroll:ClearAllPoints()
-	main.scroll:SetPoint("TOPLEFT", 10, hasCols and -80 or -64)
-	main.scroll:SetPoint("BOTTOMRIGHT", -30, 36 + DETAIL_H + 8)
-	local listW = w - 42
+	main.scroll:SetPoint("TOPLEFT", g.scroll.left, hasCols and g.scroll.top or g.scroll.topNoCols)
+	main.scroll:SetPoint("BOTTOMRIGHT", right, g.scroll.bottom)
+	local listW = w - g.scroll.left + right - 2
 	for _, v in pairs(main.views) do v:SetWidth(listW) end
 	if hasCols then
 		local layout = ns.Views.COLUMNS[main.tab]
@@ -504,7 +688,8 @@ function UI.Layout()
 				local width = math.floor(col.w * (listW + 4))
 				b:ClearAllPoints()
 				b:SetPoint("TOPLEFT", main.colHeader, "TOPLEFT", x, 0)
-				if WhoFrameColumn_SetWidth then pcall(WhoFrameColumn_SetWidth, b, width) else b:SetWidth(width) end
+				-- The old headers' middle part is sized by Blizzard's code; the HD ones stretch.
+				if (main.style == "old" or b.whoTemplate) and WhoFrameColumn_SetWidth then pcall(WhoFrameColumn_SetWidth, b, width) else b:SetWidth(width) end
 				b:SetWidth(width)
 				b:SetText(L[col.key])
 				b.sortKey = col.sort
@@ -579,14 +764,18 @@ local function SetButtons(list, defs)
 	if list == main.buttons then LayoutButtons() end
 end
 
-function UI.SelectTab(key)
-	main = main or CreateMain()
+-- Shows tab `key` in the window in use, and the window if it is closed.
+local function ShowTab(key)
 	main.tab = key
 	for k, v in pairs(main.views) do v:SetShown(k == key) end
 	main.scroll:SetScrollChild(main.views[key])
 	main.scroll:SetVerticalScroll(0)
 	for i, tab in ipairs(main.tabs) do
-		if tab.isFallback then
+		if main.tabStyle == "side" then
+			-- The HD window's icon tabs: the selected one stays checked.
+			tab:SetChecked(tab.key == key)
+			if tab.key == key then main.selectedTab = i end
+		elseif tab.isFallback then
 			-- Plain buttons: the selected one stays lit and uses white text.
 			if tab.key == key then
 				tab:LockHighlight()
@@ -608,13 +797,26 @@ function UI.SelectTab(key)
 	UI.Refresh()
 end
 
+-- Opening the window picks its look again, from the guild window in use (UI.Style).
+function UI.SelectTab(key)
+	if not (main and main:IsShown()) then UseStyle(UI.Style()) end
+	ShowTab(key)
+end
+
+-- Whose census this is: our realm, or the realms sharing it ("A + B").
+function UI.CensusName()
+	local group = ns.group or ns.realm
+	if #ns.GroupRealms(group) > 1 then return (group:gsub("%+", " + ")) end
+	return GetRealmName and GetRealmName() or ""
+end
+
 function UI.Refresh()
 	if not main or not main:IsShown() then return end
 	ns.SafeCall("ui refresh", function()
 		local s = ns.Data.Summary()
 		local F = ns.FormatNumber
 		main.total:SetText(L.ARMY_TOTAL:format(F(s.total)))
-		main.sub:SetText(L.ARMY_SUB:format(F(s.online), #s.guilds, ns.Ago(s.newest)) .. "  ·  " .. (GetRealmName and GetRealmName() or ""))
+		main.sub:SetText(L.ARMY_SUB:format(F(s.online), #s.guilds, ns.Ago(s.newest)) .. "  ·  " .. UI.CensusName())
 		-- Outside an Olympus guild nothing but the Join Olympus screen is shown.
 		local locked = not ns.IsMember()
 		-- Joined or left a guild while the window is open: lay it out again.
@@ -646,23 +848,33 @@ function UI.Refresh()
 	end)
 end
 
+-- Glued to the right of `host`, past its side tabs when it shows them (UI.DockOffset).
+local function DockTo(host)
+	local tab = host.ChatTab
+	local shown = tab and tab.IsShown and tab:IsShown() and true or false
+	main:ClearAllPoints()
+	main:SetPoint("TOPLEFT", host, "TOPRIGHT", UI.DockOffset(main.style, shown), 0)
+end
+
 -- Open glued to the right of a Blizzard window (the guild window the button was clicked
--- in), sized by UI.DockSize, and close together with it (GuildFrame.lua hooks that).
-function UI.OpenDocked(host, tab, heightOnly)
-	main = main or CreateMain()
+-- in), in `style` (its look, see UI.Style), sized by UI.DockSize, and close together with
+-- it (GuildFrame.lua hooks that).
+function UI.OpenDocked(host, tab, heightOnly, style)
+	UseStyle(style or UI.Style())
 	main.host, main.heightOnly = host, heightOnly
 	main:SetSize(UI.DockSize(host:GetWidth(), host:GetHeight(), heightOnly, SocialSize()))
-	main:ClearAllPoints()
-	main:SetPoint("TOPLEFT", host, "TOPRIGHT", -2, 0)
+	DockTo(host)
 	main.docked = true
-	UI.SelectTab(tab or main.tab or "census")
+	ShowTab(tab or main.tab or "census")
 end
 
 -- The host was resized while we are docked to it (the Communities window can be
--- minimized and maximized): take its new height.
+-- minimized and maximized): take its new height. The HD window also keeps clear of the
+-- host's side tabs, which come and go (GuildFrame.lua calls this then too).
 function UI.FollowHost(host)
 	if main and main.docked and main.host == host then
 		main:SetSize(UI.DockSize(host:GetWidth(), host:GetHeight(), main.heightOnly, SocialSize()))
+		if main.style == "hd" then DockTo(host) end
 	end
 end
 
@@ -688,6 +900,16 @@ end
 -- Through Who.lua, which keeps it apart from our quiet /who searches (see SendPlain).
 local function Who(name)
 	ns.Who.SendPlain(('n-"%s"'):format(name))
+end
+
+local function PersonButtonScripts(f)
+	f.whisper:SetScript("OnClick", function() ns.SafeCall("whisper", Whisper, f.person.name) end)
+	f.invite:SetScript("OnClick", function() ns.SafeCall("invite", Invite, f.person.name) end)
+	f.who:SetScript("OnClick", function() ns.SafeCall("who", Who, f.person.name) end)
+	f.mark:SetScript("OnClick", function()
+		if f.person.onMark then ns.SafeCall("mark", f.person.onMark) end
+		f:Hide()
+	end)
 end
 
 local function CreatePersonFrame()
@@ -731,26 +953,128 @@ local function CreatePersonFrame()
 	f.invite = Btn(L.INVITE, 116, 34, 104)
 	f.who = Btn(L.WHO, 10, 10, 104)
 	f.mark = Btn(L.MARK_BTN, 116, 10, 104)
-	f.whisper:SetScript("OnClick", function() ns.SafeCall("whisper", Whisper, f.person.name) end)
-	f.invite:SetScript("OnClick", function() ns.SafeCall("invite", Invite, f.person.name) end)
-	f.who:SetScript("OnClick", function() ns.SafeCall("who", Who, f.person.name) end)
-	f.mark:SetScript("OnClick", function()
-		if f.person.onMark then ns.SafeCall("mark", f.person.onMark) end
-		f:Hide()
-	end)
+	PersonButtonScripts(f)
 	return f
+end
+
+-- The row a person panel was opened from stays lit while it is open (Views.Select): the
+-- HD window's rows let go when it closes.
+local function ClearHDSelection()
+	ns.SafeCall("person panel hide", function()
+		for _, v in pairs(frames.hd and frames.hd.views or {}) do ns.Views.ClearSelection(v) end
+	end)
+end
+
+-- The HD window's panel: the Guild & Communities window's member card
+-- (CommunitiesGuildMemberDetailFrameTemplate, GuildRoster.xml): a dark dialog box hanging
+-- off the window's right side under its first tab (the left side where the screen ends,
+-- see UI.ShowPerson), the name on top, small buttons at the
+-- bottom, above everything of the window (Blizzard's is at level 1000). A child of the HD
+-- window, as Blizzard's is of theirs. Its box is a child too, like Blizzard's Border: the
+-- dialog border template takes its parent's level, so the panel keeps its own. nil when
+-- the client lacks that template (the old panel is used then).
+local function CreatePersonFrameHD()
+	local parent = frames.hd
+	if not parent then return nil end
+	local f = CreateFrame("Frame", "OlympusPersonFrameHD", parent)
+	local okBorder, border = pcall(CreateFrame, "Frame", nil, f, "DialogBorderDarkTemplate")
+	if not (okBorder and border and border.Bg) then
+		if okBorder and border then border:Hide() end
+		f:Hide()
+		ns.Log("DialogBorderDarkTemplate unavailable, using the old person panel")
+		return nil
+	end
+	border:SetAllPoints()
+	f.Border = border
+	f.hd = true
+	f:SetSize(214, 226)
+	f:SetToplevel(true)
+	f:EnableMouse(true)
+	f:SetClampedToScreen(true)
+	f:SetFrameLevel(parent:GetFrameLevel() + 1000)
+	f:Hide()
+	tinsert(UISpecialFrames, "OlympusPersonFrameHD")
+	local okClose, close = pcall(CreateFrame, "Button", nil, f, "UIPanelCloseButton")
+	if okClose and close then
+		close:ClearAllPoints()
+		close:SetPoint("TOPRIGHT", -3, -4)
+		close:SetFrameLevel(f:GetFrameLevel() + 2)
+		close:SetScript("OnClick", function() f:Hide() end)
+		f.CloseButton = close
+	end
+	-- Name, then "<guild>" under it where the old panel has it in its title bar.
+	f.name = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	f.name:SetPoint("TOPLEFT", 13, -18)
+	f.name:SetPoint("TOPRIGHT", -30, -18)
+	f.name:SetJustifyH("LEFT")
+	f.name:SetWordWrap(false)
+	f.nameRoom, f.nameFonts = 214 - 13 - 30, { "GameFontNormal", "GameFontNormalSmall" }
+	f.guild = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	f.guild:SetPoint("TOPLEFT", f.name, "BOTTOMLEFT", 0, -2)
+	f.guild:SetPoint("RIGHT", -13, 0)
+	f.guild:SetJustifyH("LEFT")
+	f.guild:SetWordWrap(false)
+	f.lines = {}
+	for i = 1, 6 do
+		local fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		fs:SetPoint("TOPLEFT", 13, -52 - (i - 1) * 15)
+		fs:SetPoint("RIGHT", -13, 0)
+		fs:SetJustifyH("LEFT")
+		fs:SetWordWrap(false)
+		f.lines[i] = fs
+	end
+	-- Blizzard's card buttons: 96 x 22, small font, 1 apart.
+	local function Btn(label)
+		local b = Button(f, 96, 22)
+		b.small = true
+		SetButtonFont(b, true)
+		b:SetText(label)
+		FitLabel(b)
+		return b
+	end
+	f.whisper = Btn(L.WHISPER)
+	f.whisper:SetPoint("BOTTOMLEFT", 12, 36)
+	f.invite = Btn(L.INVITE)
+	f.invite:SetPoint("LEFT", f.whisper, "RIGHT", 1, 0)
+	f.who = Btn(L.WHO)
+	f.who:SetPoint("BOTTOMLEFT", 12, 12)
+	f.mark = Btn(L.MARK_BTN)
+	f.mark:SetPoint("LEFT", f.who, "RIGHT", 1, 0)
+	PersonButtonScripts(f)
+	f:SetScript("OnHide", ClearHDSelection)
+	return f
+end
+
+-- The panel for the window in `style`, created on first use. The old one standing in for
+-- the HD one lets the HD rows go too when it closes.
+local function PersonFrame(style)
+	if not personFrames[style] then
+		local f = style == "hd" and CreatePersonFrameHD()
+		if not f then
+			personFrames.old = personFrames.old or CreatePersonFrame()
+			f = personFrames.old
+			if style == "hd" then f:HookScript("OnHide", ClearHDSelection) end
+		end
+		personFrames[style] = f
+	end
+	return personFrames[style]
 end
 
 function UI.ShowPerson(p)
 	if not p or not p.name then return end
-	personFrame = personFrame or CreatePersonFrame()
-	local f = personFrame
+	-- The HD panel lives in the HD window: with no window open, the old one (at the centre).
+	local open = main and main:IsShown()
+	local f = PersonFrame(open and main.style or "old")
 	f.person = p
 	local file = p.class and ns.CLASS_FILES[p.class] or p.class
 	local color = file and RAID_CLASS_COLORS and RAID_CLASS_COLORS[file]
 	f.name:SetText(color and ("|c%s%s|r"):format(color.colorStr, p.name) or p.name)
-	FitText(f.name, f:GetWidth() - 28, { "GameFontNormalLarge", "GameFontNormal" })
-	if f.TitleText then f.TitleText:SetText(p.guild and ("<" .. p.guild .. ">") or L.TITLE) end
+	FitText(f.name, f.nameRoom or (f:GetWidth() - 28), f.nameFonts or { "GameFontNormalLarge", "GameFontNormal" })
+	if f.guild then
+		f.guild:SetText(p.guild and ("<" .. p.guild .. ">") or "")
+	elseif f.TitleText then
+		f.TitleText:SetText(p.guild and ("<" .. p.guild .. ">") or L.TITLE)
+	end
 	local className = (file and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[file]) or ""
 	local rows = {}
 	if p.level or className ~= "" then rows[#rows + 1] = (p.level and (L.LEVEL_N:format(p.level) .. " ") or "") .. className end
@@ -767,7 +1091,19 @@ function UI.ShowPerson(p)
 	f.invite:SetEnabled(p.online ~= false)
 	f.whisper:SetEnabled(p.online ~= false)
 	f:ClearAllPoints()
-	if main and main:IsShown() then
+	if open and f.hd then
+		-- Where the Guild & Communities window hangs its card (-8, -76), less its box's 4 px
+		-- inset. Past the screen's right edge (docked to the maximized Communities window on a
+		-- 1366 wide UI) it hangs off the left side instead, over the gap between the windows:
+		-- like Blizzard's, it never covers the list it was opened from.
+		local win, screen = ScreenRect(main), ScreenRect(UIParent)
+		local reach = (f:GetWidth() - 4) * main:GetEffectiveScale()
+		if win and screen and win.right + reach > screen.right and win.left - reach >= screen.left then
+			f:SetPoint("TOPRIGHT", main, "TOPLEFT", 4, -76)
+		else
+			f:SetPoint("TOPLEFT", main, "TOPRIGHT", -4, -76)
+		end
+	elseif open then
 		f:SetPoint("TOPLEFT", main, "TOPRIGHT", -2, -28)
 	else
 		f:SetPoint("CENTER")
@@ -779,6 +1115,8 @@ end
 
 function UI.IsShown() return main and main:IsShown() end
 function UI.DockedTo() return main and main.docked and main.host or nil end
+-- "old" or "hd": the look of the window in use (nil before the first open), for /oly status.
+function UI.WindowStyle() return main and main.style end
 
 function UI.StatusLine()
 	local guild = GetGuildInfo("player")
