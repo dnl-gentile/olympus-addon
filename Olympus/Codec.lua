@@ -37,6 +37,11 @@ local function split(s, sep)
 end
 Codec.Split = split
 
+-- WoW limits guild names to 24 characters, not bytes (an accented letter takes 2 or 3 bytes).
+local function LongGuild(guild)
+	return #guild > 72 or select(2, guild:gsub("[^\128-\191]", "")) > 24
+end
+
 local function num(v)
 	local n = tonumber(v)
 	if not n or n ~= n then return nil end
@@ -184,7 +189,7 @@ function Codec.DecodeReport(s)
 	local f = split(s, "~")
 	if (f[1] ~= "R1" and f[1] ~= "R2") or #f < 10 then return nil end
 	local guild = f[2]
-	if guild == "" or #guild > 24 then return nil end
+	if guild == "" or LongGuild(guild) then return nil end
 	local total, online = num(f[3]), num(f[4])
 	if not total or not online then return nil end
 	local levels = {}
@@ -239,7 +244,7 @@ end
 
 function Codec.DecodeLayer(s)
 	local mapID, zoneUID, rank, guild = s:match("^L1~(%d+)~(%d+)~(%d+)~(.*)$")
-	if not mapID or #guild > 24 then return nil end
+	if not mapID or LongGuild(guild) then return nil end
 	return { mapID = tonumber(mapID), zoneUID = tonumber(zoneUID), rank = math.min(tonumber(rank), 9), guild = guild }
 end
 
@@ -258,7 +263,7 @@ end
 
 function Codec.DecodeShame(s)
 	local guild, rank, body = s:match("^S1~([^~]*)~(%d+)~(.*)$")
-	if not guild or #guild > 24 then return nil end
+	if not guild or LongGuild(guild) then return nil end
 	local list = {}
 	for name, g in body:gmatch("([^,:]+):([^,]*)") do
 		if #list >= Codec.MAX_SHAME then break end
@@ -274,7 +279,7 @@ end
 
 function Codec.DecodeDecree(s)
 	local kind, mapID, x, y, guild, rank, text = s:match("^D1~(%u+)~(%d+)~(%d+)~(%d+)~([^~]*)~(%d+)~(.*)$")
-	if not kind or not Codec.DECREE_KINDS[kind] or #guild > 24 then return nil end
+	if not kind or not Codec.DECREE_KINDS[kind] or LongGuild(guild) then return nil end
 	x, y = tonumber(x), tonumber(y)
 	if x > 1000 or y > 1000 then return nil end
 	return { kind = kind, mapID = tonumber(mapID), x = x / 1000, y = y / 1000, guild = guild, rank = tonumber(rank), text = text:sub(1, 120) }
@@ -293,12 +298,13 @@ local LINK_TYPES = { item = true, spell = true, enchant = true, quest = true, ac
 
 -- Length of a link we let through that starts at i, or nil: an optional colour (Classic
 -- |cAARRGGBB or Mainline |cnNAME:), |Htype:data|h[text]|h with a whitelisted type, and |r
--- when it was coloured. Shift-clicked items and spells look exactly like this.
+-- when it was coloured. Shift-clicked items and spells look exactly like this. A control byte
+-- in the text (a newline that fakes a second chat line) means it is not a link we keep.
 local function LinkAt(s, i)
 	local j = i
 	local color = s:match("^|c%x%x%x%x%x%x%x%x", j) or s:match("^|cn[%w_]+:", j)
 	if color then j = j + #color end
-	local kind, data, text = s:match("^|H(%a+):([%w:%-%.]*)|h%[([^|%]]*)%]|h", j)
+	local kind, data, text = s:match("^|H(%a+):([%w:%-%.]*)|h%[([^|%]%c]*)%]|h", j)
 	if not kind or not LINK_TYPES[kind] then return nil end
 	j = j + #kind + #data + #text + 9 -- "|H" ":" "|h[" "]|h"
 	if color then
@@ -388,7 +394,7 @@ end
 function Codec.DecodeChat(s)
 	if type(s) ~= "string" or #s > 255 then return nil end
 	local tier, guild, id, class, text = s:match("^M1~(%u)~([^~|]+)~(%d%d?%d?%d?)~(%u?%u?)~(.+)$")
-	if not tier or not Codec.CHAT_TIERS[tier] or #guild > 24 or guild:find("%c") then return nil end
+	if not tier or not Codec.CHAT_TIERS[tier] or LongGuild(guild) or guild:find("%c") then return nil end
 	text = Codec.SanitizeChat(text)
 	if text == "" then return nil end
 	return { tier = tier, guild = guild, id = tonumber(id), class = class ~= "" and class or nil, text = text }

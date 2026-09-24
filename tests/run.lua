@@ -839,7 +839,13 @@ test("chat message round trip: separators, escapes and unicode", function()
 	eq(Codec.DecodeChat("M1~A~Olympus~12345~~hi"), nil, "5 digit id")
 	eq(Codec.DecodeChat("M1~A~Olympus~1~~   "), nil, "whitespace only")
 	eq(Codec.DecodeChat("M1~A~Olympus~1~~" .. ("x"):rep(240)), nil, "over 255 bytes")
-	eq(Codec.DecodeChat("M1~A~" .. ("Olympus"):rep(4) .. "~1~~hi"), nil, "guild over 24 bytes")
+	eq(Codec.DecodeChat("M1~A~" .. ("Olympus"):rep(4) .. "~1~~hi"), nil, "guild over 24 characters")
+	-- WoW counts characters: 24 of them with an accent are 25 bytes.
+	local accents = "Olympus Irmãos de Sangue"
+	eq(#accents, 25)
+	eq(Codec.DecodeChat(Codec.EncodeChat("A", accents, 1, "", "oi")).guild, accents, "chat")
+	eq(Codec.DecodeReport(Codec.EncodeReport({ guild = accents, total = 1, online = 1 })).guild, accents, "report")
+	eq(Codec.DecodeChat("M1~A~" .. ("\128"):rep(80) .. "~1~~hi"), nil, "bytes are limited too")
 end)
 
 test("chat sanitizer keeps item and spell links and neutralises every other escape", function()
@@ -854,6 +860,9 @@ test("chat sanitizer keeps item and spell links and neutralises every other esca
 	eq(S("|Kq1|k"), "||Kq1||k", "protected name")
 	eq(S("a|nb"), "a||nb", "raw |n")
 	eq(S("a\nb\0c"), "abc", "control bytes")
+	-- A newline inside a link's name would fake a second chat line: not a link we keep.
+	eq(S("ok |Hitem:1|h[x\n[Olympus]|h [Zeus] <Olympus>: gold"), "ok ||Hitem:1||h[x[Olympus]||h [Zeus] <Olympus>: gold", "newline in a link")
+	eq(S("|Hitem:1|h[a\0b]|h"), "||Hitem:1||h[ab]||h", "NUL in a link")
 	eq(S("a||b"), "a||b", "escaped pipe kept")
 	for _, x in ipairs({ "hi " .. ITEM, "|T x |t", "a||b|", "ção ~ : , = |", ITEM_Q .. "|" }) do
 		local once = S(x)
@@ -1002,6 +1011,29 @@ test("players below a tier never see it", function()
 		eq(#Chan.History("L"), 1)
 	end)
 	eq(#CHAT_LINES, 1)
+	-- A member doesn't read [Captains], and a Captain outside <Olympus> doesn't read [Lords].
+	AsRank(3, function()
+		eq(select(2, Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, 778, "only for captains"), 2002)), "tier")
+	end)
+	AsRank(1, function()
+		eq(select(2, Chan.Receive("CHANNEL", "Member1", Msg("L", MY_GUILD, 779, "lords again"), 2003)), "tier")
+	end)
+	eq(ns.rdb.chat.C, nil, "nothing stored")
+	eq(#ns.rdb.chat.L, 1)
+	-- Before our roster is read, even a real officer claiming our guild gets [Olympus] only.
+	local byName = ns.Roster.byName
+	ns.Roster.byName = nil
+	AsRank(0, function()
+		eq(select(2, Chan.Receive("CHANNEL", "Member3", Msg("C", MY_GUILD, 780), 2004)), "unverified")
+		eq((Chan.Receive("CHANNEL", "Member3", Msg("A", MY_GUILD, 781), 2005)), true)
+	end)
+	ns.Roster.byName = byName
+	C_FriendList = { IsIgnored = function() return true end }
+	AsRank(0, function()
+		eq(select(2, Chan.Receive("CHANNEL", "Member4", Msg("A", MY_GUILD, 782), 2006)), "ignored")
+	end)
+	C_FriendList = nil
+	eq(#CHAT_LINES, 2)
 end)
 
 test("duplicate ids are shown once", function()
@@ -1010,6 +1042,7 @@ test("duplicate ids are shown once", function()
 		eq((Chan.Receive("CHANNEL", "Member7", m, 3000)), true)
 		eq(select(2, Chan.Receive("CHANNEL", "Member7", m, 3001)), "dup")
 		eq((Chan.Receive("CHANNEL", "Member8", m, 3002)), true, "same id from another sender")
+		eq((Chan.Receive("CHANNEL", "Member7", Msg("A", MY_GUILD, 4242, "after a /reload"), 3003)), true, "same id, new text")
 		Chan.Prune(3000 + 121)
 		eq((Chan.Receive("CHANNEL", "Member7", m, 3000 + 121)), true, "forgotten after the window")
 	end)
@@ -1050,6 +1083,11 @@ test("muted tiers stay out of chat but keep history", function()
 		eq(ns.db.chatMute.C, nil)
 		Chan.ToggleMute("nonsense")
 		eq(printed[#printed], ns.L.CHAN_MUTE_USAGE)
+		-- "all" would read as every channel: [Olympus] is muted with its own name.
+		Chan.ToggleMute("olympus")
+		eq(printed[#printed], ns.L.CHAN_MUTED:format("Olympus", "olympus"))
+		Chan.ToggleMute("all")
+		eq(ns.db.chatMute.A, nil, "'all' still works")
 		Chan.ToggleMute("captains")
 		WithLane(function() eq((Chan.Send("C", "back", 7001)), true) end)
 		eq(ns.db.chatMute.C, nil, "sending unmutes")
@@ -1073,6 +1111,87 @@ test("chat history is per tier and capped", function()
 	AsRank(3, function()
 		eq(#Chan.History("C"), 0)
 		eq(next(Chan.History("L")), nil)
+	end)
+end)
+
+test("a report never vouches for its own sender", function()
+	ns.Roster.Scan()
+	ns.rdb.guilds = {}
+	local D = ns.Data
+	local LEVELS = "~0,0,0,0,0,0,0~~"
+	local function Report(guild, leader, officers, sender)
+		return D.Receive(Codec.DecodeReport("R2~" .. guild .. "~50~5~" .. leader .. "~1~1~~" .. LEVELS .. officers), sender)
+	end
+	local n = 0
+	local function Line(sender, tier, guild)
+		n = n + 1
+		return select(2, Chan.Receive("CHANNEL", sender, Msg(tier, guild, n), 9000 + n))
+	end
+	CHAT_LINES = {}
+	AsRank(0, function()
+		-- A made-up guild naming its sender as leader: one /run, no guild needed.
+		eq(Report("Olympus Lords", "Evil", "", "Evil-Realm"), true)
+		eq(D.KnownRank("Evil-Realm", "Olympus Lords"), nil, "its own report")
+		eq(Line("Evil", "L", "Olympus Lords"), "unverified")
+		-- A member sends his guild's report again, same leader and size, and adds himself.
+		eq(Report("Olympus Zeus", "Zeus", "Capt2:1:0", "Scribe-Realm"), true)
+		eq(D.KnownRank("Capt2-Realm", "Olympus Zeus"), 1, "named by someone else")
+		eq(Report("Olympus Zeus", "Zeus", "Capt2:1:0,Grunt:1:0", "Grunt-Realm"), true)
+		eq(ns.rdb.guilds["Olympus Zeus"].conflict, true, "an added officer is a conflict")
+		eq(Line("Grunt", "C", "Olympus Zeus"), "unverified")
+		-- The same on <Olympus>, whose officers are Lords.
+		eq(Report("Olympus", "King", "Duke:1:0", "Herald-Realm"), true)
+		eq(Report("Olympus", "King", "Duke:1:0,Peon:1:0", "Peon-Realm"), true)
+		eq(Line("Peon", "L", "Olympus"), "unverified")
+		-- An elected reporter who leads the guild: proven by the report someone else sent before.
+		eq(Report("Olympus Ares", "Ares", "", "Squire-Realm"), true)
+		eq(Report("Olympus Ares", "Ares", "", "Ares-Realm"), true)
+		eq(D.KnownRank("Ares-Realm", "Olympus Ares"), 0, "named by the report before")
+		eq(Report("Olympus Ares", "Ares", "", "Ares-Realm"), true)
+		eq(D.KnownRank("Ares-Realm", "Olympus Ares"), 0, "kept while the reporter stays")
+		eq(Line("Ares", "L", "Olympus Ares"), "ok")
+	end)
+	eq(#CHAT_LINES, 1)
+	ns.rdb.guilds = {}
+end)
+
+test("guild names ignore case, so another spelling can't pass for a guild", function()
+	ns.Roster.Scan()
+	ns.rdb.guilds = {}
+	local function Report(guild, officers, sender)
+		return ns.Data.Receive(Codec.DecodeReport("R2~" .. guild .. "~900~90~King~1~9~~~0,0,0,0,0,0,0~~" .. officers), sender)
+	end
+	AsRank(0, function()
+		eq(select(2, Chan.Receive("CHANNEL", "Mimic", Msg("A", "olympus ii", 1), 9500)), "forged", "our guild, other capitals")
+		eq(select(2, Chan.Receive("CHANNEL", "Member5", Msg("A", "olympus ii", 3), 9500)), "forged", "even from a guildmate")
+		eq(Report("OLYMPUS II", "", "Mimic2-Realm"), false, "no report about our guild in any spelling")
+		eq(Report("Olympus", "Duke:1:0", "Herald2-Realm"), true)
+		eq(Report("OLYMPUS", "Evil2:1:0", "Scribe2-Realm"), true)
+		eq(ns.rdb.guilds.OLYMPUS.conflict, true, "a second spelling of a fresh guild")
+		eq(select(2, Chan.Receive("CHANNEL", "Evil2", Msg("L", "OLYMPUS", 2), 9501)), "unverified")
+	end)
+	ns.rdb.guilds = {}
+end)
+
+test("two spammers can't silence the other channels, nor everyone else", function()
+	ns.db.chatMute = nil
+	AsRank(0, function()
+		-- Two unmodified clients at full speed in [Olympus] for most of a minute.
+		local t
+		for i = 1, 50 do
+			t = 20000 + i * 1.2
+			Chan.Receive("CHANNEL", "Member600", Msg("A", MY_GUILD, i, "spam " .. i), t)
+			Chan.Receive("CHANNEL", "Member601", Msg("A", MY_GUILD, i, "spam " .. i), t + 0.1)
+		end
+		eq((Chan.Receive("CHANNEL", "Member1", Msg("L", MY_GUILD, 1, "lords"), t + 0.2)), true, "[Lords]")
+		eq((Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, 1, "captains"), t + 0.3)), true, "[Captains]")
+		eq((Chan.Receive("CHANNEL", "Member602", Msg("A", MY_GUILD, 1, "hello"), t + 0.4)), true, "a third member in [Olympus]")
+		eq(select(2, Chan.Receive("CHANNEL", "Member600", Msg("A", MY_GUILD, 51, "spam 51"), t + 0.5)), "flood", "the spammer waits")
+		-- A muted channel takes no room from the flood guard.
+		ns.db.chatMute = { A = true }
+		for i = 1, 70 do Chan.Receive("CHANNEL", "Member" .. (700 + i), Msg("A", MY_GUILD, 1, "muted"), 30000 + i * 0.1) end
+		ns.db.chatMute = nil
+		eq((Chan.Receive("CHANNEL", "Member800", Msg("A", MY_GUILD, 1, "after"), 30008)), true)
 	end)
 end)
 
@@ -1126,6 +1245,83 @@ test("chat line shows tier, clickable name, guild and neutralised escapes", func
 	line = Chan.FormatLine("A", "Bob-Realm", "Olympus", "PA", "x")
 	RAID_CLASS_COLORS = nil
 	assert(line:find("[Olympus] |Hplayer:Bob-Realm|h[|cfff58cbaBob|r]|h <Olympus>: x", 1, true), line)
+end)
+
+test("slash commands reach the right channel", function()
+	eq(SLASH_OLYMPUSALL1, "/ol"); eq(SLASH_OLYMPUSCAPTAINS1, "/olc"); eq(SLASH_OLYMPUSLORDS1, "/oll")
+	local savedTime, clock = GetTime, 50000
+	GetTime = function() return clock end
+	local ok, err = pcall(function()
+		WithLane(function(sent)
+			AsRank(0, function()
+				local function Run(fn, arg, prefix)
+					clock = clock + 10 -- past the 1.5 s gap
+					local before = #sent
+					fn(arg)
+					eq(#sent, before + 1, arg)
+					eq(sent[#sent]:sub(1, #prefix), prefix, arg)
+				end
+				Run(SlashCmdList.OLYMPUSALL, "hi", "M1~A~")
+				Run(SlashCmdList.OLYMPUSCAPTAINS, "hi", "M1~C~")
+				Run(SlashCmdList.OLYMPUSLORDS, "hi", "M1~L~")
+				Run(SlashCmdList.OLYMPUS, "all hi", "M1~A~")
+				Run(SlashCmdList.OLYMPUS, "captains hi", "M1~C~")
+				Run(SlashCmdList.OLYMPUS, "lords hi", "M1~L~")
+			end)
+		end)
+		ns.db.chatMute = nil
+		AsRank(0, function()
+			SlashCmdList.OLYMPUS("mute lords")
+			eq(ns.db.chatMute.L, true)
+			SlashCmdList.OLYMPUS("mute lords")
+			eq(ns.db.chatMute.L, nil)
+			SlashCmdList.OLYMPUS("mute olympus")
+			eq(ns.db.chatMute.A, true)
+			SlashCmdList.OLYMPUS("mute olympus")
+			eq(ns.db.chatMute.A, nil)
+		end)
+	end)
+	GetTime = savedTime
+	if not ok then error(err, 0) end
+end)
+
+-- Comm.lua and Channels.lua loaded into a namespace of their own, like GuildFrame.lua above:
+-- lines go through the real event, the M1 handler and Receive.
+test("chat lines arrive through CHAT_MSG_ADDON_LOGGED, without our echo or blocked players", function()
+	local events, login = {}, {}
+	local cns = setmetatable({}, { __index = ns })
+	cns.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
+	cns.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
+	cns.After, cns.Every = function() end, function() end
+	local slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS }
+	C_ChatInfo = { RegisterAddonMessagePrefix = function() end }
+	ns.db.chatMute = nil
+	local ok, err = pcall(function()
+		assert(loadfile(ADDON_DIR .. "Comm.lua"))("Olympus", cns)
+		assert(loadfile(ADDON_DIR .. "Channels.lua"))("Olympus", cns)
+		for _, fn in ipairs(login) do fn() end
+		eq(events.CHAT_MSG_ADDON_LOGGED and #events.CHAT_MSG_ADDON_LOGGED, 1, "listens to logged addon messages")
+		local function Deliver(sender, id)
+			for _, fn in ipairs(events.CHAT_MSG_ADDON_LOGGED) do fn(ns.PREFIX, Msg("A", MY_GUILD, id, "via event " .. id), "CHANNEL", sender) end
+		end
+		CHAT_LINES = {}
+		AsRank(3, function()
+			Deliver("Member40", 1)
+			eq(#CHAT_LINES, 1, "one line")
+			assert(CHAT_LINES[1]:find("via event 1", 1, true), CHAT_LINES[1])
+			ns.Roster.byName["Tester-Realm"] = 3 -- we are in our own roster
+			Deliver("Tester", 2)
+			ns.Roster.byName["Tester-Realm"] = nil
+			eq(#CHAT_LINES, 1, "our own echo is not shown twice")
+			ns.db.blocked["member41-realm"] = true
+			Deliver("Member41", 3)
+			ns.db.blocked["member41-realm"] = nil
+			eq(#CHAT_LINES, 1, "blocked player")
+		end)
+	end)
+	SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = slash[1], slash[2], slash[3]
+	C_ChatInfo = nil
+	if not ok then error(err, 0) end
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

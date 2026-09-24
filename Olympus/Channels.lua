@@ -16,23 +16,24 @@ local Codec = ns.Codec
 local SEND_GAP = 1.5             -- we send at most one line every 1.5 s
 local BUCKET_SIZE = 6            -- per sender: a burst of 6 parts, then one every 1.2 s
 local BUCKET_REFILL = 1.2        -- (an unmodified client never goes faster than that)
-local MAX_SHOWN_PER_MINUTE = 60  -- flood guard over every channel together
+local MAX_SHOWN_PER_MINUTE = 60  -- flood guard per channel
+local FAIR_SHARE = 10            -- once a channel is half full, no sender gets more lines than this a minute
 local DEDUPE_WINDOW = 120
 local HISTORY = 100              -- lines kept per channel
 local LOG_GAP = 60               -- at most one "dropped" log line per sender per minute
 
 -- Gold, teal and royal purple: none of them is a colour Blizzard's chat already uses.
 local TIERS = {
-	A = { level = 1, label = "CHAN_ALL",      slash = "/ol",  word = "all",      deny = "MEMBERS_ONLY",       color = { 0.90, 0.77, 0.36 } },
+	A = { level = 1, label = "CHAN_ALL",      slash = "/ol",  word = "olympus",  deny = "MEMBERS_ONLY",       color = { 0.90, 0.77, 0.36 } },
 	C = { level = 2, label = "CHAN_CAPTAINS", slash = "/olc", word = "captains", deny = "CHAN_ONLY_CAPTAINS", color = { 0.35, 0.85, 0.85 } },
 	L = { level = 3, label = "CHAN_LORDS",    slash = "/oll", word = "lords",    deny = "CHAN_ONLY_LORDS",    color = { 0.75, 0.50, 1.00 } },
 }
 Channels.TIERS, Channels.ORDER = TIERS, { "A", "C", "L" }
 
 local stats = { sent = 0, shown = 0, hidden = 0, bad = 0, dup = 0, rate = 0, flood = 0, forged = 0, unverified = 0, rank = 0, ignored = 0 }
-local seen = {}      -- "sender#id" -> time: every part is shown once
+local seen = {}      -- "sender#id#text" -> time: every part is shown once
 local buckets = {}   -- sender -> { tokens, t }
-local recent = {}    -- times of the lines shown in the last minute
+local recent = {}    -- tier -> { { t, sender } } of the lines shown in the last minute
 local lastLog = {}   -- sender -> time of the last drop we logged
 local lastSend = -math.huge
 local nextId = math.random(0, 9999)
@@ -91,7 +92,9 @@ end
 function Channels.VerifiedLevel(sender, guild)
 	local who = ns.FullName(sender)
 	local rank = ns.Roster.RankOf(who)
-	if guild == GetGuildInfo("player") then
+	local mine = GetGuildInfo("player")
+	if mine and guild:lower() == mine:lower() then
+		if guild ~= mine then return 0, false end -- our name spelled another way (names ignore case)
 		if rank then return Channels.LevelOf(guild, rank), true end
 		if ns.Roster.byName == nil then return 1, false end -- roster not read yet
 		return 0, false -- not in our roster: not one of us
@@ -240,6 +243,25 @@ local function Ignored(sender)
 	return ok and res == true
 end
 
+-- Flood guard per channel, so [Olympus] traffic never silences [Captains] or [Lords]. Once a
+-- channel is half full, a sender who already had FAIR_SHARE lines in it waits: one or two
+-- spammers can't take the whole minute from everyone else.
+local function Flooded(tier, sender, now)
+	local list = recent[tier] or {}
+	recent[tier] = list
+	local mine = 0
+	for i = #list, 1, -1 do
+		if now - list[i].t > 60 then
+			table.remove(list, i)
+		elseif list[i].sender == sender then
+			mine = mine + 1
+		end
+	end
+	if #list >= MAX_SHOWN_PER_MINUTE or (#list >= MAX_SHOWN_PER_MINUTE / 2 and mine >= FAIR_SHARE) then return true end
+	list[#list + 1] = { t = now, sender = sender }
+	return false
+end
+
 -- Returns shown, reason.
 function Channels.Receive(dist, sender, text, now)
 	if dist ~= "CHANNEL" then return false, "dist" end
@@ -260,8 +282,9 @@ function Channels.Receive(dist, sender, text, now)
 		stats.ignored = stats.ignored + 1
 		return false, "ignored"
 	end
-	-- The server stamps the sender, so this key can't be forged.
-	local key = sender .. "#" .. m.id
+	-- The server stamps the sender, so this key can't be forged. The text is part of it: ids
+	-- start again at random after a /reload, and a reused id must not hide a new line.
+	local key = sender .. "#" .. m.id .. "#" .. m.text
 	if seen[key] and now - seen[key] < DEDUPE_WINDOW then
 		stats.dup = stats.dup + 1
 		return false, "dup"
@@ -287,14 +310,11 @@ function Channels.Receive(dist, sender, text, now)
 		LogDrop(sender, m, reason, now)
 		return false, reason
 	end
-	for i = #recent, 1, -1 do
-		if now - recent[i] > 60 then table.remove(recent, i) end
-	end
-	if #recent >= MAX_SHOWN_PER_MINUTE then
+	-- A muted channel only goes to history, so it takes nothing from the flood guard.
+	if not Muted()[m.tier] and Flooded(m.tier, sender, now) then
 		stats.flood = stats.flood + 1
 		return false, "flood"
 	end
-	recent[#recent + 1] = now
 	return Accept(m.tier, sender, m.guild, m.class, m.text, false)
 end
 
