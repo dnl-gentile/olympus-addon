@@ -3440,6 +3440,16 @@ test("Horde and Alliance characters of one account keep separate stores", functi
 		eq(ns.faction, "Alliance")
 		eq(ns.rdb.guilds["Olympus Ally"].total, 5)
 		eq(ns.rdb.guilds["Olympus Orda"], nil)
+		-- Old account-wide inspections (Alliance only) never move into the Horde store.
+		OlympusDB.inspect = { players = { Oldie = { status = "NONE" } }, guildMarks = {} }
+		UnitFactionGroup = function() return "Horde" end
+		for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "ADDON_LOADED", "Olympus") end
+		eq(ns.rdb.inspect and ns.rdb.inspect.players and ns.rdb.inspect.players.Oldie, nil, "not on the Horde")
+		assert(OlympusDB.inspect, "kept for the next Alliance login")
+		UnitFactionGroup = function() return "Alliance" end
+		for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "ADDON_LOADED", "Olympus") end
+		eq(ns.rdb.inspect.players.Oldie.status, "NONE", "moved into the Alliance store")
+		eq(OlympusDB.inspect, nil)
 		-- Faction unknown at load, Horde at login: the store switches.
 		UnitFactionGroup = function() return nil end
 		for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "ADDON_LOADED", "Olympus") end

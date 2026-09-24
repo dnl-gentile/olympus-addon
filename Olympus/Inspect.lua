@@ -74,6 +74,8 @@ local function Enqueue(unit, force)
 	if not guid or queued[guid] or (pending and pending.guid == guid) then return end
 	local guild = GetGuildInfo(unit)
 	if not force and not ns.IsFederation(guild) then return end
+	-- Olympus guilds of the other faction are not ours to inspect (the Horde has its own too).
+	if not force and UnitFactionGroup and UnitFactionGroup(unit) ~= UnitFactionGroup("player") then return end
 	if not force and TooYoung(UnitLevel(unit)) then return end
 	if not force then
 		local p = Store().players[GetUnitName(unit, true)]

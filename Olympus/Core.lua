@@ -517,8 +517,9 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 	-- drop them. The census refills from the channel within minutes and officers hand the
 	-- key out again over guild chat (K0/K1) at login.
 	db.guilds, db.realmKey, db.officerRank = nil, nil, nil
-	-- Tabard inspections are about the players of one realm group too.
-	if db.inspect then
+	-- Tabard inspections are about the players of one realm group too. The old account-wide
+	-- ones can only be the Alliance's: they wait at the account level for an Alliance login.
+	if db.inspect and ns.faction ~= "Horde" then
 		if R.inspect == nil then R.inspect = db.inspect end
 		db.inspect = nil
 	end
