@@ -116,6 +116,29 @@ test("federation filter matches any guild with 'olympus' in the name", function(
 	eq(ns.IsFederation(nil), false)
 end)
 
+test("federation filter against 250 misspellings and 400 look-alike guild names (tests/fixtures)", function()
+	local function Read(file)
+		local out = {}
+		for line in io.lines("tests/fixtures/" .. file) do if line ~= "" then out[#out + 1] = line end end
+		return out
+	end
+	-- Known and accepted: a P for the O plus another slip; Olympe is French for Olympus;
+	-- Oympia is Olympia misspelled.
+	local expected = { ["Plympys III"] = false, ["Olympe"] = true, ["Oympia"] = true }
+	local wrong = {}
+	for _, name in ipairs(Read("olympus-yes.txt")) do
+		local want = expected[name]
+		if want == nil then want = true end
+		if ns.IsFederation(name) ~= want then wrong[#wrong + 1] = name end
+	end
+	for _, name in ipairs(Read("olympus-no.txt")) do
+		local want = expected[name]
+		if want == nil then want = false end
+		if ns.IsFederation(name) ~= want then wrong[#wrong + 1] = name end
+	end
+	eq(table.concat(wrong, ", "), "")
+end)
+
 test("federation filter: Olympus however it was spelled, but not other words", function()
 	for _, name in ipairs({ "OLYMPVS", "Olympvs II", "Olimpus", "Olmpus", "Olympos", "Olypmus", "Olyympus", "0lympus",
 		"Lympus", "OlimpusII", "Knights of Olmpus", "Olimpo", "Olympo Brasil", "Ólympus",

@@ -425,15 +425,15 @@ end
 
 -- Fixed on purpose: only guilds with "Olympus" in their name belong to the realm, however
 -- they spelled it. Guilds were made with the word misspelled (OLYMPVS the Roman way, Olimpvs,
--- Olmps, Olympuz...). The name's letters are read the way the word sounds (v as u, i as y,
--- z as s, 0 as o, a doubled letter once); then up to two slips count (a letter changed,
--- missing or added, or two swapped: Olmps, Olymp, Olympe), and so does Olimpo/Olympo. Olympia,
--- Olympic, Olympian and Olympiad are other words: they are taken out first. The main guild
--- itself (the King's, the Treasurer's) is still the exact name, see IsCrownRank.
-local REALM_WORD = "olympus"
-local SLIPS = 2
-local ALSO = { "olympo" }             -- read as sounds: Olympo, Olimpo, Olympos
-local OTHER = { "olympya", "olympyc" } -- read as sounds: Olympia(n, d), Olimpia, Olympic
+-- Olmps, Olympuz...). Each word of the name is read the way it sounds (v as u, i as y, z as s,
+-- 0 as o, a doubled letter once); then one slip anywhere in a word counts (a letter changed,
+-- missing or added, or two swapped), and two at the start of a word that starts with an O
+-- (Olmps, Olymp, Olympe, Oymps). Olimpo/Olympo/Olympos count the same way. Words are never
+-- joined: "Holy Mpulse" is not Olympus. Olympia, Olympic, Olympian, Olympiad and the like in
+-- other languages (Olympique, olympisch) are other words and are left out, and so is polyp.
+-- The main guild itself (the King's, the Treasurer's) is still the exact name, see IsCrownRank.
+local REALM_WORDS = { "olympus", "olympo" } -- as they sound: Olympus, Olympo, Olimpo, Olympos
+local OTHER = { "olympy[aceoq]", "olympysch", "polyp" } -- as they sound: Olympia, Olympic...
 
 -- How many slips from a to b (a letter changed, missing or added, or two neighbours
 -- swapped), counted up to limit + 1.
@@ -462,26 +462,46 @@ local function Slips(a, b, limit)
 end
 ns.Slips = Slips -- tests
 
--- The letters as they sound: v as u, i as y, z as s, a doubled letter once.
-local function Sounds(guild)
-	local letters = guild:lower():gsub("0", "o"):gsub("[^%a]", ""):gsub("v", "u"):gsub("i", "y"):gsub("z", "s")
-	return (letters:gsub("(%a)%1+", "%1"))
+-- A word as it sounds: v as u, i as y, z as s, a doubled letter once.
+local function Sounds(word)
+	word = word:gsub("v", "u"):gsub("i", "y"):gsub("z", "s")
+	local out, last = {}, nil
+	for c in word:gmatch(".") do
+		if c ~= last then out[#out + 1] = c end
+		last = c
+	end
+	return table.concat(out)
 end
-ns.Sounds = Sounds -- tests
+ns.Sounds = function(guild) return Sounds(guild:lower():gsub("0", "o"):gsub("[^%a]", "")) end -- tests
+
+local function OlympusWord(word)
+	for _, other in ipairs(OTHER) do
+		if word:find(other) then return false end
+	end
+	for _, target in ipairs(REALM_WORDS) do
+		if word:find(target, 1, true) then return true end
+		-- One slip anywhere in the word (Olympo's no shorter than itself: "olymo" is in polymorph).
+		for len = target == "olympo" and #target or #target - 1, #target + 1 do
+			for i = 1, #word - len + 1 do
+				if Slips(word:sub(i, i + len - 1), target, 1) <= 1 then return true end
+			end
+		end
+		-- Two at its start, if it starts with an O.
+		if word:sub(1, 1) == "o" then
+			for len = #target - 2, #target + 2 do
+				if len >= 5 and len <= #word and Slips(word:sub(1, len), target, 2) <= 2 then return true end
+			end
+		end
+	end
+	return false
+end
 
 local federation, federationSize = {}, 0 -- [name] = true|false, asked often: kept
 local function Federation(guild)
-	if guild:lower():find(REALM_WORD, 1, true) then return true end
-	local letters = Sounds(guild)
-	for _, word in ipairs(OTHER) do letters = letters:gsub(word, " ") end
-	for _, word in ipairs(ALSO) do
-		if letters:find(word, 1, true) then return true end
-	end
-	for len = #REALM_WORD - SLIPS, #REALM_WORD + SLIPS do
-		for i = 1, #letters - len + 1 do
-			local part = letters:sub(i, i + len - 1)
-			if not part:find(" ", 1, true) and Slips(part, REALM_WORD, SLIPS) <= SLIPS then return true end
-		end
+	local lower = guild:lower()
+	if lower:find("olympus", 1, true) then return true end
+	for word in lower:gsub("0", "o"):gsub("1", "l"):gmatch("%a+") do
+		if OlympusWord(Sounds(word)) then return true end
 	end
 	return false
 end
