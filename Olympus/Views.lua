@@ -356,6 +356,7 @@ end
 -- not fit on the channel. { name, level, class (code), zone (key), rank } each, by rank then
 -- level.
 Views.MAX_MEMBERS = 25
+local allMembers = {} -- [guild] = true: its whole list shown ("... and N more" clicked)
 function Views.MembersOf(guild, g)
 	local skip = {}
 	if g and g.leader then skip[ns.ShortName(g.leader)] = true end
@@ -465,7 +466,8 @@ local function RealmLines(s)
 					tt:AddLine(fromWho and L.MEMBERS_SEEN_TIP or L.MEMBERS_ONLINE_TIP, 1, 1, 1, true)
 				end,
 			}
-			for i = 1, math.min(Views.MAX_MEMBERS, #members) do
+			local shown = allMembers[e.name] and #members or math.min(Views.MAX_MEMBERS, #members)
+			for i = 1, shown do
 				local m = members[i]
 				local person = { name = m.name, class = m.class, level = m.level, zone = m.zone, guild = e.name, rank = m.rank, online = true }
 				lines[#lines + 1] = {
@@ -476,7 +478,18 @@ local function RealmLines(s)
 					onClick = function() ns.UI.ShowPerson(person) end,
 				}
 			end
-			if #members > Views.MAX_MEMBERS then lines[#lines + 1] = { indent = 2, text = Grey(L.AND_MORE:format(#members - Views.MAX_MEMBERS)) } end
+			-- The rest on a click, and back again.
+			if #members > shown then
+				lines[#lines + 1] = {
+					indent = 2, text = Gold(L.MEMBERS_MORE:format(#members - shown)),
+					onClick = function() allMembers[e.name] = true; ns.UI.Refresh() end,
+				}
+			elseif allMembers[e.name] and #members > Views.MAX_MEMBERS then
+				lines[#lines + 1] = {
+					indent = 2, text = Gold(L.MEMBERS_FEWER),
+					onClick = function() allMembers[e.name] = nil; ns.UI.Refresh() end,
+				}
+			end
 			if #members == 0 then lines[#lines + 1] = { indent = 2, text = Grey(fromWho and L.MEMBERS_NONE_SEEN or L.MEMBERS_NONE) } end
 			lines[#lines + 1] = { indent = 1, text = Gold(L.RANKS) }
 			for i, rank in ipairs(g.ranks or {}) do

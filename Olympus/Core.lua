@@ -424,41 +424,63 @@ function ns.IsCrown()
 end
 
 -- Fixed on purpose: only guilds with "Olympus" in their name belong to the realm, however
--- they spelled it. Guilds were made with the word misspelled (OLYMPVS the Roman way, Olimpus,
--- Olmpus...): any one slip counts (a letter changed, missing, added, or two swapped), found
--- in the name's letters, and so do the word in other languages (Olympos, Olimpo, Olympo).
--- Olympia, Olympic and Olympians are other words (two slips or more): they stay out. The
--- main guild itself (the King's, the Treasurer's) is still the exact name, see IsCrownRank.
+-- they spelled it. Guilds were made with the word misspelled (OLYMPVS the Roman way, Olimpvs,
+-- Olmps, Olympuz...). The name's letters are read the way the word sounds (v as u, i as y,
+-- z as s, 0 as o, a doubled letter once); then up to two slips count (a letter changed,
+-- missing or added, or two swapped: Olmps, Olymp, Olympe), and so does Olimpo/Olympo. Olympia,
+-- Olympic, Olympian and Olympiad are other words: they are taken out first. The main guild
+-- itself (the King's, the Treasurer's) is still the exact name, see IsCrownRank.
 local REALM_WORD = "olympus"
-local ALSO = { "olimpo", "olympo" }
+local SLIPS = 2
+local ALSO = { "olympo" }             -- read as sounds: Olympo, Olimpo, Olympos
+local OTHER = { "olympya", "olympyc" } -- read as sounds: Olympia(n, d), Olimpia, Olympic
 
--- a and b differ by at most one slip: a letter changed, missing or added, or two swapped.
-local function OneSlip(a, b)
-	if a == b then return true end
+-- How many slips from a to b (a letter changed, missing or added, or two neighbours
+-- swapped), counted up to limit + 1.
+local function Slips(a, b, limit)
 	local la, lb = #a, #b
-	if la - lb > 1 or lb - la > 1 then return false end
-	local i = 1
-	while i <= la and i <= lb and a:byte(i) == b:byte(i) do i = i + 1 end
-	if la == lb then
-		if a:sub(i + 1) == b:sub(i + 1) then return true end
-		return a:sub(i, i) == b:sub(i + 1, i + 1) and a:sub(i + 1, i + 1) == b:sub(i, i) and a:sub(i + 2) == b:sub(i + 2)
-	elseif la > lb then
-		return a:sub(i + 1) == b:sub(i)
+	if la - lb > limit or lb - la > limit then return limit + 1 end
+	local prev2, prev, row = nil, {}, nil
+	for j = 0, lb do prev[j] = j end
+	for i = 1, la do
+		row = { [0] = i }
+		local best = i
+		local ca = a:byte(i)
+		for j = 1, lb do
+			local cost = (ca == b:byte(j)) and 0 or 1
+			local v = math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + cost)
+			if prev2 and i > 1 and j > 1 and ca == b:byte(j - 1) and a:byte(i - 1) == b:byte(j) then
+				v = math.min(v, prev2[j - 2] + 1)
+			end
+			row[j] = v
+			if v < best then best = v end
+		end
+		if best > limit then return limit + 1 end
+		prev2, prev = prev, row
 	end
-	return a:sub(i) == b:sub(i + 1)
+	return prev[lb]
 end
+ns.Slips = Slips -- tests
+
+-- The letters as they sound: v as u, i as y, z as s, a doubled letter once.
+local function Sounds(guild)
+	local letters = guild:lower():gsub("0", "o"):gsub("[^%a]", ""):gsub("v", "u"):gsub("i", "y"):gsub("z", "s")
+	return (letters:gsub("(%a)%1+", "%1"))
+end
+ns.Sounds = Sounds -- tests
 
 local federation, federationSize = {}, 0 -- [name] = true|false, asked often: kept
 local function Federation(guild)
-	local lower = guild:lower()
-	if lower:find(REALM_WORD, 1, true) then return true end
-	local letters = lower:gsub("[^%a]", "")
+	if guild:lower():find(REALM_WORD, 1, true) then return true end
+	local letters = Sounds(guild)
+	for _, word in ipairs(OTHER) do letters = letters:gsub(word, " ") end
 	for _, word in ipairs(ALSO) do
 		if letters:find(word, 1, true) then return true end
 	end
-	for len = #REALM_WORD - 1, #REALM_WORD + 1 do
+	for len = #REALM_WORD - SLIPS, #REALM_WORD + SLIPS do
 		for i = 1, #letters - len + 1 do
-			if OneSlip(letters:sub(i, i + len - 1), REALM_WORD) then return true end
+			local part = letters:sub(i, i + len - 1)
+			if not part:find(" ", 1, true) and Slips(part, REALM_WORD, SLIPS) <= SLIPS then return true end
 		end
 	end
 	return false

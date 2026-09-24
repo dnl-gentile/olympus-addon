@@ -118,13 +118,17 @@ end)
 
 test("federation filter: Olympus however it was spelled, but not other words", function()
 	for _, name in ipairs({ "OLYMPVS", "Olympvs II", "Olimpus", "Olmpus", "Olympos", "Olypmus", "Olyympus", "0lympus",
-		"Lympus", "OlimpusII", "Knights of Olmpus", "Olimpo", "Olympo Brasil", "Ólympus" }) do
+		"Lympus", "OlimpusII", "Knights of Olmpus", "Olimpo", "Olympo Brasil", "Ólympus",
+		"Olimpvs", "OLMPVS", "Olmps", "Olympuz", "OLIMPUZ", "Olymppus", "Olymp", "Olympia Olympus",
+		"Olypmvs", "Olmypus", "Oympus", "Olumpus", "Olympe", "Oylmpus", "Olyompus" }) do
 		eq(ns.IsFederation(name), true, name)
 	end
-	for _, name in ipairs({ "Olympia", "Olympic Heroes", "Olympians", "Polymath", "Holy Light", "Oly", "Olymp",
-		"The Pumpkins", "Glyphs R Us" }) do
+	for _, name in ipairs({ "Olympia", "Olympic Heroes", "Olympians", "Olympiad", "Olimpia", "Olimpico", "Polymath",
+		"Holy Light", "Oly", "Olmo", "The Pumpkins", "Glyphs R Us", "Lumps", "Oblivion", "Polymer", "Lymph" }) do
 		eq(ns.IsFederation(name), false, name)
 	end
+	eq(ns.Slips("olmps", "olympus", 2), 2); eq(ns.Slips("olympia", "olympus", 2), 2); eq(ns.Slips("abcdefg", "olympus", 2), 3)
+	eq(ns.Slips("olypmus", "olympus", 2), 1, "two neighbours swapped: one slip")
 	-- The main guild is still the exact name: the King and the Crown's officers.
 	eq(ns.IsCrownRank("OLYMPVS", 1), false, "an officer of a look-alike guild is no Crown officer")
 	eq(ns.IsCrownRank("Olympus", 1), true)
@@ -647,6 +651,24 @@ test("the Realm lists every member online: our roster for our guild, /who for th
 		assert(text:find(ns.L.MEMBERS_ONLINE:format(2), 1, true), text)
 		assert(text:find(ns.L.MEMBERS_SEEN:format(1), 1, true), text)
 		assert(text:find("Scout", 1, true) and text:find("Mate", 1, true), text)
+		-- A long list: the first MAX_MEMBERS, the rest on a click, and back.
+		for k = 1, 40 do ns.Roster.online[#ns.Roster.online + 1] = { name = "Member" .. k, level = 10, class = "WA", rank = "Recruit", rankIndex = 5 } end
+		local function Find(pattern)
+			for _, l in ipairs(ns.Views.RealmLines()) do
+				if l.text and l.text:find(pattern, 1, true) then return l end
+			end
+		end
+		local UIsaved = ns.UI
+		ns.UI = setmetatable({ Refresh = function() end }, { __index = UIsaved })
+		local more = Find(ns.L.MEMBERS_MORE:format(42 - ns.Views.MAX_MEMBERS))
+		assert(more and more.onClick, "the rest, on a click")
+		more.onClick()
+		assert(Find("Member40"), "everyone shown")
+		local fewer = Find(ns.L.MEMBERS_FEWER)
+		assert(fewer and fewer.onClick)
+		fewer.onClick()
+		assert(not Find("Member40"), "back to the first ones")
+		ns.UI = UIsaved
 		ns.Views.ExpandAll(false)
 	end)
 	GetGuildInfo, ns.Roster.online, ns.Who.sweep = savedGuild, savedOnline, savedSweep
