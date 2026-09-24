@@ -25,11 +25,17 @@ ns.Hop = Hop
 
 Hop.OFFERS = 6          -- offers wanted per ask, however crowded the layer
 Hop.WINDOW = 3          -- seconds the asker collects offers before choosing
-Hop.WAIT = 25           -- seconds a chosen helper has to invite
+Hop.NOBODY = 15         -- no offer at all this long after the ask: nobody can
+Hop.WAIT = 30           -- seconds a chosen helper has to invite (their window closes at 20)
+Hop.POPUP_TIME = 20     -- the helper's window
+Hop.ACCEPT_WAIT = 15    -- invite accepted, and no group this long after: next helper
 Hop.TRIES = 3           -- helpers asked in turn before giving up
 Hop.ASK_GAP = 20        -- one ask every 20 seconds
 Hop.JOIN_WAIT = 20      -- in the group this long without seeing the move: offer to leave anyway
 Hop.HELP_GAP = 60       -- the same asker is answered once a minute
+Hop.OFFER_GAP = 10      -- a helper offers once every 10 seconds at most
+Hop.DECLINES = 2        -- after this many Not now / no answer in a row...
+Hop.PAUSE = 300         -- ...no requests for 5 minutes
 Hop.LAYER_FRESH = 600   -- our layer counts this long after the last NPC seen
 Hop.RECENT = 600        -- invites counted in the load we announce
 Hop.MAX_OFFERS = 30     -- offers kept per ask
@@ -42,8 +48,10 @@ Hop.after = function(seconds, where, fn) ns.After(seconds, where, fn) end
 
 local ask             -- our own request in progress
 local lastAsk = -math.huge
+-- Askers are keyed by short name: the channel and whispers may not both carry the realm.
 local offered = {}    -- [id .. asker] = t: offers we sent (a request must match one)
 local answeredAt = {} -- [asker] = t
+local lastOffer, declines, pausedUntil = -math.huge, 0, -math.huge
 local pending         -- the request on screen: { from, id, t }
 local recent = {}     -- times of our last invites
 local stats = { asks = 0, offers = 0, requests = 0, invites = 0, noes = 0, joins = 0, moves = 0, releases = 0 }
@@ -87,14 +95,27 @@ local function OnKingLayer()
 	return (k and k.zoneUID and mine and mine.mapID == k.mapID and mine.zoneUID == k.zoneUID) and true or false
 end
 
+-- The short names of the others in our group.
+local function GroupNames()
+	local out = {}
+	if not (IsInGroup and IsInGroup()) then return out end
+	local raid = IsInRaid and IsInRaid()
+	local n = raid and (GetNumGroupMembers and GetNumGroupMembers() or 0) or 4
+	for i = 1, n do
+		local name = UnitName and UnitName((raid and "raid" or "party") .. i)
+		if name then out[ns.ShortName(name)] = true end
+	end
+	out[ns.ShortName(ns.me or "")] = nil
+	return out
+end
+
 -- Alone, or in a party of our hop guests only: the addon may invite on its own. Never into a
 -- group of the player's friends.
 local function OnlyGuests()
 	if not (IsInGroup and IsInGroup()) then return true end
 	if IsInRaid and IsInRaid() then return false end
-	for i = 1, 4 do
-		local name = UnitName and UnitName("party" .. i)
-		if name and not guests[ns.ShortName(name)] then return false end
+	for short in pairs(GroupNames()) do
+		if not guests[short] then return false end
 	end
 	return true
 end
@@ -111,6 +132,7 @@ function Hop.CanHelp(mapID, zoneUID)
 	if KingChoice() == "no" and OnKingLayer() then return false end
 	if (IsInInstance and IsInInstance()) or (InCombatLockdown and InCombatLockdown()) then return false end
 	if pending or (ask and ask.phase ~= "done") then return false end
+	if ns.Now() < pausedUntil then return false end
 	local _, room = Hop.GroupState()
 	return room
 end
@@ -131,12 +153,15 @@ function Hop.HandleAsk(dist, sender, text)
 	id, mapID, zoneUID = tonumber(id), tonumber(mapID), tonumber(zoneUID)
 	if not id then return end
 	sender = ns.FullName(sender)
+	local short = ns.ShortName(sender)
 	local now = ns.Now()
-	if now - (answeredAt[sender] or -math.huge) < Hop.HELP_GAP then return end
+	if now - (answeredAt[short] or -math.huge) < Hop.HELP_GAP then return end
+	if now - lastOffer < Hop.OFFER_GAP then return end
 	if not Hop.CanHelp(mapID, zoneUID) then return end
 	if Hop.random() > Hop.Chance(mapID, zoneUID) then return end
-	answeredAt[sender] = now
-	offered[id .. sender] = now
+	answeredAt[short] = now
+	offered[id .. short] = now
+	lastOffer = now
 	local group = Hop.GroupState()
 	local load = Load()
 	-- A random pause spreads the offers of a crowd over a couple of seconds.
@@ -167,9 +192,10 @@ function Hop.HandleRequest(dist, sender, text)
 	if dist ~= "WHISPER" then return end
 	local id = tonumber(text:match("^LR~(%d+)$"))
 	sender = ns.FullName(sender)
-	local at = id and offered[id .. sender]
+	local key = id and (id .. ns.ShortName(sender))
+	local at = key and offered[key]
 	if not at or ns.Now() - at > 120 then return end
-	offered[id .. sender] = nil
+	offered[key] = nil
 	stats.requests = stats.requests + 1
 	local _, room = Hop.GroupState()
 	if not room or pending or (InCombatLockdown and InCombatLockdown()) then return SayNo(sender, id) end
@@ -190,7 +216,18 @@ local function Answer(data, invite, always)
 		ns.db.layerAutoInvite = true
 		ns.Print(L.HOP_AUTO_ON)
 	end
-	if invite then Invite(data.from, data.id, always) else SayNo(data.from, data.id) end
+	if invite then
+		declines = 0
+		Invite(data.from, data.id, always)
+	else
+		SayNo(data.from, data.id)
+		-- Not now (or no answer) twice in a row: a break from requests.
+		declines = declines + 1
+		if declines >= Hop.DECLINES then
+			declines = 0
+			pausedUntil = ns.Now() + Hop.PAUSE
+		end
+	end
 	Changed()
 end
 Hop.Answer = Answer
@@ -204,7 +241,7 @@ StaticPopupDialogs["OLYMPUS_HOP_REQUEST"] = {
 	OnAlt = function(self, data) ns.SafeCall("hop invite", Answer, data or self.data, true, true) end,
 	-- Not now, Escape or the timeout: the asker moves on to someone else.
 	OnCancel = function(self, data) ns.SafeCall("hop no", Answer, data or self.data, false) end,
-	timeout = Hop.WAIT,
+	timeout = Hop.POPUP_TIME,
 	whileDead = true,
 	hideOnEscape = true,
 	preferredIndex = 3,
@@ -214,8 +251,10 @@ StaticPopupDialogs["OLYMPUS_HOP_REQUEST"] = {
 -- Asking
 ---------------------------------------------------------------------------
 
-local function Finish(message)
+-- fromPopup: called from the leave window's own buttons (it closes itself).
+local function Finish(message, fromPopup)
 	if not ask then return end
+	if not fromPopup and ask.leaveShown and StaticPopup_Hide then StaticPopup_Hide("OLYMPUS_HOP_LEAVE", ask) end
 	ask.phase = "done"
 	if message then ns.Print(message) end
 	Changed()
@@ -293,19 +332,30 @@ end
 
 function Hop.HandleNo(dist, sender, text)
 	if dist ~= "WHISPER" or not ask or ask.phase ~= "requested" then return end
-	if tonumber(text:match("^LN~(%d+)$")) ~= ask.id or ns.FullName(sender) ~= ask.helper then return end
+	if tonumber(text:match("^LN~(%d+)$")) ~= ask.id or ns.ShortName(ns.FullName(sender)) ~= ns.ShortName(ask.helper) then return end
 	Hop.Next()
 end
 
 -- The invite we asked for: accept it for the player (anyone else's invite is left alone).
+-- A helper asked before may still invite late (after we moved on): theirs counts too.
+local function AskedHelper(name)
+	if not name then return nil end
+	local short = ns.ShortName(name)
+	for helper in pairs(ask.tried) do
+		if ns.ShortName(helper) == short then return helper end
+	end
+	return nil
+end
+
 function Hop.OnInvite(name)
-	if not ask or ask.phase ~= "requested" or not ask.helper then return end
-	if not name or ns.ShortName(name) ~= ns.ShortName(ask.helper) then return end
+	if not ask or (ask.phase ~= "requested" and ask.phase ~= "accepted") then return end
+	local helper = AskedHelper(name)
+	if not helper then return end
 	local dialog = StaticPopup_FindVisible and StaticPopup_FindVisible("PARTY_INVITE")
 	if dialog then dialog.inviteAccepted = 1 end
 	if AcceptGroup then AcceptGroup() end
 	if StaticPopup_Hide then StaticPopup_Hide("PARTY_INVITE") end
-	ask.phase = "accepted"
+	ask.helper, ask.phase, ask.accepted = helper, "accepted", ns.Now()
 	ns.Log("hop: accepted the invite from %s", tostring(name))
 	Changed()
 end
@@ -317,7 +367,6 @@ end
 -- Out of the helper's group, the hop done (a layer stays after the group is left).
 local function Leave(message)
 	LeaveGroup()
-	if StaticPopup_Hide then StaticPopup_Hide("OLYMPUS_HOP_LEAVE") end
 	Finish(message)
 end
 
@@ -326,15 +375,26 @@ local function OfferLeave()
 	if not ask or ask.leaveShown then return end
 	ask.leaveShown = true
 	ns.PlayAlert("soft")
-	StaticPopup_Show("OLYMPUS_HOP_LEAVE", L.HOP_MAYBE_MOVED)
+	StaticPopup_Show("OLYMPUS_HOP_LEAVE", L.HOP_MAYBE_MOVED, nil, ask)
 end
 
 StaticPopupDialogs["OLYMPUS_HOP_LEAVE"] = {
 	text = "%s",
 	button1 = L.HOP_LEAVE,
 	button2 = L.HOP_STAY,
-	OnAccept = function() ns.SafeCall("hop leave", function() LeaveGroup(); Finish(L.HOP_DONE) end) end,
-	OnCancel = function() ns.SafeCall("hop stay", Finish) end,
+	-- Only for the ask it was shown for (data): an old window never ends a new ask.
+	OnAccept = function(self, data)
+		ns.SafeCall("hop leave", function()
+			if (data or (self and self.data)) ~= ask then return end
+			LeaveGroup()
+			Finish(L.HOP_DONE, true)
+		end)
+	end,
+	OnCancel = function(self, data)
+		ns.SafeCall("hop stay", function()
+			if (data or (self and self.data)) == ask then Finish(nil, true) end
+		end)
+	end,
 	timeout = 60,
 	whileDead = true,
 	hideOnEscape = true,
@@ -342,16 +402,25 @@ StaticPopupDialogs["OLYMPUS_HOP_LEAVE"] = {
 }
 
 function Hop.OnRoster()
-	if not ask then return end
+	if not ask or ask.phase == "done" then return end
 	local grouped = IsInGroup and IsInGroup()
-	if (ask.phase == "accepted" or ask.phase == "requested") and grouped then
-		ask.phase, ask.joined = "joined", ns.Now()
-		stats.joins = stats.joins + 1
-		ns.Print(L.HOP_JOINED:format(ns.DisplayName(ask.helper or "?")))
-		Changed()
-	elseif ask.phase == "joined" and not grouped then
-		Finish()
+	if ask.phase == "joined" then
+		if not grouped then Finish() end
+		return
 	end
+	if not grouped then return end
+	-- In a group: a helper we asked is in it (or we accepted their invite), else it is some
+	-- other group (a friend's) and the hop is off: the addon never leaves that one.
+	local names, helper = GroupNames(), nil
+	for name in pairs(ask.tried) do
+		if names[ns.ShortName(name)] then helper = name end
+	end
+	if not helper and ask.phase == "accepted" then helper = ask.helper end
+	if not helper then return Finish() end
+	ask.helper, ask.phase, ask.joined = helper, "joined", ns.Now()
+	stats.joins = stats.joins + 1
+	ns.Print(L.HOP_JOINED:format(ns.DisplayName(helper)))
+	Changed()
 end
 
 -- In the group: the move shows as a new zone UID for our zone, or the one we asked for.
@@ -380,8 +449,11 @@ local function ReleaseGuests(now)
 	for short, g in pairs(guests) do
 		if g.release and not g.released and now - g.t >= Hop.GUEST_TIME then
 			g.released = true
-			stats.releases = stats.releases + 1
-			ns.Comm.Whisper(g.name, ("LX~%d"):format(g.id))
+			-- Only those still with us (a whisper to someone gone prints an error).
+			if GroupNames()[short] then
+				stats.releases = stats.releases + 1
+				ns.Comm.Whisper(g.name, ("LX~%d"):format(g.id))
+			end
 		end
 		if now - g.t >= Hop.GUEST_TIME * 3 then guests[short] = nil end
 	end
@@ -399,11 +471,13 @@ function Hop.Tick()
 	if ask.phase == "asking" then
 		if now - ask.t >= Hop.WINDOW and ask.count > 0 then
 			Hop.Next()
-		elseif now - ask.t >= Hop.WINDOW * 2 then
+		elseif now - ask.t >= Hop.NOBODY then
 			Finish(L.HOP_NOBODY)
 		end
-	elseif ask.phase == "requested" or ask.phase == "accepted" then
+	elseif ask.phase == "requested" then
 		if now - ask.asked >= Hop.WAIT then Hop.Next() end
+	elseif ask.phase == "accepted" then
+		if now - ask.accepted >= Hop.ACCEPT_WAIT then Hop.Next() end
 	elseif ask.phase == "joined" and now - ask.joined >= Hop.JOIN_WAIT then
 		OfferLeave()
 	end
@@ -521,7 +595,7 @@ local function MakePrompt()
 	f:SetFrameStrata("DIALOG")
 	f:SetToplevel(true)
 	f:EnableMouse(true)
-	f:SetPoint("TOP", UIParent, "TOP", 0, -135)
+	f:SetPoint("CENTER", UIParent, "CENTER", 0, 80) -- clear of the game's popups at the top
 	local okBorder, border = pcall(CreateFrame, "Frame", nil, f, "DialogBorderTemplate")
 	if not okBorder or not border then
 		border = f:CreateTexture(nil, "BACKGROUND")
@@ -604,6 +678,7 @@ end
 function Hop.Reset()
 	ask, pending, lastAsk = nil, nil, -math.huge
 	kingMode, promptShown, lastPromptCheck = nil, false, -math.huge
+	lastOffer, declines, pausedUntil = -math.huge, 0, -math.huge
 	wipe(offered); wipe(answeredAt); wipe(recent); wipe(guests)
 	for k in pairs(stats) do stats[k] = 0 end
 end

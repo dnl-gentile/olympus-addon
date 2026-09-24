@@ -4213,7 +4213,7 @@ local function WithHop(fn)
 	local saved = {}
 	for _, n in ipairs(names) do saved[n] = _G[n] end
 	local savedSend, savedWhisper, savedReady, savedNow = ns.Comm.Send, ns.Comm.Whisper, ns.Comm.ChannelReady, ns.Now
-	local savedRandom, savedAfter, savedMap = H.random, H.after, C_Map.GetBestMapForUnit
+	local savedRandom, savedAfter, savedMap, savedGap = H.random, H.after, C_Map.GetBestMapForUnit, H.OFFER_GAP
 	local w = { sent = {}, whispered = {}, popups = {}, invited = {}, accepted = 0, left = 0, hidden = {}, clock = 1000000,
 		group = 0, lead = false, npc = 7, map = 1453, party = {} }
 	local ok, err = pcall(function()
@@ -4225,6 +4225,7 @@ local function WithHop(fn)
 		ns.Comm.Whisper = function(to, msg) w.whispered[#w.whispered + 1] = to .. " " .. msg end
 		H.after = function(_, _, f) f() end
 		H.random = function(a) return a or 0 end -- ids come out as 1, draws as 0 (always answer, first in line)
+		H.OFFER_GAP = 0 -- one offer every 10 s: the tests that look at it set it back
 		IsInGroup = function() return w.group > 0 end
 		GetNumGroupMembers = function() return w.group end
 		IsInRaid = function() return w.group > 5 end
@@ -4249,7 +4250,7 @@ local function WithHop(fn)
 	end)
 	for _, n in ipairs(names) do _G[n] = saved[n] end
 	ns.Comm.Send, ns.Comm.Whisper, ns.Comm.ChannelReady, ns.Now = savedSend, savedWhisper, savedReady, savedNow
-	H.random, H.after, C_Map.GetBestMapForUnit = savedRandom, savedAfter, savedMap
+	H.random, H.after, C_Map.GetBestMapForUnit, H.OFFER_GAP = savedRandom, savedAfter, savedMap, savedGap
 	ns.db.layerHelp, ns.db.layerAutoInvite, ns.db.hopKingChoice = nil, nil, nil
 	H.Reset()
 	if not ok then error(err, 0) end
@@ -4326,6 +4327,26 @@ test("layer hop, helper side: only players on the layer who can invite offer, th
 		H.HandleRequest("WHISPER", "Later-Realm", "LR~55")
 		d.OnCancel(nil, w.popups[3].data, "clicked")
 		eq(w.whispered[#w.whispered], "Later-Realm LN~55")
+		-- A second Not now in a row: five minutes without requests.
+		w.clock = w.clock + 61
+		H.HandleAsk("CHANNEL", "Again-Realm", "LQ~56~1453~7")
+		H.HandleRequest("WHISPER", "Again-Realm", "LR~56")
+		d.OnCancel(nil, w.popups[4].data, "timeout")
+		eq(H.CanHelp(1453, 7), false, "a break after two no's")
+		w.clock = w.clock + H.PAUSE
+		eq(H.CanHelp(1453, 7), true, "back after five minutes")
+		-- One offer every 10 seconds, whoever asks.
+		H.OFFER_GAP = 10
+		local n = #w.whispered
+		H.HandleAsk("CHANNEL", "One-Realm", "LQ~57~1453~7")
+		H.HandleAsk("CHANNEL", "Two-Realm", "LQ~58~1453~7")
+		eq(#w.whispered, n + 1, "the second waits")
+		w.clock = w.clock + 10
+		H.HandleAsk("CHANNEL", "Two-Realm", "LQ~59~1453~7")
+		eq(#w.whispered, n + 2)
+		-- The request may come without the realm the ask had: it still matches.
+		H.HandleRequest("WHISPER", "Two", "LR~59")
+		eq(w.popups[5].name, "OLYMPUS_HOP_REQUEST")
 	end)
 end)
 
@@ -4376,6 +4397,9 @@ test("layer hop, asker side: draw an offer, move on after a no, accept only that
 		H.Ask(1453, 9, "far")
 		w.clock = w.clock + H.WINDOW * 2
 		H.Tick()
+		eq(H.State().phase, "asking", "offers can take a few seconds: still waiting")
+		w.clock = w.clock + H.NOBODY
+		H.Tick()
 		eq(H.State().phase, "done")
 		-- In the group but no NPC seen: offer to leave anyway after a while.
 		w.clock = w.clock + H.ASK_GAP
@@ -4402,6 +4426,57 @@ test("layer hop, asker side: draw an offer, move on after a no, accept only that
 		local before = #w.sent
 		H.Ask(1453, 8, "far away")
 		eq(#w.sent, before, "not in that zone: nothing sent")
+	end)
+end)
+
+test("layer hop, asker side: a friend's group is never left, a late helper still counts, an old window ends nothing", function()
+	WithHop(function(w, H)
+		w.see(7)
+		H.Ask(1453, 8, "Kingy's layer")
+		H.HandleOffer("WHISPER", "Aaa-Realm", "LO~1~0~0")
+		H.HandleOffer("WHISPER", "Bbb-Realm", "LO~1~0~0")
+		w.clock = w.clock + H.WINDOW
+		H.Tick()
+		eq(H.State().helper, "Aaa-Realm")
+		-- A friend invites us and we accept by hand: the hop is off, and we stay with the friend.
+		w.group, w.party.party1 = 2, "Friend"
+		H.OnRoster()
+		eq(H.State().phase, "done")
+		w.see(8)
+		H.OnLayer()
+		eq(w.left, 0, "the addon never leaves a friend's group")
+		-- The first helper was slow: their late invite still counts after we moved on.
+		w.group, w.party = 0, {}
+		w.clock = w.clock + H.ASK_GAP
+		w.see(7)
+		H.Ask(1453, 8, "Kingy's layer")
+		H.HandleOffer("WHISPER", "Aaa-Realm", "LO~1~0~0")
+		H.HandleOffer("WHISPER", "Bbb-Realm", "LO~1~0~0")
+		w.clock = w.clock + H.WINDOW
+		H.Tick()
+		w.clock = w.clock + H.WAIT
+		H.Tick()
+		eq(H.State().helper, "Bbb-Realm", "moved on")
+		H.OnInvite("Aaa")
+		eq(w.accepted, 1); eq(H.State().helper, "Aaa-Realm")
+		w.group, w.party.party1 = 2, "Aaa"
+		H.OnRoster()
+		eq(H.State().phase, "joined")
+		-- No move seen: the leave window, for this ask only.
+		w.clock = w.clock + H.JOIN_WAIT
+		H.Tick()
+		local old = w.popups[#w.popups]
+		eq(old.name, "OLYMPUS_HOP_LEAVE"); eq(old.data, H.State())
+		-- We leave by hand: that window goes with the ask.
+		w.group, w.party = 0, {}
+		H.OnRoster()
+		eq(H.State().phase, "done"); eq(w.hidden[#w.hidden], "OLYMPUS_HOP_LEAVE")
+		-- Had it stayed, clicking it later ends nothing new.
+		w.clock = w.clock + H.ASK_GAP
+		H.Ask(1453, 8, "Kingy's layer")
+		StaticPopupDialogs.OLYMPUS_HOP_LEAVE.OnAccept(nil, old.data)
+		StaticPopupDialogs.OLYMPUS_HOP_LEAVE.OnCancel(nil, old.data)
+		eq(H.State().phase, "asking", "an old window ends nothing")
 	end)
 end)
 
@@ -4521,12 +4596,15 @@ test("layer hop: alone on the King's layer, a window asks whether the addon may 
 			H.HandleAsk("CHANNEL", "Fan2-Realm", "LQ~43~1453~9")
 			H.HandleRequest("WHISPER", "Fan2-Realm", "LR~43")
 			eq(w.invited[2], "Fan2"); eq(#w.popups, 0)
-			-- Their time is up: their addon is asked to leave (only a click may remove someone).
+			w.group, w.party.party2 = 3, "Fan2"
+			-- Their time is up: their addon is asked to leave (only a click may remove someone),
+			-- and only those still with us.
 			w.clock = w.clock + H.GUEST_TIME
+			w.group, w.party.party2 = 2, nil
 			H.Tick(); H.Tick()
 			local lx = {}
 			for _, m in ipairs(w.whispered) do if m:find(" LX~", 1, true) then lx[#lx + 1] = m end end
-			eq(#lx, 2, "once each"); eq(lx[1] == "Fan-Realm LX~42" or lx[2] == "Fan-Realm LX~42", true, table.concat(lx, ", "))
+			eq(#lx, 1, "once, to the one still here"); eq(lx[1], "Fan-Realm LX~42")
 			-- A friend in our party: never an invite into it, the window instead.
 			w.group, w.party.party2 = 3, "Friend"
 			H.HandleAsk("CHANNEL", "Fan3-Realm", "LQ~44~1453~9")

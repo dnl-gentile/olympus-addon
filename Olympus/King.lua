@@ -419,6 +419,7 @@ local lastLocation = { t = -math.huge }
 local Pins = ns.Pins()
 local SHOW_FLAG = HBD_PINS_WORLDMAP_SHOW_CONTINENT or 2
 local crowns                 -- { world, mini } pin frames, made on first use
+local crownAt                -- where they are drawn now (drawn again only when he moved)
 
 function King.SharingLocation() return ns.db.throneLocation == true end
 
@@ -474,15 +475,23 @@ function King.RefreshCrown()
 	if not Pins then return end
 	if kingAt and ns.Now() - kingAt.t > King.LOCATION_EXPIRE then kingAt = nil end
 	if not kingAt then
-		if crowns then
+		if crowns and crownAt then
 			Pins:RemoveWorldMapIcon(King, crowns.world)
 			Pins:RemoveMinimapIcon(King, crowns.mini)
 			crowns.world:Hide()
 			crowns.mini:Hide()
 		end
+		crownAt = nil
 		return
 	end
+	if crownAt and crownAt.mapID == kingAt.mapID and crownAt.x == kingAt.x and crownAt.y == kingAt.y then return end
 	crowns = crowns or { world = Crown(20), mini = Crown(16) }
+	-- Taken off before it is put back: the map library makes a new map pin on every add.
+	if crownAt then
+		Pins:RemoveWorldMapIcon(King, crowns.world)
+		Pins:RemoveMinimapIcon(King, crowns.mini)
+	end
+	crownAt = { mapID = kingAt.mapID, x = kingAt.x, y = kingAt.y }
 	Pins:AddWorldMapIconMap(King, crowns.world, kingAt.mapID, kingAt.x, kingAt.y, SHOW_FLAG)
 	Pins:AddMinimapIconMap(King, crowns.mini, kingAt.mapID, kingAt.x, kingAt.y, true, true)
 end
@@ -507,7 +516,8 @@ function King.HandleCommand(dist, sender, text)
 	local kind, id, guild, rest = text:match("^T1~(%a)~(%d+)~([^~]*)~?(.*)$")
 	if not kind then return end
 	if not KingSender(sender, guild) then
-		ns.Log("throne %s from %s ignored: not the King of %s", kind, sender, tostring(guild))
+		-- Positions come every few seconds: not logged.
+		if kind ~= "P" then ns.Log("throne %s from %s ignored: not the King of %s", kind, sender, tostring(guild)) end
 		return
 	end
 	id = tonumber(id)
@@ -532,7 +542,10 @@ ns.On("LOGIN", function()
 		SendLocation()
 		King.RefreshCrown()
 	end)
-	if King.SharingLocation() and King.IsKing() then ns.After(20, "king location note", function() ns.Print(L.THRONE_LOCATION_SHOWN) end) end
+	-- The guild is not always known at login yet: checked when the note is due.
+	ns.After(20, "king location note", function()
+		if King.SharingLocation() and King.IsKing() then ns.Print(L.THRONE_LOCATION_SHOWN) end
+	end)
 	ns.Every(60, "agenda", function()
 		local a = King.Agenda()
 		if not a then return end
@@ -708,7 +721,7 @@ end
 
 function King.State() return { summon = summon, inspect = inspect, agenda = agenda, inspecting = inspecting } end
 function King.Reset()
-	summon, inspect, agenda, inspecting, kingAt = nil, nil, nil, nil, nil
+	summon, inspect, agenda, inspecting, kingAt, crownAt = nil, nil, nil, nil, nil, nil
 	lastLocation = { t = -math.huge }
 	lastSummonSeen, lastInspectSeen, lastSummonSent, lastInspectSent = -math.huge, -math.huge, -math.huge, -math.huge
 	lastAgendaSent, lastAgendaWarn, changePending = -math.huge, -math.huge, false

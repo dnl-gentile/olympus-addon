@@ -557,7 +557,7 @@ end
 StandIn("Who", { "Search", "SendPlain" })
 StandIn("Channels", { "Send", "ToggleMute" })
 StandIn("King", { "Summon", "Inspect", "AgendaPrompt" })
-StandIn("Hop", { "Ask", "AskKing" })
+StandIn("Hop", { "Ask", "AskKing", "SetHelp", "SetAuto" })
 
 -- The faction may not be known yet at ADDON_LOADED: if it turns out to be the other one,
 -- switch to that faction's store before anything is received.

@@ -30,11 +30,24 @@ local function CurrentMap()
 	return C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
 end
 
+local retryQueued = false
+
 local function Announce(force)
 	if not mine or not IsInGuild() then return end
 	local now = ns.Now()
 	if not force and now - lastAnnounce < ANNOUNCE_EVERY then return end
-	if now - lastAnnounce < MIN_GAP then return end
+	if now - lastAnnounce < MIN_GAP then
+		-- A layer change too soon after the last one: announced once the gap is over, so
+		-- nobody (the King's hop above all) is sent to a layer we already left.
+		if force and not retryQueued then
+			retryQueued = true
+			ns.After(MIN_GAP - (now - lastAnnounce) + 1, "layer announce retry", function()
+				retryQueued = false
+				Announce(true)
+			end)
+		end
+		return
+	end
 	lastAnnounce = now
 	local guild = GetGuildInfo("player")
 	if not ns.IsFederation(guild) then return end
