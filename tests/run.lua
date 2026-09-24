@@ -2851,7 +2851,7 @@ test("ranks come from the picture most senders agree on; forgers can't move it",
 		-- Two forgers against two reporters: contested, nobody's rank counts until it is settled.
 		eq(Report("Olympus", "King", "Duke:1:0,Aaa:1:0", "Ccc-Realm"), true)
 		eq(D.KnownRank("Aaa-Realm", "Olympus"), nil, "a tie is no majority")
-		eq(D.KnownRank("Duke-Realm", "Olympus"), nil, "contested: no rank counts")
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "contested: what both pictures agree on still counts")
 		-- Their votes expire when they stop; the real reporters' stay fresh.
 		clock = clock + 20 * 60
 		eq(Report("Olympus", "King", "Duke:1:0", "Crier-Realm"), true)
@@ -2863,6 +2863,8 @@ test("ranks come from the picture most senders agree on; forgers can't move it",
 		-- A real promotion: split while only one of the two has reported it, then agreed.
 		eq(Report("Olympus", "King", "Duke:1:0,Earl:1:0", "Clerk-Realm"), true)
 		eq(D.KnownRank("Earl-Realm", "Olympus"), nil, "one sender so far")
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "the others keep their ranks meanwhile")
+		eq(D.KnownRank("King-Realm", "Olympus"), 0)
 		eq(Report("Olympus", "King", "Duke:1:0,Earl:1:0", "Crier-Realm"), true)
 		eq(D.KnownRank("Earl-Realm", "Olympus"), 1, "both reporters name him")
 		-- Another guild: an outsider swapping the leader for an accomplice gets no Lord.
@@ -2875,6 +2877,42 @@ test("ranks come from the picture most senders agree on; forgers can't move it",
 	ns.Now = savedNow
 	ns.rdb.guilds = {}
 	if not ok then error(err, 0) end
+end)
+
+test("cut officer lists, channel changes and the first minutes after login", function()
+	ns.rdb.guilds = {}
+	local D = ns.Data
+	local LEVELS = "~0,0,0,0,0,0,0~~"
+	local function Officers(extra)
+		local t = {}
+		for i = 1, 30 do t[#t + 1] = "Off" .. i .. ":1:0" end
+		if extra then t[#t] = extra .. ":1:0" end
+		return table.concat(t, ",")
+	end
+	local function Report(guild, officers, sender)
+		return D.Receive(Codec.DecodeReport("R2~" .. guild .. "~900~90~Boss~1~1~~" .. LEVELS .. officers), sender)
+	end
+	-- 30 officers: the list is cut, the picture is the leader only.
+	eq(Report("Olympus Ares", Officers(), "Rep-Realm"), true)
+	eq(Report("Olympus Ares", Officers(), "Run-Realm"), true)
+	eq(D.KnownRank("Off3-Realm", "Olympus Ares"), 1, "named by both senders")
+	eq(Report("Olympus Ares", Officers("Mallory"), "Pad-Realm"), true)
+	eq(D.KnownRank("Mallory-Realm", "Olympus Ares"), nil, "a padded list gives nobody a rank")
+	eq(D.KnownRank("Off3-Realm", "Olympus Ares"), 1, "the real officers keep theirs")
+	-- Moving to another channel forgets every vote.
+	D.ForgetVotes()
+	eq(D.KnownRank("Off3-Realm", "Olympus Ares"), nil)
+	eq(ns.rdb.guilds["Olympus Ares"].total, 900, "the census numbers stay")
+	-- No Crown in the first minutes after login.
+	local savedLogin = ns.Comm.loginAt
+	eq(Report("Olympus Zeus2", "", "Zr-Realm"), true)
+	eq(Report("Olympus Zeus2", "", "Zs-Realm"), true)
+	ns.Comm.loginAt = ns.Now() - 30
+	eq(D.KnownRank("Boss-Realm", "Olympus Zeus2"), nil, "30 s after login: not yet")
+	ns.Comm.loginAt = ns.Now() - D.CROWN_AFTER - 1
+	eq(D.KnownRank("Boss-Realm", "Olympus Zeus2"), 0, "after a reporting cycle")
+	ns.Comm.loginAt = savedLogin
+	ns.rdb.guilds = {}
 end)
 
 test("reporter and runner-up on two realms of the group picture the guild the same way", function()
@@ -3413,6 +3451,33 @@ local function FreshComm()
 	end
 	return cns, Deliver, Report
 end
+
+test("runner-up: only a 0.7.11+ peer on the reporter's channel", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		local cns, Deliver, Report = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		C.JoinChannel()
+		-- Aaa reports; Bob (before us in the election) runs 0.7.10 and never backs anyone.
+		Deliver("GUILD", "Aaa", "H1~0.7.11~Realm~p")
+		Deliver("GUILD", "Bob", "H1~0.7.10")
+		Report("Aaa", { guild = MY_GUILD, total = 1000, online = 300, zones = {} })
+		C.MaybeBroadcast(ours)
+		eq(C.isRunnerUp, true, "the old peer is skipped: we back the reporter")
+		-- Bcc (before us) is on the sealed channel, the reporter on the public one: skipped too.
+		Deliver("GUILD", "Bcc", "H1~0.7.11~Realm~s")
+		C.MaybeBroadcast(ours)
+		eq(C.isRunnerUp, true, "a peer on the other channel can't back this reporter")
+		Deliver("GUILD", "Bdd", "H1~0.7.11~Realm~p")
+		C.MaybeBroadcast(ours)
+		eq(C.isRunnerUp, false, "a 0.7.11 peer on the same channel comes first")
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
 
 test("runner-up backs an active reporter; census on request, bounded", function()
 	local savedChannel = GetChannelName

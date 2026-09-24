@@ -263,7 +263,9 @@ function Comm.JoinChannel()
 	if not ns.IsMember() then return end
 	local name, password = Comm.ChannelSpec()
 	if joinedName and joinedName ~= name then
-		-- Another channel (the realm key arrived): its reporters have not heard our request.
+		-- Another channel (the realm key arrived): votes heard on the old one don't count here,
+		-- and its reporters have not heard our census request.
+		if ns.Data and ns.Data.ForgetVotes then ns.Data.ForgetVotes() end
 		askTries = 0
 		ns.After(10, "census request", Comm.AskCensus)
 	end
@@ -379,8 +381,14 @@ function Comm.MaybeBroadcast(report)
 	-- officer) only once a second sender names them (Data.KnownRank).
 	local second
 	if not Comm.isReporter then
+		-- Only a peer that can back the reporter: on 0.7.11 or later (older ones never send a
+		-- runner-up report) and on the same channel as the reporter (sealed or public).
 		local rest = {}
-		for name, t in pairs(pool) do if name ~= best then rest[name] = t end end
+		for name, t in pairs(pool) do
+			if name ~= best and peerRealm[name] ~= "old" and (peerSealed[name] == nil or peerSealed[name] == peerSealed[best]) then
+				rest[name] = t
+			end
+		end
 		second = Codec.PickReporter(ns.me, rest, now, PEER_WINDOW)
 	end
 	-- Only while the reporter is heard on our channel: the point is to back an active one.

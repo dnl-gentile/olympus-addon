@@ -188,8 +188,9 @@ copy. No addon can prevent that. What this one does is make an edited copy usele
     The rank written inside the message is ignored.
   - **Ranks come from the picture most senders agree on.** Every report from the last 30
     minutes is its sender's vote on who leads the guild and who its officers are. One sender
-    changing or repeating a report can't move the majority, and two pictures with as many
-    senders each are a contest in which nobody's rank counts.
+    changing or repeating a report can't move the majority. When two pictures have as many
+    senders each, only what both agree on counts. No Crown rank counts in a client's first
+    3 minutes, so a guild's own reporters have voted before anyone else can win.
   - A report never proves its own sender's rank: someone else's vote must name them. The
     runner-up of each guild's election also reports every 10 minutes (and answers census
     requests), so a Lord or officer who is the elected reporter is still verified. (An officer
@@ -210,11 +211,12 @@ copy. No addon can prevent that. What this one does is make an edited copy usele
 - `/oly block <name>` ignores a player completely.
 
 Limits, stated honestly:
-- Cooperating characters can still invent a guild with "Olympus" in its name (two of them
-  sending its report and naming a third as its leader) and so reach [Lords] and the Crown's
-  decrees. So can anyone who really founds such a guild. Against a real guild, two of them
-  can only tie its reporter and runner-up (its ranks stop counting while they keep at it);
-  taking it over needs more senders than the guild has reporting.
+- Votes are counted per sender name, and nothing the server tells an addon proves which guild
+  a sender belongs to. So cooperating characters can still invent a guild with "Olympus" in
+  its name (two of them naming a third as its leader), and reach [Lords] and the Crown's
+  decrees. So can anyone who really founds such a guild. Against a real guild they need more
+  senders than it has reporting (its reporter and runner-up: two at most). On the public
+  channel anyone can try; **seal it with `/oly key`** and only members of Olympus guilds can.
 - **The Forever beta forgets addon data at every login**: its client saves it but never loads
   it back ([a known beta bug](https://us.forums.blizzard.com/en/wow/t/savedvariables-never-load-in-the-beta-%E2%80%94-all-addon-settings-reset-on-login-69913/2354798)),
   so settings and the realm key reset every session. The census still refills in seconds: a

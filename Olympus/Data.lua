@@ -127,21 +127,36 @@ local function Votes(map, now)
 	return out
 end
 
--- The picture most senders agree on right now. nil when there is none, or when two pictures
--- have as many senders each: then the guild is contested and nobody's rank counts.
+-- The picture most senders agree on right now, its count, and every picture with that many
+-- senders (`tops`). `top` is nil when there is none, or when two pictures have as many
+-- senders each: then the guild is contested, and only what all of them agree on counts.
 local function Majority(votes, now)
 	local count = {}
 	for _, v in pairs(votes) do
 		if now - (v.t or 0) <= Data.VOUCH_TTL then count[v.sig] = (count[v.sig] or 0) + 1 end
 	end
-	local top, best, tie = nil, 0, false
+	local best, tops = 0, {}
 	for sig, n in pairs(count) do
-		if n > best then top, best, tie = sig, n, false elseif n == best then tie = true end
+		if n > best then best, tops = n, { [sig] = true } elseif n == best then tops[sig] = true end
 	end
-	if tie then return nil, best end
-	return top, best
+	local top, n = nil, 0
+	for sig in pairs(tops) do top, n = sig, n + 1 end
+	if n ~= 1 then top = nil end
+	return top, best, tops
 end
 Data.Majority = Majority -- for /oly status and tests
+
+-- Votes heard on one channel say nothing on another (the public channel lets anyone vote):
+-- called when we move to another channel, e.g. when the realm key arrives.
+function Data.ForgetVotes()
+	for _, g in pairs(ns.rdb and ns.rdb.guilds or {}) do
+		if type(g) == "table" then g.vouch, g.conflict = nil, nil end
+	end
+end
+
+-- No Crown from other guilds' votes until a full reporting cycle has passed since login: a
+-- guild's reporter and runner-up must have had the time to vote before outsiders can win.
+Data.CROWN_AFTER = 200
 
 function Data.Receive(r, sender)
 	if not ns.IsFederation(r.guild) then return false end
@@ -208,22 +223,42 @@ function Data.KnownRank(sender, guild)
 	-- A report kept from an earlier session proves nothing about who leads the guild now.
 	if not g or g.twin or now - (g.t or 0) > Data.FRESH then return nil end
 	local votes = Votes(g.vouch, now)
-	local top = Majority(votes, now)
-	if not top then return nil end
-	-- The rank the agreed picture gives, named by someone else too: a report never proves its
-	-- own sender's rank. The Crown (every guild master, the officers of <Olympus>) needs two
+	local _, _, tops = Majority(votes, now)
+	-- The rank the leading picture gives (every leading picture, if they tie: then only what
+	-- they all agree on counts), named by someone else too: a report never proves its own
+	-- sender's rank. The Crown (every guild master, the officers of <Olympus>) needs two
 	-- senders naming them (theirs may be one).
-	local rank, named, others = nil, 0, 0
+	local bySig, total, named, others = {}, 0, 0, 0
 	for src, v in pairs(votes) do
-		local k = v.sig == top and v.ranks[who]
-		if k then
-			named = named + 1
-			if src ~= who then others = others + 1 end
-			if not rank or k < rank then rank = k end
+		if tops[v.sig] then
+			if src ~= who then total = total + 1 end
+			local k = v.ranks[who]
+			if bySig[v.sig] == nil then bySig[v.sig] = k or false end
+			if k then
+				named = named + 1
+				if src ~= who then others = others + 1 end
+				if bySig[v.sig] and k < bySig[v.sig] then bySig[v.sig] = k end
+			end
 		end
 	end
+	local rank
+	for sig in pairs(tops) do
+		local k = bySig[sig]
+		if not k or (rank and k ~= rank) then return nil end
+		rank = k
+	end
 	if not rank or others < 1 then return nil end
-	if ns.IsCrownRank(guild, rank) and named < 2 then return nil end
+	-- A picture cut at MAX_OFFICERS leaves the officers out of its signature: an officer needs
+	-- most of the other senders of the leading picture to name them, not just one.
+	if rank > 0 and others * 2 <= total then
+		for sig in pairs(tops) do
+			if sig:sub(-2) == ",+" then return nil end
+		end
+	end
+	if ns.IsCrownRank(guild, rank) then
+		if named < 2 then return nil end
+		if now - (ns.Comm and ns.Comm.loginAt or 0) < Data.CROWN_AFTER then return nil end
+	end
 	return rank
 end
 
