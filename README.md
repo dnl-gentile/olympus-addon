@@ -48,7 +48,8 @@ doing?"* Then it helps you get in. The **Join Olympus** screen uses the game's o
 find Olympus members online, groups them by guild, and whispers one of them a ready-made
 request that you can edit ("Hi! I'd love to join Olympus. Does <Olympus II> have room for
 one more?"). No answer? **Try someone else** picks a member you have not asked yet. Replies
-are highlighted. It is rate limited, so nobody gets spammed.
+are highlighted. It is rate limited, so nobody gets spammed. The game lists 50 players per
+`/who`: when there are more, each new click searches a range of levels and adds to the list.
 
 ## What it does
 
@@ -59,6 +60,8 @@ are highlighted. It is rate limited, so nobody gets spammed.
 - **Where the army stands**: top zones ("Stormwind City 742") and totals per continent
   (Eastern Kingdoms, Kalimdor).
 - Hover a guild: members, online, free slots, average level, inactive members, classes online, top zones.
+- Olympus guilds where nobody runs the addon show too, in grey: **Refresh** also searches
+  `/who` and lists every Olympus guild it sees online, with how many. They count in no total.
 
 ### The Realm: the hierarchy
 - The **King**, then every guild's **Lord** (guild master) and **Captains** (the officer rank

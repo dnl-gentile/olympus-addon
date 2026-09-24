@@ -20,6 +20,7 @@ Core.lua
 Diagnostics.lua
 Codec.lua
 Zones.lua
+Who.lua
 Data.lua
 Roster.lua
 Comm.lua

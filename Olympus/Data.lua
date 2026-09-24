@@ -15,7 +15,37 @@ ns.On("INIT", function()
 	for name, g in pairs(ns.rdb.guilds) do
 		if type(g) ~= "table" or now - (g.t or 0) > Data.KEEP then ns.rdb.guilds[name] = nil end
 	end
+	local seen = Data.Seen()
+	for name, e in pairs(seen) do
+		if type(e) ~= "table" or now - (e.t or 0) > Data.KEEP then seen[name] = nil end
+	end
 end)
+
+-- Olympus guilds seen online with /who (census Refresh, Join screen), per realm:
+-- [guild] = { online = players seen, capped = more may be online, t }. Kept apart from the
+-- reports on purpose: a sighting knows no members, leader or zones, never counts in the
+-- totals, and must never pass for a report (the conflict and rank checks trust
+-- ns.rdb.guilds). The census lists the guilds seen that nobody reports, in grey.
+function Data.Seen()
+	ns.rdb.seen = ns.rdb.seen or {}
+	return ns.rdb.seen
+end
+
+-- players: the Olympus players of the current round of /who searches (Who.lua), each once.
+-- Players of other realms count too: /who only lists who shares our world, and on the
+-- Forever beta Olympus guilds span PvP and PvP 2, so everyone we can see belongs here.
+function Data.RecordSightings(players, capped)
+	local count = {}
+	for _, p in ipairs(players or {}) do
+		if ns.IsFederation(p.guild) then
+			count[p.guild] = (count[p.guild] or 0) + 1
+		end
+	end
+	local seen, now = Data.Seen(), ns.Now()
+	for guild, n in pairs(count) do seen[guild] = { online = n, capped = capped or nil, t = now } end
+	if next(count) then ns.Fire("DATA_CHANGED") end
+end
+ns.Who.Listen(Data.RecordSightings)
 
 function Data.SetLocal(r)
 	r.t = ns.Now()
@@ -100,6 +130,17 @@ function Data.Summary()
 	table.sort(s.guilds, function(a, b)
 		if a.fresh ~= b.fresh then return a.fresh end
 		if (a.g.total or 0) ~= (b.g.total or 0) then return (a.g.total or 0) > (b.g.total or 0) end
+		return a.name < b.name
+	end)
+	-- Guilds only /who has seen, for the census list alone: in no total, tree or map.
+	s.seen = {}
+	for name, e in pairs(Data.Seen()) do
+		if ns.IsFederation(name) and not ns.rdb.guilds[name] and type(e) == "table" and now - (e.t or 0) <= Data.KEEP then
+			s.seen[#s.seen + 1] = { name = name, online = e.online or 0, capped = e.capped, t = e.t }
+		end
+	end
+	table.sort(s.seen, function(a, b)
+		if a.online ~= b.online then return a.online > b.online end
 		return a.name < b.name
 	end)
 	for key, n in pairs(s.zones) do s.zoneList[#s.zoneList + 1] = { key = key, count = n } end

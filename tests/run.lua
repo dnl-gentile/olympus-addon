@@ -74,7 +74,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Data", "Roster", "Comm", "Map", "Layers", "Positions", "Decree", "Inspect", "Recruit", "Views" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Positions", "Decree", "Inspect", "Recruit", "Views" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -82,6 +82,7 @@ ns.db = { guilds = {}, log = {}, errors = {}, blocked = {}, demo = false, showMa
 ns.me = "Tester-Realm"
 ns.realm = "Realm"
 ns.rdb = { guilds = {} }
+local CoreFire = ns.Fire -- the real one, for the tests that need INIT
 function ns.Fire() end
 
 ---------------------------------------------------------------------------
@@ -474,12 +475,14 @@ end
 
 test("every tab builds", function()
 	ns.rdb.guilds = SampleGuilds()
+	-- Guilds seen with /who too, one of them also reported.
+	ns.rdb.seen = { ["OLYMPUS VII"] = { online = 12, capped = true, t = os.time() }, ["Olympus"] = { online = 3, t = os.time() } }
 	ns.UI = { StatusLine = function() return "status" end }
 	for _, tab in ipairs({ "census", "realm", "decrees", "heraldry" }) do
 		local lines, title = ns.Views.Build(tab)
 		assert(#lines > 0 and title, tab)
 	end
-	ns.rdb.guilds = {}
+	ns.rdb.guilds, ns.rdb.seen = {}, nil
 end)
 
 test("layer sample is stable and about 1 in 8", function()
@@ -829,7 +832,9 @@ end)
 
 local POINT_X = { TOPLEFT = 0, LEFT = 0, BOTTOMLEFT = 0, TOP = 0.5, CENTER = 0.5, BOTTOM = 0.5, TOPRIGHT = 1, RIGHT = 1, BOTTOMRIGHT = 1 }
 local POINT_Y = { BOTTOMLEFT = 0, BOTTOM = 0, BOTTOMRIGHT = 0, LEFT = 0.5, CENTER = 0.5, RIGHT = 0.5, TOPLEFT = 1, TOP = 1, TOPRIGHT = 1 }
-local CHAR_W = { GameFontNormalLarge = 9, GameFontNormal = 7, GameFontHighlight = 7 } -- small fonts: 6
+local CHAR_W = { GameFontNormalLarge = 9, GameFontNormal = 7, GameFontHighlight = 7, GameFontWhiteTiny = 5 } -- small fonts: 6
+-- The client's font objects UI.lua fits text with (FitText skips the ones a client lacks).
+local FONT_GLOBALS = { "GameFontNormalLarge", "GameFontNormal", "GameFontHighlightSmall", "GameFontWhiteTiny" }
 
 local Widget = {}
 local NOOP_VERBS = { "^Set", "^Enable", "^Disable", "^Register", "^Unregister", "^Lock", "^Unlock", "^Raise", "^Lower", "^Highlight", "^Play" }
@@ -1022,6 +1027,7 @@ local function WithUI(fn)
 	UIParent.rect = { 0, 0, 1366, 768 }
 	UISpecialFrames, tinsert = {}, table.insert
 	GameTooltip = NewWidget("GameTooltip", "GameTooltip", UIParent)
+	for _, font in ipairs(FONT_GLOBALS) do _G[font] = { font = font } end
 	ns.rdb.guilds = SampleGuilds()
 	local ok, err = pcall(fn)
 	CreateFrame, ns.CaptureError, ns.UI, GetGuildInfo = saved.CreateFrame, saved.CaptureError, saved.UI, saved.GetGuildInfo
@@ -1029,6 +1035,7 @@ local function WithUI(fn)
 	widgetNames = {}
 	for _, name in ipairs(GUILD_GLOBALS) do _G[name] = nil end
 	for _, name in ipairs(TAB_GLOBALS) do _G[name] = nil end
+	for _, font in ipairs(FONT_GLOBALS) do _G[font] = nil end
 	PTR_IssueReporter, UISpecialFrames, tinsert = nil, nil, nil
 	ns.rdb.guilds = {}
 	if not ok then error(err, 0) end
@@ -1135,18 +1142,25 @@ test("header lines stay inside the window: smaller font first, then cut", functi
 		eq(main.total:GetText(), ns.L.ROAST_NOGUILD)
 		eq(main.total.font, "GameFontNormal", "dropped to the smaller font")
 		eq(main.total.w, w - 62 - 26); eq(main.total:IsTruncated(), false)
-		-- The long line is cut ("...") at the window's edge instead of running past it.
+		-- The long line drops to the tiny font, and is cut ("...") at the window's edge
+		-- instead of running past it when even that does not fit.
 		eq(main.sub:GetText(), ns.L.ROAST_NOGUILD_SUB)
 		eq(main.sub.w, w - 62 - 8); eq(main.sub.wrap, false); eq(main.sub.justifyH, "LEFT")
+		eq(main.sub.font, "GameFontWhiteTiny")
 		eq(main.sub:IsTruncated(), true)
 		assert(62 + main.sub:GetStringWidth() <= w, "inside the window")
+		-- Forever's window is wider: the Join line fits whole in the tiny font.
+		main:SetSize(385, 424)
+		eq(main.sub.w, 385 - 62 - 8)
+		eq(main.sub.font, "GameFontWhiteTiny"); eq(main.sub:IsTruncated(), false)
+		-- A client without the tiny font keeps the small one, cut.
+		GameFontWhiteTiny = nil
+		UI.Refresh()
+		eq(main.sub.font, "GameFontHighlightSmall"); eq(main.sub:IsTruncated(), true)
 		-- A member's header fits in the large font and is not cut.
 		GetGuildInfo = function() return "Olympus II" end
 		UI.Refresh()
 		eq(main.total.font, "GameFontNormalLarge"); eq(main.total:IsTruncated(), false)
-		-- A wider window gives the lines more room.
-		main:SetSize(385, 424)
-		eq(main.sub.w, 385 - 62 - 8)
 	end)
 end)
 
@@ -1314,6 +1328,44 @@ test("Issue Reporter: the window steps above it when it opens, never over a play
 	end)
 end)
 
+test("Issue Reporter: tabs appearing with the window open (joined a guild) step it up again", function()
+	WithUI(function()
+		GetGuildInfo = function() return nil end
+		IssueReporter(643, 192)
+		local UI = LoadUI()
+		UI.Toggle()
+		local main = OlympusFrame
+		-- Join screen, no tabs: the window (bottom 212) steps 4 above the reporter (228).
+		eq(Anchor(main), "CENTER UIParent CENTER 0 60")
+		-- Joined with the window open: the tabs now hang down to 202, over the reporter.
+		GetGuildInfo = function() return "Olympus II" end
+		UI.Refresh()
+		eq(main.tabs[1]:IsShown(), true)
+		eq(Anchor(main), "CENTER UIParent CENTER 0 90", "tabs 4 above the reporter")
+		eq(main:GetBottom() - 30, 232)
+		UI.Refresh()
+		eq(Anchor(main), "CENTER UIParent CENTER 0 90", "only when they appear")
+	end)
+end)
+
+test("Issue Reporter: the copy box steps above it too, unless the player moved it", function()
+	WithUI(function()
+		IssueReporter(643, 192)
+		local UI = LoadUI()
+		UI.ShowCopy(ns.L.REPORT_BUG, "text")
+		local box = OlympusCopyFrame
+		-- 520 x 340 at the centre: its bottom (214) and hint are over the reporter (228).
+		eq(Anchor(box), "CENTER UIParent CENTER 0 18", "4 above the reporter")
+		box:Hide(); UI.ShowCopy(ns.L.REPORT_BUG, "text")
+		eq(Anchor(box), "CENTER UIParent CENTER 0 18", "clear now: not moved again")
+		box.scripts.OnDragStart(box)
+		box:ClearAllPoints(); box:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 400, 150)
+		box.scripts.OnDragStop(box)
+		box:Hide(); UI.ShowCopy(ns.L.REPORT_BUG, "text")
+		eq(Anchor(box), "BOTTOMLEFT UIParent BOTTOMLEFT 400 150", "the player's place is kept")
+	end)
+end)
+
 test("Issue Reporter: the person panel steps above it too", function()
 	WithUI(function()
 		local UI = LoadUI()
@@ -1332,6 +1384,507 @@ test("Issue Reporter: the person panel steps above it too", function()
 		PTR_IssueReporter = nil
 		UI.ShowPerson({ name = "Asmongold-Realm" })
 		eq(Anchor(person), "TOPLEFT OlympusFrame TOPRIGHT -2 -28", "back in its place without it")
+	end)
+end)
+
+---------------------------------------------------------------------------
+-- /who (Who.lua): quiet searches, the 50 cap, and the guilds it sees for the census
+---------------------------------------------------------------------------
+
+local WHO = "WHO_LIST_UPDATE"
+
+-- A frame that listens to WHO_LIST_UPDATE (or not) and remembers every change to that.
+local function ListenerFrame(name, listening)
+	local f = { name = name, events = { [WHO] = listening or nil }, calls = {}, shown = false }
+	function f:IsEventRegistered(event) return self.events[event] == true end
+	function f:RegisterEvent(event) self.events[event] = true; self.calls[#self.calls + 1] = "register" end
+	function f:UnregisterEvent(event) self.events[event] = nil; self.calls[#self.calls + 1] = "unregister" end
+	function f:IsVisible() return self.shown end
+	return f
+end
+local function Listening(f) return f:IsEventRegistered(WHO) end
+
+-- Runs fn(server) against a stand-in of the game's /who: C_FriendList answers with the
+-- rows the test gives Answer() (and announces them like the client), timers wait until
+-- Run() and the clock only moves when the test says. Everything is put back afterwards.
+local WHO_GLOBALS = { "C_FriendList", "hooksecurefunc", "GetMaxPlayerLevel", "FriendsFrame", "LFGWhoListFrame", "WhoFrame", "ClassicUIForeverWhoPanel" }
+local function WithWho(fn)
+	local server = { sent = {}, toUi = {}, rows = {}, timers = {}, printed = {}, clock = 5000 }
+	local saved = { After = C_Timer.After, GetTime = GetTime, Print = ns.Print, CaptureError = ns.CaptureError,
+		guilds = ns.rdb.guilds, seen = ns.rdb.seen, found = ns.Recruit.found }
+	local captured
+	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
+	ns.Print = function(msg) server.printed[#server.printed + 1] = msg end
+	GetTime = function() return server.clock end
+	C_Timer.After = function(seconds, f) server.timers[#server.timers + 1] = { seconds = seconds, fn = f } end
+	C_FriendList = {
+		SendWho = function(query) server.sent[#server.sent + 1] = query end,
+		SetWhoToUi = function(on) server.toUi[#server.toUi + 1] = on end,
+		GetNumWhoResults = function() return #server.rows, server.total or #server.rows end,
+		GetWhoInfo = function(i)
+			local r = server.rows[i]
+			return r and { fullName = r[1], fullGuildName = r[2], level = r[3], filename = r[4], area = "Elwynn Forest" }
+		end,
+	}
+	hooksecurefunc = function(t, key, post)
+		local original = t[key]
+		t[key] = function(...) original(...); post(...) end
+	end
+	GetMaxPlayerLevel = function() return 60 end
+	-- The client announcing an answer (rows = { name, guild, level, class }); no rows: the
+	-- same answer again.
+	function server.Answer(rows, total)
+		if rows then server.rows, server.total = rows, total end
+		for _, f in ipairs(EVENT_SCRIPTS) do f(nil, WHO) end
+	end
+	-- Runs the waiting timers of that many seconds (every one when nil), oldest first.
+	function server.Run(seconds)
+		local keep, due = {}, {}
+		for _, t in ipairs(server.timers) do
+			if seconds == nil or t.seconds == seconds then due[#due + 1] = t else keep[#keep + 1] = t end
+		end
+		server.timers = keep
+		for _, t in ipairs(due) do t.fn() end
+	end
+	-- A click on the search button once the cooldown is over.
+	function server.Click()
+		server.clock = server.clock + ns.Who.COOLDOWN + 1
+		return ns.Who.Search()
+	end
+	ns.rdb.guilds, ns.rdb.seen, ns.Recruit.found = {}, {}, {}
+	ns.Who.Reset()
+	ns.Who.lastSend, ns.Who.lastPlain = 0, 0
+	local ok, err = pcall(fn, server)
+	ns.Who.Reset()
+	ns.Who.lastSend, ns.Who.lastPlain = 0, 0
+	C_Timer.After, GetTime, ns.Print, ns.CaptureError = saved.After, saved.GetTime, saved.Print, saved.CaptureError
+	ns.rdb.guilds, ns.rdb.seen, ns.Recruit.found = saved.guilds, saved.seen, saved.found
+	for _, name in ipairs(WHO_GLOBALS) do _G[name] = nil end
+	if not ok then error(err, 0) end
+	eq(captured, nil, "error caught")
+end
+
+-- Olympus players P<from>..P<to>, odd ones in OLYMPUS VII, even ones in OLYMPUS I, levels 7-20.
+local function Players(from, to)
+	local rows = {}
+	for i = from, to do rows[#rows + 1] = { "P" .. i, i % 2 == 0 and "OLYMPUS I" or "OLYMPUS VII", 7 + i % 14, "MAGE" } end
+	return rows
+end
+
+test("who on Forever: only the frames that listen are silenced, and get the event back with the answer", function()
+	WithWho(function(server)
+		-- Forever's Social window does not listen, the group finder's who list does, and so
+		-- does ClassicUI Forever's list when that addon is on.
+		FriendsFrame = ListenerFrame("FriendsFrame", false)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		ClassicUIForeverWhoPanel = { driver = ListenerFrame("driver", true) }
+		local cui = ClassicUIForeverWhoPanel.driver
+		eq(ns.Recruit.Search(), true)
+		eq(table.concat(server.sent, "|"), 'g-"Olympus"')
+		eq(Listening(LFGWhoListFrame), false, "the group finder's list is silenced")
+		eq(Listening(cui), false, "ClassicUI Forever's list is silenced")
+		eq(#FriendsFrame.calls, 0, "the Social window, which does not listen, is left alone")
+		eq(server.toUi[#server.toUi], true, "results to the UI (the event), not to chat")
+		server.Answer({ { "Aa", "OLYMPUS VII", 12, "MAGE" }, { "Bb", "OLYMPUS VII", 14, "ROGUE" },
+			{ "Aa", "OLYMPUS VII", 12, "MAGE" }, { "Cc", "Horde Pals", 10, "MAGE" } })
+		eq(#ns.Recruit.found, 2, "Olympus players, each once (the server lists some twice)")
+		-- The same answer announced again (another addon sorting the list does that): still
+		-- ours, read again, nobody twice, and Blizzard's list stays quiet.
+		server.Answer()
+		eq(#ns.Recruit.found, 2)
+		eq(Listening(LFGWhoListFrame), false, "still quiet while the answer settles")
+		server.Run(ns.Who.SETTLE)
+		eq(Listening(LFGWhoListFrame), true, "event given back")
+		eq(Listening(cui), true)
+		eq(table.concat(LFGWhoListFrame.calls, " "), "unregister register", "once each")
+		eq(#FriendsFrame.calls, 0, "never given an event it did not have")
+		eq(server.toUi[#server.toUi], false, "back to Blizzard's default")
+		server.Run()
+		eq(table.concat(LFGWhoListFrame.calls, " "), "unregister register", "the timeout changes nothing more")
+		-- The next answer is not ours: not read.
+		server.Answer({ { "Dd", "OLYMPUS II", 5, "MAGE" } })
+		eq(#ns.Recruit.found, 2, "someone else's answer")
+		eq(ns.Who.StatusLines(), nil, "everyone fit in one answer: nothing to add")
+	end)
+end)
+
+test("who on the old UI: no answer, the Social window gets the event back on the timeout", function()
+	WithWho(function(server)
+		FriendsFrame = ListenerFrame("FriendsFrame", true)
+		eq(ns.Who.Search(), true)
+		eq(Listening(FriendsFrame), false, "the Social window's Who tab is silenced")
+		server.Run(ns.Who.SETTLE)
+		eq(Listening(FriendsFrame), false, "nothing settles without an answer")
+		server.Run(ns.Who.TIMEOUT)
+		eq(Listening(FriendsFrame), true, "given back on the timeout")
+		-- Its answer may still come. Blizzard's default would open the Who tab for a long
+		-- one (ShowWhoPanel), so results go to the UI, where the event only updates the list.
+		eq(server.toUi[#server.toUi], true, "still to the UI while the answer may come")
+		server.Answer({ { "Aa", "OLYMPUS VII", 12, "MAGE" } })
+		eq(#ns.Recruit.found, 0, "a late answer is not taken")
+		eq(server.toUi[#server.toUi], false, "it came: back to Blizzard's default")
+		local toUi = #server.toUi
+		server.Run(ns.Who.LATE)
+		eq(#server.toUi, toUi, "nothing more to do after it")
+		-- 10 seconds between two searches, whichever button sends them.
+		server.clock = server.clock + 5
+		eq(ns.Who.Search(), false)
+		eq(server.printed[#server.printed], ns.L.WHO_WAIT:format(5))
+		eq(#server.sent, 1)
+		-- Unanswered: the next click asks the same again.
+		eq(server.Click(), true)
+		eq(server.sent[2], 'g-"Olympus"')
+		-- A search still waiting when the next one goes (cannot happen with a timeout shorter
+		-- than the cooldown, but): the old timeout leaves the new search alone.
+		eq(server.Click(), true)
+		eq(Listening(FriendsFrame), false)
+		eq(table.concat(FriendsFrame.calls, " "), "unregister register unregister register unregister")
+		server.timers[1].fn()
+		eq(Listening(FriendsFrame), false, "an old timeout does not end a newer search")
+		server.Run()
+		eq(Listening(FriendsFrame), true)
+	end)
+end)
+
+test("who: with the player's own Who window open nothing is sent or silenced", function()
+	WithWho(function(server)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		LFGWhoListFrame.shown = true
+		eq(ns.Who.Search(), false)
+		eq(#server.sent, 0); eq(#LFGWhoListFrame.calls, 0); eq(#server.toUi, 0)
+		eq(server.printed[1], ns.L.WHO_WINDOW_OPEN)
+		-- The old UI's Who tab counts too.
+		LFGWhoListFrame.shown = false
+		WhoFrame = ListenerFrame("WhoFrame")
+		WhoFrame.shown = true
+		eq(ns.Who.Search(), false)
+		WhoFrame.shown = false
+		eq(ns.Who.Search(), true, "a skipped search spends no cooldown")
+	end)
+end)
+
+test("who: someone else's search while ours waits gives the event back at once", function()
+	WithWho(function(server)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		ns.Who.Search()
+		eq(Listening(LFGWhoListFrame), false)
+		local toUi = #server.toUi
+		C_FriendList.SendWho('n-"Bob"') -- the player's own /who
+		eq(Listening(LFGWhoListFrame), true, "given back at once")
+		eq(#server.toUi, toUi, "results still to the UI: our answer may come first")
+		server.Answer({ { "Aa", "OLYMPUS VII", 12, "MAGE" } })
+		eq(#ns.Recruit.found, 0, "that answer may be theirs: not read")
+		eq(server.toUi[#server.toUi], false, "then Blizzard's default, for theirs")
+		-- The player opened their Who window meanwhile: it keeps the results.
+		server.Click()
+		LFGWhoListFrame.shown = true
+		toUi = #server.toUi
+		C_FriendList.SendWho('n-"Bob"')
+		server.Answer()
+		server.Run()
+		eq(#server.toUi, toUi, "results stay with the open Who window")
+		eq(server.sent[#server.sent - 1], 'g-"Olympus"', "unanswered: the click repeated the broad search")
+	end)
+end)
+
+test("who: a search given up goes back to Blizzard's default once it can no longer be answered", function()
+	WithWho(function(server)
+		FriendsFrame = ListenerFrame("FriendsFrame", true)
+		-- Never answered: LATE seconds on.
+		ns.Who.Search()
+		server.Run(ns.Who.TIMEOUT)
+		eq(server.toUi[#server.toUi], true)
+		server.Run(ns.Who.LATE)
+		eq(server.toUi[#server.toUi], false, "never answered")
+		-- Given up, then the player searches: that answer gets Blizzard's default at once.
+		server.Click()
+		server.Run(ns.Who.TIMEOUT)
+		eq(server.toUi[#server.toUi], true)
+		C_FriendList.SendWho('n-"Bob"')
+		eq(server.toUi[#server.toUi], false, "the player's own search, ours given up")
+		-- A new search of ours: the old wait ends, and its timer leaves the new one alone.
+		server.Click()
+		server.Run(ns.Who.TIMEOUT)
+		server.Click()
+		eq(server.toUi[#server.toUi], true); eq(Listening(FriendsFrame), false)
+		server.Run(ns.Who.LATE)
+		eq(server.toUi[#server.toUi], true, "the old search's timer changes nothing")
+		eq(Listening(FriendsFrame), false)
+	end)
+end)
+
+test("who: the person panel's Who keeps its distance from our searches", function()
+	WithWho(function(server)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		ns.Who.Search()
+		server.clock = server.clock + 2
+		eq(ns.Who.SendPlain('n-"Bob"'), false, "ours may still be answered")
+		eq(server.printed[#server.printed], ns.L.WHO_WAIT:format(8))
+		eq(#server.sent, 1); eq(Listening(LFGWhoListFrame), false, "ours still waits, quiet")
+		server.Answer(Players(1, 3))
+		server.Run()
+		server.clock = server.clock + ns.Who.COOLDOWN
+		local toUi = #server.toUi
+		eq(ns.Who.SendPlain('n-"Bob"'), true)
+		eq(server.sent[#server.sent], 'n-"Bob"')
+		eq(Listening(LFGWhoListFrame), true, "nothing silenced"); eq(#server.toUi, toUi, "Blizzard's default")
+		eq(ns.Who.SendPlain('n-"Ann"'), true, "one after another, as before")
+		-- Ours waits after it: its answer is not ours.
+		server.clock = server.clock + 3
+		eq(ns.Who.Search(), false)
+		eq(server.printed[#server.printed], ns.L.WHO_WAIT:format(7))
+		server.Answer(Players(1, 1))
+		eq(#ns.Recruit.found, 3, "their answer is not read")
+	end)
+end)
+
+test("who: a round left unfinished starts over later, its old players dropped", function()
+	WithWho(function(server)
+		ns.Who.Search()
+		server.Answer(Players(1, 50), 312)
+		server.Run()
+		eq(#ns.Recruit.found, 50); eq(ns.rdb.seen["OLYMPUS VII"].online, 25)
+		-- Soon after: the round goes on with the first level range.
+		server.Click()
+		eq(server.sent[#server.sent], ('g-"Olympus" %d-%d'):format(unpack(ns.Who.sweep.brackets[1])))
+		server.Answer(Players(51, 60), 10)
+		server.Run()
+		eq(#ns.Recruit.found, 60)
+		-- An hour later: the broad search again, and only the players seen now count.
+		server.clock = server.clock + 3600
+		server.Click()
+		eq(server.sent[#server.sent], 'g-"Olympus"')
+		server.Answer(Players(101, 110), 10)
+		server.Run()
+		eq(#ns.Recruit.found, 10, "only the players seen now")
+		eq(ns.rdb.seen["OLYMPUS VII"].online, 5); eq(ns.rdb.seen["OLYMPUS VII"].capped, nil)
+		eq(ns.Who.StatusLines(), nil)
+	end)
+end)
+
+test("who: a search that fails to send gives every event back", function()
+	WithWho(function(server)
+		FriendsFrame = ListenerFrame("FriendsFrame", true)
+		ClassicUIForeverWhoPanel = { driver = ListenerFrame("driver", true) }
+		C_FriendList.SendWho = function() error("who throttled") end
+		local caught
+		local capture = ns.CaptureError
+		ns.CaptureError = function(_, err) caught = tostring(err) end
+		eq(ns.SafeCall("button RECRUIT_FIND", ns.Who.Search), false)
+		ns.CaptureError = capture
+		assert(caught and caught:find("who throttled", 1, true), "error captured: " .. tostring(caught))
+		eq(Listening(FriendsFrame), true); eq(Listening(ClassicUIForeverWhoPanel.driver), true)
+		eq(server.toUi[#server.toUi], false)
+		eq(ns.Who.IsPending(), false)
+		server.Run()
+		eq(table.concat(FriendsFrame.calls, " "), "unregister register", "the timeout changes nothing more")
+	end)
+end)
+
+test("who: /oly reset while a search waits gives the event back", function()
+	WithWho(function(server)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		ns.Who.Search()
+		eq(Listening(LFGWhoListFrame), false)
+		SlashCmdList.OLYMPUS("reset")
+		eq(Listening(LFGWhoListFrame), true); eq(server.toUi[#server.toUi], false)
+		eq(ns.Who.IsPending(), false)
+	end)
+end)
+
+test("who: level ranges follow the levels seen", function()
+	local function S(list)
+		local out = {}
+		for _, b in ipairs(list) do out[#out + 1] = b[1] .. "-" .. b[2] end
+		return table.concat(out, " ")
+	end
+	local young = {}
+	for i = 1, 50 do young[i] = 7 + i % 14 end
+	eq(S(ns.Who.Brackets(young, 60, 5)), "1-9 10-12 13-14 15-17 18-60", "a young realm: ranges where the players are")
+	eq(S(ns.Who.Brackets({}, 60, 5)), "1-12 13-24 25-36 37-48 49-60", "no levels seen: even ranges")
+	local top = {}
+	for i = 1, 50 do top[i] = 60 end
+	eq(S(ns.Who.Brackets(top, 60, 5)), "1-59 60-60", "everyone at the top level: it gets a range of its own")
+	eq(S(ns.Who.Brackets({}, 3, 5)), "1-1 2-2 3-3")
+	eq(S(ns.Who.Brackets(young, 70, 5)), "1-9 10-12 13-14 15-17 18-70", "up to the client's top level")
+end)
+
+test("who: a capped answer (50 of 312) is dug through by level, merging, then a click starts over", function()
+	WithWho(function(server)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		ns.Who.Search()
+		server.Answer(Players(1, 50), 312)
+		server.Run()
+		eq(#ns.Recruit.found, 50)
+		local brackets = ns.Who.sweep.brackets
+		eq(#brackets, 5); eq(brackets[1][1], 1); eq(brackets[5][2], 60)
+		local status = ns.Who.StatusLines()
+		eq(status[1], "Showing 50 of 312 online.")
+		eq(status[2], ("Next search: levels %d-%d (1 of 5)."):format(brackets[1][1], brackets[1][2]))
+		-- The Join screen says so under its title.
+		local lines = ns.Views.RecruitLines()
+		eq(lines[2].text, ns.Views.Grey(status[1])); eq(lines[3].text, ns.Views.Grey(status[2]))
+		eq(ns.rdb.seen["OLYMPUS VII"].capped, true, "the census knows more may be online")
+		eq(ns.rdb.seen["OLYMPUS VII"].online, 25)
+		-- Each click searches the next range and adds to what was found (P41-70, P61-90, ...).
+		for k = 1, #brackets do
+			eq(server.Click(), true)
+			eq(server.sent[#server.sent], ('g-"Olympus" %d-%d'):format(brackets[k][1], brackets[k][2]))
+			eq(Listening(LFGWhoListFrame), false, "quiet for the level searches too")
+			server.Answer(Players(20 * k + 21, 20 * k + 50), 30)
+			server.Run()
+			eq(Listening(LFGWhoListFrame), true)
+			eq(#ns.Recruit.found, 20 * k + 50, "merged, nobody twice")
+			if k == 1 then eq(ns.Who.StatusLines()[1], "70 of 312 found so far.") end
+		end
+		eq(ns.Who.StatusLines()[1], "150 found, every level searched.")
+		eq(#ns.Who.StatusLines(), 1)
+		eq(ns.rdb.seen["OLYMPUS VII"].online, 75); eq(ns.rdb.seen["OLYMPUS I"].online, 75)
+		eq(ns.rdb.seen["OLYMPUS VII"].capped, nil, "every range fit: exact")
+		-- Every range searched once: the next click starts over with the broad search.
+		server.Click()
+		eq(server.sent[#server.sent], 'g-"Olympus"')
+		eq(#ns.Recruit.found, 150, "kept until the new answer comes")
+		server.Answer(Players(1, 10), 10)
+		server.Run()
+		eq(#ns.Recruit.found, 10, "a new round")
+		eq(ns.Who.StatusLines(), nil)
+	end)
+end)
+
+test("who: Forever reports no total past 50, and a crowded level range stays capped", function()
+	WithWho(function(server)
+		ns.Who.Search()
+		server.Answer(Players(1, 50), 50) -- the "50 People Found" of the Forever screenshot
+		server.Run()
+		eq(ns.Who.StatusLines()[1], "Showing 50: the game lists no more per search.")
+		for k = 1, #ns.Who.sweep.brackets do
+			server.Click()
+			-- The first range is as full as the broad search.
+			server.Answer(k == 1 and Players(101, 150) or {}, k == 1 and 50 or 0)
+			server.Run()
+			if k == 1 then eq(ns.Who.StatusLines()[1], "100 found so far.") end
+		end
+		eq(ns.Who.StatusLines()[1], "100 found: some levels still had over 50.")
+		eq(ns.rdb.seen["OLYMPUS VII"].capped, true, "a range was capped: still a floor")
+	end)
+end)
+
+test("census: /who sightings for every Olympus guild we can see, never a report", function()
+	WithWho(function(server)
+		ns.rdb.guilds = SampleGuilds()
+		ns.UI = { StatusLine = function() return "status" end }
+		local before = ns.Data.Summary()
+		ns.Who.Search()
+		server.Answer({
+			{ "Aa", "OLYMPUS VII", 12 }, { "Bb", "OLYMPUS VII", 14 }, { "Far-Other", "OLYMPUS VII", 14 },
+			{ "Cc-Realm", "OLYMPUS XXL", 9 }, { "Dd", "Olympus", 20 }, { "Ee", "House of Guedes", 20 },
+			{ "Ff-Other", "OLYMPUS LXIX", 3 },
+		})
+		server.Run()
+		local seen = ns.rdb.seen
+		eq(seen["OLYMPUS VII"].online, 3, "players from the other realm (PvP 2) count too")
+		eq(seen["OLYMPUS XXL"].online, 1, "Name-OurRealm is ours")
+		eq(seen["OLYMPUS LXIX"].online, 1, "a guild only seen on the other realm is listed")
+		eq(seen["House of Guedes"], nil, "not an Olympus guild")
+		eq(seen["OLYMPUS VII"].capped, nil, "everyone fit in one answer")
+		eq(seen["Olympus"].online, 1, "a reported guild can be seen too...")
+		eq(ns.rdb.guilds["Olympus"].total, 990, "...and its report is untouched")
+		eq(ns.rdb.guilds["OLYMPUS VII"], nil, "a sighting is never a report")
+		eq(ns.Data.KnownRank("Aa-Realm", "OLYMPUS VII"), nil, "and grants no rank")
+		local s = ns.Data.Summary()
+		eq(s.total, before.total); eq(s.online, before.online); eq(s.fresh, before.fresh)
+		eq(#s.guilds, #before.guilds, "not among the reported guilds")
+		eq(#s.zoneList, #before.zoneList, "nothing on the map")
+		eq(#s.seen, 3, "seen and not reported"); eq(s.seen[1].name, "OLYMPUS VII")
+		eq(s.seen[2].name, "OLYMPUS LXIX"); eq(s.seen[3].name, "OLYMPUS XXL")
+		local realm = ns.Views.RealmLines()
+		eq(realm[1].text:find("Asmongold", 1, true) ~= nil, true, "the King is a reported guild's")
+		for _, l in ipairs(realm) do
+			assert(not (l.text or ""):find("OLYMPUS", 1, true), "in the Realm tree: " .. tostring(l.text))
+		end
+		-- A report arriving later takes the guild's row; the sighting stays out of sight.
+		eq(ns.Data.Receive({ guild = "OLYMPUS XXL", total = 40, online = 9, zones = {} }, "Reporter-Realm"), true)
+		s = ns.Data.Summary()
+		eq(#s.seen, 2); eq(s.total, before.total + 40)
+		-- Forgotten like reports, and by /oly reset.
+		seen["OLYMPUS VII"].t = os.time() - ns.Data.KEEP - 1
+		seen["OLYMPUS LXIX"].t = os.time() - ns.Data.KEEP - 1
+		eq(#ns.Data.Summary().seen, 0, "older than a day")
+		SlashCmdList.OLYMPUS("reset")
+		eq(next(ns.rdb.seen), nil, "/oly reset forgets sightings")
+	end)
+end)
+
+test("census: sightings older than a day are forgotten at login", function()
+	local savedR, savedCapture = ns.rdb, ns.CaptureError
+	local captured
+	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
+	ns.rdb = { guilds = {}, seen = { ["OLYMPUS VII"] = { online = 5, t = os.time() - ns.Data.KEEP - 1 },
+		["OLYMPUS XXL"] = { online = 3, t = os.time() - 60 }, ["OLYMPUS X"] = "broken" } }
+	CoreFire("INIT")
+	local seen = ns.rdb.seen
+	ns.rdb, ns.CaptureError = savedR, savedCapture
+	eq(captured, nil, "error caught")
+	eq(seen["OLYMPUS VII"], nil, "older than a day"); eq(seen["OLYMPUS X"], nil, "not a sighting")
+	eq(seen["OLYMPUS XXL"].online, 3, "a recent one is kept")
+end)
+
+test("census: guilds only seen with /who are grey rows after the reported ones", function()
+	WithWho(function()
+		local L, Grey = ns.L, ns.Views.Grey
+		ns.rdb.guilds = SampleGuilds()
+		ns.rdb.seen = { ["OLYMPUS VII"] = { online = 12, capped = true, t = os.time() },
+			["OLYMPUS XXL"] = { online = 30, t = os.time() }, ["Olympus"] = { online = 3, t = os.time() } }
+		ns.UI = { StatusLine = function() return "status" end }
+		ns.Views.sort = { key = "members", desc = false } -- sorting moves reported guilds only
+		local lines = ns.Views.Build("census")
+		eq(lines[1].cols[1], "Olympus II"); eq(lines[2].cols[1], "Olympus")
+		eq(lines[3].cols[1], Grey("OLYMPUS XXL"), "most online first")
+		eq(lines[3].cols[3], Grey("30")); eq(lines[3].dim, nil)
+		eq(lines[4].cols[1], Grey("OLYMPUS VII")); eq(lines[4].cols[2], Grey("?"))
+		eq(lines[4].cols[3], Grey("12+"), "capped: at least")
+		eq(lines[4].cols[4], Grey(L.NO_ADDON))
+		eq(lines[5].text, Grey(L.SEEN_HINT)); eq(#lines, 5)
+		local tip = {}
+		local tt = { AddLine = function(_, text) tip[#tip + 1] = text end,
+			AddDoubleLine = function(_, a, b) tip[#tip + 1] = a .. "=" .. b end }
+		lines[4].tooltip(tt)
+		local text = table.concat(tip, "\n")
+		assert(text:find(L.SEEN_TIP, 1, true) and text:find(L.SEEN_CAPPED_TIP, 1, true) and text:find("12+", 1, true), text)
+		-- Nothing seen: no grey rows and no hint.
+		ns.rdb.seen = {}
+		eq(#ns.Views.Build("census"), 2)
+		ns.Views.sort = { key = "members", desc = true }
+	end)
+end)
+
+test("census Refresh: the roster, and one /who per click for the grey guilds", function()
+	WithWho(function(server)
+		WithUI(function()
+			local scans = 0
+			C_GuildInfo = { GuildRoster = function() scans = scans + 1 end }
+			local UI = LoadUI()
+			UI.SelectTab("census")
+			local refresh = OlympusFrame.buttons[2]
+			eq(refresh:GetText(), ns.L.REFRESH)
+			refresh:Click()
+			eq(scans, 1); eq(table.concat(server.sent, "|"), 'g-"Olympus"')
+			refresh:Click()
+			eq(scans, 2, "the roster every click"); eq(#server.sent, 1, "/who at most every 10 seconds")
+			server.Answer({ { "Aa", "OLYMPUS VII", 12 } })
+			UI.Refresh()
+			local row = OlympusFrame.views.census.rows[3]
+			eq(row.cols[1]:GetText(), ns.Views.Grey("OLYMPUS VII"), "the grey row is drawn")
+			-- The person panel's Who goes through Who.lua: not right after our search.
+			UI.ShowPerson({ name = "Aa-Realm", guild = "OLYMPUS VII" })
+			OlympusPersonFrame.who:Click()
+			eq(#server.sent, 1, "the person panel's Who waits for ours")
+			server.clock = server.clock + ns.Who.COOLDOWN
+			OlympusPersonFrame.who:Click()
+			eq(server.sent[#server.sent], 'n-"Aa-Realm"')
+			C_GuildInfo = nil
+		end)
 	end)
 end)
 

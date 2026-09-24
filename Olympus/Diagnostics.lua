@@ -128,6 +128,9 @@ function ns.StatusText()
 		ns.UI and ns.UI.tabTemplate and (ns.UI.tabTemplate .. " (" .. tostring(ns.UI.tabStyle) .. " spacing)") or "not built")
 	-- Old Guild tab or new Communities window: which ones exist and got the Olympus button.
 	add("guild UI: %s", ns.GuildFrameHook and ns.GuildFrameHook.StatusLine() or "not loaded")
+	local seen = 0
+	for _ in pairs(ns.rdb.seen or {}) do seen = seen + 1 end
+	add("who: %s  |  guilds seen=%d", ns.Who and ns.Who.StatusLine() or "not loaded", seen)
 	return table.concat(lines, "\n")
 end
 

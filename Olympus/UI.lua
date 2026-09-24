@@ -37,7 +37,13 @@ end
 local BUTTONS = {
 	census = {
 		{ "COPY_BTN", function() UI.ShowCopy(L.COPY_DISCORD, ns.Data.DiscordText()) end },
-		{ "REFRESH", function() ns.Roster.RequestScan(true); ns.Print(L.REFRESHING) end },
+		-- Our roster, and one /who (a click is needed for it) for the Olympus guilds nobody
+		-- reports: they show in grey. Each click searches further (see Who.lua).
+		{ "REFRESH", function()
+			ns.Roster.RequestScan(true)
+			ns.Print(L.REFRESHING)
+			ns.Who.Search()
+		end },
 		{ "REPORT_BUG", function() UI.ShowCopy(L.REPORT_BUG, ns.BuildBugReport()) end },
 	},
 	realm = {
@@ -101,13 +107,16 @@ local function FitLabel(b)
 end
 
 -- The same for a one-line font string: the first of `fonts` the text fits `room` in, else
--- the last one, cut with "...". The string must be left-justified and not wrap.
+-- the last one, cut with "...". Fonts the client does not have are skipped. The string must
+-- be left-justified and not wrap.
 local function FitText(fs, room, fonts)
 	fs:SetWidth(0)
 	for _, font in ipairs(fonts) do
-		fs:SetFontObject(font)
-		local textW = fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()
-		if textW <= room then break end
+		if _G[font] then
+			fs:SetFontObject(font)
+			local textW = fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()
+			if textW <= room then break end
+		end
 	end
 	fs:SetWidth(math.max(1, room))
 end
@@ -463,10 +472,12 @@ local function LayoutButtons()
 	end
 end
 
+-- The small line drops to the tiny font (9 pt, also white) before it is cut: the census
+-- line with a long realm name is just over the width of Forever's window.
 local function FitHeader()
 	local room = main:GetWidth() - main.headerX
 	FitText(main.total, room - HEADER_RIGHT, { "GameFontNormalLarge", "GameFontNormal" })
-	FitText(main.sub, room - SUB_RIGHT, { "GameFontHighlightSmall" })
+	FitText(main.sub, room - SUB_RIGHT, { "GameFontHighlightSmall", "GameFontWhiteTiny" })
 end
 
 -- Positions that depend on the window width (buttons, columns, list width) and on
@@ -624,10 +635,14 @@ function UI.Refresh()
 		main.detailTitle:SetText(title or "")
 		main.detailText:SetText(text or "")
 		SetButtons(main.buttons, locked and RECRUIT_BUTTONS or BUTTONS[main.tab])
+		local tabsWere = main.tabs[1] and main.tabs[1]:IsShown()
 		for _, tab in ipairs(main.tabs) do tab:SetShown(not locked) end
 		SetButtons(main.detailButtons, not locked and DETAIL_BUTTONS[main.tab] or nil)
 		local hasDetailButtons = not locked and DETAIL_BUTTONS[main.tab] ~= nil
 		main.detailText:SetHeight(DETAIL_H - (hasDetailButtons and 46 or 26))
+		-- The tabs just appeared (joined a guild with the window open): they hang below it,
+		-- so it steps above the Issue Reporter again.
+		if not locked and not tabsWere then ns.SafeCall("issue reporter", ClearOfIssueReporter, MainClearOfIssueReporter) end
 	end)
 end
 
@@ -670,9 +685,9 @@ local function Invite(name)
 	if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(name) elseif InviteUnit then InviteUnit(name) end
 end
 
+-- Through Who.lua, which keeps it apart from our quiet /who searches (see SendPlain).
 local function Who(name)
-	local query = ('n-"%s"'):format(name)
-	if C_FriendList and C_FriendList.SendWho then C_FriendList.SendWho(query) elseif SendWho then SendWho(query) end
+	ns.Who.SendPlain(('n-"%s"'):format(name))
 end
 
 local function CreatePersonFrame()
@@ -806,7 +821,10 @@ function UI.ShowCopy(title, text)
 		f:EnableMouse(true)
 		f:RegisterForDrag("LeftButton")
 		f:SetScript("OnDragStart", f.StartMoving)
-		f:SetScript("OnDragStop", f.StopMovingOrSizing)
+		f:SetScript("OnDragStop", function(self)
+			self:StopMovingOrSizing()
+			self.movedByPlayer = true -- where the player puts it, it stays
+		end)
 		tinsert(UISpecialFrames, "OlympusCopyFrame")
 		local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		hint:SetPoint("BOTTOM", 0, 10)
@@ -835,6 +853,11 @@ function UI.ShowCopy(title, text)
 	copyFrame.text = text
 	copyFrame.eb:SetText(text)
 	copyFrame:Show()
+	-- At its own place it steps above the Issue Reporter, like our window (its hint is
+	-- right over the reporter's default spot).
+	if not copyFrame.movedByPlayer then
+		ns.SafeCall("issue reporter", ClearOfIssueReporter, function() return StepAboveIssueReporter(copyFrame, { copyFrame }) end)
+	end
 	copyFrame.eb:SetFocus()
 	copyFrame.eb:HighlightText()
 end

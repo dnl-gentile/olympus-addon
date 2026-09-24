@@ -257,6 +257,7 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 	local R = db.realms[ns.realm] or {}
 	db.realms[ns.realm] = R
 	R.guilds = R.guilds or {}
+	R.seen = R.seen or {} -- Olympus guilds seen with /who (Data.lua), never mixed with the reports
 	-- Old account-wide census and key: there is no telling which realm they came from, so
 	-- drop them. The census refills from the channel within minutes and officers hand the
 	-- key out again over guild chat (K0/K1) at login.
@@ -315,7 +316,7 @@ local function Help()
 	print("  /oly layer - show the layer id of your target (test)")
 	print("  /oly minimap - show/hide the minimap button")
 	print("  /oly debug - verbose log in chat")
-	print("  /oly reset - forget all cached guild reports")
+	print("  /oly reset - forget all cached guild reports and /who sightings")
 end
 
 SLASH_OLYMPUS1 = "/olympus"
@@ -373,6 +374,8 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Print("debug = " .. tostring(ns.db.debug))
 		elseif cmd == "reset" then
 			wipe(ns.rdb.guilds)
+			wipe(ns.Data.Seen())
+			ns.Who.Reset()
 			ns.Fire("DATA_CHANGED")
 			ns.Print("cache cleared")
 		elseif cmd == "error" then
