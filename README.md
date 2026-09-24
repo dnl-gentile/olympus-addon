@@ -132,6 +132,8 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 - **Copy**: every tab produces a ready-to-paste text for Discord.
 - The window opens from `/oly`, the minimap button, or the round button in your guild window:
   the old Guild tab or the new Guild & Communities window, whichever one you use.
+- Next to Forever's Guild & Communities window it takes that window's look: icon tabs down
+  the right side, its rows, column headers, buttons and member card.
 - English and Portuguese (follows the game language).
 
 ## Install

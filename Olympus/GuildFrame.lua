@@ -82,14 +82,35 @@ function GuildFrameHook.Candidates()
 	return out
 end
 
--- Clicking again closes the docked window; clicked in another guild window, it moves there.
+-- Forever's Mainline UI: its only Blizzard guild window is the new one. Classic Era and
+-- Anniversary keep their old Guild tab (hidden or not): their Communities window stays "old".
+function GuildFrameHook.IsHDClient()
+	local guild, social = _G.GuildFrame, _G.FriendsFrame
+	if guild and social and Inside(guild, social) then return false end
+	return _G.PanelTemplates_AnchorTabs ~= nil
+end
+
+-- Whether our window takes the new (HD) look, next to the Guild & Communities window.
+-- host: an entry of Hosts(), nil = the one in use. Nothing used yet: the client decides,
+-- unless ClassicUI Forever's old tab is already there (hooked or not: it can be built
+-- after the scan at login, when that login was in combat).
+function GuildFrameHook.IsHD(host)
+	if not GuildFrameHook.IsHDClient() then return false end
+	host = host or GuildFrameHook.ActiveHost()
+	if host then return host.kind == "communities" end
+	for _, c in ipairs(GuildFrameHook.Candidates()) do if KINDS[c.kind].social then return false end end
+	return true
+end
+
+-- Clicking again closes the docked window; clicked in another guild window, it moves there
+-- (in the look of that window: the new one gets the HD window, the old tabs the old one).
 local function Toggle(host)
 	lastShown = host
 	local UI = ns.UI
 	if UI.IsShown() and UI.DockedTo() == host.dock then
 		UI.CloseIfDocked(host.dock)
 	else
-		UI.OpenDocked(host.dock, "census", host.heightOnly)
+		UI.OpenDocked(host.dock, "census", host.heightOnly, GuildFrameHook.IsHD(host) and "hd" or "old")
 	end
 end
 
@@ -110,7 +131,11 @@ local function Place(button, host)
 	else
 		button:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -50, 0)
 	end
-	button:SetFrameLevel(frame:GetFrameLevel() + 10)
+	-- On Forever the metal title bar (NineSlice at +500, title and minimize at +510) would
+	-- draw over a button at +10: it goes up to the level of the button it sits next to.
+	local level = frame:GetFrameLevel() + 10
+	if anchor and anchor.GetFrameLevel and GuildFrameHook.IsHDClient() then level = math.max(level, anchor:GetFrameLevel()) end
+	button:SetFrameLevel(level)
 end
 
 local function Attach(frame, kind)
@@ -133,7 +158,12 @@ local function Attach(frame, kind)
 	end)
 	button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-	frame:HookScript("OnShow", function() lastShown = host end)
+	-- ClassicUI Forever opens the Communities window unseen (alpha 0, off the screen) to
+	-- reach the notes for its own roster: that is not the window the player uses.
+	frame:HookScript("OnShow", function()
+		if kind == "communities" and frame.GetAlpha and frame:GetAlpha() == 0 then return end
+		lastShown = host
+	end)
 	-- Closing the guild window closes our window if it is docked to that one (only then).
 	frame:HookScript("OnHide",function() ns.SafeCall("guild window hide", ns.UI.CloseIfDocked, host.dock) end)
 	if def.social then
@@ -144,6 +174,14 @@ local function Attach(frame, kind)
 	else
 		-- The Communities window can be minimized and maximized while we are docked to it.
 		frame:HookScript("OnSizeChanged", function() ns.SafeCall("guild window size", ns.UI.FollowHost, frame) end)
+		-- Its side tabs come and go (minimized, no guild, Guild Finder): the HD window keeps
+		-- clear of them (see UI.DockOffset).
+		local tabs = kind == "communities" and frame.ChatTab
+		if tabs and tabs.HookScript then
+			local function Follow() ns.SafeCall("guild window tabs", ns.UI.FollowHost, frame) end
+			tabs:HookScript("OnShow", Follow)
+			tabs:HookScript("OnHide", Follow)
+		end
 	end
 	ns.Log("guild window button added: %s (%s)", tostring(frame.GetName and frame:GetName()), kind)
 end
@@ -182,10 +220,11 @@ function GuildFrameHook.StatusLine()
 	end
 	local active = GuildFrameHook.ActiveHost()
 	local docked = ns.UI and ns.UI.IsShown and ns.UI.IsShown() and ns.UI.DockedTo()
-	return ("hooked %s  |  in use: %s  |  docked to: %s  |  Blizzard_Communities=%s Blizzard_GuildUI=%s useClassicGuildUI=%s"):format(
+	return ("hooked %s  |  in use: %s  |  docked to: %s  |  Blizzard_Communities=%s Blizzard_GuildUI=%s useClassicGuildUI=%s hd client=%s"):format(
 		#found > 0 and table.concat(found, ", ") or "none", active and active.kind or "none",
 		docked and tostring(docked.GetName and docked:GetName()) or "-",
-		tostring(IsLoaded("Blizzard_Communities")), tostring(IsLoaded("Blizzard_GuildUI")), tostring(CVar("useClassicGuildUI")))
+		tostring(IsLoaded("Blizzard_Communities")), tostring(IsLoaded("Blizzard_GuildUI")), tostring(CVar("useClassicGuildUI")),
+		tostring(GuildFrameHook.IsHDClient()))
 end
 
 -- A load-on-demand guild window (Classic Era's Communities, Blizzard_GuildUI) may load

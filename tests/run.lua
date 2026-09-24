@@ -572,8 +572,9 @@ local function FakeFrame(name, parent, w, h)
 	function f:GetParent() return self.parent end
 	function f:GetWidth() return self.w end
 	function f:GetHeight() return self.h end
-	function f:GetFrameLevel() return 5 end
+	function f:GetFrameLevel() return self.level or 5 end
 	function f:GetEffectiveScale() return 1 end
+	function f:GetAlpha() return self.alpha or 1 end
 	function f:GetRect() if self.rect then return unpack(self.rect) end end -- where a test put it
 	function f:IsShown() return self.shown end
 	function f:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
@@ -600,6 +601,7 @@ local function LoadGuildFrame(realUI)
 		local b = setmetatable({ name = name, parent = parent, size = size, scripts = {} }, { __index = function() return function() end end })
 		function b:SetScript(kind, fn) self.scripts[kind] = fn end
 		function b:SetPoint(...) self.point = { ... } end
+		function b:SetFrameLevel(level) self.level = level end
 		function b:Click() self.scripts.OnClick(self) end
 		world.buttons[#world.buttons + 1] = b
 		return b
@@ -607,7 +609,9 @@ local function LoadGuildFrame(realUI)
 	gns.UI = realUI and gns.UI or {
 		IsShown = function() return dock.shown end,
 		DockedTo = function() return dock.host end,
-		OpenDocked = function(host, tab, heightOnly) dock.shown, dock.host, dock.tab, dock.heightOnly = true, host, tab, heightOnly end,
+		OpenDocked = function(host, tab, heightOnly, style)
+			dock.shown, dock.host, dock.tab, dock.heightOnly, dock.style = true, host, tab, heightOnly, style
+		end,
 		CloseIfDocked = function(host) if dock.shown and (host == nil or dock.host == host) then dock.shown = false end end,
 		FollowHost = function(host) dock.followed = host end,
 	}
@@ -630,6 +634,7 @@ local function WithGuildWindows(fn)
 	local ok, err = pcall(fn)
 	ns.CaptureError = savedCapture
 	for _, name in ipairs(GUILD_GLOBALS) do _G[name] = nil end
+	PanelTemplates_AnchorTabs = nil -- the Mainline tab code, set by the Forever tests
 	if not ok then error(err, 0) end
 	eq(captured, nil, "error caught")
 end
@@ -667,6 +672,7 @@ test("guild button: new UI loaded at login (Forever: Communities window only)", 
 		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
 		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
 		CommunitiesFrame.MaximizeMinimizeFrame = FakeFrame(nil, CommunitiesFrame, 24, 24)
+		PanelTemplates_AnchorTabs = function() end -- Forever's (Mainline) tab code
 		local w = LoadGuildFrame()
 		w.Login()
 		local hosts = w.hook.Hosts()
@@ -678,6 +684,7 @@ test("guild button: new UI loaded at login (Forever: Communities window only)", 
 		eq(w.hook.ActiveHost(), hosts[1], "in use")
 		b:Click()
 		eq(w.dock.host, CommunitiesFrame, "docks to the Communities window"); eq(w.dock.heightOnly, true)
+		eq(w.dock.style, "hd", "in the new window's look")
 		-- No Guild tab in the Social window, so nothing of ours listens to it closing (the
 		-- other way round is covered in the "both windows" and real-window tests).
 		eq(FriendsFrame.hooks.OnHide, nil, "no Social window hook without a Guild tab")
@@ -828,6 +835,97 @@ test("docked size: the old Guild tab is copied, the new windows lend only their 
 	eq(size(nil, nil, true), "338x424", "nothing known")
 end)
 
+test("HD look: Forever's new guild window gets it, the old Guild tabs never do", function()
+	WithGuildWindows(function()
+		-- Forever: no Guild tab in the Social window, and the Mainline tab code.
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		PanelTemplates_AnchorTabs = function() end
+		local w = LoadGuildFrame()
+		w.Login()
+		eq(w.hook.IsHDClient(), true)
+		eq(w.hook.IsHD(), true, "nothing opened yet: the client decides")
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		eq(w.dock.host, CommunitiesFrame); eq(w.dock.style, "hd")
+		local status = w.hook.StatusLine()
+		assert(status:find("hd client=true", 1, true), status)
+		-- ClassicUI Forever's old Guild tab: the old look there, and while it is on screen.
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", FriendsFrame)
+		FriendsFrame:Show(); ClassicUIForeverGuildPanel:Show()
+		eq(w.hook.Hosts()[2].kind, "classicui")
+		w.buttons[2]:Click()
+		eq(w.dock.host, FriendsFrame); eq(w.dock.style, "old")
+		eq(w.hook.IsHD(), false, "the old tab in use")
+		-- Only the Communities window left, then not even that: the last one shown decides.
+		ClassicUIForeverGuildPanel:Hide(); FriendsFrame:Hide()
+		eq(w.hook.IsHD(), true, "the new window on screen")
+		CommunitiesFrame:Hide(); CommunitiesFrame:Show(); CommunitiesFrame:Hide()
+		eq(w.hook.IsHD(), true, "the new window was the last one shown")
+		-- ClassicUI Forever's roster opens the Communities window unseen (alpha 0, off the
+		-- screen) for its notes and closes it with the Social window: not a window in use.
+		FriendsFrame:Show(); ClassicUIForeverGuildPanel:Show()
+		CommunitiesFrame.alpha = 0
+		CommunitiesFrame:Show()
+		eq(w.hook.IsHD(), false, "the old tab on screen")
+		ClassicUIForeverGuildPanel:Hide(); FriendsFrame:Hide()
+		CommunitiesFrame:Hide(); CommunitiesFrame.alpha = 1
+		eq(w.hook.IsHD(), false, "the old tab was the last one the player saw")
+	end)
+	WithGuildWindows(function()
+		-- ClassicUI Forever's tab built after the scan at login (a login in combat): the old
+		-- look, before the Social window is ever opened.
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		PanelTemplates_AnchorTabs = function() end
+		local w = LoadGuildFrame()
+		w.Login()
+		eq(w.hook.IsHD(), true)
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", FriendsFrame)
+		eq(#w.hook.Hosts(), 1, "not hooked yet"); eq(w.hook.IsHD(), false)
+	end)
+	WithGuildWindows(function()
+		-- ClassicUI Forever's tab already there, nothing opened yet: the old look.
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", FriendsFrame)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		PanelTemplates_AnchorTabs = function() end
+		local w = LoadGuildFrame()
+		w.Login()
+		eq(w.hook.IsHDClient(), true); eq(w.hook.IsHD(), false)
+	end)
+	WithGuildWindows(function()
+		-- Classic Era: its Guild tab is always there (hidden when the new window is used).
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 338, 424)
+		GuildFrame = FakeFrame("GuildFrame", FriendsFrame, 338, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 322, 406)
+		PanelTemplates_AnchorTabs = function() end -- even with the Mainline tab code
+		local w = LoadGuildFrame()
+		w.Login()
+		eq(w.hook.IsHDClient(), false)
+		CommunitiesFrame:Show(); w.buttons[2]:Click()
+		eq(w.dock.host, CommunitiesFrame); eq(w.dock.style, "old")
+		assert(w.hook.StatusLine():find("hd client=false", 1, true))
+	end)
+end)
+
+test("guild button: over Forever's metal title bar, where it always was on Classic", function()
+	for _, forever in ipairs({ true, false }) do
+		WithGuildWindows(function()
+			FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+			if not forever then GuildFrame = FakeFrame("GuildFrame", FriendsFrame, 338, 424) end
+			CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+			CommunitiesFrame.MaximizeMinimizeFrame = FakeFrame(nil, CommunitiesFrame, 24, 24)
+			CommunitiesFrame.MaximizeMinimizeFrame.level = 515 -- frameLevel 510, over the NineSlice's 500
+			PanelTemplates_AnchorTabs = forever and function() end or nil
+			local w = LoadGuildFrame()
+			w.Login()
+			local b = w.buttons[#w.buttons]
+			eq(b.parent, CommunitiesFrame)
+			eq(b.level, forever and 515 or 15, forever and "Forever" or "Classic")
+		end)
+	end
+end)
+
 ---------------------------------------------------------------------------
 -- The Olympus window itself (UI.lua), on a small widget toolkit: frames keep their size,
 -- anchors and shown state, scripts can be fired, rects are worked out from the anchors
@@ -877,6 +975,13 @@ function Widget:IsVisible() return self.shown and (not self.parent or self.paren
 function Widget:GetEffectiveScale() return self.scale or (self.parent and self.parent:GetEffectiveScale()) or 1 end
 function Widget:GetFrameLevel() return self.level or 1 end
 function Widget:SetFrameLevel(level) self.level = level end
+function Widget:SetChecked(checked) self.checked = checked and true or false end
+function Widget:GetChecked() return self.checked or false end
+function Widget:LockHighlight() self.locked = true end
+function Widget:UnlockHighlight() self.locked = false end
+function Widget:SetHighlightTexture(texture) self.highlightTexture = texture end
+function Widget:SetTexture(texture) self.texture = texture end
+function Widget:SetClampRectInsets(...) self.clampInsets = { ... } end
 
 function Widget:SetSize(w, h)
 	local changed = self.w ~= w or self.h ~= h
@@ -957,7 +1062,12 @@ function Widget:StopMovingOrSizing()
 end
 
 function Widget:CreateFontString(name, _, font) local fs = NewWidget("FontString", name, self); fs.font = font; return fs end
-function Widget:CreateTexture(name) return NewWidget("Texture", name, self) end
+function Widget:CreateTexture(name)
+	local t = NewWidget("Texture", name, self)
+	self.textures = self.textures or {}
+	table.insert(self.textures, t)
+	return t
+end
 function Widget:SetText(text)
 	if self.kind == "FontString" then self.text = text return end
 	self.fontString = self.fontString or self:CreateFontString(nil, "OVERLAY", self.normalFont or "GameFontNormal")
@@ -996,11 +1106,33 @@ local TEMPLATES = {
 		w.parent.Tabs = w.parent.Tabs or {}
 		table.insert(w.parent.Tabs, w)
 	end,
+	-- The Guild & Communities window's parts (Blizzard_SharedXML, loaded on every client
+	-- family but not all of them on every client).
+	RightSideTabTemplate = function(w)
+		w.w, w.h = 32, 32
+		w.Icon = NewWidget("Texture", nil, w)
+		-- RightSideTabMixin:OnClick: its sound, and the check.
+		w.scripts.OnClick = function(self) self.clickSound = true; self:SetChecked(true) end
+	end,
+	ColumnDisplayButtonNoScriptsTemplate = function(w)
+		w.h = 24
+		for _, key in ipairs({ "Left", "Middle", "Right" }) do w[key] = NewWidget("Texture", nil, w) end
+	end,
+	ScrollFrameTemplate = function(w)
+		w.ScrollBar = NewWidget("EventFrame", nil, w)
+		w.ScrollBar.w = 8
+	end,
+	DialogBorderDarkTemplate = function(w)
+		w.Bg = NewWidget("Texture", nil, w)
+	end,
 }
 
+local createdWidgets = {} -- everything FakeCreateFrame made in the current WithUI
 local function FakeCreateFrame(kind, name, parent, template)
 	local w = NewWidget(kind, name, parent)
+	w.template = template
 	if TEMPLATES[template] then TEMPLATES[template](w) end
+	createdWidgets[#createdWidgets + 1] = w
 	return w
 end
 
@@ -1036,7 +1168,7 @@ local function WithUI(fn)
 	local ok, err = pcall(fn)
 	CreateFrame, ns.CaptureError, ns.UI, GetGuildInfo = saved.CreateFrame, saved.CaptureError, saved.UI, saved.GetGuildInfo
 	for _, name in ipairs(widgetNames) do _G[name] = nil end
-	widgetNames = {}
+	widgetNames, createdWidgets = {}, {}
 	for _, name in ipairs(GUILD_GLOBALS) do _G[name] = nil end
 	for _, name in ipairs(TAB_GLOBALS) do _G[name] = nil end
 	for _, font in ipairs(FONT_GLOBALS) do _G[font] = nil end
@@ -1077,6 +1209,22 @@ test("tab spacing: Blizzard's on Forever (Mainline tab code), the old overlap on
 	eq(select(2, UI.TabAnchor("mainline", 2, f, prev)), prev)
 	eq(table.concat({ UI.TabAnchor("classic", 1, f) }, " ", 3), "BOTTOMLEFT 10 2")
 	eq(table.concat({ UI.TabAnchor("classic", 3, f, prev) }, " ", 3), "RIGHT -15 0")
+end)
+
+test("HD docking gap and side tabs: Blizzard's own numbers", function()
+	local uns = setmetatable({}, { __index = ns })
+	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+	local UI = uns.UI
+	eq(UI.DockOffset("old", true), -2, "the old window overlaps the border, as always")
+	eq(UI.DockOffset("old", false), -2)
+	eq(UI.DockOffset("hd", true), 64, "past the Communities side tabs (32), then Blizzard's gap (32)")
+	eq(UI.DockOffset("hd", false), 32, "no side tabs: Blizzard's gap between two windows")
+	local f, prev = {}, {}
+	eq(table.concat({ UI.TabAnchor("side", 1, f) }, " ", 3), "TOPRIGHT 0 -36", "like the Communities ChatTab")
+	eq(select(2, UI.TabAnchor("side", 1, f)), f)
+	eq(table.concat({ UI.TabAnchor("side", 2, f, prev) }, " ", 3), "BOTTOMLEFT 0 -20")
+	eq(select(2, UI.TabAnchor("side", 2, f, prev)), prev)
+	eq(UI.Style(), "old", "without GuildFrame.lua: the old look")
 end)
 
 test("tabs on the real window: side by side on Forever, unchanged on Classic", function()
@@ -1220,7 +1368,406 @@ test("docking with the real window: follows the guild window it was clicked in",
 		eq(UI.DockedTo(), FriendsFrame); eq(size(), "338x424")
 		GuildFrame:Hide()
 		eq(main:IsShown(), false, "leaving the Guild tab closes it")
+		-- Classic Era: its Communities window gets the old window too.
+		eq(rawget(_G, "OlympusFrameHD"), nil, "no HD window on Classic")
 	end)
+end)
+
+-- Forever with the new guild window (in WithUI): the Social window without a Guild tab, the
+-- Communities window with its side tabs shown or not (a guild member or not), the Mainline
+-- tab code, and GuildFrame.lua with the real UI.lua.
+local function ForeverWorld(sideTabs)
+	TabCode("mainline")
+	FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+	FriendsFrame.rect = { 20, 200, 385, 424 }
+	CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+	CommunitiesFrame.rect = { 16, 180, 814, 426 }
+	CommunitiesFrame.MaximizeMinimizeFrame = FakeFrame(nil, CommunitiesFrame, 24, 24)
+	CommunitiesFrame.ChatTab = FakeFrame(nil, CommunitiesFrame, 32, 32)
+	CommunitiesFrame.ChatTab.shown = sideTabs
+	local w = LoadGuildFrame(true)
+	ns.UI = w.ns.UI
+	w.Login()
+	return w, w.ns.UI
+end
+
+test("HD window: docked past the Communities window's side tabs, with icon tabs of its own", function()
+	WithUI(function()
+		local w, UI = ForeverWorld(true)
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		local main = OlympusFrameHD
+		eq(main:IsShown(), true); eq(UI.WindowStyle(), "hd")
+		eq(rawget(_G, "OlympusFrame"), nil, "the old window is not even built")
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0"); eq(main:GetNumPoints(), 1)
+		eq(main:GetWidth() .. "x" .. main:GetHeight(), "385x426", "the Social window's width, the host's height")
+		eq(main.clampInsets[2], 40, "its side tabs stay on the screen too")
+		-- Blizzard's icon tabs down the right side, one per TABS entry, the first one checked.
+		local tabs = main.tabs
+		eq(#tabs, #UI.TABS); eq(UI.tabTemplate, "RightSideTabTemplate"); eq(UI.tabStyle, "side")
+		for i, tab in ipairs(tabs) do
+			eq(tab.template, "RightSideTabTemplate")
+			if i == 1 then
+				eq(Anchor(tab), "TOPLEFT OlympusFrameHD TOPRIGHT 0 -36")
+			else
+				eq(tab.points[1][2], tabs[i - 1]); eq(Anchor(tab), "TOPLEFT nil BOTTOMLEFT 0 -20")
+			end
+			assert(tab.Icon.texture and tab.Icon.texture:find("Interface\\Icons\\", 1, true), "icon of tab " .. i)
+			eq(tab.tooltip, ns.L[UI.TABS[i].label])
+			eq(tab:GetChecked(), i == 1, "checked: tab " .. i)
+			assert(tab.level > main:GetFrameLevel(), "over the frame's border")
+		end
+		eq(tabs[2].Icon.texture, "Interface\\Icons\\INV_BannerPVP_02", "the Alliance banner")
+		tabs[3]:Click()
+		eq(main.tab, "decrees"); eq(tabs[3].clickSound, true, "Blizzard's own click ran too")
+		for i, tab in ipairs(tabs) do eq(tab:GetChecked(), i == 3, "after the click: tab " .. i) end
+		for _, wdg in ipairs(createdWidgets) do
+			assert(wdg.template ~= "PanelTabButtonTemplate", "no bottom tabs in the HD window")
+		end
+		-- The Communities window's buttons: 20 tall, 5 from the corner.
+		for _, b in ipairs(main.buttons) do eq(b.h, 20); eq(b.w, 123) end
+		eq(Anchor(main.buttons[1]), "BOTTOMLEFT OlympusFrameHD BOTTOMLEFT 5 5")
+		eq(Anchor(main.detail), "BOTTOMLEFT OlympusFrameHD BOTTOMLEFT 4 28")
+		-- The roster's column headers over the census, sorting on click, its thin scroll bar.
+		tabs[1]:Click()
+		eq(main.colHeader:IsShown(), true)
+		eq(Anchor(main.colHeader), "TOPLEFT OlympusFrameHD TOPLEFT 6 -59"); eq(main.colHeader.h, 24)
+		eq(main.listBox:Anchor("TOPLEFT")[5], -81); eq(main.scroll:Anchor("TOPLEFT")[5], -84)
+		eq(main.scroll.template, "ScrollFrameTemplate"); eq(main.scroll:Anchor("BOTTOMRIGHT")[4], -24)
+		eq(main.views.census:GetWidth(), 385 - 33)
+		local header = main.colHeader.buttons[1]
+		eq(header.template, "ColumnDisplayButtonNoScriptsTemplate"); eq(header.h, 24); eq(header:GetName(), nil)
+		eq(header:GetText(), ns.L.COL_GUILD)
+		local sort = ns.Views.sort
+		header:Click()
+		eq(ns.Views.sort.key, "name", "sorted by guild")
+		ns.Views.sort = sort
+		eq(main.views.census.rows[1].h, 20, "the roster's rows")
+		-- The Communities side tabs go (minimized, Guild Finder) and come back.
+		CommunitiesFrame.ChatTab:Hide()
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 32 0", "Blizzard's gap only")
+		CommunitiesFrame.ChatTab:Show()
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0")
+		-- Minimized: its height.
+		CommunitiesFrame.w, CommunitiesFrame.h = 322, 406
+		CommunitiesFrame:Run("OnSizeChanged")
+		eq(main:GetWidth() .. "x" .. main:GetHeight(), "385x406")
+		eq(main.buttons[1].w, 123)
+		local status = ns.StatusText()
+		assert(status:find("tabs: RightSideTabTemplate (side spacing), window hd", 1, true), status)
+	end)
+end)
+
+test("HD and old windows: each guild window gets its look, switched without /reload", function()
+	WithUI(function()
+		local w, UI = ForeverWorld(true)
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", FriendsFrame)
+		FriendsFrame:Show(); ClassicUIForeverGuildPanel:Show() -- found when the Social window opens
+		FriendsFrame:Hide()
+		local new, classic = w.buttons[1], w.buttons[2]
+		eq(w.hook.Hosts()[2].kind, "classicui")
+		-- The new window in use, on the Realm tab.
+		CommunitiesFrame:Show(); new:Click()
+		local hd = OlympusFrameHD
+		UI.SelectTab("realm")
+		eq(hd.tab, "realm")
+		-- Clicked in ClassicUI Forever's Guild tab: the old window, exactly as always.
+		FriendsFrame:Show(); classic:Click()
+		local old = OlympusFrame
+		eq(hd:IsShown(), false, "the HD window closes"); eq(old:IsShown(), true)
+		eq(UI.WindowStyle(), "old"); eq(UI.DockedTo(), FriendsFrame)
+		eq(Anchor(old), "TOPLEFT FriendsFrame TOPRIGHT -2 0")
+		eq(old:GetWidth() .. "x" .. old:GetHeight(), "385x424")
+		eq(UI.tabTemplate, "PanelTabButtonTemplate"); eq(UI.tabStyle, "mainline")
+		eq(Anchor(old.tabs[1]), "TOPLEFT OlympusFrame BOTTOMLEFT 5 2")
+		eq(old.tab, "census", "a guild window's button opens the Census, as always")
+		eq(Anchor(old.buttons[1]), "BOTTOMLEFT OlympusFrame BOTTOMLEFT 8 8"); eq(old.buttons[1].h, 22)
+		eq(Anchor(old.scroll), "TOPLEFT OlympusFrame TOPLEFT 10 -80"); eq(old.views.census:GetWidth(), 385 - 42)
+		eq(old.views.census.rows[1].h, 16)
+		-- Back in the Communities window: the HD one again.
+		new:Click()
+		eq(hd:IsShown(), true); eq(old:IsShown(), false); eq(UI.DockedTo(), CommunitiesFrame)
+		eq(Anchor(hd), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0"); eq(UI.tabTemplate, "RightSideTabTemplate")
+		-- /oly with the old tab the guild window in use: the old window, on the HD one's tab.
+		UI.SelectTab("heraldry")
+		CommunitiesFrame:Hide()
+		eq(hd:IsShown(), false, "closed with the Communities window")
+		UI.Toggle()
+		eq(old:IsShown(), true); eq(hd:IsShown(), false); eq(old.tab, "heraldry")
+		UI.Toggle()
+		-- Only the Communities window used since: the HD one.
+		ClassicUIForeverGuildPanel:Hide(); FriendsFrame:Hide()
+		CommunitiesFrame:Show(); CommunitiesFrame:Hide()
+		UI.Toggle()
+		eq(hd:IsShown(), true); eq(old:IsShown(), false); eq(hd.tab, "heraldry")
+		-- Docked with no tab asked for: the tab in use carries over to the other window.
+		UI.SelectTab("decrees")
+		FriendsFrame:Show(); UI.OpenDocked(FriendsFrame, nil, false, "old")
+		eq(old:IsShown(), true); eq(hd:IsShown(), false); eq(old.tab, "decrees")
+	end)
+end)
+
+test("ClassicUI Forever's unseen Communities window: /oly keeps the old window", function()
+	WithUI(function()
+		local _, UI = ForeverWorld(true)
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", FriendsFrame)
+		-- Its roster open: the Communities window comes up unseen (alpha 0, off the screen)
+		-- for the notes, and goes when the Social window closes.
+		FriendsFrame:Show(); ClassicUIForeverGuildPanel:Show()
+		CommunitiesFrame.alpha = 0
+		CommunitiesFrame:Show()
+		ClassicUIForeverGuildPanel:Hide(); FriendsFrame:Hide()
+		CommunitiesFrame:Hide(); CommunitiesFrame.alpha = 1
+		UI.Toggle()
+		eq(UI.WindowStyle(), "old"); eq(OlympusFrame:IsShown(), true)
+		eq(rawget(_G, "OlympusFrameHD"), nil, "the HD window is not even built")
+	end)
+end)
+
+test("HD window from /oly before the Communities window has loaded, docked once it has", function()
+	WithUI(function()
+		TabCode("mainline")
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		FriendsFrame.rect = { 20, 200, 385, 424 }
+		local w = LoadGuildFrame(true)
+		ns.UI = w.ns.UI
+		w.Login()
+		local UI = w.ns.UI
+		UI.Toggle()
+		local main = OlympusFrameHD
+		eq(UI.WindowStyle(), "hd"); eq(main:IsShown(), true); eq(UI.DockedTo(), nil)
+		eq(main:GetWidth() .. "x" .. main:GetHeight(), "385x426", "the Social window's width, the Communities window's height")
+		eq(Anchor(main), "CENTER UIParent CENTER 0 40")
+		UI.Toggle()
+		-- Blizzard_Communities loads: its window gets the button, which docks the HD window
+		-- and keeps it clear of the side tabs.
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		CommunitiesFrame.rect = { 16, 180, 814, 426 }
+		CommunitiesFrame.ChatTab = FakeFrame(nil, CommunitiesFrame, 32, 32)
+		CommunitiesFrame.ChatTab.shown = true
+		w.Fire("ADDON_LOADED", "Blizzard_Communities")
+		eq(#w.hook.Hosts(), 1); eq(w.hook.Hosts()[1].kind, "communities")
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		eq(main:IsShown(), true); eq(UI.DockedTo(), CommunitiesFrame)
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0")
+		CommunitiesFrame.ChatTab:Hide()
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 32 0", "its side tabs are followed")
+	end)
+end)
+
+test("rows: the HD window's like the Communities roster's, the old window's unchanged", function()
+	WithUI(function()
+		local Views = ns.Views
+		local function Content(style)
+			local c = NewWidget("Frame", nil, UIParent)
+			c.w, c.style = 300, style
+			return c
+		end
+		local clicked
+		local lines = {
+			{ header = true, text = "Header" },
+			{ text = "Plain" },
+			{ text = "Lord", key = "Lordy", onClick = function() clicked = "Lordy" end },
+			{ cols = { "a", "b", "c", "d" } },
+			{ text = "Racer", key = "Racer", onClick = function() clicked = "Racer" end },
+		}
+		local hd = Content("hd")
+		hd.selectedKey = "Racer"
+		Views.Render(hd, lines, Views.COLUMNS.census)
+		local rows = hd.rows
+		eq(rows[1].h, 20, "20 tall, like the roster")
+		eq(rows[2].points[1][5], -2 - 24, "a header line takes 4 more")
+		eq(rows[3].points[1][5], -2 - 24 - 20)
+		assert(rows[1].highlightTexture:find("UI-FriendsFrame-HighlightBar", 1, true), "the roster's gold bar")
+		eq(rows[3].stripe.texture, "Interface\\GuildFrame\\GuildFrame")
+		eq(rows[1].stripe:IsShown(), false, "no row background on a header")
+		eq(rows[2].stripe:IsShown(), false, "nor on a line that cannot be clicked")
+		eq(rows[3].stripe:IsShown(), true); eq(rows[4].stripe:IsShown(), true, "a table row")
+		eq(rows[5].locked, true, "the person open stays lit"); eq(rows[3].locked, false)
+		rows[3]:Click()
+		eq(clicked, "Lordy"); eq(hd.selectedKey, "Lordy")
+		eq(rows[3].locked, true); eq(rows[5].locked, false)
+		Views.ClearSelection(hd)
+		eq(rows[3].locked, false); eq(hd.selectedKey, nil)
+		-- The old window's rows, as always: 16 tall, their own highlight, never kept lit.
+		local old = Content("old")
+		old.selectedKey = "Racer"
+		Views.Render(old, lines, Views.COLUMNS.census)
+		rows = old.rows
+		eq(rows[1].h, 16); eq(rows[2].points[1][5], -2 - 20)
+		eq(rows[1].stripe, nil); eq(rows[1].highlightTexture, nil)
+		eq(rows[1].textures[1].texture, "Interface\\QuestFrame\\UI-QuestTitleHighlight")
+		rows[3]:Click()
+		eq(clicked, "Lordy"); eq(old.selectedKey, "Racer")
+		for i = 1, #lines do eq(rows[i].locked, nil, "never lit: row " .. i) end
+	end)
+end)
+
+test("HD person panel: the roster's member card, hanging off the HD window", function()
+	WithUI(function()
+		local w, UI = ForeverWorld(true)
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		local main = OlympusFrameHD
+		ns.Views.ExpandAll(true)
+		UI.SelectTab("realm")
+		-- The Lord of Olympus: his line opens his card and stays lit while it is open.
+		local row
+		for _, r in ipairs(main.views.realm.rows) do
+			if r:IsShown() and r.line and r.line.key == "Asmongold" and r.line.indent == 1 then row = r break end
+		end
+		assert(row, "the Lord's line")
+		row:Click()
+		local person = OlympusPersonFrameHD
+		eq(person:IsShown(), true); eq(person.parent, main)
+		-- Docked to the maximized Communities window on the 1366 wide screen, the card would
+		-- run past the edge onto our list: it hangs off the window's left side instead.
+		eq(Anchor(person), "TOPRIGHT OlympusFrameHD TOPLEFT 4 -76")
+		eq(person.w .. "x" .. person.h, "214x226")
+		eq(person.Border.template, "DialogBorderDarkTemplate")
+		assert(person.level >= main:GetFrameLevel() + 1000, "over the window and its tabs")
+		eq(person.name.font, "GameFontNormal"); eq(person.guild:GetText(), "<Olympus>")
+		eq(person.whisper.w .. "x" .. person.whisper.h, "96x22"); eq(person.whisper.small, true)
+		-- (its `name` is the name line, as on the old panel: anchors are read by hand)
+		local p = person.whisper.points[1]
+		eq(p[1] .. " " .. p[3] .. " " .. p[4] .. " " .. p[5], "BOTTOMLEFT BOTTOMLEFT 12 36"); eq(p[2], person)
+		p = person.mark.points[1]
+		eq(p[2], person.who); eq(p[1] .. " " .. p[3] .. " " .. p[4] .. " " .. p[5], "LEFT RIGHT 1 0")
+		eq(row.locked, true, "its line stays lit")
+		eq(rawget(_G, "OlympusPersonFrame"), nil, "the old panel is not built")
+		-- Its buttons: Who through Who.lua, Mark (Heraldry players) runs and closes it.
+		local sent, savedSend = nil, ns.Who.SendPlain
+		ns.Who.SendPlain = function(query) sent = query end
+		person.who:Click()
+		ns.Who.SendPlain = savedSend
+		eq(sent, 'n-"Asmongold"')
+		eq(person.mark:IsShown(), false, "no Mark outside the Heraldry tab")
+		person:Hide()
+		eq(row.locked, false, "closing the card lets the line go")
+		-- Its close button and Escape close it too.
+		row:Click()
+		person.CloseButton:Click()
+		eq(person:IsShown(), false, "closed by its button"); eq(row.locked, false)
+		local escape
+		for _, name in ipairs(UISpecialFrames) do if name == "OlympusPersonFrameHD" then escape = true end end
+		eq(escape, true, "closed by Escape")
+		local marked
+		row:Click()
+		UI.ShowPerson({ name = "Asmongold", guild = "Olympus", onMark = function() marked = true end })
+		person.mark:Click()
+		eq(marked, true); eq(person:IsShown(), false, "Mark closes it"); eq(row.locked, false)
+		-- With room on the right (the Communities window minimized), it hangs off the right side
+		-- like Blizzard's.
+		CommunitiesFrame.w, CommunitiesFrame.h, CommunitiesFrame.rect = 322, 406, { 16, 200, 322, 406 }
+		CommunitiesFrame:Run("OnSizeChanged")
+		row:Click()
+		eq(Anchor(person), "TOPLEFT OlympusFrameHD TOPRIGHT -4 -76")
+		main:Hide()
+		eq(person:IsShown(), false, "closed with the window"); eq(row.locked, false)
+		ns.Views.ExpandAll(false)
+	end)
+end)
+
+test("HD Join screen: no tabs or column titles, next to a Communities window without side tabs", function()
+	WithUI(function()
+		GetGuildInfo = function() return nil end
+		local w, UI = ForeverWorld(false)
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		local main = OlympusFrameHD
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 32 0", "no side tabs there: Blizzard's gap")
+		for _, tab in ipairs(main.tabs) do eq(tab:IsShown(), false) end
+		eq(main.colHeader:IsShown(), false)
+		eq(main.listBox:Anchor("TOPLEFT")[5], -60); eq(main.scroll:Anchor("TOPLEFT")[5], -63)
+		local shown = {}
+		for _, b in ipairs(main.buttons) do if b:IsShown() then shown[#shown + 1] = b end end
+		eq(#shown, 2); eq(shown[1].w, 186); eq(shown[2].w, 186); eq(shown[1].h, 20)
+		-- Joins an Olympus guild with both windows open: the Communities side tabs appear too.
+		GetGuildInfo = function() return "Olympus II" end
+		CommunitiesFrame.ChatTab:Show()
+		UI.Refresh()
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0")
+		for _, tab in ipairs(main.tabs) do eq(tab:IsShown(), true) end
+		eq(main.colHeader:IsShown(), true)
+		eq(main.listBox:Anchor("TOPLEFT")[5], -81); eq(main.scroll:Anchor("TOPLEFT")[5], -84)
+	end)
+end)
+
+test("HD window on a client without Blizzard's new parts: built from what is there", function()
+	local missing, saved = { "RightSideTabTemplate", "ColumnDisplayButtonNoScriptsTemplate", "ScrollFrameTemplate", "DialogBorderDarkTemplate" }, {}
+	for _, name in ipairs(missing) do saved[name], TEMPLATES[name] = TEMPLATES[name], nil end
+	local ok, err = pcall(WithUI, function()
+		local w, UI = ForeverWorld(true)
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		local main = OlympusFrameHD
+		-- Side tabs made here, like RightSideTab.xml.
+		eq(UI.tabTemplate, "fallback"); eq(UI.tabStyle, "side")
+		local tab = main.tabs[1]
+		eq(tab.w .. "x" .. tab.h, "32x32"); eq(tab.Icon.texture, UI.TABS[1].icon)
+		eq(tab.highlightTexture, "Interface\\Buttons\\ButtonHilight-Square"); eq(tab:GetChecked(), true)
+		main.tabs[2]:Click()
+		eq(main.tab, "realm"); eq(main.tabs[2]:GetChecked(), true); eq(main.tabs[1]:GetChecked(), false)
+		-- The old scroll bar, with the room it needs.
+		eq(main.scroll:GetName(), "OlympusScrollHDOld"); eq(main.scroll:Anchor("BOTTOMRIGHT")[4], -30)
+		eq(main.views.census:GetWidth(), 385 - 39)
+		eq(OlympusScrollHD:IsShown(), false, "the one without a scroll bar is hidden")
+		-- Plain column titles, the rejected ones hidden.
+		main.tabs[1]:Click()
+		local header = main.colHeader.buttons[1]
+		eq(header.template, nil); eq(header:IsShown(), true); eq(header:GetText(), ns.L.COL_GUILD)
+		eq(OlympusColumnHeaderHD1:IsShown(), false)
+		-- The old person panel, next to the HD window: the row it was opened from is let go
+		-- when it closes, as with the HD one.
+		ns.Views.ExpandAll(true)
+		UI.SelectTab("realm")
+		local row
+		for _, r in ipairs(main.views.realm.rows) do
+			if r:IsShown() and r.line and r.line.key == "Asmongold" and r.line.indent == 1 then row = r break end
+		end
+		assert(row, "the Lord's line")
+		row:Click()
+		eq(OlympusPersonFrame:IsShown(), true); eq(OlympusPersonFrameHD:IsShown(), false)
+		eq(Anchor(OlympusPersonFrame), "TOPLEFT OlympusFrameHD TOPRIGHT -2 -28")
+		eq(row.locked, true)
+		OlympusPersonFrame:Hide()
+		eq(row.locked, false, "let go"); UI.Refresh(); eq(row.locked, false, "and stays so")
+		row:Click()
+		main:Hide()
+		eq(OlympusPersonFrame:IsShown(), false, "closed with the window"); eq(row.locked, false)
+		ns.Views.ExpandAll(false)
+	end)
+	for _, name in ipairs(missing) do TEMPLATES[name] = saved[name] end
+	if not ok then error(err, 0) end
+end)
+
+test("a new tab is one entry in UI.TABS: an icon tab in the HD window, a bottom tab in the old", function()
+	local channels = { key = "channels", label = "TAB_CHANNELS", icon = "Interface\\Icons\\INV_Misc_Note_02" }
+	for _, hdLook in ipairs({ true, false }) do
+		WithUI(function()
+			local UI, main
+			if hdLook then
+				local w
+				w, UI = ForeverWorld(true)
+				table.insert(UI.TABS, channels)
+				CommunitiesFrame:Show(); w.buttons[1]:Click()
+				main = OlympusFrameHD
+			else
+				TabCode("mainline")
+				UI = LoadUI()
+				table.insert(UI.TABS, channels)
+				UI.Toggle()
+				main = OlympusFrame
+			end
+			eq(#main.tabs, 5)
+			local last = main.tabs[5]
+			if hdLook then
+				eq(last.points[1][2], main.tabs[4]); eq(Anchor(last), "TOPLEFT nil BOTTOMLEFT 0 -20")
+				eq(last.Icon.texture, channels.icon); eq(last.tooltip, "TAB_CHANNELS")
+			else
+				eq(last.template, "PanelTabButtonTemplate"); eq(last:GetText(), "TAB_CHANNELS")
+			end
+			UI.SelectTab("channels")
+			eq(main.tab, "channels"); eq(#(main.views.channels.rows or {}), 0, "an empty list")
+			for _, b in ipairs(main.buttons) do eq(b:IsShown(), false, "no buttons") end
+		end)
+	end
 end)
 
 test("clearing a rect: up just enough, never off the screen", function()
