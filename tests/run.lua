@@ -1397,6 +1397,20 @@ test("tabs of the old window: four or five of Classic's wide tabs shrink to fit 
 	end)
 end)
 
+test("tabs look like the Friends window's: the older tab on the Classic clients", function()
+	local uns = setmetatable({}, { __index = ns })
+	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+	local UI = uns.UI
+	local saved = FriendsFrameTab1
+	FriendsFrameTab1 = {}
+	eq(UI.OldTabs(), true, "Anniversary / Era: Friends has the older tab")
+	FriendsFrameTab1 = { LeftActive = {} }
+	eq(UI.OldTabs(), false, "Forever: the atlas tab")
+	FriendsFrameTab1 = nil
+	eq(UI.OldTabs(), PanelTemplates_AnchorTabs == nil)
+	FriendsFrameTab1 = saved
+end)
+
 test("HD docking gap and side tabs: Blizzard's own numbers", function()
 	local uns = setmetatable({}, { __index = ns })
 	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)

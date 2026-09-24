@@ -197,6 +197,14 @@ local HEADER_RIGHT, SUB_RIGHT = 26, 8
 -- makes it the text plus 20 (TAB_SIDES_PADDING), and Blizzard spaces those 3 apart
 -- (PanelTemplates_AnchorTabs, which only ships with that code) with the first at x 5
 -- (FriendsFrame): at -15 they pile up on each other.
+-- The Friends window's own tabs are the older kind (no atlas LeftActive): on the Classic
+-- clients. Without that window, the client's tab code decides.
+function UI.OldTabs()
+	local friends = _G.FriendsFrameTab1
+	if type(friends) == "table" then return friends.LeftActive == nil end
+	return PanelTemplates_AnchorTabs == nil
+end
+
 function UI.TabStyle(tab)
 	if tab and tab.LeftActive and PanelTemplates_AnchorTabs then return "mainline" end
 	return "classic"
@@ -612,13 +620,14 @@ local function CreateMain(style)
 		end
 		f.tabStyle = "side"
 	else
-		-- Tab templates differ between clients. The Classic clients' own windows (Friends, Who,
-		-- Guild, Raid) use the older tab with small text: ours match them there. Forever's tab
-		-- code (PanelTemplates_AnchorTabs) goes with the atlas one. The first template that really
-		-- builds a tab is used; otherwise a plain button, its selection marked by us.
-		local templates = PanelTemplates_AnchorTabs
-			and { "PanelTabButtonTemplate", "CharacterFrameTabButtonTemplate", "TabButtonTemplate" }
-			or { "CharacterFrameTabButtonTemplate", "PanelTabButtonTemplate", "TabButtonTemplate" }
+		-- Tab templates differ between clients. Ours look like the Friends window's tabs
+		-- (Friends, Who, Guild, Raid): the older tab with small text where Blizzard's is one
+		-- (the Classic clients, Anniversary included), the atlas one where it is not (Forever).
+		-- The first template that really builds a tab is used; otherwise a plain button, its
+		-- selection marked by us.
+		local templates = UI.OldTabs()
+			and { "CharacterFrameTabButtonTemplate", "PanelTabButtonTemplate", "TabButtonTemplate" }
+			or { "PanelTabButtonTemplate", "CharacterFrameTabButtonTemplate", "TabButtonTemplate" }
 		for i, t in ipairs(TABS) do
 			local tab
 			for n, template in ipairs(templates) do
