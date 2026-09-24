@@ -2,6 +2,7 @@ local ADDON, ns = ...
 
 -- GUILD: "hello" pings so members with the addon know each other and elect one reporter.
 -- CHANNEL (hidden "OlympusNet"): the elected reporter of each guild broadcasts its summary.
+-- Chat lines of the channels (Channels.lua) ride the same hidden channel in a lane of their own.
 
 local Comm = {}
 ns.Comm = Comm
@@ -13,9 +14,13 @@ local COUNT_WINDOW = 720 -- quiet members say hello every 10 min: count them for
 local BROADCAST_EVERY = 170
 local SEND_INTERVAL = 1.2
 local MAX_QUEUE = 60
+local CHAT_QUEUE = 6  -- chat parts waiting in their own lane (two long lines)
+local CHAT_TTL = 30   -- a chat part that waited this long is dropped, not sent late
 
 local peers = {}
 local queue = {}
+local chatQueue = {}  -- chat lines (Channels.lua): { msg, done, t }
+local lastWasChat = false
 local asm = Codec.NewAssembler()
 local msgId = 0
 local lastBroadcast = 0
@@ -36,7 +41,7 @@ function Comm.Stats()
 		channelName = joinedName, sealed = ns.rdb and ns.rdb.realmKey ~= nil,
 		channel = channelIndex, peers = Comm.PeerCount(), reporter = Comm.reporterName,
 		isReporter = Comm.isReporter, sent = stats.sent, recv = stats.recv, reports = stats.reports,
-		fails = stats.fails, bad = stats.bad, queue = #queue, lastFail = stats.lastFail,
+		fails = stats.fails, bad = stats.bad, queue = #queue, chatQueue = #chatQueue, lastFail = stats.lastFail,
 		partial = stats.partial, echo = stats.echo, byType = stats.byType, realms = stats.realms, pending = (function() local n = 0 for _ in pairs(asm.buf) do n = n + 1 end return n end)(),
 	}
 end
@@ -74,17 +79,71 @@ function Comm.ChannelReady()
 	return channelIndex > 0
 end
 
+-- Chat lines wait in a short lane of their own: they never go through Enqueue, so they can
+-- never push report chunks out of MAX_QUEUE. done(sent) is called once the part went out
+-- (or was dropped). Returns false when the lane is full.
+function Comm.SendChat(msg, done)
+	if #chatQueue >= CHAT_QUEUE then return false end
+	chatQueue[#chatQueue + 1] = { msg = msg, done = done, t = GetTime() }
+	return true
+end
+function Comm.ChatRoom()
+	return CHAT_QUEUE - #chatQueue
+end
+
 local function IsSuccess(res)
 	-- Older clients return a boolean, newer ones Enum.SendAddonMessageResult (0 = success).
 	return res == nil or res == true or res == 0
 end
 
+-- Player text goes through the logged API, Blizzard's function for plain text payloads
+-- (receivers get CHAT_MSG_ADDON_LOGGED). Clients without it use the usual one.
+local function SendNow(dist, msg, logged)
+	local target = dist == "CHANNEL" and channelIndex or nil
+	local send = logged and C_ChatInfo.SendAddonMessageLogged or C_ChatInfo.SendAddonMessage
+	local ok, res = pcall(send, ns.PREFIX, msg, dist, target)
+	if ok and IsSuccess(res) then
+		stats.sent = stats.sent + 1
+		return true
+	end
+	stats.fails = stats.fails + 1
+	stats.lastFail = ("%s %s"):format(dist, tostring(res))
+	ns.Log("send failed on %s: %s", dist, tostring(res))
+	return false
+end
+
+-- Every chat part still waiting is dropped, and its sender is told.
+local function DropChat()
+	local items = {}
+	for i, item in ipairs(chatQueue) do items[i] = item end
+	wipe(chatQueue)
+	for _, item in ipairs(items) do
+		if item.done then ns.SafeCall("chat drop", item.done, false) end
+	end
+end
+
 local function Pump()
-	if not queue[1] then return end
+	if not queue[1] and not chatQueue[1] then return end
 	if not ns.IsMember() then
 		wipe(queue) -- outside an Olympus guild the addon sends nothing
+		DropChat()
 		return
 	end
+	local now = GetTime()
+	while chatQueue[1] and now - chatQueue[1].t > CHAT_TTL do
+		local item = table.remove(chatQueue, 1)
+		if item.done then ns.SafeCall("chat drop", item.done, false) end
+	end
+	-- Chat goes first, but while reports wait it takes at most every other slot: an idle lane
+	-- sends a line within 1.2 s, and the total rate stays one message per SEND_INTERVAL.
+	if chatQueue[1] and channelIndex > 0 and not (lastWasChat and queue[1]) then
+		lastWasChat = true
+		local item = table.remove(chatQueue, 1)
+		local sent = SendNow("CHANNEL", item.msg, true)
+		if item.done then ns.SafeCall("chat sent", item.done, sent) end
+		return
+	end
+	lastWasChat = false
 	-- Channel messages wait until we joined; guild messages behind them go out meanwhile.
 	local index
 	for i, item in ipairs(queue) do
@@ -95,17 +154,10 @@ local function Pump()
 	end
 	if not index then return end
 	local dist, msg = queue[index][1], queue[index][2]
-	local target = dist == "CHANNEL" and channelIndex or nil
 	table.remove(queue, index)
-	local ok, res = pcall(C_ChatInfo.SendAddonMessage, ns.PREFIX, msg, dist, target)
-	if ok and IsSuccess(res) then
-		stats.sent = stats.sent + 1
-	else
-		stats.fails = stats.fails + 1
-		stats.lastFail = ("%s %s"):format(dist, tostring(res))
-		ns.Log("send failed on %s: %s", dist, tostring(res))
-	end
+	SendNow(dist, msg, false)
 end
+Comm.Pump = Pump -- for tests
 
 ---------------------------------------------------------------------------
 -- The shared channel. Without a key it is the public "OlympusNet". With a realm key (set by
@@ -299,6 +351,7 @@ function Comm.CheckMembership()
 		ns.Log("left channel %s: not in an Olympus guild", joinedName)
 		joinedName, channelIndex = nil, 0
 		wipe(queue)
+		DropChat()
 	end
 end
 
@@ -310,6 +363,7 @@ ns.On("LOGIN", function()
 		if ns.IsMember() and not ns.rdb.realmKey then Enqueue("GUILD", "K0~", "keyreq") end
 	end)
 	ns.RegisterEvent("CHAT_MSG_ADDON", OnAddonMessage)
+	ns.RegisterEvent("CHAT_MSG_ADDON_LOGGED", OnAddonMessage) -- chat lines (same payload)
 	-- Join late so General/Trade/LocalDefense keep their usual numbers (/1, /2...).
 	ns.After(15, "join channel", Comm.JoinChannel)
 	ns.After(6, "hello", Comm.Hello)

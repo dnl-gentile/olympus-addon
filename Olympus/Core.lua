@@ -307,6 +307,10 @@ local function Help()
 	print("  /oly layers - layers of your zone (in the Realm tab)")
 	print("  /oly decrees - decrees")
 	print("  /oly arms [text] | /oly muster [text] - decree (officers; 'test' = local preview)")
+	print(L.HELP_CHAN_ALL)
+	print(L.HELP_CHAN_CAPTAINS)
+	print(L.HELP_CHAN_LORDS)
+	print(L.HELP_CHAN_MUTE)
 	print("  /oly mates - show/hide guildmates on map and minimap")
 	print("  /oly share - share/stop sharing your position with your guild")
 	print("  /oly bug - copy a bug report (errors + diagnostics)")
@@ -380,6 +384,10 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Print("cache cleared")
 		elseif cmd == "error" then
 			error("test error from /oly error")   -- to check that bug capture works
+		elseif cmd == "all" or cmd == "captains" or cmd == "lords" then
+			ns.Channels.Send(ns.Channels.TierForWord(cmd), rest)
+		elseif cmd == "mute" then
+			ns.Channels.ToggleMute(rest)
 		else
 			Help()
 		end

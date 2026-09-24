@@ -28,6 +28,7 @@ Map.lua
 Layers.lua
 Positions.lua
 Decree.lua
+Channels.lua
 Inspect.lua
 Recruit.lua
 Views.lua

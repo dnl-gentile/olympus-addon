@@ -59,31 +59,77 @@ end
 
 -- Sender names are set by the server and cannot be forged, so we tie every sender to the
 -- one guild it reports. A (modified) client that reports several guilds is ignored, and a
--- guild whose reports disagree about its leader is flagged as a conflict.
+-- guild whose reports disagree about its leader, its size or its officers is flagged as a
+-- conflict.
 local senderGuild = {}
+
+-- One guild per sender, shared by reports and chat: a name that spoke for one guild can't speak for another.
+function Data.ClaimGuild(sender, guild)
+	local who = ns.FullName(sender)
+	if senderGuild[who] and senderGuild[who] ~= guild then return false end
+	senderGuild[who] = guild
+	return true
+end
+
+-- Every rank a report names, as "Name-Realm" -> 0 (leader) or 1 (officer). Names without a
+-- realm belong to the reporter's realm, so a same-named player from another realm never matches.
+local function Ranks(g)
+	local home, out = g.realm or ns.realm, {}
+	for _, o in ipairs(g.officers or {}) do out[ns.FullName(o.name, home)] = 1 end
+	if g.leader then out[ns.FullName(g.leader, home)] = 0 end
+	return out
+end
+
+-- A leader or officer that the other sender's fresh report left out although its list had
+-- room for them: someone added a name (a real promotion shows as a conflict once).
+local function AddedName(previous, r)
+	if ns.Now() - (previous.t or 0) > Data.FRESH or #(previous.officers or {}) >= ns.Codec.MAX_OFFICERS then return nil end
+	local before = Ranks(previous)
+	for name in pairs(Ranks(r)) do
+		if before[name] == nil then return name end
+	end
+	return nil
+end
+
 function Data.Receive(r, sender)
 	if not ns.IsFederation(r.guild) then return false end
-	-- Our own guild comes straight from our roster, never from someone else's claim.
-	if r.guild == GetGuildInfo("player") then return false end
+	-- Our own guild comes straight from our roster, never from someone else's claim (in any spelling).
+	local mine = GetGuildInfo("player")
+	if mine and r.guild:lower() == mine:lower() then return false end
 	local who = ns.FullName(sender)
-	if senderGuild[who] and senderGuild[who] ~= r.guild then
+	if not Data.ClaimGuild(who, r.guild) then
 		ns.Log("ignored %s: already reported %s, now claims %s", who, senderGuild[who], r.guild)
 		return false
 	end
-	senderGuild[who] = r.guild
 	local previous = ns.rdb.guilds[r.guild]
 	local previousWho = previous and (previous.reporterFull or ns.FullName(previous.reporter))
-	if previousWho and previousWho ~= who then
-		if (previous.leader or "") ~= (r.leader or "") or math.abs((previous.total or 0) - (r.total or 0)) > 25 then
-			r.conflict = true
-			ns.Log("conflict on %s: %s says %s/%d, %s says %s/%d", r.guild, previousWho, tostring(previous.leader),
-				previous.total or 0, who, tostring(r.leader), r.total or 0)
-		end
-	end
 	r.t = ns.Now()
 	r.reporter = ns.DisplayName(who)
 	r.reporterFull = who
 	r.realm = ns.RealmOf(who) or ns.realm
+	if previousWho and previousWho ~= who then
+		local added = AddedName(previous, r)
+		if (previous.leader or "") ~= (r.leader or "") or math.abs((previous.total or 0) - (r.total or 0)) > 25 or added then
+			r.conflict = true
+			ns.Log("conflict on %s: %s says %s/%d, %s says %s/%d%s", r.guild, previousWho, tostring(previous.leader),
+				previous.total or 0, who, tostring(r.leader), r.total or 0, added and (", adds " .. added) or "")
+		end
+	end
+	-- One realm can't hold two guilds whose names differ only by case: while another spelling
+	-- is fresh, one of the two is forged.
+	for name, g in pairs(ns.rdb.guilds) do
+		if name ~= r.guild and name:lower() == r.guild:lower() and r.t - (g.t or 0) <= Data.FRESH then
+			r.conflict = true
+			ns.Log("conflict on %s: %s reports it as %s", name, who, r.guild)
+		end
+	end
+	-- The last fresh report someone else sent about this guild: KnownRank needs it to prove
+	-- this sender's own rank. The same sender keeps the one it had.
+	if previousWho == who then
+		r.witness = previous.witness
+	elseif previousWho and not previous.conflict and not r.conflict and r.t - (previous.t or 0) <= Data.FRESH then
+		r.witness = Ranks(previous)
+	end
 	ns.rdb.guilds[r.guild] = r
 	ns.Fire("DATA_CHANGED")
 	return true
@@ -91,20 +137,20 @@ end
 
 -- What rank does this sender really have in that guild? Our own guild: from our roster.
 -- Other guilds: from that guild's report (leader = 0, officers = 1). nil = unknown.
--- Names in a report without a realm belong to the reporter's realm, so a same-named
--- player from another realm never matches.
 function Data.KnownRank(sender, guild)
 	local who = ns.FullName(sender)
 	if guild == GetGuildInfo("player") then return ns.Roster.RankOf(who) end
 	local g = ns.rdb.guilds[guild]
 	-- A report kept from an earlier session proves nothing about who leads the guild now.
 	if not g or g.conflict or ns.Now() - (g.t or 0) > Data.FRESH then return nil end
-	local home = g.realm or ns.realm
-	if g.leader and ns.FullName(g.leader, home) == who then return 0 end
-	for _, o in ipairs(g.officers or {}) do
-		if ns.FullName(o.name, home) == who then return 1 end
+	local rank = Ranks(g)[who]
+	-- Anyone can send a report, so it never proves its own sender's rank: the last report
+	-- someone else sent about that guild must name them too.
+	if rank and (g.reporterFull or ns.FullName(g.reporter)) == who then
+		local other = g.witness and g.witness[who]
+		rank = other and math.max(rank, other) or nil
 	end
-	return nil
+	return rank
 end
 
 function Data.Summary()

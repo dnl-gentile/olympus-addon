@@ -10,6 +10,7 @@ local ADDON, ns = ...
 --   levels  7 comma separated counts: 1-9, 10-19, ..., 50-59, 60+
 -- Chunk:   C<id>:<i>:<n>:<piece>   (addon messages are limited to 255 bytes)
 -- Hello:   H1~<version>            (sent on GUILD so members with the addon find each other)
+-- Chat:    M1~tier~guild~id~class~text   (tier A|C|L, id 0-9999 per part, class 2 letters or empty)
 
 local Codec = {}
 ns.Codec = Codec
@@ -35,6 +36,11 @@ local function split(s, sep)
 	end
 end
 Codec.Split = split
+
+-- WoW limits guild names to 24 characters, not bytes (an accented letter takes 2 or 3 bytes).
+local function LongGuild(guild)
+	return #guild > 72 or select(2, guild:gsub("[^\128-\191]", "")) > 24
+end
 
 local function num(v)
 	local n = tonumber(v)
@@ -183,7 +189,7 @@ function Codec.DecodeReport(s)
 	local f = split(s, "~")
 	if (f[1] ~= "R1" and f[1] ~= "R2") or #f < 10 then return nil end
 	local guild = f[2]
-	if guild == "" or #guild > 24 then return nil end
+	if guild == "" or LongGuild(guild) then return nil end
 	local total, online = num(f[3]), num(f[4])
 	if not total or not online then return nil end
 	local levels = {}
@@ -238,7 +244,7 @@ end
 
 function Codec.DecodeLayer(s)
 	local mapID, zoneUID, rank, guild = s:match("^L1~(%d+)~(%d+)~(%d+)~(.*)$")
-	if not mapID or #guild > 24 then return nil end
+	if not mapID or LongGuild(guild) then return nil end
 	return { mapID = tonumber(mapID), zoneUID = tonumber(zoneUID), rank = math.min(tonumber(rank), 9), guild = guild }
 end
 
@@ -257,7 +263,7 @@ end
 
 function Codec.DecodeShame(s)
 	local guild, rank, body = s:match("^S1~([^~]*)~(%d+)~(.*)$")
-	if not guild or #guild > 24 then return nil end
+	if not guild or LongGuild(guild) then return nil end
 	local list = {}
 	for name, g in body:gmatch("([^,:]+):([^,]*)") do
 		if #list >= Codec.MAX_SHAME then break end
@@ -273,10 +279,125 @@ end
 
 function Codec.DecodeDecree(s)
 	local kind, mapID, x, y, guild, rank, text = s:match("^D1~(%u+)~(%d+)~(%d+)~(%d+)~([^~]*)~(%d+)~(.*)$")
-	if not kind or not Codec.DECREE_KINDS[kind] or #guild > 24 then return nil end
+	if not kind or not Codec.DECREE_KINDS[kind] or LongGuild(guild) then return nil end
 	x, y = tonumber(x), tonumber(y)
 	if x > 1000 or y > 1000 then return nil end
 	return { kind = kind, mapID = tonumber(mapID), x = x / 1000, y = y / 1000, guild = guild, rank = tonumber(rank), text = text:sub(1, 120) }
+end
+
+---------------------------------------------------------------------------
+-- Chat lines of the channels (Channels.lua): M1~tier~guild~id~class~text
+-- The text is the last field, so it keeps ~ : , = as typed. Each message is one line part
+-- (never chunked): a long line is split into at most CHAT_PARTS messages that stand alone.
+---------------------------------------------------------------------------
+
+Codec.CHAT_MAX = 250
+Codec.CHAT_PARTS = 3
+Codec.CHAT_TIERS = { A = true, C = true, L = true }
+local LINK_TYPES = { item = true, spell = true, enchant = true, quest = true, achievement = true }
+
+-- Length of a link we let through that starts at i, or nil: an optional colour (Classic
+-- |cAARRGGBB or Mainline |cnNAME:), |Htype:data|h[text]|h with a whitelisted type, and |r
+-- when it was coloured. Shift-clicked items and spells look exactly like this. A control byte
+-- in the text (a newline that fakes a second chat line) means it is not a link we keep.
+local function LinkAt(s, i)
+	local j = i
+	local color = s:match("^|c%x%x%x%x%x%x%x%x", j) or s:match("^|cn[%w_]+:", j)
+	if color then j = j + #color end
+	local kind, data, text = s:match("^|H(%a+):([%w:%-%.]*)|h%[([^|%]%c]*)%]|h", j)
+	if not kind or not LINK_TYPES[kind] then return nil end
+	j = j + #kind + #data + #text + 9 -- "|H" ":" "|h[" "]|h"
+	if color then
+		if s:sub(j, j + 1) ~= "|r" then return nil end
+		j = j + 2
+	end
+	return j - i
+end
+Codec.LinkAt = LinkAt
+
+-- Chat text as it may be shown: whitelisted links and "||" stay, every other "|" becomes "||"
+-- (so textures, atlases, colours, fake links and the like show as plain text), control bytes go.
+-- Idempotent: the sender's own echo is exactly what everyone else sees.
+function Codec.SanitizeChat(s)
+	s = tostring(s or "")
+	local out, i, n = {}, 1, #s
+	while i <= n do
+		local j = s:find("[%z\1-\31|\127]", i)
+		if not j then
+			out[#out + 1] = s:sub(i)
+			break
+		end
+		if j > i then out[#out + 1] = s:sub(i, j - 1) end
+		if s:byte(j) ~= 124 then
+			i = j + 1 -- control byte: dropped
+		elseif s:byte(j + 1) == 124 then
+			out[#out + 1] = "||"
+			i = j + 2
+		else
+			local len = LinkAt(s, j)
+			out[#out + 1] = len and s:sub(j, j + len - 1) or "||"
+			i = j + (len or 1)
+		end
+	end
+	return (table.concat(out):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- Room for the text in one message: CHAT_MAX minus "M1~", the tier, 4 separators, a 4 digit id,
+-- the guild and the class.
+function Codec.ChatBudget(guild, class)
+	return Codec.CHAT_MAX - (12 + #clean(guild) + #clean(class))
+end
+
+local function IsContinuation(b)
+	return b ~= nil and b >= 128 and b < 192
+end
+
+-- Splits sanitized text into at most maxParts parts of at most `budget` bytes each. A cut never
+-- lands inside a UTF-8 character, a link or a "||", and falls on a space when one is near.
+-- Returns parts, cut (true when text beyond maxParts was lost).
+function Codec.SplitChat(s, budget, maxParts)
+	local parts = {}
+	s = (s or ""):gsub("^%s+", "")
+	while s ~= "" and #parts < maxParts do
+		if #s <= budget then
+			parts[#parts + 1] = s
+			s = ""
+			break
+		end
+		-- Walk span by span ("||", a whole link, or one byte) up to the budget.
+		local cut, i, space = 0, 1, nil
+		while i <= #s do
+			local len = 1
+			if s:byte(i) == 124 then len = s:byte(i + 1) == 124 and 2 or LinkAt(s, i) or 1 end
+			if i + len - 1 > budget then break end
+			if len == 1 and s:byte(i) == 32 then space = i end
+			cut = i + len - 1
+			i = i + len
+		end
+		if cut < 1 then cut = budget end -- one link longer than the budget: shown as plain text
+		while cut > 1 and IsContinuation(s:byte(cut + 1)) do cut = cut - 1 end
+		-- Only spaces between spans count: a link's name can have spaces too.
+		if space and space > 1 and space <= cut and space > cut - 40 then cut = space - 1 end
+		parts[#parts + 1] = (s:sub(1, cut):gsub("%s+$", ""))
+		s = s:sub(cut + 1):gsub("^%s+", "")
+	end
+	return parts, s ~= ""
+end
+
+-- `text` must already be sanitized and split to fit (Channels.Send does both).
+function Codec.EncodeChat(tier, guild, id, class, text)
+	local msg = ("M1~%s~%s~%d~%s~"):format(tier, clean(guild), id % 10000, clean(class or "")) .. text
+	if #msg > 255 then return nil end
+	return msg
+end
+
+function Codec.DecodeChat(s)
+	if type(s) ~= "string" or #s > 255 then return nil end
+	local tier, guild, id, class, text = s:match("^M1~(%u)~([^~|]+)~(%d%d?%d?%d?)~(%u?%u?)~(.+)$")
+	if not tier or not Codec.CHAT_TIERS[tier] or LongGuild(guild) or guild:find("%c") then return nil end
+	text = Codec.SanitizeChat(text)
+	if text == "" then return nil end
+	return { tier = tier, guild = guild, id = tonumber(id), class = class ~= "" and class or nil, text = text }
 end
 
 function Codec.Chunk(payload, id)
