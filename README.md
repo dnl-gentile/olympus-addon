@@ -29,9 +29,9 @@ looks like Blizzard's Guild window and docks right next to it.
 
 <sub>Screenshots were taken with example data.</sub>
 
-> **Status:** built for WoW: Forever and tested on Classic Era (1.15) and Anniversary (2.5).
-> The author has no Forever beta access yet, so please report anything that behaves
-> differently there (`/oly bug`).
+> **Status:** built for WoW: Forever and running on the Forever beta (1.60.1), where the
+> census already adds up reports from many Olympus guilds. Also tested on Classic Era (1.15)
+> and Anniversary (2.5). Please report anything that looks wrong (`/oly bug`).
 
 ---
 
