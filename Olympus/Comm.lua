@@ -37,6 +37,7 @@ local stats = { sent = 0, recv = 0, reports = 0, fails = 0, bad = 0, partial = 0
 	raw = { ch = {}, g = {} }, rawSample = {}, reportRealms = {}, otherChannel = 0, asked = 0, answered = 0 }
 local deliveredLogged = false -- true while a CHAT_MSG_ADDON_LOGGED message is being handled
 local lastAnswer = -math.huge
+local askTries = 0 -- census requests tried while the channel was not joined (Comm.AskCensus)
 local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
 local peerRealm = {} -- guild peer -> realm from its hello, "old" for versions that send none
 local peerSealed = {} -- guild peer -> "s" (on the sealed channel) or "p" (public), from its hello
@@ -261,6 +262,11 @@ end
 function Comm.JoinChannel()
 	if not ns.IsMember() then return end
 	local name, password = Comm.ChannelSpec()
+	if joinedName and joinedName ~= name then
+		-- Another channel (the realm key arrived): its reporters have not heard our request.
+		askTries = 0
+		ns.After(10, "census request", Comm.AskCensus)
+	end
 	if joinedName and joinedName ~= name and GetChannelName(joinedName) > 0 then
 		LeaveChannelByName(joinedName) -- the key changed: leave the old channel
 		channelIndex = 0
@@ -400,21 +406,40 @@ end
 -- every login starts with an empty census: we ask the channel once (Q1), and each guild's
 -- reporter sends its report right away instead of within 3 minutes. Bounded: a reporter
 -- answers at most once every ANSWER_GAP, and only if its last report is ANSWER_MIN_AGE old.
+-- Tries again a little later while the channel is not joined yet (at most 3 times), and once
+-- more after the channel changes (the realm key arrived).
 function Comm.AskCensus()
-	if not ns.IsMember() or channelIndex == 0 then return end
+	if not ns.IsMember() then return end
+	if channelIndex == 0 then
+		askTries = askTries + 1
+		if askTries < 3 then ns.After(20, "census request", Comm.AskCensus) end
+		return
+	end
 	stats.asked = stats.asked + 1
 	Enqueue("CHANNEL", "Q1~", "censusreq")
 end
 
+-- Right after login we may think we are the reporter only because we have not heard our
+-- guildmates yet (see MaybeBroadcast): no answers then.
+local function Settled(now)
+	return now - (Comm.loginAt or 0) >= HELLO_EVERY + 10
+end
+
+-- The reporter answers, and the runner-up too (a little later): a client that just logged in
+-- then has two senders' word on each guild at once, which the Crown needs (Data.KnownRank).
 Comm.Handle("Q1", function(dist, sender, text)
-	if dist ~= "CHANNEL" or not Comm.isReporter or not Comm.lastReport then return end
+	if dist ~= "CHANNEL" or not Comm.lastReport or not (Comm.isReporter or Comm.isRunnerUp) then return end
 	local now = ns.Now()
-	if now - lastAnswer < ANSWER_GAP or now - lastBroadcast < ANSWER_MIN_AGE then return end
+	if not Settled(now) or now - lastAnswer < ANSWER_GAP or now - lastBroadcast < ANSWER_MIN_AGE then return end
 	lastAnswer = now
 	stats.answered = stats.answered + 1
-	-- A short random delay spreads the answers of every guild's reporter.
-	ns.After(math.random(1, 8), "census answer", function()
-		if Comm.isReporter and Comm.lastReport and ns.Now() - lastBroadcast >= ANSWER_MIN_AGE then Comm.Broadcast(Comm.lastReport) end
+	-- A short random delay spreads the answers of every guild.
+	local delay = Comm.isReporter and math.random(1, 8) or math.random(9, 16)
+	ns.After(delay, "census answer", function()
+		local later = ns.Now()
+		if (Comm.isReporter or Comm.isRunnerUp) and Comm.lastReport and Settled(later) and later - lastBroadcast >= ANSWER_MIN_AGE then
+			Comm.Broadcast(Comm.lastReport)
+		end
 	end)
 end)
 
@@ -428,8 +453,14 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 			stats.chanArgs = ("localID=%s name=%s target=%s"):format(tostring(localID), tostring(channelName), tostring(target))
 		end
 		if type(localID) == "number" and localID > 0 and localID ~= channelIndex then
-			stats.otherChannel = stats.otherChannel + 1
-			return
+			-- Our number may be stale (just after a /reload, or the channel moved): ask again.
+			local name = joinedName or Comm.ChannelSpec()
+			local id = name and GetChannelName and GetChannelName(name) or 0
+			if id and id > 0 and joinedName then channelIndex = id end
+			if id ~= localID then
+				stats.otherChannel = stats.otherChannel + 1
+				return
+			end
 		end
 	end
 	-- The sender as the server sent it: which realms get a suffix tells the realms apart.

@@ -102,7 +102,7 @@ local function Vouched(g, ...)
 	for _, o in ipairs(g.officers or {}) do ranks[full(o.name)] = 1 end
 	if g.leader then ranks[full(g.leader)] = 0 end
 	g.vouch = {}
-	for _, src in ipairs({ ... }) do g.vouch[src] = { t = g.t, ranks = ranks } end
+	for _, src in ipairs({ ... }) do g.vouch[src] = { t = g.t, sig = "fixture", ranks = ranks } end
 	return g
 end
 
@@ -2820,7 +2820,7 @@ test("a report never vouches for its own sender", function()
 	ns.rdb.guilds = {}
 end)
 
-test("forged reports: repeating settles nothing, stale reports still count, strangers can't confirm", function()
+test("ranks come from the picture most senders agree on; forgers can't move it", function()
 	ns.Roster.Scan()
 	ns.rdb.guilds = {}
 	local D = ns.Data
@@ -2832,40 +2832,63 @@ test("forged reports: repeating settles nothing, stale reports still count, stra
 	local clock = os.time()
 	ns.Now = function() return clock end
 	local ok, err = pcall(function()
-		-- <Olympus> as its two real reporters send it.
+		-- <Olympus> as its reporter and runner-up send it.
 		eq(Report("Olympus", "King", "Duke:1:0", "Crier-Realm"), true)
 		eq(Report("Olympus", "King", "Duke:1:0", "Clerk-Realm"), true)
-		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "two reporters name the officer")
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "two senders name the officer")
 		eq(D.KnownRank("King-Realm", "Olympus"), 0, "and the King")
-		-- Their last report is 20 minutes old (nobody of <Olympus> online): a forger adds a name.
-		clock = clock + 20 * 60
-		eq(Report("Olympus", "King", "Duke:1:0,Villain:1:0", "Yscribe-Realm"), true)
-		eq(ns.rdb.guilds.Olympus.conflict, true, "an added officer is a conflict, however old the last report")
-		eq(D.KnownRank("Villain-Realm", "Olympus"), nil)
-		-- Saying it again settles nothing.
+		-- One outsider copies the report (fine), then adds an accomplice: one vote against two.
 		clock = clock + 60
-		eq(Report("Olympus", "King", "Duke:1:0,Villain:1:0", "Yscribe-Realm"), true)
-		eq(ns.rdb.guilds.Olympus.conflict, true, "still contested")
-		eq(D.KnownRank("Villain-Realm", "Olympus"), nil, "no rank while contested")
-		-- A second stranger "confirms": two new names can't confirm each other.
-		eq(Report("Olympus", "King", "Duke:1:0,Villain:1:0", "Accomplice-Realm"), true)
-		eq(ns.rdb.guilds.Olympus.conflict, true, "strangers can't confirm a change")
-		eq(D.KnownRank("Villain-Realm", "Olympus"), nil)
-		-- A real reporter comes back: the agreed picture wins, and the contest is over.
+		eq(Report("Olympus", "King", "Duke:1:0", "Aaa-Realm"), true)
+		clock = clock + 1
+		eq(Report("Olympus", "King", "Duke:1:0,Bbb:1:0", "Aaa-Realm"), true)
+		eq(D.KnownRank("Bbb-Realm", "Olympus"), nil, "the copy-then-add trick gives nothing")
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "and costs the real officers nothing")
+		eq(ns.rdb.guilds.Olympus.conflict, true, "the forged report shows as a conflict")
+		-- Its own report never makes a sender anything.
+		eq(Report("Olympus", "King", "Duke:1:0,Aaa:1:0", "Aaa-Realm"), true)
+		eq(D.KnownRank("Aaa-Realm", "Olympus"), nil)
+		-- Two forgers against two reporters: contested, nobody's rank counts until it is settled.
+		eq(Report("Olympus", "King", "Duke:1:0,Aaa:1:0", "Ccc-Realm"), true)
+		eq(D.KnownRank("Aaa-Realm", "Olympus"), nil, "a tie is no majority")
+		eq(D.KnownRank("Duke-Realm", "Olympus"), nil, "contested: no rank counts")
+		-- Their votes expire when they stop; the real reporters' stay fresh.
+		clock = clock + 20 * 60
 		eq(Report("Olympus", "King", "Duke:1:0", "Crier-Realm"), true)
-		eq(ns.rdb.guilds.Olympus.conflict, nil, "settled by a known reporter")
-		eq(D.KnownRank("Villain-Realm", "Olympus"), nil, "the forger's name never counted")
-		eq(D.KnownRank("Duke-Realm", "Olympus"), 1)
-		-- A real promotion: one known reporter adds a name, the other one confirms it.
+		eq(Report("Olympus", "King", "Duke:1:0", "Clerk-Realm"), true)
+		clock = clock + 11 * 60
+		eq(Report("Olympus", "King", "Duke:1:0", "Crier-Realm"), true)
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "the forgers' votes are over 30 minutes old")
+		eq(D.KnownRank("Aaa-Realm", "Olympus"), nil)
+		-- A real promotion: split while only one of the two has reported it, then agreed.
 		eq(Report("Olympus", "King", "Duke:1:0,Earl:1:0", "Clerk-Realm"), true)
-		eq(ns.rdb.guilds.Olympus.conflict, true, "a promotion shows as a conflict once")
+		eq(D.KnownRank("Earl-Realm", "Olympus"), nil, "one sender so far")
 		eq(Report("Olympus", "King", "Duke:1:0,Earl:1:0", "Crier-Realm"), true)
-		eq(ns.rdb.guilds.Olympus.conflict, nil, "confirmed by a second known reporter")
-		eq(D.KnownRank("Earl-Realm", "Olympus"), 1)
+		eq(D.KnownRank("Earl-Realm", "Olympus"), 1, "both reporters name him")
+		-- Another guild: an outsider swapping the leader for an accomplice gets no Lord.
+		eq(Report("Olympus Zeus", "Zeus", "", "Zclerk-Realm"), true)
+		eq(Report("Olympus Zeus", "Zeus", "", "Zcrier-Realm"), true)
+		eq(Report("Olympus Zeus", "Bbb2", "", "Aaa2-Realm"), true)
+		eq(D.KnownRank("Bbb2-Realm", "Olympus Zeus"), nil, "leader swap: one vote against two")
+		eq(D.KnownRank("Zeus-Realm", "Olympus Zeus"), 0)
 	end)
 	ns.Now = savedNow
 	ns.rdb.guilds = {}
 	if not ok then error(err, 0) end
+end)
+
+test("reporter and runner-up on two realms of the group picture the guild the same way", function()
+	ns.rdb.guilds = {}
+	local D = ns.Data
+	local LEVELS = "~0,0,0,0,0,0,0~~"
+	-- Boss plays on our realm. Our reporter names him bare; the runner-up plays on PvP 2, where
+	-- Boss carries his realm, and reaches us with its own.
+	eq(D.Receive(Codec.DecodeReport("R2~Olympus Span2~50~5~Boss~1~1~~" .. LEVELS .. "Capt:1:0"), "Here"), true)
+	eq(D.Receive(Codec.DecodeReport("R2~Olympus Span2~50~5~Boss-Realm~1~1~~" .. LEVELS .. "Capt-Realm:1:0"), "There-Other"), true)
+	eq(ns.rdb.guilds["Olympus Span2"].conflict, nil, "the same people, not a conflict")
+	eq(D.KnownRank("Boss-Realm", "Olympus Span2"), 0, "a Lord on two senders' word")
+	eq(D.KnownRank("Capt", "Olympus Span2"), 1)
+	ns.rdb.guilds = {}
 end)
 
 test("ranks of other guilds: never your own word, the Crown on two, and only while recent", function()
@@ -3453,6 +3476,40 @@ test("runner-up backs an active reporter; census on request, bounded", function(
 		for _ = 1, 40 do C2.Pump() end
 		eq(Chunks(), afterAnswer, "not twice within 2 minutes")
 		eq(C2.Stats().answered, 1)
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("census requests: nobody answers in their first minute, the runner-up answers too", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		-- Just logged in: alone so far, so we think we are the reporter, but must not answer.
+		local cns, Deliver = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock
+		C.JoinChannel()
+		local fired = 0
+		cns.After = function(_, _, fn) fired = fired + 1; fn() end
+		C.MaybeBroadcast(ours)
+		cns.clock = cns.clock + 30
+		Deliver("CHANNEL", "Newbie", "Q1~")
+		eq(C.Stats().answered, 0, "not in the first minute after login")
+		-- Settled, and the runner-up of an active reporter: answers.
+		local cns2, Deliver2, Report2 = FreshComm()
+		local C2 = cns2.Comm
+		C2.loginAt = cns2.clock - 1000
+		C2.JoinChannel()
+		cns2.After = function(_, _, fn) fn() end
+		Deliver2("GUILD", "Abe", "H1~0.7.11~Realm~p")
+		Report2("Abe", { guild = MY_GUILD, total = 1000, online = 300, zones = {} })
+		C2.MaybeBroadcast(ours)
+		eq(C2.isRunnerUp, true)
+		cns2.clock = cns2.clock + 60
+		Deliver2("CHANNEL", "Newbie", "Q1~")
+		eq(C2.Stats().answered, 1, "the runner-up answers")
 	end)
 	GetChannelName, C_ChatInfo = savedChannel, nil
 	if not ok then error(err, 0) end

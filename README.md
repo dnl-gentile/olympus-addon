@@ -204,19 +204,18 @@ copy. No addon can prevent that. What this one does is make an edited copy usele
   - A decree counts only if the sender really is the Lord or a Captain of that guild,
     according to that guild's own roster report, or our own roster for our own guild.
     The rank written inside the message is ignored.
-  - A report never proves its own sender's rank: someone else's report about that guild from
-    the last 30 minutes must name them. The runner-up of each guild's election also reports
-    every 10 minutes, so a Lord or officer who is the elected reporter is still verified.
-    (An officer who is the only one of their guild with the addon is not.)
-  - **The Crown** (any guild master, the officers of `<Olympus>`) is taken on the word of two
-    different senders only.
+  - **Ranks come from the picture most senders agree on.** Every report from the last 30
+    minutes is its sender's vote on who leads the guild and who its officers are. One sender
+    changing or repeating a report can't move the majority, and two pictures with as many
+    senders each are a contest in which nobody's rank counts.
+  - A report never proves its own sender's rank: someone else's vote must name them. The
+    runner-up of each guild's election also reports every 10 minutes (and answers census
+    requests), so a Lord or officer who is the elected reporter is still verified. (An officer
+    who is the only one of their guild with the addon is not.)
+  - **The Crown** (any guild master, the officers of `<Olympus>`) needs two senders naming them.
   - A sender speaks for one guild only (a player who changed guilds can speak for the new one
-    after 15 quiet minutes).
-  - A guild whose reports disagree about its leader, its size or its officers is flagged, and
-    its ranks are not trusted. So are two spellings of a guild name that differ only in capitals.
-    However old the last report is, an added name is a disagreement, and sending the same
-    report again settles nothing: the flag stays until someone who reported that guild before
-    agrees with one side. Two new names can't confirm each other.
+    after 15 quiet minutes). Two spellings of a guild name that differ only in capitals both
+    lose their ranks while both are fresh.
 - **Only our channel counts**: addon messages that arrive on any other chat channel are
   ignored, so the sealed channel really keeps outsiders out.
 - **Sealed channel** (`/oly key`): outsiders can't find the channel or join it.
@@ -229,14 +228,15 @@ copy. No addon can prevent that. What this one does is make an edited copy usele
 - `/oly block <name>` ignores a player completely.
 
 Limits, stated honestly:
-- Two cooperating characters can still invent a guild with "Olympus" in its name (both send
-  its report and name one of them as its leader) and so reach [Lords] and the Crown's decrees.
-  So can anyone who really founds such a guild. Against a real guild they need a client that
-  has not heard that guild's own reporters yet.
-- **On the Forever beta that is every login**: its client saves addon data but never loads it
-  back ([a known beta bug](https://us.forums.blizzard.com/en/wow/t/savedvariables-never-load-in-the-beta-%E2%80%94-all-addon-settings-reset-on-login-69913/2354798)),
-  so every session starts without history, settings or realm key. The census still refills in
-  seconds: a client that logs in asks the channel, and each guild's reporter answers at once.
+- Cooperating characters can still invent a guild with "Olympus" in its name (two of them
+  sending its report and naming a third as its leader) and so reach [Lords] and the Crown's
+  decrees. So can anyone who really founds such a guild. Against a real guild, two of them
+  can only tie its reporter and runner-up (its ranks stop counting while they keep at it);
+  taking it over needs more senders than the guild has reporting.
+- **The Forever beta forgets addon data at every login**: its client saves it but never loads
+  it back ([a known beta bug](https://us.forums.blizzard.com/en/wow/t/savedvariables-never-load-in-the-beta-%E2%80%94-all-addon-settings-reset-on-login-69913/2354798)),
+  so settings and the realm key reset every session. The census still refills in seconds: a
+  client that logs in asks the channel, and each guild's reporter and runner-up answer at once.
 - A real Olympus member who edits their copy could still send a wrong report for **their own**
   guild. Their guildmates' reports and the conflict flag make a changed leader, size or officer
   list visible, but it can't be made impossible.
