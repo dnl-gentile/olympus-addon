@@ -72,6 +72,30 @@ Any soldier can reach the Lord of another Olympus guild in two clicks.
 *The Crown* means the guild masters of Olympus guilds and the officers of the main
 `<Olympus>` guild. Everyone else gets a local preview when they press the buttons.
 
+### Channels
+Chat for the whole federation, carried by the addon over its hidden Olympus channel (no
+WoW channel number to join). Each channel is exclusive to a rank:
+
+| Channel | Command | Who reads and writes |
+|---|---|---|
+| **[Olympus]** | `/ol <text>` | every member of every Olympus guild |
+| **[Captains]** | `/olc <text>` | the Captains (rank 1) and Lords of every Olympus guild |
+| **[Lords]** | `/oll <text>` | the Lords (every guild master, the King included) and the officers of `<Olympus>` |
+
+- Higher ranks also use the channels below theirs: a Lord writes in all three.
+- `/oly mute captains` (or `olympus`, `lords`) hides a channel in chat; the same command shows it again.
+- Shift-click an item or spell into the line and it stays a link. Long lines are split into
+  up to 3 messages.
+- The channels show only in the chat of players with the addon.
+- Ranks follow the rule of the decrees: whoever founds a guild with "Olympus" in its name is
+  its Lord and gets [Lords], and its officers get [Captains].
+
+**Not encrypted, not private:** every client on the hidden Olympus channel receives the text of
+all three channels, and the addon only decides what to show. Anyone on that channel can read
+[Captains] and [Lords] with a one-line script: without `/oly key` that is anyone who joins
+"OlympusNet" by name; with a key, every member of the guilds that have it. The guild tag on an
+[Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
+
 ### Tabards: tabard inspection and the Wall of Shame
 - **Patrol**: walk through the crowd and the addon inspects nearby Olympus members one by
   one (about 28 yards). It records who wears a tabard, who wears the wrong one and who
@@ -88,7 +112,8 @@ Any soldier can reach the Lord of another Olympus guild in two clicks.
 
 ### Everywhere
 - **Copy**: every tab produces a ready-to-paste text for Discord.
-- The window opens from `/oly`, the minimap button, or the round button in your Guild window.
+- The window opens from `/oly`, the minimap button, or the round button in your guild window:
+  the old Guild tab or the new Guild & Communities window, whichever one you use.
 - English and Portuguese (follows the game language).
 
 ## Install
@@ -107,7 +132,7 @@ game in the app, not Classic Era.
 4. Go into `Interface\AddOns\` (create `Interface` and `AddOns` if they don't exist) and
    extract the zip there, so you end up with `...\Interface\AddOns\Olympus\Olympus.toc`.
    Careful: Windows' *Extract All* adds a folder named after the zip
-   (`AddOns\Olympus-0.7.9\Olympus\...`). If that happens, move the `Olympus` folder up into
+   (`AddOns\Olympus-0.7.10\Olympus\...`). If that happens, move the `Olympus` folder up into
    `AddOns`; the game only loads it from `AddOns\Olympus\`.
 5. **Restart the game.** If the addon list says *out of date*, tick **Load out of date AddOns**.
 
@@ -157,16 +182,27 @@ copy. No addon can prevent that. What this one does is make an edited copy usele
   - A decree counts only if the sender really is the Lord or a Captain of that guild,
     according to that guild's own roster report, or our own roster for our own guild.
     The rank written inside the message is ignored.
+  - A report never proves its own sender's rank: the last report someone else sent about that
+    guild must name them too. (So an officer who is the only one of their guild with the addon
+    is not verified by other guilds.)
   - A sender can report only one guild.
-  - A guild whose reports disagree about its leader or size is flagged, and its ranks are not trusted.
+  - A guild whose reports disagree about its leader, its size or its officers is flagged, and
+    its ranks are not trusted. So are two spellings of a guild name that differ only in capitals.
 - **Sealed channel** (`/oly key`): outsiders can't find the channel or join it.
 - **Validation**: every number is range checked, names are length limited, and malformed
   messages are dropped. Decrees are rate limited per sender and in total.
+- **Channels**: [Captains]/[Lords] lines count only if the sender's rank is verified like
+  decrees; everyone else can use [Olympus] only. Sent with Blizzard's logged addon-message
+  function; rate limited per sender and per channel, and no single sender can fill a channel.
 - `/oly block <name>` ignores a player completely.
 
-Limits, stated honestly: a real Olympus member who edits their copy could still send a
-wrong report for **their own** guild. Their guildmates' reports and the conflict flag make
-that visible, but it can't be made impossible.
+Limits, stated honestly:
+- Two cooperating characters can still invent a guild with "Olympus" in its name (one sends
+  its report and names the other as its leader) and so reach [Lords] and the Crown's decrees.
+  So can anyone who really founds such a guild.
+- A real Olympus member who edits their copy could still send a wrong report for **their own**
+  guild. Their guildmates' reports and the conflict flag make a changed leader, size or officer
+  list visible, but it can't be made impossible.
 
 ## Built for a crowd of thousands
 
@@ -175,6 +211,8 @@ that visible, but it can't be made impossible.
 - Layers are announced by officers plus a stable 1 in 8 sample, every 10 minutes.
 - Messages are spaced 1.2 s apart, below Blizzard's addon message limits, and alert sounds
   play at most once every 15 seconds.
+- Chat has its own short lane: a line goes out within about a second, and while reports are
+  waiting it never takes more than every other message slot.
 
 ## Commands
 
@@ -185,6 +223,9 @@ that visible, but it can't be made impossible.
 | `/oly patrol` | start or stop the tabard patrol |
 | `/oly mark [note]` | mark your target |
 | `/oly arms [text]` · `/oly muster [text]` | send a decree (`test` = local preview) |
+| `/ol <text>` · `/olc <text>` · `/oll <text>` | write in [Olympus], [Captains] or [Lords] |
+| `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |
+| `/oly mute olympus` · `/oly mute captains` · `/oly mute lords` | hide or show a channel in chat |
 | `/oly key <secret>` | officers: seal the Olympus channel |
 | `/oly block <name>` | ignore a player |
 | `/oly map` | zone markers on the world map |

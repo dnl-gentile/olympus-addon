@@ -187,6 +187,23 @@ local function GuildTooltip(e)
 	end
 end
 
+-- A guild only /who has seen: all we know is how many of it were online.
+local function SeenTooltip(e)
+	return function(tt)
+		tt:AddLine("<" .. e.name .. ">", 0.6, 0.6, 0.6)
+		tt:AddDoubleLine(L.SEEN_ONLINE, ns.FormatNumber(e.online) .. (e.capped and "+" or ""), 1, 0.82, 0, 1, 1, 1)
+		tt:AddDoubleLine(L.SEEN_WHEN, ns.Ago(e.t), 1, 0.82, 0, 1, 1, 1)
+		tt:AddLine(" ")
+		tt:AddLine(L.SEEN_TIP, 0.8, 0.8, 0.8, true)
+		if e.capped then tt:AddLine(L.SEEN_CAPPED_TIP, 0.8, 0.8, 0.8, true) end
+	end
+end
+
+-- How far the round of /who searches got (Who.lua), as grey lines under a list.
+local function WhoStatus(lines)
+	for _, text in ipairs(ns.Who.StatusLines() or {}) do lines[#lines + 1] = { text = Grey(text) } end
+end
+
 ---------------------------------------------------------------------------
 -- Census
 ---------------------------------------------------------------------------
@@ -234,6 +251,17 @@ local function CensusLines(s)
 		}
 	end
 	if #lines == 0 then lines[1] = { text = Grey(L.EMPTY) } end
+	-- Guilds seen with /who that nobody reports: grey, after every reported guild, and in no
+	-- total (Data.Summary keeps them apart). Members and Lord are unknown.
+	for _, e in ipairs(s.seen or {}) do
+		local online = ns.FormatNumber(e.online) .. (e.capped and "+" or "")
+		lines[#lines + 1] = { cols = { Grey(e.name), Grey("?"), Grey(online), Grey(L.NO_ADDON) }, tooltip = SeenTooltip(e) }
+	end
+	if #(s.seen or {}) > 0 then
+		lines[#lines].gapAfter = true
+		lines[#lines + 1] = { text = Grey(L.SEEN_HINT) }
+	end
+	WhoStatus(lines)
 	return lines
 end
 
@@ -520,9 +548,12 @@ function Views.RecruitLines()
 	local lines = { { header = true, text = L.RECRUIT_TITLE } }
 	local guilds = R.Guilds()
 	if #guilds == 0 then
-		lines[#lines + 1] = { text = Grey(#R.found == 0 and R.lastWho == 0 and L.RECRUIT_START or L.RECRUIT_NONE_FOUND) }
+		lines[#lines + 1] = { text = Grey(#R.found == 0 and not ns.Who.Searched() and L.RECRUIT_START or L.RECRUIT_NONE_FOUND) }
 		return lines
 	end
+	-- "Showing 50 of 312 online", and which levels the next click searches.
+	WhoStatus(lines)
+	if #lines > 1 then lines[#lines].gapAfter = true end
 	for _, g in ipairs(guilds) do
 		lines[#lines + 1] = {
 			text = Green("<" .. g.name .. ">"),

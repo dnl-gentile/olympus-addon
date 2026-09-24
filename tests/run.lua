@@ -1,4 +1,5 @@
--- Offline tests for the pure parts of the addon (codec, election, roster scan, aggregation).
+-- Offline tests for the addon: codec, election, roster scan, aggregation, and the windows
+-- (guild window button, docking, layout) on stand-in frames.
 -- Run: luajit tests/run.lua   (from the repo root)
 
 local ROOT = (arg and arg[0] or ""):match("^(.*)tests[/\\]run%.lua$") or "./"
@@ -73,7 +74,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Data", "Roster", "Comm", "Map", "Layers", "Positions", "Decree", "Inspect", "Recruit", "Views" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Positions", "Decree", "Channels", "Inspect", "Recruit", "Views" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -81,6 +82,7 @@ ns.db = { guilds = {}, log = {}, errors = {}, blocked = {}, demo = false, showMa
 ns.me = "Tester-Realm"
 ns.realm = "Realm"
 ns.rdb = { guilds = {} }
+local CoreFire = ns.Fire -- the real one, for the tests that need INIT
 function ns.Fire() end
 
 ---------------------------------------------------------------------------
@@ -160,19 +162,23 @@ test("one reporter per guild, same answer for everyone", function()
 	eq(Codec.PickReporter("Aaron-Realm", peers, now, 180), "Aaron-Realm")
 end)
 
-test("summary sums fresh guilds and ignores stale ones and non-Olympus", function()
+test("summary keeps a stale guild's size, counts online and zones only while fresh", function()
 	local now = os.time()
 	ns.rdb.guilds = {
 		["Olympus"] = { total = 1000, online = 200, zones = { m1453 = 150, m1429 = 50 }, t = now },
 		["Olympus II"] = { total = 800, online = 100, zones = { m1453 = 100 }, t = now - 60 },
 		["Olympus Old"] = { total = 500, online = 50, zones = { m1436 = 50 }, t = now - 3600 },
+		["Olympus Gone"] = { total = 300, online = 30, zones = {}, t = now - ns.Data.KEEP - 1 },
 		["Horde Pals"] = { total = 999, online = 999, zones = {}, t = now },
 	}
 	local s = ns.Data.Summary()
-	eq(s.total, 1800); eq(s.online, 300); eq(s.fresh, 2); eq(#s.guilds, 3)
+	eq(s.total, 2300, "the last report's size stays when its reporters log off")
+	eq(s.online, 300, "online only from fresh reports"); eq(s.fresh, 2)
+	eq(#s.guilds, 3, "older than KEEP is gone, non-Olympus never counts")
 	eq(s.zoneList[1].key, "m1453"); eq(s.zoneList[1].count, 250)
+	eq(#s.zoneList, 2, "a stale guild's zones are not on the map")
 	eq(s.guilds[3].name, "Olympus Old", "stale sorted last")
-	assert(ns.Data.DiscordText():find("1,800 soldiers"), "discord text")
+	assert(ns.Data.DiscordText():find("2,300 soldiers"), "discord text")
 end)
 
 test("receive refuses reports about our own guild", function()
@@ -473,12 +479,14 @@ end
 
 test("every tab builds", function()
 	ns.rdb.guilds = SampleGuilds()
+	-- Guilds seen with /who too, one of them also reported.
+	ns.rdb.seen = { ["OLYMPUS VII"] = { online = 12, capped = true, t = os.time() }, ["Olympus"] = { online = 3, t = os.time() } }
 	ns.UI = { StatusLine = function() return "status" end }
 	for _, tab in ipairs({ "census", "realm", "decrees", "heraldry" }) do
 		local lines, title = ns.Views.Build(tab)
 		assert(#lines > 0 and title, tab)
 	end
-	ns.rdb.guilds = {}
+	ns.rdb.guilds, ns.rdb.seen = {}, nil
 end)
 
 test("layer sample is stable and about 1 in 8", function()
@@ -551,6 +559,1900 @@ test("map refresh runs end to end with a map library (continent totals included)
 	assert(calls.world >= 2, "zone pins were not added")
 	local totals = ns.Map.ContinentTotals(ns.Data.Summary())
 	eq(totals[1415], 10, "continent total")
+end)
+
+---------------------------------------------------------------------------
+-- Guild window button (GuildFrame.lua): old Guild tab, new Communities window, or both
+---------------------------------------------------------------------------
+
+-- A frame with just what GuildFrame.lua uses. Scripts hooked on it can be run.
+local function FakeFrame(name, parent, w, h)
+	local f = { name = name, parent = parent, w = w, h = h, shown = false, hooks = {} }
+	function f:GetName() return self.name end
+	function f:GetParent() return self.parent end
+	function f:GetWidth() return self.w end
+	function f:GetHeight() return self.h end
+	function f:GetFrameLevel() return 5 end
+	function f:GetEffectiveScale() return 1 end
+	function f:GetRect() if self.rect then return unpack(self.rect) end end -- where a test put it
+	function f:IsShown() return self.shown end
+	function f:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
+	function f:HookScript(kind, fn) self.hooks[kind] = self.hooks[kind] or {}; table.insert(self.hooks[kind], fn) end
+	function f:Run(kind) for _, fn in ipairs(self.hooks[kind] or {}) do fn(self) end end
+	function f:Show() self.shown = true; self:Run("OnShow") end
+	function f:Hide() self.shown = false; self:Run("OnHide") end
+	return f
+end
+
+-- Loads GuildFrame.lua with fresh state into a namespace of its own. Its events and LOGIN
+-- are fired by hand; the Olympus window is a stand-in that remembers where it is docked,
+-- or with realUI the real UI.lua (which needs the widget toolkit further below).
+local function LoadGuildFrame(realUI)
+	local world = { events = {}, login = {}, buttons = {}, dock = { shown = false } }
+	local dock = world.dock
+	local gns = setmetatable({}, { __index = ns })
+	world.ns = gns
+	gns.RegisterEvent = function(event, fn) world.events[event] = world.events[event] or {}; table.insert(world.events[event], fn) end
+	gns.On = function() end -- UI.lua's own callbacks (minimap button at LOGIN, refreshes) stay out
+	if realUI then assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", gns) end
+	gns.On = function(name, fn) if name == "LOGIN" then table.insert(world.login, fn) end end
+	gns.MakeRoundButton = function(name, parent, size)
+		local b = setmetatable({ name = name, parent = parent, size = size, scripts = {} }, { __index = function() return function() end end })
+		function b:SetScript(kind, fn) self.scripts[kind] = fn end
+		function b:SetPoint(...) self.point = { ... } end
+		function b:Click() self.scripts.OnClick(self) end
+		world.buttons[#world.buttons + 1] = b
+		return b
+	end
+	gns.UI = realUI and gns.UI or {
+		IsShown = function() return dock.shown end,
+		DockedTo = function() return dock.host end,
+		OpenDocked = function(host, tab, heightOnly) dock.shown, dock.host, dock.tab, dock.heightOnly = true, host, tab, heightOnly end,
+		CloseIfDocked = function(host) if dock.shown and (host == nil or dock.host == host) then dock.shown = false end end,
+		FollowHost = function(host) dock.followed = host end,
+	}
+	assert(loadfile(ADDON_DIR .. "GuildFrame.lua"))("Olympus", gns)
+	world.hook = gns.GuildFrameHook
+	function world.Fire(event, ...) for _, fn in ipairs(world.events[event] or {}) do fn(...) end end
+	function world.Login() for _, fn in ipairs(world.login) do fn() end end
+	return world
+end
+
+-- Runs fn with fake Blizzard windows as globals (cleared afterwards), failing on any error
+-- the addon caught along the way.
+local GUILD_GLOBALS = { "UIParent", "FriendsFrame", "GuildFrame", "CommunitiesFrame", "ClassicUIForeverGuildPanel" }
+local function WithGuildWindows(fn)
+	local captured
+	local savedCapture = ns.CaptureError
+	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
+	UIParent = FakeFrame("UIParent")
+	UIParent.shown = true
+	local ok, err = pcall(fn)
+	ns.CaptureError = savedCapture
+	for _, name in ipairs(GUILD_GLOBALS) do _G[name] = nil end
+	if not ok then error(err, 0) end
+	eq(captured, nil, "error caught")
+end
+
+test("guild button: old UI only (Guild tab), same spot and docking as before", function()
+	WithGuildWindows(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 338, 424)
+		GuildFrame = FakeFrame("GuildFrame", FriendsFrame, 338, 424)
+		local w = LoadGuildFrame()
+		w.Login()
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 1, "hosts")
+		eq(hosts[1].kind, "old")
+		local b = w.buttons[1]
+		eq(b.name, "OlympusGuildFrameButton"); eq(b.parent, GuildFrame); eq(b.size, 26)
+		eq(b.point[1], "TOPLEFT"); eq(b.point[2], FriendsFrame); eq(b.point[3], "TOPLEFT"); eq(b.point[4], 62); eq(b.point[5], -26)
+		FriendsFrame:Show(); GuildFrame:Show()
+		b:Click()
+		eq(w.dock.host, FriendsFrame, "docks to the Social window"); eq(w.dock.tab, "census"); eq(w.dock.heightOnly, false)
+		b:Click()
+		eq(w.dock.shown, false, "a second click closes it")
+		b:Click(); FriendsFrame:Hide()
+		eq(w.dock.shown, false, "closing the Social window closes it")
+		b:Click(); GuildFrame:Hide()
+		eq(w.dock.shown, false, "leaving the Guild tab closes it")
+		-- Nothing else to hook, and scanning again (the Social window opening) hooks nothing twice.
+		w.Fire("ADDON_LOADED", "Blizzard_Communities")
+		FriendsFrame:Show()
+		eq(#w.hook.Hosts(), 1); eq(#w.buttons, 1); eq(#GuildFrame.hooks.OnHide, 1, "OnHide hooks")
+	end)
+end)
+
+test("guild button: new UI loaded at login (Forever: Communities window only)", function()
+	WithGuildWindows(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		CommunitiesFrame.MaximizeMinimizeFrame = FakeFrame(nil, CommunitiesFrame, 24, 24)
+		local w = LoadGuildFrame()
+		w.Login()
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 1, "hosts")
+		eq(hosts[1].kind, "communities")
+		local b = w.buttons[1]
+		eq(b.parent, CommunitiesFrame); eq(b.point[1], "RIGHT"); eq(b.point[2], CommunitiesFrame.MaximizeMinimizeFrame, "title bar")
+		CommunitiesFrame:Show()
+		eq(w.hook.ActiveHost(), hosts[1], "in use")
+		b:Click()
+		eq(w.dock.host, CommunitiesFrame, "docks to the Communities window"); eq(w.dock.heightOnly, true)
+		-- No Guild tab in the Social window, so nothing of ours listens to it closing (the
+		-- other way round is covered in the "both windows" and real-window tests).
+		eq(FriendsFrame.hooks.OnHide, nil, "no Social window hook without a Guild tab")
+		CommunitiesFrame:Run("OnSizeChanged")
+		eq(w.dock.followed, CommunitiesFrame, "follows minimize and maximize")
+		CommunitiesFrame:Hide()
+		eq(w.dock.shown, false, "closing the Communities window closes it")
+		local status = w.hook.StatusLine()
+		assert(status:find("communities=CommunitiesFrame", 1, true), status)
+	end)
+end)
+
+test("guild button: new UI loaded later (ADDON_LOADED), next to the unused old tab", function()
+	WithGuildWindows(function()
+		-- Classic Era with the classic guild UI off: the old tab exists but never shows.
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 338, 424)
+		GuildFrame = FakeFrame("GuildFrame", FriendsFrame, 338, 424)
+		local w = LoadGuildFrame()
+		w.Login()
+		eq(#w.hook.Hosts(), 1, "only the old tab at login")
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 322, 406)
+		CommunitiesFrame.CloseButton = FakeFrame(nil, CommunitiesFrame, 24, 24)
+		w.Fire("ADDON_LOADED", "SomeOtherAddon")
+		eq(#w.hook.Hosts(), 1, "other addons change nothing")
+		w.Fire("ADDON_LOADED", "Blizzard_Communities")
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 2, "hosts")
+		eq(hosts[2].kind, "communities")
+		local b = w.buttons[2]
+		eq(b.parent, CommunitiesFrame); eq(b.point[2], CommunitiesFrame.CloseButton, "no minimize button: next to close")
+		eq(w.hook.ActiveHost(), nil, "nothing opened yet")
+		CommunitiesFrame:Show()
+		eq(w.hook.ActiveHost(), hosts[2], "in use")
+		b:Click()
+		eq(w.dock.host, CommunitiesFrame)
+		CommunitiesFrame:Hide()
+		eq(w.hook.ActiveHost(), hosts[2], "last opened")
+	end)
+end)
+
+test("guild button: both windows present, switching between them without /reload", function()
+	WithGuildWindows(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 338, 424)
+		GuildFrame = FakeFrame("GuildFrame", FriendsFrame, 338, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		local w = LoadGuildFrame()
+		w.Login()
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 2, "hosts")
+		local old, new = w.buttons[1], w.buttons[2]
+		eq(old.parent, GuildFrame); eq(new.parent, CommunitiesFrame)
+		assert(old.name ~= new.name, "one button name per window")
+		-- New UI in use.
+		CommunitiesFrame:Show(); new:Click()
+		eq(w.dock.host, CommunitiesFrame)
+		-- The player switches to the old UI: the Communities window closes, the Guild tab opens.
+		CommunitiesFrame:Hide()
+		eq(w.dock.shown, false, "closed with the Communities window")
+		FriendsFrame:Show(); GuildFrame:Show()
+		eq(w.hook.ActiveHost().kind, "old")
+		old:Click()
+		eq(w.dock.host, FriendsFrame); eq(w.dock.heightOnly, false)
+		-- Clicked in the other window while docked: it moves there instead of closing.
+		CommunitiesFrame:Show(); new:Click()
+		eq(w.dock.shown, true); eq(w.dock.host, CommunitiesFrame)
+		eq(w.hook.ActiveHost().kind, "old", "both on screen: the Social window's first")
+		eq(#FriendsFrame.hooks.OnHide, 1, "the Social window is watched (for the Guild tab)")
+		FriendsFrame:Hide()
+		eq(w.dock.shown, true, "still docked to the Communities window")
+	end)
+end)
+
+test("guild button: standalone GuildFrame (Blizzard_GuildUI) is not taken for the old tab", function()
+	WithGuildWindows(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 338, 424)
+		local oldTab = FakeFrame("GuildFrame", FriendsFrame, 338, 424)
+		GuildFrame = oldTab
+		local w = LoadGuildFrame()
+		w.Login()
+		-- Blizzard_GuildUI loads and takes over the name GuildFrame.
+		GuildFrame = FakeFrame("GuildFrame", UIParent, 646, 468)
+		GuildFrame.CloseButton = FakeFrame(nil, GuildFrame, 24, 24)
+		w.Fire("ADDON_LOADED", "Blizzard_GuildUI")
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 2, "hosts")
+		eq(hosts[1].frame, oldTab); eq(hosts[1].kind, "old")
+		eq(hosts[2].frame, GuildFrame); eq(hosts[2].kind, "guildui"); eq(hosts[2].dock, GuildFrame)
+		GuildFrame:Show(); w.buttons[2]:Click()
+		eq(w.dock.host, GuildFrame); eq(w.dock.heightOnly, true)
+	end)
+end)
+
+test("guild button: ClassicUI Forever's Guild tab is found when the Social window opens", function()
+	WithGuildWindows(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		local w = LoadGuildFrame()
+		w.Login()
+		eq(#w.hook.Hosts(), 1, "only the Communities window at login")
+		-- Built after login, inside the Social window.
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", FriendsFrame)
+		FriendsFrame:Show(); ClassicUIForeverGuildPanel:Show()
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 2, "hosts")
+		eq(hosts[2].kind, "classicui")
+		local b = w.buttons[2]
+		eq(b.parent, ClassicUIForeverGuildPanel); eq(b.point[2], FriendsFrame); eq(b.point[4], 62); eq(b.point[5], -26)
+		b:Click()
+		eq(w.dock.host, FriendsFrame)
+		ClassicUIForeverGuildPanel:Hide()
+		eq(w.dock.shown, false, "closing the Guild tab closes it")
+	end)
+end)
+
+test("guild button: ClassicUI Forever's panel outside the Social window is a window of its own", function()
+	WithGuildWindows(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", UIParent, 338, 440)
+		ClassicUIForeverGuildPanel.CloseButton = FakeFrame(nil, ClassicUIForeverGuildPanel, 24, 24)
+		local w = LoadGuildFrame()
+		w.Login()
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 1, "hosts")
+		eq(hosts[1].kind, "classicuiwindow"); eq(hosts[1].social, nil); eq(hosts[1].dock, ClassicUIForeverGuildPanel)
+		local b = w.buttons[1]
+		eq(b.name, "OlympusClassicGuildWindowButton"); eq(b.size, 22)
+		eq(b.point[1], "RIGHT"); eq(b.point[2], ClassicUIForeverGuildPanel.CloseButton, "title bar, like the new windows")
+		ClassicUIForeverGuildPanel:Show(); b:Click()
+		eq(w.dock.host, ClassicUIForeverGuildPanel, "docks to itself"); eq(w.dock.heightOnly, true)
+		eq(FriendsFrame.hooks.OnHide, nil, "the Social window is not watched for it")
+		ClassicUIForeverGuildPanel:Run("OnSizeChanged")
+		eq(w.dock.followed, ClassicUIForeverGuildPanel, "follows its size")
+		ClassicUIForeverGuildPanel:Hide()
+		eq(w.dock.shown, false, "closing it closes ours")
+	end)
+end)
+
+test("docked size: the old Guild tab is copied, the new windows lend only their height", function()
+	local uns = setmetatable({}, { __index = ns })
+	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+	local DockSize = uns.UI.DockSize
+	local function size(...) local w, h = DockSize(...); return w .. "x" .. h end
+	eq(size(338, 424, false, 338, 424), "338x424", "old Guild tab")
+	eq(size(385, 424, false, 385, 424), "385x424", "Forever's Social window")
+	eq(size(814, 426, true, 385, 424), "385x426", "Communities window, maximized")
+	eq(size(322, 406, true, 338, 424), "338x406", "Communities window, minimized")
+	eq(size(0, 0, false, 338, 424), "338x424", "host not laid out yet")
+	eq(size(nil, nil, true), "338x424", "nothing known")
+end)
+
+---------------------------------------------------------------------------
+-- The Olympus window itself (UI.lua), on a small widget toolkit: frames keep their size,
+-- anchors and shown state, scripts can be fired, rects are worked out from the anchors
+-- and text is measured at a fixed width per letter.
+---------------------------------------------------------------------------
+
+local POINT_X = { TOPLEFT = 0, LEFT = 0, BOTTOMLEFT = 0, TOP = 0.5, CENTER = 0.5, BOTTOM = 0.5, TOPRIGHT = 1, RIGHT = 1, BOTTOMRIGHT = 1 }
+local POINT_Y = { BOTTOMLEFT = 0, BOTTOM = 0, BOTTOMRIGHT = 0, LEFT = 0.5, CENTER = 0.5, RIGHT = 0.5, TOPLEFT = 1, TOP = 1, TOPRIGHT = 1 }
+local CHAR_W = { GameFontNormalLarge = 9, GameFontNormal = 7, GameFontHighlight = 7, GameFontWhiteTiny = 5 } -- small fonts: 6
+-- The client's font objects UI.lua fits text with (FitText skips the ones a client lacks).
+local FONT_GLOBALS = { "GameFontNormalLarge", "GameFontNormal", "GameFontHighlightSmall", "GameFontWhiteTiny" }
+
+local Widget = {}
+local NOOP_VERBS = { "^Set", "^Enable", "^Disable", "^Register", "^Unregister", "^Lock", "^Unlock", "^Raise", "^Lower", "^Highlight", "^Play" }
+local widgetNames = {}
+local widgetMeta = { __index = function(_, key)
+	local method = Widget[key]
+	if method then return method end
+	-- Setters and the like a test does not look at do nothing; anything else is nil, as a
+	-- missing child key (CloseButton, TitleText, Left...) would be.
+	if type(key) == "string" then
+		for _, verb in ipairs(NOOP_VERBS) do if key:find(verb) then return function() end end end
+	end
+end }
+
+local function NewWidget(kind, name, parent)
+	local w = setmetatable({ kind = kind, name = name, parent = parent, points = {}, shown = true, scripts = {}, hooks = {} }, widgetMeta)
+	if name then _G[name] = w; widgetNames[#widgetNames + 1] = name end
+	return w
+end
+
+function Widget:GetName() return self.name end
+function Widget:GetParent() return self.parent end
+function Widget:GetObjectType() return self.kind end
+function Widget:Fire(kind, ...)
+	if self.scripts[kind] then self.scripts[kind](self, ...) end
+	for _, fn in ipairs(self.hooks[kind] or {}) do fn(self, ...) end
+end
+function Widget:SetScript(kind, fn) self.scripts[kind] = fn end
+function Widget:GetScript(kind) return self.scripts[kind] end
+function Widget:HookScript(kind, fn) self.hooks[kind] = self.hooks[kind] or {}; table.insert(self.hooks[kind], fn) end
+function Widget:Show() if not self.shown then self.shown = true; self:Fire("OnShow") end end
+function Widget:Hide() if self.shown then self.shown = false; self:Fire("OnHide") end end
+function Widget:SetShown(shown) if shown then self:Show() else self:Hide() end end
+function Widget:IsShown() return self.shown end
+function Widget:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
+function Widget:GetEffectiveScale() return self.scale or (self.parent and self.parent:GetEffectiveScale()) or 1 end
+function Widget:GetFrameLevel() return self.level or 1 end
+function Widget:SetFrameLevel(level) self.level = level end
+
+function Widget:SetSize(w, h)
+	local changed = self.w ~= w or self.h ~= h
+	self.w, self.h = w, h
+	if changed then self:Fire("OnSizeChanged", w, h) end
+end
+function Widget:SetWidth(w) self:SetSize(w, self.h) end
+function Widget:SetHeight(h) self:SetSize(self.w, h) end
+function Widget:GetWidth()
+	if self.kind == "FontString" and (self.w or 0) == 0 then return self:GetStringWidth() end
+	if self.w then return self.w end
+	local _, _, w = self:GetRect()
+	return w or 0
+end
+function Widget:GetHeight()
+	if self.h then return self.h end
+	local _, _, _, h = self:GetRect()
+	return h or 0
+end
+
+-- SetPoint in all its WoW forms, kept as { point, relativeTo, relativePoint, x, y }.
+function Widget:SetPoint(point, a, b, c, d)
+	local rel, relPoint, x, y
+	if type(a) == "number" then
+		rel, relPoint, x, y = nil, point, a, b
+	elseif type(b) == "string" then
+		rel, relPoint, x, y = a, b, c, d
+	else
+		rel, relPoint, x, y = a, point, b, c
+	end
+	if type(rel) == "string" then rel = _G[rel] end
+	local anchor = { point, rel or self.parent, relPoint, x or 0, y or 0 }
+	for i, p in ipairs(self.points) do
+		if p[1] == point then self.points[i] = anchor return end
+	end
+	self.points[#self.points + 1] = anchor
+end
+function Widget:SetAllPoints(rel)
+	rel = rel or self.parent
+	self.points = { { "TOPLEFT", rel, "TOPLEFT", 0, 0 }, { "BOTTOMRIGHT", rel, "BOTTOMRIGHT", 0, 0 } }
+end
+function Widget:ClearAllPoints() self.points = {} end
+function Widget:GetNumPoints() return #self.points end
+function Widget:GetPoint(i) return unpack(self.points[i or 1]) end
+-- Anchor with this point name, or nil.
+function Widget:Anchor(point) for _, p in ipairs(self.points) do if p[1] == point then return p end end end
+
+-- left, bottom, width, height in the widget's own units, from a fixed rect or its anchors.
+function Widget:GetRect()
+	if self.rect then return unpack(self.rect) end
+	if #self.points == 0 then return nil end
+	local l, r, cx, b, t, cy
+	for _, p in ipairs(self.points) do
+		local rl, rb, rw, rh = p[2]:GetRect()
+		if not rl then return nil end
+		local ax, ay = rl + rw * POINT_X[p[3]] + p[4], rb + rh * POINT_Y[p[3]] + p[5]
+		local fx, fy = POINT_X[p[1]], POINT_Y[p[1]]
+		if fx == 0 then l = ax elseif fx == 1 then r = ax else cx = ax end
+		if fy == 0 then b = ay elseif fy == 1 then t = ay else cy = ay end
+	end
+	local w, h = self.w or 0, self.h or 0
+	if l and r then w = r - l elseif r then l = r - w elseif cx and not l then l = cx - w / 2 end
+	if b and t then h = t - b elseif t then b = t - h elseif cy and not b then b = cy - h / 2 end
+	if not l or not b then return nil end
+	return l, b, w, h
+end
+function Widget:GetLeft() return (self:GetRect()) end
+function Widget:GetBottom() return select(2, self:GetRect()) end
+function Widget:GetTop() local _, b, _, h = self:GetRect(); return b and b + h end
+function Widget:GetRight() local l, _, w = self:GetRect(); return l and l + w end
+
+function Widget:StartMoving() self.moving = true end
+function Widget:StopMovingOrSizing()
+	-- Like the client: wherever it was dropped, now held by one absolute anchor.
+	local l, b = self:GetRect()
+	self.moving = nil
+	self.points = { { "BOTTOMLEFT", UIParent, "BOTTOMLEFT", l, b } }
+end
+
+function Widget:CreateFontString(name, _, font) local fs = NewWidget("FontString", name, self); fs.font = font; return fs end
+function Widget:CreateTexture(name) return NewWidget("Texture", name, self) end
+function Widget:SetText(text)
+	if self.kind == "FontString" then self.text = text return end
+	self.fontString = self.fontString or self:CreateFontString(nil, "OVERLAY", self.normalFont or "GameFontNormal")
+	self.fontString:SetText(text)
+end
+function Widget:GetText() if self.kind == "FontString" then return self.text end return self.fontString and self.fontString.text end
+function Widget:GetFontString() return self.fontString end
+function Widget:SetNormalFontObject(font) self.normalFont = font; if self.fontString then self.fontString.font = font end end
+function Widget:SetFontObject(font) self.font = font end
+function Widget:GetFontObject() return self.font end
+function Widget:SetWordWrap(wrap) self.wrap = wrap end
+function Widget:SetJustifyH(justify) self.justifyH = justify end
+function Widget:GetUnboundedStringWidth() return #(self.text or "") * (CHAR_W[self.font] or 6) end
+function Widget:GetStringWidth()
+	local full = self:GetUnboundedStringWidth()
+	return (self.w or 0) > 0 and math.min(full, self.w) or full
+end
+function Widget:IsTruncated() return self.wrap == false and (self.w or 0) > 0 and self:GetUnboundedStringWidth() > self.w end
+function Widget:Click() self:Fire("OnClick") end
+
+local TEMPLATES = {
+	PortraitFrameTemplate = function(w)
+		w.CloseButton = NewWidget("Button", nil, w)
+		w.w, w.h = 338, 424
+	end,
+	BasicFrameTemplateWithInset = function(w)
+		w.CloseButton = NewWidget("Button", nil, w)
+		w.TitleText = w:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	end,
+	-- The same atlas template on every client (see UI.TabStyle); the Lua sizing it differs.
+	PanelTabButtonTemplate = function(w)
+		w.h = 32
+		for _, key in ipairs({ "Left", "Middle", "Right", "LeftActive", "MiddleActive", "RightActive" }) do w[key] = NewWidget("Texture", nil, w) end
+		w.Text = w:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		w.fontString = w.Text
+		w.parent.Tabs = w.parent.Tabs or {}
+		table.insert(w.parent.Tabs, w)
+	end,
+}
+
+local function FakeCreateFrame(kind, name, parent, template)
+	local w = NewWidget(kind, name, parent)
+	if TEMPLATES[template] then TEMPLATES[template](w) end
+	return w
+end
+
+-- Blizzard's tab code, as far as it matters here (Blizzard_SharedXML, see UI.TabStyle):
+-- Mainline sizes a tab to its text + 20 and has PanelTemplates_AnchorTabs, Classic sizes
+-- it to its text + both end caps and does not.
+local TAB_GLOBALS = { "PanelTemplates_TabResize", "PanelTemplates_AnchorTabs", "PanelTemplates_SelectTab", "PanelTemplates_DeselectTab" }
+local function TabCode(family)
+	local capW = 20
+	PanelTemplates_SelectTab = function(tab) tab.selected = true end
+	PanelTemplates_DeselectTab = function(tab) tab.selected = false end
+	if family == "mainline" then
+		PanelTemplates_AnchorTabs = function() end
+		PanelTemplates_TabResize = function(tab, padding) tab:SetWidth(math.max(tab.Text:GetStringWidth() + 20 + (padding or 0), 2 * capW)) end
+	else
+		PanelTemplates_TabResize = function(tab, padding) tab:SetWidth(tab.Text:GetStringWidth() + (padding or 24) + 2 * capW) end
+	end
+end
+
+-- Runs fn with the widget toolkit as the client (the screen is 1366 x 768), failing on
+-- any error the addon caught. Everything it made global is cleared afterwards.
+local function WithUI(fn)
+	local captured
+	local saved = { CreateFrame = CreateFrame, CaptureError = ns.CaptureError, UI = ns.UI, GetGuildInfo = GetGuildInfo }
+	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
+	CreateFrame = FakeCreateFrame
+	UIParent = NewWidget("Frame", "UIParent")
+	UIParent.rect = { 0, 0, 1366, 768 }
+	UISpecialFrames, tinsert = {}, table.insert
+	GameTooltip = NewWidget("GameTooltip", "GameTooltip", UIParent)
+	for _, font in ipairs(FONT_GLOBALS) do _G[font] = { font = font } end
+	ns.rdb.guilds = SampleGuilds()
+	local ok, err = pcall(fn)
+	CreateFrame, ns.CaptureError, ns.UI, GetGuildInfo = saved.CreateFrame, saved.CaptureError, saved.UI, saved.GetGuildInfo
+	for _, name in ipairs(widgetNames) do _G[name] = nil end
+	widgetNames = {}
+	for _, name in ipairs(GUILD_GLOBALS) do _G[name] = nil end
+	for _, name in ipairs(TAB_GLOBALS) do _G[name] = nil end
+	for _, font in ipairs(FONT_GLOBALS) do _G[font] = nil end
+	PTR_IssueReporter, UISpecialFrames, tinsert = nil, nil, nil
+	ns.rdb.guilds = {}
+	if not ok then error(err, 0) end
+	eq(captured, nil, "error caught")
+end
+
+-- UI.lua with fresh state in a namespace of its own (Views and friends read ns.UI).
+local function LoadUI()
+	local uns = setmetatable({}, { __index = ns })
+	uns.On = function() end
+	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+	ns.UI = uns.UI
+	return uns.UI
+end
+
+local function Anchor(frame, i)
+	local p = frame.points[i or 1]
+	return p and table.concat({ p[1], tostring(p[2] and p[2].name), p[3], p[4], p[5] }, " ")
+end
+
+test("tab spacing: Blizzard's on Forever (Mainline tab code), the old overlap on Classic", function()
+	local uns = setmetatable({}, { __index = ns })
+	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+	local UI = uns.UI
+	local atlasTab, plainButton = { LeftActive = {} }, {}
+	eq(UI.TabStyle(atlasTab), "classic", "same atlas template, Classic code")
+	PanelTemplates_AnchorTabs = function() end
+	eq(UI.TabStyle(atlasTab), "mainline")
+	eq(UI.TabStyle(plainButton), "classic", "fallback buttons keep the old spacing")
+	PanelTemplates_AnchorTabs = nil
+	local f, prev = {}, {}
+	eq(select(5, UI.TabAnchor("mainline", 1, f)), 2)
+	eq(table.concat({ select(3, UI.TabAnchor("mainline", 1, f)) }, " "), "BOTTOMLEFT 5 2", "first tab where FriendsFrame has it")
+	eq(table.concat({ UI.TabAnchor("mainline", 2, f, prev) }, " ", 3), "TOPRIGHT 3 0", "3 apart, like PanelTemplates_AnchorTabs")
+	eq(select(2, UI.TabAnchor("mainline", 2, f, prev)), prev)
+	eq(table.concat({ UI.TabAnchor("classic", 1, f) }, " ", 3), "BOTTOMLEFT 10 2")
+	eq(table.concat({ UI.TabAnchor("classic", 3, f, prev) }, " ", 3), "RIGHT -15 0")
+end)
+
+test("tabs on the real window: side by side on Forever, unchanged on Classic", function()
+	for _, family in ipairs({ "mainline", "classic" }) do
+		WithUI(function()
+			TabCode(family)
+			local UI = LoadUI()
+			UI.SelectTab("census")
+			local main = OlympusFrame
+			eq(UI.tabTemplate, "PanelTabButtonTemplate"); eq(UI.tabStyle, family)
+			local tabs = main.tabs
+			if family == "mainline" then
+				eq(Anchor(tabs[1]), "TOPLEFT OlympusFrame BOTTOMLEFT 5 2")
+				eq(Anchor(tabs[2]), "TOPLEFT " .. tabs[1].name .. " TOPRIGHT 3 0")
+				for i = 2, #tabs do
+					local gap = tabs[i]:GetLeft() - tabs[i - 1]:GetRight()
+					eq(gap, 3, "gap before tab " .. i)
+					assert(tabs[i].Text:GetStringWidth() + 20 <= tabs[i]:GetWidth(), "text fits tab " .. i)
+				end
+				assert(tabs[#tabs]:GetRight() <= main:GetRight(), "last tab inside the window")
+			else
+				eq(Anchor(tabs[1]), "TOPLEFT OlympusFrame BOTTOMLEFT 10 2")
+				eq(Anchor(tabs[3]), "LEFT " .. tabs[2].name .. " RIGHT -15 0")
+			end
+			eq(tabs[1].selected, true); eq(tabs[2].selected, false)
+		end)
+	end
+end)
+
+test("Join screen: no column titles, the list starts higher, and it follows joining", function()
+	WithUI(function()
+		GetGuildInfo = function() return nil end
+		local UI = LoadUI()
+		UI.Toggle()
+		local main = OlympusFrame
+		local function listTop() return main.scroll:Anchor("TOPLEFT")[5] end
+		eq(main.colHeader:IsShown(), false, "Join screen: no column titles")
+		eq(listTop(), -64)
+		eq(main.tabs[1]:IsShown(), false)
+		-- The player joins an Olympus guild with the window open (DATA_CHANGED, or the
+		-- 5 second refresh).
+		GetGuildInfo = function() return "Olympus II" end
+		UI.Refresh()
+		eq(main.colHeader:IsShown(), true, "census column titles once a member")
+		eq(listTop(), -80)
+		eq(main.tabs[1]:IsShown(), true)
+		-- And leaves it.
+		GetGuildInfo = function() return "House of Guedes" end
+		UI.Refresh()
+		eq(main.colHeader:IsShown(), false); eq(listTop(), -64)
+		-- Other tabs never had column titles.
+		GetGuildInfo = function() return "Olympus II" end
+		UI.SelectTab("realm")
+		eq(main.colHeader:IsShown(), false); eq(listTop(), -64)
+	end)
+end)
+
+test("header lines stay inside the window: smaller font first, then cut", function()
+	WithUI(function()
+		GetGuildInfo = function() return nil end
+		local UI = LoadUI()
+		UI.Toggle()
+		local main = OlympusFrame
+		local w = main:GetWidth()
+		eq(w, 338, "the narrow window")
+		-- "No guild? What are you doing?" is too wide in the large font, fits in the normal one.
+		eq(main.total:GetText(), ns.L.ROAST_NOGUILD)
+		eq(main.total.font, "GameFontNormal", "dropped to the smaller font")
+		eq(main.total.w, w - 62 - 26); eq(main.total:IsTruncated(), false)
+		-- The long line drops to the tiny font, and is cut ("...") at the window's edge
+		-- instead of running past it when even that does not fit.
+		eq(main.sub:GetText(), ns.L.ROAST_NOGUILD_SUB)
+		eq(main.sub.w, w - 62 - 8); eq(main.sub.wrap, false); eq(main.sub.justifyH, "LEFT")
+		eq(main.sub.font, "GameFontWhiteTiny")
+		eq(main.sub:IsTruncated(), true)
+		assert(62 + main.sub:GetStringWidth() <= w, "inside the window")
+		-- Forever's window is wider: the Join line fits whole in the tiny font.
+		main:SetSize(385, 424)
+		eq(main.sub.w, 385 - 62 - 8)
+		eq(main.sub.font, "GameFontWhiteTiny"); eq(main.sub:IsTruncated(), false)
+		-- A client without the tiny font keeps the small one, cut.
+		GameFontWhiteTiny = nil
+		UI.Refresh()
+		eq(main.sub.font, "GameFontHighlightSmall"); eq(main.sub:IsTruncated(), true)
+		-- A member's header fits in the large font and is not cut.
+		GetGuildInfo = function() return "Olympus II" end
+		UI.Refresh()
+		eq(main.total.font, "GameFontNormalLarge"); eq(main.total:IsTruncated(), false)
+	end)
+end)
+
+test("docking with the real window: follows the guild window it was clicked in", function()
+	WithUI(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 338, 424)
+		FriendsFrame.rect = { 20, 200, 338, 424 }
+		GuildFrame = FakeFrame("GuildFrame", FriendsFrame, 338, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		CommunitiesFrame.rect = { 20, 180, 814, 426 }
+		local w = LoadGuildFrame(true)
+		ns.UI = w.ns.UI
+		w.Login()
+		local UI = w.ns.UI
+		local old, new = w.buttons[1], w.buttons[2]
+		local function size() return OlympusFrame:GetWidth() .. "x" .. OlympusFrame:GetHeight() end
+		-- Clicked in the Guild tab: next to the Social window, its size.
+		FriendsFrame:Show(); GuildFrame:Show(); old:Click()
+		local main = OlympusFrame
+		eq(main:IsShown(), true); eq(UI.DockedTo(), FriendsFrame)
+		eq(Anchor(main), "TOPLEFT FriendsFrame TOPRIGHT -2 0"); eq(main:GetNumPoints(), 1)
+		eq(size(), "338x424")
+		-- Clicked in the Communities window: moves there, its height, the Social width.
+		CommunitiesFrame:Show(); new:Click()
+		eq(main:IsShown(), true, "moved, not closed"); eq(UI.DockedTo(), CommunitiesFrame)
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT -2 0"); eq(main:GetNumPoints(), 1)
+		eq(size(), "338x426")
+		-- The Social window closing (it is watched) leaves it docked where it is.
+		GuildFrame:Hide(); FriendsFrame:Hide()
+		eq(main:IsShown(), true, "the Social window closing leaves it open"); eq(UI.DockedTo(), CommunitiesFrame)
+		-- The Communities window is minimized: the new height is taken.
+		CommunitiesFrame.w, CommunitiesFrame.h = 322, 406
+		CommunitiesFrame:Run("OnSizeChanged")
+		eq(size(), "338x406", "follows minimize")
+		-- Dragged away: no longer docked, keeps its size and stays open when the guild window
+		-- changes or closes.
+		main.scripts.OnDragStart(main); main.scripts.OnDragStop(main)
+		eq(UI.DockedTo(), nil, "dragged: not docked")
+		eq(Anchor(main), "BOTTOMLEFT UIParent BOTTOMLEFT 832 200", "where it was dropped")
+		CommunitiesFrame.w, CommunitiesFrame.h = 814, 500
+		CommunitiesFrame:Run("OnSizeChanged")
+		eq(size(), "338x406", "no longer follows")
+		CommunitiesFrame:Hide()
+		eq(main:IsShown(), true, "no longer closes with it")
+		-- Clicked again: docks again, then a second click closes it.
+		CommunitiesFrame:Show(); new:Click()
+		eq(main:IsShown(), true); eq(UI.DockedTo(), CommunitiesFrame)
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT -2 0"); eq(size(), "338x500")
+		new:Click()
+		eq(main:IsShown(), false, "second click closes it")
+		-- Opened from the Guild tab and closed with it.
+		FriendsFrame:Show(); GuildFrame:Show(); old:Click()
+		eq(UI.DockedTo(), FriendsFrame); eq(size(), "338x424")
+		GuildFrame:Hide()
+		eq(main:IsShown(), false, "leaving the Guild tab closes it")
+	end)
+end)
+
+test("clearing a rect: up just enough, never off the screen", function()
+	local uns = setmetatable({}, { __index = ns })
+	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+	local ClearUp = uns.UI.ClearUp
+	local function R(l, b, r, t) return { left = l, bottom = b, right = r, top = t } end
+	local win = R(500, 182, 840, 636)
+	eq(ClearUp(win, R(640, 142, 728, 228), 768, 4), 50, "overlapping: up past its top plus the gap")
+	eq(ClearUp(win, R(10, 142, 90, 228), 768, 4), nil, "beside it")
+	eq(ClearUp(win, R(640, 100, 728, 182), 768, 4), nil, "just touching below")
+	eq(ClearUp(win, R(640, 600, 728, 700), 768, 4), nil, "cannot clear without leaving the screen")
+	eq(ClearUp(win, R(640, 142, 728, 228), 690, 4), 50, "room enough")
+	eq(ClearUp(win, R(640, 142, 728, 228), 680, 4), nil, "not quite")
+	eq(ClearUp(nil, R(640, 142, 728, 228), 768, 4), nil)
+end)
+
+-- Blizzard's Issue Reporter (Blizzard_PTRFeedback): a 80 x 32 box, its bug button in a
+-- body below it and a border around it, at `x, y` (screen pixels, bottom left) and `scale`.
+local function IssueReporter(x, y, scale)
+	local s = scale or 1
+	local r = NewWidget("Frame", nil, UIParent)
+	r.scale = s
+	r.rect = { x / s, y / s, 80 / s, 32 / s }
+	r.Border = NewWidget("Frame", nil, r); r.Border.rect = { (x - 4) / s, (y - 4) / s, 88 / s, 40 / s }
+	r.Body = NewWidget("Frame", nil, r); r.Body.rect = { x / s, (y - 50) / s, 80 / s, 50 / s }
+	r.ReportBug = NewWidget("Button", nil, r); r.ReportBug.rect = { (x + 13) / s, (y - 46) / s, 54 / s, 40 / s }
+	PTR_IssueReporter = r
+	return r
+end
+
+test("Issue Reporter: the window steps above it when it opens, never over a player's choice", function()
+	WithUI(function()
+		-- Where Blizzard puts it by default: bottom centre, a quarter up the screen.
+		IssueReporter(643, 192)
+		local UI = LoadUI()
+		UI.Toggle()
+		local main = OlympusFrame
+		-- The window (bottom 212) and its tabs (down to 182) cover it (142 to 228): up 50.
+		eq(Anchor(main), "CENTER UIParent CENTER 0 90", "moved up just enough")
+		eq(main:GetBottom() - 30, 232, "tabs 4 above the reporter")
+		UI.Toggle(); UI.Toggle()
+		eq(Anchor(main), "CENTER UIParent CENTER 0 90", "clear now: not moved again")
+		-- Dragged onto it by the player: stays there, now and when opened again.
+		main.scripts.OnDragStart(main)
+		main:ClearAllPoints(); main:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 500, 200)
+		main.scripts.OnDragStop(main)
+		UI.Toggle(); UI.Toggle()
+		eq(Anchor(main), "BOTTOMLEFT UIParent BOTTOMLEFT 500 200", "the player's place is kept")
+	end)
+	WithUI(function()
+		-- Join screen (no tabs), reporter drawn at a smaller scale, our window at 0.8.
+		GetGuildInfo = function() return nil end
+		UIParent.scale = 0.8
+		UIParent.rect = { 0, 0, 1366 / 0.8, 768 / 0.8 }
+		IssueReporter(643, 192, 0.5)
+		local UI = LoadUI()
+		UI.Toggle()
+		local main = OlympusFrame
+		-- Bottom at (480 + 40 - 212) * 0.8 = 246.4 px, the reporter's top 228 + 4: already clear.
+		eq(Anchor(main), "CENTER UIParent CENTER 0 40", "no tabs on the Join screen, nothing to clear")
+		GetGuildInfo = function() return "Olympus II" end
+		UI.Toggle(); UI.Toggle()
+		-- With the tabs: bottom (308 - 30) * 0.8 = 222.4 px, needs 9.6 px = 12 of ours.
+		local y = main.points[1][5]
+		assert(math.abs(y - 52) < 0.001, "moved up 12 in its own scale, got " .. y)
+	end)
+	WithUI(function()
+		-- Too high to step above, or off to the side, or hidden: left alone.
+		local UI = LoadUI()
+		IssueReporter(643, 620)
+		UI.Toggle()
+		eq(Anchor(OlympusFrame), "CENTER UIParent CENTER 0 40", "cannot clear it: stays")
+		UI.Toggle()
+		IssueReporter(20, 192)
+		UI.Toggle()
+		eq(Anchor(OlympusFrame), "CENTER UIParent CENTER 0 40", "not in the way")
+		UI.Toggle()
+		IssueReporter(643, 192).shown = false
+		UI.Toggle()
+		eq(Anchor(OlympusFrame), "CENTER UIParent CENTER 0 40", "hidden")
+	end)
+	WithUI(function()
+		-- Shown the moment it was made, before the client laid it out: looked at once more
+		-- on the next frame, and only once.
+		IssueReporter(643, 192)
+		local savedAfter, later = C_Timer.After, {}
+		C_Timer.After = function(_, fn) later[#later + 1] = fn end
+		local rect = UIParent.rect
+		UIParent.rect = nil
+		local UI = LoadUI()
+		UI.Toggle()
+		UIParent.rect = rect
+		C_Timer.After = savedAfter
+		eq(#later, 1, "one retry")
+		eq(Anchor(OlympusFrame), "CENTER UIParent CENTER 0 40", "nothing to measure yet")
+		later[1]()
+		eq(Anchor(OlympusFrame), "CENTER UIParent CENTER 0 90", "moved on the next frame")
+	end)
+	WithUI(function()
+		-- Docked: stays glued to the guild window, whatever covers it.
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		CommunitiesFrame.rect = { 0, 150, 500, 426 }
+		CommunitiesFrame.shown = true
+		IssueReporter(560, 192)
+		local UI = LoadUI()
+		UI.OpenDocked(CommunitiesFrame, "census", true)
+		eq(Anchor(OlympusFrame), "TOPLEFT CommunitiesFrame TOPRIGHT -2 0")
+	end)
+end)
+
+test("Issue Reporter: tabs appearing with the window open (joined a guild) step it up again", function()
+	WithUI(function()
+		GetGuildInfo = function() return nil end
+		IssueReporter(643, 192)
+		local UI = LoadUI()
+		UI.Toggle()
+		local main = OlympusFrame
+		-- Join screen, no tabs: the window (bottom 212) steps 4 above the reporter (228).
+		eq(Anchor(main), "CENTER UIParent CENTER 0 60")
+		-- Joined with the window open: the tabs now hang down to 202, over the reporter.
+		GetGuildInfo = function() return "Olympus II" end
+		UI.Refresh()
+		eq(main.tabs[1]:IsShown(), true)
+		eq(Anchor(main), "CENTER UIParent CENTER 0 90", "tabs 4 above the reporter")
+		eq(main:GetBottom() - 30, 232)
+		UI.Refresh()
+		eq(Anchor(main), "CENTER UIParent CENTER 0 90", "only when they appear")
+	end)
+end)
+
+test("Issue Reporter: the copy box steps above it too, unless the player moved it", function()
+	WithUI(function()
+		IssueReporter(643, 192)
+		local UI = LoadUI()
+		UI.ShowCopy(ns.L.REPORT_BUG, "text")
+		local box = OlympusCopyFrame
+		-- 520 x 340 at the centre: its bottom (214) and hint are over the reporter (228).
+		eq(Anchor(box), "CENTER UIParent CENTER 0 18", "4 above the reporter")
+		box:Hide(); UI.ShowCopy(ns.L.REPORT_BUG, "text")
+		eq(Anchor(box), "CENTER UIParent CENTER 0 18", "clear now: not moved again")
+		box.scripts.OnDragStart(box)
+		box:ClearAllPoints(); box:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 400, 150)
+		box.scripts.OnDragStop(box)
+		box:Hide(); UI.ShowCopy(ns.L.REPORT_BUG, "text")
+		eq(Anchor(box), "BOTTOMLEFT UIParent BOTTOMLEFT 400 150", "the player's place is kept")
+	end)
+end)
+
+test("Issue Reporter: the person panel steps above it too", function()
+	WithUI(function()
+		local UI = LoadUI()
+		UI.Toggle()
+		-- Window at 514..852 x 212..636; the panel hangs off its right, 850..1080 x 398..608.
+		-- The reporter with its border: 376..416.
+		IssueReporter(900, 380)
+		UI.ShowPerson({ name = "Asmongold-Realm", class = "WARRIOR", level = 25, online = true })
+		local person = OlympusPersonFrame
+		eq(Anchor(OlympusFrame), "CENTER UIParent CENTER 0 40", "the window is not in the way: not moved")
+		eq(Anchor(person), "TOPLEFT OlympusFrame TOPRIGHT -2 -6", "panel up 22: 4 above the reporter")
+		eq(person.name.wrap, false, "long names are not wrapped over the lines below")
+		eq(person.name.font, "GameFontNormalLarge", "a short name keeps the large font")
+		UI.ShowPerson({ name = "Bellattrixxlestrange-ClassicBetaPvP" })
+		eq(person.name.font, "GameFontNormal", "a long one drops to the normal font")
+		PTR_IssueReporter = nil
+		UI.ShowPerson({ name = "Asmongold-Realm" })
+		eq(Anchor(person), "TOPLEFT OlympusFrame TOPRIGHT -2 -28", "back in its place without it")
+	end)
+end)
+
+---------------------------------------------------------------------------
+-- /who (Who.lua): quiet searches, the 50 cap, and the guilds it sees for the census
+---------------------------------------------------------------------------
+
+local WHO = "WHO_LIST_UPDATE"
+
+-- A frame that listens to WHO_LIST_UPDATE (or not) and remembers every change to that.
+local function ListenerFrame(name, listening)
+	local f = { name = name, events = { [WHO] = listening or nil }, calls = {}, shown = false }
+	function f:IsEventRegistered(event) return self.events[event] == true end
+	function f:RegisterEvent(event) self.events[event] = true; self.calls[#self.calls + 1] = "register" end
+	function f:UnregisterEvent(event) self.events[event] = nil; self.calls[#self.calls + 1] = "unregister" end
+	function f:IsVisible() return self.shown end
+	return f
+end
+local function Listening(f) return f:IsEventRegistered(WHO) end
+
+-- Runs fn(server) against a stand-in of the game's /who: C_FriendList answers with the
+-- rows the test gives Answer() (and announces them like the client), timers wait until
+-- Run() and the clock only moves when the test says. Everything is put back afterwards.
+local WHO_GLOBALS = { "C_FriendList", "hooksecurefunc", "GetMaxPlayerLevel", "FriendsFrame", "LFGWhoListFrame", "WhoFrame", "ClassicUIForeverWhoPanel" }
+local function WithWho(fn)
+	local server = { sent = {}, toUi = {}, rows = {}, timers = {}, printed = {}, clock = 5000 }
+	local saved = { After = C_Timer.After, GetTime = GetTime, Print = ns.Print, CaptureError = ns.CaptureError,
+		guilds = ns.rdb.guilds, seen = ns.rdb.seen, found = ns.Recruit.found }
+	local captured
+	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
+	ns.Print = function(msg) server.printed[#server.printed + 1] = msg end
+	GetTime = function() return server.clock end
+	C_Timer.After = function(seconds, f) server.timers[#server.timers + 1] = { seconds = seconds, fn = f } end
+	C_FriendList = {
+		SendWho = function(query) server.sent[#server.sent + 1] = query end,
+		SetWhoToUi = function(on) server.toUi[#server.toUi + 1] = on end,
+		GetNumWhoResults = function() return #server.rows, server.total or #server.rows end,
+		GetWhoInfo = function(i)
+			local r = server.rows[i]
+			return r and { fullName = r[1], fullGuildName = r[2], level = r[3], filename = r[4], area = "Elwynn Forest" }
+		end,
+	}
+	hooksecurefunc = function(t, key, post)
+		local original = t[key]
+		t[key] = function(...) original(...); post(...) end
+	end
+	GetMaxPlayerLevel = function() return 60 end
+	-- The client announcing an answer (rows = { name, guild, level, class }); no rows: the
+	-- same answer again.
+	function server.Answer(rows, total)
+		if rows then server.rows, server.total = rows, total end
+		for _, f in ipairs(EVENT_SCRIPTS) do f(nil, WHO) end
+	end
+	-- Runs the waiting timers of that many seconds (every one when nil), oldest first.
+	function server.Run(seconds)
+		local keep, due = {}, {}
+		for _, t in ipairs(server.timers) do
+			if seconds == nil or t.seconds == seconds then due[#due + 1] = t else keep[#keep + 1] = t end
+		end
+		server.timers = keep
+		for _, t in ipairs(due) do t.fn() end
+	end
+	-- A click on the search button once the cooldown is over.
+	function server.Click()
+		server.clock = server.clock + ns.Who.COOLDOWN + 1
+		return ns.Who.Search()
+	end
+	ns.rdb.guilds, ns.rdb.seen, ns.Recruit.found = {}, {}, {}
+	ns.Who.Reset()
+	ns.Who.lastSend, ns.Who.lastPlain = 0, 0
+	local ok, err = pcall(fn, server)
+	ns.Who.Reset()
+	ns.Who.lastSend, ns.Who.lastPlain = 0, 0
+	C_Timer.After, GetTime, ns.Print, ns.CaptureError = saved.After, saved.GetTime, saved.Print, saved.CaptureError
+	ns.rdb.guilds, ns.rdb.seen, ns.Recruit.found = saved.guilds, saved.seen, saved.found
+	for _, name in ipairs(WHO_GLOBALS) do _G[name] = nil end
+	if not ok then error(err, 0) end
+	eq(captured, nil, "error caught")
+end
+
+-- Olympus players P<from>..P<to>, odd ones in OLYMPUS VII, even ones in OLYMPUS I, levels 7-20.
+local function Players(from, to)
+	local rows = {}
+	for i = from, to do rows[#rows + 1] = { "P" .. i, i % 2 == 0 and "OLYMPUS I" or "OLYMPUS VII", 7 + i % 14, "MAGE" } end
+	return rows
+end
+
+test("who on Forever: only the frames that listen are silenced, and get the event back with the answer", function()
+	WithWho(function(server)
+		-- Forever's Social window does not listen, the group finder's who list does, and so
+		-- does ClassicUI Forever's list when that addon is on.
+		FriendsFrame = ListenerFrame("FriendsFrame", false)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		ClassicUIForeverWhoPanel = { driver = ListenerFrame("driver", true) }
+		local cui = ClassicUIForeverWhoPanel.driver
+		eq(ns.Recruit.Search(), true)
+		eq(table.concat(server.sent, "|"), 'g-"Olympus"')
+		eq(Listening(LFGWhoListFrame), false, "the group finder's list is silenced")
+		eq(Listening(cui), false, "ClassicUI Forever's list is silenced")
+		eq(#FriendsFrame.calls, 0, "the Social window, which does not listen, is left alone")
+		eq(server.toUi[#server.toUi], true, "results to the UI (the event), not to chat")
+		server.Answer({ { "Aa", "OLYMPUS VII", 12, "MAGE" }, { "Bb", "OLYMPUS VII", 14, "ROGUE" },
+			{ "Aa", "OLYMPUS VII", 12, "MAGE" }, { "Cc", "Horde Pals", 10, "MAGE" } })
+		eq(#ns.Recruit.found, 2, "Olympus players, each once (the server lists some twice)")
+		-- The same answer announced again (another addon sorting the list does that): still
+		-- ours, read again, nobody twice, and Blizzard's list stays quiet.
+		server.Answer()
+		eq(#ns.Recruit.found, 2)
+		eq(Listening(LFGWhoListFrame), false, "still quiet while the answer settles")
+		server.Run(ns.Who.SETTLE)
+		eq(Listening(LFGWhoListFrame), true, "event given back")
+		eq(Listening(cui), true)
+		eq(table.concat(LFGWhoListFrame.calls, " "), "unregister register", "once each")
+		eq(#FriendsFrame.calls, 0, "never given an event it did not have")
+		eq(server.toUi[#server.toUi], false, "back to Blizzard's default")
+		server.Run()
+		eq(table.concat(LFGWhoListFrame.calls, " "), "unregister register", "the timeout changes nothing more")
+		-- The next answer is not ours: not read.
+		server.Answer({ { "Dd", "OLYMPUS II", 5, "MAGE" } })
+		eq(#ns.Recruit.found, 2, "someone else's answer")
+		eq(ns.Who.StatusLines(), nil, "everyone fit in one answer: nothing to add")
+	end)
+end)
+
+test("who on the old UI: no answer, the Social window gets the event back on the timeout", function()
+	WithWho(function(server)
+		FriendsFrame = ListenerFrame("FriendsFrame", true)
+		eq(ns.Who.Search(), true)
+		eq(Listening(FriendsFrame), false, "the Social window's Who tab is silenced")
+		server.Run(ns.Who.SETTLE)
+		eq(Listening(FriendsFrame), false, "nothing settles without an answer")
+		server.Run(ns.Who.TIMEOUT)
+		eq(Listening(FriendsFrame), true, "given back on the timeout")
+		-- Its answer may still come. Blizzard's default would open the Who tab for a long
+		-- one (ShowWhoPanel), so results go to the UI, where the event only updates the list.
+		eq(server.toUi[#server.toUi], true, "still to the UI while the answer may come")
+		server.Answer({ { "Aa", "OLYMPUS VII", 12, "MAGE" } })
+		eq(#ns.Recruit.found, 0, "a late answer is not taken")
+		eq(server.toUi[#server.toUi], false, "it came: back to Blizzard's default")
+		local toUi = #server.toUi
+		server.Run(ns.Who.LATE)
+		eq(#server.toUi, toUi, "nothing more to do after it")
+		-- 10 seconds between two searches, whichever button sends them.
+		server.clock = server.clock + 5
+		eq(ns.Who.Search(), false)
+		eq(server.printed[#server.printed], ns.L.WHO_WAIT:format(5))
+		eq(#server.sent, 1)
+		-- Unanswered: the next click asks the same again.
+		eq(server.Click(), true)
+		eq(server.sent[2], 'g-"Olympus"')
+		-- A search still waiting when the next one goes (cannot happen with a timeout shorter
+		-- than the cooldown, but): the old timeout leaves the new search alone.
+		eq(server.Click(), true)
+		eq(Listening(FriendsFrame), false)
+		eq(table.concat(FriendsFrame.calls, " "), "unregister register unregister register unregister")
+		server.timers[1].fn()
+		eq(Listening(FriendsFrame), false, "an old timeout does not end a newer search")
+		server.Run()
+		eq(Listening(FriendsFrame), true)
+	end)
+end)
+
+test("who: with the player's own Who window open nothing is sent or silenced", function()
+	WithWho(function(server)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		LFGWhoListFrame.shown = true
+		eq(ns.Who.Search(), false)
+		eq(#server.sent, 0); eq(#LFGWhoListFrame.calls, 0); eq(#server.toUi, 0)
+		eq(server.printed[1], ns.L.WHO_WINDOW_OPEN)
+		-- The old UI's Who tab counts too.
+		LFGWhoListFrame.shown = false
+		WhoFrame = ListenerFrame("WhoFrame")
+		WhoFrame.shown = true
+		eq(ns.Who.Search(), false)
+		WhoFrame.shown = false
+		eq(ns.Who.Search(), true, "a skipped search spends no cooldown")
+	end)
+end)
+
+test("who: someone else's search while ours waits gives the event back at once", function()
+	WithWho(function(server)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		ns.Who.Search()
+		eq(Listening(LFGWhoListFrame), false)
+		local toUi = #server.toUi
+		C_FriendList.SendWho('n-"Bob"') -- the player's own /who
+		eq(Listening(LFGWhoListFrame), true, "given back at once")
+		eq(#server.toUi, toUi, "results still to the UI: our answer may come first")
+		server.Answer({ { "Aa", "OLYMPUS VII", 12, "MAGE" } })
+		eq(#ns.Recruit.found, 0, "that answer may be theirs: not read")
+		eq(server.toUi[#server.toUi], false, "then Blizzard's default, for theirs")
+		-- The player opened their Who window meanwhile: it keeps the results.
+		server.Click()
+		LFGWhoListFrame.shown = true
+		toUi = #server.toUi
+		C_FriendList.SendWho('n-"Bob"')
+		server.Answer()
+		server.Run()
+		eq(#server.toUi, toUi, "results stay with the open Who window")
+		eq(server.sent[#server.sent - 1], 'g-"Olympus"', "unanswered: the click repeated the broad search")
+	end)
+end)
+
+test("who: a search given up goes back to Blizzard's default once it can no longer be answered", function()
+	WithWho(function(server)
+		FriendsFrame = ListenerFrame("FriendsFrame", true)
+		-- Never answered: LATE seconds on.
+		ns.Who.Search()
+		server.Run(ns.Who.TIMEOUT)
+		eq(server.toUi[#server.toUi], true)
+		server.Run(ns.Who.LATE)
+		eq(server.toUi[#server.toUi], false, "never answered")
+		-- Given up, then the player searches: that answer gets Blizzard's default at once.
+		server.Click()
+		server.Run(ns.Who.TIMEOUT)
+		eq(server.toUi[#server.toUi], true)
+		C_FriendList.SendWho('n-"Bob"')
+		eq(server.toUi[#server.toUi], false, "the player's own search, ours given up")
+		-- A new search of ours: the old wait ends, and its timer leaves the new one alone.
+		server.Click()
+		server.Run(ns.Who.TIMEOUT)
+		server.Click()
+		eq(server.toUi[#server.toUi], true); eq(Listening(FriendsFrame), false)
+		server.Run(ns.Who.LATE)
+		eq(server.toUi[#server.toUi], true, "the old search's timer changes nothing")
+		eq(Listening(FriendsFrame), false)
+	end)
+end)
+
+test("who: the person panel's Who keeps its distance from our searches", function()
+	WithWho(function(server)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		ns.Who.Search()
+		server.clock = server.clock + 2
+		eq(ns.Who.SendPlain('n-"Bob"'), false, "ours may still be answered")
+		eq(server.printed[#server.printed], ns.L.WHO_WAIT:format(8))
+		eq(#server.sent, 1); eq(Listening(LFGWhoListFrame), false, "ours still waits, quiet")
+		server.Answer(Players(1, 3))
+		server.Run()
+		server.clock = server.clock + ns.Who.COOLDOWN
+		local toUi = #server.toUi
+		eq(ns.Who.SendPlain('n-"Bob"'), true)
+		eq(server.sent[#server.sent], 'n-"Bob"')
+		eq(Listening(LFGWhoListFrame), true, "nothing silenced"); eq(#server.toUi, toUi, "Blizzard's default")
+		eq(ns.Who.SendPlain('n-"Ann"'), true, "one after another, as before")
+		-- Ours waits after it: its answer is not ours.
+		server.clock = server.clock + 3
+		eq(ns.Who.Search(), false)
+		eq(server.printed[#server.printed], ns.L.WHO_WAIT:format(7))
+		server.Answer(Players(1, 1))
+		eq(#ns.Recruit.found, 3, "their answer is not read")
+	end)
+end)
+
+test("who: a round left unfinished starts over later, its old players dropped", function()
+	WithWho(function(server)
+		ns.Who.Search()
+		server.Answer(Players(1, 50), 312)
+		server.Run()
+		eq(#ns.Recruit.found, 50); eq(ns.rdb.seen["OLYMPUS VII"].online, 25)
+		-- Soon after: the round goes on with the first level range.
+		server.Click()
+		eq(server.sent[#server.sent], ('g-"Olympus" %d-%d'):format(unpack(ns.Who.sweep.brackets[1])))
+		server.Answer(Players(51, 60), 10)
+		server.Run()
+		eq(#ns.Recruit.found, 60)
+		-- An hour later: the broad search again, and only the players seen now count.
+		server.clock = server.clock + 3600
+		server.Click()
+		eq(server.sent[#server.sent], 'g-"Olympus"')
+		server.Answer(Players(101, 110), 10)
+		server.Run()
+		eq(#ns.Recruit.found, 10, "only the players seen now")
+		eq(ns.rdb.seen["OLYMPUS VII"].online, 5); eq(ns.rdb.seen["OLYMPUS VII"].capped, nil)
+		eq(ns.Who.StatusLines(), nil)
+	end)
+end)
+
+test("who: a search that fails to send gives every event back", function()
+	WithWho(function(server)
+		FriendsFrame = ListenerFrame("FriendsFrame", true)
+		ClassicUIForeverWhoPanel = { driver = ListenerFrame("driver", true) }
+		C_FriendList.SendWho = function() error("who throttled") end
+		local caught
+		local capture = ns.CaptureError
+		ns.CaptureError = function(_, err) caught = tostring(err) end
+		eq(ns.SafeCall("button RECRUIT_FIND", ns.Who.Search), false)
+		ns.CaptureError = capture
+		assert(caught and caught:find("who throttled", 1, true), "error captured: " .. tostring(caught))
+		eq(Listening(FriendsFrame), true); eq(Listening(ClassicUIForeverWhoPanel.driver), true)
+		eq(server.toUi[#server.toUi], false)
+		eq(ns.Who.IsPending(), false)
+		server.Run()
+		eq(table.concat(FriendsFrame.calls, " "), "unregister register", "the timeout changes nothing more")
+	end)
+end)
+
+test("who: /oly reset while a search waits gives the event back", function()
+	WithWho(function(server)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		ns.Who.Search()
+		eq(Listening(LFGWhoListFrame), false)
+		SlashCmdList.OLYMPUS("reset")
+		eq(Listening(LFGWhoListFrame), true); eq(server.toUi[#server.toUi], false)
+		eq(ns.Who.IsPending(), false)
+	end)
+end)
+
+test("who: level ranges follow the levels seen", function()
+	local function S(list)
+		local out = {}
+		for _, b in ipairs(list) do out[#out + 1] = b[1] .. "-" .. b[2] end
+		return table.concat(out, " ")
+	end
+	local young = {}
+	for i = 1, 50 do young[i] = 7 + i % 14 end
+	eq(S(ns.Who.Brackets(young, 60, 5)), "1-9 10-12 13-14 15-17 18-60", "a young realm: ranges where the players are")
+	eq(S(ns.Who.Brackets({}, 60, 5)), "1-12 13-24 25-36 37-48 49-60", "no levels seen: even ranges")
+	local top = {}
+	for i = 1, 50 do top[i] = 60 end
+	eq(S(ns.Who.Brackets(top, 60, 5)), "1-59 60-60", "everyone at the top level: it gets a range of its own")
+	eq(S(ns.Who.Brackets({}, 3, 5)), "1-1 2-2 3-3")
+	eq(S(ns.Who.Brackets(young, 70, 5)), "1-9 10-12 13-14 15-17 18-70", "up to the client's top level")
+end)
+
+test("who: a capped answer (50 of 312) is dug through by level, merging, then a click starts over", function()
+	WithWho(function(server)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		ns.Who.Search()
+		server.Answer(Players(1, 50), 312)
+		server.Run()
+		eq(#ns.Recruit.found, 50)
+		local brackets = ns.Who.sweep.brackets
+		eq(#brackets, 5); eq(brackets[1][1], 1); eq(brackets[5][2], 60)
+		local status = ns.Who.StatusLines()
+		eq(status[1], "Showing 50 of 312 online.")
+		eq(status[2], ("Next search: levels %d-%d (1 of 5)."):format(brackets[1][1], brackets[1][2]))
+		-- The Join screen says so under its title.
+		local lines = ns.Views.RecruitLines()
+		eq(lines[2].text, ns.Views.Grey(status[1])); eq(lines[3].text, ns.Views.Grey(status[2]))
+		eq(ns.rdb.seen["OLYMPUS VII"].capped, true, "the census knows more may be online")
+		eq(ns.rdb.seen["OLYMPUS VII"].online, 25)
+		-- Each click searches the next range and adds to what was found (P41-70, P61-90, ...).
+		for k = 1, #brackets do
+			eq(server.Click(), true)
+			eq(server.sent[#server.sent], ('g-"Olympus" %d-%d'):format(brackets[k][1], brackets[k][2]))
+			eq(Listening(LFGWhoListFrame), false, "quiet for the level searches too")
+			server.Answer(Players(20 * k + 21, 20 * k + 50), 30)
+			server.Run()
+			eq(Listening(LFGWhoListFrame), true)
+			eq(#ns.Recruit.found, 20 * k + 50, "merged, nobody twice")
+			if k == 1 then eq(ns.Who.StatusLines()[1], "70 of 312 found so far.") end
+		end
+		eq(ns.Who.StatusLines()[1], "150 found, every level searched.")
+		eq(#ns.Who.StatusLines(), 1)
+		eq(ns.rdb.seen["OLYMPUS VII"].online, 75); eq(ns.rdb.seen["OLYMPUS I"].online, 75)
+		eq(ns.rdb.seen["OLYMPUS VII"].capped, nil, "every range fit: exact")
+		-- Every range searched once: the next click starts over with the broad search.
+		server.Click()
+		eq(server.sent[#server.sent], 'g-"Olympus"')
+		eq(#ns.Recruit.found, 150, "kept until the new answer comes")
+		server.Answer(Players(1, 10), 10)
+		server.Run()
+		eq(#ns.Recruit.found, 10, "a new round")
+		eq(ns.Who.StatusLines(), nil)
+	end)
+end)
+
+test("who: Forever reports no total past 50, and a crowded level range stays capped", function()
+	WithWho(function(server)
+		ns.Who.Search()
+		server.Answer(Players(1, 50), 50) -- the "50 People Found" of the Forever screenshot
+		server.Run()
+		eq(ns.Who.StatusLines()[1], "Showing 50: the game lists no more per search.")
+		for k = 1, #ns.Who.sweep.brackets do
+			server.Click()
+			-- The first range is as full as the broad search.
+			server.Answer(k == 1 and Players(101, 150) or {}, k == 1 and 50 or 0)
+			server.Run()
+			if k == 1 then eq(ns.Who.StatusLines()[1], "100 found so far.") end
+		end
+		eq(ns.Who.StatusLines()[1], "100 found: some levels still had over 50.")
+		eq(ns.rdb.seen["OLYMPUS VII"].capped, true, "a range was capped: still a floor")
+	end)
+end)
+
+test("census: /who sightings for every Olympus guild we can see, never a report", function()
+	WithWho(function(server)
+		ns.rdb.guilds = SampleGuilds()
+		ns.UI = { StatusLine = function() return "status" end }
+		local before = ns.Data.Summary()
+		ns.Who.Search()
+		server.Answer({
+			{ "Aa", "OLYMPUS VII", 12 }, { "Bb", "OLYMPUS VII", 14 }, { "Far-Other", "OLYMPUS VII", 14 },
+			{ "Cc-Realm", "OLYMPUS XXL", 9 }, { "Dd", "Olympus", 20 }, { "Ee", "House of Guedes", 20 },
+			{ "Ff-Other", "OLYMPUS LXIX", 3 },
+		})
+		server.Run()
+		local seen = ns.rdb.seen
+		eq(seen["OLYMPUS VII"].online, 3, "players from the other realm (PvP 2) count too")
+		eq(seen["OLYMPUS XXL"].online, 1, "Name-OurRealm is ours")
+		eq(seen["OLYMPUS LXIX"].online, 1, "a guild only seen on the other realm is listed")
+		eq(seen["House of Guedes"], nil, "not an Olympus guild")
+		eq(seen["OLYMPUS VII"].capped, nil, "everyone fit in one answer")
+		eq(seen["Olympus"].online, 1, "a reported guild can be seen too...")
+		eq(ns.rdb.guilds["Olympus"].total, 990, "...and its report is untouched")
+		eq(ns.rdb.guilds["OLYMPUS VII"], nil, "a sighting is never a report")
+		eq(ns.Data.KnownRank("Aa-Realm", "OLYMPUS VII"), nil, "and grants no rank")
+		local s = ns.Data.Summary()
+		eq(s.total, before.total); eq(s.online, before.online); eq(s.fresh, before.fresh)
+		eq(#s.guilds, #before.guilds, "not among the reported guilds")
+		eq(#s.zoneList, #before.zoneList, "nothing on the map")
+		eq(#s.seen, 3, "seen and not reported"); eq(s.seen[1].name, "OLYMPUS VII")
+		eq(s.seen[2].name, "OLYMPUS LXIX"); eq(s.seen[3].name, "OLYMPUS XXL")
+		local realm = ns.Views.RealmLines()
+		eq(realm[1].text:find("Asmongold", 1, true) ~= nil, true, "the King is a reported guild's")
+		for _, l in ipairs(realm) do
+			assert(not (l.text or ""):find("OLYMPUS", 1, true), "in the Realm tree: " .. tostring(l.text))
+		end
+		-- A report arriving later takes the guild's row; the sighting stays out of sight.
+		eq(ns.Data.Receive({ guild = "OLYMPUS XXL", total = 40, online = 9, zones = {} }, "Reporter-Realm"), true)
+		s = ns.Data.Summary()
+		eq(#s.seen, 2); eq(s.total, before.total + 40)
+		-- Forgotten like reports, and by /oly reset.
+		seen["OLYMPUS VII"].t = os.time() - ns.Data.KEEP - 1
+		seen["OLYMPUS LXIX"].t = os.time() - ns.Data.KEEP - 1
+		eq(#ns.Data.Summary().seen, 0, "older than a day")
+		SlashCmdList.OLYMPUS("reset")
+		eq(next(ns.rdb.seen), nil, "/oly reset forgets sightings")
+	end)
+end)
+
+test("census: sightings older than a day are forgotten at login", function()
+	local savedR, savedCapture = ns.rdb, ns.CaptureError
+	local captured
+	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
+	ns.rdb = { guilds = {}, seen = { ["OLYMPUS VII"] = { online = 5, t = os.time() - ns.Data.KEEP - 1 },
+		["OLYMPUS XXL"] = { online = 3, t = os.time() - 60 }, ["OLYMPUS X"] = "broken" } }
+	CoreFire("INIT")
+	local seen = ns.rdb.seen
+	ns.rdb, ns.CaptureError = savedR, savedCapture
+	eq(captured, nil, "error caught")
+	eq(seen["OLYMPUS VII"], nil, "older than a day"); eq(seen["OLYMPUS X"], nil, "not a sighting")
+	eq(seen["OLYMPUS XXL"].online, 3, "a recent one is kept")
+end)
+
+test("census: guilds only seen with /who are grey rows after the reported ones", function()
+	WithWho(function()
+		local L, Grey = ns.L, ns.Views.Grey
+		ns.rdb.guilds = SampleGuilds()
+		ns.rdb.seen = { ["OLYMPUS VII"] = { online = 12, capped = true, t = os.time() },
+			["OLYMPUS XXL"] = { online = 30, t = os.time() }, ["Olympus"] = { online = 3, t = os.time() } }
+		ns.UI = { StatusLine = function() return "status" end }
+		ns.Views.sort = { key = "members", desc = false } -- sorting moves reported guilds only
+		local lines = ns.Views.Build("census")
+		eq(lines[1].cols[1], "Olympus II"); eq(lines[2].cols[1], "Olympus")
+		eq(lines[3].cols[1], Grey("OLYMPUS XXL"), "most online first")
+		eq(lines[3].cols[3], Grey("30")); eq(lines[3].dim, nil)
+		eq(lines[4].cols[1], Grey("OLYMPUS VII")); eq(lines[4].cols[2], Grey("?"))
+		eq(lines[4].cols[3], Grey("12+"), "capped: at least")
+		eq(lines[4].cols[4], Grey(L.NO_ADDON))
+		eq(lines[5].text, Grey(L.SEEN_HINT)); eq(#lines, 5)
+		local tip = {}
+		local tt = { AddLine = function(_, text) tip[#tip + 1] = text end,
+			AddDoubleLine = function(_, a, b) tip[#tip + 1] = a .. "=" .. b end }
+		lines[4].tooltip(tt)
+		local text = table.concat(tip, "\n")
+		assert(text:find(L.SEEN_TIP, 1, true) and text:find(L.SEEN_CAPPED_TIP, 1, true) and text:find("12+", 1, true), text)
+		-- Nothing seen: no grey rows and no hint.
+		ns.rdb.seen = {}
+		eq(#ns.Views.Build("census"), 2)
+		ns.Views.sort = { key = "members", desc = true }
+	end)
+end)
+
+test("census Refresh: the roster, and one /who per click for the grey guilds", function()
+	WithWho(function(server)
+		WithUI(function()
+			local scans = 0
+			C_GuildInfo = { GuildRoster = function() scans = scans + 1 end }
+			local UI = LoadUI()
+			UI.SelectTab("census")
+			local refresh = OlympusFrame.buttons[2]
+			eq(refresh:GetText(), ns.L.REFRESH)
+			refresh:Click()
+			eq(scans, 1); eq(table.concat(server.sent, "|"), 'g-"Olympus"')
+			refresh:Click()
+			eq(scans, 2, "the roster every click"); eq(#server.sent, 1, "/who at most every 10 seconds")
+			server.Answer({ { "Aa", "OLYMPUS VII", 12 } })
+			UI.Refresh()
+			local row = OlympusFrame.views.census.rows[3]
+			eq(row.cols[1]:GetText(), ns.Views.Grey("OLYMPUS VII"), "the grey row is drawn")
+			-- The person panel's Who goes through Who.lua: not right after our search.
+			UI.ShowPerson({ name = "Aa-Realm", guild = "OLYMPUS VII" })
+			OlympusPersonFrame.who:Click()
+			eq(#server.sent, 1, "the person panel's Who waits for ours")
+			server.clock = server.clock + ns.Who.COOLDOWN
+			OlympusPersonFrame.who:Click()
+			eq(server.sent[#server.sent], 'n-"Aa-Realm"')
+			C_GuildInfo = nil
+		end)
+	end)
+end)
+
+---------------------------------------------------------------------------
+-- Channels (Channels.lua): [Olympus] / [Captains] / [Lords] over the hidden channel
+---------------------------------------------------------------------------
+
+CHAT_LINES = {}
+DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) CHAT_LINES[#CHAT_LINES + 1] = t end }
+UnitClass = function() return "Paladin", "PALADIN" end
+local Chan = ns.Channels
+local ITEM = "|cff0070dd|Hitem:19019::::::::60:::::::::|h[Thunderfury]|h|r"
+local ITEM_Q = "|cnIQ4:|Hitem:19019::::::::60:::::::::|h[Thunderfury]|h|r"
+
+-- Runs fn(printed) with guild rank R in Olympus II (or in `guild`); ns.Print goes to `printed`.
+local function AsRank(R, fn, guild)
+	local savedInfo, savedPrint = GetGuildInfo, ns.Print
+	local printed = {}
+	GetGuildInfo = function() return guild or MY_GUILD, "rankname", R end
+	ns.Print = function(msg) printed[#printed + 1] = tostring(msg) end
+	local ok, err = pcall(fn, printed)
+	GetGuildInfo, ns.Print = savedInfo, savedPrint
+	if not ok then error(err, 0) end
+end
+
+-- Runs fn(sent) with the chat lane stubbed: SendChat records the message and reports it sent.
+local function WithLane(fn, ready)
+	local C = ns.Comm
+	local savedReady, savedSend = C.ChannelReady, C.SendChat
+	local sent = {}
+	C.ChannelReady = function() return ready ~= false end
+	C.SendChat = function(msg, done) sent[#sent + 1] = msg; done(true); return true end
+	local ok, err = pcall(fn, sent)
+	C.ChannelReady, C.SendChat = savedReady, savedSend
+	if not ok then error(err, 0) end
+end
+
+local function Msg(tier, guild, id, text)
+	return Codec.EncodeChat(tier, guild, id, "PA", text or "hi")
+end
+
+test("chat message round trip: separators, escapes and unicode", function()
+	local text = "ataque em ~Tarren:Mill, já! a=b " .. ITEM .. " e " .. ITEM_Q
+	eq(Codec.SanitizeChat(text), text, "nothing to neutralise")
+	local d = Codec.DecodeChat(Codec.EncodeChat("C", "Olympus II", 42, "PA", text))
+	eq(d.tier, "C"); eq(d.guild, "Olympus II"); eq(d.id, 42); eq(d.class, "PA"); eq(d.text, text)
+	eq(Codec.DecodeChat(Codec.EncodeChat("A", "Olympus", 7, "", "oi")).class, nil, "no class")
+	eq(Codec.DecodeChat(Codec.EncodeChat("A", "Olympus", 12345, "", "oi")).id, 2345, "id wraps at 10000")
+	eq(Codec.DecodeChat("M1~X~Olympus~1~~hi"), nil, "unknown tier")
+	eq(Codec.DecodeChat("M1~A~Oly|mpus~1~~hi"), nil, "| in the guild")
+	eq(Codec.DecodeChat("M1~A~Olympus~12345~~hi"), nil, "5 digit id")
+	eq(Codec.DecodeChat("M1~A~Olympus~1~~   "), nil, "whitespace only")
+	eq(Codec.DecodeChat("M1~A~Olympus~1~~" .. ("x"):rep(240)), nil, "over 255 bytes")
+	eq(Codec.DecodeChat("M1~A~" .. ("Olympus"):rep(4) .. "~1~~hi"), nil, "guild over 24 characters")
+	-- WoW counts characters: 24 of them with an accent are 25 bytes.
+	local accents = "Olympus Irmãos de Sangue"
+	eq(#accents, 25)
+	eq(Codec.DecodeChat(Codec.EncodeChat("A", accents, 1, "", "oi")).guild, accents, "chat")
+	eq(Codec.DecodeReport(Codec.EncodeReport({ guild = accents, total = 1, online = 1 })).guild, accents, "report")
+	eq(Codec.DecodeChat("M1~A~" .. ("\128"):rep(80) .. "~1~~hi"), nil, "bytes are limited too")
+end)
+
+test("chat sanitizer keeps item and spell links and neutralises every other escape", function()
+	local S = Codec.SanitizeChat
+	local spell = "|cff71d5ff|Hspell:8690|h[Hearthstone]|h|r"
+	eq(S("hi " .. ITEM .. " ok"), "hi " .. ITEM .. " ok")
+	eq(S(ITEM_Q), ITEM_Q); eq(S(spell), spell)
+	eq(S("|TInterface\\Icons\\x:99|t"), "||TInterface\\Icons\\x:99||t", "texture")
+	eq(S("|cffff0000fake|r"), "||cffff0000fake||r", "bare colour")
+	eq(S("|HurlIndex:24|h[x]|h"), "||HurlIndex:24||h[x]||h", "other link types")
+	eq(S("|A:atlas:16:16|a"), "||A:atlas:16:16||a", "atlas")
+	eq(S("|Kq1|k"), "||Kq1||k", "protected name")
+	eq(S("a|nb"), "a||nb", "raw |n")
+	eq(S("a\nb\0c"), "abc", "control bytes")
+	-- A newline inside a link's name would fake a second chat line: not a link we keep.
+	eq(S("ok |Hitem:1|h[x\n[Olympus]|h [Zeus] <Olympus>: gold"), "ok ||Hitem:1||h[x[Olympus]||h [Zeus] <Olympus>: gold", "newline in a link")
+	eq(S("|Hitem:1|h[a\0b]|h"), "||Hitem:1||h[ab]||h", "NUL in a link")
+	eq(S("a||b"), "a||b", "escaped pipe kept")
+	for _, x in ipairs({ "hi " .. ITEM, "|T x |t", "a||b|", "ção ~ : , = |", ITEM_Q .. "|" }) do
+		local once = S(x)
+		eq(S(once), once, "idempotent: " .. x)
+	end
+end)
+
+test("long chat splits at safe points and every part fits one message", function()
+	local guild = "Olympus Poseidon Real"
+	eq(#guild, 21)
+	local text = Codec.SanitizeChat(("ação "):rep(50) .. ITEM .. (" é"):rep(40))
+	eq(#text, 530)
+	local parts, cut = Codec.SplitChat(text, Codec.ChatBudget(guild, "PA"), Codec.CHAT_PARTS)
+	eq(#parts, 3); eq(cut, false)
+	local whole = false
+	for _, p in ipairs(parts) do
+		local b = p:byte(1)
+		assert(not (b >= 128 and b < 192), "part starts inside a character")
+		local msg = Codec.EncodeChat("A", guild, 9999, "PA", p)
+		assert(msg and #msg <= 250, "message too long")
+		eq(Codec.DecodeChat(msg).text, p)
+		if p:find(ITEM, 1, true) then whole = true end
+	end
+	assert(whole, "the link stayed whole")
+	eq((table.concat(parts, " "):gsub("%s+", " ")), (text:gsub("%s+", " ")), "nothing lost")
+	local q = Codec.SplitChat(("x"):rep(90) .. ITEM .. ("y"):rep(20), 120, 3)
+	eq(#q, 2); eq(q[1], ("x"):rep(90)); eq(q[2], ITEM .. ("y"):rep(20))
+	for _, p in ipairs(Codec.SplitChat(("ç"):rep(150), 101, 3)) do eq(#p % 2, 0, "cut inside a character") end
+	local long, lost = Codec.SplitChat(("x"):rep(1000), 200, 3)
+	eq(#long, 3); eq(lost, true)
+	-- The space in a link's name is not a place to cut.
+	local named = "|cff0070dd|Hitem:19019::::::::60:::::::::|h[Thunderfury Blessed Blade]|h|r"
+	local w = Codec.SplitChat(("y"):rep(40) .. named .. ("y"):rep(100), 120, 3)
+	assert(w[1]:find(named, 1, true), "link cut at its space: " .. w[1])
+end)
+
+test("channel levels follow the realm hierarchy", function()
+	eq(Chan.LevelOf("Olympus", 0), 3); eq(Chan.LevelOf("Olympus", 1), 3); eq(Chan.LevelOf("Olympus", 2), 1)
+	eq(Chan.LevelOf("Olympus II", 0), 3); eq(Chan.LevelOf("Olympus II", 1), 2); eq(Chan.LevelOf("Olympus II", 3), 1)
+	eq(Chan.LevelOf("Horde Pals", 0), 0)
+	local function uses()
+		local s = ""
+		for _, t in ipairs(Chan.ORDER) do if Chan.CanUse(t) then s = s .. t end end
+		return s
+	end
+	AsRank(0, function() eq(uses(), "ACL", "guild master") end)
+	AsRank(1, function() eq(uses(), "AC", "officer") end)
+	AsRank(3, function() eq(uses(), "A", "member") end)
+	AsRank(0, function() eq(uses(), "", "outside Olympus") end, "House of Guedes")
+end)
+
+test("sending is gated with a clear answer", function()
+	CHAT_LINES = {}
+	WithLane(function(sent)
+		AsRank(0, function(printed)
+			local ok, why = Chan.Send("A", "hi", 100)
+			eq(ok, false); eq(why, "member"); eq(printed[1], ns.L.MEMBERS_ONLY)
+		end, "House of Guedes")
+		AsRank(3, function()
+			eq(select(2, Chan.Send("C", "hi", 100)), "rank")
+			eq(select(2, Chan.Send("L", "hi", 100)), "rank")
+		end)
+		AsRank(1, function(printed)
+			eq(select(2, Chan.Send("L", "hi", 100)), "rank")
+			eq(printed[1], ns.L.CHAN_ONLY_LORDS:format("Lords"))
+			eq(select(2, Chan.Send("C", " \n ", 100)), "empty")
+			eq(printed[2], ns.L.CHAN_USAGE:format("/olc", "Captains"))
+			C_ChatInfo = { InChatMessagingLockdown = function() return true end }
+			eq(select(2, Chan.Send("C", "hi", 100)), "lockdown")
+			C_ChatInfo = nil
+			local savedRoom = ns.Comm.ChatRoom
+			ns.Comm.ChatRoom = function() return 0 end
+			eq(select(2, Chan.Send("C", "hi", 100)), "busy")
+			ns.Comm.ChatRoom = savedRoom
+		end)
+		eq(#sent, 0, "nothing sent")
+	end)
+	WithLane(function(sent)
+		AsRank(1, function() eq(select(2, Chan.Send("C", "hi", 100)), "ready") end)
+		eq(#sent, 0)
+	end, false)
+	ns.db.chatNoticeShown = nil
+	WithLane(function(sent)
+		AsRank(1, function(printed)
+			local ok, why = Chan.Send("C", "reunir em " .. ITEM, 100)
+			eq(ok, true); eq(why, "ok")
+			eq(printed[#printed], ns.L.CHAN_NOTICE, "not-encrypted notice, once")
+		end)
+		eq(#sent, 1)
+		eq(sent[1]:sub(1, 16), "M1~C~Olympus II~")
+		assert(sent[1]:find("~PA~reunir em " .. ITEM, 1, true), sent[1])
+		eq(#CHAT_LINES, 1, "local echo")
+		assert(CHAT_LINES[1]:find("[Captains]", 1, true) and CHAT_LINES[1]:find(ITEM, 1, true), CHAT_LINES[1])
+	end)
+	eq(ns.db.chatNoticeShown, true)
+end)
+
+test("sender ranks are verified on receipt, never taken from the message", function()
+	ns.Roster.Scan()
+	ns.rdb.guilds = {
+		["Olympus"] = { guild = "Olympus", leader = "Asmongold", officers = { { name = "Capt" } }, total = 1000, online = 1, zones = {}, t = os.time() },
+		["Olympus Bad"] = { guild = "Olympus Bad", leader = "X", conflict = true, total = 1, online = 1, zones = {}, t = os.time() },
+	}
+	eq(ns.Data.Receive({ guild = "Olympus Zeus", total = 5, online = 1, zones = {} }, "Liar2-Realm"), true)
+	CHAT_LINES = {}
+	AsRank(0, function()
+		local n = 0
+		local function R(sender, tier, guild, dist)
+			n = n + 1
+			return select(2, Chan.Receive(dist or "CHANNEL", sender, Msg(tier, guild, n), 1000 + n))
+		end
+		eq(R("Member2", "C", MY_GUILD), "ok", "our officer on [Captains]")
+		eq(R("Member2", "L", MY_GUILD), "rank", "our officer is not a Lord")
+		eq(R("Member1", "L", MY_GUILD), "ok", "our guild master")
+		eq(R("Member500", "A", MY_GUILD), "ok", "our member on [Olympus]")
+		eq(R("Member500", "C", MY_GUILD), "rank", "our member on [Captains]")
+		eq(R("Stranger-Realm", "A", MY_GUILD), "forged", "not in our roster")
+		eq(R("Member3", "A", "Olympus"), "forged", "a guildmate speaking for another guild")
+		eq(R("Asmongold", "L", "Olympus"), "ok", "the King, from the report")
+		eq(R("Capt", "L", "Olympus"), "ok", "officer of <Olympus>, from the report")
+		eq(R("Random", "A", "Olympus"), "ok", "unverified members can use [Olympus]")
+		eq(R("Random", "C", "Olympus"), "unverified")
+		eq(R("X", "C", "Olympus Bad"), "unverified", "conflicting report")
+		eq(R("Hordie", "A", "Horde Pals"), "bad", "not an Olympus guild")
+		eq(R("Liar2", "A", "Olympus Fake"), "forged", "already reported another guild")
+		eq(R("Member2", "A", MY_GUILD, "GUILD"), "dist")
+	end)
+	eq(#CHAT_LINES, 6)
+	assert(CHAT_LINES[4]:find("[Lords]", 1, true) and CHAT_LINES[4]:find("<Olympus>", 1, true), CHAT_LINES[4])
+	ns.rdb.guilds = {}
+end)
+
+test("players below a tier never see it", function()
+	ns.rdb.chat = nil
+	CHAT_LINES = {}
+	local m = Msg("L", MY_GUILD, 777, "only for lords")
+	AsRank(3, function()
+		local shown, why = Chan.Receive("CHANNEL", "Member1", m, 2000)
+		eq(shown, false); eq(why, "tier")
+		eq(#Chan.History("L"), 0)
+	end)
+	eq(#CHAT_LINES, 0, "no line")
+	eq(ns.rdb.chat, nil, "nothing stored")
+	AsRank(0, function()
+		eq((Chan.Receive("CHANNEL", "Member1", m, 2001)), true)
+		eq(#Chan.History("L"), 1)
+	end)
+	eq(#CHAT_LINES, 1)
+	-- A member doesn't read [Captains], and a Captain outside <Olympus> doesn't read [Lords].
+	AsRank(3, function()
+		eq(select(2, Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, 778, "only for captains"), 2002)), "tier")
+	end)
+	AsRank(1, function()
+		eq(select(2, Chan.Receive("CHANNEL", "Member1", Msg("L", MY_GUILD, 779, "lords again"), 2003)), "tier")
+	end)
+	eq(ns.rdb.chat.C, nil, "nothing stored")
+	eq(#ns.rdb.chat.L, 1)
+	-- Before our roster is read, even a real officer claiming our guild gets [Olympus] only.
+	local byName = ns.Roster.byName
+	ns.Roster.byName = nil
+	AsRank(0, function()
+		eq(select(2, Chan.Receive("CHANNEL", "Member3", Msg("C", MY_GUILD, 780), 2004)), "unverified")
+		eq((Chan.Receive("CHANNEL", "Member3", Msg("A", MY_GUILD, 781), 2005)), true)
+	end)
+	ns.Roster.byName = byName
+	C_FriendList = { IsIgnored = function() return true end }
+	AsRank(0, function()
+		eq(select(2, Chan.Receive("CHANNEL", "Member4", Msg("A", MY_GUILD, 782), 2006)), "ignored")
+	end)
+	C_FriendList = nil
+	eq(#CHAT_LINES, 2)
+end)
+
+test("duplicate ids are shown once", function()
+	AsRank(1, function()
+		local m = Msg("A", MY_GUILD, 4242)
+		eq((Chan.Receive("CHANNEL", "Member7", m, 3000)), true)
+		eq(select(2, Chan.Receive("CHANNEL", "Member7", m, 3001)), "dup")
+		eq((Chan.Receive("CHANNEL", "Member8", m, 3002)), true, "same id from another sender")
+		eq((Chan.Receive("CHANNEL", "Member7", Msg("A", MY_GUILD, 4242, "after a /reload"), 3003)), true, "same id, new text")
+		Chan.Prune(3000 + 121)
+		eq((Chan.Receive("CHANNEL", "Member7", m, 3000 + 121)), true, "forgotten after the window")
+	end)
+end)
+
+test("rate limits: sender cooldown and receiver burst guard", function()
+	WithLane(function()
+		AsRank(3, function(printed)
+			eq((Chan.Send("A", "one", 4000)), true)
+			local ok, why = Chan.Send("A", "two", 4001)
+			eq(ok, false); eq(why, "fast"); eq(printed[#printed], ns.L.CHAN_TOO_FAST)
+			eq((Chan.Send("A", "three", 4001.5)), true)
+		end)
+	end)
+	AsRank(3, function()
+		for i = 1, 6 do eq((Chan.Receive("CHANNEL", "Member9", Msg("A", MY_GUILD, 100 + i), 5000)), true, "burst " .. i) end
+		eq(select(2, Chan.Receive("CHANNEL", "Member9", Msg("A", MY_GUILD, 107), 5000)), "rate")
+		eq((Chan.Receive("CHANNEL", "Member9", Msg("A", MY_GUILD, 108), 5000 + 1.2)), true, "one more after 1.2 s")
+		for i = 1, 60 do
+			eq((Chan.Receive("CHANNEL", "Member" .. (200 + i), Msg("A", MY_GUILD, 1), 6000 + i * 0.5)), true, "sender " .. i)
+		end
+		eq(select(2, Chan.Receive("CHANNEL", "Member261", Msg("A", MY_GUILD, 1), 6030.5)), "flood")
+	end)
+end)
+
+test("muted tiers stay out of chat but keep history", function()
+	ns.db.chatMute, ns.rdb.chat = nil, nil
+	AsRank(1, function(printed)
+		Chan.ToggleMute("captains")
+		eq(ns.db.chatMute.C, true)
+		eq(printed[1], ns.L.CHAN_MUTED:format("Captains", "captains"))
+		CHAT_LINES = {}
+		local shown, why = Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, 5150), 7000)
+		eq(shown, false); eq(why, "muted")
+		eq(#CHAT_LINES, 0, "no line"); eq(#Chan.History("C"), 1, "kept in history")
+		eq(Chan.Stats().muted[1], "C")
+		Chan.ToggleMute("capitães")
+		eq(ns.db.chatMute.C, nil)
+		Chan.ToggleMute("nonsense")
+		eq(printed[#printed], ns.L.CHAN_MUTE_USAGE)
+		-- "all" would read as every channel: [Olympus] is muted with its own name.
+		Chan.ToggleMute("olympus")
+		eq(printed[#printed], ns.L.CHAN_MUTED:format("Olympus", "olympus"))
+		Chan.ToggleMute("all")
+		eq(ns.db.chatMute.A, nil, "'all' still works")
+		Chan.ToggleMute("captains")
+		WithLane(function() eq((Chan.Send("C", "back", 7001)), true) end)
+		eq(ns.db.chatMute.C, nil, "sending unmutes")
+		eq(#CHAT_LINES, 1, "own line shown")
+	end)
+end)
+
+test("chat history is per tier and capped", function()
+	ns.rdb.chat = nil
+	AsRank(0, function()
+		for i = 1, 150 do
+			Chan.Receive("CHANNEL", "Member" .. (300 + i), Msg("A", MY_GUILD, i, "line " .. i), 8000 + i * 1.1)
+		end
+		local h = Chan.History("A")
+		eq(#h, 100); eq(h[1].text, "line 51", "oldest gone"); eq(h[100].text, "line 150")
+		eq(h[100].sender, "Member450-Realm"); eq(h[100].guild, MY_GUILD); eq(h[100].class, "PA")
+		eq((Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, 1, "captains only"), 8200)), true)
+		eq(#Chan.History("C"), 1); eq(#Chan.History("A"), 100, "separate lists")
+		eq(ns.rdb.chat.A, h, "stored per realm")
+	end)
+	AsRank(3, function()
+		eq(#Chan.History("C"), 0)
+		eq(next(Chan.History("L")), nil)
+	end)
+end)
+
+test("a report never vouches for its own sender", function()
+	ns.Roster.Scan()
+	ns.rdb.guilds = {}
+	local D = ns.Data
+	local LEVELS = "~0,0,0,0,0,0,0~~"
+	local function Report(guild, leader, officers, sender)
+		return D.Receive(Codec.DecodeReport("R2~" .. guild .. "~50~5~" .. leader .. "~1~1~~" .. LEVELS .. officers), sender)
+	end
+	local n = 0
+	local function Line(sender, tier, guild)
+		n = n + 1
+		return select(2, Chan.Receive("CHANNEL", sender, Msg(tier, guild, n), 9000 + n))
+	end
+	CHAT_LINES = {}
+	AsRank(0, function()
+		-- A made-up guild naming its sender as leader: one /run, no guild needed.
+		eq(Report("Olympus Lords", "Evil", "", "Evil-Realm"), true)
+		eq(D.KnownRank("Evil-Realm", "Olympus Lords"), nil, "its own report")
+		eq(Line("Evil", "L", "Olympus Lords"), "unverified")
+		-- A member sends his guild's report again, same leader and size, and adds himself.
+		eq(Report("Olympus Zeus", "Zeus", "Capt2:1:0", "Scribe-Realm"), true)
+		eq(D.KnownRank("Capt2-Realm", "Olympus Zeus"), 1, "named by someone else")
+		eq(Report("Olympus Zeus", "Zeus", "Capt2:1:0,Grunt:1:0", "Grunt-Realm"), true)
+		eq(ns.rdb.guilds["Olympus Zeus"].conflict, true, "an added officer is a conflict")
+		eq(Line("Grunt", "C", "Olympus Zeus"), "unverified")
+		-- The same on <Olympus>, whose officers are Lords.
+		eq(Report("Olympus", "King", "Duke:1:0", "Herald-Realm"), true)
+		eq(Report("Olympus", "King", "Duke:1:0,Peon:1:0", "Peon-Realm"), true)
+		eq(Line("Peon", "L", "Olympus"), "unverified")
+		-- An elected reporter who leads the guild: proven by the report someone else sent before.
+		eq(Report("Olympus Ares", "Ares", "", "Squire-Realm"), true)
+		eq(Report("Olympus Ares", "Ares", "", "Ares-Realm"), true)
+		eq(D.KnownRank("Ares-Realm", "Olympus Ares"), 0, "named by the report before")
+		eq(Report("Olympus Ares", "Ares", "", "Ares-Realm"), true)
+		eq(D.KnownRank("Ares-Realm", "Olympus Ares"), 0, "kept while the reporter stays")
+		eq(Line("Ares", "L", "Olympus Ares"), "ok")
+	end)
+	eq(#CHAT_LINES, 1)
+	ns.rdb.guilds = {}
+end)
+
+test("guild names ignore case, so another spelling can't pass for a guild", function()
+	ns.Roster.Scan()
+	ns.rdb.guilds = {}
+	local function Report(guild, officers, sender)
+		return ns.Data.Receive(Codec.DecodeReport("R2~" .. guild .. "~900~90~King~1~9~~~0,0,0,0,0,0,0~~" .. officers), sender)
+	end
+	AsRank(0, function()
+		eq(select(2, Chan.Receive("CHANNEL", "Mimic", Msg("A", "olympus ii", 1), 9500)), "forged", "our guild, other capitals")
+		eq(select(2, Chan.Receive("CHANNEL", "Member5", Msg("A", "olympus ii", 3), 9500)), "forged", "even from a guildmate")
+		eq(Report("OLYMPUS II", "", "Mimic2-Realm"), false, "no report about our guild in any spelling")
+		eq(Report("Olympus", "Duke:1:0", "Herald2-Realm"), true)
+		eq(Report("OLYMPUS", "Evil2:1:0", "Scribe2-Realm"), true)
+		eq(ns.rdb.guilds.OLYMPUS.conflict, true, "a second spelling of a fresh guild")
+		eq(select(2, Chan.Receive("CHANNEL", "Evil2", Msg("L", "OLYMPUS", 2), 9501)), "unverified")
+	end)
+	ns.rdb.guilds = {}
+end)
+
+test("two spammers can't silence the other channels, nor everyone else", function()
+	ns.db.chatMute = nil
+	AsRank(0, function()
+		-- Two unmodified clients at full speed in [Olympus] for most of a minute.
+		local t
+		for i = 1, 50 do
+			t = 20000 + i * 1.2
+			Chan.Receive("CHANNEL", "Member600", Msg("A", MY_GUILD, i, "spam " .. i), t)
+			Chan.Receive("CHANNEL", "Member601", Msg("A", MY_GUILD, i, "spam " .. i), t + 0.1)
+		end
+		eq((Chan.Receive("CHANNEL", "Member1", Msg("L", MY_GUILD, 1, "lords"), t + 0.2)), true, "[Lords]")
+		eq((Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, 1, "captains"), t + 0.3)), true, "[Captains]")
+		eq((Chan.Receive("CHANNEL", "Member602", Msg("A", MY_GUILD, 1, "hello"), t + 0.4)), true, "a third member in [Olympus]")
+		eq(select(2, Chan.Receive("CHANNEL", "Member600", Msg("A", MY_GUILD, 51, "spam 51"), t + 0.5)), "flood", "the spammer waits")
+		-- A muted channel takes no room from the flood guard.
+		ns.db.chatMute = { A = true }
+		for i = 1, 70 do Chan.Receive("CHANNEL", "Member" .. (700 + i), Msg("A", MY_GUILD, 1, "muted"), 30000 + i * 0.1) end
+		ns.db.chatMute = nil
+		eq((Chan.Receive("CHANNEL", "Member800", Msg("A", MY_GUILD, 1, "after"), 30008)), true)
+	end)
+end)
+
+test("chat lane goes first but never starves or evicts reports", function()
+	local C = ns.Comm
+	local out = {}
+	local savedGuild = GetGuildInfo
+	C_ChatInfo = {
+		SendAddonMessage = function(_, msg) out[#out + 1] = msg end,
+		SendAddonMessageLogged = function(_, msg) out[#out + 1] = "logged " .. msg end,
+	}
+	GetChannelName = function() return 5 end
+	local ok, err = pcall(function()
+		C.JoinChannel()
+		eq(C.ChannelReady(), true)
+		for _ = 1, 200 do
+			if C.Stats().queue == 0 and C.Stats().chatQueue == 0 then break end
+			C.Pump() -- whatever earlier tests queued
+		end
+		wipe(out)
+		local results = {}
+		for i = 1, 3 do C.Send("CHANNEL", "X" .. i .. "~r") end
+		for i = 1, 2 do eq(C.SendChat("M1~A~Olympus II~" .. i .. "~~hi", function(sent) results[i] = sent end), true) end
+		for _ = 1, 5 do C.Pump() end
+		eq(table.concat(out, ","), "logged M1~A~Olympus II~1~~hi,X1~r,logged M1~A~Olympus II~2~~hi,X2~r,X3~r")
+		eq(results[1], true); eq(results[2], true)
+		for i = 1, 70 do C.Send("CHANNEL", "R" .. i) end
+		eq(C.ChatRoom(), 6, "reports never take the chat lane's room")
+		local dropped
+		for i = 1, 6 do eq(C.SendChat("M1~A~Olympus II~9~~x", i == 6 and function(sent) dropped = sent end or nil), true) end
+		eq(C.SendChat("M1~A~Olympus II~9~~x"), false, "lane full")
+		eq(C.Stats().queue, 60); eq(C.Stats().chatQueue, 6)
+		assert(ns.StatusText():find("lane=6", 1, true), "chat line in /oly status")
+		-- Out of Olympus: both lanes are dropped and the sender hears about it.
+		GetGuildInfo = function() return "House of Guedes" end
+		C.Pump()
+		GetGuildInfo = savedGuild
+		eq(C.Stats().queue, 0); eq(C.Stats().chatQueue, 0); eq(dropped, false)
+	end)
+	GetGuildInfo, C_ChatInfo, GetChannelName = savedGuild, nil, nil
+	if not ok then error(err, 0) end
+end)
+
+test("chat line shows tier, clickable name, guild and neutralised escapes", function()
+	local line = Chan.FormatLine("C", "Bob-Other", "Olympus II", "PA", "hi |Tx|t")
+	assert(line:find("[Captains]", 1, true), line)
+	assert(line:find("|Hplayer:Bob-Other|h[", 1, true), line)
+	assert(line:find("<Olympus II>", 1, true), line)
+	assert(line:find("||Tx||t", 1, true), line)
+	RAID_CLASS_COLORS = { PALADIN = { colorStr = "fff58cba" } }
+	line = Chan.FormatLine("A", "Bob-Realm", "Olympus", "PA", "x")
+	RAID_CLASS_COLORS = nil
+	assert(line:find("[Olympus] |Hplayer:Bob-Realm|h[|cfff58cbaBob|r]|h <Olympus>: x", 1, true), line)
+end)
+
+test("slash commands reach the right channel", function()
+	eq(SLASH_OLYMPUSALL1, "/ol"); eq(SLASH_OLYMPUSCAPTAINS1, "/olc"); eq(SLASH_OLYMPUSLORDS1, "/oll")
+	local savedTime, clock = GetTime, 50000
+	GetTime = function() return clock end
+	local ok, err = pcall(function()
+		WithLane(function(sent)
+			AsRank(0, function()
+				local function Run(fn, arg, prefix)
+					clock = clock + 10 -- past the 1.5 s gap
+					local before = #sent
+					fn(arg)
+					eq(#sent, before + 1, arg)
+					eq(sent[#sent]:sub(1, #prefix), prefix, arg)
+				end
+				Run(SlashCmdList.OLYMPUSALL, "hi", "M1~A~")
+				Run(SlashCmdList.OLYMPUSCAPTAINS, "hi", "M1~C~")
+				Run(SlashCmdList.OLYMPUSLORDS, "hi", "M1~L~")
+				Run(SlashCmdList.OLYMPUS, "all hi", "M1~A~")
+				Run(SlashCmdList.OLYMPUS, "captains hi", "M1~C~")
+				Run(SlashCmdList.OLYMPUS, "lords hi", "M1~L~")
+			end)
+		end)
+		ns.db.chatMute = nil
+		AsRank(0, function()
+			SlashCmdList.OLYMPUS("mute lords")
+			eq(ns.db.chatMute.L, true)
+			SlashCmdList.OLYMPUS("mute lords")
+			eq(ns.db.chatMute.L, nil)
+			SlashCmdList.OLYMPUS("mute olympus")
+			eq(ns.db.chatMute.A, true)
+			SlashCmdList.OLYMPUS("mute olympus")
+			eq(ns.db.chatMute.A, nil)
+		end)
+	end)
+	GetTime = savedTime
+	if not ok then error(err, 0) end
+end)
+
+-- Comm.lua and Channels.lua loaded into a namespace of their own, like GuildFrame.lua above:
+-- lines go through the real event, the M1 handler and Receive.
+test("chat lines arrive through CHAT_MSG_ADDON_LOGGED, without our echo or blocked players", function()
+	local events, login = {}, {}
+	local cns = setmetatable({}, { __index = ns })
+	cns.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
+	cns.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
+	cns.After, cns.Every = function() end, function() end
+	local slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS }
+	C_ChatInfo = { RegisterAddonMessagePrefix = function() end }
+	ns.db.chatMute = nil
+	local ok, err = pcall(function()
+		assert(loadfile(ADDON_DIR .. "Comm.lua"))("Olympus", cns)
+		assert(loadfile(ADDON_DIR .. "Channels.lua"))("Olympus", cns)
+		for _, fn in ipairs(login) do fn() end
+		eq(events.CHAT_MSG_ADDON_LOGGED and #events.CHAT_MSG_ADDON_LOGGED, 1, "listens to logged addon messages")
+		local function Deliver(sender, id)
+			for _, fn in ipairs(events.CHAT_MSG_ADDON_LOGGED) do fn(ns.PREFIX, Msg("A", MY_GUILD, id, "via event " .. id), "CHANNEL", sender) end
+		end
+		CHAT_LINES = {}
+		AsRank(3, function()
+			Deliver("Member40", 1)
+			eq(#CHAT_LINES, 1, "one line")
+			assert(CHAT_LINES[1]:find("via event 1", 1, true), CHAT_LINES[1])
+			ns.Roster.byName["Tester-Realm"] = 3 -- we are in our own roster
+			Deliver("Tester", 2)
+			ns.Roster.byName["Tester-Realm"] = nil
+			eq(#CHAT_LINES, 1, "our own echo is not shown twice")
+			ns.db.blocked["member41-realm"] = true
+			Deliver("Member41", 3)
+			ns.db.blocked["member41-realm"] = nil
+			eq(#CHAT_LINES, 1, "blocked player")
+		end)
+	end)
+	SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = slash[1], slash[2], slash[3]
+	C_ChatInfo = nil
+	if not ok then error(err, 0) end
+end)
+
+---------------------------------------------------------------------------
+-- After an update adds files, /reload keeps the old file list until the game restarts.
+---------------------------------------------------------------------------
+
+test("files added by an update and not loaded yet: stand-ins keep everything else working", function()
+	local savedSlash, savedEvents, savedPrint = {}, #EVENT_SCRIPTS, print
+	for k, v in pairs(SlashCmdList) do savedSlash[k] = v end
+	local printed = {}
+	print = function(msg) printed[#printed + 1] = tostring(msg) end
+	local ok, err = pcall(function()
+		local fresh = {}
+		for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Data", "Roster", "Comm", "Recruit", "Views" }) do
+			assert(loadfile(ADDON_DIR .. file .. ".lua"))("Olympus", fresh)
+		end
+		eq(fresh.Who.missing, true, "Who.lua stood in for")
+		eq(fresh.Channels.missing, true, "Channels.lua stood in for")
+		eq(fresh.Who.StatusLines(), nil, "any other call is a quiet no-op")
+		fresh.Who.Search()
+		eq(printed[#printed]:find("reopen the game", 1, true) ~= nil, true, "a search says to restart the game")
+		fresh.Channels.Send("A", "hi")
+		eq(printed[#printed]:find("reopen the game", 1, true) ~= nil, true, "so does a channel message")
+	end)
+	print = savedPrint
+	for k in pairs(SlashCmdList) do SlashCmdList[k] = savedSlash[k] end
+	for i = #EVENT_SCRIPTS, savedEvents + 1, -1 do EVENT_SCRIPTS[i] = nil end
+	if not ok then error(err, 0) end
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

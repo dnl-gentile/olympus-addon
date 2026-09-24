@@ -2,77 +2,33 @@ local ADDON, ns = ...
 local L = ns.L
 
 -- "Join Olympus", for players who are NOT in an Olympus guild yet (the only thing the addon
--- does for them). It uses the game's own /who, which anyone can run, so it needs no Olympus
--- data at all: find Olympus members online, group them by guild, and whisper one of them a
--- ready-made request. No answer? Try someone else. Rate limited so nobody gets spammed.
+-- does for them). It uses the game's own /who (Who.lua), which anyone can run, so it needs
+-- no Olympus data at all: find Olympus members online, group them by guild, and whisper one
+-- of them a ready-made request. No answer? Try someone else. Rate limited so nobody gets
+-- spammed.
 
 local Recruit = {}
 ns.Recruit = Recruit
 
-local WHO_COOLDOWN = 10
 local ASK_COOLDOWN = 20
 
 Recruit.found = {}      -- list of { name, guild, level, class, zone }
 Recruit.asked = {}      -- [name] = time we whispered them
 Recruit.replied = {}    -- [name] = their answer
-Recruit.lastWho = 0
 Recruit.lastAsk = 0
 
-local whoPending = false
-
-local function WhoInfo(i)
-	if C_FriendList and C_FriendList.GetWhoInfo then
-		local w = C_FriendList.GetWhoInfo(i)
-		if w then return w.fullName, w.fullGuildName, w.level, w.filename or w.classStr, w.area end
-	elseif GetWhoInfo then
-		local name, guild, level, _, class, zone, file = GetWhoInfo(i)
-		return name, guild, level, file or class, zone
-	end
-end
-
-local function NumWho()
-	if C_FriendList and C_FriendList.GetNumWhoResults then return (C_FriendList.GetNumWhoResults()) end
-	return GetNumWhoResults and (GetNumWhoResults()) or 0
-end
-
--- Must be called from a click (the game requires a hardware event for /who).
+-- Must be called from a click (the game requires a hardware event for /who). Each click
+-- searches further once the game's 50 per search are not enough (see Who.lua).
 function Recruit.Search()
-	local now = GetTime()
-	if now - Recruit.lastWho < WHO_COOLDOWN then
-		ns.Print(L.RECRUIT_WAIT:format(math.ceil(WHO_COOLDOWN - (now - Recruit.lastWho))))
-		return
-	end
-	Recruit.lastWho = now
-	whoPending = true
-	-- Keep the Friends window from popping up with the results: we show them ourselves.
-	if FriendsFrame then FriendsFrame:UnregisterEvent("WHO_LIST_UPDATE") end
-	if C_FriendList and C_FriendList.SetWhoToUi then C_FriendList.SetWhoToUi(true) elseif SetWhoToUI then SetWhoToUI(1) end
-	local query = 'g-"Olympus"'
-	if C_FriendList and C_FriendList.SendWho then C_FriendList.SendWho(query) else SendWho(query) end
-	ns.Print(L.RECRUIT_SEARCHING)
-	-- If the server never answers, give the Friends window its /who results back anyway.
-	ns.After(6, "who restore", function()
-		if whoPending then
-			whoPending = false
-			if FriendsFrame then FriendsFrame:RegisterEvent("WHO_LIST_UPDATE") end
-		end
-	end)
+	return ns.Who.Search()
 end
 
-local function OnWho()
-	if not whoPending then return end
-	whoPending = false
-	if FriendsFrame then FriendsFrame:RegisterEvent("WHO_LIST_UPDATE") end
-	wipe(Recruit.found)
-	for i = 1, NumWho() do
-		local name, guild, level, class, zone = WhoInfo(i)
-		if name and ns.IsFederation(guild) then
-			Recruit.found[#Recruit.found + 1] = { name = name, guild = guild, level = level, class = class, zone = zone }
-		end
-	end
-	ns.Log("recruit: /who found %d Olympus members", #Recruit.found)
+-- Every answer: all the Olympus members found in this round of searches.
+ns.Who.Listen(function(list)
+	Recruit.found = list
+	ns.Log("recruit: /who lists %d Olympus members", #list)
 	ns.Fire("RECRUIT_CHANGED")
-end
+end)
 
 -- Guilds seen online, biggest first: { name, online = n, members = {...} }
 function Recruit.Guilds()
@@ -154,7 +110,6 @@ end
 
 ns.On("LOGIN", function()
 	ns.After(12, "daily nag", DailyNag)
-	ns.RegisterEvent("WHO_LIST_UPDATE", OnWho)
 	ns.RegisterEvent("CHAT_MSG_WHISPER", function(text, sender)
 		local who = ns.ShortName(sender)
 		for name in pairs(Recruit.asked) do

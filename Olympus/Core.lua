@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.7.9"
+ns.VERSION = "0.7.10"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild
 ns.ICON = "Interface\\AddOns\\Olympus\\media\\logo64"
@@ -257,6 +257,7 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 	local R = db.realms[ns.realm] or {}
 	db.realms[ns.realm] = R
 	R.guilds = R.guilds or {}
+	R.seen = R.seen or {} -- Olympus guilds seen with /who (Data.lua), never mixed with the reports
 	-- Old account-wide census and key: there is no telling which realm they came from, so
 	-- drop them. The census refills from the channel within minutes and officers hand the
 	-- key out again over guild chat (K0/K1) at login.
@@ -284,7 +285,28 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 	ns.Fire("INIT")
 end)
 
+-- Files added by an update only load once the game restarts: it reads the file list at
+-- startup and /reload keeps the old one. Until then these stand-ins take the calls the
+-- other files make, so the rest keeps working, and the player is told to restart.
+-- Set here, before the files that use them load; the real files replace them.
+local function StandIn(key, say)
+	local restart = function() ns.Print(L.RESTART_NEEDED) end
+	local stub = { missing = true }
+	for _, fn in ipairs(say) do stub[fn] = restart end
+	ns[key] = setmetatable(stub, { __index = function() return function() end end })
+end
+StandIn("Who", { "Search", "SendPlain" })
+StandIn("Channels", { "Send", "ToggleMute" })
+
 ns.RegisterEvent("PLAYER_LOGIN", function()
+	local missing = {}
+	for _, key in ipairs({ "Who", "Channels" }) do
+		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
+	end
+	if #missing > 0 then
+		ns.Log("not loaded until the game restarts: %s", table.concat(missing, ", "))
+		ns.Print(L.RESTART_NEEDED)
+	end
 	ns.me = ns.PlayerName()
 	ns.Log("login as %s", ns.me)
 	ns.Fire("LOGIN")
@@ -306,6 +328,10 @@ local function Help()
 	print("  /oly layers - layers of your zone (in the Realm tab)")
 	print("  /oly decrees - decrees")
 	print("  /oly arms [text] | /oly muster [text] - decree (officers; 'test' = local preview)")
+	print(L.HELP_CHAN_ALL)
+	print(L.HELP_CHAN_CAPTAINS)
+	print(L.HELP_CHAN_LORDS)
+	print(L.HELP_CHAN_MUTE)
 	print("  /oly mates - show/hide guildmates on map and minimap")
 	print("  /oly share - share/stop sharing your position with your guild")
 	print("  /oly bug - copy a bug report (errors + diagnostics)")
@@ -315,7 +341,7 @@ local function Help()
 	print("  /oly layer - show the layer id of your target (test)")
 	print("  /oly minimap - show/hide the minimap button")
 	print("  /oly debug - verbose log in chat")
-	print("  /oly reset - forget all cached guild reports")
+	print("  /oly reset - forget all cached guild reports and /who sightings")
 end
 
 SLASH_OLYMPUS1 = "/olympus"
@@ -373,10 +399,16 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Print("debug = " .. tostring(ns.db.debug))
 		elseif cmd == "reset" then
 			wipe(ns.rdb.guilds)
+			wipe(ns.Data.Seen())
+			ns.Who.Reset()
 			ns.Fire("DATA_CHANGED")
 			ns.Print("cache cleared")
 		elseif cmd == "error" then
 			error("test error from /oly error")   -- to check that bug capture works
+		elseif cmd == "all" or cmd == "captains" or cmd == "lords" then
+			ns.Channels.Send(ns.Channels.TierForWord(cmd), rest)
+		elseif cmd == "mute" then
+			ns.Channels.ToggleMute(rest)
 		else
 			Help()
 		end

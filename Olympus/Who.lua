@@ -1,0 +1,404 @@
+local ADDON, ns = ...
+local L = ns.L
+
+-- The game's /who, shared by the Join screen (Olympus members online to ask) and the census
+-- Refresh button (Olympus guilds nobody reports, seen online). One search per click: the
+-- game only takes /who from a hardware event, so never from a timer, and at most one every
+-- COOLDOWN seconds whichever button sent it. The Who button of our person panel keeps the
+-- same distance from these (SendPlain).
+--
+-- Searching quietly. The answer (WHO_LIST_UPDATE) opens Blizzard's own who list: the Who tab
+-- of the Social window on the old UI (FriendsFrame), the group finder's list on Forever's new
+-- UI (LFGWhoListFrame, which shows LFGParentFrame on every update; the Social window there
+-- does not listen), and ClassicUI Forever's list in the Social window. For our search only,
+-- the ones that listen stop listening and get the event back with the answer, or after
+-- TIMEOUT without one. Nothing of theirs is replaced or moved. With the player's own who
+-- window open nothing is touched: the search is skipped, the answer would land in it.
+-- A search given up before its answer (no answer by TIMEOUT, someone else searched) keeps
+-- results going to the UI until that answer comes, see Release.
+--
+-- Past the cap. The server lists at most 50 players per search (MAX_WHOS_FROM_SERVER; on
+-- Forever the total it reports stops at 50 too). When the broad search is capped, the next
+-- clicks search level ranges and add what they find (one player once, by name: the server
+-- lists some twice) until every range was searched once. The click after that starts over,
+-- and so does one ROUND_TTL after the round began: its players have moved on meanwhile.
+
+local Who = {}
+ns.Who = Who
+
+local EVENT = "WHO_LIST_UPDATE"
+Who.COOLDOWN = 10
+Who.TIMEOUT = 6    -- no answer by then: the who windows get their event back
+Who.SETTLE = 1     -- the answer announced again within this is still ours (see OnAnswer)
+Who.LATE = 30      -- a search given up may still be answered until then (see Release)
+Who.ROUND_TTL = 15 * 60 -- a round older than this starts over (like a report, Data.FRESH)
+Who.MAX = 50       -- players per answer, MAX_WHOS_FROM_SERVER
+Who.BRACKETS = 5   -- level ranges searched after a capped answer
+Who.QUERY = 'g-"Olympus"'
+Who.lastSend = 0   -- GetTime() of our last search, 0 = none yet
+Who.lastPlain = 0  -- GetTime() of the last SendPlain, 0 = none yet
+
+-- The frames that open a who list on WHO_LIST_UPDATE, looked up when we search (Blizzard's
+-- group finder loads on demand). ClassicUI Forever's is its list's `driver` frame.
+local LISTENERS = {
+	{ "FriendsFrame", function() return _G.FriendsFrame end },
+	{ "LFGWhoListFrame", function() return _G.LFGWhoListFrame end },
+	{ "ClassicUIForeverWhoPanel.driver", function()
+		local panel = _G.ClassicUIForeverWhoPanel
+		return type(panel) == "table" and panel.driver or nil
+	end },
+}
+-- The player's own who windows: old UI, Forever, ClassicUI Forever.
+local WINDOWS = { "WhoFrame", "LFGWhoListFrame", "ClassicUIForeverWhoPanel" }
+
+-- The round of searches in progress. step: the next search, 0 = the broad one, k = level
+-- range k. shown/total: the broad answer's counts. missing: players may be left out (a
+-- capped answer not dug through yet, or a level range capped too). done: every search of
+-- the round answered, the next click starts over. started: GetTime() of the broad answer.
+local sweep
+local function NewSweep()
+	sweep = { step = 0, list = {}, byName = {}, answers = 0, shown = 0, total = 0,
+		capped = false, missing = false, done = false }
+	Who.sweep = sweep
+end
+NewSweep()
+
+local pending   -- our search waiting for its answer: { id, frames, step, query, answered }
+local owed      -- the id of a search given up that may still be answered (see Release)
+local lastId = 0
+local sending   -- true while we call SendWho ourselves
+local hookedOn  -- the C_FriendList table our SendWho hook is on
+local listeners = {}
+
+-- fn(list, missing) after every answer: list = every Olympus player of the round so far
+-- ({ name, guild, level, class, zone }), missing = more may be online.
+function Who.Listen(fn) listeners[#listeners + 1] = fn end
+
+local function SetWhoToUi(on)
+	if C_FriendList and C_FriendList.SetWhoToUi then C_FriendList.SetWhoToUi(on)
+	elseif SetWhoToUI then SetWhoToUI(on and 1 or 0) end
+end
+
+local function Send(query)
+	if C_FriendList and C_FriendList.SendWho then C_FriendList.SendWho(query) else SendWho(query) end
+end
+
+-- Values the client hides from addons (secret values) are treated as missing.
+local function Plain(v)
+	if issecretvalue and issecretvalue(v) then return nil end
+	return v
+end
+
+local function Counts()
+	local shown, total
+	if C_FriendList and C_FriendList.GetNumWhoResults then shown, total = C_FriendList.GetNumWhoResults()
+	elseif GetNumWhoResults then shown, total = GetNumWhoResults() end
+	shown = tonumber(Plain(shown)) or 0
+	return shown, math.max(tonumber(Plain(total)) or shown, shown)
+end
+
+local function Info(i)
+	if C_FriendList and C_FriendList.GetWhoInfo then
+		local w = C_FriendList.GetWhoInfo(i)
+		if type(w) == "table" then
+			return Plain(w.fullName), Plain(w.fullGuildName), Plain(w.level), Plain(w.filename) or Plain(w.classStr), Plain(w.area)
+		end
+	elseif GetWhoInfo then
+		local name, guild, level, _, class, zone, file = GetWhoInfo(i)
+		return name, guild, level, file or class, zone
+	end
+end
+
+local function MaxLevel()
+	local max = GetMaxPlayerLevel and tonumber(GetMaxPlayerLevel())
+	return (max and max >= 1) and math.floor(max) or 60
+end
+
+function Who.WindowOpen()
+	for _, name in ipairs(WINDOWS) do
+		local f = _G[name]
+		if type(f) == "table" and f.IsVisible and f:IsVisible() then return true end
+	end
+	return false
+end
+
+-- Every listener that is registered stops listening; the ones that did are returned.
+local function Quiet()
+	local frames, names = {}, {}
+	for _, entry in ipairs(LISTENERS) do
+		local f = entry[2]()
+		if type(f) == "table" and f.IsEventRegistered and f:IsEventRegistered(EVENT) then
+			f:UnregisterEvent(EVENT)
+			frames[#frames + 1] = f
+			names[#names + 1] = entry[1]
+		end
+	end
+	return frames, names
+end
+
+-- Results back to chat (Blizzard's default), unless the player has opened a who window.
+local function ToChat()
+	owed = nil
+	if not Who.WindowOpen() then SetWhoToUi(false) end
+end
+
+-- Gives the event back to exactly the frames we took it from, and results back to chat.
+-- `late`: the search is given up before its answer (none by TIMEOUT, someone else searched),
+-- which may still come. Until it does (OnAnswer), or LATE seconds, results keep going to the
+-- UI: there the event only updates the lists of the Classic clients' Social window, where
+-- Blizzard's default for a long answer opens its Who tab (ShowWhoPanel).
+local function Release(why, late)
+	local p = pending
+	if not p then return end
+	pending = nil
+	for _, f in ipairs(p.frames) do
+		if not f:IsEventRegistered(EVENT) then f:RegisterEvent(EVENT) end
+	end
+	if late then
+		owed = p.id
+		ns.After(Who.LATE, "who late", function() if owed == p.id then ToChat() end end)
+	else
+		ToChat()
+	end
+	ns.Log("who: %s, event back to %d frame(s)%s", why, #p.frames, late and ", to chat after its answer" or "")
+end
+
+-- Someone else searching while ours waits (the player's /who, another addon): the answer
+-- that comes may be theirs, so the who windows get their event back at once and ours is
+-- given up (the next click repeats it). Once ours was given up, theirs gets Blizzard's
+-- default: an answer of ours that late is not coming.
+local function HookSendWho()
+	if hookedOn == C_FriendList or not (hooksecurefunc and C_FriendList and C_FriendList.SendWho) then return end
+	hookedOn = C_FriendList
+	hooksecurefunc(C_FriendList, "SendWho", function()
+		if sending then return end
+		if pending then
+			ns.SafeCall("who: another search", Release, "another search sent", true)
+		elseif owed then
+			ns.SafeCall("who: another search", ToChat)
+		end
+	end)
+end
+
+-- Level ranges covering 1 to maxLevel, cut where the levels seen in the capped answer split
+-- evenly (each range about the same share of the players), so a young realm (everyone
+-- 1-20 on a level 60 server) is not searched in empty ranges. No cut is made at the top
+-- level, so a crowd there gets a range of its own; without enough levels seen, even ranges.
+function Who.Brackets(levels, maxLevel, n)
+	maxLevel = math.max(1, math.floor(maxLevel or 60))
+	n = math.min(n or Who.BRACKETS, maxLevel)
+	local seen = {}
+	for _, l in ipairs(levels or {}) do
+		l = tonumber(l)
+		if l and l >= 1 then seen[#seen + 1] = math.min(math.floor(l), maxLevel) end
+	end
+	table.sort(seen)
+	local cuts = {}
+	for k = 1, n - 1 do
+		local cut
+		if #seen >= n then cut = seen[math.floor(k * #seen / n)] else cut = math.floor(k * maxLevel / n) end
+		cut = math.min(cut, maxLevel - 1)
+		if cut >= 1 and cut > (cuts[#cuts] or 0) then cuts[#cuts + 1] = cut end
+	end
+	local out, lo = {}, 1
+	for _, cut in ipairs(cuts) do
+		out[#out + 1] = { lo, cut }
+		lo = cut + 1
+	end
+	out[#out + 1] = { lo, maxLevel }
+	return out
+end
+
+local function Range(b) return b[1] == b[2] and tostring(b[1]) or (b[1] .. "-" .. b[2]) end
+
+-- Seconds until the next search may go (0 = now): COOLDOWN after ours or a SendPlain.
+local function Wait(now, last)
+	if last <= 0 then return 0 end
+	return math.max(0, Who.COOLDOWN - (now - last))
+end
+
+local function SendToUi(query)
+	SetWhoToUi(true)
+	Send(query)
+end
+
+-- Must be called from a click. Returns true if a search was sent.
+function Who.Search()
+	local now = GetTime()
+	local wait = Wait(now, math.max(Who.lastSend, Who.lastPlain))
+	if wait > 0 then
+		ns.Print(L.WHO_WAIT:format(math.ceil(wait)))
+		return false
+	end
+	if Who.WindowOpen() then
+		ns.Print(L.WHO_WINDOW_OPEN)
+		return false
+	end
+	Release("new search") -- still settling from the last one
+	-- A round left unfinished for ROUND_TTL is forgotten: a level range's answer added to
+	-- the players it found back then would count them as online now.
+	if not sweep.done and sweep.started and now - sweep.started > Who.ROUND_TTL then NewSweep() end
+	if sweep.done then sweep.step = 0 end
+	-- A level range is a plain "lo-hi" in the filter, like the Who window's default search.
+	local b = sweep.step > 0 and sweep.brackets[sweep.step]
+	local query = b and ("%s %d-%d"):format(Who.QUERY, b[1], b[2]) or Who.QUERY
+	HookSendWho()
+	lastId = lastId + 1
+	local id = lastId
+	local frames, names = Quiet()
+	pending = { id = id, frames = frames, step = sweep.step, query = query }
+	owed = nil -- a search given up before this one: its answer would now pass for this one's
+	Who.lastSend = now
+	-- Scheduled first: whatever fails from here on, the who windows get their event back.
+	ns.After(Who.TIMEOUT, "who timeout", function()
+		if pending and pending.id == id and not pending.answered then Release("no answer", true) end
+	end)
+	sending = true
+	local ok, err = pcall(SendToUi, query)
+	sending = false
+	if not ok then
+		Release("send failed")
+		error(err, 0)
+	end
+	ns.Print(L.RECRUIT_SEARCHING)
+	ns.Log("who: sent %s, quiet: %s", query, #names > 0 and table.concat(names, ", ") or "none")
+	return true
+end
+
+-- A search of the player's own, the Who button of our person panel: nothing is silenced,
+-- Blizzard shows the answer as always. Not within COOLDOWN of one of ours, whose answer
+-- may still come (it would open Blizzard's who list), and ours wait COOLDOWN after it
+-- (its answer is not ours). Must be called from a click. Returns true if it was sent.
+function Who.SendPlain(query)
+	local now = GetTime()
+	local wait = Wait(now, Who.lastSend)
+	if wait > 0 then
+		ns.Print(L.WHO_WAIT:format(math.ceil(wait)))
+		return false
+	end
+	Who.lastPlain = now
+	Send(query)
+	return true
+end
+
+-- The answer's Olympus players, each once.
+local function Read()
+	local shown, total = Counts()
+	local rows, byName = {}, {}
+	for i = 1, shown do
+		local name, guild, level, class, zone = Info(i)
+		if name and name ~= "" and not byName[name] and ns.IsFederation(guild) then
+			local p = { name = name, guild = guild, level = tonumber(level), class = class, zone = zone }
+			byName[name] = p
+			rows[#rows + 1] = p
+		end
+	end
+	return rows, shown, total
+end
+
+local function Merge(rows)
+	for _, p in ipairs(rows) do
+		local known = sweep.byName[p.name]
+		if known then
+			for k, v in pairs(p) do known[k] = v end -- a newer level or zone
+		else
+			sweep.byName[p.name] = p
+			sweep.list[#sweep.list + 1] = p
+		end
+	end
+end
+
+-- The first answer to a search moves the round on; the same answer announced again (another
+-- addon sorting the list does that, and the server lists some players twice) is read again
+-- and adds nobody twice. The who windows get the event back SETTLE later, so a repeat does
+-- not open them either.
+local function OnAnswer()
+	local p = pending
+	if not p then
+		-- The answer to a search given up (or to the next one): results to chat again.
+		if owed then
+			ToChat()
+			ns.Log("who: late answer, results to chat again")
+		end
+		return
+	end
+	local rows, shown, total = Read()
+	local first = not p.answered
+	if first then
+		p.answered = true
+		ns.After(Who.SETTLE, "who settle", function() if pending == p then Release("answered") end end)
+		local capped = shown >= Who.MAX or total > shown
+		if p.step == 0 then
+			-- The broad search starts the round over.
+			NewSweep()
+			sweep.shown, sweep.total, sweep.capped, sweep.started = shown, total, capped, GetTime()
+			if capped then
+				-- Up to the client's top level, or above it should anyone listed be (a cap
+				-- that is this character's own, like a trial account's).
+				local levels, top = {}, MaxLevel()
+				for _, row in ipairs(rows) do
+					if row.level then
+						levels[#levels + 1] = row.level
+						top = math.max(top, row.level)
+					end
+				end
+				sweep.brackets = Who.Brackets(levels, top, Who.BRACKETS)
+				sweep.step, sweep.missing = 1, true
+			else
+				sweep.done = true
+			end
+		else
+			sweep.rangeCapped = sweep.rangeCapped or capped
+			sweep.step = p.step + 1
+			if sweep.step > #sweep.brackets then sweep.done, sweep.missing = true, sweep.rangeCapped end
+		end
+		sweep.answers = sweep.answers + 1
+	end
+	Merge(rows)
+	if first then ns.Log("who: %s answered %d of %d (%d Olympus), %d in the round", p.query, shown, total, #rows, #sweep.list) end
+	for _, fn in ipairs(listeners) do ns.SafeCall("who listener", fn, sweep.list, sweep.missing) end
+end
+ns.RegisterEvent(EVENT, OnAnswer)
+
+function Who.Searched() return Who.lastSend > 0 end
+function Who.IsPending() return pending ~= nil end
+
+-- Forgets the round (and gives the event back if a search is still waiting).
+function Who.Reset()
+	Release("reset")
+	NewSweep()
+end
+
+-- One or two lines on how far the round got, for under a list; nil when there is nothing
+-- to say (no answer yet, or everyone fit in one answer).
+function Who.StatusLines()
+	local s = sweep
+	if s.answers == 0 or not s.capped then return nil end
+	local found = #s.list
+	if s.done then
+		return { s.missing and L.WHO_DONE_CAPPED:format(found, Who.MAX) or L.WHO_DONE:format(found) }
+	end
+	local known = s.total > s.shown -- Forever reports no more than it lists
+	local first
+	if s.answers == 1 then
+		first = known and L.WHO_SHOWN:format(s.shown, s.total) or L.WHO_SHOWN_CAP:format(s.shown)
+	else
+		first = known and L.WHO_SO_FAR:format(found, math.max(found, s.total)) or L.WHO_SO_FAR_CAP:format(found)
+	end
+	return { first, L.WHO_NEXT:format(Range(s.brackets[s.step]), s.step, #s.brackets) }
+end
+
+-- For /oly status.
+function Who.StatusLine()
+	local s = sweep
+	local step = s.brackets and ("%d/%d"):format(math.min(s.step, #s.brackets), #s.brackets) or "broad"
+	local open = {}
+	for _, entry in ipairs(LISTENERS) do
+		local f = entry[2]()
+		if type(f) == "table" and f.IsEventRegistered and f:IsEventRegistered(EVENT) then open[#open + 1] = entry[1] end
+	end
+	return ("round %s, %d found (answer %d of %d), done=%s missing=%s, pending=%s owed=%s, last %s  |  listening: %s"):format(
+		step, #s.list, s.shown, s.total, tostring(s.done), tostring(s.missing), tostring(pending ~= nil), tostring(owed ~= nil),
+		Who.lastSend > 0 and ("%ds ago"):format(math.floor(GetTime() - Who.lastSend)) or "never",
+		#open > 0 and table.concat(open, ", ") or "none")
+end
