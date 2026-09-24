@@ -94,6 +94,18 @@ local function test(name, fn)
 end
 local function eq(a, b, msg) if a ~= b then error((msg or "") .. " expected " .. tostring(b) .. ", got " .. tostring(a), 2) end end
 
+-- A stored report as if `...` (other senders) had each just reported the same ranks: ranks
+-- from other guilds count only when someone else's recent report names them (Data.KnownRank).
+local function Vouched(g, ...)
+	local home, ranks = g.realm or "Realm", {}
+	local function full(name) return name:find("-", 1, true) and name or (name .. "-" .. home) end
+	for _, o in ipairs(g.officers or {}) do ranks[full(o.name)] = 1 end
+	if g.leader then ranks[full(g.leader)] = 0 end
+	g.vouch = {}
+	for _, src in ipairs({ ... }) do g.vouch[src] = { t = g.t, sig = "fixture", ranks = ranks } end
+	return g
+end
+
 local Codec = ns.Codec
 
 test("federation filter matches any guild with 'olympus' in the name", function()
@@ -228,9 +240,10 @@ test("upgrade from account-wide data: block list, old census and key, inspection
 end)
 
 test("an old saved report does not grant rank", function()
-	ns.rdb.guilds = { ["Olympus Zeus"] = { total = 10, online = 1, zones = {}, t = os.time() - 3600, leader = "Zed", realm = "Realm" } }
+	ns.rdb.guilds = { ["Olympus Zeus"] = Vouched({ total = 10, online = 1, zones = {}, t = os.time() - 3600, leader = "Zed", realm = "Realm" }, "W1-Realm", "W2-Realm") }
 	eq(ns.Data.KnownRank("Zed-Realm", "Olympus Zeus"), nil, "report from an hour ago")
-	ns.rdb.guilds["Olympus Zeus"].t = os.time()
+	Vouched(ns.rdb.guilds["Olympus Zeus"], "W1-Realm", "W2-Realm").t = os.time()
+	for _, v in pairs(ns.rdb.guilds["Olympus Zeus"].vouch) do v.t = os.time() end
 	eq(ns.Data.KnownRank("Zed-Realm", "Olympus Zeus"), 0, "fresh report")
 	ns.rdb.guilds = {}
 end)
@@ -313,8 +326,8 @@ end)
 test("layer named after the highest rank present", function()
 	C_Map.GetBestMapForUnit = function() return 1453 end
 	ns.Data.Summary = ns.Data.Summary
-	ns.rdb.guilds = { ["Olympus"] = { total = 1000, online = 1, zones = {}, t = os.time(), leader = "Kingy" },
-		["Olympus II"] = { total = 500, online = 1, zones = {}, t = os.time(), leader = "Lordy" } }
+	ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1000, online = 1, zones = {}, t = os.time(), leader = "Kingy" }, "W1-Realm", "W2-Realm"),
+		["Olympus II"] = Vouched({ total = 500, online = 1, zones = {}, t = os.time(), leader = "Lordy" }, "W1-Realm", "W2-Realm") }
 	ns.Layers.Receive("Grunt-Realm", { mapID = 1453, zoneUID = 7, rank = 4, guild = "Olympus" })
 	-- Claims rank 0 but is nobody's Lord: counted, but cannot name the layer.
 	ns.Layers.Receive("Aaron-Realm", { mapID = 1453, zoneUID = 7, rank = 0, guild = "Olympus" })
@@ -336,15 +349,15 @@ test("names carry the realm, so namesakes on other realms stay apart", function(
 	eq(ns.FullName("Zed-Other"), "Zed-Other")
 	eq(ns.DisplayName("Zed-Realm"), "Zed", "own realm shows short")
 	eq(ns.DisplayName("Zed-Other"), "Zed-Other", "other realm keeps the suffix")
-	ns.rdb.guilds = { ["Olympus Zeus"] = { total = 10, online = 1, zones = {}, t = os.time(), leader = "Zed", realm = "Realm",
-		officers = { { name = "Capt", online = true, days = 0 } } } }
+	ns.rdb.guilds = { ["Olympus Zeus"] = Vouched({ total = 10, online = 1, zones = {}, t = os.time(), leader = "Zed", realm = "Realm",
+		officers = { { name = "Capt", online = true, days = 0 } } }, "W1-Realm", "W2-Realm") }
 	eq(ns.Data.KnownRank("Zed", "Olympus Zeus"), 0, "short name from our realm")
 	eq(ns.Data.KnownRank("Zed-Realm", "Olympus Zeus"), 0)
 	eq(ns.Data.KnownRank("Zed-Other", "Olympus Zeus"), nil, "namesake on another realm is not the Lord")
 	eq(ns.Data.KnownRank("Capt-Other", "Olympus Zeus"), nil, "namesake officer rejected")
 	eq(ns.Data.KnownRank("Capt-Realm", "Olympus Zeus"), 1)
 	-- A guild reported from another realm: its short names belong to that realm.
-	ns.rdb.guilds["Olympus Far"] = { total = 10, online = 1, zones = {}, t = os.time(), leader = "Kay", realm = "Other" }
+	ns.rdb.guilds["Olympus Far"] = Vouched({ total = 10, online = 1, zones = {}, t = os.time(), leader = "Kay", realm = "Other" }, "W1-Other", "W2-Other")
 	eq(ns.Data.KnownRank("Kay-Other", "Olympus Far"), 0)
 	eq(ns.Data.KnownRank("Kay-Realm", "Olympus Far"), nil)
 	ns.rdb.guilds = {}
@@ -397,7 +410,7 @@ end)
 test("ranks are verified, not taken from the message", function()
 	ns.Roster.Scan()
 	ns.rdb.guilds = {
-		["Olympus"] = { guild = "Olympus", leader = "Asmongold", officers = { { name = "Capt" } }, total = 1000, online = 1, zones = {}, t = os.time() },
+		["Olympus"] = Vouched({ guild = "Olympus", leader = "Asmongold", officers = { { name = "Capt" } }, total = 1000, online = 1, zones = {}, t = os.time() }, "W1-Realm", "W2-Realm"),
 		["Olympus Bad"] = { guild = "Olympus Bad", leader = "X", conflict = true, total = 1, online = 1, zones = {}, t = os.time() },
 	}
 	eq(ns.Data.KnownRank("Asmongold-Realm", "Olympus"), 0)
@@ -2615,7 +2628,7 @@ end)
 test("sender ranks are verified on receipt, never taken from the message", function()
 	ns.Roster.Scan()
 	ns.rdb.guilds = {
-		["Olympus"] = { guild = "Olympus", leader = "Asmongold", officers = { { name = "Capt" } }, total = 1000, online = 1, zones = {}, t = os.time() },
+		["Olympus"] = Vouched({ guild = "Olympus", leader = "Asmongold", officers = { { name = "Capt" } }, total = 1000, online = 1, zones = {}, t = os.time() }, "W1-Realm", "W2-Realm"),
 		["Olympus Bad"] = { guild = "Olympus Bad", leader = "X", conflict = true, total = 1, online = 1, zones = {}, t = os.time() },
 	}
 	eq(ns.Data.Receive({ guild = "Olympus Zeus", total = 5, online = 1, zones = {} }, "Liar2-Realm"), true)
@@ -2805,6 +2818,161 @@ test("a report never vouches for its own sender", function()
 	end)
 	eq(#CHAT_LINES, 1)
 	ns.rdb.guilds = {}
+end)
+
+test("ranks come from the picture most senders agree on; forgers can't move it", function()
+	ns.Roster.Scan()
+	ns.rdb.guilds = {}
+	local D = ns.Data
+	local LEVELS = "~0,0,0,0,0,0,0~~"
+	local function Report(guild, leader, officers, sender)
+		return D.Receive(Codec.DecodeReport("R2~" .. guild .. "~900~90~" .. leader .. "~1~1~~" .. LEVELS .. officers), sender)
+	end
+	local savedNow = ns.Now
+	local clock = os.time()
+	ns.Now = function() return clock end
+	local ok, err = pcall(function()
+		-- <Olympus> as its reporter and runner-up send it.
+		eq(Report("Olympus", "King", "Duke:1:0", "Crier-Realm"), true)
+		eq(Report("Olympus", "King", "Duke:1:0", "Clerk-Realm"), true)
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "two senders name the officer")
+		eq(D.KnownRank("King-Realm", "Olympus"), 0, "and the King")
+		-- One outsider copies the report (fine), then adds an accomplice: one vote against two.
+		clock = clock + 60
+		eq(Report("Olympus", "King", "Duke:1:0", "Aaa-Realm"), true)
+		clock = clock + 1
+		eq(Report("Olympus", "King", "Duke:1:0,Bbb:1:0", "Aaa-Realm"), true)
+		eq(D.KnownRank("Bbb-Realm", "Olympus"), nil, "the copy-then-add trick gives nothing")
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "and costs the real officers nothing")
+		eq(ns.rdb.guilds.Olympus.conflict, true, "the forged report shows as a conflict")
+		-- Its own report never makes a sender anything.
+		eq(Report("Olympus", "King", "Duke:1:0,Aaa:1:0", "Aaa-Realm"), true)
+		eq(D.KnownRank("Aaa-Realm", "Olympus"), nil)
+		-- Two forgers against two reporters: contested, nobody's rank counts until it is settled.
+		eq(Report("Olympus", "King", "Duke:1:0,Aaa:1:0", "Ccc-Realm"), true)
+		eq(D.KnownRank("Aaa-Realm", "Olympus"), nil, "a tie is no majority")
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "contested: what both pictures agree on still counts")
+		-- Their votes expire when they stop; the real reporters' stay fresh.
+		clock = clock + 20 * 60
+		eq(Report("Olympus", "King", "Duke:1:0", "Crier-Realm"), true)
+		eq(Report("Olympus", "King", "Duke:1:0", "Clerk-Realm"), true)
+		clock = clock + 11 * 60
+		eq(Report("Olympus", "King", "Duke:1:0", "Crier-Realm"), true)
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "the forgers' votes are over 30 minutes old")
+		eq(D.KnownRank("Aaa-Realm", "Olympus"), nil)
+		-- A real promotion: split while only one of the two has reported it, then agreed.
+		eq(Report("Olympus", "King", "Duke:1:0,Earl:1:0", "Clerk-Realm"), true)
+		eq(D.KnownRank("Earl-Realm", "Olympus"), nil, "one sender so far")
+		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "the others keep their ranks meanwhile")
+		eq(D.KnownRank("King-Realm", "Olympus"), 0)
+		eq(Report("Olympus", "King", "Duke:1:0,Earl:1:0", "Crier-Realm"), true)
+		eq(D.KnownRank("Earl-Realm", "Olympus"), 1, "both reporters name him")
+		-- Another guild: an outsider swapping the leader for an accomplice gets no Lord.
+		eq(Report("Olympus Zeus", "Zeus", "", "Zclerk-Realm"), true)
+		eq(Report("Olympus Zeus", "Zeus", "", "Zcrier-Realm"), true)
+		eq(Report("Olympus Zeus", "Bbb2", "", "Aaa2-Realm"), true)
+		eq(D.KnownRank("Bbb2-Realm", "Olympus Zeus"), nil, "leader swap: one vote against two")
+		eq(D.KnownRank("Zeus-Realm", "Olympus Zeus"), 0)
+	end)
+	ns.Now = savedNow
+	ns.rdb.guilds = {}
+	if not ok then error(err, 0) end
+end)
+
+test("cut officer lists, channel changes and the first minutes after login", function()
+	ns.rdb.guilds = {}
+	local D = ns.Data
+	local LEVELS = "~0,0,0,0,0,0,0~~"
+	local function Officers(extra)
+		local t = {}
+		for i = 1, 30 do t[#t + 1] = "Off" .. i .. ":1:0" end
+		if extra then t[#t] = extra .. ":1:0" end
+		return table.concat(t, ",")
+	end
+	local function Report(guild, officers, sender)
+		return D.Receive(Codec.DecodeReport("R2~" .. guild .. "~900~90~Boss~1~1~~" .. LEVELS .. officers), sender)
+	end
+	-- 30 officers: the list is cut, the picture is the leader only.
+	eq(Report("Olympus Ares", Officers(), "Rep-Realm"), true)
+	eq(Report("Olympus Ares", Officers(), "Run-Realm"), true)
+	eq(D.KnownRank("Off3-Realm", "Olympus Ares"), 1, "named by both senders")
+	eq(Report("Olympus Ares", Officers("Mallory"), "Pad-Realm"), true)
+	eq(D.KnownRank("Mallory-Realm", "Olympus Ares"), nil, "a padded list gives nobody a rank")
+	eq(D.KnownRank("Off3-Realm", "Olympus Ares"), 1, "the real officers keep theirs")
+	-- Moving to another channel forgets every vote.
+	D.ForgetVotes()
+	eq(D.KnownRank("Off3-Realm", "Olympus Ares"), nil)
+	eq(ns.rdb.guilds["Olympus Ares"].total, 900, "the census numbers stay")
+	-- No Crown in the first minutes after login.
+	local savedLogin = ns.Comm.loginAt
+	eq(Report("Olympus Zeus2", "", "Zr-Realm"), true)
+	eq(Report("Olympus Zeus2", "", "Zs-Realm"), true)
+	ns.Comm.loginAt = ns.Now() - 30
+	eq(D.KnownRank("Boss-Realm", "Olympus Zeus2"), nil, "30 s after login: not yet")
+	ns.Comm.loginAt = ns.Now() - D.CROWN_AFTER - 1
+	eq(D.KnownRank("Boss-Realm", "Olympus Zeus2"), 0, "after a reporting cycle")
+	ns.Comm.loginAt = savedLogin
+	ns.rdb.guilds = {}
+end)
+
+test("reporter and runner-up on two realms of the group picture the guild the same way", function()
+	ns.rdb.guilds = {}
+	local D = ns.Data
+	local LEVELS = "~0,0,0,0,0,0,0~~"
+	-- Boss plays on our realm. Our reporter names him bare; the runner-up plays on PvP 2, where
+	-- Boss carries his realm, and reaches us with its own.
+	eq(D.Receive(Codec.DecodeReport("R2~Olympus Span2~50~5~Boss~1~1~~" .. LEVELS .. "Capt:1:0"), "Here"), true)
+	eq(D.Receive(Codec.DecodeReport("R2~Olympus Span2~50~5~Boss-Realm~1~1~~" .. LEVELS .. "Capt-Realm:1:0"), "There-Other"), true)
+	eq(ns.rdb.guilds["Olympus Span2"].conflict, nil, "the same people, not a conflict")
+	eq(D.KnownRank("Boss-Realm", "Olympus Span2"), 0, "a Lord on two senders' word")
+	eq(D.KnownRank("Capt", "Olympus Span2"), 1)
+	ns.rdb.guilds = {}
+end)
+
+test("ranks of other guilds: never your own word, the Crown on two, and only while recent", function()
+	ns.rdb.guilds = {}
+	local D = ns.Data
+	local LEVELS = "~0,0,0,0,0,0,0~~"
+	local function Report(guild, leader, officers, sender)
+		return D.Receive(Codec.DecodeReport("R2~" .. guild .. "~40~9~" .. leader .. "~1~1~~" .. LEVELS .. officers), sender)
+	end
+	local savedNow = ns.Now
+	local clock = os.time()
+	ns.Now = function() return clock end
+	local ok, err = pcall(function()
+		-- A guild master who is his guild's only reporter: his own report proves nothing.
+		eq(Report("Olympus Hermes", "Hermes", "Aide:1:0", "Hermes-Realm"), true)
+		eq(D.KnownRank("Hermes-Realm", "Olympus Hermes"), nil, "own report")
+		eq(D.KnownRank("Aide-Realm", "Olympus Hermes"), 1, "his officer, named by someone else")
+		-- The runner-up reports too (Comm): now two senders, and one of them names Hermes.
+		clock = clock + 30
+		eq(Report("Olympus Hermes", "Hermes", "Aide:1:0", "Runner-Realm"), true)
+		eq(D.KnownRank("Hermes-Realm", "Olympus Hermes"), 0, "a guild master on two senders' word")
+		-- One sender only never makes anyone the Crown.
+		eq(Report("Olympus Iris", "Iris", "", "Lone-Realm"), true)
+		eq(D.KnownRank("Iris-Realm", "Olympus Iris"), nil, "the Crown needs two senders")
+		-- Vouches expire: 40 minutes later only a fresh report counts.
+		clock = clock + 40 * 60
+		eq(Report("Olympus Hermes", "Hermes", "Aide:1:0", "Hermes-Realm"), true)
+		eq(D.KnownRank("Hermes-Realm", "Olympus Hermes"), nil, "the runner-up's word is 40 minutes old")
+		eq(D.KnownRank("Aide-Realm", "Olympus Hermes"), 1, "Hermes still vouches for his officer")
+	end)
+	ns.Now = savedNow
+	ns.rdb.guilds = {}
+	if not ok then error(err, 0) end
+end)
+
+test("a player who changed guilds can speak for the new one after a quiet while", function()
+	local D = ns.Data
+	local savedNow = ns.Now
+	local clock = os.time()
+	ns.Now = function() return clock end
+	eq(D.ClaimGuild("Mover-Realm", "Olympus Alpha"), true)
+	eq(D.ClaimGuild("Mover-Realm", "Olympus Beta"), false, "not right away")
+	clock = clock + D.CLAIM_TTL + 1
+	eq(D.ClaimGuild("Mover-Realm", "Olympus Beta"), true, "after CLAIM_TTL quiet")
+	eq(D.ClaimGuild("Mover-Realm", "Olympus Alpha"), false, "and now bound to the new one")
+	ns.Now = savedNow
 end)
 
 test("guild names ignore case, so another spelling can't pass for a guild", function()
@@ -3244,14 +3412,13 @@ test("a report heard by a character on another realm of the group is no previous
 		ns.realm = keep
 		local there = ns.rdb.guilds["Olympus Span"]
 		eq(there.heardOn, "Other"); eq(there.reporterFull, "Spanboss-Other")
-		there.witness = { ["Spanboss-Other"] = 1 }
 		eq(ns.Data.Receive(Rep(), "Spanboss"), true)
 		local here = ns.rdb.guilds["Olympus Span"]
 		eq(here.heardOn, "Realm"); eq(here.conflict, nil, "the same reporter and officers, not added ones")
-		eq(here.witness, nil, "nor a witness in another form")
+		eq(here.vouch["Spanboss-Other"], nil, "nor a voucher in another form")
 		-- Heard here: compared as always.
 		eq(ns.Data.Receive(Rep(), "Otherguy"), true)
-		eq(ns.rdb.guilds["Olympus Span"].conflict, nil); eq(ns.rdb.guilds["Olympus Span"].witness["Spancapt-Realm"], 1)
+		eq(ns.rdb.guilds["Olympus Span"].conflict, nil); eq(ns.rdb.guilds["Olympus Span"].vouch["Otherguy-Realm"].ranks["Spancapt-Realm"], 1)
 		local r = Rep()
 		r.leader = "Usurper"
 		ns.Data.Receive(r, "Thirdguy")
@@ -3284,6 +3451,200 @@ local function FreshComm()
 	end
 	return cns, Deliver, Report
 end
+
+test("runner-up: only a 0.7.11+ peer on the reporter's channel", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		local cns, Deliver, Report = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		C.JoinChannel()
+		-- Aaa reports; Bob (before us in the election) runs 0.7.10 and never backs anyone.
+		Deliver("GUILD", "Aaa", "H1~0.7.11~Realm~p")
+		Deliver("GUILD", "Bob", "H1~0.7.10")
+		Report("Aaa", { guild = MY_GUILD, total = 1000, online = 300, zones = {} })
+		C.MaybeBroadcast(ours)
+		eq(C.isRunnerUp, true, "the old peer is skipped: we back the reporter")
+		-- Bcc (before us) is on the sealed channel, the reporter on the public one: skipped too.
+		Deliver("GUILD", "Bcc", "H1~0.7.11~Realm~s")
+		C.MaybeBroadcast(ours)
+		eq(C.isRunnerUp, true, "a peer on the other channel can't back this reporter")
+		Deliver("GUILD", "Bdd", "H1~0.7.11~Realm~p")
+		C.MaybeBroadcast(ours)
+		eq(C.isRunnerUp, false, "a 0.7.11 peer on the same channel comes first")
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("runner-up backs an active reporter; census on request, bounded", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		local cns, Deliver, Report = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		GetChannelName = function() return 5 end
+		C.JoinChannel()
+		local sent = {}
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
+		local function Flush() for _ = 1, 40 do C.Pump() end end
+		local function Chunks() local n = 0 for _, m in ipairs(sent) do if m:find("^CHANNEL C") then n = n + 1 end end return n end
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {}, leader = "Member1" }
+		-- Abe (first in the election) is elected; we are the runner-up. Abe is not heard yet.
+		Deliver("GUILD", "Abe", "H1~0.7.11~Realm~p")
+		C.MaybeBroadcast(ours)
+		eq(C.isReporter, false); eq(C.isRunnerUp, false, "reporter not heard: nothing to back")
+		Flush(); eq(Chunks(), 0)
+		-- Abe reports on the channel: now we back him, once every 10 minutes.
+		Report("Abe", { guild = MY_GUILD, total = 1000, online = 300, zones = {} })
+		C.MaybeBroadcast(ours)
+		eq(C.isRunnerUp, true)
+		Flush(); local first = Chunks(); assert(first > 0, "runner-up report sent")
+		cns.clock = cns.clock + 300
+		Deliver("GUILD", "Abe", "H1~0.7.11~Realm~p")
+		Report("Abe", { guild = MY_GUILD, total = 1000, online = 300, zones = {} })
+		C.MaybeBroadcast(ours)
+		Flush(); eq(Chunks(), first, "not before 10 minutes")
+		cns.clock = cns.clock + 301
+		Deliver("GUILD", "Abe", "H1~0.7.11~Realm~p")
+		Report("Abe", { guild = MY_GUILD, total = 1000, online = 300, zones = {} })
+		C.MaybeBroadcast(ours)
+		Flush(); eq(Chunks(), first * 2, "again after 10 minutes")
+		-- Census requests: only the elected reporter answers, at most every 2 minutes.
+		cns.After = function(_, _, fn) fn() end
+		local before = Chunks()
+		Deliver("CHANNEL", "Newbie", "Q1~")
+		Flush(); eq(Chunks(), before, "the runner-up does not answer")
+		cns.clock = cns.clock + 200
+		C.MaybeBroadcast(ours) -- Abe was not heard for 200 s but is still elected
+		local cns2, Deliver2 = FreshComm()
+		local C2 = cns2.Comm
+		C2.loginAt = cns2.clock - 1000
+		C2.JoinChannel()
+		cns2.After = function(_, _, fn) fn() end
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
+		C2.MaybeBroadcast(ours) -- alone: we are the reporter, and report now
+		eq(C2.isReporter, true)
+		sent = {}
+		Flush()
+		for _ = 1, 40 do C2.Pump() end
+		local afterOwn = Chunks()
+		cns2.clock = cns2.clock + 60
+		Deliver2("CHANNEL", "Newbie", "Q1~")
+		for _ = 1, 40 do C2.Pump() end
+		assert(Chunks() > afterOwn, "the reporter answers a request")
+		local afterAnswer = Chunks()
+		cns2.clock = cns2.clock + 50
+		Deliver2("CHANNEL", "Other", "Q1~")
+		for _ = 1, 40 do C2.Pump() end
+		eq(Chunks(), afterAnswer, "not twice within 2 minutes")
+		eq(C2.Stats().answered, 1)
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("census requests: nobody answers in their first minute, the runner-up answers too", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		-- Just logged in: alone so far, so we think we are the reporter, but must not answer.
+		local cns, Deliver = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock
+		C.JoinChannel()
+		local fired = 0
+		cns.After = function(_, _, fn) fired = fired + 1; fn() end
+		C.MaybeBroadcast(ours)
+		cns.clock = cns.clock + 30
+		Deliver("CHANNEL", "Newbie", "Q1~")
+		eq(C.Stats().answered, 0, "not in the first minute after login")
+		-- Settled, and the runner-up of an active reporter: answers.
+		local cns2, Deliver2, Report2 = FreshComm()
+		local C2 = cns2.Comm
+		C2.loginAt = cns2.clock - 1000
+		C2.JoinChannel()
+		cns2.After = function(_, _, fn) fn() end
+		Deliver2("GUILD", "Abe", "H1~0.7.11~Realm~p")
+		Report2("Abe", { guild = MY_GUILD, total = 1000, online = 300, zones = {} })
+		C2.MaybeBroadcast(ours)
+		eq(C2.isRunnerUp, true)
+		cns2.clock = cns2.clock + 60
+		Deliver2("CHANNEL", "Newbie", "Q1~")
+		eq(C2.Stats().answered, 1, "the runner-up answers")
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("only our channel counts, and chat only through the logged API", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		local cns, Deliver = FreshComm()
+		local C = cns.Comm
+		GetChannelName = function() return 5 end
+		C.JoinChannel()
+		-- Deliver with the channel number the client gives (7th argument of CHAT_MSG_ADDON).
+		local handlers = {}
+		local seen = 0
+		C.Handle("Z9", function() seen = seen + 1 end)
+		Deliver("CHANNEL", "Outsider", "Z9~x")
+		eq(seen, 1, "no channel number given: accepted, as before")
+		local events = {}
+		-- The real handler with all arguments: another channel's number is dropped.
+		local cns3 = setmetatable({}, { __index = ns })
+		local login = {}
+		cns3.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
+		cns3.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
+		cns3.After, cns3.Every = function() end, function() end
+		C_ChatInfo = { RegisterAddonMessagePrefix = function() end, SendAddonMessageLogged = function() end }
+		assert(loadfile(ADDON_DIR .. "Comm.lua"))("Olympus", cns3)
+		for _, fn in ipairs(login) do fn() end
+		cns3.Comm.JoinChannel()
+		local got = 0
+		cns3.Comm.Handle("Z9", function() got = got + 1 end)
+		for _, fn in ipairs(events.CHAT_MSG_ADDON) do fn(ns.PREFIX, "Z9~x", "CHANNEL", "Outsider", "", 0, 9, "SomeoneElsesChannel") end
+		eq(got, 0, "a message on channel #9 is not ours (#5)")
+		eq(cns3.Comm.Stats().otherChannel, 1)
+		for _, fn in ipairs(events.CHAT_MSG_ADDON) do fn(ns.PREFIX, "Z9~x", "CHANNEL", "Friend", "", 0, 5, "OlympusNet") end
+		eq(got, 1, "ours (#5) is")
+		assert(cns3.Comm.Stats().chanArgs:find("localID=9", 1, true), "the first channel's arguments are kept for /oly status")
+		eq(cns3.Comm.DeliveredLogged(), false)
+		local inside
+		cns3.Comm.Handle("Z8", function() inside = cns3.Comm.DeliveredLogged() end)
+		for _, fn in ipairs(events.CHAT_MSG_ADDON_LOGGED) do fn(ns.PREFIX, "Z8~x", "CHANNEL", "Friend", "", 0, 5, "OlympusNet") end
+		eq(inside, true, "handlers know a message came through the logged API")
+		eq(cns3.Comm.DeliveredLogged(), false, "and only while it is handled")
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("a channel number that changed under us holds channel messages", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		local cns = FreshComm()
+		local C = cns.Comm
+		local id = 5
+		GetChannelName = function() return id end
+		C.JoinChannel()
+		local sent = {}
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist, target) sent[#sent + 1] = dist .. "#" .. tostring(target) .. " " .. msg end
+		C.Send("CHANNEL", "Z9~one")
+		id = 0 -- the player left the channel (Chat Channels panel)
+		C.Pump()
+		eq(#sent, 0, "nothing goes to a number that is no longer ours")
+		id = 5
+		C.JoinChannel()
+		C.Pump()
+		eq(sent[1], "CHANNEL#5 Z9~one", "sent once we are back")
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
 
 test("hello: guild peers say their realm, older versions count as old", function()
 	local ok, err = pcall(function()

@@ -9,6 +9,9 @@ ns.Data = Data
 
 Data.FRESH = 15 * 60           -- older: shown grey, its online players and zones leave the totals
 Data.KEEP = 7 * 24 * 60 * 60   -- older than this is forgotten (a guild's size is kept until then)
+Data.VOUCH_TTL = 30 * 60       -- a report counts as its sender's vote on the guild this long
+Data.CLAIM_TTL = 15 * 60       -- a sender quiet this long for its guild may speak for another one
+local MAX_VOUCH = 8            -- votes kept per guild (the newest)
 
 ns.On("INIT", function()
 	local now = ns.Now()
@@ -76,13 +79,15 @@ end
 -- one guild it reports. A (modified) client that reports several guilds is ignored, and a
 -- guild whose reports disagree about its leader, its size or its officers is flagged as a
 -- conflict.
-local senderGuild = {}
+local senderGuild = {} -- "Name-Realm" -> { guild, t }
 
--- One guild per sender, shared by reports and chat: a name that spoke for one guild can't speak for another.
+-- One guild per sender, shared by reports and chat: a name that speaks for one guild can't
+-- speak for another. A player who really moved guilds speaks again after CLAIM_TTL quiet.
 function Data.ClaimGuild(sender, guild)
-	local who = ns.FullName(sender)
-	if senderGuild[who] and senderGuild[who] ~= guild then return false end
-	senderGuild[who] = guild
+	local who, now = ns.FullName(sender), ns.Now()
+	local c = senderGuild[who]
+	if c and c.guild ~= guild and now - c.t < Data.CLAIM_TTL then return false end
+	senderGuild[who] = { guild = guild, t = now }
 	return true
 end
 
@@ -95,16 +100,63 @@ local function Ranks(g)
 	return out
 end
 
--- A leader or officer that the other sender's fresh report left out although its list had
--- room for them: someone added a name (a real promotion shows as a conflict once).
-local function AddedName(previous, r)
-	if ns.Now() - (previous.t or 0) > Data.FRESH or #(previous.officers or {}) >= ns.Codec.MAX_OFFICERS then return nil end
-	local before = Ranks(previous)
-	for name in pairs(Ranks(r)) do
-		if before[name] == nil then return name end
+-- The guild as a report pictures it: leader and officers, names in "Name-Realm" form so the
+-- same people match whatever realm each reporter plays on. A list cut at MAX_OFFICERS is
+-- pictured by its leader only (two cut lists need not hold the same officers).
+local function Signature(r, ranks)
+	local cut = #(r.officers or {}) >= ns.Codec.MAX_OFFICERS
+	local parts = {}
+	for name, rank in pairs(ranks) do
+		if rank == 0 or not cut then parts[#parts + 1] = name .. "=" .. rank end
 	end
-	return nil
+	table.sort(parts)
+	return table.concat(parts, ",") .. (cut and ",+" or "")
 end
+
+-- The votes kept for a guild: one per sender (its newest report), for VOUCH_TTL, the newest
+-- MAX_VOUCH. Votes of older versions (no signature) are dropped.
+local function Votes(map, now)
+	local list, out = {}, {}
+	for sender, v in pairs(map or {}) do
+		if type(v) == "table" and v.sig and v.ranks and now - (v.t or 0) <= Data.VOUCH_TTL then
+			list[#list + 1] = { sender = sender, v = v }
+		end
+	end
+	table.sort(list, function(a, b) return a.v.t > b.v.t end)
+	for i = 1, math.min(MAX_VOUCH, #list) do out[list[i].sender] = list[i].v end
+	return out
+end
+
+-- The picture most senders agree on right now, its count, and every picture with that many
+-- senders (`tops`). `top` is nil when there is none, or when two pictures have as many
+-- senders each: then the guild is contested, and only what all of them agree on counts.
+local function Majority(votes, now)
+	local count = {}
+	for _, v in pairs(votes) do
+		if now - (v.t or 0) <= Data.VOUCH_TTL then count[v.sig] = (count[v.sig] or 0) + 1 end
+	end
+	local best, tops = 0, {}
+	for sig, n in pairs(count) do
+		if n > best then best, tops = n, { [sig] = true } elseif n == best then tops[sig] = true end
+	end
+	local top, n = nil, 0
+	for sig in pairs(tops) do top, n = sig, n + 1 end
+	if n ~= 1 then top = nil end
+	return top, best, tops
+end
+Data.Majority = Majority -- for /oly status and tests
+
+-- Votes heard on one channel say nothing on another (the public channel lets anyone vote):
+-- called when we move to another channel, e.g. when the realm key arrives.
+function Data.ForgetVotes()
+	for _, g in pairs(ns.rdb and ns.rdb.guilds or {}) do
+		if type(g) == "table" then g.vouch, g.conflict = nil, nil end
+	end
+end
+
+-- No Crown from other guilds' votes until a full reporting cycle has passed since login: a
+-- guild's reporter and runner-up must have had the time to vote before outsiders can win.
+Data.CROWN_AFTER = 200
 
 function Data.Receive(r, sender)
 	if not ns.IsFederation(r.guild) then return false end
@@ -131,28 +183,30 @@ function Data.Receive(r, sender)
 	-- names are compared with senders in that same form (a sender that reaches us without a
 	-- realm carries ours, whatever realm it plays on).
 	r.realm = ns.RealmOf(who) or ns.realm
-	if previousWho and previousWho ~= who then
-		local added = AddedName(previous, r)
-		if (previous.leader or "") ~= (r.leader or "") or math.abs((previous.total or 0) - (r.total or 0)) > 25 or added then
-			r.conflict = true
-			ns.Log("conflict on %s: %s says %s/%d, %s says %s/%d%s", r.guild, previousWho, tostring(previous.leader),
-				previous.total or 0, who, tostring(r.leader), r.total or 0, added and (", adds " .. added) or "")
-		end
-	end
+	local now = r.t
+	-- Every report is its sender's vote on who leads the guild and who its officers are. Ranks
+	-- count only from the picture most senders agree on (Data.KnownRank): one sender changing
+	-- or repeating a report can't move it, and two pictures with as many senders each are a
+	-- contest where no rank counts. Nothing here needs saved history (the Forever beta client
+	-- never loads it back).
+	local votes = Votes(previous and previous.vouch, now)
+	local ranks = Ranks(r)
+	votes[who] = { t = now, sig = Signature(r, ranks), ranks = ranks }
+	r.vouch = votes
+	local top = Majority(votes, now)
 	-- One realm can't hold two guilds whose names differ only by case: while another spelling
-	-- is fresh, one of the two is forged.
+	-- is fresh, one of the two is forged, and neither one's ranks count.
 	for name, g in pairs(ns.rdb.guilds) do
 		if name ~= r.guild and name:lower() == r.guild:lower() and r.t - (g.t or 0) <= Data.FRESH then
-			r.conflict = true
+			r.twin = true
+			g.twin = true
 			ns.Log("conflict on %s: %s reports it as %s", name, who, r.guild)
 		end
 	end
-	-- The last fresh report someone else sent about this guild: KnownRank needs it to prove
-	-- this sender's own rank. The same sender keeps the one it had.
-	if previousWho == who then
-		r.witness = previous.witness
-	elseif previousWho and not previous.conflict and not r.conflict and r.t - (previous.t or 0) <= Data.FRESH then
-		r.witness = Ranks(previous)
+	-- Shown in the census: this report disagrees with the other senders (or they are split).
+	r.conflict = (r.twin or top ~= votes[who].sig) and true or nil
+	if r.conflict and not (previous and previous.conflict) then
+		ns.Log("conflict on %s: %s's report is not what the other senders say", r.guild, who)
 	end
 	ns.rdb.guilds[r.guild] = r
 	ns.Fire("DATA_CHANGED")
@@ -165,14 +219,45 @@ function Data.KnownRank(sender, guild)
 	local who = ns.FullName(sender)
 	if guild == GetGuildInfo("player") then return ns.Roster.RankOf(who) end
 	local g = ns.rdb.guilds[guild]
+	local now = ns.Now()
 	-- A report kept from an earlier session proves nothing about who leads the guild now.
-	if not g or g.conflict or ns.Now() - (g.t or 0) > Data.FRESH then return nil end
-	local rank = Ranks(g)[who]
-	-- Anyone can send a report, so it never proves its own sender's rank: the last report
-	-- someone else sent about that guild must name them too.
-	if rank and (g.reporterFull or ns.FullName(g.reporter)) == who then
-		local other = g.witness and g.witness[who]
-		rank = other and math.max(rank, other) or nil
+	if not g or g.twin or now - (g.t or 0) > Data.FRESH then return nil end
+	local votes = Votes(g.vouch, now)
+	local _, _, tops = Majority(votes, now)
+	-- The rank the leading picture gives (every leading picture, if they tie: then only what
+	-- they all agree on counts), named by someone else too: a report never proves its own
+	-- sender's rank. The Crown (every guild master, the officers of <Olympus>) needs two
+	-- senders naming them (theirs may be one).
+	local bySig, total, named, others = {}, 0, 0, 0
+	for src, v in pairs(votes) do
+		if tops[v.sig] then
+			if src ~= who then total = total + 1 end
+			local k = v.ranks[who]
+			if bySig[v.sig] == nil then bySig[v.sig] = k or false end
+			if k then
+				named = named + 1
+				if src ~= who then others = others + 1 end
+				if bySig[v.sig] and k < bySig[v.sig] then bySig[v.sig] = k end
+			end
+		end
+	end
+	local rank
+	for sig in pairs(tops) do
+		local k = bySig[sig]
+		if not k or (rank and k ~= rank) then return nil end
+		rank = k
+	end
+	if not rank or others < 1 then return nil end
+	-- A picture cut at MAX_OFFICERS leaves the officers out of its signature: an officer needs
+	-- most of the other senders of the leading picture to name them, not just one.
+	if rank > 0 and others * 2 <= total then
+		for sig in pairs(tops) do
+			if sig:sub(-2) == ",+" then return nil end
+		end
+	end
+	if ns.IsCrownRank(guild, rank) then
+		if named < 2 then return nil end
+		if now - (ns.Comm and ns.Comm.loginAt or 0) < Data.CROWN_AFTER then return nil end
 	end
 	return rank
 end
