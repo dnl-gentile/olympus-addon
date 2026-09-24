@@ -20,8 +20,10 @@ local GUARD_AFTER = 400  -- an elected reporter never heard reporting our guild 
 local GUARD_FOR = 30 * 60 -- ...is left out of the election for this long (see MaybeBroadcast)
 local KEY_ASK_EVERY = 600 -- at most one key request this often while a sealed reporter is elected
 local WITNESS_EVERY = 600 -- the runner-up of the election reports this often (see MaybeBroadcast)
-local ASK_AFTER = 25      -- seconds after login we ask the channel for the census (Q1)
-local ANSWER_GAP = 120    -- a reporter answers census requests at most this often
+local JOIN_BY = 15        -- seconds after login we join the channel at the latest (see JoinSoon)
+local ASK_AFTER = 4       -- seconds after joining we ask the channel for the census (Q1)...
+local ASK_AGAIN = 65      -- ...and once more this later, for the reporters that had just answered
+local ANSWER_GAP = 60     -- a reporter answers census requests at most this often
 local ANSWER_MIN_AGE = 45 -- ...and only when its last report is at least this old
 local MAX_KEYS = 20      -- distinct keys per diagnostic count (the rest count as "other")
 
@@ -100,17 +102,17 @@ function Comm.Stats()
 	}
 end
 
-local function Enqueue(dist, msg, key)
+local function Enqueue(dist, msg, key, target)
 	if key then
 		for _, item in ipairs(queue) do
 			if item[3] == key then
-				item[2] = msg
+				item[2], item[4] = msg, target
 				return
 			end
 		end
 	end
 	if #queue >= MAX_QUEUE then table.remove(queue, 1) end
-	queue[#queue + 1] = { dist, msg, key }
+	queue[#queue + 1] = { dist, msg, key, target }
 end
 
 -- Other modules send small messages through here and register a handler per type.
@@ -120,6 +122,11 @@ local handlers = {}
 function Comm.Send(dist, msg, key)
 	if dist == "GUILD" and not IsInGuild() then return end
 	Enqueue(dist, msg, key)
+end
+-- An addon message to one player only (answers to the King, Throne tab).
+function Comm.Whisper(target, msg, key)
+	if type(target) ~= "string" or target == "" then return end
+	Enqueue("WHISPER", msg, key, target)
 end
 function Comm.Handle(msgType, fn)
 	handlers[msgType] = fn
@@ -152,8 +159,8 @@ end
 
 -- Player text goes through the logged API, Blizzard's function for plain text payloads
 -- (receivers get CHAT_MSG_ADDON_LOGGED). Clients without it use the usual one.
-local function SendNow(dist, msg, logged)
-	local target = dist == "CHANNEL" and channelIndex or nil
+local function SendNow(dist, msg, logged, whisperTo)
+	local target = dist == "CHANNEL" and channelIndex or whisperTo
 	local send = logged and C_ChatInfo.SendAddonMessageLogged or C_ChatInfo.SendAddonMessage
 	local ok, res = pcall(send, ns.PREFIX, msg, dist, target)
 	if ok and IsSuccess(res) then
@@ -216,9 +223,9 @@ local function Pump()
 		end
 	end
 	if not index then return end
-	local dist, msg = queue[index][1], queue[index][2]
+	local dist, msg, target = queue[index][1], queue[index][2], queue[index][4]
 	table.remove(queue, index)
-	SendNow(dist, msg, false)
+	SendNow(dist, msg, false, target)
 end
 Comm.Pump = Pump -- for tests
 
@@ -414,9 +421,10 @@ function Comm.Broadcast(report)
 end
 
 -- The census on request. The Forever beta client saves addon data but never loads it back, so
--- every login starts with an empty census: we ask the channel once (Q1), and each guild's
--- reporter sends its report right away instead of within 3 minutes. Bounded: a reporter
--- answers at most once every ANSWER_GAP, and only if its last report is ANSWER_MIN_AGE old.
+-- every login starts with an empty census: we ask the channel (Q1), and each guild's reporter
+-- sends its report right away instead of within 3 minutes. Bounded: a reporter answers at
+-- most once every ANSWER_GAP, and only if its last report is ANSWER_MIN_AGE old. A reporter
+-- that had just answered someone else stays quiet, so we ask once more ASK_AGAIN later.
 -- Tries again a little later while the channel is not joined yet (at most 3 times), and once
 -- more after the channel changes (the realm key arrived).
 function Comm.AskCensus()
@@ -432,6 +440,21 @@ function Comm.AskCensus()
 	Comm.lastAsk = now
 	stats.asked = stats.asked + 1
 	Enqueue("CHANNEL", "Q1~", "censusreq")
+	if stats.asked == 1 then ns.After(ASK_AGAIN, "census request", Comm.AskCensus) end
+end
+
+-- We join as soon as the game's own channels are in (General is /1 for two seconds), so
+-- General/Trade/LocalDefense keep their usual numbers (/1, /2...), and at JOIN_BY whatever
+-- happens. The census request follows ASK_AFTER later, once the channel has its number.
+function Comm.JoinSoon(t, seenAt)
+	local _, first = GetChannelName(1)
+	if first and first ~= "" then seenAt = seenAt or t end
+	if t >= JOIN_BY or (seenAt and t - seenAt >= 2) then
+		Comm.JoinChannel()
+		ns.After(ASK_AFTER, "census request", Comm.AskCensus)
+		return
+	end
+	ns.After(1, "join channel", function() Comm.JoinSoon(t + 1, seenAt) end)
 end
 
 -- Right after login we may think we are the reporter only because we have not heard our
@@ -595,9 +618,7 @@ ns.On("LOGIN", function()
 		deliveredLogged = false
 		if not ok then error(err, 0) end
 	end)
-	-- Join late so General/Trade/LocalDefense keep their usual numbers (/1, /2...).
-	ns.After(15, "join channel", Comm.JoinChannel)
-	ns.After(ASK_AFTER, "census request", Comm.AskCensus)
+	ns.After(3, "join channel", function() Comm.JoinSoon(3) end)
 	ns.After(6, "hello", Comm.Hello)
 	ns.Every(HELLO_EVERY, "hello ticker", Comm.Hello)
 	ns.Every(SEND_INTERVAL, "send pump", Pump)

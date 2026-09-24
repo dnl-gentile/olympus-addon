@@ -12,6 +12,7 @@ local Pins = ns.Pins()
 Map.libOk = Pins ~= nil
 
 local SHOW_FLAG = HBD_PINS_WORLDMAP_SHOW_CONTINENT or 2
+local SHOW_HERE = HBD_PINS_WORLDMAP_SHOW_CURRENT or 0
 local pool, active = {}, {}
 local AddContinentTotals -- defined below, used by RefreshNow
 local refreshQueued = false
@@ -55,6 +56,41 @@ local function CreatePin()
 	return p
 end
 
+-- A city's map is not a child of the zone around it (Stormwind's parent is Eastern Kingdoms,
+-- not Elwynn Forest), so its pin would not show on that zone's map. The zone that contains a
+-- map's centre, found once through HereBeDragons' world coordinates: { zone, x, y } or false.
+local containerOf = {}
+local function ContainerOf(mapID)
+	if containerOf[mapID] ~= nil then return containerOf[mapID] end
+	local HBD = LibStub and LibStub("HereBeDragons-2.0", true)
+	if not HBD or not HBD.GetWorldCoordinatesFromZone or not C_Map.GetMapInfo then return false end
+	containerOf[mapID] = false
+	local wx, wy, instance = HBD:GetWorldCoordinatesFromZone(0.5, 0.5, mapID)
+	local info = C_Map.GetMapInfo(mapID)
+	if not wx or not info or not info.parentMapID then return false end
+	local ownW, ownH = HBD:GetZoneSize(mapID)
+	local best, bestArea
+	for _, child in ipairs(C_Map.GetMapChildrenInfo(info.parentMapID) or {}) do
+		local zone = child.mapID
+		if zone ~= mapID then
+			local x, y = HBD:GetZoneCoordinatesFromWorld(wx, wy, zone)
+			local w, h = HBD:GetZoneSize(zone)
+			local area = (w or 0) * (h or 0)
+			-- A city: its whole map lies inside a zone at least four times bigger (neighbouring
+			-- zones only overlap at their borders), and the smallest such zone.
+			local ax, ay = HBD:GetWorldCoordinatesFromZone(0, 0, mapID)
+			local bx, by = HBD:GetWorldCoordinatesFromZone(1, 1, mapID)
+			local inside = ax and bx and HBD:GetZoneCoordinatesFromWorld(ax, ay, zone) and HBD:GetZoneCoordinatesFromWorld(bx, by, zone)
+			if x and y and inside and area >= 4 * (ownW or 0) * (ownH or 0) and (not best or area < bestArea) then
+				best, bestArea = { zone = zone, x = x, y = y }, area
+			end
+		end
+	end
+	containerOf[mapID] = best or false
+	return containerOf[mapID]
+end
+Map.ContainerOf = ContainerOf -- for tests
+
 local function RefreshNow()
 	refreshQueued = false
 	if not Pins then return end
@@ -79,6 +115,16 @@ local function RefreshNow()
 			p.key, p.count, p.guilds = z.key, z.count, s.zoneGuilds[z.key]
 			Pins:AddWorldMapIconMap(Map, p, mapID, 0.5, 0.5, SHOW_FLAG)
 			active[#active + 1] = p
+			-- The same count where the city sits on the map of the zone around it.
+			local around = ContainerOf(mapID)
+			if around then
+				local q = table.remove(pool) or CreatePin()
+				q:SetSize(size, size)
+				q.text:SetText(ShortCount(z.count))
+				q.key, q.count, q.guilds = z.key, z.count, s.zoneGuilds[z.key]
+				Pins:AddWorldMapIconMap(Map, q, around.zone, around.x, around.y, SHOW_HERE)
+				active[#active + 1] = q
+			end
 		end
 	end
 	AddContinentTotals(s)
@@ -197,15 +243,16 @@ local OPTIONS = {
 local function CreateMapToggle()
 	if toggle or not WorldMapFrame then return end
 	local anchor = WorldMapFrame.ScrollContainer or WorldMapFrame
-	-- Round, bottom right corner of the map (Questie uses the top right).
+	-- Round, bottom left corner of the map (Questie uses the top right; Forever's map has its
+	-- own buttons along the bottom right).
 	toggle = ns.MakeRoundButton("OlympusMapToggle", WorldMapFrame, 30)
-	toggle:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -6, 6)
+	toggle:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", 6, 6)
 	toggle:SetFrameLevel(anchor:GetFrameLevel() + 50)
 
 	local okMenu, m = pcall(CreateFrame, "Frame", "OlympusMapMenu", toggle, "BackdropTemplate")
 	menu = okMenu and m or CreateFrame("Frame", "OlympusMapMenuPlain", toggle)
 	menu:SetSize(170, 24 + #OPTIONS * 22)
-	menu:SetPoint("BOTTOMRIGHT", toggle, "TOPRIGHT", 0, 2)
+	menu:SetPoint("BOTTOMLEFT", toggle, "TOPLEFT", 0, 2)
 	if menu.SetBackdrop then
 		menu:SetBackdrop({
 			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",

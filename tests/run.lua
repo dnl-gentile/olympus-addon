@@ -74,7 +74,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Positions", "Decree", "Channels", "Inspect", "Recruit", "Views" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Positions", "Decree", "Channels", "Inspect", "King", "Recruit", "Views" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -254,6 +254,89 @@ test("errors are captured with dedupe", function()
 	ns.CaptureError("test", "boom")
 	eq(#ns.db.errors, 1); eq(ns.db.errors[1].count, 2)
 	assert(ns.BuildBugReport():find("boom"))
+end)
+
+test("Throne: only the King sees it and his commands are checked; Lords answer him alone", function()
+	local K = ns.King
+	local savedGuild, savedPopup, savedSend, savedWhisper, savedDev = GetGuildInfo, StaticPopup_Show, ns.Comm.Send, ns.Comm.Whisper, ns.devThrone
+	local sent, whispered, popups = {}, {}, {}
+	local ok, err = pcall(function()
+		K.Reset()
+		StaticPopup_Show = function(name, arg, _, data) popups[#popups + 1] = { name = name, arg = arg, data = data } end
+		ns.Comm.Send = function(dist, msg) sent[#sent + 1] = dist .. " " .. msg end
+		ns.Comm.Whisper = function(to, msg) whispered[#whispered + 1] = to .. " " .. msg end
+		-- Not the King: no tab, no command.
+		ns.devThrone = nil
+		eq(K.Visible(), false)
+		-- The author's test build: the tab, but nothing leaves.
+		ns.devThrone = true
+		eq(K.Visible(), true); eq(K.Preview(), true)
+		K.Summon()
+		eq(#sent, 0, "a preview sends nothing")
+		ns.devThrone = nil
+		-- The King: guild master of <Olympus>.
+		GetGuildInfo = function() return "Olympus", "King", 0 end
+		eq(K.IsKing(), true); eq(K.Visible(), true)
+		K.Reset() -- a new session opens on the letter
+		local lines = K.Build(ns.Data.Summary())
+		assert(lines[1].text:find("To His Majesty"), "the letter comes first")
+		K.Summon()
+		eq(#sent, 1); assert(sent[1]:find("^CHANNEL T1~S~%d+~Olympus$"), sent[1])
+		local id = tonumber(sent[1]:match("T1~S~(%d+)"))
+		-- An officer of another guild gets the summons, and answers the King alone.
+		GetGuildInfo = function() return "Olympus II", "Officer", 1 end
+		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1000, online = 90, zones = {}, t = os.time(), leader = "Asmon", realm = "Realm" }, "W1-Realm", "W2-Realm"),
+			["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = os.time(), leader = "Zed", realm = "Realm" }, "W3-Realm", "W4-Realm") }
+		K.HandleCommand("CHANNEL", "Faker-Realm", "T1~S~7~Olympus")
+		eq(#popups, 0, "not the King: ignored")
+		K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~S~7~Olympus")
+		eq(#popups, 1, "our officer rank gets the summons"); eq(popups[1].name, "OLYMPUS_KING_SUMMON")
+		-- Back on the King's side: answers counted, checked against the census.
+		GetGuildInfo = function() return "Olympus", "King", 0 end
+		K.HandleAnswer("WHISPER", "Zed-Realm", ("T2~%d~P~Olympus Zeus"):format(id))
+		K.HandleAnswer("WHISPER", "Nobody-Realm", ("T2~%d~B~Olympus Zeus"):format(id))
+		K.HandleAnswer("WHISPER", "Late-Realm", "T2~1~P~Olympus Zeus")
+		local st = K.State()
+		eq(st.summon.answers["Zed-Realm"].verified, true, "a Lord from the census")
+		eq(st.summon.answers["Nobody-Realm"], nil, "not a confirmed Lord: not listed by name...")
+		eq(st.summon.others["Nobody-Realm"], true, "...only counted")
+		K.HandleAnswer("WHISPER", "Troll-Realm", ("T2~%d~P~Asmongold|cffff0000 smells"):format(id))
+		eq(st.summon.answers["Troll-Realm"], nil, "no free text on the King's screen")
+		eq(st.summon.answers["Late-Realm"], nil, "another roll call's answer")
+		-- Royal Inspection reports.
+		K.Reset()
+		GetGuildInfo = function() return "Olympus", "King", 0 end
+		local savedAfter = ns.After
+		ns.After = function() end
+		K.Inspect()
+		ns.After = savedAfter
+		assert(sent[#sent]:find("^CHANNEL T1~I~"), sent[#sent])
+		local iid = tonumber(sent[#sent]:match("T1~I~(%d+)"))
+		-- A confirmed Lord's report lists names; a stranger's only counts, and is capped.
+		K.HandleReport("WHISPER", "Zed-Realm", ("T3~%d~Olympus Zeus~8~1~1~Naked:Olympus Zeus:N,Pirate:Olympus Zeus:O"):format(iid))
+		K.HandleReport("WHISPER", "Scout2-Realm", ("T3~%d~Olympus IV~5~0~0~Innocent:Olympus IV:N"):format(iid))
+		K.HandleReport("WHISPER", "Troll2-Realm", ("T3~%d~Not a guild~200~0~0~"):format(iid))
+		K.Show("inspect")
+		local text = {}
+		for _, l in ipairs((K.Build(ns.Data.Summary()))) do text[#text + 1] = l.text end
+		text = table.concat(text, "\n")
+		assert(text:find("2 patrols, 15 checks, 87%% wearing"), text)
+		assert(text:find("Naked <Olympus Zeus>"), text)
+		assert(not text:find("Innocent"), "a stranger can't put names on the King's page")
+		-- The Agenda.
+		eq(K.ParseAgenda("30 Raid on Crossroads"), 30)
+		eq(K.ParseAgenda("Raid"), nil)
+		GetGuildInfo = savedGuild
+		K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~A~9~Olympus~45~Stormwind City~Raid on Crossroads")
+		local a = K.Agenda()
+		eq(a.title, "Raid on Crossroads"); eq(a.zone, "Stormwind City")
+		K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~X~9~Olympus")
+		eq(K.Agenda(), nil, "cancelled")
+	end)
+	GetGuildInfo, StaticPopup_Show, ns.Comm.Send, ns.Comm.Whisper, ns.devThrone = savedGuild, savedPopup, savedSend, savedWhisper, savedDev
+	K.Reset()
+	ns.rdb.guilds = {}
+	if not ok then error(err, 0) end
 end)
 
 test("tabard rule: level 15 and up, younger players are never flagged", function()
@@ -547,6 +630,35 @@ test("captains in the report are rank 1 whatever /oly officer says", function()
 	local r = ns.Roster.Scan()
 	eq(#r.officers, 5, "only the rank 1 members")
 	ns.db.officerRank = saved
+end)
+
+test("a city's count also shows on the map of the zone around it (Stormwind on Elwynn)", function()
+	local savedLibStub, savedInfo, savedChildren = LibStub, C_Map.GetMapInfo, C_Map.GetMapChildrenInfo
+	local ok, err = pcall(function()
+		-- World rectangles (left, top, width, height): Stormwind sits inside Elwynn Forest.
+		local RECT = { [1429] = { 0, 0, 100, 100 }, [1453] = { 40, 40, 20, 20 }, [1436] = { 100, 0, 100, 100 } }
+		local HBD = {
+			GetWorldCoordinatesFromZone = function(_, x, y, id) local r = RECT[id]; return r[1] + r[3] * x, r[2] + r[4] * y, 0 end,
+			GetZoneCoordinatesFromWorld = function(_, wx, wy, id)
+				local r = RECT[id]; if not r then return nil end
+				local x, y = (wx - r[1]) / r[3], (wy - r[2]) / r[4]
+				if x < 0 or x > 1 or y < 0 or y > 1 then return nil end
+				return x, y
+			end,
+			GetZoneSize = function(_, id) local r = RECT[id]; if not r then return 0, 0 end return r[3], r[4] end,
+		}
+		LibStub = function(name) if name == "HereBeDragons-2.0" then return HBD end end
+		C_Map.GetMapInfo = function(id) return { mapID = id, parentMapID = 1415 } end
+		C_Map.GetMapChildrenInfo = function() return { { mapID = 1429 }, { mapID = 1453 }, { mapID = 1436 } } end
+		local c = ns.Map.ContainerOf(1453)
+		assert(c, "Stormwind has a zone around it")
+		eq(c.zone, 1429, "Elwynn Forest")
+		eq(c.x, 0.5); eq(c.y, 0.5)
+		eq(ns.Map.ContainerOf(1429), false, "Elwynn is inside no bigger zone")
+		eq(ns.Map.ContainerOf(1436), false, "nor is Westfall")
+	end)
+	LibStub, C_Map.GetMapInfo, C_Map.GetMapChildrenInfo = savedLibStub, savedInfo, savedChildren
+	if not ok then error(err, 0) end
 end)
 
 test("map refresh runs end to end with a map library (continent totals included)", function()
@@ -1714,7 +1826,8 @@ test("HD Join screen: no tabs or column titles, next to a Communities window wit
 		CommunitiesFrame.ChatTab:Show()
 		UI.Refresh()
 		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0")
-		for _, tab in ipairs(main.tabs) do eq(tab:IsShown(), true) end
+		-- Every tab but the Throne, which is the King's alone.
+		for _, tab in ipairs(main.tabs) do eq(tab:IsShown(), tab.key ~= "throne", tab.key) end
 		eq(main.colHeader:IsShown(), true)
 		eq(main.listBox:Anchor("TOPLEFT")[5], -81); eq(main.scroll:Anchor("TOPLEFT")[5], -84)
 	end)
@@ -1785,10 +1898,11 @@ test("a new tab is one entry in UI.TABS: an icon tab in the HD window, a bottom 
 				UI.Toggle()
 				main = OlympusFrame
 			end
-			eq(#main.tabs, 5)
-			local last = main.tabs[5]
+			local n = #UI.TABS
+			eq(#main.tabs, n)
+			local last = main.tabs[n]
 			if hdLook then
-				eq(last.points[1][2], main.tabs[4]); eq(Anchor(last), "TOPLEFT nil BOTTOMLEFT 0 -20")
+				eq(last.points[1][2], main.tabs[n - 1]); eq(Anchor(last), "TOPLEFT nil BOTTOMLEFT 0 -20")
 				eq(last.Icon.texture, channels.icon); eq(last.tooltip, "TAB_CHANNELS")
 			else
 				eq(last.template, "PanelTabButtonTemplate"); eq(last:GetText(), "TAB_CHANNELS")
@@ -2087,6 +2201,46 @@ test("who on Forever: only the frames that listen are silenced, and get the even
 		eq(#ns.Recruit.found, 2, "someone else's answer")
 		eq(ns.Who.StatusLines(), nil, "everyone fit in one answer: nothing to add")
 	end)
+end)
+
+test("who on its own: a click in the window searches quietly, range by range, not again for a while", function()
+	WithWho(function(server)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		eq(ns.Who.Auto(), true, "the first click searches")
+		eq(ns.Who.Auto(), false, "not while its answer is coming")
+		server.Answer(Players(1, 50), 50)
+		server.Run(ns.Who.SETTLE)
+		eq(ns.Who.Auto(), false, "nor within the cooldown")
+		for k = 1, #ns.Who.sweep.brackets do
+			server.clock = server.clock + ns.Who.COOLDOWN + 1
+			eq(ns.Who.Auto(), true, "the next level range")
+			server.Answer(Players(50 + k * 10, 55 + k * 10))
+			server.Run(ns.Who.SETTLE)
+		end
+		eq(ns.Who.sweep.done, true)
+		server.clock = server.clock + ns.Who.COOLDOWN + 1
+		eq(ns.Who.Auto(), false, "a complete round is not searched again at once")
+		server.clock = server.clock + ns.Who.AUTO_AGAIN
+		LFGWhoListFrame.shown = true
+		eq(ns.Who.Auto(), false, "the player's own who list is open: left alone")
+		LFGWhoListFrame.shown = false
+		eq(ns.Who.Auto(), true)
+		eq(server.sent[#server.sent], 'g-"Olympus"', "a new round")
+		eq(#server.printed, 0, "never a word in chat")
+	end)
+end)
+
+test("Wall of Shame: closed with a countdown until midnight in Texas, then open", function()
+	local I, from, show = ns.Inspect, ns.Inspect.SHAME_FROM, ns.Inspect.ShowShame
+	eq(from, 1790312400, "2026-09-25 00:00 CDT")
+	I.SHAME_FROM = time() + 3600
+	eq(I.ShameOpen(), false)
+	assert(I.ShameOpensIn() > 3500)
+	I.ShowShame = function() error("closed: nothing shown") end
+	I.PublishShame() -- nothing, not even the Crown check
+	I.SHAME_FROM = time() - 1
+	eq(I.ShameOpen(), true)
+	I.SHAME_FROM, I.ShowShame = from, show
 end)
 
 test("who on the old UI: no answer, the Social window gets the event back on the timeout", function()
