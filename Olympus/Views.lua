@@ -308,6 +308,12 @@ local function CensusLines(s)
 		lines[#lines + 1] = { text = Grey(L.SEEN_HINT) }
 	end
 	WhoStatus(lines)
+	-- The addon's author online: Report a bug reaches him directly (Workshop.lua).
+	local author = ns.Workshop and ns.Workshop.AuthorOnline and ns.Workshop.AuthorOnline() and ns.Workshop.AuthorName()
+	if author then
+		lines[#lines].gapAfter = true
+		lines[#lines + 1] = { text = Grey(L.AUTHOR_ONLINE:format(ns.DisplayName(author))) }
+	end
 	return lines
 end
 
@@ -330,9 +336,6 @@ local function CensusDetail(s)
 		for _, c in ipairs(conts) do parts[#parts + 1] = c.name .. " " .. ns.FormatNumber(c.n) end
 		title = L.WHERE .. ":  |cffffffff" .. table.concat(parts, "  ·  ") .. "|r"
 	end
-	-- The addon's author online: Report a bug reaches him directly (Workshop.lua).
-	local author = ns.Workshop and ns.Workshop.AuthorOnline and ns.Workshop.AuthorOnline() and ns.Workshop.AuthorName()
-	if author then text = text .. "\n" .. Grey(L.AUTHOR_ONLINE:format(ns.DisplayName(author))) end
 	return title, text .. "\n" .. Grey(ns.UI.StatusLine())
 end
 
@@ -394,18 +397,19 @@ local function RealmLines(s)
 			right = Presence(king.g.leaderOnline, king.g.leaderDays),
 			tooltip = GuildTooltip(king),
 		}
-		-- The Treasurer of Olympus, under the King: as that guild's report has him.
-		if king.name:lower() == "olympus" then
-			local t
-			for _, o in ipairs(king.g.officers or {}) do
-				if ns.IsTreasurer(o.name, king.name) then t = o end
-			end
-			local person = { name = ns.TREASURER, guild = king.name, class = t and t.class, level = t and t.level, zone = t and t.zone,
-				rank = L.CAPTAIN, online = t and t.online, days = t and t.days }
+		-- The Treasurer of Olympus, under the King: when that guild's report has him (the
+		-- Horde's <Olympus> and other realms' have no Treasurer of theirs).
+		local t
+		for _, o in ipairs(king.name:lower() == "olympus" and king.g.officers or {}) do
+			if ns.IsTreasurer(o.name, king.name) then t = o end
+		end
+		if t then
+			local person = { name = t.name, guild = king.name, class = t.class, level = t.level, zone = t.zone,
+				rank = L.CAPTAIN, online = t.online, days = t.days }
 			lines[#lines + 1] = {
-				key = ns.TREASURER,
-				text = ns.COIN .. L.TREASURER .. ": " .. Gold(ns.TREASURER),
-				right = t and Presence(t.online, t.days) or nil,
+				key = t.name,
+				text = ns.COIN .. L.TREASURER .. ": " .. Gold(t.name),
+				right = Presence(t.online, t.days),
 				onClick = function() ns.UI.ShowPerson(person) end,
 			}
 		end

@@ -1388,6 +1388,7 @@ function UI.ShowCopy(title, text, action)
 		local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		hint:SetPoint("BOTTOM", 0, 10)
 		hint:SetText(L.COPY_HINT)
+		f.hint = hint
 		local scroll = CreateFrame("ScrollFrame", "OlympusCopyScroll", f, "UIPanelScrollFrameTemplate")
 		scroll:SetPoint("TOPLEFT", 12, -30)
 		scroll:SetPoint("BOTTOMRIGHT", -30, 28)
@@ -1419,6 +1420,15 @@ function UI.ShowCopy(title, text, action)
 	local button = copyFrame.action
 	button.fn = action and action.fn or nil
 	button:SetShown(action ~= nil)
+	-- With the button on the left, the hint moves right.
+	copyFrame.hint:ClearAllPoints()
+	if action then
+		copyFrame.hint:SetPoint("BOTTOMRIGHT", -12, 10)
+		copyFrame.hint:SetJustifyH("RIGHT")
+	else
+		copyFrame.hint:SetPoint("BOTTOM", 0, 10)
+		copyFrame.hint:SetJustifyH("CENTER")
+	end
 	if action then
 		button:SetText(action.label)
 		local fs = button:GetFontString()

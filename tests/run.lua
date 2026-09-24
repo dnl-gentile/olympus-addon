@@ -5147,48 +5147,137 @@ test("Workshop: 'please update' only from the author, only when really behind, o
 	end)
 end)
 
-test("Workshop: a bug report reaches the author in pieces, while he is online", function()
+test("Workshop: a bug report reaches the author once he answers its first piece", function()
 	local text = "```\nline one | pipe\n" .. ("x"):rep(700) .. "\nend\n```"
-	local pieces
-	WithWorkshop("Tester-Realm", function(w, W)
+	WithWorkshop("Ann-Realm", function(w, W)
+		local timers = {}
+		W.after = function(_, _, f) timers[#timers + 1] = f end
 		eq(W.BugAction(text), nil, "author not seen: no button")
 		W.HandlePresence("CHANNEL", "Faladoriel-Realm", "V4~0.8.2")
-		eq(W.AuthorOnline(), false, "someone else's presence")
+		W.HandlePresence("CHANNEL", "Faladoriel Skylance-SomeEraRealm", "V4~0.8.2")
+		eq(W.AuthorOnline(), false, "his first name, or his name on another realm group: not him")
 		W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~0.8.2")
 		eq(W.AuthorOnline(), true)
 		local action = W.BugAction(text)
 		assert(action and action.label:find("Faladoriel Skylance", 1, true), action and action.label)
 		eq(action.fn(), true)
-		pieces = w.whispered
-		assert(#pieces >= 4, #pieces)
-		for _, p in ipairs(pieces) do
-			eq(p.to, AUTHOR_FULL)
-			assert(#p.msg <= 255 and not p.msg:find("\n", 1, true), "one addon message, no newline")
+		eq(#w.whispered, 1, "the first piece alone")
+		-- The author answers it: the rest follows.
+		ns.me = AUTHOR_FULL
+		W.HandleBug("WHISPER", "Ann-Realm", w.whispered[1].msg)
+		local go = w.whispered[#w.whispered]
+		eq(go.to, "Ann-Realm"); assert(go.msg:find("^V6~%d+~1$"), go.msg)
+		ns.me = "Ann-Realm"
+		W.HandleAck("WHISPER", "Faladoriel-Realm", go.msg)
+		eq(#w.whispered, 2, "not the author: nothing more")
+		W.HandleAck("WHISPER", AUTHOR_FULL, go.msg)
+		local rest = {}
+		for i = 3, #w.whispered do rest[#rest + 1] = w.whispered[i] end
+		assert(#rest >= 3, #rest)
+		for _, piece in ipairs(rest) do
+			eq(piece.to, AUTHOR_FULL)
+			assert(#piece.msg <= 255 and not piece.msg:find("\n", 1, true), "one addon message, no newline")
 		end
+		-- He gets them all (in any order), keeps the report, and says so.
+		ns.me = AUTHOR_FULL
+		for i = #rest, 1, -1 do W.HandleBug("WHISPER", "Ann-Realm", rest[i].msg) end
+		eq(#W.Reports(), 1)
+		assert(W.Reports()[1].text:find("line one ! pipe\n", 1, true), W.Reports()[1].text)
+		local done = w.whispered[#w.whispered]
+		assert(done.msg:find("^V6~%d+~2$"), done.msg)
+		ns.me = "Ann-Realm"
+		W.HandleAck("WHISPER", AUTHOR_FULL, done.msg)
+		eq(w.printed[#w.printed], ns.L.WORKSHOP_BUG_SENT:format(ns.DisplayName(AUTHOR_FULL)))
+		for _, f in ipairs(timers) do f() end
+		eq(w.printed[#w.printed], ns.L.WORKSHOP_BUG_SENT:format(ns.DisplayName(AUTHOR_FULL)), "answered in time: no 'no answer'")
 		eq(action.fn(), false, "one report per BUG_GAP")
+		-- Nobody answers the first piece: nothing more goes out, and the player is told.
+		W.Reset()
+		timers = {}
+		W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~0.8.2")
+		local before = #w.whispered
+		eq(W.SendBug("short report"), true)
+		eq(#w.whispered, before + 1)
+		for _, f in ipairs(timers) do f() end
+		eq(w.printed[#w.printed], ns.L.WORKSHOP_BUG_NO_AUTHOR)
+		eq(#w.whispered, before + 1, "nothing more")
 		w.clock = w.clock + W.PRESENCE_FRESH + 1
 		eq(W.AuthorOnline(), false, "gone quiet: offline")
 	end)
+end)
+
+test("Workshop: the author's inbox can't be blocked or flooded", function()
 	WithWorkshop(AUTHOR_FULL, function(w, W)
-		-- Someone else's pieces are ignored by a player; the author puts them together.
-		for i = #pieces, 1, -1 do W.HandleBug("WHISPER", "Ann-Realm", pieces[i].msg) end
-		local r = W.Reports()
-		eq(#r, 1)
-		eq(r[1].from, "Ann-Realm")
-		assert(r[1].text:find("line one ! pipe\n", 1, true), r[1].text)
-		W.HandleBug("CHANNEL", "Bob-Realm", pieces[1].msg)
+		W.HandleBug("CHANNEL", "Bob-Realm", "V5~1~1~1~channel")
 		W.HandleBug("WHISPER", "Bob-Realm", "V5~1~1~99~too many pieces")
-		eq(#W.Reports(), 1, "channel pieces and oversize reports are dropped")
-		for k = 2, 4 do
-			local id = tostring(100 + k)
-			for _, p in ipairs(pieces) do W.HandleBug("WHISPER", "Ann-Realm", (p.msg:gsub("^V5~%d+~", "V5~" .. id .. "~"))) end
-		end
-		eq(#W.Reports(), 3, "three an hour per player")
+		W.HandleBug("WHISPER", "Bob-Realm", "V5~1~2~2~not the first piece")
+		eq(#W.Reports(), 0, "channel, oversize and headless reports are dropped")
+		-- A griefer opens report after report: one open at a time, three started an hour.
+		for id = 1, 10 do W.HandleBug("WHISPER", "Grief-Realm", ("V5~%d~1~25~x"):format(id)) end
+		-- Everyone else still gets through.
+		for k = 1, 10 do W.HandleBug("WHISPER", ("P%d-Realm"):format(k), ("V5~%d~1~1~hello %d"):format(k, k)) end
+		eq(#W.Reports(), 10, "ten honest reports")
+		-- Three an hour per player.
+		for id = 21, 24 do W.HandleBug("WHISPER", "Ann-Realm", ("V5~%d~1~1~report %d"):format(id, id)) end
+		eq(#W.Reports(), 13)
+		eq(W.Reports()[13].text, "report 23")
 	end)
 	WithWorkshop("Tester-Realm", function(w, W)
-		W.HandleBug("WHISPER", "Ann-Realm", pieces[1].msg)
+		W.HandleBug("WHISPER", "Ann-Realm", "V5~1~1~1~hello")
 		eq(#W.Reports(), 0, "only the author collects reports")
 	end)
+end)
+
+test("Workshop: what others claim never names the latest version, and roll calls add up", function()
+	WithWorkshop(AUTHOR_FULL, function(w, W)
+		local ids = 0
+		W.random = function(a, b) if a then ids = ids + 1; return ids end return 0.5 end
+		-- Before the census is in: no roll call (every addon would answer).
+		W.RollCall()
+		eq(#w.sent, 0); eq(w.printed[#w.printed], ns.L.WORKSHOP_ROLL_EARLY)
+		ns.rdb.guilds = { ["Olympus II"] = { t = w.clock, users = 40, online = 90, versions = { ["9.9.9"] = 1, ["0.8.1"] = 3 } } }
+		W.RollCall()
+		local first = W.State().id
+		-- A forged answer and a forged report claim 9.9.9: the latest is still ours.
+		W.HandleAnswer("WHISPER", "Liar-Realm", ("V2~%d~9.9.9~Olympus II~Forever~hd~c~0~1~MA"):format(first))
+		W.HandleAnswer("WHISPER", "Ann-Realm", ("V2~%d~%s~Olympus II~Forever~hd~c~0~1~MA"):format(first, ns.VERSION))
+		W.HandleAnswer("WHISPER", "Bob-Realm", ("V2~%d~0.8.1~Olympus II~Forever~hd~c~0~1~MA"):format(first))
+		W.HandleAnswer("WHISPER", "Eve-Realm", ("V2~%d~0.8.1~`@everyone~Mac|cffff~evil~c~0~1~MA"):format(first))
+		eq(W.Latest(), ns.VERSION)
+		local eve = W.State().answers["Eve-Realm"]
+		eq(eve.guild, "everyone"); eq(eve.client, "?"); eq(eve.window, "?")
+		W.AskOutdated()
+		local asked = {}
+		for _, x in ipairs(w.whispered) do asked[x.to] = x.msg end
+		eq(asked["Ann-Realm"], nil, "up to date: not asked")
+		eq(asked["Bob-Realm"], "V3~" .. ns.VERSION)
+		eq(asked["Liar-Realm"], nil, "'newer' than the author: not asked either")
+		-- A second roll call later: the first one's answers stay, a newer one replaces.
+		w.clock = w.clock + W.ROLL_EVERY + 1
+		W.RollCall()
+		local second = W.State().id
+		eq(W.State().count, 4, "the answers so far stay")
+		W.HandleAnswer("WHISPER", "Bob-Realm", ("V2~%d~%s~Olympus II~Forever~hd~c~0~1~MA"):format(second, ns.VERSION))
+		eq(W.State().count, 4); eq(W.State().answers["Bob-Realm"].version, ns.VERSION, "updated since")
+		W.HandleAnswer("WHISPER", "Bob-Realm", ("V2~%d~0.8.0~Olympus II~Forever~hd~c~0~1~MA"):format(second))
+		eq(W.State().answers["Bob-Realm"].version, ns.VERSION, "one answer per roll call")
+	end)
+	WithWorkshop("Tester-Realm", function(w, W)
+		-- A player answers each roll call once, a new one five minutes later too.
+		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~7~100")
+		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~7~100")
+		eq(#w.whispered, 1)
+		w.clock = w.clock + W.ROLL_EVERY
+		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~8~100")
+		eq(#w.whispered, 2, "the next roll call is answered")
+	end)
+	-- Field 24 keeps version numbers only.
+	local d = ns.Codec.DecodeReport(ns.Codec.EncodeReport({ guild = "Olympus V", total = 9, online = 1, zones = {},
+		versions = { ["0.8.2"] = 3, ["|TInterface\\Icons\\X:400|t"] = 1, ["?"] = 2 } }))
+	eq(d.versions["0.8.2"], 3); eq(d.versions["?"], 2)
+	local n = 0
+	for _ in pairs(d.versions) do n = n + 1 end
+	eq(n, 2, "nothing else")
 end)
 
 test("Treasurer: exactly Pyralis Ashandar of OLYMPUS, under the King and beside his name", function()
@@ -5207,6 +5296,13 @@ test("Treasurer: exactly Pyralis Ashandar of OLYMPUS, under the King and beside 
 			if l.text and l.text:find(ns.L.TREASURER .. ": ", 1, true) then found = l end
 		end
 		assert(found and found.text:find("Pyralis Ashandar", 1, true) and found.onClick, "the Treasurer's line")
+		-- Not in the report (the Horde's <Olympus>, another realm's): no line.
+		local officers = ns.rdb.guilds["OLYMPUS"].officers
+		ns.rdb.guilds["OLYMPUS"].officers = {}
+		for _, l in ipairs(ns.Views.RealmLines()) do
+			assert(not (l.text and l.text:find(ns.L.TREASURER .. ": ", 1, true)), "no Treasurer line without him")
+		end
+		ns.rdb.guilds["OLYMPUS"].officers = officers
 		ns.Views.ExpandAll(true)
 		local tagged = false
 		for _, l in ipairs(ns.Views.RealmLines()) do

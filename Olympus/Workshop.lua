@@ -20,21 +20,27 @@ local L = ns.L
 --   V3~<latest version>                                                (whisper)
 --   V4~<version>                                                       (channel)
 --   V5~<id>~<i>~<n>~<piece>                                            (whisper)
+--   V6~<id>~<1|2>   the author got piece 1 (send the rest) | the whole report   (whisper)
+-- A bug report goes out one piece first: only once the author answers (he is really online)
+-- does the rest follow, so nothing is whispered to someone who logged off.
 
 local Workshop = {}
 ns.Workshop = Workshop
 
-Workshop.ROLL_GAP = 30 * 60     -- a client answers one roll call in this long
+Workshop.ROLL_GAP = 4 * 60      -- a client answers one roll call in this long (the author asks every 5 min at most)
 Workshop.ROLL_EVERY = 5 * 60    -- the author asks at most this often
 Workshop.ROLL_OPEN = 5 * 60     -- answers count this long after the ask
 Workshop.ROLL_SPREAD = 30       -- answers are spread over this many seconds
 Workshop.ROLL_TARGET = 300      -- answers wanted, however large the army (the share)
 Workshop.MAX_ANSWERS = 3000
 Workshop.UPDATE_GAP = 10 * 60   -- "please update" at most this often, both ways
-Workshop.PRESENCE_EVERY = 10 * 60
-Workshop.PRESENCE_FRESH = 15 * 60
+Workshop.PRESENCE_EVERY = 5 * 60
+Workshop.PRESENCE_FRESH = 11 * 60
+Workshop.ROLL_AFTER = 90        -- no roll call this soon after login: the census is still coming
+Workshop.ASK_EVERY = 20         -- "Ask to update" at most this often (the send queue holds 60)
+Workshop.BUG_ACK = 15           -- the author answers the first piece within this, or is offline
 Workshop.BUG_GAP = 10 * 60      -- a player sends one bug report in this long
-Workshop.BUG_MAX = 4000         -- bytes of a bug report
+Workshop.BUG_MAX = 4800         -- bytes of a bug report (MAX_PIECES pieces)
 Workshop.PIECE = 200
 Workshop.MAX_PIECES = 25
 Workshop.MAX_REPORTS = 30
@@ -45,12 +51,16 @@ Workshop.MAX_ASK = 15           -- "please update" whispers per click (the send 
 Workshop.random = math.random
 Workshop.after = function(seconds, where, fn) ns.After(seconds, where, fn) end
 
-local roll            -- the author's roll call: { id, t, share, answers = { [sender] = answer }, count }
+local roll            -- the author's roll calls: { id, t, share, answers = { [sender] = answer }, count }
+                      -- answers stay from one roll call to the next (a newer answer replaces)
 local reports = {}    -- bug reports received: { from, t, text }, newest last
 local pieces = {}     -- [sender#id] = { n, got, parts, t }
 local bugsFrom = {}   -- [sender] = times of their reports this hour
 local asked = {}      -- [sender] = when we last asked them to update
 local lastRoll, lastRollAnswer, lastUpdateShown, lastBug = -math.huge, -math.huge, -math.huge, -math.huge
+local lastAsk = -math.huge
+local answeredRoll    -- the roll call id we answered last
+local sending         -- our bug report waiting for the author's go: { id, pieces, to }
 local authorAt, authorName -- the author's last presence, and his full name
 local changePending = false
 
@@ -67,8 +77,11 @@ end
 -- Who is who
 ---------------------------------------------------------------------------
 
+-- His name, on his realm group (Forever's PvP realms).
 local function IsAuthorName(name)
-	return type(name) == "string" and ns.ShortName(name) == ns.AUTHOR
+	if type(name) ~= "string" or ns.ShortName(name) ~= ns.AUTHOR then return false end
+	local realm = ns.RealmOf(ns.FullName(name))
+	return realm ~= nil and ns.GroupOf(realm) == ns.GroupOf(ns.AUTHOR_REALM)
 end
 
 function Workshop.IsAuthor() return IsAuthorName(ns.me) end
@@ -111,29 +124,23 @@ function Workshop.Newer(a, b)
 	return false
 end
 
--- The newest version anyone has: ours, a report's, or a roll call answer's.
-function Workshop.Latest()
-	local best = ns.VERSION
-	for _, g in pairs(ns.rdb and ns.rdb.guilds or {}) do
-		if type(g) == "table" then
-			for v in pairs(g.versions or {}) do
-				if Workshop.Newer(v, best) then best = v end
-			end
-		end
-	end
-	for _, a in pairs(roll and roll.answers or {}) do
-		if Workshop.Newer(a.version, best) then best = a.version end
-	end
-	return best
-end
+-- The newest version: the author's own, who runs the newest. What others claim never raises
+-- it (anyone can send any number), so "please update" never names a version that is not out.
+function Workshop.Latest() return ns.VERSION end
 
 ---------------------------------------------------------------------------
 -- This client, as a roll call answer tells it
 ---------------------------------------------------------------------------
 
+-- Plain text: no separators, escape codes, Discord markup (` @) or control characters.
 local function Clean(s, max)
-	return (tostring(s or ""):gsub("[~|%c]", "")):sub(1, max or 40)
+	return (tostring(s or ""):gsub("[~|`@%c]", "")):sub(1, max or 40)
 end
+
+-- Only values a real addon sends: anything else becomes "?".
+local CLIENTS = { Forever = true, Era = true, Anniversary = true }
+local WINDOWS = { hd = true, old = true }
+local function Version(v) return (type(v) == "string" and v:match("^%d+%.%d+%.%d+$")) and v or "?" end
 
 -- Which game: by the interface number (Forever 1.60, Era 1.15, Anniversary 2.5).
 function Workshop.Client()
@@ -191,9 +198,14 @@ function Workshop.RollCall()
 	if now - lastRoll < Workshop.ROLL_EVERY then
 		return ns.Print(L.WORKSHOP_ROLL_WAIT:format(math.ceil((Workshop.ROLL_EVERY - (now - lastRoll)) / 60)))
 	end
+	-- Before the census is in, the army's size is unknown: every addon would answer.
+	local users = Workshop.ReportedUsers()
+	if users == 0 or now - (ns.Comm.loginAt or 0) < Workshop.ROLL_AFTER then return ns.Print(L.WORKSHOP_ROLL_EARLY) end
 	lastRoll = now
-	local share = Workshop.Share(Workshop.ReportedUsers())
-	roll = { id = Workshop.random(1, 99999), t = now, share = share, answers = {}, count = 0 }
+	local share = Workshop.Share(users)
+	-- The answers so far stay: a newer one replaces a player's older one.
+	local answers, count = roll and roll.answers or {}, roll and roll.count or 0
+	roll = { id = Workshop.random(1, 99999), t = now, share = share, answers = answers, count = count }
 	ns.Comm.Send("CHANNEL", ("V1~%d~%d"):format(roll.id, share), "rollcall")
 	ns.Print(L.WORKSHOP_ROLL_SENT:format(share))
 	Changed()
@@ -206,7 +218,8 @@ function Workshop.HandleRoll(dist, sender, text)
 	if not id or not share then return end
 	authorAt, authorName = ns.Now(), ns.FullName(sender)
 	local now = ns.Now()
-	if now - lastRollAnswer < Workshop.ROLL_GAP then return end
+	if id == answeredRoll or now - lastRollAnswer < Workshop.ROLL_GAP then return end
+	answeredRoll = id
 	if Workshop.random(1, 100) > math.max(1, math.min(100, share)) then return end
 	lastRollAnswer = now
 	-- Spread over ROLL_SPREAD: a thousand answers do not arrive in the same second.
@@ -222,12 +235,14 @@ function Workshop.HandleAnswer(dist, sender, text)
 		text:match("^V2~(%d+)~([^~]*)~([^~]*)~([^~]*)~([^~]*)~([^~]*)~(%d+)~(%d+)~([^~]*)$")
 	if tonumber(id) ~= roll.id then return end
 	sender = ns.FullName(sender)
-	if roll.answers[sender] then return end
-	if roll.count >= Workshop.MAX_ANSWERS then return end
-	roll.count = roll.count + 1
+	local before = roll.answers[sender]
+	if before and before.roll == roll.id then return end
+	if not before and roll.count >= Workshop.MAX_ANSWERS then return end
+	if not before then roll.count = roll.count + 1 end
 	roll.answers[sender] = {
-		name = sender, version = Clean(version, 12), guild = Clean(guild, 40), client = Clean(client, 12),
-		window = Clean(window, 8), flags = Clean(flags, 8), errors = math.min(tonumber(errors) or 0, 999),
+		name = sender, roll = roll.id, version = Version(version), guild = Clean(guild, 40),
+		client = CLIENTS[client] and client or "?", window = WINDOWS[window] and window or "?",
+		flags = (flags or ""):gsub("[^crkmp]", ""):sub(1, 5), errors = math.min(tonumber(errors) or 0, 999),
 		level = math.min(tonumber(level) or 0, 99), class = Clean(class, 2), t = ns.Now(),
 	}
 	Changed()
@@ -249,6 +264,9 @@ end
 
 -- Every roll call answer on an old version, MAX_ASK at most per click.
 function Workshop.AskOutdated()
+	local now = ns.Now()
+	if now - lastAsk < Workshop.ASK_EVERY then return end
+	lastAsk = now
 	local latest, n = Workshop.Latest(), 0
 	for _, a in pairs(roll and roll.answers or {}) do
 		if n >= Workshop.MAX_ASK then break end
@@ -298,7 +316,8 @@ end
 -- The bug report as it travels: no newlines or pipes (they are put back as "\n" and "!").
 local function Pack(text)
 	text = tostring(text or ""):gsub("|", "!"):gsub("\r", ""):gsub("\n", "\\n")
-	return text:sub(1, Workshop.BUG_MAX)
+	if #text > Workshop.BUG_MAX then text = text:sub(1, Workshop.BUG_MAX - 8) .. "\\n[cut]" end
+	return text
 end
 
 -- The button the Report a bug window shows while the author is online, or nil.
@@ -310,22 +329,46 @@ function Workshop.BugAction(text)
 	}
 end
 
+-- Piece 1 now; the rest once the author answers it (Workshop.HandleAck). No answer within
+-- BUG_ACK: he is gone, the player is told and may try again later.
 function Workshop.SendBug(text)
 	if not Workshop.AuthorOnline() or not authorName then return false end
 	local now = ns.Now()
-	if now - lastBug < Workshop.BUG_GAP then
-		ns.Print(L.WORKSHOP_BUG_WAIT:format(math.ceil((Workshop.BUG_GAP - (now - lastBug)) / 60)))
+	if sending or now - lastBug < Workshop.BUG_GAP then
+		ns.Print(L.WORKSHOP_BUG_WAIT:format(math.max(1, math.ceil((Workshop.BUG_GAP - (now - lastBug)) / 60))))
 		return false
 	end
 	lastBug = now
 	local body = Pack(text)
 	local n = math.min(Workshop.MAX_PIECES, math.max(1, math.ceil(#body / Workshop.PIECE)))
 	local id = Workshop.random(1, 99999)
+	local list = {}
 	for i = 1, n do
-		ns.Comm.Whisper(authorName, ("V5~%d~%d~%d~%s"):format(id, i, n, body:sub((i - 1) * Workshop.PIECE + 1, i * Workshop.PIECE)), "bug" .. id .. ":" .. i)
+		list[i] = ("V5~%d~%d~%d~%s"):format(id, i, n, body:sub((i - 1) * Workshop.PIECE + 1, i * Workshop.PIECE))
 	end
-	ns.Print(L.WORKSHOP_BUG_SENT:format(ns.DisplayName(authorName)))
+	sending = { id = id, pieces = list, to = authorName }
+	ns.Comm.Whisper(authorName, list[1], "bug" .. id .. ":1")
+	ns.Print(L.WORKSHOP_BUG_SENDING:format(ns.DisplayName(authorName)))
+	Workshop.after(Workshop.BUG_ACK, "bug report ack", function()
+		if sending and sending.id == id and not sending.go then
+			sending, lastBug = nil, -math.huge
+			ns.Print(L.WORKSHOP_BUG_NO_AUTHOR)
+		end
+	end)
 	return true
+end
+
+function Workshop.HandleAck(dist, sender, text)
+	if dist ~= "WHISPER" or not IsAuthorName(sender) or not sending then return end
+	local id, stage = text:match("^V6~(%d+)~([12])$")
+	if tonumber(id) ~= sending.id then return end
+	if stage == "1" and not sending.go then
+		sending.go = true
+		for i = 2, #sending.pieces do ns.Comm.Whisper(sending.to, sending.pieces[i], "bug" .. id .. ":" .. i) end
+	elseif stage == "2" then
+		sending = nil
+		ns.Print(L.WORKSHOP_BUG_SENT:format(ns.DisplayName(ns.FullName(sender))))
+	end
 end
 
 function Workshop.HandleBug(dist, sender, text)
@@ -335,28 +378,33 @@ function Workshop.HandleBug(dist, sender, text)
 	if not id or not i or not n or n < 1 or n > Workshop.MAX_PIECES or i < 1 or i > n then return end
 	sender = ns.FullName(sender)
 	local now = ns.Now()
-	-- Three reports an hour per player, and a few players at a time.
-	local times = bugsFrom[sender] or {}
-	for k = #times, 1, -1 do if now - times[k] > 3600 then table.remove(times, k) end end
-	if #times >= 3 then return end
-	local key = sender .. "#" .. id
-	local e = pieces[key]
-	if not e then
+	-- One report at a time per player (a newer one replaces it), three started an hour, ten
+	-- players at a time; a report with no new piece for 60 s is dropped.
+	for k, p in pairs(pieces) do
+		if now - p.t > 60 then pieces[k] = nil end
+	end
+	local e = pieces[sender]
+	if not e or e.id ~= id then
+		if i ~= 1 then return end
+		local times = bugsFrom[sender] or {}
+		for k = #times, 1, -1 do if now - times[k] > 3600 then table.remove(times, k) end end
+		if #times >= 3 then return end
 		local open = 0
-		for k, p in pairs(pieces) do
-			if now - p.t > 120 then pieces[k] = nil else open = open + 1 end
-		end
+		for k in pairs(pieces) do if k ~= sender then open = open + 1 end end
 		if open >= 10 then return end
-		e = { n = n, got = 0, parts = {}, t = now }
-		pieces[key] = e
+		times[#times + 1] = now
+		bugsFrom[sender] = times
+		e = { id = id, n = n, got = 0, parts = {}, t = now }
+		pieces[sender] = e
+		-- Here: the rest may come.
+		if n > 1 then ns.Comm.Whisper(sender, ("V6~%s~1"):format(id), "bugack:" .. sender) end
 	end
 	if e.n ~= n or e.parts[i] then return end
-	e.parts[i], e.got = piece:sub(1, Workshop.PIECE), e.got + 1
+	e.parts[i], e.got, e.t = piece:sub(1, Workshop.PIECE):gsub("|", "!"), e.got + 1, now
 	if e.got < n then return end
-	pieces[key] = nil
-	times[#times + 1] = now
-	bugsFrom[sender] = times
-	reports[#reports + 1] = { from = sender, t = now, text = table.concat(e.parts):gsub("\\n", "\n") }
+	pieces[sender] = nil
+	ns.Comm.Whisper(sender, ("V6~%s~2"):format(id), "bugack:" .. sender)
+	reports[#reports + 1] = { from = sender, t = now, text = (table.concat(e.parts):gsub("\\n", "\n")) }
 	while #reports > Workshop.MAX_REPORTS do table.remove(reports, 1) end
 	ns.PlayAlert("soft")
 	ns.Print(L.WORKSHOP_BUG_IN:format(ns.DisplayName(sender)))
@@ -448,6 +496,7 @@ local function RollLines(lines)
 		return #parts > 0 and table.concat(parts, "  ·  ") or "-"
 	end
 	lines[#lines + 1] = { text = L.WORKSHOP_ANSWERS:format(roll.count, roll.share) }
+	lines[#lines].right = Grey(L.WORKSHOP_LAST:format(ns.Ago(roll.t)))
 	lines[#lines + 1] = { indent = 1, text = L.WORKSHOP_VERSIONS .. ": " .. Versions(versions) }
 	lines[#lines + 1] = { indent = 1, text = L.WORKSHOP_CLIENTS .. ": " .. Join(clients) }
 	lines[#lines + 1] = { indent = 1, text = L.WORKSHOP_WINDOWS .. ": " .. Join(windows) }
@@ -540,9 +589,9 @@ function Workshop.State() return roll end
 
 -- Tests start from a clean state.
 function Workshop.Reset()
-	roll, authorAt, authorName = nil, nil, nil
+	roll, authorAt, authorName, answeredRoll, sending = nil, nil, nil, nil, nil
 	wipe(reports); wipe(pieces); wipe(bugsFrom); wipe(asked)
-	lastRoll, lastRollAnswer, lastUpdateShown, lastBug = -math.huge, -math.huge, -math.huge, -math.huge
+	lastRoll, lastRollAnswer, lastUpdateShown, lastBug, lastAsk = -math.huge, -math.huge, -math.huge, -math.huge, -math.huge
 	changePending = false
 end
 
@@ -551,6 +600,7 @@ ns.Comm.Handle("V2", function(...) Workshop.HandleAnswer(...) end)
 ns.Comm.Handle("V3", function(...) Workshop.HandleUpdate(...) end)
 ns.Comm.Handle("V4", function(...) Workshop.HandlePresence(...) end)
 ns.Comm.Handle("V5", function(...) Workshop.HandleBug(...) end)
+ns.Comm.Handle("V6", function(...) Workshop.HandleAck(...) end)
 
 ns.On("LOGIN", function()
 	-- The author says he is online once on the channel, then every PRESENCE_EVERY.

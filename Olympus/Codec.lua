@@ -199,6 +199,15 @@ function Codec.EncodeReport(r)
 	}, "~")
 end
 
+-- Only version numbers ("0.8.2") and "?" as keys: nothing else reaches the author's tab.
+function Codec.Versions(map)
+	local out = {}
+	for k, v in pairs(map or {}) do
+		if (k == "?" or k:match("^%d+%.%d+%.%d+$")) and #k <= 12 then out[k] = v end
+	end
+	return out
+end
+
 function Codec.DecodeReport(s)
 	if type(s) ~= "string" or #s > Codec.CHUNK * Codec.MAX_CHUNKS then return nil end
 	local f = split(s, "~")
@@ -235,8 +244,8 @@ function Codec.DecodeReport(s)
 		home = Codec.RealmField(f[22]),
 		-- Field 23 (v0.7.13): the reporter's faction. Older versions send none: Alliance.
 		faction = f[23] == "H" and "Horde" or "Alliance",
-		-- Field 24 (v0.8.2): the guild's addon users by version.
-		versions = decMap(f[24], 12),
+		-- Field 24 (v0.8.2): the guild's addon users by version ("0.8.2", or "?" for unknown).
+		versions = Codec.Versions(decMap(f[24], 12)),
 	}
 end
 

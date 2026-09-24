@@ -287,6 +287,7 @@ end
 -- ROUND_TTL, like a round.
 Who.GUILD_AGAIN = 60
 local guildSearched = {}
+local wantedGuild -- a guild opened while a search could not go: the next click sends it
 guildSeen = {} -- [guild] = { t, list = { players }, capped }
 
 -- The players of `guild` its own search found, while fresh: list, capped (nil when none).
@@ -299,10 +300,13 @@ function Who.SearchGuild(guild)
 	if type(guild) ~= "string" or guild == "" or guild:find('"', 1, true) then return false end
 	if not ((C_FriendList and C_FriendList.SendWho) or SendWho) then return false end
 	local now = GetTime()
-	if pending or now - (guildSearched[guild] or -math.huge) < Who.GUILD_AGAIN then return false end
-	if Wait(now, math.max(Who.lastSend, Who.lastPlain)) > 0 or Who.WindowOpen() then return false end
+	if now - (guildSearched[guild] or -math.huge) < Who.GUILD_AGAIN then return false end
+	if pending or Wait(now, math.max(Who.lastSend, Who.lastPlain)) > 0 or Who.WindowOpen() then
+		wantedGuild = guild
+		return false
+	end
 	local sent = Who.Search(true, guild)
-	if sent then guildSearched[guild] = now end
+	if sent then guildSearched[guild], wantedGuild = now, nil end
 	return sent
 end
 
@@ -310,6 +314,12 @@ function Who.Auto()
 	if not ((C_FriendList and C_FriendList.SendWho) or SendWho) then return false end
 	local now = GetTime()
 	if pending or Wait(now, math.max(Who.lastSend, Who.lastPlain)) > 0 or Who.WindowOpen() then return false end
+	-- A guild opened in the Realm tab while a search could not go comes first.
+	if wantedGuild then
+		local guild = wantedGuild
+		wantedGuild = nil
+		if Who.SearchGuild(guild) then return true end
+	end
 	if sweep.done and sweep.variant >= #Who.VARIANTS and sweep.started and now - sweep.started < Who.AUTO_AGAIN then return false end
 	return Who.Search(true)
 end
@@ -462,6 +472,7 @@ function Who.Reset()
 	NewSweep()
 	wipe(guildSeen)
 	wipe(guildSearched)
+	wantedGuild = nil
 end
 
 -- One or two lines on how far the round got, for under a list; nil when there is nothing

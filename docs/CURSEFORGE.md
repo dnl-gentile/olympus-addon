@@ -242,9 +242,10 @@ window shows which realms you are counting.
 to keep the addon healthy. It reads the install counts every guild report already carries,
 plus the addon versions of each guild's users. On demand he can ask for a roll call: each
 addon online (a share of them when the army is large) answers, by addon whisper to him only,
-with its version, game client, window style, whether it joined the channel, how many errors
-it caught this session, and the character's guild, level and class. No position, no
-chat, nothing else. He can also ask a player on an old version to update: a fixed window
+with its version, game client, window style, whether it joined the channel, whether it is
+its guild's reporter, whether the channel is sealed with a key, whether the map library loaded
+and the map markers are on, how many errors it caught this session, and the character's
+guild, level and class. No position, no chat, nothing else. He can also ask a player on an old version to update: a fixed window
 with the two version numbers and nothing else. Only his character can do either: every
 addon checks the sender's name, which nobody else can carry.
 
@@ -333,7 +334,8 @@ Limits, stated honestly:
 
 While the addon's author is online, the **Report a bug** window also has a **Send to
 Faladoriel Skylance** button: your report goes to him in game, by addon whisper, and nowhere
-else (once every 10 minutes at most).
+else (once every 10 minutes at most). It first checks he is really there: the rest follows
+only once he answers, and you are told when he got it.
 
 Type `/oly bug` (or press **Report a bug**), copy the text and open an issue on [GitHub](https://github.com/dnl-gentile/olympus-addon/issues). Errors are
 also saved in `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.

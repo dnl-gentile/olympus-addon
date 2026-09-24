@@ -395,6 +395,7 @@ ns.KING_NAME = "Asmond"
 -- The addon's author (Workshop.lua): his character on Forever. Names there are a first name
 -- and a surname, unique across the realm group; no Classic realm allows a space in a name.
 ns.AUTHOR = "Faladoriel Skylance"
+ns.AUTHOR_REALM = "ClassicBetaPvP" -- his realm group, where only he carries that name
 -- The Treasurer of Olympus, chosen by Asmongold's chat on September 23, 2026: exactly this
 -- character, in the guild named Olympus. Look-alikes in other guilds exist: both must match.
 ns.TREASURER = "Pyralis Ashandar"
