@@ -65,6 +65,7 @@ function Roster.Scan()
 
 	local seen, seenOffline, zoneCount, levelSum = 0, 0, 0, 0
 	local everyone = {}
+	local online = {} -- who is online now, for the Realm tab (Views.MembersOf)
 	local byName = {}
 	local rawRealms, servers, sample = {}, {}, nil -- for /oly status (names raw)
 	for i = 1, numTotal do
@@ -103,6 +104,7 @@ function Roster.Scan()
 			if days >= 7 then r.inactive7 = r.inactive7 + 1 end
 			everyone[#everyone + 1] = { name = short, level = level, class = code }
 			if isOnline then
+				online[#online + 1] = { name = short, level = level, class = code, zone = zoneKey, rank = rankName, rankIndex = rankIndex }
 				r.online = r.online + 1
 				local key = ns.Zones.KeyForName(zone)
 				if key then
@@ -130,6 +132,12 @@ function Roster.Scan()
 	for i = 1, math.min(5, #everyone) do r.top[i] = everyone[i] end
 	r.avgLevel = seen > 0 and levelSum / seen or 0
 	Roster.byName = byName
+	table.sort(online, function(a, b)
+		if a.rankIndex ~= b.rankIndex then return a.rankIndex < b.rankIndex end
+		if a.level ~= b.level then return a.level > b.level end
+		return a.name < b.name
+	end)
+	Roster.online = online
 	Roster.rawRealms, Roster.servers, Roster.rawSample = rawRealms, servers, sample
 	r.home = home ~= "" and home or ns.realm
 	r.faction = ns.faction or ns.Faction()

@@ -604,6 +604,42 @@ test("every tab builds", function()
 	ns.rdb.guilds, ns.rdb.seen = {}, nil
 end)
 
+test("the Realm lists every member online: our roster for our guild, /who for the others", function()
+	local savedGuild, savedOnline, savedSweep = GetGuildInfo, ns.Roster.online, ns.Who.sweep
+	GetGuildInfo = function() return "Olympus II", "Member", 3 end
+	ns.rdb.guilds = SampleGuilds()
+	ns.Roster.online = {
+		{ name = "Lordy", level = 30, class = "WA", rank = "Lord", rankIndex = 0 },
+		{ name = "Mate", level = 22, class = "MA", rank = "Knight", rankIndex = 3 },
+		{ name = "Pal", level = 12, class = "PR", rank = "Squire", rankIndex = 4 },
+	}
+	ns.Who.sweep = { list = {
+		{ name = "Scout-Realm", guild = "Olympus", level = 18, class = "ROGUE", zone = "Elwynn Forest" },
+		{ name = "Capt", guild = "Olympus", level = 22, class = "PALADIN" },
+		{ name = "Other", guild = "Olympus II", level = 9, class = "MAGE" },
+	} }
+	local ok, err = pcall(function()
+		local own = ns.Views.MembersOf("Olympus II", ns.rdb.guilds["Olympus II"])
+		eq(#own, 2, "our roster, without the Lord")
+		eq(own[1].name, "Mate"); eq(own[1].rank, "Knight")
+		local other, fromWho = ns.Views.MembersOf("Olympus", ns.rdb.guilds["Olympus"])
+		eq(fromWho, true)
+		eq(#other, 1, "seen with /who, without its Captain")
+		eq(other[1].name, "Scout"); eq(other[1].class, "RO")
+		ns.Views.ExpandAll(true)
+		local text = {}
+		for _, l in ipairs(ns.Views.RealmLines()) do text[#text + 1] = l.text or "" end
+		text = table.concat(text, "\n")
+		assert(text:find(ns.L.MEMBERS_ONLINE:format(2), 1, true), text)
+		assert(text:find(ns.L.MEMBERS_SEEN:format(1), 1, true), text)
+		assert(text:find("Scout", 1, true) and text:find("Mate", 1, true), text)
+		ns.Views.ExpandAll(false)
+	end)
+	GetGuildInfo, ns.Roster.online, ns.Who.sweep = savedGuild, savedOnline, savedSweep
+	ns.rdb.guilds = {}
+	if not ok then error(err, 0) end
+end)
+
 test("layer sample is stable and about 1 in 8", function()
 	local saved, hits = ns.me, 0
 	for i = 1, 800 do
