@@ -101,6 +101,7 @@ local function Row(content, i)
 		-- HD: the person opened stays lit, like the roster's selected member.
 		if content.style == "hd" and self.line.key then ns.SafeCall("view select", Views.Select, content, self.line.key) end
 		if self.line.onClick then ns.SafeCall("view click", self.line.onClick) end
+		if ns.UI.Clicked then ns.UI.Clicked() end
 	end)
 	r:SetScript("OnEnter", function(self)
 		if not (self.line and self.line.tooltip) then return end
@@ -160,7 +161,10 @@ function Views.Render(content, lines, layout)
 			for c = 1, 4 do r.cols[c]:Hide() end
 			r.left:Show()
 			r.right:Show()
-			r.left:SetFontObject(line.header and "GameFontNormal" or (line.color or "GameFontHighlightSmall"))
+			-- line.font: a font object by name (the Throne's dark ink on parchment), if the client has it.
+			local font = line.font and _G[line.font] and line.font or nil
+			r.left:SetFontObject(font or (line.header and "GameFontNormal" or (line.color or "GameFontHighlightSmall")))
+			r.right:SetFontObject(font or "GameFontHighlightSmall")
 			r.left:ClearAllPoints()
 			r.left:SetPoint("LEFT", 4 + (line.indent or 0) * 12, 0)
 			r.left:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
@@ -262,6 +266,11 @@ end
 
 local function CensusLines(s)
 	local lines = {}
+	-- The King's Agenda, for the whole army (King.lua).
+	local a = ns.King and ns.King.Agenda and ns.King.Agenda()
+	if a then
+		lines[#lines + 1] = { text = Gold(L.THRONE_AGENDA_LINE:format(a.title, math.max(0, math.ceil((a.at - ns.Now()) / 60)), a.zone)), gapAfter = true }
+	end
 	local get = SORTERS[Views.sort.key] or SORTERS.members
 	local guilds = {}
 	for i, e in ipairs(s.guilds) do guilds[i] = e end
@@ -515,17 +524,29 @@ local STATUS_TEXT = {
 	OTHER = function() return Gold(L.TABARD_OTHER) end,
 	UNKNOWN = function() return Grey(L.TABARD_UNKNOWN) end,
 	UNCHECKED = function() return Grey(L.TABARD_UNCHECKED) end,
+	YOUNG = function() return Grey(L.TABARD_YOUNG) end,
 }
 
 local function HeraldryLines()
 	local s = ns.Inspect.Summary()
 	local lines = {}
 	local shame = ns.Inspect.Shame()
-	if shame and #shame.list > 0 then
+	if not ns.Inspect.ShameOpen() then
+		-- Closed until the tabard rule is in force (Inspect.lua): a countdown.
+		local left = ns.Inspect.ShameOpensIn()
+		local wait = ("%dh %02dm"):format(math.floor(left / 3600), math.floor(left % 3600 / 60))
+		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(L.SHAME_OPENS:format(wait)) }
+		lines[#lines].gapAfter = true
+	elseif not (shame and #shame.list > 0) then
+		-- Always there, so everyone knows it exists: empty until the Crown publishes one.
+		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(L.SHAME_EMPTY) }
+		lines[#lines].gapAfter = true
+	else
 		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(L.PUBLISHED_BY:format(shame.by, ns.Ago(shame.t))) }
 		for i = 1, math.min(12, #shame.list) do
 			local p = shame.list[i]
-			lines[#lines + 1] = { indent = 1, text = p.name .. "  " .. Grey("<" .. (p.guild or "?") .. ">") }
+			lines[#lines + 1] = { indent = 1, key = p.name, text = p.name .. "  " .. Grey("<" .. (p.guild or "?") .. ">"),
+				onClick = function() ns.UI.ShowPerson({ name = p.name, guild = p.guild }) end }
 		end
 		if #shame.list > 12 then lines[#lines + 1] = { indent = 1, text = Grey(L.AND_MORE:format(#shame.list - 12)) } end
 		lines[#lines].gapAfter = true
@@ -647,6 +668,11 @@ local BUILD = {
 	heraldry = function()
 		local title, text = HeraldryDetail()
 		return HeraldryLines(), title, text
+	end,
+	throne = function(s)
+		if not (ns.King and ns.King.Build) then return {}, nil, nil end
+		local lines, title, text = ns.King.Build(s)
+		return lines or {}, title, text
 	end,
 }
 

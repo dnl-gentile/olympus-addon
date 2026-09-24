@@ -164,6 +164,12 @@ function Data.Receive(r, sender)
 	local mine = GetGuildInfo("player")
 	if mine and r.guild:lower() == mine:lower() then return false end
 	local who = ns.FullName(sender)
+	-- The other faction's Olympus guilds are not ours to count (their channel is another one;
+	-- this only matters if a report reaches ours anyway).
+	if (r.faction or "Alliance") ~= (ns.faction or "Alliance") then
+		ns.Log("ignored %s from %s: a %s guild", r.guild, who, tostring(r.faction))
+		return false
+	end
 	if not Data.ClaimGuild(who, r.guild) then
 		ns.Log("ignored %s: already reported %s, now claims %s", who, senderGuild[who], r.guild)
 		return false

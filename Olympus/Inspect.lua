@@ -43,6 +43,24 @@ end
 
 function Inspect.IsPatrolling() return patrol end
 
+-- Everyone inspected on this realm group (the Throne's Royal Inspection reads it).
+function Inspect.Players() return Store().players end
+
+-- A player another addon reported during a Royal Inspection (King.PublishShame): kept like
+-- our own inspections, so the usual Wall of Shame can publish them.
+function Inspect.AddReported(name, guild, status)
+	if type(name) ~= "string" or name == "" then return end
+	local p = Store().players[name] or {}
+	p.name, p.guild, p.status, p.t, p.reported = name, guild, status, ns.Now(), true
+	Store().players[name] = p
+	ns.Fire("INSPECT_CHANGED")
+end
+
+-- The Olympus rule: the tabard is required from this level on. Younger players are never
+-- flagged (nor inspected on patrol).
+Inspect.MIN_LEVEL = 15
+local function TooYoung(level) return type(level) == "number" and level > 0 and level < Inspect.MIN_LEVEL end
+
 function Inspect.Record(name, guild, classFile, level, tabardID, anyGear)
 	local s = Store()
 	local p = s.players[name] or {}
@@ -50,6 +68,7 @@ function Inspect.Record(name, guild, classFile, level, tabardID, anyGear)
 	p.name, p.guild, p.class, p.level = name, guild, classFile, level
 	p.item = tabardID
 	p.status = Inspect.Classify(tabardID, anyGear)
+	if TooYoung(level) and (p.status == "NONE" or p.status == "OTHER") then p.status = "YOUNG" end
 	p.t = ns.Now()
 	s.players[name] = p
 	ns.Log("inspect %s <%s>: %s (%s)", name, tostring(guild), p.status, tostring(tabardID))
@@ -68,6 +87,9 @@ local function Enqueue(unit, force)
 	if not guid or queued[guid] or (pending and pending.guid == guid) then return end
 	local guild = GetGuildInfo(unit)
 	if not force and not ns.IsFederation(guild) then return end
+	-- Olympus guilds of the other faction are not ours to inspect (the Horde has its own too).
+	if not force and UnitFactionGroup and UnitFactionGroup(unit) ~= UnitFactionGroup("player") then return end
+	if not force and TooYoung(UnitLevel(unit)) then return end
 	if not force then
 		local p = Store().players[GetUnitName(unit, true)]
 		if p and p.status ~= "UNKNOWN" and p.status ~= "UNCHECKED" and ns.Now() - (p.t or 0) < RECHECK then return end
@@ -262,6 +284,7 @@ end
 function Inspect.TooltipLine(name)
 	local p = Source().players[name]
 	if not p then return nil end
+	if p.status == "YOUNG" and not p.marked then return nil end -- the rule starts at MIN_LEVEL
 	local text
 	if p.status == "GUILD" then text = "|cff40ff40" .. L.TABARD_OK .. "|r"
 	elseif p.status == "NONE" then text = "|cffff4040" .. L.TABARD_NONE .. "|r"
@@ -274,7 +297,15 @@ end
 ---------------------------------------------------------------------------
 -- Wall of Shame: the Crown publishes the list of players caught without the colors,
 -- every Olympus member with the addon sees it (chat, raid warning, Heraldry tab).
+-- Closed until the tabard rule is in force, midnight in Texas (where Asmongold is) between
+-- September 24 and 25, 2026: nothing published, lists sent by older versions ignored, and
+-- the Tabards page counts down to it.
 ---------------------------------------------------------------------------
+
+Inspect.SHAME_FROM = 1790312400 -- 2026-09-25 00:00 CDT (05:00 UTC)
+local function ServerNow() return (GetServerTime and GetServerTime()) or time() end
+function Inspect.ShameOpen() return ServerNow() >= Inspect.SHAME_FROM end
+function Inspect.ShameOpensIn() return math.max(0, Inspect.SHAME_FROM - ServerNow()) end
 
 function Inspect.ShameList()
 	local out = {}
@@ -287,6 +318,7 @@ function Inspect.ShameList()
 end
 
 function Inspect.PublishShame()
+	if not Inspect.ShameOpen() then return end
 	if not ns.IsCrown() then
 		ns.Print(L.CROWN_ONLY)
 		return
@@ -317,7 +349,7 @@ function Inspect.Shame()
 end
 
 ns.Comm.Handle("S1", function(dist, sender, text)
-	if dist ~= "CHANNEL" then return end
+	if dist ~= "CHANNEL" or not Inspect.ShameOpen() then return end
 	local s = ns.Codec.DecodeShame(text)
 	if not s or not ns.IsFederation(s.guild) then return end
 	local rank = ns.Data.KnownRank(sender, s.guild)

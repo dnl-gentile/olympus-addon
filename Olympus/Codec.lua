@@ -192,6 +192,7 @@ function Codec.EncodeReport(r)
 		clean(r.leaderZone or ""),
 		clean(r.from or ""),
 		clean(r.home or ""),
+		r.faction == "Horde" and "H" or "A",
 	}, "~")
 end
 
@@ -229,6 +230,8 @@ function Codec.DecodeReport(s)
 		leaderZone = (f[20] and f[20] ~= "") and f[20]:sub(1, 40) or nil,
 		from = Codec.RealmField(f[21]),
 		home = Codec.RealmField(f[22]),
+		-- Field 23 (v0.7.13): the reporter's faction. Older versions send none: Alliance.
+		faction = f[23] == "H" and "Horde" or "Alliance",
 	}
 end
 
