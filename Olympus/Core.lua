@@ -389,6 +389,11 @@ end
 -- fixed so that senders and receivers always agree on who may send decrees.
 ns.CAPTAIN_RANK = 1
 
+-- What the army calls the King on the lines and the crown made for him (Hop.lua, King.lua),
+-- whatever his character's name in the census.
+ns.KING_NAME = "Asmond"
+ns.CROWN_ICON = "Interface\\GroupFrame\\UI-Group-LeaderIcon"
+
 -- The Crown: guild masters of any Olympus guild, and the officers of the main "Olympus" guild.
 function ns.IsCrownRank(guild, rankIndex)
 	if not guild or not rankIndex then return false end

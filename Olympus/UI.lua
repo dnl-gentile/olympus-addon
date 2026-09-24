@@ -106,7 +106,22 @@ local DETAIL_BUTTONS = {
 	throne = {
 		{ "THRONE_LETTER_BTN", function() ns.King.Show("letter") end },
 		{ "THRONE_CANCEL_AGENDA", function() ns.King.CancelAgendaButton() end },
-		{ "THRONE_LOCATION", function() ns.King.ToggleLocation() end },
+		-- His own button: the crown the army sees, what it does and whether it is on now.
+		{ "THRONE_LOCATION", function() ns.King.ToggleLocation() end, refresh = true,
+			label = function()
+				return "|T" .. ns.CROWN_ICON .. ":0|t " .. (ns.King.SharingLocation() and L.THRONE_LOCATION_OFF or L.THRONE_LOCATION_ON)
+			end,
+			tooltip = function(tt)
+				tt:AddLine(L.THRONE_LOCATION, 1, 0.82, 0)
+				tt:AddLine(L.THRONE_LOCATION_TIP, 1, 1, 1, true)
+				if ns.King.Preview() then
+					tt:AddLine(L.THRONE_PREVIEW, 0.6, 0.6, 0.6, true)
+				elseif ns.King.SharingLocation() then
+					tt:AddLine(L.THRONE_LOCATION_NOW_ON, 0.25, 1, 0.25, true)
+				else
+					tt:AddLine(L.THRONE_LOCATION_NOW_OFF, 0.6, 0.6, 0.6, true)
+				end
+			end },
 	},
 	heraldry = {
 		{ "HERALDRY_BTN", DecreeAction("HERALDRY") },
@@ -683,6 +698,36 @@ local function LayoutButtons()
 	end
 end
 
+-- The small buttons in the detail box are as wide as their label, side by side from the
+-- left; when they are wider together than the box, each gives up its share (FitLabel then
+-- drops to "..." only if even that is too narrow).
+local function LayoutDetailButtons()
+	local shown, widths, total = {}, {}, 0
+	for _, b in ipairs(main.detailButtons) do
+		if b:IsShown() then
+			local fs = b:GetFontString()
+			local textW = 0
+			if fs then
+				SetButtonFont(b, true)
+				fs:SetWidth(0)
+				textW = fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()
+			end
+			shown[#shown + 1] = b
+			widths[#shown] = math.max(60, math.ceil(textW) + 20)
+			total = total + widths[#shown]
+		end
+	end
+	if #shown == 0 then return end
+	local room = main.detail:GetWidth() - 12 - 3 * (#shown - 1)
+	local scale = (room > 0 and total > room) and room / total or 1
+	for i, b in ipairs(shown) do
+		b:SetWidth(math.max(30, math.floor(widths[i] * scale)))
+		b:ClearAllPoints()
+		if i == 1 then b:SetPoint("BOTTOMLEFT", 6, 5) else b:SetPoint("LEFT", shown[i - 1], "RIGHT", 3, 0) end
+		FitLabel(b)
+	end
+end
+
 -- The small line drops to the tiny font (9 pt, also white) before it is cut: the census
 -- line with a long realm name is just over the width of Forever's window.
 local function FitHeader()
@@ -698,6 +743,7 @@ function UI.Layout()
 	local g = GEOMETRY[main.style]
 	local w = main:GetWidth()
 	LayoutButtons()
+	LayoutDetailButtons()
 	FitHeader()
 	main.layoutLocked = not ns.IsMember()
 	local hasCols = not main.layoutLocked and ns.Views.COLUMNS[main.tab] ~= nil and main.tab == "census"
@@ -778,29 +824,43 @@ local function SetButtons(list, defs)
 	for i, b in ipairs(list) do
 		local def = defs and defs[i]
 		if def then
-			local label = L[def[1]]
+			local label = def.label and def.label() or L[def[1]]
 			if def[1] == "PATROL_BTN" then label = ns.Inspect.IsPatrolling() and L.PATROL_STOP or L.PATROL_START end
-			if def[1] == "THRONE_LOCATION" then label = ns.King.SharingLocation() and L.THRONE_LOCATION_OFF or L.THRONE_LOCATION_ON end
 			b:SetText(label)
 			b:SetScript("OnClick", function()
 				ns.SafeCall("button " .. def[1], def[2])
+				-- A button that shows a state (def.label) shows the new one at once.
+				if def.refresh then UI.Refresh() end
 				UI.Clicked()
 			end)
 			local tip = rawget(L, def[1] .. "_TIP")
-			b:SetScript("OnEnter", tip and function(self)
-				GameTooltip:SetOwner(self, "ANCHOR_TOP")
-				GameTooltip:AddLine(label, 1, 0.82, 0)
-				GameTooltip:AddLine(tip, 1, 1, 1, true)
-				GameTooltip:Show()
-			end or nil)
+			local onEnter
+			if def.tooltip then
+				onEnter = function(self)
+					GameTooltip:SetOwner(self, "ANCHOR_TOP")
+					ns.SafeCall("button tooltip " .. def[1], def.tooltip, GameTooltip)
+					GameTooltip:Show()
+				end
+			elseif tip then
+				onEnter = function(self)
+					GameTooltip:SetOwner(self, "ANCHOR_TOP")
+					GameTooltip:AddLine(label, 1, 0.82, 0)
+					GameTooltip:AddLine(tip, 1, 1, 1, true)
+					GameTooltip:Show()
+				end
+			end
+			b:SetScript("OnEnter", onEnter)
 			b:SetScript("OnLeave", function() GameTooltip:Hide() end)
 			b:Show()
 			FitLabel(b)
+			-- Under the mouse while its state changed (it was just clicked): the new tooltip.
+			if onEnter and GameTooltip.IsOwned and GameTooltip:IsOwned(b) then onEnter(b) end
 		else
 			b:Hide()
 		end
 	end
 	if list == main.buttons then LayoutButtons() end
+	if list == main.detailButtons then LayoutDetailButtons() end
 end
 
 -- Shows tab `key` in the window in use, and the window if it is closed.

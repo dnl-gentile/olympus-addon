@@ -419,7 +419,6 @@ local lastLocation = { t = -math.huge }
 local Pins = ns.Pins()
 local SHOW_FLAG = HBD_PINS_WORLDMAP_SHOW_CONTINENT or 2
 local crowns                 -- { world, mini } pin frames, made on first use
-local CROWN_ICON = "Interface\\GroupFrame\\UI-Group-LeaderIcon"
 
 function King.SharingLocation() return ns.db.throneLocation == true end
 
@@ -458,7 +457,7 @@ local function Crown(size)
 	local f = CreateFrame("Frame", nil, UIParent)
 	f:SetSize(size, size)
 	f.icon = f:CreateTexture(nil, "OVERLAY")
-	f.icon:SetTexture(CROWN_ICON)
+	f.icon:SetTexture(ns.CROWN_ICON)
 	f.icon:SetAllPoints()
 	f:EnableMouse(true)
 	f:SetScript("OnEnter", function(self)
@@ -492,7 +491,7 @@ local function OnLocation(king, rest)
 	local mapID, x, y = rest:match("^(%d+)~(%d+)~(%d+)$")
 	mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
 	if not mapID or x > 1000 or y > 1000 then return end
-	kingAt = { name = ns.DisplayName(king), mapID = mapID, x = x / 1000, y = y / 1000, t = ns.Now() }
+	kingAt = { name = ns.KING_NAME or ns.DisplayName(king), mapID = mapID, x = x / 1000, y = y / 1000, t = ns.Now() }
 	ns.SafeCall("king crown", King.RefreshCrown)
 	Changed()
 end
@@ -688,6 +687,10 @@ function King.Build(s)
 	elseif King.mode == "inspect" then lines = InspectLines()
 	elseif King.mode == "agenda" then lines = AgendaLines()
 	else lines = King.LetterLines() end
+	-- While the army sees him on the map, the page says so on top, whatever it shows.
+	if King.SharingLocation() and King.IsKing() then
+		table.insert(lines, 1, Line("|T" .. ns.CROWN_ICON .. ":0|t " .. L.THRONE_LOCATION_LIVE, TITLE, { gapAfter = true }))
+	end
 	return lines, L.TAB_THRONE, L.THRONE_YOU_ARE_KING
 end
 

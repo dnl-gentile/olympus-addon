@@ -272,8 +272,7 @@ local function CensusLines(s)
 		lines[#lines + 1] = { text = Gold(L.THRONE_AGENDA_LINE:format(a.title, math.max(0, math.ceil((a.at - ns.Now()) / 60)), a.zone)), gapAfter = true }
 	end
 	-- While the King is online: one click asks for an invite to his layer (Hop.lua).
-	local hop = ns.Hop and ns.Hop.KingLine and ns.Hop.KingLine()
-	if hop then lines[#lines + 1] = hop end
+	for _, hop in ipairs(ns.Hop and ns.Hop.KingLines and ns.Hop.KingLines() or {}) do lines[#lines + 1] = hop end
 	local get = SORTERS[Views.sort.key] or SORTERS.members
 	local guilds = {}
 	for i, e in ipairs(s.guilds) do guilds[i] = e end
@@ -347,8 +346,7 @@ end
 
 local function RealmLines(s)
 	local lines = {}
-	local hop = ns.Hop and ns.Hop.KingLine and ns.Hop.KingLine()
-	if hop then lines[#lines + 1] = hop end
+	for _, hop in ipairs(ns.Hop and ns.Hop.KingLines and ns.Hop.KingLines() or {}) do lines[#lines + 1] = hop end
 	local king = King(s.guilds)
 	if king then
 		lines[#lines + 1] = {

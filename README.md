@@ -80,22 +80,33 @@ are highlighted. It is rate limited, so nobody gets spammed. The game lists 50 p
   ("Asmongold's layer"), with how many members are there.
 
 ### Layer hop: join the King's layer without begging in chat
-While Asmongold is online, the top of the Census and the Realm shows **"Ask for an invite to
-Asmongold's layer"**. One click (or `/oly hop`) and the addon does the asking:
+While Asmongold is online, the top of the Census and the Realm shows **"Ask invite for Asmond
+Layer"** with his crown. One click (or `/oly hop`) and the addon does the asking:
 
+- You must already be in his zone (a layer is read per zone): if you are not, the line says
+  where he is and nothing is asked.
 - It asks the Olympus players on his layer who can invite (alone, or leading a group with a
   free seat). Only a handful answer, picked at random on each player's side, so a crowd of
   askers is spread over many players instead of flooding one.
 - It picks one of them, favouring players outside a group and with fewer recent invites. They
   get **"X wants to join your layer"** with **Invite**, **Not now** and **Always invite**. No
   answer or a no, and the next one is asked.
-- The invite is accepted for you, the game moves you to the layer, and a **Leave group**
-  button takes you out of the group.
+- The invite is accepted for you, the game moves you to the layer, and the addon takes you out
+  of the group as soon as it sees the move (or offers a **Leave group** button if it can't
+  tell).
+
+Players alone on the King's layer are asked once per login: **"Asmond is online and you are on
+his layer. May the addon invite the players who want to join, and take them out of the group
+once they are there?"** with **For Olympus!**, **Can't right now** and **Invite manually**, and
+a **Don't ask me again** box. With For Olympus! the addon invites on its own (only while you
+are alone or with its guests, never into a group of your friends) and lets each guest go after
+90 seconds: the guest's addon leaves the group, since only a click may remove someone.
 
 Any other layer in the Realm tab's layer list works the same way: click it. Everyone with the
-addon helps by default; `/oly layerhelp off` stops the requests, `/oly layerauto on` invites
-them without the window. Helpers must be in the same zone as the layer they are on (a layer is
-read per zone), and the King himself is never asked.
+addon helps by default; `/oly layerhelp off` stops the requests, `/oly layerhelp on` also
+forgets the answer to the King's layer window, `/oly layerauto on` invites them without the
+window. Helpers must be in the same zone as the layer they are on, and the King himself is
+never asked.
 
 ### Person details
 Click any Lord, Captain, racer or inspected player. You get the same card the Guild window
@@ -147,9 +158,10 @@ exactly "Olympus" (of his faction). A parchment page with:
   King: how many were checked, the percentage in colors, per guild, and who was caught.
 - **The King's Agenda**: minutes and an event ("30 Raid on Crossroads"). The whole army sees
   it, with reminders 10 minutes and 1 minute before.
-- **Show me on the map**: while he turns it on, everyone with the addon sees a crown where he
-  is, on the world map and the minimap, and the "Ask for an invite to his layer" line says
-  which zone he is in. Off by default (his position is on stream); the same button hides it.
+- **Show me on the map** (his own button, with the crown): while he turns it on, everyone with
+  the addon sees a crown where he is, on the world map and the minimap. Off by default (his
+  position is on stream); the same button hides it, its tooltip says whether it is on now, and
+  the top of the Throne page reminds him while it is.
 
 Every command is checked on each client: it only counts if the census confirms the sender is
 that guild master. Answers go to the King alone.
