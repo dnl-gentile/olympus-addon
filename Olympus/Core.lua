@@ -285,7 +285,28 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 	ns.Fire("INIT")
 end)
 
+-- Files added by an update only load once the game restarts: it reads the file list at
+-- startup and /reload keeps the old one. Until then these stand-ins take the calls the
+-- other files make, so the rest keeps working, and the player is told to restart.
+-- Set here, before the files that use them load; the real files replace them.
+local function StandIn(key, say)
+	local restart = function() ns.Print(L.RESTART_NEEDED) end
+	local stub = { missing = true }
+	for _, fn in ipairs(say) do stub[fn] = restart end
+	ns[key] = setmetatable(stub, { __index = function() return function() end end })
+end
+StandIn("Who", { "Search", "SendPlain" })
+StandIn("Channels", { "Send", "ToggleMute" })
+
 ns.RegisterEvent("PLAYER_LOGIN", function()
+	local missing = {}
+	for _, key in ipairs({ "Who", "Channels" }) do
+		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
+	end
+	if #missing > 0 then
+		ns.Log("not loaded until the game restarts: %s", table.concat(missing, ", "))
+		ns.Print(L.RESTART_NEEDED)
+	end
 	ns.me = ns.PlayerName()
 	ns.Log("login as %s", ns.me)
 	ns.Fire("LOGIN")

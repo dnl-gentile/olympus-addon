@@ -2423,5 +2423,33 @@ test("chat lines arrive through CHAT_MSG_ADDON_LOGGED, without our echo or block
 	if not ok then error(err, 0) end
 end)
 
+---------------------------------------------------------------------------
+-- After an update adds files, /reload keeps the old file list until the game restarts.
+---------------------------------------------------------------------------
+
+test("files added by an update and not loaded yet: stand-ins keep everything else working", function()
+	local savedSlash, savedEvents, savedPrint = {}, #EVENT_SCRIPTS, print
+	for k, v in pairs(SlashCmdList) do savedSlash[k] = v end
+	local printed = {}
+	print = function(msg) printed[#printed + 1] = tostring(msg) end
+	local ok, err = pcall(function()
+		local fresh = {}
+		for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Data", "Roster", "Comm", "Recruit", "Views" }) do
+			assert(loadfile(ADDON_DIR .. file .. ".lua"))("Olympus", fresh)
+		end
+		eq(fresh.Who.missing, true, "Who.lua stood in for")
+		eq(fresh.Channels.missing, true, "Channels.lua stood in for")
+		eq(fresh.Who.StatusLines(), nil, "any other call is a quiet no-op")
+		fresh.Who.Search()
+		eq(printed[#printed]:find("reopen the game", 1, true) ~= nil, true, "a search says to restart the game")
+		fresh.Channels.Send("A", "hi")
+		eq(printed[#printed]:find("reopen the game", 1, true) ~= nil, true, "so does a channel message")
+	end)
+	print = savedPrint
+	for k in pairs(SlashCmdList) do SlashCmdList[k] = savedSlash[k] end
+	for i = #EVENT_SCRIPTS, savedEvents + 1, -1 do EVENT_SCRIPTS[i] = nil end
+	if not ok then error(err, 0) end
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
