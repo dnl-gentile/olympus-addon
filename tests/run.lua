@@ -553,5 +553,241 @@ test("map refresh runs end to end with a map library (continent totals included)
 	eq(totals[1415], 10, "continent total")
 end)
 
+---------------------------------------------------------------------------
+-- Guild window button (GuildFrame.lua): old Guild tab, new Communities window, or both
+---------------------------------------------------------------------------
+
+-- A frame with just what GuildFrame.lua uses. Scripts hooked on it can be run.
+local function FakeFrame(name, parent, w, h)
+	local f = { name = name, parent = parent, w = w, h = h, shown = false, hooks = {} }
+	function f:GetName() return self.name end
+	function f:GetParent() return self.parent end
+	function f:GetWidth() return self.w end
+	function f:GetHeight() return self.h end
+	function f:GetFrameLevel() return 5 end
+	function f:IsShown() return self.shown end
+	function f:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
+	function f:HookScript(kind, fn) self.hooks[kind] = self.hooks[kind] or {}; table.insert(self.hooks[kind], fn) end
+	function f:Run(kind) for _, fn in ipairs(self.hooks[kind] or {}) do fn(self) end end
+	function f:Show() self.shown = true; self:Run("OnShow") end
+	function f:Hide() self.shown = false; self:Run("OnHide") end
+	return f
+end
+
+-- Loads GuildFrame.lua with fresh state into a namespace of its own. Its events and LOGIN
+-- are fired by hand; the Olympus window is a stand-in that remembers where it is docked.
+local function LoadGuildFrame()
+	local world = { events = {}, login = {}, buttons = {}, dock = { shown = false } }
+	local dock = world.dock
+	local gns = setmetatable({}, { __index = ns })
+	gns.RegisterEvent = function(event, fn) world.events[event] = world.events[event] or {}; table.insert(world.events[event], fn) end
+	gns.On = function(name, fn) if name == "LOGIN" then table.insert(world.login, fn) end end
+	gns.MakeRoundButton = function(name, parent, size)
+		local b = setmetatable({ name = name, parent = parent, size = size, scripts = {} }, { __index = function() return function() end end })
+		function b:SetScript(kind, fn) self.scripts[kind] = fn end
+		function b:SetPoint(...) self.point = { ... } end
+		function b:Click() self.scripts.OnClick(self) end
+		world.buttons[#world.buttons + 1] = b
+		return b
+	end
+	gns.UI = {
+		IsShown = function() return dock.shown end,
+		DockedTo = function() return dock.host end,
+		OpenDocked = function(host, tab, heightOnly) dock.shown, dock.host, dock.tab, dock.heightOnly = true, host, tab, heightOnly end,
+		CloseIfDocked = function(host) if dock.shown and (host == nil or dock.host == host) then dock.shown = false end end,
+		FollowHost = function(host) dock.followed = host end,
+	}
+	assert(loadfile(ADDON_DIR .. "GuildFrame.lua"))("Olympus", gns)
+	world.hook = gns.GuildFrameHook
+	function world.Fire(event, ...) for _, fn in ipairs(world.events[event] or {}) do fn(...) end end
+	function world.Login() for _, fn in ipairs(world.login) do fn() end end
+	return world
+end
+
+-- Runs fn with fake Blizzard windows as globals (cleared afterwards), failing on any error
+-- the addon caught along the way.
+local GUILD_GLOBALS = { "UIParent", "FriendsFrame", "GuildFrame", "CommunitiesFrame", "ClassicUIForeverGuildPanel" }
+local function WithGuildWindows(fn)
+	local captured
+	local savedCapture = ns.CaptureError
+	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
+	UIParent = FakeFrame("UIParent")
+	UIParent.shown = true
+	local ok, err = pcall(fn)
+	ns.CaptureError = savedCapture
+	for _, name in ipairs(GUILD_GLOBALS) do _G[name] = nil end
+	if not ok then error(err, 0) end
+	eq(captured, nil, "error caught")
+end
+
+test("guild button: old UI only (Guild tab), same spot and docking as before", function()
+	WithGuildWindows(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 338, 424)
+		GuildFrame = FakeFrame("GuildFrame", FriendsFrame, 338, 424)
+		local w = LoadGuildFrame()
+		w.Login()
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 1, "hosts")
+		eq(hosts[1].kind, "old")
+		local b = w.buttons[1]
+		eq(b.name, "OlympusGuildFrameButton"); eq(b.parent, GuildFrame); eq(b.size, 26)
+		eq(b.point[1], "TOPLEFT"); eq(b.point[2], FriendsFrame); eq(b.point[3], "TOPLEFT"); eq(b.point[4], 62); eq(b.point[5], -26)
+		FriendsFrame:Show(); GuildFrame:Show()
+		b:Click()
+		eq(w.dock.host, FriendsFrame, "docks to the Social window"); eq(w.dock.tab, "census"); eq(w.dock.heightOnly, false)
+		b:Click()
+		eq(w.dock.shown, false, "a second click closes it")
+		b:Click(); FriendsFrame:Hide()
+		eq(w.dock.shown, false, "closing the Social window closes it")
+		b:Click(); GuildFrame:Hide()
+		eq(w.dock.shown, false, "leaving the Guild tab closes it")
+		-- Nothing else to hook, and scanning again (the Social window opening) hooks nothing twice.
+		w.Fire("ADDON_LOADED", "Blizzard_Communities")
+		FriendsFrame:Show()
+		eq(#w.hook.Hosts(), 1); eq(#w.buttons, 1); eq(#GuildFrame.hooks.OnHide, 1, "OnHide hooks")
+	end)
+end)
+
+test("guild button: new UI loaded at login (Forever: Communities window only)", function()
+	WithGuildWindows(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		CommunitiesFrame.MaximizeMinimizeFrame = FakeFrame(nil, CommunitiesFrame, 24, 24)
+		local w = LoadGuildFrame()
+		w.Login()
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 1, "hosts")
+		eq(hosts[1].kind, "communities")
+		local b = w.buttons[1]
+		eq(b.parent, CommunitiesFrame); eq(b.point[1], "RIGHT"); eq(b.point[2], CommunitiesFrame.MaximizeMinimizeFrame, "title bar")
+		CommunitiesFrame:Show()
+		eq(w.hook.ActiveHost(), hosts[1], "in use")
+		b:Click()
+		eq(w.dock.host, CommunitiesFrame, "docks to the Communities window"); eq(w.dock.heightOnly, true)
+		FriendsFrame:Show(); FriendsFrame:Hide()
+		eq(w.dock.shown, true, "the Social window closing leaves it open")
+		CommunitiesFrame:Run("OnSizeChanged")
+		eq(w.dock.followed, CommunitiesFrame, "follows minimize and maximize")
+		CommunitiesFrame:Hide()
+		eq(w.dock.shown, false, "closing the Communities window closes it")
+		local status = w.hook.StatusLine()
+		assert(status:find("communities=CommunitiesFrame", 1, true), status)
+	end)
+end)
+
+test("guild button: new UI loaded later (ADDON_LOADED), next to the unused old tab", function()
+	WithGuildWindows(function()
+		-- Classic Era with the classic guild UI off: the old tab exists but never shows.
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 338, 424)
+		GuildFrame = FakeFrame("GuildFrame", FriendsFrame, 338, 424)
+		local w = LoadGuildFrame()
+		w.Login()
+		eq(#w.hook.Hosts(), 1, "only the old tab at login")
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 322, 406)
+		CommunitiesFrame.CloseButton = FakeFrame(nil, CommunitiesFrame, 24, 24)
+		w.Fire("ADDON_LOADED", "SomeOtherAddon")
+		eq(#w.hook.Hosts(), 1, "other addons change nothing")
+		w.Fire("ADDON_LOADED", "Blizzard_Communities")
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 2, "hosts")
+		eq(hosts[2].kind, "communities")
+		local b = w.buttons[2]
+		eq(b.parent, CommunitiesFrame); eq(b.point[2], CommunitiesFrame.CloseButton, "no minimize button: next to close")
+		eq(w.hook.ActiveHost(), nil, "nothing opened yet")
+		CommunitiesFrame:Show()
+		eq(w.hook.ActiveHost(), hosts[2], "in use")
+		b:Click()
+		eq(w.dock.host, CommunitiesFrame)
+		CommunitiesFrame:Hide()
+		eq(w.hook.ActiveHost(), hosts[2], "last opened")
+	end)
+end)
+
+test("guild button: both windows present, switching between them without /reload", function()
+	WithGuildWindows(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 338, 424)
+		GuildFrame = FakeFrame("GuildFrame", FriendsFrame, 338, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		local w = LoadGuildFrame()
+		w.Login()
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 2, "hosts")
+		local old, new = w.buttons[1], w.buttons[2]
+		eq(old.parent, GuildFrame); eq(new.parent, CommunitiesFrame)
+		assert(old.name ~= new.name, "one button name per window")
+		-- New UI in use.
+		CommunitiesFrame:Show(); new:Click()
+		eq(w.dock.host, CommunitiesFrame)
+		-- The player switches to the old UI: the Communities window closes, the Guild tab opens.
+		CommunitiesFrame:Hide()
+		eq(w.dock.shown, false, "closed with the Communities window")
+		FriendsFrame:Show(); GuildFrame:Show()
+		eq(w.hook.ActiveHost().kind, "old")
+		old:Click()
+		eq(w.dock.host, FriendsFrame); eq(w.dock.heightOnly, false)
+		-- Clicked in the other window while docked: it moves there instead of closing.
+		CommunitiesFrame:Show(); new:Click()
+		eq(w.dock.shown, true); eq(w.dock.host, CommunitiesFrame)
+		eq(w.hook.ActiveHost().kind, "old", "both on screen: the Social window's first")
+		FriendsFrame:Hide()
+		eq(w.dock.shown, true, "still docked to the Communities window")
+	end)
+end)
+
+test("guild button: standalone GuildFrame (Blizzard_GuildUI) is not taken for the old tab", function()
+	WithGuildWindows(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 338, 424)
+		local oldTab = FakeFrame("GuildFrame", FriendsFrame, 338, 424)
+		GuildFrame = oldTab
+		local w = LoadGuildFrame()
+		w.Login()
+		-- Blizzard_GuildUI loads and takes over the name GuildFrame.
+		GuildFrame = FakeFrame("GuildFrame", UIParent, 646, 468)
+		GuildFrame.CloseButton = FakeFrame(nil, GuildFrame, 24, 24)
+		w.Fire("ADDON_LOADED", "Blizzard_GuildUI")
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 2, "hosts")
+		eq(hosts[1].frame, oldTab); eq(hosts[1].kind, "old")
+		eq(hosts[2].frame, GuildFrame); eq(hosts[2].kind, "guildui"); eq(hosts[2].dock, GuildFrame)
+		GuildFrame:Show(); w.buttons[2]:Click()
+		eq(w.dock.host, GuildFrame); eq(w.dock.heightOnly, true)
+	end)
+end)
+
+test("guild button: ClassicUI Forever's Guild tab is found when the Social window opens", function()
+	WithGuildWindows(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		local w = LoadGuildFrame()
+		w.Login()
+		eq(#w.hook.Hosts(), 1, "only the Communities window at login")
+		-- Built after login, inside the Social window.
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", FriendsFrame)
+		FriendsFrame:Show(); ClassicUIForeverGuildPanel:Show()
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 2, "hosts")
+		eq(hosts[2].kind, "classicui")
+		local b = w.buttons[2]
+		eq(b.parent, ClassicUIForeverGuildPanel); eq(b.point[2], FriendsFrame); eq(b.point[4], 62); eq(b.point[5], -26)
+		b:Click()
+		eq(w.dock.host, FriendsFrame)
+		ClassicUIForeverGuildPanel:Hide()
+		eq(w.dock.shown, false, "closing the Guild tab closes it")
+	end)
+end)
+
+test("docked size: the old Guild tab is copied, the new windows lend only their height", function()
+	local uns = setmetatable({}, { __index = ns })
+	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+	local DockSize = uns.UI.DockSize
+	local function size(...) local w, h = DockSize(...); return w .. "x" .. h end
+	eq(size(338, 424, false, 338, 424), "338x424", "old Guild tab")
+	eq(size(385, 424, false, 385, 424), "385x424", "Forever's Social window")
+	eq(size(814, 426, true, 385, 424), "385x426", "Communities window, maximized")
+	eq(size(322, 406, true, 338, 424), "338x406", "Communities window, minimized")
+	eq(size(0, 0, false, 338, 424), "338x424", "host not laid out yet")
+	eq(size(nil, nil, true), "338x424", "nothing known")
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

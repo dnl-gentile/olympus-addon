@@ -103,7 +103,8 @@ Any soldier can reach the Lord of another Olympus guild in two clicks.
 
 ### Everywhere
 - **Copy**: every tab produces a ready-to-paste text for Discord.
-- The window opens from `/oly`, the minimap button, or the round button in your Guild window.
+- The window opens from `/oly`, the minimap button, or the round button in your guild window:
+  the old Guild tab or the new Guild & Communities window, whichever one you use.
 - English and Portuguese (follows the game language).
 
 ## Install
@@ -122,7 +123,7 @@ game in the app, not Classic Era.
 4. Go into `Interface\AddOns\` (create `Interface` and `AddOns` if they don't exist) and
    extract the zip there, so you end up with `...\Interface\AddOns\Olympus\Olympus.toc`.
    Careful: Windows' *Extract All* adds a folder named after the zip
-   (`AddOns\Olympus-0.7.9\Olympus\...`). If that happens, move the `Olympus` folder up into
+   (`AddOns\Olympus-0.7.10\Olympus\...`). If that happens, move the `Olympus` folder up into
    `AddOns`; the game only loads it from `AddOns\Olympus\`.
 5. **Restart the game.** If the addon list says *out of date*, tick **Load out of date AddOns**.
 

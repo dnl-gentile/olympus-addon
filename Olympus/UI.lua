@@ -1,10 +1,11 @@
 local ADDON, ns = ...
 local L = ns.L
 
--- The Olympus window mirrors Blizzard's Guild window: same size and frame, a header,
+-- The Olympus window mirrors Blizzard's (old) Guild window: same size and frame, a header,
 -- column titles, a list, a detail box (like "Guild Message of the Day"), three buttons
--- and tabs along the bottom. Opened from the Guild window it docks right next to it, so
--- it reads as a continuation of that window. Created on first open.
+-- and tabs along the bottom. Opened from the guild window (the old Guild tab or the new
+-- Guild & Communities window, see GuildFrame.lua) it docks right next to it, so it reads
+-- as a continuation of that window. Created on first open.
 
 local UI = {}
 ns.UI = UI
@@ -99,12 +100,36 @@ local function FitLabel(b)
 	fs:SetWidth(room)
 end
 
-local function HostSize()
+-- The Social window's size, which is the old Guild window's (the Guild tab fills it).
+local function SocialSize()
 	if FriendsFrame and FriendsFrame.GetWidth then
 		local w, h = FriendsFrame:GetWidth(), FriendsFrame:GetHeight()
 		if w and w > 200 and h and h > 200 then return w, h end
 	end
 	return DEFAULT_W, DEFAULT_H
+end
+
+-- Size when docked to a host of hostW x hostH, next to a Social window of baseW x baseH.
+-- The old Guild tab lends its whole size, as it always did. The new guild windows only
+-- lend their height (the Communities window is 814 wide maximized, 322 minimized): the
+-- width stays the Social window's, the width our list is laid out for.
+function UI.DockSize(hostW, hostH, heightOnly, baseW, baseH)
+	baseW, baseH = baseW or DEFAULT_W, baseH or DEFAULT_H
+	local okW, okH = hostW and hostW > 200, hostH and hostH > 200
+	if heightOnly then return baseW, okH and hostH or baseH end
+	if okW and okH then return hostW, hostH end
+	return baseW, baseH
+end
+
+-- Size of a new window: as if docked to the guild window in use (GuildFrame.lua knows
+-- which), else the Social window's.
+local function HostSize()
+	local hook = ns.GuildFrameHook
+	local host = hook and hook.ActiveHost and hook.ActiveHost()
+	if host and host.dock and host.dock.GetWidth then
+		return UI.DockSize(host.dock:GetWidth(), host.dock:GetHeight(), host.heightOnly, SocialSize())
+	end
+	return SocialSize()
 end
 
 local function CreateMain()
@@ -468,19 +493,29 @@ function UI.Refresh()
 	end)
 end
 
--- Open glued to the right of a Blizzard window (the Guild window), same size, and
--- close together with it.
-function UI.OpenDocked(host, tab)
+-- Open glued to the right of a Blizzard window (the guild window the button was clicked
+-- in), sized by UI.DockSize, and close together with it (GuildFrame.lua hooks that).
+function UI.OpenDocked(host, tab, heightOnly)
 	main = main or CreateMain()
-	main:SetSize(host:GetWidth(), host:GetHeight())
+	main.host, main.heightOnly = host, heightOnly
+	main:SetSize(UI.DockSize(host:GetWidth(), host:GetHeight(), heightOnly, SocialSize()))
 	main:ClearAllPoints()
 	main:SetPoint("TOPLEFT", host, "TOPRIGHT", -2, 0)
 	main.docked = true
 	UI.SelectTab(tab or main.tab or "census")
 end
 
-function UI.CloseIfDocked()
-	if main and main.docked and main:IsShown() then main:Hide() end
+-- The host was resized while we are docked to it (the Communities window can be
+-- minimized and maximized): take its new height.
+function UI.FollowHost(host)
+	if main and main.docked and main.host == host then
+		main:SetSize(UI.DockSize(host:GetWidth(), host:GetHeight(), main.heightOnly, SocialSize()))
+	end
+end
+
+-- Closes the window if it is docked: to `host` when given, to anything otherwise.
+function UI.CloseIfDocked(host)
+	if main and main.docked and main:IsShown() and (host == nil or main.host == host) then main:Hide() end
 end
 
 ---------------------------------------------------------------------------
@@ -507,6 +542,9 @@ local function CreatePersonFrame()
 	f:SetSize(230, 210)
 	f:SetFrameStrata("MEDIUM")
 	f:SetToplevel(true)
+	-- Guild window + our window + this card can run past the right edge (the Communities
+	-- window alone is 814 wide).
+	f:SetClampedToScreen(true)
 	f:EnableMouse(true)
 	f:Hide()
 	tinsert(UISpecialFrames, "OlympusPersonFrame")
@@ -577,7 +615,7 @@ function UI.ShowPerson(p)
 end
 
 function UI.IsShown() return main and main:IsShown() end
-function UI.IsDocked() return main and main.docked end
+function UI.DockedTo() return main and main.docked and main.host or nil end
 
 function UI.StatusLine()
 	local guild = GetGuildInfo("player")
