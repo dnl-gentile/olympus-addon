@@ -132,6 +132,7 @@ function Roster.Scan()
 	Roster.byName = byName
 	Roster.rawRealms, Roster.servers, Roster.rawSample = rawRealms, servers, sample
 	r.home = home ~= "" and home or ns.realm
+	r.faction = ns.faction or ns.Faction()
 	if numOnline and numOnline > r.online then r.online = numOnline end
 	local ms = debugprofilestop and (debugprofilestop() - started) or 0
 	Roster.lastStats = {

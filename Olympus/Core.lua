@@ -2,9 +2,10 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.7.12"
+ns.VERSION = "0.7.13"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
-ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild
+ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
+ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
 ns.ICON = "Interface\\AddOns\\Olympus\\media\\logo64"
 ns.LOGO = "Interface\\AddOns\\Olympus\\media\\logo128"
 ns.EMBLEM = "Interface\\AddOns\\Olympus\\media\\emblem128"
@@ -131,6 +132,21 @@ function ns.GroupSource(realm)
 	if Learned(ns.db, realm) then return "learned" end
 	if SEED[realm] then return "seed" end
 	return "own"
+end
+
+-- Our faction: "Horde" or "Alliance". Olympus started on the Alliance, so anything unknown
+-- (reports of older versions, a client that can't tell yet) counts as Alliance.
+function ns.Faction()
+	local f = UnitFactionGroup and UnitFactionGroup("player")
+	return f == "Horde" and "Horde" or "Alliance"
+end
+
+-- Each faction keeps its census, realm key and inspections apart: the Alliance in the
+-- top-level db.realms (as before), the Horde in db.horde.realms.
+local function Stores(db)
+	if ns.faction ~= "Horde" then return db end
+	if type(db.horde) ~= "table" then db.horde = {} end
+	return db.horde
 end
 
 -- Is this realm one of the realms whose census we share (ours included)?
@@ -312,7 +328,7 @@ function ns.LinkRealms(a, b)
 	if mine and mine ~= ns.group then
 		local oldKey = ns.rdb and ns.rdb.realmKey
 		ns.group = mine
-		ns.rdb = OpenStore(db, mine)
+		ns.rdb = OpenStore(Stores(db), mine)
 		ns.Print(L.REALMS_LINKED:format((mine:gsub("%+", " + "))))
 		ns.Fire("DATA_CHANGED")
 		-- A new key means another channel. Before our first join, that join picks it up (and
@@ -492,16 +508,18 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 	ns.db = db
 	ns.realm = ns.CurrentRealm()
 	ns.group = ns.GroupOf(ns.realm, db)
-	ns.Log("---- session %d, v%s, realm %s, census %s ----", db.sessions, ns.VERSION, ns.realm, ns.group)
-	local R = OpenStore(db, ns.group)
+	ns.faction = ns.Faction()
+	ns.Log("---- session %d, v%s, realm %s, census %s, %s ----", db.sessions, ns.VERSION, ns.realm, ns.group, ns.faction)
+	local R = OpenStore(Stores(db), ns.group)
 	R.guilds = R.guilds or {}
 	R.seen = R.seen or {} -- Olympus guilds seen with /who (Data.lua), never mixed with the reports
 	-- Old account-wide census and key: there is no telling which realm they came from, so
 	-- drop them. The census refills from the channel within minutes and officers hand the
 	-- key out again over guild chat (K0/K1) at login.
 	db.guilds, db.realmKey, db.officerRank = nil, nil, nil
-	-- Tabard inspections are about the players of one realm group too.
-	if db.inspect then
+	-- Tabard inspections are about the players of one realm group too. The old account-wide
+	-- ones can only be the Alliance's: they wait at the account level for an Alliance login.
+	if db.inspect and ns.faction ~= "Horde" then
 		if R.inspect == nil then R.inspect = db.inspect end
 		db.inspect = nil
 	end
@@ -534,7 +552,22 @@ end
 StandIn("Who", { "Search", "SendPlain" })
 StandIn("Channels", { "Send", "ToggleMute" })
 
+-- The faction may not be known yet at ADDON_LOADED: if it turns out to be the other one,
+-- switch to that faction's store before anything is received.
+function ns.CheckFaction()
+	local f = ns.Faction()
+	if not ns.db or f == ns.faction then return false end
+	ns.faction = f
+	local R = OpenStore(Stores(ns.db), ns.group)
+	R.guilds = R.guilds or {}
+	R.seen = R.seen or {}
+	ns.rdb = R
+	ns.Log("faction is %s: using its census", f)
+	return true
+end
+
 ns.RegisterEvent("PLAYER_LOGIN", function()
+	ns.CheckFaction()
 	local missing = {}
 	for _, key in ipairs({ "Who", "Channels" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end

@@ -157,7 +157,7 @@ function ns.StatusText()
 	local function add(fmt, ...) lines[#lines + 1] = fmt:format(...) end
 	local guild = GetGuildInfo("player")
 	add("Olympus v%s  |  %s", ns.VERSION, ClientInfo())
-	add("player %s  |  guild %s  |  olympus member: %s", tostring(ns.me), tostring(guild), tostring(ns.IsMember()))
+	add("player %s  |  %s  |  guild %s  |  olympus member: %s", tostring(ns.me), tostring(ns.faction), tostring(guild), tostring(ns.IsMember()))
 	local realm, census = RealmLines()
 	add("%s", realm)
 	add("%s", census)

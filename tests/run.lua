@@ -3385,6 +3385,83 @@ test("realm groups: our guild homed on another realm links it; roster names are 
 	if not ok then error(err, 0) end
 end)
 
+test("Horde: its own channel, its own census, and the other faction's reports are ignored", function()
+	local C, D = ns.Codec, ns.Data
+	local savedFaction, savedUFG, savedKey = ns.faction, UnitFactionGroup, ns.rdb.realmKey
+	local ok, err = pcall(function()
+		-- Reports carry the faction; older versions send none and count as Alliance.
+		local horde = C.DecodeReport(C.EncodeReport({ guild = "Olympus Orda", total = 50, online = 5, zones = {}, faction = "Horde" }))
+		eq(horde.faction, "Horde")
+		local old = C.DecodeReport(table.concat(C.Split(C.EncodeReport({ guild = "Olympus Old", total = 9, online = 1, zones = {} }), "~"), "~", 1, 22))
+		eq(old.faction, "Alliance", "no faction field: Alliance")
+		-- An Alliance client ignores Horde guilds, and the other way around.
+		ns.faction = "Alliance"
+		ns.rdb.guilds = {}
+		eq(D.Receive(horde, "Grunt-Realm"), false, "a Horde report on an Alliance client")
+		eq(ns.rdb.guilds["Olympus Orda"], nil)
+		ns.faction = "Horde"
+		eq(D.Receive(old, "Footman-Realm"), false, "an Alliance (or old) report on a Horde client")
+		eq(D.Receive(C.DecodeReport(C.EncodeReport({ guild = "Olympus Orda", total = 50, online = 5, zones = {}, faction = "Horde" })), "Grunt2-Realm"), true)
+		-- Its own channel, public and sealed.
+		ns.rdb.realmKey = nil
+		eq(ns.Comm.ChannelSpec(), "OlympusNetH")
+		ns.rdb.realmKey = "secret-one"
+		local name, password = ns.Comm.ChannelSpec()
+		eq(name, "OlyH" .. ns.Comm.Hash36("secret-one")); eq(password, "secret-one")
+		ns.faction = "Alliance"
+		eq(ns.Comm.ChannelSpec(), "Oly" .. ns.Comm.Hash36("secret-one"), "the Alliance keeps its names")
+		ns.rdb.realmKey = nil
+		eq(ns.Comm.ChannelSpec(), "OlympusNet")
+		-- Faction from the game.
+		UnitFactionGroup = function() return "Horde" end
+		eq(ns.Faction(), "Horde")
+		UnitFactionGroup = function() return nil end
+		eq(ns.Faction(), "Alliance", "unknown yet: Alliance")
+	end)
+	ns.faction, UnitFactionGroup, ns.rdb.realmKey = savedFaction, savedUFG, savedKey
+	ns.rdb.guilds = {}
+	if not ok then error(err, 0) end
+end)
+
+test("Horde and Alliance characters of one account keep separate stores", function()
+	local savedDB, savedR, savedRealm, savedGroup, savedFaction, savedUFG = ns.db, ns.rdb, ns.realm, ns.group, ns.faction, UnitFactionGroup
+	local ok, err = pcall(function()
+		OlympusDB = { configVersion = 3, realms = { Realm = { guilds = { ["Olympus Ally"] = { total = 5, t = os.time() } } } } }
+		UnitFactionGroup = function() return "Horde" end
+		for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "ADDON_LOADED", "Olympus") end
+		eq(ns.faction, "Horde")
+		eq(ns.rdb.guilds["Olympus Ally"], nil, "the Horde doesn't see the Alliance census")
+		ns.rdb.guilds["Olympus Orda"] = { total = 7, t = os.time() }
+		eq(OlympusDB.realms.Realm.guilds["Olympus Ally"].total, 5, "Alliance data untouched")
+		assert(OlympusDB.horde and OlympusDB.horde.realms, "the Horde has its own store")
+		-- Next login on an Alliance character of the same account.
+		UnitFactionGroup = function() return "Alliance" end
+		for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "ADDON_LOADED", "Olympus") end
+		eq(ns.faction, "Alliance")
+		eq(ns.rdb.guilds["Olympus Ally"].total, 5)
+		eq(ns.rdb.guilds["Olympus Orda"], nil)
+		-- Old account-wide inspections (Alliance only) never move into the Horde store.
+		OlympusDB.inspect = { players = { Oldie = { status = "NONE" } }, guildMarks = {} }
+		UnitFactionGroup = function() return "Horde" end
+		for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "ADDON_LOADED", "Olympus") end
+		eq(ns.rdb.inspect and ns.rdb.inspect.players and ns.rdb.inspect.players.Oldie, nil, "not on the Horde")
+		assert(OlympusDB.inspect, "kept for the next Alliance login")
+		UnitFactionGroup = function() return "Alliance" end
+		for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "ADDON_LOADED", "Olympus") end
+		eq(ns.rdb.inspect.players.Oldie.status, "NONE", "moved into the Alliance store")
+		eq(OlympusDB.inspect, nil)
+		-- Faction unknown at load, Horde at login: the store switches.
+		UnitFactionGroup = function() return nil end
+		for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "ADDON_LOADED", "Olympus") end
+		eq(ns.faction, "Alliance")
+		UnitFactionGroup = function() return "Horde" end
+		eq(ns.CheckFaction(), true)
+		eq(ns.rdb.guilds["Olympus Orda"].total, 7, "back on the Horde census")
+	end)
+	ns.db, ns.rdb, ns.realm, ns.group, ns.faction, UnitFactionGroup = savedDB, savedR, savedRealm, savedGroup, savedFaction, savedUFG
+	if not ok then error(err, 0) end
+end)
+
 test("reports: fields 21 and 22 (reporter's realm, guild's home) are optional both ways", function()
 	local C = ns.Codec
 	local r = { guild = "Olympus Span", total = 9, online = 1, zones = {}, from = "ClassicBetaPvP2", home = "ClassicBetaPvP" }
@@ -3392,11 +3469,11 @@ test("reports: fields 21 and 22 (reporter's realm, guild's home) are optional bo
 	local d = C.DecodeReport(payload)
 	eq(d.from, "ClassicBetaPvP2"); eq(d.home, "ClassicBetaPvP")
 	local f = C.Split(payload, "~")
-	eq(#f, 22)
+	eq(#f, 23, "22 fields and the faction (23)")
 	local old = C.DecodeReport(table.concat(f, "~", 1, 20))
 	eq(old.total, 9); eq(old.from, nil, "a 20-field report (older versions)"); eq(old.home, nil)
 	local newer = C.DecodeReport(payload .. "~some field of a later version")
-	eq(newer.from, "ClassicBetaPvP2", "a 23-field report still decodes")
+	eq(newer.from, "ClassicBetaPvP2", "a 24-field report still decodes")
 	f[21], f[22] = "Bad|cffRealm", ("x"):rep(41)
 	d = C.DecodeReport(table.concat(f, "~"))
 	eq(d.from, nil, "no escape codes"); eq(d.home, nil, "no more than 40 characters")
