@@ -423,6 +423,10 @@ function Comm.AskCensus()
 		if askTries < 3 then ns.After(20, "census request", Comm.AskCensus) end
 		return
 	end
+	-- Login and a guild change can both ask within seconds: once a minute is enough.
+	local now = ns.Now()
+	if Comm.lastAsk and now - Comm.lastAsk < 60 then return end
+	Comm.lastAsk = now
 	stats.asked = stats.asked + 1
 	Enqueue("CHANNEL", "Q1~", "censusreq")
 end
@@ -558,7 +562,14 @@ end
 -- Outside an Olympus guild the addon stays out of the channel (called when the guild changes).
 -- Joining is left to the housekeeping ticker, so we never jump ahead of General/Trade at login.
 function Comm.CheckMembership()
-	if ns.IsMember() then return end
+	if ns.IsMember() then
+		-- Joined an Olympus guild after login: ask for the census once we are on the channel.
+		if stats.asked == 0 then
+			askTries = 0
+			Comm.AskCensus()
+		end
+		return
+	end
 	if joinedName and GetChannelName(joinedName) > 0 then
 		LeaveChannelByName(joinedName)
 		ns.Log("left channel %s: not in an Olympus guild", joinedName)

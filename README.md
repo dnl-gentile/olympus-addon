@@ -115,8 +115,8 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
 
 ### Tabards: tabard inspection and the Wall of Shame
-- **Patrol**: walk through the crowd and the addon inspects nearby Olympus members one by
-  one (about 28 yards). It records who wears a tabard, who wears the wrong one and who
+- **Patrol**: walk through the crowd and the addon inspects nearby Olympus members level 15
+  and up, one by one (about 28 yards). Younger players are never flagged. It records who wears a tabard, who wears the wrong one and who
   wears none. Players it could not see properly are never accused.
 - **Mark** a player (with a note: `/oly mark complained about the rule`) or a whole guild.
 - Per guild: *"5 of 20 with problems"*.

@@ -256,6 +256,21 @@ test("errors are captured with dedupe", function()
 	assert(ns.BuildBugReport():find("boom"))
 end)
 
+test("tabard rule: level 15 and up, younger players are never flagged", function()
+	ns.rdb.inspect = nil
+	local I = ns.Inspect
+	eq(I.MIN_LEVEL, 15)
+	eq(I.Record("Kiddo-Realm", "Olympus", "MAGE", 12, nil, true).status, "YOUNG", "no tabard at 12: not flagged")
+	eq(I.Record("Kiddo2-Realm", "Olympus", "MAGE", 14, 23192, true).status, "YOUNG", "wrong tabard at 14: not flagged")
+	eq(I.Record("Grown-Realm", "Olympus", "MAGE", 15, nil, true).status, "NONE", "at 15 the rule applies")
+	eq(I.Record("Proud-Realm", "Olympus", "MAGE", 13, 5976, true).status, "GUILD", "a young player in the tabard still counts as wearing it")
+	local s = I.Summary()
+	eq(s.counts.NONE, 1)
+	eq(#I.ShameList(), 1, "only the level 15+ player is on the Wall of Shame")
+	eq(I.TooltipLine("Kiddo-Realm"), nil, "no tooltip verdict for young players")
+	ns.rdb.inspect = nil
+end)
+
 test("tabard classification", function()
 	local I = ns.Inspect
 	eq(I.Classify(5976, true), "GUILD")
@@ -265,7 +280,7 @@ test("tabard classification", function()
 end)
 
 test("inspection summary, marks and discord text", function()
-	ns.db.inspect = nil
+	ns.rdb.inspect = nil
 	local I = ns.Inspect
 	I.Record("Good-Realm", "Olympus", "WARRIOR", 20, 5976, true)
 	I.Record("Naked-Realm", "Olympus II", "MAGE", 18, nil, true)
