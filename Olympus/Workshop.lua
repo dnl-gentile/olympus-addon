@@ -216,7 +216,7 @@ function Workshop.HandleRoll(dist, sender, text)
 end
 
 function Workshop.HandleAnswer(dist, sender, text)
-	if dist ~= "WHISPER" or not Workshop.IsAuthor() or not roll then return end
+	if dist ~= "WHISPER" or not Workshop.Visible() or not roll then return end
 	if ns.Now() - roll.t > Workshop.ROLL_OPEN then return end
 	local id, version, guild, client, window, flags, errors, level, class =
 		text:match("^V2~(%d+)~([^~]*)~([^~]*)~([^~]*)~([^~]*)~([^~]*)~(%d+)~(%d+)~([^~]*)$")
@@ -329,7 +329,7 @@ function Workshop.SendBug(text)
 end
 
 function Workshop.HandleBug(dist, sender, text)
-	if dist ~= "WHISPER" or not Workshop.IsAuthor() then return end
+	if dist ~= "WHISPER" or not Workshop.Visible() then return end
 	local id, i, n, piece = text:match("^V5~(%d+)~(%d+)~(%d+)~(.*)$")
 	i, n = tonumber(i), tonumber(n)
 	if not id or not i or not n or n < 1 or n > Workshop.MAX_PIECES or i < 1 or i > n then return end
