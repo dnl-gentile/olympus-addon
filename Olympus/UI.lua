@@ -796,7 +796,13 @@ local function ShowTab(key)
 		local p = main.scroll:CreateTexture(nil, "BACKGROUND")
 		p:SetAllPoints(main.scroll)
 		local file = UI.FirstTexture(UI.PARCHMENTS)
-		if GetFileIDFromPath and not GetFileIDFromPath(file) then p:SetColorTexture(0.87, 0.80, 0.64, 0.97) else p:SetTexture(file) end
+		if GetFileIDFromPath and not GetFileIDFromPath(file) then
+			p:SetColorTexture(0.87, 0.80, 0.64, 0.97)
+		else
+			p:SetTexture(file)
+			-- QuestBG holds its parchment in the top left 296 x 331 of a 512 x 512 file.
+			if file:find("QuestBG", 1, true) then p:SetTexCoord(0, 296 / 512, 0, 331 / 512) end
+		end
 		main.parchment = p
 	end
 	if main.parchment then main.parchment:SetShown(key == "throne") end

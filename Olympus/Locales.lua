@@ -222,8 +222,6 @@ every Lord, in one window.
 This page is Yours alone. From here:
 - Summon the Lords, and see who
   answers "Present, my King"
-- The State of the Realm, the numbers
-  of Your army, for court and chat
 - A Royal Inspection: every soldier
   with the addon checks the tabards
   around them. The Wall of Shame awaits
