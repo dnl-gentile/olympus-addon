@@ -9,6 +9,10 @@ ns.Data = Data
 
 Data.FRESH = 15 * 60           -- older: shown grey, its online players and zones leave the totals
 Data.KEEP = 7 * 24 * 60 * 60   -- older than this is forgotten (a guild's size is kept until then)
+Data.VOUCH_TTL = 30 * 60       -- a report vouches for the ranks it names this long
+Data.BASE_TTL = 24 * 60 * 60   -- an agreed picture older than this no longer contests a new report
+Data.CLAIM_TTL = 15 * 60       -- a sender quiet this long for its guild may speak for another one
+local MAX_VOUCH, MAX_KNOWN = 8, 16
 
 ns.On("INIT", function()
 	local now = ns.Now()
@@ -76,13 +80,15 @@ end
 -- one guild it reports. A (modified) client that reports several guilds is ignored, and a
 -- guild whose reports disagree about its leader, its size or its officers is flagged as a
 -- conflict.
-local senderGuild = {}
+local senderGuild = {} -- "Name-Realm" -> { guild, t }
 
--- One guild per sender, shared by reports and chat: a name that spoke for one guild can't speak for another.
+-- One guild per sender, shared by reports and chat: a name that speaks for one guild can't
+-- speak for another. A player who really moved guilds speaks again after CLAIM_TTL quiet.
 function Data.ClaimGuild(sender, guild)
-	local who = ns.FullName(sender)
-	if senderGuild[who] and senderGuild[who] ~= guild then return false end
-	senderGuild[who] = guild
+	local who, now = ns.FullName(sender), ns.Now()
+	local c = senderGuild[who]
+	if c and c.guild ~= guild and now - c.t < Data.CLAIM_TTL then return false end
+	senderGuild[who] = { guild = guild, t = now }
 	return true
 end
 
@@ -95,15 +101,44 @@ local function Ranks(g)
 	return out
 end
 
--- A leader or officer that the other sender's fresh report left out although its list had
--- room for them: someone added a name (a real promotion shows as a conflict once).
+-- A leader or officer that the other sender's report left out although its list had room for
+-- them: someone added a name (a real promotion shows as a conflict once). However old that
+-- report is: a stale report is exactly when a forger would try.
 local function AddedName(previous, r)
-	if ns.Now() - (previous.t or 0) > Data.FRESH or #(previous.officers or {}) >= ns.Codec.MAX_OFFICERS then return nil end
+	if #(previous.officers or {}) >= ns.Codec.MAX_OFFICERS then return nil end
 	local before = Ranks(previous)
 	for name in pairs(Ranks(r)) do
 		if before[name] == nil then return name end
 	end
 	return nil
+end
+
+-- Why `new` disagrees with `old` (nil: it doesn't): another leader, a size more than 25 apart,
+-- or an added leader or officer.
+local function Differs(old, new)
+	if (old.leader or "") ~= (new.leader or "") then return "leader " .. tostring(new.leader) end
+	if math.abs((old.total or 0) - (new.total or 0)) > 25 then return "size " .. tostring(new.total) end
+	local added = AddedName(old, new)
+	return added and ("adds " .. added) or nil
+end
+
+-- What a contested report keeps of the picture it contests (the SavedVariables stay small).
+local function Slim(g)
+	return { leader = g.leader, total = g.total, officers = g.officers, realm = g.realm,
+		reporter = g.reporter, reporterFull = g.reporterFull, t = g.t }
+end
+
+-- The senders who reported this guild before and were not contesting anyone (who they are,
+-- when) and what each one named: copied from the previous report, the oldest dropped.
+local function Carry(map, ttl, cap, now)
+	local out, list = {}, {}
+	for k, v in pairs(map or {}) do
+		local t = type(v) == "table" and v.t or v
+		if type(t) == "number" and now - t <= ttl then list[#list + 1] = { k = k, v = v, t = t } end
+	end
+	table.sort(list, function(a, b) return a.t > b.t end)
+	for i = 1, math.min(cap, #list) do out[list[i].k] = list[i].v end
+	return out
 end
 
 function Data.Receive(r, sender)
@@ -131,29 +166,49 @@ function Data.Receive(r, sender)
 	-- names are compared with senders in that same form (a sender that reaches us without a
 	-- realm carries ours, whatever realm it plays on).
 	r.realm = ns.RealmOf(who) or ns.realm
-	if previousWho and previousWho ~= who then
-		local added = AddedName(previous, r)
-		if (previous.leader or "") ~= (r.leader or "") or math.abs((previous.total or 0) - (r.total or 0)) > 25 or added then
-			r.conflict = true
-			ns.Log("conflict on %s: %s says %s/%d, %s says %s/%d%s", r.guild, previousWho, tostring(previous.leader),
-				previous.total or 0, who, tostring(r.leader), r.total or 0, added and (", adds " .. added) or "")
+	local now = r.t
+	-- The picture of the guild its reporters agreed on: the report before a contest began.
+	local base = previous and (previous.conflict and previous.base or previous) or nil
+	if base and now - (base.t or 0) > Data.BASE_TTL then base = nil end
+	local baseWho = base and (base.reporterFull or ns.FullName(base.reporter))
+	local known = Carry(previous and previous.known, Data.KEEP, MAX_KNOWN, now)
+	local vouch = Carry(previous and previous.vouch, Data.VOUCH_TTL, MAX_VOUCH, now)
+	local why, confirmed
+	if previous and previous.conflict and previous.challenger == who then
+		-- Saying it again settles nothing: the contest stays until someone else reports.
+		why = "still contested"
+	elseif previous and previous.conflict then
+		if base and not Differs(base, r) then
+			why = nil -- matches the agreed picture: the challenger was wrong
+		elseif not Differs(previous, r) and (not base or known[who] or known[previous.challenger]) then
+			-- A second sender says what the challenger said, and one of them reported this guild
+			-- before: a real change (two new names can't confirm each other).
+			why, confirmed = nil, previous
+		else
+			why = base and Differs(base, r) or "contested"
 		end
+	elseif base and baseWho ~= who then
+		why = Differs(base, r)
 	end
 	-- One realm can't hold two guilds whose names differ only by case: while another spelling
 	-- is fresh, one of the two is forged.
 	for name, g in pairs(ns.rdb.guilds) do
 		if name ~= r.guild and name:lower() == r.guild:lower() and r.t - (g.t or 0) <= Data.FRESH then
-			r.conflict = true
-			ns.Log("conflict on %s: %s reports it as %s", name, who, r.guild)
+			why = "spelled " .. name
 		end
 	end
-	-- The last fresh report someone else sent about this guild: KnownRank needs it to prove
-	-- this sender's own rank. The same sender keeps the one it had.
-	if previousWho == who then
-		r.witness = previous.witness
-	elseif previousWho and not previous.conflict and not r.conflict and r.t - (previous.t or 0) <= Data.FRESH then
-		r.witness = Ranks(previous)
+	if why then
+		r.conflict, r.challenger, r.base = true, who, base and Slim(base) or nil
+		ns.Log("conflict on %s: %s says %s (agreed: %s/%d by %s)", r.guild, who, why, tostring(base and base.leader),
+			base and base.total or 0, tostring(baseWho))
+	else
+		known[who], vouch[who] = now, { t = now, ranks = Ranks(r) }
+		if confirmed and confirmed.challenger then
+			known[confirmed.challenger] = confirmed.t
+			vouch[confirmed.challenger] = { t = confirmed.t, ranks = Ranks(confirmed) }
+		end
 	end
+	r.known, r.vouch = known, vouch
 	ns.rdb.guilds[r.guild] = r
 	ns.Fire("DATA_CHANGED")
 	return true
@@ -165,15 +220,22 @@ function Data.KnownRank(sender, guild)
 	local who = ns.FullName(sender)
 	if guild == GetGuildInfo("player") then return ns.Roster.RankOf(who) end
 	local g = ns.rdb.guilds[guild]
+	local now = ns.Now()
 	-- A report kept from an earlier session proves nothing about who leads the guild now.
-	if not g or g.conflict or ns.Now() - (g.t or 0) > Data.FRESH then return nil end
-	local rank = Ranks(g)[who]
-	-- Anyone can send a report, so it never proves its own sender's rank: the last report
-	-- someone else sent about that guild must name them too.
-	if rank and (g.reporterFull or ns.FullName(g.reporter)) == who then
-		local other = g.witness and g.witness[who]
-		rank = other and math.max(rank, other) or nil
+	if not g or g.conflict or now - (g.t or 0) > Data.FRESH then return nil end
+	-- Anyone can send a report, so it never proves its own sender's rank: a recent report from
+	-- someone else must name them. (Reports saved by older versions vouch as one sender.)
+	local vouch = g.vouch or { [g.reporterFull or ns.FullName(g.reporter or "?")] = { t = g.t, ranks = Ranks(g) } }
+	local rank, sources = nil, 0
+	for src, v in pairs(vouch) do
+		if type(v) == "table" and now - (v.t or 0) <= Data.VOUCH_TTL then
+			sources = sources + 1
+			local k = src ~= who and v.ranks and v.ranks[who]
+			if k and (not rank or k < rank) then rank = k end
+		end
 	end
+	-- The Crown (every guild master, the officers of <Olympus>) is taken on two senders' word only.
+	if rank and ns.IsCrownRank(guild, rank) and sources < 2 then return nil end
 	return rank
 end
 

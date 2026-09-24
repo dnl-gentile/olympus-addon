@@ -370,6 +370,13 @@ local function OnAnswer()
 end
 ns.RegisterEvent(EVENT, OnAnswer)
 
+-- A /reload while our search waited leaves the client's who flag on (it outlives the UI):
+-- the player's own /who would then open the list instead of answering in chat. Reset it once
+-- at login, unless one of the player's who windows is open (it manages the flag itself).
+ns.On("LOGIN", function()
+	if not Who.WindowOpen() then pcall(SetWhoToUi, false) end
+end)
+
 function Who.Searched() return Who.lastSend > 0 end
 function Who.IsPending() return pending ~= nil end
 

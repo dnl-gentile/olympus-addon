@@ -178,6 +178,8 @@ function ns.StatusText()
 		table.sort(types)
 		add("received by type: %s  |  incomplete reports: %d waiting, %d dropped", #types > 0 and table.concat(types, " ") or "none", c.pending or 0, c.partial or 0)
 		add("own echoes: %d  |  channel members: %s", c.echo or 0, tostring(ChannelMembers(c.channelName)))
+		add("other channels dropped: %d  |  census asked %d, answered %d  |  runner-up: %s  |  first channel msg: %s",
+			c.otherChannel or 0, c.asked or 0, c.answered or 0, tostring(c.runnerUp), tostring(c.chanArgs))
 		for _, line in ipairs(NamesLines(c)) do add("%s", line) end
 		for _, line in ipairs(TopologyLines(c)) do add("%s", line) end
 		local ch = ns.Channels and ns.Channels.Stats()

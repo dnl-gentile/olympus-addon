@@ -318,7 +318,15 @@ function Channels.Receive(dist, sender, text, now)
 	return Accept(m.tier, sender, m.guild, m.class, m.text, false)
 end
 
-ns.Comm.Handle("M1", function(dist, sender, text) Channels.Receive(dist, sender, text) end)
+-- Players' text must come through the logged API (the server keeps it, so abuse can be
+-- reported): a line sent with the plain one is dropped, where the client has both.
+ns.Comm.Handle("M1", function(dist, sender, text)
+	if C_ChatInfo and C_ChatInfo.SendAddonMessageLogged and ns.Comm.DeliveredLogged and not ns.Comm.DeliveredLogged() then
+		stats.unlogged = (stats.unlogged or 0) + 1
+		return
+	end
+	Channels.Receive(dist, sender, text)
+end)
 
 ---------------------------------------------------------------------------
 -- Mute, housekeeping, commands

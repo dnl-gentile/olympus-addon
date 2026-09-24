@@ -19,6 +19,10 @@ local CHAT_TTL = 30   -- a chat part that waited this long is dropped, not sent 
 local GUARD_AFTER = 400  -- an elected reporter never heard reporting our guild for this long...
 local GUARD_FOR = 30 * 60 -- ...is left out of the election for this long (see MaybeBroadcast)
 local KEY_ASK_EVERY = 600 -- at most one key request this often while a sealed reporter is elected
+local WITNESS_EVERY = 600 -- the runner-up of the election reports this often (see MaybeBroadcast)
+local ASK_AFTER = 25      -- seconds after login we ask the channel for the census (Q1)
+local ANSWER_GAP = 120    -- a reporter answers census requests at most this often
+local ANSWER_MIN_AGE = 45 -- ...and only when its last report is at least this old
 local MAX_KEYS = 20      -- distinct keys per diagnostic count (the rest count as "other")
 
 local peers = {}
@@ -30,7 +34,9 @@ local msgId = 0
 local lastBroadcast = 0
 local channelIndex = 0
 local stats = { sent = 0, recv = 0, reports = 0, fails = 0, bad = 0, partial = 0, echo = 0, byType = {},
-	raw = { ch = {}, g = {} }, rawSample = {}, reportRealms = {} }
+	raw = { ch = {}, g = {} }, rawSample = {}, reportRealms = {}, otherChannel = 0, asked = 0, answered = 0 }
+local deliveredLogged = false -- true while a CHAT_MSG_ADDON_LOGGED message is being handled
+local lastAnswer = -math.huge
 local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
 local peerRealm = {} -- guild peer -> realm from its hello, "old" for versions that send none
 local peerSealed = {} -- guild peer -> "s" (on the sealed channel) or "p" (public), from its hello
@@ -85,7 +91,8 @@ function Comm.Stats()
 		channel = channelIndex, peers = Comm.PeerCount(), reporter = Comm.reporterName,
 		isReporter = Comm.isReporter, sent = stats.sent, recv = stats.recv, reports = stats.reports,
 		fails = stats.fails, bad = stats.bad, queue = #queue, chatQueue = #chatQueue, lastFail = stats.lastFail,
-		partial = stats.partial, echo = stats.echo, byType = stats.byType, pending = (function() local n = 0 for _ in pairs(asm.buf) do n = n + 1 end return n end)(),
+		partial = stats.partial, echo = stats.echo, byType = stats.byType, otherChannel = stats.otherChannel,
+		chanArgs = stats.chanArgs, asked = stats.asked, answered = stats.answered, runnerUp = Comm.isRunnerUp, pending = (function() local n = 0 for _ in pairs(asm.buf) do n = n + 1 end return n end)(),
 		raw = stats.raw, rawSample = stats.rawSample, reportRealms = stats.reportRealms, shared = ns.rdb and ns.rdb.shared,
 		peerRealms = PeerRealms(now), heardOwn = lastOwn and ns.DisplayName(lastOwn), heardOwnAt = lastOwn and lastOwnAt,
 		benched = out,
@@ -174,6 +181,15 @@ local function Pump()
 		wipe(queue) -- outside an Olympus guild the addon sends nothing
 		DropChat()
 		return
+	end
+	-- The channel may have been left (the Chat Channels panel) and its number given to another
+	-- one: check before sending, or [Lords] text would go to that other channel.
+	if channelIndex > 0 and joinedName and GetChannelName then
+		local id = GetChannelName(joinedName) or 0
+		if id ~= channelIndex then
+			ns.Log("channel %s is now #%d (was #%d)", joinedName, id, channelIndex)
+			channelIndex = id
+		end
 	end
 	local now = GetTime()
 	while chatQueue[1] and now - chatQueue[1].t > CHAT_TTL do
@@ -269,6 +285,7 @@ function Comm.JoinChannel()
 end
 
 function Comm.ChannelName() return joinedName end
+function Comm.DeliveredLogged() return deliveredLogged end
 
 -- No key? Ask our guild (officers who have it answer, over GUILD).
 function Comm.RequestKey()
@@ -350,11 +367,28 @@ function Comm.MaybeBroadcast(report)
 	end
 	Comm.isReporter = best == ns.me
 	Comm.reporterName = ns.DisplayName(best)
-	if not Comm.isReporter or now - lastBroadcast < BROADCAST_EVERY then return end
+	Comm.lastReport = report
+	-- The runner-up of the election reports too, every WITNESS_EVERY: a report never proves
+	-- its own sender's rank, so other guilds trust a reporter who leads the guild (or is an
+	-- officer) only once a second sender names them (Data.KnownRank).
+	local second
+	if not Comm.isReporter then
+		local rest = {}
+		for name, t in pairs(pool) do if name ~= best then rest[name] = t end end
+		second = Codec.PickReporter(ns.me, rest, now, PEER_WINDOW)
+	end
+	-- Only while the reporter is heard on our channel: the point is to back an active one.
+	Comm.isRunnerUp = second == ns.me and best ~= nil and now - (heardOwn[ns.ShortName(best)] or -math.huge) <= 2 * BROADCAST_EVERY
+	local every = Comm.isReporter and BROADCAST_EVERY or (Comm.isRunnerUp and WITNESS_EVERY or nil)
+	if not every or now - lastBroadcast < every then return end
 	-- Right after login we don't know our guildmates yet and would wrongly think we are the
 	-- reporter: wait one hello round first.
 	if now - (Comm.loginAt or 0) < HELLO_EVERY + 10 then return end
-	lastBroadcast = now
+	Comm.Broadcast(report)
+end
+
+function Comm.Broadcast(report)
+	lastBroadcast = ns.Now()
 	msgId = (msgId + 1) % 1000
 	local payload = Codec.EncodeReport(report)
 	local chunks = Codec.Chunk(payload, tostring(msgId))
@@ -362,9 +396,42 @@ function Comm.MaybeBroadcast(report)
 	ns.Log("broadcast %s: %d bytes in %d chunks", report.guild, #payload, #chunks)
 end
 
-local function OnAddonMessage(prefix, text, dist, sender)
+-- The census on request. The Forever beta client saves addon data but never loads it back, so
+-- every login starts with an empty census: we ask the channel once (Q1), and each guild's
+-- reporter sends its report right away instead of within 3 minutes. Bounded: a reporter
+-- answers at most once every ANSWER_GAP, and only if its last report is ANSWER_MIN_AGE old.
+function Comm.AskCensus()
+	if not ns.IsMember() or channelIndex == 0 then return end
+	stats.asked = stats.asked + 1
+	Enqueue("CHANNEL", "Q1~", "censusreq")
+end
+
+Comm.Handle("Q1", function(dist, sender, text)
+	if dist ~= "CHANNEL" or not Comm.isReporter or not Comm.lastReport then return end
+	local now = ns.Now()
+	if now - lastAnswer < ANSWER_GAP or now - lastBroadcast < ANSWER_MIN_AGE then return end
+	lastAnswer = now
+	stats.answered = stats.answered + 1
+	-- A short random delay spreads the answers of every guild's reporter.
+	ns.After(math.random(1, 8), "census answer", function()
+		if Comm.isReporter and Comm.lastReport and ns.Now() - lastBroadcast >= ANSWER_MIN_AGE then Comm.Broadcast(Comm.lastReport) end
+	end)
+end)
+
+local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID, localID, channelName)
 	if prefix ~= ns.PREFIX then return end
 	if type(sender) ~= "string" or sender == "" then return end
+	-- Only our channel counts: an outsider in any other channel we sit in could otherwise
+	-- reach us there, past the sealed channel. Clients that don't give the number pass.
+	if dist == "CHANNEL" then
+		if not stats.chanArgs then
+			stats.chanArgs = ("localID=%s name=%s target=%s"):format(tostring(localID), tostring(channelName), tostring(target))
+		end
+		if type(localID) == "number" and localID > 0 and localID ~= channelIndex then
+			stats.otherChannel = stats.otherChannel + 1
+			return
+		end
+	end
 	-- The sender as the server sent it: which realms get a suffix tells the realms apart.
 	local lane, rawRealm = dist == "CHANNEL" and "ch" or "g", sender:match("%-(.+)$")
 	Count(stats.raw[lane], rawRealm or "bare")
@@ -468,9 +535,16 @@ ns.On("LOGIN", function()
 	-- No key yet? Ask our guild once (officers who have it answer).
 	ns.After(20, "key request", Comm.RequestKey)
 	ns.RegisterEvent("CHAT_MSG_ADDON", OnAddonMessage)
-	ns.RegisterEvent("CHAT_MSG_ADDON_LOGGED", OnAddonMessage) -- chat lines (same payload)
+	-- Chat lines come through the logged API (the server keeps them, so they can be reported).
+	ns.RegisterEvent("CHAT_MSG_ADDON_LOGGED", function(...)
+		deliveredLogged = true
+		local ok, err = pcall(OnAddonMessage, ...)
+		deliveredLogged = false
+		if not ok then error(err, 0) end
+	end)
 	-- Join late so General/Trade/LocalDefense keep their usual numbers (/1, /2...).
 	ns.After(15, "join channel", Comm.JoinChannel)
+	ns.After(ASK_AFTER, "census request", Comm.AskCensus)
 	ns.After(6, "hello", Comm.Hello)
 	ns.Every(HELLO_EVERY, "hello ticker", Comm.Hello)
 	ns.Every(SEND_INTERVAL, "send pump", Pump)

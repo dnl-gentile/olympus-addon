@@ -186,24 +186,39 @@ copy. No addon can prevent that. What this one does is make an edited copy usele
   - A decree counts only if the sender really is the Lord or a Captain of that guild,
     according to that guild's own roster report, or our own roster for our own guild.
     The rank written inside the message is ignored.
-  - A report never proves its own sender's rank: the last report someone else sent about that
-    guild must name them too. (So an officer who is the only one of their guild with the addon
-    is not verified by other guilds.)
-  - A sender can report only one guild.
+  - A report never proves its own sender's rank: someone else's report about that guild from
+    the last 30 minutes must name them. The runner-up of each guild's election also reports
+    every 10 minutes, so a Lord or officer who is the elected reporter is still verified.
+    (An officer who is the only one of their guild with the addon is not.)
+  - **The Crown** (any guild master, the officers of `<Olympus>`) is taken on the word of two
+    different senders only.
+  - A sender speaks for one guild only (a player who changed guilds can speak for the new one
+    after 15 quiet minutes).
   - A guild whose reports disagree about its leader, its size or its officers is flagged, and
     its ranks are not trusted. So are two spellings of a guild name that differ only in capitals.
+    However old the last report is, an added name is a disagreement, and sending the same
+    report again settles nothing: the flag stays until someone who reported that guild before
+    agrees with one side. Two new names can't confirm each other.
+- **Only our channel counts**: addon messages that arrive on any other chat channel are
+  ignored, so the sealed channel really keeps outsiders out.
 - **Sealed channel** (`/oly key`): outsiders can't find the channel or join it.
 - **Validation**: every number is range checked, names are length limited, and malformed
   messages are dropped. Decrees are rate limited per sender and in total.
 - **Channels**: [Captains]/[Lords] lines count only if the sender's rank is verified like
   decrees; everyone else can use [Olympus] only. Sent with Blizzard's logged addon-message
-  function; rate limited per sender and per channel, and no single sender can fill a channel.
+  function (lines sent any other way are dropped); rate limited per sender and per channel, and
+  no single sender can fill a channel.
 - `/oly block <name>` ignores a player completely.
 
 Limits, stated honestly:
-- Two cooperating characters can still invent a guild with "Olympus" in its name (one sends
-  its report and names the other as its leader) and so reach [Lords] and the Crown's decrees.
-  So can anyone who really founds such a guild.
+- Two cooperating characters can still invent a guild with "Olympus" in its name (both send
+  its report and name one of them as its leader) and so reach [Lords] and the Crown's decrees.
+  So can anyone who really founds such a guild. Against a real guild they need a client that
+  has not heard that guild's own reporters yet.
+- **On the Forever beta that is every login**: its client saves addon data but never loads it
+  back ([a known beta bug](https://us.forums.blizzard.com/en/wow/t/savedvariables-never-load-in-the-beta-%E2%80%94-all-addon-settings-reset-on-login-69913/2354798)),
+  so every session starts without history, settings or realm key. The census still refills in
+  seconds: a client that logs in asks the channel, and each guild's reporter answers at once.
 - A real Olympus member who edits their copy could still send a wrong report for **their own**
   guild. Their guildmates' reports and the conflict flag make a changed leader, size or officer
   list visible, but it can't be made impossible.
