@@ -101,6 +101,7 @@ local function Row(content, i)
 		-- HD: the person opened stays lit, like the roster's selected member.
 		if content.style == "hd" and self.line.key then ns.SafeCall("view select", Views.Select, content, self.line.key) end
 		if self.line.onClick then ns.SafeCall("view click", self.line.onClick) end
+		if ns.UI.Clicked then ns.UI.Clicked() end
 	end)
 	r:SetScript("OnEnter", function(self)
 		if not (self.line and self.line.tooltip) then return end
@@ -265,6 +266,11 @@ end
 
 local function CensusLines(s)
 	local lines = {}
+	-- The King's Agenda, for the whole army (King.lua).
+	local a = ns.King and ns.King.Agenda and ns.King.Agenda()
+	if a then
+		lines[#lines + 1] = { text = Gold(L.THRONE_AGENDA_LINE:format(a.title, math.max(0, math.ceil((a.at - ns.Now()) / 60)), a.zone)), gapAfter = true }
+	end
 	local get = SORTERS[Views.sort.key] or SORTERS.members
 	local guilds = {}
 	for i, e in ipairs(s.guilds) do guilds[i] = e end
@@ -518,13 +524,20 @@ local STATUS_TEXT = {
 	OTHER = function() return Gold(L.TABARD_OTHER) end,
 	UNKNOWN = function() return Grey(L.TABARD_UNKNOWN) end,
 	UNCHECKED = function() return Grey(L.TABARD_UNCHECKED) end,
+	YOUNG = function() return Grey(L.TABARD_YOUNG) end,
 }
 
 local function HeraldryLines()
 	local s = ns.Inspect.Summary()
 	local lines = {}
 	local shame = ns.Inspect.Shame()
-	if not (shame and #shame.list > 0) then
+	if not ns.Inspect.ShameOpen() then
+		-- Closed until the tabard rule is in force (Inspect.lua): a countdown.
+		local left = ns.Inspect.ShameOpensIn()
+		local wait = ("%dh %02dm"):format(math.floor(left / 3600), math.floor(left % 3600 / 60))
+		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(L.SHAME_OPENS:format(wait)) }
+		lines[#lines].gapAfter = true
+	elseif not (shame and #shame.list > 0) then
 		-- Always there, so everyone knows it exists: empty until the Crown publishes one.
 		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(L.SHAME_EMPTY) }
 		lines[#lines].gapAfter = true
@@ -532,7 +545,8 @@ local function HeraldryLines()
 		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(L.PUBLISHED_BY:format(shame.by, ns.Ago(shame.t))) }
 		for i = 1, math.min(12, #shame.list) do
 			local p = shame.list[i]
-			lines[#lines + 1] = { indent = 1, text = p.name .. "  " .. Grey("<" .. (p.guild or "?") .. ">") }
+			lines[#lines + 1] = { indent = 1, key = p.name, text = p.name .. "  " .. Grey("<" .. (p.guild or "?") .. ">"),
+				onClick = function() ns.UI.ShowPerson({ name = p.name, guild = p.guild }) end }
 		end
 		if #shame.list > 12 then lines[#lines + 1] = { indent = 1, text = Grey(L.AND_MORE:format(#shame.list - 12)) } end
 		lines[#lines].gapAfter = true

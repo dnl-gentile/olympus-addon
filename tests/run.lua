@@ -298,7 +298,10 @@ test("Throne: only the King sees it and his commands are checked; Lords answer h
 		K.HandleAnswer("WHISPER", "Late-Realm", "T2~1~P~Olympus Zeus")
 		local st = K.State()
 		eq(st.summon.answers["Zed-Realm"].verified, true, "a Lord from the census")
-		eq(st.summon.answers["Nobody-Realm"].verified, false, "not a Lord: shown with a ?")
+		eq(st.summon.answers["Nobody-Realm"], nil, "not a confirmed Lord: not listed by name...")
+		eq(st.summon.others["Nobody-Realm"], true, "...only counted")
+		K.HandleAnswer("WHISPER", "Troll-Realm", ("T2~%d~P~Asmongold|cffff0000 smells"):format(id))
+		eq(st.summon.answers["Troll-Realm"], nil, "no free text on the King's screen")
 		eq(st.summon.answers["Late-Realm"], nil, "another roll call's answer")
 		-- Royal Inspection reports.
 		K.Reset()
@@ -309,14 +312,17 @@ test("Throne: only the King sees it and his commands are checked; Lords answer h
 		ns.After = savedAfter
 		assert(sent[#sent]:find("^CHANNEL T1~I~"), sent[#sent])
 		local iid = tonumber(sent[#sent]:match("T1~I~(%d+)"))
-		K.HandleReport("WHISPER", "Scout-Realm", ("T3~%d~Olympus Zeus~8~1~1~Naked:Olympus Zeus:N,Pirate:Olympus Zeus:O"):format(iid))
-		K.HandleReport("WHISPER", "Scout2-Realm", ("T3~%d~Olympus IV~5~0~0~"):format(iid))
+		-- A confirmed Lord's report lists names; a stranger's only counts, and is capped.
+		K.HandleReport("WHISPER", "Zed-Realm", ("T3~%d~Olympus Zeus~8~1~1~Naked:Olympus Zeus:N,Pirate:Olympus Zeus:O"):format(iid))
+		K.HandleReport("WHISPER", "Scout2-Realm", ("T3~%d~Olympus IV~5~0~0~Innocent:Olympus IV:N"):format(iid))
+		K.HandleReport("WHISPER", "Troll2-Realm", ("T3~%d~Not a guild~200~0~0~"):format(iid))
 		K.Show("inspect")
 		local text = {}
 		for _, l in ipairs((K.Build(ns.Data.Summary()))) do text[#text + 1] = l.text end
 		text = table.concat(text, "\n")
 		assert(text:find("2 patrols, 15 checks, 87%% wearing"), text)
 		assert(text:find("Naked <Olympus Zeus>"), text)
+		assert(not text:find("Innocent"), "a stranger can't put names on the King's page")
 		-- The Agenda.
 		eq(K.ParseAgenda("30 Raid on Crossroads"), 30)
 		eq(K.ParseAgenda("Raid"), nil)
@@ -2195,6 +2201,46 @@ test("who on Forever: only the frames that listen are silenced, and get the even
 		eq(#ns.Recruit.found, 2, "someone else's answer")
 		eq(ns.Who.StatusLines(), nil, "everyone fit in one answer: nothing to add")
 	end)
+end)
+
+test("who on its own: a click in the window searches quietly, range by range, not again for a while", function()
+	WithWho(function(server)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		eq(ns.Who.Auto(), true, "the first click searches")
+		eq(ns.Who.Auto(), false, "not while its answer is coming")
+		server.Answer(Players(1, 50), 50)
+		server.Run(ns.Who.SETTLE)
+		eq(ns.Who.Auto(), false, "nor within the cooldown")
+		for k = 1, #ns.Who.sweep.brackets do
+			server.clock = server.clock + ns.Who.COOLDOWN + 1
+			eq(ns.Who.Auto(), true, "the next level range")
+			server.Answer(Players(50 + k * 10, 55 + k * 10))
+			server.Run(ns.Who.SETTLE)
+		end
+		eq(ns.Who.sweep.done, true)
+		server.clock = server.clock + ns.Who.COOLDOWN + 1
+		eq(ns.Who.Auto(), false, "a complete round is not searched again at once")
+		server.clock = server.clock + ns.Who.AUTO_AGAIN
+		LFGWhoListFrame.shown = true
+		eq(ns.Who.Auto(), false, "the player's own who list is open: left alone")
+		LFGWhoListFrame.shown = false
+		eq(ns.Who.Auto(), true)
+		eq(server.sent[#server.sent], 'g-"Olympus"', "a new round")
+		eq(#server.printed, 0, "never a word in chat")
+	end)
+end)
+
+test("Wall of Shame: closed with a countdown until midnight in Texas, then open", function()
+	local I, from, show = ns.Inspect, ns.Inspect.SHAME_FROM, ns.Inspect.ShowShame
+	eq(from, 1790312400, "2026-09-25 00:00 CDT")
+	I.SHAME_FROM = time() + 3600
+	eq(I.ShameOpen(), false)
+	assert(I.ShameOpensIn() > 3500)
+	I.ShowShame = function() error("closed: nothing shown") end
+	I.PublishShame() -- nothing, not even the Crown check
+	I.SHAME_FROM = time() - 1
+	eq(I.ShameOpen(), true)
+	I.SHAME_FROM, I.ShowShame = from, show
 end)
 
 test("who on the old UI: no answer, the Social window gets the event back on the timeout", function()

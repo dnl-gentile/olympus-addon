@@ -297,7 +297,15 @@ end
 ---------------------------------------------------------------------------
 -- Wall of Shame: the Crown publishes the list of players caught without the colors,
 -- every Olympus member with the addon sees it (chat, raid warning, Heraldry tab).
+-- Closed until the tabard rule is in force, midnight in Texas (where Asmongold is) between
+-- September 24 and 25, 2026: nothing published, lists sent by older versions ignored, and
+-- the Tabards page counts down to it.
 ---------------------------------------------------------------------------
+
+Inspect.SHAME_FROM = 1790312400 -- 2026-09-25 00:00 CDT (05:00 UTC)
+local function ServerNow() return (GetServerTime and GetServerTime()) or time() end
+function Inspect.ShameOpen() return ServerNow() >= Inspect.SHAME_FROM end
+function Inspect.ShameOpensIn() return math.max(0, Inspect.SHAME_FROM - ServerNow()) end
 
 function Inspect.ShameList()
 	local out = {}
@@ -310,6 +318,7 @@ function Inspect.ShameList()
 end
 
 function Inspect.PublishShame()
+	if not Inspect.ShameOpen() then return end
 	if not ns.IsCrown() then
 		ns.Print(L.CROWN_ONLY)
 		return
@@ -340,7 +349,7 @@ function Inspect.Shame()
 end
 
 ns.Comm.Handle("S1", function(dist, sender, text)
-	if dist ~= "CHANNEL" then return end
+	if dist ~= "CHANNEL" or not Inspect.ShameOpen() then return end
 	local s = ns.Codec.DecodeShame(text)
 	if not s or not ns.IsFederation(s.guild) then return end
 	local rank = ns.Data.KnownRank(sender, s.guild)

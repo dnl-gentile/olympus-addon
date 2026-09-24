@@ -22,12 +22,39 @@ King.INSPECT_TIME = 120      -- each addon patrols this long
 King.INSPECT_GAP = 600       -- one Royal Inspection every 10 minutes at most
 King.AGENDA_RESEND = 300     -- the King's client repeats the agenda for late logins
 King.MAX_NAMES = 6           -- violators per inspection report (message size)
+King.AGENDA_GAP = 60         -- one new agenda a minute at most (each one is a raid warning)
+King.MAX_ANSWERS = 150       -- roll-call answers kept
+King.MAX_REPORTS = 150       -- inspection reports kept
+King.MAX_CHECKS = 60         -- checks one patrol can report in 2 minutes
+King.MAX_SHOWN = 30          -- violators listed on the page
 
 King.mode = "letter"         -- what the tab shows: letter, summon, inspect, agenda
 local summon, inspect        -- the King's own roll call / inspection in progress
 local agenda                 -- the agenda everyone sees: { id, title, at, zone, by }
 local lastSummonSeen, lastInspectSeen, inspecting = -math.huge, -math.huge, nil
 local lastSummonSent, lastInspectSent = -math.huge, -math.huge
+local lastAgendaSent, lastAgendaWarn = -math.huge, -math.huge
+
+-- Text other players send that ends up on the King's screen (on stream): only what looks
+-- like a character name ("Pyralis Ashandar") or an Olympus guild name, nothing else.
+local function CleanName(s)
+	s = tostring(s or ""):gsub("%-.*$", "")
+	if #s > 30 or not s:match("^[%a\128-\255]+ ?[%a\128-\255]*$") then return nil end
+	return s
+end
+local function CleanGuild(s)
+	s = tostring(s or ""):gsub("[%c|]", "")
+	if #s > 24 or not ns.IsFederation(s) or not s:match("^[%w\128-\255 ]+$") then return nil end
+	return s
+end
+
+-- Someone we can place: our own guild (the server's roster) or a Lord or Captain the census
+-- confirms (Data.KnownRank). Only they may put names on the King's page.
+local function Verified(sender, guild)
+	if ns.Roster.RankOf(sender) then return true end
+	local rank = guild and ns.Data.KnownRank(sender, guild)
+	return rank ~= nil and rank <= ns.CAPTAIN_RANK
+end
 
 ---------------------------------------------------------------------------
 -- Who
@@ -52,7 +79,16 @@ local function KingSender(sender, guild)
 	return type(guild) == "string" and guild:lower() == "olympus" and ns.Data.KnownRank(sender, guild) == 0
 end
 
-local function Changed() ns.Fire("THRONE_CHANGED") end
+-- The page refreshes at most once a second, whatever arrives.
+local changePending = false
+local function Changed()
+	if changePending then return end
+	changePending = true
+	ns.After(1, "throne refresh", function()
+		changePending = false
+		ns.Fire("THRONE_CHANGED")
+	end)
+end
 
 local function Warn(text, loud)
 	ns.Print("|cffffd200" .. text .. "|r")
@@ -145,9 +181,22 @@ function King.HandleAnswer(dist, sender, text)
 	local id, word, guild = text:match("^T2~(%d+)~([PB])~(.*)$")
 	if tonumber(id) ~= summon.id or ns.Now() - summon.t > 300 then return end
 	sender = ns.FullName(sender)
-	guild = guild:gsub("|", ""):sub(1, 24) -- shown on the King's screen (the stream): no escape codes
-	local rank = ns.IsFederation(guild) and ns.Data.KnownRank(sender, guild) or nil
-	summon.answers[sender] = { word = word, guild = guild, verified = rank ~= nil and rank <= ns.CAPTAIN_RANK, t = ns.Now() }
+	if summon.answers[sender] then return end -- one answer each
+	guild = CleanGuild(guild)
+	-- Only confirmed Lords and Captains are listed by name; anyone else is just counted.
+	if not guild or not Verified(sender, guild) then
+		summon.others = summon.others or {}
+		if not summon.others[sender] then
+			local n = 0
+			for _ in pairs(summon.others) do n = n + 1 end
+			if n < King.MAX_ANSWERS then summon.others[sender] = true end
+		end
+		return Changed()
+	end
+	local n = 0
+	for _ in pairs(summon.answers) do n = n + 1 end
+	if n >= King.MAX_ANSWERS then return end
+	summon.answers[sender] = { word = word, guild = guild, verified = true, t = ns.Now() }
 	Changed()
 end
 ns.Comm.Handle("T2", function(...) King.HandleAnswer(...) end)
@@ -192,8 +241,9 @@ function King.RunInspection(king, id)
 		if not run then return end
 		if not run.wasOn and ns.Inspect.IsPatrolling() then ns.Inspect.SetPatrol(false) end
 		local ok, none, other, names = 0, 0, 0, {}
+		-- A patrol does not re-inspect anyone checked in the last 10 minutes: those count too.
 		for name, p in pairs(ns.Inspect.Players()) do
-			if (p.t or 0) >= run.start then
+			if (p.t or 0) >= run.start - 600 then
 				if p.status == "GUILD" then ok = ok + 1
 				elseif p.status == "NONE" or p.status == "OTHER" then
 					if p.status == "NONE" then none = none + 1 else other = other + 1 end
@@ -224,21 +274,26 @@ function King.ReceiveReport(sender, text)
 	if not inspect then return end
 	local id, guild, ok, none, other, names = text:match("^T3~(%d+)~([^~]*)~(%d+)~(%d+)~(%d+)~(.*)$")
 	if not id or tonumber(id) ~= inspect.id or ns.Now() - inspect.t > 900 then return end
+	sender = ns.FullName(sender)
+	if inspect.reports[sender] then return end -- one report each
+	local n = 0
+	for _ in pairs(inspect.reports) do n = n + 1 end
+	if n >= King.MAX_REPORTS then return end
+	guild = CleanGuild(guild)
+	if not guild then return end
+	-- Names only from someone we can place (our guild, a confirmed Lord or Captain): anyone
+	-- else's report counts in the numbers only, so nobody can write on the King's page.
 	local list = {}
-	for entry in names:gmatch("[^,]+") do
-		local n, g, s = entry:match("^([^:]+):([^:]*):([NO])$")
-		if n and #list < King.MAX_NAMES then
-			list[#list + 1] = { name = n:gsub("|", ""):sub(1, 48), guild = g:gsub("|", ""):sub(1, 24), status = s == "N" and "NONE" or "OTHER" }
+	if sender == ns.me or Verified(sender, guild) then
+		for entry in names:gmatch("[^,]+") do
+			local nm, g, st = entry:match("^([^:]+):([^:]*):([NO])$")
+			nm, g = CleanName(nm), CleanGuild(g)
+			if nm and g and #list < King.MAX_NAMES then list[#list + 1] = { name = nm, guild = g, status = st == "N" and "NONE" or "OTHER" } end
 		end
 	end
-	sender = ns.FullName(sender)
-	if not inspect.reports[sender] then
-		local count = 0
-		for _ in pairs(inspect.reports) do count = count + 1 end
-		if count >= 300 then return end -- one report per sender, and a few hundred at most
-	end
-	inspect.reports[sender] = { guild = guild:gsub("|", ""):sub(1, 24), ok = math.min(tonumber(ok) or 0, 200),
-		none = math.min(tonumber(none) or 0, 200), other = math.min(tonumber(other) or 0, 200), names = list }
+	local cap = King.MAX_CHECKS
+	inspect.reports[sender] = { guild = guild, ok = math.min(tonumber(ok) or 0, cap),
+		none = math.min(tonumber(none) or 0, cap), other = math.min(tonumber(other) or 0, cap), names = list }
 	Changed()
 end
 
@@ -286,7 +341,12 @@ function King.SetAgenda(input)
 		return false
 	end
 	local now = ns.Now()
-	local mine = { id = NewId(), title = title, at = now + minutes * 60, zone = Clean(ZoneName(), 40), by = ns.me, mine = true }
+	if not King.Preview() and now - lastAgendaSent < King.AGENDA_GAP then
+		ns.Print(L.THRONE_WAIT:format(math.ceil(King.AGENDA_GAP - (now - lastAgendaSent))))
+		return false
+	end
+	lastAgendaSent = now
+	local mine = { id = NewId(), title = title, at = now + minutes * 60, zone = Clean(ZoneName(), 40), by = ns.me, mine = true, fired = {} }
 	if King.Preview() then
 		agenda = mine
 		ns.Print(L.THRONE_PREVIEW_NOTE)
@@ -302,8 +362,9 @@ end
 
 function King.SendAgenda()
 	if not agenda or not agenda.mine or King.Preview() then return end
-	local left = math.ceil((agenda.at - ns.Now()) / 60)
-	if left < 1 then return end
+	-- Seconds left, so a resend never moves the time (minutes rounded up did).
+	local left = math.floor(agenda.at - ns.Now())
+	if left < 30 then return end
 	ns.Comm.Send("CHANNEL", ("T1~A~%d~%s~%d~%s~%s"):format(agenda.id, GetGuildInfo("player") or "", left, agenda.zone, agenda.title), "agenda")
 end
 
@@ -322,12 +383,21 @@ function King.Agenda()
 end
 
 local function OnAgenda(king, id, rest)
-	local minutes, zone, title = rest:match("^(%d+)~([^~]*)~(.*)$")
-	minutes = tonumber(minutes)
-	if not minutes or minutes < 1 or minutes > 720 or title == "" then return end
-	local known = agenda and agenda.id == id
-	agenda = { id = id, title = Clean(title, 60), at = ns.Now() + minutes * 60, zone = Clean(zone, 40), by = king }
-	if not known then Warn(L.THRONE_AGENDA_SET:format(agenda.title, minutes, agenda.zone)) end
+	local seconds, zone, title = rest:match("^(%d+)~([^~]*)~(.*)$")
+	seconds = tonumber(seconds)
+	if not seconds or seconds < 30 or seconds > 720 * 60 or title == "" then return end
+	local now = ns.Now()
+	if agenda and agenda.id == id then
+		-- A resend: keep our time unless it is really off (late login, clock drift).
+		if math.abs((now + seconds) - agenda.at) > 60 then agenda.at = now + seconds end
+		return Changed()
+	end
+	agenda = { id = id, title = Clean(title, 60), at = now + seconds, zone = Clean(zone, 40), by = king, fired = {} }
+	-- A new agenda is a raid warning, but not more than once a minute whatever arrives.
+	if now - lastAgendaWarn >= King.AGENDA_GAP then
+		lastAgendaWarn = now
+		Warn(L.THRONE_AGENDA_SET:format(agenda.title, math.ceil(seconds / 60), agenda.zone))
+	end
 	Changed()
 end
 
@@ -356,8 +426,12 @@ ns.On("LOGIN", function()
 		if not a then return end
 		local left = a.at - ns.Now()
 		-- Reminders for everyone, and the King's client repeats it for late logins.
+		a.fired = a.fired or {}
 		for _, mark in ipairs({ 600, 60 }) do
-			if left <= mark and left > mark - 60 then Warn(L.THRONE_AGENDA_SOON:format(a.title, math.max(1, math.ceil(left / 60)), a.zone)) end
+			if left <= mark and left > 0 and not a.fired[mark] then
+				a.fired[mark] = true
+				Warn(L.THRONE_AGENDA_SOON:format(a.title, math.max(1, math.ceil(left / 60)), a.zone))
+			end
 		end
 		if a.mine and (not a.sentAt or ns.Now() - a.sentAt >= King.AGENDA_RESEND) then
 			a.sentAt = ns.Now()
@@ -428,13 +502,16 @@ local function SummonLines()
 	end
 	local present, busy = {}, {}
 	for name, a in pairs(summon.answers) do
-		local row = Line(("%s <%s>%s"):format(ns.DisplayName(name), a.guild, a.verified and "" or " (?)"), INK)
+		local row = Line(("%s <%s>"):format(ns.DisplayName(name), a.guild), INK)
 		if a.word == "P" then present[#present + 1] = row else busy[#busy + 1] = row end
 	end
 	lines[#lines + 1] = Line(L.THRONE_PRESENT_N:format(#present), INK, { header = true, font = TITLE })
 	for _, r in ipairs(present) do r.indent = 1; lines[#lines + 1] = r end
 	lines[#lines + 1] = Line(L.THRONE_BUSY_N:format(#busy), INK, { header = true, font = TITLE })
 	for _, r in ipairs(busy) do r.indent = 1; lines[#lines + 1] = r end
+	local others = 0
+	for _ in pairs(summon.others or {}) do others = others + 1 end
+	if others > 0 then lines[#lines + 1] = Line(L.THRONE_UNCONFIRMED:format(others)) end
 	local silent = {}
 	for _, lord in ipairs(LordsOnline()) do
 		if not summon.answers[lord.name] and lord.name ~= ns.me then silent[#silent + 1] = lord end
@@ -480,7 +557,11 @@ local function InspectLines()
 	end
 	if #names > 0 then
 		lines[#lines + 1] = Line(L.THRONE_VIOLATORS:format(#names), INK, { header = true, font = TITLE })
-		for _, v in ipairs(names) do
+		for i, v in ipairs(names) do
+			if i > King.MAX_SHOWN then
+				lines[#lines + 1] = Line(L.AND_MORE:format(#names - King.MAX_SHOWN), INK, { indent = 1 })
+				break
+			end
 			lines[#lines + 1] = Line(("%s <%s>  %s"):format(v.name, v.guild, v.status == "NONE" and L.TABARD_NONE or L.TABARD_OTHER), INK, { indent = 1 })
 		end
 	end
@@ -503,9 +584,16 @@ function King.Show(mode)
 end
 
 -- For tests.
+function King.CancelAgendaButton()
+	if not King.Agenda() then return ns.Print(L.THRONE_AGENDA_NONE) end
+	King.CancelAgenda()
+	ns.Print(L.THRONE_AGENDA_CANCELLED)
+end
+
 function King.State() return { summon = summon, inspect = inspect, agenda = agenda, inspecting = inspecting } end
 function King.Reset()
 	summon, inspect, agenda, inspecting = nil, nil, nil, nil
 	lastSummonSeen, lastInspectSeen, lastSummonSent, lastInspectSent = -math.huge, -math.huge, -math.huge, -math.huge
+	lastAgendaSent, lastAgendaWarn, changePending = -math.huge, -math.huge, false
 	King.mode = "letter"
 end

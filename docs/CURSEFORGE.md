@@ -122,7 +122,9 @@ that guild master. Answers go to the King alone.
 - **Mark** a player (with a note: `/oly mark complained about the rule`) or a whole guild.
 - Per guild: *"5 of 20 with problems"*.
 - **Wall of Shame**: the Crown publishes the list, and every Olympus member with the addon sees
-  it on the Tabards page (empty until someone publishes one).
+  it on the Tabards page; click a name to whisper them. It opens when the tabard rule starts
+  (midnight, Texas time, September 25) and counts down until then. Players under level 15
+  are exempt: never flagged, never listed.
 - Hover any player in the world to see their last inspection in the tooltip.
 
 ### World map

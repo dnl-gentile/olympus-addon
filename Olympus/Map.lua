@@ -76,8 +76,12 @@ local function ContainerOf(mapID)
 			local x, y = HBD:GetZoneCoordinatesFromWorld(wx, wy, zone)
 			local w, h = HBD:GetZoneSize(zone)
 			local area = (w or 0) * (h or 0)
-			-- Only a bigger zone around it, and the smallest such one.
-			if x and y and area > (ownW or 0) * (ownH or 0) and (not best or area < bestArea) then
+			-- A city: its whole map lies inside a zone at least four times bigger (neighbouring
+			-- zones only overlap at their borders), and the smallest such zone.
+			local ax, ay = HBD:GetWorldCoordinatesFromZone(0, 0, mapID)
+			local bx, by = HBD:GetWorldCoordinatesFromZone(1, 1, mapID)
+			local inside = ax and bx and HBD:GetZoneCoordinatesFromWorld(ax, ay, zone) and HBD:GetZoneCoordinatesFromWorld(bx, by, zone)
+			if x and y and inside and area >= 4 * (ownW or 0) * (ownH or 0) and (not best or area < bestArea) then
 				best, bestArea = { zone = zone, x = x, y = y }, area
 			end
 		end

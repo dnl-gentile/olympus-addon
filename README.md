@@ -65,7 +65,7 @@ are highlighted. It is rate limited, so nobody gets spammed. The game lists 50 p
 - **Where the army stands**: top zones ("Stormwind City 742") and totals per continent
   (Eastern Kingdoms, Kalimdor).
 - Hover a guild: members, online, free slots, average level, inactive members, classes online, top zones.
-- Olympus guilds where nobody runs the addon show too, in grey: **Refresh** also searches
+- Olympus guilds where nobody runs the addon show too, in grey: opening the window (and any click in it) also searches
   `/who` and lists every Olympus guild it sees online, with how many. They count in no total.
 
 ### The Realm: the hierarchy
@@ -140,7 +140,9 @@ that guild master. Answers go to the King alone.
 - **Mark** a player (with a note: `/oly mark complained about the rule`) or a whole guild.
 - Per guild: *"5 of 20 with problems"*.
 - **Wall of Shame**: the Crown publishes the list, and every Olympus member with the addon sees
-  it on the Tabards page (empty until someone publishes one).
+  it on the Tabards page; click a name to whisper them. It opens when the tabard rule starts
+  (midnight, Texas time, September 25) and counts down until then. Players under level 15
+  are exempt: never flagged, never listed.
 - Hover any player in the world to see their last inspection in the tooltip.
 
 ### World map

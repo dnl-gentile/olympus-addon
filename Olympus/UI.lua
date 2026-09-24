@@ -105,13 +105,26 @@ local RECRUIT_BUTTONS = {
 local DETAIL_BUTTONS = {
 	throne = {
 		{ "THRONE_LETTER_BTN", function() ns.King.Show("letter") end },
+		{ "THRONE_CANCEL_AGENDA", function() ns.King.CancelAgendaButton() end },
 	},
 	heraldry = {
-		{ "SHAME_BTN", function() ns.Inspect.PublishShame() end },
 		{ "HERALDRY_BTN", DecreeAction("HERALDRY") },
 		{ "CLEAR", function() StaticPopup_Show("OLYMPUS_CLEAR_INSPECT") end },
 	},
 }
+-- The Wall of Shame's button once it opens (Inspect.ShameOpen).
+table.insert(DETAIL_BUTTONS.heraldry, 1, { "SHAME_BTN", function() ns.Inspect.PublishShame() end,
+	shown = function() return ns.Inspect.ShameOpen() end })
+
+-- Buttons that come and go (def.shown): only the ones shown, in order.
+local function Shown(defs)
+	if not defs then return nil end
+	local out = {}
+	for _, def in ipairs(defs) do
+		if not def.shown or def.shown() then out[#out + 1] = def end
+	end
+	return out
+end
 
 local function SetButtonFont(b, small)
 	b:SetNormalFontObject(small and "GameFontNormalSmall" or "GameFontNormal")
@@ -492,6 +505,7 @@ local function CreateMain(style)
 				ns.Views.SortBy(self.sortKey)
 				UI.Refresh()
 			end
+			UI.Clicked()
 		end)
 		f.colHeader.buttons[c] = b
 	end
@@ -766,7 +780,10 @@ local function SetButtons(list, defs)
 			local label = L[def[1]]
 			if def[1] == "PATROL_BTN" then label = ns.Inspect.IsPatrolling() and L.PATROL_STOP or L.PATROL_START end
 			b:SetText(label)
-			b:SetScript("OnClick", function() ns.SafeCall("button " .. def[1], def[2]) end)
+			b:SetScript("OnClick", function()
+				ns.SafeCall("button " .. def[1], def[2])
+				UI.Clicked()
+			end)
 			local tip = rawget(L, def[1] .. "_TIP")
 			b:SetScript("OnEnter", tip and function(self)
 				GameTooltip:SetOwner(self, "ANCHOR_TOP")
@@ -832,10 +849,19 @@ local function ShowTab(key)
 	UI.Refresh()
 end
 
+-- Every click in the window (and the ones that open it) also runs the next /who of the
+-- round (Who.Auto): the census and the Join screen fill without Refresh. Only from clicks
+-- and slash commands, never from a timer: the game takes /who from a hardware event only.
+function UI.Clicked()
+	ns.SafeCall("auto who", ns.Who.Auto)
+end
+
 -- Opening the window picks its look again, from the guild window in use (UI.Style).
+-- Called from clicks and slash commands only (UI.Clicked).
 function UI.SelectTab(key)
 	if not (main and main:IsShown()) then UseStyle(UI.Style()) end
 	ShowTab(key)
+	UI.Clicked()
 end
 
 -- Whose census this is: our realm, or the realms sharing it ("A + B").
@@ -847,6 +873,7 @@ end
 
 function UI.Refresh()
 	if not main or not main:IsShown() then return end
+	UI.lastRedraw = GetTime()
 	ns.SafeCall("ui refresh", function()
 		local s = ns.Data.Summary()
 		local F = ns.FormatNumber
@@ -877,7 +904,7 @@ function UI.Refresh()
 		local throne = ns.King and ns.King.Visible and ns.King.Visible() or false
 		if main.tab == "throne" and not throne then return ShowTab("census") end
 		for _, tab in ipairs(main.tabs) do tab:SetShown(not locked and (tab.key ~= "throne" or throne)) end
-		SetButtons(main.detailButtons, not locked and DETAIL_BUTTONS[main.tab] or nil)
+		SetButtons(main.detailButtons, not locked and Shown(DETAIL_BUTTONS[main.tab]) or nil)
 		local hasDetailButtons = not locked and DETAIL_BUTTONS[main.tab] ~= nil
 		main.detailText:SetHeight(DETAIL_H - (hasDetailButtons and 46 or 26))
 		-- The tabs just appeared (joined a guild with the window open): they hang below it,
@@ -904,6 +931,7 @@ function UI.OpenDocked(host, tab, heightOnly, style)
 	DockTo(host)
 	main.docked = true
 	ShowTab(tab or main.tab or "census")
+	UI.Clicked() -- the guild window's button was clicked
 end
 
 -- The host was resized while we are docked to it (the Communities window can be
@@ -1174,13 +1202,29 @@ function UI.Toggle()
 	UI.SelectTab(main and main.tab or "census")
 end
 
-ns.On("DATA_CHANGED", function() UI.Refresh() end)
+-- Reports come in bursts (every guild answers a census request within seconds, a patrol
+-- inspects a crowd): the window redraws at once for the first news and then at most once
+-- every REDRAW_GAP, so a busy channel never redraws it dozens of times a second.
+UI.REDRAW_GAP = 0.5
+local redrawQueued = false
+function UI.RefreshSoon()
+	if not main or not main:IsShown() or redrawQueued then return end
+	local wait = UI.REDRAW_GAP - (GetTime() - (UI.lastRedraw or 0))
+	if wait <= 0 then return UI.Refresh() end
+	redrawQueued = true
+	ns.After(wait, "ui redraw", function()
+		redrawQueued = false
+		UI.Refresh()
+	end)
+end
+
+ns.On("DATA_CHANGED", function() UI.RefreshSoon() end)
 ns.On("MAP_TOGGLED", function() UI.Refresh() end)
-ns.On("INSPECT_CHANGED", function() if main and main.tab == "heraldry" then UI.Refresh() end end)
-ns.On("LAYERS_CHANGED", function() if main and main.tab == "decrees" then UI.Refresh() end end)
-ns.On("DECREES_CHANGED", function() UI.Refresh() end)
-ns.On("THRONE_CHANGED", function() if main and main.tab == "throne" then UI.Refresh() end end)
-ns.On("RECRUIT_CHANGED", function() UI.Refresh() end)
+ns.On("INSPECT_CHANGED", function() if main and main.tab == "heraldry" then UI.RefreshSoon() end end)
+ns.On("LAYERS_CHANGED", function() if main and main.tab == "decrees" then UI.RefreshSoon() end end)
+ns.On("DECREES_CHANGED", function() UI.RefreshSoon() end)
+ns.On("THRONE_CHANGED", function() if main and main.tab == "throne" then UI.RefreshSoon() end end)
+ns.On("RECRUIT_CHANGED", function() UI.RefreshSoon() end)
 
 ---------------------------------------------------------------------------
 ---------------------------------------------------------------------------

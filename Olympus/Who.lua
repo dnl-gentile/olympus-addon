@@ -5,7 +5,8 @@ local L = ns.L
 -- Refresh button (Olympus guilds nobody reports, seen online). One search per click: the
 -- game only takes /who from a hardware event, so never from a timer, and at most one every
 -- COOLDOWN seconds whichever button sent it. The Who button of our person panel keeps the
--- same distance from these (SendPlain).
+-- same distance from these (SendPlain). Any other click in our window (opening it, a tab, a
+-- row, a button) searches on its own too, quietly (Auto): nobody has to press Refresh.
 --
 -- Searching quietly. The answer (WHO_LIST_UPDATE) opens Blizzard's own who list: the Who tab
 -- of the Social window on the old UI (FriendsFrame), the group finder's list on Forever's new
@@ -32,6 +33,7 @@ Who.TIMEOUT = 6    -- no answer by then: the who windows get their event back
 Who.SETTLE = 1     -- the answer announced again within this is still ours (see OnAnswer)
 Who.LATE = 30      -- a search given up may still be answered until then (see Release)
 Who.ROUND_TTL = 15 * 60 -- a round older than this starts over (like a report, Data.FRESH)
+Who.AUTO_AGAIN = 5 * 60 -- a complete round older than this is searched again by Auto
 Who.MAX = 50       -- players per answer, MAX_WHOS_FROM_SERVER
 Who.BRACKETS = 5   -- level ranges searched after a capped answer
 Who.QUERY = 'g-"Olympus"'
@@ -222,16 +224,16 @@ local function SendToUi(query)
 	Send(query)
 end
 
--- Must be called from a click. Returns true if a search was sent.
-function Who.Search()
+-- Must be called from a click. Returns true if a search was sent. `quiet`: nothing printed.
+function Who.Search(quiet)
 	local now = GetTime()
 	local wait = Wait(now, math.max(Who.lastSend, Who.lastPlain))
 	if wait > 0 then
-		ns.Print(L.WHO_WAIT:format(math.ceil(wait)))
+		if not quiet then ns.Print(L.WHO_WAIT:format(math.ceil(wait))) end
 		return false
 	end
 	if Who.WindowOpen() then
-		ns.Print(L.WHO_WINDOW_OPEN)
+		if not quiet then ns.Print(L.WHO_WINDOW_OPEN) end
 		return false
 	end
 	Release("new search") -- still settling from the last one
@@ -260,9 +262,22 @@ function Who.Search()
 		Release("send failed")
 		error(err, 0)
 	end
-	ns.Print(L.RECRUIT_SEARCHING)
-	ns.Log("who: sent %s, quiet: %s", query, #names > 0 and table.concat(names, ", ") or "none")
+	if not quiet then ns.Print(L.RECRUIT_SEARCHING) end
+	ns.Log("who: sent %s%s, quiet: %s", query, quiet and " (auto)" or "", #names > 0 and table.concat(names, ", ") or "none")
 	return true
+end
+
+-- The search nobody has to ask for, from any click in our window: the next search of the
+-- round once COOLDOWN allows, so the census (and the Join screen) fill on their own, one
+-- level range per click past the cap. Quiet, and nothing is sent while a search waits for
+-- its answer, while a who window is open, or while the last complete round is younger than
+-- AUTO_AGAIN. Must be called from a click, like Search. Returns true if a search was sent.
+function Who.Auto()
+	if not ((C_FriendList and C_FriendList.SendWho) or SendWho) then return false end
+	local now = GetTime()
+	if pending or Wait(now, math.max(Who.lastSend, Who.lastPlain)) > 0 or Who.WindowOpen() then return false end
+	if sweep.done and sweep.started and now - sweep.started < Who.AUTO_AGAIN then return false end
+	return Who.Search(true)
 end
 
 -- A search of the player's own, the Who button of our person panel: nothing is silenced,
