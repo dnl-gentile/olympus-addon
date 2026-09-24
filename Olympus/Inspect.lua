@@ -43,6 +43,19 @@ end
 
 function Inspect.IsPatrolling() return patrol end
 
+-- Everyone inspected on this realm group (the Throne's Royal Inspection reads it).
+function Inspect.Players() return Store().players end
+
+-- A player another addon reported during a Royal Inspection (King.PublishShame): kept like
+-- our own inspections, so the usual Wall of Shame can publish them.
+function Inspect.AddReported(name, guild, status)
+	if type(name) ~= "string" or name == "" then return end
+	local p = Store().players[name] or {}
+	p.name, p.guild, p.status, p.t, p.reported = name, guild, status, ns.Now(), true
+	Store().players[name] = p
+	ns.Fire("INSPECT_CHANGED")
+end
+
 -- The Olympus rule: the tabard is required from this level on. Younger players are never
 -- flagged (nor inspected on patrol).
 Inspect.MIN_LEVEL = 15

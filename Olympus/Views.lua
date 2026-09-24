@@ -160,7 +160,10 @@ function Views.Render(content, lines, layout)
 			for c = 1, 4 do r.cols[c]:Hide() end
 			r.left:Show()
 			r.right:Show()
-			r.left:SetFontObject(line.header and "GameFontNormal" or (line.color or "GameFontHighlightSmall"))
+			-- line.font: a font object by name (the Throne's dark ink on parchment), if the client has it.
+			local font = line.font and _G[line.font] and line.font or nil
+			r.left:SetFontObject(font or (line.header and "GameFontNormal" or (line.color or "GameFontHighlightSmall")))
+			r.right:SetFontObject(font or "GameFontHighlightSmall")
 			r.left:ClearAllPoints()
 			r.left:SetPoint("LEFT", 4 + (line.indent or 0) * 12, 0)
 			r.left:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
@@ -647,6 +650,11 @@ local BUILD = {
 	heraldry = function()
 		local title, text = HeraldryDetail()
 		return HeraldryLines(), title, text
+	end,
+	throne = function(s)
+		if not (ns.King and ns.King.Build) then return {}, nil, nil end
+		local lines, title, text = ns.King.Build(s)
+		return lines or {}, title, text
 	end,
 }
 

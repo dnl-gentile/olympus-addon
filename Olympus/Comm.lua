@@ -100,17 +100,17 @@ function Comm.Stats()
 	}
 end
 
-local function Enqueue(dist, msg, key)
+local function Enqueue(dist, msg, key, target)
 	if key then
 		for _, item in ipairs(queue) do
 			if item[3] == key then
-				item[2] = msg
+				item[2], item[4] = msg, target
 				return
 			end
 		end
 	end
 	if #queue >= MAX_QUEUE then table.remove(queue, 1) end
-	queue[#queue + 1] = { dist, msg, key }
+	queue[#queue + 1] = { dist, msg, key, target }
 end
 
 -- Other modules send small messages through here and register a handler per type.
@@ -120,6 +120,11 @@ local handlers = {}
 function Comm.Send(dist, msg, key)
 	if dist == "GUILD" and not IsInGuild() then return end
 	Enqueue(dist, msg, key)
+end
+-- An addon message to one player only (answers to the King, Throne tab).
+function Comm.Whisper(target, msg, key)
+	if type(target) ~= "string" or target == "" then return end
+	Enqueue("WHISPER", msg, key, target)
 end
 function Comm.Handle(msgType, fn)
 	handlers[msgType] = fn
@@ -152,8 +157,8 @@ end
 
 -- Player text goes through the logged API, Blizzard's function for plain text payloads
 -- (receivers get CHAT_MSG_ADDON_LOGGED). Clients without it use the usual one.
-local function SendNow(dist, msg, logged)
-	local target = dist == "CHANNEL" and channelIndex or nil
+local function SendNow(dist, msg, logged, whisperTo)
+	local target = dist == "CHANNEL" and channelIndex or whisperTo
 	local send = logged and C_ChatInfo.SendAddonMessageLogged or C_ChatInfo.SendAddonMessage
 	local ok, res = pcall(send, ns.PREFIX, msg, dist, target)
 	if ok and IsSuccess(res) then
@@ -216,9 +221,9 @@ local function Pump()
 		end
 	end
 	if not index then return end
-	local dist, msg = queue[index][1], queue[index][2]
+	local dist, msg, target = queue[index][1], queue[index][2], queue[index][4]
 	table.remove(queue, index)
-	SendNow(dist, msg, false)
+	SendNow(dist, msg, false, target)
 end
 Comm.Pump = Pump -- for tests
 

@@ -34,7 +34,19 @@ local TABS = {
 	end },
 	{ key = "decrees", label = "TAB_DECREES", icon = "Interface\\Icons\\INV_Scroll_04" },
 	{ key = "heraldry", label = "TAB_HERALDRY", icon = "Interface\\Icons\\INV_Shirt_GuildTabard_01" },
+	-- The King's alone (King.lua): hidden for everyone else, see UI.Refresh.
+	{ key = "throne", label = "TAB_THRONE", icon = function() return UI.FirstTexture(UI.CROWNS) end },
 }
+
+-- The first of these files the client has (GetFileIDFromPath), or the last one.
+function UI.FirstTexture(paths)
+	for _, p in ipairs(paths) do
+		if not GetFileIDFromPath or GetFileIDFromPath(p) then return p end
+	end
+	return paths[#paths]
+end
+UI.CROWNS = { "Interface\\Icons\\INV_Crown_01", "Interface\\Icons\\INV_Crown_02", "Interface\\Icons\\INV_Misc_Head_Dragon_01" }
+UI.PARCHMENTS = { "Interface\\QuestFrame\\QuestBG", "Interface\\Stationery\\StationeryTest1" }
 UI.TABS = TABS
 
 local function DecreeAction(kind)
@@ -76,6 +88,11 @@ local BUTTONS = {
 		{ "MARK_TARGET", function() ns.Inspect.MarkTarget() end },
 		{ "COPY_BTN", function() UI.ShowCopy(L.INSPECT_TITLE, ns.Inspect.DiscordText()) end },
 	},
+	throne = {
+		{ "THRONE_SUMMON", function() ns.King.Summon() end },
+		{ "THRONE_INSPECT", function() ns.King.Inspect() end },
+		{ "THRONE_AGENDA", function() ns.King.AgendaPrompt() end },
+	},
 }
 
 -- Buttons shown to players who are not in an Olympus guild.
@@ -86,6 +103,10 @@ local RECRUIT_BUTTONS = {
 
 -- Small extra buttons inside the detail box (only where needed).
 local DETAIL_BUTTONS = {
+	throne = {
+		{ "THRONE_LETTER_BTN", function() ns.King.Show("letter") end },
+		{ "THRONE_SHAME", function() ns.King.PublishShame() end },
+	},
 	heraldry = {
 		{ "SHAME_BTN", function() ns.Inspect.PublishShame() end },
 		{ "HERALDRY_BTN", DecreeAction("HERALDRY") },
@@ -770,6 +791,15 @@ local function ShowTab(key)
 	for k, v in pairs(main.views) do v:SetShown(k == key) end
 	main.scroll:SetScrollChild(main.views[key])
 	main.scroll:SetVerticalScroll(0)
+	-- The Throne is a page of parchment with dark ink (the rows use line.font).
+	if key == "throne" and not main.parchment then
+		local p = main.scroll:CreateTexture(nil, "BACKGROUND")
+		p:SetAllPoints(main.scroll)
+		local file = UI.FirstTexture(UI.PARCHMENTS)
+		if GetFileIDFromPath and not GetFileIDFromPath(file) then p:SetColorTexture(0.87, 0.80, 0.64, 0.97) else p:SetTexture(file) end
+		main.parchment = p
+	end
+	if main.parchment then main.parchment:SetShown(key == "throne") end
 	for i, tab in ipairs(main.tabs) do
 		if main.tabStyle == "side" then
 			-- The HD window's icon tabs: the selected one stays checked.
@@ -838,7 +868,10 @@ function UI.Refresh()
 		main.detailText:SetText(text or "")
 		SetButtons(main.buttons, locked and RECRUIT_BUTTONS or BUTTONS[main.tab])
 		local tabsWere = main.tabs[1] and main.tabs[1]:IsShown()
-		for _, tab in ipairs(main.tabs) do tab:SetShown(not locked) end
+		-- The Throne only for the King (and the author's test build, King.Preview).
+		local throne = ns.King and ns.King.Visible and ns.King.Visible() or false
+		if main.tab == "throne" and not throne then return ShowTab("census") end
+		for _, tab in ipairs(main.tabs) do tab:SetShown(not locked and (tab.key ~= "throne" or throne)) end
 		SetButtons(main.detailButtons, not locked and DETAIL_BUTTONS[main.tab] or nil)
 		local hasDetailButtons = not locked and DETAIL_BUTTONS[main.tab] ~= nil
 		main.detailText:SetHeight(DETAIL_H - (hasDetailButtons and 46 or 26))
@@ -1141,6 +1174,7 @@ ns.On("MAP_TOGGLED", function() UI.Refresh() end)
 ns.On("INSPECT_CHANGED", function() if main and main.tab == "heraldry" then UI.Refresh() end end)
 ns.On("LAYERS_CHANGED", function() if main and main.tab == "decrees" then UI.Refresh() end end)
 ns.On("DECREES_CHANGED", function() UI.Refresh() end)
+ns.On("THRONE_CHANGED", function() if main and main.tab == "throne" then UI.Refresh() end end)
 ns.On("RECRUIT_CHANGED", function() UI.Refresh() end)
 
 ---------------------------------------------------------------------------

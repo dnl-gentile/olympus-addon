@@ -174,6 +174,67 @@ L.RECRUIT_REPLIED = "%s answered your request, check your whispers."
 L.MEMBERS_ONLY = "Olympus members only"
 L.MEMBERS_ONLY_HINT = "The census, the realm and the decrees open once you are in a guild with Olympus in its name."
 L.DEMO_REMOVED = "Demo data was removed in v0.7.9: the addon only shows live data now."
+L.TAB_THRONE = "Throne"
+L.THRONE_SUMMON = "Summon Lords"
+L.THRONE_SUMMON_TIP = "Every Lord and Captain online gets a popup: 'The King summons his Lords'. You see who answers 'Present, my King', who is busy and who stays silent."
+L.THRONE_INSPECT = "Royal Inspection"
+L.THRONE_INSPECT_TIP = "A raid warning for the whole army, then every soldier with the addon checks the tabards around them for 2 minutes and reports to you. Once every 10 minutes."
+L.THRONE_AGENDA = "Agenda"
+L.THRONE_AGENDA_TIP = "Set the hour of the next royal event: the whole army sees it with a countdown and gets reminders."
+L.THRONE_SHAME = "Wall of Shame"
+L.THRONE_LETTER_BTN = "The letter"
+L.THRONE_AGENDA_TITLE = "The King's Agenda"
+L.THRONE_AGENDA_NONE = "No royal event set. Press Agenda: minutes, then what."
+L.THRONE_SHAME_TIP = "Publishes the players the Royal Inspection caught without their colors."
+L.THRONE_PREVIEW_NOTE = "Throne preview: nothing was sent to anyone."
+L.THRONE_WAIT = "Patience, Sire: again in %d s."
+L.THRONE_ONLY_KING = "The Throne belongs to the King alone."
+L.THRONE_SUMMONED = "The King %s summons his Lords!"
+L.THRONE_PRESENT = "Present, my King"
+L.THRONE_BUSY = "Busy"
+L.THRONE_INSPECT_WARN = "The King inspects the realm: wear your tabard!"
+L.THRONE_AGENDA_PROMPT = "The King's Agenda: minutes, then what (e.g. 30 Raid on Crossroads)"
+L.THRONE_AGENDA_USAGE = "Minutes first, then the event: 30 Raid on Crossroads"
+L.THRONE_AGENDA_SET = "The King's Agenda: %s in %d min (%s)"
+L.THRONE_AGENDA_SOON = "The King's Agenda: %s in %d min (%s)!"
+L.THRONE_AGENDA_LINE = "Agenda: %s, in %d min (%s)"
+L.THRONE_SUMMON_TITLE = "The King summons his Lords"
+L.THRONE_SUMMON_HINT = "Press Summon Lords: every Lord and Captain online is called."
+L.THRONE_PRESENT_N = "Present, my King (%d)"
+L.THRONE_BUSY_N = "Busy (%d)"
+L.THRONE_SILENT_N = "Silent (%d)"
+L.THRONE_INSPECT_TITLE = "Royal Inspection"
+L.THRONE_INSPECT_HINT = "Press Royal Inspection: every soldier with the addon checks the tabards around them for 2 minutes."
+L.THRONE_INSPECT_RUNNING = "The patrols report in %d s..."
+L.THRONE_INSPECT_SUMMARY = "%d patrols, %d checks, %d%% wearing the tabard"
+L.THRONE_VIOLATORS = "Caught without their colors (%d)"
+L.THRONE_YOU_ARE_KING = "This page is yours alone, Sire. Only the King's commands reach the army from here."
+L.THRONE_PREVIEW = "Preview: only the King's own client can send from this page."
+L.THRONE_LETTER = [[*To His Majesty,
+*Asmongold, King of Olympus
+
+Sire, forgive this humble interruption.
+While Your Majesty conquered Azeroth,
+a loyal servant counted Your army:
+every Olympus guild, every soldier,
+every Lord, in one window.
+
+This page is Yours alone. From here:
+- Summon the Lords, and see who
+  answers "Present, my King"
+- The State of the Realm, the numbers
+  of Your army, for court and chat
+- A Royal Inspection: every soldier
+  with the addon checks the tabards
+  around them. The Wall of Shame awaits
+- The King's Agenda: set the hour,
+  the whole army sees the countdown
+
+At Your service, Your Majesty.
+
+*Faladoriel Skylance
+Level 4. I bought the game yesterday.
+I will level, Sire. Eventually.]]
 L.RESTART_NEEDED = "Olympus was updated with new files: close and reopen the game to load them (/reload is not enough)."
 L.REALMS_LINKED = "Your guild spans realms: the census of %s is now one."
 L.OFFICER_FIXED = "Captains are rank 1 (right below the guild master) in every guild. This is fixed so every Olympus guild agrees on who can send decrees."
@@ -415,6 +476,42 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.MEMBERS_ONLY = "Só para membros Olympus"
 	L.MEMBERS_ONLY_HINT = "O censo, o reino e os decretos abrem quando você estiver numa guilda com Olympus no nome."
 	L.DEMO_REMOVED = "Os dados de demonstração foram removidos na v0.7.9: o addon mostra só dados reais."
+	L.TAB_THRONE = "Trono"
+	L.THRONE_SUMMON = "Convocar Lordes"
+	L.THRONE_SUMMON_TIP = "Todo Lorde e Capitão online recebe um aviso: 'O Rei convoca seus Lordes'. Você vê quem responde 'Presente, meu Rei', quem está ocupado e quem fica calado."
+	L.THRONE_INSPECT = "Inspeção Real"
+	L.THRONE_INSPECT_TIP = "Raid warning para todo o exército; cada soldado com o addon confere os tabards ao redor por 2 minutos e te manda o resultado. Uma vez a cada 10 minutos."
+	L.THRONE_AGENDA = "Agenda"
+	L.THRONE_AGENDA_TIP = "Marque a hora do próximo evento real: o exército inteiro vê com contagem regressiva e recebe lembretes."
+	L.THRONE_SHAME = "Wall of Shame"
+	L.THRONE_LETTER_BTN = "A carta"
+	L.THRONE_AGENDA_TITLE = "Agenda do Rei"
+	L.THRONE_AGENDA_NONE = "Nenhum evento real marcado. Aperte Agenda: minutos e depois o quê."
+	L.THRONE_SHAME_TIP = "Publica quem a Inspeção Real pegou sem as cores."
+	L.THRONE_PREVIEW_NOTE = "Prévia do Trono: nada foi enviado a ninguém."
+	L.THRONE_WAIT = "Paciência, Majestade: de novo em %d s."
+	L.THRONE_ONLY_KING = "O Trono é só do Rei."
+	L.THRONE_SUMMONED = "O Rei %s convoca seus Lordes!"
+	L.THRONE_PRESENT = "Presente, meu Rei"
+	L.THRONE_BUSY = "Ocupado"
+	L.THRONE_INSPECT_WARN = "O Rei inspeciona o reino: vista seu tabard!"
+	L.THRONE_AGENDA_PROMPT = "Agenda do Rei: minutos e depois o quê (ex.: 30 Raid em Crossroads)"
+	L.THRONE_AGENDA_USAGE = "Primeiro os minutos, depois o evento: 30 Raid em Crossroads"
+	L.THRONE_AGENDA_SET = "Agenda do Rei: %s em %d min (%s)"
+	L.THRONE_AGENDA_SOON = "Agenda do Rei: %s em %d min (%s)!"
+	L.THRONE_AGENDA_LINE = "Agenda: %s, em %d min (%s)"
+	L.THRONE_SUMMON_TITLE = "O Rei convoca seus Lordes"
+	L.THRONE_SUMMON_HINT = "Aperte Convocar Lordes: todo Lorde e Capitão online é chamado."
+	L.THRONE_PRESENT_N = "Presente, meu Rei (%d)"
+	L.THRONE_BUSY_N = "Ocupado (%d)"
+	L.THRONE_SILENT_N = "Calado (%d)"
+	L.THRONE_INSPECT_TITLE = "Inspeção Real"
+	L.THRONE_INSPECT_HINT = "Aperte Inspeção Real: cada soldado com o addon confere os tabards ao redor por 2 minutos."
+	L.THRONE_INSPECT_RUNNING = "As patrulhas respondem em %d s..."
+	L.THRONE_INSPECT_SUMMARY = "%d patrulhas, %d conferências, %d%% de tabard"
+	L.THRONE_VIOLATORS = "Pegos sem as cores (%d)"
+	L.THRONE_YOU_ARE_KING = "Esta página é só sua, Majestade. Daqui só as ordens do Rei chegam ao exército."
+	L.THRONE_PREVIEW = "Prévia: só o próprio Rei consegue enviar desta página."
 	L.RESTART_NEEDED = "O Olympus foi atualizado com arquivos novos: feche e abra o jogo para carregá-los (/reload não basta)."
 	L.REALMS_LINKED = "Sua guilda abrange mais de um reino: o censo de %s agora é um só."
 	L.OFFICER_FIXED = "Capitães são o rank 1 (logo abaixo do guild master) em todas as guildas. É fixo para que todas as Olympus concordem sobre quem pode mandar decretos."

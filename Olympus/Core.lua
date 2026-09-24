@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.7.14"
+ns.VERSION = "0.8.0"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -551,6 +551,7 @@ local function StandIn(key, say)
 end
 StandIn("Who", { "Search", "SendPlain" })
 StandIn("Channels", { "Send", "ToggleMute" })
+StandIn("King", { "Summon", "Inspect", "AgendaPrompt" })
 
 -- The faction may not be known yet at ADDON_LOADED: if it turns out to be the other one,
 -- switch to that faction's store before anything is received.
@@ -632,6 +633,13 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Inspect.MarkTarget(rest)
 		elseif cmd == "map" then
 			ns.Map.SetEnabled(not ns.db.showMap)
+		elseif cmd == "throne" or cmd == "trono" then
+			if ns.King.Visible and ns.King.Visible() then
+				if rest == "letter" or rest == "carta" then ns.King.Show("letter") end
+				ns.UI.SelectTab("throne")
+			else
+				ns.Print(ns.L.THRONE_ONLY_KING)
+			end
 		elseif cmd == "realm" or cmd == "tree" or cmd == "layers" then
 			ns.UI.SelectTab("realm")
 		elseif cmd == "decrees" then
