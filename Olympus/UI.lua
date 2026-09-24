@@ -100,6 +100,125 @@ local function FitLabel(b)
 	fs:SetWidth(room)
 end
 
+-- The same for a one-line font string: the first of `fonts` the text fits `room` in, else
+-- the last one, cut with "...". The string must be left-justified and not wrap.
+local function FitText(fs, room, fonts)
+	fs:SetWidth(0)
+	for _, font in ipairs(fonts) do
+		fs:SetFontObject(font)
+		local textW = fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()
+		if textW <= room then break end
+	end
+	fs:SetWidth(math.max(1, room))
+end
+
+-- Header lines end this far from the window's right edge: the big line keeps clear of
+-- the close button column (24 wide on Forever, 32 on the Classic clients), the small one
+-- sits lower and only keeps off the border.
+local HEADER_RIGHT, SUB_RIGHT = 26, 8
+
+-- Tabs. The tab template is the same atlas one on every client we support
+-- (PanelTabButtonTemplate with LeftActive & co., also in Classic Era 1.15.9 and Anniversary
+-- 2.5.6), but the code that sizes it is not. Classic's PanelTemplates_TabResize makes a tab
+-- its text plus both end caps, which the old -15 overlap was made for. Mainline's (Forever)
+-- makes it the text plus 20 (TAB_SIDES_PADDING), and Blizzard spaces those 3 apart
+-- (PanelTemplates_AnchorTabs, which only ships with that code) with the first at x 5
+-- (FriendsFrame): at -15 they pile up on each other.
+function UI.TabStyle(tab)
+	if tab and tab.LeftActive and PanelTemplates_AnchorTabs then return "mainline" end
+	return "classic"
+end
+
+-- The anchor of tab i (prev is tab i - 1) under `frame`.
+function UI.TabAnchor(style, i, frame, prev)
+	if style == "mainline" then
+		if i == 1 then return "TOPLEFT", frame, "BOTTOMLEFT", 5, 2 end
+		return "TOPLEFT", prev, "TOPRIGHT", 3, 0
+	end
+	if i == 1 then return "TOPLEFT", frame, "BOTTOMLEFT", 10, 2 end
+	return "LEFT", prev, "RIGHT", -15, 0
+end
+
+-- Blizzard's Issue Reporter (Blizzard_PTRFeedback, only on beta and PTR clients such as
+-- the Forever beta) is a small draggable box with a bug button under it, by default at the
+-- bottom centre of the screen: right over the buttons and tabs of our window at its
+-- default place. It is Blizzard's, so it is never moved or hidden: our window steps up.
+local ISSUE_GAP = 4
+
+-- A region's rect in screen pixels, or nil if it is not laid out.
+local function ScreenRect(region)
+	if type(region) ~= "table" or not region.GetRect then return nil end
+	local left, bottom, width, height = region:GetRect()
+	if not left or not bottom or not width or not height then return nil end
+	local s = region.GetEffectiveScale and region:GetEffectiveScale() or 1
+	return { left = left * s, bottom = bottom * s, right = (left + width) * s, top = (bottom + height) * s }
+end
+
+local function Union(a, b)
+	if not a then return b end
+	if not b then return a end
+	return { left = math.min(a.left, b.left), bottom = math.min(a.bottom, b.bottom),
+		right = math.max(a.right, b.right), top = math.max(a.top, b.top) }
+end
+
+-- How far up a window must go to clear an obstacle (screen rects, pixels): nil when they
+-- do not overlap, or when that would push the window's top past screenTop (it stays put).
+function UI.ClearUp(win, obstacle, screenTop, gap)
+	if not win or not obstacle or not screenTop then return nil end
+	if win.left >= obstacle.right or win.right <= obstacle.left then return nil end
+	if win.bottom >= obstacle.top or win.top <= obstacle.bottom then return nil end
+	local dy = obstacle.top + (gap or 0) - win.bottom
+	if win.top + dy > screenTop then return nil end
+	return dy
+end
+
+-- The Issue Reporter's screen rect with its border, bug button and info button, if shown.
+local function IssueReporterRect()
+	local r = _G.PTR_IssueReporter
+	if type(r) ~= "table" or not r.IsVisible or not r:IsVisible() then return nil end
+	local rect
+	for _, part in ipairs({ r, r.Border, r.Body, r.ReportBug, r.InfoButton }) do
+		if type(part) == "table" and part.IsVisible and part:IsVisible() then rect = Union(rect, ScreenRect(part)) end
+	end
+	return rect
+end
+
+-- Moves `frame` (held by one anchor) up just enough that `parts`, what it covers on screen
+-- (the frame, the tabs hanging below it), clear the Issue Reporter. Called when the frame
+-- shows, never continuously. Returns true if the frame was not laid out yet.
+local function StepAboveIssueReporter(frame, parts)
+	local obstacle = IssueReporterRect()
+	if not obstacle or not frame:IsShown() or frame:GetNumPoints() ~= 1 then return end
+	local win
+	for _, part in ipairs(parts) do
+		if part:IsShown() then win = Union(win, ScreenRect(part)) end
+	end
+	if not ScreenRect(frame) then return true end
+	local screen = ScreenRect(UIParent)
+	local dy = screen and UI.ClearUp(win, obstacle, screen.top, ISSUE_GAP)
+	if not dy then return end
+	local point, rel, relPoint, x, y = frame:GetPoint(1)
+	frame:ClearAllPoints()
+	frame:SetPoint(point, rel, relPoint, x, y + dy / frame:GetEffectiveScale())
+	ns.Log("%s moved up %d to clear the Issue Reporter", tostring(frame:GetName()), math.floor(dy + 0.5))
+end
+
+-- Runs a check now, and once more on the next frame if the frame had no rect yet (a
+-- window shown the moment it was made).
+local function ClearOfIssueReporter(check)
+	if check() and C_Timer and C_Timer.After then
+		C_Timer.After(0, function() ns.SafeCall("issue reporter", check) end)
+	end
+end
+
+-- Our window at its own place (never docked or dragged) steps above the Issue Reporter.
+local function MainClearOfIssueReporter()
+	if not main or main.docked or main.movedByPlayer then return end
+	local parts = { main }
+	for _, tab in ipairs(main.tabs) do parts[#parts + 1] = tab end
+	return StepAboveIssueReporter(main, parts)
+end
+
 -- The Social window's size, which is the old Guild window's (the Guild tab fills it).
 local function SocialSize()
 	if FriendsFrame and FriendsFrame.GetWidth then
@@ -153,6 +272,7 @@ local function CreateMain()
 	f:SetScript("OnDragStop", function(self)
 		self:StopMovingOrSizing()
 		self.docked = false
+		self.movedByPlayer = true -- where the player puts it, it stays
 	end)
 	f:Hide()
 	tinsert(UISpecialFrames, f:GetName())
@@ -191,11 +311,17 @@ local function CreateMain()
 	end
 
 	-- Header row (where the Guild window has "Show Offline Members")
+	-- One line each, kept inside the window by FitHeader (long texts, the narrow window).
 	local hx = f.hasPortrait and 62 or 12
+	f.headerX = hx
 	f.total = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 	f.total:SetPoint("TOPLEFT", hx, -28)
 	f.sub = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	f.sub:SetPoint("TOPLEFT", f.total, "BOTTOMLEFT", 0, -1)
+	for _, fs in ipairs({ f.total, f.sub }) do
+		fs:SetJustifyH("LEFT")
+		fs:SetWordWrap(false)
+	end
 
 	-- Column titles
 	f.colHeader = CreateFrame("Frame", nil, f)
@@ -296,11 +422,8 @@ local function CreateMain()
 		tab:SetID(i)
 		tab:SetText(L[t.label])
 		if PanelTemplates_TabResize then pcall(PanelTemplates_TabResize, tab, 0) end
-		if i == 1 then
-			tab:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 10, 2)
-		else
-			tab:SetPoint("LEFT", f.tabs[i - 1], "RIGHT", -15, 0)
-		end
+		UI.tabStyle = UI.TabStyle(tab)
+		tab:SetPoint(UI.TabAnchor(UI.tabStyle, i, f, f.tabs[i - 1]))
 		tab:SetScript("OnClick", function() ns.SafeCall("tab " .. t.key, UI.SelectTab, t.key) end)
 		tab.key = t.key
 		f.tabs[i] = tab
@@ -315,7 +438,10 @@ local function CreateMain()
 			UI.Refresh()
 		end
 	end)
-	f:SetScript("OnShow", function() UI.Refresh() end)
+	f:SetScript("OnShow", function()
+		UI.Refresh()
+		ns.SafeCall("issue reporter", ClearOfIssueReporter, MainClearOfIssueReporter)
+	end)
 	f:SetScript("OnHide", function() if personFrame then personFrame:Hide() end end)
 	f:SetScript("OnSizeChanged", function() UI.Layout() end)
 	return f
@@ -337,12 +463,21 @@ local function LayoutButtons()
 	end
 end
 
--- Positions that depend on the window width (buttons, columns, list width).
+local function FitHeader()
+	local room = main:GetWidth() - main.headerX
+	FitText(main.total, room - HEADER_RIGHT, { "GameFontNormalLarge", "GameFontNormal" })
+	FitText(main.sub, room - SUB_RIGHT, { "GameFontHighlightSmall" })
+end
+
+-- Positions that depend on the window width (buttons, columns, list width) and on
+-- membership (the Join screen has no column titles).
 function UI.Layout()
 	if not main then return end
 	local w = main:GetWidth()
 	LayoutButtons()
-	local hasCols = ns.Views.COLUMNS[main.tab] ~= nil and main.tab == "census"
+	FitHeader()
+	main.layoutLocked = not ns.IsMember()
+	local hasCols = not main.layoutLocked and ns.Views.COLUMNS[main.tab] ~= nil and main.tab == "census"
 	main.colHeader:SetShown(hasCols)
 	main.scroll:ClearAllPoints()
 	main.scroll:SetPoint("TOPLEFT", 10, hasCols and -80 or -64)
@@ -471,6 +606,8 @@ function UI.Refresh()
 		main.sub:SetText(L.ARMY_SUB:format(F(s.online), s.fresh, ns.Ago(s.newest)) .. "  ·  " .. (GetRealmName and GetRealmName() or ""))
 		-- Outside an Olympus guild nothing but the Join Olympus screen is shown.
 		local locked = not ns.IsMember()
+		-- Joined or left a guild while the window is open: lay it out again.
+		if locked ~= main.layoutLocked then UI.Layout() end
 		local lines, title, text
 		if locked then
 			-- Not an Olympus member yet: the only thing on offer is joining one.
@@ -482,13 +619,14 @@ function UI.Refresh()
 		else
 			lines, title, text = ns.Views.Build(main.tab)
 		end
+		FitHeader()
 		ns.Views.Render(main.views[main.tab], lines, not locked and ns.Views.COLUMNS[main.tab] or nil)
 		main.detailTitle:SetText(title or "")
 		main.detailText:SetText(text or "")
 		SetButtons(main.buttons, locked and RECRUIT_BUTTONS or BUTTONS[main.tab])
 		for _, tab in ipairs(main.tabs) do tab:SetShown(not locked) end
 		SetButtons(main.detailButtons, not locked and DETAIL_BUTTONS[main.tab] or nil)
-		local hasDetailButtons = DETAIL_BUTTONS[main.tab] ~= nil
+		local hasDetailButtons = not locked and DETAIL_BUTTONS[main.tab] ~= nil
 		main.detailText:SetHeight(DETAIL_H - (hasDetailButtons and 46 or 26))
 	end)
 end
@@ -552,6 +690,12 @@ local function CreatePersonFrame()
 	f.name:SetPoint("TOPLEFT", 14, -32)
 	f.name:SetPoint("TOPRIGHT", -14, -32)
 	f.name:SetJustifyH("LEFT")
+	f.name:SetWordWrap(false) -- a long Name-Realm is fitted (UI.ShowPerson), not wrapped over the lines below
+	if f.TitleText then
+		-- "<guild name>", centred: kept clear of the close button on both sides.
+		f.TitleText:SetWidth(f:GetWidth() - 64)
+		f.TitleText:SetWordWrap(false)
+	end
 	f.lines = {}
 	for i = 1, 6 do
 		local fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -565,6 +709,7 @@ local function CreatePersonFrame()
 		local b = Button(f, w, 22)
 		b:SetPoint("BOTTOMLEFT", x, y)
 		b:SetText(label)
+		FitLabel(b)
 		return b
 	end
 	f.whisper = Btn(L.WHISPER, 10, 34, 104)
@@ -589,6 +734,7 @@ function UI.ShowPerson(p)
 	local file = p.class and ns.CLASS_FILES[p.class] or p.class
 	local color = file and RAID_CLASS_COLORS and RAID_CLASS_COLORS[file]
 	f.name:SetText(color and ("|c%s%s|r"):format(color.colorStr, p.name) or p.name)
+	FitText(f.name, f:GetWidth() - 28, { "GameFontNormalLarge", "GameFontNormal" })
 	if f.TitleText then f.TitleText:SetText(p.guild and ("<" .. p.guild .. ">") or L.TITLE) end
 	local className = (file and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[file]) or ""
 	local rows = {}
@@ -612,6 +758,8 @@ function UI.ShowPerson(p)
 		f:SetPoint("CENTER")
 	end
 	f:Show()
+	-- Placed again on every show, so it can step above the Issue Reporter every time.
+	ns.SafeCall("issue reporter", ClearOfIssueReporter, function() return StepAboveIssueReporter(f, { f }) end)
 end
 
 function UI.IsShown() return main and main:IsShown() end

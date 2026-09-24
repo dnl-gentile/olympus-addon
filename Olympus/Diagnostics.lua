@@ -125,7 +125,7 @@ function ns.StatusText()
 	for _ in pairs(ns.rdb.guilds) do n = n + 1 end
 	add("cached guilds=%d  |  map=%s  |  errors=%d  |  sessions=%d", n, tostring(ns.db.showMap), #ns.db.errors, ns.db.sessions or 0)
 	add("map lib: %s  |  zones indexed=%d  |  tabs: %s", tostring(ns.Map and ns.Map.libOk), ns.Zones and ns.Zones.Count() or 0,
-		tostring(ns.UI and ns.UI.tabTemplate or "not built"))
+		ns.UI and ns.UI.tabTemplate and (ns.UI.tabTemplate .. " (" .. tostring(ns.UI.tabStyle) .. " spacing)") or "not built")
 	-- Old Guild tab or new Communities window: which ones exist and got the Olympus button.
 	add("guild UI: %s", ns.GuildFrameHook and ns.GuildFrameHook.StatusLine() or "not loaded")
 	return table.concat(lines, "\n")

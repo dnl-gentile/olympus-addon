@@ -12,6 +12,8 @@ local L = ns.L
 --   guildui      a standalone GuildFrame from Blizzard_GuildUI (same name, but not inside
 --                FriendsFrame), should a client ship one
 --   classicui    ClassicUI Forever's old-style Guild tab, inside the Social window
+--   classicuiwindow  that panel should it stand on its own, outside the Social window
+--                (ClassicUI Forever 0.8.0 always builds it inside): a window of its own
 -- Every one that exists gets its own button, so the button is in whichever window opens,
 -- keeps working when the player switches (with or without /reload), and docks to the
 -- window it was clicked in. Nothing reads the setting: the window on screen decides.
@@ -24,6 +26,7 @@ ns.GuildFrameHook = GuildFrameHook
 local KINDS = {
 	old = { button = "OlympusGuildFrameButton", size = 26, social = true },
 	classicui = { button = "OlympusClassicGuildButton", size = 26, social = true },
+	classicuiwindow = { button = "OlympusClassicGuildWindowButton", size = 22 },
 	communities = { button = "OlympusCommunitiesButton", size = 22 },
 	guildui = { button = "OlympusGuildUIButton", size = 22 },
 }
@@ -60,7 +63,8 @@ local function Inside(frame, ancestor)
 end
 
 -- Every guild window that exists right now, as { frame, kind }. The name GuildFrame is
--- used by the old tab and by the standalone window alike, so where it lives decides.
+-- used by the old tab and by the standalone window alike, so where it lives decides; the
+-- same goes for ClassicUI Forever's panel.
 function GuildFrameHook.Candidates()
 	local out = {}
 	local social = _G.FriendsFrame
@@ -68,8 +72,9 @@ function GuildFrameHook.Candidates()
 	if guild then
 		out[#out + 1] = { frame = guild, kind = social and Inside(guild, social) and "old" or "guildui" }
 	end
-	if social and _G.ClassicUIForeverGuildPanel then
-		out[#out + 1] = { frame = _G.ClassicUIForeverGuildPanel, kind = "classicui" }
+	local panel = _G.ClassicUIForeverGuildPanel
+	if panel then
+		out[#out + 1] = { frame = panel, kind = social and Inside(panel, social) and "classicui" or "classicuiwindow" }
 	end
 	if _G.CommunitiesFrame then
 		out[#out + 1] = { frame = _G.CommunitiesFrame, kind = "communities" }

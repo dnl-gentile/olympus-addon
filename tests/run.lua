@@ -1,4 +1,5 @@
--- Offline tests for the pure parts of the addon (codec, election, roster scan, aggregation).
+-- Offline tests for the addon: codec, election, roster scan, aggregation, and the windows
+-- (guild window button, docking, layout) on stand-in frames.
 -- Run: luajit tests/run.lua   (from the repo root)
 
 local ROOT = (arg and arg[0] or ""):match("^(.*)tests[/\\]run%.lua$") or "./"
@@ -565,6 +566,8 @@ local function FakeFrame(name, parent, w, h)
 	function f:GetWidth() return self.w end
 	function f:GetHeight() return self.h end
 	function f:GetFrameLevel() return 5 end
+	function f:GetEffectiveScale() return 1 end
+	function f:GetRect() if self.rect then return unpack(self.rect) end end -- where a test put it
 	function f:IsShown() return self.shown end
 	function f:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
 	function f:HookScript(kind, fn) self.hooks[kind] = self.hooks[kind] or {}; table.insert(self.hooks[kind], fn) end
@@ -575,12 +578,16 @@ local function FakeFrame(name, parent, w, h)
 end
 
 -- Loads GuildFrame.lua with fresh state into a namespace of its own. Its events and LOGIN
--- are fired by hand; the Olympus window is a stand-in that remembers where it is docked.
-local function LoadGuildFrame()
+-- are fired by hand; the Olympus window is a stand-in that remembers where it is docked,
+-- or with realUI the real UI.lua (which needs the widget toolkit further below).
+local function LoadGuildFrame(realUI)
 	local world = { events = {}, login = {}, buttons = {}, dock = { shown = false } }
 	local dock = world.dock
 	local gns = setmetatable({}, { __index = ns })
+	world.ns = gns
 	gns.RegisterEvent = function(event, fn) world.events[event] = world.events[event] or {}; table.insert(world.events[event], fn) end
+	gns.On = function() end -- UI.lua's own callbacks (minimap button at LOGIN, refreshes) stay out
+	if realUI then assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", gns) end
 	gns.On = function(name, fn) if name == "LOGIN" then table.insert(world.login, fn) end end
 	gns.MakeRoundButton = function(name, parent, size)
 		local b = setmetatable({ name = name, parent = parent, size = size, scripts = {} }, { __index = function() return function() end end })
@@ -590,7 +597,7 @@ local function LoadGuildFrame()
 		world.buttons[#world.buttons + 1] = b
 		return b
 	end
-	gns.UI = {
+	gns.UI = realUI and gns.UI or {
 		IsShown = function() return dock.shown end,
 		DockedTo = function() return dock.host end,
 		OpenDocked = function(host, tab, heightOnly) dock.shown, dock.host, dock.tab, dock.heightOnly = true, host, tab, heightOnly end,
@@ -664,8 +671,9 @@ test("guild button: new UI loaded at login (Forever: Communities window only)", 
 		eq(w.hook.ActiveHost(), hosts[1], "in use")
 		b:Click()
 		eq(w.dock.host, CommunitiesFrame, "docks to the Communities window"); eq(w.dock.heightOnly, true)
-		FriendsFrame:Show(); FriendsFrame:Hide()
-		eq(w.dock.shown, true, "the Social window closing leaves it open")
+		-- No Guild tab in the Social window, so nothing of ours listens to it closing (the
+		-- other way round is covered in the "both windows" and real-window tests).
+		eq(FriendsFrame.hooks.OnHide, nil, "no Social window hook without a Guild tab")
 		CommunitiesFrame:Run("OnSizeChanged")
 		eq(w.dock.followed, CommunitiesFrame, "follows minimize and maximize")
 		CommunitiesFrame:Hide()
@@ -729,6 +737,7 @@ test("guild button: both windows present, switching between them without /reload
 		CommunitiesFrame:Show(); new:Click()
 		eq(w.dock.shown, true); eq(w.dock.host, CommunitiesFrame)
 		eq(w.hook.ActiveHost().kind, "old", "both on screen: the Social window's first")
+		eq(#FriendsFrame.hooks.OnHide, 1, "the Social window is watched (for the Guild tab)")
 		FriendsFrame:Hide()
 		eq(w.dock.shown, true, "still docked to the Communities window")
 	end)
@@ -776,6 +785,29 @@ test("guild button: ClassicUI Forever's Guild tab is found when the Social windo
 	end)
 end)
 
+test("guild button: ClassicUI Forever's panel outside the Social window is a window of its own", function()
+	WithGuildWindows(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 385, 424)
+		ClassicUIForeverGuildPanel = FakeFrame("ClassicUIForeverGuildPanel", UIParent, 338, 440)
+		ClassicUIForeverGuildPanel.CloseButton = FakeFrame(nil, ClassicUIForeverGuildPanel, 24, 24)
+		local w = LoadGuildFrame()
+		w.Login()
+		local hosts = w.hook.Hosts()
+		eq(#hosts, 1, "hosts")
+		eq(hosts[1].kind, "classicuiwindow"); eq(hosts[1].social, nil); eq(hosts[1].dock, ClassicUIForeverGuildPanel)
+		local b = w.buttons[1]
+		eq(b.name, "OlympusClassicGuildWindowButton"); eq(b.size, 22)
+		eq(b.point[1], "RIGHT"); eq(b.point[2], ClassicUIForeverGuildPanel.CloseButton, "title bar, like the new windows")
+		ClassicUIForeverGuildPanel:Show(); b:Click()
+		eq(w.dock.host, ClassicUIForeverGuildPanel, "docks to itself"); eq(w.dock.heightOnly, true)
+		eq(FriendsFrame.hooks.OnHide, nil, "the Social window is not watched for it")
+		ClassicUIForeverGuildPanel:Run("OnSizeChanged")
+		eq(w.dock.followed, ClassicUIForeverGuildPanel, "follows its size")
+		ClassicUIForeverGuildPanel:Hide()
+		eq(w.dock.shown, false, "closing it closes ours")
+	end)
+end)
+
 test("docked size: the old Guild tab is copied, the new windows lend only their height", function()
 	local uns = setmetatable({}, { __index = ns })
 	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
@@ -787,6 +819,520 @@ test("docked size: the old Guild tab is copied, the new windows lend only their 
 	eq(size(322, 406, true, 338, 424), "338x406", "Communities window, minimized")
 	eq(size(0, 0, false, 338, 424), "338x424", "host not laid out yet")
 	eq(size(nil, nil, true), "338x424", "nothing known")
+end)
+
+---------------------------------------------------------------------------
+-- The Olympus window itself (UI.lua), on a small widget toolkit: frames keep their size,
+-- anchors and shown state, scripts can be fired, rects are worked out from the anchors
+-- and text is measured at a fixed width per letter.
+---------------------------------------------------------------------------
+
+local POINT_X = { TOPLEFT = 0, LEFT = 0, BOTTOMLEFT = 0, TOP = 0.5, CENTER = 0.5, BOTTOM = 0.5, TOPRIGHT = 1, RIGHT = 1, BOTTOMRIGHT = 1 }
+local POINT_Y = { BOTTOMLEFT = 0, BOTTOM = 0, BOTTOMRIGHT = 0, LEFT = 0.5, CENTER = 0.5, RIGHT = 0.5, TOPLEFT = 1, TOP = 1, TOPRIGHT = 1 }
+local CHAR_W = { GameFontNormalLarge = 9, GameFontNormal = 7, GameFontHighlight = 7 } -- small fonts: 6
+
+local Widget = {}
+local NOOP_VERBS = { "^Set", "^Enable", "^Disable", "^Register", "^Unregister", "^Lock", "^Unlock", "^Raise", "^Lower", "^Highlight", "^Play" }
+local widgetNames = {}
+local widgetMeta = { __index = function(_, key)
+	local method = Widget[key]
+	if method then return method end
+	-- Setters and the like a test does not look at do nothing; anything else is nil, as a
+	-- missing child key (CloseButton, TitleText, Left...) would be.
+	if type(key) == "string" then
+		for _, verb in ipairs(NOOP_VERBS) do if key:find(verb) then return function() end end end
+	end
+end }
+
+local function NewWidget(kind, name, parent)
+	local w = setmetatable({ kind = kind, name = name, parent = parent, points = {}, shown = true, scripts = {}, hooks = {} }, widgetMeta)
+	if name then _G[name] = w; widgetNames[#widgetNames + 1] = name end
+	return w
+end
+
+function Widget:GetName() return self.name end
+function Widget:GetParent() return self.parent end
+function Widget:GetObjectType() return self.kind end
+function Widget:Fire(kind, ...)
+	if self.scripts[kind] then self.scripts[kind](self, ...) end
+	for _, fn in ipairs(self.hooks[kind] or {}) do fn(self, ...) end
+end
+function Widget:SetScript(kind, fn) self.scripts[kind] = fn end
+function Widget:GetScript(kind) return self.scripts[kind] end
+function Widget:HookScript(kind, fn) self.hooks[kind] = self.hooks[kind] or {}; table.insert(self.hooks[kind], fn) end
+function Widget:Show() if not self.shown then self.shown = true; self:Fire("OnShow") end end
+function Widget:Hide() if self.shown then self.shown = false; self:Fire("OnHide") end end
+function Widget:SetShown(shown) if shown then self:Show() else self:Hide() end end
+function Widget:IsShown() return self.shown end
+function Widget:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
+function Widget:GetEffectiveScale() return self.scale or (self.parent and self.parent:GetEffectiveScale()) or 1 end
+function Widget:GetFrameLevel() return self.level or 1 end
+function Widget:SetFrameLevel(level) self.level = level end
+
+function Widget:SetSize(w, h)
+	local changed = self.w ~= w or self.h ~= h
+	self.w, self.h = w, h
+	if changed then self:Fire("OnSizeChanged", w, h) end
+end
+function Widget:SetWidth(w) self:SetSize(w, self.h) end
+function Widget:SetHeight(h) self:SetSize(self.w, h) end
+function Widget:GetWidth()
+	if self.kind == "FontString" and (self.w or 0) == 0 then return self:GetStringWidth() end
+	if self.w then return self.w end
+	local _, _, w = self:GetRect()
+	return w or 0
+end
+function Widget:GetHeight()
+	if self.h then return self.h end
+	local _, _, _, h = self:GetRect()
+	return h or 0
+end
+
+-- SetPoint in all its WoW forms, kept as { point, relativeTo, relativePoint, x, y }.
+function Widget:SetPoint(point, a, b, c, d)
+	local rel, relPoint, x, y
+	if type(a) == "number" then
+		rel, relPoint, x, y = nil, point, a, b
+	elseif type(b) == "string" then
+		rel, relPoint, x, y = a, b, c, d
+	else
+		rel, relPoint, x, y = a, point, b, c
+	end
+	if type(rel) == "string" then rel = _G[rel] end
+	local anchor = { point, rel or self.parent, relPoint, x or 0, y or 0 }
+	for i, p in ipairs(self.points) do
+		if p[1] == point then self.points[i] = anchor return end
+	end
+	self.points[#self.points + 1] = anchor
+end
+function Widget:SetAllPoints(rel)
+	rel = rel or self.parent
+	self.points = { { "TOPLEFT", rel, "TOPLEFT", 0, 0 }, { "BOTTOMRIGHT", rel, "BOTTOMRIGHT", 0, 0 } }
+end
+function Widget:ClearAllPoints() self.points = {} end
+function Widget:GetNumPoints() return #self.points end
+function Widget:GetPoint(i) return unpack(self.points[i or 1]) end
+-- Anchor with this point name, or nil.
+function Widget:Anchor(point) for _, p in ipairs(self.points) do if p[1] == point then return p end end end
+
+-- left, bottom, width, height in the widget's own units, from a fixed rect or its anchors.
+function Widget:GetRect()
+	if self.rect then return unpack(self.rect) end
+	if #self.points == 0 then return nil end
+	local l, r, cx, b, t, cy
+	for _, p in ipairs(self.points) do
+		local rl, rb, rw, rh = p[2]:GetRect()
+		if not rl then return nil end
+		local ax, ay = rl + rw * POINT_X[p[3]] + p[4], rb + rh * POINT_Y[p[3]] + p[5]
+		local fx, fy = POINT_X[p[1]], POINT_Y[p[1]]
+		if fx == 0 then l = ax elseif fx == 1 then r = ax else cx = ax end
+		if fy == 0 then b = ay elseif fy == 1 then t = ay else cy = ay end
+	end
+	local w, h = self.w or 0, self.h or 0
+	if l and r then w = r - l elseif r then l = r - w elseif cx and not l then l = cx - w / 2 end
+	if b and t then h = t - b elseif t then b = t - h elseif cy and not b then b = cy - h / 2 end
+	if not l or not b then return nil end
+	return l, b, w, h
+end
+function Widget:GetLeft() return (self:GetRect()) end
+function Widget:GetBottom() return select(2, self:GetRect()) end
+function Widget:GetTop() local _, b, _, h = self:GetRect(); return b and b + h end
+function Widget:GetRight() local l, _, w = self:GetRect(); return l and l + w end
+
+function Widget:StartMoving() self.moving = true end
+function Widget:StopMovingOrSizing()
+	-- Like the client: wherever it was dropped, now held by one absolute anchor.
+	local l, b = self:GetRect()
+	self.moving = nil
+	self.points = { { "BOTTOMLEFT", UIParent, "BOTTOMLEFT", l, b } }
+end
+
+function Widget:CreateFontString(name, _, font) local fs = NewWidget("FontString", name, self); fs.font = font; return fs end
+function Widget:CreateTexture(name) return NewWidget("Texture", name, self) end
+function Widget:SetText(text)
+	if self.kind == "FontString" then self.text = text return end
+	self.fontString = self.fontString or self:CreateFontString(nil, "OVERLAY", self.normalFont or "GameFontNormal")
+	self.fontString:SetText(text)
+end
+function Widget:GetText() if self.kind == "FontString" then return self.text end return self.fontString and self.fontString.text end
+function Widget:GetFontString() return self.fontString end
+function Widget:SetNormalFontObject(font) self.normalFont = font; if self.fontString then self.fontString.font = font end end
+function Widget:SetFontObject(font) self.font = font end
+function Widget:GetFontObject() return self.font end
+function Widget:SetWordWrap(wrap) self.wrap = wrap end
+function Widget:SetJustifyH(justify) self.justifyH = justify end
+function Widget:GetUnboundedStringWidth() return #(self.text or "") * (CHAR_W[self.font] or 6) end
+function Widget:GetStringWidth()
+	local full = self:GetUnboundedStringWidth()
+	return (self.w or 0) > 0 and math.min(full, self.w) or full
+end
+function Widget:IsTruncated() return self.wrap == false and (self.w or 0) > 0 and self:GetUnboundedStringWidth() > self.w end
+function Widget:Click() self:Fire("OnClick") end
+
+local TEMPLATES = {
+	PortraitFrameTemplate = function(w)
+		w.CloseButton = NewWidget("Button", nil, w)
+		w.w, w.h = 338, 424
+	end,
+	BasicFrameTemplateWithInset = function(w)
+		w.CloseButton = NewWidget("Button", nil, w)
+		w.TitleText = w:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	end,
+	-- The same atlas template on every client (see UI.TabStyle); the Lua sizing it differs.
+	PanelTabButtonTemplate = function(w)
+		w.h = 32
+		for _, key in ipairs({ "Left", "Middle", "Right", "LeftActive", "MiddleActive", "RightActive" }) do w[key] = NewWidget("Texture", nil, w) end
+		w.Text = w:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		w.fontString = w.Text
+		w.parent.Tabs = w.parent.Tabs or {}
+		table.insert(w.parent.Tabs, w)
+	end,
+}
+
+local function FakeCreateFrame(kind, name, parent, template)
+	local w = NewWidget(kind, name, parent)
+	if TEMPLATES[template] then TEMPLATES[template](w) end
+	return w
+end
+
+-- Blizzard's tab code, as far as it matters here (Blizzard_SharedXML, see UI.TabStyle):
+-- Mainline sizes a tab to its text + 20 and has PanelTemplates_AnchorTabs, Classic sizes
+-- it to its text + both end caps and does not.
+local TAB_GLOBALS = { "PanelTemplates_TabResize", "PanelTemplates_AnchorTabs", "PanelTemplates_SelectTab", "PanelTemplates_DeselectTab" }
+local function TabCode(family)
+	local capW = 20
+	PanelTemplates_SelectTab = function(tab) tab.selected = true end
+	PanelTemplates_DeselectTab = function(tab) tab.selected = false end
+	if family == "mainline" then
+		PanelTemplates_AnchorTabs = function() end
+		PanelTemplates_TabResize = function(tab, padding) tab:SetWidth(math.max(tab.Text:GetStringWidth() + 20 + (padding or 0), 2 * capW)) end
+	else
+		PanelTemplates_TabResize = function(tab, padding) tab:SetWidth(tab.Text:GetStringWidth() + (padding or 24) + 2 * capW) end
+	end
+end
+
+-- Runs fn with the widget toolkit as the client (the screen is 1366 x 768), failing on
+-- any error the addon caught. Everything it made global is cleared afterwards.
+local function WithUI(fn)
+	local captured
+	local saved = { CreateFrame = CreateFrame, CaptureError = ns.CaptureError, UI = ns.UI, GetGuildInfo = GetGuildInfo }
+	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
+	CreateFrame = FakeCreateFrame
+	UIParent = NewWidget("Frame", "UIParent")
+	UIParent.rect = { 0, 0, 1366, 768 }
+	UISpecialFrames, tinsert = {}, table.insert
+	GameTooltip = NewWidget("GameTooltip", "GameTooltip", UIParent)
+	ns.rdb.guilds = SampleGuilds()
+	local ok, err = pcall(fn)
+	CreateFrame, ns.CaptureError, ns.UI, GetGuildInfo = saved.CreateFrame, saved.CaptureError, saved.UI, saved.GetGuildInfo
+	for _, name in ipairs(widgetNames) do _G[name] = nil end
+	widgetNames = {}
+	for _, name in ipairs(GUILD_GLOBALS) do _G[name] = nil end
+	for _, name in ipairs(TAB_GLOBALS) do _G[name] = nil end
+	PTR_IssueReporter, UISpecialFrames, tinsert = nil, nil, nil
+	ns.rdb.guilds = {}
+	if not ok then error(err, 0) end
+	eq(captured, nil, "error caught")
+end
+
+-- UI.lua with fresh state in a namespace of its own (Views and friends read ns.UI).
+local function LoadUI()
+	local uns = setmetatable({}, { __index = ns })
+	uns.On = function() end
+	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+	ns.UI = uns.UI
+	return uns.UI
+end
+
+local function Anchor(frame, i)
+	local p = frame.points[i or 1]
+	return p and table.concat({ p[1], tostring(p[2] and p[2].name), p[3], p[4], p[5] }, " ")
+end
+
+test("tab spacing: Blizzard's on Forever (Mainline tab code), the old overlap on Classic", function()
+	local uns = setmetatable({}, { __index = ns })
+	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+	local UI = uns.UI
+	local atlasTab, plainButton = { LeftActive = {} }, {}
+	eq(UI.TabStyle(atlasTab), "classic", "same atlas template, Classic code")
+	PanelTemplates_AnchorTabs = function() end
+	eq(UI.TabStyle(atlasTab), "mainline")
+	eq(UI.TabStyle(plainButton), "classic", "fallback buttons keep the old spacing")
+	PanelTemplates_AnchorTabs = nil
+	local f, prev = {}, {}
+	eq(select(5, UI.TabAnchor("mainline", 1, f)), 2)
+	eq(table.concat({ select(3, UI.TabAnchor("mainline", 1, f)) }, " "), "BOTTOMLEFT 5 2", "first tab where FriendsFrame has it")
+	eq(table.concat({ UI.TabAnchor("mainline", 2, f, prev) }, " ", 3), "TOPRIGHT 3 0", "3 apart, like PanelTemplates_AnchorTabs")
+	eq(select(2, UI.TabAnchor("mainline", 2, f, prev)), prev)
+	eq(table.concat({ UI.TabAnchor("classic", 1, f) }, " ", 3), "BOTTOMLEFT 10 2")
+	eq(table.concat({ UI.TabAnchor("classic", 3, f, prev) }, " ", 3), "RIGHT -15 0")
+end)
+
+test("tabs on the real window: side by side on Forever, unchanged on Classic", function()
+	for _, family in ipairs({ "mainline", "classic" }) do
+		WithUI(function()
+			TabCode(family)
+			local UI = LoadUI()
+			UI.SelectTab("census")
+			local main = OlympusFrame
+			eq(UI.tabTemplate, "PanelTabButtonTemplate"); eq(UI.tabStyle, family)
+			local tabs = main.tabs
+			if family == "mainline" then
+				eq(Anchor(tabs[1]), "TOPLEFT OlympusFrame BOTTOMLEFT 5 2")
+				eq(Anchor(tabs[2]), "TOPLEFT " .. tabs[1].name .. " TOPRIGHT 3 0")
+				for i = 2, #tabs do
+					local gap = tabs[i]:GetLeft() - tabs[i - 1]:GetRight()
+					eq(gap, 3, "gap before tab " .. i)
+					assert(tabs[i].Text:GetStringWidth() + 20 <= tabs[i]:GetWidth(), "text fits tab " .. i)
+				end
+				assert(tabs[#tabs]:GetRight() <= main:GetRight(), "last tab inside the window")
+			else
+				eq(Anchor(tabs[1]), "TOPLEFT OlympusFrame BOTTOMLEFT 10 2")
+				eq(Anchor(tabs[3]), "LEFT " .. tabs[2].name .. " RIGHT -15 0")
+			end
+			eq(tabs[1].selected, true); eq(tabs[2].selected, false)
+		end)
+	end
+end)
+
+test("Join screen: no column titles, the list starts higher, and it follows joining", function()
+	WithUI(function()
+		GetGuildInfo = function() return nil end
+		local UI = LoadUI()
+		UI.Toggle()
+		local main = OlympusFrame
+		local function listTop() return main.scroll:Anchor("TOPLEFT")[5] end
+		eq(main.colHeader:IsShown(), false, "Join screen: no column titles")
+		eq(listTop(), -64)
+		eq(main.tabs[1]:IsShown(), false)
+		-- The player joins an Olympus guild with the window open (DATA_CHANGED, or the
+		-- 5 second refresh).
+		GetGuildInfo = function() return "Olympus II" end
+		UI.Refresh()
+		eq(main.colHeader:IsShown(), true, "census column titles once a member")
+		eq(listTop(), -80)
+		eq(main.tabs[1]:IsShown(), true)
+		-- And leaves it.
+		GetGuildInfo = function() return "House of Guedes" end
+		UI.Refresh()
+		eq(main.colHeader:IsShown(), false); eq(listTop(), -64)
+		-- Other tabs never had column titles.
+		GetGuildInfo = function() return "Olympus II" end
+		UI.SelectTab("realm")
+		eq(main.colHeader:IsShown(), false); eq(listTop(), -64)
+	end)
+end)
+
+test("header lines stay inside the window: smaller font first, then cut", function()
+	WithUI(function()
+		GetGuildInfo = function() return nil end
+		local UI = LoadUI()
+		UI.Toggle()
+		local main = OlympusFrame
+		local w = main:GetWidth()
+		eq(w, 338, "the narrow window")
+		-- "No guild? What are you doing?" is too wide in the large font, fits in the normal one.
+		eq(main.total:GetText(), ns.L.ROAST_NOGUILD)
+		eq(main.total.font, "GameFontNormal", "dropped to the smaller font")
+		eq(main.total.w, w - 62 - 26); eq(main.total:IsTruncated(), false)
+		-- The long line is cut ("...") at the window's edge instead of running past it.
+		eq(main.sub:GetText(), ns.L.ROAST_NOGUILD_SUB)
+		eq(main.sub.w, w - 62 - 8); eq(main.sub.wrap, false); eq(main.sub.justifyH, "LEFT")
+		eq(main.sub:IsTruncated(), true)
+		assert(62 + main.sub:GetStringWidth() <= w, "inside the window")
+		-- A member's header fits in the large font and is not cut.
+		GetGuildInfo = function() return "Olympus II" end
+		UI.Refresh()
+		eq(main.total.font, "GameFontNormalLarge"); eq(main.total:IsTruncated(), false)
+		-- A wider window gives the lines more room.
+		main:SetSize(385, 424)
+		eq(main.sub.w, 385 - 62 - 8)
+	end)
+end)
+
+test("docking with the real window: follows the guild window it was clicked in", function()
+	WithUI(function()
+		FriendsFrame = FakeFrame("FriendsFrame", UIParent, 338, 424)
+		FriendsFrame.rect = { 20, 200, 338, 424 }
+		GuildFrame = FakeFrame("GuildFrame", FriendsFrame, 338, 424)
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		CommunitiesFrame.rect = { 20, 180, 814, 426 }
+		local w = LoadGuildFrame(true)
+		ns.UI = w.ns.UI
+		w.Login()
+		local UI = w.ns.UI
+		local old, new = w.buttons[1], w.buttons[2]
+		local function size() return OlympusFrame:GetWidth() .. "x" .. OlympusFrame:GetHeight() end
+		-- Clicked in the Guild tab: next to the Social window, its size.
+		FriendsFrame:Show(); GuildFrame:Show(); old:Click()
+		local main = OlympusFrame
+		eq(main:IsShown(), true); eq(UI.DockedTo(), FriendsFrame)
+		eq(Anchor(main), "TOPLEFT FriendsFrame TOPRIGHT -2 0"); eq(main:GetNumPoints(), 1)
+		eq(size(), "338x424")
+		-- Clicked in the Communities window: moves there, its height, the Social width.
+		CommunitiesFrame:Show(); new:Click()
+		eq(main:IsShown(), true, "moved, not closed"); eq(UI.DockedTo(), CommunitiesFrame)
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT -2 0"); eq(main:GetNumPoints(), 1)
+		eq(size(), "338x426")
+		-- The Social window closing (it is watched) leaves it docked where it is.
+		GuildFrame:Hide(); FriendsFrame:Hide()
+		eq(main:IsShown(), true, "the Social window closing leaves it open"); eq(UI.DockedTo(), CommunitiesFrame)
+		-- The Communities window is minimized: the new height is taken.
+		CommunitiesFrame.w, CommunitiesFrame.h = 322, 406
+		CommunitiesFrame:Run("OnSizeChanged")
+		eq(size(), "338x406", "follows minimize")
+		-- Dragged away: no longer docked, keeps its size and stays open when the guild window
+		-- changes or closes.
+		main.scripts.OnDragStart(main); main.scripts.OnDragStop(main)
+		eq(UI.DockedTo(), nil, "dragged: not docked")
+		eq(Anchor(main), "BOTTOMLEFT UIParent BOTTOMLEFT 832 200", "where it was dropped")
+		CommunitiesFrame.w, CommunitiesFrame.h = 814, 500
+		CommunitiesFrame:Run("OnSizeChanged")
+		eq(size(), "338x406", "no longer follows")
+		CommunitiesFrame:Hide()
+		eq(main:IsShown(), true, "no longer closes with it")
+		-- Clicked again: docks again, then a second click closes it.
+		CommunitiesFrame:Show(); new:Click()
+		eq(main:IsShown(), true); eq(UI.DockedTo(), CommunitiesFrame)
+		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT -2 0"); eq(size(), "338x500")
+		new:Click()
+		eq(main:IsShown(), false, "second click closes it")
+		-- Opened from the Guild tab and closed with it.
+		FriendsFrame:Show(); GuildFrame:Show(); old:Click()
+		eq(UI.DockedTo(), FriendsFrame); eq(size(), "338x424")
+		GuildFrame:Hide()
+		eq(main:IsShown(), false, "leaving the Guild tab closes it")
+	end)
+end)
+
+test("clearing a rect: up just enough, never off the screen", function()
+	local uns = setmetatable({}, { __index = ns })
+	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+	local ClearUp = uns.UI.ClearUp
+	local function R(l, b, r, t) return { left = l, bottom = b, right = r, top = t } end
+	local win = R(500, 182, 840, 636)
+	eq(ClearUp(win, R(640, 142, 728, 228), 768, 4), 50, "overlapping: up past its top plus the gap")
+	eq(ClearUp(win, R(10, 142, 90, 228), 768, 4), nil, "beside it")
+	eq(ClearUp(win, R(640, 100, 728, 182), 768, 4), nil, "just touching below")
+	eq(ClearUp(win, R(640, 600, 728, 700), 768, 4), nil, "cannot clear without leaving the screen")
+	eq(ClearUp(win, R(640, 142, 728, 228), 690, 4), 50, "room enough")
+	eq(ClearUp(win, R(640, 142, 728, 228), 680, 4), nil, "not quite")
+	eq(ClearUp(nil, R(640, 142, 728, 228), 768, 4), nil)
+end)
+
+-- Blizzard's Issue Reporter (Blizzard_PTRFeedback): a 80 x 32 box, its bug button in a
+-- body below it and a border around it, at `x, y` (screen pixels, bottom left) and `scale`.
+local function IssueReporter(x, y, scale)
+	local s = scale or 1
+	local r = NewWidget("Frame", nil, UIParent)
+	r.scale = s
+	r.rect = { x / s, y / s, 80 / s, 32 / s }
+	r.Border = NewWidget("Frame", nil, r); r.Border.rect = { (x - 4) / s, (y - 4) / s, 88 / s, 40 / s }
+	r.Body = NewWidget("Frame", nil, r); r.Body.rect = { x / s, (y - 50) / s, 80 / s, 50 / s }
+	r.ReportBug = NewWidget("Button", nil, r); r.ReportBug.rect = { (x + 13) / s, (y - 46) / s, 54 / s, 40 / s }
+	PTR_IssueReporter = r
+	return r
+end
+
+test("Issue Reporter: the window steps above it when it opens, never over a player's choice", function()
+	WithUI(function()
+		-- Where Blizzard puts it by default: bottom centre, a quarter up the screen.
+		IssueReporter(643, 192)
+		local UI = LoadUI()
+		UI.Toggle()
+		local main = OlympusFrame
+		-- The window (bottom 212) and its tabs (down to 182) cover it (142 to 228): up 50.
+		eq(Anchor(main), "CENTER UIParent CENTER 0 90", "moved up just enough")
+		eq(main:GetBottom() - 30, 232, "tabs 4 above the reporter")
+		UI.Toggle(); UI.Toggle()
+		eq(Anchor(main), "CENTER UIParent CENTER 0 90", "clear now: not moved again")
+		-- Dragged onto it by the player: stays there, now and when opened again.
+		main.scripts.OnDragStart(main)
+		main:ClearAllPoints(); main:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 500, 200)
+		main.scripts.OnDragStop(main)
+		UI.Toggle(); UI.Toggle()
+		eq(Anchor(main), "BOTTOMLEFT UIParent BOTTOMLEFT 500 200", "the player's place is kept")
+	end)
+	WithUI(function()
+		-- Join screen (no tabs), reporter drawn at a smaller scale, our window at 0.8.
+		GetGuildInfo = function() return nil end
+		UIParent.scale = 0.8
+		UIParent.rect = { 0, 0, 1366 / 0.8, 768 / 0.8 }
+		IssueReporter(643, 192, 0.5)
+		local UI = LoadUI()
+		UI.Toggle()
+		local main = OlympusFrame
+		-- Bottom at (480 + 40 - 212) * 0.8 = 246.4 px, the reporter's top 228 + 4: already clear.
+		eq(Anchor(main), "CENTER UIParent CENTER 0 40", "no tabs on the Join screen, nothing to clear")
+		GetGuildInfo = function() return "Olympus II" end
+		UI.Toggle(); UI.Toggle()
+		-- With the tabs: bottom (308 - 30) * 0.8 = 222.4 px, needs 9.6 px = 12 of ours.
+		local y = main.points[1][5]
+		assert(math.abs(y - 52) < 0.001, "moved up 12 in its own scale, got " .. y)
+	end)
+	WithUI(function()
+		-- Too high to step above, or off to the side, or hidden: left alone.
+		local UI = LoadUI()
+		IssueReporter(643, 620)
+		UI.Toggle()
+		eq(Anchor(OlympusFrame), "CENTER UIParent CENTER 0 40", "cannot clear it: stays")
+		UI.Toggle()
+		IssueReporter(20, 192)
+		UI.Toggle()
+		eq(Anchor(OlympusFrame), "CENTER UIParent CENTER 0 40", "not in the way")
+		UI.Toggle()
+		IssueReporter(643, 192).shown = false
+		UI.Toggle()
+		eq(Anchor(OlympusFrame), "CENTER UIParent CENTER 0 40", "hidden")
+	end)
+	WithUI(function()
+		-- Shown the moment it was made, before the client laid it out: looked at once more
+		-- on the next frame, and only once.
+		IssueReporter(643, 192)
+		local savedAfter, later = C_Timer.After, {}
+		C_Timer.After = function(_, fn) later[#later + 1] = fn end
+		local rect = UIParent.rect
+		UIParent.rect = nil
+		local UI = LoadUI()
+		UI.Toggle()
+		UIParent.rect = rect
+		C_Timer.After = savedAfter
+		eq(#later, 1, "one retry")
+		eq(Anchor(OlympusFrame), "CENTER UIParent CENTER 0 40", "nothing to measure yet")
+		later[1]()
+		eq(Anchor(OlympusFrame), "CENTER UIParent CENTER 0 90", "moved on the next frame")
+	end)
+	WithUI(function()
+		-- Docked: stays glued to the guild window, whatever covers it.
+		CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+		CommunitiesFrame.rect = { 0, 150, 500, 426 }
+		CommunitiesFrame.shown = true
+		IssueReporter(560, 192)
+		local UI = LoadUI()
+		UI.OpenDocked(CommunitiesFrame, "census", true)
+		eq(Anchor(OlympusFrame), "TOPLEFT CommunitiesFrame TOPRIGHT -2 0")
+	end)
+end)
+
+test("Issue Reporter: the person panel steps above it too", function()
+	WithUI(function()
+		local UI = LoadUI()
+		UI.Toggle()
+		-- Window at 514..852 x 212..636; the panel hangs off its right, 850..1080 x 398..608.
+		-- The reporter with its border: 376..416.
+		IssueReporter(900, 380)
+		UI.ShowPerson({ name = "Asmongold-Realm", class = "WARRIOR", level = 25, online = true })
+		local person = OlympusPersonFrame
+		eq(Anchor(OlympusFrame), "CENTER UIParent CENTER 0 40", "the window is not in the way: not moved")
+		eq(Anchor(person), "TOPLEFT OlympusFrame TOPRIGHT -2 -6", "panel up 22: 4 above the reporter")
+		eq(person.name.wrap, false, "long names are not wrapped over the lines below")
+		eq(person.name.font, "GameFontNormalLarge", "a short name keeps the large font")
+		UI.ShowPerson({ name = "Bellattrixxlestrange-ClassicBetaPvP" })
+		eq(person.name.font, "GameFontNormal", "a long one drops to the normal font")
+		PTR_IssueReporter = nil
+		UI.ShowPerson({ name = "Asmongold-Realm" })
+		eq(Anchor(person), "TOPLEFT OlympusFrame TOPRIGHT -2 -28", "back in its place without it")
+	end)
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))
