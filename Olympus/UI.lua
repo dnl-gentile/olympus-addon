@@ -71,15 +71,32 @@ local DETAIL_BUTTONS = {
 	},
 }
 
+local function SetButtonFont(b, small)
+	b:SetNormalFontObject(small and "GameFontNormalSmall" or "GameFontNormal")
+	b:SetHighlightFontObject(small and "GameFontHighlightSmall" or "GameFontHighlight")
+	b:SetDisabledFontObject(small and "GameFontDisableSmall" or "GameFontDisable")
+end
+
 local function Button(parent, width, height)
 	local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
 	b:SetSize(width, height or 22)
-	if height and height < 22 then
-		b:SetNormalFontObject("GameFontNormalSmall")
-		b:SetHighlightFontObject("GameFontHighlightSmall")
-		b:SetDisabledFontObject("GameFontDisableSmall")
-	end
+	b.small = height and height < 22
+	if b.small then SetButtonFont(b, true) end
 	return b
+end
+
+-- Keeps a label inside its button (long translations, the narrow Forever window): it
+-- drops to the small font, and is cut with "..." only if even that does not fit.
+local function FitLabel(b)
+	local fs = b:GetFontString()
+	if not fs then return end
+	SetButtonFont(b, b.small)
+	fs:SetWidth(0)
+	local room = b:GetWidth() - 12
+	local textW = fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()
+	if not b.small and textW > room then SetButtonFont(b, true) end
+	if fs.SetWordWrap then fs:SetWordWrap(false) end
+	fs:SetWidth(room)
 end
 
 local function HostSize()
@@ -279,16 +296,27 @@ local function CreateMain()
 	return f
 end
 
+-- The bottom buttons share the window width: three on a tab, two on the Join screen.
+local function LayoutButtons()
+	local shown = {}
+	for _, b in ipairs(main.buttons) do
+		if b:IsShown() then shown[#shown + 1] = b end
+	end
+	if #shown == 0 then shown = main.buttons end
+	local bw = math.floor((main:GetWidth() - 16 - 2 * (#shown - 1)) / #shown)
+	for i, b in ipairs(shown) do
+		b:SetWidth(bw)
+		b:ClearAllPoints()
+		if i == 1 then b:SetPoint("BOTTOMLEFT", 8, 8) else b:SetPoint("LEFT", shown[i - 1], "RIGHT", 2, 0) end
+		FitLabel(b)
+	end
+end
+
 -- Positions that depend on the window width (buttons, columns, list width).
 function UI.Layout()
 	if not main then return end
 	local w = main:GetWidth()
-	local bw = math.floor((w - 20) / 3)
-	for i, b in ipairs(main.buttons) do
-		b:SetWidth(bw)
-		b:ClearAllPoints()
-		if i == 1 then b:SetPoint("BOTTOMLEFT", 8, 8) else b:SetPoint("LEFT", main.buttons[i - 1], "RIGHT", 2, 0) end
-	end
+	LayoutButtons()
 	local hasCols = ns.Views.COLUMNS[main.tab] ~= nil and main.tab == "census"
 	main.colHeader:SetShown(hasCols)
 	main.scroll:ClearAllPoints()
@@ -372,10 +400,12 @@ local function SetButtons(list, defs)
 			end or nil)
 			b:SetScript("OnLeave", function() GameTooltip:Hide() end)
 			b:Show()
+			FitLabel(b)
 		else
 			b:Hide()
 		end
 	end
+	if list == main.buttons then LayoutButtons() end
 end
 
 function UI.SelectTab(key)
