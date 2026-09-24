@@ -643,17 +643,17 @@ function Hop.ChooseKing(choice)
 	Changed()
 end
 
--- look: "dim" (grey, the way out), "main" (larger and lit, the one we hope for) or nil.
+-- look: "dim" (grey, the way out), "main" (lit, white text: the one we hope for) or nil.
+-- All three the same size.
 local function PromptButton(f, label, choice, look)
 	local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-	b:SetHeight(look == "main" and 26 or 22)
+	b:SetHeight(22)
 	if look == "dim" then
 		b:SetNormalFontObject("GameFontDisable")
 		b:SetHighlightFontObject("GameFontHighlight")
 		b:SetAlpha(0.8)
 	elseif look == "main" then
-		b:SetNormalFontObject("GameFontNormalLarge")
-		b:SetHighlightFontObject("GameFontHighlightLarge")
+		b:SetNormalFontObject("GameFontHighlight")
 		b:LockHighlight()
 	end
 	b:SetText(label)
@@ -680,7 +680,7 @@ local function MakePrompt()
 	f.text = f:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
 	f.text:SetPoint("TOP", 0, -20)
 	f.text:SetJustifyH("CENTER")
-	-- Left to right: the way out (grey), inviting by hand, and "For Olympus!" (lit).
+	-- Left to right: the way out (grey), inviting by hand, and "For Olympus!" (lit, white).
 	f.buttons = {
 		PromptButton(f, L.HOP_KING_PROMPT_NO, "no", "dim"),
 		PromptButton(f, L.HOP_KING_PROMPT_MANUAL, "manual"),

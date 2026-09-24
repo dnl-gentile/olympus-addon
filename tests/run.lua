@@ -4693,10 +4693,10 @@ test("layer hop: alone on the King's layer, a window asks whether the addon may 
 			local f = H.prompt
 			assert(f and f:IsShown(), "alone on his layer: the window")
 			assert(f.text:GetText():find("Asmond is online and you are on his layer", 1, true), f.text:GetText())
-			-- Left to right: the way out (grey), by hand, and For Olympus! (larger, lit).
+			-- Left to right: the way out (grey), by hand, and For Olympus! (lit), all one size.
 			eq(f.buttons[1]:GetText(), "Can't right now"); eq(f.buttons[2]:GetText(), "Invite manually")
 			eq(f.buttons[3]:GetText(), "For Olympus!"); eq(f.checkLabel:GetText(), "Don't ask me again")
-			assert(f.buttons[3]:GetHeight() > f.buttons[1]:GetHeight(), "For Olympus! stands out")
+			eq(f.buttons[3]:GetHeight(), f.buttons[1]:GetHeight(), "the same size as the others")
 			local total = 0
 			for _, b in ipairs(f.buttons) do
 				assert(b:GetWidth() >= b:GetFontString():GetUnboundedStringWidth() + 20, "fits: " .. b:GetText())
