@@ -246,10 +246,13 @@ local function Hash36(text)
 end
 Comm.Hash36 = Hash36
 
+-- Each faction has its own channel (and sealed name), so the Horde and the Alliance never
+-- mix their census, chat or decrees, whether or not the game shares channel names between them.
 function Comm.ChannelSpec()
+	local horde = ns.faction == "Horde"
 	local key = ns.rdb and ns.rdb.realmKey
-	if key and key ~= "" then return "Oly" .. Hash36(key), key end
-	return ns.CHANNEL, nil
+	if key and key ~= "" then return (horde and "OlyH" or "Oly") .. Hash36(key), key end
+	return horde and ns.CHANNEL_HORDE or ns.CHANNEL, nil
 end
 
 local function HideChannelFromChat(name)
@@ -604,6 +607,6 @@ ns.On("LOGIN", function()
 			stats.partial = stats.partial + dropped
 			ns.Log("incomplete report dropped: %s", tostring(sample))
 		end
-		if channelIndex == 0 or GetChannelName(joinedName or ns.CHANNEL) == 0 then Comm.JoinChannel() end
+		if channelIndex == 0 or GetChannelName(joinedName or (Comm.ChannelSpec())) == 0 then Comm.JoinChannel() end
 	end)
 end)

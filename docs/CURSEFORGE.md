@@ -20,6 +20,11 @@ looks like Blizzard's Guild window and docks right next to it.
 
 ---
 
+**Horde too.** Olympus guilds on the Horde side use the same addon. The factions can't see
+each other's guilds, so each one gets its own census, channels, decrees and Wall of Shame: the
+addon picks yours from your character. On the Horde, the Crown is every Horde Olympus guild
+master and the officers of the Horde guild named exactly "Olympus", if there is one.
+
 ## Who can use it
 
 **Only members of a guild with "Olympus" in its name.** The check is fixed in the code and
