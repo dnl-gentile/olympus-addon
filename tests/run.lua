@@ -4560,8 +4560,7 @@ test("layer hop: only a helper the addon can vouch for gets their invite accepte
 		eq(real("Capt-Realm", 1453, 8), true, "a Captain the census names")
 		eq(real("Stranger-Realm", 1453, 8), false, "anyone else")
 		ns.Layers.Receive("Seen-Realm", { mapID = 1453, zoneUID = 8, rank = 9, guild = "Olympus IV" })
-		eq(real("Seen-Realm", 1453, 8), true, "announced that very layer")
-		eq(real("Seen-Realm", 1453, 9), false, "another layer")
+		eq(real("Seen-Realm", 1453, 8), false, "a layer announcement is only its sender's word")
 		ns.Roster.RankOf, ns.rdb.guilds = savedRank, savedGuilds
 		-- A stranger's offer can be drawn, but their invite is left to the game's window.
 		H.Trusted = function(name) return ns.ShortName(name) == "Tru" end
@@ -4571,15 +4570,36 @@ test("layer hop: only a helper the addon can vouch for gets their invite accepte
 		w.clock = w.clock + H.WINDOW
 		H.Tick()
 		eq(H.State().helper, "Aaa-Realm")
+		w.clock = w.clock + H.WAIT - 5
 		H.OnInvite("Aaa")
 		eq(w.accepted, 0, "not accepted for us: the player clicks")
 		eq(H.State().phase, "requested")
-		-- The player accepts by hand: the hop goes on as usual.
-		w.group, w.party.party1 = 2, "Aaa"
+		-- The wait starts over from the invite: nobody else is asked while it is on screen.
+		w.clock = w.clock + 10
+		H.Tick()
+		eq(H.State().helper, "Aaa-Realm"); eq(#w.whispered, 1, "no second helper asked")
+		-- The player accepts by hand; the game has not named the group's members yet.
+		w.group, w.party.party1 = 2, nil
 		H.OnRoster()
-		eq(H.State().phase, "joined")
+		eq(H.State().phase, "joined", "the helper's group, members not named yet")
+		-- A friend's group while the helper's invite is out is not the hop's.
+		w.group, w.party = 0, {}
+		H.Reset()
+		w.clock = w.clock + H.ASK_GAP
+		H.Ask(1453, 8, "Kingy's layer")
+		H.HandleOffer("WHISPER", "Aaa-Realm", "LO~1~0~0")
+		w.clock = w.clock + H.WINDOW
+		H.Tick()
+		H.OnInvite("Aaa")
+		w.group, w.party.party1 = 2, "Friend"
+		H.OnRoster()
+		eq(H.State().phase, "done", "a friend's group: the hop is off")
+		w.see(8)
+		H.OnLayer()
+		eq(w.left, 0, "and never left")
 		-- A helper the addon can vouch for is drawn first, and accepted for us.
 		w.group, w.party = 0, {}
+		w.see(7)
 		H.Reset()
 		w.clock = w.clock + H.ASK_GAP
 		H.Ask(1453, 8, "Kingy's layer")
@@ -4626,6 +4646,12 @@ test("layer hop: a King only one report names gets no line", function()
 		ns.rdb.guilds = { ["Olympus"] = { total = 1, online = 1, zones = {}, t = os.time(), leader = "Evil", leaderOnline = true } }
 		ns.Now = function() return os.time() end
 		eq(H.King(), nil, "nobody else names him")
+		local said
+		local savedPrint = ns.Print
+		ns.Print = function(m) said = m end
+		H.AskKing()
+		ns.Print = savedPrint
+		eq(said, ns.L.HOP_KING_CHECKING:format("Asmond"), "not 'offline': still being confirmed")
 		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1, online = 1, zones = {}, t = os.time(), leader = "Asmon", leaderOnline = true }, "W1-Realm", "W2-Realm") }
 		eq(H.King().name, "Asmond")
 		ns.rdb.guilds = {}

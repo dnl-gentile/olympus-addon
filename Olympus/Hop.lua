@@ -320,11 +320,11 @@ function Hop.Ask(mapID, zoneUID, label)
 	Changed()
 end
 
--- A helper the addon can vouch for: a guildmate (our roster), a Lord or Captain the census
--- names, or a player whose own addon announced the very layer asked for. Their invite is
--- accepted for the player; anyone else's is left to the game's invite window (one click), so
--- nobody pulls a player into their group just by answering an ask read on the channel.
-function Hop.Trusted(name, mapID, zoneUID)
+-- A helper the addon can vouch for: a guildmate (our roster), or a Lord or Captain the census
+-- names. Their invite is accepted for the player; anyone else's is left to the game's invite
+-- window (one click), so nobody pulls a player into their group just by answering an ask read
+-- on the channel. (A layer announcement is the sender's own word: it proves nothing here.)
+function Hop.Trusted(name)
 	name = ns.FullName(name)
 	if ns.Roster.RankOf(name) then return true end
 	local short = ns.ShortName(name)
@@ -337,8 +337,7 @@ function Hop.Trusted(name, mapID, zoneUID)
 			if listed and ns.Data.KnownRank(name, guild) then return true end
 		end
 	end
-	local at = ns.Layers.Of(name)
-	return (at and at.mapID == mapID and at.zoneUID == zoneUID) and true or false
+	return false
 end
 
 function Hop.HandleOffer(dist, sender, text)
@@ -348,7 +347,7 @@ function Hop.HandleOffer(dist, sender, text)
 	sender = ns.FullName(sender)
 	if ask.offers[sender] or ask.count >= Hop.MAX_OFFERS then return end
 	ask.offers[sender] = { name = sender, group = math.min(tonumber(group), 40), load = math.min(tonumber(load), 99), t = ns.Now(),
-		trusted = Hop.Trusted(sender, ask.mapID, ask.zoneUID) }
+		trusted = Hop.Trusted(sender) }
 	ask.count = ask.count + 1
 	Changed()
 end
@@ -377,11 +376,16 @@ function Hop.OnInvite(name)
 	-- Not one the addon can vouch for (Hop.Trusted): the game's own window, the player's click.
 	local o = ask.offers[helper]
 	if not (o and o.trusted) then
+		-- The player decides: the wait starts over from this invite, and the group they may
+		-- join counts as this helper's (OnRoster) even before the game names its members.
+		ask.helper, ask.invitedBy, ask.asked = helper, helper, ns.Now()
+		if ask.phase ~= "requested" then ask.phase = "requested" end
 		if ask.hinted ~= helper then
 			ask.hinted = helper
 			ns.PlayAlert("soft")
 			ns.Print(L.HOP_ACCEPT_HINT:format(ns.DisplayName(helper)))
 		end
+		Changed()
 		return
 	end
 	local dialog = StaticPopup_FindVisible and StaticPopup_FindVisible("PARTY_INVITE")
@@ -444,11 +448,16 @@ function Hop.OnRoster()
 	if not grouped then return end
 	-- In a group: a helper we asked is in it (or we accepted their invite), else it is some
 	-- other group (a friend's) and the hop is off: the addon never leaves that one.
-	local names, helper = GroupNames(), nil
+	local names, helper, named = GroupNames(), nil, false
 	for name in pairs(ask.tried) do
 		if names[ns.ShortName(name)] then helper = name end
 	end
-	if not helper and ask.phase == "accepted" then helper = ask.helper end
+	for short in pairs(names) do
+		if short ~= "" and short ~= (UNKNOWNOBJECT or "Unknown") then named = true end
+	end
+	-- Nobody in it named yet (the game names the members a moment later): the helper's
+	-- invite we or the player accepted made this group. Anyone else named: not the hop's.
+	if not helper and not named and (ask.phase == "accepted" or ask.invitedBy) then helper = ask.invitedBy or ask.helper end
 	if not helper then return Finish() end
 	ask.helper, ask.phase, ask.joined = helper, "joined", ns.Now()
 	stats.joins = stats.joins + 1
@@ -544,9 +553,21 @@ function Hop.King()
 	return nil
 end
 
+-- <Olympus> reports its leader online, but the census does not confirm him yet (a few
+-- minutes after login, Data.KnownRank): not "offline".
+local function KingUnconfirmed()
+	for name, g in pairs(ns.rdb.guilds or {}) do
+		if type(name) == "string" and name:lower() == "olympus" and type(g) == "table" and g.leader and g.leaderOnline
+			and ns.Now() - (g.t or 0) <= ns.Data.FRESH then
+			return true
+		end
+	end
+	return false
+end
+
 function Hop.AskKing()
 	local k = Hop.King()
-	if not k then return ns.Print(L.HOP_KING_OFFLINE) end
+	if not k then return ns.Print(KingUnconfirmed() and L.HOP_KING_CHECKING:format(ns.KingName()) or L.HOP_KING_OFFLINE) end
 	if not k.zoneUID then return ns.Print(L.HOP_KING_UNKNOWN:format(k.name)) end
 	if ns.Layers.CurrentMap() ~= k.mapID then return ns.Print(L.HOP_KING_ELSEWHERE:format(k.name, Hop.ZoneName(k.mapID))) end
 	Hop.Ask(k.mapID, k.zoneUID, L.LAYER_OF:format(k.name))
