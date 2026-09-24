@@ -423,6 +423,10 @@ function Comm.AskCensus()
 		if askTries < 3 then ns.After(20, "census request", Comm.AskCensus) end
 		return
 	end
+	-- Login and a guild change can both ask within seconds: once a minute is enough.
+	local now = ns.Now()
+	if Comm.lastAsk and now - Comm.lastAsk < 60 then return end
+	Comm.lastAsk = now
 	stats.asked = stats.asked + 1
 	Enqueue("CHANNEL", "Q1~", "censusreq")
 end
