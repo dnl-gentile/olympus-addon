@@ -582,10 +582,11 @@ end)
 local function SampleGuilds()
 	local now = os.time()
 	return {
-		["Olympus"] = { total = 990, online = 210, zones = { m1453 = 120, m1429 = 40 }, t = now, leader = "Asmongold",
+		-- Two other senders name its leader, so the census knows its King (Data.KnownRank).
+		["Olympus"] = Vouched({ total = 990, online = 210, zones = { m1453 = 120, m1429 = 40 }, t = now, leader = "Asmongold",
 			leaderOnline = true, leaderLevel = 24, leaderClass = "WA", ranks = { { name = "King", count = 1 }, { name = "Knight", count = 989 } },
 			officers = { { name = "Capt", online = true, days = 0, class = "PA", level = 22 } },
-			top = { { name = "Racer", level = 25, class = "MA" } }, inactive7 = 10, inactive30 = 2, avgLevel = 14 },
+			top = { { name = "Racer", level = 25, class = "MA" } }, inactive7 = 10, inactive30 = 2, avgLevel = 14 }, "W1-Realm", "W2-Realm"),
 		["Olympus II"] = { total = 500, online = 80, zones = { m1453 = 30 }, t = now, leader = "Lordy", leaderOnline = false, leaderDays = 4,
 			officers = {}, top = { { name = "Other", level = 20, class = "RO" } } },
 	}
@@ -1362,6 +1363,38 @@ test("tab spacing: Blizzard's on Forever (Mainline tab code), the old overlap on
 	eq(select(2, UI.TabAnchor("mainline", 2, f, prev)), prev)
 	eq(table.concat({ UI.TabAnchor("classic", 1, f) }, " ", 3), "BOTTOMLEFT 10 2")
 	eq(table.concat({ UI.TabAnchor("classic", 3, f, prev) }, " ", 3), "RIGHT -15 0")
+end)
+
+test("tabs of the old window: four or five of Classic's wide tabs shrink to fit it", function()
+	WithUI(function()
+		GetGuildInfo = function() return "Olympus II" end
+		local savedResize, savedVisible = PanelTemplates_TabResize, ns.King.Visible
+		-- Classic's sizing: about 115 wide whatever the text, or the width asked for.
+		PanelTemplates_TabResize = function(tab, _, absolute) tab:SetWidth(absolute or 115) end
+		ns.King.Visible = function() return true end
+		local ok, err = pcall(function()
+			local UI = LoadUI()
+			UI.Toggle()
+			local main = OlympusFrame
+			local function Span()
+				local n, total = 0, 0
+				for _, tab in ipairs(main.tabs) do
+					if tab:IsShown() then n = n + 1; total = total + tab:GetWidth() end
+				end
+				return n, total - 15 * (n - 1)
+			end
+			local n, span = Span()
+			eq(n, 5, "the Throne too")
+			assert(span <= main:GetWidth() - 10, ("five tabs inside the window: %d of %d"):format(span, main:GetWidth()))
+			for _, tab in ipairs(main.tabs) do assert(tab:GetWidth() >= 44, "still a tab") end
+			-- Room enough: Blizzard's own size.
+			main:SetWidth(900)
+			UI.Refresh()
+			eq(main.tabs[1]:GetWidth(), 115)
+		end)
+		PanelTemplates_TabResize, ns.King.Visible = savedResize, savedVisible
+		if not ok then error(err, 0) end
+	end)
 end)
 
 test("HD docking gap and side tabs: Blizzard's own numbers", function()
@@ -4214,6 +4247,7 @@ local function WithHop(fn)
 	for _, n in ipairs(names) do saved[n] = _G[n] end
 	local savedSend, savedWhisper, savedReady, savedNow = ns.Comm.Send, ns.Comm.Whisper, ns.Comm.ChannelReady, ns.Now
 	local savedRandom, savedAfter, savedMap, savedGap = H.random, H.after, C_Map.GetBestMapForUnit, H.OFFER_GAP
+	local savedTrusted = H.Trusted
 	local w = { sent = {}, whispered = {}, popups = {}, invited = {}, accepted = 0, left = 0, hidden = {}, clock = 1000000,
 		group = 0, lead = false, npc = 7, map = 1453, party = {} }
 	local ok, err = pcall(function()
@@ -4226,6 +4260,7 @@ local function WithHop(fn)
 		H.after = function(_, _, f) f() end
 		H.random = function(a) return a or 0 end -- ids come out as 1, draws as 0 (always answer, first in line)
 		H.OFFER_GAP = 0 -- one offer every 10 s: the tests that look at it set it back
+		H.Trusted = function() return true end -- helpers the addon can vouch for: the test of trust sets it back
 		IsInGroup = function() return w.group > 0 end
 		GetNumGroupMembers = function() return w.group end
 		IsInRaid = function() return w.group > 5 end
@@ -4251,6 +4286,7 @@ local function WithHop(fn)
 	for _, n in ipairs(names) do _G[n] = saved[n] end
 	ns.Comm.Send, ns.Comm.Whisper, ns.Comm.ChannelReady, ns.Now = savedSend, savedWhisper, savedReady, savedNow
 	H.random, H.after, C_Map.GetBestMapForUnit, H.OFFER_GAP = savedRandom, savedAfter, savedMap, savedGap
+	H.Trusted = savedTrusted
 	ns.db.layerHelp, ns.db.layerAutoInvite, ns.db.hopKingChoice = nil, nil, nil
 	H.Reset()
 	if not ok then error(err, 0) end
@@ -4498,6 +4534,90 @@ test("layer hop: the draw spreads askers, favouring players alone and with fewer
 	eq(ns.Hop.Pick(offers, { ["A-Realm"] = true, ["B-Realm"] = true, ["C-Realm"] = true }), nil, "all tried")
 end)
 
+local RealTrusted = ns.Hop.Trusted
+test("layer hop: only a helper the addon can vouch for gets their invite accepted for us", function()
+	WithHop(function(w, H)
+		local real = RealTrusted
+		-- Who counts: a guildmate, a Lord or Captain the census names, a player seen on that layer.
+		local savedRank, savedGuilds = ns.Roster.RankOf, ns.rdb.guilds
+		ns.Roster.RankOf = function(name) if ns.ShortName(name) == "Mate" then return 5 end end
+		ns.rdb.guilds = SampleGuilds()
+		eq(real("Mate-Realm", 1453, 8), true, "a guildmate")
+		eq(real("Capt-Realm", 1453, 8), true, "a Captain the census names")
+		eq(real("Stranger-Realm", 1453, 8), false, "anyone else")
+		ns.Layers.Receive("Seen-Realm", { mapID = 1453, zoneUID = 8, rank = 9, guild = "Olympus IV" })
+		eq(real("Seen-Realm", 1453, 8), true, "announced that very layer")
+		eq(real("Seen-Realm", 1453, 9), false, "another layer")
+		ns.Roster.RankOf, ns.rdb.guilds = savedRank, savedGuilds
+		-- A stranger's offer can be drawn, but their invite is left to the game's window.
+		H.Trusted = function(name) return ns.ShortName(name) == "Tru" end
+		w.see(7)
+		H.Ask(1453, 8, "Kingy's layer")
+		H.HandleOffer("WHISPER", "Aaa-Realm", "LO~1~0~0")
+		w.clock = w.clock + H.WINDOW
+		H.Tick()
+		eq(H.State().helper, "Aaa-Realm")
+		H.OnInvite("Aaa")
+		eq(w.accepted, 0, "not accepted for us: the player clicks")
+		eq(H.State().phase, "requested")
+		-- The player accepts by hand: the hop goes on as usual.
+		w.group, w.party.party1 = 2, "Aaa"
+		H.OnRoster()
+		eq(H.State().phase, "joined")
+		-- A helper the addon can vouch for is drawn first, and accepted for us.
+		w.group, w.party = 0, {}
+		H.Reset()
+		w.clock = w.clock + H.ASK_GAP
+		H.Ask(1453, 8, "Kingy's layer")
+		H.HandleOffer("WHISPER", "Aaa-Realm", "LO~1~0~0")
+		H.HandleOffer("WHISPER", "Tru-Realm", "LO~1~1~0")
+		-- Mid draw: alone counts double (Aaa 2, Tru 1), vouched for three times (Tru 3).
+		H.random = function(a) return a or 0.5 end
+		w.clock = w.clock + H.WINDOW
+		H.Tick()
+		eq(H.State().helper, "Tru-Realm", "vouched for: weighs more")
+		H.OnInvite("Tru")
+		eq(w.accepted, 1)
+	end)
+end)
+
+test("layer hop: 'For Olympus!' shows a line to stop it, and /oly layerauto off stops it too", function()
+	WithHop(function(w, H)
+		ns.rdb.guilds = SampleGuilds()
+		ns.Layers.Receive("Asmongold-Realm", { mapID = 1453, zoneUID = 9, rank = 0, guild = "Olympus" })
+		w.see(9)
+		eq(#H.KingLines(), 1, "on his layer, nothing on its own: one line")
+		H.ChooseKing("auto")
+		local lines = H.KingLines()
+		eq(#lines, 2)
+		assert(lines[2].text:find(ns.L.HOP_AUTO_LINE:format("Asmond"), 1, true), lines[2].text)
+		lines[2].onClick()
+		eq(#H.KingLines(), 1, "stopped")
+		ns.db.hopKingChoice = "auto"
+		H.ChooseKing("auto")
+		eq(#H.KingLines(), 2)
+		H.SetAuto(false)
+		eq(#H.KingLines(), 1, "/oly layerauto off")
+		eq(ns.db.hopKingChoice, "manual", "and the kept answer too")
+		-- "Always invite" everywhere.
+		ns.db.layerAutoInvite = true
+		eq(#H.KingLines(), 2)
+		ns.rdb.guilds = {}
+		ns.Layers.Reset()
+	end)
+end)
+
+test("layer hop: a King only one report names gets no line", function()
+	WithHop(function(w, H)
+		ns.rdb.guilds = { ["Olympus"] = { total = 1, online = 1, zones = {}, t = os.time(), leader = "Evil", leaderOnline = true } }
+		ns.Now = function() return os.time() end
+		eq(H.King(), nil, "nobody else names him")
+		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1, online = 1, zones = {}, t = os.time(), leader = "Asmon", leaderOnline = true }, "W1-Realm", "W2-Realm") }
+		eq(H.King().name, "Asmond")
+		ns.rdb.guilds = {}
+	end)
+end)
+
 test("layer hop: the King's layer line tops the Census and the Realm only while he is online", function()
 	WithHop(function(w, H)
 		ns.rdb.guilds = SampleGuilds()
@@ -4573,8 +4693,10 @@ test("layer hop: alone on the King's layer, a window asks whether the addon may 
 			local f = H.prompt
 			assert(f and f:IsShown(), "alone on his layer: the window")
 			assert(f.text:GetText():find("Asmond is online and you are on his layer", 1, true), f.text:GetText())
-			eq(f.buttons[1]:GetText(), "For Olympus!"); eq(f.buttons[2]:GetText(), "Can't right now")
-			eq(f.buttons[3]:GetText(), "Invite manually"); eq(f.checkLabel:GetText(), "Don't ask me again")
+			-- Left to right: the way out (grey), by hand, and For Olympus! (larger, lit).
+			eq(f.buttons[1]:GetText(), "Can't right now"); eq(f.buttons[2]:GetText(), "Invite manually")
+			eq(f.buttons[3]:GetText(), "For Olympus!"); eq(f.checkLabel:GetText(), "Don't ask me again")
+			assert(f.buttons[3]:GetHeight() > f.buttons[1]:GetHeight(), "For Olympus! stands out")
 			local total = 0
 			for _, b in ipairs(f.buttons) do
 				assert(b:GetWidth() >= b:GetFontString():GetUnboundedStringWidth() + 20, "fits: " .. b:GetText())
@@ -4584,7 +4706,7 @@ test("layer hop: alone on the King's layer, a window asks whether the addon may 
 			eq(f.check:GetChecked(), false, "not ticked to start")
 			-- For Olympus!, and don't ask again.
 			f.check:SetChecked(true)
-			f.buttons[1]:Click()
+			f.buttons[3]:Click()
 			eq(f:IsShown(), false); eq(ns.db.hopKingChoice, "auto", "the answer is kept")
 			-- Requests are invited on their own, no window.
 			H.HandleAsk("CHANNEL", "Fan-Realm", "LQ~42~1453~9")
@@ -4620,7 +4742,7 @@ test("layer hop: alone on the King's layer, a window asks whether the addon may 
 			H.CheckKingPrompt()
 			eq(f:IsShown(), true, "asked again: the box was reset")
 			eq(f.check:GetChecked(), false)
-			f.buttons[2]:Click()
+			f.buttons[1]:Click()
 			eq(ns.db.hopKingChoice, nil, "box not ticked: this login only")
 			eq(H.CanHelp(1453, 9), false, "can't right now")
 			H.CheckKingPrompt()
@@ -4628,7 +4750,7 @@ test("layer hop: alone on the King's layer, a window asks whether the addon may 
 			-- Invite manually: the window per request.
 			H.Reset()
 			H.CheckKingPrompt()
-			f.buttons[3]:Click()
+			f.buttons[2]:Click()
 			eq(H.CanHelp(1453, 9), true)
 			assert(H.StatusLine():find("king=manual", 1, true), H.StatusLine())
 			-- Escape: the usual window, this login.

@@ -267,6 +267,7 @@ function Hop.Pick(offers, tried)
 	for name, o in pairs(offers) do
 		if not tried[name] then
 			local w = (o.group == 0 and 2 or 1) / (1 + o.load)
+			if o.trusted then w = w * 3 end -- a helper the addon can vouch for comes first
 			pool[#pool + 1] = { o = o, w = w }
 			total = total + w
 		end
@@ -319,13 +320,35 @@ function Hop.Ask(mapID, zoneUID, label)
 	Changed()
 end
 
+-- A helper the addon can vouch for: a guildmate (our roster), a Lord or Captain the census
+-- names, or a player whose own addon announced the very layer asked for. Their invite is
+-- accepted for the player; anyone else's is left to the game's invite window (one click), so
+-- nobody pulls a player into their group just by answering an ask read on the channel.
+function Hop.Trusted(name, mapID, zoneUID)
+	name = ns.FullName(name)
+	if ns.Roster.RankOf(name) then return true end
+	local short = ns.ShortName(name)
+	for guild, g in pairs(ns.rdb.guilds or {}) do
+		if type(g) == "table" then
+			local listed = g.leader and ns.ShortName(g.leader) == short
+			for _, o in ipairs(not listed and g.officers or {}) do
+				if o.name and ns.ShortName(o.name) == short then listed = true break end
+			end
+			if listed and ns.Data.KnownRank(name, guild) then return true end
+		end
+	end
+	local at = ns.Layers.Of(name)
+	return (at and at.mapID == mapID and at.zoneUID == zoneUID) and true or false
+end
+
 function Hop.HandleOffer(dist, sender, text)
 	if dist ~= "WHISPER" or not ask or ask.phase == "done" or ask.phase == "joined" then return end
 	local id, group, load = text:match("^LO~(%d+)~(%d+)~(%d+)$")
 	if tonumber(id) ~= ask.id then return end
 	sender = ns.FullName(sender)
 	if ask.offers[sender] or ask.count >= Hop.MAX_OFFERS then return end
-	ask.offers[sender] = { name = sender, group = math.min(tonumber(group), 40), load = math.min(tonumber(load), 99), t = ns.Now() }
+	ask.offers[sender] = { name = sender, group = math.min(tonumber(group), 40), load = math.min(tonumber(load), 99), t = ns.Now(),
+		trusted = Hop.Trusted(sender, ask.mapID, ask.zoneUID) }
 	ask.count = ask.count + 1
 	Changed()
 end
@@ -351,6 +374,16 @@ function Hop.OnInvite(name)
 	if not ask or (ask.phase ~= "requested" and ask.phase ~= "accepted") then return end
 	local helper = AskedHelper(name)
 	if not helper then return end
+	-- Not one the addon can vouch for (Hop.Trusted): the game's own window, the player's click.
+	local o = ask.offers[helper]
+	if not (o and o.trusted) then
+		if ask.hinted ~= helper then
+			ask.hinted = helper
+			ns.PlayAlert("soft")
+			ns.Print(L.HOP_ACCEPT_HINT:format(ns.DisplayName(helper)))
+		end
+		return
+	end
 	local dialog = StaticPopup_FindVisible and StaticPopup_FindVisible("PARTY_INVITE")
 	if dialog then dialog.inviteAccepted = 1 end
 	if AcceptGroup then AcceptGroup() end
@@ -494,13 +527,18 @@ end
 -- The King when he is online (leader of the guild named exactly "Olympus"), and his layer
 -- when his addon announced it: { name, mapID, zoneUID }. The name is the one the army calls
 -- him (ns.KING_NAME); his character's is only used to find his layer.
+-- Only the leader the majority of reports names (Data.KnownRank, the Throne's own check):
+-- one forged report can't crown anyone, nor send the army to its layer.
 function Hop.King()
 	local now = ns.Now()
 	for name, g in pairs(ns.rdb.guilds or {}) do
-		if type(name) == "string" and name:lower() == "olympus" and type(g) == "table" and g.leader then
-			if not (now - (g.t or 0) <= ns.Data.FRESH and g.leaderOnline) then return nil end
-			local where = ns.Layers.Of(ns.FullName(g.leader, g.realm or ns.realm))
-			return { name = ns.KING_NAME or ns.ShortName(g.leader), mapID = where and where.mapID, zoneUID = where and where.zoneUID }
+		if type(name) == "string" and name:lower() == "olympus" and type(g) == "table" and g.leader and not g.twin
+			and now - (g.t or 0) <= ns.Data.FRESH and g.leaderOnline then
+			local full = ns.FullName(g.leader, g.realm or ns.realm)
+			if ns.Data.KnownRank(full, name) == 0 then
+				local where = ns.Layers.Of(full)
+				return { name = ns.KingName(g.leader), mapID = where and where.mapID, zoneUID = where and where.zoneUID }
+			end
 		end
 	end
 	return nil
@@ -523,7 +561,7 @@ function Hop.KingLines()
 	local crown = "|T" .. ns.CROWN_ICON .. ":0|t "
 	local mine = ns.Layers.Mine()
 	if k.zoneUID and mine and mine.mapID == k.mapID and mine.zoneUID == k.zoneUID then
-		return { { text = crown .. "|cff40ff40" .. L.HOP_KING_HERE:format(k.name) .. "|r", color = "GameFontNormal", gapAfter = true } }
+		return Hop.WithAutoLine({ { text = crown .. "|cff40ff40" .. L.HOP_KING_HERE:format(k.name) .. "|r", color = "GameFontNormal", gapAfter = true } }, k)
 	end
 	local elsewhere = k.zoneUID and ns.Layers.CurrentMap() ~= k.mapID
 	local busy = ask and ask.phase ~= "done"
@@ -545,8 +583,35 @@ function Hop.KingLines()
 			if at then tt:AddLine(L.HOP_KING_WHERE:format(Hop.ZoneName(at.mapID)), 0.25, 1, 0.25, true) end
 		end,
 	}
-	if not elsewhere then return { line } end
-	return { line, { text = "|cffff9933" .. L.HOP_KING_GO:format(Hop.ZoneName(k.mapID)) .. "|r", indent = 1, gapAfter = true } }
+	if not elsewhere then return Hop.WithAutoLine({ line }, k) end
+	return Hop.WithAutoLine({ line, { text = "|cffff9933" .. L.HOP_KING_GO:format(Hop.ZoneName(k.mapID)) .. "|r", indent = 1, gapAfter = true } }, k)
+end
+
+-- While the addon invites on its own ("For Olympus!" or "Always invite"), a line under the
+-- King's says so, and one click stops it.
+function Hop.WithAutoLine(lines, k)
+	if not (ns.db.layerAutoInvite or KingChoice() == "auto") then return lines end
+	lines[#lines].gapAfter = nil
+	lines[#lines + 1] = {
+		text = "|cff40ff40" .. L.HOP_AUTO_LINE:format(k.name) .. "|r", indent = 1, gapAfter = true,
+		onClick = function() Hop.StopAuto() end,
+		tooltip = function(tt)
+			tt:AddLine(L.HOP_AUTO_LINE:format(k.name), 0.25, 1, 0.25)
+			tt:AddLine(L.HOP_AUTO_TIP, 1, 1, 1, true)
+		end,
+	}
+	return lines
+end
+
+-- No more invites on its own: every request shows the window again.
+function Hop.StopAuto()
+	ns.db.layerAutoInvite = false
+	if KingChoice() == "auto" then
+		kingMode = "manual"
+		if ns.db.hopKingChoice == "auto" then ns.db.hopKingChoice = "manual" end
+	end
+	ns.Print(L.HOP_AUTO_OFF)
+	Changed()
 end
 function Hop.KingLine() return Hop.KingLines()[1] end
 
@@ -572,15 +637,25 @@ function Hop.ChooseKing(choice)
 		f.answered = true
 		f:Hide()
 	end
-	if choice == "auto" then ns.Print(L.HOP_KING_AUTO:format(ns.KING_NAME or "?"))
+	if choice == "auto" then ns.Print(L.HOP_KING_AUTO:format((Hop.King() or {}).name or ns.KingName()))
 	elseif choice == "no" then ns.Print(L.HOP_KING_NO)
 	else ns.Print(L.HOP_KING_MANUAL) end
 	Changed()
 end
 
-local function PromptButton(f, label, choice)
+-- look: "dim" (grey, the way out), "main" (larger and lit, the one we hope for) or nil.
+local function PromptButton(f, label, choice, look)
 	local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-	b:SetHeight(22)
+	b:SetHeight(look == "main" and 26 or 22)
+	if look == "dim" then
+		b:SetNormalFontObject("GameFontDisable")
+		b:SetHighlightFontObject("GameFontHighlight")
+		b:SetAlpha(0.8)
+	elseif look == "main" then
+		b:SetNormalFontObject("GameFontNormalLarge")
+		b:SetHighlightFontObject("GameFontHighlightLarge")
+		b:LockHighlight()
+	end
 	b:SetText(label)
 	local fs = b:GetFontString()
 	local textW = fs and (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()) or 100
@@ -605,10 +680,11 @@ local function MakePrompt()
 	f.text = f:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
 	f.text:SetPoint("TOP", 0, -20)
 	f.text:SetJustifyH("CENTER")
+	-- Left to right: the way out (grey), inviting by hand, and "For Olympus!" (lit).
 	f.buttons = {
-		PromptButton(f, L.HOP_KING_PROMPT_YES, "auto"),
-		PromptButton(f, L.HOP_KING_PROMPT_NO, "no"),
+		PromptButton(f, L.HOP_KING_PROMPT_NO, "no", "dim"),
 		PromptButton(f, L.HOP_KING_PROMPT_MANUAL, "manual"),
+		PromptButton(f, L.HOP_KING_PROMPT_YES, "auto", "main"),
 	}
 	f.check = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
 	f.check:SetSize(24, 24)
@@ -632,7 +708,8 @@ function Hop.ShowKingPrompt()
 	local width = math.max(400, total + 40)
 	f:SetWidth(width)
 	f.text:SetWidth(width - 48)
-	f.text:SetText(L.HOP_KING_PROMPT:format(ns.KING_NAME or "?", ns.KING_NAME or "?"))
+	local kname = (Hop.King() or {}).name or ns.KingName()
+	f.text:SetText(L.HOP_KING_PROMPT:format(kname, kname))
 	local x = (width - total) / 2
 	for i, b in ipairs(f.buttons) do
 		b:ClearAllPoints()
@@ -669,9 +746,11 @@ function Hop.SetHelp(on)
 	ns.Print(on and L.HOP_HELP_ON or L.HOP_HELP_OFF)
 end
 
+-- Off also ends "For Olympus!" (the King's layer window's answer).
 function Hop.SetAuto(on)
-	ns.db.layerAutoInvite = on
-	ns.Print(on and L.HOP_AUTO_ON or L.HOP_AUTO_OFF)
+	if not on then return Hop.StopAuto() end
+	ns.db.layerAutoInvite = true
+	ns.Print(L.HOP_AUTO_ON)
 end
 
 -- Tests start from a clean state.

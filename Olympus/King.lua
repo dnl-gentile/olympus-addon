@@ -500,7 +500,7 @@ local function OnLocation(king, rest)
 	local mapID, x, y = rest:match("^(%d+)~(%d+)~(%d+)$")
 	mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
 	if not mapID or x > 1000 or y > 1000 then return end
-	kingAt = { name = ns.KING_NAME or ns.DisplayName(king), mapID = mapID, x = x / 1000, y = y / 1000, t = ns.Now() }
+	kingAt = { name = ns.KingName(king), mapID = mapID, x = x / 1000, y = y / 1000, t = ns.Now() }
 	ns.SafeCall("king crown", King.RefreshCrown)
 	Changed()
 end

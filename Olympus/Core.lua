@@ -392,6 +392,12 @@ ns.CAPTAIN_RANK = 1
 -- What the army calls the King on the lines and the crown made for him (Hop.lua, King.lua),
 -- whatever his character's name in the census.
 ns.KING_NAME = "Asmond"
+-- The King's name on the lines and the crown: the army's name for him on the Alliance side,
+-- his character's on the Horde (whose <Olympus> has a guild master of its own).
+function ns.KingName(leader)
+	if ns.faction == "Horde" then return leader and ns.ShortName(leader) or "?" end
+	return ns.KING_NAME
+end
 ns.CROWN_ICON = "Interface\\GroupFrame\\UI-Group-LeaderIcon"
 
 -- The Crown: guild masters of any Olympus guild, and the officers of the main "Olympus" guild.

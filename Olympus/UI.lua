@@ -728,6 +728,37 @@ local function LayoutDetailButtons()
 	end
 end
 
+-- The tabs under the old window fit its width. Blizzard sizes each to its text (about 115
+-- wide each on the Classic clients), wider together than our window once there are four or
+-- five (the King's Throne): past it they shrink evenly, their text cut by the tab itself.
+function UI.LayoutTabs()
+	if not main or main.tabStyle == "side" or not main.tabs then return end
+	local shown = {}
+	for _, tab in ipairs(main.tabs) do
+		if tab:IsShown() then shown[#shown + 1] = tab end
+	end
+	if #shown == 0 then return end
+	local resize = PanelTemplates_TabResize
+	local natural, total = {}, 0
+	for i, tab in ipairs(shown) do
+		if resize and not tab.isFallback then pcall(resize, tab, 0) end
+		natural[i] = tab:GetWidth() or 0
+		total = total + natural[i]
+	end
+	-- Where the first one starts and how they sit (UI.TabAnchor): overlapping on Classic.
+	local first, gap = 10, -15
+	if main.tabStyle == "mainline" then first, gap = 5, 3 end
+	local gaps = gap * (#shown - 1)
+	local room = (main:GetWidth() or 0) - first - 6
+	if room <= 0 or total + gaps <= room then return end
+	local scale = (room - gaps) / total
+	for i, tab in ipairs(shown) do
+		local width = math.max(44, math.floor(natural[i] * scale))
+		if resize and not tab.isFallback then pcall(resize, tab, 0, width) end
+		tab:SetWidth(width)
+	end
+end
+
 -- The small line drops to the tiny font (9 pt, also white) before it is cut: the census
 -- line with a long realm name is just over the width of Forever's window.
 local function FitHeader()
@@ -966,6 +997,7 @@ function UI.Refresh()
 		local throne = ns.King and ns.King.Visible and ns.King.Visible() or false
 		if main.tab == "throne" and not throne then return ShowTab("census") end
 		for _, tab in ipairs(main.tabs) do tab:SetShown(not locked and (tab.key ~= "throne" or throne)) end
+		UI.LayoutTabs()
 		SetButtons(main.detailButtons, not locked and Shown(DETAIL_BUTTONS[main.tab]) or nil)
 		local hasDetailButtons = not locked and DETAIL_BUTTONS[main.tab] ~= nil
 		main.detailText:SetHeight(DETAIL_H - (hasDetailButtons and 46 or 26))

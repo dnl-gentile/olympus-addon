@@ -73,6 +73,7 @@ end
 
 function Layers.Mine() return mine end
 Layers.Observe = Observe -- tests
+function Layers.Reset() mine = nil; wipe(seen); wipe(where) end -- tests
 
 -- Where a player last announced their layer: { mapID, zoneUID, t } while fresh, else nil.
 -- The census and the channel may write a name with different realms: short names match too.
