@@ -83,12 +83,53 @@ function ns.DisplayName(name)
 	return name
 end
 
+-- WoW: Forever's names are a first name and a surname ("Faladoriel Skylance"), and its unit
+-- functions hand the surname back where the realm goes: UnitFullName("player") gives
+-- "Faladoriel", "Skylance", and GetUnitName(unit, true) "Faladoriel-Skylance". The server
+-- stamps addon messages "Faladoriel Skylance-ClassicBetaPvP", like the guild roster and /who:
+-- that is the name everyone compares. ns.splitNames: this client splits names so (our own
+-- "realm" is none).
+function ns.IsRealmName(realm)
+	if type(realm) ~= "string" or realm == "" then return false end
+	if realm == ns.realm or realm == ns.CurrentRealm() or ns.InGroup(realm) then return true end
+	return ns.GroupOf(realm) ~= realm -- a realm of a known group
+end
+
 function ns.PlayerName()
 	local name, realm = UnitFullName("player")
 	if not name then return "?" end
-	if not realm or realm == "" then realm = ns.realm or ns.CurrentRealm() end
+	local home = ns.realm or ns.CurrentRealm()
+	if realm and realm ~= "" and realm ~= home and not ns.IsRealmName(realm) then
+		ns.splitNames = true
+		name, realm = name .. " " .. realm, nil
+	end
+	if not realm or realm == "" then realm = home end
 	if realm and realm ~= "" and realm ~= "?" then return name .. "-" .. realm end
 	return name
+end
+
+-- A name the game's functions or events give ("First-Surname" on Forever), as the server
+-- writes it ("First Surname", with "-Realm" when it had one).
+function ns.Normal(name)
+	if not ns.splitNames or type(name) ~= "string" then return name end
+	local first, rest = name:match("^([^%-]+)%-(.+)$")
+	if not first or first:find(" ", 1, true) then return name end
+	local surname, realm = rest:match("^([^%-]+)%-(.+)$")
+	if surname and ns.IsRealmName(realm) then return first .. " " .. surname .. "-" .. realm end
+	if ns.IsRealmName(rest) then return name end
+	return first .. " " .. rest
+end
+
+-- A unit's full name as the server writes it ("Name-Realm"), or nil.
+function ns.UnitFullName(unit)
+	local name, realm
+	if UnitFullName then name, realm = UnitFullName(unit) end
+	if not name or name == "" then
+		local n = GetUnitName and GetUnitName(unit, true)
+		return n and ns.FullName(ns.Normal(n)) or nil
+	end
+	if realm and realm ~= "" and ns.splitNames and not ns.IsRealmName(realm) then name, realm = name .. " " .. realm, nil end
+	return ns.FullName(name, (realm and realm ~= "") and realm or nil)
 end
 
 ---------------------------------------------------------------------------

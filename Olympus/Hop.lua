@@ -102,7 +102,7 @@ local function GroupNames()
 	local raid = IsInRaid and IsInRaid()
 	local n = raid and (GetNumGroupMembers and GetNumGroupMembers() or 0) or 4
 	for i = 1, n do
-		local name = UnitName and UnitName((raid and "raid" or "party") .. i)
+		local name = ns.UnitFullName((raid and "raid" or "party") .. i)
 		if name then out[ns.ShortName(name)] = true end
 	end
 	out[ns.ShortName(ns.me or "")] = nil
@@ -536,15 +536,16 @@ end
 -- The King when he is online (leader of the guild named exactly "Olympus"), and his layer
 -- when his addon announced it: { name, mapID, zoneUID }. The name is the one the army calls
 -- him (ns.KING_NAME); his character's is only used to find his layer.
--- Only the leader the majority of reports names (Data.KnownRank, the Throne's own check):
--- one forged report can't crown anyone, nor send the army to its layer.
+-- Only the leader the reports name, none of them disagreeing (Data.KnownRank, soft: the line
+-- only shows; the Throne's commands ask for more): one forged report can't crown anyone
+-- while the guild's own reporter says otherwise.
 function Hop.King()
 	local now = ns.Now()
 	for name, g in pairs(ns.rdb.guilds or {}) do
 		if type(name) == "string" and name:lower() == "olympus" and type(g) == "table" and g.leader and not g.twin
 			and now - (g.t or 0) <= ns.Data.FRESH and g.leaderOnline then
 			local full = ns.FullName(g.leader, g.realm or ns.realm)
-			if ns.Data.KnownRank(full, name) == 0 then
+			if ns.Data.KnownRank(full, name, true) == 0 then
 				local where = ns.Layers.Of(full)
 				return { name = ns.KingName(g.leader), mapID = where and where.mapID, zoneUID = where and where.zoneUID }
 			end
@@ -792,7 +793,7 @@ ns.Comm.Handle("LX", function(...) Hop.HandleRelease(...) end)
 ns.On("LAYERS_CHANGED", function() ns.SafeCall("hop layer", Hop.OnLayer) end)
 
 ns.On("LOGIN", function()
-	ns.RegisterEvent("PARTY_INVITE_REQUEST", function(name) Hop.OnInvite(name) end)
+	ns.RegisterEvent("PARTY_INVITE_REQUEST", function(name) Hop.OnInvite(ns.Normal(name)) end)
 	ns.RegisterEvent("GROUP_ROSTER_UPDATE", function() Hop.OnRoster() end)
 	ns.Every(1, "hop", Hop.Tick)
 end)

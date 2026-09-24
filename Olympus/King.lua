@@ -70,13 +70,14 @@ end
 -- nothing it does reaches anyone.
 function King.Preview()
 	local dev = ns.devThrone
-	if type(dev) == "table" then dev = dev[UnitName and UnitName("player") or ""] == true end
+	if type(dev) == "table" then dev = dev[UnitName and UnitName("player") or ""] == true or dev[ns.ShortName(ns.me or "")] == true end
 	return dev == true and not King.IsKing()
 end
 function King.Visible() return King.IsKing() or King.Preview() end
 
-local function KingSender(sender, guild)
-	return type(guild) == "string" and guild:lower() == "olympus" and ns.Data.KnownRank(sender, guild) == 0
+-- soft: for his position (it only shows, Data.KnownRank); his commands need the full check.
+local function KingSender(sender, guild, soft)
+	return type(guild) == "string" and guild:lower() == "olympus" and ns.Data.KnownRank(sender, guild, soft) == 0
 end
 
 -- The page refreshes at most once a second, whatever arrives.
@@ -515,7 +516,7 @@ function King.HandleCommand(dist, sender, text)
 	if dist ~= "CHANNEL" then return end
 	local kind, id, guild, rest = text:match("^T1~(%a)~(%d+)~([^~]*)~?(.*)$")
 	if not kind then return end
-	if not KingSender(sender, guild) then
+	if not KingSender(sender, guild, kind == "P" or kind == "Q") then
 		-- Positions come every few seconds: not logged.
 		if kind ~= "P" then ns.Log("throne %s from %s ignored: not the King of %s", kind, sender, tostring(guild)) end
 		return

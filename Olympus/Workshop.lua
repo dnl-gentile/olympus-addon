@@ -90,7 +90,7 @@ function Workshop.IsAuthor() return IsAuthorName(ns.me) end
 -- goes anywhere but the test bench's log (DevTest.lua), or is ignored by everyone.
 function Workshop.Preview()
 	local dev = ns.devWorkshop
-	if type(dev) == "table" then dev = dev[UnitName and UnitName("player") or ""] == true end
+	if type(dev) == "table" then dev = dev[UnitName and UnitName("player") or ""] == true or dev[ns.ShortName(ns.me or "")] == true end
 	return dev == true and not Workshop.IsAuthor()
 end
 

@@ -91,7 +91,7 @@ local function Enqueue(unit, force)
 	if not force and UnitFactionGroup and UnitFactionGroup(unit) ~= UnitFactionGroup("player") then return end
 	if not force and TooYoung(UnitLevel(unit)) then return end
 	if not force then
-		local p = Store().players[GetUnitName(unit, true)]
+		local p = Store().players[ns.UnitFullName(unit)]
 		if p and p.status ~= "UNKNOWN" and p.status ~= "UNCHECKED" and ns.Now() - (p.t or 0) < RECHECK then return end
 	end
 	queued[guid] = true
@@ -156,7 +156,7 @@ local function OnInspectReady(guid)
 			if GetInventoryItemID(unit, slot) then anyGear = true break end
 		end
 		local _, classFile = UnitClass(unit)
-		Inspect.Record(GetUnitName(unit, true), GetGuildInfo(unit), classFile, UnitLevel(unit),
+		Inspect.Record(ns.UnitFullName(unit), GetGuildInfo(unit), classFile, UnitLevel(unit),
 			GetInventoryItemID(unit, TABARD_SLOT), anyGear)
 	end
 	if not (InspectFrame and InspectFrame:IsShown()) and ClearInspectPlayer then ClearInspectPlayer() end
@@ -187,7 +187,7 @@ function Inspect.MarkTarget(note)
 		ns.Print(L.NEED_PLAYER_TARGET)
 		return
 	end
-	local name = GetUnitName("target", true)
+	local name = ns.UnitFullName("target")
 	local s = Store()
 	local p = s.players[name] or { name = name, status = "UNCHECKED", t = ns.Now() }
 	local _, classFile = UnitClass("target")
@@ -365,10 +365,11 @@ local function OnTooltipUnit(tooltip)
 	if tooltip ~= GameTooltip then return end
 	local _, unit = tooltip:GetUnit()
 	if not unit or not UnitIsPlayer(unit) then return end
-	local line = Inspect.TooltipLine(GetUnitName(unit, true))
+	local name = ns.UnitFullName(unit)
+	local line = Inspect.TooltipLine(name)
 	if line then tooltip:AddLine(line) end
 	-- The Treasurer of Olympus: his name and the game's own word on his guild.
-	if ns.IsTreasurer(GetUnitName(unit, true), GetGuildInfo(unit)) then tooltip:AddLine(ns.COIN .. L.TREASURER_TITLE, 1, 0.82, 0) end
+	if ns.IsTreasurer(name, GetGuildInfo(unit)) then tooltip:AddLine(ns.COIN .. L.TREASURER_TITLE, 1, 0.82, 0) end
 	if patrol then Enqueue(unit) end
 end
 

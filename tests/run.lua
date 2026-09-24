@@ -139,6 +139,43 @@ test("federation filter against 250 misspellings and 400 look-alike guild names 
 	eq(table.concat(wrong, ", "), "")
 end)
 
+test("WoW: Forever names: first name and surname, never taken for a realm", function()
+	local saved = { UnitFullName = UnitFullName, GetUnitName = GetUnitName, realm = ns.realm, split = ns.splitNames, CurrentRealm = ns.CurrentRealm }
+	local ok, err = pcall(function()
+		ns.realm = "ClassicBetaPvP"
+		ns.CurrentRealm = function() return "ClassicBetaPvP" end
+		-- Forever hands back "Faladoriel", "Skylance": the surname where the realm goes.
+		UnitFullName = function(unit)
+			if unit == "player" then return "Faladoriel", "Skylance" end
+			if unit == "target" then return "Pyralis", "Ashandar" end
+			if unit == "party1" then return "Mate", nil end
+		end
+		ns.splitNames = nil
+		eq(ns.PlayerName(), "Faladoriel Skylance-ClassicBetaPvP", "as the server stamps our messages")
+		eq(ns.splitNames, true)
+		eq(ns.UnitFullName("target"), "Pyralis Ashandar-ClassicBetaPvP")
+		eq(ns.UnitFullName("party1"), "Mate-ClassicBetaPvP")
+		eq(ns.Normal("Pyralis-Ashandar"), "Pyralis Ashandar")
+		eq(ns.Normal("Pyralis-Ashandar-ClassicBetaPvP2"), "Pyralis Ashandar-ClassicBetaPvP2")
+		eq(ns.Normal("Bob-ClassicBetaPvP2"), "Bob-ClassicBetaPvP2", "a realm stays a realm")
+		eq(ns.Normal("Pyralis Ashandar-ClassicBetaPvP"), "Pyralis Ashandar-ClassicBetaPvP")
+		-- A Classic realm: the realm is a realm, whatever it is called.
+		ns.realm = "Nightslayer"
+		ns.CurrentRealm = function() return "Nightslayer" end
+		UnitFullName = function(unit)
+			if unit == "player" then return "Peepyn", "Nightslayer" end
+			return "Bob", "Dreamscythe"
+		end
+		ns.splitNames = nil
+		eq(ns.PlayerName(), "Peepyn-Nightslayer")
+		eq(ns.splitNames, nil)
+		eq(ns.UnitFullName("target"), "Bob-Dreamscythe")
+		eq(ns.Normal("Bob-Dreamscythe"), "Bob-Dreamscythe")
+	end)
+	UnitFullName, GetUnitName, ns.realm, ns.splitNames, ns.CurrentRealm = saved.UnitFullName, saved.GetUnitName, saved.realm, saved.split, saved.CurrentRealm
+	if not ok then error(err, 0) end
+end)
+
 test("federation filter: Olympus however it was spelled, but not other words", function()
 	for _, name in ipairs({ "OLYMPVS", "Olympvs II", "Olimpus", "Olmpus", "Olympos", "Olypmus", "Olyympus", "0lympus",
 		"Lympus", "OlimpusII", "Knights of Olmpus", "Olimpo", "Olympo Brasil", "Ólympus",
@@ -4405,7 +4442,7 @@ local function WithHop(fn)
 	local H = ns.Hop
 	local names = { "IsInGroup", "GetNumGroupMembers", "IsInRaid", "UnitIsGroupLeader", "UnitIsGroupAssistant",
 		"InCombatLockdown", "UnitGUID", "C_PartyInfo", "AcceptGroup", "StaticPopup_Show", "StaticPopup_Hide",
-		"StaticPopup_FindVisible", "GetGuildInfo", "UnitName" }
+		"StaticPopup_FindVisible", "GetGuildInfo", "UnitName", "UnitFullName" }
 	local saved = {}
 	for _, n in ipairs(names) do saved[n] = _G[n] end
 	local savedSend, savedWhisper, savedReady, savedNow = ns.Comm.Send, ns.Comm.Whisper, ns.Comm.ChannelReady, ns.Now
@@ -4442,6 +4479,7 @@ local function WithHop(fn)
 		StaticPopup_FindVisible = function() return nil end
 		GetGuildInfo = function() return "Olympus II", "Member", 3 end
 		UnitName = function(unit) return w.party[unit] end
+		UnitFullName = function(unit) if unit == "player" then return "Tester", "Realm" end return w.party[unit] end
 		-- We see an NPC: our layer is map 1453, zone UID w.npc.
 		w.see = function(zoneUID) w.npc = zoneUID or w.npc; ns.Layers.Observe("target") end
 		fn(w, H)
@@ -4803,6 +4841,14 @@ test("layer hop: a King only one report names gets no line", function()
 		eq(said, ns.L.HOP_KING_CHECKING:format("Asmond"), "not 'offline': still being confirmed")
 		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1, online = 1, zones = {}, t = os.time(), leader = "Asmon", leaderOnline = true }, "W1-Realm", "W2-Realm") }
 		eq(H.King().name, "Asmond")
+		-- One report is enough for the line while nobody disagrees (the Crown's powers need two).
+		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1, online = 1, zones = {}, t = os.time(), leader = "Asmon", leaderOnline = true }, "W1-Realm") }
+		eq(H.King().name, "Asmond", "one reporter")
+		eq(ns.Data.KnownRank("Asmon-Realm", "Olympus"), nil, "but no Crown powers from one")
+		-- Two reports disagree about the leader: no line.
+		local g = ns.rdb.guilds["Olympus"]
+		g.vouch["W2-Realm"] = { t = g.t, sig = "other", ranks = { ["Evil-Realm"] = 0 } }
+		eq(H.King(), nil, "a disagreement: nobody")
 		ns.rdb.guilds = {}
 	end)
 end)

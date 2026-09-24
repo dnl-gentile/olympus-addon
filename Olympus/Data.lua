@@ -221,7 +221,9 @@ end
 
 -- What rank does this sender really have in that guild? Our own guild: from our roster.
 -- Other guilds: from that guild's report (leader = 0, officers = 1). nil = unknown.
-function Data.KnownRank(sender, guild)
+-- soft: for what only shows (the King's layer line and crown), one report naming them is
+-- enough while no other one disagrees; the Crown's powers need two, a while after login.
+function Data.KnownRank(sender, guild, soft)
 	local who = ns.FullName(sender)
 	if guild == GetGuildInfo("player") then return ns.Roster.RankOf(who) end
 	local g = ns.rdb.guilds[guild]
@@ -261,7 +263,7 @@ function Data.KnownRank(sender, guild)
 			if sig:sub(-2) == ",+" then return nil end
 		end
 	end
-	if ns.IsCrownRank(guild, rank) then
+	if ns.IsCrownRank(guild, rank) and not soft then
 		if named < 2 then return nil end
 		if now - (ns.Comm and ns.Comm.loginAt or 0) < Data.CROWN_AFTER then return nil end
 	end
