@@ -130,7 +130,7 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 
 ### World map
 - Soldiers per zone on zone and continent maps, and per continent on the world map.
-- The round **Olympus** button in the bottom right corner of the map switches markers
+- The round **Olympus** button in the bottom left corner of the map switches markers
   (army per zone, decrees) on and off.
 
 ### Everywhere

@@ -549,6 +549,35 @@ test("captains in the report are rank 1 whatever /oly officer says", function()
 	ns.db.officerRank = saved
 end)
 
+test("a city's count also shows on the map of the zone around it (Stormwind on Elwynn)", function()
+	local savedLibStub, savedInfo, savedChildren = LibStub, C_Map.GetMapInfo, C_Map.GetMapChildrenInfo
+	local ok, err = pcall(function()
+		-- World rectangles (left, top, width, height): Stormwind sits inside Elwynn Forest.
+		local RECT = { [1429] = { 0, 0, 100, 100 }, [1453] = { 40, 40, 20, 20 }, [1436] = { 100, 0, 100, 100 } }
+		local HBD = {
+			GetWorldCoordinatesFromZone = function(_, x, y, id) local r = RECT[id]; return r[1] + r[3] * x, r[2] + r[4] * y, 0 end,
+			GetZoneCoordinatesFromWorld = function(_, wx, wy, id)
+				local r = RECT[id]; if not r then return nil end
+				local x, y = (wx - r[1]) / r[3], (wy - r[2]) / r[4]
+				if x < 0 or x > 1 or y < 0 or y > 1 then return nil end
+				return x, y
+			end,
+			GetZoneSize = function(_, id) local r = RECT[id]; if not r then return 0, 0 end return r[3], r[4] end,
+		}
+		LibStub = function(name) if name == "HereBeDragons-2.0" then return HBD end end
+		C_Map.GetMapInfo = function(id) return { mapID = id, parentMapID = 1415 } end
+		C_Map.GetMapChildrenInfo = function() return { { mapID = 1429 }, { mapID = 1453 }, { mapID = 1436 } } end
+		local c = ns.Map.ContainerOf(1453)
+		assert(c, "Stormwind has a zone around it")
+		eq(c.zone, 1429, "Elwynn Forest")
+		eq(c.x, 0.5); eq(c.y, 0.5)
+		eq(ns.Map.ContainerOf(1429), false, "Elwynn is inside no bigger zone")
+		eq(ns.Map.ContainerOf(1436), false, "nor is Westfall")
+	end)
+	LibStub, C_Map.GetMapInfo, C_Map.GetMapChildrenInfo = savedLibStub, savedInfo, savedChildren
+	if not ok then error(err, 0) end
+end)
+
 test("map refresh runs end to end with a map library (continent totals included)", function()
 	-- A stub where every method returns another stub, so frame building code can run.
 	local function deep()
