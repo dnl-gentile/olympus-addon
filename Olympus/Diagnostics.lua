@@ -120,6 +120,12 @@ function ns.StatusText()
 		table.sort(types)
 		add("received by type: %s  |  incomplete reports: %d waiting, %d dropped", #types > 0 and table.concat(types, " ") or "none", c.pending or 0, c.partial or 0)
 		add("senders by realm: %s  |  own echoes: %d  |  channel members: %s", CountList(c.realms), c.echo or 0, tostring(ChannelMembers(c.channelName)))
+		local ch = ns.Channels and ns.Channels.Stats()
+		if ch then
+			add("chat: sent=%d shown=%d hidden=%d lane=%d muted=%s drops bad=%d dup=%d rate=%d flood=%d forged=%d unverified=%d rank=%d",
+				ch.sent, ch.shown, ch.hidden, c.chatQueue or 0, #ch.muted > 0 and table.concat(ch.muted, ",") or "none",
+				ch.bad, ch.dup, ch.rate, ch.flood, ch.forged, ch.unverified, ch.rank)
+		end
 	end
 	local n = 0
 	for _ in pairs(ns.rdb.guilds) do n = n + 1 end

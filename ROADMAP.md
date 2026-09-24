@@ -20,3 +20,4 @@
 - **Layers** - zoneUID from NPC GUIDs (`/oly layer` is the probe); sample from addon users per layer.
 - **Share inspections** between officers over OlympusNet so several inspectors build one list.
 - **Verification badge** when two reporters of the same guild agree.
+- **Channels view** - per-tier history (`Channels.History`, `CHAT_CHANGED`) in the window.

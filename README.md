@@ -87,6 +87,26 @@ Any soldier can reach the Lord of another Olympus guild in two clicks.
 *The Crown* means the guild masters of Olympus guilds and the officers of the main
 `<Olympus>` guild. Everyone else gets a local preview when they press the buttons.
 
+### Channels
+Chat for the whole federation, carried by the addon over its hidden Olympus channel (no
+WoW channel number to join). Each channel is exclusive to a rank:
+
+| Channel | Command | Who reads and writes |
+|---|---|---|
+| **[Olympus]** | `/ol <text>` | every member of every Olympus guild |
+| **[Captains]** | `/olc <text>` | the Captains (rank 1) and Lords of every Olympus guild |
+| **[Lords]** | `/oll <text>` | the Lords (every guild master, the King included) and the officers of `<Olympus>` |
+
+- Higher ranks also use the channels below theirs: a Lord writes in all three.
+- `/oly mute captains` (or `all`, `lords`) hides a channel in chat; the same command shows it again.
+- Shift-click an item or spell into the line and it stays a link. Long lines are split into
+  up to 3 messages.
+- Only players with the addon take part.
+
+**Not encrypted:** every addon user on the Olympus channel receives the text of all three
+channels and the addon only decides what to show; a modified addon could read [Captains] and
+[Lords]. Never share passwords there.
+
 ### Tabards: tabard inspection and the Wall of Shame
 - **Patrol**: walk through the crowd and the addon inspects nearby Olympus members one by
   one (about 28 yards). It records who wears a tabard, who wears the wrong one and who
@@ -178,6 +198,9 @@ copy. No addon can prevent that. What this one does is make an edited copy usele
 - **Sealed channel** (`/oly key`): outsiders can't find the channel or join it.
 - **Validation**: every number is range checked, names are length limited, and malformed
   messages are dropped. Decrees are rate limited per sender and in total.
+- **Channels**: channel lines count for [Captains]/[Lords] only if the sender's rank is
+  verified like decrees; unverified senders can use [Olympus] only. Sent with Blizzard's
+  logged addon-message function; rate limited per sender and in total.
 - `/oly block <name>` ignores a player completely.
 
 Limits, stated honestly: a real Olympus member who edits their copy could still send a
@@ -191,6 +214,8 @@ that visible, but it can't be made impossible.
 - Layers are announced by officers plus a stable 1 in 8 sample, every 10 minutes.
 - Messages are spaced 1.2 s apart, below Blizzard's addon message limits, and alert sounds
   play at most once every 15 seconds.
+- Chat has its own short lane: a line goes out within about a second, and while reports are
+  waiting it never takes more than every other message slot.
 
 ## Commands
 
@@ -201,6 +226,9 @@ that visible, but it can't be made impossible.
 | `/oly patrol` | start or stop the tabard patrol |
 | `/oly mark [note]` | mark your target |
 | `/oly arms [text]` · `/oly muster [text]` | send a decree (`test` = local preview) |
+| `/ol <text>` · `/olc <text>` · `/oll <text>` | write in [Olympus], [Captains] or [Lords] |
+| `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |
+| `/oly mute all` · `/oly mute captains` · `/oly mute lords` | hide or show a channel in chat |
 | `/oly key <secret>` | officers: seal the Olympus channel |
 | `/oly block <name>` | ignore a player |
 | `/oly map` | zone markers on the world map |
@@ -216,7 +244,7 @@ also saved in `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.
 ## Development
 
 ```bash
-luajit tests/run.lua                      # offline tests: codec, roster, hierarchy, security, layers, decrees
+luajit tests/run.lua                      # offline tests: codec, roster, hierarchy, security, layers, decrees, channels
 scripts/lint-globals.sh                   # catches locals used before they are declared
 scripts/package.sh                        # dist/Olympus-<version>.zip
 WOW_HOST=user@pc scripts/deploy.sh        # copy to a Windows PC over SSH

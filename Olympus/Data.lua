@@ -31,16 +31,24 @@ end
 -- one guild it reports. A (modified) client that reports several guilds is ignored, and a
 -- guild whose reports disagree about its leader is flagged as a conflict.
 local senderGuild = {}
+
+-- One guild per sender, shared by reports and chat: a name that spoke for one guild can't speak for another.
+function Data.ClaimGuild(sender, guild)
+	local who = ns.FullName(sender)
+	if senderGuild[who] and senderGuild[who] ~= guild then return false end
+	senderGuild[who] = guild
+	return true
+end
+
 function Data.Receive(r, sender)
 	if not ns.IsFederation(r.guild) then return false end
 	-- Our own guild comes straight from our roster, never from someone else's claim.
 	if r.guild == GetGuildInfo("player") then return false end
 	local who = ns.FullName(sender)
-	if senderGuild[who] and senderGuild[who] ~= r.guild then
+	if not Data.ClaimGuild(who, r.guild) then
 		ns.Log("ignored %s: already reported %s, now claims %s", who, senderGuild[who], r.guild)
 		return false
 	end
-	senderGuild[who] = r.guild
 	local previous = ns.rdb.guilds[r.guild]
 	local previousWho = previous and (previous.reporterFull or ns.FullName(previous.reporter))
 	if previousWho and previousWho ~= who then
