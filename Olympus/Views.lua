@@ -271,6 +271,8 @@ local function CensusLines(s)
 	if a then
 		lines[#lines + 1] = { text = Gold(L.THRONE_AGENDA_LINE:format(a.title, math.max(0, math.ceil((a.at - ns.Now()) / 60)), a.zone)), gapAfter = true }
 	end
+	-- While the King is online: one click asks for an invite to his layer (Hop.lua).
+	for _, hop in ipairs(ns.Hop and ns.Hop.KingLines and ns.Hop.KingLines() or {}) do lines[#lines + 1] = hop end
 	local get = SORTERS[Views.sort.key] or SORTERS.members
 	local guilds = {}
 	for i, e in ipairs(s.guilds) do guilds[i] = e end
@@ -344,6 +346,7 @@ end
 
 local function RealmLines(s)
 	local lines = {}
+	for _, hop in ipairs(ns.Hop and ns.Hop.KingLines and ns.Hop.KingLines() or {}) do lines[#lines + 1] = hop end
 	local king = King(s.guilds)
 	if king then
 		lines[#lines + 1] = {
@@ -444,10 +447,12 @@ local function RealmLines(s)
 		lines[#lines + 1] = {
 			text = (layer.mine and Green("> ") or "   ") .. Gold(ns.Layers.Name(layer)) .. Grey(("  #%d"):format(layer.zoneUID)),
 			right = L.LAYER_COUNT:format(layer.count),
+			-- Another layer: one click asks the Olympus players there for an invite (Hop.lua).
+			onClick = not layer.mine and function() ns.Hop.Ask(mapID, layer.zoneUID, ns.Layers.Name(layer)) end or nil,
 			tooltip = function(tt)
 				tt:AddLine(ns.Layers.Name(layer), 1, 0.82, 0)
 				if head then tt:AddLine(("%s <%s>"):format(head.name, head.guild or "?"), 1, 1, 1) end
-				if layer.mine then tt:AddLine(L.LAYER_YOU, 0.25, 1, 0.25) end
+				if layer.mine then tt:AddLine(L.LAYER_YOU, 0.25, 1, 0.25) else tt:AddLine(L.HOP_ROW_TIP, 0.25, 1, 0.25, true) end
 				tt:AddLine(L.LAYER_EXPERIMENTAL, 0.6, 0.6, 0.6, true)
 			end,
 		}

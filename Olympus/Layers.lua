@@ -30,11 +30,24 @@ local function CurrentMap()
 	return C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
 end
 
+local retryQueued = false
+
 local function Announce(force)
 	if not mine or not IsInGuild() then return end
 	local now = ns.Now()
 	if not force and now - lastAnnounce < ANNOUNCE_EVERY then return end
-	if now - lastAnnounce < MIN_GAP then return end
+	if now - lastAnnounce < MIN_GAP then
+		-- A layer change too soon after the last one: announced once the gap is over, so
+		-- nobody (the King's hop above all) is sent to a layer we already left.
+		if force and not retryQueued then
+			retryQueued = true
+			ns.After(MIN_GAP - (now - lastAnnounce) + 1, "layer announce retry", function()
+				retryQueued = false
+				Announce(true)
+			end)
+		end
+		return
+	end
 	lastAnnounce = now
 	local guild = GetGuildInfo("player")
 	if not ns.IsFederation(guild) then return end
@@ -59,6 +72,23 @@ local function Observe(unit)
 end
 
 function Layers.Mine() return mine end
+Layers.Observe = Observe -- tests
+function Layers.Reset() mine = nil; wipe(seen); wipe(where) end -- tests
+
+-- Where a player last announced their layer: { mapID, zoneUID, t } while fresh, else nil.
+-- The census and the channel may write a name with different realms: short names match too.
+function Layers.Of(name)
+	if type(name) ~= "string" then return nil end
+	if name == ns.me then return mine end
+	local short, now = ns.ShortName(name), ns.Now()
+	for sender, w in pairs(where) do
+		if sender == name or ns.ShortName(sender) == short then
+			local m = seen[w[1]] and seen[w[1]][w[2]] and seen[w[1]][w[2]][sender]
+			if m and now - m.t <= EXPIRE then return { mapID = w[1], zoneUID = w[2], t = m.t } end
+		end
+	end
+	return nil
+end
 
 function Layers.InSample()
 	local h = 0

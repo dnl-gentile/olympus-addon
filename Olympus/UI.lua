@@ -106,6 +106,22 @@ local DETAIL_BUTTONS = {
 	throne = {
 		{ "THRONE_LETTER_BTN", function() ns.King.Show("letter") end },
 		{ "THRONE_CANCEL_AGENDA", function() ns.King.CancelAgendaButton() end },
+		-- His own button: the crown the army sees, what it does and whether it is on now.
+		{ "THRONE_LOCATION", function() ns.King.ToggleLocation() end, refresh = true,
+			label = function()
+				return "|T" .. ns.CROWN_ICON .. ":0|t " .. (ns.King.SharingLocation() and L.THRONE_LOCATION_OFF or L.THRONE_LOCATION_ON)
+			end,
+			tooltip = function(tt)
+				tt:AddLine(L.THRONE_LOCATION, 1, 0.82, 0)
+				tt:AddLine(L.THRONE_LOCATION_TIP, 1, 1, 1, true)
+				if ns.King.Preview() then
+					tt:AddLine(L.THRONE_PREVIEW, 0.6, 0.6, 0.6, true)
+				elseif ns.King.SharingLocation() then
+					tt:AddLine(L.THRONE_LOCATION_NOW_ON, 0.25, 1, 0.25, true)
+				else
+					tt:AddLine(L.THRONE_LOCATION_NOW_OFF, 0.6, 0.6, 0.6, true)
+				end
+			end },
 	},
 	heraldry = {
 		{ "HERALDRY_BTN", DecreeAction("HERALDRY") },
@@ -181,6 +197,14 @@ local HEADER_RIGHT, SUB_RIGHT = 26, 8
 -- makes it the text plus 20 (TAB_SIDES_PADDING), and Blizzard spaces those 3 apart
 -- (PanelTemplates_AnchorTabs, which only ships with that code) with the first at x 5
 -- (FriendsFrame): at -15 they pile up on each other.
+-- The Friends window's own tabs are the older kind (no atlas LeftActive): on the Classic
+-- clients. Without that window, the client's tab code decides.
+function UI.OldTabs()
+	local friends = _G.FriendsFrameTab1
+	if type(friends) == "table" then return friends.LeftActive == nil end
+	return PanelTemplates_AnchorTabs == nil
+end
+
 function UI.TabStyle(tab)
 	if tab and tab.LeftActive and PanelTemplates_AnchorTabs then return "mainline" end
 	return "classic"
@@ -596,12 +620,17 @@ local function CreateMain(style)
 		end
 		f.tabStyle = "side"
 	else
+		-- Tab templates differ between clients. Ours look like the Friends window's tabs
+		-- (Friends, Who, Guild, Raid): the older tab with small text where Blizzard's is one
+		-- (the Classic clients, Anniversary included), the atlas one where it is not (Forever).
+		-- The first template that really builds a tab is used; otherwise a plain button, its
+		-- selection marked by us.
+		local templates = UI.OldTabs()
+			and { "CharacterFrameTabButtonTemplate", "PanelTabButtonTemplate", "TabButtonTemplate" }
+			or { "PanelTabButtonTemplate", "CharacterFrameTabButtonTemplate", "TabButtonTemplate" }
 		for i, t in ipairs(TABS) do
-			-- Tab templates differ between clients (Classic has CharacterFrameTabButtonTemplate,
-			-- newer clients like Forever have PanelTabButtonTemplate). Use the first that really
-			-- builds a tab; otherwise fall back to a plain button and mark selection ourselves.
 			local tab
-			for n, template in ipairs({ "PanelTabButtonTemplate", "CharacterFrameTabButtonTemplate", "TabButtonTemplate" }) do
+			for n, template in ipairs(templates) do
 				local name = f:GetName() .. "Tab" .. n .. "_" .. i
 				local okTab, res = pcall(CreateFrame, "Button", name, f, template)
 				if okTab and res and (res.Left or res.LeftActive or _G[name .. "Left"] or _G[name .. "LeftDisabled"]) then
@@ -682,6 +711,67 @@ local function LayoutButtons()
 	end
 end
 
+-- The small buttons in the detail box are as wide as their label, side by side from the
+-- left; when they are wider together than the box, each gives up its share (FitLabel then
+-- drops to "..." only if even that is too narrow).
+local function LayoutDetailButtons()
+	local shown, widths, total = {}, {}, 0
+	for _, b in ipairs(main.detailButtons) do
+		if b:IsShown() then
+			local fs = b:GetFontString()
+			local textW = 0
+			if fs then
+				SetButtonFont(b, true)
+				fs:SetWidth(0)
+				textW = fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()
+			end
+			shown[#shown + 1] = b
+			widths[#shown] = math.max(60, math.ceil(textW) + 20)
+			total = total + widths[#shown]
+		end
+	end
+	if #shown == 0 then return end
+	local room = main.detail:GetWidth() - 12 - 3 * (#shown - 1)
+	local scale = (room > 0 and total > room) and room / total or 1
+	for i, b in ipairs(shown) do
+		b:SetWidth(math.max(30, math.floor(widths[i] * scale)))
+		b:ClearAllPoints()
+		if i == 1 then b:SetPoint("BOTTOMLEFT", 6, 5) else b:SetPoint("LEFT", shown[i - 1], "RIGHT", 3, 0) end
+		FitLabel(b)
+	end
+end
+
+-- The tabs under the old window fit its width. Blizzard sizes each to its text (about 115
+-- wide each on the Classic clients), wider together than our window once there are four or
+-- five (the King's Throne): past it they shrink evenly, their text cut by the tab itself.
+function UI.LayoutTabs()
+	if not main or main.tabStyle == "side" or not main.tabs then return end
+	local shown = {}
+	for _, tab in ipairs(main.tabs) do
+		if tab:IsShown() then shown[#shown + 1] = tab end
+	end
+	if #shown == 0 then return end
+	local resize = PanelTemplates_TabResize
+	local natural, total = {}, 0
+	for i, tab in ipairs(shown) do
+		if resize and not tab.isFallback then pcall(resize, tab, 0) end
+		natural[i] = tab:GetWidth() or 0
+		total = total + natural[i]
+	end
+	-- Where the first one starts and how they sit (UI.TabAnchor): overlapping on Classic.
+	local first, gap = 10, -15
+	if main.tabStyle == "mainline" then first, gap = 5, 3 end
+	local gaps = gap * (#shown - 1)
+	local room = (main:GetWidth() or 0) - first - 6
+	if room <= 0 or total + gaps <= room then return end
+	local scale = (room - gaps) / total
+	for i, tab in ipairs(shown) do
+		local width = math.max(44, math.floor(natural[i] * scale))
+		if resize and not tab.isFallback then pcall(resize, tab, 0, width) end
+		tab:SetWidth(width)
+	end
+end
+
 -- The small line drops to the tiny font (9 pt, also white) before it is cut: the census
 -- line with a long realm name is just over the width of Forever's window.
 local function FitHeader()
@@ -697,6 +787,7 @@ function UI.Layout()
 	local g = GEOMETRY[main.style]
 	local w = main:GetWidth()
 	LayoutButtons()
+	LayoutDetailButtons()
 	FitHeader()
 	main.layoutLocked = not ns.IsMember()
 	local hasCols = not main.layoutLocked and ns.Views.COLUMNS[main.tab] ~= nil and main.tab == "census"
@@ -777,28 +868,43 @@ local function SetButtons(list, defs)
 	for i, b in ipairs(list) do
 		local def = defs and defs[i]
 		if def then
-			local label = L[def[1]]
+			local label = def.label and def.label() or L[def[1]]
 			if def[1] == "PATROL_BTN" then label = ns.Inspect.IsPatrolling() and L.PATROL_STOP or L.PATROL_START end
 			b:SetText(label)
 			b:SetScript("OnClick", function()
 				ns.SafeCall("button " .. def[1], def[2])
+				-- A button that shows a state (def.label) shows the new one at once.
+				if def.refresh then UI.Refresh() end
 				UI.Clicked()
 			end)
 			local tip = rawget(L, def[1] .. "_TIP")
-			b:SetScript("OnEnter", tip and function(self)
-				GameTooltip:SetOwner(self, "ANCHOR_TOP")
-				GameTooltip:AddLine(label, 1, 0.82, 0)
-				GameTooltip:AddLine(tip, 1, 1, 1, true)
-				GameTooltip:Show()
-			end or nil)
+			local onEnter
+			if def.tooltip then
+				onEnter = function(self)
+					GameTooltip:SetOwner(self, "ANCHOR_TOP")
+					ns.SafeCall("button tooltip " .. def[1], def.tooltip, GameTooltip)
+					GameTooltip:Show()
+				end
+			elseif tip then
+				onEnter = function(self)
+					GameTooltip:SetOwner(self, "ANCHOR_TOP")
+					GameTooltip:AddLine(label, 1, 0.82, 0)
+					GameTooltip:AddLine(tip, 1, 1, 1, true)
+					GameTooltip:Show()
+				end
+			end
+			b:SetScript("OnEnter", onEnter)
 			b:SetScript("OnLeave", function() GameTooltip:Hide() end)
 			b:Show()
 			FitLabel(b)
+			-- Under the mouse while its state changed (it was just clicked): the new tooltip.
+			if onEnter and GameTooltip.IsOwned and GameTooltip:IsOwned(b) then onEnter(b) end
 		else
 			b:Hide()
 		end
 	end
 	if list == main.buttons then LayoutButtons() end
+	if list == main.detailButtons then LayoutDetailButtons() end
 end
 
 -- Shows tab `key` in the window in use, and the window if it is closed.
@@ -904,6 +1010,7 @@ function UI.Refresh()
 		local throne = ns.King and ns.King.Visible and ns.King.Visible() or false
 		if main.tab == "throne" and not throne then return ShowTab("census") end
 		for _, tab in ipairs(main.tabs) do tab:SetShown(not locked and (tab.key ~= "throne" or throne)) end
+		UI.LayoutTabs()
 		SetButtons(main.detailButtons, not locked and Shown(DETAIL_BUTTONS[main.tab]) or nil)
 		local hasDetailButtons = not locked and DETAIL_BUTTONS[main.tab] ~= nil
 		main.detailText:SetHeight(DETAIL_H - (hasDetailButtons and 46 or 26))
@@ -1221,7 +1328,11 @@ end
 ns.On("DATA_CHANGED", function() UI.RefreshSoon() end)
 ns.On("MAP_TOGGLED", function() UI.Refresh() end)
 ns.On("INSPECT_CHANGED", function() if main and main.tab == "heraldry" then UI.RefreshSoon() end end)
-ns.On("LAYERS_CHANGED", function() if main and main.tab == "decrees" then UI.RefreshSoon() end end)
+-- Layers show in the Realm tab, and the King's layer line tops the Census and the Realm.
+ns.On("LAYERS_CHANGED", function()
+	if main and (main.tab == "decrees" or main.tab == "realm" or main.tab == "census") then UI.RefreshSoon() end
+end)
+ns.On("HOP_CHANGED", function() if main and (main.tab == "census" or main.tab == "realm") then UI.RefreshSoon() end end)
 ns.On("DECREES_CHANGED", function() UI.RefreshSoon() end)
 ns.On("THRONE_CHANGED", function() if main and main.tab == "throne" then UI.RefreshSoon() end end)
 ns.On("RECRUIT_CHANGED", function() UI.RefreshSoon() end)

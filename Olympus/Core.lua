@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.8.0"
+ns.VERSION = "0.8.1"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -389,6 +389,17 @@ end
 -- fixed so that senders and receivers always agree on who may send decrees.
 ns.CAPTAIN_RANK = 1
 
+-- What the army calls the King on the lines and the crown made for him (Hop.lua, King.lua),
+-- whatever his character's name in the census.
+ns.KING_NAME = "Asmond"
+-- The King's name on the lines and the crown: the army's name for him on the Alliance side,
+-- his character's on the Horde (whose <Olympus> has a guild master of its own).
+function ns.KingName(leader)
+	if ns.faction == "Horde" then return leader and ns.ShortName(leader) or "?" end
+	return ns.KING_NAME
+end
+ns.CROWN_ICON = "Interface\\GroupFrame\\UI-Group-LeaderIcon"
+
 -- The Crown: guild masters of any Olympus guild, and the officers of the main "Olympus" guild.
 function ns.IsCrownRank(guild, rankIndex)
 	if not guild or not rankIndex then return false end
@@ -552,6 +563,7 @@ end
 StandIn("Who", { "Search", "SendPlain" })
 StandIn("Channels", { "Send", "ToggleMute" })
 StandIn("King", { "Summon", "Inspect", "AgendaPrompt" })
+StandIn("Hop", { "Ask", "AskKing", "SetHelp", "SetAuto" })
 
 -- The faction may not be known yet at ADDON_LOADED: if it turns out to be the other one,
 -- switch to that faction's store before anything is received.
@@ -570,7 +582,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -596,6 +608,9 @@ local function Help()
 	print("  /oly map - show/hide zone counts on the world map")
 	print("  /oly realm - the Realm tree (leaders, officers, ranks)")
 	print("  /oly layers - layers of your zone (in the Realm tab)")
+	print(L.HELP_HOP)
+	print(L.HELP_LAYERHELP)
+	print(L.HELP_LAYERAUTO)
 	print("  /oly decrees - decrees")
 	print("  /oly arms [text] | /oly muster [text] - decree (officers; 'test' = local preview)")
 	print(L.HELP_CHAN_ALL)
@@ -668,6 +683,17 @@ SlashCmdList.OLYMPUS = function(input)
 			end
 		elseif cmd == "layer" then
 			ns.PrintLayer()
+		elseif cmd == "hop" then
+			ns.Hop.AskKing()
+		elseif cmd == "layerhelp" or cmd == "layerauto" then
+			local on = rest:lower()
+			if on ~= "on" and on ~= "off" then
+				ns.Print(cmd == "layerhelp" and L.HELP_LAYERHELP or L.HELP_LAYERAUTO)
+			elseif cmd == "layerhelp" then
+				ns.Hop.SetHelp(on == "on")
+			else
+				ns.Hop.SetAuto(on == "on")
+			end
 		elseif cmd == "minimap" then
 			ns.db.hideMinimap = not ns.db.hideMinimap
 			ns.UI.UpdateMinimapButton()
