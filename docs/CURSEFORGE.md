@@ -61,6 +61,24 @@ are highlighted. It is rate limited, so nobody gets spammed.
 - **Layers** of your zone, named after the highest ranked Olympus member on each one
   ("Asmongold's layer"), with how many members are there.
 
+### Layer hop: join the King's layer without begging in chat
+While Asmongold is online, the top of the Census and the Realm shows **"Ask for an invite to
+Asmongold's layer"**. One click (or `/oly hop`) and the addon does the asking:
+
+- It asks the Olympus players on his layer who can invite (alone, or leading a group with a
+  free seat). Only a handful answer, picked at random on each player's side, so a crowd of
+  askers is spread over many players instead of flooding one.
+- It picks one of them, favouring players outside a group and with fewer recent invites. They
+  get **"X wants to join your layer"** with **Invite**, **Not now** and **Always invite**. No
+  answer or a no, and the next one is asked.
+- The invite is accepted for you, the game moves you to the layer, and a **Leave group**
+  button takes you out of the group.
+
+Any other layer in the Realm tab's layer list works the same way: click it. Everyone with the
+addon helps by default; `/oly layerhelp off` stops the requests, `/oly layerauto on` invites
+them without the window. Helpers must be in the same zone as the layer they are on (a layer is
+read per zone), and the King himself is never asked.
+
 ### Person details
 Click any Lord, Captain, racer or inspected player. You get the same card the Guild window
 shows: level, class, zone, rank and status, with **Whisper**, **Invite** and **Who** buttons.
@@ -156,7 +174,7 @@ game in the app, not Classic Era.
 4. Go into `Interface\AddOns\` (create `Interface` and `AddOns` if they don't exist) and
    extract the zip there, so you end up with `...\Interface\AddOns\Olympus\Olympus.toc`.
    Careful: Windows' *Extract All* adds a folder named after the zip
-   (`AddOns\Olympus-0.7.11\Olympus\...`). If that happens, move the `Olympus` folder up into
+   (`AddOns\Olympus-0.8.1\Olympus\...`). If that happens, move the `Olympus` folder up into
    `AddOns`; the game only loads it from `AddOns\Olympus\`.
 5. **Restart the game.** If the addon list says *out of date*, tick **Load out of date AddOns**.
 
@@ -252,6 +270,7 @@ Limits, stated honestly:
 - One summary per guild about every 3 minutes, not one per player.
 - In a full guild only the members who could be elected keep saying hello; the rest go quiet.
 - Layers are announced by officers plus a stable 1 in 8 sample, every 10 minutes.
+- A layer request goes out once; only about 6 players answer it, each by a whisper to the asker.
 - Messages are spaced 1.2 s apart, below Blizzard's addon message limits, and alert sounds
   play at most once every 15 seconds.
 - Chat has its own short lane: a line goes out within about a second, and while reports are
@@ -269,6 +288,9 @@ Limits, stated honestly:
 | `/ol <text>` · `/olc <text>` · `/oll <text>` | write in [Olympus], [Captains] or [Lords] |
 | `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |
 | `/oly mute olympus` · `/oly mute captains` · `/oly mute lords` | hide or show a channel in chat |
+| `/oly hop` | ask for an invite to the King's layer (while he is online) |
+| `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer |
+| `/oly layerauto on` · `/oly layerauto off` | invite layer requests without the window |
 | `/oly key <secret>` | officers: seal the Olympus channel |
 | `/oly block <name>` | ignore a player |
 | `/oly map` | zone markers on the world map |

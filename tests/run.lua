@@ -74,7 +74,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Positions", "Decree", "Channels", "Inspect", "King", "Recruit", "Views" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Recruit", "Views" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -617,7 +617,8 @@ end)
 test("realm view lists king, lords, captains and level race", function()
 	ns.rdb.guilds = SampleGuilds()
 	local lines = ns.Views.RealmLines()
-	assert(lines[1].text:find("King") and lines[1].text:find("Asmongold"), lines[1].text)
+	assert(lines[1].text:find("Asmongold's layer", 1, true), "the King is online: his layer line comes first")
+	assert(lines[2].text:find("King") and lines[2].text:find("Asmongold"), lines[2].text)
 	local sawRace = false
 	for _, l in ipairs(lines) do if l.text == "Level race" then sawRace = true end end
 	assert(sawRace)
@@ -2574,6 +2575,8 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 		ns.UI = { StatusLine = function() return "status" end }
 		ns.Views.sort = { key = "members", desc = false } -- sorting moves reported guilds only
 		local lines = ns.Views.Build("census")
+		assert(lines[1].onClick and not lines[1].cols, "the King is online: his layer line comes first")
+		table.remove(lines, 1)
 		eq(lines[1].cols[1], "Olympus II"); eq(lines[2].cols[1], "Olympus")
 		eq(lines[3].cols[1], Grey("OLYMPUS XXL"), "most online first")
 		eq(lines[3].cols[3], Grey("30")); eq(lines[3].dim, nil)
@@ -2589,7 +2592,7 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 		assert(text:find(L.SEEN_TIP, 1, true) and text:find(L.SEEN_CAPPED_TIP, 1, true) and text:find("12+", 1, true), text)
 		-- Nothing seen: no grey rows and no hint.
 		ns.rdb.seen = {}
-		eq(#ns.Views.Build("census"), 2)
+		eq(#ns.Views.Build("census"), 3, "the King's layer line and 2 guilds")
 		ns.Views.sort = { key = "members", desc = true }
 	end)
 end)
@@ -2609,7 +2612,7 @@ test("census Refresh: the roster, and one /who per click for the grey guilds", f
 			eq(scans, 2, "the roster every click"); eq(#server.sent, 1, "/who at most every 10 seconds")
 			server.Answer({ { "Aa", "OLYMPUS VII", 12 } })
 			UI.Refresh()
-			local row = OlympusFrame.views.census.rows[3]
+			local row = OlympusFrame.views.census.rows[4] -- after the King's layer line and 2 guilds
 			eq(row.cols[1]:GetText(), ns.Views.Grey("OLYMPUS VII"), "the grey row is drawn")
 			-- The person panel's Who goes through Who.lua: not right after our search.
 			UI.ShowPerson({ name = "Aa-Realm", guild = "OLYMPUS VII" })
@@ -4183,6 +4186,269 @@ test("files added by an update and not loaded yet: stand-ins keep everything els
 	for k in pairs(SlashCmdList) do SlashCmdList[k] = savedSlash[k] end
 	for i = #EVENT_SCRIPTS, savedEvents + 1, -1 do EVENT_SCRIPTS[i] = nil end
 	if not ok then error(err, 0) end
+end)
+
+---------------------------------------------------------------------------
+-- Layer hop (Hop.lua): ask the players on a layer for an invite instead of begging in chat
+---------------------------------------------------------------------------
+
+-- Runs fn with the group, combat, invite and popup APIs stubbed, a clock, and every
+-- whisper/send/popup/invite recorded. Restores everything afterwards.
+local function WithHop(fn)
+	local H = ns.Hop
+	local names = { "IsInGroup", "GetNumGroupMembers", "IsInRaid", "UnitIsGroupLeader", "UnitIsGroupAssistant",
+		"InCombatLockdown", "UnitGUID", "C_PartyInfo", "AcceptGroup", "StaticPopup_Show", "StaticPopup_Hide",
+		"StaticPopup_FindVisible", "GetGuildInfo" }
+	local saved = {}
+	for _, n in ipairs(names) do saved[n] = _G[n] end
+	local savedSend, savedWhisper, savedReady, savedNow = ns.Comm.Send, ns.Comm.Whisper, ns.Comm.ChannelReady, ns.Now
+	local savedRandom, savedAfter, savedMap = H.random, H.after, C_Map.GetBestMapForUnit
+	local w = { sent = {}, whispered = {}, popups = {}, invited = {}, accepted = 0, left = 0, hidden = {}, clock = 1000000,
+		group = 0, lead = false, npc = 7, map = 1453 }
+	local ok, err = pcall(function()
+		H.Reset()
+		ns.db.layerHelp, ns.db.layerAutoInvite = nil, nil
+		ns.Now = function() return w.clock end
+		ns.Comm.ChannelReady = function() return true end
+		ns.Comm.Send = function(dist, msg) w.sent[#w.sent + 1] = dist .. " " .. msg end
+		ns.Comm.Whisper = function(to, msg) w.whispered[#w.whispered + 1] = to .. " " .. msg end
+		H.after = function(_, _, f) f() end
+		H.random = function(a) return a or 0 end -- ids come out as 1, draws as 0 (always answer, first in line)
+		IsInGroup = function() return w.group > 0 end
+		GetNumGroupMembers = function() return w.group end
+		IsInRaid = function() return w.group > 5 end
+		UnitIsGroupLeader = function() return w.lead end
+		UnitIsGroupAssistant = function() return false end
+		InCombatLockdown = function() return w.combat end
+		UnitGUID = function() return ("Creature-0-4619-0-%d-68-0000AAAA"):format(w.npc) end
+		C_Map.GetBestMapForUnit = function() return w.map end
+		C_PartyInfo = {
+			InviteUnit = function(name) w.invited[#w.invited + 1] = name end,
+			LeaveParty = function() w.left = w.left + 1 end,
+		}
+		AcceptGroup = function() w.accepted = w.accepted + 1 end
+		StaticPopup_Show = function(name, arg, _, data) w.popups[#w.popups + 1] = { name = name, arg = arg, data = data } end
+		StaticPopup_Hide = function(name) w.hidden[#w.hidden + 1] = name end
+		StaticPopup_FindVisible = function() return nil end
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		-- We see an NPC: our layer is map 1453, zone UID w.npc.
+		w.see = function(zoneUID) w.npc = zoneUID or w.npc; ns.Layers.Observe("target") end
+		fn(w, H)
+	end)
+	for _, n in ipairs(names) do _G[n] = saved[n] end
+	ns.Comm.Send, ns.Comm.Whisper, ns.Comm.ChannelReady, ns.Now = savedSend, savedWhisper, savedReady, savedNow
+	H.random, H.after, C_Map.GetBestMapForUnit = savedRandom, savedAfter, savedMap
+	ns.db.layerHelp, ns.db.layerAutoInvite = nil, nil
+	H.Reset()
+	if not ok then error(err, 0) end
+end
+
+test("layer hop, helper side: only players on the layer who can invite offer, then invite on request", function()
+	WithHop(function(w, H)
+		w.see(7)
+		-- An ask for our layer: we offer, by whisper to the asker alone.
+		H.HandleAsk("CHANNEL", "Asker-Realm", "LQ~42~1453~7")
+		eq(w.whispered[1], "Asker-Realm LO~42~0~0", "alone, no recent invites")
+		-- Another layer, another zone, a whisper instead of the channel: nothing.
+		H.HandleAsk("CHANNEL", "Other-Realm", "LQ~43~1453~8")
+		H.HandleAsk("CHANNEL", "Other-Realm", "LQ~44~1429~7")
+		H.HandleAsk("WHISPER", "Other-Realm", "LQ~45~1453~7")
+		eq(#w.whispered, 1, "only asks for the layer we are on, from the channel")
+		-- The same asker again within a minute: no second offer.
+		H.HandleAsk("CHANNEL", "Asker-Realm", "LQ~46~1453~7")
+		eq(#w.whispered, 1, "one offer a minute to the same asker")
+		-- A crowded layer: most players stay quiet (the draw is above the chance).
+		H.random = function(a) return a or 0.99 end
+		ns.Layers.Receive("Crowd1-Realm", { mapID = 1453, zoneUID = 7, rank = 4, guild = "Olympus" })
+		ns.Layers.Receive("Crowd2-Realm", { mapID = 1453, zoneUID = 7, rank = 4, guild = "Olympus" })
+		assert(H.Chance(1453, 7) < 0.99, "a crowd lowers the chance to answer")
+		H.HandleAsk("CHANNEL", "Busy-Realm", "LQ~47~1453~7")
+		eq(#w.whispered, 1, "not drawn this time")
+		H.random = function(a) return a or 0 end
+		-- In a full party, or not its leader: can't invite.
+		w.group, w.lead = 5, true
+		H.HandleAsk("CHANNEL", "Full-Realm", "LQ~48~1453~7")
+		w.group, w.lead = 3, false
+		H.HandleAsk("CHANNEL", "Member-Realm", "LQ~49~1453~7")
+		eq(#w.whispered, 1, "a full party or a non-leader can't invite")
+		w.group, w.lead = 3, true
+		H.HandleAsk("CHANNEL", "Leader-Realm", "LQ~50~1453~7")
+		eq(w.whispered[2], "Leader-Realm LO~50~3~0", "a leader with a free seat offers, with the group size")
+		w.group = 0
+		-- Turned off: never asked.
+		ns.db.layerHelp = false
+		H.HandleAsk("CHANNEL", "Nope-Realm", "LQ~51~1453~7")
+		eq(#w.whispered, 2, "/oly layerhelp off")
+		ns.db.layerHelp = nil
+		-- A request that matches no offer of ours is ignored.
+		H.HandleRequest("WHISPER", "Stranger-Realm", "LR~42")
+		H.HandleRequest("WHISPER", "Asker-Realm", "LR~999")
+		eq(#w.popups, 0, "no offer, no popup")
+		-- The asker we offered to: a window with Invite / Not now / Always invite.
+		H.HandleRequest("WHISPER", "Asker-Realm", "LR~42")
+		eq(#w.popups, 1); eq(w.popups[1].name, "OLYMPUS_HOP_REQUEST"); eq(w.popups[1].arg, "Asker")
+		local d = StaticPopupDialogs.OLYMPUS_HOP_REQUEST
+		assert(d.button1 and d.button2 and d.button3 and d.OnAlt, "Invite, Not now and Always invite")
+		-- While that window is up, another request gets a no at once.
+		H.HandleAsk("CHANNEL", "Second-Realm", "LQ~52~1453~7")
+		eq(#w.whispered, 2, "busy with a request on screen: no new offers")
+		d.OnAccept(nil, w.popups[1].data)
+		eq(w.invited[1], "Asker", "Invite sends the invite")
+		d.OnAccept(nil, w.popups[1].data)
+		eq(#w.invited, 1, "one click, one invite")
+		-- Always invite: from then on requests are invited without the window.
+		w.clock = w.clock + 61
+		H.HandleAsk("CHANNEL", "Leader-Realm", "LQ~53~1453~7")
+		H.HandleRequest("WHISPER", "Leader-Realm", "LR~53")
+		d.OnAlt(nil, w.popups[2].data)
+		eq(ns.db.layerAutoInvite, true); eq(w.invited[2], "Leader")
+		w.clock = w.clock + 61
+		H.HandleAsk("CHANNEL", "Auto-Realm", "LQ~54~1453~7")
+		assert(w.whispered[#w.whispered]:find("^Auto%-Realm LO~54~0~2$"), "the load counts our 2 recent invites: " .. w.whispered[#w.whispered])
+		H.HandleRequest("WHISPER", "Auto-Realm", "LR~54")
+		eq(w.invited[3], "Auto", "invited without a window"); eq(#w.popups, 2)
+		-- Not now: the asker hears no and moves on.
+		ns.db.layerAutoInvite = nil
+		w.clock = w.clock + 61
+		H.HandleAsk("CHANNEL", "Later-Realm", "LQ~55~1453~7")
+		H.HandleRequest("WHISPER", "Later-Realm", "LR~55")
+		d.OnCancel(nil, w.popups[3].data, "clicked")
+		eq(w.whispered[#w.whispered], "Later-Realm LN~55")
+	end)
+end)
+
+test("layer hop, asker side: draw an offer, move on after a no, accept only that invite, leave after the move", function()
+	WithHop(function(w, H)
+		w.see(7)
+		-- Already on that layer, or in a group: nothing is sent.
+		H.Ask(1453, 7, "here")
+		w.group = 2
+		H.Ask(1453, 8, "Kingy's layer")
+		eq(#w.sent, 0, "already there / in a group")
+		w.group = 0
+		H.Ask(1453, 8, "Kingy's layer")
+		eq(w.sent[1], "CHANNEL LQ~1~1453~8")
+		H.Ask(1453, 8, "Kingy's layer")
+		eq(#w.sent, 1, "one ask at a time")
+		-- Offers come in; a wrong id is ignored.
+		H.HandleOffer("WHISPER", "Bbb-Realm", "LO~1~3~5")
+		H.HandleOffer("WHISPER", "Aaa-Realm", "LO~1~0~0")
+		H.HandleOffer("WHISPER", "Ccc-Realm", "LO~9~0~0")
+		eq(H.State().count, 2)
+		-- Before the window closes nobody is asked; after, one is drawn.
+		H.Tick()
+		eq(#w.whispered, 0)
+		w.clock = w.clock + H.WINDOW
+		H.Tick()
+		eq(w.whispered[1], "Aaa-Realm LR~1", "the draw picks one helper")
+		-- A no from someone else is ignored; from the helper, the next one is asked.
+		H.HandleNo("WHISPER", "Ccc-Realm", "LN~1")
+		eq(#w.whispered, 1)
+		H.HandleNo("WHISPER", "Aaa-Realm", "LN~1")
+		eq(w.whispered[2], "Bbb-Realm LR~1")
+		-- Someone else's invite is left alone; the helper's is accepted for us.
+		H.OnInvite("Zed")
+		eq(w.accepted, 0)
+		H.OnInvite("Bbb")
+		eq(w.accepted, 1); eq(w.hidden[1], "PARTY_INVITE")
+		w.group = 2
+		H.OnRoster()
+		eq(H.State().phase, "joined")
+		-- The move shows as the new zone UID: offer to leave the group.
+		w.see(8)
+		H.OnLayer()
+		eq(w.popups[1].name, "OLYMPUS_HOP_LEAVE"); eq(w.popups[1].arg, ns.L.HOP_MOVED)
+		StaticPopupDialogs.OLYMPUS_HOP_LEAVE.OnAccept()
+		eq(w.left, 1); eq(H.State().phase, "done")
+		-- Nobody answers: the ask ends after two windows, and the next one waits.
+		w.group = 0
+		w.clock = w.clock + H.ASK_GAP
+		H.Ask(1453, 9, "far")
+		w.clock = w.clock + H.WINDOW * 2
+		H.Tick()
+		eq(H.State().phase, "done")
+		-- In the group but no NPC seen: offer to leave anyway after a while.
+		w.clock = w.clock + H.ASK_GAP
+		H.Ask(1453, 7, "back")
+		H.HandleOffer("WHISPER", "Ddd-Realm", "LO~1~0~0")
+		w.clock = w.clock + H.WINDOW
+		H.Tick()
+		H.OnInvite("Ddd")
+		w.group = 2
+		H.OnRoster()
+		w.clock = w.clock + H.JOIN_WAIT
+		H.Tick()
+		eq(w.popups[2].arg, ns.L.HOP_MAYBE_MOVED)
+	end)
+end)
+
+test("layer hop: the draw spreads askers, favouring players alone and with fewer invites", function()
+	local offers = {
+		["A-Realm"] = { name = "A-Realm", group = 0, load = 0 }, -- weight 2
+		["B-Realm"] = { name = "B-Realm", group = 3, load = 0 }, -- weight 1
+		["C-Realm"] = { name = "C-Realm", group = 0, load = 3 }, -- weight 0.5
+	}
+	math.randomseed(7)
+	local got = { ["A-Realm"] = 0, ["B-Realm"] = 0, ["C-Realm"] = 0 }
+	for _ = 1, 3500 do
+		local o = ns.Hop.Pick(offers, {})
+		got[o.name] = got[o.name] + 1
+	end
+	assert(got["A-Realm"] > 1700 and got["A-Realm"] < 2300, "A " .. got["A-Realm"])
+	assert(got["B-Realm"] > 800 and got["B-Realm"] < 1200, "B " .. got["B-Realm"])
+	assert(got["C-Realm"] > 350 and got["C-Realm"] < 650, "C " .. got["C-Realm"])
+	eq(ns.Hop.Pick(offers, { ["A-Realm"] = true, ["B-Realm"] = true, ["C-Realm"] = true }), nil, "all tried")
+end)
+
+test("layer hop: the King's layer line tops the Census and the Realm only while he is online", function()
+	WithHop(function(w, H)
+		ns.rdb.guilds = SampleGuilds()
+		-- Online, layer not announced yet: the line explains.
+		local line = H.KingLine()
+		assert(line and line.onClick, "shown while the King is online")
+		line.onClick()
+		eq(#w.sent, 0, "his layer is not known yet: nothing asked")
+		-- His addon announces his layer: one click asks for it.
+		ns.Layers.Receive("Asmongold-Realm", { mapID = 1453, zoneUID = 9, rank = 0, guild = "Olympus" })
+		local k = H.King()
+		eq(k.name, "Asmongold"); eq(k.zoneUID, 9)
+		w.see(7)
+		H.KingLine().onClick()
+		eq(w.sent[1], "CHANNEL LQ~1~1453~9", "asks for the King's layer")
+		assert(ns.Views.Build("census")[1].text:find("Asmongold", 1, true), "tops the Census")
+		assert(ns.Views.RealmLines()[1].text:find("Asmongold", 1, true), "tops the Realm")
+		-- On his layer: says so, nothing to click.
+		H.Reset()
+		w.see(9)
+		line = H.KingLine()
+		assert(line.text:find(ns.L.HOP_KING_HERE:format("Asmongold"), 1, true) and not line.onClick, line.text)
+		-- Offline: no line at all.
+		ns.rdb.guilds["Olympus"].leaderOnline = false
+		eq(H.KingLine(), nil, "not online: no line")
+		assert(not ns.Views.Build("census")[1].onClick or ns.Views.Build("census")[1].cols, "the Census starts with the guilds")
+		-- The King himself never gets the line, nor requests.
+		ns.rdb.guilds["Olympus"].leaderOnline = true
+		GetGuildInfo = function() return "Olympus", "King", 0 end
+		eq(H.KingLine(), nil, "the King's own window")
+		eq(H.CanHelp(1453, 9), false, "the King is never asked")
+		ns.rdb.guilds = {}
+	end)
+end)
+
+test("layer hop: /oly hop, layerhelp and layerauto, and the status line", function()
+	WithHop(function(w, H)
+		SlashCmdList.OLYMPUS("layerhelp off")
+		eq(ns.db.layerHelp, false)
+		SlashCmdList.OLYMPUS("layerhelp on")
+		eq(ns.db.layerHelp, true)
+		SlashCmdList.OLYMPUS("layerauto on")
+		eq(ns.db.layerAutoInvite, true)
+		SlashCmdList.OLYMPUS("layerauto off")
+		eq(ns.db.layerAutoInvite, false)
+		SlashCmdList.OLYMPUS("hop") -- no King in the census: just a message
+		eq(#w.sent, 0)
+		assert(H.StatusLine():find("help=true auto=false", 1, true), H.StatusLine())
+	end)
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

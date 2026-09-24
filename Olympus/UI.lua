@@ -1221,7 +1221,11 @@ end
 ns.On("DATA_CHANGED", function() UI.RefreshSoon() end)
 ns.On("MAP_TOGGLED", function() UI.Refresh() end)
 ns.On("INSPECT_CHANGED", function() if main and main.tab == "heraldry" then UI.RefreshSoon() end end)
-ns.On("LAYERS_CHANGED", function() if main and main.tab == "decrees" then UI.RefreshSoon() end end)
+-- Layers show in the Realm tab, and the King's layer line tops the Census and the Realm.
+ns.On("LAYERS_CHANGED", function()
+	if main and (main.tab == "decrees" or main.tab == "realm" or main.tab == "census") then UI.RefreshSoon() end
+end)
+ns.On("HOP_CHANGED", function() if main and (main.tab == "census" or main.tab == "realm") then UI.RefreshSoon() end end)
 ns.On("DECREES_CHANGED", function() UI.RefreshSoon() end)
 ns.On("THRONE_CHANGED", function() if main and main.tab == "throne" then UI.RefreshSoon() end end)
 ns.On("RECRUIT_CHANGED", function() UI.RefreshSoon() end)
