@@ -63,25 +63,81 @@ for _, event in ipairs({ "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }) do
 	end)
 end
 
--- "a=3 b=1", sorted, for small count tables.
+-- "a=3 b=1", sorted by key, for small count tables.
 local function CountList(t)
-	local out = {}
-	for k, v in pairs(t or {}) do out[#out + 1] = k .. "=" .. v end
-	table.sort(out)
+	local keys, out = {}, {}
+	for k in pairs(t or {}) do keys[#keys + 1] = k end
+	table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+	for i, k in ipairs(keys) do out[i] = tostring(k) .. "=" .. tostring(t[k]) end
 	return #out > 0 and table.concat(out, " ") or "none"
 end
 
+-- fn(...) for an API some clients lack: nil when it is missing or fails.
+local function Try(fn, ...)
+	if type(fn) ~= "function" then return nil end
+	local ok, v = pcall(fn, ...)
+	if ok then return v end
+	return nil
+end
+
 -- Everything that tells two realms apart, to settle whether PvP and PvP 2 share anything.
-local function RealmLine()
-	local guid = UnitGUID and UnitGUID("player")
-	local serverID = guid and guid:match("^Player%-(%d+)%-")
-	local linked = GetAutoCompleteRealms and GetAutoCompleteRealms() or nil
-	local _, _, _, guildRealm = GetGuildInfo("player")
-	return ("%s (normalized %s, stored as %s)  serverID=%s  guildRealm=%s  connected=%s  roster realms: %s"):format(
-		tostring(GetRealmName and GetRealmName()), tostring(GetNormalizedRealmName and GetNormalizedRealmName()),
-		tostring(ns.realm), tostring(serverID), tostring(guildRealm),
-		linked and #linked > 0 and table.concat(linked, ",") or "none",
-		CountList(ns.Roster and ns.Roster.realms))
+-- Short lines here and below: they have to be readable in the /oly bug window.
+local function RealmLines()
+	local guid = Try(UnitGUID, "player")
+	local serverID = type(guid) == "string" and guid:match("^Player%-(%d+)%-") or nil
+	local guild, _, _, guildRealm = GetGuildInfo("player")
+	-- Connected realms, other than ours. The global GetAutoCompleteRealms only exists with
+	-- Blizzard's deprecation fallbacks on, so its "none" meant nothing.
+	local auto = Try(C_AutoComplete and C_AutoComplete.GetAutoCompleteRealms)
+	local linked = "n/a"
+	if type(auto) == "table" then
+		local others = {}
+		for _, name in ipairs(auto) do
+			name = tostring(name):gsub("[%s%-]", "")
+			if name ~= ns.realm then others[#others + 1] = name end
+		end
+		linked = #others > 0 and table.concat(others, ",", 1, math.min(#others, 2)) .. (#others > 2 and (",+" .. (#others - 2)) or "") or "none"
+	end
+	local unique = Try(RegionalUniqueNamesEnabled)
+	return ("realm: %s = %s  id=%s native=%s guid=%s  guild home=%s"):format(
+			tostring(Try(GetRealmName)), tostring(ns.realm), tostring(Try(GetRealmID)), tostring(Try(GetNativeRealmID)),
+			tostring(serverID), guild and tostring(guildRealm or "ours") or "-"),
+		("census: %s (%s)  unique names=%s  connected=%s"):format(
+			tostring(ns.group), ns.GroupSource and ns.GroupSource(ns.realm) or "?", unique == nil and "?" or tostring(unique), linked)
+end
+
+-- "[name]" as the server sent it, or "-" when there is none.
+local function Sample(name)
+	return name and ("[" .. name .. "]") or "-"
+end
+
+-- Names as the server sent them, before ns.FullName gives bare names our realm: the only
+-- counts that can tell a guildmate on the other realm from one on ours. One short line each.
+local function NamesLines(c)
+	local R, raw, samples = ns.Roster, c.raw or {}, c.rawSample or {}
+	local whoNames, whoSuffix, whoSample
+	if ns.Who and ns.Who.RawCounts then whoNames, whoSuffix, whoSample = ns.Who.RawCounts() end
+	return {
+		("names raw: roster %s  e.g. %s"):format(CountList(R and R.rawRealms), Sample(R and R.rawSample)),
+		("names raw: roster by server (GUID) %s"):format(CountList(R and R.servers)),
+		("names raw: ch %s  e.g. %s"):format(CountList(raw.ch), Sample(samples.ch)),
+		("names raw: g %s  e.g. %s"):format(CountList(raw.g), Sample(samples.g)),
+		("names raw: who %s guild-suffix=%d  e.g. %s"):format(CountList(whoNames), whoSuffix or 0, Sample(whoSample)),
+	}
+end
+
+-- Does the channel cross realms (a report sent from another realm reached us), where do our
+-- guildmates with the addon play, and is our guild's reporter heard?
+local function TopologyLines(c)
+	local shared = type(c.shared) == "table" and c.shared
+	return {
+		shared and ("topology: channel SHARED (%s -> %s, %s)"):format(tostring(shared.realm), tostring(shared.to), ns.Ago(shared.t))
+			or "topology: channel shared: not seen yet",
+		("topology: reports by realm %s"):format(CountList(c.reportRealms)),
+		("topology: guild peers by realm %s"):format(CountList(c.peerRealms)),
+		("topology: own guild's report heard from %s"):format(c.heardOwn and (c.heardOwn .. " " .. ns.Ago(c.heardOwnAt)) or "nobody yet"),
+		("topology: left out of the election: %s"):format(c.benched and #c.benched > 0 and table.concat(c.benched, ", ") or "none"),
+	}
 end
 
 -- How many players are in our channel, when the client knows (it may not until asked).
@@ -102,7 +158,9 @@ function ns.StatusText()
 	local guild = GetGuildInfo("player")
 	add("Olympus v%s  |  %s", ns.VERSION, ClientInfo())
 	add("player %s  |  guild %s  |  olympus member: %s", tostring(ns.me), tostring(guild), tostring(ns.IsMember()))
-	add("realm: %s", RealmLine())
+	local realm, census = RealmLines()
+	add("%s", realm)
+	add("%s", census)
 	local st = ns.Roster and ns.Roster.lastStats
 	if st then
 		add("roster: total=%s online=%s rowsRead=%d offlineRows=%d leader=%s (%s) zones=%d scanMs=%.1f %s",
@@ -119,7 +177,9 @@ function ns.StatusText()
 		for k, v in pairs(c.byType or {}) do types[#types + 1] = k .. "=" .. v end
 		table.sort(types)
 		add("received by type: %s  |  incomplete reports: %d waiting, %d dropped", #types > 0 and table.concat(types, " ") or "none", c.pending or 0, c.partial or 0)
-		add("senders by realm: %s  |  own echoes: %d  |  channel members: %s", CountList(c.realms), c.echo or 0, tostring(ChannelMembers(c.channelName)))
+		add("own echoes: %d  |  channel members: %s", c.echo or 0, tostring(ChannelMembers(c.channelName)))
+		for _, line in ipairs(NamesLines(c)) do add("%s", line) end
+		for _, line in ipairs(TopologyLines(c)) do add("%s", line) end
 		local ch = ns.Channels and ns.Channels.Stats()
 		if ch then
 			add("chat: sent=%d shown=%d hidden=%d lane=%d muted=%s drops bad=%d dup=%d rate=%d flood=%d forged=%d unverified=%d rank=%d",

@@ -451,7 +451,8 @@ test("worst case report still fits the message limits", function()
 	local C = ns.Codec
 	local r = { guild = "Olympus Longest NameHer", total = 1000, online = 1000, leader = "Averylongname", leaderOnline = true,
 		users = 999, zones = {}, classes = {}, levels = { 1, 2, 3, 4, 5, 6, 7 }, ranks = {}, officers = {}, top = {},
-		leaderClass = "WARRIOR", leaderLevel = 60, leaderZone = "tThe Temple of Atal'Hakkar" }
+		leaderClass = "WARRIOR", leaderLevel = 60, leaderZone = "tThe Temple of Atal'Hakkar",
+		from = ("F"):rep(40), home = ("H"):rep(40) }
 	for i = 1, 120 do r.zones["tSome Long Zone Name " .. i] = 999 end
 	for _, c in ipairs({ "WA", "PA", "HU", "RO", "PR", "SH", "MA", "WL", "DR", "DK" }) do r.classes[c] = 999 end
 	for i = 1, 10 do r.ranks[i] = { name = "Rank Name Number " .. i, count = 999 } end
@@ -463,6 +464,7 @@ test("worst case report still fits the message limits", function()
 	for _, c in ipairs(chunks) do assert(#c <= 255) end
 	local d = C.DecodeReport(payload)
 	eq(#d.officers, 30); eq(#d.ranks, 10)
+	eq(d.from, r.from, "the longest realm fits"); eq(d.home, r.home)
 end)
 
 local function SampleGuilds()
@@ -2972,6 +2974,580 @@ test("chat lines arrive through CHAT_MSG_ADDON_LOGGED, without our echo or block
 	SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = slash[1], slash[2], slash[3]
 	C_ChatInfo = nil
 	if not ok then error(err, 0) end
+end)
+
+---------------------------------------------------------------------------
+-- Realm groups: PvP and PvP 2 share one census (Core.lua), and what tells realms apart
+-- (names as the server sent them, the realm a report was sent from, guild peers by realm).
+---------------------------------------------------------------------------
+
+local BETA = "ClassicBetaPvP+ClassicBetaPvP2"
+
+-- A table as text, keys sorted: two runs of the migration can be compared.
+local function Dump(v)
+	if type(v) ~= "table" then return type(v) == "string" and ("%q"):format(v) or tostring(v) end
+	local keys, out = {}, {}
+	for k in pairs(v) do keys[#keys + 1] = k end
+	table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+	for _, k in ipairs(keys) do out[#out + 1] = tostring(k) .. "=" .. Dump(v[k]) end
+	return "{" .. table.concat(out, ",") .. "}"
+end
+
+-- ADDON_LOADED on the saved variables `saved`, played on the realm named `realmName`.
+-- Returns OlympusDB, the store it opened and its group; ns is put back afterwards.
+local function LoadAs(realmName, saved)
+	local keep = { db = ns.db, rdb = ns.rdb, realm = ns.realm, group = ns.group, name = GetRealmName, capture = ns.CaptureError }
+	local captured
+	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
+	GetRealmName = function() return realmName end
+	OlympusDB = saved
+	for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "ADDON_LOADED", "Olympus") end
+	local rdb, group = ns.rdb, ns.group
+	ns.db, ns.rdb, ns.realm, ns.group, GetRealmName, ns.CaptureError = keep.db, keep.rdb, keep.realm, keep.group, keep.name, keep.capture
+	eq(captured, nil, "error caught")
+	return OlympusDB, rdb, group
+end
+
+test("realm groups: the beta PvP realms start as one, learned links override, other realms stay alone", function()
+	local savedDB = ns.db
+	ns.db = { log = {} }
+	eq(ns.GroupOf("ClassicBetaPvP"), BETA); eq(ns.GroupOf("ClassicBetaPvP2"), BETA)
+	eq(ns.GroupOf("Realm"), "Realm", "any other realm is a group of its own")
+	eq(ns.GroupSource("ClassicBetaPvP2"), "seed"); eq(ns.GroupSource("Realm"), "own")
+	local realms = ns.GroupRealms(BETA)
+	eq(#realms, 2); eq(realms[1], "ClassicBetaPvP"); eq(realms[2], "ClassicBetaPvP2")
+	ns.db.links = { ClassicBetaPvP = BETA .. "+Other" }
+	eq(ns.GroupOf("ClassicBetaPvP"), BETA .. "+Other", "a learned link overrides the seed")
+	eq(ns.GroupSource("ClassicBetaPvP"), "learned")
+	ns.db = savedDB
+end)
+
+test("realm groups: the PvP and PvP 2 stores merge into one, newest wins, nothing of ours lost", function()
+	local now = os.time()
+	local chatA, chatB = {}, {}
+	for i = 1, 60 do chatA[i] = { t = now - 1000 + i * 2, sender = "A" .. i, text = "a" } end
+	for i = 1, 60 do chatB[i] = { t = now - 999 + i * 2, sender = "B" .. i, text = "b" } end
+	chatB[61] = chatA[60] -- one line in both stores
+	local saved = { configVersion = 3, blocked = { troll = true }, realms = {
+		ClassicBetaPvP = {
+			guilds = { ["OLYMPUS I"] = { total = 500, t = now - 50, mine = true }, ["OLYMPUS VII"] = { total = 40, t = now - 3000 },
+				["OLYMPUS XXL"] = { total = 90, t = now - 10 } },
+			seen = { ["OLYMPUS LXIX"] = { online = 3, t = now - 100 } },
+			inspect = { players = { ["Naked-ClassicBetaPvP"] = { status = "NONE", t = now - 100 }, ["Both-X"] = { status = "OTHER", t = now - 500 },
+				["Bob Smith"] = { status = "GUILD", t = now - 900, marked = true, note = "ganker" }, ["Cy Jones"] = { status = "GUILD", t = now - 5 },
+				["Undone"] = { status = "GUILD", t = now - 900, marked = true, note = "old" } },
+				guildMarks = { ["OLYMPUS II"] = true } },
+			chat = { A = chatA },
+			realmKey = "same-secret",
+		},
+		ClassicBetaPvP2 = {
+			guilds = { ["OLYMPUS I"] = { total = 480, t = now - 5000 }, ["OLYMPUS VII"] = { total = 45, t = now - 20 },
+				["OLYMPUS XIV"] = { total = 60, t = now - 30, mine = true } },
+			seen = { ["OLYMPUS LXIX"] = { online = 7, t = now - 5 }, ["OLYMPUS X"] = { online = 1, t = now - 9 } },
+			inspect = { players = { ["Both-X"] = { status = "GUILD", t = now - 5 }, ["Bob Smith"] = { status = "NONE", t = now - 5 },
+				["Cy Jones"] = { status = "GUILD", t = now - 900, marked = true, note = "spy" }, ["Undone"] = { status = "GUILD", t = now - 5, marked = false } },
+				guildMarks = { ["OLYMPUS III"] = true } },
+			chat = { A = chatB, C = { { t = now, sender = "Cap", text = "c" } } },
+			realmKey = "same-secret",
+			shared = { realm = "ClassicBetaPvP", to = "ClassicBetaPvP2", t = now - 60 },
+		},
+		Faraway = { guilds = { ["Olympus Far"] = { total = 5, t = now } } },
+	} }
+	local db, R, group = LoadAs("Classic Beta PvP", saved)
+	eq(group, BETA); eq(db.realms[BETA], R, "one store for both realms")
+	eq(db.realms.ClassicBetaPvP, nil, "the per-realm stores are gone"); eq(db.realms.ClassicBetaPvP2, nil)
+	eq(db.realms.Faraway.guilds["Olympus Far"].total, 5, "another realm's store is untouched")
+	eq(R.guilds["OLYMPUS I"].total, 500, "our own guild's newer report stays"); eq(R.guilds["OLYMPUS I"].mine, true)
+	eq(R.guilds["OLYMPUS VII"].total, 45, "the newer report wins"); eq(R.guilds["OLYMPUS XXL"].total, 90)
+	eq(R.guilds["OLYMPUS XIV"].total, 60, "an alt's own guild is kept"); eq(R.guilds["OLYMPUS XIV"].mine, true)
+	eq(R.seen["OLYMPUS LXIX"].online, 7, "the newer sighting wins"); eq(R.seen["OLYMPUS X"].online, 1)
+	eq(R.inspect.players["Naked-ClassicBetaPvP"].status, "NONE"); eq(R.inspect.players["Both-X"].status, "GUILD", "newest inspection")
+	eq(R.inspect.guildMarks["OLYMPUS II"], true); eq(R.inspect.guildMarks["OLYMPUS III"], true, "the marks of both")
+	local bob, cy = R.inspect.players["Bob Smith"], R.inspect.players["Cy Jones"]
+	eq(bob.status, "NONE", "the newer inspection..."); eq(bob.marked, true, "...keeps the older one's mark"); eq(bob.note, "ganker")
+	eq(cy.t, now - 5, "the newer entry stays..."); eq(cy.marked, true, "...and takes the mark merged in"); eq(cy.note, "spy")
+	eq(R.inspect.players["Undone"].marked, false, "an explicit unmark stays"); eq(R.inspect.players["Undone"].note, "old")
+	eq(R.guilds["OLYMPUS VII"].heardOn, "ClassicBetaPvP2", "a realm's store: its reports were heard there")
+	eq(R.guilds["OLYMPUS XXL"].heardOn, "ClassicBetaPvP")
+	-- 121 lines, one of them twice: 120, of which the oldest 20 go.
+	eq(#R.chat.A, 100, "capped"); eq(R.chat.A[1].sender, "A11", "oldest dropped"); eq(R.chat.A[100].sender, "B60", "newest last")
+	for i = 2, #R.chat.A do assert(R.chat.A[i - 1].t < R.chat.A[i].t, "chat in time order, each line once") end
+	eq(#R.chat.C, 1)
+	eq(R.realmKey, "same-secret", "the same key on both realms is kept")
+	eq(R.shared.realm, "ClassicBetaPvP", "anything else is carried over")
+	eq(db.blocked["troll-classicbetapvp"], true, "block list keys take the character's own realm")
+	-- Running it again changes nothing, and PvP 2 opens the same store.
+	local before = Dump(db.realms) .. Dump(db.links) .. Dump(db.blocked)
+	local db2, R2 = LoadAs("Classic Beta PvP", db)
+	eq(Dump(db2.realms) .. Dump(db2.links) .. Dump(db2.blocked), before, "second run")
+	eq(R2, R)
+	local _, R3, group3 = LoadAs("Classic Beta PvP 2", db)
+	eq(group3, BETA); eq(R3, R, "PvP 2 reads the same census")
+	eq(Dump(db.realms), Dump(db2.realms))
+end)
+
+test("realm groups: sightings kept with a realm of the group on the guild's name go under its plain name", function()
+	local now = os.time()
+	local _, R = LoadAs("Classic Beta PvP", { configVersion = 3, realms = {
+		ClassicBetaPvP = { seen = { ["OLYMPUS XIV"] = { online = 2, t = now - 500 }, ["OLYMPUS V-ClassicBetaPvP"] = { online = 1, t = now - 10 } } },
+		ClassicBetaPvP2 = { seen = { ["OLYMPUS XIV-ClassicBetaPvP2"] = { online = 4, t = now - 50 }, ["OLYMPUS X-Faraway"] = { online = 3, t = now - 9 },
+			["OLYMPUS X"] = { online = 6, t = now - 20 }, ["OLYMPUS X-ClassicBetaPvP"] = { online = 5, t = now - 400 } } },
+	} })
+	local keep = { rdb = ns.rdb, group = ns.group, capture = ns.CaptureError }
+	local captured
+	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
+	ns.rdb, ns.group = R, BETA
+	CoreFire("INIT") -- as ADDON_LOADED does, with the group's store open
+	ns.rdb, ns.group, ns.CaptureError = keep.rdb, keep.group, keep.capture
+	eq(captured, nil, "error caught")
+	eq(R.seen["OLYMPUS XIV"].online, 4, "the newer one, whatever its name"); eq(R.seen["OLYMPUS XIV-ClassicBetaPvP2"], nil)
+	eq(R.seen["OLYMPUS V"].online, 1); eq(R.seen["OLYMPUS V-ClassicBetaPvP"], nil)
+	eq(R.seen["OLYMPUS X"].online, 6, "an older one does not replace it"); eq(R.seen["OLYMPUS X-ClassicBetaPvP"], nil)
+	eq(R.seen["OLYMPUS X-Faraway"].online, 3, "a realm outside the group keeps its name")
+end)
+
+test("realm groups: realm keys, one is taken, the same is kept, different ones are dropped", function()
+	local function Key(a, b, group)
+		local realms = { ClassicBetaPvP = { realmKey = a }, ClassicBetaPvP2 = { realmKey = b } }
+		if group then realms[BETA] = { realmKey = group } end
+		local db, R = LoadAs("Classic Beta PvP 2", { configVersion = 3, realms = realms })
+		eq(db.realms.ClassicBetaPvP, nil); eq(db.realms.ClassicBetaPvP2, nil)
+		return R.realmKey
+	end
+	eq(Key("one-secret", nil), "one-secret", "only one realm had a key: taken")
+	eq(Key(nil, "two-secret"), "two-secret")
+	eq(Key("same-secret", "same-secret"), "same-secret")
+	eq(Key("one-secret", "two-secret"), nil, "two keys: dropped, our officers send ours again")
+	eq(Key(nil, nil), nil)
+	eq(Key("one-secret", nil, "one-secret"), "one-secret", "the group's own key counts too")
+	eq(Key(nil, "two-secret", "one-secret"), nil)
+end)
+
+test("realm groups: a link learned mid-session moves the census over at once", function()
+	local keep = { db = ns.db, rdb = ns.rdb, realm = ns.realm, group = ns.group, Fire = ns.Fire, print = print,
+		Join = ns.Comm.JoinChannel, Name = ns.Comm.ChannelName, Ask = ns.Comm.RequestKey }
+	local fired, joins, asks, channel = {}, 0, 0, "OlympusNet"
+	local ok, err = pcall(function()
+		print = function() end
+		ns.Fire = function(name) fired[#fired + 1] = name end
+		ns.Comm.JoinChannel = function() joins = joins + 1 end
+		ns.Comm.ChannelName = function() return channel end
+		ns.Comm.RequestKey = function() asks = asks + 1 end
+		local now = os.time()
+		local R0 = { guilds = { ["Olympus Here"] = { total = 10, t = now } }, seen = {} }
+		ns.db = { log = {}, realms = { Realm = R0, Other = { guilds = { ["Olympus There"] = { total = 20, t = now } } } } }
+		ns.realm, ns.group, ns.rdb = "Realm", "Realm", R0
+		eq(ns.LinkRealms("Realm", nil), false); eq(ns.LinkRealms("Realm", "?"), false); eq(ns.LinkRealms("Realm", "Realm"), false)
+		eq(ns.LinkRealms("Realm", "Other"), true)
+		eq(ns.group, "Other+Realm"); eq(ns.db.links.Realm, "Other+Realm"); eq(ns.db.links.Other, "Other+Realm")
+		eq(ns.rdb, ns.db.realms["Other+Realm"], "the census now lives in the group's store")
+		eq(ns.rdb.guilds["Olympus Here"].total, 10, "what we had is carried over")
+		eq(ns.rdb.guilds["Olympus There"].total, 20, "and the other realm's census joins it")
+		eq(ns.db.realms.Realm, nil); eq(ns.db.realms.Other, nil)
+		eq(fired[#fired], "DATA_CHANGED"); eq(joins, 0, "no key changed: same channel")
+		eq(ns.LinkRealms("Other", "Realm"), false, "nothing new")
+		-- A realm with another key: both keys go, and we move to the channel without one.
+		ns.rdb.realmKey = "our-secret"
+		ns.db.realms.Third = { realmKey = "their-secret" }
+		eq(ns.LinkRealms("Realm", "Third"), true)
+		eq(ns.group, "Other+Realm+Third", "the whole group grows"); eq(ns.db.links.Other, "Other+Realm+Third")
+		eq(ns.rdb.guilds["Olympus Here"].total, 10, "the old group's store is merged too")
+		eq(ns.db.realms["Other+Realm"], nil)
+		eq(ns.rdb.realmKey, nil); eq(joins, 1, "the key changed: so does the channel")
+		eq(asks, 1, "ours was dropped: our officers are asked for it again")
+		ns.rdb.realmKey = "our-secret"
+		ns.db.realms.Fourth = { realmKey = "our-secret" }
+		eq(ns.LinkRealms("Realm", "Fourth"), true); eq(ns.rdb.realmKey, "our-secret"); eq(joins, 1, "same key"); eq(asks, 1)
+		channel = nil
+		ns.db.realms.Fifth = { realmKey = "their-secret" }
+		eq(ns.LinkRealms("Fifth", "Realm"), true); eq(ns.rdb.realmKey, nil)
+		eq(joins, 1, "not joined yet: the first join takes the new key"); eq(asks, 1, "and the login's request asks")
+	end)
+	ns.db, ns.rdb, ns.realm, ns.group, ns.Fire, print = keep.db, keep.rdb, keep.realm, keep.group, keep.Fire, keep.print
+	ns.Comm.JoinChannel, ns.Comm.ChannelName, ns.Comm.RequestKey = keep.Join, keep.Name, keep.Ask
+	if not ok then error(err, 0) end
+end)
+
+test("realm groups: our guild homed on another realm links it; roster names are counted as sent", function()
+	local keep = { db = ns.db, rdb = ns.rdb, realm = ns.realm, group = ns.group, print = print,
+		info = GetGuildInfo, roster = GetGuildRosterInfo }
+	local ok, err = pcall(function()
+		print = function() end
+		ns.db = { log = {}, blocked = {}, realms = { Realm = { guilds = {}, seen = {} } } }
+		ns.realm, ns.group, ns.rdb = "Realm", "Realm", ns.db.realms.Realm
+		GetGuildInfo = function() return MY_GUILD, "Hero", 3, "Other" end
+		GetGuildRosterInfo = function(i)
+			local far = i % 3 == 0
+			return far and ("Far" .. i .. "-Other") or ("Near" .. i), "rank", i == 1 and 0 or 3, 10, "class", "Elwynn Forest",
+				"", "", true, 0, "MAGE", nil, nil, nil, nil, nil, ("Player-%d-%08X"):format(far and 4620 or 4619, i)
+		end
+		ns.Roster.RequestScan(true)
+		ns.Roster.TryScan()
+		eq(ns.db.links.Realm, "Other+Realm", "learned from our own guild's home")
+		eq(ns.group, "Other+Realm")
+		local mine = ns.rdb.guilds[MY_GUILD]
+		eq(mine.home, "Other"); eq(mine.from, "Realm")
+		local d = ns.Codec.DecodeReport(ns.Codec.EncodeReport(mine))
+		eq(d.home, "Other"); eq(d.from, "Realm")
+		eq(ns.Roster.rawRealms.bare, 667); eq(ns.Roster.rawRealms.Other, 333)
+		eq(ns.Roster.servers["4619"], 667); eq(ns.Roster.servers["4620"], 333)
+		eq(ns.Roster.rawSample, "Far3-Other", "an example with its realm, when there is one")
+		-- Guild on our own realm: 4th return nil, home is ours, nothing to link.
+		GetGuildInfo = function() return MY_GUILD, "Hero", 3 end
+		eq(ns.Roster.Scan().home, "Realm")
+	end)
+	ns.db, ns.rdb, ns.realm, ns.group, print = keep.db, keep.rdb, keep.realm, keep.group, keep.print
+	GetGuildInfo, GetGuildRosterInfo = keep.info, keep.roster
+	ns.Roster.Scan() -- the roster of the other tests back
+	if not ok then error(err, 0) end
+end)
+
+test("reports: fields 21 and 22 (reporter's realm, guild's home) are optional both ways", function()
+	local C = ns.Codec
+	local r = { guild = "Olympus Span", total = 9, online = 1, zones = {}, from = "ClassicBetaPvP2", home = "ClassicBetaPvP" }
+	local payload = C.EncodeReport(r)
+	local d = C.DecodeReport(payload)
+	eq(d.from, "ClassicBetaPvP2"); eq(d.home, "ClassicBetaPvP")
+	local f = C.Split(payload, "~")
+	eq(#f, 22)
+	local old = C.DecodeReport(table.concat(f, "~", 1, 20))
+	eq(old.total, 9); eq(old.from, nil, "a 20-field report (older versions)"); eq(old.home, nil)
+	local newer = C.DecodeReport(payload .. "~some field of a later version")
+	eq(newer.from, "ClassicBetaPvP2", "a 23-field report still decodes")
+	f[21], f[22] = "Bad|cffRealm", ("x"):rep(41)
+	d = C.DecodeReport(table.concat(f, "~"))
+	eq(d.from, nil, "no escape codes"); eq(d.home, nil, "no more than 40 characters")
+	eq(C.RealmField("Two words"), nil); eq(C.RealmField(""), nil); eq(C.RealmField(("x"):rep(40)), ("x"):rep(40))
+end)
+
+test("a bare officer of a report sent from another realm keeps its rank (names as the sender sent them)", function()
+	local saved = ns.rdb.guilds
+	ns.rdb.guilds = {}
+	eq(ns.Data.Receive({ guild = "Olympus Span", total = 9, online = 1, zones = {}, leader = "Spanboss", from = "Other",
+		officers = { { name = "Spancapt", online = true, days = 0 } } }, "Spanboss"), true)
+	eq(ns.rdb.guilds["Olympus Span"].realm, "Realm", "the realm of the sender's name, not the report's")
+	eq(ns.Data.KnownRank("Spancapt", "Olympus Span"), 1, "a bare guildmate of the reporter matches")
+	eq(ns.Data.KnownRank("Spancapt-Other", "Olympus Span"), nil)
+	ns.rdb.guilds = saved
+end)
+
+test("a report heard by a character on another realm of the group is no previous report here", function()
+	local saved = ns.rdb.guilds
+	local ok, err = pcall(function()
+		ns.rdb.guilds = {}
+		local function Rep() return { guild = "Olympus Span", total = 9, online = 1, zones = {}, leader = "Spanboss",
+			officers = { { name = "Spancapt", online = true, days = 0 } } } end
+		-- Heard by our alt on Other: every bare name took Other.
+		local keep = ns.realm
+		ns.realm = "Other"
+		eq(ns.Data.Receive(Rep(), "Spanboss"), true)
+		ns.realm = keep
+		local there = ns.rdb.guilds["Olympus Span"]
+		eq(there.heardOn, "Other"); eq(there.reporterFull, "Spanboss-Other")
+		there.witness = { ["Spanboss-Other"] = 1 }
+		eq(ns.Data.Receive(Rep(), "Spanboss"), true)
+		local here = ns.rdb.guilds["Olympus Span"]
+		eq(here.heardOn, "Realm"); eq(here.conflict, nil, "the same reporter and officers, not added ones")
+		eq(here.witness, nil, "nor a witness in another form")
+		-- Heard here: compared as always.
+		eq(ns.Data.Receive(Rep(), "Otherguy"), true)
+		eq(ns.rdb.guilds["Olympus Span"].conflict, nil); eq(ns.rdb.guilds["Olympus Span"].witness["Spancapt-Realm"], 1)
+		local r = Rep()
+		r.leader = "Usurper"
+		ns.Data.Receive(r, "Thirdguy")
+		eq(ns.rdb.guilds["Olympus Span"].conflict, true, "a real conflict still shows")
+	end)
+	ns.rdb.guilds = saved
+	if not ok then error(err, 0) end
+end)
+
+-- Comm.lua loaded into a namespace of its own (fresh peers, stats and guard) with a clock the
+-- test moves. Deliver(dist, sender, text) goes through the real CHAT_MSG_ADDON handler.
+local function FreshComm()
+	local events, login = {}, {}
+	local cns = setmetatable({}, { __index = ns })
+	cns.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
+	cns.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
+	cns.After, cns.Every = function() end, function() end
+	cns.clock = 100000
+	cns.Now = function() return cns.clock end
+	C_ChatInfo = { RegisterAddonMessagePrefix = function() end }
+	assert(loadfile(ADDON_DIR .. "Comm.lua"))("Olympus", cns)
+	for _, fn in ipairs(login) do fn() end
+	local function Deliver(dist, sender, text)
+		for _, fn in ipairs(events.CHAT_MSG_ADDON) do fn(ns.PREFIX, text, dist, sender) end
+	end
+	local id = 0
+	local function Report(sender, r)
+		id = id + 1
+		for _, c in ipairs(ns.Codec.Chunk(ns.Codec.EncodeReport(r), tostring(id))) do Deliver("CHANNEL", sender, c) end
+	end
+	return cns, Deliver, Report
+end
+
+test("hello: guild peers say their realm, older versions count as old", function()
+	local ok, err = pcall(function()
+		local cns, Deliver = FreshComm()
+		Deliver("GUILD", "Abe-ClassicBetaPvP2", "H1~0.7.11~ClassicBetaPvP2")
+		Deliver("GUILD", "Bob", "H1~0.7.10")
+		Deliver("GUILD", "Cy", "H1~0.7.11~Bad|cffRealm")
+		local st = cns.Comm.Stats()
+		eq(st.peers, 3); eq(st.peerRealms.ClassicBetaPvP2, 1); eq(st.peerRealms.old, 2, "no realm, or not a realm")
+		eq(st.raw.g.bare, 2, "counted as sent, before our realm is added"); eq(st.raw.g.ClassicBetaPvP2, 1)
+		eq(st.rawSample.g, "Abe-ClassicBetaPvP2")
+		local sent = {}
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
+		cns.Comm.Hello()
+		cns.Comm.Pump()
+		eq(sent[1], "GUILD H1~" .. ns.VERSION .. "~Realm~p", "ours names our realm and channel (public)")
+		local savedKey = ns.rdb.realmKey
+		ns.rdb.realmKey = "secret"
+		cns.clock = cns.clock + 600
+		cns.Comm.Hello()
+		cns.Comm.Pump()
+		ns.rdb.realmKey = savedKey
+		eq(sent[2], "GUILD H1~" .. ns.VERSION .. "~Realm~s", "sealed")
+	end)
+	C_ChatInfo = nil
+	if not ok then error(err, 0) end
+end)
+
+test("a report sent from another realm proves the channel is shared", function()
+	local saved = { guilds = ns.rdb.guilds, shared = ns.rdb.shared }
+	local ok, err = pcall(function()
+		local cns, _, Report = FreshComm()
+		ns.rdb.guilds, ns.rdb.shared = {}, nil
+		Report("Nearby", { guild = "Olympus Near", total = 5, online = 1, zones = {}, from = "Realm" })
+		eq(ns.rdb.shared, nil, "a report from our own realm proves nothing")
+		Report("Faraway-Other", { guild = "Olympus Far", total = 7, online = 2, zones = {}, from = "Other" })
+		eq(ns.rdb.shared.realm, "Other"); eq(ns.rdb.shared.to, "Realm")
+		Report("Oldtimer-Realm", { guild = "Olympus Old", total = 3, online = 1, zones = {} })
+		local st = cns.Comm.Stats()
+		eq(st.reportRealms.Realm, 1); eq(st.reportRealms.Other, 1); eq(st.reportRealms.old, 1, "older versions send no realm")
+		eq(st.raw.ch.bare, 1, "Nearby came without a realm..."); eq(ns.rdb.guilds["Olympus Near"].reporterFull, "Nearby-Realm", "...and got ours")
+		eq(st.raw.ch.Other, 1); eq(st.raw.ch.Realm, 1)
+		eq(ns.rdb.guilds["Olympus Far"].from, "Other")
+		assert(ns.StatusText():find("channel SHARED (Other -> Realm", 1, true), "in /oly status")
+	end)
+	ns.rdb.guilds, ns.rdb.shared = saved.guilds, saved.shared
+	C_ChatInfo = nil
+	if not ok then error(err, 0) end
+end)
+
+test("election guard: a reporter never heard on the channel is left out a while, one that is heard stays", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		local cns, Deliver, Report = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		local function Tick(seconds, hellos, heard)
+			cns.clock = cns.clock + seconds
+			for _, name in ipairs(hellos) do Deliver("GUILD", name, "H1~0.7.11~Realm") end
+			for _, name in ipairs(heard or {}) do Report(name, ours) end
+			C.MaybeBroadcast(ours)
+		end
+		Tick(0, { "Abe" })
+		eq(C.reporterName, "Abe", "Abe sorts first")
+		for _ = 1, 10 do Tick(60, { "Abe" }) end
+		eq(C.reporterName, "Abe", "we are not on the channel: we could not have heard it")
+		GetChannelName = function() return 5 end
+		C.JoinChannel()
+		Tick(0, { "Abe" })
+		for _ = 1, 6 do Tick(60, { "Abe" }) end
+		eq(C.reporterName, "Abe", "on the channel 360 s: not yet")
+		Tick(60, { "Abe" })
+		eq(C.reporterName, "Tester", "never heard in 400 s: left out, we report"); eq(C.isReporter, true)
+		eq(C.Stats().benched[1], "Abe")
+		eq(C.Stats().queue > 0, true, "and our report goes out")
+		-- Aaron sorts first and is heard every 180 s: elected and kept.
+		for _ = 1, 8 do Tick(180, { "Abe", "Aaron" }, { "Aaron" }) end
+		eq(C.reporterName, "Aaron", "heard: stays elected")
+		eq(C.Stats().heardOwn, "Aaron")
+		-- Aaron logs off; 30 minutes after it was left out, Abe may be elected again.
+		Tick(1800 - 8 * 180, { "Abe" })
+		eq(#C.Stats().benched, 0); eq(C.reporterName, "Abe")
+		-- A peer left out is back as soon as it is heard.
+		for _ = 1, 7 do Tick(60, { "Abe" }) end
+		eq(C.reporterName, "Tester")
+		Report("Abe", ours)
+		Tick(0, { "Abe" })
+		eq(C.reporterName, "Abe", "heard: in again")
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("election guard: a reporter named with its realm over GUILD and without it on the channel is heard", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		local cns, Deliver, Report = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		GetChannelName = function() return 5 end
+		C.JoinChannel()
+		local function Tick(seconds, heard)
+			cns.clock = cns.clock + seconds
+			Deliver("GUILD", "Abe-ClassicBetaPvP2", "H1~0.7.11~ClassicBetaPvP2~p")
+			if heard then Report("Abe", ours) end
+			C.MaybeBroadcast(ours)
+		end
+		Tick(0)
+		for _ = 1, 8 do Tick(180, true) end
+		eq(C.reporterName, "Abe-ClassicBetaPvP2", "heard as Abe: stays elected"); eq(#C.Stats().benched, 0)
+		for _ = 1, 3 do Tick(180) end
+		eq(C.reporterName, "Tester", "silent: left out"); eq(C.Stats().benched[1], "Abe-ClassicBetaPvP2")
+		Tick(0, true)
+		eq(C.reporterName, "Abe-ClassicBetaPvP2", "heard as Abe: in again")
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("election guard: a sealed reporter is not judged without the key, and another channel starts the watch again", function()
+	local savedChannel, savedKey, savedLeave = GetChannelName, ns.rdb.realmKey, LeaveChannelByName
+	local ok, err = pcall(function()
+		LeaveChannelByName = function() end
+		local cns, Deliver = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		local sent = {}
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
+		ns.rdb.realmKey = nil
+		GetChannelName = function() return 5 end
+		C.JoinChannel()
+		eq(C.ChannelName(), "OlympusNet")
+		local function Tick(seconds, flag)
+			cns.clock = cns.clock + seconds
+			Deliver("GUILD", "Abe", "H1~0.7.11~Realm" .. (flag and ("~" .. flag) or ""))
+			C.MaybeBroadcast(ours)
+		end
+		for _ = 1, 12 do Tick(60, "s") end
+		eq(C.reporterName, "Abe", "on the sealed channel: we can't hear it, so we don't judge it"); eq(#C.Stats().benched, 0)
+		eq(C.Stats().queue, 1, "we ask for the key instead...")
+		C.Pump()
+		eq(sent[1], "GUILD K0~")
+		for _ = 1, 5 do Tick(60, "s") end
+		eq(C.Stats().queue, 0, "...not every minute")
+		-- An older version says nothing about its channel: judged as before, watched from now.
+		for _ = 1, 5 do Tick(60) end
+		eq(C.reporterName, "Abe")
+		-- The key arrives: another channel, and what we did not hear on the public one says nothing.
+		ns.rdb.realmKey = "secret"
+		C.JoinChannel()
+		assert(C.ChannelName() ~= "OlympusNet", "sealed channel")
+		Tick(0)
+		for _ = 1, 6 do Tick(60) end
+		eq(C.reporterName, "Abe", "360 s on the sealed channel: not yet")
+		Tick(60)
+		eq(C.reporterName, "Tester", "400 s there: left out")
+		-- We have the key: a peer on the public channel is judged like any other.
+		local cns2, Deliver2 = FreshComm()
+		local C2 = cns2.Comm
+		C2.loginAt = cns2.clock - 1000
+		C2.JoinChannel()
+		for _ = 1, 8 do
+			cns2.clock = cns2.clock + 60
+			Deliver2("GUILD", "Abe", "H1~0.7.11~Realm~p")
+			C2.MaybeBroadcast(ours)
+		end
+		eq(C2.reporterName, "Tester", "public reporter, never heard on our sealed channel: left out")
+	end)
+	GetChannelName, C_ChatInfo, ns.rdb.realmKey, LeaveChannelByName = savedChannel, nil, savedKey, savedLeave
+	if not ok then error(err, 0) end
+end)
+
+test("who: a guild named with a realm of our census group is the same guild", function()
+	local savedGroup = ns.group
+	local ok, err = pcall(WithWho, function(server)
+		ns.group = "Other+Realm"
+		ns.Who.Search()
+		server.Answer({
+			{ "Aa", "OLYMPUS VII-Other", 12 }, { "Bb", "OLYMPUS VII", 14 }, { "Cc-Far", "OLYMPUS VII-Faraway", 9 },
+			{ "Dd", "OLYMPUS I-Realm", 20 },
+		})
+		server.Run()
+		local seen = ns.rdb.seen
+		eq(seen["OLYMPUS VII"].online, 2, "OLYMPUS VII-Other is OLYMPUS VII"); eq(seen["OLYMPUS VII-Other"], nil)
+		eq(seen["OLYMPUS I"].online, 1, "so is a guild named with our own realm")
+		eq(seen["OLYMPUS VII-Faraway"].online, 1, "a realm outside the group keeps its name")
+		local names, suffixed, sample = ns.Who.RawCounts()
+		eq(names.bare, 3); eq(names.Far, 1); eq(suffixed, 3); eq(sample, "Cc-Far")
+	end)
+	ns.group = savedGroup
+	if not ok then error(err, 0) end
+end)
+
+test("/oly status: realm, census, raw names and topology, short, and without the newer realm APIs", function()
+	local keep = { group = ns.group, realm = ns.realm, shared = ns.rdb.shared, info = GetGuildInfo, Stats = ns.Comm.Stats, RawCounts = ns.Who.RawCounts }
+	local ok, err = pcall(function()
+		eq(C_AutoComplete, nil); eq(GetNativeRealmID, nil); eq(RegionalUniqueNamesEnabled, nil); eq(GetRealmID, nil)
+		local text = ns.StatusText()
+		for _, want in ipairs({ "id=nil native=nil guid=nil", "unique names=?", "connected=n/a", "shared: not seen yet" }) do
+			assert(text:find(want, 1, true), want .. "\n" .. text)
+		end
+		ns.realm, ns.group = "ClassicBetaPvP", BETA
+		C_AutoComplete = { GetAutoCompleteRealms = function() return {} end }
+		GetRealmID = function() return 4619 end
+		GetNativeRealmID = function() error("not on this client") end
+		RegionalUniqueNamesEnabled = function() return true end
+		UnitGUID = function() return "Player-4619-0A1B2C3D" end
+		GetRealmName = function() return "Classic Beta PvP" end
+		ns.rdb.shared = { realm = "ClassicBetaPvP2", to = "ClassicBetaPvP", t = os.time() - 250 }
+		text = ns.StatusText()
+		for _, want in ipairs({ "realm: Classic Beta PvP = ClassicBetaPvP  id=4619 native=nil guid=4619  guild home=ours",
+			"census: " .. BETA .. " (seed)  unique names=true  connected=none", "names raw: roster Realm=1000  e.g. [Member1-Realm]",
+			"names raw: roster by server (GUID) ?=1000", "topology: channel SHARED (ClassicBetaPvP2 -> ClassicBetaPvP, 4m ago)",
+			"topology: guild peers by realm" }) do
+			assert(text:find(want, 1, true), want .. "\n" .. text)
+		end
+		-- The longest these lines get on the beta: still short.
+		local long = "Bellattrixx Lesstrange-ClassicBetaPvP2"
+		GetGuildInfo = function() return MY_GUILD, "Hero", 3, "ClassicBetaPvP2" end
+		GetNativeRealmID = function() return 4620 end
+		C_AutoComplete.GetAutoCompleteRealms = function() return { "Classic Beta PvP", "Classic Beta PvP 2", "Classic Beta PvE", "Classic Beta RP" } end
+		local R = ns.Roster
+		local raw = { bare = 300, ClassicBetaPvP2 = 263 } -- names as sent: bare, or with PvP 2
+		local realms = { ClassicBetaPvP = 300, ClassicBetaPvP2 = 263, old = 12 }
+		R.rawRealms, R.servers, R.rawSample = raw, { ["4619"] = 300, ["4620"] = 263 }, long
+		ns.Comm.Stats = function()
+			local c = keep.Stats()
+			c.raw, c.rawSample = { ch = raw, g = raw }, { ch = long, g = long }
+			c.reportRealms, c.peerRealms, c.heardOwn, c.heardOwnAt, c.benched = realms, realms, long, os.time() - 100, { long }
+			return c
+		end
+		ns.Who.RawCounts = function() return raw, 30, long end
+		text = ns.StatusText()
+		local checked = 0
+		for line in text:gmatch("[^\n]+") do
+			if line:find("^realm:") or line:find("^census:") or line:find("^names raw:") or line:find("^topology:") then
+				checked = checked + 1
+				assert(#line <= 110, ("too long for the /oly bug window (%d): %s"):format(#line, line))
+			end
+		end
+		eq(checked, 12)
+		assert(text:find("connected=ClassicBetaPvP2,ClassicBetaPvE,+1", 1, true), "ours left out, two named\n" .. text)
+	end)
+	C_AutoComplete, GetRealmID, GetNativeRealmID, RegionalUniqueNamesEnabled, UnitGUID = nil, nil, nil, nil, nil
+	GetRealmName = function() return "Realm" end
+	GetGuildInfo, ns.Comm.Stats, ns.Who.RawCounts = keep.info, keep.Stats, keep.RawCounts
+	ns.group, ns.realm, ns.rdb.shared = keep.group, keep.realm, keep.shared
+	ns.Roster.Scan() -- the roster counts of the other tests back
+	if not ok then error(err, 0) end
+end)
+
+test("census subtitle names the realms sharing it", function()
+	local savedGroup = ns.group
+	local uns = setmetatable({}, { __index = ns })
+	uns.On = function() end
+	assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+	ns.group = BETA
+	eq(uns.UI.CensusName(), "ClassicBetaPvP + ClassicBetaPvP2")
+	ns.group = "Realm"
+	eq(uns.UI.CensusName(), "Realm", "one realm: its name")
+	ns.group = savedGroup
 end)
 
 ---------------------------------------------------------------------------

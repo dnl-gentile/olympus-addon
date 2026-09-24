@@ -803,13 +803,20 @@ function UI.SelectTab(key)
 	ShowTab(key)
 end
 
+-- Whose census this is: our realm, or the realms sharing it ("A + B").
+function UI.CensusName()
+	local group = ns.group or ns.realm
+	if #ns.GroupRealms(group) > 1 then return (group:gsub("%+", " + ")) end
+	return GetRealmName and GetRealmName() or ""
+end
+
 function UI.Refresh()
 	if not main or not main:IsShown() then return end
 	ns.SafeCall("ui refresh", function()
 		local s = ns.Data.Summary()
 		local F = ns.FormatNumber
 		main.total:SetText(L.ARMY_TOTAL:format(F(s.total)))
-		main.sub:SetText(L.ARMY_SUB:format(F(s.online), #s.guilds, ns.Ago(s.newest)) .. "  ·  " .. (GetRealmName and GetRealmName() or ""))
+		main.sub:SetText(L.ARMY_SUB:format(F(s.online), #s.guilds, ns.Ago(s.newest)) .. "  ·  " .. UI.CensusName())
 		-- Outside an Olympus guild nothing but the Join Olympus screen is shown.
 		local locked = not ns.IsMember()
 		-- Joined or left a guild while the window is open: lay it out again.

@@ -152,7 +152,7 @@ game in the app, not Classic Era.
 4. Go into `Interface\AddOns\` (create `Interface` and `AddOns` if they don't exist) and
    extract the zip there, so you end up with `...\Interface\AddOns\Olympus\Olympus.toc`.
    Careful: Windows' *Extract All* adds a folder named after the zip
-   (`AddOns\Olympus-0.7.10\Olympus\...`). If that happens, move the `Olympus` folder up into
+   (`AddOns\Olympus-0.7.11\Olympus\...`). If that happens, move the `Olympus` folder up into
    `AddOns`; the game only loads it from `AddOns\Olympus\`.
 5. **Restart the game.** If the addon list says *out of date*, tick **Load out of date AddOns**.
 
@@ -187,9 +187,11 @@ Nothing leaves the game. There is no server, no website, no account and no track
 **Realms vs layers.** A realm (ClassicBetaPvP, ClassicBetaPvP2...) is a separate world
 with its own guilds; layers are copies of a zone *inside* one realm. Guilds on the same
 realm always see each other, whatever layer they are on. Whether the hidden channel also
-reaches another realm is not confirmed yet (`/oly bug` shows which realms messages come
-from). Data is stored per realm, so alts on different realms never mix their census, and
-the window shows which realm you are counting.
+reaches another realm is not confirmed yet (the "topology" lines of `/oly bug` say so once
+a report from the other realm arrives). Realms whose guilds span each other share one
+census and one realm key: PvP and PvP 2 on the beta from the start, and any realm your
+guild turns out to be homed on. Alts on any other realm keep their census apart, and the
+window shows which realms you are counting.
 
 ## Security and trust
 

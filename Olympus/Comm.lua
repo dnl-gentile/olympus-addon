@@ -16,6 +16,10 @@ local SEND_INTERVAL = 1.2
 local MAX_QUEUE = 60
 local CHAT_QUEUE = 6  -- chat parts waiting in their own lane (two long lines)
 local CHAT_TTL = 30   -- a chat part that waited this long is dropped, not sent late
+local GUARD_AFTER = 400  -- an elected reporter never heard reporting our guild for this long...
+local GUARD_FOR = 30 * 60 -- ...is left out of the election for this long (see MaybeBroadcast)
+local KEY_ASK_EVERY = 600 -- at most one key request this often while a sealed reporter is elected
+local MAX_KEYS = 20      -- distinct keys per diagnostic count (the rest count as "other")
 
 local peers = {}
 local queue = {}
@@ -25,8 +29,28 @@ local asm = Codec.NewAssembler()
 local msgId = 0
 local lastBroadcast = 0
 local channelIndex = 0
-local stats = { sent = 0, recv = 0, reports = 0, fails = 0, bad = 0, partial = 0, echo = 0, byType = {}, realms = {} }
+local stats = { sent = 0, recv = 0, reports = 0, fails = 0, bad = 0, partial = 0, echo = 0, byType = {},
+	raw = { ch = {}, g = {} }, rawSample = {}, reportRealms = {} }
 local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
+local peerRealm = {} -- guild peer -> realm from its hello, "old" for versions that send none
+local peerSealed = {} -- guild peer -> "s" (on the sealed channel) or "p" (public), from its hello
+-- Short name -> last time we heard it report our guild on the channel. Short: the server may
+-- send a name with its realm over GUILD and without it over CHANNEL (names are region-unique
+-- on the realmless client).
+local heardOwn = {}
+local benched = {}   -- guild peer -> time it may be elected again
+local watch          -- { name, since }: the peer we elected while we are on the channel
+local lastKeyAsk     -- when MaybeBroadcast last asked our guild for the key
+
+-- count[key] + 1, with at most MAX_KEYS distinct keys (senders choose some of them).
+local function Count(t, key)
+	if t[key] == nil then
+		local n = 0
+		for _ in pairs(t) do n = n + 1 end
+		if n >= MAX_KEYS then key = "other" end
+	end
+	t[key] = (t[key] or 0) + 1
+end
 
 function Comm.PeerCount()
 	local now, n = ns.Now(), 0
@@ -36,13 +60,35 @@ function Comm.PeerCount()
 	return n
 end
 
+-- Guild peers counted now, by the realm their hello named.
+local function PeerRealms(now)
+	local out = {}
+	for name, t in pairs(peers) do
+		if now - t <= COUNT_WINDOW then Count(out, peerRealm[name] or "old") end
+	end
+	return out
+end
+
 function Comm.Stats()
+	local now = ns.Now()
+	local lastOwn, lastOwnAt = nil, 0
+	for name, t in pairs(heardOwn) do
+		if t > lastOwnAt then lastOwn, lastOwnAt = name, t end
+	end
+	local out = {}
+	for name, t in pairs(benched) do
+		if t > now then out[#out + 1] = ns.DisplayName(name) end
+	end
+	table.sort(out)
 	return {
 		channelName = joinedName, sealed = ns.rdb and ns.rdb.realmKey ~= nil,
 		channel = channelIndex, peers = Comm.PeerCount(), reporter = Comm.reporterName,
 		isReporter = Comm.isReporter, sent = stats.sent, recv = stats.recv, reports = stats.reports,
 		fails = stats.fails, bad = stats.bad, queue = #queue, chatQueue = #chatQueue, lastFail = stats.lastFail,
-		partial = stats.partial, echo = stats.echo, byType = stats.byType, realms = stats.realms, pending = (function() local n = 0 for _ in pairs(asm.buf) do n = n + 1 end return n end)(),
+		partial = stats.partial, echo = stats.echo, byType = stats.byType, pending = (function() local n = 0 for _ in pairs(asm.buf) do n = n + 1 end return n end)(),
+		raw = stats.raw, rawSample = stats.rawSample, reportRealms = stats.reportRealms, shared = ns.rdb and ns.rdb.shared,
+		peerRealms = PeerRealms(now), heardOwn = lastOwn and ns.DisplayName(lastOwn), heardOwnAt = lastOwn and lastOwnAt,
+		benched = out,
 	}
 end
 
@@ -203,6 +249,7 @@ function Comm.JoinChannel()
 		LeaveChannelByName(joinedName) -- the key changed: leave the old channel
 		channelIndex = 0
 	end
+	if joinedName ~= name then watch = nil end -- another channel: the election guard starts again
 	joinedName = name
 	local id = GetChannelName(name)
 	if id and id > 0 then
@@ -212,6 +259,7 @@ function Comm.JoinChannel()
 		return
 	end
 	ns.Log("joining channel %s%s", name, password and " (sealed)" or "")
+	watch = nil -- time off this channel says nothing about what we hear on it (election guard)
 	JoinChannelByName(name, password)
 	ns.After(3, "channel check", function()
 		channelIndex = GetChannelName(name) or 0
@@ -221,6 +269,11 @@ function Comm.JoinChannel()
 end
 
 function Comm.ChannelName() return joinedName end
+
+-- No key? Ask our guild (officers who have it answer, over GUILD).
+function Comm.RequestKey()
+	if ns.IsMember() and ns.rdb and not ns.rdb.realmKey then Enqueue("GUILD", "K0~", "keyreq") end
+end
 
 -- /oly key <secret>: officers seal the channel; guildmates receive the key automatically.
 function Comm.SetRealmKey(secret)
@@ -247,17 +300,54 @@ function Comm.Hello()
 	if not IsInGuild() then return end
 	local now, before = ns.Now(), 0
 	for name, t in pairs(peers) do
-		if now - t <= PEER_WINDOW and name < (ns.me or "") then before = before + 1 end
+		if now - t <= PEER_WINDOW and name < (ns.me or "") and (benched[name] or 0) <= now then before = before + 1 end
 	end
 	if before >= 10 and now - lastHello < 600 then return end
 	lastHello = now
-	Enqueue("GUILD", "H1~" .. ns.VERSION, "hello")
+	-- Our realm rides along: guildmates on another realm show in /oly status (topology). So does
+	-- our channel: without the key we can't hear a reporter on the sealed one (MaybeBroadcast).
+	local sealed = ns.rdb and ns.rdb.realmKey and "s" or "p"
+	Enqueue("GUILD", "H1~" .. ns.VERSION .. "~" .. tostring(ns.realm) .. "~" .. sealed, "hello")
+end
+
+-- The peers that may be elected: every one, but those left out by the guard below.
+local function Electable(now)
+	local pool = {}
+	for name, t in pairs(peers) do
+		if (benched[name] or 0) <= now then pool[name] = t end
+	end
+	return pool
 end
 
 function Comm.MaybeBroadcast(report)
 	local now = ns.Now()
 	-- Peers are keyed "Name-Realm" like ns.me, so every client compares the same strings.
-	local best = Codec.PickReporter(ns.me, peers, now, PEER_WINDOW)
+	local pool = Electable(now)
+	local best = Codec.PickReporter(ns.me, pool, now, PEER_WINDOW)
+	-- Rollout guard: a peer that wins the election but never reports (an old or broken
+	-- version, or one that is not on the channel) keeps our guild off everyone's census.
+	-- Elected for GUARD_AFTER while we are on the channel and never heard reporting our guild
+	-- there, it is left out for GUARD_FOR and the next one is elected (maybe us).
+	-- A reporter on the sealed channel is not ours to judge while we have no key: we can't hear
+	-- it, and its reports reach the guilds they should. We ask for the key instead.
+	local deaf = best ~= ns.me and peerSealed[best] == "s" and not (ns.rdb and ns.rdb.realmKey)
+	if deaf then
+		watch = nil
+		if now - (lastKeyAsk or Comm.loginAt or 0) >= KEY_ASK_EVERY then
+			lastKeyAsk = now
+			Comm.RequestKey()
+		end
+	elseif best ~= ns.me and channelIndex > 0 then
+		if not watch or watch.name ~= best then watch = { name = best, since = now } end
+		if now - math.max(watch.since, heardOwn[ns.ShortName(best)] or 0) >= GUARD_AFTER then
+			benched[best] = now + GUARD_FOR
+			ns.Log("reporter %s never heard in %ds: left out of the election for %dm", best, GUARD_AFTER, GUARD_FOR / 60)
+			pool[best], watch = nil, nil
+			best = Codec.PickReporter(ns.me, pool, now, PEER_WINDOW)
+		end
+	else
+		watch = nil
+	end
 	Comm.isReporter = best == ns.me
 	Comm.reporterName = ns.DisplayName(best)
 	if not Comm.isReporter or now - lastBroadcast < BROADCAST_EVERY then return end
@@ -274,9 +364,14 @@ end
 
 local function OnAddonMessage(prefix, text, dist, sender)
 	if prefix ~= ns.PREFIX then return end
+	if type(sender) ~= "string" or sender == "" then return end
+	-- The sender as the server sent it: which realms get a suffix tells the realms apart.
+	local lane, rawRealm = dist == "CHANNEL" and "ch" or "g", sender:match("%-(.+)$")
+	Count(stats.raw[lane], rawRealm or "bare")
+	local sample = stats.rawSample[lane]
+	if not sample or (rawRealm and not sample:find("-", 1, true)) then stats.rawSample[lane] = sender end
 	-- Same-realm senders arrive without "-Realm": make every name "Name-Realm" once, here.
 	sender = ns.FullName(sender)
-	if not sender or sender == "" then return end
 	if sender == ns.me then
 		stats.echo = stats.echo + 1 -- our own message coming back (proves the channel works)
 		return
@@ -286,9 +381,6 @@ local function OnAddonMessage(prefix, text, dist, sender)
 	stats.recv = stats.recv + 1
 	local kind = (dist == "CHANNEL" and "ch:" or "g:") .. (text:match("^C%w+:") and "chunk" or text:sub(1, 2))
 	stats.byType[kind] = (stats.byType[kind] or 0) + 1
-	-- Which realms our messages come from answers whether the channel crosses realms.
-	local realmKey = (dist == "CHANNEL" and "ch:" or "g:") .. (ns.RealmOf(sender) or "?")
-	stats.realms[realmKey] = (stats.realms[realmKey] or 0) + 1
 	local now = ns.Now()
 	-- Realm key, only over GUILD (server-verified guildmates) and only from our officers.
 	if dist == "GUILD" and text:sub(1, 3) == "K1~" then
@@ -314,6 +406,9 @@ local function OnAddonMessage(prefix, text, dist, sender)
 	if dist == "GUILD" and text:sub(1, 3) == "H1~" then
 		if not peers[sender] then ns.Log("peer %s (%s)", sender, text:sub(4)) end
 		peers[sender] = now
+		peerRealm[sender] = Codec.RealmField(text:match("^H1~[^~]*~([^~]+)")) or "old"
+		local sealed = text:match("^H1~[^~]*~[^~]*~([^~]*)")
+		peerSealed[sender] = (sealed == "s" or sealed == "p") and sealed or nil
 		return
 	end
 	local handler = handlers[text:sub(1, 2)]
@@ -336,6 +431,18 @@ local function OnAddonMessage(prefix, text, dist, sender)
 			return
 		end
 		stats.reports = stats.reports + 1
+		-- A report from a reporter on another realm proves the channel crosses realms.
+		Count(stats.reportRealms, r.from or "old")
+		if r.from and r.from ~= ns.realm then ns.rdb.shared = { realm = r.from, to = ns.realm, t = now } end
+		-- Our guild's reporter is heard: the election guard (MaybeBroadcast) leaves it in.
+		local own = GetGuildInfo("player")
+		if own and r.guild:lower() == own:lower() then
+			local short = ns.ShortName(sender)
+			heardOwn[short] = now
+			for name in pairs(benched) do
+				if ns.ShortName(name) == short then benched[name] = nil end
+			end
+		end
 		if ns.Data.Receive(r, sender) then
 			ns.Log("report %s from %s: %d members, %d online", r.guild, sender, r.total, r.online)
 		end
@@ -359,9 +466,7 @@ ns.On("LOGIN", function()
 	Comm.loginAt = ns.Now()
 	C_ChatInfo.RegisterAddonMessagePrefix(ns.PREFIX)
 	-- No key yet? Ask our guild once (officers who have it answer).
-	ns.After(20, "key request", function()
-		if ns.IsMember() and not ns.rdb.realmKey then Enqueue("GUILD", "K0~", "keyreq") end
-	end)
+	ns.After(20, "key request", Comm.RequestKey)
 	ns.RegisterEvent("CHAT_MSG_ADDON", OnAddonMessage)
 	ns.RegisterEvent("CHAT_MSG_ADDON_LOGGED", OnAddonMessage) -- chat lines (same payload)
 	-- Join late so General/Trade/LocalDefense keep their usual numbers (/1, /2...).

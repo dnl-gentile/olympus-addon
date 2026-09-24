@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.7.10"
+ns.VERSION = "0.7.11"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild
 ns.ICON = "Interface\\AddOns\\Olympus\\media\\logo64"
@@ -88,6 +88,242 @@ function ns.PlayerName()
 	if not realm or realm == "" then realm = ns.realm or ns.CurrentRealm() end
 	if realm and realm ~= "" and realm ~= "?" then return name .. "-" .. realm end
 	return name
+end
+
+---------------------------------------------------------------------------
+-- Realm groups. Realms whose guilds span each other share one census, one realm key and one
+-- chat history: they are stored together under the group's name ("A+B", realms sorted).
+-- ns.realm stays the character's own realm, for identities ("Name-Realm").
+-- WoW: Forever's beta PvP realms are one group from the start (a guild of one is homed on
+-- the other); any other link is learned from the roster (a guild homed on another realm).
+---------------------------------------------------------------------------
+
+local SEED_BETA = "ClassicBetaPvP+ClassicBetaPvP2"
+local SEED = { ClassicBetaPvP = SEED_BETA, ClassicBetaPvP2 = SEED_BETA }
+
+-- A realm name in the form the server uses in "Name-Realm", or nil when unusable.
+local function CleanRealm(realm)
+	if type(realm) ~= "string" then return nil end
+	realm = realm:gsub("[%s%-]", "")
+	if realm == "" or realm == "?" or realm:find("+", 1, true) then return nil end
+	return realm
+end
+
+-- The group a realm belongs to: learned (db.links), else the seed, else the realm alone.
+local function Learned(db, realm)
+	local links = db and db.links
+	local group = type(links) == "table" and links[realm]
+	return type(group) == "string" and group ~= "" and group or nil
+end
+
+function ns.GroupOf(realm, db)
+	return Learned(db or ns.db, realm) or SEED[realm] or realm
+end
+
+function ns.GroupRealms(group)
+	local out = {}
+	for realm in tostring(group or ""):gmatch("[^+]+") do out[#out + 1] = realm end
+	return out
+end
+
+-- Where our group comes from, for /oly status: "learned", "seed" or "own" (not linked).
+function ns.GroupSource(realm)
+	if Learned(ns.db, realm) then return "learned" end
+	if SEED[realm] then return "seed" end
+	return "own"
+end
+
+-- Is this realm one of the realms whose census we share (ours included)?
+function ns.InGroup(realm)
+	if not realm then return false end
+	for _, r in ipairs(ns.GroupRealms(ns.group or ns.realm)) do
+		if r == realm then return true end
+	end
+	return false
+end
+
+-- Newest `t` wins, per key; on a tie the entry already there stays.
+local function MergeNewest(dst, src)
+	if type(src) ~= "table" then return end
+	for k, v in pairs(src) do
+		local old = dst[k]
+		if type(v) == "table" and (type(old) ~= "table" or (tonumber(v.t) or 0) > (tonumber(old.t) or 0)) then dst[k] = v end
+	end
+end
+
+-- Inspections: newest wins too, but an officer's mark and note never go with the older entry
+-- (false is an explicit unmark: it stays).
+local function MergePlayers(dst, src)
+	if type(src) ~= "table" then return end
+	for k, v in pairs(src) do
+		local old = dst[k]
+		if type(v) == "table" then
+			local keep, other = v, old
+			if type(old) == "table" and (tonumber(v.t) or 0) <= (tonumber(old.t) or 0) then keep, other = old, v end
+			if type(other) == "table" then
+				if keep.marked == nil then keep.marked = other.marked end
+				if keep.note == nil then keep.note = other.note end
+			end
+			dst[k] = keep
+		end
+	end
+end
+
+local CHAT_KEEP = 100 -- lines per tier, like Channels.lua's HISTORY
+
+-- Chat lines of both stores in time order, each once, the newest CHAT_KEEP kept.
+local function MergeChat(dst, src)
+	for tier, list in pairs(src) do
+		if type(list) == "table" then
+			local out, seen = {}, {}
+			local function Add(from)
+				for _, e in ipairs(type(from) == "table" and from or {}) do
+					local key = type(e) == "table" and (tostring(e.t) .. "\1" .. tostring(e.sender) .. "\1" .. tostring(e.text))
+					if key and not seen[key] then
+						seen[key] = true
+						out[#out + 1] = e
+					end
+				end
+			end
+			Add(dst[tier])
+			Add(list)
+			table.sort(out, function(a, b) return (tonumber(a.t) or 0) < (tonumber(b.t) or 0) end)
+			while #out > CHAT_KEEP do table.remove(out, 1) end
+			dst[tier] = out
+		end
+	end
+end
+
+-- Moves one store into another, losing nothing that is newer. Our own guild's report (`mine`)
+-- is kept like any other: an alt's own guild is a report nobody else may be sending. The
+-- realm key is settled by OpenStore, which sees every store at once.
+local function MergeStore(dst, src)
+	for _, key in ipairs({ "guilds", "seen" }) do
+		dst[key] = type(dst[key]) == "table" and dst[key] or {}
+		MergeNewest(dst[key], src[key])
+	end
+	if type(src.inspect) == "table" then
+		dst.inspect = type(dst.inspect) == "table" and dst.inspect or {}
+		local d, s = dst.inspect, src.inspect
+		d.players = type(d.players) == "table" and d.players or {}
+		MergePlayers(d.players, s.players)
+		d.guildMarks = type(d.guildMarks) == "table" and d.guildMarks or {}
+		for k, v in pairs(type(s.guildMarks) == "table" and s.guildMarks or {}) do
+			if d.guildMarks[k] == nil then d.guildMarks[k] = v end
+		end
+	end
+	if type(src.chat) == "table" then
+		dst.chat = type(dst.chat) == "table" and dst.chat or {}
+		MergeChat(dst.chat, src.chat)
+	end
+	-- Anything else (the "shared" proof, fields of later versions): the newest, or whichever is set.
+	for k, v in pairs(src) do
+		if k ~= "guilds" and k ~= "seen" and k ~= "inspect" and k ~= "chat" and k ~= "realmKey" then
+			local old = dst[k]
+			if old == nil or (type(v) == "table" and type(old) == "table" and (tonumber(v.t) or 0) > (tonumber(old.t) or 0)) then dst[k] = v end
+		end
+	end
+end
+
+-- The group's store, with the store of each of its realms (or of a smaller group of them)
+-- merged in and removed, so running it again changes nothing. Realm keys: one key, or the
+-- same key everywhere, is kept; different keys are all dropped, and our officers hand ours
+-- out again over guild chat (K0/K1 at login).
+local function OpenStore(db, group)
+	if type(db.realms) ~= "table" then db.realms = {} end
+	local R = db.realms[group]
+	if type(R) ~= "table" then R = {} end
+	db.realms[group] = R
+	local members = {}
+	for _, realm in ipairs(ns.GroupRealms(group)) do members[realm] = true end
+	-- Collect first: the merge must not change db.realms while pairs() walks it.
+	local merge = {}
+	for key in pairs(db.realms) do
+		if key ~= group and type(key) == "string" then
+			local inside = true
+			for _, realm in ipairs(ns.GroupRealms(key)) do
+				if not members[realm] then inside = false end
+			end
+			if inside then merge[#merge + 1] = key end
+		end
+	end
+	if #merge == 0 then return R end
+	table.sort(merge)
+	local keys, distinct = {}, 0
+	local function Key(k)
+		if type(k) == "string" and k ~= "" and not keys[k] then
+			keys[k] = true
+			distinct = distinct + 1
+		end
+	end
+	Key(R.realmKey)
+	for _, key in ipairs(merge) do
+		local src = db.realms[key]
+		if type(src) == "table" then
+			Key(src.realmKey)
+			-- A realm's own store (v0.7.8-0.7.10): its reports were heard on that realm (Data.Receive).
+			if not key:find("+", 1, true) and type(src.guilds) == "table" then
+				for _, g in pairs(src.guilds) do
+					if type(g) == "table" and g.heardOn == nil then g.heardOn = key end
+				end
+			end
+			MergeStore(R, src)
+		end
+		db.realms[key] = nil
+	end
+	if distinct == 1 then
+		R.realmKey = next(keys)
+	elseif distinct > 1 then
+		R.realmKey = nil
+	end
+	ns.Log("census of %s merged into %s%s", table.concat(merge, ", "), group, distinct > 1 and " (different realm keys dropped)" or "")
+	return R
+end
+
+-- Learns that realms a and b share guilds: their groups become one, for good (db.links).
+-- If that changes our own group, the census moves over at once. Returns true if anything
+-- was learned.
+function ns.LinkRealms(a, b)
+	local db = ns.db
+	a, b = CleanRealm(a), CleanRealm(b)
+	if not db or not a or not b or a == b then return false end
+	local set, list = {}, {}
+	for _, realm in ipairs({ a, b }) do
+		for _, m in ipairs(ns.GroupRealms(ns.GroupOf(realm))) do
+			if not set[m] then
+				set[m] = true
+				list[#list + 1] = m
+			end
+		end
+	end
+	table.sort(list)
+	local group = table.concat(list, "+")
+	local learned = false
+	for _, m in ipairs(list) do
+		if ns.GroupOf(m) ~= group then
+			if type(db.links) ~= "table" then db.links = {} end
+			db.links[m] = group
+			learned = true
+		end
+	end
+	if not learned then return false end
+	ns.Log("realms linked: %s", group)
+	local mine = ns.realm and ns.GroupOf(ns.realm)
+	if mine and mine ~= ns.group then
+		local oldKey = ns.rdb and ns.rdb.realmKey
+		ns.group = mine
+		ns.rdb = OpenStore(db, mine)
+		ns.Print(L.REALMS_LINKED:format((mine:gsub("%+", " + "))))
+		ns.Fire("DATA_CHANGED")
+		-- A new key means another channel. Before our first join, that join picks it up (and
+		-- the login's key request asks for a dropped key).
+		if ns.rdb.realmKey ~= oldKey and ns.Comm and ns.Comm.ChannelName() then
+			ns.Comm.JoinChannel()
+			-- Ours was dropped (the realms had different keys): our officers hand it out again.
+			if not ns.rdb.realmKey then ns.Comm.RequestKey() end
+		end
+	end
+	return true
 end
 
 -- HereBeDragons-Pins, only if it loaded completely (a half-loaded library means no map
@@ -250,19 +486,21 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 	-- v0.7.9: demo data is gone (testers took it for real data). Forget the old setting.
 	db.demo = nil
 	if db.configVersion < 3 then db.configVersion = 3 end
-	-- Guild reports and the realm key belong to one realm: alts on another realm (PvP and
-	-- PvP 2 in the beta) must not mix their census or join the other realm's sealed channel.
+	-- Guild reports and the realm key belong to one realm group (ns.GroupOf): realms whose
+	-- guilds span each other (PvP and PvP 2 in the beta) share them, any other realm keeps
+	-- its own. The stores v0.7.8-0.7.10 kept per realm are merged into their group's here.
+	ns.db = db
 	ns.realm = ns.CurrentRealm()
-	db.realms = db.realms or {}
-	local R = db.realms[ns.realm] or {}
-	db.realms[ns.realm] = R
+	ns.group = ns.GroupOf(ns.realm, db)
+	ns.Log("---- session %d, v%s, realm %s, census %s ----", db.sessions, ns.VERSION, ns.realm, ns.group)
+	local R = OpenStore(db, ns.group)
 	R.guilds = R.guilds or {}
 	R.seen = R.seen or {} -- Olympus guilds seen with /who (Data.lua), never mixed with the reports
 	-- Old account-wide census and key: there is no telling which realm they came from, so
 	-- drop them. The census refills from the channel within minutes and officers hand the
 	-- key out again over guild chat (K0/K1) at login.
 	db.guilds, db.realmKey, db.officerRank = nil, nil, nil
-	-- Tabard inspections are about the players of one realm too.
+	-- Tabard inspections are about the players of one realm group too.
 	if db.inspect then
 		if R.inspect == nil then R.inspect = db.inspect end
 		db.inspect = nil
@@ -280,8 +518,6 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 		end
 	end
 	ns.rdb = R
-	ns.db = db
-	ns.Log("---- session %d, v%s, realm %s ----", db.sessions, ns.VERSION, ns.realm)
 	ns.Fire("INIT")
 end)
 

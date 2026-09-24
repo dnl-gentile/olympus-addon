@@ -19,6 +19,19 @@ ns.On("INIT", function()
 	for name, e in pairs(seen) do
 		if type(e) ~= "table" or now - (e.t or 0) > Data.KEEP then seen[name] = nil end
 	end
+	-- Sightings kept before v0.7.11 may carry a "-Realm" of our census group on the guild's
+	-- name (Who.GuildName): they go under its plain name, the newest one kept, or the guild
+	-- would show twice. Collect first: pairs() must not see new keys.
+	local renamed = {}
+	for name in pairs(seen) do
+		local base = type(name) == "string" and ns.Who.GuildName and ns.Who.GuildName(name)
+		if base and base ~= name then renamed[#renamed + 1] = { name, base } end
+	end
+	for _, pair in ipairs(renamed) do
+		local e, old = seen[pair[1]], seen[pair[2]]
+		seen[pair[1]] = nil
+		if type(old) ~= "table" or (e.t or 0) > (old.t or 0) then seen[pair[2]] = e end
+	end
 end)
 
 -- Olympus guilds seen online with /who (census Refresh, Join screen), per realm:
@@ -52,6 +65,8 @@ function Data.SetLocal(r)
 	r.reporter = ns.DisplayName(ns.me)
 	r.reporterFull = ns.me
 	r.realm = ns.realm
+	r.from = ns.realm -- travels in the report: whoever hears it on another realm knows the channel is shared
+	r.heardOn = ns.realm -- see Data.Receive
 	r.mine = true
 	ns.rdb.guilds[r.guild] = r
 	ns.Fire("DATA_CHANGED")
@@ -102,10 +117,19 @@ function Data.Receive(r, sender)
 		return false
 	end
 	local previous = ns.rdb.guilds[r.guild]
+	-- Realms of one census group share this store, but a name without a realm takes the realm
+	-- of the character that heard it. A report heard on another realm of the group names people
+	-- in that realm's form: compared with ours, the same reporter and officers would look new
+	-- (a false conflict), so here it counts as no report at all.
+	if previous and previous.heardOn and previous.heardOn ~= ns.realm then previous = nil end
 	local previousWho = previous and (previous.reporterFull or ns.FullName(previous.reporter))
 	r.t = ns.Now()
 	r.reporter = ns.DisplayName(who)
 	r.reporterFull = who
+	r.heardOn = ns.realm
+	-- The realm of the sender's name as we got it, not the report's `from`: a report's short
+	-- names are compared with senders in that same form (a sender that reaches us without a
+	-- realm carries ours, whatever realm it plays on).
 	r.realm = ns.RealmOf(who) or ns.realm
 	if previousWho and previousWho ~= who then
 		local added = AddedName(previous, r)

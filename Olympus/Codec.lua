@@ -4,12 +4,15 @@ local ADDON, ns = ...
 --
 -- Report:  R2~guild~total~online~leader~leaderOnline~users~zones~classes~levels
 --             ~ranks~officers~leaderDays~inactive7~inactive30~avgLevel10~top
---             ~leaderClass~leaderLevel~leaderZone
+--             ~leaderClass~leaderLevel~leaderZone~from~home
 --   zones   "m1453=204,m1429=61,tThe Stockade=5"   (m = uiMapID, t = zone text we could not resolve)
 --   classes "WA=40,PA=12,..."
 --   levels  7 comma separated counts: 1-9, 10-19, ..., 50-59, 60+
+--   from    the reporter's realm; home: the guild's home realm (older versions send neither
+--           and stop reading at leaderZone)
 -- Chunk:   C<id>:<i>:<n>:<piece>   (addon messages are limited to 255 bytes)
--- Hello:   H1~<version>            (sent on GUILD so members with the addon find each other)
+-- Hello:   H1~<version>~<realm>    (sent on GUILD so members with the addon find each other;
+--                                    older versions send no realm)
 -- Chat:    M1~tier~guild~id~class~text   (tier A|C|L, id 0-9999 per part, class 2 letters or empty)
 
 local Codec = {}
@@ -40,6 +43,12 @@ Codec.Split = split
 -- WoW limits guild names to 24 characters, not bytes (an accented letter takes 2 or 3 bytes).
 local function LongGuild(guild)
 	return #guild > 72 or select(2, guild:gsub("[^\128-\191]", "")) > 24
+end
+
+-- A realm name from the wire: one word of at most 40 characters, no escape codes; nil otherwise.
+function Codec.RealmField(v)
+	if type(v) ~= "string" or #v > 40 or not v:find("^[^%s~|]+$") then return nil end
+	return v
 end
 
 local function num(v)
@@ -181,6 +190,8 @@ function Codec.EncodeReport(r)
 		clean(r.leaderClass or ""),
 		math.floor(r.leaderLevel or 0),
 		clean(r.leaderZone or ""),
+		clean(r.from or ""),
+		clean(r.home or ""),
 	}, "~")
 end
 
@@ -216,6 +227,8 @@ function Codec.DecodeReport(s)
 		leaderClass = (f[18] and f[18] ~= "") and f[18]:sub(1, 12) or nil,
 		leaderLevel = num(f[19]),
 		leaderZone = (f[20] and f[20] ~= "") and f[20]:sub(1, 40) or nil,
+		from = Codec.RealmField(f[21]),
+		home = Codec.RealmField(f[22]),
 	}
 end
 
