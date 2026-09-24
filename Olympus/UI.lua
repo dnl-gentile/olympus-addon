@@ -105,7 +105,6 @@ local RECRUIT_BUTTONS = {
 local DETAIL_BUTTONS = {
 	throne = {
 		{ "THRONE_LETTER_BTN", function() ns.King.Show("letter") end },
-		{ "THRONE_SHAME", function() ns.King.PublishShame() end },
 	},
 	heraldry = {
 		{ "SHAME_BTN", function() ns.Inspect.PublishShame() end },

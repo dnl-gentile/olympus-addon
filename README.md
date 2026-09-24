@@ -119,13 +119,28 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 "OlympusNet" by name; with a key, every member of the guilds that have it. The guild tag on an
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
 
+### The Throne (the King only)
+A fifth tab, with a crown, that only the King sees: the guild master of the guild named
+exactly "Olympus" (of his faction). A parchment page with:
+- **Summon the Lords**: every Lord and Captain online gets a popup, "Present, my King" or
+  "Busy". The King sees who answered and who stayed silent.
+- **Royal Inspection**: a raid warning for the whole army ("wear your tabard!"), then every
+  soldier with the addon patrols the players around them for 2 minutes and reports to the
+  King: how many were checked, the percentage in colors, per guild, and who was caught.
+- **The King's Agenda**: minutes and an event ("30 Raid on Crossroads"). The whole army sees
+  it, with reminders 10 minutes and 1 minute before.
+
+Every command is checked on each client: it only counts if the census confirms the sender is
+that guild master. Answers go to the King alone.
+
 ### Tabards: tabard inspection and the Wall of Shame
 - **Patrol**: walk through the crowd and the addon inspects nearby Olympus members level 15
   and up, one by one (about 28 yards). Younger players are never flagged. It records who wears a tabard, who wears the wrong one and who
   wears none. Players it could not see properly are never accused.
 - **Mark** a player (with a note: `/oly mark complained about the rule`) or a whole guild.
 - Per guild: *"5 of 20 with problems"*.
-- **Wall of Shame**: the Crown publishes the list, and every Olympus member with the addon sees it.
+- **Wall of Shame**: the Crown publishes the list, and every Olympus member with the addon sees
+  it on the Tabards page (empty until someone publishes one).
 - Hover any player in the world to see their last inspection in the tooltip.
 
 ### World map

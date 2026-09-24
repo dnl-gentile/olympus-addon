@@ -145,6 +145,7 @@ function King.HandleAnswer(dist, sender, text)
 	local id, word, guild = text:match("^T2~(%d+)~([PB])~(.*)$")
 	if tonumber(id) ~= summon.id or ns.Now() - summon.t > 300 then return end
 	sender = ns.FullName(sender)
+	guild = guild:gsub("|", ""):sub(1, 24) -- shown on the King's screen (the stream): no escape codes
 	local rank = ns.IsFederation(guild) and ns.Data.KnownRank(sender, guild) or nil
 	summon.answers[sender] = { word = word, guild = guild, verified = rank ~= nil and rank <= ns.CAPTAIN_RANK, t = ns.Now() }
 	Changed()
@@ -226,9 +227,17 @@ function King.ReceiveReport(sender, text)
 	local list = {}
 	for entry in names:gmatch("[^,]+") do
 		local n, g, s = entry:match("^([^:]+):([^:]*):([NO])$")
-		if n and #list < King.MAX_NAMES then list[#list + 1] = { name = n:sub(1, 48), guild = g:sub(1, 24), status = s == "N" and "NONE" or "OTHER" } end
+		if n and #list < King.MAX_NAMES then
+			list[#list + 1] = { name = n:gsub("|", ""):sub(1, 48), guild = g:gsub("|", ""):sub(1, 24), status = s == "N" and "NONE" or "OTHER" }
+		end
 	end
-	inspect.reports[ns.FullName(sender)] = { guild = guild:sub(1, 24), ok = math.min(tonumber(ok) or 0, 200),
+	sender = ns.FullName(sender)
+	if not inspect.reports[sender] then
+		local count = 0
+		for _ in pairs(inspect.reports) do count = count + 1 end
+		if count >= 300 then return end -- one report per sender, and a few hundred at most
+	end
+	inspect.reports[sender] = { guild = guild:gsub("|", ""):sub(1, 24), ok = math.min(tonumber(ok) or 0, 200),
 		none = math.min(tonumber(none) or 0, 200), other = math.min(tonumber(other) or 0, 200), names = list }
 	Changed()
 end
@@ -485,8 +494,7 @@ function King.Build(s)
 	elseif King.mode == "inspect" then lines = InspectLines()
 	elseif King.mode == "agenda" then lines = AgendaLines()
 	else lines = King.LetterLines() end
-	local who = King.IsKing() and L.THRONE_YOU_ARE_KING or L.THRONE_PREVIEW
-	return lines, L.TAB_THRONE, who
+	return lines, L.TAB_THRONE, L.THRONE_YOU_ARE_KING
 end
 
 function King.Show(mode)

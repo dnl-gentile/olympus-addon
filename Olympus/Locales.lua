@@ -135,6 +135,7 @@ L.PATROL_BTN = "Patrol"
 L.CROWN_ONLY = "Only the Crown (guild masters and the officers of <Olympus>) can do this."
 L.CROWN_PREVIEW_NOTE = "Only the Crown can send this, so this is a local preview only."
 L.WALL_OF_SHAME = "Wall of Shame"
+L.SHAME_EMPTY = "empty, for now"
 L.PUBLISHED_BY = "by %s, %s"
 L.AND_MORE = "... and %d more"
 L.SHAME_PUBLISHED = "WALL OF SHAME: %d soldiers caught without the colors (published by %s)"
@@ -227,6 +228,9 @@ This page is Yours alone. From here:
   around them. The Wall of Shame awaits
 - The King's Agenda: set the hour,
   the whole army sees the countdown
+
+Should Your Majesty wish for any
+other feature, just let me know.
 
 At Your service, Your Majesty.
 
@@ -435,6 +439,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CROWN_ONLY = "Só a Coroa (líderes das guildas e officers da <Olympus>) pode fazer isso."
 	L.CROWN_PREVIEW_NOTE = "Só a Coroa pode enviar isto, então é só uma prévia local."
 	L.WALL_OF_SHAME = "Mural da Vergonha"
+	L.SHAME_EMPTY = "vazio, por enquanto"
 	L.PUBLISHED_BY = "por %s, %s"
 	L.AND_MORE = "... e mais %d"
 	L.SHAME_PUBLISHED = "MURAL DA VERGONHA: %d soldados flagrados sem as cores (publicado por %s)"

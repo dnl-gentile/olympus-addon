@@ -524,7 +524,11 @@ local function HeraldryLines()
 	local s = ns.Inspect.Summary()
 	local lines = {}
 	local shame = ns.Inspect.Shame()
-	if shame and #shame.list > 0 then
+	if not (shame and #shame.list > 0) then
+		-- Always there, so everyone knows it exists: empty until the Crown publishes one.
+		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(L.SHAME_EMPTY) }
+		lines[#lines].gapAfter = true
+	else
 		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(L.PUBLISHED_BY:format(shame.by, ns.Ago(shame.t))) }
 		for i = 1, math.min(12, #shame.list) do
 			local p = shame.list[i]
