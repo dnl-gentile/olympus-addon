@@ -344,6 +344,36 @@ local function King(guilds)
 	return guilds[1]
 end
 
+-- The members of a guild online now, besides its Lord and Captains: our own guild from our
+-- roster, any other from the /who searches of this round (Who.lua). Reports carry no member
+-- lists: a thousand names per guild would not fit on the channel. { name, level, class
+-- (code), zone (key), rank } each, by rank then level.
+Views.MAX_MEMBERS = 25
+function Views.MembersOf(guild, g)
+	local skip = {}
+	if g and g.leader then skip[ns.ShortName(g.leader)] = true end
+	for _, o in ipairs(g and g.officers or {}) do if o.name then skip[ns.ShortName(o.name)] = true end end
+	local out, fromWho = {}, guild ~= GetGuildInfo("player")
+	if not fromWho then
+		for _, m in ipairs(ns.Roster.online or {}) do
+			if not skip[ns.ShortName(m.name)] then out[#out + 1] = m end
+		end
+		return out, false
+	end
+	local sweep = ns.Who and ns.Who.sweep
+	for _, p in ipairs(sweep and sweep.list or {}) do
+		if p.guild == guild and p.name and not skip[ns.ShortName(p.name)] then
+			out[#out + 1] = { name = ns.DisplayName(ns.FullName(p.name)), level = p.level, class = ns.Roster.ClassCode(p.class),
+				zone = p.zone and ns.Zones.KeyForName(p.zone) }
+		end
+	end
+	table.sort(out, function(a, b)
+		if (a.level or 0) ~= (b.level or 0) then return (a.level or 0) > (b.level or 0) end
+		return a.name < b.name
+	end)
+	return out, true
+end
+
 local function RealmLines(s)
 	local lines = {}
 	for _, hop in ipairs(ns.Hop and ns.Hop.KingLines and ns.Hop.KingLines() or {}) do lines[#lines + 1] = hop end
@@ -394,6 +424,27 @@ local function RealmLines(s)
 				}
 			end
 			if #officers == 0 then lines[#lines + 1] = { indent = 2, text = Grey(L.NONE_REPORTED) } end
+			-- Everyone else online: our roster, or /who for other guilds.
+			local members, fromWho = Views.MembersOf(e.name, g)
+			lines[#lines + 1] = {
+				indent = 1, text = Gold((fromWho and L.MEMBERS_SEEN or L.MEMBERS_ONLINE):format(#members)),
+				tooltip = function(tt)
+					tt:AddLine((fromWho and L.MEMBERS_SEEN or L.MEMBERS_ONLINE):format(#members), 1, 0.82, 0)
+					tt:AddLine(fromWho and L.MEMBERS_SEEN_TIP or L.MEMBERS_ONLINE_TIP, 1, 1, 1, true)
+				end,
+			}
+			for i = 1, math.min(Views.MAX_MEMBERS, #members) do
+				local m = members[i]
+				local person = { name = m.name, class = m.class, level = m.level, zone = m.zone, guild = e.name, rank = m.rank, online = true }
+				lines[#lines + 1] = {
+					key = m.name,
+					indent = 2, text = ClassColored(m.name, m.class and ns.CLASS_FILES[m.class]) .. (m.rank and ("  " .. Grey(m.rank)) or ""),
+					right = m.level and Grey(L.LEVEL_N:format(m.level)) or nil,
+					onClick = function() ns.UI.ShowPerson(person) end,
+				}
+			end
+			if #members > Views.MAX_MEMBERS then lines[#lines + 1] = { indent = 2, text = Grey(L.AND_MORE:format(#members - Views.MAX_MEMBERS)) } end
+			if #members == 0 then lines[#lines + 1] = { indent = 2, text = Grey(fromWho and L.MEMBERS_NONE_SEEN or L.MEMBERS_NONE) } end
 			lines[#lines + 1] = { indent = 1, text = Gold(L.RANKS) }
 			for i, rank in ipairs(g.ranks or {}) do
 				lines[#lines + 1] = { indent = 2, text = ("%d. %s"):format(i, rank.name), right = ns.FormatNumber(rank.count) }
