@@ -65,7 +65,8 @@ local function NewSweep()
 end
 NewSweep()
 
-local pending   -- our search waiting for its answer: { id, frames, step, query, answered }
+local pending   -- our search waiting for its answer: { id, frames, step, query, guild, answered }
+local guildSeen -- one guild's players, found by its own search (Who.SearchGuild)
 local owed      -- the id of a search given up that may still be answered (see Release)
 local lastId = 0
 local sending   -- true while we call SendWho ourselves
@@ -225,7 +226,9 @@ local function SendToUi(query)
 end
 
 -- Must be called from a click. Returns true if a search was sent. `quiet`: nothing printed.
-function Who.Search(quiet)
+-- `guild`: that one guild only (g-"<guild>", Who.SearchGuild): its players are kept apart
+-- (Who.GuildSeen) and the round goes on where it was.
+function Who.Search(quiet, guild)
 	local now = GetTime()
 	local wait = Wait(now, math.max(Who.lastSend, Who.lastPlain))
 	if wait > 0 then
@@ -240,15 +243,15 @@ function Who.Search(quiet)
 	-- A round left unfinished for ROUND_TTL is forgotten: a level range's answer added to
 	-- the players it found back then would count them as online now.
 	if not sweep.done and sweep.started and now - sweep.started > Who.ROUND_TTL then NewSweep() end
-	if sweep.done then sweep.step = 0 end
+	if sweep.done and not guild then sweep.step = 0 end
 	-- A level range is a plain "lo-hi" in the filter, like the Who window's default search.
-	local b = sweep.step > 0 and sweep.brackets[sweep.step]
-	local query = b and ("%s %d-%d"):format(Who.QUERY, b[1], b[2]) or Who.QUERY
+	local b = not guild and sweep.step > 0 and sweep.brackets[sweep.step]
+	local query = guild and ('g-"%s"'):format(guild) or b and ("%s %d-%d"):format(Who.QUERY, b[1], b[2]) or Who.QUERY
 	HookSendWho()
 	lastId = lastId + 1
 	local id = lastId
 	local frames, names = Quiet()
-	pending = { id = id, frames = frames, step = sweep.step, query = query }
+	pending = { id = id, frames = frames, step = sweep.step, query = query, guild = guild }
 	owed = nil -- a search given up before this one: its answer would now pass for this one's
 	Who.lastSend = now
 	-- Scheduled first: whatever fails from here on, the who windows get their event back.
@@ -272,6 +275,30 @@ end
 -- level range per click past the cap. Quiet, and nothing is sent while a search waits for
 -- its answer, while a who window is open, or while the last complete round is younger than
 -- AUTO_AGAIN. Must be called from a click, like Search. Returns true if a search was sent.
+-- One guild's players online, when its row is opened in the Realm tab (Views.lua): a click,
+-- quiet, at most once a minute per guild. Up to 50 of them, whatever the round's cap. Kept
+-- ROUND_TTL, like a round.
+Who.GUILD_AGAIN = 60
+local guildSearched = {}
+guildSeen = {} -- [guild] = { t, list = { players }, capped }
+
+-- The players of `guild` its own search found, while fresh: list, capped (nil when none).
+function Who.GuildSeen(guild)
+	local e = guildSeen[guild]
+	if not e or GetTime() - e.t > Who.ROUND_TTL then return nil end
+	return e.list, e.capped
+end
+function Who.SearchGuild(guild)
+	if type(guild) ~= "string" or guild == "" or guild:find('"', 1, true) then return false end
+	if not ((C_FriendList and C_FriendList.SendWho) or SendWho) then return false end
+	local now = GetTime()
+	if pending or now - (guildSearched[guild] or -math.huge) < Who.GUILD_AGAIN then return false end
+	if Wait(now, math.max(Who.lastSend, Who.lastPlain)) > 0 or Who.WindowOpen() then return false end
+	local sent = Who.Search(true, guild)
+	if sent then guildSearched[guild] = now end
+	return sent
+end
+
 function Who.Auto()
 	if not ((C_FriendList and C_FriendList.SendWho) or SendWho) then return false end
 	local now = GetTime()
@@ -349,6 +376,21 @@ local function OnAnswer()
 	end
 	local rows, shown, total = Read()
 	local first = not p.answered
+	if p.guild then
+		-- One guild's search: kept apart, the round stays where it was.
+		if first then
+			p.answered = true
+			ns.After(Who.SETTLE, "who settle", function() if pending == p then Release("answered") end end)
+		end
+		local list = {}
+		for _, row in ipairs(rows) do
+			if row.guild == p.guild then list[#list + 1] = row end
+		end
+		guildSeen[p.guild] = { t = GetTime(), list = list, capped = shown >= Who.MAX or total > shown }
+		if first then ns.Log("who: %s answered %d of %d (%d in the guild)", p.query, shown, total, #list) end
+		ns.Fire("DATA_CHANGED")
+		return
+	end
 	if first then
 		p.answered = true
 		ns.After(Who.SETTLE, "who settle", function() if pending == p then Release("answered") end end)
@@ -399,6 +441,8 @@ function Who.IsPending() return pending ~= nil end
 function Who.Reset()
 	Release("reset")
 	NewSweep()
+	wipe(guildSeen)
+	wipe(guildSearched)
 end
 
 -- One or two lines on how far the round got, for under a list; nil when there is nothing

@@ -42,6 +42,7 @@ local lastAnswer = -math.huge
 local askTries = 0 -- census requests tried while the channel was not joined (Comm.AskCensus)
 local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
 local peerRealm = {} -- guild peer -> realm from its hello, "old" for versions that send none
+local peerVersion = {} -- guild peer -> the addon version its hello named
 local peerSealed = {} -- guild peer -> "s" (on the sealed channel) or "p" (public), from its hello
 -- Short name -> last time we heard it report our guild on the channel. Short: the server may
 -- send a name with its realm over GUILD and without it over CHANNEL (names are region-unique
@@ -67,6 +68,19 @@ function Comm.PeerCount()
 		if now - t <= COUNT_WINDOW then n = n + 1 end
 	end
 	return n
+end
+
+-- The addon versions of our guild's users counted now, ours included: { ["0.8.2"] = 3 }.
+-- Rides in our report (field 24) for the author's Workshop.
+function Comm.PeerVersions()
+	local now, out = ns.Now(), { [ns.VERSION] = 1 }
+	for name, t in pairs(peers) do
+		if now - t <= COUNT_WINDOW then
+			local v = peerVersion[name] or "?"
+			out[v] = (out[v] or 0) + 1
+		end
+	end
+	return out
 end
 
 -- Guild peers counted now, by the realm their hello named.
@@ -543,6 +557,7 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		if not peers[sender] then ns.Log("peer %s (%s)", sender, text:sub(4)) end
 		peers[sender] = now
 		peerRealm[sender] = Codec.RealmField(text:match("^H1~[^~]*~([^~]+)")) or "old"
+		peerVersion[sender] = text:match("^H1~(%d+%.%d+%.%d+)") or "?"
 		local sealed = text:match("^H1~[^~]*~[^~]*~([^~]*)")
 		peerSealed[sender] = (sealed == "s" or sealed == "p") and sealed or nil
 		return

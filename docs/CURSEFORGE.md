@@ -54,6 +54,12 @@ are highlighted. It is rate limited, so nobody gets spammed.
 - The **King**, then every guild's **Lord** (guild master) and **Captains** (the officer rank
   right below the guild master).
   Each shows level, class and online or *offline 3d*. Long absences show in red.
+- The **Treasurer of Olympus** (Pyralis Ashandar, chosen by Asmongold's chat) right under
+  the King, with a gold coin next to his name wherever he shows, his tooltip included. Only
+  that exact character of the guild OLYMPUS gets it: look-alikes don't.
+- **Members online** under each guild: your own guild's from your roster, any other's from
+  `/who`. Opening a guild searches `/who` for that guild alone (up to 50 of its players).
+  Click a name to whisper, invite or `/who` them.
 - The **ranks** of each guild with how many members hold them.
 - **Inactive members**: offline 7+ and 30+ days, per guild.
 - **Level race**: the highest level players of the realm.
@@ -232,6 +238,16 @@ window shows which realms you are counting.
 
 ## Security and trust
 
+**What the author's character can see.** The author (Faladoriel Skylance) has a Workshop tab
+to keep the addon healthy. It reads the install counts every guild report already carries,
+plus the addon versions of each guild's users. On demand he can ask for a roll call: each
+addon online (a share of them when the army is large) answers, by addon whisper to him only,
+with its version, game client, window style, whether it joined the channel, how many errors
+it caught this session, and the character's guild, level and class. No position, no
+chat, nothing else. He can also ask a player on an old version to update: a fixed window
+with the two version numbers and nothing else. Only his character can do either: every
+addon checks the sender's name, which nobody else can carry.
+
 The addon is plain Lua running on each player's computer, so anyone can edit their own
 copy. No addon can prevent that. What this one does is make an edited copy useless:
 
@@ -314,6 +330,10 @@ Limits, stated honestly:
 | `/oly status` | diagnostics in chat |
 
 ## Reporting a bug
+
+While the addon's author is online, the **Report a bug** window also has a **Send to
+Faladoriel Skylance** button: your report goes to him in game, by addon whisper, and nowhere
+else (once every 10 minutes at most).
 
 Type `/oly bug` (or press **Report a bug**), copy the text and open an issue on [GitHub](https://github.com/dnl-gentile/olympus-addon/issues). Errors are
 also saved in `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.

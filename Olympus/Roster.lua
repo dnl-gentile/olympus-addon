@@ -178,6 +178,7 @@ function Roster.TryScan()
 	-- (first, so our report lands in the shared store).
 	if r.home ~= ns.realm then ns.LinkRealms(ns.realm, r.home) end
 	r.users = ns.Comm.PeerCount() + 1
+	r.versions = ns.Comm.PeerVersions and ns.Comm.PeerVersions() or nil
 	ns.Data.SetLocal(r)
 	ns.Comm.MaybeBroadcast(r)
 end

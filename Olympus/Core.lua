@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.8.1"
+ns.VERSION = "0.8.2"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -392,6 +392,16 @@ ns.CAPTAIN_RANK = 1
 -- What the army calls the King on the lines and the crown made for him (Hop.lua, King.lua),
 -- whatever his character's name in the census.
 ns.KING_NAME = "Asmond"
+-- The addon's author (Workshop.lua): his character on Forever. Names there are a first name
+-- and a surname, unique across the realm group; no Classic realm allows a space in a name.
+ns.AUTHOR = "Faladoriel Skylance"
+-- The Treasurer of Olympus, chosen by Asmongold's chat on September 23, 2026: exactly this
+-- character, in the guild named Olympus. Look-alikes in other guilds exist: both must match.
+ns.TREASURER = "Pyralis Ashandar"
+ns.COIN = "|TInterface\\MoneyFrame\\UI-GoldIcon:0|t "
+function ns.IsTreasurer(name, guild)
+	return type(name) == "string" and type(guild) == "string" and ns.ShortName(name) == ns.TREASURER and guild:lower() == "olympus"
+end
 -- The King's name on the lines and the crown: the army's name for him on the Alliance side,
 -- his character's on the Horde (whose <Olympus> has a guild master of its own).
 function ns.KingName(leader)
@@ -564,6 +574,7 @@ StandIn("Who", { "Search", "SendPlain" })
 StandIn("Channels", { "Send", "ToggleMute" })
 StandIn("King", { "Summon", "Inspect", "AgendaPrompt" })
 StandIn("Hop", { "Ask", "AskKing", "SetHelp", "SetAuto" })
+StandIn("Workshop", { "RollCall" })
 
 -- The faction may not be known yet at ADDON_LOADED: if it turns out to be the other one,
 -- switch to that faction's store before anything is received.
@@ -582,7 +593,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -671,7 +682,7 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "demo" then
 			ns.Print(ns.L.DEMO_REMOVED)
 		elseif cmd == "bug" then
-			ns.UI.ShowCopy(ns.L.REPORT_BUG, ns.BuildBugReport())
+			ns.UI.ShowBugReport()
 		elseif cmd == "status" then
 			for line in ns.StatusText():gmatch("[^\n]+") do print("  " .. line) end
 		elseif cmd == "key" then

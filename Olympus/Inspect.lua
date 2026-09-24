@@ -367,6 +367,8 @@ local function OnTooltipUnit(tooltip)
 	if not unit or not UnitIsPlayer(unit) then return end
 	local line = Inspect.TooltipLine(GetUnitName(unit, true))
 	if line then tooltip:AddLine(line) end
+	-- The Treasurer of Olympus: his name and the game's own word on his guild.
+	if ns.IsTreasurer(GetUnitName(unit, true), GetGuildInfo(unit)) then tooltip:AddLine(ns.COIN .. L.TREASURER_TITLE, 1, 0.82, 0) end
 	if patrol then Enqueue(unit) end
 end
 
