@@ -37,6 +37,9 @@ Who.AUTO_AGAIN = 5 * 60 -- a complete round older than this is searched again by
 Who.MAX = 50       -- players per answer, MAX_WHOS_FROM_SERVER
 Who.BRACKETS = 5   -- level ranges searched after a capped answer
 Who.QUERY = 'g-"Olympus"'
+-- Guild names with Olympus misspelled (ns.IsFederation takes them): the broad search can't
+-- see them, so a round ends with one search for each, one per click.
+Who.VARIANTS = { "Olympvs", "Olimpus", "Olmpus", "Olympos", "Olimpo" }
 Who.lastSend = 0   -- GetTime() of our last search, 0 = none yet
 Who.lastPlain = 0  -- GetTime() of the last SendPlain, 0 = none yet
 
@@ -60,7 +63,7 @@ local WINDOWS = { "WhoFrame", "LFGWhoListFrame", "ClassicUIForeverWhoPanel" }
 local sweep
 local function NewSweep()
 	sweep = { step = 0, list = {}, byName = {}, answers = 0, shown = 0, total = 0,
-		capped = false, missing = false, done = false }
+		capped = false, missing = false, done = false, variant = 0 }
 	Who.sweep = sweep
 end
 NewSweep()
@@ -242,16 +245,20 @@ function Who.Search(quiet, guild)
 	Release("new search") -- still settling from the last one
 	-- A round left unfinished for ROUND_TTL is forgotten: a level range's answer added to
 	-- the players it found back then would count them as online now.
-	if not sweep.done and sweep.started and now - sweep.started > Who.ROUND_TTL then NewSweep() end
-	if sweep.done and not guild then sweep.step = 0 end
+	local old = sweep.started and now - sweep.started > Who.ROUND_TTL
+	if not sweep.done and old then NewSweep() end
+	-- The round done: the misspelled names next (VARIANTS), then it starts over.
+	local variant = not guild and sweep.done and not old and sweep.variant < #Who.VARIANTS and sweep.variant + 1 or nil
+	if sweep.done and not guild and not variant then sweep.step = 0 end
 	-- A level range is a plain "lo-hi" in the filter, like the Who window's default search.
-	local b = not guild and sweep.step > 0 and sweep.brackets[sweep.step]
-	local query = guild and ('g-"%s"'):format(guild) or b and ("%s %d-%d"):format(Who.QUERY, b[1], b[2]) or Who.QUERY
+	local b = not guild and not variant and sweep.step > 0 and sweep.brackets[sweep.step]
+	local query = guild and ('g-"%s"'):format(guild) or variant and ('g-"%s"'):format(Who.VARIANTS[variant])
+		or b and ("%s %d-%d"):format(Who.QUERY, b[1], b[2]) or Who.QUERY
 	HookSendWho()
 	lastId = lastId + 1
 	local id = lastId
 	local frames, names = Quiet()
-	pending = { id = id, frames = frames, step = sweep.step, query = query, guild = guild }
+	pending = { id = id, frames = frames, step = sweep.step, query = query, guild = guild, variant = variant }
 	owed = nil -- a search given up before this one: its answer would now pass for this one's
 	Who.lastSend = now
 	-- Scheduled first: whatever fails from here on, the who windows get their event back.
@@ -303,7 +310,7 @@ function Who.Auto()
 	if not ((C_FriendList and C_FriendList.SendWho) or SendWho) then return false end
 	local now = GetTime()
 	if pending or Wait(now, math.max(Who.lastSend, Who.lastPlain)) > 0 or Who.WindowOpen() then return false end
-	if sweep.done and sweep.started and now - sweep.started < Who.AUTO_AGAIN then return false end
+	if sweep.done and sweep.variant >= #Who.VARIANTS and sweep.started and now - sweep.started < Who.AUTO_AGAIN then return false end
 	return Who.Search(true)
 end
 
@@ -389,6 +396,18 @@ local function OnAnswer()
 		guildSeen[p.guild] = { t = GetTime(), list = list, capped = shown >= Who.MAX or total > shown }
 		if first then ns.Log("who: %s answered %d of %d (%d in the guild)", p.query, shown, total, #list) end
 		ns.Fire("DATA_CHANGED")
+		return
+	end
+	if p.variant then
+		-- A misspelled name's search: its players join the round, done as it was.
+		if first then
+			p.answered = true
+			ns.After(Who.SETTLE, "who settle", function() if pending == p then Release("answered") end end)
+			sweep.variant = math.max(sweep.variant, p.variant)
+			ns.Log("who: %s answered %d (%d Olympus)", p.query, shown, #rows)
+		end
+		Merge(rows)
+		for _, fn in ipairs(listeners) do ns.SafeCall("who listener", fn, sweep.list, sweep.missing) end
 		return
 	end
 	if first then

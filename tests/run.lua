@@ -116,6 +116,20 @@ test("federation filter matches any guild with 'olympus' in the name", function(
 	eq(ns.IsFederation(nil), false)
 end)
 
+test("federation filter: Olympus however it was spelled, but not other words", function()
+	for _, name in ipairs({ "OLYMPVS", "Olympvs II", "Olimpus", "Olmpus", "Olympos", "Olypmus", "Olyympus", "0lympus",
+		"Lympus", "OlimpusII", "Knights of Olmpus", "Olimpo", "Olympo Brasil", "Ólympus" }) do
+		eq(ns.IsFederation(name), true, name)
+	end
+	for _, name in ipairs({ "Olympia", "Olympic Heroes", "Olympians", "Polymath", "Holy Light", "Oly", "Olymp",
+		"The Pumpkins", "Glyphs R Us" }) do
+		eq(ns.IsFederation(name), false, name)
+	end
+	-- The main guild is still the exact name: the King and the Crown's officers.
+	eq(ns.IsCrownRank("OLYMPVS", 1), false, "an officer of a look-alike guild is no Crown officer")
+	eq(ns.IsCrownRank("Olympus", 1), true)
+end)
+
 test("number formatting", function()
 	eq(ns.FormatNumber(0), "0")
 	eq(ns.FormatNumber(999), "999")
@@ -2317,6 +2331,17 @@ test("who on its own: a click in the window searches quietly, range by range, no
 			server.Run(ns.Who.SETTLE)
 		end
 		eq(ns.Who.sweep.done, true)
+		-- Then the misspelled names, one per click: a player of <OLYMPVS> counts.
+		for k, variant in ipairs(ns.Who.VARIANTS) do
+			server.clock = server.clock + ns.Who.COOLDOWN + 1
+			eq(ns.Who.Auto(), true, "the spelling " .. variant)
+			eq(server.sent[#server.sent], ('g-"%s"'):format(variant))
+			server.Answer(k == 1 and { { "Romanus", "OLYMPVS", 12, "MAGE" }, { "Olaf", "Olympiad Fans", 12, "MAGE" } } or {})
+			server.Run(ns.Who.SETTLE)
+		end
+		assert(ns.Who.sweep.byName.Romanus, "a player of <OLYMPVS> joins the round")
+		eq(ns.Who.sweep.byName.Olaf, nil, "a guild that is not Olympus does not")
+		eq(ns.Who.sweep.done, true, "still complete")
 		server.clock = server.clock + ns.Who.COOLDOWN + 1
 		eq(ns.Who.Auto(), false, "a complete round is not searched again at once")
 		server.clock = server.clock + ns.Who.AUTO_AGAIN
@@ -2603,7 +2628,14 @@ test("who: a capped answer (50 of 312) is dug through by level, merging, then a 
 		eq(#ns.Who.StatusLines(), 1)
 		eq(ns.rdb.seen["OLYMPUS VII"].online, 75); eq(ns.rdb.seen["OLYMPUS I"].online, 75)
 		eq(ns.rdb.seen["OLYMPUS VII"].capped, nil, "every range fit: exact")
-		-- Every range searched once: the next click starts over with the broad search.
+		-- Every range searched once: the misspelled names, then the next click starts over.
+		for _, variant in ipairs(ns.Who.VARIANTS) do
+			server.Click()
+			eq(server.sent[#server.sent], ('g-"%s"'):format(variant))
+			server.Answer({})
+			server.Run()
+		end
+		eq(ns.Who.StatusLines()[1], "150 found, every level searched.", "unchanged by them")
 		server.Click()
 		eq(server.sent[#server.sent], 'g-"Olympus"')
 		eq(#ns.Recruit.found, 150, "kept until the new answer comes")

@@ -422,11 +422,56 @@ function ns.IsCrown()
 	return ns.IsFederation(guild) and ns.IsCrownRank(guild, rankIndex)
 end
 
--- Fixed on purpose: only guilds with "Olympus" in their name belong to the realm.
+-- Fixed on purpose: only guilds with "Olympus" in their name belong to the realm, however
+-- they spelled it. Guilds were made with the word misspelled (OLYMPVS the Roman way, Olimpus,
+-- Olmpus...): any one slip counts (a letter changed, missing, added, or two swapped), found
+-- in the name's letters, and so do the word in other languages (Olympos, Olimpo, Olympo).
+-- Olympia, Olympic and Olympians are other words (two slips or more): they stay out. The
+-- main guild itself (the King's, the Treasurer's) is still the exact name, see IsCrownRank.
 local REALM_WORD = "olympus"
+local ALSO = { "olimpo", "olympo" }
+
+-- a and b differ by at most one slip: a letter changed, missing or added, or two swapped.
+local function OneSlip(a, b)
+	if a == b then return true end
+	local la, lb = #a, #b
+	if la - lb > 1 or lb - la > 1 then return false end
+	local i = 1
+	while i <= la and i <= lb and a:byte(i) == b:byte(i) do i = i + 1 end
+	if la == lb then
+		if a:sub(i + 1) == b:sub(i + 1) then return true end
+		return a:sub(i, i) == b:sub(i + 1, i + 1) and a:sub(i + 1, i + 1) == b:sub(i, i) and a:sub(i + 2) == b:sub(i + 2)
+	elseif la > lb then
+		return a:sub(i + 1) == b:sub(i)
+	end
+	return a:sub(i) == b:sub(i + 1)
+end
+
+local federation, federationSize = {}, 0 -- [name] = true|false, asked often: kept
+local function Federation(guild)
+	local lower = guild:lower()
+	if lower:find(REALM_WORD, 1, true) then return true end
+	local letters = lower:gsub("[^%a]", "")
+	for _, word in ipairs(ALSO) do
+		if letters:find(word, 1, true) then return true end
+	end
+	for len = #REALM_WORD - 1, #REALM_WORD + 1 do
+		for i = 1, #letters - len + 1 do
+			if OneSlip(letters:sub(i, i + len - 1), REALM_WORD) then return true end
+		end
+	end
+	return false
+end
+
 function ns.IsFederation(guild)
-	if not guild or guild == "" then return false end
-	return guild:lower():find(REALM_WORD, 1, true) ~= nil
+	if type(guild) ~= "string" or guild == "" then return false end
+	local known = federation[guild]
+	if known == nil then
+		known = Federation(guild)
+		if federationSize >= 2000 then federation, federationSize = {}, 0 end
+		federation[guild], federationSize = known, federationSize + 1
+	end
+	return known
 end
 
 -- The addon only works for members of an Olympus guild.
