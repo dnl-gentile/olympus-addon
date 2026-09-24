@@ -1208,7 +1208,8 @@ local minimapButton
 
 local function PositionMinimapButton()
 	local angle = math.rad(ns.db.minimapAngle or 200)
-	local radius = (Minimap:GetWidth() / 2) + 10
+	-- On the ring, like Blizzard's own minimap buttons (and LibDBIcon): 5 past the map's edge.
+	local radius = (Minimap:GetWidth() / 2) + 5
 	minimapButton:ClearAllPoints()
 	minimapButton:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * radius, math.sin(angle) * radius)
 end

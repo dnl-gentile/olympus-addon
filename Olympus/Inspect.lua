@@ -43,6 +43,11 @@ end
 
 function Inspect.IsPatrolling() return patrol end
 
+-- The Olympus rule: the tabard is required from this level on. Younger players are never
+-- flagged (nor inspected on patrol).
+Inspect.MIN_LEVEL = 15
+local function TooYoung(level) return type(level) == "number" and level > 0 and level < Inspect.MIN_LEVEL end
+
 function Inspect.Record(name, guild, classFile, level, tabardID, anyGear)
 	local s = Store()
 	local p = s.players[name] or {}
@@ -50,6 +55,7 @@ function Inspect.Record(name, guild, classFile, level, tabardID, anyGear)
 	p.name, p.guild, p.class, p.level = name, guild, classFile, level
 	p.item = tabardID
 	p.status = Inspect.Classify(tabardID, anyGear)
+	if TooYoung(level) and (p.status == "NONE" or p.status == "OTHER") then p.status = "YOUNG" end
 	p.t = ns.Now()
 	s.players[name] = p
 	ns.Log("inspect %s <%s>: %s (%s)", name, tostring(guild), p.status, tostring(tabardID))
@@ -68,6 +74,7 @@ local function Enqueue(unit, force)
 	if not guid or queued[guid] or (pending and pending.guid == guid) then return end
 	local guild = GetGuildInfo(unit)
 	if not force and not ns.IsFederation(guild) then return end
+	if not force and TooYoung(UnitLevel(unit)) then return end
 	if not force then
 		local p = Store().players[GetUnitName(unit, true)]
 		if p and p.status ~= "UNKNOWN" and p.status ~= "UNCHECKED" and ns.Now() - (p.t or 0) < RECHECK then return end
@@ -262,6 +269,7 @@ end
 function Inspect.TooltipLine(name)
 	local p = Source().players[name]
 	if not p then return nil end
+	if p.status == "YOUNG" and not p.marked then return nil end -- the rule starts at MIN_LEVEL
 	local text
 	if p.status == "GUILD" then text = "|cff40ff40" .. L.TABARD_OK .. "|r"
 	elseif p.status == "NONE" then text = "|cffff4040" .. L.TABARD_NONE .. "|r"
