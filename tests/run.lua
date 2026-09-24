@@ -162,19 +162,23 @@ test("one reporter per guild, same answer for everyone", function()
 	eq(Codec.PickReporter("Aaron-Realm", peers, now, 180), "Aaron-Realm")
 end)
 
-test("summary sums fresh guilds and ignores stale ones and non-Olympus", function()
+test("summary keeps a stale guild's size, counts online and zones only while fresh", function()
 	local now = os.time()
 	ns.rdb.guilds = {
 		["Olympus"] = { total = 1000, online = 200, zones = { m1453 = 150, m1429 = 50 }, t = now },
 		["Olympus II"] = { total = 800, online = 100, zones = { m1453 = 100 }, t = now - 60 },
 		["Olympus Old"] = { total = 500, online = 50, zones = { m1436 = 50 }, t = now - 3600 },
+		["Olympus Gone"] = { total = 300, online = 30, zones = {}, t = now - ns.Data.KEEP - 1 },
 		["Horde Pals"] = { total = 999, online = 999, zones = {}, t = now },
 	}
 	local s = ns.Data.Summary()
-	eq(s.total, 1800); eq(s.online, 300); eq(s.fresh, 2); eq(#s.guilds, 3)
+	eq(s.total, 2300, "the last report's size stays when its reporters log off")
+	eq(s.online, 300, "online only from fresh reports"); eq(s.fresh, 2)
+	eq(#s.guilds, 3, "older than KEEP is gone, non-Olympus never counts")
 	eq(s.zoneList[1].key, "m1453"); eq(s.zoneList[1].count, 250)
+	eq(#s.zoneList, 2, "a stale guild's zones are not on the map")
 	eq(s.guilds[3].name, "Olympus Old", "stale sorted last")
-	assert(ns.Data.DiscordText():find("1,800 soldiers"), "discord text")
+	assert(ns.Data.DiscordText():find("2,300 soldiers"), "discord text")
 end)
 
 test("receive refuses reports about our own guild", function()

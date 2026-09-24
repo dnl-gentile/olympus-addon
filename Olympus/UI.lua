@@ -614,7 +614,7 @@ function UI.Refresh()
 		local s = ns.Data.Summary()
 		local F = ns.FormatNumber
 		main.total:SetText(L.ARMY_TOTAL:format(F(s.total)))
-		main.sub:SetText(L.ARMY_SUB:format(F(s.online), s.fresh, ns.Ago(s.newest)) .. "  ·  " .. (GetRealmName and GetRealmName() or ""))
+		main.sub:SetText(L.ARMY_SUB:format(F(s.online), #s.guilds, ns.Ago(s.newest)) .. "  ·  " .. (GetRealmName and GetRealmName() or ""))
 		-- Outside an Olympus guild nothing but the Join Olympus screen is shown.
 		local locked = not ns.IsMember()
 		-- Joined or left a guild while the window is open: lay it out again.
@@ -902,7 +902,7 @@ local function CreateMinimapButton()
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 		GameTooltip:AddLine(L.TITLE, 1, 0.82, 0)
 		GameTooltip:AddLine(L.ARMY_TOTAL:format(ns.FormatNumber(s.total)), 1, 1, 1)
-		GameTooltip:AddLine(L.ARMY_SUB:format(ns.FormatNumber(s.online), s.fresh, ns.Ago(s.newest)), 0.8, 0.8, 0.8)
+		GameTooltip:AddLine(L.ARMY_SUB:format(ns.FormatNumber(s.online), #s.guilds, ns.Ago(s.newest)), 0.8, 0.8, 0.8)
 		GameTooltip:AddLine(" ")
 		GameTooltip:AddLine(L.MINIMAP_LEFT, 0.6, 0.6, 0.6)
 		GameTooltip:AddLine(L.MINIMAP_RIGHT, 0.6, 0.6, 0.6)

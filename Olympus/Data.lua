@@ -7,8 +7,8 @@ local L = ns.L
 local Data = {}
 ns.Data = Data
 
-Data.FRESH = 15 * 60       -- a report older than this is shown grey and left out of totals
-Data.KEEP = 24 * 60 * 60   -- older than this is forgotten at login
+Data.FRESH = 15 * 60           -- older: shown grey, its online players and zones leave the totals
+Data.KEEP = 7 * 24 * 60 * 60   -- older than this is forgotten (a guild's size is kept until then)
 
 ns.On("INIT", function()
 	local now = ns.Now()
@@ -158,11 +158,16 @@ function Data.Summary()
 	local s = { total = 0, online = 0, fresh = 0, newest = 0, guilds = {}, zones = {}, zoneGuilds = {}, zoneList = {} }
 	for name, g in pairs(ns.rdb.guilds) do
 		if ns.IsFederation(name) then
-			local fresh = now - (g.t or 0) <= Data.FRESH
-			s.guilds[#s.guilds + 1] = { name = name, g = g, fresh = fresh }
+			local age = now - (g.t or 0)
+			local fresh = age <= Data.FRESH
+			-- A guild keeps its size from its last report when its reporters log off (the army
+			-- does not shrink every night); who is online and where only count while fresh.
+			if age <= Data.KEEP then
+				s.guilds[#s.guilds + 1] = { name = name, g = g, fresh = fresh }
+				s.total = s.total + (g.total or 0)
+			end
 			if fresh then
 				s.fresh = s.fresh + 1
-				s.total = s.total + (g.total or 0)
 				s.online = s.online + (g.online or 0)
 				if (g.t or 0) > s.newest then s.newest = g.t end
 				for key, n in pairs(g.zones or {}) do
@@ -201,7 +206,7 @@ function Data.DiscordText()
 	local s = Data.Summary()
 	local F = ns.FormatNumber
 	local out = {}
-	out[#out + 1] = L.DISCORD_HEADER:format(F(s.total), F(s.online), s.fresh)
+	out[#out + 1] = L.DISCORD_HEADER:format(F(s.total), F(s.online), #s.guilds)
 	local where = {}
 	for i = 1, math.min(8, #s.zoneList) do
 		local z = s.zoneList[i]
