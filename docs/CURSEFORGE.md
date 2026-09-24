@@ -129,6 +129,9 @@ exactly "Olympus" (of his faction). A parchment page with:
   King: how many were checked, the percentage in colors, per guild, and who was caught.
 - **The King's Agenda**: minutes and an event ("30 Raid on Crossroads"). The whole army sees
   it, with reminders 10 minutes and 1 minute before.
+- **Show me on the map**: while he turns it on, everyone with the addon sees a crown where he
+  is, on the world map and the minimap, and the "Ask for an invite to his layer" line says
+  which zone he is in. Off by default (his position is on stream); the same button hides it.
 
 Every command is checked on each client: it only counts if the census confirms the sender is
 that guild master. Answers go to the King alone.

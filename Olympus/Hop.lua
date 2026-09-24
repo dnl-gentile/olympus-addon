@@ -374,6 +374,8 @@ function Hop.KingLine()
 		tooltip = function(tt)
 			tt:AddLine(L.HOP_KING_LINE:format(k.name), 1, 0.82, 0)
 			tt:AddLine(k.zoneUID and L.HOP_KING_TIP:format(k.name) or L.HOP_KING_UNKNOWN:format(k.name), 1, 1, 1, true)
+			local at = ns.King.Location and ns.King.Location()
+			if at then tt:AddLine(L.HOP_KING_WHERE:format(ns.Zones.NameForKey("m" .. at.mapID) or "?"), 0.25, 1, 0.25, true) end
 		end,
 	}
 end

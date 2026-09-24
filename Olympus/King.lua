@@ -401,6 +401,108 @@ local function OnAgenda(king, id, rest)
 	Changed()
 end
 
+---------------------------------------------------------------------------
+-- The King on the map: when he turns it on (Throne tab), his client sends where he is and
+-- every addon shows a crown on the world map and the minimap. Off by default, and a button
+-- away: his position is on stream.
+--   T1~P~<id>~<guild>~<mapID>~<x 0-1000>~<y 0-1000>   where he is (every few seconds while moving)
+--   T1~Q~<id>~<guild>                                  hidden again
+---------------------------------------------------------------------------
+
+King.LOCATION_EVERY = 5      -- seconds between sends while moving
+King.LOCATION_STILL = 20     -- standing still, repeated this often (for late logins)
+King.LOCATION_EXPIRE = 45    -- a crown with no news this long is removed
+
+local kingAt                 -- where the King is, for everyone: { name, mapID, x, y, t }
+local locationId = NewId()
+local lastLocation = { t = -math.huge }
+local Pins = ns.Pins()
+local SHOW_FLAG = HBD_PINS_WORLDMAP_SHOW_CONTINENT or 2
+local crowns                 -- { world, mini } pin frames, made on first use
+local CROWN_ICON = "Interface\\GroupFrame\\UI-Group-LeaderIcon"
+
+function King.SharingLocation() return ns.db.throneLocation == true end
+
+local function SendLocation(force)
+	if not King.SharingLocation() or not King.IsKing() then return end
+	if IsInInstance and IsInInstance() then return end
+	local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+	local pos = mapID and C_Map.GetPlayerMapPosition and C_Map.GetPlayerMapPosition(mapID, "player")
+	if not pos then return end
+	local x, y = pos:GetXY()
+	if not x or (x == 0 and y == 0) then return end
+	local now = ns.Now()
+	local moved = lastLocation.mapID ~= mapID or math.abs((lastLocation.x or 0) - x) > 0.003 or math.abs((lastLocation.y or 0) - y) > 0.003
+	if not force and (now - lastLocation.t < King.LOCATION_EVERY or (not moved and now - lastLocation.t < King.LOCATION_STILL)) then return end
+	lastLocation = { mapID = mapID, x = x, y = y, t = now }
+	ns.Comm.Send("CHANNEL", ("T1~P~%d~%s~%d~%d~%d"):format(locationId, GetGuildInfo("player") or "", mapID,
+		math.floor(x * 1000 + 0.5), math.floor(y * 1000 + 0.5)), "kinglocation")
+end
+
+function King.ToggleLocation()
+	if King.Preview() then return ns.Print(L.THRONE_PREVIEW_NOTE) end
+	if not King.IsKing() then return end
+	ns.db.throneLocation = not King.SharingLocation()
+	if King.SharingLocation() then
+		ns.Print(L.THRONE_LOCATION_SHOWN)
+		SendLocation(true)
+	else
+		ns.Print(L.THRONE_LOCATION_HIDDEN)
+		lastLocation = { t = -math.huge }
+		ns.Comm.Send("CHANNEL", ("T1~Q~%d~%s"):format(locationId, GetGuildInfo("player") or ""), "kinglocation")
+	end
+	Changed()
+end
+
+local function Crown(size)
+	local f = CreateFrame("Frame", nil, UIParent)
+	f:SetSize(size, size)
+	f.icon = f:CreateTexture(nil, "OVERLAY")
+	f.icon:SetTexture(CROWN_ICON)
+	f.icon:SetAllPoints()
+	f:EnableMouse(true)
+	f:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:AddLine(L.THRONE_LOCATION_PIN:format(kingAt and kingAt.name or "?"), 1, 0.82, 0)
+		GameTooltip:Show()
+	end)
+	f:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	return f
+end
+
+-- Draws (or removes) the crown on the world map and the minimap.
+function King.RefreshCrown()
+	if not Pins then return end
+	if kingAt and ns.Now() - kingAt.t > King.LOCATION_EXPIRE then kingAt = nil end
+	if not kingAt then
+		if crowns then
+			Pins:RemoveWorldMapIcon(King, crowns.world)
+			Pins:RemoveMinimapIcon(King, crowns.mini)
+			crowns.world:Hide()
+			crowns.mini:Hide()
+		end
+		return
+	end
+	crowns = crowns or { world = Crown(20), mini = Crown(16) }
+	Pins:AddWorldMapIconMap(King, crowns.world, kingAt.mapID, kingAt.x, kingAt.y, SHOW_FLAG)
+	Pins:AddMinimapIconMap(King, crowns.mini, kingAt.mapID, kingAt.x, kingAt.y, true, true)
+end
+
+local function OnLocation(king, rest)
+	local mapID, x, y = rest:match("^(%d+)~(%d+)~(%d+)$")
+	mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
+	if not mapID or x > 1000 or y > 1000 then return end
+	kingAt = { name = ns.DisplayName(king), mapID = mapID, x = x / 1000, y = y / 1000, t = ns.Now() }
+	ns.SafeCall("king crown", King.RefreshCrown)
+	Changed()
+end
+
+-- Where the King is, while he shares it: { name, mapID, x, y, t } or nil.
+function King.Location()
+	if kingAt and ns.Now() - kingAt.t > King.LOCATION_EXPIRE then return nil end
+	return kingAt
+end
+
 function King.HandleCommand(dist, sender, text)
 	if dist ~= "CHANNEL" then return end
 	local kind, id, guild, rest = text:match("^T1~(%a)~(%d+)~([^~]*)~?(.*)$")
@@ -413,6 +515,11 @@ function King.HandleCommand(dist, sender, text)
 	if kind == "S" then OnSummon(sender, id)
 	elseif kind == "I" then OnInspect(sender, id)
 	elseif kind == "A" then OnAgenda(sender, id, rest)
+	elseif kind == "P" then OnLocation(sender, rest)
+	elseif kind == "Q" then
+		kingAt = nil
+		ns.SafeCall("king crown", King.RefreshCrown)
+		Changed()
 	elseif kind == "X" and agenda and agenda.id == id then
 		agenda = nil
 		Changed()
@@ -421,6 +528,12 @@ end
 ns.Comm.Handle("T1", function(...) King.HandleCommand(...) end)
 
 ns.On("LOGIN", function()
+	-- The King's position, while he shares it; everyone's crown expires on its own.
+	ns.Every(King.LOCATION_EVERY, "king location", function()
+		SendLocation()
+		King.RefreshCrown()
+	end)
+	if King.SharingLocation() and King.IsKing() then ns.After(20, "king location note", function() ns.Print(L.THRONE_LOCATION_SHOWN) end) end
 	ns.Every(60, "agenda", function()
 		local a = King.Agenda()
 		if not a then return end
@@ -592,7 +705,8 @@ end
 
 function King.State() return { summon = summon, inspect = inspect, agenda = agenda, inspecting = inspecting } end
 function King.Reset()
-	summon, inspect, agenda, inspecting = nil, nil, nil, nil
+	summon, inspect, agenda, inspecting, kingAt = nil, nil, nil, nil, nil
+	lastLocation = { t = -math.huge }
 	lastSummonSeen, lastInspectSeen, lastSummonSent, lastInspectSent = -math.huge, -math.huge, -math.huge, -math.huge
 	lastAgendaSent, lastAgendaWarn, changePending = -math.huge, -math.huge, false
 	King.mode = "letter"

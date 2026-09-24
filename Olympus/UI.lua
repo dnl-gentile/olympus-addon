@@ -106,6 +106,7 @@ local DETAIL_BUTTONS = {
 	throne = {
 		{ "THRONE_LETTER_BTN", function() ns.King.Show("letter") end },
 		{ "THRONE_CANCEL_AGENDA", function() ns.King.CancelAgendaButton() end },
+		{ "THRONE_LOCATION", function() ns.King.ToggleLocation() end },
 	},
 	heraldry = {
 		{ "HERALDRY_BTN", DecreeAction("HERALDRY") },
@@ -779,6 +780,7 @@ local function SetButtons(list, defs)
 		if def then
 			local label = L[def[1]]
 			if def[1] == "PATROL_BTN" then label = ns.Inspect.IsPatrolling() and L.PATROL_STOP or L.PATROL_START end
+			if def[1] == "THRONE_LOCATION" then label = ns.King.SharingLocation() and L.THRONE_LOCATION_OFF or L.THRONE_LOCATION_ON end
 			b:SetText(label)
 			b:SetScript("OnClick", function()
 				ns.SafeCall("button " .. def[1], def[2])

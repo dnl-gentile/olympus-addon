@@ -4451,5 +4451,55 @@ test("layer hop: /oly hop, layerhelp and layerauto, and the status line", functi
 	end)
 end)
 
+test("Throne: the King shows himself on the map with a button, everyone checks it is him", function()
+	local K = ns.King
+	local savedGuild, savedSend, savedNow, savedPos, savedMap = GetGuildInfo, ns.Comm.Send, ns.Now, C_Map.GetPlayerMapPosition, C_Map.GetBestMapForUnit
+	local sent, clock = {}, 2000000
+	local ok, err = pcall(function()
+		K.Reset()
+		ns.db.throneLocation = nil
+		ns.Now = function() return clock end
+		ns.Comm.Send = function(dist, msg) sent[#sent + 1] = dist .. " " .. msg end
+		C_Map.GetBestMapForUnit = function() return 1453 end
+		C_Map.GetPlayerMapPosition = function() return { GetXY = function() return 0.42, 0.51 end } end
+		-- Not the King: the button does nothing.
+		GetGuildInfo = function() return "Olympus II", "Officer", 1 end
+		K.ToggleLocation()
+		eq(#sent, 0); eq(K.SharingLocation(), false, "off by default")
+		-- The King turns it on: his position goes out on the channel.
+		GetGuildInfo = function() return "Olympus", "King", 0 end
+		K.ToggleLocation()
+		eq(K.SharingLocation(), true)
+		assert(sent[1]:find("^CHANNEL T1~P~%d+~Olympus~1453~420~510$"), sent[1])
+		local id = sent[1]:match("T1~P~(%d+)")
+		-- Everyone else: only the King's own message draws the crown.
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1000, online = 90, zones = {}, t = os.time(), leader = "Asmon", realm = "Realm" }, "W1-Realm", "W2-Realm") }
+		K.HandleCommand("CHANNEL", "Faker-Realm", ("T1~P~%s~Olympus~100~100~100"):format(id))
+		eq(K.Location(), nil, "not the King: no crown")
+		K.HandleCommand("CHANNEL", "Asmon-Realm", ("T1~P~%s~Olympus~1453~420~510"):format(id))
+		local at = K.Location()
+		eq(at.mapID, 1453); eq(at.x, 0.42); eq(at.y, 0.51); eq(at.name, "Asmon")
+		K.HandleCommand("CHANNEL", "Asmon-Realm", ("T1~P~%s~Olympus~1453~2000~5"):format(id))
+		eq(K.Location().x, 0.42, "off the map: ignored")
+		-- No news for a while: the crown goes away on its own.
+		clock = clock + K.LOCATION_EXPIRE + 1
+		eq(K.Location(), nil, "expired")
+		-- He hides it again: gone at once.
+		K.HandleCommand("CHANNEL", "Asmon-Realm", ("T1~P~%s~Olympus~1453~420~510"):format(id))
+		K.HandleCommand("CHANNEL", "Asmon-Realm", ("T1~Q~%s~Olympus"):format(id))
+		eq(K.Location(), nil, "hidden")
+		GetGuildInfo = function() return "Olympus", "King", 0 end
+		K.ToggleLocation()
+		eq(K.SharingLocation(), false)
+		assert(sent[#sent]:find("^CHANNEL T1~Q~%d+~Olympus$"), sent[#sent])
+	end)
+	GetGuildInfo, ns.Comm.Send, ns.Now, C_Map.GetPlayerMapPosition, C_Map.GetBestMapForUnit = savedGuild, savedSend, savedNow, savedPos, savedMap
+	ns.db.throneLocation = nil
+	ns.rdb.guilds = {}
+	K.Reset()
+	if not ok then error(err, 0) end
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
