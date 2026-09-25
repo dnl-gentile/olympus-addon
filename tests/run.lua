@@ -2322,6 +2322,35 @@ test("Issue Reporter: the copy box steps above it too, unless the player moved i
 	end)
 end)
 
+test("person panel: whisper and invite reach the whole name (a report's names are short for its realm)", function()
+	WithUI(function()
+		local UI = LoadUI()
+		local savedTell, savedInvite, savedParty, savedSplit = ChatFrame_SendTell, InviteUnit, C_PartyInfo, ns.splitNames
+		local told, invited
+		ChatFrame_SendTell = function(n) told = n end
+		C_PartyInfo, InviteUnit = nil, function(n) invited = n end
+		local ok, err = pcall(function()
+			ns.splitNames = nil
+			UI.Toggle()
+			-- A Captain from a guild report sent from another realm: "Capt" there is Capt-Other.
+			UI.ShowPerson({ name = "Capt", realm = "Other", guild = "Olympus II" })
+			OlympusPersonFrame.whisper:Click(); OlympusPersonFrame.invite:Click()
+			eq(told, "Capt-Other"); eq(invited, "Capt-Other")
+			-- One of our realm: the short name, as the server wants it.
+			UI.ShowPerson({ name = "Bob", realm = ns.realm, guild = "Olympus II" })
+			OlympusPersonFrame.whisper:Click()
+			eq(told, "Bob")
+			-- Forever: First Surname, whatever realm of the group the report came from.
+			ns.splitNames = true
+			UI.ShowPerson({ name = "Faladoriel Skylance", realm = ns.realm, guild = "Olympus II" })
+			OlympusPersonFrame.whisper:Click()
+			eq(told, "Faladoriel Skylance")
+		end)
+		ChatFrame_SendTell, InviteUnit, C_PartyInfo, ns.splitNames = savedTell, savedInvite, savedParty, savedSplit
+		if not ok then error(err, 0) end
+	end)
+end)
+
 test("Issue Reporter: the person panel steps above it too", function()
 	WithUI(function()
 		local UI = LoadUI()

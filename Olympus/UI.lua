@@ -1206,7 +1206,8 @@ end
 ---------------------------------------------------------------------------
 -- Person panel: like the member details the Guild window opens, docked to our window.
 -- person = { name, class (code), level, zone (key), guild, rank (label), online, days,
---            note, tabard (status), onMark (function, tabards tab only) }
+--            note, tabard (status), onMark (function, tabards tab only),
+--            realm (the realm the name is short for: a guild report's, not always ours) }
 ---------------------------------------------------------------------------
 
 -- Whisper, invite and /who take the name the server finds (ns.TellName).
@@ -1226,9 +1227,12 @@ local function Who(name)
 end
 
 local function PersonButtonScripts(f)
-	f.whisper:SetScript("OnClick", function() ns.SafeCall("whisper", Whisper, f.person.name) end)
-	f.invite:SetScript("OnClick", function() ns.SafeCall("invite", Invite, f.person.name) end)
-	f.who:SetScript("OnClick", function() ns.SafeCall("who", Who, f.person.name) end)
+	-- The whole name (a report's names are short for its sender's realm), made the one the
+	-- server finds by Whisper, Invite and Who.
+	local function Target() local p = f.person return p.realm and ns.FullName(p.name, p.realm) or p.name end
+	f.whisper:SetScript("OnClick", function() ns.SafeCall("whisper", Whisper, Target()) end)
+	f.invite:SetScript("OnClick", function() ns.SafeCall("invite", Invite, Target()) end)
+	f.who:SetScript("OnClick", function() ns.SafeCall("who", Who, Target()) end)
 	f.mark:SetScript("OnClick", function()
 		if f.person.onMark then ns.SafeCall("mark", f.person.onMark) end
 		f:Hide()

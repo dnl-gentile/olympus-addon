@@ -494,7 +494,7 @@ local function RealmLines(s)
 			if ns.IsTreasurer(o.name, king.name) then t = o end
 		end
 		if t then
-			local person = { name = t.name, guild = king.name, class = t.class, level = t.level, zone = t.zone,
+			local person = { name = t.name, realm = king.g.realm, guild = king.name, class = t.class, level = t.level, zone = t.zone,
 				rank = L.CAPTAIN, online = t.online, days = t.days }
 			lines[#lines + 1] = {
 				key = t.name,
@@ -538,7 +538,7 @@ local function RealmLines(s)
 		}
 		if open then
 			if g.leader then
-				local lord = { name = g.leader, class = g.leaderClass, level = g.leaderLevel, zone = g.leaderZone,
+				local lord = { name = g.leader, realm = g.realm, class = g.leaderClass, level = g.leaderLevel, zone = g.leaderZone,
 					guild = e.name, rank = L.LORD, online = g.leaderOnline, days = g.leaderDays }
 				lines[#lines + 1] = {
 					key = g.leader,
@@ -550,7 +550,7 @@ local function RealmLines(s)
 			local officers = g.officers or {}
 			lines[#lines + 1] = { indent = 1, text = Gold(L.CAPTAINS:format(#officers)) }
 			for _, o in ipairs(officers) do
-				local person = { name = o.name, class = o.class, level = o.level, zone = o.zone, guild = e.name,
+				local person = { name = o.name, realm = g.realm, class = o.class, level = o.level, zone = o.zone, guild = e.name,
 					rank = L.CAPTAIN, online = o.online, days = o.days }
 				lines[#lines + 1] = {
 					key = o.name,
@@ -607,7 +607,7 @@ local function RealmLines(s)
 	local racers = {}
 	for _, e in ipairs(s.guilds) do
 		if e.fresh then
-			for _, p in ipairs(e.g.top or {}) do racers[#racers + 1] = { name = p.name, level = p.level, class = p.class, guild = e.name } end
+			for _, p in ipairs(e.g.top or {}) do racers[#racers + 1] = { name = p.name, realm = e.g.realm, level = p.level, class = p.class, guild = e.name } end
 		end
 	end
 	table.sort(racers, function(a, b)
@@ -622,7 +622,7 @@ local function RealmLines(s)
 			key = p.name,
 			text = ("%d. %s  %s"):format(i, ClassColored(p.name, p.class and ns.CLASS_FILES[p.class]), Grey("<" .. p.guild .. ">")),
 			right = Gold(L.LEVEL_N:format(p.level)),
-			onClick = function() ns.UI.ShowPerson({ name = p.name, class = p.class, level = p.level, guild = p.guild }) end,
+			onClick = function() ns.UI.ShowPerson({ name = p.name, realm = p.realm, class = p.class, level = p.level, guild = p.guild }) end,
 		}
 	end
 
@@ -818,7 +818,7 @@ local function HeraldryLines()
 			onClick = function()
 				local code = ns.Roster.ClassCode(p.class)
 				ns.UI.ShowPerson({
-					name = ns.ShortName(p.name), class = code ~= "" and code or nil, level = p.level, guild = p.guild,
+					name = ns.ShortName(p.name), realm = ns.RealmOf(p.name), class = code ~= "" and code or nil, level = p.level, guild = p.guild,
 					tabard = (STATUS_TEXT[p.status or "UNKNOWN"] or STATUS_TEXT.UNKNOWN)(), note = p.note,
 					onMark = function() ns.Inspect.ToggleMark(p.name) end,
 				})
