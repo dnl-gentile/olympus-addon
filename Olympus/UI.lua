@@ -145,6 +145,20 @@ local RECRUIT_BUTTONS = {
 
 -- Small extra buttons inside the detail box (only where needed).
 local function KingOnly() return ns.King.IsKing() or ns.King.Preview() end
+
+-- One of the King's treasury switches: its label says whether the army sees that part, its
+-- tooltip who sees it now (hidden: only he and the Treasurer) and what a click does.
+local function TreasuryFlag(what)
+	local key = what:upper()
+	local function shown() return ns.Treasury.Shows(what) end
+	return { "TREASURY_FLAG_" .. key, function() ns.Treasury.SetFlag(what, not shown()) end, refresh = true, shown = KingOnly,
+		label = function() return L["TREASURY_FLAG_" .. key .. (shown() and "_SHOWN" or "_HIDDEN")] end,
+		tooltip = function(tt)
+			tt:AddLine(L["TREASURY_FLAG_" .. key .. (shown() and "_SHOWN" or "_HIDDEN")], 1, 0.82, 0)
+			tt:AddLine(L["TREASURY_FLAG_" .. key .. "_TIP"], 1, 1, 1, true)
+			tt:AddLine(L[shown() and "TREASURY_FLAG_SHOWN_TIP" or "TREASURY_FLAG_HIDDEN_TIP"]:format(L["TREASURY_PART_" .. key]), 0.6, 1, 0.6, true)
+		end }
+end
 local DETAIL_BUTTONS = {
 	throne = {
 		-- His Hands: the page to name them.
@@ -179,14 +193,7 @@ local DETAIL_BUTTONS = {
 		{ "CLEAR", function() StaticPopup_Show("OLYMPUS_CLEAR_INSPECT") end },
 	},
 	-- The King's switches: what the army sees of the treasury (each its own).
-	treasury = {
-		{ "TREASURY_FLAG_BALANCE", function() ns.Treasury.SetFlag("balance", not ns.Treasury.Shows("balance")) end, refresh = true, shown = KingOnly,
-			label = function() return ns.Treasury.Shows("balance") and L.TREASURY_FLAG_BALANCE_SHOWN or L.TREASURY_FLAG_BALANCE_HIDDEN end },
-		{ "TREASURY_FLAG_RANKING", function() ns.Treasury.SetFlag("ranking", not ns.Treasury.Shows("ranking")) end, refresh = true, shown = KingOnly,
-			label = function() return ns.Treasury.Shows("ranking") and L.TREASURY_FLAG_RANKING_SHOWN or L.TREASURY_FLAG_RANKING_HIDDEN end },
-		{ "TREASURY_FLAG_BOOK", function() ns.Treasury.SetFlag("book", not ns.Treasury.Shows("book")) end, refresh = true, shown = KingOnly,
-			label = function() return ns.Treasury.Shows("book") and L.TREASURY_FLAG_BOOK_SHOWN or L.TREASURY_FLAG_BOOK_HIDDEN end },
-	},
+	treasury = { TreasuryFlag("balance"), TreasuryFlag("ranking"), TreasuryFlag("book") },
 	-- The King's letters to his Lords (Acts.lua): his button alone.
 	decrees = {
 		{ "WRIT_BTN", function() ns.Acts.WritPrompt() end, shown = KingOnly },

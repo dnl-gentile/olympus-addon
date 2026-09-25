@@ -5178,6 +5178,42 @@ test("Throne: the King's map button fits its label, says whether he is shown, an
 	end)
 end)
 
+test("Treasury: the King's three switches say on hover who sees each part (hidden: only he and the Treasurer)", function()
+	WithUI(function()
+		local savedGuild, savedSend, savedSplit = GetGuildInfo, ns.Comm.Send, ns.splitNames
+		local ok, err = pcall(function()
+			ns.rdb.treasuryFlags = nil
+			ns.splitNames = true -- Forever: a Treasurer's name (first and surname) can be there
+			GetGuildInfo = function() return "Olympus", "King", 0 end
+			ns.Comm.Send = function() end
+			local w, UI = ForeverWorld(true)
+			CommunitiesFrame:Show(); w.buttons[1]:Click()
+			UI.SelectTab("treasury")
+			local main = OlympusFrameHD
+			local L = ns.L
+			local switches = {}
+			for _, d in ipairs(main.detailButtons) do if d:IsShown() then switches[#switches + 1] = d end end
+			eq(#switches, 3)
+			for i, part in ipairs({ "BALANCE", "RANKING", "BOOK" }) do
+				local b = switches[i]
+				eq(b:GetText(), L["TREASURY_FLAG_" .. part .. "_HIDDEN"]); eq(b:GetFontString():IsTruncated(), false, b:GetText())
+				b:Fire("OnEnter")
+				eq(GameTooltip.lines[1], L["TREASURY_FLAG_" .. part .. "_HIDDEN"]); eq(GameTooltip.lines[2], L["TREASURY_FLAG_" .. part .. "_TIP"])
+				eq(GameTooltip.lines[3], L.TREASURY_FLAG_HIDDEN_TIP:format(L["TREASURY_PART_" .. part]), "only he and the Treasurer")
+				-- A click: the army sees it, the label and the tooltip change at once.
+				b:Click()
+				eq(switches[i]:GetText(), L["TREASURY_FLAG_" .. part .. "_SHOWN"])
+				eq(GameTooltip.lines[3], L.TREASURY_FLAG_SHOWN_TIP:format(L["TREASURY_PART_" .. part]))
+				eq(switches[i]:GetFontString():IsTruncated(), false, switches[i]:GetText())
+			end
+		end)
+		GetGuildInfo, ns.Comm.Send, ns.splitNames = savedGuild, savedSend, savedSplit
+		ns.rdb.treasuryFlags = nil
+		ns.Treasury.Reset()
+		if not ok then error(err, 0) end
+	end)
+end)
+
 test("Throne: the King shows himself on the map with a button, everyone checks it is him", function()
 	local K = ns.King
 	local savedGuild, savedSend, savedNow, savedPos, savedMap = GetGuildInfo, ns.Comm.Send, ns.Now, C_Map.GetPlayerMapPosition, C_Map.GetBestMapForUnit
