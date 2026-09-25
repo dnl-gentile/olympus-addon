@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.8.2"
+ns.VERSION = "0.8.3"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -48,6 +48,18 @@ function ns.Ago(t)
 	if d < 60 then return L.AGO_SEC:format(d) end
 	if d < 3600 then return L.AGO_MIN:format(math.floor(d / 60)) end
 	return L.AGO_HOUR:format(math.floor(d / 3600))
+end
+
+-- At most n bytes of s, never half a letter (an accented letter is two bytes or more).
+function ns.Cut(s, n)
+	s = tostring(s or "")
+	if #s <= n then return s end
+	local b = s:byte(n + 1)
+	while n > 0 and b and b >= 128 and b < 192 do
+		n = n - 1
+		b = s:byte(n + 1)
+	end
+	return s:sub(1, n)
 end
 
 function ns.ShortName(name)
@@ -537,12 +549,29 @@ local function OlympusWord(word)
 	return false
 end
 
+-- A guild against Olympus is none of it: "ANTI OLYMPUS", "Against Olympus", "Down with
+-- Olympus", "AntiOlympus", "Olympus Haters". The word before (or the one before "with", "to",
+-- "the", "of"), glued in front, or the word after.
+local AGAINST = { anti = true, against = true, no = true, ["not"] = true, never = true, down = true,
+	death = true, kill = true, hate = true, hates = true, haters = true, destroy = true }
+local LINKS = { with = true, to = true, the = true, of = true }
+local AGAINST_AFTER = { haters = true, hater = true, sucks = true }
+
+local function Against(words, i)
+	if words[i]:find("^anti") then return true end -- glued: AntiOlympus
+	local before, before2 = words[i - 1], words[i - 2]
+	if before and AGAINST[before] then return true end
+	if before and LINKS[before] and before2 and AGAINST[before2] then return true end
+	local after = words[i + 1]
+	return after ~= nil and AGAINST_AFTER[after] == true
+end
+
 local federation, federationSize = {}, 0 -- [name] = true|false, asked often: kept
 local function Federation(guild)
-	local lower = guild:lower()
-	if lower:find("olympus", 1, true) then return true end
-	for word in lower:gsub("0", "o"):gsub("1", "l"):gmatch("%a+") do
-		if OlympusWord(Sounds(word)) then return true end
+	local words = {}
+	for word in guild:lower():gsub("0", "o"):gsub("1", "l"):gmatch("%a+") do words[#words + 1] = word end
+	for i, word in ipairs(words) do
+		if (word:find("olympus", 1, true) or OlympusWord(Sounds(word))) and not Against(words, i) then return true end
 	end
 	return false
 end
@@ -704,6 +733,10 @@ StandIn("Channels", { "Send", "ToggleMute" })
 StandIn("King", { "Summon", "Inspect", "AgendaPrompt" })
 StandIn("Hop", { "Ask", "AskKing", "SetHelp", "SetAuto" })
 StandIn("Workshop", { "RollCall" })
+StandIn("Vox", { "Prompt", "CloseNow", "SetOff" })
+StandIn("Court", { "Toggle" })
+StandIn("Treasury", {})
+StandIn("Acts", { "WritPrompt" })
 
 -- The faction may not be known yet at ADDON_LOADED: if it turns out to be the other one,
 -- switch to that faction's store before anything is received.
@@ -722,7 +755,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -757,6 +790,7 @@ local function Help()
 	print(L.HELP_CHAN_CAPTAINS)
 	print(L.HELP_CHAN_LORDS)
 	print(L.HELP_CHAN_MUTE)
+	print(L.HELP_VOX)
 	print("  /oly mates - show/hide guildmates on map and minimap")
 	print("  /oly share - share/stop sharing your position with your guild")
 	print("  /oly bug - copy a bug report (errors + diagnostics)")
@@ -795,7 +829,17 @@ SlashCmdList.OLYMPUS = function(input)
 			else
 				ns.Print(ns.L.THRONE_ONLY_KING)
 			end
+		elseif cmd == "vox" then
+			local word = rest:lower()
+			if word == "on" or word == "off" then
+				ns.Vox.SetOff(word == "off")
+			elseif ns.Vox.Visible and ns.Vox.Visible() then
+				ns.UI.SelectTab("vox")
+			else
+				ns.Print(L.HELP_VOX)
+			end
 		elseif cmd == "realm" or cmd == "tree" or cmd == "layers" then
+			if ns.Views.CloseChat then ns.Views.CloseChat() end
 			ns.UI.SelectTab("realm")
 		elseif cmd == "decrees" then
 			ns.UI.SelectTab("decrees")

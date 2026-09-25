@@ -26,8 +26,15 @@ local function ZoneUIDFromGUID(guid)
 	return tonumber(zoneUID)
 end
 
+-- The zone we are in. A continent or the world (on a boat, a zeppelin, a flight, between
+-- zones) is no zone: no layer reading there.
 local function CurrentMap()
-	return C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+	local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+	if mapID and C_Map.GetMapInfo then
+		local info = C_Map.GetMapInfo(mapID)
+		if info and info.mapType and info.mapType <= 2 then return nil end
+	end
+	return mapID
 end
 
 local retryQueued = false
@@ -57,23 +64,43 @@ local function Announce(force)
 	ns.Comm.Send("CHANNEL", ns.Codec.EncodeLayer(mine.mapID, mine.zoneUID, ns.Roster.MyRank(), guild), "layer")
 end
 
+-- Our layer does not follow every creature: some show another server's zone UID (a zone's
+-- border, creatures from another shard), and a layer that flips back and forth every second
+-- would spam the channel and fool the layer hop. A new one takes over only once two different
+-- creatures show it and none of ours has been seen for HOLD seconds; at once when we have none
+-- or entered another zone, and when it is the layer a hop is taking us to.
+Layers.HOLD = 6
+local pending        -- another layer seen meanwhile: { zoneUID, guids = { [guid] = true }, n }
 local function Observe(unit)
 	if IsInInstance() then return end
-	local zoneUID = ZoneUIDFromGUID(UnitGUID(unit))
+	local guid = UnitGUID(unit)
+	local zoneUID = ZoneUIDFromGUID(guid)
 	local mapID = CurrentMap()
 	if not zoneUID or not mapID then return end
-	local changed = not mine or mine.zoneUID ~= zoneUID or mine.mapID ~= mapID
-	mine = { mapID = mapID, zoneUID = zoneUID, t = ns.Now() }
-	if changed then
-		ns.Log("layer: map %d zoneUID %d", mapID, zoneUID)
-		Announce(true)
-		ns.Fire("LAYERS_CHANGED")
+	local now = ns.Now()
+	if mine and mine.mapID == mapID and mine.zoneUID == zoneUID then
+		mine.t, mine.seenAt, pending = now, now, nil
+		return
 	end
+	if mine and mine.mapID == mapID then
+		local expMap, expUID
+		if ns.Hop and ns.Hop.ExpectedLayer then expMap, expUID = ns.Hop.ExpectedLayer() end
+		if not (expMap == mapID and expUID == zoneUID) then
+			if not pending or pending.zoneUID ~= zoneUID then pending = { zoneUID = zoneUID, guids = {}, n = 0 } end
+			if not pending.guids[guid] then pending.guids[guid], pending.n = true, pending.n + 1 end
+			if pending.n < 2 or now - (mine.seenAt or 0) < Layers.HOLD then return end
+		end
+	end
+	pending = nil
+	mine = { mapID = mapID, zoneUID = zoneUID, t = now, seenAt = now }
+	ns.Log("layer: map %d zoneUID %d (%s)", mapID, zoneUID, tostring(unit))
+	Announce(true)
+	ns.Fire("LAYERS_CHANGED")
 end
 
 function Layers.Mine() return mine end
 Layers.Observe = Observe -- tests
-function Layers.Reset() mine = nil; wipe(seen); wipe(where) end -- tests
+function Layers.Reset() mine, pending = nil, nil; wipe(seen); wipe(where) end -- tests
 
 -- Where a player last announced their layer: { mapID, zoneUID, t } while fresh, else nil.
 -- The census and the channel may write a name with different realms: short names match too,
@@ -191,7 +218,7 @@ ns.On("LOGIN", function()
 	ns.RegisterEvent("PLAYER_TARGET_CHANGED", function() Observe("target") end)
 	ns.RegisterEvent("UPDATE_MOUSEOVER_UNIT", function() Observe("mouseover") end)
 	ns.RegisterEvent("NAME_PLATE_UNIT_ADDED", function(unit) Observe(unit) end)
-	ns.RegisterEvent("ZONE_CHANGED_NEW_AREA", function() mine = nil; ns.Fire("LAYERS_CHANGED") end)
+	ns.RegisterEvent("ZONE_CHANGED_NEW_AREA", function() mine, pending = nil, nil; ns.Fire("LAYERS_CHANGED") end)
 	ns.Every(60, "layer announce", function()
 		Prune()
 		Announce(false)

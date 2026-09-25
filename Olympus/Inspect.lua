@@ -318,10 +318,13 @@ local function ServerNow() return (GetServerTime and GetServerTime()) or time() 
 function Inspect.ShameOpen() return ServerNow() >= Inspect.SHAME_FROM end
 function Inspect.ShameOpensIn() return math.max(0, Inspect.SHAME_FROM - ServerNow()) end
 
+-- Pardoned by the King (Acts.lua): off every list for a week, ours and the ones we receive.
+local function Pardoned(name) return ns.Acts and ns.Acts.Pardoned and ns.Acts.Pardoned(name) == true end
+
 function Inspect.ShameList()
 	local out = {}
 	for _, p in ipairs(Inspect.Summary().players) do
-		if p.status == "NONE" or p.status == "OTHER" or p.marked then
+		if (p.status == "NONE" or p.status == "OTHER" or p.marked) and not Pardoned(p.name) then
 			out[#out + 1] = { name = ns.ShortName(p.name), guild = p.guild }
 		end
 	end
@@ -345,6 +348,9 @@ function Inspect.PublishShame()
 end
 
 function Inspect.ShowShame(shame)
+	for i = #shame.list, 1, -1 do
+		if Pardoned(shame.list[i].name) then table.remove(shame.list, i) end
+	end
 	Inspect.shame = shame
 	local text = L.SHAME_PUBLISHED:format(#shame.list, shame.by)
 	ns.Print("|cffff4040" .. text .. "|r")

@@ -116,7 +116,9 @@ function Comm.Stats()
 	}
 end
 
-local function Enqueue(dist, msg, key, target)
+-- urgent: ahead of everything waiting (a player waits for the answer: a layer ask, an offer,
+-- a vote), behind the other urgent ones.
+local function Enqueue(dist, msg, key, target, urgent)
 	if key then
 		for _, item in ipairs(queue) do
 			if item[3] == key then
@@ -125,30 +127,45 @@ local function Enqueue(dist, msg, key, target)
 			end
 		end
 	end
-	if #queue >= MAX_QUEUE then table.remove(queue, 1) end
-	queue[#queue + 1] = { dist, msg, key, target }
+	if #queue >= MAX_QUEUE then
+		-- Full: the oldest ordinary message goes (never an urgent one).
+		local drop = 1
+		for i, item in ipairs(queue) do
+			if not item[5] then drop = i break end
+		end
+		table.remove(queue, drop)
+	end
+	local item = { dist, msg, key, target, urgent or nil }
+	if urgent then
+		local at = 1
+		while queue[at] and queue[at][5] do at = at + 1 end
+		table.insert(queue, at, item)
+	else
+		queue[#queue + 1] = item
+	end
 end
 
 -- Other modules send small messages through here and register a handler per type.
 --   Comm.Send("GUILD" | "CHANNEL", msg, dedupeKey)
 --   Comm.Handle("P1", function(dist, sender, text) ... end)
 local handlers = {}
-function Comm.Send(dist, msg, key)
+function Comm.Send(dist, msg, key, urgent)
 	if dist == "GUILD" and not IsInGuild() then return end
-	Enqueue(dist, msg, key)
+	Enqueue(dist, msg, key, nil, urgent)
 end
 -- An addon message to one player only (answers to the King, Throne tab).
-function Comm.Whisper(target, msg, key)
+function Comm.Whisper(target, msg, key, urgent)
 	if type(target) ~= "string" or target == "" then return end
-	Enqueue("WHISPER", msg, key, target)
+	Enqueue("WHISPER", msg, key, target, urgent)
 end
 function Comm.Handle(msgType, fn)
 	handlers[msgType] = fn
 end
--- Long payloads (> 255 bytes) go through the same chunking as reports.
-function Comm.SendChunked(payload)
+-- Long payloads (> 255 bytes) go through the same chunking as reports; urgent ones (a
+-- question to the army) ahead of the census, their pieces still in order.
+function Comm.SendChunked(payload, urgent)
 	msgId = (msgId + 1) % 1000
-	for _, c in ipairs(Codec.Chunk(payload, tostring(msgId))) do Enqueue("CHANNEL", c) end
+	for _, c in ipairs(Codec.Chunk(payload, tostring(msgId))) do Enqueue("CHANNEL", c, nil, nil, urgent) end
 end
 function Comm.ChannelReady()
 	return channelIndex > 0
@@ -311,6 +328,8 @@ function Comm.JoinChannel()
 	JoinChannelByName(name, password)
 	ns.After(3, "channel check", function()
 		channelIndex = GetChannelName(name) or 0
+		Comm.joinedAt = ns.Now()
+		ns.SafeCall("channel last", Comm.KeepLast)
 		ns.Log("channel %s -> #%d", name, channelIndex)
 		HideChannelFromChat(name)
 	end)
@@ -469,6 +488,41 @@ function Comm.JoinSoon(t, seenAt)
 		return
 	end
 	ns.After(1, "join channel", function() Comm.JoinSoon(t + 1, seenAt) end)
+end
+
+-- For tests: the channel we joined.
+function Comm.JoinedName() return joinedName end
+function Comm.SetJoinedForTest(name) joinedName = name end
+
+-- Our hidden channel after the game's own. Joined before them (a slow login), it took /1 and
+-- pushed General to /2, Trade to /3: moved past each of the game's channels numbered after
+-- it, they get their usual numbers back. The player's own channels and other addons' keep
+-- theirs.
+function Comm.KeepLast()
+	if not joinedName or not GetChannelList then return end
+	local swap = C_ChatInfo and C_ChatInfo.SwapChatChannelsByChannelIndex
+	local infoOf = C_ChatInfo and C_ChatInfo.GetChannelInfoFromIdentifier
+	if not swap or not infoOf then return end
+	local ours = GetChannelName(joinedName) or 0
+	if ours <= 0 then return end
+	local list = { GetChannelList() }
+	local stride = type(list[3]) == "boolean" and 3 or 2 -- (id, name, disabled) or (id, name)
+	local after = {}
+	for i = 1, #list, stride do
+		local id = tonumber(list[i])
+		local ok, info = pcall(infoOf, list[i + 1])
+		-- The game's channels (General, Trade...) are zone channels; custom ones are not.
+		if id and id > ours and ok and type(info) == "table" and (tonumber(info.zoneChannelID) or 0) > 0 then after[#after + 1] = id end
+	end
+	if #after == 0 then return end
+	table.sort(after)
+	local at = ours
+	for _, id in ipairs(after) do
+		if not pcall(swap, at, id) then break end
+		at = id
+	end
+	channelIndex = GetChannelName(joinedName) or channelIndex
+	ns.Log("channel %s moved from #%d to #%d", joinedName, ours, channelIndex)
 end
 
 -- Right after login we may think we are the reporter only because we have not heard our
@@ -644,5 +698,17 @@ ns.On("LOGIN", function()
 			ns.Log("incomplete report dropped: %s", tostring(sample))
 		end
 		if channelIndex == 0 or GetChannelName(joinedName or (Comm.ChannelSpec())) == 0 then Comm.JoinChannel() end
+	end)
+	-- The game joins its own channels (General, Trade...) after ours on a slow login: ours
+	-- moves behind them once the list settles.
+	-- Only in the minutes after we joined: later changes are the player's.
+	local lastPending = false
+	ns.RegisterEvent("CHANNEL_UI_UPDATE", function()
+		if lastPending or ns.Now() - (Comm.joinedAt or 0) > 180 then return end
+		lastPending = true
+		ns.After(2, "channel last", function()
+			lastPending = false
+			Comm.KeepLast()
+		end)
 	end)
 end)

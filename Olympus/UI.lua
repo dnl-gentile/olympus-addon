@@ -36,6 +36,10 @@ local TABS = {
 	{ key = "heraldry", label = "TAB_HERALDRY", icon = "Interface\\Icons\\INV_Shirt_GuildTabard_01" },
 	-- The King's alone (King.lua): hidden for everyone else, see UI.Refresh.
 	{ key = "throne", label = "TAB_THRONE", icon = function() return UI.FirstTexture(UI.CROWNS) end },
+	-- The King's and his Hands' questions to the army (Vox.lua), the same way.
+	{ key = "vox", label = "TAB_VOX", icon = function() return UI.FirstTexture(UI.HORNS) end },
+	-- The Treasurer's book, and the King's copy of his report (Treasury.lua), the same way.
+	{ key = "treasury", label = "TAB_TREASURY", icon = "Interface\\Icons\\INV_Misc_Coin_02" },
 	-- The addon author's alone (Workshop.lua), the same way.
 	{ key = "workshop", label = "TAB_WORKSHOP", icon = "Interface\\Icons\\Trade_Engineering" },
 }
@@ -48,6 +52,7 @@ function UI.FirstTexture(paths)
 	return paths[#paths]
 end
 UI.CROWNS = { "Interface\\Icons\\INV_Crown_01", "Interface\\Icons\\INV_Crown_02", "Interface\\Icons\\INV_Misc_Head_Dragon_01" }
+UI.HORNS = { "Interface\\Icons\\Ability_Warrior_BattleShout", "Interface\\Icons\\INV_Misc_Horn_01" }
 UI.PARCHMENTS = { "Interface\\QuestFrame\\QuestBG", "Interface\\Stationery\\StationeryTest1" }
 UI.TABS = TABS
 
@@ -90,10 +95,32 @@ local BUTTONS = {
 		{ "MARK_TARGET", function() ns.Inspect.MarkTarget() end },
 		{ "COPY_BTN", function() UI.ShowCopy(L.INSPECT_TITLE, ns.Inspect.DiscordText()) end },
 	},
+	-- The Throne: the agenda (the King and his Hands), the court (the King's), the letter.
+	-- The roll call lives in the Realm, the inspection in the Tabards (King.RollCallLines...).
 	throne = {
-		{ "THRONE_SUMMON", function() ns.King.Summon() end },
-		{ "THRONE_INSPECT", function() ns.King.Inspect() end },
 		{ "THRONE_AGENDA", function() ns.King.AgendaPrompt() end },
+		{ "COURT_BTN", function() ns.Court.Toggle() end, refresh = true, shown = function() return ns.King.IsKing() or ns.King.Preview() end,
+			label = function() return ns.Court.Holding() and L.COURT_BTN_CLOSE or L.COURT_BTN_OPEN end,
+			tooltip = function(tt)
+				tt:AddLine(L.COURT_TITLE, 1, 0.82, 0)
+				tt:AddLine(L.COURT_BTN_TIP, 1, 1, 1, true)
+			end },
+		{ "THRONE_LETTER_BTN", function() ns.King.Show("letter") end },
+	},
+	vox = {
+		{ "VOX_NEW", function() ns.Vox.Prompt() end },
+		{ "VOX_END", function() ns.Vox.CloseNow() end },
+		{ "VOX_SHOW", function() ns.Vox.ShowLive() end },
+	},
+	treasury = {
+		{ "TREASURY_SHARE_BTN", function() ns.Treasury.SetSharing(not ns.Treasury.Sharing()) end, refresh = true,
+			shown = function() return ns.Treasury.IsTreasurer() end,
+			label = function() return ns.Treasury.Sharing() and L.TREASURY_SHARE_STOP or L.TREASURY_SHARE_START end,
+			tooltip = function(tt)
+				tt:AddLine(L.TREASURY_TITLE, 1, 0.82, 0)
+				tt:AddLine(L.TREASURY_SHARE_TIP, 1, 1, 1, true)
+			end },
+		{ "COPY_BTN", function() UI.ShowCopy(L.TREASURY_TITLE, ns.Treasury.DiscordText()) end },
 	},
 	workshop = {
 		{ "WORKSHOP_ROLL_BTN", function() ns.Workshop.RollCall() end },
@@ -109,12 +136,13 @@ local RECRUIT_BUTTONS = {
 }
 
 -- Small extra buttons inside the detail box (only where needed).
+local function KingOnly() return ns.King.IsKing() or ns.King.Preview() end
 local DETAIL_BUTTONS = {
 	throne = {
-		{ "THRONE_LETTER_BTN", function() ns.King.Show("letter") end },
-		{ "THRONE_CANCEL_AGENDA", function() ns.King.CancelAgendaButton() end },
+		-- His Hands: the page to name them.
+		{ "HANDS_BTN", function() ns.King.Show("hands") end, refresh = true, shown = KingOnly },
 		-- His own button: the crown the army sees, what it does and whether it is on now.
-		{ "THRONE_LOCATION", function() ns.King.ToggleLocation() end, refresh = true,
+		{ "THRONE_LOCATION", function() ns.King.ToggleLocation() end, refresh = true, shown = KingOnly,
 			label = function()
 				return "|T" .. ns.CROWN_ICON .. ":0|t " .. (ns.King.SharingLocation() and L.THRONE_LOCATION_OFF or L.THRONE_LOCATION_ON)
 			end,
@@ -129,10 +157,22 @@ local DETAIL_BUTTONS = {
 					tt:AddLine(L.THRONE_LOCATION_NOW_OFF, 0.6, 0.6, 0.6, true)
 				end
 			end },
+		{ "THRONE_CANCEL_AGENDA", function() ns.King.CancelAgendaButton() end, shown = function() return ns.King.Agenda() ~= nil end },
+	},
+	-- The author's views, to see and try what only the King or the Treasurer sees.
+	workshop = {
+		{ "DEV_KING_VIEW", function() ns.King.SetDevView(not ns.King.Preview()) end, refresh = true,
+			label = function() return ns.King.Preview() and L.DEV_KING_VIEW_OFF or L.DEV_KING_VIEW_ON end },
+		{ "DEV_TREASURER_VIEW", function() ns.Treasury.SetDevView(not ns.Treasury.DevView()) end, refresh = true,
+			label = function() return ns.Treasury.DevView() and L.DEV_TREASURER_VIEW_OFF or L.DEV_TREASURER_VIEW_ON end },
 	},
 	heraldry = {
 		{ "HERALDRY_BTN", DecreeAction("HERALDRY") },
 		{ "CLEAR", function() StaticPopup_Show("OLYMPUS_CLEAR_INSPECT") end },
+	},
+	-- The King's letters to his Lords (Acts.lua): his button alone.
+	decrees = {
+		{ "WRIT_BTN", function() ns.Acts.WritPrompt() end, shown = KingOnly },
 	},
 }
 -- The Wall of Shame's button once it opens (Inspect.ShameOpen).
@@ -923,6 +963,7 @@ end
 
 -- Shows tab `key` in the window in use, and the window if it is closed.
 local function ShowTab(key)
+	if key ~= "realm" and ns.Views.CloseChat then ns.Views.CloseChat() end
 	main.tab = key
 	for k, v in pairs(main.views) do v:SetShown(k == key) end
 	main.scroll:SetScrollChild(main.views[key])
@@ -1013,24 +1054,34 @@ function UI.Refresh()
 			main.sub:SetText(sub)
 		else
 			lines, title, text = ns.Views.Build(main.tab)
+			-- The treasury next to the soldiers, on the Throne and the Treasury tabs (the King's
+			-- and the Treasurer's screens: Treasury.HeaderText).
+			if main.tab == "throne" or main.tab == "treasury" then
+				local gold = ns.Treasury and ns.Treasury.HeaderText and ns.Treasury.HeaderText()
+				if type(gold) == "string" then main.total:SetText(L.ARMY_TOTAL:format(F(s.total)) .. "   " .. gold) end
+			end
 		end
 		FitHeader()
 		ns.Views.Render(main.views[main.tab], lines, not locked and ns.Views.COLUMNS[main.tab] or nil)
 		main.detailTitle:SetText(title or "")
 		main.detailText:SetText(text or "")
-		SetButtons(main.buttons, locked and RECRUIT_BUTTONS or BUTTONS[main.tab])
+		SetButtons(main.buttons, locked and RECRUIT_BUTTONS or Shown(BUTTONS[main.tab]))
 		local tabsWere = main.tabs[1] and main.tabs[1]:IsShown()
 		-- The Throne only for the King, the Workshop only for the addon's author (and their
 		-- test builds, King.Preview and Workshop.Preview).
 		local only = {
 			throne = ns.King and ns.King.Visible and ns.King.Visible() or false,
+			vox = ns.Vox and ns.Vox.Visible and ns.Vox.Visible() or false,
+			treasury = ns.Treasury and ns.Treasury.Visible and ns.Treasury.Visible() or false,
 			workshop = ns.Workshop and ns.Workshop.Visible and ns.Workshop.Visible() or false,
 		}
 		if only[main.tab] == false then return ShowTab("census") end
 		for _, tab in ipairs(main.tabs) do tab:SetShown(not locked and only[tab.key] ~= false) end
 		UI.LayoutTabs()
-		SetButtons(main.detailButtons, not locked and Shown(DETAIL_BUTTONS[main.tab]) or nil)
-		local hasDetailButtons = not locked and DETAIL_BUTTONS[main.tab] ~= nil
+		local detail = not locked and Shown(DETAIL_BUTTONS[main.tab]) or nil
+		SetButtons(main.detailButtons, detail)
+		-- Room for the text where no button shows (the Decrees tab has one for the King alone).
+		local hasDetailButtons = detail ~= nil and #detail > 0
 		main.detailText:SetHeight(DETAIL_H - (hasDetailButtons and 46 or 26))
 		-- The tabs just appeared (joined a guild with the window open): they hang below it,
 		-- so it steps above the Issue Reporter again.
@@ -1353,9 +1404,29 @@ ns.On("LAYERS_CHANGED", function()
 end)
 ns.On("HOP_CHANGED", function() if main and (main.tab == "census" or main.tab == "realm") then UI.RefreshSoon() end end)
 ns.On("DECREES_CHANGED", function() UI.RefreshSoon() end)
-ns.On("THRONE_CHANGED", function() if main and main.tab == "throne" then UI.RefreshSoon() end end)
+-- The King's calls show on the Throne, the roll call in the Realm, the inspection in the Tabards.
+ns.On("THRONE_CHANGED", function()
+	if main and (main.tab == "throne" or main.tab == "realm" or main.tab == "heraldry") then UI.RefreshSoon() end
+end)
+ns.On("VOX_CHANGED", function() if main and main.tab == "vox" then UI.RefreshSoon() end end)
+-- The Treasurer's book and report: his tab, the King's Throne, the Realm's line under him.
+ns.On("TREASURY_CHANGED", function()
+	if main and (main.tab == "treasury" or main.tab == "throne" or main.tab == "realm") then UI.RefreshSoon() end
+end)
+-- The court's line tops the Census and the Realm for the players in its zone.
+ns.On("COURT_CHANGED", function() if main and (main.tab == "census" or main.tab == "realm") then UI.RefreshSoon() end end)
+ns.On("CHAT_CHANGED", function() if main and main.tab == "realm" and ns.Views.ChatShown() then UI.RefreshSoon() end end)
 ns.On("WORKSHOP_CHANGED", function() if main and main.tab == "workshop" then UI.RefreshSoon() end end)
 ns.On("RECRUIT_CHANGED", function() UI.RefreshSoon() end)
+-- The screen or the UI scale changed: the window's width in pixels did too, so the tabs
+-- under it are laid out again (they shrink to fit it, UI.LayoutTabs).
+local function Relayout()
+	if not main then return end
+	UI.Layout()
+	UI.LayoutTabs()
+end
+ns.RegisterEvent("DISPLAY_SIZE_CHANGED", function() ns.SafeCall("relayout", Relayout) end)
+ns.RegisterEvent("UI_SCALE_CHANGED", function() ns.SafeCall("relayout", Relayout) end)
 
 ---------------------------------------------------------------------------
 ---------------------------------------------------------------------------

@@ -177,7 +177,15 @@ function ns.StatusText()
 		for k, v in pairs(c.byType or {}) do types[#types + 1] = k .. "=" .. v end
 		table.sort(types)
 		add("received by type: %s  |  incomplete reports: %d waiting, %d dropped", #types > 0 and table.concat(types, " ") or "none", c.pending or 0, c.partial or 0)
-		add("own echoes: %d  |  channel members: %s", c.echo or 0, tostring(ChannelMembers(c.channelName)))
+		add("own echoes: %d  |  channel members: %s", c.echo or 0, tostring(ChannelMembers(c.channelName) or "unknown"))
+		-- The chat channels by number: ours should come after the game's own (Comm.KeepLast).
+		local ok, list = pcall(function() return { GetChannelList() } end)
+		if ok and list and #list > 0 then
+			local stride = type(list[3]) == "boolean" and 3 or 2
+			local parts = {}
+			for i = 1, #list, stride do parts[#parts + 1] = ("%s %s"):format(tostring(list[i]), tostring(list[i + 1])) end
+			add("chat channels: %s", table.concat(parts, ", "))
+		end
 		add("other channels dropped: %d  |  census asked %d, answered %d  |  runner-up: %s  |  first channel msg: %s",
 			c.otherChannel or 0, c.asked or 0, c.answered or 0, tostring(c.runnerUp), tostring(c.chanArgs))
 		for _, line in ipairs(NamesLines(c)) do add("%s", line) end

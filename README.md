@@ -46,7 +46,7 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
 
 ## Who can use it
 
-**Only members of a guild with "Olympus" in its name**, however it was spelled: OLYMPVS the Roman way, Olimpus, Olmpus, Olympos, Olimpo and any other single slip count too (Olympia or Olympic do not). The check is fixed in the code and
+**Only members of a guild with "Olympus" in its name**, however it was spelled: OLYMPVS the Roman way, Olimpus, Olmps, Olympuz, Olympos, Olimpo and other misspellings count too (Olympia or Olympic do not), and a guild against Olympus ("ANTI OLYMPUS", "Olympus Haters") does not. The check is fixed in the code and
 cannot be switched off with a command. Outside an Olympus guild the addon joins no channel,
 sends nothing and receives nothing. The only thing it offers there is the **Join Olympus**
 screen described below.
@@ -86,6 +86,7 @@ are highlighted. It is rate limited, so nobody gets spammed. The game lists 50 p
 - **Inactive members**: offline 7+ and 30+ days, per guild.
 - **Level race**: the highest level players of the realm.
 - **Recruiting**: the guilds that still have free slots, so new players go where there is room.
+  When the King opens **the gates** of a guild, it tops the list: send new recruits there.
 - **Layers** of your zone, named after the highest ranked Olympus member on each one
   ("Asmongold's layer"), with how many members are there.
 
@@ -149,6 +150,8 @@ WoW channel number to join). Each channel is exclusive to a rank:
 - Shift-click an item or spell into the line and it stays a link. Long lines are split into
   up to 3 messages.
 - The channels show only in the chat of players with the addon.
+- The Realm tab links **the Olympus chats**: the last lines of each channel your rank reads,
+  newest first, even what was said while the window was closed. A click whispers the player.
 - Ranks follow the rule of the decrees: whoever founds a guild with "Olympus" in its name is
   its Lord and gets [Lords], and its officers get [Captains].
 
@@ -158,23 +161,67 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 "OlympusNet" by name; with a key, every member of the guilds that have it. The guild tag on an
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
 
-### The Throne (the King only)
-A fifth tab, with a crown, that only the King sees: the guild master of the guild named
-exactly "Olympus" (of his faction). A parchment page with:
-- **Summon the Lords**: every Lord and Captain online gets a popup, "Present, my King" or
-  "Busy". The King sees who answered and who stayed silent.
-- **Royal Inspection**: a raid warning for the whole army ("wear your tabard!"), then every
-  soldier with the addon patrols the players around them for 2 minutes and reports to the
-  King: how many were checked, the percentage in colors, per guild, and who was caught.
-- **The King's Agenda**: minutes and an event ("30 Raid on Crossroads"). The whole army sees
-  it, with reminders 10 minutes and 1 minute before.
+### The Throne (the King and his Hands)
+A tab with a crown that only the King sees: the guild master of the guild named exactly
+"Olympus" (of his faction). It opens on the author's letter until he has read it, then on
+**the Throne Room**: the queue of his court while it is open, and the Treasury. Each of his
+tools lives where it belongs:
+- **The King's Agenda** (a button on the Throne): minutes and an event ("30 Raid on
+  Crossroads"). The whole army sees it, with reminders 10 minutes and 1 minute before.
+- **Hold Court** (a button on the Throne): the King opens his court where he stands. Every
+  Olympus player in that zone gets a line on top of the Census and the Realm; one click asks
+  for an audience. The requests line up on his Throne and a click calls that player (a popup
+  and a raid warning).
+- **Summon the Lords** (on top of the Realm tab): every Lord and Captain online gets a popup,
+  "Present, my King" or "Busy". While the roll call is fresh, each Lord and Captain in the
+  tree carries a ready-check mark: present, busy, or not answered yet.
+- **Royal Inspection** (on top of the Tabards tab): a raid warning for the whole army ("wear
+  your tabard!"), then every soldier with the addon patrols the players around them for 2
+  minutes and reports to the King: how many were checked, the percentage in colors, per
+  guild, and who was caught, ready to go on the Wall of Shame.
+- **Vox Populi** (a tab of its own): the King asks the army a question with two to six
+  answers, to pick one or to pick several, open for 30 seconds to 5 minutes. Everyone with
+  the addon gets a window with check boxes and a countdown; each vote goes to the King alone.
+  He watches the bar chart fill, on his tab or on his screen for the stream ("Show on
+  screen"); when time is up everyone gets the chart and the winner (shares of the votes, or
+  of the voters when each picked several). `/oly vox off` keeps the questions in chat.
+- **Royal Writs** (in the Decrees tab): a letter from the King on parchment, to the Lords alone
+  or to every Lord and Captain. Each can answer "As you command"; the King sees how many did.
+- **Open the Gates** (in the Realm tab, Recruiting): the King picks the guild new recruits
+  should join for the next two hours; everyone sees it on top of Recruiting.
+- **Royal Pardon** (on the Wall of Shame): a click takes a name off the wall, for everyone,
+  for a week.
+- **Hands of the King** (a button next to his map button): players he names use the roll
+  call, the inspection, the agenda, Vox Populi and the gates in his name. Never the court,
+  writs, pardons or his crown on the map. Their addons learn the list from his, and it ends
+  when he stops sending it.
 - **Show me on the map** (his own button, with the crown): while he turns it on, everyone with
   the addon sees a crown where he is, on the world map and the minimap. Off by default (his
   position is on stream); the same button hides it, its tooltip says whether it is on now, and
   the top of the Throne page reminds him while it is.
 
 Every command is checked on each client: it only counts if the census confirms the sender is
-that guild master. Answers go to the King alone.
+that guild master (or one of the Hands he named, for what he lends them). Answers go to the
+King alone. Nothing another player sends can put free text on his screen: only names and
+Olympus guild names.
+
+### The Treasury (the Treasurer and the King)
+A tab with a coin for the Treasurer of Olympus (that exact character, in the guild OLYMPUS)
+and for the King.
+- **The Treasurer's book**: gold he receives by trade or mail is a donation, gold he gives by
+  trade or mail a payment, each written down by itself (mail when he takes its gold; the
+  auction house and cash on delivery don't count). The tab shows his balance (his character's
+  gold), today, this week, all time, the most generous of the week and the latest lines, with a
+  copy for Discord.
+- **Shared when he says so**: a Share button, off until he turns it on. Then his addon sends his
+  balance, the donations of today and of the week, how many gave and the 5 most generous (names
+  and amounts) on the Olympus channel, every 5 minutes and when his gold changes. Every client
+  checks it comes from the Treasurer himself.
+- **What the King sees**: the Treasury tab, the balance next to the soldiers on top of the
+  window, and the Throne Room's treasury. **Everyone** sees the balance under the Treasurer in
+  the Realm.
+- Only the gold that passes through the Treasurer's own character counts: the addon can't see
+  other characters' gold.
 
 ### Tabards: tabard inspection and the Wall of Shame
 - **Patrol**: walk through the crowd and the addon inspects nearby Olympus members level 15
@@ -343,6 +390,7 @@ Limits, stated honestly:
 | `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |
 | `/oly mute olympus` · `/oly mute captains` · `/oly mute lords` | hide or show a channel in chat |
 | `/oly hop` | ask for an invite to the King's layer (while he is online) |
+| `/oly vox off` · `/oly vox on` | Vox Populi questions in chat only, or in a window |
 | `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer |
 | `/oly layerauto on` · `/oly layerauto off` | invite layer requests without the window |
 | `/oly key <secret>` | officers: seal the Olympus channel |
