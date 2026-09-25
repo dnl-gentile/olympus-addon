@@ -328,6 +328,7 @@ function Comm.JoinChannel()
 	JoinChannelByName(name, password)
 	ns.After(3, "channel check", function()
 		channelIndex = GetChannelName(name) or 0
+		Comm.joinedAt = ns.Now()
 		ns.SafeCall("channel last", Comm.KeepLast)
 		ns.Log("channel %s -> #%d", name, channelIndex)
 		HideChannelFromChat(name)
@@ -493,13 +494,15 @@ end
 function Comm.JoinedName() return joinedName end
 function Comm.SetJoinedForTest(name) joinedName = name end
 
--- Our hidden channel after every other one. Joined before the game's own channels were (a
--- slow login), it took /1 and pushed General to /2, Trade to /3: moved past each channel
--- numbered after it, the others keep their order and get their usual numbers back.
+-- Our hidden channel after the game's own. Joined before them (a slow login), it took /1 and
+-- pushed General to /2, Trade to /3: moved past each of the game's channels numbered after
+-- it, they get their usual numbers back. The player's own channels and other addons' keep
+-- theirs.
 function Comm.KeepLast()
 	if not joinedName or not GetChannelList then return end
 	local swap = C_ChatInfo and C_ChatInfo.SwapChatChannelsByChannelIndex
-	if not swap then return end
+	local infoOf = C_ChatInfo and C_ChatInfo.GetChannelInfoFromIdentifier
+	if not swap or not infoOf then return end
 	local ours = GetChannelName(joinedName) or 0
 	if ours <= 0 then return end
 	local list = { GetChannelList() }
@@ -507,7 +510,9 @@ function Comm.KeepLast()
 	local after = {}
 	for i = 1, #list, stride do
 		local id = tonumber(list[i])
-		if id and id > ours then after[#after + 1] = id end
+		local ok, info = pcall(infoOf, list[i + 1])
+		-- The game's channels (General, Trade...) are zone channels; custom ones are not.
+		if id and id > ours and ok and type(info) == "table" and (tonumber(info.zoneChannelID) or 0) > 0 then after[#after + 1] = id end
 	end
 	if #after == 0 then return end
 	table.sort(after)
@@ -696,9 +701,10 @@ ns.On("LOGIN", function()
 	end)
 	-- The game joins its own channels (General, Trade...) after ours on a slow login: ours
 	-- moves behind them once the list settles.
+	-- Only in the minutes after we joined: later changes are the player's.
 	local lastPending = false
 	ns.RegisterEvent("CHANNEL_UI_UPDATE", function()
-		if lastPending then return end
+		if lastPending or ns.Now() - (Comm.joinedAt or 0) > 180 then return end
 		lastPending = true
 		ns.After(2, "channel last", function()
 			lastPending = false

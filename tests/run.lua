@@ -4691,6 +4691,25 @@ test("layer hop, asker side: draw an offer, move on after a no, accept only that
 	end)
 end)
 
+test("layer hop: the target layer is taken on its first creature, whatever the hold", function()
+	WithHop(function(w, H)
+		w.see(7)
+		ns.Layers.HOLD = 6
+		H.Ask(1453, 8, "Kingy's layer")
+		H.HandleOffer("WHISPER", "Aaa-Realm", "LO~1~0~0")
+		w.clock = w.clock + H.WINDOW
+		H.Tick()
+		w.group, w.party.party1 = 2, "Aaa"
+		H.OnInvite("Aaa")
+		H.OnRoster()
+		eq(H.State().phase, "joined")
+		-- One creature of the King's layer, a second after one of ours: that is the move.
+		w.npc, w.spawn = 8, 5
+		ns.Layers.Observe("target")
+		eq(ns.Layers.Mine().zoneUID, 8, "the hop's target at once")
+	end)
+end)
+
 test("layer hop, asker side: a friend's group is never left, a late helper still counts, an old window ends nothing", function()
 	WithHop(function(w, H)
 		w.see(7)
@@ -6191,13 +6210,18 @@ test("A player's report: no false King, our layer holds against stray creatures,
 			return 0
 		end
 		C_ChatInfo.SwapChatChannelsByChannelIndex = function(a, b) slots[a], slots[b] = slots[b], slots[a] end
+		-- The game's channels are zone channels; a custom one ("world") is not.
+		C_ChatInfo.GetChannelInfoFromIdentifier = function(n) return { name = n, zoneChannelID = (n == "world" or n == "OlympusNetH") and 0 or 2 } end
+		slots[4] = "world"
 		local savedJoined = ns.Comm.JoinedName and ns.Comm.JoinedName()
 		ns.Comm.SetJoinedForTest("OlympusNetH")
 		ns.Comm.KeepLast()
 		eq(slots[1], "General - Durotar"); eq(slots[2], "Trade - City"); eq(slots[3], "OlympusNetH")
+		eq(slots[4], "world", "the player's own channel keeps its number")
 		ns.Comm.SetJoinedForTest(savedJoined)
 	end)
 	C_ChatInfo.SwapChatChannelsByChannelIndex, GetChannelList, GetChannelName = savedCI, savedList, savedName
+	C_ChatInfo.GetChannelInfoFromIdentifier = nil
 	if not ok then error(err, 0) end
 end)
 

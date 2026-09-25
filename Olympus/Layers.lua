@@ -83,7 +83,8 @@ local function Observe(unit)
 		return
 	end
 	if mine and mine.mapID == mapID then
-		local expMap, expUID = ns.Hop and ns.Hop.ExpectedLayer and ns.Hop.ExpectedLayer()
+		local expMap, expUID
+		if ns.Hop and ns.Hop.ExpectedLayer then expMap, expUID = ns.Hop.ExpectedLayer() end
 		if not (expMap == mapID and expUID == zoneUID) then
 			if not pending or pending.zoneUID ~= zoneUID then pending = { zoneUID = zoneUID, guids = {}, n = 0 } end
 			if not pending.guids[guid] then pending.guids[guid], pending.n = true, pending.n + 1 end
