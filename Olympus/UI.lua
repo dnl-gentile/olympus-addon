@@ -119,7 +119,12 @@ local BUTTONS = {
 	treasury = {
 		{ "TREASURY_BOOK_BTN", function() ns.Treasury.Show(ns.Treasury.mode == "book" and "summary" or "book") end, refresh = true,
 			shown = function() return ns.Treasury.MaySee("book") end,
-			label = function() return ns.Treasury.mode == "book" and L.TREASURY_SUMMARY_BTN or L.TREASURY_BOOK_BTN end },
+			label = function() return ns.Treasury.mode == "book" and L.TREASURY_SUMMARY_BTN or L.TREASURY_BOOK_BTN end,
+			tooltip = function(tt)
+				local book = ns.Treasury.mode == "book"
+				tt:AddLine(book and L.TREASURY_SUMMARY_BTN or L.TREASURY_BOOK_BTN, 1, 0.82, 0)
+				tt:AddLine(book and L.TREASURY_SUMMARY_BTN_TIP or L.TREASURY_BOOK_BTN_TIP, 1, 1, 1, true)
+			end },
 		{ "TREASURY_OPENING_BTN", function() StaticPopup_Show("OLYMPUS_TREASURY_OPENING") end,
 			shown = function() return ns.Treasury.IsTreasurer() end },
 		{ "COPY_BTN", function() UI.ShowCopy(L.TREASURY_TITLE, ns.Treasury.DiscordText()) end,

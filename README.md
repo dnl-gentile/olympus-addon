@@ -212,19 +212,23 @@ for the King, and for every member once the King shows the army something of it.
   trade or mail a payment, each written down by itself (mail when he takes its gold; the
   auction house and cash on delivery don't count).
 - **The treasury is the book, not his gold**: an opening balance he sets, plus what came in,
-  less what went out. What he earns playing is his. A trade of his items for gold is a sale, of
-  his gold for items a purchase: both go in the book as not counted, and a click on the line
-  counts it if it was the treasury's (or stops counting one that wasn't).
+  less what went out. What he earns playing is his. A trade of his items (or his work: an
+  enchant, a lock opened) for gold is a sale, of his gold for items a purchase, gold with his
+  own characters his own: they go in the book as not counted, and a click on the line counts it
+  if it was the treasury's (or stops counting one that wasn't). A payment by mail that comes
+  back stops counting by itself.
 - **The ranking of donors** (all time) and the week's donations, with a copy for Discord.
 - **Sent by his addon by itself** (every 5 minutes and after a change): the balance, the totals,
   the ranking and the latest lines of the book, on the Olympus channel. Every client checks it
   comes from the Treasurer himself.
 - **The King chooses what the army sees**, with three buttons: the balance, the ranking, the
-  book. With any of them on, the Treasury tab appears for every member with the addon, showing
-  only what he turned on (the book behind its own button), and the balance shows under the
-  Treasurer in the Realm. The King always sees all of it, and the balance next to the soldiers
-  on top of his window. (The channel can be read by anyone on it: the buttons choose what the
-  addon shows, they don't make the numbers secret.)
+  book. Until he does, only the Treasurer and the King see them (the Treasurer's tab says so).
+  With any of them on, the Treasury tab appears for every member with the addon, showing only
+  what he turned on (the book behind its own button), and the balance shows under the Treasurer
+  in the Realm. The Treasurer's addon repeats the King's latest word, so members who never meet
+  the King online get it too. The King always sees all of it, and the balance next to the
+  soldiers on top of his window. (The channel can be read by anyone on it: the buttons choose
+  what the addon shows, they don't make the numbers secret.)
 
 ### Tabards: tabard inspection and the Wall of Shame
 - **Patrol**: walk through the crowd and the addon inspects nearby Olympus members level 15

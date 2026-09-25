@@ -5,17 +5,21 @@ local L = ns.L
 -- ns.IsTreasurer). His client keeps the book: gold he receives by trade or mail is a donation,
 -- gold he gives by trade or mail a payment. What he earns playing is his: the treasury is the
 -- book (an opening balance, plus what came in, less what went out), never his character's
--- gold. A trade where he gave items for the gold is a sale, one where he got items for his
--- gold a purchase: both go in the book as not counted, and a click on a line counts it (or
--- stops counting it). The auction house's and the game's mail is no donation.
+-- gold. A trade where he gave items (or his work: an enchant, a lock) for the gold is a sale,
+-- one where he got them for his gold a purchase, gold with his own characters his own: they go
+-- in the book as not counted, and a click on a line counts it (or stops counting it). The
+-- auction house's and the game's mail is no donation.
 -- His addon sends the treasury on the channel by itself (every few minutes and after a change):
 -- the balance, the totals, the ranking of donors and the latest lines of the book. The King
 -- sees all of it; what the rest of the army sees is the King's choice, three switches (the
 -- balance, the ranking, the book), and with any of them on the Treasury tab appears for every
 -- member with the addon. (The channel is readable by anyone on it: the switches choose what
--- the addon shows, they don't hide the numbers.)
---   T7~<guild>~<balance>~<all in>~<all out>~<week in>~<donors this week>~<Name:copper,...>~<i|o:copper:Name:m|t:time,...>
---   T1~T~<id>~<guild>~<balance 0|1><ranking 0|1><book 0|1>        the King's switches (King.lua)
+-- the addon shows, they don't hide the numbers.) The King's word carries the time he gave it,
+-- and the Treasurer's treasury repeats it: members who never meet the King online still get
+-- his latest word.
+--   T8~<guild>~<balance>~<all in>~<all out>~<week in>~<donors this week>~<switches@time|->~<Name:copper,...>~<i|o:copper:Name:m|t:time,...>
+--   T1~T~<id>~<guild>~<balance 0|1><ranking 0|1><book 0|1>~<time>        the King's switches (King.lua)
+-- (T7 was 0.8.3's treasury: its clients would read this one as theirs, and show it to all.)
 
 local Treasury = {}
 ns.Treasury = Treasury
@@ -28,7 +32,7 @@ Treasury.FLAGS_EVERY = 300   -- the King's client repeats his switches
 Treasury.REPORT_KEPT = 7 * 86400 -- a treasury not heard of for a week is dropped
 Treasury.RANK_SENT = 10      -- donors in the ranking sent
 Treasury.BOOK_SENT = 15      -- latest lines of the book sent
-Treasury.BOOK_SHOWN = 40     -- lines of his own book the Treasurer sees
+Treasury.BOOK_SHOWN = 40     -- lines of his own book the Treasurer sees, 40 more a click
 Treasury.MAX_COPPER = 2147483647
 
 Treasury.mode = "summary"    -- what the tab shows: summary or book
@@ -38,7 +42,8 @@ local mailOut                -- a mail with gold on its way: { to, money }
 local report                 -- the Treasurer's last treasury: { balance, allIn, allOut, week, donors, rank, book, t, from }
 local lastShare, sharePending = -math.huge, false
 local lastFlagsSent = -math.huge
-local taken = {}             -- [mail] = when its gold was taken (a few seconds)
+local taken = {}             -- [inbox index] = when its gold was taken, until the server answers
+local bookShown = Treasury.BOOK_SHOWN
 
 local function Grey(s) return "|cff9d9d9d" .. s .. "|r" end
 local function Gold(s) return "|cffffd200" .. s .. "|r" end
@@ -50,6 +55,16 @@ local function Book()
 	return ns.rdb.treasury
 end
 local function DayKey(t) return date and date("%Y-%m-%d", t) or tostring(math.floor(t / 86400)) end
+-- Today and the 6 days before, by the calendar (a day of 23 or 25 hours is still one day).
+local function WeekKeys(now)
+	local keys, d = {}, date and date("*t", now)
+	for back = 0, 6 do
+		keys[#keys + 1] = d and DayKey(time({ year = d.year, month = d.month, day = d.day - back, hour = 12 })) or DayKey(now - back * 86400)
+	end
+	return keys
+end
+-- The clock the King's switches are dated by: the server's, the same on every client.
+local function Clock() return GetServerTime and GetServerTime() or ns.Now() end
 
 -- 12g 30s 5c, with the coin icons when the client has them (a minus sign when negative).
 function Treasury.Coins(copper)
@@ -67,9 +82,10 @@ function Treasury.Coins(copper)
 	if c > 0 or #parts == 0 then parts[#parts + 1] = c .. "c" end
 	return sign .. table.concat(parts, " ")
 end
--- Gold alone, for the big numbers: "12,345g".
+-- Gold alone, for the big numbers: "12,345g" (under a gold piece, the silver too).
 function Treasury.GoldText(copper)
 	copper = math.floor(tonumber(copper) or 0)
+	if math.abs(copper) < 10000 then return Treasury.Coins(copper) end
 	return (copper < 0 and "-" or "") .. ns.FormatNumber(math.floor(math.abs(copper) / 10000)) .. "g"
 end
 -- For Discord: plain text.
@@ -101,13 +117,20 @@ end
 
 local function IsKingView() return ns.King.IsKing() or ns.King.Preview() end
 
--- The King's switches: what the army sees (every client keeps the King's last word).
+-- The King's switches: what the army sees (every client keeps the King's last word). The
+-- author's Asmond's view keeps its own, on his screen only: the real King's word stays as it is.
 local FLAGS = { "balance", "ranking", "book" }
 function Treasury.Flags()
-	local f = ns.rdb and ns.rdb.treasuryFlags
+	local f
+	if ns.King.Preview() then f = ns.db and ns.db.previewTreasuryFlags else f = ns.rdb and ns.rdb.treasuryFlags end
 	return type(f) == "table" and f or {}
 end
 function Treasury.Shows(what) return Treasury.Flags()[what] == true end
+local function FlagDigits(f)
+	local d = {}
+	for i, k in ipairs(FLAGS) do d[i] = f[k] and "1" or "0" end
+	return table.concat(d)
+end
 function Treasury.AnyShown()
 	for _, k in ipairs(FLAGS) do if Treasury.Shows(k) then return true end end
 	return false
@@ -125,19 +148,40 @@ end
 -- The book (the Treasurer's client)
 ---------------------------------------------------------------------------
 
+-- A line's copper into its day (copper < 0: out of it), while the day is in the week kept.
+local function DayCount(s, e, copper, now)
+	local key = DayKey(e.t)
+	local day = s.days[key]
+	if not day and copper > 0 and now - e.t <= Treasury.DAYS_KEPT * 86400 then
+		day = { inn = 0, out = 0, by = {} }
+		s.days[key] = day
+	end
+	if not day then return end
+	if e.out then
+		day.out = math.max(0, day.out + copper)
+	else
+		day.inn = math.max(0, day.inn + copper)
+		day.by[e.name] = (day.by[e.name] or 0) + copper
+		if day.by[e.name] <= 0 then day.by[e.name] = nil end
+	end
+end
+
 -- The sums, whatever the book keeps: all time (in, out, each donor's), and per day (in, out,
--- each donor's) for today and the week. Rebuilt from the book once (0.8.3 kept no donors).
+-- each donor's) for today and the week. Rebuilt from the book once (0.8.3 kept no donors):
+-- the days too, so a line counted then comes out of the day it went into.
 local function Sums()
 	local s = ns.rdb.treasurySums
 	if type(s) ~= "table" or s.version ~= 2 then
 		s = { version = 2, allIn = 0, allOut = 0, byDonor = {}, days = {} }
 		ns.rdb.treasurySums = s
+		local now = ns.Now()
 		for _, e in ipairs(Book()) do
 			if not e.excluded then
 				if e.out then s.allOut = s.allOut + e.money else
 					s.allIn = s.allIn + e.money
 					s.byDonor[e.name] = (s.byDonor[e.name] or 0) + e.money
 				end
+				DayCount(s, e, e.money, now)
 			end
 		end
 	end
@@ -149,27 +193,23 @@ local function Count(e, sign)
 	local s = Sums()
 	local copper = e.money * sign
 	local now = ns.Now()
-	local key = DayKey(e.t)
-	local day = s.days[key]
-	if not day and sign > 0 and now - e.t <= Treasury.DAYS_KEPT * 86400 then
-		day = { inn = 0, out = 0, by = {} }
-		s.days[key] = day
-	end
 	if e.out then
-		s.allOut = s.allOut + copper
-		if day then day.out = day.out + copper end
+		s.allOut = math.max(0, s.allOut + copper)
 	else
-		s.allIn = s.allIn + copper
+		s.allIn = math.max(0, s.allIn + copper)
 		s.byDonor[e.name] = (s.byDonor[e.name] or 0) + copper
 		if s.byDonor[e.name] <= 0 then s.byDonor[e.name] = nil end
-		if day then
-			day.inn = day.inn + copper
-			day.by[e.name] = (day.by[e.name] or 0) + copper
-			if day.by[e.name] <= 0 then day.by[e.name] = nil end
-		end
 	end
+	DayCount(s, e, copper, now)
 	local oldest = DayKey(now - Treasury.DAYS_KEPT * 86400)
 	for k in pairs(s.days) do if k < oldest then s.days[k] = nil end end
+end
+
+-- The account's characters (the Treasurer's alts): gold between them is his own.
+local function OwnKey(name) return tostring(ns.FullName(ns.Normal(name)) or name):lower() end
+function Treasury.IsOwnCharacter(name)
+	local mine = ns.db and ns.db.myCharacters
+	return type(name) == "string" and type(mine) == "table" and mine[OwnKey(name)] == true
 end
 
 function Treasury.Opening() return tonumber(ns.rdb and ns.rdb.treasuryOpening) or 0 end
@@ -180,11 +220,12 @@ function Treasury.Balance()
 	return Treasury.Opening() + s.allIn - s.allOut
 end
 
--- out: a payment. o: { excluded = true, kind = "sale"|"purchase", quiet = true }.
+-- out: a payment. o: { excluded = true, kind = "sale"|"purchase"|"own", quiet = true }.
 function Treasury.Record(name, copper, how, out, o)
 	o = o or {}
 	copper = math.floor(tonumber(copper) or 0)
 	if copper <= 0 or type(name) ~= "string" or name == "" then return end
+	if Treasury.IsOwnCharacter(name) then o = { excluded = true, kind = "own", quiet = o.quiet } end
 	local book = Book()
 	Sums() -- (built from the book as it was, before this line joins it)
 	local who = ns.DisplayName(ns.Normal(name)) or name
@@ -196,7 +237,8 @@ function Treasury.Record(name, copper, how, out, o)
 	Treasury.Share()
 	if not o.quiet then
 		if e.excluded then
-			ns.Print((e.kind == "sale" and L.TREASURY_SALE or L.TREASURY_PURCHASE):format(who, Treasury.Coins(copper)))
+			local say = e.kind == "sale" and L.TREASURY_SALE or e.kind == "own" and L.TREASURY_OWN or L.TREASURY_PURCHASE
+			ns.Print(say:format(who, Treasury.Coins(copper)))
 		else
 			ns.Print((out and L.TREASURY_PAID or L.TREASURY_DONATION):format(who, Treasury.Coins(copper)))
 			if not out then ns.PlayAlert("soft") end
@@ -216,9 +258,19 @@ function Treasury.Toggle(e)
 	ns.Fire("TREASURY_CHANGED")
 end
 
--- "12345", "12345g", "12345g 50s", "50s 20c": copper, or nil.
+-- "12345", "12,345", "12345g", "12345g 50s", "50s 20c", "1500.5" (1500g 50s): copper, or nil.
 function Treasury.ParseGold(text)
-	text = tostring(text or ""):lower():gsub(",", ""):gsub("%.", "")
+	text = tostring(text or ""):lower()
+	-- Thousands: a "." or "," before exactly three digits ("1.500", "1,500,000").
+	local n
+	repeat text, n = text:gsub("(%d)[.,](%d%d%d)%f[%D]", "%1%2") until n == 0
+	-- A decimal part is silver ("1500.5", "1500,50").
+	local whole, frac = text:match("^%s*(%d+)[.,](%d%d?)%s*g?%s*$")
+	if whole then
+		if #frac == 1 then frac = frac .. "0" end
+		return math.min(tonumber(whole) * 10000 + tonumber(frac) * 100, Treasury.MAX_COPPER)
+	end
+	if text:find("[.,]") then return nil end
 	local g = tonumber(text:match("(%d+)%s*g")) or 0
 	local s = tonumber(text:match("(%d+)%s*s")) or 0
 	local c = tonumber(text:match("(%d+)%s*c")) or 0
@@ -242,9 +294,9 @@ end
 
 -- Trades: what each side put in, as the window last showed it (read again once complete, it
 -- can say 0), counted when the game says the trade is complete.
-local function AnyItem(info)
+local function AnyItem(info, first, last)
 	if not info then return false end
-	for i = 1, 6 do
+	for i = first, last do
 		local name = info(i)
 		if name and name ~= "" then return true end
 	end
@@ -254,8 +306,10 @@ function Treasury.TradeMoney()
 	if not trade then return end
 	if GetTargetTradeMoney then trade.got = tonumber(GetTargetTradeMoney()) or trade.got end
 	if GetPlayerTradeMoney then trade.gave = tonumber(GetPlayerTradeMoney()) or trade.gave end
-	trade.gaveItems = AnyItem(GetTradePlayerItemInfo)
-	trade.gotItems = AnyItem(GetTradeTargetItemInfo)
+	-- Slot 7 is the one not traded: an item enchanted or a lock opened there. His work on
+	-- their item is a sale (a service), theirs on his a purchase.
+	trade.gaveItems = AnyItem(GetTradePlayerItemInfo, 1, 6) or AnyItem(GetTradeTargetItemInfo, 7, 7)
+	trade.gotItems = AnyItem(GetTradeTargetItemInfo, 1, 6) or AnyItem(GetTradePlayerItemInfo, 7, 7)
 end
 
 function Treasury.TradeShow()
@@ -270,13 +324,14 @@ function Treasury.Info(a, b)
 	if not trade or msg ~= ERR_TRADE_COMPLETE then return end
 	local done = trade
 	trade = nil
-	-- Gold for his items: a sale, his. His gold for items: a purchase, his. Not counted
-	-- unless he says so (a click on the line).
-	if done.got > 0 then
-		Treasury.Record(done.name, done.got, "trade", nil, done.gaveItems and { excluded = true, kind = "sale" } or nil)
-	end
-	if done.gave > 0 then
-		Treasury.Record(done.name, done.gave, "trade", true, done.gotItems and { excluded = true, kind = "purchase" } or nil)
+	-- One line, the gold both ways netted (change given back is part of the deal). Gold for
+	-- his items: a sale, his. His gold for items: a purchase, his. Not counted unless he says
+	-- so (a click on the line).
+	local net = done.got - done.gave
+	if net > 0 then
+		Treasury.Record(done.name, net, "trade", nil, done.gaveItems and { excluded = true, kind = "sale" } or nil)
+	elseif net < 0 then
+		Treasury.Record(done.name, -net, "trade", true, done.gotItems and { excluded = true, kind = "purchase" } or nil)
 	end
 end
 
@@ -315,23 +370,38 @@ local function SystemMail(subject)
 	return false
 end
 
+-- A payment by mail that came back (returned, or never opened): no longer counted.
+local function Returned(sender, money)
+	local who = ns.DisplayName(ns.Normal(sender)) or sender
+	local book = Book()
+	for i = #book, 1, -1 do
+		local e = book[i]
+		if e.out and e.how == "mail" and not e.excluded and e.money == money and e.name == who then
+			e.returned = true
+			Treasury.Toggle(e)
+			return ns.Print(L.TREASURY_RETURNED:format(who, Treasury.Coins(money)))
+		end
+	end
+end
+
 -- A donation by mail is counted when the Treasurer takes its gold (the money button, or a
 -- mail addon's "open all": TakeInboxMoney, AutoLootMailItem), read from the mail just before
--- the game empties it. Two clicks on the same mail before the server answers count once.
+-- the game empties it. Two clicks on the same mail before the server answers count once; once
+-- it answered (Treasury.MailAnswered), the mail now in that place is another.
 function Treasury.MailTaking(i)
 	if not Treasury.IsTreasurer() or not GetInboxHeaderInfo or type(i) ~= "number" then return end
 	local _, _, sender, subject, money, _, _, _, _, wasReturned, _, canReply, isGM = GetInboxHeaderInfo(i)
 	money = tonumber(money) or 0
 	local invoice = GetInboxInvoiceInfo and GetInboxInvoiceInfo(i)
-	if money <= 0 or type(sender) ~= "string" or sender == "" or isGM or wasReturned or invoice
-		or canReply == false or SystemMail(subject) then return end
-	local key = ("%d|%s|%s|%d"):format(i, sender, tostring(subject or ""), money)
+	if money <= 0 or type(sender) ~= "string" or sender == "" or isGM or invoice or SystemMail(subject) then return end
 	local now = GetTime and GetTime() or ns.Now()
-	for k, t in pairs(taken) do if now - t >= 5 then taken[k] = nil end end
-	if taken[key] then return end
-	taken[key] = now
+	if taken[i] and now - taken[i] < 5 then return end
+	taken[i] = now
+	if wasReturned then return Returned(sender, money) end
+	if canReply == false then return end
 	Treasury.Record(sender, money, "mail")
 end
+function Treasury.MailAnswered() wipe(taken) end
 
 -- The sums: today, this week (today and the 6 days before), all time; the givers of the
 -- week and of all time, most generous first.
@@ -340,11 +410,11 @@ function Treasury.Totals()
 	local s = Sums()
 	local t = { todayIn = 0, todayOut = 0, weekIn = 0, weekOut = 0, allIn = s.allIn, allOut = s.allOut, givers = {}, ranking = {} }
 	local by = {}
-	for back = 0, 6 do
-		local day = s.days[DayKey(now - back * 86400)]
+	for back, key in ipairs(WeekKeys(now)) do
+		local day = s.days[key]
 		if day then
 			t.weekIn, t.weekOut = t.weekIn + day.inn, t.weekOut + day.out
-			if back == 0 then t.todayIn, t.todayOut = day.inn, day.out end
+			if back == 1 then t.todayIn, t.todayOut = day.inn, day.out end
 			for name, copper in pairs(day.by) do
 				local g = by[name]
 				if not g then
@@ -391,8 +461,12 @@ function Treasury.Message()
 		end
 	end
 	local balance = math.max(-Treasury.MAX_COPPER, math.min(Treasury.Balance(), Treasury.MAX_COPPER))
-	return ("T7~%s~%d~%d~%d~%d~%d~%s~%s"):format(GetGuildInfo("player") or "", balance, math.min(t.allIn, Treasury.MAX_COPPER),
-		math.min(t.allOut, Treasury.MAX_COPPER), math.min(t.weekIn, Treasury.MAX_COPPER), #t.givers, table.concat(rank, ","), table.concat(lines, ","))
+	local function U(n) return math.max(0, math.min(math.floor(tonumber(n) or 0), Treasury.MAX_COPPER)) end
+	-- The King's word as the Treasurer's client last heard it, with its time.
+	local f = ns.rdb.treasuryFlags
+	local word = type(f) == "table" and tonumber(f.at) and (FlagDigits(f) .. "@" .. math.floor(f.at)) or "-"
+	return ("T8~%s~%d~%d~%d~%d~%d~%s~%s~%s"):format(GetGuildInfo("player") or "", balance, U(t.allIn), U(t.allOut), U(t.weekIn),
+		#t.givers, word, table.concat(rank, ","), table.concat(lines, ","))
 end
 
 function Treasury.Share(force)
@@ -421,15 +495,15 @@ end
 
 function Treasury.HandleReport(dist, sender, text)
 	if dist ~= "CHANNEL" then return end
-	local guild, rest = text:match("^T7~([^~]*)~(.*)$")
+	local guild, rest = text:match("^T8~([^~]*)~(.*)$")
 	if not guild then return end
-	-- The Treasurer himself: that name, in the guild OLYMPUS, confirmed there by our roster or
-	-- the census.
-	if not ns.IsTreasurer(sender, guild) then return end
-	if not (ns.Roster.RankOf(sender) or ns.Data.KnownRank(sender, guild, true)) then return end
-	local balance, allIn, allOut, week, donors, rank, book = rest:match("^(%-?%d+)~(%d+)~(%d+)~(%d+)~(%d+)~([^~]*)~(.*)$")
-	if not balance then return end -- (0.8.3's treasury, the Treasurer's own gold: not read)
-	local r = { balance = Num(balance), allIn = Num(allIn), allOut = Num(allOut), week = Num(week),
+	-- The Treasurer himself: that name, in the guild OLYMPUS, confirmed there by the census
+	-- (or our roster, when OLYMPUS is our guild).
+	if not ns.IsTreasurer(sender, guild) or not ns.Data.KnownRank(sender, guild, true) then return end
+	local balance, allIn, allOut, week, donors, word, rank, book = rest:match("^(%-?%d+)~(%-?%d+)~(%-?%d+)~(%-?%d+)~(%d+)~([^~]*)~([^~]*)~(.*)$")
+	if not balance then return end
+	local function U(n) return math.max(0, Num(n)) end
+	local r = { balance = Num(balance), allIn = U(allIn), allOut = U(allOut), week = U(week),
 		donors = math.min(tonumber(donors) or 0, 9999), rank = {}, book = {}, t = ns.Now(), from = ns.FullName(sender) }
 	for name, copper in rank:gmatch("([^,:]+):(%d+)") do
 		local clean = ns.King.CleanName(name)
@@ -445,10 +519,13 @@ function Treasury.HandleReport(dist, sender, text)
 	report = r
 	-- Kept across sessions: the army sees the treasury as last heard.
 	ns.rdb.treasuryReport = r
+	-- The King's word it repeats, if newer than ours.
+	local b, k, o, at = word:match("^([01])([01])([01])@(%d+)$")
+	if b then Treasury.TakeFlags(b .. k .. o, tonumber(at), sender) end
 	ns.Fire("TREASURY_CHANGED")
 	ns.Fire("DATA_CHANGED") -- the tab may appear
 end
-ns.Comm.Handle("T7", function(...) Treasury.HandleReport(...) end)
+ns.Comm.Handle("T8", function(...) Treasury.HandleReport(...) end)
 
 function Treasury.Report()
 	if not report and type(ns.rdb and ns.rdb.treasuryReport) == "table" and ns.rdb.treasuryReport.rank then report = ns.rdb.treasuryReport end
@@ -463,48 +540,63 @@ end
 -- The King's switches: what the army sees
 ---------------------------------------------------------------------------
 
-local function FlagDigits(f)
-	local d = {}
-	for i, k in ipairs(FLAGS) do d[i] = f[k] and "1" or "0" end
-	return table.concat(d)
-end
-
+-- The King's client repeats his word, with the time he gave it (a client that never heard it
+-- from him sends nothing: it takes his word as the Treasurer repeats it).
 function Treasury.SendFlags(force)
-	if not ns.King.IsKing() or type(ns.rdb and ns.rdb.treasuryFlags) ~= "table" then return end
+	local f = ns.rdb and ns.rdb.treasuryFlags
+	if not ns.King.IsKing() or type(f) ~= "table" or not tonumber(f.at) then return end
 	local now = ns.Now()
 	if not force and now - lastFlagsSent < Treasury.FLAGS_EVERY then return end
 	lastFlagsSent = now
-	ns.Comm.Send("CHANNEL", ("T1~T~%d~%s~%s"):format(ns.King.NewId(), GetGuildInfo("player") or "", FlagDigits(Treasury.Flags())), "treasuryflags")
+	ns.Comm.Send("CHANNEL", ("T1~T~%d~%s~%s~%d"):format(ns.King.NewId(), GetGuildInfo("player") or "", FlagDigits(f), math.floor(f.at)), "treasuryflags")
 end
 
--- The King's switch (the author's Asmond's view: on his screen only).
+-- The King's switch (the author's Asmond's view: its own switches, on his screen only).
 function Treasury.SetFlag(what, on)
 	if not IsKingView() then return ns.Print(L.THRONE_ONLY_KING) end
 	local f = {}
 	for _, k in ipairs(FLAGS) do f[k] = Treasury.Shows(k) end
 	f[what] = on and true or false
-	f.t = ns.Now()
-	ns.rdb.treasuryFlags = f
+	f.t, f.at = ns.Now(), Clock()
 	ns.Print(L["TREASURY_FLAG_" .. what:upper() .. (on and "_ON" or "_OFF")])
-	if ns.King.Preview() then ns.Print(L.THRONE_PREVIEW_NOTE) else Treasury.SendFlags(true) end
+	if ns.King.Preview() then
+		ns.db.previewTreasuryFlags = f
+		ns.Print(L.THRONE_PREVIEW_NOTE)
+	else
+		ns.rdb.treasuryFlags = f
+		Treasury.SendFlags(true)
+	end
 	ns.Fire("TREASURY_CHANGED")
 	ns.Fire("DATA_CHANGED")
 end
 
-local function OnFlags(sender, id, rest)
-	local b, r, k = tostring(rest or ""):match("^([01])([01])([01])$")
-	if not b then return end
-	local f = { balance = b == "1", ranking = r == "1", book = k == "1", t = ns.Now(), from = ns.FullName(sender) }
-	local was = FlagDigits(Treasury.Flags())
+-- The King's word ("101" and the time he gave it), from him or repeated by the Treasurer:
+-- taken when newer than the one kept (a time a little ahead of ours at most).
+function Treasury.TakeFlags(digits, at, sender)
+	local b, r, k = tostring(digits or ""):match("^([01])([01])([01])$")
+	at = tonumber(at)
+	if not b or not at or at > Clock() + 600 then return end
+	local kept = ns.rdb.treasuryFlags
+	if type(kept) == "table" and (tonumber(kept.at) or 0) >= at then return end
+	local was = type(kept) == "table" and FlagDigits(kept) or "000"
+	local f = { balance = b == "1", ranking = r == "1", book = k == "1", at = at, t = ns.Now(), from = ns.FullName(sender) }
 	ns.rdb.treasuryFlags = f
 	if FlagDigits(f) ~= was then
 		ns.Fire("TREASURY_CHANGED")
 		ns.Fire("DATA_CHANGED") -- the tab appears or goes
 	end
 end
-ns.King.Register("T", OnFlags)
+ns.King.Register("T", function(sender, id, rest)
+	local digits, at = tostring(rest or ""):match("^([01][01][01])~(%d+)$")
+	Treasury.TakeFlags(digits, at, sender)
+end)
 
 ns.On("LOGIN", function()
+	-- The account's characters, for the Treasurer's gold between his own.
+	if ns.db and ns.me then
+		ns.db.myCharacters = ns.db.myCharacters or {}
+		ns.db.myCharacters[OwnKey(ns.me)] = true
+	end
 	ns.RegisterEvent("TRADE_SHOW", function() ns.SafeCall("treasury trade", Treasury.TradeShow) end)
 	for _, event in ipairs({ "TRADE_MONEY_CHANGED", "TRADE_ACCEPT_UPDATE", "TRADE_PLAYER_ITEM_CHANGED", "TRADE_TARGET_ITEM_CHANGED" }) do
 		ns.RegisterEvent(event, function() ns.SafeCall("treasury trade", Treasury.TradeMoney) end)
@@ -522,7 +614,8 @@ ns.On("LOGIN", function()
 		if AutoLootMailItem then hooksecurefunc("AutoLootMailItem", function(i) ns.SafeCall("treasury mail", Treasury.MailTaking, i) end) end
 	end
 	ns.RegisterEvent("MAIL_SEND_SUCCESS", function() ns.SafeCall("treasury mail", Treasury.MailSent) end)
-	ns.RegisterEvent("MAIL_FAILED", function() mailOut = nil end)
+	ns.RegisterEvent("MAIL_FAILED", function() mailOut = nil; Treasury.MailAnswered() end)
+	for _, event in ipairs({ "MAIL_INBOX_UPDATE", "MAIL_SUCCESS", "MAIL_CLOSED" }) do ns.RegisterEvent(event, Treasury.MailAnswered) end
 	-- The treasury and the King's switches, repeated for late logins.
 	ns.Every(60, "treasury share", function()
 		if ns.Now() - lastShare >= Treasury.SHARE_EVERY then Treasury.Share(true) end
@@ -531,6 +624,11 @@ ns.On("LOGIN", function()
 	ns.After(30, "treasury share", function()
 		Treasury.Share(true)
 		Treasury.SendFlags(true)
+		-- The Treasurer is told once who sees his treasury.
+		if CanSend() and not ns.rdb.treasuryToldWho then
+			ns.rdb.treasuryToldWho = true
+			ns.Print(Treasury.WhoSees())
+		end
 	end)
 end)
 
@@ -538,23 +636,37 @@ end)
 -- What the tab shows
 ---------------------------------------------------------------------------
 
--- A paragraph in short grey rows (the list's rows are one line each).
-local function Para(lines, text)
+-- A paragraph in short rows, grey unless said (the list's rows are one line each).
+local function Para(lines, text, color)
+	color = color or Grey
 	local row = ""
 	for word in tostring(text or ""):gmatch("%S+") do
 		if row ~= "" and #row + 1 + #word > 58 then
-			lines[#lines + 1] = { text = Grey(row) }
+			lines[#lines + 1] = { text = color(row) }
 			row = word
 		else
 			row = row == "" and word or (row .. " " .. word)
 		end
 	end
-	if row ~= "" then lines[#lines + 1] = { text = Grey(row) } end
+	if row ~= "" then lines[#lines + 1] = { text = color(row) } end
 	return lines
+end
+
+-- What the King shows the army now ("the balance, the book").
+local function ShownParts()
+	local shown = {}
+	for _, k in ipairs(FLAGS) do if Treasury.Shows(k) then shown[#shown + 1] = L["TREASURY_PART_" .. k:upper()] end end
+	return shown
+end
+-- Who sees the treasury, told to the Treasurer: he and the King, and what the King shows the army.
+function Treasury.WhoSees()
+	local shown = ShownParts()
+	return #shown > 0 and L.TREASURY_YOU_AND_KING_BUT:format(table.concat(shown, ", ")) or L.TREASURY_YOU_AND_KING
 end
 
 function Treasury.Show(mode)
 	Treasury.mode = mode
+	bookShown = Treasury.BOOK_SHOWN
 	ns.Fire("TREASURY_CHANGED")
 end
 
@@ -582,18 +694,24 @@ local function RankLines(lines, rank)
 	end
 end
 
+local KIND_NOTE = { sale = "TREASURY_KIND_SALE", purchase = "TREASURY_KIND_PURCHASE", own = "TREASURY_KIND_OWN" }
+
+-- A line of the book: why it is not counted first (the row is cut at its end), in the
+-- tooltip too.
 local function BookRow(e, clickable)
 	local how = e.how == "mail" and L.TREASURY_MAIL or L.TREASURY_TRADE
 	local label = (e.out and L.TREASURY_TO or L.TREASURY_FROM):format(e.name)
-	local note = e.excluded and (e.kind == "sale" and L.TREASURY_KIND_SALE or e.kind == "purchase" and L.TREASURY_KIND_PURCHASE or L.TREASURY_NOT_COUNTED) or nil
+	local note = e.excluded and (e.returned and L.TREASURY_KIND_RETURNED or L[KIND_NOTE[e.kind] or "TREASURY_NOT_COUNTED"]) or nil
 	local amount = Treasury.Coins(e.money)
+	local when = how .. ", " .. ns.Ago(e.t)
 	return {
 		indent = 1,
-		text = (e.excluded and Grey(label) or label) .. "  " .. Grey("(" .. how .. ", " .. ns.Ago(e.t) .. (note and (", " .. note) or "") .. ")"),
+		text = (e.excluded and Grey(label) or label) .. "  " .. Grey("(" .. (note and (note .. ", ") or "") .. when .. ")"),
 		right = e.excluded and Grey(amount) or (e.out and Red("-" .. amount) or Green("+" .. amount)),
 		onClick = clickable and function() Treasury.Toggle(e) end or nil,
 		tooltip = clickable and function(tt)
-			tt:AddLine(label, 1, 0.82, 0)
+			tt:AddLine(label .. "  " .. amount, 1, 0.82, 0)
+			tt:AddLine(note and (note .. ", " .. when) or when, 0.8, 0.8, 0.8, true)
 			tt:AddLine(e.excluded and L.TREASURY_CLICK_COUNT or L.TREASURY_CLICK_UNCOUNT, 1, 1, 1, true)
 		end or nil,
 	}
@@ -609,7 +727,15 @@ local function BookLines(role)
 		lines[#lines].gapAfter = true
 		local book = Book()
 		if #book == 0 then lines[#lines + 1] = { text = Grey(L.TREASURY_NONE) } end
-		for i = #book, math.max(1, #book - Treasury.BOOK_SHOWN + 1), -1 do lines[#lines + 1] = BookRow(book[i], true) end
+		local last = math.max(1, #book - bookShown + 1)
+		for i = #book, last, -1 do lines[#lines + 1] = BookRow(book[i], true) end
+		-- Every line within reach, 40 more a click.
+		if last > 1 then
+			lines[#lines + 1] = { text = Gold("> " .. L.TREASURY_OLDER:format(last - 1)), onClick = function()
+				bookShown = bookShown + Treasury.BOOK_SHOWN
+				ns.Fire("TREASURY_CHANGED")
+			end }
+		end
 		return lines
 	end
 	local r = Treasury.Report()
@@ -622,6 +748,8 @@ local function SummaryLines(role)
 	local lines = { { header = true, text = L.TREASURY_TITLE } }
 	local balance, allIn, allOut, week, donors, rank, asOf
 	if role == "treasurer" then
+		Para(lines, Treasury.WhoSees(), tostring)
+		lines[#lines].gapAfter = true
 		Para(lines, L.TREASURY_HOW)
 		lines[#lines].gapAfter = true
 		local t = Treasury.Totals()
@@ -655,8 +783,7 @@ local function SummaryLines(role)
 	end
 	-- The King: what the army sees now (the switches are the buttons in the box).
 	if role == "king" then
-		local shown = {}
-		for _, k in ipairs(FLAGS) do if Treasury.Shows(k) then shown[#shown + 1] = L["TREASURY_PART_" .. k:upper()] end end
+		local shown = ShownParts()
 		lines[#lines + 1] = { text = Grey(#shown > 0 and L.TREASURY_ARMY_SEES:format(table.concat(shown, ", ")) or L.TREASURY_ARMY_SEES_NOTHING) }
 	end
 	return lines
@@ -762,6 +889,7 @@ StaticPopupDialogs["OLYMPUS_TREASURY_OPENING"] = {
 function Treasury.Reset()
 	trade, mailOut, report, lastShare, sharePending, lastFlagsSent = nil, nil, nil, -math.huge, false, -math.huge
 	wipe(taken)
+	bookShown = Treasury.BOOK_SHOWN
 	Treasury.mode = "summary"
 	if ns.rdb then ns.rdb.treasuryReport = nil end
 end
