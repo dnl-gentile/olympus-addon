@@ -574,8 +574,9 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 	Count(stats.raw[lane], rawRealm or "bare")
 	local sample = stats.rawSample[lane]
 	if not sample or (rawRealm and not sample:find("-", 1, true)) then stats.rawSample[lane] = sender end
-	-- Same-realm senders arrive without "-Realm": make every name "Name-Realm" once, here.
-	sender = ns.FullName(sender)
+	-- Same-realm senders arrive without "-Realm": make every name "Name-Realm" once, here
+	-- (and Forever's "First-Surname" the server's "First Surname": ns.Normal).
+	sender = ns.FullName(ns.Normal(sender))
 	if sender == ns.me then
 		stats.echo = stats.echo + 1 -- our own message coming back (proves the channel works)
 		return

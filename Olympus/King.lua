@@ -1074,6 +1074,8 @@ function King.State() return { summon = summon, inspect = inspect, agenda = agen
 -- the Realm and the Tabards), to see and try them. Nothing the view does reaches anyone.
 function King.SetDevView(on)
 	ns.db.devKingView = on and true or false
+	-- The preview's treasury switches were its own: gone with it.
+	if not on then ns.db.previewTreasuryFlags = nil end
 	ns.Print(on and L.DEV_KING_VIEW_NOW_ON or L.DEV_KING_VIEW_NOW_OFF)
 	ns.Fire("DATA_CHANGED")
 	Changed()
