@@ -233,6 +233,9 @@ for the King, and for every member once the King shows the army something of it.
   the old Guild tab or the new Guild & Communities window, whichever one you use.
 - Next to Forever's Guild & Communities window it takes that window's look: icon tabs down
   the right side, its rows, column headers, buttons and member card.
+- **Blizzard's gamepad mode** (Forever's controller interface): Olympus asks its questions in
+  windows of its own instead of the game's popups, which Blizzard's gamepad code blocks (and
+  freezes) when an addon opens one. With mouse and keyboard, the game's popups as always.
 - English and Portuguese (follows the game language).
 
 ## Install
