@@ -187,6 +187,15 @@ test("federation filter: Olympus however it was spelled, but not other words", f
 		"Holy Light", "Oly", "Olmo", "The Pumpkins", "Glyphs R Us", "Lumps", "Oblivion", "Polymer", "Lymph" }) do
 		eq(ns.IsFederation(name), false, name)
 	end
+	-- Guilds against Olympus are not Olympus.
+	for _, name in ipairs({ "ANTI OLYMPUS", "Anti-Olympus", "AntiOlympus", "Anti Olimpvs", "Against Olympus", "No Olympus",
+		"Down with Olympus", "Death to Olympus", "Olympus Haters", "Olympus Sucks", "Kill Olympus" }) do
+		eq(ns.IsFederation(name), false, name)
+	end
+	for _, name in ipairs({ "Knights of Olympus", "Sons of Olympus", "Olympus No Mercy", "OLYMPUS NULLA", "Order of the Olympus",
+		"Olympus Killers", "Anti Horde Olympus" }) do
+		eq(ns.IsFederation(name), true, name)
+	end
 	eq(ns.Slips("olmps", "olympus", 2), 2); eq(ns.Slips("olympia", "olympus", 2), 2); eq(ns.Slips("abcdefg", "olympus", 2), 3)
 	eq(ns.Slips("olypmus", "olympus", 2), 1, "two neighbours swapped: one slip")
 	-- The main guild is still the exact name: the King and the Crown's officers.

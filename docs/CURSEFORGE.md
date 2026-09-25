@@ -29,7 +29,7 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
 
 ## Who can use it
 
-**Only members of a guild with "Olympus" in its name**, however it was spelled: OLYMPVS the Roman way, Olimpus, Olmpus, Olympos, Olimpo and any other single slip count too (Olympia or Olympic do not). The check is fixed in the code and
+**Only members of a guild with "Olympus" in its name**, however it was spelled: OLYMPVS the Roman way, Olimpus, Olmps, Olympuz, Olympos, Olimpo and other misspellings count too (Olympia or Olympic do not), and a guild against Olympus ("ANTI OLYMPUS", "Olympus Haters") does not. The check is fixed in the code and
 cannot be switched off with a command. Outside an Olympus guild the addon joins no channel,
 sends nothing and receives nothing. The only thing it offers there is the **Join Olympus**
 screen described below.
