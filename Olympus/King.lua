@@ -501,7 +501,7 @@ local function OnLocation(king, rest)
 	local mapID, x, y = rest:match("^(%d+)~(%d+)~(%d+)$")
 	mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
 	if not mapID or x > 1000 or y > 1000 then return end
-	kingAt = { name = ns.KingName(king), mapID = mapID, x = x / 1000, y = y / 1000, t = ns.Now() }
+	kingAt = { from = ns.FullName(king), name = ns.KingName(king), mapID = mapID, x = x / 1000, y = y / 1000, t = ns.Now() }
 	ns.SafeCall("king crown", King.RefreshCrown)
 	Changed()
 end
@@ -527,6 +527,8 @@ function King.HandleCommand(dist, sender, text)
 	elseif kind == "A" then OnAgenda(sender, id, rest)
 	elseif kind == "P" then OnLocation(sender, rest)
 	elseif kind == "Q" then
+		-- Only whoever put the crown there takes it off.
+		if kingAt and kingAt.from ~= ns.FullName(sender) then return end
 		kingAt = nil
 		ns.SafeCall("king crown", King.RefreshCrown)
 		Changed()

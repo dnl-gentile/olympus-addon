@@ -222,7 +222,8 @@ end
 -- What rank does this sender really have in that guild? Our own guild: from our roster.
 -- Other guilds: from that guild's report (leader = 0, officers = 1). nil = unknown.
 -- soft: for what only shows (the King's layer line and crown), one report naming them is
--- enough while no other one disagrees; the Crown's powers need two, a while after login.
+-- enough while no other one disagrees; the Crown's powers need two. Both wait CROWN_AFTER
+-- after login, when the real reports have come in (a lone forged one would be alone then).
 function Data.KnownRank(sender, guild, soft)
 	local who = ns.FullName(sender)
 	if guild == GetGuildInfo("player") then return ns.Roster.RankOf(who) end
@@ -236,15 +237,17 @@ function Data.KnownRank(sender, guild, soft)
 	-- they all agree on counts), named by someone else too: a report never proves its own
 	-- sender's rank. The Crown (every guild master, the officers of <Olympus>) needs two
 	-- senders naming them (theirs may be one).
+	-- A sender is itself by its name alone: "Asmon-OtherRealm" can't vouch for "Asmon-Realm".
+	local self = ns.ShortName(who)
 	local bySig, total, named, others = {}, 0, 0, 0
 	for src, v in pairs(votes) do
 		if tops[v.sig] then
-			if src ~= who then total = total + 1 end
+			if ns.ShortName(src) ~= self then total = total + 1 end
 			local k = v.ranks[who]
 			if bySig[v.sig] == nil then bySig[v.sig] = k or false end
 			if k then
 				named = named + 1
-				if src ~= who then others = others + 1 end
+				if ns.ShortName(src) ~= self then others = others + 1 end
 				if bySig[v.sig] and k < bySig[v.sig] then bySig[v.sig] = k end
 			end
 		end
@@ -263,8 +266,8 @@ function Data.KnownRank(sender, guild, soft)
 			if sig:sub(-2) == ",+" then return nil end
 		end
 	end
-	if ns.IsCrownRank(guild, rank) and not soft then
-		if named < 2 then return nil end
+	if ns.IsCrownRank(guild, rank) then
+		if named < 2 and not soft then return nil end
 		if now - (ns.Comm and ns.Comm.loginAt or 0) < Data.CROWN_AFTER then return nil end
 	end
 	return rank

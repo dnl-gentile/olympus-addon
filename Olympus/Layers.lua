@@ -76,13 +76,14 @@ Layers.Observe = Observe -- tests
 function Layers.Reset() mine = nil; wipe(seen); wipe(where) end -- tests
 
 -- Where a player last announced their layer: { mapID, zoneUID, t } while fresh, else nil.
--- The census and the channel may write a name with different realms: short names match too.
-function Layers.Of(name)
+-- The census and the channel may write a name with different realms: short names match too,
+-- unless `exact` (the King's: nobody else's announcement may pass for his).
+function Layers.Of(name, exact)
 	if type(name) ~= "string" then return nil end
 	if name == ns.me then return mine end
 	local short, now = ns.ShortName(name), ns.Now()
 	for sender, w in pairs(where) do
-		if sender == name or ns.ShortName(sender) == short then
+		if sender == name or (not exact and ns.ShortName(sender) == short) then
 			local m = seen[w[1]] and seen[w[1]][w[2]] and seen[w[1]][w[2]][sender]
 			if m and now - m.t <= EXPIRE then return { mapID = w[1], zoneUID = w[2], t = m.t } end
 		end

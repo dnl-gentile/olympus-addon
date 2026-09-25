@@ -451,8 +451,8 @@ test("inspection summary, marks and discord text", function()
 	I.ToggleGuildMark("Olympus Hermes")
 	local s = I.Summary()
 	eq(s.total, 3); eq(s.counts.NONE, 1); eq(s.counts.OTHER, 1); eq(s.counts.GUILD, 1)
-	eq(s.players[1].name, "Good-Realm", "marked first")
-	eq(s.players[2].name, "Naked-Realm", "then no tabard")
+	eq(s.players[1].name, "Good", "marked first (our realm: the short name)")
+	eq(s.players[2].name, "Naked", "then no tabard")
 	eq(s.guilds[1].name, "Olympus Hermes", "marked guild first")
 	eq(s.guilds[2].name, "Olympus II"); eq(s.guilds[2].bad, 2)
 	local text = I.DiscordText()
@@ -4828,7 +4828,7 @@ test("layer hop: 'For Olympus!' shows a line to stop it, and /oly layerauto off 
 	end)
 end)
 
-test("layer hop: a King only one report names gets no line", function()
+test("layer hop: the King's line needs a report nobody disputes, and never one right after login", function()
 	WithHop(function(w, H)
 		ns.rdb.guilds = { ["Olympus"] = { total = 1, online = 1, zones = {}, t = os.time(), leader = "Evil", leaderOnline = true } }
 		ns.Now = function() return os.time() end
@@ -4844,7 +4844,29 @@ test("layer hop: a King only one report names gets no line", function()
 		-- One report is enough for the line while nobody disagrees (the Crown's powers need two).
 		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1, online = 1, zones = {}, t = os.time(), leader = "Asmon", leaderOnline = true }, "W1-Realm") }
 		eq(H.King().name, "Asmond", "one reporter")
+		eq(H.King(true), nil, "not strictly: 'For Olympus!' does not invite on its own for him")
 		eq(ns.Data.KnownRank("Asmon-Realm", "Olympus"), nil, "but no Crown powers from one")
+		-- Right after login a lone report proves nothing: the real ones have not come yet.
+		local loginAt = ns.Comm.loginAt
+		ns.Comm.loginAt = ns.Now() - 10
+		eq(H.King(), nil, "just logged in")
+		ns.Comm.loginAt = loginAt
+		-- An attacker's report naming himself: alone right after login, nothing; against the real
+		-- reporter, a tie: nobody.
+		ns.rdb.guilds = {}
+		local r = { guild = "Olympus", total = 900, online = 90, leader = "Atk", leaderOnline = true, users = 1, zones = {}, officers = {},
+			ranks = {}, top = {}, faction = "Alliance" }
+		ns.Comm.loginAt = ns.Now() - 10
+		ns.Data.Receive(r, "Atk-Realm")
+		eq(H.King(), nil, "a lone forged report at login")
+		ns.Comm.loginAt = loginAt
+		local real = { guild = "Olympus", total = 1000, online = 200, leader = "Asmon", leaderOnline = true, users = 5, zones = {}, officers = {},
+			ranks = {}, top = {}, faction = "Alliance" }
+		ns.Data.Receive(real, "Honest-Realm")
+		eq(H.King(), nil, "forged against real: a tie, nobody")
+		-- A same-named character on another realm can't vouch for itself.
+		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1, online = 1, zones = {}, t = os.time(), leader = "Atk", leaderOnline = true }, "Atk-Elsewhere") }
+		eq(H.King(), nil, "its own vote from another realm")
 		-- Two reports disagree about the leader: no line.
 		local g = ns.rdb.guilds["Olympus"]
 		g.vouch["W2-Realm"] = { t = g.t, sig = "other", ranks = { ["Evil-Realm"] = 0 } }
@@ -5369,6 +5391,23 @@ test("Workshop: what others claim never names the latest version, and roll calls
 	local n = 0
 	for _ in pairs(d.versions) do n = n + 1 end
 	eq(n, 2, "nothing else")
+end)
+
+test("tabard store: one key per player, whatever the name came from", function()
+	local I = ns.Inspect
+	local K = I.Key
+	eq(K("Violator"), "Violator"); eq(K("Violator-" .. ns.realm), "Violator", "our realm: the short name, as 0.8.1 saved it")
+	eq(K("Far-Elsewhere"), "Far-Elsewhere")
+	-- The King's own patrol and a report of the same player: one entry, not two.
+	local saved = I.Players()
+	local before = {}
+	for k, v in pairs(saved) do before[k] = v end
+	I.Record("Dupe-" .. ns.realm, "Olympus", "MAGE", 20, nil, true)
+	I.AddReported("Dupe", "Olympus", "NONE")
+	local n = 0
+	for _, e in ipairs(I.ShameList()) do if e.name == "Dupe" then n = n + 1 end end
+	eq(n, 1, "listed once")
+	for k in pairs(saved) do if not before[k] then saved[k] = nil end end
 end)
 
 test("Treasurer: exactly Pyralis Ashandar of OLYMPUS, under the King and beside his name", function()
