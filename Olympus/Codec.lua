@@ -297,7 +297,10 @@ function Codec.DecodeShame(s)
 	local list = {}
 	for name, g in body:gmatch("([^,:]+):([^,]*)") do
 		if #list >= Codec.MAX_SHAME then break end
-		list[#list + 1] = { name = name:sub(1, 48), guild = g:sub(1, 24) }
+		-- Shown on every screen (the Tabards tab): a character name and a guild name, never
+		-- colour or link codes.
+		name, g = name:gsub("[|%c]", ""), g:gsub("[|%c]", "")
+		if name ~= "" then list[#list + 1] = { name = name:sub(1, 48), guild = g:sub(1, 24) } end
 	end
 	return { guild = guild, rank = tonumber(rank), list = list }
 end

@@ -74,7 +74,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Workshop", "Recruit", "Views" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Acts", "Workshop", "Recruit", "Views" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -364,10 +364,19 @@ test("Throne: only the King sees it and his commands are checked; Lords answer h
 		-- The King: guild master of <Olympus>.
 		GetGuildInfo = function() return "Olympus", "King", 0 end
 		eq(K.IsKing(), true); eq(K.Visible(), true)
-		K.Reset() -- a new session opens on the letter
+		K.Reset() -- the Throne opens on the letter until the King has read it
+		local savedRead = ns.db.throneLetterRead
+		ns.db.throneLetterRead = nil
 		local lines = K.Build(ns.Data.Summary())
-		eq(lines[1].text, "September 24, 2026", "the letter comes first, dated")
-		assert(lines[3].text:find("To His Majesty"), lines[3].text)
+		eq(lines[1].text, "< " .. ns.L.THRONE_ROOM, "the letter, leading to the Throne Room")
+		eq(lines[2].text, "September 24, 2026", "the letter, dated")
+		assert(lines[4].text:find("To His Majesty"), lines[4].text)
+		assert(lines[#lines].text:find(ns.L.THRONE_ENTER, 1, true) and lines[#lines].onClick, "and at its end")
+		lines[#lines].onClick()
+		eq(ns.db.throneLetterRead, true, "read")
+		K.Reset()
+		eq(K.Build(ns.Data.Summary())[1].text, ns.L.THRONE_ROOM, "the next session opens on the Throne Room")
+		ns.db.throneLetterRead = savedRead
 		K.Summon()
 		eq(#sent, 1); assert(sent[1]:find("^CHANNEL T1~S~%d+~Olympus$"), sent[1])
 		local id = tonumber(sent[1]:match("T1~S~(%d+)"))
@@ -387,7 +396,7 @@ test("Throne: only the King sees it and his commands are checked; Lords answer h
 		local st = K.State()
 		eq(st.summon.answers["Zed-Realm"].verified, true, "a Lord from the census")
 		eq(st.summon.answers["Nobody-Realm"], nil, "not a confirmed Lord: not listed by name...")
-		eq(st.summon.others["Nobody-Realm"], true, "...only counted")
+		eq(st.summon.others["Nobody-Realm"], "B", "...only counted (the answer kept for the mark in the tree)")
 		K.HandleAnswer("WHISPER", "Troll-Realm", ("T2~%d~P~Asmongold|cffff0000 smells"):format(id))
 		eq(st.summon.answers["Troll-Realm"], nil, "no free text on the King's screen")
 		eq(st.summon.answers["Late-Realm"], nil, "another roll call's answer")
@@ -404,12 +413,12 @@ test("Throne: only the King sees it and his commands are checked; Lords answer h
 		K.HandleReport("WHISPER", "Zed-Realm", ("T3~%d~Olympus Zeus~8~1~1~Naked:Olympus Zeus:N,Pirate:Olympus Zeus:O"):format(iid))
 		K.HandleReport("WHISPER", "Scout2-Realm", ("T3~%d~Olympus IV~5~0~0~Innocent:Olympus IV:N"):format(iid))
 		K.HandleReport("WHISPER", "Troll2-Realm", ("T3~%d~Not a guild~200~0~0~"):format(iid))
-		K.Show("inspect")
+		-- On top of the Tabards tab (the King's): what the patrols reported.
 		local text = {}
-		for _, l in ipairs((K.Build(ns.Data.Summary()))) do text[#text + 1] = l.text end
+		for _, l in ipairs(K.InspectionLines()) do text[#text + 1] = l.text end
 		text = table.concat(text, "\n")
 		assert(text:find("2 patrols, 15 checks, 87%% wearing"), text)
-		assert(text:find("Naked <Olympus Zeus>"), text)
+		assert(text:find("Naked  |cff9d9d9d<Olympus Zeus>", 1, true), text)
 		assert(not text:find("Innocent"), "a stranger can't put names on the King's page")
 		-- The Agenda.
 		eq(K.ParseAgenda("30 Raid on Crossroads"), 30)
@@ -1525,8 +1534,8 @@ test("tabs of the old window: four or five of Classic's wide tabs shrink to fit 
 				return n, total - 15 * (n - 1)
 			end
 			local n, span = Span()
-			eq(n, 5, "the Throne too")
-			assert(span <= main:GetWidth() - 10, ("five tabs inside the window: %d of %d"):format(span, main:GetWidth()))
+			eq(n, 6, "the Throne and Vox Populi too")
+			assert(span <= main:GetWidth() - 10, ("six tabs inside the window: %d of %d"):format(span, main:GetWidth()))
 			for _, tab in ipairs(main.tabs) do assert(tab:GetWidth() >= 44, "still a tab") end
 			-- Room enough: Blizzard's own size.
 			main:SetWidth(900)
@@ -2027,8 +2036,8 @@ test("HD Join screen: no tabs or column titles, next to a Communities window wit
 		CommunitiesFrame.ChatTab:Show()
 		UI.Refresh()
 		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0")
-		-- Every tab but the Throne (the King's alone) and the Workshop (the author's alone).
-		for _, tab in ipairs(main.tabs) do eq(tab:IsShown(), tab.key ~= "throne" and tab.key ~= "workshop", tab.key) end
+		-- Every tab but the Throne and Vox Populi (the King's) and the Workshop (the author's).
+		for _, tab in ipairs(main.tabs) do eq(tab:IsShown(), tab.key ~= "throne" and tab.key ~= "vox" and tab.key ~= "treasury" and tab.key ~= "workshop", tab.key) end
 		eq(main.colHeader:IsShown(), true)
 		eq(main.listBox:Anchor("TOPLEFT")[5], -81); eq(main.scroll:Anchor("TOPLEFT")[5], -84)
 	end)
@@ -5054,7 +5063,12 @@ test("Throne: the King's map button fits its label, says whether he is shown, an
 			CommunitiesFrame:Show(); w.buttons[1]:Click()
 			UI.SelectTab("throne")
 			local main = OlympusFrameHD
-			local b = main.detailButtons[3]
+			-- His buttons: the court and his crown (no agenda to cancel).
+			local b
+			for _, d in ipairs(main.detailButtons) do
+				if d:IsShown() and d:GetText():find(ns.L.THRONE_LOCATION_ON, 1, true) then b = d end
+			end
+			assert(b, "the map button")
 			eq(b:IsShown(), true)
 			assert(b:GetText():find(ns.L.THRONE_LOCATION_ON, 1, true) and b:GetText():find(ns.CROWN_ICON, 1, true), b:GetText())
 			-- Every button as wide as its label, the three inside the box.
@@ -5451,6 +5465,668 @@ test("Treasurer: exactly Pyralis Ashandar of OLYMPUS, under the King and beside 
 		ns.Views.ExpandAll(false)
 	end)
 	ns.rdb.guilds = saved
+	if not ok then error(err, 0) end
+end)
+
+---------------------------------------------------------------------------
+-- The Throne of 0.8.3: the Hands of the King, Vox Populi, the court, the treasury, royal
+-- writs, the gates, pardons, and the chats in the Realm.
+---------------------------------------------------------------------------
+
+local function WithThrone(fn)
+	local K = ns.King
+	local saved = { me = ns.me, Now = ns.Now, Send = ns.Comm.Send, Whisper = ns.Comm.Whisper, Show = StaticPopup_Show,
+		Guild = GetGuildInfo, Print = ns.Print, guilds = ns.rdb.guilds, after = ns.Vox.after, voxOff = ns.db.voxOff,
+		Notice = RaidNotice_AddMessage, Zone = GetRealZoneText, Map = C_Map.GetBestMapForUnit, Info = C_Map.GetMapInfo,
+		dev = ns.devThrone, chat = ns.rdb.chat, shame = ns.Inspect.shame }
+	local w = { sent = {}, whispered = {}, popups = {}, printed = {}, clock = os.time(), timers = {} }
+	local function Clean()
+		K.Reset(); ns.Vox.Reset(); ns.Court.Reset(); ns.Acts.Reset(); ns.Treasury.Reset()
+		ns.rdb.writs, ns.rdb.writsSent, ns.rdb.pardons, ns.rdb.treasury, ns.rdb.treasurySeen = nil, nil, nil, nil, nil
+		ns.rdb.kingHands, ns.rdb.gates, ns.rdb.pardonsGiven = nil, nil, nil
+		ns.rdb.treasurySums, ns.rdb.treasuryReport = nil, nil
+	end
+	local ok, err = pcall(function()
+		Clean()
+		ns.devThrone = nil
+		ns.Now = function() return w.clock end
+		ns.Comm.Send = function(dist, msg, key, urgent) w.sent[#w.sent + 1] = { dist = dist, msg = msg, key = key, urgent = urgent } end
+		ns.Comm.Whisper = function(to, msg, key, urgent) w.whispered[#w.whispered + 1] = { to = to, msg = msg, key = key, urgent = urgent } end
+		StaticPopup_Show = function(name, a, b, data) w.popups[#w.popups + 1] = { name = name, a = a, b = b, data = data } end
+		ns.Print = function(m) w.printed[#w.printed + 1] = tostring(m) end
+		ns.Vox.after = function(seconds, _, f) w.timers[#w.timers + 1] = { at = w.clock + seconds, fn = f } end
+		RaidNotice_AddMessage = nil
+		ns.db.voxOff = nil
+		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1000, online = 90, zones = {}, t = w.clock, leader = "Asmon", realm = "Realm",
+				officers = { { name = "Pyralis Ashandar", online = true, days = 0 } } }, "W1-Realm", "W2-Realm"),
+			["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", realm = "Realm" }, "W3-Realm", "W4-Realm"),
+			["Olympus II"] = Vouched({ total = 300, online = 3, zones = {}, t = w.clock, leader = "Ceo", realm = "Realm" }, "W5-Realm", "W6-Realm") }
+		fn(w, K)
+	end)
+	ns.me, ns.Now, ns.Comm.Send, ns.Comm.Whisper, StaticPopup_Show = saved.me, saved.Now, saved.Send, saved.Whisper, saved.Show
+	GetGuildInfo, ns.Print, ns.rdb.guilds, ns.Vox.after, ns.db.voxOff = saved.Guild, saved.Print, saved.guilds, saved.after, saved.voxOff
+	RaidNotice_AddMessage, GetRealZoneText, C_Map.GetBestMapForUnit, C_Map.GetMapInfo = saved.Notice, saved.Zone, saved.Map, saved.Info
+	ns.devThrone, ns.rdb.chat, ns.Inspect.shame = saved.dev, saved.chat, saved.shame
+	Clean()
+	if not ok then error(err, 0) end
+end
+local function RunTimers(w)
+	local due = w.timers
+	w.timers = {}
+	for _, t in ipairs(due) do if t.at <= w.clock then t.fn() else w.timers[#w.timers + 1] = t end end
+end
+local function AsKing() GetGuildInfo = function() return "Olympus", "King", 0 end; ns.me = "Asmon-Realm" end
+local function AsLord() GetGuildInfo = function() return "Olympus Zeus", "Lord", 0 end; ns.me = "Zed-Realm" end
+local function AsCaptain() GetGuildInfo = function() return "Olympus II", "Officer", 1 end; ns.me = "Cap-Realm" end
+local function AsSoldier(name) GetGuildInfo = function() return "Olympus II", "Member", 3 end; ns.me = (name or "Soldier") .. "-Realm" end
+local function AsTreasurer() GetGuildInfo = function() return "Olympus", "Treasurer", 1 end; ns.me = "Pyralis Ashandar-Realm" end
+local function Printed(w, text)
+	for _, p in ipairs(w.printed) do if p:find(text, 1, true) then return true end end
+	return false
+end
+local function Texts(lines)
+	local out = {}
+	for _, l in ipairs(lines) do out[#out + 1] = tostring(l.text) .. " | " .. tostring(l.right or "") end
+	return table.concat(out, "\n")
+end
+local function LastSent(w) return w.sent[#w.sent] and w.sent[#w.sent].msg end
+
+test("Hands of the King: he names them, they use the tools he lends them, nothing of his own", function()
+	WithThrone(function(w, K)
+		AsKing()
+		K.AddHand("Helper")
+		eq(K.Hands()[1], "Helper-Realm")
+		eq(ns.rdb.kingHands[1], "Helper-Realm", "kept for the next session")
+		K.SendHands(true) -- (a few seconds after the last change, in game)
+		assert(LastSent(w):find("^T1~H~%d+~Olympus~Helper%-Realm$"), LastSent(w))
+		local list = LastSent(w)
+		K.AddHand("Bad|cffff0000Name")
+		eq(#K.Hands(), 1, "no free text for a name")
+		-- The Hand's client: the Throne opens, his tools work.
+		AsSoldier("Helper")
+		eq(K.Visible(), false)
+		K.HandleCommand("CHANNEL", "Asmon-Realm", list)
+		eq(K.IsHand(), true); eq(K.Visible(), true); eq(K.CanCommand(), true)
+		assert(Printed(w, "named you a Hand"), "told")
+		local lines, _, detail = K.Build()
+		eq(lines[1].text, ns.L.THRONE_ROOM_HAND:format("Asmond"), "the King's own pages (his Hands) are not a Hand's")
+		K.Show("home")
+		lines, _, detail = K.Build()
+		eq(lines[1].text, ns.L.THRONE_ROOM_HAND:format("Asmond"))
+		eq(detail, ns.L.THRONE_YOU_ARE_HAND:format("Asmond"))
+		assert(not Texts(lines):find("Hands of the King", 1, true), "the Hands are the King's page alone")
+		assert(not Texts(lines):find("Treasury", 1, true) and not Texts(lines):find("Court", 1, true), "so are the court and the treasury")
+		-- Anyone else's client: a forged list does nothing; the King's is trusted.
+		AsSoldier("Other")
+		K.HandleCommand("CHANNEL", "Faker-Realm", "T1~H~1~Olympus~Faker-Realm")
+		eq(K.Authorized("A", "Faker-Realm", "Olympus II"), false, "not named by the King")
+		K.HandleCommand("CHANNEL", "Asmon-Realm", list)
+		K.HandleCommand("CHANNEL", "Helper-Realm", "T1~A~4~Olympus II~600~Stormwind City~Raid at dawn")
+		eq(K.Agenda() and K.Agenda().title, "Raid at dawn", "a Hand sets the agenda")
+		-- Never what is the King's alone: naming Hands, writs, pardons, the court.
+		K.HandleCommand("CHANNEL", "Helper-Realm", "T1~H~5~Olympus II~Other-Realm")
+		eq(K.IsHand(), false, "a Hand names nobody")
+		for _, kind in ipairs({ "W", "F", "C", "P" }) do eq(K.Authorized(kind, "Helper-Realm", "Olympus II"), false, kind) end
+		-- The King stopped repeating his list (offline): it ends.
+		w.clock = w.clock + K.HANDS_FRESH + 1
+		eq(K.Authorized("A", "Helper-Realm", "Olympus II"), false, "an old list ends")
+		-- He takes the title back: the list goes out without the name.
+		AsKing()
+		K.RemoveHand("Helper-Realm")
+		eq(#K.Hands(), 0)
+		K.SendHands(true)
+		assert(LastSent(w):find("^T1~H~%d+~Olympus~$"), LastSent(w))
+	end)
+end)
+
+test("Vox Populi: pick one or several, a chart of the results, the winner worked out", function()
+	WithUI(function()
+		WithThrone(function(w, K)
+			local V = ns.Vox
+			local s, q, a = V.Parse("60 Raid tonight? Yes / No / Later")
+			eq(s, 60); eq(q, "Raid tonight?"); eq(table.concat(a, ","), "Yes,No,Later")
+			s, q, a = V.Parse("Ready?")
+			eq(s, V.DEFAULT); eq(table.concat(a, ","), "Yes,No", "no answers: yes or no")
+			-- The results: shares of the votes (pick one) or of the voters (pick several).
+			local rows, winners = V.Tally({ "A", "B", "C" }, { 30, 60, 10 }, 100, false)
+			eq(rows[2].pct, 60); eq(rows[2].lead, true); eq(#winners, 1)
+			rows = V.Tally({ "A", "B", "C" }, { 80, 50, 10 }, 100, true)
+			eq(rows[1].pct, 80); eq(rows[2].pct, 50, "several each: out of the 100 voters")
+			eq(V.Verdict({ "A", "B" }, { 5, 5 }, 10, false), ns.L.VOX_TIE:format("A / B"))
+			eq(V.Verdict({ "A", "B" }, { 0, 0 }, 0, false), ns.L.VOX_NO_VOTES)
+			eq(V.Verdict({ "A", "B" }, { 7, 3 }, 10, false), ns.L.VOX_WINNER:format("A", 70))
+			-- Not the King nor a Hand: nothing.
+			AsSoldier()
+			V.Ask("Raid tonight?")
+			eq(#w.sent, 0)
+			-- The composer: the question, the answers typed (empty ones left out), several each.
+			AsKing()
+			V.Prompt()
+			local c = V.Composer()
+			assert(c and c:IsShown(), "the composer")
+			eq(c.a[1]:GetText(), ns.L.VOX_YES); eq(c.a[2]:GetText(), ns.L.VOX_NO)
+			c.q:SetText("Which raids this week?")
+			c.a[1]:SetText("Onyxia"); c.a[2]:SetText("Molten Core"); c.a[3]:SetText(""); c.a[4]:SetText("Zul'Gurub")
+			c.kinds[2]:Click() -- pick several
+			c.times[2]:Click() -- 60 s
+			c.ask:Click()
+			local msg = LastSent(w)
+			assert(msg:find("^T1~V~%d+~Olympus~60~M~Which raids this week%?~Onyxia~Molten Core~Zul'Gurub$"), msg)
+			eq(w.sent[#w.sent].urgent, true, "ahead of the census")
+			eq(c:IsShown(), false, "the composer closes")
+			local id = tonumber(msg:match("T1~V~(%d+)"))
+			V.Ask("Another?")
+			assert(Printed(w, ns.L.VOX_BUSY), "one question at a time")
+			-- A soldier: the window with check boxes, several picks, one vote.
+			AsSoldier("Voter")
+			K.HandleCommand("CHANNEL", "Faker-Realm", "T1~V~9~Olympus~60~M~Fake?~A~B")
+			eq(select(3, V.State()), nil, "not the King: no window")
+			K.HandleCommand("CHANNEL", "Asmon-Realm", msg)
+			local f = V.Frame()
+			assert(f and f:IsShown(), "the window")
+			eq(f.title:GetText(), ns.L.VOX_ASKS:format("Asmond"))
+			eq(f.kind:GetText(), ns.L.VOX_PICK_MANY)
+			eq(f.rows[3]:IsShown(), true); eq(f.rows[4]:IsShown(), false)
+			eq(f.vote:IsShown(), true)
+			f.rows[1].check:Click(); f.rows[3].check:Click()
+			eq(f.rows[1].check:GetChecked(), true); eq(f.rows[3].check:GetChecked(), true)
+			f.vote:Click()
+			f.vote:Click()
+			eq(#w.whispered, 1, "one vote")
+			eq(w.whispered[1].to, "Asmon-Realm"); eq(w.whispered[1].msg, ("Y1~%d~13~Olympus II"):format(id)); eq(w.whispered[1].urgent, true)
+			eq(f.vote:IsShown(), false, "voted")
+			-- The King counts: one vote each, answers that exist, Olympus only.
+			AsKing()
+			V.HandleVote("WHISPER", "Voter-Realm", w.whispered[1].msg)
+			V.HandleVote("WHISPER", "Voter-Realm", w.whispered[1].msg)
+			V.HandleVote("WHISPER", "Other-Realm", ("Y1~%d~2~Olympus Zeus"):format(id))
+			V.HandleVote("WHISPER", "Twice-Realm", ("Y1~%d~11~Olympus Zeus"):format(id))
+			V.HandleVote("WHISPER", "Liar-Realm", ("Y1~%d~9~Olympus II"):format(id))
+			V.HandleVote("WHISPER", "Horde-Realm", ("Y1~%d~2~Horde Heroes"):format(id))
+			V.HandleVote("WHISPER", "Stranger-Realm", ("Y1~%d~1~Olympus Nowhere"):format(id))
+			local poll = V.State()
+			eq(poll.voters, 2); eq(poll.counts[1], 1); eq(poll.counts[2], 1); eq(poll.counts[3], 1)
+			eq(poll.others, 1, "a vote nobody can place")
+			local page = Texts((V.Build()))
+			assert(page:find("Which raids this week?", 1, true) and page:find(ns.L.VOX_TOTAL:format(2), 1, true), page)
+			assert(page:find("50%", 1, true), "each answer: half of the 2 voters")
+			-- The chart on his screen, live.
+			V.ShowLive()
+			eq(f.live, true); eq(f.rows[1].bar:IsShown(), true); eq(f.rows[1].check:IsShown(), false)
+			assert(f.status:GetText():find(ns.L.VOX_LIVE, 1, true), f.status:GetText())
+			-- Time is up (and the grace for votes on their way): the results go to everyone.
+			w.clock = w.clock + 60 + V.GRACE
+			RunTimers(w)
+			assert(LastSent(w):find(("^T1~E~%d~Olympus~2~1~1~1$"):format(id)), LastSent(w))
+			assert(f.status:GetText():find(ns.L.VOX_FINAL, 1, true), "the final chart")
+			local _, history = V.State()
+			eq(#history, 1); eq(history[1].voters, 2)
+			assert(V.DiscordText():find("**Which raids this week?**", 1, true), V.DiscordText())
+			-- The soldier's window: the chart, the verdict, his picks still checked.
+			AsSoldier("Voter")
+			f.live = nil
+			K.HandleCommand("CHANNEL", "Asmon-Realm", ("T1~E~%d~Olympus~4~3~1~2"):format(id))
+			local shown = select(3, V.State())
+			eq(shown.voters, 4); eq(shown.counts[1], 3)
+			eq(f.rows[1].bar:IsShown(), true); eq(f.rows[1].check:GetChecked(), true)
+			assert(f.verdict:GetText():find("Onyxia", 1, true), f.verdict:GetText())
+			eq(f.rows[1].pct:GetText(), "75%  (3)", "3 of the 4 voters")
+			-- Pick one: a second click moves the pick.
+			V.Reset(); AsKing(); K.AddHand("Helper"); K.SendHands(true); local list = LastSent(w)
+			AsSoldier("Voter")
+			K.HandleCommand("CHANNEL", "Asmon-Realm", list)
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~V~88~Olympus II~30~1~Pizza?~Yes~No")
+			eq(f.title:GetText(), ns.L.VOX_ASKS_HAND:format("Helper"))
+			f.rows[1].check:Click(); f.rows[2].check:Click()
+			eq(f.rows[1].check:GetChecked(), false); eq(f.rows[2].check:GetChecked(), true)
+			-- Chat only, for whoever turned the window off.
+			V.Reset(); ns.db.voxOff = true
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~V~89~Olympus II~30~1~Tacos?~Yes~No")
+			eq(f:IsShown(), false); assert(Printed(w, "Tacos?"), "in chat")
+		end)
+	end)
+end)
+
+test("Hold Court: the King opens it, players in his zone ask, he calls them one by one", function()
+	WithThrone(function(w, K)
+		local C = ns.Court
+		local map = 1453
+		C_Map.GetBestMapForUnit = function() return map end
+		C_Map.GetMapInfo = function(id) return { mapType = 3, parentMapID = 1415 } end
+		GetRealZoneText = function() return "Stormwind City" end
+		AsSoldier(); C.Toggle()
+		eq(#w.sent, 0, "the King's alone")
+		AsKing()
+		C.Toggle()
+		local open = LastSent(w)
+		assert(open:find("^T1~C~%d+~Olympus~1453~Stormwind City$"), open)
+		local id = tonumber(open:match("T1~C~(%d+)"))
+		eq(K.mode, "home", "the queue shows on the Throne Room")
+		-- A soldier there: the line on top of the Census, one click asks.
+		AsSoldier()
+		K.HandleCommand("CHANNEL", "Faker-Realm", "T1~C~5~Olympus~1453~Stormwind City")
+		eq(C.Current(), nil, "only the King holds court")
+		K.HandleCommand("CHANNEL", "Asmon-Realm", open)
+		assert(Printed(w, "holds court in Stormwind City"), "told once")
+		local census = ns.Views.Build("census")
+		assert(census[1].text:find("holds court in Stormwind City", 1, true), census[1].text)
+		map = 1429
+		eq(C.Line(), nil, "another zone: no line")
+		map = 1453
+		C.Line().onClick()
+		eq(w.whispered[1].to, "Asmon-Realm"); eq(w.whispered[1].msg, ("T4~%d~Olympus II"):format(id))
+		C.Seek()
+		eq(#w.whispered, 1, "one request"); eq(C.Line().right:find(ns.L.COURT_STATE_ASKED, 1, true) ~= nil, true)
+		-- The King's queue: Olympus names only, once each.
+		AsKing()
+		C.HandleRequest("WHISPER", "Soldier-Realm", ("T4~%d~Olympus II"):format(id))
+		C.HandleRequest("WHISPER", "Soldier-Realm", ("T4~%d~Olympus II"):format(id))
+		C.HandleRequest("WHISPER", "Troll-Realm", ("T4~%d~Asmongold smells"):format(id))
+		C.HandleRequest("WHISPER", "Old-Realm", "T4~1~Olympus II")
+		eq(#C.Holding().queue, 1)
+		-- A Lord the census confirms shows with his guild; anyone else is a name alone (what
+		-- they say of their guild is not shown on stream).
+		C.HandleRequest("WHISPER", "Zed-Realm", ("T4~%d~Olympus Zeus"):format(id))
+		C.HandleRequest("WHISPER", "Liar-Realm", ("T4~%d~Olympus kys lol"):format(id))
+		eq(#C.Holding().queue, 3)
+		assert(not table.concat(w.printed, "\n"):find("kys", 1, true), "nothing they typed in chat")
+		local page = K.Build()
+		local row, rows = nil, {}
+		for _, l in ipairs(page) do if l.key then rows[l.key] = l.text end; if l.key == "Soldier-Realm" then row = l end end
+		eq(rows["Zed-Realm"], "Zed <Olympus Zeus>"); eq(rows["Liar-Realm"], "Liar")
+		assert(row and row.text == "Soldier", Texts(page))
+		row.onClick()
+		eq(w.whispered[#w.whispered].to, "Soldier-Realm"); eq(w.whispered[#w.whispered].msg, ("T5~%d"):format(id))
+		-- Sent off: no new request from the Liar for a while.
+		C.Call("Liar-Realm"); w.clock = w.clock + C.CALL_GAP; C.Call("Liar-Realm")
+		C.HandleRequest("WHISPER", "Liar-Realm", ("T4~%d~Olympus II"):format(id))
+		eq(C.Holding().by["Liar-Realm"], nil, "dismissed")
+		-- Called: only the King's call counts.
+		AsSoldier()
+		C.HandleCall("WHISPER", "Faker-Realm", ("T5~%d"):format(id))
+		eq(#w.popups, 0)
+		C.HandleCall("WHISPER", "Asmon-Realm", ("T5~%d"):format(id))
+		eq(w.popups[1].name, "OLYMPUS_COURT_CALLED")
+		assert(C.Line().right:find(ns.L.COURT_STATE_CALLED, 1, true), "called")
+		-- Closed: the line goes.
+		AsKing(); C.Toggle()
+		assert(LastSent(w):find(("^T1~Z~%d~Olympus$"):format(id)), LastSent(w))
+		AsSoldier()
+		K.HandleCommand("CHANNEL", "Asmon-Realm", LastSent(w))
+		eq(C.Current(), nil)
+		-- Not repeated for a while (he logged off): over.
+		K.HandleCommand("CHANNEL", "Asmon-Realm", open)
+		w.clock = w.clock + C.EXPIRE + 1
+		eq(C.Current(), nil)
+	end)
+end)
+
+test("The Treasury: the Treasurer's book by itself, shared with the King when he says so", function()
+	WithThrone(function(w, K)
+		local T = ns.Treasury
+		local saved = { GetInboxNumItems, GetInboxHeaderInfo, GetInboxInvoiceInfo, GetTargetTradeMoney, GetPlayerTradeMoney,
+			UnitFullName, ERR_TRADE_COMPLETE, GetMoney, GetSendMailMoney, AUCTION_OUTBID_MAIL_SUBJECT, ns.db.treasuryShare }
+		local ok, err = pcall(function()
+			ERR_TRADE_COMPLETE, AUCTION_OUTBID_MAIL_SUBJECT = "Trade complete.", "Outbid on %s"
+			GetMoney = function() return 1234567 end
+			local daysLeft = 29.5
+			local inbox = {
+				{ "Giver", "For the treasury", 50000 }, { "Friend", "gift", 1000 }, { "Friend", "gift", 1000 },
+				{ "Stormwind Auction House", "Outbid on Linen Cloth", 90000 }, { "Mystery", "hi", 3000, false },
+			}
+			GetInboxNumItems = function() return #inbox end
+			GetInboxHeaderInfo = function(i)
+				local m = inbox[i]
+				return nil, nil, m[1], m[2], m[3], 0, daysLeft, nil, nil, nil, nil, m[4] == nil and true or m[4]
+			end
+			GetInboxInvoiceInfo = function() return nil end
+			-- Nobody's book but the Treasurer's.
+			AsKing(); T.MailTaking(1)
+			eq(ns.rdb.treasury, nil, "the King keeps no book")
+			local savedSplit = ns.splitNames
+			ns.splitNames = nil
+			eq(T.Visible(), false, "no Treasurer where names have no surname (Classic): no tab for the King")
+			ns.splitNames = true
+			eq(T.Visible(), true, "on Forever the King sees the tab")
+			ns.splitNames = savedSplit
+			AsSoldier(); eq(T.Visible(), false)
+			AsTreasurer()
+			eq(T.IsTreasurer(), true); eq(T.Visible(), true)
+			-- Mail gold counts when he takes it: each gift, not the auction house, not a no-reply mail.
+			for i = 1, #inbox do T.MailTaking(i) end
+			eq(#ns.rdb.treasury, 3, "the gold mail and two identical gifts")
+			assert(Printed(w, "Donation to the treasury: Giver"), "in chat")
+			T.MailTaking(1)
+			eq(#ns.rdb.treasury, 3, "a double click on the same mail counts once")
+			w.clock, daysLeft = w.clock + 3 * 3600, daysLeft - 3 / 24
+			-- (A census as fresh as the clock.)
+			ns.rdb.guilds["Olympus"] = Vouched({ total = 1000, online = 90, zones = {}, t = w.clock, leader = "Asmon", realm = "Realm",
+				officers = { { name = "Pyralis Ashandar", online = true, days = 0 } } }, "W1-Realm", "W2-Realm")
+			-- A trade both ways: what he got is a donation, what he gave a payment.
+			UnitFullName = function(unit) if unit == "NPC" then return "Trader", "Realm" end return "Pyralis Ashandar", "Realm" end
+			local got, gave = 0, 0
+			GetTargetTradeMoney = function() return got end
+			GetPlayerTradeMoney = function() return gave end
+			T.TradeShow(); got, gave = 123456, 20000; T.TradeMoney(); got, gave = 0, 0
+			T.Info(0, "Trade cancelled.")
+			eq(#ns.rdb.treasury, 3)
+			T.Info(0, "Trade complete.")
+			eq(#ns.rdb.treasury, 5)
+			eq(ns.rdb.treasury[4].money, 123456, "the amount the window showed"); eq(ns.rdb.treasury[5].out, true)
+			-- Mail sent with gold: a payment once the game says it went.
+			GetSendMailMoney = function() return 7000 end
+			T.MailSending("Crafter"); T.MailSent()
+			eq(ns.rdb.treasury[6].out, true); eq(ns.rdb.treasury[6].name, "Crafter")
+			local t = T.Totals()
+			eq(t.weekIn, 50000 + 2000 + 123456); eq(t.weekOut, 27000)
+			eq(t.givers[1].name, "Trader"); eq(t.givers[2].name, "Giver")
+			local page = Texts((T.Build()))
+			assert(page:find(ns.L.TREASURY_BALANCE, 1, true) and page:find("1. Trader", 1, true), page)
+			-- Not shared yet: nothing sent. Shared: the report, and every change a minute apart.
+			T.Share(true)
+			eq(#w.sent, 0, "not shared")
+			T.SetSharing(true)
+			local report = LastSent(w)
+			assert(report:find("^T7~Olympus~1234567~%d+~175456~3~Trader:123456,Giver:50000,Friend:2000$"), report)
+			-- Everyone's copy: only from the Treasurer himself (a soldier of another guild: the
+			-- census names him an officer of <Olympus>).
+			AsSoldier()
+			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", report)
+			eq(T.Report() and T.Report().balance, 1234567, "the census vouches for him")
+			T.Reset()
+			-- The King's (the same guild: his roster).
+			AsKing()
+			local savedRank = ns.Roster.RankOf
+			ns.Roster.RankOf = function(n) if ns.FullName(n) == "Pyralis Ashandar-Realm" then return 1 end return savedRank(n) end
+			T.HandleReport("CHANNEL", "Fake-Realm", report)
+			eq(T.Report(), nil, "not the Treasurer")
+			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", "T7~Olympus Zeus~1~1~1~1~")
+			eq(T.Report(), nil, "the Treasurer of Olympus only")
+			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", report)
+			eq(T.Report().balance, 1234567); eq(T.Report().top[1].name, "Trader")
+			assert(T.HeaderText():find("123g", 1, true), "next to the soldiers: " .. T.HeaderText())
+			K.mode = "home" -- (the letter read)
+			local throne = Texts((K.Build()))
+			assert(throne:find(ns.L.TREASURY_TITLE, 1, true), throne)
+			local king = Texts((T.Build()))
+			assert(king:find("1. Trader", 1, true), king)
+			assert(ns.Treasury.RealmText():find("123g", 1, true), "under the Treasurer in the Realm")
+			-- He stops sharing: gone.
+			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", "T7~Olympus~off")
+			eq(T.Report(), nil)
+			ns.Roster.RankOf = savedRank
+		end)
+		GetInboxNumItems, GetInboxHeaderInfo, GetInboxInvoiceInfo, GetTargetTradeMoney, GetPlayerTradeMoney,
+			UnitFullName, ERR_TRADE_COMPLETE, GetMoney, GetSendMailMoney, AUCTION_OUTBID_MAIL_SUBJECT, ns.db.treasuryShare = unpack(saved, 1, 11)
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("Royal Writs: the King writes to his Lords, each can acknowledge, nobody else reads it", function()
+	WithUI(function()
+		LoadUI()
+		WithThrone(function(w, K)
+			local A = ns.Acts
+			AsCaptain(); A.SendWrit("L", "Hello there")
+			eq(#w.sent, 0, "the King's alone")
+			AsKing()
+			A.SendWrit("L", "Muster at dawn|cffff0000 in Goldshire")
+			local msg = LastSent(w)
+			assert(msg:find("^T1~W~%d+~Olympus~L~Muster at dawn cffff0000 in Goldshire$"), msg)
+			local id = tonumber(msg:match("T1~W~(%d+)"))
+			-- A Lord: on parchment, one click acknowledges.
+			AsLord()
+			K.HandleCommand("CHANNEL", "Asmon-Realm", msg)
+			eq(#ns.rdb.writs, 1)
+			local f = OlympusWritFrame
+			assert(f:IsShown(), "the writ")
+			eq(f.body:GetText(), "Muster at dawn cffff0000 in Goldshire")
+			eq(f.sign:GetText(), ns.L.WRIT_SIGNED:format("Asmond"))
+			f.ack:Click()
+			eq(w.whispered[1].to, "Asmon-Realm"); eq(w.whispered[1].msg, ("T6~%d~Olympus Zeus"):format(id))
+			local decrees = Texts(ns.Views.Build("decrees"))
+			assert(decrees:find(ns.L.WRITS, 1, true) and decrees:find("Muster at dawn", 1, true), decrees)
+			-- A Captain reads the writs to Lords and Captains only; a soldier none.
+			ns.rdb.writs = nil; A.Reset()
+			AsCaptain()
+			K.HandleCommand("CHANNEL", "Asmon-Realm", msg)
+			eq(ns.rdb.writs, nil, "for the Lords")
+			K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~W~12~Olympus~C~Hold the bridge")
+			eq(#ns.rdb.writs, 1, "for Lords and Captains")
+			A.Reset(); ns.rdb.writs = nil
+			AsSoldier()
+			K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~W~13~Olympus~C~Hold the bridge")
+			eq(ns.rdb.writs, nil)
+			assert(not Texts(ns.Views.Build("decrees")):find(ns.L.WRITS, 1, true), "no section for a soldier")
+			-- A Hand's writ is no writ.
+			AsKing(); K.AddHand("Helper"); K.SendHands(true); local list = LastSent(w)
+			AsLord(); A.Reset()
+			K.HandleCommand("CHANNEL", "Asmon-Realm", list)
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~W~14~Olympus II~L~Obey me")
+			eq(ns.rdb.writs, nil, "a Hand writes no writ")
+			-- The King counts who acknowledged: once each.
+			AsKing()
+			A.HandleAck("WHISPER", "Zed-Realm", ("T6~%d~Olympus Zeus"):format(id))
+			A.HandleAck("WHISPER", "Zed-Realm", ("T6~%d~Olympus Zeus"):format(id))
+			A.HandleAck("WHISPER", "Troll-Realm", ("T6~%d~Trolls"):format(id))
+			eq(ns.rdb.writsSent[1].acks, 1)
+			assert(Texts(ns.Views.Build("decrees")):find(ns.L.WRIT_ACKS:format(1), 1, true))
+		end)
+	end)
+end)
+
+test("Open the Gates and the Royal Pardon: the King's word in the Realm and on the Wall", function()
+	WithThrone(function(w, K)
+		local A = ns.Acts
+		AsKing()
+		A.OpenGates("Olympus Zeus")
+		local msg = LastSent(w)
+		assert(msg:find("^T1~G~%d+~Olympus~7200~Olympus Zeus$"), msg)
+		-- Everyone: on top of Recruiting.
+		A.Reset()
+		AsSoldier()
+		K.HandleCommand("CHANNEL", "Faker-Realm", "T1~G~3~Olympus~7200~Olympus Faker")
+		eq(A.Gates(), nil, "not the King nor a Hand")
+		K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~G~3~Olympus~7200~Horde Heroes")
+		eq(A.Gates(), nil, "an Olympus guild only")
+		K.HandleCommand("CHANNEL", "Asmon-Realm", msg)
+		eq(A.Gates().guild, "Olympus Zeus")
+		assert(Printed(w, "Asmond opened the gates of <Olympus Zeus>"), "told")
+		local realm = Texts(ns.Views.RealmLines())
+		assert(realm:find(ns.L.GATES_LINE:format("Olympus Zeus"), 1, true), realm)
+		-- A Hand may open them; only the opener or the King closes them.
+		AsKing(); K.AddHand("Helper"); K.AddHand("Other"); K.SendHands(true); local list = LastSent(w)
+		AsSoldier()
+		K.HandleCommand("CHANNEL", "Asmon-Realm", list)
+		K.HandleCommand("CHANNEL", "Helper-Realm", "T1~G~4~Olympus II~7200~Olympus II")
+		eq(A.Gates().guild, "Olympus II")
+		K.HandleCommand("CHANNEL", "Other-Realm", "T1~G~4~Olympus II~0~")
+		eq(A.Gates().guild, "Olympus II", "another Hand can't close them")
+		K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~G~4~Olympus~0~")
+		eq(A.Gates(), nil, "the King can")
+		K.HandleCommand("CHANNEL", "Helper-Realm", "T1~G~5~Olympus II~7200~Olympus II")
+		w.clock = w.clock + A.GATES_TIME + 1
+		eq(A.Gates(), nil, "two hours at most")
+		-- (A census as fresh as the clock: two hours on, the old one no longer names the King.)
+		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1000, online = 90, zones = {}, t = w.clock, leader = "Asmon", realm = "Realm" }, "W1-Realm", "W2-Realm") }
+		-- The pardon: off the Wall for everyone, the King's alone.
+		ns.Inspect.shame = { by = "Asmon", list = { { name = "Naked", guild = "Olympus II" }, { name = "Pirate", guild = "Olympus II" } }, t = w.clock }
+		K.HandleCommand("CHANNEL", "Helper-Realm", "T1~F~6~Olympus II~Naked")
+		eq(#ns.Inspect.shame.list, 2, "not a Hand's to give")
+		K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~F~6~Olympus~Naked")
+		eq(#ns.Inspect.shame.list, 1); eq(ns.Inspect.shame.list[1].name, "Pirate")
+		assert(Printed(w, "By royal pardon of Asmond, Naked leaves the Wall of Shame"), "told")
+		-- A list published later does not bring the name back (for a week).
+		ns.Inspect.ShowShame({ by = "Zed", list = { { name = "Naked", guild = "Olympus II" }, { name = "Pirate", guild = "Olympus II" } }, t = w.clock })
+		eq(#ns.Inspect.shame.list, 1)
+		w.clock = w.clock + A.PARDON_DAYS * 86400 + 1
+		eq(A.Pardoned("Naked"), false, "a week")
+	end)
+end)
+
+test("Throne review fixes: the King sees his Hands' acts, one question at a time", function()
+	WithUI(function()
+		WithThrone(function(w, K)
+			local A, V, C = ns.Acts, ns.Vox, ns.Court
+			-- The King's own client trusts his list: a Hand's gates show for him, he closes them.
+			AsKing(); K.AddHand("Helper"); K.SendHands(true)
+			local list = LastSent(w)
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~G~31~Olympus II~7200~Olympus Zeus")
+			eq(A.Gates() and A.Gates().guild, "Olympus Zeus", "the King sees his Hand's gates")
+			eq(A.CanClose(), true)
+			A.CloseGates()
+			assert(LastSent(w):find("^T1~G~31~Olympus~0~$"), LastSent(w))
+			-- ...and is not summoned by his own Hand.
+			local popups = #w.popups
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~S~32~Olympus II")
+			eq(#w.popups, popups, "no roll call popup for the King")
+			-- Another Hand can't close gates a Hand opened: told so, nothing sent.
+			AsSoldier("Other2"); A.Reset()
+			K.HandleCommand("CHANNEL", "Asmon-Realm", list)
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~G~33~Olympus II~7200~Olympus Zeus")
+			local sent = #w.sent
+			A.CloseGates()
+			eq(#w.sent, sent); assert(Printed(w, ns.L.GATES_ONLY_OPENER), "told")
+			-- Vox: a Hand's question does not replace the King's; the King's replaces a Hand's.
+			V.Reset(); AsSoldier("Voter")
+			K.HandleCommand("CHANNEL", "Asmon-Realm", list)
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~V~41~Olympus II~60~1~Pizza?~Yes~No")
+			eq(select(3, V.State()).id, 41)
+			K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~V~42~Olympus~60~1~Raid?~Yes~No")
+			eq(select(3, V.State()).id, 42, "the King's question comes first")
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~V~43~Olympus II~60~1~Tacos?~Yes~No")
+			eq(select(3, V.State()).id, 42, "a Hand's waits for the King's")
+			-- The window comes back when questions are turned on again.
+			V.Reset(); ns.db.voxOff = true
+			K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~V~44~Olympus~60~1~Raid again?~Yes~No")
+			eq(V.Frame() and V.Frame():IsShown() or false, false)
+			V.SetOff(false)
+			assert(V.Frame():IsShown(), "the window to vote")
+			-- The asker is told when someone else's question is still open.
+			AsKing(); K.HandleCommand("CHANNEL", "Helper-Realm", "T1~V~45~Olympus II~60~1~Soup?~Yes~No")
+			-- (not shown on the King's client: he asks freely)
+			eq(select(3, V.State()).id, 44)
+			-- Pardons: the week's pardons go out together, and again for late logins.
+			AsKing()
+			A.Pardon("Naked"); A.Pardon("Pirate")
+			assert(LastSent(w):find("^T1~F~%d+~Olympus~Naked,Pirate$"), LastSent(w))
+			A.Pardon("Bad|cffname")
+			assert(Printed(w, ns.L.PARDON_BAD_NAME), "a name that is no name is refused")
+			AsSoldier()
+			ns.rdb.pardons = nil
+			ns.Inspect.shame = { by = "Asmon", list = { { name = "Naked" }, { name = "Pirate" }, { name = "Honest" } }, t = w.clock }
+			K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~F~9~Olympus~Naked,Pirate")
+			eq(#ns.Inspect.shame.list, 1); eq(ns.Inspect.shame.list[1].name, "Honest")
+			-- A Wall of Shame name carries no codes.
+			local decoded = ns.Codec.DecodeShame("S1~Olympus~0~Bad|cffff0000Guy:Olympus II,Good:Olympus II")
+			eq(decoded.list[1].name, "Badcffff0000Guy"); eq(decoded.list[2].name, "Good")
+			-- The court: called after a /reload (the request made in an earlier session).
+			local map = 1453
+			C_Map.GetBestMapForUnit = function() return map end
+			C_Map.GetMapInfo = function() return { mapType = 3 } end
+			GetRealZoneText = function() return "Stormwind City" end
+			C.Reset()
+			K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~C~51~Olympus~1453~Stormwind City")
+			C.HandleCall("WHISPER", "Asmon-Realm", "T5~51")
+			assert(C.Current().calledAt, "called")
+		end)
+	end)
+end)
+
+test("Round 2 fixes: shares add up to 100, the King is never shut out, a trade is counted", function()
+	WithUI(function()
+		WithThrone(function(w, K)
+			local V, T = ns.Vox, ns.Treasury
+			-- One pick each: whole percents that add up to exactly 100.
+			local rows = V.Tally({ "A", "B", "C" }, { 1, 1, 1 }, 3, false)
+			eq(rows[1].pct + rows[2].pct + rows[3].pct, 100); eq(rows[1].pct, 34)
+			rows = V.Tally({ "A", "B", "C" }, { 1, 1, 2 }, 4, false)
+			eq(rows[1].pct + rows[2].pct + rows[3].pct, 100)
+			-- A Hand's short question just over: the King's, 10 s later, still reaches everyone.
+			AsKing(); K.AddHand("Helper"); K.SendHands(true); local list = LastSent(w)
+			AsSoldier("Voter")
+			K.HandleCommand("CHANNEL", "Asmon-Realm", list)
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~V~51~Olympus II~30~1~Pizza?~Yes~No")
+			w.clock = w.clock + 31
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~E~51~Olympus II~2~1~1")
+			w.clock = w.clock + 10
+			K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~V~52~Olympus~60~1~Raid?~Yes~No")
+			eq(select(3, V.State()).id, 52, "the King's question")
+			-- The same asker again within SHOW_GAP: not shown.
+			K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~V~53~Olympus~60~1~Again?~Yes~No")
+			eq(select(3, V.State()).id, 52)
+			-- A trade opened right after another closed is still counted.
+			local saved = { GetTargetTradeMoney, UnitFullName, ERR_TRADE_COMPLETE, ns.After }
+			local ok, err = pcall(function()
+				ERR_TRADE_COMPLETE = "Trade complete."
+				local timers = {}
+				ns.After = function(_, _, fn) timers[#timers + 1] = fn end
+				UnitFullName = function(unit) if unit == "NPC" then return "Second", "Realm" end return "Pyralis Ashandar", "Realm" end
+				AsTreasurer()
+				T.TradeShow()
+				local money = 5000
+				GetTargetTradeMoney = function() return money end
+				T.TradeMoney()
+				T.Info(0, "Trade complete.")
+				eq(ns.rdb.treasury and #ns.rdb.treasury, 1)
+			end)
+			GetTargetTradeMoney, UnitFullName, ERR_TRADE_COMPLETE, ns.After = unpack(saved, 1, 4)
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
+
+test("The Realm links the Olympus chats: the channels our rank reads, newest first", function()
+	WithThrone(function(w)
+		ns.rdb.chat = {
+			A = { { t = w.clock - 120, sender = "Aa-Realm", guild = "Olympus II", text = "first" },
+				{ t = w.clock - 60, sender = "Bb-Realm", guild = "Olympus Zeus", text = "second |cffff0000red" } },
+			C = { { t = w.clock - 30, sender = "Cc-Realm", guild = "Olympus II", text = "captains only" } },
+		}
+		AsSoldier()
+		local lines = ns.Views.RealmLines()
+		local link
+		for _, l in ipairs(lines) do if l.text and l.text:find(ns.L.CHATS_LINK, 1, true) then link = l end end
+		assert(link and link.onClick, Texts(lines))
+		link.onClick()
+		eq(ns.Views.ChatShown(), true)
+		local chat = ns.Views.RealmLines()
+		eq(chat[1].text:find(ns.L.CHATS_BACK, 1, true) ~= nil, true, "leads back")
+		local text = Texts(chat)
+		assert(not text:find("captains only", 1, true), "a soldier does not read [Captains]")
+		local a, b = text:find("second", 1, true), text:find("first", 1, true)
+		assert(a and b and a < b, "newest first: " .. text)
+		assert(text:find("second ||cffff0000red", 1, true), "sanitized: " .. text)
+		chat[1].onClick()
+		eq(ns.Views.ChatShown(), false)
+		-- A Captain reads both.
+		AsCaptain()
+		ns.Views.ShowChat("C")
+		assert(Texts(ns.Views.RealmLines()):find("captains only", 1, true))
+		ns.Views.ShowChat(nil)
+	end)
+end)
+
+test("Comm: urgent messages (a layer ask, a vote) go ahead of the census, never dropped first", function()
+	local C = ns.Comm
+	local savedSend, savedMember, savedReady = C_ChatInfo and C_ChatInfo.SendAddonMessage, ns.IsMember, nil
+	local out = {}
+	C_ChatInfo = C_ChatInfo or {}
+	local savedCI = C_ChatInfo.SendAddonMessage
+	C_ChatInfo.SendAddonMessage = function(_, msg, dist) out[#out + 1] = msg; return true end
+	ns.IsMember = function() return true end
+	local ok, err = pcall(function()
+		for _ = 1, 200 do C.Pump() end -- what earlier tests left waiting
+		wipe(out)
+		for i = 1, 3 do C.Send("GUILD", "R" .. i) end
+		C.Whisper("Aa-Realm", "VOTE", nil, true)
+		C.Send("GUILD", "R4")
+		C.Whisper("Bb-Realm", "ASK", nil, true)
+		for _ = 1, 6 do C.Pump() end
+		eq(table.concat(out, ","), "VOTE,ASK,R1,R2,R3,R4")
+	end)
+	C_ChatInfo.SendAddonMessage, ns.IsMember = savedCI, savedMember
+	for _ = 1, 10 do C.Pump() end
 	if not ok then error(err, 0) end
 end)
 

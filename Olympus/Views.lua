@@ -271,6 +271,9 @@ local function CensusLines(s)
 	if a then
 		lines[#lines + 1] = { text = Gold(L.THRONE_AGENDA_LINE:format(a.title, math.max(0, math.ceil((a.at - ns.Now()) / 60)), a.zone)), gapAfter = true }
 	end
+	-- The King holds court in our zone: one click asks for an audience (Court.lua).
+	local court = ns.Court and ns.Court.Line and ns.Court.Line()
+	if court then lines[#lines + 1] = court end
 	-- While the King is online: one click asks for an invite to his layer (Hop.lua).
 	for _, hop in ipairs(ns.Hop and ns.Hop.KingLines and ns.Hop.KingLines() or {}) do lines[#lines + 1] = hop end
 	local get = SORTERS[Views.sort.key] or SORTERS.members
@@ -387,9 +390,93 @@ function Views.MembersOf(guild, g)
 	return out, true
 end
 
+---------------------------------------------------------------------------
+-- The Olympus chats, read in the Realm tab: the last lines of each channel our rank reads
+-- (Channels.History), newest first, even what was said while the window was closed.
+---------------------------------------------------------------------------
+
+local chatTier -- the channel shown instead of the Realm tree, or nil
+
+function Views.ChatShown() return chatTier ~= nil end
+-- Another tab opened: the Realm opens on its tree again next time.
+function Views.CloseChat() chatTier = nil end
+function Views.ShowChat(tier)
+	chatTier = tier
+	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+end
+
+local function ChatTiers()
+	local out = {}
+	for _, tier in ipairs(ns.Channels.ORDER or {}) do
+		if ns.Channels.CanUse(tier) then out[#out + 1] = tier end
+	end
+	return out
+end
+
+Views.CHAT_SHOWN = 60
+local function ChatLines()
+	local C = ns.Channels
+	local lines = { { text = Gold(L.CHATS_BACK), onClick = function() Views.ShowChat(nil) end, gapAfter = true } }
+	local tiers = ChatTiers()
+	if not C.TIERS[chatTier] or not C.CanUse(chatTier) then chatTier = tiers[1] end
+	if not chatTier then
+		lines[#lines + 1] = { text = Grey(L.CHATS_EMPTY) }
+		return lines
+	end
+	-- One line per channel we read: the one shown is lit.
+	for _, tier in ipairs(tiers) do
+		local label = L[C.TIERS[tier].label]
+		local n = #C.History(tier)
+		lines[#lines + 1] = {
+			header = tier == chatTier,
+			text = (tier == chatTier and Gold("> [" .. label .. "]") or ("   [" .. label .. "]")),
+			right = Grey(tostring(n)),
+			onClick = tier ~= chatTier and function() Views.ShowChat(tier) end or nil,
+		}
+	end
+	lines[#lines].gapAfter = true
+	local tierDef = C.TIERS[chatTier]
+	lines[#lines + 1] = {
+		text = Green(L.CHATS_WRITE:format(L[tierDef.label])),
+		onClick = function()
+			if ChatFrame_OpenChat then ChatFrame_OpenChat(tierDef.slash .. " ") end
+		end,
+		gapAfter = true,
+	}
+	local history = C.History(chatTier)
+	if #history == 0 then lines[#lines + 1] = { text = Grey(L.CHATS_EMPTY) } end
+	for i = #history, math.max(1, #history - Views.CHAT_SHOWN + 1), -1 do
+		local e = history[i]
+		local who = ns.DisplayName(e.sender) or "?"
+		lines[#lines + 1] = {
+			text = C.FormatLine(chatTier, e.sender, e.guild, e.class, e.text),
+			right = Grey(ns.Ago(e.t)),
+			onClick = not e.mine and function()
+				if ChatFrame_SendTell then ChatFrame_SendTell(who) end
+			end or nil,
+			tooltip = function(tt)
+				tt:AddLine(who .. "  <" .. tostring(e.guild or "?") .. ">", 1, 0.82, 0)
+				tt:AddLine(ns.Codec.SanitizeChat(e.text), 1, 1, 1, true)
+				if not e.mine then tt:AddLine(L.CHATS_LINE_TIP:format(who), 0.6, 0.6, 0.6) end
+			end,
+		}
+	end
+	return lines
+end
+
 local function RealmLines(s)
+	if chatTier then return ChatLines() end
 	local lines = {}
+	-- The King holds court in our zone (Court.lua), then his layer (Hop.lua).
+	local court = ns.Court and ns.Court.Line and ns.Court.Line()
+	if court then lines[#lines + 1] = court end
 	for _, hop in ipairs(ns.Hop and ns.Hop.KingLines and ns.Hop.KingLines() or {}) do lines[#lines + 1] = hop end
+	-- The King (and his Hands): Summon the Lords, and who answered (King.lua). While it is
+	-- fresh, each Lord and Captain in the tree carries a ready-check mark.
+	for _, l in ipairs(ns.King and ns.King.RollCallLines and ns.King.RollCallLines() or {}) do lines[#lines + 1] = l end
+	local function Mark(name, home, online)
+		return ns.King and ns.King.RollCallMark and ns.King.RollCallMark(ns.FullName(name, home), online) or ""
+	end
 	local king = King(s.guilds)
 	if king then
 		lines[#lines + 1] = {
@@ -413,7 +500,22 @@ local function RealmLines(s)
 				right = Presence(t.online, t.days),
 				onClick = function() ns.UI.ShowPerson(person) end,
 			}
+			-- The treasury, when he shares it (Treasury.lua).
+			local shared = ns.Treasury and ns.Treasury.RealmText and ns.Treasury.RealmText()
+			if type(shared) == "string" then lines[#lines + 1] = { indent = 1, text = Grey(shared) } end
 		end
+	end
+	-- The Olympus chats, one click away (the channels our rank reads), above the guilds.
+	if #ChatTiers() > 0 then
+		if lines[#lines] then lines[#lines].gapAfter = true end
+		lines[#lines + 1] = {
+			text = "|TInterface\\ChatFrame\\UI-ChatIcon-Chat-Up:14:14|t " .. Gold(L.CHATS_LINK), gapAfter = true,
+			onClick = function() Views.ShowChat(ChatTiers()[1]) end,
+			tooltip = function(tt)
+				tt:AddLine(L.CHATS_LINK, 1, 0.82, 0)
+				tt:AddLine(L.CHATS_TIP, 1, 1, 1, true)
+			end,
+		}
 	end
 	if #s.guilds == 0 then lines[#lines + 1] = { text = Grey(L.EMPTY) } end
 	for _, e in ipairs(s.guilds) do
@@ -438,7 +540,7 @@ local function RealmLines(s)
 					guild = e.name, rank = L.LORD, online = g.leaderOnline, days = g.leaderDays }
 				lines[#lines + 1] = {
 					key = g.leader,
-					indent = 1, text = CROWN .. Gold(L.LORD) .. "  " .. ClassColored(g.leader, lord.class and ns.CLASS_FILES[lord.class]),
+					indent = 1, text = Mark(g.leader, g.realm, g.leaderOnline) .. CROWN .. Gold(L.LORD) .. "  " .. ClassColored(g.leader, lord.class and ns.CLASS_FILES[lord.class]),
 					right = Presence(g.leaderOnline, g.leaderDays),
 					onClick = function() ns.UI.ShowPerson(lord) end,
 				}
@@ -450,7 +552,7 @@ local function RealmLines(s)
 					rank = L.CAPTAIN, online = o.online, days = o.days }
 				lines[#lines + 1] = {
 					key = o.name,
-					indent = 2, text = ASSIST .. ClassColored(o.name, o.class and ns.CLASS_FILES[o.class])
+					indent = 2, text = Mark(o.name, g.realm, o.online) .. ASSIST .. ClassColored(o.name, o.class and ns.CLASS_FILES[o.class])
 						.. (ns.IsTreasurer(o.name, e.name) and ("  " .. ns.COIN .. Grey(L.TREASURER)) or ""),
 					right = (o.level and Grey(L.LEVEL_N:format(o.level)) .. "  " or "") .. Presence(o.online, o.days),
 					onClick = function() ns.UI.ShowPerson(person) end,
@@ -529,9 +631,34 @@ local function RealmLines(s)
 	end
 	table.sort(open, function(a, b) return a.free > b.free end)
 	lines[#lines + 1] = { header = true, text = L.RECRUITING }
+	-- The gates the King (or a Hand) opened: where new recruits go now (Acts.lua).
+	local gates = ns.Acts and ns.Acts.Gates and ns.Acts.Gates()
+	local commands = ns.King and (ns.King.CanCommand() or ns.King.Preview())
+	if gates then
+		local left = math.max(0, gates.at - ns.Now())
+		lines[#lines + 1] = {
+			text = CROWN .. Gold(L.GATES_LINE:format(gates.guild)),
+			onClick = commands and function() ns.Acts.GatesClick(gates.guild) end or nil,
+			tooltip = function(tt)
+				tt:AddLine(L.GATES_LINE:format(gates.guild), 1, 0.82, 0, true)
+				tt:AddLine(L.GATES_TIP:format(math.floor(left / 3600), math.floor(left % 3600 / 60)), 1, 1, 1, true)
+				if commands and ns.Acts.CanClose() then tt:AddLine(L.GATES_CLOSE_TIP, 0.6, 0.6, 0.6, true) end
+			end,
+		}
+	end
 	if #open == 0 then lines[#lines + 1] = { text = Grey(L.ALL_FULL) } end
 	for i = 1, math.min(5, #open) do
-		lines[#lines + 1] = { text = Green("<" .. open[i].name .. ">"), right = L.FREE_SLOTS:format(ns.FormatNumber(open[i].free)) }
+		local name = open[i].name
+		lines[#lines + 1] = {
+			text = Green("<" .. name .. ">"), right = L.FREE_SLOTS:format(ns.FormatNumber(open[i].free)),
+			-- The King and his Hands open a guild's gates from here.
+			onClick = commands and function() ns.Acts.GatesClick(name) end or nil,
+			tooltip = commands and function(tt)
+				tt:AddLine("<" .. name .. ">", 0.25, 1, 0.25)
+				local closing = gates and gates.guild == name
+				tt:AddLine(closing and (ns.Acts.CanClose() and L.GATES_CLOSE_TIP or L.GATES_ONLY_OPENER) or L.GATES_CLICK_TIP, 1, 1, 1, true)
+			end or nil,
+		}
 	end
 
 	local mapID = ns.Layers.CurrentMap()
@@ -578,7 +705,8 @@ end
 ---------------------------------------------------------------------------
 
 local function DecreeLines()
-	local lines = {}
+	-- The King's writs first, for whoever they are for (Acts.lua).
+	local lines = ns.Acts and ns.Acts.WritLines and ns.Acts.WritLines() or {}
 	lines[#lines + 1] = { header = true, text = L.DECREES }
 	local decrees = ns.Decree.Active()
 	if #decrees == 0 then lines[#lines + 1] = { text = Grey(L.NO_DECREES), gapAfter = true } end
@@ -631,7 +759,9 @@ local STATUS_TEXT = {
 
 local function HeraldryLines()
 	local s = ns.Inspect.Summary()
+	-- The King (and his Hands): the Royal Inspection, and what the patrols reported (King.lua).
 	local lines = {}
+	for _, l in ipairs(ns.King and ns.King.InspectionLines and ns.King.InspectionLines() or {}) do lines[#lines + 1] = l end
 	local shame = ns.Inspect.Shame()
 	if not ns.Inspect.ShameOpen() then
 		-- Closed until the tabard rule is in force (Inspect.lua): a countdown.
@@ -645,10 +775,18 @@ local function HeraldryLines()
 		lines[#lines].gapAfter = true
 	else
 		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(L.PUBLISHED_BY:format(shame.by, ns.Ago(shame.t))) }
+		-- The King pardons with a click (Acts.lua); anyone else opens the person.
+		local king = ns.King and (ns.King.IsKing() or ns.King.Preview())
 		for i = 1, math.min(12, #shame.list) do
 			local p = shame.list[i]
+			local pardon = king and ns.King.CleanName(p.name) ~= nil
 			lines[#lines + 1] = { indent = 1, key = p.name, text = p.name .. "  " .. Grey("<" .. (p.guild or "?") .. ">"),
-				onClick = function() ns.UI.ShowPerson({ name = p.name, guild = p.guild }) end }
+				onClick = pardon and function() StaticPopup_Show("OLYMPUS_PARDON", p.name, nil, p.name) end
+					or function() ns.UI.ShowPerson({ name = p.name, guild = p.guild }) end,
+				tooltip = pardon and function(tt)
+					tt:AddLine(p.name, 1, 0.82, 0)
+					tt:AddLine(L.PARDON_TIP, 1, 1, 1, true)
+				end or nil }
 		end
 		if #shame.list > 12 then lines[#lines + 1] = { indent = 1, text = Grey(L.AND_MORE:format(#shame.list - 12)) } end
 		lines[#lines].gapAfter = true
@@ -774,6 +912,16 @@ local BUILD = {
 	throne = function(s)
 		if not (ns.King and ns.King.Build) then return {}, nil, nil end
 		local lines, title, text = ns.King.Build(s)
+		return lines or {}, title, text
+	end,
+	vox = function()
+		if not (ns.Vox and ns.Vox.Build) then return {}, nil, nil end
+		local lines, title, text = ns.Vox.Build()
+		return lines or {}, title, text
+	end,
+	treasury = function()
+		if not (ns.Treasury and ns.Treasury.Build) then return {}, nil, nil end
+		local lines, title, text = ns.Treasury.Build()
 		return lines or {}, title, text
 	end,
 	workshop = function()

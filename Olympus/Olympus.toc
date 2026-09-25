@@ -32,6 +32,10 @@ Decree.lua
 Channels.lua
 Inspect.lua
 King.lua
+Vox.lua
+Court.lua
+Treasury.lua
+Acts.lua
 Workshop.lua
 Recruit.lua
 Views.lua

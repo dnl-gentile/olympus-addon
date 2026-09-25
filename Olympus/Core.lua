@@ -50,6 +50,18 @@ function ns.Ago(t)
 	return L.AGO_HOUR:format(math.floor(d / 3600))
 end
 
+-- At most n bytes of s, never half a letter (an accented letter is two bytes or more).
+function ns.Cut(s, n)
+	s = tostring(s or "")
+	if #s <= n then return s end
+	local b = s:byte(n + 1)
+	while n > 0 and b and b >= 128 and b < 192 do
+		n = n - 1
+		b = s:byte(n + 1)
+	end
+	return s:sub(1, n)
+end
+
 function ns.ShortName(name)
 	if not name then return nil end
 	return (name:gsub("%-.*$", ""))
@@ -721,6 +733,10 @@ StandIn("Channels", { "Send", "ToggleMute" })
 StandIn("King", { "Summon", "Inspect", "AgendaPrompt" })
 StandIn("Hop", { "Ask", "AskKing", "SetHelp", "SetAuto" })
 StandIn("Workshop", { "RollCall" })
+StandIn("Vox", { "Prompt", "CloseNow", "SetOff" })
+StandIn("Court", { "Toggle" })
+StandIn("Treasury", {})
+StandIn("Acts", { "WritPrompt" })
 
 -- The faction may not be known yet at ADDON_LOADED: if it turns out to be the other one,
 -- switch to that faction's store before anything is received.
@@ -739,7 +755,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -774,6 +790,7 @@ local function Help()
 	print(L.HELP_CHAN_CAPTAINS)
 	print(L.HELP_CHAN_LORDS)
 	print(L.HELP_CHAN_MUTE)
+	print(L.HELP_VOX)
 	print("  /oly mates - show/hide guildmates on map and minimap")
 	print("  /oly share - share/stop sharing your position with your guild")
 	print("  /oly bug - copy a bug report (errors + diagnostics)")
@@ -812,7 +829,17 @@ SlashCmdList.OLYMPUS = function(input)
 			else
 				ns.Print(ns.L.THRONE_ONLY_KING)
 			end
+		elseif cmd == "vox" then
+			local word = rest:lower()
+			if word == "on" or word == "off" then
+				ns.Vox.SetOff(word == "off")
+			elseif ns.Vox.Visible and ns.Vox.Visible() then
+				ns.UI.SelectTab("vox")
+			else
+				ns.Print(L.HELP_VOX)
+			end
 		elseif cmd == "realm" or cmd == "tree" or cmd == "layers" then
+			if ns.Views.CloseChat then ns.Views.CloseChat() end
 			ns.UI.SelectTab("realm")
 		elseif cmd == "decrees" then
 			ns.UI.SelectTab("decrees")

@@ -116,7 +116,9 @@ function Comm.Stats()
 	}
 end
 
-local function Enqueue(dist, msg, key, target)
+-- urgent: ahead of everything waiting (a player waits for the answer: a layer ask, an offer,
+-- a vote), behind the other urgent ones.
+local function Enqueue(dist, msg, key, target, urgent)
 	if key then
 		for _, item in ipairs(queue) do
 			if item[3] == key then
@@ -125,30 +127,45 @@ local function Enqueue(dist, msg, key, target)
 			end
 		end
 	end
-	if #queue >= MAX_QUEUE then table.remove(queue, 1) end
-	queue[#queue + 1] = { dist, msg, key, target }
+	if #queue >= MAX_QUEUE then
+		-- Full: the oldest ordinary message goes (never an urgent one).
+		local drop = 1
+		for i, item in ipairs(queue) do
+			if not item[5] then drop = i break end
+		end
+		table.remove(queue, drop)
+	end
+	local item = { dist, msg, key, target, urgent or nil }
+	if urgent then
+		local at = 1
+		while queue[at] and queue[at][5] do at = at + 1 end
+		table.insert(queue, at, item)
+	else
+		queue[#queue + 1] = item
+	end
 end
 
 -- Other modules send small messages through here and register a handler per type.
 --   Comm.Send("GUILD" | "CHANNEL", msg, dedupeKey)
 --   Comm.Handle("P1", function(dist, sender, text) ... end)
 local handlers = {}
-function Comm.Send(dist, msg, key)
+function Comm.Send(dist, msg, key, urgent)
 	if dist == "GUILD" and not IsInGuild() then return end
-	Enqueue(dist, msg, key)
+	Enqueue(dist, msg, key, nil, urgent)
 end
 -- An addon message to one player only (answers to the King, Throne tab).
-function Comm.Whisper(target, msg, key)
+function Comm.Whisper(target, msg, key, urgent)
 	if type(target) ~= "string" or target == "" then return end
-	Enqueue("WHISPER", msg, key, target)
+	Enqueue("WHISPER", msg, key, target, urgent)
 end
 function Comm.Handle(msgType, fn)
 	handlers[msgType] = fn
 end
--- Long payloads (> 255 bytes) go through the same chunking as reports.
-function Comm.SendChunked(payload)
+-- Long payloads (> 255 bytes) go through the same chunking as reports; urgent ones (a
+-- question to the army) ahead of the census, their pieces still in order.
+function Comm.SendChunked(payload, urgent)
 	msgId = (msgId + 1) % 1000
-	for _, c in ipairs(Codec.Chunk(payload, tostring(msgId))) do Enqueue("CHANNEL", c) end
+	for _, c in ipairs(Codec.Chunk(payload, tostring(msgId))) do Enqueue("CHANNEL", c, nil, nil, urgent) end
 end
 function Comm.ChannelReady()
 	return channelIndex > 0

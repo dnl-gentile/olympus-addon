@@ -139,12 +139,31 @@ end
 
 -- The chance to answer, so a crowded layer sends about OFFERS offers in all. Layers.lua sees
 -- the officers and a 1 in 8 sample, so the crowd is a few times what it counts.
+-- The census helps when the sample saw few (right after login, a quiet channel): the addon
+-- users in the zone (each fresh, undisputed guild's members there, times its share of addon
+-- users), shared by at least two layers. It may only lower the chance a little (at most
+-- CENSUS_REACH times the sample's crowd, plus a few): too many offers cost a few whispers,
+-- too few leave the asker with nobody, and one false report must not silence a zone.
+Hop.CENSUS_REACH = 2
 function Hop.Chance(mapID, zoneUID)
-	local count = 1
+	local count, layers = 1, 0
 	for _, layer in ipairs(ns.Layers.ForMap(mapID)) do
+		layers = layers + 1
 		if layer.zoneUID == zoneUID then count = layer.count end
 	end
-	return math.min(1, Hop.OFFERS / math.max(1, count * 4))
+	local crowd = count * 4
+	local users = 0
+	local s = ns.Data and ns.Data.Summary and ns.Data.Summary()
+	for _, e in ipairs(s and s.guilds or {}) do
+		local g = e.g
+		local here = e.fresh and not g.twin and not g.conflict and g.zones and g.zones["m" .. tostring(mapID)]
+		if here and (g.online or 0) > 0 then users = users + here * math.min(1, (g.users or 0) / g.online) end
+	end
+	if users > 0 then
+		local census = users / math.max(2, layers)
+		crowd = math.max(crowd, math.min(census, crowd * Hop.CENSUS_REACH + 8))
+	end
+	return math.min(1, Hop.OFFERS / math.max(1, crowd))
 end
 
 function Hop.HandleAsk(dist, sender, text)
@@ -166,7 +185,7 @@ function Hop.HandleAsk(dist, sender, text)
 	local load = Load()
 	-- A random pause spreads the offers of a crowd over a couple of seconds.
 	Hop.after(0.2 + Hop.random() * 2.3, "hop offer", function()
-		ns.Comm.Whisper(sender, ("LO~%d~%d~%d"):format(id, group, load))
+		ns.Comm.Whisper(sender, ("LO~%d~%d~%d"):format(id, group, load), nil, true)
 		stats.offers = stats.offers + 1
 	end)
 end
@@ -183,7 +202,7 @@ local function Invite(name, id, release)
 end
 
 local function SayNo(name, id)
-	ns.Comm.Whisper(name, ("LN~%d"):format(id))
+	ns.Comm.Whisper(name, ("LN~%d"):format(id), nil, true)
 	stats.noes = stats.noes + 1
 end
 
@@ -290,7 +309,7 @@ function Hop.Next()
 	ask.tried[o.name] = true
 	ask.tries = ask.tries + 1
 	ask.helper, ask.phase, ask.asked = o.name, "requested", ns.Now()
-	ns.Comm.Whisper(o.name, ("LR~%d"):format(ask.id))
+	ns.Comm.Whisper(o.name, ("LR~%d"):format(ask.id), nil, true)
 	ns.Print(L.HOP_REQUESTED:format(ns.DisplayName(o.name)))
 	Changed()
 end
@@ -315,7 +334,8 @@ function Hop.Ask(mapID, zoneUID, label)
 		from = mine and { mapID = mine.mapID, zoneUID = mine.zoneUID },
 	}
 	stats.asks = stats.asks + 1
-	ns.Comm.Send("CHANNEL", ("LQ~%d~%d~%d"):format(ask.id, mapID, zoneUID))
+	-- Ahead of the census traffic: someone waits for an invite (Comm.Send urgent).
+	ns.Comm.Send("CHANNEL", ("LQ~%d~%d~%d"):format(ask.id, mapID, zoneUID), nil, true)
 	ns.Print(L.HOP_ASKING:format(ask.label))
 	ns.Log("hop: ask %d for map %d zoneUID %d", ask.id, mapID, zoneUID)
 	Changed()

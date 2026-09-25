@@ -1,17 +1,21 @@
 local ADDON, ns = ...
 local L = ns.L
 
--- The Throne: a fifth tab for the King alone (the guild master of the guild named exactly
--- "Olympus" of his faction). What he sends goes out on the Olympus channel as T1 messages,
--- and every client checks that the sender really is that guild master (Data.KnownRank:
--- his own guildmates from their roster, everyone else from the census vote). Answers go
--- back to him alone (T2, T3 as whispered addon messages).
+-- The Throne: a tab for the King alone (the guild master of the guild named exactly
+-- "Olympus" of his faction), and for the Hands he names. What he sends goes out on the
+-- Olympus channel as T1 messages, and every client checks that the sender really is that
+-- guild master (Data.KnownRank: his own guildmates from their roster, everyone else from the
+-- census vote), or one of his Hands for the tools he lends them (HAND_MAY). Answers go back
+-- to whoever asked, alone (T2, T3 as whispered addon messages).
 --   T1~S~<id>~<guild>                      Summon the Lords (roll call)
 --   T1~I~<id>~<guild>                      Royal Inspection: every addon patrols 2 minutes
 --   T1~A~<id>~<guild>~<minutes>~<zone>~<title>   The King's Agenda (resent every 5 min)
 --   T1~X~<id>~<guild>                      Agenda cancelled
+--   T1~H~<id>~<guild>~<Name-Realm,...>     the Hands of the King (his alone; resent every 5 min)
 --   T2~<id>~<P|B>~<guild>                  a Lord's answer to the roll call
 --   T3~<id>~<guild>~<ok>~<none>~<other>~<name:guild,...>   an inspection report
+-- Other modules add their own kinds (King.Register): Vox Populi (V, E), writs (W), the court
+-- (C, Z), the gates (G), pardons (F).
 
 local King = {}
 ns.King = King
@@ -28,7 +32,12 @@ King.MAX_REPORTS = 150       -- inspection reports kept
 King.MAX_CHECKS = 60         -- checks one patrol can report in 2 minutes
 King.MAX_SHOWN = 30          -- violators listed on the page
 
-King.mode = "letter"         -- what the tab shows: letter, summon, inspect, agenda
+King.MAX_HANDS = 40          -- Hands of the King (the list goes out in pieces when long)
+King.HANDS_EVERY = 300       -- the King's client repeats the list for late logins
+King.HANDS_FRESH = 20 * 60   -- a list the King stopped repeating (he left) ends
+
+King.mode = nil              -- what the tab shows: home, hands or letter (nil: the letter until
+                             -- the King has read it, then home)
 local summon, inspect        -- the King's own roll call / inspection in progress
 local agenda                 -- the agenda everyone sees: { id, title, at, zone, by }
 local lastSummonSeen, lastInspectSeen, inspecting = -math.huge, -math.huge, nil
@@ -67,13 +76,17 @@ function King.IsKing()
 end
 
 -- The author's test build (Dev.lua, never published) shows the tab without the powers:
--- nothing it does reaches anyone.
+-- nothing it does reaches anyone. The author turns this "Asmond's view" on and off from the
+-- Workshop (ns.db.devKingView).
 function King.Preview()
+	if King.IsKing() then return false end
+	local view = ns.db and ns.db.devKingView
+	if view ~= nil and ns.Workshop and ns.Workshop.Visible and ns.Workshop.Visible() then return view == true end
 	local dev = ns.devThrone
 	if type(dev) == "table" then dev = dev[UnitName and UnitName("player") or ""] == true or dev[ns.ShortName(ns.me or "")] == true end
 	return dev == true and not King.IsKing()
 end
-function King.Visible() return King.IsKing() or King.Preview() end
+function King.Visible() return King.IsKing() or King.IsHand() or King.Preview() end
 
 -- soft: for his position (it only shows, Data.KnownRank); his commands need the full check.
 local function KingSender(sender, guild, soft)
@@ -101,6 +114,189 @@ end
 
 local function NewId() return math.random(1, 99999) end
 
+---------------------------------------------------------------------------
+-- The Hands of the King: the players he names use the Throne's tools in his name (HAND_MAY:
+-- the roll call, the inspection, the agenda, Vox Populi, the gates), never what is his alone
+-- (the Hands, writs, the court, pardons, his position). Each client keeps the list of the
+-- King it trusts, as he last sent it; a list he stopped repeating ends (HANDS_FRESH).
+---------------------------------------------------------------------------
+
+King.HAND_MAY = { S = true, I = true, A = true, X = true, V = true, E = true, G = true }
+local hands = {}         -- [Name-Realm] = true, as the King last sent it
+local handsAt = -math.huge
+local handsKing          -- who sent that list (the King's name on a Hand's Throne Room)
+local myHands = {}       -- the King's own list, in order: { "Name-Realm", ... } (saved: rdb.kingHands)
+local lastHandsSent = -math.huge
+local handsSendPending = false
+
+-- On the King's own client his list is the one he keeps (his broadcast never comes back to
+-- him); everyone else trusts the list he last sent, while he keeps sending it.
+local function Hand(name)
+	local full = ns.FullName(name)
+	if King.IsKing() then
+		for _, n in ipairs(myHands) do if n == full then return true end end
+		return false
+	end
+	return ns.Now() - handsAt <= King.HANDS_FRESH and hands[full] == true
+end
+
+function King.IsHand() return not King.IsKing() and ns.IsMember() and Hand(ns.me) end
+function King.Hands() return myHands end
+
+-- The King may send it, or one of his Hands if it is theirs to use too (soft: his position).
+function King.Authorized(kind, sender, guild)
+	if KingSender(sender, guild, kind == "P" or kind == "Q") then return true end
+	return King.HAND_MAY[kind] == true and Hand(sender)
+end
+
+-- The King, or a Hand: the tools of the Throne.
+function King.CanCommand() return King.IsKing() or King.IsHand() end
+
+-- The King himself sent it (not a Hand): for how it is shown.
+function King.FromKing(sender, guild) return KingSender(sender, guild, true) end
+
+-- The King's list, kept across sessions (a /reload must not drop his Hands).
+local function SaveHands()
+	if not ns.rdb then return end
+	local copy = {}
+	for i, n in ipairs(myHands) do copy[i] = n end
+	ns.rdb.kingHands = copy
+end
+
+-- Several changes in a row go out as one list, a few seconds after the last one.
+local function SendHandsSoon()
+	if handsSendPending then return end
+	handsSendPending = true
+	ns.After(3, "king hands", function()
+		handsSendPending = false
+		King.SendHands(true)
+	end)
+end
+
+-- The King's list goes out whole: short in one message, long in pieces (Comm.SendChunked).
+function King.SendHands(force)
+	if not King.IsKing() then return end
+	local now = ns.Now()
+	if not force and now - lastHandsSent < King.HANDS_EVERY then return end
+	if #myHands == 0 and lastHandsSent == -math.huge then return end -- nobody named yet
+	lastHandsSent = now
+	local msg = ("T1~H~%d~%s~%s"):format(NewId(), GetGuildInfo("player") or "", table.concat(myHands, ","))
+	if #msg <= 250 then ns.Comm.Send("CHANNEL", msg, "hands") else ns.Comm.SendChunked(msg) end
+end
+
+-- A name typed or targeted, as the server writes it; nil if it can't be a character.
+local function HandName(input)
+	local name = tostring(input or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if name == "" then
+		name = UnitIsPlayer and UnitIsPlayer("target") and ns.UnitFullName("target") or ""
+	end
+	name = ns.Normal(name)
+	local short = CleanName(name)
+	if not short then return nil end
+	return ns.FullName(short, ns.RealmOf(name))
+end
+
+function King.AddHand(input)
+	if not King.IsKing() and not King.Preview() then return ns.Print(L.THRONE_ONLY_KING) end
+	local name = HandName(input)
+	if not name then return ns.Print(L.HANDS_WHO) end
+	if name == ns.me then return end
+	for _, n in ipairs(myHands) do if n == name then return end end
+	if #myHands >= King.MAX_HANDS then return ns.Print(L.HANDS_FULL:format(King.MAX_HANDS)) end
+	myHands[#myHands + 1] = name
+	SaveHands()
+	ns.Print(L.HANDS_ADDED:format(ns.DisplayName(name)))
+	if King.IsKing() then SendHandsSoon() end
+	King.mode = "hands"
+	Changed()
+end
+
+function King.RemoveHand(name)
+	for i, n in ipairs(myHands) do
+		if n == name then
+			table.remove(myHands, i)
+			SaveHands()
+			ns.Print(L.HANDS_REMOVED:format(ns.DisplayName(name)))
+			if King.IsKing() then SendHandsSoon() end
+			return Changed()
+		end
+	end
+end
+
+local function OnHands(king, rest)
+	local list, n = {}, 0
+	for name in tostring(rest or ""):gmatch("[^,]+") do
+		local short = CleanName(name)
+		if short and n < King.MAX_HANDS then
+			list[ns.FullName(short, ns.RealmOf(name))] = true
+			n = n + 1
+		end
+	end
+	local was = King.IsHand()
+	hands, handsAt, handsKing = list, ns.Now(), ns.FullName(king)
+	local now = King.IsHand()
+	if now and not was then
+		ns.Print(L.HANDS_YOU:format(ns.KingName(king)))
+		ns.PlayAlert("soft")
+		ns.Fire("DATA_CHANGED") -- the Throne's tab appears
+	elseif was and not now then
+		ns.Fire("DATA_CHANGED")
+	end
+	Changed()
+end
+
+StaticPopupDialogs["OLYMPUS_KING_HAND"] = {
+	text = L.HANDS_PROMPT,
+	button1 = OKAY or "OK",
+	button2 = CANCEL or "Cancel",
+	hasEditBox = true,
+	editBoxWidth = 240,
+	maxLetters = 40,
+	OnShow = function(self)
+		local eb = self.editBox or self.EditBox
+		if eb then
+			local target = UnitIsPlayer and UnitIsPlayer("target") and ns.UnitFullName("target")
+			eb:SetText(target and ns.DisplayName(target) or "")
+			eb:SetFocus()
+		end
+	end,
+	OnAccept = function(self)
+		local eb = self.editBox or self.EditBox
+		ns.SafeCall("add hand", King.AddHand, eb and eb:GetText())
+	end,
+	EditBoxOnEnterPressed = function(self)
+		ns.SafeCall("add hand", King.AddHand, self:GetText())
+		self:GetParent():Hide()
+	end,
+	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+StaticPopupDialogs["OLYMPUS_KING_UNHAND"] = {
+	text = L.HANDS_REMOVE_CONFIRM,
+	button1 = YES or "Yes",
+	button2 = NO or "No",
+	OnAccept = function(self, data) ns.SafeCall("remove hand", King.RemoveHand, data or (self and self.data)) end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+-- Other modules' kinds of T1 (Vox Populi, writs, the court, the gates, pardons):
+-- fn(sender, id, rest, guild), called once King.Authorized agreed.
+local kinds = {}
+function King.Register(kind, fn) kinds[kind] = fn end
+King.Changed = function() Changed() end
+King.Warn = function(text, loud) Warn(text, loud) end
+King.NewId = function() return NewId() end
+King.CleanName = function(s) return CleanName(s) end
+King.CleanGuild = function(s) return CleanGuild(s) end
+King.Verified = function(sender, guild) return Verified(sender, guild) end
+
 -- Our tabard, checked the way a patrol checks others (level 15+ only: the Olympus rule).
 local function OwnTabard()
 	local level = UnitLevel and UnitLevel("player") or 0
@@ -114,14 +310,13 @@ end
 ---------------------------------------------------------------------------
 
 function King.Summon()
-	King.mode = "summon"
 	local now = ns.Now()
 	if King.Preview() then
 		summon = { id = 0, t = now, answers = {}, preview = true }
 		ns.Print(L.THRONE_PREVIEW_NOTE)
 		return Changed()
 	end
-	if not King.IsKing() then return end
+	if not King.CanCommand() then return end
 	if now - lastSummonSent < King.SUMMON_GAP then
 		ns.Print(L.THRONE_WAIT:format(math.ceil(King.SUMMON_GAP - (now - lastSummonSent))))
 		return Changed()
@@ -133,13 +328,15 @@ function King.Summon()
 	Changed()
 end
 
-local function OnSummon(king, id)
+local function OnSummon(king, id, guild)
 	local now = ns.Now()
 	if now - lastSummonSeen < King.SUMMON_GAP then return end
 	if not ns.IsMember() or ns.Roster.MyRank() > ns.CAPTAIN_RANK then return end
 	lastSummonSeen = now
 	ns.PlayAlert("soft")
-	StaticPopup_Show("OLYMPUS_KING_SUMMON", ns.DisplayName(king), nil, { king = king, id = id })
+	-- The King by the army's name for him; a Hand by theirs.
+	local who = King.FromKing(king, guild) and L.THRONE_SUMMONED:format(ns.KingName(king)) or L.THRONE_SUMMONED_HAND:format(ns.DisplayName(king))
+	StaticPopup_Show("OLYMPUS_KING_SUMMON", who, nil, { king = king, id = id })
 end
 
 local function Answer(data, word)
@@ -148,7 +345,7 @@ local function Answer(data, word)
 end
 
 StaticPopupDialogs["OLYMPUS_KING_SUMMON"] = {
-	text = L.THRONE_SUMMONED,
+	text = "%s",
 	button1 = L.THRONE_PRESENT,
 	button2 = L.THRONE_BUSY,
 	OnAccept = function(self, data) ns.SafeCall("throne answer", Answer, data or self.data, "P") end,
@@ -190,7 +387,7 @@ function King.HandleAnswer(dist, sender, text)
 		if not summon.others[sender] then
 			local n = 0
 			for _ in pairs(summon.others) do n = n + 1 end
-			if n < King.MAX_ANSWERS then summon.others[sender] = true end
+			if n < King.MAX_ANSWERS then summon.others[sender] = word end
 		end
 		return Changed()
 	end
@@ -207,7 +404,6 @@ ns.Comm.Handle("T2", function(...) King.HandleAnswer(...) end)
 ---------------------------------------------------------------------------
 
 function King.Inspect()
-	King.mode = "inspect"
 	local now = ns.Now()
 	if King.Preview() then
 		ns.Print(L.THRONE_PREVIEW_NOTE)
@@ -215,7 +411,7 @@ function King.Inspect()
 		King.RunInspection(nil, 0) -- our own patrol only, reported to ourselves
 		return Changed()
 	end
-	if not King.IsKing() then return end
+	if not King.CanCommand() then return end
 	if now - lastInspectSent < King.INSPECT_GAP then
 		ns.Print(L.THRONE_WAIT:format(math.ceil(King.INSPECT_GAP - (now - lastInspectSent))))
 		return Changed()
@@ -299,7 +495,7 @@ function King.ReceiveReport(sender, text)
 end
 
 function King.HandleReport(dist, sender, text)
-	if dist ~= "WHISPER" or not King.IsKing() then return end
+	if dist ~= "WHISPER" or not King.CanCommand() then return end
 	King.ReceiveReport(sender, text)
 end
 ns.Comm.Handle("T3", function(...) King.HandleReport(...) end)
@@ -307,6 +503,8 @@ ns.Comm.Handle("T3", function(...) King.HandleReport(...) end)
 -- The violators the inspection found go on the King's own list, then the usual Wall of Shame.
 function King.PublishShame()
 	if not inspect then return end
+	-- The Wall of Shame is the Crown's (a Hand who is not of the Crown can't publish it).
+	if not ns.IsCrown() and not King.Preview() then return ns.Print(L.CROWN_ONLY) end
 	for _, r in pairs(inspect.reports) do
 		for _, v in ipairs(r.names) do ns.Inspect.AddReported(v.name, v.guild, v.status) end
 	end
@@ -325,7 +523,7 @@ local function ZoneName()
 	return (GetRealZoneText and GetRealZoneText()) or (GetZoneText and GetZoneText()) or ""
 end
 
-local function Clean(s, n) return (tostring(s or ""):gsub("[~|\n]", " "):sub(1, n)) end
+local function Clean(s, n) return ns.Cut((tostring(s or ""):gsub("[~|\n]", " ")), n) end
 
 -- "30 Raid on Crossroads": minutes first, then the title.
 function King.ParseAgenda(input)
@@ -353,7 +551,7 @@ function King.SetAgenda(input)
 		ns.Print(L.THRONE_PREVIEW_NOTE)
 		return Changed() or true
 	end
-	if not King.IsKing() then return false end
+	if not King.CanCommand() then return false end
 	agenda = mine
 	King.SendAgenda()
 	Warn(L.THRONE_AGENDA_SET:format(title, minutes, mine.zone))
@@ -371,7 +569,9 @@ end
 
 function King.CancelAgenda()
 	if not agenda then return end
-	if agenda.mine and not King.Preview() then
+	-- The King or a Hand cancels it for everyone, whoever set it (its setter's client stops
+	-- repeating it when the cancel reaches it).
+	if (agenda.mine or King.CanCommand()) and not King.Preview() then
 		ns.Comm.Send("CHANNEL", ("T1~X~%d~%s"):format(agenda.id, GetGuildInfo("player") or ""), "agenda")
 	end
 	agenda = nil
@@ -516,13 +716,18 @@ function King.HandleCommand(dist, sender, text)
 	if dist ~= "CHANNEL" then return end
 	local kind, id, guild, rest = text:match("^T1~(%a)~(%d+)~([^~]*)~?(.*)$")
 	if not kind then return end
-	if not KingSender(sender, guild, kind == "P" or kind == "Q") then
+	if not King.Authorized(kind, sender, guild) then
 		-- Positions come every few seconds: not logged.
-		if kind ~= "P" then ns.Log("throne %s from %s ignored: not the King of %s", kind, sender, tostring(guild)) end
+		if kind ~= "P" then ns.Log("throne %s from %s ignored: not the King of %s nor his Hand", kind, sender, tostring(guild)) end
 		return
 	end
 	id = tonumber(id)
-	if kind == "S" then OnSummon(sender, id)
+	-- The King's own client takes his Hands' news (the agenda, the gates, a cancel), not
+	-- their calls to the army: no roll call popup, patrol or poll window for him.
+	if King.IsKing() and (kind == "S" or kind == "I" or kind == "V") and not KingSender(sender, guild) then return end
+	if kind == "S" then OnSummon(sender, id, guild)
+	elseif kind == "H" then OnHands(sender, rest)
+	elseif kinds[kind] then kinds[kind](sender, id, rest, guild)
 	elseif kind == "I" then OnInspect(sender, id)
 	elseif kind == "A" then OnAgenda(sender, id, rest)
 	elseif kind == "P" then OnLocation(sender, rest)
@@ -545,6 +750,12 @@ ns.On("LOGIN", function()
 		SendLocation()
 		King.RefreshCrown()
 	end)
+	-- His Hands from the last session; he repeats them for late logins (HANDS_EVERY).
+	wipe(myHands)
+	for _, n in ipairs(ns.rdb and ns.rdb.kingHands or {}) do
+		if type(n) == "string" and #myHands < King.MAX_HANDS then myHands[#myHands + 1] = n end
+	end
+	ns.Every(60, "king hands", function() King.SendHands() end)
 	-- The guild is not always known at login yet: checked when the note is due.
 	ns.After(20, "king location note", function()
 		if King.SharingLocation() and King.IsKing() then ns.Print(L.THRONE_LOCATION_SHOWN) end
@@ -596,7 +807,6 @@ StaticPopupDialogs["OLYMPUS_KING_AGENDA"] = {
 }
 
 function King.AgendaPrompt()
-	King.mode = "agenda"
 	StaticPopup_Show("OLYMPUS_KING_AGENDA")
 	Changed()
 end
@@ -613,6 +823,25 @@ local function Line(text, font, extra)
 	return l
 end
 
+-- A paragraph in rows short enough for the page (rows are one line each): split at spaces,
+-- about `width` letters a row. The last row takes `extra` (gapAfter...).
+King.WRAP = 44
+local function Para(lines, text, font, extra)
+	local row, rows = "", {}
+	for word in tostring(text or ""):gmatch("%S+") do
+		if row ~= "" and #row + 1 + #word > King.WRAP then
+			rows[#rows + 1] = row
+			row = word
+		else
+			row = row == "" and word or (row .. " " .. word)
+		end
+	end
+	if row ~= "" then rows[#rows + 1] = row end
+	for i, r in ipairs(rows) do lines[#lines + 1] = Line(r, font, i == #rows and extra or nil) end
+	return lines
+end
+King.Para = Para
+
 function King.LetterLines()
 	local lines = {}
 	for part in (L.THRONE_LETTER .. "\n"):gmatch("(.-)\n") do
@@ -622,52 +851,96 @@ function King.LetterLines()
 	return lines
 end
 
-local function SummonLines()
-	local lines = { Line(L.THRONE_SUMMON_TITLE, TITLE) }
-	if not summon then
-		lines[#lines + 1] = Line(L.THRONE_SUMMON_HINT)
-		return lines
-	end
-	local present, busy = {}, {}
+---------------------------------------------------------------------------
+-- Where the King's calls show: the roll call in the Realm tab (next to the Lords it calls),
+-- the Royal Inspection in the Tabards tab. Plain rows (not the parchment), for the King and
+-- his Hands (and the author's Asmond's view).
+---------------------------------------------------------------------------
+
+local function Grey(s) return "|cff9d9d9d" .. s .. "|r" end
+local function Gold(s) return "|cffffd200" .. s .. "|r" end
+local function Green(s) return "|cff40ff40" .. s .. "|r" end
+local READY = "|TInterface\\RaidFrame\\ReadyCheck-Ready:13:13|t "
+local NOT_READY = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:13:13|t "
+local WAITING = "|TInterface\\RaidFrame\\ReadyCheck-Waiting:13:13|t "
+King.ROLL_SHOWN = 15 * 60    -- the marks next to the Lords stay this long after a roll call
+
+function King.CanCall() return King.CanCommand() or King.Preview() end
+
+-- Who answered the roll call: present and busy (confirmed Lords and Captains), the others
+-- the census can't confirm (counted), and the Lords online who stayed silent.
+local function RollCall()
+	if not summon then return nil end
+	local present, busy, silent, others = {}, {}, {}, 0
 	for name, a in pairs(summon.answers) do
-		local row = Line(("%s <%s>"):format(ns.DisplayName(name), a.guild), INK)
+		local row = ("%s <%s>"):format(ns.DisplayName(name), a.guild)
 		if a.word == "P" then present[#present + 1] = row else busy[#busy + 1] = row end
 	end
-	lines[#lines + 1] = Line(L.THRONE_PRESENT_N:format(#present), INK, { header = true, font = TITLE })
-	for _, r in ipairs(present) do r.indent = 1; lines[#lines + 1] = r end
-	lines[#lines + 1] = Line(L.THRONE_BUSY_N:format(#busy), INK, { header = true, font = TITLE })
-	for _, r in ipairs(busy) do r.indent = 1; lines[#lines + 1] = r end
-	local others = 0
 	for _ in pairs(summon.others or {}) do others = others + 1 end
-	if others > 0 then lines[#lines + 1] = Line(L.THRONE_UNCONFIRMED:format(others)) end
-	local silent = {}
 	for _, lord in ipairs(LordsOnline()) do
-		if not summon.answers[lord.name] and lord.name ~= ns.me then silent[#silent + 1] = lord end
+		local answered = summon.answers[lord.name] or (summon.others and summon.others[lord.name])
+		if not answered and lord.name ~= ns.me then silent[#silent + 1] = ("%s <%s>"):format(ns.DisplayName(lord.name), lord.guild) end
 	end
-	lines[#lines + 1] = Line(L.THRONE_SILENT_N:format(#silent), INK, { header = true, font = TITLE })
-	for _, lord in ipairs(silent) do lines[#lines + 1] = Line(("%s <%s>"):format(ns.DisplayName(lord.name), lord.guild), INK, { indent = 1 }) end
+	table.sort(present); table.sort(busy); table.sort(silent)
+	return present, busy, silent, others
+end
+
+-- The mark next to a Lord or Captain in the Realm tree while a roll call is fresh: answered
+-- present, busy, or (online) not answered yet.
+function King.RollCallMark(name, online)
+	if not summon or not King.CanCall() or ns.Now() - summon.t > King.ROLL_SHOWN then return "" end
+	local full = ns.FullName(name)
+	if full == ns.me then return "" end -- who called
+	local a = summon.answers[full]
+	if a then return a.word == "P" and READY or NOT_READY end
+	-- An answer the census could not confirm (counted apart) is still an answer: the mark only.
+	local o = summon.others and summon.others[full]
+	if o then return o == "P" and READY or NOT_READY end
+	return online and WAITING or ""
+end
+
+local rollOpen = false
+function King.RollCallLines()
+	if not King.CanCall() then return {} end
+	local present, busy, silent, others = RollCall()
+	local lines = {
+		{
+			header = true, text = READY .. L.THRONE_SUMMON_TITLE,
+			right = present and Grey(L.ROLL_COUNTS:format(#present, #busy, #silent) .. "  " .. ns.Ago(summon.t)) or Gold(L.ROLL_CALL),
+			-- A call while there is none; once called, "call again" below (the results stay).
+			onClick = not present and function() King.Summon() end or nil,
+			tooltip = function(tt)
+				tt:AddLine(L.THRONE_SUMMON_TITLE, 1, 0.82, 0)
+				tt:AddLine(L.THRONE_SUMMON_TIP, 1, 1, 1, true)
+				tt:AddLine(L.ROLL_CLICK, 0.6, 0.6, 0.6, true)
+			end,
+		},
+	}
+	if present then
+		lines[#lines + 1] = { indent = 1, text = Gold((rollOpen and "[-] " or "[+] ") .. L.ROLL_WHO),
+			onClick = function()
+				rollOpen = not rollOpen
+				if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+			end }
+		if rollOpen then
+			for _, group in ipairs({ { L.THRONE_PRESENT_N, present, Green }, { L.THRONE_BUSY_N, busy, Grey }, { L.THRONE_SILENT_N, silent, Grey } }) do
+				lines[#lines + 1] = { indent = 1, text = group[3](group[1]:format(#group[2])) }
+				for _, row in ipairs(group[2]) do lines[#lines + 1] = { indent = 2, text = row } end
+			end
+			if others > 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.THRONE_UNCONFIRMED:format(others)) } end
+		end
+		lines[#lines + 1] = { indent = 1, text = Gold("> " .. L.ROLL_AGAIN), onClick = function() King.Summon() end }
+	end
+	lines[#lines].gapAfter = true
 	return lines
 end
 
-local function AgendaLines()
-	local lines = { Line(L.THRONE_AGENDA_TITLE, TITLE) }
-	local a = King.Agenda()
-	if a then
-		lines[#lines + 1] = Line(L.THRONE_AGENDA_LINE:format(a.title, math.max(0, math.ceil((a.at - ns.Now()) / 60)), a.zone))
-	else
-		lines[#lines + 1] = Line(L.THRONE_AGENDA_NONE)
-	end
-	return lines
-end
-
-local function InspectLines()
-	local lines = { Line(L.THRONE_INSPECT_TITLE, TITLE) }
-	if not inspect then
-		lines[#lines + 1] = Line(L.THRONE_INSPECT_HINT)
-		return lines
-	end
+-- The Royal Inspection on top of the Tabards tab: call one, then what the patrols reported.
+function King.InspectionLines()
+	if not King.CanCall() then return {} end
+	local lines = {}
 	local ok, bad, reporters, byGuild, names = 0, 0, 0, {}, {}
-	for _, r in pairs(inspect.reports) do
+	for _, r in pairs(inspect and inspect.reports or {}) do
 		reporters = reporters + 1
 		ok, bad = ok + r.ok, bad + r.none + r.other
 		local g = byGuild[r.guild] or { ok = 0, bad = 0 }
@@ -676,41 +949,114 @@ local function InspectLines()
 		for _, v in ipairs(r.names) do names[#names + 1] = v end
 	end
 	local total = ok + bad
-	local left = inspect.t + King.INSPECT_TIME + 10 - ns.Now()
-	if left > 0 then lines[#lines + 1] = Line(L.THRONE_INSPECT_RUNNING:format(math.ceil(left))) end
-	lines[#lines + 1] = Line(L.THRONE_INSPECT_SUMMARY:format(reporters, total, total > 0 and math.floor(ok * 100 / total + 0.5) or 0))
-	for guild, g in pairs(byGuild) do
-		local n = g.ok + g.bad
-		lines[#lines + 1] = Line(("%s: %d%%  (%d/%d)"):format(guild, n > 0 and math.floor(g.ok * 100 / n + 0.5) or 0, g.ok, n), INK, { indent = 1 })
-	end
-	if #names > 0 then
-		lines[#lines + 1] = Line(L.THRONE_VIOLATORS:format(#names), INK, { header = true, font = TITLE })
-		for i, v in ipairs(names) do
-			if i > King.MAX_SHOWN then
-				lines[#lines + 1] = Line(L.AND_MORE:format(#names - King.MAX_SHOWN), INK, { indent = 1 })
-				break
-			end
-			lines[#lines + 1] = Line(("%s <%s>  %s"):format(v.name, v.guild, v.status == "NONE" and L.TABARD_NONE or L.TABARD_OTHER), INK, { indent = 1 })
+	local pct = total > 0 and math.floor(ok * 100 / total + 0.5) or 0
+	lines[1] = {
+		header = true, text = "|TInterface\\Icons\\INV_Shirt_GuildTabard_01:14:14|t " .. L.THRONE_INSPECT_TITLE,
+		right = inspect and Grey(L.INSPECTION_SHORT:format(pct, total) .. "  " .. ns.Ago(inspect.t)) or Gold(L.INSPECTION_CALL),
+		onClick = not inspect and function() King.Inspect() end or nil,
+		tooltip = function(tt)
+			tt:AddLine(L.THRONE_INSPECT_TITLE, 1, 0.82, 0)
+			tt:AddLine(L.THRONE_INSPECT_TIP, 1, 1, 1, true)
+		end,
+	}
+	if inspect then
+		local left = inspect.t + King.INSPECT_TIME + 10 - ns.Now()
+		if left > 0 then lines[#lines + 1] = { indent = 1, text = Gold(L.THRONE_INSPECT_RUNNING:format(math.ceil(left))) } end
+		lines[#lines + 1] = { indent = 1, text = L.THRONE_INSPECT_SUMMARY:format(reporters, total, pct) }
+		local guilds = {}
+		for guild, g in pairs(byGuild) do guilds[#guilds + 1] = { name = guild, ok = g.ok, n = g.ok + g.bad } end
+		table.sort(guilds, function(a, b) return a.n > b.n end)
+		for _, g in ipairs(guilds) do
+			lines[#lines + 1] = { indent = 2, text = Green("<" .. g.name .. ">"),
+				right = ("%d%%  (%d/%d)"):format(g.n > 0 and math.floor(g.ok * 100 / g.n + 0.5) or 0, g.ok, g.n) }
 		end
+		if #names > 0 then
+			lines[#lines + 1] = { indent = 1, text = "|cffff4040" .. L.THRONE_VIOLATORS:format(#names) .. "|r" }
+			for i, v in ipairs(names) do
+				if i > 10 then
+					lines[#lines + 1] = { indent = 2, text = Grey(L.AND_MORE:format(#names - 10)) }
+					break
+				end
+				lines[#lines + 1] = { indent = 2, text = ("%s  %s"):format(v.name, Grey("<" .. v.guild .. ">")),
+					right = v.status == "NONE" and L.TABARD_NONE or L.TABARD_OTHER }
+			end
+			-- The Wall of Shame is the Crown's.
+			if ns.IsCrown() or King.Preview() then
+				lines[#lines + 1] = { indent = 1, text = Gold("> " .. L.INSPECTION_TO_WALL), onClick = function() King.PublishShame() end,
+					tooltip = function(tt) tt:AddLine(L.THRONE_SHAME_TIP, 1, 1, 1, true) end }
+			end
+		end
+		lines[#lines + 1] = { indent = 1, text = Gold("> " .. L.INSPECTION_AGAIN), onClick = function() King.Inspect() end }
+	end
+	lines[#lines].gapAfter = true
+	return lines
+end
+
+local function HandsLines()
+	local lines = Para({ Line(L.HANDS_TITLE, TITLE) }, L.HANDS_HINT, INK, { gapAfter = true })
+	if King.IsKing() or King.Preview() then
+		lines[#lines + 1] = Line("+ " .. L.HANDS_ADD, TITLE, { onClick = function() StaticPopup_Show("OLYMPUS_KING_HAND") end })
+		for _, name in ipairs(myHands) do
+			lines[#lines + 1] = Line(ns.DisplayName(name), INK, { indent = 1, key = name,
+				onClick = function() StaticPopup_Show("OLYMPUS_KING_UNHAND", ns.DisplayName(name), nil, name) end,
+				tooltip = function(tt) tt:AddLine(ns.DisplayName(name), 1, 0.82, 0); tt:AddLine(L.HANDS_CLICK_REMOVE, 1, 1, 1, true) end })
+		end
+		if #myHands == 0 then lines[#lines + 1] = Line(L.HANDS_NONE, INK, { indent = 1 }) end
+		lines[#lines].gapAfter = true
+		Para(lines, L.HANDS_NOTE, INK)
 	end
 	return lines
 end
 
+King.Line, King.INK, King.TITLE = Line, INK, TITLE
+
+local function Go(mode) return function() King.Show(mode) end end
+
+-- The Throne Room: what is the King's alone. Each tool lives where it belongs (the agenda and
+-- the court on the buttons below, the roll call in the Realm, the inspection in the Tabards,
+-- Vox Populi and the treasury on their own tabs): here, the court's queue while it is open and
+-- the treasury. A Hand's: where their tools are.
+local function HomeLines()
+	local mine = King.IsKing() or King.Preview()
+	local lines = { Line(mine and L.THRONE_ROOM or L.THRONE_ROOM_HAND:format(ns.KingName(handsKing)), TITLE, { gapAfter = true }) }
+	if not mine then return Para(lines, L.THRONE_HAND_HINT, INK) end
+	for _, l in ipairs(ns.Court and ns.Court.HomeLines and ns.Court.HomeLines() or {}) do lines[#lines + 1] = l end
+	if #lines > 1 then lines[#lines].gapAfter = true end
+	for _, l in ipairs(ns.Treasury and ns.Treasury.ThroneLines and ns.Treasury.ThroneLines() or {}) do lines[#lines + 1] = l end
+	return lines
+end
+
+-- The King's own pages: a Hand's Throne Room has no link to them.
+King.KING_PAGES = { hands = true }
+
 -- For Views.Build("throne"): lines, detail title, detail text.
+-- The King opens the Throne on the author's letter until he has read it (left it for the
+-- Throne Room once); then on the Throne Room. A Hand never gets the letter first.
 function King.Build(s)
-	local lines
-	if King.mode == "summon" then lines = SummonLines()
-	elseif King.mode == "inspect" then lines = InspectLines()
-	elseif King.mode == "agenda" then lines = AgendaLines()
-	else lines = King.LetterLines() end
+	local lines, home
+	local mine = King.IsKing() or King.Preview()
+	if not King.mode then King.mode = (mine and not ns.db.throneLetterRead) and "letter" or "home" end
+	local mode = King.mode
+	if King.KING_PAGES[mode] and not (King.IsKing() or King.Preview()) then mode = "home" end
+	if mode == "hands" then lines = HandsLines()
+	elseif mode == "letter" then lines = King.LetterLines()
+	else lines, home = HomeLines(), true end
+	-- Every other page leads back to the Throne Room (the letter also at its end).
+	if not home then table.insert(lines, 1, Line("< " .. L.THRONE_ROOM, INK, { onClick = Go("home"), gapAfter = true })) end
+	if mode == "letter" then
+		lines[#lines].gapAfter = true
+		lines[#lines + 1] = Line(L.THRONE_ENTER .. " >", TITLE, { onClick = Go("home") })
+	end
 	-- While the army sees him on the map, the page says so on top, whatever it shows.
 	if King.SharingLocation() and King.IsKing() then
 		table.insert(lines, 1, Line("|T" .. ns.CROWN_ICON .. ":0|t " .. L.THRONE_LOCATION_LIVE, TITLE, { gapAfter = true }))
 	end
-	return lines, L.TAB_THRONE, L.THRONE_YOU_ARE_KING
+	return lines, L.TAB_THRONE, King.IsHand() and L.THRONE_YOU_ARE_HAND:format(ns.KingName(handsKing)) or L.THRONE_YOU_ARE_KING
 end
 
 function King.Show(mode)
+	-- Leaving the letter for another page: read.
+	if King.mode == "letter" and mode ~= "letter" and (King.IsKing() or King.Preview()) then ns.db.throneLetterRead = true end
 	King.mode = mode
 	Changed()
 end
@@ -723,10 +1069,21 @@ function King.CancelAgendaButton()
 end
 
 function King.State() return { summon = summon, inspect = inspect, agenda = agenda, inspecting = inspecting } end
+
+-- The author's Workshop: Asmond's view on or off (the Throne, Vox Populi, the King's calls in
+-- the Realm and the Tabards), to see and try them. Nothing the view does reaches anyone.
+function King.SetDevView(on)
+	ns.db.devKingView = on and true or false
+	ns.Print(on and L.DEV_KING_VIEW_NOW_ON or L.DEV_KING_VIEW_NOW_OFF)
+	ns.Fire("DATA_CHANGED")
+	Changed()
+end
 function King.Reset()
 	summon, inspect, agenda, inspecting, kingAt, crownAt = nil, nil, nil, nil, nil, nil
+	hands, handsAt, lastHandsSent, handsKing, handsSendPending = {}, -math.huge, -math.huge, nil, false
+	wipe(myHands)
 	lastLocation = { t = -math.huge }
 	lastSummonSeen, lastInspectSeen, lastSummonSent, lastInspectSent = -math.huge, -math.huge, -math.huge, -math.huge
 	lastAgendaSent, lastAgendaWarn, changePending = -math.huge, -math.huge, false
-	King.mode = "letter"
+	King.mode, rollOpen = nil, false
 end
