@@ -112,14 +112,14 @@ end
 ---------------------------------------------------------------------------
 
 -- "[Captains] [Name] <Guild>: text". The name is a player link, like in any chat line, so a
--- click opens the usual whisper and menu. The text is sanitized again here: history comes
--- from the SavedVariables too.
+-- click opens the usual whisper and menu (to the name the server finds, ns.TellName). The
+-- text is sanitized again here: history comes from the SavedVariables too.
 function Channels.FormatLine(tier, sender, guild, class, text)
 	local name = ns.DisplayName(sender) or "?"
 	local file = class and ns.CLASS_FILES[class]
 	local color = file and RAID_CLASS_COLORS and RAID_CLASS_COLORS[file]
 	if color and color.colorStr then name = "|c" .. color.colorStr .. name .. "|r" end
-	return "[" .. Label(tier) .. "] |Hplayer:" .. sender .. "|h[" .. name .. "]|h <"
+	return "[" .. Label(tier) .. "] |Hplayer:" .. (ns.TellName(sender) or "?") .. "|h[" .. name .. "]|h <"
 		.. tostring(guild or "?"):gsub("|", "||") .. ">: " .. Codec.SanitizeChat(text)
 end
 

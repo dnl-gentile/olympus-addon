@@ -74,7 +74,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Acts", "Workshop", "Recruit", "Views" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Acts", "Workshop", "Recruit", "Views" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -1234,7 +1234,7 @@ local CHAR_W = { GameFontNormalLarge = 9, GameFontNormal = 7, GameFontHighlight 
 local FONT_GLOBALS = { "GameFontNormalLarge", "GameFontNormal", "GameFontHighlightSmall", "GameFontWhiteTiny" }
 
 local Widget = {}
-local NOOP_VERBS = { "^Set", "^Enable", "^Disable", "^Register", "^Unregister", "^Lock", "^Unlock", "^Raise", "^Lower", "^Highlight", "^Play" }
+local NOOP_VERBS = { "^Set", "^Enable", "^Disable", "^Register", "^Unregister", "^Lock", "^Unlock", "^Raise", "^Lower", "^Highlight", "^Play", "^ClearFocus$" }
 local widgetNames = {}
 local widgetMeta = { __index = function(_, key)
 	local method = Widget[key]
@@ -1276,6 +1276,8 @@ function Widget:LockHighlight() self.locked = true end
 function Widget:UnlockHighlight() self.locked = false end
 function Widget:SetHighlightTexture(texture) self.highlightTexture = texture end
 function Widget:SetTexture(texture) self.texture = texture end
+function Widget:SetFrameStrata(strata) self.strata = strata end
+function Widget:GetFrameStrata() return self.strata end
 function Widget:SetTexCoord(...) self.texCoord = table.concat({ ... }, " ") end
 function Widget:GetDrawLayer() return self.layer end
 function Widget:GetRegions() return unpack(self.textures or {}) end
@@ -2322,6 +2324,35 @@ test("Issue Reporter: the copy box steps above it too, unless the player moved i
 	end)
 end)
 
+test("person panel: whisper and invite reach the whole name (a report's names are short for its realm)", function()
+	WithUI(function()
+		local UI = LoadUI()
+		local savedTell, savedInvite, savedParty, savedSplit = ChatFrame_SendTell, InviteUnit, C_PartyInfo, ns.splitNames
+		local told, invited
+		ChatFrame_SendTell = function(n) told = n end
+		C_PartyInfo, InviteUnit = nil, function(n) invited = n end
+		local ok, err = pcall(function()
+			ns.splitNames = nil
+			UI.Toggle()
+			-- A Captain from a guild report sent from another realm: "Capt" there is Capt-Other.
+			UI.ShowPerson({ name = "Capt", realm = "Other", guild = "Olympus II" })
+			OlympusPersonFrame.whisper:Click(); OlympusPersonFrame.invite:Click()
+			eq(told, "Capt-Other"); eq(invited, "Capt-Other")
+			-- One of our realm: the short name, as the server wants it.
+			UI.ShowPerson({ name = "Bob", realm = ns.realm, guild = "Olympus II" })
+			OlympusPersonFrame.whisper:Click()
+			eq(told, "Bob")
+			-- Forever: First Surname, whatever realm of the group the report came from.
+			ns.splitNames = true
+			UI.ShowPerson({ name = "Faladoriel Skylance", realm = ns.realm, guild = "Olympus II" })
+			OlympusPersonFrame.whisper:Click()
+			eq(told, "Faladoriel Skylance")
+		end)
+		ChatFrame_SendTell, InviteUnit, C_PartyInfo, ns.splitNames = savedTell, savedInvite, savedParty, savedSplit
+		if not ok then error(err, 0) end
+	end)
+end)
+
 test("Issue Reporter: the person panel steps above it too", function()
 	WithUI(function()
 		local UI = LoadUI()
@@ -2927,7 +2958,7 @@ test("census Refresh: the roster, and one /who per click for the grey guilds", f
 			eq(#server.sent, 1, "the person panel's Who waits for ours")
 			server.clock = server.clock + ns.Who.COOLDOWN
 			OlympusPersonFrame.who:Click()
-			eq(server.sent[#server.sent], 'n-"Aa-Realm"')
+			eq(server.sent[#server.sent], 'n-"Aa"', "our realm left out, as the server wants it")
 			C_GuildInfo = nil
 		end)
 	end)
@@ -3543,7 +3574,39 @@ test("chat line shows tier, clickable name, guild and neutralised escapes", func
 	RAID_CLASS_COLORS = { PALADIN = { colorStr = "fff58cba" } }
 	line = Chan.FormatLine("A", "Bob-Realm", "Olympus", "PA", "x")
 	RAID_CLASS_COLORS = nil
-	assert(line:find("[Olympus] |Hplayer:Bob-Realm|h[|cfff58cbaBob|r]|h <Olympus>: x", 1, true), line)
+	assert(line:find("[Olympus] |Hplayer:Bob|h[|cfff58cbaBob|r]|h <Olympus>: x", 1, true), line)
+end)
+
+test("whispers, invites and /who go to the name the server finds (Forever: never First Surname-Realm)", function()
+	local savedInfo = C_ChatInfo
+	C_ChatInfo = setmetatable({}, { __index = savedInfo })
+	local saved = { split = ns.splitNames, realm = ns.realm, guild = GetGuildInfo }
+	local ok, err = pcall(function()
+		ns.realm = "Realm"
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		-- Classic: our realm left out, another realm kept (Blizzard's own form).
+		ns.splitNames = nil
+		eq(ns.TellName("Bob-Realm"), "Bob"); eq(ns.TellName("Bob-Other"), "Bob-Other"); eq(ns.TellName("Bob"), "Bob")
+		-- Forever: "No player named 'Faladoriel Skylance-ClassicBetaPvP' is currently playing",
+		-- while "Faladoriel Skylance" is found. However the name came.
+		ns.splitNames = true
+		eq(ns.TellName("Faladoriel Skylance-Realm"), "Faladoriel Skylance")
+		eq(ns.TellName("Faladoriel-Skylance-Realm"), "Faladoriel Skylance")
+		eq(ns.TellName("Faladoriel-Skylance"), "Faladoriel Skylance")
+		eq(ns.TellName("Faladoriel Skylance"), "Faladoriel Skylance")
+		eq(ns.TellName(nil), nil)
+		-- The chat line's link, the one a player clicked.
+		local line = Chan.FormatLine("A", "Faladoriel Skylance-Realm", "Olympus", nil, "hi")
+		assert(line:find("|Hplayer:Faladoriel Skylance|h[", 1, true), line)
+		-- The addon's own whispers (votes, audiences, layer invites...).
+		local to
+		C_ChatInfo.SendAddonMessage = function(_, _, dist, target) if dist == "WHISPER" then to = target end return true end
+		ns.Comm.Whisper("Faladoriel Skylance-Realm", "T4~1~Olympus", "test tell")
+		for _ = 1, 20 do if to then break end ns.Comm.Pump() end
+		eq(to, "Faladoriel Skylance")
+	end)
+	ns.splitNames, ns.realm, GetGuildInfo, C_ChatInfo = saved.split, saved.realm, saved.guild, savedInfo
+	if not ok then error(err, 0) end
 end)
 
 test("slash commands reach the right channel", function()
@@ -4481,7 +4544,7 @@ test("files added by an update and not loaded yet: stand-ins keep everything els
 	print = function(msg) printed[#printed + 1] = tostring(msg) end
 	local ok, err = pcall(function()
 		local fresh = {}
-		for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Data", "Roster", "Comm", "Recruit", "Views" }) do
+		for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Zones", "Data", "Roster", "Comm", "Recruit", "Views" }) do
 			assert(loadfile(ADDON_DIR .. file .. ".lua"))("Olympus", fresh)
 		end
 		eq(fresh.Who.missing, true, "Who.lua stood in for")
@@ -6156,6 +6219,269 @@ test("Treasury review fixes: the week survives the update, the King's word reach
 			GetTradeTargetItemInfo, UnitFullName, ERR_TRADE_COMPLETE, GetSendMailMoney, ns.splitNames, K.Preview, GetMoney = unpack(saved, 1, 12)
 		if not ok then error(err, 0) end
 	end)
+end)
+
+-- Blizzard's gamepad UI (Forever): the game's popups break when an addon opens one, so there
+-- Olympus shows its own dialog (Dialog.lua); with mouse and keyboard nothing changes.
+local function WithGamepadUI(on, fn)
+	local savedStyle, savedType = C_InputInterfaceStyle, Enum.InputDeviceInterfaceType
+	local savedShow, savedHide, savedFind = StaticPopup_Show, StaticPopup_Hide, StaticPopup_FindVisible
+	local game = { shown = {}, hidden = {} }
+	Enum.InputDeviceInterfaceType = { Mkb = 0, Gamepad = 1 }
+	C_InputInterfaceStyle = { GetCurrentStyle = function() return on and 1 or 0 end }
+	StaticPopup_Show = function(which, a, b, data) game.shown[#game.shown + 1] = { which = which, a = a, b = b, data = data } return "blizzard" end
+	StaticPopup_Hide = function(which, data) game.hidden[#game.hidden + 1] = which end
+	StaticPopup_FindVisible = function() game.found = true return nil end
+	local ok, err = pcall(fn, game)
+	ns.Dialog.Reset()
+	C_InputInterfaceStyle, Enum.InputDeviceInterfaceType = savedStyle, savedType
+	StaticPopup_Show, StaticPopup_Hide, StaticPopup_FindVisible = savedShow, savedHide, savedFind
+	if not ok then error(err, 0) end
+end
+
+test("gamepad UI: Olympus's own dialogs, never the game's popups; mouse and keyboard as before", function()
+	WithUI(function()
+		local D = ns.Dialog
+		local log = {}
+		StaticPopupDialogs.OLYMPUS_TEST_A = {
+			text = "Hello %s and %s", button1 = "Yes", button2 = "No", button3 = "Always",
+			OnShow = function(self, data) log[#log + 1] = "show " .. tostring(data) end,
+			OnAccept = function(self, data) log[#log + 1] = "accept " .. tostring(data) end,
+			OnCancel = function(self, data, reason) log[#log + 1] = "cancel " .. tostring(data) .. " " .. tostring(reason) end,
+			OnAlt = function(self, data) log[#log + 1] = "alt " .. tostring(data) end,
+			OnHide = function(self, data) log[#log + 1] = "hide " .. tostring(data) end,
+			timeout = 0, hideOnEscape = true,
+		}
+		-- Mouse and keyboard: the game's popup, with the very same arguments.
+		WithGamepadUI(false, function(game)
+			eq(ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 7), "blizzard")
+			eq(game.shown[1].which, "OLYMPUS_TEST_A"); eq(game.shown[1].a, "x"); eq(game.shown[1].b, "y"); eq(game.shown[1].data, 7)
+			ns.HideDialog("OLYMPUS_TEST_A", 7)
+			eq(game.hidden[1], "OLYMPUS_TEST_A")
+			eq(D.Find("OLYMPUS_TEST_A"), nil, "none of ours")
+		end)
+		WithGamepadUI(true, function(game)
+			-- Shown in our window, text formatted, the game's popups untouched.
+			local f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 7)
+			eq(#game.shown, 0); eq(D.Find("OLYMPUS_TEST_A"), f); eq(f:IsShown(), true)
+			eq(f.text:GetText(), "Hello x and y"); eq(f.buttons[1]:GetText(), "Yes"); eq(f.buttons[3]:GetText(), "Always")
+			eq(f:GetFrameStrata(), "DIALOG"); eq(f.editBox:IsShown(), false)
+			eq(log[1], "show 7")
+			-- Yes: OnAccept, closed.
+			f.buttons[1]:Click()
+			eq(log[2], "accept 7"); eq(log[3], "hide 7"); eq(f:IsShown(), false)
+			-- No: OnCancel "clicked". Always: OnAlt.
+			log = {}
+			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 8)
+			f.buttons[2]:Click()
+			eq(log[2], "cancel 8 clicked"); eq(log[3], "hide 8")
+			log = {}
+			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 9)
+			f.buttons[3]:Click()
+			eq(log[2], "alt 9"); eq(log[3], "hide 9")
+			-- Closed by anything but a click (the game's window sweeps on death, loading screens,
+			-- Alt+Z): no answer. And they are not in those sweeps, as the game's popups aren't.
+			log = {}
+			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 10)
+			f:Hide()
+			eq(log[2], "hide 10"); eq(#log, 2, "no answer given for the player")
+			for _, name in ipairs(UISpecialFrames or {}) do assert(not name:find("^OlympusDialog"), "not swept: " .. name) end
+			-- Hidden by the addon: no answer, OnHide only (the game's StaticPopup_Hide).
+			log = {}
+			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 11)
+			ns.HideDialog("OLYMPUS_TEST_A", 11)
+			eq(log[2], "hide 11"); eq(#log, 2); eq(#game.hidden, 0, "the game's popups untouched")
+			-- A handler returning true keeps it open.
+			StaticPopupDialogs.OLYMPUS_TEST_A.OnAccept = function() return true end
+			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 12)
+			f.buttons[1]:Click()
+			eq(f:IsShown(), true, "kept open")
+			ns.HideDialog("OLYMPUS_TEST_A")
+			-- The timeout: hidden, then OnCancel "timeout".
+			log = {}
+			StaticPopupDialogs.OLYMPUS_TEST_A.timeout = 30
+			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 13)
+			f:Fire("OnUpdate", 29)
+			eq(f:IsShown(), true)
+			f:Fire("OnUpdate", 2)
+			eq(f:IsShown(), false); eq(log[2], "hide 13"); eq(log[3], "cancel 13 timeout")
+			StaticPopupDialogs.OLYMPUS_TEST_A.timeout = 0
+			-- The same dialog again takes the old one's place; different ones stack, a fourth
+			-- replaces the oldest.
+			local a1 = ns.ShowDialog("OLYMPUS_TEST_A", "1", "1", 1)
+			local a2 = ns.ShowDialog("OLYMPUS_TEST_A", "2", "2", 2)
+			eq(a1, a2); eq(a2.data, 2)
+			StaticPopupDialogs.OLYMPUS_TEST_B = { text = "B", button1 = "OK", timeout = 0 }
+			local b1 = ns.ShowDialog("OLYMPUS_TEST_B")
+			assert(b1 ~= a2, "another window")
+			eq(b1.points[1][2], a2, "under the first"); eq(#b1.buttons, 3); eq(b1.buttons[2]:IsShown(), false)
+			ns.HideDialog("OLYMPUS_TEST_A")
+			eq(Anchor(b1), "TOP UIParent TOP 0 -135", "moves up when the first closes")
+			-- Three up, a fourth takes the oldest's place: that one is cancelled "override".
+			log = {}
+			StaticPopupDialogs.OLYMPUS_TEST_C = { text = "C", button1 = "OK", timeout = 0 }
+			StaticPopupDialogs.OLYMPUS_TEST_D = { text = "D", button1 = "OK", timeout = 0 }
+			ns.ShowDialog("OLYMPUS_TEST_A", "o", "o", 20)
+			ns.ShowDialog("OLYMPUS_TEST_C")
+			ns.ShowDialog("OLYMPUS_TEST_D")
+			eq(D.Find("OLYMPUS_TEST_B"), nil, "b1 was the oldest: gone")
+			ns.ShowDialog("OLYMPUS_TEST_B")
+			eq(D.Find("OLYMPUS_TEST_A"), nil); eq(log[#log], "cancel 20 override")
+			for _, w in ipairs({ "OLYMPUS_TEST_B", "OLYMPUS_TEST_C", "OLYMPUS_TEST_D" }) do ns.HideDialog(w) end
+			StaticPopupDialogs.OLYMPUS_TEST_C, StaticPopupDialogs.OLYMPUS_TEST_D = nil, nil
+			-- The edit box: the dialog is its parent (the game's), Enter and Escape handlers.
+			local entered
+			StaticPopupDialogs.OLYMPUS_TEST_B = { text = "Name?", button1 = "OK", button2 = "Cancel", hasEditBox = true, editBoxWidth = 260, maxLetters = 40,
+				OnShow = function(self) self.editBox:SetText("typed") end,
+				EditBoxOnEnterPressed = function(eb) entered = eb:GetParent().data .. ":" .. eb:GetText(); eb:GetParent():Hide() end,
+				timeout = 0, hideOnEscape = true }
+			local e = ns.ShowDialog("OLYMPUS_TEST_B", nil, nil, "d")
+			eq(e.editBox:IsShown(), true); eq(e.editBox:GetParent(), e); eq(e.EditBox, e.editBox)
+			eq(e.editBox.scripts.OnEditFocusGained, nil, "no select-all on focus, as the game's popup box")
+			assert(e:GetWidth() >= 320, "wide enough for the box")
+			e.editBox:Fire("OnEnterPressed")
+			eq(entered, "d:typed"); eq(e:IsShown(), false)
+			-- Without EditBoxOnEnterPressed, Enter does nothing (as the game's: no writ sent by it).
+			local accepted
+			StaticPopupDialogs.OLYMPUS_TEST_B = { text = "Writ", button1 = "Lords", button2 = "Cancel", button3 = "All", hasEditBox = true,
+				OnAccept = function() accepted = true end, timeout = 0 }
+			e = ns.ShowDialog("OLYMPUS_TEST_B")
+			e.editBox:Fire("OnEnterPressed")
+			eq(accepted, nil); eq(e:IsShown(), true)
+			ns.HideDialog("OLYMPUS_TEST_B")
+			-- The keyboard is never taken from another box (the chat's): the player clicks ours.
+			local focus = { name = "ChatFrame1EditBox" }
+			local savedFocus = GetCurrentKeyBoardFocus
+			GetCurrentKeyBoardFocus = function() return focus end
+			local took
+			StaticPopupDialogs.OLYMPUS_TEST_B = { text = "Name?", button1 = "OK", hasEditBox = true, timeout = 0,
+				OnShow = function(self) self.editBox:SetFocus() end }
+			local box = ns.ShowDialog("OLYMPUS_TEST_B").editBox
+			eq(ns.Focus(box, function() took = true end), false); eq(took, nil)
+			focus = nil
+			eq(ns.Focus(box, function() took = true end), true); eq(took, true)
+			focus = { olympusBox = true }
+			took = nil
+			eq(ns.Focus(box, function() took = true end), true, "from another Olympus box: fine")
+			GetCurrentKeyBoardFocus = savedFocus
+			ns.HideDialog("OLYMPUS_TEST_B")
+		end)
+		-- Mouse and keyboard: focus as always, whatever holds it.
+		WithGamepadUI(false, function()
+			local took
+			local savedFocus = GetCurrentKeyBoardFocus
+			GetCurrentKeyBoardFocus = function() return { name = "ChatFrame1EditBox" } end
+			eq(ns.Focus({}, function() took = true end), true); eq(took, true)
+			GetCurrentKeyBoardFocus = savedFocus
+		end)
+		-- Updated without a restart (Dialog.lua not loaded): with the gamepad UI never the
+		-- game's popup, the player is told to restart.
+		WithGamepadUI(true, function(game)
+			local savedDialog, printed = ns.Dialog, {}
+			local savedPrint = ns.Print
+			ns.Dialog = setmetatable({ missing = true }, { __index = function() return function() end end })
+			ns.Print = function(m) printed[#printed + 1] = m end
+			local shown = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 1)
+			ns.Dialog, ns.Print = savedDialog, savedPrint
+			eq(shown, nil); eq(#game.shown, 0); eq(printed[1], ns.L.RESTART_NEEDED)
+		end)
+		StaticPopupDialogs.OLYMPUS_TEST_A, StaticPopupDialogs.OLYMPUS_TEST_B = nil, nil
+	end)
+end)
+
+test("gamepad UI: the King's summons in our dialog; a layer invite is the player's to accept", function()
+	WithUI(function()
+		LoadUI()
+		WithGamepadUI(true, function(game)
+			WithThrone(function(w, K)
+				AsKing(); K.Summon()
+				local id = tonumber(LastSent(w):match("T1~S~(%d+)"))
+				AsLord()
+				K.HandleCommand("CHANNEL", "Asmon-Realm", ("T1~S~%d~Olympus"):format(id))
+				eq(#w.popups, 0, "not the game's popup"); eq(#game.shown, 0)
+				local f = ns.Dialog.Find("OLYMPUS_KING_SUMMON")
+				assert(f and f:IsShown(), "our dialog")
+				f.buttons[1]:Click()
+				local answer = w.whispered[#w.whispered]
+				assert(answer and answer.msg:find(("^T2~%d~P~"):format(id)), "present, to the King")
+			end)
+		end)
+	end)
+	-- The asker's side: a trusted helper's invite is not accepted for the player (the game's
+	-- invite window, which the controller answers, is left alone).
+	WithGamepadUI(true, function(game)
+		WithHop(function(w, H)
+			w.see(7)
+			H.Ask(1453, 8, "Kingy's layer")
+			H.HandleOffer("WHISPER", "Bbb-Realm", "LO~1~3~5")
+			w.clock = w.clock + H.WINDOW
+			H.Tick()
+			H.OnInvite("Bbb")
+			eq(w.accepted, 0, "the player accepts"); eq(#w.hidden, 0); eq(game.found, nil, "the game's invite popup untouched")
+			eq(H.State().phase, "requested")
+		end)
+	end)
+end)
+
+test("gamepad UI: whispers and chat lines written in an Olympus window, never the game's chat box", function()
+	WithUI(function()
+		local UI = LoadUI()
+		local saved = { tell = ChatFrame_SendTell, open = ChatFrame_OpenChat, say = SendChatMessage, send = ns.Channels.Send, split = ns.splitNames }
+		local told, opened, said, sent = {}, {}, {}, {}
+		ChatFrame_SendTell = function(n) told[#told + 1] = n end
+		ChatFrame_OpenChat = function(t) opened[#opened + 1] = t end
+		SendChatMessage = function(text, kind, _, to) said[#said + 1] = kind .. " " .. tostring(to) .. " " .. text end
+		ns.Channels.Send = function(tier, text) sent[#sent + 1] = tier .. " " .. text end
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			UI.Toggle()
+			-- Mouse and keyboard: the game's chat box, as always.
+			WithGamepadUI(false, function()
+				UI.ShowPerson({ name = "Faladoriel Skylance", realm = ns.realm, guild = "Olympus II" })
+				OlympusPersonFrame.whisper:Click()
+				eq(told[1], "Faladoriel Skylance")
+			end)
+			WithGamepadUI(true, function(game)
+				-- The member card's Whisper: our window, sent to the name the server finds.
+				UI.ShowPerson({ name = "Faladoriel Skylance", realm = ns.realm, guild = "Olympus II" })
+				OlympusPersonFrame.whisper:Click()
+				eq(#told, 1, "not the game's chat box"); eq(#game.shown, 0)
+				local w = ns.Dialog.Find("OLYMPUS_WHISPER")
+				assert(w, "the whisper window")
+				eq(w.text:GetText(), ns.L.WHISPER_TO:format("Faladoriel Skylance"))
+				w.editBox:SetText("  hi there  ")
+				w.editBox:Fire("OnEnterPressed")
+				eq(said[1], "WHISPER Faladoriel Skylance hi there"); eq(w:IsShown(), false)
+				-- Empty: nothing sent.
+				UI.WhisperWindow("Faladoriel Skylance").buttons[1]:Click()
+				eq(#said, 1)
+				-- A line for [Olympus].
+				local c = UI.ChatWindow("A", "Olympus")
+				c.editBox:SetText("for olympus")
+				c.buttons[1]:Click()
+				eq(sent[1], "A for olympus"); eq(#opened, 0)
+			end)
+		end)
+		ChatFrame_SendTell, ChatFrame_OpenChat, SendChatMessage, ns.Channels.Send, ns.splitNames = saved.tell, saved.open, saved.say, saved.send, saved.split
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("no Olympus file opens or closes the game's popups itself (ns.ShowDialog / ns.HideDialog)", function()
+	local allowed = { ["Core.lua"] = { StaticPopup_Show = 1, StaticPopup_Hide = 1 }, ["Hop.lua"] = { StaticPopup_Hide = 1, StaticPopup_FindVisible = 1 } }
+	local p = io.popen('ls "' .. ADDON_DIR .. '"')
+	for file in p:lines() do
+		if file:match("%.lua$") and file ~= "DevTest.lua" and file ~= "Dev.lua" then
+			local src = assert(io.open(ADDON_DIR .. file)):read("*a")
+			for _, fn in ipairs({ "StaticPopup_Show", "StaticPopup_Hide", "StaticPopup_FindVisible", "StaticPopupSpecial_Show" }) do
+				local n = 0
+				for _ in src:gmatch(fn .. "%(") do n = n + 1 end
+				local ok = (allowed[file] and allowed[file][fn] or 0)
+				eq(n, ok, file .. " calls " .. fn)
+			end
+		end
+	end
+	p:close()
 end)
 
 test("Royal Writs: the King writes to his Lords, each can acknowledge, nobody else reads it", function()

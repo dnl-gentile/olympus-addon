@@ -62,7 +62,7 @@ UI.TABS = TABS
 local function DecreeAction(kind)
 	return function()
 		if ns.Decree.CanSend(kind) then
-			StaticPopup_Show("OLYMPUS_DECREE", ns.Decree.Label({ kind = kind }), nil, kind)
+			ns.ShowDialog("OLYMPUS_DECREE", ns.Decree.Label({ kind = kind }), nil, kind)
 		else
 			ns.Print(ns.Decree.CROWN_ONLY[kind] and L.CROWN_PREVIEW_NOTE or L.DECREE_PREVIEW_NOTE)
 			ns.Decree.Preview(kind)
@@ -125,7 +125,7 @@ local BUTTONS = {
 				tt:AddLine(book and L.TREASURY_SUMMARY_BTN or L.TREASURY_BOOK_BTN, 1, 0.82, 0)
 				tt:AddLine(book and ns.Treasury.SummaryTip() or L.TREASURY_BOOK_BTN_TIP, 1, 1, 1, true)
 			end },
-		{ "TREASURY_OPENING_BTN", function() StaticPopup_Show("OLYMPUS_TREASURY_OPENING") end,
+		{ "TREASURY_OPENING_BTN", function() ns.ShowDialog("OLYMPUS_TREASURY_OPENING") end,
 			shown = function() return ns.Treasury.IsTreasurer() end },
 		{ "COPY_BTN", function() UI.ShowCopy(L.TREASURY_TITLE, ns.Treasury.DiscordText()) end,
 			shown = function() return ns.Treasury.Role() ~= "member" end },
@@ -190,7 +190,7 @@ local DETAIL_BUTTONS = {
 	},
 	heraldry = {
 		{ "HERALDRY_BTN", DecreeAction("HERALDRY") },
-		{ "CLEAR", function() StaticPopup_Show("OLYMPUS_CLEAR_INSPECT") end },
+		{ "CLEAR", function() ns.ShowDialog("OLYMPUS_CLEAR_INSPECT") end },
 	},
 	-- The King's switches: what the army sees of the treasury (each its own).
 	treasury = { TreasuryFlag("balance"), TreasuryFlag("ranking"), TreasuryFlag("book") },
@@ -1206,26 +1206,102 @@ end
 ---------------------------------------------------------------------------
 -- Person panel: like the member details the Guild window opens, docked to our window.
 -- person = { name, class (code), level, zone (key), guild, rank (label), online, days,
---            note, tabard (status), onMark (function, tabards tab only) }
+--            note, tabard (status), onMark (function, tabards tab only),
+--            realm (the realm the name is short for: a guild report's, not always ours) }
 ---------------------------------------------------------------------------
 
+-- With the gamepad UI a whisper, or a line for an Olympus chat, is written in an Olympus
+-- window: the game's chat box, opened from Olympus, runs the game's gamepad code from ours
+-- and the game blocks it (see Dialog.lua). With mouse and keyboard, the game's chat box.
+local function Trim(text) return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
+local function SendWhisper(name, text)
+	text = Trim(text)
+	if text ~= "" and name then SendChatMessage(text:sub(1, 255), "WHISPER", nil, name) end
+end
+local function SendToChat(tier, text)
+	if tier then ns.SafeCall("chat window", ns.Channels.Send, tier, Trim(text)) end
+end
+StaticPopupDialogs["OLYMPUS_WHISPER"] = {
+	text = L.WHISPER_TO,
+	button1 = SEND_LABEL or "Send",
+	button2 = CANCEL or "Cancel",
+	hasEditBox = true,
+	editBoxWidth = 320,
+	maxLetters = 255,
+	maxBytes = 256, -- (255 bytes and the end: the game's chat limit, accents included)
+	OnShow = function(self)
+		local eb = self.editBox or self.EditBox
+		if eb then eb:SetText("") eb:SetFocus() end
+	end,
+	OnAccept = function(self, name)
+		local eb = self.editBox or self.EditBox
+		SendWhisper(name, eb and eb:GetText())
+	end,
+	EditBoxOnEnterPressed = function(self)
+		local parent = self:GetParent()
+		SendWhisper(parent.data, self:GetText())
+		parent:Hide()
+	end,
+	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+StaticPopupDialogs["OLYMPUS_CHAT_WRITE"] = {
+	text = L.CHATS_WRITE_TO,
+	button1 = SEND_LABEL or "Send",
+	button2 = CANCEL or "Cancel",
+	hasEditBox = true,
+	editBoxWidth = 320,
+	maxLetters = 255,
+	OnShow = function(self)
+		local eb = self.editBox or self.EditBox
+		if eb then eb:SetText("") eb:SetFocus() end
+	end,
+	OnAccept = function(self, tier)
+		local eb = self.editBox or self.EditBox
+		SendToChat(tier, eb and eb:GetText())
+	end,
+	EditBoxOnEnterPressed = function(self)
+		local parent = self:GetParent()
+		SendToChat(parent.data, self:GetText())
+		parent:Hide()
+	end,
+	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+-- (name: the one the server finds; label: the chat's name, [Olympus].)
+function UI.WhisperWindow(name) return ns.ShowDialog("OLYMPUS_WHISPER", name, nil, name) end
+function UI.ChatWindow(tier, label) return ns.ShowDialog("OLYMPUS_CHAT_WRITE", label, nil, tier) end
+
+-- Whisper, invite and /who take the name the server finds (ns.TellName).
 local function Whisper(name)
+	name = ns.TellName(name)
+	if ns.GamepadUI() then return UI.WhisperWindow(name) end
 	if ChatFrame_SendTell then ChatFrame_SendTell(name) else ChatFrame_OpenChat("/w " .. name .. " ") end
 end
 
 local function Invite(name)
+	name = ns.TellName(name)
 	if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(name) elseif InviteUnit then InviteUnit(name) end
 end
 
 -- Through Who.lua, which keeps it apart from our quiet /who searches (see SendPlain).
 local function Who(name)
-	ns.Who.SendPlain(('n-"%s"'):format(name))
+	ns.Who.SendPlain(('n-"%s"'):format(ns.TellName(name)))
 end
 
 local function PersonButtonScripts(f)
-	f.whisper:SetScript("OnClick", function() ns.SafeCall("whisper", Whisper, f.person.name) end)
-	f.invite:SetScript("OnClick", function() ns.SafeCall("invite", Invite, f.person.name) end)
-	f.who:SetScript("OnClick", function() ns.SafeCall("who", Who, f.person.name) end)
+	-- The whole name (a report's names are short for its sender's realm), made the one the
+	-- server finds by Whisper, Invite and Who.
+	local function Target() local p = f.person return p.realm and ns.FullName(p.name, p.realm) or p.name end
+	f.whisper:SetScript("OnClick", function() ns.SafeCall("whisper", Whisper, Target()) end)
+	f.invite:SetScript("OnClick", function() ns.SafeCall("invite", Invite, Target()) end)
+	f.who:SetScript("OnClick", function() ns.SafeCall("who", Who, Target()) end)
 	f.mark:SetScript("OnClick", function()
 		if f.person.onMark then ns.SafeCall("mark", f.person.onMark) end
 		f:Hide()
@@ -1594,7 +1670,9 @@ function UI.ShowCopy(title, text, action)
 	if not copyFrame.movedByPlayer then
 		ns.SafeCall("issue reporter", ClearOfIssueReporter, function() return StepAboveIssueReporter(copyFrame, { copyFrame }) end)
 	end
-	copyFrame.eb:SetFocus()
+	copyFrame.eb.olympusBox = true
+	-- (Gamepad UI with the chat box typing: not taken from it; a click in the text selects it.)
+	if not ns.Focus(copyFrame.eb) then copyFrame.eb:SetScript("OnEditFocusGained", function(self) self:HighlightText() end) end
 	copyFrame.eb:HighlightText()
 end
 

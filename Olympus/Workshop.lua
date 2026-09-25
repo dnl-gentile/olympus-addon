@@ -284,7 +284,7 @@ function Workshop.HandleUpdate(dist, sender, text)
 	if now - lastUpdateShown < Workshop.UPDATE_GAP then return end
 	lastUpdateShown = now
 	ns.PlayAlert("soft")
-	StaticPopup_Show("OLYMPUS_AUTHOR_UPDATE", ns.VERSION, latest)
+	ns.ShowDialog("OLYMPUS_AUTHOR_UPDATE", ns.VERSION, latest)
 end
 
 StaticPopupDialogs["OLYMPUS_AUTHOR_UPDATE"] = {
@@ -516,7 +516,7 @@ local function RollLines(lines)
 			right = table.concat(Problems(a, latest), "  "),
 			onClick = function()
 				if outdated then
-					StaticPopup_Show("OLYMPUS_WORKSHOP_ASK", ns.DisplayName(a.name), nil, a.name)
+					ns.ShowDialog("OLYMPUS_WORKSHOP_ASK", ns.DisplayName(a.name), nil, a.name)
 				else
 					ns.UI.ShowPerson({ name = ns.DisplayName(a.name), level = a.level, class = a.class ~= "" and a.class or nil, guild = a.guild })
 				end

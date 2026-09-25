@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.8.4"
+ns.VERSION = "0.8.5"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -92,6 +92,19 @@ function ns.DisplayName(name)
 	if not name then return nil end
 	local realm = ns.RealmOf(name)
 	if not realm or realm == ns.realm then return ns.ShortName(name) end
+	return name
+end
+
+-- The name a whisper, an invite or /who takes. WoW: Forever's server finds "First Surname"
+-- but not "First Surname-Realm" ("No player named ... is currently playing"), and its names
+-- are one across a realm group: there the realm is left out for our realms. Elsewhere the
+-- short name on our realm, Name-Realm for anyone else, as Blizzard's own chat does.
+function ns.TellName(name)
+	if type(name) ~= "string" or name == "" then return name end
+	name = ns.Normal(name)
+	local base, realm = name:match("^(.+)%-([^%-]+)$")
+	if not realm then return name end
+	if realm == ns.realm or realm == ns.CurrentRealm() or (ns.splitNames and ns.IsRealmName(realm)) then return base end
 	return name
 end
 
@@ -737,6 +750,47 @@ StandIn("Vox", { "Prompt", "CloseNow", "SetOff" })
 StandIn("Court", { "Toggle" })
 StandIn("Treasury", {})
 StandIn("Acts", { "WritPrompt" })
+StandIn("Dialog", {})
+
+-- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
+function ns.GamepadUI()
+	local current = C_InputInterfaceStyle and C_InputInterfaceStyle.GetCurrentStyle
+	local gamepad = Enum and Enum.InputDeviceInterfaceType and Enum.InputDeviceInterfaceType.Gamepad
+	if not current or gamepad == nil then return false end
+	local ok, style = pcall(current)
+	return ok and style == gamepad
+end
+
+-- The addon's popups (its StaticPopupDialogs entries): with mouse and keyboard the game's own,
+-- as always; with the gamepad UI Olympus's (Dialog.lua), because there the game's popups
+-- break when an addon opens one (the "blocked" loop that freezes the game).
+function ns.ShowDialog(which, a, b, data)
+	ns.Log("dialog %s (%s)", tostring(which), ns.GamepadUI() and "olympus window, gamepad UI" or "game popup")
+	if ns.GamepadUI() then
+		-- Updated without restarting the game (Dialog.lua not loaded yet): never the game's
+		-- popup there, the player is told to restart.
+		if ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return nil end
+		return ns.Dialog.Show(which, a, b, data)
+	end
+	return StaticPopup_Show(which, a, b, data)
+end
+function ns.HideDialog(which, data)
+	if not ns.Dialog.missing then ns.Dialog.Hide(which, data) end
+	if not ns.GamepadUI() and StaticPopup_Hide then StaticPopup_Hide(which, data) end
+end
+
+-- The keyboard to one of our edit boxes (setFocus: its own SetFocus). With the gamepad UI,
+-- not while another box has it (the chat's): its focus change would run the game's gamepad
+-- code from ours, and the game blocks it (see Dialog.lua); the player clicks into ours.
+function ns.Focus(eb, setFocus)
+	setFocus = setFocus or eb.SetFocus
+	if ns.GamepadUI() and GetCurrentKeyBoardFocus then
+		local current = GetCurrentKeyBoardFocus()
+		if current and current ~= eb and not current.olympusBox then return false end
+	end
+	setFocus(eb)
+	return true
+end
 
 -- The faction may not be known yet at ADDON_LOADED: if it turns out to be the other one,
 -- switch to that faction's store before anything is received.
@@ -755,7 +809,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then

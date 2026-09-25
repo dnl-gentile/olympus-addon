@@ -686,6 +686,7 @@ local function MakeComposer()
 	-- Tab and Enter walk through the boxes; Enter on the last one asks.
 	local boxes = { f.q }
 	for i = 1, Vox.MAX_ANSWERS do boxes[#boxes + 1] = f.a[i] end
+	for _, eb in ipairs(boxes) do eb.olympusBox = true end
 	for i, eb in ipairs(boxes) do
 		eb:SetScript("OnTabPressed", function() boxes[i % #boxes + 1]:SetFocus() end)
 		eb:SetScript("OnEnterPressed", function()
@@ -757,7 +758,7 @@ function Vox.Prompt()
 	composer.multi, composer.seconds = false, Vox.DEFAULT
 	Vox.RefreshComposer()
 	composer:Show()
-	composer.q:SetFocus()
+	ns.Focus(composer.q)
 end
 
 function Vox.Visible() return ns.King.Visible() end
