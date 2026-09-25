@@ -328,6 +328,7 @@ function Comm.JoinChannel()
 	JoinChannelByName(name, password)
 	ns.After(3, "channel check", function()
 		channelIndex = GetChannelName(name) or 0
+		ns.SafeCall("channel last", Comm.KeepLast)
 		ns.Log("channel %s -> #%d", name, channelIndex)
 		HideChannelFromChat(name)
 	end)
@@ -486,6 +487,37 @@ function Comm.JoinSoon(t, seenAt)
 		return
 	end
 	ns.After(1, "join channel", function() Comm.JoinSoon(t + 1, seenAt) end)
+end
+
+-- For tests: the channel we joined.
+function Comm.JoinedName() return joinedName end
+function Comm.SetJoinedForTest(name) joinedName = name end
+
+-- Our hidden channel after every other one. Joined before the game's own channels were (a
+-- slow login), it took /1 and pushed General to /2, Trade to /3: moved past each channel
+-- numbered after it, the others keep their order and get their usual numbers back.
+function Comm.KeepLast()
+	if not joinedName or not GetChannelList then return end
+	local swap = C_ChatInfo and C_ChatInfo.SwapChatChannelsByChannelIndex
+	if not swap then return end
+	local ours = GetChannelName(joinedName) or 0
+	if ours <= 0 then return end
+	local list = { GetChannelList() }
+	local stride = type(list[3]) == "boolean" and 3 or 2 -- (id, name, disabled) or (id, name)
+	local after = {}
+	for i = 1, #list, stride do
+		local id = tonumber(list[i])
+		if id and id > ours then after[#after + 1] = id end
+	end
+	if #after == 0 then return end
+	table.sort(after)
+	local at = ours
+	for _, id in ipairs(after) do
+		if not pcall(swap, at, id) then break end
+		at = id
+	end
+	channelIndex = GetChannelName(joinedName) or channelIndex
+	ns.Log("channel %s moved from #%d to #%d", joinedName, ours, channelIndex)
 end
 
 -- Right after login we may think we are the reporter only because we have not heard our
@@ -661,5 +693,16 @@ ns.On("LOGIN", function()
 			ns.Log("incomplete report dropped: %s", tostring(sample))
 		end
 		if channelIndex == 0 or GetChannelName(joinedName or (Comm.ChannelSpec())) == 0 then Comm.JoinChannel() end
+	end)
+	-- The game joins its own channels (General, Trade...) after ours on a slow login: ours
+	-- moves behind them once the list settles.
+	local lastPending = false
+	ns.RegisterEvent("CHANNEL_UI_UPDATE", function()
+		if lastPending then return end
+		lastPending = true
+		ns.After(2, "channel last", function()
+			lastPending = false
+			Comm.KeepLast()
+		end)
 	end)
 end)

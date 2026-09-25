@@ -346,11 +346,13 @@ end
 -- The Realm
 ---------------------------------------------------------------------------
 
+-- The King's guild: the one named exactly "Olympus" (the addon's King everywhere else, the
+-- Throne, the layer hop). No such guild reporting: no King line, never another guild's Lord.
 local function King(guilds)
 	for _, e in ipairs(guilds) do
 		if e.name:lower() == "olympus" and e.g.leader then return e end
 	end
-	return guilds[1]
+	return nil
 end
 
 -- The members of a guild online now, besides its Lord and Captains: our own guild from our

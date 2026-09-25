@@ -486,6 +486,11 @@ function Hop.OnRoster()
 	Changed()
 end
 
+-- The layer a hop is taking us to, while we wait in the group: Layers takes it at once.
+function Hop.ExpectedLayer()
+	if ask and ask.phase == "joined" then return ask.mapID, ask.zoneUID end
+end
+
 -- In the group: the move shows as a new zone UID for our zone, or the one we asked for.
 function Hop.OnLayer()
 	if not ask or ask.phase ~= "joined" then return end

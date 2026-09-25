@@ -4485,7 +4485,7 @@ local function WithHop(fn)
 		UnitIsGroupLeader = function() return w.lead end
 		UnitIsGroupAssistant = function() return false end
 		InCombatLockdown = function() return w.combat end
-		UnitGUID = function() return ("Creature-0-4619-0-%d-68-0000AAAA"):format(w.npc) end
+		UnitGUID = function() return ("Creature-0-4619-0-%d-68-0000AAA%d"):format(w.npc, w.spawn or 0) end
 		C_Map.GetBestMapForUnit = function() return w.map end
 		C_PartyInfo = {
 			InviteUnit = function(name) w.invited[#w.invited + 1] = name end,
@@ -4498,8 +4498,14 @@ local function WithHop(fn)
 		GetGuildInfo = function() return "Olympus II", "Member", 3 end
 		UnitName = function(unit) return w.party[unit] end
 		UnitFullName = function(unit) if unit == "player" then return "Tester", "Realm" end return w.party[unit] end
-		-- We see an NPC: our layer is map 1453, zone UID w.npc.
-		w.see = function(zoneUID) w.npc = zoneUID or w.npc; ns.Layers.Observe("target") end
+		-- We see NPCs: our layer is map 1453, zone UID w.npc (two creatures of it, as a new layer
+		-- needs: Layers.Observe; the hold between layers is the stickiness test's).
+		ns.Layers.HOLD = 0
+		ns.Layers.Reset() -- (each test's clock starts over)
+		w.see = function(zoneUID)
+			w.npc = zoneUID or w.npc
+			for k = 1, 2 do w.spawn = k; ns.Layers.Observe("target") end
+		end
 		fn(w, H)
 	end)
 	for _, n in ipairs(names) do _G[n] = saved[n] end
@@ -4507,6 +4513,7 @@ local function WithHop(fn)
 	H.random, H.after, C_Map.GetBestMapForUnit, H.OFFER_GAP = savedRandom, savedAfter, savedMap, savedGap
 	H.Trusted = savedTrusted
 	ns.db.layerHelp, ns.db.layerAutoInvite, ns.db.hopKingChoice = nil, nil, nil
+	ns.Layers.HOLD = 6
 	H.Reset()
 	if not ok then error(err, 0) end
 end
@@ -6127,6 +6134,70 @@ test("Comm: urgent messages (a layer ask, a vote) go ahead of the census, never 
 	end)
 	C_ChatInfo.SendAddonMessage, ns.IsMember = savedCI, savedMember
 	for _ = 1, 10 do C.Pump() end
+	if not ok then error(err, 0) end
+end)
+
+test("A player's report: no false King, our layer holds against stray creatures, our channel after the game's", function()
+	-- 1. Only another guild reports (a Horde guild of its own): its Lord is not crowned.
+	local savedGuilds = ns.rdb.guilds
+	ns.rdb.guilds = { ["OLYMPUS DUSTMONKEYS"] = { total = 802, online = 88, zones = {}, t = os.time(), leader = "Paladeath Graveborn", leaderOnline = true, realm = "Realm" } }
+	local ok, err = pcall(function()
+		for _, l in ipairs(ns.Views.RealmLines()) do
+			assert(not (l.text or ""):find(ns.L.KING .. ": ", 1, true), "no King line: " .. tostring(l.text))
+		end
+	end)
+	ns.rdb.guilds = savedGuilds
+	if not ok then error(err, 0) end
+	-- 2. Two zone UIDs around us: ours holds; a new one takes over only when two creatures show
+	-- it and ours is gone; a continent map is no zone.
+	local L_ = ns.Layers
+	local saved = { UnitGUID, C_Map.GetBestMapForUnit, C_Map.GetMapInfo, ns.Now, IsInInstance }
+	ok, err = pcall(function()
+		local clock, guid, map = 5000, nil, 1413
+		ns.Now = function() return clock end
+		IsInInstance = function() return false end
+		UnitGUID = function() return guid end
+		C_Map.GetBestMapForUnit = function() return map end
+		C_Map.GetMapInfo = function(id) return { mapType = id == 1414 and 2 or 3 } end
+		L_.Reset()
+		local function see(uid, spawn) guid = ("Creature-0-4620-1-%d-3000-000%d"):format(uid, spawn or 1); L_.Observe("target") end
+		see(361)
+		eq(L_.Mine().zoneUID, 361)
+		clock = clock + 1; see(2672, 1)
+		eq(L_.Mine().zoneUID, 361, "one stray creature")
+		clock = clock + 1; see(361); see(2672, 2)
+		eq(L_.Mine().zoneUID, 361, "ours still seen")
+		clock = clock + L_.HOLD + 1; see(2672, 3)
+		eq(L_.Mine().zoneUID, 2672, "ours gone, the new one on two creatures: moved")
+		map = 1414
+		clock = clock + 30; see(999, 1); see(999, 2)
+		eq(L_.Mine().zoneUID, 2672, "the continent map is no zone")
+	end)
+	UnitGUID, C_Map.GetBestMapForUnit, C_Map.GetMapInfo, ns.Now, IsInInstance = unpack(saved, 1, 5)
+	L_.Reset()
+	if not ok then error(err, 0) end
+	-- 3. Our channel took /1 before General: moved past General and Trade, in their order.
+	local savedCI, savedList, savedName = C_ChatInfo.SwapChatChannelsByChannelIndex, GetChannelList, GetChannelName
+	ok, err = pcall(function()
+		local slots = { [1] = "OlympusNetH", [2] = "General - Durotar", [3] = "Trade - City" }
+		GetChannelList = function()
+			local out = {}
+			for id = 1, 10 do if slots[id] then out[#out + 1] = id; out[#out + 1] = slots[id]; out[#out + 1] = false end end
+			return unpack(out)
+		end
+		GetChannelName = function(x)
+			if type(x) == "number" then return x, slots[x] end
+			for id, n in pairs(slots) do if n == x then return id, n end end
+			return 0
+		end
+		C_ChatInfo.SwapChatChannelsByChannelIndex = function(a, b) slots[a], slots[b] = slots[b], slots[a] end
+		local savedJoined = ns.Comm.JoinedName and ns.Comm.JoinedName()
+		ns.Comm.SetJoinedForTest("OlympusNetH")
+		ns.Comm.KeepLast()
+		eq(slots[1], "General - Durotar"); eq(slots[2], "Trade - City"); eq(slots[3], "OlympusNetH")
+		ns.Comm.SetJoinedForTest(savedJoined)
+	end)
+	C_ChatInfo.SwapChatChannelsByChannelIndex, GetChannelList, GetChannelName = savedCI, savedList, savedName
 	if not ok then error(err, 0) end
 end)
 
