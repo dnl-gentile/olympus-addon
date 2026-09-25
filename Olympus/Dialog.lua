@@ -115,6 +115,10 @@ local function Build(i)
 	local setFocus = eb.SetFocus
 	eb.SetFocus = function(self) ns.Focus(self, setFocus) end
 	eb:SetAutoFocus(false)
+	-- Like the game's popup box: no select-all on focus (InputBoxTemplate's), or the first key
+	-- would replace what the dialog put in it (the agenda's "30 ", a recruit message).
+	eb:SetScript("OnEditFocusGained", nil)
+	eb:SetScript("OnEditFocusLost", nil)
 	eb:SetHeight(22)
 	eb:SetFontObject("ChatFontNormal")
 	eb:SetScript("OnEnterPressed", function(self)
@@ -207,6 +211,7 @@ function Dialog.Show(which, a, b, data)
 		local boxW = tonumber(def.editBoxWidth) or 130
 		eb:SetWidth(boxW)
 		eb:SetMaxLetters(tonumber(def.maxLetters) or 0)
+		if eb.SetMaxBytes then eb:SetMaxBytes(tonumber(def.maxBytes) or 0) end
 		eb:SetText("")
 		eb:Show()
 		width = math.max(width, boxW + 60)

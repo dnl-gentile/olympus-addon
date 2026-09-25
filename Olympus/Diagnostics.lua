@@ -62,6 +62,8 @@ end)
 local blocked = 0
 for _, event in ipairs({ "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }) do
 	ns.RegisterEvent(event, function(addon, func)
+		-- Another addon's: logged as always.
+		if addon ~= ADDON then return ns.Log("%s: %s tried %s", event, tostring(addon), tostring(func)) end
 		blocked = blocked + 1
 		if blocked <= 3 then
 			local stack = debugstack and debugstack(2, 12, 0) or ""

@@ -6337,6 +6337,7 @@ test("gamepad UI: Olympus's own dialogs, never the game's popups; mouse and keyb
 				timeout = 0, hideOnEscape = true }
 			local e = ns.ShowDialog("OLYMPUS_TEST_B", nil, nil, "d")
 			eq(e.editBox:IsShown(), true); eq(e.editBox:GetParent(), e); eq(e.EditBox, e.editBox)
+			eq(e.editBox.scripts.OnEditFocusGained, nil, "no select-all on focus, as the game's popup box")
 			assert(e:GetWidth() >= 320, "wide enough for the box")
 			e.editBox:Fire("OnEnterPressed")
 			eq(entered, "d:typed"); eq(e:IsShown(), false)

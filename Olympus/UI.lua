@@ -1228,6 +1228,7 @@ StaticPopupDialogs["OLYMPUS_WHISPER"] = {
 	hasEditBox = true,
 	editBoxWidth = 320,
 	maxLetters = 255,
+	maxBytes = 256, -- (255 bytes and the end: the game's chat limit, accents included)
 	OnShow = function(self)
 		local eb = self.editBox or self.EditBox
 		if eb then eb:SetText("") eb:SetFocus() end
@@ -1670,7 +1671,8 @@ function UI.ShowCopy(title, text, action)
 		ns.SafeCall("issue reporter", ClearOfIssueReporter, function() return StepAboveIssueReporter(copyFrame, { copyFrame }) end)
 	end
 	copyFrame.eb.olympusBox = true
-	ns.Focus(copyFrame.eb)
+	-- (Gamepad UI with the chat box typing: not taken from it; a click in the text selects it.)
+	if not ns.Focus(copyFrame.eb) then copyFrame.eb:SetScript("OnEditFocusGained", function(self) self:HighlightText() end) end
 	copyFrame.eb:HighlightText()
 end
 
