@@ -20,6 +20,9 @@ local DEFAULT_W, DEFAULT_H = 338, 424
 local DETAIL_H = 78
 local HD_TABS_W, PANEL_GAP = 32, 32 -- RightSideTab.xml (32 wide); UIPanelLayoutFrame.lua PANEl_SPACING_X
 local HD_TABS_REACH = 40            -- a side tab and its art, past the window's right edge
+local SIDE_TOP, SIDE_GAP = 36, 20   -- CommunitiesFrame.xml: the first side tab 36 down, then 20 apart
+local SIDE_ART_BELOW = 21           -- RightSideTab.xml: a side tab's art, below its button
+local SIDE_LEFT_UP = 46             -- the one on the left edge: its art as far from the bottom as theirs from the top
 local HD_DEFAULT_H = 426            -- CommunitiesFrame.xml
 local main                          -- the window in use: frames.old or frames.hd
 local frames = {}                   -- style -> window, each created on first use
@@ -270,8 +273,8 @@ end
 -- window's icon tabs, placed like the Guild & Communities window's in CommunitiesFrame.xml).
 function UI.TabAnchor(style, i, frame, prev)
 	if style == "side" then
-		if i == 1 then return "TOPLEFT", frame, "TOPRIGHT", 0, -36 end
-		return "TOPLEFT", prev, "BOTTOMLEFT", 0, -20
+		if i == 1 then return "TOPLEFT", frame, "TOPRIGHT", 0, -SIDE_TOP end
+		return "TOPLEFT", prev, "BOTTOMLEFT", 0, -SIDE_GAP
 	end
 	if style == "mainline" then
 		if i == 1 then return "TOPLEFT", frame, "BOTTOMLEFT", 5, 2 end
@@ -464,11 +467,26 @@ local function ColumnHeader(f, c)
 end
 
 -- One of the HD window's tabs: an icon down its right side, like the Guild & Communities
--- window's (RightSideTabTemplate brings the click sound, the check and the tooltip), or the
+-- window's (RightSideTabTemplate brings the click sound and the check), or the
 -- same built here (RightSideTab.xml) where the client lacks the template.
+-- Its tooltip on the side it hangs from, clear of the window.
+local function SideTabEnter(self)
+	if not self.tooltip then return end
+	GameTooltip:SetOwner(self, self.onLeft and "ANCHOR_LEFT" or "ANCHOR_RIGHT")
+	GameTooltip:SetText(self.tooltip)
+	GameTooltip:Show()
+end
+
 local function SideTab(f)
 	local ok, tab = pcall(CreateFrame, "CheckButton", nil, f, "RightSideTabTemplate")
-	if ok and tab and tab.Icon then return tab, "RightSideTabTemplate" end
+	if ok and tab and tab.Icon then
+		-- Its art has no key: the one texture on the BORDER layer.
+		for _, region in ipairs({ tab:GetRegions() }) do
+			if region.GetDrawLayer and region:GetDrawLayer() == "BORDER" then tab.Art = region break end
+		end
+		tab:SetScript("OnEnter", SideTabEnter)
+		return tab, "RightSideTabTemplate"
+	end
 	if ok and tab then tab:Hide() end
 	tab = CreateFrame("CheckButton", nil, f)
 	tab:SetSize(32, 32)
@@ -476,6 +494,7 @@ local function SideTab(f)
 	art:SetTexture("Interface\\SpellBook\\SpellBook-SkillLineTab")
 	art:SetSize(64, 64)
 	art:SetPoint("TOPLEFT", -3, 11)
+	tab.Art = art
 	tab.Icon = tab:CreateTexture(nil, "ARTWORK")
 	tab.Icon:SetSize(30, 30)
 	tab.Icon:SetPoint("CENTER")
@@ -484,13 +503,33 @@ local function SideTab(f)
 	tab:SetCheckedTexture("Interface\\Buttons\\CheckButtonHilight")
 	local checked = tab.GetCheckedTexture and tab:GetCheckedTexture()
 	if checked and checked.SetBlendMode then checked:SetBlendMode("ADD") end
-	tab:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:SetText(self.tooltip or "")
-		GameTooltip:Show()
-	end)
+	tab:SetScript("OnEnter", SideTabEnter)
 	tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	return tab, "fallback"
+end
+
+-- A side tab hangs from the window's right edge, or from its left one (UI.LayoutTabs):
+-- there its art is turned round, the tab's open side against the window.
+local function SideTabOnLeft(tab, left)
+	left = left and true or false
+	if (tab.onLeft or false) == left then return end
+	tab.onLeft = left
+	local art = tab.Art
+	if not art then return end
+	art:ClearAllPoints()
+	if left then
+		art:SetPoint("TOPRIGHT", 3, 11)
+		art:SetTexCoord(1, 0, 0, 1)
+	else
+		art:SetPoint("TOPLEFT", -3, 11)
+		art:SetTexCoord(0, 1, 0, 1)
+	end
+end
+
+-- Whether `count` side tabs, `tabHeight` tall, fit down a window `height` tall, their art
+-- included.
+function UI.SideTabsFit(count, tabHeight, height)
+	return SIDE_TOP + count * tabHeight + (count - 1) * SIDE_GAP + SIDE_ART_BELOW <= height
 end
 
 local function CreateMain(style)
@@ -801,7 +840,9 @@ end
 -- wide each on the Classic clients), wider together than our window once there are four or
 -- five (the King's Throne): past it they shrink evenly, their text cut by the tab itself.
 -- The shown tabs follow one another, a hidden one (the Throne, the Workshop) leaving no gap,
--- in the HD window's side column too.
+-- in the HD window's side column too. That column holds seven: the author's Workshop next to
+-- all the King's tabs (King.Preview) makes eight, and the Workshop moves to the left edge,
+-- low, clear of the Communities window's own side tabs when ours is docked beside it.
 function UI.LayoutTabs()
 	if not main or not main.tabs then return end
 	local shown = {}
@@ -809,9 +850,25 @@ function UI.LayoutTabs()
 		if tab:IsShown() then shown[#shown + 1] = tab end
 	end
 	if #shown == 0 then return end
+	local left
+	if main.tabStyle == "side" then
+		local height, tabHeight = main:GetHeight() or 0, shown[1]:GetHeight() or 0
+		if height > 0 and tabHeight > 0 and not UI.SideTabsFit(#shown, tabHeight, height) then
+			for i, tab in ipairs(shown) do
+				if tab.key == "workshop" then left = table.remove(shown, i) break end
+			end
+		end
+		for _, tab in ipairs(main.tabs) do SideTabOnLeft(tab, tab == left) end
+		-- Those tabs stay on the screen too.
+		if main.SetClampRectInsets then main:SetClampRectInsets(left and -HD_TABS_REACH or 0, HD_TABS_REACH, 0, 0) end
+	end
 	for i, tab in ipairs(shown) do
 		tab:ClearAllPoints()
 		tab:SetPoint(UI.TabAnchor(main.tabStyle, i, main, shown[i - 1]))
+	end
+	if left then
+		left:ClearAllPoints()
+		left:SetPoint("BOTTOMRIGHT", main, "BOTTOMLEFT", 0, SIDE_LEFT_UP)
 	end
 	if main.tabStyle == "side" then return end
 	local resize = PanelTemplates_TabResize

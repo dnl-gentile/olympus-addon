@@ -1276,6 +1276,9 @@ function Widget:LockHighlight() self.locked = true end
 function Widget:UnlockHighlight() self.locked = false end
 function Widget:SetHighlightTexture(texture) self.highlightTexture = texture end
 function Widget:SetTexture(texture) self.texture = texture end
+function Widget:SetTexCoord(...) self.texCoord = table.concat({ ... }, " ") end
+function Widget:GetDrawLayer() return self.layer end
+function Widget:GetRegions() return unpack(self.textures or {}) end
 function Widget:SetClampRectInsets(...) self.clampInsets = { ... } end
 
 function Widget:SetSize(w, h)
@@ -1357,8 +1360,9 @@ function Widget:StopMovingOrSizing()
 end
 
 function Widget:CreateFontString(name, _, font) local fs = NewWidget("FontString", name, self); fs.font = font; return fs end
-function Widget:CreateTexture(name)
+function Widget:CreateTexture(name, layer)
 	local t = NewWidget("Texture", name, self)
+	t.layer = layer
 	self.textures = self.textures or {}
 	table.insert(self.textures, t)
 	return t
@@ -1388,7 +1392,7 @@ end
 function Widget:IsTruncated() return self.wrap == false and (self.w or 0) > 0 and self:GetUnboundedStringWidth() > self.w end
 function Widget:Click() self:Fire("OnClick") end
 -- GameTooltip: who owns it and the lines it shows.
-function Widget:SetOwner(owner) self.owner, self.lines = owner, {} end
+function Widget:SetOwner(owner, anchor) self.owner, self.ownerAnchor, self.lines = owner, anchor, {} end
 function Widget:AddLine(text) self.lines = self.lines or {}; self.lines[#self.lines + 1] = text end
 function Widget:IsOwned(owner) return self.owner == owner end
 
@@ -1414,6 +1418,9 @@ local TEMPLATES = {
 	-- family but not all of them on every client).
 	RightSideTabTemplate = function(w)
 		w.w, w.h = 32, 32
+		-- Its art (no key), then its icon.
+		local art = w:CreateTexture(nil, "BORDER")
+		art:SetSize(64, 64); art:SetPoint("TOPLEFT", -3, 11)
 		w.Icon = NewWidget("Texture", nil, w)
 		-- RightSideTabMixin:OnClick: its sound, and the check.
 		w.scripts.OnClick = function(self) self.clickSound = true; self:SetChecked(true) end
@@ -2041,6 +2048,47 @@ test("HD Join screen: no tabs or column titles, next to a Communities window wit
 		eq(main.colHeader:IsShown(), true)
 		eq(main.listBox:Anchor("TOPLEFT")[5], -81); eq(main.scroll:Anchor("TOPLEFT")[5], -84)
 	end)
+end)
+
+test("HD window: eight side tabs are one too many, the Workshop hangs from the left edge", function()
+	local K, V, T, W = ns.King, ns.Vox, ns.Treasury, ns.Workshop
+	local saved = { K.Visible, V.Visible, T.Visible, W.Visible }
+	local function Yes() return true end
+	local ok, err = pcall(WithUI, function()
+		local w, UI = ForeverWorld(true)
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		local main = OlympusFrameHD
+		local function Tab(key) for _, tab in ipairs(main.tabs) do if tab.key == key then return tab end end end
+		local ws = Tab("workshop")
+		eq(UI.SideTabsFit(7, 32, 426), true); eq(UI.SideTabsFit(8, 32, 426), false)
+		-- The author alone: his Workshop under the four everyone has, down the right.
+		W.Visible = Yes
+		UI.Refresh()
+		eq(ws:IsShown(), true); eq(ws.points[1][2], Tab("heraldry")); eq(Anchor(ws), "TOPLEFT nil BOTTOMLEFT 0 -20")
+		eq(ws.onLeft or false, false); eq(main.clampInsets[1], 0)
+		-- Asmond view: the Throne, Vox Populi and the Treasury make eight.
+		K.Visible, V.Visible, T.Visible = Yes, Yes, Yes
+		UI.Refresh()
+		eq(Anchor(ws), "BOTTOMRIGHT OlympusFrameHD BOTTOMLEFT 0 46"); eq(ws:GetNumPoints(), 1)
+		eq(ws.onLeft, true); eq(Anchor(ws.Art), "TOPRIGHT nil TOPRIGHT 3 11"); eq(ws.Art.texCoord, "1 0 0 1", "its art turned round")
+		eq(main.clampInsets[1], -40, "on the screen too"); eq(main.clampInsets[2], 40)
+		-- The other seven still down the right, the Treasury last.
+		local right = {}
+		for _, tab in ipairs(main.tabs) do if tab:IsShown() and tab ~= ws then right[#right + 1] = tab end end
+		eq(#right, 7); eq(right[7].key, "treasury")
+		eq(Anchor(right[1]), "TOPLEFT OlympusFrameHD TOPRIGHT 0 -36"); eq(right[7].points[1][2], right[6])
+		-- Its tooltip to the left, clear of the window; the others' to the right.
+		ws:Fire("OnEnter"); eq(GameTooltip.owner, ws); eq(GameTooltip.ownerAnchor, "ANCHOR_LEFT")
+		right[1]:Fire("OnEnter"); eq(GameTooltip.ownerAnchor, "ANCHOR_RIGHT")
+		ws:Click(); eq(main.tab, "workshop"); eq(ws:GetChecked(), true)
+		-- Asmond view off: back under the others, its art as it was.
+		K.Visible, V.Visible, T.Visible = saved[1], saved[2], saved[3]
+		UI.Refresh()
+		eq(ws.onLeft, false); eq(Anchor(ws), "TOPLEFT nil BOTTOMLEFT 0 -20"); eq(ws.points[1][2], Tab("heraldry"))
+		eq(Anchor(ws.Art), "TOPLEFT nil TOPLEFT -3 11"); eq(ws.Art.texCoord, "0 1 0 1"); eq(main.clampInsets[1], 0)
+	end)
+	K.Visible, V.Visible, T.Visible, W.Visible = saved[1], saved[2], saved[3], saved[4]
+	assert(ok, err)
 end)
 
 test("HD window on a client without Blizzard's new parts: built from what is there", function()
