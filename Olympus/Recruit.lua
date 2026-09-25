@@ -74,7 +74,7 @@ function Recruit.Ask(contact, message)
 	Recruit.lastAsk = now
 	Recruit.asked[contact.name] = ns.Now()
 	Recruit.lastContact = contact
-	SendChatMessage(message:sub(1, 250), "WHISPER", nil, contact.name)
+	SendChatMessage(message:sub(1, 250), "WHISPER", nil, ns.TellName(contact.name))
 	ns.Log("recruit: asked %s <%s>", contact.name, contact.guild)
 	ns.Fire("RECRUIT_CHANGED")
 	return true

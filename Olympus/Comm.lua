@@ -191,7 +191,8 @@ end
 -- Player text goes through the logged API, Blizzard's function for plain text payloads
 -- (receivers get CHAT_MSG_ADDON_LOGGED). Clients without it use the usual one.
 local function SendNow(dist, msg, logged, whisperTo)
-	local target = dist == "CHANNEL" and channelIndex or whisperTo
+	-- (A whisper goes to the name the server finds: ns.TellName.)
+	local target = dist == "CHANNEL" and channelIndex or ns.TellName(whisperTo)
 	local send = logged and C_ChatInfo.SendAddonMessageLogged or C_ChatInfo.SendAddonMessage
 	local ok, res = pcall(send, ns.PREFIX, msg, dist, target)
 	if ok and IsSuccess(res) then

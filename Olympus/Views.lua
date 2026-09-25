@@ -454,7 +454,7 @@ local function ChatLines()
 			text = C.FormatLine(chatTier, e.sender, e.guild, e.class, e.text),
 			right = Grey(ns.Ago(e.t)),
 			onClick = not e.mine and function()
-				if ChatFrame_SendTell then ChatFrame_SendTell(who) end
+				if ChatFrame_SendTell then ChatFrame_SendTell(ns.TellName(e.sender) or who) end
 			end or nil,
 			tooltip = function(tt)
 				tt:AddLine(who .. "  <" .. tostring(e.guild or "?") .. ">", 1, 0.82, 0)

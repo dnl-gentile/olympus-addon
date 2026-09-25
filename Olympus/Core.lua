@@ -95,6 +95,19 @@ function ns.DisplayName(name)
 	return name
 end
 
+-- The name a whisper, an invite or /who takes. WoW: Forever's server finds "First Surname"
+-- but not "First Surname-Realm" ("No player named ... is currently playing"), and its names
+-- are one across a realm group: there the realm is left out for our realms. Elsewhere the
+-- short name on our realm, Name-Realm for anyone else, as Blizzard's own chat does.
+function ns.TellName(name)
+	if type(name) ~= "string" or name == "" then return name end
+	name = ns.Normal(name)
+	local base, realm = name:match("^(.+)%-([^%-]+)$")
+	if not realm then return name end
+	if realm == ns.realm or realm == ns.CurrentRealm() or (ns.splitNames and ns.IsRealmName(realm)) then return base end
+	return name
+end
+
 -- WoW: Forever's names are a first name and a surname ("Faladoriel Skylance"), and its unit
 -- functions hand the surname back where the realm goes: UnitFullName("player") gives
 -- "Faladoriel", "Skylance", and GetUnitName(unit, true) "Faladoriel-Skylance". The server

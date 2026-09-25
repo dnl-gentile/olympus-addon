@@ -2927,7 +2927,7 @@ test("census Refresh: the roster, and one /who per click for the grey guilds", f
 			eq(#server.sent, 1, "the person panel's Who waits for ours")
 			server.clock = server.clock + ns.Who.COOLDOWN
 			OlympusPersonFrame.who:Click()
-			eq(server.sent[#server.sent], 'n-"Aa-Realm"')
+			eq(server.sent[#server.sent], 'n-"Aa"', "our realm left out, as the server wants it")
 			C_GuildInfo = nil
 		end)
 	end)
@@ -3543,7 +3543,39 @@ test("chat line shows tier, clickable name, guild and neutralised escapes", func
 	RAID_CLASS_COLORS = { PALADIN = { colorStr = "fff58cba" } }
 	line = Chan.FormatLine("A", "Bob-Realm", "Olympus", "PA", "x")
 	RAID_CLASS_COLORS = nil
-	assert(line:find("[Olympus] |Hplayer:Bob-Realm|h[|cfff58cbaBob|r]|h <Olympus>: x", 1, true), line)
+	assert(line:find("[Olympus] |Hplayer:Bob|h[|cfff58cbaBob|r]|h <Olympus>: x", 1, true), line)
+end)
+
+test("whispers, invites and /who go to the name the server finds (Forever: never First Surname-Realm)", function()
+	local savedInfo = C_ChatInfo
+	C_ChatInfo = setmetatable({}, { __index = savedInfo })
+	local saved = { split = ns.splitNames, realm = ns.realm, guild = GetGuildInfo }
+	local ok, err = pcall(function()
+		ns.realm = "Realm"
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		-- Classic: our realm left out, another realm kept (Blizzard's own form).
+		ns.splitNames = nil
+		eq(ns.TellName("Bob-Realm"), "Bob"); eq(ns.TellName("Bob-Other"), "Bob-Other"); eq(ns.TellName("Bob"), "Bob")
+		-- Forever: "No player named 'Faladoriel Skylance-ClassicBetaPvP' is currently playing",
+		-- while "Faladoriel Skylance" is found. However the name came.
+		ns.splitNames = true
+		eq(ns.TellName("Faladoriel Skylance-Realm"), "Faladoriel Skylance")
+		eq(ns.TellName("Faladoriel-Skylance-Realm"), "Faladoriel Skylance")
+		eq(ns.TellName("Faladoriel-Skylance"), "Faladoriel Skylance")
+		eq(ns.TellName("Faladoriel Skylance"), "Faladoriel Skylance")
+		eq(ns.TellName(nil), nil)
+		-- The chat line's link, the one a player clicked.
+		local line = Chan.FormatLine("A", "Faladoriel Skylance-Realm", "Olympus", nil, "hi")
+		assert(line:find("|Hplayer:Faladoriel Skylance|h[", 1, true), line)
+		-- The addon's own whispers (votes, audiences, layer invites...).
+		local to
+		C_ChatInfo.SendAddonMessage = function(_, _, dist, target) if dist == "WHISPER" then to = target end return true end
+		ns.Comm.Whisper("Faladoriel Skylance-Realm", "T4~1~Olympus", "test tell")
+		for _ = 1, 20 do if to then break end ns.Comm.Pump() end
+		eq(to, "Faladoriel Skylance")
+	end)
+	ns.splitNames, ns.realm, GetGuildInfo, C_ChatInfo = saved.split, saved.realm, saved.guild, savedInfo
+	if not ok then error(err, 0) end
 end)
 
 test("slash commands reach the right channel", function()

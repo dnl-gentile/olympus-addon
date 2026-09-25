@@ -1209,17 +1209,20 @@ end
 --            note, tabard (status), onMark (function, tabards tab only) }
 ---------------------------------------------------------------------------
 
+-- Whisper, invite and /who take the name the server finds (ns.TellName).
 local function Whisper(name)
+	name = ns.TellName(name)
 	if ChatFrame_SendTell then ChatFrame_SendTell(name) else ChatFrame_OpenChat("/w " .. name .. " ") end
 end
 
 local function Invite(name)
+	name = ns.TellName(name)
 	if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(name) elseif InviteUnit then InviteUnit(name) end
 end
 
 -- Through Who.lua, which keeps it apart from our quiet /who searches (see SendPlain).
 local function Who(name)
-	ns.Who.SendPlain(('n-"%s"'):format(name))
+	ns.Who.SendPlain(('n-"%s"'):format(ns.TellName(name)))
 end
 
 local function PersonButtonScripts(f)

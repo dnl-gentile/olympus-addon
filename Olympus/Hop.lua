@@ -192,7 +192,7 @@ end
 
 -- release: the addon lets the guest go after GUEST_TIME (the helper chose that).
 local function Invite(name, id, release)
-	local target = ns.DisplayName(name)
+	local target = ns.TellName(name)
 	if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(target) elseif InviteUnit then InviteUnit(target) end
 	guests[ns.ShortName(name)] = { name = name, id = id or 0, t = ns.Now(), release = release and true or false }
 	recent[#recent + 1] = ns.Now()
