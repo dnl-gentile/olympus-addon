@@ -57,9 +57,18 @@ ns.On("INIT", function()
 end)
 
 -- Blocked protected calls (taint) are not Lua errors, so log them separately.
+-- The first ones with where they came from (the handler runs inside the blocked call); a burst
+-- (Blizzard's gamepad UI repeats a block on every popup) counted, not logged line by line.
+local blocked = 0
 for _, event in ipairs({ "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }) do
 	ns.RegisterEvent(event, function(addon, func)
-		ns.Log("%s: %s tried %s", event, tostring(addon), tostring(func))
+		blocked = blocked + 1
+		if blocked <= 3 then
+			local stack = debugstack and debugstack(2, 12, 0) or ""
+			ns.Log("%s: %s tried %s | %s", event, tostring(addon), tostring(func), (stack:gsub("\n", " < ")))
+		elseif blocked <= 10 or blocked % 100 == 0 then
+			ns.Log("%s: %s tried %s (%d this session)", event, tostring(addon), tostring(func), blocked)
+		end
 	end)
 end
 

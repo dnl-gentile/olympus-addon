@@ -765,12 +765,31 @@ end
 -- as always; with the gamepad UI Olympus's (Dialog.lua), because there the game's popups
 -- break when an addon opens one (the "blocked" loop that freezes the game).
 function ns.ShowDialog(which, a, b, data)
-	if ns.GamepadUI() and not ns.Dialog.missing then return ns.Dialog.Show(which, a, b, data) end
+	ns.Log("dialog %s (%s)", tostring(which), ns.GamepadUI() and "olympus window, gamepad UI" or "game popup")
+	if ns.GamepadUI() then
+		-- Updated without restarting the game (Dialog.lua not loaded yet): never the game's
+		-- popup there, the player is told to restart.
+		if ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return nil end
+		return ns.Dialog.Show(which, a, b, data)
+	end
 	return StaticPopup_Show(which, a, b, data)
 end
 function ns.HideDialog(which, data)
 	if not ns.Dialog.missing then ns.Dialog.Hide(which, data) end
 	if not ns.GamepadUI() and StaticPopup_Hide then StaticPopup_Hide(which, data) end
+end
+
+-- The keyboard to one of our edit boxes (setFocus: its own SetFocus). With the gamepad UI,
+-- not while another box has it (the chat's): its focus change would run the game's gamepad
+-- code from ours, and the game blocks it (see Dialog.lua); the player clicks into ours.
+function ns.Focus(eb, setFocus)
+	setFocus = setFocus or eb.SetFocus
+	if ns.GamepadUI() and GetCurrentKeyBoardFocus then
+		local current = GetCurrentKeyBoardFocus()
+		if current and current ~= eb and not current.olympusBox then return false end
+	end
+	setFocus(eb)
+	return true
 end
 
 -- The faction may not be known yet at ADDON_LOADED: if it turns out to be the other one,

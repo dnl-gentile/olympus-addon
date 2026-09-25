@@ -1210,9 +1210,77 @@ end
 --            realm (the realm the name is short for: a guild report's, not always ours) }
 ---------------------------------------------------------------------------
 
+-- With the gamepad UI a whisper, or a line for an Olympus chat, is written in an Olympus
+-- window: the game's chat box, opened from Olympus, runs the game's gamepad code from ours
+-- and the game blocks it (see Dialog.lua). With mouse and keyboard, the game's chat box.
+local function Trim(text) return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
+local function SendWhisper(name, text)
+	text = Trim(text)
+	if text ~= "" and name then SendChatMessage(text:sub(1, 255), "WHISPER", nil, name) end
+end
+local function SendToChat(tier, text)
+	if tier then ns.SafeCall("chat window", ns.Channels.Send, tier, Trim(text)) end
+end
+StaticPopupDialogs["OLYMPUS_WHISPER"] = {
+	text = L.WHISPER_TO,
+	button1 = SEND_LABEL or "Send",
+	button2 = CANCEL or "Cancel",
+	hasEditBox = true,
+	editBoxWidth = 320,
+	maxLetters = 255,
+	OnShow = function(self)
+		local eb = self.editBox or self.EditBox
+		if eb then eb:SetText("") eb:SetFocus() end
+	end,
+	OnAccept = function(self, name)
+		local eb = self.editBox or self.EditBox
+		SendWhisper(name, eb and eb:GetText())
+	end,
+	EditBoxOnEnterPressed = function(self)
+		local parent = self:GetParent()
+		SendWhisper(parent.data, self:GetText())
+		parent:Hide()
+	end,
+	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+StaticPopupDialogs["OLYMPUS_CHAT_WRITE"] = {
+	text = L.CHATS_WRITE_TO,
+	button1 = SEND_LABEL or "Send",
+	button2 = CANCEL or "Cancel",
+	hasEditBox = true,
+	editBoxWidth = 320,
+	maxLetters = 255,
+	OnShow = function(self)
+		local eb = self.editBox or self.EditBox
+		if eb then eb:SetText("") eb:SetFocus() end
+	end,
+	OnAccept = function(self, tier)
+		local eb = self.editBox or self.EditBox
+		SendToChat(tier, eb and eb:GetText())
+	end,
+	EditBoxOnEnterPressed = function(self)
+		local parent = self:GetParent()
+		SendToChat(parent.data, self:GetText())
+		parent:Hide()
+	end,
+	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+-- (name: the one the server finds; label: the chat's name, [Olympus].)
+function UI.WhisperWindow(name) return ns.ShowDialog("OLYMPUS_WHISPER", name, nil, name) end
+function UI.ChatWindow(tier, label) return ns.ShowDialog("OLYMPUS_CHAT_WRITE", label, nil, tier) end
+
 -- Whisper, invite and /who take the name the server finds (ns.TellName).
 local function Whisper(name)
 	name = ns.TellName(name)
+	if ns.GamepadUI() then return UI.WhisperWindow(name) end
 	if ChatFrame_SendTell then ChatFrame_SendTell(name) else ChatFrame_OpenChat("/w " .. name .. " ") end
 end
 
@@ -1601,7 +1669,8 @@ function UI.ShowCopy(title, text, action)
 	if not copyFrame.movedByPlayer then
 		ns.SafeCall("issue reporter", ClearOfIssueReporter, function() return StepAboveIssueReporter(copyFrame, { copyFrame }) end)
 	end
-	copyFrame.eb:SetFocus()
+	copyFrame.eb.olympusBox = true
+	ns.Focus(copyFrame.eb)
 	copyFrame.eb:HighlightText()
 end
 

@@ -10,10 +10,14 @@ local ADDON, ns = ...
 -- same StaticPopupDialogs entry, the same arguments) in a window of its own, answered with
 -- the mouse. With mouse and keyboard the game's popups are used, as always (ns.ShowDialog).
 -- Like the game's: button1 OnAccept, button2 OnCancel(self, data, "clicked"), button3 OnAlt;
--- a handler returning true keeps it open; Escape is OnCancel(self, data, "clicked"); the
--- timeout hides it, then OnCancel(self, data, "timeout"); OnShow and OnHide(self, data); an
--- edit box (self.editBox, its parent the dialog) with EditBoxOnEnterPressed and
--- EditBoxOnEscapePressed(editBox, data).
+-- a handler returning true keeps it open; the timeout hides it, then OnCancel(self, data,
+-- "timeout"); a fourth dialog takes the oldest's place, OnCancel(self, data, "override");
+-- OnShow and OnHide(self, data); an edit box (self.editBox, its parent the dialog) with
+-- EditBoxOnEnterPressed and EditBoxOnEscapePressed(editBox, data), Enter doing nothing else.
+-- Like the game's popups too, they stay up through death, loading screens and the game's
+-- window sweeps (they are not in UISpecialFrames), and are only answered by a click.
+-- An edit box here never takes the keyboard from another one (the chat's): its focus change
+-- would run the game's gamepad code from ours, the same block (ns.Focus).
 
 local Dialog = {}
 ns.Dialog = Dialog
@@ -24,6 +28,7 @@ Dialog.GAP = 8
 
 local frames = {}     -- built once, reused
 local order = 0       -- to know the oldest
+local hinted          -- the player told once a session: these are answered with the mouse
 
 local function Def(which) return type(which) == "string" and StaticPopupDialogs and StaticPopupDialogs[which] or nil end
 local function Call(f, where, fn, ...)
@@ -51,6 +56,16 @@ local function Layout()
 		f:SetPoint("TOP", anchor, point, 0, y)
 		anchor, point, y = f, "BOTTOM", -Dialog.GAP
 	end
+end
+
+-- The game's popups, as last seen: when one comes or goes, ours move under it.
+local function GamePopups()
+	local n = 0
+	for i = 1, 4 do
+		local p = _G["StaticPopup" .. i]
+		if p and p.IsShown and p:IsShown() then n = n + i * 10 end
+	end
+	return n
 end
 
 local function Click(f, index)
@@ -95,22 +110,32 @@ local function Build(i)
 	f.text:SetJustifyH("CENTER")
 	local okBox, eb = pcall(CreateFrame, "EditBox", "OlympusDialog" .. i .. "EditBox", f, "InputBoxTemplate")
 	if not okBox or not eb then eb = CreateFrame("EditBox", nil, f) end
+	eb.olympusBox = true
+	-- The definitions' OnShow focus the box (eb:SetFocus()): not away from the chat.
+	local setFocus = eb.SetFocus
+	eb.SetFocus = function(self) ns.Focus(self, setFocus) end
 	eb:SetAutoFocus(false)
 	eb:SetHeight(22)
 	eb:SetFontObject("ChatFontNormal")
 	eb:SetScript("OnEnterPressed", function(self)
 		local def = f.def
 		if not def then return end
-		if def.EditBoxOnEnterPressed then Call(f, "enter", def.EditBoxOnEnterPressed, self, f.data) else Click(f, 1) end
+		if def.EditBoxOnEnterPressed then Call(f, "enter", def.EditBoxOnEnterPressed, self, f.data) end
 	end)
 	eb:SetScript("OnEscapePressed", function(self)
 		local def = f.def
 		if def and def.EditBoxOnEscapePressed then Call(f, "escape", def.EditBoxOnEscapePressed, self, f.data)
-		else self:ClearFocus(); f:Hide() end
+		else self:ClearFocus() end
 	end)
 	f.editBox, f.EditBox = eb, eb
 	f.buttons = { Button(f, 1), Button(f, 2), Button(f, 3) }
 	f:SetScript("OnUpdate", function(self, elapsed)
+		self.look = (self.look or 0) + elapsed
+		if self.look > 0.25 then
+			self.look = 0
+			local popups = GamePopups()
+			if popups ~= self.popups then self.popups = popups; Layout() end
+		end
 		if not self.left then return end
 		self.left = self.left - elapsed
 		if self.left > 0 then return end
@@ -122,17 +147,12 @@ local function Build(i)
 	end)
 	f:SetScript("OnHide", function(self)
 		if self:IsShown() then return end -- the whole interface hidden (Alt+Z): still waiting
-		local def, data, closing = self.def, self.data, self.closing
+		local def, data = self.def, self.data
 		self.def, self.which, self.data, self.data2, self.left, self.closing = nil, nil, nil, nil, nil, nil
 		if self.editBox then self.editBox:ClearFocus() end
-		if def then
-			-- Closed with Escape (unanswered): the game's popups cancel then.
-			if not closing and not def.noCancelOnEscape then Call(self, "cancel", def.OnCancel, self, data, "clicked") end
-			Call(self, "hide", def.OnHide, self, data)
-		end
+		if def then Call(self, "hide", def.OnHide, self, data) end
 		Layout()
 	end)
-	if UISpecialFrames then table.insert(UISpecialFrames, f:GetName()) end
 	return f
 end
 
@@ -145,8 +165,11 @@ local function Free()
 	end
 	local oldest = frames[1]
 	for _, f in ipairs(frames) do if f.order < oldest.order then oldest = f end end
+	-- Its question unanswered: cancelled, as the game does when it reuses a popup.
+	local def, data = oldest.def, oldest.data
 	oldest.closing = "replaced"
 	oldest:Hide()
+	if def then Call(oldest, "override", def.OnCancel, oldest, data, "override") end
 	return oldest
 end
 
@@ -169,7 +192,7 @@ function Dialog.Show(which, a, b, data)
 	end
 	local f = Free()
 	order = order + 1
-	f.order, f.which, f.def, f.data, f.closing = order, which, def, data, nil
+	f.order, f.which, f.def, f.data, f.closing, f.popups = order, which, def, data, nil, GamePopups()
 	f.left = (tonumber(def.timeout) or 0) > 0 and tonumber(def.timeout) or nil
 	local text = tostring(def.text or "")
 	if a ~= nil or b ~= nil then
@@ -226,6 +249,10 @@ function Dialog.Show(which, a, b, data)
 	f:Show()
 	Layout()
 	Call(f, "show", def.OnShow, f, data)
+	if not hinted then
+		hinted = true
+		ns.Print(ns.L.DIALOG_GAMEPAD_HINT)
+	end
 	return f
 end
 

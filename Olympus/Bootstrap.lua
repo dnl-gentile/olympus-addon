@@ -13,8 +13,18 @@ ns.earlyErrors = {}
 ns.allErrors = {}
 local index = {}
 
-local previous = geterrorhandler()
-seterrorhandler(function(err, ...)
+-- Not with Blizzard's gamepad UI on (WoW: Forever): every error would then run the game's
+-- error window from this handler, which the game blocks there (see Dialog.lua).
+local function GamepadUI()
+	local current = C_InputInterfaceStyle and C_InputInterfaceStyle.GetCurrentStyle
+	local gamepad = Enum and Enum.InputDeviceInterfaceType and Enum.InputDeviceInterfaceType.Gamepad
+	if not current or gamepad == nil then return false end
+	local ok, style = pcall(current)
+	return ok and style == gamepad
+end
+
+local previous = not GamepadUI() and geterrorhandler()
+if previous then seterrorhandler(function(err, ...)
 	local ok = pcall(function()
 		local msg = tostring(err)
 		local key = msg:sub(1, 240)
@@ -35,7 +45,7 @@ seterrorhandler(function(err, ...)
 		end
 	end)
 	return previous(err, ...)
-end)
+end) end
 
 if not WorldMapFrame then
 	local load = (C_AddOns and C_AddOns.LoadAddOn) or LoadAddOn

@@ -441,6 +441,8 @@ local function ChatLines()
 	lines[#lines + 1] = {
 		text = Green(L.CHATS_WRITE:format(L[tierDef.label])),
 		onClick = function()
+			-- (The gamepad UI: an Olympus window, the game's chat box would be blocked; UI.lua.)
+			if ns.GamepadUI() then return ns.UI.ChatWindow(chatTier, L[tierDef.label]) end
 			if ChatFrame_OpenChat then ChatFrame_OpenChat(tierDef.slash .. " ") end
 		end,
 		gapAfter = true,
@@ -454,6 +456,7 @@ local function ChatLines()
 			text = C.FormatLine(chatTier, e.sender, e.guild, e.class, e.text),
 			right = Grey(ns.Ago(e.t)),
 			onClick = not e.mine and function()
+				if ns.GamepadUI() then return ns.UI.WhisperWindow(ns.TellName(e.sender) or who) end
 				if ChatFrame_SendTell then ChatFrame_SendTell(ns.TellName(e.sender) or who) end
 			end or nil,
 			tooltip = function(tt)

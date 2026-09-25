@@ -6279,11 +6279,13 @@ test("gamepad UI: Olympus's own dialogs, never the game's popups; mouse and keyb
 			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 9)
 			f.buttons[3]:Click()
 			eq(log[2], "alt 9"); eq(log[3], "hide 9")
-			-- Escape (closed unanswered): OnCancel "clicked", as the game's.
+			-- Closed by anything but a click (the game's window sweeps on death, loading screens,
+			-- Alt+Z): no answer. And they are not in those sweeps, as the game's popups aren't.
 			log = {}
 			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 10)
 			f:Hide()
-			eq(log[2], "cancel 10 clicked"); eq(log[3], "hide 10")
+			eq(log[2], "hide 10"); eq(#log, 2, "no answer given for the player")
+			for _, name in ipairs(UISpecialFrames or {}) do assert(not name:find("^OlympusDialog"), "not swept: " .. name) end
 			-- Hidden by the addon: no answer, OnHide only (the game's StaticPopup_Hide).
 			log = {}
 			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 11)
@@ -6315,6 +6317,18 @@ test("gamepad UI: Olympus's own dialogs, never the game's popups; mouse and keyb
 			eq(b1.points[1][2], a2, "under the first"); eq(#b1.buttons, 3); eq(b1.buttons[2]:IsShown(), false)
 			ns.HideDialog("OLYMPUS_TEST_A")
 			eq(Anchor(b1), "TOP UIParent TOP 0 -135", "moves up when the first closes")
+			-- Three up, a fourth takes the oldest's place: that one is cancelled "override".
+			log = {}
+			StaticPopupDialogs.OLYMPUS_TEST_C = { text = "C", button1 = "OK", timeout = 0 }
+			StaticPopupDialogs.OLYMPUS_TEST_D = { text = "D", button1 = "OK", timeout = 0 }
+			ns.ShowDialog("OLYMPUS_TEST_A", "o", "o", 20)
+			ns.ShowDialog("OLYMPUS_TEST_C")
+			ns.ShowDialog("OLYMPUS_TEST_D")
+			eq(D.Find("OLYMPUS_TEST_B"), nil, "b1 was the oldest: gone")
+			ns.ShowDialog("OLYMPUS_TEST_B")
+			eq(D.Find("OLYMPUS_TEST_A"), nil); eq(log[#log], "cancel 20 override")
+			for _, w in ipairs({ "OLYMPUS_TEST_B", "OLYMPUS_TEST_C", "OLYMPUS_TEST_D" }) do ns.HideDialog(w) end
+			StaticPopupDialogs.OLYMPUS_TEST_C, StaticPopupDialogs.OLYMPUS_TEST_D = nil, nil
 			-- The edit box: the dialog is its parent (the game's), Enter and Escape handlers.
 			local entered
 			StaticPopupDialogs.OLYMPUS_TEST_B = { text = "Name?", button1 = "OK", button2 = "Cancel", hasEditBox = true, editBoxWidth = 260, maxLetters = 40,
@@ -6326,6 +6340,49 @@ test("gamepad UI: Olympus's own dialogs, never the game's popups; mouse and keyb
 			assert(e:GetWidth() >= 320, "wide enough for the box")
 			e.editBox:Fire("OnEnterPressed")
 			eq(entered, "d:typed"); eq(e:IsShown(), false)
+			-- Without EditBoxOnEnterPressed, Enter does nothing (as the game's: no writ sent by it).
+			local accepted
+			StaticPopupDialogs.OLYMPUS_TEST_B = { text = "Writ", button1 = "Lords", button2 = "Cancel", button3 = "All", hasEditBox = true,
+				OnAccept = function() accepted = true end, timeout = 0 }
+			e = ns.ShowDialog("OLYMPUS_TEST_B")
+			e.editBox:Fire("OnEnterPressed")
+			eq(accepted, nil); eq(e:IsShown(), true)
+			ns.HideDialog("OLYMPUS_TEST_B")
+			-- The keyboard is never taken from another box (the chat's): the player clicks ours.
+			local focus = { name = "ChatFrame1EditBox" }
+			local savedFocus = GetCurrentKeyBoardFocus
+			GetCurrentKeyBoardFocus = function() return focus end
+			local took
+			StaticPopupDialogs.OLYMPUS_TEST_B = { text = "Name?", button1 = "OK", hasEditBox = true, timeout = 0,
+				OnShow = function(self) self.editBox:SetFocus() end }
+			local box = ns.ShowDialog("OLYMPUS_TEST_B").editBox
+			eq(ns.Focus(box, function() took = true end), false); eq(took, nil)
+			focus = nil
+			eq(ns.Focus(box, function() took = true end), true); eq(took, true)
+			focus = { olympusBox = true }
+			took = nil
+			eq(ns.Focus(box, function() took = true end), true, "from another Olympus box: fine")
+			GetCurrentKeyBoardFocus = savedFocus
+			ns.HideDialog("OLYMPUS_TEST_B")
+		end)
+		-- Mouse and keyboard: focus as always, whatever holds it.
+		WithGamepadUI(false, function()
+			local took
+			local savedFocus = GetCurrentKeyBoardFocus
+			GetCurrentKeyBoardFocus = function() return { name = "ChatFrame1EditBox" } end
+			eq(ns.Focus({}, function() took = true end), true); eq(took, true)
+			GetCurrentKeyBoardFocus = savedFocus
+		end)
+		-- Updated without a restart (Dialog.lua not loaded): with the gamepad UI never the
+		-- game's popup, the player is told to restart.
+		WithGamepadUI(true, function(game)
+			local savedDialog, printed = ns.Dialog, {}
+			local savedPrint = ns.Print
+			ns.Dialog = setmetatable({ missing = true }, { __index = function() return function() end end })
+			ns.Print = function(m) printed[#printed + 1] = m end
+			local shown = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 1)
+			ns.Dialog, ns.Print = savedDialog, savedPrint
+			eq(shown, nil); eq(#game.shown, 0); eq(printed[1], ns.L.RESTART_NEEDED)
 		end)
 		StaticPopupDialogs.OLYMPUS_TEST_A, StaticPopupDialogs.OLYMPUS_TEST_B = nil, nil
 	end)
@@ -6362,6 +6419,50 @@ test("gamepad UI: the King's summons in our dialog; a layer invite is the player
 			eq(w.accepted, 0, "the player accepts"); eq(#w.hidden, 0); eq(game.found, nil, "the game's invite popup untouched")
 			eq(H.State().phase, "requested")
 		end)
+	end)
+end)
+
+test("gamepad UI: whispers and chat lines written in an Olympus window, never the game's chat box", function()
+	WithUI(function()
+		local UI = LoadUI()
+		local saved = { tell = ChatFrame_SendTell, open = ChatFrame_OpenChat, say = SendChatMessage, send = ns.Channels.Send, split = ns.splitNames }
+		local told, opened, said, sent = {}, {}, {}, {}
+		ChatFrame_SendTell = function(n) told[#told + 1] = n end
+		ChatFrame_OpenChat = function(t) opened[#opened + 1] = t end
+		SendChatMessage = function(text, kind, _, to) said[#said + 1] = kind .. " " .. tostring(to) .. " " .. text end
+		ns.Channels.Send = function(tier, text) sent[#sent + 1] = tier .. " " .. text end
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			UI.Toggle()
+			-- Mouse and keyboard: the game's chat box, as always.
+			WithGamepadUI(false, function()
+				UI.ShowPerson({ name = "Faladoriel Skylance", realm = ns.realm, guild = "Olympus II" })
+				OlympusPersonFrame.whisper:Click()
+				eq(told[1], "Faladoriel Skylance")
+			end)
+			WithGamepadUI(true, function(game)
+				-- The member card's Whisper: our window, sent to the name the server finds.
+				UI.ShowPerson({ name = "Faladoriel Skylance", realm = ns.realm, guild = "Olympus II" })
+				OlympusPersonFrame.whisper:Click()
+				eq(#told, 1, "not the game's chat box"); eq(#game.shown, 0)
+				local w = ns.Dialog.Find("OLYMPUS_WHISPER")
+				assert(w, "the whisper window")
+				eq(w.text:GetText(), ns.L.WHISPER_TO:format("Faladoriel Skylance"))
+				w.editBox:SetText("  hi there  ")
+				w.editBox:Fire("OnEnterPressed")
+				eq(said[1], "WHISPER Faladoriel Skylance hi there"); eq(w:IsShown(), false)
+				-- Empty: nothing sent.
+				UI.WhisperWindow("Faladoriel Skylance").buttons[1]:Click()
+				eq(#said, 1)
+				-- A line for [Olympus].
+				local c = UI.ChatWindow("A", "Olympus")
+				c.editBox:SetText("for olympus")
+				c.buttons[1]:Click()
+				eq(sent[1], "A for olympus"); eq(#opened, 0)
+			end)
+		end)
+		ChatFrame_SendTell, ChatFrame_OpenChat, SendChatMessage, ns.Channels.Send, ns.splitNames = saved.tell, saved.open, saved.say, saved.send, saved.split
+		if not ok then error(err, 0) end
 	end)
 end)
 
