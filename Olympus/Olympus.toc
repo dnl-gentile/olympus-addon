@@ -18,6 +18,7 @@ libs\HereBeDragons\HereBeDragons-Pins-2.0.lua
 Locales.lua
 Core.lua
 Diagnostics.lua
+Dialog.lua
 Codec.lua
 Zones.lua
 Who.lua

@@ -225,7 +225,7 @@ function Hop.HandleRequest(dist, sender, text)
 	if auto and OnlyGuests() then return Invite(sender, id, true) end
 	pending = { from = sender, id = id, t = ns.Now() }
 	ns.PlayAlert("soft")
-	StaticPopup_Show("OLYMPUS_HOP_REQUEST", ns.DisplayName(sender), nil, pending)
+	ns.ShowDialog("OLYMPUS_HOP_REQUEST", ns.DisplayName(sender), nil, pending)
 	Changed()
 end
 
@@ -274,7 +274,7 @@ StaticPopupDialogs["OLYMPUS_HOP_REQUEST"] = {
 -- fromPopup: called from the leave window's own buttons (it closes itself).
 local function Finish(message, fromPopup)
 	if not ask then return end
-	if not fromPopup and ask.leaveShown and StaticPopup_Hide then StaticPopup_Hide("OLYMPUS_HOP_LEAVE", ask) end
+	if not fromPopup and ask.leaveShown then ns.HideDialog("OLYMPUS_HOP_LEAVE", ask) end
 	ask.phase = "done"
 	if message then ns.Print(message) end
 	Changed()
@@ -395,8 +395,10 @@ function Hop.OnInvite(name)
 	local helper = AskedHelper(name)
 	if not helper then return end
 	-- Not one the addon can vouch for (Hop.Trusted): the game's own window, the player's click.
+	-- With the gamepad UI, always: the addon leaves the game's popups alone there (Dialog.lua),
+	-- and the game's invite window is the one a controller answers.
 	local o = ask.offers[helper]
-	if not (o and o.trusted) then
+	if not (o and o.trusted) or ns.GamepadUI() then
 		-- The player decides: the wait starts over from this invite, and the group they may
 		-- join counts as this helper's (OnRoster) even before the game names its members.
 		ask.helper, ask.invitedBy, ask.asked = helper, helper, ns.Now()
@@ -433,7 +435,7 @@ local function OfferLeave()
 	if not ask or ask.leaveShown then return end
 	ask.leaveShown = true
 	ns.PlayAlert("soft")
-	StaticPopup_Show("OLYMPUS_HOP_LEAVE", L.HOP_MAYBE_MOVED, nil, ask)
+	ns.ShowDialog("OLYMPUS_HOP_LEAVE", L.HOP_MAYBE_MOVED, nil, ask)
 end
 
 StaticPopupDialogs["OLYMPUS_HOP_LEAVE"] = {

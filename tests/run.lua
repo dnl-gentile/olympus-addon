@@ -74,7 +74,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Acts", "Workshop", "Recruit", "Views" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Acts", "Workshop", "Recruit", "Views" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -1234,7 +1234,7 @@ local CHAR_W = { GameFontNormalLarge = 9, GameFontNormal = 7, GameFontHighlight 
 local FONT_GLOBALS = { "GameFontNormalLarge", "GameFontNormal", "GameFontHighlightSmall", "GameFontWhiteTiny" }
 
 local Widget = {}
-local NOOP_VERBS = { "^Set", "^Enable", "^Disable", "^Register", "^Unregister", "^Lock", "^Unlock", "^Raise", "^Lower", "^Highlight", "^Play" }
+local NOOP_VERBS = { "^Set", "^Enable", "^Disable", "^Register", "^Unregister", "^Lock", "^Unlock", "^Raise", "^Lower", "^Highlight", "^Play", "^ClearFocus$" }
 local widgetNames = {}
 local widgetMeta = { __index = function(_, key)
 	local method = Widget[key]
@@ -1276,6 +1276,8 @@ function Widget:LockHighlight() self.locked = true end
 function Widget:UnlockHighlight() self.locked = false end
 function Widget:SetHighlightTexture(texture) self.highlightTexture = texture end
 function Widget:SetTexture(texture) self.texture = texture end
+function Widget:SetFrameStrata(strata) self.strata = strata end
+function Widget:GetFrameStrata() return self.strata end
 function Widget:SetTexCoord(...) self.texCoord = table.concat({ ... }, " ") end
 function Widget:GetDrawLayer() return self.layer end
 function Widget:GetRegions() return unpack(self.textures or {}) end
@@ -4542,7 +4544,7 @@ test("files added by an update and not loaded yet: stand-ins keep everything els
 	print = function(msg) printed[#printed + 1] = tostring(msg) end
 	local ok, err = pcall(function()
 		local fresh = {}
-		for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Data", "Roster", "Comm", "Recruit", "Views" }) do
+		for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Zones", "Data", "Roster", "Comm", "Recruit", "Views" }) do
 			assert(loadfile(ADDON_DIR .. file .. ".lua"))("Olympus", fresh)
 		end
 		eq(fresh.Who.missing, true, "Who.lua stood in for")
@@ -6217,6 +6219,167 @@ test("Treasury review fixes: the week survives the update, the King's word reach
 			GetTradeTargetItemInfo, UnitFullName, ERR_TRADE_COMPLETE, GetSendMailMoney, ns.splitNames, K.Preview, GetMoney = unpack(saved, 1, 12)
 		if not ok then error(err, 0) end
 	end)
+end)
+
+-- Blizzard's gamepad UI (Forever): the game's popups break when an addon opens one, so there
+-- Olympus shows its own dialog (Dialog.lua); with mouse and keyboard nothing changes.
+local function WithGamepadUI(on, fn)
+	local savedStyle, savedType = C_InputInterfaceStyle, Enum.InputDeviceInterfaceType
+	local savedShow, savedHide, savedFind = StaticPopup_Show, StaticPopup_Hide, StaticPopup_FindVisible
+	local game = { shown = {}, hidden = {} }
+	Enum.InputDeviceInterfaceType = { Mkb = 0, Gamepad = 1 }
+	C_InputInterfaceStyle = { GetCurrentStyle = function() return on and 1 or 0 end }
+	StaticPopup_Show = function(which, a, b, data) game.shown[#game.shown + 1] = { which = which, a = a, b = b, data = data } return "blizzard" end
+	StaticPopup_Hide = function(which, data) game.hidden[#game.hidden + 1] = which end
+	StaticPopup_FindVisible = function() game.found = true return nil end
+	local ok, err = pcall(fn, game)
+	ns.Dialog.Reset()
+	C_InputInterfaceStyle, Enum.InputDeviceInterfaceType = savedStyle, savedType
+	StaticPopup_Show, StaticPopup_Hide, StaticPopup_FindVisible = savedShow, savedHide, savedFind
+	if not ok then error(err, 0) end
+end
+
+test("gamepad UI: Olympus's own dialogs, never the game's popups; mouse and keyboard as before", function()
+	WithUI(function()
+		local D = ns.Dialog
+		local log = {}
+		StaticPopupDialogs.OLYMPUS_TEST_A = {
+			text = "Hello %s and %s", button1 = "Yes", button2 = "No", button3 = "Always",
+			OnShow = function(self, data) log[#log + 1] = "show " .. tostring(data) end,
+			OnAccept = function(self, data) log[#log + 1] = "accept " .. tostring(data) end,
+			OnCancel = function(self, data, reason) log[#log + 1] = "cancel " .. tostring(data) .. " " .. tostring(reason) end,
+			OnAlt = function(self, data) log[#log + 1] = "alt " .. tostring(data) end,
+			OnHide = function(self, data) log[#log + 1] = "hide " .. tostring(data) end,
+			timeout = 0, hideOnEscape = true,
+		}
+		-- Mouse and keyboard: the game's popup, with the very same arguments.
+		WithGamepadUI(false, function(game)
+			eq(ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 7), "blizzard")
+			eq(game.shown[1].which, "OLYMPUS_TEST_A"); eq(game.shown[1].a, "x"); eq(game.shown[1].b, "y"); eq(game.shown[1].data, 7)
+			ns.HideDialog("OLYMPUS_TEST_A", 7)
+			eq(game.hidden[1], "OLYMPUS_TEST_A")
+			eq(D.Find("OLYMPUS_TEST_A"), nil, "none of ours")
+		end)
+		WithGamepadUI(true, function(game)
+			-- Shown in our window, text formatted, the game's popups untouched.
+			local f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 7)
+			eq(#game.shown, 0); eq(D.Find("OLYMPUS_TEST_A"), f); eq(f:IsShown(), true)
+			eq(f.text:GetText(), "Hello x and y"); eq(f.buttons[1]:GetText(), "Yes"); eq(f.buttons[3]:GetText(), "Always")
+			eq(f:GetFrameStrata(), "DIALOG"); eq(f.editBox:IsShown(), false)
+			eq(log[1], "show 7")
+			-- Yes: OnAccept, closed.
+			f.buttons[1]:Click()
+			eq(log[2], "accept 7"); eq(log[3], "hide 7"); eq(f:IsShown(), false)
+			-- No: OnCancel "clicked". Always: OnAlt.
+			log = {}
+			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 8)
+			f.buttons[2]:Click()
+			eq(log[2], "cancel 8 clicked"); eq(log[3], "hide 8")
+			log = {}
+			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 9)
+			f.buttons[3]:Click()
+			eq(log[2], "alt 9"); eq(log[3], "hide 9")
+			-- Escape (closed unanswered): OnCancel "clicked", as the game's.
+			log = {}
+			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 10)
+			f:Hide()
+			eq(log[2], "cancel 10 clicked"); eq(log[3], "hide 10")
+			-- Hidden by the addon: no answer, OnHide only (the game's StaticPopup_Hide).
+			log = {}
+			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 11)
+			ns.HideDialog("OLYMPUS_TEST_A", 11)
+			eq(log[2], "hide 11"); eq(#log, 2); eq(#game.hidden, 0, "the game's popups untouched")
+			-- A handler returning true keeps it open.
+			StaticPopupDialogs.OLYMPUS_TEST_A.OnAccept = function() return true end
+			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 12)
+			f.buttons[1]:Click()
+			eq(f:IsShown(), true, "kept open")
+			ns.HideDialog("OLYMPUS_TEST_A")
+			-- The timeout: hidden, then OnCancel "timeout".
+			log = {}
+			StaticPopupDialogs.OLYMPUS_TEST_A.timeout = 30
+			f = ns.ShowDialog("OLYMPUS_TEST_A", "x", "y", 13)
+			f:Fire("OnUpdate", 29)
+			eq(f:IsShown(), true)
+			f:Fire("OnUpdate", 2)
+			eq(f:IsShown(), false); eq(log[2], "hide 13"); eq(log[3], "cancel 13 timeout")
+			StaticPopupDialogs.OLYMPUS_TEST_A.timeout = 0
+			-- The same dialog again takes the old one's place; different ones stack, a fourth
+			-- replaces the oldest.
+			local a1 = ns.ShowDialog("OLYMPUS_TEST_A", "1", "1", 1)
+			local a2 = ns.ShowDialog("OLYMPUS_TEST_A", "2", "2", 2)
+			eq(a1, a2); eq(a2.data, 2)
+			StaticPopupDialogs.OLYMPUS_TEST_B = { text = "B", button1 = "OK", timeout = 0 }
+			local b1 = ns.ShowDialog("OLYMPUS_TEST_B")
+			assert(b1 ~= a2, "another window")
+			eq(b1.points[1][2], a2, "under the first"); eq(#b1.buttons, 3); eq(b1.buttons[2]:IsShown(), false)
+			ns.HideDialog("OLYMPUS_TEST_A")
+			eq(Anchor(b1), "TOP UIParent TOP 0 -135", "moves up when the first closes")
+			-- The edit box: the dialog is its parent (the game's), Enter and Escape handlers.
+			local entered
+			StaticPopupDialogs.OLYMPUS_TEST_B = { text = "Name?", button1 = "OK", button2 = "Cancel", hasEditBox = true, editBoxWidth = 260, maxLetters = 40,
+				OnShow = function(self) self.editBox:SetText("typed") end,
+				EditBoxOnEnterPressed = function(eb) entered = eb:GetParent().data .. ":" .. eb:GetText(); eb:GetParent():Hide() end,
+				timeout = 0, hideOnEscape = true }
+			local e = ns.ShowDialog("OLYMPUS_TEST_B", nil, nil, "d")
+			eq(e.editBox:IsShown(), true); eq(e.editBox:GetParent(), e); eq(e.EditBox, e.editBox)
+			assert(e:GetWidth() >= 320, "wide enough for the box")
+			e.editBox:Fire("OnEnterPressed")
+			eq(entered, "d:typed"); eq(e:IsShown(), false)
+		end)
+		StaticPopupDialogs.OLYMPUS_TEST_A, StaticPopupDialogs.OLYMPUS_TEST_B = nil, nil
+	end)
+end)
+
+test("gamepad UI: the King's summons in our dialog; a layer invite is the player's to accept", function()
+	WithUI(function()
+		LoadUI()
+		WithGamepadUI(true, function(game)
+			WithThrone(function(w, K)
+				AsKing(); K.Summon()
+				local id = tonumber(LastSent(w):match("T1~S~(%d+)"))
+				AsLord()
+				K.HandleCommand("CHANNEL", "Asmon-Realm", ("T1~S~%d~Olympus"):format(id))
+				eq(#w.popups, 0, "not the game's popup"); eq(#game.shown, 0)
+				local f = ns.Dialog.Find("OLYMPUS_KING_SUMMON")
+				assert(f and f:IsShown(), "our dialog")
+				f.buttons[1]:Click()
+				local answer = w.whispered[#w.whispered]
+				assert(answer and answer.msg:find(("^T2~%d~P~"):format(id)), "present, to the King")
+			end)
+		end)
+	end)
+	-- The asker's side: a trusted helper's invite is not accepted for the player (the game's
+	-- invite window, which the controller answers, is left alone).
+	WithGamepadUI(true, function(game)
+		WithHop(function(w, H)
+			w.see(7)
+			H.Ask(1453, 8, "Kingy's layer")
+			H.HandleOffer("WHISPER", "Bbb-Realm", "LO~1~3~5")
+			w.clock = w.clock + H.WINDOW
+			H.Tick()
+			H.OnInvite("Bbb")
+			eq(w.accepted, 0, "the player accepts"); eq(#w.hidden, 0); eq(game.found, nil, "the game's invite popup untouched")
+			eq(H.State().phase, "requested")
+		end)
+	end)
+end)
+
+test("no Olympus file opens or closes the game's popups itself (ns.ShowDialog / ns.HideDialog)", function()
+	local allowed = { ["Core.lua"] = { StaticPopup_Show = 1, StaticPopup_Hide = 1 }, ["Hop.lua"] = { StaticPopup_Hide = 1, StaticPopup_FindVisible = 1 } }
+	local p = io.popen('ls "' .. ADDON_DIR .. '"')
+	for file in p:lines() do
+		if file:match("%.lua$") and file ~= "DevTest.lua" and file ~= "Dev.lua" then
+			local src = assert(io.open(ADDON_DIR .. file)):read("*a")
+			for _, fn in ipairs({ "StaticPopup_Show", "StaticPopup_Hide", "StaticPopup_FindVisible", "StaticPopupSpecial_Show" }) do
+				local n = 0
+				for _ in src:gmatch(fn .. "%(") do n = n + 1 end
+				local ok = (allowed[file] and allowed[file][fn] or 0)
+				eq(n, ok, file .. " calls " .. fn)
+			end
+		end
+	end
+	p:close()
 end)
 
 test("Royal Writs: the King writes to his Lords, each can acknowledge, nobody else reads it", function()

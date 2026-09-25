@@ -206,7 +206,7 @@ function Court.HandleCall(dist, sender, text)
 	c.calledAt = ns.Now()
 	c.askedAt = c.askedAt or c.calledAt
 	ns.King.Warn(L.COURT_CALLED:format(ns.KingName(sender), c.zone), true)
-	StaticPopup_Show("OLYMPUS_COURT_CALLED", ns.KingName(sender), c.zone)
+	ns.ShowDialog("OLYMPUS_COURT_CALLED", ns.KingName(sender), c.zone)
 	ns.Fire("COURT_CHANGED")
 end
 ns.Comm.Handle("T5", function(...) Court.HandleCall(...) end)

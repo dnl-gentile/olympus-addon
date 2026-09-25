@@ -822,7 +822,7 @@ local function SummaryLines(role)
 		lines[#lines + 1] = { text = L.TREASURY_WEEK:format(donors), right = Green("+" .. Treasury.Coins(week)) }
 		if role == "treasurer" then
 			lines[#lines + 1] = { text = Grey(L.TREASURY_OPENING:format(Treasury.Coins(Treasury.Opening()))),
-				onClick = function() StaticPopup_Show("OLYMPUS_TREASURY_OPENING") end,
+				onClick = function() ns.ShowDialog("OLYMPUS_TREASURY_OPENING") end,
 				tooltip = function(tt) tt:AddLine(L.TREASURY_OPENING_TIP, 1, 1, 1, true) end }
 		end
 		if asOf then lines[#lines + 1] = { text = Grey(L.TREASURY_AS_OF:format(ns.TREASURER, ns.Ago(asOf))) } end

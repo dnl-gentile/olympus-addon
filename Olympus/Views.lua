@@ -783,7 +783,7 @@ local function HeraldryLines()
 			local p = shame.list[i]
 			local pardon = king and ns.King.CleanName(p.name) ~= nil
 			lines[#lines + 1] = { indent = 1, key = p.name, text = p.name .. "  " .. Grey("<" .. (p.guild or "?") .. ">"),
-				onClick = pardon and function() StaticPopup_Show("OLYMPUS_PARDON", p.name, nil, p.name) end
+				onClick = pardon and function() ns.ShowDialog("OLYMPUS_PARDON", p.name, nil, p.name) end
 					or function() ns.UI.ShowPerson({ name = p.name, guild = p.guild }) end,
 				tooltip = pardon and function(tt)
 					tt:AddLine(p.name, 1, 0.82, 0)
@@ -874,7 +874,7 @@ function Views.RecruitLines()
 				indent = 1,
 				text = ClassColored(ns.ShortName(p.name), p.class) .. "  " .. Grey((p.level and L.LEVEL_N:format(p.level) or "") .. (p.zone and ("  " .. p.zone) or "")),
 				right = state,
-				onClick = function() StaticPopup_Show("OLYMPUS_RECRUIT", p.name, p.guild, p) end,
+				onClick = function() ns.ShowDialog("OLYMPUS_RECRUIT", p.name, p.guild, p) end,
 				tooltip = R.replied[p.name] and function(tt)
 					tt:AddLine(ns.ShortName(p.name), 1, 0.82, 0)
 					tt:AddLine('"' .. R.replied[p.name] .. '"', 1, 1, 1, true)

@@ -750,6 +750,28 @@ StandIn("Vox", { "Prompt", "CloseNow", "SetOff" })
 StandIn("Court", { "Toggle" })
 StandIn("Treasury", {})
 StandIn("Acts", { "WritPrompt" })
+StandIn("Dialog", {})
+
+-- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
+function ns.GamepadUI()
+	local current = C_InputInterfaceStyle and C_InputInterfaceStyle.GetCurrentStyle
+	local gamepad = Enum and Enum.InputDeviceInterfaceType and Enum.InputDeviceInterfaceType.Gamepad
+	if not current or gamepad == nil then return false end
+	local ok, style = pcall(current)
+	return ok and style == gamepad
+end
+
+-- The addon's popups (its StaticPopupDialogs entries): with mouse and keyboard the game's own,
+-- as always; with the gamepad UI Olympus's (Dialog.lua), because there the game's popups
+-- break when an addon opens one (the "blocked" loop that freezes the game).
+function ns.ShowDialog(which, a, b, data)
+	if ns.GamepadUI() and not ns.Dialog.missing then return ns.Dialog.Show(which, a, b, data) end
+	return StaticPopup_Show(which, a, b, data)
+end
+function ns.HideDialog(which, data)
+	if not ns.Dialog.missing then ns.Dialog.Hide(which, data) end
+	if not ns.GamepadUI() and StaticPopup_Hide then StaticPopup_Hide(which, data) end
+end
 
 -- The faction may not be known yet at ADDON_LOADED: if it turns out to be the other one,
 -- switch to that faction's store before anything is received.
@@ -768,7 +790,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then

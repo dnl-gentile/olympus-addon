@@ -86,7 +86,7 @@ function Recruit.PromptNext(guild)
 		ns.Print(#Recruit.found == 0 and L.RECRUIT_SEARCH_FIRST or L.RECRUIT_NOBODY_LEFT)
 		return
 	end
-	StaticPopup_Show("OLYMPUS_RECRUIT", contact.name, contact.guild, contact)
+	ns.ShowDialog("OLYMPUS_RECRUIT", contact.name, contact.guild, contact)
 end
 
 -- The tone of the Join screen, in the spirit of Olympus: other guilds should not exist.

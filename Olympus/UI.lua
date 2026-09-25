@@ -62,7 +62,7 @@ UI.TABS = TABS
 local function DecreeAction(kind)
 	return function()
 		if ns.Decree.CanSend(kind) then
-			StaticPopup_Show("OLYMPUS_DECREE", ns.Decree.Label({ kind = kind }), nil, kind)
+			ns.ShowDialog("OLYMPUS_DECREE", ns.Decree.Label({ kind = kind }), nil, kind)
 		else
 			ns.Print(ns.Decree.CROWN_ONLY[kind] and L.CROWN_PREVIEW_NOTE or L.DECREE_PREVIEW_NOTE)
 			ns.Decree.Preview(kind)
@@ -125,7 +125,7 @@ local BUTTONS = {
 				tt:AddLine(book and L.TREASURY_SUMMARY_BTN or L.TREASURY_BOOK_BTN, 1, 0.82, 0)
 				tt:AddLine(book and ns.Treasury.SummaryTip() or L.TREASURY_BOOK_BTN_TIP, 1, 1, 1, true)
 			end },
-		{ "TREASURY_OPENING_BTN", function() StaticPopup_Show("OLYMPUS_TREASURY_OPENING") end,
+		{ "TREASURY_OPENING_BTN", function() ns.ShowDialog("OLYMPUS_TREASURY_OPENING") end,
 			shown = function() return ns.Treasury.IsTreasurer() end },
 		{ "COPY_BTN", function() UI.ShowCopy(L.TREASURY_TITLE, ns.Treasury.DiscordText()) end,
 			shown = function() return ns.Treasury.Role() ~= "member" end },
@@ -190,7 +190,7 @@ local DETAIL_BUTTONS = {
 	},
 	heraldry = {
 		{ "HERALDRY_BTN", DecreeAction("HERALDRY") },
-		{ "CLEAR", function() StaticPopup_Show("OLYMPUS_CLEAR_INSPECT") end },
+		{ "CLEAR", function() ns.ShowDialog("OLYMPUS_CLEAR_INSPECT") end },
 	},
 	-- The King's switches: what the army sees of the treasury (each its own).
 	treasury = { TreasuryFlag("balance"), TreasuryFlag("ranking"), TreasuryFlag("book") },

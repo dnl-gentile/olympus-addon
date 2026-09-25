@@ -336,7 +336,7 @@ local function OnSummon(king, id, guild)
 	ns.PlayAlert("soft")
 	-- The King by the army's name for him; a Hand by theirs.
 	local who = King.FromKing(king, guild) and L.THRONE_SUMMONED:format(ns.KingName(king)) or L.THRONE_SUMMONED_HAND:format(ns.DisplayName(king))
-	StaticPopup_Show("OLYMPUS_KING_SUMMON", who, nil, { king = king, id = id })
+	ns.ShowDialog("OLYMPUS_KING_SUMMON", who, nil, { king = king, id = id })
 end
 
 local function Answer(data, word)
@@ -807,7 +807,7 @@ StaticPopupDialogs["OLYMPUS_KING_AGENDA"] = {
 }
 
 function King.AgendaPrompt()
-	StaticPopup_Show("OLYMPUS_KING_AGENDA")
+	ns.ShowDialog("OLYMPUS_KING_AGENDA")
 	Changed()
 end
 
@@ -995,10 +995,10 @@ end
 local function HandsLines()
 	local lines = Para({ Line(L.HANDS_TITLE, TITLE) }, L.HANDS_HINT, INK, { gapAfter = true })
 	if King.IsKing() or King.Preview() then
-		lines[#lines + 1] = Line("+ " .. L.HANDS_ADD, TITLE, { onClick = function() StaticPopup_Show("OLYMPUS_KING_HAND") end })
+		lines[#lines + 1] = Line("+ " .. L.HANDS_ADD, TITLE, { onClick = function() ns.ShowDialog("OLYMPUS_KING_HAND") end })
 		for _, name in ipairs(myHands) do
 			lines[#lines + 1] = Line(ns.DisplayName(name), INK, { indent = 1, key = name,
-				onClick = function() StaticPopup_Show("OLYMPUS_KING_UNHAND", ns.DisplayName(name), nil, name) end,
+				onClick = function() ns.ShowDialog("OLYMPUS_KING_UNHAND", ns.DisplayName(name), nil, name) end,
 				tooltip = function(tt) tt:AddLine(ns.DisplayName(name), 1, 0.82, 0); tt:AddLine(L.HANDS_CLICK_REMOVE, 1, 1, 1, true) end })
 		end
 		if #myHands == 0 then lines[#lines + 1] = Line(L.HANDS_NONE, INK, { indent = 1 }) end

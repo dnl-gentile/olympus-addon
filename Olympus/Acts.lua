@@ -244,7 +244,7 @@ StaticPopupDialogs["OLYMPUS_WRIT"] = {
 	preferredIndex = 3,
 }
 
-function Acts.WritPrompt() StaticPopup_Show("OLYMPUS_WRIT") end
+function Acts.WritPrompt() ns.ShowDialog("OLYMPUS_WRIT") end
 
 ---------------------------------------------------------------------------
 -- Open the Gates
@@ -353,9 +353,9 @@ function Acts.GatesClick(guild)
 	local g = Acts.Gates()
 	if g and g.guild == guild then
 		if not Acts.CanClose() then return ns.Print(L.GATES_ONLY_OPENER) end
-		return StaticPopup_Show("OLYMPUS_GATES_CLOSE", guild)
+		return ns.ShowDialog("OLYMPUS_GATES_CLOSE", guild)
 	end
-	StaticPopup_Show("OLYMPUS_GATES", guild, nil, guild)
+	ns.ShowDialog("OLYMPUS_GATES", guild, nil, guild)
 end
 
 ---------------------------------------------------------------------------
