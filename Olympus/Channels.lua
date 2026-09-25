@@ -330,12 +330,13 @@ function Channels.Receive(dist, sender, text, now)
 	return Accept(m.tier, sender, m.guild, m.class, m.text, false)
 end
 
--- Our name however the server writes it: lower case, the realm left out, a hyphen between
--- first name and surname read as the space it stands for ("Faladori Elskylance" stays another).
+-- Our name however the server writes it: lower case, our realm left out (a namesake on a
+-- connected realm is another player), a hyphen between first name and surname read as the
+-- space it stands for ("Faladori Elskylance" stays another).
 local function Letters(name)
 	name = tostring(name or "")
 	local base, realm = name:match("^(.+)%-([^%-]+)$")
-	if realm and (realm == ns.realm or ns.IsRealmName(realm)) then name = base end
+	if realm and (realm == ns.realm or realm == ns.CurrentRealm()) then name = base end
 	name = name:lower():gsub("'", ""):gsub("[%s%-]+", " ")
 	return (name:match("^%s*(.-)%s*$"))
 end

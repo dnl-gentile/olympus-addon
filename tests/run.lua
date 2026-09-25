@@ -5876,7 +5876,7 @@ test("The Treasury: the Treasurer's book (not his gold), the King's three switch
 	WithThrone(function(w, K)
 		local T = ns.Treasury
 		local saved = { GetInboxHeaderInfo, GetInboxInvoiceInfo, GetTargetTradeMoney, GetPlayerTradeMoney, GetTradePlayerItemInfo,
-			GetTradeTargetItemInfo, UnitFullName, ERR_TRADE_COMPLETE, GetSendMailMoney, AUCTION_OUTBID_MAIL_SUBJECT, ns.splitNames }
+			GetTradeTargetItemInfo, UnitFullName, ERR_TRADE_COMPLETE, GetSendMailMoney, AUCTION_OUTBID_MAIL_SUBJECT, ns.splitNames, GetMoney }
 		local ok, err = pcall(function()
 			ERR_TRADE_COMPLETE, AUCTION_OUTBID_MAIL_SUBJECT = "Trade complete.", "Outbid on %s"
 			ns.rdb.treasuryFlags, ns.rdb.treasuryOpening = nil, nil
@@ -5897,10 +5897,12 @@ test("The Treasury: the Treasurer's book (not his gold), the King's three switch
 			eq(T.Visible(), true, "the King on Forever")
 			T.MailTaking(1); eq(ns.rdb.treasury, nil, "the King keeps no book")
 			AsSoldier(); eq(T.Visible(), false, "a soldier: nothing shown by the King yet")
-			-- The Treasurer's book: mail gold when taken; the auction house and a no-reply mail are no donation.
+			-- The Treasurer's book: mail gold once it arrives; the auction house and a no-reply mail are no donation.
 			AsTreasurer()
-			for i = 1, #inbox do T.MailTaking(i) end
-			eq(#ns.rdb.treasury, 3); T.MailTaking(1); eq(#ns.rdb.treasury, 3, "a double click counts once")
+			local gold = 0
+			GetMoney = function() return gold end
+			for i = 1, #inbox do T.MailTaking(i); gold = gold + inbox[i][3]; T.MoneyChanged() end
+			eq(#ns.rdb.treasury, 3); T.MailTaking(1); eq(#ns.rdb.treasury, 3, "asked again, no gold came: nothing")
 			-- Trades: a donation, a sale (his items for gold) and a purchase (his gold for items).
 			UnitFullName = function(unit) if unit == "NPC" then return "Trader", "Realm" end return "Pyralis Ashandar", "Realm" end
 			local got, gave, myItems, theirItems = 0, 0, false, false
@@ -5984,7 +5986,7 @@ test("The Treasury: the Treasurer's book (not his gold), the King's three switch
 			eq(T.Visible(), false)
 		end)
 		GetInboxHeaderInfo, GetInboxInvoiceInfo, GetTargetTradeMoney, GetPlayerTradeMoney, GetTradePlayerItemInfo,
-			GetTradeTargetItemInfo, UnitFullName, ERR_TRADE_COMPLETE, GetSendMailMoney, AUCTION_OUTBID_MAIL_SUBJECT, ns.splitNames = unpack(saved, 1, 11)
+			GetTradeTargetItemInfo, UnitFullName, ERR_TRADE_COMPLETE, GetSendMailMoney, AUCTION_OUTBID_MAIL_SUBJECT, ns.splitNames, GetMoney = unpack(saved, 1, 12)
 		ns.rdb.treasuryFlags, ns.rdb.treasuryOpening = nil, nil
 		if not ok then error(err, 0) end
 	end)
@@ -5994,7 +5996,7 @@ test("Treasury review fixes: the week survives the update, the King's word reach
 	WithThrone(function(w, K)
 		local T = ns.Treasury
 		local saved = { GetInboxHeaderInfo, GetInboxInvoiceInfo, GetTargetTradeMoney, GetPlayerTradeMoney, GetTradePlayerItemInfo,
-			GetTradeTargetItemInfo, UnitFullName, ERR_TRADE_COMPLETE, GetSendMailMoney, ns.splitNames, K.Preview }
+			GetTradeTargetItemInfo, UnitFullName, ERR_TRADE_COMPLETE, GetSendMailMoney, ns.splitNames, K.Preview, GetMoney }
 		local ok, err = pcall(function()
 			ERR_TRADE_COMPLETE = "Trade complete."
 			ns.splitNames = true
@@ -6026,7 +6028,9 @@ test("Treasury review fixes: the week survives the update, the King's word reach
 			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", "T8~Olympus~500~100~0~-5~1~-~Giver:100~")
 			eq(T.Report().week, 0); eq(T.Report().balance, 500)
 			ns.Roster.RankOf = savedRank
-			-- Mail: two clicks count once; once the server answered, the mail now there is another.
+			-- Mail: counted when its gold arrives. Two clicks before then count once; a take the
+			-- server refuses counts nothing (the retry does); the mail that moves up into its place
+			-- once it is gone is another; gold from anywhere else is not a donation.
 			AsTreasurer()
 			ns.rdb.treasury, ns.rdb.treasurySums = nil, nil
 			local inbox = { { "Friend", "gift", 1000 } }
@@ -6035,23 +6039,36 @@ test("Treasury review fixes: the week survives the update, the King's word reach
 				return nil, nil, m[1], m[2], m[3], 0, 29.5, nil, nil, m[4], nil, true
 			end
 			GetInboxInvoiceInfo = function() return nil end
+			local gold = 500000
+			GetMoney = function() return gold end
+			local function Arrive(c) gold = gold + c; T.MoneyChanged() end
 			T.MailTaking(1); T.MailTaking(1)
+			eq(#(ns.rdb.treasury or {}), 0, "not before its gold")
+			Arrive(1000)
 			eq(#ns.rdb.treasury, 1)
-			T.MailAnswered(); T.MailTaking(1)
+			T.MailTaking(1); Arrive(1000)
 			eq(#ns.rdb.treasury, 2, "the same donor's second mail, moved up into its place")
-			-- A payment by mail that comes back: no longer counted.
+			T.MailTaking(1); T.MailFailed(); T.MailTaking(1)
+			eq(#ns.rdb.treasury, 2, "refused, then asked again")
+			Arrive(1000)
+			eq(#ns.rdb.treasury, 3, "counted once")
+			Arrive(700); eq(#ns.rdb.treasury, 3, "loot, not a donation")
+			-- A payment by mail that comes back: no longer counted (the latest of that amount, the
+			-- name however it was typed).
 			GetSendMailMoney = function() return 70000 end
-			T.MailSending("Crafter"); T.MailSent()
-			eq(T.Balance(), 2000 - 70000)
+			T.MailSending("crafter"); T.MailSent()
+			T.MailSending("crafter"); T.MailSent()
+			eq(T.Balance(), 3000 - 140000)
 			inbox[1] = { "Crafter", "Returned: gold", 70000, true }
-			T.MailAnswered(); T.MailTaking(1)
-			eq(#ns.rdb.treasury, 3, "no new line"); eq(ns.rdb.treasury[3].excluded, true); eq(ns.rdb.treasury[3].returned, true)
-			eq(T.Balance(), 2000)
+			T.MailTaking(1); Arrive(70000)
+			eq(#ns.rdb.treasury, 5, "no new line"); eq(ns.rdb.treasury[5].excluded, true); eq(ns.rdb.treasury[5].returned, true)
+			eq(ns.rdb.treasury[4].excluded, nil, "the other payment stays")
+			eq(T.Balance(), 3000 - 70000)
 			assert(Printed(w, "came back"), "told")
 			-- His own characters: gold with them is his.
 			ns.db.myCharacters = { ["pyralis alt-realm"] = true }
 			T.Record("Pyralis Alt", 20000000, "mail")
-			eq(ns.rdb.treasury[4].excluded, true); eq(ns.rdb.treasury[4].kind, "own"); eq(T.Balance(), 2000)
+			eq(ns.rdb.treasury[6].excluded, true); eq(ns.rdb.treasury[6].kind, "own"); eq(T.Balance(), 3000 - 70000)
 			eq(T.Totals().ranking[1].name, "Friend", "not in the ranking")
 			-- Trades: the gold both ways netted into one line; slot 7 (an enchant) is work, not a gift.
 			UnitFullName = function(unit) if unit == "NPC" then return "Seller", "Realm" end return "Pyralis Ashandar", "Realm" end
@@ -6107,9 +6124,23 @@ test("Treasury review fixes: the week survives the update, the King's word reach
 			K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~T~5~Olympus~000~" .. (at + 60))
 			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", report)
 			eq(T.Shows("balance"), false)
-			-- The Treasurer is told what the King shows.
+			-- Two clicks of his in one second: the second word still reaches the army.
+			AsKing(); ns.rdb.treasuryFlags = nil
+			T.SetFlag("ranking", true); local first = LastSent(w)
+			T.SetFlag("ranking", false); local second = LastSent(w)
+			AsSoldier(); ns.rdb.treasuryFlags = nil
+			K.HandleCommand("CHANNEL", "Asmon-Realm", first); eq(T.Shows("ranking"), true)
+			K.HandleCommand("CHANNEL", "Asmon-Realm", second); eq(T.Shows("ranking"), false, "the newer word, same second")
+			-- The Treasurer is told what the King shows, and told again when it changes.
 			AsTreasurer(); ns.rdb.treasuryFlags = { balance = true, at = at }
 			assert(T.WhoSees():find(ns.L.TREASURY_PART_BALANCE, 1, true), T.WhoSees())
+			K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~T~6~Olympus~101~" .. (at + 900 - 300))
+			assert(Printed(w, ns.L.TREASURY_PART_BOOK), "told the King now shows the book")
+			-- The way back from the book names what the viewer finds there.
+			AsSoldier(); ns.rdb.treasuryFlags = { book = true, at = at }
+			eq(T.SummaryTip(), ns.L.TREASURY_SUMMARY_BTN_TIP_PLAIN)
+			ns.rdb.treasuryFlags = { book = true, balance = true, at = at }
+			eq(T.SummaryTip(), ns.L.TREASURY_SUMMARY_BTN_TIP:format(ns.L.TREASURY_PART_BALANCE))
 			-- Asmond's view keeps its own switches: the King's word stays, and goes with the view.
 			AsSoldier(); ns.rdb.treasuryFlags = { balance = true, at = at }
 			K.Preview = function() return true end
@@ -6122,7 +6153,7 @@ test("Treasury review fixes: the week survives the update, the King's word reach
 			K.SetDevView(false); eq(ns.db.previewTreasuryFlags, nil)
 		end)
 		GetInboxHeaderInfo, GetInboxInvoiceInfo, GetTargetTradeMoney, GetPlayerTradeMoney, GetTradePlayerItemInfo,
-			GetTradeTargetItemInfo, UnitFullName, ERR_TRADE_COMPLETE, GetSendMailMoney, ns.splitNames, K.Preview = unpack(saved, 1, 11)
+			GetTradeTargetItemInfo, UnitFullName, ERR_TRADE_COMPLETE, GetSendMailMoney, ns.splitNames, K.Preview, GetMoney = unpack(saved, 1, 12)
 		if not ok then error(err, 0) end
 	end)
 end)
@@ -6485,6 +6516,7 @@ test("chat: our own line comes back from the channel once, whatever form the ser
 		eq(C.IsMe("Testers Urname-OtherRealm"), false, "someone else")
 		eq(C.IsMe("Testers Urname"), false, "the same letters split elsewhere: another player")
 		eq(C.IsMe("Testers-Urname-Realm"), false)
+		eq(C.IsMe("Tester Surname-OtherRealm"), false, "a namesake on another realm")
 		eq(C.IsMe("Other Player"), false)
 	end)
 	ns.me, ns.splitNames, ns.Comm.ChannelReady, ns.Comm.ChatRoom, ns.Comm.SendChat = saved.me, saved.split, saved.ready, saved.room, saved.send

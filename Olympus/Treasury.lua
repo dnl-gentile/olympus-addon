@@ -33,6 +33,7 @@ Treasury.REPORT_KEPT = 7 * 86400 -- a treasury not heard of for a week is droppe
 Treasury.RANK_SENT = 10      -- donors in the ranking sent
 Treasury.BOOK_SENT = 15      -- latest lines of the book sent
 Treasury.BOOK_SHOWN = 40     -- lines of his own book the Treasurer sees, 40 more a click
+Treasury.PENDING_FOR = 30    -- seconds a mail's gold may take to arrive once asked for
 Treasury.MAX_COPPER = 2147483647
 
 Treasury.mode = "summary"    -- what the tab shows: summary or book
@@ -42,7 +43,8 @@ local mailOut                -- a mail with gold on its way: { to, money }
 local report                 -- the Treasurer's last treasury: { balance, allIn, allOut, week, donors, rank, book, t, from }
 local lastShare, sharePending = -math.huge, false
 local lastFlagsSent = -math.huge
-local taken = {}             -- [inbox index] = when its gold was taken, until the server answers
+local pending = {}           -- mail gold asked for, until it arrives: { key, sender, money, returned, t }
+local lastMoney              -- the character's gold as last seen while takes wait
 local bookShown = Treasury.BOOK_SHOWN
 
 local function Grey(s) return "|cff9d9d9d" .. s .. "|r" end
@@ -376,7 +378,7 @@ local function Returned(sender, money)
 	local book = Book()
 	for i = #book, 1, -1 do
 		local e = book[i]
-		if e.out and e.how == "mail" and not e.excluded and e.money == money and e.name == who then
+		if e.out and e.how == "mail" and not e.excluded and e.money == money and OwnKey(e.name) == OwnKey(sender) then
 			e.returned = true
 			Treasury.Toggle(e)
 			return ns.Print(L.TREASURY_RETURNED:format(who, Treasury.Coins(money)))
@@ -384,24 +386,64 @@ local function Returned(sender, money)
 	end
 end
 
--- A donation by mail is counted when the Treasurer takes its gold (the money button, or a
--- mail addon's "open all": TakeInboxMoney, AutoLootMailItem), read from the mail just before
--- the game empties it. Two clicks on the same mail before the server answers count once; once
--- it answered (Treasury.MailAnswered), the mail now in that place is another.
+local function MailClock() return GetTime and GetTime() or ns.Now() end
+local function Settle(p)
+	if p.returned then return Returned(p.sender, p.money) end
+	Treasury.Record(p.sender, p.money, "mail")
+end
+local function DropStale(now)
+	for i = #pending, 1, -1 do if now - pending[i].t >= Treasury.PENDING_FOR then table.remove(pending, i) end end
+end
+
+-- A donation by mail is counted when its gold arrives. The take is read from the mail when the
+-- Treasurer asks for its gold (the money button, or a mail addon's "open all": TakeInboxMoney,
+-- AutoLootMailItem), just before the game empties it, and waits for the gold (PLAYER_MONEY,
+-- Treasury.MoneyChanged). A second click on that mail meanwhile counts nothing; a take the
+-- server refuses (MAIL_FAILED) is dropped, its gold still in the mail; the mail that moves up
+-- into its place once it is gone is another.
 function Treasury.MailTaking(i)
 	if not Treasury.IsTreasurer() or not GetInboxHeaderInfo or type(i) ~= "number" then return end
 	local _, _, sender, subject, money, _, _, _, _, wasReturned, _, canReply, isGM = GetInboxHeaderInfo(i)
 	money = tonumber(money) or 0
 	local invoice = GetInboxInvoiceInfo and GetInboxInvoiceInfo(i)
 	if money <= 0 or type(sender) ~= "string" or sender == "" or isGM or invoice or SystemMail(subject) then return end
-	local now = GetTime and GetTime() or ns.Now()
-	if taken[i] and now - taken[i] < 5 then return end
-	taken[i] = now
-	if wasReturned then return Returned(sender, money) end
-	if canReply == false then return end
-	Treasury.Record(sender, money, "mail")
+	if not wasReturned and canReply == false then return end
+	if not GetMoney then return Settle({ sender = sender, money = money, returned = wasReturned }) end
+	local now = MailClock()
+	DropStale(now)
+	local key = ("%d|%s|%s|%d"):format(i, sender, tostring(subject or ""), money)
+	for _, p in ipairs(pending) do if p.key == key then return end end
+	if #pending == 0 then lastMoney = GetMoney() end
+	pending[#pending + 1] = { key = key, sender = sender, money = money, returned = wasReturned or nil, t = now }
 end
-function Treasury.MailAnswered() wipe(taken) end
+
+-- The character's gold went up: the takes it pays for are counted (the one of that exact
+-- amount first, else in order while the gold covers them; gold from anywhere else is not).
+function Treasury.MoneyChanged()
+	if #pending == 0 or not GetMoney then return end
+	local money = GetMoney()
+	local gained = money - (lastMoney or money)
+	lastMoney = money
+	DropStale(MailClock())
+	if gained <= 0 then return end
+	for i, p in ipairs(pending) do
+		if p.money == gained then
+			table.remove(pending, i)
+			return Settle(p)
+		end
+	end
+	local i = 1
+	while pending[i] do
+		if pending[i].money <= gained then
+			gained = gained - pending[i].money
+			Settle(table.remove(pending, i))
+		else
+			i = i + 1
+		end
+	end
+end
+-- A take the server refused (the latest): its gold is still in the mail, nothing counted.
+function Treasury.MailFailed() table.remove(pending) end
 
 -- The sums: today, this week (today and the 6 days before), all time; the givers of the
 -- week and of all time, most generous first.
@@ -557,7 +599,9 @@ function Treasury.SetFlag(what, on)
 	local f = {}
 	for _, k in ipairs(FLAGS) do f[k] = Treasury.Shows(k) end
 	f[what] = on and true or false
-	f.t, f.at = ns.Now(), Clock()
+	-- Each word newer than the last, two clicks in one second too (the army takes the newest).
+	local prev = ns.King.Preview() and ns.db.previewTreasuryFlags or ns.rdb.treasuryFlags
+	f.t, f.at = ns.Now(), math.max(Clock(), (type(prev) == "table" and tonumber(prev.at) or 0) + 1)
 	ns.Print(L["TREASURY_FLAG_" .. what:upper() .. (on and "_ON" or "_OFF")])
 	if ns.King.Preview() then
 		ns.db.previewTreasuryFlags = f
@@ -582,6 +626,8 @@ function Treasury.TakeFlags(digits, at, sender)
 	local f = { balance = b == "1", ranking = r == "1", book = k == "1", at = at, t = ns.Now(), from = ns.FullName(sender) }
 	ns.rdb.treasuryFlags = f
 	if FlagDigits(f) ~= was then
+		-- The Treasurer is told who sees his treasury now.
+		if CanSend() then ns.Print(Treasury.WhoSees()) end
 		ns.Fire("TREASURY_CHANGED")
 		ns.Fire("DATA_CHANGED") -- the tab appears or goes
 	end
@@ -614,8 +660,8 @@ ns.On("LOGIN", function()
 		if AutoLootMailItem then hooksecurefunc("AutoLootMailItem", function(i) ns.SafeCall("treasury mail", Treasury.MailTaking, i) end) end
 	end
 	ns.RegisterEvent("MAIL_SEND_SUCCESS", function() ns.SafeCall("treasury mail", Treasury.MailSent) end)
-	ns.RegisterEvent("MAIL_FAILED", function() mailOut = nil; Treasury.MailAnswered() end)
-	for _, event in ipairs({ "MAIL_INBOX_UPDATE", "MAIL_SUCCESS", "MAIL_CLOSED" }) do ns.RegisterEvent(event, Treasury.MailAnswered) end
+	ns.RegisterEvent("MAIL_FAILED", function() mailOut = nil; Treasury.MailFailed() end)
+	ns.RegisterEvent("PLAYER_MONEY", function() ns.SafeCall("treasury mail", Treasury.MoneyChanged) end)
 	-- The treasury and the King's switches, repeated for late logins.
 	ns.Every(60, "treasury share", function()
 		if ns.Now() - lastShare >= Treasury.SHARE_EVERY then Treasury.Share(true) end
@@ -624,7 +670,7 @@ ns.On("LOGIN", function()
 	ns.After(30, "treasury share", function()
 		Treasury.Share(true)
 		Treasury.SendFlags(true)
-		-- The Treasurer is told once who sees his treasury.
+		-- The Treasurer is told once who sees his treasury (and again when the King changes it).
 		if CanSend() and not ns.rdb.treasuryToldWho then
 			ns.rdb.treasuryToldWho = true
 			ns.Print(Treasury.WhoSees())
@@ -662,6 +708,14 @@ end
 function Treasury.WhoSees()
 	local shown = ShownParts()
 	return #shown > 0 and L.TREASURY_YOU_AND_KING_BUT:format(table.concat(shown, ", ")) or L.TREASURY_YOU_AND_KING
+end
+-- The book's way back to the summary: what the viewer will find there.
+function Treasury.SummaryTip()
+	local parts = {}
+	for _, k in ipairs({ "balance", "ranking" }) do
+		if Treasury.MaySee(k) then parts[#parts + 1] = L["TREASURY_PART_" .. k:upper()] end
+	end
+	return #parts > 0 and L.TREASURY_SUMMARY_BTN_TIP:format(table.concat(parts, ", ")) or L.TREASURY_SUMMARY_BTN_TIP_PLAIN
 end
 
 function Treasury.Show(mode)
@@ -888,7 +942,8 @@ StaticPopupDialogs["OLYMPUS_TREASURY_OPENING"] = {
 -- Tests start from a clean state.
 function Treasury.Reset()
 	trade, mailOut, report, lastShare, sharePending, lastFlagsSent = nil, nil, nil, -math.huge, false, -math.huge
-	wipe(taken)
+	wipe(pending)
+	lastMoney = nil
 	bookShown = Treasury.BOOK_SHOWN
 	Treasury.mode = "summary"
 	if ns.rdb then ns.rdb.treasuryReport = nil end
