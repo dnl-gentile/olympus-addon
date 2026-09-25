@@ -14,7 +14,11 @@ exist, who leads them, or where the army is.
 This addon answers exactly that. It adds up every Olympus guild live, in a window that
 looks like Blizzard's Guild window and docks right next to it.
 
-<p align="center"><img src="docs/1-census.png" width="640" alt="The Olympus window next to the Guild window (example data)"></p>
+<p align="center">
+<img src="docs/1-census.png" width="400" alt="The census on WoW: Forever: every Olympus guild, with the line that asks for an invite to Asmond's layer">
+<img src="docs/6-guild-tooltip.png" width="440" alt="Hovering a guild: members, online, Lord, free slots, level, classes and zones">
+</p>
+<p align="center"><sub>Live on the Forever beta: 16,194 soldiers in 21 guilds, and one guild's details on hover.</sub></p>
 
 <table>
 <tr>
@@ -27,7 +31,7 @@ looks like Blizzard's Guild window and docks right next to it.
 </tr>
 </table>
 
-<sub>Screenshots were taken with example data.</sub>
+<sub>These four were taken with example data.</sub>
 
 > **Status:** built for WoW: Forever and running on the Forever beta (1.60.1), where the
 > census already adds up reports from many Olympus guilds. Also tested on Classic Era (1.15)

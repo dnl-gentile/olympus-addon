@@ -12,7 +12,9 @@ exist, who leads them, or where the army is.
 This addon answers exactly that. It adds up every Olympus guild live, in a window that
 looks like Blizzard's Guild window and docks right next to it.
 
-![The Olympus window next to the Guild window (example data)](https://raw.githubusercontent.com/dnl-gentile/olympus-addon/main/docs/census.png)
+![The census live on WoW: Forever: every Olympus guild, with the line that asks for an invite to Asmond's layer](https://raw.githubusercontent.com/dnl-gentile/olympus-addon/main/docs/census.png)
+
+![Hovering a guild: members, online, Lord, free slots, average level, classes and zones](https://raw.githubusercontent.com/dnl-gentile/olympus-addon/main/docs/6-guild-tooltip.png)
 
 > **Status:** built for WoW: Forever and running on the Forever beta (1.60.1), where the
 > census already adds up reports from many Olympus guilds. Also tested on Classic Era (1.15)
