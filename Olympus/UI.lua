@@ -112,15 +112,15 @@ local BUTTONS = {
 		{ "VOX_END", function() ns.Vox.CloseNow() end },
 		{ "VOX_SHOW", function() ns.Vox.ShowLive() end },
 	},
+	-- The Treasury: the book (whoever may see it), the Treasurer's opening balance, a copy.
 	treasury = {
-		{ "TREASURY_SHARE_BTN", function() ns.Treasury.SetSharing(not ns.Treasury.Sharing()) end, refresh = true,
-			shown = function() return ns.Treasury.IsTreasurer() end,
-			label = function() return ns.Treasury.Sharing() and L.TREASURY_SHARE_STOP or L.TREASURY_SHARE_START end,
-			tooltip = function(tt)
-				tt:AddLine(L.TREASURY_TITLE, 1, 0.82, 0)
-				tt:AddLine(L.TREASURY_SHARE_TIP, 1, 1, 1, true)
-			end },
-		{ "COPY_BTN", function() UI.ShowCopy(L.TREASURY_TITLE, ns.Treasury.DiscordText()) end },
+		{ "TREASURY_BOOK_BTN", function() ns.Treasury.Show(ns.Treasury.mode == "book" and "summary" or "book") end, refresh = true,
+			shown = function() return ns.Treasury.MaySee("book") end,
+			label = function() return ns.Treasury.mode == "book" and L.TREASURY_SUMMARY_BTN or L.TREASURY_BOOK_BTN end },
+		{ "TREASURY_OPENING_BTN", function() StaticPopup_Show("OLYMPUS_TREASURY_OPENING") end,
+			shown = function() return ns.Treasury.IsTreasurer() end },
+		{ "COPY_BTN", function() UI.ShowCopy(L.TREASURY_TITLE, ns.Treasury.DiscordText()) end,
+			shown = function() return ns.Treasury.Role() ~= "member" end },
 	},
 	workshop = {
 		{ "WORKSHOP_ROLL_BTN", function() ns.Workshop.RollCall() end },
@@ -169,6 +169,15 @@ local DETAIL_BUTTONS = {
 	heraldry = {
 		{ "HERALDRY_BTN", DecreeAction("HERALDRY") },
 		{ "CLEAR", function() StaticPopup_Show("OLYMPUS_CLEAR_INSPECT") end },
+	},
+	-- The King's switches: what the army sees of the treasury (each its own).
+	treasury = {
+		{ "TREASURY_FLAG_BALANCE", function() ns.Treasury.SetFlag("balance", not ns.Treasury.Shows("balance")) end, refresh = true, shown = KingOnly,
+			label = function() return ns.Treasury.Shows("balance") and L.TREASURY_FLAG_BALANCE_SHOWN or L.TREASURY_FLAG_BALANCE_HIDDEN end },
+		{ "TREASURY_FLAG_RANKING", function() ns.Treasury.SetFlag("ranking", not ns.Treasury.Shows("ranking")) end, refresh = true, shown = KingOnly,
+			label = function() return ns.Treasury.Shows("ranking") and L.TREASURY_FLAG_RANKING_SHOWN or L.TREASURY_FLAG_RANKING_HIDDEN end },
+		{ "TREASURY_FLAG_BOOK", function() ns.Treasury.SetFlag("book", not ns.Treasury.Shows("book")) end, refresh = true, shown = KingOnly,
+			label = function() return ns.Treasury.Shows("book") and L.TREASURY_FLAG_BOOK_SHOWN or L.TREASURY_FLAG_BOOK_HIDDEN end },
 	},
 	-- The King's letters to his Lords (Acts.lua): his button alone.
 	decrees = {

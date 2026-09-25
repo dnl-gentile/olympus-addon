@@ -205,23 +205,26 @@ that guild master (or one of the Hands he named, for what he lends them). Answer
 King alone. Nothing another player sends can put free text on his screen: only names and
 Olympus guild names.
 
-### The Treasury (the Treasurer and the King)
-A tab with a coin for the Treasurer of Olympus (that exact character, in the guild OLYMPUS)
-and for the King.
-- **The Treasurer's book**: gold he receives by trade or mail is a donation, gold he gives by
+### The Treasury (the Treasurer, the King, and the army when the King says so)
+A tab with a coin for the Treasurer of Olympus (that exact character, in the guild OLYMPUS),
+for the King, and for every member once the King shows the army something of it.
+- **The book**: gold the Treasurer receives by trade or mail is a donation, gold he gives by
   trade or mail a payment, each written down by itself (mail when he takes its gold; the
-  auction house and cash on delivery don't count). The tab shows his balance (his character's
-  gold), today, this week, all time, the most generous of the week and the latest lines, with a
-  copy for Discord.
-- **Shared when he says so**: a Share button, off until he turns it on. Then his addon sends his
-  balance, the donations of today and of the week, how many gave and the 5 most generous (names
-  and amounts) on the Olympus channel, every 5 minutes and when his gold changes. Every client
-  checks it comes from the Treasurer himself.
-- **What the King sees**: the Treasury tab, the balance next to the soldiers on top of the
-  window, and the Throne Room's treasury. **Everyone** sees the balance under the Treasurer in
-  the Realm.
-- Only the gold that passes through the Treasurer's own character counts: the addon can't see
-  other characters' gold.
+  auction house and cash on delivery don't count).
+- **The treasury is the book, not his gold**: an opening balance he sets, plus what came in,
+  less what went out. What he earns playing is his. A trade of his items for gold is a sale, of
+  his gold for items a purchase: both go in the book as not counted, and a click on the line
+  counts it if it was the treasury's (or stops counting one that wasn't).
+- **The ranking of donors** (all time) and the week's donations, with a copy for Discord.
+- **Sent by his addon by itself** (every 5 minutes and after a change): the balance, the totals,
+  the ranking and the latest lines of the book, on the Olympus channel. Every client checks it
+  comes from the Treasurer himself.
+- **The King chooses what the army sees**, with three buttons: the balance, the ranking, the
+  book. With any of them on, the Treasury tab appears for every member with the addon, showing
+  only what he turned on (the book behind its own button), and the balance shows under the
+  Treasurer in the Realm. The King always sees all of it, and the balance next to the soldiers
+  on top of his window. (The channel can be read by anyone on it: the buttons choose what the
+  addon shows, they don't make the numbers secret.)
 
 ### Tabards: tabard inspection and the Wall of Shame
 - **Patrol**: walk through the crowd and the addon inspects nearby Olympus members level 15

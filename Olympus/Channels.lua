@@ -36,6 +36,7 @@ local buckets = {}   -- sender -> { tokens, t }
 local recent = {}    -- tier -> { { t, sender } } of the lines shown in the last minute
 local lastLog = {}   -- sender -> time of the last drop we logged
 local lastSend = -math.huge
+local mine = {}      -- "id#text" -> time: our own lines, shown when sent (their echo is not shown again)
 local nextId = math.random(0, 9999)
 
 local function Label(tier)
@@ -220,7 +221,11 @@ function Channels.Send(tier, text, now)
 				ns.Print(L.CHAN_NOTICE)
 			end
 		end
-		local msg = Codec.EncodeChat(tier, guild, NextId(), class, part)
+		local id = NextId()
+		-- Kept a while: when this line comes back from the channel it is ours, whatever form
+		-- the server gave our name in (a line shown twice to its author otherwise).
+		mine[id .. "#" .. Codec.SanitizeChat(part)] = now
+		local msg = Codec.EncodeChat(tier, guild, id, class, part)
 		if not msg or ns.Comm.SendChat(msg, done) == false then done(false) end
 	end
 	return true, "ok"
@@ -285,6 +290,13 @@ function Channels.Receive(dist, sender, text, now)
 	-- The server stamps the sender, so this key can't be forged. The text is part of it: ids
 	-- start again at random after a /reload, and a reused id must not hide a new line.
 	local key = sender .. "#" .. m.id .. "#" .. m.text
+	-- Our own line coming back (already shown when sent): the same id and text, from a name
+	-- that is ours however it is written ("First-Surname", "First Surname", with a realm or not).
+	local own = mine[m.id .. "#" .. m.text]
+	if own and now - own < DEDUPE_WINDOW and Channels.IsMe(sender) then
+		stats.dup = stats.dup + 1
+		return false, "own"
+	end
 	if seen[key] and now - seen[key] < DEDUPE_WINDOW then
 		stats.dup = stats.dup + 1
 		return false, "dup"
@@ -316,6 +328,18 @@ function Channels.Receive(dist, sender, text, now)
 		return false, "flood"
 	end
 	return Accept(m.tier, sender, m.guild, m.class, m.text, false)
+end
+
+-- Our name however the server writes it: letters only, lower case, the realm left out.
+local function Letters(name)
+	name = tostring(name or "")
+	local realm = ns.realm and ("-" .. ns.realm) or nil
+	if realm and name:sub(-#realm) == realm then name = name:sub(1, -#realm - 1) end
+	return (name:lower():gsub("[%s%-']", ""))
+end
+function Channels.IsMe(sender)
+	if not ns.me or not sender then return false end
+	return sender == ns.me or Letters(ns.Normal(sender)) == Letters(ns.me)
 end
 
 -- Players' text must come through the logged API (the server keeps it, so abuse can be
@@ -365,6 +389,9 @@ function Channels.Prune(now)
 		if now - t > DEDUPE_WINDOW then seen[k] = nil else n = n + 1 end
 	end
 	if n > 1000 then wipe(seen) end
+	for k, t in pairs(mine) do
+		if now - t > DEDUPE_WINDOW then mine[k] = nil end
+	end
 	for k, b in pairs(buckets) do
 		if now - b.t > 60 then buckets[k] = nil end
 	end

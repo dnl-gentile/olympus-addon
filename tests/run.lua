@@ -5510,7 +5510,7 @@ local function WithThrone(fn)
 		K.Reset(); ns.Vox.Reset(); ns.Court.Reset(); ns.Acts.Reset(); ns.Treasury.Reset()
 		ns.rdb.writs, ns.rdb.writsSent, ns.rdb.pardons, ns.rdb.treasury, ns.rdb.treasurySeen = nil, nil, nil, nil, nil
 		ns.rdb.kingHands, ns.rdb.gates, ns.rdb.pardonsGiven = nil, nil, nil
-		ns.rdb.treasurySums, ns.rdb.treasuryReport = nil, nil
+		ns.rdb.treasurySums, ns.rdb.treasuryReport, ns.rdb.treasuryFlags, ns.rdb.treasuryOpening = nil, nil, nil, nil
 	end
 	local ok, err = pcall(function()
 		Clean()
@@ -5787,103 +5787,116 @@ test("Hold Court: the King opens it, players in his zone ask, he calls them one 
 	end)
 end)
 
-test("The Treasury: the Treasurer's book by itself, shared with the King when he says so", function()
+test("The Treasury: the Treasurer's book (not his gold), the King's three switches for the army", function()
 	WithThrone(function(w, K)
 		local T = ns.Treasury
-		local saved = { GetInboxNumItems, GetInboxHeaderInfo, GetInboxInvoiceInfo, GetTargetTradeMoney, GetPlayerTradeMoney,
-			UnitFullName, ERR_TRADE_COMPLETE, GetMoney, GetSendMailMoney, AUCTION_OUTBID_MAIL_SUBJECT, ns.db.treasuryShare }
+		local saved = { GetInboxHeaderInfo, GetInboxInvoiceInfo, GetTargetTradeMoney, GetPlayerTradeMoney, GetTradePlayerItemInfo,
+			GetTradeTargetItemInfo, UnitFullName, ERR_TRADE_COMPLETE, GetSendMailMoney, AUCTION_OUTBID_MAIL_SUBJECT, ns.splitNames }
 		local ok, err = pcall(function()
 			ERR_TRADE_COMPLETE, AUCTION_OUTBID_MAIL_SUBJECT = "Trade complete.", "Outbid on %s"
-			GetMoney = function() return 1234567 end
-			local daysLeft = 29.5
+			ns.rdb.treasuryFlags, ns.rdb.treasuryOpening = nil, nil
 			local inbox = {
 				{ "Giver", "For the treasury", 50000 }, { "Friend", "gift", 1000 }, { "Friend", "gift", 1000 },
 				{ "Stormwind Auction House", "Outbid on Linen Cloth", 90000 }, { "Mystery", "hi", 3000, false },
 			}
-			GetInboxNumItems = function() return #inbox end
 			GetInboxHeaderInfo = function(i)
 				local m = inbox[i]
-				return nil, nil, m[1], m[2], m[3], 0, daysLeft, nil, nil, nil, nil, m[4] == nil and true or m[4]
+				return nil, nil, m[1], m[2], m[3], 0, 29.5, nil, nil, nil, nil, m[4] == nil and true or m[4]
 			end
 			GetInboxInvoiceInfo = function() return nil end
-			-- Nobody's book but the Treasurer's.
-			AsKing(); T.MailTaking(1)
-			eq(ns.rdb.treasury, nil, "the King keeps no book")
-			local savedSplit = ns.splitNames
+			-- Who sees the tab.
+			AsKing()
 			ns.splitNames = nil
-			eq(T.Visible(), false, "no Treasurer where names have no surname (Classic): no tab for the King")
+			eq(T.Visible(), false, "no Treasurer where names have no surname (Classic)")
 			ns.splitNames = true
-			eq(T.Visible(), true, "on Forever the King sees the tab")
-			ns.splitNames = savedSplit
-			AsSoldier(); eq(T.Visible(), false)
+			eq(T.Visible(), true, "the King on Forever")
+			T.MailTaking(1); eq(ns.rdb.treasury, nil, "the King keeps no book")
+			AsSoldier(); eq(T.Visible(), false, "a soldier: nothing shown by the King yet")
+			-- The Treasurer's book: mail gold when taken; the auction house and a no-reply mail are no donation.
 			AsTreasurer()
-			eq(T.IsTreasurer(), true); eq(T.Visible(), true)
-			-- Mail gold counts when he takes it: each gift, not the auction house, not a no-reply mail.
 			for i = 1, #inbox do T.MailTaking(i) end
-			eq(#ns.rdb.treasury, 3, "the gold mail and two identical gifts")
-			assert(Printed(w, "Donation to the treasury: Giver"), "in chat")
-			T.MailTaking(1)
-			eq(#ns.rdb.treasury, 3, "a double click on the same mail counts once")
-			w.clock, daysLeft = w.clock + 3 * 3600, daysLeft - 3 / 24
-			-- (A census as fresh as the clock.)
-			ns.rdb.guilds["Olympus"] = Vouched({ total = 1000, online = 90, zones = {}, t = w.clock, leader = "Asmon", realm = "Realm",
-				officers = { { name = "Pyralis Ashandar", online = true, days = 0 } } }, "W1-Realm", "W2-Realm")
-			-- A trade both ways: what he got is a donation, what he gave a payment.
+			eq(#ns.rdb.treasury, 3); T.MailTaking(1); eq(#ns.rdb.treasury, 3, "a double click counts once")
+			-- Trades: a donation, a sale (his items for gold) and a purchase (his gold for items).
 			UnitFullName = function(unit) if unit == "NPC" then return "Trader", "Realm" end return "Pyralis Ashandar", "Realm" end
-			local got, gave = 0, 0
+			local got, gave, myItems, theirItems = 0, 0, false, false
 			GetTargetTradeMoney = function() return got end
 			GetPlayerTradeMoney = function() return gave end
-			T.TradeShow(); got, gave = 123456, 20000; T.TradeMoney(); got, gave = 0, 0
-			T.Info(0, "Trade cancelled.")
-			eq(#ns.rdb.treasury, 3)
-			T.Info(0, "Trade complete.")
-			eq(#ns.rdb.treasury, 5)
-			eq(ns.rdb.treasury[4].money, 123456, "the amount the window showed"); eq(ns.rdb.treasury[5].out, true)
-			-- Mail sent with gold: a payment once the game says it went.
-			GetSendMailMoney = function() return 7000 end
-			T.MailSending("Crafter"); T.MailSent()
-			eq(ns.rdb.treasury[6].out, true); eq(ns.rdb.treasury[6].name, "Crafter")
+			GetTradePlayerItemInfo = function(i) if myItems and i == 1 then return "Linen Cloth" end end
+			GetTradeTargetItemInfo = function(i) if theirItems and i == 1 then return "Copper Ore" end end
+			local function Trade(g, v, mine, theirs)
+				got, gave, myItems, theirItems = g, v, mine, theirs
+				T.TradeShow(); T.TradeMoney(); got, gave = 0, 0
+				T.Info(0, "Trade complete.")
+			end
+			Trade(123456, 0, false, false)                         -- a donation
+			Trade(40000, 0, true, false)                           -- a sale: his
+			Trade(0, 7000, false, true)                            -- a purchase: his
+			GetSendMailMoney = function() return 5000 end
+			T.MailSending("Crafter"); T.MailSent()                -- a payment by mail
+			local book = ns.rdb.treasury
+			eq(#book, 7)
+			eq(book[5].excluded, true); eq(book[5].kind, "sale")
+			eq(book[6].excluded, true); eq(book[6].kind, "purchase"); eq(book[6].out, true)
+			assert(Printed(w, "Sale to Trader"), "the sale is told as his")
+			-- The treasury is the book: opening + in - out, never his character's gold.
+			T.SetOpening("100g")
+			eq(T.Balance(), 1000000 + 50000 + 2000 + 123456 - 5000)
+			-- He says the sale was a donation after all: counted; and back.
+			T.Toggle(book[5]); eq(T.Balance(), 1000000 + 50000 + 2000 + 123456 + 40000 - 5000)
+			T.Toggle(book[5]); eq(T.Balance(), 1000000 + 50000 + 2000 + 123456 - 5000)
 			local t = T.Totals()
-			eq(t.weekIn, 50000 + 2000 + 123456); eq(t.weekOut, 27000)
-			eq(t.givers[1].name, "Trader"); eq(t.givers[2].name, "Giver")
-			local page = Texts((T.Build()))
-			assert(page:find(ns.L.TREASURY_BALANCE, 1, true) and page:find("1. Trader", 1, true), page)
-			-- Not shared yet: nothing sent. Shared: the report, and every change a minute apart.
+			eq(t.ranking[1].name, "Trader"); eq(t.ranking[2].name, "Giver"); eq(t.ranking[3].name, "Friend"); eq(#t.ranking, 3)
+			-- His addon sends the treasury by itself (no button): balance, totals, ranking, counted lines.
 			T.Share(true)
-			eq(#w.sent, 0, "not shared")
-			T.SetSharing(true)
-			local report = LastSent(w)
-			assert(report:find("^T7~Olympus~1234567~%d+~175456~3~Trader:123456,Giver:50000,Friend:2000$"), report)
-			-- Everyone's copy: only from the Treasurer himself (a soldier of another guild: the
-			-- census names him an officer of <Olympus>).
-			AsSoldier()
-			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", report)
-			eq(T.Report() and T.Report().balance, 1234567, "the census vouches for him")
-			T.Reset()
-			-- The King's (the same guild: his roster).
+			local msg = LastSent(w)
+			assert(msg:find("^T7~Olympus~1170456~175456~5000~175456~3~Trader:123456,Giver:50000,Friend:2000~o:5000:Crafter:m:"), msg)
+			assert(not msg:find("Linen", 1, true) and not msg:find(":40000:", 1, true), "sales and purchases are not sent")
+			-- The King's copy: from the Treasurer himself only.
 			AsKing()
 			local savedRank = ns.Roster.RankOf
 			ns.Roster.RankOf = function(n) if ns.FullName(n) == "Pyralis Ashandar-Realm" then return 1 end return savedRank(n) end
-			T.HandleReport("CHANNEL", "Fake-Realm", report)
-			eq(T.Report(), nil, "not the Treasurer")
-			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", "T7~Olympus Zeus~1~1~1~1~")
-			eq(T.Report(), nil, "the Treasurer of Olympus only")
-			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", report)
-			eq(T.Report().balance, 1234567); eq(T.Report().top[1].name, "Trader")
-			assert(T.HeaderText():find("123g", 1, true), "next to the soldiers: " .. T.HeaderText())
-			K.mode = "home" -- (the letter read)
-			local throne = Texts((K.Build()))
-			assert(throne:find(ns.L.TREASURY_TITLE, 1, true), throne)
-			local king = Texts((T.Build()))
-			assert(king:find("1. Trader", 1, true), king)
-			assert(ns.Treasury.RealmText():find("123g", 1, true), "under the Treasurer in the Realm")
-			-- He stops sharing: gone.
-			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", "T7~Olympus~off")
-			eq(T.Report(), nil)
+			T.HandleReport("CHANNEL", "Fake-Realm", msg); eq(T.Report(), nil, "not the Treasurer")
+			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", "T7~Olympus~123~1~1~1~"); eq(T.Report(), nil, "0.8.3's (his own gold): not read")
+			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", msg)
+			local r = T.Report()
+			eq(r.balance, 1170456); eq(r.rank[1].name, "Trader"); eq(#r.book, 5); eq(r.book[1].out, true)
+			assert(T.HeaderText():find("117g", 1, true), "next to the soldiers: " .. T.HeaderText())
+			local page = Texts((T.Build()))
+			assert(page:find(ns.L.TREASURY_ARMY_SEES_NOTHING, 1, true), page)
+			-- The King's switches: the balance for everyone; ranking and book stay his.
+			T.SetFlag("balance", true)
+			assert(LastSent(w):find("^T1~T~%d+~Olympus~100$"), LastSent(w))
+			local flags = LastSent(w)
 			ns.Roster.RankOf = savedRank
+			-- A soldier: the King's word (a Hand's is ignored), then the tab with the balance only.
+			AsKing(); K.AddHand("Helper"); K.SendHands(true); local list = LastSent(w)
+			ns.rdb.treasuryFlags = nil
+			AsSoldier()
+			K.HandleCommand("CHANNEL", "Asmon-Realm", list)
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~T~9~Olympus II~111")
+			eq(T.Shows("balance"), false, "not a Hand's switch")
+			K.HandleCommand("CHANNEL", "Asmon-Realm", flags)
+			eq(T.Shows("balance"), true); eq(T.Shows("ranking"), false); eq(T.Shows("book"), false)
+			eq(T.Visible(), true, "the tab appears")
+			page = Texts((T.Build()))
+			assert(page:find(ns.L.TREASURY_BALANCE, 1, true), page)
+			assert(not page:find(ns.L.TREASURY_RANKING, 1, true) and not page:find(ns.L.TREASURY_BOOK, 1, true), "ranking and book not shown")
+			T.Show("book"); page = Texts((T.Build()))
+			assert(not page:find("Crafter", 1, true), "the book stays closed")
+			assert(T.RealmText():find("117g", 1, true), "under the Treasurer in the Realm")
+			-- The King shows the ranking and the book too.
+			K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~T~10~Olympus~111")
+			T.Show("book"); page = Texts((T.Build()))
+			assert(page:find("Crafter", 1, true), "the book: " .. page)
+			T.Show("summary"); page = Texts((T.Build()))
+			assert(page:find("1. Trader", 1, true), page)
+			-- He hides it all: the tab goes.
+			K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~T~11~Olympus~000")
+			eq(T.Visible(), false)
 		end)
-		GetInboxNumItems, GetInboxHeaderInfo, GetInboxInvoiceInfo, GetTargetTradeMoney, GetPlayerTradeMoney,
-			UnitFullName, ERR_TRADE_COMPLETE, GetMoney, GetSendMailMoney, AUCTION_OUTBID_MAIL_SUBJECT, ns.db.treasuryShare = unpack(saved, 1, 11)
+		GetInboxHeaderInfo, GetInboxInvoiceInfo, GetTargetTradeMoney, GetPlayerTradeMoney, GetTradePlayerItemInfo,
+			GetTradeTargetItemInfo, UnitFullName, ERR_TRADE_COMPLETE, GetSendMailMoney, AUCTION_OUTBID_MAIL_SUBJECT, ns.splitNames = unpack(saved, 1, 11)
+		ns.rdb.treasuryFlags, ns.rdb.treasuryOpening = nil, nil
 		if not ok then error(err, 0) end
 	end)
 end)
@@ -6222,6 +6235,32 @@ test("A player's report: no false King, our layer holds against stray creatures,
 	end)
 	C_ChatInfo.SwapChatChannelsByChannelIndex, GetChannelList, GetChannelName = savedCI, savedList, savedName
 	C_ChatInfo.GetChannelInfoFromIdentifier = nil
+	if not ok then error(err, 0) end
+end)
+
+test("chat: our own line comes back from the channel once, whatever form the server gives our name", function()
+	local C = ns.Channels
+	local saved = { me = ns.me, split = ns.splitNames, ready = ns.Comm.ChannelReady, room = ns.Comm.ChatRoom, send = ns.Comm.SendChat,
+		guild = GetGuildInfo, realm = ns.realm }
+	local ok, err = pcall(function()
+		ns.me, ns.splitNames, ns.realm = "Tester Surname-Realm", true, "Realm"
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		ns.Comm.ChannelReady = function() return true end
+		ns.Comm.ChatRoom = function() return 3 end
+		local sent
+		ns.Comm.SendChat = function(msg, done) sent = msg; done(true); return true end
+		local t = 1000000
+		assert(C.Send("A", "for olympus", t))
+		assert(sent, "sent")
+		-- Forever writes our own name "Tester-Surname" here: still ours, not shown again.
+		local shown, why = C.Receive("CHANNEL", "Tester-Surname", sent, t + 1)
+		eq(shown, false); eq(why, "own")
+		eq(C.IsMe("Tester Surname"), true); eq(C.IsMe("Tester-Surname-Realm"), true)
+		eq(C.IsMe("Testers Urname-OtherRealm"), false, "someone else")
+		eq(C.IsMe("Other Player"), false)
+	end)
+	ns.me, ns.splitNames, ns.Comm.ChannelReady, ns.Comm.ChatRoom, ns.Comm.SendChat = saved.me, saved.split, saved.ready, saved.room, saved.send
+	GetGuildInfo, ns.realm = saved.guild, saved.realm
 	if not ok then error(err, 0) end
 end)
 
