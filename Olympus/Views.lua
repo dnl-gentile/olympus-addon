@@ -308,6 +308,12 @@ local function CensusLines(s)
 		lines[#lines + 1] = { text = Grey(L.SEEN_HINT) }
 	end
 	WhoStatus(lines)
+	-- The addon's author online: Report a bug reaches him directly (Workshop.lua).
+	local author = ns.Workshop and ns.Workshop.AuthorOnline and ns.Workshop.AuthorOnline() and ns.Workshop.AuthorName()
+	if author then
+		lines[#lines].gapAfter = true
+		lines[#lines + 1] = { text = Grey(L.AUTHOR_ONLINE:format(ns.DisplayName(author))) }
+	end
 	return lines
 end
 
@@ -345,10 +351,12 @@ local function King(guilds)
 end
 
 -- The members of a guild online now, besides its Lord and Captains: our own guild from our
--- roster, any other from the /who searches of this round (Who.lua). Reports carry no member
--- lists: a thousand names per guild would not fit on the channel. { name, level, class
--- (code), zone (key), rank } each, by rank then level.
+-- roster, any other from /who (the round, and the guild's own search when its row was
+-- opened, Who.SearchGuild). Reports carry no member lists: a thousand names per guild would
+-- not fit on the channel. { name, level, class (code), zone (key), rank } each, by rank then
+-- level.
 Views.MAX_MEMBERS = 25
+local allMembers = {} -- [guild] = true: its whole list shown ("... and N more" clicked)
 function Views.MembersOf(guild, g)
 	local skip = {}
 	if g and g.leader then skip[ns.ShortName(g.leader)] = true end
@@ -361,10 +369,15 @@ function Views.MembersOf(guild, g)
 		return out, false
 	end
 	local sweep = ns.Who and ns.Who.sweep
-	for _, p in ipairs(sweep and sweep.list or {}) do
-		if p.guild == guild and p.name and not skip[ns.ShortName(p.name)] then
-			out[#out + 1] = { name = ns.DisplayName(ns.FullName(p.name)), level = p.level, class = ns.Roster.ClassCode(p.class),
-				zone = p.zone and ns.Zones.KeyForName(p.zone) }
+	local own = ns.Who and ns.Who.GuildSeen and ns.Who.GuildSeen(guild)
+	for _, source in ipairs({ own or {}, sweep and sweep.list or {} }) do
+		for _, p in ipairs(source) do
+			local short = p.name and ns.ShortName(p.name)
+			if p.guild == guild and short and not skip[short] then
+				skip[short] = true -- each once, the guild's own search first
+				out[#out + 1] = { name = ns.DisplayName(ns.FullName(p.name)), level = p.level, class = ns.Roster.ClassCode(p.class),
+					zone = p.zone and ns.Zones.KeyForName(p.zone) }
+			end
 		end
 	end
 	table.sort(out, function(a, b)
@@ -385,6 +398,22 @@ local function RealmLines(s)
 			right = Presence(king.g.leaderOnline, king.g.leaderDays),
 			tooltip = GuildTooltip(king),
 		}
+		-- The Treasurer of Olympus, under the King: when that guild's report has him (the
+		-- Horde's <Olympus> and other realms' have no Treasurer of theirs).
+		local t
+		for _, o in ipairs(king.name:lower() == "olympus" and king.g.officers or {}) do
+			if ns.IsTreasurer(o.name, king.name) then t = o end
+		end
+		if t then
+			local person = { name = t.name, guild = king.name, class = t.class, level = t.level, zone = t.zone,
+				rank = L.CAPTAIN, online = t.online, days = t.days }
+			lines[#lines + 1] = {
+				key = t.name,
+				text = ns.COIN .. L.TREASURER .. ": " .. Gold(t.name),
+				right = Presence(t.online, t.days),
+				onClick = function() ns.UI.ShowPerson(person) end,
+			}
+		end
 	end
 	if #s.guilds == 0 then lines[#lines + 1] = { text = Grey(L.EMPTY) } end
 	for _, e in ipairs(s.guilds) do
@@ -395,6 +424,9 @@ local function RealmLines(s)
 			right = Presence(g.leaderOnline, g.leaderDays),
 			onClick = function()
 				expanded[e.name] = not expanded[e.name] or nil
+				-- Opened: a /who for that guild alone lists who of it is online (a click, so the
+				-- game allows it). Our own guild is in our roster already.
+				if expanded[e.name] and e.name ~= GetGuildInfo("player") then ns.SafeCall("guild who", ns.Who.SearchGuild, e.name) end
 				ns.UI.Refresh()
 			end,
 			tooltip = GuildTooltip(e),
@@ -418,7 +450,8 @@ local function RealmLines(s)
 					rank = L.CAPTAIN, online = o.online, days = o.days }
 				lines[#lines + 1] = {
 					key = o.name,
-					indent = 2, text = ASSIST .. ClassColored(o.name, o.class and ns.CLASS_FILES[o.class]),
+					indent = 2, text = ASSIST .. ClassColored(o.name, o.class and ns.CLASS_FILES[o.class])
+						.. (ns.IsTreasurer(o.name, e.name) and ("  " .. ns.COIN .. Grey(L.TREASURER)) or ""),
 					right = (o.level and Grey(L.LEVEL_N:format(o.level)) .. "  " or "") .. Presence(o.online, o.days),
 					onClick = function() ns.UI.ShowPerson(person) end,
 				}
@@ -433,17 +466,30 @@ local function RealmLines(s)
 					tt:AddLine(fromWho and L.MEMBERS_SEEN_TIP or L.MEMBERS_ONLINE_TIP, 1, 1, 1, true)
 				end,
 			}
-			for i = 1, math.min(Views.MAX_MEMBERS, #members) do
+			local shown = allMembers[e.name] and #members or math.min(Views.MAX_MEMBERS, #members)
+			for i = 1, shown do
 				local m = members[i]
 				local person = { name = m.name, class = m.class, level = m.level, zone = m.zone, guild = e.name, rank = m.rank, online = true }
 				lines[#lines + 1] = {
 					key = m.name,
-					indent = 2, text = ClassColored(m.name, m.class and ns.CLASS_FILES[m.class]) .. (m.rank and ("  " .. Grey(m.rank)) or ""),
+					indent = 2, text = ClassColored(m.name, m.class and ns.CLASS_FILES[m.class]) .. (m.rank and ("  " .. Grey(m.rank)) or "")
+						.. (ns.IsTreasurer(m.name, e.name) and ("  " .. ns.COIN .. Grey(L.TREASURER)) or ""),
 					right = m.level and Grey(L.LEVEL_N:format(m.level)) or nil,
 					onClick = function() ns.UI.ShowPerson(person) end,
 				}
 			end
-			if #members > Views.MAX_MEMBERS then lines[#lines + 1] = { indent = 2, text = Grey(L.AND_MORE:format(#members - Views.MAX_MEMBERS)) } end
+			-- The rest on a click, and back again.
+			if #members > shown then
+				lines[#lines + 1] = {
+					indent = 2, text = Gold(L.MEMBERS_MORE:format(#members - shown)),
+					onClick = function() allMembers[e.name] = true; ns.UI.Refresh() end,
+				}
+			elseif allMembers[e.name] and #members > Views.MAX_MEMBERS then
+				lines[#lines + 1] = {
+					indent = 2, text = Gold(L.MEMBERS_FEWER),
+					onClick = function() allMembers[e.name] = nil; ns.UI.Refresh() end,
+				}
+			end
 			if #members == 0 then lines[#lines + 1] = { indent = 2, text = Grey(fromWho and L.MEMBERS_NONE_SEEN or L.MEMBERS_NONE) } end
 			lines[#lines + 1] = { indent = 1, text = Gold(L.RANKS) }
 			for i, rank in ipairs(g.ranks or {}) do
@@ -728,6 +774,11 @@ local BUILD = {
 	throne = function(s)
 		if not (ns.King and ns.King.Build) then return {}, nil, nil end
 		local lines, title, text = ns.King.Build(s)
+		return lines or {}, title, text
+	end,
+	workshop = function()
+		if not (ns.Workshop and ns.Workshop.Build) then return {}, nil, nil end
+		local lines, title, text = ns.Workshop.Build()
 		return lines or {}, title, text
 	end,
 }

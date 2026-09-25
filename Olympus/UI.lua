@@ -36,6 +36,8 @@ local TABS = {
 	{ key = "heraldry", label = "TAB_HERALDRY", icon = "Interface\\Icons\\INV_Shirt_GuildTabard_01" },
 	-- The King's alone (King.lua): hidden for everyone else, see UI.Refresh.
 	{ key = "throne", label = "TAB_THRONE", icon = function() return UI.FirstTexture(UI.CROWNS) end },
+	-- The addon author's alone (Workshop.lua), the same way.
+	{ key = "workshop", label = "TAB_WORKSHOP", icon = "Interface\\Icons\\Trade_Engineering" },
 }
 
 -- The first of these files the client has (GetFileIDFromPath), or the last one.
@@ -71,7 +73,7 @@ local BUTTONS = {
 			ns.Print(L.REFRESHING)
 			ns.Who.Search()
 		end },
-		{ "REPORT_BUG", function() UI.ShowCopy(L.REPORT_BUG, ns.BuildBugReport()) end },
+		{ "REPORT_BUG", function() UI.ShowBugReport() end },
 	},
 	realm = {
 		{ "EXPAND_ALL", function() ns.Views.ExpandAll(true); UI.Refresh() end },
@@ -92,6 +94,11 @@ local BUTTONS = {
 		{ "THRONE_SUMMON", function() ns.King.Summon() end },
 		{ "THRONE_INSPECT", function() ns.King.Inspect() end },
 		{ "THRONE_AGENDA", function() ns.King.AgendaPrompt() end },
+	},
+	workshop = {
+		{ "WORKSHOP_ROLL_BTN", function() ns.Workshop.RollCall() end },
+		{ "WORKSHOP_ASK_BTN", function() ns.Workshop.AskOutdated() end },
+		{ "COPY_BTN", function() UI.ShowCopy(L.TAB_WORKSHOP, ns.Workshop.ReportText()) end },
 	},
 }
 
@@ -744,13 +751,20 @@ end
 -- The tabs under the old window fit its width. Blizzard sizes each to its text (about 115
 -- wide each on the Classic clients), wider together than our window once there are four or
 -- five (the King's Throne): past it they shrink evenly, their text cut by the tab itself.
+-- The shown tabs follow one another, a hidden one (the Throne, the Workshop) leaving no gap,
+-- in the HD window's side column too.
 function UI.LayoutTabs()
-	if not main or main.tabStyle == "side" or not main.tabs then return end
+	if not main or not main.tabs then return end
 	local shown = {}
 	for _, tab in ipairs(main.tabs) do
 		if tab:IsShown() then shown[#shown + 1] = tab end
 	end
 	if #shown == 0 then return end
+	for i, tab in ipairs(shown) do
+		tab:ClearAllPoints()
+		tab:SetPoint(UI.TabAnchor(main.tabStyle, i, main, shown[i - 1]))
+	end
+	if main.tabStyle == "side" then return end
 	local resize = PanelTemplates_TabResize
 	local natural, total = {}, 0
 	for i, tab in ipairs(shown) do
@@ -1006,10 +1020,14 @@ function UI.Refresh()
 		main.detailText:SetText(text or "")
 		SetButtons(main.buttons, locked and RECRUIT_BUTTONS or BUTTONS[main.tab])
 		local tabsWere = main.tabs[1] and main.tabs[1]:IsShown()
-		-- The Throne only for the King (and the author's test build, King.Preview).
-		local throne = ns.King and ns.King.Visible and ns.King.Visible() or false
-		if main.tab == "throne" and not throne then return ShowTab("census") end
-		for _, tab in ipairs(main.tabs) do tab:SetShown(not locked and (tab.key ~= "throne" or throne)) end
+		-- The Throne only for the King, the Workshop only for the addon's author (and their
+		-- test builds, King.Preview and Workshop.Preview).
+		local only = {
+			throne = ns.King and ns.King.Visible and ns.King.Visible() or false,
+			workshop = ns.Workshop and ns.Workshop.Visible and ns.Workshop.Visible() or false,
+		}
+		if only[main.tab] == false then return ShowTab("census") end
+		for _, tab in ipairs(main.tabs) do tab:SetShown(not locked and only[tab.key] ~= false) end
 		UI.LayoutTabs()
 		SetButtons(main.detailButtons, not locked and Shown(DETAIL_BUTTONS[main.tab]) or nil)
 		local hasDetailButtons = not locked and DETAIL_BUTTONS[main.tab] ~= nil
@@ -1252,6 +1270,7 @@ function UI.ShowPerson(p)
 	local rows = {}
 	if p.level or className ~= "" then rows[#rows + 1] = (p.level and (L.LEVEL_N:format(p.level) .. " ") or "") .. className end
 	if p.rank then rows[#rows + 1] = "|cffffd200" .. p.rank .. "|r" end
+	if ns.IsTreasurer(p.name, p.guild) then rows[#rows + 1] = "|cffffd200" .. ns.COIN .. L.TREASURER_TITLE .. "|r" end
 	if p.online then
 		rows[#rows + 1] = "|cff40ff40" .. L.ONLINE_NOW .. "|r" .. (p.zone and ("  -  " .. ns.Zones.NameForKey(p.zone)) or "")
 	elseif p.online == false then
@@ -1335,6 +1354,7 @@ end)
 ns.On("HOP_CHANGED", function() if main and (main.tab == "census" or main.tab == "realm") then UI.RefreshSoon() end end)
 ns.On("DECREES_CHANGED", function() UI.RefreshSoon() end)
 ns.On("THRONE_CHANGED", function() if main and main.tab == "throne" then UI.RefreshSoon() end end)
+ns.On("WORKSHOP_CHANGED", function() if main and main.tab == "workshop" then UI.RefreshSoon() end end)
 ns.On("RECRUIT_CHANGED", function() UI.RefreshSoon() end)
 
 ---------------------------------------------------------------------------
@@ -1343,7 +1363,14 @@ ns.On("RECRUIT_CHANGED", function() UI.RefreshSoon() end)
 ---------------------------------------------------------------------------
 
 local copyFrame
-function UI.ShowCopy(title, text)
+-- The bug report, with "Send to <author>" while the addon's author is online (Workshop.lua).
+function UI.ShowBugReport()
+	local text = ns.BuildBugReport()
+	UI.ShowCopy(L.REPORT_BUG, text, ns.Workshop and ns.Workshop.BugAction and ns.Workshop.BugAction(text) or nil)
+end
+
+-- action: an optional { label, fn } button at the bottom (fn returns true once done).
+function UI.ShowCopy(title, text, action)
 	if not copyFrame then
 		local f = CreateFrame("Frame", "OlympusCopyFrame", UIParent, "BasicFrameTemplateWithInset")
 		f:SetSize(520, 340)
@@ -1361,6 +1388,7 @@ function UI.ShowCopy(title, text)
 		local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		hint:SetPoint("BOTTOM", 0, 10)
 		hint:SetText(L.COPY_HINT)
+		f.hint = hint
 		local scroll = CreateFrame("ScrollFrame", "OlympusCopyScroll", f, "UIPanelScrollFrameTemplate")
 		scroll:SetPoint("TOPLEFT", 12, -30)
 		scroll:SetPoint("BOTTOMRIGHT", -30, 28)
@@ -1379,7 +1407,34 @@ function UI.ShowCopy(title, text)
 		end)
 		scroll:SetScrollChild(eb)
 		f.eb = eb
+		f.action = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+		f.action:SetSize(160, 20)
+		f.action:SetPoint("BOTTOMLEFT", 10, 6)
+		f.action:SetScript("OnClick", function(self)
+			ns.SafeCall("copy action", function()
+				if self.fn and self.fn() then self:Disable() end
+			end)
+		end)
 		copyFrame = f
+	end
+	local button = copyFrame.action
+	button.fn = action and action.fn or nil
+	button:SetShown(action ~= nil)
+	-- With the button on the left, the hint moves right.
+	copyFrame.hint:ClearAllPoints()
+	if action then
+		copyFrame.hint:SetPoint("BOTTOMRIGHT", -12, 10)
+		copyFrame.hint:SetJustifyH("RIGHT")
+	else
+		copyFrame.hint:SetPoint("BOTTOM", 0, 10)
+		copyFrame.hint:SetJustifyH("CENTER")
+	end
+	if action then
+		button:SetText(action.label)
+		local fs = button:GetFontString()
+		local textW = fs and (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()) or 140
+		button:SetWidth(math.max(120, math.ceil(textW) + 24))
+		button:Enable()
 	end
 	if copyFrame.TitleText then copyFrame.TitleText:SetText(title) end
 	copyFrame.text = text

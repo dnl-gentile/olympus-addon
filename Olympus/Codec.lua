@@ -10,6 +10,8 @@ local ADDON, ns = ...
 --   levels  7 comma separated counts: 1-9, 10-19, ..., 50-59, 60+
 --   from    the reporter's realm; home: the guild's home realm (older versions send neither
 --           and stop reading at leaderZone)
+--   faction (23) A|H; versions (24, v0.8.2) "0.8.2=3,0.8.1=1": the guild's addon users by
+--           version (the author's Workshop). Older versions stop reading before either.
 -- Chunk:   C<id>:<i>:<n>:<piece>   (addon messages are limited to 255 bytes)
 -- Hello:   H1~<version>~<realm>    (sent on GUILD so members with the addon find each other;
 --                                    older versions send no realm)
@@ -193,7 +195,17 @@ function Codec.EncodeReport(r)
 		clean(r.from or ""),
 		clean(r.home or ""),
 		r.faction == "Horde" and "H" or "A",
+		encMap(r.versions, 12),
 	}, "~")
+end
+
+-- Only version numbers ("0.8.2") and "?" as keys: nothing else reaches the author's tab.
+function Codec.Versions(map)
+	local out = {}
+	for k, v in pairs(map or {}) do
+		if (k == "?" or k:match("^%d+%.%d+%.%d+$")) and #k <= 12 then out[k] = v end
+	end
+	return out
 end
 
 function Codec.DecodeReport(s)
@@ -232,6 +244,8 @@ function Codec.DecodeReport(s)
 		home = Codec.RealmField(f[22]),
 		-- Field 23 (v0.7.13): the reporter's faction. Older versions send none: Alliance.
 		faction = f[23] == "H" and "Horde" or "Alliance",
+		-- Field 24 (v0.8.2): the guild's addon users by version ("0.8.2", or "?" for unknown).
+		versions = Codec.Versions(decMap(f[24], 12)),
 	}
 end
 

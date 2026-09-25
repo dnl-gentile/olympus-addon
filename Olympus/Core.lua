@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.8.1"
+ns.VERSION = "0.8.2"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -83,12 +83,53 @@ function ns.DisplayName(name)
 	return name
 end
 
+-- WoW: Forever's names are a first name and a surname ("Faladoriel Skylance"), and its unit
+-- functions hand the surname back where the realm goes: UnitFullName("player") gives
+-- "Faladoriel", "Skylance", and GetUnitName(unit, true) "Faladoriel-Skylance". The server
+-- stamps addon messages "Faladoriel Skylance-ClassicBetaPvP", like the guild roster and /who:
+-- that is the name everyone compares. ns.splitNames: this client splits names so (our own
+-- "realm" is none).
+function ns.IsRealmName(realm)
+	if type(realm) ~= "string" or realm == "" then return false end
+	if realm == ns.realm or realm == ns.CurrentRealm() or ns.InGroup(realm) then return true end
+	return ns.GroupOf(realm) ~= realm -- a realm of a known group
+end
+
 function ns.PlayerName()
 	local name, realm = UnitFullName("player")
 	if not name then return "?" end
-	if not realm or realm == "" then realm = ns.realm or ns.CurrentRealm() end
+	local home = ns.realm or ns.CurrentRealm()
+	if realm and realm ~= "" and realm ~= home and not ns.IsRealmName(realm) then
+		ns.splitNames = true
+		name, realm = name .. " " .. realm, nil
+	end
+	if not realm or realm == "" then realm = home end
 	if realm and realm ~= "" and realm ~= "?" then return name .. "-" .. realm end
 	return name
+end
+
+-- A name the game's functions or events give ("First-Surname" on Forever), as the server
+-- writes it ("First Surname", with "-Realm" when it had one).
+function ns.Normal(name)
+	if not ns.splitNames or type(name) ~= "string" then return name end
+	local first, rest = name:match("^([^%-]+)%-(.+)$")
+	if not first or first:find(" ", 1, true) then return name end
+	local surname, realm = rest:match("^([^%-]+)%-(.+)$")
+	if surname and ns.IsRealmName(realm) then return first .. " " .. surname .. "-" .. realm end
+	if ns.IsRealmName(rest) then return name end
+	return first .. " " .. rest
+end
+
+-- A unit's full name as the server writes it ("Name-Realm"), or nil.
+function ns.UnitFullName(unit)
+	local name, realm
+	if UnitFullName then name, realm = UnitFullName(unit) end
+	if not name or name == "" then
+		local n = GetUnitName and GetUnitName(unit, true)
+		return n and ns.FullName(ns.Normal(n)) or nil
+	end
+	if realm and realm ~= "" and ns.splitNames and not ns.IsRealmName(realm) then name, realm = name .. " " .. realm, nil end
+	return ns.FullName(name, (realm and realm ~= "") and realm or nil)
 end
 
 ---------------------------------------------------------------------------
@@ -392,6 +433,17 @@ ns.CAPTAIN_RANK = 1
 -- What the army calls the King on the lines and the crown made for him (Hop.lua, King.lua),
 -- whatever his character's name in the census.
 ns.KING_NAME = "Asmond"
+-- The addon's author (Workshop.lua): his character on Forever. Names there are a first name
+-- and a surname, unique across the realm group; no Classic realm allows a space in a name.
+ns.AUTHOR = "Faladoriel Skylance"
+ns.AUTHOR_REALM = "ClassicBetaPvP" -- his realm group, where only he carries that name
+-- The Treasurer of Olympus, chosen by Asmongold's chat on September 23, 2026: exactly this
+-- character, in the guild named Olympus. Look-alikes in other guilds exist: both must match.
+ns.TREASURER = "Pyralis Ashandar"
+ns.COIN = "|TInterface\\MoneyFrame\\UI-GoldIcon:0|t "
+function ns.IsTreasurer(name, guild)
+	return type(name) == "string" and type(guild) == "string" and ns.ShortName(name) == ns.TREASURER and guild:lower() == "olympus"
+end
 -- The King's name on the lines and the crown: the army's name for him on the Alliance side,
 -- his character's on the Horde (whose <Olympus> has a guild master of its own).
 function ns.KingName(leader)
@@ -412,11 +464,98 @@ function ns.IsCrown()
 	return ns.IsFederation(guild) and ns.IsCrownRank(guild, rankIndex)
 end
 
--- Fixed on purpose: only guilds with "Olympus" in their name belong to the realm.
-local REALM_WORD = "olympus"
+-- Fixed on purpose: only guilds with "Olympus" in their name belong to the realm, however
+-- they spelled it. Guilds were made with the word misspelled (OLYMPVS the Roman way, Olimpvs,
+-- Olmps, Olympuz...). Each word of the name is read the way it sounds (v as u, i as y, z as s,
+-- 0 as o, a doubled letter once); then one slip anywhere in a word counts (a letter changed,
+-- missing or added, or two swapped), and two at the start of a word that starts with an O
+-- (Olmps, Olymp, Olympe, Oymps). Olimpo/Olympo/Olympos count the same way. Words are never
+-- joined: "Holy Mpulse" is not Olympus. Olympia, Olympic, Olympian, Olympiad and the like in
+-- other languages (Olympique, olympisch) are other words and are left out, and so is polyp.
+-- The main guild itself (the King's, the Treasurer's) is still the exact name, see IsCrownRank.
+local REALM_WORDS = { "olympus", "olympo" } -- as they sound: Olympus, Olympo, Olimpo, Olympos
+local OTHER = { "olympy[aceoq]", "olympysch", "polyp" } -- as they sound: Olympia, Olympic...
+
+-- How many slips from a to b (a letter changed, missing or added, or two neighbours
+-- swapped), counted up to limit + 1.
+local function Slips(a, b, limit)
+	local la, lb = #a, #b
+	if la - lb > limit or lb - la > limit then return limit + 1 end
+	local prev2, prev, row = nil, {}, nil
+	for j = 0, lb do prev[j] = j end
+	for i = 1, la do
+		row = { [0] = i }
+		local best = i
+		local ca = a:byte(i)
+		for j = 1, lb do
+			local cost = (ca == b:byte(j)) and 0 or 1
+			local v = math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + cost)
+			if prev2 and i > 1 and j > 1 and ca == b:byte(j - 1) and a:byte(i - 1) == b:byte(j) then
+				v = math.min(v, prev2[j - 2] + 1)
+			end
+			row[j] = v
+			if v < best then best = v end
+		end
+		if best > limit then return limit + 1 end
+		prev2, prev = prev, row
+	end
+	return prev[lb]
+end
+ns.Slips = Slips -- tests
+
+-- A word as it sounds: v as u, i as y, z as s, a doubled letter once.
+local function Sounds(word)
+	word = word:gsub("v", "u"):gsub("i", "y"):gsub("z", "s")
+	local out, last = {}, nil
+	for c in word:gmatch(".") do
+		if c ~= last then out[#out + 1] = c end
+		last = c
+	end
+	return table.concat(out)
+end
+ns.Sounds = function(guild) return Sounds(guild:lower():gsub("0", "o"):gsub("[^%a]", "")) end -- tests
+
+local function OlympusWord(word)
+	for _, other in ipairs(OTHER) do
+		if word:find(other) then return false end
+	end
+	for _, target in ipairs(REALM_WORDS) do
+		if word:find(target, 1, true) then return true end
+		-- One slip anywhere in the word (Olympo's no shorter than itself: "olymo" is in polymorph).
+		for len = target == "olympo" and #target or #target - 1, #target + 1 do
+			for i = 1, #word - len + 1 do
+				if Slips(word:sub(i, i + len - 1), target, 1) <= 1 then return true end
+			end
+		end
+		-- Two at its start, if it starts with an O.
+		if word:sub(1, 1) == "o" then
+			for len = #target - 2, #target + 2 do
+				if len >= 5 and len <= #word and Slips(word:sub(1, len), target, 2) <= 2 then return true end
+			end
+		end
+	end
+	return false
+end
+
+local federation, federationSize = {}, 0 -- [name] = true|false, asked often: kept
+local function Federation(guild)
+	local lower = guild:lower()
+	if lower:find("olympus", 1, true) then return true end
+	for word in lower:gsub("0", "o"):gsub("1", "l"):gmatch("%a+") do
+		if OlympusWord(Sounds(word)) then return true end
+	end
+	return false
+end
+
 function ns.IsFederation(guild)
-	if not guild or guild == "" then return false end
-	return guild:lower():find(REALM_WORD, 1, true) ~= nil
+	if type(guild) ~= "string" or guild == "" then return false end
+	local known = federation[guild]
+	if known == nil then
+		known = Federation(guild)
+		if federationSize >= 2000 then federation, federationSize = {}, 0 end
+		federation[guild], federationSize = known, federationSize + 1
+	end
+	return known
 end
 
 -- The addon only works for members of an Olympus guild.
@@ -564,6 +703,7 @@ StandIn("Who", { "Search", "SendPlain" })
 StandIn("Channels", { "Send", "ToggleMute" })
 StandIn("King", { "Summon", "Inspect", "AgendaPrompt" })
 StandIn("Hop", { "Ask", "AskKing", "SetHelp", "SetAuto" })
+StandIn("Workshop", { "RollCall" })
 
 -- The faction may not be known yet at ADDON_LOADED: if it turns out to be the other one,
 -- switch to that faction's store before anything is received.
@@ -582,7 +722,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -671,7 +811,7 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "demo" then
 			ns.Print(ns.L.DEMO_REMOVED)
 		elseif cmd == "bug" then
-			ns.UI.ShowCopy(ns.L.REPORT_BUG, ns.BuildBugReport())
+			ns.UI.ShowBugReport()
 		elseif cmd == "status" then
 			for line in ns.StatusText():gmatch("[^\n]+") do print("  " .. line) end
 		elseif cmd == "key" then

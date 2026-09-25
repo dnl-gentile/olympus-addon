@@ -74,7 +74,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Recruit", "Views" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Workshop", "Recruit", "Views" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -114,6 +114,84 @@ test("federation filter matches any guild with 'olympus' in the name", function(
 	eq(ns.IsFederation("Sons of olympus"), true)
 	eq(ns.IsFederation("Olympia"), false)
 	eq(ns.IsFederation(nil), false)
+end)
+
+test("federation filter against 250 misspellings and 400 look-alike guild names (tests/fixtures)", function()
+	local function Read(file)
+		local out = {}
+		for line in io.lines("tests/fixtures/" .. file) do if line ~= "" then out[#out + 1] = line end end
+		return out
+	end
+	-- Known and accepted: a P for the O plus another slip; Olympe is French for Olympus;
+	-- Oympia is Olympia misspelled.
+	local expected = { ["Plympys III"] = false, ["Olympe"] = true, ["Oympia"] = true }
+	local wrong = {}
+	for _, name in ipairs(Read("olympus-yes.txt")) do
+		local want = expected[name]
+		if want == nil then want = true end
+		if ns.IsFederation(name) ~= want then wrong[#wrong + 1] = name end
+	end
+	for _, name in ipairs(Read("olympus-no.txt")) do
+		local want = expected[name]
+		if want == nil then want = false end
+		if ns.IsFederation(name) ~= want then wrong[#wrong + 1] = name end
+	end
+	eq(table.concat(wrong, ", "), "")
+end)
+
+test("WoW: Forever names: first name and surname, never taken for a realm", function()
+	local saved = { UnitFullName = UnitFullName, GetUnitName = GetUnitName, realm = ns.realm, split = ns.splitNames, CurrentRealm = ns.CurrentRealm }
+	local ok, err = pcall(function()
+		ns.realm = "ClassicBetaPvP"
+		ns.CurrentRealm = function() return "ClassicBetaPvP" end
+		-- Forever hands back "Faladoriel", "Skylance": the surname where the realm goes.
+		UnitFullName = function(unit)
+			if unit == "player" then return "Faladoriel", "Skylance" end
+			if unit == "target" then return "Pyralis", "Ashandar" end
+			if unit == "party1" then return "Mate", nil end
+		end
+		ns.splitNames = nil
+		eq(ns.PlayerName(), "Faladoriel Skylance-ClassicBetaPvP", "as the server stamps our messages")
+		eq(ns.splitNames, true)
+		eq(ns.UnitFullName("target"), "Pyralis Ashandar-ClassicBetaPvP")
+		eq(ns.UnitFullName("party1"), "Mate-ClassicBetaPvP")
+		eq(ns.Normal("Pyralis-Ashandar"), "Pyralis Ashandar")
+		eq(ns.Normal("Pyralis-Ashandar-ClassicBetaPvP2"), "Pyralis Ashandar-ClassicBetaPvP2")
+		eq(ns.Normal("Bob-ClassicBetaPvP2"), "Bob-ClassicBetaPvP2", "a realm stays a realm")
+		eq(ns.Normal("Pyralis Ashandar-ClassicBetaPvP"), "Pyralis Ashandar-ClassicBetaPvP")
+		-- A Classic realm: the realm is a realm, whatever it is called.
+		ns.realm = "Nightslayer"
+		ns.CurrentRealm = function() return "Nightslayer" end
+		UnitFullName = function(unit)
+			if unit == "player" then return "Peepyn", "Nightslayer" end
+			return "Bob", "Dreamscythe"
+		end
+		ns.splitNames = nil
+		eq(ns.PlayerName(), "Peepyn-Nightslayer")
+		eq(ns.splitNames, nil)
+		eq(ns.UnitFullName("target"), "Bob-Dreamscythe")
+		eq(ns.Normal("Bob-Dreamscythe"), "Bob-Dreamscythe")
+	end)
+	UnitFullName, GetUnitName, ns.realm, ns.splitNames, ns.CurrentRealm = saved.UnitFullName, saved.GetUnitName, saved.realm, saved.split, saved.CurrentRealm
+	if not ok then error(err, 0) end
+end)
+
+test("federation filter: Olympus however it was spelled, but not other words", function()
+	for _, name in ipairs({ "OLYMPVS", "Olympvs II", "Olimpus", "Olmpus", "Olympos", "Olypmus", "Olyympus", "0lympus",
+		"Lympus", "OlimpusII", "Knights of Olmpus", "Olimpo", "Olympo Brasil", "Ólympus",
+		"Olimpvs", "OLMPVS", "Olmps", "Olympuz", "OLIMPUZ", "Olymppus", "Olymp", "Olympia Olympus",
+		"Olypmvs", "Olmypus", "Oympus", "Olumpus", "Olympe", "Oylmpus", "Olyompus" }) do
+		eq(ns.IsFederation(name), true, name)
+	end
+	for _, name in ipairs({ "Olympia", "Olympic Heroes", "Olympians", "Olympiad", "Olimpia", "Olimpico", "Polymath",
+		"Holy Light", "Oly", "Olmo", "The Pumpkins", "Glyphs R Us", "Lumps", "Oblivion", "Polymer", "Lymph" }) do
+		eq(ns.IsFederation(name), false, name)
+	end
+	eq(ns.Slips("olmps", "olympus", 2), 2); eq(ns.Slips("olympia", "olympus", 2), 2); eq(ns.Slips("abcdefg", "olympus", 2), 3)
+	eq(ns.Slips("olypmus", "olympus", 2), 1, "two neighbours swapped: one slip")
+	-- The main guild is still the exact name: the King and the Crown's officers.
+	eq(ns.IsCrownRank("OLYMPVS", 1), false, "an officer of a look-alike guild is no Crown officer")
+	eq(ns.IsCrownRank("Olympus", 1), true)
 end)
 
 test("number formatting", function()
@@ -373,8 +451,8 @@ test("inspection summary, marks and discord text", function()
 	I.ToggleGuildMark("Olympus Hermes")
 	local s = I.Summary()
 	eq(s.total, 3); eq(s.counts.NONE, 1); eq(s.counts.OTHER, 1); eq(s.counts.GUILD, 1)
-	eq(s.players[1].name, "Good-Realm", "marked first")
-	eq(s.players[2].name, "Naked-Realm", "then no tabard")
+	eq(s.players[1].name, "Good", "marked first (our realm: the short name)")
+	eq(s.players[2].name, "Naked", "then no tabard")
 	eq(s.guilds[1].name, "Olympus Hermes", "marked guild first")
 	eq(s.guilds[2].name, "Olympus II"); eq(s.guilds[2].bad, 2)
 	local text = I.DiscordText()
@@ -633,6 +711,24 @@ test("the Realm lists every member online: our roster for our guild, /who for th
 		assert(text:find(ns.L.MEMBERS_ONLINE:format(2), 1, true), text)
 		assert(text:find(ns.L.MEMBERS_SEEN:format(1), 1, true), text)
 		assert(text:find("Scout", 1, true) and text:find("Mate", 1, true), text)
+		-- A long list: the first MAX_MEMBERS, the rest on a click, and back.
+		for k = 1, 40 do ns.Roster.online[#ns.Roster.online + 1] = { name = "Member" .. k, level = 10, class = "WA", rank = "Recruit", rankIndex = 5 } end
+		local function Find(pattern)
+			for _, l in ipairs(ns.Views.RealmLines()) do
+				if l.text and l.text:find(pattern, 1, true) then return l end
+			end
+		end
+		local UIsaved = ns.UI
+		ns.UI = setmetatable({ Refresh = function() end }, { __index = UIsaved })
+		local more = Find(ns.L.MEMBERS_MORE:format(42 - ns.Views.MAX_MEMBERS))
+		assert(more and more.onClick, "the rest, on a click")
+		more.onClick()
+		assert(Find("Member40"), "everyone shown")
+		local fewer = Find(ns.L.MEMBERS_FEWER)
+		assert(fewer and fewer.onClick)
+		fewer.onClick()
+		assert(not Find("Member40"), "back to the first ones")
+		ns.UI = UIsaved
 		ns.Views.ExpandAll(false)
 	end)
 	GetGuildInfo, ns.Roster.online, ns.Who.sweep = savedGuild, savedOnline, savedSweep
@@ -1480,7 +1576,9 @@ test("tabs on the real window: side by side on Forever, unchanged on Classic", f
 					eq(gap, 3, "gap before tab " .. i)
 					assert(tabs[i].Text:GetStringWidth() + 20 <= tabs[i]:GetWidth(), "text fits tab " .. i)
 				end
-				assert(tabs[#tabs]:GetRight() <= main:GetRight(), "last tab inside the window")
+				local last
+				for _, tab in ipairs(tabs) do if tab:IsShown() then last = tab end end
+				assert(last:GetRight() <= main:GetRight(), "last tab inside the window")
 			else
 				eq(Anchor(tabs[1]), "TOPLEFT OlympusFrame BOTTOMLEFT 10 2")
 				eq(Anchor(tabs[3]), "LEFT " .. tabs[2].name .. " RIGHT -15 0")
@@ -1920,8 +2018,8 @@ test("HD Join screen: no tabs or column titles, next to a Communities window wit
 		CommunitiesFrame.ChatTab:Show()
 		UI.Refresh()
 		eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0")
-		-- Every tab but the Throne, which is the King's alone.
-		for _, tab in ipairs(main.tabs) do eq(tab:IsShown(), tab.key ~= "throne", tab.key) end
+		-- Every tab but the Throne (the King's alone) and the Workshop (the author's alone).
+		for _, tab in ipairs(main.tabs) do eq(tab:IsShown(), tab.key ~= "throne" and tab.key ~= "workshop", tab.key) end
 		eq(main.colHeader:IsShown(), true)
 		eq(main.listBox:Anchor("TOPLEFT")[5], -81); eq(main.scroll:Anchor("TOPLEFT")[5], -84)
 	end)
@@ -1996,7 +2094,10 @@ test("a new tab is one entry in UI.TABS: an icon tab in the HD window, a bottom 
 			eq(#main.tabs, n)
 			local last = main.tabs[n]
 			if hdLook then
-				eq(last.points[1][2], main.tabs[n - 1]); eq(Anchor(last), "TOPLEFT nil BOTTOMLEFT 0 -20")
+				-- Under the last shown tab: the Throne and the Workshop before it are hidden.
+				local above
+				for i = n - 1, 1, -1 do if main.tabs[i]:IsShown() then above = main.tabs[i] break end end
+				eq(last.points[1][2], above); eq(Anchor(last), "TOPLEFT " .. tostring(above.name) .. " BOTTOMLEFT 0 -20")
 				eq(last.Icon.texture, channels.icon); eq(last.tooltip, "TAB_CHANNELS")
 			else
 				eq(last.template, "PanelTabButtonTemplate"); eq(last:GetText(), "TAB_CHANNELS")
@@ -2312,6 +2413,17 @@ test("who on its own: a click in the window searches quietly, range by range, no
 			server.Run(ns.Who.SETTLE)
 		end
 		eq(ns.Who.sweep.done, true)
+		-- Then the misspelled names, one per click: a player of <OLYMPVS> counts.
+		for k, variant in ipairs(ns.Who.VARIANTS) do
+			server.clock = server.clock + ns.Who.COOLDOWN + 1
+			eq(ns.Who.Auto(), true, "the spelling " .. variant)
+			eq(server.sent[#server.sent], ('g-"%s"'):format(variant))
+			server.Answer(k == 1 and { { "Romanus", "OLYMPVS", 12, "MAGE" }, { "Olaf", "Olympiad Fans", 12, "MAGE" } } or {})
+			server.Run(ns.Who.SETTLE)
+		end
+		assert(ns.Who.sweep.byName.Romanus, "a player of <OLYMPVS> joins the round")
+		eq(ns.Who.sweep.byName.Olaf, nil, "a guild that is not Olympus does not")
+		eq(ns.Who.sweep.done, true, "still complete")
 		server.clock = server.clock + ns.Who.COOLDOWN + 1
 		eq(ns.Who.Auto(), false, "a complete round is not searched again at once")
 		server.clock = server.clock + ns.Who.AUTO_AGAIN
@@ -2335,6 +2447,34 @@ test("Wall of Shame: closed with a countdown until midnight in Texas, then open"
 	I.SHAME_FROM = time() - 1
 	eq(I.ShameOpen(), true)
 	I.SHAME_FROM, I.ShowShame = from, show
+end)
+
+test("who for one guild: opening its row lists its players, kept apart from the round", function()
+	WithWho(function(server)
+		LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+		-- A round under way (capped: the next click searches a level range).
+		eq(ns.Who.Auto(), true)
+		server.Answer(Players(1, 50), 50)
+		server.Run(ns.Who.SETTLE)
+		local step = ns.Who.sweep.step
+		server.clock = server.clock + ns.Who.COOLDOWN + 1
+		eq(ns.Who.SearchGuild('Bad"Name'), false, "no quotes in a guild name")
+		eq(ns.Who.SearchGuild("OLYMPUS I"), true)
+		eq(server.sent[#server.sent], 'g-"OLYMPUS I"')
+		-- The server lists every guild with those letters: only that guild's players are kept.
+		server.Answer({ { "Gq1", "OLYMPUS I", 20, "MAGE" }, { "Gq2", "OLYMPUS I", 18, "PRIEST" }, { "Other", "OLYMPUS II", 9, "ROGUE" } })
+		server.Run(ns.Who.SETTLE)
+		local list = ns.Who.GuildSeen("OLYMPUS I")
+		eq(#list, 2)
+		eq(ns.Who.sweep.step, step, "the round goes on where it was")
+		local members = ns.Views.MembersOf("OLYMPUS I", { officers = {} })
+		local names = {}
+		for _, m in ipairs(members) do names[m.name] = true end
+		assert(names.Gq1 and names.Gq2, "its own search and the round's, each once")
+		server.clock = server.clock + ns.Who.COOLDOWN + 1
+		eq(ns.Who.SearchGuild("OLYMPUS I"), false, "once a minute per guild")
+		eq(#server.printed, 0, "quiet")
+	end)
 end)
 
 test("who on the old UI: no answer, the Social window gets the event back on the timeout", function()
@@ -2570,7 +2710,14 @@ test("who: a capped answer (50 of 312) is dug through by level, merging, then a 
 		eq(#ns.Who.StatusLines(), 1)
 		eq(ns.rdb.seen["OLYMPUS VII"].online, 75); eq(ns.rdb.seen["OLYMPUS I"].online, 75)
 		eq(ns.rdb.seen["OLYMPUS VII"].capped, nil, "every range fit: exact")
-		-- Every range searched once: the next click starts over with the broad search.
+		-- Every range searched once: the misspelled names, then the next click starts over.
+		for _, variant in ipairs(ns.Who.VARIANTS) do
+			server.Click()
+			eq(server.sent[#server.sent], ('g-"%s"'):format(variant))
+			server.Answer({})
+			server.Run()
+		end
+		eq(ns.Who.StatusLines()[1], "150 found, every level searched.", "unchanged by them")
 		server.Click()
 		eq(server.sent[#server.sent], 'g-"Olympus"')
 		eq(#ns.Recruit.found, 150, "kept until the new answer comes")
@@ -3720,11 +3867,14 @@ test("reports: fields 21 and 22 (reporter's realm, guild's home) are optional bo
 	local d = C.DecodeReport(payload)
 	eq(d.from, "ClassicBetaPvP2"); eq(d.home, "ClassicBetaPvP")
 	local f = C.Split(payload, "~")
-	eq(#f, 23, "22 fields and the faction (23)")
+	eq(#f, 24, "22 fields, the faction (23) and the versions (24)")
+	local withVersions = C.DecodeReport(C.EncodeReport({ guild = "Olympus V", total = 9, online = 1, zones = {},
+		versions = { ["0.8.2"] = 3, ["0.8.1"] = 1, ["?"] = 1 } }))
+	eq(withVersions.versions["0.8.2"], 3); eq(withVersions.versions["0.8.1"], 1)
 	local old = C.DecodeReport(table.concat(f, "~", 1, 20))
 	eq(old.total, 9); eq(old.from, nil, "a 20-field report (older versions)"); eq(old.home, nil)
 	local newer = C.DecodeReport(payload .. "~some field of a later version")
-	eq(newer.from, "ClassicBetaPvP2", "a 24-field report still decodes")
+	eq(newer.from, "ClassicBetaPvP2", "a 25-field report still decodes")
 	f[21], f[22] = "Bad|cffRealm", ("x"):rep(41)
 	d = C.DecodeReport(table.concat(f, "~"))
 	eq(d.from, nil, "no escape codes"); eq(d.home, nil, "no more than 40 characters")
@@ -4292,7 +4442,7 @@ local function WithHop(fn)
 	local H = ns.Hop
 	local names = { "IsInGroup", "GetNumGroupMembers", "IsInRaid", "UnitIsGroupLeader", "UnitIsGroupAssistant",
 		"InCombatLockdown", "UnitGUID", "C_PartyInfo", "AcceptGroup", "StaticPopup_Show", "StaticPopup_Hide",
-		"StaticPopup_FindVisible", "GetGuildInfo", "UnitName" }
+		"StaticPopup_FindVisible", "GetGuildInfo", "UnitName", "UnitFullName" }
 	local saved = {}
 	for _, n in ipairs(names) do saved[n] = _G[n] end
 	local savedSend, savedWhisper, savedReady, savedNow = ns.Comm.Send, ns.Comm.Whisper, ns.Comm.ChannelReady, ns.Now
@@ -4329,6 +4479,7 @@ local function WithHop(fn)
 		StaticPopup_FindVisible = function() return nil end
 		GetGuildInfo = function() return "Olympus II", "Member", 3 end
 		UnitName = function(unit) return w.party[unit] end
+		UnitFullName = function(unit) if unit == "player" then return "Tester", "Realm" end return w.party[unit] end
 		-- We see an NPC: our layer is map 1453, zone UID w.npc.
 		w.see = function(zoneUID) w.npc = zoneUID or w.npc; ns.Layers.Observe("target") end
 		fn(w, H)
@@ -4677,7 +4828,7 @@ test("layer hop: 'For Olympus!' shows a line to stop it, and /oly layerauto off 
 	end)
 end)
 
-test("layer hop: a King only one report names gets no line", function()
+test("layer hop: the King's line needs a report nobody disputes, and never one right after login", function()
 	WithHop(function(w, H)
 		ns.rdb.guilds = { ["Olympus"] = { total = 1, online = 1, zones = {}, t = os.time(), leader = "Evil", leaderOnline = true } }
 		ns.Now = function() return os.time() end
@@ -4690,6 +4841,36 @@ test("layer hop: a King only one report names gets no line", function()
 		eq(said, ns.L.HOP_KING_CHECKING:format("Asmond"), "not 'offline': still being confirmed")
 		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1, online = 1, zones = {}, t = os.time(), leader = "Asmon", leaderOnline = true }, "W1-Realm", "W2-Realm") }
 		eq(H.King().name, "Asmond")
+		-- One report is enough for the line while nobody disagrees (the Crown's powers need two).
+		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1, online = 1, zones = {}, t = os.time(), leader = "Asmon", leaderOnline = true }, "W1-Realm") }
+		eq(H.King().name, "Asmond", "one reporter")
+		eq(H.King(true), nil, "not strictly: 'For Olympus!' does not invite on its own for him")
+		eq(ns.Data.KnownRank("Asmon-Realm", "Olympus"), nil, "but no Crown powers from one")
+		-- Right after login a lone report proves nothing: the real ones have not come yet.
+		local loginAt = ns.Comm.loginAt
+		ns.Comm.loginAt = ns.Now() - 10
+		eq(H.King(), nil, "just logged in")
+		ns.Comm.loginAt = loginAt
+		-- An attacker's report naming himself: alone right after login, nothing; against the real
+		-- reporter, a tie: nobody.
+		ns.rdb.guilds = {}
+		local r = { guild = "Olympus", total = 900, online = 90, leader = "Atk", leaderOnline = true, users = 1, zones = {}, officers = {},
+			ranks = {}, top = {}, faction = "Alliance" }
+		ns.Comm.loginAt = ns.Now() - 10
+		ns.Data.Receive(r, "Atk-Realm")
+		eq(H.King(), nil, "a lone forged report at login")
+		ns.Comm.loginAt = loginAt
+		local real = { guild = "Olympus", total = 1000, online = 200, leader = "Asmon", leaderOnline = true, users = 5, zones = {}, officers = {},
+			ranks = {}, top = {}, faction = "Alliance" }
+		ns.Data.Receive(real, "Honest-Realm")
+		eq(H.King(), nil, "forged against real: a tie, nobody")
+		-- A same-named character on another realm can't vouch for itself.
+		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1, online = 1, zones = {}, t = os.time(), leader = "Atk", leaderOnline = true }, "Atk-Elsewhere") }
+		eq(H.King(), nil, "its own vote from another realm")
+		-- Two reports disagree about the leader: no line.
+		local g = ns.rdb.guilds["Olympus"]
+		g.vouch["W2-Realm"] = { t = g.t, sig = "other", ranks = { ["Evil-Realm"] = 0 } }
+		eq(H.King(), nil, "a disagreement: nobody")
 		ns.rdb.guilds = {}
 	end)
 end)
@@ -4947,6 +5128,320 @@ test("Throne: the King shows himself on the map with a button, everyone checks i
 	ns.db.throneLocation = nil
 	ns.rdb.guilds = {}
 	K.Reset()
+	if not ok then error(err, 0) end
+end)
+
+
+---------------------------------------------------------------------------
+-- Workshop (Workshop.lua): the author's tab, roll call, "please update", bug reports
+---------------------------------------------------------------------------
+
+local AUTHOR_FULL = "Faladoriel Skylance-ClassicBetaPvP"
+
+-- Runs fn(w, W) with sends, whispers, popups and time recorded; `me` is who we are.
+local function WithWorkshop(me, fn)
+	local W = ns.Workshop
+	local saved = { me = ns.me, Send = ns.Comm.Send, Whisper = ns.Comm.Whisper, Now = ns.Now, after = W.after, random = W.random,
+		Show = StaticPopup_Show, Guild = GetGuildInfo, Build = GetBuildInfo, Level = UnitLevel, Class = UnitClass, Ready = ns.Comm.ChannelReady,
+		errors = ns.allErrors, guilds = ns.rdb.guilds, Print = ns.Print }
+	local w = { sent = {}, whispered = {}, popups = {}, clock = 5000000, printed = {} }
+	local ok, err = pcall(function()
+		W.Reset()
+		ns.me = me
+		ns.Now = function() return w.clock end
+		ns.Comm.Send = function(dist, msg, key) w.sent[#w.sent + 1] = { dist = dist, msg = msg, key = key } end
+		ns.Comm.Whisper = function(to, msg, key) w.whispered[#w.whispered + 1] = { to = to, msg = msg, key = key } end
+		ns.Comm.ChannelReady = function() return true end
+		ns.Print = function(m) w.printed[#w.printed + 1] = m end
+		W.after = function(_, _, f) f() end
+		W.random = function(a, b) if a then return b or a end return 0.5 end
+		StaticPopup_Show = function(name, a, b, data) w.popups[#w.popups + 1] = { name = name, a = a, b = b, data = data } end
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		GetBuildInfo = function() return "1.60.1", "1", "x", 16001 end
+		UnitLevel = function() return 17 end
+		UnitClass = function() return "Mage", "MAGE" end
+		ns.allErrors = {}
+		ns.rdb.guilds = {}
+		fn(w, W)
+	end)
+	ns.me, ns.Comm.Send, ns.Comm.Whisper, ns.Now, W.after, W.random = saved.me, saved.Send, saved.Whisper, saved.Now, saved.after, saved.random
+	StaticPopup_Show, GetGuildInfo, GetBuildInfo, UnitLevel, UnitClass = saved.Show, saved.Guild, saved.Build, saved.Level, saved.Class
+	ns.Comm.ChannelReady, ns.allErrors, ns.rdb.guilds, ns.Print = saved.Ready, saved.errors, saved.guilds, saved.Print
+	W.Reset()
+	if not ok then error(err, 0) end
+end
+
+test("Workshop: the author's alone, and his test characters' (Dev.lua)", function()
+	WithWorkshop("Tester-Realm", function(w, W)
+		eq(W.Visible(), false, "anyone else: no tab")
+		local savedDev, savedName = ns.devWorkshop, UnitName
+		UnitName = function() return "Peepyn" end
+		ns.devWorkshop = { Peepyn = true }
+		eq(W.Visible(), true, "the author's test character"); eq(W.Preview(), true)
+		ns.devWorkshop, UnitName = savedDev, savedName
+		ns.me = AUTHOR_FULL
+		eq(W.IsAuthor(), true); eq(W.Visible(), true); eq(W.Preview(), false)
+		ns.me = "Faladoriel-Realm"
+		eq(W.IsAuthor(), false, "his first name alone is someone else's")
+	end)
+end)
+
+test("Workshop roll call: only the author asks, each addon answers once with what works", function()
+	WithWorkshop(AUTHOR_FULL, function(w, W)
+		ns.rdb.guilds = { ["Olympus II"] = { t = w.clock, users = 40, online = 90, versions = { ["0.8.2"] = 30, ["0.8.1"] = 10 } } }
+		W.RollCall()
+		eq(w.sent[1].msg, ("V1~99999~100"), "the whole army while small")
+		W.RollCall()
+		eq(#w.sent, 1, "once every 5 minutes")
+		-- Answers: stored once each, only for this roll call.
+		W.HandleAnswer("WHISPER", "Ann-Realm", "V2~99999~0.8.1~Olympus IV~Forever~hd~cm~2~12~MA")
+		W.HandleAnswer("WHISPER", "Ann-Realm", "V2~99999~0.8.2~Olympus IV~Forever~hd~cm~0~12~MA")
+		W.HandleAnswer("WHISPER", "Bob-Realm", "V2~12~0.8.2~Olympus IV~Forever~hd~cm~0~12~MA")
+		W.HandleAnswer("CHANNEL", "Cid-Realm", "V2~99999~0.8.2~Olympus IV~Era~old~m~0~12~MA")
+		eq(W.State().count, 1, "one answer each, this roll call's, by whisper")
+		local a = W.State().answers["Ann-Realm"]
+		eq(a.version, "0.8.1"); eq(a.errors, 2); eq(a.client, "Forever"); eq(a.flags, "cm")
+		-- The tab: installs from the reports, the roll call, who needs attention.
+		local lines = W.Build()
+		local text = {}
+		for _, l in ipairs(lines) do text[#text + 1] = (l.text or "") .. " " .. (l.right or "") end
+		text = table.concat(text, "\n")
+		assert(text:find(ns.L.WORKSHOP_USERS:format(40, 1), 1, true), text)
+		assert(text:find("Ann", 1, true) and text:find(ns.L.WORKSHOP_ERRORS:format(2), 1, true), text)
+		local report = W.ReportText()
+		assert(not report:find("|c", 1, true), "no colour codes in the Discord text")
+		-- Too late: no longer counted.
+		w.clock = w.clock + W.ROLL_OPEN + 1
+		W.HandleAnswer("WHISPER", "Dan-Realm", "V2~99999~0.8.2~Olympus IV~Forever~hd~cm~0~12~MA")
+		eq(W.State().count, 1)
+	end)
+	WithWorkshop("Tester-Realm", function(w, W)
+		-- A player's addon: answers the author, once per ROLL_GAP; ignores anyone else.
+		W.HandleRoll("CHANNEL", "Faladoriel-Realm", "V1~7~100")
+		eq(#w.whispered, 0, "not the author")
+		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~7~100")
+		eq(w.whispered[1].to, AUTHOR_FULL)
+		local msg = w.whispered[1].msg
+		assert(msg:find(("^V2~7~%s~Olympus II~Forever~[^~]*~c[a-z]*~0~17~MA$"):format(ns.VERSION:gsub("%.", "%%."))), msg)
+		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~8~100")
+		eq(#w.whispered, 1, "once per ROLL_GAP")
+		eq(W.AuthorOnline(), true, "a roll call says the author is online")
+		-- A share: only some answer.
+		W.Reset()
+		W.random = function(a, b) if a then return b or a end return 0.5 end
+		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~9~10")
+		eq(#w.whispered, 1, "drew 100 > 10: no answer")
+		eq(W.Share(3000), 10); eq(W.Share(200), 100); eq(W.Share(100000), 5)
+	end)
+end)
+
+test("Workshop: 'please update' only from the author, only when really behind, once in a while", function()
+	WithWorkshop(AUTHOR_FULL, function(w, W)
+		W.AskUpdate("Ann-Realm"); W.AskUpdate("Bob-Realm"); W.AskUpdate("Ann-Realm")
+		eq(#w.whispered, 2, "once per player per UPDATE_GAP")
+		assert(w.whispered[1].key ~= w.whispered[2].key, "each queued apart (the queue replaces equal keys)")
+		eq(w.whispered[1].msg, "V3~" .. ns.VERSION)
+	end)
+	WithWorkshop("Tester-Realm", function(w, W)
+		local v = ns.VERSION
+		ns.VERSION = "0.8.0"
+		W.HandleUpdate("WHISPER", "Somebody-Realm", "V3~0.9.0")
+		eq(#w.popups, 0, "not the author")
+		W.HandleUpdate("WHISPER", AUTHOR_FULL, "V3~0.8.0")
+		eq(#w.popups, 0, "not behind")
+		W.HandleUpdate("WHISPER", AUTHOR_FULL, "V3~0.8.2")
+		eq(w.popups[1].name, "OLYMPUS_AUTHOR_UPDATE"); eq(w.popups[1].a, "0.8.0"); eq(w.popups[1].b, "0.8.2")
+		W.HandleUpdate("WHISPER", AUTHOR_FULL, "V3~0.8.2")
+		eq(#w.popups, 1, "once per UPDATE_GAP")
+		W.HandleUpdate("WHISPER", AUTHOR_FULL, "V3~Update at evil.example")
+		eq(#w.popups, 1, "a version number and nothing else")
+		ns.VERSION = v
+		eq(W.Newer("0.10.0", "0.9.9"), true); eq(W.Newer("0.8.1", "0.8.1"), false); eq(W.Newer("x", "0.1.0"), false)
+	end)
+end)
+
+test("Workshop: a bug report reaches the author once he answers its first piece", function()
+	local text = "```\nline one | pipe\n" .. ("x"):rep(700) .. "\nend\n```"
+	WithWorkshop("Ann-Realm", function(w, W)
+		local timers = {}
+		W.after = function(_, _, f) timers[#timers + 1] = f end
+		eq(W.BugAction(text), nil, "author not seen: no button")
+		W.HandlePresence("CHANNEL", "Faladoriel-Realm", "V4~0.8.2")
+		W.HandlePresence("CHANNEL", "Faladoriel Skylance-SomeEraRealm", "V4~0.8.2")
+		eq(W.AuthorOnline(), false, "his first name, or his name on another realm group: not him")
+		W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~0.8.2")
+		eq(W.AuthorOnline(), true)
+		local action = W.BugAction(text)
+		assert(action and action.label:find("Faladoriel Skylance", 1, true), action and action.label)
+		eq(action.fn(), true)
+		eq(#w.whispered, 1, "the first piece alone")
+		-- The author answers it: the rest follows.
+		ns.me = AUTHOR_FULL
+		W.HandleBug("WHISPER", "Ann-Realm", w.whispered[1].msg)
+		local go = w.whispered[#w.whispered]
+		eq(go.to, "Ann-Realm"); assert(go.msg:find("^V6~%d+~1$"), go.msg)
+		ns.me = "Ann-Realm"
+		W.HandleAck("WHISPER", "Faladoriel-Realm", go.msg)
+		eq(#w.whispered, 2, "not the author: nothing more")
+		W.HandleAck("WHISPER", AUTHOR_FULL, go.msg)
+		local rest = {}
+		for i = 3, #w.whispered do rest[#rest + 1] = w.whispered[i] end
+		assert(#rest >= 3, #rest)
+		for _, piece in ipairs(rest) do
+			eq(piece.to, AUTHOR_FULL)
+			assert(#piece.msg <= 255 and not piece.msg:find("\n", 1, true), "one addon message, no newline")
+		end
+		-- He gets them all (in any order), keeps the report, and says so.
+		ns.me = AUTHOR_FULL
+		for i = #rest, 1, -1 do W.HandleBug("WHISPER", "Ann-Realm", rest[i].msg) end
+		eq(#W.Reports(), 1)
+		assert(W.Reports()[1].text:find("line one ! pipe\n", 1, true), W.Reports()[1].text)
+		local done = w.whispered[#w.whispered]
+		assert(done.msg:find("^V6~%d+~2$"), done.msg)
+		ns.me = "Ann-Realm"
+		W.HandleAck("WHISPER", AUTHOR_FULL, done.msg)
+		eq(w.printed[#w.printed], ns.L.WORKSHOP_BUG_SENT:format(ns.DisplayName(AUTHOR_FULL)))
+		for _, f in ipairs(timers) do f() end
+		eq(w.printed[#w.printed], ns.L.WORKSHOP_BUG_SENT:format(ns.DisplayName(AUTHOR_FULL)), "answered in time: no 'no answer'")
+		eq(action.fn(), false, "one report per BUG_GAP")
+		-- Nobody answers the first piece: nothing more goes out, and the player is told.
+		W.Reset()
+		timers = {}
+		W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~0.8.2")
+		local before = #w.whispered
+		eq(W.SendBug("short report"), true)
+		eq(#w.whispered, before + 1)
+		for _, f in ipairs(timers) do f() end
+		eq(w.printed[#w.printed], ns.L.WORKSHOP_BUG_NO_AUTHOR)
+		eq(#w.whispered, before + 1, "nothing more")
+		w.clock = w.clock + W.PRESENCE_FRESH + 1
+		eq(W.AuthorOnline(), false, "gone quiet: offline")
+	end)
+end)
+
+test("Workshop: the author's inbox can't be blocked or flooded", function()
+	WithWorkshop(AUTHOR_FULL, function(w, W)
+		W.HandleBug("CHANNEL", "Bob-Realm", "V5~1~1~1~channel")
+		W.HandleBug("WHISPER", "Bob-Realm", "V5~1~1~99~too many pieces")
+		W.HandleBug("WHISPER", "Bob-Realm", "V5~1~2~2~not the first piece")
+		eq(#W.Reports(), 0, "channel, oversize and headless reports are dropped")
+		-- A griefer opens report after report: one open at a time, three started an hour.
+		for id = 1, 10 do W.HandleBug("WHISPER", "Grief-Realm", ("V5~%d~1~25~x"):format(id)) end
+		-- Everyone else still gets through.
+		for k = 1, 10 do W.HandleBug("WHISPER", ("P%d-Realm"):format(k), ("V5~%d~1~1~hello %d"):format(k, k)) end
+		eq(#W.Reports(), 10, "ten honest reports")
+		-- Three an hour per player.
+		for id = 21, 24 do W.HandleBug("WHISPER", "Ann-Realm", ("V5~%d~1~1~report %d"):format(id, id)) end
+		eq(#W.Reports(), 13)
+		eq(W.Reports()[13].text, "report 23")
+	end)
+	WithWorkshop("Tester-Realm", function(w, W)
+		W.HandleBug("WHISPER", "Ann-Realm", "V5~1~1~1~hello")
+		eq(#W.Reports(), 0, "only the author collects reports")
+	end)
+end)
+
+test("Workshop: what others claim never names the latest version, and roll calls add up", function()
+	WithWorkshop(AUTHOR_FULL, function(w, W)
+		local ids = 0
+		W.random = function(a, b) if a then ids = ids + 1; return ids end return 0.5 end
+		-- Before the census is in: no roll call (every addon would answer).
+		W.RollCall()
+		eq(#w.sent, 0); eq(w.printed[#w.printed], ns.L.WORKSHOP_ROLL_EARLY)
+		ns.rdb.guilds = { ["Olympus II"] = { t = w.clock, users = 40, online = 90, versions = { ["9.9.9"] = 1, ["0.8.1"] = 3 } } }
+		W.RollCall()
+		local first = W.State().id
+		-- A forged answer and a forged report claim 9.9.9: the latest is still ours.
+		W.HandleAnswer("WHISPER", "Liar-Realm", ("V2~%d~9.9.9~Olympus II~Forever~hd~c~0~1~MA"):format(first))
+		W.HandleAnswer("WHISPER", "Ann-Realm", ("V2~%d~%s~Olympus II~Forever~hd~c~0~1~MA"):format(first, ns.VERSION))
+		W.HandleAnswer("WHISPER", "Bob-Realm", ("V2~%d~0.8.1~Olympus II~Forever~hd~c~0~1~MA"):format(first))
+		W.HandleAnswer("WHISPER", "Eve-Realm", ("V2~%d~0.8.1~`@everyone~Mac|cffff~evil~c~0~1~MA"):format(first))
+		eq(W.Latest(), ns.VERSION)
+		local eve = W.State().answers["Eve-Realm"]
+		eq(eve.guild, "everyone"); eq(eve.client, "?"); eq(eve.window, "?")
+		W.AskOutdated()
+		local asked = {}
+		for _, x in ipairs(w.whispered) do asked[x.to] = x.msg end
+		eq(asked["Ann-Realm"], nil, "up to date: not asked")
+		eq(asked["Bob-Realm"], "V3~" .. ns.VERSION)
+		eq(asked["Liar-Realm"], nil, "'newer' than the author: not asked either")
+		-- A second roll call later: the first one's answers stay, a newer one replaces.
+		w.clock = w.clock + W.ROLL_EVERY + 1
+		W.RollCall()
+		local second = W.State().id
+		eq(W.State().count, 4, "the answers so far stay")
+		W.HandleAnswer("WHISPER", "Bob-Realm", ("V2~%d~%s~Olympus II~Forever~hd~c~0~1~MA"):format(second, ns.VERSION))
+		eq(W.State().count, 4); eq(W.State().answers["Bob-Realm"].version, ns.VERSION, "updated since")
+		W.HandleAnswer("WHISPER", "Bob-Realm", ("V2~%d~0.8.0~Olympus II~Forever~hd~c~0~1~MA"):format(second))
+		eq(W.State().answers["Bob-Realm"].version, ns.VERSION, "one answer per roll call")
+	end)
+	WithWorkshop("Tester-Realm", function(w, W)
+		-- A player answers each roll call once, a new one five minutes later too.
+		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~7~100")
+		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~7~100")
+		eq(#w.whispered, 1)
+		w.clock = w.clock + W.ROLL_EVERY
+		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~8~100")
+		eq(#w.whispered, 2, "the next roll call is answered")
+	end)
+	-- Field 24 keeps version numbers only.
+	local d = ns.Codec.DecodeReport(ns.Codec.EncodeReport({ guild = "Olympus V", total = 9, online = 1, zones = {},
+		versions = { ["0.8.2"] = 3, ["|TInterface\\Icons\\X:400|t"] = 1, ["?"] = 2 } }))
+	eq(d.versions["0.8.2"], 3); eq(d.versions["?"], 2)
+	local n = 0
+	for _ in pairs(d.versions) do n = n + 1 end
+	eq(n, 2, "nothing else")
+end)
+
+test("tabard store: one key per player, whatever the name came from", function()
+	local I = ns.Inspect
+	local K = I.Key
+	eq(K("Violator"), "Violator"); eq(K("Violator-" .. ns.realm), "Violator", "our realm: the short name, as 0.8.1 saved it")
+	eq(K("Far-Elsewhere"), "Far-Elsewhere")
+	-- The King's own patrol and a report of the same player: one entry, not two.
+	local saved = I.Players()
+	local before = {}
+	for k, v in pairs(saved) do before[k] = v end
+	I.Record("Dupe-" .. ns.realm, "Olympus", "MAGE", 20, nil, true)
+	I.AddReported("Dupe", "Olympus", "NONE")
+	local n = 0
+	for _, e in ipairs(I.ShameList()) do if e.name == "Dupe" then n = n + 1 end end
+	eq(n, 1, "listed once")
+	for k in pairs(saved) do if not before[k] then saved[k] = nil end end
+end)
+
+test("Treasurer: exactly Pyralis Ashandar of OLYMPUS, under the King and beside his name", function()
+	eq(ns.IsTreasurer("Pyralis Ashandar-ClassicBetaPvP", "OLYMPUS"), true)
+	eq(ns.IsTreasurer("Pyralis Ashandar", "Olympus"), true)
+	eq(ns.IsTreasurer("Pyrelis Ashandar", "OLYMPUS"), false, "a look-alike name")
+	eq(ns.IsTreasurer("Pyralis Ashandar", "LXIX"), false, "another guild")
+	eq(ns.IsTreasurer("Pyralis Ashandar", "OLYMPUS II"), false, "another Olympus guild")
+	local saved = ns.rdb.guilds
+	ns.rdb.guilds = { ["OLYMPUS"] = Vouched({ total = 1000, online = 110, zones = {}, t = os.time(), leader = "Asmongold Asmongler", leaderOnline = true,
+		officers = { { name = "Pyralis Ashandar", online = true, days = 0, class = "PR", level = 20 } } }, "W1-Realm", "W2-Realm") }
+	local ok, err = pcall(function()
+		local lines = ns.Views.RealmLines()
+		local found
+		for _, l in ipairs(lines) do
+			if l.text and l.text:find(ns.L.TREASURER .. ": ", 1, true) then found = l end
+		end
+		assert(found and found.text:find("Pyralis Ashandar", 1, true) and found.onClick, "the Treasurer's line")
+		-- Not in the report (the Horde's <Olympus>, another realm's): no line.
+		local officers = ns.rdb.guilds["OLYMPUS"].officers
+		ns.rdb.guilds["OLYMPUS"].officers = {}
+		for _, l in ipairs(ns.Views.RealmLines()) do
+			assert(not (l.text and l.text:find(ns.L.TREASURER .. ": ", 1, true)), "no Treasurer line without him")
+		end
+		ns.rdb.guilds["OLYMPUS"].officers = officers
+		ns.Views.ExpandAll(true)
+		local tagged = false
+		for _, l in ipairs(ns.Views.RealmLines()) do
+			if l.key == "Pyralis Ashandar" and l.text:find(ns.L.TREASURER, 1, true) and l.indent == 2 then tagged = true end
+		end
+		eq(tagged, true, "tagged among the Captains")
+		ns.Views.ExpandAll(false)
+	end)
+	ns.rdb.guilds = saved
 	if not ok then error(err, 0) end
 end)
 

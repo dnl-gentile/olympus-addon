@@ -70,13 +70,14 @@ end
 -- nothing it does reaches anyone.
 function King.Preview()
 	local dev = ns.devThrone
-	if type(dev) == "table" then dev = dev[UnitName and UnitName("player") or ""] == true end
+	if type(dev) == "table" then dev = dev[UnitName and UnitName("player") or ""] == true or dev[ns.ShortName(ns.me or "")] == true end
 	return dev == true and not King.IsKing()
 end
 function King.Visible() return King.IsKing() or King.Preview() end
 
-local function KingSender(sender, guild)
-	return type(guild) == "string" and guild:lower() == "olympus" and ns.Data.KnownRank(sender, guild) == 0
+-- soft: for his position (it only shows, Data.KnownRank); his commands need the full check.
+local function KingSender(sender, guild, soft)
+	return type(guild) == "string" and guild:lower() == "olympus" and ns.Data.KnownRank(sender, guild, soft) == 0
 end
 
 -- The page refreshes at most once a second, whatever arrives.
@@ -500,7 +501,7 @@ local function OnLocation(king, rest)
 	local mapID, x, y = rest:match("^(%d+)~(%d+)~(%d+)$")
 	mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
 	if not mapID or x > 1000 or y > 1000 then return end
-	kingAt = { name = ns.KingName(king), mapID = mapID, x = x / 1000, y = y / 1000, t = ns.Now() }
+	kingAt = { from = ns.FullName(king), name = ns.KingName(king), mapID = mapID, x = x / 1000, y = y / 1000, t = ns.Now() }
 	ns.SafeCall("king crown", King.RefreshCrown)
 	Changed()
 end
@@ -515,7 +516,7 @@ function King.HandleCommand(dist, sender, text)
 	if dist ~= "CHANNEL" then return end
 	local kind, id, guild, rest = text:match("^T1~(%a)~(%d+)~([^~]*)~?(.*)$")
 	if not kind then return end
-	if not KingSender(sender, guild) then
+	if not KingSender(sender, guild, kind == "P" or kind == "Q") then
 		-- Positions come every few seconds: not logged.
 		if kind ~= "P" then ns.Log("throne %s from %s ignored: not the King of %s", kind, sender, tostring(guild)) end
 		return
@@ -526,6 +527,8 @@ function King.HandleCommand(dist, sender, text)
 	elseif kind == "A" then OnAgenda(sender, id, rest)
 	elseif kind == "P" then OnLocation(sender, rest)
 	elseif kind == "Q" then
+		-- Only whoever put the crown there takes it off.
+		if kingAt and kingAt.from ~= ns.FullName(sender) then return end
 		kingAt = nil
 		ns.SafeCall("king crown", King.RefreshCrown)
 		Changed()

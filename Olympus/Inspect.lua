@@ -48,7 +48,16 @@ function Inspect.Players() return Store().players end
 
 -- A player another addon reported during a Royal Inspection (King.PublishShame): kept like
 -- our own inspections, so the usual Wall of Shame can publish them.
+-- One key per player in the store: "Name" for our realm, "Name-Realm" for another, whatever
+-- the name came from (a unit, a report, what 0.8.1 saved). On Forever, "First Surname".
+local function Key(name)
+	if type(name) ~= "string" or name == "" then return nil end
+	return ns.DisplayName(ns.FullName(ns.Normal(name)))
+end
+Inspect.Key = Key
+
 function Inspect.AddReported(name, guild, status)
+	name = Key(name)
 	if type(name) ~= "string" or name == "" then return end
 	local p = Store().players[name] or {}
 	p.name, p.guild, p.status, p.t, p.reported = name, guild, status, ns.Now(), true
@@ -62,6 +71,8 @@ Inspect.MIN_LEVEL = 15
 local function TooYoung(level) return type(level) == "number" and level > 0 and level < Inspect.MIN_LEVEL end
 
 function Inspect.Record(name, guild, classFile, level, tabardID, anyGear)
+	name = Key(name)
+	if not name then return nil end
 	local s = Store()
 	local p = s.players[name] or {}
 	local previous = p.status
@@ -91,7 +102,7 @@ local function Enqueue(unit, force)
 	if not force and UnitFactionGroup and UnitFactionGroup(unit) ~= UnitFactionGroup("player") then return end
 	if not force and TooYoung(UnitLevel(unit)) then return end
 	if not force then
-		local p = Store().players[GetUnitName(unit, true)]
+		local p = Store().players[Key(ns.UnitFullName(unit))]
 		if p and p.status ~= "UNKNOWN" and p.status ~= "UNCHECKED" and ns.Now() - (p.t or 0) < RECHECK then return end
 	end
 	queued[guid] = true
@@ -156,7 +167,7 @@ local function OnInspectReady(guid)
 			if GetInventoryItemID(unit, slot) then anyGear = true break end
 		end
 		local _, classFile = UnitClass(unit)
-		Inspect.Record(GetUnitName(unit, true), GetGuildInfo(unit), classFile, UnitLevel(unit),
+		Inspect.Record(ns.UnitFullName(unit), GetGuildInfo(unit), classFile, UnitLevel(unit),
 			GetInventoryItemID(unit, TABARD_SLOT), anyGear)
 	end
 	if not (InspectFrame and InspectFrame:IsShown()) and ClearInspectPlayer then ClearInspectPlayer() end
@@ -187,7 +198,7 @@ function Inspect.MarkTarget(note)
 		ns.Print(L.NEED_PLAYER_TARGET)
 		return
 	end
-	local name = GetUnitName("target", true)
+	local name = Key(ns.UnitFullName("target"))
 	local s = Store()
 	local p = s.players[name] or { name = name, status = "UNCHECKED", t = ns.Now() }
 	local _, classFile = UnitClass("target")
@@ -201,7 +212,7 @@ function Inspect.MarkTarget(note)
 end
 
 function Inspect.ToggleMark(name)
-	local p = Source().players[name]
+	local p = Source().players[Key(name)]
 	if not p then return end
 	p.marked = not p.marked
 	ns.Fire("INSPECT_CHANGED")
@@ -282,7 +293,7 @@ function Inspect.DiscordText()
 end
 
 function Inspect.TooltipLine(name)
-	local p = Source().players[name]
+	local p = Source().players[Key(name)]
 	if not p then return nil end
 	if p.status == "YOUNG" and not p.marked then return nil end -- the rule starts at MIN_LEVEL
 	local text
@@ -365,8 +376,11 @@ local function OnTooltipUnit(tooltip)
 	if tooltip ~= GameTooltip then return end
 	local _, unit = tooltip:GetUnit()
 	if not unit or not UnitIsPlayer(unit) then return end
-	local line = Inspect.TooltipLine(GetUnitName(unit, true))
+	local name = ns.UnitFullName(unit)
+	local line = Inspect.TooltipLine(name)
 	if line then tooltip:AddLine(line) end
+	-- The Treasurer of Olympus: his name and the game's own word on his guild.
+	if ns.IsTreasurer(name, GetGuildInfo(unit)) then tooltip:AddLine(ns.COIN .. L.TREASURER_TITLE, 1, 0.82, 0) end
 	if patrol then Enqueue(unit) end
 end
 
