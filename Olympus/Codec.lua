@@ -23,6 +23,7 @@ ns.Codec = Codec
 Codec.CHUNK = 220
 Codec.MAX_CHUNKS = 30
 local MAX_COUNT = 10000
+Codec.GUILD_CAP = 1000 -- a guild's members, at most (the game's cap): a bigger report is forged
 
 local function clean(s)
 	return (tostring(s or ""):gsub("[~=,:|\n\r]", ""))
@@ -215,7 +216,7 @@ function Codec.DecodeReport(s)
 	local guild = f[2]
 	if guild == "" or LongGuild(guild) then return nil end
 	local total, online = num(f[3]), num(f[4])
-	if not total or not online then return nil end
+	if not total or not online or total > Codec.GUILD_CAP then return nil end
 	local levels = {}
 	local lv = split(f[10], ",")
 	for i = 1, 7 do levels[i] = num(lv[i]) or 0 end
@@ -372,7 +373,9 @@ function Codec.SanitizeChat(s)
 			i = j + (len or 1)
 		end
 	end
-	return (table.concat(out):gsub("^%s+", ""):gsub("%s+$", ""))
+	-- Runs of spaces become one: padding could push a fake "[Lords] [Asmond] ..." to the start
+	-- of a wrapped line.
+	return (table.concat(out):gsub("%s%s+", " "):gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
 -- Room for the text in one message: CHAT_MAX minus "M1~", the tier, 4 separators, a 4 digit id,

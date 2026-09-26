@@ -586,7 +586,7 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 	if ns.db.blocked[sender:lower()] then return end
 	stats.recv = stats.recv + 1
 	local kind = (dist == "CHANNEL" and "ch:" or "g:") .. (text:match("^C%w+:") and "chunk" or text:sub(1, 2))
-	stats.byType[kind] = (stats.byType[kind] or 0) + 1
+	Count(stats.byType, kind) -- (unknown prefixes fold into "other": a flood of them stays small)
 	local now = ns.Now()
 	-- Realm key, only over GUILD (server-verified guildmates) and only from our officers.
 	if dist == "GUILD" and text:sub(1, 3) == "K1~" then

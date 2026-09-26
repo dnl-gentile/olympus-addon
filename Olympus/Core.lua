@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.8.5"
+ns.VERSION = "0.9.0"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -426,10 +426,12 @@ function ns.MakeRoundButton(name, parent, size)
 	bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
 	bg:SetSize(20 * k, 20 * k)
 	bg:SetPoint("TOPLEFT", 7 * k, -5 * k)
+	-- The logo, a disc (the mask): centred on the dark disc behind it (LibDBIcon's square
+	-- icons sit 1.5 px off it, which the ring hides; a disc there shows a crescent).
 	local icon = b:CreateTexture(nil, "ARTWORK")
 	icon:SetTexture(ns.LOGO)
-	icon:SetSize(17 * k, 17 * k)
-	icon:SetPoint("TOPLEFT", 7 * k, -6 * k)
+	icon:SetSize(18 * k, 18 * k)
+	icon:SetPoint("TOPLEFT", 8 * k, -6 * k)
 	if icon.SetMask then pcall(icon.SetMask, icon, "Interface\\CharacterFrame\\TempPortraitAlphaMask") end
 	local ring = b:CreateTexture(nil, "OVERLAY")
 	ring:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
@@ -477,11 +479,21 @@ function ns.KingName(leader)
 end
 ns.CROWN_ICON = "Interface\\GroupFrame\\UI-Group-LeaderIcon"
 
--- The Crown: guild masters of any Olympus guild, and the officers of the main "Olympus" guild.
+-- The King's guild on each side: the guild master of this exact name is the King, its officers
+-- are of the Crown. The Alliance's is <Olympus>; the Horde's is set here once Asmongold founds
+-- it (a guild name is one per realm, so it can't be "Olympus" there).
+ns.KING_GUILD = { Alliance = "olympus", Horde = "olympus" }
+function ns.IsKingGuild(guild)
+	if type(guild) ~= "string" then return false end
+	local want = ns.KING_GUILD[ns.faction or "Alliance"]
+	return want ~= nil and guild:lower() == want
+end
+
+-- The Crown: guild masters of any Olympus guild, and the officers of the King's guild.
 function ns.IsCrownRank(guild, rankIndex)
 	if not guild or not rankIndex then return false end
 	if rankIndex == 0 then return true end
-	return guild:lower() == "olympus" and rankIndex <= ns.CAPTAIN_RANK
+	return ns.IsKingGuild(guild) and rankIndex <= ns.CAPTAIN_RANK
 end
 
 function ns.IsCrown()
@@ -751,6 +763,7 @@ StandIn("Court", { "Toggle" })
 StandIn("Treasury", {})
 StandIn("Acts", { "WritPrompt" })
 StandIn("Dialog", {})
+StandIn("Bank", {})
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -809,7 +822,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -916,8 +929,13 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Comm.SetRealmKey(rest)
 		elseif cmd == "block" then
 			if rest ~= "" then
-				ns.db.blocked[ns.FullName(rest):lower()] = true
-				ns.Print("blocked " .. rest)
+				-- Stored as the sender reaches Comm (ns.FullName(ns.Normal(name)), the realm's
+				-- spaces and hyphens out), whatever form the player typed.
+				local name = ns.Normal(rest)
+				name = name:gsub("%-([^%-]+)$", function(realm) return "-" .. realm:gsub("[%s%-]", "") end)
+				local key = ns.FullName(name):lower()
+				ns.db.blocked[key] = true
+				ns.Print("blocked " .. key)
 			end
 		elseif cmd == "layer" then
 			ns.PrintLayer()

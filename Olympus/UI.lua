@@ -32,8 +32,10 @@ local personFrames = {}             -- style -> person details panel (created on
 -- entry here, its L.TAB_ label and, if it has any, its BUTTONS.
 local TABS = {
 	{ key = "census", label = "TAB_CENSUS", icon = "Interface\\Icons\\achievement_guildperk_havegroup willtravel" },
+	-- The Realm's banner is the faction's: the Horde's red one on a Horde character.
 	{ key = "realm", label = "TAB_REALM", icon = function()
-		return UnitFactionGroup and UnitFactionGroup("player") == "Horde" and "Interface\\Icons\\INV_BannerPVP_01" or "Interface\\Icons\\INV_BannerPVP_02"
+		local faction = ns.faction or (UnitFactionGroup and UnitFactionGroup("player"))
+		return faction == "Horde" and "Interface\\Icons\\INV_BannerPVP_01" or "Interface\\Icons\\INV_BannerPVP_02"
 	end },
 	{ key = "decrees", label = "TAB_DECREES", icon = "Interface\\Icons\\INV_Scroll_04" },
 	{ key = "heraldry", label = "TAB_HERALDRY", icon = "Interface\\Icons\\INV_Shirt_GuildTabard_01" },
@@ -620,6 +622,26 @@ local function CreateMain(style)
 		fs:SetJustifyH("LEFT")
 		fs:SetWordWrap(false)
 	end
+	-- The count explains itself on hover: how the census is gathered, why two players can see
+	-- different totals for a while. The window still drags from there.
+	local hover = CreateFrame("Frame", nil, f)
+	hover:SetPoint("TOPLEFT", f.total, "TOPLEFT", 0, 2)
+	hover:SetPoint("BOTTOMLEFT", f.sub, "BOTTOMLEFT", 0, -2)
+	hover:SetWidth(200)
+	hover:EnableMouse(true)
+	hover:RegisterForDrag("LeftButton")
+	hover:SetScript("OnDragStart", function() f:StartMoving() end)
+	hover:SetScript("OnDragStop", function() f:GetScript("OnDragStop")(f) end)
+	hover:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+		GameTooltip:AddLine(L.HEADER_TIP_TITLE, 1, 0.82, 0)
+		GameTooltip:AddLine(L.HEADER_TIP, 1, 1, 1, true)
+		GameTooltip:AddLine(" ")
+		GameTooltip:AddLine(L.HEADER_TIP_DIFFER, 0.8, 0.8, 0.8, true)
+		GameTooltip:Show()
+	end)
+	hover:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	f.headerHover = hover
 
 	-- Column titles
 	f.colHeader = CreateFrame("Frame", nil, f)
@@ -910,6 +932,7 @@ local function FitHeader()
 	local room = main:GetWidth() - main.headerX
 	FitText(main.total, room - HEADER_RIGHT, { "GameFontNormalLarge", "GameFontNormal" })
 	FitText(main.sub, room - SUB_RIGHT, { "GameFontHighlightSmall", "GameFontWhiteTiny" })
+	if main.headerHover then main.headerHover:SetWidth(math.max(40, room - HEADER_RIGHT)) end
 end
 
 -- Positions that depend on the window width (buttons, columns, list width) and on

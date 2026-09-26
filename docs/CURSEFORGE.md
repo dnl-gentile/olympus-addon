@@ -143,11 +143,12 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 
 ### The Throne (the King and his Hands)
 A tab with a crown that only the King sees: the guild master of the guild named exactly
-"Olympus" (of his faction). It opens on the author's letter until he has read it, then on
-**the Throne Room**: the queue of his court while it is open, and the Treasury. Each of his
-tools lives where it belongs:
+"Olympus" (of his faction). It opens on the author's letter, its cover; **the Throne Room**
+(the queue of his court while it is open, and the Treasury) is a click away, and holding
+court takes him there. Each of his tools lives where it belongs:
 - **The King's Agenda** (a button on the Throne): minutes and an event ("30 Raid on
-  Crossroads"). The whole army sees it, with reminders 10 minutes and 1 minute before.
+  Crossroads"). The whole army gets a popup with the appointment (what, in how long, where)
+  and sees it on the Census, with reminders 10 minutes and 1 minute before.
 - **Hold Court** (a button on the Throne): the King opens his court where he stands. Every
   Olympus player in that zone gets a line on top of the Census and the Realm; one click asks
   for an audience. The requests line up on his Throne and a click calls that player (a popup
@@ -165,8 +166,10 @@ tools lives where it belongs:
   He watches the bar chart fill, on his tab or on his screen for the stream ("Show on
   screen"); when time is up everyone gets the chart and the winner (shares of the votes, or
   of the voters when each picked several). `/oly vox off` keeps the questions in chat.
-- **Royal Writs** (in the Decrees tab): a letter from the King on parchment, to the Lords alone
-  or to every Lord and Captain. Each can answer "As you command"; the King sees how many did.
+- **Royal Writs** (in the Decrees tab): a letter from the King on parchment, to the Lords alone,
+  to every Lord and Captain, or to the whole army. Lords and Captains can answer "As you
+  command"; the King sees how many did. (The audience is who the addon shows it to: like
+  everything on the channel, anyone on it can read the bytes.)
 - **Open the Gates** (in the Realm tab, Recruiting): the King picks the guild new recruits
   should join for the next two hours; everyone sees it on top of Recruiting.
 - **Royal Pardon** (on the Wall of Shame): a click takes a name off the wall, for everyone,
@@ -198,6 +201,10 @@ for the King, and for every member once the King shows the army something of it.
   if it was the treasury's (or stops counting one that wasn't). A payment by mail that comes
   back stops counting by itself.
 - **The ranking of donors** (all time) and the week's donations, with a copy for Discord.
+- **The guild bank of <Olympus>**: whoever of that guild opens the bank with the addon on takes
+  a snapshot of it (each tab's items with icons and counts, the bank's gold, when it was seen);
+  the Treasurer's snapshot reaches the King and, with his "book" switch, the army. Hover an
+  item for its tooltip. Nothing is ever moved in the bank: it is a picture.
 - **Sent by his addon by itself** (every 5 minutes and after a change): the balance, the totals,
   the ranking and the latest lines of the book, on the Olympus channel. Every client checks it
   comes from the Treasurer himself.
@@ -328,8 +335,12 @@ copy. No addon can prevent that. What this one does is make an edited copy usele
     who is the only one of their guild with the addon is not.)
   - **The Crown** (any guild master, the officers of `<Olympus>`) needs two senders naming them.
   - A sender speaks for one guild only (a player who changed guilds can speak for the new one
-    after 15 quiet minutes). Two spellings of a guild name that differ only in capitals both
-    lose their ranks while both are fresh.
+    after 15 quiet minutes). A guild is one whatever the capitals a report spells it with: a
+    second spelling is a vote on the same guild, never a second guild.
+  - **The row everyone sees is the majority's**: a report against the picture most senders
+    give is counted as a vote but does not replace what the census shows, so one outsider can't
+    rename a Lord or shrink a guild on everyone's screen. A report claiming more members than a
+    guild can hold is dropped as forged. A guild not heard from for a day leaves the total.
 - **Only our channel counts**: addon messages that arrive on any other chat channel are
   ignored, so the sealed channel really keeps outsiders out.
 - **Sealed channel** (`/oly key`): outsiders can't find the channel or join it.

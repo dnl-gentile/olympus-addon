@@ -72,7 +72,7 @@ end
 function King.IsKing()
 	if not ns.IsMember() then return false end
 	local guild, _, rank = GetGuildInfo("player")
-	return type(guild) == "string" and guild:lower() == "olympus" and rank == 0
+	return ns.IsKingGuild(guild) and rank == 0
 end
 
 -- The author's test build (Dev.lua, never published) shows the tab without the powers:
@@ -90,7 +90,7 @@ function King.Visible() return King.IsKing() or King.IsHand() or King.Preview() 
 
 -- soft: for his position (it only shows, Data.KnownRank); his commands need the full check.
 local function KingSender(sender, guild, soft)
-	return type(guild) == "string" and guild:lower() == "olympus" and ns.Data.KnownRank(sender, guild, soft) == 0
+	return ns.IsKingGuild(guild) and ns.Data.KnownRank(sender, guild, soft) == 0
 end
 
 -- The page refreshes at most once a second, whatever arrives.
@@ -478,15 +478,14 @@ function King.ReceiveReport(sender, text)
 	if n >= King.MAX_REPORTS then return end
 	guild = CleanGuild(guild)
 	if not guild then return end
-	-- Names only from someone we can place (our guild, a confirmed Lord or Captain): anyone
-	-- else's report counts in the numbers only, so nobody can write on the King's page.
+	-- Only from someone we can place in that guild (our own, a confirmed Lord or Captain):
+	-- nobody else writes names or numbers on the King's page.
+	if sender ~= ns.me and not Verified(sender, guild) then return end
 	local list = {}
-	if sender == ns.me or Verified(sender, guild) then
-		for entry in names:gmatch("[^,]+") do
-			local nm, g, st = entry:match("^([^:]+):([^:]*):([NO])$")
-			nm, g = CleanName(nm), CleanGuild(g)
-			if nm and g and #list < King.MAX_NAMES then list[#list + 1] = { name = nm, guild = g, status = st == "N" and "NONE" or "OTHER" } end
-		end
+	for entry in names:gmatch("[^,]+") do
+		local nm, g, st = entry:match("^([^:]+):([^:]*):([NO])$")
+		nm, g = CleanName(nm), CleanGuild(g)
+		if nm and g and #list < King.MAX_NAMES then list[#list + 1] = { name = nm, guild = g, status = st == "N" and "NONE" or "OTHER" } end
 	end
 	local cap = King.MAX_CHECKS
 	inspect.reports[sender] = { guild = guild, ok = math.min(tonumber(ok) or 0, cap),
@@ -594,13 +593,26 @@ local function OnAgenda(king, id, rest)
 		return Changed()
 	end
 	agenda = { id = id, title = Clean(title, 60), at = now + seconds, zone = Clean(zone, 40), by = king, fired = {} }
-	-- A new agenda is a raid warning, but not more than once a minute whatever arrives.
+	-- A new agenda is a raid warning and a popup (the appointment: what, when, where), but
+	-- not more than once a minute whatever arrives.
 	if now - lastAgendaWarn >= King.AGENDA_GAP then
 		lastAgendaWarn = now
-		Warn(L.THRONE_AGENDA_SET:format(agenda.title, math.ceil(seconds / 60), agenda.zone))
+		local minutes = math.ceil(seconds / 60)
+		Warn(L.THRONE_AGENDA_SET:format(agenda.title, minutes, agenda.zone))
+		ns.ShowDialog("OLYMPUS_AGENDA_CALL", L.THRONE_AGENDA_POPUP:format(ns.KingName(king), agenda.title, minutes,
+			agenda.zone ~= "" and agenda.zone or "?"))
 	end
 	Changed()
 end
+
+StaticPopupDialogs["OLYMPUS_AGENDA_CALL"] = {
+	text = "%s",
+	button1 = OKAY or "OK",
+	timeout = 120,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
 
 ---------------------------------------------------------------------------
 -- The King on the map: when he turns it on (Throne tab), his client sends where he is and
@@ -1030,12 +1042,13 @@ end
 King.KING_PAGES = { hands = true }
 
 -- For Views.Build("throne"): lines, detail title, detail text.
--- The King opens the Throne on the author's letter until he has read it (left it for the
--- Throne Room once); then on the Throne Room. A Hand never gets the letter first.
+-- The King's Throne opens on the author's letter, its cover: the Throne Room (his court's
+-- queue while it is open, the treasury) is a click away, and holding court takes him there.
+-- A Hand's opens on the Throne Room.
 function King.Build(s)
 	local lines, home
 	local mine = King.IsKing() or King.Preview()
-	if not King.mode then King.mode = (mine and not ns.db.throneLetterRead) and "letter" or "home" end
+	if not King.mode then King.mode = mine and "letter" or "home" end
 	local mode = King.mode
 	if King.KING_PAGES[mode] and not (King.IsKing() or King.Preview()) then mode = "home" end
 	if mode == "hands" then lines = HandsLines()

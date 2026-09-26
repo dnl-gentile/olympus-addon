@@ -798,6 +798,33 @@ local function BookLines(role)
 	return lines
 end
 
+-- The guild bank of <Olympus> as last seen (Bank.lua): its gold, then each tab's items in a
+-- grid. The Treasurer and the King always; the army with the King's "book" switch.
+local function BankLines(lines, role)
+	if role == "member" and not Treasury.Shows("book") then return end
+	local b = ns.Bank and ns.Bank.Current and ns.Bank.Current()
+	lines[#lines + 1] = { header = true, text = L.TREASURY_BANK, tooltip = function(tt) tt:AddLine(L.TREASURY_BANK_TIP, 1, 1, 1, true) end }
+	if not b then
+		Para(lines, L.TREASURY_BANK_NONE)
+		return
+	end
+	lines[#lines + 1] = { text = Grey(L.TREASURY_BANK_AS_OF:format(ns.DisplayName(b.by) or "?", ns.Ago(b.t))) }
+	lines[#lines + 1] = { text = L.TREASURY_BANK_GOLD, right = Treasury.Coins(b.money or 0) }
+	-- One tab open at a time, as the bank shows them: its slots, every one, items where they sit.
+	local open = Treasury.bankTab
+	if not (open and b.tabs[open]) then
+		open = 1
+		for i, tab in ipairs(b.tabs or {}) do if #tab.items > 0 then open = i break end end
+	end
+	for i, tab in ipairs(b.tabs or {}) do
+		local count = #tab.items > 0 and L.TREASURY_BANK_ITEMS:format(#tab.items) or L.TREASURY_BANK_EMPTY
+		lines[#lines + 1] = { text = (i == open and Gold or tostring)((i == open and "[-] " or "[+] ") .. (tab.name or "?")), right = Grey(count),
+			key = "banktab" .. i, onClick = function() Treasury.bankTab = i; ns.Fire("TREASURY_CHANGED") end }
+		if i == open then lines[#lines + 1] = { items = tab.items, slots = ns.Bank.SLOTS, columns = 7 } end
+	end
+	lines[#lines].gapAfter = true
+end
+
 local function SummaryLines(role)
 	local lines = { { header = true, text = L.TREASURY_TITLE } }
 	local balance, allIn, allOut, week, donors, rank, asOf
@@ -811,7 +838,15 @@ local function SummaryLines(role)
 	else
 		local r = Treasury.Report()
 		if not r then
+			-- Nothing from the Treasurer yet: the King sees the sections waiting (the ranking
+			-- empty), and the bank if anyone has seen it.
 			Para(lines, L.TREASURY_WAIT:format(ns.TREASURER))
+			lines[#lines].gapAfter = true
+			if role == "king" then
+				RankLines(lines, {})
+				lines[#lines].gapAfter = true
+			end
+			BankLines(lines, role)
 			return lines
 		end
 		balance, allIn, allOut, week, donors, rank, asOf = r.balance, r.allIn, r.allOut, r.week, r.donors, r.rank, r.t
@@ -835,6 +870,7 @@ local function SummaryLines(role)
 	if Treasury.MaySee("book") then
 		lines[#lines + 1] = { text = Gold("> " .. L.TREASURY_BOOK), onClick = function() Treasury.Show("book") end, gapAfter = true }
 	end
+	BankLines(lines, role)
 	-- The King: what the army sees now (the switches are the buttons in the box).
 	if role == "king" then
 		local shown = ShownParts()
