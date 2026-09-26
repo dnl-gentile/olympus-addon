@@ -5459,7 +5459,9 @@ test("Workshop roll call: only the author asks, each addon answers once with wha
 		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~7~100")
 		eq(w.whispered[1].to, AUTHOR_FULL)
 		local msg = w.whispered[1].msg
-		assert(msg:find(("^V2~7~%s~Olympus II~Forever~[^~]*~c[a-z]*~0~17~MA$"):format(ns.VERSION:gsub("%.", "%%."))), msg)
+		-- (0.9.2: version, client and channel state only; the character's guild, level and class,
+		-- the window style and the error count no longer go out.)
+		assert(msg:find(("^V2~7~%s~~Forever~~c[crk]*~0~0~$"):format(ns.VERSION:gsub("%.", "%%."))), msg)
 		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~8~100")
 		eq(#w.whispered, 1, "once per ROLL_GAP")
 		eq(W.AuthorOnline(), true, "a roll call says the author is online")
@@ -5469,6 +5471,22 @@ test("Workshop roll call: only the author asks, each addon answers once with wha
 		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~9~10")
 		eq(#w.whispered, 1, "drew 100 > 10: no answer")
 		eq(W.Share(3000), 10); eq(W.Share(200), 100); eq(W.Share(100000), 5)
+		-- /oly rollcall off: no answer, no update notice (0.9.2).
+		W.Reset()
+		W.random = function(a, b) if a then return a end return 0 end
+		local before = #w.whispered
+		W.SetAnswers(false)
+		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~11~100")
+		eq(#w.whispered, before, "refused")
+		local shown = ns.ShowDialog
+		local popups = 0
+		ns.ShowDialog = function() popups = popups + 1 end
+		W.HandleUpdate("WHISPER", AUTHOR_FULL, "V3~99.0.0")
+		ns.ShowDialog = shown
+		eq(popups, 0, "no update notice either")
+		W.SetAnswers(true)
+		W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~12~100")
+		eq(#w.whispered, before + 1, "answered again")
 	end)
 end)
 

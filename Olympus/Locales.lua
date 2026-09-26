@@ -728,6 +728,10 @@ L.UNTABARDED_OFF = "The untabarded list is yours alone again."
 L.UNTABARDED_ONLY_KING = "only the King sees it"
 L.UNTABARDED_SHARED = "the army sees it"
 L.UNTABARDED_NOT_SHARED = "only the King sees it"
+-- 0.9.2: author
+L.ROLLCALL_ON = "The author's roll calls are answered: this addon's version, game client and channel state, nothing about your character. /oly rollcall off refuses them."
+L.ROLLCALL_OFF = "The author's roll calls and update notices are refused. /oly rollcall on answers them again."
+L.HELP_ROLLCALL = "  /oly rollcall on|off - answer the author's roll calls (version, client, channel state) or not"
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1412,4 +1416,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.UNTABARDED_ONLY_KING = "só o Rei vê"
 	L.UNTABARDED_SHARED = "o exército vê"
 	L.UNTABARDED_NOT_SHARED = "só o Rei vê"
+	-- 0.9.2: author
+	L.ROLLCALL_ON = "As chamadas do autor são respondidas: versão do addon, cliente do jogo e estado do canal, nada sobre o seu personagem. /oly rollcall off recusa."
+	L.ROLLCALL_OFF = "As chamadas e avisos de atualização do autor são recusados. /oly rollcall on volta a responder."
+	L.HELP_ROLLCALL = "  /oly rollcall on|off - responder ou não às chamadas do autor (versão, cliente, estado do canal)"
 end

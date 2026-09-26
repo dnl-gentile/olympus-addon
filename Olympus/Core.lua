@@ -881,6 +881,7 @@ local function Help()
 	print(L.HELP_LAYERHELP)
 	print(L.HELP_LAYERAUTO)
 	print(L.HELP_LOCATION)
+	print(L.HELP_ROLLCALL)
 	print("  /oly decrees - decrees")
 	print("  /oly arms [text] | /oly muster [text] - decree (officers; 'test' = local preview)")
 	print(L.HELP_CHAN_ALL)
@@ -948,6 +949,14 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Positions.SetEnabled(not ns.db.showMates)
 		elseif cmd == "share" then
 			ns.Positions.SetSharing(not ns.db.sharePosition)
+		elseif cmd == "rollcall" then
+			-- The author's roll calls and update notices (Workshop.lua): answered, or not.
+			local on = rest:lower()
+			if on == "on" or on == "off" then
+				ns.Workshop.SetAnswers(on == "on")
+			else
+				ns.Print(ns.Workshop.Answers() and L.ROLLCALL_ON or L.ROLLCALL_OFF)
+			end
 		elseif cmd == "location" then
 			-- Sharing zone and layer on the Olympus channel (Layers.Sharing); alone, says which.
 			local on = rest:lower()
