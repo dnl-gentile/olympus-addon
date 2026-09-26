@@ -250,8 +250,10 @@ test("decoder rejects garbage and clamps numbers", function()
 	eq(Codec.DecodeReport("hello"), nil)
 	eq(Codec.DecodeReport("R1~~1~1~~0~0~~~"), nil, "empty guild")
 	eq(Codec.DecodeReport(("R1~%s~1~1~~0~0~~~"):format(("x"):rep(30))), nil, "long guild name")
-	local d = Codec.DecodeReport("R1~Olympus~99999999~5~Boss~1~2~m1453=99999999~~1,2")
-	eq(d.total, 10000); eq(d.zones.m1453, 10000); eq(d.levels[3], 0)
+	eq(Codec.DecodeReport("R1~Olympus~99999999~5~Boss~1~2~m1453=99999999~~1,2"), nil, "a guild bigger than the game allows: forged")
+	eq(Codec.DecodeReport("R1~Olympus~1001~5~Boss~1~2~~~1,2"), nil)
+	local d = Codec.DecodeReport("R1~Olympus~1000~5000~Boss~1~2~m1453=99999999~~1,2")
+	eq(d.total, 1000); eq(d.online, 1000, "online no more than the members"); eq(d.zones.m1453, 10000); eq(d.levels[3], 0)
 end)
 
 test("one reporter per guild, same answer for everyone", function()
@@ -410,7 +412,7 @@ test("Throne: only the King sees it and his commands are checked; Lords answer h
 		ns.After = savedAfter
 		assert(sent[#sent]:find("^CHANNEL T1~I~"), sent[#sent])
 		local iid = tonumber(sent[#sent]:match("T1~I~(%d+)"))
-		-- A confirmed Lord's report lists names; a stranger's only counts, and is capped.
+		-- A confirmed Lord's report lists names; a stranger's counts for nothing (not even numbers).
 		K.HandleReport("WHISPER", "Zed-Realm", ("T3~%d~Olympus Zeus~8~1~1~Naked:Olympus Zeus:N,Pirate:Olympus Zeus:O"):format(iid))
 		K.HandleReport("WHISPER", "Scout2-Realm", ("T3~%d~Olympus IV~5~0~0~Innocent:Olympus IV:N"):format(iid))
 		K.HandleReport("WHISPER", "Troll2-Realm", ("T3~%d~Not a guild~200~0~0~"):format(iid))
@@ -418,7 +420,7 @@ test("Throne: only the King sees it and his commands are checked; Lords answer h
 		local text = {}
 		for _, l in ipairs(K.InspectionLines()) do text[#text + 1] = l.text end
 		text = table.concat(text, "\n")
-		assert(text:find("2 patrols, 15 checks, 87%% wearing"), text)
+		assert(text:find("1 patrols, 10 checks, 80%% wearing"), text)
 		assert(text:find("Naked  |cff9d9d9d<Olympus Zeus>", 1, true), text)
 		assert(not text:find("Innocent"), "a stranger can't put names on the King's page")
 		-- The Agenda.
@@ -3349,18 +3351,21 @@ test("ranks come from the picture most senders agree on; forgers can't move it",
 		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "two senders name the officer")
 		eq(D.KnownRank("King-Realm", "Olympus"), 0, "and the King")
 		-- One outsider copies the report (fine), then adds an accomplice: one vote against two.
+		-- The row everyone sees stays the majority's (the forged report is a vote, not the row).
 		clock = clock + 60
 		eq(Report("Olympus", "King", "Duke:1:0", "Aaa-Realm"), true)
 		clock = clock + 1
-		eq(Report("Olympus", "King", "Duke:1:0,Bbb:1:0", "Aaa-Realm"), true)
+		eq(Report("Olympus", "King", "Duke:1:0,Bbb:1:0", "Aaa-Realm"), false, "against the majority: not the row")
 		eq(D.KnownRank("Bbb-Realm", "Olympus"), nil, "the copy-then-add trick gives nothing")
 		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "and costs the real officers nothing")
-		eq(ns.rdb.guilds.Olympus.conflict, true, "the forged report shows as a conflict")
+		eq(ns.rdb.guilds.Olympus.outvoted, true, "the minority report is noted"); eq(ns.rdb.guilds.Olympus.conflict, nil)
+		eq(#ns.rdb.guilds.Olympus.officers, 1, "the row shows the majority's picture")
 		-- Its own report never makes a sender anything.
-		eq(Report("Olympus", "King", "Duke:1:0,Aaa:1:0", "Aaa-Realm"), true)
+		eq(Report("Olympus", "King", "Duke:1:0,Aaa:1:0", "Aaa-Realm"), false)
 		eq(D.KnownRank("Aaa-Realm", "Olympus"), nil)
 		-- Two forgers against two reporters: contested, nobody's rank counts until it is settled.
-		eq(Report("Olympus", "King", "Duke:1:0,Aaa:1:0", "Ccc-Realm"), true)
+		eq(Report("Olympus", "King", "Duke:1:0,Aaa:1:0", "Ccc-Realm"), true, "a tie: no majority to hold the row")
+		eq(ns.rdb.guilds.Olympus.conflict, true, "split senders show as a conflict")
 		eq(D.KnownRank("Aaa-Realm", "Olympus"), nil, "a tie is no majority")
 		eq(D.KnownRank("Duke-Realm", "Olympus"), 1, "contested: what both pictures agree on still counts")
 		-- Their votes expire when they stop; the real reporters' stay fresh.
@@ -3381,7 +3386,8 @@ test("ranks come from the picture most senders agree on; forgers can't move it",
 		-- Another guild: an outsider swapping the leader for an accomplice gets no Lord.
 		eq(Report("Olympus Zeus", "Zeus", "", "Zclerk-Realm"), true)
 		eq(Report("Olympus Zeus", "Zeus", "", "Zcrier-Realm"), true)
-		eq(Report("Olympus Zeus", "Bbb2", "", "Aaa2-Realm"), true)
+		eq(Report("Olympus Zeus", "Bbb2", "", "Aaa2-Realm"), false, "leader swap: one vote against two, not the row")
+		eq(ns.rdb.guilds["Olympus Zeus"].leader, "Zeus", "the row keeps the real Lord")
 		eq(D.KnownRank("Bbb2-Realm", "Olympus Zeus"), nil, "leader swap: one vote against two")
 		eq(D.KnownRank("Zeus-Realm", "Olympus Zeus"), 0)
 	end)
@@ -3498,8 +3504,16 @@ test("guild names ignore case, so another spelling can't pass for a guild", func
 		eq(Report("OLYMPUS II", "", "Mimic2-Realm"), false, "no report about our guild in any spelling")
 		eq(Report("Olympus", "Duke:1:0", "Herald2-Realm"), true)
 		eq(Report("OLYMPUS", "Evil2:1:0", "Scribe2-Realm"), true)
-		eq(ns.rdb.guilds.OLYMPUS.conflict, true, "a second spelling of a fresh guild")
+		eq(ns.rdb.guilds.OLYMPUS, nil, "one guild whatever the case: the second spelling is a vote on the first")
+		eq(ns.rdb.guilds.Olympus.conflict, true, "one against one: split"); eq(ns.rdb.guilds.Olympus.vouch["Scribe2-Realm"] ~= nil, true)
 		eq(select(2, Chan.Receive("CHANNEL", "Evil2", Msg("L", "OLYMPUS", 2), 9501)), "unverified")
+		-- The same trick against the King's guild with two real senders: nothing moves.
+		ns.rdb.guilds = {}
+		eq(Report("Olympus", "Duke:1:0", "Herald2-Realm"), true)
+		eq(Report("Olympus", "Duke:1:0", "Herald3-Realm"), true)
+		eq(Report("OLYMPUS", "", "Forger2-Realm"), false, "outvoted")
+		eq(ns.rdb.guilds.OLYMPUS, nil); eq(ns.rdb.guilds.Olympus.conflict, nil)
+		eq(ns.Data.KnownRank("King-Realm", "Olympus"), 0, "the King keeps his crown"); eq(ns.Data.KnownRank("King-Realm", "OLYMPUS"), 0, "in any spelling")
 	end)
 	ns.rdb.guilds = {}
 end)
@@ -4044,8 +4058,8 @@ test("a report heard by a character on another realm of the group is no previous
 		eq(ns.rdb.guilds["Olympus Span"].conflict, nil); eq(ns.rdb.guilds["Olympus Span"].vouch["Otherguy-Realm"].ranks["Spancapt-Realm"], 1)
 		local r = Rep()
 		r.leader = "Usurper"
-		ns.Data.Receive(r, "Thirdguy")
-		eq(ns.rdb.guilds["Olympus Span"].conflict, true, "a real conflict still shows")
+		eq(ns.Data.Receive(r, "Thirdguy"), false, "one against two: not the row")
+		eq(ns.rdb.guilds["Olympus Span"].outvoted, true, "but noted"); eq(ns.rdb.guilds["Olympus Span"].leader, "Spanboss")
 	end)
 	ns.rdb.guilds = saved
 	if not ok then error(err, 0) end
@@ -6582,12 +6596,12 @@ test("the guild bank of <Olympus>: a snapshot when it is opened, the Treasurer's
 			-- Read: the tabs we may see and asked for, item and count, the bank's gold.
 			B.SetOpenForTest(true, { 1, 2 })
 			local snap, total = B.Read()
-			eq(#snap.tabs, 2); eq(total, 3); eq(snap.tabs[1].items[1].id, 929); eq(snap.tabs[1].items[2].n, 3)
+			eq(#snap.tabs, 2); eq(total, 3); eq(snap.tabs[1].items[1].id, 929); eq(snap.tabs[1].items[2].n, 3); eq(snap.tabs[1].items[2].s, 5)
 			eq(snap.tabs[1].items[1].icon, "tex1"); eq(snap.money, 1234567); eq(snap.guild, "Olympus")
 			eq(snap.tabs[2].name, "Mate rials  ", "the message's separators taken out of a tab's name")
 			ns.rdb.bank = snap
 			local msg = B.Message()
-			eq(msg, ("T9~Olympus~%d~1234567~Consumables;929x20,6948x3~Mate rials  ;2589x200"):format(snap.t))
+			eq(msg, ("T9~Olympus~%d~1234567~Consumables;929x20,.3,6948x3~Mate rials  ;2589x200"):format(snap.t), "the empty slots between as a gap")
 			-- Shared by the Treasurer's client alone, once per gap unless it changed.
 			ns.Comm.SendChunked = function(m) w.sent[#w.sent + 1] = { dist = "CHANNEL", msg = m, chunked = true } end
 			eq(B.Share(), true); eq(LastSent(w), msg)
@@ -6604,6 +6618,7 @@ test("the guild bank of <Olympus>: a snapshot when it is opened, the Treasurer's
 			B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", msg)
 			local r = B.Report()
 			eq(#r.tabs, 2); eq(r.tabs[2].items[1].id, 2589); eq(r.tabs[2].items[1].n, 200); eq(r.money, 1234567); eq(r.by, "Pyralis Ashandar-Realm")
+			eq(r.tabs[1].items[2].s, 5, "the slot it sits in")
 			eq(r.tabs[1].name, "Consumables")
 			ns.Roster.RankOf = savedRank
 			-- What the tab shows: the newest of our own snapshot (the King's guild's) and his.
@@ -6618,7 +6633,14 @@ test("the guild bank of <Olympus>: a snapshot when it is opened, the Treasurer's
 			assert(page:find(ns.L.TREASURY_BANK, 1, true) and page:find("Consumables", 1, true), page)
 			local grids = {}
 			for _, l in ipairs(lines) do if l.items then grids[#grids + 1] = l end end
-			eq(#grids, 2); eq(#grids[1].items, 2); eq(grids[1].items[1].id, 929)
+			eq(#grids, 1, "one tab open at a time, as the bank's"); eq(#grids[1].items, 2); eq(grids[1].items[1].id, 929)
+			eq(grids[1].slots, 98); eq(grids[1].columns, 7)
+			-- A click on another tab opens it.
+			for _, l in ipairs(lines) do if l.key == "banktab2" then l.onClick() end end
+			lines = T.Build(); grids = {}
+			for _, l in ipairs(lines) do if l.items then grids[#grids + 1] = l end end
+			eq(grids[1].items[1].id, 2589)
+			T.bankTab = nil
 			-- A soldier: with the King's book switch only.
 			AsSoldier()
 			ns.rdb.treasuryFlags = nil
@@ -6649,6 +6671,12 @@ test("an items row: icons in a grid, the row as tall as it needs, a text row aft
 		eq(r.items[10]:Anchor("TOPLEFT")[4], 4); eq(r.items[10]:Anchor("TOPLEFT")[5], -2 - 32, "the tenth starts the second row")
 		eq(content.rows[3].h, 20, "a text row again"); eq(content.rows[4].h, 32 + 4)
 		eq(content.rows[4].items[1].icon.texture, "Interface\\Icons\\INV_Misc_QuestionMark", "no icon known: a question mark")
+		-- A bank tab: every slot drawn, the items where they sit, seven a row.
+		ns.Views.Render(content, { { items = { { id = 5, n = 2, s = 9 } }, slots = 14, columns = 7 } })
+		local tab = content.rows[1]
+		eq(tab.h, 2 * 32 + 4); eq(tab.items[9].item.id, 5); eq(tab.items[1].item, nil); eq(tab.items[1].icon.shown, false, "an empty slot")
+		eq(tab.items[14]:IsShown(), true); eq(tab.items[15] and tab.items[15]:IsShown() or false, false)
+		eq(tab.items[8]:Anchor("TOPLEFT")[4], 4); eq(tab.items[8]:Anchor("TOPLEFT")[5], -2 - 32, "the eighth starts the second row")
 		-- Rendered again as text: the icons go.
 		ns.Views.Render(content, { { text = "a" }, { text = "c" } })
 		eq(content.rows[2].items[1]:IsShown(), false); eq(content.rows[2].h, 20)

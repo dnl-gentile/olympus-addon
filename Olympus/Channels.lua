@@ -322,9 +322,13 @@ function Channels.Receive(dist, sender, text, now)
 		LogDrop(sender, m, reason, now)
 		return false, reason
 	end
-	-- A muted channel only goes to history, so it takes nothing from the flood guard.
+	-- A muted channel only goes to history, so it takes nothing from the flood guard. A line
+	-- the guard keeps off the chat frame still goes to the history (the Realm tab's chats stay
+	-- whole for everyone).
 	if not Muted()[m.tier] and Flooded(m.tier, sender, now) then
 		stats.flood = stats.flood + 1
+		AddHistory(m.tier, { sender = sender, guild = m.guild, class = m.class, text = m.text })
+		ns.Fire("CHAT_CHANGED", m.tier)
 		return false, "flood"
 	end
 	return Accept(m.tier, sender, m.guild, m.class, m.text, false)

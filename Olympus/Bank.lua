@@ -7,7 +7,9 @@ local L = ns.L
 -- variables with when it was taken. The Treasurer's client sends its snapshot on the channel
 -- (T9, in pieces), so the King and the army see the bank as he last saw it; anyone else's
 -- snapshot stays on their own screen. Nothing is ever moved or touched in the bank.
---   T9~<guild>~<time>~<copper>~<tab name>;<id>x<count>,<id>x<count>...~<tab name>;...
+--   T9~<guild>~<time>~<copper>~<tab name>;<id>x<count>,.<empty slots>,<id>x<count>...~<tab name>;...
+-- (items in slot order; ".3" is three empty slots before the next one: the tab is drawn as
+-- the bank shows it, slot by slot)
 -- Clients without a guild bank (Classic Era) have none of the API: this file then only shows
 -- what the Treasurer sends.
 
@@ -67,7 +69,7 @@ function Bank.Read()
 					local link = GetGuildBankItemLink and GetGuildBankItemLink(tab, slot)
 					local id = link and tonumber(link:match("item:(%d+)"))
 					if id then
-						items[#items + 1] = { id = id, n = count, icon = texture, link = link }
+						items[#items + 1] = { id = id, n = count, icon = texture, link = link, s = slot }
 						total = total + 1
 					end
 				end
@@ -91,10 +93,13 @@ function Bank.Message(snap)
 	local parts = { "T9", Clean(snap.guild, 40), tostring(math.floor(snap.t or ns.Now())), tostring(math.floor(snap.money or 0)) }
 	local room, total = Room(), 0
 	for _, tab in ipairs(snap.tabs) do
-		local items = {}
-		for _, it in ipairs(tab.items) do
+		local items, pos = {}, 1
+		for k, it in ipairs(tab.items) do
 			if total >= Bank.MAX_ITEMS then break end
+			local slot = tonumber(it.s) or pos
+			if slot > pos then items[#items + 1] = "." .. (slot - pos) end
 			items[#items + 1] = ("%dx%d"):format(it.id, math.min(it.n, 99999))
+			pos = slot + 1
 			total = total + 1
 		end
 		parts[#parts + 1] = Clean(tab.name, 30) .. ";" .. table.concat(items, ",")
@@ -135,11 +140,17 @@ function Bank.HandleReport(dist, sender, text)
 	for part in (rest .. "~"):gmatch("([^~]*)~") do
 		local name, items = part:match("^([^;]*);(.*)$")
 		if name and #r.tabs < Bank.MAX_TABS then
-			local tab = { name = ns.Cut(name, 30), items = {} }
-			for id, n in items:gmatch("(%d+)x(%d+)") do
-				if total >= Bank.MAX_ITEMS then break end
-				tab.items[#tab.items + 1] = { id = tonumber(id), n = tonumber(n) }
-				total = total + 1
+			local tab, pos = { name = ns.Cut(name, 30), items = {} }, 1
+			for entry in items:gmatch("[^,]+") do
+				local gap = entry:match("^%.(%d+)$")
+				local id, n = entry:match("^(%d+)x(%d+)$")
+				if gap then
+					pos = pos + tonumber(gap)
+				elseif id and total < Bank.MAX_ITEMS and pos <= Bank.SLOTS then
+					tab.items[#tab.items + 1] = { id = tonumber(id), n = tonumber(n), s = pos }
+					pos = pos + 1
+					total = total + 1
+				end
 			end
 			r.tabs[#r.tabs + 1] = tab
 		end

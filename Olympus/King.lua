@@ -478,15 +478,14 @@ function King.ReceiveReport(sender, text)
 	if n >= King.MAX_REPORTS then return end
 	guild = CleanGuild(guild)
 	if not guild then return end
-	-- Names only from someone we can place (our guild, a confirmed Lord or Captain): anyone
-	-- else's report counts in the numbers only, so nobody can write on the King's page.
+	-- Only from someone we can place in that guild (our own, a confirmed Lord or Captain):
+	-- nobody else writes names or numbers on the King's page.
+	if sender ~= ns.me and not Verified(sender, guild) then return end
 	local list = {}
-	if sender == ns.me or Verified(sender, guild) then
-		for entry in names:gmatch("[^,]+") do
-			local nm, g, st = entry:match("^([^:]+):([^:]*):([NO])$")
-			nm, g = CleanName(nm), CleanGuild(g)
-			if nm and g and #list < King.MAX_NAMES then list[#list + 1] = { name = nm, guild = g, status = st == "N" and "NONE" or "OTHER" } end
-		end
+	for entry in names:gmatch("[^,]+") do
+		local nm, g, st = entry:match("^([^:]+):([^:]*):([NO])$")
+		nm, g = CleanName(nm), CleanGuild(g)
+		if nm and g and #list < King.MAX_NAMES then list[#list + 1] = { name = nm, guild = g, status = st == "N" and "NONE" or "OTHER" } end
 	end
 	local cap = King.MAX_CHECKS
 	inspect.reports[sender] = { guild = guild, ok = math.min(tonumber(ok) or 0, cap),

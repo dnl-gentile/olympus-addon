@@ -810,9 +810,17 @@ local function BankLines(lines, role)
 	end
 	lines[#lines + 1] = { text = Grey(L.TREASURY_BANK_AS_OF:format(ns.DisplayName(b.by) or "?", ns.Ago(b.t))) }
 	lines[#lines + 1] = { text = L.TREASURY_BANK_GOLD, right = Treasury.Coins(b.money or 0) }
-	for _, tab in ipairs(b.tabs or {}) do
-		lines[#lines + 1] = { text = Gold(tab.name or "?"), right = Grey(#tab.items > 0 and L.TREASURY_BANK_ITEMS:format(#tab.items) or L.TREASURY_BANK_EMPTY) }
-		if #tab.items > 0 then lines[#lines + 1] = { items = tab.items } end
+	-- One tab open at a time, as the bank shows them: its slots, every one, items where they sit.
+	local open = Treasury.bankTab
+	if not (open and b.tabs[open]) then
+		open = 1
+		for i, tab in ipairs(b.tabs or {}) do if #tab.items > 0 then open = i break end end
+	end
+	for i, tab in ipairs(b.tabs or {}) do
+		local count = #tab.items > 0 and L.TREASURY_BANK_ITEMS:format(#tab.items) or L.TREASURY_BANK_EMPTY
+		lines[#lines + 1] = { text = (i == open and Gold or tostring)((i == open and "[-] " or "[+] ") .. (tab.name or "?")), right = Grey(count),
+			key = "banktab" .. i, onClick = function() Treasury.bankTab = i; ns.Fire("TREASURY_CHANGED") end }
+		if i == open then lines[#lines + 1] = { items = tab.items, slots = ns.Bank.SLOTS, columns = 7 } end
 	end
 	lines[#lines].gapAfter = true
 end

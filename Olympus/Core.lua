@@ -929,8 +929,13 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Comm.SetRealmKey(rest)
 		elseif cmd == "block" then
 			if rest ~= "" then
-				ns.db.blocked[ns.FullName(rest):lower()] = true
-				ns.Print("blocked " .. rest)
+				-- Stored as the sender reaches Comm (ns.FullName(ns.Normal(name)), the realm's
+				-- spaces and hyphens out), whatever form the player typed.
+				local name = ns.Normal(rest)
+				name = name:gsub("%-([^%-]+)$", function(realm) return "-" .. realm:gsub("[%s%-]", "") end)
+				local key = ns.FullName(name):lower()
+				ns.db.blocked[key] = true
+				ns.Print("blocked " .. key)
 			end
 		elseif cmd == "layer" then
 			ns.PrintLayer()

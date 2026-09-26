@@ -13,7 +13,7 @@ ns.Views = Views
 
 local ROW_H = 16
 local ROW_H_HD = 20 -- the Guild & Communities roster's rows (CommunitiesMemberList.xml)
-local ITEM, ITEM_GAP = 30, 2 -- an item's icon on an items row (line.items: the guild bank)
+local ITEM, ITEM_GAP = 30, 2 -- an item on an items row (line.items) without the game's button template (37 with it)
 local expanded = {}
 local CROWN = "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:13:13|t "
 local ASSIST = "|TInterface\\GroupFrame\\UI-Group-AssistantIcon:12:12|t "
@@ -129,16 +129,40 @@ local function ItemIcon(it)
 	return "Interface\\Icons\\INV_Misc_QuestionMark"
 end
 
--- One item on an items row: its icon and count, the item's tooltip on hover.
+-- One slot of an items row: the game's own item button (ItemButtonTemplate: the slot, the
+-- icon, the count, the quality border) where the client has it, the same made here where
+-- not; the item's own tooltip on hover, like a bag's.
 local function ItemButton(r, k)
-	local b = CreateFrame("Button", nil, r)
-	b:SetSize(ITEM, ITEM)
-	b.icon = b:CreateTexture(nil, "ARTWORK")
-	b.icon:SetAllPoints()
-	b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-	b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
-	b.count:SetPoint("BOTTOMRIGHT", -2, 2)
-	b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	local ok, b = pcall(CreateFrame, "Button", nil, r, "ItemButtonTemplate")
+	if ok and b and b.icon and SetItemButtonTexture then
+		b.blizzard = true
+		r.itemSize = 37
+	else
+		if ok and b then b:Hide() end
+		b = CreateFrame("Button", nil, r)
+		b:SetSize(ITEM, ITEM)
+		b.slot = b:CreateTexture(nil, "BACKGROUND")
+		b.slot:SetTexture("Interface\\Buttons\\UI-EmptySlot")
+		b.slot:SetTexCoord(0.2, 0.8, 0.2, 0.8)
+		b.slot:SetAllPoints()
+		b.icon = b:CreateTexture(nil, "ARTWORK")
+		b.icon:SetAllPoints()
+		b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+		b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+		b.count:SetPoint("BOTTOMRIGHT", -2, 2)
+		b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+		r.itemSize = r.itemSize or ITEM
+	end
+	b:RegisterForClicks("LeftButtonUp")
+	b:SetScript("OnClick", function(self)
+		-- Shift-click: the link into the chat box, as in a bag (not with the gamepad UI: its
+		-- chat box would be blocked, see Dialog.lua).
+		local it = self.item
+		if not it or not IsShiftKeyDown or not IsShiftKeyDown() or ns.GamepadUI() or not ChatEdit_InsertLink then return end
+		local link = it.link
+		if not link and GetItemInfo then local okInfo, _, l = pcall(GetItemInfo, it.id); if okInfo then link = l end end
+		if link then pcall(ChatEdit_InsertLink, link) end
+	end)
 	b:SetScript("OnEnter", function(self)
 		local it = self.item
 		if not it then return end
@@ -147,13 +171,34 @@ local function ItemButton(r, k)
 		if it.link and GameTooltip.SetHyperlink then ok = pcall(GameTooltip.SetHyperlink, GameTooltip, it.link) end
 		if not ok and it.id and GameTooltip.SetItemByID then ok = pcall(GameTooltip.SetItemByID, GameTooltip, it.id) end
 		if not ok then GameTooltip:AddLine("#" .. tostring(it.id), 1, 1, 1) end
-		if (it.n or 0) > 1 then GameTooltip:AddLine(L.COL_MEMBERS and ("x" .. it.n) or ("x" .. it.n), 0.8, 0.8, 0.8) end
+		if (it.n or 0) > 1 then GameTooltip:AddLine("x" .. it.n, 0.8, 0.8, 0.8) end
 		GameTooltip:Show()
 	end)
 	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	r.items = r.items or {}
 	r.items[k] = b
 	return b
+end
+
+-- A slot's item (nil: empty), drawn the way the game draws it.
+local function SetSlot(b, it)
+	b.item = it
+	if b.blizzard then
+		SetItemButtonTexture(b, it and ItemIcon(it) or nil)
+		if SetItemButtonCount then SetItemButtonCount(b, it and it.n or 0) end
+		if SetItemButtonQuality then
+			local quality
+			if it and GetItemInfo then
+				local ok, _, _, q = pcall(GetItemInfo, it.link or it.id)
+				if ok then quality = q end
+			end
+			pcall(SetItemButtonQuality, b, quality, it and (it.link or it.id) or nil)
+		end
+	else
+		b.icon:SetTexture(it and ItemIcon(it) or nil)
+		b.icon:SetShown(it ~= nil)
+		b.count:SetText(it and (it.n or 0) > 1 and tostring(it.n) or "")
+	end
 end
 
 function Views.LayoutColumns(fontStrings, layout, width, offset)
@@ -194,22 +239,30 @@ function Views.Render(content, lines, layout)
 		r:SetWidth(width)
 		local height = rowH
 		if line.items then
-			-- Icons in a grid, as many per row as fit; the row grows to hold them all.
+			-- Items in a grid. line.slots and line.columns: a bank tab as the game draws it (every
+			-- slot, empty ones too, items where they sit: it.s); without them, the items one after
+			-- another, as many per row as fit. The row grows to hold them all.
 			r.left:Hide()
 			r.right:Hide()
 			for c = 1, 4 do r.cols[c]:Hide() end
-			local perRow = math.max(1, math.floor((width - 8) / (ITEM + ITEM_GAP)))
+			if not (r.items and r.items[1]) then ItemButton(r, 1) end
+			local size = (r.itemSize or ITEM) + ITEM_GAP
+			local columns = line.columns or math.max(1, math.floor((width - 8) / size))
+			local slots = line.slots or #line.items
+			local bySlot = {}
 			for k, it in ipairs(line.items) do
-				local b = r.items and r.items[k] or ItemButton(r, k)
-				b.item = it
-				b.icon:SetTexture(ItemIcon(it))
-				b.count:SetText((it.n or 0) > 1 and tostring(it.n) or "")
+				local s = line.slots and tonumber(it.s) or k
+				if s and s >= 1 and s <= slots then bySlot[s] = it end
+			end
+			for k = 1, slots do
+				local b = r.items[k] or ItemButton(r, k)
+				SetSlot(b, bySlot[k])
 				b:ClearAllPoints()
-				b:SetPoint("TOPLEFT", 4 + ((k - 1) % perRow) * (ITEM + ITEM_GAP), -2 - math.floor((k - 1) / perRow) * (ITEM + ITEM_GAP))
+				b:SetPoint("TOPLEFT", 4 + ((k - 1) % columns) * size, -2 - math.floor((k - 1) / columns) * size)
 				b:Show()
 			end
-			for k = #line.items + 1, #(r.items or {}) do r.items[k]:Hide() end
-			height = math.ceil(math.max(1, #line.items) / perRow) * (ITEM + ITEM_GAP) + 4
+			for k = slots + 1, #r.items do r.items[k]:Hide() end
+			height = math.ceil(math.max(1, slots) / columns) * size + 4
 		elseif line.cols then
 			r.left:Hide()
 			r.right:Hide()

@@ -168,7 +168,8 @@ court takes him there. Each of his tools lives where it belongs:
   of the voters when each picked several). `/oly vox off` keeps the questions in chat.
 - **Royal Writs** (in the Decrees tab): a letter from the King on parchment, to the Lords alone,
   to every Lord and Captain, or to the whole army. Lords and Captains can answer "As you
-  command"; the King sees how many did.
+  command"; the King sees how many did. (The audience is who the addon shows it to: like
+  everything on the channel, anyone on it can read the bytes.)
 - **Open the Gates** (in the Realm tab, Recruiting): the King picks the guild new recruits
   should join for the next two hours; everyone sees it on top of Recruiting.
 - **Royal Pardon** (on the Wall of Shame): a click takes a name off the wall, for everyone,

@@ -8,15 +8,55 @@ local Data = {}
 ns.Data = Data
 
 Data.FRESH = 15 * 60           -- older: shown grey, its online players and zones leave the totals
-Data.KEEP = 7 * 24 * 60 * 60   -- older than this is forgotten (a guild's size is kept until then)
+Data.KEEP = 7 * 24 * 60 * 60   -- older than this is forgotten (the guild still listed, grey, until then)
+Data.TOTAL_KEEP = 24 * 60 * 60 -- a guild's size counts in the army's total this long after its last report
 Data.VOUCH_TTL = 30 * 60       -- a report counts as its sender's vote on the guild this long
 Data.CLAIM_TTL = 15 * 60       -- a sender quiet this long for its guild may speak for another one
 local MAX_VOUCH = 8            -- votes kept per guild (the newest)
+
+-- The key a guild is stored under, whatever the case a report spells it in: a realm has one
+-- guild of a name, so "OLYMPUS X" and "Olympus X" are the same one (or one is forged).
+function Data.GuildKey(name)
+	if type(name) ~= "string" then return nil end
+	local guilds = ns.rdb and ns.rdb.guilds
+	if not guilds then return nil end
+	if guilds[name] then return name end
+	local lower = name:lower()
+	for key in pairs(guilds) do
+		if type(key) == "string" and key:lower() == lower then return key end
+	end
+	return nil
+end
+function Data.Guild(name)
+	local key = Data.GuildKey(name)
+	return key and ns.rdb.guilds[key] or nil
+end
 
 ns.On("INIT", function()
 	local now = ns.Now()
 	for name, g in pairs(ns.rdb.guilds) do
 		if type(g) ~= "table" or now - (g.t or 0) > Data.KEEP then ns.rdb.guilds[name] = nil end
+	end
+	-- Kept by older versions: a report bigger than a guild can be (forged), and one guild under
+	-- two spellings (the newer one stays). Collected first: pairs() must not see removals twice.
+	local drop, byLower = {}, {}
+	for name, g in pairs(ns.rdb.guilds) do
+		if (tonumber(g.total) or 0) > ns.Codec.GUILD_CAP then
+			drop[#drop + 1] = name
+		else
+			local other = byLower[name:lower()]
+			if other then
+				local older = (g.t or 0) < (ns.rdb.guilds[other].t or 0) and name or other
+				drop[#drop + 1] = older
+				if older == other then byLower[name:lower()] = name end
+			else
+				byLower[name:lower()] = name
+			end
+		end
+	end
+	for _, name in ipairs(drop) do
+		ns.Log("dropped guild %s: forged size or a second spelling", name)
+		ns.rdb.guilds[name] = nil
 	end
 	local seen = Data.Seen()
 	for name, e in pairs(seen) do
@@ -86,7 +126,7 @@ local senderGuild = {} -- "Name-Realm" -> { guild, t }
 function Data.ClaimGuild(sender, guild)
 	local who, now = ns.FullName(sender), ns.Now()
 	local c = senderGuild[who]
-	if c and c.guild ~= guild and now - c.t < Data.CLAIM_TTL then return false end
+	if c and c.guild:lower() ~= guild:lower() and now - c.t < Data.CLAIM_TTL then return false end
 	senderGuild[who] = { guild = guild, t = now }
 	return true
 end
@@ -174,6 +214,9 @@ function Data.Receive(r, sender)
 		ns.Log("ignored %s: already reported %s, now claims %s", who, senderGuild[who], r.guild)
 		return false
 	end
+	-- One guild whatever the case it is spelled in: the spelling already stored is its key, and
+	-- a report under another spelling is one more vote on that guild.
+	r.guild = Data.GuildKey(r.guild) or r.guild
 	local previous = ns.rdb.guilds[r.guild]
 	-- Realms of one census group share this store, but a name without a realm takes the realm
 	-- of the character that heard it. A report heard on another realm of the group names people
@@ -199,20 +242,22 @@ function Data.Receive(r, sender)
 	local ranks = Ranks(r)
 	votes[who] = { t = now, sig = Signature(r, ranks), ranks = ranks }
 	r.vouch = votes
-	local top = Majority(votes, now)
-	-- One realm can't hold two guilds whose names differ only by case: while another spelling
-	-- is fresh, one of the two is forged, and neither one's ranks count.
-	for name, g in pairs(ns.rdb.guilds) do
-		if name ~= r.guild and name:lower() == r.guild:lower() and r.t - (g.t or 0) <= Data.FRESH then
-			r.twin = true
-			g.twin = true
-			ns.Log("conflict on %s: %s reports it as %s", name, who, r.guild)
-		end
+	local top, _, tops = Majority(votes, now)
+	-- Against the picture most senders give while that picture is fresh: the vote counts, the
+	-- row everyone sees (and the King's guild's leader with it) stays the majority's.
+	if previous and top and votes[who].sig ~= top and now - (previous.t or 0) <= Data.FRESH then
+		previous.vouch = votes
+		if not previous.outvoted then ns.Log("conflict on %s: %s's report is not what the other senders say", r.guild, who) end
+		previous.outvoted = true
+		ns.Fire("DATA_CHANGED")
+		return false
 	end
-	-- Shown in the census: this report disagrees with the other senders (or they are split).
-	r.conflict = (r.twin or top ~= votes[who].sig) and true or nil
+	-- Shown in the census: the senders are split on this guild (no picture leads).
+	local pictures = 0
+	for _ in pairs(tops) do pictures = pictures + 1 end
+	r.conflict = (top == nil and pictures > 1) and true or nil
 	if r.conflict and not (previous and previous.conflict) then
-		ns.Log("conflict on %s: %s's report is not what the other senders say", r.guild, who)
+		ns.Log("conflict on %s: the senders are split on it", r.guild)
 	end
 	ns.rdb.guilds[r.guild] = r
 	ns.Fire("DATA_CHANGED")
@@ -227,10 +272,10 @@ end
 function Data.KnownRank(sender, guild, soft)
 	local who = ns.FullName(sender)
 	if guild == GetGuildInfo("player") then return ns.Roster.RankOf(who) end
-	local g = ns.rdb.guilds[guild]
+	local g = Data.Guild(guild)
 	local now = ns.Now()
 	-- A report kept from an earlier session proves nothing about who leads the guild now.
-	if not g or g.twin or now - (g.t or 0) > Data.FRESH then return nil end
+	if not g or now - (g.t or 0) > Data.FRESH then return nil end
 	local votes = Votes(g.vouch, now)
 	local _, _, tops = Majority(votes, now)
 	-- The rank the leading picture gives (every leading picture, if they tie: then only what
@@ -281,10 +326,11 @@ function Data.Summary()
 			local age = now - (g.t or 0)
 			local fresh = age <= Data.FRESH
 			-- A guild keeps its size from its last report when its reporters log off (the army
-			-- does not shrink every night); who is online and where only count while fresh.
+			-- does not shrink every night), for a day; listed (grey) for a week; who is online
+			-- and where only count while fresh.
 			if age <= Data.KEEP then
-				s.guilds[#s.guilds + 1] = { name = name, g = g, fresh = fresh }
-				s.total = s.total + (g.total or 0)
+				s.guilds[#s.guilds + 1] = { name = name, g = g, fresh = fresh, counted = age <= Data.TOTAL_KEEP }
+				if age <= Data.TOTAL_KEEP then s.total = s.total + math.min(g.total or 0, ns.Codec.GUILD_CAP) end
 			end
 			if fresh then
 				s.fresh = s.fresh + 1
