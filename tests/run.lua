@@ -8986,18 +8986,38 @@ test("0.9.5 the Issue Reporter: shown until the player hides it, then hidden at 
 end)
 
 -- 0.9.6: the High Council and the gamepad escape list
-test("0.9.6 the High Council: a skull and a colour in the Olympus chats, on their realm group only", function()
-	local realm, list = ns.HIGH_COUNCIL_REALM, ns.HIGH_COUNCIL
-	ns.HIGH_COUNCIL_REALM, ns.HIGH_COUNCIL = "Realm", { ns.CouncilHash("Test Councillor") }
+test("0.9.7 the High Council: published in game by the author or the King, never in the code", function()
+	local W = ns.Workshop
+	local saved = { council = ns.rdb.council, me = ns.me, send = ns.Comm.Send, realm = ns.AUTHOR_REALM }
+	local sent = {}
 	local ok, err = pcall(function()
-		eq(ns.IsHighCouncillor("Test Councillor-Realm"), true); eq(ns.IsHighCouncillor("test councillor"), true, "any case")
-		eq(ns.IsHighCouncillor("Test Councillor-OtherRealm"), false, "a namesake elsewhere")
+		ns.AUTHOR_REALM = "Realm"
+		ns.Comm.Send = function(dist, msg) sent[#sent + 1] = msg end
+		ns.rdb.council = nil
+		eq(ns.IsHighCouncillor("Test Councillor-Realm"), false, "nobody until a list is published")
+		-- Anyone else's list: ignored.
+		W.HandleCouncil("CHANNEL", "Random Guy-Realm", "HC~100~Random Guy")
 		eq(ns.IsHighCouncillor("Random Guy-Realm"), false)
+		-- The author's list.
+		W.HandleCouncil("CHANNEL", ns.AUTHOR .. "-Realm", "HC~200~Test Councillor,Other Mod")
+		eq(ns.IsHighCouncillor("Test Councillor-Realm"), true); eq(ns.IsHighCouncillor("test councillor"), true, "any case")
+		eq(ns.IsHighCouncillor("Test Councillor-OtherRealm"), false, "a namesake on another realm group")
 		local line = ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus", nil, "hello")
 		assert(line:find(ns.HIGH_COUNCIL_ICON, 1, true) and line:find(ns.HIGH_COUNCIL_COLOR, 1, true), line)
-		assert(not ns.Channels.FormatLine("A", "Random Guy-Realm", "Olympus", nil, "hi"):find(ns.HIGH_COUNCIL_ICON, 1, true))
+		-- An older list does not replace a newer one.
+		W.HandleCouncil("CHANNEL", ns.AUTHOR .. "-Realm", "HC~150~Someone Else")
+		eq(ns.IsHighCouncillor("Test Councillor-Realm"), true)
+		-- The author edits it in game: sent at once.
+		ns.me = ns.AUTHOR .. "-Realm"
+		W.EditCouncil("remove", "Other Mod")
+		assert(sent[#sent]:find("^HC~%d+~Test Councillor$"), sent[#sent])
+		-- Nobody else can.
+		ns.me = "Random Guy-Realm"
+		local before = #sent
+		W.EditCouncil("add", "Random Guy")
+		eq(#sent, before); eq(ns.IsHighCouncillor("Random Guy-Realm"), false)
 	end)
-	ns.HIGH_COUNCIL_REALM, ns.HIGH_COUNCIL = realm, list
+	ns.rdb.council, ns.me, ns.Comm.Send, ns.AUTHOR_REALM = saved.council, saved.me, saved.send, saved.realm
 	if not ok then error(err, 0) end
 end)
 
@@ -9032,6 +9052,45 @@ test("0.9.6 a donation says what the donor gave in all", function()
 	end)
 	ns.Print, ns.rdb.treasury, ns.PlayAlert, T.Share = saved.print, saved.book, saved.alert, saved.share
 	T.Reset()
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.7 the High Council key: whispered to the author alone, checked there, the sender's own name listed", function()
+	local W = ns.Workshop
+	local saved = { council = ns.rdb.council, me = ns.me, send = ns.Comm.Send, whisper = ns.Comm.Whisper, realm = ns.AUTHOR_REALM,
+		key = ns.db.councilKey, join = ns.db.councilJoin, help = ns.db.councilHelp }
+	local sent, whispered = {}, {}
+	local ok, err = pcall(function()
+		ns.AUTHOR_REALM = "Realm"
+		ns.Comm.Send = function(dist, msg) sent[#sent + 1] = dist .. " " .. msg end
+		ns.Comm.Whisper = function(to, msg) whispered[#whispered + 1] = to .. " " .. msg end
+		ns.rdb.council, ns.db.councilKey = nil, nil
+		-- A moderator joins: the key goes by whisper to the author, never on the channel.
+		ns.me = "Test Mod-Realm"
+		W.JoinCouncil("abcdefghijkl1234")
+		assert(whispered[#whispered]:find("^" .. ns.AUTHOR .. "%-Realm HJ~abcdefghijkl1234$"), whispered[#whispered])
+		eq(#sent, 0, "nothing on the channel")
+		-- The author's client checks it.
+		ns.me = ns.AUTHOR .. "-Realm"
+		W.SetCouncilKey("abcdefghijkl1234")
+		W.HandleJoin("WHISPER", "Wrong Key-Realm", "HJ~nope")
+		eq(ns.IsHighCouncillor("Wrong Key-Realm"), false, "a wrong key adds nobody")
+		W.HandleJoin("WHISPER", "Test Mod-Realm", "HJ~abcdefghijkl1234")
+		eq(ns.IsHighCouncillor("Test Mod-Realm"), true, "the sender, by the server's name")
+		assert(sent[#sent]:find("^CHANNEL HC~%d+~Test Mod$"), sent[#sent])
+		-- Help requests reach councillors who opted in.
+		ns.me = "Test Mod-Realm"
+		W.HandleAvailable("CHANNEL", "Test Mod-Realm")
+		W.HandleAvailable("CHANNEL", "Random Guy-Realm") -- not on the council: never asked
+		ns.me = "Player One-Realm"
+		W.AskCouncil("lost my tabard")
+		assert(whispered[#whispered]:find("^Test Mod%-Realm HR~lost my tabard$"), whispered[#whispered])
+		local before = #whispered
+		W.AskCouncil("again")
+		eq(#whispered, before, "once every few minutes")
+	end)
+	ns.rdb.council, ns.me, ns.Comm.Send, ns.Comm.Whisper, ns.AUTHOR_REALM = saved.council, saved.me, saved.send, saved.whisper, saved.realm
+	ns.db.councilKey, ns.db.councilJoin, ns.db.councilHelp = saved.key, saved.join, saved.help
 	if not ok then error(err, 0) end
 end)
 

@@ -85,6 +85,7 @@ local function IsAuthorName(name)
 end
 
 function Workshop.IsAuthor() return IsAuthorName(ns.me) end
+Workshop.IsAuthorName = IsAuthorName
 
 -- The author's test characters (Dev.lua, never published) see the tab too: nothing it sends
 -- goes anywhere but the test bench's log (DevTest.lua), or is ignored by everyone.
@@ -601,6 +602,194 @@ function Workshop.Reset()
 	lastRoll, lastRollAnswer, lastUpdateShown, lastBug, lastAsk = -math.huge, -math.huge, -math.huge, -math.huge, -math.huge
 	changePending = false
 end
+
+---------------------------------------------------------------------------
+-- The High Council (the moderators): a list of character names the author's or the King's
+-- character publishes in game, never written in the code (Core.lua, ns.IsHighCouncillor).
+--   HC~<time>~<First Surname>,<First Surname>,...   the newest list heard wins
+---------------------------------------------------------------------------
+
+Workshop.COUNCIL_MAX = 30
+Workshop.COUNCIL_EVERY = 300
+local lastCouncilSent = -math.huge
+
+local function CouncilPublisher(name)
+	return IsAuthorName(name) or (ns.IsKingCharacter and ns.IsKingCharacter(name))
+end
+function Workshop.CanPublishCouncil() return CouncilPublisher(ns.me) end
+
+local function CouncilNames()
+	local c = ns.rdb and ns.rdb.council
+	local out = {}
+	for _, display in pairs(type(c) == "table" and c.names or {}) do out[#out + 1] = display end
+	table.sort(out)
+	return out
+end
+Workshop.CouncilNames = CouncilNames
+
+function Workshop.SendCouncil(force)
+	if not CouncilPublisher(ns.me) or not ns.rdb or type(ns.rdb.council) ~= "table" then return end
+	local now = ns.Now()
+	if not force and now - lastCouncilSent < Workshop.COUNCIL_EVERY then return end
+	lastCouncilSent = now
+	ns.Comm.Send("CHANNEL", ("HC~%d~%s"):format(math.floor(ns.rdb.council.at or now), table.concat(CouncilNames(), ",")), "council")
+end
+
+-- /oly council add|remove <First Surname>, /oly council list (the author's or the King's).
+function Workshop.EditCouncil(verb, name)
+	if not CouncilPublisher(ns.me) then return ns.Print(L.COUNCIL_ONLY) end
+	local c = ns.rdb.council
+	if type(c) ~= "table" or type(c.names) ~= "table" then c = { names = {} } end
+	name = tostring(name or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if verb == "add" or verb == "remove" then
+		if name == "" or #name > 48 or name:find("[~,|%c]") then return ns.Print(L.COUNCIL_USAGE) end
+		if verb == "add" then
+			local n = 0
+			for _ in pairs(c.names) do n = n + 1 end
+			if n >= Workshop.COUNCIL_MAX then return ns.Print(L.COUNCIL_USAGE) end
+			c.names[name:lower()] = name
+		else
+			c.names[name:lower()] = nil
+		end
+		c.at, c.realm = ns.Now(), ns.RealmOf(ns.me) or ns.realm
+		ns.rdb.council = c
+		Workshop.SendCouncil(true)
+		ns.Fire("DATA_CHANGED")
+	end
+	local names = CouncilNames()
+	ns.Print(L.COUNCIL_LIST:format(#names > 0 and table.concat(names, ", ") or "-"))
+end
+
+function Workshop.HandleCouncil(dist, sender, text)
+	if dist ~= "CHANNEL" or not CouncilPublisher(sender) then return end
+	local at, list = text:match("^HC~(%d+)~(.*)$")
+	at = tonumber(at)
+	if not at then return end
+	at = math.min(at, ns.Now() + 300)
+	local c = ns.rdb.council
+	if type(c) == "table" and (tonumber(c.at) or 0) >= at then return end
+	local names, n = {}, 0
+	for name in list:gmatch("[^,]+") do
+		name = name:gsub("^%s+", ""):gsub("%s+$", "")
+		if name ~= "" and #name <= 48 and n < Workshop.COUNCIL_MAX then names[name:lower()], n = name, n + 1 end
+	end
+	ns.rdb.council = { at = at, names = names, realm = ns.RealmOf(ns.FullName(sender)) or ns.realm, by = ns.FullName(sender) }
+	ns.Fire("DATA_CHANGED")
+end
+ns.Comm.Handle("HC", function(...) Workshop.HandleCouncil(...) end)
+
+-- The key (Heuto's and Max's handshake): the publisher sets a random key (/oly council key), the
+-- moderators get it privately and type /oly council join <key>. Their addon whispers it to the
+-- author's character alone (never on the channel, never in the code); his addon checks it and
+-- puts the sender's name, the server's, on the list.
+local joinTries = {}
+function Workshop.SetCouncilKey(key)
+	if not CouncilPublisher(ns.me) then return ns.Print(L.COUNCIL_ONLY) end
+	key = tostring(key or ""):gsub("%s", "")
+	if #key < 12 then return ns.Print(L.COUNCIL_KEY_SHORT) end
+	ns.db.councilKey = key
+	ns.Print(L.COUNCIL_KEY_SET)
+end
+local function AuthorTell() return ns.FullName(ns.AUTHOR, ns.AUTHOR_REALM) end
+function Workshop.JoinCouncil(key)
+	key = tostring(key or ""):gsub("%s", "")
+	if key == "" then key = ns.db.councilJoin or "" end
+	if key == "" then return ns.Print(L.COUNCIL_USAGE) end
+	ns.db.councilJoin = key
+	if ns.IsHighCouncillor(ns.me) then return ns.Print(L.COUNCIL_YOU) end
+	ns.Comm.Whisper(AuthorTell(), "HJ~" .. key, "councilkey")
+	ns.Print(L.COUNCIL_JOIN_SENT)
+end
+function Workshop.HandleJoin(dist, sender, text)
+	if dist ~= "WHISPER" or not ns.db.councilKey or not CouncilPublisher(ns.me) then return end
+	local key = text:match("^HJ~(.*)$")
+	local short = ns.ShortName(ns.FullName(sender))
+	joinTries[short] = (joinTries[short] or 0) + 1
+	if not key or joinTries[short] > 5 then return end
+	if key ~= ns.db.councilKey then return ns.Log("council: wrong key from %s", short) end
+	Workshop.EditCouncil("add", short)
+	ns.Comm.Whisper(ns.FullName(sender), "HK~1", "councilok")
+end
+function Workshop.HandleJoined(dist, sender, text)
+	if dist == "WHISPER" and IsAuthorName(sender) then ns.Print(L.COUNCIL_YOU) end
+end
+ns.Comm.Handle("HJ", function(...) Workshop.HandleJoin(...) end)
+ns.Comm.Handle("HK", function(...) Workshop.HandleJoined(...) end)
+
+-- Asking a High Councillor for help (Max's): the councillors who opted in (/oly council help on)
+-- say so on the channel every few minutes; a player's request goes by whisper to up to three
+-- of them online, once every five minutes at most.
+Workshop.HELP_EVERY, Workshop.HELP_FRESH, Workshop.HELP_GAP = 300, 700, 300
+local available, lastHelpSent, lastAvailSent, helpFrom = {}, -math.huge, -math.huge, {}
+function Workshop.SetCouncilHelp(on)
+	ns.db.councilHelp = on and true or false
+	ns.Print(on and L.COUNCIL_HELP_ON or L.COUNCIL_HELP_OFF)
+	lastAvailSent = -math.huge
+	Workshop.SayAvailable()
+end
+function Workshop.SayAvailable()
+	if not ns.db.councilHelp or not ns.IsHighCouncillor(ns.me) then return end
+	local now = ns.Now()
+	if now - lastAvailSent < Workshop.HELP_EVERY then return end
+	lastAvailSent = now
+	ns.Comm.Send("CHANNEL", "HA~1", "counciladvert")
+end
+function Workshop.HandleAvailable(dist, sender)
+	if dist == "CHANNEL" and ns.IsHighCouncillor(sender) then available[ns.FullName(sender)] = ns.Now() end
+end
+function Workshop.Available()
+	local out, now = {}, ns.Now()
+	for name, t in pairs(available) do if now - t <= Workshop.HELP_FRESH then out[#out + 1] = name end end
+	table.sort(out)
+	return out
+end
+function Workshop.AskCouncil(text)
+	text = ns.Codec.Plain(tostring(text or "")):sub(1, 180)
+	local now = ns.Now()
+	if now - lastHelpSent < Workshop.HELP_GAP then return ns.Print(L.COUNCIL_ASK_WAIT) end
+	local list = Workshop.Available()
+	if #list == 0 then return ns.Print(L.COUNCIL_ASK_NOBODY) end
+	lastHelpSent = now
+	for i = 1, math.min(3, #list) do
+		local k = Workshop.random(1, #list)
+		ns.Comm.Whisper(list[k], "HR~" .. text, "councilask" .. i)
+		table.remove(list, k)
+	end
+	ns.Print(L.COUNCIL_ASK_SENT)
+end
+function Workshop.HandleAsk(dist, sender, text)
+	if dist ~= "WHISPER" or not ns.db.councilHelp or not ns.IsHighCouncillor(ns.me) then return end
+	local now, who = ns.Now(), ns.FullName(sender)
+	if now - (helpFrom[who] or -math.huge) < 60 then return end
+	helpFrom[who] = now
+	local msg = ns.Codec.Plain(text:match("^HR~(.*)$") or "")
+	ns.Print(L.COUNCIL_ASKED:format("|Hplayer:" .. ns.TellName(who) .. "|h[" .. ns.DisplayName(who) .. "]|h", msg))
+	ns.PlayAlert("soft")
+end
+ns.Comm.Handle("HA", function(...) Workshop.HandleAvailable(...) end)
+ns.Comm.Handle("HR", function(...) Workshop.HandleAsk(...) end)
+
+StaticPopupDialogs["OLYMPUS_COUNCIL_ASK"] = {
+	text = L.COUNCIL_ASK_PROMPT,
+	button1 = L.COUNCIL_ASK_SEND,
+	button2 = CANCEL or "Cancel",
+	hasEditBox = true,
+	OnAccept = function(self)
+		local eb = self.editBox or self.EditBox
+		ns.SafeCall("council ask", Workshop.AskCouncil, eb and eb:GetText() or "")
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+ns.On("LOGIN", function()
+	ns.Every(60, "council", function()
+		Workshop.SendCouncil()
+		Workshop.SayAvailable()
+	end)
+end)
 
 ns.Comm.Handle("V1", function(...) Workshop.HandleRoll(...) end)
 ns.Comm.Handle("V2", function(...) Workshop.HandleAnswer(...) end)

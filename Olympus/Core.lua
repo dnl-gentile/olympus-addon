@@ -542,42 +542,18 @@ function ns.LearnKingRealm(sender)
 	ns.Log("the Horde's King is on %s (learned from his first message)", realm)
 end
 
--- The High Council (0.9.6): the Olympus moderators, by character name on the King's realm group
--- (names taken on other realms, launch realms included, are nobody's until this list is updated).
--- Shown with a skull and their own colour in the Olympus chats.
--- Their names are not written here (the code is public and the names would be sniped on the
--- launch realms): only a fingerprint of each (ns.CouncilHash), which the addon compares.
-ns.HIGH_COUNCIL = {
-	"3d02krdc", "el8w4yrn", "qdtuv3zv", "a8okb2md", "9fa7sbyl", "2zk0ivuu", "colro058", "3sfisy1g", "cugbpla9", "nd54v0z3",
-}
-ns.HIGH_COUNCIL_REALM = "ClassicBetaPvP"
+-- The High Council: the Olympus moderators, shown with a skull and their colour in the Olympus
+-- chats. No name is written in this code (it is public, and names get sniped on launch realms):
+-- the list is published in game by the author's or the King's character (Workshop.lua, HC), whose
+-- names the server stamps, and every client keeps the newest one it heard.
 ns.HIGH_COUNCIL_ICON = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_8:0|t"
 ns.HIGH_COUNCIL_COLOR = "ffb048f8"
-function ns.CouncilHash(name)
-	local text = "olympus-council:" .. tostring(name or ""):lower()
-	local h1, h2 = 5381, 52711
-	for i = 1, #text do
-		local c = text:byte(i)
-		h1 = (h1 * 33 + c) % 2147483647
-		h2 = (h2 * 31 + c * 7) % 2147483647
-	end
-	local digits, out, n = "0123456789abcdefghijklmnopqrstuvwxyz", "", h1 * 1000 + (h2 % 1000)
-	for _ = 1, 8 do
-		local d = n % 36
-		out = digits:sub(d + 1, d + 1) .. out
-		n = math.floor(n / 36)
-	end
-	return out
-end
-local council, councilFrom
 function ns.IsHighCouncillor(name)
-	if type(name) ~= "string" then return false end
-	if councilFrom ~= ns.HIGH_COUNCIL then
-		council, councilFrom = {}, ns.HIGH_COUNCIL
-		for _, h in ipairs(ns.HIGH_COUNCIL) do council[h] = true end
-	end
-	if not council[ns.CouncilHash(ns.ShortName(name))] then return false end
-	return OfGroup(name, ns.HIGH_COUNCIL_REALM)
+	local c = ns.rdb and ns.rdb.council
+	if type(name) ~= "string" or type(c) ~= "table" or type(c.names) ~= "table" then return false end
+	if not c.names[ns.ShortName(name):lower()] then return false end
+	-- Names are one per realm group: the list counts on the group of whoever published it.
+	return c.realm == nil or OfGroup(name, c.realm)
 end
 
 -- The Crown: guild masters of any Olympus guild, and the officers of the King's guild.
@@ -1031,6 +1007,16 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Positions.SetEnabled(not ns.db.showMates)
 		elseif cmd == "share" then
 			ns.Positions.SetSharing(not ns.db.sharePosition)
+		elseif cmd == "council" then
+			-- The High Council's list (the author's or the King's character): add, remove, list.
+			local verb, arg = rest:match("^(%S*)%s*(.-)$")
+			verb = (verb or ""):lower()
+			if verb == "key" then ns.Workshop.SetCouncilKey(arg)
+			elseif verb == "join" then ns.Workshop.JoinCouncil(arg)
+			elseif verb == "help" then ns.Workshop.SetCouncilHelp(arg:lower() ~= "off")
+			else ns.Workshop.EditCouncil(verb, arg) end
+		elseif cmd == "helpme" then
+			if rest ~= "" then ns.Workshop.AskCouncil(rest) else ns.ShowDialog("OLYMPUS_COUNCIL_ASK") end
 		elseif cmd == "issuereporter" then
 			-- Blizzard's Issue Reporter box (beta and PTR clients): hidden at every login, or not.
 			local how = rest:lower()

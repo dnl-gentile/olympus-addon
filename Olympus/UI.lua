@@ -202,6 +202,9 @@ local DETAIL_BUTTONS = {
 	},
 }
 -- (0.9.2: no "Publish shame" button any more: the untabarded list is the King's, Throne tab.)
+-- Asking a High Councillor (a moderator) for help, on the Realm tab (0.9.7, Workshop.lua).
+DETAIL_BUTTONS.realm = DETAIL_BUTTONS.realm or {}
+table.insert(DETAIL_BUTTONS.realm, { "COUNCIL_ASK_BTN", function() ns.ShowDialog("OLYMPUS_COUNCIL_ASK") end })
 
 -- Buttons that come and go (def.shown): only the ones shown, in order.
 local function Shown(defs)
