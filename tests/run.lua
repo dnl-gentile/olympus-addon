@@ -78,7 +78,8 @@ for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog",
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
-ns.db = { guilds = {}, log = {}, errors = {}, blocked = {}, demo = false, showMap = true }
+ns.db = { guilds = {}, log = {}, errors = {}, blocked = {}, demo = false, showMap = true,
+	chatWarned = { A = true, C = true, L = true } } -- (0.9.1: the channel warnings already accepted; their own tests ask)
 ns.me = "Tester-Realm"
 ns.realm = "Realm"
 ns.rdb = { guilds = {} }
@@ -3122,12 +3123,11 @@ test("sending is gated with a clear answer", function()
 		AsRank(1, function() eq(select(2, Chan.Send("C", "hi", 100)), "ready") end)
 		eq(#sent, 0)
 	end, false)
-	ns.db.chatNoticeShown = nil
 	WithLane(function(sent)
 		AsRank(1, function(printed)
 			local ok, why = Chan.Send("C", "reunir em " .. ITEM, 100)
 			eq(ok, true); eq(why, "ok")
-			eq(printed[#printed], ns.L.CHAN_NOTICE, "not-encrypted notice, once")
+			eq(#printed, 0, "no notice after the line: the warning comes before the first one (0.9.1)")
 		end)
 		eq(#sent, 1)
 		eq(sent[1]:sub(1, 16), "M1~C~Olympus II~")
@@ -3135,7 +3135,6 @@ test("sending is gated with a clear answer", function()
 		eq(#CHAT_LINES, 1, "local echo")
 		assert(CHAT_LINES[1]:find("[Captains]", 1, true) and CHAT_LINES[1]:find(ITEM, 1, true), CHAT_LINES[1])
 	end)
-	eq(ns.db.chatNoticeShown, true)
 end)
 
 test("sender ranks are verified on receipt, never taken from the message", function()
@@ -3670,7 +3669,7 @@ test("chat lines arrive through CHAT_MSG_ADDON_LOGGED, without our echo or block
 	cns.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
 	cns.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
 	cns.After, cns.Every = function() end, function() end
-	local slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS }
+	local slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS, StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY }
 	C_ChatInfo = { RegisterAddonMessagePrefix = function() end }
 	ns.db.chatMute = nil
 	local ok, err = pcall(function()
@@ -3697,6 +3696,7 @@ test("chat lines arrive through CHAT_MSG_ADDON_LOGGED, without our echo or block
 		end)
 	end)
 	SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = slash[1], slash[2], slash[3]
+	StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY = slash[4] -- (0.9.1: Channels.lua's warning, bound to the real module)
 	C_ChatInfo = nil
 	if not ok then error(err, 0) end
 end)
@@ -7063,6 +7063,342 @@ test("chat: our own line comes back from the channel once, whatever form the ser
 	end)
 	ns.me, ns.splitNames, ns.Comm.ChannelReady, ns.Comm.ChatRoom, ns.Comm.SendChat = saved.me, saved.split, saved.ready, saved.room, saved.send
 	GetGuildInfo, ns.realm = saved.guild, saved.realm
+	if not ok then error(err, 0) end
+end)
+
+-- 0.9.1: privacy
+-- Issues #13 and #16: where a player is goes out only with their yes, and the channel's
+-- warning comes before the first line in each of its channels.
+
+-- Runs fn(w) reading our layer from NPCs in Stormwind (map 1453), every Comm.Send kept in
+-- w.sent; w.observe() reads a new layer, far enough in time to be announced at once.
+local function WithLayerWatch(fn)
+	local saved = { send = ns.Comm.Send, hello = ns.Comm.Hello, now = ns.Now, print = ns.Print, guid = UnitGUID,
+		map = C_Map.GetBestMapForUnit, guild = GetGuildInfo, me = ns.me, share = ns.db.shareLocation, crown = ns.db.throneLocation }
+	local w = { sent = {}, printed = {}, hellos = 0, clock = 3000000000, npc = 100 }
+	local ok, err = pcall(function()
+		ns.Comm.Send = function(dist, msg) w.sent[#w.sent + 1] = dist .. " " .. msg end
+		ns.Comm.Hello = function(force) if force then w.hellos = w.hellos + 1 end end
+		ns.Now = function() return w.clock end
+		ns.Print = function(m) w.printed[#w.printed + 1] = m end
+		C_Map.GetBestMapForUnit = function() return 1453 end
+		UnitGUID = function() return ("Creature-0-4619-0-%d-68-0000AAA1"):format(w.npc) end
+		w.observe = function()
+			w.clock, w.npc = w.clock + 1000, w.npc + 1
+			ns.Layers.Reset()
+			ns.Layers.Observe("target")
+		end
+		w.layers = function()
+			local n = 0
+			for _, m in ipairs(w.sent) do if m:find("^CHANNEL L1~") then n = n + 1 end end
+			return n
+		end
+		fn(w)
+	end)
+	ns.Comm.Send, ns.Comm.Hello, ns.Now, ns.Print, UnitGUID = saved.send, saved.hello, saved.now, saved.print, saved.guid
+	C_Map.GetBestMapForUnit, GetGuildInfo, ns.me = saved.map, saved.guild, saved.me
+	ns.db.shareLocation, ns.db.throneLocation = saved.share, saved.crown
+	ns.Layers.Reset()
+	if not ok then error(err, 0) end
+end
+
+test("0.9.1 privacy: a player who keeps it private still asks for hops and helps, told once what an ask says (#13)", function()
+	local savedShare, savedPrint = ns.db.shareLocation, ns.Print
+	local printed = {}
+	local function Hints()
+		local n = 0
+		for _, m in ipairs(printed) do if m == ns.L.HOP_PRIVATE_HINT then n = n + 1 end end
+		return n
+	end
+	local ok, err = pcall(function()
+		ns.Print = function(m) printed[#printed + 1] = m end
+		WithHop(function(w, H)
+			ns.db.shareLocation = nil -- never answered: private
+			GetGuildInfo = function() return "Olympus II", "Officer", 1 end
+			w.see(7)
+			for _, m in ipairs(w.sent) do assert(not m:find("L1~", 1, true), "no layer announced: " .. m) end
+			-- A helper who shares nothing answers an ask for their layer, to the asker alone.
+			H.HandleAsk("CHANNEL", "Asker-Realm", "LQ~42~1453~7")
+			eq(w.whispered[1], "Asker-Realm LO~42~0~0")
+			-- Asking still works: the ask names this zone and the layer wanted, and says so once.
+			H.Ask(1453, 8, "Kingy's layer")
+			eq(w.sent[#w.sent], "CHANNEL LQ~1~1453~8")
+			eq(Hints(), 1)
+			w.clock = w.clock + 30
+			H.Tick() -- nobody answered: done
+			H.Ask(1453, 8, "Kingy's layer")
+			eq(w.sent[#w.sent], "CHANNEL LQ~1~1453~8", "asked again")
+			eq(Hints(), 1, "once a session")
+		end)
+		WithHop(function(w, H)
+			ns.db.shareLocation = true
+			w.see(7)
+			H.Ask(1453, 8, "Kingy's layer")
+			eq(w.sent[#w.sent], "CHANNEL LQ~1~1453~8")
+			eq(Hints(), 1, "sharing: nothing to tell")
+		end)
+	end)
+	ns.db.shareLocation, ns.Print = savedShare, savedPrint
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.1 privacy: no layer announcement without the player's yes, officers and the sample included (#13)", function()
+	WithLayerWatch(function(w)
+		-- An officer, never asked yet and after Keep private: the layer is read, and stays home.
+		GetGuildInfo = function() return "Olympus II", "Officer", 1 end
+		for _, answer in ipairs({ "unanswered", "private" }) do
+			ns.db.shareLocation = answer == "private" and false or nil
+			w.observe()
+			eq(ns.Layers.Mine().zoneUID, w.npc, "read, for this client alone")
+			eq(w.layers(), 0, "an officer, " .. answer)
+		end
+		-- A member of the 1 in 8 sample: the same.
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		for i = 1, 400 do
+			ns.me = "Sample" .. i .. "-Realm"
+			if ns.Layers.InSample() then break end
+		end
+		assert(ns.Layers.InSample(), "a sampled name")
+		w.observe()
+		eq(w.layers(), 0, "a sampled member")
+		-- Share: at once, and each new layer; the hello tells our reporter too.
+		GetGuildInfo = function() return "Olympus II", "Officer", 1 end
+		ns.Layers.SetSharing(true)
+		eq(ns.db.shareLocation, true); eq(w.printed[#w.printed], ns.L.LOCATION_ON); eq(w.hellos, 1)
+		eq(w.layers(), 1); eq(w.sent[#w.sent], ("CHANNEL L1~1453~%d~1~Olympus II"):format(w.npc))
+		w.observe()
+		eq(w.layers(), 2)
+		-- Off again: nothing more.
+		ns.Layers.SetSharing(false)
+		eq(ns.db.shareLocation, false); eq(w.printed[#w.printed], ns.L.LOCATION_OFF); eq(w.hellos, 2)
+		w.observe()
+		eq(w.layers(), 2)
+		-- The King: his crown on the map (the Throne) is his yes for his layer; without it, his
+		-- own answer like anyone's.
+		GetGuildInfo = function() return "Olympus", "King", 0 end
+		ns.db.throneLocation = true
+		w.observe()
+		eq(w.layers(), 3); eq(w.sent[#w.sent], ("CHANNEL L1~1453~%d~0~Olympus"):format(w.npc))
+		ns.db.throneLocation = nil
+		w.observe()
+		eq(w.layers(), 3)
+	end)
+end)
+
+test("0.9.1 privacy: a report kept private names no zone at all, and 0.9.0's decoder reads it (#13)", function()
+	local r = ns.Roster.Scan()
+	assert(r.leaderZone and r.officers[1].zone and r.zones.m1453, "the roster knows where everyone is")
+	-- (Codec.DecodeReport is the decoder 0.9.0 ships, unchanged.)
+	local d = Codec.DecodeReport(Codec.EncodeReport(Codec.Shareable(r, false, nil)))
+	eq(next(d.zones), nil, "no members per zone"); eq(d.leaderZone, nil)
+	eq(#d.officers, #r.officers)
+	for i, o in ipairs(d.officers) do
+		eq(o.zone, nil, o.name); eq(o.name, r.officers[i].name); eq(o.level, r.officers[i].level)
+		eq(o.online, r.officers[i].online); eq(o.class, r.officers[i].class)
+	end
+	eq(d.total, 1000); eq(d.online, 300); eq(d.leader, "Member1"); eq(d.leaderLevel, r.leaderLevel)
+	eq(d.classes.WA, r.classes.WA); eq(d.levels[1], r.levels[1]); eq(d.top[1].name, r.top[1].name)
+	-- Our own window keeps the whole report.
+	eq(r.zones.m1453, 75); assert(r.leaderZone and r.officers[1].zone, "the local report untouched")
+	-- Shared: the counts, and the zones of those who share theirs (Member2), nobody else's.
+	local s = Codec.DecodeReport(Codec.EncodeReport(Codec.Shareable(r, true, function(name) return name == "Member2" end)))
+	eq(s.zones.m1453, 75); eq(s.leaderZone, nil, "the leader did not say yes")
+	for _, o in ipairs(s.officers) do eq(o.zone ~= nil, o.name == "Member2", o.name) end
+end)
+
+test("0.9.1 privacy: what our census sends follows our answer and our guildmates' hellos (#13)", function()
+	local savedChannel, savedShare = GetChannelName, ns.db.shareLocation
+	local ok, err = pcall(function()
+		local cns, Deliver = FreshComm()
+		local C = cns.Comm
+		GetChannelName = function() return 5 end
+		C.JoinChannel()
+		local sent = {}
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = { dist = dist, msg = msg } end
+		-- The report that went out on the channel, put back together and decoded.
+		local function Sent()
+			for _ = 1, 40 do C.Pump() end
+			local asm, out = Codec.NewAssembler(), nil
+			for _, m in ipairs(sent) do
+				if m.dist == "CHANNEL" then out = Codec.Feed(asm, "Tester-Realm", m.msg, 0) or out end
+			end
+			sent = {}
+			return assert(out and Codec.DecodeReport(out), "a report went out")
+		end
+		local r = ns.Roster.Scan()
+		-- Member2 shares (their hello ends in z), Member3 does not, Member1 (the leader) has no addon.
+		Deliver("GUILD", "Member2", "H1~0.9.1~Realm~p~z")
+		Deliver("GUILD", "Member3", "H1~0.9.1~Realm~p")
+		eq(C.SharesZone("Member2"), true); eq(C.SharesZone("Member3"), false); eq(C.SharesZone("Member1"), false)
+		ns.db.shareLocation = nil
+		C.Broadcast(r)
+		local d = Sent()
+		eq(d.guild, MY_GUILD); eq(d.total, 1000); eq(d.leader, "Member1")
+		eq(next(d.zones), nil, "private: no members per zone"); eq(d.leaderZone, nil)
+		for _, o in ipairs(d.officers) do eq(o.zone, nil, o.name .. ": we keep ours, we name nobody's") end
+		ns.db.shareLocation = true
+		C.Broadcast(r)
+		d = Sent()
+		eq(d.zones.m1453, 75, "shared: the counts per zone")
+		eq(d.leaderZone, nil)
+		for _, o in ipairs(d.officers) do eq(o.zone ~= nil, o.name == "Member2", o.name) end
+		-- Our hello says we share; a hello without it (0.9.0, or a no since) reads as no.
+		C.Hello(true)
+		for _ = 1, 5 do C.Pump() end
+		eq(sent[#sent].msg, "H1~" .. ns.VERSION .. "~Realm~p~z")
+		Deliver("GUILD", "Member2", "H1~0.9.0~Realm~p")
+		eq(C.SharesZone("Member2"), false)
+		Deliver("GUILD", "Member3", "H1~0.9.1~Realm~p~z")
+		eq(C.SharesZone("Member3"), true)
+		cns.clock = cns.clock + 721
+		eq(C.SharesZone("Member3"), false, "not heard for 12 minutes: not counted")
+	end)
+	GetChannelName, C_ChatInfo, ns.db.shareLocation = savedChannel, nil, savedShare
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.1 privacy: the zone and layer question is asked once, when it can be, and its answer kept (#13)", function()
+	local saved = { share = ns.db.shareLocation, combat = InCombatLockdown, instance = IsInInstance, key = ns.rdb.realmKey,
+		print = ns.Print, hello = ns.Comm.Hello, send = ns.Comm.Send, guild = GetGuildInfo }
+	local ok, err = pcall(function()
+		local printed = {}
+		ns.Print = function(m) printed[#printed + 1] = m end
+		ns.Comm.Hello, ns.Comm.Send = function() end, function() end
+		local d = StaticPopupDialogs.OLYMPUS_LOCATION_CHOICE
+		eq(d.text, ns.L.LOCATION_ASK); eq(d.button1, ns.L.LOCATION_SHARE); eq(d.button2, ns.L.LOCATION_KEEP)
+		-- It says what goes out, with whose name, to whom, and how to change it.
+		for _, words in ipairs({ "your zone", "your layer", "guild rank", "your guild", "your name", "Olympus channel",
+			"members per zone", "hop", "/oly location on", "/oly location off" }) do
+			assert(d.text:find(words, 1, true), words)
+		end
+		WithGamepadUI(false, function(game)
+			ns.db.shareLocation, ns.rdb.realmKey = nil, nil
+			ns.Layers.Reset()
+			InCombatLockdown = function() return true end
+			eq(ns.Layers.AskChoice(), false, "not in combat")
+			InCombatLockdown, IsInInstance = function() return false end, function() return true end
+			eq(ns.Layers.AskChoice(), false, "not in an instance")
+			IsInInstance = function() return false end
+			GetGuildInfo = function() return "House of Guedes", "Member", 3 end
+			eq(ns.Layers.AskChoice(), false, "outside Olympus the addon asks nothing")
+			GetGuildInfo = saved.guild
+			eq(#game.shown, 0)
+			eq(ns.Layers.AskChoice(), true)
+			eq(game.shown[1].which, "OLYMPUS_LOCATION_CHOICE"); eq(game.shown[1].a, ns.L.CHANNEL_PUBLIC, "no key: public, and it says so")
+			eq(ns.Layers.AskChoice(), false, "once a session"); eq(#game.shown, 1)
+			-- Pushed out by another window: no answer, asked again next session.
+			d.OnCancel(nil, nil, "override")
+			eq(ns.db.shareLocation, nil)
+			ns.Layers.Reset()
+			ns.rdb.realmKey = "secret"
+			eq(ns.Layers.AskChoice(), true)
+			eq(game.shown[2].a, ns.L.CHANNEL_SEALED, "sealed: the key's holders")
+			-- Keep private (or Escape): kept, never asked again.
+			d.OnCancel(nil, nil, "clicked")
+			eq(ns.db.shareLocation, false); eq(printed[#printed], ns.L.LOCATION_OFF)
+			ns.Layers.Reset()
+			eq(ns.Layers.AskChoice(), false, "answered: never again"); eq(#game.shown, 2)
+			-- Share: kept too.
+			ns.db.shareLocation = nil
+			d.OnAccept()
+			eq(ns.db.shareLocation, true); eq(printed[#printed], ns.L.LOCATION_ON)
+			ns.Layers.Reset()
+			eq(ns.Layers.AskChoice(), false)
+		end)
+		-- The gamepad UI: our own window, its buttons answer.
+		WithUI(function()
+			WithGamepadUI(true, function(game)
+				ns.db.shareLocation = nil
+				ns.Layers.Reset()
+				eq(ns.Layers.AskChoice(), true)
+				eq(#game.shown, 0, "never the game's popup")
+				local f = ns.Dialog.Find("OLYMPUS_LOCATION_CHOICE")
+				assert(f and f:IsShown(), "our window")
+				assert(f.text:GetText():find(ns.L.CHANNEL_SEALED, 1, true), f.text:GetText())
+				f.buttons[2]:Click()
+				eq(ns.db.shareLocation, false)
+			end)
+		end)
+		-- /oly location on | off, alone it says which; /oly status shows it.
+		SlashCmdList.OLYMPUS("location on"); eq(ns.db.shareLocation, true)
+		SlashCmdList.OLYMPUS("location off"); eq(ns.db.shareLocation, false)
+		SlashCmdList.OLYMPUS("location"); eq(printed[#printed], ns.L.LOCATION_OFF)
+		assert(ns.StatusText():find("privacy: zone and layer off  |  channel sealed", 1, true), "in /oly status")
+		ns.db.shareLocation = nil
+		assert(ns.StatusText():find("privacy: zone and layer not chosen (off)", 1, true))
+	end)
+	ns.db.shareLocation, InCombatLockdown, IsInInstance, ns.rdb.realmKey = saved.share, saved.combat, saved.instance, saved.key
+	ns.Print, ns.Comm.Hello, ns.Comm.Send, GetGuildInfo = saved.print, saved.hello, saved.send, saved.guild
+	ns.Layers.Reset()
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.1 privacy: the first line in each channel waits for the player's OK (#16)", function()
+	local savedWarned, savedChat, savedTime, clock = ns.db.chatWarned, ns.rdb.chat, GetTime, 20000000
+	GetTime = function() return clock end
+	local ok, err = pcall(function()
+		ns.db.chatWarned = nil
+		local d = StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY
+		eq(d.text, ns.L.CHAN_WARN_ASK); eq(d.button1, SEND_LABEL or "Send"); eq(d.button2, CANCEL or "Cancel")
+		WithGamepadUI(false, function(game)
+			WithLane(function(sent)
+				AsRank(3, function()
+					eq(select(2, Chan.Send("C", "hi")), "rank", "a line refused anyway never asks")
+				end)
+				AsRank(0, function(printed)
+					-- /olc: the line is held, the warning shown, nothing sent.
+					local okSend, why = Chan.Send("C", "the raid is at eight")
+					eq(okSend, false); eq(why, "confirm"); eq(#sent, 0)
+					eq(#game.shown, 1); eq(game.shown[1].which, "OLYMPUS_CHAT_PRIVACY"); eq(game.shown[1].a, "Captains")
+					eq(game.shown[1].b, ns.L.CHANNEL_PUBLIC, "who can join the channel")
+					eq(game.shown[1].data.text, "the raid is at eight")
+					-- Cancel: not sent, still to be asked; an answered window answers once.
+					d.OnCancel(nil, game.shown[1].data, "clicked")
+					eq(#sent, 0); eq(printed[#printed], ns.L.CHAN_WARN_NOT_SENT); eq(ns.db.chatWarned.C, nil)
+					d.OnAccept(nil, game.shown[1].data)
+					eq(#sent, 0)
+					-- Asked again; Send: the held line goes out, and [Captains] is warned for good.
+					clock = clock + 10
+					Chan.Send("C", "the raid is at eight")
+					eq(#game.shown, 2)
+					d.OnAccept(nil, game.shown[2].data)
+					eq(#sent, 1); assert(sent[1]:find("^M1~C~Olympus II~%d+~PA~the raid is at eight$"), sent[1])
+					eq(ns.db.chatWarned.C, true)
+					clock = clock + 10
+					eq((Chan.Send("C", "bring potions")), true, "not asked again")
+					eq(#sent, 2); eq(#game.shown, 2)
+					-- Each channel once: [Lords] and [Olympus] ask too.
+					clock = clock + 10
+					eq(select(2, Chan.Send("L", "lords only")), "confirm"); eq(game.shown[3].a, "Lords")
+					clock = clock + 10
+					eq(select(2, Chan.Send("A", "hello army")), "confirm"); eq(game.shown[4].a, "Olympus")
+					eq(#sent, 2)
+					for _, line in ipairs(printed) do assert(line ~= "CHAN_NOTICE", "no notice after a line any more") end
+				end)
+			end)
+		end)
+		-- The gamepad UI: our own window holds the line, and its Send sends it.
+		ns.db.chatWarned = nil
+		WithUI(function()
+			WithGamepadUI(true, function(game)
+				WithLane(function(sent)
+					AsRank(3, function()
+						clock = clock + 10
+						eq(select(2, Chan.Send("A", "for olympus")), "confirm")
+						eq(#game.shown, 0)
+						local f = ns.Dialog.Find("OLYMPUS_CHAT_PRIVACY")
+						assert(f and f:IsShown(), "our window")
+						assert(f.text:GetText():find("[Olympus] is not private", 1, true), f.text:GetText())
+						eq(f.data.text, "for olympus", "the line rides in the window")
+						f.buttons[1]:Click()
+						eq(#sent, 1); assert(sent[1]:find("~for olympus$"), sent[1])
+						eq(ns.db.chatWarned.A, true)
+					end)
+				end)
+			end)
+		end)
+	end)
+	GetTime, ns.db.chatWarned, ns.rdb.chat = savedTime, savedWarned, savedChat
 	if not ok then error(err, 0) end
 end)
 

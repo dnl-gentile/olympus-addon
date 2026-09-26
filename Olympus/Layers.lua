@@ -37,10 +37,23 @@ local function CurrentMap()
 	return mapID
 end
 
+-- Our zone and layer go out only with the player's yes (0.9.1): without a realm key the
+-- Olympus channel is public. Off until they answer (ns.db.shareLocation is nil until then,
+-- account-wide): no layer announcement, and the census they send names nobody's zone
+-- (Comm.Broadcast). The King's crown on the map (the Throne) is his yes for his layer too:
+-- the army follows him there.
+function Layers.Sharing() return ns.db.shareLocation == true end
+
+local function Announces()
+	if Layers.Sharing() then return true end
+	local K = ns.King
+	return (K and K.IsKing and K.SharingLocation and K.IsKing() and K.SharingLocation()) and true or false
+end
+
 local retryQueued = false
 
 local function Announce(force)
-	if not mine or not IsInGuild() then return end
+	if not mine or not IsInGuild() or not Announces() then return end
 	local now = ns.Now()
 	if not force and now - lastAnnounce < ANNOUNCE_EVERY then return end
 	if now - lastAnnounce < MIN_GAP then
@@ -59,7 +72,8 @@ local function Announce(force)
 	local guild = GetGuildInfo("player")
 	if not ns.IsFederation(guild) then return end
 	-- With thousands of users only officers and a stable 1 in 8 sample announce, which is
-	-- enough to see the layers and to name each one after its highest rank.
+	-- enough to see the layers and to name each one after its highest rank. (The King is an
+	-- officer: his crown's layer always goes.)
 	if not ns.Roster.IsOfficer() and not Layers.InSample() then return end
 	ns.Comm.Send("CHANNEL", ns.Codec.EncodeLayer(mine.mapID, mine.zoneUID, ns.Roster.MyRank(), guild), "layer")
 end
@@ -100,7 +114,47 @@ end
 
 function Layers.Mine() return mine end
 Layers.Observe = Observe -- tests
-function Layers.Reset() mine, pending = nil, nil; wipe(seen); wipe(where) end -- tests
+local asked = false -- the sharing question was put to the player this session
+function Layers.Reset() mine, pending, asked = nil, nil, false; wipe(seen); wipe(where) end -- tests
+
+-- The player's answer: on, our layer goes out at once; either way our guild's reporter learns
+-- it from our hello (it names our zone only while we share, Comm.SharesZone).
+function Layers.SetSharing(on)
+	ns.db.shareLocation = on and true or false
+	ns.Print(on and L.LOCATION_ON or L.LOCATION_OFF)
+	ns.Comm.Hello(true)
+	if on then Announce(true) end
+end
+
+function Layers.SharingState()
+	local v = ns.db.shareLocation
+	return v == true and "on" or (v == false and "off" or "not chosen (off)")
+end
+
+-- Asked once a session until answered: never in combat or an instance (asked later), never
+-- again once answered. What goes out, and who reads it, are in the question itself.
+StaticPopupDialogs["OLYMPUS_LOCATION_CHOICE"] = {
+	text = L.LOCATION_ASK,
+	button1 = L.LOCATION_SHARE,
+	button2 = L.LOCATION_KEEP,
+	OnAccept = function() ns.SafeCall("location choice", Layers.SetSharing, true) end,
+	-- Keep private (or Escape) is a no. Pushed out by another window: no answer, asked next login.
+	OnCancel = function(_, _, reason)
+		if reason == "clicked" then ns.SafeCall("location choice", Layers.SetSharing, false) end
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+function Layers.AskChoice()
+	if asked or ns.db.shareLocation ~= nil or not ns.IsMember() then return false end
+	if (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance()) then return false end
+	asked = true
+	ns.ShowDialog("OLYMPUS_LOCATION_CHOICE", ns.Comm.Audience())
+	return true
+end
 
 -- Where a player last announced their layer: { mapID, zoneUID, t } while fresh, else nil.
 -- The census and the channel may write a name with different realms: short names match too,
@@ -222,6 +276,10 @@ ns.On("LOGIN", function()
 	ns.Every(60, "layer announce", function()
 		Prune()
 		Announce(false)
+		Layers.AskChoice()
 	end)
+	-- Once the login settled (our officers hand out the realm key in the first seconds, and
+	-- the question names the channel's state); then on the minute until it could be asked.
+	ns.After(45, "location choice", Layers.AskChoice)
 end)
 

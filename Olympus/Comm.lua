@@ -44,6 +44,7 @@ local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
 local peerRealm = {} -- guild peer -> realm from its hello, "old" for versions that send none
 local peerVersion = {} -- guild peer -> the addon version its hello named
 local peerSealed = {} -- guild peer -> "s" (on the sealed channel) or "p" (public), from its hello
+local peerZone = {} -- guild peer -> true when its hello says it shares its zone (0.9.1, Comm.SharesZone)
 -- Short name -> last time we heard it report our guild on the channel. Short: the server may
 -- send a name with its realm over GUILD and without it over CHANNEL (names are region-unique
 -- on the realmless client).
@@ -339,6 +340,12 @@ end
 function Comm.ChannelName() return joinedName end
 function Comm.DeliveredLogged() return deliveredLogged end
 
+-- Who can read the channel, as the privacy questions tell the player (Layers, Channels):
+-- anyone without a realm key, whoever holds the key with one.
+function Comm.Audience()
+	return (ns.rdb and ns.rdb.realmKey) and ns.L.CHANNEL_SEALED or ns.L.CHANNEL_PUBLIC
+end
+
 -- No key? Ask our guild (officers who have it answer, over GUILD).
 function Comm.RequestKey()
 	if ns.IsMember() and ns.rdb and not ns.rdb.realmKey then Enqueue("GUILD", "K0~", "keyreq") end
@@ -365,18 +372,38 @@ end
 -- Only names that could win the reporter election need to keep talking: once 10 members
 -- that sort before us are known, we go quiet (still one hello per 10 minutes to be counted).
 local lastHello = 0
-function Comm.Hello()
+-- force: now, whatever the above (the player changed what the hello says).
+function Comm.Hello(force)
 	if not IsInGuild() then return end
 	local now, before = ns.Now(), 0
 	for name, t in pairs(peers) do
 		if now - t <= PEER_WINDOW and name < (ns.me or "") and (benched[name] or 0) <= now then before = before + 1 end
 	end
-	if before >= 10 and now - lastHello < 600 then return end
+	if not force and before >= 10 and now - lastHello < 600 then return end
 	lastHello = now
 	-- Our realm rides along: guildmates on another realm show in /oly status (topology). So does
 	-- our channel: without the key we can't hear a reporter on the sealed one (MaybeBroadcast).
+	-- And "z" when we share our zone (0.9.1): our guild's reporter may name it then, never
+	-- otherwise. Older versions read the fields before it and ignore the rest.
 	local sealed = ns.rdb and ns.rdb.realmKey and "s" or "p"
-	Enqueue("GUILD", "H1~" .. ns.VERSION .. "~" .. tostring(ns.realm) .. "~" .. sealed, "hello")
+	local zone = ns.Layers and ns.Layers.Sharing and ns.Layers.Sharing() and "~z" or ""
+	Enqueue("GUILD", "H1~" .. ns.VERSION .. "~" .. tostring(ns.realm) .. "~" .. sealed .. zone, "hello")
+end
+
+-- Does this guildmate share their zone (their hello says so, or it is us and we do)? By the
+-- short name the roster gives, like heardOwn: the roster and guild messages may write the
+-- realm apart. Only while they are counted (COUNT_WINDOW): quiet peers say hello every 10 min.
+function Comm.SharesZone(name)
+	if type(name) ~= "string" or name == "" then return false end
+	local short = ns.ShortName(ns.Normal(name)):lower()
+	if ns.me and short == ns.ShortName(ns.me):lower() then
+		return ns.Layers and ns.Layers.Sharing and ns.Layers.Sharing() or false
+	end
+	local now = ns.Now()
+	for peer, t in pairs(peers) do
+		if peerZone[peer] and now - t <= COUNT_WINDOW and ns.ShortName(peer):lower() == short then return true end
+	end
+	return false
 end
 
 -- The peers that may be elected: every one, but those left out by the guard below.
@@ -448,7 +475,11 @@ end
 function Comm.Broadcast(report)
 	lastBroadcast = ns.Now()
 	msgId = (msgId + 1) % 1000
-	local payload = Codec.EncodeReport(report)
+	-- Where people are goes out only with their yes (0.9.1): nothing of it unless we share our
+	-- own zone, and then the counts per zone and the zones of the leader and officers who
+	-- share theirs. Our own window keeps the whole report (it never leaves this client).
+	local sharing = ns.Layers and ns.Layers.Sharing and ns.Layers.Sharing()
+	local payload = Codec.EncodeReport(Codec.Shareable(report, sharing, sharing and Comm.SharesZone or nil))
 	local chunks = Codec.Chunk(payload, tostring(msgId))
 	for _, c in ipairs(chunks) do Enqueue("CHANNEL", c) end
 	ns.Log("broadcast %s: %d bytes in %d chunks", report.guild, #payload, #chunks)
@@ -616,6 +647,7 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		peerVersion[sender] = text:match("^H1~(%d+%.%d+%.%d+)") or "?"
 		local sealed = text:match("^H1~[^~]*~[^~]*~([^~]*)")
 		peerSealed[sender] = (sealed == "s" or sealed == "p") and sealed or nil
+		peerZone[sender] = text:match("^H1~[^~]*~[^~]*~[^~]*~([^~]*)") == "z" or nil
 		return
 	end
 	local handler = handlers[text:sub(1, 2)]
