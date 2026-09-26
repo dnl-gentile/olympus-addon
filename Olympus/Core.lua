@@ -857,6 +857,7 @@ local function Help()
 	print(L.HELP_CHAN_CAPTAINS)
 	print(L.HELP_CHAN_LORDS)
 	print(L.HELP_CHAN_MUTE)
+	print(L.HELP_CHATWIN)
 	print(L.HELP_VOX)
 	print("  /oly mates - show/hide guildmates on map and minimap")
 	print("  /oly share - share/stop sharing your position with your guild")
@@ -968,6 +969,8 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Channels.Send(ns.Channels.TierForWord(cmd), rest)
 		elseif cmd == "mute" then
 			ns.Channels.ToggleMute(rest)
+		elseif cmd == "chatwindow" then
+			ns.Channels.ChooseWindow(rest)
 		else
 			Help()
 		end

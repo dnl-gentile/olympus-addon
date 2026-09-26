@@ -530,7 +530,8 @@ local function ChatTiers()
 	return out
 end
 
-Views.CHAT_SHOWN = 60
+-- Every line the history keeps (Channels.HISTORY): lines kept but never shown were lost all the same.
+Views.CHAT_SHOWN = ns.Channels and ns.Channels.HISTORY or 100
 local function ChatLines()
 	local C = ns.Channels
 	local lines = { { text = Gold(L.CHATS_BACK), onClick = function() Views.ShowChat(nil) end, gapAfter = true } }

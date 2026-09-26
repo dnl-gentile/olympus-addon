@@ -127,6 +127,16 @@ WoW channel number to join). Each channel is exclusive to a rank:
 
 - Higher ranks also use the channels below theirs: a Lord writes in all three.
 - `/oly mute captains` (or `olympus`, `lords`) hides a channel in chat; the same command shows it again.
+- `/oly chatwindow Olympus` shows the three channels in your chat window called "Olympus"
+  (make the tab in the game first: right-click a chat tab, Create New Window), by name or by
+  number; `/oly chatwindow Olympus captains` moves one channel only, and `/oly chatwindow main`
+  brings them back. Only where the lines are printed changes: the addon never touches the chat
+  box, so every command typed there works as always. A window closed or renamed sends its
+  lines back to the main window, with a notice. `/oly status` shows where each channel goes.
+- The flood guard keeps a busy channel readable: past 60 lines a minute (or 10 from one player
+  while the channel is half full) the rest stay off the chat, and a notice says how many, at
+  most once a minute. Those lines still go to the Realm tab's Olympus chats, which keep the
+  last 100 lines of each channel.
 - Shift-click an item or spell into the line and it stays a link. Long lines are split into
   up to 3 messages.
 - The channels show only in the chat of players with the addon.
@@ -390,6 +400,7 @@ Limits, stated honestly:
 | `/ol <text>` · `/olc <text>` · `/oll <text>` | write in [Olympus], [Captains] or [Lords] |
 | `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |
 | `/oly mute olympus` · `/oly mute captains` · `/oly mute lords` | hide or show a channel in chat |
+| `/oly chatwindow <number or name> [olympus\|captains\|lords]` · `/oly chatwindow main` | show the Olympus chats in another chat window, or back in the main one |
 | `/oly hop` | ask for an invite to the King's layer (while he is online) |
 | `/oly vox off` · `/oly vox on` | Vox Populi questions in chat only, or in a window |
 | `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer |

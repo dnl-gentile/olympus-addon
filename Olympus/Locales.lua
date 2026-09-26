@@ -681,6 +681,20 @@ L.HELP_CHAN_CAPTAINS = "  /olc <text> - Captains and Lords channel"
 L.HELP_CHAN_LORDS = "  /oll <text> - Lords channel (with the officers of <Olympus>)"
 L.HELP_CHAN_MUTE = "  /oly mute olympus | captains | lords - hide or show a channel in chat"
 
+-- 0.9.1: chat
+L.HELP_CHATWIN = "  /oly chatwindow <number|name> [olympus|captains|lords] - show the Olympus chats in another chat window (main: back to the main one)"
+L.CHATWIN_USAGE = "Usage: /oly chatwindow <number or name> [olympus | captains | lords]. Make the tab in the game first (right-click a chat tab), then pick it here. /oly chatwindow main puts them back in the main window."
+L.CHATWIN_NOW = "Olympus chats: %s."
+L.CHATWIN_SET = "%s: now in the chat window %s."
+L.CHATWIN_MAIN = "%s: back in the main chat window."
+L.CHATWIN_MAIN_NAME = "main window"
+L.CHATWIN_GONE_TAG = "(gone: main window for now)"
+L.CHATWIN_NOT_FOUND = "No open chat window %s. Open ones: %s. Make one in the game (right-click a chat tab, %s), then pick it here by its number or name."
+L.CHATWIN_NEW = "Create New Window"
+L.CHATWIN_COMBATLOG = "The combat log clears itself: pick another chat window for the Olympus chats."
+L.CHATWIN_GONE = "The chat window %s is gone (closed or renamed): its Olympus chats show in the main window until it is back. /oly chatwindow picks another."
+L.CHAN_FLOOD_NOTICE = "The flood guard kept lines off the chat, too many at once (%s). They are in The Realm tab, under Olympus chats, which keeps the last %d lines of each channel."
+
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1318,4 +1332,17 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.HELP_CHAN_CAPTAINS = "  /olc <texto> - canal dos Capitães e Lordes"
 	L.HELP_CHAN_LORDS = "  /oll <texto> - canal dos Lordes (com os officers da <Olympus>)"
 	L.HELP_CHAN_MUTE = "  /oly mute olympus | captains | lords - esconder ou mostrar um canal no chat"
+	-- 0.9.1: chat
+	L.HELP_CHATWIN = "  /oly chatwindow <número|nome> [olympus|captains|lords] - mostrar os chats Olympus em outra janela de chat (main: de volta à principal)"
+	L.CHATWIN_USAGE = "Uso: /oly chatwindow <número ou nome> [olympus | captains | lords]. Crie a aba no jogo antes (botão direito numa aba do chat) e escolha aqui. /oly chatwindow main devolve os chats à janela principal."
+	L.CHATWIN_NOW = "Chats Olympus: %s."
+	L.CHATWIN_SET = "%s: agora na janela de chat %s."
+	L.CHATWIN_MAIN = "%s: de volta à janela de chat principal."
+	L.CHATWIN_MAIN_NAME = "janela principal"
+	L.CHATWIN_GONE_TAG = "(sumiu: janela principal por enquanto)"
+	L.CHATWIN_NOT_FOUND = "Nenhuma janela de chat aberta chamada %s. Abertas: %s. Crie uma no jogo (botão direito numa aba do chat, %s) e escolha aqui pelo número ou nome."
+	L.CHATWIN_NEW = "Nova janela"
+	L.CHATWIN_COMBATLOG = "O registro de combate se apaga sozinho: escolha outra janela de chat para os chats Olympus."
+	L.CHATWIN_GONE = "A janela de chat %s sumiu (fechada ou renomeada): os chats Olympus dela aparecem na janela principal até ela voltar. /oly chatwindow escolhe outra."
+	L.CHAN_FLOOD_NOTICE = "O controle de flood deixou linhas fora do chat, muitas de uma vez (%s). Estão na aba O Reino, em Chats Olympus, que guarda as últimas %d linhas de cada canal."
 end

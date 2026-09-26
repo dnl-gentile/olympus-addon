@@ -206,6 +206,7 @@ function ns.StatusText()
 			add("chat: sent=%d shown=%d hidden=%d lane=%d muted=%s drops bad=%d dup=%d rate=%d flood=%d forged=%d unverified=%d rank=%d",
 				ch.sent, ch.shown, ch.hidden, c.chatQueue or 0, #ch.muted > 0 and table.concat(ch.muted, ",") or "none",
 				ch.bad, ch.dup, ch.rate, ch.flood, ch.forged, ch.unverified, ch.rank)
+			if ns.Channels.WindowStatus then add("chat windows: %s", ns.Channels.WindowStatus()) end
 		end
 	end
 	local n = 0
