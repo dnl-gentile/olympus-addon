@@ -542,6 +542,27 @@ function ns.LearnKingRealm(sender)
 	ns.Log("the Horde's King is on %s (learned from his first message)", realm)
 end
 
+-- The High Council (0.9.6): the Olympus moderators, by character name on the King's realm group
+-- (names taken on other realms, launch realms included, are nobody's until this list is updated).
+-- Shown with a skull and their own colour in the Olympus chats.
+ns.HIGH_COUNCIL = {
+	"Fern Melder", "Max Ran", "Akafoxslayer Foxslayer", "Ioi Ioi", "Hildryn Payne", "Nomad Man",
+	"Kryptiiq Lastname", "Banananana Peel", "Freejam Bald", "Jay Bombadil",
+}
+ns.HIGH_COUNCIL_REALM = "ClassicBetaPvP"
+ns.HIGH_COUNCIL_ICON = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_8:0|t"
+ns.HIGH_COUNCIL_COLOR = "ffb048f8"
+local council
+function ns.IsHighCouncillor(name)
+	if type(name) ~= "string" then return false end
+	if not council then
+		council = {}
+		for _, n in ipairs(ns.HIGH_COUNCIL) do council[n:lower()] = true end
+	end
+	if not council[ns.ShortName(name):lower()] then return false end
+	return OfGroup(name, ns.HIGH_COUNCIL_REALM)
+end
+
 -- The Crown: guild masters of any Olympus guild, and the officers of the King's guild.
 function ns.IsCrownRank(guild, rankIndex)
 	if not guild or not rankIndex then return false end
@@ -832,6 +853,21 @@ end
 -- The addon's popups (its StaticPopupDialogs entries): with mouse and keyboard the game's own,
 -- as always; with the gamepad UI Olympus's (Dialog.lua), because there the game's popups
 -- break when an addon opens one (the "blocked" loop that freezes the game).
+-- Escape closes our windows (UISpecialFrames), except with Blizzard's gamepad UI on: its menus
+-- close every window on that list, ours with them, while the player is using it (0.9.6). There
+-- they close with their own X.
+function ns.EscapeCloses(name)
+	if type(name) ~= "string" or not UISpecialFrames then return end
+	for i, n in ipairs(UISpecialFrames) do
+		if n == name then
+			-- Switched to the gamepad UI since: off the list (checked each time it shows).
+			if ns.GamepadUI() then table.remove(UISpecialFrames, i) end
+			return
+		end
+	end
+	if not ns.GamepadUI() then table.insert(UISpecialFrames, name) end
+end
+
 function ns.ShowDialog(which, a, b, data)
 	ns.Log("dialog %s (%s)", tostring(which), ns.GamepadUI() and "olympus window, gamepad UI" or "game popup")
 	if ns.GamepadUI() then

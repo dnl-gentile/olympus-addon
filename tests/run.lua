@@ -8985,5 +8985,38 @@ test("0.9.5 the Issue Reporter: shown until the player hides it, then hidden at 
 	end)
 end)
 
+-- 0.9.6: the High Council and the gamepad escape list
+test("0.9.6 the High Council: a skull and a colour in the Olympus chats, on their realm group only", function()
+	local realm = ns.HIGH_COUNCIL_REALM
+	ns.HIGH_COUNCIL_REALM = "Realm"
+	local ok, err = pcall(function()
+		eq(ns.IsHighCouncillor("Max Ran-Realm"), true); eq(ns.IsHighCouncillor("max ran"), true, "any case")
+		eq(ns.IsHighCouncillor("Max Ran-OtherRealm"), false, "a namesake elsewhere")
+		eq(ns.IsHighCouncillor("Random Guy-Realm"), false)
+		local line = ns.Channels.FormatLine("A", "Max Ran-Realm", "Olympus", nil, "hello")
+		assert(line:find(ns.HIGH_COUNCIL_ICON, 1, true) and line:find(ns.HIGH_COUNCIL_COLOR, 1, true), line)
+		assert(not ns.Channels.FormatLine("A", "Random Guy-Realm", "Olympus", nil, "hi"):find(ns.HIGH_COUNCIL_ICON, 1, true))
+	end)
+	ns.HIGH_COUNCIL_REALM = realm
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.6 gamepad UI: our windows are not on the escape list Blizzard's gamepad menus sweep", function()
+	local saved, gp = UISpecialFrames, ns.GamepadUI
+	local ok, err = pcall(function()
+		UISpecialFrames = {}
+		ns.GamepadUI = function() return false end
+		ns.EscapeCloses("OlympusTestFrame"); ns.EscapeCloses("OlympusTestFrame")
+		eq(#UISpecialFrames, 1, "mouse and keyboard: Escape closes it, listed once")
+		ns.GamepadUI = function() return true end
+		ns.EscapeCloses("OlympusTestFrame")
+		eq(#UISpecialFrames, 0, "gamepad UI: taken off")
+		ns.EscapeCloses("OlympusOther")
+		eq(#UISpecialFrames, 0, "and never added")
+	end)
+	UISpecialFrames, ns.GamepadUI = saved, gp
+	if not ok then error(err, 0) end
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
