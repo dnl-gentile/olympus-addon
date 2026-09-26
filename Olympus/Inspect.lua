@@ -21,6 +21,9 @@ Inspect.STATUS_ORDER = STATUS_ORDER
 local patrol = false
 local queue, queued = {}, {}
 local pending -- { guid, unit, at }
+-- During a Royal Inspection: at most one request every `pace` seconds (King.INSPECT_PACE).
+local pace, lastRequest = nil, -math.huge
+function Inspect.SetPace(seconds) pace = seconds end
 Inspect.stats = { requests = 0, ready = 0, timeouts = 0 }
 
 -- Kept per realm (ns.rdb): the players of one realm say nothing about another one.
@@ -163,6 +166,7 @@ local function Pump()
 	end
 	if InCombatLockdown() then return end
 	if InspectFrame and InspectFrame:IsShown() then return end -- the player is inspecting by hand
+	if pace and GetTime() - lastRequest < pace then return end
 	if patrol then ScanNearby() end
 	while #queue > 0 do
 		local item = table.remove(queue, 1)
@@ -170,6 +174,7 @@ local function Pump()
 		local unit = item.unit
 		if UnitGUID(unit) == item.guid and CanInspect(unit) and CheckInteractDistance(unit, 1) then
 			pending = { guid = item.guid, unit = unit, at = GetTime() }
+			lastRequest = GetTime()
 			Inspect.stats.requests = Inspect.stats.requests + 1
 			NotifyInspect(unit)
 			return

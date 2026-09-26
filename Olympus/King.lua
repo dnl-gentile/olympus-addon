@@ -24,7 +24,15 @@ ns.King = King
 King.SUMMON_OPEN = 60        -- the popup stays this long
 King.SUMMON_GAP = 60         -- one roll call a minute at most (sent or accepted)
 King.INSPECT_TIME = 120      -- each addon patrols this long
-King.INSPECT_GAP = 600       -- one Royal Inspection every 10 minutes at most
+King.INSPECT_GAP = 1800      -- one Royal Inspection every 30 minutes at most (0.9.2), whoever calls it
+-- The realm's share of the load (0.9.2). An inspect is one request to the server for a player
+-- in reach. Budget: INSPECT_BUDGET requests a second across the whole realm. A client on the
+-- inspection sends one every INSPECT_PACE seconds at most, so INSPECT_BUDGET * INSPECT_PACE =
+-- 100 clients can take part at once; with N addons online (the census counts them) each one
+-- takes part with probability 100 / N (all of them while there are 100 or fewer). 3,000 online:
+-- 1 in 30, about 20 requests a second for 2 minutes, then nothing for at least 30 minutes.
+King.INSPECT_BUDGET = 20
+King.INSPECT_PACE = 5
 King.AGENDA_RESEND = 300     -- the King's client repeats the agenda for late logins
 King.MAX_NAMES = 6           -- violators per inspection report (message size)
 King.AGENDA_GAP = 60         -- one new agenda a minute at most (each one is a raid warning)
@@ -441,9 +449,11 @@ function King.RunInspection(king, id)
 	inspecting = { king = king, id = id, start = start, wasOn = ns.Inspect.IsPatrolling() }
 	Warn(L.THRONE_INSPECT_WARN, true)
 	if not inspecting.wasOn then ns.Inspect.SetPatrol(true) end
+	ns.Inspect.SetPace(King.INSPECT_PACE) -- the realm's budget (INSPECT_BUDGET)
 	ns.After(King.INSPECT_TIME, "royal inspection", function()
 		local run = inspecting
 		inspecting = nil
+		ns.Inspect.SetPace(nil)
 		if not run then return end
 		if not run.wasOn and ns.Inspect.IsPatrolling() then ns.Inspect.SetPatrol(false) end
 		local ok, none, other, names = 0, 0, 0, {}
@@ -469,10 +479,30 @@ function King.RunInspection(king, id)
 	end)
 end
 
+-- The addons online the census knows of (fresh reports), at least 1.
+function King.AddonsOnline()
+	local n = 0
+	for _, e in ipairs(ns.Data.Summary().guilds) do
+		if e.fresh then n = n + (tonumber(e.g.users) or 0) end
+	end
+	return math.max(n, 1)
+end
+
+-- This client's chance to take part in an inspection (see INSPECT_BUDGET).
+function King.InspectShare()
+	return math.min(1, King.INSPECT_BUDGET * King.INSPECT_PACE / King.AddonsOnline())
+end
+King.random = math.random -- tests
+
 local function OnInspect(king, id)
 	local now = ns.Now()
 	if now - lastInspectSeen < King.INSPECT_GAP then return end
 	lastInspectSeen = now
+	-- Everyone hears the King's call; only a sample of the army patrols (and reports).
+	if King.random() > King.InspectShare() then
+		ns.Log("inspection %d: not in this sample (%.2f)", id or 0, King.InspectShare())
+		return Warn(L.THRONE_INSPECT_WARN, true)
+	end
 	King.RunInspection(king, id)
 end
 

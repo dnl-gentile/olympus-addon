@@ -2453,9 +2453,14 @@ local function WithWho(fn)
 	ns.rdb.guilds, ns.rdb.seen, ns.Recruit.found = {}, {}, {}
 	ns.Who.Reset()
 	ns.Who.lastSend, ns.Who.lastPlain = 0, 0
+	-- (These tests click faster than 0.9.2's once a minute: theirs is the old pace; the minute
+	-- has its own test.)
+	local autoGap = ns.Who.AUTO_GAP
+	ns.Who.lastAuto, ns.Who.AUTO_GAP = -math.huge, ns.Who.COOLDOWN
 	local ok, err = pcall(fn, server)
 	ns.Who.Reset()
 	ns.Who.lastSend, ns.Who.lastPlain = 0, 0
+	ns.Who.lastAuto, ns.Who.AUTO_GAP = -math.huge, autoGap
 	C_Timer.After, GetTime, ns.Print, ns.CaptureError = saved.After, saved.GetTime, saved.Print, saved.CaptureError
 	ns.rdb.guilds, ns.rdb.seen, ns.Recruit.found = saved.guilds, saved.seen, saved.found
 	for _, name in ipairs(WHO_GLOBALS) do _G[name] = nil end
@@ -8643,6 +8648,45 @@ do
 		end)
 	end)
 end
+
+-- 0.9.2: inspection load
+test("0.9.2 Royal Inspection: a realm-wide budget, once every 30 minutes, a paced sample of the army", function()
+	WithThrone(function(w, K)
+		local saved = { random = K.random, summary = ns.Data.Summary }
+		local ok, err = pcall(function()
+			eq(K.INSPECT_GAP, 1800); eq(K.INSPECT_BUDGET * K.INSPECT_PACE, 100, "100 clients at once, 20 requests a second")
+			local users = 3000
+			ns.Data.Summary = function() return { guilds = { { fresh = true, g = { users = users } }, { fresh = false, g = { users = 9999 } } } } end
+			eq(K.AddonsOnline(), 3000, "fresh reports only")
+			eq(K.InspectShare(), 100 / 3000)
+			users = 40
+			eq(K.InspectShare(), 1, "a small army: everyone")
+			users = 3000
+			-- Not in the sample: the call is heard, no patrol.
+			AsSoldier("Other")
+			if ns.Inspect.IsPatrolling() then ns.Inspect.SetPatrol(false) end
+			K.random = function() return 0.5 end
+			K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~I~11~Olympus")
+			eq(ns.Inspect.IsPatrolling(), false, "not in this sample")
+			-- A second call within 30 minutes (King or Hand): nothing, even for the sample.
+			K.random = function() return 0 end
+			w.clock = w.clock + 600
+			K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~I~12~Olympus")
+			eq(ns.Inspect.IsPatrolling(), false, "within 30 minutes")
+			w.clock = w.clock + 1201
+			K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~I~13~Olympus")
+			eq(ns.Inspect.IsPatrolling(), true, "in the sample, 30 minutes later")
+		end)
+		K.random, ns.Data.Summary = saved.random, saved.summary
+		if ns.Inspect.IsPatrolling() then ns.Inspect.SetPatrol(false) end
+		ns.Inspect.SetPace(nil)
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("0.9.2 who: the quiet search on a click goes once a minute at most", function()
+	eq(ns.Who.AUTO_GAP, 60)
+end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
