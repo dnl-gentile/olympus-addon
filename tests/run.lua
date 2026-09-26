@@ -74,7 +74,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Acts", "Workshop", "Recruit", "Views" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Recruit", "Views" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -374,8 +374,9 @@ test("Throne: only the King sees it and his commands are checked; Lords answer h
 		assert(lines[#lines].text:find(ns.L.THRONE_ENTER, 1, true) and lines[#lines].onClick, "and at its end")
 		lines[#lines].onClick()
 		eq(ns.db.throneLetterRead, true, "read")
+		eq(K.Build(ns.Data.Summary())[1].text, ns.L.THRONE_ROOM, "entered: the Throne Room")
 		K.Reset()
-		eq(K.Build(ns.Data.Summary())[1].text, ns.L.THRONE_ROOM, "the next session opens on the Throne Room")
+		eq(K.Build(ns.Data.Summary())[1].text, "< " .. ns.L.THRONE_ROOM, "the next session opens on the letter again: the Throne's cover")
 		ns.db.throneLetterRead = savedRead
 		K.Summon()
 		eq(#sent, 1); assert(sent[1]:find("^CHANNEL T1~S~%d+~Olympus$"), sent[1])
@@ -5654,7 +5655,7 @@ local function WithThrone(fn)
 		dev = ns.devThrone, chat = ns.rdb.chat, shame = ns.Inspect.shame }
 	local w = { sent = {}, whispered = {}, popups = {}, printed = {}, clock = os.time(), timers = {} }
 	local function Clean()
-		K.Reset(); ns.Vox.Reset(); ns.Court.Reset(); ns.Acts.Reset(); ns.Treasury.Reset()
+		K.Reset(); ns.Vox.Reset(); ns.Court.Reset(); ns.Acts.Reset(); ns.Treasury.Reset(); ns.Bank.Reset()
 		ns.rdb.writs, ns.rdb.writsSent, ns.rdb.pardons, ns.rdb.treasury, ns.rdb.treasurySeen = nil, nil, nil, nil, nil
 		ns.rdb.kingHands, ns.rdb.gates, ns.rdb.pardonsGiven = nil, nil, nil
 		ns.rdb.treasurySums, ns.rdb.treasuryReport, ns.rdb.treasuryFlags, ns.rdb.treasuryOpening = nil, nil, nil, nil
@@ -6482,6 +6483,193 @@ test("no Olympus file opens or closes the game's popups itself (ns.ShowDialog / 
 		end
 	end
 	p:close()
+end)
+
+test("the King's guild in one place: <Olympus> on the Alliance, the Horde's once it is set", function()
+	local savedFaction, savedHorde = ns.faction, ns.KING_GUILD.Horde
+	local ok, err = pcall(function()
+		ns.faction = "Alliance"
+		eq(ns.IsKingGuild("Olympus"), true); eq(ns.IsKingGuild("OLYMPUS"), true); eq(ns.IsKingGuild("Olympus II"), false); eq(ns.IsKingGuild(nil), false)
+		eq(ns.IsCrownRank("Olympus", 1), true); eq(ns.IsCrownRank("Olympus II", 1), false); eq(ns.IsCrownRank("Olympus II", 0), true)
+		ns.faction = "Horde"
+		eq(ns.IsKingGuild("Olympus"), true, "the Horde's, until his guild there is known: a guild named Olympus")
+		ns.KING_GUILD.Horde = nil
+		eq(ns.IsKingGuild("Olympus"), false, "no Horde King with no guild set")
+		ns.KING_GUILD.Horde = "olympus horde"
+		eq(ns.IsKingGuild("Olympus Horde"), true); eq(ns.IsKingGuild("Olympus"), false); eq(ns.IsCrownRank("Olympus Horde", 1), true)
+	end)
+	ns.faction, ns.KING_GUILD.Horde = savedFaction, savedHorde
+	if not ok then error(err, 0) end
+end)
+
+test("Royal Writs to the whole army: every member gets the parchment, nobody acknowledges; the two-step prompt", function()
+	WithUI(function()
+		LoadUI()
+		WithThrone(function(w, K)
+			local A = ns.Acts
+			eq(A.WritFor("E"), true, "a soldier reads a writ to all")
+			AsKing()
+			A.SendWrit("E", "Soldiers, march!")
+			local msg = LastSent(w)
+			assert(msg:find("^T1~W~%d+~Olympus~E~Soldiers, march!$"), msg)
+			local id = tonumber(msg:match("T1~W~(%d+)"))
+			-- A soldier gets it, on parchment, without the acknowledge button.
+			AsSoldier()
+			K.HandleCommand("CHANNEL", "Asmon-Realm", msg)
+			local got = ns.Acts.WritLines()
+			assert(Texts(got):find(ns.L.WRIT_TO_EVERYONE, 1, true), Texts(got))
+			eq(OlympusWritFrame:IsShown(), true); eq(OlympusWritFrame.ack.shown, false, "no 'As you command' for the army")
+			eq(OlympusWritFrame.to.text, ns.L.WRIT_TO_EVERYONE)
+			-- An acknowledgement for it counts for nothing on the King's side.
+			AsKing()
+			A.HandleAck("WHISPER", "Zed-Realm", ("T6~%d~Olympus Zeus"):format(id))
+			local mine = ns.rdb.writsSent[#ns.rdb.writsSent]
+			eq(mine.to, "E"); eq(mine.acks or 0, 0)
+			assert(not Texts(A.WritLines()):find(ns.L.WRIT_ACKS:format(0), 1, true), "no count shown for it")
+			-- The prompt: the words first (Cancel there), then who receives them.
+			w.clock = w.clock + 600
+			local box = { editBox = { GetText = function() return "Hold the bridge" end } }
+			StaticPopupDialogs.OLYMPUS_WRIT.OnAccept(box)
+			local p = w.popups[#w.popups]
+			eq(p.name, "OLYMPUS_WRIT_TO"); eq(p.data, "Hold the bridge")
+			local before = #w.sent
+			StaticPopupDialogs.OLYMPUS_WRIT_TO.OnCancel(nil, "Hold the bridge", "timeout")
+			eq(#w.sent, before, "a timeout sends nothing")
+			StaticPopupDialogs.OLYMPUS_WRIT_TO.OnCancel(nil, "Hold the bridge", "clicked")
+			assert(LastSent(w):find("~C~Hold the bridge$"), "the middle button: Lords and Captains")
+			w.clock = w.clock + 600
+			StaticPopupDialogs.OLYMPUS_WRIT_TO.OnAlt(nil, "Hold the bridge")
+			assert(LastSent(w):find("~E~Hold the bridge$"), "the third: the whole army")
+			w.clock = w.clock + 600
+			StaticPopupDialogs.OLYMPUS_WRIT_TO.OnAccept(nil, "Hold the bridge")
+			assert(LastSent(w):find("~L~Hold the bridge$"), "the first: the Lords")
+			eq(StaticPopupDialogs.OLYMPUS_WRIT_TO.noCancelOnEscape, true, "Escape sends nothing")
+			StaticPopupDialogs.OLYMPUS_WRIT.OnAccept({ editBox = { GetText = function() return "x" end } })
+			eq(w.popups[#w.popups].name, "OLYMPUS_WRIT_TO", "too short: no second step"); eq(w.popups[#w.popups].data, "Hold the bridge")
+		end)
+	end)
+end)
+
+test("the King's Agenda arrives as a popup with the appointment, once per agenda", function()
+	WithThrone(function(w, K)
+		AsSoldier()
+		K.Reset()
+		K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~A~77~Olympus~1800~The Crossroads~Raid on the Crossroads")
+		local p = w.popups[#w.popups]
+		eq(p.name, "OLYMPUS_AGENDA_CALL")
+		eq(p.a, ns.L.THRONE_AGENDA_POPUP:format(ns.KING_NAME, "Raid on the Crossroads", 30, "The Crossroads"))
+		local n = #w.popups
+		K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~A~77~Olympus~1790~The Crossroads~Raid on the Crossroads")
+		eq(#w.popups, n, "a resend: no second popup")
+		eq(StaticPopupDialogs.OLYMPUS_AGENDA_CALL.timeout, 120)
+	end)
+end)
+
+test("the guild bank of <Olympus>: a snapshot when it is opened, the Treasurer's copy for everyone, the tab shows it", function()
+	WithThrone(function(w, K)
+		local B, T = ns.Bank, ns.Treasury
+		local saved = { GetNumGuildBankTabs, GetGuildBankTabInfo, GetGuildBankItemInfo, GetGuildBankItemLink, GetGuildBankMoney, ns.splitNames, ns.Comm.SendChunked, ns.Roster.RankOf }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			B.Reset()
+			AsTreasurer()
+			GetNumGuildBankTabs = function() return 3 end
+			GetGuildBankTabInfo = function(tab) return ({ "Consumables", "Mate;rials~x", "Officers" })[tab], "icon" .. tab, tab ~= 3 end
+			local slots = { [1] = { [1] = { "tex1", 20, 929 }, [5] = { "tex2", 3, 6948 } }, [2] = { [1] = { "tex3", 200, 2589 } } }
+			GetGuildBankItemInfo = function(tab, slot) local s = slots[tab] and slots[tab][slot]; if s then return s[1], s[2] end end
+			GetGuildBankItemLink = function(tab, slot) local s = slots[tab] and slots[tab][slot]; return s and ("|Hitem:" .. s[3] .. ":0|h[x]|h") end
+			GetGuildBankMoney = function() return 1234567 end
+			-- Read: the tabs we may see and asked for, item and count, the bank's gold.
+			B.SetOpenForTest(true, { 1, 2 })
+			local snap, total = B.Read()
+			eq(#snap.tabs, 2); eq(total, 3); eq(snap.tabs[1].items[1].id, 929); eq(snap.tabs[1].items[2].n, 3)
+			eq(snap.tabs[1].items[1].icon, "tex1"); eq(snap.money, 1234567); eq(snap.guild, "Olympus")
+			eq(snap.tabs[2].name, "Mate rials  ", "the message's separators taken out of a tab's name")
+			ns.rdb.bank = snap
+			local msg = B.Message()
+			eq(msg, ("T9~Olympus~%d~1234567~Consumables;929x20,6948x3~Mate rials  ;2589x200"):format(snap.t))
+			-- Shared by the Treasurer's client alone, once per gap unless it changed.
+			ns.Comm.SendChunked = function(m) w.sent[#w.sent + 1] = { dist = "CHANNEL", msg = m, chunked = true } end
+			eq(B.Share(), true); eq(LastSent(w), msg)
+			eq(B.Share(), false, "unchanged, within the gap")
+			AsSoldier()
+			eq(B.Share(true), false, "not the Treasurer")
+			-- The King's copy: from the Treasurer alone, of the King's guild's bank.
+			AsKing(); ns.rdb.bank = nil
+			local savedRank = ns.Roster.RankOf
+			ns.Roster.RankOf = function(n) if ns.FullName(n) == "Pyralis Ashandar-Realm" then return 1 end return savedRank(n) end
+			B.HandleReport("CHANNEL", "Fake-Realm", msg); eq(B.Report(), nil, "not the Treasurer")
+			B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", (msg:gsub("^T9~Olympus~", "T9~Olympus II~"))); eq(B.Report(), nil, "not the King's guild")
+			B.HandleReport("WHISPER", "Pyralis Ashandar-Realm", msg); eq(B.Report(), nil, "the channel alone")
+			B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", msg)
+			local r = B.Report()
+			eq(#r.tabs, 2); eq(r.tabs[2].items[1].id, 2589); eq(r.tabs[2].items[1].n, 200); eq(r.money, 1234567); eq(r.by, "Pyralis Ashandar-Realm")
+			eq(r.tabs[1].name, "Consumables")
+			ns.Roster.RankOf = savedRank
+			-- What the tab shows: the newest of our own snapshot (the King's guild's) and his.
+			eq(B.Current(), r)
+			ns.rdb.bank = { t = r.t + 10, guild = "Olympus", by = ns.me, tabs = {} }; eq(B.Current(), ns.rdb.bank, "ours, newer")
+			ns.rdb.bank = { t = r.t + 10, guild = "Olympus II", by = ns.me, tabs = {} }; eq(B.Current(), r, "another guild's bank stays on its own screen")
+			ns.rdb.bank = nil
+			-- The King with nothing from the Treasurer's book yet: the sections waiting, the bank there.
+			local lines = T.Build()
+			local page = Texts(lines)
+			assert(page:find(ns.L.TREASURY_RANKING, 1, true), "the ranking, empty for now: " .. page)
+			assert(page:find(ns.L.TREASURY_BANK, 1, true) and page:find("Consumables", 1, true), page)
+			local grids = {}
+			for _, l in ipairs(lines) do if l.items then grids[#grids + 1] = l end end
+			eq(#grids, 2); eq(#grids[1].items, 2); eq(grids[1].items[1].id, 929)
+			-- A soldier: with the King's book switch only.
+			AsSoldier()
+			ns.rdb.treasuryFlags = nil
+			assert(not Texts(T.Build()):find(ns.L.TREASURY_BANK, 1, true), "hidden from the army")
+			ns.rdb.treasuryFlags = { book = true, at = 1 }
+			assert(Texts(T.Build()):find("Consumables", 1, true), "shown with the book")
+			-- Too old: gone.
+			r.t = r.t - B.REPORT_KEPT - 1
+			eq(B.Report(), nil)
+		end)
+		GetNumGuildBankTabs, GetGuildBankTabInfo, GetGuildBankItemInfo, GetGuildBankItemLink, GetGuildBankMoney, ns.splitNames, ns.Comm.SendChunked, ns.Roster.RankOf = unpack(saved, 1, 8)
+		ns.rdb.treasuryFlags = nil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("an items row: icons in a grid, the row as tall as it needs, a text row after it back to one line", function()
+	WithUI(function()
+		LoadUI()
+		local content = CreateFrame("Frame")
+		content.w, content.style = 300, "hd"
+		local items = {}
+		for i = 1, 20 do items[i] = { id = 900 + i, n = i, icon = "tex" .. i } end
+		ns.Views.Render(content, { { text = "a" }, { items = items }, { text = "b" }, { items = { { id = 1, n = 1 } } } })
+		local r = content.rows[2]
+		eq(#r.items, 20); eq(r.items[1].icon.texture, "tex1"); eq(r.items[1].count.text, "", "one: no count"); eq(r.items[2].count.text, "2")
+		eq(r.h, 3 * 32 + 4, "nine per row at 300 wide: three rows")
+		eq(r.items[10]:Anchor("TOPLEFT")[4], 4); eq(r.items[10]:Anchor("TOPLEFT")[5], -2 - 32, "the tenth starts the second row")
+		eq(content.rows[3].h, 20, "a text row again"); eq(content.rows[4].h, 32 + 4)
+		eq(content.rows[4].items[1].icon.texture, "Interface\\Icons\\INV_Misc_QuestionMark", "no icon known: a question mark")
+		-- Rendered again as text: the icons go.
+		ns.Views.Render(content, { { text = "a" }, { text = "c" } })
+		eq(content.rows[2].items[1]:IsShown(), false); eq(content.rows[2].h, 20)
+	end)
+end)
+
+test("the soldier count explains the census on hover; the minimap logo sits on its disc", function()
+	WithUI(function()
+		local w, UI = ForeverWorld(true)
+		CommunitiesFrame:Show(); w.buttons[1]:Click()
+		local main = OlympusFrameHD
+		assert(main.headerHover, "a hover region over the count")
+		main.headerHover:Fire("OnEnter")
+		eq(GameTooltip.owner, main.headerHover)
+		eq(GameTooltip.lines[1], ns.L.HEADER_TIP_TITLE); eq(GameTooltip.lines[2], ns.L.HEADER_TIP); eq(GameTooltip.lines[4], ns.L.HEADER_TIP_DIFFER)
+		assert(main.headerHover.w > 100, "as wide as the header")
+		local b = ns.MakeRoundButton("OlympusTestRound", UIParent, 31)
+		eq(b.icon.w, 18)
+		local a = b.icon:Anchor("TOPLEFT")
+		eq(a[4] .. " " .. a[5], "8 -6", "the logo's centre on the disc's (17, -15)")
+	end)
 end)
 
 test("Royal Writs: the King writes to his Lords, each can acknowledge, nobody else reads it", function()

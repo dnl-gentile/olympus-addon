@@ -13,6 +13,7 @@ ns.Views = Views
 
 local ROW_H = 16
 local ROW_H_HD = 20 -- the Guild & Communities roster's rows (CommunitiesMemberList.xml)
+local ITEM, ITEM_GAP = 30, 2 -- an item's icon on an items row (line.items: the guild bank)
 local expanded = {}
 local CROWN = "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:13:13|t "
 local ASSIST = "|TInterface\\GroupFrame\\UI-Group-AssistantIcon:12:12|t "
@@ -114,6 +115,47 @@ local function Row(content, i)
 	return r
 end
 
+-- An item's icon: the snapshot's, or the client's for the id.
+local function ItemIcon(it)
+	if it.icon then return it.icon end
+	if GetItemInfoInstant then
+		local ok, _, _, _, _, icon = pcall(GetItemInfoInstant, it.id)
+		if ok and icon then return icon end
+	end
+	if C_Item and C_Item.GetItemIconByID then
+		local ok, icon = pcall(C_Item.GetItemIconByID, it.id)
+		if ok and icon then return icon end
+	end
+	return "Interface\\Icons\\INV_Misc_QuestionMark"
+end
+
+-- One item on an items row: its icon and count, the item's tooltip on hover.
+local function ItemButton(r, k)
+	local b = CreateFrame("Button", nil, r)
+	b:SetSize(ITEM, ITEM)
+	b.icon = b:CreateTexture(nil, "ARTWORK")
+	b.icon:SetAllPoints()
+	b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+	b.count:SetPoint("BOTTOMRIGHT", -2, 2)
+	b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	b:SetScript("OnEnter", function(self)
+		local it = self.item
+		if not it then return end
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		local ok = false
+		if it.link and GameTooltip.SetHyperlink then ok = pcall(GameTooltip.SetHyperlink, GameTooltip, it.link) end
+		if not ok and it.id and GameTooltip.SetItemByID then ok = pcall(GameTooltip.SetItemByID, GameTooltip, it.id) end
+		if not ok then GameTooltip:AddLine("#" .. tostring(it.id), 1, 1, 1) end
+		if (it.n or 0) > 1 then GameTooltip:AddLine(L.COL_MEMBERS and ("x" .. it.n) or ("x" .. it.n), 0.8, 0.8, 0.8) end
+		GameTooltip:Show()
+	end)
+	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	r.items = r.items or {}
+	r.items[k] = b
+	return b
+end
+
 function Views.LayoutColumns(fontStrings, layout, width, offset)
 	for c, fs in ipairs(fontStrings) do
 		local col = layout and layout[c]
@@ -150,7 +192,25 @@ function Views.Render(content, lines, layout)
 		r:ClearAllPoints()
 		r:SetPoint("TOPLEFT", content, "TOPLEFT", 0, y)
 		r:SetWidth(width)
-		if line.cols then
+		local height = rowH
+		if line.items then
+			-- Icons in a grid, as many per row as fit; the row grows to hold them all.
+			r.left:Hide()
+			r.right:Hide()
+			for c = 1, 4 do r.cols[c]:Hide() end
+			local perRow = math.max(1, math.floor((width - 8) / (ITEM + ITEM_GAP)))
+			for k, it in ipairs(line.items) do
+				local b = r.items and r.items[k] or ItemButton(r, k)
+				b.item = it
+				b.icon:SetTexture(ItemIcon(it))
+				b.count:SetText((it.n or 0) > 1 and tostring(it.n) or "")
+				b:ClearAllPoints()
+				b:SetPoint("TOPLEFT", 4 + ((k - 1) % perRow) * (ITEM + ITEM_GAP), -2 - math.floor((k - 1) / perRow) * (ITEM + ITEM_GAP))
+				b:Show()
+			end
+			for k = #line.items + 1, #(r.items or {}) do r.items[k]:Hide() end
+			height = math.ceil(math.max(1, #line.items) / perRow) * (ITEM + ITEM_GAP) + 4
+		elseif line.cols then
 			r.left:Hide()
 			r.right:Hide()
 			Views.LayoutColumns(r.cols, layout, width - 4, 4)
@@ -171,13 +231,15 @@ function Views.Render(content, lines, layout)
 			r.left:SetText(line.text or "")
 			r.right:SetText(line.right or "")
 		end
+		if not line.items then for k = 1, #(r.items or {}) do r.items[k]:Hide() end end
+		r:SetHeight(height)
 		r:EnableMouse(line.onClick ~= nil or line.tooltip ~= nil)
 		if hd then
 			r.stripe:SetShown(line.cols ~= nil or line.onClick ~= nil)
 			if line.key and line.key == content.selectedKey then r:LockHighlight() else r:UnlockHighlight() end
 		end
 		r:Show()
-		y = y - (line.header and rowH + 4 or rowH)
+		y = y - (line.header and height + 4 or height)
 		if line.gapAfter then y = y - 6 end
 	end
 	for i = #lines + 1, #(content.rows or {}) do content.rows[i]:Hide() end
@@ -350,7 +412,7 @@ end
 -- Throne, the layer hop). No such guild reporting: no King line, never another guild's Lord.
 local function King(guilds)
 	for _, e in ipairs(guilds) do
-		if e.name:lower() == "olympus" and e.g.leader then return e end
+		if ns.IsKingGuild(e.name) and e.g.leader then return e end
 	end
 	return nil
 end
@@ -493,7 +555,7 @@ local function RealmLines(s)
 		-- The Treasurer of Olympus, under the King: when that guild's report has him (the
 		-- Horde's <Olympus> and other realms' have no Treasurer of theirs).
 		local t
-		for _, o in ipairs(king.name:lower() == "olympus" and king.g.officers or {}) do
+		for _, o in ipairs(king.name:lower() == "olympus" and king.g.officers or {}) do -- (the Treasurer: <Olympus>, the Alliance's)
 			if ns.IsTreasurer(o.name, king.name) then t = o end
 		end
 		if t then

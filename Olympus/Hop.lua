@@ -571,7 +571,7 @@ end
 function Hop.King(strict)
 	local now = ns.Now()
 	for name, g in pairs(ns.rdb.guilds or {}) do
-		if type(name) == "string" and name:lower() == "olympus" and type(g) == "table" and g.leader and not g.twin
+		if ns.IsKingGuild(name) and type(g) == "table" and g.leader and not g.twin
 			and now - (g.t or 0) <= ns.Data.FRESH and g.leaderOnline then
 			local full = ns.FullName(g.leader, g.realm or ns.realm)
 			if ns.Data.KnownRank(full, name, not strict) == 0 then
@@ -587,7 +587,7 @@ end
 -- minutes after login, Data.KnownRank): not "offline".
 local function KingUnconfirmed()
 	for name, g in pairs(ns.rdb.guilds or {}) do
-		if type(name) == "string" and name:lower() == "olympus" and type(g) == "table" and g.leader and g.leaderOnline
+		if ns.IsKingGuild(name) and type(g) == "table" and g.leader and g.leaderOnline
 			and ns.Now() - (g.t or 0) <= ns.Data.FRESH then
 			return true
 		end

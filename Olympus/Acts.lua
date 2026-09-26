@@ -43,9 +43,13 @@ local lastWritSent, lastWritShown = -math.huge, -math.huge
 local writFrame
 
 -- Who reads a writ: "L" the Lords (guild masters, and the officers of <Olympus>), "C" every
--- Lord and Captain.
+-- Lord and Captain, "E" the whole army (every member; it is not acknowledged: thousands of
+-- whispers to the King).
+Acts.AUDIENCES = { L = "WRIT_TO_LORDS", C = "WRIT_TO_ALL", E = "WRIT_TO_EVERYONE" }
+function Acts.Audience(to) return L[Acts.AUDIENCES[to] or "WRIT_TO_LORDS"] end
 function Acts.WritFor(to)
 	if not ns.IsMember() then return false end
+	if to == "E" then return true end
 	if to == "L" then return ns.IsCrown() end
 	return ns.Roster.MyRank() <= ns.CAPTAIN_RANK
 end
@@ -108,12 +112,12 @@ function Acts.ShowWrit(w)
 	writFrame = writFrame or MakeWritFrame()
 	local f = writFrame
 	f.title:SetText(L.WRIT_TITLE)
-	f.to:SetText(w.to == "L" and L.WRIT_TO_LORDS or L.WRIT_TO_ALL)
+	f.to:SetText(Acts.Audience(w.to))
 	f.body:SetText(w.text)
 	f.sign:SetText(L.WRIT_SIGNED:format(w.by or ns.KingName()))
 	f.ack:SetText(w.acked and L.WRIT_ACKED or L.WRIT_ACK)
 	f.ack:SetEnabled(not w.acked and not w.mine)
-	f.ack:SetShown(not w.mine)
+	f.ack:SetShown(not w.mine and w.to ~= "E")
 	f.ack:SetScript("OnClick", function()
 		ns.SafeCall("writ ack", Ack, w)
 		f:Hide()
@@ -126,7 +130,7 @@ function Acts.SendWrit(to, text)
 	if not ns.King.IsKing() and not preview then return ns.Print(L.THRONE_ONLY_KING) end
 	text = Clean(text, Acts.WRIT_MAX)
 	if #text < 3 then return ns.Print(L.WRIT_EMPTY) end
-	to = to == "C" and "C" or "L"
+	to = Acts.AUDIENCES[to] and to or "L"
 	local now = ns.Now()
 	if not preview and now - lastWritSent < Acts.WRIT_GAP then
 		return ns.Print(L.THRONE_WAIT:format(math.ceil(Acts.WRIT_GAP - (now - lastWritSent))))
@@ -141,13 +145,13 @@ function Acts.SendWrit(to, text)
 	else
 		ns.Comm.Send("CHANNEL", ("T1~W~%d~%s~%s~%s"):format(w.id, GetGuildInfo("player") or "", to, text), "writ")
 	end
-	ns.Print(L.WRIT_SENT:format(to == "L" and L.WRIT_TO_LORDS or L.WRIT_TO_ALL))
+	ns.Print(L.WRIT_SENT:format(Acts.Audience(to)))
 	Acts.ShowWrit(w)
 	ns.Fire("DECREES_CHANGED")
 end
 
 local function OnWrit(sender, id, rest)
-	local to, text = rest:match("^([LC])~(.+)$")
+	local to, text = rest:match("^([LCE])~(.+)$")
 	if not to or not Acts.WritFor(to) then return end
 	text = Clean(text, Acts.WRIT_MAX)
 	if #text < 3 then return end
@@ -178,6 +182,7 @@ function Acts.HandleAck(dist, sender, text)
 	if rank == nil or rank > ns.CAPTAIN_RANK then return end
 	for _, w in ipairs(Read("writsSent")) do
 		if w.id == id and ns.Now() - w.t < 86400 then
+			if w.to == "E" then return end -- (not acknowledged)
 			if w.to == "L" and not ns.IsCrownRank(guild, rank) then return end
 			w.ackBy = w.ackBy or {}
 			if w.ackBy[sender] or (w.acks or 0) >= Acts.MAX_ACKS then return end
@@ -200,11 +205,13 @@ function Acts.WritLines()
 	if #list == 0 then lines[#lines + 1] = { text = "|cff9d9d9d" .. L.WRITS_NONE .. "|r" } end
 	for i = #list, math.max(1, #list - 4), -1 do
 		local w = list[i]
-		local head = (w.to == "L" and L.WRIT_TO_LORDS or L.WRIT_TO_ALL)
+		local head = Acts.Audience(w.to)
+		local state = ""
+		if mine and w.to ~= "E" then state = "|cff40ff40" .. L.WRIT_ACKS:format(w.acks or 0) .. "|r  "
+		elseif not mine and not w.acked and w.to ~= "E" then state = "|cffffd200" .. L.WRIT_UNREAD .. "|r  " end
 		lines[#lines + 1] = {
 			text = "|cffffd200" .. head .. "|r  " .. (mine and "" or ("|cff9d9d9d" .. L.WRIT_FROM:format(w.by or "?") .. "|r")),
-			right = (mine and ("|cff40ff40" .. L.WRIT_ACKS:format(w.acks or 0) .. "|r  ") or (w.acked and "" or ("|cffffd200" .. L.WRIT_UNREAD .. "|r  ")))
-				.. "|cff9d9d9d" .. ns.Ago(w.t) .. "|r",
+			right = state .. "|cff9d9d9d" .. ns.Ago(w.t) .. "|r",
 			onClick = function() Acts.ShowWrit(w) end,
 			tooltip = function(tt)
 				tt:AddLine(L.WRIT_TITLE, 1, 0.82, 0)
@@ -217,11 +224,18 @@ function Acts.WritLines()
 	return lines
 end
 
+-- The writ: its words, then who receives it (three audiences: a second popup, the first has
+-- Cancel). Escape on the second sends nothing (noCancelOnEscape); its middle button is one of
+-- the three, so only a click counts (the reason), never a timeout.
+local function WritNext(text)
+	text = Clean(text, Acts.WRIT_MAX)
+	if #text < 3 then return ns.Print(L.WRIT_EMPTY) end
+	ns.ShowDialog("OLYMPUS_WRIT_TO", nil, nil, text)
+end
 StaticPopupDialogs["OLYMPUS_WRIT"] = {
 	text = L.WRIT_PROMPT,
-	button1 = L.WRIT_BTN_LORDS,
+	button1 = L.WRIT_NEXT,
 	button2 = CANCEL or "Cancel",
-	button3 = L.WRIT_BTN_ALL,
 	hasEditBox = true,
 	editBoxWidth = 320,
 	maxLetters = 200,
@@ -231,13 +245,30 @@ StaticPopupDialogs["OLYMPUS_WRIT"] = {
 	end,
 	OnAccept = function(self)
 		local eb = self.editBox or self.EditBox
-		ns.SafeCall("writ", Acts.SendWrit, "L", eb and eb:GetText())
+		ns.SafeCall("writ", WritNext, eb and eb:GetText())
 	end,
-	OnAlt = function(self)
-		local eb = self.editBox or self.EditBox
-		ns.SafeCall("writ", Acts.SendWrit, "C", eb and eb:GetText())
+	EditBoxOnEnterPressed = function(self)
+		local parent = self:GetParent()
+		ns.SafeCall("writ", WritNext, self:GetText())
+		parent:Hide()
 	end,
 	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+StaticPopupDialogs["OLYMPUS_WRIT_TO"] = {
+	text = L.WRIT_TO_PROMPT,
+	button1 = L.WRIT_BTN_LORDS,
+	button2 = L.WRIT_BTN_ALL,
+	button3 = L.WRIT_BTN_EVERYONE,
+	OnAccept = function(self, text) ns.SafeCall("writ", Acts.SendWrit, "L", text or (self and self.data)) end,
+	OnCancel = function(self, text, reason)
+		if reason == "clicked" then ns.SafeCall("writ", Acts.SendWrit, "C", text or (self and self.data)) end
+	end,
+	OnAlt = function(self, text) ns.SafeCall("writ", Acts.SendWrit, "E", text or (self and self.data)) end,
+	noCancelOnEscape = true,
 	timeout = 0,
 	whileDead = true,
 	hideOnEscape = true,
@@ -476,5 +507,6 @@ end)
 function Acts.Reset()
 	gates, lastNews = nil, -math.huge
 	lastWritSent, lastWritShown = -math.huge, -math.huge
-	if writFrame then writFrame:Hide() end
+	-- (The tests rebuild the interface between runs: a frame whose global is gone is made again.)
+	if writFrame and rawget(_G, "OlympusWritFrame") ~= writFrame then writFrame = nil elseif writFrame then writFrame:Hide() end
 end
