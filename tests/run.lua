@@ -8793,5 +8793,25 @@ test("0.9.2 hostile: no escape code from another player gets past the door, chat
 	eq(ns.OwnError("Interface/AddOns/Olympus/UI.lua:9: boom", ""), true)
 end)
 
+-- 0.9.3: the King's layer is his own share, never inferred from others on it
+test("0.9.3 hostile: the King's layer comes from his own announcement alone, not from the members on it", function()
+	WithUI(function() WithHop(function(w, H)
+		-- Olympus officers and members share their layer; the King shares nothing.
+		ns.Layers.Receive("Captain One-Realm", { mapID = 1453, zoneUID = 9, rank = 1, guild = "Olympus" })
+		ns.Layers.Receive("Member Two-Realm", { mapID = 1453, zoneUID = 9, rank = 5, guild = "Olympus" })
+		local k = H.King()
+		assert(k, "the King is online (the census says so)")
+		eq(k.zoneUID, nil, "his layer is not inferred from the others on it")
+		-- A share in his name from anyone else is not his.
+		ns.Layers.Receive("Asmongold-OtherRealm", { mapID = 1453, zoneUID = 9, rank = 0, guild = "Olympus" })
+		eq(H.King().zoneUID, nil, "a namesake's share is not his")
+		-- His own announcement (crown on) and its withdrawal.
+		ns.Layers.Receive("Asmongold-Realm", { mapID = 1453, zoneUID = 9, rank = 0, guild = "Olympus" })
+		eq(H.King().zoneUID, 9)
+		ns.Layers.Forget("Asmongold-Realm")
+		eq(H.King().zoneUID, nil, "withdrawn: gone at once")
+	end) end)
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
