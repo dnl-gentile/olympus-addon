@@ -7713,8 +7713,13 @@ test("0.9.1 guild bank: read once the slots settle, a tab that never arrived kee
 			-- Opened again: tab 2's slots never arrive (it reads empty), tab 1 is on screen.
 			slots[2] = {}
 			B.Opened(); gt = gt + B.SETTLE; Run()
-			eq(ns.rdb.bank.tabs[2].items[1].id, 2589, "a tab that never arrived keeps its last items"); eq(ns.rdb.bank.tabs[2].kept, true)
-			-- Empty the next time too: then it is.
+			eq(ns.rdb.bank.tabs[2].items[1].id, 2589, "a tab that never arrived keeps its last items"); assert(ns.rdb.bank.tabs[2].kept)
+			-- Read again in the same visit (a deposit): still kept (0.9.2).
+			B.Changed(); gt = gt + B.SETTLE; Run()
+			eq(ns.rdb.bank.tabs[2].items[1].id, 2589, "the same visit keeps it again")
+			B.Closed(); gt = gt + B.SETTLE; Run()
+			eq(ns.rdb.bank.tabs[2].items[1].id, 2589, "and on closing")
+			-- Empty the next visit too: then it is.
 			B.Opened(); gt = gt + B.SETTLE; Run()
 			eq(#ns.rdb.bank.tabs[2].items, 0, "empty twice in a row: empty")
 			-- The tab on screen reads empty: the player sees it empty.
