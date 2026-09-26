@@ -129,12 +129,13 @@ function Bank.Share(force)
 	return true
 end
 
--- The Treasurer's snapshot (from him alone, in the King's guild, the census confirming him).
+-- The Treasurer's snapshot (from him alone, by his name, speaking for the King's guild: no
+-- census vote, which forged ones could turn against him).
 function Bank.HandleReport(dist, sender, text)
 	if dist ~= "CHANNEL" then return end
 	local guild, when, money, rest = text:match("^T9~([^~]*)~(%d+)~(%d+)~(.*)$")
 	if not guild or not ns.IsKingGuild(guild) then return end
-	if not ns.IsTreasurer(sender, guild) or not ns.Data.KnownRank(sender, guild, true) then return end
+	if not ns.IsTreasurer(sender, guild) then return end
 	local now = ns.Now()
 	local r = { t = math.min(tonumber(when) or now, now), guild = guild, by = ns.FullName(sender), money = math.min(tonumber(money) or 0, 2147483647), tabs = {} }
 	local total = 0

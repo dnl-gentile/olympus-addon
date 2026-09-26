@@ -681,6 +681,9 @@ L.HELP_CHAN_CAPTAINS = "  /olc <text> - Captains and Lords channel"
 L.HELP_CHAN_LORDS = "  /oll <text> - Lords channel (with the officers of <Olympus>)"
 L.HELP_CHAN_MUTE = "  /oly mute olympus | captains | lords - hide or show a channel in chat"
 
+-- 0.9.1: king-trust
+L.THRONE_NOT_NAMED = "The addon does not know the King's character on your side yet: until an update names you, your Throne commands reach nobody (your crown on the map still shows)."
+
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1318,4 +1321,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.HELP_CHAN_CAPTAINS = "  /olc <texto> - canal dos Capitães e Lordes"
 	L.HELP_CHAN_LORDS = "  /oll <texto> - canal dos Lordes (com os officers da <Olympus>)"
 	L.HELP_CHAN_MUTE = "  /oly mute olympus | captains | lords - esconder ou mostrar um canal no chat"
+
+	-- 0.9.1: king-trust
+	L.THRONE_NOT_NAMED = "O addon ainda não conhece o personagem do Rei do seu lado: até uma atualização te nomear, os comandos do Trono não chegam a ninguém (sua coroa no mapa continua aparecendo)."
 end

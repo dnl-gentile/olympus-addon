@@ -489,6 +489,19 @@ function ns.IsKingGuild(guild)
 	return want ~= nil and guild:lower() == want
 end
 
+-- The King himself, by his character's name, like the Treasurer: sender names are set by the
+-- server, so nobody else can speak as him, and no census vote (anyone on the channel can
+-- vote) can crown someone else or take the Crown from him. The Alliance's is the guild master
+-- of <OLYMPUS> as the census saw him on September 24, 2026 (a Forever name, one across the
+-- realm group). The Horde's is set here once it is known: until then nobody commands there
+-- (his position and his name on the lines still come from the census).
+ns.KING_CHARACTER = { Alliance = "Asmongold Asmongler", Horde = nil }
+function ns.KingCharacter() return ns.KING_CHARACTER[ns.faction or "Alliance"] end
+function ns.IsKingCharacter(name)
+	local pin = ns.KingCharacter()
+	return pin ~= nil and type(name) == "string" and ns.ShortName(name) == pin
+end
+
 -- The Crown: guild masters of any Olympus guild, and the officers of the King's guild.
 function ns.IsCrownRank(guild, rankIndex)
 	if not guild or not rankIndex then return false end
