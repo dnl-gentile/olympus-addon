@@ -689,6 +689,10 @@ L.HOP_GAVE_UP_WAIT = "No invite came. Try again in %ds."
 L.HOP_CROWDED = "Many players are asking for that layer right now: your request goes out in %ds."
 L.SHAME_COOLDOWN = "Wait %ds before publishing the Wall of Shame again."
 L.THRONE_AGENDA_POPUP_HAND = "%s, Hand of the King, calls the army: %s, in %d min. Gather in %s!"
+-- 0.9.1: channel-owner
+L.CHANNEL_OWNER_YOU = "WoW just made you the owner of Olympus's hidden channel (%s). It hands a channel to another member whenever its owner leaves: nothing is wrong, and Olympus never uses these powers. Please don't use /password, /ban, /ckick, /moderator or /owner on it: that cuts the addon off for everyone."
+L.CHANNEL_MODERATOR_YOU = "WoW just made you a moderator of Olympus's hidden channel (%s). It hands these powers to another member when a channel's owner leaves: nothing is wrong, and Olympus never uses them. Please don't use /password, /ban, /ckick or /moderator on it: that cuts the addon off for everyone."
+L.CHANNEL_LOCKED = "Someone locked Olympus's hidden channel (%s) with a password or a ban, so the census and the Olympus channels can't reach you for now. Olympus keeps trying and gets back in as soon as it is open again. If WoW asks you for a password for it, just press Cancel: Olympus never needs one from you."
 
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
@@ -1336,4 +1340,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.HOP_CROWDED = "Muitos jogadores estão pedindo esse layer agora: seu pedido sai em %ds."
 	L.SHAME_COOLDOWN = "Espere %ds para publicar o Mural da Vergonha de novo."
 	L.THRONE_AGENDA_POPUP_HAND = "%s, Mão do Rei, convoca o exército: %s, em %d min. Reúnam-se em %s!"
+	-- 0.9.1: channel-owner
+	L.CHANNEL_OWNER_YOU = "O WoW acabou de te fazer dono do canal oculto do Olympus (%s). Ele passa o canal pra outro membro sempre que o dono sai: não tem nada de errado, e o Olympus nunca usa esses poderes. Por favor, não use /senha, /banir, /cexpulsar, /moderador ou /dono nele: isso desliga o addon pra todo mundo."
+	L.CHANNEL_MODERATOR_YOU = "O WoW acabou de te fazer moderador do canal oculto do Olympus (%s). Ele passa esses poderes pra outro membro quando o dono de um canal sai: não tem nada de errado, e o Olympus nunca usa eles. Por favor, não use /senha, /banir, /cexpulsar ou /moderador nele: isso desliga o addon pra todo mundo."
+	L.CHANNEL_LOCKED = "Alguém trancou o canal oculto do Olympus (%s) com senha ou ban, então o censo e os canais Olympus não chegam em você por enquanto. O Olympus continua tentando e volta assim que o canal abrir de novo. Se o WoW pedir uma senha pra ele, é só apertar Cancelar: o Olympus nunca precisa de uma senha sua."
 end
