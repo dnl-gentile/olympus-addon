@@ -8758,5 +8758,40 @@ test("0.9.2 hostile: a spoofed share, a relayed share and a guest offer are all 
 	end)
 end)
 
+-- 0.9.2: sanitize
+test("0.9.2 hostile: no escape code from another player gets past the door, chat keeps safe links only, no Discord pings", function()
+	local ok, err = pcall(function()
+		local cns, Deliver = FreshComm()
+		local got = {}
+		cns.Comm.Handle("ZZ", function(dist, sender, text) got[#got + 1] = text end)
+		local evil = "ZZ~Olympus|TInterface\\Icons\\INV_Misc_QuestionMark:64|t~|cffff0000Red|r~|Hitem:19019|h[Fake]|h~line\nbreak"
+		Deliver("GUILD", "Evil Guy-Realm", evil)
+		eq(#got, 1)
+		assert(not got[1]:find("[|%c]"), got[1])
+		-- A forged census report: nothing it names carries a code into the census.
+		local r = ns.Codec.DecodeReport(ns.Codec.Plain(ns.Codec.EncodeReport({ guild = "Olympus|cffff0000X|r", total = 10, online = 1,
+			leader = "Bad|TInterface\\x:0|tGuy", zones = { ["m1453"] = 1 } })))
+		assert(r and not r.guild:find("|", 1, true) and not r.leader:find("|", 1, true), "report stripped")
+	end)
+	if not ok then error(err, 0) end
+	-- Chat: an item link the game makes passes; a malformed or foreign one is plain text.
+	local C = ns.Codec
+	local good = "|cff1eff00|Hitem:19019::::::::60::|h[Thunderfury]|h|r"
+	eq(C.SanitizeChat("look " .. good), "look " .. good)
+	-- (A "|" shown as text is written "||": only an unescaped one is a code.)
+	local function Live(x) return (x:gsub("||", "")):find("|", 1, true) ~= nil end
+	eq(Live(C.SanitizeChat("|Hitem:abc|h[x]|h")), false, "bad item data")
+	eq(Live(C.SanitizeChat("|Hurl:evil|h[click]|h")), false, "foreign link type")
+	eq(Live(C.SanitizeChat("|TInterface\\x:0|t hi")), false, "texture")
+	-- Copy text for Discord pings nobody.
+	local text = C.NoMentions("@everyone look <@123> <#456> @here")
+	assert(not text:find("@everyone", 1, true) and not text:find("@here", 1, true) and not text:find("<@1", 1, true)
+		and not text:find("<#4", 1, true), text)
+	eq(C.NoMentions(text), text, "idempotent")
+	-- Only Olympus's own errors are kept (the capture filter).
+	eq(ns.OwnError("Interface/AddOns/OtherAddon/Main.lua:3: boom", "Interface/AddOns/OtherAddon/Main.lua:3"), false)
+	eq(ns.OwnError("Interface/AddOns/Olympus/UI.lua:9: boom", ""), true)
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

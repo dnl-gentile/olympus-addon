@@ -149,13 +149,16 @@ StaticPopupDialogs["OLYMPUS_LOCATION_CHOICE"] = {
 	button1 = L.LOCATION_SHARE,
 	button2 = L.LOCATION_KEEP,
 	OnAccept = function() ns.SafeCall("location choice", Layers.SetSharing, true) end,
-	-- Keep private (or Escape) is a no. Pushed out by another window: no answer, asked next login.
+	-- Keep private is a no. Pushed out by another window, or Escape: no answer, asked next login.
 	OnCancel = function(_, _, reason)
 		if reason == "clicked" then ns.SafeCall("location choice", Layers.SetSharing, false) end
 	end,
 	timeout = 0,
 	whileDead = true,
 	hideOnEscape = true,
+	-- Escape (pressed for anything else too: the game's escape closes popups first) is no
+	-- answer (0.9.2): asked again next session; only the buttons record a choice.
+	noCancelOnEscape = true,
 	preferredIndex = 3,
 }
 
