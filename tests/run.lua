@@ -79,7 +79,8 @@ for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog",
 	chunk("Olympus", ns)
 end
 ns.db = { guilds = {}, log = {}, errors = {}, blocked = {}, demo = false, showMap = true,
-	chatWarned = { A = true, C = true, L = true } } -- (0.9.1: the channel warnings already accepted; their own tests ask)
+	chatWarned = { A = true, C = true, L = true }, -- (0.9.1: the channel warnings already accepted; their own tests ask)
+	treasurerShares = true } -- (0.9.3: the Treasurer said yes; the question has its own test)
 ns.me = "Tester-Realm"
 ns.realm = "Realm"
 -- (0.9.2: the King and the Treasurer are theirs on their realm group; here that is "Realm".)
@@ -8811,6 +8812,53 @@ test("0.9.3 hostile: the King's layer comes from his own announcement alone, not
 		ns.Layers.Forget("Asmongold-Realm")
 		eq(H.King().zoneUID, nil, "withdrawn: gone at once")
 	end) end)
+end)
+
+-- 0.9.3: the Treasurer's yes
+test("0.9.3 the Treasurer shares his book and the bank only with his yes, and withdraws them at once", function()
+	local T = ns.Treasury
+	local saved = { me = ns.me, guild = GetGuildInfo, send = ns.Comm.Send, chunked = ns.Comm.SendChunked, show = ns.ShowDialog,
+		consent = ns.db.treasurerShares, report = ns.rdb.treasuryReport, bank = ns.rdb.bankReport, combat = InCombatLockdown, inst = IsInInstance }
+	local sent, dialogs = {}, {}
+	local ok, err = pcall(function()
+		T.Reset()
+		ns.me = "Pyralis Ashandar-Realm"
+		GetGuildInfo = function() return "OLYMPUS", "Treasurer", 2 end
+		InCombatLockdown, IsInInstance = function() return false end, function() return false end
+		ns.Comm.Send = function(dist, msg) sent[#sent + 1] = msg end
+		ns.Comm.SendChunked = function(msg) sent[#sent + 1] = msg end
+		ns.ShowDialog = function(which) dialogs[#dialogs + 1] = which end
+		ns.db.treasurerShares = nil
+		T.Share(true)
+		eq(#sent, 0, "no answer yet: nothing goes out")
+		eq(T.AskConsent(), true); eq(dialogs[1], "OLYMPUS_TREASURER_SHARE")
+		eq(T.AskConsent(), false, "once a session")
+		StaticPopupDialogs.OLYMPUS_TREASURER_SHARE.OnCancel(nil, nil, "override")
+		eq(ns.db.treasurerShares, nil, "pushed out or Escape: no answer")
+		StaticPopupDialogs.OLYMPUS_TREASURER_SHARE.OnAccept()
+		eq(ns.db.treasurerShares, true)
+		assert(sent[#sent] and sent[#sent]:find("^T8~OLYMPUS~"), tostring(sent[#sent]))
+		T.SetConsent(false)
+		eq(sent[#sent], "TX~OLYMPUS", "withdrawn at once")
+		local before = #sent
+		T.Share(true)
+		eq(#sent, before, "private: nothing more")
+		-- Receivers: his withdrawal clears his book and the bank; anyone else's is ignored.
+		ns.rdb.treasuryReport, ns.rdb.bankReport = { rank = {}, t = 1 }, { t = 1, tabs = {} }
+		T.HandleWithdraw("CHANNEL", "Faker Guy-Realm", "TX~OLYMPUS")
+		assert(ns.rdb.treasuryReport and ns.rdb.bankReport, "not the Treasurer: nothing")
+		T.HandleWithdraw("CHANNEL", "Pyralis Ashandar-Realm", "TX~OLYMPUS")
+		eq(ns.rdb.treasuryReport, nil); eq(ns.rdb.bankReport, nil)
+		-- Not the Treasurer: no question, no switch.
+		ns.me = "Someone Else-Realm"
+		T.Reset()
+		eq(T.AskConsent(), false)
+	end)
+	ns.me, GetGuildInfo, ns.Comm.Send, ns.Comm.SendChunked, ns.ShowDialog = saved.me, saved.guild, saved.send, saved.chunked, saved.show
+	ns.db.treasurerShares, ns.rdb.treasuryReport, ns.rdb.bankReport = saved.consent, saved.report, saved.bank
+	InCombatLockdown, IsInInstance = saved.combat, saved.inst
+	T.Reset()
+	if not ok then error(err, 0) end
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

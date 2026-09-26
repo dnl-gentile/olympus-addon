@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "0.9.2"
+ns.VERSION = "0.9.3"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -882,6 +882,7 @@ local function Help()
 	print(L.HELP_LAYERAUTO)
 	print(L.HELP_LOCATION)
 	print(L.HELP_ROLLCALL)
+	print(L.HELP_TREASURER)
 	print("  /oly decrees - decrees")
 	print("  /oly arms [text] | /oly muster [text] - decree (officers; 'test' = local preview)")
 	print(L.HELP_CHAN_ALL)
@@ -949,6 +950,15 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Positions.SetEnabled(not ns.db.showMates)
 		elseif cmd == "share" then
 			ns.Positions.SetSharing(not ns.db.sharePosition)
+		elseif cmd == "treasurer" then
+			-- The Treasurer's yes to sharing his book and the guild bank (Treasury.lua).
+			local on = rest:lower()
+			if on == "on" or on == "off" then
+				ns.Treasury.SetConsent(on == "on")
+			else
+				local v = ns.Treasury.Consent()
+				ns.Print(v == true and L.TREASURER_SHARE_ON or L.TREASURER_SHARE_OFF)
+			end
 		elseif cmd == "rollcall" then
 			-- The author's roll calls and update notices (Workshop.lua): answered, or not.
 			local on = rest:lower()
