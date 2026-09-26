@@ -123,10 +123,8 @@ function Channels.FormatLine(tier, sender, guild, class, text)
 		.. tostring(guild or "?"):gsub("|", "||") .. ">: " .. Codec.SanitizeChat(text)
 end
 
--- A plain AddMessage on the default chat frame (what print does): nothing of Blizzard's is
--- replaced or hooked.
 local function Show(tier, sender, guild, class, text)
-	local f = DEFAULT_CHAT_FRAME
+	local f = ns.ChatTabs and ns.ChatTabs.Frame(tier) or DEFAULT_CHAT_FRAME
 	if not f then return end
 	local c = TIERS[tier].color
 	f:AddMessage(Channels.FormatLine(tier, sender, guild, class, text), c[1], c[2], c[3])

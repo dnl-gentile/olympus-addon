@@ -31,6 +31,7 @@ Hop.lua
 Positions.lua
 Decree.lua
 Channels.lua
+ChatTabs.lua
 Inspect.lua
 King.lua
 Vox.lua

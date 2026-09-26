@@ -136,6 +136,7 @@ Any soldier can reach the Lord of another Olympus guild in two clicks.
 `<Olympus>` guild. Everyone else gets a local preview when they press the buttons.
 
 ### Channels
+
 Chat for the whole federation, carried by the addon over its hidden Olympus channel (no
 WoW channel number to join). Each channel is exclusive to a rank:
 
@@ -154,6 +155,24 @@ WoW channel number to join). Each channel is exclusive to a rank:
   newest first, even what was said while the window was closed. A click whispers the player.
 - Ranks follow the rule of the decrees: whoever founds a guild with "Olympus" in its name is
   its Lord and gets [Lords], and its officers get [Captains].
+
+#### WoW chat tabs
+
+Use `/olychat` to open a normal, dockable Olympus chat tab. Officers can also use
+`/olychat captains` and `/olychat lords` for the channels their rank permits.
+These tabs use the existing addon transport: other players do not need this modification.
+
+Select the tab, press Enter, and type. The input label shows **Olympus:**,
+**Captains:**, or **Lords:**, and sends through `/ol`, `/olc`, or `/oll`. Explicit slash commands
+(including `/say`, `/w`, and `/g`) keep their normal meaning. After switching input
+to another chat type, run `/olychat` (or the corresponding tier command) to select
+the tab and reset its input to Olympus.
+
+Messages for a tier appear in its open tab instead of the main chat window. Close
+the tab to return them to the main window. WoW saves the tab layout; the addon
+reconnects its tabs after `/reload` or login. Existing rank checks, mutes, history,
+links, and flood limits still apply. Tabs are opened on demand, and no existing
+window is replaced when all chat slots are occupied.
 
 **Not encrypted, not private:** every client on the hidden Olympus channel receives the text of
 all three channels, and the addon only decides what to show. Anyone on that channel can read
