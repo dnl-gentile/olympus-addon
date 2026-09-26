@@ -397,13 +397,13 @@ function Hop.SendAsk()
 	lastAsk, ask.t, ask.phase = now, now, "asking"
 	-- Ahead of the census traffic: someone waits for an invite (Comm.Send urgent).
 	ns.Comm.Send("CHANNEL", ("LQ~%d~%d~%d"):format(ask.id, ask.mapID, ask.zoneUID), nil, true)
-	ns.Print(L.HOP_ASKING:format(ask.label))
 	-- Keeping zone and layer private (Layers.Sharing): the ask still names this zone and the
 	-- layer wanted, and layers are only known from the members who share theirs. Once a session.
 	if not ns.Layers.Sharing() and not privateHinted then
 		privateHinted = true
 		ns.Print(L.HOP_PRIVATE_HINT)
 	end
+	ns.Print(L.HOP_ASKING:format(ask.label))
 	ns.Log("hop: ask %d for map %d zoneUID %d", ask.id, ask.mapID, ask.zoneUID)
 	Changed()
 end
