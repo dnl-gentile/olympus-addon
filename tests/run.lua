@@ -7066,5 +7066,379 @@ test("chat: our own line comes back from the channel once, whatever form the ser
 	if not ok then error(err, 0) end
 end)
 
+-- 0.9.1: channel-owner
+-- Comm.lua in a namespace of its own, with a clock the test moves and timers that wait for it.
+-- The channel's notices come through the real events, in the client's argument order:
+-- CHAT_MSG_CHANNEL_NOTICE(_USER)(notice, player, language, "5. OlympusNet", second player,
+-- flags, zone channel id, channel number, "OlympusNet", ...).
+do
+	local NOTICE, USER = "CHAT_MSG_CHANNEL_NOTICE", "CHAT_MSG_CHANNEL_NOTICE_USER"
+
+	local function OwnerComm()
+		local events, login, timers, printed = {}, {}, {}, {}
+		local cns = setmetatable({}, { __index = ns })
+		cns.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
+		cns.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
+		cns.clock = 100000
+		cns.Now = function() return cns.clock end
+		cns.After = function(delay, _, fn) timers[#timers + 1] = { at = cns.clock + (delay or 0), fn = fn } end
+		cns.Every = function() end
+		cns.Print = function(msg) printed[#printed + 1] = tostring(msg) end
+		assert(loadfile(ADDON_DIR .. "Comm.lua"))("Olympus", cns)
+		for _, fn in ipairs(login) do fn() end
+		local w = { cns = cns, C = cns.Comm, events = events, printed = printed }
+		-- A notice about `channel` (default: the one we joined), through the event it comes by.
+		function w.Notice(event, notice, player, player2, channel)
+			channel = channel or w.C.ChannelName()
+			for _, fn in ipairs(events[event] or {}) do
+				fn(notice, player or "", "", "5. " .. channel, player2 or "", "", 0, 5, channel, 0, 0, "", 0, false, false, false, false)
+			end
+		end
+		-- Moves the clock, then runs the timers due (and those they set that are due too).
+		function w.Wait(seconds)
+			cns.clock = cns.clock + seconds
+			for _ = 1, 100 do
+				local due
+				for i, t in ipairs(timers) do if t.at <= cns.clock then due = i break end end
+				if not due then return end
+				table.remove(timers, due).fn()
+			end
+			error("timers keep setting timers")
+		end
+		return w
+	end
+
+	-- The channel functions an owner has, recorded ("password OlympusNet,"); all restored after.
+	local function WithMocks(fn)
+		local saved = { GetChannelName, JoinChannelByName, LeaveChannelByName, SetChannelPassword, ChannelUnban, ChannelModerate,
+			ChannelUnmute, GetGuildInfo, ns.rdb.realmKey, ns.Roster.byName, issecretvalue, C_ChatInfo }
+		local calls = {}
+		local function Rec(what) return function(...) calls[#calls + 1] = what .. " " .. table.concat({ ... }, ",") end end
+		local ok, err = pcall(function()
+			C_ChatInfo = { RegisterAddonMessagePrefix = function() end }
+			GetChannelName = function() return 5 end
+			JoinChannelByName, LeaveChannelByName = Rec("join"), Rec("leave")
+			SetChannelPassword, ChannelUnban, ChannelModerate, ChannelUnmute = Rec("password"), Rec("unban"), Rec("moderate"), Rec("unmute")
+			fn(calls)
+		end)
+		GetChannelName, JoinChannelByName, LeaveChannelByName, SetChannelPassword, ChannelUnban, ChannelModerate,
+			ChannelUnmute, GetGuildInfo, ns.rdb.realmKey, ns.Roster.byName, issecretvalue, C_ChatInfo = unpack(saved, 1, 12)
+		if not ok then error(err, 0) end
+	end
+
+	local function Sorted(calls, from)
+		local out = {}
+		for i = from or 1, #calls do out[#out + 1] = calls[i] end
+		table.sort(out)
+		return table.concat(out, "; ")
+	end
+
+	test("channel owner: our channel's notices are followed, logged and in /oly status; another channel's are not", function()
+		WithMocks(function(calls)
+			local w = OwnerComm()
+			w.C.JoinChannel()
+			eq(w.C.ChannelName(), "OlympusNet")
+			w.Notice(NOTICE, "YOU_JOINED")
+			w.Notice(USER, "OWNER_CHANGED", "Bob", nil, "General - Elwynn Forest")
+			w.Notice(USER, "OWNER_CHANGED", "Bob", nil, "OlympusNetH")
+			w.Notice(NOTICE, "WRONG_PASSWORD", nil, nil, "MyOwnChannel")
+			eq(w.C.GuardStats().owner, nil, "another channel's owner is not ours")
+			eq(w.C.GuardStats().locked, nil, "nor its password")
+			w.Notice(USER, "OWNER_CHANGED", "Bob")
+			local st = w.C.GuardStats()
+			eq(st.owner, "Bob"); eq(st.role, "member"); eq(st.watched, true)
+			w.Notice(USER, "PASSWORD_CHANGED", "Bob")
+			w.Notice(USER, "PLAYER_BANNED", "Pyralis Ashandar", "Bob")
+			w.Notice(USER, "PLAYER_KICKED", "Carl", "Bob")
+			w.Notice(USER, "MODERATION_ON", "Bob")
+			w.Notice(USER, "ANNOUNCEMENTS_ON", "Bob")
+			w.Notice(USER, "UNSET_VOICE", "Dan")
+			w.Notice(USER, "SET_MODERATOR", "Bobsfriend")
+			st = w.C.GuardStats()
+			eq(st.seen.owner, 1); eq(st.seen.password, 1); eq(st.seen.ban, 1); eq(st.seen.kick, 1); eq(st.seen.mute, 1); eq(st.seen.moderator, 1)
+			eq(st.moderation, "on"); eq(st.announce, "on"); eq(st.password, true); eq(st.banned, 1); eq(st.muted, 1)
+			-- The name in whatever case the server keeps it.
+			w.Notice(USER, "OWNER_CHANGED", "Eve", nil, "olympusnet")
+			eq(w.C.GuardStats().owner, "Eve")
+			-- Forever's secret values (chat lockdown): nothing is read from them.
+			issecretvalue = function(v) return v == "Secret" end
+			w.Notice(USER, "OWNER_CHANGED", "Secret")
+			eq(w.C.GuardStats().owner, "Eve")
+			issecretvalue = nil
+			assert(table.concat(ns.db.log, "\n"):find("channel OlympusNet: PLAYER_BANNED Pyralis Ashandar by Bob", 1, true), "logged")
+			-- Not ours to fix: nothing is done, nothing is printed.
+			w.Wait(1000)
+			eq(#calls, 0, table.concat(calls, "; ")); eq(#w.printed, 0)
+			local savedComm = ns.Comm
+			ns.Comm = w.C
+			local ok, text = pcall(ns.StatusText)
+			ns.Comm = savedComm
+			assert(ok, text)
+			for _, want in ipairs({ "channel owner: Eve (", "|  me: member  |  watched: true",
+				"channel seen: ban=1 kick=1 moderation=1 moderator=1 mute=1 owner=2 password=1  |  moderation=on announce=on",
+				"channel undo: password=true banned=1 muted=1  |  locked: no" }) do
+				assert(text:find(want, 1, true), want .. "\n" .. text)
+			end
+		end)
+	end)
+
+	test("channel owner: handed the channel, the player is told once a session, in one line", function()
+		WithMocks(function()
+			local w = OwnerComm()
+			w.C.JoinChannel()
+			w.Notice(NOTICE, "YOU_JOINED")
+			-- An owner's two notices: the moderator's seat, then the channel.
+			w.Notice(USER, "SET_MODERATOR", "Tester")
+			w.Notice(USER, "OWNER_CHANGED", "Tester")
+			eq(w.C.GuardStats().role, "owner")
+			w.Wait(2)
+			eq(#w.printed, 1, "one line")
+			assert(w.printed[1]:find(ns.L.CHANNEL_OWNER_YOU:format("OlympusNet"), 1, true), w.printed[1])
+			for _, want in ipairs({ "never uses", "/password", "/ban", "/owner" }) do assert(ns.L.CHANNEL_OWNER_YOU:find(want, 1, true), want) end
+			-- Given away and handed back: not told again this session.
+			w.Notice(USER, "OWNER_CHANGED", "Bob")
+			w.Notice(USER, "UNSET_MODERATOR", "Tester")
+			eq(w.C.GuardStats().role, "member")
+			w.Notice(USER, "OWNER_CHANGED", "Tester")
+			w.Wait(2)
+			eq(#w.printed, 1, "once a session")
+			-- A moderator's seat alone: its own line, once.
+			local m = OwnerComm()
+			m.C.JoinChannel()
+			m.Notice(USER, "SET_MODERATOR", "Tester")
+			m.Wait(2)
+			eq(#m.printed, 1)
+			assert(m.printed[1]:find(ns.L.CHANNEL_MODERATOR_YOU:format("OlympusNet"), 1, true), m.printed[1])
+			m.Notice(USER, "UNSET_MODERATOR", "Tester")
+			m.Notice(USER, "SET_MODERATOR", "Tester")
+			m.Wait(2)
+			eq(#m.printed, 1)
+			-- Someone else handed the channel: nothing for us.
+			local o = OwnerComm()
+			o.C.JoinChannel()
+			o.Notice(USER, "OWNER_CHANGED", "Bob")
+			o.Notice(USER, "SET_MODERATOR", "Bob")
+			o.Wait(2)
+			eq(#o.printed, 0)
+		end)
+	end)
+
+	test("channel owner: once the channel is ours it undoes the harm seen, rate-limited; never while it is not", function()
+		WithMocks(function(calls)
+			local w = OwnerComm()
+			w.C.JoinChannel()
+			w.Notice(NOTICE, "YOU_JOINED")
+			w.Notice(USER, "OWNER_CHANGED", "Troll")
+			w.Notice(USER, "SET_MODERATOR", "Troll")
+			-- Troll locks the channel while he holds it: not ours, nothing is done.
+			w.Notice(USER, "PASSWORD_CHANGED", "Troll")
+			w.Notice(USER, "PLAYER_BANNED", "Kingchar", "Troll")
+			w.Notice(USER, "MODERATION_ON", "Troll")
+			w.Notice(USER, "UNSET_SPEAK", "Mutey")
+			w.Wait(2)
+			eq(#calls, 0, table.concat(calls, "; "))
+			-- He logs off and WoW hands the channel to us: what he did is undone, once.
+			w.Notice(USER, "OWNER_CHANGED", "Tester")
+			w.Wait(2)
+			eq(Sorted(calls), "moderate OlympusNet; password OlympusNet,; unban OlympusNet,Kingchar; unban OlympusNet,Pyralis Ashandar; unmute OlympusNet,Mutey")
+			-- Troll (still a moderator) does it again at once: undone again, not before a minute.
+			wipe(calls)
+			w.Notice(USER, "PASSWORD_CHANGED", "Troll")
+			w.Notice(USER, "PLAYER_BANNED", "Kingchar", "Troll")
+			w.Wait(2)
+			eq(#calls, 0, "the same call not twice within a minute")
+			w.Wait(60)
+			eq(Sorted(calls), "password OlympusNet,; unban OlympusNet,Kingchar")
+			-- Our own heal's notices, and what is done from our own client, are not undone by us.
+			wipe(calls)
+			w.Notice(USER, "PASSWORD_CHANGED", "Tester")
+			w.Notice(USER, "PLAYER_UNBANNED", "Kingchar", "Tester")
+			w.Notice(USER, "MODERATION_OFF", "Tester")
+			w.Notice(USER, "PLAYER_BANNED", "Someone", "Tester")
+			w.Wait(120)
+			eq(#calls, 0, table.concat(calls, "; "))
+			-- Moderation is switched over: once for each time it was seen turned on, never back on.
+			w.Notice(USER, "MODERATION_ON", "Troll")
+			w.Wait(2)
+			eq(Sorted(calls), "moderate OlympusNet")
+			w.Notice(USER, "PLAYER_KICKED", "Carl", "Troll")
+			w.Wait(120)
+			eq(#calls, 1, "not switched again without seeing it on again")
+			-- The channel goes to someone else: nothing more from us.
+			w.Notice(USER, "OWNER_CHANGED", "Troll")
+			w.Notice(USER, "PASSWORD_CHANGED", "Troll")
+			w.Notice(USER, "PLAYER_BANNED", "Kingchar", "Troll")
+			w.Wait(120)
+			eq(#calls, 1, table.concat(calls, "; "))
+			-- Nor after we left the channel.
+			w.Notice(USER, "OWNER_CHANGED", "Tester")
+			w.Notice(NOTICE, "YOU_LEFT")
+			w.Wait(120)
+			eq(w.C.GuardStats().role, "member")
+			eq(#calls, 1, table.concat(calls, "; "))
+		end)
+	end)
+
+	test("channel owner: the Treasurer and the King (our roster in his guild, or a pinned character) are always let back in", function()
+		WithMocks(function(calls)
+			-- In the King's guild: his character from our own roster.
+			GetGuildInfo = function() return "Olympus", "Knight", 3 end
+			ns.Roster.byName = { ["Knight1-Realm"] = 3, ["Asmon-Realm"] = 0 }
+			local w = OwnerComm()
+			w.C.JoinChannel()
+			w.Notice(NOTICE, "YOU_JOINED")
+			w.Notice(USER, "OWNER_CHANGED", "Tester")
+			w.Wait(2)
+			eq(Sorted(calls), "unban OlympusNet,Asmon; unban OlympusNet,Pyralis Ashandar", "watched since joining: no password call")
+			-- Another guild: the character pinned in Core.lua when there is one, else the Treasurer alone.
+			GetGuildInfo = function() return MY_GUILD, "Hero", 3 end
+			wipe(calls)
+			local p = OwnerComm()
+			p.cns.KING_CHARACTER = "Kingchar"
+			p.C.JoinChannel()
+			p.Notice(NOTICE, "YOU_JOINED")
+			p.Notice(USER, "SET_MODERATOR", "Tester")
+			p.Wait(2)
+			eq(Sorted(calls), "unban OlympusNet,Kingchar; unban OlympusNet,Pyralis Ashandar")
+			wipe(calls)
+			local n = OwnerComm()
+			n.C.JoinChannel()
+			n.Notice(NOTICE, "YOU_JOINED")
+			n.Notice(USER, "OWNER_CHANGED", "Tester")
+			n.Wait(2)
+			eq(Sorted(calls), "unban OlympusNet,Pyralis Ashandar")
+		end)
+	end)
+
+	test("channel owner: handed the public channel without having watched it since joining, its password is cleared", function()
+		WithMocks(function(calls)
+			-- After a /reload we are still on the channel, but saw nothing that came before it.
+			local w = OwnerComm()
+			w.C.JoinChannel()
+			w.Notice(USER, "OWNER_CHANGED", "Tester")
+			w.Wait(2)
+			assert(Sorted(calls):find("password OlympusNet,", 1, true), Sorted(calls))
+			-- Watched since we joined: every change would have reached us, none was made.
+			wipe(calls)
+			local v = OwnerComm()
+			v.C.JoinChannel()
+			v.Notice(NOTICE, "YOU_JOINED")
+			v.Notice(USER, "OWNER_CHANGED", "Tester")
+			v.Wait(2)
+			assert(not Sorted(calls):find("password", 1, true), Sorted(calls))
+		end)
+	end)
+
+	test("channel owner: the sealed channel gets its key back, never cleared; nothing on a keyless-vs-sealed mismatch", function()
+		WithMocks(function(calls)
+			ns.rdb.realmKey = "sekrit-key"
+			local w = OwnerComm()
+			local sealed = w.C.ChannelSpec()
+			assert(sealed:find("^Oly") and sealed ~= "OlympusNet", sealed)
+			w.C.JoinChannel()
+			eq(w.C.ChannelName(), sealed)
+			w.Notice(NOTICE, "YOU_JOINED")
+			w.Notice(USER, "OWNER_CHANGED", "Tester")
+			w.Wait(2)
+			assert(not Sorted(calls):find("password", 1, true), "watched: its password is the key already")
+			w.Notice(USER, "PASSWORD_CHANGED", "Troll")
+			w.Wait(2)
+			eq(calls[#calls], "password " .. sealed .. ",sekrit-key", "set back to the key")
+			-- The public channel's notices mean nothing while we are on the sealed one.
+			local n = #calls
+			w.Notice(USER, "OWNER_CHANGED", "Tester", nil, "OlympusNet")
+			w.Notice(USER, "PASSWORD_CHANGED", "Troll", nil, "OlympusNet")
+			w.Wait(120)
+			eq(#calls, n, Sorted(calls, n + 1))
+			-- Owner of the public channel when the key arrives (not moved over yet): no call on either.
+			ns.rdb.realmKey = nil
+			local p = OwnerComm()
+			p.C.JoinChannel()
+			eq(p.C.ChannelName(), "OlympusNet")
+			p.Notice(USER, "OWNER_CHANGED", "Tester")
+			p.Notice(USER, "PASSWORD_CHANGED", "Troll")
+			p.Notice(USER, "PLAYER_BANNED", "Kingchar", "Troll")
+			ns.rdb.realmKey = "sekrit-key"
+			p.Wait(2)
+			eq(#calls, n, "the public channel's record is not the sealed channel's: " .. Sorted(calls, n + 1))
+		end)
+	end)
+
+	test("channel owner: should the game refuse one of these calls to addons, healing stops for the session", function()
+		WithMocks(function(calls)
+			local w = OwnerComm()
+			w.C.JoinChannel()
+			-- Refused inside the first call, as the game does: the rest of that pass is not made.
+			SetChannelPassword = function()
+				calls[#calls + 1] = "password"
+				for _, fn in ipairs(w.events.ADDON_ACTION_FORBIDDEN) do fn("Olympus", "SetChannelPassword()") end
+			end
+			w.Notice(USER, "PLAYER_BANNED", "Kingchar", "Troll")
+			w.Notice(USER, "OWNER_CHANGED", "Tester")
+			w.Wait(2)
+			eq(Sorted(calls), "password")
+			w.Notice(USER, "PLAYER_BANNED", "Kingchar", "Troll")
+			w.Wait(120)
+			eq(Sorted(calls), "password", "nothing more this session")
+			-- Another addon's refusal changes nothing here.
+			local o = OwnerComm()
+			o.C.JoinChannel()
+			for _, fn in ipairs(o.events.ADDON_ACTION_BLOCKED) do fn("OtherAddon", "SetChannelPassword()") end
+			o.Notice(NOTICE, "YOU_JOINED")
+			o.Notice(USER, "OWNER_CHANGED", "Tester")
+			o.Wait(2)
+			eq(Sorted(calls), "password; unban OlympusNet,Pyralis Ashandar")
+		end)
+	end)
+
+	test("channel owner: locked out (password or ban), tried again after 1, 2, 5, then every 10 minutes; told once", function()
+		WithMocks(function(calls)
+			local id = 0
+			GetChannelName = function() return id end
+			local w = OwnerComm()
+			local C = w.C
+			local function Joins()
+				local n = 0
+				for _, c in ipairs(calls) do
+					if c:find("^join") then
+						n = n + 1
+						eq(c, "join OlympusNet", "always the same channel: no other name to flee to")
+					end
+				end
+				return n
+			end
+			C.JoinChannel()
+			eq(Joins(), 1)
+			-- The server's answer: a wrong password, and Blizzard's password prompt for the same try.
+			w.Notice(NOTICE, "WRONG_PASSWORD")
+			for _, fn in ipairs(w.events.CHANNEL_PASSWORD_REQUEST) do fn("OlympusNet") end
+			eq(#w.printed, 1, "told once")
+			assert(w.printed[1]:find(ns.L.CHANNEL_LOCKED:format("OlympusNet"), 1, true), w.printed[1])
+			eq(C.GuardStats().locked.tries, 1, "one failed join, however many notices")
+			local joins = 1
+			for i, gap in ipairs({ 60, 120, 300, 600, 600 }) do
+				w.cns.clock = w.cns.clock + gap - 1
+				C.JoinChannel() -- the housekeeping ticker, every minute
+				eq(Joins(), joins, "not before " .. gap .. "s")
+				w.cns.clock = w.cns.clock + 1
+				C.JoinChannel()
+				joins = joins + 1
+				eq(Joins(), joins, "again after " .. gap .. "s")
+				w.Notice(NOTICE, i % 2 == 0 and "WRONG_PASSWORD" or "BANNED")
+			end
+			eq(#w.printed, 1, "still told once")
+			local lock = C.GuardStats().locked
+			eq(lock.tries, 6); eq(lock.nextIn, 600)
+			-- An honest owner opens it: in at the next try, and the census is asked for again.
+			id = 5
+			w.Wait(600)
+			eq(C.GuardStats().locked, nil, "open again")
+			eq(C.ChannelReady(), true)
+			w.Wait(4)
+			eq(C.Stats().asked, 1, "census asked for once back in")
+		end)
+	end)
+end
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

@@ -26,6 +26,9 @@ local ASK_AGAIN = 65      -- ...and once more this later, for the reporters that
 local ANSWER_GAP = 60     -- a reporter answers census requests at most this often
 local ANSWER_MIN_AGE = 45 -- ...and only when its last report is at least this old
 local MAX_KEYS = 20      -- distinct keys per diagnostic count (the rest count as "other")
+local HEAL_GAP = 60      -- the same healing call on our channel at most this often (Comm.HealChannel)
+local MAX_HURT = 20      -- banned or muted names kept per channel to let back in (oldest dropped)
+local LOCKED_RETRY = { 60, 120, 300, 600 } -- a channel locked against us is tried again after these, then every 10 min
 
 local peers = {}
 local queue = {}
@@ -112,7 +115,7 @@ function Comm.Stats()
 		chanArgs = stats.chanArgs, asked = stats.asked, answered = stats.answered, runnerUp = Comm.isRunnerUp, pending = (function() local n = 0 for _ in pairs(asm.buf) do n = n + 1 end return n end)(),
 		raw = stats.raw, rawSample = stats.rawSample, reportRealms = stats.reportRealms, shared = ns.rdb and ns.rdb.shared,
 		peerRealms = PeerRealms(now), heardOwn = lastOwn and ns.DisplayName(lastOwn), heardOwnAt = lastOwn and lastOwnAt,
-		benched = out,
+		benched = out, guard = Comm.GuardStats and Comm.GuardStats(),
 	}
 end
 
@@ -301,6 +304,317 @@ local function HideChannelFromChat(name)
 	end
 end
 
+---------------------------------------------------------------------------
+-- The channel's owner. Our hidden channel is an ordinary custom chat channel: the first
+-- player in owns it, and when the owner leaves WoW hands it (and a moderator's seat) to
+-- another member, so any player with the addon can end up owning it. An owner could /password
+-- it (nobody who logs in afterwards gets in, and the network dies as people relog), /ban or
+-- /ckick players (the King, the Treasurer), make a friend /moderator or give it away with
+-- /owner. Olympus never uses these powers against anyone. It follows the channel's notices,
+-- tells a player who was handed the channel what that means, and while the channel is ours it
+-- only undoes harm (Comm.HealChannel). A channel locked against us is tried again, slower and
+-- slower (Comm.JoinChannel). There is no other name to flee to: whoever locks one name can
+-- squat any name we could predict as easily, and clients on different names would split the
+-- army. We keep knocking on the same door until an honest owner opens it.
+---------------------------------------------------------------------------
+
+-- What we know of the channel named `name`, from its notices: a new record when we move to
+-- another channel (the realm key arrived).
+local function NewGuard(name)
+	return { name = name, mine = {}, banned = {}, muted = {}, seen = {} }
+end
+local guard = NewGuard(nil)
+local told = {}          -- role -> true once the player was told this session
+local toldLocked = false -- ...and about a channel locked against us
+local healAt = {}        -- healing call -> when it was last made (HEAL_GAP)
+local healPending, rolePending = false, false
+local healRefused = false -- the game refused one of these calls to addons: no more this session
+local joinTries = 0      -- JoinChannelByName calls: one failed join counts once, however many notices say so
+
+local function GuardFor(name)
+	if guard.name ~= name then guard = NewGuard(name) end
+	return guard
+end
+
+-- Our channel, whatever form a notice gives its name ("OlympusNet" or "5. OlympusNet").
+local function OurChannel(...)
+	local ours = joinedName or Comm.ChannelSpec()
+	if type(ours) ~= "string" then return nil end
+	for i = 1, select("#", ...) do
+		local n = select(i, ...)
+		if type(n) == "string" and n ~= "" and n:gsub("^%d+%.%s*", ""):lower() == ours:lower() then return ours end
+	end
+	return nil
+end
+
+local function IsMe(name)
+	if type(name) ~= "string" or name == "" or not ns.me then return false end
+	if ns.Channels and ns.Channels.IsMe then return ns.Channels.IsMe(name) end
+	return ns.FullName(ns.Normal(name)) == ns.me
+end
+
+-- A name the way the server finds it again (ns.TellName), or nil.
+local function ServerName(name)
+	if type(name) ~= "string" or name == "" then return nil end
+	return ns.TellName(name)
+end
+
+-- list[name] = when, at most MAX_HURT names (the oldest goes).
+local function Remember(list, name, now)
+	name = ServerName(name)
+	if not name then return end
+	local n, oldest = 0, nil
+	for k, t in pairs(list) do
+		n = n + 1
+		if not oldest or t < list[oldest] then oldest = k end
+	end
+	if not list[name] and n >= MAX_HURT then list[oldest] = nil end
+	list[name] = now
+end
+
+local function Mine(g) return g.mine.owner or g.mine.moderator end
+
+-- Players the channel must never lose, the way the server finds them: the Treasurer, and the
+-- King's character when our client knows it (our own roster in his guild, or a character
+-- pinned in Core.lua).
+local function Protected()
+	local out, seen = {}, {}
+	local function Add(name)
+		name = ServerName(name)
+		if name and not seen[name:lower()] then
+			seen[name:lower()] = true
+			out[#out + 1] = name
+		end
+	end
+	Add(ns.TREASURER)
+	local pinned = ns.KING_CHARACTER
+	if type(pinned) == "table" then pinned = pinned[ns.faction or "Alliance"] end
+	Add(pinned)
+	if ns.IsKingGuild and ns.IsKingGuild(GetGuildInfo("player")) and ns.Roster and type(ns.Roster.byName) == "table" then
+		for name, rank in pairs(ns.Roster.byName) do
+			if rank == 0 then Add(name) break end
+		end
+	end
+	return out
+end
+
+-- One healing call, protected, the same one at most every HEAL_GAP: "done", "failed",
+-- "later" (too soon: try again) or "missing" (this client has no such function).
+local function HealCall(what, fn, ...)
+	if type(fn) ~= "function" or healRefused then return "missing" end
+	local now = ns.Now()
+	if now - (healAt[what] or -math.huge) < HEAL_GAP then return "later" end
+	healAt[what] = now
+	local ok, err = pcall(fn, ...)
+	ns.Log("channel %s: %s%s", tostring(guard.name), what, ok and "" or (" failed: " .. tostring(err)))
+	return ok and "done" or "failed"
+end
+
+local function HealSoon(delay)
+	if healPending then return end
+	healPending = true
+	ns.After(delay or 2, "channel heal", function()
+		healPending = false
+		Comm.HealChannel()
+	end)
+end
+
+-- Only while the channel is ours (owner or moderator), only to undo harm, never against
+-- anyone: the password it should have (none on the public channel, the key on the sealed
+-- one), no moderation, and whoever was banned or muted while we were on it let back in, the
+-- Treasurer and the King always. Only for the channel we are meant to be on: what we saw on
+-- another one (the public channel once we have a key) changes nothing.
+-- What someone does with the channel from our own client is not undone here: the next owner's
+-- client does it.
+function Comm.HealChannel()
+	local g = guard
+	local name, key = Comm.ChannelSpec()
+	if not name or g.name ~= name or not Mine(g) or not ns.IsMember() then return end
+	if type(GetChannelName) ~= "function" or (GetChannelName(name) or 0) == 0 then return end
+	local later = false
+	local function Do(what, fn, ...)
+		local r = HealCall(what, fn, ...)
+		if r == "later" then later = true end
+		return r
+	end
+	-- The password: after a change we saw, or when the channel came to us and we had not
+	-- watched it since we joined (a /reload forgets what was seen before it).
+	if g.password or g.unwatched then
+		if Do("password " .. (key and "back to the key" or "cleared"), SetChannelPassword, name, key or "") ~= "later" then
+			g.password, g.unwatched = nil, nil
+		end
+	end
+	-- Moderation is switched over, not set: only when we know it is on, once for each time we
+	-- saw it turned on. (Today's clients have no ChannelModerate: nobody can turn it on either.)
+	if g.moderationOn and Do("moderation off", ChannelModerate, name) ~= "later" then g.moderationOn = nil end
+	local unban = {}
+	for who in pairs(g.banned) do unban[who] = true end
+	if g.protect then
+		for _, who in ipairs(Protected()) do unban[who] = true end
+	end
+	local waiting = false
+	for who in pairs(unban) do
+		if Do("unban " .. who, ChannelUnban, name, who) == "later" then waiting = true else g.banned[who] = nil end
+	end
+	if not waiting then g.protect = nil end
+	-- (No ChannelUnmute in today's clients either: kept for one that has it.)
+	for who in pairs(g.muted) do
+		if Do("unmute " .. who, ChannelUnmute, name, who) ~= "later" then g.muted[who] = nil end
+	end
+	if later then HealSoon(HEAL_GAP) end
+end
+
+-- Handed the channel (owner or moderator): the player is told once a session what that
+-- means, then the heal runs. A moment later, so an owner's two notices make one line.
+local function RoleGiven(g)
+	if rolePending then return end
+	rolePending = true
+	ns.After(2, "channel role", function()
+		rolePending = false
+		if guard ~= g or not Mine(g) then return end
+		local role = g.mine.owner and "owner" or "moderator"
+		if not told[role] then
+			told[role] = true
+			if role == "owner" then told.moderator = true end
+			ns.Print("|cffffd200" .. (role == "owner" and ns.L.CHANNEL_OWNER_YOU or ns.L.CHANNEL_MODERATOR_YOU):format(g.name) .. "|r")
+		end
+		Comm.HealChannel()
+	end)
+end
+
+-- Joining failed: a password or a ban. The player is told once a session; the next try waits
+-- LOCKED_RETRY (see Comm.JoinChannel).
+local function Locked(g, why, now)
+	local lock = g.locked
+	if not lock then
+		lock = { why = why, tries = 0, since = now }
+		g.locked = lock
+		if not toldLocked then
+			toldLocked = true
+			ns.Print("|cffffd200" .. ns.L.CHANNEL_LOCKED:format(g.name) .. "|r")
+		end
+	end
+	lock.why = why
+	if lock.try == joinTries then return end
+	lock.try = joinTries
+	lock.tries = lock.tries + 1
+	lock.nextAt = now + LOCKED_RETRY[math.min(lock.tries, #LOCKED_RETRY)]
+	ns.Log("channel %s locked against us (%s, try %d): next try in %ds", g.name, why, lock.tries, lock.nextAt - now)
+end
+
+-- In again after being locked out: the census missed in the meantime is asked for.
+local function Unlocked(g)
+	if not g.locked then return end
+	ns.Log("channel %s open to us again after %d tries", g.name, g.locked.tries)
+	g.locked = nil
+	askTries = 0
+	ns.After(ASK_AFTER, "census request", Comm.AskCensus)
+end
+
+-- CHAT_MSG_CHANNEL_NOTICE and CHAT_MSG_CHANNEL_NOTICE_USER: (notice type, player, language,
+-- "5. OlympusNet", second player, flags, zone channel id, channel number, "OlympusNet", ...).
+-- With two players (banned, kicked, unbanned) the first is the one it happened to and the
+-- second who did it. Only our channel's notices count.
+function Comm.OnChannelNotice(notice, player, _, channelName, player2, _, _, _, baseName)
+	-- Forever may hand these over as secret values while chat is locked down: nothing to read.
+	if type(issecretvalue) == "function" and (issecretvalue(notice) or issecretvalue(player) or issecretvalue(player2)) then return end
+	if type(notice) ~= "string" then return end
+	local name = OurChannel(baseName, channelName)
+	if not name then return end
+	local g, now = GuardFor(name), ns.Now()
+	player = type(player) == "string" and player ~= "" and player or nil
+	player2 = type(player2) == "string" and player2 ~= "" and player2 or nil
+	if notice == "YOU_JOINED" or notice == "YOU_CHANGED" then
+		g.watched = true -- in from the start: every change after this reaches us
+		Unlocked(g)
+	elseif notice == "YOU_LEFT" or notice == "SUSPENDED" then
+		g.mine, g.watched = {}, nil -- whoever leaves gives the channel away
+	elseif notice == "WRONG_PASSWORD" or notice == "BANNED" then
+		Locked(g, notice, now)
+	elseif notice == "OWNER_CHANGED" or notice == "CHANNEL_OWNER" then
+		if notice == "OWNER_CHANGED" then Count(g.seen, "owner") end
+		g.owner, g.ownerAt = player, now
+		if not IsMe(player) then
+			g.mine.owner = nil
+		elseif not g.mine.owner then
+			g.mine.owner = true
+			g.unwatched = not g.watched or nil
+			g.protect = true
+			RoleGiven(g)
+		end
+	elseif notice == "SET_MODERATOR" or notice == "UNSET_MODERATOR" then
+		if not IsMe(player) then
+			if notice == "SET_MODERATOR" then Count(g.seen, "moderator") end -- a seat handed to someone else
+		elseif notice == "UNSET_MODERATOR" then
+			g.mine.moderator = nil
+		elseif not g.mine.moderator then
+			g.mine.moderator = true
+			g.protect = true
+			RoleGiven(g)
+		end
+	elseif notice == "PASSWORD_CHANGED" then
+		Count(g.seen, "password")
+		if not IsMe(player) then g.password = { by = player, t = now } end
+	elseif notice == "MODERATION_ON" or notice == "MODERATION_OFF" then
+		Count(g.seen, "moderation")
+		g.moderation = notice == "MODERATION_ON" and "on" or "off"
+		g.moderationOn = notice == "MODERATION_ON" and not IsMe(player) or nil
+	elseif notice == "ANNOUNCEMENTS_ON" or notice == "ANNOUNCEMENTS_OFF" then
+		g.announce = notice == "ANNOUNCEMENTS_ON" and "on" or "off"
+	elseif notice == "PLAYER_BANNED" or notice == "PLAYER_KICKED" then
+		Count(g.seen, notice == "PLAYER_BANNED" and "ban" or "kick")
+		if IsMe(player) then
+			g.mine, g.watched = {}, nil
+		elseif notice == "PLAYER_BANNED" and not IsMe(player2) then
+			Remember(g.banned, player, now)
+		end
+	elseif notice == "PLAYER_UNBANNED" then
+		local who = ServerName(player)
+		if who then g.banned[who] = nil end
+	elseif notice == "UNSET_SPEAK" or notice == "UNSET_VOICE" then
+		Count(g.seen, "mute")
+		Remember(g.muted, player, now)
+	elseif notice == "SET_SPEAK" or notice == "SET_VOICE" then
+		local who = ServerName(player)
+		if who then g.muted[who] = nil end
+	elseif notice == "MUTED" then
+		Count(g.seen, "we muted") -- we may not speak there
+	else
+		return
+	end
+	ns.Log("channel %s: %s %s%s", name, notice, tostring(player or "-"), player2 and (" by " .. player2) or "")
+	if Mine(g) then HealSoon() end
+end
+
+-- Blizzard's own password prompt for our channel: the same as a wrong password.
+function Comm.OnPasswordRequest(channel)
+	local name = OurChannel(channel)
+	if name then Locked(GuardFor(name), "WRONG_PASSWORD", ns.Now()) end
+end
+
+-- None of the calls above is marked protected, but should the game ever refuse one to addons,
+-- the first refusal ends healing for the session: never a string of "blocked" warnings.
+function Comm.OnActionRefused(addon, func)
+	if addon ~= ADDON or type(func) ~= "string" then return end
+	if func:find("SetChannelPassword", 1, true) or func:find("ChannelUn", 1, true) or func:find("ChannelModerate", 1, true) then
+		healRefused = true
+		ns.Log("channel healing off for this session: the game refused %s", func)
+	end
+end
+
+-- For /oly status: the channel's owner as last seen, our seat, what was seen.
+function Comm.GuardStats()
+	local g, now = guard, ns.Now()
+	local function Size(t) local n = 0 for _ in pairs(t) do n = n + 1 end return n end
+	return {
+		name = g.name, owner = g.owner, ownerAt = g.ownerAt,
+		role = g.mine.owner and "owner" or (g.mine.moderator and "moderator" or "member"),
+		moderation = g.moderation, announce = g.announce, seen = g.seen, watched = g.watched == true,
+		banned = Size(g.banned), muted = Size(g.muted), password = g.password ~= nil,
+		locked = g.locked and { why = g.locked.why, tries = g.locked.tries, nextIn = math.max(0, (g.locked.nextAt or now) - now) },
+	}
+end
+
 function Comm.JoinChannel()
 	if not ns.IsMember() then return end
 	local name, password = Comm.ChannelSpec()
@@ -324,11 +638,16 @@ function Comm.JoinChannel()
 		HideChannelFromChat(name)
 		return
 	end
+	-- Locked against us (a password or a ban): not before the next try is due (Locked).
+	local lock = guard.name == name and guard.locked
+	if lock and ns.Now() < (lock.nextAt or 0) then return end
+	joinTries = joinTries + 1
 	ns.Log("joining channel %s%s", name, password and " (sealed)" or "")
 	watch = nil -- time off this channel says nothing about what we hear on it (election guard)
 	JoinChannelByName(name, password)
 	ns.After(3, "channel check", function()
 		channelIndex = GetChannelName(name) or 0
+		if channelIndex > 0 and guard.name == name then Unlocked(guard) end
 		Comm.joinedAt = ns.Now()
 		ns.SafeCall("channel last", Comm.KeepLast)
 		ns.Log("channel %s -> #%d", name, channelIndex)
@@ -689,6 +1008,12 @@ ns.On("LOGIN", function()
 		deliveredLogged = false
 		if not ok then error(err, 0) end
 	end)
+	-- Who holds our channel and what is done with it (the channel's owner, above).
+	ns.RegisterEvent("CHAT_MSG_CHANNEL_NOTICE", Comm.OnChannelNotice)
+	ns.RegisterEvent("CHAT_MSG_CHANNEL_NOTICE_USER", Comm.OnChannelNotice)
+	ns.RegisterEvent("CHANNEL_PASSWORD_REQUEST", Comm.OnPasswordRequest)
+	ns.RegisterEvent("ADDON_ACTION_BLOCKED", Comm.OnActionRefused)
+	ns.RegisterEvent("ADDON_ACTION_FORBIDDEN", Comm.OnActionRefused)
 	ns.After(3, "join channel", function() Comm.JoinSoon(3) end)
 	ns.After(6, "hello", Comm.Hello)
 	ns.Every(HELLO_EVERY, "hello ticker", Comm.Hello)
