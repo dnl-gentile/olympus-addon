@@ -6598,10 +6598,10 @@ test("the guild bank of <Olympus>: a snapshot when it is opened, the Treasurer's
 			local snap, total = B.Read()
 			eq(#snap.tabs, 2); eq(total, 3); eq(snap.tabs[1].items[1].id, 929); eq(snap.tabs[1].items[2].n, 3); eq(snap.tabs[1].items[2].s, 5)
 			eq(snap.tabs[1].items[1].icon, "tex1"); eq(snap.money, 1234567); eq(snap.guild, "Olympus")
-			eq(snap.tabs[2].name, "Mate rials  ", "the message's separators taken out of a tab's name")
+			eq(snap.tabs[2].name, "Mate rials x", "the message's separators taken out of a tab's name, its letters kept")
 			ns.rdb.bank = snap
 			local msg = B.Message()
-			eq(msg, ("T9~Olympus~%d~1234567~Consumables;929x20,.3,6948x3~Mate rials  ;2589x200"):format(snap.t), "the empty slots between as a gap")
+			eq(msg, ("T9~Olympus~%d~1234567~Consumables;929x20,.3,6948x3~Mate rials x;2589x200"):format(snap.t), "the empty slots between as a gap")
 			-- Shared by the Treasurer's client alone, once per gap unless it changed.
 			ns.Comm.SendChunked = function(m) w.sent[#w.sent + 1] = { dist = "CHANNEL", msg = m, chunked = true } end
 			eq(B.Share(), true); eq(LastSent(w), msg)

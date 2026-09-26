@@ -29,7 +29,8 @@ local queried = {}
 local lastShare, lastSent = -math.huge, nil
 local readPending = false
 
-local function Clean(s, n) return ns.Cut((tostring(s or ""):gsub("[~;,x|%c]", " ")), n) end
+-- (A tab's name ends at the first ";": only the message's separators and escapes go.)
+local function Clean(s, n) return ns.Cut((tostring(s or ""):gsub("[~;|%c]", " ")), n) end
 local function HasBank() return type(GetNumGuildBankTabs) == "function" and type(GetGuildBankItemInfo) == "function" end
 
 -- Our own snapshot (this character's guild's bank), and the Treasurer's as it reached us.
