@@ -335,8 +335,12 @@ copy. No addon can prevent that. What this one does is make an edited copy usele
     who is the only one of their guild with the addon is not.)
   - **The Crown** (any guild master, the officers of `<Olympus>`) needs two senders naming them.
   - A sender speaks for one guild only (a player who changed guilds can speak for the new one
-    after 15 quiet minutes). Two spellings of a guild name that differ only in capitals both
-    lose their ranks while both are fresh.
+    after 15 quiet minutes). A guild is one whatever the capitals a report spells it with: a
+    second spelling is a vote on the same guild, never a second guild.
+  - **The row everyone sees is the majority's**: a report against the picture most senders
+    give is counted as a vote but does not replace what the census shows, so one outsider can't
+    rename a Lord or shrink a guild on everyone's screen. A report claiming more members than a
+    guild can hold is dropped as forged. A guild not heard from for a day leaves the total.
 - **Only our channel counts**: addon messages that arrive on any other chat channel are
   ignored, so the sealed channel really keeps outsiders out.
 - **Sealed channel** (`/oly key`): outsiders can't find the channel or join it.
