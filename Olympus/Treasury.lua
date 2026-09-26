@@ -30,7 +30,8 @@ Treasury.SHARE_EVERY = 300   -- the Treasurer's client repeats the treasury for 
 Treasury.SHARE_GAP = 60      -- and sends a change once a minute at most
 Treasury.FLAGS_EVERY = 300   -- the King's client repeats his switches
 Treasury.REPORT_KEPT = 7 * 86400 -- a treasury not heard of for a week is dropped
-Treasury.RANK_SENT = 10      -- donors in the ranking sent
+Treasury.RANK_SENT = 100     -- donors in the ranking sent (0.9.7; the message goes in pieces)
+Treasury.RANK_PAGE = 25      -- ranking lines shown, 25 more a click (the window stays light)
 Treasury.BOOK_SENT = 15      -- latest lines of the book sent
 Treasury.BOOK_SHOWN = 40     -- lines of his own book the Treasurer sees, 40 more a click
 Treasury.PENDING_FOR = 30    -- seconds a mail's gold may take to arrive once asked for
@@ -46,6 +47,7 @@ local lastFlagsSent = -math.huge
 local pending = {}           -- mail gold asked for, until it arrives: { key, sender, money, returned, t }
 local lastMoney              -- the character's gold as last seen while takes wait
 local bookShown = Treasury.BOOK_SHOWN
+local rankShown = Treasury.RANK_PAGE
 
 local function Grey(s) return "|cff9d9d9d" .. s .. "|r" end
 local function Gold(s) return "|cffffd200" .. s .. "|r" end
@@ -788,7 +790,7 @@ end
 
 function Treasury.Show(mode)
 	Treasury.mode = mode
-	bookShown = Treasury.BOOK_SHOWN
+	bookShown, rankShown = Treasury.BOOK_SHOWN, Treasury.RANK_PAGE
 	ns.Fire("TREASURY_CHANGED")
 end
 
@@ -810,9 +812,14 @@ end
 local function RankLines(lines, rank)
 	lines[#lines + 1] = { header = true, text = L.TREASURY_RANKING }
 	if #rank == 0 then lines[#lines + 1] = { text = Grey(L.TREASURY_NONE) } end
-	for i, g in ipairs(rank) do
-		if i > Treasury.RANK_SENT then break end
+	local n = math.min(#rank, Treasury.RANK_SENT)
+	for i = 1, math.min(n, rankShown) do
+		local g = rank[i]
 		lines[#lines + 1] = { indent = 1, text = (i <= 3 and Gold or tostring)(("%d. %s"):format(i, g.name)), right = Treasury.Coins(g.money) }
+	end
+	if n > rankShown then
+		lines[#lines + 1] = { indent = 1, text = Grey(L.SHOW_MORE:format(math.min(Treasury.RANK_PAGE, n - rankShown), rankShown, n)),
+			onClick = function() rankShown = rankShown + Treasury.RANK_PAGE; ns.Fire("TREASURY_CHANGED") end }
 	end
 end
 
@@ -1049,7 +1056,7 @@ function Treasury.Reset()
 	asked = false
 	wipe(pending)
 	lastMoney = nil
-	bookShown = Treasury.BOOK_SHOWN
+	bookShown, rankShown = Treasury.BOOK_SHOWN, Treasury.RANK_PAGE
 	Treasury.mode = "summary"
 	if ns.rdb then ns.rdb.treasuryReport = nil end
 end

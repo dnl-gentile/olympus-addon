@@ -9094,5 +9094,23 @@ test("0.9.7 the High Council key: whispered to the author alone, checked there, 
 	if not ok then error(err, 0) end
 end)
 
+test("0.9.7 the donation ranking: 100 donors fit the Treasurer's message and all reach the King", function()
+	local T = ns.Treasury
+	local saved = { book = ns.rdb.treasury, share = T.Share, print = ns.Print, alert = ns.PlayAlert, guild = GetGuildInfo }
+	local ok, err = pcall(function()
+		T.Share, ns.Print, ns.PlayAlert = function() end, function() end, function() end
+		GetGuildInfo = function() return "OLYMPUS", "Treasurer", 2 end
+		local function Name(i) return "Donor " .. string.char(65 + math.floor((i - 1) / 26)) .. string.char(97 + (i - 1) % 26) .. "name" end
+		for i = 1, 120 do T.Record(Name(i), 10000 + i, "trade", nil, { quiet = true }) end
+		local msg = T.Message()
+		assert(#msg <= ns.Codec.CHUNK * ns.Codec.MAX_CHUNKS, "fits the pieces: " .. #msg)
+		T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", msg)
+		eq(#T.Report().rank, 100, "the top 100")
+	end)
+	ns.rdb.treasury, T.Share, ns.Print, ns.PlayAlert, GetGuildInfo = saved.book, saved.share, saved.print, saved.alert, saved.guild
+	T.Reset()
+	if not ok then error(err, 0) end
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

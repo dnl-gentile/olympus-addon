@@ -513,6 +513,9 @@ Limits, stated honestly:
 | `/oly rollcall on\|off` | answer the author's roll calls (version, client, channel state) or not |
 | `/oly inspection on\|off` | take part in the King's Royal Inspection when sampled (a 2-minute patrol reported to him), or not |
 | `/oly issuereporter hide\|show` | hide Blizzard's Issue Reporter box (beta clients) at every login, or show it again (also a "Hide" button on it) |
+| `/oly helpme [text]` (or **Ask a High Councillor** on the Realm tab) | ask the High Council (the moderators) for help: it goes by whisper to up to three of them online who take requests |
+| `/oly council join <key>` · `/oly council help on\|off` | moderators: join the High Council with the key the author gave you (it goes by whisper to his character only); take help requests or not |
+| `/oly council add\|remove <name>` · `list` · `key <random key>` | the author's or the King's character: keep the High Council list and its key (no name is ever written in the addon's code) |
 | `/oly hop` | ask for an invite to the King's layer (while he is online) |
 | `/oly vox off` · `/oly vox on` | Vox Populi questions in chat only, or in a window |
 | `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer |
