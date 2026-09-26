@@ -8351,6 +8351,201 @@ do
 			eq(C.ChannelReady(), true)
 			w.Wait(4)
 			eq(C.Stats().asked, 1, "census asked for once back in")
+-- 0.9.1: chat
+do
+	-- The game's chat windows as GetChatWindowInfo tells them: 1 the main one, 2 the combat log
+	-- (docked), 3 unused, 4 "Olympus" docked behind another tab (hidden, so "not shown"), 5
+	-- "Officers" floating, 6-10 unused. fn(w, printed) runs with them, as a Lord of Olympus II.
+	local function WithWindows(fn)
+		local saved = { info = GetChatWindowInfo, fcf = FCF_GetChatWindowInfo, combat = IsCombatLog, num = NUM_CHAT_WINDOWS,
+			default = DEFAULT_CHAT_FRAME, lines = CHAT_LINES, windows = ns.db.chatWindows, chat = ns.rdb.chat, mute = ns.db.chatMute,
+			me = ns.me, frames = {} }
+		local w = {}
+		for i = 1, 10 do
+			saved.frames[i] = _G["ChatFrame" .. i]
+			w[i] = { name = "", shown = false, lines = {} }
+			w[i].AddMessage = function(self, text) self.lines[#self.lines + 1] = text end
+			_G["ChatFrame" .. i] = w[i]
+		end
+		w[1].name, w[1].shown = "General", true
+		w[2].name, w[2].isDocked = "Combat Log", true
+		w[3].name = "Voice"
+		w[4].name, w[4].isDocked = "Olympus", true
+		w[5].name, w[5].shown = "Officers", true
+		NUM_CHAT_WINDOWS = 10
+		GetChatWindowInfo = function(i)
+			local f = w[i]
+			return f.name, 14, 0, 0, 0, 1, f.shown, false, f.isDocked and 1 or nil, false
+		end
+		FCF_GetChatWindowInfo = nil
+		IsCombatLog = function(f) return f == w[2] end
+		DEFAULT_CHAT_FRAME = w[1]
+		ns.db.chatWindows, ns.rdb.chat, ns.db.chatMute, ns.me = nil, nil, nil, "Tester-Realm"
+		local ok, err = pcall(AsRank, 0, function(printed) fn(w, printed) end)
+		GetChatWindowInfo, FCF_GetChatWindowInfo, IsCombatLog, NUM_CHAT_WINDOWS = saved.info, saved.fcf, saved.combat, saved.num
+		DEFAULT_CHAT_FRAME, CHAT_LINES, ns.db.chatWindows, ns.rdb.chat, ns.db.chatMute = saved.default, saved.lines, saved.windows, saved.chat, saved.mute
+		ns.me = saved.me
+		for i = 1, 10 do _G["ChatFrame" .. i] = saved.frames[i] end
+		if not ok then error(err, 0) end
+	end
+	local function Count(list, what)
+		local n = 0
+		for _, l in ipairs(list) do if tostring(l):find(what, 1, true) then n = n + 1 end end
+		return n
+	end
+	local id = 5000
+
+	test("chat window: each channel's lines and our own echo go to the window chosen by its name (#14)", function()
+		WithWindows(function(w, printed)
+			eq(Chan.ChooseWindow("olympus"), true, "any case")
+			eq(ns.db.chatWindows["Tester-Realm"].A, "Olympus", "stored as the game names it")
+			eq(ns.db.chatWindows["Tester-Realm"].C, "Olympus"); eq(ns.db.chatWindows["Tester-Realm"].L, "Olympus")
+			eq(printed[#printed], ns.L.CHATWIN_SET:format("[Olympus], [Captains], [Lords]", '"Olympus"'))
+			eq(Count(w[4].lines, "[Lords]"), 1, "the choice is said in that window too")
+			eq(Chan.ChooseWindow("5 captains"), true, "by number, one channel")
+			eq(ns.db.chatWindows["Tester-Realm"].C, "Officers"); eq(ns.db.chatWindows["Tester-Realm"].A, "Olympus")
+			w[1].lines, w[4].lines, w[5].lines = {}, {}, {}
+			id = id + 1
+			eq((Chan.Receive("CHANNEL", "Member500", Msg("A", MY_GUILD, id, "to the olympus tab"), 3000000)), true)
+			eq((Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, id, "to the officers window"), 3000001)), true)
+			eq((Chan.Receive("CHANNEL", "Member1", Msg("L", MY_GUILD, id, "lords to the olympus tab"), 3000002)), true)
+			eq(Count(w[4].lines, "to the olympus tab"), 2); eq(Count(w[5].lines, "to the officers window"), 1)
+			eq(#w[1].lines, 0, "nothing in the main window")
+			-- Our own line, shown when sent, lands with the others.
+			WithLane(function() eq((Chan.Send("A", "my own line", 3000010)), true) end)
+			eq(Count(w[4].lines, "my own line"), 1); eq(#w[1].lines, 0)
+			-- Through the slash command, and in /oly status.
+			SlashCmdList.OLYMPUS("chatwindow Officers lords")
+			eq(ns.db.chatWindows["Tester-Realm"].L, "Officers")
+			eq(Chan.WindowStatus(), '[Olympus] "Olympus", [Captains] "Officers", [Lords] "Officers"')
+			assert(ns.StatusText():find('chat windows: [Olympus] "Olympus"', 1, true), "in /oly status")
+			-- Per character, like the game's chat windows: another character's lines stay in the main window.
+			ns.me = "Other-Realm"
+			w[1].lines = {}
+			id = id + 1
+			eq((Chan.Receive("CHANNEL", "Member501", Msg("A", MY_GUILD, id, "other character"), 3000020)), true)
+			eq(Count(w[1].lines, "other character"), 1)
+		end)
+	end)
+
+	test("chat window: a window closed or renamed sends its lines to the main window, with one notice", function()
+		WithWindows(function(w, printed)
+			Chan.ChooseWindow("Olympus")
+			w[4].name = "Olympus 2" -- renamed
+			local n = #printed
+			for k = 1, 3 do
+				id = id + 1
+				eq((Chan.Receive("CHANNEL", "Member" .. (510 + k), Msg("A", MY_GUILD, id, "renamed " .. k), 3001000 + k * 2)), true)
+			end
+			eq(Count(w[1].lines, "renamed"), 3, "nothing lost: the main window has them")
+			eq(#printed, n + 1, "one notice"); eq(printed[#printed], ns.L.CHATWIN_GONE:format('"Olympus"'))
+			eq(ns.db.chatWindows["Tester-Realm"].A, "Olympus", "the choice is kept")
+			assert(Chan.WindowStatus():find('[Olympus] "Olympus" ' .. ns.L.CHATWIN_GONE_TAG, 1, true), Chan.WindowStatus())
+			w[4].name = "Olympus" -- back
+			id = id + 1
+			eq((Chan.Receive("CHANNEL", "Member520", Msg("A", MY_GUILD, id, "back again"), 3001020)), true)
+			eq(Count(w[4].lines, "back again"), 1); eq(#printed, n + 1)
+			w[4].isDocked, w[4].shown = nil, false -- closed
+			id = id + 1
+			eq((Chan.Receive("CHANNEL", "Member521", Msg("A", MY_GUILD, id, "closed now"), 3001030)), true)
+			eq(Count(w[1].lines, "closed now"), 1)
+			eq(#printed, n + 2, "gone again after it came back: one more notice")
+			-- An open window called the same (a tab made again) takes the lines back.
+			w[6].name, w[6].isDocked = "OLYMPUS", true
+			id = id + 1
+			eq((Chan.Receive("CHANNEL", "Member522", Msg("A", MY_GUILD, id, "new tab"), 3001040)), true)
+			eq(Count(w[6].lines, "new tab"), 1)
+			-- Our echo too, with the window closed.
+			w[6].isDocked = nil
+			w[1].lines = {}
+			WithLane(function() eq((Chan.Send("A", "echo to main", 3001050)), true) end)
+			eq(Count(w[1].lines, "echo to main"), 1)
+		end)
+	end)
+
+	test("chat window: main puts the lines back, unknown windows and the combat log are refused", function()
+		WithWindows(function(w, printed)
+			eq(Chan.ChooseWindow("Nope"), false)
+			eq(printed[#printed], ns.L.CHATWIN_NOT_FOUND:format('"Nope"', '1 "General", 4 "Olympus", 5 "Officers"', ns.L.CHATWIN_NEW))
+			eq(ns.db.chatWindows, nil, "nothing stored")
+			eq(Chan.ChooseWindow("6"), false, "a closed window"); eq(Chan.ChooseWindow("11"), false); eq(Chan.ChooseWindow("0"), false)
+			eq(Chan.ChooseWindow("2"), false); eq(printed[#printed], ns.L.CHATWIN_COMBATLOG)
+			eq(Chan.ChooseWindow("combat log"), false); eq(printed[#printed], ns.L.CHATWIN_COMBATLOG)
+			eq(Chan.ChooseWindow("1"), true, "the main window itself"); eq(ns.db.chatWindows, nil, "nothing to remember")
+			eq(Chan.ChooseWindow(""), false)
+			eq(printed[#printed - 1], ns.L.CHATWIN_NOW:format("[Olympus] " .. ns.L.CHATWIN_MAIN_NAME .. ", [Captains] "
+				.. ns.L.CHATWIN_MAIN_NAME .. ", [Lords] " .. ns.L.CHATWIN_MAIN_NAME))
+			eq(printed[#printed], ns.L.CHATWIN_USAGE)
+			-- The whole name first: a window may end with a channel's name.
+			w[5].name = "Olympus Lords"
+			eq(Chan.ChooseWindow("olympus lords"), true)
+			eq(ns.db.chatWindows["Tester-Realm"].A, "Olympus Lords"); eq(ns.db.chatWindows["Tester-Realm"].L, "Olympus Lords")
+			eq(Chan.ChooseWindow("Olympus all"), true); eq(ns.db.chatWindows["Tester-Realm"].C, "Olympus")
+			eq(Chan.ChooseWindow("main captains"), true)
+			eq(printed[#printed], ns.L.CHATWIN_MAIN:format("[Captains]"))
+			eq(ns.db.chatWindows["Tester-Realm"].C, nil); eq(ns.db.chatWindows["Tester-Realm"].A, "Olympus")
+			eq(Chan.ChooseWindow("main"), true)
+			eq(ns.db.chatWindows, nil, "nothing left")
+			-- The game without the chat window API, or with a broken one: the frame's own name and
+			-- dock (what FCF_SetWindowName and the dock set), else the main window, never an error.
+			eq(Chan.ChooseWindow("Olympus Lords"), true)
+			GetChatWindowInfo = nil
+			eq(select(3, Chan.FindWindow("Olympus")), "Olympus", "the frame's own name")
+			GetChatWindowInfo = function() error("broken") end
+			eq(select(2, Chan.FindWindow("Olympus")), 4, "docked")
+			-- Window 5 floats (shown, not docked): with nothing to say it is shown, the main window.
+			id = id + 1
+			eq((Chan.Receive("CHANNEL", "Member530", Msg("A", MY_GUILD, id, "no api"), 3002000)), true)
+			eq(Count(w[1].lines, "no api"), 1, "the main window")
+		end)
+	end)
+
+	test("flood guard: lines held back are told in one notice a minute, counted, and kept (#15)", function()
+		WithWindows(function(w, printed)
+			local stats0 = Chan.Stats().flood
+			local T = 4000000
+			Chan.FloodNotice(T - 1000) -- (whatever earlier tests held back)
+			local n = #printed
+			for i = 1, 70 do
+				local shown, why = Chan.Receive("CHANNEL", "Member" .. (600 + i), Msg("A", MY_GUILD, i, "busy " .. i), T + i * 0.5)
+				if i <= 60 then eq(shown, true, "line " .. i) else eq(why, "flood", "line " .. i) end
+			end
+			eq(#printed, n, "a few seconds to count the burst")
+			eq(Chan.FloodNotice(T + 40), false)
+			eq(Chan.FloodNotice(T + 40.5), true)
+			eq(#printed, n + 1, "one notice"); eq(printed[#printed], ns.L.CHAN_FLOOD_NOTICE:format("[Olympus] 10", Chan.HISTORY))
+			eq(Chan.FloodNotice(T + 200), false, "nothing more to tell")
+			-- Nothing held back is lost: the Realm tab's history has every line.
+			local h = Chan.History("A")
+			eq(#h, 70); eq(h[70].text, "busy 70")
+			-- More lines held within the minute wait for the next notice, in the window the channel shows in.
+			Chan.ChooseWindow("Olympus")
+			n = #printed
+			for i = 71, 75 do
+				eq(select(2, Chan.Receive("CHANNEL", "Member" .. (600 + i), Msg("A", MY_GUILD, i, "busy " .. i), T + 40 + i * 0.1)), "flood")
+			end
+			eq(Chan.FloodNotice(T + 100), false, "a minute after the last one")
+			Chan.Prune(T + 100.5) -- the housekeeping tells it when the timer did not
+			eq(Count(w[4].lines, ns.L.CHAN_FLOOD_NOTICE:format("[Olympus] 5", Chan.HISTORY)), 1)
+			eq(#printed, n, "not in the main window")
+			eq(Chan.Stats().flood - stats0, 15, "every line held is counted in a notice")
+			eq(#Chan.History("A"), 75)
+		end)
+	end)
+
+	test("the Realm tab shows every chat line the history keeps (#15)", function()
+		WithWindows(function()
+			for i = 1, 100 do
+				Chan.Receive("CHANNEL", "Member" .. (700 + i), Msg("A", MY_GUILD, i, "kept " .. i), 5000000 + i * 1.1)
+			end
+			eq(#Chan.History("A"), 100, "the history keeps 100 lines")
+			ns.Views.ShowChat("A")
+			local ok, lines = pcall(ns.Views.RealmLines)
+			ns.Views.ShowChat(nil)
+			assert(ok, lines)
+			local n = 0
+			for _, l in ipairs(lines) do if (l.text or ""):find("kept ", 1, true) then n = n + 1 end end
+			eq(n, 100, "lines kept but not shown were lost all the same")
 		end)
 	end)
 end
