@@ -604,19 +604,18 @@ function Workshop.Reset()
 end
 
 ---------------------------------------------------------------------------
--- The High Council (the moderators): a list of character names the author's or the King's
--- character publishes in game, never written in the code (Core.lua, ns.IsHighCouncillor).
---   HC~<time>~<First Surname>,<First Surname>,...   the newest list heard wins
+-- The High Council (the moderators): a list of character names signed by the author on his
+-- own computer (scripts/council-sign.py; Sign.lua checks it), never written in the code. His
+-- character loads it from a file that exists on his machine only and publishes it; every
+-- client checks the signature, keeps the newest list and passes it along now and then, so
+-- nobody needs to be online and nobody can forge or change it.
+--   HS1~<time>~<realm group>~<First Surname>,...~<signature>   (signed: all before the last ~)
 ---------------------------------------------------------------------------
 
 Workshop.COUNCIL_MAX = 30
-Workshop.COUNCIL_EVERY = 300
+Workshop.RELAY_EVERY = 1800 -- a client passes the list along about every 30 minutes...
+Workshop.RELAYS = 3         -- ...and about this many clients do, whatever the army's size
 local lastCouncilSent = -math.huge
-
-local function CouncilPublisher(name)
-	return IsAuthorName(name) or (ns.IsKingCharacter and ns.IsKingCharacter(name))
-end
-function Workshop.CanPublishCouncil() return CouncilPublisher(ns.me) end
 
 local function CouncilNames()
 	local c = ns.rdb and ns.rdb.council
@@ -627,94 +626,51 @@ local function CouncilNames()
 end
 Workshop.CouncilNames = CouncilNames
 
-function Workshop.SendCouncil(force)
-	if not CouncilPublisher(ns.me) or not ns.rdb or type(ns.rdb.council) ~= "table" then return end
-	local now = ns.Now()
-	if not force and now - lastCouncilSent < Workshop.COUNCIL_EVERY then return end
-	lastCouncilSent = now
-	ns.Comm.Send("CHANNEL", ("HC~%d~%s"):format(math.floor(ns.rdb.council.at or now), table.concat(CouncilNames(), ",")), "council")
-end
-
--- /oly council add|remove <First Surname>, /oly council list (the author's or the King's).
-function Workshop.EditCouncil(verb, name)
-	if not CouncilPublisher(ns.me) then return ns.Print(L.COUNCIL_ONLY) end
-	local c = ns.rdb.council
-	if type(c) ~= "table" or type(c.names) ~= "table" then c = { names = {} } end
-	name = tostring(name or ""):gsub("^%s+", ""):gsub("%s+$", "")
-	if verb == "add" or verb == "remove" then
-		if name == "" or #name > 48 or name:find("[~,|%c]") then return ns.Print(L.COUNCIL_USAGE) end
-		if verb == "add" then
-			local n = 0
-			for _ in pairs(c.names) do n = n + 1 end
-			if n >= Workshop.COUNCIL_MAX then return ns.Print(L.COUNCIL_USAGE) end
-			c.names[name:lower()] = name
-		else
-			c.names[name:lower()] = nil
-		end
-		c.at, c.realm = ns.Now(), ns.RealmOf(ns.me) or ns.realm
-		ns.rdb.council = c
-		Workshop.SendCouncil(true)
-		ns.Fire("DATA_CHANGED")
-	end
-	local names = CouncilNames()
-	ns.Print(L.COUNCIL_LIST:format(#names > 0 and table.concat(names, ", ") or "-"))
-end
-
-function Workshop.HandleCouncil(dist, sender, text)
-	if dist ~= "CHANNEL" or not CouncilPublisher(sender) then return end
-	local at, list = text:match("^HC~(%d+)~(.*)$")
+-- A signed list (from the author's file, or heard on the channel): checked, kept if newer.
+function Workshop.TakeCouncil(blob)
+	if type(blob) ~= "string" or #blob > 2000 then return false end
+	local text, at, realm, list, sig = blob:match("^(HS1~(%d+)~([^~]*)~([^~]*))~(%x+)$")
 	at = tonumber(at)
-	if not at then return end
-	at = math.min(at, ns.Now() + 300)
+	if not at or not ns.Sign or not ns.Sign.Verify(text, sig) then return false end
 	local c = ns.rdb.council
-	if type(c) == "table" and (tonumber(c.at) or 0) >= at then return end
+	if type(c) == "table" and (tonumber(c.at) or 0) >= at then return false end
 	local names, n = {}, 0
 	for name in list:gmatch("[^,]+") do
 		name = name:gsub("^%s+", ""):gsub("%s+$", "")
 		if name ~= "" and #name <= 48 and n < Workshop.COUNCIL_MAX then names[name:lower()], n = name, n + 1 end
 	end
-	ns.rdb.council = { at = at, names = names, realm = ns.RealmOf(ns.FullName(sender)) or ns.realm, by = ns.FullName(sender) }
+	ns.rdb.council = { at = at, names = names, realm = realm ~= "" and realm or nil, blob = blob }
+	ns.Log("High Council: a signed list of %d names (%s)", n, tostring(at))
 	ns.Fire("DATA_CHANGED")
+	return true
 end
-ns.Comm.Handle("HC", function(...) Workshop.HandleCouncil(...) end)
 
--- The key (Heuto's and Max's handshake): the publisher sets a random key (/oly council key), the
--- moderators get it privately and type /oly council join <key>. Their addon whispers it to the
--- author's character alone (never on the channel, never in the code); his addon checks it and
--- puts the sender's name, the server's, on the list.
-local joinTries = {}
-function Workshop.SetCouncilKey(key)
-	if not CouncilPublisher(ns.me) then return ns.Print(L.COUNCIL_ONLY) end
-	key = tostring(key or ""):gsub("%s", "")
-	if #key < 12 then return ns.Print(L.COUNCIL_KEY_SHORT) end
-	ns.db.councilKey = key
-	ns.Print(L.COUNCIL_KEY_SET)
+function Workshop.HandleCouncil(dist, sender, text)
+	if dist == "CHANNEL" then Workshop.TakeCouncil(text) end
 end
-local function AuthorTell() return ns.FullName(ns.AUTHOR, ns.AUTHOR_REALM) end
-function Workshop.JoinCouncil(key)
-	key = tostring(key or ""):gsub("%s", "")
-	if key == "" then key = ns.db.councilJoin or "" end
-	if key == "" then return ns.Print(L.COUNCIL_USAGE) end
-	ns.db.councilJoin = key
-	if ns.IsHighCouncillor(ns.me) then return ns.Print(L.COUNCIL_YOU) end
-	ns.Comm.Whisper(AuthorTell(), "HJ~" .. key, "councilkey")
-	ns.Print(L.COUNCIL_JOIN_SENT)
+ns.Comm.Handle("HS", function(...) Workshop.HandleCouncil(...) end)
+
+-- Passing the list along: the author's client each 10 minutes; any other one now and then, so
+-- about RELAYS clients a half hour, whatever the army's size.
+function Workshop.RelayCouncil(force)
+	local c = ns.rdb and ns.rdb.council
+	if type(c) ~= "table" or type(c.blob) ~= "string" then return end
+	local now = ns.Now()
+	local mine = ns.COUNCIL_SIGNED ~= nil
+	local every = mine and 600 or Workshop.RELAY_EVERY
+	if not force and now - lastCouncilSent < every then return end
+	lastCouncilSent = now
+	if not force and not mine then
+		local users = ns.King and ns.King.AddonsOnline and ns.King.AddonsOnline() or 1
+		if Workshop.random() > math.min(1, Workshop.RELAYS / users) then return end
+	end
+	ns.Comm.SendChunked(c.blob)
 end
-function Workshop.HandleJoin(dist, sender, text)
-	if dist ~= "WHISPER" or not ns.db.councilKey or not CouncilPublisher(ns.me) then return end
-	local key = text:match("^HJ~(.*)$")
-	local short = ns.ShortName(ns.FullName(sender))
-	joinTries[short] = (joinTries[short] or 0) + 1
-	if not key or joinTries[short] > 5 then return end
-	if key ~= ns.db.councilKey then return ns.Log("council: wrong key from %s", short) end
-	Workshop.EditCouncil("add", short)
-	ns.Comm.Whisper(ns.FullName(sender), "HK~1", "councilok")
+
+function Workshop.EditCouncil(verb)
+	local names = CouncilNames()
+	ns.Print(L.COUNCIL_LIST:format(#names > 0 and table.concat(names, ", ") or "-"))
 end
-function Workshop.HandleJoined(dist, sender, text)
-	if dist == "WHISPER" and IsAuthorName(sender) then ns.Print(L.COUNCIL_YOU) end
-end
-ns.Comm.Handle("HJ", function(...) Workshop.HandleJoin(...) end)
-ns.Comm.Handle("HK", function(...) Workshop.HandleJoined(...) end)
 
 -- Asking a High Councillor for help (Max's): the councillors who opted in (/oly council help on)
 -- say so on the channel every few minutes; a player's request goes by whisper to up to three
@@ -785,8 +741,11 @@ StaticPopupDialogs["OLYMPUS_COUNCIL_ASK"] = {
 }
 
 ns.On("LOGIN", function()
+	-- The author's machine holds the signed list (CouncilList.lua, never published): his
+	-- client takes it and sends it at once.
+	if ns.COUNCIL_SIGNED and Workshop.TakeCouncil(ns.COUNCIL_SIGNED) then ns.After(15, "council", function() Workshop.RelayCouncil(true) end) end
 	ns.Every(60, "council", function()
-		Workshop.SendCouncil()
+		Workshop.RelayCouncil()
 		Workshop.SayAvailable()
 	end)
 end)

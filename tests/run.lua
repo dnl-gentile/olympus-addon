@@ -74,7 +74,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Recruit", "Views" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Recruit", "Views" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -8986,40 +8986,6 @@ test("0.9.5 the Issue Reporter: shown until the player hides it, then hidden at 
 end)
 
 -- 0.9.6: the High Council and the gamepad escape list
-test("0.9.7 the High Council: published in game by the author or the King, never in the code", function()
-	local W = ns.Workshop
-	local saved = { council = ns.rdb.council, me = ns.me, send = ns.Comm.Send, realm = ns.AUTHOR_REALM }
-	local sent = {}
-	local ok, err = pcall(function()
-		ns.AUTHOR_REALM = "Realm"
-		ns.Comm.Send = function(dist, msg) sent[#sent + 1] = msg end
-		ns.rdb.council = nil
-		eq(ns.IsHighCouncillor("Test Councillor-Realm"), false, "nobody until a list is published")
-		-- Anyone else's list: ignored.
-		W.HandleCouncil("CHANNEL", "Random Guy-Realm", "HC~100~Random Guy")
-		eq(ns.IsHighCouncillor("Random Guy-Realm"), false)
-		-- The author's list.
-		W.HandleCouncil("CHANNEL", ns.AUTHOR .. "-Realm", "HC~200~Test Councillor,Other Mod")
-		eq(ns.IsHighCouncillor("Test Councillor-Realm"), true); eq(ns.IsHighCouncillor("test councillor"), true, "any case")
-		eq(ns.IsHighCouncillor("Test Councillor-OtherRealm"), false, "a namesake on another realm group")
-		local line = ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus", nil, "hello")
-		assert(line:find(ns.HIGH_COUNCIL_ICON, 1, true) and line:find(ns.HIGH_COUNCIL_COLOR, 1, true), line)
-		-- An older list does not replace a newer one.
-		W.HandleCouncil("CHANNEL", ns.AUTHOR .. "-Realm", "HC~150~Someone Else")
-		eq(ns.IsHighCouncillor("Test Councillor-Realm"), true)
-		-- The author edits it in game: sent at once.
-		ns.me = ns.AUTHOR .. "-Realm"
-		W.EditCouncil("remove", "Other Mod")
-		assert(sent[#sent]:find("^HC~%d+~Test Councillor$"), sent[#sent])
-		-- Nobody else can.
-		ns.me = "Random Guy-Realm"
-		local before = #sent
-		W.EditCouncil("add", "Random Guy")
-		eq(#sent, before); eq(ns.IsHighCouncillor("Random Guy-Realm"), false)
-	end)
-	ns.rdb.council, ns.me, ns.Comm.Send, ns.AUTHOR_REALM = saved.council, saved.me, saved.send, saved.realm
-	if not ok then error(err, 0) end
-end)
 
 test("0.9.6 gamepad UI: our windows are not on the escape list Blizzard's gamepad menus sweep", function()
 	local saved, gp = UISpecialFrames, ns.GamepadUI
@@ -9055,44 +9021,6 @@ test("0.9.6 a donation says what the donor gave in all", function()
 	if not ok then error(err, 0) end
 end)
 
-test("0.9.7 the High Council key: whispered to the author alone, checked there, the sender's own name listed", function()
-	local W = ns.Workshop
-	local saved = { council = ns.rdb.council, me = ns.me, send = ns.Comm.Send, whisper = ns.Comm.Whisper, realm = ns.AUTHOR_REALM,
-		key = ns.db.councilKey, join = ns.db.councilJoin, help = ns.db.councilHelp }
-	local sent, whispered = {}, {}
-	local ok, err = pcall(function()
-		ns.AUTHOR_REALM = "Realm"
-		ns.Comm.Send = function(dist, msg) sent[#sent + 1] = dist .. " " .. msg end
-		ns.Comm.Whisper = function(to, msg) whispered[#whispered + 1] = to .. " " .. msg end
-		ns.rdb.council, ns.db.councilKey = nil, nil
-		-- A moderator joins: the key goes by whisper to the author, never on the channel.
-		ns.me = "Test Mod-Realm"
-		W.JoinCouncil("abcdefghijkl1234")
-		assert(whispered[#whispered]:find("^" .. ns.AUTHOR .. "%-Realm HJ~abcdefghijkl1234$"), whispered[#whispered])
-		eq(#sent, 0, "nothing on the channel")
-		-- The author's client checks it.
-		ns.me = ns.AUTHOR .. "-Realm"
-		W.SetCouncilKey("abcdefghijkl1234")
-		W.HandleJoin("WHISPER", "Wrong Key-Realm", "HJ~nope")
-		eq(ns.IsHighCouncillor("Wrong Key-Realm"), false, "a wrong key adds nobody")
-		W.HandleJoin("WHISPER", "Test Mod-Realm", "HJ~abcdefghijkl1234")
-		eq(ns.IsHighCouncillor("Test Mod-Realm"), true, "the sender, by the server's name")
-		assert(sent[#sent]:find("^CHANNEL HC~%d+~Test Mod$"), sent[#sent])
-		-- Help requests reach councillors who opted in.
-		ns.me = "Test Mod-Realm"
-		W.HandleAvailable("CHANNEL", "Test Mod-Realm")
-		W.HandleAvailable("CHANNEL", "Random Guy-Realm") -- not on the council: never asked
-		ns.me = "Player One-Realm"
-		W.AskCouncil("lost my tabard")
-		assert(whispered[#whispered]:find("^Test Mod%-Realm HR~lost my tabard$"), whispered[#whispered])
-		local before = #whispered
-		W.AskCouncil("again")
-		eq(#whispered, before, "once every few minutes")
-	end)
-	ns.rdb.council, ns.me, ns.Comm.Send, ns.Comm.Whisper, ns.AUTHOR_REALM = saved.council, saved.me, saved.send, saved.whisper, saved.realm
-	ns.db.councilKey, ns.db.councilJoin, ns.db.councilHelp = saved.key, saved.join, saved.help
-	if not ok then error(err, 0) end
-end)
 
 test("0.9.7 the donation ranking: 100 donors fit the Treasurer's message and all reach the King", function()
 	local T = ns.Treasury
@@ -9110,6 +9038,58 @@ test("0.9.7 the donation ranking: 100 donors fit the Treasurer's message and all
 	ns.rdb.treasury, T.Share, ns.Print, ns.PlayAlert, GetGuildInfo = saved.book, saved.share, saved.print, saved.alert, saved.guild
 	T.Reset()
 	if not ok then error(err, 0) end
+end)
+
+test("0.9.7 the High Council: a list the author signs on his computer, checked by every client, passed along by any", function()
+	local W = ns.Workshop
+	local LIST1 = "HS1~1790000000~Realm~Test Councillor,Other Mod~5c8eac0d271a53cc73bb79e40ad0b9390f81c0d90fc0c3bd9e3ba804f15a59dea651a95e6221c7e6e9c53cf0067fc2f6a990ccb59ab39df6ad6a7f2a40a6be7680b6133cfa5ae6261d9925a545b0ec180b0edf899040bf0ceb973f0db455187d954d4ce8340364335397dc0cb928fe0d5dd5e7add436ed5984a8e1d0db470f46c77f8ffff98f6e32c287c15032f97b7b2f5bc70d4164bad8e8beccb02a1cb78ba2511487c423b62d18c0e8b47ab26a0dfe6144fae7b0b2e311d756b64b93c9f3914c82a51202a295215c0da66afa515417d305e19f31c065d084d222c00b45294849db4d4910732c49b7bf79fbd6197fe04c0db8a803265ab6d64b3566252ab7"
+	local LIST2 = "HS1~1790000100~Realm~Test Councillor~43c2479504493a7c32dc1ab4356e9045933e657aa33747d49b2fc5195af0656d6a991efe985187c7c09df8ec4cf91483e05923e79880f5b6130ac0450e2ed225e8f95051e5ea36f3f62302764303cd85d2a6fc28ecf020178e4d90fbfd78fad2c7e04584577b3ae1f2d7c0d978ffc37992f303d673c676e1f43b894673402c4cb542671a9013b3ddc50c004d986472aa5bd5142d8980e2e719ced7f9b25d0c83f997fcb811f610d808961d7ae403d4e4090114e5b923982efaf2aebe35ccaaf19f284d9f5d9e8ed428a1b8de6c0e3b124317d4729085ce13de192eabebf2a1dac15424898e3439f246fca7a158c7a8e6b89acf7b2b7ab4e4435b3612a4d4e1fc"
+	local saved = { council = ns.rdb.council, chunked = ns.Comm.SendChunked, whisper = ns.Comm.Whisper, help = ns.db.councilHelp, me = ns.me }
+	local sent, whispered = {}, {}
+	local ok, err = pcall(function()
+		ns.Comm.SendChunked = function(msg) sent[#sent + 1] = msg end
+		ns.Comm.Whisper = function(to, msg) whispered[#whispered + 1] = to .. " " .. msg end
+		ns.rdb.council = nil
+		eq(ns.IsHighCouncillor("Test Councillor-Realm"), false, "nobody until a signed list arrives")
+		-- Forged or changed lists: refused, whoever sends them.
+		W.HandleCouncil("CHANNEL", "Faker Guy-Realm", (LIST1:gsub("Other Mod", "Faker Guy")))
+		W.HandleCouncil("CHANNEL", "Faker Guy-Realm", LIST1:sub(1, -2) .. (LIST1:sub(-1) == "0" and "1" or "0"))
+		W.HandleCouncil("CHANNEL", "Faker Guy-Realm", "HS1~1790000200~Realm~Faker Guy~" .. string.rep("ab", 256))
+		eq(ns.IsHighCouncillor("Faker Guy-Realm"), false, "no forged list")
+		-- The signed list, from anyone (a relay carries no authority: the signature does).
+		W.HandleCouncil("CHANNEL", "Any Player-Realm", LIST1)
+		eq(ns.IsHighCouncillor("Test Councillor-Realm"), true); eq(ns.IsHighCouncillor("other mod"), true, "any case")
+		eq(ns.IsHighCouncillor("Test Councillor-OtherRealm"), false, "its realm group only")
+		local line = ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus", nil, "hello")
+		assert(line:find(ns.HIGH_COUNCIL_ICON, 1, true) and line:find(ns.HIGH_COUNCIL_COLOR, 1, true), line)
+		-- A newer signed list replaces it; an older one never comes back.
+		W.HandleCouncil("CHANNEL", "Any Player-Realm", LIST2)
+		eq(ns.IsHighCouncillor("Other Mod-Realm"), false, "removed")
+		W.HandleCouncil("CHANNEL", "Replayer-Realm", LIST1)
+		eq(ns.IsHighCouncillor("Other Mod-Realm"), false, "an old list replayed changes nothing")
+		-- Any client passes the newest list along, as it is.
+		W.RelayCouncil(true)
+		eq(sent[#sent], LIST2)
+		-- Help requests go to councillors who take them.
+		W.HandleAvailable("CHANNEL", "Test Councillor-Realm")
+		W.HandleAvailable("CHANNEL", "Random Guy-Realm")
+		ns.me = "Player One-Realm"
+		W.AskCouncil("lost my tabard")
+		assert(whispered[#whispered]:find("^Test Councillor%-Realm HR~lost my tabard$"), whispered[#whispered])
+		local before = #whispered
+		W.AskCouncil("again")
+		eq(#whispered, before, "once every few minutes")
+	end)
+	ns.rdb.council, ns.Comm.SendChunked, ns.Comm.Whisper, ns.db.councilHelp, ns.me = saved.council, saved.chunked, saved.whisper, saved.help, saved.me
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.7 SHA-256 and the signature check on known values", function()
+	local function hex(b) return (b:gsub(".", function(c) return ("%02x"):format(c:byte()) end)) end
+	eq(hex(ns.Sign.SHA256("abc")), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+	eq(hex(ns.Sign.SHA256("")), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+	eq(hex(ns.Sign.SHA256(string.rep("a", 1000))), "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3")
+	eq(ns.Sign.Verify("HS1~1~Realm~X", "00"), false); eq(ns.Sign.Verify("x", "zz"), false)
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

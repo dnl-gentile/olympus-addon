@@ -544,8 +544,8 @@ end
 
 -- The High Council: the Olympus moderators, shown with a skull and their colour in the Olympus
 -- chats. No name is written in this code (it is public, and names get sniped on launch realms):
--- the list is published in game by the author's or the King's character (Workshop.lua, HC), whose
--- names the server stamps, and every client keeps the newest one it heard.
+-- the list is signed by the author on his own computer and checked by every client (Sign.lua,
+-- Workshop.lua).
 ns.HIGH_COUNCIL_ICON = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_8:0|t"
 ns.HIGH_COUNCIL_COLOR = "ffb048f8"
 function ns.IsHighCouncillor(name)
@@ -1011,10 +1011,8 @@ SlashCmdList.OLYMPUS = function(input)
 			-- The High Council's list (the author's or the King's character): add, remove, list.
 			local verb, arg = rest:match("^(%S*)%s*(.-)$")
 			verb = (verb or ""):lower()
-			if verb == "key" then ns.Workshop.SetCouncilKey(arg)
-			elseif verb == "join" then ns.Workshop.JoinCouncil(arg)
-			elseif verb == "help" then ns.Workshop.SetCouncilHelp(arg:lower() ~= "off")
-			else ns.Workshop.EditCouncil(verb, arg) end
+			if verb == "help" then ns.Workshop.SetCouncilHelp(arg:lower() ~= "off")
+			else ns.Workshop.EditCouncil(verb) end
 		elseif cmd == "helpme" then
 			if rest ~= "" then ns.Workshop.AskCouncil(rest) else ns.ShowDialog("OLYMPUS_COUNCIL_ASK") end
 		elseif cmd == "issuereporter" then
