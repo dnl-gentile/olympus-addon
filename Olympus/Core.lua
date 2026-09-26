@@ -883,6 +883,7 @@ local function Help()
 	print(L.HELP_LOCATION)
 	print(L.HELP_ROLLCALL)
 	print(L.HELP_TREASURER)
+	print(L.HELP_INSPECTION)
 	print("  /oly decrees - decrees")
 	print("  /oly arms [text] | /oly muster [text] - decree (officers; 'test' = local preview)")
 	print(L.HELP_CHAN_ALL)
@@ -950,6 +951,11 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Positions.SetEnabled(not ns.db.showMates)
 		elseif cmd == "share" then
 			ns.Positions.SetSharing(not ns.db.sharePosition)
+		elseif cmd == "inspection" then
+			-- Taking part in the King's Royal Inspection (a patrol of 2 minutes that reports to him).
+			local on = rest:lower()
+			if on == "on" or on == "off" then ns.db.royalInspection = on == "on" end
+			ns.Print(ns.db.royalInspection == false and L.INSPECTION_OPT_OFF or L.INSPECTION_OPT_ON)
 		elseif cmd == "treasurer" then
 			-- The Treasurer's yes to sharing his book and the guild bank (Treasury.lua).
 			local on = rest:lower()

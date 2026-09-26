@@ -8861,5 +8861,47 @@ test("0.9.3 the Treasurer shares his book and the bank only with his yes, and wi
 	if not ok then error(err, 0) end
 end)
 
+-- 0.9.3: admission and limits (issue #23)
+test("0.9.3 hostile: one sender's flood is dropped at the door, and unfinished pieces can't fill memory", function()
+	local C, Codec = ns.Comm, ns.Codec
+	C.ResetAdmission()
+	local now, passed = 1000, 0
+	for _ = 1, 200 do if C.Admit("Flood Guy-Realm", now) then passed = passed + 1 end end
+	eq(passed, C.ADMIT_BURST, "a burst, then nothing")
+	eq(C.Admit("Other Guy-Realm", now), true, "others are not affected")
+	eq(C.Admit("Flood Guy-Realm", now + 1), true, "the rate comes back")
+	C.ResetAdmission()
+	-- Pieces: a few open messages per sender, a ceiling in all.
+	local asm = Codec.NewAssembler()
+	for i = 1, 10 do Codec.Feed(asm, "Evil-Realm", ("C%d:1:30:x"):format(i), now) end
+	eq(asm.open, Codec.OPEN_PER_SENDER); eq(asm.refused, 10 - Codec.OPEN_PER_SENDER)
+	for k = 1, Codec.OPEN_MAX + 50 do Codec.Feed(asm, "S" .. k .. "-Realm", "C1:1:30:x", now) end
+	eq(asm.open, Codec.OPEN_MAX, "a ceiling in all")
+	-- Completed and expired pieces free their room.
+	local asm2 = Codec.NewAssembler()
+	eq(Codec.Feed(asm2, "Good-Realm", "C7:1:2:ab", now), nil)
+	eq(Codec.Feed(asm2, "Good-Realm", "C7:2:2:cd", now), "abcd"); eq(asm2.open, 0)
+	Codec.Feed(asm2, "Good-Realm", "C8:1:2:ab", now)
+	Codec.Gc(asm2, now + 61); eq(asm2.open, 0); eq(asm2.bySender["Good-Realm"], nil)
+end)
+
+test("0.9.3 a player can say no to Royal Inspections: the call is heard, nothing is inspected", function()
+	WithThrone(function(w, K)
+		local saved = { random = K.random, opt = ns.db.royalInspection }
+		local ok, err = pcall(function()
+			AsSoldier("Other")
+			if ns.Inspect.IsPatrolling() then ns.Inspect.SetPatrol(false) end
+			K.random = function() return 0 end -- in the sample
+			ns.db.royalInspection = false
+			K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~I~21~Olympus")
+			eq(ns.Inspect.IsPatrolling(), false, "said no: no patrol")
+		end)
+		K.random, ns.db.royalInspection = saved.random, saved.opt
+		if ns.Inspect.IsPatrolling() then ns.Inspect.SetPatrol(false) end
+		ns.Inspect.SetPace(nil)
+		if not ok then error(err, 0) end
+	end)
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

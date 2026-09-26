@@ -232,6 +232,7 @@ function ns.StatusText()
 			local v = ns.Treasury.Consent()
 			add("treasurer: book and bank %s (/oly treasurer on|off)", v == true and "shared" or (v == false and "private" or "not chosen (private)"))
 		end
+		add("royal inspection: %s (/oly inspection on|off)", ns.db.royalInspection == false and "not taking part" or "taking part when sampled")
 		add("author's roll call: %s (/oly rollcall on|off)", ns.Workshop and ns.Workshop.Answers and (ns.Workshop.Answers() and "answered" or "refused") or "?")
 	end
 	local n = 0

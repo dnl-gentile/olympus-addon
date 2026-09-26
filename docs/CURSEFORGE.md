@@ -423,6 +423,10 @@ copy. No addon can prevent that. What this one does is make an edited copy usele
 - **Sealed channel** (`/oly key`): outsiders can't find the channel or join it.
 - **Validation**: every number is range checked, names are length limited, and malformed
   messages are dropped. Decrees are rate limited per sender and in total.
+- **Admission** (0.9.3): one sender gets 60 messages at once and 2 a second after that, whatever
+  they are; past it their messages are dropped unread. Pieces of long messages waiting for the
+  rest are capped (4 per sender, 400 in all), so nobody can fill memory with pieces that never
+  complete.
 - **No escape codes from anyone** (0.9.2): every message from another player loses its "|"
   codes (colours, textures, links) and control bytes before anything reads it, so nobody can
   put a texture, a fake link or a fake line on your screen. Chat keeps only item, spell and
@@ -476,6 +480,7 @@ Limits, stated honestly:
 | `/oly chatwindow <number or name> [olympus\|captains\|lords]` · `/oly chatwindow main` | show the Olympus chats in another chat window, or back in the main one |
 | `/oly treasurer on\|off` | the Treasurer shares his book and the guild bank, or keeps them private |
 | `/oly rollcall on\|off` | answer the author's roll calls (version, client, channel state) or not |
+| `/oly inspection on\|off` | take part in the King's Royal Inspection when sampled (a 2-minute patrol reported to him), or not |
 | `/oly hop` | ask for an invite to the King's layer (while he is online) |
 | `/oly vox off` · `/oly vox on` | Vox Populi questions in chat only, or in a window |
 | `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer |

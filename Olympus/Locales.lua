@@ -740,6 +740,10 @@ L.TREASURER_SHARE_NO = "Keep private"
 L.TREASURER_SHARE_ON = "The treasury book and the guild bank are shared (the King sees them; the army only if he allows it). /oly treasurer off withdraws them."
 L.TREASURER_SHARE_OFF = "The treasury book and the guild bank are yours alone (withdrawn from every 0.9.3 screen). /oly treasurer on shares them."
 L.HELP_TREASURER = "  /oly treasurer on|off - the Treasurer shares his book and the guild bank, or not"
+-- 0.9.3: inspection opt-out
+L.INSPECTION_OPT_ON = "You take part in the King's Royal Inspection when your addon is in the sample: a 2-minute patrol of the players around you, reported to him. /oly inspection off says no."
+L.INSPECTION_OPT_OFF = "You don't take part in Royal Inspections: you still hear the King's call, and nothing is inspected or reported. /oly inspection on takes part again."
+L.HELP_INSPECTION = "  /oly inspection on|off - take part in the King's Royal Inspection, or not"
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1436,4 +1440,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.TREASURER_SHARE_ON = "O livro do tesouro e o banco da guilda estão compartilhados (o Rei vê; o exército só se ele permitir). /oly treasurer off retira."
 	L.TREASURER_SHARE_OFF = "O livro do tesouro e o banco da guilda são só seus (retirados de toda tela na 0.9.3). /oly treasurer on compartilha."
 	L.HELP_TREASURER = "  /oly treasurer on|off - o Tesoureiro compartilha ou não o livro e o banco da guilda"
+	-- 0.9.3: inspection opt-out
+	L.INSPECTION_OPT_ON = "Você participa da Inspeção Real do Rei quando seu addon cai na amostra: uma patrulha de 2 minutos nos jogadores ao seu redor, reportada a ele. /oly inspection off recusa."
+	L.INSPECTION_OPT_OFF = "Você não participa das Inspeções Reais: ainda ouve o chamado do Rei, e nada é inspecionado nem reportado. /oly inspection on volta a participar."
+	L.HELP_INSPECTION = "  /oly inspection on|off - participar ou não da Inspeção Real do Rei"
 end
