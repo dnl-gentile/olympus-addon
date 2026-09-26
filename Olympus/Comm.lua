@@ -23,7 +23,8 @@ local WITNESS_EVERY = 600 -- the runner-up of the election reports this often (s
 local JOIN_BY = 15        -- seconds after login we join the channel at the latest (see JoinSoon)
 local ASK_AFTER = 4       -- seconds after joining we ask the channel for the census (Q1)...
 local ASK_AGAIN = 65      -- ...and once more this later, for the reporters that had just answered
-local ANSWER_GAP = 60     -- a reporter answers census requests at most this often
+local ANSWER_GAP = BROADCAST_EVERY -- a reporter answers census requests at most this often
+local WITNESS_ANSWER_GAP = 300     -- the runner-up at most this often
 local ANSWER_MIN_AGE = 45 -- ...and only when its last report is at least this old
 local MAX_KEYS = 20      -- distinct keys per diagnostic count (the rest count as "other")
 
@@ -34,6 +35,7 @@ local lastWasChat = false
 local asm = Codec.NewAssembler()
 local msgId = 0
 local lastBroadcast = 0
+local early -- { every, due }: the report due then went out early, as a census answer (see Q1)
 local channelIndex = 0
 local stats = { sent = 0, recv = 0, reports = 0, fails = 0, bad = 0, partial = 0, echo = 0, byType = {},
 	raw = { ch = {}, g = {} }, rawSample = {}, reportRealms = {}, otherChannel = 0, asked = 0, answered = 0 }
@@ -388,6 +390,14 @@ local function Electable(now)
 	return pool
 end
 
+-- When our last report counts as sent, for a sender reporting every `every` seconds: a census
+-- answer sends the next due report early (Q1 below), and the one after it then waits a full
+-- period from when the answered one was due. Answers move reports forward, never add one.
+local function LastReport(every)
+	if early and early.every == every and early.due > lastBroadcast then return early.due end
+	return lastBroadcast
+end
+
 function Comm.MaybeBroadcast(report)
 	local now = ns.Now()
 	-- Peers are keyed "Name-Realm" like ns.me, so every client compares the same strings.
@@ -438,7 +448,7 @@ function Comm.MaybeBroadcast(report)
 	-- Only while the reporter is heard on our channel: the point is to back an active one.
 	Comm.isRunnerUp = second == ns.me and best ~= nil and now - (heardOwn[ns.ShortName(best)] or -math.huge) <= 2 * BROADCAST_EVERY
 	local every = Comm.isReporter and BROADCAST_EVERY or (Comm.isRunnerUp and WITNESS_EVERY or nil)
-	if not every or now - lastBroadcast < every then return end
+	if not every or now - LastReport(every) < every then return end
 	-- Right after login we don't know our guildmates yet and would wrongly think we are the
 	-- reporter: wait one hello round first.
 	if now - (Comm.loginAt or 0) < HELLO_EVERY + 10 then return end
@@ -458,7 +468,9 @@ end
 -- every login starts with an empty census: we ask the channel (Q1), and each guild's reporter
 -- sends its report right away instead of within 3 minutes. Bounded: a reporter answers at
 -- most once every ANSWER_GAP, and only if its last report is ANSWER_MIN_AGE old. A reporter
--- that had just answered someone else stays quiet, so we ask once more ASK_AGAIN later.
+-- that had just answered someone else stays quiet, so we ask once more ASK_AGAIN later, unless
+-- a report came meanwhile (the reporters are answering; the quiet ones report on their own
+-- within BROADCAST_EVERY).
 -- Tries again a little later while the channel is not joined yet (at most 3 times), and once
 -- more after the channel changes (the realm key arrived).
 function Comm.AskCensus()
@@ -474,7 +486,13 @@ function Comm.AskCensus()
 	Comm.lastAsk = now
 	stats.asked = stats.asked + 1
 	Enqueue("CHANNEL", "Q1~", "censusreq")
-	if stats.asked == 1 then ns.After(ASK_AGAIN, "census request", Comm.AskCensus) end
+	if stats.asked == 1 then
+		local heard = stats.reports
+		ns.After(ASK_AGAIN, "census request", function()
+			if stats.reports > heard then return end
+			Comm.AskCensus()
+		end)
+	end
 end
 
 -- We join as soon as the game's own channels are in (General is /1 for two seconds), so
@@ -534,19 +552,27 @@ end
 
 -- The reporter answers, and the runner-up too (a little later): a client that just logged in
 -- then has two senders' word on each guild at once, which the Crown needs (Data.KnownRank).
+-- Every login asks, so with thousands of players requests never stop: an answer is the next
+-- due report sent early (LastReport), and the reporter still sends one report per
+-- BROADCAST_EVERY, the runner-up one per WITNESS_EVERY, however many ask.
 Comm.Handle("Q1", function(dist, sender, text)
 	if dist ~= "CHANNEL" or not Comm.lastReport or not (Comm.isReporter or Comm.isRunnerUp) then return end
 	local now = ns.Now()
-	if not Settled(now) or now - lastAnswer < ANSWER_GAP or now - lastBroadcast < ANSWER_MIN_AGE then return end
+	local every = Comm.isReporter and BROADCAST_EVERY or WITNESS_EVERY
+	local gap = Comm.isReporter and ANSWER_GAP or WITNESS_ANSWER_GAP
+	if not Settled(now) or now - lastAnswer < gap or now - LastReport(every) < ANSWER_MIN_AGE then return end
 	lastAnswer = now
 	stats.answered = stats.answered + 1
 	-- A short random delay spreads the answers of every guild.
 	local delay = Comm.isReporter and math.random(1, 8) or math.random(9, 16)
 	ns.After(delay, "census answer", function()
 		local later = ns.Now()
-		if (Comm.isReporter or Comm.isRunnerUp) and Comm.lastReport and Settled(later) and later - lastBroadcast >= ANSWER_MIN_AGE then
-			Comm.Broadcast(Comm.lastReport)
-		end
+		if not (Comm.isReporter or Comm.isRunnerUp) or not Comm.lastReport or not Settled(later) then return end
+		local period = Comm.isReporter and BROADCAST_EVERY or WITNESS_EVERY
+		local last = LastReport(period)
+		if later - last < ANSWER_MIN_AGE then return end
+		Comm.Broadcast(Comm.lastReport)
+		early = { every = period, due = last + period }
 	end)
 end)
 

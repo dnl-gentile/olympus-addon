@@ -18,6 +18,7 @@ local mine          -- { mapID, zoneUID, t }
 local lastAnnounce = 0
 local seen = {}     -- [mapID][zoneUID]["Name-Realm"] = { rank, guild, t }
 local where = {}    -- ["Name-Realm"] = { mapID, zoneUID }: each sender counts on one layer only
+local lastFire, fireQueued = -math.huge, false -- LAYERS_CHANGED for the announcements (Receive)
 
 local function ZoneUIDFromGUID(guid)
 	if not guid then return nil end
@@ -100,7 +101,7 @@ end
 
 function Layers.Mine() return mine end
 Layers.Observe = Observe -- tests
-function Layers.Reset() mine, pending = nil, nil; wipe(seen); wipe(where) end -- tests
+function Layers.Reset() mine, pending = nil, nil; wipe(seen); wipe(where); lastFire, fireQueued = -math.huge, false end -- tests
 
 -- Where a player last announced their layer: { mapID, zoneUID, t } while fresh, else nil.
 -- The census and the channel may write a name with different realms: short names match too,
@@ -124,10 +125,43 @@ function Layers.InSample()
 	return h % 8 == 0
 end
 
+-- The King's character as Hop.King reads it: the leader of his guild the census names.
+local function FromKing(sender)
+	for name, g in pairs(ns.rdb.guilds or {}) do
+		if ns.IsKingGuild(name) and type(g) == "table" and g.leader and not g.twin then
+			local full = ns.FullName(g.leader, g.realm or ns.realm)
+			if full == sender and ns.Data.KnownRank(full, name, true) == 0 then return true end
+		end
+	end
+	return false
+end
+
+-- With thousands of users an announcement arrives every few seconds, each one a redraw of the
+-- Census, the Realm and the Decrees: at once for our zone (the layers the Realm tab lists) and
+-- for the King's layer (his line tops the Census), the rest at most once every FIRE_GAP.
+Layers.FIRE_GAP = 5
+local function FireNow()
+	lastFire = ns.Now()
+	ns.Fire("LAYERS_CHANGED")
+end
+local function FireSoon()
+	if fireQueued then return end
+	local wait = Layers.FIRE_GAP - (ns.Now() - lastFire)
+	if wait <= 0 then return FireNow() end
+	fireQueued = true
+	local queuedAt = ns.Now()
+	ns.After(wait, "layers changed", function()
+		fireQueued = false
+		if lastFire <= queuedAt then FireNow() end -- (a fire since then showed it already)
+	end)
+end
+
 function Layers.Receive(sender, l)
 	if not ns.IsFederation(l.guild) then return end
 	sender = ns.FullName(sender)
 	local old = where[sender]
+	local here = CurrentMap()
+	local urgent = (here and (l.mapID == here or (old and old[1] == here))) or FromKing(sender)
 	if old and seen[old[1]] and seen[old[1]][old[2]] then seen[old[1]][old[2]][sender] = nil end
 	where[sender] = { l.mapID, l.zoneUID }
 	seen[l.mapID] = seen[l.mapID] or {}
@@ -136,7 +170,7 @@ function Layers.Receive(sender, l)
 	-- (or ranks from our own roster) can give a layer its name.
 	local rank = ns.Data.KnownRank(sender, l.guild) or 9
 	seen[l.mapID][l.zoneUID][sender] = { rank = rank, guild = l.guild, t = ns.Now() }
-	ns.Fire("LAYERS_CHANGED")
+	if urgent then FireNow() else FireSoon() end
 end
 
 local function Prune()

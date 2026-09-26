@@ -681,6 +681,13 @@ L.HELP_CHAN_CAPTAINS = "  /olc <text> - Captains and Lords channel"
 L.HELP_CHAN_LORDS = "  /oll <text> - Lords channel (with the officers of <Olympus>)"
 L.HELP_CHAN_MUTE = "  /oly mute olympus | captains | lords - hide or show a channel in chat"
 
+-- 0.9.1: scale
+L.HOP_NOBODY_WAIT = "Nobody on that layer can invite you right now. Try again in %ds."
+L.HOP_GAVE_UP_WAIT = "No invite came. Try again in %ds."
+L.HOP_CROWDED = "Many players are asking for that layer right now: your request goes out in %ds."
+L.SHAME_COOLDOWN = "Wait %ds before publishing the Wall of Shame again."
+L.THRONE_AGENDA_POPUP_HAND = "%s, Hand of the King, calls the army: %s, in %d min. Gather in %s!"
+
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1318,4 +1325,10 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.HELP_CHAN_CAPTAINS = "  /olc <texto> - canal dos Capitães e Lordes"
 	L.HELP_CHAN_LORDS = "  /oll <texto> - canal dos Lordes (com os officers da <Olympus>)"
 	L.HELP_CHAN_MUTE = "  /oly mute olympus | captains | lords - esconder ou mostrar um canal no chat"
+	-- 0.9.1: scale
+	L.HOP_NOBODY_WAIT = "Ninguém nesse layer pode te convidar agora. Tente de novo em %ds."
+	L.HOP_GAVE_UP_WAIT = "O convite não veio. Tente de novo em %ds."
+	L.HOP_CROWDED = "Muitos jogadores estão pedindo esse layer agora: seu pedido sai em %ds."
+	L.SHAME_COOLDOWN = "Espere %ds para publicar o Mural da Vergonha de novo."
+	L.THRONE_AGENDA_POPUP_HAND = "%s, Mão do Rei, convoca o exército: %s, em %d min. Reúnam-se em %s!"
 end

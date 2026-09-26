@@ -390,9 +390,21 @@ Limits, stated honestly:
 ## Built for a crowd of thousands
 
 - One summary per guild about every 3 minutes, not one per player.
+- A census request (every login sends one) is answered with the next summary sent early, never
+  an extra one: however many players log in, a guild's reporter still sends one summary about
+  every 3 minutes and its runner-up one every 10. A client that heard a summary after asking
+  does not ask a second time.
 - In a full guild only the members who could be elected keep saying hello; the rest go quiet.
-- Layers are announced by officers plus a stable 1 in 8 sample, every 10 minutes.
+- Layers are announced by officers plus a stable 1 in 8 sample, every 10 minutes. Announcements
+  from other zones redraw the window at most once every 5 seconds.
 - A layer request goes out once; only about 6 players answer it, each by a whisper to the asker.
+  After a request that found nobody the next one waits 20 seconds, then 60, then 3 minutes; and
+  when more than 10 players asked for the same layer in the last 10 seconds, a new request goes
+  out a few seconds later.
+- The Wall of Shame is rate limited like the decrees (once a minute per sender, a few a minute
+  in total), and a wall naming the same players again raises no alert.
+- Tabard inspections are kept for two weeks, 2000 players at most (marked and caught players
+  first); the Tabards page lists the first 200.
 - Messages are spaced 1.2 s apart, below Blizzard's addon message limits, and alert sounds
   play at most once every 15 seconds.
 - Chat has its own short lane: a line goes out within about a second, and while reports are

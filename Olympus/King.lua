@@ -582,7 +582,7 @@ function King.Agenda()
 	return agenda
 end
 
-local function OnAgenda(king, id, rest)
+local function OnAgenda(king, id, rest, guild)
 	local seconds, zone, title = rest:match("^(%d+)~([^~]*)~(.*)$")
 	seconds = tonumber(seconds)
 	if not seconds or seconds < 30 or seconds > 720 * 60 or title == "" then return end
@@ -599,8 +599,11 @@ local function OnAgenda(king, id, rest)
 		lastAgendaWarn = now
 		local minutes = math.ceil(seconds / 60)
 		Warn(L.THRONE_AGENDA_SET:format(agenda.title, minutes, agenda.zone))
-		ns.ShowDialog("OLYMPUS_AGENDA_CALL", L.THRONE_AGENDA_POPUP:format(ns.KingName(king), agenda.title, minutes,
-			agenda.zone ~= "" and agenda.zone or "?"))
+		-- The King by the army's name for him; a Hand by theirs (as OnSummon).
+		local where = agenda.zone ~= "" and agenda.zone or "?"
+		local text = King.FromKing(king, guild) and L.THRONE_AGENDA_POPUP:format(ns.KingName(king), agenda.title, minutes, where)
+			or L.THRONE_AGENDA_POPUP_HAND:format(ns.DisplayName(king), agenda.title, minutes, where)
+		ns.ShowDialog("OLYMPUS_AGENDA_CALL", text)
 	end
 	Changed()
 end
@@ -741,7 +744,7 @@ function King.HandleCommand(dist, sender, text)
 	elseif kind == "H" then OnHands(sender, rest)
 	elseif kinds[kind] then kinds[kind](sender, id, rest, guild)
 	elseif kind == "I" then OnInspect(sender, id)
-	elseif kind == "A" then OnAgenda(sender, id, rest)
+	elseif kind == "A" then OnAgenda(sender, id, rest, guild)
 	elseif kind == "P" then OnLocation(sender, rest)
 	elseif kind == "Q" then
 		-- Only whoever put the crown there takes it off.
