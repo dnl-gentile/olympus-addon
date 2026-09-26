@@ -66,6 +66,7 @@ local stats = { asks = 0, offers = 0, requests = 0, invites = 0, noes = 0, joins
 local guests = {}     -- [short name] = { name, id, t, release }: players we invited for a hop
 local kingMode        -- this session's answer to the King's layer window: auto, manual or no
 local promptShown, lastPromptCheck = false, -math.huge
+local privateHinted = false -- told this session what an ask says while the player shares nothing
 
 local function Changed() ns.Fire("HOP_CHANGED") end
 
@@ -397,6 +398,12 @@ function Hop.SendAsk()
 	-- Ahead of the census traffic: someone waits for an invite (Comm.Send urgent).
 	ns.Comm.Send("CHANNEL", ("LQ~%d~%d~%d"):format(ask.id, ask.mapID, ask.zoneUID), nil, true)
 	ns.Print(L.HOP_ASKING:format(ask.label))
+	-- Keeping zone and layer private (Layers.Sharing): the ask still names this zone and the
+	-- layer wanted, and layers are only known from the members who share theirs. Once a session.
+	if not ns.Layers.Sharing() and not privateHinted then
+		privateHinted = true
+		ns.Print(L.HOP_PRIVATE_HINT)
+	end
 	ns.Log("hop: ask %d for map %d zoneUID %d", ask.id, ask.mapID, ask.zoneUID)
 	Changed()
 end
@@ -878,7 +885,7 @@ function Hop.Reset()
 	ask, pending, lastAsk = nil, nil, -math.huge
 	fails, failedAt = 0, -math.huge
 	wipe(heard)
-	kingMode, promptShown, lastPromptCheck = nil, false, -math.huge
+	kingMode, promptShown, lastPromptCheck, privateHinted = nil, false, -math.huge, false
 	lastOffer, declines, pausedUntil = -math.huge, 0, -math.huge
 	wipe(offered); wipe(answeredAt); wipe(recent); wipe(guests)
 	for k in pairs(stats) do stats[k] = 0 end

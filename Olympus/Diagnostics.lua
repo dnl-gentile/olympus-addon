@@ -216,6 +216,10 @@ function ns.StatusText()
 				ch.sent, ch.shown, ch.hidden, c.chatQueue or 0, #ch.muted > 0 and table.concat(ch.muted, ",") or "none",
 				ch.bad, ch.dup, ch.rate, ch.flood, ch.forged, ch.unverified, ch.rank)
 		end
+		-- What leaves this client about where the player is, and who reads the channel (0.9.1).
+		add("privacy: zone and layer %s  |  channel %s  |  chat warning accepted: %s",
+			ns.Layers and ns.Layers.SharingState and ns.Layers.SharingState() or "?", c.sealed and "sealed (key holders)" or "public (anyone)",
+			ch and ch.warned and #ch.warned > 0 and table.concat(ch.warned, ",") or "none")
 	end
 	local n = 0
 	for _ in pairs(ns.rdb.guilds) do n = n + 1 end

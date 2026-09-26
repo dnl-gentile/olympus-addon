@@ -48,6 +48,12 @@ local function Muted()
 	return ns.db.chatMute
 end
 
+-- The channels whose warning the player accepted before their first line there. Account-wide.
+local function Warned()
+	ns.db.chatWarned = ns.db.chatWarned or {}
+	return ns.db.chatWarned
+end
+
 -- History is per realm, like the census.
 local function Store(tier)
 	ns.rdb.chat = ns.rdb.chat or {}
@@ -191,6 +197,12 @@ function Channels.Send(tier, text, now)
 		ns.Print(L.CHAN_NOT_READY)
 		return false, "ready"
 	end
+	-- The first line in each channel waits for the player's OK: nothing is private there, and
+	-- they are told so before anything leaves (Channels.Confirm sends it).
+	if not Warned()[tier] then
+		ns.ShowDialog("OLYMPUS_CHAT_PRIVACY", Label(tier), ns.Comm.Audience(), { tier = tier, text = text })
+		return false, "confirm"
+	end
 	local guild = GetGuildInfo("player")
 	local class = ns.Roster.ClassCode(UnitClass and select(2, UnitClass("player")))
 	-- Classes without a 2 letter code travel without a class (the decoder only takes 2 letters).
@@ -216,10 +228,6 @@ function Channels.Send(tier, text, now)
 			end
 			stats.sent = stats.sent + 1
 			Accept(tier, ns.me, guild, class ~= "" and class or nil, part, true) -- our echo: exactly what the others see
-			if not ns.db.chatNoticeShown then
-				ns.db.chatNoticeShown = true
-				ns.Print(L.CHAN_NOTICE)
-			end
 		end
 		local id = NextId()
 		-- Kept a while: when this line comes back from the channel it is ours, whatever form
@@ -230,6 +238,32 @@ function Channels.Send(tier, text, now)
 	end
 	return true, "ok"
 end
+
+-- The warning's answer, with the line it held (with the gamepad UI too: it rides in the
+-- window's data). Send: that channel counts as warned and the line goes through Channels.Send
+-- again, every check with it. Cancel, Escape or another window taking its place: not sent.
+function Channels.Confirm(data, send)
+	if type(data) ~= "table" or not TIERS[data.tier] or data.answered then return end
+	data.answered = true
+	if not send then
+		ns.Print(L.CHAN_WARN_NOT_SENT)
+		return
+	end
+	Warned()[data.tier] = true
+	return Channels.Send(data.tier, data.text)
+end
+
+StaticPopupDialogs["OLYMPUS_CHAT_PRIVACY"] = {
+	text = L.CHAN_WARN_ASK,
+	button1 = SEND_LABEL or "Send",
+	button2 = CANCEL or "Cancel",
+	OnAccept = function(self, data) ns.SafeCall("chat warning", Channels.Confirm, data or (self and self.data), true) end,
+	OnCancel = function(self, data) ns.SafeCall("chat warning", Channels.Confirm, data or (self and self.data), false) end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
 
 ---------------------------------------------------------------------------
 -- Receiving
@@ -410,15 +444,18 @@ end
 function Channels.Stats()
 	local out = {}
 	for k, v in pairs(stats) do out[k] = v end
-	local muted = {}
+	local muted, warned = {}, {}
 	for _, tier in ipairs(Channels.ORDER) do
 		if Muted()[tier] then muted[#muted + 1] = tier end
+		if Warned()[tier] then warned[#warned + 1] = tier end
 	end
-	out.muted = muted
+	out.muted, out.warned = muted, warned
 	return out
 end
 
 ns.On("INIT", function()
+	-- (0.9.1: the warning comes before the first line in each channel, Channels.Confirm.)
+	ns.db.chatNoticeShown = nil
 	local chat = ns.rdb.chat
 	if chat == nil then return end
 	if type(chat) ~= "table" then

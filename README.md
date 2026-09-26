@@ -67,7 +67,8 @@ are highlighted. It is rate limited, so nobody gets spammed. The game lists 50 p
   clicking, like the Guild window.
 - **Total soldiers** and **online now** across the whole realm.
 - **Where the army stands**: top zones ("Stormwind City 742") and totals per continent
-  (Eastern Kingdoms, Kalimdor).
+  (Eastern Kingdoms, Kalimdor), counted by the guilds whose census comes from a member who
+  shares their zone (see Privacy, below).
 - Hover a guild: members, online, free slots, average level, inactive members, classes online, top zones.
 - Olympus guilds where nobody runs the addon show too, in grey: opening the window (and any click in it) also searches
   `/who` and lists every Olympus guild it sees online, with how many. They count in no total.
@@ -119,6 +120,11 @@ forgets the answer to the King's layer window, `/oly layerauto on` invites them 
 window. Helpers must be in the same zone as the layer they are on, and the King himself is
 never asked.
 
+Layers are known from the members who share their zone and layer (see Privacy, below):
+the more share, the better hopping works. Asking works either way, and says on the channel
+the zone you are in and the layer you want. The King's layer is known while he shares it or
+shows his crown on the map.
+
 ### Person details
 Click any Lord, Captain, racer or inspected player. You get the same card the Guild window
 shows: level, class, zone, rank and status, with **Whisper**, **Invite** and **Who** buttons.
@@ -160,6 +166,7 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 [Captains] and [Lords] with a one-line script: without `/oly key` that is anyone who joins
 "OlympusNet" by name; with a key, every member of the guilds that have it. The guild tag on an
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
+Before your first line in each channel the addon tells you this and waits for **Send**.
 
 ### The Throne (the King and his Hands)
 A tab with a crown that only the King sees: the guild master of the guild named exactly
@@ -325,6 +332,46 @@ census and one realm key: PvP and PvP 2 on the beta from the start, and any real
 guild turns out to be homed on. Alts on any other realm keep their census apart, and the
 window shows which realms you are counting.
 
+## Privacy
+
+The addon talks only through the game's own addon messages: no server, no website, no
+tracking. Your name is on every message (the game adds it). What goes where:
+
+| What | Who receives it | When |
+|---|---|---|
+| Your guild's census: size, online count, classes, levels, rank names, the leader and officers (name, online, days away, class, level), the top levels, addon versions | everyone on the Olympus channel | from one elected member per guild (and a runner-up), every few minutes |
+| Zones in that census: members per zone (numbers only), a leader's or officer's zone | everyone on the Olympus channel | only if the member sending it shares their zone and layer; a leader's or officer's zone only if they share theirs too |
+| Your zone, layer, guild rank and guild (layer announcements) | everyone on the Olympus channel | only if you share: officers and one member in eight announce, every 10 minutes and when their layer changes |
+| A layer hop ask: the zone you are in and the layer you want | everyone on the Olympus channel | when you ask to hop |
+| An answer to an ask for your layer | the asker alone (a whisper) | while layer help is on (`/oly layerhelp off` stops it) |
+| [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one |
+| Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
+| Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
+| The King's crown on the map, and with it his layer | everyone on the Olympus channel | only while the King turns it on (Throne tab) |
+
+Decrees and the King's calls go out when someone sends one (a decree carries its sender's
+position on the map).
+
+**Zone and layer: off until you choose.** Once after login (never in combat or in an
+instance) the addon asks whether to share your zone and layer, saying what goes out and who
+reads it. Until you answer, and after **Keep private**, it announces no layer, and the census
+your addon sends for your guild names nobody's zone and counts nobody per zone. **Share**
+turns both on. Change it any time with `/oly location on` or `/oly location off`; `/oly status`
+shows it. Layers and hops work better the more members share. Versions before
+0.9.1 still send all of it: update.
+
+**Public or sealed channel.** Without a realm key the Olympus channel ("OlympusNet", the
+Horde's "OlympusNetH") is public: anyone can join it by name and read everything on it with a
+script. With a key (`/oly key`) it gets a hidden name and the key as its password, and only
+the key's holders can join. A shared key is only as private as its least careful holder:
+every member of every guild that has it can read the channel, anyone can pass it on, and
+nobody can take it back. If it leaks, officers set a new one (`/oly key <new secret>`) and hand
+it out again.
+
+**Chat is never private.** Every client on the channel receives [Olympus], [Captains] and
+[Lords] alike; the addon only decides what to show. Before your first line in each of them
+the addon says so and waits for **Send** (**Cancel** sends nothing), once per channel.
+
 ## Security and trust
 
 **What the author's character can see.** The author (Faladoriel Skylance) has a Workshop tab
@@ -401,8 +448,8 @@ Limits, stated honestly:
   every 3 minutes and its runner-up one every 10. A client that heard a summary after asking
   does not ask a second time.
 - In a full guild only the members who could be elected keep saying hello; the rest go quiet.
-- Layers are announced by officers plus a stable 1 in 8 sample, every 10 minutes. Announcements
-  from other zones redraw the window at most once every 5 seconds.
+- Layers are announced by officers plus a stable 1 in 8 sample who share them, every 10 minutes.
+  Announcements from other zones redraw the window at most once every 5 seconds.
 - A layer request goes out once; only about 6 players answer it, each by a whisper to the asker.
   After a request that found nobody the next one waits 20 seconds, then 60, then 3 minutes; and
   when more than 10 players asked for the same layer in the last 10 seconds, a new request goes
@@ -432,6 +479,7 @@ Limits, stated honestly:
 | `/oly vox off` · `/oly vox on` | Vox Populi questions in chat only, or in a window |
 | `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer |
 | `/oly layerauto on` · `/oly layerauto off` | invite layer requests without the window |
+| `/oly location on` · `/oly location off` | share (or not) your zone and layer on the Olympus channel |
 | `/oly key <secret>` | officers: seal the Olympus channel |
 | `/oly block <name>` | ignore a player |
 | `/oly map` | zone markers on the world map |

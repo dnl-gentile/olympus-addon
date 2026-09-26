@@ -670,6 +670,8 @@ function King.ToggleLocation()
 	ns.db.throneLocation = not King.SharingLocation()
 	if King.SharingLocation() then
 		ns.Print(L.THRONE_LOCATION_SHOWN)
+		-- His crown is his yes for his layer too (Layers.lua): the army asks to join him there.
+		ns.Print(L.THRONE_LOCATION_LAYER)
 		SendLocation(true)
 	else
 		ns.Print(L.THRONE_LOCATION_HIDDEN)
