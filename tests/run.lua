@@ -82,6 +82,8 @@ ns.db = { guilds = {}, log = {}, errors = {}, blocked = {}, demo = false, showMa
 	chatWarned = { A = true, C = true, L = true } } -- (0.9.1: the channel warnings already accepted; their own tests ask)
 ns.me = "Tester-Realm"
 ns.realm = "Realm"
+-- (0.9.2: the King and the Treasurer are theirs on their realm group; here that is "Realm".)
+ns.KING_REALM, ns.TREASURER_REALM = "Realm", "Realm"
 ns.rdb = { guilds = {} }
 local CoreFire = ns.Fire -- the real one, for the tests that need INIT
 function ns.Fire() end
@@ -4294,7 +4296,7 @@ test("hello: guild peers say their realm, older versions count as old", function
 		local cns, Deliver = FreshComm()
 		Deliver("GUILD", "Abe-ClassicBetaPvP2", "H1~0.7.11~ClassicBetaPvP2")
 		Deliver("GUILD", "Bob", "H1~0.7.10")
-		Deliver("GUILD", "Cy", "H1~0.7.11~Bad|cffRealm")
+		Deliver("GUILD", "Cy", "H1~0.7.11~Bad Realm!") -- (0.9.2: a "|" never gets this far, see Comm)
 		local st = cns.Comm.Stats()
 		eq(st.peers, 3); eq(st.peerRealms.ClassicBetaPvP2, 1); eq(st.peerRealms.old, 2, "no realm, or not a realm")
 		eq(st.raw.g.bare, 2, "counted as sent, before our realm is added"); eq(st.raw.g.ClassicBetaPvP2, 1)
@@ -5643,6 +5645,9 @@ test("tabard store: one key per player, whatever the name came from", function()
 end)
 
 test("Treasurer: exactly Pyralis Ashandar of OLYMPUS, under the King and beside his name", function()
+	local realm, treasurerRealm = ns.realm, ns.TREASURER_REALM
+	ns.realm, ns.TREASURER_REALM = "ClassicBetaPvP", "ClassicBetaPvP"
+	local ok, err = pcall(function()
 	eq(ns.IsTreasurer("Pyralis Ashandar-ClassicBetaPvP", "OLYMPUS"), true)
 	eq(ns.IsTreasurer("Pyralis Ashandar", "Olympus"), true)
 	eq(ns.IsTreasurer("Pyrelis Ashandar", "OLYMPUS"), false, "a look-alike name")
@@ -5674,6 +5679,9 @@ test("Treasurer: exactly Pyralis Ashandar of OLYMPUS, under the King and beside 
 		ns.Views.ExpandAll(false)
 	end)
 	ns.rdb.guilds = saved
+	if not ok then error(err, 0) end
+	end)
+	ns.realm, ns.TREASURER_REALM = realm, treasurerRealm
 	if not ok then error(err, 0) end
 end)
 
@@ -7254,8 +7262,12 @@ test("#18: the King's own client: guild master of <Olympus> and the character th
 		ns.me = "Asmongold Asmongler-Realm"
 		eq(K.IsKing(), false)
 		-- His name, whatever realm of the group it carries; nobody else's.
-		eq(ns.IsKingCharacter("Asmongold Asmongler-ClassicBetaPvP2"), true)
-		eq(ns.IsKingCharacter("Asmongold Asmongler"), true)
+		local realm, kingRealm = ns.realm, ns.KING_REALM
+		ns.realm, ns.KING_REALM = "ClassicBetaPvP", "ClassicBetaPvP"
+		local both = ns.IsKingCharacter("Asmongold Asmongler-ClassicBetaPvP2") and ns.IsKingCharacter("Asmongold Asmongler")
+		local other = ns.IsKingCharacter("Asmongold Asmongler-ClassicBetaPvE")
+		ns.realm, ns.KING_REALM = realm, kingRealm
+		eq(both, true, "PvP and PvP 2 are one group"); eq(other, false, "a namesake on another realm group is not him")
 		eq(ns.IsKingCharacter("Asmongold-Realm"), false); eq(ns.IsKingCharacter("Asmongold Asmongler2"), false)
 		eq(ns.IsKingCharacter(nil), false)
 	end)
