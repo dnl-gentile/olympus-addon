@@ -2551,8 +2551,6 @@ test("Wall of Shame: closed with a countdown until midnight in Texas, then open"
 	I.SHAME_FROM = time() + 3600
 	eq(I.ShameOpen(), false)
 	assert(I.ShameOpensIn() > 3500)
-	I.ShowShame = function() error("closed: nothing shown") end
-	I.PublishShame() -- nothing, not even the Crown check
 	I.SHAME_FROM = time() - 1
 	eq(I.ShameOpen(), true)
 	I.SHAME_FROM, I.ShowShame = from, show
@@ -7592,58 +7590,49 @@ test("0.9.1 tabards: two weeks and 2000 players kept, marked and caught ones fir
 	if not ok then error(err, 0) end
 end)
 
-test("0.9.1 Wall of Shame: rate-limited like the decrees, and the same wall again changes nothing", function()
+test("0.9.2 untabarded: the King's list, the army sees it only while he lets it, quietly; nobody else publishes", function()
 	WithThrone(function(w, K)
 		local I = ns.Inspect
-		local saved = { from = I.SHAME_FROM, inspect = ns.rdb.inspect, alert = ns.PlayAlert, fire = ns.Fire, chunked = ns.Comm.SendChunked }
+		local saved = { from = I.SHAME_FROM, alert = ns.PlayAlert, raid = RaidNotice_AddMessage, share = ns.db.kingUntabarded, me = ns.me, guild = GetGuildInfo }
 		local ok, err = pcall(function()
 			I.SHAME_FROM = 0
 			I.ResetShame()
-			local alerts, redraws, sent = 0, 0, 0
+			local alerts = 0
 			ns.PlayAlert = function() alerts = alerts + 1 end
-			ns.Fire = function(name) if name == "INSPECT_CHANGED" then redraws = redraws + 1 end end
-			ns.Comm.SendChunked = function() sent = sent + 1 end
-			-- Seven guild masters the census confirms.
-			for i = 1, 7 do
-				ns.rdb.guilds["Olympus " .. i] = Vouched({ total = 50, online = 5, zones = {}, t = w.clock, leader = "Lord" .. i, realm = "Realm" }, "W1-Realm", "W2-Realm")
-			end
-			AsSoldier()
-			local function S1(i, names)
-				local list = {}
-				for _, nm in ipairs(names) do list[#list + 1] = { name = nm, guild = "Olympus II" } end
-				return ns.Codec.EncodeShame("Olympus " .. i, 0, list)
-			end
-			I.HandleShame("CHANNEL", "Lord1-Realm", S1(1, { "Naked", "Pirate" }))
-			eq(#I.Shame().list, 2); eq(alerts, 1); eq(redraws, 1)
-			-- The same sender within a minute: ignored, whatever it says.
-			I.HandleShame("CHANNEL", "Lord1-Realm", S1(1, { "Other" }))
-			eq(I.Shame().list[1].name, "Naked"); eq(alerts, 1)
-			-- Someone else with the same wall (in another order): nothing to show again.
-			I.HandleShame("CHANNEL", "Lord2-Realm", S1(2, { "Pirate", "Naked" }))
-			eq(alerts, 1, "no second alert"); eq(redraws, 1, "no redraw"); eq(I.Shame().by, "Lord1")
-			-- All of them at once: SHAME_PER_MINUTE walls a minute at most.
-			for i = 3, 7 do I.HandleShame("CHANNEL", "Lord" .. i .. "-Realm", S1(i, { "Guy" .. i })) end
-			eq(alerts, 5, "the seventh within the minute is dropped"); eq(I.Shame().list[1].name, "Guy6")
-			w.clock = w.clock + 61
-			I.HandleShame("CHANNEL", "Lord7-Realm", S1(7, { "Guy7" }))
-			eq(alerts, 6, "a minute later"); eq(I.Shame().list[1].name, "Guy7")
-			-- The Crown publishes once a minute; the same wall again is sent, and only a line here.
+			RaidNotice_AddMessage = function() alerts = alerts + 1 end
+			AsSoldier("Other")
+			-- A wall from a 0.9.1 Lord (S1): ignored, whoever sends it.
+			I.HandleShame("CHANNEL", "Lord1-Realm", ns.Codec.EncodeShame("Olympus II", 0, { { name = "Naked", guild = "Olympus II" } }))
+			eq(I.Shame(), nil, "no more walls from Lords")
+			-- Hostile: someone else sends the King's kind, with a guild name that says Olympus.
+			K.HandleCommand("CHANNEL", "Faker Guy-Realm", "T1~U~5~Olympus~1~Victim:Olympus II")
+			eq(I.Shame(), nil, "not the King: nothing shown")
+			-- The King's list: shown in the Tabards tab only, no alert, no sound, no line.
+			local printed = #w.printed
+			K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~U~6~Olympus~1~Naked:Olympus II,Pirate:Olympus II")
+			eq(#I.Shame().list, 2); eq(alerts, 0, "no alert, no sound"); eq(#w.printed, printed, "no chat line")
+			K.HandleCommand("CHANNEL", "Faker Guy-Realm", "T1~U~7~Olympus~0")
+			eq(#I.Shame().list, 2, "only the King takes it off")
+			K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~U~8~Olympus~0")
+			eq(I.Shame(), nil, "off: it leaves the screen")
+			-- A list he stopped repeating leaves too.
+			K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~U~9~Olympus~1~Naked:Olympus II")
+			w.clock = w.clock + I.SHARED_FRESH + 1
+			eq(I.Shame(), nil, "not repeated: gone")
+			-- The King's switch: off until he turns it on; on sends the list, off takes it back.
 			AsKing()
-			ns.rdb.inspect = { players = { Naked = { name = "Naked", guild = "Olympus II", status = "NONE", t = w.clock } }, guildMarks = {} }
-			I.ResetShame()
-			alerts = 0
-			I.PublishShame()
-			eq(sent, 1); eq(alerts, 1)
-			I.PublishShame()
-			eq(sent, 1, "not again within a minute"); assert(Printed(w, ns.L.SHAME_COOLDOWN:format(60)), "told how long")
-			w.clock = w.clock + I.SHAME_COOLDOWN
-			local lines = #w.printed
-			I.PublishShame()
-			eq(sent, 2, "a minute later: sent again (for those who logged in since)")
-			eq(alerts, 1, "the same wall: no alert on our screen either")
-			eq(w.printed[lines + 1], "|cffff4040" .. ns.L.SHAME_PUBLISHED:format(1, "Asmongold Asmongler") .. "|r")
+			ns.db.kingUntabarded = nil
+			eq(K.SharingUntabarded(), false)
+			local before = #w.sent
+			K.ToggleUntabarded()
+			eq(K.SharingUntabarded(), true); eq(#w.sent, before + 1)
+			assert(LastSent(w):find("^T1~U~%d+~Olympus~1~"), LastSent(w))
+			K.ToggleUntabarded()
+			eq(K.SharingUntabarded(), false)
+			assert(LastSent(w):find("^T1~U~%d+~Olympus~0$"), LastSent(w))
+			eq(alerts, 0)
 		end)
-		I.SHAME_FROM, ns.rdb.inspect, ns.PlayAlert, ns.Fire, ns.Comm.SendChunked = saved.from, saved.inspect, saved.alert, saved.fire, saved.chunked
+		I.SHAME_FROM, ns.PlayAlert, RaidNotice_AddMessage, ns.db.kingUntabarded, ns.me, GetGuildInfo = saved.from, saved.alert, saved.raid, saved.share, saved.me, saved.guild
 		I.ResetShame()
 		if not ok then error(err, 0) end
 	end)

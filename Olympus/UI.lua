@@ -201,9 +201,7 @@ local DETAIL_BUTTONS = {
 		{ "WRIT_BTN", function() ns.Acts.WritPrompt() end, shown = KingOnly },
 	},
 }
--- The Wall of Shame's button once it opens (Inspect.ShameOpen).
-table.insert(DETAIL_BUTTONS.heraldry, 1, { "SHAME_BTN", function() ns.Inspect.PublishShame() end,
-	shown = function() return ns.Inspect.ShameOpen() end })
+-- (0.9.2: no "Publish shame" button any more: the untabarded list is the King's, Throne tab.)
 
 -- Buttons that come and go (def.shown): only the ones shown, in order.
 local function Shown(defs)

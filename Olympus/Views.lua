@@ -890,7 +890,13 @@ local function HeraldryLines()
 	-- The King (and his Hands): the Royal Inspection, and what the patrols reported (King.lua).
 	local lines = {}
 	for _, l in ipairs(ns.King and ns.King.InspectionLines and ns.King.InspectionLines() or {}) do lines[#lines + 1] = l end
+	-- The untabarded: the King sees his own list (and whether the army sees it); everyone else
+	-- sees it only while he shares it.
+	local king = ns.King and (ns.King.IsKing() or ns.King.Preview())
 	local shame = ns.Inspect.Shame()
+	if king then
+		shame = { list = ns.Inspect.ShameList(), mine = true }
+	end
 	if not ns.Inspect.ShameOpen() then
 		-- Closed until the tabard rule is in force (Inspect.lua): a countdown.
 		local left = ns.Inspect.ShameOpensIn()
@@ -898,13 +904,13 @@ local function HeraldryLines()
 		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(L.SHAME_OPENS:format(wait)) }
 		lines[#lines].gapAfter = true
 	elseif not (shame and #shame.list > 0) then
-		-- Always there, so everyone knows it exists: empty until the Crown publishes one.
-		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(L.SHAME_EMPTY) }
+		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(king and L.SHAME_EMPTY or L.UNTABARDED_NOT_SHARED) }
 		lines[#lines].gapAfter = true
 	else
-		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(L.PUBLISHED_BY:format(shame.by, ns.Ago(shame.t))) }
+		local right = shame.mine and (ns.King.SharingUntabarded() and L.UNTABARDED_SHARED or L.UNTABARDED_ONLY_KING)
+			or L.PUBLISHED_BY:format(shame.by, ns.Ago(shame.t))
+		lines[#lines + 1] = { header = true, text = Red(L.WALL_OF_SHAME), right = Grey(right) }
 		-- The King pardons with a click (Acts.lua); anyone else opens the person.
-		local king = ns.King and (ns.King.IsKing() or ns.King.Preview())
 		for i = 1, math.min(12, #shame.list) do
 			local p = shame.list[i]
 			local pardon = king and ns.King.CleanName(p.name) ~= nil
