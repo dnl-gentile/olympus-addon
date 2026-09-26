@@ -9018,5 +9018,22 @@ test("0.9.6 gamepad UI: our windows are not on the escape list Blizzard's gamepa
 	if not ok then error(err, 0) end
 end)
 
+test("0.9.6 a donation says what the donor gave in all", function()
+	local T = ns.Treasury
+	local saved = { print = ns.Print, book = ns.rdb.treasury, alert = ns.PlayAlert, share = T.Share }
+	local printed = {}
+	local ok, err = pcall(function()
+		ns.Print = function(m) printed[#printed + 1] = m end
+		ns.PlayAlert, T.Share = function() end, function() end
+		T.Record("Romani Chudmeister", 100000, "trade")
+		T.Record("Romani Chudmeister", 50000, "mail")
+		local last = printed[#printed]
+		assert(last:find(ns.L.TREASURY_IN_ALL:format(T.Coins(150000)), 1, true), last)
+	end)
+	ns.Print, ns.rdb.treasury, ns.PlayAlert, T.Share = saved.print, saved.book, saved.alert, saved.share
+	T.Reset()
+	if not ok then error(err, 0) end
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
