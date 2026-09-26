@@ -143,7 +143,8 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 
 ### The Throne (the King and his Hands)
 A tab with a crown that only the King sees: the guild master of the guild named exactly
-"Olympus" (of his faction). It opens on the author's letter, its cover; **the Throne Room**
+"Olympus" (of his faction), and on the Alliance that very character, Asmongold Asmongler: the
+addon knows him by name, like the Treasurer. It opens on the author's letter, its cover; **the Throne Room**
 (the queue of his court while it is open, and the Treasury) is a click away, and holding
 court takes him there. Each of his tools lives where it belongs:
 - **The King's Agenda** (a button on the Throne): minutes and an event ("30 Raid on
@@ -183,9 +184,11 @@ court takes him there. Each of his tools lives where it belongs:
   position is on stream); the same button hides it, its tooltip says whether it is on now, and
   the top of the Throne page reminds him while it is.
 
-Every command is checked on each client: it only counts if the census confirms the sender is
-that guild master (or one of the Hands he named, for what he lends them). Answers go to the
-King alone. Nothing another player sends can put free text on his screen: only names and
+Every command is checked on each client: it only counts if the sender is the King by name
+(the server stamps every sender's name, so nobody else can carry his), or one of the Hands he
+named, for what he lends them. No census vote can make anyone else King or silence him. On the
+Horde, until an update names its King's character, nobody's commands count (his crown on the
+map still shows). Answers go to the King alone. Nothing another player sends can put free text on his screen: only names and
 Olympus guild names.
 
 ### The Treasury (the Treasurer, the King, and the army when the King says so)
@@ -321,6 +324,9 @@ copy. No addon can prevent that. What this one does is make an edited copy usele
 - **Guild traffic is verified by Blizzard's servers.** Guild addon messages only reach
   members of that guild, so the realm key and guild elections can't be faked from outside.
 - **Sender names cannot be forged.** The server stamps every message with its sender.
+  - **The King and the Treasurer are known by name**, not by vote: only their characters can
+    send their commands and the treasury. A report of `<Olympus>` naming anyone else as its
+    leader counts for nothing, not even as a vote, so outsiders can't crown one of their own.
   - A decree counts only if the sender really is the Lord or a Captain of that guild,
     according to that guild's own roster report, or our own roster for our own guild.
     The rank written inside the message is ignored.
