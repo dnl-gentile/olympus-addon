@@ -41,14 +41,23 @@ end
 -- Our zone and layer go out only with the player's yes (0.9.1): without a realm key the
 -- Olympus channel is public. Off until they answer (ns.db.shareLocation is nil until then,
 -- account-wide): no layer announcement, and the census they send names nobody's zone
--- (Comm.Broadcast). The King's crown on the map (the Throne) is his yes for his layer too:
--- the army follows him there.
-function Layers.Sharing() return ns.db.shareLocation == true end
-
-local function Announces()
-	if Layers.Sharing() then return true end
+-- (Comm.Broadcast). The King's is his crown on the map (the Throne) alone (0.9.2): his zone
+-- and layer go out while it is on, never otherwise, whatever he answered to the question.
+function Layers.Sharing()
 	local K = ns.King
-	return (K and K.IsKing and K.SharingLocation and K.IsKing() and K.SharingLocation()) and true or false
+	if K and K.IsKing and K.IsKing() then return (K.SharingLocation and K.SharingLocation()) and true or false end
+	return ns.db.shareLocation == true
+end
+
+local function Announces() return Layers.Sharing() end
+
+-- Sharing turned off (the player's answer, the King's crown): our layer leaves every screen at
+-- once (0.9.2), not when it expires. Clients before 0.9.2 keep it until then (EXPIRE).
+local announced = false
+function Layers.Withdraw()
+	if not announced then return end
+	announced = false
+	ns.Comm.Send("CHANNEL", "L0~", "layer")
 end
 
 local retryQueued = false
@@ -77,6 +86,7 @@ local function Announce(force)
 	-- officer: his crown's layer always goes.)
 	if not ns.Roster.IsOfficer() and not Layers.InSample() then return end
 	ns.Comm.Send("CHANNEL", ns.Codec.EncodeLayer(mine.mapID, mine.zoneUID, ns.Roster.MyRank(), guild), "layer")
+	announced = true
 end
 
 -- Our layer does not follow every creature: some show another server's zone UID (a zone's
@@ -124,7 +134,7 @@ function Layers.SetSharing(on)
 	ns.db.shareLocation = on and true or false
 	ns.Print(on and L.LOCATION_ON or L.LOCATION_OFF)
 	ns.Comm.Hello(true)
-	if on then Announce(true) end
+	if on then Announce(true) else Layers.Withdraw() end
 end
 
 function Layers.SharingState()
@@ -151,6 +161,8 @@ StaticPopupDialogs["OLYMPUS_LOCATION_CHOICE"] = {
 
 function Layers.AskChoice()
 	if asked or ns.db.shareLocation ~= nil or not ns.IsMember() then return false end
+	-- (The King's answer is his crown on the Throne.)
+	if ns.King and ns.King.IsKing and ns.King.IsKing() then return false end
 	if (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance()) then return false end
 	asked = true
 	ns.ShowDialog("OLYMPUS_LOCATION_CHOICE", ns.Comm.Audience())
@@ -295,6 +307,18 @@ function Layers.Name(layer)
 end
 
 function Layers.CurrentMap() return CurrentMap() end
+
+-- A sender that stopped sharing: gone from every layer at once (0.9.2). Their own word about
+-- themselves only: the sender name is the server's.
+function Layers.Forget(sender)
+	sender = ns.FullName(sender)
+	local old = where[sender]
+	if not old then return end
+	where[sender] = nil
+	if seen[old[1]] and seen[old[1]][old[2]] then seen[old[1]][old[2]][sender] = nil end
+	FireNow()
+end
+ns.Comm.Handle("L0", function(dist, sender) if dist == "CHANNEL" then Layers.Forget(sender) end end)
 
 ns.Comm.Handle("L1", function(dist, sender, text)
 	if dist ~= "CHANNEL" then return end

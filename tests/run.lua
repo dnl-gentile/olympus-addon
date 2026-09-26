@@ -4643,8 +4643,11 @@ local function WithHop(fn)
 			w.npc = zoneUID or w.npc
 			for k = 1, 2 do w.spawn = k; ns.Layers.Observe("target") end
 		end
+		-- (0.9.2: helpers are players who share their layer; the private ones have their own test.)
+		if ns.db.shareLocation == nil then ns.db.shareLocation = true end
 		fn(w, H)
 	end)
+	ns.db.shareLocation = nil
 	for _, n in ipairs(names) do _G[n] = saved[n] end
 	ns.Comm.Send, ns.Comm.Whisper, ns.Comm.ChannelReady, ns.Now = savedSend, savedWhisper, savedReady, savedNow
 	H.random, H.after, C_Map.GetBestMapForUnit, H.OFFER_GAP = savedRandom, savedAfter, savedMap, savedGap
@@ -8180,9 +8183,10 @@ test("0.9.1 privacy: a player who keeps it private still asks for hops and helps
 			GetGuildInfo = function() return "Olympus II", "Officer", 1 end
 			w.see(7)
 			for _, m in ipairs(w.sent) do assert(not m:find("L1~", 1, true), "no layer announced: " .. m) end
-			-- A helper who shares nothing answers an ask for their layer, to the asker alone.
+			-- A player who shares nothing does not help either (0.9.2): an offer would tell the
+			-- asker, anyone on the channel, where they are.
 			H.HandleAsk("CHANNEL", "Asker-Realm", "LQ~42~1453~7")
-			eq(w.whispered[1], "Asker-Realm LO~42~0~0")
+			eq(w.whispered[1], nil, "private: no offer")
 			-- Asking still works: the ask names this zone and the layer wanted, and says so once.
 			H.Ask(1453, 8, "Kingy's layer")
 			eq(w.sent[#w.sent], "CHANNEL LQ~1~1453~8")
@@ -8704,6 +8708,49 @@ end)
 
 test("0.9.2 who: the quiet search on a click goes once a minute at most", function()
 	eq(ns.Who.AUTO_GAP, 60)
+end)
+
+-- 0.9.2: hostile layer payloads (a community reviewer's list: spoofed, relayed, guest offer)
+test("0.9.2 hostile: a spoofed share, a relayed share and a guest offer are all rejected", function()
+	WithHop(function(w, H)
+		local L = ns.Layers
+		local function OnLayer(zoneUID)
+			for _, layer in ipairs(L.ForMap(1453)) do if layer.zoneUID == zoneUID then return layer.count end end
+			return 0
+		end
+		-- Spoofed: an announcement that says "Olympus" from someone who is not the King's
+		-- character does not become the King's layer.
+		local king = H.King()
+		L.Receive("Faker Guy-Realm", { mapID = 1453, zoneUID = 99, rank = 0, guild = "Olympus" })
+		local after = H.King()
+		assert(not (after and after.zoneUID == 99), "a spoofed share is not the King's layer")
+		eq(after and after.zoneUID, king and king.zoneUID, "the King's layer did not move")
+		-- A namesake on another realm group is not him either.
+		eq(ns.IsKingCharacter("Asmongold Asmongler-ClassicBetaPvE"), false)
+		-- Relayed: a share counts for its sender alone, and nobody can withdraw someone else's.
+		L.Receive("Real Guy-Realm", { mapID = 1453, zoneUID = 5, rank = 9, guild = "Olympus II" })
+		eq(OnLayer(5), 1)
+		L.Forget("Relay Guy-Realm") -- an L0 from another sender
+		eq(OnLayer(5), 1, "a withdrawal from someone else changes nothing")
+		L.Forget("Real Guy-Realm") -- his own
+		eq(OnLayer(5), 0, "his own withdrawal: gone at once")
+		-- Guest offers: no ask of ours, an offer for another ask, an offer on the channel.
+		H.HandleOffer("WHISPER", "Guest-Realm", "LO~42~0~0")
+		eq(H.State(), nil, "no ask: nothing")
+		w.see(7)
+		H.Ask(1453, 8, "busy")
+		local id = H.State().id
+		H.HandleOffer("WHISPER", "Guest-Realm", ("LO~%d~0~0"):format(id + 1))
+		H.HandleOffer("CHANNEL", "Guest-Realm", ("LO~%d~0~0"):format(id))
+		eq(H.State().count, 0, "only whispers for our live ask")
+		for i = 1, H.MAX_OFFERS + 5 do H.HandleOffer("WHISPER", "Guest" .. i .. "-Realm", ("LO~%d~0~0"):format(id)) end
+		eq(H.State().count, H.MAX_OFFERS, "capped per ask")
+		-- A request from someone we never offered to: no window on our screen.
+		local popups = #w.popups
+		H.HandleRequest("WHISPER", "Stranger-Realm", "LR~42")
+		eq(#w.popups, popups, "no unsolicited invite window")
+		eq(#w.whispered, 0, "and no answer to them")
+	end)
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

@@ -747,6 +747,9 @@ function King.ToggleLocation()
 		ns.Print(L.THRONE_LOCATION_HIDDEN)
 		lastLocation = { t = -math.huge }
 		ns.Comm.Send("CHANNEL", ("T1~Q~%d~%s"):format(locationId, GetGuildInfo("player") or ""), "kinglocation")
+		-- His layer goes with it, at once, and his hello stops naming his zone (Layers.Sharing).
+		ns.Layers.Withdraw()
+		ns.Comm.Hello(true)
 	end
 	Changed()
 end
