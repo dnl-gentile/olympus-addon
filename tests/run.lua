@@ -8913,8 +8913,17 @@ test("0.9.4 the Horde's King: Duskmonkey Boneback of <Mudhutters>, a guild of th
 		local ok, err = pcall(function()
 			ns.faction = "Horde"
 			eq(ns.IsKingGuild("Mudhutters"), true); eq(ns.IsFederation("Mudhutters"), true, "his guild is Olympus's")
+			local ourRealm = ns.realm
+			ns.realm = "ClassicBetaPvP" -- (a client of his realm group: a learned realm elsewhere is not ours)
+			ns.rdb.kingRealmHorde = nil
+			eq(ns.IsKingCharacter("Duskmonkey Boneback-ClassicBetaPvE"), true, "realm unknown yet: his name anywhere")
+			eq(ns.rdb.kingRealmHorde, nil, "a name in a report teaches nothing")
+			ns.LearnKingRealm("Duskmonkey Boneback-ClassicBetaPvP2") -- a message he sent
+			eq(ns.rdb.kingRealmHorde, "ClassicBetaPvP2", "his realm, learned")
+			eq(ns.IsKingCharacter("Duskmonkey Boneback-ClassicBetaPvP"), true, "the same realm group")
+			eq(ns.IsKingCharacter("Duskmonkey Boneback-ClassicBetaPvE"), false, "then only there")
+			ns.rdb.kingRealmHorde, ns.realm = nil, ourRealm
 			eq(ns.IsKingCharacter("Duskmonkey Boneback"), true)
-			eq(ns.IsKingCharacter("Duskmonkey Boneback-ClassicBetaPvP2"), true, "realm unknown yet: his name anywhere")
 			eq(ns.IsKingCharacter("Asmongold Asmongler"), false, "the Alliance's King is not the Horde's")
 			-- His own client: guild master of <Mudhutters>, the addon on.
 			GetGuildInfo = function() return "Mudhutters", "Chief", 0 end
@@ -8931,6 +8940,7 @@ test("0.9.4 the Horde's King: Duskmonkey Boneback of <Mudhutters>, a guild of th
 			eq(ns.IsKingCharacter("Duskmonkey Boneback"), false)
 		end)
 		ns.faction, GetGuildInfo, ns.me = saved.faction, saved.guild, saved.me
+		ns.rdb.kingRealmHorde = nil
 		if not ok then error(err, 0) end
 	end)
 end)

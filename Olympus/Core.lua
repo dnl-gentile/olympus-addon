@@ -513,10 +513,14 @@ end
 ns.KING_CHARACTER = { Alliance = "Asmongold Asmongler", Horde = "Duskmonkey Boneback" }
 ns.KING_REALM = "ClassicBetaPvP"
 ns.KING_REALM_HORDE = nil
+-- Until it is set here, the Horde King's realm is learned from the first message of his that
+-- reaches us (his name is his alone), and from then on only that realm group counts: shown in
+-- /oly status so it can be written here.
 local function KingRealm()
-	if ns.faction == "Horde" then return ns.KING_REALM_HORDE end
+	if ns.faction == "Horde" then return ns.KING_REALM_HORDE or (ns.rdb and ns.rdb.kingRealmHorde) end
 	return ns.KING_REALM
 end
+ns.KingRealm = KingRealm
 function ns.KingCharacter()
 	local realm = KingRealm()
 	if realm and ns.GroupOf(ns.realm or ns.CurrentRealm()) ~= ns.GroupOf(realm) then return nil end
@@ -527,6 +531,15 @@ function ns.IsKingCharacter(name)
 	if pin == nil or type(name) ~= "string" or ns.ShortName(name) ~= pin then return false end
 	local realm = KingRealm()
 	return realm == nil or OfGroup(name, realm)
+end
+-- Learned only from a message he sent (King.lua: the sender name is the server's), never from
+-- a name written inside a report, which anyone could forge to lock him out.
+function ns.LearnKingRealm(sender)
+	if ns.faction ~= "Horde" or KingRealm() ~= nil or not ns.rdb or not ns.IsKingCharacter(sender) then return end
+	local realm = ns.RealmOf(ns.FullName(sender))
+	if not realm then return end
+	ns.rdb.kingRealmHorde = realm
+	ns.Log("the Horde's King is on %s (learned from his first message)", realm)
 end
 
 -- The Crown: guild masters of any Olympus guild, and the officers of the King's guild.
