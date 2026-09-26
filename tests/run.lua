@@ -7149,6 +7149,140 @@ test("#18: outsiders on the channel can't crown one of their own, and the King's
 			eq(K.Authorized("A", "Accomplice-Realm", "Olympus II"), false)
 		end)
 		ns.Comm.loginAt = savedLogin
+-- 0.9.1: scale
+test("0.9.1 census requests at scale: the reporter's answer is its next report sent early, never one more", function()
+	local savedChannel, savedGuilds = GetChannelName, ns.rdb.guilds
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		local cns, Deliver = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		C.JoinChannel()
+		cns.After = function(_, _, fn) fn() end
+		local sent, broadcast = {}, C.Broadcast
+		C.Broadcast = function(r) sent[#sent + 1] = cns.clock; broadcast(r) end
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		local start = cns.clock
+		-- Someone logs in every 10 seconds and asks the channel; our roster scan runs every minute.
+		for t = 0, 1790, 10 do
+			cns.clock = start + t
+			if t % 60 == 0 then C.MaybeBroadcast(ours) end
+			Deliver("CHANNEL", "Newbie" .. t, "Q1~")
+		end
+		eq(C.isReporter, true)
+		assert(#sent <= math.floor(1800 / 170) + 2, "one report per 170 s, answers included: " .. #sent)
+		assert(#sent >= 9, "the requests are still answered: " .. #sent)
+		for i = 2, #sent do assert(sent[i] - sent[i - 1] >= 45, "two reports within 45 s") end
+		eq(C.Stats().answered >= 8, true, "answered")
+	end)
+	GetChannelName, C_ChatInfo, ns.rdb.guilds = savedChannel, nil, savedGuilds
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.1 census requests at scale: the runner-up still reports once every 10 minutes", function()
+	local savedChannel, savedGuilds = GetChannelName, ns.rdb.guilds
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		local cns, Deliver, Report = FreshComm()
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		C.JoinChannel()
+		cns.After = function(_, _, fn) fn() end
+		local sent, broadcast = {}, C.Broadcast
+		C.Broadcast = function(r) sent[#sent + 1] = cns.clock; broadcast(r) end
+		local ours = { guild = MY_GUILD, total = 1000, online = 300, zones = {} }
+		local start = cns.clock
+		for t = 0, 1790, 10 do
+			cns.clock = start + t
+			if t % 60 == 0 then
+				-- Abe, first in the election, says hello and reports: we back him.
+				Deliver("GUILD", "Abe", "H1~0.7.11~Realm~p")
+				Report("Abe", { guild = MY_GUILD, total = 1000, online = 300, zones = {} })
+				C.MaybeBroadcast(ours)
+			end
+			Deliver("CHANNEL", "Newbie" .. t, "Q1~")
+		end
+		eq(C.isRunnerUp, true)
+		assert(#sent <= math.floor(1800 / 600) + 1, "one report per 600 s, answers included: " .. #sent)
+		assert(#sent >= 2, "a request is still answered: " .. #sent)
+	end)
+	GetChannelName, C_ChatInfo, ns.rdb.guilds = savedChannel, nil, savedGuilds
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.1 census requests: no second ask once a report came", function()
+	local savedChannel, savedGuilds = GetChannelName, ns.rdb.guilds
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		for _, heard in ipairs({ true, false }) do
+			local cns, _, Report = FreshComm()
+			local C = cns.Comm
+			C.JoinChannel()
+			local timers = {}
+			cns.After = function(_, _, fn) timers[#timers + 1] = fn end
+			C.AskCensus()
+			eq(C.Stats().asked, 1)
+			if heard then Report("Farguy", { guild = "Olympus IV", total = 50, online = 5, zones = {} }) end
+			cns.clock = cns.clock + 65
+			for _, fn in ipairs(timers) do fn() end
+			eq(C.Stats().asked, heard and 1 or 2, heard and "a report came: not asked again" or "nothing heard: asked again")
+		end
+	end)
+	GetChannelName, C_ChatInfo, ns.rdb.guilds = savedChannel, nil, savedGuilds
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.1 layer hop: an ask that finds nobody waits longer each time (20, 60, 180 s), the usual wait again after a hop", function()
+	WithHop(function(w, H)
+		local printed, savedPrint = {}, ns.Print
+		ns.Print = function(m) printed[#printed + 1] = tostring(m) end
+		local ok, err = pcall(function()
+			w.see(7)
+			local function Nobody(wait)
+				local before = #w.sent
+				H.Ask(1453, 8, "far")
+				eq(#w.sent, before + 1, "asked")
+				w.clock = w.clock + H.NOBODY
+				H.Tick()
+				eq(H.State().phase, "done")
+				eq(printed[#printed], ns.L.HOP_NOBODY_WAIT:format(wait))
+				eq(H.WaitLeft(), wait)
+				-- A click before the wait is over: nothing sent, the seconds left.
+				w.clock = w.clock + wait - 1
+				H.Ask(1453, 8, "far")
+				eq(#w.sent, before + 1, "not yet"); eq(printed[#printed], ns.L.HOP_WAIT:format(1))
+				w.clock = w.clock + 1
+			end
+			Nobody(20)
+			Nobody(60)
+			Nobody(180)
+			Nobody(180) -- (at most)
+			-- Forgotten after a quiet while.
+			w.clock = w.clock + H.BACKOFF_RESET + 1
+			eq(H.WaitLeft(), 0)
+			-- Someone offered and said no: no invite came, the same wait.
+			H.Ask(1453, 8, "far")
+			H.HandleOffer("WHISPER", "Aaa-Realm", "LO~1~0~0")
+			w.clock = w.clock + H.WINDOW
+			H.Tick()
+			H.HandleNo("WHISPER", "Aaa-Realm", "LN~1")
+			eq(H.State().phase, "done"); eq(printed[#printed], ns.L.HOP_GAVE_UP_WAIT:format(20))
+			-- The next ask gets us in a group: the count starts over.
+			w.clock = w.clock + 20
+			H.Ask(1453, 8, "far")
+			H.HandleOffer("WHISPER", "Bbb-Realm", "LO~1~0~0")
+			w.clock = w.clock + H.WINDOW
+			H.Tick()
+			w.group, w.party.party1 = 2, "Bbb"
+			H.OnInvite("Bbb")
+			H.OnRoster()
+			eq(H.State().phase, "joined")
+			w.group, w.party.party1 = 0, nil
+			H.OnRoster()
+			w.clock = w.clock + H.ASK_GAP
+			Nobody(20)
+		end)
+		ns.Print = savedPrint
 		if not ok then error(err, 0) end
 	end)
 end)
@@ -7176,6 +7310,45 @@ test("#18: an officer of <Olympus> the census names is of the Crown like any Lor
 			end
 		end)
 		ns.Comm.loginAt = savedLogin
+test("0.9.1 layer hop: when a crowd asks for one layer at once, our ask goes out a few seconds later", function()
+	WithHop(function(w, H)
+		local printed, savedPrint = {}, ns.Print
+		ns.Print = function(m) printed[#printed + 1] = tostring(m) end
+		local ok, err = pcall(function()
+			w.see(7)
+			-- Eleven askers for layer 8 (one of them twice: counted once), one for layer 9.
+			for i = 1, 11 do H.HandleAsk("CHANNEL", "Crowd" .. i .. "-Realm", ("LQ~%d~1453~8"):format(100 + i)) end
+			H.HandleAsk("CHANNEL", "Crowd1-Realm", "LQ~200~1453~8")
+			H.HandleAsk("CHANNEL", "Lone-Realm", "LQ~201~1453~9")
+			eq(H.Crowd(1453, 8, w.clock), 11); eq(H.Crowd(1453, 9, w.clock), 1)
+			local before = #w.sent
+			H.Ask(1453, 8, "busy")
+			eq(#w.sent, before, "a crowd: not at once"); eq(H.State().phase, "queued")
+			eq(printed[#printed], ns.L.HOP_CROWDED:format(5))
+			H.Ask(1453, 8, "busy")
+			eq(printed[#printed], ns.L.HOP_BUSY, "one ask at a time, waiting or not")
+			w.clock = w.clock + 4
+			H.Tick()
+			eq(#w.sent, before)
+			w.clock = w.clock + 1
+			H.Tick()
+			eq(w.sent[#w.sent], "CHANNEL LQ~1~1453~8"); eq(H.State().phase, "asking")
+			eq(printed[#printed], ns.L.HOP_ASKING:format("busy"))
+			-- The crowd's asks are forgotten after BRAKE_WINDOW.
+			w.clock = w.clock + H.BRAKE_WINDOW + 1
+			H.Tick()
+			eq(H.Crowd(1453, 8, w.clock), 0)
+			-- Ten askers are no crowd: sent at once (once that ask found nobody and its wait is over).
+			w.clock = w.clock + H.NOBODY
+			H.Tick()
+			eq(H.State().phase, "done")
+			w.clock = w.clock + H.BACKOFF[1]
+			for i = 1, 10 do H.HandleAsk("CHANNEL", "Few" .. i .. "-Realm", ("LQ~%d~1453~9"):format(300 + i)) end
+			before = #w.sent
+			H.Ask(1453, 9, "few")
+			eq(#w.sent, before + 1, "not a crowd")
+		end)
+		ns.Print = savedPrint
 		if not ok then error(err, 0) end
 	end)
 end)
@@ -7211,6 +7384,155 @@ test("#18: the Horde, with no King named yet: the census King commands nothing, 
 			eq(K.IsKing(), true)
 		end)
 		ns.faction, ns.Comm.loginAt = savedFaction, savedLogin
+test("0.9.1 layers: our zone's and the King's announcements redraw at once, the rest at most every 5 s", function()
+	local saved = { Fire = ns.Fire, After = ns.After, Now = ns.Now, map = C_Map.GetBestMapForUnit, guilds = ns.rdb.guilds }
+	local fired, timers, clock = 0, {}, 5000000
+	local ok, err = pcall(function()
+		ns.Layers.Reset()
+		ns.Fire = function(name) if name == "LAYERS_CHANGED" then fired = fired + 1 end end
+		ns.After = function(sec, _, fn) timers[#timers + 1] = { at = clock + sec, fn = fn } end
+		ns.Now = function() return clock end
+		C_Map.GetBestMapForUnit = function() return 1453 end
+		ns.rdb.guilds = { ["Olympus"] = Vouched({ total = 1000, online = 1, zones = {}, t = clock, leader = "Kingy" }, "W1-Realm", "W2-Realm") }
+		local function Run()
+			local due = timers
+			timers = {}
+			for _, t in ipairs(due) do if t.at <= clock then t.fn() else timers[#timers + 1] = t end end
+		end
+		ns.Layers.Receive("Here-Realm", { mapID = 1453, zoneUID = 7, rank = 4, guild = "Olympus II" })
+		eq(fired, 1, "our zone: at once")
+		ns.Layers.Receive("Far1-Realm", { mapID = 1429, zoneUID = 3, rank = 4, guild = "Olympus II" })
+		ns.Layers.Receive("Far2-Realm", { mapID = 1436, zoneUID = 4, rank = 4, guild = "Olympus II" })
+		ns.Layers.Receive("Far3-Realm", { mapID = 1436, zoneUID = 4, rank = 4, guild = "Olympus II" })
+		eq(fired, 1, "other zones: not at once"); eq(#timers, 1, "one redraw waits for all of them")
+		clock = clock + ns.Layers.FIRE_GAP
+		Run()
+		eq(fired, 2, "one redraw for the three")
+		-- A player leaving our zone changes its list: at once.
+		ns.Layers.Receive("Here-Realm", { mapID = 1429, zoneUID = 3, rank = 4, guild = "Olympus II" })
+		eq(fired, 3)
+		-- The King's own announcement, from anywhere: at once (his line tops the Census).
+		clock = clock + 1
+		ns.Layers.Receive("Kingy-Realm", { mapID = 1436, zoneUID = 4, rank = 0, guild = "Olympus" })
+		eq(fired, 4)
+		-- Anyone else of his guild, far away: waits.
+		ns.Layers.Receive("Far4-Realm", { mapID = 1436, zoneUID = 4, rank = 4, guild = "Olympus" })
+		eq(fired, 4); eq(#timers, 1)
+		-- A redraw at once meanwhile showed it already: the waiting one is not needed.
+		clock = clock + 1
+		ns.Layers.Receive("Here2-Realm", { mapID = 1453, zoneUID = 7, rank = 4, guild = "Olympus II" })
+		eq(fired, 5)
+		clock = clock + ns.Layers.FIRE_GAP
+		Run()
+		eq(fired, 5, "nothing new to show")
+	end)
+	ns.Fire, ns.After, ns.Now, C_Map.GetBestMapForUnit, ns.rdb.guilds = saved.Fire, saved.After, saved.Now, saved.map, saved.guilds
+	ns.Layers.Reset()
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.1 tabards: two weeks and 2000 players kept, marked and caught ones first; the page lists 200", function()
+	local I = ns.Inspect
+	local saved = { rdb = ns.rdb, inspect = ns.rdb.inspect, Now = ns.Now, Print = ns.Print, alert = ns.PlayAlert, capture = ns.CaptureError }
+	local ok, err = pcall(function()
+		local now, day = 7000000, 86400
+		ns.Now = function() return now end
+		ns.Print, ns.PlayAlert = function() end, function() end
+		local players = {}
+		ns.rdb.inspect = { players = players, guildMarks = {} }
+		players["Stale"] = { name = "Stale", status = "NONE", t = now - 15 * day }
+		players["OldMark"] = { name = "OldMark", status = "GUILD", t = now - 30 * day, marked = true }
+		players["Fresh"] = { name = "Fresh", status = "GUILD", t = now - 13 * day }
+		players["Broken"] = "not a player"
+		I.Prune()
+		eq(players["Stale"], nil, "older than two weeks: gone"); eq(players["Broken"], nil)
+		eq(players["OldMark"].marked, true, "a mark by hand stays"); eq(players["Fresh"].status, "GUILD")
+		-- More than MAX_PLAYERS: a new player recorded trims the store, the ones that matter first.
+		for i = 1, 2050 do players["G" .. i] = { name = "G" .. i, status = "GUILD", t = now - i } end
+		for i = 1, 60 do players["N" .. i] = { name = "N" .. i, status = i % 2 == 0 and "NONE" or "OTHER", t = now - 10 * day } end
+		I.Record("Newcomer", "Olympus II", "MAGE", 60, 5976, true)
+		local n = 0
+		for _ in pairs(players) do n = n + 1 end
+		eq(n, I.MAX_PLAYERS)
+		eq(players["N60"].status, "NONE", "caught without the colors: kept"); eq(players["N59"].status, "OTHER")
+		eq(players["OldMark"].marked, true); eq(players["Newcomer"].status, "GUILD", "the newest kept")
+		eq(players["G1"].status, "GUILD"); eq(players["G2050"], nil, "the oldest checks went"); eq(players["Fresh"], nil)
+		-- The Tabards page: the first 200, marked and caught ones on top, the rest counted.
+		local rows, more, first = 0, false, nil
+		for _, l in ipairs(ns.Views.Build("heraldry")) do
+			if l.cols then rows = rows + 1; first = first or l end
+			if l.text and l.text:find(ns.L.AND_MORE:format(I.MAX_PLAYERS - ns.Views.INSPECT_ROWS), 1, true) then more = true end
+		end
+		eq(rows, ns.Views.INSPECT_ROWS); eq(more, true); eq(first.key, "OldMark")
+		-- At login too (INIT).
+		local captured
+		ns.CaptureError = function(where, e) captured = captured or (where .. ": " .. tostring(e)) end
+		ns.rdb = { guilds = {}, inspect = { players = { Stale = { name = "Stale", status = "NONE", t = now - 15 * day },
+			Kept = { name = "Kept", status = "NONE", t = now - day } }, guildMarks = {} } }
+		local R = ns.rdb
+		CoreFire("INIT")
+		ns.rdb = saved.rdb
+		eq(captured, nil, "error caught")
+		eq(R.inspect.players.Stale, nil); eq(R.inspect.players.Kept.status, "NONE")
+	end)
+	ns.rdb = saved.rdb
+	ns.rdb.inspect, ns.Now, ns.Print, ns.PlayAlert, ns.CaptureError = saved.inspect, saved.Now, saved.Print, saved.alert, saved.capture
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.1 Wall of Shame: rate-limited like the decrees, and the same wall again changes nothing", function()
+	WithThrone(function(w, K)
+		local I = ns.Inspect
+		local saved = { from = I.SHAME_FROM, inspect = ns.rdb.inspect, alert = ns.PlayAlert, fire = ns.Fire, chunked = ns.Comm.SendChunked }
+		local ok, err = pcall(function()
+			I.SHAME_FROM = 0
+			I.ResetShame()
+			local alerts, redraws, sent = 0, 0, 0
+			ns.PlayAlert = function() alerts = alerts + 1 end
+			ns.Fire = function(name) if name == "INSPECT_CHANGED" then redraws = redraws + 1 end end
+			ns.Comm.SendChunked = function() sent = sent + 1 end
+			-- Seven guild masters the census confirms.
+			for i = 1, 7 do
+				ns.rdb.guilds["Olympus " .. i] = Vouched({ total = 50, online = 5, zones = {}, t = w.clock, leader = "Lord" .. i, realm = "Realm" }, "W1-Realm", "W2-Realm")
+			end
+			AsSoldier()
+			local function S1(i, names)
+				local list = {}
+				for _, nm in ipairs(names) do list[#list + 1] = { name = nm, guild = "Olympus II" } end
+				return ns.Codec.EncodeShame("Olympus " .. i, 0, list)
+			end
+			I.HandleShame("CHANNEL", "Lord1-Realm", S1(1, { "Naked", "Pirate" }))
+			eq(#I.Shame().list, 2); eq(alerts, 1); eq(redraws, 1)
+			-- The same sender within a minute: ignored, whatever it says.
+			I.HandleShame("CHANNEL", "Lord1-Realm", S1(1, { "Other" }))
+			eq(I.Shame().list[1].name, "Naked"); eq(alerts, 1)
+			-- Someone else with the same wall (in another order): nothing to show again.
+			I.HandleShame("CHANNEL", "Lord2-Realm", S1(2, { "Pirate", "Naked" }))
+			eq(alerts, 1, "no second alert"); eq(redraws, 1, "no redraw"); eq(I.Shame().by, "Lord1")
+			-- All of them at once: SHAME_PER_MINUTE walls a minute at most.
+			for i = 3, 7 do I.HandleShame("CHANNEL", "Lord" .. i .. "-Realm", S1(i, { "Guy" .. i })) end
+			eq(alerts, 5, "the seventh within the minute is dropped"); eq(I.Shame().list[1].name, "Guy6")
+			w.clock = w.clock + 61
+			I.HandleShame("CHANNEL", "Lord7-Realm", S1(7, { "Guy7" }))
+			eq(alerts, 6, "a minute later"); eq(I.Shame().list[1].name, "Guy7")
+			-- The Crown publishes once a minute; the same wall again is sent, and only a line here.
+			AsKing()
+			ns.rdb.inspect = { players = { Naked = { name = "Naked", guild = "Olympus II", status = "NONE", t = w.clock } }, guildMarks = {} }
+			I.ResetShame()
+			alerts = 0
+			I.PublishShame()
+			eq(sent, 1); eq(alerts, 1)
+			I.PublishShame()
+			eq(sent, 1, "not again within a minute"); assert(Printed(w, ns.L.SHAME_COOLDOWN:format(60)), "told how long")
+			w.clock = w.clock + I.SHAME_COOLDOWN
+			local lines = #w.printed
+			I.PublishShame()
+			eq(sent, 2, "a minute later: sent again (for those who logged in since)")
+			eq(alerts, 1, "the same wall: no alert on our screen either")
+			eq(w.printed[lines + 1], "|cffff4040" .. ns.L.SHAME_PUBLISHED:format(1, "Asmon") .. "|r")
+		end)
+		I.SHAME_FROM, ns.rdb.inspect, ns.PlayAlert, ns.Fire, ns.Comm.SendChunked = saved.from, saved.inspect, saved.alert, saved.fire, saved.chunked
+		I.ResetShame()
 		if not ok then error(err, 0) end
 	end)
 end)
@@ -7301,6 +7623,100 @@ test("#18: rows of <Olympus> naming another leader go at login; refused reports 
 	ns.rdb, ns.db.log, ns.Now, ns.CaptureError = saved.rdb, saved.log, saved.Now, saved.capture
 	if not ok then error(err, 0) end
 	eq(captured, nil, "no error at login")
+end)
+
+test("0.9.1 guild bank: read once the slots settle, a tab that never arrived keeps its items, a change within the gap is sent later", function()
+	WithThrone(function(w, K)
+		local B = ns.Bank
+		local saved = { GetNumGuildBankTabs, GetGuildBankTabInfo, GetGuildBankItemInfo, GetGuildBankItemLink, GetGuildBankMoney,
+			QueryGuildBankTab, GetCurrentGuildBankTab, GetTime, ns.After }
+		local ok, err = pcall(function()
+			B.Reset()
+			AsTreasurer()
+			local gt, timers = 100, {}
+			GetTime = function() return gt end
+			ns.After = function(sec, _, fn) timers[#timers + 1] = { at = gt + sec, fn = fn } end
+			local function Run()
+				local due = timers
+				timers = {}
+				for _, t in ipairs(due) do if t.at <= gt + 1e-6 then t.fn() else timers[#timers + 1] = t end end
+			end
+			local function Sent()
+				local n = 0
+				for _, s in ipairs(w.sent) do if s.msg:find("^T9~") then n = n + 1 end end
+				return n
+			end
+			GetNumGuildBankTabs = function() return 2 end
+			GetGuildBankTabInfo = function(tab) return ({ "Consumables", "Materials" })[tab], "icon" .. tab, true end
+			local slots = { [1] = { [1] = { "tex1", 20, 929 } }, [2] = {} }
+			GetGuildBankItemInfo = function(tab, slot) local s = slots[tab] and slots[tab][slot]; if s then return s[1], s[2] end end
+			GetGuildBankItemLink = function(tab, slot) local s = slots[tab] and slots[tab][slot]; return s and ("|Hitem:" .. s[3] .. ":0|h[x]|h") end
+			GetGuildBankMoney = function() return 500 end
+			QueryGuildBankTab = function() end
+			GetCurrentGuildBankTab = function() return 1 end
+			-- Opened: tab 1 (on screen) is there, tab 2 still on its way.
+			B.Opened()
+			gt = gt + 1; B.Changed()
+			gt = gt + 0.5; Run()
+			eq(ns.rdb.bank, nil, "not read 1.5 s after the first change: another came since")
+			slots[2] = { [3] = { "tex3", 200, 2589 } }
+			gt = gt + 0.5; B.Changed()
+			gt = gt + 1; Run()
+			eq(ns.rdb.bank, nil)
+			gt = gt + 0.5; Run()
+			local snap = ns.rdb.bank
+			eq(#snap.tabs, 2); eq(snap.tabs[2].items[1].id, 2589, "read once the last change settled: tab 2 is in")
+			eq(Sent(), 1, "the Treasurer's client sends it")
+			-- A bank that keeps changing is still read, SETTLE_MAX after the first change.
+			for _ = 1, 20 do gt = gt + 0.5; B.Changed(); Run() end
+			assert(ns.rdb.bank ~= snap, "read while it kept changing")
+			gt = gt + 10; Run(); Run()
+			-- Opened again: tab 2's slots never arrive (it reads empty), tab 1 is on screen.
+			slots[2] = {}
+			B.Opened(); gt = gt + B.SETTLE; Run()
+			eq(ns.rdb.bank.tabs[2].items[1].id, 2589, "a tab that never arrived keeps its last items"); eq(ns.rdb.bank.tabs[2].kept, true)
+			-- Empty the next time too: then it is.
+			B.Opened(); gt = gt + B.SETTLE; Run()
+			eq(#ns.rdb.bank.tabs[2].items, 0, "empty twice in a row: empty")
+			-- The tab on screen reads empty: the player sees it empty.
+			slots[1] = {}
+			B.Opened(); gt = gt + B.SETTLE; Run()
+			eq(#ns.rdb.bank.tabs[1].items, 0)
+			-- Another guild's bank says nothing about ours; a 0.9.0 snapshot (no tab numbers) by the tab's name.
+			local other = { guild = "Olympus II", tabs = { { i = 2, name = "Materials", items = { { id = 1, n = 1, s = 1 } } } } }
+			eq(#B.Keep({ guild = "Olympus", tabs = { { i = 2, name = "Materials", items = {} } } }, other).tabs[1].items, 0)
+			local old = { guild = "Olympus", tabs = { { name = "Materials", items = { { id = 7, n = 1, s = 1 } } } } }
+			eq(B.Keep({ guild = "Olympus", tabs = { { i = 2, name = "Materials", items = {} } } }, old).tabs[1].items[1].id, 7)
+			-- Every read since the first came within SHARE_GAP: the latest goes out once it is over.
+			eq(Sent(), 1)
+			w.clock = w.clock + B.SHARE_GAP + 1
+			gt = gt + B.SHARE_GAP + 1
+			Run()
+			eq(Sent(), 2, "sent once the gap is over"); eq(LastSent(w), B.Message(ns.rdb.bank), "the bank as it is then")
+		end)
+		GetNumGuildBankTabs, GetGuildBankTabInfo, GetGuildBankItemInfo, GetGuildBankItemLink, GetGuildBankMoney = saved[1], saved[2], saved[3], saved[4], saved[5]
+		QueryGuildBankTab, GetCurrentGuildBankTab, GetTime, ns.After = saved[6], saved[7], saved[8], saved[9]
+		B.Reset()
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("0.9.1 the agenda popup names a Hand as the Hand, the King by the army's name for him", function()
+	WithThrone(function(w, K)
+		AsKing()
+		K.AddHand("Helper")
+		K.SendHands(true)
+		local list = LastSent(w)
+		AsSoldier("Other")
+		K.HandleCommand("CHANNEL", "Asmon-Realm", list)
+		K.HandleCommand("CHANNEL", "Helper-Realm", "T1~A~4~Olympus II~600~Stormwind City~Raid at dawn")
+		local p = w.popups[#w.popups]
+		eq(p.name, "OLYMPUS_AGENDA_CALL")
+		eq(p.a, ns.L.THRONE_AGENDA_POPUP_HAND:format("Helper", "Raid at dawn", 10, "Stormwind City"))
+		w.clock = w.clock + K.AGENDA_GAP
+		K.HandleCommand("CHANNEL", "Asmon-Realm", "T1~A~5~Olympus~1800~The Crossroads~Raid on the Crossroads")
+		eq(w.popups[#w.popups].a, ns.L.THRONE_AGENDA_POPUP:format(ns.KING_NAME, "Raid on the Crossroads", 30, "The Crossroads"))
+	end)
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))
