@@ -163,11 +163,12 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 
 ### The Throne (the King and his Hands)
 A tab with a crown that only the King sees: the guild master of the guild named exactly
-"Olympus" (of his faction). It opens on the author's letter until he has read it, then on
-**the Throne Room**: the queue of his court while it is open, and the Treasury. Each of his
-tools lives where it belongs:
+"Olympus" (of his faction). It opens on the author's letter, its cover; **the Throne Room**
+(the queue of his court while it is open, and the Treasury) is a click away, and holding
+court takes him there. Each of his tools lives where it belongs:
 - **The King's Agenda** (a button on the Throne): minutes and an event ("30 Raid on
-  Crossroads"). The whole army sees it, with reminders 10 minutes and 1 minute before.
+  Crossroads"). The whole army gets a popup with the appointment (what, in how long, where)
+  and sees it on the Census, with reminders 10 minutes and 1 minute before.
 - **Hold Court** (a button on the Throne): the King opens his court where he stands. Every
   Olympus player in that zone gets a line on top of the Census and the Realm; one click asks
   for an audience. The requests line up on his Throne and a click calls that player (a popup
@@ -185,8 +186,9 @@ tools lives where it belongs:
   He watches the bar chart fill, on his tab or on his screen for the stream ("Show on
   screen"); when time is up everyone gets the chart and the winner (shares of the votes, or
   of the voters when each picked several). `/oly vox off` keeps the questions in chat.
-- **Royal Writs** (in the Decrees tab): a letter from the King on parchment, to the Lords alone
-  or to every Lord and Captain. Each can answer "As you command"; the King sees how many did.
+- **Royal Writs** (in the Decrees tab): a letter from the King on parchment, to the Lords alone,
+  to every Lord and Captain, or to the whole army. Lords and Captains can answer "As you
+  command"; the King sees how many did.
 - **Open the Gates** (in the Realm tab, Recruiting): the King picks the guild new recruits
   should join for the next two hours; everyone sees it on top of Recruiting.
 - **Royal Pardon** (on the Wall of Shame): a click takes a name off the wall, for everyone,
@@ -218,6 +220,10 @@ for the King, and for every member once the King shows the army something of it.
   if it was the treasury's (or stops counting one that wasn't). A payment by mail that comes
   back stops counting by itself.
 - **The ranking of donors** (all time) and the week's donations, with a copy for Discord.
+- **The guild bank of <Olympus>**: whoever of that guild opens the bank with the addon on takes
+  a snapshot of it (each tab's items with icons and counts, the bank's gold, when it was seen);
+  the Treasurer's snapshot reaches the King and, with his "book" switch, the army. Hover an
+  item for its tooltip. Nothing is ever moved in the bank: it is a picture.
 - **Sent by his addon by itself** (every 5 minutes and after a change): the balance, the totals,
   the ranking and the latest lines of the book, on the Olympus channel. Every client checks it
   comes from the Treasurer himself.
