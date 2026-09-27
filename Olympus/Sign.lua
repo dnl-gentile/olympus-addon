@@ -144,13 +144,41 @@ end
 
 local PREFIX = "\48\49\48\13\6\9\96\134\72\1\101\3\4\2\1\5\0\4\32"
 
--- Is sigHex the author's signature of text?
-function Sign.Verify(text, sigHex)
-	if type(text) ~= "string" or type(sigHex) ~= "string" or #sigHex > 512 or not sigHex:find("^%x+$") then return false end
+-- s^3 mod N, the block a signature opens to (0.9.8); nil when sigHex is no number in 1..N-1.
+local function Open(sigHex)
+	if type(sigHex) ~= "string" or #sigHex > 512 or not sigHex:find("^%x+$") then return nil end
 	local s = FromHex(sigHex)
-	if #s == 0 or Cmp(s, Sign.N) >= 0 then return false end
-	local m = Reduce(Mul(Reduce(Mul(s, s)), s))
+	if #s == 0 or Cmp(s, Sign.N) >= 0 then return nil end
+	return Reduce(Mul(Reduce(Mul(s, s)), s))
+end
+
+-- The same, in hex (tests check the arithmetic on values whose answer is known).
+function Sign.Open(sigHex)
+	local m = Open(sigHex)
+	if not m then return nil end
+	if #m == 0 then return "0" end
+	local out = { ("%x"):format(m[#m]) }
+	for i = #m - 1, 1, -1 do out[#out + 1] = ("%06x"):format(m[i]) end
+	return table.concat(out)
+end
+
+-- Is sigHex the author's signature of text? A signature is exactly as long as the key (512
+-- hex digits, RFC 8017 8.2.2): one spelling each, as the signing script writes it.
+function Sign.Verify(text, sigHex)
+	if type(text) ~= "string" or type(sigHex) ~= "string" or #sigHex ~= 512 then return false end
+	local m = Open(sigHex)
+	if not m then return false end
 	local hash = Sign.SHA256(text)
 	local em = "\0\1" .. string.rep("\255", 256 - 3 - #PREFIX - #hash) .. "\0" .. PREFIX .. hash
 	return Cmp(m, FromBytes(em)) == 0
+end
+
+-- Tests: fn runs with another key (hex N and mu, K limbs, as scripts/council-sign.py keeps
+-- them), the author's comes back after, whatever fn does.
+function Sign.WithKey(nHex, muHex, k, fn)
+	local n, mu, kk = Sign.N, Sign.MU, Sign.K
+	Sign.N, Sign.MU, Sign.K = FromHex((nHex:gsub("^0x", ""))), FromHex((muHex:gsub("^0x", ""))), k
+	local ok, err = pcall(fn)
+	Sign.N, Sign.MU, Sign.K = n, mu, kk
+	if not ok then error(err, 0) end
 end

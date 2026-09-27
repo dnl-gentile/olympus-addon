@@ -9069,7 +9069,7 @@ test("0.9.7 the High Council: a list the author signs on his computer, checked b
 		eq(ns.IsHighCouncillor("Other Mod-Realm"), false, "an old list replayed changes nothing")
 		-- Any client passes the newest list along, as it is.
 		W.RelayCouncil(true)
-		eq(sent[#sent], LIST2)
+		eq(sent[#sent], "HS~" .. LIST2, "(0.9.8: under the HS~ type)")
 		-- Help requests go to councillors who take them.
 		W.HandleAvailable("CHANNEL", "Test Councillor-Realm")
 		W.HandleAvailable("CHANNEL", "Random Guy-Realm")
@@ -9090,6 +9090,287 @@ test("0.9.7 SHA-256 and the signature check on known values", function()
 	eq(hex(ns.Sign.SHA256("")), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 	eq(hex(ns.Sign.SHA256(string.rep("a", 1000))), "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3")
 	eq(ns.Sign.Verify("HS1~1~Realm~X", "00"), false); eq(ns.Sign.Verify("x", "zz"), false)
+end)
+
+-- 0.9.8: review-fixes (the High Council's list on the channel, the signature check, the signing
+-- script's lists, the leaderboards' "Show more")
+local COUNCIL_LIST1 = "HS1~1790000000~Realm~Test Councillor,Other Mod~5c8eac0d271a53cc73bb79e40ad0b9390f81c0d90fc0c3bd9e3ba804f15a59dea651a95e6221c7e6e9c53cf0067fc2f6a990ccb59ab39df6ad6a7f2a40a6be7680b6133cfa5ae6261d9925a545b0ec180b0edf899040bf0ceb973f0db455187d954d4ce8340364335397dc0cb928fe0d5dd5e7add436ed5984a8e1d0db470f46c77f8ffff98f6e32c287c15032f97b7b2f5bc70d4164bad8e8beccb02a1cb78ba2511487c423b62d18c0e8b47ab26a0dfe6144fae7b0b2e311d756b64b93c9f3914c82a51202a295215c0da66afa515417d305e19f31c065d084d222c00b45294849db4d4910732c49b7bf79fbd6197fe04c0db8a803265ab6d64b3566252ab7"
+
+-- Workshop.lua loaded again into the namespace of a FreshComm: its handlers answer the real
+-- CHAT_MSG_ADDON path of that Comm. Our dialogs are put back after.
+local function CouncilOnChannel(fn)
+	local W = ns.Workshop
+	local saved = { council = ns.rdb.council, chunked = ns.Comm.SendChunked, ci = C_ChatInfo, dialogs = {} }
+	for k, v in pairs(StaticPopupDialogs) do saved.dialogs[k] = v end
+	local ok, err = pcall(function()
+		local cns, Deliver = FreshComm()
+		local wns = setmetatable({ On = function() end }, { __index = cns })
+		assert(loadfile(ADDON_DIR .. "Workshop.lua"))("Olympus", wns)
+		local id = 0
+		local function Hear(sender, msg)
+			id = id + 1
+			for _, c in ipairs(ns.Codec.Chunk(msg, "9" .. id)) do Deliver("CHANNEL", sender, c) end
+		end
+		fn(W, Hear)
+	end)
+	ns.rdb.council, ns.Comm.SendChunked, C_ChatInfo = saved.council, saved.chunked, saved.ci
+	wipe(StaticPopupDialogs)
+	for k, v in pairs(saved.dialogs) do StaticPopupDialogs[k] = v end
+	if not ok then error(err, 0) end
+end
+
+test("0.9.8 the High Council's list crosses the channel: relayed by one client, taken by the next", function()
+	CouncilOnChannel(function(W, Hear)
+		local sent = {}
+		ns.Comm.SendChunked = function(msg) sent[#sent + 1] = msg end
+		ns.rdb.council = nil
+		eq(W.TakeCouncil(COUNCIL_LIST1), true, "the author's file")
+		W.RelayCouncil(true)
+		eq(sent[1], "HS~" .. COUNCIL_LIST1, "sent under a type Comm hands to its handler")
+		-- Another client: nothing yet, then the relay's pieces through the addon messages.
+		ns.rdb.council = nil
+		Hear("Faker Guy-Realm", "HS~" .. COUNCIL_LIST1:gsub("Other Mod", "Faker Guy"))
+		eq(ns.IsHighCouncillor("Faker Guy-Realm"), false, "a changed list is refused on the way too")
+		Hear("Any Player-Realm", sent[1])
+		eq(ns.IsHighCouncillor("Test Councillor-Realm"), true, "the list arrived")
+		eq(ns.rdb.council.blob, COUNCIL_LIST1, "kept as signed, to pass along")
+	end)
+end)
+
+test("0.9.8 the High Council: a list already held is not checked again at every relay", function()
+	local W, S = ns.Workshop, ns.Sign
+	local saved = { council = ns.rdb.council, verify = S.Verify }
+	local ok, err = pcall(function()
+		local checks = 0
+		S.Verify = function(...) checks = checks + 1; return saved.verify(...) end
+		ns.rdb.council = nil
+		eq(W.TakeCouncil(COUNCIL_LIST1), true); eq(checks, 1)
+		eq(W.TakeCouncil(COUNCIL_LIST1), false, "the same list")
+		eq(W.TakeCouncil((COUNCIL_LIST1:gsub("^HS1~1790000000", "HS1~1789999999"))), false, "an older one")
+		eq(checks, 1, "neither costs a signature check")
+		eq(W.TakeCouncil((COUNCIL_LIST1:gsub("^HS1~1790000000", "HS1~1790000001"))), false, "a newer one is checked, and refused")
+		eq(checks, 2)
+		eq(ns.rdb.council.at, 1790000000, "the signed list stays")
+	end)
+	ns.rdb.council, S.Verify = saved.council, saved.verify
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.8 the High Council: no client relays the list before the census says how many addons are online", function()
+	local W = ns.Workshop
+	local saved = { council = ns.rdb.council, chunked = ns.Comm.SendChunked, now = ns.Now, random = W.random, signed = ns.COUNCIL_SIGNED,
+		guilds = ns.rdb.guilds, after = ns.After }
+	local ok, err = pcall(function()
+		local clock, sent = os.time() + 200000, {}
+		ns.Now = function() return clock end
+		ns.Comm.SendChunked = function(msg) sent[#sent + 1] = msg end
+		ns.After = function(_, _, f) f() end
+		W.random = function() return 0.5 end
+		ns.COUNCIL_SIGNED, ns.rdb.guilds, ns.rdb.council = nil, {}, nil
+		W.TakeCouncil(COUNCIL_LIST1)
+		W.CouncilLogin()
+		-- Just logged in, no census yet: the client would count itself alone and relay for sure.
+		clock = clock + 60; W.RelayCouncil()
+		eq(#sent, 0, "not in its first minutes")
+		clock = clock + W.RELAY_EVERY; W.RelayCouncil()
+		eq(#sent, 1, "then, alone in the census: for sure")
+		-- A large army (a fresh report counts 300 addons): about RELAYS of its clients each half hour.
+		local function Census() ns.rdb.guilds = { ["Olympus II"] = { total = 1000, online = 500, users = 300, zones = {}, t = clock } } end
+		clock = clock + W.RELAY_EVERY; Census()
+		eq(ns.King.AddonsOnline(), 300)
+		W.RelayCouncil()
+		eq(#sent, 1, "3 in 300, not this one")
+		W.random = function() return 0.005 end
+		clock = clock + 60; Census(); W.RelayCouncil()
+		eq(#sent, 1, "one try each half hour")
+		clock = clock + W.RELAY_EVERY; Census(); W.RelayCouncil()
+		eq(#sent, 2, "this one")
+		-- The author's client sends his list at every login, even one it held already.
+		ns.COUNCIL_SIGNED = COUNCIL_LIST1
+		W.CouncilLogin()
+		eq(#sent, 3); eq(sent[3], "HS~" .. COUNCIL_LIST1)
+	end)
+	ns.rdb.council, ns.Comm.SendChunked, ns.Now, W.random, ns.COUNCIL_SIGNED = saved.council, saved.chunked, saved.now, saved.random, saved.signed
+	ns.rdb.guilds, ns.After = saved.guilds, saved.after
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.8 the High Council keeps its realm group when this client learns a realm linked to it", function()
+	local saved = { council = ns.rdb.council, links = ns.db.links }
+	local ok, err = pcall(function()
+		local BETA = "ClassicBetaPvP+ClassicBetaPvP2"
+		ns.rdb.council = { at = 1, names = { ["test councillor"] = "Test Councillor" }, realm = BETA }
+		ns.db.links = nil
+		eq(ns.IsHighCouncillor("Test Councillor-ClassicBetaPvP2"), true, "Forever's two realms, as seeded")
+		eq(ns.IsHighCouncillor("Test Councillor-Realm"), false, "a namesake elsewhere")
+		-- A guild spans a third realm: this client's group becomes the three of them.
+		local grown = BETA .. "+ClassicBetaPvP3"
+		ns.db.links = { ClassicBetaPvP = grown, ClassicBetaPvP2 = grown, ClassicBetaPvP3 = grown }
+		eq(ns.IsHighCouncillor("Test Councillor-ClassicBetaPvP"), true, "still a councillor")
+		eq(ns.IsHighCouncillor("Test Councillor-ClassicBetaPvP3"), true, "the realm linked to the group")
+		eq(ns.IsHighCouncillor("Test Councillor-Realm"), false, "still nobody's elsewhere")
+		eq(ns.IsHighCouncillor("Random Guy-ClassicBetaPvP"), false)
+	end)
+	ns.rdb.council, ns.db.links = saved.council, saved.links
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.8 a help request is cut between two letters, never inside one", function()
+	local W = ns.Workshop
+	local saved = { council = ns.rdb.council, whisper = ns.Comm.Whisper, now = ns.Now, me = ns.me, print = ns.Print }
+	local whispered = {}
+	local ok, err = pcall(function()
+		local clock = os.time() + 100000 -- (past the gap any earlier request left)
+		ns.Now = function() return clock end
+		ns.Print = function() end
+		ns.Comm.Whisper = function(to, msg) whispered[#whispered + 1] = msg end
+		ns.rdb.council = { at = 1, names = { ["test councillor"] = "Test Councillor" }, realm = "Realm" }
+		W.HandleAvailable("CHANNEL", "Test Councillor-Realm")
+		ns.me = "Player One-Realm"
+		W.AskCouncil("a" .. ("\195\169"):rep(100)) -- "a" and 100 "é" (two bytes each)
+		local text = whispered[1] and whispered[1]:match("^HR~(.*)$")
+		assert(text, "sent")
+		eq(#text, 179, "the last whole letter within 180 bytes")
+		eq(text, "a" .. ("\195\169"):rep(89))
+		-- The box: Enter sends and closes it, as our other boxes do.
+		clock = clock + W.HELP_GAP + 1
+		W.HandleAvailable("CHANNEL", "Test Councillor-Realm")
+		local closed = false
+		local box = { GetText = function() return "stuck in a wall" end, GetParent = function() return { Hide = function() closed = true end } end }
+		StaticPopupDialogs.OLYMPUS_COUNCIL_ASK.EditBoxOnEnterPressed(box)
+		eq(whispered[2], "HR~stuck in a wall", "Enter sends"); eq(closed, true, "and closes the box")
+	end)
+	ns.rdb.council, ns.Comm.Whisper, ns.Now, ns.me, ns.Print = saved.council, saved.whisper, saved.now, saved.me, saved.print
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.8 /oly help lists the High Council's commands", function()
+	local savedPrint, out = print, {}
+	print = function(s) out[#out + 1] = tostring(s) end
+	local ok, err = pcall(SlashCmdList.OLYMPUS, "help")
+	print = savedPrint
+	if not ok then error(err, 0) end
+	local text = table.concat(out, "\n")
+	assert(text:find("/oly helpme", 1, true) and text:find("/oly council", 1, true), text)
+end)
+
+test("0.9.8 the signature check: one length, leading zeros, a test key, and the arithmetic on known values", function()
+	local S = ns.Sign
+	-- A throwaway key made by scripts/council-sign.py (its private half was never kept), and a
+	-- list it signed whose signature starts with a zero byte.
+	local TEST_N = "c8e6c33f1d75bb4b06190b28b946d5f8440315ba2e2ad38cd6a2325772ef12cee10c27e81caf3b4c5a47e2ab8bc5ba5c688d99cb6dd5c9abac927d0dd4d017a9ef55d3a6c126cf7ba2faf2afebd2f973a28e2c592d13b982093d36132d177a8bca2eb2ed8f6c58c951240dab7ffe3fa6ce9971cfb03524631839cc25d2b99e922e0ee0d1f8dc4a946014af5c5ae8dd090ebafc24053a8aed7df253800c7760cd5e8095075216cbb3eadc29c751d098a73afa195d5364559a9eb00fbdfc354268d9ed11063cae8821bf3ce2465b3ce1543f1a710315777dc2c6222721126b9a312e487c447a5bcdf1b4ffa5f65f4c2f009630fdc40d4b20dd58ce69ce8167c5c7"
+	local TEST_MU = "14635b1dfd40bac3d110b398c18f87366ba96315539df9b33239d602428414f5d5e96e1ab2a928cedfd87ebf6ef9d76b671a043c91c4d763b61bab4049dfa72dca33f4950a04e109ba8f5e0d97c7665b70012990a69821e0ab6d47cd6d4119fe7056a2f53995c7a1fc88efecb50c3f031be55f95dd1a6e2593e4b2b2c7feca3e4817433751ee14bca4462035812efafc9f4bd38f4fd0781751978f12e6257633c787f601268981fc4685279e405ae200c44b6c052f4528245d07defd6ef4d6c7c39a6a61c87f297a9a48088d27b41f845b0de148ddf12bec81eebf71ef993939918efc15a235a33d57832970d92cbf0e7d5204a1213bf56690dfdb1f5b8895757ae5dd685"
+	local TEXT, SIG = "HS1~1790000238~Realm~Zero Byte", "00cfead76a2add2f7850706f7544452acf52a9497b2b6f37c66e7511491a276de6e18d1cc1958a2a28f0a55682f3781b585c3160e15d26269026591d91e093e1b02d3c1e6f6c33cecd34e7bde7a52091b1bb5f9dfd97eeba09954a15109c2f463a82dba5d5a61d25d1071b376381101975e46473a2c5ef98bca01fbf00572a67e15bbadde105806d1531ba0cf0abdd6a2ad7aca7a3e136a0ab7d4364f5f459da3418bd6c6c804fa3949387fa9c9430627ce4a8d9685489c56c7f50f1d7d9cdf749b3840e5ca4350e1489df8d7f11afbc85a1053f9777296acdc0a1a9b6e5610f542567818332f64ac922d45ed0ca3363e5d723241f98e42e0842e6bda32e1dc0"
+	eq(SIG:sub(1, 2), "00")
+	S.WithKey(TEST_N, TEST_MU, 86, function()
+		eq(S.Verify(TEXT, SIG), true, "a signature with a leading zero byte")
+		eq(S.Verify(TEXT, SIG:sub(3)), false, "the same number, shorter: refused (one spelling each)")
+		eq(S.Verify(TEXT, "00" .. SIG), false, "longer: refused")
+		eq(S.Verify(TEXT .. "x", SIG), false)
+	end)
+	eq(S.Verify(TEXT, SIG), false, "the author's key is back, and refuses it")
+	assert(not pcall(S.WithKey, TEST_N, TEST_MU, 86, function() error("inside") end))
+	local text1, sig1 = COUNCIL_LIST1:match("^(.*)~(%x+)$")
+	eq(S.Verify(text1, sig1), true, "the author's key is back after an error too")
+	-- s^3 mod N (the author's N): values whose answer is known, and Python's pow(s, 3, N).
+	local N = "84a62410ffd1872739d169af98d461defee07628fcd907cef84b5ca39f9a840b6b518b2a246319ec2cbd4477ee30a2a17924c3540e647687eea614f9a05bf9a305274b28f0add3de7a3aae32e4c950030cfc2336221e705110cecc4622e0d86fb15340d1e76dfdad6813f81039dce9eff82224ecab8c6b9822957b5e724d67f8de14b8188e3f0cedf8a29dd1fb33aa7e24be0630ce6bb2bf31b3e1508a6976b225ce4ec73ead73cf74c8ef4034ae8fa94b0c8adc1f8f7d40e50c5cc3080e502120c122ae2af9f0066923ee5822a639e88b1cd8b9a469e91abd260401578d4c5a9900af45c7bb8e938a8b22bc60cec354a6986918d19658ce14d98b27d7ad0e8f"
+	eq(S.Open(N), nil, "s = N"); eq(S.Open(N:sub(1, -2) .. "e"), N:sub(1, -2) .. "e", "(N-1)^3 = -1")
+	eq(S.Open(N:sub(1, -2) .. "d"), N:sub(1, -2) .. "7", "(N-2)^3 = -8")
+	eq(S.Open("0"), nil); eq(S.Open("1"), "1"); eq(S.Open("2"), "8"); eq(S.Open("0002"), "8", "leading zeros")
+	eq(S.Open("4" .. ("0"):rep(170)), "4" .. ("0"):rep(511), "2^2046: just below N, nothing to reduce")
+	eq(S.Open("8" .. ("0"):rep(170)), "720d93cd008b6a8a528bc2f13582da63035e9d850974e893171dea15213073ddbe0b5e8192d6b23b79c83298356e181b9491b603d4d29c68340dc1131eec1316f08a1e852df68464914ff56751a40ff6d90b965d99a4af0ccd939b2d975d76b0ec063d8a49b606f7c7c417cf5269423017999139fd5abd37983f8de4a917c81565c1d7b65542d9361618268a0e65008591c5ed6d94bce7c26ae45c0e60c39be98e9513aa43f7a491a1a5323f61f451041eda5f6ba151883d50dae9b6e7d50f9c9dbc97f57f122fecc49434f7980d52465ea975d312c244afc88df3fbf9581af034fdf22ea8cd5445605e97cadd93b6020c36c4b58b3cf595c1735e8878f8d453", "2^2049 mod N")
+	eq(S.Open("8" .. ("0"):rep(511)), "390e9062d2c37fd48e1369874e72c810a9085ed254c449dfb801a7a4db2589905aeb4d53f4ac4365c41037cb97fea2a7f65e84c274a63043202023a5a3d10c758c4b9c3f18b9364d4fe04f8b85deb490f32ae063aec3481a4393be33092c41d950ba6af73dfe835bff656c5d5c854edb8e1f35f0a2193cfd4d89557311776e2fc6253ed0e834d30000cbd1ff8b469c1ed1653cd1715944bf8e9c589da500dc38ae341697f217d55460fc3e0efc8df6c4dc0312fc01d98536e521877de8749fd75c057ebf45530d49e66fcc07fda4a868e63019590d255f18c5f22ec6211ba4daf86f38477b79da0ee7749fb398041e3d4f41729617af7b65c1714f818802f4b3", "(2^2047)^3 mod N")
+	eq(S.Open("54681d1d58d09ebe3755a05155d8f041fb01e6be086207a49f22dd71a5cdc5329722b4f4f5c51fd1c4e3d4c3c4f02c7115c92d723e12e07ec5314aaa7d1e939e251b74b3a9c3c91fca45b2e1727895c7211821a7cb763d977340b95127a2ccd8e4d5f3f40b5e62c05c25765b2858124bb436454b1b38082017396a74afa00e286e587bf19213ce8f53ac00cf6b3fcae9e5160d1d2072d2013b6af9afdad73e55415560132e1bcf1733c5d0c991caa20f421c0600a2617aa14544b337d46003c6b789c2ff9b1d15be81d9f26054401ff74eee7908eb85c5dd4773ddf7ecf906578e38ce592c0eac0bf7526613832d9376ab218839ac7e72e85dc756618af3"), "1a22adf78159f64890bcb948dd2539c32ddb9921fb6577f6e74629a8c9009006a1067bb227b96f06a86959c7ae71f86d515d22e0e27a0fb3ffc30a1ca83ca0d1e8fd5377149e1b8cd563daf7b0c1137b8eafe440f4ebd7548fac5dd0c085cff9e9323b83e5e15d1ca7622f0943065b0a4e1c6cdddd72eab79eb6445e3eee3d177dd808453311aa0edd2f4398a5ef1834710e929082ad7681b94db524cca19ee5c53ea4946704f309b8a415e2c06b1d0fd92580b63986ee0ff8b00003d2185aa59dfffffe171585543c190508146e478743d2c48072263884a1b56795a9f524f0b76265f983f41ec92d85cb482c9b432dd7d418549f6a96cf4e5bb7ec308c49", "a random s with leading zero bytes")
+	-- SHA-256 around the padding's edges (Python's hashlib).
+	local function hex(b) return (b:gsub(".", function(c) return ("%02x"):format(c:byte()) end)) end
+	local want = { [55] = "8aa994584139d128848eeebc4e815639ba5ab6e6e39574195a63ac4f14f7c43b", [56] = "ad574708f75c044c9b85de64cb568ee7711ff4f36448c6242f053ba8f6cc2b63", [63] = "280ed3e8ff1df845b2e7dfe6ac6cee817bef20e783cc65abc41b818b4d2fe076", [64] = "c6ab9724ade5b6a7a1edfffb12f3aa9181351355af8fd08c919952ad211339dd", [65] = "788367c73c7ddf4c53f65e68cc0d943e6227ab55b0e78ba63ace822b1c6301c0", [119] = "3d610547d68216dedf7435a4fb6260353911f6b3fd3f18805ddb8be285d726fe", [120] = "1f80156a804cb7862ad113e8200e9d74499723e7c7854d5f48776d3148e09656", [128] = "cc548ca2dec1f6fe4f58b2e27aa9c7521607df1130d140b55a4dad0665302356" }
+	for _, len in ipairs({ 55, 56, 63, 64, 65, 119, 120, 128 }) do
+		local bytes = {}
+		for i = 0, len - 1 do bytes[#bytes + 1] = string.char((i * 31 + 7) % 256) end
+		eq(hex(S.SHA256(table.concat(bytes))), want[len], len .. " bytes")
+	end
+end)
+
+-- The rows the Treasury tab shows for the ranking: "1. name" ... and the "Show more" line.
+local function RankRows(lines)
+	local shown, more = 0, nil
+	for _, l in ipairs(lines) do
+		if type(l.text) == "string" and l.text:find("%d+%. Donor ") then shown = shown + 1 end
+		if l.onClick and type(l.text) == "string" and l.text:find(ns.L.SHOW_MORE:match("^[^%%]+"), 1, true) then more = l end
+	end
+	return shown, more
+end
+
+test("0.9.8 the donation ranking: 25 more a click, up to the 100 sent (the Treasurer's page and the King's)", function()
+	WithThrone(function(w, K)
+		local T = ns.Treasury
+		local savedAlert = ns.PlayAlert
+		local ok, err = pcall(function()
+			ns.PlayAlert = function() end
+			AsTreasurer()
+			local function Name(i) return "Donor " .. string.char(65 + math.floor((i - 1) / 26)) .. string.char(97 + (i - 1) % 26) .. "name" end
+			for i = 1, 120 do T.Record(Name(i), 10000 + i, "trade", nil, { quiet = true }) end
+			T.Show("summary")
+			for _, want in ipairs({ 25, 50, 75 }) do
+				local shown, more = RankRows((T.Build()))
+				eq(shown, want, "rows shown")
+				assert(more, "a Show more line under " .. want)
+				eq(more.text:find(ns.L.SHOW_MORE:format(25, want, 100), 1, true) ~= nil, true, more.text)
+				more.onClick()
+			end
+			local shown, more = RankRows((T.Build()))
+			eq(shown, 100, "the 100 sent"); eq(more, nil, "nothing more at the cap")
+			T.Show("summary")
+			eq((RankRows((T.Build()))), 25, "a new visit starts at 25")
+			-- The King's copy of the ranking: the same pages.
+			local msg = T.Message()
+			AsKing()
+			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", msg)
+			eq(#T.Report().rank, 100)
+			T.Show("summary")
+			shown, more = RankRows((T.Build()))
+			eq(shown, 25); assert(more, "the King's Show more")
+			more.onClick()
+			eq((RankRows((T.Build()))), 50, "25 more on the King's page")
+		end)
+		ns.PlayAlert = savedAlert
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("0.9.8 the level race: 25 more a click, up to its top 100", function()
+	local V = ns.Views
+	local saved = { guilds = ns.rdb.guilds, shown = V.raceShown }
+	local ok, err = pcall(function()
+		-- Five guilds of 25 racers each: 125, the race keeps 100.
+		local now, guilds = os.time(), {}
+		for gi = 1, 5 do
+			local top = {}
+			for i = 1, 25 do top[i] = { name = ("Racer %s%s"):format(string.char(64 + gi), string.char(96 + i)), level = 10 + i, class = "MA" } end
+			guilds["Olympus " .. string.rep("I", gi)] = { total = 100, online = 10, zones = {}, t = now, leader = "Lead" .. gi, officers = {}, top = top }
+		end
+		ns.rdb.guilds = guilds
+		V.raceShown = V.RACE_PAGE
+		local function Rows()
+			local shown, more = 0, nil
+			for _, l in ipairs(V.RealmLines()) do
+				if type(l.text) == "string" and l.text:find("^%d+%. ") and l.text:find("Racer ", 1, true) then shown = shown + 1 end
+				if l.onClick and type(l.text) == "string" and l.text:find(ns.L.SHOW_MORE:match("^[^%%]+"), 1, true) then more = l end
+			end
+			return shown, more
+		end
+		for _, want in ipairs({ 25, 50, 75 }) do
+			local shown, more = Rows()
+			eq(shown, want, "racers shown")
+			assert(more, "a Show more line under " .. want)
+			eq(more.text:find(ns.L.SHOW_MORE:format(25, want, 100), 1, true) ~= nil, true, more.text)
+			more.onClick()
+		end
+		local shown, more = Rows()
+		eq(shown, 100, "the top 100"); eq(more, nil, "nothing more at the cap")
+	end)
+	ns.rdb.guilds, V.raceShown = saved.guilds, saved.shown
+	if not ok then error(err, 0) end
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

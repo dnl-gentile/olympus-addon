@@ -610,6 +610,8 @@ end
 -- client checks the signature, keeps the newest list and passes it along now and then, so
 -- nobody needs to be online and nobody can forge or change it.
 --   HS1~<time>~<realm group>~<First Surname>,...~<signature>   (signed: all before the last ~)
+-- On the channel it travels as HS~<the signed list> (0.9.8): Comm hands a message to its
+-- handler only when "~" follows the two letters of its type, and the list starts "HS1~".
 ---------------------------------------------------------------------------
 
 Workshop.COUNCIL_MAX = 30
@@ -631,9 +633,12 @@ function Workshop.TakeCouncil(blob)
 	if type(blob) ~= "string" or #blob > 2000 then return false end
 	local text, at, realm, list, sig = blob:match("^(HS1~(%d+)~([^~]*)~([^~]*))~(%x+)$")
 	at = tonumber(at)
-	if not at or not ns.Sign or not ns.Sign.Verify(text, sig) then return false end
+	if not at then return false end
+	-- The list we hold (or an older one) is not checked again: each relay would cost every
+	-- client a signature check for nothing (0.9.8).
 	local c = ns.rdb.council
 	if type(c) == "table" and (tonumber(c.at) or 0) >= at then return false end
+	if not ns.Sign or not ns.Sign.Verify(text, sig) then return false end
 	local names, n = {}, 0
 	for name in list:gmatch("[^,]+") do
 		name = name:gsub("^%s+", ""):gsub("%s+$", "")
@@ -646,7 +651,8 @@ function Workshop.TakeCouncil(blob)
 end
 
 function Workshop.HandleCouncil(dist, sender, text)
-	if dist == "CHANNEL" then Workshop.TakeCouncil(text) end
+	if dist ~= "CHANNEL" or type(text) ~= "string" then return end
+	Workshop.TakeCouncil(text:match("^HS~(HS1~.*)$") or text)
 end
 ns.Comm.Handle("HS", function(...) Workshop.HandleCouncil(...) end)
 
@@ -664,7 +670,7 @@ function Workshop.RelayCouncil(force)
 		local users = ns.King and ns.King.AddonsOnline and ns.King.AddonsOnline() or 1
 		if Workshop.random() > math.min(1, Workshop.RELAYS / users) then return end
 	end
-	ns.Comm.SendChunked(c.blob)
+	ns.Comm.SendChunked("HS~" .. c.blob)
 end
 
 function Workshop.EditCouncil(verb)
@@ -700,7 +706,7 @@ function Workshop.Available()
 	return out
 end
 function Workshop.AskCouncil(text)
-	text = ns.Codec.Plain(tostring(text or "")):sub(1, 180)
+	text = ns.Cut(ns.Codec.Plain(tostring(text or "")), 180) -- (never half a letter, 0.9.8)
 	local now = ns.Now()
 	if now - lastHelpSent < Workshop.HELP_GAP then return ns.Print(L.COUNCIL_ASK_WAIT) end
 	local list = Workshop.Available()
@@ -730,25 +736,40 @@ StaticPopupDialogs["OLYMPUS_COUNCIL_ASK"] = {
 	button1 = L.COUNCIL_ASK_SEND,
 	button2 = CANCEL or "Cancel",
 	hasEditBox = true,
+	editBoxWidth = 260, -- (a sentence, not a name)
 	OnAccept = function(self)
 		local eb = self.editBox or self.EditBox
 		ns.SafeCall("council ask", Workshop.AskCouncil, eb and eb:GetText() or "")
 	end,
+	-- Enter sends and Escape closes, as in our other boxes (0.9.8: Enter did nothing).
+	EditBoxOnEnterPressed = function(self)
+		ns.SafeCall("council ask", Workshop.AskCouncil, self:GetText())
+		self:GetParent():Hide()
+	end,
+	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
 	timeout = 0,
 	whileDead = true,
 	hideOnEscape = true,
 	preferredIndex = 3,
 }
 
-ns.On("LOGIN", function()
-	-- The author's machine holds the signed list (CouncilList.lua, never published): his
-	-- client takes it and sends it at once.
-	if ns.COUNCIL_SIGNED and Workshop.TakeCouncil(ns.COUNCIL_SIGNED) then ns.After(15, "council", function() Workshop.RelayCouncil(true) end) end
+-- At login. The author's machine holds the signed list (CouncilList.lua, never published): his
+-- client takes it and sends the newest it holds at once. Any other client passes the list
+-- along a whole RELAY_EVERY after login at the earliest (0.9.8): until the census says how
+-- many addons are online, each would count itself alone and relay for sure, the whole army
+-- at once after a server restart.
+function Workshop.CouncilLogin()
+	lastCouncilSent = ns.Now()
+	if ns.COUNCIL_SIGNED then
+		Workshop.TakeCouncil(ns.COUNCIL_SIGNED)
+		ns.After(15, "council", function() Workshop.RelayCouncil(true) end)
+	end
 	ns.Every(60, "council", function()
 		Workshop.RelayCouncil()
 		Workshop.SayAvailable()
 	end)
-end)
+end
+ns.On("LOGIN", function() Workshop.CouncilLogin() end)
 
 ns.Comm.Handle("V1", function(...) Workshop.HandleRoll(...) end)
 ns.Comm.Handle("V2", function(...) Workshop.HandleAnswer(...) end)

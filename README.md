@@ -541,7 +541,10 @@ also saved in `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.
 
 With Bash and LuaJIT installed, run `bash scripts/check.sh` from the repository root to
 check all addon and test Lua files for syntax errors, validate the files listed in
-`Olympus/Olympus.toc`, run the local/global lint, and run the offline suite. This
+`Olympus/Olympus.toc`, run the local/global lint, and run the offline suite. With
+python3 installed (CI has it) it also compiles the Python scripts and runs the High
+Council signing round trip: a throwaway key in a temporary folder, lists signed with
+`scripts/council-sign.py` and checked by `Olympus/Sign.lua` (never the author's key). This
 is the same command CI uses; it stops with a nonzero exit status on failure.
 The TOC file check also catches filename case mismatches on CI's Linux filesystem.
 
@@ -550,6 +553,8 @@ bash scripts/check.sh                    # full repository checks used by CI
 luajit tests/run.lua                      # offline tests: codec, roster, hierarchy, security, layers, decrees, channels
 scripts/lint-globals.sh                   # catches locals used before they are declared
 bash tests/check-scripts.sh               # verify check-script failure handling (also run in CI)
+bash tests/sign-roundtrip.sh              # the High Council signing script end to end (needs python3)
+python3 scripts/council-sign.py sign "First Surname,..." [realm group]  # the author: sign the High Council list
 scripts/package.sh                        # dist/Olympus-<version>.zip
 WOW_HOST=user@pc scripts/deploy.sh        # copy to a Windows PC over SSH
 WOW_HOST=user@pc scripts/logs.sh          # read the log and captured errors from that PC
