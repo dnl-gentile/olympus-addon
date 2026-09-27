@@ -629,7 +629,27 @@ end
 Workshop.CouncilNames = CouncilNames
 
 -- A signed list (from the author's file, or heard on the channel): checked, kept if newer.
-function Workshop.TakeCouncil(blob)
+-- A signature check is the heaviest thing the addon does (0.9.8, Konig's review): lists heard on
+-- the channel are checked at most once a minute per sender and VERIFY_MAX times a minute in all,
+-- and a list already found false is not checked again. The author's own file is not limited.
+Workshop.VERIFY_GAP, Workshop.VERIFY_MAX = 60, 6
+local verifiedFrom, verifyTimes, falseLists, falseCount = {}, {}, {}, 0
+local function MayVerify(sender, blob, now)
+	if falseLists[blob] then return false end
+	if sender and now - (verifiedFrom[sender] or -math.huge) < Workshop.VERIFY_GAP then return false end
+	for i = #verifyTimes, 1, -1 do if now - verifyTimes[i] >= 60 then table.remove(verifyTimes, i) end end
+	if #verifyTimes >= Workshop.VERIFY_MAX then return false end
+	if sender then verifiedFrom[sender] = now end
+	verifyTimes[#verifyTimes + 1] = now
+	return true
+end
+local function RememberFalse(blob)
+	if falseCount >= 100 then wipe(falseLists); falseCount = 0 end
+	falseLists[blob], falseCount = true, falseCount + 1
+end
+function Workshop.ResetVerify() wipe(verifiedFrom); wipe(verifyTimes); wipe(falseLists); falseCount = 0 end -- tests
+
+function Workshop.TakeCouncil(blob, sender)
 	if type(blob) ~= "string" or #blob > 2000 then return false end
 	local text, at, realm, list, sig = blob:match("^(HS1~(%d+)~([^~]*)~([^~]*))~(%x+)$")
 	at = tonumber(at)
@@ -638,7 +658,14 @@ function Workshop.TakeCouncil(blob)
 	-- client a signature check for nothing (0.9.8).
 	local c = ns.rdb.council
 	if type(c) == "table" and (tonumber(c.at) or 0) >= at then return false end
-	if not ns.Sign or not ns.Sign.Verify(text, sig) then return false end
+	if sender and not MayVerify(sender, blob, ns.Now()) then return false end
+	if not ns.Sign or not ns.Sign.Verify(text, sig) then
+		if sender then
+			RememberFalse(blob)
+			ns.Log("High Council: a list from %s failed its signature", tostring(sender))
+		end
+		return false
+	end
 	local names, n = {}, 0
 	for name in list:gmatch("[^,]+") do
 		name = name:gsub("^%s+", ""):gsub("%s+$", "")
@@ -652,7 +679,7 @@ end
 
 function Workshop.HandleCouncil(dist, sender, text)
 	if dist ~= "CHANNEL" or type(text) ~= "string" then return end
-	Workshop.TakeCouncil(text:match("^HS~(HS1~.*)$") or text)
+	Workshop.TakeCouncil(text:match("^HS~(HS1~.*)$") or text, ns.FullName(sender))
 end
 ns.Comm.Handle("HS", function(...) Workshop.HandleCouncil(...) end)
 

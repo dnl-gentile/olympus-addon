@@ -9041,6 +9041,9 @@ test("0.9.7 the donation ranking: 100 donors fit the Treasurer's message and all
 end)
 
 test("0.9.7 the High Council: a list the author signs on his computer, checked by every client, passed along by any", function()
+	local vGap, vMax = ns.Workshop.VERIFY_GAP, ns.Workshop.VERIFY_MAX
+	ns.Workshop.VERIFY_GAP, ns.Workshop.VERIFY_MAX = 0, 1000 -- (the rate limit has its own test)
+	ns.Workshop.ResetVerify()
 	local W = ns.Workshop
 	local LIST1 = "HS1~1790000000~Realm~Test Councillor,Other Mod~5c8eac0d271a53cc73bb79e40ad0b9390f81c0d90fc0c3bd9e3ba804f15a59dea651a95e6221c7e6e9c53cf0067fc2f6a990ccb59ab39df6ad6a7f2a40a6be7680b6133cfa5ae6261d9925a545b0ec180b0edf899040bf0ceb973f0db455187d954d4ce8340364335397dc0cb928fe0d5dd5e7add436ed5984a8e1d0db470f46c77f8ffff98f6e32c287c15032f97b7b2f5bc70d4164bad8e8beccb02a1cb78ba2511487c423b62d18c0e8b47ab26a0dfe6144fae7b0b2e311d756b64b93c9f3914c82a51202a295215c0da66afa515417d305e19f31c065d084d222c00b45294849db4d4910732c49b7bf79fbd6197fe04c0db8a803265ab6d64b3566252ab7"
 	local LIST2 = "HS1~1790000100~Realm~Test Councillor~43c2479504493a7c32dc1ab4356e9045933e657aa33747d49b2fc5195af0656d6a991efe985187c7c09df8ec4cf91483e05923e79880f5b6130ac0450e2ed225e8f95051e5ea36f3f62302764303cd85d2a6fc28ecf020178e4d90fbfd78fad2c7e04584577b3ae1f2d7c0d978ffc37992f303d673c676e1f43b894673402c4cb542671a9013b3ddc50c004d986472aa5bd5142d8980e2e719ced7f9b25d0c83f997fcb811f610d808961d7ae403d4e4090114e5b923982efaf2aebe35ccaaf19f284d9f5d9e8ed428a1b8de6c0e3b124317d4729085ce13de192eabebf2a1dac15424898e3439f246fca7a158c7a8e6b89acf7b2b7ab4e4435b3612a4d4e1fc"
@@ -9082,6 +9085,7 @@ test("0.9.7 the High Council: a list the author signs on his computer, checked b
 	end)
 	ns.rdb.council, ns.Comm.SendChunked, ns.Comm.Whisper, ns.db.councilHelp, ns.me = saved.council, saved.chunked, saved.whisper, saved.help, saved.me
 	if not ok then error(err, 0) end
+	ns.Workshop.VERIFY_GAP, ns.Workshop.VERIFY_MAX = vGap, vMax
 end)
 
 test("0.9.7 SHA-256 and the signature check on known values", function()
@@ -9120,6 +9124,9 @@ local function CouncilOnChannel(fn)
 end
 
 test("0.9.8 the High Council's list crosses the channel: relayed by one client, taken by the next", function()
+	local vGap, vMax = ns.Workshop.VERIFY_GAP, ns.Workshop.VERIFY_MAX
+	ns.Workshop.VERIFY_GAP, ns.Workshop.VERIFY_MAX = 0, 1000 -- (the rate limit has its own test)
+	ns.Workshop.ResetVerify()
 	CouncilOnChannel(function(W, Hear)
 		local sent = {}
 		ns.Comm.SendChunked = function(msg) sent[#sent + 1] = msg end
@@ -9135,6 +9142,7 @@ test("0.9.8 the High Council's list crosses the channel: relayed by one client, 
 		eq(ns.IsHighCouncillor("Test Councillor-Realm"), true, "the list arrived")
 		eq(ns.rdb.council.blob, COUNCIL_LIST1, "kept as signed, to pass along")
 	end)
+	ns.Workshop.VERIFY_GAP, ns.Workshop.VERIFY_MAX = vGap, vMax
 end)
 
 test("0.9.8 the High Council: a list already held is not checked again at every relay", function()
@@ -9860,6 +9868,35 @@ test("0.9.8 gold mailed to the Treasurer that reached one of his alts is written
 	ns.db.myCharacters, ns.me, GetGuildInfo, GetInboxHeaderInfo, GetInboxInvoiceInfo, GetMoney = saved.mine, saved.me, saved.guild, saved.header, saved.invoice, saved.money
 	ns.rdb.treasury, T.Share, ns.Print, ns.PlayAlert = saved.book, saved.share, saved.print, saved.alert
 	T.Reset()
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.8 signature checks are rate-limited: once a minute per sender, a few a minute in all, a false list never twice", function()
+	local W, S = ns.Workshop, ns.Sign
+	local saved = { council = ns.rdb.council, verify = S.Verify, now = ns.Now }
+	local checks, clock = 0, 1000000
+	local ok, err = pcall(function()
+		W.ResetVerify()
+		ns.Now = function() return clock end
+		S.Verify = function() checks = checks + 1 return false end
+		ns.rdb.council = nil
+		local function List(at) return ("HS~HS1~%d~Realm~Fake Name~%s"):format(at, string.rep("ab", 256)) end
+		-- One spammer: one check a minute, whatever it sends.
+		for i = 1, 50 do W.HandleCouncil("CHANNEL", "Spammer-Realm", List(2000000 + i)) end
+		eq(checks, 1, "once a minute per sender")
+		-- The same false list again, from anyone: never checked twice.
+		clock = clock + 61
+		W.HandleCouncil("CHANNEL", "Other-Realm", List(2000001))
+		eq(checks, 1, "a false list is not checked again")
+		-- Many senders: VERIFY_MAX a minute in all.
+		for i = 1, 30 do W.HandleCouncil("CHANNEL", "Bot" .. i .. "-Realm", List(3000000 + i)) end
+		eq(checks, 1 + W.VERIFY_MAX, "a few a minute in all")
+		-- The author's own file is never limited.
+		S.Verify = saved.verify
+		W.ResetVerify()
+	end)
+	ns.rdb.council, S.Verify, ns.Now = saved.council, saved.verify, saved.now
+	W.ResetVerify()
 	if not ok then error(err, 0) end
 end)
 
