@@ -9092,5 +9092,216 @@ test("0.9.7 SHA-256 and the signature check on known values", function()
 	eq(ns.Sign.Verify("HS1~1~Realm~X", "00"), false); eq(ns.Sign.Verify("x", "zz"), false)
 end)
 
+-- 0.9.8: council-icon
+
+-- A council of two for these tests (the signed list has its own test above); everything the
+-- tests touch is put back.
+local function WithCouncil(fn)
+	local saved = { council = ns.rdb.council, heard = ns.rdb.councilIcons, mine = ns.db.councilIcons, me = ns.me,
+		send = ns.Comm.Send, print = ns.Print, now = ns.Now, gp = ns.GamepadUI }
+	local ok, err = pcall(function()
+		ns.rdb.council = { at = 1, names = { ["test councillor"] = "Test Councillor", ["other mod"] = "Other Mod" } }
+		ns.rdb.councilIcons, ns.db.councilIcons = nil, nil
+		ns.Print, ns.Comm.Send = function() end, function() end
+		if ns.Workshop.ResetIcons then ns.Workshop.ResetIcons() end
+		fn()
+	end)
+	ns.rdb.council, ns.rdb.councilIcons, ns.db.councilIcons, ns.me = saved.council, saved.heard, saved.mine, saved.me
+	ns.Comm.Send, ns.Print, ns.Now, ns.GamepadUI = saved.send, saved.print, saved.now, saved.gp
+	if ns.Workshop.ResetIcons then ns.Workshop.ResetIcons() end
+	if not ok then error(err, 0) end
+end
+
+test("0.9.8 council icons: only a councillor's own announcement counts, and only a file number or a plain icon name", function()
+	WithCouncil(function()
+		local W = ns.Workshop
+		local function Line(sender) return ns.Channels.FormatLine("A", sender, "Olympus", nil, "hello") end
+		-- Nobody announced: the default skull (one of the game's icons), then their colour.
+		local line = Line("Test Councillor-Realm")
+		assert(line:find("|TInterface\\Icons\\INV_Misc_Bone_HumanSkull_01:0|t|c" .. ns.HIGH_COUNCIL_COLOR .. "Test Councillor|r", 1, true), line)
+		-- Someone not on the council: refused, and still refused once they are on it.
+		W.HandleIcon("CHANNEL", "Random Guy-Realm", "HI~134400")
+		ns.rdb.council.names["random guy"] = "Random Guy"
+		line = Line("Random Guy-Realm")
+		assert(line:find(ns.HIGH_COUNCIL_ICON, 1, true) and not line:find("134400", 1, true), line)
+		-- A councillor anywhere but the channel: refused.
+		W.HandleIcon("WHISPER", "Test Councillor-Realm", "HI~134400")
+		W.HandleIcon("GUILD", "Test Councillor-Realm", "HI~134400")
+		assert(Line("Test Councillor-Realm"):find(ns.HIGH_COUNCIL_ICON, 1, true))
+		-- Anything but a file number or a plain name: refused, the skull stays.
+		for _, bad in ipairs({ "HI~134400:64:64|t|cffff0000Fake", "HI~134400:64:64tcffff0000Fake", "HI~Interface\\Icons\\X",
+			"HI~..\\..\\X", "HI~12345678901", "HI~2147483648", "HI~-5", "HI~1.5", "HI~ab cd", "HI~" .. string.rep("a", 65),
+			"HI~", "HI~00", "HI~134400~x" }) do
+			W.HandleIcon("CHANNEL", "Test Councillor-Realm", bad)
+			line = Line("Test Councillor-Realm")
+			assert(line:find(ns.HIGH_COUNCIL_ICON, 1, true), bad .. " -> " .. line)
+		end
+		eq(next(ns.rdb.councilIcons or {}), nil, "nothing kept")
+		-- A file number, then a plain icon name: theirs before their name, the colour stays.
+		W.HandleIcon("CHANNEL", "Test Councillor-Realm", "HI~134400")
+		line = Line("Test Councillor-Realm")
+		assert(line:find("[|T134400:0|t|c" .. ns.HIGH_COUNCIL_COLOR .. "Test Councillor|r]", 1, true), line)
+		assert(not line:find(ns.HIGH_COUNCIL_ICON, 1, true), "not the skull too")
+		assert(Line("Other Mod-Realm"):find(ns.HIGH_COUNCIL_ICON, 1, true), "the others keep the skull")
+		W.HandleIcon("CHANNEL", "Test Councillor-Realm", "HI~Spell_Holy_SealOfMight")
+		line = Line("Test Councillor-Realm")
+		assert(line:find("|TInterface\\Icons\\Spell_Holy_SealOfMight:0|t|c", 1, true), line)
+		-- What the SavedVariables hold is checked again when shown.
+		ns.rdb.councilIcons["Test Councillor-Realm"].icon = "x:64|t|cffff0000"
+		assert(Line("Test Councillor-Realm"):find(ns.HIGH_COUNCIL_ICON, 1, true), "a changed file shows the skull")
+		-- "0": back to the default skull.
+		W.HandleIcon("CHANNEL", "Test Councillor-Realm", "HI~134400")
+		W.HandleIcon("CHANNEL", "Test Councillor-Realm", "HI~0")
+		assert(Line("Test Councillor-Realm"):find(ns.HIGH_COUNCIL_ICON, 1, true))
+		eq(ns.rdb.councilIcons["Test Councillor-Realm"], nil)
+		-- Kept for COUNCIL_MAX councillors at most (the ones heard longest ago go), and only while
+		-- they are on the list.
+		local clock = 1000
+		ns.Now = function() return clock end
+		for i = 1, 40 do ns.rdb.council.names["mod " .. i] = "Mod " .. i end
+		for i = 1, 40 do
+			clock = clock + 1
+			W.HandleIcon("CHANNEL", "Mod " .. i .. "-Realm", "HI~" .. (1000 + i))
+		end
+		local n = 0
+		for _ in pairs(ns.rdb.councilIcons) do n = n + 1 end
+		eq(n, W.COUNCIL_MAX)
+		assert(Line("Mod 40-Realm"):find("|T1040:0|t", 1, true)); assert(Line("Mod 1-Realm"):find(ns.HIGH_COUNCIL_ICON, 1, true))
+		ns.rdb.council.names["mod 40"] = nil
+		W.HandleIcon("CHANNEL", "Mod 39-Realm", "HI~5")
+		eq(ns.rdb.councilIcons["Mod 40-Realm"], nil, "off the list: forgotten")
+	end)
+end)
+
+test("0.9.8 a councillor's own icon: kept on the character, on their own lines, said at once and then every 20 minutes", function()
+	WithCouncil(function()
+		local W = ns.Workshop
+		local sent, clock = {}, 5000
+		ns.Now = function() return clock end
+		ns.Comm.Send = function(dist, msg) sent[#sent + 1] = dist .. " " .. msg end
+		-- Not on the council: nothing kept, nothing said.
+		ns.me = "Random Guy-Realm"
+		eq(W.SetCouncilIcon(134400), false)
+		eq(W.SayIcon(true), false)
+		eq(#sent, 0); eq(ns.db.councilIcons, nil)
+		-- A councillor who picked none says nothing (the ticker asks each minute).
+		ns.me = "Test Councillor-Realm"
+		eq(W.SayIcon(), false); eq(#sent, 0)
+		-- Picked: kept on this character, said at once, and on our own lines.
+		eq(W.SetCouncilIcon(134400), true)
+		eq(ns.db.councilIcons["Test Councillor-Realm"], 134400)
+		eq(sent[#sent], "CHANNEL HI~134400")
+		assert(ns.Channels.FormatLine("A", ns.me, "Olympus", nil, "hi"):find("|T134400:0|t", 1, true))
+		-- Then about every 20 minutes.
+		clock = clock + 60
+		eq(W.SayIcon(), false)
+		clock = clock + W.ICON_EVERY
+		eq(W.SayIcon(), true); eq(#sent, 2); eq(sent[2], "CHANNEL HI~134400")
+		-- A value that is not an icon changes nothing.
+		eq(W.SetCouncilIcon("a|b"), false); eq(ns.db.councilIcons[ns.me], 134400); eq(#sent, 2)
+		-- The default skull back: said as "0", and still said later, so the old icon goes everywhere.
+		eq(W.SetCouncilIcon(nil), true)
+		eq(sent[#sent], "CHANNEL HI~0")
+		assert(ns.Channels.FormatLine("A", ns.me, "Olympus", nil, "hi"):find(ns.HIGH_COUNCIL_ICON, 1, true))
+		clock = clock + W.ICON_EVERY
+		eq(W.SayIcon(), true); eq(sent[#sent], "CHANNEL HI~0")
+	end)
+end)
+
+test("0.9.8 the council icon picker: a councillor's alone, filled from the game's icon lists, a page at a time", function()
+	WithUI(function()
+		WithCouncil(function()
+			local W = ns.Workshop
+			local saved = { GetLooseMacroIcons, GetLooseMacroItemIcons, GetMacroIcons, GetMacroItemIcons }
+			local ok, err = pcall(function()
+				local sent = {}
+				ns.Comm.Send = function(_, msg) sent[#sent + 1] = msg end
+				ns.GamepadUI = function() return false end
+				-- The client's lists: file numbers and names, with repeats and junk; one list this
+				-- client lacks, one that fails.
+				GetLooseMacroIcons = nil
+				GetLooseMacroItemIcons = function() error("not on this client") end
+				GetMacroIcons = function(t)
+					t[#t + 1] = 134400; t[#t + 1] = "Spell_Holy_SealOfMight"
+					for i = 1, 50 do t[#t + 1] = 200000 + i end
+				end
+				GetMacroItemIcons = function(t) t[#t + 1] = 134400; t[#t + 1] = "INV_Misc_Bone_HumanSkull_01"; t[#t + 1] = "bad|name"; t[#t + 1] = "..\\x" end
+				local list, names = W.GameIcons()
+				eq(#list, 53, "repeats and junk left out"); eq(names, true)
+				-- Not a councillor: no window at all.
+				ns.me = "Random Guy-Realm"
+				eq(W.ShowIconPicker(), false)
+				eq(rawget(_G, "OlympusCouncilIconFrame"), nil, "not even built")
+				-- A councillor: our own window on UIParent, the first page full, the skull in the preview.
+				ns.me = "Test Councillor-Realm"
+				eq(W.ShowIconPicker(), true)
+				local f = OlympusCouncilIconFrame
+				eq(f:IsShown(), true); eq(f.parent, UIParent)
+				eq(f.preview.texture, ns.HIGH_COUNCIL_SKULL)
+				local shown = 0
+				for _, b in ipairs(f.cells) do if b:IsShown() then shown = shown + 1 end end
+				eq(shown, W.ICON_COLS * W.ICON_ROWS)
+				eq(f.cells[1].art.texture, 134400)
+				eq(f.page:GetText(), ns.L.COUNCIL_ICON_PAGE:format(1, 2))
+				eq(f.filter:IsShown(), true, "the game gives names: they can be filtered")
+				eq(UISpecialFrames[#UISpecialFrames], "OlympusCouncilIconFrame", "Escape closes it with mouse and keyboard")
+				-- The next page; the filter.
+				f.next:Click()
+				eq(f.page:GetText(), ns.L.COUNCIL_ICON_PAGE:format(2, 2))
+				W.FilterIcons("SEAL")
+				eq(f.cells[1].icon, "Spell_Holy_SealOfMight"); eq(f.cells[2]:IsShown(), false)
+				-- A click shows it in the preview; only OK keeps it and says it.
+				f.cells[1]:Click()
+				eq(f.preview.texture, "Interface\\Icons\\Spell_Holy_SealOfMight")
+				eq(#sent, 0, "nothing said before OK")
+				f.ok:Click()
+				eq(f:IsShown(), false)
+				eq(ns.db.councilIcons[ns.me], "Spell_Holy_SealOfMight"); eq(sent[#sent], "HI~Spell_Holy_SealOfMight")
+				-- Again: Cancel and its X change nothing.
+				W.ShowIconPicker()
+				eq(f.chosenName:GetText(), "Spell_Holy_SealOfMight", "the icon in use")
+				f.cells[3]:Click(); f.cancel:Click()
+				eq(f:IsShown(), false); eq(ns.db.councilIcons[ns.me], "Spell_Holy_SealOfMight"); eq(#sent, 1)
+				-- The gamepad UI: never on the escape list its menus sweep; the X closes it.
+				ns.GamepadUI = function() return true end
+				W.ShowIconPicker()
+				for _, name in ipairs(UISpecialFrames) do assert(name ~= "OlympusCouncilIconFrame", "on the escape list") end
+				f.cells[4]:Click(); f.close:Click()
+				eq(f:IsShown(), false); eq(ns.db.councilIcons[ns.me], "Spell_Holy_SealOfMight")
+				-- A client with none of the lists: an empty window that says so, no error.
+				GetMacroIcons, GetMacroItemIcons, GetLooseMacroItemIcons = nil, nil, nil
+				W.ShowIconPicker()
+				eq(f.empty:IsShown(), true); eq(f.cells[1]:IsShown(), false); eq(f.filter:IsShown(), false)
+			end)
+			GetLooseMacroIcons, GetLooseMacroItemIcons, GetMacroIcons, GetMacroItemIcons = saved[1], saved[2], saved[3], saved[4]
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
+
+test("0.9.8 the Realm tab: a councillor's own button for their icon, next to Ask a High Councillor", function()
+	WithUI(function()
+		WithCouncil(function()
+			local w, UI = ForeverWorld(true)
+			CommunitiesFrame:Show(); w.buttons[1]:Click()
+			local function Buttons()
+				UI.SelectTab("realm")
+				local out = {}
+				for _, d in ipairs(OlympusFrameHD.detailButtons) do if d:IsShown() then out[#out + 1] = d end end
+				return out
+			end
+			ns.me = "Random Guy-Realm"
+			local list = Buttons()
+			eq(#list, 1); eq(list[1]:GetText(), ns.L.COUNCIL_ASK_BTN)
+			ns.me = "Test Councillor-Realm"
+			list = Buttons()
+			eq(#list, 2); eq(list[1]:GetText(), ns.L.COUNCIL_ASK_BTN); eq(list[2]:GetText(), ns.L.COUNCIL_ICON_BTN)
+			for _, d in ipairs(list) do eq(d:GetFontString():IsTruncated(), false, d:GetText()) end
+			list[2]:Click()
+			eq(OlympusCouncilIconFrame:IsShown(), true, "the picker")
+		end)
+	end)
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

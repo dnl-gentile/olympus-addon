@@ -771,6 +771,18 @@ L.COUNCIL_ASKED = "|cffb048f8High Council:|r %s asks for help: %s"
 L.COUNCIL_ASK_BTN = "Ask a High Councillor"
 -- 0.9.7: leaderboards
 L.SHOW_MORE = "Show %d more (%d of %d)"
+-- 0.9.8: council-icon
+L.COUNCIL_ICON_BTN = "My council icon"
+L.COUNCIL_ICON_BTN_TIP = "Pick the icon shown before your name in the Olympus chats (High Councillors only)."
+L.COUNCIL_ICON_TITLE = "Your High Council icon"
+L.COUNCIL_ICON_HINT = "The icon before your name in the Olympus chats, for everyone with the addon. Click one, then OK."
+L.COUNCIL_ICON_FILTER = "Filter"
+L.COUNCIL_ICON_PAGE = "Page %d of %d"
+L.COUNCIL_ICON_DEFAULT = "Default skull"
+L.COUNCIL_ICON_NONE = "No icon found."
+L.COUNCIL_ICON_ONLY = "Only a High Councillor picks a council icon."
+L.COUNCIL_ICON_SET = "Your council icon is now %s: the Olympus chats show it before your name."
+L.COUNCIL_ICON_RESET = "The default skull is back before your name in the Olympus chats."
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1498,4 +1510,16 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.COUNCIL_ASK_BTN = "Pedir um High Councillor"
 	-- 0.9.7: leaderboards
 	L.SHOW_MORE = "Mostrar mais %d (%d de %d)"
+	-- 0.9.8: council-icon
+	L.COUNCIL_ICON_BTN = "Meu ícone do Conselho"
+	L.COUNCIL_ICON_BTN_TIP = "Escolha o ícone mostrado antes do seu nome nos chats do Olympus (só High Councillors)."
+	L.COUNCIL_ICON_TITLE = "Seu ícone do High Council"
+	L.COUNCIL_ICON_HINT = "O ícone antes do seu nome nos chats do Olympus, para todos com o addon. Clique em um e depois em OK."
+	L.COUNCIL_ICON_FILTER = "Filtro"
+	L.COUNCIL_ICON_PAGE = "Página %d de %d"
+	L.COUNCIL_ICON_DEFAULT = "Caveira padrão"
+	L.COUNCIL_ICON_NONE = "Nenhum ícone encontrado."
+	L.COUNCIL_ICON_ONLY = "Só um High Councillor escolhe um ícone do Conselho."
+	L.COUNCIL_ICON_SET = "Seu ícone do Conselho agora é %s: os chats do Olympus o mostram antes do seu nome."
+	L.COUNCIL_ICON_RESET = "A caveira padrão voltou antes do seu nome nos chats do Olympus."
 end
