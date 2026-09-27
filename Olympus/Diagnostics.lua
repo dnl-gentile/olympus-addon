@@ -376,12 +376,23 @@ function ns.BuildBugReport()
 	local refused = type(ns.db.actionsBlocked) == "table" and ns.db.actionsBlocked or {}
 	if #refused > 0 then
 		out[#out + 1] = "Blocked by the game:"
-		for i = #refused, math.max(1, #refused - 4), -1 do
+		-- This version's newest two, their stacks cut to 8 lines: the errors below must still fit.
+		local shown = 0
+		for i = #refused, 1, -1 do
 			local b = refused[i]
-			out[#out + 1] = ("[%dx] %s %s  (%s .. %s, v%s, %s)"):format(b.count or 1, tostring(b.event), tostring(b.func),
-				tostring(b.first), tostring(b.last), tostring(b.version), b.gamepad and "gamepad UI" or "mouse and keyboard")
-			if b.taint then out[#out + 1] = "  " .. b.taint end
-			for line in tostring(b.stack or ""):gmatch("[^\n]+") do out[#out + 1] = "    " .. line end
+			if shown >= 2 then break end
+			if b.version == ns.VERSION then
+				shown = shown + 1
+				out[#out + 1] = ("[%dx] %s %s  (%s .. %s, v%s, %s)"):format(b.count or 1, tostring(b.event), tostring(b.func),
+					tostring(b.first), tostring(b.last), tostring(b.version), b.gamepad and "gamepad UI" or "mouse and keyboard")
+				if b.taint then out[#out + 1] = "  " .. b.taint end
+				local n = 0
+				for line in tostring(b.stack or ""):gmatch("[^\n]+") do
+					n = n + 1
+					if n > 8 then break end
+					out[#out + 1] = "    " .. line
+				end
+			end
 		end
 		out[#out + 1] = ""
 	end

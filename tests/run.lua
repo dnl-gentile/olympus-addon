@@ -9784,5 +9784,51 @@ test("0.9.8 the Realm tab: a councillor's own button for their icon, next to Ask
 	end)
 end)
 
+-- 0.9.8: review of the merge
+test("0.9.8 help requests: 'sent' only once a councillor says got it; a councillor who stops is withdrawn at once", function()
+	local W = ns.Workshop
+	local saved = { council = ns.rdb.council, whisper = ns.Comm.Whisper, send = ns.Comm.Send, after = ns.After, print = ns.Print, me = ns.me, help = ns.db.councilHelp }
+	local whispered, printed, timers = {}, {}, {}
+	local ok, err = pcall(function()
+		ns.rdb.council = { at = 1, names = { ["test councillor"] = "Test Councillor" }, realm = "Realm" }
+		ns.Comm.Whisper = function(to, msg) whispered[#whispered + 1] = to .. " " .. msg end
+		ns.Comm.Send = function() end
+		ns.After = function(_, _, fn) timers[#timers + 1] = fn end
+		ns.Print = function(m) printed[#printed + 1] = m end
+		W.ResetHelp()
+		W.HandleAvailable("CHANNEL", "Test Councillor-Realm", "HA~1")
+		eq(#W.Available(), 1)
+		W.HandleAvailable("CHANNEL", "Test Councillor-Realm", "HA~0")
+		eq(#W.Available(), 0, "withdrawn at once")
+		W.HandleAvailable("CHANNEL", "Test Councillor-Realm", "HA~1")
+		ns.me = "Player One-Realm"
+		W.AskCouncil("help please")
+		assert(not printed[#printed] or printed[#printed] ~= ns.L.COUNCIL_ASK_SENT, "not 'sent' before the ack")
+		W.HandleCouncilAck("WHISPER", "Random Guy-Realm", "HK~1")
+		assert(printed[#printed] ~= ns.L.COUNCIL_ASK_SENT, "an ack from a non-councillor counts for nothing")
+		W.HandleCouncilAck("WHISPER", "Test Councillor-Realm", "HK~1")
+		eq(printed[#printed], ns.L.COUNCIL_ASK_SENT)
+		-- No ack at all: told, and free to ask again at once.
+		ns.me = "Player Two-Realm"
+		eq(#timers, 1, "one wait for the ack")
+		timers[1]() -- (the first request's wait: already acked, nothing)
+		W.ResetHelp()
+		W.HandleAvailable("CHANNEL", "Test Councillor-Realm", "HA~1")
+		W.AskCouncil("anyone?")
+		timers[#timers]()
+		eq(printed[#printed], ns.L.COUNCIL_ASK_NOBODY)
+		local before = #whispered
+		W.AskCouncil("again")
+		eq(#whispered, before + 1, "may ask again at once")
+		-- Only a councillor can take requests.
+		ns.me = "Player Two-Realm"
+		W.SetCouncilHelp(true)
+		eq(printed[#printed], ns.L.COUNCIL_HELP_ONLY)
+	end)
+	ns.rdb.council, ns.Comm.Whisper, ns.Comm.Send, ns.After, ns.Print, ns.me, ns.db.councilHelp = saved.council, saved.whisper, saved.send, saved.after, saved.print, saved.me, saved.help
+	if ns.Workshop.ResetHelp then ns.Workshop.ResetHelp() end
+	if not ok then error(err, 0) end
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

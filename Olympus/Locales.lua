@@ -753,13 +753,7 @@ L.HELP_ISSUE = "  /oly issuereporter hide|show - hide Blizzard's Issue Reporter 
 -- 0.9.6: treasury
 L.TREASURY_IN_ALL = "(%s in all)"
 -- 0.9.7: the High Council
-L.COUNCIL_ONLY = "Only the author's or the King's character publishes the High Council."
-L.COUNCIL_USAGE = "/oly council add|remove <First Surname> | list | key <random key> (author or King); /oly council join <key> | help on|off (moderators); /oly helpme [text]"
 L.COUNCIL_LIST = "High Council: %s"
-L.COUNCIL_KEY_SHORT = "The key needs 12 characters at least (a random string)."
-L.COUNCIL_KEY_SET = "High Council key set on this character. Moderators join with /oly council join <key> while you are online."
-L.COUNCIL_JOIN_SENT = "Key sent to the author's character. You are on the High Council as soon as he confirms it (he must be online; /oly council join again later if not)."
-L.COUNCIL_YOU = "You are on the High Council."
 L.COUNCIL_HELP_ON = "You now take requests for a High Councillor (/oly council help off stops them)."
 L.COUNCIL_HELP_OFF = "You no longer take requests for a High Councillor."
 L.COUNCIL_ASK_PROMPT = "Ask a High Councillor (a moderator) for help. What is it about?"
@@ -789,6 +783,7 @@ L.COUNCIL_ICON_NONE = "No icon found."
 L.COUNCIL_ICON_ONLY = "Only a High Councillor picks a council icon."
 L.COUNCIL_ICON_SET = "Your council icon is now %s: the Olympus chats show it before your name."
 L.COUNCIL_ICON_RESET = "The default skull is back before your name in the Olympus chats."
+L.COUNCIL_HELP_ONLY = "Only a High Councillor takes help requests."
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1498,13 +1493,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	-- 0.9.6: treasury
 	L.TREASURY_IN_ALL = "(%s no total)"
 	-- 0.9.7: the High Council
-	L.COUNCIL_ONLY = "Só o personagem do autor ou do Rei publica o High Council."
-	L.COUNCIL_USAGE = "/oly council add <Nome Sobrenome> | remove <Nome Sobrenome> | list (30 nomes no máximo)"
 	L.COUNCIL_LIST = "High Council: %s"
-	L.COUNCIL_KEY_SHORT = "A chave precisa de 12 caracteres pelo menos (um texto aleatório)."
-	L.COUNCIL_KEY_SET = "Chave do High Council definida neste personagem. Os moderadores entram com /oly council join <chave> enquanto você estiver online."
-	L.COUNCIL_JOIN_SENT = "Chave enviada ao personagem do autor. Você entra no High Council assim que ele confirmar (ele precisa estar online; se não, /oly council join de novo depois)."
-	L.COUNCIL_YOU = "Você está no High Council."
 	L.COUNCIL_HELP_ON = "Você agora recebe pedidos de ajuda ao High Council (/oly council help off para)."
 	L.COUNCIL_HELP_OFF = "Você não recebe mais pedidos de ajuda ao High Council."
 	L.COUNCIL_ASK_PROMPT = "Pedir ajuda a um High Councillor (moderador). Qual o assunto?"
@@ -1534,4 +1523,5 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.COUNCIL_ICON_ONLY = "Só um High Councillor escolhe um ícone do Conselho."
 	L.COUNCIL_ICON_SET = "Seu ícone do Conselho agora é %s: os chats do Olympus o mostram antes do seu nome."
 	L.COUNCIL_ICON_RESET = "A caveira padrão voltou antes do seu nome nos chats do Olympus."
+	L.COUNCIL_HELP_ONLY = "Só um High Councillor recebe pedidos de ajuda."
 end

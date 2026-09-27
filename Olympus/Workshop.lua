@@ -683,10 +683,15 @@ end
 -- of them online, once every five minutes at most.
 Workshop.HELP_EVERY, Workshop.HELP_FRESH, Workshop.HELP_GAP = 300, 700, 300
 local available, lastHelpSent, lastAvailSent, helpFrom = {}, -math.huge, -math.huge, {}
+local asking -- our request waiting for a councillor's "got it": { t, acked }
+Workshop.ACK_WAIT = 10
 function Workshop.SetCouncilHelp(on)
+	if not ns.IsHighCouncillor(ns.me) then return ns.Print(L.COUNCIL_HELP_ONLY) end
 	ns.db.councilHelp = on and true or false
 	ns.Print(on and L.COUNCIL_HELP_ON or L.COUNCIL_HELP_OFF)
 	lastAvailSent = -math.huge
+	-- Off: said at once, so nobody's request goes to us meanwhile.
+	if not on then ns.Comm.Send("CHANNEL", "HA~0", "counciladvert") end
 	Workshop.SayAvailable()
 end
 function Workshop.SayAvailable()
@@ -696,8 +701,9 @@ function Workshop.SayAvailable()
 	lastAvailSent = now
 	ns.Comm.Send("CHANNEL", "HA~1", "counciladvert")
 end
-function Workshop.HandleAvailable(dist, sender)
-	if dist == "CHANNEL" and ns.IsHighCouncillor(sender) then available[ns.FullName(sender)] = ns.Now() end
+function Workshop.HandleAvailable(dist, sender, text)
+	if dist ~= "CHANNEL" or not ns.IsHighCouncillor(sender) then return end
+	available[ns.FullName(sender)] = (text ~= "HA~0") and ns.Now() or nil
 end
 function Workshop.Available()
 	local out, now = {}, ns.Now()
@@ -717,6 +723,19 @@ function Workshop.AskCouncil(text)
 		ns.Comm.Whisper(list[k], "HR~" .. text, "councilask" .. i)
 		table.remove(list, k)
 	end
+	-- Sent is not received (a councillor may have just logged off): told only when one of them
+	-- says "got it"; none within ACK_WAIT, the player is told and may ask again at once.
+	local mine = { t = now }
+	asking = mine
+	ns.After(Workshop.ACK_WAIT, "council ask", function()
+		if asking ~= mine or mine.acked then return end
+		asking, lastHelpSent = nil, -math.huge
+		ns.Print(L.COUNCIL_ASK_NOBODY)
+	end)
+end
+function Workshop.HandleCouncilAck(dist, sender)
+	if dist ~= "WHISPER" or not asking or asking.acked or not ns.IsHighCouncillor(sender) then return end
+	asking.acked = true
 	ns.Print(L.COUNCIL_ASK_SENT)
 end
 function Workshop.HandleAsk(dist, sender, text)
@@ -724,18 +743,22 @@ function Workshop.HandleAsk(dist, sender, text)
 	local now, who = ns.Now(), ns.FullName(sender)
 	if now - (helpFrom[who] or -math.huge) < 60 then return end
 	helpFrom[who] = now
+	ns.Comm.Whisper(who, "HK~1", "councilack")
 	local msg = ns.Codec.Plain(text:match("^HR~(.*)$") or "")
 	ns.Print(L.COUNCIL_ASKED:format("|Hplayer:" .. ns.TellName(who) .. "|h[" .. ns.DisplayName(who) .. "]|h", msg))
 	ns.PlayAlert("soft")
 end
 ns.Comm.Handle("HA", function(...) Workshop.HandleAvailable(...) end)
 ns.Comm.Handle("HR", function(...) Workshop.HandleAsk(...) end)
+ns.Comm.Handle("HK", function(...) Workshop.HandleCouncilAck(...) end)
+function Workshop.ResetHelp() wipe(available); wipe(helpFrom); asking, lastHelpSent, lastAvailSent = nil, -math.huge, -math.huge end -- tests
 
 StaticPopupDialogs["OLYMPUS_COUNCIL_ASK"] = {
 	text = L.COUNCIL_ASK_PROMPT,
 	button1 = L.COUNCIL_ASK_SEND,
 	button2 = CANCEL or "Cancel",
 	hasEditBox = true,
+	maxLetters = 180,
 	editBoxWidth = 260, -- (a sentence, not a name)
 	OnAccept = function(self)
 		local eb = self.editBox or self.EditBox

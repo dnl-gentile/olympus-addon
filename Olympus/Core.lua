@@ -1066,7 +1066,10 @@ SlashCmdList.OLYMPUS = function(input)
 			-- The High Council's list (the author's or the King's character): add, remove, list.
 			local verb, arg = rest:match("^(%S*)%s*(.-)$")
 			verb = (verb or ""):lower()
-			if verb == "help" then ns.Workshop.SetCouncilHelp(arg:lower() ~= "off")
+			if verb == "help" then
+				local a = arg:lower()
+				if a == "on" or a == "off" then ns.Workshop.SetCouncilHelp(a == "on")
+				else ns.Print(ns.db.councilHelp and L.COUNCIL_HELP_ON or L.COUNCIL_HELP_OFF) end
 			elseif verb == "icon" then ns.Workshop.ShowIconPicker() -- a councillor's own icon (0.9.8)
 			else ns.Workshop.EditCouncil(verb) end
 		elseif cmd == "helpme" then

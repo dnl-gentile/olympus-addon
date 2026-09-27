@@ -204,7 +204,9 @@ local DETAIL_BUTTONS = {
 -- (0.9.2: no "Publish shame" button any more: the untabarded list is the King's, Throne tab.)
 -- Asking a High Councillor (a moderator) for help, on the Realm tab (0.9.7, Workshop.lua).
 DETAIL_BUTTONS.realm = DETAIL_BUTTONS.realm or {}
-table.insert(DETAIL_BUTTONS.realm, { "COUNCIL_ASK_BTN", function() ns.ShowDialog("OLYMPUS_COUNCIL_ASK") end })
+table.insert(DETAIL_BUTTONS.realm, { "COUNCIL_ASK_BTN", function() ns.ShowDialog("OLYMPUS_COUNCIL_ASK") end,
+	-- Only where a council exists (a signed list reached us).
+	shown = function() local c = ns.rdb and ns.rdb.council return type(c) == "table" and next(c.names or {}) ~= nil end })
 -- A councillor's own icon before their name in the Olympus chats (0.9.8, Workshop.lua): shown
 -- to councillors alone.
 table.insert(DETAIL_BUTTONS.realm, { "COUNCIL_ICON_BTN", function() ns.Workshop.ShowIconPicker() end,

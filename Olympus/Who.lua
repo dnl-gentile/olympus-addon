@@ -254,7 +254,8 @@ function Who.Search(quiet, guild)
 		if not quiet then ns.Print(L.WHO_WAIT:format(math.ceil(wait))) end
 		return false
 	end
-	if Who.WindowOpen() then
+	-- (Not in the gamepad UI's plain searches: their answer is meant for the open list.)
+	if not plain and Who.WindowOpen() then
 		if not quiet then ns.Print(L.WHO_WINDOW_OPEN) end
 		return false
 	end
