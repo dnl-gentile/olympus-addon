@@ -9373,5 +9373,205 @@ test("0.9.8 the level race: 25 more a click, up to its top 100", function()
 	if not ok then error(err, 0) end
 end)
 
+-- 0.9.8: gamepad
+do
+	test("0.9.8 gamepad UI: the game's who lists are never silenced and nothing searches on its own; mouse and keyboard as before", function()
+		WithWho(function(server)
+			local saved = ns.GamepadUI
+			local ok, err = pcall(function()
+				-- The gamepad UI: Forever's who list keeps its event, is not even asked about it,
+				-- and Blizzard's SendWho is not hooked.
+				ns.GamepadUI = function() return true end
+				LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+				local asked, isRegistered = 0, LFGWhoListFrame.IsEventRegistered
+				function LFGWhoListFrame:IsEventRegistered(event) asked = asked + 1 return isRegistered(self, event) end
+				local sendWho = C_FriendList.SendWho
+				eq(ns.Who.Auto(), false, "a click in our window searches nothing")
+				eq(ns.Who.SearchGuild("OLYMPUS VII"), false, "nor does opening a guild's row")
+				eq(ns.Who.Search(true), false, "no quiet search at all")
+				eq(#server.sent, 0)
+				eq(server.Click(), true, "Refresh still searches")
+				eq(table.concat(server.sent, "|"), 'g-"Olympus"')
+				eq(server.toUi[#server.toUi], true, "the answer to the game's who list, as a /who with it open")
+				server.Answer(Players(1, 5))
+				eq(#ns.Recruit.found, 5, "and read from there all the same")
+				server.Run()
+				eq(#LFGWhoListFrame.calls, 0, "never silenced nor given anything back")
+				assert(ns.Who.StatusLine():find("listening: not asked (gamepad UI)", 1, true), ns.Who.StatusLine())
+				eq(asked, 0, "not asked about its events either")
+				eq(C_FriendList.SendWho, sendWho, "Blizzard's SendWho left as it is")
+				assert(table.concat(server.printed, "\n"):find(ns.L.WHO_GAMEPAD, 1, true), "the player is told where the answer shows")
+				-- Mouse and keyboard: silenced for our search and given the event back, as always.
+				ns.GamepadUI = function() return false end
+				ns.Who.Reset()
+				LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+				eq(server.Click(), true)
+				eq(table.concat(LFGWhoListFrame.calls, " "), "unregister")
+				server.Answer(Players(1, 3)); server.Run()
+				eq(table.concat(LFGWhoListFrame.calls, " "), "unregister register")
+				eq(ns.Who.Auto(), false, "within the cooldown")
+				server.clock = server.clock + ns.Who.COOLDOWN + 1
+				eq(ns.Who.Auto(), true, "and quiet searches from clicks")
+			end)
+			ns.GamepadUI = saved
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("0.9.8 gamepad UI: the escape list is never rewritten under Blizzard's names; mouse and keyboard as before", function()
+		local saved, gp = UISpecialFrames, ns.GamepadUI
+		local ok, err = pcall(function()
+			-- Put there with mouse and keyboard, other names after it (Blizzard's, other addons').
+			UISpecialFrames = { "StaticPopup1" }
+			ns.GamepadUI = function() return false end
+			ns.EscapeCloses("OlympusTestFrame")
+			UISpecialFrames[3] = "InspectFrame"
+			eq(table.concat(UISpecialFrames, " "), "StaticPopup1 OlympusTestFrame InspectFrame")
+			-- The gamepad UI: nothing moves down a place (each name moved would be one Olympus wrote).
+			ns.GamepadUI = function() return true end
+			ns.EscapeCloses("OlympusTestFrame")
+			eq(table.concat(UISpecialFrames, " "), "StaticPopup1 OlympusTestFrame InspectFrame", "left as it was")
+			-- Ours is the last name: it goes, nothing after it moves.
+			UISpecialFrames[3] = nil
+			ns.EscapeCloses("OlympusTestFrame")
+			eq(table.concat(UISpecialFrames, " "), "StaticPopup1", "the last one: taken off")
+			ns.EscapeCloses("OlympusTestFrame")
+			eq(table.concat(UISpecialFrames, " "), "StaticPopup1", "and never added back")
+		end)
+		UISpecialFrames, ns.GamepadUI = saved, gp
+		if not ok then error(err, 0) end
+	end)
+
+	test("0.9.8 gamepad UI: the Issue Reporter is the game's there: no hook, no button, never hidden by us", function()
+		WithUI(function()
+			local uns = setmetatable({}, { __index = ns })
+			assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+			local UI = uns.UI
+			local saved = { r = PTR_IssueReporter, hide = ns.db.hideIssueReporter, gp = ns.GamepadUI, print = ns.Print, create = CreateFrame }
+			local printed, children = {}, 0
+			local ok, err = pcall(function()
+				local r = { shown = true, hooks = {} }
+				function r:IsShown() return self.shown end
+				function r:Hide() self.shown = false end
+				function r:Show() self.shown = true; for _, f in ipairs(self.hooks) do f(self) end end
+				function r:IsProtected() return false end
+				function r:HookScript(what, f) if what == "OnShow" then self.hooks[#self.hooks + 1] = f end end
+				PTR_IssueReporter = r
+				CreateFrame = function(kind, name, parent, ...)
+					if parent == r then children = children + 1 end
+					return saved.create(kind, name, parent, ...)
+				end
+				ns.Print = function(m) printed[#printed + 1] = m end
+				UI.ResetIssueReporter()
+				ns.db.hideIssueReporter = true
+				ns.GamepadUI = function() return true end
+				eq(UI.ApplyIssueReporter(), false, "left alone")
+				eq(#r.hooks, 0, "not hooked"); eq(children, 0, "no button of ours on it")
+				eq(r.shown, true, "never hidden by us")
+				UI.SetIssueReporterHidden(true)
+				eq(r.shown, true); eq(#r.hooks, 0)
+				assert(table.concat(printed, "\n"):find(ns.L.ISSUE_GAMEPAD, 1, true), "the player is told why")
+				-- Hooked with mouse and keyboard, then switched to the gamepad UI: the hook does nothing.
+				ns.GamepadUI = function() return false end
+				eq(UI.ApplyIssueReporter(), true)
+				eq(r.shown, false, "mouse and keyboard: hidden as chosen")
+				eq(#r.hooks, 1); eq(children, 1, "its Hide button")
+				ns.GamepadUI = function() return true end
+				r:Show()
+				eq(r.shown, true, "the game's gamepad menu shows it: our hook leaves it shown")
+			end)
+			PTR_IssueReporter, ns.db.hideIssueReporter, ns.GamepadUI, ns.Print, CreateFrame = saved.r, saved.hide, saved.gp, saved.print, saved.create
+			UI.ResetIssueReporter()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("0.9.8 a blocked action: kept with its stack and what the gamepad reads, first in /oly bug, one chat line with the gamepad UI", function()
+		local saved = { gp = ns.GamepadUI, print = ns.Print, stack = debugstack, secure = issecurevariable, list = ns.db.actionsBlocked,
+			gsu = GamepadSharedUtility, specials = UISpecialFrames, sessions = ns.db.sessions }
+		local printed = {}
+		local ok, err = pcall(function()
+			ns.ResetBlocked(); ns.db.actionsBlocked = nil
+			ns.Print = function(m) printed[#printed + 1] = m end
+			debugstack = function() return "[C]: in function 'SetPreferredGamepadInteractTarget'\nMainActionBarFrame.lua:255: in function 'UpdateInteractIcons'" end
+			-- The binding stack Blizzard's gamepad code asks first: its first slot written by us.
+			local manager = { bindingSetStack = { { name = "FrameControlsManagerBindings", treatBindsAsCore = false } }, currentCoreBindingActive = true }
+			GamepadSharedUtility = { InputBindingManager = manager }
+			UISpecialFrames = { "StaticPopup1" }
+			issecurevariable = function(t, key)
+				if t == manager.bindingSetStack and key == 1 then return false, "Olympus" end
+				return true
+			end
+			local function Fire(...) for _, f in ipairs(EVENT_SCRIPTS) do f(nil, ...) end end
+			-- Mouse and keyboard: kept, nothing said in chat.
+			ns.GamepadUI = function() return false end
+			Fire("ADDON_ACTION_BLOCKED", "Olympus", "FocusUnit()")
+			eq(#printed, 0, "mouse and keyboard: no chat line")
+			-- The gamepad UI: kept once per call and counted; one line in chat, once a session.
+			ns.GamepadUI = function() return true end
+			Fire("ADDON_ACTION_FORBIDDEN", "Olympus", "SetPreferredGamepadInteractTarget()")
+			Fire("ADDON_ACTION_FORBIDDEN", "Olympus", "SetPreferredGamepadInteractTarget()")
+			Fire("ADDON_ACTION_FORBIDDEN", "OtherAddon", "SetPreferredGamepadInteractTarget()")
+			eq(#printed, 1, "one line")
+			assert(printed[1]:find(ns.L.BLOCKED_GAMEPAD, 1, true), printed[1])
+			local list = ns.db.actionsBlocked
+			eq(#list, 2, "one per call; another addon's is not ours to keep")
+			local b = list[2]
+			eq(b.func, "SetPreferredGamepadInteractTarget()"); eq(b.count, 2); eq(b.gamepad, true)
+			assert(b.stack:find("UpdateInteractIcons", 1, true), "its stack")
+			assert(b.taint:find("bindingSetStack[1] by Olympus", 1, true), b.taint)
+			eq(list[1].gamepad, false)
+			-- /oly bug: first in the report (a report sent in game is cut at its end), newest first.
+			local report = ns.BuildBugReport()
+			local at = report:find("Blocked by the game:", 1, true)
+			assert(at and at < report:find("Olympus v", 1, true), "before the status lines")
+			assert(report:find("[2x] ADDON_ACTION_FORBIDDEN SetPreferredGamepadInteractTarget()", 1, true))
+			assert(report:find("[2x] ADDON_ACTION_FORBIDDEN", 1, true) < report:find("[1x] ADDON_ACTION_BLOCKED FocusUnit()", 1, true))
+			assert(report:find("gamepad UI: on  |  blocked this session: 3", 1, true), "and in the status lines")
+			-- The next session: the same call counted on, its evidence taken again, and it is the newest.
+			ns.db.sessions = (ns.db.sessions or 0) + 1
+			debugstack = function() return "Blizzard_ChatFrameBase/Shared/ChatFrameEditBox.lua:267: in function 'ParseText'" end
+			Fire("ADDON_ACTION_BLOCKED", "Olympus", "FocusUnit()")
+			Fire("ADDON_ACTION_BLOCKED", "Olympus", "FocusUnit()")
+			eq(#list, 2); eq(list[2].func, "FocusUnit()"); eq(list[2].count, 3)
+			eq(list[2].gamepad, true, "seen with the gamepad UI this time")
+			assert(list[2].stack:find("ParseText", 1, true), "this session's stack")
+		end)
+		ns.GamepadUI, ns.Print, debugstack, issecurevariable, ns.db.actionsBlocked = saved.gp, saved.print, saved.stack, saved.secure, saved.list
+		GamepadSharedUtility, UISpecialFrames, ns.db.sessions = saved.gsu, saved.specials, saved.sessions
+		ns.ResetBlocked()
+		if not ok then error(err, 0) end
+	end)
+
+	test("0.9.8 the taint probe: which values of the gamepad's path an addon wrote, and whose", function()
+		local saved = { secure = issecurevariable, specials = UISpecialFrames }
+		local ok, err = pcall(function()
+			issecurevariable = nil
+			eq(ns.TaintProbe(), "taint: not checked (no issecurevariable)")
+			UISpecialFrames = { "StaticPopup1", "OlympusFrame" }
+			-- A client that takes only names: the list's slots are skipped, the rest still checked.
+			-- (issecurevariable("name") for a global, issecurevariable(table, key) for a field.)
+			issecurevariable = function(t, key)
+				if key == nil then t, key = nil, t end
+				if type(key) ~= "string" then error("bad argument") end
+				if t == nil and key == "RunNextFrame" then return false, "SomeAddon" end
+				return true
+			end
+			local line = ns.TaintProbe()
+			assert(line:find("^taint: RunNextFrame by SomeAddon %(%d+ checked%)$"), line)
+			issecurevariable = function(t, key)
+				if t == UISpecialFrames and key == 2 then return false, "Olympus" end
+				return true
+			end
+			line = ns.TaintProbe()
+			assert(line:find("UISpecialFrames[2]=OlympusFrame by Olympus", 1, true), line)
+			issecurevariable = function() return true end
+			assert(ns.TaintProbe():find("^taint: none of %d+ values the gamepad UI reads$"), ns.TaintProbe())
+		end)
+		issecurevariable, UISpecialFrames = saved.secure, saved.specials
+		if not ok then error(err, 0) end
+	end)
+end
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

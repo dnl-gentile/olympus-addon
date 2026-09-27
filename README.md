@@ -287,6 +287,10 @@ for the King, and for every member once the King shows the army something of it.
 - **Blizzard's gamepad mode** (Forever's controller interface): Olympus asks its questions in
   windows of its own instead of the game's popups, which Blizzard's gamepad code blocks (and
   freezes) when an addon opens one. With mouse and keyboard, the game's popups as always.
+  Since 0.9.8 it also leaves the game's own frames alone there: no quiet `/who` on its own
+  (**Refresh** and **Find Olympus online** still search, and the answer shows in the game's
+  Who list), and the Issue Reporter is the game's to show. If the game still says it blocked
+  Olympus, type `/oly bug` and send the text: it names the action the game refused.
 - English and Portuguese (follows the game language).
 
 ## Install

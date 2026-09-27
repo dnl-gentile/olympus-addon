@@ -855,16 +855,21 @@ end
 -- Escape closes our windows (UISpecialFrames), except with Blizzard's gamepad UI on: its menus
 -- close every window on that list, ours with them, while the player is using it (0.9.6). There
 -- they close with their own X.
+-- With the gamepad UI Olympus writes nothing to that list (0.9.8). Blizzard reads it with no
+-- protection (CloseSpecialWindows, from its menus and when the player loses control), and a
+-- name table.remove moves down a place is one Olympus wrote from then on. A name of ours put
+-- there before a switch to the gamepad UI leaves only when it is the last one: nothing moves.
 function ns.EscapeCloses(name)
 	if type(name) ~= "string" or not UISpecialFrames then return end
+	local gamepad = ns.GamepadUI()
 	for i, n in ipairs(UISpecialFrames) do
 		if n == name then
 			-- Switched to the gamepad UI since: off the list (checked each time it shows).
-			if ns.GamepadUI() then table.remove(UISpecialFrames, i) end
+			if gamepad and i == #UISpecialFrames then UISpecialFrames[i] = nil end
 			return
 		end
 	end
-	if not ns.GamepadUI() then table.insert(UISpecialFrames, name) end
+	if not gamepad then table.insert(UISpecialFrames, name) end
 end
 
 function ns.ShowDialog(which, a, b, data)
