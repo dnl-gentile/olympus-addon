@@ -771,6 +771,10 @@ L.COUNCIL_ASKED = "|cffb048f8High Council:|r %s asks for help: %s"
 L.COUNCIL_ASK_BTN = "Ask a High Councillor"
 -- 0.9.7: leaderboards
 L.SHOW_MORE = "Show %d more (%d of %d)"
+-- 0.9.8: gamepad
+L.BLOCKED_GAMEPAD = "The game blocked an Olympus action while you play with the gamepad. Please type /oly bug and send us the text: it says which action it was."
+L.WHO_GAMEPAD = "With the gamepad UI the answer shows in the game's own Who list (Olympus reads it from there), and Olympus no longer searches on its own."
+L.ISSUE_GAMEPAD = "With the gamepad UI the game hides the Issue Reporter itself (it only comes with the game's menu): Olympus leaves it alone there."
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1498,4 +1502,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.COUNCIL_ASK_BTN = "Pedir um High Councillor"
 	-- 0.9.7: leaderboards
 	L.SHOW_MORE = "Mostrar mais %d (%d de %d)"
+	-- 0.9.8: gamepad
+	L.BLOCKED_GAMEPAD = "O jogo bloqueou uma ação do Olympus enquanto você joga com o controle. Digite /oly bug e mande o texto para nós: ele diz qual ação foi."
+	L.WHO_GAMEPAD = "Com a interface de controle a resposta aparece na própria lista Quem do jogo (o Olympus lê de lá), e o Olympus não busca mais sozinho."
+	L.ISSUE_GAMEPAD = "Com a interface de controle o próprio jogo esconde o Issue Reporter (ele só aparece com o menu do jogo): lá o Olympus não mexe nele."
 end
