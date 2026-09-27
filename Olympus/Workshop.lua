@@ -753,6 +753,359 @@ StaticPopupDialogs["OLYMPUS_COUNCIL_ASK"] = {
 	preferredIndex = 3,
 }
 
+---------------------------------------------------------------------------
+-- The councillors' own icons (0.9.8, the High Council's wish): each councillor picks the icon
+-- before their name in the Olympus chats from the game's icons, as the macro window does (in a
+-- window of ours: Blizzard's macro icon window, opened from addon code, would run tainted). Their
+-- client says which on the channel when it changes, then about every ICON_EVERY. Every client
+-- keeps it for councillors only (ns.IsHighCouncillor of the sender the server stamped), and only
+-- a file number or a plain icon name under Interface\Icons (ns.CouncilIconValue): nothing else
+-- can reach the chat line. None heard yet: the default skull (Core.lua).
+--   HI~<file number or icon name>   |   HI~0   (back to the default skull)
+---------------------------------------------------------------------------
+
+Workshop.ICON_EVERY = 1200 -- about every 20 minutes (the council ticker runs once a minute)
+Workshop.ICON_COLS, Workshop.ICON_ROWS = 8, 5
+local ICON_CELL, ICON_GAP = 36, 4
+local lastIconSent = -math.huge
+local picker          -- the picker window, built the first time it opens
+local gameIcons       -- the game's icons while it is open (let go when it closes, like Blizzard's)
+local shownIcons      -- the ones the filter leaves
+local iconPage, iconChoice = 1, nil
+
+-- Our own icon (per character, like the council's names), or nil for the default skull. False
+-- is the default chosen on purpose: it is still said ("0"), so the old one fades everywhere.
+local function MyIcon()
+	local mine = ns.db and ns.db.councilIcons
+	return ns.CouncilIconValue(type(mine) == "table" and ns.me and mine[ns.me] or nil)
+end
+Workshop.MyIcon = MyIcon
+
+-- Our icon on the channel: at once when forced (a change), else every ICON_EVERY. Only a
+-- councillor's client says it, and only once they picked one (or the default back).
+function Workshop.SayIcon(force)
+	if not ns.IsHighCouncillor(ns.me) then return false end
+	local mine = ns.db and ns.db.councilIcons
+	if not force and (type(mine) ~= "table" or mine[ns.me] == nil) then return false end
+	local now = ns.Now()
+	if not force and now - lastIconSent < Workshop.ICON_EVERY then return false end
+	lastIconSent = now
+	ns.Comm.Send("CHANNEL", "HI~" .. tostring(MyIcon() or 0), "councilicon")
+	return true
+end
+
+-- A councillor's choice (the picker's OK): kept on this character and said at once; nil puts
+-- the default skull back.
+function Workshop.SetCouncilIcon(v)
+	if not ns.IsHighCouncillor(ns.me) then
+		ns.Print(L.COUNCIL_ICON_ONLY)
+		return false
+	end
+	local icon = ns.CouncilIconValue(v)
+	if v ~= nil and not icon then return false end
+	if type(ns.db.councilIcons) ~= "table" then ns.db.councilIcons = {} end
+	ns.db.councilIcons[ns.me] = icon or false
+	Workshop.SayIcon(true)
+	ns.Print(icon and L.COUNCIL_ICON_SET:format("|T" .. ns.CouncilIconTexture(icon) .. ":0|t") or L.COUNCIL_ICON_RESET)
+	return true
+end
+
+-- The icons heard, per realm group like the council's list (kept in the SavedVariables, so a
+-- /reload shows them at once): councillor (Name-Realm) -> { icon, t }.
+local function HeardIcons()
+	if type(ns.rdb.councilIcons) ~= "table" then ns.rdb.councilIcons = {} end
+	return ns.rdb.councilIcons
+end
+
+-- Councillors no longer on the list, and anything that is not an icon, go; past COUNCIL_MAX,
+-- the ones heard longest ago.
+local function PruneIcons(store)
+	local n = 0
+	for who, e in pairs(store) do
+		if type(who) ~= "string" or type(e) ~= "table" or not ns.CouncilIconValue(e.icon) or not ns.IsHighCouncillor(who) then
+			store[who] = nil
+		else
+			n = n + 1
+		end
+	end
+	while n > Workshop.COUNCIL_MAX do
+		local oldest, at = nil, math.huge
+		for who, e in pairs(store) do
+			local t = tonumber(e.t) or 0
+			if t < at then oldest, at = who, t end
+		end
+		if not oldest then break end
+		store[oldest], n = nil, n - 1
+	end
+end
+
+function Workshop.HandleIcon(dist, sender, text)
+	if dist ~= "CHANNEL" or not ns.IsHighCouncillor(sender) or type(text) ~= "string" then return end
+	local v = text:match("^HI~([%w_]+)$")
+	if not v then return end
+	local store, who = HeardIcons(), ns.FullName(sender)
+	if v == "0" then
+		store[who] = nil
+		return
+	end
+	local icon = ns.CouncilIconValue(v)
+	if not icon then return end
+	store[who] = { icon = icon, t = ns.Now() }
+	PruneIcons(store)
+end
+ns.Comm.Handle("HI", function(...) Workshop.HandleIcon(...) end)
+
+-- The game's icons, as the macro window lists them (Blizzard's IconDataProvider.lua): its loose
+-- icons, then the spells' and the items' (file numbers or names: Blizzard's code takes either).
+-- Each is a client function that fills a table; one a client lacks, or that fails, is skipped.
+-- Repeats, and anything ns.CouncilIconValue refuses, are left out. Also: whether any is a name
+-- (only names can be filtered; file numbers say nothing).
+local ICON_LISTS = { "GetLooseMacroIcons", "GetLooseMacroItemIcons", "GetMacroIcons", "GetMacroItemIcons" }
+function Workshop.GameIcons()
+	local out, seen, names = {}, {}, false
+	for _, api in ipairs(ICON_LISTS) do
+		local fill = _G[api]
+		local list = {}
+		if type(fill) == "function" and pcall(fill, list) then
+			for _, v in ipairs(list) do
+				local icon = ns.CouncilIconValue(v)
+				local key = icon and tostring(icon):lower()
+				if key and not seen[key] then
+					seen[key] = true
+					out[#out + 1] = icon
+					if type(icon) == "string" then names = true end
+				end
+			end
+		end
+	end
+	return out, names
+end
+
+local function IconLabel(icon)
+	return type(icon) == "number" and ("#" .. icon) or tostring(icon)
+end
+
+function Workshop.RefreshIconPicker()
+	if not picker then return end
+	local per = Workshop.ICON_COLS * Workshop.ICON_ROWS
+	local list = shownIcons or {}
+	local pages = math.max(1, math.ceil(#list / per))
+	iconPage = math.max(1, math.min(iconPage, pages))
+	for i, b in ipairs(picker.cells) do
+		local icon = list[(iconPage - 1) * per + i]
+		b.icon = icon
+		if icon then
+			b.art:SetTexture(ns.CouncilIconTexture(icon))
+			b.chosen:SetShown(icon == iconChoice)
+			b:Show()
+		else
+			b:Hide()
+		end
+	end
+	picker.page:SetText(L.COUNCIL_ICON_PAGE:format(iconPage, pages))
+	picker.prev:SetEnabled(iconPage > 1)
+	picker.next:SetEnabled(iconPage < pages)
+	picker.empty:SetShown(#list == 0)
+	-- The preview: the icon large, and our name as the chats will show it.
+	local texture = ns.CouncilIconTexture(iconChoice) or ns.HIGH_COUNCIL_SKULL
+	picker.preview:SetTexture(texture)
+	picker.sample:SetText("[" .. L.CHAN_ALL .. "] [|T" .. texture .. ":0|t|c" .. ns.HIGH_COUNCIL_COLOR .. (ns.DisplayName(ns.me) or "?") .. "|r]")
+	picker.chosenName:SetText(iconChoice and IconLabel(iconChoice) or L.COUNCIL_ICON_DEFAULT)
+end
+
+-- A click on an icon (or the default skull, nil): the preview only, until OK.
+function Workshop.PickIcon(icon)
+	iconChoice = ns.CouncilIconValue(icon)
+	Workshop.RefreshIconPicker()
+end
+
+function Workshop.IconPage(n)
+	iconPage = tonumber(n) or 1
+	Workshop.RefreshIconPicker()
+end
+
+-- The filter: the names (and file numbers) that hold the text, any case.
+function Workshop.FilterIcons(text)
+	text = tostring(text or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+	if text == "" then
+		shownIcons = gameIcons
+	else
+		shownIcons = {}
+		for _, icon in ipairs(gameIcons or {}) do
+			if tostring(icon):lower():find(text, 1, true) then shownIcons[#shownIcons + 1] = icon end
+		end
+	end
+	iconPage = 1
+	Workshop.RefreshIconPicker()
+end
+
+local function PickerButton(f, label, width)
+	local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+	b:SetSize(width, 22)
+	b:SetText(label)
+	return b
+end
+
+-- Our own window on UIParent: movable, closed by its X (and by Escape with mouse and keyboard,
+-- ns.EscapeCloses), no Blizzard frame touched. Its filter box never takes the keyboard by
+-- itself: the player clicks into it (the gamepad UI's rule, ns.Focus).
+local function MakePicker()
+	local cols, rows = Workshop.ICON_COLS, Workshop.ICON_ROWS
+	local gridW = cols * ICON_CELL + (cols - 1) * ICON_GAP
+	local gridTop = -150
+	local gridBottom = gridTop - (rows * ICON_CELL + (rows - 1) * ICON_GAP)
+	local f = CreateFrame("Frame", "OlympusCouncilIconFrame", UIParent)
+	f:SetSize(gridW + 56, -gridBottom + 96)
+	f:SetPoint("CENTER", 0, 40)
+	f:SetFrameStrata("DIALOG")
+	f:SetToplevel(true)
+	f:SetClampedToScreen(true)
+	f:EnableMouse(true)
+	f:SetMovable(true)
+	f:RegisterForDrag("LeftButton")
+	f:SetScript("OnDragStart", f.StartMoving)
+	f:SetScript("OnDragStop", f.StopMovingOrSizing)
+	f:Hide()
+	local okBorder, border = pcall(CreateFrame, "Frame", nil, f, "DialogBorderTemplate")
+	if not okBorder or not border then
+		border = f:CreateTexture(nil, "BACKGROUND")
+		border:SetColorTexture(0, 0, 0, 0.85)
+	end
+	border:SetAllPoints()
+	f.title = f:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+	f.title:SetPoint("TOP", 0, -18)
+	f.title:SetText(L.COUNCIL_ICON_TITLE)
+	f.close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+	f.close:SetPoint("TOPRIGHT", -4, -4)
+	f.close:SetScript("OnClick", function() f:Hide() end)
+	-- The preview, and the hint.
+	f.preview = f:CreateTexture(nil, "ARTWORK")
+	f.preview:SetSize(40, 40)
+	f.preview:SetPoint("TOPLEFT", 28, -40)
+	f.sample = f:CreateFontString(nil, "ARTWORK", "ChatFontNormal")
+	f.sample:SetPoint("TOPLEFT", f.preview, "TOPRIGHT", 10, -3)
+	f.sample:SetWidth(gridW - 50)
+	f.sample:SetJustifyH("LEFT")
+	f.sample:SetWordWrap(false)
+	f.chosenName = f:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	f.chosenName:SetPoint("TOPLEFT", f.sample, "BOTTOMLEFT", 0, -6)
+	f.hint = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	f.hint:SetPoint("TOPLEFT", 28, -88)
+	f.hint:SetWidth(gridW)
+	f.hint:SetJustifyH("LEFT")
+	f.hint:SetText(L.COUNCIL_ICON_HINT)
+	-- The filter (only when the game lists names).
+	f.filterLabel = f:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+	f.filterLabel:SetPoint("TOPLEFT", 28, -124)
+	f.filterLabel:SetText(L.COUNCIL_ICON_FILTER)
+	local okBox, eb = pcall(CreateFrame, "EditBox", "OlympusCouncilIconFilter", f, "InputBoxTemplate")
+	if not okBox or not eb then eb = CreateFrame("EditBox", nil, f) end
+	eb:SetSize(160, 20)
+	eb:SetPoint("LEFT", f.filterLabel, "RIGHT", 12, 0)
+	eb:SetAutoFocus(false)
+	eb:SetMaxLetters(40)
+	eb:SetFontObject("ChatFontNormal")
+	eb.olympusBox = true
+	eb:SetScript("OnTextChanged", function(self) ns.SafeCall("council icon filter", Workshop.FilterIcons, self:GetText()) end)
+	eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+	eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+	f.filter = eb
+	-- The grid, a page at a time (the mouse wheel turns them too).
+	f.cells = {}
+	for i = 1, cols * rows do
+		local b = CreateFrame("Button", nil, f)
+		b:SetSize(ICON_CELL, ICON_CELL)
+		local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
+		b:SetPoint("TOPLEFT", 28 + col * (ICON_CELL + ICON_GAP), gridTop - row * (ICON_CELL + ICON_GAP))
+		b.art = b:CreateTexture(nil, "ARTWORK")
+		b.art:SetAllPoints()
+		b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+		b.chosen = b:CreateTexture(nil, "OVERLAY")
+		b.chosen:SetTexture("Interface\\Buttons\\CheckButtonHilight")
+		b.chosen:SetBlendMode("ADD")
+		b.chosen:SetAllPoints()
+		b.chosen:Hide()
+		b:SetScript("OnClick", function(self) ns.SafeCall("council icon pick", Workshop.PickIcon, self.icon) end)
+		b:SetScript("OnEnter", function(self)
+			if not self.icon or not GameTooltip then return end
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:AddLine(IconLabel(self.icon), 1, 1, 1)
+			GameTooltip:Show()
+		end)
+		b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+		f.cells[i] = b
+	end
+	f.empty = f:CreateFontString(nil, "ARTWORK", "GameFontDisable")
+	f.empty:SetPoint("TOP", 0, gridTop - 20)
+	f.empty:SetText(L.COUNCIL_ICON_NONE)
+	f:EnableMouseWheel(true)
+	f:SetScript("OnMouseWheel", function(_, delta) ns.SafeCall("council icon page", Workshop.IconPage, iconPage - delta) end)
+	f.prev = PickerButton(f, "<", 32)
+	f.prev:SetPoint("TOPLEFT", 28, gridBottom - 8)
+	f.prev:SetScript("OnClick", function() ns.SafeCall("council icon page", Workshop.IconPage, iconPage - 1) end)
+	f.next = PickerButton(f, ">", 32)
+	f.next:SetPoint("TOPRIGHT", -28, gridBottom - 8)
+	f.next:SetScript("OnClick", function() ns.SafeCall("council icon page", Workshop.IconPage, iconPage + 1) end)
+	f.page = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	f.page:SetPoint("TOP", 0, gridBottom - 13)
+	-- The default skull, Cancel and OK. OK with nothing changed only closes.
+	f.default = PickerButton(f, L.COUNCIL_ICON_DEFAULT, 120)
+	f.default:SetPoint("BOTTOMLEFT", 24, 18)
+	f.default:SetScript("OnClick", function() ns.SafeCall("council icon pick", Workshop.PickIcon, nil) end)
+	f.ok = PickerButton(f, OKAY or "OK", 90)
+	f.ok:SetPoint("BOTTOMRIGHT", -24, 18)
+	f.ok:SetScript("OnClick", function()
+		ns.SafeCall("council icon ok", function()
+			if iconChoice == MyIcon() or Workshop.SetCouncilIcon(iconChoice) then f:Hide() end
+		end)
+	end)
+	f.cancel = PickerButton(f, CANCEL or "Cancel", 90)
+	f.cancel:SetPoint("RIGHT", f.ok, "LEFT", -8, 0)
+	f.cancel:SetScript("OnClick", function() f:Hide() end)
+	f:SetScript("OnHide", function(self)
+		if self:IsShown() then return end -- the whole interface hidden (Alt+Z): still open
+		self.filter:ClearFocus()
+		gameIcons, shownIcons = nil, nil
+	end)
+	return f
+end
+
+-- /oly council icon, and the Realm tab's button: a councillor's alone.
+function Workshop.ShowIconPicker()
+	if not ns.IsHighCouncillor(ns.me) then
+		ns.Print(L.COUNCIL_ICON_ONLY)
+		return false
+	end
+	picker = picker or MakePicker()
+	local names
+	gameIcons, names = Workshop.GameIcons()
+	shownIcons, iconChoice = gameIcons, MyIcon()
+	picker.filter:SetText("")
+	picker.filter:SetShown(names)
+	picker.filterLabel:SetShown(names)
+	-- It opens at the page of the icon in use.
+	iconPage = 1
+	for i, icon in ipairs(gameIcons) do
+		if icon == iconChoice then
+			iconPage = math.floor((i - 1) / (Workshop.ICON_COLS * Workshop.ICON_ROWS)) + 1
+			break
+		end
+	end
+	Workshop.RefreshIconPicker()
+	picker:Show()
+	ns.EscapeCloses("OlympusCouncilIconFrame")
+	return true
+end
+
+function Workshop.IconPicker() return picker end
+
+-- Tests start from a clean state.
+function Workshop.ResetIcons()
+	if picker then picker:Hide() end
+	picker, gameIcons, shownIcons, iconPage, iconChoice = nil, nil, nil, 1, nil
+	lastIconSent = -math.huge
+end
+
 -- At login. The author's machine holds the signed list (CouncilList.lua, never published): his
 -- client takes it and sends the newest it holds at once. Any other client passes the list
 -- along a whole RELAY_EVERY after login at the earliest (0.9.8): until the census says how
@@ -767,6 +1120,7 @@ function Workshop.CouncilLogin()
 	ns.Every(60, "council", function()
 		Workshop.RelayCouncil()
 		Workshop.SayAvailable()
+		Workshop.SayIcon()
 	end)
 end
 ns.On("LOGIN", function() Workshop.CouncilLogin() end)

@@ -205,6 +205,10 @@ local DETAIL_BUTTONS = {
 -- Asking a High Councillor (a moderator) for help, on the Realm tab (0.9.7, Workshop.lua).
 DETAIL_BUTTONS.realm = DETAIL_BUTTONS.realm or {}
 table.insert(DETAIL_BUTTONS.realm, { "COUNCIL_ASK_BTN", function() ns.ShowDialog("OLYMPUS_COUNCIL_ASK") end })
+-- A councillor's own icon before their name in the Olympus chats (0.9.8, Workshop.lua): shown
+-- to councillors alone.
+table.insert(DETAIL_BUTTONS.realm, { "COUNCIL_ICON_BTN", function() ns.Workshop.ShowIconPicker() end,
+	shown = function() return ns.IsHighCouncillor(ns.me) end })
 
 -- Buttons that come and go (def.shown): only the ones shown, in order.
 local function Shown(defs)

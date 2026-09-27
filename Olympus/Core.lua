@@ -542,11 +542,14 @@ function ns.LearnKingRealm(sender)
 	ns.Log("the Horde's King is on %s (learned from his first message)", realm)
 end
 
--- The High Council: the Olympus moderators, shown with a skull and their colour in the Olympus
+-- The High Council: the Olympus moderators, shown with their icon and their colour in the Olympus
 -- chats. No name is written in this code (it is public, and names get sniped on launch realms):
 -- the list is signed by the author on his own computer and checked by every client (Sign.lua,
 -- Workshop.lua).
-ns.HIGH_COUNCIL_ICON = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_8:0|t"
+-- Each councillor picks their own icon from the game's (0.9.8, Workshop.lua); until one is
+-- heard, a skull from the game's icons (the raid marker's before 0.9.8).
+ns.HIGH_COUNCIL_SKULL = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01"
+ns.HIGH_COUNCIL_ICON = "|T" .. ns.HIGH_COUNCIL_SKULL .. ":0|t"
 ns.HIGH_COUNCIL_COLOR = "ffb048f8"
 function ns.IsHighCouncillor(name)
 	local c = ns.rdb and ns.rdb.council
@@ -560,6 +563,46 @@ function ns.IsHighCouncillor(name)
 		if OfGroup(name, realm) then return true end
 	end
 	return false
+end
+
+-- A councillor's icon as it travels and is kept (0.9.8): a file number, or a plain icon name
+-- (letters, digits and _) under Interface\Icons. Anything else is nil: nothing but these two
+-- ever reaches the |T...|t of a chat line (no pipe, colon, slash or path of someone's choosing).
+function ns.CouncilIconValue(v)
+	if type(v) == "string" and v:match("^%d+$") then
+		if #v > 10 then return nil end
+		v = tonumber(v)
+	end
+	if type(v) == "number" then
+		return (v >= 1 and v < 2147483648 and v == math.floor(v)) and v or nil
+	end
+	if type(v) == "string" and #v <= 64 and v:match("^[%w_]+$") then return v end
+	return nil
+end
+
+-- The texture for a council icon (a file number, or its path under Interface\Icons), or nil.
+function ns.CouncilIconTexture(v)
+	v = ns.CouncilIconValue(v)
+	if type(v) == "string" then return "Interface\\Icons\\" .. v end
+	return v
+end
+
+-- The icon before a councillor's name in the Olympus chats: our own choice for our lines, what
+-- their client announced for anyone else's (Workshop.lua keeps it), else the default skull.
+-- Checked again here: the ones heard are kept in the SavedVariables too.
+function ns.CouncilIcon(name)
+	local v
+	local who = type(name) == "string" and ns.FullName(name) or nil
+	if who and who == ns.me then
+		local mine = ns.db and ns.db.councilIcons
+		v = type(mine) == "table" and mine[who] or nil
+	elseif who then
+		local heard = ns.rdb and ns.rdb.councilIcons
+		local e = type(heard) == "table" and heard[who]
+		v = type(e) == "table" and e.icon or nil
+	end
+	local texture = ns.CouncilIconTexture(v)
+	return texture and ("|T" .. texture .. ":0|t") or ns.HIGH_COUNCIL_ICON
 end
 
 -- The Crown: guild masters of any Olympus guild, and the officers of the King's guild.
@@ -1024,6 +1067,7 @@ SlashCmdList.OLYMPUS = function(input)
 			local verb, arg = rest:match("^(%S*)%s*(.-)$")
 			verb = (verb or ""):lower()
 			if verb == "help" then ns.Workshop.SetCouncilHelp(arg:lower() ~= "off")
+			elseif verb == "icon" then ns.Workshop.ShowIconPicker() -- a councillor's own icon (0.9.8)
 			else ns.Workshop.EditCouncil(verb) end
 		elseif cmd == "helpme" then
 			if rest ~= "" then ns.Workshop.AskCouncil(rest) else ns.ShowDialog("OLYMPUS_COUNCIL_ASK") end
