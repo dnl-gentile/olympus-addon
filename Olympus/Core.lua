@@ -553,7 +553,13 @@ function ns.IsHighCouncillor(name)
 	if type(name) ~= "string" or type(c) ~= "table" or type(c.names) ~= "table" then return false end
 	if not c.names[ns.ShortName(name):lower()] then return false end
 	-- Names are one per realm group: the list counts on the group of whoever published it.
-	return c.realm == nil or OfGroup(name, c.realm)
+	-- The list names it "A+B": any realm of it, as this client groups realms (0.9.8: a realm
+	-- linked to that group since, which makes our group "A+B+C", no longer loses the list).
+	if c.realm == nil then return true end
+	for _, realm in ipairs(ns.GroupRealms(c.realm)) do
+		if OfGroup(name, realm) then return true end
+	end
+	return false
 end
 
 -- The Crown: guild masters of any Olympus guild, and the officers of the King's guild.
@@ -940,6 +946,7 @@ local function Help()
 	print(L.HELP_TREASURER)
 	print(L.HELP_INSPECTION)
 	print(L.HELP_ISSUE)
+	print(L.HELP_COUNCIL)
 	print("  /oly decrees - decrees")
 	print("  /oly arms [text] | /oly muster [text] - decree (officers; 'test' = local preview)")
 	print(L.HELP_CHAN_ALL)

@@ -771,6 +771,8 @@ L.COUNCIL_ASKED = "|cffb048f8High Council:|r %s asks for help: %s"
 L.COUNCIL_ASK_BTN = "Ask a High Councillor"
 -- 0.9.7: leaderboards
 L.SHOW_MORE = "Show %d more (%d of %d)"
+-- 0.9.8: review-fixes
+L.HELP_COUNCIL = "  /oly helpme [text] - ask the High Council (the moderators) for help; /oly council list | help on|off (moderators)"
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1498,4 +1500,6 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.COUNCIL_ASK_BTN = "Pedir um High Councillor"
 	-- 0.9.7: leaderboards
 	L.SHOW_MORE = "Mostrar mais %d (%d de %d)"
+	-- 0.9.8: review-fixes
+	L.HELP_COUNCIL = "  /oly helpme [texto] - pedir ajuda ao High Council (os moderadores); /oly council list | help on|off (moderadores)"
 end
