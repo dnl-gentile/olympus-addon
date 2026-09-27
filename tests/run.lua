@@ -9830,5 +9830,38 @@ test("0.9.8 help requests: 'sent' only once a councillor says got it; a councill
 	if not ok then error(err, 0) end
 end)
 
+test("0.9.8 gold mailed to the Treasurer that reached one of his alts is written in his book when taken there", function()
+	local T = ns.Treasury
+	local saved = { mine = ns.db.myCharacters, me = ns.me, guild = GetGuildInfo, header = GetInboxHeaderInfo, invoice = GetInboxInvoiceInfo,
+		money = GetMoney, book = ns.rdb.treasury, share = T.Share, print = ns.Print, alert = ns.PlayAlert }
+	local ok, err = pcall(function()
+		T.Share, ns.Print, ns.PlayAlert = function() end, function() end, function() end
+		GetInboxInvoiceInfo = function() return nil end
+		GetInboxHeaderInfo = function() return nil, nil, "Romani Chudmeister", "for Olympus", 50000, nil, nil, nil, nil, false, nil, true, false end
+		local gold = 1000000
+		GetMoney = function() return gold end
+		-- His hunter, on his account, in another guild.
+		ns.me = "Pyralis Hunter-Realm"
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		ns.db.myCharacters = { ["someone else-realm"] = true }
+		eq(T.IsTreasurerAccount(), false, "an account the Treasurer never played")
+		ns.db.myCharacters = { ["pyralis ashandar-realm"] = true, ["pyralis hunter-realm"] = true }
+		eq(T.IsTreasurerAccount(), true)
+		local before = #(T.Totals().ranking)
+		T.MailTaking(1)
+		gold = gold + 50000
+		T.MoneyChanged()
+		local found
+		for _, g in ipairs(T.Totals().ranking) do if g.name == "Romani Chudmeister" then found = g.money end end
+		eq(found, 50000, "credited in the book")
+		-- The alt never sends the book: only the Treasurer's own character does.
+		eq(T.IsTreasurer(), false)
+	end)
+	ns.db.myCharacters, ns.me, GetGuildInfo, GetInboxHeaderInfo, GetInboxInvoiceInfo, GetMoney = saved.mine, saved.me, saved.guild, saved.header, saved.invoice, saved.money
+	ns.rdb.treasury, T.Share, ns.Print, ns.PlayAlert = saved.book, saved.share, saved.print, saved.alert
+	T.Reset()
+	if not ok then error(err, 0) end
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

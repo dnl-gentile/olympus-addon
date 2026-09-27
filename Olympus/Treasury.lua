@@ -216,6 +216,21 @@ function Treasury.IsOwnCharacter(name)
 	return type(name) == "string" and type(mine) == "table" and mine[OwnKey(name)] == true
 end
 
+-- One of the Treasurer's own characters (his account, where he played the Treasurer with the
+-- addon on): the game's mail sometimes brings gold sent to him to one of his alts instead
+-- (0.9.8). Taken there, it is written in his book all the same (the book is his account's);
+-- only his own character sends the book to the King.
+function Treasury.IsTreasurerAccount()
+	if Treasury.IsTreasurer() then return true end
+	local mine = ns.db and ns.db.myCharacters
+	if type(mine) ~= "table" or not ns.TREASURER then return false end
+	local want = ns.TREASURER:lower()
+	for key, on in pairs(mine) do
+		if on == true and (key == want or key:sub(1, #want + 1) == want .. "-") then return true end
+	end
+	return false
+end
+
 function Treasury.Opening() return tonumber(ns.rdb and ns.rdb.treasuryOpening) or 0 end
 
 -- The treasury: the opening balance, plus what came in, less what went out (counted lines).
@@ -411,7 +426,7 @@ end
 -- server refuses (MAIL_FAILED) is dropped, its gold still in the mail; the mail that moves up
 -- into its place once it is gone is another.
 function Treasury.MailTaking(i)
-	if not Treasury.IsTreasurer() or not GetInboxHeaderInfo or type(i) ~= "number" then return end
+	if not Treasury.IsTreasurerAccount() or not GetInboxHeaderInfo or type(i) ~= "number" then return end
 	local _, _, sender, subject, money, _, _, _, _, wasReturned, _, canReply, isGM = GetInboxHeaderInfo(i)
 	money = tonumber(money) or 0
 	local invoice = GetInboxInvoiceInfo and GetInboxInvoiceInfo(i)
