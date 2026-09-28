@@ -343,6 +343,9 @@ end
 local function Accept(tier, sender, guild, class, text, mine)
 	AddHistory(tier, { sender = sender, guild = guild, class = class, text = text, mine = mine or nil })
 	ns.Fire("CHAT_CHANGED", tier)
+	-- A line from someone else, already checked and sanitized, for a companion reading along
+	-- (OlympusBridge.RegisterChatObserver). It changes nothing about what is shown or kept.
+	if not mine then ns.Fire("CHAT_LINE", tier, sender, text) end
 	if Muted()[tier] then return false, "muted" end
 	Show(tier, sender, guild, class, text)
 	stats.shown = stats.shown + 1

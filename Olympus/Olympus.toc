@@ -44,3 +44,4 @@ Recruit.lua
 Views.lua
 UI.lua
 GuildFrame.lua
+Bridge.lua

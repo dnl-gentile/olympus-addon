@@ -74,7 +74,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Recruit", "Views" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Recruit", "Views", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -9897,6 +9897,104 @@ test("0.9.8 signature checks are rate-limited: once a minute per sender, a few a
 	end)
 	ns.rdb.council, S.Verify, ns.Now = saved.council, saved.verify, saved.now
 	W.ResetVerify()
+	if not ok then error(err, 0) end
+end)
+
+
+---------------------------------------------------------------------------
+-- OfficerSpy's bridge (Bridge.lua): what a companion addon the mods run may read, and that it
+-- can change nothing. The signed list is the 0.9.7 test's, checked by the real signature code.
+---------------------------------------------------------------------------
+local BRIDGE_LIST = "HS1~1790000000~Realm~Test Councillor,Other Mod~5c8eac0d271a53cc73bb79e40ad0b9390f81c0d90fc0c3bd9e3ba804f15a59dea651a95e6221c7e6e9c53cf0067fc2f6a990ccb59ab39df6ad6a7f2a40a6be7680b6133cfa5ae6261d9925a545b0ec180b0edf899040bf0ceb973f0db455187d954d4ce8340364335397dc0cb928fe0d5dd5e7add436ed5984a8e1d0db470f46c77f8ffff98f6e32c287c15032f97b7b2f5bc70d4164bad8e8beccb02a1cb78ba2511487c423b62d18c0e8b47ab26a0dfe6144fae7b0b2e311d756b64b93c9f3914c82a51202a295215c0da66afa515417d305e19f31c065d084d222c00b45294849db4d4910732c49b7bf79fbd6197fe04c0db8a803265ab6d64b3566252ab7"
+
+test("0.9.8 OfficerSpy's bridge: the council it hands out is a copy of the signed list, sorted, with its realm group", function()
+	local W, B = ns.Workshop, OlympusBridge
+	local saved = { council = ns.rdb.council, gap = W.VERIFY_GAP, max = W.VERIFY_MAX }
+	local ok, err = pcall(function()
+		W.VERIFY_GAP, W.VERIFY_MAX = 0, 1000 -- (the rate limit has its own test)
+		W.ResetVerify()
+		ns.rdb.council = nil
+		local none, noRealm = B.GetCouncil()
+		eq(#none, 0, "nobody before a signed list"); eq(noRealm, nil)
+		eq(W.TakeCouncil(BRIDGE_LIST, "Any Player-Realm"), true)
+		-- The list keeps each name under its lowercase form: walked with ipairs, as a first draft
+		-- of this bridge did, it would hand out nobody.
+		local names, realm = B.GetCouncil()
+		eq(#names, 2, "both councillors"); eq(names[1], "Other Mod"); eq(names[2], "Test Councillor")
+		eq(realm, "Realm", "the list's realm group")
+		names[1], names[3] = "Mallory", "Eve"
+		local again = B.GetCouncil()
+		eq(#again, 2, "the copy adds nobody"); eq(again[1], "Other Mod")
+		eq(ns.IsHighCouncillor("Mallory-Realm"), false)
+	end)
+	ns.rdb.council, W.VERIFY_GAP, W.VERIFY_MAX = saved.council, saved.gap, saved.max
+	W.ResetVerify()
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.8 OfficerSpy's bridge: a High Councillor is whoever gets the councillor mark in the chats", function()
+	local W, B = ns.Workshop, OlympusBridge
+	local saved = { council = ns.rdb.council, gap = W.VERIFY_GAP, max = W.VERIFY_MAX, is = ns.IsHighCouncillor }
+	local ok, err = pcall(function()
+		W.VERIFY_GAP, W.VERIFY_MAX = 0, 1000
+		W.ResetVerify()
+		ns.rdb.council = nil
+		eq(B.IsHighCouncillor("Test Councillor-Realm"), false, "nobody before a signed list")
+		W.TakeCouncil(BRIDGE_LIST, "Any Player-Realm")
+		for _, who in ipairs({ "Test Councillor-Realm", "Test Councillor", "other mod", "Test Councillor-OtherRealm", "Nobody-Realm" }) do
+			eq(B.IsHighCouncillor(who), ns.IsHighCouncillor(who), who)
+		end
+		eq(B.IsHighCouncillor("Test Councillor-Realm"), true)
+		eq(B.IsHighCouncillor("Test Councillor-OtherRealm"), false, "its realm group only")
+		eq(B.IsHighCouncillor(nil), false); eq(B.IsHighCouncillor(""), false); eq(B.IsHighCouncillor(42), false)
+		ns.IsHighCouncillor = function() error("broken") end
+		eq(B.IsHighCouncillor("Test Councillor-Realm"), false, "an error is a no, never thrown at the companion")
+	end)
+	ns.rdb.council, W.VERIFY_GAP, W.VERIFY_MAX, ns.IsHighCouncillor = saved.council, saved.gap, saved.max, saved.is
+	W.ResetVerify()
+	if not ok then error(err, 0) end
+end)
+
+test("0.9.8 OfficerSpy's bridge: a companion hears others' chat lines after the checks, sanitized, and can't break them", function()
+	local B, savedFire, savedFriends = OlympusBridge, ns.Fire, C_FriendList
+	local heard, broken = {}, 0
+	-- (The harness keeps ns.Fire quiet; here CHAT_LINE alone goes through the real one.)
+	ns.Fire = function(name, ...) if name == "CHAT_LINE" then return CoreFire(name, ...) end end
+	ns.db.chatMute, ns.rdb.chat = nil, nil
+	local ok, err = pcall(function()
+		eq(B.RegisterChatObserver("not a function"), false)
+		eq(B.RegisterChatObserver(function() broken = broken + 1; error("a broken companion") end), true)
+		eq(B.RegisterChatObserver(function(tier, sender, text) heard[#heard + 1] = { tier = tier, sender = sender, text = text } end), true)
+		local raw = "meet at |cffff0000the bank|r |Hplayer:Someone|h[Someone]|h " .. ITEM
+		AsRank(3, function()
+			CHAT_LINES = {}
+			eq((Chan.Receive("CHANNEL", "Member2", Msg("A", MY_GUILD, 8101, raw), 9000)), true, "a broken companion stops nothing")
+			eq(#CHAT_LINES, 1); eq(broken, 1); eq(#heard, 1)
+			local kept = Chan.History("A")
+			eq(heard[1].tier, "A"); eq(heard[1].sender, "Member2-Realm")
+			eq(heard[1].text, kept[#kept].text, "the same sanitized text the chat keeps")
+			assert(heard[1].text ~= raw and heard[1].text == Codec.SanitizeChat(raw), heard[1].text)
+			-- Dropped by the checks before a companion hears anything: a repeat, a channel above
+			-- our rank, a player on the game's ignore list.
+			Chan.Receive("CHANNEL", "Member2", Msg("A", MY_GUILD, 8101, raw), 9001)
+			Chan.Receive("CHANNEL", "Member3", Msg("L", MY_GUILD, 8102, "lords only"), 9002)
+			C_FriendList = { IsIgnored = function(name) return tostring(name):find("Member4", 1, true) ~= nil end }
+			Chan.Receive("CHANNEL", "Member4", Msg("A", MY_GUILD, 8103, "ignored"), 9003)
+			C_FriendList = savedFriends
+			eq(#heard, 1, "no repeat, no line above our rank, nobody ignored")
+			-- (Sent later than any send before it in this file: two sends need Channels' gap between them.)
+			WithLane(function() eq((Chan.Send("A", "my own line", 2e12)), true) end)
+			eq(#heard, 1, "not our own lines")
+			-- A muted channel still passes its lines on: the mute is about what we see.
+			Chan.ToggleMute("olympus")
+			eq((Chan.Receive("CHANNEL", "Member5", Msg("A", MY_GUILD, 8105, "while muted"), 9005)), false)
+			eq(#heard, 2); eq(heard[2].text, "while muted")
+			Chan.ToggleMute("olympus")
+		end)
+		for _ = 3, 8 do eq(B.RegisterChatObserver(function() end), true) end
+		eq(B.RegisterChatObserver(function() end), false, "eight companions at most")
+	end)
+	ns.Fire, C_FriendList = savedFire, savedFriends
 	if not ok then error(err, 0) end
 end)
 
