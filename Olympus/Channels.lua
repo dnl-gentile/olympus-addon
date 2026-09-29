@@ -652,6 +652,16 @@ function Channels.Receive(dist, sender, text, now)
 		LogDrop(sender, m, reason, now)
 		return false, reason
 	end
+	-- 1.1 (#31): a line the player's block terms hide (Filter.lua) stays off the chat frame. It is
+	-- kept, for the Realm tab's "N lines hidden" and its click to show them, and a companion reading
+	-- the chats still gets it: the filter only decides what this player sees. Nothing else happens
+	-- to its sender (no ignore, no block): their next line shows.
+	local F = ns.Filter
+	if F and not F.missing and F.Hides(m.text) then
+		stats.filtered = (stats.filtered or 0) + 1
+		Keep(m.tier, sender, m.guild, m.class, m.text, false)
+		return false, "filtered"
+	end
 	-- A muted channel only goes to history, so it takes nothing from the flood guard. A line
 	-- the guard keeps off the chat frame still goes to the history (the Realm tab's chats stay
 	-- whole for everyone, and a companion hears it), and the player is told (Channels.FloodNotice).

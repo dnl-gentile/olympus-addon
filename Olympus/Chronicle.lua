@@ -95,9 +95,18 @@ local function KindLabel(kind)
 	return key and L[key] or tostring(kind)
 end
 
--- A player's words as they show.
+-- Entries whose hidden words a click showed, this session (1.1, #31).
+local revealed = setmetatable({}, { __mode = "k" })
+
+-- A player's words as they show: hidden while the player's block terms hit them (a decree's, or
+-- the shared block terms themselves), until a click on the entry (1.1, #31), in the copy too.
+local function Veiled(e)
+	local F = ns.Filter
+	return e.words ~= nil and not revealed[e] and F ~= nil and not F.missing and F.Hides ~= nil and F.Hides(e.words)
+end
 local function Words(e)
 	if not e.words then return nil end
+	if Veiled(e) then return ns.L.FILTER_WORDS_HIDDEN_SHORT end
 	return '"' .. e.words .. '"'
 end
 
@@ -139,6 +148,11 @@ function Chronicle.AddLines(lines, q)
 			lines[#lines + 1] = {
 				text = "|cffffd200" .. KindLabel(e.kind) .. "|r  " .. tostring(e.what or "") .. (e.words and (" |cff9d9d9d" .. Words(e) .. "|r") or ""),
 				right = "|cff9d9d9d" .. ns.Ago(tonumber(e.t) or 0) .. "|r",
+				-- Words the player's block terms hide: a click shows them (1.1, #31).
+				onClick = Veiled(e) and function()
+					revealed[e] = true
+					if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+				end or nil,
 				tooltip = function(tt)
 					tt:AddLine(KindLabel(e.kind), 1, 0.82, 0)
 					tt:AddLine(Chronicle.Line(e), 1, 1, 1, true)

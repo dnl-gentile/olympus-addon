@@ -32,6 +32,7 @@ Hop.lua
 Positions.lua
 Decree.lua
 Channels.lua
+Filter.lua
 Inspect.lua
 King.lua
 Vox.lua

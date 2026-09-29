@@ -161,10 +161,16 @@ local function OnWrit(sender, id, rest)
 	for _, old in ipairs(Read("writs")) do if old.id == id and old.king == ns.FullName(sender) then return end end
 	local list = Store("writs")
 	local w = { id = id, king = ns.FullName(sender), by = ns.KingName(sender), to = to, text = text, t = now }
+	-- 1.1 (#31): a writ the player's block terms hit stays folded: no parchment, no alert, and
+	-- the Decrees tab offers it to read with a click (Filter.lua).
+	local F = ns.Filter
+	if F and not F.missing and F.Hides(text) then w.hidden = true end
 	list[#list + 1] = w
 	while #list > Acts.WRITS_KEPT do table.remove(list, 1) end
-	ns.King.Warn(L.WRIT_ARRIVED:format(w.by), false)
-	Acts.ShowWrit(w)
+	if not w.hidden then
+		ns.King.Warn(L.WRIT_ARRIVED:format(w.by), false)
+		Acts.ShowWrit(w)
+	end
 	ns.Fire("DECREES_CHANGED")
 end
 ns.King.Register("W", OnWrit)
@@ -194,6 +200,9 @@ function Acts.HandleAck(dist, sender, text)
 end
 ns.Comm.Handle("T6", function(...) Acts.HandleAck(...) end)
 
+-- Writs the player's block terms hid and a click showed, this session (1.1, #31).
+local revealed = setmetatable({}, { __mode = "k" })
+
 -- The Decrees tab's section: the writs we got, or the King's own with how many read them.
 -- Nothing for anyone else.
 function Acts.WritLines()
@@ -206,19 +215,26 @@ function Acts.WritLines()
 	for i = #list, math.max(1, #list - 4), -1 do
 		local w = list[i]
 		local head = Acts.Audience(w.to)
+		-- 1.1 (#31): hidden by the player's block terms (not revealed this session).
+		local veiled = w.hidden and not revealed[w]
 		local state = ""
 		if mine and w.to ~= "E" then state = "|cff40ff40" .. L.WRIT_ACKS:format(w.acks or 0) .. "|r  "
 		elseif not mine and not w.acked and w.to ~= "E" then state = "|cffffd200" .. L.WRIT_UNREAD .. "|r  " end
 		lines[#lines + 1] = {
 			text = "|cffffd200" .. head .. "|r  " .. (mine and "" or ("|cff9d9d9d" .. L.WRIT_FROM:format(w.by or "?") .. "|r")),
 			right = state .. "|cff9d9d9d" .. ns.Ago(w.t) .. "|r",
-			onClick = function() Acts.ShowWrit(w) end,
+			onClick = function()
+				revealed[w] = true
+				Acts.ShowWrit(w)
+				ns.Fire("DECREES_CHANGED")
+			end,
 			tooltip = function(tt)
 				tt:AddLine(L.WRIT_TITLE, 1, 0.82, 0)
-				tt:AddLine(w.text, 1, 1, 1, true)
+				tt:AddLine(veiled and L.FILTER_WRIT_HIDDEN or w.text, 1, 1, 1, true)
 			end,
 		}
-		lines[#lines + 1] = { indent = 1, text = '|cff9d9d9d"' .. (#w.text > 70 and (ns.Cut(w.text, 67) .. "...") or w.text) .. '"|r' }
+		lines[#lines + 1] = { indent = 1, text = veiled and ("|cff9d9d9d" .. L.FILTER_WRIT_HIDDEN .. "|r")
+			or ('|cff9d9d9d"' .. (#w.text > 70 and (ns.Cut(w.text, 67) .. "...") or w.text) .. '"|r') }
 	end
 	lines[#lines].gapAfter = true
 	return lines

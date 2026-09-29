@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Chronicle", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Consent", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Chronicle", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Consent", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -24982,6 +24982,406 @@ do
 			assert(type(br) == "string" and br ~= "" and br ~= en, "pt-BR " .. key)
 			local function Args(s) local out = {} for a in s:gmatch("%%%a") do out[#out + 1] = a end return table.concat(out) end
 			eq(Args(br), Args(en), key .. ": format arguments")
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- 1.1 (batch B1, Fern's #31): block terms on addon text (Filter.lua).
+---------------------------------------------------------------------------
+do
+	local F = ns.Filter
+	local KING = "Asmongold Asmongler-Realm"
+	local COUNCILLOR = "Test Councillor-Realm"
+	local function Texts(lines)
+		local out = {}
+		for _, l in ipairs(lines) do
+			out[#out + 1] = tostring(l.text)
+			for _, c in ipairs(l.cols or {}) do out[#out + 1] = tostring(c) end
+		end
+		return table.concat(out, "\n")
+	end
+	local function LineWith(lines, text)
+		for _, l in ipairs(lines) do if l.text and tostring(l.text):find(text, 1, true) then return l end end
+		return nil
+	end
+	-- fn with empty lists (the player's own and the shared one), the shared list used.
+	local function Clean(fn)
+		local saved = { mine = ns.db.filterWords, shared = ns.rdb.filterShared, off = ns.db.filterSharedOff, council = ns.rdb.council }
+		ns.db.filterWords, ns.rdb.filterShared, ns.db.filterSharedOff = nil, nil, nil
+		ns.Chronicle.Clear()
+		F.Reset()
+		local ok, err = pcall(fn)
+		ns.db.filterWords, ns.rdb.filterShared, ns.db.filterSharedOff, ns.rdb.council = saved.mine, saved.shared, saved.off, saved.council
+		ns.Chronicle.Clear()
+		F.Reset()
+		if not ok then error(err, 0) end
+	end
+
+	test("1.1 block terms (#31): whole words only, any case or accent, as the line shows (a link's words count, its data doesn't); one word of 2 to 24 letters", function()
+		Clean(function()
+			local printed, savedPrint = {}, ns.Print
+			ns.Print = function(m) printed[#printed + 1] = tostring(m) end
+			local ok, err = pcall(function()
+				eq(F.Add("Spam"), true)
+				eq(ns.db.filterWords.spam, true, "kept folded")
+				eq(F.Hides("buy SPAM here"), true); eq(F.Hides("Spam!"), true); eq(F.Hides("«spam»"), true)
+				eq(F.Hides("spammer"), false, "whole words only"); eq(F.Hides("antispam"), false); eq(F.Hides("s p a m"), false)
+				F.Add("Olá")
+				eq(F.Hides("OLÁ amigos"), true, "accents folded as the search folds them")
+				F.Add("thunderfury")
+				eq(F.Hides("look " .. ITEM), true, "a link's words, as the line shows them")
+				F.Add("19019")
+				F.Remove("thunderfury")
+				eq(F.Hides("look " .. ITEM), false, "never a link's data")
+				eq(F.Remove("thunderfury"), nil); eq(printed[#printed], ns.L.FILTER_NOT_THERE:format("thunderfury"))
+				-- One word, 2 to 24 letters or digits.
+				for _, bad in ipairs({ "two words", "a", ("x"):rep(25), "sp|am", "" }) do
+					eq(F.Add(bad), nil, bad); eq(printed[#printed], ns.L.FILTER_BAD_TERM)
+				end
+				-- /oly filter: add, remove, the lists.
+				SlashCmdList.OLYMPUS("filter add Scam")
+				eq(ns.db.filterWords.scam, true); eq(printed[#printed], ns.L.FILTER_ADDED:format("scam"))
+				SlashCmdList.OLYMPUS("filter remove scam")
+				eq(ns.db.filterWords.scam, nil)
+				local savedP = print
+				local lines = {}
+				print = function(s) lines[#lines + 1] = tostring(s) end
+				SlashCmdList.OLYMPUS("filter")
+				print = savedP
+				eq(printed[#printed], ns.L.FILTER_STATUS:format(3, 0, ns.L.FILTER_SHARED_USED))
+				eq(lines[1], "  " .. ns.L.FILTER_LIST_MINE:format("19019, olá, spam"))
+				-- /oly status counts them (never the words).
+				local status = ns.StatusText()
+				assert(status:find("block terms: 3 yours, 0 shared (used)", 1, true), "in /oly status")
+				assert(not status:find("spam", 1, true), "the words stay out of /oly status and /oly bug")
+			end)
+			ns.Print = savedPrint
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 block terms (#31): a hit hides a line of the Olympus chats from the chat and the Realm tab (a click shows it, marked); names, guilds and the census are never read, and the sender is not ignored, blocked or cut off", function()
+		Clean(function()
+			local savedFire, savedFriends, savedUI = ns.Fire, C_FriendList, ns.UI
+			local heard, ignoredCalls = {}, 0
+			ns.Fire = function(name, tier, sender, text) if name == "CHAT_LINE" then heard[#heard + 1] = text end end
+			C_FriendList = { IsIgnored = function() return false end, AddIgnore = function() ignoredCalls = ignoredCalls + 1 end }
+			local savedChat = ns.rdb.chat
+			ns.rdb.chat, ns.db.chatMute = nil, nil
+			local ok, err = pcall(function()
+				F.Add("junk")
+				F.Add("member81") -- a sender's name: never read
+				F.Add("olympus") -- a guild's word: never read
+				AsRank(3, function()
+					CHAT_LINES = {}
+					local shown, why = Chan.Receive("CHANNEL", "Member81", Msg("A", MY_GUILD, 8401, "selling JUNK cheap"), 2e6)
+					eq(shown, false); eq(why, "filtered")
+					eq(#CHAT_LINES, 0, "off the chat")
+					eq(#heard, 1, "a companion reading the chats still gets it")
+					eq(#Chan.History("A"), 1, "kept, for the Realm tab's click")
+					-- The same sender's next line shows: a line is hidden, never a player.
+					eq((Chan.Receive("CHANNEL", "Member81", Msg("A", MY_GUILD, 8402, "hello army"), 2e6 + 2)), true)
+					eq(#CHAT_LINES, 1)
+					eq(ns.db.blocked["member81-realm"], nil, "not blocked"); eq(ignoredCalls, 0, "not ignored")
+					-- The Realm tab's chats: the count, a click shows it marked, another hides it.
+					ns.UI = { Refresh = function() end, RefreshSoon = function() end, ChatWindow = function() end, StatusLine = function() return "" end }
+					ns.Views.ShowChat("A")
+					local lines = ns.Views.Build("realm")
+					local count = LineWith(lines, ns.L.FILTER_HIDDEN_LINES:format(1))
+					assert(count, "the count of hidden lines")
+					assert(not Texts(lines):find("selling JUNK", 1, true), "not shown")
+					assert(Texts(lines):find("hello army", 1, true))
+					count.onClick()
+					lines = ns.Views.Build("realm")
+					assert(LineWith(lines, ns.L.FILTER_SHOWING_LINES:format(1)), "showing")
+					local line = LineWith(lines, "selling JUNK")
+					assert(line and line.text:find(ns.L.FILTER_HIDDEN_MARK, 1, true), "shown, marked")
+					LineWith(lines, ns.L.FILTER_SHOWING_LINES:format(1)).onClick()
+					assert(not Texts(ns.Views.Build("realm")):find("selling JUNK", 1, true), "hidden again")
+					ns.Views.CloseChat()
+					-- The census and the Realm's guilds are never filtered.
+					ns.rdb.guilds = SampleGuilds()
+					assert(Texts(ns.Views.Build("census")):find("Olympus II", 1, true), "the census untouched")
+					ns.rdb.guilds = {}
+				end)
+			end)
+			ns.Fire, C_FriendList, ns.UI, ns.rdb.chat = savedFire, savedFriends, savedUI, savedChat
+			ns.Views.SetChatReveal(false)
+			ns.Views.CloseChat()
+			if not ok then error(err, 0) end
+			-- The game's own chat (Say, Trade, General) is never read: Filter.lua hooks none of it.
+			local src = assert(ReadFile(ADDON_DIR .. "Filter.lua"))
+			for _, hook in ipairs({ "ChatFrame_AddMessageEventFilter", "CHAT_MSG_SAY", "CHAT_MSG_CHANNEL", "CHAT_MSG_YELL", "RegisterEvent" }) do
+				assert(not src:find(hook, 1, true), "Filter.lua reads no game chat: " .. hook)
+			end
+		end)
+	end)
+
+	test("1.1 block terms (#31): a writ, a decree's words and a Vox Populi question the filter hits stay folded (no parchment, no alert, words hidden), and a click on the Decrees tab shows them", function()
+		Clean(function()
+			F.Add("treason")
+			WithThrone(function(w, K)
+				AsSoldier("Reader")
+				local savedShow, savedUI = ns.Acts.ShowWrit, ns.UI
+				local opened = {}
+				ns.Acts.ShowWrit = function(wr) opened[#opened + 1] = wr end
+				ns.UI = { Refresh = function() end, RefreshSoon = function() end, ShowCopy = function() end }
+				local ok, err = pcall(function()
+					-- A writ.
+					K.HandleCommand("CHANNEL", KING, "T1~W~77~Olympus~E~Treason is afoot in the south")
+					eq(#opened, 0, "no parchment"); assert(not Printed(w, ns.L.WRIT_ARRIVED:format(ns.KingName(KING))), "no alert")
+					local lines = ns.Views.Build("decrees")
+					local all = Texts(lines)
+					assert(all:find(ns.L.FILTER_WRIT_HIDDEN, 1, true), "the Decrees tab offers it")
+					assert(not all:find("Treason is afoot", 1, true), "its words hidden there")
+					LineWith(lines, ns.L.WRIT_FROM:format(ns.KingName(KING))).onClick()
+					eq(#opened, 1, "a click reads it"); eq(opened[1].text, "Treason is afoot in the south")
+					assert(Texts(ns.Views.Build("decrees")):find("Treason is afoot", 1, true), "then its words show")
+					-- A Vox Populi question: no window, no line in chat, until a click.
+					ns.db.voxOff = true
+					K.HandleCommand("CHANNEL", KING, "T1~V~88~Olympus~60~1~Is treason fine?~Yes~No")
+					assert(not Printed(w, "Is treason fine?"), "not in chat")
+					assert(ns.Vox.HiddenQuestion(), "held")
+					lines = ns.Views.Build("decrees")
+					local vox = LineWith(lines, ns.L.FILTER_VOX_HIDDEN)
+					assert(vox, "the Decrees tab offers it")
+					vox.onClick()
+					assert(Printed(w, "Is treason fine?"), "a click shows it, to vote while it is open")
+					eq(ns.Vox.HiddenQuestion(), nil)
+					-- An answer can hit it too.
+					ns.Vox.Reset()
+					w.clock = w.clock + 120
+					K.HandleCommand("CHANNEL", KING, "T1~V~89~Olympus~60~1~Who is loyal?~Treason~Loyalty")
+					assert(not Printed(w, "Who is loyal?"), "an answer hit: hidden")
+					-- Its results stay hidden with it.
+					local before = #w.printed
+					K.HandleCommand("CHANNEL", KING, "T1~E~89~Olympus~3~1~2")
+					eq(#w.printed, before, "no results line either")
+				end)
+				ns.Acts.ShowWrit, ns.UI = savedShow, savedUI
+				if not ok then error(err, 0) end
+			end)
+			-- A decree: its alarm and marker stay, its words don't (the raid warning, chat, the log).
+			local saved = { guild = GetGuildInfo, notice = RaidNotice_AddMessage, frame = RaidWarningFrame, alert = ns.PlayAlert, print = ns.Print, chat = C_ChatInfo, UI = ns.UI, decree = ns.Decree }
+			local warnings, printed = {}, {}
+			local ok, err = pcall(function()
+				GetGuildInfo = function() return "Olympus II", "Member", 3 end
+				RaidWarningFrame = {}
+				RaidNotice_AddMessage = function(_, text) warnings[#warnings + 1] = text end
+				ns.PlayAlert, ns.Print = function() end, function(m) printed[#printed + 1] = tostring(m) end
+				ns.UI = { Refresh = function() end, RefreshSoon = function() end, ShowCopy = function() end }
+				local cns, Deliver = FreshComm()
+				assert(loadfile(ADDON_DIR .. "Decree.lua"))("Olympus", cns)
+				Deliver("CHANNEL", KING, Codec.EncodeDecree("ROYAL", 1453, 0.5, 0.5, "Olympus", 0, "death to treason"))
+				eq(#warnings, 1, "the alarm")
+				assert(warnings[1]:find(ns.L.ROYAL, 1, true) and warnings[1]:find(ns.L.FILTER_WORDS_HIDDEN_SHORT, 1, true), warnings[1])
+				assert(not warnings[1]:find("treason", 1, true) and not printed[#printed]:find("treason", 1, true), "its words hidden")
+				-- The Decrees tab: the decree, its words behind a click.
+				ns.Decree = cns.Decree
+				local lines = ns.Views.Build("decrees")
+				local words = LineWith(lines, ns.L.FILTER_WORDS_HIDDEN)
+				assert(words, "the words behind a click")
+				words.onClick()
+				assert(Texts(ns.Views.Build("decrees")):find("death to treason", 1, true), "shown after the click")
+				-- The log keeps its words, hidden the same way.
+				local e = ns.Chronicle.Entries()[#ns.Chronicle.Entries()]
+				eq(e.words, "death to treason")
+				assert(ns.Chronicle.Line(e):find(ns.L.FILTER_WORDS_HIDDEN_SHORT, 1, true), "hidden in the log")
+				local line
+				for _, l in ipairs(ns.Chronicle.AddLines({})) do if l.onClick and l.text:find(ns.L.ACTS_KIND_DECREE, 1, true) then line = l end end
+				assert(line, "a click on the entry shows them"); line.onClick()
+				assert(ns.Chronicle.Line(e):find("death to treason", 1, true))
+			end)
+			GetGuildInfo, RaidNotice_AddMessage, RaidWarningFrame, ns.PlayAlert, ns.Print, C_ChatInfo, ns.UI, ns.Decree =
+				saved.guild, saved.notice, saved.frame, saved.alert, saved.print, saved.chat, saved.UI, saved.decree
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 block terms (#31): the shared list: taken from the King, his Steward, a Hand or a signed High Councillor alone; word by word, the newest time winning; each player may ignore it; its edits in the log of acts", function()
+		Clean(function()
+			local now = os.time()
+			local savedNow, savedST, savedMe, savedGuild = ns.Now, GetServerTime, ns.me, GetGuildInfo
+			local ok, err = pcall(function()
+				ns.Now = function() return now end
+				GetServerTime = function() return now end
+				GetGuildInfo = function() return "Olympus II", "Member", 3 end
+				ns.rdb.council = { names = { ["test councillor"] = true } }
+				local function Page(sender, entries)
+					F.Receive("CHANNEL", sender, "BW~00000000~" .. entries)
+				end
+				-- Anyone else: nothing.
+				Page("Random Player-Realm", "+junk@" .. now)
+				Page("Faker-OtherRealm", "+junk@" .. now)
+				eq((ns.rdb.filterShared or {}).junk, nil, "not an editor: refused")
+				F.Receive("GUILD", COUNCILLOR, "BW~00000000~+junk@" .. now)
+				eq((ns.rdb.filterShared or {}).junk, nil, "the channel only")
+				-- A High Councillor of the signed list, and the King by his name.
+				Page(COUNCILLOR, "+junk@" .. now)
+				eq(F.Hides("junk mail"), true, "the shared list hides lines")
+				Page(KING, "+scam@" .. (now + 1))
+				eq(F.Hides("a scam"), true)
+				-- A Hand (the King's list) and the Steward (the signed titles list) too.
+				local savedHand, savedSteward = ns.King.IsHandName, ns.King.IsStewardName
+				ns.King.IsHandName = function(n) return n == "Hand Person-Realm" end
+				ns.King.IsStewardName = function(n) return n == "Steward Person-Realm" end
+				Page("Hand Person-Realm", "+spam@" .. now)
+				Page("Steward Person-Realm", "+fraud@" .. now)
+				ns.King.IsHandName, ns.King.IsStewardName = savedHand, savedSteward
+				eq(F.Hides("spam"), true); eq(F.Hides("fraud"), true)
+				-- Word by word: an editor with an older or shorter list takes nothing away.
+				Page(COUNCILLOR, "-junk@" .. (now - 10) .. ",+other@" .. now)
+				eq(F.Hides("junk"), true, "an older removal changes nothing")
+				eq(F.Hides("scam"), true, "a list without a word keeps it")
+				Page(COUNCILLOR, "-junk@" .. (now + 5))
+				eq(F.Hides("junk"), false, "a newer removal")
+				Page(KING, "+junk@" .. (now + 2))
+				eq(F.Hides("junk"), false, "and an older add doesn't bring it back")
+				Page(KING, "+ahead@" .. (now + F.AHEAD + 5) .. ",+Upper@" .. now .. ",+two words@" .. now)
+				eq(F.Hides("ahead"), false, "dated ahead of the server's clock: not taken")
+				eq(F.Hides("upper"), false, "a word not as the list keeps it: not taken")
+				-- Each player may ignore it; their own list stays.
+				F.Add("mine")
+				SlashCmdList.OLYMPUS("filter shared off")
+				eq(F.Hides("scam"), false); eq(F.Hides("mine"), true)
+				SlashCmdList.OLYMPUS("filter shared on")
+				eq(F.Hides("scam"), true)
+				-- The log of acts: each edit seen being made, by the server's name; its words hidden
+				-- by the list itself (a click shows them); a list a late login catches up on, not.
+				local kinds = {}
+				for _, e in ipairs(ns.Chronicle.Entries()) do if e.kind == "terms" then kinds[#kinds + 1] = e.by .. " " .. e.words end end
+				eq(table.concat(kinds, "|"), COUNCILLOR .. " +junk|" .. KING .. " +scam|Hand Person-Realm +spam|Steward Person-Realm +fraud|"
+					.. COUNCILLOR .. " +other|" .. COUNCILLOR .. " -junk")
+				assert(ns.Chronicle.Line(ns.Chronicle.Entries()[2]):find(ns.L.FILTER_WORDS_HIDDEN_SHORT, 1, true), "the term itself hidden")
+				local count = #ns.Chronicle.Entries()
+				Page(KING, "+oldword@" .. (now - 2 * 86400))
+				eq(F.Hides("oldword"), true, "an old word is taken")
+				eq(#ns.Chronicle.Entries(), count, "but not logged as an edit this client saw")
+			end)
+			ns.Now, GetServerTime, ns.me, GetGuildInfo = savedNow, savedST, savedMe, savedGuild
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 block terms (#31): an editor's client sends an edit at once and repeats the whole list (not when it just heard the same list); every message stands alone within 255 bytes; a client without the handler (1.0) drops it quietly", function()
+		Clean(function()
+			local now = os.time()
+			local saved = { Now = ns.Now, ST = GetServerTime, me = ns.me, guild = GetGuildInfo, send = ns.Comm.Send, print = ns.Print, random = F.random }
+			local sent, printed = {}, {}
+			local ok, err = pcall(function()
+				ns.Now = function() return now end
+				GetServerTime = function() return now end
+				ns.Comm.Send = function(dist, msg, key) sent[#sent + 1] = { dist = dist, msg = msg, key = key } end
+				ns.Print = function(m) printed[#printed + 1] = tostring(m) end
+				F.random = function() return 0 end
+				ns.rdb.council = { names = { ["test councillor"] = true } }
+				-- Not an editor: nothing sent.
+				GetGuildInfo = function() return "Olympus II", "Member", 3 end
+				ns.me = "Plain Soldier-Realm"
+				eq(F.EditShared("scam", true), nil); eq(printed[#printed], ns.L.FILTER_NOT_EDITOR); eq(#sent, 0)
+				-- A High Councillor: the edit at once, in the log by his own name.
+				ns.me = COUNCILLOR
+				F.OnLogin()
+				-- A word not on the list: nothing to remove, nothing sent.
+				SlashCmdList.OLYMPUS("filter shared remove nothere")
+				eq(#sent, 0); eq(printed[#printed], ns.L.FILTER_NOT_THERE:format("nothere")); eq((ns.rdb.filterShared or {}).nothere, nil)
+				SlashCmdList.OLYMPUS("filter shared add Scam")
+				eq(#sent, 1); eq(sent[1].dist, "CHANNEL")
+				assert(sent[1].msg:find("^BW~%x+~%+scam@" .. now .. "$"), sent[1].msg)
+				eq(printed[#printed], ns.L.FILTER_SHARED_ADDED:format("scam"))
+				local last = ns.Chronicle.Entries()[#ns.Chronicle.Entries()]
+				eq(last.kind, "terms"); eq(last.by, COUNCILLOR); eq(last.words, "+scam")
+				SlashCmdList.OLYMPUS("filter shared remove scam")
+				assert(sent[2].msg:find("^BW~%x+~%-scam@" .. (now + 1) .. "$"), sent[2].msg)
+				-- The repeat: every REPEAT, the whole list, in messages of PAGE bytes that each stand alone.
+				for i = 1, 30 do ns.rdb.filterShared["word" .. i .. "x"] = { on = true, at = now - i, by = KING } end
+				eq(F.Tick(), false, "after login: not before LOGIN_WAIT")
+				now = now + F.LOGIN_WAIT + 1
+				sent = {}
+				eq(F.Tick(), true)
+				assert(#sent >= 3, "the whole list takes several messages: " .. #sent)
+				local fresh = {}
+				for _, s in ipairs(sent) do
+					assert(#s.msg <= 255, "within a message: " .. #s.msg)
+					assert(s.msg:find("^BW~" .. F.Digest() .. "~"), "each names the whole list")
+					fresh[#fresh + 1] = s.msg
+				end
+				-- Each parses alone, on a client that had nothing: the same list, the same digest.
+				local mine = ns.rdb.filterShared
+				ns.rdb.filterShared = nil
+				ns.me = "Plain Soldier-Realm"
+				for i = #fresh, 1, -1 do F.Receive("CHANNEL", COUNCILLOR, fresh[i]) end
+				eq(F.Digest(), fresh[1]:match("^BW~(%x+)~"), "the same list")
+				ns.rdb.filterShared, ns.me = mine, COUNCILLOR
+				-- Heard another client holding the same list: this one waits.
+				now = now + F.REPEAT + 1
+				F.Receive("CHANNEL", KING, fresh[1])
+				sent = {}
+				eq(F.Tick(), false, "just heard the same list"); eq(#sent, 0)
+				now = now + F.REPEAT + 1
+				eq(F.Tick(), true)
+				-- A client without the handler (a 1.0 client): dropped quietly, nothing counted as bad.
+				local cns, Deliver = FreshComm()
+				local bad = cns.Comm.Stats().bad
+				Deliver("CHANNEL", COUNCILLOR, fresh[1])
+				eq(cns.Comm.Stats().bad, bad, "not read as a broken census report")
+			end)
+			ns.Now, GetServerTime, ns.me, GetGuildInfo, ns.Comm.Send, ns.Print, F.random = saved.Now, saved.ST, saved.me, saved.guild, saved.send, saved.print, saved.random
+			C_ChatInfo = nil
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 block terms (#31): the shared list holds 50 words; the King's screen shows the terms cut short (his stream); the words in both languages; both pages and their privacy tables say what goes out", function()
+		Clean(function()
+			local now = os.time()
+			local saved = { Now = ns.Now, ST = GetServerTime, me = ns.me, guild = GetGuildInfo, print = ns.Print, p = print }
+			local printed = {}
+			local ok, err = pcall(function()
+				ns.Now = function() return now end
+				GetServerTime = function() return now end
+				GetGuildInfo = function() return "Olympus II", "Member", 3 end
+				local entries = {}
+				for i = 1, F.SHARED_MAX + 5 do entries[#entries + 1] = "+cap" .. i .. "w@" .. now end
+				for i = 1, #entries, 20 do F.Receive("CHANNEL", KING, "BW~00000000~" .. table.concat(entries, ",", i, math.min(i + 19, #entries))) end
+				eq(#F.SharedTerms(), F.SHARED_MAX, "50 words at most")
+				-- The King's own screen: every term cut short.
+				ns.rdb.filterShared = { slur = { on = true, at = now, by = KING } }
+				ns.Print = function(m) printed[#printed + 1] = tostring(m) end
+				local lines = {}
+				print = function(s) lines[#lines + 1] = tostring(s) end
+				GetGuildInfo = function() return "Olympus", "King", 0 end
+				ns.me = KING
+				SlashCmdList.OLYMPUS("filter")
+				eq(lines[2], "  " .. ns.L.FILTER_LIST_SHARED:format("s***"))
+			end)
+			ns.Now, GetServerTime, ns.me, GetGuildInfo, ns.Print, print = saved.Now, saved.ST, saved.me, saved.guild, saved.print, saved.p
+			if not ok then error(err, 0) end
+		end)
+		local pt = { L = setmetatable({}, { __index = function() return nil end }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		for _, key in ipairs({ "FILTER_ADDED", "FILTER_REMOVED", "FILTER_NOT_THERE", "FILTER_BAD_TERM", "FILTER_FULL", "FILTER_STATUS",
+			"FILTER_SHARED_USED", "FILTER_SHARED_IGNORED", "FILTER_LIST_MINE", "FILTER_LIST_SHARED", "FILTER_NONE", "FILTER_USAGE",
+			"FILTER_SHARED_ON", "FILTER_SHARED_OFF", "FILTER_NOT_EDITOR", "FILTER_SHARED_ADDED", "FILTER_SHARED_REMOVED",
+			"FILTER_SHARED_ALREADY", "FILTER_SHARED_FULL", "FILTER_HIDDEN_LINES", "FILTER_SHOWING_LINES", "FILTER_HIDDEN_MARK",
+			"FILTER_TIP_TITLE", "FILTER_TIP", "FILTER_WORDS_HIDDEN", "FILTER_WORDS_HIDDEN_SHORT", "FILTER_WRIT_HIDDEN",
+			"FILTER_VOX_HIDDEN", "ACTS_TERMS", "HELP_FILTER" }) do
+			local en, br = rawget(ns.L, key), rawget(pt.L, key)
+			assert(type(en) == "string" and en ~= "", "English " .. key)
+			assert(type(br) == "string" and br ~= "" and br ~= en, "pt-BR " .. key)
+			local function Args(s) local out = {} for a in s:gmatch("%%%a") do out[#out + 1] = a end return table.concat(out) end
+			eq(Args(br), Args(en), key .. ": format arguments")
+		end
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path), path):gsub("%s+", " ")
+			for _, must in ipairs({ "`/oly filter add", "`/oly filter shared off`", "Whole words only", "The shared block terms (1.1): each word", "every 10 minutes" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
 		end
 	end)
 end

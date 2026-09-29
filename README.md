@@ -179,6 +179,22 @@ WoW channel number to join). Each channel is exclusive to a rank:
 - Shift-click an item or spell into the line and it stays a link. Long lines are split into
   up to 3 messages.
 - The channels show only in the chat of players with the addon.
+- **Block terms (1.1).** `/oly filter add <word>` hides, on your screen, every line of addon
+  text with that word: the Olympus chats, the King's writs, a decree's words and Vox Populi's
+  question and answers. Whole words only, any case or accent, one word of 2 to 24 letters or
+  digits (`/oly filter remove <word>`, `/oly filter` lists them). It never reads names, guilds,
+  the census, the treasury or the game's own chat (Say, Trade, General). A hit hides the line and
+  nothing else: its sender is not ignored, blocked or cut off, and their next line shows. The
+  Realm tab's chats say how many lines your filter hides, and a click shows them, marked; the
+  Decrees tab offers a hidden writ, a decree's hidden words or a hidden Vox question with a click.
+  A companion addon reading the chats (the bridge) still gets hidden lines, as with a muted
+  channel. **The shared block terms**: a second list the King, his Steward, a Hand or a High
+  Councillor of the author's signed list edits for everyone (`/oly filter shared add|remove
+  <word>`, 50 words at most), used on every client unless its player says `/oly filter shared
+  off`. Each word is its own entry with the server's time of its edit, so two editors never undo
+  each other's other words, and a removal is kept for 30 days. Clients take it from those
+  characters alone (the server stamps the sender), and each edit this client saw goes into its log
+  of acts, with the editor's name. Clients before 1.1 ignore the list.
 - **Your choice (1.1).** The chats are off until you say yes on the first-open page (or
   `/oly chat on`). Off, `/ol`, `/olc` and `/oll` say so and send nothing, and no line from anyone
   shows or is kept on this client; the Realm tab says the chats are off, a click to choose.
@@ -506,8 +522,8 @@ the game is removed at login, with one line saying so.
 - **Copy**: every tab produces a ready-to-paste text for Discord.
 - **What this client saw** (1.1, the Decrees tab and `/oly log`): a log of the acts your addon
   took while you were online (decrees, the gates opening and closing, pardons, the King's
-  visibility switches for the treasury and the untabarded list), each with the sender's name as
-  the server stamped it, the newest 300. So "who opened the gates" has an answer after the message
+  visibility switches for the treasury and the untabarded list, and the shared block terms'
+  edits), each with the sender's name as the server stamped it, the newest 300. So "who opened the gates" has an answer after the message
   is gone. Kept on your computer only, never sent, never in `/oly bug`; a record, not proof
   (anyone can edit their own saved files). The Decrees tab lists it with a search box and a copy;
   `/oly log [n | word | copy | clear]` in chat.
@@ -627,6 +643,7 @@ message (the game adds it). What goes where:
 | An answer to an ask for your layer (it tells the asker you are on it) | the asker alone (a whisper) | only if you share your zone and layer and said yes to layer help (1.1: off until you answer, on the first-open page or with `/oly layerhelp on`; `/oly layerhelp off` stops it) |
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one, only while the Olympus chats are on (1.1: off until you say yes, on the first-open page or with `/oly chat on`) |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
+| The shared block terms (1.1): each word, whether it was added or removed, and when | everyone on the Olympus channel | only from the client of the King, his Steward, a Hand or a High Councillor: at once when they edit it, and every 10 minutes while they play (not when another client just sent the same list). Your own filter is never sent |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | everyone on the Olympus channel receives the bytes; the addon shows them to the King and his Steward, and to the army only with the King's switches | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the week's donors, the items donated (with who gave each last) and the book's latest lines | everyone on the Olympus channel receives the bytes; the addon shows them to the keepers, the King and his Steward, and to the army with the King's ranking or book switch | while that keeper shares his book: his yes, and a donor is not asked |
@@ -825,6 +842,10 @@ few characters working together can still reach is said plainly further down
   every key, a High Councillor's too, is made on a computer by the bot's keeper, and a key an
   earlier version made in the game is removed at login.
 - `/oly block <name>` ignores a player completely.
+- **Block terms** (1.1) only hide lines on each screen: no word can ignore, block, kick or cut
+  anyone off. The shared list is taken only from the King's, his Steward's, a Hand's or a signed
+  High Councillor's character (the server stamps the sender), newest time first word by word, a
+  time more than a minute ahead of the server's clock refused, and each player can ignore it.
 
 ### What colluding characters can reach
 
@@ -951,6 +972,8 @@ Other limits:
 | `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, Lords and Captains, bronze for Raiders and Veterans, and a star for any other member of an Olympus guild; on by default, hidden with the gamepad UI and with `/oly borders off` |
 | `/oly key <secret>` | officers: seal the Olympus channel |
 | `/oly block <name>` | ignore a player |
+| `/oly filter add\|remove <word>` · `/oly filter` | block terms: hide, on your screen, lines of addon text (Olympus chats, writs, decrees, Vox) with a word; the list (1.1) |
+| `/oly filter shared on\|off` · `/oly filter shared add\|remove <word>` | use the shared block terms or not; the King, his Steward, his Hands and the High Council edit them (1.1) |
 | `/oly map` | zone markers on the world map |
 | `/oly sound` | alert sounds on or off |
 | `/oly bug` | copyable bug report (also: the help button left of the window's X, then **Report a bug**) |
