@@ -45,7 +45,7 @@ local chatQueue = {}  -- chat lines (Channels.lua): { msg, done, t }
 local lastWasChat = false
 local asm = Codec.NewAssembler()
 local guildAsm = Codec.NewAssembler() -- pieces over GUILD (1.0.0)...
-local GUILD_PIECES = { HS = true, HT = true, JB = true } -- ...put together for these types alone: the High Council's lists, a guild's loot notes (1.1)
+local GUILD_PIECES = { HS = true, HT = true, XB = true } -- ...put together for these types alone: the High Council's lists, a guild's loot notes (1.1)
 local msgId = 0
 local lastBroadcast = 0
 local early -- { every, due }: the report due then went out early, as a census answer (see Q1)
@@ -91,6 +91,17 @@ function Comm.PeerCount(sameRealm)
 		if now - t <= COUNT_WINDOW and (not sameRealm or peerRealm[name] == ns.realm) then n = n + 1 end
 	end
 	return n
+end
+
+-- 1.1: our guild's addon users heard lately (by their hello), by name (Loot.lua draws its officers'
+-- turns to answer an ask from them).
+function Comm.Peers()
+	local now, out = ns.Now(), {}
+	for name, t in pairs(peers) do
+		if now - t <= PEER_WINDOW then out[#out + 1] = name end
+	end
+	table.sort(out)
+	return out
 end
 
 -- The addon versions of our guild's users counted now, ours included: { ["0.8.2"] = 3 }.
@@ -178,6 +189,20 @@ end
 --   Comm.Handle("P1", function(dist, sender, text) ... end)
 -- logged (1.0.0): a player's own words (a decree's), sent with the logged API where the client
 -- has it (SendNow), as chat lines are: the server keeps them, so abuse can be reported.
+--
+-- The top-level types (the first two bytes, then "~"), one module each (1.1): a type registered
+-- twice goes to the module loaded last, and the other never hears it again (the 1.1 review: the
+-- loot notes and the census's route ask had one type). Pick a new one here first; tests/run.lua
+-- fails on a type two files register, or one missing here.
+--   Before any handler, here: K0 K1 (the realm key), H1 (hello), R1 R2 (census reports), and
+--   C<id>:<n>:<of>: (pieces)
+--   Comm.lua Q1 | Positions P1 | Layers L0 L1 | Hop LN LO LQ LR LX | Decree D1 | Channels M1
+--   Inspect S1 U0 U1 | King T1 T2 T3 | Court T4 T5 | Acts T6 | Treasury T8 TB TE TQ TR TX
+--   Bank T9 | Vox Y1 | Loot X1 XQ XB | Crafters W0 W1 WA WL WQ WR
+--   Workshop HA HI HK HQ HR HS HT V1 V2 V3 V4 V5 V6 | Link DA DB DC DE DK DR DV DW
+--   Other 1.1 work: Recruit J1 J3 | Alts AL | Filter BW | Dues FA FB FC FD FK FQ FS FU
+--   Board G0 G1 GQ | Keys K3 K4 K5 | Channels N1 | Moderation O1 | Treasury TA TD TW
+--   Bank TL TN TO TS | Week Y2. Reserved: J2 (#20's route answer), E0 E1 E2 (1.2's army events).
 local handlers = {}
 function Comm.Send(dist, msg, key, urgent, logged)
 	if dist == "GUILD" and not IsInGuild() then return end
@@ -191,6 +216,8 @@ end
 function Comm.Handle(msgType, fn)
 	handlers[msgType] = fn
 end
+-- 1.1: [key] = fn(dist, sender, text), handed every piece heard over GUILD or the channel while set.
+Comm.pieceHooks = {}
 -- Long payloads (> 255 bytes) go through the same chunking as reports; urgent ones (a
 -- question to the army) ahead of the census, their pieces still in order. On the channel, or
 -- over GUILD (1.0.0), where only the types in GUILD_PIECES are put together again.
@@ -1223,6 +1250,10 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 	-- heard beginning holds ours back); nil otherwise, and no piece pays for it.
 	local pieceHook = Comm.pieceHook
 	if pieceHook and (dist == "GUILD" or dist == "CHANNEL") then ns.SafeCall("list piece", pieceHook, dist, sender, text) end
+	-- 1.1: other modules' waiting answers the same way (Loot.lua's), each set only while it waits.
+	if next(Comm.pieceHooks) ~= nil and (dist == "GUILD" or dist == "CHANNEL") then
+		for key, fn in pairs(Comm.pieceHooks) do ns.SafeCall(key .. " piece", fn, dist, sender, text) end
+	end
 	if dist == "GUILD" then
 		-- Pieces over GUILD (1.0.0): the High Council's lists cross to guildmates on other realms.
 		-- Only those are put together; versions before 1.0.0 put nothing together from GUILD.
