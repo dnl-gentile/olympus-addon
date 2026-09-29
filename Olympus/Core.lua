@@ -1041,10 +1041,14 @@ end
 -- departments, like the Steward:
 --   ^guilds^<Alliance|Horde>^<Guild Name>,<Guild Name>,...
 -- Three "^": clients of 0.9.9 and 1.0.0 leave it out unread (a department has two; 1.0.0 reads
--- "^steward^" alone) and still take, show and pass on the whole list. No guild name is written in
--- this code; the list counts on its realm group only, as every signed list (ns.CouncilTitles), and
--- only the author's key signs it (scripts/council-sign.py guild).
+-- "^steward^" alone) and still take, show and pass on the whole list. The list counts on its realm
+-- group only, as every signed list (ns.CouncilTitles), and only the author's key signs it
+-- (scripts/council-sign.py guild).
 ns.APPROVED_MAX = 20
+-- ...and the ones the addon ships with (1.1, the author's too): a guild whose first member nobody
+-- can hand the signed text counts as soon as its members update, with nothing to paste. Each
+-- faction's, any case; the signed list adds to them, and only a new release takes one off.
+ns.APPROVED_BUILTIN = { Alliance = { "OLYMPIAN" } }
 local function ApprovedName(s)
 	s = tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", "")
 	if s == "" or #s > 72 or select(2, s:gsub("[^\128-\191]", "")) > 24 then return nil end
@@ -1074,16 +1078,26 @@ function ns.ReadApprovedGuilds(text)
 	return out
 end
 
--- The approved guilds of our faction, from the titles list we hold (read again from its signed
--- text when a version before 1.1 took it): { name, ... }.
+-- The approved guilds of our faction: those the addon ships with, then those of the titles list
+-- we hold (read again from its signed text when a version before 1.1 took it): { name, ... }.
 function ns.ApprovedGuilds()
-	local t = ns.CouncilTitles()
-	if not t then return {} end
-	if type(t.guilds) ~= "table" then
-		t.guilds = ns.ReadApprovedGuilds(type(t.blob) == "string" and t.blob:match("^HT1~%d+~[^~]*~[01]~([^~]*)~%x+$") or "")
+	local faction = ns.faction or "Alliance"
+	local out, seen = {}, {}
+	local function Add(list)
+		for _, name in ipairs(type(list) == "table" and list or {}) do
+			local key = ns.Fold(name)
+			if not seen[key] then seen[key], out[#out + 1] = true, name end
+		end
 	end
-	local list = t.guilds[ns.faction or "Alliance"]
-	return type(list) == "table" and list or {}
+	Add(ns.APPROVED_BUILTIN[faction])
+	local t = ns.CouncilTitles()
+	if t then
+		if type(t.guilds) ~= "table" then
+			t.guilds = ns.ReadApprovedGuilds(type(t.blob) == "string" and t.blob:match("^HT1~%d+~[^~]*~[01]~([^~]*)~%x+$") or "")
+		end
+		Add(t.guilds[faction])
+	end
+	return out
 end
 
 -- Is this guild on it? Asked for every report, line, tooltip and nameplate: the set is kept while
@@ -1093,12 +1107,13 @@ local approvedMemo
 function ns.IsApprovedGuild(guild)
 	if type(guild) ~= "string" or guild == "" then return false end
 	local t = ns.rdb and ns.rdb.councilTitles
-	if type(t) ~= "table" then return false end
+	if type(t) ~= "table" then t = nil end -- (the shipped ones count without a list)
+	local at = t and t.at
 	local m = approvedMemo
-	if not m or m.t ~= t or m.at ~= t.at or m.faction ~= ns.faction or m.me ~= ns.me or m.group ~= ns.group then
+	if not m or m.t ~= t or m.at ~= at or m.faction ~= ns.faction or m.me ~= ns.me or m.group ~= ns.group then
 		local set, any = {}, false
 		for _, name in ipairs(ns.ApprovedGuilds()) do set[ns.Fold(name)], any = true, true end
-		m = { t = t, at = t.at, faction = ns.faction, me = ns.me, group = ns.group, set = set, any = any, seen = {}, seenCount = 0 }
+		m = { t = t, at = at, faction = ns.faction, me = ns.me, group = ns.group, set = set, any = any, seen = {}, seenCount = 0 }
 		approvedMemo = m
 	end
 	if not m.any then return false end

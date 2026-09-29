@@ -51,8 +51,9 @@ concerned).
 **Approved guilds (1.1).** A guild of Asmon's Olympus whose name the rule leaves out (it leaves
 Olympian and Olympia out on purpose) counts as an Olympus guild once the author names it in his
 signed list: the same list, signed with the same key on his own computer, that names the High
-Council and the King's Steward, for one faction and realm group. No guild name is written in the
-code, no census vote counts, and nobody else can add one. Its members' addons, no Olympus members
+Council and the King's Steward, for one faction and realm group. No census vote counts, and nobody
+else can add one. A few ship with the addon itself, so their members have nothing to paste: since
+1.1, the Alliance's `<OLYMPIAN>` (only a new version takes one of those off). Its members' addons, no Olympus members
 until they hold that list, take it over their own guild alone (the list only: nothing else is
 read, and they send nothing). The first of them pastes it with `/oly approved paste`, or a click
 on the Join Olympus screen's last line (the author

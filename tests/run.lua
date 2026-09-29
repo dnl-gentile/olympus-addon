@@ -33940,10 +33940,33 @@ test("1.1 approved guilds: the titles list's entry per faction, as the addon kee
 	eq(#ns.ReadStewards("^guilds^Alliance^Sentinels of Zeus;^steward^Alliance^Some One-Realm").Alliance, 1)
 end)
 
+test("1.1 approved guilds: <OLYMPIAN> ships with the addon (Alliance): an Olympus guild with no signed list to paste, any case; nothing else Olympian, never the Horde's", function()
+	local saved = { faction = ns.faction, titles = ns.rdb.councilTitles, inGuild = IsInGuild, guild = GetGuildInfo }
+	local ok, err = pcall(function()
+		ns.faction, ns.rdb.councilTitles = "Alliance", nil
+		eq(ns.NamedOlympus("OLYMPIAN"), false, "not by its name")
+		eq(ns.IsFederation("OLYMPIAN"), true, "no list held: shipped with the addon")
+		eq(ns.IsFederation("Olympian"), true, "any case")
+		eq(ns.IsFederation("Olympians"), false); eq(ns.IsFederation("Olympian Guard"), false); eq(ns.IsFederation("Olympia"), false)
+		eq(table.concat(ns.ApprovedGuilds(), ","), "OLYMPIAN")
+		-- Its members' addons are Olympus members at once: nothing to paste.
+		IsInGuild, GetGuildInfo = function() return true end, function() return "OLYMPIAN", "Member", 3 end
+		eq(ns.IsMember(), true)
+		eq(ns.ApprovedOnly(), true, "by the approved list alone (its name would not make it one)")
+		-- The Horde's census: not theirs.
+		ns.faction = "Horde"
+		eq(ns.IsFederation("OLYMPIAN"), false, "the Alliance's guild alone")
+		eq(ns.IsMember(), false)
+	end)
+	ns.faction, ns.rdb.councilTitles, IsInGuild, GetGuildInfo = saved.faction, saved.titles, saved.inGuild, saved.guild
+	if not ok then error(err, 0) end
+end)
+
 test("1.1 approved guilds: a guild the author's signed list names is an Olympus guild, on the list's realm group and faction; a newer list without it ends it", function()
 	WithApproved(function(w, W)
 		eq(ns.IsFederation("Sentinels of Zeus"), false, "not by its name"); eq(ns.IsMember(), false)
-		eq(ns.IsFederation("Olympian"), false, "the name rule still leaves Olympian out")
+		eq(ns.NamedOlympus("Olympian"), false, "the name rule still leaves Olympian out")
+		eq(ns.IsFederation("Olympian Guard"), false, "and any other Olympian guild (<OLYMPIAN> ships with the addon: its own test)")
 		-- A changed list is refused: nothing approved.
 		eq(W.TakeTitles((APPROVED_WITH:gsub("Sentinels of Zeus", "Sentinels of Hera", 1)), "Relay-Realm"), false)
 		eq(ns.IsFederation("Sentinels of Hera"), false)
@@ -33962,7 +33985,7 @@ test("1.1 approved guilds: a guild the author's signed list names is an Olympus 
 		ns.me = "Tester-Realm"
 		-- A list taken by 1.0.0 (no guilds kept): read again from its signed text.
 		ns.rdb.councilTitles.guilds = nil
-		eq(table.concat(ns.ApprovedGuilds(), ","), "Sentinels of Zeus")
+		eq(table.concat(ns.ApprovedGuilds(), ","), "OLYMPIAN,Sentinels of Zeus", "(the one the addon ships with first)")
 		eq(ns.IsApprovedGuild("Sentinels of Zeus"), true)
 		-- The census takes its reports now.
 		local savedGuilds = ns.rdb.guilds
@@ -34043,13 +34066,13 @@ test("1.1 approved guilds: its members holding the list pass it over their guild
 		-- /oly approved: the list, and whether ours is on it.
 		w.guild = "Sentinels of Zeus"
 		SlashCmdList.OLYMPUS("approved")
-		eq(w.printed[#w.printed - 1], ns.L.APPROVED_LIST:format("Sentinels of Zeus"))
+		eq(w.printed[#w.printed - 1], ns.L.APPROVED_LIST:format("OLYMPIAN, Sentinels of Zeus"), "the shipped ones first, then the signed list's")
 		eq(w.printed[#w.printed], ns.L.APPROVED_MINE:format("Sentinels of Zeus"))
 		w.guild = "Stormwind Traders"
 		SlashCmdList.OLYMPUS("approved")
 		eq(w.printed[#w.printed], ns.L.APPROVED_NOT_MINE:format("Stormwind Traders"))
 		w.guild = "Sentinels of Zeus"
-		assert(ns.StatusText():find("approved guilds: Sentinels of Zeus  |  ours is Olympus by the list alone", 1, true))
+		assert(ns.StatusText():find("approved guilds: OLYMPIAN, Sentinels of Zeus  |  ours is Olympus by the list alone", 1, true))
 		-- The Join screen (a guild not Olympus by its name, before the list): a click opens the paste box.
 		local savedDialog = ns.ShowDialog
 		local shown
