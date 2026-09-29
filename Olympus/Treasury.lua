@@ -2549,6 +2549,9 @@ function Treasury.SendDonations(force)
 	local now = ns.Now()
 	if not force and now - lastDonationSent < Treasury.DONATIONS_EVERY then return false end
 	lastDonationSent = now
+	-- His zone read again at every send: once he stops sharing his location (/oly location off,
+	-- the King's crown off), no repeat carries the zone he had.
+	donating.mapID = DonationZone()
 	ns.Comm.Send("CHANNEL", DonationMessage(true), "treasurydonations")
 	return true
 end
@@ -2568,7 +2571,8 @@ function Treasury.SetDonations(on)
 	ns.Fire("DATA_CHANGED")
 end
 
--- Our zone changed while on: said again at once (only while we share it).
+-- Our zone changed while on, or we started or stopped sharing it (Layers.SetSharing, the King's
+-- crown): said again at once (the zone only while we share it).
 function Treasury.DonationsMoved()
 	if not donating then return end
 	local zone = DonationZone()

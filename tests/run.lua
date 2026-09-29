@@ -25341,7 +25341,7 @@ end)
 test("1.1 the clipboard backup: the Treasurer's mail character's book goes with his, a big book comes back whole, the text read by a small parser", function()
 	WithThrone(function(w, K)
 		local T, Bk = ns.Treasury, ns.Backup
-		local saved = { split = ns.splitNames }
+		local saved = { split = ns.splitNames, inGuild = IsInGuild }
 		local ok, err = pcall(function()
 			ns.splitNames = true
 			-- His mail character's book, kept on his account: in his backup, restored on either.
@@ -25375,7 +25375,7 @@ test("1.1 the clipboard backup: the Treasurer's mail character's book goes with 
 			local back = Bk.Parse(Bk.Write(v))
 			eq(back.a, v.a); eq(back[3], -12.5); eq(back.t, true); eq(back.f, false); eq(back.nested[1][2], 2); eq(back.nested[2].s, "")
 		end)
-		ns.splitNames = saved.split
+		ns.splitNames, IsInGuild = saved.split, saved.inGuild
 		ns.db.myCharacters = nil
 		if not ok then error(err, 0) end
 	end)
@@ -25463,6 +25463,83 @@ test("1.1 the treasury's new lines (bank, sister guilds, requests, donations, ba
 		assert(type(rawget(pt.L, key)) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
 		eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)
 	end
+end)
+
+---------------------------------------------------------------------------
+-- 1.1 (batch E, the review's findings): a keeper who stops sharing his location, the keeper's
+-- message budget, what a 1.0 insider reads from the channel copy, and what left the bank.
+---------------------------------------------------------------------------
+
+test("1.1 taking donations: once the keeper stops sharing his location, no repeat carries his zone (his answer, the King's crown)", function()
+	WithThrone(function(w, K)
+		local T = ns.Treasury
+		local saved = { best = C_Map.GetBestMapForUnit, share = ns.db.shareLocation, crown = ns.db.throneLocation, hello = ns.Comm.Hello,
+			split = ns.splitNames }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			ns.Comm.Hello = function() end
+			C_Map.GetBestMapForUnit = function() return 1453 end
+			local TREASURER = "Pyralis Ashandar-Realm"
+			local function Donations()
+				local out = {}
+				for _, s in ipairs(w.sent) do if s.msg:find("^TD~") then out[#out + 1] = s.msg end end
+				return out
+			end
+			-- He turns it on while sharing: his zone goes with it.
+			AsTreasurer()
+			ns.db.shareLocation = true
+			local since = w.clock
+			T.SetDonations(true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~1453"):format(since), "his zone, shared")
+			-- He stops sharing (the setting alone, as a saved answer changed any other way): the next
+			-- repeat has no zone, nor any after it.
+			ns.db.shareLocation = false
+			w.clock = w.clock + T.DONATIONS_EVERY
+			eq(T.SendDonations(), true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~"):format(since), "the repeat: no zone")
+			w.clock = w.clock + T.DONATIONS_EVERY
+			eq(T.SendDonations(), true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~"):format(since), "nor the one after")
+			-- A soldier's client given that repeat: the line without a zone.
+			local repeat_ = LastSent(w)
+			AsSoldier()
+			T.HandleDonations("CHANNEL", TREASURER, repeat_)
+			local lines = Texts(T.DonationLines())
+			assert(lines:find(ns.L.DONATIONS_LINE:format("Pyralis Ashandar"), 1, true), lines)
+			assert(not lines:find("Elwynn", 1, true), lines)
+			-- /oly location on and off (Layers.SetSharing): said at once, each way.
+			AsTreasurer()
+			ns.Layers.SetSharing(true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~1453"):format(since), "sharing again: his zone at once")
+			local n = #Donations()
+			ns.Layers.SetSharing(false)
+			eq(#Donations(), n + 1, "off: said at once, not at the next repeat")
+			eq(Donations()[#Donations()], ("TD~Olympus~1~%d~"):format(since), "without his zone")
+			w.clock = w.clock + T.DONATIONS_EVERY
+			T.SendDonations()
+			eq(LastSent(w), ("TD~Olympus~1~%d~"):format(since), "and the repeat")
+			assert(Texts(T.DonationLines()):find(ns.L.DONATIONS_LINE:format("Pyralis Ashandar"), 1, true), "his own line: no zone either")
+			T.SetDonations(false)
+			-- The King: his crown is his sharing. On with it shown, then he hides it.
+			AsKing()
+			ns.db.throneLocation = true
+			local kingSince = w.clock
+			T.SetDonations(true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~1453"):format(kingSince), "his crown shown: his zone")
+			n = #Donations()
+			K.ToggleLocation()
+			eq(K.SharingLocation(), false)
+			eq(#Donations(), n + 1, "his crown hidden: said at once")
+			eq(Donations()[#Donations()], ("TD~Olympus~1~%d~"):format(kingSince), "without his zone")
+			w.clock = w.clock + T.DONATIONS_EVERY
+			T.SendDonations()
+			eq(LastSent(w), ("TD~Olympus~1~%d~"):format(kingSince), "nor at the next repeat")
+			T.SetDonations(false)
+		end)
+		C_Map.GetBestMapForUnit, ns.db.shareLocation, ns.db.throneLocation, ns.Comm.Hello = saved.best, saved.share, saved.crown, saved.hello
+		ns.splitNames = saved.split
+		if not ok then error(err, 0) end
+	end)
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

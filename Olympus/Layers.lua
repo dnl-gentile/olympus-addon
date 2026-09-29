@@ -147,6 +147,8 @@ function Layers.SetSharing(on)
 	ns.Print(on and L.LOCATION_ON or L.LOCATION_OFF)
 	ns.Comm.Hello(true)
 	if on then Announce(true) else Layers.Withdraw() end
+	-- Taking donations (1.1): the zone in it follows the answer at once.
+	if ns.Treasury and ns.Treasury.DonationsMoved then ns.Treasury.DonationsMoved() end
 end
 
 function Layers.SharingState()
