@@ -35,6 +35,7 @@ Hop.lua
 Positions.lua
 Decree.lua
 Channels.lua
+Filter.lua
 Inspect.lua
 King.lua
 Vox.lua
@@ -42,6 +43,7 @@ Court.lua
 Treasury.lua
 Bank.lua
 Acts.lua
+Chronicle.lua
 Workshop.lua
 Ed25519.lua
 libs\QREncode\qrencode.lua
@@ -50,6 +52,7 @@ Recruit.lua
 Views.lua
 Members.lua
 UI.lua
+Consent.lua
 GuildFrame.lua
 Borders.lua
 Nameplates.lua

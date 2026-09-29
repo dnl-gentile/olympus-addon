@@ -710,9 +710,10 @@ local function OnInspect(king, id)
 	if now - lastInspectSeen < King.INSPECT_GAP then return end
 	lastInspectSeen = now
 	-- Everyone hears the King's call; only a sample of the army patrols (and reports), and never
-	-- a player who said no (/oly inspection off, 0.9.3).
-	if ns.db and ns.db.royalInspection == false then
-		ns.Log("inspection %d: not taking part (/oly inspection off)", id or 0)
+	-- a player who said no (/oly inspection off, 0.9.3). 1.1 (Fern's #11): nor one who never
+	-- answered (the first-open page, or /oly inspection on): nil is off.
+	if not (ns.db and ns.db.royalInspection == true) then
+		ns.Log("inspection %d: not taking part (%s)", id or 0, ns.db and ns.db.royalInspection == false and "/oly inspection off" or "not answered")
 		return Warn(L.THRONE_INSPECT_WARN, true, "throne", King.InspectionHeld(now, id))
 	end
 	if King.random() > King.InspectShare() then
@@ -795,12 +796,19 @@ function King.ToggleUntabarded()
 	ns.db.kingUntabarded = not King.SharingUntabarded()
 	ns.Print(King.SharingUntabarded() and L.UNTABARDED_ON or L.UNTABARDED_OFF)
 	King.SendUntabarded(true)
+	-- 1.1 (#12): his own switch never comes back to him: in his log as he sends it.
+	local on = King.SharingUntabarded()
+	ns.Chronicle.Add("switch", ns.me, on and L.ACTS_UNTABARDED_ON or L.ACTS_UNTABARDED_OFF, { key = "untabarded", value = on and "1" or "0" })
 	Changed()
 end
 
 local function OnUntabarded(sender, rest)
 	if King.IsKing() then return end
 	local on, body = tostring(rest or ""):match("^(%d)~?(.*)$")
+	-- 1.1 (#12): in this client's log of acts when it flips (repeated every 5 minutes while on).
+	if on == "1" or on == "0" then
+		ns.Chronicle.Add("switch", sender, on == "1" and L.ACTS_UNTABARDED_ON or L.ACTS_UNTABARDED_OFF, { key = "untabarded", value = on })
+	end
 	if on == "1" then
 		local s = ns.Codec.DecodeShame("S1~Olympus~0~" .. body)
 		if s then ns.Inspect.ShowShame({ by = ns.KingName(sender), list = s.list, t = ns.Now() }) end

@@ -192,7 +192,15 @@ local function Answer(id)
 end
 
 -- A player can refuse the author's roll calls and update notices: /oly rollcall off (0.9.2).
-function Workshop.Answers() return not (ns.db and ns.db.rollCall == false) end
+-- 1.1 (Fern's #11): the roll call is answered only after a yes (the first-open page, or /oly
+-- rollcall on): nil, never answered, is off. The update notice sends nothing, so it still shows
+-- until a No (Workshop.Notices).
+function Workshop.Answers() return ns.db ~= nil and ns.db.rollCall == true end
+function Workshop.Notices() return not (ns.db and ns.db.rollCall == false) end
+function Workshop.AnswerState()
+	local v = ns.db and ns.db.rollCall
+	return v == true and "answered" or (v == false and "refused" or "not chosen (not answered)")
+end
 function Workshop.SetAnswers(on)
 	ns.db.rollCall = on and true or false
 	ns.Print(on and L.ROLLCALL_ON or L.ROLLCALL_OFF)
@@ -524,7 +532,7 @@ function Workshop.AskOutdated()
 end
 
 function Workshop.HandleUpdate(dist, sender, text)
-	if dist ~= "WHISPER" or not IsAuthorName(sender) or not Workshop.Answers() then return end
+	if dist ~= "WHISPER" or not IsAuthorName(sender) or not Workshop.Notices() then return end
 	local latest = text:match("^V3~(%d+%.%d+%.%d+)$")
 	if not latest or not Workshop.Newer(latest, ns.VERSION) then return end
 	local now = ns.Now()

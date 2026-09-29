@@ -131,10 +131,12 @@ local function OnlyGuests()
 	return true
 end
 
--- Everyone who shares their layer helps unless they turned it off (/oly layerhelp off). Not
--- the King: he is the one everybody wants, and his screen is on stream.
+-- Everyone who shares their layer helps once they said yes to it (1.1, Fern's #11: the
+-- first-open page, or /oly layerhelp on; nil, never answered, is off). Not the King: he is the
+-- one everybody wants, and his screen is on stream.
+function Hop.Helps() return ns.db ~= nil and ns.db.layerHelp == true end
 function Hop.CanHelp(mapID, zoneUID)
-	if ns.db.layerHelp == false or not ns.IsMember() then return false end
+	if not Hop.Helps() or not ns.IsMember() then return false end
 	-- An offer tells the asker we are on that layer: only for players who share theirs (0.9.2).
 	if not ns.Layers.Sharing() then return false end
 	if ns.King and ns.King.IsKing and ns.King.IsKing() then return false end
@@ -794,7 +796,7 @@ function Hop.KingLine() return Hop.KingLines()[1] end
 -- come? Asked once a login (never again with the box ticked). Not asked of the King, nor of
 -- players who turned helping off or already invite on their own.
 function Hop.CheckKingPrompt()
-	if promptShown or KingChoice() or ns.db.layerHelp == false or ns.db.layerAutoInvite then return end
+	if promptShown or KingChoice() or not Hop.Helps() or ns.db.layerAutoInvite then return end
 	if not ns.IsMember() or (ns.King and ns.King.IsKing and ns.King.IsKing()) then return end
 	if (IsInGroup and IsInGroup()) or (IsInInstance and IsInInstance()) or (InCombatLockdown and InCombatLockdown()) then return end
 	local mine = ns.Layers.Mine()
@@ -908,7 +910,7 @@ function Hop.StatusLine()
 	local n = 0
 	for _ in pairs(guests) do n = n + 1 end
 	return ("help=%s auto=%s king=%s  |  asks=%d offers=%d requests=%d invites=%d noes=%d joins=%d moves=%d releases=%d guests=%d  |  now=%s"):format(
-		tostring(ns.db.layerHelp ~= false), tostring(ns.db.layerAutoInvite == true), tostring(KingChoice() or "-"),
+		tostring(Hop.Helps()), tostring(ns.db.layerAutoInvite == true), tostring(KingChoice() or "-"),
 		s.asks, s.offers, s.requests, s.invites, s.noes, s.joins, s.moves, s.releases, n, ask and ask.phase or "-")
 end
 

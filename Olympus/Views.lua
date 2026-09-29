@@ -1093,6 +1093,14 @@ function Views.ShowChat(tier)
 	if tier and ns.Members and ns.Members.Hide then ns.Members.Hide() end
 	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
 end
+-- 1.1 (#31): the lines the player's block terms hide show too, marked, after a click on the
+-- count (this session: every login hides them again).
+local chatReveal = false
+function Views.ChatReveal() return chatReveal end
+function Views.SetChatReveal(on)
+	chatReveal = on and true or false
+	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+end
 
 local function ChatTiers()
 	local out = {}
@@ -1160,14 +1168,34 @@ local function ChatLines(q)
 	end
 	local history = C.History(chatTier)
 	if #history == 0 and not q then lines[#lines + 1] = { text = Grey(L.CHATS_EMPTY) } end
+	-- 1.1 (#31): the lines the player's block terms hide, counted; a click shows them (marked).
+	local F = ns.Filter
+	local hidden, nHidden = {}, 0
+	if F and not F.missing then
+		for i = #history, math.max(1, #history - Views.CHAT_SHOWN + 1), -1 do
+			local e = history[i]
+			if not e.mine and F.Hides(e.text) then hidden[e], nHidden = true, nHidden + 1 end
+		end
+	end
+	if nHidden > 0 then
+		lines[#lines + 1] = {
+			text = Grey((chatReveal and L.FILTER_SHOWING_LINES or L.FILTER_HIDDEN_LINES):format(nHidden)),
+			onClick = function() Views.SetChatReveal(not chatReveal) end,
+			tooltip = function(tt)
+				tt:AddLine(L.FILTER_TIP_TITLE, 1, 0.82, 0)
+				tt:AddLine(L.FILTER_TIP, 1, 1, 1, true)
+			end,
+			gapAfter = true,
+		}
+	end
 	local found = 0
 	for i = #history, math.max(1, #history - Views.CHAT_SHOWN + 1), -1 do
 		local e = history[i]
 		local who = ns.DisplayName(e.sender) or "?"
-		if not q or ns.Holds(q, who, Plain(e.guild or ""), ns.Codec.SanitizeChat(e.text)) then
+		if (chatReveal or not hidden[e]) and (not q or ns.Holds(q, who, Plain(e.guild or ""), ns.Codec.SanitizeChat(e.text))) then
 			found = found + 1
 			lines[#lines + 1] = {
-				text = C.FormatLine(chatTier, e.sender, e.guild, e.class, e.text),
+				text = (hidden[e] and (Grey(L.FILTER_HIDDEN_MARK) .. " ") or "") .. C.FormatLine(chatTier, e.sender, e.guild, e.class, e.text),
 				right = Grey(ns.Ago(e.t)),
 				onClick = not e.mine and function()
 					if ns.GamepadUI() then return ns.UI.WhisperWindow(ns.TellName(e.sender) or who) end
@@ -1473,8 +1501,19 @@ local function RealmLines(s, q)
 		rebuilding = RebuildLines(lines)
 		if #lines > before and lines[before] then lines[before].gapAfter = true end
 	end
-	-- The Olympus chats, one click away (the channels our rank reads), above the guilds.
-	if #ChatTiers() > 0 then
+	-- The Olympus chats, one click away (the channels our rank reads), above the guilds. Off on
+	-- this client (1.1): a line that says so, and a click to choose (the first-open page).
+	if #ChatTiers() > 0 and not ns.Channels.ChatOn() then
+		if lines[#lines] then lines[#lines].gapAfter = true end
+		lines[#lines + 1] = {
+			text = "|TInterface\\ChatFrame\\UI-ChatIcon-Chat-Up:14:14|t " .. Grey(L.CHATS_OFF_LINK), gapAfter = true,
+			onClick = function() ns.Consent.Show() end,
+			tooltip = function(tt)
+				tt:AddLine(L.CONSENT_CHAT, 1, 0.82, 0)
+				tt:AddLine(L.CONSENT_CHAT_TEXT, 1, 1, 1, true)
+			end,
+		}
+	elseif #ChatTiers() > 0 then
 		if lines[#lines] then lines[#lines].gapAfter = true end
 		lines[#lines + 1] = {
 			text = "|TInterface\\ChatFrame\\UI-ChatIcon-Chat-Up:14:14|t " .. Gold(L.CHATS_LINK), gapAfter = true,
@@ -1781,16 +1820,30 @@ local function DecreeLines()
 	if #decrees == 0 then lines[#lines + 1] = { text = Grey(L.NO_DECREES), gapAfter = true } end
 	for _, d in ipairs(decrees) do
 		local color = d.kind == "ARMS" and Red or Gold
+		-- 1.1 (#31): words the player's block terms hide, until a click shows them.
+		local veiled = d.hidden and not d.revealed
 		lines[#lines + 1] = {
 			text = color(ns.Decree.Label(d)) .. "  " .. ns.Zones.NameForKey("m" .. d.mapID),
 			right = Grey(ns.Ago(d.t)),
 			tooltip = function(tt)
 				tt:AddLine(ns.Decree.Label(d), 1, 0.25, 0.25)
-				if d.text ~= "" then tt:AddLine(d.text, 1, 1, 1, true) end
+				if d.text ~= "" then tt:AddLine(veiled and L.FILTER_WORDS_HIDDEN_SHORT or d.text, 1, 1, 1, true) end
 				tt:AddLine(L.DECREE_BY:format(d.sender, d.guild, ns.Ago(d.t)), 0.7, 0.7, 0.7)
 			end,
 		}
-		if d.text ~= "" then lines[#lines + 1] = { indent = 1, text = Grey('"' .. d.text .. '"') } end
+		if d.text ~= "" and veiled then
+			lines[#lines + 1] = { indent = 1, text = Grey(L.FILTER_WORDS_HIDDEN), onClick = function()
+				d.revealed = true
+				if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+			end }
+		elseif d.text ~= "" then
+			lines[#lines + 1] = { indent = 1, text = Grey('"' .. d.text .. '"') }
+		end
+	end
+	-- 1.1 (#31): a Vox Populi question the player's block terms hid, while it is open.
+	local vox = ns.Vox and ns.Vox.HiddenQuestion and ns.Vox.HiddenQuestion()
+	if vox then
+		lines[#lines + 1] = { text = Grey(L.FILTER_VOX_HIDDEN), onClick = function() ns.Vox.Reveal() end }
 	end
 
 	return lines
@@ -2099,9 +2152,11 @@ local BUILD = {
 	decrees = function()
 		local title, text = DecreeDetail()
 		local lines = DecreeLines()
+		-- 1.1 (#12): this client's log of the acts it saw, its box searching it alone.
+		if ns.Chronicle and not ns.Chronicle.missing then ns.Chronicle.AddLines(lines, Views.Query("decrees")) end
 		DecreeHelp(lines)
 		SoundLines(lines)
-		return lines, title, text
+		return Searched(lines, "decrees", "LOG"), title, text
 	end,
 	heraldry = function()
 		local title, text = HeraldryDetail()

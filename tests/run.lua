@@ -156,13 +156,16 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Members", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Chronicle", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Consent", "Members", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
 ns.db = { guilds = {}, log = {}, errors = {}, blocked = {}, demo = false, showMap = true,
 	chatWarned = { A = true, C = true, L = true }, -- (0.9.1: the channel warnings already accepted; their own tests ask)
-	treasurerShares = true } -- (0.9.3: the Treasurer said yes; the question has its own test)
+	treasurerShares = true, -- (0.9.3: the Treasurer said yes; the question has its own test)
+	-- (1.1, Fern's #11: these are off until the player answers. Here they said yes, as 1.0's
+	-- defaults were, for the tests written before; the first-open page has its own tests.)
+	addonChat = true, royalInspection = true, rollCall = true, layerHelp = true }
 ns.me = "Tester-Realm"
 ns.realm = "Realm"
 -- (0.9.2: the King and the Treasurer are theirs on their realm group; here that is "Realm".)
@@ -1631,6 +1634,9 @@ local function WithUI(fn)
 	for _, font in ipairs(FONT_GLOBALS) do _G[font] = nil end
 	PTR_IssueReporter, UISpecialFrames, tinsert = nil, nil, nil
 	ns.rdb.guilds = {}
+	-- (1.1: the first-open page a window opened here showed is gone with the toolkit, and the
+	-- questions it asked this "session" with it.)
+	ns.Consent.Reset()
 	if not ok then error(err, 0) end
 	eq(captured, nil, "error caught")
 end
@@ -4851,7 +4857,7 @@ local function WithHop(fn)
 		group = 0, lead = false, npc = 7, map = 1453, party = {} }
 	local ok, err = pcall(function()
 		H.Reset()
-		ns.db.layerHelp, ns.db.layerAutoInvite = nil, nil
+		ns.db.layerHelp, ns.db.layerAutoInvite = true, nil -- (1.1: layer help is a yes of its own, #11)
 		ns.Now = function() return w.clock end
 		ns.Comm.ChannelReady = function() return true end
 		ns.Comm.Send = function(dist, msg) w.sent[#w.sent + 1] = dist .. " " .. msg end
@@ -4896,7 +4902,7 @@ local function WithHop(fn)
 	ns.Comm.Send, ns.Comm.Whisper, ns.Comm.ChannelReady, ns.Now = savedSend, savedWhisper, savedReady, savedNow
 	H.random, H.after, C_Map.GetBestMapForUnit, H.OFFER_GAP = savedRandom, savedAfter, savedMap, savedGap
 	H.Trusted = savedTrusted
-	ns.db.layerHelp, ns.db.layerAutoInvite, ns.db.hopKingChoice = nil, nil, nil
+	ns.db.layerHelp, ns.db.layerAutoInvite, ns.db.hopKingChoice = true, nil, nil
 	ns.Layers.HOLD = 6
 	H.Reset()
 	if not ok then error(err, 0) end
@@ -4938,7 +4944,7 @@ test("layer hop, helper side: only players on the layer who can invite offer, th
 		ns.db.layerHelp = false
 		H.HandleAsk("CHANNEL", "Nope-Realm", "LQ~51~1453~7")
 		eq(#w.whispered, 2, "/oly layerhelp off")
-		ns.db.layerHelp = nil
+		ns.db.layerHelp = true
 		-- A request that matches no offer of ours is ignored.
 		H.HandleRequest("WHISPER", "Stranger-Realm", "LR~42")
 		H.HandleRequest("WHISPER", "Asker-Realm", "LR~999")
@@ -22624,10 +22630,14 @@ do
 	end
 	local WORDS = { "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten" }
 
-	test("1.0.0 docs (Konig's review): both privacy tables name the Royal Inspection (on by default), the census's top players, the donors and early supporters, OfficerSpy's bridge and Olympus Link, as the addon does them", function()
+	-- (1.1, Fern's #11: the Royal Inspection is off until the player's yes, on the first-open
+	-- page or with /oly inspection on. Before 1.1 a player who never answered patrolled when
+	-- sampled, and both pages said "on by default"; this test now holds them to the new rule.)
+	test("1.0.0 docs (Konig's review): both privacy tables name the Royal Inspection (off until a yes, 1.1), the census's top players, the donors and early supporters, OfficerSpy's bridge and Olympus Link, as the addon does them", function()
 		local K, T = ns.King, ns.Treasury
-		-- The addon, first. A player who never answered takes part in a Royal Inspection when
-		-- sampled (on by default): a 2-minute patrol, then a report to whoever called it, alone.
+		-- The addon, first. A player who never answered takes no part in a Royal Inspection
+		-- (1.1); after a yes, when sampled: a 2-minute patrol, then a report to whoever called
+		-- it, alone.
 		WithThrone(function(w, K)
 			local saved = { random = K.random, opt = ns.db.royalInspection, after = ns.After }
 			local timers = {}
@@ -22637,8 +22647,14 @@ do
 				K.random = function() return 0 end -- in the sample
 				ns.db.royalInspection = nil -- a fresh install: never answered
 				ns.After = function(seconds, _, fn) timers[#timers + 1] = { seconds = seconds, fn = fn } end
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~I~22~Olympus")
+				eq(ns.Inspect.IsPatrolling(), false, "never answered: no patrol")
+				eq(#timers, 0); eq(#w.whispered, 0, "and no report")
+				-- His yes (the page, or /oly inspection on): the next inspection, 30 minutes later.
+				ns.db.royalInspection = true
+				w.clock = w.clock + K.INSPECT_GAP
 				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~I~23~Olympus")
-				eq(ns.Inspect.IsPatrolling(), true, "never asked: a sampled player patrols")
+				eq(ns.Inspect.IsPatrolling(), true, "after a yes: a sampled player patrols")
 				eq(#timers, 1); eq(timers[1].seconds, K.INSPECT_TIME)
 				timers[1].fn()
 				eq(ns.Inspect.IsPatrolling(), false, "the patrol ends with the inspection")
@@ -22679,7 +22695,7 @@ do
 		for _, path in ipairs(DOCS) do
 			local rows, privacy = PrivacyRows(path)
 			local inspection = Row(rows, path, "Royal Inspection")
-			for _, must in ipairs({ "on by default", "`/oly inspection off`", ("%d minutes"):format(K.INSPECT_TIME / 60),
+			for _, must in ipairs({ "off until you say yes", "`/oly inspection on`", "`/oly inspection off`", ("%d minutes"):format(K.INSPECT_TIME / 60),
 				("level %d and up"):format(ns.Inspect.MIN_LEVEL), ("up to %d names"):format(K.MAX_NAMES),
 				("one every %d minutes"):format(K.INSPECT_GAP / 60), "whoever called it" }) do
 				Has(inspection, must, path .. ": the Royal Inspection's row")
@@ -22712,9 +22728,10 @@ do
 				("%s a day per character"):format(WORDS[ns.Link.GIVE_DAY]), "never your own account's characters" }) do
 				Has(confirm, must, path .. ": the confirmer's row")
 			end
-			-- What goes out without a yes today, and the screen that will ask first.
-			Has(privacy, "first-start screen", path .. ": the privacy section")
-			Has(privacy, "comes in 1.1", path .. ": the privacy section")
+			-- What goes out without a yes, and the page that asks first (1.1: it came).
+			Has(privacy, "The first-open page (1.1)", path .. ": the privacy section")
+			Has(privacy, "`/oly privacy`", path .. ": the privacy section")
+			assert(not privacy:find("comes in 1.1", 1, true), path .. ": the page no longer comes later")
 		end
 	end)
 
@@ -27638,6 +27655,919 @@ test("1.1 census marks (Fern #30): an honest guild that grows or shrinks between
 	ns.rdb.guilds, ns.Now = saved.guilds, saved.now
 	if not ok then error(err, 0) end
 end)
+---------------------------------------------------------------------------
+-- 1.1 (batch B1, Fern's #11): the first-open page of what this addon shares (Consent.lua), and
+-- the switches that stay off until the player answers.
+---------------------------------------------------------------------------
+do
+	local SWITCHES = { "shareLocation", "layerHelp", "royalInspection", "rollCall", "addonChat" }
+	-- fn with every switch never answered, as on a fresh install (the harness's answers back after).
+	local function Unanswered(fn)
+		local saved = {}
+		for _, k in ipairs(SWITCHES) do saved[k] = ns.db[k]; ns.db[k] = nil end
+		ns.Consent.Reset()
+		local ok, err = pcall(fn)
+		for _, k in ipairs(SWITCHES) do ns.db[k] = saved[k] end
+		ns.Consent.Reset()
+		if not ok then error(err, 0) end
+	end
+	local function Rows(page)
+		local out = {}
+		for _, r in ipairs(page.rows) do if r.key then out[#out + 1] = r end end
+		return out
+	end
+	local function RowOf(page, key)
+		for _, r in ipairs(Rows(page)) do if r.key == key then return r end end
+		return nil
+	end
+	local function Keys(page)
+		local out = {}
+		for _, r in ipairs(Rows(page)) do out[#out + 1] = r.key end
+		return table.concat(out, ",")
+	end
+	local function Texts(lines)
+		local out = {}
+		for _, l in ipairs(lines) do
+			out[#out + 1] = tostring(l.text)
+			for _, c in ipairs(l.cols or {}) do out[#out + 1] = tostring(c) end
+		end
+		return table.concat(out, "\n")
+	end
+
+	test("1.1 first-open page (#11): never answered, nothing is shared on its own: no inspection patrol or report, no roll-call answer, no layer offer (the update notice still shows)", function()
+		Unanswered(function()
+			-- The Royal Inspection: the King's call is heard, nothing is inspected or reported.
+			WithThrone(function(w, K)
+				local saved = { random = K.random, after = ns.After }
+				local ok, err = pcall(function()
+					AsSoldier("Fresh Install")
+					if ns.Inspect.IsPatrolling() then ns.Inspect.SetPatrol(false) end
+					K.random = function() return 0 end -- in the sample
+					ns.After = function() end
+					K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~I~31~Olympus")
+					eq(ns.Inspect.IsPatrolling(), false, "never answered: no patrol")
+					eq(#w.whispered, 0, "and no report")
+					assert(Printed(w, ns.L.THRONE_INSPECT_WARN), "the King's call is still heard")
+				end)
+				K.random, ns.After = saved.random, saved.after
+				if ns.Inspect.IsPatrolling() then ns.Inspect.SetPatrol(false) end
+				ns.Inspect.SetPace(nil)
+				if not ok then error(err, 0) end
+			end)
+			-- The author's roll call: unanswered; his update notice sends nothing, so it still shows.
+			WithWorkshop("Tester-Realm", function(w, W)
+				W.random = function(a, b) if a then return a end return 0 end
+				W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~31~100")
+				eq(#w.whispered, 0, "never answered: the roll call gets no answer")
+				eq(W.Answers(), false); eq(W.AnswerState(), "not chosen (not answered)")
+				local v = ns.VERSION
+				ns.VERSION = "0.8.0"
+				W.HandleUpdate("WHISPER", AUTHOR_FULL, "V3~0.8.2")
+				ns.VERSION = v
+				eq(#w.popups, 1, "the update notice still shows"); eq(w.popups[1].name, "OLYMPUS_AUTHOR_UPDATE")
+				-- A yes answers; /oly rollcall alone says which, unanswered too.
+				ns.db.rollCall = true
+				W.Reset()
+				W.random = function(a, b) if a then return a end return 0 end
+				W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~32~100")
+				eq(#w.whispered, 1, "after a yes: answered")
+				ns.db.rollCall = nil
+				SlashCmdList.OLYMPUS("rollcall")
+				eq(w.printed[#w.printed], ns.L.ROLLCALL_UNANSWERED)
+			end)
+			-- Layer help: sharing the zone and layer is not a yes to helping.
+			WithHop(function(w, H)
+				ns.db.layerHelp = nil
+				w.see(7)
+				H.HandleAsk("CHANNEL", "Asker-Realm", "LQ~61~1453~7")
+				eq(#w.whispered, 0, "layer help never answered: no offer, though the layer is shared")
+				assert(H.StatusLine():find("help=false", 1, true), H.StatusLine())
+				ns.db.layerHelp = true
+				H.HandleAsk("CHANNEL", "Other Asker-Realm", "LQ~62~1453~7")
+				eq(#w.whispered, 1, "after a yes: the offer")
+			end)
+			-- /oly inspection alone, unanswered: it says so.
+			local printed, savedPrint = {}, ns.Print
+			ns.Print = function(m) printed[#printed + 1] = m end
+			SlashCmdList.OLYMPUS("inspection")
+			ns.Print = savedPrint
+			eq(printed[#printed], ns.L.INSPECTION_OPT_UNANSWERED)
+			assert(ns.StatusText():find("royal inspection: not chosen (not taking part)", 1, true), "in /oly status")
+			assert(ns.StatusText():find("olympus chats: not chosen (off)", 1, true), "in /oly status")
+		end)
+	end)
+
+	test("1.1 first-open page (#11): the Olympus chats off (never answered, or No): this client neither sends nor shows [Olympus], [Captains] or [Lords], keeps nothing, and a companion hears nothing", function()
+		local savedFire = ns.Fire
+		local heard = {}
+		-- (What OlympusBridge passes to a companion: every CHAT_LINE.)
+		ns.Fire = function(name, tier, sender, text) if name == "CHAT_LINE" then heard[#heard + 1] = text end end
+		local savedChat = ns.rdb.chat
+		ns.rdb.chat, ns.db.chatMute = nil, nil
+		local ok, err = pcall(function()
+			Unanswered(function()
+				WithUI(function()
+					AsRank(0, function(printed)
+						Chan.ResetOffHint()
+						CHAT_LINES = {}
+						for i, tier in ipairs({ "A", "C", "L" }) do
+							local shown, why = Chan.Receive("CHANNEL", "Member2", Msg(tier, MY_GUILD, 8300 + i, "a line nobody chose to see"), 9100 + i)
+							eq(shown, false, tier); eq(why, "off", tier)
+						end
+						eq(#CHAT_LINES, 0, "not shown"); eq(#heard, 0, "no companion hears it")
+						eq(ns.rdb.chat, nil, "nothing kept")
+						eq(#Chan.History("A"), 0)
+						eq(#printed, 1, "said once a session"); eq(printed[1], ns.L.CHAT_OFF_UNANSWERED)
+						-- Writing, never answered: nothing leaves, and the page asks.
+						WithLane(function(sent)
+							local sentOk, why = Chan.Send("A", "hello army", 3e12)
+							eq(sentOk, false); eq(why, "off"); eq(#sent, 0, "nothing sent")
+						end)
+						eq(printed[#printed], ns.L.CHAT_OFF_UNANSWERED)
+						local page = ns.Consent.Frame()
+						assert(page and page:IsShown(), "typed in a chat never answered: the page asks")
+						eq(RowOf(page, "chat").state:GetText():find(ns.L.CONSENT_STATE_NONE, 1, true) ~= nil, true)
+						-- No: the same, and it says so.
+						RowOf(page, "chat").no:Click()
+						eq(ns.db.addonChat, false)
+						WithLane(function(sent)
+							eq(select(2, Chan.Send("C", "hello captains", 3.1e12)), "off"); eq(#sent, 0)
+						end)
+						eq(printed[#printed], ns.L.CHAT_OFF)
+						eq((Chan.Receive("CHANNEL", "Member2", Msg("A", MY_GUILD, 8310, "still off"), 9200)), false)
+						eq(#CHAT_LINES, 0); eq(#heard, 0); eq(ns.rdb.chat, nil)
+						-- Yes: lines show and go, and a companion hears them.
+						RowOf(page, "chat").yes:Click()
+						eq(ns.db.addonChat, true)
+						local shownNow, whyNow = Chan.Receive("CHANNEL", "Member77", Msg("A", MY_GUILD, 8311, "now it shows"), 1e6); eq(shownNow, true, tostring(whyNow))
+						eq(#CHAT_LINES, 1); eq(#heard, 1); eq(#Chan.History("A"), 1)
+						WithLane(function(sent) eq((Chan.Send("A", "hello army", 3.2e12)), true); eq(#sent, 1) end)
+						-- /oly chat off | on, and alone it says which.
+						SlashCmdList.OLYMPUS("chat off")
+						eq(ns.db.addonChat, false); eq(printed[#printed], ns.L.CHAT_OFF_MSG)
+						eq(#Chan.History("A"), 0, "off: the lines kept before don't show either")
+						SlashCmdList.OLYMPUS("chat on")
+						eq(ns.db.addonChat, true); eq(printed[#printed], ns.L.CHAT_ON_MSG)
+						SlashCmdList.OLYMPUS("chat")
+						eq(printed[#printed], ns.L.CHAT_ON_MSG)
+					end)
+				end)
+			end)
+		end)
+		ns.Fire, ns.rdb.chat = savedFire, savedChat
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.1 first-open page (#11): the first time the window opens (never in combat or an instance, once a session), in plain words, each Yes or No its own switch; the window works with every answer No", function()
+		Unanswered(function()
+			WithUI(function()
+				local saved = { combat = InCombatLockdown, instance = IsInInstance, Print = ns.Print, Send = ns.Comm.Send, Hello = ns.Comm.Hello }
+				local printed = {}
+				local ok, err = pcall(function()
+					ns.Print = function(m) printed[#printed + 1] = tostring(m) end
+					ns.Comm.Send, ns.Comm.Hello = function() end, function() end
+					GetGuildInfo = function() return "Olympus II", "Member", 3 end
+					local UI = LoadUI()
+					local C = ns.Consent
+					InCombatLockdown = function() return true end
+					UI.Toggle()
+					eq(OlympusFrame:IsShown(), true, "the window opens")
+					eq(C.Frame(), nil, "never in combat")
+					UI.Toggle()
+					InCombatLockdown, IsInInstance = function() return false end, function() return true end
+					UI.Toggle()
+					eq(C.Frame(), nil, "never in an instance")
+					UI.Toggle()
+					IsInInstance = function() return false end
+					UI.Toggle()
+					local page = C.Frame()
+					assert(page and page:IsShown(), "the first open: the page")
+					eq(page:GetName(), "OlympusConsentFrame"); eq(page:GetFrameStrata(), "DIALOG")
+					eq(OlympusFrame:IsShown(), true, "the window stays open under it")
+					-- One line each, in this order; a keeper's book only for a keeper.
+					eq(Keys(page), "location,layerhelp,inspection,rollcall,chat")
+					-- What always goes out, so it never promises nothing does: the census and its names.
+					local intro = page.intro:GetText()
+					for _, words in ipairs({ "census", "leader and officers", "five highest-level members", "online or not", "hello", ns.L.CHANNEL_PUBLIC }) do
+						assert(intro:find(words, 1, true), words)
+					end
+					for _, r in ipairs(Rows(page)) do
+						assert(r.state:GetText():find(ns.L.CONSENT_STATE_NONE, 1, true), r.key .. ": not answered, off")
+						assert(r.text:GetText() ~= "" and r.label:GetText() ~= "", r.key)
+						eq(r.yes:GetText(), ns.L.CONSENT_YES); eq(r.no:GetText(), ns.L.CONSENT_NO)
+					end
+					assert(RowOf(page, "chat").text:GetText():find("neither sends nor shows", 1, true))
+					assert(RowOf(page, "layerhelp").text:GetText():find(ns.L.CONSENT_NEEDS_LOCATION, 1, true), "needs the location, while it is off")
+					-- Done: nothing answered for the player; and once a session.
+					page.done:Click()
+					eq(page:IsShown(), false)
+					for _, k in ipairs(SWITCHES) do eq(ns.db[k], nil, k .. ": still unanswered, off") end
+					UI.Toggle(); UI.Toggle()
+					eq(page:IsShown(), false, "once a session")
+					-- The location question has been asked on the page this session: not again by itself.
+					eq(ns.Layers.AskChoice(), false, "the page asked it")
+					-- /oly privacy opens it whenever; No to each sets each switch.
+					SlashCmdList.OLYMPUS("privacy")
+					eq(page:IsShown(), true)
+					for _, r in ipairs(Rows(page)) do r.no:Click() end
+					for _, k in ipairs(SWITCHES) do eq(ns.db[k], false, k .. ": No") end
+					for _, r in ipairs(Rows(page)) do assert(r.state:GetText():find(ns.L.CONSENT_STATE_NO, 1, true), r.key) end
+					page.close:Click()
+					-- Every answer No: the window, the census and our own guild still work.
+					UI.SelectTab("census")
+					eq(OlympusFrame:IsShown(), true)
+					assert(Texts(ns.Views.Build("census")):find("Olympus II", 1, true), "the census lists our guild")
+					UI.SelectTab("realm")
+					local realm = Texts(ns.Views.Build("realm"))
+					assert(realm:find("Olympus II", 1, true), "the Realm lists our guild")
+					assert(realm:find(ns.L.CHATS_OFF_LINK, 1, true), "the chats say they are off")
+					-- A Yes turns its own switch on (and says so), nothing else.
+					SlashCmdList.OLYMPUS("privacy")
+					RowOf(page, "inspection").yes:Click()
+					eq(ns.db.royalInspection, true); eq(printed[#printed], ns.L.INSPECTION_OPT_ON)
+					eq(ns.db.rollCall, false); eq(ns.db.addonChat, false)
+					RowOf(page, "location").yes:Click()
+					eq(ns.db.shareLocation, true)
+					eq(RowOf(page, "layerhelp").text:GetText():find(ns.L.CONSENT_NEEDS_LOCATION, 1, true), nil, "location on: no note")
+					page:Hide()
+					-- Outside an Olympus guild it asks nothing by itself.
+					C.Reset()
+					ns.db.rollCall = nil
+					GetGuildInfo = function() return "House of Guedes", "Member", 3 end
+					eq(C.Ask("window"), false, "not in an Olympus guild")
+				end)
+				InCombatLockdown, IsInInstance, ns.Print, ns.Comm.Send, ns.Comm.Hello = saved.combat, saved.instance, saved.Print, saved.Send, saved.Hello
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+
+	test("1.1 first-open page (#11): with Blizzard's gamepad UI it is Olympus's own window, answered with the cursor, never the game's popup nor on the escape list; with mouse and keyboard Escape closes it", function()
+		Unanswered(function()
+			WithUI(function()
+				WithGamepadUI(true, function(game)
+					GetGuildInfo = function() return "Olympus II", "Member", 3 end
+					local page = ns.Consent.Show()
+					eq(page:IsShown(), true); eq(#game.shown, 0, "never the game's popup")
+					for _, name in ipairs(UISpecialFrames) do assert(name ~= "OlympusConsentFrame", "not on the escape list") end
+					RowOf(page, "rollcall").yes:Click()
+					eq(ns.db.rollCall, true, "a click answers")
+					page:Hide()
+				end)
+				ns.Consent.Reset()
+				WithGamepadUI(false, function(game)
+					local page = ns.Consent.Show()
+					local listed = false
+					for _, name in ipairs(UISpecialFrames) do if name == "OlympusConsentFrame" then listed = true end end
+					eq(listed, true, "Escape closes it with mouse and keyboard"); eq(#game.shown, 0)
+				end)
+			end)
+		end)
+	end)
+
+	test("1.1 first-open page (#11): the King's page leaves out the zone and layer (his crown) and layer help; a keeper's has his book, and its No withdraws it", function()
+		Unanswered(function()
+			WithUI(function()
+				local saved = { me = ns.me, guild = GetGuildInfo, send = ns.Comm.Send, shares = ns.db.keeperShares, ts = ns.db.treasurerShares }
+				local sent = {}
+				local ok, err = pcall(function()
+					ns.Comm.Send = function(dist, msg) sent[#sent + 1] = msg end
+					GetGuildInfo = function() return "Olympus", "King", 0 end
+					ns.me = "Asmongold Asmongler-Realm"
+					local page = ns.Consent.Show()
+					eq(Keys(page), "treasurer,inspection,rollcall,chat", "the King: his crown is his zone and layer; a keeper")
+					page:Hide()
+					ns.Consent.Reset()
+					ns.db.keeperShares, ns.db.treasurerShares = nil, nil
+					GetGuildInfo = function() return "OLYMPUS", "Treasurer", 2 end
+					ns.me = "Pyralis Ashandar-Realm"
+					page = ns.Consent.Show()
+					eq(Keys(page), "location,layerhelp,treasurer,inspection,rollcall,chat")
+					eq(ns.Treasury.AskConsent(), false, "the page asked it this session")
+					RowOf(page, "treasurer").no:Click()
+					eq(ns.Treasury.ConsentAnswer(), false)
+					eq(sent[#sent], "TX~OLYMPUS", "his No withdraws his book at once")
+				end)
+				ns.me, GetGuildInfo, ns.Comm.Send = saved.me, saved.guild, saved.send
+				ns.db.keeperShares, ns.db.treasurerShares = saved.shares, saved.ts
+				ns.Treasury.Reset()
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+
+	test("1.1 first-open page (#11): its words in both languages, the same format arguments", function()
+		local pt = { L = setmetatable({}, { __index = function(_, k) return nil end }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		local keys = { "CONSENT_TITLE", "CONSENT_INTRO", "CONSENT_OPTIONAL", "CONSENT_FOOTER", "CONSENT_DONE", "CONSENT_YES", "CONSENT_NO",
+			"CONSENT_STATE_YES", "CONSENT_STATE_NO", "CONSENT_STATE_NONE", "CONSENT_LOCATION", "CONSENT_LOCATION_TEXT", "CONSENT_LAYERHELP",
+			"CONSENT_LAYERHELP_TEXT", "CONSENT_NEEDS_LOCATION", "CONSENT_TREASURER", "CONSENT_TREASURER_TEXT", "CONSENT_INSPECTION",
+			"CONSENT_INSPECTION_TEXT", "CONSENT_ROLLCALL", "CONSENT_ROLLCALL_TEXT", "CONSENT_CHAT", "CONSENT_CHAT_TEXT", "CHAT_ON_MSG",
+			"CHAT_OFF_MSG", "CHAT_OFF", "CHAT_OFF_UNANSWERED", "CHATS_OFF_LINK", "HELP_PRIVACY_PAGE", "HELP_CHAT",
+			"INSPECTION_OPT_UNANSWERED", "ROLLCALL_UNANSWERED" }
+		for _, key in ipairs(keys) do
+			local en, br = rawget(ns.L, key), rawget(pt.L, key)
+			assert(type(en) == "string" and en ~= "", "English " .. key)
+			assert(type(br) == "string" and br ~= "" and br ~= en, "pt-BR " .. key)
+			local function Args(s) local out = {} for a in s:gmatch("%%%a") do out[#out + 1] = a end return table.concat(out) end
+			eq(Args(br), Args(en), key .. ": format arguments")
+			assert(not en:find("|[cTHrt]") and not br:find("|[cTHrt]"), key .. ": no escape codes")
+		end
+		-- The help and /oly help name the page and the chats switch.
+		local lines = {}
+		local savedPrint = print
+		print = function(s) lines[#lines + 1] = tostring(s) end
+		SlashCmdList.OLYMPUS("help")
+		print = savedPrint
+		local all = table.concat(lines, "\n")
+		assert(all:find(ns.L.HELP_PRIVACY_PAGE, 1, true) and all:find(ns.L.HELP_CHAT, 1, true), "in /oly help")
+	end)
+end
+
+---------------------------------------------------------------------------
+-- 1.1 (batch B1, Fern's #12): the log of the acts this client saw (Chronicle.lua).
+---------------------------------------------------------------------------
+do
+	local Ch = ns.Chronicle
+	local function Kinds(from)
+		local out = {}
+		local list = Ch.Entries()
+		for i = (from or 0) + 1, #list do out[#out + 1] = list[i].kind end
+		return table.concat(out, ",")
+	end
+	local function Last() local list = Ch.Entries() return list[#list] end
+	local KING = "Asmongold Asmongler-Realm"
+
+	test("1.1 acts log (#12): the gates, pardons and the King's visibility switches this client saw, each once, with the server's sender name; a refused sender writes nothing", function()
+		Ch.Clear()
+		WithThrone(function(w, K)
+			AsSoldier("Watcher")
+			-- The gates: opened, repeated every 10 minutes (once in the log), closed.
+			K.HandleCommand("CHANNEL", KING, "T1~G~51~Olympus~7200~Olympus II")
+			eq(Kinds(), "gates"); eq(Last().by, KING, "the server's name for the sender")
+			eq(Last().what, ns.L.ACTS_GATES_OPEN:format("Olympus II"))
+			K.HandleCommand("CHANNEL", KING, "T1~G~51~Olympus~6600~Olympus II")
+			eq(Kinds(), "gates", "repeated: written once")
+			K.HandleCommand("CHANNEL", "Faker Guy-Realm", "T1~G~52~Olympus~7200~Olympus Zeus")
+			eq(Kinds(), "gates", "a refused sender writes nothing")
+			K.HandleCommand("CHANNEL", KING, "T1~G~51~Olympus~0~")
+			eq(Kinds(), "gates,gates"); eq(Last().what, ns.L.ACTS_GATES_CLOSED)
+			-- Pardons: each name once, however often the week's list is repeated.
+			K.HandleCommand("CHANNEL", KING, "T1~F~9~Olympus~Naked,Pirate")
+			K.HandleCommand("CHANNEL", KING, "T1~F~10~Olympus~Naked,Pirate")
+			K.HandleCommand("CHANNEL", "Faker Guy-Realm", "T1~F~11~Olympus~Innocent")
+			eq(Kinds(), "gates,gates,pardon,pardon")
+			eq(Last().what, ns.L.ACTS_PARDON:format("Pirate")); eq(Last().by, KING)
+			-- The untabarded list shown (repeated every 5 minutes: once), then hidden.
+			K.HandleCommand("CHANNEL", KING, "T1~U~3~Olympus~1~Naked:Olympus II")
+			K.HandleCommand("CHANNEL", KING, "T1~U~4~Olympus~1~Naked:Olympus II")
+			K.HandleCommand("CHANNEL", "Faker Guy-Realm", "T1~U~5~Olympus~0")
+			eq(Kinds(4), "switch"); eq(Last().what, ns.L.ACTS_UNTABARDED_ON)
+			K.HandleCommand("CHANNEL", KING, "T1~U~6~Olympus~0")
+			eq(Kinds(4), "switch,switch"); eq(Last().what, ns.L.ACTS_UNTABARDED_OFF)
+			-- What the army sees of the treasury: when it changes, not when the word is repeated.
+			K.HandleCommand("CHANNEL", KING, "T1~T~7~Olympus~000~" .. w.clock)
+			eq(Kinds(6), "", "nothing shown is where it starts")
+			K.HandleCommand("CHANNEL", KING, "T1~T~8~Olympus~110~" .. (w.clock + 1))
+			eq(Kinds(6), "switch")
+			eq(Last().what, ns.L.ACTS_TREASURY:format(ns.L.ACTS_TREASURY_BALANCE .. ", " .. ns.L.ACTS_TREASURY_RANKING))
+			K.HandleCommand("CHANNEL", KING, "T1~T~9~Olympus~110~" .. (w.clock + 2))
+			K.HandleCommand("CHANNEL", "Faker Guy-Realm", "T1~T~10~Olympus~111~" .. (w.clock + 3))
+			eq(Kinds(6), "switch", "the same word again, or a refused sender: nothing new")
+			-- Nothing of it was sent anywhere.
+			for _, s in ipairs(w.sent) do assert(not s.msg:find("ACTS", 1, true), s.msg) end
+			eq(#w.whispered, 0)
+		end)
+		Ch.Clear()
+	end)
+
+	test("1.1 acts log (#12): a decree the client took (and never one it refused), with its words; the King's and a Hand's own acts as they send them (theirs never come back)", function()
+		Ch.Clear()
+		local saved = { guild = GetGuildInfo, notice = RaidNotice_AddMessage, alert = ns.PlayAlert, print = ns.Print, chat = C_ChatInfo }
+		local ok, err = pcall(function()
+			GetGuildInfo = function() return "Olympus II", "Member", 3 end
+			RaidNotice_AddMessage, ns.PlayAlert, ns.Print = nil, function() end, function() end
+			local cns, Deliver = FreshComm()
+			assert(loadfile(ADDON_DIR .. "Decree.lua"))("Olympus", cns)
+			Deliver("CHANNEL", KING, Codec.EncodeDecree("ROYAL", 1453, 0.5, 0.5, "Olympus", 0, "hold the bridge"))
+			eq(Kinds(), "decree"); eq(Last().by, KING); eq(Last().words, "hold the bridge")
+			assert(Last().what:find(ns.L.ROYAL, 1, true) and Last().what:find("Stormwind City", 1, true), Last().what)
+			-- A decree from someone the census can't place is refused: not in the log.
+			Deliver("CHANNEL", "Nobody Special-Realm", Codec.EncodeDecree("ARMS", 1453, 0.5, 0.5, "Olympus Zeus", 0, "fake"))
+			eq(Kinds(), "decree")
+		end)
+		GetGuildInfo, RaidNotice_AddMessage, ns.PlayAlert, ns.Print, C_ChatInfo = saved.guild, saved.notice, saved.alert, saved.print, saved.chat
+		if not ok then error(err, 0) end
+		WithThrone(function(w, K)
+			AsKing()
+			ns.Acts.OpenGates("Olympus II")
+			eq(Kinds(1), "gates"); eq(Last().by, KING, "his own act, by his name")
+			-- His broadcast repeated (and never heard back): still once.
+			ns.Acts.CloseGates()
+			eq(Kinds(1), "gates,gates"); eq(Last().what, ns.L.ACTS_GATES_CLOSED)
+			K.ToggleUntabarded()
+			eq(Kinds(3), "switch"); eq(Last().what, ns.L.ACTS_UNTABARDED_ON)
+			ns.Acts.Pardon("Naked")
+			eq(Kinds(4), "pardon")
+			ns.Treasury.SetFlag("book", true)
+			eq(Kinds(5), "switch"); eq(Last().by, KING)
+			K.ToggleUntabarded()
+		end)
+		Ch.Clear()
+	end)
+
+	test("1.1 acts log (#12): a ring of 300, /oly log (n, a word, copy, clear), the Decrees tab's list with its search, its caveat, and never in /oly bug; the documented Add for other features", function()
+		Ch.Clear()
+		local saved = { print = print, Print = ns.Print, UI = ns.UI }
+		local printed, copied = {}, {}
+		local ok, err = pcall(function()
+			-- Another feature's act (a character taken off the net, from another batch): Add with a
+			-- state, written only when that state changes.
+			eq(Ch.Add("netoff", "Steward Person-Realm", "Spammer Guy taken off the net: spam", { key = "netoff:spammer guy", value = "on" }), true)
+			eq(Ch.Add("netoff", "Steward Person-Realm", "Spammer Guy taken off the net: spam", { key = "netoff:spammer guy", value = "on" }), false, "repeated: once")
+			eq(Ch.Add("netoff", "Steward Person-Realm", "Spammer Guy back on the net", { key = "netoff:spammer guy", value = "off" }), true)
+			eq(Ch.Add("guildnetoff", "Steward Person-Realm", "<Fake Olympus> out of the totals"), true)
+			eq(Ch.Add("", "x", "y"), false, "no kind: nothing")
+			-- No escape code gets in, whatever a caller hands it.
+			Ch.Add("terms", "Someone-Realm", "|cffff0000red|r |Hplayer:x|h[x]|h")
+			assert(not Last().what:find("|", 1, true), Last().what)
+			-- A ring: the newest 300.
+			for i = 1, 305 do Ch.Add("decree", "Cap" .. i .. "-Realm", "Muster " .. i) end
+			eq(#Ch.Entries(), Ch.MAX); eq(Ch.MAX, 300)
+			eq(Ch.Entries()[1].what, "Muster 6", "the oldest go first")
+			-- /oly log: the newest ten, with the sender's name; a number; a word.
+			print = function(s) printed[#printed + 1] = tostring(s) end
+			ns.Print = function(s) printed[#printed + 1] = tostring(s) end
+			SlashCmdList.OLYMPUS("log")
+			eq(printed[1], ns.L.ACTS_CHAT_HEAD:format(Ch.CHAT, Ch.MAX))
+			assert(printed[2]:find("Muster 305", 1, true) and printed[2]:find("Cap305-Realm", 1, true), printed[2])
+			eq(printed[#printed], "  " .. ns.L.ACTS_NOTE, "the caveat, every time")
+			printed = {}
+			SlashCmdList.OLYMPUS("log 3")
+			eq(printed[1], ns.L.ACTS_CHAT_HEAD:format(3, Ch.MAX))
+			Ch.Add("gates", KING, ns.L.ACTS_GATES_OPEN:format("Olympus II"))
+			printed = {}
+			SlashCmdList.OLYMPUS("log olympus ii")
+			eq(printed[1], ns.L.ACTS_CHAT_HEAD:format(1, Ch.MAX), "a word finds its entries, any case")
+			-- The Decrees tab: its caveat, a copy, the newest entries; its box searches the log alone.
+			ns.UI = { ShowCopy = function(title, text) copied[#copied + 1] = { title = title, text = text } end, Refresh = function() end, RefreshSoon = function() end }
+			local function Texts()
+				local out = {}
+				for _, l in ipairs(ns.Views.Build("decrees")) do out[#out + 1] = tostring(l.text) end
+				return out
+			end
+			local all = table.concat(Texts(), "\n")
+			assert(all:find(ns.L.ACTS_TITLE, 1, true) and all:find(ns.L.ACTS_NOTE, 1, true), "the section and its caveat")
+			assert(all:find(ns.L.ACTS_GATES_OPEN:format("Olympus II"), 1, true), "the newest entry")
+			assert(not all:find("Muster 6\n", 1, true), "not all 300 without a search")
+			assert(all:find(ns.L.DECREES, 1, true), "the decrees stay")
+			ns.Views.SetFilter("decrees", "MUSTER 30")
+			local found = 0
+			for _, t in ipairs(Texts()) do if t:find("Muster 30", 1, true) then found = found + 1 end end
+			eq(found, 7, "Muster 30 and 300 to 305: every match, any case")
+			ns.Views.SetFilter("decrees", "")
+			for _, l in ipairs(ns.Views.Build("decrees")) do
+				if l.text and l.text:find(ns.L.ACTS_COPY, 1, true) then l.onClick() end
+			end
+			eq(#copied, 1); eq(copied[1].title, ns.L.ACTS_TITLE)
+			assert(copied[1].text:find(ns.L.ACTS_NOTE, 1, true) and copied[1].text:find("Cap7-Realm", 1, true), "the whole log, with names")
+			SlashCmdList.OLYMPUS("log copy")
+			eq(#copied, 2)
+			-- Kept on this computer: never in a bug report.
+			assert(not ns.BuildBugReport():find("Muster 305", 1, true), "not in /oly bug")
+			SlashCmdList.OLYMPUS("log clear")
+			eq(#Ch.Entries(), 0); eq(printed[#printed], ns.L.ACTS_CLEARED)
+		end)
+		print, ns.Print, ns.UI = saved.print, saved.Print, saved.UI
+		ns.Views.ClearFilters()
+		Ch.Clear()
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.1 acts log (#12): its words in both languages, the same format arguments", function()
+		local pt = { L = setmetatable({}, { __index = function() return nil end }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		for _, key in ipairs({ "ACTS_TITLE", "ACTS_NOTE", "ACTS_COPY", "ACTS_EMPTY", "ACTS_BY", "ACTS_CLEARED", "ACTS_CHAT_HEAD",
+			"ACTS_KIND_DECREE", "ACTS_KIND_GATES", "ACTS_KIND_PARDON", "ACTS_KIND_SWITCH", "ACTS_KIND_NETOFF", "ACTS_KIND_GUILDNETOFF",
+			"ACTS_KIND_TERMS", "ACTS_GATES_OPEN", "ACTS_GATES_CLOSED", "ACTS_PARDON", "ACTS_UNTABARDED_ON", "ACTS_UNTABARDED_OFF",
+			"ACTS_TREASURY", "ACTS_TREASURY_BALANCE", "ACTS_TREASURY_RANKING", "ACTS_TREASURY_BOOK", "ACTS_TREASURY_NOTHING",
+			"SEARCH_TIP_LOG", "HELP_LOG" }) do
+			local en, br = rawget(ns.L, key), rawget(pt.L, key)
+			assert(type(en) == "string" and en ~= "", "English " .. key)
+			assert(type(br) == "string" and br ~= "" and br ~= en, "pt-BR " .. key)
+			local function Args(s) local out = {} for a in s:gmatch("%%%a") do out[#out + 1] = a end return table.concat(out) end
+			eq(Args(br), Args(en), key .. ": format arguments")
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- 1.1 (batch B1, Fern's #31): block terms on addon text (Filter.lua).
+---------------------------------------------------------------------------
+do
+	local F = ns.Filter
+	local KING = "Asmongold Asmongler-Realm"
+	local COUNCILLOR = "Test Councillor-Realm"
+	local function Texts(lines)
+		local out = {}
+		for _, l in ipairs(lines) do
+			out[#out + 1] = tostring(l.text)
+			for _, c in ipairs(l.cols or {}) do out[#out + 1] = tostring(c) end
+		end
+		return table.concat(out, "\n")
+	end
+	local function LineWith(lines, text)
+		for _, l in ipairs(lines) do if l.text and tostring(l.text):find(text, 1, true) then return l end end
+		return nil
+	end
+	-- fn with empty lists (the player's own and the shared one), the shared list used.
+	local function Clean(fn)
+		local saved = { mine = ns.db.filterWords, shared = ns.rdb.filterShared, off = ns.db.filterSharedOff, council = ns.rdb.council }
+		ns.db.filterWords, ns.rdb.filterShared, ns.db.filterSharedOff = nil, nil, nil
+		ns.Chronicle.Clear()
+		F.Reset()
+		local ok, err = pcall(fn)
+		ns.db.filterWords, ns.rdb.filterShared, ns.db.filterSharedOff, ns.rdb.council = saved.mine, saved.shared, saved.off, saved.council
+		ns.Chronicle.Clear()
+		F.Reset()
+		if not ok then error(err, 0) end
+	end
+
+	test("1.1 block terms (#31): whole words only, any case or accent, as the line shows (a link's words count, its data doesn't); one word of 2 to 24 letters", function()
+		Clean(function()
+			local printed, savedPrint = {}, ns.Print
+			ns.Print = function(m) printed[#printed + 1] = tostring(m) end
+			local ok, err = pcall(function()
+				eq(F.Add("Spam"), true)
+				eq(ns.db.filterWords.spam, true, "kept folded")
+				eq(F.Hides("buy SPAM here"), true); eq(F.Hides("Spam!"), true); eq(F.Hides("«spam»"), true)
+				eq(F.Hides("spammer"), false, "whole words only"); eq(F.Hides("antispam"), false); eq(F.Hides("s p a m"), false)
+				F.Add("Olá")
+				eq(F.Hides("OLÁ amigos"), true, "accents folded as the search folds them")
+				F.Add("thunderfury")
+				eq(F.Hides("look " .. ITEM), true, "a link's words, as the line shows them")
+				F.Add("19019")
+				F.Remove("thunderfury")
+				eq(F.Hides("look " .. ITEM), false, "never a link's data")
+				eq(F.Remove("thunderfury"), nil); eq(printed[#printed], ns.L.FILTER_NOT_THERE:format("thunderfury"))
+				-- One word, 2 to 24 letters or digits.
+				for _, bad in ipairs({ "two words", "a", ("x"):rep(25), "sp|am", "" }) do
+					eq(F.Add(bad), nil, bad); eq(printed[#printed], ns.L.FILTER_BAD_TERM)
+				end
+				-- /oly filter: add, remove, the lists.
+				SlashCmdList.OLYMPUS("filter add Scam")
+				eq(ns.db.filterWords.scam, true); eq(printed[#printed], ns.L.FILTER_ADDED:format("scam"))
+				SlashCmdList.OLYMPUS("filter remove scam")
+				eq(ns.db.filterWords.scam, nil)
+				local savedP = print
+				local lines = {}
+				print = function(s) lines[#lines + 1] = tostring(s) end
+				SlashCmdList.OLYMPUS("filter")
+				print = savedP
+				eq(printed[#printed], ns.L.FILTER_STATUS:format(3, 0, ns.L.FILTER_SHARED_USED))
+				eq(lines[1], "  " .. ns.L.FILTER_LIST_MINE:format("19019, olá, spam"))
+				-- /oly status counts them (never the words).
+				local status = ns.StatusText()
+				assert(status:find("block terms: 3 yours, 0 shared (used)", 1, true), "in /oly status")
+				assert(not status:find("spam", 1, true), "the words stay out of /oly status and /oly bug")
+			end)
+			ns.Print = savedPrint
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 block terms (#31): a hit hides a line of the Olympus chats from the chat and the Realm tab (a click shows it, marked); names, guilds and the census are never read, and the sender is not ignored, blocked or cut off", function()
+		Clean(function()
+			local savedFire, savedFriends, savedUI = ns.Fire, C_FriendList, ns.UI
+			local heard, ignoredCalls = {}, 0
+			ns.Fire = function(name, tier, sender, text) if name == "CHAT_LINE" then heard[#heard + 1] = text end end
+			C_FriendList = { IsIgnored = function() return false end, AddIgnore = function() ignoredCalls = ignoredCalls + 1 end }
+			local savedChat = ns.rdb.chat
+			ns.rdb.chat, ns.db.chatMute = nil, nil
+			local ok, err = pcall(function()
+				F.Add("junk")
+				F.Add("member81") -- a sender's name: never read
+				F.Add("olympus") -- a guild's word: never read
+				AsRank(3, function()
+					CHAT_LINES = {}
+					local shown, why = Chan.Receive("CHANNEL", "Member81", Msg("A", MY_GUILD, 8401, "selling JUNK cheap"), 2e6)
+					eq(shown, false); eq(why, "filtered")
+					eq(#CHAT_LINES, 0, "off the chat")
+					eq(#heard, 1, "a companion reading the chats still gets it")
+					eq(#Chan.History("A"), 1, "kept, for the Realm tab's click")
+					-- The same sender's next line shows: a line is hidden, never a player.
+					eq((Chan.Receive("CHANNEL", "Member81", Msg("A", MY_GUILD, 8402, "hello army"), 2e6 + 2)), true)
+					eq(#CHAT_LINES, 1)
+					eq(ns.db.blocked["member81-realm"], nil, "not blocked"); eq(ignoredCalls, 0, "not ignored")
+					-- The Realm tab's chats: the count, a click shows it marked, another hides it.
+					ns.UI = { Refresh = function() end, RefreshSoon = function() end, ChatWindow = function() end, StatusLine = function() return "" end }
+					ns.Views.ShowChat("A")
+					local lines = ns.Views.Build("realm")
+					local count = LineWith(lines, ns.L.FILTER_HIDDEN_LINES:format(1))
+					assert(count, "the count of hidden lines")
+					assert(not Texts(lines):find("selling JUNK", 1, true), "not shown")
+					assert(Texts(lines):find("hello army", 1, true))
+					count.onClick()
+					lines = ns.Views.Build("realm")
+					assert(LineWith(lines, ns.L.FILTER_SHOWING_LINES:format(1)), "showing")
+					local line = LineWith(lines, "selling JUNK")
+					assert(line and line.text:find(ns.L.FILTER_HIDDEN_MARK, 1, true), "shown, marked")
+					LineWith(lines, ns.L.FILTER_SHOWING_LINES:format(1)).onClick()
+					assert(not Texts(ns.Views.Build("realm")):find("selling JUNK", 1, true), "hidden again")
+					ns.Views.CloseChat()
+					-- The census and the Realm's guilds are never filtered.
+					ns.rdb.guilds = SampleGuilds()
+					assert(Texts(ns.Views.Build("census")):find("Olympus II", 1, true), "the census untouched")
+					ns.rdb.guilds = {}
+				end)
+			end)
+			ns.Fire, C_FriendList, ns.UI, ns.rdb.chat = savedFire, savedFriends, savedUI, savedChat
+			ns.Views.SetChatReveal(false)
+			ns.Views.CloseChat()
+			if not ok then error(err, 0) end
+			-- The game's own chat (Say, Trade, General) is never read: Filter.lua hooks none of it.
+			local src = assert(ReadFile(ADDON_DIR .. "Filter.lua"))
+			for _, hook in ipairs({ "ChatFrame_AddMessageEventFilter", "CHAT_MSG_SAY", "CHAT_MSG_CHANNEL", "CHAT_MSG_YELL", "RegisterEvent" }) do
+				assert(not src:find(hook, 1, true), "Filter.lua reads no game chat: " .. hook)
+			end
+		end)
+	end)
+
+	test("1.1 block terms (#31): a writ, a decree's words and a Vox Populi question the filter hits stay folded (no parchment, no alert, words hidden), and a click on the Decrees tab shows them", function()
+		Clean(function()
+			F.Add("treason")
+			WithThrone(function(w, K)
+				AsSoldier("Reader")
+				local savedShow, savedUI = ns.Acts.ShowWrit, ns.UI
+				local opened = {}
+				ns.Acts.ShowWrit = function(wr) opened[#opened + 1] = wr end
+				ns.UI = { Refresh = function() end, RefreshSoon = function() end, ShowCopy = function() end }
+				local ok, err = pcall(function()
+					-- A writ.
+					K.HandleCommand("CHANNEL", KING, "T1~W~77~Olympus~E~Treason is afoot in the south")
+					eq(#opened, 0, "no parchment"); assert(not Printed(w, ns.L.WRIT_ARRIVED:format(ns.KingName(KING))), "no alert")
+					local lines = ns.Views.Build("decrees")
+					local all = Texts(lines)
+					assert(all:find(ns.L.FILTER_WRIT_HIDDEN, 1, true), "the Decrees tab offers it")
+					assert(not all:find("Treason is afoot", 1, true), "its words hidden there")
+					LineWith(lines, ns.L.WRIT_FROM:format(ns.KingName(KING))).onClick()
+					eq(#opened, 1, "a click reads it"); eq(opened[1].text, "Treason is afoot in the south")
+					assert(Texts(ns.Views.Build("decrees")):find("Treason is afoot", 1, true), "then its words show")
+					-- A Vox Populi question: no window, no line in chat, until a click.
+					ns.db.voxOff = true
+					K.HandleCommand("CHANNEL", KING, "T1~V~88~Olympus~60~1~Is treason fine?~Yes~No")
+					assert(not Printed(w, "Is treason fine?"), "not in chat")
+					assert(ns.Vox.HiddenQuestion(), "held")
+					lines = ns.Views.Build("decrees")
+					local vox = LineWith(lines, ns.L.FILTER_VOX_HIDDEN)
+					assert(vox, "the Decrees tab offers it")
+					vox.onClick()
+					assert(Printed(w, "Is treason fine?"), "a click shows it, to vote while it is open")
+					eq(ns.Vox.HiddenQuestion(), nil)
+					-- An answer can hit it too.
+					ns.Vox.Reset()
+					w.clock = w.clock + 120
+					K.HandleCommand("CHANNEL", KING, "T1~V~89~Olympus~60~1~Who is loyal?~Treason~Loyalty")
+					assert(not Printed(w, "Who is loyal?"), "an answer hit: hidden")
+					-- Its results stay hidden with it.
+					local before = #w.printed
+					K.HandleCommand("CHANNEL", KING, "T1~E~89~Olympus~3~1~2")
+					eq(#w.printed, before, "no results line either")
+				end)
+				ns.Acts.ShowWrit, ns.UI = savedShow, savedUI
+				if not ok then error(err, 0) end
+			end)
+			-- A decree: its alarm and marker stay, its words don't (the raid warning, chat, the log).
+			local saved = { guild = GetGuildInfo, notice = RaidNotice_AddMessage, frame = RaidWarningFrame, alert = ns.PlayAlert, print = ns.Print, chat = C_ChatInfo, UI = ns.UI, decree = ns.Decree }
+			local warnings, printed = {}, {}
+			local ok, err = pcall(function()
+				GetGuildInfo = function() return "Olympus II", "Member", 3 end
+				RaidWarningFrame = {}
+				RaidNotice_AddMessage = function(_, text) warnings[#warnings + 1] = text end
+				ns.PlayAlert, ns.Print = function() end, function(m) printed[#printed + 1] = tostring(m) end
+				ns.UI = { Refresh = function() end, RefreshSoon = function() end, ShowCopy = function() end }
+				local cns, Deliver = FreshComm()
+				assert(loadfile(ADDON_DIR .. "Decree.lua"))("Olympus", cns)
+				Deliver("CHANNEL", KING, Codec.EncodeDecree("ROYAL", 1453, 0.5, 0.5, "Olympus", 0, "death to treason"))
+				eq(#warnings, 1, "the alarm")
+				assert(warnings[1]:find(ns.L.ROYAL, 1, true) and warnings[1]:find(ns.L.FILTER_WORDS_HIDDEN_SHORT, 1, true), warnings[1])
+				assert(not warnings[1]:find("treason", 1, true) and not printed[#printed]:find("treason", 1, true), "its words hidden")
+				-- The Decrees tab: the decree, its words behind a click.
+				ns.Decree = cns.Decree
+				local lines = ns.Views.Build("decrees")
+				local words = LineWith(lines, ns.L.FILTER_WORDS_HIDDEN)
+				assert(words, "the words behind a click")
+				words.onClick()
+				assert(Texts(ns.Views.Build("decrees")):find("death to treason", 1, true), "shown after the click")
+				-- The log keeps its words, hidden the same way.
+				local e = ns.Chronicle.Entries()[#ns.Chronicle.Entries()]
+				eq(e.words, "death to treason")
+				assert(ns.Chronicle.Line(e):find(ns.L.FILTER_WORDS_HIDDEN_SHORT, 1, true), "hidden in the log")
+				local line
+				for _, l in ipairs(ns.Chronicle.AddLines({})) do if l.onClick and l.text:find(ns.L.ACTS_KIND_DECREE, 1, true) then line = l end end
+				assert(line, "a click on the entry shows them"); line.onClick()
+				assert(ns.Chronicle.Line(e):find("death to treason", 1, true))
+			end)
+			GetGuildInfo, RaidNotice_AddMessage, RaidWarningFrame, ns.PlayAlert, ns.Print, C_ChatInfo, ns.UI, ns.Decree =
+				saved.guild, saved.notice, saved.frame, saved.alert, saved.print, saved.chat, saved.UI, saved.decree
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 block terms (#31): the shared list: taken from the King, his Steward, a Hand or a signed High Councillor alone; word by word, the newest time winning; each player may ignore it; its edits in the log of acts", function()
+		Clean(function()
+			local now = os.time()
+			local savedNow, savedST, savedMe, savedGuild = ns.Now, GetServerTime, ns.me, GetGuildInfo
+			local ok, err = pcall(function()
+				ns.Now = function() return now end
+				GetServerTime = function() return now end
+				GetGuildInfo = function() return "Olympus II", "Member", 3 end
+				ns.rdb.council = { names = { ["test councillor"] = true } }
+				local function Page(sender, entries)
+					F.Receive("CHANNEL", sender, "BW~00000000~" .. entries)
+				end
+				-- Anyone else: nothing.
+				Page("Random Player-Realm", "+junk@" .. now)
+				Page("Faker-OtherRealm", "+junk@" .. now)
+				eq((ns.rdb.filterShared or {}).junk, nil, "not an editor: refused")
+				F.Receive("GUILD", COUNCILLOR, "BW~00000000~+junk@" .. now)
+				eq((ns.rdb.filterShared or {}).junk, nil, "the channel only")
+				-- A High Councillor of the signed list, and the King by his name.
+				Page(COUNCILLOR, "+junk@" .. now)
+				eq(F.Hides("junk mail"), true, "the shared list hides lines")
+				Page(KING, "+scam@" .. (now + 1))
+				eq(F.Hides("a scam"), true)
+				-- A Hand (the King's list) and the Steward (the signed titles list) too.
+				local savedHand, savedSteward = ns.King.IsHandName, ns.King.IsStewardName
+				ns.King.IsHandName = function(n) return n == "Hand Person-Realm" end
+				ns.King.IsStewardName = function(n) return n == "Steward Person-Realm" end
+				Page("Hand Person-Realm", "+spam@" .. now)
+				Page("Steward Person-Realm", "+fraud@" .. now)
+				ns.King.IsHandName, ns.King.IsStewardName = savedHand, savedSteward
+				eq(F.Hides("spam"), true); eq(F.Hides("fraud"), true)
+				-- Word by word: an editor with an older or shorter list takes nothing away.
+				Page(COUNCILLOR, "-junk@" .. (now - 10) .. ",+other@" .. now)
+				eq(F.Hides("junk"), true, "an older removal changes nothing")
+				eq(F.Hides("scam"), true, "a list without a word keeps it")
+				Page(COUNCILLOR, "-junk@" .. (now + 5))
+				eq(F.Hides("junk"), false, "a newer removal")
+				Page(KING, "+junk@" .. (now + 2))
+				eq(F.Hides("junk"), false, "and an older add doesn't bring it back")
+				Page(KING, "+ahead@" .. (now + F.AHEAD + 5) .. ",+Upper@" .. now .. ",+two words@" .. now)
+				eq(F.Hides("ahead"), false, "dated ahead of the server's clock: not taken")
+				eq(F.Hides("upper"), false, "a word not as the list keeps it: not taken")
+				-- Each player may ignore it; their own list stays.
+				F.Add("mine")
+				SlashCmdList.OLYMPUS("filter shared off")
+				eq(F.Hides("scam"), false); eq(F.Hides("mine"), true)
+				SlashCmdList.OLYMPUS("filter shared on")
+				eq(F.Hides("scam"), true)
+				-- The log of acts: each edit seen being made, by the server's name; its words hidden
+				-- by the list itself (a click shows them); a list a late login catches up on, not.
+				local kinds = {}
+				for _, e in ipairs(ns.Chronicle.Entries()) do if e.kind == "terms" then kinds[#kinds + 1] = e.by .. " " .. e.words end end
+				eq(table.concat(kinds, "|"), COUNCILLOR .. " +junk|" .. KING .. " +scam|Hand Person-Realm +spam|Steward Person-Realm +fraud|"
+					.. COUNCILLOR .. " +other|" .. COUNCILLOR .. " -junk")
+				assert(ns.Chronicle.Line(ns.Chronicle.Entries()[2]):find(ns.L.FILTER_WORDS_HIDDEN_SHORT, 1, true), "the term itself hidden")
+				local count = #ns.Chronicle.Entries()
+				Page(KING, "+oldword@" .. (now - 2 * 86400))
+				eq(F.Hides("oldword"), true, "an old word is taken")
+				eq(#ns.Chronicle.Entries(), count, "but not logged as an edit this client saw")
+			end)
+			ns.Now, GetServerTime, ns.me, GetGuildInfo = savedNow, savedST, savedMe, savedGuild
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 block terms (#31): an editor's client sends an edit at once and repeats the whole list (not when it just heard the same list); every message stands alone within 255 bytes; a client without the handler (1.0) drops it quietly", function()
+		Clean(function()
+			local now = os.time()
+			local saved = { Now = ns.Now, ST = GetServerTime, me = ns.me, guild = GetGuildInfo, send = ns.Comm.Send, print = ns.Print, random = F.random }
+			local sent, printed = {}, {}
+			local ok, err = pcall(function()
+				ns.Now = function() return now end
+				GetServerTime = function() return now end
+				ns.Comm.Send = function(dist, msg, key) sent[#sent + 1] = { dist = dist, msg = msg, key = key } end
+				ns.Print = function(m) printed[#printed + 1] = tostring(m) end
+				F.random = function() return 0 end
+				ns.rdb.council = { names = { ["test councillor"] = true } }
+				-- Not an editor: nothing sent.
+				GetGuildInfo = function() return "Olympus II", "Member", 3 end
+				ns.me = "Plain Soldier-Realm"
+				eq(F.EditShared("scam", true), nil); eq(printed[#printed], ns.L.FILTER_NOT_EDITOR); eq(#sent, 0)
+				-- A High Councillor: the edit at once, in the log by his own name.
+				ns.me = COUNCILLOR
+				F.OnLogin()
+				-- A word not on the list: nothing to remove, nothing sent.
+				SlashCmdList.OLYMPUS("filter shared remove nothere")
+				eq(#sent, 0); eq(printed[#printed], ns.L.FILTER_NOT_THERE:format("nothere")); eq((ns.rdb.filterShared or {}).nothere, nil)
+				SlashCmdList.OLYMPUS("filter shared add Scam")
+				eq(#sent, 1); eq(sent[1].dist, "CHANNEL")
+				assert(sent[1].msg:find("^BW~%x+~%+scam@" .. now .. "$"), sent[1].msg)
+				eq(printed[#printed], ns.L.FILTER_SHARED_ADDED:format("scam"))
+				local last = ns.Chronicle.Entries()[#ns.Chronicle.Entries()]
+				eq(last.kind, "terms"); eq(last.by, COUNCILLOR); eq(last.words, "+scam")
+				SlashCmdList.OLYMPUS("filter shared remove scam")
+				assert(sent[2].msg:find("^BW~%x+~%-scam@" .. (now + 1) .. "$"), sent[2].msg)
+				-- The repeat: every REPEAT, the whole list, in messages of PAGE bytes that each stand alone.
+				for i = 1, 30 do ns.rdb.filterShared["word" .. i .. "x"] = { on = true, at = now - i, by = KING } end
+				eq(F.Tick(), false, "after login: not before LOGIN_WAIT")
+				now = now + F.LOGIN_WAIT + 1
+				sent = {}
+				eq(F.Tick(), true)
+				assert(#sent >= 3, "the whole list takes several messages: " .. #sent)
+				local fresh = {}
+				for _, s in ipairs(sent) do
+					assert(#s.msg <= 255, "within a message: " .. #s.msg)
+					assert(s.msg:find("^BW~" .. F.Digest() .. "~"), "each names the whole list")
+					fresh[#fresh + 1] = s.msg
+				end
+				-- Each parses alone, on a client that had nothing: the same list, the same digest.
+				local mine = ns.rdb.filterShared
+				ns.rdb.filterShared = nil
+				ns.me = "Plain Soldier-Realm"
+				for i = #fresh, 1, -1 do F.Receive("CHANNEL", COUNCILLOR, fresh[i]) end
+				eq(F.Digest(), fresh[1]:match("^BW~(%x+)~"), "the same list")
+				ns.rdb.filterShared, ns.me = mine, COUNCILLOR
+				-- Heard another client holding the same list: this one waits.
+				now = now + F.REPEAT + 1
+				F.Receive("CHANNEL", KING, fresh[1])
+				sent = {}
+				eq(F.Tick(), false, "just heard the same list"); eq(#sent, 0)
+				now = now + F.REPEAT + 1
+				eq(F.Tick(), true)
+				-- A client without the handler (a 1.0 client): dropped quietly, nothing counted as bad.
+				local cns, Deliver = FreshComm()
+				local bad = cns.Comm.Stats().bad
+				Deliver("CHANNEL", COUNCILLOR, fresh[1])
+				eq(cns.Comm.Stats().bad, bad, "not read as a broken census report")
+			end)
+			ns.Now, GetServerTime, ns.me, GetGuildInfo, ns.Comm.Send, ns.Print, F.random = saved.Now, saved.ST, saved.me, saved.guild, saved.send, saved.print, saved.random
+			C_ChatInfo = nil
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 block terms (#31): the shared list holds 50 words; the King's screen shows the terms cut short (his stream); the words in both languages; both pages and their privacy tables say what goes out", function()
+		Clean(function()
+			local now = os.time()
+			local saved = { Now = ns.Now, ST = GetServerTime, me = ns.me, guild = GetGuildInfo, print = ns.Print, p = print }
+			local printed = {}
+			local ok, err = pcall(function()
+				ns.Now = function() return now end
+				GetServerTime = function() return now end
+				GetGuildInfo = function() return "Olympus II", "Member", 3 end
+				local entries = {}
+				for i = 1, F.SHARED_MAX + 5 do entries[#entries + 1] = "+cap" .. i .. "w@" .. now end
+				for i = 1, #entries, 20 do F.Receive("CHANNEL", KING, "BW~00000000~" .. table.concat(entries, ",", i, math.min(i + 19, #entries))) end
+				eq(#F.SharedTerms(), F.SHARED_MAX, "50 words at most")
+				-- The King's own screen: every term cut short.
+				ns.rdb.filterShared = { slur = { on = true, at = now, by = KING } }
+				ns.Print = function(m) printed[#printed + 1] = tostring(m) end
+				local lines = {}
+				print = function(s) lines[#lines + 1] = tostring(s) end
+				GetGuildInfo = function() return "Olympus", "King", 0 end
+				ns.me = KING
+				SlashCmdList.OLYMPUS("filter")
+				eq(lines[2], "  " .. ns.L.FILTER_LIST_SHARED:format("s***"))
+			end)
+			ns.Now, GetServerTime, ns.me, GetGuildInfo, ns.Print, print = saved.Now, saved.ST, saved.me, saved.guild, saved.print, saved.p
+			if not ok then error(err, 0) end
+		end)
+		local pt = { L = setmetatable({}, { __index = function() return nil end }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		for _, key in ipairs({ "FILTER_ADDED", "FILTER_REMOVED", "FILTER_NOT_THERE", "FILTER_BAD_TERM", "FILTER_FULL", "FILTER_STATUS",
+			"FILTER_SHARED_USED", "FILTER_SHARED_IGNORED", "FILTER_LIST_MINE", "FILTER_LIST_SHARED", "FILTER_NONE", "FILTER_USAGE",
+			"FILTER_SHARED_ON", "FILTER_SHARED_OFF", "FILTER_NOT_EDITOR", "FILTER_SHARED_ADDED", "FILTER_SHARED_REMOVED",
+			"FILTER_SHARED_ALREADY", "FILTER_SHARED_FULL", "FILTER_HIDDEN_LINES", "FILTER_SHOWING_LINES", "FILTER_HIDDEN_MARK",
+			"FILTER_TIP_TITLE", "FILTER_TIP", "FILTER_WORDS_HIDDEN", "FILTER_WORDS_HIDDEN_SHORT", "FILTER_WRIT_HIDDEN",
+			"FILTER_VOX_HIDDEN", "ACTS_TERMS", "HELP_FILTER" }) do
+			local en, br = rawget(ns.L, key), rawget(pt.L, key)
+			assert(type(en) == "string" and en ~= "", "English " .. key)
+			assert(type(br) == "string" and br ~= "" and br ~= en, "pt-BR " .. key)
+			local function Args(s) local out = {} for a in s:gmatch("%%%a") do out[#out + 1] = a end return table.concat(out) end
+			eq(Args(br), Args(en), key .. ": format arguments")
+		end
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path), path):gsub("%s+", " ")
+			for _, must in ipairs({ "`/oly filter add", "`/oly filter shared off`", "Whole words only", "The shared block terms (1.1): each word", "every 10 minutes" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+		end
+	end)
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

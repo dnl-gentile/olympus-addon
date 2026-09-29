@@ -51,6 +51,25 @@ local function Label(tier)
 	return L[TIERS[tier].label]
 end
 
+-- 1.1 (Fern's #11): the Olympus chats are the player's choice, on the first-open page
+-- (Consent.lua) or /oly chat on|off. Off until they answer (ns.db.addonChat is nil until then,
+-- account-wide), and off after a No: this client neither sends nor shows [Olympus], [Captains]
+-- or [Lords]. A line that arrives is dropped before anything keeps it (no history, nothing to
+-- the Realm tab or a companion through the bridge); the client still sits in the channel, for
+-- the census.
+function Channels.ChatOn() return ns.db ~= nil and ns.db.addonChat == true end
+function Channels.ChatState()
+	local v = ns.db and ns.db.addonChat
+	return v == true and "on" or (v == false and "off" or "not chosen (off)")
+end
+function Channels.SetChatOn(on)
+	ns.db.addonChat = on and true or false
+	ns.Print(on and L.CHAT_ON_MSG or L.CHAT_OFF_MSG)
+	ns.Fire("CHAT_CHANGED")
+end
+local offHinted = false -- a line dropped while unanswered: said once a session
+function Channels.ResetOffHint() offHinted = false end -- tests
+
 local function Muted()
 	ns.db.chatMute = ns.db.chatMute or {}
 	return ns.db.chatMute
@@ -372,9 +391,10 @@ local function Accept(tier, sender, guild, class, text, mine)
 	return true, "ok"
 end
 
--- The lines of a channel we may read (for a future Channels view, with CHAT_CHANGED).
+-- The lines of a channel we may read (for a future Channels view, with CHAT_CHANGED). None
+-- while the chats are off on this client (1.1): lines kept before that don't show either.
 function Channels.History(tier)
-	if not Channels.CanUse(tier) then return {} end
+	if not Channels.CanUse(tier) or not Channels.ChatOn() then return {} end
 	return Store(tier)
 end
 
@@ -397,6 +417,16 @@ function Channels.Send(tier, text, now)
 	if not Channels.CanUse(tier) then
 		ns.Print(L[t.deny]:format(Label(tier)))
 		return false, "rank"
+	end
+	-- The chats off on this client (1.1): nothing leaves. Never answered: the page asks.
+	if not Channels.ChatOn() then
+		if ns.db.addonChat == nil then
+			ns.Print(L.CHAT_OFF_UNANSWERED)
+			if ns.Consent and ns.Consent.Ask then ns.Consent.Ask("chat") end
+		else
+			ns.Print(L.CHAT_OFF)
+		end
+		return false, "off"
 	end
 	text = Codec.SanitizeChat(text)
 	if text == "" then
@@ -562,6 +592,15 @@ end
 -- Returns shown, reason.
 function Channels.Receive(dist, sender, text, now)
 	if dist ~= "CHANNEL" then return false, "dist" end
+	-- The chats off on this client (1.1): dropped before anything reads or keeps the line.
+	if not Channels.ChatOn() then
+		stats.off = (stats.off or 0) + 1
+		if ns.db and ns.db.addonChat == nil and not offHinted and ns.IsMember() then
+			offHinted = true
+			ns.Print(L.CHAT_OFF_UNANSWERED)
+		end
+		return false, "off"
+	end
 	now = now or GetTime()
 	sender = ns.FullName(sender)
 	local m = Codec.DecodeChat(text)
@@ -613,6 +652,16 @@ function Channels.Receive(dist, sender, text, now)
 		stats[reason] = stats[reason] + 1
 		LogDrop(sender, m, reason, now)
 		return false, reason
+	end
+	-- 1.1 (#31): a line the player's block terms hide (Filter.lua) stays off the chat frame. It is
+	-- kept, for the Realm tab's "N lines hidden" and its click to show them, and a companion reading
+	-- the chats still gets it: the filter only decides what this player sees. Nothing else happens
+	-- to its sender (no ignore, no block): their next line shows.
+	local F = ns.Filter
+	if F and not F.missing and F.Hides(m.text) then
+		stats.filtered = (stats.filtered or 0) + 1
+		Keep(m.tier, sender, m.guild, m.class, m.text, false)
+		return false, "filtered"
 	end
 	-- A muted channel only goes to history, so it takes nothing from the flood guard. A line
 	-- the guard keeps off the chat frame still goes to the history (the Realm tab's chats stay

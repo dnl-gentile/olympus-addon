@@ -53,7 +53,7 @@ local function PinEnter(self)
 	local d = self.decree
 	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 	GameTooltip:AddLine(Label(d), 1, 0.25, 0.25)
-	if d.text ~= "" then GameTooltip:AddLine(d.text, 1, 1, 1, true) end
+	if d.text ~= "" then GameTooltip:AddLine(Decree.Words(d), 1, 1, 1, true) end
 	GameTooltip:AddLine(L.DECREE_BY:format(d.sender, d.guild ~= "" and d.guild or "?", ns.Ago(d.t)), 0.7, 0.7, 0.7)
 	GameTooltip:Show()
 end
@@ -75,6 +75,13 @@ local function MakePin(d)
 	return f
 end
 
+-- A decree's words as they show: the player's block terms hide them until a click on the Decrees
+-- tab shows them (1.1, #31); the decree itself, its alarm and its marker stay.
+function Decree.Words(d)
+	if d.hidden and not d.revealed then return ns.L.FILTER_WORDS_HIDDEN_SHORT end
+	return d.text or ""
+end
+
 -- own: sent or previewed here (the player's click): shown in an instance too. Anyone else's
 -- waits there, and on Busy (1.1, ns.Alert): its chat line and its line on the Decrees tab now,
 -- its raid warning once the player is out, if it has not expired by then.
@@ -82,7 +89,7 @@ local function Show(d, own)
 	d.expires = d.t + DURATION[d.kind]
 	table.insert(active, 1, d)
 	local zone = ns.Zones.NameForKey("m" .. d.mapID)
-	local text = ("%s %s%s"):format(Label(d), zone, d.text ~= "" and (" - " .. d.text) or "")
+	local text = ("%s %s%s"):format(Label(d), zone, d.text ~= "" and (" - " .. Decree.Words(d)) or "")
 	ns.Print(("|cffff4040%s|r  (%s <%s>)"):format(text, d.sender, d.guild))
 	ns.Alert(SOUND[d.kind] or "muster", d.kind == "MUSTER" and "soft" or "loud", {
 		text = text, color = { r = 1, g = 0.3, b = 0.1 }, own = own,
@@ -155,6 +162,8 @@ function Decree.Send(kind, text)
 	local rank = steward and 0 or ns.Roster.MyRank()
 	-- Logged (1.0.0): the server keeps its words, so abuse can be reported (Comm.Send).
 	ns.Comm.Send("CHANNEL", ns.Codec.EncodeDecree(kind, mapID, x, y, guild, rank, text), nil, nil, true)
+	-- 1.1 (#12): our own decree never comes back to us: in our log as we send it.
+	ns.Chronicle.Add("decree", ns.me, Label({ kind = kind }) .. " " .. ns.Zones.NameForKey("m" .. mapID), { words = text })
 	Show({ kind = kind, mapID = mapID, x = x, y = y, guild = guild, rank = rank, text = text or "", sender = ns.DisplayName(ns.me), t = now }, true)
 end
 
@@ -239,6 +248,11 @@ ns.Comm.Handle("D1", function(dist, sender, text)
 		d.text = ""
 	end
 	d.sender, d.t = ns.DisplayName(sender), now
+	-- 1.1 (#31): its words hidden when the player's block terms hit them (Filter.lua).
+	local F = ns.Filter
+	if d.text ~= "" and F and not F.missing and F.Hides(d.text) then d.hidden = true end
+	-- 1.1 (#12): in this client's log of acts, with the name the server stamped.
+	ns.Chronicle.Add("decree", sender, Label(d) .. " " .. ns.Zones.NameForKey("m" .. d.mapID), { words = d.text })
 	Show(d)
 end)
 

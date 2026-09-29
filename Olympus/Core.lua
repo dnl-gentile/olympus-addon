@@ -1427,6 +1427,9 @@ StandIn("Link", { "Slash" })
 StandIn("Borders", { "SetEnabled", "Report" })
 StandIn("Nameplates", { "SetEnabled", "Report" })
 StandIn("Members", { "Show", "SetWarnDays" }) -- (1.1)
+StandIn("Consent", { "Show" }) -- 1.1: the first-open page (Consent.lua)
+StandIn("Chronicle", { "Slash" }) -- 1.1: the log of acts this client saw (Chronicle.lua)
+StandIn("Filter", { "Slash" }) -- 1.1: block terms (Filter.lua)
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1505,7 +1508,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Members" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Consent", "Chronicle", "Filter", "Members" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1552,6 +1555,10 @@ local function Help()
 	print(L.HELP_LAYERAUTO)
 	print(L.HELP_LOCATION)
 	print(L.HELP_ROLLCALL)
+	print(L.HELP_PRIVACY_PAGE)
+	print(L.HELP_CHAT)
+	print(L.HELP_LOG)
+	print(L.HELP_FILTER)
 	print(L.HELP_TREASURER)
 	print(L.HELP_INSPECTION)
 	print(L.HELP_BORDERS)
@@ -1675,7 +1682,9 @@ SlashCmdList.OLYMPUS = function(input)
 			-- Taking part in the King's Royal Inspection (a patrol of 2 minutes that reports to him).
 			local on = rest:lower()
 			if on == "on" or on == "off" then ns.db.royalInspection = on == "on" end
-			ns.Print(ns.db.royalInspection == false and L.INSPECTION_OPT_OFF or L.INSPECTION_OPT_ON)
+			-- (1.1: never answered is off, and says so.)
+			local v = ns.db.royalInspection
+			ns.Print(v == true and L.INSPECTION_OPT_ON or (v == false and L.INSPECTION_OPT_OFF or L.INSPECTION_OPT_UNANSWERED))
 		elseif cmd == "nameplates" then
 			-- The marks left of the names on friendly players' nameplates (Nameplates.lua), alone: on or off.
 			local on = rest:lower()
@@ -1704,7 +1713,8 @@ SlashCmdList.OLYMPUS = function(input)
 			if on == "on" or on == "off" then
 				ns.Workshop.SetAnswers(on == "on")
 			else
-				ns.Print(ns.Workshop.Answers() and L.ROLLCALL_ON or L.ROLLCALL_OFF)
+				local v = ns.db.rollCall
+				ns.Print(v == true and L.ROLLCALL_ON or (v == false and L.ROLLCALL_OFF or L.ROLLCALL_UNANSWERED))
 			end
 		elseif cmd == "location" then
 			-- Sharing zone and layer on the Olympus channel (Layers.Sharing); alone, says which.
@@ -1713,6 +1723,24 @@ SlashCmdList.OLYMPUS = function(input)
 				ns.Layers.SetSharing(on == "on")
 			else
 				ns.Print(ns.Layers.Sharing() and L.LOCATION_ON or L.LOCATION_OFF)
+			end
+		elseif cmd == "filter" or cmd == "filtro" then
+			-- 1.1 (Fern's #31): block terms, the player's own and the shared list (Filter.lua).
+			ns.Filter.Slash(rest)
+		elseif cmd == "log" then
+			-- 1.1 (Fern's #12): the acts this client saw (Chronicle.lua): [n], a word, copy, clear.
+			ns.Chronicle.Slash(rest)
+		elseif cmd == "privacy" or cmd == "privacidade" then
+			-- 1.1 (Fern's #11): the page of what this addon shares, each answer to change (Consent.lua).
+			ns.Consent.Show()
+		elseif cmd == "chat" then
+			-- 1.1: the Olympus chats on this client (Channels.ChatOn); alone, says which.
+			local on = rest:lower()
+			if on == "on" or on == "off" then
+				ns.Channels.SetChatOn(on == "on")
+			else
+				local v = ns.db.addonChat
+				ns.Print(v == true and L.CHAT_ON_MSG or (v == false and L.CHAT_OFF_MSG or L.CHAT_OFF_UNANSWERED))
 			end
 		elseif cmd == "officer" then
 			ns.Print(ns.L.OFFICER_FIXED)

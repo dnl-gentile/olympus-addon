@@ -1029,6 +1029,14 @@ function Treasury.Consent()
 	return nil
 end
 
+-- His answer to 1.0's question alone (true, false, or nil while he gave none): what the
+-- first-open page shows him (1.1, Consent.lua), and what AskConsent waits for.
+function Treasury.ConsentAnswer()
+	local shares = ns.db and ns.db.keeperShares
+	if type(shares) ~= "table" then return nil end
+	return shares[ConsentKey()]
+end
+
 -- Only a real keeper's client sends (never the author's view), and only with his yes.
 local function CanSend() return RealKeeper() and Treasury.Consent() == true end
 Treasury.CanSend = CanSend
@@ -1116,6 +1124,8 @@ function Treasury.AskConsent()
 	local shares = ns.db and ns.db.keeperShares
 	if asked or not RealKeeper() or (type(shares) == "table" and shares[ConsentKey()] ~= nil) then return false end
 	if (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance()) then return false end
+	-- (1.1: the first-open page asked it this session, or is up: this question is on it.)
+	if ns.Consent and ns.Consent.Covers and ns.Consent.Covers("treasurer") then return false end
 	asked = true
 	ns.ShowDialog("OLYMPUS_TREASURER_SHARE", ns.Comm.Audience and ns.Comm.Audience() or "")
 	return true
@@ -1656,6 +1666,8 @@ function Treasury.SetFlag(what, on)
 	else
 		ns.rdb.treasuryFlags = f
 		Treasury.SendFlags(true)
+		-- 1.1 (#12): our own switch never comes back to us: in our log as we send it.
+		Treasury.LogFlags(ns.me, f)
 	end
 	ns.Fire("TREASURY_CHANGED")
 	ns.Fire("DATA_CHANGED")
@@ -1686,6 +1698,9 @@ function Treasury.TakeFlags(digits, at, sender)
 	local was = type(kept) == "table" and FlagDigits(kept) or "000"
 	local f = { balance = b == "1", ranking = r == "1", book = k == "1", at = at, t = ns.Now(), from = ns.FullName(sender) }
 	ns.rdb.treasuryFlags = f
+	-- 1.1 (#12): in this client's log of acts when what the army sees changes (the word is
+	-- repeated), with the name the server stamped (the Treasurer's, when his book carried it).
+	Treasury.LogFlags(sender, f)
 	if FlagDigits(f) ~= was then
 		TellKing(sender, L.STEWARD_SET_FLAGS)
 		-- A keeper is told who sees the treasury now.
@@ -1694,6 +1709,17 @@ function Treasury.TakeFlags(digits, at, sender)
 		ns.Fire("DATA_CHANGED") -- the tab appears or goes
 	end
 end
+-- What the army sees of the treasury, in this client's log of acts (1.1, #12): once each time it
+-- changes; nothing shown is where it starts.
+function Treasury.LogFlags(sender, f)
+	local shown = {}
+	for _, k in ipairs(FLAGS) do
+		if f[k] then shown[#shown + 1] = L["ACTS_TREASURY_" .. k:upper()] end
+	end
+	local what = L.ACTS_TREASURY:format(#shown > 0 and table.concat(shown, ", ") or L.ACTS_TREASURY_NOTHING)
+	return ns.Chronicle.Add("switch", sender, what, { key = "treasury", value = FlagDigits(f), default = "000" })
+end
+
 ns.King.Register("T", function(sender, id, rest)
 	local digits, at = tostring(rest or ""):match("^([01][01][01])~(%d+)$")
 	Treasury.TakeFlags(digits, at, sender)

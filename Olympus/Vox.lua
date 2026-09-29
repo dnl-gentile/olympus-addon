@@ -480,9 +480,15 @@ function Vox.Refresh()
 	end
 end
 
-function Vox.Show(asker, id, seconds, q, answers, multi, byKing)
+function Vox.Show(asker, id, seconds, q, answers, multi, byKing, hidden)
 	shown = { id = id, asker = asker, q = q, answers = answers, multi = multi and true or false, at = ns.Now() + seconds,
-		byKing = byKing, picks = {} }
+		byKing = byKing, picks = {}, hidden = hidden and true or nil }
+	-- 1.1 (#31): the player's block terms hit its question or an answer: no window, no sound, no
+	-- line in chat; the Decrees tab offers it with a click while it is open (Vox.Reveal).
+	if hidden then
+		ns.Fire("DECREES_CHANGED")
+		return
+	end
 	if ns.db.voxOff then
 		local list = {}
 		for i, a in ipairs(answers) do list[i] = ("%d) %s"):format(i, a) end
@@ -540,7 +546,36 @@ local function OnQuestion(sender, id, rest, guild)
 	if open and shown.asker ~= from and not (byKing and not shown.byKing) then return end
 	if now - (lastShownBy[from] or -math.huge) < Vox.SHOW_GAP then return end
 	lastShownBy[from] = now
-	Vox.Show(from, id, seconds, q, answers, kind == "M", byKing)
+	-- 1.1 (#31): hidden when the player's block terms hit the question or an answer (Filter.lua).
+	local F, hidden = ns.Filter, false
+	if F and not F.missing then
+		hidden = F.Hides(q)
+		for _, x in ipairs(answers) do hidden = hidden or F.Hides(x) end
+	end
+	Vox.Show(from, id, seconds, q, answers, kind == "M", byKing, hidden)
+end
+
+-- The question the player's block terms hid, while it is open (the Decrees tab), or nil.
+function Vox.HiddenQuestion()
+	if shown and shown.hidden and ns.Now() <= shown.at and not shown.counts then return shown end
+	return nil
+end
+
+-- A click shows it: its window (or its line in chat with /oly vox off), to vote while it is open.
+function Vox.Reveal()
+	if not (shown and shown.hidden) then return end
+	shown.hidden = nil
+	ns.Fire("DECREES_CHANGED")
+	if ns.Now() > shown.at or shown.counts then return end
+	if ns.db.voxOff then
+		local list = {}
+		for i, a in ipairs(shown.answers) do list[i] = ("%d) %s"):format(i, a) end
+		return ns.Print(L.VOX_CHAT:format(shown.byKing and ns.KingName(shown.asker) or ns.DisplayName(shown.asker), shown.q, table.concat(list, "  "), KindText(shown.multi)))
+	end
+	frame = frame or MakeFrame()
+	frame.live = nil
+	frame:Show()
+	Vox.Refresh()
 end
 
 local function OnResults(sender, id, rest)
@@ -554,6 +589,8 @@ local function OnResults(sender, id, rest)
 	end
 	for i = #counts + 1, #shown.answers do counts[i] = 0 end
 	shown.counts, shown.voters, shown.resultsAt = counts, math.min(voters, Vox.MAX_VOTES), ns.Now()
+	-- (1.1, #31: a question the player's block terms hid stays hidden with its results.)
+	if shown.hidden then return end
 	ns.Print(L.VOX_RESULT:format(shown.q, Vox.Verdict(shown.answers, counts, shown.voters, shown.multi),
 		Vox.ResultText(shown.answers, counts, shown.voters, shown.multi)))
 	-- Voted or not, the window shows the chart (chat-only players read the line). The
@@ -784,7 +821,7 @@ function Vox.SetOff(off)
 	ns.db.voxOff = off and true or nil
 	ns.Print(off and L.VOX_OFF or L.VOX_ON)
 	-- Back on while a question is open: its window, to vote now.
-	if not off and shown and ns.Now() <= shown.at and not shown.counts and not shown.voted then
+	if not off and shown and ns.Now() <= shown.at and not shown.counts and not shown.voted and not shown.hidden then
 		frame = frame or MakeFrame()
 		frame.live = nil
 		frame:Show()

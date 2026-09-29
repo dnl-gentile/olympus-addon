@@ -361,12 +361,22 @@ function ns.StatusText()
 		if ns.faction == "Horde" then
 			add("Horde King: %s, realm %s", tostring(ns.KING_CHARACTER.Horde), tostring(ns.KingRealm and ns.KingRealm() or "?"))
 		end
-		add("royal inspection: %s (/oly inspection on|off)", ns.db.royalInspection == false and "not taking part" or "taking part when sampled")
+		-- (1.1, Fern's #11: each off until answered, on the first-open page or its command.)
+		local ri = ns.db.royalInspection
+		add("royal inspection: %s (/oly inspection on|off)", ri == true and "taking part when sampled" or (ri == false and "not taking part" or "not chosen (not taking part)"))
 		-- 1.1: the switch for all alert sounds, and the kinds silenced on their own.
 		add("alerts: %s", ns.AlertStatus and ns.AlertStatus() or "?")
-		add("author's roll call: %s (/oly rollcall on|off)", ns.Workshop and ns.Workshop.Answers and (ns.Workshop.Answers() and "answered" or "refused") or "?")
+		add("author's roll call: %s (/oly rollcall on|off)", ns.Workshop and ns.Workshop.AnswerState and ns.Workshop.AnswerState() or "?")
 		-- (1.1) The author's released version as his presence named it, and whether this client is behind it.
 		add("%s", ns.Workshop and ns.Workshop.VersionLine and ns.Workshop.VersionLine() or "author's released version: ?")
+		add("olympus chats: %s (/oly chat on|off)  |  layer help: %s", ns.Channels and ns.Channels.ChatState and ns.Channels.ChatState() or "?",
+			ns.db.layerHelp == true and "on" or (ns.db.layerHelp == false and "off" or "not chosen (off)"))
+		-- (1.1: block terms, #31; the log of acts, #12: counts only, never the words or the entries.)
+		local F = ns.Filter
+		if F and not F.missing and F.Mine then
+			add("block terms: %d yours, %d shared (%s)%s  |  acts log: %d entries", #F.Mine(), #F.SharedTerms(), F.SharedOn() and "used" or "ignored",
+				F.CanEdit() and ", you edit the shared list" or "", ns.Chronicle and ns.Chronicle.Entries and #ns.Chronicle.Entries() or 0)
+		end
 		-- Olympus Link (0.9.10): the key's id and tier only, never the key.
 		add("discord link: %s", ns.Link and ns.Link.StatusLine and ns.Link.StatusLine() or "not loaded")
 	end
