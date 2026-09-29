@@ -18,7 +18,8 @@ local L = ns.L
 --   T3~<id>~<guild>~<ok>~<none>~<other>~<name:guild,...>   an inspection report
 -- Other modules add their own kinds (King.Register): Vox Populi (V, E), writs (W), the court
 -- (C, Z), the gates (G), pardons (F), the treasury's switches and keepers (T, K: his and his
--- Steward's), the King's week and its signup sheet (D, R, 1.1: Week.lua).
+-- Steward's), the King's week and its signup sheet (D, R, 1.1: Week.lua), the dues' weekly
+-- amount (Y, 1.1: his and his Steward's, Dues.lua).
 -- The King's Steward (1.0.0, ns.IsSteward: the character the author marks in the signed titles
 -- list) has the Throne as the King has it, "acting for the King": he names and removes Hands of
 -- his own beside the King's, the treasury's keepers and its switches, and uses every tool of a
@@ -176,9 +177,10 @@ local function NewId() return math.random(1, 99999) end
 
 King.HAND_MAY = { S = true, I = true, A = true, X = true, V = true, E = true, G = true }
 -- The Steward's: everything a Hand may, his own list of Hands (N), and the treasury's switches
--- and keepers (T, K, Treasury.lua). Never the King's list of Hands (H), his crown on the map
--- (P, Q), the court (C, Z), writs (W), pardons (F) or the untabarded list (U).
-King.STEWARD_MAY = { S = true, I = true, A = true, X = true, V = true, E = true, G = true, N = true, T = true, K = true }
+-- and keepers (T, K, Treasury.lua), and its dues' amount (Y, 1.1, Dues.lua). Never the King's
+-- list of Hands (H), his crown on the map (P, Q), the court (C, Z), writs (W), pardons (F) or the
+-- untabarded list (U).
+King.STEWARD_MAY = { S = true, I = true, A = true, X = true, V = true, E = true, G = true, N = true, T = true, K = true, Y = true }
 -- 1.1: the calls to the army a Hand or a Steward sends (popups, raid warnings, windows, the gates'
 -- news): none shows from a name the moderators took off (net-off, Moderation.lua). Their lists (the
 -- Hands, the treasury's words) are not calls: they still count.

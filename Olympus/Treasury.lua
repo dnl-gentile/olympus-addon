@@ -68,7 +68,7 @@ Treasury.RANK_SENT = 100     -- donors in the ranking sent (0.9.7; the message g
 Treasury.RANK_PAGE = 25      -- ranking lines shown, 25 more a click (the window stays light)
 Treasury.BOOK_SENT = 15      -- latest lines of the book sent
 Treasury.BOOK_SHOWN = 40     -- lines of the book shown, 40 more a click
-Treasury.WEEK_SENT = 40      -- donors of the week named in the message (for the merged count)
+Treasury.WEEK_SENT = 40      -- donors of the week a book of 1.0 named (1.1 names none; read, for the merged count)
 Treasury.ITEMS_SENT = 20     -- items donated sent, the most given first
 Treasury.ITEMS_SHOWN = 25    -- items donated listed on the tab
 Treasury.LEGACY_RANK = 25    -- 0.9's treasury, for 0.9 clients: short
@@ -261,6 +261,7 @@ local function TreasurerPin(name)
 	end
 	return nil
 end
+Treasury.TreasurerPin = TreasurerPin
 
 -- One of the keepers pinned by name (the other side of a trade or a mail: its guild is not
 -- known): the Treasurer's characters (his own and his mail's), or the King's character. (The
@@ -337,6 +338,9 @@ function Treasury.Visible()
 	if ns.King.SetsLists() then return (ns.splitNames and ns.faction ~= "Horde") or Treasury.Report() ~= nil end
 	return ns.IsMember() and Treasury.AnyShown() and Treasury.Report() ~= nil
 end
+-- The tab itself (1.1): also for every member who may send the week's dues (Dues.lua), with only
+-- what the King shows of the treasury (Visible: nothing while he shows nothing).
+function Treasury.TabVisible() return Treasury.Visible() or ns.Dues.Pays() == true end
 
 ---------------------------------------------------------------------------
 -- The books (each keeper character's, kept by his own client)
@@ -434,6 +438,8 @@ local function Add(s, e, sign, now)
 		s.allIn = math.max(0, s.allIn + copper)
 		s.byDonor[e.name] = (s.byDonor[e.name] or 0) + copper
 		if s.byDonor[e.name] <= 0 then s.byDonor[e.name] = nil end
+		-- 1.1: each donor's sum per week, for the dues (Dues.lua; never sent on the channel).
+		ns.Dues.WeekAdd(s, e, copper)
 	end
 	DayCount(s, e, copper, now)
 end
@@ -452,8 +458,11 @@ local function Sums(b)
 			if not e.excluded then Add(s, e, 1, now) end
 		end
 	end
+	-- 1.1: a book's sums from before the dues get their weeks from the lines it keeps, once.
+	if s.weeks == nil then ns.Dues.Backfill(s, b.lines) end
 	return s
 end
+Treasury.SumsOf = function(b) return Sums(b) end
 local function Count(b, e, sign)
 	local s = Sums(b)
 	local now = ns.Now()
@@ -546,6 +555,8 @@ function Treasury.Record(name, copper, how, out, o)
 	local who = ns.DisplayName(ns.Normal(name)) or name
 	local e = { name = who, money = copper, how = how, t = ns.Now(), out = out or nil, excluded = excluded or nil, kind = kind,
 		item = item, count = item and count or nil }
+	-- 1.1: its week, and a gift's giver's guild (Dues.lua; kept here, never sent).
+	ns.Dues.Stamp(e, name, o)
 	b.lines[#b.lines + 1] = e
 	while #b.lines > Treasury.MAX do table.remove(b.lines, 1) end
 	if not e.excluded then Count(b, e, 1) end
@@ -677,7 +688,10 @@ function Treasury.TradeShow()
 	if not Treasury.IsKeeper() then return end
 	Treasury.OpenBook() -- (at the gold before this trade, if it is still closed)
 	local name = ns.UnitFullName and ns.UnitFullName("NPC") or (UnitName and UnitName("NPC"))
-	trade = name and { name = name, got = 0, gave = 0, gotList = {}, gaveList = {}, book = BookOf(ns.me, true) } or nil
+	-- 1.1: the guild the game shows on the other side (the dues' guild of a gift, Dues.lua).
+	local ok, guild = pcall(GetGuildInfo, "NPC")
+	trade = name and { name = name, got = 0, gave = 0, gotList = {}, gaveList = {}, book = BookOf(ns.me, true),
+		guild = ok and type(guild) == "string" and guild ~= "" and guild or nil } or nil
 end
 
 function Treasury.Info(a, b)
@@ -692,7 +706,8 @@ function Treasury.Info(a, b)
 	-- so (a click on the line).
 	local net = done.got - done.gave
 	if net > 0 then
-		Treasury.Record(done.name, net, "trade", nil, { book = book, excluded = done.gaveItems or nil, kind = done.gaveItems and "sale" or nil })
+		Treasury.Record(done.name, net, "trade", nil, { book = book, excluded = done.gaveItems or nil, kind = done.gaveItems and "sale" or nil,
+			guild = done.guild })
 	elseif net < 0 then
 		Treasury.Record(done.name, -net, "trade", true, { book = book, excluded = done.gotItems or nil, kind = done.gotItems and "purchase" or nil })
 	end
@@ -817,7 +832,8 @@ end
 local function MailClock() return GetTime and GetTime() or ns.Now() end
 local function Settle(p)
 	if p.returned then return Returned(p.book, p.sender, p.money) end
-	Treasury.Record(p.sender, p.money, "mail", nil, { book = p.book })
+	-- (1.1: the mail's subject, the dues' note: its week and guild, Dues.lua.)
+	Treasury.Record(p.sender, p.money, "mail", nil, { book = p.book, note = p.note })
 end
 local function SettleItem(p)
 	if p.returned then return Returned(p.book, p.sender, 0, p.id, p.n) end
@@ -842,13 +858,13 @@ function Treasury.MailTaking(i)
 	if not m or m.money <= 0 then return end
 	local book = TakeBook(m.sender)
 	if not book then return end
-	if not GetMoney then return Settle({ sender = m.sender, money = m.money, returned = m.returned, book = book }) end
+	if not GetMoney then return Settle({ sender = m.sender, money = m.money, returned = m.returned, book = book, note = m.subject }) end
 	local now = MailClock()
 	DropStale(pending, now)
 	local key = ("%d|%s|%s|%d"):format(i, m.sender, tostring(m.subject or ""), m.money)
 	for _, p in ipairs(pending) do if p.key == key then return end end
 	if #pending == 0 then lastMoney = GetMoney() end
-	pending[#pending + 1] = { key = key, sender = m.sender, money = m.money, returned = m.returned, t = now, book = book }
+	pending[#pending + 1] = { key = key, sender = m.sender, money = m.money, returned = m.returned, t = now, book = book, note = m.subject }
 end
 
 -- The character's gold went up: the takes it pays for are counted (the one of that exact
@@ -1168,10 +1184,14 @@ function Treasury.Message(b)
 	-- Stewards' to set, from their own clients (Konig's review of 1.0.0), and the field stays "-".
 	local mine = ns.IsTreasurer(ns.me, GetGuildInfo("player") or "") and SameChar(b.name or ns.me, ns.me)
 	local flags, keepers = mine and FlagsWord() or "-", "-"
-	local caps = { rank = Treasury.RANK_SENT, week = Treasury.WEEK_SENT, book = Treasury.BOOK_SENT, items = Treasury.ITEMS_SENT }
+	local caps = { rank = Treasury.RANK_SENT, book = Treasury.BOOK_SENT, items = Treasury.ITEMS_SENT }
 	local function Build()
+		-- 1.1 (Fern's #36): the week's donors go out as a count, never by name. With the dues (one
+		-- fixed amount a week, Dues.lua) their names on the channel would be a public list of who
+		-- paid this week, and so of who did not: every client on it receives the bytes, whatever the
+		-- King's switches show. The ranking (all time) and the book's latest lines stay: gifts, not
+		-- anyone's dues.
 		local week, rank, lines, items = {}, {}, {}, {}
-		for i = 1, math.min(caps.week, #t.givers) do week[i] = Clean(t.givers[i].name) end
 		for i = 1, math.min(caps.rank, #t.ranking) do
 			rank[i] = ("%s:%d"):format(Clean(t.ranking[i].name), U(t.ranking[i].money))
 		end
@@ -1194,9 +1214,9 @@ function Treasury.Message(b)
 			S(Treasury.Balance(b)), U(t.allIn), U(t.allOut), U(t.weekIn), math.min(#t.givers, 9999), table.concat(week, ","), flags, keepers,
 			table.concat(rank, ","), table.concat(lines, ","), table.concat(items, ","), U(t.transIn), U(t.transOut))
 	end
-	-- Too long (it is rare): the week's names go first (they only count the donors), then items,
-	-- then the ranking's tail, then lines of the book; the top 25 donors last of all.
-	local STEPS = { { "week", 10, 10 }, { "items", 10, 5 }, { "rank", 50, 10 }, { "book", 5, 5 }, { "rank", 25, 5 }, { "items", 5, 5 }, { "rank", 0, 5 } }
+	-- Too long (it is rare): items first, then the ranking's tail, then lines of the book; the top
+	-- 25 donors last of all.
+	local STEPS = { { "items", 10, 5 }, { "rank", 50, 10 }, { "book", 5, 5 }, { "rank", 25, 5 }, { "items", 5, 5 }, { "rank", 0, 5 } }
 	local msg = Build()
 	while #msg > Treasury.ROOM do
 		local step
@@ -1633,6 +1653,7 @@ local function Replaces(kept, at, sender)
 	if not was or at ~= was then return was == nil or at > was end
 	return ns.IsKingCharacter(sender) and not ns.IsKingCharacter(kept.from)
 end
+Treasury.Replaces = Replaces -- (1.1: the King's dues amount too, Dues.lua)
 
 -- Told on the King's screen: his Steward changed one of his words (the name cut short while the
 -- council's names are hidden there, his stream).
@@ -2466,6 +2487,10 @@ end
 local function SummaryLines(role, q)
 	if q then return SummarySearch(role, q) end
 	local lines = { { header = true, text = L.TREASURY_TITLE } }
+	-- 1.1: the week's dues first (Dues.lua): the way to them, for whoever may see them, and the
+	-- button that fills in a member's own payment. A member the King shows nothing sees that alone.
+	ns.Dues.SummaryLines(lines, role)
+	if role == "member" and not Treasury.AnyShown() then return lines end
 	local keeper = Treasury.IsKeeper()
 	if keeper then
 		Para(lines, Treasury.WhoSees(), tostring)
@@ -2533,6 +2558,9 @@ function Treasury.Build(q)
 	local role = Treasury.Role()
 	if Treasury.mode == "book" and not Treasury.MaySee("book") then Treasury.mode = "summary" end
 	if Treasury.mode == "keepers" and role == "member" then Treasury.mode = "summary" end
+	-- 1.1: the week's dues (Dues.lua), for whoever may see them.
+	if Treasury.mode == "dues" and not ns.Dues.Sees() then Treasury.mode = "summary" end
+	if Treasury.mode == "dues" then return ns.Dues.Build(q) end
 	local lines
 	if Treasury.mode == "book" then lines = BookLines(role, q)
 	elseif Treasury.mode == "keepers" then lines = KeeperLines()
@@ -2545,6 +2573,7 @@ end
 -- A list of donors shows on the tab (the book, or the ranking): its search box too (Views.lua).
 function Treasury.Searchable()
 	if Treasury.mode == "keepers" then return false end
+	if Treasury.mode == "dues" then return ns.Dues.Sees() == true end
 	if Treasury.mode == "book" and Treasury.MaySee("book") then return true end
 	return Treasury.MaySee("ranking")
 end

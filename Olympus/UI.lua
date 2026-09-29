@@ -1432,7 +1432,7 @@ function UI.Refresh()
 		local only = {
 			throne = ns.King and ns.King.Visible and ns.King.Visible() or false,
 			vox = ns.Vox and ns.Vox.Visible and ns.Vox.Visible() or false,
-			treasury = ns.Treasury and ns.Treasury.Visible and ns.Treasury.Visible() or false,
+			treasury = ns.Treasury and ns.Treasury.TabVisible and ns.Treasury.TabVisible() or false, -- (1.1: the dues' button too)
 			workshop = ns.Workshop and ns.Workshop.Visible and ns.Workshop.Visible() or false,
 		}
 		if only[main.tab] == false then return ShowTab("census") end

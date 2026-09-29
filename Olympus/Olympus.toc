@@ -43,6 +43,7 @@ Court.lua
 Board.lua
 Week.lua
 Treasury.lua
+Dues.lua
 Bank.lua
 Acts.lua
 Chronicle.lua
