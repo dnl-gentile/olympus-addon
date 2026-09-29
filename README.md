@@ -363,7 +363,12 @@ shows the army something of it.
   the one a keeper's newer snapshot replaced), counted over the tabs both snapshots saw, and the
   grid shows those stacks faded and red in the slots they sat in. Counts only: who took them is
   not known, the addon never reads the bank's log (a withdrawal nobody noted, a stack moved to a
-  tab the other snapshot didn't see, or theft).
+  tab the other snapshot didn't see, or theft). The game sends a tab's slots only when asked,
+  and some never arrive: an empty tab you did not click keeps its last items for that visit, so
+  a tab emptied between two visits shows here once it reads empty again, a visit later (at once
+  if you click it). A tab that reads empty with no earlier snapshot to keep it from (after your
+  saved variables were wiped, or on a newly named keeper's first visit) is not sent, so nobody's
+  screen lists its last items as gone.
 - **Taking donations** (1.1, the Treasurer's idea): a keeper (the Treasurer, the King, a
   character he named) turns it on with **Taking donations** on the Treasury tab or `/oly
   donations on`: everyone with the addon sees a line on the Realm and Treasury tabs ("Pyralis

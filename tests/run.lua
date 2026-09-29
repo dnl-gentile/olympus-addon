@@ -25753,5 +25753,121 @@ test("1.1 the treasury's review lines are in both languages, with the same forma
 	end
 end)
 
+-- The guild bank as the game shows it to a test: tabs Mats and Potions, `slots[tab][slot] = { count, item }`,
+-- `loaded[tab]` false for a tab whose slots never arrive (it reads empty), the tab on screen.
+local function WithBankWorld(fn)
+	local saved = { item = C_Item, after = ns.After, time = GetTime, tabs = GetNumGuildBankTabs, info = GetGuildBankTabInfo, slot = GetGuildBankItemInfo,
+		link = GetGuildBankItemLink, money = GetGuildBankMoney, query = QueryGuildBankTab, current = GetCurrentGuildBankTab }
+	local ok, err = pcall(function()
+		local bank = { slots = {}, loaded = {}, shown = 1, gt = 100 }
+		C_Item = { GetItemNameByID = function(id) return ({ [2589] = "Linen Cloth", [929] = "Healing Potion", [118] = "Minor Healing Potion" })[id] end }
+		local After, Run = Queued()
+		ns.After = After
+		GetTime = function() return bank.gt end
+		GetNumGuildBankTabs = function() return 2 end
+		GetGuildBankTabInfo = function(tab) return ({ "Mats", "Potions" })[tab], "icon" .. tab, true end
+		local function Slot(tab, slot) return bank.loaded[tab] ~= false and bank.slots[tab] and bank.slots[tab][slot] end
+		GetGuildBankItemInfo = function(tab, slot) local s = Slot(tab, slot); if s then return "tex", s[1] end end
+		GetGuildBankItemLink = function(tab, slot) local s = Slot(tab, slot); return s and ("|Hitem:" .. s[2] .. ":0|h[x]|h") end
+		GetGuildBankMoney = function() return 5000 end
+		QueryGuildBankTab, GetCurrentGuildBankTab = function() end, function() return bank.shown end
+		-- A visit: the bank opened, read once its slots settle, closed.
+		function bank.Visit()
+			ns.Bank.Opened(); bank.gt = bank.gt + ns.Bank.SETTLE; Run(); ns.Bank.Closed(); bank.gt = bank.gt + ns.Bank.SETTLE; Run()
+		end
+		fn(bank)
+	end)
+	C_Item, ns.After, GetTime, GetNumGuildBankTabs, GetGuildBankTabInfo = saved.item, saved.after, saved.time, saved.tabs, saved.info
+	GetGuildBankItemInfo, GetGuildBankItemLink, GetGuildBankMoney, QueryGuildBankTab, GetCurrentGuildBankTab = saved.slot, saved.link, saved.money, saved.query, saved.current
+	if not ok then error(err, 0) end
+end
+
+-- "Gone since the last snapshot" as the Treasury tab lists it: "<item> -<n> (<tabs>)", sorted.
+local function GoneList(cur)
+	local out = {}
+	for _, g in ipairs(ns.Bank.Gone(cur, ns.Bank.Previous(cur))) do out[#out + 1] = ("%d -%d (%s)"):format(g.id, g.n, table.concat(g.tabs, ", ")) end
+	table.sort(out)
+	return table.concat(out, "; ")
+end
+
+test("1.1 the bank's gone since the last snapshot: a tab emptied between visits shows, a visit later when it was not on screen", function()
+	WithThrone(function(w, K)
+		local B = ns.Bank
+		WithBankWorld(function(bank)
+			AsTreasurer()
+			ns.rdb.bank, ns.rdb.bankPrev = nil, nil
+			-- The first visit: Potions holds 5 Healing Potions and 20 Minor ones; the bank opens on Mats.
+			bank.slots = { [1] = { [1] = { 200, 2589 } }, [2] = { [1] = { 5, 929 }, [2] = { 20, 118 } } }
+			bank.Visit()
+			eq(GoneList(ns.rdb.bank), "")
+			-- Someone empties Potions. The next visit opens on Mats again: its empty read is kept
+			-- (0.9.1: a tab whose slots never arrived reads empty too), nothing listed yet.
+			w.clock = w.clock + 3600
+			bank.slots[2] = {}
+			bank.Visit()
+			eq(ns.rdb.bank.tabs[2].kept ~= nil, true, "kept from the visit before")
+			eq(GoneList(ns.rdb.bank), "", "not known yet")
+			-- Read empty again a visit later: gone, listed (before: never, the tab kept before was skipped).
+			w.clock = w.clock + 3600
+			bank.Visit()
+			eq(#ns.rdb.bank.tabs[2].items, 0)
+			eq(GoneList(ns.rdb.bank), "118 -20 (Potions); 929 -5 (Potions)")
+			-- Once: the visit after compares two empty reads.
+			w.clock = w.clock + 3600
+			bank.Visit()
+			eq(GoneList(ns.rdb.bank), "")
+			-- On screen, the emptied tab shows at once (the game loaded it).
+			bank.slots[2] = { [1] = { 5, 929 } }
+			w.clock = w.clock + 3600
+			bank.Visit()
+			w.clock = w.clock + 3600
+			bank.slots[2], bank.shown = {}, 2
+			bank.Visit()
+			eq(GoneList(ns.rdb.bank), "929 -5 (Potions)")
+		end)
+	end)
+end)
+
+test("1.1 the bank's gone since the last snapshot: a tab that never loaded, with nothing earlier to keep it from, is not sent empty", function()
+	WithThrone(function(w, K)
+		local B = ns.Bank
+		local savedRank = ns.Roster.RankOf
+		local ok, err = pcall(function()
+			ns.Roster.RankOf = function(n) if ns.FullName(n) == "Pyralis Ashandar-Realm" then return 1 end return savedRank(n) end
+			WithBankWorld(function(bank)
+				-- The Treasurer after a wipe of his saved variables (or a keeper just named): no
+				-- snapshot of his own. He opens the bank on Mats; Potions' slots never arrive.
+				AsTreasurer()
+				ns.rdb.bank, ns.rdb.bankPrev, ns.rdb.bankReport, ns.rdb.bankReportPrev = nil, nil, nil, nil
+				bank.slots = { [1] = { [1] = { 200, 2589 } }, [2] = { [1] = { 5, 929 }, [2] = { 20, 118 } } }
+				bank.loaded[2] = false
+				bank.Visit()
+				local msg = B.Message(ns.rdb.bank)
+				eq(msg, ("T9~Olympus~%d~5000~Mats;2589x200"):format(w.clock), "Potions left out, not sent empty")
+				eq(#ns.rdb.bank.tabs, 2, "his own screen still draws it (empty)")
+				-- The King's client held the Treasurer's snapshot of an hour before: nothing listed gone.
+				AsKing()
+				local saved = { bank = ns.rdb.bank }
+				ns.rdb.bank = nil
+				B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", ("T9~Olympus~%d~5000~Mats;2589x200~Potions;929x5,118x20"):format(w.clock - 3600))
+				B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", msg)
+				eq(B.Current().t, w.clock, "his new snapshot")
+				eq(GoneList(B.Current()), "", "a tab he did not see is no theft")
+				-- His own screen, with that older report too: nothing listed either.
+				AsTreasurer()
+				ns.rdb.bank = saved.bank
+				eq(GoneList(ns.rdb.bank), "")
+				-- His next visit, the tab loaded: sent with its items.
+				bank.loaded[2] = nil
+				w.clock = w.clock + 3600
+				bank.Visit()
+				eq(B.Message(ns.rdb.bank), ("T9~Olympus~%d~5000~Mats;2589x200~Potions;929x5,118x20"):format(w.clock))
+			end)
+		end)
+		ns.Roster.RankOf = savedRank
+		if not ok then error(err, 0) end
+	end)
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
