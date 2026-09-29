@@ -2,10 +2,14 @@ local ADDON, ns = ...
 local L = ns.L
 
 -- The first-open page (1.1, Fern's #11): one page, in plain words, of what leaves this client,
--- the first time the Olympus window opens (never in combat or an instance, once a session), with
--- a Yes and a No for each thing the addon would otherwise share or show on its own: the zone and
--- layer, layer help, a treasury keeper's book (keepers only), the Royal Inspection, the author's
--- roll call and the Olympus chats. Each stays off until its Yes: nil, never answered, is off
+-- and the first question the addon asks: after login (LOGIN_WAIT, then on the minute until it
+-- could), or when the Olympus window opens first, never in combat or an instance, once a session,
+-- while a line waits for its answer. The 1.0 questions (the zone and layer's, a keeper's) open
+-- this page instead of their popups (Layers.AskChoice, Treasury.AskConsent); their popups stay
+-- for a client without this file (updated without a restart) and a keeper outside a guild.
+-- It has a Yes and a No for each thing the addon would otherwise share or show on its own: the
+-- zone and layer, layer help, a treasury keeper's book (keepers only), the Royal Inspection, the
+-- author's roll call and the Olympus chats. Each stays off until its Yes: nil, never answered, is off
 -- (Layers.Sharing, Hop.Helps, Treasury.Consent, King's OnInspect, Workshop.Answers,
 -- Channels.ChatOn). The page also says what always goes out while the player is in an Olympus
 -- guild (the census the elected member sends, names included, and the hello), so it never
@@ -20,12 +24,16 @@ local L = ns.L
 -- board's raised flag, a camp pin...) add their line here with Consent.Register:
 --   Consent.Register({ key = "camp", label = "L key or text", text = "L key, text or function",
 --     shown = function() return true end, get = function() return true|false|nil end,
---     set = function(on) ... end, note = function() return "a line under it" or nil end })
+--     set = function(on) ... end, note = function() return "a line under it" or nil end,
+--     pending = function() return true while it waits for an answer end })
+-- (`get` is what goes out now, shown on the line; `pending`, when given, says whether the line
+-- still waits for the player's answer: by default, while `get` is nil.)
 
 local Consent = {}
 ns.Consent = Consent
 
 Consent.WIDTH = 600
+Consent.LOGIN_WAIT = 45 -- after login (the realm key and the channel settle first)
 
 local items, byKey = {}, {}
 local asked = {}   -- [key] = true: on the page this session (asked once a session)
@@ -63,6 +71,13 @@ local function Get(item)
 	return v
 end
 
+-- Whether a line still waits for the player's answer.
+local function Waits(item)
+	if type(item.pending) ~= "function" then return Get(item) == nil end
+	local ok, yes = pcall(item.pending)
+	return ok and yes == true
+end
+
 -- The lines this player gets, in the page's order.
 function Consent.Items()
 	local out = {}
@@ -80,22 +95,17 @@ end
 -- The lines this player never answered.
 function Consent.Pending()
 	local out = {}
-	for _, item in ipairs(Consent.Items()) do if Get(item) == nil then out[#out + 1] = item end end
+	for _, item in ipairs(Consent.Items()) do if Waits(item) then out[#out + 1] = item end end
 	return out
-end
-
--- Whether a feature's own question (the zone and layer's, the keeper's) is the page's to ask
--- now: it is up, or it asked that this session.
-function Consent.Covers(key)
-	return (frame ~= nil and frame:IsShown()) or asked[key] == true
 end
 
 local function Busy()
 	return (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance()) and true or false
 end
 
--- By itself, when the window opens (and when a player types in a chat still unanswered): only in
--- an Olympus guild, never in combat or an instance, and only for lines not on the page yet this
+-- By itself, after login, when the window opens, when a 1.0 question would have been asked (the
+-- zone and layer's, a keeper's) and when a player types in a chat still unanswered: only in an
+-- Olympus guild, never in combat or an instance, and only for lines not on the page yet this
 -- session. True when it showed.
 function Consent.Ask(reason)
 	if not ns.IsMember() or Busy() then return false end
@@ -314,11 +324,26 @@ Consent.Register({
 	set = function(on) ns.Hop.SetHelp(on) end,
 	note = function() return not ns.Layers.Sharing() and L.CONSENT_NEEDS_LOCATION or nil end,
 })
+-- A keeper's book. The line shows what goes out now (Treasury.Consent: the Treasurer's 0.9.3 yes
+-- still sends his book, and the line says so), and waits for his answer to 1.0's question
+-- (Treasury.ConsentAnswer), asked in 1.0's words: the Treasurer's character holding 0.9's book
+-- is told that his yes also sends the early supporters' names to everyone on the channel
+-- (Treasury.YesSendsEarly), as 1.0's question tells him (Konig's review of 1.0.0).
+local function TreasuryHas(fn) return ns.Treasury ~= nil and type(ns.Treasury[fn]) == "function" end
 Consent.Register({
-	key = "treasurer", label = "CONSENT_TREASURER", text = "CONSENT_TREASURER_TEXT",
-	shown = function() return ns.Treasury.RealKeeper ~= nil and ns.Treasury.RealKeeper() == true end,
-	get = function() return ns.Treasury.ConsentAnswer() end,
+	key = "treasurer", label = "CONSENT_TREASURER",
+	text = function()
+		local early = TreasuryHas("YesSendsEarly") and ns.Treasury.YesSendsEarly() == true
+		return L.CONSENT_TREASURER_TEXT .. (early and (" " .. L.CONSENT_TREASURER_EARLY) or "")
+	end,
+	shown = function() return TreasuryHas("RealKeeper") and ns.Treasury.RealKeeper() == true end,
+	get = function() return ns.Treasury.Consent() end,
+	pending = function() return ns.Treasury.ConsentAnswer() == nil end,
 	set = function(on) ns.Treasury.SetConsent(on) end,
+	note = function()
+		if ns.Treasury.ConsentAnswer() == nil and ns.Treasury.Consent() == true then return L.CONSENT_TREASURER_OLD_YES end
+		return nil
+	end,
 })
 Consent.Register({
 	key = "inspection", label = "CONSENT_INSPECTION", text = "CONSENT_INSPECTION_TEXT",
@@ -338,3 +363,11 @@ Consent.Register({
 	get = function() return ns.db.addonChat end,
 	set = function(on) ns.Channels.SetChatOn(on) end,
 })
+
+-- The first question after login: the page, once the login settled, then on the minute until it
+-- could be asked (combat, an instance), once a session (Consent.Ask).
+function Consent.OnLogin()
+	ns.After(Consent.LOGIN_WAIT, "privacy page", function() Consent.Ask("login") end)
+	ns.Every(60, "privacy page", function() Consent.Ask("login") end)
+end
+ns.On("LOGIN", function() Consent.OnLogin() end)

@@ -19,14 +19,18 @@ local L = ns.L
 -- The shared list travels on the Olympus channel, from an editor's client only (the server
 -- stamps the sender: the King by his pinned name, a Steward by the signed titles list, a Hand by
 -- the King's or a Steward's list, a High Councillor by the signed council list):
---   BW~<digest>~<+|-><term>@<server time>,...
+--   BW~<digest>~<+|-><term>@<server time>[@<editor>],...
 -- Each word is its own entry, added (+) or removed (-) at a time; the newest time wins, word by
 -- word, so two editors never undo each other's other words, and an editor who logs in with an old
 -- or empty list changes nothing (a removal is kept for SHARED_TOMB). Each message stands alone
 -- (as many as the list needs, PAGE bytes each); <digest> names the sender's whole list. An edit
 -- goes out at once; each editor's client repeats the whole list every REPEAT, unless it just
 -- heard another client holding the same (the digest). Clients before 1.1 know no "BW": they
--- ignore it. Each edit this client saw being made goes into its log of acts (Chronicle.lua).
+-- ignore it. Each edit this client saw being made goes into its log of acts (Chronicle.lua), by
+-- the name of whoever made it: an editor's client names itself (<editor>) on its own entries for
+-- FRESH after their edit, never on anyone else's it repeats, and a client logs an entry only when
+-- that name is the sender's, as the server stamped it (a repeat is not its sender's act). The
+-- digest leaves the names out: the same list, the same digest, whoever sends it.
 
 local Filter = {}
 ns.Filter = Filter
@@ -37,7 +41,7 @@ Filter.SHARED_KEEP = 100        -- entries it keeps, the removed ones included
 Filter.SHARED_TOMB = 30 * 86400 -- a removal is kept this long (an old client can't bring the word back)
 Filter.TERM_MIN, Filter.TERM_MAX = 2, 24
 Filter.REPEAT = 600
-Filter.FRESH = 900              -- an edit this recent was seen being made (the log of acts)
+Filter.FRESH = 900              -- an edit this recent goes out with its editor's name (the log of acts)
 Filter.AHEAD = 60               -- a time further ahead of the server's clock is not taken
 Filter.FIRST_DAY = 1767225600   -- 2026-01-01: nothing older is a real edit
 Filter.PAGE = 240
@@ -100,6 +104,7 @@ local function Shown(term)
 	if ns.KingsScreen and ns.KingsScreen() then return ns.Cut(term, 1) .. "***" end
 	return term
 end
+Filter.Shown = Shown -- the log of acts shows the terms' edits the same way (Chronicle.lua)
 function Filter.Mine()
 	local out = {}
 	for term in pairs(Personal()) do out[#out + 1] = term end
@@ -199,6 +204,19 @@ end
 
 local function Entry(term, e) return (e.on == true and "+" or "-") .. term .. "@" .. math.floor(e.at) end
 
+local function SameName(a, b)
+	if type(a) ~= "string" or type(b) ~= "string" or a == "" or b == "" then return false end
+	return ns.FullName(a):lower() == ns.FullName(b):lower()
+end
+
+-- An entry as it goes out: this client's own edit names its editor for FRESH after it (the log
+-- of acts); anyone else's never does.
+local function Piece(term, e)
+	local s = Entry(term, e)
+	if ns.me and SameName(e.by, ns.me) and Clock() - (tonumber(e.at) or 0) <= Filter.FRESH then s = s .. "@" .. ns.FullName(ns.me) end
+	return s
+end
+
 local function Sorted()
 	local out = {}
 	for term, e in pairs(Shared()) do out[#out + 1] = { term = term, e = e } end
@@ -225,7 +243,7 @@ function Filter.Pages(list)
 	local head = "BW~" .. Filter.Digest() .. "~"
 	local pages, cur, len = {}, {}, #head
 	for _, x in ipairs(list) do
-		local piece = Entry(x.term, x.e)
+		local piece = Piece(x.term, x.e)
 		if #cur > 0 and (len + 1 + #piece > Filter.PAGE or #cur >= Filter.ENTRIES_PER_MESSAGE) then
 			pages[#pages + 1] = head .. table.concat(cur, ",")
 			cur, len = {}, #head
@@ -301,7 +319,8 @@ function Filter.Receive(dist, sender, text)
 	for piece in body:gmatch("[^,]+") do
 		n = n + 1
 		if n > Filter.ENTRIES_PER_MESSAGE then break end
-		local sign, word, at = piece:match("^([%+%-])([^@]+)@(%d+)$")
+		local sign, word, at, editor = piece:match("^([%+%-])([^@]+)@(%d+)@([^@]+)$")
+		if not sign then sign, word, at = piece:match("^([%+%-])([^@]+)@(%d+)$") end
 		local term = word and Filter.Term(word)
 		at = tonumber(at)
 		if term == word and at and at <= now + Filter.AHEAD and at >= Filter.FIRST_DAY then
@@ -314,8 +333,10 @@ function Filter.Receive(dist, sender, text)
 				S[term] = { on = on, at = at, by = sender }
 				if was ~= on then
 					changed = true
-					-- Seen being made (not a list a late login catches up on): in the log of acts.
-					if now - at <= Filter.FRESH then
+					-- Heard from whoever made it (its entry names the sender, as the server stamped
+					-- it), not long ago: in the log of acts. Not a repeat of another editor's edit,
+					-- nor a list a late login catches up on.
+					if now - at <= Filter.FRESH and SameName(editor, sender) then
 						if on then added[#added + 1] = term else removed[#removed + 1] = term end
 					end
 				end

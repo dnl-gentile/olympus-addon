@@ -179,8 +179,9 @@ function Layers.AskChoice()
 	-- (The King's answer is his crown on the Throne.)
 	if ns.King and ns.King.IsKing and ns.King.IsKing() then return false end
 	if (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance()) then return false end
-	-- (1.1: the first-open page asked it this session, or is up: this question is on it.)
-	if ns.Consent and ns.Consent.Covers and ns.Consent.Covers("location") then return false end
+	-- 1.1 (#11): the first-open page is the first question, this one on it (once a session there);
+	-- this popup only while Consent.lua is not loaded (updated without a restart).
+	if ns.Consent and not ns.Consent.missing then return ns.Consent.Ask("location") == true end
 	asked = true
 	ns.ShowDialog("OLYMPUS_LOCATION_CHOICE", ns.Comm.Audience())
 	return true

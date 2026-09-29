@@ -1641,6 +1641,17 @@ local function WithUI(fn)
 	eq(captured, nil, "error caught")
 end
 
+-- 1.1: a client without the first-open page (Consent.lua not loaded: updated without a restart),
+-- where the 1.0 questions (the zone and layer's, a keeper's) still ask with their own popups. With
+-- the page they open it instead (the page's tests).
+local function WithoutPage(fn)
+	local was = ns.Consent.missing
+	ns.Consent.missing = true
+	local ok, err = pcall(fn)
+	ns.Consent.missing = was
+	if not ok then error(err, 0) end
+end
+
 -- UI.lua with fresh state in a namespace of its own (Views and friends read ns.UI).
 local function LoadUI()
 	local uns = setmetatable({}, { __index = ns })
@@ -8871,7 +8882,9 @@ test("0.9.1 privacy: what our census sends follows our answer and our guildmates
 	if not ok then error(err, 0) end
 end)
 
-test("0.9.1 privacy: the zone and layer question is asked once, when it can be, and its answer kept (#13)", function()
+-- (1.1: with the first-open page loaded this question opens the page instead, tested with it;
+-- this is the question as a client without the page asks it.)
+test("0.9.1 privacy: the zone and layer question is asked once, when it can be, and its answer kept (#13)", function() WithoutPage(function()
 	local saved = { share = ns.db.shareLocation, combat = InCombatLockdown, instance = IsInInstance, key = ns.rdb.realmKey,
 		print = ns.Print, hello = ns.Comm.Hello, send = ns.Comm.Send, guild = GetGuildInfo }
 	local ok, err = pcall(function()
@@ -8945,7 +8958,7 @@ test("0.9.1 privacy: the zone and layer question is asked once, when it can be, 
 	ns.Print, ns.Comm.Hello, ns.Comm.Send, GetGuildInfo = saved.print, saved.hello, saved.send, saved.guild
 	ns.Layers.Reset()
 	if not ok then error(err, 0) end
-end)
+end) end)
 
 test("0.9.1 privacy: the first line in each channel waits for the player's OK (#16)", function()
 	local savedWarned, savedChat, savedTime, clock = ns.db.chatWarned, ns.rdb.chat, GetTime, 20000000
@@ -9353,7 +9366,8 @@ test("0.9.3 hostile: the King's layer comes from his own announcement alone, not
 end)
 
 -- 0.9.3: the Treasurer's yes
-test("0.9.3 the Treasurer shares his book and the bank only with his yes, and withdraws them at once", function()
+-- (1.1: a client without the first-open page; with it, his question is his line there.)
+test("0.9.3 the Treasurer shares his book and the bank only with his yes, and withdraws them at once", function() WithoutPage(function()
 	local T = ns.Treasury
 	local saved = { me = ns.me, guild = GetGuildInfo, send = ns.Comm.Send, chunked = ns.Comm.SendChunked, show = ns.ShowDialog,
 		consent = ns.db.treasurerShares, report = ns.rdb.treasuryReport, bank = ns.rdb.bankReport, combat = InCombatLockdown, inst = IsInInstance }
@@ -9401,7 +9415,7 @@ test("0.9.3 the Treasurer shares his book and the bank only with his yes, and wi
 	InCombatLockdown, IsInInstance = saved.combat, saved.inst
 	T.Reset()
 	if not ok then error(err, 0) end
-end)
+end) end)
 
 -- 0.9.3: admission and limits (issue #23)
 test("0.9.3 hostile: one sender's flood is dropped at the door, and unfinished pieces can't fill memory", function()
@@ -17837,7 +17851,8 @@ test("1.0 the King's keepers on the gamepad UI: added and taken off in Olympus's
 	end)
 end)
 
-test("1.0 a keeper named: his own book opens at his gold, his own yes (the King's too), his book counts while he is one", function()
+-- (1.1: a client without the first-open page; with it, his question is his line there.)
+test("1.0 a keeper named: his own book opens at his gold, his own yes (the King's too), his book counts while he is one", function() WithoutPage(function()
 	WithThrone(function(w, K)
 		local T = ns.Treasury
 		local mail = MailWorld()
@@ -17907,7 +17922,7 @@ test("1.0 a keeper named: his own book opens at his gold, his own yes (the King'
 		ns.splitNames, InCombatLockdown = saved.split, saved.combat
 		if not ok then error(err, 0) end
 	end)
-end)
+end) end)
 
 test("1.0 one treasury: every keeper's book together (the balance summed, one ranking, the week's donors once, the book by time)", function()
 	WithThrone(function(w, K)
@@ -19400,7 +19415,9 @@ end)
 -- Konig's review of 1.0.0: the early supporters (every name in 0.9's book, up to 1000, to
 -- everyone on the channel) went out under the Treasurer's 0.9.3 yes, given to a question that
 -- never said so. And a Treasurer with that yes was never asked 1.0's question.
-test("1.0.0 Konig's review: the early supporters go out only with the Treasurer's 1.0 yes, whose question says their names go to everyone on the channel", function()
+-- (1.1: a client without the first-open page; with it, his line there asks it in the same
+-- words: tested with the page.)
+test("1.0.0 Konig's review: the early supporters go out only with the Treasurer's 1.0 yes, whose question says their names go to everyone on the channel", function() WithoutPage(function()
 	WithThrone(function(w, K)
 		local T = ns.Treasury
 		local saved = { split = ns.splitNames, after = ns.After, shares = ns.db.treasurerShares, combat = InCombatLockdown, inst = IsInInstance }
@@ -19460,7 +19477,7 @@ test("1.0.0 Konig's review: the early supporters go out only with the Treasurer'
 		InCombatLockdown, IsInInstance = saved.combat, saved.inst
 		if not ok then error(err, 0) end
 	end)
-end)
+end) end)
 
 test("1.0 the Treasurer's mail and the early supporters: their lines in both languages, with the same format arguments", function()
 	local savedLocale, pt = GetLocale, {}
@@ -23757,15 +23774,22 @@ do
 				K.HandleCommand("CHANNEL", STEWARD, ("T1~T~8~Olympus II~010~%d"):format(w.clock))
 				assert(Printed(w, L.STEWARD_SET_FLAGS:format(ns.MaskName("Test Steward"))), "told")
 				local n = #w.sent
+				-- (1.1, #12: not while it is new, WORD_FRESH: only the Steward's own client sends a word
+				-- that new, so every log of acts names him; the repeat below comes WORD_FRESH later.)
 				T.SendFlags(true)
-				eq(LastSent(w), ("T1~T~%d~Olympus~010~%d"):format(tonumber(LastSent(w):match("^T1~T~(%d+)~")), w.clock))
-				K.HandleCommand("CHANNEL", STEWARD, ("T1~T~9~Olympus II~111~%d"):format(w.clock - 100))
+				eq(#w.sent, n, "his Steward's word, just given: not repeated yet")
+				local given = w.clock
+				w.clock = w.clock + T.WORD_FRESH
+				T.SendFlags(true)
+				eq(LastSent(w), ("T1~T~%d~Olympus~010~%d"):format(tonumber(LastSent(w):match("^T1~T~(%d+)~")), given))
+				K.HandleCommand("CHANNEL", STEWARD, ("T1~T~9~Olympus II~111~%d"):format(given - 100))
 				eq(T.Shows("ranking"), true); eq(T.Shows("book"), false, "the older word not taken")
-				eq(#w.sent, n + 2, "answered with the newer one"); assert(LastSent(w):find("~010~" .. w.clock .. "$"), LastSent(w))
+				eq(#w.sent, n + 2, "answered with the newer one"); assert(LastSent(w):find("~010~" .. given .. "$"), LastSent(w))
 				-- The Steward's client repeats the treasury's words, once in their 5 minutes; nobody else.
 				w.clock = w.clock + T.FLAGS_EVERY
 				AsSteward()
-				ns.rdb.treasuryFlags = { balance = true, at = w.clock }
+				-- (1.1: a word given WORD_FRESH ago, by the King: newer ones go out from his client alone.)
+				ns.rdb.treasuryFlags = { balance = true, at = w.clock - T.WORD_FRESH, from = KING }
 				ns.rdb.treasuryKeepers = { at = w.clock, names = { "Test Keeper-Realm" } }
 				n = #w.sent
 				T.SendFlags(); T.SendKeepers()
@@ -28449,8 +28473,9 @@ do
 				GetServerTime = function() return now end
 				GetGuildInfo = function() return "Olympus II", "Member", 3 end
 				ns.rdb.council = { names = { ["test councillor"] = true } }
+				-- (Each entry as its editor's own client sends it, naming him: 1.1, #12, the log of acts.)
 				local function Page(sender, entries)
-					F.Receive("CHANNEL", sender, "BW~00000000~" .. entries)
+					F.Receive("CHANNEL", sender, "BW~00000000~" .. (entries:gsub("([^,]+)", "%1@" .. sender)))
 				end
 				-- Anyone else: nothing.
 				Page("Random Player-Realm", "+junk@" .. now)
@@ -28529,12 +28554,13 @@ do
 				eq(#sent, 0); eq(printed[#printed], ns.L.FILTER_NOT_THERE:format("nothere")); eq((ns.rdb.filterShared or {}).nothere, nil)
 				SlashCmdList.OLYMPUS("filter shared add Scam")
 				eq(#sent, 1); eq(sent[1].dist, "CHANNEL")
-				assert(sent[1].msg:find("^BW~%x+~%+scam@" .. now .. "$"), sent[1].msg)
+				-- (1.1, #12: his own edit names him, for the log of acts.)
+				eq(sent[1].msg:match("^BW~%x+~(.*)$"), "+scam@" .. now .. "@" .. COUNCILLOR)
 				eq(printed[#printed], ns.L.FILTER_SHARED_ADDED:format("scam"))
 				local last = ns.Chronicle.Entries()[#ns.Chronicle.Entries()]
 				eq(last.kind, "terms"); eq(last.by, COUNCILLOR); eq(last.words, "+scam")
 				SlashCmdList.OLYMPUS("filter shared remove scam")
-				assert(sent[2].msg:find("^BW~%x+~%-scam@" .. (now + 1) .. "$"), sent[2].msg)
+				eq(sent[2].msg:match("^BW~%x+~(.*)$"), "-scam@" .. (now + 1) .. "@" .. COUNCILLOR)
 				-- The repeat: every REPEAT, the whole list, in messages of PAGE bytes that each stand alone.
 				for i = 1, 30 do ns.rdb.filterShared["word" .. i .. "x"] = { on = true, at = now - i, by = KING } end
 				eq(F.Tick(), false, "after login: not before LOGIN_WAIT")
@@ -34628,7 +34654,7 @@ end)
 test("1.1 the clipboard backup: the Treasurer's mail character's book goes with his, a big book comes back whole, the text read by a small parser", function()
 	WithThrone(function(w, K)
 		local T, Bk = ns.Treasury, ns.Backup
-		local saved = { split = ns.splitNames }
+		local saved = { split = ns.splitNames, inGuild = IsInGuild } -- (AsAndarai: his mail character is guildless)
 		local ok, err = pcall(function()
 			ns.splitNames = true
 			-- His mail character's book, kept on his account: in his backup, restored on either.
@@ -34662,7 +34688,7 @@ test("1.1 the clipboard backup: the Treasurer's mail character's book goes with 
 			local back = Bk.Parse(Bk.Write(v))
 			eq(back.a, v.a); eq(back[3], -12.5); eq(back.t, true); eq(back.f, false); eq(back.nested[1][2], 2); eq(back.nested[2].s, "")
 		end)
-		ns.splitNames = saved.split
+		ns.splitNames, IsInGuild = saved.split, saved.inGuild
 		ns.db.myCharacters = nil
 		if not ok then error(err, 0) end
 	end)
@@ -34751,6 +34777,415 @@ test("1.1 the treasury's new lines (bank, sister guilds, requests, donations, ba
 		eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)
 	end
 end)
+---------------------------------------------------------------------------
+-- 1.1 (batch B1, review): the first-open page first and in 1.0's words for the Treasurer (#11);
+-- the log of acts names only whoever did the act, and hides the council on the King's screen (#12).
+---------------------------------------------------------------------------
+do
+	local KING = "Asmongold Asmongler-Realm"
+	local TREASURER = "Pyralis Ashandar-Realm"
+	local COUNCILLOR = "Test Councillor-Realm"
+	local STEWARD = "Test Steward-Realm"
+	local function AsSteward() GetGuildInfo = function() return "Olympus II", "Member", 3 end; ns.me = STEWARD end
+	local SWITCHES = { "shareLocation", "layerHelp", "royalInspection", "rollCall", "addonChat" }
+	local function Unanswered(fn)
+		local saved = {}
+		for _, k in ipairs(SWITCHES) do saved[k] = ns.db[k]; ns.db[k] = nil end
+		local shares, ts = ns.db.keeperShares, ns.db.treasurerShares
+		ns.Consent.Reset()
+		local ok, err = pcall(fn)
+		for _, k in ipairs(SWITCHES) do ns.db[k] = saved[k] end
+		ns.db.keeperShares, ns.db.treasurerShares = shares, ts
+		ns.Consent.Reset()
+		if not ok then error(err, 0) end
+	end
+	local function RowOf(page, key)
+		for _, r in ipairs(page.rows) do if r.key == key then return r end end
+		return nil
+	end
+	local function Terms()
+		local out = {}
+		for _, e in ipairs(ns.Chronicle.Entries()) do if e.kind == "terms" then out[#out + 1] = e.by .. " " .. tostring(e.words) end end
+		return table.concat(out, "|")
+	end
+	local function Switches()
+		local out = {}
+		for _, e in ipairs(ns.Chronicle.Entries()) do if e.kind == "switch" then out[#out + 1] = e.by .. ": " .. e.what end end
+		return table.concat(out, "|")
+	end
+
+	test("1.1 review (#11): for the Treasurer whose 0.9.3 yes stands, his line says his book goes out, and that its Yes also sends the early supporters' names, before that Yes can send them", function()
+		Unanswered(function()
+			WithUI(function()
+				WithThrone(function(w, K)
+					local T = ns.Treasury
+					local saved = { split = ns.splitNames, combat = InCombatLockdown, inst = IsInInstance }
+					local ok, err = pcall(function()
+						ns.splitNames = true
+						InCombatLockdown, IsInInstance = function() return false end, function() return false end
+						local function Sent(prefix)
+							local out = {}
+							for _, s in ipairs(w.sent) do if s.msg:sub(1, #prefix) == prefix then out[#out + 1] = s.msg end end
+							return out
+						end
+						-- His 0.9 book, archived on his account; his 0.9.3 yes, no answer to 1.0's question.
+						ns.rdb.treasuryEpoch = nil
+						ns.rdb.treasury = { { name = "Alice Early", money = 100, how = "mail", t = w.clock - 1000 } }
+						AsTreasurer()
+						T.Migrate()
+						ns.db.keeperShares, ns.db.treasurerShares = nil, true
+						eq(T.CanSend(), true, "his book goes out under his 0.9.3 yes")
+						-- The page, as login opens it: his line waits for his answer, and says what is so.
+						eq(ns.Consent.Ask("login"), true, "his line waits for his answer: the page asks")
+						local page = ns.Consent.Frame()
+						assert(page and page:IsShown(), "the page")
+						eq(#w.popups, 0, "never the 1.0 popup")
+						local row = RowOf(page, "treasurer")
+						assert(row, "his line")
+						eq(row.state:GetText():find(ns.L.CONSENT_STATE_NONE, 1, true), nil, "not 'Not answered: off': his book is going out")
+						assert(row.state:GetText():find(ns.L.CONSENT_STATE_YES, 1, true), row.state:GetText())
+						local text = row.text:GetText()
+						assert(text:find("before 1.0", 1, true), "the early supporters, said: " .. text)
+						assert(text:find(ns.L.CONSENT_TREASURER_EARLY, 1, true), "in these words")
+						assert(text:find(ns.L.CONSENT_TREASURER_OLD_YES, 1, true), "his 0.9.3 yes, said")
+						eq(T.YesSendsEarly(), true, "he holds the early supporters")
+						assert(ns.L.CONSENT_TREASURER_EARLY:find("names of everyone who gave before 1.0", 1, true)
+							and ns.L.CONSENT_TREASURER_EARLY:find("every client on the Olympus channel receives them, the names too", 1, true), "in 1.0's words")
+						-- The names stay home until that Yes. (1.1's treasury part E: on the channel only while the
+						-- King shows the ranking; he does here, so only the Yes is in the way.)
+						ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = w.clock, from = "Asmongold Asmongler-Realm" }
+						w.sent = {}
+						eq(T.SendEarly(true), false, "no answer on the page yet: the names stay home")
+						T.Share(true)
+						eq(#Sent("TB~"), 1, "his book, as the line says")
+						row.yes:Click()
+						eq(ns.db.keeperShares[TREASURER_KEY], true)
+						eq(RowOf(page, "treasurer").text:GetText():find(ns.L.CONSENT_TREASURER_OLD_YES, 1, true), nil, "answered: the note goes")
+						w.sent = {}
+						eq(T.SendEarly(true), true, "the Yes to words that name them")
+						eq(Sent("TE~")[1], ("TE~Olympus~%d~1~1~Alice Early"):format(ns.rdb.treasuryArchive["0.9"].closed))
+						page:Hide()
+						-- Another keeper (the King): his line says nothing of the early supporters.
+						ns.Consent.Reset()
+						AsKing()
+						ns.db.keeperShares = nil
+						eq(T.YesSendsEarly(), false)
+						page = ns.Consent.Show()
+						eq(RowOf(page, "treasurer").text:GetText():find(ns.L.CONSENT_TREASURER_EARLY, 1, true), nil, "not his to send")
+						eq(RowOf(page, "treasurer").state:GetText():find(ns.L.CONSENT_STATE_NONE, 1, true) ~= nil, true, "never answered: off")
+						page:Hide()
+					end)
+					ns.splitNames, InCombatLockdown, IsInInstance = saved.split, saved.combat, saved.inst
+					ns.rdb.treasuryArchive, ns.rdb.treasuryEpoch, ns.rdb.treasuryEarly, ns.rdb.treasuryFlags = nil, nil, nil, nil
+					if not ok then error(err, 0) end
+				end)
+			end)
+		end)
+		-- Both languages, and both pages' privacy tables say the page's yes is the one.
+		local pt = { L = setmetatable({}, { __index = function() return nil end }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		for _, key in ipairs({ "CONSENT_TREASURER_EARLY", "CONSENT_TREASURER_OLD_YES", "CONSENT_OPTIONAL" }) do
+			local en, br = rawget(ns.L, key), rawget(pt.L, key)
+			assert(type(en) == "string" and en ~= "" and type(br) == "string" and br ~= "" and br ~= en, key)
+		end
+		assert(rawget(pt.L, "CONSENT_TREASURER_EARLY"):find("nomes de todos que doaram antes da 1.0", 1, true))
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path), path):gsub("%s+", " ")
+			assert(doc:find("once he said yes to 1.0's question or to his line on the first-open page, both of which say their names go to everyone on the channel", 1, true), path)
+		end
+	end)
+
+	test("1.1 review (#11): the page is the first question after login, before the zone and layer's and a keeper's: never their popups while it is loaded, once a session, not in combat", function()
+		Unanswered(function()
+			WithUI(function()
+				WithGamepadUI(false, function(game)
+					local saved = { after = ns.After, every = ns.Every, combat = InCombatLockdown, inst = IsInInstance, me = ns.me, send = ns.Comm.Send, hello = ns.Comm.Hello }
+					local timers = {}
+					local ok, err = pcall(function()
+						ns.After = function(s, name, fn) timers[#timers + 1] = { s = s, name = name, fn = fn, once = true } end
+						ns.Every = function(s, name, fn) timers[#timers + 1] = { s = s, name = name, fn = fn } end
+						ns.Comm.Send, ns.Comm.Hello = function() end, function() end
+						InCombatLockdown, IsInInstance = function() return false end, function() return false end
+						GetGuildInfo = function() return "Olympus II", "Member", 3 end
+						ns.me = "Fresh Install-Realm"
+						ns.Layers.Reset()
+						-- The 1.0 location question's own timer (Layers, 45 s after login), the window never
+						-- opened: the page, not the game's popup.
+						InCombatLockdown = function() return true end
+						eq(ns.Layers.AskChoice(), false, "never in combat")
+						InCombatLockdown = function() return false end
+						eq(ns.Layers.AskChoice(), true)
+						eq(#game.shown, 0, "no OLYMPUS_LOCATION_CHOICE: the game's popup never shows")
+						local page = ns.Consent.Frame()
+						assert(page and page:IsShown(), "the page, the window never opened")
+						eq(OlympusFrame, nil, "the window was never opened")
+						page:Hide()
+						ns.Consent.Reset()
+						-- Login: the page's own timers, for everyone.
+						ns.Consent.OnLogin()
+						local names = {}
+						for _, t in ipairs(timers) do names[#names + 1] = t.name .. "@" .. t.s end
+						eq(table.concat(names, ","), "privacy page@" .. ns.Consent.LOGIN_WAIT .. ",privacy page@60")
+						eq(ns.Consent.LOGIN_WAIT, 45, "with the 1.0 location question's")
+						-- In combat at that moment: nothing; the minute after, out of it: the page.
+						InCombatLockdown = function() return true end
+						timers[1].fn()
+						eq(page:IsShown(), false, "never in combat")
+						InCombatLockdown = function() return false end
+						timers[2].fn()
+						assert(page:IsShown(), "the minute after")
+						eq(ns.Layers.AskChoice(), false, "the page is up: nothing more")
+						eq(#game.shown, 0)
+						-- Closed unanswered: once a session, by any of them.
+						page.done:Click()
+						eq(ns.Layers.AskChoice(), false); timers[2].fn(); eq(ns.Consent.Ask("window"), false)
+						eq(page:IsShown(), false); eq(#game.shown, 0)
+						-- A player who answered the location in 1.0 still gets the page by itself, for the rest.
+						ns.Consent.Reset()
+						ns.db.shareLocation = true
+						eq(ns.Layers.AskChoice(), false, "answered: the location question asks nothing")
+						timers[2].fn()
+						assert(ns.Consent.Frame():IsShown(), "the page after login for the lines never answered")
+						ns.Consent.Frame():Hide()
+						-- A keeper: 1.0's question opens the page, never its popup.
+						ns.Consent.Reset()
+						ns.db.shareLocation = nil
+						ns.db.keeperShares, ns.db.treasurerShares = nil, nil
+						GetGuildInfo = function() return "OLYMPUS", "Treasurer", 2 end
+						ns.me = TREASURER
+						ns.Treasury.Reset()
+						eq(ns.Treasury.AskConsent(), true)
+						eq(#game.shown, 0, "no OLYMPUS_TREASURER_SHARE")
+						assert(RowOf(ns.Consent.Frame(), "treasurer"), "his line on the page")
+						ns.Consent.Frame():Hide()
+						eq(ns.Treasury.AskConsent(), false, "once a session"); eq(#game.shown, 0)
+					end)
+					ns.After, ns.Every, InCombatLockdown, IsInInstance, ns.me = saved.after, saved.every, saved.combat, saved.inst, saved.me
+					ns.Comm.Send, ns.Comm.Hello = saved.send, saved.hello
+					ns.Layers.Reset(); ns.Treasury.Reset()
+					if not ok then error(err, 0) end
+				end)
+				-- With the gamepad UI too: the page, never Olympus's dialog for the 1.0 question.
+				WithGamepadUI(true, function(game)
+					local saved = { combat = InCombatLockdown, inst = IsInInstance, me = ns.me }
+					local ok, err = pcall(function()
+						ns.Consent.Reset(); ns.Layers.Reset()
+						ns.db.shareLocation = nil
+						InCombatLockdown, IsInInstance = function() return false end, function() return false end
+						GetGuildInfo = function() return "Olympus II", "Member", 3 end
+						ns.me = "Fresh Install-Realm"
+						eq(ns.Layers.AskChoice(), true)
+						eq(ns.Dialog.Find("OLYMPUS_LOCATION_CHOICE"), nil, "not Olympus's dialog either")
+						eq(#game.shown, 0); assert(ns.Consent.Frame():IsShown())
+					end)
+					InCombatLockdown, IsInInstance, ns.me = saved.combat, saved.inst, saved.me
+					ns.Layers.Reset()
+					if not ok then error(err, 0) end
+				end)
+			end)
+		end)
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path), path):gsub("%s+", " ")
+			assert(doc:find("About 45 seconds after login", 1, true), path .. ": the page after login")
+		end
+	end)
+
+	test("1.1 review (#12): a block-term edit is logged by its editor alone: a repeat by another editor, or a name that is not the sender's, writes nothing; the editor's own repeat names him", function()
+		WithThrone(function(w, K)
+			local F = ns.Filter
+			local saved = { shared = ns.rdb.filterShared, council = ns.rdb.council, random = F.random }
+			local ok, err = pcall(function()
+				ns.rdb.council = { names = { ["test councillor"] = true } }
+				F.random = function() return 0 end
+				ns.Chronicle.Clear()
+				local lists = {}
+				local function Client(name, as)
+					as()
+					ns.me = name
+					lists[name] = lists[name] or {}
+					ns.rdb.filterShared = lists[name]
+					F.Reset()
+				end
+				local function Councillor() GetGuildInfo = function() return "Olympus II", "Member", 3 end end
+				-- A High Councillor adds a word: his message names him.
+				Client(COUNCILLOR, Councillor)
+				local t0 = w.clock
+				eq(F.EditShared("gold", true), true)
+				local edit = LastSent(w)
+				eq(edit:match("^BW~%x+~(.*)$"), "+gold@" .. t0 .. "@" .. COUNCILLOR)
+				-- The King's client hears it from him: in its log by his name.
+				Client(KING, AsKing)
+				ns.Chronicle.Clear()
+				F.Receive("CHANNEL", COUNCILLOR, edit)
+				eq(Terms(), COUNCILLOR .. " +gold")
+				-- Ten minutes later the King's client repeats its list: the word, without a name.
+				w.clock = t0 + F.REPEAT + 1
+				local before = #w.sent
+				eq(F.Tick(), true)
+				local repeatMsg = w.sent[before + 1].msg
+				eq(repeatMsg:match("^BW~%x+~(.*)$"), "+gold@" .. t0, "another editor's edit: never named in a repeat")
+				-- A soldier who logged in meanwhile: the word, and nothing in the log (not the King's act).
+				Client("Late Login-Realm", function() AsSoldier("Late Login") end)
+				ns.Chronicle.Clear()
+				F.Receive("CHANNEL", KING, repeatMsg)
+				eq(F.Hides("gold"), true, "the word is taken")
+				eq(Terms(), "", "a repeat is not its sender's act")
+				-- A sender naming someone else (a modified client): taken, never logged under either.
+				F.Receive("CHANNEL", KING, "BW~00000000~+forged@" .. w.clock .. "@" .. COUNCILLOR)
+				eq(F.Hides("forged"), true); eq(Terms(), "", "a name that is not the sender's")
+				-- The councillor's own repeat within FRESH names him: another late login logs his edit.
+				Client(COUNCILLOR, Councillor)
+				before = #w.sent
+				eq(F.Tick(), true)
+				local own = w.sent[before + 1].msg
+				eq(own:match("^BW~%x+~(.*)$"), "+gold@" .. t0 .. "@" .. COUNCILLOR)
+				eq(repeatMsg:match("^BW~(%x+)~"), own:match("^BW~(%x+)~"), "the same list, the same digest, names left out")
+				Client("Later Login-Realm", function() AsSoldier("Later Login") end)
+				ns.Chronicle.Clear()
+				F.Receive("CHANNEL", COUNCILLOR, own)
+				eq(Terms(), COUNCILLOR .. " +gold", "heard from him: his")
+				-- After FRESH his repeat names him no more (nobody logs a list caught up on).
+				Client(COUNCILLOR, Councillor)
+				w.clock = t0 + F.FRESH + 1
+				before = #w.sent
+				eq(F.Tick(), true)
+				eq(w.sent[before + 1].msg:match("^BW~%x+~(.*)$"), "+gold@" .. t0)
+			end)
+			ns.rdb.filterShared, ns.rdb.council, F.random = saved.shared, saved.council, saved.random
+			F.Reset()
+			ns.Chronicle.Clear()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 review (#12): the King's switches are logged by whoever gave them: never from the Treasurer's book, a repeat or a word caught up on later; another's word that new is repeated by nobody else", function()
+		WithThrone(function(w, K)
+			local T = ns.Treasury
+			local saved = { stewardName = K.IsStewardName, steward = K.IsSteward }
+			local ok, err = pcall(function()
+				K.IsStewardName = function(n) return ns.FullName(n) == STEWARD end
+				K.IsSteward = function() return ns.me == STEWARD end
+				ns.Chronicle.Clear()
+				-- The Treasurer's book carries the King's word (his switches: the balance).
+				AsTreasurer()
+				ns.db.keeperShares = { [TREASURER_KEY] = true }
+				ns.rdb.treasuryFlags = { balance = true, ranking = false, book = false, at = w.clock, from = KING }
+				local book = T.Message()
+				assert(book:find("~100@" .. w.clock .. "~", 1, true), "the King's word in his book")
+				-- A client that missed the King's own message takes it from the book: not the Treasurer's act.
+				AsSoldier("Late Login")
+				ns.rdb.treasuryFlags = nil
+				T.HandleReport("CHANNEL", TREASURER, book)
+				eq(T.Shows("balance"), true, "taken")
+				eq(Switches(), "", "the Treasurer's book repeats the word; he never gives it")
+				-- Then the King's own fresh word: his, compared with what the book brought.
+				K.HandleCommand("CHANNEL", KING, ("T1~T~21~Olympus~000~%d"):format(w.clock + 1))
+				eq(Switches(), KING .. ": " .. ns.L.ACTS_TREASURY:format(ns.L.ACTS_TREASURY_NOTHING))
+				-- A word given long ago (a later login, the King's repeat): taken, not logged.
+				ns.Chronicle.Clear()
+				ns.rdb.treasuryFlags, ns.rdb.actsState = nil, nil
+				K.HandleCommand("CHANNEL", KING, ("T1~T~22~Olympus~011~%d"):format(w.clock - 3 * 86400))
+				eq(T.Shows("book"), true); eq(Switches(), "", "caught up on three days later: not seen given")
+				-- The Steward's client heard the King's word just given: it waits WORD_FRESH to repeat it.
+				AsSteward()
+				ns.rdb.treasuryFlags = nil
+				K.HandleCommand("CHANNEL", KING, ("T1~T~23~Olympus~110~%d"):format(w.clock))
+				local before = #w.sent
+				T.SendFlags(true)
+				eq(#w.sent, before, "the King's word, just given: his client alone sends it")
+				local given = w.clock
+				w.clock = w.clock + T.WORD_FRESH
+				T.SendFlags(true)
+				eq(#w.sent, before + 1)
+				local steward = LastSent(w)
+				assert(steward:find("~110~" .. given .. "$"), steward)
+				-- A late client hearing that repeat: taken, not logged as the Steward's.
+				AsSoldier("Late Login")
+				ns.Chronicle.Clear()
+				ns.rdb.treasuryFlags, ns.rdb.actsState = nil, nil
+				K.HandleCommand("CHANNEL", STEWARD, steward)
+				eq(T.Shows("ranking"), true); eq(Switches(), "", "the Steward's repeat of the King's word")
+				-- The Steward's own word: his client sends it at once, and it is his in the log.
+				AsSteward()
+				T.SetFlag("book", true)
+				local own = LastSent(w)
+				AsSoldier("Late Login")
+				K.HandleCommand("CHANNEL", STEWARD, own)
+				eq(Switches(), STEWARD .. ": " .. ns.L.ACTS_TREASURY:format(ns.L.ACTS_TREASURY_BALANCE .. ", " .. ns.L.ACTS_TREASURY_RANKING .. ", " .. ns.L.ACTS_TREASURY_BOOK))
+			end)
+			K.IsStewardName, K.IsSteward = saved.stewardName, saved.steward
+			ns.db.keeperShares = nil
+			ns.Chronicle.Clear()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 review (#12, #31): on the King's screen (his stream) the log shows every sender but him cut short, in /oly log, the copy, the tooltips and the search, and the shared terms' words cut short", function()
+		WithThrone(function(w, K)
+			local Ch, F = ns.Chronicle, ns.Filter
+			local saved = { shared = ns.rdb.filterShared, print = print, UI = ns.UI, shown = ns.CouncilNamesShown() }
+			local lines, copied = {}, {}
+			local ok, err = pcall(function()
+				Ch.Clear()
+				AsKing()
+				ns.SetCouncilNamesShown(false)
+				eq(ns.CouncilMasked(), true, "the King's screen, names hidden")
+				Ch.Add("switch", STEWARD, ns.L.ACTS_TREASURY:format(ns.L.ACTS_TREASURY_RANKING), { key = "treasury", value = "010", default = "000" })
+				Ch.Add("gates", KING, ns.L.ACTS_GATES_OPEN:format("Olympus II"))
+				local stewardEntry, kingEntry = Ch.Entries()[1], Ch.Entries()[2]
+				local masked = ns.MaskName(STEWARD)
+				eq(masked, "Test****")
+				assert(Ch.Line(stewardEntry):find(masked, 1, true) and not Ch.Line(stewardEntry):find("Steward", 1, true), Ch.Line(stewardEntry))
+				assert(Ch.Line(kingEntry):find(KING, 1, true), "the King's own name stays")
+				-- The copy and /oly log.
+				ns.UI = { ShowCopy = function(_, text) copied[#copied + 1] = text end, Refresh = function() end, RefreshSoon = function() end }
+				SlashCmdList.OLYMPUS("log copy")
+				assert(copied[1] and not copied[1]:find("Steward", 1, true) and copied[1]:find(masked, 1, true), "the copy")
+				print = function(s) lines[#lines + 1] = tostring(s) end
+				SlashCmdList.OLYMPUS("log")
+				local chat = table.concat(lines, "\n")
+				assert(chat:find(masked, 1, true) and not chat:find("Steward", 1, true), chat)
+				-- The search finds what shows, never the hidden name.
+				lines = {}
+				SlashCmdList.OLYMPUS("log steward")
+				eq(w.printed[#w.printed], ns.L.ACTS_CHAT_HEAD:format(0, 2), "no entry found by the hidden name")
+				assert(not table.concat(lines, "\n"):find("Steward", 1, true))
+				-- The Decrees tab's tooltip.
+				local tip = {}
+				local tt = { AddLine = function(_, s) tip[#tip + 1] = s end }
+				for _, l in ipairs(Ch.AddLines({})) do if l.tooltip and l.text:find(ns.L.ACTS_KIND_SWITCH, 1, true) then l.tooltip(tt) end end
+				local tipText = table.concat(tip, "\n")
+				assert(tipText:find(ns.L.ACTS_BY:format(masked), 1, true) and not tipText:find("Steward", 1, true), tipText)
+				-- His eye shows the names: in full.
+				ns.SetCouncilNamesShown(true)
+				assert(Ch.Line(stewardEntry):find(STEWARD, 1, true))
+				ns.SetCouncilNamesShown(false)
+				-- A term the King takes off the shared list: cut short on his Decrees tab, as in chat.
+				ns.rdb.filterShared = { slur = { on = true, at = w.clock - 10, by = KING } }
+				eq(F.EditShared("slur", false), true)
+				local decrees = {}
+				for _, l in ipairs(Ch.AddLines({})) do decrees[#decrees + 1] = tostring(l.text) end
+				local all = table.concat(decrees, "\n")
+				assert(all:find('"-s***"', 1, true) and not all:find("slur", 1, true), all)
+				local last = Ch.Entries()[#Ch.Entries()]
+				assert(not Ch.Line(last):find("slur", 1, true), Ch.Line(last))
+				-- Anyone else's screen: the words and names whole.
+				AsSoldier("Reader")
+				eq(ns.CouncilMasked(), false)
+				assert(Ch.Line(last):find('"-slur"', 1, true), Ch.Line(last))
+				assert(Ch.Line(stewardEntry):find(STEWARD, 1, true))
+			end)
+			ns.rdb.filterShared, print, ns.UI = saved.shared, saved.print, saved.UI
+			ns.SetCouncilNamesShown(saved.shown)
+			Ch.Clear()
+			if not ok then error(err, 0) end
+		end)
+	end)
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
