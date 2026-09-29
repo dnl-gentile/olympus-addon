@@ -22226,8 +22226,10 @@ test("1.0.0 nameplates preview: the author's /oly borders test <tier> shows that
 			eq(w.mark("nameplate2"), want, name .. " on the King's too")
 			eq(w.mark("nameplate3"), nil, "never on a hostile player"); eq(w.mark("nameplate4"), nil, "nor a creature")
 			local kind, mine = w.myMark()
-			eq(kind, want, name .. " left of his own name")
-			eq(mine.point, "RIGHT PlayerName LEFT -2 0", "left of his name, 2 px off"); eq(mine.size, "16 16")
+			eq(kind, want, name .. " by his own name")
+			-- (1.1, the 1.0 review: after his name, 2 px off. Left of it, the mark sat on his portrait's
+			-- ring. His name, 19 letters of 6 px, is past Forever's 96 px box: at the box's end.)
+			eq(mine.point, "LEFT PlayerName LEFT 98 0", "after his name, 2 px off"); eq(mine.size, "16 16")
 			eq(mine.layer, "OVERLAY")
 			eq(w.shown("player"), name ~= "member" and name or nil, "his border as the preview's (none for the star)")
 		end
@@ -22259,7 +22261,12 @@ test("1.0.0 nameplates preview: the author's /oly borders test <tier> shows that
 		SlashCmdList.OLYMPUS("nameplates on")
 		eq(w.myMark(), "member", "back with the marks"); eq(w.mark("nameplate1"), "member")
 		SlashCmdList.OLYMPUS("borders test off")
-	end, function(w) w.units.player = MARK_AUTHOR; ns.me = "Faladoriel Skylance-ClassicBetaPvP" end)
+	end, function(w)
+		w.units.player = MARK_AUTHOR; ns.me = "Faladoriel Skylance-ClassicBetaPvP"
+		-- (Forever's PlayerName: 96 px, his name in it.)
+		local name = rawget(PlayerFrame, "name")
+		name.text, name.width = "Faladoriel Skylance", 96
+	end)
 	-- The /reload: loaded afresh, the preview forgotten.
 	WithNameplates(function(w)
 		ns.Borders, ns.Nameplates = w.B, w.N
@@ -24453,6 +24460,129 @@ test("1.0.0 the Hands' hint says they speak with the King's Crown to the other g
 	GetLocale = savedLocale
 	if not ok then error(err, 0) end
 	assert(rawget(pt.L, "HANDS_HINT"):find("decretos reais", 1, true))
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: the author's preview of the borders and nameplate marks (the 1.0 review's lows)
+---------------------------------------------------------------------------
+
+local function AsAuthor(w)
+	w.units.player = MARK_AUTHOR; ns.me = "Faladoriel Skylance-ClassicBetaPvP"
+	local name = rawget(PlayerFrame, "name")
+	name.text, name.width = "Faladoriel Skylance", 96
+end
+
+test("1.1 nameplates preview: what the census says while the preview shows is each plate's own mark once it ends, never the mark from before it", function()
+	WithNameplates(function(w)
+		ns.Borders, ns.Nameplates = w.B, w.N
+		local reports = ns.rdb.guilds
+		ns.Roster.byName = {}
+		w.internal("LOGIN")
+		w.add("nameplate1", BorderUnit("Capt", "Olympus Zeus", "Titan", 1))
+		w.add("nameplate2", BorderUnit("Trader", "Stormwind Traders", "Veteran", 3))
+		eq(w.mark("nameplate1"), "silver", "a Captain"); eq(w.mark("nameplate2"), nil)
+		SlashCmdList.OLYMPUS("borders test gold-elite")
+		eq(w.mark("nameplate1"), "gold"); eq(w.mark("nameplate2"), "gold", "the preview on every friendly plate")
+		-- His guild's report comes while the preview shows: he is no longer its Captain.
+		reports["Olympus Zeus"] = { guild = "Olympus Zeus", leader = "Zeusy", officers = {}, realm = "Realm", t = 300 }
+		w.internal("DATA_CHANGED")
+		eq(w.mark("nameplate1"), "gold", "still the preview")
+		-- A councillor named meanwhile too.
+		ns.rdb.council = { names = { ["trader"] = true } }
+		w.internal("DATA_CHANGED")
+		SlashCmdList.OLYMPUS("borders test off")
+		eq(w.mark("nameplate1"), "member", "no longer a Captain: the census's word, not the silver from before the preview")
+		eq(w.mark("nameplate2"), "silver", "the new councillor's mark")
+		-- The game writing the names again (a mouseover, a health change) keeps them.
+		CompactUnitFrame_UpdateName(w.frameOf("nameplate1")); CompactUnitFrame_UpdateName(w.frameOf("nameplate2"))
+		eq(w.mark("nameplate1"), "member"); eq(w.mark("nameplate2"), "silver")
+	end, AsAuthor)
+end)
+
+test("1.1 nameplates preview: with /oly nameplates off the preview's messages and tips say no mark shows (both languages)", function()
+	WithNameplates(function(w)
+		ns.Borders, ns.Nameplates = w.B, w.N
+		w.internal("LOGIN")
+		w.add("nameplate1", BorderUnit("Trader", "Stormwind Traders", "Veteran", 3))
+		SlashCmdList.OLYMPUS("nameplates off")
+		local from = #w.printed
+		SlashCmdList.OLYMPUS("borders test silver")
+		eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON_NO_MARK:format("silver"))
+		for i = from + 1, #w.printed do
+			assert(w.printed[i] ~= ns.L.BORDERS_PREVIEW_ON:format("silver"), "never 'its mark after your name' with the marks off")
+		end
+		eq(w.myMark(), nil, "no mark by his name"); eq(w.mark("nameplate1"), nil, "none on the plates")
+		eq(w.shown("player"), "silver", "the border itself shows")
+		-- The star alone: it only waits, and says so; nothing says it shows.
+		from = #w.printed
+		SlashCmdList.OLYMPUS("borders test member")
+		eq(#w.printed, from + 1, "one line: " .. tostring(w.printed[#w.printed]))
+		eq(w.printed[#w.printed], ns.L.NAMEPLATES_PREVIEW_WHEN_OFF)
+		-- The Workshop's lines say it in their tips.
+		local lines = {}
+		w.B.PreviewLines(lines)
+		local tips = {}
+		lines[2].tooltip({ AddLine = function(_, text) tips[#tips + 1] = text end })
+		eq(tips[#tips], ns.L.NAMEPLATES_PREVIEW_WHEN_OFF, "the tip says the marks are off")
+		-- With the marks on, as in 1.0.
+		SlashCmdList.OLYMPUS("nameplates on")
+		SlashCmdList.OLYMPUS("borders test silver")
+		eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON:format("silver"))
+		eq(w.myMark(), "silver"); eq(w.mark("nameplate1"), "silver")
+		tips = {}
+		lines = {}
+		w.B.PreviewLines(lines)
+		lines[2].tooltip({ AddLine = function(_, text) tips[#tips + 1] = text end })
+		assert(tips[#tips] ~= ns.L.NAMEPLATES_PREVIEW_WHEN_OFF)
+		SlashCmdList.OLYMPUS("borders test off")
+	end, AsAuthor)
+	assert(ns.L.BORDERS_PREVIEW_ON_NO_MARK:find("no mark", 1, true))
+	for _, key in ipairs({ "BORDERS_PREVIEW_ON", "BORDERS_PREVIEW_ON_MEMBER", "BORDERS_PREVIEW_TIP", "BORDERS_PREVIEW_TIP_MEMBER" }) do
+		eq(ns.L[key]:find("left of your name", 1, true), nil, key .. ": the mark is after his name now")
+	end
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	local no = rawget(pt.L, "BORDERS_PREVIEW_ON_NO_MARK")
+	assert(no and no ~= ns.L.BORDERS_PREVIEW_ON_NO_MARK and no:find("desligadas", 1, true) and no:find("%s", 1, true), tostring(no))
+	for _, key in ipairs({ "BORDERS_PREVIEW_ON", "BORDERS_PREVIEW_ON_MEMBER", "BORDERS_PREVIEW_TIP", "BORDERS_PREVIEW_TIP_MEMBER" }) do
+		eq(rawget(pt.L, key):find("esquerda do seu nome", 1, true), nil, "Portuguese " .. key)
+	end
+end)
+
+test("1.1 nameplates preview: the mark by his own name sits after it, never left of it on his portrait's ring", function()
+	WithNameplates(function(w)
+		ns.Borders, ns.Nameplates = w.B, w.N
+		w.internal("LOGIN")
+		SlashCmdList.OLYMPUS("borders test bronze")
+		local _, mine = w.myMark()
+		eq(mine.point, "LEFT PlayerName LEFT 98 0", "a name past the box: at the box's end, 2 px off")
+		SlashCmdList.OLYMPUS("borders test off")
+	end, AsAuthor)
+	WithNameplates(function(w)
+		ns.Borders, ns.Nameplates = w.B, w.N
+		w.internal("LOGIN")
+		SlashCmdList.OLYMPUS("borders test member")
+		local _, mine = w.myMark()
+		eq(mine.point, "LEFT PlayerName LEFT 20 0", "a short name: 2 px after its last letter")
+		local x = tonumber(mine.point:match("(%-?%d+) 0$"))
+		assert(x > 0, "right of the name's first letter, off the portrait")
+		SlashCmdList.OLYMPUS("borders test off")
+		-- Other layouts of the name: from its centre, from its right end; no text yet.
+		local function Name(text, justify, width)
+			return { GetStringWidth = function() return #text * 6 end, GetJustifyH = function() return justify end,
+				GetWidth = function() return width end }
+		end
+		local p, px = w.N.MineSpot(Name("Faladoriel", "CENTER", 180)); eq(p .. " " .. px, "CENTER 32")
+		p, px = w.N.MineSpot(Name("Faladoriel", "RIGHT", 180)); eq(p .. " " .. px, "RIGHT 2")
+		p, px = w.N.MineSpot(Name("", "LEFT", 96)); eq(p .. " " .. px, "RIGHT 2", "no text yet: the box's end")
+	end, function(w)
+		AsAuthor(w)
+		rawget(PlayerFrame, "name").text = "Fal"
+	end)
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))
