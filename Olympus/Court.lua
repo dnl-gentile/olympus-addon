@@ -85,6 +85,8 @@ end
 function Court.Request(sender, id, guild)
 	if not holding or holding.id ~= id then return end
 	sender = ns.FullName(sender)
+	-- 1.1: a name the moderators took off (net-off, Moderation.lua) is not queued.
+	if ns.Moderation.Hides and ns.Moderation.Hides(sender, guild) then return end
 	local name, clean = ns.King.CleanName(sender), ns.King.CleanGuild(guild)
 	if not name or not clean or holding.by[sender] or #holding.queue >= Court.MAX then return end
 	local now = ns.Now()

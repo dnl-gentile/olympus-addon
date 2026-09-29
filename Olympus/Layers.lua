@@ -245,6 +245,9 @@ end
 function Layers.Receive(sender, l)
 	if not ns.IsFederation(l.guild) then return end
 	sender = ns.FullName(sender)
+	-- 1.1: a name the moderators took off (net-off, Moderation.lua): no layer of theirs, and the
+	-- one they announced before goes.
+	if ns.Moderation.Hides and ns.Moderation.Hides(sender, l.guild) then return Layers.Forget(sender) end
 	-- The King's own layer tells where he plays (1.0.0, Konig's review: Hop.King), whatever a report says.
 	if ns.Hop and ns.Hop.HeardKing then ns.Hop.HeardKing(sender) end
 	local old = where[sender]
@@ -294,7 +297,8 @@ function Layers.ForMap(mapID)
 	for zoneUID, members in pairs(source[mapID] or {}) do
 		local best, count = nil, 0
 		for name, m in pairs(members) do
-			if now - m.t <= EXPIRE then
+			-- (1.1: never a name the moderators took off since, Moderation.lua.)
+			if now - m.t <= EXPIRE and not (ns.Moderation.Hides and ns.Moderation.Hides(name, m.guild)) then
 				count = count + 1
 				local cand = { name = ns.DisplayName(name), rank = m.rank, guild = m.guild }
 				if not best or Better(cand, best, sizes) then best = cand end

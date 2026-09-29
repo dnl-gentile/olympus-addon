@@ -39,6 +39,7 @@ Court.lua
 Treasury.lua
 Bank.lua
 Acts.lua
+Moderation.lua
 Workshop.lua
 Ed25519.lua
 libs\QREncode\qrencode.lua

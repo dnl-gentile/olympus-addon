@@ -176,6 +176,10 @@ King.HAND_MAY = { S = true, I = true, A = true, X = true, V = true, E = true, G 
 -- and keepers (T, K, Treasury.lua). Never the King's list of Hands (H), his crown on the map
 -- (P, Q), the court (C, Z), writs (W), pardons (F) or the untabarded list (U).
 King.STEWARD_MAY = { S = true, I = true, A = true, X = true, V = true, E = true, G = true, N = true, T = true, K = true }
+-- 1.1: the calls to the army a Hand or a Steward sends (popups, raid warnings, windows, the gates'
+-- news): none shows from a name the moderators took off (net-off, Moderation.lua). Their lists (the
+-- Hands, the treasury's words) are not calls: they still count.
+King.HIDDEN_CALLS = { S = true, I = true, A = true, X = true, V = true, E = true, G = true }
 -- A word of the treasury (its switches, its keepers: Treasury.lua) dated further ahead of the
 -- server's clock is not taken. A minute: every client reads the same server clock, so a word
 -- dated further ahead comes from a modified client, which would otherwise keep its word over
@@ -1039,6 +1043,11 @@ function King.HandleCommand(dist, sender, text)
 		return
 	end
 	id = tonumber(id)
+	-- 1.1: a Hand (or a Steward) the moderators took off (net-off, Moderation.lua): none of their
+	-- calls to the army shows. (Never the King: nobody takes him off.)
+	if King.HIDDEN_CALLS[kind] and ns.Moderation.Hides and ns.Moderation.Hides(sender, guild) then
+		return ns.Log("throne %s from %s ignored: net-off", kind, sender)
+	end
 	-- The King's own client takes his Hands' news (the agenda, the gates, a cancel), not
 	-- their calls to the army: no roll call popup, patrol or poll window for him.
 	if King.IsKing() and (kind == "S" or kind == "I" or kind == "V") and not KingSender(sender, guild) then return end

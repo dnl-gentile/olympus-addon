@@ -266,6 +266,8 @@ function Vox.HandleVote(dist, sender, text)
 	if not picks or ns.Now() > poll.at + Vox.GRACE or not ns.IsFederation(guild) then return end
 	sender = ns.FullName(sender)
 	if poll.votes[sender] or poll.voters + poll.others >= Vox.MAX_VOTES then return end
+	-- 1.1: a name the moderators took off (net-off, Moderation.lua): not counted, not even as a voter.
+	if ns.Moderation.Hides and ns.Moderation.Hides(sender, guild) then return end
 	poll.votes[sender] = digits
 	if sender == ns.me or Placed(sender, guild) then
 		for _, i in ipairs(picks) do poll.counts[i] = poll.counts[i] + 1 end
@@ -296,6 +298,9 @@ end
 
 local function Vote()
 	if not shown or shown.voted or shown.counts or ns.Now() > shown.at then return end
+	-- 1.1: the moderators took this character off (net-off, Moderation.lua): the vote would not count.
+	local off = ns.Moderation.SelfOff and ns.Moderation.SelfOff()
+	if off then return ns.Print(ns.Moderation.YouText(off)) end
 	local digits = {}
 	for i = 1, #shown.answers do if shown.picks[i] then digits[#digits + 1] = tostring(i) end end
 	if #digits == 0 then return end
@@ -508,6 +513,8 @@ end
 -- A question from the King or a Hand (King.Authorized checked the sender): not our own.
 local function OnQuestion(sender, id, rest, guild)
 	if ns.FullName(sender) == ns.me then return end
+	-- 1.1: a Hand the moderators took off (net-off, Moderation.lua): no window of theirs.
+	if ns.Moderation.Hides and ns.Moderation.Hides(sender, guild) then return end
 	local byKing = ns.King.FromKing(sender, guild)
 	local seconds, kind, q, a = rest:match("^(%d+)~([1M])~([^~]+)~(.+)$")
 	seconds = tonumber(seconds)

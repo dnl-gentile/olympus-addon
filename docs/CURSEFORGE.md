@@ -177,6 +177,34 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
 Before your first line in each channel the addon tells you this and waits for **Send**.
 
+### Net-off (1.1): the moderators hide a character
+The King, his Steward, a Hand (the King's list or a Steward's) or a High Councillor of the
+author's signed list can hide one character for the whole army: **Hide a character** on the
+**Decrees** tab (the name or your target, then the reason), or `/oly netoff Name: reason`. Every
+addon then hides that character on every Olympus surface: their [Olympus], [Captains] and
+[Lords] lines (and the lines the Olympus chats kept), their decrees, their layer and hop offers,
+their Vox Populi votes and questions, and their requests at court. The rest of their guild,
+and the census, are not touched: one name stops the spam.
+- The Decrees tab lists who is hidden, with the reason, who hid them and when (the server's
+  clock). The same people show a name again with a click there, or `/oly neton Name`.
+- It never aims at the King. It uninvites nobody, demotes nobody and writes nothing to
+  Blizzard's ignore list, and `/oly block` stays one client's and one player's. No treasury code
+  can call it.
+- The hidden player's addon tells them why, and sends none of it. A Hand or a Steward who is
+  hidden calls the army in vain: their Agenda, roll call, Vox Populi, inspection and gates show
+  nowhere (whoever named them a Hand still decides whether they stay one).
+- A word goes on the Olympus channel with Blizzard's logged addon-message function (the issuer's
+  own words: the server keeps them, so abuse can be reported), one word per name. The issuers'
+  addons repeat the list for late logins, every 5 minutes, and share it: a word heard repeated
+  is not sent again. The newest word wins, by the server's clock (on the same second, the
+  King's). A word showing a name again is kept for 30 days, so an older word never comes back.
+  A word counts only from someone who may give one on that client now (the server stamps every
+  sender's name), and never from a name that is hidden itself.
+- On the King's screen, while the council's names are hidden (his stream), another issuer's
+  reason and a councillor's name stay hidden until he shows the council's names.
+- Each honest addon does it: a modified one can ignore it, and versions before 1.1 show
+  everything.
+
 ### The Throne (the King and his Hands)
 A tab with a crown that only the King sees: the guild master of the guild named exactly
 "Olympus" (of his faction), and on the Alliance that very character, Asmongold Asmongler: the
@@ -540,6 +568,7 @@ message (the game adds it). What goes where:
 | A layer hop ask: the zone you are in and the layer you want | everyone on the Olympus channel | when you ask to hop |
 | An answer to an ask for your layer (it tells the asker you are on it) | the asker alone (a whisper) | only if you share your zone and layer, while layer help is on (`/oly layerhelp off` stops it) |
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one |
+| A net-off word (1.1): the character's name, hidden or shown again, the time, who gave it and the reason | everyone on the Olympus channel | when the King, his Steward, a Hand or a High Councillor gives one, then from their addons every few minutes for late logins |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | everyone on the Olympus channel receives the bytes; the addon shows them to the King and his Steward, and to the army only with the King's switches | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
@@ -761,6 +790,9 @@ Other limits:
 - A real Olympus member who edits their copy could still send a wrong report for **their own**
   guild. Their guildmates' reports and the conflict flag make a changed leader, size or officer
   list visible, but it can't be made impossible.
+- **Net-off is its issuers' word (1.1).** One Hand or High Councillor can hide anyone but the
+  King for the whole army. The Decrees tab shows everyone who did it, why and when, and any
+  other issuer (the King always) can show that name again; a name that is hidden gives no word.
 
 ## Built for a crowd of thousands
 
@@ -805,6 +837,7 @@ Other limits:
 | `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, Lords and Captains, bronze for Raiders and Veterans, and a star for any other member of an Olympus guild; on by default, hidden with the gamepad UI and with `/oly borders off` |
 | `/oly key <secret>` | officers: seal the Olympus channel |
 | `/oly block <name>` | ignore a player |
+| `/oly netoff Name: reason` · `/oly neton Name` · `/oly netoff` | the King, his Steward, a Hand or a High Councillor: hide a character for the whole army, or show them again (also on the Decrees tab); alone, who is hidden (1.1) |
 | `/oly map` | zone markers on the world map |
 | `/oly sound` | alert sounds on or off |
 | `/oly bug` | copyable bug report (also: the help button left of the window's X, then **Report a bug**) |

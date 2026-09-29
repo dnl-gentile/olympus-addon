@@ -133,6 +133,12 @@ function Decree.Send(kind, text)
 		ns.Print(L.DECREE_OFFICERS_ONLY)
 		return
 	end
+	-- 1.1: the moderators took this character off (net-off, Moderation.lua): nobody would see it.
+	local off = ns.Moderation.SelfOff and ns.Moderation.SelfOff()
+	if off then
+		ns.Print(ns.Moderation.YouText(off))
+		return
+	end
 	local now = ns.Now()
 	if now - lastSent < SEND_COOLDOWN then
 		ns.Print(L.DECREE_COOLDOWN:format(SEND_COOLDOWN - (now - lastSent)))
@@ -187,6 +193,10 @@ ns.Comm.Handle("D1", function(dist, sender, text)
 	if dist ~= "CHANNEL" then return end
 	local d = ns.Codec.DecodeDecree(text)
 	if not d or not ns.IsFederation(d.guild) then return end
+	-- 1.1: a name the moderators took off (net-off, Moderation.lua).
+	if ns.Moderation.Hides and ns.Moderation.Hides(sender, d.guild) then
+		return ns.Log("decree from %s ignored: net-off", sender)
+	end
 	-- The King by his pinned name (the server stamps it), never by a vote: his decree needs no
 	-- census. So do his Hands' for his guild (his list or a Steward's, King.IsHandName), on every
 	-- client outside it: there they are of his Crown on his word (1.0.0); on its own members'

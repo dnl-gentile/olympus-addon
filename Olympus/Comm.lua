@@ -179,13 +179,20 @@ end
 -- logged (1.0.0): a player's own words (a decree's), sent with the logged API where the client
 -- has it (SendNow), as chat lines are: the server keeps them, so abuse can be reported.
 local handlers = {}
+-- 1.1 (Moderation.lua): a client the moderators took off (net-off) sends none of what they hide.
+local function Held(msg)
+	local M = ns.Moderation
+	return M ~= nil and not M.missing and M.Blocks(msg) == true
+end
 function Comm.Send(dist, msg, key, urgent, logged)
 	if dist == "GUILD" and not IsInGuild() then return end
+	if Held(msg) then return end
 	Enqueue(dist, msg, key, nil, urgent, logged)
 end
 -- An addon message to one player only (answers to the King, Throne tab).
 function Comm.Whisper(target, msg, key, urgent)
 	if type(target) ~= "string" or target == "" then return end
+	if Held(msg) then return end
 	Enqueue("WHISPER", msg, key, target, urgent)
 end
 function Comm.Handle(msgType, fn)
@@ -212,7 +219,7 @@ end
 -- never push report chunks out of MAX_QUEUE. done(sent) is called once the part went out
 -- (or was dropped). Returns false when the lane is full.
 function Comm.SendChat(msg, done)
-	if #chatQueue >= CHAT_QUEUE then return false end
+	if #chatQueue >= CHAT_QUEUE or Held(msg) then return false end
 	chatQueue[#chatQueue + 1] = { msg = msg, done = done, t = GetTime() }
 	return true
 end

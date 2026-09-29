@@ -24455,5 +24455,530 @@ test("1.0.0 the Hands' hint says they speak with the King's Crown to the other g
 	assert(rawget(pt.L, "HANDS_HINT"):find("decretos reais", 1, true))
 end)
 
+---------------------------------------------------------------------------
+-- 1.1 (b2-moderation): Fern's requests #32 (a character's net-off), #33 (a guild's), #21 (alt
+-- links) and #8 (the King's key rotation). Their files load here, not in the list at the top
+-- (1.0.0's files), so branches built beside this one merge cleanly; the whole block is one
+-- function (the file's top level is near Lua's 200 locals).
+---------------------------------------------------------------------------
+;(function()
+	local standIn = ns.Moderation -- (Core.lua's, until the game restarts after an update)
+	assert(loadfile(ADDON_DIR .. "Moderation.lua"))("Olympus", ns)
+	local M = ns.Moderation
+	local KING = "Asmongold Asmongler-Realm"
+	local HC = "Test Councillor-Realm" -- a made-up councillor of the test council (WithNetoff)
+
+	-- A net-off word as an issuer's client sends it.
+	local function O1(kind, off, at, name, by, reason)
+		return ("O1~%s~%s~%d~%s~%s~%s"):format(kind, off and "1" or "0", at, name, by, reason or "")
+	end
+	-- The King's word on a character, as heard here (the clock is the server's in the game, ns.Now here).
+	local function Off(name, reason) M.Handle("CHANNEL", KING, O1("c", true, ns.Now(), name, KING, reason or "spam")) end
+	local function Back(name) M.Handle("CHANNEL", KING, O1("c", false, ns.Now() + 1, name, KING, "")) end
+
+	-- The Throne's scene (WithThrone), a council of one (Test Councillor), no net-off word yet,
+	-- the plain API (no logged one) unless a test says so; Comm.Send records the logged flag too.
+	local function WithNetoff(fn)
+		WithThrone(function(w, K)
+			local saved = { council = ns.rdb.council, netoff = ns.rdb.netoff, info = C_ChatInfo, alts = ns.Alts, split = ns.splitNames }
+			local ok, err = pcall(function()
+				M.Reset()
+				ns.rdb.netoff = nil
+				ns.rdb.council = { at = 1, names = { ["test councillor"] = "Test Councillor" } }
+				C_ChatInfo = nil
+				ns.Comm.Send = function(dist, msg, key, urgent, logged)
+					w.sent[#w.sent + 1] = { dist = dist, msg = msg, key = key, urgent = urgent, logged = logged }
+				end
+				fn(w, K)
+			end)
+			ns.rdb.council, ns.rdb.netoff, C_ChatInfo, ns.Alts, ns.splitNames = saved.council, saved.netoff, saved.info, saved.alts, saved.split
+			M.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end
+
+	-- The author's test key and a titles list it signed marking Test Steward-Realm the Alliance
+	-- King's Steward (the same fixture as the Steward's tests above: its private half was not kept).
+	local STEWARD_N = "9e499277d625188e55df666b8776016694bc7f1b1abdfe64d3e36663dd0ab77b272165fb00afbbb98e7db54f227af0f8924e339e121c78bce2cc44f66fe4dd8ee02890ba42bc0e24921caec08a490bb3fe51305075d359425de1aa175a595dafc20ab5345b44de2a6b16ddd07bf66df857fe033ff9bb828d170b99b09d1d5508365ab07deede4c77dcdabb6054985263ed4392243d50391b2fe525b0cddfc52ebebbf6a594b579793b2ee870c00733f4167724ead56b4dc1be31292149fef8fac9a1193691a7cebfe277dd56e569458b418d725969a69af553ec2d29bb795d790e19017b003e506886b16c08472b2a93ffe63d96fe20609d49dd3c2806fd1299"
+	local STEWARD_MU = "19e081e761192f93efc11c633fe2a9159b14aabe3a5b7061b01b38839451427c4be4a690f9e5333c782d0db50e7446ae84166c0d219ee4b92610f2b4a8b4b70d9fe095052c15b2a589017f346cf21218b3fa09a2cd20ffa7ceb5aee105ace28f20093de9fb96683f85dabc9bef2fd255e9adff8f4a47ebd99a493c0c4d8f053f49a9075ecda0638956035ee11984c2515e37b4afd46ea8a3f252e423c11db31e5d511ed8cce10cf07166b07fc2c97b55c4ed237fa15e5e11c78ae7bee7f4921a412085a936951eb6495ad26df7545586b0ea94fc7c9ddc40426199d93dd152a20908e3e4efd90e335d9c1e80fbfb5882796c9b11a845cfce73d5c6009c8562d8ab5e2b2a6"
+	local STEWARD_LIST = "HT1~1800000102~Realm~0~^^Test Councillor=Council Speaker;^steward^Alliance^Test Steward-Realm~0b9da6781cc9e3f1a2dac3df6014f28c0ed5d2869ddd41a6cbd56ff249e46911d434b13ee8249537177fca7ea28cd3ce1800a1d0a68ff2f86f0b3678c88f725f1dc31be3893ed21a7e6c9d817ab5d0f34dedce3cfc8d53d749b4e67762e52d78d473cc360762ea07aef5576e603bc3881d2ef3ae86a4f8348e9448fdaf80aa50f74f0f32171de2309039c383fd075b3c353e142b35d08be0b2a58da710ac6890c9eaa7a495931edf26f450c1bca02ecb289910119ede4c20f13cc56386f0557e303e4f19680e6a9e8179942701208b9031d7039fcf5cf9e4e70b467d11b8999d4b50edd5c12d3454f1473666847eccadcf7b73820dd918563eece41dffe8eb17"
+	local STEWARD = "Test Steward-Realm"
+	local function WithSteward(fn)
+		local saved = ns.rdb.councilTitles
+		local ok, err = pcall(function()
+			ns.rdb.councilTitles = nil
+			ns.Workshop.ResetVerify()
+			ns.Sign.WithKey(STEWARD_N, STEWARD_MU, 86, function() assert(ns.Workshop.TakeTitles(STEWARD_LIST), "the test key's list") end)
+			fn()
+		end)
+		ns.rdb.councilTitles = saved
+		ns.Workshop.ResetVerify()
+		if not ok then error(err, 0) end
+	end
+
+	-- A page's lines as one text.
+	local function Page(lines)
+		local out = {}
+		for _, l in ipairs(lines) do out[#out + 1] = tostring(l.text) .. " | " .. tostring(l.right or "") end
+		return table.concat(out, "\n")
+	end
+	-- Both languages' tables (pt-BR loaded on its own).
+	local function PtBR()
+		local pt = { L = setmetatable({}, { __index = ns.L }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		return pt.L
+	end
+	local function Source(file)
+		local f = assert(io.open(ADDON_DIR .. file, "r"))
+		local s = f:read("*a")
+		f:close()
+		return s
+	end
+
+	test("1.1 net-off (#32): the King, his Steward, a Hand or a signed High Councillor aims at one name, with a reason and the time; nobody else's word counts", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Watcher")
+			local now = w.clock
+			-- A soldier's word: nothing.
+			M.Handle("CHANNEL", "Random Guy-Realm", O1("c", true, now, "Spammer Guy-Realm", "Random Guy-Realm", "spam"))
+			eq(M.Hidden("Spammer Guy-Realm"), nil, "not an issuer")
+			-- A councillor of the signed list: taken, with its reason, its issuer and its time.
+			M.Handle("CHANNEL", HC, O1("c", true, now, "Spammer Guy-Realm", HC, "flooding /ol"))
+			local e = M.Hidden("Spammer Guy-Realm")
+			assert(e, "the councillor's word")
+			eq(e.reason, "flooding /ol"); eq(e.by, HC); eq(e.at, now); eq(e.off, true)
+			-- The King by his pinned name.
+			M.Handle("CHANNEL", KING, O1("c", true, now, "Other Spammer-Realm", KING, "scam links"))
+			assert(M.Hidden("Other Spammer-Realm"), "the King's word")
+			-- A Hand of the King's list, as heard from him.
+			K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Hand Guy-Realm")
+			eq(K.IsHandName("Hand Guy-Realm"), true)
+			M.Handle("CHANNEL", "Hand Guy-Realm", O1("c", true, now, "Third Spammer-Realm", "Hand Guy-Realm", "harassment"))
+			assert(M.Hidden("Third Spammer-Realm"), "a Hand's word")
+			-- The King's Steward (the author's signed titles list names him).
+			WithSteward(function()
+				eq(K.IsStewardName(STEWARD), true)
+				M.Handle("CHANNEL", STEWARD, O1("c", true, now, "Fifth Spammer-Realm", STEWARD, "fake guild recruiting"))
+				assert(M.Hidden("Fifth Spammer-Realm"), "the Steward's word")
+			end)
+			-- A councillor no longer on the list: no word.
+			ns.rdb.council.names["test councillor"] = nil
+			M.Handle("CHANNEL", HC, O1("c", true, now, "Sixth Spammer-Realm", HC, "spam"))
+			eq(M.Hidden("Sixth Spammer-Realm"), nil, "off the council")
+			ns.rdb.council.names["test councillor"] = "Test Councillor"
+			-- Over the channel alone, with the logged API where the client has it (the words are the issuer's own).
+			M.Handle("WHISPER", HC, O1("c", true, now, "Seventh Spammer-Realm", HC, "spam"))
+			M.Handle("GUILD", HC, O1("c", true, now, "Seventh Spammer-Realm", HC, "spam"))
+			eq(M.Hidden("Seventh Spammer-Realm"), nil, "not the channel")
+			C_ChatInfo = { SendAddonMessageLogged = function() end }
+			M.Handle("CHANNEL", HC, O1("c", true, now, "Seventh Spammer-Realm", HC, "spam"))
+			eq(M.Hidden("Seventh Spammer-Realm"), nil, "the plain API where the logged one exists")
+			C_ChatInfo = nil
+			-- A word without a reason, dated far ahead, or aimed at something that can't be a character: refused.
+			M.Handle("CHANNEL", HC, O1("c", true, now, "Eighth Spammer-Realm", HC, ""))
+			M.Handle("CHANNEL", HC, O1("c", true, now + 3600, "Eighth Spammer-Realm", HC, "spam"))
+			M.Handle("CHANNEL", HC, O1("c", true, now, "Not A Name 123-Realm", HC, "spam"))
+			eq(M.Hidden("Eighth Spammer-Realm"), nil, "no reason / far ahead")
+			eq(#M.List(), 4, "four names hidden: the councillor's, the King's, the Hand's and the Steward's words")
+			-- The same councillor, now off himself, gives no word (nor can he put himself back on).
+			M.Handle("CHANNEL", KING, O1("c", true, now, HC, KING, "rogue moderator"))
+			eq(M.IsIssuer(HC), false)
+			M.Handle("CHANNEL", HC, O1("c", false, now + 5, HC, HC, ""))
+			assert(M.Hidden(HC), "still off")
+		end)
+	end)
+
+	test("1.1 net-off (#32): never the pinned King, whoever asks and whatever he is linked to; /oly block stays one client's", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Watcher")
+			local now = w.clock
+			M.Handle("CHANNEL", HC, O1("c", true, now, KING, HC, "on stream"))
+			eq(M.Hidden(KING), nil, "a word aimed at the King is refused")
+			eq(#M.List(), 0)
+			-- The King himself can't aim at himself either, and the issuer's own client says why.
+			AsKing()
+			eq(M.Set("c", "Asmongold Asmongler", true, "test"), false)
+			assert(Printed(w, ns.L.NETOFF_NOT_KING))
+			-- A name linked to him (Alts.lua) that is off never hides him.
+			AsSoldier("Watcher")
+			Off("Spammer Guy-Realm")
+			ns.Alts = { Linked = function(name) if name == KING then return { "Spammer Guy-Realm" } end return {} end }
+			eq(M.Hidden(KING), nil, "the King is never hidden")
+			-- /oly block: this client's, untouched by a net-off, and a net-off writes nothing there.
+			eq(ns.db.blocked["spammer guy-realm"], nil)
+			SlashCmdList.OLYMPUS("block Blocked Guy")
+			eq(ns.db.blocked["blocked guy-realm"], true)
+			eq(M.Hidden("Blocked Guy-Realm"), nil, "a block is not a net-off")
+			ns.db.blocked["blocked guy-realm"] = nil
+		end)
+	end)
+
+	test("1.1 net-off (#32): the character is hidden on every addon surface, and the names already linked as its alts too", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Watcher")
+			local C = ns.Channels
+			local n = 0
+			local function Line(sender, text)
+				n = n + 1
+				local shown, why = C.Receive("CHANNEL", sender, ns.Codec.EncodeChat("A", "Olympus Zeus", 5000 + n, "", text), 700000 + n * 10)
+				return shown and "shown" or why
+			end
+			-- The chats: shown, then hidden once he is off, and his lines kept before leave the history.
+			eq(Line("Spammer Guy-Realm", "buy gold"), "shown")
+			eq(Line("Good Guy-Realm", "hello"), "shown")
+			local function Writers()
+				local out = {}
+				for _, e in ipairs(C.History("A")) do out[#out + 1] = ns.ShortName(e.sender) end
+				return table.concat(out, ",")
+			end
+			assert(Writers():find("Spammer Guy", 1, true))
+			Off("Spammer Guy-Realm")
+			eq(Line("Spammer Guy-Realm", "buy gold again"), "netoff")
+			eq(Line("Good Guy-Realm", "still here"), "shown", "the rest of his guild still speaks")
+			assert(not Writers():find("Spammer Guy", 1, true), "his history too: " .. Writers())
+			assert(Writers():find("Good Guy", 1, true))
+			-- His alts, linked by his player before (Alts.lua: #21), are hidden with him.
+			ns.Alts = { Linked = function(name)
+				if name == "Spammer Alt-Realm" then return { "Spammer Guy-Realm" } end
+				if name == "Spammer Guy-Realm" then return { "Spammer Alt-Realm" } end
+				return {}
+			end }
+			eq(Line("Spammer Alt-Realm", "it's me again"), "netoff", "an alt linked to him")
+			local e, on = M.Hidden("Spammer Alt-Realm")
+			eq(on, "Spammer Guy-Realm", "hidden for the name that is off")
+			ns.Alts = nil
+			-- Layers and the hop: his announcement leaves, his ask gets no offer, his offer and request are not taken.
+			ns.Layers.Reset()
+			ns.Layers.Receive("Good Guy-Realm", { mapID = 1429, zoneUID = 5, rank = 3, guild = "Olympus Zeus" })
+			ns.Layers.Receive("Spammer Guy-Realm", { mapID = 1429, zoneUID = 6, rank = 3, guild = "Olympus Zeus" })
+			local zones = {}
+			for _, l in ipairs(ns.Layers.ForMap(1429)) do zones[#zones + 1] = l.zoneUID end
+			eq(table.concat(zones, ","), "5", "his layer is not listed")
+			local before = ns.Hop.Crowd(1453, 7, w.clock)
+			ns.Hop.HandleAsk("CHANNEL", "Spammer Guy-Realm", "LQ~42~1453~7")
+			eq(ns.Hop.Crowd(1453, 7, w.clock), before, "his ask is not even heard")
+			-- Vox Populi: the King's question; his vote is not counted, not even as a voter; his question as a Hand shows nowhere.
+			AsKing()
+			assert(ns.Vox.Ask("Raid tonight? Yes / No"))
+			local id = tonumber(LastSent(w):match("^T1~V~(%d+)"))
+			ns.Vox.HandleVote("WHISPER", "Spammer Guy-Realm", ("Y1~%d~1~Olympus Zeus"):format(id))
+			ns.Vox.HandleVote("WHISPER", "Good Guy-Realm", ("Y1~%d~2~Olympus Zeus"):format(id))
+			local poll = ns.Vox.State()
+			eq(poll.voters + poll.others, 1, "one vote: the good guy's")
+			eq(poll.votes["Spammer Guy-Realm"], nil)
+			-- The court: his request is not queued.
+			ns.Court.Toggle()
+			local holding = ns.Court.Holding()
+			ns.Court.HandleRequest("WHISPER", "Spammer Guy-Realm", ("T4~%d~Olympus Zeus"):format(holding.id))
+			ns.Court.HandleRequest("WHISPER", "Good Guy-Realm", ("T4~%d~Olympus Zeus"):format(holding.id))
+			eq(#holding.queue, 1); eq(holding.queue[1].name, "Good Guy-Realm")
+			ns.Court.Toggle()
+			-- Back on: his lines show again.
+			AsSoldier("Watcher")
+			Back("Spammer Guy-Realm")
+			eq(M.Hidden("Spammer Guy-Realm"), nil)
+			eq(Line("Spammer Guy-Realm", "sorry"), "shown")
+		end)
+	end)
+
+	test("1.1 net-off (#32): a Hand the moderators hid calls the army in vain (agenda, roll call, Vox, gates); the King's calls always show", function()
+		WithNetoff(function(w, K)
+			AsLord()
+			K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Hand Guy-Realm")
+			eq(K.IsHandName("Hand Guy-Realm"), true)
+			Off("Hand Guy-Realm", "fake agendas")
+			K.HandleCommand("CHANNEL", "Hand Guy-Realm", "T1~A~7~Olympus II~1800~Goldshire~Fake raid")
+			eq(K.Agenda(), nil, "no agenda of his")
+			K.HandleCommand("CHANNEL", "Hand Guy-Realm", "T1~S~8~Olympus II")
+			eq(#w.popups, 0, "no roll call popup")
+			K.HandleCommand("CHANNEL", "Hand Guy-Realm", "T1~V~9~Olympus II~60~1~Fake?~A~B")
+			eq(select(3, ns.Vox.State()), nil, "no Vox window")
+			eq(K.IsHandName("Hand Guy-Realm"), true, "his place on the King's list is the King's: not touched")
+			-- The King's own call.
+			K.HandleCommand("CHANNEL", KING, "T1~A~10~Olympus~1800~Stormwind~Real raid")
+			eq(K.Agenda().title, "Real raid")
+		end)
+	end)
+
+	test("1.1 net-off (#32): his decrees are dropped on the real receive path, his guild's officers' still show", function()
+		local saved = { now = ns.Now, guild = GetGuildInfo, me = ns.me, print = ns.Print, alert = ns.PlayAlert, netoff = ns.rdb.netoff,
+			num = GetNumGuildMembers, info = GetGuildRosterInfo }
+		local ok, err = pcall(function()
+			local clock = os.time()
+			ns.Now = function() return clock end
+			GetGuildInfo = function() return "Olympus II", "rank", 3 end
+			ns.me = "Tester-Realm"
+			ns.Print, ns.PlayAlert = function() end, function() end
+			-- Our roster (the server's word): two officers of our guild.
+			local roster = { { "Guild Master-Realm", 0 }, { "Bad Officer-Realm", 1 }, { "Good Officer-Realm", 1 }, { "Tester-Realm", 3 } }
+			GetNumGuildMembers = function() return #roster, #roster end
+			GetGuildRosterInfo = function(i)
+				local r = roster[i]
+				return r[1], "rank", r[2], 60, "class", "Stormwind City", "", "", true, 0, "WARRIOR"
+			end
+			ns.Roster.Scan()
+			eq(ns.Roster.RankOf("Bad Officer-Realm"), 1)
+			local cns, Deliver = FreshComm()
+			cns.Now = function() return clock end
+			assert(loadfile(ADDON_DIR .. "Decree.lua"))("Olympus", cns)
+			M.Reset()
+			ns.rdb.netoff = nil
+			Off("Bad Officer-Realm", "fake calls to arms")
+			Deliver("CHANNEL", "Bad Officer-Realm", ns.Codec.EncodeDecree("ARMS", 1453, 0.5, 0.5, "Olympus II", 1, "x"))
+			eq(#cns.Decree.Active(), 0, "the officer who is off: dropped")
+			Deliver("CHANNEL", "Good Officer-Realm", ns.Codec.EncodeDecree("ARMS", 1453, 0.5, 0.5, "Olympus II", 1, "real attack"))
+			eq(#cns.Decree.Active(), 1, "another officer of his guild: shown")
+		end)
+		ns.Now, GetGuildInfo, ns.me, ns.Print, ns.PlayAlert, ns.rdb.netoff = saved.now, saved.guild, saved.me, saved.print, saved.alert, saved.netoff
+		GetNumGuildMembers, GetGuildRosterInfo = saved.num, saved.info
+		ns.Roster.Scan()
+		M.Reset()
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.1 net-off (#32): the newest word wins (the King's on the same second); a name put back on stays on against older words", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Watcher")
+			local t = w.clock
+			M.Handle("CHANNEL", HC, O1("c", true, t, "Spammer Guy-Realm", HC, "spam"))
+			M.Handle("CHANNEL", HC, O1("c", false, t + 10, "Spammer Guy-Realm", HC, ""))
+			eq(M.Hidden("Spammer Guy-Realm"), nil, "put back on")
+			-- The older word repeated late by another issuer: the name stays on.
+			M.Handle("CHANNEL", KING, O1("c", true, t, "Spammer Guy-Realm", HC, "spam"))
+			eq(M.Hidden("Spammer Guy-Realm"), nil, "an older word never comes back")
+			-- Two words of the same second: the King's.
+			M.Handle("CHANNEL", HC, O1("c", true, t + 20, "Spammer Guy-Realm", HC, "spam again"))
+			M.Handle("CHANNEL", KING, O1("c", false, t + 20, "Spammer Guy-Realm", KING, ""))
+			eq(M.Hidden("Spammer Guy-Realm"), nil, "the King's word of that second")
+			M.Handle("CHANNEL", HC, O1("c", true, t + 30, "Spammer Guy-Realm", HC, "and again"))
+			M.Handle("CHANNEL", "Test Councillor-Realm", O1("c", false, t + 30, "Spammer Guy-Realm", HC, ""))
+			assert(M.Hidden("Spammer Guy-Realm"), "same second, not the King's: the one kept")
+			-- The list keeps its words across a /reload (ns.rdb.netoff), checked again when loaded.
+			ns.rdb.netoff.c["forged-realm"] = { name = "Forged-Realm", off = true, at = t, by = "Nobody", reason = "" }
+			ns.rdb.netoff.c["asmongold asmongler-realm"] = { name = KING, off = true, at = t, by = HC, reason = "edited" }
+			M.Reset()
+			M.Load()
+			eq(ns.rdb.netoff.c["asmongold asmongler-realm"], nil, "never the King, even from the saved variables")
+			eq(ns.rdb.netoff.c["forged-realm"], nil, "a word without a reason is not kept")
+			assert(M.Hidden("Spammer Guy-Realm"), "the rest stays")
+		end)
+	end)
+
+	test("1.1 net-off (#32): an issuer gives the word by click or command, logged, and the issuers' clients repeat the list for late logins without flooding", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Watcher")
+			eq(M.Set("c", "Spammer Guy", true, "spam"), false, "a soldier can't")
+			assert(Printed(w, ns.L.NETOFF_ONLY))
+			eq(#w.sent, 0)
+			AsSoldier("Test Councillor")
+			eq(M.Set("c", "Spammer Guy", true, ""), false, "a reason is needed")
+			eq(M.Set("c", "Test Councillor", true, "me"), false, "not himself")
+			eq(M.Set("c", "Spammer Guy", true, "flooding /ol with gold ads"), true)
+			local s = w.sent[#w.sent]
+			eq(s.dist, "CHANNEL"); eq(s.logged, true, "the logged API")
+			eq(s.msg, O1("c", true, w.clock, "Spammer Guy-Realm", HC, "flooding /ol with gold ads"))
+			assert(#s.msg <= 255)
+			-- /oly netoff Name: reason, and /oly neton Name.
+			SlashCmdList.OLYMPUS("netoff Other Guy: scam links")
+			assert(M.Hidden("Other Guy-Realm"), "by command")
+			SlashCmdList.OLYMPUS("neton Other Guy")
+			eq(M.Hidden("Other Guy-Realm"), nil)
+			eq(w.sent[#w.sent].msg:sub(1, 7), "O1~c~0~", "back on, sent")
+			-- The repeat: every REPEAT (plus the client's own draw) after a word was last heard, a few a minute.
+			M.random = function() return 0 end
+			local sent = #w.sent
+			eq(M.Tick(), 0, "just sent: nothing due")
+			w.clock = w.clock + M.REPEAT - 1
+			eq(M.Tick(), 0)
+			-- Another issuer repeated it meanwhile: ours waits again.
+			M.Handle("CHANNEL", KING, O1("c", true, ns.rdb.netoff.c["spammer guy-realm"].at, "Spammer Guy-Realm", HC, "flooding /ol with gold ads"))
+			w.clock = w.clock + 2
+			eq(M.Tick(), 0, "heard repeated: not due")
+			w.clock = w.clock + M.REPEAT
+			eq(M.Tick(), 1, "due: repeated")
+			eq(#w.sent, sent + 1); eq(w.sent[#w.sent].logged, true)
+			-- A soldier's client never repeats; a word nobody repeated for STALE lapses there.
+			AsSoldier("Watcher")
+			w.clock = w.clock + M.REPEAT * 2
+			eq(M.Tick(), 0)
+			w.clock = w.clock + M.STALE
+			M.Tick()
+			eq(M.Hidden("Spammer Guy-Realm"), nil, "lapsed on a client that gives no word")
+			M.random = math.random
+		end)
+	end)
+
+	test("1.1 net-off (#32): the hidden player's own client says why and sends none of it; nothing uninvites, demotes or ignores; no treasury code can call it", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Spammer Guy")
+			local spies = {}
+			local saved = { GuildUninvite = GuildUninvite, GuildDemote = GuildDemote, AddIgnore = AddIgnore, C_GuildInfo = C_GuildInfo, C_FriendList = C_FriendList }
+			GuildUninvite = function() spies[#spies + 1] = "GuildUninvite" end
+			GuildDemote = function() spies[#spies + 1] = "GuildDemote" end
+			AddIgnore = function() spies[#spies + 1] = "AddIgnore" end
+			C_GuildInfo = { Uninvite = function() spies[#spies + 1] = "Uninvite" end, RemoveFromGuild = function() spies[#spies + 1] = "RemoveFromGuild" end }
+			C_FriendList = { AddIgnore = function() spies[#spies + 1] = "C_FriendList.AddIgnore" end, IsIgnored = function() return false end }
+			local ok, err = pcall(function()
+				Off("Spammer Guy-Realm", "flooding")
+				assert(Printed(w, "flooding"), "told why, once")
+				-- /ol, a decree, a hop ask, a Vox vote: refused with the reason.
+				local okSend, why = ns.Channels.Send("A", "hello?")
+				eq(okSend, false); eq(why, "netoff")
+				GetGuildInfo = function() return "Olympus II", "Officer", 1 end
+				ns.Decree.Send("ARMS", "help")
+				eq(#w.sent, 0, "no decree")
+				-- The backstop in Comm: none of these leave, whatever sends them.
+				for _, msg in ipairs({ "M1~A~Olympus II~1~~x", "D1~ARMS~1~1~1~Olympus II~1~x", "L1~1453~7~3~Olympus II", "LQ~1~1453~7", "Y1~1~1~Olympus II" }) do
+					eq(M.Blocks(msg), true, msg)
+				end
+				eq(M.Blocks("H1~1.1.0~Realm~p"), false, "the guild's hello still goes")
+				eq(M.Blocks("T2~1~P~Olympus II"), false)
+				-- Back on: nothing held.
+				Back("Spammer Guy-Realm")
+				eq(M.Blocks("M1~A~Olympus II~1~~x"), false)
+				eq(#spies, 0, "nothing uninvited, demoted or ignored: " .. table.concat(spies, ","))
+			end)
+			GuildUninvite, GuildDemote, AddIgnore, C_GuildInfo, C_FriendList = saved.GuildUninvite, saved.GuildDemote, saved.AddIgnore, saved.C_GuildInfo, saved.C_FriendList
+			if not ok then error(err, 0) end
+		end)
+		-- In the code itself: the module never touches a guild or the ignore list, and no treasury or
+		-- bank code (where dues would live) names it, its words or its message.
+		local src = Source("Moderation.lua")
+		for _, api in ipairs({ "Uninvite", "GuildRemove", "RemoveFromGuild", "Demote", "AddIgnore", "SetRank", "Treasury", "Bank" }) do
+			assert(not src:find(api, 1, true), "Moderation.lua names " .. api)
+		end
+		for _, file in ipairs({ "Treasury.lua", "Bank.lua" }) do
+			local code = Source(file)
+			for _, word in ipairs({ "Moderation", "O1~", "netoff", "NetOff", "Netoff" }) do
+				assert(not code:find(word, 1, true), file .. " names " .. word)
+			end
+		end
+	end)
+
+	test("1.1 net-off (#32): the Decrees tab lists who is hidden, why, by whom and when; the issuers' buttons; the King's stream shows no other's reason", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Watcher")
+			eq(#M.Lines(), 0, "nobody hidden, no issuer: no section")
+			M.Handle("CHANNEL", HC, O1("c", true, w.clock, "Spammer Guy-Realm", HC, "flooding /ol"))
+			local lines = M.Lines()
+			local page = Page(lines)
+			assert(page:find(ns.L.NETOFF_TITLE, 1, true) and page:find("Spammer Guy", 1, true), page)
+			assert(not page:find(ns.L.NETOFF_ADD, 1, true), "no button for a soldier")
+			eq(lines[2].onClick, nil)
+			-- The tab's own lines carry it (Views.lua).
+			local decrees = Page((ns.Views.Build("decrees")))
+			assert(decrees:find(ns.L.NETOFF_TITLE, 1, true), decrees)
+			-- The tooltip: reason, issuer, date.
+			local tip = { lines = {} }
+			function tip:AddLine(text) self.lines[#self.lines + 1] = tostring(text) end
+			lines[2].tooltip(tip)
+			local text = table.concat(tip.lines, "\n")
+			assert(text:find("flooding /ol", 1, true) and text:find("Test Councillor", 1, true) and text:find(M.When(ns.rdb.netoff.c["spammer guy-realm"]), 1, true), text)
+			-- An issuer: the button, and a click on a name asks to put it back on.
+			AsSoldier("Test Councillor")
+			lines = M.Lines()
+			assert(Page(lines):find(ns.L.NETOFF_ADD, 1, true))
+			lines[2].onClick()
+			eq(w.popups[#w.popups].name, "OLYMPUS_NETOFF_UNDO")
+			StaticPopupDialogs.OLYMPUS_NETOFF_UNDO.OnAccept(nil, w.popups[#w.popups].data)
+			eq(M.Hidden("Spammer Guy-Realm"), nil)
+			-- The King's screen while the council's names are hidden (his stream): another's reason and
+			-- a councillor's name stay hidden; his own words show.
+			AsKing()
+			M.Handle("CHANNEL", HC, O1("c", true, w.clock + 5, "Spammer Guy-Realm", HC, "a councillor's words"))
+			ns.SetCouncilNamesShown(false)
+			tip.lines = {}
+			M.Lines()[2].tooltip(tip)
+			text = table.concat(tip.lines, "\n")
+			assert(not text:find("a councillor's words", 1, true) and not text:find("Test Councillor", 1, true), text)
+			assert(text:find(ns.L.NETOFF_REASON_HIDDEN, 1, true))
+			ns.SetCouncilNamesShown(true)
+			tip.lines = {}
+			M.Lines()[2].tooltip(tip)
+			assert(table.concat(tip.lines, "\n"):find("a councillor's words", 1, true), "shown once he shows the council's names")
+			ns.SetCouncilNamesShown(false)
+			-- The hidden player's own tab says so.
+			AsSoldier("Spammer Guy")
+			assert(Page(M.Lines()):find(ns.L.NETOFF_YOU_SHORT, 1, true))
+		end)
+	end)
+
+	test("1.1 net-off (#32) with the gamepad UI: who and why in Olympus's own dialogs, never the game's popup, never the chat's focus", function()
+		WithUI(function()
+			LoadUI()
+			WithGamepadUI(true, function(game)
+				WithNetoff(function(w, K)
+					AsSoldier("Test Councillor")
+					local savedFocus = GetCurrentKeyBoardFocus
+					local chatBox = {}
+					GetCurrentKeyBoardFocus = function() return chatBox end
+					local ok, err = pcall(function()
+						for _, l in ipairs(M.Lines()) do if tostring(l.text):find(ns.L.NETOFF_ADD, 1, true) then l.onClick() end end
+						eq(#game.shown, 0, "never the game's popup"); eq(#w.popups, 0)
+						local f = ns.Dialog.Find("OLYMPUS_NETOFF_WHO")
+						assert(f and f:IsShown() and f.editBox:IsShown(), "our dialog, with its box")
+						f.editBox:SetText("Spammer Guy")
+						f.buttons[1]:Click()
+						local why = ns.Dialog.Find("OLYMPUS_NETOFF_WHY")
+						assert(why and why:IsShown(), "then why, ours too")
+						why.editBox:SetText("flooding /ol")
+						why.buttons[1]:Click()
+						assert(M.Hidden("Spammer Guy-Realm"), "given")
+						eq(#game.shown, 0, "still never the game's popup")
+						eq(ns.Focus(why.editBox), false, "the chat box keeps the keyboard")
+					end)
+					GetCurrentKeyBoardFocus = savedFocus
+					if not ok then error(err, 0) end
+				end)
+			end)
+		end)
+		-- The module opens every question through ns.ShowDialog: no game popup, menu or Escape list of its own.
+		local src = Source("Moderation.lua")
+		for _, api in ipairs({ "StaticPopup_Show", "MenuUtil", "UISpecialFrames", "EasyMenu" }) do
+			assert(not src:find(api, 1, true), "Moderation.lua uses " .. api)
+		end
+	end)
+
+	test("1.1 net-off (#32): clients of 0.9.8 and 1.0.0 leave the new message alone", function()
+		for _, old in ipairs({ true, false }) do
+			local cns, Deliver = FreshComm(old)
+			local bad = cns.Comm.Stats().bad
+			Deliver("CHANNEL", KING, O1("c", true, os.time(), "Spammer Guy-Realm", KING, "spam"))
+			eq(cns.Comm.Stats().bad, bad, "not a bad report")
+		end
+		-- Updated without restarting the game (Moderation.lua not loaded yet): Core.lua's stand-in
+		-- hides nobody and holds nothing back.
+		eq(standIn.missing, true, "the stand-in until the game restarts")
+		eq(standIn.Hides("Anyone-Realm"), nil); eq(standIn.SelfOff(), nil); eq(standIn.Blocks("M1~A~x~1~~x"), nil)
+	end)
+
+	test("1.1 net-off (#32): its strings in English and pt-BR", function()
+		local keys = { "HELP_NETOFF", "NETOFF_TITLE", "NETOFF_TIP", "NETOFF_YOU", "NETOFF_YOU_SHORT", "NETOFF_YOU_BACK", "NETOFF_ONLY",
+			"NETOFF_WHO_BAD", "NETOFF_NOT_KING", "NETOFF_NOT_SELF", "NETOFF_REASON_NEEDED", "NETOFF_NOT_OFF", "NETOFF_FULL", "NETOFF_DONE",
+			"NETOFF_UNDONE", "NETOFF_REASON", "NETOFF_BY", "NETOFF_CLICK_UNDO", "NETOFF_ADD", "NETOFF_REASON_HIDDEN", "NETOFF_LIST",
+			"NETOFF_WHO_PROMPT", "NETOFF_WHY_PROMPT", "NETOFF_UNDO_CONFIRM" }
+		local pt = PtBR()
+		for _, k in ipairs(keys) do
+			assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+			assert(rawget(pt, k) and rawget(pt, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+			local _, a = rawget(ns.L, k):gsub("%%[sd]", "")
+			local _, b = rawget(pt, k):gsub("%%[sd]", "")
+			eq(b, a, "the same placeholders: " .. k)
+		end
+		-- The README and the CurseForge page: its section, its privacy row and its commands.
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path))
+			for _, must in ipairs({ "### Net-off (1.1)", "| A net-off word (1.1): the character's name", "`/oly netoff Name: reason` · `/oly neton Name`",
+				"never aims at the King", "`/oly block` stays one client's" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+		end
+	end)
+end)()
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
