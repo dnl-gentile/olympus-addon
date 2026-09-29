@@ -184,11 +184,13 @@ what each player chose to share, and the King's week.
 - **The King's week** (`/oly week`): the King's Agenda for the next 7 days, by day, with your own
   guild's events from the game's calendar among them, so nobody books the army twice. Olympus
   can't write into the game's calendar: an officer's click opens it on the right day's month and
-  says which day to right-click for the guild event.
+  says which day to right-click for the guild event. Your client keeps the week across a
+  `/reload` or a login, so it shows while the King is offline.
 - **The signup sheet**: Sign up on an Agenda entry with the role you claim; it goes to whoever set
-  it, alone, and the army sees the counts (4 tanks, 9 healers...). Nothing checks the role and
-  nothing invites you: whoever runs the event invites by hand. Five minutes before an entry you
-  signed, your client alone prints one line with the usual alert sound (nothing sent).
+  it, alone, and the army sees the counts (4 tanks, 9 healers...), kept by his client across a
+  `/reload`. Nothing checks the role and nothing invites you: whoever runs the event invites by
+  hand. Five minutes before an entry you signed, your client alone prints one line with the usual
+  alert sound (nothing sent), after a `/reload` too.
 - **Raise a flag** with one click: **Dungeon**, **Raid**, **PvP** or **Layer**, plus a short
   note if you want one (40 bytes at most). A box says first what goes out: your name, level,
   class and guild, the flag and the note, to every Olympus player of your realm and faction.
@@ -213,9 +215,11 @@ tools lives where it belongs:
   Crossroads"). The whole army gets a popup with the appointment (what, in how long, where)
   and sees it on the Census, with reminders 10 minutes and 1 minute before. Since 1.1 it also
   holds **the King's week**: a day and an hour of the realm, then what ("Sat 20:00 Raid night",
-  "today 21:30 Court", "sáb 20h Raide"), up to 7 days ahead and 10 entries each for the King,
-  his Steward and each Hand. The army sees them on the Board, by day (below), with one quiet
-  chat line when an entry is added: no popup, raid warning or sound.
+  "today 21:30 Court", "sáb 20h Raide"), up to 7 days ahead, 10 entries each for the King and
+  his Steward and 5 for each Hand. The army sees them on the Board, by day (below), with one
+  quiet chat line when an entry is added: no popup, raid warning or sound. The box starts
+  empty, and a day and an hour typed after a number ("30 Sat 20:00 Raid night") still make a
+  week entry, never a 30-minute Agenda.
 - **Hold Court** (a button on the Throne): the King opens his court where he stands. Every
   Olympus player in that zone gets a line on top of the Census and the Realm; one click asks
   for an audience. The requests line up on his Throne and a click calls that player (a popup
@@ -574,7 +578,7 @@ message (the game adds it). What goes where:
 | A flag on the Board (1.1): your guild, level and class, the flag (dungeon, raid, PvP or layer), your note (with the logged API), and your zone only while you share it | everyone on the Olympus channel, and whispered to a player whose Board asked for the flags up | when you raise it, then every 10 to 30 minutes for an hour at most, until you lower it |
 | The Board's ask (1.1): nothing but your name | everyone on the Olympus channel | once a session, the first time you open the Board |
 | A signup (1.1): the Agenda entry, the role you claim (or that you withdraw) and your guild | whoever set that entry (the King, his Steward or a Hand), alone (a whisper) | only when you click Sign up |
-| A signup sheet (1.1): the counts per role of each entry, no names | everyone on the Olympus channel | from the client of whoever set the entries, every 5 minutes while one is ahead, and soon after a change |
+| A signup sheet (1.1): the counts per role of each entry, no names, and when the next one comes | everyone on the Olympus channel | from the client of whoever set the entries, soon after a change, then every 5 minutes while one of them has signups or is within 2 days, every 15 otherwise |
 | A camp on the Board (1.1): your guild, level and class, the camp's zone (never your spot) and your note (with the logged API) | everyone on the Olympus channel, and whispered to a player whose Board asked | only with `/oly location on`, when you drop it, then every 10 minutes for its 30 minutes, until you take it down |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |

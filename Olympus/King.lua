@@ -813,9 +813,17 @@ end
 
 function King.SetAgenda(input)
 	local minutes, title = King.ParseAgenda(input)
+	local W = ns.Week
+	-- 1.1: a day and an hour, then what: an entry of the King's week (Week.lua). After a number
+	-- too ("30 Sat 20:00 Raid night", the 1.0 box's "30 " kept): the week's, never a 30-minute
+	-- Agenda with its raid warning and popup for the whole army.
+	if W and W.LooksLikeEntry and W.LooksLikeEntry(minutes and title or input) then
+		local text = minutes and title or input
+		if W.Parse(text) then return W.SetEntry(text) end
+		ns.Print(L.THRONE_AGENDA_USAGE)
+		return false
+	end
 	if not minutes then
-		-- 1.1: a day and an hour, then what: an entry of the King's week (Week.lua).
-		if ns.Week and ns.Week.Parse and ns.Week.Parse(input) then return ns.Week.SetEntry(input) end
 		ns.Print(L.THRONE_AGENDA_USAGE)
 		return false
 	end
@@ -854,6 +862,7 @@ function King.CancelAgenda()
 	if (agenda.mine or King.CanCommand()) and not King.Preview() then
 		ns.Comm.Send("CHANNEL", ("T1~X~%d~%s"):format(agenda.id, GetGuildInfo("player") or ""), "agenda")
 	end
+	if ns.Week and ns.Week.Forget then ns.Week.Forget(agenda.id) end -- (1.1: a signup for it, and its nudge)
 	agenda = nil
 	Changed()
 end
@@ -1058,9 +1067,13 @@ function King.HandleCommand(dist, sender, text)
 		kingAt = nil
 		ns.SafeCall("king crown", King.RefreshCrown)
 		Changed()
-	elseif kind == "X" and agenda and agenda.id == id then
-		agenda = nil
-		Changed()
+	elseif kind == "X" then
+		if agenda and agenda.id == id then
+			agenda = nil
+			Changed()
+		end
+		-- 1.1: our signup for it goes, and its nudge (held after a /reload too: Week.lua).
+		if ns.Week and ns.Week.Forget then ns.Week.Forget(id) end
 	end
 end
 ns.Comm.Handle("T1", function(...) King.HandleCommand(...) end)
@@ -1113,8 +1126,10 @@ StaticPopupDialogs["OLYMPUS_KING_AGENDA"] = {
 	editBoxWidth = 260,
 	maxLetters = 70,
 	OnShow = function(self)
+		-- Empty (1.1): the box takes minutes or a day and an hour, and a "30 " put there first
+		-- would turn a week entry into a 30-minute Agenda.
 		local eb = self.editBox or self.EditBox
-		if eb then eb:SetText("30 "); eb:SetFocus() end
+		if eb then eb:SetText(""); eb:SetFocus() end
 	end,
 	OnAccept = function(self)
 		local eb = self.editBox or self.EditBox

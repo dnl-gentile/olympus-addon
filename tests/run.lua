@@ -24572,7 +24572,7 @@ test("1.1 the Board: one click raises a flag with its note (logged), the zone on
 		def.OnAccept({ editBox = box }, p.data)
 		local s = Raised(w)
 		assert(s, "raised")
-		eq(s.dist, "CHANNEL"); eq(s.key, "banner"); eq(s.logged, true, "a note: the logged API")
+		eq(s.dist, "CHANNEL"); eq(s.key, "banner" .. B.Decode(s.msg).id, "a queue key of its own"); eq(s.logged, true, "a note: the logged API")
 		local e = B.Decode(s.msg)
 		eq(e.flag, "R"); eq(e.guild, "Olympus II"); eq(e.level, 42); eq(e.class, "PR"); eq(e.zone, nil, "not shared: no zone"); eq(e.note, "need tank cff00ff00!")
 		assert(Printed(w, ns.L.BOARD_RAISED_HIDDEN:format(ns.L.BOARD_FLAG_R)))
@@ -24674,7 +24674,7 @@ test("1.1 the Board: cards from the channel, one flag a player, lowered with G0,
 		local a
 		for _, e in ipairs(B.List()) do if e.sender == "Aldric-Realm" then a = e end end
 		eq(a.zone, 1453); eq(a.note, "now in SW")
-		-- A new flag of the same player replaces the old one, once a minute at most.
+		-- A new flag of the same player replaces the old one, once every NEW_ID_GAP at most.
 		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a2", "Olympus Zeus", "D", 0))
 		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a3", "Olympus Zeus", "P", 0))
 		for _, e in ipairs(B.List()) do if e.sender == "Aldric-Realm" then a = e end end
@@ -25030,7 +25030,7 @@ test("1.1 camps: dropped where the player stands, its zone and nothing finer, on
 			local box = { text = p.data.note, GetText = function(self) return self.text end }
 			StaticPopupDialogs.OLYMPUS_BOARD_CAMP.OnAccept({ editBox = box }, p.data)
 			local s = w.sent[#w.sent]
-			eq(s.key, "camp"); eq(s.logged, true)
+			eq(s.key, "camp" .. B.Decode(s.msg).id, "a queue key of its own"); eq(s.logged, true)
 			local fields = select(2, s.msg:gsub("~", ""))
 			eq(fields, 9, "the ten fields of a flag: no position anywhere")
 			local e = B.Decode(s.msg)
@@ -25049,7 +25049,7 @@ test("1.1 camps: dropped where the player stands, its zone and nothing finer, on
 			w.clock = w.clock + 10 * 60
 			B.Tick()
 			local refreshed
-			for _, x in ipairs(w.sent) do if x.key == "camp" then refreshed = x end end
+			for _, x in ipairs(w.sent) do if x.key == "camp" .. id then refreshed = x end end
 			eq(B.Decode(refreshed.msg).zone, 1453); eq(B.Decode(refreshed.msg).id, id)
 			-- 30 minutes after it was dropped: down for everyone.
 			w.clock = w.clock + 20 * 60
@@ -25057,7 +25057,7 @@ test("1.1 camps: dropped where the player stands, its zone and nothing finer, on
 			eq(B.MineIn("camp"), nil)
 			local down
 			for _, x in ipairs(w.sent) do if x.msg == "G0~" .. id then down = x end end
-			assert(down and down.key == "camp", "lowered, in the camp's own lane")
+			assert(down and down.key == "camp" .. id, "lowered, in the camp's own lane (its refresh's key)")
 			assert(Printed(w, ns.L.BOARD_CAMP_ENDED))
 			-- A new one (10 minutes passed); the player stops sharing: down at the next tick.
 			eq(B.DropCamp(), true)
@@ -25291,11 +25291,16 @@ test("1.1 the King's week: the Agenda's box puts an entry on the week (the King,
 		w.clock = w.clock + W.SET_GAP
 		eq(K.SetAgenda("Mon 20:00 One too many"), false)
 		assert(Printed(w, ns.L.WEEK_FULL:format(W.MAX_MINE)))
-		-- Repeated every 10 minutes, two a minute at most, never "new" again.
+		-- Repeated every 30 minutes while days away (every 10 within a day), two a minute at most,
+		-- never "new" again.
 		local sends = #w.sent
 		w.clock = w.clock + W.RESEND
 		W.Tick()
 		local repeats = 0
+		for i = sends + 1, #w.sent do if w.sent[i].msg:find("^T1~D~") then repeats = repeats + 1 end end
+		eq(repeats, 0, "days away: not after 10 minutes")
+		w.clock = w.clock + W.RESEND_FAR - W.RESEND
+		W.Tick()
 		for i = sends + 1, #w.sent do if w.sent[i].msg:find("^T1~D~") then repeats = repeats + 1 end end
 		eq(repeats, W.RESEND_PER_TICK)
 		assert(LastWeek(w):find("^T1~D~%d+~Olympus~%d+~0~"), "a repeat")
@@ -25364,7 +25369,11 @@ test("1.1 the King's week: clients before 1.1 leave the kind D out, no error, th
 	local kns = setmetatable({ On = function() end, Comm = { Handle = function() end }, rdb = {} }, { __index = ns })
 	local logs = {}
 	kns.Log = function(fmt, ...) logs[#logs + 1] = fmt:format(...) end
+	local popups = {} -- (its popups replace the addon's: put back after)
+	for k, v in pairs(StaticPopupDialogs) do popups[k] = v end
 	assert(loadfile(ROOT .. "tests/fixtures/king-0.9.8.lua"))("Olympus", kns)
+	wipe(StaticPopupDialogs)
+	for k, v in pairs(popups) do StaticPopupDialogs[k] = v end
 	local OK = kns.King
 	local savedGuild, savedPopup = GetGuildInfo, StaticPopup_Show
 	local ok, err = pcall(function()
@@ -25592,10 +25601,10 @@ test("1.1 signups: the setter's client keeps one each, counts the census-placed 
 			local id = W.Entries()[1].id
 			W.Tick()
 			local sheet = LastSent(w)
-			eq(sheet:match("^T1~R~%d+~Olympus~(.*)$"), id .. ":0:0:0:0", "an empty sheet at once: Sign up shows")
+			eq(sheet:match("^T1~R~%d+~Olympus~(.*)$"), id .. ":0:0:0:0~15", "an empty sheet at once: Sign up shows (days away, nobody signed: the next in 15 min)")
 			-- Signups by whisper.
 			W.HandleSignup("WHISPER", "Zed-Realm", ("Y2~%d~T~Olympus Zeus"):format(id))
-			eq(LastSent(w):match("^T1~R~%d+~Olympus~(.*)$"), id .. ":1:0:0:0", "the counts soon after a change")
+			eq(LastSent(w):match("^T1~R~%d+~Olympus~(.*)$"), id .. ":1:0:0:0~5", "the counts soon after a change (signed: every 5 min)")
 			W.HandleSignup("WHISPER", "Zed-Realm", ("Y2~%d~H~Olympus Zeus"):format(id))
 			eq(W.Counts(W.Entry(id)).T, 0); eq(W.Counts(W.Entry(id)).H, 1, "one each: the role changed")
 			W.HandleSignup("WHISPER", "Tin-Realm", ("Y2~%d~D~Olympus Tiny"):format(id))
@@ -25649,7 +25658,11 @@ test("1.1 signups: clients before 1.1 leave the kind R out; a Hand's sheet only 
 	local kns = setmetatable({ On = function() end, Comm = { Handle = function() end }, rdb = {} }, { __index = ns })
 	local logs = {}
 	kns.Log = function(fmt, ...) logs[#logs + 1] = fmt:format(...) end
+	local popups = {} -- (its popups replace the addon's: put back after)
+	for k, v in pairs(StaticPopupDialogs) do popups[k] = v end
 	assert(loadfile(ROOT .. "tests/fixtures/king-0.9.8.lua"))("Olympus", kns)
+	wipe(StaticPopupDialogs)
+	for k, v in pairs(popups) do StaticPopupDialogs[k] = v end
 	local OK = kns.King
 	local savedGuild = GetGuildInfo
 	local ok, err = pcall(function()
@@ -25773,6 +25786,457 @@ test("1.1 the signed nudge: one line and the alert sound 5 minutes before an ent
 	if not ok then error(err, 0) end
 	assert(rawget(pt.L, "SIGN_SOON") and rawget(pt.L, "SIGN_SOON") ~= ns.L.SIGN_SOON)
 end)
+
+---------------------------------------------------------------------------
+-- 1.1 review of the Board and the King's week (batch C): signups, the week and the nudge kept
+-- across a /reload or a login; a flag replaced shows at once; the Agenda's box; a full week.
+---------------------------------------------------------------------------
+
+do
+	-- SavedVariables as a /reload leaves them: written out and read back (no table shared with
+	-- what the addon held), Lua's memory of the week gone. `edit` changes what was saved first.
+	local function SavedCopy(t)
+		if type(t) ~= "table" then return t end
+		local out = {}
+		for k, v in pairs(t) do out[k] = SavedCopy(v) end
+		return out
+	end
+	local function Reload(W, edit)
+		local saved = SavedCopy({ week = ns.rdb.week, weekHeard = ns.rdb.weekHeard, signups = ns.rdb.signups, signed = ns.rdb.signed })
+		if edit then edit(saved) end
+		W.Reset()
+		ns.rdb.week, ns.rdb.weekHeard, ns.rdb.signups, ns.rdb.signed = saved.week, saved.weekHeard, saved.signups, saved.signed
+		W.Restore()
+	end
+	local function Sheet(w) return (LastSent(w) or ""):match("^T1~R~%d+~Olympus~(.*)$") end
+
+	test("1.1 review: the setter's signups are kept across a /reload; the next sheet tells the army what it told before, not 0", function()
+		WithWeek(function(w, W, K, B)
+			AsKing()
+			K.SetAgenda("Sat 20:00 Raid night")
+			local id = W.Entries()[1].id
+			W.Tick()
+			for _, name in ipairs({ "Zed", "Zed2", "Zed3" }) do W.HandleSignup("WHISPER", name .. "-Realm", ("Y2~%d~T~Olympus Zeus"):format(id)) end
+			W.HandleSignup("WHISPER", "Nomad-Realm", ("Y2~%d~A~Olympus Nowhere"):format(id))
+			eq(Sheet(w), id .. ":3:0:0:0~5", "3 tanks before the /reload")
+			-- The /reload (on stream): the week and its signups come back, the sheet says 3 again.
+			Reload(W)
+			local c = W.Counts(W.Entry(id))
+			eq(c.T, 3); eq(c.others, 1, "the one the census can't place, apart as before")
+			local n = #w.sent
+			W.Tick()
+			assert(#w.sent > n, "a sheet at the first minute")
+			eq(Sheet(w), id .. ":3:0:0:0~5", "the army hears 3 tanks, as before")
+			assert(Line(B.Lines(), ns.L.SIGN_WHO:format(4)), "the names behind the click, all four")
+			-- A withdrawal after it counts right, and is kept for the next /reload.
+			W.HandleSignup("WHISPER", "Zed2-Realm", ("Y2~%d~W~Olympus Zeus"):format(id))
+			eq(W.Counts(W.Entry(id)).T, 2)
+			Reload(W)
+			eq(W.Counts(W.Entry(id)).T, 2); eq(W.Counts(W.Entry(id)).others, 1)
+			-- What the SavedVariables hold is checked: a role that isn't one, a name that isn't one, an
+			-- entry that is no longer ours (forgotten).
+			Reload(W, function(saved)
+				local list = saved.signups[ns.me][id]
+				list["Bad-Realm"] = { role = "Q", guild = "Olympus Zeus", placed = true }
+				list[42] = { role = "T", guild = "Olympus Zeus", placed = true }
+				list["Odd-Realm"] = "T"
+				saved.signups[ns.me][99999] = { ["Ghost-Realm"] = { role = "T", guild = "Olympus Zeus", placed = true } }
+			end)
+			eq(W.Counts(W.Entry(id)).T, 2); eq(W.Counts(W.Entry(id)).others, 1)
+			eq(ns.rdb.signups[ns.me][99999], nil, "no such entry of ours: forgotten")
+		end)
+	end)
+
+	test("1.1 review: the week heard is kept across a /reload or a login while its setter is offline; its cancel or its end takes it off", function()
+		WithWeek(function(w, W, K, B)
+			AsSoldier()
+			local KING = ns.KingCharacter() .. "-Realm"
+			K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400) .. "~1~~Raid night")
+			K.HandleCommand("CHANNEL", KING, "T1~D~502~Olympus~" .. (2 * 86400) .. "~1~Orgrimmar~PvP night")
+			K.HandleCommand("CHANNEL", KING, "T1~D~503~Olympus~3600~1~~Court")
+			local at = W.Entry(501).at
+			Reload(W)
+			eq(#W.Entries(), 3, "all three back")
+			eq(W.Entry(501).at, at); eq(W.Entry(501).by, KING); eq(W.Entry(502).zone, "Orgrimmar")
+			local text = Texts(B.Lines())
+			assert(text:find("Raid night", 1, true) and text:find("Court", 1, true) and not text:find(ns.L.WEEK_EMPTY, 1, true), text)
+			-- The King offline for half an hour: all of it still there.
+			for _ = 1, 30 do w.clock = w.clock + 60; W.Tick() end
+			eq(#W.Entries(), 3)
+			-- A login on another character of this account on the realm: the same week.
+			AsSoldier("Alt")
+			Reload(W)
+			eq(#W.Entries(), 3)
+			AsSoldier()
+			-- Taken off by the King: gone, and not back after the next /reload.
+			K.HandleCommand("CHANNEL", KING, "T1~D~502~Olympus~0~0~~")
+			Reload(W)
+			eq(W.Entry(502), nil); eq(#W.Entries(), 2)
+			-- An hour after it began: gone for good.
+			w.clock = W.Entry(503).at + W.KEEP_AFTER + 1
+			W.Tick()
+			Reload(W)
+			eq(W.Entry(503), nil); eq(#W.Entries(), 1)
+			-- What the SavedVariables hold is checked: past, too far, no title, no setter, ours.
+			Reload(W, function(saved)
+				local now = w.clock
+				for i, bad in ipairs({ { at = now - W.KEEP_AFTER - 5, by = KING, title = "Old" }, { at = now + 9 * 86400, by = KING, title = "Far" },
+					{ at = now + 3600, by = KING, title = "" }, { at = now + 3600, title = "Nobody's" }, { at = now + 3600, by = ns.me, title = "Mine, taken off" } }) do
+					bad.id = 700 + i
+					saved.weekHeard[#saved.weekHeard + 1] = bad
+				end
+			end)
+			eq(#W.Entries(), 1)
+		end)
+	end)
+
+	test("1.1 review: an entry cancelled while this client was away leaves the week once its setter, back online, repeats his others without it", function()
+		WithWeek(function(w, W, K)
+			AsSoldier()
+			local KING = ns.KingCharacter() .. "-Realm"
+			K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400) .. "~1~~Raid night")
+			K.HandleCommand("CHANNEL", KING, "T1~D~502~Olympus~" .. (5 * 86400) .. "~1~~PvP night")
+			-- Logged off for 3 hours; the King took 502 off meanwhile. Back: the week as it was kept.
+			w.clock = w.clock + 3 * 3600
+			Reload(W)
+			eq(#W.Entries(), 2)
+			-- The King online again: his client repeats 501 every 30 minutes (days away), never 502.
+			local t0 = w.clock
+			for m = 0, 90 do
+				w.clock = t0 + m * 60
+				if m % 30 == 0 then K.HandleCommand("CHANNEL", KING, ("T1~D~501~Olympus~%d~0~~Raid night"):format(W.Entry(501).at - w.clock)) end
+				W.Tick()
+				if m == 60 then assert(W.Entry(502), "not yet: an hour of his repeats") end
+			end
+			eq(W.Entry(502), nil, "his repeats go on without it: taken off")
+			assert(W.Entry(501), "his own repeated one stays")
+		end)
+	end)
+
+	test("1.1 review: the signed nudge comes after a /reload a few minutes before, from the signup itself when the entry isn't heard again", function()
+		-- The finding: signed as Healer, a /reload 8 minutes before, the King's next repeat after the start.
+		WithWeek(function(w, W, K)
+			AsSoldier()
+			local KING = ns.KingCharacter() .. "-Realm"
+			local t0 = w.clock
+			K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~3600~1~~Raid night")
+			K.HandleCommand("CHANNEL", KING, "T1~R~9~Olympus~501:0:0:0:0~5")
+			eq(W.Sign(501, "H"), true)
+			w.clock = t0 + 3600 - 8 * 60
+			Reload(W)
+			for m = 7, 1, -1 do w.clock = t0 + 3600 - m * 60; W.Tick() end
+			eq(#w.alerts, 1, "nudged, once")
+			assert(w.printed[#w.printed]:find(ns.L.SIGN_SOON:format(ns.L.SIGN_ROLE_H, "Raid night", 5, ""), 1, true), w.printed[#w.printed])
+		end)
+		-- The entry itself not kept (another client's saved week, a full week there): the signup alone.
+		WithWeek(function(w, W, K)
+			AsSoldier()
+			local KING = ns.KingCharacter() .. "-Realm"
+			local t0 = w.clock
+			K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~3600~1~Orgrimmar~Raid night")
+			K.HandleCommand("CHANNEL", KING, "T1~R~9~Olympus~501:0:0:0:0~5")
+			W.Sign(501, "T")
+			w.clock = t0 + 3600 - 8 * 60
+			Reload(W, function(saved) saved.weekHeard = nil end)
+			eq(W.Entry(501), nil)
+			for m = 7, 1, -1 do w.clock = t0 + 3600 - m * 60; W.Tick() end
+			eq(#w.alerts, 1)
+			assert(w.printed[#w.printed]:find(ns.L.SIGN_SOON:format(ns.L.SIGN_ROLE_T, "Raid night", 5, " (Orgrimmar)"), 1, true), w.printed[#w.printed])
+			eq(#w.notices, 0); eq(#w.popups, 0)
+		end)
+		-- Taken off while it isn't held: no nudge, on any character of this account here; the
+		-- Agenda's current event cancelled (X) or replaced by another: no nudge either.
+		WithWeek(function(w, W, K)
+			local KING = ns.KingCharacter() .. "-Realm"
+			local t0 = w.clock
+			K.HandleCommand("CHANNEL", KING, "T1~D~601~Olympus~3600~1~~Court")
+			K.HandleCommand("CHANNEL", KING, "T1~A~77~Olympus~3000~Orgrimmar~Raid on the Crossroads")
+			K.HandleCommand("CHANNEL", KING, "T1~R~9~Olympus~601:0:0:0:0,77:0:0:0:0~5")
+			AsSoldier("Alt")
+			W.Sign(601, "D")
+			AsSoldier()
+			w.clock = w.clock + W.SIGN_GAP
+			W.Sign(601, "T")
+			w.clock = w.clock + W.SIGN_GAP
+			W.Sign(77, "A")
+			local alerts = #w.alerts
+			Reload(W, function(saved) saved.weekHeard = nil end)
+			K.HandleCommand("CHANNEL", KING, "T1~D~601~Olympus~0~0~~")
+			K.HandleCommand("CHANNEL", KING, "T1~X~77~Olympus")
+			eq(W.MySignup(601), nil); eq(W.MySignup(77), nil)
+			for m = 10, 1, -1 do w.clock = t0 + 3600 - m * 60; W.Tick() end
+			AsSoldier("Alt")
+			W.Tick()
+			eq(#w.alerts, alerts, "no nudge for what was taken off")
+			-- Signed for the Agenda's current event, then the King set another one: the old one's
+			-- signup goes.
+			AsSoldier()
+			K.HandleCommand("CHANNEL", KING, "T1~A~78~Olympus~3000~Orgrimmar~Raid")
+			K.HandleCommand("CHANNEL", KING, "T1~R~10~Olympus~78:0:0:0:0~5")
+			w.clock = w.clock + W.SIGN_GAP
+			W.Sign(78, "A")
+			K.HandleCommand("CHANNEL", KING, "T1~A~79~Olympus~2400~Orgrimmar~Another raid")
+			W.Tick()
+			eq(W.MySignup(78), nil)
+		end)
+	end)
+
+	test("1.1 review: a flag lowered and raised again 31 s later, or replaced, shows on every Board at once; the old one's G0 keeps its place in the send queue", function()
+		WithBoard(function(w, B)
+			local savedChannel, savedCI = GetChannelName, C_ChatInfo
+			local ok, err = pcall(function()
+				-- The poster's real send queue (Comm.lua), on the channel.
+				GetChannelName = function() return 5 end
+				local cns = FreshComm()
+				cns.Comm.JoinChannel()
+				local out = {}
+				local function Capture(_, msg, dist) if dist == "CHANNEL" then out[#out + 1] = msg end return true end
+				C_ChatInfo = { SendAddonMessage = Capture, SendAddonMessageLogged = Capture, RegisterAddonMessagePrefix = function() end }
+				ns.Comm.Send = function(dist, msg, key, urgent, logged) cns.Comm.Send(dist, msg, key, urgent, logged) end
+				local n = 0
+				B.random = function(a) if a then n = n + 1 return a + n end return 0 end
+				local function Pump() for _ = 1, 20 do cns.Comm.Pump() end end
+				-- What went out, heard at once by a player of another guild (the same Board module: its
+				-- cards are the viewer's, its own flag the poster's).
+				local function Heard(list)
+					ns.me = "Viewer-Realm"
+					GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+					for _, msg in ipairs(list) do
+						if msg:find("^G0~") then B.HandleLower("CHANNEL", "Soldier-Realm", msg) else B.HandlePost("CHANNEL", "Soldier-Realm", msg) end
+					end
+					AsSoldier()
+				end
+				local function Since(i) local t = {} for j = i + 1, #out do t[#t + 1] = out[j] end return t end
+				AsSoldier()
+				eq(B.Raise("D", "sm"), true)
+				Pump()
+				Heard(out)
+				eq(#B.List(), 1)
+				local oldId = B.List()[1].id
+				-- Lowered, then raised again 31 s after the first, both still waiting to go.
+				w.clock = w.clock + 10
+				B.Lower()
+				w.clock = w.clock + 21
+				eq(B.Raise("R"), true)
+				local from = #out
+				Pump()
+				local batch = Since(from)
+				eq(#batch, 2, "its G0 and the new flag both went out")
+				eq(batch[1], "G0~" .. oldId); assert(batch[2]:find("^G1~"), batch[2])
+				Heard(batch)
+				local list = B.List()
+				eq(#list, 1); eq(list[1].flag, "R", "the new flag, at once")
+				-- Replaced without lowering, 31 s later: the old one's G0 goes first; the new one shows.
+				w.clock = w.clock + B.RAISE_GAP + 1
+				local rId = list[1].id
+				from = #out
+				eq(B.Raise("P", "pvp"), true)
+				Pump()
+				batch = Since(from)
+				eq(batch[1], "G0~" .. rId); assert(batch[2] and batch[2]:find("^G1~"), tostring(batch[2]))
+				Heard(batch)
+				list = B.List()
+				eq(#list, 1); eq(list[1].flag, "P"); eq(list[1].note, "pvp", "not the old flag and note")
+				assert(list[1].id ~= rId and list[1].id ~= oldId, "a new id, never one a Board still holds lowered")
+			end)
+			GetChannelName, C_ChatInfo = savedChannel, savedCI
+			if not ok then error(err, 0) end
+		end)
+		-- The receiving side alone, as the finding's probe sent it: G1, G0 10 s later, a new G1 at
+		-- 31 s; and a new one without a G0 (lost on the way) at 31 s: each shows.
+		WithBoard(function(w, B)
+			AsSoldier()
+			local t0 = w.clock
+			B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a1", "Olympus Zeus", "D", 0, nil, "sm"))
+			w.clock = t0 + 10
+			B.HandleLower("CHANNEL", "Aldric-Realm", "G0~a1")
+			w.clock = t0 + 31
+			B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a2", "Olympus Zeus", "R", 0))
+			eq(#B.List(), 1); eq(B.List()[1].flag, "R")
+			B.HandlePost("CHANNEL", "Brenna-Realm", Flag("b1", "Olympus Zeus", "D", 0, nil, "sm"))
+			w.clock = t0 + 62
+			B.HandlePost("CHANNEL", "Brenna-Realm", Flag("b2", "Olympus Zeus", "R", 0))
+			local b
+			for _, e in ipairs(B.List()) do if e.sender == "Brenna-Realm" then b = e end end
+			eq(b.id, "b2", "31 s after her last: taken")
+			assert(B.NEW_ID_GAP <= B.RAISE_GAP, "a raise the poster's client allows is never dropped")
+			-- Her first flag held back in a long send queue, the G0 and the new one right behind it:
+			-- a few seconds apart here, the new one shows all the same (her G0 took the old one down).
+			w.clock = t0 + 200
+			B.HandlePost("CHANNEL", "Cedric-Realm", Flag("c1", "Olympus Zeus", "D", 0))
+			w.clock = t0 + 202
+			B.HandleLower("CHANNEL", "Cedric-Realm", "G0~c1")
+			w.clock = t0 + 204
+			B.HandlePost("CHANNEL", "Cedric-Realm", Flag("c2", "Olympus Zeus", "R", 0))
+			local c
+			for _, e in ipairs(B.List()) do if e.sender == "Cedric-Realm" then c = e end end
+			eq(c and c.id, "c2")
+			-- Without a G0 that soon: still one new flag every NEW_ID_GAP at most.
+			B.HandlePost("CHANNEL", "Cedric-Realm", Flag("c3", "Olympus Zeus", "P", 0))
+			for _, e in ipairs(B.List()) do if e.sender == "Cedric-Realm" then c = e end end
+			eq(c.id, "c2")
+		end)
+	end)
+
+	test("1.1 review: the Agenda's box starts empty; a number before a day and an hour makes a week entry, never a 30-minute Agenda with its raid warning", function()
+		WithWeek(function(w, W, K)
+			AsKing()
+			-- The box as the King gets it, then his words typed in, then OK.
+			local def = StaticPopupDialogs.OLYMPUS_KING_AGENDA
+			local box = { text = "?", SetText = function(self, t) self.text = t end, GetText = function(self) return self.text end, SetFocus = function() end }
+			def.OnShow({ editBox = box })
+			eq(box.text, "", "nothing put there first")
+			box.text = box.text .. "Sat 20:00 Raid night"
+			def.OnAccept({ editBox = box })
+			assert(LastWeek(w) and LastWeek(w):find("~1~~Raid night$"), tostring(LastWeek(w)))
+			eq(K.Agenda(), nil, "no 30-minute Agenda")
+			-- Typed after a number anyway (1.0's box began with "30 "): the week's entry, quietly.
+			w.clock = w.clock + W.SET_GAP
+			local sent = #w.sent
+			eq(K.SetAgenda("30 Sun 20:00 PvP night"), true)
+			eq(K.Agenda(), nil)
+			assert(LastWeek(w):find("~1~~PvP night$"), LastWeek(w))
+			for i = sent + 1, #w.sent do assert(not w.sent[i].msg:find("^T1~A~"), w.sent[i].msg) end
+			eq(#w.notices, 0, "no raid warning"); eq(#w.popups, 0)
+			-- A day and an hour that can't be (past, 25:00): refused, nothing sent.
+			w.clock = w.clock + W.SET_GAP
+			sent = #w.sent
+			eq(K.SetAgenda("30 today 18:00 Raid"), false)
+			eq(K.SetAgenda("30 Sat 25:00 Raid"), false)
+			eq(#w.sent, sent); eq(K.Agenda(), nil)
+			assert(Printed(w, ns.L.THRONE_AGENDA_USAGE))
+			-- Minutes, then words that are no day and hour: the Agenda's current event, as always.
+			eq(K.SetAgenda("30 Sunday funday"), true)
+			eq(K.Agenda().title, "Sunday funday")
+		end)
+	end)
+
+	test("1.1 review: a full week keeps the King's and his Steward's entries (the Hands' furthest ahead give way); a Hand holds 5", function()
+		WithWeek(function(w, W, K)
+			local savedSteward = ns.IsSteward
+			local ok, err = pcall(function()
+				AsSoldier()
+				local KING = ns.KingCharacter() .. "-Realm"
+				local hands = {}
+				for i = 1, 7 do hands[i] = "Help" .. string.char(96 + i) .. "-Realm" end
+				K.HandleCommand("CHANNEL", KING, "T1~H~9~Olympus~" .. table.concat(hands, ","))
+				-- Six Hands, 5 entries each: the week is full. A sixth of one Hand, room or not: left out.
+				local id = 1000
+				for i = 1, 6 do
+					for j = 1, 5 do
+						id = id + 1
+						K.HandleCommand("CHANNEL", hands[i], ("T1~D~%d~Olympus II~%d~1~~Night %d-%d"):format(id, 3600 * (i * 5 + j), i, j))
+					end
+					if i == 1 then
+						K.HandleCommand("CHANNEL", hands[1], "T1~D~2001~Olympus II~7200~1~~One too many")
+						eq(W.Entry(2001), nil, "a Hand holds 5"); eq(#W.Entries(), 5)
+					end
+				end
+				eq(#W.Entries(), W.MAX_KEPT)
+				K.HandleCommand("CHANNEL", hands[7], "T1~D~2002~Olympus II~7200~1~~Late Hand")
+				eq(W.Entry(2002), nil, "full: another Hand's waits")
+				-- The King's: always kept; the Hands' entry furthest ahead gives way.
+				K.HandleCommand("CHANNEL", KING, "T1~D~9001~Olympus~7200~1~~The King's raid night")
+				assert(W.Entry(9001), "the King's kept")
+				eq(W.Entry(1030), nil, "the Hands' furthest ahead gave way")
+				eq(#W.Entries(), W.MAX_KEPT)
+				-- His Steward's the same.
+				ns.IsSteward = function(name) return ns.ShortName(name) == "Stew" end
+				K.HandleCommand("CHANNEL", "Stew-Realm", "T1~D~9002~Olympus II~9000~1~~Court")
+				assert(W.Entry(9002), "the Steward's kept"); eq(W.Entry(1029), nil)
+				-- Ten of the King's, whatever the Hands hold; an eleventh: over his own cap.
+				for i = 3, 12 do K.HandleCommand("CHANNEL", KING, ("T1~D~%d~Olympus~%d~1~~King %d"):format(9000 + i, 7200 + i * 60, i)) end
+				local kings = 0
+				for _, e in ipairs(W.Entries()) do if e.by == KING then kings = kings + 1 end end
+				eq(kings, W.MAX_MINE); eq(W.Entry(9012), nil)
+				eq(#W.Entries(), W.MAX_KEPT)
+				-- Kept so across a /reload.
+				Reload(W)
+				assert(W.Entry(9001) and W.Entry(9002)); eq(#W.Entries(), W.MAX_KEPT)
+				-- A Hand's own client: 5 entries, then full.
+				AsKing(); K.AddHand("Helper")
+				AsSoldier("Helper")
+				K.HandleCommand("CHANNEL", KING, "T1~H~10~Olympus~Helper-Realm")
+				W.Reset()
+				for i = 1, 5 do w.clock = w.clock + W.SET_GAP; eq(K.SetAgenda(("Sun %02d:00 Night %d"):format(10 + i, i)), true) end
+				w.clock = w.clock + W.SET_GAP
+				eq(K.SetAgenda("Mon 20:00 One too many"), false)
+				assert(Printed(w, ns.L.WEEK_FULL:format(5)))
+			end)
+			ns.IsSteward = savedSteward
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 review: the channel's budget: entries days away repeat every 30 minutes; the sheet every 15 while nobody signed anything within 2 days, Sign up as long", function()
+		WithWeek(function(w, W, K, B)
+			AsKing(); K.AddHand("Helper")
+			AsSoldier("Helper")
+			local KING = ns.KingCharacter() .. "-Realm"
+			K.HandleCommand("CHANNEL", KING, "T1~H~10~Olympus~Helper-Realm")
+			for i = 1, W.MAX_HAND do w.clock = w.clock + W.SET_GAP; K.SetAgenda(("Sun %02d:00 Night %d"):format(10 + i, i)) end
+			-- A Hand's client, minute by minute: when each entry went out again, and its sheets.
+			local times, sheets = {}, {}
+			local function Run(minutes)
+				for _ = 1, minutes do
+					local from = #w.sent
+					w.clock = w.clock + 60
+					K.HandleCommand("CHANNEL", KING, "T1~H~10~Olympus~Helper-Realm") -- (the King online, his list repeated)
+					W.Tick()
+					for i = from + 1, #w.sent do
+						local msg = w.sent[i].msg
+						local id = msg:match("^T1~D~(%d+)~")
+						if id then times[id] = times[id] or {}; table.insert(times[id], w.clock) end
+						if msg:find("^T1~R~") then sheets[#sheets + 1] = msg end
+					end
+				end
+			end
+			-- Three hours of 5 entries days away that nobody signed: each again every 30 minutes, the
+			-- sheet every 15.
+			Run(180)
+			local farId, n = next(times), 0
+			for id, list in pairs(times) do
+				n = n + 1
+				for i = 2, #list do assert(list[i] - list[i - 1] >= W.RESEND_FAR, id .. " again after " .. (list[i] - list[i - 1])) end
+				assert(#list >= 5, id .. " repeated " .. #list)
+			end
+			eq(n, W.MAX_HAND)
+			assert(#sheets >= 11, #sheets .. " sheets")
+			for _, msg in ipairs(sheets) do assert(msg:find("~15$"), msg) end
+			local idle = sheets[#sheets]
+			-- An hour of it: 5 entries twice each and 4 sheets (before the review: 10 entries every 10
+			-- minutes and a sheet every 5, 72 an hour).
+			local before = #w.sent
+			Run(60)
+			assert(#w.sent - before <= 2 * W.MAX_HAND + 4, "an hour: " .. (#w.sent - before))
+			-- An entry within a day in place of one of them: again every 10 minutes, and the sheet
+			-- every 5 at once.
+			local other = next(times, farId)
+			eq(W.Cancel(tonumber(other)), true)
+			times, sheets = {}, {}
+			eq(K.SetAgenda("tomorrow 12:00 Court"), true)
+			local court = LastWeek(w):match("^T1~D~(%d+)~")
+			Run(60)
+			eq(sheets[1]:match("~(%d+)$"), "5")
+			assert(#sheets >= 11, #sheets .. " sheets")
+			local list = times[court]
+			assert(list and #list >= 5, "Court repeated " .. (list and #list or 0))
+			for i = 2, #list do assert(list[i] - list[i - 1] >= W.RESEND, "Court again after " .. (list[i] - list[i - 1])) end
+			-- A soldier hears a 15-minute sheet: Sign up stays for its 15 minutes, not after.
+			local far = W.Entry(tonumber(farId))
+			local at, title = far.at, far.title
+			AsSoldier()
+			W.Reset()
+			K.HandleCommand("CHANNEL", "Helper-Realm", ("T1~D~%s~Olympus II~%d~0~~%s"):format(farId, at - w.clock, title))
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~R~5~Olympus II~" .. idle:match("^T1~R~%d+~[^~]*~(.*)$"))
+			local heard = w.clock
+			w.clock = heard + 15 * 60
+			assert(Line(B.Lines(), ns.L.SIGN_UP), "Sign up after 15 minutes still")
+			w.clock = heard + 15 * 60 + W.SHEET_LATE + 1
+			eq(Line(B.Lines(), ns.L.SIGN_UP), nil)
+		end)
+	end)
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
