@@ -265,6 +265,17 @@ local function TreasurerPin(name)
 	return nil
 end
 Treasury.TreasurerPin = TreasurerPin
+-- 1.1 (Fern's #36): a line of someone's dues: gold given to one of the Treasurer's characters, by
+-- trade or mail (the dues' ledger counts every one, Dues.lua). Its name and its time never leave
+-- his client in a book: not on the channel (TB, TR, T8), nor in the whole book whispered to the
+-- King, his Steward and the keepers (1.1): with one fixed amount a week, they would be a list of
+-- who paid it, and Fern's #36 gives it to the King and that guild's Captains alone (the dues' lists).
+-- Here, not in Dues.lua, so that it holds even while that file is missing (a restart owed).
+local function DuesLine(keeper, e)
+	if type(e) ~= "table" or e.out or e.item or e.kind == "transfer" or (tonumber(e.money) or 0) <= 0 then return false end
+	return TreasurerPin(keeper) ~= nil
+end
+Treasury.DuesLine = DuesLine
 
 -- One of the keepers pinned by name (the other side of a trade or a mail: its guild is not
 -- known): the Treasurer's characters (his own and his mail's), or the King's character. (The
@@ -1213,8 +1224,9 @@ function Treasury.Message(b, parts)
 		-- 1.1 (Fern's #36): the week's donors go out as a count, never by name. With the dues (one
 		-- fixed amount a week, Dues.lua) their names on the channel would be a public list of who
 		-- paid this week, and so of who did not: every client on it receives the bytes, whatever the
-		-- King's switches show. The ranking (all time) and the book's latest lines stay: gifts, not
-		-- anyone's dues.
+		-- King's switches show. The ranking (all time, which Fern kept) stays; so do the book's
+		-- latest lines, except the gold given to the Treasurer's characters: each of those is
+		-- someone's dues (a name and his last payment: DuesLine), and never goes out.
 		local week, rank, lines, items = {}, {}, {}, {}
 		local sums = { rank = 0, i = 0, o = 0, r = 0, s = 0 }
 		if showRanking then
@@ -1227,7 +1239,7 @@ function Treasury.Message(b, parts)
 			if not showBook or #lines >= caps.book then break end
 			local e = b.lines[i]
 			-- Counted lines and transfers; what he said was his (a sale, his own) stays home.
-			if not e.excluded then
+			if not e.excluded and not DuesLine(b.name or ns.me, e) then
 				local code = LineCode(e)
 				local line = ("%s:%d:%s:%s:%d"):format(code, U(e.money), Clean(e.name), e.how == "mail" and "m" or "t", SentDate(e.t))
 				if e.item then line = line .. (":%d:%d"):format(e.item, math.min(tonumber(e.count) or 1, Treasury.MAX_COUNT)) end
@@ -1278,7 +1290,8 @@ function Treasury.LegacyMessage(parts)
 	for _, w in ipairs(parts.book and r.book or {}) do
 		if #lines >= Treasury.LEGACY_BOOK then break end
 		local e = w.e
-		if not e.item and not e.excluded and e.kind ~= "transfer" then
+		-- (1.1: never a line of someone's dues, as in TB: DuesLine.)
+		if not e.item and not e.excluded and e.kind ~= "transfer" and not DuesLine(w.keeper, e) then
 			lines[#lines + 1] = ("%s:%d:%s:%s:%d"):format(e.out and "o" or "i", U(e.money), Clean(e.name), e.how == "mail" and "m" or "t", math.floor(tonumber(e.t) or 0))
 		end
 	end
