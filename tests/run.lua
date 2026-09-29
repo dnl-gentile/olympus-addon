@@ -25088,6 +25088,90 @@ test("1.1 patrol share (#29): the Tabards page names the officer who found each,
 		assert(doc:find("`/oly patrolshare on\\|off`", 1, true), file .. ": the commands")
 	end
 end)
+
+-- The 1.1 review: another officer's word reached the King's untabarded list (the King is his
+-- guild's master, an officer) and a sampled officer's Royal Inspection report.
+test("1.1 patrol share (#29): the King's untabarded list and the army's copy never take another officer's word, nor let it change his own", function()
+	WithShare(function(w, I)
+		local K = ns.King
+		local saved = { guild = GetGuildInfo, me = ns.me, on = ns.db.kingUntabarded }
+		local ok, err = pcall(function()
+			GetGuildInfo = function(unit) if unit == nil or unit == "player" then return "Olympus", "King", 0 end return nil end
+			ns.me = "Asmongold Asmongler-Realm"
+			eq(K.IsKing(), true); eq(I.MayShare(), true, "the King is his guild's officer: he takes his officers' findings")
+			Caught(I, "Mine")
+			I.AddReported("Rep", ZEUS, "OTHER")
+			-- Offi (a Captain of his guild) tells him of a player nobody else inspected, and "corrects" the King's own.
+			w.clock = w.clock + 30
+			I.HandleShare("GUILD", "Offi-Realm", "U1~Victim:Olympus Hera:N:0;Mine:Olympus Zeus:G:0;Rep:Olympus Zeus:G:0")
+			local P = I.Players()
+			eq(P["Victim"].shared, true, "on his Tabards page, as Offi's word")
+			eq(P["Mine"].status, "NONE", "his own patrol's finding stands"); eq(P["Mine"].shared, nil)
+			eq(P["Rep"].status, "OTHER", "the Royal Inspection's report stands"); eq(P["Rep"].shared, nil)
+			local function Names()
+				local names = {}
+				for _, e in ipairs(I.ShameList()) do names[#names + 1] = e.name end
+				table.sort(names)
+				return table.concat(names, ",")
+			end
+			eq(Names(), "Mine,Rep", "his list: his patrol and the reports, never Offi's word")
+			-- Shown to the army: the same list.
+			ns.db.kingUntabarded = true
+			w.sent = {}
+			K.SendUntabarded(true)
+			eq(#w.sent, 1); assert(w.sent[1]:find("^CHANNEL T1~U~"), w.sent[1])
+			assert(not w.sent[1]:find("Victim", 1, true), w.sent[1])
+			assert(w.sent[1]:find("Mine:", 1, true) and w.sent[1]:find("Rep:", 1, true), w.sent[1])
+			-- The Royal Inspection reports him later: then he is the King's, Offi's name gone.
+			I.AddReported("Victim", "Olympus Hera", "NONE")
+			eq(P["Victim"].shared, nil); eq(P["Victim"].by, nil)
+			eq(Names(), "Mine,Rep,Victim")
+			-- A player he marked by hand stays on it, whoever's word the tabard is.
+			I.HandleShare("GUILD", "Offi-Realm", "U1~Marked:Olympus Hera:G:0")
+			P["Marked"].marked = true
+			eq(Names(), "Marked,Mine,Rep,Victim")
+		end)
+		GetGuildInfo, ns.me, ns.db.kingUntabarded = saved.guild, saved.me, saved.on
+		if not ok then error(err, 0) end
+	end)
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("for their Tabards pages alone: never the King's untabarded list, nor a Royal Inspection's report", 1, true), file .. ": the privacy table")
+	end
+end)
+
+test("1.1 patrol share (#29): a sampled officer's Royal Inspection report names only what his own patrol saw", function()
+	WithShare(function(w, I)
+		local K = ns.King
+		local whispers, timers = {}, {}
+		local saved = { after = ns.After, whisper = ns.Comm.Whisper, patrol = I.SetPatrol, pace = I.SetPace, alert = ns.PlayAlert }
+		local ok, err = pcall(function()
+			ns.After = function(_, _, f) timers[#timers + 1] = f end
+			ns.Comm.Whisper = function(to, msg) whispers[#whispers + 1] = to .. " " .. msg end
+			I.SetPatrol, I.SetPace, ns.PlayAlert = function() end, function() end, function() end
+			K.RunInspection("King-Realm", 7)
+			eq(#timers, 1, "a patrol of INSPECT_TIME")
+			Caught(I, "Mine")
+			-- A fellow officer's findings arrive during the patrol: a stranger, and a "correction" of ours.
+			w.clock = w.clock + 30
+			I.HandleShare("GUILD", "Offi-Realm", "U1~Victim:Olympus Hera:N:0;Mine:Olympus Zeus:G:0")
+			eq(I.Players()["Victim"].shared, true, "on our page, as his word")
+			eq(I.Players()["Mine"].status, "NONE", "not while our report is being made")
+			timers[1]()
+			eq(#whispers, 1)
+			local names = whispers[1]:match("^King%-Realm T3~7~[^~]*~%d+~%d+~%d+~(.*)$")
+			eq(names, "Mine:Olympus Zeus:N", "ours alone, not the finding another officer passed on")
+		end)
+		ns.After, ns.Comm.Whisper, I.SetPatrol, I.SetPace, ns.PlayAlert = saved.after, saved.whisper, saved.patrol, saved.pace, saved.alert
+		if not ok then K.Reset() error(err, 0) end
+		-- Once the report went, a later word replaces an older own inspection again (an officer's page).
+		w.clock = w.clock + 100
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Mine:Olympus Zeus:G:0")
+		eq(I.Players()["Mine"].status, "GUILD"); eq(I.Players()["Mine"].shared, true)
+	end)
+end)
 end
 
 ---------------------------------------------------------------------------

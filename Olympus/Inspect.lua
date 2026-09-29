@@ -116,6 +116,8 @@ function Inspect.AddReported(name, guild, status)
 	if type(name) ~= "string" or name == "" then return end
 	local p = Store().players[name] or {}
 	p.name, p.guild, p.status, p.t, p.reported = name, guild, status, ns.Now(), true
+	-- (The Royal Inspection's report, not another officer's word any more: 1.1.)
+	p.shared, p.by = nil, nil
 	Store().players[name] = p
 	ns.Fire("INSPECT_CHANGED")
 end
@@ -467,7 +469,11 @@ end
 -- sender's rank in its own roster. What another officer found shows on the Tabards page like our
 -- own, with his name in the tooltip, for SHARE_KEEP; our own later inspection of that player
 -- replaces it, and nothing is passed on second hand. The King's untabarded list stays his: it is
--- made from his own patrol and the Royal Inspection's reports, as before.
+-- made from his own patrol and the Royal Inspection's reports, as before. Another officer's word
+-- never joins it (Inspect.ShameList), never rides in a Royal Inspection's report (King.lua) and
+-- never replaces what the King himself holds, nor what our patrol saw while a Royal Inspection
+-- runs here (the 1.1 review: an officer of the King's guild could put any name on the army's
+-- list, or have a sampled officer report it as his own).
 --   U1~<name>:<guild>:<N|O|G>:<seconds ago, base36>;...   an officer's own findings (GUILD)
 --   U0~                                                   an officer's addon after login: "what
 --                                                         did you find today?" (GUILD)
@@ -580,9 +586,20 @@ local function CleanShared(s)
 	return s
 end
 
+-- What another officer's word never replaces: the King's own (his patrol's and the reports'), and
+-- what our patrol saw while a Royal Inspection runs here (its report is ours alone).
+local function OwnKept(p)
+	if not p or p.shared then return false end
+	if p.reported then return true end
+	local K = ns.King
+	if K and K.IsKing and K.IsKing() then return true end
+	local state = K and K.State and K.State()
+	return state ~= nil and state.inspecting ~= nil
+end
+
 -- An officer's findings (U1, over GUILD), taken by an officer's addon only: the sender an
 -- officer of ours by our roster, each entry an Olympus guild's player, a day old at most, newer
--- than what we hold of him (our own inspections included).
+-- than what we hold of him (our own inspections included, but for OwnKept).
 function Inspect.HandleShare(dist, sender, text)
 	if dist ~= "GUILD" or type(text) ~= "string" or #text > 255 or not MayShare() then return end
 	local rank = ns.Roster.RankOf(sender)
@@ -601,7 +618,7 @@ function Inspect.HandleShare(dist, sender, text)
 			local key = Key(name)
 			local t = now - age
 			local p = key and Store().players[key]
-			if key and not (p and (tonumber(p.t) or 0) >= t) then
+			if key and not (p and (tonumber(p.t) or 0) >= t) and not OwnKept(p) then
 				local new = p == nil
 				p = p or {}
 				p.name, p.guild, p.status, p.t, p.item = key, guild, CODE_STATUS[code], t, nil
@@ -704,11 +721,13 @@ function Inspect.ShameOpensIn() return math.max(0, Inspect.SHAME_FROM - ServerNo
 -- Pardoned by the King (Acts.lua): off every list for a week, his and the one he shares.
 local function Pardoned(name) return ns.Acts and ns.Acts.Pardoned and ns.Acts.Pardoned(name) == true end
 
--- The King's list: what his own patrol and the Royal Inspection's reports found.
+-- The King's list: what his own patrol and the Royal Inspection's reports found, and whom he
+-- marked by hand. Never another officer's word (1.1: an officer's shared findings stay on the
+-- Tabards page).
 function Inspect.ShameList()
 	local out = {}
 	for _, p in ipairs(Inspect.Summary().players) do
-		if (p.status == "NONE" or p.status == "OTHER" or p.marked) and not Pardoned(p.name) then
+		if (p.marked or (not p.shared and (p.status == "NONE" or p.status == "OTHER"))) and not Pardoned(p.name) then
 			out[#out + 1] = { name = ns.ShortName(p.name), guild = p.guild }
 		end
 	end
