@@ -1207,6 +1207,13 @@ end
 -- opening, the balance, the totals, the week, the transfers) with "balance", the ranking with
 -- "ranking", the book's lines and the items donated with "book". Its keepers' field (read by
 -- nobody before 1.1) says which parts it holds: "<balance><ranking><book>@1", "110@1".
+-- A 1.0 client takes it as that keeper's whole book: its army shows what the King shows, as
+-- before, and the King's switches still reach it from the Treasurer's copy (which also takes the
+-- place of any whole book of 1.0 it kept). But a King's, Steward's or keeper's 1.0 addon, which
+-- shows everything whatever the switches, shows a balance of zero there with the balance hidden
+-- (every switch off, as the King starts) or the sums of the lists shown, until it updates: 1.1
+-- whispers the whole book to 1.1 alone. A 1.1 insider's Treasury tab names them
+-- (Treasury.NotUpdated), so they can be told.
 function Treasury.Message(b, parts)
 	b = b or BookOf(ns.me, true)
 	local t = Treasury.Totals(b)
@@ -1758,20 +1765,32 @@ end
 --                      TS: Bank.lua) in pieces; put together by its receiver and read as if it
 --                      came on the channel, from that sender
 --   TE~...             by whisper too, piece by piece, the early supporters (as on the channel)
--- 1.0 clients leave TA and TW unread: a 1.0 army shows what the King shows, as before; a 1.0
--- King, Steward or keeper sees only that part until he updates.
+-- 1.0 clients leave TA and TW unread: a 1.0 army shows what the King shows, as before. Only a
+-- client heard asking (TA: 1.1 or later) is whispered to, so a 1.0 King, Steward or keeper gets
+-- nothing by whisper (what he reads from the channel: Treasury.Message's note).
+-- The keeper's message budget: the whispers share the addon's one queue (Comm: a message each
+-- 1.2 s, 60 waiting at most, the oldest dropped when it is full) with his census, his book on the
+-- channel and everything else. So a piece is queued only while that queue is nearly empty
+-- (PRIVATE_ROOM), and a changed message goes to the same player PRIVATE_GAP after the last one at
+-- the soonest (the latest then: FlushPrivate, every minute); the channel's own messages are never
+-- pushed out by ours.
 ---------------------------------------------------------------------------
 
 Treasury.AUDIENCE_FRESH = 11 * 60  -- the King, a Steward or a keeper heard this recently is online
 Treasury.ASK_AFTER = 40            -- seconds after login such a client asks for what is its to see...
 Treasury.ASK_EVERY = 15 * 60       -- ...and again this often (what changed)
 Treasury.RESET_GAP = 300           -- one player's "I hold nothing" is taken this often at most
-Treasury.PRIVATE_PACE = 1.5        -- seconds between two whispered pieces (the channel's queue stays light)
+Treasury.PRIVATE_PACE = 1.5        -- seconds between two whispered pieces at the least...
+Treasury.PRIVATE_ROOM = 3          -- ...each one queued only while the addon's queue holds this many at most...
+Treasury.PRIVATE_WAIT = 120        -- ...or once it waited this many turns (never held forever)
+Treasury.PRIVATE_GAP = 180         -- a changed message to the same player this long after the last one at the soonest
 Treasury.PRIVATE_QUEUE = 100       -- whole messages waiting to be whispered, at most
+Treasury.READERS_FOR = 30 * 86400  -- a client heard asking (TA) is remembered as reading whispers this long
 Treasury.PRIVATE_REPEAT = 1800     -- the same one whispered again to the same player this long after at most
                                    -- (a piece lost on the way, a wipe of his: he gets it whole again)
 
 local heard = {}         -- [Name-Realm] = when the King, a Steward or a keeper was last heard
+local firstHeard = {}    -- [Name-Realm] = when he was first heard this session
 local outbox = {}        -- whispers waiting: { to, kind, key, msg, pieces }
 local sending            -- the one going out now (its pieces, PRIVATE_PACE apart)
 local sentTo = {}        -- [Name-Realm] = { [key] = { msg, at }: the message last whispered whole to him, when }
@@ -1780,6 +1799,7 @@ local pieceId = 0
 local privAsm = ns.Codec.NewAssembler()
 local lastAsk = -math.huge
 local privateKinds = {}  -- [type] = { from(sender), to(), handle(dist, sender, text) }
+local held = false       -- a changed message was held back by PRIVATE_GAP: FlushPrivate sends it
 
 -- The King's switches as he last gave them (never the author's Asmon's view): what goes on the
 -- channel. Returns the parts, and whether all of them show (the whole book goes there then).
@@ -1807,26 +1827,63 @@ end
 -- One of them was heard (any message of theirs: his book, his switches, his ask).
 function Treasury.Heard(name)
 	if not Insider(name) then return end
-	heard[ns.FullName(name)] = ns.Now()
+	name = ns.FullName(name)
+	heard[name] = ns.Now()
+	firstHeard[name] = firstHeard[name] or heard[name]
 end
--- The King, the Stewards and the keepers heard within AUDIENCE_FRESH, but us, sorted.
-function Treasury.Online()
+
+-- His addon reads whispers (TW, the bank requests): he was heard asking (TA), which 1.1 sends
+-- and 1.0 never does. Kept on this realm's saved variables, so a /reload of ours does not wait
+-- for his next ask (ASK_EVERY).
+function Treasury.Reads(name)
+	local r = type(name) == "string" and ns.rdb and type(ns.rdb.treasuryReaders) == "table" and ns.rdb.treasuryReaders[ns.FullName(name)]
+	return type(r) == "number" and ns.Now() - r <= Treasury.READERS_FOR
+end
+function Treasury.MarkReader(name)
+	if type(name) ~= "string" or not ns.rdb then return end
+	local r = type(ns.rdb.treasuryReaders) == "table" and ns.rdb.treasuryReaders or {}
+	ns.rdb.treasuryReaders = r
+	local now = ns.Now()
+	r[ns.FullName(name)] = now
+	for n, t in pairs(r) do if type(t) ~= "number" or now - t > Treasury.READERS_FOR then r[n] = nil end end
+end
+
+-- The King, the Stewards and the keepers heard within AUDIENCE_FRESH whose addon never asked
+-- (1.0: a 1.1 addon asks ASK_AFTER after its login), but us, sorted: while the King hides a part
+-- of the treasury, their addon shows only what the army sees of the books of keepers on 1.1
+-- (Treasury.Message), so a 1.1 insider's Treasury tab names them.
+function Treasury.NotUpdated()
 	local now, out = ns.Now(), {}
 	for name, t in pairs(heard) do
-		if now - t <= Treasury.AUDIENCE_FRESH and not SameChar(name, ns.me) and Insider(name) then out[#out + 1] = name end
+		if now - t <= Treasury.AUDIENCE_FRESH and now - (firstHeard[name] or now) > Treasury.ASK_AFTER + 60
+			and not SameChar(name, ns.me) and Insider(name) and not Treasury.Reads(name) then
+			out[#out + 1] = name
+		end
 	end
 	table.sort(out)
 	return out
 end
 
--- The next whisper waiting goes out, a piece every PRIVATE_PACE.
+-- The King, the Stewards and the keepers heard within AUDIENCE_FRESH whose addon reads
+-- whispers, but us, sorted.
+function Treasury.Online()
+	local now, out = ns.Now(), {}
+	for name, t in pairs(heard) do
+		if now - t <= Treasury.AUDIENCE_FRESH and not SameChar(name, ns.me) and Insider(name) and Treasury.Reads(name) then out[#out + 1] = name end
+	end
+	table.sort(out)
+	return out
+end
+
+-- The next whisper waiting goes out, a piece every PRIVATE_PACE at the most, each one only
+-- while the addon's queue is nearly empty (PRIVATE_ROOM).
 local function PumpPrivate()
 	-- (One whose timer never came back, an error on the way: not waited for forever.)
-	if sending and ns.Now() - (sending.started or 0) > 300 then sending = nil end
+	if sending and ns.Now() - (sending.touched or 0) > 300 then sending = nil end
 	if sending then return end
 	local o = table.remove(outbox, 1)
 	if not o then return end
-	o.started = ns.Now()
+	o.touched = ns.Now()
 	if not o.pieces then
 		pieceId = pieceId % 999 + 1
 		o.pieces = {}
@@ -1834,8 +1891,16 @@ local function PumpPrivate()
 	end
 	o.i = 0
 	sending = o
+	local waited = 0
 	local function Next()
 		if sending ~= o then return end
+		o.touched = ns.Now()
+		local size = ns.Comm.QueueSize and ns.Comm.QueueSize() or 0
+		if size > Treasury.PRIVATE_ROOM and waited < Treasury.PRIVATE_WAIT then
+			waited = waited + 1
+			return ns.After(Treasury.PRIVATE_PACE, "treasury private", Next)
+		end
+		waited = 0
 		o.i = o.i + 1
 		ns.Comm.Whisper(o.to, o.pieces[o.i])
 		if o.i < #o.pieces then return ns.After(Treasury.PRIVATE_PACE, "treasury private", Next) end
@@ -1849,7 +1914,8 @@ end
 
 -- A whole message (`kind`: its type) for one player alone, by whisper, in pieces; `pieces`: its
 -- own messages instead (the early supporters'). Not again while he holds the same one (`key`,
--- the kind unless said): a changed one takes the place of the one still waiting.
+-- the kind unless said): a changed one takes the place of the one still waiting, and is held
+-- while the last one went to him less than PRIVATE_GAP ago (or is going now).
 function Treasury.Private(to, kind, msg, key, pieces)
 	if type(to) ~= "string" or to == "" or type(msg) ~= "string" or msg == "" then return false end
 	to = ns.FullName(to)
@@ -1864,10 +1930,26 @@ function Treasury.Private(to, kind, msg, key, pieces)
 			return true
 		end
 	end
+	local now = ns.Now()
+	local recent = (sending and sending.to == to and sending.key == key) and now or (last and last.at)
+	if recent and now - recent < Treasury.PRIVATE_GAP then
+		held = true
+		return false
+	end
 	if #outbox >= Treasury.PRIVATE_QUEUE then table.remove(outbox, 1) end
 	outbox[#outbox + 1] = { to = to, kind = kind, key = key, msg = msg, pieces = pieces }
 	PumpPrivate()
 	return true
+end
+
+-- What PRIVATE_GAP held goes now, as it is now, where the gap is over (every minute: the
+-- treasury's ticker); what is still inside it stays held.
+function Treasury.FlushPrivate()
+	if not held then return 0 end
+	held = false
+	local n = Treasury.SendPrivate()
+	if ns.Bank and ns.Bank.ShareSister then n = n + ns.Bank.ShareSister() end
+	return n
 end
 
 -- He holds none of `key` any more (his login): the next one goes to him even when unchanged.
@@ -1942,6 +2024,7 @@ function Treasury.HandleAsk(dist, sender, text)
 	if reset then resetAt[sender] = now end
 	if Insider(sender) then
 		heard[sender] = now
+		Treasury.MarkReader(sender)
 		if reset then sentTo[sender] = nil end
 		Treasury.SendPrivate(sender)
 	end
@@ -1966,6 +2049,7 @@ function Treasury.NotFound(text)
 	for i = #outbox, 1, -1 do if Is(outbox[i].to) then table.remove(outbox, i) end end
 	for name in pairs(heard) do if Is(name) then heard[name] = nil end end
 	if ns.Bank and ns.Bank.NotFound then ns.Bank.NotFound(Is) end
+	for name in pairs(firstHeard) do if Is(name) then firstHeard[name] = nil end end
 	if sending and Is(sending.to) then
 		sending = nil
 		PumpPrivate()
@@ -1973,10 +2057,11 @@ function Treasury.NotFound(text)
 end
 
 -- For tests: what waits, and what goes.
-function Treasury.PrivateState() return { outbox = outbox, sending = sending, sentTo = sentTo, heard = heard } end
+function Treasury.PrivateState() return { outbox = outbox, sending = sending, sentTo = sentTo, heard = heard, held = held } end
 function Treasury.ResetPrivate()
-	wipe(heard); wipe(outbox); wipe(sentTo); wipe(resetAt)
-	sending, lastAsk, notFound = nil, -math.huge, nil
+	wipe(heard); wipe(firstHeard); wipe(outbox); wipe(sentTo); wipe(resetAt)
+	sending, lastAsk, notFound, held = nil, -math.huge, nil, false
+	if ns.rdb then ns.rdb.treasuryReaders = nil end
 	privAsm = ns.Codec.NewAssembler()
 end
 
@@ -2518,6 +2603,16 @@ function Treasury.HandleEarlyAsk(dist, sender, text)
 end
 ns.Comm.Handle("TQ", function(...) Treasury.HandleEarlyAsk(...) end)
 
+-- Every minute: the books, the King's switches and his keepers, repeated for late logins; what
+-- PRIVATE_GAP held back.
+function Treasury.Tick()
+	if ns.Now() - lastShare >= Treasury.SHARE_EVERY then Treasury.Share(true) end
+	Treasury.FlushPrivate()
+	Treasury.SendFlags()
+	Treasury.SendKeepers()
+	Treasury.AskEarly()
+end
+
 ns.On("LOGIN", function()
 	Treasury.Migrate()
 	-- The account's characters, for gold between a keeper's own.
@@ -2565,12 +2660,7 @@ ns.On("LOGIN", function()
 		pcall(ns.RegisterEvent, event, function() ns.SafeCall("treasury mail", Treasury.ItemsChanged) end)
 	end
 	-- The books, the King's switches and his keepers, repeated for late logins.
-	ns.Every(60, "treasury share", function()
-		if ns.Now() - lastShare >= Treasury.SHARE_EVERY then Treasury.Share(true) end
-		Treasury.SendFlags()
-		Treasury.SendKeepers()
-		Treasury.AskEarly()
-	end)
+	ns.Every(60, "treasury share", function() Treasury.Tick() end)
 	-- The early supporters: sent by the Treasurer's character holding them once after login
 	-- (after his book), asked for by a client without them a little later.
 	ns.After(45, "treasury early", function() Treasury.SendEarly(true) end)
@@ -2627,6 +2717,9 @@ function Treasury.SendDonations(force)
 	local now = ns.Now()
 	if not force and now - lastDonationSent < Treasury.DONATIONS_EVERY then return false end
 	lastDonationSent = now
+	-- His zone read again at every send: once he stops sharing his location (/oly location off,
+	-- the King's crown off), no repeat carries the zone he had.
+	donating.mapID = DonationZone()
 	ns.Comm.Send("CHANNEL", DonationMessage(true), "treasurydonations")
 	return true
 end
@@ -2646,7 +2739,8 @@ function Treasury.SetDonations(on)
 	ns.Fire("DATA_CHANGED")
 end
 
--- Our zone changed while on: said again at once (only while we share it).
+-- Our zone changed while on, or we started or stopped sharing it (Layers.SetSharing, the King's
+-- crown): said again at once (the zone only while we share it).
 function Treasury.DonationsMoved()
 	if not donating then return end
 	local zone = DonationZone()
@@ -3219,6 +3313,15 @@ local function SummaryLines(role, q)
 		lines[#lines + 1] = { text = Gold("> " .. L.BACKUP_LINK), onClick = function() ns.Backup.Slash("backup") end,
 			tooltip = function(tt) tt:AddLine(L.HELP_BACKUP, 1, 1, 1, true) end }
 		lines[#lines + 1] = { text = Gold("> " .. L.BACKUP_RESTORE_LINK), onClick = function() ns.Backup.Slash("restore") end, gapAfter = true }
+	end
+	-- 1.1: the King, a Steward or a keeper still on 1.0, heard lately, while the King hides a part.
+	if Treasury.IsInsider() and not select(2, Treasury.PublicParts()) then
+		local old = {}
+		for _, name in ipairs(Treasury.NotUpdated()) do old[#old + 1] = KeeperLabel(name) end
+		if #old > 0 then
+			Para(lines, L.TREASURY_NOT_UPDATED:format(table.concat(old, ", ")), Red)
+			lines[#lines].gapAfter = true
+		end
 	end
 	local r = Treasury.Report()
 	if not r then

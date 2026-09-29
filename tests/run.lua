@@ -34791,10 +34791,17 @@ test("1.1 Zeal's promise: what the King hides never goes on the channel; the Kin
 			T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
 			assert(#w.whispered > n, "again after PRIVATE_REPEAT")
 			n = #w.whispered
-			-- His book changes: on the channel still nothing of it, the King (heard) gets it at once.
+			-- His book changes: on the channel still nothing of it. The King (heard) gets it once
+			-- PRIVATE_GAP is over since the last one went to him: held meanwhile, then as it is then
+			-- (the keeper's message budget: FlushPrivate, every minute).
 			w.sent = {}
 			w.clock = w.clock + T.SHARE_GAP
 			T.Record("Secret Donor", 1000, "trade", nil, { quiet = true }); T.Share(true); Run()
+			eq(#w.whispered, n, "held: his last one went less than PRIVATE_GAP ago")
+			T.FlushPrivate(); Run()
+			eq(#w.whispered, n, "still inside the gap")
+			w.clock = w.clock + T.PRIVATE_GAP - T.SHARE_GAP
+			T.FlushPrivate(); Run()
 			assert(#w.whispered > n and w.whispered[#w.whispered].to == KING, "the new book whispered")
 			NothingHidden({ Channel("TB~")[1] }, "a new book on the channel")
 			local book = T.Message()
@@ -35180,9 +35187,13 @@ test("1.1 bank requests (Fern): a Lord or Captain asks for an item and a count, 
 			assert(e and Printed(w, ns.L.BANK_REQUEST_WAITING:format(T.ItemText(2589, 10))), "waits")
 			eq(#w.whispered, 0)
 			eq(T.Visible(), true, "the Treasury tab shows his request")
-			-- The Treasurer's book heard on the channel: the request goes to him (by whisper), again
-			-- every REQUEST_AGAIN while open, never on the channel.
+			-- The Treasurer's book heard on the channel: for all we know a 1.0 keeper's addon, which
+			-- reads no request (it never asks, TA): nothing goes to him.
 			T.HandleReport("CHANNEL", TREASURER, "TB~1.0~Olympus~0~0~0~0~0~0~~-~000@1~~~~0:0")
+			eq(B.SendRequests(), 0, "a keeper never heard asking")
+			-- His 1.1 client asks: the request goes to him (by whisper), again every REQUEST_AGAIN
+			-- while open, never on the channel.
+			T.HandleAsk("CHANNEL", TREASURER, "TA~Olympus~0")
 			eq(B.SendRequests(), 1)
 			local tn = Whispered("TN~", TREASURER)
 			eq(#tn, 1); eq(tn[1], ("TN~%d~2589~10~Olympus Zeus"):format(e.id))
@@ -35221,9 +35232,9 @@ test("1.1 bank requests (Fern): a Lord or Captain asks for an item and a count, 
 			for _, x in ipairs(B.MyRequests()) do if x.id == e.id then mine = x end end
 			eq(mine.state, "seen"); eq(B.StateText(mine), ns.L.BANK_REQUEST_STATE_SEEN:format("Pyralis Ashandar"))
 			-- He hands it over by mail: the book records the item given, and the request closes by
-			-- itself, the Lord told, the King (heard) too.
+			-- itself, the Lord told, the King (heard asking: his addon reads it) too.
 			AsTreasurer()
-			T.Heard(KING)
+			T.HandleAsk("CHANNEL", KING, "TA~Olympus~1")
 			w.whispered = {}
 			mail.Send("Zed", 0, { { name = "Linen Cloth", id = 2589, n = 10 } })
 			local done
@@ -36548,6 +36559,399 @@ do
 		end)
 	end)
 end
+
+---------------------------------------------------------------------------
+-- 1.1 (batch E, the review's findings): a keeper who stops sharing his location, the keeper's
+-- message budget, what a 1.0 insider reads from the channel copy, and what left the bank.
+---------------------------------------------------------------------------
+
+test("1.1 taking donations: once the keeper stops sharing his location, no repeat carries his zone (his answer, the King's crown)", function()
+	WithThrone(function(w, K)
+		local T = ns.Treasury
+		local saved = { best = C_Map.GetBestMapForUnit, share = ns.db.shareLocation, crown = ns.db.throneLocation, hello = ns.Comm.Hello,
+			split = ns.splitNames }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			ns.Comm.Hello = function() end
+			C_Map.GetBestMapForUnit = function() return 1453 end
+			local TREASURER = "Pyralis Ashandar-Realm"
+			local function Donations()
+				local out = {}
+				for _, s in ipairs(w.sent) do if s.msg:find("^TD~") then out[#out + 1] = s.msg end end
+				return out
+			end
+			-- He turns it on while sharing: his zone goes with it.
+			AsTreasurer()
+			ns.db.shareLocation = true
+			local since = w.clock
+			T.SetDonations(true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~1453"):format(since), "his zone, shared")
+			-- He stops sharing (the setting alone, as a saved answer changed any other way): the next
+			-- repeat has no zone, nor any after it.
+			ns.db.shareLocation = false
+			w.clock = w.clock + T.DONATIONS_EVERY
+			eq(T.SendDonations(), true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~"):format(since), "the repeat: no zone")
+			w.clock = w.clock + T.DONATIONS_EVERY
+			eq(T.SendDonations(), true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~"):format(since), "nor the one after")
+			-- A soldier's client given that repeat: the line without a zone.
+			local repeat_ = LastSent(w)
+			AsSoldier()
+			T.HandleDonations("CHANNEL", TREASURER, repeat_)
+			local lines = Texts(T.DonationLines())
+			assert(lines:find(ns.L.DONATIONS_LINE:format("Pyralis Ashandar"), 1, true), lines)
+			assert(not lines:find("Elwynn", 1, true), lines)
+			-- /oly location on and off (Layers.SetSharing): said at once, each way.
+			AsTreasurer()
+			ns.Layers.SetSharing(true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~1453"):format(since), "sharing again: his zone at once")
+			local n = #Donations()
+			ns.Layers.SetSharing(false)
+			eq(#Donations(), n + 1, "off: said at once, not at the next repeat")
+			eq(Donations()[#Donations()], ("TD~Olympus~1~%d~"):format(since), "without his zone")
+			w.clock = w.clock + T.DONATIONS_EVERY
+			T.SendDonations()
+			eq(LastSent(w), ("TD~Olympus~1~%d~"):format(since), "and the repeat")
+			assert(Texts(T.DonationLines()):find(ns.L.DONATIONS_LINE:format("Pyralis Ashandar"), 1, true), "his own line: no zone either")
+			T.SetDonations(false)
+			-- The King: his crown is his sharing. On with it shown, then he hides it.
+			AsKing()
+			ns.db.throneLocation = true
+			local kingSince = w.clock
+			T.SetDonations(true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~1453"):format(kingSince), "his crown shown: his zone")
+			n = #Donations()
+			K.ToggleLocation()
+			eq(K.SharingLocation(), false)
+			eq(#Donations(), n + 1, "his crown hidden: said at once")
+			eq(Donations()[#Donations()], ("TD~Olympus~1~%d~"):format(kingSince), "without his zone")
+			w.clock = w.clock + T.DONATIONS_EVERY
+			T.SendDonations()
+			eq(LastSent(w), ("TD~Olympus~1~%d~"):format(kingSince), "nor at the next repeat")
+			T.SetDonations(false)
+		end)
+		C_Map.GetBestMapForUnit, ns.db.shareLocation, ns.db.throneLocation, ns.Comm.Hello = saved.best, saved.share, saved.crown, saved.hello
+		ns.splitNames = saved.split
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- The keeper's client on a simulated clock: the real Comm queue (Comm.lua in a namespace of its
+-- own, FreshComm: a message each 1.2 s, 60 waiting at most, the oldest dropped when full), the
+-- real Treasury code, a donation a minute during a stream, the King and keepers online.
+local function TreasurySim(opts)
+	local result
+	WithThrone(function(w, K)
+		local T = ns.Treasury
+		local saved = { split = ns.splitNames, after = ns.After, time = GetTime, cci = C_ChatInfo, chan = GetChannelName, now = ns.Now,
+			chunked = ns.Comm.SendChunked, size = ns.Comm.QueueSize }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			GetChannelName = function() return 5 end
+			local cns = FreshComm()
+			local t, base = 0, w.clock
+			local timers, log = {}, {}
+			ns.Now = function() return base + math.floor(t) end
+			cns.Now = ns.Now
+			GetTime = function() return t end
+			ns.After = function(sec, _, fn) timers[#timers + 1] = { at = t + sec, fn = fn } end
+			C_ChatInfo.SendAddonMessage = function(_, msg, dist, target) log[#log + 1] = { msg = msg, dist = dist, to = target, t = t } return true end
+			cns.Comm.JoinChannel()
+			-- Everything the treasury sends goes through that queue; its size after each send.
+			local maxQ = 0
+			local function Measured(fn) return function(...) fn(...); maxQ = math.max(maxQ, cns.Comm.QueueSize()) end end
+			ns.Comm.Send, ns.Comm.Whisper, ns.Comm.SendChunked = Measured(cns.Comm.Send), Measured(cns.Comm.Whisper), Measured(cns.Comm.SendChunked)
+			ns.Comm.QueueSize = cns.Comm.QueueSize
+			local KING = "Asmongold Asmongler-Realm"
+			AsTreasurer()
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			ns.rdb.treasuryFlags = opts.flags
+			local keepers = {}
+			for i = 1, opts.keepers do keepers[i] = "Keeper Number" .. string.char(64 + i) .. "-Realm" end
+			local names = { unpack(keepers) }
+			names[#names + 1] = "Old Keeper-Realm" -- his addon is 1.0: heard by his book, never asking
+			ns.rdb.treasuryKeepers = { at = 1, names = names }
+			T.SetOpening("1000")
+			for i = 1, 150 do T.Record(("Generous Donor Named%03d"):format(i), 10000 + i * 7, "trade", nil, { quiet = true }) end
+			local readers = { KING, unpack(keepers) }
+			-- Their clients ask after their login (TA), and are heard now and then (the King's
+			-- switches, the keepers' books), the King asking again every ASK_EVERY.
+			for _, n in ipairs(readers) do T.HandleAsk("CHANNEL", n, "TA~Olympus~0") end
+			local nextPump, nextTick, nextHear, nextAsk, nextGift, gifts = 0, 60, 0, T.ASK_EVERY, 0, 0
+			while t < opts.minutes * 60 do
+				t = t + 0.1
+				local due = {}
+				for i = #timers, 1, -1 do if timers[i].at <= t then due[#due + 1] = table.remove(timers, i) end end
+				table.sort(due, function(a, b) return a.at < b.at end)
+				for _, x in ipairs(due) do x.fn() end
+				if t >= nextPump then nextPump = nextPump + 1.2; cns.Comm.Pump() end
+				if t >= nextTick then nextTick = nextTick + 60; T.Tick() end
+				if t >= nextHear then
+					nextHear = nextHear + 300
+					for _, n in ipairs(readers) do T.Heard(n) end
+					T.Heard("Old Keeper-Realm")
+				end
+				if t >= nextAsk then nextAsk = nextAsk + T.ASK_EVERY; T.HandleAsk("CHANNEL", KING, "TA~Olympus~1") end
+				if t >= nextGift and t < opts.stream * 60 then
+					nextGift, gifts = nextGift + 60, gifts + 1
+					T.Record(("Stream Donor%03d"):format(gifts), 5000 + gifts, "trade", nil, { quiet = true })
+				end
+			end
+			-- Every set of pieces sent, on the channel and by whisper, and the whole books each got.
+			local sets, books, asm = {}, {}, ns.Codec.NewAssembler()
+			for _, e in ipairs(log) do
+				local kind, body = "channel", e.msg
+				if e.dist == "WHISPER" then
+					local k, rest = e.msg:match("^TW~(%w%w)~(.*)$")
+					kind, body = "whisper " .. tostring(k) .. " to " .. tostring(e.to), rest or ""
+					local whole = ns.Codec.Feed(asm, e.to, body, ns.Now())
+					if whole and k == "TB" then books[e.to] = books[e.to] or {}; table.insert(books[e.to], { msg = whole, t = e.t }) end
+				end
+				local id, i, n = body:match("^C(%w+):(%d+):(%d+):")
+				if id then
+					local key = kind .. " #" .. id
+					sets[key] = sets[key] or { n = tonumber(n), got = {}, c = 0 }
+					if not sets[key].got[i] then sets[key].got[i], sets[key].c = true, sets[key].c + 1 end
+				end
+			end
+			local broken, channelSets, whispers = {}, 0, {}
+			for key, x in pairs(sets) do
+				if x.c ~= x.n then broken[#broken + 1] = key .. (" %d/%d"):format(x.c, x.n) end
+				if key:find("^channel") then channelSets = channelSets + 1 end
+			end
+			for _, e in ipairs(log) do if e.dist == "WHISPER" then whispers[e.to] = (whispers[e.to] or 0) + 1 end end
+			table.sort(broken)
+			result = { maxQ = maxQ, broken = broken, channelSets = channelSets, whispers = whispers, books = books, final = T.Message(),
+				readers = readers, gifts = gifts }
+		end)
+		ns.splitNames, ns.After, GetTime, C_ChatInfo, GetChannelName, ns.Now = saved.split, saved.after, saved.time, saved.cci, saved.chan, saved.now
+		ns.Comm.SendChunked, ns.Comm.QueueSize = saved.chunked, saved.size
+		ns.rdb.treasuryKeepers, ns.db.keeperShares = nil, nil
+		if not ok then error(err, 0) end
+	end)
+	return result
+end
+
+test("1.1 Zeal's promise, the keeper's message budget: a donation a minute with 2 or 3 of them online drops nothing from his queue, and each gets the latest book whole", function()
+	for _, case in ipairs({
+		{ what = "the ranking shown, the King and a keeper", flags = { ranking = true, at = 1 }, keepers = 1 },
+		{ what = "the ranking shown, the King and two keepers", flags = { ranking = true, at = 1 }, keepers = 2 },
+		{ what = "the ranking and the book shown, the King and two keepers", flags = { ranking = true, book = true, at = 1 }, keepers = 2 },
+	}) do
+		local r = TreasurySim({ flags = case.flags, keepers = case.keepers, minutes = 30, stream = 20 })
+		eq(r.gifts, 20, case.what .. ": a donation a minute for 20 minutes")
+		-- Nothing dropped: the queue never reached its 60 (then its oldest message goes), and every
+		-- message in pieces arrived whole, his own on the channel and his whispers.
+		assert(r.maxQ < 60, case.what .. ": his queue reached " .. r.maxQ)
+		assert(#r.broken == 0, case.what .. ": broken " .. table.concat(r.broken, ", "))
+		assert(r.channelSets >= 20, case.what .. ": his book on the channel, each time it changed: " .. r.channelSets)
+		for _, name in ipairs(r.readers) do
+			local got = r.books[ns.TellName(name)] or {} -- (a whisper goes to the name the server finds)
+			assert(#got >= 2, case.what .. ": whole books to " .. name .. ": " .. #got)
+			-- A changed one PRIVATE_GAP after the last at the soonest, and the latest in the end.
+			for i = 2, #got do
+				assert(got[i].t - got[i - 1].t >= ns.Treasury.PRIVATE_GAP - 60, case.what .. ": two books to " .. name .. " " .. (got[i].t - got[i - 1].t) .. " s apart")
+			end
+			eq(got[#got].msg, r.final, case.what .. ": " .. name .. " holds the latest book")
+		end
+		-- A 1.0 keeper's addon reads no whisper: none goes to him.
+		eq(r.whispers[ns.TellName("Old Keeper-Realm")], nil, case.what .. ": nothing whispered to a 1.0 keeper")
+	end
+end)
+
+test("1.1 Zeal's promise and 1.0: a King, Steward or keeper still on 1.0 is named on a 1.1 insider's Treasury tab while the King hides a part", function()
+	WithThrone(function(w, K)
+		local T = ns.Treasury
+		local saved = { split = ns.splitNames }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			local KING, TREASURER = "Asmongold Asmongler-Realm", "Pyralis Ashandar-Realm"
+			AsTreasurer()
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			T.Record("Secret Donor", 250000, "trade", nil, { quiet = true })
+			-- The tab's text, its paragraphs' rows put back together, colors off.
+			local function Page()
+				local out = {}
+				for _, l in ipairs(T.Build()) do out[#out + 1] = (tostring(l.text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+				return table.concat(out, " ")
+			end
+			local want = ns.L.TREASURY_NOT_UPDATED:format("Asmon")
+			local function Shown() return Page():find(want, 1, true) ~= nil end
+			-- The King's switches heard (his addon, whatever its version): not named at once (a 1.1
+			-- addon asks ASK_AFTER after its login).
+			T.Heard(KING)
+			eq(#T.NotUpdated(), 0, "just heard"); eq(Shown(), false)
+			-- Heard again later, never asking: a 1.0 addon, named in red on the keeper's tab.
+			w.clock = w.clock + T.ASK_AFTER + 61
+			T.Heard(KING)
+			eq(T.NotUpdated()[1], KING); eq(#T.NotUpdated(), 1)
+			assert(Shown(), Page())
+			-- What that 1.0 addon shows (1.0.0's Treasury.lua, as a 1.0 King's client runs it): it
+			-- held the Treasurer's whole book from 1.0; the channel's copy with every switch off
+			-- (the King's starting state) takes its place, the King's switches with it, and his
+			-- balance reads zero. (Taken, so no 1.0 client keeps a whole book of 1.0 the King now
+			-- hides; the note is how he learns to update.)
+			local Old, old = OldTreasury()
+			old.me = KING
+			Old.HandleReport("CHANNEL", TREASURER, T.Message())
+			eq(old.rdb.treasuryReports[TREASURER].balance, T.Balance(), "the whole book of 1.0")
+			ns.rdb.treasuryFlags = { balance = false, ranking = false, book = false, at = w.clock }
+			Old.HandleReport("CHANNEL", TREASURER, T.Message(nil, (T.PublicParts())))
+			eq(old.rdb.treasuryReports[TREASURER].balance, 0, "a 1.0 King reads zero")
+			eq(#old.rdb.treasuryReports[TREASURER].rank, 0, "and no ranking")
+			-- His addon updated: it asks, and he is named no more.
+			T.HandleAsk("CHANNEL", KING, "TA~Olympus~0")
+			eq(#T.NotUpdated(), 0); eq(Shown(), false)
+			-- A keeper still on 1.0, while the King shows every part: the channel carries the whole
+			-- book, nothing to tell.
+			ns.rdb.treasuryKeepers = { at = 1, names = { "Test Keeper-Realm" } }
+			T.Heard("Test Keeper-Realm")
+			w.clock = w.clock + T.ASK_AFTER + 61
+			T.Heard("Test Keeper-Realm")
+			eq(T.NotUpdated()[1], "Test Keeper-Realm")
+			ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = w.clock }
+			assert(not Page():find(ns.L.TREASURY_NOT_UPDATED:format("Test Keeper"), 1, true), "every part shown: no note")
+			ns.rdb.treasuryFlags = { balance = true, at = w.clock }
+			assert(Page():find(ns.L.TREASURY_NOT_UPDATED:format("Test Keeper"), 1, true), "a part hidden: named: " .. Page())
+			-- A soldier's tab never names anyone.
+			AsSoldier()
+			assert(not Page():find("Olympus 1.0", 1, true), "not on a soldier's tab")
+		end)
+		ns.splitNames = saved.split
+		ns.rdb.treasuryKeepers, ns.db.keeperShares = nil, nil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 the treasury's review lines are in both languages, with the same format arguments", function()
+	local savedLocale, pt = GetLocale, {}
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, key in ipairs({ "TREASURY_NOT_UPDATED" }) do
+		assert(type(rawget(ns.L, key)) == "string", "English " .. key)
+		assert(type(rawget(pt.L, key)) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
+		eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)
+	end
+end)
+
+-- The guild bank as the game shows it to a test: tabs Mats and Potions, `slots[tab][slot] = { count, item }`,
+-- `loaded[tab]` false for a tab whose slots never arrive (it reads empty), the tab on screen.
+local function WithBankWorld(fn)
+	local saved = { item = C_Item, after = ns.After, time = GetTime, tabs = GetNumGuildBankTabs, info = GetGuildBankTabInfo, slot = GetGuildBankItemInfo,
+		link = GetGuildBankItemLink, money = GetGuildBankMoney, query = QueryGuildBankTab, current = GetCurrentGuildBankTab }
+	local ok, err = pcall(function()
+		local bank = { slots = {}, loaded = {}, shown = 1, gt = 100 }
+		C_Item = { GetItemNameByID = function(id) return ({ [2589] = "Linen Cloth", [929] = "Healing Potion", [118] = "Minor Healing Potion" })[id] end }
+		local After, Run = Queued()
+		ns.After = After
+		GetTime = function() return bank.gt end
+		GetNumGuildBankTabs = function() return 2 end
+		GetGuildBankTabInfo = function(tab) return ({ "Mats", "Potions" })[tab], "icon" .. tab, true end
+		local function Slot(tab, slot) return bank.loaded[tab] ~= false and bank.slots[tab] and bank.slots[tab][slot] end
+		GetGuildBankItemInfo = function(tab, slot) local s = Slot(tab, slot); if s then return "tex", s[1] end end
+		GetGuildBankItemLink = function(tab, slot) local s = Slot(tab, slot); return s and ("|Hitem:" .. s[2] .. ":0|h[x]|h") end
+		GetGuildBankMoney = function() return 5000 end
+		QueryGuildBankTab, GetCurrentGuildBankTab = function() end, function() return bank.shown end
+		-- A visit: the bank opened, read once its slots settle, closed.
+		function bank.Visit()
+			ns.Bank.Opened(); bank.gt = bank.gt + ns.Bank.SETTLE; Run(); ns.Bank.Closed(); bank.gt = bank.gt + ns.Bank.SETTLE; Run()
+		end
+		fn(bank)
+	end)
+	C_Item, ns.After, GetTime, GetNumGuildBankTabs, GetGuildBankTabInfo = saved.item, saved.after, saved.time, saved.tabs, saved.info
+	GetGuildBankItemInfo, GetGuildBankItemLink, GetGuildBankMoney, QueryGuildBankTab, GetCurrentGuildBankTab = saved.slot, saved.link, saved.money, saved.query, saved.current
+	if not ok then error(err, 0) end
+end
+
+-- "Gone since the last snapshot" as the Treasury tab lists it: "<item> -<n> (<tabs>)", sorted.
+local function GoneList(cur)
+	local out = {}
+	for _, g in ipairs(ns.Bank.Gone(cur, ns.Bank.Previous(cur))) do out[#out + 1] = ("%d -%d (%s)"):format(g.id, g.n, table.concat(g.tabs, ", ")) end
+	table.sort(out)
+	return table.concat(out, "; ")
+end
+
+test("1.1 the bank's gone since the last snapshot: a tab emptied between visits shows, a visit later when it was not on screen", function()
+	WithThrone(function(w, K)
+		local B = ns.Bank
+		WithBankWorld(function(bank)
+			AsTreasurer()
+			ns.rdb.bank, ns.rdb.bankPrev = nil, nil
+			-- The first visit: Potions holds 5 Healing Potions and 20 Minor ones; the bank opens on Mats.
+			bank.slots = { [1] = { [1] = { 200, 2589 } }, [2] = { [1] = { 5, 929 }, [2] = { 20, 118 } } }
+			bank.Visit()
+			eq(GoneList(ns.rdb.bank), "")
+			-- Someone empties Potions. The next visit opens on Mats again: its empty read is kept
+			-- (0.9.1: a tab whose slots never arrived reads empty too), nothing listed yet.
+			w.clock = w.clock + 3600
+			bank.slots[2] = {}
+			bank.Visit()
+			eq(ns.rdb.bank.tabs[2].kept ~= nil, true, "kept from the visit before")
+			eq(GoneList(ns.rdb.bank), "", "not known yet")
+			-- Read empty again a visit later: gone, listed (before: never, the tab kept before was skipped).
+			w.clock = w.clock + 3600
+			bank.Visit()
+			eq(#ns.rdb.bank.tabs[2].items, 0)
+			eq(GoneList(ns.rdb.bank), "118 -20 (Potions); 929 -5 (Potions)")
+			-- Once: the visit after compares two empty reads.
+			w.clock = w.clock + 3600
+			bank.Visit()
+			eq(GoneList(ns.rdb.bank), "")
+			-- On screen, the emptied tab shows at once (the game loaded it).
+			bank.slots[2] = { [1] = { 5, 929 } }
+			w.clock = w.clock + 3600
+			bank.Visit()
+			w.clock = w.clock + 3600
+			bank.slots[2], bank.shown = {}, 2
+			bank.Visit()
+			eq(GoneList(ns.rdb.bank), "929 -5 (Potions)")
+		end)
+	end)
+end)
+
+test("1.1 the bank's gone since the last snapshot: a tab that never loaded, with nothing earlier to keep it from, is not sent empty", function()
+	WithThrone(function(w, K)
+		local B = ns.Bank
+		local savedRank = ns.Roster.RankOf
+		local ok, err = pcall(function()
+			ns.Roster.RankOf = function(n) if ns.FullName(n) == "Pyralis Ashandar-Realm" then return 1 end return savedRank(n) end
+			WithBankWorld(function(bank)
+				-- The Treasurer after a wipe of his saved variables (or a keeper just named): no
+				-- snapshot of his own. He opens the bank on Mats; Potions' slots never arrive.
+				AsTreasurer()
+				ns.rdb.bank, ns.rdb.bankPrev, ns.rdb.bankReport, ns.rdb.bankReportPrev = nil, nil, nil, nil
+				bank.slots = { [1] = { [1] = { 200, 2589 } }, [2] = { [1] = { 5, 929 }, [2] = { 20, 118 } } }
+				bank.loaded[2] = false
+				bank.Visit()
+				local msg = B.Message(ns.rdb.bank)
+				eq(msg, ("T9~Olympus~%d~5000~Mats;2589x200"):format(w.clock), "Potions left out, not sent empty")
+				eq(#ns.rdb.bank.tabs, 2, "his own screen still draws it (empty)")
+				-- The King's client held the Treasurer's snapshot of an hour before: nothing listed gone.
+				AsKing()
+				local saved = { bank = ns.rdb.bank }
+				ns.rdb.bank = nil
+				B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", ("T9~Olympus~%d~5000~Mats;2589x200~Potions;929x5,118x20"):format(w.clock - 3600))
+				B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", msg)
+				eq(B.Current().t, w.clock, "his new snapshot")
+				eq(GoneList(B.Current()), "", "a tab he did not see is no theft")
+				-- His own screen, with that older report too: nothing listed either.
+				AsTreasurer()
+				ns.rdb.bank = saved.bank
+				eq(GoneList(ns.rdb.bank), "")
+				-- His next visit, the tab loaded: sent with its items.
+				bank.loaded[2] = nil
+				w.clock = w.clock + 3600
+				bank.Visit()
+				eq(B.Message(ns.rdb.bank), ("T9~Olympus~%d~5000~Mats;2589x200~Potions;929x5,118x20"):format(w.clock))
+			end)
+		end)
+		ns.Roster.RankOf = savedRank
+		if not ok then error(err, 0) end
+	end)
+end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

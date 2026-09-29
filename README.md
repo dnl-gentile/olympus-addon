@@ -666,7 +666,12 @@ alone until then).
   the one a keeper's newer snapshot replaced), counted over the tabs both snapshots saw, and the
   grid shows those stacks faded and red in the slots they sat in. Counts only: who took them is
   not known, the addon never reads the bank's log (a withdrawal nobody noted, a stack moved to a
-  tab the other snapshot didn't see, or theft).
+  tab the other snapshot didn't see, or theft). The game sends a tab's slots only when asked,
+  and some never arrive: an empty tab you did not click keeps its last items for that visit, so
+  a tab emptied between two visits shows here once it reads empty again, a visit later (at once
+  if you click it). A tab that reads empty with no earlier snapshot to keep it from (after your
+  saved variables were wiped, or on a newly named keeper's first visit) is not sent, so nobody's
+  screen lists its last items as gone.
 - **Taking donations** (1.1, the Treasurer's idea): a keeper (the Treasurer, the King, a
   character he named) turns it on with **Taking donations** on the Treasury tab or `/oly
   donations on`: everyone with the addon sees a line on the Realm and Treasury tabs ("Pyralis
@@ -681,7 +686,8 @@ alone until then).
   sees the bank), `/oly need 10 <item>` (the item shift-clicked into the chat line, its name or its
   number), or **Ask the treasury for an item** on the Treasury tab. No text travels: the item's
   number and the count, 3 open requests per character, each for 3 days. His addon whispers it to
-  the keepers, the King and his Steward heard online, and again every 15 minutes while it is open.
+  the keepers, the King and his Steward heard online whose addon reads it (1.1 or later), and
+  again every 15 minutes while it is open.
   Their Treasury tab lists it next to the bank (**Requests to the treasury**, with what the bank
   holds of it); a click marks it done or declines it, and the requester is told. Handing it over
   stays a normal trade or mail, the keeper's own click: the request closes by itself when his book
@@ -703,7 +709,10 @@ alone until then).
   gold given to the Treasurer's characters, see the dues below). On the Olympus
   channel only the parts the King shows the army (1.1); the whole book goes by whisper, in
   pieces, to the King, his Steward and the keepers whose addon was heard in the last few minutes
-  (theirs asks for it after login, then every 15 minutes). Every client checks it comes from a keeper himself, and that it holds together (its
+  and reads it (1.1 or later: it asks for it after login, then every 15 minutes; a 1.0 addon is
+  never whispered). A changed book goes to each of them 3 minutes after the last one at the
+  soonest, the latest then, and each piece only while the addon's own queue is nearly empty, so
+  the whispers never push the keeper's census or his book on the channel out of it. Every client checks it comes from a keeper himself, and that it holds together (its
   shape and sizes, a balance its totals add up to, no list longer than a book sends, no date
   before 2026 or more than a day ahead of the server's clock): one that doesn't is refused whole,
   and the copy it had of that keeper's book stays. A keeper's own addon never sends such a date,
@@ -716,12 +725,17 @@ alone until then).
   in the Realm. The Treasurer's addon repeats the King's latest word, so members who never meet
   the King online get it too. The King and his Steward always see all of it, whatever the
   switches, and the King the balance next to the soldiers on top of his window. **What he hides
-  never goes on the channel** (1.1), which anyone on it can read: not in a keeper's book, not
-  the guild bank, not the early supporters. Each keeper's addon whispers it to the King, his
-  Steward and the keepers alone (guild chat would reach every member of `<Olympus>`). What he
-  shows goes on the channel, and every client on it receives it. A 1.0 addon of the army shows
-  what he shows as before; a King's, Steward's or keeper's 1.0 addon sees only that part until
-  it updates.
+  never goes on the channel from a keeper whose addon is 1.1**, which anyone on it can read: not
+  in his book, not the guild bank, not the early supporters. His addon whispers it to the King,
+  his Steward and the keepers alone (guild chat would reach every member of `<Olympus>`). What
+  he shows goes on the channel, and every client on it receives it. A keeper still on 1.0 keeps
+  sending his whole book on the channel, as 1.0 did, until he updates. A 1.0 addon of the army
+  shows what the King shows, as before. A King's, Steward's or keeper's 1.0 addon is never
+  whispered: it shows what the army sees of the books of keepers on 1.1, so, while the King
+  hides the balance, a balance of zero (every switch off, as the King starts) or of only the
+  parts he shows, as if it were the treasury's, until it updates. **The King, his Steward and
+  the keepers should update to 1.1 first**; a 1.1 insider's Treasury tab names, in red, those
+  heard lately still on 1.0.
 - **Dues (1.1)**: one fixed amount of gold a week that members send the Treasurer by trade or
   mail, the same for everyone (1 gold until the King sets his; never a share of anyone's gold
   or loot). The King sets it on the dues page of the Treasury tab (his Steward too, in his name:
@@ -1143,10 +1157,10 @@ message (the game adds it). What goes where:
 | A Lord's mentor pair (1.1): the recruit's name to the Captain, the Captain's name to the recruit, as whispers in his words | those two players | only when the Lord clicks **Send both** |
 | Join Olympus (1.1, outside an Olympus guild): "which guild should I ask?" (J1), and your request (J3: the guild you ask, your level and class) | the one member the screen asks: one found with `/who` at a search, and the one you are about to whisper | J1 at a search (one member every 15 seconds at most, none while a recent answer is known; while only one answer names the gates, one more member at once, three in 10 minutes at most) and just before a whisper (again if that member never answered); J3 with each whisper you send |
 | The answer (J2): whether you take recruit whispers, the King's gates, and up to 8 guilds with room the census confirms, each with its free slots and up to 2 of its Lords and Captains online that two reports name (never the King) | the recruit who asked, alone | when a recruit's addon asks you, once a minute per recruit and 10 a minute at most (with do not contact on, a bare "no" to the rest) |
-| A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | the parts the King shows the army (his switches): everyone on the Olympus channel. The rest (1.1): the King, his Steward and the keepers alone, by whisper, never on the channel | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
+| A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | the parts the King shows the army (his switches): everyone on the Olympus channel. The rest (1.1): the King, his Steward and the keepers alone, by whisper, never on the channel (from a keeper whose addon is 1.1: one still on 1.0 sends his whole book on the channel, as 1.0 did) | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the items donated (with who gave each last) and the book's latest lines (1.1: never the lines of gold given to the Treasurer's characters, which are the dues; this week's donors only as a count, never by name) | with the King's ranking or book switch on: everyone on the Olympus channel. Otherwise (1.1): the keepers, the King and his Steward alone, by whisper | while that keeper shares his book: his yes, and a donor is not asked |
 | That you are taking donations, if you keep a book of the treasury (1.1), with your zone only if you share your location | everyone on the Olympus channel | only while you turn it on (**Taking donations**, `/oly donations on`): every 2 minutes and when your zone changes, off when you log out |
-| A request to the treasury, if you are a Lord or a Captain (1.1): the item's number, the count, your guild | the treasury's keepers, the King and his Steward heard online, by whisper; while the King shows the army the book, the open ones also on the Olympus channel, from the keepers' addons | when you ask (a click on an item, or `/oly need`), then every 15 minutes while it is open |
+| A request to the treasury, if you are a Lord or a Captain (1.1): the item's number, the count, your guild | the treasury's keepers, the King and his Steward heard online (their addon 1.1 or later), by whisper; while the King shows the army the book, the open ones also on the Olympus channel, from the keepers' addons | when you ask (a click on an item, or `/oly need`), then every 15 minutes while it is open |
 | Your guild bank's snapshot, if you are the guild master or an officer of an Olympus guild other than the King's (1.1): items and counts, its gold, when it was seen (not the tabs' names) | the King, his Steward and his Hands alone, by whisper, when their addon asks (never on the Olympus channel) | only after your yes (asked once when you open the bank; `/oly bank share on\|off`); your no takes it back from their screens |
 | Your character's name, if you gave to the treasury before 1.0 (the early supporters): names only, no amounts, in alphabetical order | with the King's ranking switch on: everyone on the Olympus channel, shown under the ranking. Otherwise (1.1): the keepers, the King and his Steward alone, by whisper | from the Treasurer's addon once he said yes to 1.0's question or to his line on the first-open page, both of which say their names go to everyone on the channel (his 0.9.3 yes is not enough), after his login and when a client asks: a donor is not asked |
 | The dues' amount (1.1): one amount a week, the same for everyone | everyone on the Olympus channel | from the King's and his Steward's addons when they set it and every 5 minutes, repeated by the Treasurer's |

@@ -1586,6 +1586,7 @@ L.SEARCH_TIP_CRAFTER = "A crafter, a guild or a profession, any case: only the c
 L.HELP_CRAFT = "  /oly craft [item or name] - who can make it (the crafters' board); /oly crafter on|off - list your professions or not"
 -- 1.1 (the treasury): what the King's switches hide goes by whisper to the King, his Stewards and the keepers alone.
 L.TREASURY_PART_WAIT = "So far only what the army sees of the book of %s: the whole of it comes by whisper once that keeper's addon hears yours."
+L.TREASURY_NOT_UPDATED = "Still on Olympus 1.0: %s. While the King hides a part of the treasury, their addon shows only what the army sees of the books of keepers on 1.1 (a balance of zero, or of the parts shown): ask them to update."
 -- 1.1 (the treasury): the bank's search, what left it, the sister guilds' banks.
 L.BANK_GONE = "Gone since the last snapshot (%s):"
 L.BANK_GONE_TITLE = "Gone since the last snapshot"
@@ -3516,6 +3517,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.HELP_CRAFT = "  /oly craft [item ou nome] - quem sabe fazer (o quadro de artesãos); /oly crafter on|off - pôr as suas profissões no quadro ou não"
 	-- 1.1 (o tesouro): o que os botões do Rei escondem vai por sussurro só ao Rei, aos Senescais e aos guardiões.
 	L.TREASURY_PART_WAIT = "Por enquanto só o que o exército vê do livro de %s: o livro inteiro chega por sussurro assim que o addon desse guardião ouvir o seu."
+	L.TREASURY_NOT_UPDATED = "Ainda no Olympus 1.0: %s. Enquanto o Rei esconde uma parte do tesouro, o addon deles mostra só o que o exército vê dos livros dos guardiões na 1.1 (um saldo zero, ou só das partes mostradas): peça que atualizem."
 	-- 1.1 (o tesouro): a busca no banco, o que saiu dele, os bancos das guildas irmãs.
 	L.BANK_GONE = "Sumiu desde a última foto (%s):"
 	L.BANK_GONE_TITLE = "Sumiu desde a última foto"

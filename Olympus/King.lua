@@ -1005,6 +1005,8 @@ function King.ToggleLocation()
 		ns.Layers.Withdraw()
 		ns.Comm.Hello(true)
 	end
+	-- Taking donations (1.1): his zone in it follows his crown at once.
+	if ns.Treasury and ns.Treasury.DonationsMoved then ns.Treasury.DonationsMoved() end
 	Changed()
 end
 

@@ -108,16 +108,20 @@ function Bank.Message(snap, kind)
 	local parts = { kind, Clean(snap.guild, 40), tostring(math.floor(snap.t or ns.Now())), tostring(math.floor(snap.money or 0)) }
 	local room, total = Room(), 0
 	for _, tab in ipairs(snap.tabs) do
-		local items, pos = {}, 1
-		for k, it in ipairs(tab.items) do
-			if total >= Bank.MAX_ITEMS then break end
-			local slot = tonumber(it.s) or pos
-			if slot > pos then items[#items + 1] = "." .. (slot - pos) end
-			items[#items + 1] = ("%dx%d"):format(it.id, math.min(it.n, 99999))
-			pos = slot + 1
-			total = total + 1
+		-- (1.1: a tab read empty with nothing earlier to keep it from, Bank.Keep's `unread`, is
+		-- not known to be empty: left out, so no client lists its last items as gone.)
+		if not tab.unread then
+			local items, pos = {}, 1
+			for k, it in ipairs(tab.items) do
+				if total >= Bank.MAX_ITEMS then break end
+				local slot = tonumber(it.s) or pos
+				if slot > pos then items[#items + 1] = "." .. (slot - pos) end
+				items[#items + 1] = ("%dx%d"):format(it.id, math.min(it.n, 99999))
+				pos = slot + 1
+				total = total + 1
+			end
+			parts[#parts + 1] = (kind == "TS" and "" or Clean(tab.name, 30)) .. ";" .. table.concat(items, ",")
 		end
-		parts[#parts + 1] = (kind == "TS" and "" or Clean(tab.name, 30)) .. ";" .. table.concat(items, ",")
 	end
 	local msg = table.concat(parts, "~")
 	-- Past what the channel carries in one go: the last tabs are left out (it is rare: six
@@ -227,18 +231,26 @@ ns.Treasury.OnPrivate("T9", { from = function(s) return ns.Treasury.KeeperByName
 -- Each opening of the bank is a visit (0.9.2): a tab kept in this visit is kept again in it,
 -- however many reads it takes; only a later visit that reads it empty again empties it (a tab
 -- kept by 0.9.1, `kept == true`, counts as kept in an earlier visit).
+-- 1.1: an empty read of a tab not on screen with nothing earlier to keep it from (no snapshot of
+-- that tab before: after a wipe of the saved variables, a newly named keeper's first visit) is
+-- not known to be empty either: marked `unread` (this visit), it is drawn empty on this screen
+-- as before but left out of what is sent (Bank.Message) and of "gone since" (Bank.Gone). Read
+-- empty again in a later visit, it is empty.
 local visit = 0
 function Bank.Keep(snap, prev)
-	if not snap or type(prev) ~= "table" or prev.guild ~= snap.guild or type(prev.tabs) ~= "table" then return snap end
+	if not snap then return snap end
+	if type(prev) ~= "table" or prev.guild ~= snap.guild or type(prev.tabs) ~= "table" then prev = nil end
 	local shown = type(GetCurrentGuildBankTab) == "function" and tonumber((GetCurrentGuildBankTab())) or nil
 	for k, tab in ipairs(snap.tabs) do
 		if #tab.items == 0 and tab.i ~= shown then
-			for _, old in ipairs(prev.tabs) do
-				local same = (old.i and old.i == tab.i) or (not old.i and old.name == tab.name)
-				if same and type(old.items) == "table" and #old.items > 0 and (not old.kept or old.kept == visit) then
-					snap.tabs[k] = { name = tab.name, icon = tab.icon, i = tab.i, items = old.items, kept = visit }
-					break
-				end
+			local old
+			for _, o in ipairs(prev and prev.tabs or {}) do
+				if (o.i and o.i == tab.i) or (not o.i and o.name == tab.name) then old = o break end
+			end
+			if old and type(old.items) == "table" and #old.items > 0 and (not old.kept or old.kept == visit) then
+				snap.tabs[k] = { name = tab.name, icon = tab.icon, i = tab.i, items = old.items, kept = visit }
+			elseif not old or old.unread == visit then
+				tab.unread = visit
 			end
 		end
 	end
@@ -357,9 +369,11 @@ function Bank.Previous(cur)
 end
 
 -- The stacks gone since `prev`: each item's count summed over the tabs both snapshots hold
--- (matched by the tab's number, by its name when one has none; a tab not seen is no theft), a
--- tab kept from an earlier read left out (its items were not seen then). A stack moved to
--- another tab both hold is not gone. { { id, n, tabs = { name, ... } }, ... }, the most first;
+-- (matched by the tab's number, by its name when one has none; a tab not seen is no theft). A
+-- tab of `cur` kept from an earlier read, or not read (Bank.Keep: `kept`, `unread`), is left out
+-- (its items were not seen now); a tab of `prev` kept from an earlier read counts, as that read
+-- saw it (so a tab emptied between two visits shows once it reads empty again, a visit later
+-- when it was not on screen). A stack moved to another tab both hold is not gone. { { id, n, tabs = { name, ... } }, ... }, the most first;
 -- and ghosts[tab index in cur] = { { id, n, s, gone = true } }: the slots of `cur` those stacks
 -- sat in, empty now (the grid shows them faded).
 function Bank.Gone(cur, prev)
@@ -371,7 +385,7 @@ function Bank.Gone(cur, prev)
 		for _, o in ipairs(prev.tabs) do
 			if (tab.i and o.i and o.i == tab.i) or ((not tab.i or not o.i) and o.name == tab.name) then old = o break end
 		end
-		if old and not tab.kept and not old.kept and type(old.items) == "table" and type(tab.items) == "table" then
+		if old and not tab.kept and not tab.unread and not old.unread and type(old.items) == "table" and type(tab.items) == "table" then
 			local here = {}
 			for _, it in ipairs(tab.items) do
 				now[it.id] = (now[it.id] or 0) + (tonumber(it.n) or 0)
