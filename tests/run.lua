@@ -31100,19 +31100,20 @@ end)
 		return out
 	end
 
-	test("1.1 key rotation (#8): the King alone rotates; his addon makes a key nobody sees and whispers it to the Lords and Captains online, never on the channel", function()
+	test("1.1 key rotation (#8): the King (or his Steward) rotates; his addon makes a key nobody sees and whispers it to the Lords and Captains online, never on the channel", function()
 		WithKeys(function(w, K)
-			-- Not the King: a soldier, a Hand, the King's Steward.
+			-- Not the King nor his Steward: a soldier, a Hand.
 			AsSoldier("Watcher")
 			eq(KY.Rotate(), nil); assert(Printed(w, ns.L.KEY_ROTATE_ONLY_KING))
 			K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Hand Guy-Realm")
 			AsSoldier("Hand Guy")
 			eq(K.IsHand(), true); eq(KY.CanRotate(), false)
+			-- His Steward, acting for him (1.1: the author's call; the King rarely runs these tools).
 			WithSteward(function()
 				AsSoldier("Test Steward")
-				eq(K.IsSteward(), true); eq(KY.CanRotate(), false)
+				eq(K.IsSteward(), true); eq(KY.CanRotate(), true)
 				K.Show("home")
-				assert(not Page((K.Build())):find(ns.L.KEY_ROTATE, 1, true), "nothing on the Steward's Throne")
+				assert(Page((K.Build())):find(ns.L.KEY_ROTATE, 1, true), "on the Steward's Throne")
 			end)
 			eq(ns.rdb.keyRotation, nil)
 			-- The King.
@@ -31149,6 +31150,39 @@ end)
 			eq(w.popups[#w.popups].name, "OLYMPUS_KEY_ROTATE")
 			StaticPopupDialogs.OLYMPUS_KEY_ROTATE.OnAccept()
 			assert(KY.Rotation().key ~= rot.key, "each rotation its own key")
+		end)
+	end)
+
+	test("1.1 key rotation (#8): the King's Steward rotates for him: a Lord takes his whisper and tells him, his Throne counts it; a Hand's or anyone else's whisper is still refused", function()
+		WithKeys(function(w, K)
+			K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Hand Guy-Realm")
+			WithSteward(function()
+				AsSoldier("Test Steward")
+				eq(KY.Rotate(), true)
+				local rot = KY.Rotation()
+				eq(#w.whispered, 0, "nothing before the guilds are picked")
+				eq(KY.Start(), true)
+				assert(Whispered(w, "K3~"):find("Zed-Realm", 1, true), Whispered(w, "K3~"))
+				for _, x in ipairs(w.sent) do assert(not x.msg:find(rot.key, 1, true), "sent " .. x.dist .. ": " .. x.msg) end
+				local msg = ("K3~%d~%s"):format(rot.at, rot.key)
+				-- A Lord's client: a Hand's whisper, or anyone's, is refused; the Steward's is taken.
+				AsLord()
+				KY.HandleKey("WHISPER", "Hand Guy-Realm", msg)
+				KY.HandleKey("WHISPER", "Faker-Realm", msg)
+				eq(ns.rdb.realmKey, nil, "only the King or his Steward")
+				w.whispered = {}
+				KY.HandleKey("WHISPER", "Test Steward-Realm", msg)
+				eq(ns.rdb.realmKey, rot.key); eq(KY.Epoch(), rot.at)
+				eq(Whispered(w, "K4~"), "Test Steward-Realm", "the Steward is told")
+				-- Back on the Steward's client: counted on his Throne.
+				ns.rdb.realmKey, ns.rdb.keyEpoch = nil, nil
+				AsSoldier("Test Steward")
+				KY.HandleAck("WHISPER", "Zed-Realm", ("K4~%d~Olympus Zeus"):format(rot.at))
+				K.Show("home")
+				local sent = 0
+				for _ in pairs(rot.sent) do sent = sent + 1 end
+				assert(Page((K.Build())):find(ns.L.KEY_ROTATING:format(sent, 1, 1), 1, true), Page((K.Build())))
+			end)
 		end)
 	end)
 

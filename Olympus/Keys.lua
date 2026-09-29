@@ -2,15 +2,18 @@ local ADDON, ns = ...
 local L = ns.L
 
 -- The King's key rotation (1.1, Fern's request #8, its second part): a leaked realm key (/oly key)
--- shut without teaching everyone /oly key by hand. The King alone (his pinned character: no
--- Steward, Hand or officer) presses Rotate on the Throne; his addon makes a new key (never typed,
+-- shut without teaching everyone /oly key by hand. The King (his pinned character) or one of his
+-- Stewards, acting for him (the author's signed list names them; 1.1: the King rarely runs the
+-- addon's tools himself), never a Hand or an officer, presses Rotate on the Throne; his addon
+-- makes a new key (never typed,
 -- never shown: not on his stream either). He then picks which guilds get it: those his own /who
 -- saw are checked (the server's word that a guild of that name exists: a census row alone is
 -- anyone's report, and two characters on the leaked channel can make up a guild and its Lords),
 -- the others wait for his click; nothing is sent before he hands it out. It goes where only its
 -- receivers read it, never on the Olympus channel (public, or sealed with the key that leaked):
 --   K3~<epoch>~<key>[~<h1.h2.h3>]
---                      by whisper from the King to every Lord and Captain of the guilds he picked
+--                      by whisper from the King (or his Steward) to every Lord and Captain of the
+--                      guilds he picked
 --                      the census confirms online (Data.KnownRank), and over GUILD from each of
 --                      them (their officers) to their own guild; K1~<key> with it there, for
 --                      guildmates before 1.1. The hashes: the keys it replaces (at most 3).
@@ -22,8 +25,9 @@ local L = ns.L
 -- without an epoch (K1 alone, from an officer before 1.1) is taken as ever, unless it is one of
 -- those. So a 1.0 officer's K1 of the leaked key no longer pulls his 1.1 guildmates back, and a
 -- 1.0 officer who re-keys his guild by hand still moves all of it; an older key with an epoch
--- does not undo his re-key either. A K3 takes a whisper from the King's pinned name alone, or
--- GUILD from our own officers (the server's roster), and never the channel.
+-- does not undo his re-key either. A K3 takes a whisper from the King's pinned name or a Steward's
+-- (the signed list), or GUILD from our own officers (the server's roster), and never the channel.
+-- Two rotations at once (the King's and a Steward's): every client keeps the newer epoch.
 -- Whoever is in a guild that gets it has it too (its officers hand it to the whole guild): the
 -- rotation leaves behind whoever holds the old key outside the guilds picked.
 -- The King's client hands the key out a few whispers at a time, never more than the send queue
@@ -193,14 +197,15 @@ function Keys.HandleKey(dist, sender, text)
 	at = tonumber(at)
 	if not at or not ValidKey(key) then return end
 	sender = ns.FullName(sender)
-	local fromKing
+	local fromCrown
 	if dist == "WHISPER" then
-		-- The King by his pinned name: the server stamps the sender, nobody else carries it.
-		if not ns.IsKingCharacter(sender) then
+		-- The King by his pinned name, or his Steward by the signed list: the server stamps the
+		-- sender, nobody else carries it.
+		if not (ns.IsKingCharacter(sender) or (ns.KingCharacter() ~= nil and ns.King.IsStewardName(sender))) then
 			stats.refused = stats.refused + 1
-			return ns.Log("realm key by whisper from %s ignored: not the King", sender)
+			return ns.Log("realm key by whisper from %s ignored: not the King nor his Steward", sender)
 		end
-		fromKing = true
+		fromCrown = true
 	elseif dist == "GUILD" then
 		-- Our own officers, by our roster (the server's word): as K1 always was.
 		local rank = ns.Roster.RankOf(sender)
@@ -216,8 +221,8 @@ function Keys.HandleKey(dist, sender, text)
 		return ns.Log("realm key from %s ignored: dated ahead", sender)
 	end
 	local took = Take(key, at, false, retires)
-	if fromKing then
-		-- The King's client counts who has it; an officer hands it to his guild.
+	if fromCrown then
+		-- The rotating client counts who has it; an officer hands it to his guild.
 		ns.Comm.Whisper(sender, ("K4~%d~%s"):format(at, GetGuildInfo("player") or ""), "key4")
 		if took and ns.Roster.IsOfficer() then ToGuild(key, at) end
 	end
@@ -226,7 +231,7 @@ end
 function Keys.HandleAck(dist, sender, text)
 	if dist ~= "WHISPER" then return end
 	local rot = Rotation()
-	if not rot or not (ns.King and ns.King.IsKing and ns.King.IsKing()) then return end
+	if not rot or not Keys.CanRotate() then return end
 	local at, guild = tostring(text):match("^K4~(%d+)~(.*)$")
 	if tonumber(at) ~= rot.at then return end
 	sender = ns.FullName(sender)
@@ -302,9 +307,11 @@ function Keys.NewKey()
 	return table.concat(hex):sub(1, 20)
 end
 
--- Only the King, by his pinned character: never a Steward, a Hand or an officer.
+-- The King, by his pinned character, or his Steward (the signed list), acting for him: never a
+-- Hand or an officer. None where no King is pinned.
 function Keys.CanRotate()
-	return ns.King ~= nil and ns.King.IsKing() and ns.KingCharacter() ~= nil and ns.IsKingCharacter(ns.me)
+	if not (ns.King ~= nil and ns.KingCharacter() ~= nil) then return false end
+	return (ns.King.IsKing() and ns.IsKingCharacter(ns.me)) or ns.King.IsSteward()
 end
 
 -- The King's own /who saw someone of this guild (Data.Seen, within Data.KEEP): the server's word
@@ -320,10 +327,12 @@ local function Seen(guild)
 end
 Keys.Seen = Seen
 
--- Every guild but ours (ours gets it over GUILD when the King moves) with Lords and Captains the
--- census confirms online (two senders: Data.KnownRank): { guild, names = { Name-Realm }, seen }.
+-- Every guild but ours (ours gets it over GUILD when he moves: an officer's word there; a Steward
+-- who is no officer of his guild has it handed like any other) with Lords and Captains the census
+-- confirms online (two senders: Data.KnownRank): { guild, names = { Name-Realm }, seen }.
 function Keys.Candidates()
-	local out, mine, now = {}, GetGuildInfo("player"), ns.Now()
+	local out, now = {}, ns.Now()
+	local mine = ns.Roster.IsOfficer() and GetGuildInfo("player") or nil
 	for _, e in ipairs(ns.Data.Summary().guilds) do
 		local g = e.g
 		if e.fresh and e.name ~= mine and now - (tonumber(g.t) or 0) <= Keys.ONLINE_FRESH then
@@ -495,10 +504,11 @@ local function Counts(rot)
 	return sent, acked, n
 end
 
--- On the Throne (the King's alone): rotate; then the guilds to pick, handing it out, how far it got.
+-- On the Throne (the King's and his Steward's): rotate; then the guilds to pick, handing it out,
+-- how far it got.
 function Keys.ThroneLines()
 	local K = ns.King
-	if not (K and (K.IsKing() or (K.Preview and K.Preview()))) then return {} end
+	if not (K and (K.IsKing() or K.IsSteward() or (K.Preview and K.Preview()))) then return {} end
 	local Line, INK, TITLE = K.Line, K.INK, K.TITLE
 	local lines = { Line(L.KEY_ROTATE_TITLE, TITLE) }
 	local rot = Rotation()
@@ -589,8 +599,8 @@ StaticPopupDialogs["OLYMPUS_KEY_MOVE"] = {
 function Keys.StatusLine()
 	local at = Epoch()
 	local rot = Rotation()
-	local state = rot and (rot.moved and ("rotated by the King " .. ns.Ago(rot.movedAt))
-		or rot.picking and "the King's new key waiting for him to pick the guilds" or "the King's new key being handed out") or "no rotation here"
+	local state = rot and (rot.moved and ("rotated here " .. ns.Ago(rot.movedAt))
+		or rot.picking and "a new key waiting for the guilds to be picked" or "a new key being handed out") or "no rotation here"
 	local retired = 0
 	for _ in pairs(type(ns.rdb and ns.rdb.keyRetired) == "table" and ns.rdb.keyRetired or {}) do retired = retired + 1 end
 	return ("%s  |  epoch %s  |  %s  |  taken %d, refused %d, keys replaced %d (their K1 ignored %d), whispered %d, acks %d, relayed %d"):format(
