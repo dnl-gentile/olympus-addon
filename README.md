@@ -112,8 +112,8 @@ are alone or with its guests, never into a group of your friends) and lets each 
 90 seconds: the guest's addon leaves the group, since only a click may remove someone.
 
 Any other layer in the Realm tab's layer list works the same way: click it. Everyone who
-shares their zone and layer (`/oly location on`) helps by default: a player who keeps them
-private is never asked, since an offer would tell the asker where they are. `/oly layerhelp
+shares their zone and layer (`/oly location on`) and said yes to layer help (1.1: the
+first-open page, or `/oly layerhelp on`) helps: a player who keeps them private is never asked, since an offer would tell the asker where they are. `/oly layerhelp
 off` stops the requests, `/oly layerhelp on` also forgets the answer to the King's layer
 window, `/oly layerauto on` invites them without the window. Helpers must be in the same zone
 as the layer they are on, and the King himself is never asked.
@@ -179,6 +179,9 @@ WoW channel number to join). Each channel is exclusive to a rank:
 - Shift-click an item or spell into the line and it stays a link. Long lines are split into
   up to 3 messages.
 - The channels show only in the chat of players with the addon.
+- **Your choice (1.1).** The chats are off until you say yes on the first-open page (or
+  `/oly chat on`). Off, `/ol`, `/olc` and `/oll` say so and send nothing, and no line from anyone
+  shows or is kept on this client; the Realm tab says the chats are off, a click to choose.
 - The Realm tab links **the Olympus chats**: the last lines of each channel your rank reads,
   newest first, even what was said while the window was closed. A click whispers the player.
 - Ranks follow the rule of the decrees: whoever founds a guild with "Olympus" in its name is
@@ -208,7 +211,7 @@ tools lives where it belongs:
   "Present, my King" or "Busy". While the roll call is fresh, each Lord and Captain in the
   tree carries a ready-check mark: present, busy, or not answered yet.
 - **Royal Inspection** (on top of the Tabards tab): a raid warning for the whole army ("wear
-  your tabard!"), then a sample of the soldiers with the addon patrols the players around them
+  your tabard!"), then a sample of the soldiers with the addon (of those who said yes to it, 1.1) patrols the players around them
   for 2 minutes and reports to the King: how many were checked, the percentage in colors, per
   guild, and who was caught, on his untabarded list. It stays within a budget for the realm:
   once every 30 minutes at most (whoever calls it), each patrol inspects one player every 5
@@ -613,16 +616,16 @@ message (the game adds it). What goes where:
 | Zones in that census: members per zone (numbers only), a leader's or officer's zone | everyone on the Olympus channel | only if the member sending it shares their zone and layer; a leader's or officer's zone only if they share theirs too |
 | Your zone, layer, guild rank and guild (layer announcements) | everyone on the Olympus channel | only if you share: officers and one member in eight announce, every 10 minutes and when their layer changes |
 | A layer hop ask: the zone you are in and the layer you want | everyone on the Olympus channel | when you ask to hop |
-| An answer to an ask for your layer (it tells the asker you are on it) | the asker alone (a whisper) | only if you share your zone and layer, while layer help is on (`/oly layerhelp off` stops it) |
-| [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one |
+| An answer to an ask for your layer (it tells the asker you are on it) | the asker alone (a whisper) | only if you share your zone and layer and said yes to layer help (1.1: off until you answer, on the first-open page or with `/oly layerhelp on`; `/oly layerhelp off` stops it) |
+| [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one, only while the Olympus chats are on (1.1: off until you say yes, on the first-open page or with `/oly chat on`) |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | everyone on the Olympus channel receives the bytes; the addon shows them to the King and his Steward, and to the army only with the King's switches | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the week's donors, the items donated (with who gave each last) and the book's latest lines | everyone on the Olympus channel receives the bytes; the addon shows them to the keepers, the King and his Steward, and to the army with the King's ranking or book switch | while that keeper shares his book: his yes, and a donor is not asked |
 | Your character's name, if you gave to the treasury before 1.0 (the early supporters): names only, no amounts, in alphabetical order | everyone on the Olympus channel receives the bytes; the addon shows them under the ranking, to whoever may see it | from the Treasurer's addon once he said yes to 1.0's question, which says their names go to everyone on the channel (his 0.9.3 yes is not enough), after his login and when a client asks: a donor is not asked |
 | The King's crown on the map, and with it his zone and layer | everyone on the Olympus channel | only while the King turns it on (Throne tab), whatever he answered to the question |
-| A Royal Inspection's report (on by default): when the King, his Steward or a Hand calls one and your addon is in the sample, it patrols for 2 minutes, inspecting the Olympus players of your faction around you, level 15 and up, with the game's own inspect, and records whether each wears the guild tabard, another one or none (kept in your saved variables); then it reports your guild, how many it found in each case (your own tabard counted) and up to 6 names, with their guild, of players caught without the colors | whoever called it, alone (a whisper); the King can show the names to the army on his untabarded list | each Royal Inspection you are sampled for (one every 30 minutes at most, for the whole realm) until you say no with `/oly inspection off`; you still get its raid warning |
-| Other players' lines in the Olympus chats as your addon accepted them (channel, sender and text; [Captains] and [Lords] only if your rank reads them), and the High Council list | other addons in your own game, through `OlympusBridge` (made for OfficerSpy, the moderators' companion addon, but any addon you install can read it) | always, while such an addon is loaded: Olympus sends nothing through it and never learns what that addon does with what it read |
+| A Royal Inspection's report (1.1: off until you say yes, on the first-open page or with `/oly inspection on`): when the King, his Steward or a Hand calls one and your addon is in the sample, it patrols for 2 minutes, inspecting the Olympus players of your faction around you, level 15 and up, with the game's own inspect, and records whether each wears the guild tabard, another one or none (kept in your saved variables); then it reports your guild, how many it found in each case (your own tabard counted) and up to 6 names, with their guild, of players caught without the colors | whoever called it, alone (a whisper); the King can show the names to the army on his untabarded list | each Royal Inspection you are sampled for (one every 30 minutes at most, for the whole realm), once you said yes and until `/oly inspection off`; you still get its raid warning either way |
+| Other players' lines in the Olympus chats as your addon accepted them (channel, sender and text; [Captains] and [Lords] only if your rank reads them), and the High Council list | other addons in your own game, through `OlympusBridge` (made for OfficerSpy, the moderators' companion addon, but any addon you install can read it) | always, while such an addon is loaded (no chat line while the Olympus chats are off on your client): Olympus sends nothing through it and never learns what that addon does with what it read |
 | Olympus Link (1.0.0): a request (your guild, faction, a random number, your code's id and a tag made from your code's signature and your name) | the confirmers asked (a whisper each): a High Councillor, or verified players drawn for your code | only after you press **Accept** on `/oly discord <code>` |
 | Olympus Link: the finished proof (your character name, realm, guild, faction, the tag, and the confirmers' names, how each knew your guild, their signatures and their keys' certificates) | the Olympus bot, through the page you scan it with, or a watcher (a High Councillor, by whisper) who hands it to the bot | when it is ready, until it is delivered (5 days after your code expired at most) |
 | Olympus Link, if you confirm (a key and its certificate from the bot's keeper, High Councillors' too): your proof for another player's request (its time, your key's id, how you know their guild, your signature), and in their finished proof your character's name and your key's certificate | that player alone (a whisper), then the Olympus bot in their finished proof | by itself, without asking you each time, once the bot is ready: only for players of an Olympus guild of your faction, never your own account's characters, one a minute and five a day per character, thirty a minute in all, until `/oly discord key off` |
@@ -632,14 +635,25 @@ message (the game adds it). What goes where:
 Decrees and the King's calls go out when someone sends one (a decree carries its sender's
 position on the map).
 
-**What waits for your yes.** Your zone and layer (below), your dot on your guild's map, a
-treasury keeper's book and Olympus Link (your **Accept**, or a confirmer's typing in the key the
-bot's keeper made them) wait for your yes. The rest of the table goes out while
-you are in an Olympus guild, with no question first: your guild's census (from the member it
-elects, with the names above), the hello, a Royal Inspection's report when you are sampled
-(`/oly inspection off`), your answers to the author's roll calls (`/oly rollcall off`), and what
-other addons read through the bridge. A first-start screen that shows what the addon shares and
-asks you before any of it goes out comes in 1.1.
+**What waits for your yes.** Your zone and layer (below), layer help, your dot on your guild's
+map, a treasury keeper's book, a Royal Inspection's report, your answers to the author's roll
+calls, the Olympus chats and Olympus Link (your **Accept**, or a confirmer's typing in the key the
+bot's keeper made them) wait for your yes. The rest of the table goes out while you are in an
+Olympus guild, with no question first: your guild's census (from the member it elects, with the
+names above), the hello, and what other addons read through the bridge.
+
+**The first-open page (1.1).** The first time the Olympus window opens (never in combat or in an
+instance, once a session), a page of its own says in plain words what always goes out (the
+census, with the names it carries, and the hello) and asks **Yes** or **No** for each of the
+rest: your zone and layer, layer help, your book of the treasury (keepers only), the Royal
+Inspection, the author's roll call and the Olympus chats. Each one stays off until its Yes. No
+on the chats means this client neither sends nor shows [Olympus], [Captains] or [Lords]. The
+window, the census and your own guild's roster work whatever you answer, location included.
+`/oly privacy` opens the page again, and each answer has its own command too (`/oly location`,
+`/oly layerhelp`, `/oly treasurer`, `/oly inspection`, `/oly rollcall`, `/oly chat`). It is
+Olympus's own window, never the game's popup, so it works with Blizzard's gamepad UI. The
+author's update notices, which send nothing, still show until you say No to his roll call. On
+the Forever beta, whose saved variables never load, the page asks again every session.
 
 **Zone and layer: off until you choose.** Once after login (never in combat or in an
 instance) the addon asks whether to share your zone and layer, saying what goes out and who
@@ -664,7 +678,9 @@ it out again.
 
 **Chat is never private.** Every client on the channel receives [Olympus], [Captains] and
 [Lords] alike; the addon only decides what to show. Before your first line in each of them
-the addon says so and waits for **Send** (**Cancel** sends nothing), once per channel.
+the addon says so and waits for **Send** (**Cancel** sends nothing), once per channel. Since
+1.1 the chats are off until you say yes (the first-open page, or `/oly chat on`): off, this
+client neither sends nor shows them, and a line that arrives is dropped before anything keeps it.
 
 ## Security and trust
 
@@ -678,8 +694,9 @@ position, no chat, nothing else. He may ask one player alone the same way, by ad
 the same answer, and each addon answers him once every 4 minutes at most, however he asks.
 He can also ask a player on an old version to update: a fixed window with the two version
 numbers and nothing else. Only his character on his realm group
-can do either: every addon checks the sender's name, which nobody else can carry. `/oly
-rollcall off` refuses both. The addon's error catcher keeps only Olympus's own errors (for
+can do either: every addon checks the sender's name, which nobody else can carry. Since 1.1
+a roll call is answered only after the player's yes (the first-open page, or `/oly rollcall on`),
+and `/oly rollcall off` refuses both. The addon's error catcher keeps only Olympus's own errors (for
 `/oly bug`), never another addon's. For the store's screenshots he has a photo mode (`/oly
 photo`, his character only): on his own screen it fades everything but Olympus and the world
 map to invisible, and gives every frame its look back on the second `/oly photo` or a
@@ -903,8 +920,10 @@ Other limits:
 | `/oly mute olympus` · `/oly mute captains` · `/oly mute lords` | hide or show a channel in chat |
 | `/oly chatwindow <number or name> [olympus\|captains\|lords]` · `/oly chatwindow main` | show the Olympus chats in another chat window, or back in the main one |
 | `/oly treasurer on\|off` | a keeper of the treasury (the Treasurer, the King, a character he named) shares his book and the guild bank, or keeps them private |
-| `/oly rollcall on\|off` | answer the author's roll calls (version, client, channel state) or not |
-| `/oly inspection on\|off` | take part in the King's Royal Inspection when sampled (a 2-minute patrol reported to him), or not |
+| `/oly rollcall on\|off` | answer the author's roll calls (version, client, channel state) or not (1.1: not until you say yes) |
+| `/oly privacy` | the first-open page again: what the addon shares, and your Yes or No to each (1.1) |
+| `/oly chat on\|off` | the Olympus chats on this client; off, nothing is sent or shown (1.1: off until you say yes) |
+| `/oly inspection on\|off` | take part in the King's Royal Inspection when sampled (a 2-minute patrol reported to him), or not (1.1: not until you say yes) |
 | `/oly issuereporter hide\|show` | hide Blizzard's Issue Reporter box (beta clients) at every login, or show it again (also a "Hide" button on it) |
 | `/oly helpme [text]` (or **Ask a High Councillor** on the Realm tab) | ask the High Council (the moderators) for help: it goes by whisper to up to three of them online who take requests |
 | `/oly council list` · `/oly council help on\|off` | the High Council as your addon knows it; moderators: take help requests or not. The list is signed by the author on his own computer and checked by every client: no name is written in the addon's code, and nobody can forge or change it. An addon without the list (`High Council: -`) asks the channel for it a minute or so after login, and again until it has it (two and a half minutes later when nobody answered, up to 3 times). Since 1.0.0 the list also crosses realms through guild chat: guildmates on another realm answer the ask and pass the list on, and it goes on to your realm's channel |
@@ -917,7 +936,7 @@ Other limits:
 | `/oly discord certified` | the author: every certificate his client signed as the council authority (off as it ships) for a High Councillor's key (key id, character, end), for the bot's keeper |
 | `/oly hop` | ask for an invite to the King's layer (while he is online) |
 | `/oly vox off` · `/oly vox on` | Vox Populi questions in chat only, or in a window |
-| `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer |
+| `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer (1.1: not until you say yes) |
 | `/oly layerauto on` · `/oly layerauto off` | invite layer requests without the window |
 | `/oly location on` · `/oly location off` | share (or not) your zone and layer on the Olympus channel |
 | `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council, gold for Lords and silver for Captains, and Max's bronze wings for Raiders and bronze for Veterans of Olympus guilds; on by default, hidden with the gamepad UI. Off, the nameplate marks go too |

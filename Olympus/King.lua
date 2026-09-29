@@ -694,9 +694,10 @@ local function OnInspect(king, id)
 	if now - lastInspectSeen < King.INSPECT_GAP then return end
 	lastInspectSeen = now
 	-- Everyone hears the King's call; only a sample of the army patrols (and reports), and never
-	-- a player who said no (/oly inspection off, 0.9.3).
-	if ns.db and ns.db.royalInspection == false then
-		ns.Log("inspection %d: not taking part (/oly inspection off)", id or 0)
+	-- a player who said no (/oly inspection off, 0.9.3). 1.1 (Fern's #11): nor one who never
+	-- answered (the first-open page, or /oly inspection on): nil is off.
+	if not (ns.db and ns.db.royalInspection == true) then
+		ns.Log("inspection %d: not taking part (%s)", id or 0, ns.db and ns.db.royalInspection == false and "/oly inspection off" or "not answered")
 		return Warn(L.THRONE_INSPECT_WARN, true)
 	end
 	if King.random() > King.InspectShare() then

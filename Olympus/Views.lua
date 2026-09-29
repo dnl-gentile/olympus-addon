@@ -1127,8 +1127,19 @@ local function RealmLines(s, q)
 	end
 	-- The High Council, under them (0.9.9).
 	local found = councilShown and CouncilLines(lines, s, q) or 0
-	-- The Olympus chats, one click away (the channels our rank reads), above the guilds.
-	if #ChatTiers() > 0 then
+	-- The Olympus chats, one click away (the channels our rank reads), above the guilds. Off on
+	-- this client (1.1): a line that says so, and a click to choose (the first-open page).
+	if #ChatTiers() > 0 and not ns.Channels.ChatOn() then
+		if lines[#lines] then lines[#lines].gapAfter = true end
+		lines[#lines + 1] = {
+			text = "|TInterface\\ChatFrame\\UI-ChatIcon-Chat-Up:14:14|t " .. Grey(L.CHATS_OFF_LINK), gapAfter = true,
+			onClick = function() ns.Consent.Show() end,
+			tooltip = function(tt)
+				tt:AddLine(L.CONSENT_CHAT, 1, 0.82, 0)
+				tt:AddLine(L.CONSENT_CHAT_TEXT, 1, 1, 1, true)
+			end,
+		}
+	elseif #ChatTiers() > 0 then
 		if lines[#lines] then lines[#lines].gapAfter = true end
 		lines[#lines + 1] = {
 			text = "|TInterface\\ChatFrame\\UI-ChatIcon-Chat-Up:14:14|t " .. Gold(L.CHATS_LINK), gapAfter = true,

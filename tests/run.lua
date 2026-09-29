@@ -156,13 +156,16 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Consent", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
 ns.db = { guilds = {}, log = {}, errors = {}, blocked = {}, demo = false, showMap = true,
 	chatWarned = { A = true, C = true, L = true }, -- (0.9.1: the channel warnings already accepted; their own tests ask)
-	treasurerShares = true } -- (0.9.3: the Treasurer said yes; the question has its own test)
+	treasurerShares = true, -- (0.9.3: the Treasurer said yes; the question has its own test)
+	-- (1.1, Fern's #11: these are off until the player answers. Here they said yes, as 1.0's
+	-- defaults were, for the tests written before; the first-open page has its own tests.)
+	addonChat = true, royalInspection = true, rollCall = true, layerHelp = true }
 ns.me = "Tester-Realm"
 ns.realm = "Realm"
 -- (0.9.2: the King and the Treasurer are theirs on their realm group; here that is "Realm".)
@@ -1629,6 +1632,9 @@ local function WithUI(fn)
 	for _, font in ipairs(FONT_GLOBALS) do _G[font] = nil end
 	PTR_IssueReporter, UISpecialFrames, tinsert = nil, nil, nil
 	ns.rdb.guilds = {}
+	-- (1.1: the first-open page a window opened here showed is gone with the toolkit, and the
+	-- questions it asked this "session" with it.)
+	ns.Consent.Reset()
 	if not ok then error(err, 0) end
 	eq(captured, nil, "error caught")
 end
@@ -4829,7 +4835,7 @@ local function WithHop(fn)
 		group = 0, lead = false, npc = 7, map = 1453, party = {} }
 	local ok, err = pcall(function()
 		H.Reset()
-		ns.db.layerHelp, ns.db.layerAutoInvite = nil, nil
+		ns.db.layerHelp, ns.db.layerAutoInvite = true, nil -- (1.1: layer help is a yes of its own, #11)
 		ns.Now = function() return w.clock end
 		ns.Comm.ChannelReady = function() return true end
 		ns.Comm.Send = function(dist, msg) w.sent[#w.sent + 1] = dist .. " " .. msg end
@@ -4874,7 +4880,7 @@ local function WithHop(fn)
 	ns.Comm.Send, ns.Comm.Whisper, ns.Comm.ChannelReady, ns.Now = savedSend, savedWhisper, savedReady, savedNow
 	H.random, H.after, C_Map.GetBestMapForUnit, H.OFFER_GAP = savedRandom, savedAfter, savedMap, savedGap
 	H.Trusted = savedTrusted
-	ns.db.layerHelp, ns.db.layerAutoInvite, ns.db.hopKingChoice = nil, nil, nil
+	ns.db.layerHelp, ns.db.layerAutoInvite, ns.db.hopKingChoice = true, nil, nil
 	ns.Layers.HOLD = 6
 	H.Reset()
 	if not ok then error(err, 0) end
@@ -4916,7 +4922,7 @@ test("layer hop, helper side: only players on the layer who can invite offer, th
 		ns.db.layerHelp = false
 		H.HandleAsk("CHANNEL", "Nope-Realm", "LQ~51~1453~7")
 		eq(#w.whispered, 2, "/oly layerhelp off")
-		ns.db.layerHelp = nil
+		ns.db.layerHelp = true
 		-- A request that matches no offer of ours is ignored.
 		H.HandleRequest("WHISPER", "Stranger-Realm", "LR~42")
 		H.HandleRequest("WHISPER", "Asker-Realm", "LR~999")
@@ -22600,10 +22606,14 @@ do
 	end
 	local WORDS = { "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten" }
 
-	test("1.0.0 docs (Konig's review): both privacy tables name the Royal Inspection (on by default), the census's top players, the donors and early supporters, OfficerSpy's bridge and Olympus Link, as the addon does them", function()
+	-- (1.1, Fern's #11: the Royal Inspection is off until the player's yes, on the first-open
+	-- page or with /oly inspection on. Before 1.1 a player who never answered patrolled when
+	-- sampled, and both pages said "on by default"; this test now holds them to the new rule.)
+	test("1.0.0 docs (Konig's review): both privacy tables name the Royal Inspection (off until a yes, 1.1), the census's top players, the donors and early supporters, OfficerSpy's bridge and Olympus Link, as the addon does them", function()
 		local K, T = ns.King, ns.Treasury
-		-- The addon, first. A player who never answered takes part in a Royal Inspection when
-		-- sampled (on by default): a 2-minute patrol, then a report to whoever called it, alone.
+		-- The addon, first. A player who never answered takes no part in a Royal Inspection
+		-- (1.1); after a yes, when sampled: a 2-minute patrol, then a report to whoever called
+		-- it, alone.
 		WithThrone(function(w, K)
 			local saved = { random = K.random, opt = ns.db.royalInspection, after = ns.After }
 			local timers = {}
@@ -22613,8 +22623,14 @@ do
 				K.random = function() return 0 end -- in the sample
 				ns.db.royalInspection = nil -- a fresh install: never answered
 				ns.After = function(seconds, _, fn) timers[#timers + 1] = { seconds = seconds, fn = fn } end
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~I~22~Olympus")
+				eq(ns.Inspect.IsPatrolling(), false, "never answered: no patrol")
+				eq(#timers, 0); eq(#w.whispered, 0, "and no report")
+				-- His yes (the page, or /oly inspection on): the next inspection, 30 minutes later.
+				ns.db.royalInspection = true
+				w.clock = w.clock + K.INSPECT_GAP
 				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~I~23~Olympus")
-				eq(ns.Inspect.IsPatrolling(), true, "never asked: a sampled player patrols")
+				eq(ns.Inspect.IsPatrolling(), true, "after a yes: a sampled player patrols")
 				eq(#timers, 1); eq(timers[1].seconds, K.INSPECT_TIME)
 				timers[1].fn()
 				eq(ns.Inspect.IsPatrolling(), false, "the patrol ends with the inspection")
@@ -22655,7 +22671,7 @@ do
 		for _, path in ipairs(DOCS) do
 			local rows, privacy = PrivacyRows(path)
 			local inspection = Row(rows, path, "Royal Inspection")
-			for _, must in ipairs({ "on by default", "`/oly inspection off`", ("%d minutes"):format(K.INSPECT_TIME / 60),
+			for _, must in ipairs({ "off until you say yes", "`/oly inspection on`", "`/oly inspection off`", ("%d minutes"):format(K.INSPECT_TIME / 60),
 				("level %d and up"):format(ns.Inspect.MIN_LEVEL), ("up to %d names"):format(K.MAX_NAMES),
 				("one every %d minutes"):format(K.INSPECT_GAP / 60), "whoever called it" }) do
 				Has(inspection, must, path .. ": the Royal Inspection's row")
@@ -22688,9 +22704,10 @@ do
 				("%s a day per character"):format(WORDS[ns.Link.GIVE_DAY]), "never your own account's characters" }) do
 				Has(confirm, must, path .. ": the confirmer's row")
 			end
-			-- What goes out without a yes today, and the screen that will ask first.
-			Has(privacy, "first-start screen", path .. ": the privacy section")
-			Has(privacy, "comes in 1.1", path .. ": the privacy section")
+			-- What goes out without a yes, and the page that asks first (1.1: it came).
+			Has(privacy, "The first-open page (1.1)", path .. ": the privacy section")
+			Has(privacy, "`/oly privacy`", path .. ": the privacy section")
+			assert(not privacy:find("comes in 1.1", 1, true), path .. ": the page no longer comes later")
 		end
 	end)
 
@@ -24454,6 +24471,339 @@ test("1.0.0 the Hands' hint says they speak with the King's Crown to the other g
 	if not ok then error(err, 0) end
 	assert(rawget(pt.L, "HANDS_HINT"):find("decretos reais", 1, true))
 end)
+
+---------------------------------------------------------------------------
+-- 1.1 (batch B1, Fern's #11): the first-open page of what this addon shares (Consent.lua), and
+-- the switches that stay off until the player answers.
+---------------------------------------------------------------------------
+do
+	local SWITCHES = { "shareLocation", "layerHelp", "royalInspection", "rollCall", "addonChat" }
+	-- fn with every switch never answered, as on a fresh install (the harness's answers back after).
+	local function Unanswered(fn)
+		local saved = {}
+		for _, k in ipairs(SWITCHES) do saved[k] = ns.db[k]; ns.db[k] = nil end
+		ns.Consent.Reset()
+		local ok, err = pcall(fn)
+		for _, k in ipairs(SWITCHES) do ns.db[k] = saved[k] end
+		ns.Consent.Reset()
+		if not ok then error(err, 0) end
+	end
+	local function Rows(page)
+		local out = {}
+		for _, r in ipairs(page.rows) do if r.key then out[#out + 1] = r end end
+		return out
+	end
+	local function RowOf(page, key)
+		for _, r in ipairs(Rows(page)) do if r.key == key then return r end end
+		return nil
+	end
+	local function Keys(page)
+		local out = {}
+		for _, r in ipairs(Rows(page)) do out[#out + 1] = r.key end
+		return table.concat(out, ",")
+	end
+	local function Texts(lines)
+		local out = {}
+		for _, l in ipairs(lines) do
+			out[#out + 1] = tostring(l.text)
+			for _, c in ipairs(l.cols or {}) do out[#out + 1] = tostring(c) end
+		end
+		return table.concat(out, "\n")
+	end
+
+	test("1.1 first-open page (#11): never answered, nothing is shared on its own: no inspection patrol or report, no roll-call answer, no layer offer (the update notice still shows)", function()
+		Unanswered(function()
+			-- The Royal Inspection: the King's call is heard, nothing is inspected or reported.
+			WithThrone(function(w, K)
+				local saved = { random = K.random, after = ns.After }
+				local ok, err = pcall(function()
+					AsSoldier("Fresh Install")
+					if ns.Inspect.IsPatrolling() then ns.Inspect.SetPatrol(false) end
+					K.random = function() return 0 end -- in the sample
+					ns.After = function() end
+					K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~I~31~Olympus")
+					eq(ns.Inspect.IsPatrolling(), false, "never answered: no patrol")
+					eq(#w.whispered, 0, "and no report")
+					assert(Printed(w, ns.L.THRONE_INSPECT_WARN), "the King's call is still heard")
+				end)
+				K.random, ns.After = saved.random, saved.after
+				if ns.Inspect.IsPatrolling() then ns.Inspect.SetPatrol(false) end
+				ns.Inspect.SetPace(nil)
+				if not ok then error(err, 0) end
+			end)
+			-- The author's roll call: unanswered; his update notice sends nothing, so it still shows.
+			WithWorkshop("Tester-Realm", function(w, W)
+				W.random = function(a, b) if a then return a end return 0 end
+				W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~31~100")
+				eq(#w.whispered, 0, "never answered: the roll call gets no answer")
+				eq(W.Answers(), false); eq(W.AnswerState(), "not chosen (not answered)")
+				local v = ns.VERSION
+				ns.VERSION = "0.8.0"
+				W.HandleUpdate("WHISPER", AUTHOR_FULL, "V3~0.8.2")
+				ns.VERSION = v
+				eq(#w.popups, 1, "the update notice still shows"); eq(w.popups[1].name, "OLYMPUS_AUTHOR_UPDATE")
+				-- A yes answers; /oly rollcall alone says which, unanswered too.
+				ns.db.rollCall = true
+				W.Reset()
+				W.random = function(a, b) if a then return a end return 0 end
+				W.HandleRoll("CHANNEL", AUTHOR_FULL, "V1~32~100")
+				eq(#w.whispered, 1, "after a yes: answered")
+				ns.db.rollCall = nil
+				SlashCmdList.OLYMPUS("rollcall")
+				eq(w.printed[#w.printed], ns.L.ROLLCALL_UNANSWERED)
+			end)
+			-- Layer help: sharing the zone and layer is not a yes to helping.
+			WithHop(function(w, H)
+				ns.db.layerHelp = nil
+				w.see(7)
+				H.HandleAsk("CHANNEL", "Asker-Realm", "LQ~61~1453~7")
+				eq(#w.whispered, 0, "layer help never answered: no offer, though the layer is shared")
+				assert(H.StatusLine():find("help=false", 1, true), H.StatusLine())
+				ns.db.layerHelp = true
+				H.HandleAsk("CHANNEL", "Other Asker-Realm", "LQ~62~1453~7")
+				eq(#w.whispered, 1, "after a yes: the offer")
+			end)
+			-- /oly inspection alone, unanswered: it says so.
+			local printed, savedPrint = {}, ns.Print
+			ns.Print = function(m) printed[#printed + 1] = m end
+			SlashCmdList.OLYMPUS("inspection")
+			ns.Print = savedPrint
+			eq(printed[#printed], ns.L.INSPECTION_OPT_UNANSWERED)
+			assert(ns.StatusText():find("royal inspection: not chosen (not taking part)", 1, true), "in /oly status")
+			assert(ns.StatusText():find("olympus chats: not chosen (off)", 1, true), "in /oly status")
+		end)
+	end)
+
+	test("1.1 first-open page (#11): the Olympus chats off (never answered, or No): this client neither sends nor shows [Olympus], [Captains] or [Lords], keeps nothing, and a companion hears nothing", function()
+		local savedFire = ns.Fire
+		local heard = {}
+		-- (What OlympusBridge passes to a companion: every CHAT_LINE.)
+		ns.Fire = function(name, tier, sender, text) if name == "CHAT_LINE" then heard[#heard + 1] = text end end
+		local savedChat = ns.rdb.chat
+		ns.rdb.chat, ns.db.chatMute = nil, nil
+		local ok, err = pcall(function()
+			Unanswered(function()
+				WithUI(function()
+					AsRank(0, function(printed)
+						Chan.ResetOffHint()
+						CHAT_LINES = {}
+						for i, tier in ipairs({ "A", "C", "L" }) do
+							local shown, why = Chan.Receive("CHANNEL", "Member2", Msg(tier, MY_GUILD, 8300 + i, "a line nobody chose to see"), 9100 + i)
+							eq(shown, false, tier); eq(why, "off", tier)
+						end
+						eq(#CHAT_LINES, 0, "not shown"); eq(#heard, 0, "no companion hears it")
+						eq(ns.rdb.chat, nil, "nothing kept")
+						eq(#Chan.History("A"), 0)
+						eq(#printed, 1, "said once a session"); eq(printed[1], ns.L.CHAT_OFF_UNANSWERED)
+						-- Writing, never answered: nothing leaves, and the page asks.
+						WithLane(function(sent)
+							local sentOk, why = Chan.Send("A", "hello army", 3e12)
+							eq(sentOk, false); eq(why, "off"); eq(#sent, 0, "nothing sent")
+						end)
+						eq(printed[#printed], ns.L.CHAT_OFF_UNANSWERED)
+						local page = ns.Consent.Frame()
+						assert(page and page:IsShown(), "typed in a chat never answered: the page asks")
+						eq(RowOf(page, "chat").state:GetText():find(ns.L.CONSENT_STATE_NONE, 1, true) ~= nil, true)
+						-- No: the same, and it says so.
+						RowOf(page, "chat").no:Click()
+						eq(ns.db.addonChat, false)
+						WithLane(function(sent)
+							eq(select(2, Chan.Send("C", "hello captains", 3.1e12)), "off"); eq(#sent, 0)
+						end)
+						eq(printed[#printed], ns.L.CHAT_OFF)
+						eq((Chan.Receive("CHANNEL", "Member2", Msg("A", MY_GUILD, 8310, "still off"), 9200)), false)
+						eq(#CHAT_LINES, 0); eq(#heard, 0); eq(ns.rdb.chat, nil)
+						-- Yes: lines show and go, and a companion hears them.
+						RowOf(page, "chat").yes:Click()
+						eq(ns.db.addonChat, true)
+						local shownNow, whyNow = Chan.Receive("CHANNEL", "Member77", Msg("A", MY_GUILD, 8311, "now it shows"), 1e6); eq(shownNow, true, tostring(whyNow))
+						eq(#CHAT_LINES, 1); eq(#heard, 1); eq(#Chan.History("A"), 1)
+						WithLane(function(sent) eq((Chan.Send("A", "hello army", 3.2e12)), true); eq(#sent, 1) end)
+						-- /oly chat off | on, and alone it says which.
+						SlashCmdList.OLYMPUS("chat off")
+						eq(ns.db.addonChat, false); eq(printed[#printed], ns.L.CHAT_OFF_MSG)
+						eq(#Chan.History("A"), 0, "off: the lines kept before don't show either")
+						SlashCmdList.OLYMPUS("chat on")
+						eq(ns.db.addonChat, true); eq(printed[#printed], ns.L.CHAT_ON_MSG)
+						SlashCmdList.OLYMPUS("chat")
+						eq(printed[#printed], ns.L.CHAT_ON_MSG)
+					end)
+				end)
+			end)
+		end)
+		ns.Fire, ns.rdb.chat = savedFire, savedChat
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.1 first-open page (#11): the first time the window opens (never in combat or an instance, once a session), in plain words, each Yes or No its own switch; the window works with every answer No", function()
+		Unanswered(function()
+			WithUI(function()
+				local saved = { combat = InCombatLockdown, instance = IsInInstance, Print = ns.Print, Send = ns.Comm.Send, Hello = ns.Comm.Hello }
+				local printed = {}
+				local ok, err = pcall(function()
+					ns.Print = function(m) printed[#printed + 1] = tostring(m) end
+					ns.Comm.Send, ns.Comm.Hello = function() end, function() end
+					GetGuildInfo = function() return "Olympus II", "Member", 3 end
+					local UI = LoadUI()
+					local C = ns.Consent
+					InCombatLockdown = function() return true end
+					UI.Toggle()
+					eq(OlympusFrame:IsShown(), true, "the window opens")
+					eq(C.Frame(), nil, "never in combat")
+					UI.Toggle()
+					InCombatLockdown, IsInInstance = function() return false end, function() return true end
+					UI.Toggle()
+					eq(C.Frame(), nil, "never in an instance")
+					UI.Toggle()
+					IsInInstance = function() return false end
+					UI.Toggle()
+					local page = C.Frame()
+					assert(page and page:IsShown(), "the first open: the page")
+					eq(page:GetName(), "OlympusConsentFrame"); eq(page:GetFrameStrata(), "DIALOG")
+					eq(OlympusFrame:IsShown(), true, "the window stays open under it")
+					-- One line each, in this order; a keeper's book only for a keeper.
+					eq(Keys(page), "location,layerhelp,inspection,rollcall,chat")
+					-- What always goes out, so it never promises nothing does: the census and its names.
+					local intro = page.intro:GetText()
+					for _, words in ipairs({ "census", "leader and officers", "five highest-level members", "online or not", "hello", ns.L.CHANNEL_PUBLIC }) do
+						assert(intro:find(words, 1, true), words)
+					end
+					for _, r in ipairs(Rows(page)) do
+						assert(r.state:GetText():find(ns.L.CONSENT_STATE_NONE, 1, true), r.key .. ": not answered, off")
+						assert(r.text:GetText() ~= "" and r.label:GetText() ~= "", r.key)
+						eq(r.yes:GetText(), ns.L.CONSENT_YES); eq(r.no:GetText(), ns.L.CONSENT_NO)
+					end
+					assert(RowOf(page, "chat").text:GetText():find("neither sends nor shows", 1, true))
+					assert(RowOf(page, "layerhelp").text:GetText():find(ns.L.CONSENT_NEEDS_LOCATION, 1, true), "needs the location, while it is off")
+					-- Done: nothing answered for the player; and once a session.
+					page.done:Click()
+					eq(page:IsShown(), false)
+					for _, k in ipairs(SWITCHES) do eq(ns.db[k], nil, k .. ": still unanswered, off") end
+					UI.Toggle(); UI.Toggle()
+					eq(page:IsShown(), false, "once a session")
+					-- The location question has been asked on the page this session: not again by itself.
+					eq(ns.Layers.AskChoice(), false, "the page asked it")
+					-- /oly privacy opens it whenever; No to each sets each switch.
+					SlashCmdList.OLYMPUS("privacy")
+					eq(page:IsShown(), true)
+					for _, r in ipairs(Rows(page)) do r.no:Click() end
+					for _, k in ipairs(SWITCHES) do eq(ns.db[k], false, k .. ": No") end
+					for _, r in ipairs(Rows(page)) do assert(r.state:GetText():find(ns.L.CONSENT_STATE_NO, 1, true), r.key) end
+					page.close:Click()
+					-- Every answer No: the window, the census and our own guild still work.
+					UI.SelectTab("census")
+					eq(OlympusFrame:IsShown(), true)
+					assert(Texts(ns.Views.Build("census")):find("Olympus II", 1, true), "the census lists our guild")
+					UI.SelectTab("realm")
+					local realm = Texts(ns.Views.Build("realm"))
+					assert(realm:find("Olympus II", 1, true), "the Realm lists our guild")
+					assert(realm:find(ns.L.CHATS_OFF_LINK, 1, true), "the chats say they are off")
+					-- A Yes turns its own switch on (and says so), nothing else.
+					SlashCmdList.OLYMPUS("privacy")
+					RowOf(page, "inspection").yes:Click()
+					eq(ns.db.royalInspection, true); eq(printed[#printed], ns.L.INSPECTION_OPT_ON)
+					eq(ns.db.rollCall, false); eq(ns.db.addonChat, false)
+					RowOf(page, "location").yes:Click()
+					eq(ns.db.shareLocation, true)
+					eq(RowOf(page, "layerhelp").text:GetText():find(ns.L.CONSENT_NEEDS_LOCATION, 1, true), nil, "location on: no note")
+					page:Hide()
+					-- Outside an Olympus guild it asks nothing by itself.
+					C.Reset()
+					ns.db.rollCall = nil
+					GetGuildInfo = function() return "House of Guedes", "Member", 3 end
+					eq(C.Ask("window"), false, "not in an Olympus guild")
+				end)
+				InCombatLockdown, IsInInstance, ns.Print, ns.Comm.Send, ns.Comm.Hello = saved.combat, saved.instance, saved.Print, saved.Send, saved.Hello
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+
+	test("1.1 first-open page (#11): with Blizzard's gamepad UI it is Olympus's own window, answered with the cursor, never the game's popup nor on the escape list; with mouse and keyboard Escape closes it", function()
+		Unanswered(function()
+			WithUI(function()
+				WithGamepadUI(true, function(game)
+					GetGuildInfo = function() return "Olympus II", "Member", 3 end
+					local page = ns.Consent.Show()
+					eq(page:IsShown(), true); eq(#game.shown, 0, "never the game's popup")
+					for _, name in ipairs(UISpecialFrames) do assert(name ~= "OlympusConsentFrame", "not on the escape list") end
+					RowOf(page, "rollcall").yes:Click()
+					eq(ns.db.rollCall, true, "a click answers")
+					page:Hide()
+				end)
+				ns.Consent.Reset()
+				WithGamepadUI(false, function(game)
+					local page = ns.Consent.Show()
+					local listed = false
+					for _, name in ipairs(UISpecialFrames) do if name == "OlympusConsentFrame" then listed = true end end
+					eq(listed, true, "Escape closes it with mouse and keyboard"); eq(#game.shown, 0)
+				end)
+			end)
+		end)
+	end)
+
+	test("1.1 first-open page (#11): the King's page leaves out the zone and layer (his crown) and layer help; a keeper's has his book, and its No withdraws it", function()
+		Unanswered(function()
+			WithUI(function()
+				local saved = { me = ns.me, guild = GetGuildInfo, send = ns.Comm.Send, shares = ns.db.keeperShares, ts = ns.db.treasurerShares }
+				local sent = {}
+				local ok, err = pcall(function()
+					ns.Comm.Send = function(dist, msg) sent[#sent + 1] = msg end
+					GetGuildInfo = function() return "Olympus", "King", 0 end
+					ns.me = "Asmongold Asmongler-Realm"
+					local page = ns.Consent.Show()
+					eq(Keys(page), "treasurer,inspection,rollcall,chat", "the King: his crown is his zone and layer; a keeper")
+					page:Hide()
+					ns.Consent.Reset()
+					ns.db.keeperShares, ns.db.treasurerShares = nil, nil
+					GetGuildInfo = function() return "OLYMPUS", "Treasurer", 2 end
+					ns.me = "Pyralis Ashandar-Realm"
+					page = ns.Consent.Show()
+					eq(Keys(page), "location,layerhelp,treasurer,inspection,rollcall,chat")
+					eq(ns.Treasury.AskConsent(), false, "the page asked it this session")
+					RowOf(page, "treasurer").no:Click()
+					eq(ns.Treasury.ConsentAnswer(), false)
+					eq(sent[#sent], "TX~OLYMPUS", "his No withdraws his book at once")
+				end)
+				ns.me, GetGuildInfo, ns.Comm.Send = saved.me, saved.guild, saved.send
+				ns.db.keeperShares, ns.db.treasurerShares = saved.shares, saved.ts
+				ns.Treasury.Reset()
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+
+	test("1.1 first-open page (#11): its words in both languages, the same format arguments", function()
+		local pt = { L = setmetatable({}, { __index = function(_, k) return nil end }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		local keys = { "CONSENT_TITLE", "CONSENT_INTRO", "CONSENT_OPTIONAL", "CONSENT_FOOTER", "CONSENT_DONE", "CONSENT_YES", "CONSENT_NO",
+			"CONSENT_STATE_YES", "CONSENT_STATE_NO", "CONSENT_STATE_NONE", "CONSENT_LOCATION", "CONSENT_LOCATION_TEXT", "CONSENT_LAYERHELP",
+			"CONSENT_LAYERHELP_TEXT", "CONSENT_NEEDS_LOCATION", "CONSENT_TREASURER", "CONSENT_TREASURER_TEXT", "CONSENT_INSPECTION",
+			"CONSENT_INSPECTION_TEXT", "CONSENT_ROLLCALL", "CONSENT_ROLLCALL_TEXT", "CONSENT_CHAT", "CONSENT_CHAT_TEXT", "CHAT_ON_MSG",
+			"CHAT_OFF_MSG", "CHAT_OFF", "CHAT_OFF_UNANSWERED", "CHATS_OFF_LINK", "HELP_PRIVACY_PAGE", "HELP_CHAT",
+			"INSPECTION_OPT_UNANSWERED", "ROLLCALL_UNANSWERED" }
+		for _, key in ipairs(keys) do
+			local en, br = rawget(ns.L, key), rawget(pt.L, key)
+			assert(type(en) == "string" and en ~= "", "English " .. key)
+			assert(type(br) == "string" and br ~= "" and br ~= en, "pt-BR " .. key)
+			local function Args(s) local out = {} for a in s:gmatch("%%%a") do out[#out + 1] = a end return table.concat(out) end
+			eq(Args(br), Args(en), key .. ": format arguments")
+			assert(not en:find("|[cTHrt]") and not br:find("|[cTHrt]"), key .. ": no escape codes")
+		end
+		-- The help and /oly help name the page and the chats switch.
+		local lines = {}
+		local savedPrint = print
+		print = function(s) lines[#lines + 1] = tostring(s) end
+		SlashCmdList.OLYMPUS("help")
+		print = savedPrint
+		local all = table.concat(lines, "\n")
+		assert(all:find(ns.L.HELP_PRIVACY_PAGE, 1, true) and all:find(ns.L.HELP_CHAT, 1, true), "in /oly help")
+	end)
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

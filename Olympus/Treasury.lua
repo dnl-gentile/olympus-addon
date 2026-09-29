@@ -1029,6 +1029,14 @@ function Treasury.Consent()
 	return nil
 end
 
+-- His answer to 1.0's question alone (true, false, or nil while he gave none): what the
+-- first-open page shows him (1.1, Consent.lua), and what AskConsent waits for.
+function Treasury.ConsentAnswer()
+	local shares = ns.db and ns.db.keeperShares
+	if type(shares) ~= "table" then return nil end
+	return shares[ConsentKey()]
+end
+
 -- Only a real keeper's client sends (never the author's view), and only with his yes.
 local function CanSend() return RealKeeper() and Treasury.Consent() == true end
 Treasury.CanSend = CanSend
@@ -1116,6 +1124,8 @@ function Treasury.AskConsent()
 	local shares = ns.db and ns.db.keeperShares
 	if asked or not RealKeeper() or (type(shares) == "table" and shares[ConsentKey()] ~= nil) then return false end
 	if (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance()) then return false end
+	-- (1.1: the first-open page asked it this session, or is up: this question is on it.)
+	if ns.Consent and ns.Consent.Covers and ns.Consent.Covers("treasurer") then return false end
 	asked = true
 	ns.ShowDialog("OLYMPUS_TREASURER_SHARE", ns.Comm.Audience and ns.Comm.Audience() or "")
 	return true

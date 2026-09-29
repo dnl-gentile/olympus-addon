@@ -46,6 +46,7 @@ Link.lua
 Recruit.lua
 Views.lua
 UI.lua
+Consent.lua
 GuildFrame.lua
 Borders.lua
 Nameplates.lua

@@ -943,6 +943,9 @@ local function CreateMain(style)
 	f:SetScript("OnShow", function()
 		UI.Refresh()
 		ns.SafeCall("issue reporter", ClearOfIssueReporter, MainClearOfIssueReporter)
+		-- 1.1 (Fern's #11): the first-open page, over the window, while anything is unanswered
+		-- (Consent.lua: once a session, never in combat or an instance). The window works anyway.
+		ns.SafeCall("privacy page", ns.Consent.Ask, "window")
 	end)
 	f:SetScript("OnHide", function(self)
 		local person = personFrames[self.style]
@@ -1926,6 +1929,8 @@ function UI.ShowHelp()
 		L.HELP_LOCATION,
 		L.HELP_ROLLCALL,
 		L.HELP_INSPECTION,
+		L.HELP_CHAT,
+		L.HELP_PRIVACY_PAGE,
 		"",
 		L.HELP_CHATS,
 		L.HELP_CHAN_ALL,
