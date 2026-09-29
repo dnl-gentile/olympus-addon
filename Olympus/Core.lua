@@ -1142,6 +1142,7 @@ StandIn("Bank", {})
 StandIn("Link", { "Slash" })
 StandIn("Borders", { "SetEnabled", "Report" })
 StandIn("Nameplates", { "SetEnabled", "Report" })
+StandIn("Members", { "Show" }) -- (1.1)
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1220,7 +1221,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Members" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1246,6 +1247,7 @@ local function Help()
 	print("  /oly map - show/hide zone counts on the world map")
 	print("  /oly realm - the Realm tree (leaders, officers, ranks)")
 	print("  /oly layers - layers of your zone (in the Realm tab)")
+	print(L.HELP_INACTIVE)
 	print(L.HELP_HOP)
 	print(L.HELP_LAYERHELP)
 	print(L.HELP_LAYERAUTO)
@@ -1324,6 +1326,11 @@ SlashCmdList.OLYMPUS = function(input)
 			end
 		elseif cmd == "realm" or cmd == "tree" or cmd == "layers" then
 			if ns.Views.CloseChat then ns.Views.CloseChat() end
+			ns.UI.SelectTab("realm")
+		elseif cmd == "inactive" or cmd == "members" then
+			-- (1.1: our guild's members offline 7, 14 or 30 days and more, Members.lua.)
+			local days = tonumber(rest)
+			ns.Members.Show((days == 14 or days == 30) and days or 7)
 			ns.UI.SelectTab("realm")
 		elseif cmd == "decrees" then
 			ns.UI.SelectTab("decrees")

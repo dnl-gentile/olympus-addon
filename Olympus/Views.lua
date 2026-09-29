@@ -37,6 +37,7 @@ local function ClassColored(name, classFile)
 	local c = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
 	return c and ("|c%s%s|r"):format(c.colorStr, name) or name
 end
+Views.ClassColored = ClassColored
 
 -- `dim`: what an old report said (older than Data.FRESH), all grey, as its guild is in the tree.
 local function Presence(online, days, dim)
@@ -1008,10 +1009,15 @@ local chatTier -- the channel shown instead of the Realm tree, or nil
 
 function Views.ChatShown() return chatTier ~= nil end
 function Views.ChatTier() return chatTier end
--- Another tab opened: the Realm opens on its tree again next time.
-function Views.CloseChat() chatTier = nil end
+-- Another tab opened: the Realm opens on its tree again next time (our guild's members page too,
+-- Members.lua, 1.1).
+function Views.CloseChat()
+	chatTier = nil
+	if ns.Members and ns.Members.Hide then ns.Members.Hide() end
+end
 function Views.ShowChat(tier)
 	chatTier = tier
+	if tier and ns.Members and ns.Members.Hide then ns.Members.Hide() end
 	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
 end
 
@@ -1311,6 +1317,8 @@ end
 -- else: the King's lines, the level race, recruiting and the layers show once it is emptied.
 local function RealmLines(s, q)
 	if chatTier then return ChatLines(q) end
+	-- Our guild's members page (1.1, Members.lua).
+	if ns.Members and ns.Members.Shown and ns.Members.Shown() then return ns.Members.Lines(q) end
 	local lines = {}
 	-- A councillor's mark and own icon after their name in the rows below (0.9.9), for whoever
 	-- may see the council here; none on the King's screen while the names are hidden (his
@@ -1473,7 +1481,18 @@ local function RealmLines(s, q)
 			lines[#lines + 1] = { indent = 2, text = ("%d. %s"):format(i, Plain(rank.name)), right = ns.FormatNumber(rank.count) }
 		end
 		if #(g.ranks or {}) == 0 then lines[#lines + 1] = { indent = 2, text = Grey(L.NONE_REPORTED) } end
-		lines[#lines + 1] = { indent = 1, text = Grey(L.INACTIVE_LINE:format(g.inactive7 or 0, g.inactive30 or 0)), gapAfter = true }
+		-- Our own guild's: a click lists them, by name (1.1, Members.lua).
+		local own = g.mine and e.name == GetGuildInfo("player")
+		lines[#lines + 1] = {
+			indent = 1, gapAfter = true,
+			text = own and Gold(L.INACTIVE_LINE:format(g.inactive7 or 0, g.inactive30 or 0) .. "  " .. L.MEMBERS_OPEN)
+				or Grey(L.INACTIVE_LINE:format(g.inactive7 or 0, g.inactive30 or 0)),
+			onClick = own and function() ns.Members.Show(7) end or nil,
+			tooltip = own and function(tt)
+				tt:AddLine(L.MEMBERS_TITLE, 1, 0.82, 0)
+				tt:AddLine(L.MEMBERS_OPEN_TIP, 1, 1, 1, true)
+			end or nil,
+		}
 	end
 	-- (The guilds opened for a Lord, Captain or member found: `searchRows` of their rows, the
 	-- guilds past them counted in `more`, shown on a click.)
@@ -1879,7 +1898,8 @@ local BUILD = {
 		local title, text = RealmDetail(s)
 		local lines = RealmLines(s, Views.Query("realm"))
 		-- (One box for the tab: the chats' lines are searched with it while they show.)
-		return Searched(lines, "realm", chatTier and "CHAT" or "REALM"), title, text
+		local members = ns.Members and ns.Members.Shown and ns.Members.Shown()
+		return Searched(lines, "realm", chatTier and "CHAT" or members and "MEMBERS" or "REALM"), title, text
 	end,
 	decrees = function()
 		local title, text = DecreeDetail()

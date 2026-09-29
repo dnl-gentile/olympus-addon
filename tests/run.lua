@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Members", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -24842,6 +24842,214 @@ test("1.1 census marks (Fern #30): the dead 'twin' flag is read nowhere any more
 		local src = assert(io.open(ADDON_DIR .. file)):read("*a")
 		eq(src:find("%.twin"), nil, file)
 	end
+end)
+
+
+-- Our own small guild, <Olympus II>: who is in it, rank (0 = guild master), online, and days
+-- offline as the game gives them (years, months, days, hours). `myRank`: ours.
+Fern.ROSTER = {
+	{ "Lordy-Realm", 0, true, 30, "WARRIOR", { 0, 0, 0, 0 } },
+	{ "Capty-Realm", 1, false, 28, "PALADIN", { 0, 1, 10, 0 } },   -- 40 days
+	{ "Old-Realm", 3, false, 20, "MAGE", { 0, 1, 15, 0 } },        -- 45 days
+	{ "Mid-Realm", 3, false, 14, "PRIEST", { 0, 0, 15, 0 } },      -- 15 days
+	{ "Week-Realm", 2, false, 12, "WARRIOR", { 0, 0, 8, 0 } },     -- 8 days
+	{ "Fresh-Realm", 3, false, 10, "MAGE", { 0, 0, 0, 5 } },       -- 5 hours
+	{ "Newbie-Realm", 3, true, 3, "PRIEST", { 0, 0, 0, 0 } },
+}
+function Fern.Guild(myRank, fn, roster)
+	roster = roster or Fern.ROSTER
+	local RANKS = { "Zeus", "Titan", "Hero", "Recruit" }
+	local saved = { info = GetGuildRosterInfo, num = GetNumGuildMembers, last = GetGuildRosterLastOnline, guild = GetGuildInfo,
+		can = CanGuildRemove, canInvite = CanGuildInvite, cgi = C_GuildInfo, time = GetTime, members = ns.Roster.members, stats = ns.Roster.lastStats,
+		online = ns.Roster.online, byName = ns.Roster.byName }
+	local w = { removed = {}, invited = {}, clock = 1000 }
+	GetGuildInfo = function() return "Olympus II", RANKS[myRank + 1], myRank end
+	GetNumGuildMembers = function()
+		local on = 0
+		for _, m in ipairs(roster) do if m[3] then on = on + 1 end end
+		return #roster, on
+	end
+	GetGuildRosterInfo = function(i)
+		local m = roster[i]
+		if not m then return nil end
+		return m[1], RANKS[m[2] + 1], m[2], m[4], "class", m[3] and "Stormwind City" or nil, "", "", m[3], 0, m[5]
+	end
+	GetGuildRosterLastOnline = function(i) local m = roster[i]; return unpack(m and m[6] or { 0, 0, 0, 0 }) end
+	CanGuildRemove = function() return w.canRemove end
+	CanGuildInvite = function() return w.canInvite end
+	C_GuildInfo = { Uninvite = function(name) w.removed[#w.removed + 1] = name end, Invite = function(name) w.invited[#w.invited + 1] = name end,
+		GuildRoster = function() end }
+	GetTime = function() return w.clock end
+	ns.Members.ResetForTests()
+	local ok, err = pcall(function()
+		Fern.Census(function(cw)
+			GetGuildInfo = function() return "Olympus II", RANKS[myRank + 1], myRank end
+			w.sent, w.persons, w.tabs, w.said, w.printed = cw.sent, cw.persons, cw.tabs, cw.said, cw.printed
+			local r = ns.Roster.Scan()
+			r.mine, r.t = true, os.time()
+			ns.rdb.guilds["Olympus II"] = r
+			fn(w)
+		end)
+	end)
+	ns.Members.ResetForTests()
+	GetGuildRosterInfo, GetNumGuildMembers, GetGuildRosterLastOnline, GetGuildInfo = saved.info, saved.num, saved.last, saved.guild
+	CanGuildRemove, CanGuildInvite, C_GuildInfo, GetTime = saved.can, saved.canInvite, saved.cgi, saved.time
+	ns.Roster.members, ns.Roster.lastStats, ns.Roster.online, ns.Roster.byName = saved.members, saved.stats, saved.online, saved.byName
+	if not ok then error(err, 0) end
+end
+-- The members page's rows (the ones naming a member), by name.
+function Fern.MemberRows(lines)
+	local out = {}
+	for _, l in ipairs(lines) do if l.key then out[#out + 1] = l end end
+	return out
+end
+function Fern.Names(rows)
+	local out = {}
+	for _, l in ipairs(rows) do out[#out + 1] = l.key end
+	return table.concat(out, ",")
+end
+
+test("1.1 inactive list (Fern #38): our roster's members offline 7, 14 or 30 days and more, with rank, class, level and last online, longest first", function()
+	local V, L, M = ns.Views, ns.L, ns.Members
+	Fern.Guild(3, function(w)
+		-- Every member's row kept from the roster (never in the report).
+		eq(#ns.Roster.members, 7)
+		local old
+		for _, m in ipairs(ns.Roster.members) do if m.name == "Old" then old = m end end
+		eq(old.raw, "Old-Realm"); eq(old.rank, "Recruit"); eq(old.rankIndex, 3); eq(old.online, false); eq(old.days, 45); eq(old.class, "MA")
+		-- The Realm's line for our own guild opens it.
+		V.ExpandAll(true)
+		local line = Fern.Find(V.RealmLines(), L.INACTIVE_LINE:format(4, 2))
+		assert(line and line.onClick, "our guild's inactive line is a click")
+		line.onClick()
+		eq(M.Shown(), true); eq(M.Filter(), 7)
+		local lines = V.Build("realm")
+		assert(lines[1].input, "the Realm's search box on top")
+		eq(Fern.Bare(lines[2].text), L.MEMBERS_BACK)
+		local head = Fern.Find(lines, "<Olympus II>")
+		eq(Fern.Bare(head.right), L.MEMBERS_COUNTS:format("7", "993", "2"))
+		assert(Fern.Find(lines, "> " .. L.MEMBERS_FILTER:format(7)), "7+ picked")
+		eq(Fern.Bare(Fern.Find(lines, L.MEMBERS_FILTER:format(14)).right), "3")
+		eq(Fern.Bare(Fern.Find(lines, L.MEMBERS_FILTER:format(30)).right), "2")
+		local rows = Fern.MemberRows(lines)
+		eq(Fern.Names(rows), "Old,Capty,Mid,Week", "longest away first; online and 5 hours away out")
+		assert(Fern.Bare(rows[1].text):find("Recruit", 1, true), "its rank")
+		assert(Fern.Bare(rows[1].right):find(L.LEVEL_N:format(20), 1, true) and Fern.Bare(rows[1].right):find(L.MEMBERS_LAST_DAYS:format(45), 1, true), rows[1].right)
+		assert(Fern.Tip(rows[1]):find(L.MEMBERS_LAST:format(L.MEMBERS_LAST_DAYS:format(45)), 1, true))
+		-- A member without the rank to remove: no Remove, a click opens the card.
+		assert(not rows[1].right:find(L.MEMBERS_REMOVE, 1, true))
+		assert(Fern.Find(lines, L.MEMBERS_VIEW_HINT), "who may remove")
+		rows[1].onClick()
+		eq(w.persons[1].name, "Old"); eq(#w.removed, 0)
+		-- 14+ and 30+.
+		Fern.Find(lines, L.MEMBERS_FILTER:format(30)).onClick()
+		eq(Fern.Names(Fern.MemberRows(V.Build("realm"))), "Old,Capty")
+		M.Show(14)
+		eq(Fern.Names(Fern.MemberRows(V.Build("realm"))), "Old,Capty,Mid")
+		-- The Realm's box searches it: a rank.
+		M.Show(7)
+		V.SetFilter("realm", "recruit")
+		eq(Fern.Names(Fern.MemberRows(V.Build("realm"))), "Old,Mid")
+		V.SetFilter("realm", "")
+		-- Back, and another tab, give the tree again; /oly inactive 30 opens it on 30+.
+		Fern.Find(V.Build("realm"), L.MEMBERS_BACK).onClick()
+		eq(M.Shown(), false)
+		SlashCmdList.OLYMPUS("inactive 30")
+		eq(M.Filter(), 30); eq(w.tabs[#w.tabs].tab, "realm")
+		V.CloseChat()
+		eq(M.Shown(), false, "another tab: the tree next time")
+		eq(#w.sent, 0, "nothing sent")
+	end)
+	Fern.BothLanguages({ "MEMBERS_TITLE", "MEMBERS_OPEN", "MEMBERS_OPEN_TIP", "MEMBERS_BACK", "MEMBERS_COUNTS", "MEMBERS_FILTER", "MEMBERS_REMOVE_HINT",
+		"MEMBERS_VIEW_HINT", "MEMBERS_NO_OFFLINE", "MEMBERS_NONE", "MEMBERS_NONE_YET", "MEMBERS_LAST_DAYS", "MEMBERS_LAST_HOURS", "MEMBERS_LAST",
+		"MEMBERS_REMOVE", "MEMBERS_REMOVED", "MEMBERS_REMOVE_TIP", "MEMBERS_REMOVE_CONFIRM", "MEMBERS_REMOVE_DETAILS", "MEMBERS_REMOVE_WAIT",
+		"MEMBERS_REMOVED_LINE", "HELP_INACTIVE", "SEARCH_TIP_MEMBERS" })
+end)
+
+test("1.1 inactive list (Fern #38): a rank that may remove removes one member per click, asked first, only ranks below its own, with a gap, never several", function()
+	local V, L, M = ns.Views, ns.L, ns.Members
+	WithGamepadUI(false, function(game)
+		Fern.Guild(1, function(w)
+			w.canRemove = true
+			M.Show(7)
+			local rows = Fern.MemberRows(V.Build("realm"))
+			eq(Fern.Names(rows), "Old,Capty,Mid,Week")
+			assert(Fern.Find(V.Build("realm"), L.MEMBERS_REMOVE_HINT), "the hint")
+			-- A Captain (rank 1): Recruits and Heroes below him, never another Captain.
+			assert(rows[1].right:find(L.MEMBERS_REMOVE, 1, true), "Old: Remove")
+			assert(not rows[2].right:find(L.MEMBERS_REMOVE, 1, true), "Capty: his own rank")
+			rows[2].onClick()
+			eq(#game.shown, 0, "no question for his own rank"); eq(w.persons[1].name, "Capty")
+			-- The click asks, with rank, level, class and days away.
+			rows[1].onClick()
+			eq(game.shown[1].which, "OLYMPUS_GUILD_REMOVE"); eq(game.shown[1].a, "Old")
+			eq(game.shown[1].b, L.MEMBERS_REMOVE_DETAILS:format("Recruit", 20, LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE.MAGE or "", L.MEMBERS_LAST_DAYS:format(45)))
+			eq(#w.removed, 0, "nothing before the answer")
+			local dialog = StaticPopupDialogs.OLYMPUS_GUILD_REMOVE
+			eq(dialog.text, L.MEMBERS_REMOVE_CONFIRM); eq(dialog.button1, L.MEMBERS_REMOVE)
+			-- Yes: the game's own call, for that member alone.
+			dialog.OnAccept(nil, game.shown[1].data)
+			eq(#w.removed, 1); eq(w.removed[1], "Old-Realm")
+			assert(w.printed[#w.printed]:find(L.MEMBERS_REMOVED_LINE:format("Old"), 1, true))
+			rows = Fern.MemberRows(V.Build("realm"))
+			assert(rows[1].right:find(L.MEMBERS_REMOVED, 1, true) and not rows[1].onClick, "marked removed, no second click")
+			-- The next one at once: refused until the gap has passed.
+			rows[3].onClick()
+			dialog.OnAccept(nil, game.shown[2].data)
+			eq(#w.removed, 1, "one at a time"); eq(w.printed[#w.printed], L.MEMBERS_REMOVE_WAIT)
+			w.clock = w.clock + M.REMOVE_GAP
+			dialog.OnAccept(nil, game.shown[2].data)
+			eq(#w.removed, 2); eq(w.removed[2], "Mid-Realm")
+			-- The same member twice: no second call.
+			w.clock = w.clock + M.REMOVE_GAP
+			dialog.OnAccept(nil, game.shown[2].data)
+			eq(#w.removed, 2)
+			-- Never a Captain by his peer, even asked directly; the game says no: nobody.
+			w.clock = w.clock + M.REMOVE_GAP
+			local capty
+			for _, m in ipairs(ns.Roster.members) do if m.name == "Capty" then capty = m end end
+			eq(M.Remove(capty), false)
+			w.canRemove = false
+			local week
+			for _, m in ipairs(ns.Roster.members) do if m.name == "Week" then week = m end end
+			eq(M.Remove(week), false)
+			eq(#w.removed, 2)
+			eq(#w.sent, 0, "nothing sent")
+		end)
+		-- The guild master removes a Captain.
+		Fern.Guild(0, function(w)
+			w.canRemove = true
+			M.Show(30)
+			local rows = Fern.MemberRows(V.Build("realm"))
+			eq(Fern.Names(rows), "Old,Capty")
+			assert(rows[2].right:find(L.MEMBERS_REMOVE, 1, true), "the guild master: Captains too")
+		end)
+	end)
+	-- One call to the game's removal in the whole file, inside Members.Remove: no kick-all.
+	local src = assert(io.open(ADDON_DIR .. "Members.lua")):read("*a")
+	local calls = 0
+	for _ in src:gmatch("uninvite%(") do calls = calls + 1 end
+	eq(calls, 1, "one removal call")
+	eq(src:find("C_GuildInfo%.Uninvite%("), nil); eq(src:find("GuildUninvite%("), nil)
+end)
+
+test("1.1 inactive list (Fern #38): with the gamepad UI the question is Olympus's own window, and its button removes", function()
+	WithUI(function()
+		WithGamepadUI(true, function(game)
+			Fern.Guild(1, function(w)
+				w.canRemove = true
+				ns.Members.Show(7)
+				local rows = Fern.MemberRows(ns.Views.Build("realm"))
+				rows[1].onClick()
+				eq(#game.shown, 0, "not the game's popup")
+				local f = ns.Dialog.Find("OLYMPUS_GUILD_REMOVE")
+				assert(f and f:IsShown(), "our dialog")
+				assert(f.text:GetText():find("Old", 1, true), f.text:GetText())
+				f.buttons[1]:Click()
+				eq(w.removed[1], "Old-Realm")
+			end)
+		end)
+	end)
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

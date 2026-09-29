@@ -79,7 +79,12 @@ are highlighted. It is rate limited, so nobody gets spammed.
   `/who`. Opening a guild searches `/who` for that guild alone (up to 50 of its players).
   Click a name to whisper, invite or `/who` them.
 - The **ranks** of each guild with how many members hold them.
-- **Inactive members**: offline 7+ and 30+ days, per guild.
+- **Inactive members**: offline 7+ and 30+ days, per guild. Your own guild's line (or
+  `/oly inactive`) opens the list by name (1.1): members offline 7, 14 or 30 days and more,
+  with rank, class, level and last online, from your own roster, longest away first. A rank
+  that may remove members (as in the game's Guild window: ranks below yours) removes **one
+  person per click**, after a question that shows their rank and days away, a few seconds
+  apart. There is no kick-all, and nothing is sent.
 - **Level race**: the highest level players of the realm.
 - **Recruiting**: the guilds that still have free slots, so new players go where there is room
   (the five with the most, then every one on a click, 1.1).
@@ -796,6 +801,7 @@ Other limits:
 |---|---|
 | `/oly` | open or close the window |
 | `/oly realm` · `/oly decrees` · `/oly tabard` | open a tab |
+| `/oly inactive [7\|14\|30]` | your guild's members offline that long, by name (a rank that may remove members removes one per click, asked first) |
 | `/oly patrol` | start or stop the tabard patrol |
 | `/oly mark [note]` | mark your target |
 | `/oly arms [text]` · `/oly muster [text]` | send a decree (`test` = local preview) |

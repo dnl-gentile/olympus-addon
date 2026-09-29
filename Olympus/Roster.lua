@@ -102,7 +102,11 @@ function Roster.Scan()
 			end
 			if days >= 30 then r.inactive30 = r.inactive30 + 1 end
 			if days >= 7 then r.inactive7 = r.inactive7 + 1 end
-			everyone[#everyone + 1] = { name = short, level = level, class = code }
+			-- Every member, online or not, for our guild's members page (1.1, Members.lua): the
+			-- name as the server gave it (raw: what a removal takes), rank, days offline. Kept in
+			-- memory only, never in the report.
+			everyone[#everyone + 1] = { name = short, level = level, class = code, raw = name, full = full, rankIndex = rankIndex,
+				rank = rankName or rank.name, days = days, online = isOnline and true or false }
 			if isOnline then
 				online[#online + 1] = { name = short, level = level, class = code, zone = zoneKey, rank = rankName, rankIndex = rankIndex }
 				r.online = r.online + 1
@@ -132,6 +136,7 @@ function Roster.Scan()
 	for i = 1, math.min(5, #everyone) do r.top[i] = everyone[i] end
 	r.avgLevel = seen > 0 and levelSum / seen or 0
 	Roster.byName, Roster.guild = byName, guild -- (whose roster it is: Olympus Link's "r", Link.lua)
+	Roster.members = everyone -- (1.1: every member's row, Members.lua)
 	table.sort(online, function(a, b)
 		if a.rankIndex ~= b.rankIndex then return a.rankIndex < b.rankIndex end
 		if a.level ~= b.level then return a.level > b.level end

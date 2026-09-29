@@ -12,7 +12,8 @@
 - ~~Guild leader offline for X days~~ (v0.3)
 - **Guild leader offline for X days (alerts)** - `GetGuildRosterLastOnline(i)` gives years/months/days/hours for
   our own guild; add `leaderLastSeen` to the report so every guild's leader age shows up. Alert above N days.
-- **Inactive players** - same API: count members offline > 7/14/30 days per guild; list for officers to kick.
+- ~~**Inactive players** - same API: count members offline > 7/14/30 days per guild; list for officers to kick.~~
+  (1.1: your own guild's list by name, one removal per click.)
 - **Officers and org chart** - `GuildControlGetNumRanks` / `GuildControlGetRankName` + rankIndex per member:
   rank tree per guild (Leader -> Officers -> ranks -> counts), who is online per rank, officers in the report.
 - **Tax collection** - Classic has no guild bank: track gold received through mail and trade from guild

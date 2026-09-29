@@ -45,6 +45,7 @@ libs\QREncode\qrencode.lua
 Link.lua
 Recruit.lua
 Views.lua
+Members.lua
 UI.lua
 GuildFrame.lua
 Borders.lua
