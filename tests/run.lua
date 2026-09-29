@@ -18281,8 +18281,12 @@ test("1.0 the guild bank on Forever: its window opens through the interaction ma
 				After = function(sec, _, fn) timers[#timers + 1] = { at = gt + sec, fn = fn } end,
 				Every = function() end,
 				Comm = setmetatable({ Handle = function() end }, { __index = ns.Comm }),
+				-- (1.1: its whisper handlers and its popup registered nowhere: the addon's own Bank.lua keeps them.)
+				Treasury = setmetatable({ OnPrivate = function() end }, { __index = ns.Treasury }),
 			}, { __index = ns })
+			local popup = StaticPopupDialogs.OLYMPUS_SISTER_BANK
 			assert(loadfile(ADDON_DIR .. "Bank.lua"))("Olympus", bns)
+			StaticPopupDialogs.OLYMPUS_SISTER_BANK = popup
 			local Bank = bns.Bank
 			Bank.Reset()
 			local function Run()
@@ -24707,6 +24711,253 @@ test("1.1 Zeal's promise: what the King hides never goes on the channel; the Kin
 		ns.rdb.treasuryFlags = nil
 		if not ok then error(err, 0) end
 	end)
+end)
+
+-- The items of a Treasury page (its grids), each with its slot: { [slot] = item }.
+local function Grid(lines)
+	for _, l in ipairs(lines) do
+		if l.items then
+			local out = {}
+			for _, it in ipairs(l.items) do out[it.s] = it end
+			return out
+		end
+	end
+end
+
+test("1.1 the bank (Fern): the tab's search finds its items, and what left it since the last visit shows, faded where it sat", function()
+	WithThrone(function(w, K)
+		local T, B, V = ns.Treasury, ns.Bank, ns.Views
+		local saved = { item = C_Item, after = ns.After, time = GetTime, tabs = GetNumGuildBankTabs, info = GetGuildBankTabInfo, slot = GetGuildBankItemInfo,
+			link = GetGuildBankItemLink, money = GetGuildBankMoney, query = QueryGuildBankTab, current = GetCurrentGuildBankTab }
+		local ok, err = pcall(function()
+			C_Item = { GetItemNameByID = function(id) return ({ [2589] = "Linen Cloth", [2770] = "Copper Ore", [929] = "Healing Potion" })[id] end }
+			-- The Treasurer opens the bank: a first visit, then a second one where stacks are gone.
+			AsTreasurer()
+			local After, Run = Queued()
+			ns.After = After
+			local gt = 100
+			GetTime = function() return gt end
+			GetNumGuildBankTabs = function() return 3 end
+			GetGuildBankTabInfo = function(tab) return ({ "Mats", "Potions", "Officers" })[tab], "icon" .. tab, true end
+			local slots = { [1] = { [1] = { 200, 2589 }, [2] = { 20, 2770 } }, [2] = { [1] = { 5, 929 } }, [3] = { [4] = { 10, 2770 } } }
+			GetGuildBankItemInfo = function(tab, slot) local s = slots[tab] and slots[tab][slot]; if s then return "tex", s[1] end end
+			GetGuildBankItemLink = function(tab, slot) local s = slots[tab] and slots[tab][slot]; return s and ("|Hitem:" .. s[2] .. ":0|h[x]|h") end
+			GetGuildBankMoney = function() return 5000 end
+			QueryGuildBankTab, GetCurrentGuildBankTab = function() end, function() return 1 end
+			B.Opened(); gt = gt + B.SETTLE; Run(); B.Closed(); gt = gt + B.SETTLE; Run()
+			local first = ns.rdb.bank
+			assert(first and first.tabs[1].items[1].id == 2589, "the first visit's snapshot")
+			eq(ns.rdb.bankPrev, nil, "nothing before it")
+			eq(#B.Gone(first, B.Previous(first)), 0)
+			-- Two hours later: 50 Linen Cloth and the Copper Ore of Mats gone; the potions moved to Mats
+			-- (a stack moved between tabs both snapshots hold is not gone); Officers' tab unseen this time.
+			w.clock = w.clock + 7200
+			slots = { [1] = { [1] = { 150, 2589 }, [3] = { 5, 929 } }, [2] = {} }
+			GetNumGuildBankTabs = function() return 2 end
+			B.Opened(); gt = gt + B.SETTLE; Run()
+			local second = ns.rdb.bank
+			eq(ns.rdb.bankPrev, first, "the last snapshot of the visit before"); eq(B.Previous(second), first)
+			B.Changed(); gt = gt + B.SETTLE; Run()
+			eq(ns.rdb.bankPrev, first, "a second read of the same visit keeps comparing with the visit before")
+			local gone, ghosts = B.Gone(ns.rdb.bank, B.Previous(ns.rdb.bank))
+			eq(#gone, 2); eq(gone[1].id, 2589); eq(gone[1].n, 50); eq(gone[2].id, 2770); eq(gone[2].n, 20, "the tab not seen now counts for nothing")
+			eq(gone[2].tabs[1], "Mats")
+			eq(#ghosts[1], 1, "one slot emptied"); eq(ghosts[1][1].id, 2770); eq(ghosts[1][1].s, 2); eq(ghosts[1][1].gone, true)
+			-- On the tab: the lines, and the slot faded in the grid.
+			T.bankTab = 1
+			local lines = T.Build()
+			local page = Texts(lines)
+			assert(page:find(ns.L.BANK_GONE:format(ns.Ago(first.t)), 1, true), page)
+			assert(page:find("Linen Cloth", 1, true) and page:find("-50x", 1, true) and page:find("-20x", 1, true), page)
+			local grid = Grid(lines)
+			eq(grid[1].id, 2589); eq(grid[1].gone, nil); eq(grid[2].id, 2770); eq(grid[2].gone, true, "where the ore sat")
+			-- The grid draws it faded, and its tooltip says so.
+			WithUI(function()
+				LoadUI()
+				local desat = {}
+				Widget.SetDesaturated = function(self, on) desat[#desat + 1] = on and true or false end
+				local content = CreateFrame("Frame")
+				content.w, content.style = 300, "hd"
+				local okR, errR = pcall(function()
+					for _, l in ipairs(lines) do if l.items then ns.Views.Render(content, { l }) end end
+					local r = content.rows[1]
+					eq(r.items[2].item.gone, true)
+					r.items[2]:Fire("OnEnter")
+					local said = false
+					for _, l in ipairs(GameTooltip.lines or {}) do if l == ns.L.BANK_GONE_SLOT then said = true end end
+					eq(said, true, "the tooltip says it is gone")
+				end)
+				Widget.SetDesaturated = nil
+				if not okR then error(errR, 0) end
+				local faded = false
+				for _, d in ipairs(desat) do if d then faded = true end end
+				eq(faded, true, "drawn faded")
+			end)
+			-- A keeper's snapshot heard: the one it replaces (another visit) is what it compares with.
+			AsKing(); ns.rdb.bank, ns.rdb.bankPrev = nil, nil
+			local savedRank = ns.Roster.RankOf
+			ns.Roster.RankOf = function(n) if ns.FullName(n) == "Pyralis Ashandar-Realm" then return 1 end return savedRank(n) end
+			B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", ("T9~Olympus~%d~5000~Mats;2589x200,2770x20"):format(w.clock - 100))
+			B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", ("T9~Olympus~%d~5000~Mats;2589x200,2770x20"):format(w.clock - 100))
+			eq(ns.rdb.bankReportPrev, nil, "the same snapshot again: nothing before it")
+			B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", ("T9~Olympus~%d~5000~Mats;2589x190"):format(w.clock))
+			ns.Roster.RankOf = savedRank
+			gone = B.Gone(B.Current(), B.Previous(B.Current()))
+			eq(#gone, 2); eq(gone[1].id, 2770); eq(gone[2].n, 10)
+			-- The search: the bank's items whose name holds it, how many in all, in which tabs.
+			V.ClearFilters()
+			T.Show("summary")
+			eq(T.Searchable(), true)
+			page = Texts((T.Build("linen")))
+			assert(page:find(ns.L.TREASURY_BANK, 1, true) and page:find("Linen Cloth", 1, true) and page:find("190x", 1, true) and page:find("(Mats)", 1, true), page)
+			assert(not page:find(ns.L.SEARCH_NO_MATCH, 1, true), page)
+			page = Texts((T.Build("2589")))
+			assert(page:find("Linen Cloth", 1, true), "by its number too: " .. page)
+			page = Texts((T.Build("nothing like it")))
+			assert(page:find(ns.L.SEARCH_NO_MATCH, 1, true), page)
+			-- A soldier: the bank only with the King's book switch, its search with it.
+			AsSoldier()
+			ns.rdb.treasuryFlags = { balance = true, at = 1 }
+			page = Texts((T.Build("linen")))
+			assert(not page:find("Linen Cloth", 1, true), "hidden from the army: " .. page)
+			ns.rdb.treasuryFlags = { book = true, at = 2 }
+			eq(T.Searchable(), true, "the box shows with the bank")
+			page = Texts((T.Build("linen")))
+			assert(page:find("Linen Cloth", 1, true), page)
+		end)
+		C_Item, ns.After, GetTime = saved.item, saved.after, saved.time
+		GetNumGuildBankTabs, GetGuildBankTabInfo, GetGuildBankItemInfo, GetGuildBankItemLink = saved.tabs, saved.info, saved.slot, saved.link
+		GetGuildBankMoney, QueryGuildBankTab, GetCurrentGuildBankTab = saved.money, saved.query, saved.current
+		ns.rdb.treasuryFlags = nil
+		T.bankTab = nil
+		ns.Bank.Reset()
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 sister guilds' banks (Fern): their treasurer's yes, whispered to the King, his Stewards and his Hands alone, never on the channel", function()
+	WithThrone(function(w, K)
+		local T, B = ns.Treasury, ns.Bank
+		local saved = { item = C_Item, after = ns.After, chunked = ns.Comm.SendChunked }
+		local ok, err = pcall(function()
+			C_Item = { GetItemNameByID = function(id) return ({ [2589] = "Linen Cloth" })[id] end }
+			local After, Run = Queued()
+			ns.After = After
+			ns.Comm.SendChunked = function(m) w.sent[#w.sent + 1] = { dist = "CHANNEL", msg = m } end
+			local KING = "Asmongold Asmongler-Realm"
+			-- The King names a Hand; the Lord of Olympus Zeus (the census confirms him) opens his guild's bank.
+			AsKing(); K.AddHand("Helper"); K.SendHands(true); local hands = LastSent(w)
+			AsLord()
+			K.HandleCommand("CHANNEL", KING, hands)
+			ns.rdb.bank = { t = w.clock, guild = "Olympus Zeus", by = ns.me, money = 424242,
+				tabs = { { i = 1, name = "Secret Stash", items = { { id = 2589, n = 60, s = 3 } } }, { i = 2, name = "Other", items = {} } } }
+			eq(B.SisterTreasurer(), true); eq(B.SisterConsent(), nil)
+			eq(B.SisterMessage(), nil, "nothing before his yes")
+			-- Asked once a session when he opens it; a soldier never.
+			local GetNum = GetNumGuildBankTabs
+			GetNumGuildBankTabs = function() return 0 end
+			GetGuildBankTabInfo = GetGuildBankTabInfo or function() end
+			GetGuildBankItemInfo = GetGuildBankItemInfo or function() end
+			B.Opened()
+			eq(w.popups[#w.popups].name, "OLYMPUS_SISTER_BANK"); eq(w.popups[#w.popups].a, "Olympus Zeus")
+			local n = #w.popups
+			B.Opened(); eq(#w.popups, n, "once a session")
+			GetNumGuildBankTabs = GetNum
+			-- The King's ask before his yes: nothing.
+			w.sent, w.whispered = {}, {}
+			T.HandleAsk("CHANNEL", KING, "TA~Olympus~0"); Run()
+			eq(#w.whispered, 0, "no yes: nothing")
+			StaticPopupDialogs.OLYMPUS_SISTER_BANK.OnAccept()
+			eq(B.SisterConsent(), true)
+			assert(B.SisterMessage():find("^TS~Olympus Zeus~%d+~424242~;%.2,2589x60~;$"), B.SisterMessage())
+			-- He said yes: the King (who asked) gets it at once; a soldier's ask gets nothing.
+			Run()
+			local toKing = {}
+			for _, x in ipairs(w.whispered) do eq(x.to, KING); toKing[#toKing + 1] = x.msg end
+			assert(#toKing > 0 and toKing[1]:find("^TW~TS~"), "whispered: " .. tostring(toKing[1]))
+			T.HandleAsk("CHANNEL", "Soldier-Realm", "TA~Olympus II~0"); Run()
+			eq(#w.whispered, #toKing, "a soldier: nothing")
+			-- A Hand's ask: his too.
+			T.HandleAsk("CHANNEL", "Helper-Realm", "TA~Olympus II~0"); Run()
+			eq(w.whispered[#w.whispered].to, "Helper-Realm")
+			-- Nothing of it on the channel, and no tab's name anywhere.
+			for _, s in ipairs(w.sent) do assert(not s.msg:find("424242", 1, true) and not s.msg:find("2589", 1, true), "on the channel: " .. s.msg) end
+			for _, x in ipairs(w.whispered) do assert(not x.msg:find("Secret Stash", 1, true), "a tab's name: " .. x.msg) end
+			-- The King's client: taken from the Lord, the tabs as "Tab 1", in the Treasury tab and its search.
+			local function Deliver(from) for _, m in ipairs(toKing) do T.HandlePrivate("WHISPER", from, m) end end
+			AsKing()
+			Deliver("Faker Guy-Realm")
+			eq(#B.Sisters(), 0, "not a Lord or Captain of that guild")
+			Deliver("Zed-Realm")
+			local s = B.Sisters()
+			eq(#s, 1); eq(s[1].guild, "Olympus Zeus"); eq(s[1].money, 424242); eq(s[1].tabs[1].name, "Tab 1"); eq(s[1].tabs[1].items[1].s, 3)
+			T.Show("summary")
+			local lines = T.Build()
+			local page = Texts(lines)
+			assert(page:find(ns.L.BANK_SISTERS, 1, true) and page:find("<Olympus Zeus>", 1, true), page)
+			for _, l in ipairs(lines) do if l.key == "sister:Olympus Zeus" then l.onClick() end end
+			lines = T.Build()
+			assert(Texts(lines):find("Tab 1", 1, true), Texts(lines))
+			eq(Grid(lines)[3].id, 2589, "its grid, where the stack sits")
+			page = Texts((T.Build("linen")))
+			assert(page:find(ns.L.BANK_SISTER_OF:format("Olympus Zeus"), 1, true) and page:find("60x", 1, true), page)
+			-- A Hand's client: the tab appears for it; a soldier's takes nothing.
+			AsSoldier("Helper"); K.HandleCommand("CHANNEL", KING, hands)
+			eq(K.IsHand(), true)
+			w.sent = {}
+			eq(T.Ask(true), true, "a Hand's client asks too"); eq(LastSent(w), "TA~Olympus II~0")
+			Deliver("Zed-Realm")
+			eq(#B.Sisters(), 1); eq(T.Visible(), true, "the tab, for a Hand holding one")
+			B.Reset()
+			AsSoldier()
+			Deliver("Zed-Realm")
+			eq(#B.Sisters(), 0, "a soldier: nothing")
+			eq(T.Ask(true), false, "and a soldier's client never asks")
+			-- His no takes it back from the King's screen.
+			AsLord(); ns.db.sisterBankShares = { ["zed-realm"] = true }
+			B.HeardAsk(KING, true); Run()
+			w.whispered = {}
+			SlashCmdList.OLYMPUS("bank share off")
+			eq(B.SisterConsent(), false)
+			local back = w.whispered[#w.whispered]
+			eq(back.to, KING); eq(back.msg, "TS~Olympus Zeus~0~0~")
+			AsKing(); Deliver("Zed-Realm"); eq(#B.Sisters(), 1)
+			B.HandleSister("WHISPER", "Zed-Realm", back.msg)
+			eq(#B.Sisters(), 0, "withdrawn")
+			-- Not a Lord or an officer, or the King's own guild: no question, no switch.
+			AsSoldier(); eq(B.SisterTreasurer(), false)
+			AsKing(); eq(B.SisterTreasurer(), false)
+			B.SetSisterConsent(true); assert(Printed(w, ns.L.BANK_SISTER_ONLY), "told")
+			-- With the gamepad UI the question is Olympus's own window, never the game's popup.
+			AsLord(); ns.db.sisterBankShares = nil
+			B.Reset()
+			WithGamepadUI(true, function(game)
+				GetNumGuildBankTabs = function() return 0 end
+				B.Opened()
+				GetNumGuildBankTabs = GetNum
+				eq(#game.shown, 0); assert(ns.Dialog.Find("OLYMPUS_SISTER_BANK"), "our own dialog")
+			end)
+		end)
+		C_Item, ns.After, ns.Comm.SendChunked = saved.item, saved.after, saved.chunked
+		ns.db.sisterBankShares = nil
+		ns.Bank.Reset()
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 the bank's and the sister guilds' new lines are in both languages, with the same format arguments", function()
+	local savedLocale, pt = GetLocale, {}
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, key in ipairs({ "TREASURY_PART_WAIT", "BANK_GONE", "BANK_GONE_TITLE", "BANK_GONE_TIP", "BANK_GONE_SLOT", "BANK_FOUND_TIP", "BANK_SISTERS",
+		"BANK_SISTERS_TIP", "BANK_SISTER_OF", "BANK_SISTER_TAB", "BANK_SISTER_ASK", "BANK_SISTER_YES", "BANK_SISTER_NO", "BANK_SISTER_ON",
+		"BANK_SISTER_OFF", "BANK_SISTER_ONLY", "HELP_BANK" }) do
+		assert(type(rawget(ns.L, key)) == "string", "English " .. key)
+		assert(type(rawget(pt.L, key)) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
+		eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)
+	end
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

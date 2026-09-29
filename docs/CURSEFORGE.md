@@ -341,6 +341,22 @@ shows the army something of it.
   picture. On WoW: Forever the bank's window opens through the game's interaction manager,
   which 1.0 listens to (0.9's addon never saw it open there); a client with no guild bank says
   so on the tab.
+- **The bank's search and what left it** (1.1): the Treasury tab's search box finds the bank's
+  items too (by the item's name as your game knows it, or its number: how many in all, and in
+  which tabs; a click opens the first). Under the bank, **Gone since the last snapshot** lists
+  the items whose count dropped since the snapshot before (the last one of an earlier visit, or
+  the one a keeper's newer snapshot replaced), counted over the tabs both snapshots saw, and the
+  grid shows those stacks faded and red in the slots they sat in. Counts only: who took them is
+  not known, the addon never reads the bank's log (a withdrawal nobody noted, a stack moved to a
+  tab the other snapshot didn't see, or theft).
+- **Sister guilds' banks** (1.1): the guild master or an officer of another Olympus guild is
+  asked once, when he opens his guild's bank, whether the King sees it (`/oly bank share
+  on|off`). With his yes, his addon whispers its snapshot (items and counts, its gold, when it
+  was seen; the tabs' names left out, shown as "Tab 1", "Tab 2") to the King, his Steward and
+  his Hands when their addon asks, never on the Olympus channel. Their addon takes it only from
+  a Lord or Captain of that guild as the census confirms (a snapshot is its sender's word), keeps
+  it until logout, and shows it on the Treasury tab under **Sister guilds' banks** (a Hand's tab
+  appears for it), its items in the search too.
 - **Sent by each keeper's addon by itself** (every 5 minutes and after a change), once he said
   yes: his book's balance, totals, ranking, items donated and latest lines. On the Olympus
   channel only the parts the King shows the army (1.1); the whole book goes by whisper, in
@@ -437,7 +453,8 @@ account, `/oly discord forget` drops this character's request and proof.
 - **Copy**: every tab produces a ready-to-paste text for Discord.
 - **Search**: a box on top of the Census (a guild or its Lord), the Realm (guilds, Lords, Captains,
   members seen online, the Olympus chats' lines), the Tabards (inspected and untabarded players,
-  by name or guild) and the Treasury (donors in the ranking and the book). Any case, accents too;
+  by name or guild) and the Treasury (donors in the ranking and the book, the bank's items since
+  1.1). Any case, accents too;
   only what matches shows, under the headers it belongs to (a Captain under his guild, opened
   for you, a page of guilds at a time), with an **x** to empty it. Each tab keeps its text until
   you log out or `/reload`; a guild clicked in the Census opens in the Realm with its box emptied.
@@ -551,6 +568,7 @@ message (the game adds it). What goes where:
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | the parts the King shows the army (his switches): everyone on the Olympus channel. The rest (1.1): the King, his Steward and the keepers alone, by whisper, never on the channel | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the week's donors, the items donated (with who gave each last) and the book's latest lines | with the King's ranking or book switch on: everyone on the Olympus channel. Otherwise (1.1): the keepers, the King and his Steward alone, by whisper | while that keeper shares his book: his yes, and a donor is not asked |
+| Your guild bank's snapshot, if you are the guild master or an officer of an Olympus guild other than the King's (1.1): items and counts, its gold, when it was seen (not the tabs' names) | the King, his Steward and his Hands alone, by whisper, when their addon asks (never on the Olympus channel) | only after your yes (asked once when you open the bank; `/oly bank share on\|off`); your no takes it back from their screens |
 | Your character's name, if you gave to the treasury before 1.0 (the early supporters): names only, no amounts, in alphabetical order | with the King's ranking switch on: everyone on the Olympus channel, shown under the ranking. Otherwise (1.1): the keepers, the King and his Steward alone, by whisper | from the Treasurer's addon once he said yes to 1.0's question, which says their names go to everyone on the channel (his 0.9.3 yes is not enough), after his login and when a client asks: a donor is not asked |
 | The King's crown on the map, and with it his zone and layer | everyone on the Olympus channel | only while the King turns it on (Throne tab), whatever he answered to the question |
 | A Royal Inspection's report (on by default): when the King, his Steward or a Hand calls one and your addon is in the sample, it patrols for 2 minutes, inspecting the Olympus players of your faction around you, level 15 and up, with the game's own inspect, and records whether each wears the guild tabard, another one or none (kept in your saved variables); then it reports your guild, how many it found in each case (your own tabard counted) and up to 6 names, with their guild, of players caught without the colors | whoever called it, alone (a whisper); the King can show the names to the army on his untabarded list | each Royal Inspection you are sampled for (one every 30 minutes at most, for the whole realm) until you say no with `/oly inspection off`; you still get its raid warning |
@@ -565,7 +583,7 @@ Decrees and the King's calls go out when someone sends one (a decree carries its
 position on the map).
 
 **What waits for your yes.** Your zone and layer (below), your dot on your guild's map, a
-treasury keeper's book and Olympus Link (your **Accept**, or a confirmer's typing in the key the
+treasury keeper's book, a sister guild's bank (1.1) and Olympus Link (your **Accept**, or a confirmer's typing in the key the
 bot's keeper made them) wait for your yes. The rest of the table goes out while
 you are in an Olympus guild, with no question first: your guild's census (from the member it
 elects, with the names above), the hello, a Royal Inspection's report when you are sampled
@@ -795,6 +813,7 @@ Other limits:
 | `/oly mute olympus` · `/oly mute captains` · `/oly mute lords` | hide or show a channel in chat |
 | `/oly chatwindow <number or name> [olympus\|captains\|lords]` · `/oly chatwindow main` | show the Olympus chats in another chat window, or back in the main one |
 | `/oly treasurer on\|off` | a keeper of the treasury (the Treasurer, the King, a character he named) shares his book and the guild bank, or keeps them private (1.1: what the King hides goes only to the King, his Steward and the keepers, by whisper) |
+| `/oly bank share on\|off` | the guild master or an officer of an Olympus guild other than the King's shows his guild bank's snapshot to the King, his Steward and his Hands (by whisper, never on the channel), or not (1.1) |
 | `/oly rollcall on\|off` | answer the author's roll calls (version, client, channel state) or not |
 | `/oly inspection on\|off` | take part in the King's Royal Inspection when sampled (a 2-minute patrol reported to him), or not |
 | `/oly issuereporter hide\|show` | hide Blizzard's Issue Reporter box (beta clients) at every login, or show it again (also a "Hide" button on it) |

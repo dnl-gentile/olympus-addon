@@ -1254,6 +1254,7 @@ local function Help()
 	print(L.HELP_LOCATION)
 	print(L.HELP_ROLLCALL)
 	print(L.HELP_TREASURER)
+	print(L.HELP_BANK)
 	print(L.HELP_INSPECTION)
 	print(L.HELP_BORDERS)
 	print(L.HELP_NAMEPLATES)
@@ -1455,6 +1456,11 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "discord" then
 			-- Olympus Link (Link.lua): this character's Discord role; confirmers' keys; watchers.
 			ns.Link.Slash(rest)
+		elseif cmd == "bank" then
+			-- 1.1: a sister guild's treasurer shows his guild bank to the King, his Steward and his
+			-- Hands, by whisper, or not (Bank.lua).
+			local verb, on = rest:lower():match("^(%S*)%s*(%S*)")
+			if verb == "share" and (on == "on" or on == "off") then ns.Bank.SetSisterConsent(on == "on") else ns.Print(L.HELP_BANK) end
 		else
 			Help()
 		end

@@ -186,6 +186,8 @@ local function ItemText(id, count)
 	return ((tonumber(count) or 1) > 1 and (count .. "x ") or "") .. text
 end
 Treasury.ItemText = ItemText
+Treasury.ItemName = ItemName
+Treasury.ItemIcon = ItemIcon
 
 -- The item of a link ("item:2589:..."), or nil.
 local function LinkId(link)
@@ -334,6 +336,8 @@ end
 -- book came; the author's view always), and every member once the King shows the army something.
 function Treasury.Visible()
 	if Treasury.IsKeeper() or ns.King.Preview() then return true end
+	-- (1.1: the King, his Steward or a Hand holding a sister guild's bank: Bank.lua.)
+	if ns.Bank and ns.Bank.SeesSisters and ns.Bank.SeesSisters() and #ns.Bank.Sisters() > 0 then return true end
 	if ns.King.SetsLists() then return (ns.splitNames and ns.faction ~= "Horde") or Treasury.Report() ~= nil end
 	return ns.IsMember() and Treasury.AnyShown() and Treasury.Report() ~= nil
 end
@@ -1813,6 +1817,12 @@ function Treasury.Private(to, kind, msg, key, pieces)
 	return true
 end
 
+-- He holds none of `key` any more (his login): the next one goes to him even when unchanged.
+function Treasury.ForgetSent(to, key)
+	local t = type(to) == "string" and sentTo[ns.FullName(to)]
+	if t then t[key] = nil end
+end
+
 -- What a keeper's client whispers to one of them (`to`), or to each one heard: his whole book
 -- (and the Treasurer's mail character's), the bank and the early supporters, each one only
 -- while a switch keeps a part of it off the channel. Only with his yes to sharing.
@@ -2765,6 +2775,26 @@ local function BankLines(lines, role)
 	end
 	lines[#lines + 1] = { text = Grey(L.TREASURY_BANK_AS_OF:format(ns.DisplayName(b.by) or "?", ns.Ago(b.t))) }
 	lines[#lines + 1] = { text = L.TREASURY_BANK_GOLD, right = Treasury.Coins(b.money or 0) }
+	-- 1.1: what left the bank since the snapshot before (counts only, never who: the bank's log is
+	-- never read), and in the grid the slots those stacks sat in, faded.
+	local prev = ns.Bank.Previous and ns.Bank.Previous(b)
+	local gone, ghosts = {}, {}
+	if prev then gone, ghosts = ns.Bank.Gone(b, prev) end
+	if #gone > 0 then
+		lines[#lines + 1] = { text = Red(L.BANK_GONE:format(ns.Ago(prev.t))), tooltip = function(tt)
+			tt:AddLine(L.BANK_GONE_TITLE, 1, 0.82, 0)
+			tt:AddLine(L.BANK_GONE_TIP:format(ns.DisplayName(prev.by) or "?"), 1, 1, 1, true)
+		end }
+		for i = 1, math.min(#gone, Treasury.BANK_LISTED) do
+			local x = gone[i]
+			lines[#lines + 1] = { indent = 1, text = ItemText(x.id) .. "  " .. Grey("(" .. table.concat(x.tabs, ", ") .. ")"), right = Red("-" .. x.n .. "x"),
+				tooltip = function(tt)
+					if not (tt.SetItemByID and pcall(tt.SetItemByID, tt, x.id)) then tt:AddLine(ItemName(x.id), 1, 0.82, 0) end
+					tt:AddLine(L.BANK_GONE_TITLE, 1, 0.4, 0.4, true)
+				end }
+		end
+		if #gone > Treasury.BANK_LISTED then lines[#lines + 1] = { indent = 1, text = Grey(L.TREASURY_ITEMS_MORE:format(#gone - Treasury.BANK_LISTED)) } end
+	end
 	-- One tab open at a time, as the bank shows them: its slots, every one, items where they sit.
 	local open = Treasury.bankTab
 	if not (open and b.tabs[open]) then
@@ -2775,23 +2805,102 @@ local function BankLines(lines, role)
 		local count = #tab.items > 0 and L.TREASURY_BANK_ITEMS:format(#tab.items) or L.TREASURY_BANK_EMPTY
 		lines[#lines + 1] = { text = (i == open and Gold or tostring)((i == open and "[-] " or "[+] ") .. (tab.name or "?")), right = Grey(count),
 			key = "banktab" .. i, onClick = function() Treasury.bankTab = i; ns.Fire("TREASURY_CHANGED") end }
-		if i == open then lines[#lines + 1] = { items = tab.items, slots = ns.Bank.SLOTS, columns = 7 } end
+		if i == open then
+			local items = tab.items
+			if ghosts[i] then
+				items = {}
+				for _, it in ipairs(tab.items) do items[#items + 1] = it end
+				for _, it in ipairs(ghosts[i]) do items[#items + 1] = it end
+			end
+			lines[#lines + 1] = { items = items, slots = ns.Bank.SLOTS, columns = 7 }
+		end
 	end
 	lines[#lines].gapAfter = true
 end
 
--- The summary while the tab's search holds `q`: the donors it finds in the ranking, "No match"
--- for none, and the way to the book (searched there too). Nothing else.
+-- 1.1: the sister guilds' banks (Bank.lua), for the King, his Steward and his Hands: each guild
+-- a click to open, then its tabs ("Tab 1": their names are left out), one open at a time.
+local function SisterLines(lines)
+	if not (ns.Bank and ns.Bank.SeesSisters and ns.Bank.SeesSisters()) then return end
+	local list = ns.Bank.Sisters()
+	if #list == 0 then return end
+	lines[#lines + 1] = { header = true, text = L.BANK_SISTERS, tooltip = function(tt) tt:AddLine(L.BANK_SISTERS_TIP, 1, 1, 1, true) end }
+	for _, s in ipairs(list) do
+		local opened = Treasury.sisterOpen == s.guild
+		lines[#lines + 1] = { text = (opened and Gold or tostring)((opened and "[-] " or "[+] ") .. "<" .. s.guild .. ">"), right = Treasury.Coins(s.money or 0),
+			key = "sister:" .. s.guild, onClick = function()
+				Treasury.sisterOpen, Treasury.sisterTab = (not opened) and s.guild or nil, nil
+				ns.Fire("TREASURY_CHANGED")
+			end }
+		if opened then
+			lines[#lines + 1] = { indent = 1, text = Grey(L.TREASURY_BANK_AS_OF:format(ns.DisplayName(s.by) or "?", ns.Ago(s.t))) }
+			local open = Treasury.sisterTab
+			if not (open and s.tabs[open]) then
+				open = 1
+				for i, tab in ipairs(s.tabs) do if #tab.items > 0 then open = i break end end
+			end
+			for i, tab in ipairs(s.tabs) do
+				local count = #tab.items > 0 and L.TREASURY_BANK_ITEMS:format(#tab.items) or L.TREASURY_BANK_EMPTY
+				lines[#lines + 1] = { indent = 1, text = (i == open and Gold or tostring)((i == open and "[-] " or "[+] ") .. tab.name), right = Grey(count),
+					key = "sistertab" .. i, onClick = function() Treasury.sisterTab = i; ns.Fire("TREASURY_CHANGED") end }
+				if i == open then lines[#lines + 1] = { items = tab.items, slots = ns.Bank.SLOTS, columns = 7 } end
+			end
+		end
+	end
+	lines[#lines].gapAfter = true
+end
+
+-- Who sees the guild bank: the keepers and the King always, the army with the King's "book".
+local function BankVisible(role) return role ~= "member" or Treasury.Shows("book") end
+
+-- 1.1: the stacks of a bank whose item holds the search `q` (Bank.Find): each item once, how many
+-- in all, in which tabs; a click opens the first of them. Returns whether any.
+local function FoundLines(lines, title, snap, q, open)
+	local found = ns.Bank.Find(snap, q)
+	if #found == 0 then return false end
+	lines[#lines + 1] = { header = true, text = title }
+	for i = 1, math.min(#found, Treasury.BANK_LISTED) do
+		local x = found[i]
+		lines[#lines + 1] = { indent = 1, text = ItemText(x.id) .. "  " .. Grey("(" .. table.concat(x.tabs, ", ") .. ")"), right = Green(x.n .. "x"),
+			onClick = open and function() open(x.tabs[1]) end or nil,
+			tooltip = function(tt)
+				if not (tt.SetItemByID and pcall(tt.SetItemByID, tt, x.id)) then tt:AddLine(ItemName(x.id), 1, 0.82, 0) end
+				tt:AddLine(L.BANK_FOUND_TIP:format(x.stacks, table.concat(x.tabs, ", ")), 1, 1, 1, true)
+			end }
+	end
+	if #found > Treasury.BANK_LISTED then lines[#lines + 1] = { indent = 1, text = Grey(L.TREASURY_ITEMS_MORE:format(#found - Treasury.BANK_LISTED)) } end
+	lines[#lines].gapAfter = true
+	return true
+end
+local function BankFound(lines, role, q)
+	local any = false
+	local b = BankVisible(role) and ns.Bank and ns.Bank.Current and ns.Bank.Current()
+	if b and FoundLines(lines, L.TREASURY_BANK, b, q, function(name)
+		for i, tab in ipairs(b.tabs) do if tab.name == name then Treasury.bankTab = i end end
+		ns.Fire("TREASURY_CHANGED")
+	end) then any = true end
+	for _, s in ipairs(ns.Bank and ns.Bank.SeesSisters and ns.Bank.SeesSisters() and ns.Bank.Sisters() or {}) do
+		if FoundLines(lines, L.BANK_SISTER_OF:format(s.guild), s, q) then any = true end
+	end
+	return any
+end
+Treasury.BANK_LISTED = 25   -- items found, or gone, listed (the rest counted)
+
+-- The summary while the tab's search holds `q`: the donors it finds in the ranking, the bank's
+-- items (1.1: and the sister guilds', for the King, his Steward and his Hands), "No match" for
+-- none, and the way to the book (searched there too). Nothing else.
 local function SummarySearch(role, q)
 	local r = Treasury.Report()
 	local rank = r and r.rank or {}
 	local lines = {}
-	if #RankFound(rank, q) > 0 then
+	local any = false
+	if Treasury.MaySee("ranking") and #RankFound(rank, q) > 0 then
 		RankLines(lines, rank, q)
 		lines[#lines].gapAfter = true
-	else
-		lines[#lines + 1] = { text = Grey(L.SEARCH_NO_MATCH), gapAfter = true }
+		any = true
 	end
+	if BankFound(lines, role, q) then any = true end
+	if not any then lines[#lines + 1] = { text = Grey(L.SEARCH_NO_MATCH), gapAfter = true } end
 	if Treasury.MaySee("book") then
 		lines[#lines + 1] = { text = Gold("> " .. L.TREASURY_BOOK), onClick = function() Treasury.Show("book") end, gapAfter = true }
 	end
@@ -2821,6 +2930,7 @@ local function SummaryLines(role, q)
 			lines[#lines + 1] = { text = Gold("> " .. L.TREASURY_KEEPERS_LINK:format(KeeperCount())), onClick = function() Treasury.Show("keepers") end, gapAfter = true }
 		end
 		BankLines(lines, role)
+		SisterLines(lines)
 		return lines
 	end
 	-- 1.1: a keeper's book this client holds only as the army sees it (the channel's copy): its
@@ -2865,6 +2975,7 @@ local function SummaryLines(role, q)
 		lines[#lines + 1] = { text = Gold("> " .. L.TREASURY_KEEPERS_LINK:format(KeeperCount())), onClick = function() Treasury.Show("keepers") end, gapAfter = true }
 	end
 	BankLines(lines, role)
+	SisterLines(lines)
 	-- The King: what the army sees now (the switches are the buttons in the box).
 	if role == "king" then
 		local shown = ShownParts()
@@ -2891,6 +3002,8 @@ end
 function Treasury.Searchable()
 	if Treasury.mode == "keepers" then return false end
 	if Treasury.mode == "book" and Treasury.MaySee("book") then return true end
+	-- (1.1: the bank's items too, and the sister guilds'.)
+	if BankVisible(Treasury.Role()) or (ns.Bank and ns.Bank.SeesSisters and ns.Bank.SeesSisters() and #ns.Bank.Sisters() > 0) then return true end
 	return Treasury.MaySee("ranking")
 end
 

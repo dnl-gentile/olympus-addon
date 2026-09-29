@@ -192,6 +192,7 @@ local function ItemButton(r, k)
 		if not ok and it.id and GameTooltip.SetItemByID then ok = pcall(GameTooltip.SetItemByID, GameTooltip, it.id) end
 		if not ok then GameTooltip:AddLine("#" .. tostring(it.id), 1, 1, 1) end
 		if (it.n or 0) > 1 then GameTooltip:AddLine("x" .. it.n, 0.8, 0.8, 0.8) end
+		if it.gone then GameTooltip:AddLine(L.BANK_GONE_SLOT, 1, 0.4, 0.4, true) end
 		GameTooltip:Show()
 	end)
 	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -219,6 +220,14 @@ local function SetSlot(b, it)
 		b.icon:SetShown(it ~= nil)
 		b.count:SetText(it and (it.n or 0) > 1 and tostring(it.n) or "")
 	end
+	-- 1.1: a stack gone since the snapshot before (the Treasury's bank, Bank.Gone): faded and red,
+	-- in the slot it sat in.
+	local gone = it ~= nil and it.gone == true
+	if b.icon.SetDesaturated then b.icon:SetDesaturated(gone) end
+	if b.icon.SetVertexColor then
+		if gone then b.icon:SetVertexColor(1, 0.35, 0.35) else b.icon:SetVertexColor(1, 1, 1) end
+	end
+	if b.SetAlpha then b:SetAlpha(gone and 0.6 or 1) end
 end
 
 function Views.LayoutColumns(fontStrings, layout, width, offset)
