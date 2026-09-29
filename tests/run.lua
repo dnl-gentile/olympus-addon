@@ -24455,6 +24455,8 @@ test("1.0.0 the Hands' hint says they speak with the King's Crown to the other g
 	assert(rawget(pt.L, "HANDS_HINT"):find("decretos reais", 1, true))
 end)
 
+-- 1.1's tests, in a block of their own (the main chunk is near Lua's 200 locals).
+do
 ---------------------------------------------------------------------------
 -- 1.1: zones outside the Azeroth tree (request #3)
 ---------------------------------------------------------------------------
@@ -24554,6 +24556,120 @@ test("1.1 zones: Outland's total goes on the map above it (Cosmic), Azeroth's co
 		eq(M.OverlayMap(1429), nil, "a zone is no continent of a top map")
 	end)
 end)
+
+---------------------------------------------------------------------------
+-- 1.1: the census rebuilding after login (request #4)
+---------------------------------------------------------------------------
+
+test("1.1 census rebuilding: after login the header, the Census and the Realm say the census is refilling and how many guilds were heard, never 'No reports yet'; gone after the rebuild", function()
+	local L, D = ns.L, ns.Data
+	local savedLogin = ns.Comm.loginAt
+	local ok, err = pcall(function()
+		WithUI(function()
+			local UI = LoadUI()
+			ns.rdb.guilds = {} -- the beta loaded an empty save
+			ns.Comm.loginAt = ns.Now() - 20
+			UI.Toggle()
+			local main = OlympusFrame
+			eq(main.sub:GetText(), L.REBUILDING_SUB:format(0) .. "  ·  " .. UI.CensusName(), "the header")
+			local census = Texts((ns.Views.Build("census")))
+			assert(census:find(L.REBUILDING:format(0), 1, true), census)
+			assert(census:find(L.REBUILDING_WAIT, 1, true), census)
+			assert(not census:find(L.EMPTY, 1, true), "not 'No reports yet' while it refills")
+			local realm = Texts((ns.Views.Build("realm")))
+			assert(realm:find(L.REBUILDING:format(0), 1, true), realm)
+			assert(not realm:find(L.EMPTY, 1, true), realm)
+			-- Guilds heard since login count; our own (the roster's) and one kept from before do not.
+			ns.rdb.guilds = { ["Olympus Zeus"] = { total = 100, online = 5, t = ns.Now(), leader = "Zed" },
+				["Olympus II"] = { total = 1000, online = 300, t = ns.Now(), mine = true },
+				["Olympus Old"] = { total = 50, online = 0, t = ns.Comm.loginAt - 600 } }
+			eq(D.Rebuilding(), 1)
+			UI.Refresh()
+			eq(main.sub:GetText(), L.REBUILDING_SUB:format(1) .. "  ·  " .. UI.CensusName())
+			local lines = ns.Views.Build("census")
+			census = Texts(lines)
+			assert(census:find(L.REBUILDING:format(1), 1, true), census)
+			local row
+			for _, l in ipairs(lines) do if l.cols and l.cols[1] == "Olympus Zeus" then row = l end end
+			assert(row, "the guilds heard are listed under it")
+			-- The rebuild is over: the numbers as ever, no line.
+			ns.Comm.loginAt = ns.Now() - D.REBUILD_FOR
+			eq(D.Rebuilding(), nil)
+			UI.Refresh()
+			eq(main.sub:GetText():find(L.REBUILDING_SUB:format(1), 1, true), nil, "the header back to the numbers")
+			census = Texts((ns.Views.Build("census")))
+			eq(census:find(L.REBUILDING:format(1), 1, true), nil, census)
+			-- An empty census after the rebuild: "No reports yet" again.
+			ns.rdb.guilds = {}
+			census = Texts((ns.Views.Build("census")))
+			assert(census:find(L.EMPTY, 1, true), census)
+			-- Before any login (or outside an Olympus guild): nothing.
+			ns.Comm.loginAt = nil
+			eq(D.Rebuilding(), nil)
+		end)
+	end)
+	ns.Comm.loginAt = savedLogin
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 census rebuilding: its login timer only redraws the window: no /who, no popup, no dialog", function()
+	local D = ns.Data
+	local saved = { login = ns.Comm.loginAt, After = ns.After, SendWho = SendWho, FL = C_FriendList, Show = StaticPopup_Show,
+		Dialog = ns.ShowDialog, Auto = ns.Who.Auto, Search = ns.Who.Search }
+	local calls = { who = 0, popups = 0, redraws = 0 }
+	local timers = {}
+	local ok, err = pcall(function()
+		WithUI(function()
+			local UI = LoadUI()
+			ns.rdb.guilds = {}
+			ns.Comm.loginAt = ns.Now()
+			UI.Toggle() -- (a click: its own quiet /who is the window's, not the timer's)
+			ns.After = function(seconds, where, fn) timers[#timers + 1] = { seconds = seconds, where = where, fn = fn } end
+			SendWho = function() calls.who = calls.who + 1 end
+			C_FriendList = { SendWho = function() calls.who = calls.who + 1 end }
+			ns.Who.Auto = function() calls.who = calls.who + 1 end
+			ns.Who.Search = function() calls.who = calls.who + 1 end
+			StaticPopup_Show = function() calls.popups = calls.popups + 1 end
+			ns.ShowDialog = function() calls.popups = calls.popups + 1 end
+			local refresh = UI.Refresh
+			UI.Refresh = function(...) calls.redraws = calls.redraws + 1; return refresh(...) end
+			D.OnLogin()
+			eq(#timers, 1, "one timer at login")
+			eq(timers[1].where, "census rebuilt"); eq(timers[1].seconds, D.REBUILD_FOR + 1)
+			ns.Comm.loginAt = ns.Now() - D.REBUILD_FOR - 1
+			UI.lastRedraw = -math.huge -- (a redraw long ago: RefreshSoon draws at once)
+			local fire = timers
+			timers = {}
+			for _, t in ipairs(fire) do t.fn() end
+			for _, t in ipairs(timers) do t.fn() end
+			eq(calls.redraws >= 1, true, "the window drawn again")
+			eq(OlympusFrame.sub:GetText():find(ns.L.REBUILDING_SUB:format(0), 1, true), nil, "and its line gone")
+			eq(calls.who, 0, "no /who from the timer")
+			eq(calls.popups, 0, "no popup or dialog")
+			UI.Refresh = refresh
+		end)
+	end)
+	ns.Comm.loginAt, ns.After, SendWho, C_FriendList, StaticPopup_Show = saved.login, saved.After, saved.SendWho, saved.FL, saved.Show
+	ns.ShowDialog, ns.Who.Auto, ns.Who.Search = saved.Dialog, saved.Auto, saved.Search
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 census rebuilding: its lines in both languages", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, k in ipairs({ "REBUILDING", "REBUILDING_WAIT", "REBUILDING_SUB", "REBUILDING_TIP" }) do
+		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+	end
+	eq(ns.L.REBUILDING:format(3), "Rebuilding the census after login: 3 guilds heard so far")
+end)
+
+-- (the end of 1.1's tests)
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

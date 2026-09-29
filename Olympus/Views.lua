@@ -583,6 +583,21 @@ local function SeenTooltip(e)
 	end
 end
 
+-- The census being rebuilt after login (1.1, Data.Rebuilding): two lines on top of the Census
+-- and the Realm, in place of "No reports yet", until it is. Nothing else (no /who, no popup).
+local function RebuildLines(lines)
+	local heard = ns.Data.Rebuilding and ns.Data.Rebuilding()
+	if not heard then return false end
+	local function tip(tt)
+		tt:AddLine(L.REBUILDING_SUB:format(heard), 1, 0.82, 0)
+		tt:AddLine(L.REBUILDING_TIP, 1, 1, 1, true)
+	end
+	lines[#lines + 1] = { text = Gold(L.REBUILDING:format(heard)), tooltip = tip }
+	lines[#lines + 1] = { text = Grey(L.REBUILDING_WAIT), tooltip = tip, gapAfter = true }
+	return true
+end
+Views.RebuildLines = RebuildLines
+
 -- How far the round of /who searches got (Who.lua), as grey lines under a list.
 local function WhoStatus(lines)
 	for _, text in ipairs(ns.Who.StatusLines() or {}) do lines[#lines + 1] = { text = Grey(text) } end
@@ -663,6 +678,8 @@ local function CensusLines(s, q)
 		if #lines == 0 then lines[1] = NoMatch() end
 		return lines
 	end
+	-- Right after login: the census is being rebuilt (it says so instead of "No reports yet").
+	local rebuilding = RebuildLines(lines)
 	-- The King's Agenda, for the whole army (King.lua).
 	local a = ns.King and ns.King.Agenda and ns.King.Agenda()
 	if a then
@@ -674,7 +691,7 @@ local function CensusLines(s, q)
 	-- While the King is online: one click asks for an invite to his layer (Hop.lua).
 	for _, hop in ipairs(ns.Hop and ns.Hop.KingLines and ns.Hop.KingLines() or {}) do lines[#lines + 1] = hop end
 	for _, e in ipairs(SortedGuilds(s.guilds)) do lines[#lines + 1] = CensusRow(e) end
-	if #lines == 0 then lines[1] = { text = Grey(L.EMPTY) } end
+	if #lines == 0 and not rebuilding then lines[1] = { text = Grey(L.EMPTY) } end
 	for _, e in ipairs(s.seen or {}) do lines[#lines + 1] = SeenRow(e) end
 	if #(s.seen or {}) > 0 then
 		lines[#lines].gapAfter = true
@@ -1090,6 +1107,8 @@ local function RealmLines(s, q)
 	local function Mark(name, home, online)
 		return ns.King and ns.King.RollCallMark and ns.King.RollCallMark(ns.FullName(name, home), online) or ""
 	end
+	-- Right after login: the census is being rebuilt (it says so instead of "No reports yet").
+	local rebuilding = not q and RebuildLines(lines)
 	-- The King holds court in our zone (Court.lua), then his layer (Hop.lua).
 	local court = not q and ns.Court and ns.Court.Line and ns.Court.Line()
 	if court then lines[#lines + 1] = court end
@@ -1139,7 +1158,7 @@ local function RealmLines(s, q)
 			end,
 		}
 	end
-	if #s.guilds == 0 and not q then lines[#lines + 1] = { text = Grey(L.EMPTY) } end
+	if #s.guilds == 0 and not q and not rebuilding then lines[#lines + 1] = { text = Grey(L.EMPTY) } end
 	-- A guild's header and, opened, its rows. `only`: what the search found in it (GuildMatches),
 	-- its rows alone under the headers they belong to; nil: all of them. `folds`: its click
 	-- closes and opens what the search opened, instead of the guild itself.

@@ -992,6 +992,11 @@ L.TREASURY_DETAIL_STEWARD = "The treasury as its keepers' addons send it. In the
 -- 1.0.0: the Hands each one named, on the King's and a Steward's Hands page (theirs to remove).
 L.HANDS_NAMED_BY_KING = "Named by the King (his to remove):"
 L.HANDS_NAMED_BY_STEWARD = "Named by the Steward %s (his to remove):"
+-- 1.1: the census refilling after login (request #4).
+L.REBUILDING = "Rebuilding the census after login: %d guilds heard so far"
+L.REBUILDING_WAIT = "It refills by itself within about 3 minutes: no /reload needed."
+L.REBUILDING_SUB = "Rebuilding the census: %d guilds heard"
+L.REBUILDING_TIP = "Each login starts from what this client saved, and the beta often loads nothing back. Your addon asks the Olympus channel for the census, and every guild's reporter answers within a few minutes. The army is not gone: its numbers come back on their own."
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1970,4 +1975,9 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.TREASURY_DETAIL_STEWARD = "O tesouro como os addons dos guardiões mandam. Em nome do Rei seus botões escolhem o que o exército vê, e você nomeia os guardiões."
 	L.HANDS_NAMED_BY_KING = "Nomeadas pelo Rei (só ele as tira):"
 	L.HANDS_NAMED_BY_STEWARD = "Nomeadas pelo Senescal %s (só ele as tira):"
+	-- 1.1: o censo se refazendo depois do login (pedido #4).
+	L.REBUILDING = "Refazendo o censo depois do login: %d guildas ouvidas até agora"
+	L.REBUILDING_WAIT = "Ele se completa sozinho em uns 3 minutos: não precisa de /reload."
+	L.REBUILDING_SUB = "Refazendo o censo: %d guildas ouvidas"
+	L.REBUILDING_TIP = "Cada login começa do que este cliente salvou, e o beta muitas vezes não carrega nada de volta. O seu addon pede o censo ao canal de Olympus, e o relator de cada guilda responde em poucos minutos. O exército não sumiu: os números voltam sozinhos."
 end

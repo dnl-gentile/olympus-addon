@@ -52,6 +52,10 @@ are highlighted. It is rate limited, so nobody gets spammed.
   (Eastern Kingdoms, Kalimdor), counted by the guilds whose census comes from a member who
   shares their zone (see Privacy, below).
 - Hover a guild: members, online, free slots, average level, inactive members, classes online, top zones.
+- **Right after login** (1.1) the header, the Census and the Realm say *Rebuilding the census
+  after login: N guilds heard so far* for about 3 minutes, while every guild's reporter answers.
+  The beta often loads an empty save: the army is not gone, and no `/reload` is needed. The line
+  only waits: it asks nothing (no `/who`) and opens nothing.
 
 ### The Realm: the hierarchy
 - The **King**, then every guild's **Lord** (guild master) and **Captains** (the officer rank
