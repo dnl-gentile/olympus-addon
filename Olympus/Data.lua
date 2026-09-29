@@ -144,8 +144,8 @@ end
 
 -- Sender names are set by the server and cannot be forged, so we tie every sender to the
 -- one guild it reports. A (modified) client that reports several guilds is ignored, and a
--- guild whose reports disagree about its leader, its size or its officers is flagged as a
--- conflict.
+-- guild whose reports disagree about its leader or its officers is flagged as a conflict (the
+-- census marks it, and sizes that disagree too: Data.Dispute, 1.1).
 local senderGuild = {} -- "Name-Realm" -> { guild, t }
 
 -- One guild per sender, shared by reports and chat: a name that speaks for one guild can't
@@ -217,8 +217,38 @@ Data.Majority = Majority -- for /oly status and tests
 -- called when we move to another channel, e.g. when the realm key arrives.
 function Data.ForgetVotes()
 	for _, g in pairs(ns.rdb and ns.rdb.guilds or {}) do
-		if type(g) == "table" then g.vouch, g.conflict = nil, nil end
+		if type(g) == "table" then g.vouch, g.conflict, g.outvoted = nil, nil, nil end
 	end
+end
+
+-- What the census's mark on a row says (1.1, Fern's #30): its senders split on the guild's leader
+-- or officers (`split`: no picture leads; `outvoted`: a sender's report is not what the others
+-- say), the fresh senders give sizes farther apart than SIZE_SLACK or SIZE_SHARE of the biggest
+-- (`sizes`: the smallest and the biggest, { sender, n } each), or one sender alone stands behind
+-- it (`single`: that sender). nil when nothing is to say: our own guild (our roster, the
+-- server's word), and a report older than FRESH (grey already, and out of the online counts).
+-- It changes nothing that counts; a marked row can still be the true one.
+Data.SIZE_SLACK, Data.SIZE_SHARE = 5, 0.05
+function Data.Dispute(g, now)
+	if type(g) ~= "table" or g.mine then return nil end
+	now = now or ns.Now()
+	if now - (g.t or 0) > Data.FRESH then return nil end
+	local d, senders, count, lo, hi = {}, {}, 0, nil, nil
+	for src, v in pairs(Votes(g.vouch, now)) do
+		local short = ns.ShortName(src)
+		if not senders[short] then senders[short], count = src, count + 1 end
+		if type(v.n) == "number" and now - (v.t or 0) <= Data.FRESH then
+			if not lo or v.n < lo.n then lo = { sender = src, n = v.n } end
+			if not hi or v.n > hi.n then hi = { sender = src, n = v.n } end
+		end
+	end
+	d.split = g.conflict and true or nil
+	d.outvoted = g.outvoted and true or nil
+	if lo and hi and hi.n - lo.n > math.max(Data.SIZE_SLACK, hi.n * Data.SIZE_SHARE) then d.sizes = { lo, hi } end
+	if count <= 1 then d.single = next(senders) and senders[next(senders)] or g.reporterFull or g.reporter or "?" end
+	d.disputed = (d.split or d.outvoted or d.sizes) and true or nil
+	if not (d.disputed or d.single) then return nil end
+	return d
 end
 
 -- No Crown from other guilds' votes until a full reporting cycle has passed since login: a
@@ -275,7 +305,8 @@ function Data.Receive(r, sender)
 	-- never loads it back).
 	local votes = Votes(previous and previous.vouch, now)
 	local ranks = Ranks(r)
-	votes[who] = { t = now, sig = Signature(r, ranks), ranks = ranks }
+	-- n (1.1): the size this sender gives, for the census's dispute mark (Data.Dispute).
+	votes[who] = { t = now, sig = Signature(r, ranks), ranks = ranks, n = tonumber(r.total) }
 	r.vouch = votes
 	local top, _, tops = Majority(votes, now)
 	-- Against the picture most senders give while that picture is fresh: the vote counts, the

@@ -64,6 +64,11 @@ are highlighted. It is rate limited, so nobody gets spammed. The game lists 50 p
   (Eastern Kingdoms, Kalimdor), counted by the guilds whose census comes from a member who
   shares their zone (see Privacy, below).
 - Hover a guild: members, online, free slots, average level, inactive members, classes online, top zones.
+- **Marked rows** (1.1): a warning mark on a guild whose senders disagree (on its Lord or
+  Captains, or on its size, by more than 5 members or 5%), a question mark on one that a single
+  sender stands behind. Its tooltip says which and who: check before calling a muster or opening
+  the gates on it (the gates ask again, with the reason). A marked row can still be right, and
+  the mark changes nothing that counts. Your own guild (your roster) is never marked.
 - **Search the census** (1.1): a guild, a Lord, a Captain, a player of a guild's top five or one
   seen online (the player shows under the guild's row), or a zone ("Stormwind": its soldiers
   and its guilds, most first). Type **recruiting** (or `free 50`) for every guild with room,
@@ -872,8 +877,9 @@ Other limits:
   so settings and the realm key reset every session. The census still refills in seconds: a
   client that logs in asks the channel, and each guild's reporter and runner-up answer at once.
 - A real Olympus member who edits their copy could still send a wrong report for **their own**
-  guild. Their guildmates' reports and the conflict flag make a changed leader, size or officer
-  list visible, but it can't be made impossible.
+  guild. Their guildmates' reports make it visible, but it can't be made impossible: since 1.1
+  the census marks a row whose senders disagree on its leader, its officers or its size, and,
+  fainter, one that a single sender stands behind (hover it for what the mark says).
 
 ## Built for a crowd of thousands
 

@@ -3065,7 +3065,9 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 		table.remove(lines, 1)
 		assert(lines[1].onClick and not lines[1].cols, "the King is online: his layer line comes first")
 		table.remove(lines, 1)
-		eq(lines[1].cols[1], "Olympus II"); eq(lines[2].cols[1], "Olympus")
+		-- (1.1, Fern's #30: one sender stands behind Olympus II, so its row wears the unconfirmed mark;
+		-- two others vouch for Olympus.)
+		eq(lines[1].cols[1], "|T" .. ns.Views.MARK_SINGLE .. ":12:12|t Olympus II", "unconfirmed"); eq(lines[2].cols[1], "Olympus")
 		eq(lines[3].cols[1], Grey("OLYMPUS XXL"), "most online first")
 		eq(lines[3].cols[3], Grey("30")); eq(lines[3].dim, nil)
 		eq(lines[4].cols[1], Grey("OLYMPUS VII")); eq(lines[4].cols[2], Grey("?"))
@@ -16821,7 +16823,8 @@ do
 			if type(l.text) == "string" and l.text:find(text, 1, true) then return l, i end
 		end
 	end
-	local function Bare(s) return (tostring(s or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+	-- (1.1: and the census's mark before a guild's name, Fern's #30: these rows are found by name.)
+	local function Bare(s) return (tostring(s or ""):gsub("^|T[^|]*|t ", ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
 	-- The Census's rows by their guild, colour codes left out.
 	local function Guilds(lines)
 		local out = {}
@@ -17000,7 +17003,8 @@ do
 			eq(At(lines, "<Olympus>"), nil)
 			header.onClick()
 			lines = V.Build("realm")
-			assert(At(lines, "[-] |cff40ff40<Olympus II>") and At(lines, L.RANKS) and At(lines, "Mate"), "all of it: " .. Texts(lines))
+			-- (1.1: its header carries the census's mark before its name, Fern's #30: one sender stands behind it.)
+			assert(At(lines, "[-] " .. ns.Views.DisputeMark(ns.rdb.guilds["Olympus II"]) .. "|cff40ff40<Olympus II>") and At(lines, L.RANKS) and At(lines, "Mate"), "all of it: " .. Texts(lines))
 			At(lines, "<Olympus II>").onClick()
 			-- Collapse all folds what the search opened too.
 			V.SetFilter("realm", "capt")
@@ -17038,7 +17042,7 @@ do
 			eq(V.Filter("census"), "lordy", "the Census's own search kept")
 			local lines = V.Build("realm")
 			eq(Box(lines).input.text, "")
-			assert(At(lines, "[-] |cff40ff40<Olympus II>"), "the guild clicked, opened: " .. Texts(lines))
+			assert(At(lines, "[-] " .. ns.Views.DisputeMark(ns.rdb.guilds["Olympus II"]) .. "|cff40ff40<Olympus II>"), "the guild clicked, opened: " .. Texts(lines))
 			assert(At(lines, L.RANKS) and At(lines, L.KING .. ": "), "the whole Realm, as with nothing typed")
 			eq(#calls, 0, "nothing sent")
 		end)
@@ -17419,7 +17423,7 @@ do
 				eq(eb.clear:IsShown(), false, "no x while it is empty")
 				local function Shown()
 					local out = {}
-					for _, r in ipairs(view.rows) do if r:IsShown() and r.line and r.line.cols then out[#out + 1] = r.line.cols[1] end end
+					for _, r in ipairs(view.rows) do if r:IsShown() and r.line and r.line.cols then out[#out + 1] = Bare(r.line.cols[1]) end end
 					return table.concat(out, ",")
 				end
 				eq(Shown(), "Olympus,Olympus II")
@@ -17518,7 +17522,7 @@ do
 				UI.SelectTab("census")
 				local row
 				for _, r in ipairs(main.views.census.rows) do
-					if r:IsShown() and r.line and r.line.cols and r.line.cols[1] == "Olympus II" then row = r end
+					if r:IsShown() and r.line and r.line.cols and Bare(r.line.cols[1]) == "Olympus II" then row = r end
 				end
 				assert(row, "the Census's row")
 				row:Click()
@@ -17526,7 +17530,7 @@ do
 				eq(V.Filter("realm"), ""); eq(reb:GetText(), "", "the box shows it emptied"); eq(reb.clear:IsShown(), false)
 				local header
 				for _, r in ipairs(main.views.realm.rows) do
-					if r:IsShown() and r.line and (r.line.text or ""):find("[-] |cff40ff40<Olympus II>", 1, true) then header = r end
+					if r:IsShown() and r.line and (r.line.text or ""):find("[-] " .. ns.Views.DisputeMark(ns.rdb.guilds["Olympus II"]) .. "|cff40ff40<Olympus II>", 1, true) then header = r end
 				end
 				assert(header, "the guild clicked, opened in the Realm")
 				eq(#focused, 0, "no box focused"); eq(#game.shown, 0, "no game popup")
@@ -24710,6 +24714,134 @@ test("1.1 tonight's count (Fern #16): this client's peak and each zone's trend, 
 		ns.Now = savedNow
 		eq(#w.sent, 0, "nothing sent")
 	end)
+end)
+
+
+-- A report of `guild` from `sender`, as the channel brings it (Codec), with its size.
+function Fern.Report(guild, leader, officers, sender, total)
+	local r = Codec.DecodeReport("R2~" .. guild .. "~" .. (total or 900) .. "~90~" .. leader .. "~1~1~~~0,0,0,0,0,0,0~~" .. (officers or ""))
+	return ns.Data.Receive(r, sender)
+end
+
+test("1.1 census marks (Fern #30): senders split on the ranks, a sender outvoted, sizes apart, or one sender alone; what each says; never our own guild or an old report", function()
+	local D, V, L = ns.Data, ns.Views, ns.L
+	local saved = { guilds = ns.rdb.guilds, now = ns.Now }
+	local clock = os.time()
+	ns.Now = function() return clock end
+	local ok, err = pcall(function()
+		ns.rdb.guilds = {}
+		-- One sender: unconfirmed, the fainter mark, the sender named.
+		eq(Fern.Report("Olympus Zed", "Zlord", "Zcap:1:0", "Zeda-Realm", 800), true)
+		local g = ns.rdb.guilds["Olympus Zed"]
+		eq(g.vouch["Zeda-Realm"].n, 800, "each vote keeps its sender's size")
+		local d = D.Dispute(g)
+		eq(d.single, "Zeda-Realm"); eq(d.disputed, nil)
+		eq(V.DisputeMark(g), "|T" .. V.MARK_SINGLE .. ":12:12|t ")
+		eq(V.DisputeLines(d)[1], L.DISPUTE_SINGLE:format("Zeda"))
+		-- A second sender, the same picture and size within max(5, 5%): nothing to mark.
+		clock = clock + 60
+		eq(Fern.Report("Olympus Zed", "Zlord", "Zcap:1:0", "Zedb-Realm", 830), true)
+		eq(D.Dispute(ns.rdb.guilds["Olympus Zed"]), nil, "two senders agree (800 and 830 of 830 is within 5%)")
+		eq(V.DisputeMark(ns.rdb.guilds["Olympus Zed"]), "")
+		-- The same picture, a forged headcount: the sizes are apart.
+		clock = clock + 60
+		eq(Fern.Report("Olympus Zed", "Zlord", "Zcap:1:0", "Zedc-Realm", 1), true, "the same leader and officers: the row takes it")
+		g = ns.rdb.guilds["Olympus Zed"]
+		d = D.Dispute(g)
+		eq(d.disputed, true); eq(d.sizes[1].n, 1); eq(d.sizes[1].sender, "Zedc-Realm"); eq(d.sizes[2].n, 830); eq(d.sizes[2].sender, "Zedb-Realm")
+		eq(V.DisputeMark(g), "|T" .. V.MARK_DISPUTED .. ":12:12|t ")
+		eq(V.DisputeLines(d)[1], L.DISPUTE_SIZES:format("830", "Zedb", "1", "Zedc"))
+		-- Five apart from a small guild is no dispute (max(5, 5%)).
+		ns.rdb.guilds = {}
+		eq(Fern.Report("Olympus Tiny", "Tl", "", "Tina-Realm", 20), true)
+		eq(Fern.Report("Olympus Tiny", "Tl", "", "Tinb-Realm", 25), true)
+		eq(D.Dispute(ns.rdb.guilds["Olympus Tiny"]), nil, "20 and 25: within 5")
+		eq(Fern.Report("Olympus Tiny", "Tl", "", "Tinc-Realm", 26), true)
+		eq(D.Dispute(ns.rdb.guilds["Olympus Tiny"]).sizes[1].n, 20, "20 and 26: apart")
+		-- A sender against the others' picture: outvoted.
+		ns.rdb.guilds = {}
+		eq(Fern.Report("Olympus Ares", "Ares", "Duke:1:0", "Area-Realm"), true)
+		eq(Fern.Report("Olympus Ares", "Ares", "Duke:1:0", "Areb-Realm"), true)
+		eq(Fern.Report("Olympus Ares", "Other", "Duke:1:0", "Arec-Realm"), false)
+		d = D.Dispute(ns.rdb.guilds["Olympus Ares"])
+		eq(d.outvoted, true); eq(d.disputed, true); eq(V.DisputeLines(d)[1], L.DISPUTE_OUTVOTED)
+		-- Senders split one against one: no picture leads.
+		ns.rdb.guilds = {}
+		eq(Fern.Report("Olympus Eris", "Eris", "", "Erisa-Realm"), true)
+		eq(Fern.Report("Olympus Eris", "Rival", "", "Erisb-Realm"), true)
+		d = D.Dispute(ns.rdb.guilds["Olympus Eris"])
+		eq(d.split, true); eq(V.DisputeLines(d)[1], L.DISPUTE_SPLIT)
+		-- A channel change forgets the votes, and the marks they made.
+		ns.rdb.guilds["Olympus Eris"].outvoted = true
+		D.ForgetVotes()
+		eq(ns.rdb.guilds["Olympus Eris"].outvoted, nil); eq(ns.rdb.guilds["Olympus Eris"].conflict, nil)
+		eq(D.Dispute(ns.rdb.guilds["Olympus Eris"]).disputed, nil, "left with no sender: unconfirmed, not disputed")
+		-- Our own guild (our roster, the server's word) and an old report: no mark.
+		eq(D.Dispute({ mine = true, t = clock, conflict = true }), nil)
+		eq(D.Dispute({ t = clock - D.FRESH - 1, conflict = true }), nil)
+	end)
+	ns.rdb.guilds, ns.Now = saved.guilds, saved.now
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 census marks (Fern #30): on the Census's row, the Realm's guild header and Recruiting, with the reason in the tooltip; the gates ask again on a marked guild", function()
+	local V, L = ns.Views, ns.L
+	Fern.Census(function(w)
+		local now = os.time()
+		ns.rdb.guilds = {}
+		ns.rdb.guilds["Olympus Zed"] = { total = 800, online = 10, zones = {}, t = now, leader = "Zlord", leaderOnline = true, officers = {},
+			reporter = "Aaa", reporterFull = "Aaa-Realm",
+			vouch = { ["Aaa-Realm"] = { t = now, sig = "s", ranks = {}, n = 800 }, ["Ccc-Realm"] = { t = now, sig = "s", ranks = {}, n = 1 } } }
+		ns.rdb.guilds["Olympus Ok"] = { total = 400, online = 10, zones = {}, t = now, leader = "Oklord", leaderOnline = true, officers = {},
+			vouch = { ["Aaa2-Realm"] = { t = now, sig = "s", ranks = {}, n = 400 }, ["Bbb2-Realm"] = { t = now, sig = "s", ranks = {}, n = 401 } } }
+		local lines = V.Build("census")
+		local zed, ok
+		for _, l in ipairs(lines) do
+			if l.cols and l.cols[1]:find("Olympus Zed", 1, true) then zed = l end
+			if l.cols and l.cols[1]:find("Olympus Ok", 1, true) then ok = l end
+		end
+		eq(zed.cols[1], "|T" .. V.MARK_DISPUTED .. ":12:12|t Olympus Zed", "the row wears the mark")
+		eq(ok.cols[1], "Olympus Ok", "two senders agree: no mark")
+		local tip = Fern.Tip(zed)
+		assert(tip:find(L.DISPUTE_TITLE, 1, true) and tip:find(L.DISPUTE_SIZES:format("800", "Aaa", "1", "Ccc"), 1, true), tip)
+		assert(tip:find(L.DISPUTE_TIP, 1, true), "a mark is no accusation")
+		assert(not Fern.Tip(ok):find(L.DISPUTE_TITLE, 1, true))
+		-- The Realm: the guild's header and its Recruiting line.
+		local realm = V.RealmLines()
+		local head = Fern.Find(realm, "<Olympus Zed>")
+		assert(head.text:find(V.MARK_DISPUTED, 1, true), head.text)
+		local _, at = Fern.Find(realm, L.RECRUITING)
+		local rec
+		for i = at + 1, #realm do if realm[i].text and realm[i].text:find("<Olympus Zed>", 1, true) then rec = realm[i] end end
+		assert(rec and rec.text:find(V.MARK_DISPUTED, 1, true), "Recruiting too")
+		assert(Fern.Tip(rec):find(L.DISPUTE_SIZES:format("800", "Aaa", "1", "Ccc"), 1, true), "its reason, for everyone")
+		-- The King opening its gates is told why first; another guild's as ever.
+		local savedCan, savedShow = ns.King.CanCommand, ns.ShowDialog
+		local asked = {}
+		ns.King.CanCommand = function() return true end
+		ns.ShowDialog = function(which, a, b, data) asked[#asked + 1] = { which = which, a = a, b = b, data = data } end
+		local okCall, err = pcall(function()
+			ns.Acts.GatesClick("Olympus Zed")
+			eq(asked[1].which, "OLYMPUS_GATES_MARKED"); eq(asked[1].a, "Olympus Zed"); eq(asked[1].data, "Olympus Zed")
+			eq(asked[1].b, L.DISPUTE_SIZES:format("800", "Aaa", "1", "Ccc"))
+			ns.Acts.GatesClick("Olympus Ok")
+			eq(asked[2].which, "OLYMPUS_GATES")
+		end)
+		ns.King.CanCommand, ns.ShowDialog = savedCan, savedShow
+		if not okCall then error(err, 0) end
+		assert(StaticPopupDialogs.OLYMPUS_GATES_MARKED.text:find("%s", 1, true), "the reason in its text")
+		eq(StaticPopupDialogs.OLYMPUS_GATES_MARKED.OnAccept ~= nil, true)
+		eq(#w.sent, 0, "a mark sends nothing")
+	end)
+	Fern.BothLanguages({ "DISPUTE_TITLE", "DISPUTE_SINGLE_TITLE", "DISPUTE_SPLIT", "DISPUTE_OUTVOTED", "DISPUTE_SIZES", "DISPUTE_SINGLE",
+		"DISPUTE_TIP", "GATES_CONFIRM_MARKED" })
+end)
+
+test("1.1 census marks (Fern #30): the dead 'twin' flag is read nowhere any more", function()
+	for _, file in ipairs({ "Layers.lua", "Hop.lua", "Vox.lua", "Data.lua", "Views.lua" }) do
+		local src = assert(io.open(ADDON_DIR .. file)):read("*a")
+		eq(src:find("%.twin"), nil, file)
+	end
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

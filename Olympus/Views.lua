@@ -530,6 +530,45 @@ end
 local function NoMatch() return { text = Grey(L.SEARCH_NO_MATCH) } end
 
 ---------------------------------------------------------------------------
+-- The census's marks (1.1, Fern's #30): a row its senders disagree on (Data.Dispute: its leader
+-- or officers, or its size), and, fainter, one a single sender stands behind. A game texture in
+-- the row's text, so both windows and the gamepad UI show it; the tooltip says what it is.
+---------------------------------------------------------------------------
+
+Views.MARK_DISPUTED = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
+Views.MARK_SINGLE = "Interface\\Icons\\INV_Misc_QuestionMark"
+
+-- The mark before a guild's name ("" for none), and what Data.Dispute found.
+function Views.DisputeMark(g)
+	local d = ns.Data.Dispute(g)
+	if not d then return "", nil end
+	return "|T" .. (d.disputed and Views.MARK_DISPUTED or Views.MARK_SINGLE) .. ":12:12|t ", d
+end
+
+-- What the mark says, a line each (nil: no mark), for tooltips and the gates' question.
+function Views.DisputeLines(d)
+	if not d then return nil end
+	local out = {}
+	if d.split then out[#out + 1] = L.DISPUTE_SPLIT end
+	if d.outvoted then out[#out + 1] = L.DISPUTE_OUTVOTED end
+	if d.sizes then
+		out[#out + 1] = L.DISPUTE_SIZES:format(ns.FormatNumber(d.sizes[2].n), ns.DisplayName(d.sizes[2].sender) or "?",
+			ns.FormatNumber(d.sizes[1].n), ns.DisplayName(d.sizes[1].sender) or "?")
+	end
+	if d.single then out[#out + 1] = L.DISPUTE_SINGLE:format(ns.DisplayName(d.single) or "?") end
+	return out
+end
+
+local function DisputeTooltip(tt, d)
+	local lines = Views.DisputeLines(d)
+	if not lines then return end
+	tt:AddLine(" ")
+	tt:AddLine(d.disputed and L.DISPUTE_TITLE or L.DISPUTE_SINGLE_TITLE, 1, d.disputed and 0.4 or 0.82, d.disputed and 0.2 or 0)
+	for _, text in ipairs(lines) do tt:AddLine(text, 1, 1, 1, true) end
+	tt:AddLine(L.DISPUTE_TIP, 0.6, 0.6, 0.6, true)
+end
+
+---------------------------------------------------------------------------
 -- Shared tooltips
 ---------------------------------------------------------------------------
 
@@ -568,6 +607,7 @@ local function GuildTooltip(e)
 		tt:AddLine(" ")
 		tt:AddLine(L.REPORTED_BY:format(g.reporter or "?", ns.Ago(g.t)), 0.6, 0.6, 0.6)
 		if not e.fresh then tt:AddLine(L.STALE, 1, 0.4, 0.4) end
+		DisputeTooltip(tt, ns.Data.Dispute(g))
 	end
 end
 
@@ -615,7 +655,7 @@ local function CensusRow(e)
 	local g = e.g
 	local leader = g.leader and ((g.leaderOnline and "|cff40ff40" or "|cff9d9d9d") .. Plain(g.leader) .. "|r") or Grey("?")
 	return {
-		cols = { Plain(e.name), ns.FormatNumber(g.total), Green(ns.FormatNumber(g.online)), leader },
+		cols = { Views.DisputeMark(g) .. Plain(e.name), ns.FormatNumber(g.total), Green(ns.FormatNumber(g.online)), leader },
 		dim = not e.fresh,
 		tooltip = GuildTooltip(e),
 		onClick = function()
@@ -734,7 +774,8 @@ local function RecruitingLines(lines, s, min)
 	end
 	if first then table.insert(open, 1, table.remove(open, first)) end
 	for _, o in ipairs(open) do
-		lines[#lines + 1] = GuildLink(o.name, L.FREE_SLOTS:format(ns.FormatNumber(o.free)), gates and o.name == gates.guild and CROWN or nil)
+		lines[#lines + 1] = GuildLink(o.name, L.FREE_SLOTS:format(ns.FormatNumber(o.free)),
+			(gates and o.name == gates.guild and CROWN or "") .. Views.DisputeMark(o.e.g))
 	end
 	if #open == 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.ALL_FULL) } end
 	lines[#lines].gapAfter = true
@@ -1341,7 +1382,7 @@ local function RealmLines(s, q)
 		local g = e.g
 		lines[#lines + 1] = {
 			id = Views.GuildId(e.name),
-			text = (open and "[-] " or "[+] ") .. Green("<" .. Plain(e.name) .. ">") .. " " .. Plain(g.leader or "?"),
+			text = (open and "[-] " or "[+] ") .. Views.DisputeMark(g) .. Green("<" .. Plain(e.name) .. ">") .. " " .. Plain(g.leader or "?"),
 			right = Presence(g.leaderOnline, g.leaderDays),
 			onClick = function()
 				if folds then
@@ -1527,14 +1568,19 @@ local function RealmLines(s, q)
 	local shownOpen = Views.recruitAll and #open or math.min(Views.RECRUIT_SHOWN, #open)
 	for i = 1, shownOpen do
 		local name = open[i].name
+		-- (Its census mark too, 1.1: the gates open on its size, Fern's #30.)
+		local mark, d = Views.DisputeMark(open[i].e.g)
 		lines[#lines + 1] = {
-			text = Green("<" .. name .. ">"), right = L.FREE_SLOTS:format(ns.FormatNumber(open[i].free)),
+			text = mark .. Green("<" .. name .. ">"), right = L.FREE_SLOTS:format(ns.FormatNumber(open[i].free)),
 			-- The King and his Hands open a guild's gates from here.
 			onClick = commands and function() ns.Acts.GatesClick(name) end or nil,
-			tooltip = commands and function(tt)
+			tooltip = (commands or d) and function(tt)
 				tt:AddLine("<" .. name .. ">", 0.25, 1, 0.25)
-				local closing = gates and gates.guild == name
-				tt:AddLine(closing and (ns.Acts.CanClose() and L.GATES_CLOSE_TIP or L.GATES_ONLY_OPENER) or L.GATES_CLICK_TIP, 1, 1, 1, true)
+				if commands then
+					local closing = gates and gates.guild == name
+					tt:AddLine(closing and (ns.Acts.CanClose() and L.GATES_CLOSE_TIP or L.GATES_ONLY_OPENER) or L.GATES_CLICK_TIP, 1, 1, 1, true)
+				end
+				DisputeTooltip(tt, d)
 			end or nil,
 		}
 	end

@@ -211,7 +211,7 @@ end
 local function FromKing(sender)
 	if ns.IsKingCharacter(sender) then return true end
 	for name, g in pairs(ns.rdb.guilds or {}) do
-		if ns.IsKingGuild(name) and type(g) == "table" and g.leader and not g.twin then
+		if ns.IsKingGuild(name) and type(g) == "table" and g.leader then
 			local full = ns.FullName(g.leader, g.realm or ns.realm)
 			if full == sender and ns.Data.KnownRank(full, name, true) == 0 then return true end
 		end

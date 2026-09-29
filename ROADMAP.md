@@ -19,5 +19,6 @@
   members (MAIL_INBOX_UPDATE / TRADE_* events), ledger per member, "who has not paid this week".
 - **Layers** - zoneUID from NPC GUIDs (`/oly layer` is the probe); sample from addon users per layer.
 - **Share inspections** between officers over OlympusNet so several inspectors build one list.
-- **Verification badge** when two reporters of the same guild agree.
+- ~~**Verification badge** when two reporters of the same guild agree~~ (1.1: the census marks a row whose
+  senders disagree, and one a single sender stands behind).
 - **Channels view** - per-tier history (`Channels.History`, `CHAT_CHANGED`) in the window.

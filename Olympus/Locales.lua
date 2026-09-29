@@ -1003,6 +1003,15 @@ L.EVENING_TIP = "Your addon reads the census it holds once a minute, from %s on 
 L.EVENING_SINCE = "since %s"
 L.RECRUIT_SHOW_ALL = "Show all %d guilds with room"
 L.RECRUIT_SHOW_FEWER = "Show fewer"
+-- 1.1 (Fern's #30): the census's mark on a disputed or unconfirmed row.
+L.DISPUTE_TITLE = "Disputed: its senders disagree"
+L.DISPUTE_SINGLE_TITLE = "Unconfirmed: one sender"
+L.DISPUTE_SPLIT = "Its senders are split on who its Lord or Captains are."
+L.DISPUTE_OUTVOTED = "A sender's report names another Lord or other Captains than the rest say."
+L.DISPUTE_SIZES = "Its senders give different sizes: %s (%s) and %s (%s)."
+L.DISPUTE_SINGLE = "Only %s reports it: nobody else confirms these numbers."
+L.DISPUTE_TIP = "Check before acting on this row (a muster, the gates): a marked row can still be right, and a guild with one addon user has one sender. The mark changes nothing that counts."
+L.GATES_CONFIRM_MARKED = "Open the gates of <%s>? Its census row is marked: %s For 2 hours the army sends new recruits there."
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1991,4 +2000,12 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.EVENING_SINCE = "desde %s"
 	L.RECRUIT_SHOW_ALL = "Mostrar todas as %d guildas com vaga"
 	L.RECRUIT_SHOW_FEWER = "Mostrar menos"
+	L.DISPUTE_TITLE = "Em disputa: os remetentes discordam"
+	L.DISPUTE_SINGLE_TITLE = "Sem confirmação: um só remetente"
+	L.DISPUTE_SPLIT = "Os remetentes discordam sobre quem são o Lorde ou os Capitães dela."
+	L.DISPUTE_OUTVOTED = "O report de um remetente nomeia outro Lorde ou outros Capitães do que os demais dizem."
+	L.DISPUTE_SIZES = "Os remetentes dão tamanhos diferentes: %s (%s) e %s (%s)."
+	L.DISPUTE_SINGLE = "Só %s reporta ela: ninguém mais confirma esses números."
+	L.DISPUTE_TIP = "Confira antes de agir por esta linha (uma convocação, os portões): uma linha marcada ainda pode estar certa, e uma guilda com um só usuário do addon tem um só remetente. A marca não muda nada do que conta."
+	L.GATES_CONFIRM_MARKED = "Abrir os portões da <%s>? A linha dela no censo está marcada: %s Por 2 horas o exército manda os novos recrutas pra lá."
 end
