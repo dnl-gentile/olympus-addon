@@ -1247,6 +1247,7 @@ local function Help()
 	print("  /oly patrol - start/stop inspecting nearby Olympus members")
 	print("  /oly mark [reason] - mark your target")
 	print(L.HELP_GEAR)
+	print(L.HELP_PATROLSHARE)
 	print("  /oly map - show/hide zone counts on the world map")
 	print("  /oly realm - the Realm tree (leaders, officers, ranks)")
 	print("  /oly layers - layers of your zone (in the Realm tab)")
@@ -1312,6 +1313,11 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "gear" then
 			-- 1.1 (Fern's #28): officers keep the gear of the player they target, in range.
 			ns.Inspect.InspectGear()
+		elseif cmd == "patrolshare" then
+			-- 1.1 (Fern's #29): officers pass their patrols' findings to their guild's officers.
+			local word, on = rest:lower(), nil
+			if word == "on" then on = true elseif word == "off" then on = false end
+			ns.Inspect.SetSharing(on)
 		elseif cmd == "map" then
 			ns.Map.SetEnabled(not ns.db.showMap)
 		elseif cmd == "throne" or cmd == "trono" then

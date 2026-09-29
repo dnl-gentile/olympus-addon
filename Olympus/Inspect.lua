@@ -51,7 +51,9 @@ end
 function Inspect.Prune()
 	local players, now, n = Store().players, ns.Now(), 0
 	for name, p in pairs(players) do
-		if type(p) ~= "table" or (not p.marked and now - (tonumber(p.t) or 0) > Inspect.MAX_AGE) then
+		local age = now - (tonumber(type(p) == "table" and p.t) or 0)
+		-- (1.1: another officer's word lasts SHARE_KEEP; our own inspections MAX_AGE.)
+		if type(p) ~= "table" or (not p.marked and (age > Inspect.MAX_AGE or (p.shared and not p.gear and age > Inspect.SHARE_KEEP))) then
 			players[name] = nil
 		else
 			n = n + 1
@@ -123,6 +125,8 @@ end
 Inspect.MIN_LEVEL = 15
 local function TooYoung(level) return type(level) == "number" and level > 0 and level < Inspect.MIN_LEVEL end
 
+local QueueShare -- (1.1, below: an officer's own finding, for his guild's officers)
+
 function Inspect.Record(name, guild, classFile, level, tabardID, anyGear)
 	name = Key(name)
 	if not name then return nil end
@@ -134,7 +138,11 @@ function Inspect.Record(name, guild, classFile, level, tabardID, anyGear)
 	p.status = Inspect.Classify(tabardID, anyGear)
 	if TooYoung(level) and (p.status == "NONE" or p.status == "OTHER") then p.status = "YOUNG" end
 	p.t = ns.Now()
+	-- Seen with our own eyes now: no longer another officer's word (1.1).
+	local wasShared = p.shared
+	p.shared, p.by = nil, nil
 	s.players[name] = p
+	if QueueShare then QueueShare(p, previous, wasShared) end
 	ns.Log("inspect %s <%s>: %s (%s)", name, tostring(guild), p.status, tostring(tabardID))
 	if (p.status == "NONE" or p.status == "OTHER") and previous ~= p.status then
 		local label = p.status == "NONE" and L.TABARD_NONE or L.TABARD_OTHER
@@ -449,6 +457,236 @@ function Inspect.TooltipLine(name)
 end
 
 ---------------------------------------------------------------------------
+-- The officers' shared list (1.1, Fern's #29: "Officers only, merged over guild messages, inside
+-- the current inspect budget. Do not scan faster."). A patrol is one character's, so each officer
+-- rebuilt the same list. Now an officer's addon passes what his own inspections find (a player
+-- caught without the colors or with another tabard, and one caught before now wearing ours) to
+-- his guild's officers, over GUILD: nothing more is inspected for it, no inspection comes sooner,
+-- nothing goes on the Olympus channel. Only officers (the guild master and the officer rank right
+-- below: our roster, the server's word) send them and keep them, each receiver checking the
+-- sender's rank in its own roster. What another officer found shows on the Tabards page like our
+-- own, with his name in the tooltip, for SHARE_KEEP; our own later inspection of that player
+-- replaces it, and nothing is passed on second hand. The King's untabarded list stays his: it is
+-- made from his own patrol and the Royal Inspection's reports, as before.
+--   U1~<name>:<guild>:<N|O|G>:<seconds ago, base36>;...   an officer's own findings (GUILD)
+--   U0~                                                   an officer's addon after login: "what
+--                                                         did you find today?" (GUILD)
+-- A GUILD message reaches every guildmate's client (any of them can read its bytes with a
+-- script); the addon of anyone but an officer drops it unread. Versions before 1.1 have no
+-- handler for these and drop them. /oly patrolshare off: nothing sent, nothing taken.
+---------------------------------------------------------------------------
+
+Inspect.SHARE_EVERY = 60         -- an officer's findings go out once a minute at most...
+Inspect.SHARE_PER_MSG = 6        -- ...this many in a message...
+Inspect.SHARE_MSGS = 3           -- ...and this many messages each time (the rest wait their turn)
+Inspect.SHARE_KEEP = 24 * 3600   -- another officer's word is kept a day; ours as every inspection
+Inspect.SHARE_ANSWER_GAP = 300   -- an ask is answered once each 5 minutes at most
+Inspect.random = math.random
+Inspect.after = function(seconds, where, fn) ns.After(seconds, where, fn) end
+local STATUS_CODE = { NONE = "N", OTHER = "O", GUILD = "G" }
+local CODE_STATUS = { N = "NONE", O = "OTHER", G = "GUILD" }
+local shareQueue, shareQueued = {}, {} -- the names of our own findings waiting to go out
+local lastShare, lastAnswer, answering = -math.huge, -math.huge, false
+
+function Inspect.Sharing() return not (ns.db and ns.db.patrolShare == false) end
+local function Officer() return ns.IsMember() == true and ns.Roster.IsOfficer() == true end
+local function MayShare() return Inspect.Sharing() and Officer() end
+Inspect.MayShare = MayShare
+
+-- A finding of our own worth telling our officers: someone caught without the colors or with
+-- another tabard, or wearing ours now after being caught (by us or by another officer: the
+-- correction reaches whoever holds the old word).
+QueueShare = function(p, previous, wasShared)
+	if not MayShare() then return end
+	local status = p.status
+	local fix = status == "GUILD" and (previous == "NONE" or previous == "OTHER")
+	if not (status == "NONE" or status == "OTHER" or fix) then return end
+	if status == previous and not wasShared then
+		-- (The same finding again, already told: only a new one goes out.)
+		if p.sharedAt and ns.Now() - p.sharedAt < Inspect.SHARE_KEEP / 2 then return end
+	end
+	if not shareQueued[p.name] then
+		shareQueued[p.name] = true
+		shareQueue[#shareQueue + 1] = p.name
+	end
+end
+
+local function Clean(s) return (tostring(s or ""):gsub("[:;~|%c]", "")) end
+
+-- An entry of ours as it travels, nil when it can't (a name or guild too long).
+local function Entry(p, now)
+	local code = STATUS_CODE[p.status or ""]
+	local age = ns.Codec.Base36(math.max(0, now - (tonumber(p.t) or now)))
+	local name, guild = Clean(p.name), Clean(p.guild)
+	if not code or not age or name == "" or #name > 60 or #guild > 72 then return nil end
+	return ("%s:%s:%s:%s"):format(name, guild, code, age)
+end
+
+-- Entries (strings) into messages of SHARE_PER_MSG entries (and 250 bytes) each, SHARE_MSGS at most.
+local function Send(entries, key)
+	local sent, msg, n, count = 0, nil, 0, 0
+	local function Flush()
+		if not msg then return end
+		count = count + 1
+		ns.Comm.Send("GUILD", msg, key .. count)
+		msg, n = nil, 0
+	end
+	for _, e in ipairs(entries) do
+		if count >= Inspect.SHARE_MSGS then break end
+		if msg and (n >= Inspect.SHARE_PER_MSG or #msg + 1 + #e > 250) then Flush() end
+		if count >= Inspect.SHARE_MSGS then break end
+		msg = msg and (msg .. ";" .. e) or ("U1~" .. e)
+		n, sent = n + 1, sent + 1
+	end
+	Flush()
+	return sent
+end
+
+-- Once each SHARE_EVERY: our findings waiting, oldest first, as many as SHARE_MSGS messages hold.
+function Inspect.FlushShare()
+	if #shareQueue == 0 then return 0 end
+	if not MayShare() then
+		wipe(shareQueue); wipe(shareQueued)
+		return 0
+	end
+	local now = ns.Now()
+	if now - lastShare < Inspect.SHARE_EVERY then return 0 end
+	local entries, names = {}, {}
+	while #shareQueue > 0 and #entries < Inspect.SHARE_PER_MSG * Inspect.SHARE_MSGS do
+		local name = table.remove(shareQueue, 1)
+		shareQueued[name] = nil
+		local p = Store().players[name]
+		local e = p and not p.shared and Entry(p, now)
+		if e then
+			entries[#entries + 1] = e
+			names[#names + 1] = p
+		end
+	end
+	if #entries == 0 then return 0 end
+	lastShare = now
+	local sent = Send(entries, "tabardshare")
+	for i = 1, sent do names[i].sharedAt = now end
+	ns.Log("tabard patrol: %d finding(s) told to our officers", sent)
+	return sent
+end
+
+-- A name as another officer's addon wrote it: "Name" or "First Surname", with "-Realm" or not.
+local function CleanShared(s)
+	if type(s) ~= "string" or #s > 60 then return nil end
+	local short, realm = s:match("^([^%-]+)%-([^%-]+)$")
+	short = short or s
+	if not short:match("^[%a\128-\255]+ ?[%a\128-\255]*$") then return nil end
+	if realm and not realm:match("^[%w\128-\255]+$") then return nil end
+	return s
+end
+
+-- An officer's findings (U1, over GUILD), taken by an officer's addon only: the sender an
+-- officer of ours by our roster, each entry an Olympus guild's player, a day old at most, newer
+-- than what we hold of him (our own inspections included).
+function Inspect.HandleShare(dist, sender, text)
+	if dist ~= "GUILD" or type(text) ~= "string" or #text > 255 or not MayShare() then return end
+	local rank = ns.Roster.RankOf(sender)
+	if not rank or rank > ns.CAPTAIN_RANK then return end
+	local body = text:match("^U1~(.+)$")
+	if not body then return end
+	local now, n, changed = ns.Now(), 0, false
+	local by = ns.DisplayName(ns.FullName(sender))
+	for entry in body:gmatch("[^;]+") do
+		n = n + 1
+		if n > Inspect.SHARE_PER_MSG then break end
+		local name, guild, code, age = entry:match("^([^:]+):([^:]*):([NOG]):([0-9a-z]+)$")
+		age = age and #age <= 8 and tonumber(age, 36) or nil
+		name = CleanShared(name)
+		if name and age and age <= Inspect.SHARE_KEEP and #guild <= 72 and ns.IsFederation(guild) then
+			local key = Key(name)
+			local t = now - age
+			local p = key and Store().players[key]
+			if key and not (p and (tonumber(p.t) or 0) >= t) then
+				local new = p == nil
+				p = p or {}
+				p.name, p.guild, p.status, p.t, p.item = key, guild, CODE_STATUS[code], t, nil
+				p.shared, p.by = true, by
+				Store().players[key] = p
+				if new then Inspect.Prune() end
+				changed = true
+			end
+		end
+	end
+	if changed then ns.Fire("INSPECT_CHANGED") end
+end
+ns.Comm.Handle("U1", function(...) Inspect.HandleShare(...) end)
+
+-- Our own findings of the last SHARE_KEEP (never another officer's), newest first.
+local function OwnFindings(now)
+	local list = {}
+	for _, p in pairs(Store().players) do
+		if type(p) == "table" and not p.shared and not p.reported and (p.status == "NONE" or p.status == "OTHER")
+			and now - (tonumber(p.t) or 0) <= Inspect.SHARE_KEEP then
+			list[#list + 1] = p
+		end
+	end
+	table.sort(list, function(a, b)
+		if (a.t or 0) ~= (b.t or 0) then return (a.t or 0) > (b.t or 0) end
+		return tostring(a.name) < tostring(b.name)
+	end)
+	return list
+end
+
+-- After login, an officer's addon asks the others for the day's findings (its own list starts
+-- empty: the Forever beta forgets saved data at every login).
+function Inspect.AskShared()
+	if not MayShare() then return false end
+	ns.Comm.Send("GUILD", "U0~", "tabardask")
+	return true
+end
+
+-- Another officer's ask: our own findings of the day, a few seconds later, once each
+-- SHARE_ANSWER_GAP at most (one answer covers every officer who asked meanwhile).
+function Inspect.HandleAsk(dist, sender)
+	if dist ~= "GUILD" or not MayShare() or answering then return end
+	local rank = ns.Roster.RankOf(sender)
+	if not rank or rank > ns.CAPTAIN_RANK then return end
+	if ns.Now() - lastAnswer < Inspect.SHARE_ANSWER_GAP then return end
+	if #OwnFindings(ns.Now()) == 0 then return end
+	answering = true
+	Inspect.after(2 + Inspect.random() * 8, "tabard share answer", function()
+		answering = false
+		if not MayShare() then return end
+		local now = ns.Now()
+		lastAnswer = now
+		local entries = {}
+		for _, p in ipairs(OwnFindings(now)) do
+			local e = Entry(p, now)
+			if e then entries[#entries + 1] = e end
+		end
+		Send(entries, "tabardanswer")
+	end)
+end
+ns.Comm.Handle("U0", function(dist, sender) Inspect.HandleAsk(dist, sender) end)
+
+-- `/oly patrolshare on|off`: alone, says which.
+function Inspect.SetSharing(on)
+	if on ~= nil then ns.db.patrolShare = on and true or false end
+	if not Inspect.Sharing() then return ns.Print(L.PATROLSHARE_OFF) end
+	ns.Print(Officer() and L.PATROLSHARE_ON or L.PATROLSHARE_ON_NOT_OFFICER)
+end
+
+-- How many on our list are another officer's word (the Tabards tab's detail box).
+function Inspect.SharedCount()
+	local n = 0
+	for _, p in pairs(Store().players) do
+		if type(p) == "table" and p.shared then n = n + 1 end
+	end
+	return n
+end
+
+-- Tests start from a clean state.
+function Inspect.ResetShare()
+	wipe(shareQueue); wipe(shareQueued)
+	lastShare, lastAnswer, answering = -math.huge, -math.huge, false
+end
+
+---------------------------------------------------------------------------
 -- Untabarded (0.9.2; the "Wall of Shame" before): the players the Royal Inspection found
 -- without the colors. The King's alone: his page lists them, and only he can let the army see
 -- the list (King.lua, a switch like the Treasury's), in the Tabards tab and nowhere else. No
@@ -549,6 +787,9 @@ ns.On("INIT", function() Inspect.Prune(); Inspect.PruneGear() end) -- (Prune mak
 ns.On("LOGIN", function()
 	ns.RegisterEvent("INSPECT_READY", OnInspectReady)
 	ns.Every(INTERVAL, "inspect pump", Pump)
+	-- 1.1: an officer's findings to his guild's officers, and the day's asked for once our roster is in.
+	ns.Every(15, "tabard share", Inspect.FlushShare)
+	ns.After(40 + Inspect.random() * 30, "tabard share ask", Inspect.AskShared)
 	local hooked = false
 	if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
 		hooked = pcall(TooltipDataProcessor.AddTooltipPostCall, Enum.TooltipDataType.Unit, function(tt)

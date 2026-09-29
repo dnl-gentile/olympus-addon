@@ -370,6 +370,14 @@ shows the army something of it.
   tooltip. A Captain can check a raid signup's last-seen gear days later without pulling him
   again. Only the guild master and the officer rank right below keep gear; nothing is scored,
   compared or sent, and nobody is told how to play.
+- **Shared among officers** (1.1): what an officer's own inspections find (a player without the
+  colors or with another tabard, and one caught before who wears ours again) goes to his guild's
+  officers over guild addon messages, once a minute at most, and an officer's addon asks the others
+  for the day's findings after its login. Each officer's Tabards page shows them with his own, the
+  officer who found each in its tooltip, for a day (his own later inspection of that player
+  replaces it). Nothing is inspected more or sooner for it, nothing goes on the Olympus channel,
+  and only officers (the guild master and the rank right below, by each addon's own roster) send
+  or keep it. The King's untabarded list stays his. `/oly patrolshare off` stops it.
 - Per guild: *"5 of 20 with problems"*.
 - **Untabarded** (the "Wall of Shame" before 0.9.2): the players the Royal Inspection found
   without the colors are on the King's list, which only he sees. He alone can let the army see
@@ -554,6 +562,7 @@ message (the game adds it). What goes where:
 | Your character's name, if you gave to the treasury before 1.0 (the early supporters): names only, no amounts, in alphabetical order | everyone on the Olympus channel receives the bytes; the addon shows them under the ranking, to whoever may see it | from the Treasurer's addon once he said yes to 1.0's question, which says their names go to everyone on the channel (his 0.9.3 yes is not enough), after his login and when a client asks: a donor is not asked |
 | The King's crown on the map, and with it his zone and layer | everyone on the Olympus channel | only while the King turns it on (Throne tab), whatever he answered to the question |
 | A Royal Inspection's report (on by default): when the King, his Steward or a Hand calls one and your addon is in the sample, it patrols for 2 minutes, inspecting the Olympus players of your faction around you, level 15 and up, with the game's own inspect, and records whether each wears the guild tabard, another one or none (kept in your saved variables); then it reports your guild, how many it found in each case (your own tabard counted) and up to 6 names, with their guild, of players caught without the colors | whoever called it, alone (a whisper); the King can show the names to the army on his untabarded list | each Royal Inspection you are sampled for (one every 30 minutes at most, for the whole realm) until you say no with `/oly inspection off`; you still get its raid warning |
+| An officer's patrol findings (1.1): the name and guild of each player your own inspections caught without the colors or with another tabard (or wearing ours again after that), and how long ago | your guild's officers (a guild addon message: every guildmate's client receives the bytes, and only officers' addons keep them) | only while you are an officer (the guild master or the rank right below): each new finding once, at most once a minute, and the day's findings when another officer's addon asks after its login; `/oly patrolshare off` stops it. Nothing more is inspected for it |
 | Other players' lines in the Olympus chats as your addon accepted them (channel, sender and text; [Captains] and [Lords] only if your rank reads them), and the High Council list | other addons in your own game, through `OlympusBridge` (made for OfficerSpy, the moderators' companion addon, but any addon you install can read it) | always, while such an addon is loaded: Olympus sends nothing through it and never learns what that addon does with what it read |
 | Olympus Link (1.0.0): a request (your guild, faction, a random number, your code's id and a tag made from your code's signature and your name) | the confirmers asked (a whisper each): a High Councillor, or verified players drawn for your code | only after you press **Accept** on `/oly discord <code>` |
 | Olympus Link: the finished proof (your character name, realm, guild, faction, the tag, and the confirmers' names, how each knew your guild, their signatures and their keys' certificates) | the Olympus bot, through the page you scan it with, or a watcher (a High Councillor, by whisper) who hands it to the bot | when it is ready, until it is delivered (5 days after your code expired at most) |
@@ -569,7 +578,8 @@ treasury keeper's book and Olympus Link (your **Accept**, or a confirmer's typin
 bot's keeper made them) wait for your yes. The rest of the table goes out while
 you are in an Olympus guild, with no question first: your guild's census (from the member it
 elects, with the names above), the hello, a Royal Inspection's report when you are sampled
-(`/oly inspection off`), your answers to the author's roll calls (`/oly rollcall off`), and what
+(`/oly inspection off`), an officer's patrol findings to his guild's officers (`/oly patrolshare
+off`), your answers to the author's roll calls (`/oly rollcall off`), and what
 other addons read through the bridge. A first-start screen that shows what the addon shares and
 asks you before any of it goes out comes in 1.1.
 
@@ -790,6 +800,7 @@ Other limits:
 | `/oly patrol` | start or stop the tabard patrol |
 | `/oly mark [note]` | mark your target |
 | `/oly gear` (or **Inspect gear** on the Tabards tab) | officers: inspect the player you target (in range) once and keep what he wears, under **Gear seen** on the Tabards tab; nothing is scored or sent |
+| `/oly patrolshare on\|off` | officers: pass what your inspections find to your guild's officers and take theirs (on by default), or not |
 | `/oly arms [text]` · `/oly muster [text]` | send a decree (`test` = local preview) |
 | `/ol <text>` · `/olc <text>` · `/oll <text>` | write in [Olympus], [Captains] or [Lords] |
 | `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |

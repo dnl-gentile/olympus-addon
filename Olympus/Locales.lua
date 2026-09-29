@@ -1006,6 +1006,13 @@ L.GEAR_TITLE = "Gear seen (your officer inspections)"
 L.GEAR_ITEMS = "%d items"
 L.GEAR_ROW_TIP = "What %s wore when you inspected them (%s). Your own record: nothing is scored, compared or sent. Click to show or hide it."
 L.HELP_GEAR = "  /oly gear - officers: inspect your target's gear (in range) and keep it"
+-- 1.1 (Fern's #29): officers share their patrols' findings inside their guild (Inspect.lua).
+L.PATROLSHARE_ON = "Patrol share on: what your inspections find (a player without the colors or with another tabard, or wearing ours again) goes to your guild's officers, and theirs comes to you, on the Tabards tab. Nothing is inspected more or sooner for it. /oly patrolshare off stops it."
+L.PATROLSHARE_ON_NOT_OFFICER = "Patrol share on, but only officers (the guild master and the officer rank right below) send and keep it: nothing is shared from this character."
+L.PATROLSHARE_OFF = "Patrol share off: your findings stay yours, and your officers' are not taken. /oly patrolshare on shares them again."
+L.PATROLSHARE_BY = "Found by %s, an officer of your guild (shared by his addon)"
+L.PATROLSHARE_COUNT = "%d found by your guild's other officers"
+L.HELP_PATROLSHARE = "  /oly patrolshare on|off - officers: share your patrols' findings with your guild's officers, or not"
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1998,4 +2005,11 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.GEAR_ITEMS = "%d itens"
 	L.GEAR_ROW_TIP = "O que %s vestia quando você inspecionou (%s). Registro seu: nada é pontuado, comparado ou enviado. Clique para mostrar ou esconder."
 	L.HELP_GEAR = "  /oly gear - oficiais: inspecionar o equipamento do seu alvo (ao alcance) e guardar"
+	-- 1.1 (pedido #29 do Fern): os oficiais compartilham o que as patrulhas acham dentro da guilda.
+	L.PATROLSHARE_ON = "Patrulha compartilhada ligada: o que as suas inspeções acham (um jogador sem as cores ou com outro tabard, ou de novo com o nosso) vai para os oficiais da sua guilda, e o que eles acham vem para você, na aba Tabards. Nada é inspecionado a mais nem antes por isso. /oly patrolshare off para."
+	L.PATROLSHARE_ON_NOT_OFFICER = "Patrulha compartilhada ligada, mas só oficiais (o mestre da guilda e o cargo de oficial logo abaixo) enviam e guardam: nada é compartilhado deste personagem."
+	L.PATROLSHARE_OFF = "Patrulha compartilhada desligada: o que você acha fica com você, e o dos seus oficiais não é aceito. /oly patrolshare on compartilha de novo."
+	L.PATROLSHARE_BY = "Achado por %s, oficial da sua guilda (compartilhado pelo addon dele)"
+	L.PATROLSHARE_COUNT = "%d achados pelos outros oficiais da sua guilda"
+	L.HELP_PATROLSHARE = "  /oly patrolshare on|off - oficiais: compartilhar o que as suas patrulhas acham com os oficiais da sua guilda, ou não"
 end

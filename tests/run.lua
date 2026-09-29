@@ -24883,5 +24883,212 @@ test("1.1 gear (#28): two realms' stores merged keep the newer gear an officer's
 	eq(p["Di Moon"].gear.items[1], "item:3", "the newer gear of the two")
 end)
 
+---------------------------------------------------------------------------
+-- 1.1 (Fern's #29): officers share their patrols' findings inside their guild
+---------------------------------------------------------------------------
+
+do
+-- Our rank (w.rank: 1 an officer), our roster (Offi a Captain, Lord the guild master, Grunt a
+-- member), what goes out over GUILD (w.sent), the clock (w.clock) and the answers' delay (w.later).
+local function WithShare(fn)
+	local I = ns.Inspect
+	local saved = { send = ns.Comm.Send, guild = GetGuildInfo, byName = ns.Roster.byName, store = ns.rdb.inspect, print = ns.Print,
+		fire = ns.Fire, after = I.after, random = I.random, share = ns.db.patrolShare, now = ns.Now, requests = I.stats.requests }
+	local w = { sent = {}, rank = 1, printed = {}, clock = 5000000, later = {} }
+	ns.rdb.inspect = nil
+	I.ResetShare()
+	ns.db.patrolShare = nil
+	ns.Now = function() return w.clock end
+	ns.Comm.Send = function(dist, msg) w.sent[#w.sent + 1] = dist .. " " .. msg end
+	GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Titan", w.rank end return nil end
+	ns.Roster.byName = { ["Offi-Realm"] = 1, ["Lord-Realm"] = 0, ["Grunt-Realm"] = 3 }
+	ns.Print = function(m) w.printed[#w.printed + 1] = m end
+	ns.Fire = function() end
+	I.after = function(_, _, f) w.later[#w.later + 1] = f end
+	I.random = function() return 0 end
+	w.run = function() local l = w.later; w.later = {}; for _, f in ipairs(l) do f() end end
+	local ok, err = pcall(fn, w, I)
+	eq(I.stats.requests, saved.requests, "nothing inspected for the sharing")
+	ns.Comm.Send, GetGuildInfo, ns.Roster.byName, ns.rdb.inspect, ns.Print = saved.send, saved.guild, saved.byName, saved.store, saved.print
+	ns.Fire, I.after, I.random, ns.db.patrolShare, ns.Now = saved.fire, saved.after, saved.random, saved.share, saved.now
+	I.ResetShare()
+	if not ok then error(err, 0) end
+end
+local ZEUS = "Olympus Zeus"
+local function Caught(I, name, level) return I.Record(name, ZEUS, "WARRIOR", level or 30, nil, true) end   -- no tabard
+local function Other(I, name) return I.Record(name, ZEUS, "WARRIOR", 30, 1234, true) end                -- another one
+local function Wears(I, name) return I.Record(name, ZEUS, "WARRIOR", 30, 5976, true) end                -- ours
+
+test("1.1 patrol share (#29): an officer's own findings go to his guild's officers over GUILD, once a minute at most, 6 a message", function()
+	WithShare(function(w, I)
+		Caught(I, "Bob")
+		eq(I.FlushShare(), 1)
+		eq(table.concat(w.sent, "|"), "GUILD U1~Bob:Olympus Zeus:N:0")
+		-- Within the minute: it waits.
+		w.clock = w.clock + 20
+		Other(I, "Cid")
+		eq(I.FlushShare(), 0); eq(#w.sent, 1)
+		w.clock = w.clock + 40
+		eq(I.FlushShare(), 1)
+		eq(w.sent[2], "GUILD U1~Cid:Olympus Zeus:O:" .. ns.Codec.Base36(40), "how long ago, in seconds")
+		-- Caught before, wearing ours now: the correction goes too.
+		w.clock = w.clock + 60
+		Wears(I, "Bob")
+		I.FlushShare()
+		eq(w.sent[3], "GUILD U1~Bob:Olympus Zeus:G:0")
+		-- Nothing to tell: a player under level 15, one we could not see properly, one wearing ours all along,
+		-- and the same finding again.
+		w.clock = w.clock + 60
+		Caught(I, "Kid", 10)
+		I.Record("Blur", ZEUS, "MAGE", 30, nil, false)
+		Wears(I, "Good")
+		Other(I, "Cid")
+		eq(I.FlushShare(), 0); eq(#w.sent, 3)
+		-- Twenty at once: three messages of six, the rest the next minute; each message short.
+		w.clock = w.clock + 60
+		for i = 1, 20 do Caught(I, "Many" .. string.char(96 + i)) end
+		eq(I.FlushShare(), 18)
+		eq(#w.sent, 6)
+		for i = 4, 6 do
+			local _, n = w.sent[i]:gsub(";", "")
+			eq(n, 5, "six in a message"); assert(#w.sent[i] <= 255 + 6, #w.sent[i])
+		end
+		w.clock = w.clock + 60
+		eq(I.FlushShare(), 2)
+	end)
+end)
+
+test("1.1 patrol share (#29): only officers send it, and nothing with /oly patrolshare off", function()
+	WithShare(function(w, I)
+		w.rank = 2
+		Caught(I, "Bob")
+		eq(I.FlushShare(), 0); eq(#w.sent, 0, "not an officer")
+		eq(I.AskShared(), false)
+		I.SetSharing(nil)
+		eq(w.printed[#w.printed], ns.L.PATROLSHARE_ON_NOT_OFFICER)
+		w.rank = 0
+		SlashCmdList.OLYMPUS("patrolshare off")
+		eq(w.printed[#w.printed], ns.L.PATROLSHARE_OFF); eq(ns.db.patrolShare, false)
+		Caught(I, "Cid")
+		w.clock = w.clock + 100
+		eq(I.FlushShare(), 0); eq(#w.sent, 0, "off")
+		eq(I.AskShared(), false)
+		SlashCmdList.OLYMPUS("patrolshare on")
+		eq(w.printed[#w.printed], ns.L.PATROLSHARE_ON, "the guild master is an officer")
+		eq(I.AskShared(), true); eq(w.sent[1], "GUILD U0~")
+	end)
+end)
+
+test("1.1 patrol share (#29): an officer's addon takes another officer's findings (his rank by our roster), newest wins, a day at most, never second hand", function()
+	WithShare(function(w, I)
+		local old = ns.Codec.Base36(I.SHARE_KEEP + 1)
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Eve:Olympus Hera:N:a;Fox-Other:Olympus Hera:O:0;Bad1:Olympus Hera:N:0;"
+			.. "Gil:Stormwind Traders:N:0;Old:Olympus Hera:N:" .. old)
+		local P = I.Players()
+		eq(P["Eve"].status, "NONE"); eq(P["Eve"].t, w.clock - 10); eq(P["Eve"].by, "Offi"); eq(P["Eve"].shared, true)
+		eq(P["Fox-Other"].status, "OTHER", "a player of another realm, by his full name")
+		eq(P["Bad1"], nil, "not a name"); eq(P["Gil"], nil, "not an Olympus guild's"); eq(P["Old"], nil, "more than a day old")
+		-- Not an officer's, or not over GUILD, or not ours to take: nothing.
+		I.HandleShare("GUILD", "Grunt-Realm", "U1~Hal:Olympus Hera:N:0")
+		I.HandleShare("GUILD", "Stranger-Realm", "U1~Hal:Olympus Hera:N:0")
+		I.HandleShare("CHANNEL", "Offi-Realm", "U1~Hal:Olympus Hera:N:0")
+		w.rank = 2
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Hal:Olympus Hera:N:0")
+		w.rank = 1
+		ns.db.patrolShare = false
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Hal:Olympus Hera:N:0")
+		ns.db.patrolShare = nil
+		eq(P["Hal"], nil, "a member's, a stranger's, the channel's, a non-officer's, or with sharing off")
+		-- Six entries a message at most.
+		I.HandleShare("GUILD", "Lord-Realm", "U1~Aa:Olympus Hera:N:0;Bb:Olympus Hera:N:0;Cc:Olympus Hera:N:0;Dd:Olympus Hera:N:0;"
+			.. "Ee:Olympus Hera:N:0;Ff:Olympus Hera:N:0;Gg:Olympus Hera:N:0")
+		eq(P["Ff"].by, "Lord"); eq(P["Gg"], nil, "a seventh")
+		-- Our own newer inspection stays; an older word of ours is replaced.
+		Wears(I, "Ivy")
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Ivy:Olympus Zeus:N:1e")
+		eq(P["Ivy"].status, "GUILD", "ours is newer"); eq(P["Ivy"].shared, nil)
+		w.clock = w.clock + 100
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Ivy:Olympus Zeus:N:0")
+		eq(P["Ivy"].status, "NONE", "newer than ours"); eq(P["Ivy"].by, "Offi")
+		-- Never passed on second hand.
+		w.clock = w.clock + 100
+		eq(I.FlushShare(), 0); eq(#w.sent, 0)
+		-- Our own later inspection replaces his word, and its correction goes out.
+		Wears(I, "Eve")
+		eq(P["Eve"].shared, nil); eq(P["Eve"].by, nil)
+		eq(I.FlushShare(), 1); eq(w.sent[1], "GUILD U1~Eve:Olympus Zeus:G:0", "in the guild we saw him in")
+		-- His word lasts a day; ours as every inspection.
+		Caught(I, "Mine")
+		w.clock = w.clock + I.SHARE_KEEP + 60
+		I.Prune()
+		eq(P["Fox-Other"], nil, "his word, a day later"); assert(P["Mine"], "ours stays")
+	end)
+end)
+
+test("1.1 patrol share (#29): an officer's addon asks after login; each officer answers with his own findings of the day, once each 5 minutes", function()
+	WithShare(function(w, I)
+		Caught(I, "Ivy")
+		w.clock = w.clock + 10
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Jay:Olympus Hera:N:0")
+		w.sent = {}
+		-- A member's ask, or one over the channel: nothing.
+		I.HandleAsk("GUILD", "Grunt-Realm"); I.HandleAsk("CHANNEL", "Offi-Realm")
+		eq(#w.later, 0)
+		I.HandleAsk("GUILD", "Lord-Realm")
+		I.HandleAsk("GUILD", "Offi-Realm") -- (one answer covers both)
+		eq(#w.later, 1, "a few seconds later")
+		w.run()
+		eq(table.concat(w.sent, "|"), "GUILD U1~Ivy:Olympus Zeus:N:" .. ns.Codec.Base36(10), "ours, not the one another officer told us")
+		w.clock = w.clock + 60
+		I.HandleAsk("GUILD", "Lord-Realm")
+		eq(#w.later, 0, "within 5 minutes")
+		w.clock = w.clock + I.SHARE_ANSWER_GAP
+		I.HandleAsk("GUILD", "Lord-Realm")
+		eq(#w.later, 1)
+		-- Nothing of our own found: no answer.
+		ns.rdb.inspect = nil
+		w.later = {}
+		w.clock = w.clock + I.SHARE_ANSWER_GAP
+		I.HandleAsk("GUILD", "Lord-Realm")
+		eq(#w.later, 0)
+	end)
+end)
+
+test("1.1 patrol share (#29): the Tabards page names the officer who found each, and counts them; strings in both languages; both privacy tables", function()
+	WithShare(function(w, I)
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Eve:Olympus Hera:N:a")
+		local lines, _, text = ns.Views.Build("heraldry")
+		local row
+		for _, l in ipairs(lines) do if l.key == "Eve" then row = l end end
+		assert(row, "on the inspected players")
+		local tips = {}
+		row.tooltip({ AddLine = function(_, t) tips[#tips + 1] = t end })
+		local found = false
+		for _, t in ipairs(tips) do if t == ns.L.PATROLSHARE_BY:format("Offi") then found = true end end
+		assert(found, "the officer who found him")
+		assert(text:find(ns.L.PATROLSHARE_COUNT:format(1), 1, true), text)
+		assert(ns.StatusText():find("patrol share: on", 1, true))
+	end)
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, key in ipairs({ "PATROLSHARE_ON", "PATROLSHARE_ON_NOT_OFFICER", "PATROLSHARE_OFF", "PATROLSHARE_BY", "PATROLSHARE_COUNT", "HELP_PATROLSHARE" }) do
+		local p = rawget(pt.L, key)
+		assert(type(ns.L[key]) == "string" and type(p) == "string" and p ~= ns.L[key], key)
+		eq(select(2, p:gsub("%%[sd]", "")), select(2, ns.L[key]:gsub("%%[sd]", "")), key)
+	end
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("| An officer's patrol findings (1.1)", 1, true), file .. ": the privacy table")
+		assert(doc:find("`/oly patrolshare on\\|off`", 1, true), file .. ": the commands")
+	end
+end)
+end
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

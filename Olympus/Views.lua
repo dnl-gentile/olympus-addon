@@ -1605,6 +1605,8 @@ local function HeraldryLines(q)
 				tt:AddLine(ClassColored(p.name, p.class))
 				tt:AddLine("<" .. (p.guild or "?") .. ">" .. (p.level and ("  lvl " .. p.level) or ""), 0.25, 1, 0.25)
 				if p.note then tt:AddLine('"' .. p.note .. '"', 1, 0.5, 0.5, true) end
+				-- 1.1 (Fern's #29): another officer of our guild found it.
+				if p.shared and p.by then tt:AddLine(L.PATROLSHARE_BY:format(p.by), 0.6, 0.8, 1, true) end
 				tt:AddLine(L.CLICK_MARK_PLAYER, 0.6, 0.6, 0.6)
 			end,
 		}
@@ -1616,8 +1618,11 @@ end
 local function HeraldryDetail()
 	local s = ns.Inspect.Summary()
 	local c = s.counts
-	return L.INSPECT_COUNTS:format(s.total, c.GUILD, c.NONE, c.OTHER),
-		(ns.Inspect.IsPatrolling() and Green(L.PATROL_ON) or Grey(L.PATROL_HINT))
+	local text = ns.Inspect.IsPatrolling() and Green(L.PATROL_ON) or Grey(L.PATROL_HINT)
+	-- 1.1 (Fern's #29): how many on the list our guild's other officers found.
+	local shared = ns.Inspect.SharedCount and ns.Inspect.SharedCount() or 0
+	if shared > 0 then text = text .. "\n" .. Grey(L.PATROLSHARE_COUNT:format(shared)) end
+	return L.INSPECT_COUNTS:format(s.total, c.GUILD, c.NONE, c.OTHER), text
 end
 
 ---------------------------------------------------------------------------
