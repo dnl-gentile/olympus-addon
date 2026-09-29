@@ -242,6 +242,22 @@ local function SendNow(dist, msg, logged, whisperTo)
 	return false
 end
 
+-- The Join screen's own addon whispers (1.1, Fern's #20, Recruit.lua): outside an Olympus guild
+-- the addon sends nothing else, and these only: J1 (which guild should I ask? to a member /who
+-- found) and J3 (my request, with the whisper the player sends himself), one per click or
+-- search, straight to that one player, never through the queue (Pump sends nothing for a
+-- non-member). A member of an Olympus guild sends neither.
+local OUTSIDE_TYPES = { J1 = true, J3 = true }
+function Comm.WhisperOutside(target, msg)
+	if ns.IsMember() or type(target) ~= "string" or target == "" or type(msg) ~= "string" then return false end
+	if not OUTSIDE_TYPES[msg:sub(1, 2)] or msg:sub(3, 3) ~= "~" or #msg > 255 then return false end
+	return SendNow("WHISPER", msg, false, target)
+end
+-- ...and the one message it hears there: J2, a member's answer to its J1 (Recruit.lua checks it
+-- asked that member).
+local outsideHandler
+function Comm.HandleOutside(fn) outsideHandler = fn end
+
 -- Every chat part still waiting is dropped, and its sender is told.
 local function DropChat()
 	local items = {}
@@ -1147,7 +1163,15 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		stats.echo = stats.echo + 1 -- our own message coming back (proves the channel works)
 		return
 	end
-	if not ns.IsMember() then return end -- outside an Olympus guild the addon hears nothing
+	if not ns.IsMember() then
+		-- Outside an Olympus guild the addon hears nothing but the Join screen's answer (1.1): J2,
+		-- whispered by a member it asked (Comm.WhisperOutside).
+		if dist == "WHISPER" and text:sub(1, 3) == "J2~" and outsideHandler and not ns.db.blocked[sender:lower()]
+			and Comm.Admit(sender, ns.Now()) then
+			ns.SafeCall("join route", outsideHandler, sender, text)
+		end
+		return
+	end
 	if ns.db.blocked[sender:lower()] then return end
 	if not Comm.Admit(sender, ns.Now()) then return end
 	stats.recv = stats.recv + 1

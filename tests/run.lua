@@ -4786,6 +4786,10 @@ end)
 test("files added by an update and not loaded yet: stand-ins keep everything else working", function()
 	local savedSlash, savedEvents, savedPrint = {}, #EVENT_SCRIPTS, print
 	for k, v in pairs(SlashCmdList) do savedSlash[k] = v end
+	-- (1.1: the files loaded again here define their dialogs again, bound to this test's own
+	-- namespace: the real ones are put back after, or a later test's Send runs this one's Recruit.)
+	local savedDialogs = {}
+	for k, v in pairs(StaticPopupDialogs) do savedDialogs[k] = v end
 	local printed = {}
 	print = function(msg) printed[#printed + 1] = tostring(msg) end
 	local ok, err = pcall(function()
@@ -4807,6 +4811,8 @@ test("files added by an update and not loaded yet: stand-ins keep everything els
 	end)
 	print = savedPrint
 	for k in pairs(SlashCmdList) do SlashCmdList[k] = savedSlash[k] end
+	for k in pairs(StaticPopupDialogs) do StaticPopupDialogs[k] = savedDialogs[k] end
+	for k, v in pairs(savedDialogs) do StaticPopupDialogs[k] = v end
 	for i = #EVENT_SCRIPTS, savedEvents + 1, -1 do EVENT_SCRIPTS[i] = nil end
 	if not ok then error(err, 0) end
 end)
@@ -24659,7 +24665,9 @@ test("1.1 the Realm's Recruiting (Fern #16): five guilds, then every one on a cl
 			local out = {}
 			for i = at + 1, #lines do
 				if lines[i].header then break end
-				out[#out + 1] = lines[i]
+				-- (The section ends with the do-not-contact flag's line, Fern's #20: not a guild.)
+				local text = Fern.Bare(lines[i].text)
+				if text ~= ns.L.NOCONTACT_LINE_OFF and text ~= ns.L.NOCONTACT_LINE_ON then out[#out + 1] = lines[i] end
 			end
 			return out
 		end
@@ -25302,6 +25310,300 @@ test("1.1 mentors (Fern #19): with the gamepad UI the question is Olympus's own 
 		end)
 	end)
 	ns.rdb.mentors = savedMentors
+end)
+
+
+test("1.1 join routing (Fern #20): outside an Olympus guild the addon hears J2 alone and sends J1 and J3 alone, by whisper; a member sends neither this way; an old client ignores all three", function()
+	local saved = { guild = GetGuildInfo, inGuild = IsInGuild, info = C_ChatInfo }
+	local ok, err = pcall(function()
+		local cns, Deliver = FreshComm()
+		local heard, handled = {}, {}
+		cns.Comm.HandleOutside(function(sender, text) heard[#heard + 1] = sender .. " " .. text end)
+		cns.Comm.Handle("J1", function(dist, sender) handled[#handled + 1] = dist .. " " .. sender end)
+		-- Outside Olympus.
+		GetGuildInfo = function() return nil end
+		IsInGuild = function() return false end
+		Deliver("WHISPER", "Member-Realm", "J2~y~Olympus~100~")
+		eq(heard[1], "Member-Realm J2~y~Olympus~100~")
+		Deliver("CHANNEL", "Member-Realm", "J2~y~~0~")
+		Deliver("GUILD", "Member-Realm", "J2~y~~0~")
+		Deliver("WHISPER", "Member-Realm", "J1~1")
+		Deliver("WHISPER", "Member-Realm", "T2~1~P~x")
+		eq(#heard, 1, "a J2 by whisper, nothing else"); eq(#handled, 0, "no handler runs outside Olympus")
+		ns.db.blocked["member-realm"] = true
+		Deliver("WHISPER", "Member-Realm", "J2~y~~0~")
+		ns.db.blocked["member-realm"] = nil
+		eq(#heard, 1, "a blocked player is never heard")
+		local sent = {}
+		C_ChatInfo.SendAddonMessage = function(prefix, msg, dist, target) sent[#sent + 1] = prefix .. " " .. dist .. " " .. tostring(target) .. " " .. msg return true end
+		eq(cns.Comm.WhisperOutside("Member", "J1~1"), true)
+		eq(sent[1], ns.PREFIX .. " WHISPER Member J1~1")
+		eq(cns.Comm.WhisperOutside("Member", "J3~Olympus II~12~MAGE"), true)
+		for _, msg in ipairs({ "J2~y~~0~", "M1~A~x~1~~hi", "T2~1~P", "J1", ("J1~" .. ("x"):rep(260)) }) do
+			eq(cns.Comm.WhisperOutside("Member", msg), false, msg)
+		end
+		eq(cns.Comm.WhisperOutside("", "J1~1"), false)
+		eq(#sent, 2)
+		-- In an Olympus guild: neither this way, and a J2 is no answer of ours.
+		GetGuildInfo = function() return "Olympus II", "Hero", 3 end
+		IsInGuild = function() return true end
+		eq(cns.Comm.WhisperOutside("Member", "J1~1"), false)
+		Deliver("WHISPER", "Member-Realm", "J2~y~~0~")
+		eq(#heard, 1)
+		Deliver("WHISPER", "Recruit-Realm", "J1~1")
+		eq(handled[1], "WHISPER Recruit-Realm", "a member's handler hears the ask")
+		-- 0.9.8's Comm, a member: all three whispered to it change nothing, and nothing breaks.
+		local _, DeliverOld = FreshComm(true)
+		for _, t in ipairs({ "J1~1", "J3~Olympus II~12~MAGE", "J2~y~~0~" }) do DeliverOld("WHISPER", "Recruit-Realm", t) end
+	end)
+	GetGuildInfo, IsInGuild, C_ChatInfo = saved.guild, saved.inGuild, saved.info
+	if not ok then error(err, 0) end
+end)
+
+-- A census for routing: R1 900 free (its Lord and two Captains online), R2 700 free (the King's
+-- gates; its Lord offline, a Captain online), ours 500, the King's guild 100 (the King online),
+-- one full.
+function Fern.RouteGuilds(now)
+	return {
+		["Olympus R1"] = { total = 100, online = 9, zones = {}, t = now, leader = "Rlord", leaderOnline = true,
+			officers = { { name = "Rcap", online = true }, { name = "Rcap2", online = false }, { name = "Rcap3", online = true } } },
+		["Olympus R2"] = { total = 300, online = 9, zones = {}, t = now, leader = "Slord", leaderOnline = false,
+			officers = { { name = "Scap", online = true } } },
+		["Olympus II"] = { total = 500, online = 9, zones = {}, t = now, leader = "Lordy", leaderOnline = true, officers = {}, mine = true },
+		["Olympus"] = { total = 900, online = 9, zones = {}, t = now, leader = "Asmongold Asmongler", leaderOnline = true, officers = {} },
+		["Olympus Full"] = { total = 1000, online = 9, zones = {}, t = now, leader = "Flord", leaderOnline = true, officers = {} },
+	}
+end
+
+test("1.1 join routing (Fern #20): a member's census answers a J1 with the gates first, the most free slots, a couple of officers online (never the King), at most one answer per asker a minute", function()
+	local R = ns.Recruit
+	local savedOff = ns.db.recruitsOff
+	Fern.Census(function(w)
+		R.ResetForTests()
+		local now = os.time()
+		ns.rdb.guilds = Fern.RouteGuilds(now)
+		ns.Acts.Gates = function() return { guild = "Olympus R2", at = now + 3600 } end
+		ns.Roster.online = { { name = "Lordy", rankIndex = 0 }, { name = "Knightly", rankIndex = 1 }, { name = "Tester", rankIndex = 1 }, { name = "Mate", rankIndex = 3 } }
+		ns.db.recruitsOff = nil
+		eq(R.OnRouteAsk("WHISPER", "Recruit1-Realm", "J1~1"), true)
+		local msg = w.sent[1]:match("^WHISPER Recruit1%-Realm (.*)$")
+		assert(msg, w.sent[1])
+		assert(#msg <= 255, "one addon message")
+		local route = R.ParseRoute(msg)
+		eq(route.dnc, false); eq(route.gates, "Olympus R2")
+		local order = {}
+		for _, e in ipairs(route.list) do order[#order + 1] = e.name .. "=" .. e.free .. "=" .. table.concat(e.contacts, "/") end
+		eq(table.concat(order, ";"), "Olympus R2=700=Scap;Olympus R1=900=Rlord/Rcap;Olympus II=500=Lordy/Knightly;Olympus=100=",
+			"the gates first, then the most room; the King never named; the full one left out")
+		-- Once a minute per asker, ANSWER_MAX askers a minute.
+		eq(R.OnRouteAsk("WHISPER", "Recruit1-Realm", "J1~1"), false)
+		for k = 2, R.ANSWER_MAX do eq(R.OnRouteAsk("WHISPER", "Recruit" .. k .. "-Realm", "J1~1"), true, k) end
+		eq(R.OnRouteAsk("WHISPER", "RecruitX-Realm", "J1~1"), false, "the minute's answers are spent")
+		eq(#w.sent, R.ANSWER_MAX)
+		eq(R.OnRouteAsk("CHANNEL", "RecruitY-Realm", "J1~1"), false, "only a whisper")
+		-- Do not contact: the answer says so, and we are never named for our guild.
+		R.ResetForTests()
+		SlashCmdList.OLYMPUS("nocontact on")
+		eq(ns.db.recruitsOff, true); eq(w.printed[#w.printed], ns.L.NOCONTACT_ON)
+		ns.Roster.online = { { name = "Tester", rankIndex = 1 }, { name = "Knightly", rankIndex = 1 } }
+		R.OnRouteAsk("WHISPER", "Recruit9-Realm", "J1~1")
+		route = R.ParseRoute(w.sent[#w.sent]:match("^WHISPER %S+ (.*)$"))
+		eq(route.dnc, true); eq(table.concat(route.byName["Olympus II"].contacts, "/"), "Knightly")
+		-- The Realm's line says so, and a click turns it off.
+		local line = Fern.Find(ns.Views.RealmLines(), ns.L.NOCONTACT_LINE_ON)
+		assert(line and line.onClick, "the flag in the Realm")
+		line.onClick()
+		eq(ns.db.recruitsOff, nil)
+		assert(Fern.Find(ns.Views.RealmLines(), ns.L.NOCONTACT_LINE_OFF))
+	end)
+	ns.db.recruitsOff = savedOff
+	R.ResetForTests()
+end)
+
+test("1.1 join routing (Fern #20): the Join screen asks one member where to go, lists the gates' guild first and the most free slots, asks their officers, skips a do-not-contact member, and sends one whisper per click with its J3", function()
+	local R, V, L = ns.Recruit, ns.Views, ns.L
+	local saved = { guild = GetGuildInfo, inGuild = IsInGuild, outside = ns.Comm.WhisperOutside, level = UnitLevel, class = UnitClass, time = GetTime }
+	local ok, err = pcall(function()
+		WithGamepadUI(false, function(game)
+			Fern.Census(function(w)
+				R.ResetForTests()
+				GetGuildInfo = function() return nil end
+				IsInGuild = function() return false end
+				UnitLevel = function() return 12 end
+				UnitClass = function() return "Mage", "MAGE" end
+				local clock = 1000
+				GetTime = function() return clock end
+				local out = {}
+				ns.Comm.WhisperOutside = function(to, msg) out[#out + 1] = to .. " " .. msg return true end
+				R.OnFound({ { name = "Aaa-Realm", guild = "Olympus II", level = 20, class = "MAGE" }, { name = "Bbb-Realm", guild = "Olympus II", level = 21, class = "PRIEST" },
+					{ name = "Ccc-Realm", guild = "Olympus R2", level = 22, class = "ROGUE" }, { name = "Ddd-Realm", guild = "Olympus R1", level = 23, class = "MAGE" } })
+				eq(out[1], "Aaa J1~1", "one member asked where to go")
+				R.OnFound(R.found)
+				eq(#out, 1, "not again at once")
+				-- Only an answer from the member asked counts; a guild outside Olympus never.
+				local answer = "J2~y~Olympus R2~3600~Olympus R2=700=Scap;Olympus R1=900=Rlord/Rcap;Evil Guild=999=Bad;Olympus II=500=Lordy"
+				eq(R.OnRoute("Zzz-Realm", answer), false); eq(R.Route(), nil)
+				eq(R.OnRoute("Aaa-Realm", answer), true)
+				local route = R.Route()
+				eq(route.gates, "Olympus R2"); eq(route.byName["Evil Guild"], nil); eq(#route.list, 3)
+				-- The screen: where to go, the gates' guild on top, then the most room.
+				local lines = V.RecruitLines()
+				local head, at = Fern.Find(lines, L.RECRUIT_ROUTE_TITLE)
+				assert(head and head.header, "where to go")
+				assert(lines[at + 1].text:find("LeaderIcon", 1, true) and Fern.Bare(lines[at + 1].text):find("<Olympus R2>", 1, true), "the gates first")
+				assert(Fern.Bare(lines[at + 1].text):find(L.RECRUIT_GATES, 1, true))
+				assert(Fern.Bare(lines[at + 1].right):find(L.FREE_SLOTS:format("700"), 1, true))
+				eq(Fern.Bare(lines[at + 2].text), "<Olympus R1>"); eq(Fern.Bare(lines[at + 3].text), "<Olympus II>")
+				-- The guilds /who found, in that order too, with their free slots.
+				local guilds = R.Guilds()
+				eq(guilds[1].name, "Olympus R2"); eq(guilds[2].name, "Olympus R1"); eq(guilds[3].name, "Olympus II")
+				assert(guilds[1].gates and guilds[2].free == 900, "with the route's word")
+				-- Asking the gates' guild: its Captain online first, and his addon asked first.
+				lines[at + 1].onClick()
+				eq(game.shown[1].which, "OLYMPUS_RECRUIT"); eq(game.shown[1].a, "Scap"); eq(game.shown[1].b, "Olympus R2")
+				eq(out[#out], "Scap J1~1", "the member about to be whispered is asked first")
+				-- He takes no recruit whispers: the question closes before anything is sent.
+				eq(R.OnRoute("Scap-Realm", "J2~n~Olympus R2~3500~"), true)
+				eq(game.hidden[1], "OLYMPUS_RECRUIT"); eq(w.printed[#w.printed], L.RECRUIT_DNC:format("Scap"))
+				eq(R.NoContact("Scap"), true); eq(#w.said, 0)
+				eq(R.Route().gates, "Olympus R2", "his answer still routes")
+				-- Next: that guild's member /who found.
+				R.PromptNext("Olympus R2")
+				eq(game.shown[2].a, "Ccc-Realm")
+				-- Send: one whisper, the player's own words, and its J3 to the same member.
+				local text = R.Message(game.shown[2].data)
+				Fern.NoDues(text, "the request")
+				StaticPopupDialogs.OLYMPUS_RECRUIT.OnAccept({ editBox = { GetText = function() return text end } }, game.shown[2].data)
+				eq(#w.said, 1); eq(w.said[1].kind, "WHISPER"); eq(w.said[1].to, "Ccc"); eq(w.said[1].text, text)
+				eq(out[#out], "Ccc J3~Olympus R2~12~MAGE")
+				-- One whisper per click, and the wait between two.
+				R.PromptNext("Olympus R2")
+				local contact = game.shown[#game.shown].data
+				eq(R.Ask(contact, "hi"), false); eq(#w.said, 1)
+				-- A member of the /who list who asked not to be contacted: marked, no click.
+				R.Prompt(R.found[2])
+				eq(R.OnRoute("Bbb-Realm", "J2~n~~0~"), true)
+				lines = V.RecruitLines()
+				local bbb
+				for _, l in ipairs(lines) do if l.indent == 1 and Fern.Bare(l.text):find("^Bbb") then bbb = l end end
+				eq(Fern.Bare(bbb.right), L.RECRUIT_STATE_DNC); eq(bbb.onClick, nil)
+				eq(R.NextContact("Olympus II").name, "Lordy", "the route's officer")
+				R.asked.Lordy = 1
+				eq(R.NextContact("Olympus II").name, "Aaa-Realm", "then /who's, never Bbb")
+				for _, s in ipairs(w.sent) do error("nothing on the channel: " .. s) end
+			end)
+		end)
+	end)
+	GetGuildInfo, IsInGuild, ns.Comm.WhisperOutside, UnitLevel, UnitClass, GetTime = saved.guild, saved.inGuild, saved.outside, saved.level, saved.class, saved.time
+	R.ResetForTests()
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 join requests (Fern #20): an officer gets a recruit's request with Invite and Decline, one click each; anyone else points to an officer; no dues line in any whisper", function()
+	local R, V, L = ns.Recruit, ns.Views, ns.L
+	local saved = { guild = GetGuildInfo, can = CanGuildInvite, cgi = C_GuildInfo, byName = ns.Roster.byName }
+	local ok, err = pcall(function()
+		Fern.Census(function(w)
+			R.ResetForTests()
+			local now = os.time()
+			ns.rdb.guilds = Fern.RouteGuilds(now)
+			ns.Acts.Gates = function() return { guild = "Olympus R2", at = now + 3600 } end
+			GetGuildInfo = function() return "Olympus II", "Titan", 1 end
+			local canInvite = true
+			CanGuildInvite = function() return canInvite end
+			local invited = {}
+			C_GuildInfo = { Invite = function(name) invited[#invited + 1] = name end }
+			ns.Roster.byName = { ["Mate-Realm"] = 3 }
+			ns.Roster.online = { { name = "Lordy", rankIndex = 0 }, { name = "Tester", rankIndex = 1 } }
+			-- The recruit's whisper, then its J3.
+			R.OnWhisper("Hi! I'd love to join Olympus.", "Newbie-Realm")
+			eq(R.OnJoinRequest("WHISPER", "Newbie-Realm", "J3~Olympus II~12~MAGE"), true)
+			eq(w.printed[#w.printed], L.JOIN_ASKED:format("Newbie", 12, LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE.MAGE or "", "Olympus II"))
+			-- Once; not for another guild; not from one of us; only by whisper.
+			eq(R.OnJoinRequest("WHISPER", "Newbie-Realm", "J3~Olympus II~12~MAGE"), false)
+			eq(R.OnJoinRequest("WHISPER", "Other-Realm", "J3~Olympus R1~12~MAGE"), false)
+			eq(R.OnJoinRequest("WHISPER", "Mate-Realm", "J3~Olympus II~30~MAGE"), false)
+			eq(R.OnJoinRequest("CHANNEL", "Other-Realm", "J3~Olympus II~12~MAGE"), false)
+			eq(#R.requests, 1)
+			-- On top of the Census: who, their whisper, Invite, Decline, Dismiss.
+			local lines = V.Build("census")
+			local head = Fern.Find(lines, L.JOIN_REQUESTS:format(1))
+			assert(head and head.header, "the requests")
+			local who = Fern.Find(lines, "Newbie")
+			assert(Fern.Tip(who):find("Hi! I'd love to join Olympus.", 1, true), "their whisper")
+			local invite = Fern.Find(lines, L.JOIN_INVITE:format("Olympus II"))
+			assert(Fern.Find(lines, L.JOIN_DECLINE) and Fern.Find(lines, L.JOIN_DISMISS))
+			-- Invite: the game's own guild invite, one click.
+			invite.onClick()
+			eq(invited[1], "Newbie"); eq(#R.requests, 0); eq(w.printed[#w.printed], L.JOIN_INVITED:format("Newbie", "Olympus II"))
+			eq(Fern.Find(V.Build("census"), L.JOIN_REQUESTS:format(1)), nil, "answered: gone")
+			-- Decline: one whisper, pointing to the gates.
+			R.OnJoinRequest("WHISPER", "Other-Realm", "J3~Olympus II~15~PRIEST")
+			local decline = Fern.Find(V.Build("census"), L.JOIN_DECLINE)
+			assert(Fern.Tip(decline):find(L.JOIN_DECLINE_TEXT:format("Olympus II", "Olympus R2"), 1, true), "what it sends")
+			decline.onClick()
+			eq(#w.said, 1); eq(w.said[1].kind, "WHISPER"); eq(w.said[1].to, "Other"); eq(w.said[1].text, L.JOIN_DECLINE_TEXT:format("Olympus II", "Olympus R2"))
+			eq(#R.requests, 0)
+			-- No gates: the most room that isn't ours.
+			ns.Acts.Gates = function() return nil end
+			eq(R.DeclineText({}), L.JOIN_DECLINE_TEXT:format("Olympus II", "Olympus R1"))
+			-- Dismiss: nothing sent.
+			R.OnJoinRequest("WHISPER", "Third-Realm", "J3~Olympus II~9~WARRIOR")
+			Fern.Find(V.Build("census"), L.JOIN_DISMISS).onClick()
+			eq(#R.requests, 0); eq(#w.said, 1); eq(#invited, 1)
+			-- Not an officer: no Invite or Decline, a pointer to one online.
+			canInvite = false
+			R.OnJoinRequest("WHISPER", "Fourth-Realm", "J3~Olympus II~9~WARRIOR")
+			lines = V.Build("census")
+			eq(Fern.Find(lines, L.JOIN_INVITE:format("Olympus II")), nil); eq(Fern.Find(lines, L.JOIN_DECLINE), nil)
+			eq(R.Decline(R.requests[1]), false); eq(R.Accept(R.requests[1]), false)
+			Fern.Find(lines, L.JOIN_POINT:format("Lordy")).onClick()
+			eq(w.said[2].to, "Fourth"); eq(w.said[2].text, L.JOIN_POINT_TEXT:format("Lordy"))
+			-- Many at once: REQUEST_LINES chat lines a minute, the rest in the Census.
+			local before = #w.printed
+			for k = 1, R.REQUEST_LINES + 3 do R.OnJoinRequest("WHISPER", "Crowd" .. k .. "-Realm", "J3~Olympus II~5~MAGE") end
+			eq(#w.printed - before, R.REQUEST_LINES - 4, "the minute's lines (four went to the requests above)")
+			eq(#R.requests, R.REQUEST_LINES + 3)
+			assert(Fern.Find(V.Build("census"), L.JOIN_MORE:format(R.REQUEST_LINES + 3 - R.REQUESTS_SHOWN)), "the rest counted")
+			eq(#w.sent, 0, "no addon message")
+		end)
+	end)
+	GetGuildInfo, CanGuildInvite, C_GuildInfo, ns.Roster.byName = saved.guild, saved.can, saved.cgi, saved.byName
+	R.ResetForTests()
+	if not ok then error(err, 0) end
+	-- No dues line in any of these whispers, in both languages.
+	local pt = Fern.BothLanguages({ "RECRUIT_ROUTE_TITLE", "RECRUIT_ROUTE_TIP", "RECRUIT_GATES", "RECRUIT_GATES_TIP", "RECRUIT_ROUTE_ASK_TIP",
+		"RECRUIT_STATE_DNC", "RECRUIT_DNC", "NOCONTACT_ON", "NOCONTACT_OFF", "NOCONTACT_LINE_OFF", "NOCONTACT_LINE_ON", "NOCONTACT_TITLE",
+		"NOCONTACT_TIP", "HELP_NOCONTACT", "JOIN_ASKED", "JOIN_ASKED_TIP", "JOIN_REQUESTS", "JOIN_REQUESTS_TIP", "JOIN_INVITE", "JOIN_DECLINE",
+		"JOIN_DECLINE_TIP", "JOIN_DECLINE_TEXT", "JOIN_DECLINE_TEXT_PLAIN", "JOIN_POINT", "JOIN_POINT_TEXT", "JOIN_DISMISS", "JOIN_MORE", "JOIN_INVITED" })
+	for _, k in ipairs({ "RECRUIT_MESSAGE", "JOIN_DECLINE_TEXT", "JOIN_DECLINE_TEXT_PLAIN", "JOIN_POINT_TEXT" }) do
+		Fern.NoDues(L[k], k); Fern.NoDues(pt[k], "pt-BR " .. k)
+	end
+end)
+
+test("1.1 join routing (Fern #20): with the gamepad UI the request opens in Olympus's own window, and a do-not-contact answer closes it", function()
+	local R = ns.Recruit
+	local saved = { guild = GetGuildInfo, inGuild = IsInGuild, outside = ns.Comm.WhisperOutside }
+	local ok, err = pcall(function()
+		WithUI(function()
+			WithGamepadUI(true, function(game)
+				R.ResetForTests()
+				GetGuildInfo = function() return nil end
+				IsInGuild = function() return false end
+				ns.Comm.WhisperOutside = function() return true end
+				R.found = { { name = "Aaa-Realm", guild = "Olympus II" } }
+				R.Prompt(R.found[1])
+				eq(#game.shown, 0, "not the game's popup")
+				local f = ns.Dialog.Find("OLYMPUS_RECRUIT")
+				assert(f and f:IsShown(), "our dialog")
+				R.OnRoute("Aaa-Realm", "J2~n~~0~")
+				eq(f:IsShown(), false, "closed before anything is sent")
+			end)
+		end)
+	end)
+	GetGuildInfo, IsInGuild, ns.Comm.WhisperOutside = saved.guild, saved.inGuild, saved.outside
+	R.ResetForTests()
+	if not ok then error(err, 0) end
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

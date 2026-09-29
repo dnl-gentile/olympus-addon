@@ -893,6 +893,8 @@ local function CensusLines(s, q)
 		if #lines == 0 then lines[1] = NoMatch() end
 		return lines
 	end
+	-- Recruits asking to join our guild (1.1, Recruit.lua): an officer's Invite and Decline.
+	for _, l in ipairs(ns.Recruit and ns.Recruit.RequestLines and ns.Recruit.RequestLines() or {}) do lines[#lines + 1] = l end
 	-- The King's Agenda, for the whole army (King.lua).
 	local a = ns.King and ns.King.Agenda and ns.King.Agenda()
 	if a then
@@ -1612,6 +1614,16 @@ local function RealmLines(s, q)
 			end,
 		}
 	end
+	-- Our do-not-contact flag (1.1, Fern's #20): recruits' Join screens skip us while it is on.
+	local closed = ns.Recruit and ns.Recruit.NoContactMe and ns.Recruit.NoContactMe()
+	lines[#lines + 1] = {
+		text = Grey(closed and L.NOCONTACT_LINE_ON or L.NOCONTACT_LINE_OFF),
+		onClick = function() ns.Recruit.SetNoContact(not closed) end,
+		tooltip = function(tt)
+			tt:AddLine(L.NOCONTACT_TITLE, 1, 0.82, 0)
+			tt:AddLine(L.NOCONTACT_TIP, 1, 1, 1, true)
+		end,
+	}
 
 	local mapID = ns.Layers.CurrentMap()
 	local zone = mapID and ns.Zones.NameForKey("m" .. mapID) or "?"
@@ -1846,10 +1858,38 @@ function Views.RecruitLines()
 	-- "Showing 50 of 312 online", and which levels the next click searches.
 	WhoStatus(lines)
 	if #lines > 1 then lines[#lines].gapAfter = true end
+	-- Where to go (1.1, Fern's #20): what a member's census said (Recruit.Route), the King's gates
+	-- first, then the most free slots; a click asks one of that guild's officers online.
+	local route = R.Route()
+	if route then
+		lines[#lines + 1] = {
+			header = true, text = L.RECRUIT_ROUTE_TITLE,
+			tooltip = function(tt)
+				tt:AddLine(L.RECRUIT_ROUTE_TITLE, 1, 0.82, 0)
+				tt:AddLine(L.RECRUIT_ROUTE_TIP:format(ns.DisplayName(route.from) or "?"), 1, 1, 1, true)
+			end,
+		}
+		for _, name in ipairs(R.RouteOrder(route)) do
+			local e = route.byName[name]
+			local gates = name == route.gates
+			lines[#lines + 1] = {
+				text = (gates and CROWN or "") .. Green("<" .. Plain(name) .. ">") .. (gates and ("  " .. Gold(L.RECRUIT_GATES)) or ""),
+				right = (e and Grey(L.FREE_SLOTS:format(ns.FormatNumber(e.free))) .. "  " or "") .. Gold(L.RECRUIT_ASK),
+				onClick = function() R.PromptNext(name) end,
+				tooltip = function(tt)
+					tt:AddLine("<" .. Plain(name) .. ">", 0.25, 1, 0.25)
+					if gates then tt:AddLine(L.RECRUIT_GATES_TIP, 1, 1, 1, true) end
+					tt:AddLine(L.RECRUIT_ROUTE_ASK_TIP, 1, 1, 1, true)
+				end,
+			}
+		end
+		lines[#lines].gapAfter = true
+	end
 	for _, g in ipairs(guilds) do
 		lines[#lines + 1] = {
-			text = Green("<" .. g.name .. ">"),
-			right = Grey(L.RECRUIT_ONLINE:format(#g.members)) .. "  " .. Gold(L.RECRUIT_ASK),
+			text = (g.gates and CROWN or "") .. Green("<" .. g.name .. ">"),
+			right = Grey(L.RECRUIT_ONLINE:format(#g.members)) .. (g.free and ("  " .. Grey(L.FREE_SLOTS:format(ns.FormatNumber(g.free)))) or "")
+				.. "  " .. Gold(L.RECRUIT_ASK),
 			onClick = function() R.PromptNext(g.name) end,
 			tooltip = function(tt)
 				tt:AddLine("<" .. g.name .. ">", 0.25, 1, 0.25)
@@ -1858,13 +1898,16 @@ function Views.RecruitLines()
 		}
 		for _, p in ipairs(g.members) do
 			local state = ""
-			if R.replied[p.name] then state = Green(L.RECRUIT_STATE_REPLIED)
+			local closed = R.NoContact(p.name)
+			if closed then state = Grey(L.RECRUIT_STATE_DNC)
+			elseif R.replied[p.name] then state = Green(L.RECRUIT_STATE_REPLIED)
 			elseif R.asked[p.name] then state = Grey(L.RECRUIT_STATE_ASKED) end
 			lines[#lines + 1] = {
 				indent = 1,
 				text = ClassColored(ns.ShortName(p.name), p.class) .. "  " .. Grey((p.level and L.LEVEL_N:format(p.level) or "") .. (p.zone and ("  " .. p.zone) or "")),
 				right = state,
-				onClick = function() ns.ShowDialog("OLYMPUS_RECRUIT", p.name, p.guild, p) end,
+				-- (Not one who asked not to be contacted, 1.1.)
+				onClick = not closed and function() R.Prompt(p) end or nil,
 				tooltip = R.replied[p.name] and function(tt)
 					tt:AddLine(ns.ShortName(p.name), 1, 0.82, 0)
 					-- (A whisper: its links stay, like a chat line's; no other escape code, 0.9.2.)

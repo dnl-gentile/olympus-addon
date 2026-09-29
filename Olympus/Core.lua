@@ -1250,6 +1250,7 @@ local function Help()
 	print(L.HELP_INACTIVE)
 	print(L.HELP_WARNDAYS)
 	print(L.HELP_MENTORS)
+	print(L.HELP_NOCONTACT)
 	print(L.HELP_HOP)
 	print(L.HELP_LAYERHELP)
 	print(L.HELP_LAYERAUTO)
@@ -1331,6 +1332,14 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.UI.SelectTab("realm")
 		elseif cmd == "warndays" then
 			ns.Members.SetWarnDays(rest)
+		elseif cmd == "nocontact" then
+			-- (1.1: recruits' Join screens skip us, Recruit.lua.)
+			local word = rest:lower()
+			if word == "on" or word == "off" then
+				ns.Recruit.SetNoContact(word == "on")
+			else
+				ns.Print(ns.Recruit.NoContactMe() and L.NOCONTACT_ON or L.NOCONTACT_OFF)
+			end
 		elseif cmd == "inactive" or cmd == "members" or cmd == "recruits" or cmd == "mentors" then
 			-- (1.1: our guild's members offline 7, 14 or 30 days and more; the Lord's recruits and
 			-- their mentors. Members.lua.)
