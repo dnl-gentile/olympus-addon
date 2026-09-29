@@ -1108,6 +1108,21 @@ function Comm.Admit(sender, now)
 end
 function Comm.ResetAdmission() wipe(admit); admitCount = 0 end
 
+-- A client outside any Olympus guild (1.1): over its own guild it puts together the pieces of the
+-- author's signed titles list alone (HT), which names the approved guilds (ns.IsApprovedGuild):
+-- the members of such a guild have nothing else to learn it from. Nothing else is read, kept or
+-- answered; a blocked sender, and one past the admission budget, are dropped as ever, and the list
+-- is checked like any other (Workshop.TakeTitles: the signature, the budgets of checks).
+local outsiderAsm = Codec.NewAssembler()
+function Comm.Outsider(sender, text)
+	if not IsInGuild() or type(text) ~= "string" or not text:match("^C%w+:") then return end
+	if ns.db.blocked[sender:lower()] or not Comm.Admit(sender, ns.Now()) then return end
+	stats.outsider = (stats.outsider or 0) + 1
+	local full = Codec.Feed(outsiderAsm, sender, text, ns.Now())
+	if full and full:sub(1, 3) == "HT~" and handlers.HT then handlers.HT("GUILD", sender, full) end
+end
+function Comm.ResetOutsider() outsiderAsm = Codec.NewAssembler() end -- (tests)
+
 local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID, localID, channelName)
 	if prefix ~= ns.PREFIX then return end
 	if type(sender) ~= "string" or sender == "" or type(text) ~= "string" then return end
@@ -1147,7 +1162,12 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		stats.echo = stats.echo + 1 -- our own message coming back (proves the channel works)
 		return
 	end
-	if not ns.IsMember() then return end -- outside an Olympus guild the addon hears nothing
+	-- Outside an Olympus guild the addon hears nothing, but for one thing (1.1): the author's signed
+	-- titles list over its own guild, which may make that guild an Olympus guild (Comm.Outsider).
+	if not ns.IsMember() then
+		if dist == "GUILD" then Comm.Outsider(sender, text) end
+		return
+	end
 	if ns.db.blocked[sender:lower()] then return end
 	if not Comm.Admit(sender, ns.Now()) then return end
 	stats.recv = stats.recv + 1
@@ -1299,6 +1319,7 @@ ns.On("LOGIN", function()
 	ns.Every(60, "housekeeping", function()
 		local dropped, sample = Codec.Gc(asm, ns.Now())
 		Codec.Gc(guildAsm, ns.Now())
+		Codec.Gc(outsiderAsm, ns.Now())
 		if dropped > 0 then
 			stats.partial = stats.partial + dropped
 			ns.Log("incomplete report dropped: %s", tostring(sample))

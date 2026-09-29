@@ -25090,5 +25090,214 @@ test("1.1 patrol share (#29): the Tabards page names the officer who found each,
 end)
 end
 
+---------------------------------------------------------------------------
+-- 1.1: the approved guilds, named by the author's signed titles list (a throwaway key's lists here,
+-- made with scripts/council-sign.py: realm group "Realm", <Sentinels of Zeus> for the Alliance and
+-- <Horde Friends> for the Horde, then a newer list without them)
+---------------------------------------------------------------------------
+
+do
+local APPROVED_TEST_N = "9983c0e5410682110ce00cbdf7410b1af63070d308a91e4fdfd0974aaadf58c59973a06132d6ef0a3396eb57b5461e60d0a0b762341a15316e0a4d7b15fa886df7268aea0edeed1af693ee967774a0d5a12cf66d27355bf2d3578640636b00b8ba8dbe632e64d493fa9c27c84458465edab8da9910325449c5cb7a86fb0415fc039dd248f1e6222cbd48af17d78f5388428dd4f6a2cd2f44ffc0785840fdfb6bdacfc5d03d322eb0e507dd8cb4926643eea62fb07e50f66a66945a3e13fc10f47ba60c3c9cfab18ff452ecdc64010a19f3d32df309df23b02d0512d3cc1ae9d1d9974208ea95bec16fc2093c7173ec09a30ec75e1c6161f32fb78a25beacf56d"
+local APPROVED_TEST_MU = "1aae76297c5650040dc58b372dececcc68892a25a5df4aa48935b30ec130245d76e0fed116dae1f5334810148895736e44012b5ebb5959f2cb33fbb2d15174445a1f403ebc6cc5c83fbfcbafd2a8b765e32896415ee05f5f89e0138192451753bd4f77b7dbae26970695e769335acb86ce3bcc9b2a7c0281e21ce431f0dcd5a773c7de945bbf3823e8c4c2b45900e1a0b22af18b72240184a9ae2de440f6dd76dae00a7d8d668376d22876e27caa28206aefd9a029949e34a29ed5b4956efc5bd9ff12a22806de84102c889fe2ba041b93e2aef4f8cc37f3dc5d7365bcc66f3109bffea0399d827b920e57ed44e3f1e7fb967bf8560f3b1f974bdd45a12400b116ca6f02b"
+local APPROVED_TEST_K = 86
+local APPROVED_WITH = "HT1~1790664446~Realm~0~^^Test Councillor=Council Speaker;^guilds^Alliance^Sentinels of Zeus;^guilds^Horde^Horde Friends~20970bcaaf0d6c0698b957ccedc82f8a078fb6cc2fb34fcc77c5e16599da47735298d910aeda940b764b9bae292e85d6fcc6cf0082cbbeb3939c8321cdea7eab369d8149df52b7de9ce6e74b722ec1e5388a3b36ae774c0fb636786719d4eb84dac13003791d2fa854d40f7595fac0612ee3af794cf4007edace4bb13a00c9dd8a91f76fadb7e9975d48d25a4ef9fd7745945cc4aa571862b696ded1fa45f67c271309494c229a94b2c4ac907e70597f8da4e15ee673951927f47b1c95f771d271a5e9b95b8e500dbee7fab651c4000cd77dfe0a503495c48d42ac85e5c5446022fb179fffff61a64200e2c8dc8f4d705d0f86e216a4ce1d7fbe6b8e878c4880"
+local APPROVED_WITHOUT = "HT1~1790664448~Realm~0~^^Test Councillor=Council Speaker~96a7dadc57f6d426a032ad6d8a05c926ee9907f1bb6a0dbbfaea0e5ccbf9e6bff9db6ed41f9cd83e048e11d08b35c8d175f1d11c854d473d8c25f5b4c8abd95a14e59191c515ad0573d10e64a763527610668147ece863655503de37f92d215a080fdca7d61455feb665e12e0f3ed44b6bcfe61d376eacc09a465e5b259add1cfebb3a39da7c0cdc9bc2e03d39a9f02d8b2073c9cf2ba999c43bbb0190d52982e7b3a96aba3d921aca2249bb7a7bdb92a2ed78c1ca86d74f0fdc258336fa1bf478b4d92605f59fdc4dfb222502541ef52b062b04742ef378a3ee9ef0e0dd3b55de601afbcfdad5e5f8411b531d5d3809fbdea538685857d3faaafa07bb7b1e61"
+
+-- The approved guilds' test council: the test key in place of the author's, our guild <Sentinels
+-- of Zeus> (no Olympus by its name), every store put back after.
+local function WithApproved(fn)
+	local W = ns.Workshop
+	local saved = { council = ns.rdb.council, titles = ns.rdb.councilTitles, me = ns.me, guild = GetGuildInfo, print = ns.Print,
+		check = ns.Comm.CheckMembership, scan = ns.Roster.RequestScan, chunked = ns.Comm.SendChunked, random = W.random,
+		faction = ns.faction, signed = ns.COUNCIL_SIGNED, own = ns.COUNCIL_TITLES, queue = ns.Comm.QueueSize }
+	local w = { printed = {}, checked = 0, scanned = 0, guild = "Sentinels of Zeus", chunks = {} }
+	local ok, err = pcall(function()
+		ns.rdb.council, ns.rdb.councilTitles, ns.COUNCIL_SIGNED, ns.COUNCIL_TITLES = nil, nil, nil, nil
+		ns.me, ns.faction = "Tester-Realm", "Alliance"
+		GetGuildInfo = function() return w.guild, "Member", 3 end
+		ns.Print = function(m) w.printed[#w.printed + 1] = m end
+		ns.Comm.CheckMembership = function() w.checked = w.checked + 1 end
+		ns.Roster.RequestScan = function() w.scanned = w.scanned + 1 end
+		ns.Comm.SendChunked = function(payload, _, dist) w.chunks[#w.chunks + 1] = (dist or "CHANNEL") .. " " .. payload:sub(1, 3) end
+		W.random = function() return 0 end
+		ns.Comm.QueueSize = function() return 0 end
+		W.ResetVerify()
+		ns.Sign.WithKey(APPROVED_TEST_N, APPROVED_TEST_MU, APPROVED_TEST_K, function() fn(w, W) end)
+	end)
+	ns.rdb.council, ns.rdb.councilTitles, ns.me, GetGuildInfo, ns.Print = saved.council, saved.titles, saved.me, saved.guild, saved.print
+	ns.Comm.CheckMembership, ns.Roster.RequestScan, ns.Comm.SendChunked, W.random = saved.check, saved.scan, saved.chunked, saved.random
+	ns.faction, ns.COUNCIL_SIGNED, ns.COUNCIL_TITLES, ns.Comm.QueueSize = saved.faction, saved.signed, saved.own, saved.queue
+	W.ResetVerify()
+	if not ok then error(err, 0) end
+end
+
+test("1.1 approved guilds: the titles list's entry per faction, as the addon keeps it (letters and spaces, 24 at most, 20 a faction, each once)", function()
+	local long = ("Guild "):rep(5)
+	local names = {}
+	for i = 1, 22 do names[i] = "Guild " .. string.char(64 + i) end
+	local g = ns.ReadApprovedGuilds("^^Test Councillor=Speaker;Department^INV_X^A=B;^steward^Alliance^Some One-Realm;"
+		.. "^guilds^Alliance^ Sentinels of Zeus ,Bad1 Guild,sentinels of ZEUS," .. long .. ",Ok Guild;^guilds^Horde^Horde Friends;"
+		.. "^guilds^Neutral^Nobody;^guilds^Horde^" .. table.concat(names, ","))
+	eq(table.concat(g.Alliance, "|"), "Sentinels of Zeus|Ok Guild", "trimmed, each once, no digits, 24 characters at most")
+	eq(#g.Horde, 20, "20 a faction"); eq(g.Horde[1], "Horde Friends"); eq(g.Neutral, nil)
+	eq(next(ns.ReadApprovedGuilds("^^A=B;Dept^^C=D;^steward^Alliance^X Y-Realm")), nil, "departments and Stewards are no guilds")
+	-- A 1.0.0 client's reading of the same list: its departments and its Steward, the guilds left out.
+	eq(#ns.ReadStewards("^guilds^Alliance^Sentinels of Zeus;^steward^Alliance^Some One-Realm").Alliance, 1)
+end)
+
+test("1.1 approved guilds: a guild the author's signed list names is an Olympus guild, on the list's realm group and faction; a newer list without it ends it", function()
+	WithApproved(function(w, W)
+		eq(ns.IsFederation("Sentinels of Zeus"), false, "not by its name"); eq(ns.IsMember(), false)
+		eq(ns.IsFederation("Olympian"), false, "the name rule still leaves Olympian out")
+		-- A changed list is refused: nothing approved.
+		eq(W.TakeTitles((APPROVED_WITH:gsub("Sentinels of Zeus", "Sentinels of Hera", 1)), "Relay-Realm"), false)
+		eq(ns.IsFederation("Sentinels of Hera"), false)
+		eq(W.TakeTitles(APPROVED_WITH, "Relay1-Realm"), true, "the signed list")
+		eq(ns.IsFederation("Sentinels of Zeus"), true); eq(ns.IsFederation("SENTINELS OF ZEUS"), true, "any case")
+		eq(ns.NamedOlympus("Sentinels of Zeus"), false, "the name rule alone says no"); eq(ns.ApprovedOnly(), true)
+		eq(ns.IsMember(), true, "its members are Olympus members now")
+		eq(w.printed[#w.printed], ns.L.APPROVED_YOU:format("Sentinels of Zeus"))
+		eq(w.checked, 1, "the channel joined, the census asked for, as when one joins a guild"); eq(w.scanned, 1)
+		eq(ns.IsFederation("Horde Friends"), false, "the Horde's approved guild is not ours")
+		ns.faction = "Horde"
+		eq(ns.IsFederation("Horde Friends"), true); eq(ns.IsFederation("Sentinels of Zeus"), false)
+		ns.faction = "Alliance"
+		ns.me = "Tester-OtherRealm"
+		eq(ns.IsFederation("Sentinels of Zeus"), false, "another realm group")
+		ns.me = "Tester-Realm"
+		-- A list taken by 1.0.0 (no guilds kept): read again from its signed text.
+		ns.rdb.councilTitles.guilds = nil
+		eq(table.concat(ns.ApprovedGuilds(), ","), "Sentinels of Zeus")
+		eq(ns.IsApprovedGuild("Sentinels of Zeus"), true)
+		-- The census takes its reports now.
+		local savedGuilds = ns.rdb.guilds
+		ns.rdb.guilds = {}
+		w.guild = "Olympus II" -- (our own guild's report comes from our roster: another guild's here)
+		local r = { guild = "Sentinels of Zeus", total = 50, online = 10, leader = "Sentry", users = 2, zones = {}, officers = {}, ranks = {}, top = {} }
+		local taken = ns.Data.Receive(r, "Sentry-Realm")
+		ns.rdb.guilds = savedGuilds
+		w.guild = "Sentinels of Zeus"
+		eq(taken, true, "a report of it counts")
+		-- The newer list without it: no longer.
+		eq(W.TakeTitles(APPROVED_WITHOUT, "Relay2-Realm"), true)
+		eq(ns.IsFederation("Sentinels of Zeus"), false); eq(ns.IsMember(), false)
+		eq(w.printed[#w.printed], ns.L.APPROVED_NO_LONGER:format("Sentinels of Zeus")); eq(w.checked, 2)
+	end)
+end)
+
+test("1.1 approved guilds: outside any Olympus guild the addon puts together the author's titles list alone, over its own guild", function()
+	local savedGuild, savedChannel = GetGuildInfo, GetChannelName
+	local ok, err = pcall(function()
+		GetGuildInfo = function() return "Sentinels of Zeus", "Member", 3 end
+		GetChannelName = function() return 0 end
+		local cns, Deliver = FreshComm()
+		local got = {}
+		for _, kind in ipairs({ "HT", "HS", "U1", "M1" }) do
+			cns.Comm.Handle(kind, function(dist, sender, text) got[#got + 1] = dist .. " " .. sender .. " " .. text:sub(1, 12) end)
+		end
+		local function Pieces(dist, sender, payload, id)
+			for _, c in ipairs(ns.Codec.Chunk(payload, id)) do Deliver(dist, sender, c) end
+		end
+		Pieces("GUILD", "Sentry-Realm", "HT~" .. APPROVED_WITH, "7")
+		eq(#got, 1, "the titles list, put together"); eq(got[1], "GUILD Sentry-Realm HT~HT1~17906")
+		-- Nothing else: the names list, a lone message, anything on the channel, a blocked guildmate's.
+		Pieces("GUILD", "Sentry-Realm", "HS~HS1~1~Realm~A B~" .. ("0"):rep(512), "8")
+		Deliver("GUILD", "Sentry-Realm", "U1~Bob:Olympus Zeus:N:0")
+		Pieces("CHANNEL", "Stranger-Realm", "HT~" .. APPROVED_WITH, "9")
+		ns.db.blocked["troll-realm"] = true
+		Pieces("GUILD", "Troll-Realm", "HT~" .. APPROVED_WITH, "10")
+		ns.db.blocked["troll-realm"] = nil
+		eq(#got, 1, "only the titles list over our guild")
+	end)
+	GetGuildInfo, GetChannelName, C_ChatInfo = savedGuild, savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 approved guilds: its members holding the list pass it over their guild every 5 minutes; the first one pastes it (/oly approved paste)", function()
+	WithApproved(function(w, W)
+		W.ResetListAsk()
+		-- Nothing held: nothing to pass on.
+		eq(W.RelayGuild(), false)
+		-- The paste: junk refused, the list taken (the text around it left out), the same one again held.
+		eq(W.PasteTitles("hello"), false); eq(w.printed[#w.printed], ns.L.APPROVED_PASTE_BAD)
+		eq(W.PasteTitles("ns.COUNCIL_TITLES = \"" .. APPROVED_WITH .. "\""), true)
+		eq(w.printed[#w.printed - 1], ns.L.APPROVED_YOU:format("Sentinels of Zeus"))
+		eq(w.printed[#w.printed], ns.L.APPROVED_PASTE_TAKEN)
+		eq(table.concat(w.chunks, ","), "GUILD HT~,CHANNEL HT~", "to our guild at once, and our channel (the titles: no name list held)")
+		eq(W.PasteTitles(APPROVED_WITH), false); eq(w.printed[#w.printed], ns.L.APPROVED_PASTE_HELD)
+		-- A changed list pasted: refused (a newer time would need the author's signature).
+		W.ResetVerify()
+		eq(W.PasteTitles((APPROVED_WITHOUT:gsub("Council Speaker", "Council Boss", 1))), false)
+		eq(w.printed[#w.printed], ns.L.APPROVED_PASTE_BAD)
+		-- The relay over our guild: each APPROVED_RELAY_EVERY, whatever our guild's realms (its clock
+		-- starts again here: the test's reset above cleared it).
+		eq(W.RelayGuild(true), true)
+		w.chunks = {}
+		local savedNow = ns.Now
+		local now = ns.Now()
+		ns.Now = function() return now end
+		eq(W.RelayGuild(), false, "just passed on")
+		now = now + W.APPROVED_RELAY_EVERY
+		eq(W.RelayGuild(), true)
+		eq(table.concat(w.chunks, ","), "GUILD HT~")
+		-- A guild Olympus by its name keeps 1.0.0's rule: only while its addon users span realms.
+		w.guild = "Olympus II"
+		now = now + W.APPROVED_RELAY_EVERY
+		eq(W.RelayGuild(), false)
+		ns.Now = savedNow
+		-- /oly approved: the list, and whether ours is on it.
+		w.guild = "Sentinels of Zeus"
+		SlashCmdList.OLYMPUS("approved")
+		eq(w.printed[#w.printed - 1], ns.L.APPROVED_LIST:format("Sentinels of Zeus"))
+		eq(w.printed[#w.printed], ns.L.APPROVED_MINE:format("Sentinels of Zeus"))
+		w.guild = "Stormwind Traders"
+		SlashCmdList.OLYMPUS("approved")
+		eq(w.printed[#w.printed], ns.L.APPROVED_NOT_MINE:format("Stormwind Traders"))
+		w.guild = "Sentinels of Zeus"
+		assert(ns.StatusText():find("approved guilds: Sentinels of Zeus  |  ours is Olympus by the list alone", 1, true))
+		-- The Join screen (a guild not Olympus by its name, before the list): a click opens the paste box.
+		local savedDialog = ns.ShowDialog
+		local shown
+		ns.ShowDialog = function(which) shown = which end
+		w.guild = "Stormwind Traders"
+		local join = ns.Views.RecruitLines()
+		local hint = join[#join]
+		eq(hint.text, "|cff9d9d9d" .. ns.L.APPROVED_JOIN_HINT:format("Stormwind Traders") .. "|r")
+		hint.onClick()
+		ns.ShowDialog = savedDialog
+		eq(shown, "OLYMPUS_APPROVED_PASTE")
+		w.guild = "Sentinels of Zeus"
+		W.ResetListAsk()
+	end)
+end)
+
+test("1.1 approved guilds: strings in both languages; README and CurseForge say who counts and how the list is signed", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, key in ipairs({ "APPROVED_YOU", "APPROVED_NO_LONGER", "APPROVED_PASTE_PROMPT", "APPROVED_PASTE_TAKEN", "APPROVED_PASTE_HELD",
+		"APPROVED_PASTE_BAD", "APPROVED_LIST", "APPROVED_MINE", "APPROVED_NOT_MINE", "HELP_APPROVED", "APPROVED_JOIN_HINT" }) do
+		local p = rawget(pt.L, key)
+		assert(type(ns.L[key]) == "string" and type(p) == "string" and p ~= ns.L[key], key)
+		eq(select(2, p:gsub("%%s", "")), select(2, ns.L[key]:gsub("%%s", "")), key)
+	end
+	eq(StaticPopupDialogs.OLYMPUS_APPROVED_PASTE.maxLetters, ns.Workshop.TITLES_BLOB, "room for the whole list")
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("/oly approved paste", 1, true), file)
+		assert(doc:find("signed list", 1, true), file)
+	end
+	local f = assert(io.open(ROOT .. "README.md"))
+	local doc = f:read("*a")
+	f:close()
+	assert(doc:find("council-sign.py guild", 1, true), "README: the signing command")
+end)
+end
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

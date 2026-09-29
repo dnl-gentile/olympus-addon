@@ -1412,7 +1412,11 @@ function Workshop.TakeTitles(blob, sender, guild)
 	local function Steward() return type(ns.King) == "table" and type(ns.King.IsSteward) == "function" and ns.King.IsSteward() end
 	local was = Steward()
 	local stewards = ns.ReadStewards(list)
-	ns.rdb.councilTitles = { at = at, public = public == "1", realm = realm ~= "" and realm or nil, depts = depts, blob = blob, stewards = stewards }
+	-- The approved guilds (1.1, Core.lua: ns.ReadApprovedGuilds): the list may make our guild Olympus.
+	local wasMember = ns.IsMember()
+	ns.rdb.councilTitles = { at = at, public = public == "1", realm = realm ~= "" and realm or nil, depts = depts, blob = blob, stewards = stewards,
+		guilds = ns.ReadApprovedGuilds(list) }
+	if ns.IsMember() ~= wasMember then Workshop.MembershipChanged(wasMember) end
 	local named = 0
 	for _, names in pairs(stewards) do named = named + #names end
 	ns.Log("High Council: a signed titles list of %d names in %d parts, %d Steward(s) (%s)", n, #depts, named, tostring(at))
@@ -1439,6 +1443,94 @@ function Workshop.HandleTitles(dist, sender, text)
 end
 ns.Comm.Handle("HT", function(...) Workshop.HandleTitles(...) end)
 
+---------------------------------------------------------------------------
+-- The approved guilds (1.1, the author's; Core.lua: ns.IsApprovedGuild): a guild of Asmon's Olympus
+-- whose name the name rule leaves out counts once the author's signed titles list names it. Its
+-- members' addons, no Olympus members until they hold that list, hear only it (over their guild,
+-- Comm.lua), and the first of them can paste it (/oly approved paste: the author hands the signed
+-- text out; it is checked like any list, so nobody can forge one).
+---------------------------------------------------------------------------
+
+-- The list made our guild an Olympus guild, or no longer: the addon starts (the channel, the
+-- census, the roster) or stops, as when one joins or leaves a guild.
+function Workshop.MembershipChanged(wasMember)
+	local guild = (GetGuildInfo and GetGuildInfo("player")) or "?"
+	if ns.IsMember() then
+		ns.Print(L.APPROVED_YOU:format(guild))
+		ns.PlayAlert("soft")
+	elseif wasMember then
+		ns.Print(L.APPROVED_NO_LONGER:format(guild))
+	end
+	if ns.Comm and ns.Comm.CheckMembership then ns.SafeCall("approved membership", ns.Comm.CheckMembership) end
+	if ns.Roster and ns.Roster.RequestScan then ns.SafeCall("approved roster", ns.Roster.RequestScan, true) end
+end
+
+-- A signed titles list pasted in (the text scripts/council-sign.py prints): taken as a list from
+-- our own guild is, with the same checks (only a newer one, its signature the author's). True when
+-- taken.
+function Workshop.PasteTitles(text)
+	local blob = tostring(text or ""):match("(HT1~%d+~[^~]*~[01]~[^~]*~%x+)")
+	if not blob or #blob > Workshop.TITLES_BLOB then
+		ns.Print(L.APPROVED_PASTE_BAD)
+		return false
+	end
+	local _, held = HeldList("HT")
+	if (tonumber(blob:match("^HT1~(%d+)~")) or 0) <= held then
+		ns.Print(L.APPROVED_PASTE_HELD)
+		return false
+	end
+	if not Workshop.TakeTitles(blob, ns.me, true) then
+		ns.Print(L.APPROVED_PASTE_BAD)
+		return false
+	end
+	ns.Print(L.APPROVED_PASTE_TAKEN)
+	-- To our guildmates at once (they may be waiting for it: ns.ApprovedOnly), and our channel.
+	if ns.ApprovedOnly() then Workshop.RelayGuild(true) end
+	if ns.IsMember() then Workshop.RelayCouncil(true) end
+	return true
+end
+
+StaticPopupDialogs["OLYMPUS_APPROVED_PASTE"] = {
+	text = L.APPROVED_PASTE_PROMPT,
+	button1 = OKAY or "OK",
+	button2 = CANCEL or "Cancel",
+	hasEditBox = true,
+	editBoxWidth = 320,
+	maxLetters = Workshop.TITLES_BLOB,
+	OnShow = function(self)
+		local eb = self.editBox or self.EditBox
+		if eb then eb:SetText(""); eb:SetFocus() end
+	end,
+	OnAccept = function(self)
+		local eb = self.editBox or self.EditBox
+		ns.SafeCall("approved paste", Workshop.PasteTitles, eb and eb:GetText())
+	end,
+	EditBoxOnEnterPressed = function(self)
+		local text = self:GetText()
+		self:GetParent():Hide()
+		ns.SafeCall("approved paste", Workshop.PasteTitles, text)
+	end,
+	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+-- `/oly approved`: the approved guilds of our faction the list we hold names, and whether ours is
+-- one; `/oly approved paste`: the box to paste the signed list in.
+function Workshop.Approved(word)
+	if tostring(word or ""):lower() == "paste" then return ns.ShowDialog("OLYMPUS_APPROVED_PASTE") end
+	local list = ns.ApprovedGuilds()
+	ns.Print(L.APPROVED_LIST:format(#list > 0 and table.concat(list, ", ") or "-"))
+	local guild = IsInGuild() and GetGuildInfo("player")
+	if type(guild) == "string" and ns.IsApprovedGuild(guild) then
+		ns.Print(L.APPROVED_MINE:format(guild))
+	elseif type(guild) == "string" and not ns.IsFederation(guild) then
+		ns.Print(L.APPROVED_NOT_MINE:format(guild))
+	end
+end
+
 -- Passing the lists along, the names and the titles together: the author's client each 10
 -- minutes; any other one now and then, so about RELAYS clients a half hour, whatever the
 -- army's size.
@@ -1464,12 +1556,19 @@ end
 -- addon users each time (a guild of a thousand sends a handful), when our send queue has room
 -- (the census report comes first). force: now, whatever these (the author's client at login).
 Workshop.GUILD_QUEUE = 30
+-- A guild that is Olympus by the signed list alone (1.1, ns.ApprovedOnly): its members without
+-- the list are no Olympus members yet, so they can't ask for it and hear nothing on the channel;
+-- they take it over GUILD alone (Comm.lua). There the lists go over GUILD each
+-- APPROVED_RELAY_EVERY (about RELAYS of its addon users that hold them), whatever its realms.
+Workshop.APPROVED_RELAY_EVERY = 300
 function Workshop.RelayGuild(force)
 	local names, titles = HeldList("HS"), (HeldList("HT"))
 	if not names and not titles then return false end
 	local now = ns.Now()
 	if not force then
-		if now - lastGuildSent < Workshop.RELAY_EVERY or not GuildSpansRealms() then return false end
+		local approved = ns.ApprovedOnly and ns.ApprovedOnly()
+		local every = approved and Workshop.APPROVED_RELAY_EVERY or Workshop.RELAY_EVERY
+		if now - lastGuildSent < every or not (approved or GuildSpansRealms()) then return false end
 		if ns.Comm.QueueSize and ns.Comm.QueueSize() > Workshop.GUILD_QUEUE then return false end
 	end
 	lastGuildSent = now

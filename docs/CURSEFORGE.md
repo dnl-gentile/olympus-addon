@@ -31,8 +31,20 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
 
 **Only members of a guild with "Olympus" in its name**, however it was spelled: OLYMPVS the Roman way, Olimpus, Olmps, Olympuz, Olympos, Olimpo and other misspellings count too (Olympia or Olympic do not), and a guild against Olympus ("ANTI OLYMPUS", "Olympus Haters") does not. The check is fixed in the code and
 cannot be switched off with a command. Outside an Olympus guild the addon joins no channel,
-sends nothing and receives nothing. The only thing it offers there is the **Join Olympus**
-screen described below.
+sends nothing and receives nothing, but for the author's signed list below, over its own guild.
+The only thing it offers there is the **Join Olympus** screen described below.
+
+**Approved guilds (1.1).** A guild of Asmon's Olympus whose name the rule leaves out (it leaves
+Olympian and Olympia out on purpose) counts as an Olympus guild once the author names it in his
+signed list: the same list, signed with the same key on his own computer, that names the High
+Council and the King's Steward, for one faction and realm group. No guild name is written in the
+code, no census vote counts, and nobody else can add one. Its members' addons, no Olympus members
+until they hold that list, take it over their own guild alone (the list only: nothing else is
+read, and they send nothing). The first of them pastes it with `/oly approved paste`, or a click
+on the Join Olympus screen's last line (the author
+or a High Councillor hands out the signed text; it is checked like any list, so it can't be forged
+or changed), and his addon passes it to his guild every 5 minutes. `/oly approved` lists the
+approved guilds of your faction. A newer signed list without a guild ends it on every client.
 
 ### Not in Olympus yet?
 First it asks the obvious question: *"<Your Guild>? Disband immediately. What are you
@@ -801,6 +813,7 @@ Other limits:
 | `/oly mark [note]` | mark your target |
 | `/oly gear` (or **Inspect gear** on the Tabards tab) | officers: inspect the player you target (in range) once and keep what he wears, under **Gear seen** on the Tabards tab; nothing is scored or sent |
 | `/oly patrolshare on\|off` | officers: pass what your inspections find to your guild's officers and take theirs (on by default), or not |
+| `/oly approved` · `/oly approved paste` | the guilds of Asmon's Olympus the author's signed list makes Olympus guilds (their names don't say Olympus), and whether yours is one; paste that signed list (the first member of such a guild: his addon then passes it to the guild) |
 | `/oly arms [text]` · `/oly muster [text]` | send a decree (`test` = local preview) |
 | `/ol <text>` · `/olc <text>` · `/oll <text>` | write in [Olympus], [Captains] or [Lords] |
 | `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |

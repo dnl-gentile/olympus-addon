@@ -42,8 +42,20 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
 
 **Only members of a guild with "Olympus" in its name**, however it was spelled: OLYMPVS the Roman way, Olimpus, Olmps, Olympuz, Olympos, Olimpo and other misspellings count too (Olympia or Olympic do not), and a guild against Olympus ("ANTI OLYMPUS", "Olympus Haters") does not. The check is fixed in the code and
 cannot be switched off with a command. Outside an Olympus guild the addon joins no channel,
-sends nothing and receives nothing. The only thing it offers there is the **Join Olympus**
-screen described below.
+sends nothing and receives nothing, but for the author's signed list below, over its own guild.
+The only thing it offers there is the **Join Olympus** screen described below.
+
+**Approved guilds (1.1).** A guild of Asmon's Olympus whose name the rule leaves out (it leaves
+Olympian and Olympia out on purpose) counts as an Olympus guild once the author names it in his
+signed list: the same list, signed with the same key on his own computer, that names the High
+Council and the King's Steward, for one faction and realm group. No guild name is written in the
+code, no census vote counts, and nobody else can add one. Its members' addons, no Olympus members
+until they hold that list, take it over their own guild alone (the list only: nothing else is
+read, and they send nothing). The first of them pastes it with `/oly approved paste`, or a click
+on the Join Olympus screen's last line (the author
+or a High Councillor hands out the signed text; it is checked like any list, so it can't be forged
+or changed), and his addon passes it to his guild every 5 minutes. `/oly approved` lists the
+approved guilds of your faction. A newer signed list without a guild ends it on every client.
 
 ### Not in Olympus yet?
 First it asks the obvious question: *"<Your Guild>? Disband immediately. What are you
@@ -916,6 +928,7 @@ Other limits:
 | `/oly mark [note]` | mark your target |
 | `/oly gear` (or **Inspect gear** on the Tabards tab) | officers: inspect the player you target (in range) once and keep what he wears, under **Gear seen** on the Tabards tab; nothing is scored or sent |
 | `/oly patrolshare on\|off` | officers: pass what your inspections find to your guild's officers and take theirs (on by default), or not |
+| `/oly approved` · `/oly approved paste` | the guilds of Asmon's Olympus the author's signed list makes Olympus guilds (their names don't say Olympus), and whether yours is one; paste that signed list (the first member of such a guild: his addon then passes it to the guild) |
 | `/oly arms [text]` · `/oly muster [text]` | send a decree (`test` = local preview) |
 | `/ol <text>` · `/olc <text>` · `/oll <text>` | write in [Olympus], [Captains] or [Lords] |
 | `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |
@@ -986,6 +999,7 @@ python3 scripts/link-keys.py ca           # the author, once: Olympus Link's cou
 python3 scripts/council-sign.py sign "First Surname,..." [realm group]  # the author: sign the High Council list
 python3 scripts/council-sign.py council [council.json]  # the author: sign the names, departments and titles (see the script)
 python3 scripts/council-sign.py steward "<Name-Realm>"  # the author: mark the King's Steward, sign the council (below)
+python3 scripts/council-sign.py guild "<Guild Name>"  # the author: approve a guild of Olympus, sign the council (below)
 python3 scripts/council-sign.py check     # the author: read dist/CouncilList.lua back, check its signatures with the key
 scripts/package.sh                        # dist/Olympus-<version>.zip
 WOW_HOST=user@pc scripts/deploy.sh        # copy to a Windows PC over SSH
@@ -1032,6 +1046,21 @@ without him (every client takes the newer list and he is no longer the Steward, 
 ```bash
 python3 scripts/council-sign.py steward --remove "<Name-Realm>"
 ```
+
+To approve a guild of Asmon's Olympus whose name the name rule leaves out (1.1; add `Horde` after
+the name for a Horde guild):
+
+```bash
+python3 scripts/council-sign.py guild "<Guild Name>"
+python3 scripts/council-sign.py check
+```
+
+The first adds it to the council file's `"guilds"` and signs the council at once, and prints the
+signed titles list whole: its members' addons hear nothing of Olympus until they hold it, so the
+first of them pastes that text in game (`/oly approved paste`) and his addon passes it to his
+guild. `check` prints the approved guilds of each faction. `guild --remove "<Guild Name>"` signs a
+newer council without it, which ends it on every client. `<Guild Name>` is the guild's name as the
+game shows it (letters and spaces, 24 at most).
 
 `<Name-Realm>` is his character as the server writes it (first name and surname, then his
 realm), on a realm of the list's group. The script refuses anything the addon would not take,

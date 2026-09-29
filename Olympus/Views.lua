@@ -1629,13 +1629,30 @@ end
 -- Join Olympus (what non-members see)
 ---------------------------------------------------------------------------
 
+-- 1.1: a guild of Asmon's Olympus whose name the rule leaves out counts once the author's signed
+-- list names it (ns.IsApprovedGuild): its first member pastes that list, from this screen too.
+local function ApprovedHint(lines)
+	local guild = IsInGuild() and GetGuildInfo("player")
+	if type(guild) ~= "string" or guild == "" then return lines end
+	if lines[#lines] then lines[#lines].gapAfter = true end
+	lines[#lines + 1] = {
+		text = Grey(L.APPROVED_JOIN_HINT:format(Plain(guild))),
+		onClick = function() ns.ShowDialog("OLYMPUS_APPROVED_PASTE") end,
+		tooltip = function(tt)
+			tt:AddLine(L.APPROVED_JOIN_HINT:format(Plain(guild)), 1, 0.82, 0, true)
+			tt:AddLine(L.APPROVED_PASTE_PROMPT, 1, 1, 1, true)
+		end,
+	}
+	return lines
+end
+
 function Views.RecruitLines()
 	local R = ns.Recruit
 	local lines = { { header = true, text = L.RECRUIT_TITLE } }
 	local guilds = R.Guilds()
 	if #guilds == 0 then
 		lines[#lines + 1] = { text = Grey(#R.found == 0 and not ns.Who.Searched() and L.RECRUIT_START or L.RECRUIT_NONE_FOUND) }
-		return lines
+		return ApprovedHint(lines)
 	end
 	-- "Showing 50 of 312 online", and which levels the next click searches.
 	WhoStatus(lines)
@@ -1668,7 +1685,7 @@ function Views.RecruitLines()
 		end
 		lines[#lines].gapAfter = true
 	end
-	return lines
+	return ApprovedHint(lines)
 end
 
 ---------------------------------------------------------------------------

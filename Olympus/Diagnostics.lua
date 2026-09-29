@@ -383,6 +383,12 @@ function ns.StatusText()
 	add("king: %s", ns.Hop and ns.Hop.KingStatusLine and ns.Hop.KingStatusLine() or "not loaded")
 	-- (1.0.0) The King's Steward as the signed titles list names him here, and the Hands held.
 	add("steward: %s", ns.King and ns.King.StewardStatusLine and ns.King.StewardStatusLine() or "not loaded")
+	-- 1.1: the guilds the author's signed list makes Olympus guilds (our faction's), and whether ours is one.
+	if ns.ApprovedGuilds then
+		local list, guild = ns.ApprovedGuilds(), GetGuildInfo("player")
+		add("approved guilds: %s%s", #list > 0 and table.concat(list, ", ") or "none", (guild and ns.IsApprovedGuild(guild))
+			and (ns.NamedOlympus(guild) and "  |  ours is on it" or "  |  ours is Olympus by the list alone") or "")
+	end
 	add("borders: %s", ns.Borders and ns.Borders.StatusLine and ns.Borders.StatusLine() or "not loaded")
 	add("nameplates: %s", ns.Nameplates and ns.Nameplates.StatusLine and ns.Nameplates.StatusLine() or "not loaded")
 	-- The gamepad UI and what the game refused us this session; what its code reads, as now.
