@@ -335,21 +335,28 @@ what each player chose to share, and the King's week.
   officer's click on an entry, **Put it on your guild's calendar**, opens the game's calendar
   and says which day to right-click, and he creates the guild event there. With the gamepad UI,
   or in combat, it only says how to open it (the minimap clock, `/calendar`, or the gamepad
-  menu's Calendar). The King's client repeats his entries every 10 minutes for late logins, and
-  keeps them across a `/reload`.
+  menu's Calendar). The King's client repeats his entries for late logins, every 10 minutes (every
+  30 while one is more than a day away), and keeps them across a `/reload`. Every client keeps
+  the week it heard across a `/reload` or a login, so it shows while the King is offline, until
+  each entry is over or taken off (an entry taken off while you were away goes once its setter's
+  client, back online, repeats his others without it). A client keeps 30 entries at most, and
+  the King's and his Steward's always find a place: a Hand's furthest ahead gives way.
 - **The signup sheet** (1.1) on every entry of the King's Agenda, its current event too: **Sign
   up**, then the role you claim (Tank, Healer, DPS or Any role; Withdraw takes it back). Nothing
   checks the claim and nothing invites you: the signup is a whisper to whoever set that entry,
   alone, and whoever runs the event invites by hand. His client keeps one signup per character
-  and sends the army the counts ("Signed: 4 tanks · 9 healers · 60 dps · 3 any") every 5
-  minutes and soon after a change, so the King knows whether the raid is 4 or 40 before anyone
-  zones in; the names stay on his own screen, behind **Who signed** (a councillor's cut short on
-  the King's stream). Signups the census can't place (more than a guild's size, a guild it
-  doesn't know) are listed apart and not counted. Sign up shows only while that player's addon
-  is online to take it.
+  and sends the army the counts ("Signed: 4 tanks · 9 healers · 60 dps · 3 any") soon after a
+  change, then every 5 minutes while one of his entries has signups or is within 2 days (every 15
+  otherwise), so the King knows whether the raid is 4 or 40 before anyone zones in; the names
+  stay on his own screen, behind **Who signed** (a councillor's cut short on the King's stream).
+  His client keeps the signups across a `/reload` or a login, with his entries. Signups the
+  census can't place (more than a guild's size, a guild it doesn't know) are listed apart and not
+  counted. Sign up shows only while that player's addon is online to take it.
 - **A nudge for what you signed** (1.1): 5 minutes before an entry this character signed, your
   client alone prints one line with the usual alert sound ("You signed up as Healer: Raid night
-  in 5 min"), once. Not a raid warning, and nothing is sent: the army gets no extra alert.
+  in 5 min"), once, after a `/reload` too (from your signup itself, if the entry isn't heard
+  again before it begins). Not a raid warning, and nothing is sent: the army gets no extra alert.
+  An entry taken off takes your signup and its nudge with it.
 - **Raise a flag** with one click: **Dungeon**, **Raid**, **PvP** or **Layer**, plus a short
   note if you want one (40 bytes at most; `/oly lfg raid need a healer` fills it in). A box
   says first what goes out: your name, level, class and guild, the flag and the note, to every
@@ -362,9 +369,10 @@ what each player chose to share, and the King's week.
 - **A click on someone's card whispers them** (the game's chat box; Olympus's own window with
   the gamepad UI). Nothing invites anyone, queues or forms a group: the whisper is yours, and so
   is any invite that follows.
-- One flag each; a new one takes its place. It lasts an hour at most (you are told when it
-  comes down), and a click on it, or `/oly lfg off`, lowers it for everyone at once, after a
-  `/reload` too. 30 seconds between raises, 3 an hour; the Board holds 150 flags.
+- One flag each; a new one takes its place (the old one comes down on every Board first, and the
+  new one shows at once). It lasts an hour at most (you are told when it comes down), and a click
+  on it, or `/oly lfg off`, lowers it for everyone at once, after a `/reload` too. 30 seconds
+  between raises, 3 an hour; the Board holds 150 flags.
 - Your addon repeats your flag every 10 to 30 minutes (the fuller the Board, the less often) for
   players who log in later, and the first time a session you open the Board your addon asks
   the channel once: the players with a flag up answer you alone, by whisper.
@@ -451,9 +459,11 @@ tools lives where it belongs:
   Crossroads"). The whole army gets a popup with the appointment (what, in how long, where)
   and sees it on the Census, with reminders 10 minutes and 1 minute before. Since 1.1 it also
   holds **the King's week**: a day and an hour of the realm, then what ("Sat 20:00 Raid night",
-  "today 21:30 Court", "sáb 20h Raide"), up to 7 days ahead and 10 entries each for the King,
-  his Steward and each Hand. The army sees them on the Board, by day (below), with one quiet
-  chat line when an entry is added: no popup, raid warning or sound.
+  "today 21:30 Court", "sáb 20h Raide"), up to 7 days ahead, 10 entries each for the King and
+  his Steward and 5 for each Hand. The army sees them on the Board, by day (below), with one
+  quiet chat line when an entry is added: no popup, raid warning or sound. The box starts
+  empty, and a day and an hour typed after a number ("30 Sat 20:00 Raid night") still make a
+  week entry, never a 30-minute Agenda.
 - **Hold Court** (a button on the Throne): the King opens his court where he stands. Every
   Olympus player in that zone gets a line on top of the Census and the Realm; one click asks
   for an audience. The requests line up on his Throne and a click calls that player (a popup
@@ -1070,7 +1080,7 @@ message (the game adds it). What goes where:
 | A flag on the Board (1.1): your guild, level and class, the flag (dungeon, raid, PvP or layer), your note (with the logged API), and your zone only while you share it | everyone on the Olympus channel, and whispered to a player whose Board asked for the flags up | when you raise it, then every 10 to 30 minutes for an hour at most, until you lower it |
 | The Board's ask (1.1): nothing but your name | everyone on the Olympus channel | once a session, the first time you open the Board |
 | A signup (1.1): the Agenda entry, the role you claim (or that you withdraw) and your guild | whoever set that entry (the King, his Steward or a Hand), alone (a whisper) | only when you click Sign up |
-| A signup sheet (1.1): the counts per role of each entry, no names | everyone on the Olympus channel | from the client of whoever set the entries, every 5 minutes while one is ahead, and soon after a change |
+| A signup sheet (1.1): the counts per role of each entry, no names, and when the next one comes | everyone on the Olympus channel | from the client of whoever set the entries, soon after a change, then every 5 minutes while one of them has signups or is within 2 days, every 15 otherwise |
 | A camp on the Board (1.1): your guild, level and class, the camp's zone (never your spot) and your note (with the logged API) | everyone on the Olympus channel, and whispered to a player whose Board asked | only with `/oly location on`, when you drop it, then every 10 minutes for its 30 minutes, until you take it down |
 | A net-off word (1.1): the character's name, hidden or shown again (or the guild's name, off or on again), the time, who gave it and the reason | everyone on the Olympus channel | when the King, his Steward, a Hand or a High Councillor gives one, then from their addons every few minutes for late logins |
 | The army's key (1.1, when the King rotates it): the new key and the time it was made | each Lord and Captain the census confirms online (a whisper from the King each), then each one's guild over guild chat; never the Olympus channel. Each 1.1 addon that has it tells the King so (a whisper), and after login asks its guild whether a newer key exists | only when the King rotates it on the Throne; a guildmate's ask once a login |

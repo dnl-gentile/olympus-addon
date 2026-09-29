@@ -21,7 +21,8 @@ local L = ns.L
 --       note   the poster's own words, NOTE_MAX bytes at most, the last field: sent with the
 --              logged API (the server keeps them, so abuse can be reported); one sent without
 --              it, where this client has both, shows without its words (as a decree's)
---   G0~<id>   lowered by its poster
+--   G0~<id>   lowered by its poster; also sent for the old flag when a new one takes its place
+--             (1.1 review), so every Board lets the new one in at once
 --   GQ~       a client opened the Board: flag holders answer it alone, by whisper, with their
 --             G1, so a player who just logged in sees the Board without waiting for refreshes
 -- Clients before 1.1 have no handler for G1, G0 or GQ: they leave them unread.
@@ -36,7 +37,9 @@ Board.RAISE_GAP = 30         -- seconds between two raises
 Board.RAISES_PER_HOUR = 3
 Board.LIFETIME = 60 * 60     -- a flag is lowered an hour after it was raised
 Board.SLACK = 5 * 60         -- ...and leaves every Board this long after that at the latest
-Board.NEW_ID_GAP = 60        -- a sender's new flag replaces its old one at most once a minute
+Board.NEW_ID_GAP = 20        -- a sender's new flag replaces its old one at most this often: below RAISE_GAP,
+                             -- so a raise the poster's client allowed is never dropped (and a G0 of his
+                             -- that took his card down lets the next one in at once)
 Board.NOTE_MAX = 40          -- bytes of a note (a letter is never cut in half)
 Board.LOWERED_TTL = 10 * 60  -- a lowered id stays lowered this long (a late G1 can't bring it back)
 Board.EVERY_MIN, Board.EVERY_MAX = 10, 30 -- minutes between refreshes, by how full the Board is
@@ -63,6 +66,7 @@ local posts = {}             -- [Name-Realm] (a camp: [Name-Realm|camp]) = { sen
 local lastNewId = {}         -- [Name-Realm|slot] = when its last new id was taken
 local lowered = {}           -- ["Name-Realm#id"] = when it was lowered
 local own = {}               -- our own posts by slot, own.flag our flag: { id, flag, note, zone, raisedAt, sentAt, every }
+local usedIds = {}           -- [id] = when we last took it: a new post never takes one a Board may still hold lowered
 local lastRaise, raises, lastCamp = -math.huge, {}, -math.huge
 local asks, answered, answersSent = {}, {}, {}
 local askSent, askTries, askAt, askRetryAt, askWanted = false, 0, nil, nil, false
@@ -104,10 +108,23 @@ local function LongGuild(guild)
 end
 
 local B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
-local function NewId()
+local function RandomId()
 	local n = Board.random(1, 36 * 36 - 1)
 	local hi, lo = math.floor(n / 36), n % 36
 	return (hi > 0 and B36:sub(hi + 1, hi + 1) or "") .. B36:sub(lo + 1, lo + 1)
+end
+-- A new post's id: not one of ours of the last LOWERED_TTL (every Board keeps a lowered id out
+-- that long, so a new flag under it would be left out).
+local function NewId(now)
+	now = now or ns.Now()
+	for id, t in pairs(usedIds) do if now - t > Board.LOWERED_TTL then usedIds[id] = nil end end
+	local id = RandomId()
+	for _ = 1, 8 do
+		if not usedIds[id] then break end
+		id = RandomId()
+	end
+	usedIds[id] = now
+	return id
 end
 
 -- Which flags a message may carry (Board.KINDS: every kind this version reads; a kind it does
@@ -257,6 +274,8 @@ function Board.HandleLower(dist, sender, text)
 	for key, e in pairs(posts) do
 		if e.sender == sender and e.id == id then
 			posts[key] = nil
+			-- His card is down: his next flag (the one taking its place) shows at once.
+			lastNewId[sender .. "|" .. SlotOf(e.flag)] = nil
 			Changed()
 		end
 	end
@@ -328,16 +347,22 @@ function Board.Restore(now)
 		if fine and not own[slot] and now - p.raisedAt < Life(p.flag) and now < p.sentAt + (2 * p.every + 1) * 60 then
 			own[slot] = { id = p.id, flag = p.flag, note = Board.CleanNote(p.note), zone = tonumber(p.zone), raisedAt = p.raisedAt,
 				sentAt = p.sentAt, every = p.every }
+			usedIds[p.id] = now
 		end
 	end
 	Save()
 end
 
+-- The send queue's key of a post: one per post, so its refresh waiting to go gives way to its
+-- G0, and a new post never takes the place of the old one's G0 (Comm's queue keeps one message
+-- per key).
+local function QueueKey(p) return (SlotOf(p.flag) == "flag" and "banner" or SlotOf(p.flag)) .. p.id end
+
 local function Send(p, now)
 	p.every = p.flag == "C" and Board.CAMP_EVERY or Board.Interval()
 	p.sentAt = now
 	-- Its note, the player's own words, through the logged API (Comm.Send).
-	ns.Comm.Send("CHANNEL", Message(p, now), SlotOf(p.flag) == "flag" and "banner" or SlotOf(p.flag), nil, p.note ~= "")
+	ns.Comm.Send("CHANNEL", Message(p, now), QueueKey(p), nil, p.note ~= "")
 	Save()
 end
 Board.Send = Send
@@ -380,7 +405,10 @@ function Board.Raise(flag, note)
 	end
 	lastRaise = now
 	raises[#raises + 1] = now
-	local mine = { id = NewId(), flag = flag, note = Board.CleanNote(note), raisedAt = now }
+	-- The flag it replaces comes down first, on every Board (its G0 ahead of the new one).
+	local old = own.flag
+	if old then ns.Comm.Send("CHANNEL", "G0~" .. old.id, QueueKey(old)) end
+	local mine = { id = NewId(now), flag = flag, note = Board.CleanNote(note), raisedAt = now }
 	own.flag = mine
 	Send(mine, now)
 	local zone = mine.zone and ns.Zones.NameForKey("m" .. mine.zone)
@@ -394,7 +422,7 @@ end
 local function LowerPost(slot)
 	local p = own[slot or "flag"]
 	if not p then return false end
-	ns.Comm.Send("CHANNEL", "G0~" .. p.id, SlotOf(p.flag) == "flag" and "banner" or SlotOf(p.flag))
+	ns.Comm.Send("CHANNEL", "G0~" .. p.id, QueueKey(p))
 	own[slot or "flag"] = nil
 	Save()
 	Changed()
@@ -436,7 +464,7 @@ function Board.DropCamp(note)
 		return false, "full"
 	end
 	lastCamp = now
-	own.camp = { id = NewId(), flag = "C", note = Board.CleanNote(note), zone = zone, raisedAt = now }
+	own.camp = { id = NewId(now), flag = "C", note = Board.CleanNote(note), zone = zone, raisedAt = now }
 	Send(own.camp, now)
 	ns.Print(L.BOARD_CAMP_DROPPED:format(ns.Zones.NameForKey("m" .. zone)))
 	Changed()
@@ -936,7 +964,7 @@ end
 
 -- Tests start from nothing.
 function Board.Reset()
-	wipe(posts); wipe(lastNewId); wipe(lowered); wipe(raises); wipe(asks); wipe(answered); wipe(answersSent); wipe(own)
+	wipe(posts); wipe(lastNewId); wipe(lowered); wipe(raises); wipe(asks); wipe(answered); wipe(answersSent); wipe(own); wipe(usedIds)
 	lastRaise, lastCamp = -math.huge, -math.huge
 	if ns.rdb then ns.rdb.board = nil end
 	askSent, askTries, askAt, askRetryAt, askWanted, answersGiven = false, 0, nil, nil, false, 0

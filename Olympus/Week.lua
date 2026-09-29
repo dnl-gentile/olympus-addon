@@ -6,7 +6,8 @@ local L = ns.L
 -- own guild's events from the game's calendar among them: raid night, PvP night and court on one
 -- page, so nobody books the army twice. The King, his Steward and his Hands set an entry with
 -- the Agenda button, a day and an hour then what ("Sat 20:00 Raid night"); their client repeats
--- it for late logins, the way it repeats the Agenda.
+-- it for late logins, the way it repeats the Agenda. Every client keeps the week it heard across
+-- a /reload or a login (its setter may be offline), until each entry is over or taken off.
 --   T1~D~<id>~<guild>~<seconds>~<fresh>~<zone>~<title>   an entry, <seconds> from now (1 minute
 --       to 7 days); fresh 1 on its first sending (a chat line where it arrives), 0 on repeats;
 --       seconds 0: taken off the week (by its setter, the King, his Steward or a Hand)
@@ -21,10 +22,14 @@ ns.Week = Week
 
 Week.MAX_AHEAD = 7 * 86400   -- an entry is at most a week ahead
 Week.MIN_AHEAD = 60
-Week.MAX_MINE = 10           -- entries one setter holds
-Week.MAX_KEPT = 30           -- entries kept here, whoever set them
-Week.RESEND = 600            -- the setter's client repeats each entry this often
+Week.MAX_MINE = 10           -- entries the King or his Steward holds
+Week.MAX_HAND = 5            -- entries a Hand holds
+Week.MAX_KEPT = 30           -- entries kept here in all: the King's and his Steward's always find a place
+Week.RESEND = 600            -- the setter's client repeats each entry this often...
+Week.RESEND_FAR = 1800       -- ...and this often while it is more than FAR away
+Week.FAR = 86400
 Week.RESEND_PER_TICK = 2     -- ...two at most a minute
+Week.STALE = 2 * Week.RESEND_FAR + 300 -- its setter heard this long without it: taken off (a cancel missed)
 Week.SET_GAP = 10            -- seconds between two new entries of one setter
 Week.KEEP_AFTER = 3600       -- an entry stays on the week this long after it began
 Week.GUILD_EVENTS = 10       -- the guild's calendar events shown at most
@@ -35,7 +40,8 @@ Week.NEW_LINE_GAP = 30       -- a chat line for a new entry at most this often
 ns.King.HAND_MAY.D = true
 ns.King.STEWARD_MAY.D = true
 
-local entries = {}           -- [id] = { id, title, zone, at, by, mine, sentAt, heardAt }
+local entries = {}           -- [id] = { id, title, zone, at, by, mine, crown (the King's or his Steward's), sentAt, heardAt }
+local heardFrom = {}         -- [setter] = { first, last }: when we heard him, this stretch online
 local lastSet, lastNewLine, lastCalendarAsk = -math.huge, -math.huge, -math.huge
 
 local function Gold(s) return "|cffffd200" .. s .. "|r" end
@@ -194,10 +200,47 @@ function Week.Parse(input)
 	return seconds, title
 end
 
+-- Whether the text begins as an entry of the week does (a day and an hour, or an hour), right
+-- or not: the Agenda's box never takes it as minutes (King.SetAgenda).
+function Week.LooksLikeEntry(text)
+	local first, second = tostring(text or ""):match("^%s*(%S+)%s*(%S*)")
+	if not first then return false end
+	local function Hour(s) return s:find("^%d%d?[:hH]%d?%d?$") ~= nil end
+	local word = ns.Fold(first)
+	if Week.DAYS[word] or Week.SOON[word] then return Hour(second) end
+	return Hour(first)
+end
+
 local function MineCount()
 	local n = 0
 	for _, e in pairs(entries) do if e.mine then n = n + 1 end end
 	return n
+end
+
+-- How many entries a setter holds: the King and his Steward MAX_MINE, a Hand MAX_HAND.
+local function Cap(crown) return crown and Week.MAX_MINE or Week.MAX_HAND end
+function Week.MyCap()
+	local K = ns.King
+	return Cap(K.Preview() or K.IsKing() or K.IsSteward())
+end
+
+-- An entry heard from its setter goes on the week if there is room: its setter's own cap, and
+-- MAX_KEPT in all, where the King's and his Steward's always find a place (the Hand's entry
+-- furthest ahead gives up its own). False: left out.
+local function Keep(e)
+	local his, n, gives = 0, 0, nil
+	for _, x in pairs(entries) do
+		n = n + 1
+		if x.by == e.by then his = his + 1 end
+		if not x.mine and not x.crown and (not gives or x.at > gives.at) then gives = x end
+	end
+	if his >= Cap(e.crown) then return false end
+	if n >= Week.MAX_KEPT then
+		if not e.crown or not gives then return false end
+		entries[gives.id] = nil
+	end
+	entries[e.id] = e
+	return true
 end
 
 -- The setter's own entries, kept for his next login (a /reload must not drop the week).
@@ -206,11 +249,27 @@ local function SaveMine()
 	local all = type(ns.rdb.week) == "table" and ns.rdb.week or {}
 	local list = {}
 	for _, e in pairs(entries) do
-		if e.mine then list[#list + 1] = { id = e.id, title = e.title, zone = e.zone, at = e.at } end
+		if e.mine and not e.preview then list[#list + 1] = { id = e.id, title = e.title, zone = e.zone, at = e.at } end
 	end
 	all[ns.me or "?"] = #list > 0 and list or nil
 	ns.rdb.week = next(all) and all or nil
 end
+
+-- The entries this client heard, kept for the realm (1.1 review: the week must not go blank
+-- after a /reload or a login while their setter is offline), with when each was last heard.
+local function SaveHeard()
+	if not ns.rdb then return end
+	local list = {}
+	for _, e in pairs(entries) do
+		if not e.mine then
+			list[#list + 1] = { id = e.id, by = e.by, title = e.title, zone = e.zone, at = e.at, crown = e.crown or nil, heardAt = e.heardAt }
+		end
+	end
+	ns.rdb.weekHeard = #list > 0 and list or nil
+end
+local function Save() SaveMine(); SaveHeard() end
+
+local RestoreSignups -- (the signup sheet's, below)
 
 function Week.Restore(now)
 	now = now or ns.Now()
@@ -221,7 +280,17 @@ function Week.Restore(now)
 			entries[e.id] = { id = e.id, title = Clean(e.title, 60), zone = Clean(e.zone, 40), at = e.at, by = ns.me, mine = true }
 		end
 	end
-	SaveMine()
+	-- The ones heard (an entry of ours that isn't in our own list was taken off).
+	local heard = ns.rdb and ns.rdb.weekHeard
+	for _, e in ipairs(type(heard) == "table" and heard or {}) do
+		if type(e) == "table" and tonumber(e.id) and type(e.by) == "string" and e.by ~= ns.me and type(e.title) == "string" and tonumber(e.at)
+			and e.at + Week.KEEP_AFTER >= now and e.at <= now + Week.MAX_AHEAD + 60 and not entries[e.id] and Clean(e.title, 60) ~= "" then
+			Keep({ id = e.id, title = Clean(e.title, 60), zone = Clean(e.zone, 40), at = e.at, by = e.by, crown = e.crown == true or nil,
+				heardAt = tonumber(e.heardAt) or now })
+		end
+	end
+	RestoreSignups(now)
+	Save()
 end
 
 local function Send(e, fresh)
@@ -247,8 +316,9 @@ function Week.SetEntry(input)
 		ns.Print(L.THRONE_WAIT:format(math.ceil(Week.SET_GAP - (now - lastSet))))
 		return false
 	end
-	if MineCount() >= Week.MAX_MINE then
-		ns.Print(L.WEEK_FULL:format(Week.MAX_MINE))
+	local cap = Week.MyCap()
+	if MineCount() >= cap then
+		ns.Print(L.WEEK_FULL:format(cap))
 		return false
 	end
 	lastSet = now
@@ -274,7 +344,8 @@ function Week.Cancel(id)
 		ns.Comm.Send("CHANNEL", ("T1~D~%d~%s~0~0~~"):format(id, GetGuildInfo("player") or ""), "week" .. id)
 	end
 	entries[id] = nil
-	SaveMine()
+	Save()
+	Week.Forget(id)
 	ns.Print(L.WEEK_CANCELLED:format(e.title))
 	Changed()
 	return true
@@ -284,42 +355,50 @@ end
 -- Receiving
 ---------------------------------------------------------------------------
 
-local function Count()
-	local n = 0
-	for _ in pairs(entries) do n = n + 1 end
-	return n
+-- A setter heard (an entry or his sheet): how long he has been online this stretch.
+local function HeardFrom(sender, now)
+	local p = heardFrom[sender]
+	if not p or now - p.last > Week.STALE then
+		p = { first = now }
+		heardFrom[sender] = p
+	end
+	p.last = now
 end
 
-local function OnEntry(sender, id, rest)
+local function OnEntry(sender, id, rest, guild)
 	local seconds, fresh, zone, title = tostring(rest or ""):match("^(%d+)~(%d)~([^~]*)~([^~]*)")
 	seconds = tonumber(seconds)
 	if not id or not seconds then return end
 	local now = ns.Now()
+	sender = ns.FullName(sender)
+	HeardFrom(sender, now)
 	local e = entries[id]
 	if seconds == 0 then
 		if e then
 			-- (Another's cancel reaching its setter: he stops repeating it.)
 			entries[id] = nil
-			if e.mine then SaveMine() end
+			Save()
 			Changed()
 		end
+		-- Our signup for it goes too, and its nudge (kept across a /reload).
+		Week.Forget(id)
 		return
 	end
 	title = Clean(title, 60)
 	if seconds < 30 or seconds > Week.MAX_AHEAD or title == "" then return end
-	sender = ns.FullName(sender)
 	if e then
 		-- A repeat: its own setter's only; our time kept unless it is really off.
 		if e.by ~= sender then return end
 		if math.abs((now + seconds) - e.at) > 60 then e.at = now + seconds end
 		e.title, e.zone, e.heardAt = title, Clean(zone, 40), now
+		SaveHeard()
 		return Changed()
 	end
-	local mine = 0
-	for _, x in pairs(entries) do if x.by == sender then mine = mine + 1 end end
-	if mine >= Week.MAX_MINE or Count() >= Week.MAX_KEPT then return end
-	e = { id = id, title = title, zone = Clean(zone, 40), at = now + seconds, by = sender, heardAt = now }
-	entries[id] = e
+	local K = ns.King
+	e = { id = id, title = title, zone = Clean(zone, 40), at = now + seconds, by = sender, heardAt = now,
+		crown = (K.FromKing(sender, guild) or K.IsStewardName(sender)) and true or nil }
+	if not Keep(e) then return end
+	SaveHeard()
 	-- A new entry: one quiet chat line (never a raid warning or a popup), and not on repeats.
 	if fresh == "1" and now - lastNewLine >= Week.NEW_LINE_GAP then
 		lastNewLine = now
@@ -496,34 +575,41 @@ end
 -- signup is a whisper to whoever set that entry, alone, and whoever runs the event invites by
 -- hand. The setter's client keeps one signup per character and repeats the counts to the army
 -- every 5 minutes, and sooner after a change, so the King knows whether the raid is 4 or 40
--- before anyone zones in; the names stay on the setter's own screen, behind a click.
+-- before anyone zones in; the names stay on the setter's own screen, behind a click. They are
+-- kept with his entries across a /reload or a login (the next sheet must not tell the army 0).
 --   Y2~<agendaId>~<role>~<guild>   role T|H|D|A, W withdraws; whispered to the entry's setter
---   T1~R~<id>~<guild>~<agendaId>:<t>:<h>:<d>:<a>,...   the setter's sheet: counts per role of
---       each entry of his (the census-placed signups; the rest counted apart, on his screen)
--- The Sign up row shows only while the setter's sheet was heard in the last SHEET_FRESH (his
+--   T1~R~<id>~<guild>~<agendaId>:<t>:<h>:<d>:<a>,...~<minutes>   the setter's sheet: counts per
+--       role of each entry of his (the census-placed signups; the rest counted apart, on his
+--       screen), then the minutes to his next one: 5 while an entry of his has signups or is
+--       within 2 days, 15 otherwise (none: 5)
+-- The Sign up row shows only while the setter's sheet was heard within the time it gave (his
 -- client is online and knows signups): a whisper to a setter who left would only earn a "No
 -- player named" line. Clients before 1.1 leave the kind R out, and never see Y2.
 ---------------------------------------------------------------------------
 
 Week.ROLES = { "T", "H", "D", "A" }
 Week.ROLE_OK = { T = true, H = true, D = true, A = true }
-Week.SHEET_EVERY = 300       -- the setter's client repeats its sheet this often
+Week.SHEET_EVERY = 300       -- the setter's client repeats its sheet this often while an entry of his is near or signed...
+Week.SHEET_IDLE = 900        -- ...this often otherwise (entries days away that nobody signed yet)
+Week.SHEET_NEAR = 2 * 86400
 Week.SHEET_SOON = 20         -- ...and this long after a change (one message for a burst)
-Week.SHEET_FRESH = 390       -- a sheet heard this recently: its setter takes signups
+Week.SHEET_LATE = 90         -- a sheet heard within its own time and this: its setter takes signups
+Week.SHEET_FRESH = Week.SHEET_EVERY + Week.SHEET_LATE -- (a sheet that gives no time)
 Week.SIGN_GAP = 3            -- seconds between two of our signups
 Week.MAX_SIGNUPS = 2000      -- signups one entry keeps (the census-placed and the others)
 ns.King.HAND_MAY.R = true
 ns.King.STEWARD_MAY.R = true
 
-local sheets = {}            -- [agendaId] = { T, H, D, A = counts, at = when heard } (another's entries)
+local sheets = {}            -- [agendaId] = { T, H, D, A = counts, at = when heard, fresh = for how long } (another's entries)
 local signups = {}           -- [agendaId] = { list = { [Name-Realm] = { role, guild, placed, t } }, byGuild = {}, others = n } (ours)
-local lastSheet, sheetPending, lastSign = -math.huge, false, -math.huge
+local lastSheet, lastEvery, sheetPending, lastSign = -math.huge, nil, false, -math.huge
 local signOpen, whoOpen = {}, {} -- [agendaId] = the role rows, the names shown
 
 local function RoleLabel(role) return L["SIGN_ROLE_" .. tostring(role)] or "?" end
 Week.RoleLabel = RoleLabel
 
--- This character's own signups, kept for its next login (the reminder, #2): [agendaId] = role.
+-- This character's own signups, kept for its next login (the reminder, #2): [agendaId] =
+-- { role, at, title, zone, agenda }: enough for the nudge even while the entry isn't heard again.
 local function Signed()
 	if not ns.rdb then return {} end
 	if type(ns.rdb.signed) ~= "table" then ns.rdb.signed = {} end
@@ -537,18 +623,68 @@ function Week.MySignup(id)
 	return type(v) == "table" and v.role or nil
 end
 
+-- An entry taken off (its cancel heard, the Agenda's X): the signups of every character here
+-- for it go, and their nudges.
+function Week.Forget(id)
+	local all = ns.rdb and ns.rdb.signed
+	if type(all) ~= "table" or not id then return end
+	for _, list in pairs(all) do
+		if type(list) == "table" then list[id] = nil end
+	end
+end
+
+-- The setter's signups, kept with his entries for his next login (1.1 review: after a /reload
+-- the next sheet told the army 0): rdb.signups[me][agendaId] = its list, the table itself.
+local function SaveSignups()
+	if not ns.rdb then return end
+	local all = type(ns.rdb.signups) == "table" and ns.rdb.signups or {}
+	local mine = {}
+	for id, s in pairs(signups) do
+		local e = entries[id]
+		if e and e.mine and not e.preview and s.n > 0 then mine[id] = s.list end
+	end
+	all[ns.me or "?"] = next(mine) and mine or nil
+	ns.rdb.signups = next(all) and all or nil
+end
+
+-- At login, after our entries: their signups as they were (checked again: SavedVariables).
+RestoreSignups = function(now)
+	local all = ns.rdb and ns.rdb.signups
+	local saved = type(all) == "table" and all[ns.me or "?"]
+	for id, list in pairs(type(saved) == "table" and saved or {}) do
+		local e = entries[id]
+		if e and e.mine and type(list) == "table" and not signups[id] then
+			local s = { list = {}, byGuild = {}, others = 0, n = 0 }
+			for name, v in pairs(list) do
+				if s.n >= Week.MAX_SIGNUPS then break end
+				if type(name) == "string" and type(v) == "table" and Week.ROLE_OK[v.role] then
+					local guild = type(v.guild) == "string" and v.guild or "?"
+					local placed = v.placed == true
+					s.list[name] = { role = v.role, guild = guild, placed = placed, t = tonumber(v.t) or now }
+					s.n = s.n + 1
+					if not placed then s.others = s.others + 1
+					elseif guild ~= "?" then s.byGuild[guild] = (s.byGuild[guild] or 0) + 1 end
+				end
+			end
+			signups[id] = s
+		end
+	end
+	SaveSignups()
+end
+
 -- The entry (the Agenda's current event or one of the week's) with that id, or nil.
 function Week.Entry(id)
 	for _, e in ipairs(Week.Entries()) do if e.id == id then return e end end
 	return nil
 end
 
--- Whether a signup can reach this entry's setter now: ours, or his sheet heard lately.
+-- Whether a signup can reach this entry's setter now: ours, or his sheet heard within the time
+-- it gave for his next one.
 function Week.TakesSignups(e)
 	if not e or e.at <= ns.Now() or e.preview then return false end
 	if e.mine then return true end
 	local s = sheets[e.id]
-	return s ~= nil and ns.Now() - s.at <= Week.SHEET_FRESH
+	return s ~= nil and ns.Now() - s.at <= (s.fresh or Week.SHEET_FRESH)
 end
 
 -- The counts of an entry: ours from the signups themselves, anyone else's from their sheet.
@@ -589,7 +725,7 @@ function Week.Sign(id, role)
 		mine[id] = nil
 		ns.Print(L.SIGN_WITHDRAWN:format(e.title))
 	else
-		mine[id] = { role = role, at = e.at }
+		mine[id] = { role = role, at = e.at, title = e.title, zone = e.zone, agenda = e.agenda or nil }
 		ns.Print(L.SIGN_DONE:format(RoleLabel(role), e.title))
 	end
 	signOpen[id] = nil
@@ -659,43 +795,54 @@ function Week.HandleSignup(dist, sender, text)
 			s.others = s.others + 1
 		end
 	end
+	SaveSignups()
 	SheetSoon()
 	Changed()
 end
 ns.Comm.Handle("Y2", function(...) Week.HandleSignup(...) end)
 
 -- The setter's sheet: the counts of every entry of his still to come, in one message (pieces
--- when long). `soon`: a change's, sent whatever the time since the last one.
+-- when long), and when the next comes: every SHEET_EVERY while one of them has signups or is
+-- within SHEET_NEAR, every SHEET_IDLE otherwise. `soon`: a change's, sent whatever the time
+-- since the last one.
 function Week.SendSheet(soon)
 	local K = ns.King
 	if K.Preview() or not K.CanCommand() then return false end
 	local now = ns.Now()
-	if not soon and now - lastSheet < Week.SHEET_EVERY then return false end
-	local parts = {}
+	local parts, busy = {}, false
 	for _, e in ipairs(Week.Entries(now)) do
 		if e.mine and not e.preview and e.at > now then
 			local c = Week.Counts(e)
 			parts[#parts + 1] = ("%d:%d:%d:%d:%d"):format(e.id, c.T, c.H, c.D, c.A)
+			local s = signups[e.id]
+			if (s and s.n > 0) or e.at - now <= Week.SHEET_NEAR then busy = true end
 		end
 	end
 	if #parts == 0 then return false end
-	lastSheet = now
-	local msg = ("T1~R~%d~%s~%s"):format(K.NewId(), GetGuildInfo("player") or "", table.concat(parts, ","))
+	local every = busy and Week.SHEET_EVERY or Week.SHEET_IDLE
+	-- (Its pace changed: the army hears it now, or the last sheet's time would run out first.)
+	if not soon and every == lastEvery and now - lastSheet < every then return false end
+	lastSheet, lastEvery = now, every
+	local msg = ("T1~R~%d~%s~%s~%d"):format(K.NewId(), GetGuildInfo("player") or "", table.concat(parts, ","), every / 60)
 	if #msg <= 250 then ns.Comm.Send("CHANNEL", msg, "sheet") else ns.Comm.SendChunked(msg) end
 	return true
 end
 
--- Another setter's sheet: taken for the entries that setter set, as they are.
+-- Another setter's sheet: taken for the entries that setter set, as they are, fresh for the
+-- time it gives (5 to 60 minutes; none given: 5).
 local function OnSheet(sender, _, rest)
 	sender = ns.FullName(sender)
 	local now, any = ns.Now(), false
-	for part in tostring(rest or ""):gmatch("[^,]+") do
+	HeardFrom(sender, now)
+	local body, minutes = tostring(rest or ""):match("^([^~]*)~?(%d*)")
+	minutes = math.max(5, math.min(60, tonumber(minutes) or 5))
+	for part in (body or ""):gmatch("[^,]+") do
 		local id, t, h, d, a = part:match("^(%d+):(%d+):(%d+):(%d+):(%d+)$")
 		local e = id and Week.Entry(tonumber(id))
 		if e and not e.mine and e.by == sender then
 			local cap = Week.MAX_SIGNUPS
 			sheets[e.id] = { T = math.min(tonumber(t), cap), H = math.min(tonumber(h), cap), D = math.min(tonumber(d), cap),
-				A = math.min(tonumber(a), cap), at = now }
+				A = math.min(tonumber(a), cap), at = now, fresh = minutes * 60 + Week.SHEET_LATE }
 			any = true
 		end
 	end
@@ -766,19 +913,32 @@ function Week.Sheets() return sheets end
 
 -- A nudge for what this character signed (1.1, Fern's #2): a few minutes before an entry it
 -- signed, one chat line and the usual alert sound, on this client alone: never a raid warning,
--- nothing sent. Once per entry (kept with the signup, across a /reload).
+-- nothing sent. Once per entry (kept with the signup, across a /reload). From the signup itself
+-- (its time, title and zone) when the entry isn't heard again before it begins (1.1 review: a
+-- /reload a few minutes before the pull, its setter's next repeat after it).
 Week.REMIND = 5 * 60
 function Week.Remind(now)
 	now = now or ns.Now()
 	local mine = ns.rdb and type(ns.rdb.signed) == "table" and ns.rdb.signed[ns.me or "?"]
 	if type(mine) ~= "table" then return end
-	for _, e in ipairs(Week.Entries(now)) do
-		local v = mine[e.id]
-		local left = e.at - now
-		if type(v) == "table" and v.role and not v.reminded and left > 0 and left <= Week.REMIND then
+	local here = {}
+	for _, e in ipairs(Week.Entries(now)) do here[e.id] = e end
+	local agenda = ns.King.Agenda and ns.King.Agenda()
+	for id, v in pairs(mine) do
+		local e = here[id]
+		if type(v) ~= "table" then
+			-- (Left for Tick.)
+		elseif e then
+			v.at, v.title, v.zone = e.at, e.title, e.zone -- (the latest word)
+		elseif v.agenda and agenda and agenda.id ~= id then
+			mine[id] = nil -- the Agenda's current event, replaced by another
+		end
+		local left = type(v) == "table" and mine[id] and tonumber(v.at) and v.at - now
+		if left and v.role and not v.reminded and type(v.title) == "string" and v.title ~= "" and left > 0 and left <= Week.REMIND then
 			v.reminded = true
-			local where = e.zone and e.zone ~= "" and (" (" .. e.zone .. ")") or ""
-			ns.Print("|cffffd200" .. L.SIGN_SOON:format(RoleLabel(v.role), e.title, math.max(1, math.ceil(left / 60)), where) .. "|r")
+			local zone = type(v.zone) == "string" and v.zone or ""
+			local where = zone ~= "" and (" (" .. zone .. ")") or ""
+			ns.Print("|cffffd200" .. L.SIGN_SOON:format(RoleLabel(v.role), v.title, math.max(1, math.ceil(left / 60)), where) .. "|r")
 			ns.PlayAlert("soft", "agenda") -- (1.1: the Agenda's sound switch; held in an instance or on Busy)
 		end
 	end
@@ -794,18 +954,33 @@ end
 -- Every minute: the setter's client repeats its entries for late logins
 ---------------------------------------------------------------------------
 
+-- How often the setter's client repeats an entry: RESEND, RESEND_FAR while it is days away.
+function Week.Resend(e, now)
+	return e.at - (now or ns.Now()) > Week.FAR and Week.RESEND_FAR or Week.RESEND
+end
+
 function Week.Tick(now)
 	now = now or ns.Now()
 	-- (Only while this character still may: a Hand the King's list no longer names stops.)
 	local due = {}
 	for _, e in pairs(entries) do
-		if e.mine and not e.preview and e.at - now >= 30 and now - (e.sentAt or -math.huge) >= Week.RESEND and ns.King.CanCommand() then due[#due + 1] = e end
+		if e.mine and not e.preview and e.at - now >= 30 and now - (e.sentAt or -math.huge) >= Week.Resend(e, now) and ns.King.CanCommand() then due[#due + 1] = e end
 	end
 	table.sort(due, function(x, y) return (x.sentAt or 0) < (y.sentAt or 0) end)
 	for i = 1, math.min(#due, Week.RESEND_PER_TICK) do Send(due[i], false) end
+	-- Over; or another's that its setter, online this long, no longer repeats (its cancel missed
+	-- while this client was away): off the week.
+	local gone = false
 	for id, e in pairs(entries) do
-		if e.at + Week.KEEP_AFTER < now then entries[id] = nil end
+		local p = not e.mine and heardFrom[e.by]
+		if e.at + Week.KEEP_AFTER < now then
+			entries[id], gone = nil, true
+		elseif p and p.last <= e.at - 30 and p.last - math.max(e.heardAt or 0, p.first) > Week.STALE then
+			entries[id], gone = nil, true
+			Week.Forget(id)
+		end
 	end
+	if gone then Save(); Changed() end
 	-- What this character signed, a few minutes before (#2).
 	Week.Remind(now)
 	-- The setter's sheet: every 5 minutes, and at once for an entry of his none has heard yet.
@@ -820,6 +995,7 @@ function Week.Tick(now)
 	-- Signups and sheets of entries gone.
 	for id in pairs(signups) do if not Week.Entry(id) then signups[id] = nil end end
 	for id in pairs(sheets) do if not Week.Entry(id) then sheets[id] = nil end end
+	SaveSignups()
 	local mine = ns.rdb and type(ns.rdb.signed) == "table" and ns.rdb.signed[ns.me or "?"]
 	for id, v in pairs(type(mine) == "table" and mine or {}) do
 		if type(v) ~= "table" or not tonumber(v.at) or v.at + Week.KEEP_AFTER < now then mine[id] = nil end
@@ -834,11 +1010,11 @@ end
 
 -- Tests start from nothing.
 function Week.Reset()
-	wipe(entries)
+	wipe(entries); wipe(heardFrom)
 	lastSet, lastNewLine, lastCalendarAsk, changePending = -math.huge, -math.huge, -math.huge, false
 	wipe(sheets); wipe(signups); wipe(signOpen); wipe(whoOpen)
-	lastSheet, sheetPending, lastSign, sizesAt = -math.huge, false, -math.huge, -math.huge
-	if ns.rdb then ns.rdb.week, ns.rdb.signed = nil, nil end
+	lastSheet, lastEvery, sheetPending, lastSign, sizesAt = -math.huge, nil, false, -math.huge, -math.huge
+	if ns.rdb then ns.rdb.week, ns.rdb.signed, ns.rdb.weekHeard, ns.rdb.signups = nil, nil, nil, nil end
 end
 
 ns.On("LOGIN", function()
