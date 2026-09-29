@@ -30,9 +30,11 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
 ## Who can use it
 
 **Only members of a guild with "Olympus" in its name**, however it was spelled: OLYMPVS the Roman way, Olimpus, Olmps, Olympuz, Olympos, Olimpo and other misspellings count too (Olympia or Olympic do not), and a guild against Olympus ("ANTI OLYMPUS", "Olympus Haters") does not. The check is fixed in the code and
-cannot be switched off with a command. Outside an Olympus guild the addon joins no channel,
-sends nothing and receives nothing. The only thing it offers there is the **Join Olympus**
-screen described below.
+cannot be switched off with a command. Outside an Olympus guild the addon joins no channel
+and hears nothing of the army. The only thing it offers there is the **Join Olympus**
+screen described below, and its own few addon whispers are the only ones it sends or hears
+there (1.1: which guild to ask, the answer, and your request, each to or from the one member
+concerned).
 
 ### Not in Olympus yet?
 First it asks the obvious question: *"<Your Guild>? Disband immediately. What are you
@@ -41,6 +43,21 @@ find Olympus members online, groups them by guild, and whispers one of them a re
 request that you can edit ("Hi! I'd love to join Olympus. Does <Olympus II> have room for
 one more?"). No answer? **Try someone else** picks a member you have not asked yet. Replies
 are highlighted. It is rate limited, so nobody gets spammed.
+
+**Where to go** (1.1): a search also asks one member's addon (an addon whisper, not a chat line)
+where recruits should go, and its census answers: the guild the King opened **the gates** of
+first, then the guilds with the **most free slots**, and a couple of their Lords and Captains
+online (never the King). It names only what the census confirms: guilds two members' reports
+agree on, and Lords and Captains two reports name. The screen lists them in that order, each
+once `/who` found one of its members (the gates once a second member's answer agrees: one more
+is asked), the guilds found with `/who` too, and a click asks one of those officers that `/who`
+found in that guild, or another member it found there. Just before, their addon is asked
+whether they take recruit whispers (again if it never answered): a member who set **do not
+contact** (`/oly nocontact on`) is never offered, however many recruits ask him, and the
+question closes before anything is sent. It stays **one whisper per click**, in your
+own words (no dues line), 20 seconds apart. With it goes your request to the same member, so an
+officer's addon shows it with **Invite** and **Decline** instead of a raw whisper. Members on
+versions before 1.1 just get the whisper, as before.
 
 ## What it does
 
@@ -60,11 +77,37 @@ are highlighted. It is rate limited, so nobody gets spammed.
   version than yours is out (he marks it once CurseForge lists it, never a build he is still
   trying), a line at the foot of the Census, one line in chat once a session and `/oly status`
   say so. It is yours alone: nothing is sent and nobody is whispered.
+- **Marked rows** (1.1): a warning mark on a guild whose senders disagree (on its Lord or
+  Captains, or on its size, by more than 5 members or 5% plus the 20 a minute a guild may gain or
+  lose between their two reports), a question mark on one that a single
+  sender stands behind. Its tooltip says which and who: check before calling a muster or opening
+  the gates on it (the gates ask again, with the reason). A marked row can still be right, and
+  the mark changes nothing that counts. Your own guild (your roster) is never marked.
+- **Asking to join** (1.1): a recruit who asked you from the Join Olympus screen shows on top of
+  the Census, with their whisper. An officer (the game's guild invite permission) answers with
+  **Invite** (the game's own guild invite) or **Decline** (one whisper pointing to the gates or
+  the guild with the most room), one click each; anyone else can point them to an officer
+  online. **Dismiss** sends nothing. In the Realm's Recruiting, one click (or `/oly nocontact`)
+  sets your **do not contact** flag.
+- **Search the census** (1.1): a guild, a Lord, a Captain, a player of a guild's top five or one
+  seen online (the player shows under the guild's row), or a zone ("Stormwind": its soldiers
+  and its guilds, most first). Type **recruiting** (or `free 50`) for every guild with room,
+  most free slots first and the King's gates on top.
+- **Tonight on this client** (1.1): under the list, the most soldiers your addon saw online at
+  once tonight and when, and (in its tooltip, and next to a zone you search) how each zone
+  filled or emptied since. Counted by your own addon once a minute from the reports it
+  already holds, starting about 3 minutes after login once the census is rebuilt: another
+  player's client counts its own evening, and nothing is sent.
 
 ### The Realm: the hierarchy
 - The **King**, then every guild's **Lord** (guild master) and **Captains** (the officer rank
   right below the guild master).
-  Each shows level, class and online or *offline 3d*. Long absences show in red.
+  Each shows level, class and online or *offline 3d*. Long absences show in red
+  (`/oly warndays <days>`, 3 by default). **A Lord away** (1.1): when a Lord crosses that, one
+  chat line, once per absence: to his own guild's officers from their roster, and to the King,
+  his Steward and his Hands for every guild's Lord, by the census's word (a guild that stopped
+  reporting included, counted from its last report even when that showed him online). Never a
+  popup, and nothing is done to anyone.
 - The **Treasurer of Olympus** (Pyralis Ashandar, chosen by Asmongold's chat) right under
   the King, with a gold coin next to his name wherever he shows, his tooltip and his lines in
   the Olympus chats included. Only
@@ -73,9 +116,20 @@ are highlighted. It is rate limited, so nobody gets spammed.
   `/who`. Opening a guild searches `/who` for that guild alone (up to 50 of its players).
   Click a name to whisper, invite or `/who` them.
 - The **ranks** of each guild with how many members hold them.
-- **Inactive members**: offline 7+ and 30+ days, per guild.
+- **Inactive members**: offline 7+ and 30+ days, per guild. Your own guild's line (or
+  `/oly inactive`) opens the list by name (1.1): members offline 7, 14 or 30 days and more,
+  with rank, class, level and last online, from your own roster, longest away first. A rank
+  that may remove members (as in the game's Guild window: ranks below yours) removes **one
+  person per click**, after a question that shows their rank and days away, a few seconds
+  apart. There is no kick-all, and nothing is sent.
+- **Mentors** (1.1): a Lord opens **Recruits and their mentors** on that page (or `/oly recruits`):
+  his guild's lowest rank and whoever joined since he logged in. He clicks a recruit who is
+  online, then one of his Captains, and says yes: **one whisper to each** from that click, the
+  Captain told who to look after, the recruit told who to ask. The pair shows on his list (his
+  client's alone); nothing goes on the channel.
 - **Level race**: the highest level players of the realm.
-- **Recruiting**: the guilds that still have free slots, so new players go where there is room.
+- **Recruiting**: the guilds that still have free slots, so new players go where there is room
+  (the five with the most, then every one on a click, 1.1).
   When the King opens **the gates** of a guild, it tops the list: send new recruits there.
 - **Layers** of your zone, named after the highest ranked Olympus member on each one
   ("Asmongold's layer"), with how many members are there.
@@ -477,10 +531,10 @@ account, `/oly discord forget` drops this character's request and proof.
 
 ### Everywhere
 - **Copy**: every tab produces a ready-to-paste text for Discord.
-- **Search**: a box on top of the Census (a guild or its Lord), the Realm (guilds, Lords, Captains,
-  members seen online, the Olympus chats' lines), the Tabards (inspected and untabarded players,
-  by name or guild) and the Treasury (donors in the ranking and the book). Any case, accents too;
-  only what matches shows, under the headers it belongs to (a Captain under his guild, opened
+- **Search**: a box on top of the Census (guilds, Lords, Captains, players, zones, recruiting),
+  the Realm (guilds, Lords, Captains, members seen online, the Olympus chats' lines), the
+  Tabards (inspected and untabarded players, by name or guild) and the Treasury (donors in the
+  ranking and the book). Any case, accents too; only what matches shows, under the headers it belongs to (a Captain under his guild, opened
   for you, a page of guilds at a time), with an **x** to empty it. Each tab keeps its text until
   you log out or `/reload`; a guild clicked in the Census opens in the Realm with its box emptied.
   It only changes what the list shows: **Copy** still gives everything, and nothing is sent.
@@ -595,6 +649,9 @@ message (the game adds it). What goes where:
 | A pinned line (1.1): its words, your guild and, as on every message, your name | everyone on the Olympus channel | when you pin one (the King, his Stewards and Hands, the guild masters), again every 5 minutes while it lasts (2 hours at most), and when you take it down |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
+| A Lord's mentor pair (1.1): the recruit's name to the Captain, the Captain's name to the recruit, as whispers in his words | those two players | only when the Lord clicks **Send both** |
+| Join Olympus (1.1, outside an Olympus guild): "which guild should I ask?" (J1), and your request (J3: the guild you ask, your level and class) | the one member the screen asks: one found with `/who` at a search, and the one you are about to whisper | J1 at a search (one member every 15 seconds at most, none while a recent answer is known; while only one answer names the gates, one more member at once, three in 10 minutes at most) and just before a whisper (again if that member never answered); J3 with each whisper you send |
+| The answer (J2): whether you take recruit whispers, the King's gates, and up to 8 guilds with room the census confirms, each with its free slots and up to 2 of its Lords and Captains online that two reports name (never the King) | the recruit who asked, alone | when a recruit's addon asks you, once a minute per recruit and 10 a minute at most (with do not contact on, a bare "no" to the rest) |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | everyone on the Olympus channel receives the bytes; the addon shows them to the King and his Steward, and to the army only with the King's switches | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the week's donors, the items donated (with who gave each last) and the book's latest lines | everyone on the Olympus channel receives the bytes; the addon shows them to the keepers, the King and his Steward, and to the army with the King's ranking or book switch | while that keeper shares his book: his yes, and a donor is not asked |
 | Your character's name, if you gave to the treasury before 1.0 (the early supporters): names only, no amounts, in alphabetical order | everyone on the Olympus channel receives the bytes; the addon shows them under the ranking, to whoever may see it | from the Treasurer's addon once he said yes to 1.0's question, which says their names go to everyone on the channel (his 0.9.3 yes is not enough), after his login and when a client asks: a donor is not asked |
@@ -736,6 +793,11 @@ few characters working together can still reach is said plainly further down
 - **Only our channel counts**: addon messages that arrive on any other chat channel are
   ignored, so the sealed channel really keeps outsiders out.
 - **Sealed channel** (`/oly key`): outsiders can't find the channel or join it.
+- **The Join screen** (1.1): outside an Olympus guild the addon hears one message alone, a
+  member's answer to its own question, and only from the member it asked in the last minute;
+  a guild it names counts only if it is an Olympus guild. A member answers each recruit once a
+  minute and ten a minute in all. A recruit's request shows only for your own guild, once per
+  ten minutes per recruit, thirty kept at most, six chat lines a minute at most.
 - **Validation**: every number is range checked, names are length limited, and malformed
   messages are dropped. Decrees are rate limited per sender (one a minute) and in total (6 a
   minute from senders only the census vouches for; since 1.0.0 the King's, his Steward's, the
@@ -818,8 +880,9 @@ Other limits:
   so settings and the realm key reset every session. The census still refills in seconds: a
   client that logs in asks the channel, and each guild's reporter and runner-up answer at once.
 - A real Olympus member who edits their copy could still send a wrong report for **their own**
-  guild. Their guildmates' reports and the conflict flag make a changed leader, size or officer
-  list visible, but it can't be made impossible.
+  guild. Their guildmates' reports make it visible, but it can't be made impossible: since 1.1
+  the census marks a row whose senders disagree on its leader, its officers or its size, and,
+  fainter, one that a single sender stands behind (hover it for what the mark says).
 
 ## Built for a crowd of thousands
 
@@ -840,6 +903,10 @@ Other limits:
 |---|---|
 | `/oly` | open or close the window |
 | `/oly realm` · `/oly decrees` · `/oly tabard` | open a tab |
+| `/oly inactive [7\|14\|30]` | your guild's members offline that long, by name (a rank that may remove members removes one per click, asked first) |
+| `/oly warndays <days>` | when a Lord or Captain counts as away: red in the Realm, and one line when a Lord crosses it |
+| `/oly recruits` | Lords: your recruits, and a Captain as each one's mentor (one whisper to each, from your click) |
+| `/oly nocontact on\|off` | do not contact: recruits' Join screens skip you (on), or may ask you (off) |
 | `/oly patrol` | start or stop the tabard patrol |
 | `/oly mark [note]` | mark your target |
 | `/oly arms [text]` · `/oly muster [text]` | send a decree (`test` = local preview) |

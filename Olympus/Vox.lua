@@ -70,7 +70,7 @@ local function Placed(sender, guild)
 	if now - placedAt > 60 then
 		local fresh = {}
 		for _, e in ipairs(ns.Data.Summary().guilds) do
-			if e.fresh and not e.g.twin and not e.g.conflict then
+			if e.fresh and not e.g.conflict then
 				fresh[e.name] = { online = e.g.online or 0, votes = placed[e.name] and placed[e.name].votes or 0 }
 			end
 		end

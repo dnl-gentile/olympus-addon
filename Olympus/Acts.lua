@@ -372,6 +372,18 @@ StaticPopupDialogs["OLYMPUS_GATES"] = {
 	hideOnEscape = true,
 	preferredIndex = 3,
 }
+-- The same, for a guild whose census row is marked (1.1, Fern's #30): what the mark says, so the
+-- gates never open on a size nobody else confirms without the King seeing it.
+StaticPopupDialogs["OLYMPUS_GATES_MARKED"] = {
+	text = L.GATES_CONFIRM_MARKED,
+	button1 = YES or "Yes",
+	button2 = NO or "No",
+	OnAccept = function(self, data) ns.SafeCall("gates", Acts.OpenGates, data or (self and self.data)) end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
 StaticPopupDialogs["OLYMPUS_GATES_CLOSE"] = {
 	text = L.GATES_CLOSE_CONFIRM,
 	button1 = YES or "Yes",
@@ -391,6 +403,8 @@ function Acts.GatesClick(guild)
 		if not Acts.CanClose() then return ns.Print(L.GATES_ONLY_OPENER) end
 		return ns.ShowDialog("OLYMPUS_GATES_CLOSE", guild)
 	end
+	local marked = ns.Views and ns.Views.DisputeLines and ns.Views.DisputeLines(ns.Data.Dispute(ns.Data.Guild(guild)))
+	if marked then return ns.ShowDialog("OLYMPUS_GATES_MARKED", guild, table.concat(marked, " "), guild) end
 	ns.ShowDialog("OLYMPUS_GATES", guild, nil, guild)
 end
 

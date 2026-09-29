@@ -1426,6 +1426,7 @@ StandIn("Bank", {})
 StandIn("Link", { "Slash" })
 StandIn("Borders", { "SetEnabled", "Report" })
 StandIn("Nameplates", { "SetEnabled", "Report" })
+StandIn("Members", { "Show", "SetWarnDays" }) -- (1.1)
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1504,7 +1505,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Members" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1542,6 +1543,10 @@ local function Help()
 	print(L.HELP_CMD_MAP)
 	print(L.HELP_CMD_REALM)
 	print(L.HELP_CMD_LAYERS)
+	print(L.HELP_INACTIVE)
+	print(L.HELP_WARNDAYS)
+	print(L.HELP_MENTORS)
+	print(L.HELP_NOCONTACT)
 	print(L.HELP_HOP)
 	print(L.HELP_LAYERHELP)
 	print(L.HELP_LAYERAUTO)
@@ -1622,6 +1627,23 @@ SlashCmdList.OLYMPUS = function(input)
 			end
 		elseif cmd == "realm" or cmd == "tree" or cmd == "layers" then
 			if ns.Views.CloseChat then ns.Views.CloseChat() end
+			ns.UI.SelectTab("realm")
+		elseif cmd == "warndays" then
+			ns.Members.SetWarnDays(rest)
+		elseif cmd == "nocontact" then
+			-- (1.1: recruits' Join screens skip us, Recruit.lua.)
+			local word = rest:lower()
+			if word == "on" or word == "off" then
+				ns.Recruit.SetNoContact(word == "on")
+			else
+				ns.Print(ns.Recruit.NoContactMe() and L.NOCONTACT_ON or L.NOCONTACT_OFF)
+			end
+		elseif cmd == "inactive" or cmd == "members" or cmd == "recruits" or cmd == "mentors" then
+			-- (1.1: our guild's members offline 7, 14 or 30 days and more; the Lord's recruits and
+			-- their mentors. Members.lua.)
+			local days = tonumber(rest)
+			local lordPage = (cmd == "recruits" or cmd == "mentors") and ns.Members.IsLord and ns.Members.IsLord()
+			ns.Members.Show(lordPage and "recruits" or (days == 14 or days == 30) and days or 7)
 			ns.UI.SelectTab("realm")
 		elseif cmd == "decrees" then
 			ns.UI.SelectTab("decrees")

@@ -37,6 +37,7 @@ local function ClassColored(name, classFile)
 	local c = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
 	return c and ("|c%s%s|r"):format(c.colorStr, name) or name
 end
+Views.ClassColored = ClassColored
 
 -- `dim`: what an old report said (older than Data.FRESH), all grey, as its guild is in the tree.
 local function Presence(online, days, dim)
@@ -530,6 +531,45 @@ end
 local function NoMatch() return { text = Grey(L.SEARCH_NO_MATCH) } end
 
 ---------------------------------------------------------------------------
+-- The census's marks (1.1, Fern's #30): a row its senders disagree on (Data.Dispute: its leader
+-- or officers, or its size), and, fainter, one a single sender stands behind. A game texture in
+-- the row's text, so both windows and the gamepad UI show it; the tooltip says what it is.
+---------------------------------------------------------------------------
+
+Views.MARK_DISPUTED = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
+Views.MARK_SINGLE = "Interface\\Icons\\INV_Misc_QuestionMark"
+
+-- The mark before a guild's name ("" for none), and what Data.Dispute found.
+function Views.DisputeMark(g)
+	local d = ns.Data.Dispute(g)
+	if not d then return "", nil end
+	return "|T" .. (d.disputed and Views.MARK_DISPUTED or Views.MARK_SINGLE) .. ":12:12|t ", d
+end
+
+-- What the mark says, a line each (nil: no mark), for tooltips and the gates' question.
+function Views.DisputeLines(d)
+	if not d then return nil end
+	local out = {}
+	if d.split then out[#out + 1] = L.DISPUTE_SPLIT end
+	if d.outvoted then out[#out + 1] = L.DISPUTE_OUTVOTED end
+	if d.sizes then
+		out[#out + 1] = L.DISPUTE_SIZES:format(ns.FormatNumber(d.sizes[2].n), ns.DisplayName(d.sizes[2].sender) or "?",
+			ns.FormatNumber(d.sizes[1].n), ns.DisplayName(d.sizes[1].sender) or "?")
+	end
+	if d.single then out[#out + 1] = L.DISPUTE_SINGLE:format(ns.DisplayName(d.single) or "?") end
+	return out
+end
+
+local function DisputeTooltip(tt, d)
+	local lines = Views.DisputeLines(d)
+	if not lines then return end
+	tt:AddLine(" ")
+	tt:AddLine(d.disputed and L.DISPUTE_TITLE or L.DISPUTE_SINGLE_TITLE, 1, d.disputed and 0.4 or 0.82, d.disputed and 0.2 or 0)
+	for _, text in ipairs(lines) do tt:AddLine(text, 1, 1, 1, true) end
+	tt:AddLine(L.DISPUTE_TIP, 0.6, 0.6, 0.6, true)
+end
+
+---------------------------------------------------------------------------
 -- Shared tooltips
 ---------------------------------------------------------------------------
 
@@ -568,6 +608,7 @@ local function GuildTooltip(e)
 		tt:AddLine(" ")
 		tt:AddLine(L.REPORTED_BY:format(g.reporter or "?", ns.Ago(g.t)), 0.6, 0.6, 0.6)
 		if not e.fresh then tt:AddLine(L.STALE, 1, 0.4, 0.4) end
+		DisputeTooltip(tt, ns.Data.Dispute(g))
 	end
 end
 
@@ -674,7 +715,7 @@ local function CensusRow(e)
 	local g = e.g
 	local leader = g.leader and ((g.leaderOnline and "|cff40ff40" or "|cff9d9d9d") .. Plain(g.leader) .. "|r") or Grey("?")
 	return {
-		cols = { Plain(e.name), ns.FormatNumber(g.total), Green(ns.FormatNumber(g.online)), leader },
+		cols = { Views.DisputeMark(g) .. Plain(e.name), ns.FormatNumber(g.total), Green(ns.FormatNumber(g.online)), leader },
 		dim = not e.fresh,
 		tooltip = GuildTooltip(e),
 		onClick = function()
@@ -708,13 +749,202 @@ local function SortedGuilds(list)
 	return guilds
 end
 
--- `q`, the search (Views.Query): only the guilds whose name or Lord holds it, the reported ones
--- then the ones only seen (by name: nobody knows their Lord), in the same order as ever.
+-- The guilds with room (1000 members is the game's cap), most free slots first; `min`: at least
+-- that many free. Fresh reports only: an old one's size may be gone.
+function Views.OpenGuilds(s, min)
+	local open = {}
+	for _, e in ipairs(s.guilds) do
+		local free = 1000 - (e.g.total or 0)
+		if e.fresh and free > 0 and free >= (min or 1) then open[#open + 1] = { name = e.name, free = free, e = e } end
+	end
+	table.sort(open, function(a, b)
+		if a.free ~= b.free then return a.free > b.free end
+		return a.name < b.name
+	end)
+	return open
+end
+
+-- How a count moved tonight (Data.ZoneTrend): "+120" green, "-30" red, "=" grey.
+local function Trend(change)
+	if not change then return nil end
+	if change > 0 then return Green("+" .. ns.FormatNumber(change)) end
+	if change < 0 then return Red("-" .. ns.FormatNumber(-change)) end
+	return Grey("=")
+end
+Views.Trend = Trend
+
+-- Tonight's count on this client (Data.SampleEvening), one grey line under the list, the zones in
+-- its tooltip; nil before the first sample.
+local function EveningLine()
+	local e = ns.Data.Evening()
+	if not e or e.samples == 0 then return nil end
+	return {
+		text = Grey(L.EVENING_LINE:format(ns.FormatNumber(e.peak or 0), date("%H:%M", e.peakAt or e.t), ns.FormatNumber(e.online or 0),
+			date("%H:%M", e.since or e.t))),
+		tooltip = function(tt)
+			tt:AddLine(L.EVENING_TITLE, 1, 0.82, 0)
+			tt:AddLine(L.EVENING_TIP:format(date("%H:%M", e.since or e.t)), 1, 1, 1, true)
+			local zones = {}
+			for key, z in pairs(e.zones) do
+				if (z.now or 0) > 0 or (z.first or 0) > 0 then zones[#zones + 1] = { key = key, now = z.now or 0, change = (z.now or 0) - (z.first or 0) } end
+			end
+			table.sort(zones, function(a, b)
+				if a.now ~= b.now then return a.now > b.now end
+				return a.key < b.key
+			end)
+			if #zones > 0 then tt:AddLine(" ") end
+			for i = 1, math.min(8, #zones) do
+				local z = zones[i]
+				tt:AddDoubleLine(ns.Zones.NameForKey(z.key), ns.FormatNumber(z.now) .. "  " .. Trend(z.change), 0.8, 0.8, 0.8, 1, 1, 1)
+			end
+		end,
+	}
+end
+
+-- A guild's line under a search's header (a zone's, Recruiting's): opens it in the Realm.
+local function GuildLink(name, right, prefix)
+	return {
+		indent = 1, text = (prefix or "") .. Green("<" .. Plain(name) .. ">"), right = right,
+		onClick = function()
+			Views.SetFilter("realm", "")
+			expanded[name] = true
+			ns.UI.SelectTab("realm", Views.GuildId(name))
+		end,
+	}
+end
+
+-- The Census's search (1.1, Fern's #16): "recruiting" (or "free 50", L.SEARCH_RECRUITING_WORDS)
+-- lists every guild with room, the gates' guild first; the least free slots it asks for, or 1.
+local function RecruitQuery(q)
+	local word, n = q:match("^(%S+)%s*(%d*)$")
+	if not word then return nil end
+	for w in ns.Fold(L.SEARCH_RECRUITING_WORDS):gmatch("[^,%s]+") do
+		if w == word then return math.max(1, tonumber(n) or 1) end
+	end
+	return nil
+end
+
+local function RecruitingLines(lines, s, min)
+	local open = Views.OpenGuilds(s, min)
+	lines[#lines + 1] = { header = true, text = L.RECRUITING, right = Grey(L.SEARCH_RECRUITING_COUNT:format(#open)) }
+	local gates = ns.Acts and ns.Acts.Gates and ns.Acts.Gates()
+	local first
+	for i, o in ipairs(open) do
+		if gates and o.name == gates.guild then first = i end
+	end
+	if first then table.insert(open, 1, table.remove(open, first)) end
+	for _, o in ipairs(open) do
+		lines[#lines + 1] = GuildLink(o.name, L.FREE_SLOTS:format(ns.FormatNumber(o.free)),
+			(gates and o.name == gates.guild and CROWN or "") .. Views.DisputeMark(o.e.g))
+	end
+	if #open == 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.ALL_FULL) } end
+	lines[#lines].gapAfter = true
+end
+
+-- The zones whose name holds `q`, most soldiers first: each with its count, how it moved tonight
+-- on this client, and its guilds there. Only what reporters who share their zone count (the tip).
+local function ZoneLines(lines, s, q)
+	for _, z in ipairs(s.zoneList) do
+		local name = ns.Zones.NameForKey(z.key)
+		if NameHolds(q, name) then
+			local _, change = ns.Data.ZoneTrend(z.key)
+			local e = ns.Data.Evening()
+			lines[#lines + 1] = {
+				header = true, text = name .. "  " .. Gold(ns.FormatNumber(z.count)),
+				right = change and (Trend(change) .. " " .. Grey(L.EVENING_SINCE:format(date("%H:%M", e.since or e.t)))) or nil,
+				tooltip = function(tt)
+					tt:AddLine(name, 1, 0.82, 0)
+					tt:AddLine(L.SEARCH_ZONE_TIP, 1, 1, 1, true)
+				end,
+			}
+			local guilds = {}
+			for guild, n in pairs(s.zoneGuilds[z.key] or {}) do guilds[#guilds + 1] = { name = guild, n = n } end
+			table.sort(guilds, function(a, b)
+				if a.n ~= b.n then return a.n > b.n end
+				return a.name < b.name
+			end)
+			for _, g in ipairs(guilds) do lines[#lines + 1] = GuildLink(g.name, ns.FormatNumber(g.n)) end
+			lines[#lines].gapAfter = true
+		end
+	end
+end
+
+-- The /who round's players by guild, for the Census's search.
+local function CensusSwept()
+	local out = {}
+	local sweep = ns.Who and ns.Who.sweep
+	for _, p in ipairs(sweep and sweep.list or {}) do
+		if p.guild and p.name then
+			out[p.guild] = out[p.guild] or {}
+			table.insert(out[p.guild], p)
+		end
+	end
+	return out
+end
+
+-- The players of a guild the Census's search finds, its Lord aside (his match shows the row
+-- alone): its Captains, its highest levels (the report's top five) and who of it was seen online
+-- (our roster for our own guild, /who's round for the others). Each once, as its row shows it.
+Views.CENSUS_FOUND = 5 -- players listed under a guild's row, the rest counted
+local function PlayersFound(e, q, own, swept)
+	local g, out, seen = e.g, {}, {}
+	local function Add(p)
+		local short = p.name and ns.ShortName(p.name)
+		if not short or seen[short] or not NameHolds(q, p.name) then return end
+		seen[short] = true
+		out[#out + 1] = p
+	end
+	for _, o in ipairs(g.officers or {}) do
+		Add({ name = o.name, realm = g.realm, label = L.CAPTAIN, captain = true, level = o.level, class = o.class, zone = o.zone, online = o.online, days = o.days })
+	end
+	for _, p in ipairs(g.top or {}) do Add({ name = p.name, realm = g.realm, level = p.level, class = p.class }) end
+	if e.name == own then
+		for _, m in ipairs(ns.Roster.online or {}) do Add({ name = m.name, label = m.rank, level = m.level, class = m.class, zone = m.zone, online = true }) end
+	else
+		for _, p in ipairs(swept[e.name] or {}) do
+			Add({ name = SeenName(p.name), level = p.level, class = ns.Roster.ClassCode(p.class), zone = p.zone and ns.Zones.KeyForName(p.zone), online = true })
+		end
+	end
+	return out
+end
+
+local function PersonLine(e, p)
+	return {
+		key = p.name, indent = 1,
+		text = (p.captain and ASSIST or "") .. ClassColored(p.name, p.class and ns.CLASS_FILES[p.class]) .. (p.label and ("  " .. Grey(Plain(p.label))) or ""),
+		right = p.level and Grey(L.LEVEL_N:format(p.level)) or nil,
+		onClick = function()
+			ns.UI.ShowPerson({ name = p.name, realm = p.realm, class = p.class, level = p.level, zone = p.zone, guild = e.name,
+				rank = p.label, online = p.online, days = p.days })
+		end,
+	}
+end
+
+-- `q`, the search (Views.Query): "recruiting" (every guild with room), the zones whose name holds
+-- it (1.1), then the guilds whose name or Lord holds it, and those where it finds a Captain, a
+-- player of the top five or one seen online (under its row), the reported ones then the ones only
+-- seen (by name: nobody knows their Lord), in the same order as ever.
 local function CensusLines(s, q)
 	local lines = {}
 	if q then
+		local min = RecruitQuery(q)
+		if min then RecruitingLines(lines, s, min) end
+		ZoneLines(lines, s, q)
+		local own, swept = GetGuildInfo("player"), nil
 		for _, e in ipairs(SortedGuilds(s.guilds)) do
-			if ns.Holds(q, Plain(e.name), e.g.leader and Plain(e.g.leader)) then lines[#lines + 1] = CensusRow(e) end
+			if ns.Holds(q, Plain(e.name), e.g.leader and Plain(e.g.leader)) then
+				lines[#lines + 1] = CensusRow(e)
+			else
+				swept = swept or CensusSwept()
+				local found = PlayersFound(e, q, own, swept)
+				if #found > 0 then
+					lines[#lines + 1] = CensusRow(e)
+					for i = 1, math.min(#found, Views.CENSUS_FOUND) do lines[#lines + 1] = PersonLine(e, found[i]) end
+					if #found > Views.CENSUS_FOUND then
+						lines[#lines + 1] = { indent = 1, text = Grey(L.SEARCH_MORE_FOUND:format(#found - Views.CENSUS_FOUND)) }
+					end
+				end
+			end
 		end
 		for _, e in ipairs(s.seen or {}) do
 			if ns.Holds(q, Plain(e.name)) then lines[#lines + 1] = SeenRow(e) end
@@ -722,6 +952,8 @@ local function CensusLines(s, q)
 		if #lines == 0 then lines[1] = NoMatch() end
 		return lines
 	end
+	-- Recruits asking to join our guild (1.1, Recruit.lua): an officer's Invite and Decline.
+	for _, l in ipairs(ns.Recruit and ns.Recruit.RequestLines and ns.Recruit.RequestLines() or {}) do lines[#lines + 1] = l end
 	-- The King's Agenda, for the whole army (King.lua).
 	local a = ns.King and ns.King.Agenda and ns.King.Agenda()
 	if a then
@@ -744,6 +976,12 @@ local function CensusLines(s, q)
 	if #(s.seen or {}) > 0 then
 		lines[#lines].gapAfter = true
 		lines[#lines + 1] = { text = Grey(L.SEEN_HINT) }
+	end
+	-- Tonight's count on this client (1.1).
+	local evening = EveningLine()
+	if evening then
+		lines[#lines].gapAfter = true
+		lines[#lines + 1] = evening
 	end
 	WhoStatus(lines)
 	-- The addon's author online: Report a bug reaches him directly (Workshop.lua).
@@ -844,10 +1082,15 @@ local chatTier -- the channel shown instead of the Realm tree, or nil
 
 function Views.ChatShown() return chatTier ~= nil end
 function Views.ChatTier() return chatTier end
--- Another tab opened: the Realm opens on its tree again next time.
-function Views.CloseChat() chatTier = nil end
+-- Another tab opened: the Realm opens on its tree again next time (our guild's members page too,
+-- Members.lua, 1.1).
+function Views.CloseChat()
+	chatTier = nil
+	if ns.Members and ns.Members.Hide then ns.Members.Hide() end
+end
 function Views.ShowChat(tier)
 	chatTier = tier
+	if tier and ns.Members and ns.Members.Hide then ns.Members.Hide() end
 	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
 end
 
@@ -1166,6 +1409,8 @@ end
 -- else: the King's lines, the level race, recruiting and the layers show once it is emptied.
 local function RealmLines(s, q)
 	if chatTier then return ChatLines(q) end
+	-- Our guild's members page (1.1, Members.lua).
+	if ns.Members and ns.Members.Shown and ns.Members.Shown() then return ns.Members.Lines(q) end
 	local lines = {}
 	-- A councillor's mark and own icon after their name in the rows below (0.9.9), for whoever
 	-- may see the council here; none on the King's screen while the names are hidden (his
@@ -1248,7 +1493,7 @@ local function RealmLines(s, q)
 		local g = e.g
 		lines[#lines + 1] = {
 			id = Views.GuildId(e.name),
-			text = (open and "[-] " or "[+] ") .. Green("<" .. Plain(e.name) .. ">") .. " " .. Plain(g.leader or "?"),
+			text = (open and "[-] " or "[+] ") .. Views.DisputeMark(g) .. Green("<" .. Plain(e.name) .. ">") .. " " .. Plain(g.leader or "?"),
 			right = Presence(g.leaderOnline, g.leaderDays),
 			onClick = function()
 				if folds then
@@ -1339,7 +1584,18 @@ local function RealmLines(s, q)
 			lines[#lines + 1] = { indent = 2, text = ("%d. %s"):format(i, Plain(rank.name)), right = ns.FormatNumber(rank.count) }
 		end
 		if #(g.ranks or {}) == 0 then lines[#lines + 1] = { indent = 2, text = Grey(L.NONE_REPORTED) } end
-		lines[#lines + 1] = { indent = 1, text = Grey(L.INACTIVE_LINE:format(g.inactive7 or 0, g.inactive30 or 0)), gapAfter = true }
+		-- Our own guild's: a click lists them, by name (1.1, Members.lua).
+		local own = g.mine and e.name == GetGuildInfo("player")
+		lines[#lines + 1] = {
+			indent = 1, gapAfter = true,
+			text = own and Gold(L.INACTIVE_LINE:format(g.inactive7 or 0, g.inactive30 or 0) .. "  " .. L.MEMBERS_OPEN)
+				or Grey(L.INACTIVE_LINE:format(g.inactive7 or 0, g.inactive30 or 0)),
+			onClick = own and function() ns.Members.Show(7) end or nil,
+			tooltip = own and function(tt)
+				tt:AddLine(L.MEMBERS_TITLE, 1, 0.82, 0)
+				tt:AddLine(L.MEMBERS_OPEN_TIP, 1, 1, 1, true)
+			end or nil,
+		}
 	end
 	-- (The guilds opened for a Lord, Captain or member found: `searchRows` of their rows, the
 	-- guilds past them counted in `more`, shown on a click.)
@@ -1412,12 +1668,7 @@ local function RealmLines(s, q)
 			onClick = function() Views.raceShown = Views.raceShown + Views.RACE_PAGE; ns.Fire("DATA_CHANGED") end }
 	end
 
-	local open = {}
-	for _, e in ipairs(s.guilds) do
-		local free = 1000 - (e.g.total or 0)
-		if e.fresh and free > 0 then open[#open + 1] = { name = e.name, free = free } end
-	end
-	table.sort(open, function(a, b) return a.free > b.free end)
+	local open = Views.OpenGuilds(s)
 	lines[#lines + 1] = { header = true, text = L.RECRUITING }
 	-- The gates the King (or a Hand) opened: where new recruits go now (Acts.lua).
 	local gates = ns.Acts and ns.Acts.Gates and ns.Acts.Gates()
@@ -1435,19 +1686,45 @@ local function RealmLines(s, q)
 		}
 	end
 	if #open == 0 then lines[#lines + 1] = { text = Grey(L.ALL_FULL) } end
-	for i = 1, math.min(5, #open) do
+	-- The first RECRUIT_SHOWN, every one on a click (1.1, Fern's #16), and back.
+	local shownOpen = Views.recruitAll and #open or math.min(Views.RECRUIT_SHOWN, #open)
+	for i = 1, shownOpen do
 		local name = open[i].name
+		-- (Its census mark too, 1.1: the gates open on its size, Fern's #30.)
+		local mark, d = Views.DisputeMark(open[i].e.g)
 		lines[#lines + 1] = {
-			text = Green("<" .. name .. ">"), right = L.FREE_SLOTS:format(ns.FormatNumber(open[i].free)),
+			text = mark .. Green("<" .. name .. ">"), right = L.FREE_SLOTS:format(ns.FormatNumber(open[i].free)),
 			-- The King and his Hands open a guild's gates from here.
 			onClick = commands and function() ns.Acts.GatesClick(name) end or nil,
-			tooltip = commands and function(tt)
+			tooltip = (commands or d) and function(tt)
 				tt:AddLine("<" .. name .. ">", 0.25, 1, 0.25)
-				local closing = gates and gates.guild == name
-				tt:AddLine(closing and (ns.Acts.CanClose() and L.GATES_CLOSE_TIP or L.GATES_ONLY_OPENER) or L.GATES_CLICK_TIP, 1, 1, 1, true)
+				if commands then
+					local closing = gates and gates.guild == name
+					tt:AddLine(closing and (ns.Acts.CanClose() and L.GATES_CLOSE_TIP or L.GATES_ONLY_OPENER) or L.GATES_CLICK_TIP, 1, 1, 1, true)
+				end
+				DisputeTooltip(tt, d)
 			end or nil,
 		}
 	end
+	if #open > Views.RECRUIT_SHOWN then
+		lines[#lines + 1] = {
+			text = Gold(Views.recruitAll and L.RECRUIT_SHOW_FEWER or L.RECRUIT_SHOW_ALL:format(#open)),
+			onClick = function()
+				Views.recruitAll = not Views.recruitAll or nil
+				ns.UI.Refresh()
+			end,
+		}
+	end
+	-- Our do-not-contact flag (1.1, Fern's #20): recruits' Join screens skip us while it is on.
+	local closed = ns.Recruit and ns.Recruit.NoContactMe and ns.Recruit.NoContactMe()
+	lines[#lines + 1] = {
+		text = Grey(closed and L.NOCONTACT_LINE_ON or L.NOCONTACT_LINE_OFF),
+		onClick = function() ns.Recruit.SetNoContact(not closed) end,
+		tooltip = function(tt)
+			tt:AddLine(L.NOCONTACT_TITLE, 1, 0.82, 0)
+			tt:AddLine(L.NOCONTACT_TIP, 1, 1, 1, true)
+		end,
+	}
 
 	local mapID = ns.Layers.CurrentMap()
 	local zone = mapID and ns.Zones.NameForKey("m" .. mapID) or "?"
@@ -1598,6 +1875,7 @@ local STATUS_TEXT = {
 }
 
 Views.RACE_MAX, Views.RACE_PAGE = 100, 25 -- the level race: its top 100, 25 at a time
+Views.RECRUIT_SHOWN = 5 -- guilds with room shown in the Realm's Recruiting, the rest on a click (1.1)
 Views.raceShown = Views.RACE_PAGE
 Views.INSPECT_ROWS = 200 -- inspected players listed on the Tabards page
 
@@ -1731,10 +2009,39 @@ function Views.RecruitLines()
 	-- "Showing 50 of 312 online", and which levels the next click searches.
 	WhoStatus(lines)
 	if #lines > 1 then lines[#lines].gapAfter = true end
+	-- Where to go (1.1, Fern's #20): what a member's census said (Recruit.Route), the King's gates
+	-- first (two answers agree on them), then the most free slots of the guilds /who found; a
+	-- click asks one of that guild's officers /who found online.
+	local route = R.Route()
+	if route and #R.RouteOrder(route) > 0 then
+		lines[#lines + 1] = {
+			header = true, text = L.RECRUIT_ROUTE_TITLE,
+			tooltip = function(tt)
+				tt:AddLine(L.RECRUIT_ROUTE_TITLE, 1, 0.82, 0)
+				tt:AddLine(L.RECRUIT_ROUTE_TIP:format(ns.DisplayName(route.from) or "?"), 1, 1, 1, true)
+			end,
+		}
+		for _, name in ipairs(R.RouteOrder(route)) do
+			local e = route.byName[name]
+			local gates = name == route.gates
+			lines[#lines + 1] = {
+				text = (gates and CROWN or "") .. Green("<" .. Plain(name) .. ">") .. (gates and ("  " .. Gold(L.RECRUIT_GATES)) or ""),
+				right = (e and Grey(L.FREE_SLOTS:format(ns.FormatNumber(e.free))) .. "  " or "") .. Gold(L.RECRUIT_ASK),
+				onClick = function() R.PromptNext(name) end,
+				tooltip = function(tt)
+					tt:AddLine("<" .. Plain(name) .. ">", 0.25, 1, 0.25)
+					if gates then tt:AddLine(L.RECRUIT_GATES_TIP, 1, 1, 1, true) end
+					tt:AddLine(L.RECRUIT_ROUTE_ASK_TIP, 1, 1, 1, true)
+				end,
+			}
+		end
+		lines[#lines].gapAfter = true
+	end
 	for _, g in ipairs(guilds) do
 		lines[#lines + 1] = {
-			text = Green("<" .. g.name .. ">"),
-			right = Grey(L.RECRUIT_ONLINE:format(#g.members)) .. "  " .. Gold(L.RECRUIT_ASK),
+			text = (g.gates and CROWN or "") .. Green("<" .. g.name .. ">"),
+			right = Grey(L.RECRUIT_ONLINE:format(#g.members)) .. (g.free and ("  " .. Grey(L.FREE_SLOTS:format(ns.FormatNumber(g.free)))) or "")
+				.. "  " .. Gold(L.RECRUIT_ASK),
 			onClick = function() R.PromptNext(g.name) end,
 			tooltip = function(tt)
 				tt:AddLine("<" .. g.name .. ">", 0.25, 1, 0.25)
@@ -1743,13 +2050,16 @@ function Views.RecruitLines()
 		}
 		for _, p in ipairs(g.members) do
 			local state = ""
-			if R.replied[p.name] then state = Green(L.RECRUIT_STATE_REPLIED)
+			local closed = R.NoContact(p.name)
+			if closed then state = Grey(L.RECRUIT_STATE_DNC)
+			elseif R.replied[p.name] then state = Green(L.RECRUIT_STATE_REPLIED)
 			elseif R.asked[p.name] then state = Grey(L.RECRUIT_STATE_ASKED) end
 			lines[#lines + 1] = {
 				indent = 1,
 				text = ClassColored(ns.ShortName(p.name), p.class) .. "  " .. Grey((p.level and L.LEVEL_N:format(p.level) or "") .. (p.zone and ("  " .. p.zone) or "")),
 				right = state,
-				onClick = function() ns.ShowDialog("OLYMPUS_RECRUIT", p.name, p.guild, p) end,
+				-- (Not one who asked not to be contacted, 1.1.)
+				onClick = not closed and function() R.Prompt(p) end or nil,
 				tooltip = R.replied[p.name] and function(tt)
 					tt:AddLine(ns.ShortName(p.name), 1, 0.82, 0)
 					-- (A whisper: its links stay, like a chat line's; no other escape code, 0.9.2.)
@@ -1783,7 +2093,8 @@ local BUILD = {
 		local title, text = RealmDetail(s)
 		local lines = RealmLines(s, Views.Query("realm"))
 		-- (One box for the tab: the chats' lines are searched with it while they show.)
-		return Searched(lines, "realm", chatTier and "CHAT" or "REALM"), title, text
+		local members = ns.Members and ns.Members.Shown and ns.Members.Shown()
+		return Searched(lines, "realm", chatTier and "CHAT" or members and "MEMBERS" or "REALM"), title, text
 	end,
 	decrees = function()
 		local title, text = DecreeDetail()

@@ -169,7 +169,7 @@ function Hop.Chance(mapID, zoneUID)
 	local s = ns.Data and ns.Data.Summary and ns.Data.Summary()
 	for _, e in ipairs(s and s.guilds or {}) do
 		local g = e.g
-		local here = e.fresh and not g.twin and not g.conflict and g.zones and g.zones["m" .. tostring(mapID)]
+		local here = e.fresh and not g.conflict and g.zones and g.zones["m" .. tostring(mapID)]
 		if here and (g.online or 0) > 0 then users = users + here * math.min(1, (g.users or 0) / g.online) end
 	end
 	if users > 0 then
@@ -672,7 +672,7 @@ function Hop.King(strict)
 	local now = ns.Now()
 	local pin = ns.KingCharacter()
 	for name, g in pairs(ns.rdb.guilds or {}) do
-		if ns.IsKingGuild(name) and type(g) == "table" and g.leader and not g.twin
+		if ns.IsKingGuild(name) and type(g) == "table" and g.leader
 			and now - (g.t or 0) <= ns.Data.FRESH and g.leaderOnline then
 			local full = ns.FullName(g.leader, g.realm or ns.realm)
 			if ns.Data.KnownRank(full, name, not strict) == 0 then
