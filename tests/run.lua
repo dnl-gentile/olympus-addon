@@ -25503,6 +25503,279 @@ end)
 			end
 		end
 	end)
+
+	-- #8 (its second part): the King's rotation of the army's key (Keys.lua).
+	assert(loadfile(ADDON_DIR .. "Keys.lua"))("Olympus", ns)
+	local KY = ns.Keys
+	-- The Throne's scene with Lords and Captains online the census confirms (two senders each), no
+	-- key yet; joining a channel counted, not done.
+	local function WithKeys(fn)
+		WithNetoff(function(w, K)
+			local saved = { key = ns.rdb.realmKey, epoch = ns.rdb.keyEpoch, rot = ns.rdb.keyRotation, join = ns.Comm.JoinChannel,
+				after = ns.After, log = ns.db.log }
+			local ok, err = pcall(function()
+				ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRotation = nil, nil, nil
+				ns.db.log = {}
+				KY.Reset()
+				w.joined = 0
+				ns.Comm.JoinChannel = function() w.joined = w.joined + 1 end
+				ns.After = function(_, _, f) f() end
+				local G = ns.rdb.guilds
+				G["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", leaderOnline = true, realm = "Realm",
+					officers = { { name = "Zeus Cap", online = true, days = 0 }, { name = "Zeus Sleeper", online = false, days = 2 } } }, "W3-Realm", "W4-Realm")
+				G["Olympus II"] = Vouched({ total = 300, online = 3, zones = {}, t = w.clock, leader = "Ceo", leaderOnline = false, realm = "Realm" }, "W5-Realm", "W6-Realm")
+				fn(w, K)
+			end)
+			ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRotation, ns.Comm.JoinChannel, ns.After, ns.db.log =
+				saved.key, saved.epoch, saved.rot, saved.join, saved.after, saved.log
+			KY.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end
+	local function Whispered(w, prefix)
+		local out = {}
+		for _, x in ipairs(w.whispered) do if x.msg:sub(1, #prefix) == prefix then out[#out + 1] = x.to end end
+		table.sort(out)
+		return table.concat(out, ",")
+	end
+	local function Sent(w, dist, prefix)
+		local out = {}
+		for _, x in ipairs(w.sent) do if x.dist == dist and x.msg:sub(1, #prefix) == prefix then out[#out + 1] = x.msg end end
+		return out
+	end
+
+	test("1.1 key rotation (#8): the King alone rotates; his addon makes a key nobody sees and whispers it to the Lords and Captains online, never on the channel", function()
+		WithKeys(function(w, K)
+			-- Not the King: a soldier, a Hand, the King's Steward.
+			AsSoldier("Watcher")
+			eq(KY.Rotate(), nil); assert(Printed(w, ns.L.KEY_ROTATE_ONLY_KING))
+			K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Hand Guy-Realm")
+			AsSoldier("Hand Guy")
+			eq(K.IsHand(), true); eq(KY.CanRotate(), false)
+			WithSteward(function()
+				AsSoldier("Test Steward")
+				eq(K.IsSteward(), true); eq(KY.CanRotate(), false)
+				K.Show("home")
+				assert(not Page((K.Build())):find(ns.L.KEY_ROTATE, 1, true), "nothing on the Steward's Throne")
+			end)
+			eq(ns.rdb.keyRotation, nil)
+			-- The King.
+			AsKing()
+			eq(KY.CanRotate(), true)
+			eq(KY.Rotate(), true)
+			local rot = KY.Rotation()
+			assert(rot and rot.key:match("^%x+$") and #rot.key == 20, "a new key from his addon")
+			-- By whisper to the Lords and Captains the census confirms online, other guilds only.
+			eq(Whispered(w, "K3~"), "Zed-Realm,Zeus Cap-Realm")
+			for _, x in ipairs(w.whispered) do eq(x.msg, ("K3~%d~%s"):format(rot.at, rot.key)) end
+			-- Online as a recent report says only (a whisper to someone gone shows the King the game's error line).
+			ns.rdb.guilds["Olympus Zeus"].t = w.clock - KY.ONLINE_FRESH - 1
+			eq(#KY.Targets(), 0, "a report too old to say who is online")
+			ns.rdb.guilds["Olympus Zeus"].t = w.clock
+			-- Never on the channel, nor yet over his own guild (it moves with him).
+			for _, x in ipairs(w.sent) do assert(not x.msg:find(rot.key, 1, true), "sent " .. x.dist .. ": " .. x.msg) end
+			-- Never shown: not printed, logged, on the Throne, in /oly status.
+			for _, p in ipairs(w.printed) do assert(not p:find(rot.key, 1, true), "printed") end
+			for _, l in ipairs(ns.db.log) do assert(not l:find(rot.key, 1, true), "logged: " .. l) end
+			K.Show("home")
+			assert(not Page((K.Build())):find(rot.key, 1, true), "on the Throne")
+			assert(not KY.StatusLine():find(rot.key, 1, true), "in /oly status")
+			eq(ns.rdb.realmKey, nil, "the King stays on the old channel while he hands it out")
+			-- One rotation at a time.
+			eq(KY.Rotate(), nil); assert(Printed(w, ns.L.KEY_ROTATE_BUSY))
+			-- /oly key rotate: the King's question; anyone else's "rotate" stays a secret for /oly key.
+			KY.Move()
+			SlashCmdList.OLYMPUS("key rotate")
+			eq(w.popups[#w.popups].name, "OLYMPUS_KEY_ROTATE")
+			StaticPopupDialogs.OLYMPUS_KEY_ROTATE.OnAccept()
+			assert(KY.Rotation().key ~= rot.key, "each rotation its own key")
+		end)
+	end)
+
+	test("1.1 key rotation (#8): a Lord takes the King's key from his pinned name alone, by whisper, tells him, hands it to his guild over guild chat and moves; nothing else carries it", function()
+		WithKeys(function(w, K)
+			AsLord()
+			local at = w.clock
+			-- Not the King's name, not a whisper, dated far ahead: refused.
+			KY.HandleKey("WHISPER", "Faker-Realm", ("K3~%d~newarmykey01"):format(at))
+			KY.HandleKey("CHANNEL", KING, ("K3~%d~newarmykey01"):format(at))
+			KY.HandleKey("WHISPER", KING, ("K3~%d~newarmykey01"):format(at + 3600))
+			eq(ns.rdb.realmKey, nil); eq(w.joined, 0)
+			-- The King's whisper.
+			KY.HandleKey("WHISPER", KING, ("K3~%d~newarmykey01"):format(at))
+			eq(ns.rdb.realmKey, "newarmykey01"); eq(KY.Epoch(), at); eq(w.joined, 1, "the new channel")
+			eq(Whispered(w, "K4~"), KING, "the King is told")
+			eq(w.whispered[#w.whispered].msg, ("K4~%d~Olympus Zeus"):format(at))
+			-- To his guild over guild chat: with its epoch, and alone for guildmates before 1.1.
+			local k3, k1 = Sent(w, "GUILD", "K3~"), Sent(w, "GUILD", "K1~")
+			eq(k3[1], ("K3~%d~newarmykey01"):format(at)); eq(k1[1], "K1~newarmykey01")
+			for _, x in ipairs(w.sent) do assert(x.dist ~= "CHANNEL", "nothing on the channel") end
+			-- The same again: no second move; an older key: kept out.
+			KY.HandleKey("WHISPER", KING, ("K3~%d~newarmykey01"):format(at))
+			KY.HandleKey("WHISPER", KING, ("K3~%d~olderkey000"):format(at - 100))
+			eq(ns.rdb.realmKey, "newarmykey01"); eq(w.joined, 1)
+			-- A soldier the King whispered (the census was wrong): takes it, hands nothing on.
+			ns.rdb.realmKey, ns.rdb.keyEpoch = nil, nil
+			w.sent = {}
+			AsSoldier("Not Officer")
+			KY.HandleKey("WHISPER", KING, ("K3~%d~newarmykey02"):format(at + 1))
+			eq(ns.rdb.realmKey, "newarmykey02"); eq(#Sent(w, "GUILD", "K"), 0)
+		end)
+	end)
+
+	test("1.1 key rotation (#8): guildmates take it from their own officers over guild chat; the newest epoch wins, a key without one (an officer before 1.1) no longer pulls them back, an officer's own /oly key is dated", function()
+		WithKeys(function(w, K)
+			AsSoldier("Watcher") -- (Olympus II: Member1 its guild master, Member2 to Member6 its officers)
+			ns.Roster.Scan()
+			local at = w.clock
+			KY.HandleKey("GUILD", "Member9-Realm", ("K3~%d~guildkey0001"):format(at))
+			eq(ns.rdb.realmKey, nil, "not an officer of ours")
+			KY.HandleKey("GUILD", "Member2-Realm", ("K3~%d~guildkey0001"):format(at))
+			eq(ns.rdb.realmKey, "guildkey0001"); eq(KY.Epoch(), at)
+			-- The real receive path: a plain K1 from an officer, as a client before 1.1 sends it.
+			local cns, Deliver = FreshComm()
+			cns.Comm.JoinChannel = function() w.joined = w.joined + 1 end
+			Deliver("GUILD", "Member3-Realm", "K1~leakedold01")
+			eq(ns.rdb.realmKey, "guildkey0001", "a key without an epoch doesn't replace the King's")
+			-- Holding no epoch (before 1.1, or never rotated): as ever.
+			ns.rdb.keyEpoch = nil
+			Deliver("GUILD", "Member3-Realm", "K1~plainkey001")
+			eq(ns.rdb.realmKey, "plainkey001")
+			-- The same key with its epoch later: kept, the epoch noted, no new channel.
+			local joined = w.joined
+			KY.HandleKey("GUILD", "Member2-Realm", ("K3~%d~plainkey001"):format(at + 5))
+			eq(KY.Epoch(), at + 5); eq(w.joined, joined)
+			-- An officer's own /oly key (1.1): dated now, so his guild's 1.1 clients take it too.
+			GetGuildInfo = function() return "Olympus II", "Officer", 1 end
+			w.clock = w.clock + 60
+			cns.Comm.SetRealmKey("officers own key")
+			eq(ns.rdb.realmKey, "officers own key"); eq(KY.Epoch(), w.clock)
+			eq(Sent(w, "GUILD", "K3~")[1], ("K3~%d~officers own key"):format(w.clock))
+		end)
+	end)
+
+	test("1.1 key rotation (#8): a guildmate who logs in later asks, and an officer holding a newer key answers over guild chat; clients before 1.1 ignore K3, K4 and K5", function()
+		WithKeys(function(w, K)
+			AsCaptain()
+			ns.Roster.Scan()
+			ns.rdb.realmKey, ns.rdb.keyEpoch = "armykey00001", { key = ns.Comm.Hash36("armykey00001"), at = w.clock }
+			-- A guildmate holding nothing newer asks: answered, once a minute at most.
+			KY.HandleAsk("GUILD", "Member4-Realm", "K5~0")
+			eq(Sent(w, "GUILD", "K3~")[1], ("K3~%d~armykey00001"):format(w.clock))
+			KY.HandleAsk("GUILD", "Member5-Realm", "K5~0")
+			eq(#Sent(w, "GUILD", "K3~"), 1, "once a minute")
+			-- Holding it already: nothing; over the channel or a whisper: nothing.
+			w.clock = w.clock + 61
+			KY.HandleAsk("GUILD", "Member4-Realm", ("K5~%d"):format(w.clock - 61))
+			KY.HandleAsk("CHANNEL", "Member4-Realm", "K5~0")
+			KY.HandleAsk("WHISPER", "Member4-Realm", "K5~0")
+			eq(#Sent(w, "GUILD", "K3~"), 1)
+			-- Our own ask, after login.
+			KY.Ask()
+			eq(Sent(w, "GUILD", "K5~")[1], ("K5~%d"):format(w.clock - 61))
+			-- A guildmate's K0 (no key at all): K1 as ever, and K3 with it.
+			local cns, Deliver = FreshComm()
+			cns.After = function(_, _, f) f() end
+			local out = {}
+			C_ChatInfo.SendAddonMessage = function(_, msg, dist) out[#out + 1] = dist .. " " .. msg return true end
+			Deliver("GUILD", "Member4-Realm", "K0~")
+			for _ = 1, 3 do cns.Comm.Pump() end
+			eq(out[1], "GUILD K1~armykey00001"); eq(out[2], ("GUILD K3~%d~armykey00001"):format(w.clock - 61))
+			-- Clients of 0.9.8: K3 by whisper or over guild chat, K4, K5: dropped unread, nothing changes.
+			local old, OldDeliver = FreshComm(true)
+			ns.rdb.realmKey = "keepthiskey1"
+			local bad = old.Comm.Stats().bad
+			OldDeliver("WHISPER", KING, ("K3~%d~anotherkey01"):format(w.clock))
+			OldDeliver("GUILD", "Member2-Realm", ("K3~%d~anotherkey01"):format(w.clock))
+			OldDeliver("WHISPER", "Zed-Realm", ("K4~%d~Olympus Zeus"):format(w.clock))
+			OldDeliver("GUILD", "Member2-Realm", "K5~0")
+			eq(ns.rdb.realmKey, "keepthiskey1"); eq(old.Comm.Stats().bad, bad)
+		end)
+	end)
+
+	test("1.1 key rotation (#8): the King's Throne: rotate, how far it got, late Lords handed it, then he moves with his guild after the grace (or now)", function()
+		WithKeys(function(w, K)
+			AsKing()
+			K.Show("home")
+			local lines = K.Build()
+			local rotate
+			for _, l in ipairs(lines) do if tostring(l.text):find(ns.L.KEY_ROTATE, 1, true) then rotate = l end end
+			assert(rotate and rotate.onClick, "the button")
+			rotate.onClick()
+			eq(w.popups[#w.popups].name, "OLYMPUS_KEY_ROTATE"); eq(w.popups[#w.popups].a, tostring(KY.GRACE / 60))
+			StaticPopupDialogs.OLYMPUS_KEY_ROTATE.OnAccept()
+			local rot = KY.Rotation()
+			assert(Page((K.Build())):find(ns.L.KEY_ROTATING:format(2, 0, 0), 1, true), Page((K.Build())))
+			-- Acknowledged: counted (another rotation's answer is not).
+			KY.HandleAck("WHISPER", "Zed-Realm", ("K4~%d~Olympus Zeus"):format(rot.at))
+			KY.HandleAck("WHISPER", "Zeus Cap-Realm", ("K4~%d~Olympus Zeus"):format(rot.at - 1))
+			KY.HandleAck("CHANNEL", "Zeus Cap-Realm", ("K4~%d~Olympus Zeus"):format(rot.at))
+			assert(Page((K.Build())):find(ns.L.KEY_ROTATING:format(2, 1, 1), 1, true), Page((K.Build())))
+			-- A Lord who comes online meanwhile: handed it on the next round; the others not again before RESEND.
+			ns.rdb.guilds["Olympus II"].leaderOnline = true
+			local before = #w.whispered
+			w.clock = w.clock + 60
+			KY.Tick()
+			eq(#w.whispered, before + 1); eq(w.whispered[#w.whispered].to, "Ceo-Realm")
+			eq(ns.rdb.realmKey, nil, "still handing it out")
+			-- The grace is over: he moves, and his guild with him, over guild chat.
+			w.clock = w.clock + KY.GRACE
+			KY.Tick()
+			eq(ns.rdb.realmKey, rot.key); eq(KY.Epoch(), rot.at); eq(w.joined, 1)
+			eq(Sent(w, "GUILD", "K3~")[1], ("K3~%d~%s"):format(rot.at, rot.key))
+			eq(Sent(w, "GUILD", "K1~")[1], "K1~" .. rot.key)
+			assert(Printed(w, ns.L.KEY_ROTATION_MOVED))
+			assert(Page((K.Build())):find(ns.L.KEY_ROTATED_AGO:format(ns.Ago(rot.movedAt), 1, 1), 1, true))
+			for _, x in ipairs(w.sent) do assert(x.dist ~= "CHANNEL" or not x.msg:find(rot.key, 1, true), "never on the channel") end
+			-- Move now, from the Throne, on the next one.
+			KY.Rotate()
+			for _, l in ipairs(K.Build()) do if tostring(l.text):find(ns.L.KEY_MOVE_NOW:format(KY.GRACE / 60), 1, true) then l.onClick() end end
+			eq(w.popups[#w.popups].name, "OLYMPUS_KEY_MOVE")
+			StaticPopupDialogs.OLYMPUS_KEY_MOVE.OnAccept()
+			eq(ns.rdb.realmKey, KY.Rotation().key)
+		end)
+	end)
+
+	test("1.1 key rotation (#8) with the gamepad UI: the King's questions in Olympus's own dialogs", function()
+		WithUI(function()
+			LoadUI()
+			WithGamepadUI(true, function(game)
+				WithKeys(function(w, K)
+					AsKing()
+					KY.RotatePrompt()
+					eq(#game.shown, 0, "never the game's popup"); eq(#w.popups, 0)
+					local f = ns.Dialog.Find("OLYMPUS_KEY_ROTATE")
+					assert(f and f:IsShown(), "our dialog")
+					f.buttons[1]:Click()
+					assert(KY.Rotation(), "rotated")
+				end)
+			end)
+		end)
+		local src = Source("Keys.lua")
+		for _, api in ipairs({ "StaticPopup_Show", "MenuUtil", "UISpecialFrames", "\"CHANNEL\"" }) do
+			assert(not src:find(api, 1, true), "Keys.lua uses " .. api)
+		end
+	end)
+
+	test("1.1 key rotation (#8): its strings in English and pt-BR; the README and the CurseForge page", function()
+		local keys = { "HELP_KEY_ROTATE", "KEY_ROTATE_TITLE", "KEY_ROTATE", "KEY_ROTATE_TIP", "KEY_ROTATE_CONFIRM", "KEY_ROTATE_ONLY_KING",
+			"KEY_ROTATE_BUSY", "KEY_ROTATED", "KEY_ROTATING", "KEY_MOVE_NOW", "KEY_MOVE_CONFIRM", "KEY_ROTATION_MOVED", "KEY_ROTATED_AGO",
+			"KEY_ROTATED_TAKEN" }
+		local pt = PtBR()
+		for _, k in ipairs(keys) do
+			assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+			assert(rawget(pt, k) and rawget(pt, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+			local _, a = rawget(ns.L, k):gsub("%%[sd]", "")
+			local _, b = rawget(pt, k):gsub("%%[sd]", "")
+			eq(b, a, "the same placeholders: " .. k)
+		end
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, must in ipairs({ "`/oly key rotate`", "never on the Olympus channel", "| The army's key (1.1", "Rotate the army's key" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+		end
+	end)
 end)()
 
 print(("\n%d passed, %d failed"):format(passed, failed))

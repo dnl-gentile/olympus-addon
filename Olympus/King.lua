@@ -1362,6 +1362,10 @@ local function HomeLines()
 		return Para(lines, L.THRONE_HAND_HINT, INK)
 	end
 	for _, l in ipairs(ns.Court and ns.Court.HomeLines and ns.Court.HomeLines() or {}) do lines[#lines + 1] = l end
+	-- 1.1: the army's key, the King's to rotate (Keys.lua; nothing on his Steward's Throne).
+	if mine then
+		for _, l in ipairs(ns.Keys.ThroneLines and ns.Keys.ThroneLines() or {}) do lines[#lines + 1] = l end
+	end
 	if #lines > 1 then lines[#lines].gapAfter = true end
 	for _, l in ipairs(ns.Treasury and ns.Treasury.ThroneLines and ns.Treasury.ThroneLines() or {}) do lines[#lines + 1] = l end
 	return lines

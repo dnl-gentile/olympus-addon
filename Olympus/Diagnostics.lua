@@ -381,6 +381,7 @@ function ns.StatusText()
 	-- (1.1) Net-off words this client holds (Moderation.lua).
 	add("net-off: %s", ns.Moderation and ns.Moderation.StatusLine and ns.Moderation.StatusLine() or "not loaded")
 	add("alt links: %s", ns.Alts and ns.Alts.StatusLine and ns.Alts.StatusLine() or "not loaded")
+	add("realm key: %s", ns.Keys and ns.Keys.StatusLine and ns.Keys.StatusLine() or "not loaded")
 	add("borders: %s", ns.Borders and ns.Borders.StatusLine and ns.Borders.StatusLine() or "not loaded")
 	add("nameplates: %s", ns.Nameplates and ns.Nameplates.StatusLine and ns.Nameplates.StatusLine() or "not loaded")
 	-- The gamepad UI and what the game refused us this session; what its code reads, as now.

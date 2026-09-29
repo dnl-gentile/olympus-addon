@@ -1142,9 +1142,10 @@ StandIn("Bank", {})
 StandIn("Link", { "Slash" })
 StandIn("Borders", { "SetEnabled", "Report" })
 StandIn("Nameplates", { "SetEnabled", "Report" })
--- 1.1: net-off (Moderation.lua), alt links (Alts.lua).
+-- 1.1: net-off (Moderation.lua), alt links (Alts.lua), the King's key rotation (Keys.lua).
 StandIn("Moderation", { "Slash" })
 StandIn("Alts", { "Slash" })
+StandIn("Keys", { "RotatePrompt" })
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1227,7 +1228,7 @@ ns.RegisterEvent("PLAYER_LOGIN", function()
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	-- 1.1's files.
-	for _, key in ipairs({ "Moderation", "Alts" }) do
+	for _, key in ipairs({ "Moderation", "Alts", "Keys" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1278,6 +1279,7 @@ local function Help()
 	print("  /oly bug - copy a bug report (errors + diagnostics)")
 	print("  /oly status - print diagnostics in chat")
 	print("  /oly key <secret> - officers: seal the Olympus channel with a shared secret")
+	print(L.HELP_KEY_ROTATE)
 	print("  /oly block <name> - ignore everything a player sends")
 	print(L.HELP_NETOFF)
 	print(L.HELP_ALT)
@@ -1412,7 +1414,12 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "status" then
 			for line in ns.StatusText():gmatch("[^\n]+") do print("  " .. line) end
 		elseif cmd == "key" then
-			ns.Comm.SetRealmKey(rest)
+			-- 1.1: the King's rotation of the army's key (Keys.lua); anyone else's "rotate" is a secret, as before.
+			if rest:lower() == "rotate" and ns.Keys.CanRotate and ns.Keys.CanRotate() then
+				ns.Keys.RotatePrompt()
+			else
+				ns.Comm.SetRealmKey(rest)
+			end
 		elseif cmd == "block" then
 			if rest ~= "" then
 				-- Stored as the sender reaches Comm (ns.FullName(ns.Normal(name)), the realm's

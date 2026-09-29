@@ -277,6 +277,17 @@ tools lives where it belongs:
   should join for the next two hours; everyone sees it on top of Recruiting.
 - **Royal Pardon** (on the untabarded list): a click takes a name off it, for everyone, for a
   week.
+- **Rotate the army's key** (on the Throne, 1.1; or `/oly key rotate`): when the realm key
+  leaked, his addon makes a new one (nobody sees it, he neither) and whispers it to every Lord
+  and Captain the census confirms online; each hands it to his guild over guild chat, so nobody
+  types `/oly key` by hand. It never travels on the Olympus channel, and whoever leaked the old
+  key stays behind on the old channel. For 10 minutes his addon keeps handing it to Lords and
+  Captains who log in, on the old channel, then he and his guild move to it ("Move now" sooner);
+  the Throne says how many have it. A guild with no officer online by then stays on the old
+  channel until one of its officers types the key by hand. The King alone: not his Steward or
+  a Hand. Each 1.1 addon keeps the newest key by the time it was made, so an officer's plain
+  `/oly key` from a version before 1.1 no longer pulls it back (a 1.1 officer's own `/oly key` is
+  dated, and wins for his guild, as ever).
 - **Hands of the King** (a button next to his map button): players he names use the roll
   call, the inspection, the agenda, Vox Populi and the gates in his name. Never the court,
   writs, pardons or his crown on the map. Their addons learn the list from his, and it ends
@@ -551,6 +562,9 @@ Your guildmates with the addon receive it automatically through guild chat. From
 the Olympus channel has a name and password derived from the secret, and outsiders can't
 find or join it. Share the same secret with the officers of the other Olympus guilds
 (for example in the officers' Discord), so all guilds meet on the same sealed channel.
+Since 1.1 the King can also rotate the army's key from the Throne: his new key reaches every
+Lord and Captain online by whisper and their guilds over guild chat, never on the Olympus
+channel.
 
 ## How it works
 
@@ -604,6 +618,7 @@ message (the game adds it). What goes where:
 | An answer to an ask for your layer (it tells the asker you are on it) | the asker alone (a whisper) | only if you share your zone and layer, while layer help is on (`/oly layerhelp off` stops it) |
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one |
 | A net-off word (1.1): the character's name, hidden or shown again (or the guild's name, off or on again), the time, who gave it and the reason | everyone on the Olympus channel | when the King, his Steward, a Hand or a High Councillor gives one, then from their addons every few minutes for late logins |
+| The army's key (1.1, when the King rotates it): the new key and the time it was made | each Lord and Captain the census confirms online (a whisper from the King each), then each one's guild over guild chat; never the Olympus channel. Each 1.1 addon that has it tells the King so (a whisper), and after login asks its guild whether a newer key exists | only when the King rotates it on the Throne; a guildmate's ask once a login |
 | Your alt links (1.1, only if you link your characters): each linked character's name and guild, and the names it confirmed (its main, or its alts) | everyone on the Olympus channel | from each character you linked yourself, confirmed on each: at login, when a link changes and every 30 minutes while you play |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
@@ -649,8 +664,9 @@ Horde's "OlympusNetH") is public: anyone can join it by name and read everything
 script. With a key (`/oly key`) it gets a hidden name and the key as its password, and only
 the key's holders can join. A shared key is only as private as its least careful holder:
 every member of every guild that has it can read the channel, anyone can pass it on, and
-nobody can take it back. If it leaks, officers set a new one (`/oly key <new secret>`) and hand
-it out again.
+nobody can take it back. If it leaks, the King rotates it for the whole army (1.1, on the
+Throne: a new key by whisper to the Lords and Captains and over guild chat, never on the Olympus
+channel), or officers set a new one (`/oly key <new secret>`) and hand it out again.
 
 **Chat is never private.** Every client on the channel receives [Olympus], [Captains] and
 [Lords] alike; the addon only decides what to show. Before your first line in each of them
@@ -801,6 +817,9 @@ code.
   vouches for, so his party invite is accepted for the player (never with the gamepad UI). His
   report on a Royal Inspection can put an innocent player on the King's untabarded list, which
   the King's share sends to the army.
+- **The King's new key (1.1).** Two characters who make a Lord of a made-up guild (above) are
+  among the Lords and Captains his addon whispers a new army key to when he rotates it. (Every
+  member of an Olympus guild that has the key can read the sealed channel anyway.)
 
 What 1.0.0 hardened: the King's decrees and [Lords] lines count by his name, with no census at
 all, and the Hands' for `<Olympus>` by the word of the King or of the Steward whose own list
@@ -873,6 +892,7 @@ Other limits:
 | `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council, gold for Lords and silver for Captains, and Max's bronze wings for Raiders and bronze for Veterans of Olympus guilds; on by default, hidden with the gamepad UI. Off, the nameplate marks go too |
 | `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, Lords and Captains, bronze for Raiders and Veterans, and a star for any other member of an Olympus guild; on by default, hidden with the gamepad UI and with `/oly borders off` |
 | `/oly key <secret>` | officers: seal the Olympus channel |
+| `/oly key rotate` | the King: a new key for the whole army, by whisper to the Lords and Captains and over guild chat, never on the Olympus channel (also on the Throne) (1.1) |
 | `/oly block <name>` | ignore a player |
 | `/oly netoff Name: reason` · `/oly neton Name` · `/oly netoff` | the King, his Steward, a Hand or a High Councillor: hide a character for the whole army, or show them again (also on the Decrees tab); alone, who is hidden (1.1) |
 | `/oly netoff guild Name: reason` · `/oly neton guild Name` | the same people: take a guild off the Olympus network for the army, or put it back on (also on the Decrees tab) (1.1) |

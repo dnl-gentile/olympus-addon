@@ -724,6 +724,8 @@ function Comm.SetRealmKey(secret)
 	end
 	ns.rdb.realmKey = secret
 	Enqueue("GUILD", "K1~" .. secret, "key")
+	-- 1.1 (Keys.lua): dated now, so our guild's 1.1 clients take it over a key the King rotated before.
+	if ns.Keys.Typed then ns.Keys.Typed(secret) end
 	ns.Print(ns.L.KEY_SET)
 	Comm.JoinChannel()
 end
@@ -1179,9 +1181,14 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		if rank and rank <= ns.CAPTAIN_RANK then
 			local key = text:sub(4)
 			if key ~= "" and key ~= ns.rdb.realmKey then
-				ns.rdb.realmKey = key
-				ns.Log("realm key received from officer %s", sender)
-				Comm.JoinChannel()
+				-- 1.1 (Keys.lua): a key without an epoch no longer replaces one with (the King's rotation).
+				if ns.Keys.TakesLegacy and ns.Keys.TakesLegacy(key) == false then
+					ns.Log("realm key from officer %s ignored: we hold a newer one (with its epoch)", sender)
+				else
+					ns.rdb.realmKey = key
+					ns.Log("realm key received from officer %s", sender)
+					Comm.JoinChannel()
+				end
 			end
 		end
 		return
@@ -1190,7 +1197,14 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		-- A guildmate asks for the key: officers who have it answer (at most once a minute).
 		if ns.rdb.realmKey and ns.Roster.IsOfficer() and now - (Comm.lastKeyAnswer or 0) > 60 then
 			Comm.lastKeyAnswer = now
-			ns.After(math.random(1, 5), "key answer", function() Enqueue("GUILD", "K1~" .. ns.rdb.realmKey, "key") end)
+			ns.After(math.random(1, 5), "key answer", function()
+				if not ns.rdb.realmKey then return end
+				Enqueue("GUILD", "K1~" .. ns.rdb.realmKey, "key")
+				-- 1.1 (Keys.lua): with its epoch too, for 1.1 guildmates.
+				local key, at
+				if ns.Keys.HandOut then key, at = ns.Keys.HandOut() end
+				if key and at then Enqueue("GUILD", ("K3~%d~%s"):format(at, key), "key3") end
+			end)
 		end
 		return
 	end
