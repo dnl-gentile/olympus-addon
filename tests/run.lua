@@ -24998,5 +24998,204 @@ test("1.1 the Board: after a /reload our flag is still ours (repeated, lowered w
 	end)
 end)
 
+---------------------------------------------------------------------------
+-- 1.1: camps on the Board (Board.lua, Fern's #25): dropped by a player, ending on their own, a
+-- zone only, only with the player's /oly location on; one badge per zone on the world map.
+---------------------------------------------------------------------------
+
+local function Camp(id, guild, zone, age, note)
+	return ns.Board.Encode({ id = id, guild = guild, flag = "C", level = 30, class = "WA", every = 10, age = age or 0, zone = zone, note = note })
+end
+
+test("1.1 camps: dropped where the player stands, its zone and nothing finer, only with /oly location on; one every 10 minutes; down after 30", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		local savedPos = C_Map.GetPlayerMapPosition
+		C_Map.GetPlayerMapPosition = function() error("a camp never reads the player's spot") end
+		local ok, err = pcall(function()
+			-- Location private: no dialog, no camp, the player told why.
+			eq(B.PromptCamp(), nil); eq(#w.popups, 0)
+			assert(Printed(w, ns.L.BOARD_CAMP_NEEDS_LOCATION))
+			eq(select(2, B.DropCamp("x")), "private"); eq(#w.sent, 0)
+			-- In an instance: no zone for a camp.
+			w.share = true
+			IsInInstance = function() return true end
+			eq(select(2, B.DropCamp("x")), "zone"); eq(#w.sent, 0)
+			assert(Printed(w, ns.L.BOARD_CAMP_NO_ZONE))
+			IsInInstance = function() return false end
+			-- Shared, in a zone: the dialog says where and who reads it; its note, logged.
+			B.PromptCamp("fire by the bank")
+			local p = w.popups[#w.popups]
+			eq(p.name, "OLYMPUS_BOARD_CAMP"); eq(p.a, "Stormwind City"); eq(p.b, ns.Comm.Audience()); eq(p.data.note, "fire by the bank")
+			local box = { text = p.data.note, GetText = function(self) return self.text end }
+			StaticPopupDialogs.OLYMPUS_BOARD_CAMP.OnAccept({ editBox = box }, p.data)
+			local s = w.sent[#w.sent]
+			eq(s.key, "camp"); eq(s.logged, true)
+			local fields = select(2, s.msg:gsub("~", ""))
+			eq(fields, 9, "the ten fields of a flag: no position anywhere")
+			local e = B.Decode(s.msg)
+			eq(e.flag, "C"); eq(e.zone, 1453); eq(e.note, "fire by the bank"); eq(e.every, B.CAMP_EVERY)
+			assert(Printed(w, ns.L.BOARD_CAMP_DROPPED:format("Stormwind City")))
+			local id = B.MineIn("camp").id
+			-- A flag and a camp at once: each its own.
+			w.clock = w.clock + 1
+			eq(B.Raise("R", "lfm"), true)
+			eq(B.Mine().flag, "R"); eq(B.MineIn("camp").id, id)
+			-- One camp every 10 minutes.
+			eq(select(2, B.DropCamp()), "wait")
+			assert(Printed(w, ns.L.BOARD_CAMP_WAIT:format(10)))
+			-- Its refresh keeps the camp's zone wherever the player went since.
+			w.map = 1429
+			w.clock = w.clock + 10 * 60
+			B.Tick()
+			local refreshed
+			for _, x in ipairs(w.sent) do if x.key == "camp" then refreshed = x end end
+			eq(B.Decode(refreshed.msg).zone, 1453); eq(B.Decode(refreshed.msg).id, id)
+			-- 30 minutes after it was dropped: down for everyone.
+			w.clock = w.clock + 20 * 60
+			B.Tick()
+			eq(B.MineIn("camp"), nil)
+			local down
+			for _, x in ipairs(w.sent) do if x.msg == "G0~" .. id then down = x end end
+			assert(down and down.key == "camp", "lowered, in the camp's own lane")
+			assert(Printed(w, ns.L.BOARD_CAMP_ENDED))
+			-- A new one (10 minutes passed); the player stops sharing: down at the next tick.
+			eq(B.DropCamp(), true)
+			id = B.MineIn("camp").id
+			w.share = false
+			B.Tick()
+			eq(B.MineIn("camp"), nil); eq(LastSent(w), "G0~" .. id)
+			assert(Printed(w, ns.L.BOARD_CAMP_PRIVATE))
+			-- Taken down with a click (/oly camp off).
+			w.share = true
+			w.clock = w.clock + B.CAMP_GAP
+			B.DropCamp()
+			SlashCmdList.OLYMPUS("camp off")
+			eq(B.MineIn("camp"), nil)
+			assert(Printed(w, ns.L.BOARD_CAMP_LOWERED))
+			SlashCmdList.OLYMPUS("camp off")
+			assert(Printed(w, ns.L.BOARD_CAMP_NONE_UP))
+			SlashCmdList.OLYMPUS("camp by the lake")
+			eq(w.popups[#w.popups].name, "OLYMPUS_BOARD_CAMP"); eq(w.popups[#w.popups].data.note, "by the lake")
+		end)
+		C_Map.GetPlayerMapPosition = savedPos
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 camps: on the Board by zone beside the flags, a click whispers who dropped it; a camp without a zone, or older than 30 minutes, is nothing", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		B.HandlePost("CHANNEL", "Aldric-Realm", Camp("c1", "Olympus Zeus", 1453, 5, "cooking 300"))
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("f1", "Olympus Zeus", "R", 0))
+		B.HandlePost("CHANNEL", "Brenna-Realm", Camp("c2", "Olympus Zeus", 1429, 0))
+		eq(#B.List("camp"), 2); eq(#B.List("flag"), 1, "a camp and a flag of one player, each kept")
+		eq(B.Decode("G1~c3~Olympus Zeus~C~30~WA~10~0~~no zone"), nil, "a camp is its zone")
+		eq(B.Decode(Camp("c4", "Olympus Zeus", 1453, 31)), nil, "past its 30 minutes")
+		local lines = B.Lines()
+		local text = Texts(lines)
+		assert(text:find(ns.L.BOARD_CAMPS:format(2), 1, true), text)
+		local card
+		for _, l in ipairs(lines) do if l.text and l.text:find("cooking 300", 1, true) then card = l end end
+		assert(card.text:find("[" .. ns.L.BOARD_FLAG_C .. "]|r Stormwind City: ", 1, true), card.text)
+		eq(card.right, "|cff9d9d9d" .. ns.L.BOARD_CAMP_LEFT:format(25) .. "|r")
+		card.onClick()
+		eq(w.told[#w.told], "Aldric")
+		-- By zone: Elwynn Forest before Stormwind City.
+		local a, b = text:find("Elwynn Forest: ", 1, true), text:find("Stormwind City: ", 1, true)
+		assert(a and b and a < b, text)
+		-- Location private: the page says camps need it; shared: the click to drop one here.
+		assert(text:find(ns.L.BOARD_CAMP_NEEDS_LOCATION, 1, true), text)
+		w.share = true
+		text = Texts(B.Lines())
+		assert(text:find(ns.L.BOARD_CAMP_DROP:format("Stormwind City"), 1, true), text)
+		-- The tree's link counts both.
+		local link = B.LinkLine()
+		assert(link.right:find(ns.L.BOARD_LINK_FLAGS:format(1), 1, true) and link.right:find(ns.L.BOARD_LINK_CAMPS:format(2), 1, true), link.right)
+		-- 30 minutes after it was dropped, a camp is gone, refreshed or not.
+		w.clock = w.clock + 10 * 60
+		B.HandlePost("CHANNEL", "Brenna-Realm", Camp("c2", "Olympus Zeus", 1429, 10))
+		w.clock = w.clock + 20 * 60
+		eq(#B.List("camp"), 0)
+		-- A full Board of camps: 60 at most.
+		for i = 1, B.CAMP_MAX + 5 do B.HandlePost("CHANNEL", "Camper" .. i .. "-Realm", Camp(("%02d"):format(i), "Olympus Zeus", 1453, 0)) end
+		eq(#B.List("camp"), B.CAMP_MAX)
+	end)
+end)
+
+test("1.1 camps: one badge per zone on the world map with how many, mouse and keyboard only; /oly camps off hides them", function()
+	WithMapIcons(function()
+		WithBoard(function(w, B)
+			local lib = RecordingPins()
+			lib.names[B] = "Board"
+			local savedStub, savedTip, savedShow = LibStub, GameTooltip, ns.db.showCamps
+			local tip = {}
+			GameTooltip = { SetOwner = function() end, Show = function() end, Hide = function() end, AddLine = function(_, t) tip[#tip + 1] = t end }
+			LibStub = function(name) if name == "HereBeDragons-Pins-2.0" then return lib end end
+			local ok, err = pcall(function()
+				AsSoldier()
+				ns.db.showCamps = true
+				local function Log() local out = lib:Take(); table.sort(out) return table.concat(out, ", ") end
+				B.HandlePost("CHANNEL", "Aldric-Realm", Camp("c1", "Olympus Zeus", 1453, 5, "cooking"))
+				B.HandlePost("CHANNEL", "Brenna-Realm", Camp("c2", "Olympus Zeus", 1453, 0))
+				B.HandlePost("CHANNEL", "Cedric-Realm", Camp("c3", "Olympus Zeus", 1429, 0))
+				B.HandlePost("CHANNEL", "Dorian-Realm", Flag("f1", "Olympus Zeus", "R", 0, 1436))
+				B.RefreshCamps()
+				eq(Log(), "world+ Board 1429, world+ Board 1453", "one per zone, flags none")
+				local badges = B.CampBadges()
+				eq(badges[1453].badge.count:GetText(), "2"); eq(badges[1429].badge.count:GetText(), "")
+				eq(badges[1453].badge.icon.texture, B.CAMP_ICON)
+				-- Its tooltip: the zone, who dropped each camp there, their notes.
+				B.CampTip(badges[1453].badge)
+				local t = table.concat(tip, " / ")
+				assert(t:find(ns.L.BOARD_CAMPS_IN:format("Stormwind City"), 1, true) and t:find("Aldric", 1, true)
+					and t:find("cooking", 1, true) and t:find("Brenna", 1, true) and not t:find("Cedric", 1, true), t)
+				-- Unchanged: nothing redrawn. A camp down: its zone's badge goes when it was the last.
+				B.RefreshCamps()
+				eq(Log(), "")
+				B.HandleLower("CHANNEL", "Cedric-Realm", "G0~c3")
+				B.RefreshCamps()
+				eq(Log(), "world- Board")
+				-- /oly camps off: off the map (the Board keeps them); on: back.
+				SlashCmdList.OLYMPUS("camps off")
+				eq(ns.db.showCamps, false); eq(Log(), "world- Board")
+				assert(Printed(w, ns.L.BOARD_CAMPS_MAP_OFF))
+				eq(#B.List("camp"), 2)
+				SlashCmdList.OLYMPUS("camps on")
+				eq(Log(), "world+ Board 1453")
+				-- The gamepad UI: no icon of ours on its world map (taken off once, never added).
+				WithGamepadUI(true, function()
+					B.RefreshCamps()
+					eq(Log(), "worldAll Board")
+					B.HandlePost("CHANNEL", "Emric-Realm", Camp("c5", "Olympus Zeus", 1429, 0))
+					B.RefreshCamps()
+					eq(Log(), "")
+				end)
+				-- Back to mouse and keyboard: back on the map.
+				B.RefreshCamps()
+				eq(Log(), "world+ Board 1429, world+ Board 1453")
+			end)
+			LibStub, GameTooltip, ns.db.showCamps = savedStub, savedTip, savedShow
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
+
+test("1.1 camps: the map's Olympus menu and /oly camps switch them, on by default; their words in both languages", function()
+	local src = assert(io.open(ADDON_DIR .. "Core.lua")):read("*a")
+	assert(src:find("showCamps = true", 1, true), "on by default")
+	local map = assert(io.open(ADDON_DIR .. "Map.lua")):read("*a")
+	assert(map:find('key = "showCamps", label = "MAPOPT_CAMPS"', 1, true), "in the map's menu")
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, k in ipairs({ "MAPOPT_CAMPS", "HELP_CAMP", "BOARD_FLAG_C", "BOARD_CAMP_ASK", "BOARD_CAMPS_TIP" }) do
+		assert(type(rawget(ns.L, k)) == "string" and type(rawget(pt.L, k)) == "string" and rawget(pt.L, k) ~= rawget(ns.L, k), k)
+	end
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

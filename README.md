@@ -214,6 +214,14 @@ what each player chose to share.
   players who log in later, and the first time a session you open the Board your addon asks
   the channel once: the players with a flag up answer you alone, by whisper.
 - The Realm's search box finds a flag, a name, a guild, a zone or words of a note.
+- **Camps** (the Board's second list): drop one where you stand, **Drop a camp in <zone>** or
+  `/oly camp [note]`, so the army reuses a fire that is already up instead of planting five in one
+  zone. A camp carries its zone and nothing finer (never your spot), needs `/oly location on`,
+  ends by itself after 30 minutes (one every 10 minutes per character) and is taken down the
+  moment you stop sharing your location, or with a click (`/oly camp off`). The Board lists the
+  camps by zone; a click whispers whoever dropped one. On the world map each zone with camps
+  gets one badge beside its circle, with how many (mouse and keyboard only, like the decrees;
+  `/oly camps off` or the map's Olympus menu hides them).
 
 ### The Throne (the King and his Hands)
 A tab with a crown that only the King sees: the guild master of the guild named exactly
@@ -415,10 +423,11 @@ shows the army something of it.
 - Soldiers per zone on zone and continent maps, and per continent on the world map (with
   Blizzard's gamepad mode, only per continent: see below).
 - Decrees are round icons (the horn, the war cry...) where they were called, and the King's
-  crown where he stands. Over a zone's circle they move just outside its edge, top right first,
-  so its number stays readable; several around one circle each take a place of their own.
+  crown where he stands; the Board's camps (1.1) one fire badge per zone, with how many. Over a
+  zone's circle they move just outside its edge, top right first, so its number stays readable;
+  several around one circle each take a place of their own.
 - The round **Olympus** button in the bottom left corner of the map switches markers
-  (army per zone, decrees) on and off.
+  (army per zone, decrees, camps) on and off.
 
 ### Olympus Link: your Discord role (1.0.0)
 Players in game prove to the Olympus bot on Discord that a character is yours, and the bot gives
@@ -641,6 +650,7 @@ message (the game adds it). What goes where:
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one |
 | A flag on the Board (1.1): your guild, level and class, the flag (dungeon, raid, PvP or layer), your note (with the logged API), and your zone only while you share it | everyone on the Olympus channel, and whispered to a player whose Board asked for the flags up | when you raise it, then every 10 to 30 minutes for an hour at most, until you lower it |
 | The Board's ask (1.1): nothing but your name | everyone on the Olympus channel | once a session, the first time you open the Board |
+| A camp on the Board (1.1): your guild, level and class, the camp's zone (never your spot) and your note (with the logged API) | everyone on the Olympus channel, and whispered to a player whose Board asked | only with `/oly location on`, when you drop it, then every 10 minutes for its 30 minutes, until you take it down |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | everyone on the Olympus channel receives the bytes; the addon shows them to the King and his Steward, and to the army only with the King's switches | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
@@ -947,6 +957,7 @@ Other limits:
 | `/oly discord certified` | the author: every certificate his client signed as the council authority (off as it ships) for a High Councillor's key (key id, character, end), for the bot's keeper |
 | `/oly hop` | ask for an invite to the King's layer (while he is online) |
 | `/oly lfg` · `/oly lfg dungeon\|raid\|pvp\|layer [note]` · `/oly lfg off` | the Board (1.1): who is looking for a group; raise your flag (a box with your note first) or lower it |
+| `/oly camp [note]` · `/oly camp off` · `/oly camps on\|off` | drop a camp in your zone (1.1: it needs `/oly location on`) or take yours down; the camps' badges on the world map |
 | `/oly vox off` · `/oly vox on` | Vox Populi questions in chat only, or in a window |
 | `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer |
 | `/oly layerauto on` · `/oly layerauto off` | invite layer requests without the window |

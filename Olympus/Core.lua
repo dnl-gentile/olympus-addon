@@ -21,6 +21,7 @@ local DEFAULTS = {
 	showMates = false,
 	showDecrees = true,    -- show decree markers on the map
 	sound = true,          -- alert sounds (throttled)
+	showCamps = true,      -- camps on the world map (1.1, Board.lua)
 }
 
 ---------------------------------------------------------------------------
@@ -1270,6 +1271,7 @@ local function Help()
 	print(L.HELP_CHATWIN)
 	print(L.HELP_VOX)
 	print(L.HELP_BOARD)
+	print(L.HELP_CAMP)
 	print("  /oly mates - show/hide guildmates on map and minimap")
 	print("  /oly share - share/stop sharing your position with your guild")
 	print("  /oly bug - copy a bug report (errors + diagnostics)")
@@ -1457,8 +1459,8 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "discord" then
 			-- Olympus Link (Link.lua): this character's Discord role; confirmers' keys; watchers.
 			ns.Link.Slash(rest)
-		elseif cmd == "lfg" or cmd == "board" then
-			-- The Board (Board.lua, 1.1): who is looking for a group, and where.
+		elseif cmd == "lfg" or cmd == "board" or cmd == "camp" or cmd == "camps" then
+			-- The Board (Board.lua, 1.1): who is looking for a group, and where; camps.
 			ns.Board.Slash(cmd, rest)
 		else
 			Help()
