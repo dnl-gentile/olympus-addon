@@ -372,6 +372,26 @@ shows the army something of it.
   switches, and the King the balance next to the soldiers on top of his window. (The channel
   can be read by anyone on it: the buttons choose what the addon shows, they don't make the
   numbers secret.)
+- **Dues (1.1)**: one fixed amount of gold a week that members send the Treasurer by trade or
+  mail, the same for everyone (1 gold until the King sets his; never a share of anyone's gold
+  or loot). The King sets it on the dues page of the Treasury tab (his Steward too, in his name:
+  dated, the newest wins, the King's on the same second); their addons repeat it, and so does
+  the Treasurer's.
+  - Every line of a keeper's book carries its week (from one weekly reset to the next), and
+    each book keeps each giver's sum a week, for the last 5 weeks. A gift's guild is the one the
+    game shows on the other side of a trade, the Treasurer's own roster for his guild's members,
+    or the note a dues mail carries (the payer's word: it only places his own gold); otherwise
+    "guild not known".
+  - **Who sees what**: the King, his Steward and the Treasurer see every guild (its members in
+    the census, how many paid the amount this week, the gold in, the percentage), and a guild's
+    players a click away. A guild's Captains and Lord see their own guild alone: every member of
+    their roster with his last payment, his gold this week, and above or below the amount (those
+    below first). The army's Treasury tab keeps the King's three switches, and nothing of this.
+  - **Never on the channel**: the Treasurer's addon works the lists out from his books and
+    whispers each one to whoever asks and may see it (the King or his Steward: any guild; a
+    Captain or Lord: his own guild, his rank by the Treasurer's roster or the census), once
+    every 5 minutes per asker, while the Treasurer shares his book. A list still coming, or cut
+    to fit, marks nobody below who is not on it.
 
 ### Tabards: tabard inspection and the untabarded list
 - **Patrol**: walk through the crowd and the addon inspects nearby Olympus members level 15
@@ -620,6 +640,10 @@ message (the game adds it). What goes where:
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | everyone on the Olympus channel receives the bytes; the addon shows them to the King and his Steward, and to the army only with the King's switches | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the week's donors, the items donated (with who gave each last) and the book's latest lines | everyone on the Olympus channel receives the bytes; the addon shows them to the keepers, the King and his Steward, and to the army with the King's ranking or book switch | while that keeper shares his book: his yes, and a donor is not asked |
 | Your character's name, if you gave to the treasury before 1.0 (the early supporters): names only, no amounts, in alphabetical order | everyone on the Olympus channel receives the bytes; the addon shows them under the ranking, to whoever may see it | from the Treasurer's addon once he said yes to 1.0's question, which says their names go to everyone on the channel (his 0.9.3 yes is not enough), after his login and when a client asks: a donor is not asked |
+| The dues' amount (1.1): one amount a week, the same for everyone | everyone on the Olympus channel | from the King's and his Steward's addons when they set it and every 5 minutes, repeated by the Treasurer's |
+| Your guild's dues list (1.1): each of its players who paid the Treasurer in the last 5 weeks (name, gold this week, hours since his last payment), and a five-letter code for each player who paid this week with no guild on it | the King, his Steward, or a Captain or Lord of that guild who asked, alone (whispers from the Treasurer's addon) | when they open the dues page, once every 5 minutes per asker at most, while the Treasurer shares his book |
+| Every guild's dues this week (1.1): how many paid the amount, the gold in, how many players | the King or his Steward who asked, alone (whispers from the Treasurer's addon) | when they open the dues page, once every 5 minutes at most |
+| An ask for a dues list (1.1): the week and the guild | the Treasurer alone (a whisper) | while the King, his Steward, a Captain or a Lord has the dues page open, once every 5 minutes per list |
 | The King's crown on the map, and with it his zone and layer | everyone on the Olympus channel | only while the King turns it on (Throne tab), whatever he answered to the question |
 | A Royal Inspection's report (on by default): when the King, his Steward or a Hand calls one and your addon is in the sample, it patrols for 2 minutes, inspecting the Olympus players of your faction around you, level 15 and up, with the game's own inspect, and records whether each wears the guild tabard, another one or none (kept in your saved variables); then it reports your guild, how many it found in each case (your own tabard counted) and up to 6 names, with their guild, of players caught without the colors | whoever called it, alone (a whisper); the King can show the names to the army on his untabarded list | each Royal Inspection you are sampled for (one every 30 minutes at most, for the whole realm) until you say no with `/oly inspection off`; you still get its raid warning |
 | Other players' lines in the Olympus chats as your addon accepted them (channel, sender and text; [Captains] and [Lords] only if your rank reads them), and the High Council list | other addons in your own game, through `OlympusBridge` (made for OfficerSpy, the moderators' companion addon, but any addon you install can read it) | always, while such an addon is loaded: Olympus sends nothing through it and never learns what that addon does with what it read |
@@ -838,7 +862,10 @@ code.
 - **Trust elsewhere.** A made-up Captain who answers a layer-hop ask is a helper the addon
   vouches for, so his party invite is accepted for the player (never with the gamepad UI). His
   report on a Royal Inspection can put an innocent player on the King's untabarded list, which
-  the King's share sends to the army.
+  the King's share sends to the army. A made-up Captain of a real guild (above: three
+  outsiders take its picture) can ask the Treasurer's addon for that guild's dues list (1.1):
+  who of it paid him in the last five weeks, how much this week and when last; never another
+  guild's, and never on the channel.
 
 What 1.0.0 hardened: the King's decrees and [Lords] lines count by his name, with no census at
 all, and the Hands' for `<Olympus>` by the word of the King or of the Steward whose own list

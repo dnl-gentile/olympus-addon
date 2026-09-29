@@ -261,6 +261,7 @@ local function TreasurerPin(name)
 	end
 	return nil
 end
+Treasury.TreasurerPin = TreasurerPin
 
 -- One of the keepers pinned by name (the other side of a trade or a mail: its guild is not
 -- known): the Treasurer's characters (his own and his mail's), or the King's character. (The
@@ -434,6 +435,8 @@ local function Add(s, e, sign, now)
 		s.allIn = math.max(0, s.allIn + copper)
 		s.byDonor[e.name] = (s.byDonor[e.name] or 0) + copper
 		if s.byDonor[e.name] <= 0 then s.byDonor[e.name] = nil end
+		-- 1.1: each donor's sum per week, for the dues (Dues.lua; never sent on the channel).
+		ns.Dues.WeekAdd(s, e, copper)
 	end
 	DayCount(s, e, copper, now)
 end
@@ -452,8 +455,11 @@ local function Sums(b)
 			if not e.excluded then Add(s, e, 1, now) end
 		end
 	end
+	-- 1.1: a book's sums from before the dues get their weeks from the lines it keeps, once.
+	if s.weeks == nil then ns.Dues.Backfill(s, b.lines) end
 	return s
 end
+Treasury.SumsOf = function(b) return Sums(b) end
 local function Count(b, e, sign)
 	local s = Sums(b)
 	local now = ns.Now()
@@ -546,6 +552,8 @@ function Treasury.Record(name, copper, how, out, o)
 	local who = ns.DisplayName(ns.Normal(name)) or name
 	local e = { name = who, money = copper, how = how, t = ns.Now(), out = out or nil, excluded = excluded or nil, kind = kind,
 		item = item, count = item and count or nil }
+	-- 1.1: its week, and a gift's giver's guild (Dues.lua; kept here, never sent).
+	ns.Dues.Stamp(e, name, o)
 	b.lines[#b.lines + 1] = e
 	while #b.lines > Treasury.MAX do table.remove(b.lines, 1) end
 	if not e.excluded then Count(b, e, 1) end
@@ -677,7 +685,10 @@ function Treasury.TradeShow()
 	if not Treasury.IsKeeper() then return end
 	Treasury.OpenBook() -- (at the gold before this trade, if it is still closed)
 	local name = ns.UnitFullName and ns.UnitFullName("NPC") or (UnitName and UnitName("NPC"))
-	trade = name and { name = name, got = 0, gave = 0, gotList = {}, gaveList = {}, book = BookOf(ns.me, true) } or nil
+	-- 1.1: the guild the game shows on the other side (the dues' guild of a gift, Dues.lua).
+	local ok, guild = pcall(GetGuildInfo, "NPC")
+	trade = name and { name = name, got = 0, gave = 0, gotList = {}, gaveList = {}, book = BookOf(ns.me, true),
+		guild = ok and type(guild) == "string" and guild ~= "" and guild or nil } or nil
 end
 
 function Treasury.Info(a, b)
@@ -692,7 +703,8 @@ function Treasury.Info(a, b)
 	-- so (a click on the line).
 	local net = done.got - done.gave
 	if net > 0 then
-		Treasury.Record(done.name, net, "trade", nil, { book = book, excluded = done.gaveItems or nil, kind = done.gaveItems and "sale" or nil })
+		Treasury.Record(done.name, net, "trade", nil, { book = book, excluded = done.gaveItems or nil, kind = done.gaveItems and "sale" or nil,
+			guild = done.guild })
 	elseif net < 0 then
 		Treasury.Record(done.name, -net, "trade", true, { book = book, excluded = done.gotItems or nil, kind = done.gotItems and "purchase" or nil })
 	end
@@ -817,7 +829,8 @@ end
 local function MailClock() return GetTime and GetTime() or ns.Now() end
 local function Settle(p)
 	if p.returned then return Returned(p.book, p.sender, p.money) end
-	Treasury.Record(p.sender, p.money, "mail", nil, { book = p.book })
+	-- (1.1: the mail's subject, the dues' note: its week and guild, Dues.lua.)
+	Treasury.Record(p.sender, p.money, "mail", nil, { book = p.book, note = p.note })
 end
 local function SettleItem(p)
 	if p.returned then return Returned(p.book, p.sender, 0, p.id, p.n) end
@@ -842,13 +855,13 @@ function Treasury.MailTaking(i)
 	if not m or m.money <= 0 then return end
 	local book = TakeBook(m.sender)
 	if not book then return end
-	if not GetMoney then return Settle({ sender = m.sender, money = m.money, returned = m.returned, book = book }) end
+	if not GetMoney then return Settle({ sender = m.sender, money = m.money, returned = m.returned, book = book, note = m.subject }) end
 	local now = MailClock()
 	DropStale(pending, now)
 	local key = ("%d|%s|%s|%d"):format(i, m.sender, tostring(m.subject or ""), m.money)
 	for _, p in ipairs(pending) do if p.key == key then return end end
 	if #pending == 0 then lastMoney = GetMoney() end
-	pending[#pending + 1] = { key = key, sender = m.sender, money = m.money, returned = m.returned, t = now, book = book }
+	pending[#pending + 1] = { key = key, sender = m.sender, money = m.money, returned = m.returned, t = now, book = book, note = m.subject }
 end
 
 -- The character's gold went up: the takes it pays for are counted (the one of that exact
@@ -1621,6 +1634,7 @@ local function Replaces(kept, at, sender)
 	if not was or at ~= was then return was == nil or at > was end
 	return ns.IsKingCharacter(sender) and not ns.IsKingCharacter(kept.from)
 end
+Treasury.Replaces = Replaces -- (1.1: the King's dues amount too, Dues.lua)
 
 -- Told on the King's screen: his Steward changed one of his words (the name cut short while the
 -- council's names are hidden there, his stream).
@@ -2438,6 +2452,8 @@ end
 local function SummaryLines(role, q)
 	if q then return SummarySearch(role, q) end
 	local lines = { { header = true, text = L.TREASURY_TITLE } }
+	-- 1.1: the week's dues first (Dues.lua): the way to them, for whoever may see them.
+	ns.Dues.SummaryLines(lines, role)
 	local keeper = Treasury.IsKeeper()
 	if keeper then
 		Para(lines, Treasury.WhoSees(), tostring)
@@ -2505,6 +2521,9 @@ function Treasury.Build(q)
 	local role = Treasury.Role()
 	if Treasury.mode == "book" and not Treasury.MaySee("book") then Treasury.mode = "summary" end
 	if Treasury.mode == "keepers" and role == "member" then Treasury.mode = "summary" end
+	-- 1.1: the week's dues (Dues.lua), for whoever may see them.
+	if Treasury.mode == "dues" and not ns.Dues.Sees() then Treasury.mode = "summary" end
+	if Treasury.mode == "dues" then return ns.Dues.Build(q) end
 	local lines
 	if Treasury.mode == "book" then lines = BookLines(role, q)
 	elseif Treasury.mode == "keepers" then lines = KeeperLines()
@@ -2517,6 +2536,7 @@ end
 -- A list of donors shows on the tab (the book, or the ranking): its search box too (Views.lua).
 function Treasury.Searchable()
 	if Treasury.mode == "keepers" then return false end
+	if Treasury.mode == "dues" then return ns.Dues.Sees() == true end
 	if Treasury.mode == "book" and Treasury.MaySee("book") then return true end
 	return Treasury.MaySee("ranking")
 end

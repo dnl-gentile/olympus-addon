@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Dues", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -24454,6 +24454,465 @@ test("1.0.0 the Hands' hint says they speak with the King's Crown to the other g
 	if not ok then error(err, 0) end
 	assert(rawget(pt.L, "HANDS_HINT"):find("decretos reais", 1, true))
 end)
+
+---------------------------------------------------------------------------
+-- 1.1: the dues (Dues.lua, Fern's #34-#37): one fixed amount a week to the Treasurer, each gift
+-- in his book stamped with its week, every guild's standing for the King, his Steward and the
+-- Treasurer, each guild's own for its Captains, by whisper alone; never on the channel.
+---------------------------------------------------------------------------
+do
+	local D = ns.Dues
+	local TREASURER, KING = "Pyralis Ashandar-Realm", "Asmongold Asmongler-Realm"
+
+	-- Runs fn(w, K, T, mail, trade) on the Throne's world (WithThrone) with the dues fresh, the
+	-- Treasurer's roster empty (his guild's members are named by each test), <Olympus II>'s
+	-- census naming Cap its Captain (as two of its reporters say), and every stand-in put back.
+	-- Our own guild's roster, as the server gives it: Nm(1)..Nm(rosterSize), the first its Lord, the
+	-- next five its officers (names of letters alone, as the game's are).
+	local rosterSize = 12
+	local function Nm(i) return "Member" .. string.char(96 + math.floor((i - 1) / 26) + 1) .. string.char(96 + (i - 1) % 26 + 1) end
+	local function WithDues(fn)
+		WithThrone(function(w, K)
+			local mail, trade = MailWorld(), TradeWorld()
+			local saved = { split = ns.splitNames, byName = ns.Roster.byName, steward = ns.IsSteward, members = GetNumGuildMembers, st = GetServerTime,
+				roster = GetGuildRosterInfo }
+			local ok, err = pcall(function()
+				ns.splitNames = true
+				D.Reset()
+				ns.Roster.byName = {}
+				rosterSize = 12
+				GetNumGuildMembers = function() return rosterSize, 1 end
+				GetGuildRosterInfo = function(i)
+					if i > rosterSize then return nil end
+					local rank = i == 1 and 0 or (i <= 6 and 1 or 3)
+					return Nm(i) .. "-Realm", ({ [0] = "Lord", [1] = "Officer", [3] = "Soldier" })[rank], rank, 20
+				end
+				GetServerTime = nil -- (the server's clock is the test's: ns.Now)
+				w.census = function()
+					ns.rdb.guilds["Olympus II"] = Vouched({ total = 300, online = 3, zones = {}, t = w.clock, leader = "Ceo", realm = "Realm",
+						officers = { { name = "Cap", online = true, days = 0 } } }, "W5-Realm", "W6-Realm")
+				end
+				w.census()
+				fn(w, K, ns.Treasury, mail, trade)
+			end)
+			mail.Restore(); trade.Restore()
+			ns.splitNames, ns.Roster.byName, ns.IsSteward = saved.split, saved.byName, saved.steward
+			GetNumGuildMembers, GetServerTime, GetGuildRosterInfo = saved.members, saved.st, saved.roster
+			D.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end
+	-- A mail taken by the keeper whose client this is: its gold arrives.
+	local function Mail(mail, sender, copper, subject)
+		mail.inbox = { { sender = sender, money = copper, subject = subject } }
+		ns.Treasury.MailTaking(1)
+		mail.Arrive(copper)
+	end
+	-- The other side of a trade in `guild` (as the game shows it), this client in its own.
+	local function TradeIn(guild, mine)
+		GetGuildInfo = function(unit)
+			if unit == "NPC" then return guild end
+			return mine[1], mine[2], mine[3]
+		end
+	end
+	-- Every whisper the Treasurer's client has waiting, sent (Dues.Pump, a whisper every PACE).
+	local function PumpAll()
+		local n = 0
+		while #D.Outbox() > 0 and n < 500 do D.Pump(); n = n + 1 end
+	end
+	-- The whispers sent since `from` whose text starts with `prefix`.
+	local function Whispers(w, prefix, from)
+		local out = {}
+		for i = (from or 0) + 1, #w.whispered do
+			local x = w.whispered[i]
+			if x.msg:sub(1, #prefix) == prefix then out[#out + 1] = x end
+		end
+		return out
+	end
+	-- The page's text as one (each line's text and right side, colours taken out), and its lines.
+	-- `q`: the tab's search, folded.
+	local function Page(T, q)
+		local lines = T.Build(q)
+		local out = {}
+		for _, l in ipairs(lines) do out[#out + 1] = tostring(l.text or "") .. " " .. tostring(l.right or "") end
+		return (table.concat(out, " "):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("%s+", " ")), lines
+	end
+	local function Row(lines, text)
+		for _, l in ipairs(lines) do if tostring(l.text):find(text, 1, true) then return l end end
+	end
+
+	test("1.1 dues (#37): each gift in the Treasurer's book carries its week and each giver's sum a week; its guild from the game (a trade), his roster, or a mail's note", function()
+		WithDues(function(w, K, T, mail, trade)
+			AsTreasurer()
+			local week = D.Week()
+			assert(D.WeekStart(week) <= w.clock and w.clock < D.WeekStart(week + 1), "this week")
+			eq(D.WeekStart(week) % (7 * 86400), D.RESET_US, "from the weekly reset (the US realms' where the client can't say)")
+			-- A mail with the dues' note: its week and its guild, the payer's own word.
+			Mail(mail, Nm(7), 10000, D.Note(week, "Olympus II"))
+			local e = T.Lines()[#T.Lines()]
+			eq(e.wk, week); eq(e.guild, "Olympus II"); eq(e.gv, nil, "a note is the payer's word")
+			-- A trade: the guild the game shows on the other side (its word).
+			TradeIn("Olympus Zeus", { "Olympus", "Treasurer", 1 })
+			trade.Trade("Zeta", 5000, 0)
+			e = T.Lines()[#T.Lines()]
+			eq(e.wk, week); eq(e.guild, "Olympus Zeus"); eq(e.gv, true)
+			-- A member of his own guild, by his roster.
+			ns.Roster.byName = { ["Guildmate-Realm"] = 3 }
+			Mail(mail, "Guildmate", 20000, "for the treasury")
+			eq(T.Lines()[#T.Lines()].guild, "Olympus")
+			-- Anyone else without the note: no guild; a note naming a guild outside Olympus: none either.
+			Mail(mail, "Stranger", 10000, "hi")
+			eq(T.Lines()[#T.Lines()].guild, nil)
+			Mail(mail, "Faker", 10000, D.Note(week, "Horde Pals"))
+			eq(T.Lines()[#T.Lines()].guild, nil)
+			-- A payment of his and an item are stamped with their week, never summed as dues.
+			mail.Send("Seller", 700)
+			eq(T.Lines()[#T.Lines()].wk, week)
+			-- The ledger: each player's gold this week, his last payment, each guild's.
+			local led = D.Ledger()
+			eq(led.amount, 10000, "1 gold until the King sets it")
+			eq(led.players[Nm(7):lower()].c, 10000); eq(led.players[Nm(7):lower()].last, w.clock)
+			eq(led.players["seller"], nil, "a payment is no dues")
+			eq(led.guilds["olympus ii"].paid, 1); eq(led.guilds["olympus ii"].copper, 10000)
+			eq(led.guilds["olympus zeus"].paid, 0, "5 silver: under the amount"); eq(led.guilds["olympus zeus"].payers, 1)
+			eq(led.guilds["olympus"].paid, 1)
+			eq(led.guilds[""].payers, 2, "with no guild on it")
+			-- A line he stops counting leaves its week; counted again, it is back.
+			T.Toggle(T.Lines()[1])
+			eq(D.Ledger().players[Nm(7):lower()], nil)
+			T.Toggle(T.Lines()[1])
+			eq(D.Ledger().players[Nm(7):lower()].c, 10000)
+			-- Next week: last week's note still counts for last week (paid late); an older one counts now.
+			w.clock = w.clock + 7 * 86400
+			eq(D.Week(), week + 1)
+			Mail(mail, Nm(7), 3000, D.Note(week, "Olympus II"))
+			eq(T.Lines()[#T.Lines()].wk, week, "the note's week")
+			Mail(mail, Nm(8), 4000, D.Note(week - 1, "Olympus II"))
+			eq(T.Lines()[#T.Lines()].wk, week + 1, "a week too old: this week")
+			eq(D.Ledger(week).players[Nm(7):lower()].c, 13000)
+			eq(D.Ledger().players[Nm(7):lower()].c, 0, "nothing this week"); eq(D.Ledger().players[Nm(7):lower()].last, w.clock, "his last payment")
+			eq(D.Ledger().players[Nm(8):lower()].c, 4000)
+			-- A book of 1.0 (its sums from before the weeks): its weeks come from the lines it keeps.
+			T.Book().sums.weeks = nil
+			for _, l in ipairs(T.Lines()) do if l.name == Nm(8) then l.wk = nil end end
+			eq(D.Ledger(week).players[Nm(7):lower()].c, 13000, "rebuilt from the lines")
+			eq(D.Ledger().players[Nm(8):lower()].c, 4000, "a line without its week: the week of its time")
+			-- Five weeks are kept; older ones are gone.
+			w.clock = w.clock + 5 * 7 * 86400
+			Mail(mail, Nm(9), 10000)
+			local now = D.Ledger()
+			eq(now.players[Nm(7):lower()], nil, "six weeks ago: no longer kept")
+			eq(now.players[Nm(9):lower()].c, 10000)
+			for wk in pairs(T.Book().sums.weeks) do assert(wk > D.Week() - D.WEEKS_KEPT, "week " .. wk .. " dropped") end
+		end)
+	end)
+
+	test("1.1 dues (#37): the King sets one fixed amount (1 gold until then): his word or his Steward's, dated, the newest kept; the Treasurer's addon repeats it; nobody else's counts", function()
+		WithDues(function(w, K, T)
+			eq(D.Amount(), 10000)
+			AsSoldier()
+			D.SetAmount("5g")
+			eq(D.Amount(), 10000, "not a soldier's"); assert(Printed(w, ns.L.THRONE_ONLY_KING))
+			-- The King: on his dues page, a click and the amount, sent at once.
+			AsKing()
+			D.Open()
+			local text, lines = Page(T)
+			local set = Row(lines, ns.L.DUES_SET_AMOUNT:format(T.Coins(10000)))
+			assert(set and set.onClick, text)
+			set.onClick()
+			eq(w.popups[#w.popups].name, "OLYMPUS_DUES_AMOUNT")
+			StaticPopupDialogs.OLYMPUS_DUES_AMOUNT.OnAccept({ editBox = { GetText = function() return "2g" end } })
+			eq(D.Amount(), 20000)
+			assert(Printed(w, ns.L.DUES_AMOUNT_SET:format(T.Coins(20000))))
+			local word = LastSent(w)
+			assert(word:find("^T1~Y~%d+~Olympus~20000~" .. w.clock .. "$"), word)
+			D.SetAmount("2000g"); eq(D.Amount(), 20000, "1000 gold at most")
+			D.SetAmount("0"); eq(D.Amount(), 20000, "at least a copper")
+			-- Another client takes his word, by his name.
+			ns.rdb.duesAmount = nil
+			AsSoldier()
+			K.HandleCommand("CHANNEL", KING, word)
+			eq(D.Amount(), 20000)
+			-- Not a Hand's (not lent to them), nor a word dated more than a minute ahead of the server's clock.
+			ns.rdb.duesAmount = nil
+			AsKing(); K.AddHand("Helper"); K.SendHands(true); local list = LastSent(w)
+			AsSoldier(); K.HandleCommand("CHANNEL", KING, list)
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~Y~5~Olympus II~50000~" .. w.clock)
+			eq(D.Amount(), 10000, "not a Hand's")
+			K.HandleCommand("CHANNEL", KING, "T1~Y~6~Olympus~30000~" .. (w.clock + 120))
+			eq(D.Amount(), 10000, "dated ahead")
+			-- The Steward's, in the King's name; an older word never undoes a newer one; the same second: the King's.
+			ns.IsSteward = function(name) return name == "Test Steward-Realm" end
+			K.HandleCommand("CHANNEL", "Test Steward-Realm", "T1~Y~7~Olympus II~30000~" .. (w.clock + 10))
+			eq(D.Amount(), 30000, "his Steward's")
+			K.HandleCommand("CHANNEL", KING, "T1~Y~8~Olympus~40000~" .. (w.clock + 5))
+			eq(D.Amount(), 30000, "older")
+			K.HandleCommand("CHANNEL", KING, "T1~Y~9~Olympus~40000~" .. (w.clock + 10))
+			eq(D.Amount(), 40000, "the same second: the King's")
+			-- The King is told when his Steward changes it.
+			AsKing()
+			K.HandleCommand("CHANNEL", "Test Steward-Realm", "T1~Y~10~Olympus II~60000~" .. (w.clock + 20))
+			assert(Printed(w, ns.L.STEWARD_SET_DUES:format(K.StewardLabel("Test Steward-Realm"), T.Coins(60000))), "told")
+			-- The Treasurer's addon repeats it with its time; taken from him alone.
+			AsTreasurer()
+			eq(D.Repeat(true), true)
+			local rep = LastSent(w)
+			eq(rep, "FK~Olympus~60000~" .. (w.clock + 20))
+			ns.rdb.duesAmount = nil
+			AsSoldier()
+			D.HandleRepeat("CHANNEL", "Somebody-Realm", rep)
+			eq(D.Amount(), 10000, "not from anyone")
+			D.HandleRepeat("CHANNEL", TREASURER, rep)
+			eq(D.Amount(), 60000, "from the Treasurer")
+			eq((D.TreasurerOnline()), true, "his addon is heard")
+			-- Nothing of it before the King (or his Steward) gives one: no word to repeat.
+			ns.rdb.duesAmount = nil
+			AsTreasurer(); eq(D.Repeat(true), false)
+			AsKing(); eq(D.SendAmount(true), false)
+		end)
+	end)
+
+	test("1.1 dues (#37): the King and the Treasurer see every guild (members, paid this week, gold in, percent); a Captain his own guild alone (name, last payment, gold this week, above or below), by whisper", function()
+		WithDues(function(w, K, T, mail)
+			AsTreasurer()
+			local week = D.Week()
+			Mail(mail, Nm(7), 10000, D.Note(week, "Olympus II"))
+			w.clock = w.clock + 3600
+			Mail(mail, Nm(8), 5000, D.Note(week, "Olympus II"))
+			Mail(mail, Nm(10), 12000, "gold for Olympus") -- (no note: found by his Captain's roster)
+			Mail(mail, "Zed", 10000, D.Note(week, "Olympus Zeus"))
+			-- The Treasurer's own page: every guild, from his books.
+			D.Open()
+			local text, lines = Page(T)
+			local row = Row(lines, "<Olympus Zeus>")
+			assert(row, text)
+			eq(row.right, ns.L.DUES_GUILD_ROW:format("100", 1, T.GoldText(10000), "1%"))
+			row = Row(lines, "<Olympus II>")
+			eq(row.right, ns.L.DUES_GUILD_ROW:format("300", 1, T.GoldText(15000), "0%"))
+			assert(Row(lines, ns.L.DUES_NO_GUILD), "the gold with no guild on it")
+			assert(text:find(ns.L.DUES_GUILDS_COLS, 1, true), text)
+			-- A click: that guild's players, his last payment, gold this week, above or below.
+			row.onClick()
+			text, lines = Page(T)
+			local m7, m8 = Row(lines, Nm(7)), Row(lines, Nm(8))
+			assert(m7 and m8, text)
+			assert(m7.right:find(ns.L.DUES_ABOVE, 1, true) and m8.right:find(ns.L.DUES_BELOW, 1, true), text)
+			assert(m7.text:find("1h ago", 1, true), "his last payment: " .. m7.text)
+			eq(#Whispers(w, "FQ"), 0, "the Treasurer's client asks nobody")
+
+			-- The King: his page asks the Treasurer's addon (a whisper), which answers him alone.
+			local tb = (function() T.Share(true); for i = #w.sent, 1, -1 do if w.sent[i].msg:find("^TB~") then return w.sent[i].msg end end end)()
+			AsKing()
+			T.HandleReport("CHANNEL", TREASURER, tb) -- (his book heard: his addon is online)
+			D.Open()
+			text = Page(T)
+			local ask = Whispers(w, "FQ")[1]
+			assert(ask, "asked"); eq(ask.to, TREASURER); eq(ask.msg, "FQ~" .. week .. "~*")
+			assert(text:find(ns.L.DUES_ASKING, 1, true), text)
+			AsTreasurer()
+			local before = #w.whispered
+			D.HandleAsk("WHISPER", KING, ask.msg)
+			PumpAll()
+			local answer = Whispers(w, "FS", before)
+			assert(#answer >= 1, "answered")
+			for _, x in ipairs(answer) do eq(x.to, KING, "to him alone") end
+			AsKing()
+			for _, x in ipairs(answer) do D.HandleSummary("WHISPER", TREASURER, x.msg) end
+			text, lines = Page(T)
+			row = Row(lines, "<Olympus II>")
+			assert(row, text)
+			eq(row.right, ns.L.DUES_GUILD_ROW:format("300", 1, T.GoldText(15000), "0%"))
+			-- His click on a guild: its players, asked for and whispered to him alone.
+			row.onClick()
+			Page(T)
+			ask = Whispers(w, "FQ~" .. week .. "~Olympus II")[1]
+			assert(ask, "asked for Olympus II")
+			AsTreasurer()
+			before = #w.whispered
+			D.HandleAsk("WHISPER", KING, ask.msg)
+			PumpAll()
+			answer = Whispers(w, "FA", before)
+			AsKing()
+			for _, x in ipairs(answer) do eq(x.to, KING); D.HandleGuild("WHISPER", TREASURER, x.msg) end
+			text, lines = Page(T)
+			assert(Row(lines, Nm(7)) and Row(lines, Nm(8)), text)
+			assert(not Row(lines, "Zed"), "another guild's player")
+
+			-- A Captain of <Olympus II> (another client): his own guild alone, every member of his roster.
+			D.Reset()
+			AsCaptain()
+			T.HandleReport("CHANNEL", TREASURER, tb)
+			D.Open()
+			text = Page(T)
+			ask = Whispers(w, "FQ~" .. week .. "~Olympus II", before)[1]
+			assert(ask, "his own guild's list asked for")
+			assert(text:find(ns.L.DUES_ASKING, 1, true), text)
+			AsTreasurer()
+			w.census() -- (the census as it is now: its reports come every few minutes)
+			before = #w.whispered
+			D.HandleAsk("WHISPER", "Cap-Realm", ask.msg)
+			PumpAll()
+			answer = Whispers(w, "FA", before)
+			assert(#answer >= 1)
+			AsCaptain()
+			for _, x in ipairs(answer) do eq(x.to, "Cap-Realm"); D.HandleGuild("WHISPER", TREASURER, x.msg) end
+			text, lines = Page(T)
+			assert(text:find(ns.L.DUES_OWN_COUNT:format(2, 12, T.Coins(10000)), 1, true), "Member7 and Member10 of 12: " .. text)
+			m7, m8 = Row(lines, Nm(7) .. " "), Row(lines, Nm(8) .. " ")
+			local m10, m9 = Row(lines, Nm(10) .. " "), Row(lines, Nm(9) .. " ")
+			assert(m7 and m8 and m10 and m9, text)
+			assert(m7.right:find(ns.L.DUES_ABOVE, 1, true), m7.right)
+			assert(m8.right:find(ns.L.DUES_BELOW, 1, true) and m8.right:find(T.Coins(5000), 1, true), m8.right)
+			assert(m10.right:find(ns.L.DUES_ABOVE, 1, true), "no note on his mail: found by his name's code")
+			assert(m9.right:find(ns.L.DUES_BELOW, 1, true), "nothing on the list: below")
+			assert(not text:find("Zed", 1, true), "never another guild's")
+			assert(not text:find(ns.L.DUES_GUILDS, 1, true), "no other guild")
+			-- Those under the amount first.
+			local first
+			for _, l in ipairs(lines) do if l.indent == 1 and l.right then first = l break end end
+			assert(first.right:find(ns.L.DUES_BELOW, 1, true), "below first: " .. tostring(first.text))
+		end)
+	end)
+
+	test("1.1 dues (#37): the Treasurer's addon answers only the King, his Steward, and a guild's own Captains; each asker once every 5 minutes; answers from anyone else are dropped", function()
+		WithDues(function(w, K, T, mail)
+			AsTreasurer()
+			local week = D.Week()
+			Mail(mail, Nm(7), 10000, D.Note(week, "Olympus II"))
+			Mail(mail, "Zed", 10000, D.Note(week, "Olympus Zeus"))
+			local function Asked(sender, msg)
+				local before = #w.whispered
+				D.HandleAsk("WHISPER", sender, msg)
+				PumpAll()
+				return #w.whispered - before
+			end
+			eq(Asked("Soldier-Realm", "FQ~" .. week .. "~Olympus II"), 0, "a soldier")
+			eq(Asked("Cap-Realm", "FQ~" .. week .. "~Olympus Zeus"), 0, "a Captain, another guild")
+			eq(Asked("Cap-Realm", "FQ~" .. week .. "~*"), 0, "a Captain, every guild")
+			eq(Asked("Cap-Realm", "FQ~" .. (week - 2) .. "~Olympus II"), 0, "a week too old")
+			D.HandleAsk("CHANNEL", "Cap-Realm", "FQ~" .. week .. "~Olympus II")
+			eq(#D.Outbox(), 0, "only a whisper")
+			assert(Asked("Cap-Realm", "FQ~" .. week .. "~Olympus II") > 0, "his own guild")
+			eq(Asked("Cap-Realm", "FQ~" .. week .. "~Olympus II"), 0, "once every 5 minutes")
+			assert(Asked("Cap-Realm", "FQ~" .. (week - 1) .. "~Olympus II") > 0, "last week's is another list")
+			w.clock = w.clock + D.ANSWER_GAP
+			assert(Asked("Cap-Realm", "FQ~" .. week .. "~Olympus II") > 0, "5 minutes later")
+			ns.IsSteward = function(name) return name == "Test Steward-Realm" end
+			assert(Asked("Test Steward-Realm", "FQ~" .. week .. "~*") > 0, "his Steward, every guild")
+			assert(Asked(KING, "FQ~" .. week .. "~Olympus Zeus") > 0, "the King, any guild")
+			-- A guild's Lord (the census's).
+			assert(Asked("Ceo-Realm", "FQ~" .. week .. "~Olympus II") > 0, "its Lord")
+			-- Without his yes to sharing the treasury, his addon answers nobody.
+			ns.db.keeperShares = { [TREASURER:lower()] = false }
+			w.clock = w.clock + D.ANSWER_GAP
+			eq(Asked(KING, "FQ~" .. week .. "~*"), 0, "kept private")
+			ns.db.keeperShares = nil
+			-- An answer reaches a Captain only from the Treasurer, and only his own guild's.
+			local msgs = D.GuildMessages(D.Ledger(), "Olympus II", 7)
+			local zeus = D.GuildMessages(D.Ledger(), "Olympus Zeus", 8)
+			AsCaptain()
+			for _, m in ipairs(msgs) do D.HandleGuild("WHISPER", "Pyralis Faker-Realm", m) end
+			for _, m in ipairs(zeus) do D.HandleGuild("WHISPER", TREASURER, m) end
+			for _, m in ipairs(msgs) do D.HandleGuild("CHANNEL", TREASURER, m) end
+			D.Open()
+			local text = Page(T)
+			assert(not text:find(ns.L.DUES_ABOVE, 1, true), "nothing taken: " .. text)
+			for _, m in ipairs(msgs) do D.HandleGuild("WHISPER", TREASURER, m) end
+			text = Page(T)
+			assert(text:find(ns.L.DUES_ABOVE, 1, true), text)
+			-- A soldier has no dues page, nor its link.
+			AsSoldier()
+			eq(D.Sees(), false)
+			T.Show("dues")
+			local _, _, detail = T.Build()
+			eq(T.mode, "summary", "back to the summary"); eq(detail ~= ns.L.DUES_DETAIL, true)
+			-- A summary (every guild) is the King's and his Steward's alone.
+			AsCaptain()
+			for _, m in ipairs(D.SummaryMessages(D.Ledger(), 9)) do D.HandleSummary("WHISPER", TREASURER, m) end
+			AsKing()
+			D.Open()
+			text = Page(T)
+			assert(text:find(ns.L.DUES_ASKING, 1, true) and not text:find("<Olympus II>", 1, true), "kept nothing: " .. text)
+		end)
+	end)
+
+	test("1.1 dues (#37): a list too long to send whole says so, and then nobody missing from it shows as below", function()
+		WithDues(function(w, K, T, mail)
+			AsTreasurer()
+			rosterSize = 50
+			local week = D.Week()
+			local savedMax = D.MAX_PIECES
+			local ok, err = pcall(function()
+				for i = 11, 40 do Mail(mail, Nm(i), 10000, D.Note(week, "Olympus II")) end
+				D.MAX_PIECES = 2
+				local msgs = D.GuildMessages(D.Ledger(), "Olympus II", 3)
+				D.MAX_PIECES = savedMax
+				eq(#msgs, 2, "cut to two whispers")
+				for _, m in ipairs(msgs) do
+					assert(#m <= 250, #m .. " bytes")
+					assert(m:find("^FA~3~%d+~[0-9a-z]+~[0-9a-z]+~1~Olympus II~"), m)
+				end
+				AsCaptain()
+				for _, m in ipairs(msgs) do D.HandleGuild("WHISPER", TREASURER, m) end
+				D.Open()
+				local text, lines = Page(T, Nm(40):lower())
+				assert(text:find(ns.L.DUES_CUT, 1, true), text)
+				local r = Row(lines, Nm(40) .. " ")
+				assert(r and r.right:find(ns.L.DUES_UNKNOWN, 1, true), "left out: not known, never below")
+				-- Whole: whoever is not on it is below.
+				AsTreasurer()
+				local full = D.GuildMessages(D.Ledger(), "Olympus II", 4)
+				assert(#full >= 2, "several whispers")
+				AsCaptain()
+				for _, m in ipairs(full) do assert(m:find("~0~Olympus II~", 1, true), m); D.HandleGuild("WHISPER", TREASURER, m) end
+				text, lines = Page(T, Nm(40):lower())
+				assert(not text:find(ns.L.DUES_CUT, 1, true), text)
+				assert(Row(lines, Nm(40) .. " ").right:find(ns.L.DUES_ABOVE, 1, true))
+				text, lines = Page(T, Nm(41):lower())
+				assert(Row(lines, Nm(41) .. " ").right:find(ns.L.DUES_BELOW, 1, true))
+				-- A list still coming (a newer answer's first whisper): nobody below yet.
+				AsTreasurer()
+				full = D.GuildMessages(D.Ledger(), "Olympus II", 5)
+				AsCaptain()
+				D.HandleGuild("WHISPER", TREASURER, full[1])
+				text, lines = Page(T, Nm(41):lower())
+				assert(text:find(ns.L.DUES_RECEIVING:format(1, #full), 1, true), text)
+				assert(Row(lines, Nm(41) .. " ").right:find(ns.L.DUES_UNKNOWN, 1, true), "still coming: not known")
+			end)
+			D.MAX_PIECES = savedMax
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 dues (#37): its lines in both languages", function()
+		local pt = { L = setmetatable({}, { __index = ns.L }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		local keys = { "DUES_TITLE", "DUES_A_WEEK", "DUES_LINK", "DUES_LINK_TIP", "DUES_PRIVATE", "DUES_DETAIL", "DUES_SET_AMOUNT", "DUES_SET_AMOUNT_TIP",
+			"DUES_AMOUNT_PROMPT", "DUES_AMOUNT_USAGE", "DUES_AMOUNT_SET", "STEWARD_SET_DUES", "DUES_GUILDS", "DUES_GUILDS_COLS", "DUES_GUILD_TIP",
+			"DUES_NO_GUILD", "DUES_NO_GUILD_TIP", "DUES_ALL_GUILDS", "DUES_MEMBERS", "DUES_OWN_COUNT", "DUES_ABOVE", "DUES_BELOW", "DUES_UNKNOWN",
+			"DUES_MEMBER_TIP", "DUES_LAST_NONE", "DUES_NONE", "DUES_ASKING", "DUES_OFFLINE", "DUES_RECEIVING", "DUES_AS_OF", "DUES_SINCE", "DUES_CUT",
+			"DUES_UNPLACED", "DUES_DAYS_AGO" }
+		for _, key in ipairs(keys) do
+			assert(rawget(ns.L, key), key .. " in English")
+			local s = rawget(pt.L, key)
+			assert(s and s ~= ns.L[key], key .. " in Portuguese")
+			-- Each language's line takes the same values.
+			local function Slots(x) return (x:gsub("%%%%", ""):gsub("[^%%]", ""):len()) end
+			eq(Slots(s), Slots(ns.L[key]), key)
+		end
+		-- Never "you owe", never "pay or lose": the dues are a fixed amount, sent by a click of the payer's.
+		for _, key in ipairs(keys) do
+			local en = ns.L[key]:lower()
+			assert(not en:find("owe", 1, true) and not en:find("debt", 1, true) and not en:find("lose", 1, true), key)
+			local p = rawget(pt.L, key):lower()
+			assert(not p:find("deve", 1, true) and not p:find("dívida", 1, true) and not p:find("perde", 1, true), key)
+		end
+	end)
+end -- 1.1 dues
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

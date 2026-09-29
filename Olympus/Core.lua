@@ -1136,6 +1136,7 @@ StandIn("Workshop", { "RollCall" })
 StandIn("Vox", { "Prompt", "CloseNow", "SetOff" })
 StandIn("Court", { "Toggle" })
 StandIn("Treasury", {})
+StandIn("Dues", {}) -- (1.1)
 StandIn("Acts", { "WritPrompt" })
 StandIn("Dialog", {})
 StandIn("Bank", {})
@@ -1220,7 +1221,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Dues", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
