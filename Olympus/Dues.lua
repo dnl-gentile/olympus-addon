@@ -111,18 +111,15 @@ end
 
 -- Where the week starts: the client's own weekly reset (the server's clock plus the time left
 -- to it, rounded to the hour it falls on: every client of a region works out the same one), or
--- the US realms' where the client can't say.
+-- the US realms' while the client can't say (asked again next time: early in a login it may not).
 function Dues.Anchor()
 	if anchor then return anchor end
 	local f = C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset
 	local ok, left = false, nil
 	if f then ok, left = pcall(f) end
 	left = ok and tonumber(left) or nil
-	if left and left > 0 and left <= Dues.WEEK then
-		anchor = (math.floor((Clock() + left) / 3600 + 0.5) * 3600) % Dues.WEEK
-	else
-		anchor = Dues.RESET_US
-	end
+	if not (left and left > 0 and left <= Dues.WEEK) then return Dues.RESET_US end
+	anchor = (math.floor((Clock() + left) / 3600 + 0.5) * 3600) % Dues.WEEK
 	return anchor
 end
 function Dues.WeekOf(t) return math.floor(((tonumber(t) or 0) - Dues.Anchor()) / Dues.WEEK) end

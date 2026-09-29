@@ -25380,6 +25380,29 @@ do
 		end)
 	end)
 
+	test("1.1 dues (#37): the week follows the client's own weekly reset (an EU realm's), asked again while the client can't say yet", function()
+		WithDues(function(w)
+			local saved = C_DateAndTime
+			local left = 0
+			C_DateAndTime = { GetSecondsUntilWeeklyReset = function() return left end }
+			local ok, err = pcall(function()
+				D.Reset()
+				eq(D.Anchor(), D.RESET_US, "the client can't say yet (0): the US realms' reset, for now")
+				-- Wednesday 04:00 UTC (1970-01-01 was a Thursday): the client's reset a few seconds off.
+				local eu = 6 * 86400 + 4 * 3600
+				local nextReset = eu + (math.floor((w.clock - eu) / D.WEEK) + 1) * D.WEEK
+				left = nextReset - w.clock - 7
+				eq(D.Anchor(), eu, "asked again: the client's own, on its hour")
+				eq(D.WeekStart(D.Week()) % D.WEEK, eu)
+				assert(D.WeekStart(D.Week()) <= w.clock and w.clock < D.WeekStart(D.Week() + 1))
+				left = 0
+				eq(D.Anchor(), eu, "kept once known")
+			end)
+			C_DateAndTime = saved
+			if not ok then error(err, 0) end
+		end)
+	end)
+
 	test("1.1 dues (#37): its lines in both languages", function()
 		local pt = { L = setmetatable({}, { __index = ns.L }) }
 		local savedLocale = GetLocale
