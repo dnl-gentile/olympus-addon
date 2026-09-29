@@ -37,6 +37,7 @@ King.lua
 Vox.lua
 Court.lua
 Board.lua
+Week.lua
 Treasury.lua
 Bank.lua
 Acts.lua

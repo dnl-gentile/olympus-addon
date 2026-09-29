@@ -193,8 +193,19 @@ Before your first line in each channel the addon tells you this and waits for **
 
 ### The Board: who is looking for a group, and where (1.1)
 The Realm tab links **the Board** (or `/oly lfg`): who in Olympus wants a group right now, from
-what each player chose to share.
+what each player chose to share, and the King's week.
 
+- **The King's week** (1.1, on top of the Board, `/oly week`): the King's Agenda for the next 7
+  days, by day, at the realm's hour, with your own guild's events from the game's calendar
+  (green) among them, read on your computer and sent nowhere (on the King's screen, his stream,
+  they read "Guild event"). Raid night, PvP night and court on one page, so nobody books the
+  army twice. The King, his Steward and his Hands take an entry off with a click. Olympus can't
+  write into the game's calendar (the game keeps creating events to its own button): an
+  officer's click on an entry, **Put it on your guild's calendar**, opens the game's calendar
+  and says which day to right-click, and he creates the guild event there. With the gamepad UI,
+  or in combat, it only says how to open it (the minimap clock, `/calendar`, or the gamepad
+  menu's Calendar). The King's client repeats his entries every 10 minutes for late logins, and
+  keeps them across a `/reload`.
 - **Raise a flag** with one click: **Dungeon**, **Raid**, **PvP** or **Layer**, plus a short
   note if you want one (40 bytes at most; `/oly lfg raid need a healer` fills it in). A box
   says first what goes out: your name, level, class and guild, the flag and the note, to every
@@ -231,7 +242,11 @@ his court while it is open, and the Treasury), and holding court takes him there
 tools lives where it belongs:
 - **The King's Agenda** (a button on the Throne): minutes and an event ("30 Raid on
   Crossroads"). The whole army gets a popup with the appointment (what, in how long, where)
-  and sees it on the Census, with reminders 10 minutes and 1 minute before.
+  and sees it on the Census, with reminders 10 minutes and 1 minute before. Since 1.1 it also
+  holds **the King's week**: a day and an hour of the realm, then what ("Sat 20:00 Raid night",
+  "today 21:30 Court", "sáb 20h Raide"), up to 7 days ahead and 10 entries each for the King,
+  his Steward and each Hand. The army sees them on the Board, by day (below), with one quiet
+  chat line when an entry is added: no popup, raid warning or sound.
 - **Hold Court** (a button on the Throne): the King opens his court where he stands. Every
   Olympus player in that zone gets a line on top of the Census and the Realm; one click asks
   for an audience. The requests line up on his Throne and a click calls that player (a popup
@@ -957,6 +972,7 @@ Other limits:
 | `/oly discord certified` | the author: every certificate his client signed as the council authority (off as it ships) for a High Councillor's key (key id, character, end), for the bot's keeper |
 | `/oly hop` | ask for an invite to the King's layer (while he is online) |
 | `/oly lfg` · `/oly lfg dungeon\|raid\|pvp\|layer [note]` · `/oly lfg off` | the Board (1.1): who is looking for a group; raise your flag (a box with your note first) or lower it |
+| `/oly week` | the King's week on the Board (1.1): his Agenda for 7 days with your guild's calendar events; the King and his Hands add entries with the Agenda button ("Sat 20:00 Raid night") |
 | `/oly camp [note]` · `/oly camp off` · `/oly camps on\|off` | drop a camp in your zone (1.1: it needs `/oly location on`) or take yours down; the camps' badges on the world map |
 | `/oly vox off` · `/oly vox on` | Vox Populi questions in chat only, or in a window |
 | `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer |

@@ -674,6 +674,8 @@ Board.Hit = Hit
 -- camps (Board.CampLines). `q`: the Realm tab's search, over the cards.
 function Board.Lines(q)
 	local lines = { { text = Gold(L.BOARD_BACK), onClick = function() ns.Views.ShowBoard(false) end, gapAfter = true } }
+	-- The King's week first (Week.lua, 1.1): what the army has on, by day.
+	if ns.Week and ns.Week.Section then ns.Week.Section(lines, q) end
 	if not q then
 		lines[#lines + 1] = { header = true, text = L.BOARD_YOURS,
 			tooltip = function(tt) tt:AddLine(L.BOARD_YOURS, 1, 0.82, 0); tt:AddLine(L.BOARD_YOURS_TIP, 1, 1, 1, true) end }
@@ -876,6 +878,8 @@ end
 -- The line in the Realm tree that opens the page.
 function Board.LinkLine()
 	local parts = { L.BOARD_LINK_FLAGS:format((Board.Count("flag"))), L.BOARD_LINK_CAMPS:format((Board.Count("camp"))) }
+	local week = ns.Week and ns.Week.LinkPart and ns.Week.LinkPart()
+	if week then table.insert(parts, 1, week) end
 	return {
 		text = "|TInterface\\Icons\\INV_Misc_Note_01:14:14|t " .. Gold(L.BOARD_LINK),
 		right = Grey(table.concat(parts, "  ·  ")),
@@ -911,7 +915,7 @@ function Board.Slash(cmd, rest)
 		end
 		return Board.PromptCamp(rest)
 	end
-	if word == "" then return Board.Open() end
+	if word == "" or cmd == "week" then return Board.Open() end
 	if word == "off" then
 		if not Board.Lower() then ns.Print(L.BOARD_NONE_UP) end
 		return

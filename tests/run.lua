@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Board", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Board", "Week", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -25195,6 +25195,323 @@ test("1.1 camps: the map's Olympus menu and /oly camps switch them, on by defaul
 	for _, k in ipairs({ "MAPOPT_CAMPS", "HELP_CAMP", "BOARD_FLAG_C", "BOARD_CAMP_ASK", "BOARD_CAMPS_TIP" }) do
 		assert(type(rawget(ns.L, k)) == "string" and type(rawget(pt.L, k)) == "string" and rawget(pt.L, k) ~= rawget(ns.L, k), k)
 	end
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: the King's week (Week.lua, Fern's #26): the Agenda holds dated entries for 7 days, shown
+-- by day on the Board with the guild's own calendar events; an officer's click opens the game's
+-- calendar (Olympus writes nothing into it).
+---------------------------------------------------------------------------
+
+-- The realm's calendar clock stands at Tuesday 29 September 2026, 18:30:15.
+local function WithWeek(fn)
+	WithBoard(function(w, B, K)
+		local W = ns.Week
+		local saved = { dt = C_DateAndTime, server = GetServerTime, cal = C_Calendar, rules = C_GameRules, guildInfo = C_GuildInfo,
+			toggle = ToggleCalendar, frame = CalendarFrame, combat = InCombatLockdown, after = W.after, notice = RaidNotice_AddMessage,
+			alert = ns.PlayAlert, rule = Enum.GameRule }
+		local ok, err = pcall(function()
+			W.Reset()
+			w.realm = { year = 2026, month = 9, monthDay = 29, weekday = 3, hour = 18, minute = 30 }
+			C_DateAndTime = { GetCurrentCalendarTime = function() return w.realm end }
+			GetServerTime = function() return 999999975 end -- (15 seconds into the minute)
+			W.after = function(_, _, f) f() end
+			w.alerts, w.notices = {}, {}
+			ns.PlayAlert = function(kind) w.alerts[#w.alerts + 1] = kind end
+			RaidNotice_AddMessage = function(_, text) w.notices[#w.notices + 1] = text end
+			C_Calendar, C_GameRules, C_GuildInfo, ToggleCalendar, CalendarFrame, InCombatLockdown = nil, nil, nil, nil, nil, nil
+			fn(w, W, K, B)
+		end)
+		C_DateAndTime, GetServerTime, C_Calendar, C_GameRules, C_GuildInfo = saved.dt, saved.server, saved.cal, saved.rules, saved.guildInfo
+		ToggleCalendar, CalendarFrame, InCombatLockdown, W.after, RaidNotice_AddMessage = saved.toggle, saved.frame, saved.combat, saved.after, saved.notice
+		ns.PlayAlert, Enum.GameRule = saved.alert, saved.rule
+		W.Reset()
+		if not ok then error(err, 0) end
+	end)
+end
+local function LastWeek(w)
+	for i = #w.sent, 1, -1 do if w.sent[i].msg:find("^T1~D~") then return w.sent[i].msg end end
+end
+
+test("1.1 the King's week: a day and an hour of the realm, in English or Portuguese, the next one within 7 days", function()
+	WithWeek(function(w, W)
+		local function P(s) return (W.Parse(s)) end
+		eq(P("Sat 20:00 Raid night"), 4 * 86400 + 90 * 60 - 15, "Tuesday 18:30:15 to Saturday 20:00")
+		eq(select(2, W.Parse("Sat 20:00 Raid night")), "Raid night")
+		eq(P("s\195\161b 20h Raide"), 4 * 86400 + 90 * 60 - 15, "Portuguese, 20h")
+		eq(P("S\195\161bado 20h30 Raide"), 4 * 86400 + 120 * 60 - 15)
+		eq(P("today 21:30 Court"), 180 * 60 - 15)
+		eq(P("amanh\195\163 19h JxJ"), 86400 + 30 * 60 - 15)
+		eq(P("tomorrow 8:05 Dawn raid"), 86400 - (10 * 60 + 25) * 60 - 15)
+		eq(P("19:00 Raid"), 30 * 60 - 15, "a time alone: the next one")
+		eq(P("18:00 Raid"), 86400 - 30 * 60 - 15, "passed today: tomorrow")
+		eq(P("Tue 19:00 Raid"), 30 * 60 - 15, "today's weekday, still ahead")
+		eq(P("Tue 18:00 Raid"), 7 * 86400 - 30 * 60 - 15, "today's weekday, passed: next week")
+		for _, bad in ipairs({ "Sat Raid", "Sat 25:00 Raid", "Sat 20:61 Raid", "Sat 20:00", "today 18:00 Raid", "30 Raid", "someday 20:00 Raid", "Sat 2000 Raid", "" }) do
+			eq(P(bad), nil, bad)
+		end
+		-- The labels, on the realm's calendar whatever this computer's clock.
+		local at = ns.Now() + P("Sat 20:00 Raid night")
+		eq(W.DayLabel(at), "Sat 3 Oct"); eq(W.TimeLabel(at), "20:00")
+		eq(W.DayLabel(ns.Now() + P("today 21:30 Court")), ns.L.WEEK_TODAY)
+		eq(W.DayLabel(ns.Now() + P("tomorrow 8:05 Dawn raid")), ns.L.WEEK_TOMORROW)
+		eq(W.InLabel(ns.Now() + 25 * 60), ns.L.WEEK_IN_MIN:format(25)); eq(W.InLabel(ns.Now() + 3 * 3600 + 5), ns.L.WEEK_IN_HOURS:format(3))
+		eq(W.InLabel(ns.Now() + 3 * 86400), ns.L.WEEK_IN_DAYS:format(3)); eq(W.InLabel(ns.Now() - 5), ns.L.WEEK_NOW)
+		-- Across a month and a year.
+		w.realm = { year = 2026, month = 12, monthDay = 31, weekday = 5, hour = 23, minute = 0 }
+		eq(W.DayLabel(ns.Now() + P("Fri 20:00 New year raid")), ns.L.WEEK_TOMORROW)
+		eq(W.DayLabel(ns.Now() + P("Sat 20:00 X")), "Sat 2 Jan")
+		eq(W.DaysFrom(1970, 1, 1), 0); eq(W.DaysFrom(2000, 3, 1), 11017)
+		eq(table.concat({ W.DateOf(W.DaysFrom(2024, 2, 29)) }, "-"), "2024-2-29")
+	end)
+end)
+
+test("1.1 the King's week: the Agenda's box puts an entry on the week (the King, his Steward, his Hands), repeated for late logins, kept across a /reload", function()
+	WithWeek(function(w, W, K)
+		-- A soldier: nothing.
+		AsSoldier()
+		eq(K.SetAgenda("Sat 20:00 Raid night"), false); eq(#w.sent, 0)
+		-- The King: a dated entry, the Agenda's current event untouched.
+		AsKing()
+		eq(K.SetAgenda("Sat 20:00 Raid night"), true)
+		local msg = LastWeek(w)
+		local id, seconds = msg:match("^T1~D~(%d+)~Olympus~(%d+)~1~~Raid night$")
+		assert(id, msg)
+		eq(tonumber(seconds), 4 * 86400 + 90 * 60 - 15)
+		eq(K.Agenda(), nil, "not the Agenda's one current event")
+		assert(Printed(w, ns.L.WEEK_SET:format("Raid night", "Sat 3 Oct", "20:00")))
+		eq(#w.notices, 0, "no raid warning"); eq(#w.popups, 0, "no popup")
+		-- Minutes still set the Agenda's current event, as always.
+		K.SetAgenda("30 Raid on Crossroads")
+		eq(K.Agenda().title, "Raid on Crossroads")
+		assert(LastSent(w):find("^T1~A~"))
+		-- Ten seconds between two, ten entries at most.
+		eq(K.SetAgenda("Sun 20:00 PvP night"), false, "too soon")
+		for i = 1, 9 do w.clock = w.clock + W.SET_GAP; K.SetAgenda(("Sun %02d:00 Night %d"):format(i + 10, i)) end
+		w.clock = w.clock + W.SET_GAP
+		eq(K.SetAgenda("Mon 20:00 One too many"), false)
+		assert(Printed(w, ns.L.WEEK_FULL:format(W.MAX_MINE)))
+		-- Repeated every 10 minutes, two a minute at most, never "new" again.
+		local sends = #w.sent
+		w.clock = w.clock + W.RESEND
+		W.Tick()
+		eq(#w.sent - sends, W.RESEND_PER_TICK)
+		assert(LastWeek(w):find("^T1~D~%d+~Olympus~%d+~0~"), "a repeat")
+		-- A /reload: the King's entries come back from his SavedVariables, and go on being repeated.
+		local kept = ns.rdb.week
+		W.Reset(); ns.rdb.week = kept
+		eq(#W.Entries(), 1, "only the Agenda's current event before the restore")
+		W.Restore()
+		eq(#W.Entries(), 11)
+		-- Asmon's view (the author's): on his screen alone.
+		W.Reset(); K.Reset()
+		AsSoldier("Faladoriel")
+		ns.devThrone = true
+		w.clock = w.clock + W.SET_GAP
+		sends = #w.sent
+		eq(K.SetAgenda("Sat 21:00 Preview night"), true)
+		eq(#w.sent, sends, "a preview sends nothing"); eq(#W.Entries(), 1)
+		ns.devThrone = nil
+	end)
+end)
+
+test("1.1 the King's week: every client keeps the entries of the King and his Hands, a quiet line for a new one, never a raid warning; taken off for everyone", function()
+	WithWeek(function(w, W, K)
+		AsSoldier()
+		local KING = ns.KingCharacter() .. "-Realm"
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400) .. "~1~~Raid night")
+		local list = W.Entries()
+		eq(#list, 1); eq(list[1].title, "Raid night"); eq(list[1].by, KING)
+		assert(Printed(w, ns.L.WEEK_NEW:format(ns.KING_NAME, "Raid night", W.DayLabel(list[1].at), W.TimeLabel(list[1].at))))
+		eq(#w.notices, 0); eq(#w.popups, 0); eq(#w.alerts, 0, "no sound either")
+		-- A repeat: no second line; its time kept unless really off.
+		local lines = #w.printed
+		local at = list[1].at
+		w.clock = w.clock + 600
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400 - 600) .. "~0~~Raid night")
+		eq(#w.printed, lines); eq(W.Entries()[1].at, at)
+		-- Nobody's but the King's, his Steward's or a Hand's; only its setter repeats it.
+		K.HandleCommand("CHANNEL", "Faker-Realm", "T1~D~502~Olympus II~3600~1~~Fake raid")
+		eq(#W.Entries(), 1)
+		K.HandleCommand("CHANNEL", KING, "T1~H~9~Olympus~Helper-Realm")
+		K.HandleCommand("CHANNEL", "Helper-Realm", "T1~D~503~Olympus II~7200~1~~PvP night")
+		eq(#W.Entries(), 2, "a Hand's")
+		K.HandleCommand("CHANNEL", "Helper-Realm", "T1~D~501~Olympus II~60~0~~Hijacked")
+		for _, e in ipairs(W.Entries()) do assert(e.title ~= "Hijacked") end
+		-- Out of bounds: more than 7 days, no title.
+		K.HandleCommand("CHANNEL", KING, "T1~D~504~Olympus~" .. (8 * 86400) .. "~1~~Too far")
+		K.HandleCommand("CHANNEL", KING, "T1~D~505~Olympus~3600~1~~")
+		eq(#W.Entries(), 2)
+		-- Taken off by the King (or any of his Hands), for everyone.
+		K.HandleCommand("CHANNEL", KING, "T1~D~503~Olympus~0~0~~")
+		eq(#W.Entries(), 1)
+		-- An hour after it began it leaves the week.
+		w.clock = at + W.KEEP_AFTER + 1
+		eq(#W.Entries(), 0)
+		-- The King's Hand takes one off from the week's page: the same message.
+		AsKing(); K.AddHand("Helper")
+		AsSoldier("Helper")
+		K.HandleCommand("CHANNEL", KING, "T1~H~10~Olympus~Helper-Realm")
+		K.HandleCommand("CHANNEL", KING, "T1~D~506~Olympus~7200~1~~Court")
+		eq(W.Cancel(506), true)
+		assert(LastWeek(w):find("^T1~D~506~Olympus II~0~0~~$"), LastWeek(w))
+	end)
+end)
+
+test("1.1 the King's week: clients before 1.1 leave the kind D out, no error, their Agenda untouched", function()
+	local kns = setmetatable({ On = function() end, Comm = { Handle = function() end }, rdb = {} }, { __index = ns })
+	local logs = {}
+	kns.Log = function(fmt, ...) logs[#logs + 1] = fmt:format(...) end
+	assert(loadfile(ROOT .. "tests/fixtures/king-0.9.8.lua"))("Olympus", kns)
+	local OK = kns.King
+	local savedGuild, savedPopup = GetGuildInfo, StaticPopup_Show
+	local ok, err = pcall(function()
+		StaticPopup_Show = function() end
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		kns.me = "Soldier-Realm"
+		local KING = ns.KingCharacter() .. "-Realm"
+		OK.HandleCommand("CHANNEL", KING, "T1~A~7~Olympus~1800~Orgrimmar~Raid")
+		OK.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~345600~1~~Raid night")
+		OK.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~0~0~~")
+		eq(OK.Agenda().title, "Raid", "their Agenda as it was")
+		OK.HandleCommand("CHANNEL", KING, "T1~H~9~Olympus~Helper-Realm")
+		OK.HandleCommand("CHANNEL", "Helper-Realm", "T1~D~502~Olympus II~7200~1~~PvP night")
+		local left = 0
+		for _, line in ipairs(logs) do if line:find("throne D from Helper-Realm ignored", 1, true) then left = left + 1 end end
+		eq(left, 1, "a Hand's: left out, in their debug log")
+	end)
+	GetGuildInfo, StaticPopup_Show = savedGuild, savedPopup
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 the King's week: on the Board by day with the guild's own calendar events among them; guarded; titles hidden on the King's screen", function()
+	WithWeek(function(w, W, K, B)
+		AsSoldier()
+		local KING = ns.KingCharacter() .. "-Realm"
+		K.HandleCommand("CHANNEL", KING, "T1~A~77~Olympus~1800~Orgrimmar~Raid on the Crossroads")
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400 + 90 * 60 - 15) .. "~1~~Raid night")
+		K.HandleCommand("CHANNEL", KING, "T1~D~502~Olympus~" .. (4 * 86400 + 60 * 60 - 15) .. "~1~~Court")
+		-- The guild's calendar: Saturday 21:00, and one past the week (not shown).
+		local opened = 0
+		C_Calendar = {
+			OpenCalendar = function() opened = opened + 1 end,
+			GetNumGuildEvents = function() return 2 end,
+			GetGuildEventInfo = function(i)
+				if i == 1 then return { year = 2026, month = 10, monthDay = 3, weekday = 7, hour = 21, minute = 0, title = "Molten Core run" } end
+				return { year = 2026, month = 10, monthDay = 20, weekday = 3, hour = 20, minute = 0, title = "Far away" }
+			end,
+		}
+		local text = Texts(B.Lines())
+		eq(opened, 1, "the game's calendar asked for its data")
+		local order = {}
+		for _, what in ipairs({ ns.L.WEEK_TITLE, ns.L.WEEK_TODAY, "Raid on the Crossroads", "Sat 3 Oct", "19:30", "Court", "20:00", "Raid night",
+			"21:00", "Molten Core run", ns.L.WEEK_YOUR_GUILD, ns.L.BOARD_YOURS }) do
+			local at = text:find(what, 1, true)
+			assert(at, what .. " in:\n" .. text)
+			order[#order + 1] = at
+		end
+		for i = 2, #order do assert(order[i] > order[i - 1], "in order: " .. i .. "\n" .. text) end
+		assert(not text:find("Far away", 1, true), "past the week")
+		B.Lines()
+		eq(opened, 1, "once every 5 minutes at most")
+		-- The King's screen: guild titles hidden (his stream), the King's own entries shown.
+		AsKing()
+		text = Texts(B.Lines())
+		assert(not text:find("Molten Core", 1, true) and text:find(ns.L.WEEK_GUILD_EVENT, 1, true) and text:find("Raid night", 1, true), text)
+		AsSoldier()
+		-- Guarded: guild events off, the calendar ruled out, no calendar at all: no guild rows, no error.
+		C_GuildInfo = { AreGuildEventsEnabled = function() return false end }
+		assert(not Texts(B.Lines()):find("Molten Core", 1, true))
+		C_GuildInfo = nil
+		Enum.GameRule = { IngameCalendarDisabled = 42 }
+		C_GameRules = { IsGameRuleActive = function(rule) return rule == 42 end }
+		assert(not Texts(B.Lines()):find("Molten Core", 1, true))
+		C_GameRules = { IsGameRuleActive = function() error("no such rule") end }
+		assert(Texts(B.Lines()):find("Molten Core", 1, true), "a rule the client can't read: the calendar as usual")
+		C_Calendar = nil
+		assert(Texts(B.Lines()):find("Raid night", 1, true))
+		-- The search finds entries too; the tree's link counts the week.
+		eq(B.LinkLine().right:find(ns.L.WEEK_LINK:format(3), 1, true) ~= nil, true, B.LinkLine().right)
+		text = Texts(B.Lines(ns.Fold("court")))
+		assert(text:find("Court", 1, true) and not text:find("Raid night", 1, true), text)
+		-- Nothing on the week: says so, and the King's Hands how to add one.
+		W.Reset(); K.Reset()
+		text = Texts(B.Lines())
+		assert(text:find(ns.L.WEEK_EMPTY, 1, true) and not text:find(ns.L.WEEK_HOW, 1, true), text)
+		AsKing()
+		assert(Texts(B.Lines()):find(ns.L.WEEK_HOW, 1, true))
+	end)
+end)
+
+test("1.1 the King's week: an officer's click opens the game's calendar and names the day (mouse and keyboard, out of combat); otherwise how to open it", function()
+	WithWeek(function(w, W, K, B)
+		AsCaptain()
+		local KING = ns.KingCharacter() .. "-Realm"
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400 + 90 * 60 - 15) .. "~1~~Raid night")
+		local toggled = 0
+		ToggleCalendar = function() toggled = toggled + 1 end
+		-- No calendar on this client: no click offered.
+		local function Action()
+			for _, l in ipairs(B.Lines()) do if l.text and l.text:find(ns.L.WEEK_CAL_BTN, 1, true) then return l end end
+		end
+		eq(Action(), nil)
+		C_Calendar = { GetNumGuildEvents = function() return 0 end, GetGuildEventInfo = function() end, OpenCalendar = function() end }
+		local action = Action()
+		assert(action, "offered to an officer")
+		action.onClick()
+		eq(toggled, 1)
+		assert(Printed(w, ns.L.WEEK_CAL_OPENED:format("Sat 3 Oct 20:00", "Raid night")))
+		-- Already open: left open (the game's toggle would close it).
+		CalendarFrame = { IsShown = function() return true end }
+		action.onClick()
+		eq(toggled, 1)
+		CalendarFrame = nil
+		-- In combat, or with the gamepad UI (Olympus opens no Blizzard window there): how to open it.
+		InCombatLockdown = function() return true end
+		action.onClick()
+		eq(toggled, 1)
+		assert(Printed(w, ns.L.WEEK_CAL_HINT:format("Sat 3 Oct 20:00", "Raid night")))
+		InCombatLockdown = nil
+		WithGamepadUI(true, function(game)
+			w.printed = {}
+			action.onClick()
+			eq(toggled, 1); eq(#game.shown, 0)
+			assert(Printed(w, ns.L.WEEK_CAL_HINT:format("Sat 3 Oct 20:00", "Raid night")))
+		end)
+		-- A soldier: no such click.
+		AsSoldier()
+		eq(Action(), nil)
+	end)
+	-- Olympus never writes into the game's calendar.
+	local src = assert(io.open(ADDON_DIR .. "Week.lua")):read("*a")
+	for _, api in ipairs({ "AddEvent", "CreateGuildAnnouncementEvent", "CreateGuildSignUpEvent", "CreatePlayerEvent", "EventSetTitle", "EventSetDate", "UpdateEvent" }) do
+		eq(src:find(api .. "(", 1, true), nil, api)
+	end
+end)
+
+test("1.1 the King's week: its words in both languages, the same placeholders", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	local function Specs(s) local out = {} for spec in s:gmatch("%%[%a%%]") do out[#out + 1] = spec end return table.concat(out) end
+	local n = 0
+	for k, en in pairs(ns.L) do
+		if type(k) == "string" and k:find("^WEEK_") then
+			n = n + 1
+			local ptText = rawget(pt.L, k)
+			assert(ptText ~= nil, "pt-BR " .. k)
+			if type(en) == "string" then eq(Specs(ptText), Specs(en), k) else eq(#ptText, #en, k) end
+		end
+	end
+	assert(n >= 25, "the week's strings: " .. n)
+	for _, k in ipairs({ "HELP_WEEK", "THRONE_AGENDA_PROMPT", "THRONE_AGENDA_USAGE", "THRONE_AGENDA_TIP" }) do
+		assert(rawget(pt.L, k):find("dia", 1, true) or rawget(pt.L, k):find("s\195\161b 20", 1, true), "pt-BR " .. k .. " tells of the day and hour form")
+		assert(rawget(ns.L, k):find("Sat 20", 1, true) or rawget(ns.L, k):find("day and an hour", 1, true), k)
+	end
+	eq(#ns.L.WEEK_WEEKDAYS, 7); eq(#ns.L.WEEK_MONTHS, 12)
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

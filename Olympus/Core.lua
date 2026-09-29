@@ -1146,6 +1146,7 @@ StandIn("Link", { "Slash" })
 StandIn("Borders", { "SetEnabled", "Report" })
 StandIn("Nameplates", { "SetEnabled", "Report" })
 StandIn("Board", { "Slash" }) -- (1.1: the Board)
+StandIn("Week", {}) -- (1.1: the King's week)
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1224,7 +1225,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Board" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Board", "Week" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1272,6 +1273,7 @@ local function Help()
 	print(L.HELP_VOX)
 	print(L.HELP_BOARD)
 	print(L.HELP_CAMP)
+	print(L.HELP_WEEK)
 	print("  /oly mates - show/hide guildmates on map and minimap")
 	print("  /oly share - share/stop sharing your position with your guild")
 	print("  /oly bug - copy a bug report (errors + diagnostics)")
@@ -1459,8 +1461,8 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "discord" then
 			-- Olympus Link (Link.lua): this character's Discord role; confirmers' keys; watchers.
 			ns.Link.Slash(rest)
-		elseif cmd == "lfg" or cmd == "board" or cmd == "camp" or cmd == "camps" then
-			-- The Board (Board.lua, 1.1): who is looking for a group, and where; camps.
+		elseif cmd == "lfg" or cmd == "board" or cmd == "camp" or cmd == "camps" or cmd == "week" then
+			-- The Board (Board.lua, 1.1): who is looking for a group, and where; camps; the King's week.
 			ns.Board.Slash(cmd, rest)
 		else
 			Help()
