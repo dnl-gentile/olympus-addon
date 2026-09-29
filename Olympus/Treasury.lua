@@ -338,6 +338,9 @@ function Treasury.Visible()
 	if ns.King.SetsLists() then return (ns.splitNames and ns.faction ~= "Horde") or Treasury.Report() ~= nil end
 	return ns.IsMember() and Treasury.AnyShown() and Treasury.Report() ~= nil
 end
+-- The tab itself (1.1): also for every member who may send the week's dues (Dues.lua), with only
+-- what the King shows of the treasury (Visible: nothing while he shows nothing).
+function Treasury.TabVisible() return Treasury.Visible() or ns.Dues.Pays() == true end
 
 ---------------------------------------------------------------------------
 -- The books (each keeper character's, kept by his own client)
@@ -2456,8 +2459,10 @@ end
 local function SummaryLines(role, q)
 	if q then return SummarySearch(role, q) end
 	local lines = { { header = true, text = L.TREASURY_TITLE } }
-	-- 1.1: the week's dues first (Dues.lua): the way to them, for whoever may see them.
+	-- 1.1: the week's dues first (Dues.lua): the way to them, for whoever may see them, and the
+	-- button that fills in a member's own payment. A member the King shows nothing sees that alone.
 	ns.Dues.SummaryLines(lines, role)
+	if role == "member" and not Treasury.AnyShown() then return lines end
 	local keeper = Treasury.IsKeeper()
 	if keeper then
 		Para(lines, Treasury.WhoSees(), tostring)

@@ -166,9 +166,10 @@ end
 -- Who
 ---------------------------------------------------------------------------
 
--- The treasury is <Olympus>'s, on the Treasurer's realm group, on the Alliance.
+-- The treasury is <Olympus>'s, on the Treasurer's realm group (WoW: Forever's, whose names have
+-- a surname: ns.splitNames, as the King's view of the treasury, Treasury.Visible), on the Alliance.
 function Dues.Available()
-	if ns.faction == "Horde" or not ns.IsMember() then return false end
+	if ns.faction == "Horde" or not ns.splitNames or not ns.IsMember() then return false end
 	return ns.GroupOf(ns.realm or "") == ns.GroupOf(ns.TREASURER_REALM)
 end
 -- The King, his Steward, the author's Asmon's view: the amount is theirs to set.
@@ -892,11 +893,119 @@ function Dues.Build(q)
 	return lines, L.TAB_TREASURY, L.DUES_DETAIL
 end
 
--- Its way in, on top of the Treasury tab's summary, for whoever may see it.
+-- On top of the Treasury tab's summary: the button that fills in a member's own payment (#35),
+-- and the way to the dues for whoever may see them.
 function Dues.SummaryLines(lines)
+	if Dues.Pays() then
+		local amount = Dues.Amount()
+		lines[#lines + 1] = { text = Gold(L.DUES_SEND:format(Coins(amount))), gapAfter = not Dues.Sees(), onClick = function() Dues.SendDues() end,
+			tooltip = function(tt)
+				tt:AddLine(L.DUES_SEND:format(Coins(amount)), 1, 0.82, 0)
+				tt:AddLine(L.DUES_SEND_TIP:format(ns.DisplayName(Dues.MailTo()), Coins(amount), Dues.Note(Dues.Week(), GetGuildInfo("player"))), 1, 1, 1, true)
+			end }
+	end
 	if not Dues.Sees() then return end
 	lines[#lines + 1] = { text = Gold("> " .. L.DUES_LINK:format(Coins(Dues.Amount()))), gapAfter = true, onClick = function() Dues.Open() end,
 		tooltip = function(tt) tt:AddLine(L.DUES_LINK_TIP, 1, 1, 1, true) end }
+end
+
+---------------------------------------------------------------------------
+-- The payer's click (#35): it fills in his mail or his trade, he presses Send or Trade
+---------------------------------------------------------------------------
+
+-- Who sends the dues: a member on the Treasurer's side, not a keeper (a keeper's gold to him is
+-- the treasury's own moving, never a gift).
+function Dues.Pays() return Dues.Available() and not ns.Treasury.IsKeeper() end
+
+-- Where the mail goes: the Treasurer's mail character, pinned by name (where he asked the
+-- treasury's mail to go; his book counts it), never a name heard on the channel.
+function Dues.MailTo()
+	local mail
+	for _, pin in ipairs(ns.TREASURER_CHARACTERS or {}) do
+		if pin ~= ns.TREASURER then mail = pin break end
+	end
+	return ns.FullName(mail or ns.TREASURER, ns.TREASURER_REALM)
+end
+
+local function Shown(frame) return type(frame) == "table" and frame.IsShown and frame:IsShown() and true or false end
+
+-- The mail being written: the recipient, the note and the gold, sent as money (never cash on
+-- delivery). Nothing is sent: the player presses Send.
+local function FillMail(to, amount, note)
+	SendMailNameEditBox:SetText(ns.TellName(to))
+	if SendMailSubjectEditBox then SendMailSubjectEditBox:SetText(note) end
+	if SendMailRadioButton_OnClick then
+		SendMailRadioButton_OnClick(1)
+	elseif SendMailSendMoneyButton and SendMailCODButton then
+		SendMailSendMoneyButton:SetChecked(true)
+		SendMailCODButton:SetChecked(false)
+	end
+	MoneyInputFrame_SetCopper(SendMailMoney, amount)
+	ns.Print(L.DUES_SEND_MAIL_FILLED:format(ns.DisplayName(to), Coins(amount), note))
+	return "mail"
+end
+
+-- The trade with the Treasurer: its gold, the game's own call (the trade window follows it).
+-- Nothing is given: the player presses Trade. Where the game refuses the addon that call, it is
+-- said once (ADDON_ACTION_BLOCKED, below) and from then on the amount is only told.
+local function FillTrade(amount, name)
+	local set = C_TradeInfo and C_TradeInfo.SetTradeMoney or SetTradeMoney
+	if not set or (ns.db and ns.db.duesTradeBlocked) then
+		ns.Print(L.DUES_SEND_TRADE_TYPE:format(Coins(amount), ns.DisplayName(name)))
+		return "type"
+	end
+	local ok = pcall(set, amount)
+	if not ok then
+		ns.Print(L.DUES_SEND_TRADE_TYPE:format(Coins(amount), ns.DisplayName(name)))
+		return "type"
+	end
+	ns.Print(L.DUES_SEND_TRADE_FILLED:format(Coins(amount), ns.DisplayName(name)))
+	return "trade"
+end
+
+-- The click: the amount, to the Treasurer, with the note (the fund and the week, and the guild,
+-- which a mail has no other way to carry). An open trade with the Treasurer or his mail
+-- character: its gold; the mailbox on its Send Mail tab: the mail. Nothing opens by itself, the
+-- mailbox's or the trade's opening fills nothing, and nothing is ever sent or given by the
+-- addon. With the gamepad UI nothing of the game's windows is touched (its code there is the
+-- game's own, see Dialog.lua): the line says what to send.
+function Dues.SendDues()
+	if not Dues.Pays() then return false end
+	local amount, to = Dues.Amount(), Dues.MailTo()
+	local note = Dues.Note(Dues.Week(), GetGuildInfo("player"))
+	if ns.GamepadUI() then
+		ns.Print(L.DUES_SEND_GAMEPAD:format(Coins(amount), ns.DisplayName(to), note))
+		return "gamepad"
+	end
+	local money = GetMoney and tonumber(GetMoney()) or nil
+	if Shown(TradeFrame) then
+		local name = ns.UnitFullName and ns.UnitFullName("NPC") or (UnitName and UnitName("NPC"))
+		if not (type(name) == "string" and ns.Treasury.TreasurerPin(ns.FullName(ns.Normal(name)))) then
+			ns.Print(L.DUES_SEND_TRADE_OTHER:format(tostring(name and ns.DisplayName(name) or "?")))
+			return "other"
+		end
+		if money and money < amount then ns.Print(L.DUES_SEND_NOT_ENOUGH:format(Coins(amount))) return "short" end
+		return FillTrade(amount, name)
+	end
+	if Shown(SendMailFrame) and SendMailNameEditBox and SendMailMoney and MoneyInputFrame_SetCopper then
+		if money and money < amount then ns.Print(L.DUES_SEND_NOT_ENOUGH:format(Coins(amount))) return "short" end
+		return FillMail(to, amount, note)
+	end
+	if Shown(MailFrame) then
+		ns.Print(L.DUES_SEND_OPEN_TAB)
+		return "tab"
+	end
+	ns.Print(L.DUES_SEND_HOW:format(ns.DisplayName(to), Coins(amount)))
+	return "closed"
+end
+
+-- The game refused the trade's gold to the addon: said once, never tried again.
+for _, event in ipairs({ "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }) do
+	ns.RegisterEvent(event, function(addon, func)
+		if addon ~= ADDON or not tostring(func):find("TradeMoney", 1, true) or not ns.db or ns.db.duesTradeBlocked then return end
+		ns.db.duesTradeBlocked = true
+		ns.Print(L.DUES_SEND_TRADE_BLOCKED)
+	end)
 end
 
 -- The page (a guild's players: that guild).
@@ -962,6 +1071,6 @@ function Dues.Reset()
 	wipe(asked); wipe(answered); wipe(outbox); wipe(answers)
 	Dues.shown, shownRows = nil, Dues.PAGE
 	if ns.rdb then ns.rdb.duesAmount = nil end
-	if ns.db then ns.db.previewDuesAmount = nil end
+	if ns.db then ns.db.previewDuesAmount, ns.db.duesTradeBlocked = nil, nil end
 end
 function Dues.Outbox() return outbox end

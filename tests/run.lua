@@ -24949,6 +24949,197 @@ do
 		end)
 	end)
 
+	-- The game's mail and trade windows, as far as the dues' click reaches: shown or not, what is
+	-- written in them, and the calls that send or give (the player's alone: SendMail, AcceptTrade).
+	-- fn(g): g.calls, every call that writes in them; g.gold, what GetMoney says.
+	local function WithWindows(fn)
+		local names = { "MailFrame", "SendMailFrame", "SendMailNameEditBox", "SendMailSubjectEditBox", "SendMailMoney", "MoneyInputFrame_SetCopper",
+			"SendMailRadioButton_OnClick", "TradeFrame", "C_TradeInfo", "SetTradeMoney", "SendMail", "AcceptTrade", "GetMoney" }
+		local saved = {}
+		for i, n in ipairs(names) do saved[i] = _G[n] end
+		local g = { calls = {}, gold = 1000000 }
+		local function Frame()
+			local f = { shown = false }
+			function f:IsShown() return self.shown end
+			function f:Show() self.shown = true end
+			function f:Hide() self.shown = false end
+			return f
+		end
+		local function Box()
+			local b = { text = "" }
+			function b:SetText(t) self.text = t; g.calls[#g.calls + 1] = "SetText" end
+			function b:GetText() return self.text end
+			return b
+		end
+		MailFrame, SendMailFrame, TradeFrame = Frame(), Frame(), Frame()
+		SendMailNameEditBox, SendMailSubjectEditBox = Box(), Box()
+		SendMailMoney = { copper = 0 }
+		MoneyInputFrame_SetCopper = function(frame, c) frame.copper = c; g.calls[#g.calls + 1] = "SetCopper" end
+		SendMailRadioButton_OnClick = function(i) g.radio = i end
+		C_TradeInfo = { SetTradeMoney = function(c) g.tradeMoney = c; g.calls[#g.calls + 1] = "SetTradeMoney" end }
+		SetTradeMoney = nil
+		SendMail = function() g.sent = true end
+		AcceptTrade = function() g.accepted = true end
+		GetMoney = function() return g.gold end
+		local ok, err = pcall(fn, g)
+		for i, n in ipairs(names) do _G[n] = saved[i] end
+		if not ok then error(err, 0) end
+	end
+	local function SendRow(T)
+		local _, lines = Page(T)
+		for _, l in ipairs(lines) do
+			if tostring(l.text):find(ns.L.DUES_SEND:format(T.Coins(D.Amount())), 1, true) then return l end
+		end
+	end
+
+	test("1.1 dues (#35): Send this week's dues, on the Treasury tab: its click fills in the mail to the Treasurer (the amount, the note) or the trade with him; the player presses Send or Trade", function()
+		WithDues(function(w, K, T, mail, trade)
+			WithWindows(function(g)
+				local savedBlocked = ns.db.actionsBlocked
+				local ok, err = pcall(function()
+					AsSoldier("Payer")
+					eq(T.Visible(), false, "the King shows the army nothing of the treasury")
+					eq(T.TabVisible(), true, "the tab is there, for the dues")
+					T.Show("summary")
+					local text = Page(T)
+					local send = SendRow(T)
+					assert(send and send.onClick, text)
+					assert(not text:find(ns.L.TREASURY_WAIT, 1, true) and not text:find(ns.L.DUES_GUILDS, 1, true), "nothing else: " .. text)
+					local tip = { AddLine = function(self, t) self[#self + 1] = t end }
+					send.tooltip(tip)
+					local note = D.Note(D.Week(), "Olympus II")
+					eq(tip[2], ns.L.DUES_SEND_TIP:format("Pyralis Andarai", T.Coins(10000), note))
+					-- Nothing open: it says how, and touches nothing.
+					send.onClick()
+					eq(#g.calls, 0); assert(Printed(w, ns.L.DUES_SEND_HOW:format("Pyralis Andarai", T.Coins(10000))))
+					-- The mailbox on its inbox: open the Send Mail tab (the addon never switches it).
+					MailFrame:Show()
+					send.onClick()
+					eq(#g.calls, 0); assert(Printed(w, ns.L.DUES_SEND_OPEN_TAB))
+					-- The Send Mail tab: the Treasurer's mail character, the amount (as money, never cash on
+					-- delivery), the note of the fund and the week (and the guild).
+					SendMailFrame:Show()
+					send.onClick()
+					eq(SendMailNameEditBox.text, "Pyralis Andarai"); eq(SendMailSubjectEditBox.text, note)
+					eq(note, "Olympus fund " .. D.DateLabel(D.Week()) .. " <Olympus II>")
+					eq(SendMailMoney.copper, 10000); eq(g.radio, 1, "money, never cash on delivery")
+					assert(Printed(w, ns.L.DUES_SEND_MAIL_FILLED:format("Pyralis Andarai", T.Coins(10000), note)))
+					eq(g.sent, nil, "nothing sent: the player presses Send")
+					SendMailFrame:Hide(); MailFrame:Hide()
+					eq(g.sent, nil, "closing the mailbox sends nothing")
+					-- The King's amount is what it fills in.
+					ns.rdb.duesAmount = { copper = 25000, at = w.clock, from = KING }
+					MailFrame:Show(); SendMailFrame:Show()
+					SendRow(T).onClick()
+					eq(SendMailMoney.copper, 25000)
+					MailFrame:Hide(); SendMailFrame:Hide()
+					-- A trade with the Treasurer, or his mail character: its gold. Nothing given: he presses Trade.
+					TradeFrame:Show()
+					trade.npc = "Pyralis Ashandar"
+					send = SendRow(T)
+					send.onClick()
+					eq(g.tradeMoney, 25000); eq(g.accepted, nil, "the player presses Trade")
+					assert(Printed(w, ns.L.DUES_SEND_TRADE_FILLED:format(T.Coins(25000), "Pyralis Ashandar")))
+					g.tradeMoney = nil; trade.npc = "Pyralis Andarai"
+					send.onClick(); eq(g.tradeMoney, 25000, "his mail character")
+					-- Anyone else: nothing (the usual miss: the wrong person).
+					g.tradeMoney = nil; trade.npc = "Stranger"
+					send.onClick(); eq(g.tradeMoney, nil); assert(Printed(w, ns.L.DUES_SEND_TRADE_OTHER:format("Stranger")))
+					-- Less gold than the amount: nothing.
+					trade.npc, g.gold = "Pyralis Ashandar", 100
+					send.onClick(); eq(g.tradeMoney, nil); assert(Printed(w, ns.L.DUES_SEND_NOT_ENOUGH:format(T.Coins(25000))))
+					g.gold = 1000000
+					-- The game refuses the addon the trade's gold: told once; from then on the amount is only said.
+					for _, f in ipairs(EVENT_SCRIPTS) do f(nil, "ADDON_ACTION_BLOCKED", "Olympus", "C_TradeInfo.SetTradeMoney()") end
+					eq(ns.db.duesTradeBlocked, true); assert(Printed(w, ns.L.DUES_SEND_TRADE_BLOCKED))
+					send.onClick()
+					eq(g.tradeMoney, nil); assert(Printed(w, ns.L.DUES_SEND_TRADE_TYPE:format(T.Coins(25000), "Pyralis Ashandar")))
+					TradeFrame:Hide()
+					-- The mail as the game sends it (the player's Send) reaches the Treasurer's mail
+					-- character with its note: his book places it (#37).
+					AsTreasurer()
+					GetMoney = function() return mail.gold end -- (the Treasurer's own gold, as the mailbox's world has it)
+					Mail(mail, "Payer", 25000, note)
+					eq(D.Ledger().guilds["olympus ii"].paid, 1)
+				end)
+				ns.db.actionsBlocked = savedBlocked
+				ns.ResetBlocked()
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+
+	test("1.1 dues (#35): nothing fills itself in (not the mailbox or the trade opening, not loot), nothing with the gamepad UI, and no button for a keeper or off the Treasurer's realms", function()
+		WithDues(function(w, K, T, mail, trade)
+			WithWindows(function(g)
+				-- The events Dues.lua listens to, loaded again on its own: the game refusing the trade's
+				-- gold, nothing else (no MAIL_SHOW, TRADE_SHOW or CHAT_MSG_LOOT: no fill-in, no popup).
+				local events, ons = {}, {}
+				local fresh = setmetatable({
+					On = function(name, f) ons[name] = f end,
+					RegisterEvent = function(e) events[#events + 1] = e end,
+					After = function() end, Every = function() end,
+					Comm = setmetatable({ Handle = function() end }, { __index = ns.Comm }),
+					King = setmetatable({ Register = function() end }, { __index = ns.King }),
+				}, { __index = ns })
+				local dialog = StaticPopupDialogs.OLYMPUS_DUES_AMOUNT
+				assert(loadfile(ADDON_DIR .. "Dues.lua"))("Olympus", fresh)
+				StaticPopupDialogs.OLYMPUS_DUES_AMOUNT = dialog
+				ons.LOGIN()
+				table.sort(events)
+				eq(table.concat(events, ","), "ADDON_ACTION_BLOCKED,ADDON_ACTION_FORBIDDEN")
+				-- The mailbox and a trade with the Treasurer open, as a payer: the Treasury's own hooks fill nothing.
+				AsSoldier("Payer")
+				MailFrame:Show(); SendMailFrame:Show(); TradeFrame:Show(); trade.npc = "Pyralis Ashandar"
+				T.TradeShow(); T.TradeMoney(); T.MailSending("Pyralis Andarai")
+				eq(#g.calls, 0, "opening them fills nothing")
+				-- The gamepad UI: the game's windows are left alone; the line says what to send.
+				local savedPad = ns.GamepadUI
+				ns.GamepadUI = function() return true end
+				local ok, err = pcall(function()
+					SendRow(T).onClick()
+					eq(#g.calls, 0, "nothing touched with the gamepad UI")
+					assert(Printed(w, ns.L.DUES_SEND_GAMEPAD:format(T.Coins(10000), "Pyralis Andarai", D.Note(D.Week(), "Olympus II"))))
+				end)
+				ns.GamepadUI = savedPad
+				if not ok then error(err, 0) end
+				-- A keeper (the Treasurer, the King): no button (gold between keepers is a transfer).
+				AsTreasurer(); eq(SendRow(T), nil); eq(D.Pays(), false)
+				AsKing(); eq(SendRow(T), nil)
+				-- Off the Treasurer's realms (no Forever names), or on the Horde: no tab for the dues.
+				AsSoldier("Payer")
+				ns.splitNames = nil
+				eq(D.Pays(), false); eq(T.TabVisible(), false)
+				ns.splitNames = true
+				local savedFaction = ns.faction
+				ns.faction = "Horde"
+				eq(D.Pays(), false)
+				ns.faction = savedFaction
+				MailFrame:Hide(); SendMailFrame:Hide(); TradeFrame:Hide()
+				eq(D.SendDues(), "closed", "back on the Alliance, nothing open: it says how")
+			end)
+		end)
+	end)
+
+	test("1.1 dues (#35): the button's lines in both languages, never 'you owe' nor 'pay or lose'", function()
+		local pt = { L = setmetatable({}, { __index = ns.L }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		for _, key in ipairs({ "DUES_SEND", "DUES_SEND_TIP", "DUES_SEND_HOW", "DUES_SEND_OPEN_TAB", "DUES_SEND_MAIL_FILLED", "DUES_SEND_TRADE_FILLED",
+			"DUES_SEND_TRADE_OTHER", "DUES_SEND_TRADE_TYPE", "DUES_SEND_TRADE_BLOCKED", "DUES_SEND_NOT_ENOUGH", "DUES_SEND_GAMEPAD" }) do
+			local en, p = rawget(ns.L, key), rawget(pt.L, key)
+			assert(en and p and p ~= en, key)
+			local function Slots(x) return (x:gsub("%%%%", ""):gsub("[^%%]", ""):len()) end
+			eq(Slots(p), Slots(en), key)
+			for _, bad in ipairs({ "owe", "debt", "lose", "must", "or else" }) do assert(not en:lower():find(bad, 1, true), key .. ": " .. bad) end
+			for _, bad in ipairs({ "deve", "dívida", "perde", "obrigat" }) do assert(not p:lower():find(bad, 1, true), key .. ": " .. bad) end
+		end
+		assert(ns.L.DUES_SEND_TIP:find("never moves gold", 1, true))
+	end)
+
 	test("1.1 dues (#37): its lines in both languages", function()
 		local pt = { L = setmetatable({}, { __index = ns.L }) }
 		local savedLocale = GetLocale

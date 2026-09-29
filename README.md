@@ -308,7 +308,8 @@ and whose each is.
 
 ### The Treasury (its keepers, the King, and the army when the King says so)
 A tab with a coin for the treasury's keepers, for the King, and for every member once the King
-shows the army something of it.
+shows the army something of it (1.1: for every member on the Treasurer's realms, with the dues' button
+alone until then).
 - **Its keepers (1.0)**: the Treasurer of Olympus (that exact character, in the guild OLYMPUS),
   the King, and up to 5 characters the King adds on the Treasury tab (**The treasury's
   keepers**, then **Add a treasury character**, by name or target; a click on one takes it off).
@@ -389,6 +390,19 @@ shows the army something of it.
     players a click away. A guild's Captains and Lord see their own guild alone: every member of
     their roster with his last payment, his gold this week, and above or below the amount (those
     below first). The army's Treasury tab keeps the King's three switches, and nothing of this.
+  - **Send this week's dues**: a button on top of the Treasury tab, for every member on the
+    Treasurer's realms (the tab is there for it even while the King shows the army nothing;
+    a keeper has none: gold between keepers is a transfer). Its click fills in what the usual
+    miss gets wrong, the person and the amount: with your mailbox open on its Send Mail tab, a
+    mail to the Treasurer's mail character (Pyralis Andarai, where he asked the treasury's mail
+    to go), the King's amount as money (never cash on delivery) and the note "Olympus fund
+    <the week's first day> <your guild>"; with a trade open with the Treasurer (or his mail
+    character), the trade's gold. You still press Send or Trade; closing the window sends
+    nothing, and the addon never moves gold. Nothing fills itself in when the mailbox or a
+    trade opens, and nothing pops up on loot. It never says you owe anything: nothing in
+    Olympus depends on paying. With the gamepad interface it fills in nothing (the game's
+    windows are its own there) and says what to send instead; where the game refuses the
+    addon a trade's gold, it says so once and from then on tells you the amount to type.
   - **Never on the channel** (a switch that only hid them would still send them to
     every client on it: a list of who is short): the week's donors leave every keeper's book as a
     count, never by name, and the Treasurer's addon works the lists out from his books and
@@ -648,6 +662,7 @@ message (the game adds it). What goes where:
 | Your guild's dues list (1.1): each of its players who paid the Treasurer in the last 5 weeks (name, gold this week, hours since his last payment), and a five-letter code for each player who paid this week with no guild on it | the King, his Steward, or a Captain or Lord of that guild who asked, alone (whispers from the Treasurer's addon) | when they open the dues page, once every 5 minutes per asker at most, while the Treasurer shares his book |
 | Every guild's dues this week (1.1): how many paid the amount, the gold in, how many players | the King or his Steward who asked, alone (whispers from the Treasurer's addon) | when they open the dues page, once every 5 minutes at most |
 | An ask for a dues list (1.1): the week and the guild | the Treasurer alone (a whisper) | while the King, his Steward, a Captain or a Lord has the dues page open, once every 5 minutes per list |
+| The dues' note (1.1): the fund, the week and your guild's name, in the subject of the mail the Send this week's dues button fills in | the Treasurer's mail character, in your mail | only when you click that button and then press Send yourself |
 | The King's crown on the map, and with it his zone and layer | everyone on the Olympus channel | only while the King turns it on (Throne tab), whatever he answered to the question |
 | A Royal Inspection's report (on by default): when the King, his Steward or a Hand calls one and your addon is in the sample, it patrols for 2 minutes, inspecting the Olympus players of your faction around you, level 15 and up, with the game's own inspect, and records whether each wears the guild tabard, another one or none (kept in your saved variables); then it reports your guild, how many it found in each case (your own tabard counted) and up to 6 names, with their guild, of players caught without the colors | whoever called it, alone (a whisper); the King can show the names to the army on his untabarded list | each Royal Inspection you are sampled for (one every 30 minutes at most, for the whole realm) until you say no with `/oly inspection off`; you still get its raid warning |
 | Other players' lines in the Olympus chats as your addon accepted them (channel, sender and text; [Captains] and [Lords] only if your rank reads them), and the High Council list | other addons in your own game, through `OlympusBridge` (made for OfficerSpy, the moderators' companion addon, but any addon you install can read it) | always, while such an addon is loaded: Olympus sends nothing through it and never learns what that addon does with what it read |
