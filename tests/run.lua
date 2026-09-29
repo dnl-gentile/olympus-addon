@@ -24595,10 +24595,17 @@ test("1.1 Zeal's promise: what the King hides never goes on the channel; the Kin
 			T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
 			assert(#w.whispered > n, "again after PRIVATE_REPEAT")
 			n = #w.whispered
-			-- His book changes: on the channel still nothing of it, the King (heard) gets it at once.
+			-- His book changes: on the channel still nothing of it. The King (heard) gets it once
+			-- PRIVATE_GAP is over since the last one went to him: held meanwhile, then as it is then
+			-- (the keeper's message budget: FlushPrivate, every minute).
 			w.sent = {}
 			w.clock = w.clock + T.SHARE_GAP
 			T.Record("Secret Donor", 1000, "trade", nil, { quiet = true }); T.Share(true); Run()
+			eq(#w.whispered, n, "held: his last one went less than PRIVATE_GAP ago")
+			T.FlushPrivate(); Run()
+			eq(#w.whispered, n, "still inside the gap")
+			w.clock = w.clock + T.PRIVATE_GAP - T.SHARE_GAP
+			T.FlushPrivate(); Run()
 			assert(#w.whispered > n and w.whispered[#w.whispered].to == KING, "the new book whispered")
 			NothingHidden({ Channel("TB~")[1] }, "a new book on the channel")
 			local book = T.Message()
@@ -24979,9 +24986,13 @@ test("1.1 bank requests (Fern): a Lord or Captain asks for an item and a count, 
 			assert(e and Printed(w, ns.L.BANK_REQUEST_WAITING:format(T.ItemText(2589, 10))), "waits")
 			eq(#w.whispered, 0)
 			eq(T.Visible(), true, "the Treasury tab shows his request")
-			-- The Treasurer's book heard on the channel: the request goes to him (by whisper), again
-			-- every REQUEST_AGAIN while open, never on the channel.
+			-- The Treasurer's book heard on the channel: for all we know a 1.0 keeper's addon, which
+			-- reads no request (it never asks, TA): nothing goes to him.
 			T.HandleReport("CHANNEL", TREASURER, "TB~1.0~Olympus~0~0~0~0~0~0~~-~000@1~~~~0:0")
+			eq(B.SendRequests(), 0, "a keeper never heard asking")
+			-- His 1.1 client asks: the request goes to him (by whisper), again every REQUEST_AGAIN
+			-- while open, never on the channel.
+			T.HandleAsk("CHANNEL", TREASURER, "TA~Olympus~0")
 			eq(B.SendRequests(), 1)
 			local tn = Whispered("TN~", TREASURER)
 			eq(#tn, 1); eq(tn[1], ("TN~%d~2589~10~Olympus Zeus"):format(e.id))
@@ -25020,9 +25031,9 @@ test("1.1 bank requests (Fern): a Lord or Captain asks for an item and a count, 
 			for _, x in ipairs(B.MyRequests()) do if x.id == e.id then mine = x end end
 			eq(mine.state, "seen"); eq(B.StateText(mine), ns.L.BANK_REQUEST_STATE_SEEN:format("Pyralis Ashandar"))
 			-- He hands it over by mail: the book records the item given, and the request closes by
-			-- itself, the Lord told, the King (heard) too.
+			-- itself, the Lord told, the King (heard asking: his addon reads it) too.
 			AsTreasurer()
-			T.Heard(KING)
+			T.HandleAsk("CHANNEL", KING, "TA~Olympus~1")
 			w.whispered = {}
 			mail.Send("Zed", 0, { { name = "Linen Cloth", id = 2589, n = 10 } })
 			local done
@@ -25540,6 +25551,129 @@ test("1.1 taking donations: once the keeper stops sharing his location, no repea
 		ns.splitNames = saved.split
 		if not ok then error(err, 0) end
 	end)
+end)
+
+-- The keeper's client on a simulated clock: the real Comm queue (Comm.lua in a namespace of its
+-- own, FreshComm: a message each 1.2 s, 60 waiting at most, the oldest dropped when full), the
+-- real Treasury code, a donation a minute during a stream, the King and keepers online.
+local function TreasurySim(opts)
+	local result
+	WithThrone(function(w, K)
+		local T = ns.Treasury
+		local saved = { split = ns.splitNames, after = ns.After, time = GetTime, cci = C_ChatInfo, chan = GetChannelName, now = ns.Now,
+			chunked = ns.Comm.SendChunked, size = ns.Comm.QueueSize }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			GetChannelName = function() return 5 end
+			local cns = FreshComm()
+			local t, base = 0, w.clock
+			local timers, log = {}, {}
+			ns.Now = function() return base + math.floor(t) end
+			cns.Now = ns.Now
+			GetTime = function() return t end
+			ns.After = function(sec, _, fn) timers[#timers + 1] = { at = t + sec, fn = fn } end
+			C_ChatInfo.SendAddonMessage = function(_, msg, dist, target) log[#log + 1] = { msg = msg, dist = dist, to = target, t = t } return true end
+			cns.Comm.JoinChannel()
+			-- Everything the treasury sends goes through that queue; its size after each send.
+			local maxQ = 0
+			local function Measured(fn) return function(...) fn(...); maxQ = math.max(maxQ, cns.Comm.QueueSize()) end end
+			ns.Comm.Send, ns.Comm.Whisper, ns.Comm.SendChunked = Measured(cns.Comm.Send), Measured(cns.Comm.Whisper), Measured(cns.Comm.SendChunked)
+			ns.Comm.QueueSize = cns.Comm.QueueSize
+			local KING = "Asmongold Asmongler-Realm"
+			AsTreasurer()
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			ns.rdb.treasuryFlags = opts.flags
+			local keepers = {}
+			for i = 1, opts.keepers do keepers[i] = "Keeper Number" .. string.char(64 + i) .. "-Realm" end
+			local names = { unpack(keepers) }
+			names[#names + 1] = "Old Keeper-Realm" -- his addon is 1.0: heard by his book, never asking
+			ns.rdb.treasuryKeepers = { at = 1, names = names }
+			T.SetOpening("1000")
+			for i = 1, 150 do T.Record(("Generous Donor Named%03d"):format(i), 10000 + i * 7, "trade", nil, { quiet = true }) end
+			local readers = { KING, unpack(keepers) }
+			-- Their clients ask after their login (TA), and are heard now and then (the King's
+			-- switches, the keepers' books), the King asking again every ASK_EVERY.
+			for _, n in ipairs(readers) do T.HandleAsk("CHANNEL", n, "TA~Olympus~0") end
+			local nextPump, nextTick, nextHear, nextAsk, nextGift, gifts = 0, 60, 0, T.ASK_EVERY, 0, 0
+			while t < opts.minutes * 60 do
+				t = t + 0.1
+				local due = {}
+				for i = #timers, 1, -1 do if timers[i].at <= t then due[#due + 1] = table.remove(timers, i) end end
+				table.sort(due, function(a, b) return a.at < b.at end)
+				for _, x in ipairs(due) do x.fn() end
+				if t >= nextPump then nextPump = nextPump + 1.2; cns.Comm.Pump() end
+				if t >= nextTick then nextTick = nextTick + 60; T.Tick() end
+				if t >= nextHear then
+					nextHear = nextHear + 300
+					for _, n in ipairs(readers) do T.Heard(n) end
+					T.Heard("Old Keeper-Realm")
+				end
+				if t >= nextAsk then nextAsk = nextAsk + T.ASK_EVERY; T.HandleAsk("CHANNEL", KING, "TA~Olympus~1") end
+				if t >= nextGift and t < opts.stream * 60 then
+					nextGift, gifts = nextGift + 60, gifts + 1
+					T.Record(("Stream Donor%03d"):format(gifts), 5000 + gifts, "trade", nil, { quiet = true })
+				end
+			end
+			-- Every set of pieces sent, on the channel and by whisper, and the whole books each got.
+			local sets, books, asm = {}, {}, ns.Codec.NewAssembler()
+			for _, e in ipairs(log) do
+				local kind, body = "channel", e.msg
+				if e.dist == "WHISPER" then
+					local k, rest = e.msg:match("^TW~(%w%w)~(.*)$")
+					kind, body = "whisper " .. tostring(k) .. " to " .. tostring(e.to), rest or ""
+					local whole = ns.Codec.Feed(asm, e.to, body, ns.Now())
+					if whole and k == "TB" then books[e.to] = books[e.to] or {}; table.insert(books[e.to], { msg = whole, t = e.t }) end
+				end
+				local id, i, n = body:match("^C(%w+):(%d+):(%d+):")
+				if id then
+					local key = kind .. " #" .. id
+					sets[key] = sets[key] or { n = tonumber(n), got = {}, c = 0 }
+					if not sets[key].got[i] then sets[key].got[i], sets[key].c = true, sets[key].c + 1 end
+				end
+			end
+			local broken, channelSets, whispers = {}, 0, {}
+			for key, x in pairs(sets) do
+				if x.c ~= x.n then broken[#broken + 1] = key .. (" %d/%d"):format(x.c, x.n) end
+				if key:find("^channel") then channelSets = channelSets + 1 end
+			end
+			for _, e in ipairs(log) do if e.dist == "WHISPER" then whispers[e.to] = (whispers[e.to] or 0) + 1 end end
+			table.sort(broken)
+			result = { maxQ = maxQ, broken = broken, channelSets = channelSets, whispers = whispers, books = books, final = T.Message(),
+				readers = readers, gifts = gifts }
+		end)
+		ns.splitNames, ns.After, GetTime, C_ChatInfo, GetChannelName, ns.Now = saved.split, saved.after, saved.time, saved.cci, saved.chan, saved.now
+		ns.Comm.SendChunked, ns.Comm.QueueSize = saved.chunked, saved.size
+		ns.rdb.treasuryKeepers, ns.db.keeperShares = nil, nil
+		if not ok then error(err, 0) end
+	end)
+	return result
+end
+
+test("1.1 Zeal's promise, the keeper's message budget: a donation a minute with 2 or 3 of them online drops nothing from his queue, and each gets the latest book whole", function()
+	for _, case in ipairs({
+		{ what = "the ranking shown, the King and a keeper", flags = { ranking = true, at = 1 }, keepers = 1 },
+		{ what = "the ranking shown, the King and two keepers", flags = { ranking = true, at = 1 }, keepers = 2 },
+		{ what = "the ranking and the book shown, the King and two keepers", flags = { ranking = true, book = true, at = 1 }, keepers = 2 },
+	}) do
+		local r = TreasurySim({ flags = case.flags, keepers = case.keepers, minutes = 30, stream = 20 })
+		eq(r.gifts, 20, case.what .. ": a donation a minute for 20 minutes")
+		-- Nothing dropped: the queue never reached its 60 (then its oldest message goes), and every
+		-- message in pieces arrived whole, his own on the channel and his whispers.
+		assert(r.maxQ < 60, case.what .. ": his queue reached " .. r.maxQ)
+		assert(#r.broken == 0, case.what .. ": broken " .. table.concat(r.broken, ", "))
+		assert(r.channelSets >= 20, case.what .. ": his book on the channel, each time it changed: " .. r.channelSets)
+		for _, name in ipairs(r.readers) do
+			local got = r.books[ns.TellName(name)] or {} -- (a whisper goes to the name the server finds)
+			assert(#got >= 2, case.what .. ": whole books to " .. name .. ": " .. #got)
+			-- A changed one PRIVATE_GAP after the last at the soonest, and the latest in the end.
+			for i = 2, #got do
+				assert(got[i].t - got[i - 1].t >= ns.Treasury.PRIVATE_GAP - 60, case.what .. ": two books to " .. name .. " " .. (got[i].t - got[i - 1].t) .. " s apart")
+			end
+			eq(got[#got].msg, r.final, case.what .. ": " .. name .. " holds the latest book")
+		end
+		-- A 1.0 keeper's addon reads no whisper: none goes to him.
+		eq(r.whispers[ns.TellName("Old Keeper-Realm")], nil, case.what .. ": nothing whispered to a 1.0 keeper")
+	end
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))
