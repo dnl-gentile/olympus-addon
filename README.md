@@ -197,8 +197,9 @@ author's signed list can hide one character for the whole army: **Hide a charact
 **Decrees** tab (the name or your target, then the reason), or `/oly netoff Name: reason`. Every
 addon then hides that character on every Olympus surface: their [Olympus], [Captains] and
 [Lords] lines (and the lines the Olympus chats kept), their decrees, their layer and hop offers,
-their Vox Populi votes and questions, and their requests at court. The rest of their guild,
-and the census, are not touched: one name stops the spam.
+their Vox Populi votes and questions, and their requests at court. The names their player
+already linked as alts are hidden with them ([alt links](#alt-links-11-one-player-counted-once)).
+The rest of their guild, and the census, are not touched: one name stops the spam.
 - The Decrees tab lists who is hidden, with the reason, who hid them and when (the server's
   clock). The same people show a name again with a click there, or `/oly neton Name`.
 - It never aims at the King. It uninvites nobody, demotes nobody and writes nothing to
@@ -230,6 +231,28 @@ messages among its members. A spam guild, or one that is not really Olympus, is 
 federation without touching anyone's rank. One guild per word and never the King's: there is
 no switch for the whole realm. Nothing about it is tied to the treasury or to any payment, and
 no treasury code can call it.
+
+### Alt links (1.1): one player, counted once
+One player in three guilds used to swell the army by three and look like three donors. Link your
+alts and the census counts people:
+- On your main, `/oly alt add Name` names a character of this account; then log that character
+  and say yes there. The offer waits in this account's saved variables, so only this account's
+  characters can be linked, each confirming on itself: an officer can't attach anyone's alt,
+  and a character added later is linked only once it confirms too. An alt never starts a link
+  (its main does), and it gains nothing of its main's (a Hand's alt is no Hand).
+- The army's total then counts each player once, whatever guilds their characters are in (each
+  guild's own size stays its roster's; the header's tooltip says how many were counted once).
+  The treasury's ranking and its week's donors put a player's characters on one line, under the
+  main's name. Vox Populi takes one vote per player.
+- Each linked character's addon says so on the Olympus channel (its name, its guild and the
+  names it confirmed), and a link counts on a client only when both characters said it: a name
+  someone claims alone links nothing.
+- `/oly alt` shows your links; `/oly alt remove Name` takes one apart, from either character.
+- While any linked name is hidden by the moderators (net-off), the links freeze: your addon adds
+  and removes none, and every addon keeps the links it knew (it takes new names, drops none), so
+  nobody drops the punished character to walk back in on an alt.
+- The same faction and realm group only (one census). Up to 8 alts per player. On the Forever
+  beta, which forgets addon data at every login, the offer can't reach the alt yet.
 
 ### The Throne (the King and his Hands)
 A tab with a crown that only the King sees: the guild master of the guild named exactly
@@ -656,6 +679,7 @@ message (the game adds it). What goes where:
 | An answer to an ask for your layer (it tells the asker you are on it) | the asker alone (a whisper) | only if you share your zone and layer, while layer help is on (`/oly layerhelp off` stops it) |
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one |
 | A net-off word (1.1): the character's name, hidden or shown again (or the guild's name, off or on again), the time, who gave it and the reason | everyone on the Olympus channel | when the King, his Steward, a Hand or a High Councillor gives one, then from their addons every few minutes for late logins |
+| Your alt links (1.1, only if you link your characters): each linked character's name and guild, and the names it confirmed (its main, or its alts) | everyone on the Olympus channel | from each character you linked yourself, confirmed on each: at login, when a link changes and every 30 minutes while you play |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | everyone on the Olympus channel receives the bytes; the addon shows them to the King and his Steward, and to the army only with the King's switches | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
@@ -971,6 +995,7 @@ Other limits:
 | `/oly block <name>` | ignore a player |
 | `/oly netoff Name: reason` · `/oly neton Name` · `/oly netoff` | the King, his Steward, a Hand or a High Councillor: hide a character for the whole army, or show them again (also on the Decrees tab); alone, who is hidden (1.1) |
 | `/oly netoff guild Name: reason` · `/oly neton guild Name` | the same people: take a guild off the Olympus network for the army, or put it back on (also on the Decrees tab) (1.1) |
+| `/oly alt add Name` · `/oly alt remove Name` · `/oly alt` | link a character of this account as your alt (log it and say yes there), take a link apart, or see your links: the census and the treasury count you once (1.1) |
 | `/oly map` | zone markers on the world map |
 | `/oly sound` | alert sounds on or off |
 | `/oly bug` | copyable bug report (also: the help button left of the window's X, then **Report a bug**) |

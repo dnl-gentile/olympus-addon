@@ -24463,6 +24463,7 @@ end)
 ---------------------------------------------------------------------------
 ;(function()
 	local standIn = ns.Moderation -- (Core.lua's, until the game restarts after an update)
+	local altsBefore = ns.Alts -- (the same: Alts.lua loads below, with its own tests)
 	assert(loadfile(ADDON_DIR .. "Moderation.lua"))("Olympus", ns)
 	local M = ns.Moderation
 	local KING = "Asmongold Asmongler-Realm"
@@ -24650,7 +24651,7 @@ end)
 			eq(Line("Spammer Alt-Realm", "it's me again"), "netoff", "an alt linked to him")
 			local e, on = M.Hidden("Spammer Alt-Realm")
 			eq(on, "Spammer Guy-Realm", "hidden for the name that is off")
-			ns.Alts = nil
+			ns.Alts = altsBefore
 			-- Layers and the hop: his announcement leaves, his ask gets no offer, his offer and request are not taken.
 			ns.Layers.Reset()
 			ns.Layers.Receive("Good Guy-Realm", { mapID = 1429, zoneUID = 5, rank = 3, guild = "Olympus Zeus" })
@@ -24971,7 +24972,7 @@ end)
 		end
 		-- The README and the CurseForge page: its section, its privacy row and its commands.
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
-			local doc = assert(ReadFile(ROOT .. path))
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
 			for _, must in ipairs({ "### Net-off (1.1)", "| A net-off word (1.1): the character's name", "`/oly netoff Name: reason` · `/oly neton Name`",
 				"never aims at the King", "`/oly block` stays one client's" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
@@ -25208,9 +25209,296 @@ end)
 			eq(b, a, "the same placeholders: " .. k)
 		end
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
-			local doc = assert(ReadFile(ROOT .. path))
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
 			for _, must in ipairs({ "take a guild off the Olympus network", "`/oly netoff guild Name: reason`", "Blizzard's guild chat and Guild window stay up",
 				"no switch for the whole realm", "the guild's name, off or on again" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+		end
+	end)
+
+	-- #21: alt links (Alts.lua), loaded now; the net-off's tests above ran with its stand-in.
+	assert(loadfile(ADDON_DIR .. "Alts.lua"))("Olympus", ns)
+	local A = ns.Alts
+	-- A claim as a linked character's client sends it.
+	local function AL(at, role, guild, names) return ("AL~%d~%s~%s~%s"):format(at, role, guild or "", names or "") end
+	-- Two characters of one player, each saying so from its own client (the server stamps each name).
+	local function Pair(main, alt, at, mainGuild, altGuild)
+		A.Handle("CHANNEL", main .. "-Realm", AL(at, "M", mainGuild or "Olympus Zeus", alt))
+		A.Handle("CHANNEL", alt .. "-Realm", AL(at, "A", altGuild or "Olympus Zeus", main))
+	end
+	-- The net-off's scene, this account's links and every claim heard cleared, and put back after.
+	local function WithAlts(fn)
+		WithNetoff(function(w, K)
+			local saved = { alts = ns.db.alts, claims = ns.rdb.altClaims, combat = InCombatLockdown, faction = ns.faction }
+			local ok, err = pcall(function()
+				ns.db.alts, ns.rdb.altClaims = nil, nil
+				A.Reset()
+				InCombatLockdown = function() return false end
+				fn(w, K)
+			end)
+			ns.db.alts, ns.rdb.altClaims, InCombatLockdown, ns.faction = saved.alts, saved.claims, saved.combat, saved.faction
+			A.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end
+	local function Names(list)
+		local out = {}
+		for _, n in ipairs(list or {}) do out[#out + 1] = ns.ShortName(n) end
+		table.sort(out)
+		return table.concat(out, ",")
+	end
+
+	test("1.1 alt links (#21): this account's only: the main names the alt, the player logs the alt and confirms there; an alt never starts one, and a later character is linked only once it confirms too", function()
+		WithAlts(function(w, K)
+			AsSoldier("Main Guy")
+			eq(A.Add("Main Guy"), false, "not itself")
+			eq(A.Add("Alt Guy"), true)
+			assert(Printed(w, "Alt Guy"))
+			eq(A.Group("Alt Guy-Realm"), nil, "named, not linked: it has not confirmed")
+			eq(#w.sent, 0, "nothing on the channel yet")
+			-- The player logs the alt: the question, in a dialog, once a session.
+			AsSoldier("Alt Guy")
+			eq(A.AskConfirm(), true)
+			eq(w.popups[#w.popups].name, "OLYMPUS_ALT_CONFIRM")
+			eq(A.AskConfirm(), false, "once")
+			StaticPopupDialogs.OLYMPUS_ALT_CONFIRM.OnAccept()
+			eq(Names(A.Group("Alt Guy-Realm") and A.Linked("Alt Guy-Realm")), "Main Guy")
+			eq(Names(A.Linked("Main Guy-Realm")), "Alt Guy")
+			-- Its client says so on the channel: its own name, its main, its guild.
+			local s = w.sent[#w.sent]
+			eq(s.dist, "CHANNEL")
+			assert(s.msg:find("^AL~%d+~A~Olympus II~Main Guy$"), s.msg)
+			-- An alt never starts a link: from the alt, refused.
+			eq(A.Add("Third Guy"), false)
+			assert(Printed(w, ns.L.ALT_NOT_FROM_ALT:format("Main Guy")))
+			-- A later character: named on the main, linked only once it confirms on itself; a no drops it.
+			AsSoldier("Main Guy")
+			eq(A.Add("Third Guy"), true)
+			eq(Names(A.Linked("Main Guy-Realm")), "Alt Guy", "not yet")
+			AsSoldier("Third Guy")
+			A.Reset() -- (another session)
+			eq(A.AskConfirm(), true)
+			StaticPopupDialogs.OLYMPUS_ALT_CONFIRM.OnCancel(nil, nil, "clicked")
+			eq(Names(A.Linked("Main Guy-Realm")), "Alt Guy", "said no: not linked")
+			eq(A.AskConfirm(), false, "the offer is gone")
+			-- Another faction or realm group: another census, not linked.
+			AsSoldier("Main Guy")
+			A.Add("Horde Guy")
+			AsSoldier("Horde Guy")
+			ns.faction = "Horde"
+			eq(A.Confirm(true), false)
+			assert(Printed(w, ns.L.ALT_OTHER_CENSUS))
+			ns.faction = "Alliance"
+			eq(A.Group("Horde Guy-Realm"), nil)
+			-- /oly alt: the account's links; /oly alt remove takes one apart, from either character.
+			AsSoldier("Alt Guy")
+			SlashCmdList.OLYMPUS("alt")
+			assert(Printed(w, ns.L.ALT_STATUS:format("Main Guy", "Alt Guy")))
+			SlashCmdList.OLYMPUS("alt remove Main Guy")
+			eq(A.Group("Alt Guy-Realm"), nil, "taken apart from the alt")
+			assert(w.sent[#w.sent].msg:find("^AL~%d+~%-~Olympus II~$"), "says so once: " .. w.sent[#w.sent].msg)
+		end)
+	end)
+
+	test("1.1 alt links (#21): on the wire a link counts only when both characters said it: nobody, an officer included, attaches another player's character", function()
+		WithAlts(function(w, K)
+			AsSoldier("Watcher")
+			local t = w.clock
+			-- An officer naming someone else's character as his alt: nothing, whatever he repeats.
+			A.Handle("CHANNEL", "Officer Guy-Realm", AL(t, "M", "Olympus Zeus", "Innocent Guy"))
+			A.Handle("CHANNEL", "Officer Guy-Realm", AL(t + 1, "M", "Olympus Zeus", "Innocent Guy,Other Innocent"))
+			eq(A.Group("Innocent Guy-Realm"), nil); eq(#A.Linked("Officer Guy-Realm"), 0)
+			-- Nor the other way: a character claiming a main that never names it.
+			A.Handle("CHANNEL", "Sneaky Guy-Realm", AL(t, "A", "Olympus Zeus", "Innocent Guy"))
+			eq(A.Group("Sneaky Guy-Realm"), nil)
+			-- Both said it: linked. Names on the sender's realm travel short.
+			Pair("Main Two", "Alt Two", t)
+			eq(Names(A.Linked("Main Two-Realm")), "Alt Two")
+			-- A character of another realm keeps its realm.
+			A.Handle("CHANNEL", "Main Three-Realm", AL(t, "M", "Olympus Zeus", "Alt Three-Other"))
+			A.Handle("CHANNEL", "Alt Three-Other", AL(t, "A", "Olympus Zeus", "Main Three-Realm"))
+			eq(A.Linked("Main Three-Realm")[1], "Alt Three-Other")
+			-- The main takes it apart (a newer claim without it): unlinked; an older claim changes nothing.
+			A.Handle("CHANNEL", "Main Two-Realm", AL(t + 10, "-", "Olympus Zeus", ""))
+			eq(A.Group("Alt Two-Realm"), nil)
+			A.Handle("CHANNEL", "Main Two-Realm", AL(t + 5, "M", "Olympus Zeus", "Alt Two"))
+			eq(A.Group("Alt Two-Realm"), nil, "an older claim")
+			-- Dated far ahead, or not over the channel: refused.
+			A.Handle("CHANNEL", "Main Two-Realm", AL(t + 3600, "M", "Olympus Zeus", "Alt Two"))
+			A.Handle("WHISPER", "Main Two-Realm", AL(t + 20, "M", "Olympus Zeus", "Alt Two"))
+			eq(A.Group("Alt Two-Realm"), nil)
+			-- An alt names one main, not two.
+			A.Handle("CHANNEL", "Greedy Alt-Realm", AL(t, "A", "Olympus Zeus", "Main Two,Main Three"))
+			eq(ns.rdb.altClaims["greedy alt-realm"], nil)
+		end)
+	end)
+
+	test("1.1 alt links (#21): the census counts people: a player's characters in the guilds counted count once, each guild's size stays its roster's", function()
+		WithAlts(function(w, K)
+			AsSoldier("Watcher")
+			local D = ns.Data
+			eq(D.Summary().total, 1400)
+			-- One player in two counted guilds: one less.
+			Pair("Zed Main", "Zed Alt", w.clock, "Olympus Zeus", "Olympus II")
+			local s = D.Summary()
+			eq(s.total, 1399); eq(s.characters, 1400); eq(s.alts, 1)
+			for _, e in ipairs(s.guilds) do
+				if e.name == "Olympus Zeus" then eq(e.g.total, 100, "its own size: its roster's") end
+			end
+			-- One player in three guilds (a main and two alts): two less.
+			A.Handle("CHANNEL", "Big Main-Realm", AL(w.clock, "M", "Olympus", "Big Alt,Bigger Alt"))
+			A.Handle("CHANNEL", "Big Alt-Realm", AL(w.clock, "A", "Olympus Zeus", "Big Main"))
+			A.Handle("CHANNEL", "Bigger Alt-Realm", AL(w.clock, "A", "Olympus II", "Big Main"))
+			eq(D.Summary().total, 1397)
+			-- A character in a guild the census does not count is counted nowhere: nothing to take off.
+			Pair("Outside Main", "Outside Alt", w.clock, "Olympus Nowhere", "Olympus II")
+			eq(D.Summary().total, 1397)
+			-- This account's own links count too (its saved links: the confirmations themselves).
+			AsSoldier("Main Guy")
+			A.Add("Alt Guy")
+			AsSoldier("Alt Guy")
+			A.Confirm(true)
+			ns.db.alts.guilds["main guy-realm"], ns.db.alts.guilds["alt guy-realm"] = "Olympus Zeus", "Olympus II"
+			A.Reset()
+			eq(D.Summary().total, 1396)
+			-- The header's tooltip says so.
+			eq(D.Summary().alts, 4)
+		end)
+	end)
+
+	test("1.1 alt links (#21): the treasury counts a player's characters as one donor, under the main's name", function()
+		WithAlts(function(w, K)
+			local T = ns.Treasury
+			local savedSplit, savedShares = ns.splitNames, ns.db.keeperShares
+			local ok, err = pcall(function()
+				ns.splitNames = true
+				ns.db.keeperShares = { [KING_KEY] = true }
+				AsKing()
+				T.SetOpening("500")
+				w.clock = w.clock + 10; T.Record("Donor Main", 100000, "trade", nil, { quiet = true })
+				w.clock = w.clock + 10; T.Record("Donor Alt", 50000, "mail", nil, { quiet = true })
+				w.clock = w.clock + 10; T.Record("Other Donor", 120000, "trade", nil, { quiet = true })
+				local r = T.Report()
+				eq(#r.rank, 3); eq(r.donors, 3)
+				Pair("Donor Main", "Donor Alt", w.clock)
+				r = T.Report()
+				eq(#r.rank, 2, "one line for the player")
+				eq(r.rank[1].name, "Donor Main"); eq(r.rank[1].money, 150000)
+				eq(r.rank[2].name, "Other Donor")
+				eq(r.donors, 2, "one donor this week")
+			end)
+			ns.splitNames, ns.db.keeperShares = savedSplit, savedShares
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 alt links (#21): the alt never acts on its own: one vote per player in Vox Populi, and none of its main's powers", function()
+		WithAlts(function(w, K)
+			AsSoldier("Watcher")
+			Pair("Voter Main", "Voter Alt", w.clock, "Olympus Zeus", "Olympus Zeus")
+			AsKing()
+			assert(ns.Vox.Ask("Raid tonight? Yes / No"))
+			local id = tonumber(LastSent(w):match("^T1~V~(%d+)"))
+			ns.Vox.HandleVote("WHISPER", "Voter Main-Realm", ("Y1~%d~1~Olympus Zeus"):format(id))
+			ns.Vox.HandleVote("WHISPER", "Voter Alt-Realm", ("Y1~%d~1~Olympus Zeus"):format(id))
+			local poll = ns.Vox.State()
+			eq(poll.voters + poll.others, 1, "one vote for the player")
+			-- A Hand's alt is no Hand, and gives no net-off word.
+			AsSoldier("Watcher")
+			K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Voter Main-Realm")
+			eq(K.IsHandName("Voter Main-Realm"), true)
+			eq(K.IsHandName("Voter Alt-Realm"), false)
+			eq(M.IsIssuer("Voter Alt-Realm"), false)
+		end)
+	end)
+
+	test("1.1 alt links (#21) and net-off (#32): the names already linked are hidden with the character; while one is off the links freeze on every client and on the player's own", function()
+		WithAlts(function(w, K)
+			AsSoldier("Watcher")
+			local t = w.clock
+			Pair("Punished Main", "Clean Alt", t)
+			eq(M.Hidden("Clean Alt-Realm"), nil)
+			Off("Punished Main-Realm", "harassment")
+			local e, on = M.Hidden("Clean Alt-Realm")
+			assert(e, "hidden with him"); eq(on, "Punished Main-Realm")
+			-- The alt drops the link to walk back in: frozen, still linked, still hidden.
+			A.Handle("CHANNEL", "Clean Alt-Realm", AL(t + 10, "-", "Olympus Zeus", ""))
+			assert(M.Hidden("Clean Alt-Realm"), "still hidden")
+			A.Handle("CHANNEL", "Punished Main-Realm", AL(t + 11, "M", "Olympus Zeus", "Another Alt"))
+			eq(Names(A.Linked("Punished Main-Realm")), "Clean Alt", "the main can't drop it either")
+			-- A name added then (both sides): taken, and hidden too.
+			A.Handle("CHANNEL", "Another Alt-Realm", AL(t + 11, "A", "Olympus Zeus", "Punished Main"))
+			assert(M.Hidden("Another Alt-Realm"), "added while frozen: hidden with him")
+			-- Frozen claims never lapse.
+			w.clock = w.clock + A.KEEP + 1
+			A.Prune()
+			assert(M.Hidden("Clean Alt-Realm"), "kept past KEEP while he is off")
+			-- Shown again: the links thaw; the alt's newer claim counts again.
+			w.clock = t + 20
+			Back("Punished Main-Realm")
+			A.Handle("CHANNEL", "Clean Alt-Realm", AL(t + 30, "-", "Olympus Zeus", ""))
+			eq(A.Group("Clean Alt-Realm"), nil, "taken apart once nothing is off")
+			-- The player's own client: nothing added or removed while a linked name is off.
+			AsSoldier("Main Guy")
+			A.Add("Alt Guy")
+			AsSoldier("Alt Guy")
+			A.Confirm(true)
+			AsSoldier("Main Guy")
+			Off("Alt Guy-Realm", "spam")
+			eq(A.Remove("Alt Guy"), false)
+			eq(A.Add("New Guy"), false)
+			assert(Printed(w, ns.L.ALT_FROZEN))
+			eq(Names(A.Linked("Main Guy-Realm")), "Alt Guy")
+			assert(M.SelfOff(), "the main is hidden with his linked alt")
+		end)
+	end)
+
+	test("1.1 alt links (#21) with the gamepad UI: the alt's yes in Olympus's own dialog", function()
+		WithUI(function()
+			LoadUI()
+			WithGamepadUI(true, function(game)
+				WithAlts(function(w, K)
+					AsSoldier("Main Guy")
+					A.Add("Alt Guy")
+					AsSoldier("Alt Guy")
+					eq(A.AskConfirm(), true)
+					eq(#game.shown, 0, "never the game's popup"); eq(#w.popups, 0)
+					local f = ns.Dialog.Find("OLYMPUS_ALT_CONFIRM")
+					assert(f and f:IsShown(), "our dialog")
+					f.buttons[1]:Click()
+					eq(Names(A.Linked("Alt Guy-Realm")), "Main Guy")
+				end)
+			end)
+		end)
+		local src = Source("Alts.lua")
+		for _, api in ipairs({ "StaticPopup_Show", "MenuUtil", "UISpecialFrames", "Uninvite", "Invite", "SetRank" }) do
+			assert(not src:find(api, 1, true), "Alts.lua uses " .. api)
+		end
+	end)
+
+	test("1.1 alt links (#21): 0.9.8 and 1.0.0 clients leave a claim alone; its strings in English and pt-BR; the README and the CurseForge page", function()
+		for _, old in ipairs({ true, false }) do
+			local cns, Deliver = FreshComm(old)
+			local bad = cns.Comm.Stats().bad
+			Deliver("CHANNEL", "Main Two-Realm", AL(os.time(), "M", "Olympus Zeus", "Alt Two"))
+			eq(cns.Comm.Stats().bad, bad)
+		end
+		local keys = { "HELP_ALT", "ALT_WHO_BAD", "ALT_NOT_SELF", "ALT_NOT_FROM_ALT", "ALT_ALREADY", "ALT_FULL", "ALT_FROZEN", "ALT_OFFERED",
+			"ALT_DECLINED", "ALT_OTHER_CENSUS", "ALT_LINKED", "ALT_OFFER_DROPPED", "ALT_NOT_LINKED", "ALT_REMOVED", "ALT_STATUS", "ALT_NONE",
+			"ALT_WAITING", "ALT_CONFIRM", "HEADER_TIP_ALTS" }
+		local pt = PtBR()
+		for _, k in ipairs(keys) do
+			assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+			assert(rawget(pt, k) and rawget(pt, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+			local _, a = rawget(ns.L, k):gsub("%%[sd]", "")
+			local _, b = rawget(pt, k):gsub("%%[sd]", "")
+			eq(b, a, "the same placeholders: " .. k)
+		end
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, must in ipairs({ "### Alt links (1.1)", "| Your alt links (1.1", "`/oly alt add Name`", "officer can't attach",
+				"The names their player already linked as alts are hidden with them" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
 		end

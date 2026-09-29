@@ -396,6 +396,18 @@ function Data.Summary()
 		if (a.g.total or 0) ~= (b.g.total or 0) then return (a.g.total or 0) > (b.g.total or 0) end
 		return a.name < b.name
 	end)
+	-- 1.1: a count of people. The characters their players linked as alts (Alts.lua: confirmed on
+	-- each character) count once in the army's total, whatever guilds they are in; each guild's own
+	-- size stays its roster's. s.characters: the total before.
+	s.characters, s.alts = s.total, 0
+	local A = ns.Alts
+	if A and A.Duplicates then
+		local counted = {}
+		for _, e in ipairs(s.guilds) do if e.counted then counted[e.name:lower()] = true end end
+		local dup = A.Duplicates(counted) -- (nil from the stand-in until the game restarts)
+		s.alts = math.max(0, math.min(s.total, tonumber(dup) or 0))
+		s.total = s.total - s.alts
+	end
 	-- Guilds only /who has seen, for the census list alone: in no total, tree or map.
 	s.seen = {}
 	for name, e in pairs(Data.Seen()) do

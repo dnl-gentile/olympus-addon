@@ -268,6 +268,10 @@ function Vox.HandleVote(dist, sender, text)
 	if poll.votes[sender] or poll.voters + poll.others >= Vox.MAX_VOTES then return end
 	-- 1.1: a name the moderators took off (net-off, Moderation.lua): not counted, not even as a voter.
 	if ns.Moderation.Hides and ns.Moderation.Hides(sender, guild) then return end
+	-- 1.1: one vote per player: a character linked to one that voted (Alts.lua) votes as it did.
+	for _, other in ipairs(ns.Alts.Linked and ns.Alts.Linked(sender) or {}) do
+		if poll.votes[ns.FullName(other)] then return end
+	end
 	poll.votes[sender] = digits
 	if sender == ns.me or Placed(sender, guild) then
 		for _, i in ipairs(picks) do poll.counts[i] = poll.counts[i] + 1 end

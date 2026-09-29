@@ -775,6 +775,11 @@ local function CreateMain(style)
 		GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
 		GameTooltip:AddLine(L.HEADER_TIP_TITLE, 1, 0.82, 0)
 		GameTooltip:AddLine(L.HEADER_TIP, 1, 1, 1, true)
+		-- 1.1: the characters their players linked as alts count once (Alts.lua).
+		local s = ns.Data.Summary()
+		if (s.alts or 0) > 0 then
+			GameTooltip:AddLine(L.HEADER_TIP_ALTS:format(ns.FormatNumber(s.characters or s.total), ns.FormatNumber(s.alts)), 0.8, 0.8, 0.8, true)
+		end
 		GameTooltip:AddLine(" ")
 		GameTooltip:AddLine(L.HEADER_TIP_DIFFER, 0.8, 0.8, 0.8, true)
 		GameTooltip:Show()

@@ -1142,8 +1142,9 @@ StandIn("Bank", {})
 StandIn("Link", { "Slash" })
 StandIn("Borders", { "SetEnabled", "Report" })
 StandIn("Nameplates", { "SetEnabled", "Report" })
--- 1.1: net-off (Moderation.lua).
+-- 1.1: net-off (Moderation.lua), alt links (Alts.lua).
 StandIn("Moderation", { "Slash" })
+StandIn("Alts", { "Slash" })
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1226,7 +1227,7 @@ ns.RegisterEvent("PLAYER_LOGIN", function()
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	-- 1.1's files.
-	for _, key in ipairs({ "Moderation" }) do
+	for _, key in ipairs({ "Moderation", "Alts" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1279,6 +1280,7 @@ local function Help()
 	print("  /oly key <secret> - officers: seal the Olympus channel with a shared secret")
 	print("  /oly block <name> - ignore everything a player sends")
 	print(L.HELP_NETOFF)
+	print(L.HELP_ALT)
 	print("  /oly layer - show the layer id of your target (test)")
 	print("  /oly minimap - show/hide the minimap button")
 	print("  /oly debug - verbose log in chat")
@@ -1463,6 +1465,9 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "netoff" or cmd == "neton" then
 			-- 1.1: a character or a guild off Olympus for the army, or back on (Moderation.lua).
 			ns.Moderation.Slash(cmd == "netoff", rest)
+		elseif cmd == "alt" or cmd == "alts" then
+			-- 1.1: this account's characters linked as one player (Alts.lua).
+			ns.Alts.Slash(rest)
 		else
 			Help()
 		end
