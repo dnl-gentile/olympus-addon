@@ -223,28 +223,40 @@ end
 
 -- What the census's mark on a row says (1.1, Fern's #30): its senders split on the guild's leader
 -- or officers (`split`: no picture leads; `outvoted`: a sender's report is not what the others
--- say), the fresh senders give sizes farther apart than SIZE_SLACK or SIZE_SHARE of the biggest
--- (`sizes`: the smallest and the biggest, { sender, n } each), or one sender alone stands behind
--- it (`single`: that sender). nil when nothing is to say: our own guild (our roster, the
--- server's word), and a report older than FRESH (grey already, and out of the online counts).
--- It changes nothing that counts; a marked row can still be the true one.
+-- say), two fresh senders give sizes farther apart than SIZE_SLACK or SIZE_SHARE of the bigger
+-- plus SIZE_DRIFT a minute between their two reports (`sizes`: the pair farthest past that, the
+-- smaller first, { sender, n } each; the reporter speaks every 3 minutes and the runner-up every
+-- 10, and a guild that fills, or has its inactive members removed, changes meanwhile), or one
+-- sender alone stands behind it (`single`: that sender). nil
+-- when nothing is to say: our own guild (our roster, the server's word), and a report older than
+-- FRESH (grey already, and out of the online counts). It changes nothing that counts; a marked
+-- row can still be the true one.
 Data.SIZE_SLACK, Data.SIZE_SHARE = 5, 0.05
+Data.SIZE_DRIFT = 20 -- members a minute (one removal per Members.REMOVE_GAP, 3 s, is 20)
 function Data.Dispute(g, now)
 	if type(g) ~= "table" or g.mine then return nil end
 	now = now or ns.Now()
 	if now - (g.t or 0) > Data.FRESH then return nil end
-	local d, senders, count, lo, hi = {}, {}, 0, nil, nil
+	local d, senders, count, sized = {}, {}, 0, {}
 	for src, v in pairs(Votes(g.vouch, now)) do
 		local short = ns.ShortName(src)
 		if not senders[short] then senders[short], count = src, count + 1 end
-		if type(v.n) == "number" and now - (v.t or 0) <= Data.FRESH then
-			if not lo or v.n < lo.n then lo = { sender = src, n = v.n } end
-			if not hi or v.n > hi.n then hi = { sender = src, n = v.n } end
-		end
+		if type(v.n) == "number" and now - (v.t or 0) <= Data.FRESH then sized[#sized + 1] = { sender = src, n = v.n, t = v.t or 0 } end
 	end
 	d.split = g.conflict and true or nil
 	d.outvoted = g.outvoted and true or nil
-	if lo and hi and hi.n - lo.n > math.max(Data.SIZE_SLACK, hi.n * Data.SIZE_SHARE) then d.sizes = { lo, hi } end
+	local worst
+	for i = 1, #sized do
+		for j = i + 1, #sized do
+			local lo, hi = sized[i], sized[j]
+			if lo.n > hi.n or (lo.n == hi.n and lo.sender > hi.sender) then lo, hi = hi, lo end
+			local past = hi.n - lo.n - math.max(Data.SIZE_SLACK, hi.n * Data.SIZE_SHARE) - Data.SIZE_DRIFT * math.abs(hi.t - lo.t) / 60
+			if past > 0 and (not worst or past > worst.past or (past == worst.past and lo.sender .. hi.sender < worst.key)) then
+				worst = { past = past, key = lo.sender .. hi.sender, lo = lo, hi = hi }
+			end
+		end
+	end
+	if worst then d.sizes = { { sender = worst.lo.sender, n = worst.lo.n }, { sender = worst.hi.sender, n = worst.hi.n } } end
 	if count <= 1 then d.single = next(senders) and senders[next(senders)] or g.reporterFull or g.reporter or "?" end
 	d.disputed = (d.split or d.outvoted or d.sizes) and true or nil
 	if not (d.disputed or d.single) then return nil end

@@ -59,10 +59,14 @@ are highlighted. It is rate limited, so nobody gets spammed. The game lists 50 p
 **Where to go** (1.1): a search also asks one member's addon (an addon whisper, not a chat line)
 where recruits should go, and its census answers: the guild the King opened **the gates** of
 first, then the guilds with the **most free slots**, and a couple of their Lords and Captains
-online (never the King). The screen lists them in that order, the guilds found with `/who` too,
-and a click asks one of those officers. Just before, their addon is asked whether they take
-recruit whispers: a member who set **do not contact** (`/oly nocontact on`) is never offered,
-and the question closes before anything is sent. It stays **one whisper per click**, in your
+online (never the King). It names only what the census confirms: guilds two members' reports
+agree on, and Lords and Captains two reports name. The screen lists them in that order, each
+once `/who` found one of its members (the gates once a second member's answer agrees: one more
+is asked), the guilds found with `/who` too, and a click asks one of those officers that `/who`
+found in that guild, or another member it found there. Just before, their addon is asked
+whether they take recruit whispers (again if it never answered): a member who set **do not
+contact** (`/oly nocontact on`) is never offered, however many recruits ask him, and the
+question closes before anything is sent. It stays **one whisper per click**, in your
 own words (no dues line), 20 seconds apart. With it goes your request to the same member, so an
 officer's addon shows it with **Invite** and **Decline** instead of a raw whisper. Members on
 versions before 1.1 just get the whisper, as before.
@@ -78,7 +82,8 @@ versions before 1.1 just get the whisper, as before.
   shares their zone (see Privacy, below).
 - Hover a guild: members, online, free slots, average level, inactive members, classes online, top zones.
 - **Marked rows** (1.1): a warning mark on a guild whose senders disagree (on its Lord or
-  Captains, or on its size, by more than 5 members or 5%), a question mark on one that a single
+  Captains, or on its size, by more than 5 members or 5% plus the 20 a minute a guild may gain or
+  lose between their two reports), a question mark on one that a single
   sender stands behind. Its tooltip says which and who: check before calling a muster or opening
   the gates on it (the gates ask again, with the reason). A marked row can still be right, and
   the mark changes nothing that counts. Your own guild (your roster) is never marked.
@@ -107,7 +112,8 @@ versions before 1.1 just get the whisper, as before.
   (`/oly warndays <days>`, 3 by default). **A Lord away** (1.1): when a Lord crosses that, one
   chat line, once per absence: to his own guild's officers from their roster, and to the King,
   his Steward and his Hands for every guild's Lord, by the census's word (a guild that stopped
-  reporting included). Never a popup, and nothing is done to anyone.
+  reporting included, counted from its last report even when that showed him online). Never a
+  popup, and nothing is done to anyone.
 - The **Treasurer of Olympus** (Pyralis Ashandar, chosen by Asmongold's chat) right under
   the King, with a gold coin next to his name wherever he shows, his tooltip and his lines in
   the Olympus chats included. Only
@@ -666,8 +672,8 @@ message (the game adds it). What goes where:
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A Lord's mentor pair (1.1): the recruit's name to the Captain, the Captain's name to the recruit, as whispers in his words | those two players | only when the Lord clicks **Send both** |
-| Join Olympus (1.1, outside an Olympus guild): "which guild should I ask?" (J1), and your request (J3: the guild you ask, your level and class) | the one member the screen asks: one found with `/who` at a search, and the one you are about to whisper | J1 at a search (one member every 15 seconds at most, none while a recent answer is known) and just before a whisper; J3 with each whisper you send |
-| The answer (J2): whether you take recruit whispers, the King's gates, and up to 8 guilds with room, each with its free slots and up to 2 of its Lords and Captains online (never the King) | the recruit who asked, alone | when a recruit's addon asks you, once a minute per recruit and 10 a minute at most |
+| Join Olympus (1.1, outside an Olympus guild): "which guild should I ask?" (J1), and your request (J3: the guild you ask, your level and class) | the one member the screen asks: one found with `/who` at a search, and the one you are about to whisper | J1 at a search (one member every 15 seconds at most, none while a recent answer is known; while only one answer names the gates, one more member at once, three in 10 minutes at most) and just before a whisper (again if that member never answered); J3 with each whisper you send |
+| The answer (J2): whether you take recruit whispers, the King's gates, and up to 8 guilds with room the census confirms, each with its free slots and up to 2 of its Lords and Captains online that two reports name (never the King) | the recruit who asked, alone | when a recruit's addon asks you, once a minute per recruit and 10 a minute at most (with do not contact on, a bare "no" to the rest) |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | everyone on the Olympus channel receives the bytes; the addon shows them to the King and his Steward, and to the army only with the King's switches | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the week's donors, the items donated (with who gave each last) and the book's latest lines | everyone on the Olympus channel receives the bytes; the addon shows them to the keepers, the King and his Steward, and to the army with the King's ranking or book switch | while that keeper shares his book: his yes, and a donor is not asked |
 | Your character's name, if you gave to the treasury before 1.0 (the early supporters): names only, no amounts, in alphabetical order | everyone on the Olympus channel receives the bytes; the addon shows them under the ranking, to whoever may see it | from the Treasurer's addon once he said yes to 1.0's question, which says their names go to everyone on the channel (his 0.9.3 yes is not enough), after his login and when a client asks: a donor is not asked |

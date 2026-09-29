@@ -17,6 +17,14 @@ local L = ns.L
 -- addon shows it with Invite and Decline (an officer's yes or no, one click each) instead of a
 -- raw whisper. These three are the only messages the addon exchanges outside an Olympus guild
 -- (Comm.WhisperOutside); versions before 1.1 ignore all three.
+--
+-- Whom a recruit whispers stays the server's word, as before 1.1: a J2 only orders. A member's
+-- census names a guild only when the census does not mark it (Data.Dispute: two senders or more
+-- agree on it, or it is ours), and a Lord or Captain only when two senders name them
+-- (Data.KnownRank). The screen asks an officer the answer names only once its own /who found him
+-- in that guild, lists a guild only once /who found one of its members, and shows the gates only
+-- when two members' answers agree on them. One forged report, or one modified member's J2,
+-- names nobody to whisper.
 --   J1~1                                  which guild should I ask?
 --   J2~<y|n>~<gates guild>~<seconds>~<guild>=<free>=<name>/<name>;...   the answer (n: do not contact me)
 --   J3~<guild asked>~<level>~<CLASS>      my request (sent with the player's whisper)
@@ -30,10 +38,11 @@ Recruit.ROUTE_GAP = 15      -- seconds between two J1 of the searches (an Ask cl
 Recruit.ROUTE_WAIT = 60     -- a J2 counts from a member asked this recently
 Recruit.ROUTE_FRESH = 600   -- a route this recent: no new J1 at a search
 Recruit.ROUTE_KEEP = 1800   -- a route is shown this long
+Recruit.ROUTE_ASKS = 3      -- gates one answer named: more members asked, up to this many within ROUTE_FRESH
 Recruit.ROUTE_GUILDS = 8    -- guilds in one answer, at most
 Recruit.ROUTE_CONTACTS = 2  -- officers named per guild, at most
 Recruit.ANSWER_EACH = 60    -- a member answers one asker at most this often...
-Recruit.ANSWER_MAX = 10     -- ...and this many askers a minute in all
+Recruit.ANSWER_MAX = 10     -- ...and this many askers a minute in all (do not contact: a bare "no" past it)
 Recruit.REQUEST_EACH = 600  -- a request from one player counts once this often
 Recruit.REQUEST_TTL = 3600  -- a request is shown this long
 Recruit.REQUESTS_MAX = 30   -- requests kept
@@ -46,6 +55,8 @@ Recruit.replied = {}    -- [name] = their answer
 Recruit.lastAsk = 0
 
 local routeAsked = {}   -- [Name-Realm] = when we sent them a J1
+local routeAnswered = {} -- [Name-Realm] = when their J2 came
+local gatesSaid = {}    -- [Name-Realm] = { guild, at, t }: the gates their J2 named (guild nil: none)
 local askedKey = {}     -- [Name-Realm] = when we whispered them (Recruit.asked by the whole name)
 local dnc = {}          -- [Name-Realm] = true: their addon said do not contact
 local lastRoute = -math.huge
@@ -65,44 +76,89 @@ end
 -- The Join screen's side (not in an Olympus guild)
 ---------------------------------------------------------------------------
 
--- The route a member's census gave (J2), while it is recent: { gates, gatesLeft, list =
--- { { name, free, contacts } }, byName, from, t }, or nil.
+-- The gates two members' answers agree on, while open, and the seconds left; nil while no two
+-- agree (one member's word is no proof: a modified addon could name any guild).
+local function ConfirmedGates(now)
+	local count, left, best = {}, {}, nil
+	for _, s in pairs(gatesSaid) do
+		if s.guild and s.at > now and now - s.t <= Recruit.ROUTE_KEEP then
+			count[s.guild] = (count[s.guild] or 0) + 1
+			left[s.guild] = math.max(left[s.guild] or 0, s.at - now)
+		end
+	end
+	for guild, n in pairs(count) do
+		if n >= 2 and (not best or n > count[best] or (n == count[best] and guild < best)) then best = guild end
+	end
+	if best then return best, math.floor(left[best]) end
+	return nil, nil
+end
+
+-- A member named gates no other answer agrees on yet.
+local function GatesUnconfirmed(now)
+	if ConfirmedGates(now) then return false end
+	for _, s in pairs(gatesSaid) do
+		if s.guild and s.at > now and now - s.t <= Recruit.ROUTE_KEEP then return true end
+	end
+	return false
+end
+
+-- The route the members' census gave (J2), while it is recent: { gates, gatesLeft, list =
+-- { { name, free, contacts } }, byName, from, t }, or nil. Its list is the last answer's, its
+-- gates the ones two answers agree on.
 function Recruit.Route()
-	local r = Recruit.route
-	if r and ns.Now() - (r.t or 0) <= Recruit.ROUTE_KEEP then return r end
-	return nil
+	local r, now = Recruit.route, ns.Now()
+	if not r or now - (r.t or 0) > Recruit.ROUTE_KEEP then return nil end
+	r.gates, r.gatesLeft = ConfirmedGates(now)
+	return r
 end
 function Recruit.NoContact(name) return dnc[Key(name)] == true end
 
+-- Members a J1 went to within ROUTE_FRESH.
+local function AskedLately(now)
+	local n = 0
+	for _, t in pairs(routeAsked) do
+		if now - t < Recruit.ROUTE_FRESH then n = n + 1 end
+	end
+	return n
+end
+
 -- Asks `name`'s addon where recruits should go (J1). A search asks one member at most every
--- ROUTE_GAP while no fresh route is known; an Ask click (`check`) asks the member it is about to
--- whisper, so a do-not-contact flag closes the question before the player sends.
-local function AskRoute(name, check)
+-- ROUTE_GAP, and none twice within ROUTE_FRESH; `confirm`: a second member at once, for gates
+-- only one answer named. An Ask click (`check`) asks the member it is about to whisper, and
+-- again whenever he did not answer our last J1 (lost, or held back while his addon was busy),
+-- so a do-not-contact flag closes the question before the player sends.
+local function AskRoute(name, check, confirm)
 	if ns.IsMember() or not name then return false end
 	local key, now = Key(name), ns.Now()
-	if routeAsked[key] and now - routeAsked[key] < Recruit.ROUTE_FRESH then return false end
-	if not check and now - lastRoute < Recruit.ROUTE_GAP then return false end
+	local asked = routeAsked[key]
+	local answered = asked and (routeAnswered[key] or -math.huge) >= asked
+	if asked and now - asked < Recruit.ROUTE_FRESH and (answered or not check) then return false end
+	if not check and not confirm and now - lastRoute < Recruit.ROUTE_GAP then return false end
 	if not ns.Comm.WhisperOutside(ns.TellName(name), "J1~1") then return false end
 	routeAsked[key] = now
 	if not check then lastRoute = now end
 	return true
 end
 
+-- One member /who found and we never asked (nor told us do not contact), asked for a route.
+local function AskAnother(confirm)
+	for _, p in ipairs(Recruit.found) do
+		local key = Key(p.name)
+		if not routeAsked[key] and not dnc[key] then return AskRoute(p.name, false, confirm) end
+	end
+	return false
+end
+
 -- A round of /who answered (Who.lua): every Olympus member found. Without a fresh route, one of
--- them (never asked yet) is asked for one.
+-- them (never asked yet) is asked for one; so is one more while only one answer named the gates
+-- (ROUTE_ASKS members within ROUTE_FRESH at most).
 function Recruit.OnFound(list)
 	Recruit.found = list
 	ns.Log("recruit: /who lists %d Olympus members", #list)
 	if not ns.IsMember() then
-		local r = Recruit.Route()
-		if not r or ns.Now() - (r.t or 0) > Recruit.ROUTE_FRESH then
-			for _, p in ipairs(list) do
-				local key = Key(p.name)
-				if not routeAsked[key] and not dnc[key] then
-					AskRoute(p.name)
-					break
-				end
-			end
+		local r, now = Recruit.Route(), ns.Now()
+		if not r or now - (r.t or 0) > Recruit.ROUTE_FRESH or (GatesUnconfirmed(now) and AskedLately(now) < Recruit.ROUTE_ASKS) then
+			AskAnother()
 		end
 	end
 	ns.Fire("RECRUIT_CHANGED")
@@ -114,7 +170,9 @@ function Recruit.ParseRoute(text)
 	local flag, gates, secs, list = tostring(text):match("^J2~([yn])~([^~]*)~(%d*)~([^~]*)$")
 	if not flag then return nil end
 	local route = { dnc = flag == "n", list = {}, byName = {} }
-	if gates ~= "" and ns.IsFederation(gates) then route.gates, route.gatesLeft = gates, tonumber(secs) end
+	if gates ~= "" and ns.IsFederation(gates) then
+		route.gates, route.gatesLeft = gates, math.min(tonumber(secs) or 0, ns.Acts and ns.Acts.GATES_TIME or 7200)
+	end
 	for entry in list:gmatch("[^;]+") do
 		local name, free, contacts = entry:match("^([^=]+)=(%d+)=?(.*)$")
 		free = tonumber(free)
@@ -136,6 +194,11 @@ function Recruit.OnRoute(sender, text)
 	if not routeAsked[key] or now - routeAsked[key] > Recruit.ROUTE_WAIT then return false end
 	local route = Recruit.ParseRoute(text)
 	if not route then return false end
+	routeAnswered[key] = now
+	-- The gates as this member says them (none, too): shown once another answer agrees (Route).
+	gatesSaid[key] = { guild = route.gates, at = now + (route.gatesLeft or 0), t = now }
+	local claimed = route.gates
+	route.gates, route.gatesLeft = nil, nil
 	if route.dnc then
 		dnc[key] = true
 		-- The request about to go to them: closed before the player sends it.
@@ -146,27 +209,46 @@ function Recruit.OnRoute(sender, text)
 			ns.Print(L.RECRUIT_DNC:format(ns.DisplayName(key) or sender))
 		end
 	end
-	-- An answer naming no guild (a do-not-contact member's census may be empty) keeps what an
-	-- earlier one said, the gates as it says them.
-	local old = Recruit.Route()
-	if #route.list == 0 and old then
-		if route.gates then old.gates, old.gatesLeft = route.gates, route.gatesLeft end
-	else
+	-- An answer naming no guild (a do-not-contact member's bare "no") keeps what an earlier one
+	-- said; its gates count all the same.
+	if #route.list > 0 or not Recruit.Route() then
 		route.from, route.t = key, now
 		Recruit.route = route
 	end
-	ns.Log("recruit: route from %s (gates %s, %d guilds%s)", key, tostring(route.gates), #route.list, route.dnc and ", do not contact" or "")
+	-- Gates only one answer named: one more member asked at once, whose answer agrees or not.
+	if GatesUnconfirmed(now) and AskedLately(now) < Recruit.ROUTE_ASKS then AskAnother(true) end
+	ns.Log("recruit: route from %s (gates %s, %d guilds%s)", key, tostring(claimed), #route.list, route.dnc and ", do not contact" or "")
 	ns.Fire("RECRUIT_CHANGED")
 	return true
 end
 ns.Comm.HandleOutside(Recruit.OnRoute)
 
--- The route's guilds in its order: the gates' first, then the most free slots.
+-- Whom this round of /who found in `guild` by that name, or nil: the server's word that he is
+-- there. A name without its realm (a member names those of his own realm so) matches by name.
+local function FoundIn(name, guild)
+	if type(name) ~= "string" or name == "" then return nil end
+	local key, bare = Key(name), not ns.RealmOf(name)
+	local short = ns.ShortName(key)
+	for _, p in ipairs(Recruit.found) do
+		local pk = Key(p.name)
+		if p.guild == guild and (pk == key or (bare and ns.ShortName(pk) == short)) then return p end
+	end
+	return nil
+end
+local function Found(guild)
+	for _, p in ipairs(Recruit.found) do
+		if p.guild == guild then return true end
+	end
+	return false
+end
+
+-- The route's guilds in its order: the gates' first (two answers agree on them), then the most
+-- free slots, each once /who found one of its members (none: nobody there to ask).
 local function RouteOrder(route)
 	local out = {}
 	if route.gates then out[1] = route.gates end
 	for _, e in ipairs(route.list) do
-		if e.name ~= route.gates then out[#out + 1] = e.name end
+		if e.name ~= route.gates and Found(e.name) then out[#out + 1] = e.name end
 	end
 	return out
 end
@@ -204,14 +286,18 @@ end
 local function Asked(name) return Recruit.asked[name] or askedKey[Key(name)] end
 
 -- The next member of that guild we have not asked yet (any guild if nil): its officers the
--- route named first, then who /who found; never one who asked not to be contacted. No guild:
--- the gates' guild first, then the most room, then anyone found.
+-- route named first, once /who found them in it (whispered by the server's name), then anyone
+-- /who found; never one who asked not to be contacted. No guild: the gates' guild first, then
+-- the most room, then anyone found.
 function Recruit.NextContact(guild)
 	local route = Recruit.Route()
 	if guild then
 		local e = route and route.byName[guild]
 		for _, c in ipairs(e and e.contacts or {}) do
-			if not Asked(c) and not dnc[Key(c)] then return { name = c, guild = guild, officer = true } end
+			local p = FoundIn(c, guild)
+			if p and not Asked(c) and not Asked(p.name) and not dnc[Key(c)] and not dnc[Key(p.name)] then
+				return { name = p.name, guild = guild, officer = true }
+			end
 		end
 	elseif route then
 		for _, name in ipairs(RouteOrder(route)) do
@@ -307,9 +393,21 @@ function Recruit.SetNoContact(on)
 	ns.Fire("DATA_CHANGED")
 end
 
+-- The guilds with room we name to recruits, the most free slots first: those the census does
+-- not mark (Data.Dispute: two senders or more agree on them; ours, our roster, never is). A
+-- guild one sender alone stands behind, or whose senders disagree, is nobody's advice.
+function Recruit.OpenGuilds()
+	local out = {}
+	for _, o in ipairs(ns.Views.OpenGuilds(ns.Data.Summary())) do
+		if ns.Data.Dispute(o.e.g) == nil then out[#out + 1] = o end
+	end
+	return out
+end
+
 -- Up to ROUTE_CONTACTS Lords and Captains online of a guild with room, to name to a recruit:
--- our own guild's from our roster, another's from its report. Never the King (the most asked of
--- all), and never ourselves while we ask not to be contacted.
+-- our own guild's from our roster, another's from its report, where two senders name them to
+-- that rank (Data.KnownRank). Never the King (the most asked of all), and never ourselves while
+-- we ask not to be contacted.
 local function Contacts(o, own)
 	local g, out = o.e.g, {}
 	local function Add(name, realm)
@@ -324,9 +422,14 @@ local function Contacts(o, own)
 			if (m.rankIndex or 9) <= ns.CAPTAIN_RANK then Add(m.name) end
 		end
 	else
-		if g.leaderOnline then Add(g.leader, g.realm) end
+		local function Named(name, rank)
+			if type(name) ~= "string" or name == "" then return false end
+			local k, senders = ns.Data.KnownRank(ns.FullName(name, g.realm), o.name)
+			return k == rank and (senders or 0) >= 2
+		end
+		if g.leaderOnline and Named(g.leader, 0) then Add(g.leader, g.realm) end
 		for _, of in ipairs(g.officers or {}) do
-			if of.online then Add(of.name, g.realm) end
+			if of.online and Named(of.name, 1) then Add(of.name, g.realm) end
 		end
 	end
 	return out
@@ -338,7 +441,7 @@ function Recruit.RouteAnswer()
 	local gates = ns.Acts and ns.Acts.Gates and ns.Acts.Gates()
 	local msg = ("J2~%s~%s~%d~"):format(Recruit.NoContactMe() and "n" or "y", gates and Field(gates.guild) or "",
 		gates and math.max(0, math.floor(gates.at - ns.Now())) or 0)
-	local open = ns.Views.OpenGuilds(ns.Data.Summary())
+	local open = Recruit.OpenGuilds()
 	for i, o in ipairs(open) do
 		if gates and o.name == gates.guild then
 			table.insert(open, 1, table.remove(open, i))
@@ -357,6 +460,10 @@ function Recruit.RouteAnswer()
 	return msg
 end
 
+-- Our answer to a J1, ANSWER_MAX a minute in all. Do not contact holds whatever the load: past
+-- ANSWER_MAX we still answer each asker once a minute, a bare "no" (outside the count), or the
+-- recruit's screen, left without an answer, would offer us.
+Recruit.DNC_ANSWER = "J2~n~~0~"
 local answeredAt, answers = {}, {} -- [asker] = when; times of our answers this last minute
 function Recruit.OnRouteAsk(dist, sender, text)
 	if dist ~= "WHISPER" or not ns.IsMember() then return false end
@@ -365,14 +472,15 @@ function Recruit.OnRouteAsk(dist, sender, text)
 	for i = #answers, 1, -1 do
 		if now - answers[i] >= 60 then table.remove(answers, i) end
 	end
-	if #answers >= Recruit.ANSWER_MAX then return false end
+	local room = #answers < Recruit.ANSWER_MAX
+	if not room and not Recruit.NoContactMe() then return false end
 	for name, t in pairs(answeredAt) do
 		if now - t >= Recruit.ANSWER_EACH then answeredAt[name] = nil end
 	end
 	answeredAt[sender] = now
-	answers[#answers + 1] = now
-	ns.Comm.Whisper(sender, Recruit.RouteAnswer(), nil, true)
-	ns.Log("recruit: told %s where to go", sender)
+	if room then answers[#answers + 1] = now end
+	ns.Comm.Whisper(sender, room and Recruit.RouteAnswer() or Recruit.DNC_ANSWER, nil, true)
+	ns.Log("recruit: told %s %s", sender, room and "where to go" or "do not contact")
 	return true
 end
 ns.Comm.Handle("J1", Recruit.OnRouteAsk)
@@ -444,13 +552,14 @@ function Recruit.Accept(req)
 	return true
 end
 
--- Where to send one we can't take: the gates' guild, or the one with the most room, not ours.
+-- Where to send one we can't take: the gates' guild, or the one with the most room the census
+-- does not mark, not ours.
 function Recruit.DeclineText(req)
 	local own = GetGuildInfo("player")
 	local gates = ns.Acts and ns.Acts.Gates and ns.Acts.Gates()
 	local other = gates and gates.guild ~= own and gates.guild or nil
 	if not other then
-		for _, o in ipairs(ns.Views.OpenGuilds(ns.Data.Summary())) do
+		for _, o in ipairs(Recruit.OpenGuilds()) do
 			if o.name ~= own then other = o.name break end
 		end
 	end
@@ -533,7 +642,8 @@ function Recruit.RequestLines()
 end
 
 function Recruit.ResetForTests()
-	wipe(routeAsked); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt); wipe(lineTimes); wipe(whispers)
+	wipe(routeAsked); wipe(routeAnswered); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
+	wipe(lineTimes); wipe(whispers)
 	lastRoute = -math.huge
 	Recruit.route, Recruit.pending, Recruit.lastAsk, Recruit.lastContact = nil, nil, 0, nil
 	Recruit.found, Recruit.asked, Recruit.replied, Recruit.requests = {}, {}, {}, {}

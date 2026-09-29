@@ -394,7 +394,8 @@ end
 -- guild's officers about our Lord, from our roster (the server's word, GetGuildRosterLastOnline);
 -- to the King, his Steward and his Hands (King.CanCommand) about every guild's Lord, from the
 -- census (a report's leaderDays, aged by how old the report is: a guild that stopped reporting
--- is exactly the one to hear about; the census's word, which the line says). Once per crossing:
+-- is exactly the one to hear about, its Lord online in its last report included; the census's
+-- word, which the line says). Once per crossing:
 -- again only after that Lord came back. A line, never a popup or a sound, and nothing is done to
 -- anyone: no kick, no transfer. Nothing is sent.
 ---------------------------------------------------------------------------
@@ -436,7 +437,11 @@ function Members.CheckLords(now)
 	for name, g in pairs(ns.rdb.guilds or {}) do
 		local age = now - (type(g) == "table" and g.t or 0)
 		if type(g) == "table" and not g.mine and name ~= own and g.leader and age <= ns.Data.KEEP and ns.IsFederation(name) then
-			local days = g.leaderOnline and 0 or ((g.leaderDays or 0) + math.max(0, age) / 86400)
+			-- Away since the report said so, and for as long as the report is old. A Lord the report
+			-- showed online counts from then once his guild stops reporting (older than FRESH): in a
+			-- guild where only he runs the addon, every report says he is online.
+			local stale = age > ns.Data.FRESH
+			local days = (g.leaderOnline and 0 or (g.leaderDays or 0)) + ((stale or not g.leaderOnline) and math.max(0, age) / 86400 or 0)
 			if days < Members.WarnDays() then
 				warned[name] = nil
 			elseif warned[name] ~= g.leader then

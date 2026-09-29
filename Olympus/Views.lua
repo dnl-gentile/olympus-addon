@@ -1859,9 +1859,10 @@ function Views.RecruitLines()
 	WhoStatus(lines)
 	if #lines > 1 then lines[#lines].gapAfter = true end
 	-- Where to go (1.1, Fern's #20): what a member's census said (Recruit.Route), the King's gates
-	-- first, then the most free slots; a click asks one of that guild's officers online.
+	-- first (two answers agree on them), then the most free slots of the guilds /who found; a
+	-- click asks one of that guild's officers /who found online.
 	local route = R.Route()
-	if route then
+	if route and #R.RouteOrder(route) > 0 then
 		lines[#lines + 1] = {
 			header = true, text = L.RECRUIT_ROUTE_TITLE,
 			tooltip = function(tt)
