@@ -179,8 +179,9 @@ WoW channel number to join). Each channel is exclusive to a rank:
   <word>`, 50 words at most), used on every client unless its player says `/oly filter shared
   off`. Each word is its own entry with the server's time of its edit, so two editors never undo
   each other's other words, and a removal is kept for 30 days. Clients take it from those
-  characters alone (the server stamps the sender), and each edit this client saw goes into its log
-  of acts, with the editor's name. Clients before 1.1 ignore the list.
+  characters alone (the server stamps the sender), and each edit this client heard from the
+  editor's own client, within 15 minutes of it, goes into its log of acts with the editor's name
+  (another editor's repeat of it does not: it is not his act). Clients before 1.1 ignore the list.
 - **Your choice (1.1).** The chats are off until you say yes on the first-open page (or
   `/oly chat on`). Off, `/ol`, `/olc` and `/oll` say so and send nothing, and no line from anyone
   shows or is kept on this client; the Realm tab says the chats are off, a click to choose.
@@ -451,9 +452,13 @@ account, `/oly discord forget` drops this character's request and proof.
   took while you were online (decrees, the gates opening and closing, pardons, the King's
   visibility switches for the treasury and the untabarded list, and the shared block terms'
   edits), each with the sender's name as the server stamped it, the newest 300. So "who opened the gates" has an answer after the message
-  is gone. Kept on your computer only, never sent, never in `/oly bug`; a record, not proof
-  (anyone can edit their own saved files). The Decrees tab lists it with a search box and a copy;
-  `/oly log [n | word | copy | clear]` in chat.
+  is gone. Only acts heard from whoever did them: a repeat or a relay of someone else's act (the
+  Treasurer's book carrying the King's switches, another editor's list carrying a block term) and
+  a state caught up on after a later login are not written. On the King's screen, while the
+  council's names are hidden there (his stream), every sender but the King shows cut short, and
+  the shared terms' words too, as everywhere on his screen. Kept on your computer only, never
+  sent, never in `/oly bug`; a record, not proof (anyone can edit their own saved files). The
+  Decrees tab lists it with a search box and a copy; `/oly log [n | word | copy | clear]` in chat.
 - **Search**: a box on top of the Census (a guild or its Lord), the Realm (guilds, Lords, Captains,
   members seen online, the Olympus chats' lines), the Tabards (inspected and untabarded players,
   by name or guild), the Treasury (donors in the ranking and the book) and, since 1.1, the Decrees
@@ -568,11 +573,11 @@ message (the game adds it). What goes where:
 | An answer to an ask for your layer (it tells the asker you are on it) | the asker alone (a whisper) | only if you share your zone and layer and said yes to layer help (1.1: off until you answer, on the first-open page or with `/oly layerhelp on`; `/oly layerhelp off` stops it) |
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one, only while the Olympus chats are on (1.1: off until you say yes, on the first-open page or with `/oly chat on`) |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
-| The shared block terms (1.1): each word, whether it was added or removed, and when | everyone on the Olympus channel | only from the client of the King, his Steward, a Hand or a High Councillor: at once when they edit it, and every 10 minutes while they play (not when another client just sent the same list). Your own filter is never sent |
+| The shared block terms (1.1): each word, whether it was added or removed, and when; for 15 minutes after an edit, the editor's own client adds his name to it (never to anyone else's) | everyone on the Olympus channel | only from the client of the King, his Steward, a Hand or a High Councillor: at once when they edit it, and every 10 minutes while they play (not when another client just sent the same list). Your own filter is never sent |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | everyone on the Olympus channel receives the bytes; the addon shows them to the King and his Steward, and to the army only with the King's switches | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the week's donors, the items donated (with who gave each last) and the book's latest lines | everyone on the Olympus channel receives the bytes; the addon shows them to the keepers, the King and his Steward, and to the army with the King's ranking or book switch | while that keeper shares his book: his yes, and a donor is not asked |
-| Your character's name, if you gave to the treasury before 1.0 (the early supporters): names only, no amounts, in alphabetical order | everyone on the Olympus channel receives the bytes; the addon shows them under the ranking, to whoever may see it | from the Treasurer's addon once he said yes to 1.0's question, which says their names go to everyone on the channel (his 0.9.3 yes is not enough), after his login and when a client asks: a donor is not asked |
+| Your character's name, if you gave to the treasury before 1.0 (the early supporters): names only, no amounts, in alphabetical order | everyone on the Olympus channel receives the bytes; the addon shows them under the ranking, to whoever may see it | from the Treasurer's addon once he said yes to 1.0's question or to his line on the first-open page, both of which say their names go to everyone on the channel (his 0.9.3 yes is not enough), after his login and when a client asks: a donor is not asked |
 | The King's crown on the map, and with it his zone and layer | everyone on the Olympus channel | only while the King turns it on (Throne tab), whatever he answered to the question |
 | A Royal Inspection's report (1.1: off until you say yes, on the first-open page or with `/oly inspection on`): when the King, his Steward or a Hand calls one and your addon is in the sample, it patrols for 2 minutes, inspecting the Olympus players of your faction around you, level 15 and up, with the game's own inspect, and records whether each wears the guild tabard, another one or none (kept in your saved variables); then it reports your guild, how many it found in each case (your own tabard counted) and up to 6 names, with their guild, of players caught without the colors | whoever called it, alone (a whisper); the King can show the names to the army on his untabarded list | each Royal Inspection you are sampled for (one every 30 minutes at most, for the whole realm), once you said yes and until `/oly inspection off`; you still get its raid warning either way |
 | Other players' lines in the Olympus chats as your addon accepted them (channel, sender and text; [Captains] and [Lords] only if your rank reads them), and the High Council list | other addons in your own game, through `OlympusBridge` (made for OfficerSpy, the moderators' companion addon, but any addon you install can read it) | always, while such an addon is loaded (no chat line while the Olympus chats are off on your client): Olympus sends nothing through it and never learns what that addon does with what it read |
@@ -592,22 +597,27 @@ bot's keeper made them) wait for your yes. The rest of the table goes out while 
 Olympus guild, with no question first: your guild's census (from the member it elects, with the
 names above), the hello, and what other addons read through the bridge.
 
-**The first-open page (1.1).** The first time the Olympus window opens (never in combat or in an
-instance, once a session), a page of its own says in plain words what always goes out (the
-census, with the names it carries, and the hello) and asks **Yes** or **No** for each of the
-rest: your zone and layer, layer help, your book of the treasury (keepers only), the Royal
-Inspection, the author's roll call and the Olympus chats. Each one stays off until its Yes. No
-on the chats means this client neither sends nor shows [Olympus], [Captains] or [Lords]. The
+**The first-open page (1.1).** It is the first question the addon asks. About 45 seconds after
+login, or when you open the Olympus window first (never in combat or in an instance, once a
+session, while something on it has no answer), a page of its own says in plain words what always
+goes out (the census, with the names it carries, and the hello) and asks **Yes** or **No** for
+each of the rest: your zone and layer, layer help, your book of the treasury (keepers only), the
+Royal Inspection, the author's roll call and the Olympus chats. Each one stays off until its Yes.
+No on the chats means this client neither sends nor shows [Olympus], [Captains] or [Lords]. The
 window, the census and your own guild's roster work whatever you answer, location included.
 `/oly privacy` opens the page again, and each answer has its own command too (`/oly location`,
 `/oly layerhelp`, `/oly treasurer`, `/oly inspection`, `/oly rollcall`, `/oly chat`). It is
 Olympus's own window, never the game's popup, so it works with Blizzard's gamepad UI. The
-author's update notices, which send nothing, still show until you say No to his roll call. On
-the Forever beta, whose saved variables never load, the page asks again every session.
+author's update notices, which send nothing, still show until you say No to his roll call. The
+Treasurer's line says what his 0.9.3 yes still sends until he answers there (his book), and that
+his Yes also sends the early supporters' names to everyone on the channel, as 1.0's question
+did. On the Forever beta, whose saved variables never load, the page asks again every session.
 
 **Zone and layer: off until you choose.** Once after login (never in combat or in an
 instance) the addon asks whether to share your zone and layer, saying what goes out and who
-reads it. Until you answer, and after **Keep private**, it announces no layer, and the census
+reads it: since 1.1 on the first-open page (the question's own popup only on a client updated
+without restarting the game). Until you answer, and after **Keep private**, it announces no
+layer, and the census
 your addon sends for your guild names nobody's zone and counts nobody per zone. **Share**
 turns both on. Change it any time with `/oly location on` or `/oly location off`; `/oly status`
 shows it. Layers and hops work better the more members share. Versions before

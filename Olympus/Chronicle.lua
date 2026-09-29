@@ -24,6 +24,18 @@ local L = ns.L
 --           written once: only when `value` differs from the last one written under `key`
 --           (or from `default` when none was). `words` show under the block-term filter.
 --
+-- Only acts heard from whoever did them: a repeat or a relay of someone else's act (the Treasurer's
+-- book carrying the King's switches, an editor's list carrying another's block term) is no act
+-- of its sender's, and a state this client only caught up on (a later login) is none it saw done.
+-- Such a state is noted, not written: ns.Chronicle.Seen(key, value), so the next change of it
+-- is compared with what this client holds.
+--
+-- On the King's screen while the council's names are hidden there (his stream, ns.CouncilMasked)
+-- every sender but the King shows cut short (ns.MaskName), in the list, its tooltips, the copy,
+-- /oly log and its search: these are the Crown's circle's acts, so a name here would say who is
+-- in it. The shared block terms' words show cut short on his screen always, as the filter's own
+-- lists do (Filter.Shown).
+--
 -- Kept in ns.rdb.acts (this realm group's), the newest Chronicle.MAX; /oly log shows it, and the
 -- Decrees tab lists it with a search box and a copy.
 
@@ -80,6 +92,12 @@ function Chronicle.Add(kind, by, what, opts)
 	return true
 end
 
+-- A state this client holds now without having seen it set (see above): noted, not written.
+function Chronicle.Seen(key, value)
+	if not ns.rdb or key == nil then return end
+	States()[tostring(key)] = tostring(value)
+end
+
 function Chronicle.Entries()
 	local list = ns.rdb and ns.rdb.acts
 	return type(list) == "table" and list or {}
@@ -104,22 +122,38 @@ local function Veiled(e)
 	local F = ns.Filter
 	return e.words ~= nil and not revealed[e] and F ~= nil and not F.missing and F.Hides ~= nil and F.Hides(e.words)
 end
+-- The shared block terms' words ("+term -term") as the filter shows terms: cut short on the
+-- King's screen (Filter.Shown), whole elsewhere.
+local function TermsShown(e)
+	local F = ns.Filter
+	if e.kind ~= "terms" or type(e.words) ~= "string" or not F or F.missing or type(F.Shown) ~= "function" then return e.words end
+	return (e.words:gsub("([%+%-]?)([^%s%+%-]+)", function(sign, term) return sign .. F.Shown(term) end))
+end
 local function Words(e)
 	if not e.words then return nil end
 	if Veiled(e) then return ns.L.FILTER_WORDS_HIDDEN_SHORT end
-	return '"' .. e.words .. '"'
+	return '"' .. TermsShown(e) .. '"'
+end
+
+-- The sender as this screen shows it: cut short on the King's while the council's names are
+-- hidden there (his stream), but his own.
+local function Who(e)
+	local by = tostring(e.by or "?")
+	if ns.CouncilMasked and ns.CouncilMasked() and not (ns.IsKingCharacter and ns.IsKingCharacter(by)) then return ns.MaskName(by) end
+	return by
 end
 
 -- One entry as a line of text: when (this computer's clock), what, and who sent it.
 function Chronicle.Line(e)
 	local when = date and date("%m-%d %H:%M", tonumber(e.t) or 0) or tostring(e.t)
 	local words = Words(e)
-	return ("%s  %s: %s%s  (%s)"):format(when, KindLabel(e.kind), tostring(e.what or ""), words and (" " .. words) or "", tostring(e.by or "?"))
+	return ("%s  %s: %s%s  (%s)"):format(when, KindLabel(e.kind), tostring(e.what or ""), words and (" " .. words) or "", Who(e))
 end
 
--- Does an entry hold the search (folded, ns.Holds)?
+-- Does an entry hold the search (folded, ns.Holds)? Only what this screen shows of the sender
+-- and of the shared terms.
 local function Found(e, q)
-	return ns.Holds(q, KindLabel(e.kind), e.what, e.by, e.words, date and date("%m-%d %H:%M", tonumber(e.t) or 0) or "")
+	return ns.Holds(q, KindLabel(e.kind), e.what, Who(e), TermsShown(e), date and date("%m-%d %H:%M", tonumber(e.t) or 0) or "")
 end
 
 -- The whole log as text, newest first, for the copy box: its caveat on top.
@@ -156,7 +190,7 @@ function Chronicle.AddLines(lines, q)
 				tooltip = function(tt)
 					tt:AddLine(KindLabel(e.kind), 1, 0.82, 0)
 					tt:AddLine(Chronicle.Line(e), 1, 1, 1, true)
-					tt:AddLine(L.ACTS_BY:format(tostring(e.by or "?")), 0.7, 0.7, 0.7, true)
+					tt:AddLine(L.ACTS_BY:format(Who(e)), 0.7, 0.7, 0.7, true)
 				end,
 			}
 			if not q and shown >= Chronicle.SHOWN then break end

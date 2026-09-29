@@ -64,6 +64,7 @@ Treasury.DAYS_KEPT = 8       -- days of sums kept (today and the week)
 Treasury.SHARE_EVERY = 300   -- a keeper's client repeats his book for late logins
 Treasury.SHARE_GAP = 60      -- and sends a change once a minute at most
 Treasury.FLAGS_EVERY = 300   -- the King's client repeats his switches and his keepers
+Treasury.WORD_FRESH = 120    -- 1.1: a switch given this recently goes out from its giver's client alone
 Treasury.RANK_SENT = 100     -- donors in the ranking sent (0.9.7; the message goes in pieces)
 Treasury.RANK_PAGE = 25      -- ranking lines shown, 25 more a click (the window stays light)
 Treasury.BOOK_SENT = 15      -- latest lines of the book sent
@@ -1029,8 +1030,9 @@ function Treasury.Consent()
 	return nil
 end
 
--- His answer to 1.0's question alone (true, false, or nil while he gave none): what the
--- first-open page shows him (1.1, Consent.lua), and what AskConsent waits for.
+-- His answer to 1.0's question alone (true, false, or nil while he gave none): what his line on
+-- the first-open page waits for (1.1, Consent.lua: it shows Consent, what goes out now), and
+-- AskConsent too.
 function Treasury.ConsentAnswer()
 	local shares = ns.db and ns.db.keeperShares
 	if type(shares) ~= "table" then return nil end
@@ -1124,8 +1126,10 @@ function Treasury.AskConsent()
 	local shares = ns.db and ns.db.keeperShares
 	if asked or not RealKeeper() or (type(shares) == "table" and shares[ConsentKey()] ~= nil) then return false end
 	if (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance()) then return false end
-	-- (1.1: the first-open page asked it this session, or is up: this question is on it.)
-	if ns.Consent and ns.Consent.Covers and ns.Consent.Covers("treasurer") then return false end
+	-- 1.1 (#11): in an Olympus guild the first-open page is the first question, this one on it
+	-- in the same words (once a session there). This popup only while Consent.lua is not loaded
+	-- (updated without a restart), and for a keeper outside a guild (the page asks members).
+	if ns.Consent and not ns.Consent.missing and ns.IsMember() then return ns.Consent.Ask("treasurer") == true end
 	asked = true
 	ns.ShowDialog("OLYMPUS_TREASURER_SHARE", ns.Comm.Audience and ns.Comm.Audience() or "")
 	return true
@@ -1438,7 +1442,7 @@ function Treasury.HandleReport(dist, sender, text)
 	-- The Treasurer repeats the King's switches, if newer than ours.
 	if ns.IsTreasurer(sender, guild) then
 		local b, k, o, at = f[11]:match("^([01])([01])([01])@(%d+)$")
-		if b then Treasury.TakeFlags(b .. k .. o, tonumber(at), sender) end
+		if b then Treasury.TakeFlags(b .. k .. o, tonumber(at), sender, true) end
 	end
 	ns.Fire("TREASURY_CHANGED")
 	ns.Fire("DATA_CHANGED") -- the tab may appear
@@ -1639,10 +1643,13 @@ local function TellKing(sender, text)
 end
 
 -- The King's client and his Steward's repeat the word, with the time it was given (a client that
--- never heard it sends nothing: it takes the word as the Treasurer repeats it).
+-- never heard it sends nothing: it takes the word as the Treasurer repeats it). 1.1 (#12): never
+-- another's word given less than WORD_FRESH ago: a word that new goes out from its giver's client
+-- alone, so the log of acts can name him (TakeFlags); after that it is repeated as before.
 function Treasury.SendFlags(force)
 	local f = ns.rdb and ns.rdb.treasuryFlags
 	if not ns.King.SetsLists() or type(f) ~= "table" or not tonumber(f.at) then return end
+	if not SameChar(f.from, ns.me) and Clock() - tonumber(f.at) < Treasury.WORD_FRESH then return end
 	local now = ns.Now()
 	if not force and now - lastFlagsSent < Treasury.FLAGS_EVERY then return end
 	lastFlagsSent = now
@@ -1683,10 +1690,10 @@ local function AnswerOlder(send)
 end
 
 -- The King's word ("101" and the time it was given), from him or his Steward, or repeated by
--- the Treasurer: taken when newer than the one kept (a time ahead of the server's clock by
--- King.DATE_AHEAD at most: a minute, so a modified client never keeps a word over the King's
--- newer one for longer).
-function Treasury.TakeFlags(digits, at, sender)
+-- the Treasurer (`relayed`): taken when newer than the one kept (a time ahead of the server's
+-- clock by King.DATE_AHEAD at most: a minute, so a modified client never keeps a word over the
+-- King's newer one for longer).
+function Treasury.TakeFlags(digits, at, sender, relayed)
 	local b, r, k = tostring(digits or ""):match("^([01])([01])([01])$")
 	at = tonumber(at)
 	if not b or not at or at > Clock() + ns.King.DATE_AHEAD then return end
@@ -1699,8 +1706,11 @@ function Treasury.TakeFlags(digits, at, sender)
 	local f = { balance = b == "1", ranking = r == "1", book = k == "1", at = at, t = ns.Now(), from = ns.FullName(sender) }
 	ns.rdb.treasuryFlags = f
 	-- 1.1 (#12): in this client's log of acts when what the army sees changes (the word is
-	-- repeated), with the name the server stamped (the Treasurer's, when his book carried it).
-	Treasury.LogFlags(sender, f)
+	-- repeated), with the name the server stamped, only when heard from whoever gave it: a word
+	-- given less than WORD_FRESH ago comes from his client alone (SendFlags). Never the
+	-- Treasurer's book (it repeats the word; he never gives it), nor a word caught up on later
+	-- (a later login, a repeat): those are only noted.
+	Treasury.LogFlags(sender, f, relayed or Clock() - at >= Treasury.WORD_FRESH)
 	if FlagDigits(f) ~= was then
 		TellKing(sender, L.STEWARD_SET_FLAGS)
 		-- A keeper is told who sees the treasury now.
@@ -1710,8 +1720,10 @@ function Treasury.TakeFlags(digits, at, sender)
 	end
 end
 -- What the army sees of the treasury, in this client's log of acts (1.1, #12): once each time it
--- changes; nothing shown is where it starts.
-function Treasury.LogFlags(sender, f)
+-- changes; nothing shown is where it starts. `quiet`: this client only caught up on it (noted,
+-- so the next change is compared with it, not written).
+function Treasury.LogFlags(sender, f, quiet)
+	if quiet then return ns.Chronicle.Seen("treasury", FlagDigits(f)) end
 	local shown = {}
 	for _, k in ipairs(FLAGS) do
 		if f[k] then shown[#shown + 1] = L["ACTS_TREASURY_" .. k:upper()] end
@@ -1978,6 +1990,7 @@ end
 
 -- 0.9's book was the Treasurer's: its names go out with his own yes to 1.0's question, which
 -- says the names go to everyone on the channel, whichever of his pinned characters holds it.
+-- (1.1: his line on the first-open page asks it, and says so too: YesSendsEarly.)
 -- His 0.9.3 yes is not enough (Konig's review of 1.0.0: it was given to a question that never
 -- said so; his book still goes out under it, and he is asked 1.0's question: AskConsent). His
 -- mail character's yes is to its own book, not to his.
@@ -1988,6 +2001,13 @@ local function TreasurerYes()
 	return shares[key] == true
 end
 local function MaySendEarly() return CanSend() and EarlyHolder() and TreasurerYes() end
+
+-- Whether this character's own yes is the one that sends the early supporters' names (the
+-- Treasurer's character, holding 0.9's book): his line on the first-open page then says so, as
+-- 1.0's question does (1.1, #11).
+function Treasury.YesSendsEarly()
+	return EarlyHolder() and TreasurerPin(ns.me) == 1 and ArchivedSupporters() ~= nil
+end
 
 -- The holder's client sends the list, a piece every EARLY_PACE (the channel's queue stays
 -- light), with its own yes to sharing and the Treasurer's (the names are who gave, as in his
