@@ -20,7 +20,8 @@ local L = ns.L
 --   WA~<ask>~<guild>~<profession>~<skill>~<recipe>:<item>,...   a listed crafter's answer:
 --                                                   the recipes that make it (WHISPER to the asker)
 --   WR~<key>                                         "which recipes do you have?" (WHISPER)
---   WL~<key>~<part>/<parts>~<recipe>:<item>,...      his recipes of that profession (WHISPER)
+--   WL~<key>~<part>/<parts>~<recipe>:<item>,...      his recipes of that profession (WHISPER, a
+--                                                   part each LIST_PACE); WL~<key>~0/0~: he is busy
 -- Ids travel as numbers; each client names them itself (the item's name in its own language).
 -- Versions before 1.1 have no handler for these and drop them.
 
@@ -29,7 +30,7 @@ ns.Crafters = Crafters
 
 Crafters.LIST_EVERY = 45 * 60      -- a listing is repeated this often while the player plays...
 Crafters.LIST_KEEP = 100 * 60      -- ...and shows this long after it was last heard
-Crafters.LIST_GAP = 10 * 60        -- the same listing again, unchanged, this often at most
+Crafters.LIST_GAP = 10 * 60        -- a listing whose skill or recipes changed this often at most (Crafters.SendListing)
 Crafters.BOARD_MAX = 400           -- crafters on the board
 Crafters.PROFS_MAX = 4             -- professions a listing carries
 Crafters.ASK_GAP = 15              -- our asks: one each 15 seconds...
@@ -44,6 +45,13 @@ Crafters.LIST_SAME = 120           -- ...to the same player once each 2 minutes
 Crafters.LIST_BYTES = 220          -- bytes of recipes in one message of a list (ids and a separator each)...
 Crafters.LIST_PARTS = 16           -- ...and parts of a list at most (some 250 recipes)
 Crafters.LIST_PER_MSG = 40         -- recipes a part may carry, at most, as a reader takes it
+-- (1.1 review: every part of four lists a minute went into our one send queue at once, 64 messages
+-- where it holds 60 and sends 50 a minute, and the oldest, our census pieces, were dropped.)
+Crafters.LIST_PACE = 6             -- one part of a list each 6 seconds (10 a minute), whoever asked...
+Crafters.LIST_QUEUE = 10           -- ...while our send queue holds this many at most (else it waits)
+Crafters.LIST_JOBS = 2             -- lists going out or waiting their turn; beyond, the asker is told we are busy
+Crafters.BUSY_PER_MIN = 4          -- such answers a minute at most
+Crafters.BUSY_WAIT = 60            -- the asker may ask again this soon after
 Crafters.random = math.random
 Crafters.after = function(seconds, where, fn) ns.After(seconds, where, fn) end
 
@@ -56,6 +64,9 @@ local answered = {}     -- [asker] = when we last answered him
 local answerTimes = {}  -- our answers' times (the last minute)
 local listSent = {}     -- [player] = when we last sent him a list
 local listTimes = {}
+local listJobs = {}     -- { { to, key, parts, i, stalls } }: our lists going out, a part each LIST_PACE
+local listPumping = false
+local busyTimes = {}    -- our "busy" answers' times (the last minute)
 local lists = {}        -- [crafter .. "~" .. key] = { parts = {}, n, t, recipes }: lists asked for
 local asked = {}        -- [crafter .. "~" .. key] = when we asked
 local lastListing, lastListingText = -math.huge, nil
@@ -219,7 +230,7 @@ function Crafters.Choose(key, yes)
 	elseif was > 0 then
 		-- Unlisted: the board forgets us at once (1.1 clients), or shows what is still listed.
 		if now == 0 then
-			lastListing, lastListingText = -math.huge, nil
+			lastListing, lastListingText, lastListingKeys = -math.huge, nil, nil
 			ns.Comm.Send("CHANNEL", "W0~", "crafterlist")
 		else
 			Crafters.SendListing(true)
@@ -241,32 +252,37 @@ function Crafters.Listed()
 	return out
 end
 
--- Our listing, when due (force: a new yes, or its time to be repeated). The same one again
--- LIST_GAP apart at the soonest; a changed one (a skill up while crafting) CHANGED_GAP apart, the
--- last change waiting for the board's ticker meanwhile.
+-- Our listing, when due (force: a new yes, or its time to be repeated, LIST_EVERY). Otherwise by
+-- what changed since the one sent last (the 1.1 review: a crafter levelling sent one every 2
+-- minutes, and a login two): a profession listed or taken off, CHANGED_GAP after it at the
+-- soonest; its skill or how many recipes (a skill up while crafting), LIST_GAP after it; nothing,
+-- LIST_EVERY (the repeat). A change too soon waits for the board's ticker.
 Crafters.CHANGED_GAP = 120
 local changedWaiting = false
+local lastListingKeys  -- the professions of the listing sent last
+local loginWait = false -- after login, our first listing waits for its own draw (Crafters.OnLogin)
 function Crafters.SendListing(force)
 	if not ns.IsMember() then return false end
 	local listed = Crafters.Listed()
 	if #listed == 0 then return false end
 	local head = ("W1~%s~"):format(Clean(GetGuildInfo("player"), 72))
-	local parts, size = {}, #head
+	local parts, keys, size = {}, {}, #head
 	for i = 1, math.min(#listed, Crafters.PROFS_MAX) do
 		local p = listed[i]
 		local e = ("%s:%s:%d:%d:%d"):format(p.key, p.name, p.rank or 0, p.max or 0, #(p.recipes or {}))
-		if size + #e + 1 <= 250 then parts[#parts + 1], size = e, size + #e + 1 end -- (one message)
+		if size + #e + 1 <= 250 then parts[#parts + 1], keys[#keys + 1], size = e, p.key, size + #e + 1 end -- (one message)
 	end
-	local text = head .. table.concat(parts, ",")
+	local text, keyText = head .. table.concat(parts, ","), table.concat(keys, ",")
 	local now = ns.Now()
 	if not force then
-		local gap = text == lastListingText and Crafters.LIST_GAP or Crafters.CHANGED_GAP
+		local gap = text == lastListingText and Crafters.LIST_EVERY
+			or keyText ~= lastListingKeys and Crafters.CHANGED_GAP or Crafters.LIST_GAP
 		if now - lastListing < gap then
 			changedWaiting = text ~= lastListingText
 			return false
 		end
 	end
-	lastListing, lastListingText, changedWaiting = now, text, false
+	lastListing, lastListingText, lastListingKeys, changedWaiting = now, text, keyText, false
 	ns.Comm.Send("CHANNEL", text, "crafterlist")
 	return true
 end
@@ -448,6 +464,30 @@ function Crafters.AskList(crafter, key)
 	return true
 end
 
+-- Our lists' parts, one each LIST_PACE while our send queue is short (Comm.QueueSize): the census
+-- and every other message of ours keep their place. A list stalled a minute is dropped (its asker
+-- asks again).
+local function PumpLists()
+	local job = listJobs[1]
+	if not job then
+		listPumping = false
+		return
+	end
+	if ns.Comm.QueueSize and ns.Comm.QueueSize() > Crafters.LIST_QUEUE then
+		job.stalls = job.stalls + 1
+		if job.stalls * Crafters.LIST_PACE >= 60 then table.remove(listJobs, 1) end
+	else
+		job.i = job.i + 1
+		ns.Comm.Whisper(job.to, ("WL~%s~%d/%d~%s"):format(job.key, job.i, #job.parts, table.concat(job.parts[job.i], ",")), "crafterlist " .. job.to .. job.i)
+		if job.i >= #job.parts then table.remove(listJobs, 1) end
+	end
+	if not listJobs[1] then
+		listPumping = false
+		return
+	end
+	Crafters.after(Crafters.LIST_PACE, "crafter list", PumpLists)
+end
+
 function Crafters.HandleListAsk(dist, sender, text)
 	if dist ~= "WHISPER" or not ns.IsMember() then return end
 	local key = text:match("^WR~([^~]+)$")
@@ -456,6 +496,14 @@ function Crafters.HandleListAsk(dist, sender, text)
 	sender = ns.FullName(sender)
 	local now = ns.Now()
 	if now - (listSent[sender] or -math.huge) < Crafters.LIST_SAME or Recent(listTimes, 60) >= Crafters.LISTS_PER_MIN then return end
+	if #listJobs >= Crafters.LIST_JOBS then
+		-- Busy with other players' lists: he is told so (and may ask again in a minute).
+		if Recent(busyTimes, 60) < Crafters.BUSY_PER_MIN then
+			busyTimes[#busyTimes + 1] = now
+			ns.Comm.Whisper(sender, ("WL~%s~0/0~"):format(key), "crafterbusy " .. sender)
+		end
+		return
+	end
 	listSent[sender] = now
 	listTimes[#listTimes + 1] = now
 	-- Parts of LIST_BYTES of entries each (a message holds 255 bytes), LIST_PARTS at most.
@@ -470,8 +518,11 @@ function Crafters.HandleListAsk(dist, sender, text)
 		cur[#cur + 1], size = e, size + #e + 1
 	end
 	if #cur > 0 and #parts < Crafters.LIST_PARTS then parts[#parts + 1] = cur end
-	for i, chunk in ipairs(parts) do
-		ns.Comm.Whisper(sender, ("WL~%s~%d/%d~%s"):format(key, i, #parts, table.concat(chunk, ",")), "crafterlist " .. sender .. i)
+	if #parts == 0 then return end
+	listJobs[#listJobs + 1] = { to = sender, key = key, parts = parts, i = 0, stalls = 0 }
+	if not listPumping then
+		listPumping = true
+		PumpLists()
 	end
 end
 ns.Comm.Handle("WR", function(...) Crafters.HandleListAsk(...) end)
@@ -482,9 +533,18 @@ function Crafters.HandleList(dist, sender, text)
 	sender = ns.FullName(sender)
 	local l = key and lists[sender .. "~" .. key]
 	part, parts = Num(part, Crafters.LIST_PARTS), Num(parts, Crafters.LIST_PARTS)
-	if not l or not part or not parts or part < 1 or part > parts or ns.Now() - l.t > Crafters.ASK_WAIT then return end
+	local now = ns.Now()
+	-- (Paced: a part each LIST_PACE; taken while they keep coming, ASK_WAIT after the last.)
+	if not l or not part or not parts or now - (l.last or l.t) > Crafters.ASK_WAIT then return end
+	if part == 0 and parts == 0 and not l.n then
+		-- He is busy sending other players' lists: asked again, on a click, BUSY_WAIT later.
+		l.busy = now
+		asked[sender .. "~" .. key] = now - Crafters.LIST_SAME + Crafters.BUSY_WAIT
+		return Changed()
+	end
+	if part < 1 or part > parts then return end
 	l.parts[part] = Recipes(list, Crafters.LIST_PER_MSG)
-	l.n = parts
+	l.n, l.last, l.busy = parts, now, nil
 	Changed()
 end
 ns.Comm.Handle("WL", function(...) Crafters.HandleList(...) end)
@@ -634,8 +694,11 @@ function Crafters.Lines(q)
 			if opened then
 				lines[#lines + 1] = { indent = 2, text = Gold(L.CRAFTER_WHISPER_TO:format(who)), onClick = function() Whisper(c.name) end }
 				local recipes, l = Crafters.ListOf(c.name, p.key)
-				if not recipes then
-					lines[#lines + 1] = { indent = 2, text = Gold(L.CRAFTER_SHOW_RECIPES), onClick = function() Crafters.AskList(c.name, p.key) end,
+				if not recipes or (l.busy and #recipes == 0) then
+					-- (His addon busy with other players' lists: he said so; a click asks again.)
+					local busy = l and l.busy
+					lines[#lines + 1] = { indent = 2, text = busy and Grey(L.CRAFTER_LIST_BUSY) or Gold(L.CRAFTER_SHOW_RECIPES),
+						onClick = function() Crafters.AskList(c.name, p.key) end,
 						tooltip = function(tt) tt:AddLine(L.CRAFTER_SHOW_RECIPES, 1, 0.82, 0); tt:AddLine(L.CRAFTER_SHOW_RECIPES_TIP, 1, 1, 1, true) end }
 				else
 					local items, others = RecipeItems(recipes)
@@ -643,7 +706,7 @@ function Crafters.Lines(q)
 					local got = 0
 					for part = 1, l.n or 0 do if l.parts[part] then got = got + 1 end end
 					if #recipes == 0 or got < (l.n or 1) then
-						lines[#lines + 1] = { indent = 2, text = Grey(ns.Now() - l.t < Crafters.ASK_WAIT and L.CRAFTER_WAITING or L.CRAFTER_LIST_PART:format(got, l.n or 0)) }
+						lines[#lines + 1] = { indent = 2, text = Grey(ns.Now() - (l.last or l.t) < Crafters.ASK_WAIT and L.CRAFTER_WAITING or L.CRAFTER_LIST_PART:format(got, l.n or 0)) }
 					end
 					if others > 0 then lines[#lines + 1] = { indent = 2, text = Grey(L.CRAFTER_OTHERS:format(others)) } end
 				end
@@ -713,12 +776,15 @@ end
 ns.RealmPages = ns.RealmPages or {}
 table.insert(ns.RealmPages, { key = "crafters", Link = function() return Crafters.Link() end, Lines = function(q) return Crafters.Lines(q) end, tip = "CRAFTER" })
 
--- Each minute: our listing again every LIST_EVERY, or a change that waited; the board forgets who
--- went quiet.
+-- Each minute: our listing again every LIST_EVERY, or a change that waited its time; the board
+-- forgets who went quiet. (Not before our login's own listing: one listing at a login.)
 function Crafters.Tick()
-	local now = ns.Now()
-	if now - lastListing >= Crafters.LIST_EVERY or (changedWaiting and now - lastListing >= Crafters.CHANGED_GAP) then
-		Crafters.SendListing(true)
+	if not loginWait then
+		if ns.Now() - lastListing >= Crafters.LIST_EVERY then
+			Crafters.SendListing(true)
+		elseif changedWaiting then
+			Crafters.SendListing()
+		end
 	end
 	Crafters.Board()
 end
@@ -734,7 +800,7 @@ local function Soon(craft)
 	end)
 end
 local shown = {}
-ns.On("LOGIN", function()
+function Crafters.OnLogin()
 	for _, ev in ipairs({ "TRADE_SKILL_SHOW", "CRAFT_SHOW" }) do
 		pcall(ns.RegisterEvent, ev, function()
 			shown[ev] = true
@@ -749,15 +815,21 @@ ns.On("LOGIN", function()
 		pcall(ns.RegisterEvent, ev, function() if shown[show] then Soon(show == "CRAFT_SHOW") end end)
 	end
 	-- Our listing again every LIST_EVERY (the first a minute or two after login, for what was
-	-- listed before); the board forgets who went quiet.
-	ns.After(60 + Crafters.random() * 60, "crafter listing", function() Crafters.SendListing(true) end)
+	-- listed before, unless a profession opened meanwhile sent it); the board forgets who went quiet.
+	loginWait = true
+	ns.After(60 + Crafters.random() * 60, "crafter listing", function()
+		loginWait = false
+		Crafters.SendListing()
+	end)
 	ns.Every(60, "crafter board", function() Crafters.Tick() end)
-end)
+end
+ns.On("LOGIN", function() Crafters.OnLogin() end)
 
 -- Tests start from a clean state.
 function Crafters.Reset()
 	wipe(board); boardCount = 0
 	myAsk, askCounter, pendingRead = nil, 0, nil
 	wipe(askTimes); wipe(answered); wipe(answerTimes); wipe(listSent); wipe(listTimes); wipe(lists); wipe(asked); wipe(open); wipe(questioned)
-	lastListing, lastListingText, changedWaiting = -math.huge, nil, false
+	lastListing, lastListingText, lastListingKeys, changedWaiting, loginWait = -math.huge, nil, nil, false, false
+	wipe(listJobs); wipe(busyTimes); listPumping = false
 end

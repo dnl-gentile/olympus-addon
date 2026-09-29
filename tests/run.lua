@@ -26042,9 +26042,10 @@ local MOONCLOTH = "|cff1eff00|Hitem:14342::::::::60:::::|h[Mooncloth]|h|r"
 local function WithCraft(fn)
 	local Cr = ns.Crafters
 	local saved = { send = ns.Comm.Send, whisper = ns.Comm.Whisper, print = ns.Print, fire = ns.Fire, dialog = ns.ShowDialog, now = ns.Now,
-		after = Cr.after, random = Cr.random, ui = ns.UI, pad = ns.GamepadUI, choice = ns.db.crafterChoice, data = ns.db.crafterData, me = ns.me }
+		after = Cr.after, random = Cr.random, ui = ns.UI, pad = ns.GamepadUI, choice = ns.db.crafterChoice, data = ns.db.crafterData, me = ns.me,
+		queue = ns.Comm.QueueSize }
 	for _, k in ipairs(CRAFT_GLOBALS) do saved[k] = _G[k] end
-	local w = { sent = {}, whispers = {}, printed = {}, dialogs = {}, later = {}, clock = 5000000, calls = {}, chat = {}, tells = {}, windows = {},
+	local w = { sent = {}, whispers = {}, printed = {}, dialogs = {}, later = {}, delays = {}, clock = 5000000, calls = {}, chat = {}, tells = {}, windows = {},
 		prof = { id = 197, name = "Tailoring", skill = 245, max = 300 }, linked = false,
 		recipes = { { id = 3915, name = "Linen Bag", item = 4238, learned = true }, { id = 18560, name = "Mooncloth", item = 14342, learned = true },
 			{ id = 12088, name = "Cindercloth Boots", item = 10044, learned = false }, { id = 3914, name = "Brown Linen Pants", item = 4343, learned = true } } }
@@ -26056,8 +26057,10 @@ local function WithCraft(fn)
 	ns.Print = function(m) w.printed[#w.printed + 1] = m end
 	ns.Fire = function() end
 	ns.ShowDialog = function(which, a, b, data) w.dialogs[#w.dialogs + 1] = { which = which, a = a, data = data } end
-	Cr.after = function(_, _, f) w.later[#w.later + 1] = f end
+	Cr.after = function(seconds, _, f) w.later[#w.later + 1] = f; w.delays[#w.delays + 1] = seconds end
 	Cr.random = function() return 0 end
+	-- (1.1 review: our send queue's length, for the recipe lists' pace.)
+	ns.Comm.QueueSize = function() return w.queue or 0 end
 	ns.UI = { WhisperWindow = function(name) w.windows[#w.windows + 1] = name end, SelectTab = function() end }
 	ns.GamepadUI = function() return w.gamepad == true end
 	GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Member", 3 end return nil end
@@ -26108,7 +26111,7 @@ local function WithCraft(fn)
 	local ok, err = pcall(fn, w, Cr)
 	ns.Comm.Send, ns.Comm.Whisper, ns.Print, ns.Fire, ns.ShowDialog, ns.Now = saved.send, saved.whisper, saved.print, saved.fire, saved.dialog, saved.now
 	Cr.after, Cr.random, ns.UI, ns.GamepadUI = saved.after, saved.random, saved.ui, saved.pad
-	ns.db.crafterChoice, ns.db.crafterData, ns.me = saved.choice, saved.data, saved.me
+	ns.db.crafterChoice, ns.db.crafterData, ns.me, ns.Comm.QueueSize = saved.choice, saved.data, saved.me, saved.queue
 	for _, k in ipairs(CRAFT_GLOBALS) do _G[k] = saved[k] end
 	Cr.Reset()
 	ns.Views.CloseChat()
@@ -26156,7 +26159,9 @@ test("1.1 crafters (#24): opening a profession reads its skill and the recipes k
 	end)
 end)
 
-test("1.1 crafters (#24): the yes lists the profession on the channel (name, guild, skill, how many recipes); repeated every 45 minutes; a skill up at most each 2 minutes", function()
+-- (1.1 review: a skill up was sent CHANGED_GAP, 2 minutes, after the last listing: a crafter
+-- levelling put one on the channel every 2 minutes. It now waits LIST_GAP, 10 minutes.)
+test("1.1 crafters (#24): the yes lists the profession on the channel (name, guild, skill, how many recipes); repeated every 45 minutes; a skill up at most each 10 minutes", function()
 	WithCraft(function(w, Cr)
 		Cr.Opened()
 		StaticPopupDialogs.OLYMPUS_CRAFTER_LIST.OnAccept(nil, "197")
@@ -26165,7 +26170,7 @@ test("1.1 crafters (#24): the yes lists the profession on the channel (name, gui
 		-- Opened again, nothing changed: no question, nothing sent.
 		Cr.Opened()
 		eq(#w.dialogs, 1); eq(#w.sent, 1)
-		-- Crafting: a skill up, then another; the listing waits CHANGED_GAP, then the board's tick sends the last.
+		-- Crafting: a skill up, then another; the listing waits LIST_GAP, then the board's tick sends the last.
 		w.clock = w.clock + 10
 		w.prof.skill = 246
 		Cr.Opened()
@@ -26173,6 +26178,9 @@ test("1.1 crafters (#24): the yes lists the profession on the channel (name, gui
 		Cr.Opened()
 		eq(#w.sent, 1, "not at every skill up")
 		w.clock = w.clock + Cr.CHANGED_GAP
+		Cr.Tick()
+		eq(#w.sent, 1, "a skill up is no new profession")
+		w.clock = w.clock + Cr.LIST_GAP - Cr.CHANGED_GAP
 		Cr.Tick()
 		eq(w.sent[2], "CHANNEL W1~Olympus II~197:Tailoring:247:300:3")
 		Cr.Tick()
@@ -26286,7 +26294,10 @@ test("1.1 crafters (#24): a crafter's recipes on a click, by whisper, in parts; 
 		Cr.Opened()
 		Cr.Choose("197", true)
 		Cr.HandleListAsk("WHISPER", "Asker-Realm", "WR~197")
-		eq(#w.whispers, 2, "33 recipes: two parts")
+		-- (1.1 review: paced, a part each LIST_PACE, where every part went into the queue at once.)
+		eq(#w.whispers, 1, "the first part at once"); eq(w.delays[#w.delays], Cr.LIST_PACE)
+		w.run()
+		eq(#w.whispers, 2, "33 recipes: two parts"); eq(#w.later, 0, "the list done")
 		assert(w.whispers[1]:find("^Asker%-Realm WL~197~1/2~3915:4238,18560:14342,"), w.whispers[1])
 		for _, m in ipairs(w.whispers) do assert(#m - #"Asker-Realm " <= 250, "one message each") end
 		Cr.HandleListAsk("WHISPER", "Asker-Realm", "WR~197")
@@ -26402,6 +26413,194 @@ test("1.1 crafters (#24): /oly craft and /oly crafter; the strings in both langu
 		assert(doc:find("| Your crafter listing (1.1)", 1, true), file .. ": the privacy table")
 		assert(doc:find("| An answer to \"who can make it\"", 1, true), file .. ": the privacy table")
 	end
+end)
+
+-- The 1.1 review: the channel's budget of listings, and our send queue under recipe lists.
+local function CountW1(w)
+	local n = 0
+	for _, s in ipairs(w.sent) do if s:find("^CHANNEL W1~") then n = n + 1 end end
+	return n
+end
+
+test("1.1 crafters (#24): the channel's budget: nothing changed, the 45-minute repeat alone; levelling, a listing each 10 minutes at most; a new profession 2 minutes after the last", function()
+	WithCraft(function(w, Cr)
+		Cr.Opened()
+		Cr.Choose("197", true)
+		eq(CountW1(w), 1)
+		-- An hour of play, nothing changing, the window opened (or updated) each minute: the repeat alone.
+		for _ = 1, 60 do
+			w.clock = w.clock + 60
+			Cr.Opened()
+			Cr.Tick()
+		end
+		eq(CountW1(w), 2, "the first and the 45-minute repeat (7 before: the same again each 10 minutes)")
+		-- An hour of levelling: a skill up each minute, the window updated, the board's tick.
+		local before = CountW1(w)
+		for _ = 1, 60 do
+			w.clock = w.clock + 60
+			w.prof.skill = w.prof.skill + 1
+			Cr.Opened()
+			Cr.Tick()
+		end
+		local levelling = CountW1(w) - before
+		assert(levelling >= 5 and levelling <= 60 * 60 / Cr.LIST_GAP, levelling .. " listings in an hour of levelling (31 before)")
+		-- Another profession listed (his yes kept from before): CHANGED_GAP after the last.
+		w.clock = w.clock + Cr.LIST_GAP
+		Cr.Tick()
+		before = CountW1(w)
+		Cr.Choices()["164"] = true
+		w.prof = { id = 164, name = "Blacksmithing", skill = 100, max = 150 }
+		w.clock = w.clock + 10
+		Cr.Opened()
+		eq(CountW1(w), before, "not at once")
+		w.clock = w.clock + Cr.CHANGED_GAP
+		Cr.Tick()
+		eq(CountW1(w), before + 1)
+		assert(w.sent[#w.sent]:find("164:Blacksmithing:100:150:", 1, true) and w.sent[#w.sent]:find("197:Tailoring:", 1, true), w.sent[#w.sent])
+	end)
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("so about 1.3 an hour while you play and 6 at most while", 1, true), file)
+		assert(doc:find("a skill up or a new recipe (10 minutes)", 1, true), file .. ": the privacy table")
+		assert(doc:find("two players' lists at a time (the next is told you are busy)", 1, true), file .. ": the privacy table")
+	end
+end)
+
+test("1.1 crafters (#24): a login (or /reload) sends one listing: the board's ticker waits for the login's own draw, and a profession opened first counts as it", function()
+	WithCraft(function(w, Cr)
+		Cr.Opened()
+		Cr.Choose("197", true)
+		-- A /reload: the yes and the profession kept, the session's state gone; the login's timers
+		-- run for 10 minutes (openAt: the player opens his profession then).
+		local function Login(openAt)
+			Cr.Reset()
+			w.sent = {}
+			local timers, tickers = {}, {}
+			local saved = { after = ns.After, every = ns.Every, register = ns.RegisterEvent }
+			ns.After = function(seconds, _, f) timers[#timers + 1] = { at = w.clock + seconds, f = f } end
+			ns.Every = function(seconds, _, f) tickers[#tickers + 1] = { every = seconds, f = f } end
+			ns.RegisterEvent = function() end
+			Cr.random = function() return 0.5 end
+			local ok, err = pcall(function()
+				Cr.OnLogin()
+				local t0 = w.clock
+				for s = 1, 600 do
+					w.clock = t0 + s
+					if s == openAt then Cr.Opened() end
+					for _, t in ipairs(timers) do
+						if not t.done and t.at <= w.clock then t.done = true; t.f() end
+					end
+					for _, t in ipairs(tickers) do if s % t.every == 0 then t.f() end end
+				end
+			end)
+			ns.After, ns.Every, ns.RegisterEvent = saved.after, saved.every, saved.register
+			Cr.random = function() return 0 end
+			if not ok then error(err, 0) end
+			return CountW1(w)
+		end
+		eq(Login(nil), 1, "one listing, at the login's draw (two before: the ticker's at a minute, then the draw's)")
+		eq(Login(10), 1, "the profession opened first sent it; the draw finds nothing new")
+	end)
+end)
+
+test("1.1 crafters (#24): recipe lists go a part each LIST_PACE while our send queue is short: four players a minute for 20 minutes never fill it, and every census piece goes", function()
+	local function Name(i) return "Asker" .. string.char(97 + math.floor((i - 1) / 26) % 26) .. string.char(97 + (i - 1) % 26) .. "-Realm" end
+	local savedChannel, savedChat = GetChannelName, C_ChatInfo
+	local ok, err = pcall(function()
+		WithCraft(function(w, Cr)
+			-- A top crafter: 300 recipes (16 parts, the most a list sends).
+			for i = 1, 300 do w.recipes[#w.recipes + 1] = { id = 400000 + i, name = "Recipe " .. i, item = 200000 + i, learned = true } end
+			Cr.Opened()
+			Cr.Choose("197", true)
+			-- Our messages through a Comm of their own: its one queue, a message each 1.2 s (Comm.Pump).
+			GetChannelName = function() return 5 end
+			local cns = FreshComm()
+			local out = {}
+			C_ChatInfo = { RegisterAddonMessagePrefix = function() end,
+				SendAddonMessage = function(_, msg, dist) out[#out + 1] = { dist = dist, msg = msg } return true end }
+			cns.Comm.JoinChannel()
+			ns.Comm.Whisper, ns.Comm.QueueSize = cns.Comm.Whisper, cns.Comm.QueueSize
+			local timers = {}
+			Cr.after = function(seconds, _, f) timers[#timers + 1] = { at = w.clock + seconds, f = f } end
+			local maxQueue, reports, asked = 0, 0, 0
+			local t0 = w.clock
+			local function Step(s)
+				w.clock = t0 + s * 1.2
+				table.sort(timers, function(a, b) return a.at < b.at end)
+				while timers[1] and timers[1].at <= w.clock do table.remove(timers, 1).f() end
+				maxQueue = math.max(maxQueue, cns.Comm.QueueSize())
+				cns.Comm.Pump()
+			end
+			for s = 0, 1000 do -- (20 minutes)
+				-- Our census report (5 pieces) each 170 s, four players' asks each minute.
+				if s % 142 == 0 then cns.Comm.SendChunked(("R"):rep(1000), nil, "CHANNEL"); reports = reports + 1 end
+				if s % 50 == 0 then
+					for _ = 1, 4 do asked = asked + 1; Cr.HandleListAsk("WHISPER", Name(asked), "WR~197") end
+				end
+				Step(s)
+			end
+			for s = 1001, 1300 do Step(s) end -- (what was left goes)
+			local census, parts, busy = 0, 0, 0
+			for _, m in ipairs(out) do
+				if m.dist == "CHANNEL" and m.msg:find("^C%d+:%d:5:R") then census = census + 1 end
+				if m.dist == "WHISPER" and m.msg:find("^WL~197~%d+/%d+~") then
+					if m.msg:find("^WL~197~0/0~") then busy = busy + 1 else parts = parts + 1 end
+				end
+			end
+			eq(census, reports * 5, "every census piece went (the oldest were dropped from a full queue before)")
+			assert(maxQueue < 60 and maxQueue <= (Cr.LIST_QUEUE or 0) + 6, maxQueue .. " waiting at most (the queue holds 60)")
+			assert(parts >= 100 and parts <= 1300 * 1.2 / Cr.LIST_PACE + Cr.LIST_PARTS, parts .. " parts")
+			assert(busy >= 1, "the others were told he is busy")
+		end)
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, savedChat
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 crafters (#24): told he is busy, the page says so and a click asks again a minute later", function()
+	WithCraft(function(w, Cr)
+		eq(Cr.AskList("Tailor-Realm", "197"), true)
+		Cr.HandleList("WHISPER", "Tailor-Realm", "WL~197~0/0~")
+		local recipes, l = Cr.ListOf("Tailor-Realm", "197")
+		eq(#recipes, 0); assert(l.busy, "busy")
+		Cr.HandleListing("CHANNEL", "Tailor-Realm", "W1~Olympus Zeus~197:Tailoring:280:300:40")
+		local lines = Cr.Lines()
+		for _, line in ipairs(lines) do if line.key == "Tailor-Realm" then line.onClick() end end
+		local busyLine
+		for _, line in ipairs(Cr.Lines()) do if line.text and line.text:find(ns.L.CRAFTER_LIST_BUSY, 1, true) then busyLine = line end end
+		assert(busyLine, "the page says he is busy")
+		w.whispers = {}
+		busyLine.onClick()
+		eq(#w.whispers, 0, "not at once")
+		w.clock = w.clock + Cr.BUSY_WAIT
+		busyLine.onClick()
+		eq(w.whispers[1], "Tailor-Realm WR~197", "a minute later")
+		-- His parts: taken while they keep coming, a part each LIST_PACE, past ASK_WAIT from the ask.
+		for i = 1, 3 do
+			w.clock = w.clock + 60
+			Cr.HandleList("WHISPER", "Tailor-Realm", ("WL~197~%d/3~%d:%d"):format(i, 100 + i, 200 + i))
+		end
+		eq(#Cr.ListOf("Tailor-Realm", "197"), 3)
+		-- The crafter's side: two lists at a time; the third player told he is busy (4 such a minute at most).
+		for i = 1, 30 do w.recipes[#w.recipes + 1] = { id = 20000 + i, name = "Recipe " .. i, item = 30000 + i, learned = true } end
+		Cr.Opened()
+		Cr.Choose("197", true)
+		w.whispers = {}
+		Cr.HandleListAsk("WHISPER", "One-Realm", "WR~197")
+		Cr.HandleListAsk("WHISPER", "Two-Realm", "WR~197")
+		Cr.HandleListAsk("WHISPER", "Three-Realm", "WR~197")
+		eq(w.whispers[#w.whispers], "Three-Realm WL~197~0/0~")
+		eq(#w.whispers, 2, "One's first part, Three told")
+		-- Our queue long: the part waits.
+		w.queue = Cr.LIST_QUEUE + 1
+		w.run()
+		eq(#w.whispers, 2)
+		w.queue = 0
+		w.run(); w.run(); w.run()
+		eq(#w.whispers, 5, "One's second, then Two's two")
+	end)
 end)
 end
 
