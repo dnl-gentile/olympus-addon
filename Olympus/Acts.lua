@@ -163,7 +163,7 @@ local function OnWrit(sender, id, rest)
 	local w = { id = id, king = ns.FullName(sender), by = ns.KingName(sender), to = to, text = text, t = now }
 	list[#list + 1] = w
 	while #list > Acts.WRITS_KEPT do table.remove(list, 1) end
-	ns.King.Warn(L.WRIT_ARRIVED:format(w.by), false)
+	ns.King.Warn(L.WRIT_ARRIVED:format(w.by), false, "throne")
 	Acts.ShowWrit(w)
 	ns.Fire("DECREES_CHANGED")
 end

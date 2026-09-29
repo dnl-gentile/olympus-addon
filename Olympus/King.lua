@@ -143,12 +143,13 @@ local function Changed()
 	end)
 end
 
-local function Warn(text, loud)
+-- kind: the alert's sound switch (1.1, ns.SOUND_KINDS).
+local function Warn(text, loud, kind)
 	ns.Print("|cffffd200" .. text .. "|r")
 	if RaidNotice_AddMessage and RaidWarningFrame then
 		RaidNotice_AddMessage(RaidWarningFrame, text, ChatTypeInfo and ChatTypeInfo["RAID_WARNING"] or { r = 1, g = 0.82, b = 0 })
 	end
-	ns.PlayAlert(loud and "loud" or "soft")
+	ns.PlayAlert(loud and "loud" or "soft", kind or "throne")
 end
 
 local function NewId() return math.random(1, 99999) end
@@ -374,7 +375,7 @@ local function HandChanged(was, told)
 	local now = King.IsHand()
 	if now and not was then
 		ns.Print(told())
-		ns.PlayAlert("soft")
+		ns.PlayAlert("soft", "throne")
 		ns.Fire("DATA_CHANGED") -- the Throne's tab appears
 	elseif was and not now then
 		ns.Fire("DATA_CHANGED")
@@ -503,7 +504,7 @@ StaticPopupDialogs["OLYMPUS_KING_UNHAND"] = {
 local kinds = {}
 function King.Register(kind, fn) kinds[kind] = fn end
 King.Changed = function() Changed() end
-King.Warn = function(text, loud) Warn(text, loud) end
+King.Warn = function(text, loud, kind) Warn(text, loud, kind) end
 King.NewId = function() return NewId() end
 King.CleanName = function(s) return CleanName(s) end
 King.CleanGuild = function(s) return CleanGuild(s) end
@@ -545,7 +546,7 @@ local function OnSummon(king, id, guild)
 	if now - lastSummonSeen < King.SUMMON_GAP then return end
 	if not ns.IsMember() or ns.Roster.MyRank() > ns.CAPTAIN_RANK then return end
 	lastSummonSeen = now
-	ns.PlayAlert("soft")
+	ns.PlayAlert("soft", "throne")
 	-- The King by the army's name for him; a Hand by theirs.
 	local who = King.FromKing(king, guild) and L.THRONE_SUMMONED:format(ns.KingName(king)) or L.THRONE_SUMMONED_HAND:format(ns.DisplayName(king))
 	ns.ShowDialog("OLYMPUS_KING_SUMMON", who, nil, { king = king, id = id })
@@ -642,7 +643,7 @@ function King.RunInspection(king, id)
 	if inspecting or not ns.IsMember() then return end
 	local start = ns.Now()
 	inspecting = { king = king, id = id, start = start, wasOn = ns.Inspect.IsPatrolling() }
-	Warn(L.THRONE_INSPECT_WARN, true)
+	Warn(L.THRONE_INSPECT_WARN, true, "throne")
 	if not inspecting.wasOn then ns.Inspect.SetPatrol(true) end
 	ns.Inspect.SetPace(King.INSPECT_PACE) -- the realm's budget (INSPECT_BUDGET)
 	ns.After(King.INSPECT_TIME, "royal inspection", function()
@@ -697,11 +698,11 @@ local function OnInspect(king, id)
 	-- a player who said no (/oly inspection off, 0.9.3).
 	if ns.db and ns.db.royalInspection == false then
 		ns.Log("inspection %d: not taking part (/oly inspection off)", id or 0)
-		return Warn(L.THRONE_INSPECT_WARN, true)
+		return Warn(L.THRONE_INSPECT_WARN, true, "throne")
 	end
 	if King.random() > King.InspectShare() then
 		ns.Log("inspection %d: not in this sample (%.2f)", id or 0, King.InspectShare())
-		return Warn(L.THRONE_INSPECT_WARN, true)
+		return Warn(L.THRONE_INSPECT_WARN, true, "throne")
 	end
 	King.RunInspection(king, id)
 end
@@ -832,7 +833,7 @@ function King.SetAgenda(input)
 	if not King.CanCommand() then return false end
 	agenda = mine
 	King.SendAgenda()
-	Warn(L.THRONE_AGENDA_SET:format(title, minutes, mine.zone))
+	Warn(L.THRONE_AGENDA_SET:format(title, minutes, mine.zone), false, "agenda")
 	Changed()
 	return true
 end
@@ -877,7 +878,7 @@ local function OnAgenda(king, id, rest, guild)
 	if now - lastAgendaWarn >= King.AGENDA_GAP then
 		lastAgendaWarn = now
 		local minutes = math.ceil(seconds / 60)
-		Warn(L.THRONE_AGENDA_SET:format(agenda.title, minutes, agenda.zone))
+		Warn(L.THRONE_AGENDA_SET:format(agenda.title, minutes, agenda.zone), false, "agenda")
 		-- The King by the army's name for him; a Hand by theirs (as OnSummon).
 		local where = agenda.zone ~= "" and agenda.zone or "?"
 		local text = King.FromKing(king, guild) and L.THRONE_AGENDA_POPUP:format(ns.KingName(king), agenda.title, minutes, where)
@@ -1092,7 +1093,7 @@ ns.On("LOGIN", function()
 		for _, mark in ipairs({ 600, 60 }) do
 			if left <= mark and left > 0 and not a.fired[mark] then
 				a.fired[mark] = true
-				Warn(L.THRONE_AGENDA_SOON:format(a.title, math.max(1, math.ceil(left / 60)), a.zone))
+				Warn(L.THRONE_AGENDA_SOON:format(a.title, math.max(1, math.ceil(left / 60)), a.zone), false, "agenda")
 			end
 		end
 		if a.mine and (not a.sentAt or ns.Now() - a.sentAt >= King.AGENDA_RESEND) then

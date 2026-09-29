@@ -358,6 +358,8 @@ function ns.StatusText()
 			add("Horde King: %s, realm %s", tostring(ns.KING_CHARACTER.Horde), tostring(ns.KingRealm and ns.KingRealm() or "?"))
 		end
 		add("royal inspection: %s (/oly inspection on|off)", ns.db.royalInspection == false and "not taking part" or "taking part when sampled")
+		-- 1.1: the switch for all alert sounds, and the kinds silenced on their own.
+		add("alerts: %s", ns.AlertStatus and ns.AlertStatus() or "?")
 		add("author's roll call: %s (/oly rollcall on|off)", ns.Workshop and ns.Workshop.Answers and (ns.Workshop.Answers() and "answered" or "refused") or "?")
 		-- Olympus Link (0.9.10): the key's id and tier only, never the key.
 		add("discord link: %s", ns.Link and ns.Link.StatusLine and ns.Link.StatusLine() or "not loaded")

@@ -154,6 +154,15 @@ author, by removing him. The
 King's Steward (1.0.0, [below](#the-kings-steward-100)) sends the Crown's decrees for
 `<Olympus>` on every client, whatever his rank, like the King.
 
+**Alert sounds (1.1).** Each kind of alert has a sound switch of its own, at the bottom of the
+Decrees tab (a click on its line, with the gamepad UI too) or with `/oly sound <kind> on|off`:
+`arms` (Call to Arms), `muster`, `royal` (Royal decrees and Tabard inspections), `court`, `vox`,
+`agenda`, `throne` (the roll call, the Royal Inspection, writs), `help` (help requests and bug
+reports), `hop`, `treasury`, `patrol` and `update`. Silence the chimes you don't want and keep
+the Call to Arms: `/oly sound` alone is still the switch for every sound, and each kind keeps its
+own switch under it. A softer chime never silences the Call to Arms that follows it. Only the
+sound changes: the chat line, the raid warning and the Olympus window stay, and nothing is sent.
+
 ### Channels
 Chat for the whole federation, carried by the addon over its hidden Olympus channel (no
 WoW channel number to join). Each channel is exclusive to a rank:
@@ -885,7 +894,8 @@ Other limits:
 - Tabard inspections are kept for two weeks, 2000 players at most (marked and caught players
   first); the Tabards page lists the first 200.
 - Messages are spaced 1.2 s apart, below Blizzard's addon message limits, and alert sounds
-  play at most once every 15 seconds.
+  play at most once every 15 seconds (1.1: a softer one never silences the Call to Arms or a
+  louder alert after it).
 - Chat has its own short lane: a line goes out within about a second, and while reports are
   waiting it never takes more than every other message slot.
 
@@ -925,7 +935,8 @@ Other limits:
 | `/oly key <secret>` | officers: seal the Olympus channel |
 | `/oly block <name>` | ignore a player |
 | `/oly map` | zone markers on the world map |
-| `/oly sound` | alert sounds on or off |
+| `/oly sound` · `/oly sound on\|off` | every alert sound on or off |
+| `/oly sound <kind> on\|off` | one kind's sound (1.1): `arms`, `muster`, `royal`, `court`, `vox`, `agenda`, `throne`, `help`, `hop`, `treasury`, `patrol`, `update`; also a click on its line at the bottom of the Decrees tab |
 | `/oly bug` | copyable bug report (also: the help button left of the window's X, then **Report a bug**) |
 | `/oly status` | diagnostics in chat (1.0.0: whom your addon knows as the King's Steward, and the lists of Hands it holds, whose each is) |
 

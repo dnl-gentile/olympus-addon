@@ -243,7 +243,7 @@ function Hop.HandleRequest(dist, sender, text)
 	local auto = ns.db.layerAutoInvite or (KingChoice() == "auto" and OnKingLayer(true))
 	if auto and OnlyGuests() then return Invite(sender, id, true) end
 	pending = { from = sender, id = id, t = ns.Now() }
-	ns.PlayAlert("soft")
+	ns.PlayAlert("soft", "hop")
 	ns.ShowDialog("OLYMPUS_HOP_REQUEST", ns.DisplayName(sender), nil, pending)
 	Changed()
 end
@@ -483,7 +483,7 @@ function Hop.OnInvite(name)
 		if ask.phase ~= "requested" then ask.phase = "requested" end
 		if ask.hinted ~= helper then
 			ask.hinted = helper
-			ns.PlayAlert("soft")
+			ns.PlayAlert("soft", "hop")
 			ns.Print(L.HOP_ACCEPT_HINT:format(ns.DisplayName(helper)))
 		end
 		Changed()
@@ -512,7 +512,7 @@ end
 local function OfferLeave()
 	if not ask or ask.leaveShown then return end
 	ask.leaveShown = true
-	ns.PlayAlert("soft")
+	ns.PlayAlert("soft", "hop")
 	ns.ShowDialog("OLYMPUS_HOP_LEAVE", L.HOP_MAYBE_MOVED, nil, ask)
 end
 
@@ -800,7 +800,7 @@ function Hop.CheckKingPrompt()
 	local mine = ns.Layers.Mine()
 	if not mine or ns.Now() - (mine.t or 0) > Hop.LAYER_FRESH or not OnKingLayer() then return end
 	promptShown = true
-	ns.PlayAlert("soft")
+	ns.PlayAlert("soft", "hop")
 	Hop.ShowKingPrompt()
 end
 

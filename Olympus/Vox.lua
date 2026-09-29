@@ -491,7 +491,7 @@ function Vox.Show(asker, id, seconds, q, answers, multi, byKing)
 	end
 	frame = frame or MakeFrame()
 	frame.live = nil
-	ns.PlayAlert("soft")
+	ns.PlayAlert("soft", "vox")
 	frame:Show()
 	Vox.Refresh()
 end

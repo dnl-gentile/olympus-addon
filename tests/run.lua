@@ -24455,5 +24455,241 @@ test("1.0.0 the Hands' hint says they speak with the King's Crown to the other g
 	assert(rawget(pt.L, "HANDS_HINT"):find("decretos reais", 1, true))
 end)
 
+---------------------------------------------------------------------------
+-- 1.1: a sound switch for each kind of alert, besides the one for all; the Call to Arms never
+-- swallowed by a softer chime (Core.lua: ns.PlayAlert, ns.SoundSlash; the Decrees tab).
+---------------------------------------------------------------------------
+
+-- The game's sound: PlaySound spied, GetTime on a clock the test moves, every switch on.
+local function SoundBench(fn)
+	local saved = { play = PlaySound, kit = SOUNDKIT, time = GetTime, sound = ns.db.sound, off = ns.db.soundOff, print = ns.Print }
+	local b = { clock = 1000, played = {}, printed = {} }
+	PlaySound = function(id) b.played[#b.played + 1] = id end
+	SOUNDKIT = { RAID_WARNING = 8959, READY_CHECK = 8960 }
+	GetTime = function() return b.clock end
+	ns.Print = function(m) b.printed[#b.printed + 1] = tostring(m) end
+	ns.db.sound, ns.db.soundOff = true, nil
+	ns.ResetSounds()
+	local ok, err = pcall(fn, b)
+	PlaySound, SOUNDKIT, GetTime, ns.db.sound, ns.db.soundOff, ns.Print = saved.play, saved.kit, saved.time, saved.sound, saved.off, saved.print
+	ns.ResetSounds()
+	if not ok then error(err, 0) end
+end
+
+test("1.1 alert sounds: a softer chime never swallows the Call to Arms, a louder alert silences the softer ones", function()
+	SoundBench(function(b)
+		-- (What plays is counted, not what PlayAlert returns: 1.0's returned nothing.)
+		ns.PlayAlert("soft", "vox")
+		eq(#b.played, 1); eq(b.played[1], SOUNDKIT.READY_CHECK)
+		b.clock = b.clock + 5
+		ns.PlayAlert("soft", "court")
+		eq(#b.played, 1, "a second chime within 15 s: once is enough")
+		-- 1.0: one 15 s gap for every sound, and a Vox chime silenced the Call to Arms after it.
+		ns.PlayAlert("loud", "arms")
+		eq(#b.played, 2, "the Call to Arms sounds whatever chimed before it")
+		eq(b.played[2], SOUNDKIT.RAID_WARNING)
+		b.clock = b.clock + 5
+		eq(ns.PlayAlert("loud", "royal"), false, "the Call to Arms just said it")
+		eq(ns.PlayAlert("soft", "muster"), false)
+		b.clock = b.clock + 16
+		eq(ns.PlayAlert("soft", "muster"), true)
+		b.clock = b.clock + 1
+		eq(ns.PlayAlert("loud", "royal"), true, "a loud alert sounds whatever soft one did")
+		b.clock = b.clock + 1
+		eq(ns.PlayAlert("loud", "court"), false, "two loud ones: 15 s apart")
+		eq(ns.PlayAlert("loud", "arms"), true, "still the Call to Arms")
+		b.clock = b.clock + 1
+		eq(ns.PlayAlert("loud", "arms"), false, "two Calls to Arms: 15 s apart")
+		eq(#b.played, 5)
+	end)
+end)
+
+test("1.1 alert sounds: /oly sound <kind> on|off, the switch for all as before, 1.0's saves as they were", function()
+	SoundBench(function(b)
+		local L = ns.L
+		local Slash = SlashCmdList.OLYMPUS
+		Slash("sound muster off")
+		eq(ns.db.soundOff.muster, true); eq(ns.SoundOn("muster"), false); eq(ns.SoundOn("arms"), true)
+		eq(b.printed[#b.printed], L.SOUNDS_SOME_OFF:format("muster"))
+		eq(ns.PlayAlert("soft", "muster"), false, "the Muster silenced")
+		eq(ns.PlayAlert("soft", "vox"), true, "Vox Populi still chimes")
+		b.clock = b.clock + 16
+		Slash("sound vox") -- (alone: switched)
+		eq(ns.SoundOn("vox"), false)
+		Slash("SOUND Court OFF")
+		eq(b.printed[#b.printed], L.SOUNDS_SOME_OFF:format("muster, court, vox"), "in the kinds' order")
+		eq(ns.PlayAlert("soft", "court"), false)
+		eq(ns.PlayAlert("loud", "arms"), true, "the Call to Arms stays")
+		-- The switch for all, alone as before 1.1: every sound off; back on, each kind as it was.
+		b.clock = b.clock + 16
+		Slash("sound")
+		eq(ns.db.sound, false); eq(b.printed[#b.printed], L.SOUNDS_OFF)
+		eq(ns.PlayAlert("loud", "arms"), false, "every sound off")
+		Slash("sound on")
+		eq(ns.db.sound, true); eq(ns.SoundOn("muster"), false, "each kind kept its switch")
+		eq(ns.PlayAlert("loud", "arms"), true)
+		Slash("sound off"); eq(ns.db.sound, false)
+		Slash("sound on"); eq(ns.db.sound, true)
+		-- Each kind back on: nothing left in the save.
+		Slash("sound muster on"); Slash("sound vox on"); Slash("sound court on")
+		eq(ns.db.soundOff, nil); eq(b.printed[#b.printed], L.SOUNDS_ALL_ON)
+		-- A kind there is not: how to use it, nothing changed.
+		Slash("sound banana off")
+		eq(b.printed[#b.printed], L.SOUND_USAGE:format(table.concat(ns.SOUND_KINDS, ", ")))
+		eq(ns.db.soundOff, nil); eq(ns.SetSound("banana", false), false)
+		-- 0.9 and 1.0's saves: the one switch, no kinds.
+		ns.db.sound, ns.db.soundOff = false, nil
+		for _, k in ipairs(ns.SOUND_KINDS) do eq(ns.SoundOn(k), false, k) end
+		ns.db.sound = true
+		for _, k in ipairs(ns.SOUND_KINDS) do eq(ns.SoundOn(k), true, k) end
+		-- /oly status says which.
+		ns.db.soundOff = { vox = true, hop = true }
+		eq(ns.AlertStatus(), "sounds on, off: vox,hop")
+	end)
+end)
+
+test("1.1 alert sounds: every alert names its kind (ns.PlayAlert, King.Warn), each a kind with a switch and words in both languages", function()
+	local kinds = {}
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local okPt, errPt = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not okPt then error(errPt, 0) end
+	for _, k in ipairs(ns.SOUND_KINDS) do
+		kinds[k] = true
+		assert(rawget(ns.L, "SOUND_" .. k:upper()), k)
+		assert(rawget(pt.L, "SOUND_" .. k:upper()), "pt-BR " .. k)
+	end
+	for _, key in ipairs({ "HELP_SOUND", "SOUND_USAGE", "SOUNDS_ALL_ON", "SOUNDS_SOME_OFF", "SOUNDS_OFF", "SOUNDS_TITLE", "SOUNDS_TIP", "SOUND_KIND_TIP", "SOUND_ALL_ON", "SOUND_ALL_OFF", "SOUND_ON", "SOUND_OFF" }) do
+		assert(rawget(ns.L, key), key); assert(rawget(pt.L, key), "pt-BR " .. key)
+		local _, n = ns.L[key]:gsub("%%s", ""); local _, m = pt.L[key]:gsub("%%s", "")
+		eq(m, n, key .. ": the same %s in both")
+	end
+	local calls, seen = 0, {}
+	local p = io.popen('ls "' .. ADDON_DIR .. '"')
+	for file in p:lines() do
+		if file:match("%.lua$") then
+			local src = assert(io.open(ADDON_DIR .. file)):read("*a")
+			for line in src:gmatch("[^\n]+") do
+				local call = not line:find("function", 1, true) and not line:match("^%s*%-%-") and (line:find("PlayAlert(", 1, true) or line:find("Warn(", 1, true))
+				if call then
+					calls = calls + 1
+					local kind = line:match('PlayAlert%(.*"(%l+)"%)') or line:match('Warn%(.*"(%l+)"%)')
+					assert(kind and kinds[kind], file .. ": an alert without its kind: " .. line)
+					seen[kind] = true
+				end
+			end
+		end
+	end
+	p:close()
+	assert(calls >= 25, "the alerts: " .. calls)
+	for _, k in ipairs({ "court", "vox", "agenda", "throne", "help", "hop", "treasury", "patrol", "update", "muster" }) do assert(seen[k], k) end
+	-- The decrees: each kind its switch, the Tabard inspection with the Royal decree.
+	eq(ns.Decree.SOUND.ARMS, "arms"); eq(ns.Decree.SOUND.MUSTER, "muster"); eq(ns.Decree.SOUND.ROYAL, "royal"); eq(ns.Decree.SOUND.HERALDRY, "royal")
+end)
+
+test("1.1 alert sounds: a decree, a court call and a Vox question sound by their own switch, and still show", function()
+	SoundBench(function(b)
+		WithUI(function()
+			-- A decree (the local preview, the path every decree takes: Decree.lua's Show), on a
+			-- client of its own.
+			local saved = { best = C_Map.GetBestMapForUnit, pos = C_Map.GetPlayerMapPosition }
+			local ok, err = pcall(function()
+				C_Map.GetBestMapForUnit = function() return 1453 end
+				C_Map.GetPlayerMapPosition = function() return { GetXY = function() return 0.5, 0.5 end } end
+				local cns = FreshComm()
+				assert(loadfile(ADDON_DIR .. "Decree.lua"))("Olympus", cns)
+				cns.Decree.Preview("MUSTER")
+				eq(#b.played, 1, "the Muster chimes"); eq(b.played[1], SOUNDKIT.READY_CHECK)
+				b.clock = b.clock + 3
+				cns.Decree.Preview("ARMS")
+				eq(#b.played, 2, "the Call to Arms right after it"); eq(b.played[2], SOUNDKIT.RAID_WARNING)
+				b.clock = b.clock + 16
+				ns.SoundSlash("muster off")
+				cns.Decree.Preview("MUSTER")
+				eq(#b.played, 2, "the Muster silenced")
+				eq(#cns.Decree.Active(), 3, "and shown all the same")
+				ns.SoundSlash("arms off")
+				cns.Decree.Preview("ARMS")
+				eq(#b.played, 2, "the Call to Arms silenced by its own switch")
+				ns.SoundSlash("royal off")
+				ns.SoundSlash("arms on")
+				cns.Decree.Preview("ARMS")
+				eq(#b.played, 3, "the Call to Arms back")
+			end)
+			C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition = saved.best, saved.pos
+			C_ChatInfo = nil
+			if not ok then error(err, 0) end
+			-- The court's call and a Vox question: the popup and the window, silent.
+			WithThrone(function(w, K)
+				local C = ns.Court
+				C_Map.GetBestMapForUnit = function() return 1453 end
+				C_Map.GetMapInfo = function() return { mapType = 3 } end
+				GetRealZoneText = function() return "Stormwind City" end
+				b.clock = b.clock + 16
+				ns.SoundSlash("court off"); ns.SoundSlash("vox off")
+				AsSoldier()
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~C~61~Olympus~1453~Stormwind City")
+				C.HandleCall("WHISPER", "Asmongold Asmongler-Realm", "T5~61")
+				eq(w.popups[#w.popups].name, "OLYMPUS_COURT_CALLED", "the call still shows")
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~V~62~Olympus~60~1~Raid?~Yes~No")
+				assert(ns.Vox.Frame():IsShown(), "the question's window still opens")
+				eq(#b.played, 3, "neither sounded")
+				ns.SoundSlash("vox on")
+				ns.Vox.Reset()
+				b.clock = b.clock + 16
+				w.clock = w.clock + 120
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~V~63~Olympus~60~1~Again?~Yes~No")
+				eq(#b.played, 4, "Vox Populi on again")
+			end)
+		end)
+	end)
+end)
+
+test("1.1 alert sounds: the switches on the Decrees tab, a click each (with the gamepad UI too: no popup, no text box)", function()
+	SoundBench(function(b)
+		WithGamepadUI(true, function(game)
+			local savedShow, savedFocus = ns.ShowDialog, ns.Focus
+			local asked = 0
+			ns.ShowDialog = function() asked = asked + 1 end
+			ns.Focus = function() asked = asked + 1 end
+			local ok, err = pcall(function()
+				local function Find()
+					local head, rows = nil, {}
+					for _, l in ipairs(ns.Views.Build("decrees")) do
+						if l.text == ns.L.SOUNDS_TITLE then head = l end
+						if l.sound then rows[l.sound] = l end
+					end
+					return head, rows
+				end
+				local head, rows = Find()
+				assert(head and head.header and head.onClick, "the switch for all, on the heading")
+				assert(head.right:find(ns.L.SOUND_ALL_ON, 1, true), head.right)
+				for _, k in ipairs(ns.SOUND_KINDS) do
+					assert(rows[k] and rows[k].onClick and rows[k].tooltip, k)
+					assert(rows[k].text:find(ns.SoundLabel(k), 1, true), rows[k].text)
+					assert(rows[k].right:find(ns.L.SOUND_ON, 1, true), k)
+				end
+				rows.muster.onClick()
+				eq(ns.SoundOn("muster"), false)
+				head, rows = Find()
+				assert(rows.muster.right:find(ns.L.SOUND_OFF, 1, true), rows.muster.right)
+				rows.muster.onClick()
+				eq(ns.SoundOn("muster"), true, "a second click: on again")
+				head.onClick()
+				eq(ns.db.sound, false)
+				head, rows = Find()
+				assert(head.right:find(ns.L.SOUND_ALL_OFF, 1, true), head.right)
+				head.onClick()
+				eq(ns.db.sound, true)
+				eq(asked, 0, "no dialog, no focus"); eq(#game.shown, 0, "no game popup")
+			end)
+			ns.ShowDialog, ns.Focus = savedShow, savedFocus
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

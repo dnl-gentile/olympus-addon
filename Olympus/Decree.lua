@@ -35,6 +35,9 @@ local function Where()
 end
 
 local LABEL = { ARMS = "ARMS", MUSTER = "MUSTER", ROYAL = "ROYAL", HERALDRY = "HERALDRY_CALL" }
+-- Each decree's sound switch (1.1, ns.SOUND_KINDS): the Tabard inspection goes with the Royal decree.
+local SOUND = { ARMS = "arms", MUSTER = "muster", ROYAL = "royal", HERALDRY = "royal" }
+Decree.SOUND = SOUND
 local ICONS = {
 	ARMS = "Interface\\Icons\\Ability_Warrior_WarCry",
 	MUSTER = "Interface\\Icons\\INV_Misc_Horn_01",
@@ -81,7 +84,7 @@ local function Show(d)
 	if RaidNotice_AddMessage and RaidWarningFrame then
 		RaidNotice_AddMessage(RaidWarningFrame, text, ChatTypeInfo and ChatTypeInfo["RAID_WARNING"] or { r = 1, g = 0.3, b = 0.1 })
 	end
-	ns.PlayAlert(d.kind == "MUSTER" and "soft" or "loud")
+	ns.PlayAlert(d.kind == "MUSTER" and "soft" or "loud", SOUND[d.kind] or "muster")
 	if Pins then d.pin = MakePin(d) end
 	Decree.RefreshPins()
 	ns.Log("decree %s from %s <%s> map %d", d.kind, d.sender, d.guild, d.mapID)

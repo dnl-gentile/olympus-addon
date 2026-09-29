@@ -101,7 +101,7 @@ function Court.Request(sender, id, guild)
 		local who = shown and ("%s <%s>"):format(ns.DisplayName(sender), shown) or ns.DisplayName(sender)
 		ns.Print(L.COURT_REQUEST:format(who) .. (n > 5 and ("  (" .. n .. ")") or ""))
 	end
-	ns.PlayAlert("soft")
+	ns.PlayAlert("soft", "court")
 	ns.King.Changed()
 end
 
@@ -148,7 +148,7 @@ local function OnCourt(sender, id, rest)
 	if Court.InMyZone() and court.toldIn ~= mapID then
 		court.toldIn = mapID
 		ns.Print(L.COURT_HERE:format(ns.KingName(sender), court.zone))
-		ns.PlayAlert("soft")
+		ns.PlayAlert("soft", "court")
 	end
 	ns.Fire("COURT_CHANGED")
 end
@@ -205,7 +205,7 @@ function Court.HandleCall(dist, sender, text)
 	if not c or c.id ~= id or c.king ~= ns.FullName(sender) or c.calledAt then return end
 	c.calledAt = ns.Now()
 	c.askedAt = c.askedAt or c.calledAt
-	ns.King.Warn(L.COURT_CALLED:format(ns.KingName(sender), c.zone), true)
+	ns.King.Warn(L.COURT_CALLED:format(ns.KingName(sender), c.zone), true, "court")
 	ns.ShowDialog("OLYMPUS_COURT_CALLED", ns.KingName(sender), c.zone)
 	ns.Fire("COURT_CHANGED")
 end

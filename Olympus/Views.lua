@@ -1425,6 +1425,39 @@ local function DecreeHelp(lines)
 	end
 end
 
+-- The alert sounds (1.1): the switch for all on the heading, one line per kind below, a click
+-- turns it on or off (the same as /oly sound [kind] on|off; with the gamepad UI too: a click
+-- on a row, no text box, no popup).
+local function SoundLines(lines)
+	local all = ns.db.sound and true or false
+	lines[#lines].gapAfter = true
+	lines[#lines + 1] = {
+		header = true,
+		text = L.SOUNDS_TITLE,
+		right = all and Green(L.SOUND_ALL_ON) or Red(L.SOUND_ALL_OFF),
+		onClick = function() ns.SoundSlash(all and "off" or "on") end,
+		tooltip = function(tt)
+			tt:AddLine(L.SOUNDS_TITLE, 1, 0.82, 0)
+			tt:AddLine(L.SOUNDS_TIP, 1, 1, 1, true)
+		end,
+	}
+	for _, kind in ipairs(ns.SOUND_KINDS) do
+		local on = ns.SoundKindOn(kind)
+		local state = on and (all and Green(L.SOUND_ON) or Grey(L.SOUND_ON)) or Red(L.SOUND_OFF)
+		lines[#lines + 1] = {
+			text = (all and "" or "|cff9d9d9d") .. ns.SoundLabel(kind) .. (all and "" or "|r") .. "  " .. Grey("(" .. kind .. ")"),
+			right = state,
+			sound = kind, -- (tests)
+			onClick = function() ns.SoundSlash(kind .. (on and " off" or " on")) end,
+			tooltip = function(tt)
+				tt:AddLine(ns.SoundLabel(kind), 1, 0.82, 0)
+				tt:AddLine(L.SOUND_KIND_TIP:format(kind), 1, 1, 1, true)
+				if not all then tt:AddLine(L.SOUNDS_OFF, 1, 0.25, 0.25, true) end
+			end,
+		}
+	end
+end
+
 local function DecreeDetail()
 	local who
 	if ns.IsCrown() then who = L.YOU_ARE_CROWN
@@ -1638,6 +1671,7 @@ local BUILD = {
 		local title, text = DecreeDetail()
 		local lines = DecreeLines()
 		DecreeHelp(lines)
+		SoundLines(lines)
 		return lines, title, text
 	end,
 	heraldry = function()

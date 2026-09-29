@@ -462,15 +462,101 @@ function ns.MakeRoundButton(name, parent, size)
 	return b
 end
 
--- One alert sound at most every 15 seconds, whatever triggers it.
-local lastSound = 0
-function ns.PlayAlert(kind)
-	if not (ns.db and ns.db.sound) or not PlaySound or not SOUNDKIT then return end
+-- Each alert says what it is (its kind), and each kind has a sound switch of its own (1.1): one
+-- switch for them all made players silence the Call to Arms with the chimes they did not want.
+-- ns.db.sound stays the switch for every kind, as in 0.9 and 1.0 (their saves keep working);
+-- ns.db.soundOff[kind] = true silences one kind. Local only: nothing is sent.
+--   arms, muster, royal   the decrees (royal: the Royal decree and the Tabard inspection)
+--   court, vox, agenda    the King's court, Vox Populi, the King's Agenda
+--   throne                the King's other calls: the roll call, the Royal Inspection, writs, a Hand or Steward named
+--   help                  a High Councillor's help requests, the author's bug reports
+--   hop, treasury, patrol a layer hop, a donation, a patrol's player without the tabard
+--   update                the author's update notice
+ns.SOUND_KINDS = { "arms", "muster", "royal", "court", "vox", "agenda", "throne", "help", "hop", "treasury", "patrol", "update" }
+local SOUND_KIND = {}
+for _, k in ipairs(ns.SOUND_KINDS) do SOUND_KIND[k] = true end
+
+-- The kind's own switch, whatever the one for all says.
+function ns.SoundKindOn(kind)
+	local off = ns.db and ns.db.soundOff
+	return not (type(off) == "table" and off[kind])
+end
+-- Does an alert of this kind sound (nil: the switch for all alone)?
+function ns.SoundOn(kind)
+	if not (ns.db and ns.db.sound) then return false end
+	return kind == nil or ns.SoundKindOn(kind)
+end
+-- kind nil: the switch for all. False for a kind there is not.
+function ns.SetSound(kind, on)
+	if kind == nil then
+		ns.db.sound = on and true or false
+		return true
+	end
+	if not SOUND_KIND[kind] then return false end
+	local off = type(ns.db.soundOff) == "table" and ns.db.soundOff or {}
+	off[kind] = (not on) or nil
+	ns.db.soundOff = next(off) ~= nil and off or nil
+	return true
+end
+
+-- One alert sound every 15 seconds at most, but a softer one never silences a louder one: the
+-- Call to Arms (a lane of its own) sounds whatever chimed just before it, a loud alert (a Royal
+-- decree, the King's call) whatever soft one did. A louder one silences the softer ones after it.
+-- tone: "soft" or "loud"; kind: see SOUND_KINDS. True when it played.
+local SOUND_GAP = 15
+local lastSound = {}
+function ns.ResetSounds() lastSound = { -math.huge, -math.huge, -math.huge } end -- (tests too)
+ns.ResetSounds()
+function ns.PlayAlert(tone, kind)
+	if not ns.SoundOn(kind) or not PlaySound or not SOUNDKIT then return false end
+	local rank = kind == "arms" and 3 or (tone == "soft" and 1 or 2)
 	local now = GetTime()
-	if now - lastSound < 15 then return end
-	lastSound = now
-	local id = kind == "soft" and (SOUNDKIT.READY_CHECK or SOUNDKIT.RAID_WARNING) or SOUNDKIT.RAID_WARNING
+	for r = rank, 3 do
+		if now - lastSound[r] < SOUND_GAP then return false end
+	end
+	lastSound[rank] = now
+	local id = tone == "soft" and (SOUNDKIT.READY_CHECK or SOUNDKIT.RAID_WARNING) or SOUNDKIT.RAID_WARNING
 	if id then pcall(PlaySound, id) end
+	return true
+end
+
+-- The switches in words: for /oly sound and the Decrees tab.
+function ns.SoundLabel(kind) return L["SOUND_" .. kind:upper()] end
+local function KindsOff()
+	local off = {}
+	for _, k in ipairs(ns.SOUND_KINDS) do
+		if not ns.SoundKindOn(k) then off[#off + 1] = k end
+	end
+	return off
+end
+function ns.SoundState()
+	if not (ns.db and ns.db.sound) then return L.SOUNDS_OFF end
+	local off = KindsOff()
+	if #off == 0 then return L.SOUNDS_ALL_ON end
+	return L.SOUNDS_SOME_OFF:format(table.concat(off, ", "))
+end
+
+-- For /oly status and /oly bug (in English, as the rest there).
+function ns.AlertStatus()
+	if not (ns.db and ns.db.sound) then return "sounds all off" end
+	local off = KindsOff()
+	return #off > 0 and ("sounds on, off: " .. table.concat(off, ",")) or "sounds on"
+end
+
+-- /oly sound: alone, the switch for all (as before 1.1); on|off, the same; <kind> [on|off], one kind.
+function ns.SoundSlash(rest)
+	local what, on = tostring(rest or ""):lower():match("^(%S*)%s*(%S*)")
+	if what == "" then
+		ns.SetSound(nil, not ns.db.sound)
+	elseif what == "on" or what == "off" then
+		ns.SetSound(nil, what == "on")
+	elseif SOUND_KIND[what] then
+		if on == "on" or on == "off" then ns.SetSound(what, on == "on") else ns.SetSound(what, not ns.SoundKindOn(what)) end
+	else
+		return ns.Print(L.SOUND_USAGE:format(table.concat(ns.SOUND_KINDS, ", ")))
+	end
+	ns.Print(ns.SoundState())
+	ns.Fire("DECREES_CHANGED") -- (the switches on the Decrees tab)
 end
 
 -- Captains (officers) are rank index 1, right below the guild master, in every guild. It is
@@ -1240,7 +1326,7 @@ local function Help()
 	ns.Print("v" .. ns.VERSION .. " commands:")
 	print("  /oly - open/close the window")
 	print("  /oly tabard - Heraldry Inspection tab")
-	print("  /oly sound - turn alert sounds on/off")
+	print(L.HELP_SOUND)
 	print("  /oly patrol - start/stop inspecting nearby Olympus members")
 	print("  /oly mark [reason] - mark your target")
 	print("  /oly map - show/hide zone counts on the world map")
@@ -1299,8 +1385,7 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "inspect" or cmd == "tabard" or cmd == "heraldry" then
 			ns.UI.SelectTab("heraldry")
 		elseif cmd == "sound" then
-			ns.db.sound = not ns.db.sound
-			ns.Print("sound = " .. tostring(ns.db.sound))
+			ns.SoundSlash(rest)
 		elseif cmd == "patrol" then
 			ns.Inspect.SetPatrol(not ns.Inspect.IsPatrolling())
 		elseif cmd == "mark" then
