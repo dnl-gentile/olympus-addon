@@ -336,8 +336,10 @@ end
 -- book came; the author's view always), and every member once the King shows the army something.
 function Treasury.Visible()
 	if Treasury.IsKeeper() or ns.King.Preview() then return true end
-	-- (1.1: the King, his Steward or a Hand holding a sister guild's bank: Bank.lua.)
+	-- (1.1: the King, his Steward or a Hand holding a sister guild's bank, and a Lord or Captain
+	-- with a request to the treasury: Bank.lua.)
 	if ns.Bank and ns.Bank.SeesSisters and ns.Bank.SeesSisters() and #ns.Bank.Sisters() > 0 then return true end
+	if ns.Bank and ns.Bank.MyRequests and ns.IsMember() and #ns.Bank.MyRequests() > 0 then return true end
 	if ns.King.SetsLists() then return (ns.splitNames and ns.faction ~= "Horde") or Treasury.Report() ~= nil end
 	return ns.IsMember() and Treasury.AnyShown() and Treasury.Report() ~= nil
 end
@@ -554,6 +556,9 @@ function Treasury.Record(name, copper, how, out, o)
 	while #b.lines > Treasury.MAX do table.remove(b.lines, 1) end
 	if not e.excluded then Count(b, e, 1) end
 	Touch(b)
+	-- 1.1: an item given (a counted payment) to a player who asked the treasury for it closes his
+	-- request once he got its count (Bank.lua).
+	if item and out and not e.excluded and kind ~= "transfer" and ns.Bank and ns.Bank.Paid then ns.Bank.Paid(name, item, count) end
 	-- The King (and the army) see it soon (once a minute at most).
 	Treasury.Share()
 	if not o.quiet then
@@ -1285,6 +1290,8 @@ function Treasury.Share(force)
 	Send(Treasury.Message(nil, not all and parts or nil), "treasury")
 	Treasury.Relay()
 	Treasury.SendPrivate()
+	-- (1.1: the open bank requests next to the bank, while the King shows it: Bank.lua.)
+	if ns.Bank and ns.Bank.SharePublic then ns.Bank.SharePublic(force) end
 end
 
 -- The Treasurer's client passes on the book of his mail character kept on his account (TR),
@@ -2764,6 +2771,9 @@ end
 
 -- The guild bank of <Olympus> as last seen (Bank.lua): its gold, then each tab's items in a
 -- grid. The keepers and the King always; the army with the King's "book" switch.
+-- Who sees the guild bank: the keepers and the King always, the army with the King's "book".
+local function BankVisible(role) return role ~= "member" or Treasury.Shows("book") end
+
 local function BankLines(lines, role)
 	if role == "member" and not Treasury.Shows("book") then return end
 	local b = ns.Bank and ns.Bank.Current and ns.Bank.Current()
@@ -2812,10 +2822,63 @@ local function BankLines(lines, role)
 				for _, it in ipairs(tab.items) do items[#items + 1] = it end
 				for _, it in ipairs(ghosts[i]) do items[#items + 1] = it end
 			end
-			lines[#lines + 1] = { items = items, slots = ns.Bank.SLOTS, columns = 7 }
+			local ask = ns.Bank.MayRequest and ns.Bank.MayRequest()
+			lines[#lines + 1] = { items = items, slots = ns.Bank.SLOTS, columns = 7,
+				onItem = ask and function(it) ns.Bank.RequestPrompt(it.id) end or nil, itemHint = ask and L.BANK_REQUEST_CLICK or nil }
 		end
 	end
 	lines[#lines].gapAfter = true
+end
+
+-- 1.1: requests to the treasury (Bank.lua), next to the bank. A keeper, the King or a Steward: every
+-- request his client holds, a click to mark it done or declined, what the bank holds of it. The army
+-- (with the King's book): the open ones the keepers put on the channel. A Lord or a Captain: his own,
+-- where each stands (a click takes it back), and a line to ask for any item.
+local function RequestLines(lines, role)
+	local B = ns.Bank
+	if not (B and B.Requests) then return end
+	local rows = {}
+	local function Holds(item)
+		local n = B.Holds(item)
+		return n and Grey(L.BANK_REQUEST_HOLDS:format(n)) or ""
+	end
+	if Treasury.IsInsider() then
+		for _, e in ipairs(B.Requests()) do
+			local open = e.state == "open"
+			local who = L.BANK_REQUEST_WHO:format(ns.DisplayName(e.from) or "?", e.guild or "?")
+			rows[#rows + 1] = { indent = 1, text = (open and tostring or Grey)(who .. ": " .. ItemText(e.item, e.n)),
+				right = open and Holds(e.item) or Grey(B.StateText({ state = e.state, by = e.by })),
+				key = "request:" .. e.key,
+				onClick = open and function() ns.ShowDialog("OLYMPUS_BANK_REQUEST_ANSWER", who, ItemText(e.item, e.n), e.key) end or nil,
+				tooltip = function(tt)
+					tt:AddLine(who, 1, 0.82, 0)
+					tt:AddLine(ItemText(e.item, e.n) .. ", " .. ns.Ago(e.t), 1, 1, 1, true)
+					if open then tt:AddLine(L.BANK_REQUEST_CLICK_ANSWER, 0.6, 1, 0.6, true) end
+				end }
+		end
+	elseif BankVisible(role) then
+		for _, e in ipairs(B.PublicRequests()) do
+			rows[#rows + 1] = { indent = 1, text = L.BANK_REQUEST_WHO:format(ns.DisplayName(e.from) or "?", e.guild) .. ": " .. ItemText(e.item, e.n), right = Holds(e.item) }
+		end
+	end
+	local mine = B.MyRequests()
+	local ask = B.MayRequest()
+	if #rows == 0 and #mine == 0 and not ask then return end
+	if #rows > 0 then
+		lines[#lines + 1] = { header = true, text = L.BANK_REQUESTS, tooltip = function(tt) tt:AddLine(L.BANK_REQUESTS_TIP, 1, 1, 1, true) end }
+		for _, r in ipairs(rows) do lines[#lines + 1] = r end
+		lines[#lines].gapAfter = true
+	end
+	if #mine > 0 or ask then
+		lines[#lines + 1] = { header = true, text = L.BANK_MY_REQUESTS, tooltip = function(tt) tt:AddLine(L.BANK_REQUESTS_TIP, 1, 1, 1, true) end }
+		for _, e in ipairs(mine) do
+			local open = e.state == "sent" or e.state == "seen"
+			lines[#lines + 1] = { indent = 1, text = ItemText(e.item, e.n), right = (open and tostring or Grey)(B.StateText(e)),
+				onClick = open and function() ns.ShowDialog("OLYMPUS_BANK_REQUEST_CANCEL", ItemText(e.item, e.n), nil, e.id) end or nil }
+		end
+		if ask then lines[#lines + 1] = { text = Gold("+ " .. L.BANK_REQUEST_NEW_LINE), onClick = function() B.RequestPrompt() end } end
+		lines[#lines].gapAfter = true
+	end
 end
 
 -- 1.1: the sister guilds' banks (Bank.lua), for the King, his Steward and his Hands: each guild
@@ -2849,9 +2912,6 @@ local function SisterLines(lines)
 	end
 	lines[#lines].gapAfter = true
 end
-
--- Who sees the guild bank: the keepers and the King always, the army with the King's "book".
-local function BankVisible(role) return role ~= "member" or Treasury.Shows("book") end
 
 -- 1.1: the stacks of a bank whose item holds the search `q` (Bank.Find): each item once, how many
 -- in all, in which tabs; a click opens the first of them. Returns whether any.
@@ -2930,6 +2990,7 @@ local function SummaryLines(role, q)
 			lines[#lines + 1] = { text = Gold("> " .. L.TREASURY_KEEPERS_LINK:format(KeeperCount())), onClick = function() Treasury.Show("keepers") end, gapAfter = true }
 		end
 		BankLines(lines, role)
+		RequestLines(lines, role)
 		SisterLines(lines)
 		return lines
 	end
@@ -2975,6 +3036,7 @@ local function SummaryLines(role, q)
 		lines[#lines + 1] = { text = Gold("> " .. L.TREASURY_KEEPERS_LINK:format(KeeperCount())), onClick = function() Treasury.Show("keepers") end, gapAfter = true }
 	end
 	BankLines(lines, role)
+	RequestLines(lines, role)
 	SisterLines(lines)
 	-- The King: what the army sees now (the switches are the buttons in the box).
 	if role == "king" then

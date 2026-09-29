@@ -175,9 +175,16 @@ local function ItemButton(r, k)
 	end
 	b:RegisterForClicks("LeftButtonUp")
 	b:SetScript("OnClick", function(self)
+		-- 1.1: a grid whose line takes a click on an item (the Treasury's bank: a Lord or a
+		-- Captain asks the treasury for it, Bank.lua), a plain click.
+		local it = self.item
+		local row = self.GetParent and self:GetParent()
+		local line = row and row.line
+		if it and not it.gone and line and line.onItem and not (IsShiftKeyDown and IsShiftKeyDown()) then
+			return ns.SafeCall("view item", line.onItem, it)
+		end
 		-- Shift-click: the link into the chat box, as in a bag (not with the gamepad UI: its
 		-- chat box would be blocked, see Dialog.lua).
-		local it = self.item
 		if not it or not IsShiftKeyDown or not IsShiftKeyDown() or ns.GamepadUI() or not ChatEdit_InsertLink then return end
 		local link = it.link
 		if not link and GetItemInfo then local okInfo, _, l = pcall(GetItemInfo, it.id); if okInfo then link = l end end
@@ -193,6 +200,9 @@ local function ItemButton(r, k)
 		if not ok then GameTooltip:AddLine("#" .. tostring(it.id), 1, 1, 1) end
 		if (it.n or 0) > 1 then GameTooltip:AddLine("x" .. it.n, 0.8, 0.8, 0.8) end
 		if it.gone then GameTooltip:AddLine(L.BANK_GONE_SLOT, 1, 0.4, 0.4, true) end
+		local row = self.GetParent and self:GetParent()
+		local hint = not it.gone and row and row.line and row.line.itemHint
+		if hint then GameTooltip:AddLine(hint, 0.6, 1, 0.6, true) end
 		GameTooltip:Show()
 	end)
 	b:SetScript("OnLeave", function() GameTooltip:Hide() end)

@@ -592,6 +592,452 @@ function Bank.Sisters()
 	return out
 end
 
+---------------------------------------------------------------------------
+-- 1.1: bank requests (Fern's): a Lord or a Captain asks the treasury for an item and a count
+-- ("need 10 Ironwood"), shown next to the bank snapshot. The bank view shows what the treasury
+-- holds, not what the raid is short: a request line stops five officers from buying the same
+-- stack. Handing it over stays a normal trade or mail, the player's own click: the addon moves
+-- nothing, and a request closes by itself when the keeper's book records that item given to that
+-- player (Treasury.Record).
+--   TN~<id>~<item>~<count>~<guild>   by whisper, from a Lord or a Captain to each keeper, the King
+--                                     and his Stewards heard online (count 0: he cancels it); sent
+--                                     again every REQUEST_AGAIN while it is open, and answered each time
+--   TO~<id>~<o|d|x|c>[~<Name-Realm>]  by whisper, a keeper's (the King's, a Steward's) answer: open
+--                                     (seen), done, declined, cancelled; with a name, to the other
+--                                     keepers, the King and his Stewards: that player's request changed
+--   TL~<guild>~<id>:<item>:<count>:<Name-Realm>:<Guild>,...   on the channel, a keeper's open
+--                                     requests, only while the King shows the army the book (the bank
+--                                     goes with it), for everyone who sees the bank; none: not sent
+-- No text travels, only an item's number and a count; REQUEST_OPEN open per character at most, each
+-- for REQUEST_DAYS. Whom it comes from is checked as a sister guild's bank is (Bank.LordOrCaptain).
+---------------------------------------------------------------------------
+Bank.REQUEST_OPEN = 3
+Bank.REQUEST_DAYS = 3
+Bank.REQUEST_MAX_COUNT = 9999
+Bank.REQUEST_AGAIN = 900
+Bank.REQUESTS_KEPT = 60
+Bank.PUBLIC_KEPT = 1800   -- a keeper's list on the channel not repeated this long is dropped
+Bank.PUBLIC_MSGS = 2      -- messages of it at most, each one of the channel's size
+
+local lastAsked = {}      -- ["Name-Realm#id"] = when our request was last whispered to him
+local publicLists = {}    -- [keeper's Name-Realm] = { t, list = { { id, item, n, from, guild } } }
+local lastPublic          -- what our client last put on the channel ("" once it said none)
+local CODE = { open = "o", done = "d", declined = "x", cancelled = "c" }
+local STATE = { o = "open", d = "done", x = "declined", c = "cancelled" }
+
+local function Fire()
+	ns.Fire("TREASURY_CHANGED")
+	ns.Fire("DATA_CHANGED") -- (the tab may appear)
+end
+local function Label(item, n) return ns.Treasury.ItemText(item, n) end
+local function Field(s, n) return ns.Cut((tostring(s or ""):gsub("[~;:,|%c]", " ")), n) end
+local function Open(state) return state == "sent" or state == "seen" or state == "open" end
+local function Expired(e) return ns.Now() - (tonumber(e.t) or 0) > Bank.REQUEST_DAYS * 86400 end
+
+-- A Lord or a Captain of an Olympus guild (the server's rank of this character); not the King, a
+-- Steward or a keeper: the treasury is theirs already. (The treasury is the Alliance's <Olympus>'s.)
+function Bank.MayRequest()
+	if ns.faction == "Horde" or not ns.IsMember() or ns.Treasury.IsInsider() then return false end
+	local _, _, rank = GetGuildInfo("player")
+	rank = tonumber(rank)
+	return rank ~= nil and rank <= ns.CAPTAIN_RANK
+end
+
+-- This character's own requests (kept per character), and the requests a keeper's, the King's or
+-- a Steward's client holds (["Name-Realm#id"]).
+local function Mine()
+	ns.rdb.bankAsks = type(ns.rdb.bankAsks) == "table" and ns.rdb.bankAsks or {}
+	local key = tostring(ns.FullName(ns.me) or ""):lower()
+	ns.rdb.bankAsks[key] = type(ns.rdb.bankAsks[key]) == "table" and ns.rdb.bankAsks[key] or {}
+	return ns.rdb.bankAsks[key]
+end
+local function Held()
+	ns.rdb.bankRequests = type(ns.rdb.bankRequests) == "table" and ns.rdb.bankRequests or {}
+	return ns.rdb.bankRequests
+end
+
+-- Our requests, newest first (the expired dropped).
+function Bank.MyRequests()
+	if not ns.rdb or not ns.me then return {} end
+	local list, out = Mine(), {}
+	for i = #list, 1, -1 do if Expired(list[i]) then table.remove(list, i) end end
+	for i = #list, 1, -1 do out[#out + 1] = list[i] end
+	return out
+end
+
+-- The requests this client holds for the treasury (a keeper's, the King's, a Steward's): the open
+-- ones first, then the ones closed within a day, the newest first. { { key, from, guild, id, item,
+-- n, t, state, by, at } }.
+function Bank.Requests()
+	if not ns.rdb or not ns.Treasury.IsInsider() then return {} end
+	local out, held = {}, Held()
+	for key, e in pairs(held) do
+		if Expired(e) then held[key] = nil
+		elseif Open(e.state) or ns.Now() - (tonumber(e.at) or 0) <= 86400 then e.key = key; out[#out + 1] = e end
+	end
+	table.sort(out, function(a, b)
+		local x, y = Open(a.state), Open(b.state)
+		if x ~= y then return x end
+		return (tonumber(a.t) or 0) > (tonumber(b.t) or 0)
+	end)
+	return out
+end
+
+-- The open requests the keepers put on the channel (while the King shows the army the book),
+-- each once: { { id, item, n, from, guild } }.
+function Bank.PublicRequests()
+	local out, seen, now = {}, {}, ns.Now()
+	for keeper, x in pairs(publicLists) do
+		if now - x.t > Bank.PUBLIC_KEPT or not ns.Treasury.KeeperByName(keeper) then
+			publicLists[keeper] = nil
+		else
+			for _, e in ipairs(x.list) do
+				local key = e.from .. "#" .. e.id
+				if not seen[key] then seen[key] = true out[#out + 1] = e end
+			end
+		end
+	end
+	table.sort(out, function(a, b) return a.from < b.from or (a.from == b.from and a.id < b.id) end)
+	return out
+end
+
+-- Our open requests go to each keeper, the King and his Stewards heard online (Treasury.Online),
+-- at once for a new one (force), again every REQUEST_AGAIN while it is open: each answers with
+-- where it stands. Returns how many whispers went.
+function Bank.SendRequests(force)
+	if not ns.rdb or not ns.me or not ns.IsMember() then return 0 end
+	local n, now, guild = 0, ns.Now(), Clean(GetGuildInfo("player"), 40)
+	for _, e in ipairs(Mine()) do
+		local cancel = e.state == "cancel"
+		if (Open(e.state) or cancel) and not Expired(e) then
+			for _, to in ipairs(ns.Treasury.Online()) do
+				local key = to .. "#" .. e.id
+				if (force == e or force == true) or now - (lastAsked[key] or -math.huge) >= Bank.REQUEST_AGAIN then
+					lastAsked[key] = now
+					ns.Comm.Whisper(to, ("TN~%d~%d~%d~%s"):format(e.id, e.item, cancel and 0 or e.n, guild), "bankreq " .. key)
+					n = n + 1
+				end
+			end
+		end
+	end
+	return n
+end
+
+-- A Lord or a Captain asks the treasury for `count` of `item` (an item's number).
+function Bank.Request(item, count)
+	if not Bank.MayRequest() then return ns.Print(L.BANK_REQUEST_ONLY) end
+	item, count = tonumber(item), math.floor(tonumber(count) or 0)
+	if not item or item <= 0 or item >= 2147483647 or count < 1 or count > Bank.REQUEST_MAX_COUNT then return ns.Print(L.BANK_REQUEST_WHAT) end
+	local list, open = Mine(), 0
+	for _, e in ipairs(list) do if Open(e.state) and not Expired(e) then open = open + 1 end end
+	if open >= Bank.REQUEST_OPEN then return ns.Print(L.BANK_REQUEST_FULL:format(Bank.REQUEST_OPEN)) end
+	local e = { id = math.random(1, 99999), item = item, n = count, t = ns.Now(), state = "sent", seen = {} }
+	list[#list + 1] = e
+	while #list > 10 do table.remove(list, 1) end
+	local sent = Bank.SendRequests(e)
+	ns.Print((sent > 0 and L.BANK_REQUEST_SENT or L.BANK_REQUEST_WAITING):format(Label(item, count)))
+	Fire()
+	return e
+end
+
+-- "10 Ironwood", "10x [Ironwood]" (a link shift-clicked into the chat line), "10 12345" (its number),
+-- or the item alone (one): a request.
+function Bank.RequestText(text)
+	text = tostring(text or "")
+	local count, what = text:match("^%s*(%d+)%s*[xX]?%s+(.-)%s*$")
+	if not count then count, what = 1, text:match("^%s*(.-)%s*$") end
+	local id = tonumber(what:match("item:(%d+)")) or tonumber(what:match("^#?(%d+)$"))
+	if not id and what ~= "" and GetItemInfo then
+		local ok, _, link = pcall(GetItemInfo, what)
+		id = ok and type(link) == "string" and tonumber(link:match("item:(%d+)")) or nil
+	end
+	if not id then return ns.Print(L.BANK_REQUEST_WHAT) end
+	return Bank.Request(id, count)
+end
+
+-- He takes his request back.
+function Bank.Cancel(id)
+	for _, e in ipairs(Mine()) do
+		if e.id == id and Open(e.state) then
+			e.state, e.at = "cancel", ns.Now()
+			Bank.SendRequests(e)
+			ns.Print(L.BANK_REQUEST_CANCELLED:format(Label(e.item, e.n)))
+			return Fire()
+		end
+	end
+end
+
+-- On a keeper's, the King's or a Steward's client: a request (TN) from a Lord or Captain of that
+-- guild (our roster or its census), REQUEST_OPEN open each at most, REQUESTS_KEPT in all; answered
+-- with where it stands (TO), each time he asks.
+function Bank.HandleRequest(dist, sender, text)
+	if dist ~= "WHISPER" or type(text) ~= "string" or not ns.Treasury.IsInsider() then return end
+	local id, item, count, guild = text:match("^TN~(%d+)~(%d+)~(%d+)~([^~]*)$")
+	id, item, count = tonumber(id), tonumber(item), tonumber(count)
+	guild = guild and ns.King.CleanGuild(guild)
+	if not (id and item and item > 0 and item < 2147483647 and count and count <= Bank.REQUEST_MAX_COUNT and guild) then return end
+	sender = ns.FullName(sender)
+	if not Bank.LordOrCaptain(sender, guild) then return ns.Log("bank request from %s (%s) ignored: not its Lord or a Captain", sender, guild) end
+	local held, key, now = Held(), sender .. "#" .. id, ns.Now()
+	local e = held[key]
+	if count == 0 then
+		if e and Open(e.state) then e.state, e.at, e.by = "cancelled", now, nil end
+	elseif not e then
+		local open, n, closed, oldest = 0, 0, nil, nil
+		for k, x in pairs(held) do
+			n = n + 1
+			if x.from == sender and Open(x.state) and not Expired(x) then open = open + 1 end
+			if Open(x.state) then
+				if not oldest or (x.t or 0) < (held[oldest].t or 0) then oldest = k end
+			elseif not closed or (x.t or 0) < (held[closed].t or 0) then
+				closed = k
+			end
+		end
+		if open >= Bank.REQUEST_OPEN then return end
+		-- Full: the oldest closed one goes, else the oldest.
+		if n >= Bank.REQUESTS_KEPT then held[closed or oldest] = nil end
+		e = { from = sender, guild = guild, id = id, item = item, n = count, t = now, state = "open" }
+		held[key] = e
+		ns.Print(L.BANK_REQUEST_NEW:format(ns.DisplayName(sender), guild, Label(item, count)))
+		Bank.SharePublic()
+	end
+	if not e then return end
+	e.heard = now
+	ns.Comm.Whisper(sender, ("TO~%d~%s"):format(id, CODE[e.state] or "o"), "bankans " .. key)
+	Fire()
+end
+ns.Comm.Handle("TN", function(...) Bank.HandleRequest(...) end)
+
+-- A keeper (the King, a Steward) marks a request done or declined: the requester is told (while
+-- he was heard lately: otherwise his next ask gets it), and the others who hold it.
+function Bank.Answer(key, state)
+	local e = ns.Treasury.IsInsider() and ns.rdb and Held()[key]
+	if not e or not CODE[state] then return end
+	e.state, e.by, e.at = state, ns.me, ns.Now()
+	if ns.Now() - (e.heard or -math.huge) <= ns.Treasury.AUDIENCE_FRESH then
+		ns.Comm.Whisper(e.from, ("TO~%d~%s"):format(e.id, CODE[state]), "bankans " .. key)
+	end
+	for _, to in ipairs(ns.Treasury.Online()) do
+		if not ns.Treasury.SameChar(to, e.from) then ns.Comm.Whisper(to, ("TO~%d~%s~%s"):format(e.id, CODE[state], e.from), "bankans " .. to .. key) end
+	end
+	Bank.SharePublic()
+	Fire()
+end
+
+-- An answer (TO), from a keeper, the King or a Steward alone: about our own request, or (with a
+-- name, on another keeper's client) about one he holds too.
+function Bank.HandleAnswer(dist, sender, text)
+	if dist ~= "WHISPER" or type(text) ~= "string" then return end
+	local id, code, whose = text:match("^TO~(%d+)~([odxc])~?([^~]*)$")
+	id = tonumber(id)
+	sender = ns.FullName(sender)
+	if not id or not ns.Treasury.InsiderName(sender) then return end
+	local state = STATE[code]
+	if whose ~= "" then
+		local e = ns.Treasury.IsInsider() and Held()[ns.FullName(whose) .. "#" .. id]
+		if e and e.state ~= state then
+			e.state, e.by, e.at = state, sender, ns.Now()
+			Fire()
+		end
+		return
+	end
+	for _, e in ipairs(Mine()) do
+		if e.id == id then
+			e.seen = type(e.seen) == "table" and e.seen or {}
+			e.seen[sender] = true
+			if state == "open" then
+				if e.state == "sent" then e.state, e.by = "seen", sender end
+			elseif state ~= "cancelled" and Open(e.state) then
+				e.state, e.by, e.at = state, sender, ns.Now()
+				ns.Print(L[state == "done" and "BANK_REQUEST_DONE" or "BANK_REQUEST_DECLINED"]:format(Label(e.item, e.n), ns.DisplayName(sender)))
+			end
+			return Fire()
+		end
+	end
+end
+ns.Comm.Handle("TO", function(...) Bank.HandleAnswer(...) end)
+
+-- The keeper's book recorded an item given (a counted payment, Treasury.Record): the open request
+-- of that player for that item closes once he got its count (done by this keeper).
+function Bank.Paid(name, item, count)
+	if not ns.rdb or not ns.Treasury.IsInsider() then return end
+	for key, e in pairs(Held()) do
+		if Open(e.state) and e.item == item and ns.Treasury.SameChar(e.from, name) then
+			e.paid = (e.paid or 0) + (tonumber(count) or 0)
+			if e.paid >= e.n then Bank.Answer(key, "done") end
+			return
+		end
+	end
+end
+
+-- While the King shows the army the book, a keeper's client puts the open requests it holds on the
+-- channel next to the bank (TL), when they change and with its book; a list it had put there and
+-- that emptied, once more, empty.
+function Bank.SharePublic(force)
+	if not CanSend() or not ns.Treasury.PublicShows("book") then return false end
+	local guild = Clean(GetGuildInfo("player"), 40)
+	local entries = {}
+	for _, e in ipairs(Bank.Requests()) do
+		if Open(e.state) then entries[#entries + 1] = ("%d:%d:%d:%s:%s"):format(e.id, e.item, e.n, Field(e.from, 60), Field(e.guild, 24)) end
+	end
+	local msgs, cur = {}, ("TL~%s~"):format(guild)
+	local head = cur
+	for _, entry in ipairs(entries) do
+		if #cur + #entry + 1 > 250 then
+			if #msgs + 1 >= Bank.PUBLIC_MSGS then break end
+			msgs[#msgs + 1] = cur
+			cur = head
+		end
+		cur = cur .. (cur == head and "" or ",") .. entry
+	end
+	msgs[#msgs + 1] = cur
+	local all = table.concat(msgs, "\n")
+	-- (None, and none said: nothing. Unchanged: only with the book's repeat, force.)
+	if #entries == 0 and (lastPublic == nil or lastPublic == "") then return false end
+	if not force and all == lastPublic then return false end
+	lastPublic = #entries == 0 and "" or all
+	for i, m in ipairs(msgs) do ns.Comm.Send("CHANNEL", m, "banklist" .. i) end
+	return true
+end
+
+-- A keeper's open requests (TL), on the channel, from a keeper alone: his list replaces his last.
+function Bank.HandlePublic(dist, sender, text)
+	if dist ~= "CHANNEL" or type(text) ~= "string" then return end
+	local guild, rest = text:match("^TL~([^~]*)~([^~]*)$")
+	if not guild or not ns.Treasury.IsKeeperName(sender, guild) then return end
+	sender = ns.FullName(sender)
+	local list, x = {}, publicLists[sender]
+	-- (His list in two messages at most: a first one starts it again, a second one adds to it.)
+	if x and ns.Now() - x.t < 5 then list = x.list end
+	for entry in rest:gmatch("[^,]+") do
+		local id, item, n, from, g = entry:match("^(%d+):(%d+):(%d+):([^:]+):([^:]*)$")
+		local who, gl = ns.King.CleanName(from), ns.King.CleanGuild(g)
+		id, item, n = tonumber(id), tonumber(item), tonumber(n)
+		if id and item and n and n >= 1 and n <= Bank.REQUEST_MAX_COUNT and who and gl and #list < 20 then
+			list[#list + 1] = { id = id, item = item, n = n, from = ns.FullName(who, ns.RealmOf(from)), guild = gl }
+		end
+	end
+	publicLists[sender] = { t = ns.Now(), list = list }
+	Fire()
+end
+ns.Comm.Handle("TL", function(...) Bank.HandlePublic(...) end)
+
+-- How many of an item the bank holds (the snapshot shown), or nil without one.
+function Bank.Holds(item)
+	local b = Bank.Current()
+	if not b then return nil end
+	local n = 0
+	for _, tab in ipairs(b.tabs or {}) do
+		for _, it in ipairs(tab.items or {}) do if it.id == item then n = n + (tonumber(it.n) or 0) end end
+	end
+	return n
+end
+
+-- The count asked for an item (a click on it in the bank's grid), or for any item (typed).
+StaticPopupDialogs["OLYMPUS_BANK_REQUEST"] = {
+	text = L.BANK_REQUEST_PROMPT,
+	button1 = L.BANK_REQUEST_ASK,
+	button2 = CANCEL or "Cancel",
+	hasEditBox = true,
+	editBoxWidth = 80,
+	maxLetters = 4,
+	OnShow = function(self)
+		local eb = self.editBox or self.EditBox
+		if eb then eb:SetText("1"); eb:SetFocus() end
+	end,
+	OnAccept = function(self, data)
+		local eb = self.editBox or self.EditBox
+		ns.SafeCall("bank request", Bank.Request, data, eb and eb:GetText())
+	end,
+	EditBoxOnEnterPressed = function(self, data)
+		ns.SafeCall("bank request", Bank.Request, data, self:GetText())
+		self:GetParent():Hide()
+	end,
+	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+StaticPopupDialogs["OLYMPUS_BANK_REQUEST_ANY"] = {
+	text = L.BANK_REQUEST_ANY_PROMPT,
+	button1 = L.BANK_REQUEST_ASK,
+	button2 = CANCEL or "Cancel",
+	hasEditBox = true,
+	editBoxWidth = 240,
+	maxLetters = 200,
+	OnShow = function(self)
+		local eb = self.editBox or self.EditBox
+		if eb then eb:SetText(""); eb:SetFocus() end
+	end,
+	OnAccept = function(self)
+		local eb = self.editBox or self.EditBox
+		ns.SafeCall("bank request", Bank.RequestText, eb and eb:GetText())
+	end,
+	EditBoxOnEnterPressed = function(self)
+		ns.SafeCall("bank request", Bank.RequestText, self:GetText())
+		self:GetParent():Hide()
+	end,
+	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+-- A keeper (the King, a Steward): done (handed over by trade or mail) or declined.
+StaticPopupDialogs["OLYMPUS_BANK_REQUEST_ANSWER"] = {
+	text = L.BANK_REQUEST_ANSWER,
+	button1 = L.BANK_REQUEST_MARK_DONE,
+	button2 = CANCEL or "Cancel",
+	button3 = L.BANK_REQUEST_MARK_DECLINED,
+	OnAccept = function(self, data) ns.SafeCall("bank request", Bank.Answer, data or (self and self.data), "done") end,
+	OnAlt = function(self, data) ns.SafeCall("bank request", Bank.Answer, data or (self and self.data), "declined") end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+StaticPopupDialogs["OLYMPUS_BANK_REQUEST_CANCEL"] = {
+	text = L.BANK_REQUEST_CANCEL_ASK,
+	button1 = YES or "Yes",
+	button2 = NO or "No",
+	OnAccept = function(self, data) ns.SafeCall("bank request", Bank.Cancel, data or (self and self.data)) end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+function Bank.RequestPrompt(item)
+	if not Bank.MayRequest() then return ns.Print(L.BANK_REQUEST_ONLY) end
+	if item then return ns.ShowDialog("OLYMPUS_BANK_REQUEST", Label(item), nil, item) end
+	ns.ShowDialog("OLYMPUS_BANK_REQUEST_ANY")
+end
+
+-- /oly need <count> <item>, or alone: our requests in the chat.
+function Bank.Slash(rest)
+	rest = tostring(rest or "")
+	if rest:match("%S") then return Bank.RequestText(rest) end
+	ns.Print(L.HELP_NEED)
+	for _, e in ipairs(Bank.MyRequests()) do
+		ns.Print(L.BANK_REQUEST_LINE:format(Label(e.item, e.n), Bank.StateText(e)))
+	end
+end
+
+-- Where our request stands, as its line says it.
+function Bank.StateText(e)
+	local by = e.by and ns.DisplayName(e.by) or "?"
+	if e.state == "done" then return L.BANK_REQUEST_STATE_DONE:format(by) end
+	if e.state == "declined" then return L.BANK_REQUEST_STATE_DECLINED:format(by) end
+	if e.state == "cancel" or e.state == "cancelled" then return L.BANK_REQUEST_STATE_CANCELLED end
+	if e.state == "seen" then return L.BANK_REQUEST_STATE_SEEN:format(by) end
+	return L.BANK_REQUEST_STATE_SENT
+end
+
+ns.On("LOGIN", function()
+	-- Our open requests again, to the keepers heard since (and every REQUEST_AGAIN).
+	ns.Every(60, "bank requests", function() Bank.SendRequests() end)
+end)
+
 -- Tests start from a clean state.
 function Bank.Reset()
 	open, readPending, lastShare, lastSent = false, false, -math.huge, nil
@@ -599,6 +1045,9 @@ function Bank.Reset()
 	wipe(queried)
 	wipe(sisters); wipe(sisterHeard)
 	sisterCount, sisterAsked = 0, false
+	wipe(lastAsked); wipe(publicLists)
+	lastPublic = nil
 	if ns.rdb then ns.rdb.bank, ns.rdb.bankReport, ns.rdb.bankPrev, ns.rdb.bankReportPrev = nil, nil, nil, nil end
+	if ns.rdb then ns.rdb.bankAsks, ns.rdb.bankRequests = nil, nil end
 end
 function Bank.SetOpenForTest(on, tabs) open = on; wipe(queried); for _, t in ipairs(tabs or {}) do queried[t] = true end end

@@ -24945,6 +24945,165 @@ test("1.1 sister guilds' banks (Fern): their treasurer's yes, whispered to the K
 	end)
 end)
 
+test("1.1 bank requests (Fern): a Lord or Captain asks for an item and a count, shown next to the bank; handing it over stays a trade or mail", function()
+	WithThrone(function(w, K)
+		local T, B = ns.Treasury, ns.Bank
+		local mail = MailWorld()
+		local saved = { after = ns.After, chunked = ns.Comm.SendChunked, split = ns.splitNames, chat = C_ChatInfo }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			local After, Run = Queued()
+			ns.After = After
+			ns.Comm.SendChunked = function(m) w.sent[#w.sent + 1] = { dist = "CHANNEL", msg = m } end
+			local TREASURER, KING = "Pyralis Ashandar-Realm", "Asmongold Asmongler-Realm"
+			local function Whispered(prefix, to)
+				local out = {}
+				for _, x in ipairs(w.whispered) do if x.msg:sub(1, #prefix) == prefix and (not to or x.to == to) then out[#out + 1] = x.msg end end
+				return out
+			end
+			-- A soldier may not ask; nor the King or a keeper (the treasury is theirs already).
+			AsSoldier()
+			B.Request(2589, 10)
+			assert(Printed(w, ns.L.BANK_REQUEST_ONLY), "told"); eq(#B.MyRequests(), 0)
+			AsTreasurer(); eq(B.MayRequest(), false); AsKing(); eq(B.MayRequest(), false)
+			local faction = ns.faction
+			AsLord(); ns.faction = "Horde"; eq(B.MayRequest(), false, "the Horde has no treasury"); ns.faction = faction
+			-- The Lord of Olympus Zeus asks before any keeper is heard: it waits.
+			AsLord()
+			local e = B.Request(2589, 10)
+			assert(e and Printed(w, ns.L.BANK_REQUEST_WAITING:format(T.ItemText(2589, 10))), "waits")
+			eq(#w.whispered, 0)
+			eq(T.Visible(), true, "the Treasury tab shows his request")
+			-- The Treasurer's book heard on the channel: the request goes to him (by whisper), again
+			-- every REQUEST_AGAIN while open, never on the channel.
+			T.HandleReport("CHANNEL", TREASURER, "TB~1.0~Olympus~0~0~0~0~0~0~~-~000@1~~~~0:0")
+			eq(B.SendRequests(), 1)
+			local tn = Whispered("TN~", TREASURER)
+			eq(#tn, 1); eq(tn[1], ("TN~%d~2589~10~Olympus Zeus"):format(e.id))
+			eq(B.SendRequests(), 0, "not again before REQUEST_AGAIN")
+			for _, s in ipairs(w.sent) do assert(not s.msg:find("^TN~"), "never on the channel") end
+			-- Three open at most; the count and the item checked.
+			B.Request(2770, 5); B.Request(929, 1)
+			eq(B.Request(118, 1), nil); assert(Printed(w, ns.L.BANK_REQUEST_FULL:format(B.REQUEST_OPEN)), "three at most")
+			B.Request(2589, 0); B.Request(2589, 10000); B.RequestText("10 nothing known")
+			assert(Printed(w, ns.L.BANK_REQUEST_WHAT), "which item?")
+			eq(#B.MyRequests(), 3)
+			-- The Treasurer's client: a request from the Lord (the census confirms him), shown next to
+			-- the bank with what the bank holds; one from a stranger, or a fourth, is not.
+			AsTreasurer()
+			ns.rdb.bank = { t = w.clock, guild = "Olympus", by = ns.me, money = 1, tabs = { { i = 1, name = "Mats", items = { { id = 2589, n = 200, s = 1 } } } } }
+			w.whispered = {}
+			B.HandleRequest("WHISPER", "Faker Guy-Realm", ("TN~%d~2589~10~Olympus Zeus"):format(e.id))
+			eq(#B.Requests(), 0, "not the Lord or a Captain of that guild")
+			B.HandleRequest("WHISPER", "Zed-Realm", tn[1])
+			B.HandleRequest("WHISPER", "Zed-Realm", "TN~2~2770~5~Olympus Zeus")
+			B.HandleRequest("WHISPER", "Zed-Realm", "TN~3~929~1~Olympus Zeus")
+			B.HandleRequest("WHISPER", "Zed-Realm", "TN~4~118~1~Olympus Zeus")
+			eq(#B.Requests(), 3, "three open each at most")
+			eq(Whispered("TO~", "Zed-Realm")[1], ("TO~%d~o"):format(e.id), "answered: seen")
+			assert(Printed(w, ns.L.BANK_REQUEST_NEW:format("Zed", "Olympus Zeus", T.ItemText(2589, 10))), "told in chat")
+			local lines = T.Build()
+			local page = Texts(lines)
+			assert(page:find(ns.L.BANK_REQUESTS, 1, true) and page:find("Zed <Olympus Zeus>: ", 1, true), page)
+			assert(page:find(ns.L.BANK_REQUEST_HOLDS:format(200), 1, true), "what the bank holds: " .. page)
+			-- The Lord's client hears "seen".
+			AsLord()
+			B.HandleAnswer("WHISPER", "Faker Guy-Realm", ("TO~%d~d"):format(e.id))
+			eq(B.MyRequests()[3].state, "sent", "only a keeper's answer counts")
+			B.HandleAnswer("WHISPER", TREASURER, ("TO~%d~o"):format(e.id))
+			local mine
+			for _, x in ipairs(B.MyRequests()) do if x.id == e.id then mine = x end end
+			eq(mine.state, "seen"); eq(B.StateText(mine), ns.L.BANK_REQUEST_STATE_SEEN:format("Pyralis Ashandar"))
+			-- He hands it over by mail: the book records the item given, and the request closes by
+			-- itself, the Lord told, the King (heard) too.
+			AsTreasurer()
+			T.Heard(KING)
+			w.whispered = {}
+			mail.Send("Zed", 0, { { name = "Linen Cloth", id = 2589, n = 10 } })
+			local done
+			for _, x in ipairs(B.Requests()) do if x.id == e.id then done = x end end
+			eq(done.state, "done"); eq(done.by, ns.me)
+			eq(Whispered("TO~", "Zed-Realm")[1], ("TO~%d~d"):format(e.id))
+			eq(Whispered("TO~", KING)[1], ("TO~%d~d~Zed-Realm"):format(e.id), "the King's copy follows")
+			-- Another one declined with his click (the dialog's third button).
+			for _, l in ipairs(T.Build()) do if l.key == "request:Zed-Realm#2" then l.onClick() end end
+			local p = w.popups[#w.popups]
+			eq(p.name, "OLYMPUS_BANK_REQUEST_ANSWER"); eq(p.data, "Zed-Realm#2")
+			StaticPopupDialogs.OLYMPUS_BANK_REQUEST_ANSWER.OnAlt(nil, p.data)
+			for _, x in ipairs(B.Requests()) do if x.id == 2 then eq(x.state, "declined") end end
+			-- The Lord's client: done, told who did it.
+			AsLord()
+			B.HandleAnswer("WHISPER", TREASURER, ("TO~%d~d"):format(e.id))
+			assert(Printed(w, ns.L.BANK_REQUEST_DONE:format(T.ItemText(2589, 10), "Pyralis Ashandar")), "told")
+			-- He takes one back: the keepers are told (count 0), their copy closes.
+			local third
+			for _, x in ipairs(B.MyRequests()) do if x.item == 929 then third = x end end
+			T.Heard(TREASURER); w.whispered = {}
+			B.Cancel(third.id)
+			local cancel = Whispered("TN~", TREASURER)[1]
+			eq(cancel, ("TN~%d~929~0~Olympus Zeus"):format(third.id))
+			AsTreasurer()
+			B.HandleRequest("WHISPER", "Zed-Realm", ("TN~3~929~0~Olympus Zeus"))
+			for _, x in ipairs(B.Requests()) do if x.id == 3 then eq(x.state, "cancelled") end end
+			-- The open requests go on the channel next to the bank only while the King shows the
+			-- army the book; a soldier sees them there.
+			B.HandleRequest("WHISPER", "Zed-Realm", ("TN~5~2770~7~Olympus Zeus"))
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			w.sent = {}
+			T.Share(true)
+			for _, s in ipairs(w.sent) do assert(not s.msg:find("^TL~"), "the book hidden: nothing of it on the channel") end
+			ns.rdb.treasuryFlags = { book = true, at = w.clock }
+			w.sent = {}
+			T.Share(true)
+			local tl
+			for _, s in ipairs(w.sent) do if s.msg:find("^TL~") then tl = s.msg end end
+			eq(tl, "TL~Olympus~5:2770:7:Zed-Realm:Olympus Zeus")
+			AsSoldier()
+			B.HandlePublic("CHANNEL", "Faker Guy-Realm", tl)
+			eq(#B.PublicRequests(), 0, "a keeper's list alone")
+			B.HandlePublic("CHANNEL", TREASURER, tl)
+			eq(#B.PublicRequests(), 1)
+			page = Texts((T.Build()))
+			assert(page:find(ns.L.BANK_REQUESTS, 1, true) and page:find("Zed <Olympus Zeus>: ", 1, true), page)
+			-- A Lord who sees the bank: a click on an item asks for it (the count in a dialog).
+			AsLord()
+			for _, x in ipairs(B.MyRequests()) do if x.state == "sent" or x.state == "seen" then x.state = "done" end end
+			ns.rdb.bankReport = { t = w.clock, guild = "Olympus", by = TREASURER, money = 1, tabs = { { name = "Mats", items = { { id = 2589, n = 200, s = 1 } } } } }
+			local grid
+			for _, l in ipairs(T.Build()) do if l.items then grid = l end end
+			assert(grid and grid.onItem and grid.itemHint == ns.L.BANK_REQUEST_CLICK, "the grid takes a click")
+			grid.onItem(grid.items[1])
+			p = w.popups[#w.popups]
+			eq(p.name, "OLYMPUS_BANK_REQUEST"); eq(p.data, 2589)
+			StaticPopupDialogs.OLYMPUS_BANK_REQUEST.OnAccept({ editBox = { GetText = function() return "5" end } }, p.data)
+			eq(B.MyRequests()[1].item, 2589); eq(B.MyRequests()[1].n, 5)
+			-- And by the chat line: /oly need 3 <a shift-clicked link>.
+			SlashCmdList.OLYMPUS("need 3 |cffffffff|Hitem:2770::::|h[Copper Ore]|h|r")
+			eq(B.MyRequests()[1].item, 2770); eq(B.MyRequests()[1].n, 3)
+			-- With the gamepad UI the dialogs are Olympus's own windows.
+			WithGamepadUI(true, function(game)
+				B.RequestPrompt(2589)
+				eq(#game.shown, 0); assert(ns.Dialog.Find("OLYMPUS_BANK_REQUEST"), "our own dialog")
+			end)
+			-- A 1.0 client's addon leaves requests, answers and the list unread.
+			AsKing()
+			local fresh, DeliverOld = FreshComm()
+			local logs = {}
+			fresh.Log = function(fmt, ...) logs[#logs + 1] = tostring(fmt):format(...) end
+			DeliverOld("WHISPER", "Zed-Realm", tn[1])
+			DeliverOld("WHISPER", TREASURER, ("TO~%d~d"):format(e.id))
+			DeliverOld("CHANNEL", TREASURER, tl)
+			local st = fresh.Comm.Stats()
+			eq(st.recv, 3); eq(st.bad, 0); eq(st.partial, 0); eq(#logs, 0)
+		end)
+		mail.Restore()
+		ns.After, ns.Comm.SendChunked, ns.splitNames, C_ChatInfo = saved.after, saved.chunked, saved.split, saved.chat
+		ns.rdb.treasuryFlags = nil
+		ns.Bank.Reset()
+		if not ok then error(err, 0) end
+	end)
+end)
+
 test("1.1 the bank's and the sister guilds' new lines are in both languages, with the same format arguments", function()
 	local savedLocale, pt = GetLocale, {}
 	GetLocale = function() return "ptBR" end
@@ -24953,7 +25112,12 @@ test("1.1 the bank's and the sister guilds' new lines are in both languages, wit
 	if not ok then error(err, 0) end
 	for _, key in ipairs({ "TREASURY_PART_WAIT", "BANK_GONE", "BANK_GONE_TITLE", "BANK_GONE_TIP", "BANK_GONE_SLOT", "BANK_FOUND_TIP", "BANK_SISTERS",
 		"BANK_SISTERS_TIP", "BANK_SISTER_OF", "BANK_SISTER_TAB", "BANK_SISTER_ASK", "BANK_SISTER_YES", "BANK_SISTER_NO", "BANK_SISTER_ON",
-		"BANK_SISTER_OFF", "BANK_SISTER_ONLY", "HELP_BANK" }) do
+		"BANK_SISTER_OFF", "BANK_SISTER_ONLY", "HELP_BANK",
+		"BANK_REQUESTS", "BANK_REQUESTS_TIP", "BANK_MY_REQUESTS", "BANK_REQUEST_HOLDS", "BANK_REQUEST_CLICK", "BANK_REQUEST_CLICK_ANSWER",
+		"BANK_REQUEST_NEW_LINE", "BANK_REQUEST_PROMPT", "BANK_REQUEST_ANY_PROMPT", "BANK_REQUEST_ASK", "BANK_REQUEST_ANSWER", "BANK_REQUEST_MARK_DONE",
+		"BANK_REQUEST_MARK_DECLINED", "BANK_REQUEST_CANCEL_ASK", "BANK_REQUEST_ONLY", "BANK_REQUEST_WHAT", "BANK_REQUEST_FULL", "BANK_REQUEST_SENT",
+		"BANK_REQUEST_WAITING", "BANK_REQUEST_CANCELLED", "BANK_REQUEST_NEW", "BANK_REQUEST_DONE", "BANK_REQUEST_DECLINED", "BANK_REQUEST_STATE_SENT",
+		"BANK_REQUEST_STATE_SEEN", "BANK_REQUEST_STATE_DONE", "BANK_REQUEST_STATE_DECLINED", "BANK_REQUEST_STATE_CANCELLED", "HELP_NEED" }) do
 		assert(type(rawget(ns.L, key)) == "string", "English " .. key)
 		assert(type(rawget(pt.L, key)) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
 		eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)
