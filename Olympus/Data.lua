@@ -405,6 +405,55 @@ function Data.Summary()
 	return s
 end
 
+-- Tonight's count (1.1, Fern's #16): this client's own view of the evening, from the reports it
+-- already holds. Once a minute (Data.EVENING_EVERY) it reads the online total and each zone's
+-- count (Data.Summary: fresh reports only, zones only from reporters who share them), and keeps
+-- the peak and, per zone, its first count, so the Census shows whether a zone fills or empties.
+-- It starts a full reporting cycle after login (Data.CROWN_AFTER, about 3 minutes): before that
+-- the census is still rebuilding and every count would look like growth. In memory only, never
+-- saved and never sent: another client counts its own evening, so it is labelled "this client".
+Data.EVENING_EVERY = 60
+local evening = { samples = 0, zones = {} }
+function Data.Evening() return evening end
+function Data.ResetEvening() evening = { samples = 0, zones = {} } end -- tests
+
+-- One sample, at `now`; false while the census is rebuilding after login.
+function Data.SampleEvening(now)
+	now = now or ns.Now()
+	local loginAt = ns.Comm and ns.Comm.loginAt
+	if loginAt and now - loginAt < Data.CROWN_AFTER then return false end
+	local s = Data.Summary()
+	local e = evening
+	if e.samples == 0 then e.since = now end
+	e.samples, e.t, e.online = e.samples + 1, now, s.online
+	if not e.peak or s.online > e.peak then e.peak, e.peakAt = s.online, now end
+	-- A zone nobody stood in at the first sample started at 0; one left empty since is at 0 now.
+	for key, z in pairs(e.zones) do
+		if not s.zones[key] then z.now = 0 end
+	end
+	for key, n in pairs(s.zones) do
+		local z = e.zones[key]
+		if not z then
+			z = { first = e.samples == 1 and n or 0 }
+			e.zones[key] = z
+		end
+		z.now = n
+		if not z.peak or n > z.peak then z.peak = n end
+	end
+	return true
+end
+
+-- A zone's count now and how it moved since the first sample (nil before any sample).
+function Data.ZoneTrend(key)
+	local z = evening.zones[key]
+	if not z or evening.samples == 0 then return nil end
+	return z.now or 0, (z.now or 0) - (z.first or 0)
+end
+
+ns.On("LOGIN", function()
+	ns.Every(Data.EVENING_EVERY, "evening count", function() Data.SampleEvening() end)
+end)
+
 function Data.DiscordText()
 	local s = Data.Summary()
 	local F = ns.FormatNumber

@@ -24455,5 +24455,262 @@ test("1.0.0 the Hands' hint says they speak with the King's Crown to the other g
 	assert(rawget(pt.L, "HANDS_HINT"):find("decretos reais", 1, true))
 end)
 
+---------------------------------------------------------------------------
+-- 1.1: Fern's census and recruiting requests (Views.lua, Data.lua, Members.lua, Recruit.lua).
+---------------------------------------------------------------------------
+
+local Fern = {}
+do
+	local V, L, D = ns.Views, ns.L, ns.Data
+	-- A text as a row shows it: colours and textures left out.
+	function Fern.Bare(s) return (tostring(s or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", ""):gsub("^%s+", ""):gsub("%s+$", "")) end
+	-- The first line whose text (as shown) holds `text`, and its place.
+	function Fern.Find(lines, text)
+		for i, l in ipairs(lines) do
+			if type(l.text) == "string" and Fern.Bare(l.text):find(text, 1, true) then return l, i end
+		end
+	end
+	-- The Census's rows by their guild.
+	function Fern.Guilds(lines)
+		local out = {}
+		for _, l in ipairs(lines) do if l.cols then out[#out + 1] = Fern.Bare(l.cols[1]) end end
+		return table.concat(out, ",")
+	end
+	-- A tooltip's lines, joined.
+	function Fern.Tip(line)
+		local out = {}
+		local tt = { AddLine = function(_, s) out[#out + 1] = tostring(s) end,
+			AddDoubleLine = function(_, a, b) out[#out + 1] = tostring(a) .. " = " .. tostring(b) end }
+		line.tooltip(tt)
+		return table.concat(out, "\n")
+	end
+	-- The pt-BR strings, loaded as a Brazilian client loads them.
+	function Fern.PtBR()
+		local pt = { L = setmetatable({}, { __index = ns.L }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		return pt.L
+	end
+	-- Every key in English and in pt-BR, the pt-BR one its own (not the English text).
+	function Fern.BothLanguages(keys)
+		local pt = Fern.PtBR()
+		for _, k in ipairs(keys) do
+			assert(rawget(ns.L, k) and rawget(ns.L, k) ~= "", "English: " .. k)
+			assert(rawget(pt, k) and rawget(pt, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+		end
+		return pt
+	end
+	-- A census with SampleGuilds, our guild Olympus II, the window's calls recorded and nothing sent.
+	function Fern.Census(fn)
+		local saved = { guilds = ns.rdb.guilds, seen = ns.rdb.seen, guild = GetGuildInfo, online = ns.Roster.online, sweep = ns.Who.sweep,
+			send = ns.Comm.Send, whisper = ns.Comm.Whisper, chunked = ns.Comm.SendChunked, who = ns.Who.Search, guildWho = ns.Who.SearchGuild,
+			ui = ns.UI, gates = ns.Acts.Gates, loginAt = ns.Comm.loginAt, say = SendChatMessage, print = ns.Print }
+		local w = { sent = {}, persons = {}, tabs = {}, said = {}, printed = {} }
+		ns.Comm.Send = function(dist, msg) w.sent[#w.sent + 1] = tostring(dist) .. " " .. tostring(msg) end
+		ns.Comm.Whisper = function(to, msg) w.sent[#w.sent + 1] = "WHISPER " .. tostring(to) .. " " .. tostring(msg) end
+		ns.Comm.SendChunked = function(msg) w.sent[#w.sent + 1] = "chunked " .. tostring(msg) end
+		ns.Who.Search = function() w.sent[#w.sent + 1] = "who" end
+		ns.Who.SearchGuild = function() w.sent[#w.sent + 1] = "guild who" end
+		SendChatMessage = function(text, kind, _, to) w.said[#w.said + 1] = { text = text, kind = kind, to = to } end
+		ns.Print = function(m) w.printed[#w.printed + 1] = tostring(m) end
+		ns.UI = { Refresh = function() end, ShowPerson = function(p) w.persons[#w.persons + 1] = p end,
+			StatusLine = function() return "status" end, SelectTab = function(tab, focus) w.tabs[#w.tabs + 1] = { tab = tab, focus = focus } end }
+		ns.rdb.guilds, ns.rdb.seen = SampleGuilds(), {}
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		ns.Roster.online, ns.Who.sweep = {}, { list = {} }
+		V.ClearFilters()
+		D.ResetEvening()
+		local ok, err = pcall(fn, w)
+		ns.rdb.guilds, ns.rdb.seen, GetGuildInfo, ns.Roster.online, ns.Who.sweep = saved.guilds, saved.seen, saved.guild, saved.online, saved.sweep
+		ns.Comm.Send, ns.Comm.Whisper, ns.Comm.SendChunked, ns.Who.Search, ns.Who.SearchGuild = saved.send, saved.whisper, saved.chunked, saved.who, saved.guildWho
+		ns.UI, ns.Acts.Gates, ns.Comm.loginAt, SendChatMessage, ns.Print = saved.ui, saved.gates, saved.loginAt, saved.say, saved.print
+		V.ClearFilters()
+		V.recruitAll = nil
+		D.ResetEvening()
+		if not ok then error(err, 0) end
+	end
+end
+
+test("1.1 census search (Fern #16): a Captain, a player of the top five, one seen with /who and one of our roster find their guild, the player under its row", function()
+	local V = ns.Views
+	Fern.Census(function(w)
+		ns.Roster.online = { { name = "Mate", level = 22, class = "MA", rank = "Knight", rankIndex = 3 } }
+		ns.Who.sweep = { list = { { name = "Scout-Realm", guild = "Olympus", level = 18, class = "ROGUE", zone = "Westfall" } } }
+		local function Search(text)
+			V.SetFilter("census", text)
+			return V.Build("census")
+		end
+		-- A Captain: his guild's row, then him under it (a click opens his card, in his guild).
+		local lines = Search("CAPT")
+		eq(Fern.Guilds(lines), "Olympus")
+		local capt = Fern.Find(lines, "Capt")
+		assert(capt and capt.indent == 1 and capt.key == "Capt", "the Captain under the row")
+		assert(Fern.Bare(capt.text):find(ns.L.CAPTAIN, 1, true), "named a Captain")
+		capt.onClick()
+		eq(w.persons[1].name, "Capt"); eq(w.persons[1].guild, "Olympus"); eq(w.persons[1].rank, ns.L.CAPTAIN)
+		-- A player of a report's top five.
+		lines = Search("racer")
+		eq(Fern.Guilds(lines), "Olympus"); assert(Fern.Find(lines, "Racer"), "the racer")
+		-- One seen online with /who (another guild's), and one of our own roster.
+		lines = Search("scout")
+		eq(Fern.Guilds(lines), "Olympus"); assert(Fern.Find(lines, "Scout"), "seen with /who")
+		lines = Search("mate")
+		eq(Fern.Guilds(lines), "Olympus II"); assert(Fern.Find(lines, "Mate"), "our roster")
+		-- The Lord still shows the row alone, as in 1.0.0.
+		lines = Search("lordy")
+		eq(Fern.Guilds(lines), "Olympus II"); eq(#lines, 2, "the box and the row")
+		-- Past CENSUS_FOUND players, the rest counted.
+		ns.Roster.online = {}
+		for k = 1, V.CENSUS_FOUND + 3 do ns.Roster.online[k] = { name = "Twin" .. k, level = 10, class = "WA", rank = "Recruit", rankIndex = 3 } end
+		lines = Search("twin")
+		eq(#lines, 1 + 1 + V.CENSUS_FOUND + 1, "the box, the row, the players shown, the rest counted")
+		assert(Fern.Find(lines, ns.L.SEARCH_MORE_FOUND:format(3)), "3 more")
+		eq(#w.sent, 0, "nothing sent, no /who")
+	end)
+end)
+
+test("1.1 census search (Fern #16): a zone lists its soldiers, its guilds most soldiers first, and how it moved tonight", function()
+	local V, D = ns.Views, ns.Data
+	Fern.Census(function(w)
+		V.SetFilter("census", "stormwind")
+		local lines = V.Build("census")
+		local head = Fern.Find(lines, "Stormwind City")
+		assert(head and head.header, "the zone's header")
+		assert(Fern.Bare(head.text):find("150", 1, true), "120 + 30 soldiers: " .. head.text)
+		eq(head.right, nil, "no trend before tonight's first sample")
+		assert(Fern.Tip(head):find(ns.L.SEARCH_ZONE_TIP, 1, true), "what it counts")
+		local _, at = Fern.Find(lines, "Stormwind City")
+		eq(Fern.Bare(lines[at + 1].text), "<Olympus>"); eq(lines[at + 1].right, "120")
+		eq(Fern.Bare(lines[at + 2].text), "<Olympus II>"); eq(lines[at + 2].right, "30")
+		-- A click opens that guild in the Realm.
+		lines[at + 2].onClick()
+		eq(w.tabs[1].tab, "realm"); eq(w.tabs[1].focus, V.GuildId("Olympus II"))
+		-- Tonight: the zone grew by 20 since the first sample.
+		ns.Comm.loginAt = os.time() - 1000
+		assert(D.SampleEvening(), "sampled")
+		ns.rdb.guilds["Olympus II"].zones.m1453 = 50
+		D.SampleEvening()
+		V.SetFilter("census", "")
+		V.SetFilter("census", "storm")
+		head = Fern.Find(V.Build("census"), "Stormwind City")
+		assert(Fern.Bare(head.text):find("170", 1, true), head.text)
+		assert(Fern.Bare(head.right):find("+20", 1, true), "grew by 20: " .. tostring(head.right))
+		eq(#w.sent, 0)
+	end)
+end)
+
+test("1.1 census search (Fern #16): 'recruiting' lists every guild with room, the gates' guild first, most free slots after; 'free 600' those with 600 or more", function()
+	local V = ns.Views
+	Fern.Census(function(w)
+		local now = os.time()
+		for k, total in ipairs({ 100, 200, 300, 400, 450, 500, 950, 1000 }) do
+			ns.rdb.guilds["Olympus R" .. k] = { total = total, online = 1, zones = {}, t = now, leader = "L" .. k, officers = {} }
+		end
+		ns.Acts.Gates = function() return { guild = "Olympus R6", at = now + 3600 } end
+		V.SetFilter("census", "Recruiting")
+		local lines = V.Build("census")
+		local head, at = Fern.Find(lines, ns.L.RECRUITING)
+		assert(head and head.header, "Recruiting's header")
+		local names = {}
+		for i = at + 1, #lines do
+			if lines[i].header or lines[i].cols then break end
+			names[#names + 1] = Fern.Bare(lines[i].text) .. " " .. Fern.Bare(lines[i].right)
+		end
+		-- Olympus (990) and Olympus II (500) of SampleGuilds count too; Olympus R8 is full.
+		eq(table.concat(names, ","), "<Olympus R6> 500 free,<Olympus R1> 900 free,<Olympus R2> 800 free,<Olympus R3> 700 free,<Olympus R4> 600 free,"
+			.. "<Olympus R5> 550 free,<Olympus II> 500 free,<Olympus R7> 50 free,<Olympus> 10 free", "all nine, not five")
+		assert(lines[at + 1].text:find("LeaderIcon", 1, true), "the gates' guild wears the crown")
+		eq(head.right, "|cff9d9d9d" .. ns.L.SEARCH_RECRUITING_COUNT:format(9) .. "|r")
+		-- At least 600 free.
+		V.SetFilter("census", "free 600")
+		lines = V.Build("census")
+		head, at = Fern.Find(lines, ns.L.RECRUITING)
+		names = {}
+		for i = at + 1, #lines do names[#names + 1] = Fern.Bare(lines[i].text) end
+		eq(table.concat(names, ","), "<Olympus R1>,<Olympus R2>,<Olympus R3>,<Olympus R4>")
+		-- Any other word is a name as ever.
+		V.SetFilter("census", "recruitingx")
+		eq(Fern.Find(V.Build("census"), ns.L.RECRUITING), nil)
+		eq(#w.sent, 0)
+	end)
+	-- The words in both languages (pt-BR: "vagas").
+	local pt = Fern.BothLanguages({ "SEARCH_RECRUITING_WORDS", "SEARCH_RECRUITING_COUNT", "SEARCH_ZONE_TIP", "SEARCH_MORE_FOUND",
+		"EVENING_LINE", "EVENING_TITLE", "EVENING_TIP", "EVENING_SINCE", "RECRUIT_SHOW_ALL", "RECRUIT_SHOW_FEWER", "SEARCH_TIP_CENSUS" })
+	assert(pt.SEARCH_RECRUITING_WORDS:find("vagas", 1, true))
+	assert(ns.L.SEARCH_TIP_CENSUS:find("recruiting", 1, true) and pt.SEARCH_TIP_CENSUS:find("vagas", 1, true), "the tips say how")
+end)
+
+test("1.1 the Realm's Recruiting (Fern #16): five guilds, then every one on a click, and back", function()
+	local V = ns.Views
+	Fern.Census(function(w)
+		local now = os.time()
+		for k = 1, 6 do ns.rdb.guilds["Olympus R" .. k] = { total = 100 * k, online = 1, zones = {}, t = now, leader = "L" .. k, officers = {} } end
+		local function Recruiting()
+			local lines = V.RealmLines()
+			local _, at = Fern.Find(lines, ns.L.RECRUITING)
+			local out = {}
+			for i = at + 1, #lines do
+				if lines[i].header then break end
+				out[#out + 1] = lines[i]
+			end
+			return out
+		end
+		local rows = Recruiting()
+		eq(#rows, V.RECRUIT_SHOWN + 1, "five and the click")
+		local more = rows[#rows]
+		eq(Fern.Bare(more.text), ns.L.RECRUIT_SHOW_ALL:format(8))
+		more.onClick()
+		rows = Recruiting()
+		eq(#rows, 8 + 1, "all eight and the way back")
+		eq(Fern.Bare(rows[#rows].text), ns.L.RECRUIT_SHOW_FEWER)
+		rows[#rows].onClick()
+		eq(#Recruiting(), V.RECRUIT_SHOWN + 1)
+	end)
+end)
+
+test("1.1 tonight's count (Fern #16): this client's peak and each zone's trend, sampled a full cycle after login, shown under the Census, nothing sent", function()
+	local V, D = ns.Views, ns.Data
+	Fern.Census(function(w)
+		local t0 = os.time()
+		ns.Comm.loginAt = t0
+		-- Rebuilding: no sample, no line.
+		eq(D.SampleEvening(t0 + D.CROWN_AFTER - 1), false)
+		eq(D.Evening().samples, 0)
+		eq(Fern.Find(V.Build("census"), "Tonight"), nil, "no line before the first sample")
+		-- First sample: 290 online (210 + 80), Stormwind 150, Elwynn 40.
+		eq(D.SampleEvening(t0 + D.CROWN_AFTER), true)
+		local e = D.Evening()
+		eq(e.peak, 290); eq(e.online, 290); eq(e.peakAt, t0 + D.CROWN_AFTER)
+		-- An hour later: more online, Elwynn empties, Westfall fills.
+		ns.rdb.guilds["Olympus"].online = 400
+		ns.rdb.guilds["Olympus"].zones = { m1453 = 200, m1436 = 25 }
+		for _, g in pairs(ns.rdb.guilds) do g.t = t0 + 3600 end
+		local savedNow = ns.Now
+		ns.Now = function() return t0 + 3600 end
+		D.SampleEvening(t0 + 3600)
+		eq(e.peak, 480); eq(e.peakAt, t0 + 3600)
+		local now, change = D.ZoneTrend("m1453"); eq(now, 230); eq(change, 80)
+		now, change = D.ZoneTrend("m1429"); eq(now, 0); eq(change, -40)
+		now, change = D.ZoneTrend("m1436"); eq(now, 25); eq(change, 25, "a zone empty at the first sample started at 0")
+		-- Later, fewer: the peak stays.
+		ns.rdb.guilds["Olympus"].online = 100
+		D.SampleEvening(t0 + 3700)
+		eq(e.peak, 480); eq(e.online, 180)
+		-- The line under the Census, and the zones in its tooltip.
+		local line = Fern.Find(V.Build("census"), "Tonight")
+		assert(line, "the line")
+		eq(Fern.Bare(line.text), ns.L.EVENING_LINE:format("480", date("%H:%M", t0 + 3600), "180", date("%H:%M", t0 + D.CROWN_AFTER)))
+		local tip = Fern.Tip(line)
+		assert(tip:find("Stormwind City = 230", 1, true) and tip:find("+80", 1, true), tip)
+		assert(tip:find("Elwynn Forest = 0", 1, true) and tip:find("-40", 1, true), tip)
+		assert(tip:find(ns.L.EVENING_TIP:format(date("%H:%M", t0 + D.CROWN_AFTER)), 1, true), "what it is")
+		ns.Now = savedNow
+		eq(#w.sent, 0, "nothing sent")
+	end)
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

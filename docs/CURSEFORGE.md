@@ -52,6 +52,15 @@ are highlighted. It is rate limited, so nobody gets spammed.
   (Eastern Kingdoms, Kalimdor), counted by the guilds whose census comes from a member who
   shares their zone (see Privacy, below).
 - Hover a guild: members, online, free slots, average level, inactive members, classes online, top zones.
+- **Search the census** (1.1): a guild, a Lord, a Captain, a player of a guild's top five or one
+  seen online (the player shows under the guild's row), or a zone ("Stormwind": its soldiers
+  and its guilds, most first). Type **recruiting** (or `free 50`) for every guild with room,
+  most free slots first and the King's gates on top.
+- **Tonight on this client** (1.1): under the list, the most soldiers your addon saw online at
+  once tonight and when, and (in its tooltip, and next to a zone you search) how each zone
+  filled or emptied since. Counted by your own addon once a minute from the reports it
+  already holds, starting about 3 minutes after login once the census is rebuilt: another
+  player's client counts its own evening, and nothing is sent.
 
 ### The Realm: the hierarchy
 - The **King**, then every guild's **Lord** (guild master) and **Captains** (the officer rank
@@ -67,7 +76,8 @@ are highlighted. It is rate limited, so nobody gets spammed.
 - The **ranks** of each guild with how many members hold them.
 - **Inactive members**: offline 7+ and 30+ days, per guild.
 - **Level race**: the highest level players of the realm.
-- **Recruiting**: the guilds that still have free slots, so new players go where there is room.
+- **Recruiting**: the guilds that still have free slots, so new players go where there is room
+  (the five with the most, then every one on a click, 1.1).
   When the King opens **the gates** of a guild, it tops the list: send new recruits there.
 - **Layers** of your zone, named after the highest ranked Olympus member on each one
   ("Asmongold's layer"), with how many members are there.
@@ -428,10 +438,10 @@ account, `/oly discord forget` drops this character's request and proof.
 
 ### Everywhere
 - **Copy**: every tab produces a ready-to-paste text for Discord.
-- **Search**: a box on top of the Census (a guild or its Lord), the Realm (guilds, Lords, Captains,
-  members seen online, the Olympus chats' lines), the Tabards (inspected and untabarded players,
-  by name or guild) and the Treasury (donors in the ranking and the book). Any case, accents too;
-  only what matches shows, under the headers it belongs to (a Captain under his guild, opened
+- **Search**: a box on top of the Census (guilds, Lords, Captains, players, zones, recruiting),
+  the Realm (guilds, Lords, Captains, members seen online, the Olympus chats' lines), the
+  Tabards (inspected and untabarded players, by name or guild) and the Treasury (donors in the
+  ranking and the book). Any case, accents too; only what matches shows, under the headers it belongs to (a Captain under his guild, opened
   for you, a page of guilds at a time), with an **x** to empty it. Each tab keeps its text until
   you log out or `/reload`; a guild clicked in the Census opens in the Realm with its box emptied.
   It only changes what the list shows: **Copy** still gives everything, and nothing is sent.
