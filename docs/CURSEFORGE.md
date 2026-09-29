@@ -56,9 +56,10 @@ are highlighted. It is rate limited, so nobody gets spammed.
   after login: N guilds heard so far* for about 3 minutes, while every guild's reporter answers.
   The beta often loads an empty save: the army is not gone, and no `/reload` is needed. The line
   only waits: it asks nothing (no `/who`) and opens nothing.
-- **An update line** (1.1): when the author's own addon says on the Olympus channel that he runs
-  a newer version than yours, a line at the foot of the Census, one line in chat once a session
-  and `/oly status` say so. It is yours alone: nothing is sent and nobody is whispered.
+- **An update line** (1.1): when the author's own addon says on the Olympus channel that a newer
+  version than yours is out (he marks it once CurseForge lists it, never a build he is still
+  trying), a line at the foot of the Census, one line in chat once a session and `/oly status`
+  say so. It is yours alone: nothing is sent and nobody is whispered.
 
 ### The Realm: the hierarchy
 - The **King**, then every guild's **Lord** (guild master) and **Captains** (the officer rank
@@ -636,10 +637,13 @@ the same answer, and each addon answers him once every 4 minutes at most, howeve
 He can also ask a player on an old version to update: a fixed window with the two version
 numbers and nothing else. Only his character on his realm group
 can do either: every addon checks the sender's name, which nobody else can carry. `/oly
-rollcall off` refuses both. Since 1.1 your addon also reads the version his addon already
+rollcall off` refuses both. Since 1.1 your addon also reads the released version his addon
 announces on the channel (his presence): newer than yours, the Census, `/oly status` and one chat
 line a session tell you to update. That is local to your client, sends nothing, and shows
-whatever `/oly rollcall` says. The addon's error catcher keeps only Olympus's own errors (for
+whatever `/oly rollcall` says. He runs a new build on his own PC before it is published, so his
+presence names only the version he marked as out with `/oly released [version]` (his character
+only; the Workshop tab shows it) once CurseForge lists it, never the build he runs, and never one
+newer than that build; addons before 1.1 read none of it. The addon's error catcher keeps only Olympus's own errors (for
 `/oly bug`), never another addon's. For the store's screenshots he has a photo mode (`/oly
 photo`, his character only): on his own screen it fades everything but Olympus and the world
 map to invisible, and gives every frame its look back on the second `/oly photo` or a

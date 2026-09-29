@@ -24684,10 +24684,10 @@ end)
 -- 1.1: behind the author's version, from his presence V4 (request #10)
 ---------------------------------------------------------------------------
 
-test("1.1 behind the author: his presence (V4) naming a newer version gives one chat line a session, a line at the foot of the Census and /oly status; nothing is sent", function()
+test("1.1 behind the author: his presence naming a newer released version (V4~<his build>~<released>) gives one chat line a session, a line at the foot of the Census and /oly status; nothing is sent", function()
 	local L = ns.L
-	local savedSaved = ns.db.authorVersion
-	ns.db.authorVersion = nil
+	local saved = { release = ns.db.authorRelease, old = ns.db.authorVersion }
+	ns.db.authorRelease, ns.db.authorVersion = nil, nil
 	local ok, err = pcall(function()
 		WithWorkshop("Ann-Realm", function(w, W)
 			local function CensusText()
@@ -24697,24 +24697,24 @@ test("1.1 behind the author: his presence (V4) naming a newer version gives one 
 			end
 			local line = L.BEHIND_LINE:format("1.1.0", ns.VERSION)
 			-- Anyone else naming a version: nothing (only his client, by the name the server stamps).
-			W.HandlePresence("CHANNEL", "Faladoriel-Realm", "V4~9.9.9")
-			W.HandlePresence("CHANNEL", "Faladoriel Skylance-SomeEraRealm", "V4~9.9.9")
+			W.HandlePresence("CHANNEL", "Faladoriel-Realm", "V4~9.9.9~9.9.9")
+			W.HandlePresence("CHANNEL", "Faladoriel Skylance-SomeEraRealm", "V4~9.9.9~9.9.9")
 			eq(W.Behind(), nil, "not him")
-			-- His version, the same as ours or older: nothing.
-			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~" .. ns.VERSION)
+			-- The version he marked as out, the same as ours or older: nothing.
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~9.9.9~" .. ns.VERSION)
 			eq(W.Behind(), nil); eq(#w.printed, 0)
-			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~0.9.9")
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~9.9.9~0.9.9")
 			eq(W.Behind(), nil); eq(#w.printed, 0)
 			-- Newer: one line in chat, the foot of the Census, /oly status.
-			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.1.0")
-			eq(W.Behind(), "1.1.0")
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.1.1~1.1.0")
+			eq(W.Behind(), "1.1.0", "the released version, not the build he runs")
 			eq(#w.printed, 1); eq(w.printed[1], L.BEHIND_CHAT:format("1.1.0", ns.VERSION))
 			local census = CensusText()
 			assert(census:find(line, 1, true), census)
-			assert(W.VersionLine():find("author's version: 1.1.0", 1, true), W.VersionLine())
+			assert(W.VersionLine():find("author's released version: 1.1.0", 1, true), W.VersionLine())
 			assert(W.VersionLine():find("behind", 1, true), W.VersionLine())
 			-- Every 5 minutes he says it again: no second chat line this session.
-			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.1.0")
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.1.1~1.1.0")
 			eq(#w.printed, 1, "once a session")
 			-- Nothing left this client: no whisper, no message on the channel.
 			eq(#w.sent, 0, "nothing sent"); eq(#w.whispered, 0, "nobody whispered")
@@ -24730,7 +24730,7 @@ test("1.1 behind the author: his presence (V4) naming a newer version gives one 
 			eq(W.Behind(), "1.1.0", "from the saved one")
 			assert(CensusText():find(line, 1, true))
 			eq(#w.printed, 0)
-			-- Updated to his version: the line goes by itself.
+			-- Updated to it: the line goes by itself.
 			local savedVersion = ns.VERSION
 			ns.VERSION = "1.1.0"
 			eq(W.Behind(), nil)
@@ -24738,29 +24738,109 @@ test("1.1 behind the author: his presence (V4) naming a newer version gives one 
 			assert(W.VersionLine():find("same", 1, true), W.VersionLine())
 			ns.VERSION = savedVersion
 			-- A garbled number: ignored.
-			W.ResetVersion(); ns.db.authorVersion = nil
-			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.1.0|cff")
-			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.2")
-			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1234567890.1.1")
+			W.ResetVersion(); ns.db.authorRelease = nil
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.2.0~1.1.0|cff")
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.2.0~1.2")
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.2.0~1234567890.1.1")
 			eq(W.Behind(), nil)
 			-- His own client never tells himself.
-			ns.db.authorVersion = { v = "9.0.0", t = w.clock }
+			ns.db.authorRelease = { v = "9.0.0", t = w.clock }
 			ns.me = AUTHOR_FULL
 			eq(W.Behind(), nil)
 		end)
 	end)
-	ns.db.authorVersion = savedSaved
+	ns.db.authorRelease, ns.db.authorVersion = saved.release, saved.old
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 behind the author: a build he runs before CurseForge lists it names nothing (his presence without a released version, or with one not newer than ours), even after he logs off; a later field is read past", function()
+	local saved = { release = ns.db.authorRelease, old = ns.db.authorVersion }
+	ns.db.authorRelease, ns.db.authorVersion = nil, nil
+	local ok, err = pcall(function()
+		WithWorkshop("Ann-Realm", function(w, W)
+			-- His preview build, as 1.0 sends it and as his 1.1 sends it with nothing marked: no line, nothing kept.
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~9.1.1")
+			eq(W.Behind(), nil); eq(#w.printed, 0); eq(ns.db.authorRelease, nil)
+			eq(W.AuthorOnline(), true, "he is online all the same")
+			-- His preview build, and the version he marked as out (ours): no line.
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~9.1.1~" .. ns.VERSION)
+			eq(W.Behind(), nil); eq(#w.printed, 0)
+			eq(ns.db.authorRelease.v, ns.VERSION)
+			-- A day later, a new session, he is offline: still nothing about his preview.
+			W.ResetVersion()
+			w.clock = w.clock + 24 * 3600
+			eq(W.AuthorOnline(), false)
+			eq(W.Behind(), nil); eq(W.BehindLine(), nil)
+			-- What a build before this one saved as the version his client ran: not read.
+			ns.db.authorRelease = nil
+			ns.db.authorVersion = { v = "9.1.1", t = w.clock }
+			eq(W.Behind(), nil)
+			-- Once he marks it as out: the line. A field after the released one (a later V4's) is read past.
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~9.1.1~9.1.1~r")
+			eq(W.Behind(), "9.1.1")
+			eq(#w.printed, 1)
+		end)
+	end)
+	ns.db.authorRelease, ns.db.authorVersion = saved.release, saved.old
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 behind the author: /oly released marks the version CurseForge lists; his presence names it at once (never one newer than the build he runs), and nobody else can mark one", function()
+	local saved = ns.db.releasedVersion
+	ns.db.releasedVersion = nil
+	local ok, err = pcall(function()
+		WithWorkshop(AUTHOR_FULL, function(w, W)
+			local L = ns.L
+			-- Nothing marked: his presence names the build he runs alone.
+			W.SendPresence()
+			eq(w.sent[1].msg, "V4~" .. ns.VERSION)
+			assert(W.VersionLine():find("none marked", 1, true), W.VersionLine())
+			-- /oly released: his build, said at once.
+			SlashCmdList.OLYMPUS("released")
+			eq(ns.db.releasedVersion, ns.VERSION)
+			eq(w.printed[#w.printed], L.RELEASED_DONE:format(ns.VERSION))
+			eq(w.sent[2].msg, "V4~" .. ns.VERSION .. "~" .. ns.VERSION)
+			assert(W.VersionLine():find("author's released version: " .. ns.VERSION, 1, true), W.VersionLine())
+			-- His tab says it.
+			local found = false
+			for _, l in ipairs((W.Build())) do
+				if l.text == L.WORKSHOP_RELEASED:format(ns.VERSION, ns.VERSION) then found = true end
+			end
+			assert(found, "on his tab")
+			-- An older one he can name; never one newer than he runs, nor a garbled one.
+			eq(W.MarkReleased("0.9.9"), true)
+			eq(w.sent[3].msg, "V4~" .. ns.VERSION .. "~0.9.9")
+			eq(W.MarkReleased("9.9.9"), false)
+			eq(w.printed[#w.printed], L.RELEASED_USAGE:format(ns.VERSION))
+			eq(W.MarkReleased("1.1"), false)
+			eq(ns.db.releasedVersion, "0.9.9")
+			eq(#w.sent, 3)
+			-- Marked newer than the build he runs (he went back to an older one): not named.
+			ns.db.releasedVersion = "9.9.9"
+			W.SendPresence()
+			eq(w.sent[4].msg, "V4~" .. ns.VERSION)
+			-- Anyone else: refused, nothing kept or sent.
+			ns.db.releasedVersion = nil
+			ns.me = "Ann-Realm"
+			eq(W.MarkReleased(), false)
+			eq(w.printed[#w.printed], L.RELEASED_ONLY_AUTHOR)
+			eq(ns.db.releasedVersion, nil)
+			W.SendPresence()
+			eq(#w.sent, 4)
+		end)
+	end)
+	ns.db.releasedVersion = saved
 	if not ok then error(err, 0) end
 end)
 
 test("1.1 behind the author: /oly status carries the line", function()
-	local savedSaved = ns.db.authorVersion
+	local saved = ns.db.authorRelease
 	ns.Workshop.ResetVersion()
-	ns.db.authorVersion = { v = "1.1.0", t = os.time() }
+	ns.db.authorRelease = { v = "1.1.0", t = os.time() }
 	local ok, err = pcall(function()
-		assert(ns.StatusText():find("author's version: 1.1.0", 1, true), "in /oly status")
+		assert(ns.StatusText():find("author's released version: 1.1.0", 1, true), "in /oly status")
 	end)
-	ns.db.authorVersion = savedSaved
+	ns.db.authorRelease = saved
 	ns.Workshop.ResetVersion()
 	if not ok then error(err, 0) end
 end)
@@ -24772,7 +24852,8 @@ test("1.1 behind the author: its lines in both languages", function()
 	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
 	GetLocale = savedLocale
 	if not ok then error(err, 0) end
-	for _, k in ipairs({ "BEHIND_LINE", "BEHIND_TIP", "BEHIND_CHAT" }) do
+	for _, k in ipairs({ "BEHIND_LINE", "BEHIND_TIP", "BEHIND_CHAT", "RELEASED_DONE", "RELEASED_USAGE", "RELEASED_ONLY_AUTHOR",
+		"WORKSHOP_RELEASED", "WORKSHOP_RELEASED_TIP" }) do
 		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
 		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
 	end

@@ -1434,6 +1434,9 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "photo" then
 			-- The author's photo mode for the store's screenshots (UI.TogglePhoto, 1.0.0).
 			ns.UI.TogglePhoto()
+		elseif cmd == "released" then
+			-- The author: the version CurseForge lists, which his presence names as out (1.1).
+			ns.Workshop.MarkReleased(rest)
 		elseif cmd == "debug" then
 			ns.db.debug = not ns.db.debug
 			ns.Print(ns.db.debug and L.DEBUG_ON or L.DEBUG_OFF)
