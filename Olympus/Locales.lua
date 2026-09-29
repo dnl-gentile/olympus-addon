@@ -532,8 +532,8 @@ L.TREASURY_BOOK_BTN_TIP = "Every donation and payment, newest first."
 L.TREASURY_SUMMARY_BTN_TIP = "Back to the summary: %s."
 L.TREASURY_SUMMARY_BTN_TIP_PLAIN = "Back to the summary."
 L.TREASURY_OLDER = "Older lines (%d more)"
-L.TREASURY_YOU_AND_KING = "Olympus shows the balance, the ranking, the book and the bank only to the treasury's keepers, the King and his Steward, until the King shows them to the army. What you share still goes out on the Olympus channel, and every client on it receives it."
-L.TREASURY_YOU_AND_KING_BUT = "The King shows the army %s; Olympus shows the rest only to the keepers, the King and his Steward. What you share still goes out on the Olympus channel, and every client on it receives it."
+L.TREASURY_YOU_AND_KING = "Olympus shows the balance, the ranking, the book and the bank only to the treasury's keepers, the King and his Steward, until the King shows them to the army. Until then none of it goes on the Olympus channel: your addon whispers it to them alone."
+L.TREASURY_YOU_AND_KING_BUT = "The King shows the army %s: that part goes out on the Olympus channel, and every client on it receives it. The rest your addon whispers only to the keepers, the King and his Steward."
 L.TREASURY_SUMMARY_BTN = "The treasury"
 L.TREASURY_BOOK_HOW = "Click one of your own lines to count it or stop counting it (a sale that was a donation, a payment that was yours)."
 L.TREASURY_KIND_SALE = "a sale, not counted"
@@ -703,7 +703,7 @@ L.ROLLCALL_OFF = "The author's roll calls and update notices are refused. /oly r
 L.HELP_ROLLCALL = "  /oly rollcall on|off - answer the author's roll calls (version, client, channel state) or not"
 -- 0.9.3: treasurer
 L.TREASURER_ONLY = "Only a keeper of the treasury can change this."
-L.TREASURER_SHARE_ASK = "You keep a book of the treasury of Olympus (as its Treasurer, its King, or a character the King named). Share your book (balance, gold and items given and who gave them, the ranking) and the guild bank when you open it (its gold and items)? The Treasurer's yes also sends the names of everyone who gave before 1.0 (the early supporters, from 0.9's book).\n\nThey go out on the Olympus channel, and every client on it receives them, the names too. %s The addon shows them to the King and to his Steward (a character the author may name to act for him), and to the army only when the King allows it. Change it any time with /oly treasurer on or off."
+L.TREASURER_SHARE_ASK = "You keep a book of the treasury of Olympus (as its Treasurer, its King, or a character the King named). Share your book (balance, gold and items given and who gave them, the ranking) and the guild bank when you open it (its gold and items)? The Treasurer's yes also sends the names of everyone who gave before 1.0 (the early supporters, from 0.9's book).\n\nWhat the King shows the army goes out on the Olympus channel, and every client on it receives it, the names too. %s The rest goes by whisper to the King, his Steward (a character the author may name to act for him) and the treasury's keepers alone, never on the channel. Change it any time with /oly treasurer on or off."
 L.TREASURER_SHARE_YES = "Share"
 L.TREASURER_SHARE_NO = "Keep private"
 L.TREASURER_SHARE_ON = "Your treasury book and the guild bank are shared (the King and his Steward see them; the army only if the King allows it). /oly treasurer off withdraws them."
@@ -992,6 +992,8 @@ L.TREASURY_DETAIL_STEWARD = "The treasury as its keepers' addons send it. In the
 -- 1.0.0: the Hands each one named, on the King's and a Steward's Hands page (theirs to remove).
 L.HANDS_NAMED_BY_KING = "Named by the King (his to remove):"
 L.HANDS_NAMED_BY_STEWARD = "Named by the Steward %s (his to remove):"
+-- 1.1 (the treasury): what the King's switches hide goes by whisper to the King, his Stewards and the keepers alone.
+L.TREASURY_PART_WAIT = "So far only what the army sees of the book of %s: the whole of it comes by whisper once that keeper's addon hears yours."
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1516,8 +1518,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.TREASURY_SUMMARY_BTN_TIP = "De volta ao resumo: %s."
 	L.TREASURY_SUMMARY_BTN_TIP_PLAIN = "De volta ao resumo."
 	L.TREASURY_OLDER = "Linhas mais antigas (mais %d)"
-	L.TREASURY_YOU_AND_KING = "O Olympus mostra o saldo, o ranking, o livro e o banco só aos guardiões do tesouro, ao Rei e ao Senescal dele, até o Rei liberar para o exército. O que você compartilha sai mesmo assim no canal do Olympus, e todo cliente nele recebe."
-	L.TREASURY_YOU_AND_KING_BUT = "O Rei mostra ao exército %s; o resto o Olympus mostra só aos guardiões, ao Rei e ao Senescal dele. O que você compartilha sai mesmo assim no canal do Olympus, e todo cliente nele recebe."
+	L.TREASURY_YOU_AND_KING = "O Olympus mostra o saldo, o ranking, o livro e o banco só aos guardiões do tesouro, ao Rei e ao Senescal dele, até o Rei liberar para o exército. Até lá nada disso sai no canal do Olympus: o seu addon sussurra só para eles."
+	L.TREASURY_YOU_AND_KING_BUT = "O Rei mostra ao exército %s: essa parte sai no canal do Olympus, e todo cliente nele recebe. O resto o seu addon sussurra só aos guardiões, ao Rei e ao Senescal dele."
 	L.TREASURY_SUMMARY_BTN = "O tesouro"
 	L.TREASURY_BOOK_HOW = "Clique numa linha sua para contar ou deixar de contar (uma venda que era doação, um pagamento que era seu)."
 	L.TREASURY_KIND_SALE = "venda, não conta"
@@ -1686,7 +1688,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.HELP_ROLLCALL = "  /oly rollcall on|off - responder ou não às chamadas do autor (versão, cliente, estado do canal)"
 	-- 0.9.3: treasurer
 	L.TREASURER_ONLY = "Só um guardião do tesouro pode mudar isso."
-	L.TREASURER_SHARE_ASK = "Você guarda um livro do tesouro de Olympus (como Tesoureiro, como Rei, ou como personagem nomeado pelo Rei). Compartilhar o seu livro (saldo, ouro e itens dados e quem deu, o ranking) e o banco da guilda quando você o abrir (ouro e itens)? O sim do Tesoureiro também envia os nomes de todos que doaram antes da 1.0 (os primeiros apoiadores, do livro da 0.9).\n\nEles saem no canal Olympus, e todo cliente nele os recebe, os nomes também. %s O addon mostra ao Rei e ao Senescal dele (um personagem que o autor pode nomear para agir por ele), e ao exército só quando o Rei permitir. Mude quando quiser com /oly treasurer on ou off."
+	L.TREASURER_SHARE_ASK = "Você guarda um livro do tesouro de Olympus (como Tesoureiro, como Rei, ou como personagem nomeado pelo Rei). Compartilhar o seu livro (saldo, ouro e itens dados e quem deu, o ranking) e o banco da guilda quando você o abrir (ouro e itens)? O sim do Tesoureiro também envia os nomes de todos que doaram antes da 1.0 (os primeiros apoiadores, do livro da 0.9).\n\nO que o Rei mostra ao exército sai no canal Olympus, e todo cliente nele recebe, os nomes também. %s O resto vai por sussurro só ao Rei, ao Senescal dele (um personagem que o autor pode nomear para agir por ele) e aos guardiões do tesouro, nunca no canal. Mude quando quiser com /oly treasurer on ou off."
 	L.TREASURER_SHARE_YES = "Compartilhar"
 	L.TREASURER_SHARE_NO = "Manter privado"
 	L.TREASURER_SHARE_ON = "Seu livro do tesouro e o banco da guilda estão compartilhados (o Rei e o Senescal dele veem; o exército só se o Rei permitir). /oly treasurer off retira."
@@ -1970,4 +1972,6 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.TREASURY_DETAIL_STEWARD = "O tesouro como os addons dos guardiões mandam. Em nome do Rei seus botões escolhem o que o exército vê, e você nomeia os guardiões."
 	L.HANDS_NAMED_BY_KING = "Nomeadas pelo Rei (só ele as tira):"
 	L.HANDS_NAMED_BY_STEWARD = "Nomeadas pelo Senescal %s (só ele as tira):"
+	-- 1.1 (o tesouro): o que os botões do Rei escondem vai por sussurro só ao Rei, aos Senescais e aos guardiões.
+	L.TREASURY_PART_WAIT = "Por enquanto só o que o exército vê do livro de %s: o livro inteiro chega por sussurro assim que o addon desse guardião ouvir o seu."
 end

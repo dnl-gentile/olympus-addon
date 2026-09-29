@@ -126,6 +126,17 @@ function Bank.Message(snap)
 	return msg
 end
 
+-- Our own snapshot of the King's guild's bank as a keeper's client whispers it (1.1), or nil.
+function Bank.PrivateMessage()
+	if not CanSend() then return nil end
+	local snap = Bank.Own()
+	if not snap or not (snap.guild and ns.IsKingGuild(snap.guild)) then return nil end
+	return Bank.Message(snap)
+end
+
+-- 1.1: on the channel only while the King shows the army the book (the bank goes with it); by
+-- whisper otherwise, to the King, his Stewards and the keepers heard online (Treasury.Private:
+-- each gets a snapshot once, the next one when it changed).
 function Bank.Share(force)
 	if not CanSend() then return false end
 	local snap = Bank.Own()
@@ -133,6 +144,13 @@ function Bank.Share(force)
 	local now = ns.Now()
 	local msg = Bank.Message(snap)
 	if not msg then return false end
+	if not ns.Treasury.PublicShows("book") then
+		local n = 0
+		for _, name in ipairs(ns.Treasury.Online()) do
+			if ns.Treasury.Private(name, "T9", msg) then n = n + 1 end
+		end
+		return n > 0
+	end
 	if not force and msg == lastSent and now - lastShare < Bank.SHARE_REPEAT then return false end
 	if not force and now - lastShare < Bank.SHARE_GAP then
 		-- Changed within the gap: sent once it is over (the snapshot as it is then).
@@ -154,7 +172,8 @@ end
 -- census vote, which forged ones could turn against him). The newest one is kept: a keeper
 -- repeating an older snapshot doesn't replace a newer one of another's.
 function Bank.HandleReport(dist, sender, text)
-	if dist ~= "CHANNEL" then return end
+	-- (1.1: by whisper too, put together by Treasury.HandlePrivate, to the King, a Steward or a keeper.)
+	if dist ~= "CHANNEL" and not (dist == "WHISPER" and ns.Treasury.IsInsider()) then return end
 	local guild, when, money, rest = text:match("^T9~([^~]*)~(%d+)~(%d+)~(.*)$")
 	if not guild or not ns.IsKingGuild(guild) then return end
 	if not (ns.Treasury and ns.Treasury.IsKeeperName and ns.Treasury.IsKeeperName(sender, guild)) then return end
@@ -187,6 +206,8 @@ function Bank.HandleReport(dist, sender, text)
 	ns.Fire("DATA_CHANGED")
 end
 ns.Comm.Handle("T9", function(...) Bank.HandleReport(...) end)
+ns.Treasury.OnPrivate("T9", { from = function(s) return ns.Treasury.KeeperByName(s) end, to = function() return ns.Treasury.IsInsider() end,
+	handle = function(...) Bank.HandleReport(...) end })
 
 -- A tab asked for whose slots never arrived reads empty, just like a tab that is: an empty
 -- read never replaces the items the last snapshot of that tab held (same guild, same tab),
