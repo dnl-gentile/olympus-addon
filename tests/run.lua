@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Board", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -24455,6 +24455,547 @@ test("1.0.0 the Hands' hint says they speak with the King's Crown to the other g
 	GetLocale = savedLocale
 	if not ok then error(err, 0) end
 	assert(rawget(pt.L, "HANDS_HINT"):find("decretos reais", 1, true))
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: the Board (Board.lua, Fern's #1): a flag for a dungeon, a raid, PvP or a layer with a
+-- short note; the zone only while its player shares it; a whisper by click, never an invite.
+---------------------------------------------------------------------------
+
+local function WithBoard(fn)
+	WithThrone(function(w, K)
+		local B = ns.Board
+		local saved = { ready = ns.Comm.ChannelReady, sharing = ns.Layers.Sharing, current = ns.Layers.CurrentMap, after = B.after,
+			random = B.random, delivered = ns.Comm.DeliveredLogged, ci = C_ChatInfo, tell = ChatFrame_SendTell, friends = C_FriendList,
+			queue = ns.Comm.QueueSize, joined = ns.Comm.joinedAt, info = C_Map.GetMapInfo, level = UnitLevel, class = UnitClass,
+			instance = IsInInstance, ui = ns.UI, send = ns.Comm.Send, whisper = ns.Comm.Whisper }
+		local ok, err = pcall(function()
+			B.Reset()
+			ns.Views.CloseChat()
+			-- (w.logged: the message being read came through the logged API, as a note does.)
+			w.share, w.map, w.later, w.told, w.windows, w.logged = false, 1453, {}, {}, {}, true
+			ns.Comm.ChannelReady = function() return true end
+			ns.Layers.Sharing = function() return w.share end
+			ns.Layers.CurrentMap = function() return w.map end
+			-- (The redraw is at once here; anything else waits in w.later.)
+			B.after = function(s, where, f) if where == "board changed" then return f() end w.later[#w.later + 1] = { at = w.clock + s, fn = f, where = where } end
+			B.random = function(a) if a then return a end return 0 end
+			ns.Comm.DeliveredLogged = function() return w.logged end
+			ns.Comm.joinedAt = nil
+			ns.Comm.QueueSize = function() return 0 end
+			ns.Comm.Send = function(dist, msg, key, urgent, logged)
+				w.sent[#w.sent + 1] = { dist = dist, msg = msg, key = key, urgent = urgent, logged = logged }
+			end
+			ns.Comm.Whisper = function(to, msg, key, urgent, logged)
+				w.whispered[#w.whispered + 1] = { to = to, msg = msg, key = key, urgent = urgent, logged = logged }
+			end
+			C_ChatInfo = { SendAddonMessageLogged = function() end }
+			C_FriendList = { IsIgnored = function(name) return name == "Troll" end }
+			ChatFrame_SendTell = function(name) w.told[#w.told + 1] = name end
+			C_Map.GetMapInfo = function(id)
+				return ({ [1453] = { mapID = 1453, name = "Stormwind City", mapType = 3 }, [1429] = { mapID = 1429, name = "Elwynn Forest", mapType = 3 } })[id]
+			end
+			IsInInstance = function() return false end
+			UnitLevel = function() return 42 end
+			UnitClass = function() return "Priest", "PRIEST" end
+			ns.UI = setmetatable({ Refresh = function() end, RefreshSoon = function() end, IsShown = function() return false end, FilterChanged = function() end,
+				WhisperWindow = function(name) w.windows[#w.windows + 1] = name end,
+				SelectTab = function(tab) w.tab = tab end }, { __index = saved.ui })
+			fn(w, B, K)
+		end)
+		ns.Comm.ChannelReady, ns.Layers.Sharing, ns.Layers.CurrentMap, B.after, B.random = saved.ready, saved.sharing, saved.current, saved.after, saved.random
+		ns.Comm.DeliveredLogged, C_ChatInfo, ChatFrame_SendTell, C_FriendList = saved.delivered, saved.ci, saved.tell, saved.friends
+		ns.Comm.QueueSize, ns.Comm.joinedAt, C_Map.GetMapInfo, UnitLevel, UnitClass = saved.queue, saved.joined, saved.info, saved.level, saved.class
+		IsInInstance, ns.UI, ns.Comm.Send, ns.Comm.Whisper = saved.instance, saved.ui, saved.send, saved.whisper
+		B.Reset()
+		ns.Views.CloseChat()
+		ns.Views.ClearFilters()
+		if not ok then error(err, 0) end
+	end)
+end
+-- A flag as another player's addon sends it.
+local function Flag(id, guild, flag, age, zone, note, every)
+	return ns.Board.Encode({ id = id, guild = guild, flag = flag, level = 30, class = "WA", every = every or 10, age = age or 0, zone = zone, note = note })
+end
+local function Raised(w)
+	local s = w.sent[#w.sent]
+	return s and s.msg:find("^G1~") and s or nil
+end
+
+test("1.1 the Board: a flag's message, its checks, and its note made safe", function()
+	local B = ns.Board
+	local msg = B.Encode({ id = "a7", guild = "Olympus II", flag = "R", level = 42, class = "PR", every = 10, age = 3, zone = 1453,
+		note = "  need |cffff0000heals|r\n~now~  " })
+	eq(msg, "G1~a7~Olympus II~R~42~PR~10~3~1453~need cffff0000heals r now", "one line, no escape code, no separator")
+	local e = B.Decode(msg)
+	eq(e.id, "a7"); eq(e.guild, "Olympus II"); eq(e.flag, "R"); eq(e.level, 42); eq(e.class, "PR"); eq(e.every, 10); eq(e.age, 3)
+	eq(e.zone, 1453); eq(e.note, "need cffff0000heals r now")
+	-- No zone: an empty field, and no zone read back.
+	e = B.Decode(B.Encode({ id = "z", guild = "Olympus II", flag = "L", level = 1, class = "", every = 30, age = 0 }))
+	eq(e.zone, nil); eq(e.note, ""); eq(e.class, "")
+	-- A note is 40 bytes at most, never half a letter.
+	local long = string.rep("a", 39) .. "\195\169" .. "bc"
+	eq(B.CleanNote(long), string.rep("a", 39), "the accented letter would be cut: left out whole")
+	eq(#B.CleanNote(string.rep("x", 90)), B.NOTE_MAX)
+	-- Later versions may add fields after the note: read up to it.
+	eq(B.Decode("G1~a7~Olympus II~R~42~PR~10~3~~hello~future~more").note, "hello")
+	-- Malformed or out of bounds: nothing.
+	for _, bad in ipairs({
+		"G1~ABC~Olympus II~R~42~PR~10~3~~", "G1~a~Olympus II~X~42~PR~10~3~~", "G1~a~Olympus II~C~42~PR~10~3~~",
+		"G1~a~Olympus II~R~0~PR~10~3~~", "G1~a~Olympus II~R~100~PR~10~3~~", "G1~a~Olympus II~R~42~Pr~10~3~~",
+		"G1~a~Olympus II~R~42~PR~9~3~~", "G1~a~Olympus II~R~42~PR~31~3~~", "G1~a~Olympus II~R~42~PR~10~61~~",
+		"G1~a~Olympus II~R~42~PR~10~3~12a~", "G1~a~~R~42~PR~10~3~~", "G1~a~" .. string.rep("O", 25) .. "~R~42~PR~10~3~~",
+		"G1~a~Olympus II~R~42~PR~10", "G0~a", 42 }) do
+		eq(B.Decode(bad), nil, tostring(bad))
+	end
+	-- The longest it gets (a guild of 24 accented letters, a zone of 6 digits, a full note): one message.
+	local worst = B.Encode({ id = "zz", guild = string.rep("\195\169", 24), flag = "D", level = 60, class = "WA", every = 30, age = 59,
+		zone = 999999, note = string.rep("\195\169", 30) })
+	assert(#worst <= 250, "one message: " .. #worst)
+	eq(B.Decode(worst).zone, 999999)
+end)
+
+test("1.1 the Board: one click raises a flag with its note (logged), the zone only while shared; each refusal says why", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		-- The dialog first: the flag, whether the zone goes, who reads it; a box for the note.
+		B.Prompt("R", "  need tank ")
+		local p = w.popups[#w.popups]
+		eq(p.name, "OLYMPUS_BOARD_RAISE"); eq(p.a, ns.L.BOARD_FLAG_R); eq(p.data.flag, "R"); eq(p.data.note, "need tank")
+		assert(p.b:find(ns.L.BOARD_ASK_NO_ZONE, 1, true) and p.b:find(ns.Comm.Audience(), 1, true), p.b)
+		local def = StaticPopupDialogs.OLYMPUS_BOARD_RAISE
+		eq(def.hasEditBox, true); eq(def.maxBytes, B.NOTE_MAX + 1)
+		local box = { text = "", SetText = function(self, t) self.text = t end, GetText = function(self) return self.text end, SetFocus = function() end }
+		def.OnShow({ editBox = box, data = p.data }, p.data)
+		eq(box.text, "need tank", "the note typed after /oly lfg raid")
+		box.text = "need tank |cff00ff00!"
+		def.OnAccept({ editBox = box }, p.data)
+		local s = Raised(w)
+		assert(s, "raised")
+		eq(s.dist, "CHANNEL"); eq(s.key, "banner"); eq(s.logged, true, "a note: the logged API")
+		local e = B.Decode(s.msg)
+		eq(e.flag, "R"); eq(e.guild, "Olympus II"); eq(e.level, 42); eq(e.class, "PR"); eq(e.zone, nil, "not shared: no zone"); eq(e.note, "need tank cff00ff00!")
+		assert(Printed(w, ns.L.BOARD_RAISED_HIDDEN:format(ns.L.BOARD_FLAG_R)))
+		-- Answered twice (Enter, then the button): raised once.
+		local n = #w.sent
+		def.OnAccept({ editBox = box }, p.data)
+		eq(#w.sent, n)
+		-- Too soon for another.
+		eq(select(2, B.Raise("D")), "wait"); eq(#w.sent, n)
+		-- Shared: its zone goes; no note: the plain API.
+		w.clock = w.clock + B.RAISE_GAP
+		w.share = true
+		eq(B.Raise("D"), true)
+		s = Raised(w)
+		e = B.Decode(s.msg)
+		eq(e.flag, "D"); eq(e.zone, 1453); eq(s.logged, false, "no note: the plain API")
+		assert(Printed(w, ns.L.BOARD_RAISED:format(ns.L.BOARD_FLAG_D, "Stormwind City")))
+		eq(B.Mine().flag, "D", "one flag: the new one took its place")
+		-- In an instance its zone stays home.
+		w.clock = w.clock + B.RAISE_GAP
+		IsInInstance = function() return true end
+		eq(B.Raise("P"), true); eq(B.Decode(Raised(w).msg).zone, nil)
+		IsInInstance = function() return false end
+		-- Three an hour.
+		w.clock = w.clock + B.RAISE_GAP
+		n = #w.sent
+		eq(select(2, B.Raise("L")), "hourly"); eq(#w.sent, n)
+		w.clock = w.clock + 3600
+		eq(B.Raise("L"), true)
+		-- Not a flag, not a member, not on the channel, in lockdown: nothing sent.
+		w.clock = w.clock + B.RAISE_GAP
+		n = #w.sent
+		eq(select(2, B.Raise("C")), "flag")
+		GetGuildInfo = function() return "Some Guild", "Member", 3 end
+		eq(select(2, B.Raise("D")), "member")
+		AsSoldier()
+		ns.Comm.ChannelReady = function() return false end
+		eq(select(2, B.Raise("D")), "ready")
+		ns.Comm.ChannelReady = function() return true end
+		C_ChatInfo.InChatMessagingLockdown = function() return true end
+		eq(select(2, B.Raise("D")), "lockdown")
+		C_ChatInfo.InChatMessagingLockdown = nil
+		eq(#w.sent, n, "nothing sent")
+	end)
+end)
+
+test("1.1 the Board: our flag refreshes for late logins, drops its zone within 30 s of /oly location off, and comes down after an hour", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		w.share = true
+		local t0 = w.clock
+		B.Raise("R", "lfm")
+		local first = B.Decode(Raised(w).msg)
+		eq(first.every, 10, "a small Board: every 10 minutes")
+		local n = #w.sent
+		w.clock = t0 + 9 * 60
+		B.Tick()
+		eq(#w.sent, n, "not yet")
+		w.clock = t0 + 10 * 60
+		B.Tick()
+		local again = B.Decode(Raised(w).msg)
+		eq(again.id, first.id, "the same flag"); eq(again.age, 10); eq(again.zone, 1453)
+		-- The player stops sharing: the next tick sends it without its zone.
+		w.share = false
+		w.clock = t0 + 10 * 60 + 30
+		B.Tick()
+		eq(B.Decode(Raised(w).msg).zone, nil)
+		-- The refresh stretches with the Board (12 seconds a post, 30 minutes at most).
+		eq(B.Interval(0), 10); eq(B.Interval(100), 20); eq(B.Interval(150), 30); eq(B.Interval(1000), 30)
+		-- An hour after it went up: lowered for everyone, and the player told.
+		w.clock = t0 + 3600
+		B.Tick()
+		eq(B.Mine(), nil)
+		eq(LastSent(w), "G0~" .. first.id)
+		assert(Printed(w, ns.L.BOARD_LOWERED_HOUR))
+	end)
+end)
+
+test("1.1 the Board: cards from the channel, one flag a player, lowered with G0, gone after the hour; no note outside the logged API", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 2, 1429, "lfm molten core"))
+		local list = B.List()
+		eq(#list, 1)
+		local card = B.Card(list[1])
+		assert(card.text:find("[" .. ns.L.BOARD_FLAG_R .. "]", 1, true) and card.text:find("Aldric", 1, true)
+			and card.text:find("<Olympus Zeus>", 1, true) and card.text:find('"lfm molten core"', 1, true), card.text)
+		assert(card.right:find("Elwynn Forest", 1, true), card.right)
+		-- A player who keeps the zone private: the card says it is hidden.
+		B.HandlePost("CHANNEL", "Brenna-Realm", Flag("b1", "Olympus Zeus", "L", 0, nil, ""))
+		local hidden
+		for _, e in ipairs(B.List()) do if e.sender == "Brenna-Realm" then hidden = B.Card(e) end end
+		assert(hidden.right:find(ns.L.BOARD_ZONE_HIDDEN, 1, true), hidden.right)
+		eq(#B.List(), 2)
+		-- A refresh (same id): the same card, news kept.
+		w.clock = w.clock + 600
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 12, 1453, "now in SW"))
+		eq(#B.List(), 2)
+		local a
+		for _, e in ipairs(B.List()) do if e.sender == "Aldric-Realm" then a = e end end
+		eq(a.zone, 1453); eq(a.note, "now in SW")
+		-- A new flag of the same player replaces the old one, once a minute at most.
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a2", "Olympus Zeus", "D", 0))
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a3", "Olympus Zeus", "P", 0))
+		for _, e in ipairs(B.List()) do if e.sender == "Aldric-Realm" then a = e end end
+		eq(a.id, "a2", "the second within a minute: not taken"); eq(#B.List(), 2)
+		-- Lowered: gone, and a late copy of it can't bring it back.
+		B.HandleLower("CHANNEL", "Aldric-Realm", "G0~a2")
+		eq(#B.List(), 1)
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a2", "Olympus Zeus", "D", 1))
+		eq(#B.List(), 1, "lowered stays lowered")
+		B.HandleLower("CHANNEL", "Someone-Realm", "G0~b1")
+		eq(#B.List(), 1, "only its own poster lowers it")
+		-- Not from the channel, not an Olympus guild, our guild's name from outside our roster,
+		-- someone the game ignores, our own echo: nothing.
+		B.HandlePost("GUILD", "Cedric-Realm", Flag("c1", "Olympus Zeus", "R"))
+		B.HandlePost("WHISPER", "Cedric-Realm", Flag("c1", "Olympus Zeus", "R"))
+		B.HandlePost("CHANNEL", "Cedric-Realm", Flag("c1", "Horde Stompers", "R"))
+		B.HandlePost("CHANNEL", "Dorian-Realm", Flag("d1", "Olympus II", "R"))
+		B.HandlePost("CHANNEL", "Troll-Realm", Flag("t1", "Olympus Zeus", "R"))
+		B.HandlePost("CHANNEL", ns.me, Flag("m1", "Olympus II", "R"))
+		eq(#B.List(), 1)
+		-- The client has the logged API but this note didn't come through it: shown without its words.
+		w.logged = false
+		B.HandlePost("CHANNEL", "Emric-Realm", Flag("e1", "Olympus Zeus", "D", 0, nil, "buy gold at scam dot com"))
+		local emric
+		for _, e in ipairs(B.List()) do if e.sender == "Emric-Realm" then emric = e end end
+		eq(emric.note, "")
+		w.logged = true
+		B.HandlePost("CHANNEL", "Fara-Realm", Flag("f1", "Olympus Zeus", "D", 0, nil, "tank lfg"))
+		local fara
+		for _, e in ipairs(B.List()) do if e.sender == "Fara-Realm" then fara = e end end
+		eq(fara.note, "tank lfg")
+		-- An hour after it went up it is gone from every Board, refreshed or not (65 minutes at most
+		-- after it was first heard, whatever age its sender claims); a flag not heard for two of
+		-- its refreshes goes too.
+		B.Reset()
+		local t0 = w.clock
+		B.HandlePost("CHANNEL", "Gil-Realm", Flag("g1", "Olympus Zeus", "R", 55))
+		B.HandlePost("CHANNEL", "Hal-Realm", Flag("h1", "Olympus Zeus", "R", 0))
+		B.HandlePost("CHANNEL", "Ivo-Realm", Flag("i1", "Olympus Zeus", "R", 0))
+		w.clock = t0 + 5 * 60
+		eq(#B.List(), 2, "Gil's hour is up")
+		for m = 10, 50, 10 do w.clock = t0 + m * 60; B.HandlePost("CHANNEL", "Hal-Realm", Flag("h1", "Olympus Zeus", "R", 0)) end
+		w.clock = t0 + 55 * 60
+		local names = {}
+		for _, e in ipairs(B.List()) do names[#names + 1] = e.sender end
+		eq(table.concat(names, ","), "Hal-Realm", "Ivo not heard for 21 minutes")
+		w.clock = t0 + 60 * 60
+		eq(#B.List(), 0, "a sender that never ages its flag: an hour after it was first heard")
+		w.clock = t0 + 61 * 60
+		B.HandlePost("CHANNEL", "Hal-Realm", Flag("h1", "Olympus Zeus", "R", 0))
+		eq(#B.List(), 0, "and its refreshes can't bring it back")
+		-- A full Board: the flag ending soonest makes room.
+		local savedMax = B.MAX
+		B.MAX = 3
+		B.HandlePost("CHANNEL", "J1-Realm", Flag("j1", "Olympus Zeus", "D", 50))
+		B.HandlePost("CHANNEL", "J2-Realm", Flag("j2", "Olympus Zeus", "D", 10))
+		B.HandlePost("CHANNEL", "J3-Realm", Flag("j3", "Olympus Zeus", "D", 20))
+		B.HandlePost("CHANNEL", "J4-Realm", Flag("j4", "Olympus Zeus", "D", 0))
+		B.MAX = savedMax
+		names = {}
+		for _, e in ipairs(B.List()) do names[#names + 1] = e.sender end
+		table.sort(names)
+		eq(table.concat(names, ","), "J2-Realm,J3-Realm,J4-Realm")
+	end)
+end)
+
+test("1.1 the Board: a click whispers the poster (the chat box; Olympus's window with the gamepad UI), and nothing in it invites or queues", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 0))
+		local card = B.Card(B.List()[1])
+		card.onClick()
+		eq(w.told[1], "Aldric", "the game's chat box, to the name the server finds")
+		WithGamepadUI(true, function(game)
+			card.onClick()
+			eq(w.windows[1], "Aldric"); eq(#w.told, 1); eq(#game.shown, 0)
+		end)
+		eq(#w.sent, 0, "a whisper is the player's own: the addon sends nothing")
+	end)
+	-- Fern: "No auto-invite and no queue that forms the group." No call of the game's that invites,
+	-- accepts, leaves or lists a group is anywhere in the Board.
+	local src = assert(io.open(ADDON_DIR .. "Board.lua")):read("*a")
+	for _, api in ipairs({ "InviteUnit", "InviteToGroup", "AcceptGroup", "LeaveParty", "ConvertToRaid", "C_PartyInfo", "C_LFGList",
+		"SendChatMessage", "StaticPopup_Show" }) do
+		eq(src:find(api, 1, true), nil, api)
+	end
+end)
+
+test("1.1 the Board: the Realm links it; the page, its search and the way back; /oly lfg", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 0, 1429, "lfm"))
+		B.HandlePost("CHANNEL", "Brenna-Realm", Flag("b1", "Olympus Zeus", "P", 0, nil, "wsg premade"))
+		local link
+		for _, l in ipairs(ns.Views.RealmLines()) do if l.text and l.text:find(ns.L.BOARD_LINK, 1, true) then link = l end end
+		assert(link and link.onClick, "the link in the tree")
+		assert(link.right:find(ns.L.BOARD_LINK_FLAGS:format(2), 1, true), link.right)
+		link.onClick()
+		eq(ns.Views.BoardShown(), true)
+		local lines = ns.Views.RealmLines()
+		eq(lines[1].text:find(ns.L.BOARD_BACK, 1, true) ~= nil, true, "leads back")
+		local text = Texts(lines)
+		for _, flag in ipairs({ "D", "R", "P", "L" }) do assert(text:find(ns.L.BOARD_RAISE:format(ns.L["BOARD_FLAG_" .. flag]), 1, true), flag) end
+		assert(text:find(ns.L.BOARD_ZONE_PRIVATE, 1, true), "says the zone stays hidden")
+		assert(text:find("Aldric", 1, true) and text:find("Brenna", 1, true), text)
+		-- A raise option opens the dialog.
+		for _, l in ipairs(lines) do
+			if l.text and l.text:find(ns.L.BOARD_RAISE:format(ns.L.BOARD_FLAG_L), 1, true) then l.onClick() end
+		end
+		eq(w.popups[#w.popups].name, "OLYMPUS_BOARD_RAISE"); eq(w.popups[#w.popups].data.flag, "L")
+		-- Raised: our flag instead of the options; a click lowers it.
+		B.Raise("L", "can invite to my layer")
+		text = Texts(ns.Views.RealmLines())
+		assert(text:find(ns.L.BOARD_MINE:format(ns.L.BOARD_FLAG_L), 1, true), text)
+		assert(not text:find(ns.L.BOARD_RAISE:format(ns.L.BOARD_FLAG_D), 1, true), "no options while ours is up")
+		for _, l in ipairs(ns.Views.RealmLines()) do
+			if l.text and l.text:find(ns.L.BOARD_MINE:format(ns.L.BOARD_FLAG_L), 1, true) then l.onClick() end
+		end
+		eq(B.Mine(), nil); assert(LastSent(w):find("^G0~"))
+		-- The search (the Realm's box, its own tip here): a zone, a note.
+		ns.Views.SetFilter("realm", "elwynn")
+		local built = ns.Views.Build("realm")
+		text = Texts(built)
+		assert(text:find("Aldric", 1, true) and not text:find("Brenna", 1, true), text)
+		local tip = {}
+		built[1].tooltip({ AddLine = function(_, t) tip[#tip + 1] = t end })
+		eq(tip[2], ns.L.SEARCH_TIP_BOARD)
+		ns.Views.SetFilter("realm", "PREMADE")
+		text = Texts(ns.Views.Build("realm"))
+		assert(text:find("Brenna", 1, true) and not text:find("Aldric", 1, true), text)
+		ns.Views.SetFilter("realm", "")
+		-- Another tab: the Realm opens on its tree again; the way back too.
+		ns.Views.CloseChat()
+		eq(ns.Views.BoardShown(), false)
+		ns.Views.ShowBoard(true)
+		ns.Views.RealmLines()[1].onClick()
+		eq(ns.Views.BoardShown(), false)
+		-- /oly lfg: the page; /oly lfg raid <note>: the dialog with it; /oly lfg off.
+		SlashCmdList.OLYMPUS("lfg")
+		eq(ns.Views.BoardShown(), true); eq(w.tab, "realm")
+		SlashCmdList.OLYMPUS("lfg raid need a healer")
+		eq(w.popups[#w.popups].name, "OLYMPUS_BOARD_RAISE"); eq(w.popups[#w.popups].data.flag, "R"); eq(w.popups[#w.popups].data.note, "need a healer")
+		SlashCmdList.OLYMPUS("lfg off")
+		assert(Printed(w, ns.L.BOARD_NONE_UP))
+	end)
+end)
+
+test("1.1 the Board: the King's screen shows no note (his stream), names and guilds only", function()
+	WithBoard(function(w, B)
+		AsKing()
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 0, 1429, "some words"))
+		local card = B.Card(B.List()[1])
+		assert(not card.text:find("some words", 1, true), card.text)
+		assert(card.text:find("Aldric", 1, true), card.text)
+		AsSoldier()
+		assert(B.Card(B.List()[1]).text:find("some words", 1, true))
+	end)
+end)
+
+test("1.1 the Board: opened, it asks once for the flags up now; holders answer that asker alone by whisper, braked", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		-- Just joined the channel: the ask waits 20 seconds.
+		ns.Comm.joinedAt = w.clock - 5
+		ns.Views.ShowBoard(true)
+		eq(#w.sent, 0)
+		w.clock = w.clock + 15
+		B.Tick()
+		eq(LastSent(w), "GQ~"); eq(w.sent[#w.sent].key, "boardask")
+		ns.Views.ShowBoard(false); ns.Views.ShowBoard(true)
+		eq(#w.sent, 1, "once a session")
+		-- Answers whispered within 2 minutes of our ask are taken; none later, none unasked.
+		B.HandlePost("WHISPER", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 3))
+		eq(#B.List(), 1)
+		w.clock = w.clock + B.ANSWER_WINDOW + 1
+		B.HandlePost("WHISPER", "Brenna-Realm", Flag("b1", "Olympus Zeus", "R", 3))
+		eq(#B.List(), 1)
+	end)
+	WithBoard(function(w, B)
+		AsSoldier()
+		-- A holder: its flag, whispered to the asker alone after a short wait (its note logged).
+		B.Raise("D", "sm cath")
+		B.HandleAsk("CHANNEL", "Asker-Realm", "GQ~")
+		eq(#w.later, 1); eq(#w.whispered, 0)
+		w.later[1].fn()
+		eq(w.whispered[1].to, "Asker-Realm"); eq(w.whispered[1].logged, true)
+		local e = B.Decode(w.whispered[1].msg)
+		eq(e.flag, "D"); eq(e.note, "sm cath"); eq(e.id, B.Mine().id)
+		-- The same asker again within 10 minutes, an ask not from the channel: no answer.
+		B.HandleAsk("CHANNEL", "Asker-Realm", "GQ~")
+		B.HandleAsk("GUILD", "Other-Realm", "GQ~")
+		eq(#w.later, 1)
+		-- The first 4 asks of a minute only.
+		for i = 2, 5 do B.HandleAsk("CHANNEL", "Asker" .. i .. "-Realm", "GQ~") end
+		eq(#w.later, 3, "the 3rd and 4th asks of the minute answered, the 5th and 6th not")
+		-- A minute later, the next ones.
+		w.clock = w.clock + 61
+		for i = 1, 4 do B.HandleAsk("CHANNEL", "Late" .. i .. "-Realm", "GQ~") end
+		eq(#w.later, 7)
+		-- A full Board: a share of its holders answer (about 40 in all).
+		B.Reset(); w.later = {}
+		w.clock = w.clock + 120
+		B.Raise("D")
+		for i = 1, 80 do B.HandlePost("CHANNEL", "Holder" .. i .. "-Realm", Flag(("%02d"):format(i), "Olympus Zeus", "D", 0)) end
+		eq(B.Count(), 80)
+		B.random = function(a) if a then return a end return 0.9 end
+		B.HandleAsk("CHANNEL", "Newcomer-Realm", "GQ~")
+		eq(#w.later, 0, "40 of 80: this one stays quiet")
+		B.random = function(a) if a then return a end return 0.3 end
+		B.HandleAsk("CHANNEL", "Newcomer2-Realm", "GQ~")
+		eq(#w.later, 1)
+		-- The asker's brake: 4 asks heard in the last minute, ours waits.
+		B.Reset(); wipe(w.sent)
+		for i = 1, 4 do B.HandleAsk("CHANNEL", "Busy" .. i .. "-Realm", "GQ~") end
+		eq(B.Ask(), false); eq(#w.sent, 0)
+	end)
+end)
+
+test("1.1 the Board: clients before 1.1 leave G1, G0 and GQ unread, nothing counted bad", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		local old, Deliver = FreshComm(true)
+		old.Comm.JoinChannel()
+		local bad = old.Comm.Stats().bad
+		Deliver("CHANNEL", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 0, 1429, "lfm"))
+		Deliver("CHANNEL", "Aldric-Realm", "G0~a1")
+		Deliver("CHANNEL", "Aldric-Realm", "GQ~")
+		Deliver("WHISPER", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 0))
+		local st = old.Comm.Stats()
+		eq(st.bad, bad, "no bad report"); eq(st.partial, 0)
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 the Board: with the gamepad UI its dialog is Olympus's own window, its note box never takes the chat's keyboard", function()
+	WithUI(function()
+		LoadUI()
+		WithGamepadUI(true, function(game)
+			WithBoard(function(w, B)
+				AsSoldier()
+				local chat = { name = "ChatFrame1EditBox" }
+				local savedFocus = GetCurrentKeyBoardFocus
+				GetCurrentKeyBoardFocus = function() return chat end
+				local focused = {}
+				Widget.SetFocus = function(self) focused[#focused + 1] = self end
+				local ok, err = pcall(function()
+					B.Prompt("P")
+					eq(#w.popups, 0, "not the game's popup"); eq(#game.shown, 0)
+					local f = ns.Dialog.Find("OLYMPUS_BOARD_RAISE")
+					assert(f and f:IsShown() and f.editBox:IsShown(), "our window, with its box")
+					eq(#focused, 0, "the chat box keeps the keyboard")
+					f.editBox:SetText("wsg anyone")
+					f.editBox:Fire("OnEnterPressed")
+					eq(f:IsShown(), false)
+					local e = B.Decode(Raised(w).msg)
+					eq(e.flag, "P"); eq(e.note, "wsg anyone")
+				end)
+				GetCurrentKeyBoardFocus, Widget.SetFocus = savedFocus, nil
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+end)
+
+test("1.1 the Board: its words in both languages, the same placeholders", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	local keys = {}
+	for k in pairs(ns.L) do if type(k) == "string" and k:find("^BOARD_") then keys[#keys + 1] = k end end
+	keys[#keys + 1], keys[#keys + 2] = "HELP_BOARD", "SEARCH_TIP_BOARD"
+	assert(#keys >= 30, "the Board's strings: " .. #keys)
+	local function Specs(s) local out = {} for spec in s:gmatch("%%[%a%%]") do out[#out + 1] = spec end return table.concat(out) end
+	for _, k in ipairs(keys) do
+		local en, ptText = rawget(ns.L, k), rawget(pt.L, k)
+		assert(type(en) == "string" and en ~= "", "English " .. k)
+		assert(type(ptText) == "string" and ptText ~= "", "pt-BR " .. k)
+		eq(Specs(ptText), Specs(en), k)
+	end
+end)
+
+test("1.1 the Board: after a /reload our flag is still ours (repeated, lowered with a click), never raised again once it ended", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		local t0 = w.clock
+		B.Raise("R", "lfm")
+		local id = B.Mine().id
+		-- A /reload: memory gone, the SavedVariables kept.
+		local kept = ns.rdb.board
+		B.Reset(); ns.rdb.board = kept
+		eq(B.Mine(), nil)
+		w.clock = t0 + 60
+		B.Restore()
+		eq(B.Mine().id, id, "the same flag"); eq(B.Mine().note, "lfm")
+		w.clock = t0 + 10 * 60
+		B.Tick()
+		eq(B.Decode(LastSent(w)).id, id, "repeated")
+		B.Lower()
+		eq(LastSent(w), "G0~" .. id, "and lowered for everyone")
+		eq(ns.rdb.board, nil, "nothing left to restore")
+		-- Logged back in long after: its Board forgot it (not heard for two refreshes); it stays down.
+		B.Raise("D")
+		kept = ns.rdb.board
+		B.Reset(); ns.rdb.board = kept
+		w.clock = w.clock + 21 * 60 + 1
+		B.Restore()
+		eq(B.Mine(), nil)
+		eq(ns.rdb.board, nil)
+		-- Another character of the account on this realm group: not its flag.
+		B.Raise("P")
+		kept = ns.rdb.board
+		B.Reset(); ns.rdb.board = kept
+		AsSoldier("Alt")
+		B.Restore()
+		eq(B.Mine(), nil)
+	end)
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

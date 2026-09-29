@@ -177,6 +177,20 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
 Before your first line in each channel the addon tells you this and waits for **Send**.
 
+### The Board: who is looking for a group, and where (1.1)
+The Realm tab links **the Board** (or `/oly lfg`): who in Olympus wants a group right now, from
+what each player chose to share.
+
+- **Raise a flag** with one click: **Dungeon**, **Raid**, **PvP** or **Layer**, plus a short
+  note if you want one (40 bytes at most). A box says first what goes out: your name, level,
+  class and guild, the flag and the note, to every Olympus player of your realm and faction.
+  The note goes the way chat does (the game's servers keep it, so abuse can be reported); on the
+  King's screen no note shows.
+- **Your zone shows on your card only while you share it** (`/oly location on`); otherwise the
+  card says the zone is hidden. Never your position.
+- **A click on someone's card whispers them.** Nothing invites anyone, queues or forms a group.
+- One flag each, an hour at most; a click on yours, or `/oly lfg off`, lowers it at once.
+
 ### The Throne (the King and his Hands)
 A tab with a crown that only the King sees: the guild master of the guild named exactly
 "Olympus" (of his faction), and on the Alliance that very character, Asmongold Asmongler: the
@@ -540,6 +554,8 @@ message (the game adds it). What goes where:
 | A layer hop ask: the zone you are in and the layer you want | everyone on the Olympus channel | when you ask to hop |
 | An answer to an ask for your layer (it tells the asker you are on it) | the asker alone (a whisper) | only if you share your zone and layer, while layer help is on (`/oly layerhelp off` stops it) |
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one |
+| A flag on the Board (1.1): your guild, level and class, the flag (dungeon, raid, PvP or layer), your note (with the logged API), and your zone only while you share it | everyone on the Olympus channel, and whispered to a player whose Board asked for the flags up | when you raise it, then every 10 to 30 minutes for an hour at most, until you lower it |
+| The Board's ask (1.1): nothing but your name | everyone on the Olympus channel | once a session, the first time you open the Board |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | everyone on the Olympus channel receives the bytes; the addon shows them to the King and his Steward, and to the army only with the King's switches | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
@@ -773,6 +789,8 @@ Other limits:
   play at most once every 15 seconds.
 - Chat has its own short lane: a line goes out within about a second, and while reports are
   waiting it never takes more than every other message slot.
+- The Board (1.1): a flag is repeated every 10 to 30 minutes (less often the fuller the Board),
+  and a Board's ask is answered by whisper, by about 40 flag holders at most.
 
 ## Commands
 
@@ -797,6 +815,7 @@ Other limits:
 | `/oly discord <code>` · `/oly discord` | Olympus Link: link this character to your Discord account with the bot's code (or paste it in a box) |
 | `/oly discord show` · `status` · `forget` | the Olympus Link window (QR code and link) again; every character's request or proof; drop this character's |
 | `/oly hop` | ask for an invite to the King's layer (while he is online) |
+| `/oly lfg` · `/oly lfg dungeon\|raid\|pvp\|layer [note]` · `/oly lfg off` | the Board (1.1): who is looking for a group; raise your flag (a box with your note first) or lower it |
 | `/oly vox off` · `/oly vox on` | Vox Populi questions in chat only, or in a window |
 | `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer |
 | `/oly layerauto on` · `/oly layerauto off` | invite layer requests without the window |

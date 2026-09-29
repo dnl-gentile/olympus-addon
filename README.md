@@ -191,6 +191,30 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
 Before your first line in each channel the addon tells you this and waits for **Send**.
 
+### The Board: who is looking for a group, and where (1.1)
+The Realm tab links **the Board** (or `/oly lfg`): who in Olympus wants a group right now, from
+what each player chose to share.
+
+- **Raise a flag** with one click: **Dungeon**, **Raid**, **PvP** or **Layer**, plus a short
+  note if you want one (40 bytes at most; `/oly lfg raid need a healer` fills it in). A box
+  says first what goes out: your name, level, class and guild, the flag and the note, to every
+  Olympus player of your realm and faction. The note goes the way chat does (the logged API:
+  the game's servers keep it, so abuse can be reported); on the King's screen (his stream) no
+  note shows, only names and guilds.
+- **Your zone shows on your card only while you share it** (`/oly location on`); otherwise the
+  card says the zone is hidden. It is never your position, and never in a dungeon. Turn sharing
+  off and your zone leaves every card within 30 seconds.
+- **A click on someone's card whispers them** (the game's chat box; Olympus's own window with
+  the gamepad UI). Nothing invites anyone, queues or forms a group: the whisper is yours, and so
+  is any invite that follows.
+- One flag each; a new one takes its place. It lasts an hour at most (you are told when it
+  comes down), and a click on it, or `/oly lfg off`, lowers it for everyone at once, after a
+  `/reload` too. 30 seconds between raises, 3 an hour; the Board holds 150 flags.
+- Your addon repeats your flag every 10 to 30 minutes (the fuller the Board, the less often) for
+  players who log in later, and the first time a session you open the Board your addon asks
+  the channel once: the players with a flag up answer you alone, by whisper.
+- The Realm's search box finds a flag, a name, a guild, a zone or words of a note.
+
 ### The Throne (the King and his Hands)
 A tab with a crown that only the King sees: the guild master of the guild named exactly
 "Olympus" (of his faction), and on the Alliance that very character, Asmongold Asmongler: the
@@ -615,6 +639,8 @@ message (the game adds it). What goes where:
 | A layer hop ask: the zone you are in and the layer you want | everyone on the Olympus channel | when you ask to hop |
 | An answer to an ask for your layer (it tells the asker you are on it) | the asker alone (a whisper) | only if you share your zone and layer, while layer help is on (`/oly layerhelp off` stops it) |
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one |
+| A flag on the Board (1.1): your guild, level and class, the flag (dungeon, raid, PvP or layer), your note (with the logged API), and your zone only while you share it | everyone on the Olympus channel, and whispered to a player whose Board asked for the flags up | when you raise it, then every 10 to 30 minutes for an hour at most, until you lower it |
+| The Board's ask (1.1): nothing but your name | everyone on the Olympus channel | once a session, the first time you open the Board |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | everyone on the Olympus channel receives the bytes; the addon shows them to the King and his Steward, and to the army only with the King's switches | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
@@ -888,6 +914,10 @@ Other limits:
   play at most once every 15 seconds.
 - Chat has its own short lane: a line goes out within about a second, and while reports are
   waiting it never takes more than every other message slot.
+- The Board (1.1): a flag is repeated every 10 minutes while the Board is small, every 30 when
+  it holds 150, so the channel carries about the same whatever the crowd. The ask a player's
+  Board sends once a session is answered by whisper, by about 40 flag holders at most, and
+  nobody answers past the first 4 asks of a minute (`ch:G1`, `ch:GQ` in `/oly status`).
 
 ## Commands
 
@@ -916,6 +946,7 @@ Other limits:
 | `/oly discord watcher on\|off` | High Councillors: keep the proofs players hand you for the bot |
 | `/oly discord certified` | the author: every certificate his client signed as the council authority (off as it ships) for a High Councillor's key (key id, character, end), for the bot's keeper |
 | `/oly hop` | ask for an invite to the King's layer (while he is online) |
+| `/oly lfg` · `/oly lfg dungeon\|raid\|pvp\|layer [note]` · `/oly lfg off` | the Board (1.1): who is looking for a group; raise your flag (a box with your note first) or lower it |
 | `/oly vox off` · `/oly vox on` | Vox Populi questions in chat only, or in a window |
 | `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer |
 | `/oly layerauto on` · `/oly layerauto off` | invite layer requests without the window |

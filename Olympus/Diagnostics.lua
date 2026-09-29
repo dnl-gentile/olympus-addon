@@ -361,6 +361,8 @@ function ns.StatusText()
 		add("author's roll call: %s (/oly rollcall on|off)", ns.Workshop and ns.Workshop.Answers and (ns.Workshop.Answers() and "answered" or "refused") or "?")
 		-- Olympus Link (0.9.10): the key's id and tier only, never the key.
 		add("discord link: %s", ns.Link and ns.Link.StatusLine and ns.Link.StatusLine() or "not loaded")
+		-- The Board (1.1): what this client holds and sends (the ch:G1, ch:G0, ch:GQ counts above).
+		add("board: %s", ns.Board and ns.Board.StatusLine and ns.Board.StatusLine() or "not loaded")
 	end
 	local n = 0
 	for _ in pairs(ns.rdb.guilds) do n = n + 1 end

@@ -1297,7 +1297,7 @@ UI.PLACE_HOLD = 1  -- seconds a redraw's place is given again when the client me
 local function PageOf(tab, locked)
 	if locked then return "join" end
 	local sub
-	if tab == "realm" then sub = ns.Views.ChatTier and ns.Views.ChatTier() or "tree"
+	if tab == "realm" then sub = (ns.Views.BoardShown and ns.Views.BoardShown() and "board") or ns.Views.ChatTier and ns.Views.ChatTier() or "tree"
 	elseif tab == "throne" then sub = ns.King and ns.King.mode
 	elseif tab == "treasury" then sub = ns.Treasury and ns.Treasury.mode end
 	return tab .. "/" .. tostring(sub or "")

@@ -36,6 +36,7 @@ Inspect.lua
 King.lua
 Vox.lua
 Court.lua
+Board.lua
 Treasury.lua
 Bank.lua
 Acts.lua
