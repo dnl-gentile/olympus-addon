@@ -1555,10 +1555,12 @@ function Treasury.Report(shared)
 	for _, p in ipairs(parts) do
 		m.balance, m.opening = m.balance + (p.balance or 0), m.opening + (p.opening or 0)
 		m.allIn, m.allOut, m.week = m.allIn + (p.allIn or 0), m.allOut + (p.allOut or 0), m.week + (p.week or 0)
-		for _, n in ipairs(p.weekNames) do weekSeen[ns.ShortName(n)] = true end
+		-- (1.1: a player's linked characters, Alts.lua, are one donor under their main's name.)
+		local Person = ns.Alts and ns.Alts.Person
+		for _, n in ipairs(p.weekNames) do weekSeen[Person and Person(n) or ns.ShortName(n)] = true end
 		extra = extra + math.max(0, (p.donors or 0) - #p.weekNames)
 		for _, g in ipairs(p.rank) do
-			local key = ns.ShortName(g.name)
+			local key = Person and Person(g.name) or ns.ShortName(g.name)
 			local r = byName[key]
 			if not r then
 				r = { name = key, money = 0 }

@@ -1433,6 +1433,10 @@ StandIn("Chronicle", { "Slash" }) -- 1.1: the log of acts this client saw (Chron
 StandIn("Filter", { "Slash" }) -- 1.1: block terms (Filter.lua)
 StandIn("Board", { "Slash" }) -- (1.1: the Board)
 StandIn("Week", {}) -- (1.1: the King's week)
+-- 1.1: net-off (Moderation.lua), alt links (Alts.lua), the King's key rotation (Keys.lua).
+StandIn("Moderation", { "Slash" })
+StandIn("Alts", { "Slash" })
+StandIn("Keys", { "RotatePrompt" })
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1511,7 +1515,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Board", "Week", "Consent", "Chronicle", "Filter", "Members" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Board", "Week", "Consent", "Chronicle", "Filter", "Members", "Moderation", "Alts", "Keys" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1586,7 +1590,10 @@ local function Help()
 	print(L.HELP_CMD_BUG)
 	print(L.HELP_CMD_STATUS)
 	print(L.HELP_CMD_KEY)
+	print(L.HELP_KEY_ROTATE)
 	print(L.HELP_CMD_BLOCK)
+	print(L.HELP_NETOFF)
+	print(L.HELP_ALT)
 	print(L.HELP_CMD_LAYER)
 	print(L.HELP_CMD_MINIMAP)
 	print(L.HELP_CMD_DEBUG)
@@ -1757,7 +1764,12 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "status" then
 			for line in ns.StatusText():gmatch("[^\n]+") do print("  " .. line) end
 		elseif cmd == "key" then
-			ns.Comm.SetRealmKey(rest)
+			-- 1.1: the King's rotation of the army's key (Keys.lua); anyone else's "rotate" is a secret, as before.
+			if rest:lower() == "rotate" and ns.Keys.CanRotate and ns.Keys.CanRotate() then
+				ns.Keys.RotatePrompt()
+			else
+				ns.Comm.SetRealmKey(rest)
+			end
 		elseif cmd == "block" then
 			if rest ~= "" then
 				-- Stored as the sender reaches Comm (ns.FullName(ns.Normal(name)), the realm's
@@ -1816,6 +1828,12 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "lfg" or cmd == "board" or cmd == "camp" or cmd == "camps" or cmd == "week" then
 			-- The Board (Board.lua, 1.1): who is looking for a group, and where; camps; the King's week.
 			ns.Board.Slash(cmd, rest)
+		elseif cmd == "netoff" or cmd == "neton" then
+			-- 1.1: a character or a guild off Olympus for the army, or back on (Moderation.lua).
+			ns.Moderation.Slash(cmd == "netoff", rest)
+		elseif cmd == "alt" or cmd == "alts" then
+			-- 1.1: this account's characters linked as one player (Alts.lua).
+			ns.Alts.Slash(rest)
 		else
 			Help()
 		end

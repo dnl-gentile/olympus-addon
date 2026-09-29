@@ -395,7 +395,15 @@ end
 -- while the chats are off on this client (1.1): lines kept before that don't show either.
 function Channels.History(tier)
 	if not Channels.CanUse(tier) or not Channels.ChatOn() then return {} end
-	return Store(tier)
+	local list = Store(tier)
+	-- 1.1: lines kept before the moderators took their writer off leave the view too (net-off).
+	local M = ns.Moderation
+	if not (M.Any and M.Any()) then return list end
+	local out = {}
+	for _, e in ipairs(list) do
+		if not M.Hides(e.sender, e.guild) then out[#out + 1] = e end
+	end
+	return out
 end
 
 ---------------------------------------------------------------------------
@@ -427,6 +435,12 @@ function Channels.Send(tier, text, now)
 			ns.Print(L.CHAT_OFF)
 		end
 		return false, "off"
+	end
+	-- 1.1: the moderators took this character off the chats (net-off, Moderation.lua).
+	local off = ns.Moderation.SelfOff and ns.Moderation.SelfOff()
+	if off then
+		ns.Print(ns.Moderation.YouText(off))
+		return false, "netoff"
 	end
 	text = Codec.SanitizeChat(text)
 	if text == "" then
@@ -607,6 +621,11 @@ function Channels.Receive(dist, sender, text, now)
 	if not m or not ns.IsFederation(m.guild) then
 		stats.bad = stats.bad + 1
 		return false, "bad"
+	end
+	-- 1.1: a name the moderators took off (net-off, Moderation.lua): not shown, not kept.
+	if ns.Moderation.Hides and ns.Moderation.Hides(sender, m.guild) then
+		stats.netoff = (stats.netoff or 0) + 1
+		return false, "netoff"
 	end
 	local level = TIERS[m.tier].level
 	-- Above our rank: not shown, not kept, not logged.

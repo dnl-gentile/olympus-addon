@@ -187,6 +187,8 @@ function Hop.HandleAsk(dist, sender, text)
 	id, mapID, zoneUID = tonumber(id), tonumber(mapID), tonumber(zoneUID)
 	if not id then return end
 	sender = ns.FullName(sender)
+	-- 1.1: a name the moderators took off (net-off, Moderation.lua) gets no offer.
+	if ns.Moderation.Hides and ns.Moderation.Hides(sender) then return end
 	local short = ns.ShortName(sender)
 	local now = ns.Now()
 	Hop.Hear(mapID, zoneUID, short, now)
@@ -232,6 +234,7 @@ function Hop.HandleRequest(dist, sender, text)
 	if dist ~= "WHISPER" then return end
 	local id = tonumber(text:match("^LR~(%d+)$"))
 	sender = ns.FullName(sender)
+	if ns.Moderation.Hides and ns.Moderation.Hides(sender) then return end -- (1.1: net-off)
 	local key = id and (id .. ns.ShortName(sender))
 	local at = key and offered[key]
 	if not at or ns.Now() - at > 120 then return end
@@ -376,6 +379,9 @@ end
 -- Ask for an invite to a layer (a zone and its zone UID), named for the messages.
 function Hop.Ask(mapID, zoneUID, label)
 	if not ns.IsMember() then return ns.Print(L.MEMBERS_ONLY) end
+	-- 1.1: the moderators took this character off (net-off, Moderation.lua): nobody would answer.
+	local off = ns.Moderation.SelfOff and ns.Moderation.SelfOff()
+	if off then return ns.Print(ns.Moderation.YouText(off)) end
 	if not mapID or not zoneUID then return ns.Print(L.HOP_NO_LAYER) end
 	-- A zone UID only means something in its zone: the player must be there already.
 	if ns.Layers.CurrentMap() ~= mapID then return ns.Print(L.HOP_OTHER_MAP:format(Hop.ZoneName(mapID))) end
@@ -430,7 +436,8 @@ function Hop.Trusted(name)
 	if ns.Roster.RankOf(name) then return true end
 	local short = ns.ShortName(name)
 	for guild, g in pairs(ns.rdb.guilds or {}) do
-		if type(g) == "table" then
+		-- (1.1: never a guild the moderators took off the network, Moderation.lua.)
+		if type(g) == "table" and not (ns.Data.NetOff and ns.Data.NetOff(guild)) then
 			local listed = g.leader and ns.ShortName(g.leader) == short
 			for _, o in ipairs(not listed and g.officers or {}) do
 				if o.name and ns.ShortName(o.name) == short then listed = true break end
@@ -446,6 +453,7 @@ function Hop.HandleOffer(dist, sender, text)
 	local id, group, load = text:match("^LO~(%d+)~(%d+)~(%d+)$")
 	if tonumber(id) ~= ask.id then return end
 	sender = ns.FullName(sender)
+	if ns.Moderation.Hides and ns.Moderation.Hides(sender) then return end -- (1.1: net-off: no offer of theirs)
 	if ask.offers[sender] or ask.count >= Hop.MAX_OFFERS then return end
 	ask.offers[sender] = { name = sender, group = math.min(tonumber(group), 40), load = math.min(tonumber(load), 99), t = ns.Now(),
 		trusted = Hop.Trusted(sender) }

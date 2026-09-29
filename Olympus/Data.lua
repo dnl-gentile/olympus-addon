@@ -298,8 +298,17 @@ function Data.OnLogin()
 end
 ns.On("LOGIN", function() Data.OnLogin() end)
 
+-- 1.1: a guild the moderators took off the network (net-off, Moderation.lua): not counted, not listed.
+local function NetOff(guild)
+	local M = ns.Moderation
+	return M ~= nil and M.Guild ~= nil and M.Guild(guild) ~= nil
+end
+Data.NetOff = NetOff
+
 function Data.Receive(r, sender)
 	if not ns.IsFederation(r.guild) then return false end
+	-- 1.1: a guild the moderators took off (net-off): its report counts for nothing, not even as a vote.
+	if ns.Moderation.Report and ns.Moderation.Report(r, sender) then return false end
 	-- Our own guild comes straight from our roster, never from someone else's claim (in any spelling).
 	local mine = GetGuildInfo("player")
 	if mine and r.guild:lower() == mine:lower() then return false end
@@ -383,6 +392,7 @@ end
 function Data.KnownRank(sender, guild, soft)
 	local who = ns.FullName(sender)
 	if guild == GetGuildInfo("player") then return ns.Roster.RankOf(who) end
+	if NetOff(guild) then return nil end -- (1.1: a guild off the network ranks nobody on another's client)
 	local g = Data.Guild(guild)
 	local now = ns.Now()
 	-- A report kept from an earlier session proves nothing about who leads the guild now.
@@ -433,7 +443,7 @@ function Data.Summary()
 	local now = ns.Now()
 	local s = { total = 0, online = 0, fresh = 0, newest = 0, guilds = {}, zones = {}, zoneGuilds = {}, zoneList = {} }
 	for name, g in pairs(ns.rdb.guilds) do
-		if ns.IsFederation(name) then
+		if ns.IsFederation(name) and not NetOff(name) then
 			local age = now - (g.t or 0)
 			local fresh = age <= Data.FRESH
 			-- A guild keeps its size from its last report when its reporters log off (the army
@@ -460,10 +470,22 @@ function Data.Summary()
 		if (a.g.total or 0) ~= (b.g.total or 0) then return (a.g.total or 0) > (b.g.total or 0) end
 		return a.name < b.name
 	end)
+	-- 1.1: a count of people. The characters their players linked as alts (Alts.lua: confirmed on
+	-- each character) count once in the army's total, whatever guilds they are in; each guild's own
+	-- size stays its roster's. s.characters: the total before.
+	s.characters, s.alts = s.total, 0
+	local A = ns.Alts
+	if A and A.Duplicates then
+		local counted = {}
+		for _, e in ipairs(s.guilds) do if e.counted then counted[e.name:lower()] = true end end
+		local dup = A.Duplicates(counted) -- (nil from the stand-in until the game restarts)
+		s.alts = math.max(0, math.min(s.total, tonumber(dup) or 0))
+		s.total = s.total - s.alts
+	end
 	-- Guilds only /who has seen, for the census list alone: in no total, tree or map.
 	s.seen = {}
 	for name, e in pairs(Data.Seen()) do
-		if ns.IsFederation(name) and not ns.rdb.guilds[name] and type(e) == "table" and now - (e.t or 0) <= Data.KEEP then
+		if ns.IsFederation(name) and not NetOff(name) and not ns.rdb.guilds[name] and type(e) == "table" and now - (e.t or 0) <= Data.KEEP then
 			s.seen[#s.seen + 1] = { name = name, online = e.online or 0, capped = e.capped, t = e.t }
 		end
 	end

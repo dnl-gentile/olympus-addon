@@ -179,14 +179,21 @@ end
 -- logged (1.0.0): a player's own words (a decree's), sent with the logged API where the client
 -- has it (SendNow), as chat lines are: the server keeps them, so abuse can be reported.
 local handlers = {}
+-- 1.1 (Moderation.lua): a client the moderators took off (net-off) sends none of what they hide.
+local function Held(msg)
+	local M = ns.Moderation
+	return M ~= nil and not M.missing and M.Blocks(msg) == true
+end
 function Comm.Send(dist, msg, key, urgent, logged)
 	if dist == "GUILD" and not IsInGuild() then return end
+	if Held(msg) then return end
 	Enqueue(dist, msg, key, nil, urgent, logged)
 end
 -- An addon message to one player only (answers to the King, Throne tab). logged (1.1): a
 -- player's own words (a Board note), with the logged API, as Comm.Send.
 function Comm.Whisper(target, msg, key, urgent, logged)
 	if type(target) ~= "string" or target == "" then return end
+	if Held(msg) then return end
 	Enqueue("WHISPER", msg, key, target, urgent, logged)
 end
 function Comm.Handle(msgType, fn)
@@ -213,7 +220,7 @@ end
 -- never push report chunks out of MAX_QUEUE. done(sent) is called once the part went out
 -- (or was dropped). Returns false when the lane is full.
 function Comm.SendChat(msg, done)
-	if #chatQueue >= CHAT_QUEUE then return false end
+	if #chatQueue >= CHAT_QUEUE or Held(msg) then return false end
 	chatQueue[#chatQueue + 1] = { msg = msg, done = done, t = GetTime() }
 	return true
 end
@@ -751,6 +758,8 @@ function Comm.SetRealmKey(secret)
 	end
 	ns.rdb.realmKey = secret
 	Enqueue("GUILD", "K1~" .. secret, "key")
+	-- 1.1 (Keys.lua): dated now, so our guild's 1.1 clients take it over a key the King rotated before.
+	if ns.Keys.Typed then ns.Keys.Typed(secret) end
 	ns.Print(ns.L.KEY_SET)
 	Comm.JoinChannel()
 end
@@ -969,6 +978,14 @@ function Comm.MaybeBroadcast(report)
 end
 
 function Comm.Broadcast(report)
+	-- 1.1: our guild is off the Olympus network (net-off, Moderation.lua): its census stays home.
+	local M = ns.Moderation
+	if M and not M.missing and M.OwnGuildOff() then
+		if not Comm.heldReport then ns.Log("census of %s not sent: the guild is off the network", tostring(report and report.guild)) end
+		Comm.heldReport = true
+		return
+	end
+	Comm.heldReport = nil
 	lastBroadcast = ns.Now()
 	msgId = (msgId + 1) % 1000
 	-- Where people are goes out only with their yes (0.9.1): nothing of it unless we share our
@@ -1206,9 +1223,14 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		if rank and rank <= ns.CAPTAIN_RANK then
 			local key = text:sub(4)
 			if key ~= "" and key ~= ns.rdb.realmKey then
-				ns.rdb.realmKey = key
-				ns.Log("realm key received from officer %s", sender)
-				Comm.JoinChannel()
+				-- 1.1 (Keys.lua): a key without an epoch no longer replaces one with (the King's rotation).
+				if ns.Keys.TakesLegacy and ns.Keys.TakesLegacy(key) == false then
+					ns.Log("realm key from officer %s ignored: we hold a newer one (with its epoch)", sender)
+				else
+					ns.rdb.realmKey = key
+					ns.Log("realm key received from officer %s", sender)
+					Comm.JoinChannel()
+				end
 			end
 		end
 		return
@@ -1217,7 +1239,14 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		-- A guildmate asks for the key: officers who have it answer (at most once a minute).
 		if ns.rdb.realmKey and ns.Roster.IsOfficer() and now - (Comm.lastKeyAnswer or 0) > 60 then
 			Comm.lastKeyAnswer = now
-			ns.After(math.random(1, 5), "key answer", function() Enqueue("GUILD", "K1~" .. ns.rdb.realmKey, "key") end)
+			ns.After(math.random(1, 5), "key answer", function()
+				if not ns.rdb.realmKey then return end
+				Enqueue("GUILD", "K1~" .. ns.rdb.realmKey, "key")
+				-- 1.1 (Keys.lua): with its epoch too, for 1.1 guildmates.
+				local key, at
+				if ns.Keys.HandOut then key, at = ns.Keys.HandOut() end
+				if key and at then Enqueue("GUILD", ("K3~%d~%s"):format(at, key), "key3") end
+			end)
 		end
 		return
 	end

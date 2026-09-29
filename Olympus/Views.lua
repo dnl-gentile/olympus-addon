@@ -1835,6 +1835,8 @@ local function DecreeLines()
 	-- whoever they are for (Acts.lua).
 	local lines = ns.HeldLines()
 	for _, l in ipairs(ns.Acts and ns.Acts.WritLines and ns.Acts.WritLines() or {}) do lines[#lines + 1] = l end
+	-- 1.1: who the moderators took off (net-off, Moderation.lua), and their buttons.
+	for _, l in ipairs(ns.Moderation.Lines and ns.Moderation.Lines() or {}) do lines[#lines + 1] = l end
 	lines[#lines + 1] = { header = true, text = L.DECREES }
 	local decrees = ns.Decree.Active()
 	if #decrees == 0 then lines[#lines + 1] = { text = Grey(L.NO_DECREES), gapAfter = true } end

@@ -46,6 +46,9 @@ Treasury.lua
 Bank.lua
 Acts.lua
 Chronicle.lua
+Moderation.lua
+Alts.lua
+Keys.lua
 Workshop.lua
 Ed25519.lua
 libs\QREncode\qrencode.lua
