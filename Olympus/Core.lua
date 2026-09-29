@@ -503,13 +503,16 @@ end
 -- Call to Arms (a lane of its own) sounds whatever chimed just before it, a loud alert (a Royal
 -- decree, the King's call) whatever soft one did. A louder one silences the softer ones after it.
 -- tone: "soft" or "loud"; kind: see SOUND_KINDS. True when it played.
+-- own: the player's own click (a decree sent or previewed), heard in an instance too (ns.Quiet).
 local SOUND_GAP = 15
 local lastSound = {}
 function ns.ResetSounds() lastSound = { -math.huge, -math.huge, -math.huge } end -- (tests too)
 ns.ResetSounds()
-function ns.PlayAlert(tone, kind)
+local function Rank(tone, kind) return kind == "arms" and 3 or (tone == "soft" and 1 or 2) end
+function ns.PlayAlert(tone, kind, own)
 	if not ns.SoundOn(kind) or not PlaySound or not SOUNDKIT then return false end
-	local rank = kind == "arms" and 3 or (tone == "soft" and 1 or 2)
+	if not own and ns.Quiet() then return false end
+	local rank = Rank(tone, kind)
 	local now = GetTime()
 	for r = rank, 3 do
 		if now - lastSound[r] < SOUND_GAP then return false end
@@ -538,9 +541,10 @@ end
 
 -- For /oly status and /oly bug (in English, as the rest there).
 function ns.AlertStatus()
-	if not (ns.db and ns.db.sound) then return "sounds all off" end
 	local off = KindsOff()
-	return #off > 0 and ("sounds on, off: " .. table.concat(off, ",")) or "sounds on"
+	local sounds = not (ns.db and ns.db.sound) and "sounds all off" or (#off > 0 and ("sounds on, off: " .. table.concat(off, ",")) or "sounds on")
+	if ns.db and ns.db.alertsAlways then return sounds .. "  |  in an instance or Busy: shown (/oly alerts always)" end
+	return ("%s  |  in an instance or Busy: held (now: %s, %d waiting)"):format(sounds, ns.Quiet() or "not held", #ns.Held())
 end
 
 -- /oly sound: alone, the switch for all (as before 1.1); on|off, the same; <kind> [on|off], one kind.
@@ -557,6 +561,167 @@ function ns.SoundSlash(rest)
 	end
 	ns.Print(ns.SoundState())
 	ns.Fire("DECREES_CHANGED") -- (the switches on the Decrees tab)
+end
+
+---------------------------------------------------------------------------
+-- Held alerts (1.1): in an instance or Busy, no raid warning, no sound and no popup from
+-- Olympus. A realm-wide raid warning in the middle of a dungeon made players mute the addon,
+-- and then miss a real muster. Each alert still leaves its chat line and its line in the
+-- Olympus window (the Decrees tab: what waits, on top), and waits. Out of the instance and not
+-- Busy: one line (and one raid warning and one sound) says what waited and is still current,
+-- and only what is still open pops (a Vox question, the court's call, the Agenda to come);
+-- what is over by then only stays in its list. /oly alerts always: never held. Local only.
+---------------------------------------------------------------------------
+
+-- Busy: the game's Do Not Disturb (/dnd). During an encounter, a challenge or a PvP match (and
+-- on a dungeon or raid map), Forever's client hides it from addons (a secret value, which no
+-- addon may test): counted as Busy then, those being the moments not to step on.
+local function Busy()
+	if not UnitIsDND then return false end
+	local ok, dnd = pcall(UnitIsDND, "player")
+	if not ok then return false end
+	if issecretvalue and issecretvalue(dnd) then return true end
+	return dnd and true or false
+end
+
+-- Why alerts wait now: "instance", "busy", or nil (never with /oly alerts always).
+function ns.Quiet()
+	if ns.db and ns.db.alertsAlways then return nil end
+	if IsInInstance and IsInInstance() then return "instance" end
+	if Busy() then return "busy" end
+	return nil
+end
+
+ns.HELD_MAX = 40
+local held = {} -- { kind, tone, what, key, t, open, show }, oldest first
+function ns.ResetHeld() held = {} end -- (tests)
+
+-- An alert that interrupts: its raid warning (a.text), its sound, its popup or window (a.show).
+-- The caller prints its chat line. While quiet (and not the player's own click, a.own) it waits:
+-- a.what, its words in the summary and on the Decrees tab (a.text by default); a.open(), still
+-- current (none: as long as the player is away); a.key, the same alert repeated (the Agenda and
+-- its reminders): one line. True when it showed now.
+function ns.Alert(kind, tone, a)
+	a = a or {}
+	if not a.own and ns.Quiet() then
+		held[#held + 1] = { kind = kind, tone = tone, what = a.what or a.text or kind, key = a.key, t = ns.Now(), open = a.open, show = a.show }
+		while #held > ns.HELD_MAX do table.remove(held, 1) end
+		ns.Log("alert held (%s): %s", tostring(ns.Quiet()), tostring(kind))
+		ns.Fire("DECREES_CHANGED")
+		return false
+	end
+	if a.text and RaidNotice_AddMessage and RaidWarningFrame then
+		RaidNotice_AddMessage(RaidWarningFrame, a.text, ChatTypeInfo and ChatTypeInfo["RAID_WARNING"] or a.color or { r = 1, g = 0.82, b = 0 })
+	end
+	ns.PlayAlert(tone, kind, a.own)
+	if a.show then a.show() end
+	return true
+end
+
+local function Current(h) return h.open == nil or h.open() == true end
+
+-- What waits and is still current, one per key (the latest, with the popup an earlier one
+-- had: the Agenda's, before its reminders), oldest first.
+function ns.Held()
+	local out, at = {}, {}
+	for _, h in ipairs(held) do
+		if Current(h) then
+			local i = h.key and at[h.key]
+			if i then
+				local prev = out[i]
+				out[i] = { kind = h.kind, tone = h.tone, what = h.what, key = h.key, t = h.t, open = h.open, show = h.show or prev.show }
+			else
+				out[#out + 1] = h
+				if h.key then at[h.key] = #out end
+			end
+		end
+	end
+	return out
+end
+
+-- On top of the Decrees tab while alerts wait: a click shows one now (its popup or window).
+function ns.HeldLines()
+	local list = ns.Held()
+	if #list == 0 then return {} end
+	local lines = { { header = true, text = L.HELD_TITLE, tooltip = function(tt)
+		tt:AddLine(L.HELD_TITLE, 1, 0.82, 0)
+		tt:AddLine(L.HELD_TIP, 1, 1, 1, true)
+	end } }
+	for _, h in ipairs(list) do
+		lines[#lines + 1] = {
+			text = "|cffffd200" .. h.what .. "|r",
+			right = "|cff9d9d9d" .. ns.Ago(h.t) .. "|r",
+			onClick = h.show and function()
+				for i = #held, 1, -1 do
+					if held[i] == h or (h.key and held[i].key == h.key) then table.remove(held, i) end
+				end
+				h.show()
+				ns.Fire("DECREES_CHANGED")
+			end or nil,
+		}
+	end
+	lines[#lines].gapAfter = true
+	return lines
+end
+
+-- Out of the instance and not Busy: one line for what waited and is still current (a raid
+-- warning and the loudest sound its switches allow), then the popups and windows still open.
+-- What is over by then stays in its list: a grey line says how many.
+ns.HELD_WORDS = 5 -- alerts named in that line; the rest counted
+function ns.ReleaseHeld()
+	if #held == 0 or ns.Quiet() then return false end
+	local list = ns.Held()
+	-- The ones over, each counted once (an Agenda and its reminders are one).
+	local live, counted, gone = {}, {}, 0
+	for _, h in ipairs(list) do live[h.key or h] = true end
+	for _, h in ipairs(held) do
+		local id = h.key or h
+		if not live[id] and not counted[id] then counted[id], gone = true, gone + 1 end
+	end
+	held = {}
+	ns.Fire("DECREES_CHANGED")
+	if #list == 0 then
+		if gone > 0 then ns.Print("|cff9d9d9d" .. L.HELD_GONE:format(gone) .. "|r") end
+		return true
+	end
+	-- The same words once, with how many (two Musters in one zone).
+	local count, order = {}, {}
+	for _, h in ipairs(list) do
+		if not count[h.what] then order[#order + 1] = h.what end
+		count[h.what] = (count[h.what] or 0) + 1
+	end
+	local words = {}
+	for i, w in ipairs(order) do
+		if i > ns.HELD_WORDS then
+			words[#words + 1] = L.HELD_MORE:format(#order - ns.HELD_WORDS)
+			break
+		end
+		words[#words + 1] = count[w] > 1 and L.HELD_TIMES:format(w, count[w]) or w
+	end
+	local line = L.HELD_SUMMARY:format(table.concat(words, ", "))
+	ns.Print("|cffffd200" .. line .. "|r" .. (gone > 0 and ("  |cff9d9d9d" .. L.HELD_AND_GONE:format(gone) .. "|r") or ""))
+	if RaidNotice_AddMessage and RaidWarningFrame then
+		RaidNotice_AddMessage(RaidWarningFrame, line, ChatTypeInfo and ChatTypeInfo["RAID_WARNING"] or { r = 1, g = 0.82, b = 0 })
+	end
+	local loudest
+	for _, h in ipairs(list) do
+		if ns.SoundOn(h.kind) and (not loudest or Rank(h.tone, h.kind) > Rank(loudest.tone, loudest.kind)) then loudest = h end
+	end
+	if loudest then ns.PlayAlert(loudest.tone, loudest.kind) end
+	for _, h in ipairs(list) do
+		if h.show then ns.SafeCall("held alert", h.show) end
+	end
+	return true
+end
+
+-- /oly alerts always|quiet: held in an instance or Busy (quiet, the default), or never.
+function ns.AlertsSlash(rest)
+	local how = tostring(rest or ""):lower():match("^%s*(%S*)")
+	if how == "always" or how == "quiet" then ns.db.alertsAlways = how == "always" or nil end
+	if how ~= "" and how ~= "always" and how ~= "quiet" then return ns.Print(L.HELP_ALERTS) end
+	ns.Print(ns.db.alertsAlways and L.ALERTS_ALWAYS or L.ALERTS_QUIET)
+	ns.ReleaseHeld() -- (always: what waited comes now)
+	ns.Fire("DECREES_CHANGED")
 end
 
 -- Captains (officers) are rank index 1, right below the guild master, in every guild. It is
@@ -1318,6 +1483,17 @@ ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.Fire("LOGIN")
 end)
 
+-- Held alerts (ns.Alert) come out once the player is out of the instance (a loading screen, a
+-- new zone) and not Busy (the game's flags changed): a little after, the screen settled. And
+-- every 10 seconds, whatever event the client missed.
+ns.On("LOGIN", function()
+	local function Soon() ns.After(2, "held alerts", ns.ReleaseHeld) end
+	ns.RegisterEvent("PLAYER_ENTERING_WORLD", Soon)
+	ns.RegisterEvent("ZONE_CHANGED_NEW_AREA", Soon)
+	ns.RegisterEvent("PLAYER_FLAGS_CHANGED", Soon)
+	ns.Every(10, "held alerts", ns.ReleaseHeld)
+end)
+
 ---------------------------------------------------------------------------
 -- Slash commands
 ---------------------------------------------------------------------------
@@ -1327,6 +1503,7 @@ local function Help()
 	print("  /oly - open/close the window")
 	print("  /oly tabard - Heraldry Inspection tab")
 	print(L.HELP_SOUND)
+	print(L.HELP_ALERTS)
 	print("  /oly patrol - start/stop inspecting nearby Olympus members")
 	print("  /oly mark [reason] - mark your target")
 	print("  /oly map - show/hide zone counts on the world map")
@@ -1386,6 +1563,8 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.UI.SelectTab("heraldry")
 		elseif cmd == "sound" then
 			ns.SoundSlash(rest)
+		elseif cmd == "alerts" then
+			ns.AlertsSlash(rest)
 		elseif cmd == "patrol" then
 			ns.Inspect.SetPatrol(not ns.Inspect.IsPatrolling())
 		elseif cmd == "mark" then

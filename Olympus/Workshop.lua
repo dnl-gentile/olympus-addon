@@ -530,8 +530,9 @@ function Workshop.HandleUpdate(dist, sender, text)
 	local now = ns.Now()
 	if now - lastUpdateShown < Workshop.UPDATE_GAP then return end
 	lastUpdateShown = now
-	ns.PlayAlert("soft", "update")
-	ns.ShowDialog("OLYMPUS_AUTHOR_UPDATE", ns.VERSION, latest)
+	-- (In an instance or on Busy, 1.1: once the player is out.)
+	ns.Alert("update", "soft", { what = L.HELD_UPDATE:format(latest), key = "update",
+		show = function() ns.ShowDialog("OLYMPUS_AUTHOR_UPDATE", ns.VERSION, latest) end })
 end
 
 StaticPopupDialogs["OLYMPUS_AUTHOR_UPDATE"] = {

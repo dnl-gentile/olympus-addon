@@ -1394,8 +1394,10 @@ end
 ---------------------------------------------------------------------------
 
 local function DecreeLines()
-	-- The King's writs first, for whoever they are for (Acts.lua).
-	local lines = ns.Acts and ns.Acts.WritLines and ns.Acts.WritLines() or {}
+	-- What waits in an instance or on Busy, on top (1.1, ns.Alert); then the King's writs, for
+	-- whoever they are for (Acts.lua).
+	local lines = ns.HeldLines()
+	for _, l in ipairs(ns.Acts and ns.Acts.WritLines and ns.Acts.WritLines() or {}) do lines[#lines + 1] = l end
 	lines[#lines + 1] = { header = true, text = L.DECREES }
 	local decrees = ns.Decree.Active()
 	if #decrees == 0 then lines[#lines + 1] = { text = Grey(L.NO_DECREES), gapAfter = true } end
@@ -1425,12 +1427,27 @@ local function DecreeHelp(lines)
 	end
 end
 
--- The alert sounds (1.1): the switch for all on the heading, one line per kind below, a click
--- turns it on or off (the same as /oly sound [kind] on|off; with the gamepad UI too: a click
--- on a row, no text box, no popup).
+-- The alerts' settings (1.1), at the bottom of the Decrees tab: held in an instance or on Busy,
+-- or not; the alert sounds, the switch for all on the heading and one line per kind below. A
+-- click turns one on or off (the same as /oly alerts, /oly sound [kind] on|off; with the gamepad
+-- UI too: a click on a row, no text box, no popup).
 local function SoundLines(lines)
 	local all = ns.db.sound and true or false
 	lines[#lines].gapAfter = true
+	-- In an instance or on Busy: alerts held (the default) or shown (1.1, /oly alerts quiet|always).
+	local always = ns.db.alertsAlways and true or false
+	lines[#lines + 1] = {
+		header = true,
+		text = L.ALERTS_LINE,
+		right = always and Gold(L.ALERTS_SHOWN) or Green(L.ALERTS_HELD),
+		alerts = true, -- (tests)
+		onClick = function() ns.AlertsSlash(always and "quiet" or "always") end,
+		tooltip = function(tt)
+			tt:AddLine(L.ALERTS_LINE, 1, 0.82, 0)
+			tt:AddLine(L.ALERTS_TIP, 1, 1, 1, true)
+		end,
+		gapAfter = true,
+	}
 	lines[#lines + 1] = {
 		header = true,
 		text = L.SOUNDS_TITLE,

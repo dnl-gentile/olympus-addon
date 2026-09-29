@@ -489,11 +489,24 @@ function Vox.Show(asker, id, seconds, q, answers, multi, byKing)
 		ns.Print(L.VOX_CHAT:format(byKing and ns.KingName(asker) or ns.DisplayName(asker), q, table.concat(list, "  "), KindText(multi)))
 		return
 	end
-	frame = frame or MakeFrame()
-	frame.live = nil
-	ns.PlayAlert("soft", "vox")
-	frame:Show()
-	Vox.Refresh()
+	-- In an instance or on Busy (1.1): the question in chat now, the window once the player is
+	-- out if it is still open (or at a click on its line on the Decrees tab).
+	local s = shown
+	local function Open()
+		frame = frame or MakeFrame()
+		frame.live = nil
+		frame:Show()
+		Vox.Refresh()
+	end
+	local opened = ns.Alert("vox", "soft", {
+		what = L.HELD_VOX:format(Plain(q, 40)), key = "vox" .. tostring(id), show = Open,
+		open = function() return shown == s and ns.Now() <= s.at and not s.counts and not s.voted end,
+	})
+	if not opened then
+		local list = {}
+		for i, a in ipairs(answers) do list[i] = ("%d) %s"):format(i, a) end
+		ns.Print(L.VOX_HELD:format(byKing and ns.KingName(asker) or ns.DisplayName(asker), q, table.concat(list, "  "), KindText(multi)))
+	end
 end
 
 -- The asker's chart on his screen: live while the question is open, then the final results.
@@ -544,9 +557,10 @@ local function OnResults(sender, id, rest)
 	ns.Print(L.VOX_RESULT:format(shown.q, Vox.Verdict(shown.answers, counts, shown.voters, shown.multi),
 		Vox.ResultText(shown.answers, counts, shown.voters, shown.multi)))
 	-- Voted or not, the window shows the chart (chat-only players read the line). The
-	-- asker's own chart, once final, gives way to it.
+	-- asker's own chart, once final, gives way to it. In an instance or on Busy (1.1) the chart
+	-- only fills a window already open: the line in chat says it all.
 	if frame and frame.live and (not poll or poll.closed) then frame.live = nil end
-	if frame and not frame.live and not ns.db.voxOff then
+	if frame and not frame.live and not ns.db.voxOff and (frame:IsShown() or not ns.Quiet()) then
 		frame:Show()
 		Vox.Refresh()
 	end
