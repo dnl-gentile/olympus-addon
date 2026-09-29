@@ -992,6 +992,78 @@ L.TREASURY_DETAIL_STEWARD = "The treasury as its keepers' addons send it. In the
 -- 1.0.0: the Hands each one named, on the King's and a Steward's Hands page (theirs to remove).
 L.HANDS_NAMED_BY_KING = "Named by the King (his to remove):"
 L.HANDS_NAMED_BY_STEWARD = "Named by the Steward %s (his to remove):"
+-- 1.1: the census refilling after login (request #4).
+L.REBUILDING = "Rebuilding the census after login: %d guilds heard so far"
+L.REBUILDING_WAIT = "It refills by itself within about 3 minutes: no /reload needed."
+L.REBUILDING_SUB = "Rebuilding the census: %d guilds heard"
+L.REBUILDING_TIP = "Each login starts from what this client saved, and the beta often loads nothing back. Your addon asks the Olympus channel for the census, and every guild's reporter answers within a few minutes. The army is not gone: its numbers come back on their own."
+-- 1.1: behind the author's released version, from his presence (request #10).
+L.BEHIND_LINE = "Update Olympus: %s is out, you have %s."
+L.BEHIND_TIP = "The addon's author announced on the Olympus channel that this version is out. Update from the CurseForge app, WowUp or the CurseForge page, then restart the game. An older version drops what newer ones send, and its guild can look broken to the others."
+L.BEHIND_CHAT = "Olympus %s is out and you have %s: update from CurseForge or your addon app, then restart the game."
+L.RELEASED_DONE = "Marked %s as released: addons behind it are told to update (your presence says so on the Olympus channel now, and every 5 minutes)."
+L.RELEASED_USAGE = "/oly released [version]: marks the version CurseForge lists as released (yours, %s, when none is given; never a newer one)."
+L.RELEASED_ONLY_AUTHOR = "Only the addon's author marks a version as released."
+L.WORKSHOP_RELEASED = "Released: %s (you run %s)"
+L.WORKSHOP_RELEASED_TIP = "The version your presence tells the army is out: addons older than it show a line to update. A build you run before CurseForge lists it is never named: once it is listed, /oly released marks it."
+-- 1.1: the warning while the Olympus channel is public (request #8).
+L.PUBLIC_NET = "Public channel: anyone who joins %s can read Olympus's census and chats."
+L.PUBLIC_NET_OFFICER = "Officers: seal it with the key the other guilds use (/oly key)."
+L.PUBLIC_NET_MEMBER = "Ask your officers to seal it with the army's key (/oly key)."
+L.PUBLIC_NET_SPLIT = "%d guildmates are on the sealed channel: an officer online hands you the key."
+L.PUBLIC_NET_TITLE = "The Olympus channel is public"
+L.PUBLIC_NET_TIP = "No realm key is set, so every Olympus addon meets on the public %s channel. Anyone can join it by name and, with a one-line script, read everything sent there: the census, where people are (for those who share it), the three chats ([Captains] and [Lords] too) and the decrees. Sealed with a key, the channel's name and password come from the key and only players who hold it get in. An officer types /oly key <secret> once, and guildmates with the addon get the key by themselves over guild chat. Use the secret the officers of the other guilds use: a key of your own splits your guild off the army."
+-- 1.1: the pinned line (request #9).
+L.PIN_LABEL = "Pinned"
+L.PIN_TIP = "Pinned by %s <%s>, %s. It ends in %d min, or when its author (or a higher rank) takes it down. Its words are the author's own, sent with the logged API, so abuse can be reported."
+L.PIN_DOWN_TIP = "Click to take it down for everyone."
+L.PIN_NEW = "Pinned by %s <%s>: %s"
+L.PIN_ADD = "Pin a line for the army..."
+L.PIN_ADD_TIP = "One short line on top of the Olympus chats and the Realm, for every member, for 2 hours: a raid move, a gates change. No popup and no sound. The King's newer pin always wins; his Stewards' and Hands' outrank the Lords'. Your words go out with the logged API, like a chat line, so abuse can be reported. Charters and dues stay in Discord."
+L.PIN_ASK = "The line to pin on top of the Olympus chats and the Realm, for everyone, for 2 hours:"
+L.PIN_BUTTON = "Pin"
+L.PIN_DOWN_ASK = "Take the pinned line down for everyone?"
+L.PIN_DONE = "Pinned for the army for 2 hours: %s"
+L.PIN_TAKEN_DOWN = "The pinned line was taken down."
+L.PIN_DOWN_OWN = "%s <%s> took their pinned line down."
+L.PIN_DOWN_BY = "%s <%s> took down the line %s had pinned."
+L.PIN_DOWN_WAIT = "Wait %ds before taking another pin down."
+L.PIN_NONE = "Nothing is pinned."
+L.PIN_NOW = "Pinned by %s <%s>, ends in %d min: %s"
+L.PIN_ONLY = "Only the King, his Stewards and Hands, and the guild masters of the Olympus guilds can pin a line."
+L.PIN_USAGE = "/oly pin <text> pins one line for the army (2 hours); /oly pin off takes it down."
+L.PIN_OUTRANKED = "%s's pin outranks yours: it stays until it ends or is taken down."
+L.PIN_WAIT = "Wait %ds before pinning again."
+L.PIN_NOT_YOURS = "Only its author or a higher rank can take this pin down."
+L.HELP_PIN = "  /oly pin <text> | /oly pin off - the King, his Stewards and Hands, the guild masters: one line pinned for the army (2 hours)"
+-- 1.1: the commands' help and replies, once written in the code (request #6).
+L.HELP_CMD_HEAD = "v%s commands:"
+L.HELP_CMD_OPEN = "  /oly - open/close the window"
+L.HELP_CMD_TABARD = "  /oly tabard - Heraldry Inspection tab"
+L.HELP_CMD_SOUND = "  /oly sound - turn alert sounds on/off"
+L.HELP_CMD_PATROL = "  /oly patrol - start/stop inspecting nearby Olympus members"
+L.HELP_CMD_MARK = "  /oly mark [reason] - mark your target"
+L.HELP_CMD_MAP = "  /oly map - show/hide zone counts on the world map"
+L.HELP_CMD_REALM = "  /oly realm - the Realm tree (leaders, officers, ranks)"
+L.HELP_CMD_LAYERS = "  /oly layers - layers of your zone (in the Realm tab)"
+L.HELP_CMD_DECREES = "  /oly decrees - decrees"
+L.HELP_CMD_ARMS = "  /oly arms [text] | /oly muster [text] - decree (officers; 'test' = local preview)"
+L.HELP_CMD_MATES = "  /oly mates - show/hide guildmates on map and minimap"
+L.HELP_CMD_SHARE = "  /oly share - share/stop sharing your position with your guild"
+L.HELP_CMD_BUG = "  /oly bug - copy a bug report (errors + diagnostics)"
+L.HELP_CMD_STATUS = "  /oly status - print diagnostics in chat"
+L.HELP_CMD_KEY = "  /oly key <secret> - officers: seal the Olympus channel with a shared secret"
+L.HELP_CMD_BLOCK = "  /oly block <name> - ignore everything a player sends"
+L.HELP_CMD_LAYER = "  /oly layer - show the layer id of your target (test)"
+L.HELP_CMD_MINIMAP = "  /oly minimap - show/hide the minimap button"
+L.HELP_CMD_DEBUG = "  /oly debug - verbose log in chat"
+L.HELP_CMD_RESET = "  /oly reset - forget all cached guild reports and /who sightings"
+L.SOUND_ON = "Alert sounds: on."
+L.SOUND_OFF = "Alert sounds: off."
+L.BLOCKED_NOW = "Blocked %s: nothing this player sends reaches you."
+L.DEBUG_ON = "Debug log in chat: on."
+L.DEBUG_OFF = "Debug log in chat: off."
+L.CACHE_CLEARED = "Cache cleared: the guild reports and /who sightings kept here are forgotten, and the census refills from the channel."
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1970,4 +2042,149 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.TREASURY_DETAIL_STEWARD = "O tesouro como os addons dos guardiões mandam. Em nome do Rei seus botões escolhem o que o exército vê, e você nomeia os guardiões."
 	L.HANDS_NAMED_BY_KING = "Nomeadas pelo Rei (só ele as tira):"
 	L.HANDS_NAMED_BY_STEWARD = "Nomeadas pelo Senescal %s (só ele as tira):"
+	-- 1.1: o censo se refazendo depois do login (pedido #4).
+	L.REBUILDING = "Refazendo o censo depois do login: %d guildas ouvidas até agora"
+	L.REBUILDING_WAIT = "Ele se completa sozinho em uns 3 minutos: não precisa de /reload."
+	L.REBUILDING_SUB = "Refazendo o censo: %d guildas ouvidas"
+	L.REBUILDING_TIP = "Cada login começa do que este cliente salvou, e o beta muitas vezes não carrega nada de volta. O seu addon pede o censo ao canal de Olympus, e o relator de cada guilda responde em poucos minutos. O exército não sumiu: os números voltam sozinhos."
+	-- 1.1: atrás da versão lançada pelo autor, pela presença dele (pedido #10).
+	L.BEHIND_LINE = "Atualize o Olympus: a %s já saiu, você tem a %s."
+	L.BEHIND_TIP = "O autor do addon anunciou no canal de Olympus que essa versão já saiu. Atualize pelo app do CurseForge, pelo WowUp ou pela página do CurseForge e reinicie o jogo. Uma versão antiga descarta o que as novas mandam, e a guilda dela pode parecer quebrada para as outras."
+	L.BEHIND_CHAT = "O Olympus %s já saiu e você tem o %s: atualize pelo CurseForge ou pelo seu app de addons e reinicie o jogo."
+	L.RELEASED_DONE = "%s marcada como lançada: os addons atrás dela são avisados para atualizar (a sua presença diz isso no canal de Olympus agora e a cada 5 minutos)."
+	L.RELEASED_USAGE = "/oly released [versão]: marca como lançada a versão que o CurseForge lista (a sua, %s, se nenhuma for dada; nunca uma mais nova)."
+	L.RELEASED_ONLY_AUTHOR = "Só o autor do addon marca uma versão como lançada."
+	L.WORKSHOP_RELEASED = "Lançada: %s (você usa a %s)"
+	L.WORKSHOP_RELEASED_TIP = "A versão que a sua presença diz ao exército que já saiu: addons mais antigos que ela mostram uma linha para atualizar. Uma versão que você usa antes de o CurseForge listar nunca é anunciada: depois de listada, /oly released marca."
+	-- 1.1: o aviso enquanto o canal de Olympus é público (pedido #8).
+	L.PUBLIC_NET = "Canal público: qualquer um que entrar em %s lê o censo e os chats de Olympus."
+	L.PUBLIC_NET_OFFICER = "Oficiais: selem com a chave que as outras guildas usam (/oly key)."
+	L.PUBLIC_NET_MEMBER = "Peça aos seus oficiais para selar com a chave do exército (/oly key)."
+	L.PUBLIC_NET_SPLIT = "%d colegas de guilda estão no canal selado: um oficial online te passa a chave."
+	L.PUBLIC_NET_TITLE = "O canal de Olympus é público"
+	L.PUBLIC_NET_TIP = "Nenhuma chave de reino foi definida, então todo addon de Olympus se encontra no canal público %s. Qualquer um pode entrar nele pelo nome e, com um script de uma linha, ler tudo o que passa por lá: o censo, onde as pessoas estão (de quem compartilha), os três chats ([Capitães] e [Lordes] também) e os decretos. Selado com uma chave, o nome e a senha do canal vêm da chave e só entra quem a tem. Um oficial digita /oly key <segredo> uma vez, e os colegas de guilda com o addon recebem a chave sozinhos pelo chat da guilda. Use o segredo que os oficiais das outras guildas usam: uma chave só sua separa a sua guilda do exército."
+	-- 1.1: a linha fixada (pedido #9).
+	L.PIN_LABEL = "Fixado"
+	L.PIN_TIP = "Fixado por %s <%s>, %s. Acaba em %d min, ou quando o autor (ou alguém de posto mais alto) tirar. As palavras são do próprio autor, enviadas pela API registrada, então abusos podem ser denunciados."
+	L.PIN_DOWN_TIP = "Clique para tirar para todo mundo."
+	L.PIN_NEW = "Fixado por %s <%s>: %s"
+	L.PIN_ADD = "Fixar uma linha para o exército..."
+	L.PIN_ADD_TIP = "Uma linha curta no topo dos chats de Olympus e do Reino, para todos os membros, por 2 horas: uma mudança de raid, uma mudança nos portões. Sem popup e sem som. A fixação mais nova do Rei sempre vence; as dos Senescais e das Mãos dele passam na frente das dos Lordes. As suas palavras vão pela API registrada, como uma linha de chat, então abusos podem ser denunciados. Estatutos e contribuições ficam no Discord."
+	L.PIN_ASK = "A linha para fixar no topo dos chats de Olympus e do Reino, para todos, por 2 horas:"
+	L.PIN_BUTTON = "Fixar"
+	L.PIN_DOWN_ASK = "Tirar a linha fixada para todo mundo?"
+	L.PIN_DONE = "Fixado para o exército por 2 horas: %s"
+	L.PIN_TAKEN_DOWN = "A linha fixada foi tirada."
+	L.PIN_DOWN_OWN = "%s <%s> tirou a linha que tinha fixado."
+	L.PIN_DOWN_BY = "%s <%s> tirou a linha que %s tinha fixado."
+	L.PIN_DOWN_WAIT = "Espere %ds para tirar outra fixação."
+	L.PIN_NONE = "Nada está fixado."
+	L.PIN_NOW = "Fixado por %s <%s>, acaba em %d min: %s"
+	L.PIN_ONLY = "Só o Rei, os Senescais e as Mãos dele, e os guild masters das guildas Olympus podem fixar uma linha."
+	L.PIN_USAGE = "/oly pin <texto> fixa uma linha para o exército (2 horas); /oly pin off tira."
+	L.PIN_OUTRANKED = "A fixação de %s passa na frente da sua: ela fica até acabar ou ser tirada."
+	L.PIN_WAIT = "Espere %ds para fixar de novo."
+	L.PIN_NOT_YOURS = "Só o autor ou alguém de posto mais alto pode tirar essa fixação."
+	L.HELP_PIN = "  /oly pin <texto> | /oly pin off - o Rei, os Senescais e as Mãos dele, os guild masters: uma linha fixada para o exército (2 horas)"
+	-- 1.1: a ajuda dos comandos e as respostas deles, antes escritas no código (pedido #6).
+	L.HELP_CMD_HEAD = "comandos da v%s:"
+	L.HELP_CMD_OPEN = "  /oly - abrir/fechar a janela"
+	L.HELP_CMD_TABARD = "  /oly tabard - aba da Inspeção de Tabard"
+	L.HELP_CMD_SOUND = "  /oly sound - ligar/desligar os sons de alerta"
+	L.HELP_CMD_PATROL = "  /oly patrol - começar/parar de inspecionar os membros de Olympus por perto"
+	L.HELP_CMD_MARK = "  /oly mark [motivo] - marcar o seu alvo"
+	L.HELP_CMD_MAP = "  /oly map - mostrar/esconder as contagens por zona no mapa-múndi"
+	L.HELP_CMD_REALM = "  /oly realm - a árvore do Reino (líderes, oficiais, patentes)"
+	L.HELP_CMD_LAYERS = "  /oly layers - os layers da sua zona (na aba O Reino)"
+	L.HELP_CMD_DECREES = "  /oly decrees - decretos"
+	L.HELP_CMD_ARMS = "  /oly arms [texto] | /oly muster [texto] - decreto (oficiais; 'test' = prévia só sua)"
+	L.HELP_CMD_MATES = "  /oly mates - mostrar/esconder os colegas de guilda no mapa e no minimapa"
+	L.HELP_CMD_SHARE = "  /oly share - compartilhar/parar de compartilhar a sua posição com a guilda"
+	L.HELP_CMD_BUG = "  /oly bug - copiar um relatório de bug (erros + diagnóstico)"
+	L.HELP_CMD_STATUS = "  /oly status - mostrar o diagnóstico no chat"
+	L.HELP_CMD_KEY = "  /oly key <segredo> - oficiais: selar o canal de Olympus com um segredo em comum"
+	L.HELP_CMD_BLOCK = "  /oly block <nome> - ignorar tudo o que um jogador mandar"
+	L.HELP_CMD_LAYER = "  /oly layer - mostrar o id do layer do seu alvo (teste)"
+	L.HELP_CMD_MINIMAP = "  /oly minimap - mostrar/esconder o botão do minimapa"
+	L.HELP_CMD_DEBUG = "  /oly debug - log detalhado no chat"
+	L.HELP_CMD_RESET = "  /oly reset - esquecer os relatórios de guilda e os avistamentos do /who guardados"
+	L.SOUND_ON = "Sons de alerta: ligados."
+	L.SOUND_OFF = "Sons de alerta: desligados."
+	L.BLOCKED_NOW = "%s bloqueado: nada que esse jogador mandar chega até você."
+	L.DEBUG_ON = "Log detalhado no chat: ligado."
+	L.DEBUG_OFF = "Log detalhado no chat: desligado."
+	L.CACHE_CLEARED = "Cache limpo: os relatórios de guilda e os avistamentos do /who guardados aqui foram esquecidos, e o censo se refaz pelo canal."
+end -- (the Portuguese lines)
+
+---------------------------------------------------------------------------
+-- More languages (1.1). Each has a file of its own under Locales/, loaded right after this one
+-- (Olympus.toc), that calls ns.Locale(<the game's language codes>, { KEY = "text", ... }). Only
+-- the game's own language is taken, key by key over the English lines above: a key the file
+-- leaves out stays English. Left out too: a key English does not have (a typo, a line removed
+-- since), a value that is not text, and a line whose format codes (%s, %d...) and escape codes
+-- (|c...|r, |T...|t, |n...) are not the English line's, in the same order, so a translation can
+-- never break a line it is formatted into or colour the rest of a window. What was left out is
+-- kept for /oly status (ns.LocaleReport). Strings only: nothing that travels between players
+-- changes with the language. CONTRIBUTING.md says how to add or finish one.
+---------------------------------------------------------------------------
+
+-- A line's format and escape codes, in order: "%s %d |c |r".
+function ns.LocaleCodes(s)
+	s = tostring(s or "")
+	local out, i, n = {}, 1, #s
+	while i <= n do
+		local c = s:sub(i, i)
+		if c == "%" then
+			local spec = s:match("^%%[%-%+ #0]*%d*%.?%d*[%a%%]", i)
+			out[#out + 1] = spec or "%?"
+			i = i + (spec and #spec or 1)
+		elseif c == "|" then
+			local nxt = s:sub(i + 1, i + 1)
+			out[#out + 1] = "|" .. nxt
+			if nxt == "c" then
+				i = i + 10
+			elseif nxt == "T" then
+				local stop = s:find("|t", i + 2, true)
+				i = (stop or n) + 2
+			else
+				i = i + 2
+			end
+		else
+			i = i + 1
+		end
+	end
+	return table.concat(out, " ")
+end
+
+local localeReport -- { code, taken, skipped = { key, ... }, lines } for the language taken
+function ns.Locale(codes, strings)
+	local current = GetLocale and GetLocale()
+	if type(codes) == "string" then codes = { codes } end
+	local mine = false
+	for _, code in ipairs(type(codes) == "table" and codes or {}) do
+		if code == current then mine = true end
+	end
+	if not mine or type(strings) ~= "table" then return 0 end
+	local taken, skipped, lines = 0, {}, 0
+	for _ in pairs(L) do lines = lines + 1 end
+	for k, v in pairs(strings) do
+		local en = type(k) == "string" and rawget(L, k)
+		if type(en) == "string" and type(v) == "string" and v ~= "" and ns.LocaleCodes(v) == ns.LocaleCodes(en) then
+			L[k] = v
+			taken = taken + 1
+		else
+			skipped[#skipped + 1] = tostring(k)
+		end
+	end
+	table.sort(skipped)
+	localeReport = { code = current, taken = taken, skipped = skipped, lines = lines }
+	return taken
+end
+
+-- For /oly status: the language taken, how many of its lines, and any left out.
+function ns.LocaleReport()
+	local r = localeReport
+	if not r then return tostring(GetLocale and GetLocale() or "?") .. (GetLocale and GetLocale() == "ptBR" and ", in full" or ", English") end
+	return ("%s, %d of %d lines%s"):format(r.code, r.taken, r.lines,
+		#r.skipped > 0 and (", left out: " .. table.concat(r.skipped, ",", 1, math.min(5, #r.skipped)) .. (#r.skipped > 5 and ",..." or "")) or "")
 end

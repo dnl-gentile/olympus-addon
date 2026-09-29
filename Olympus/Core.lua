@@ -1239,15 +1239,15 @@ end)
 ---------------------------------------------------------------------------
 
 local function Help()
-	ns.Print("v" .. ns.VERSION .. " commands:")
-	print("  /oly - open/close the window")
-	print("  /oly tabard - Heraldry Inspection tab")
-	print("  /oly sound - turn alert sounds on/off")
-	print("  /oly patrol - start/stop inspecting nearby Olympus members")
-	print("  /oly mark [reason] - mark your target")
-	print("  /oly map - show/hide zone counts on the world map")
-	print("  /oly realm - the Realm tree (leaders, officers, ranks)")
-	print("  /oly layers - layers of your zone (in the Realm tab)")
+	ns.Print(L.HELP_CMD_HEAD:format(ns.VERSION))
+	print(L.HELP_CMD_OPEN)
+	print(L.HELP_CMD_TABARD)
+	print(L.HELP_CMD_SOUND)
+	print(L.HELP_CMD_PATROL)
+	print(L.HELP_CMD_MARK)
+	print(L.HELP_CMD_MAP)
+	print(L.HELP_CMD_REALM)
+	print(L.HELP_CMD_LAYERS)
 	print(L.HELP_HOP)
 	print(L.HELP_LAYERHELP)
 	print(L.HELP_LAYERAUTO)
@@ -1260,24 +1260,25 @@ local function Help()
 	print(L.HELP_ISSUE)
 	print(L.HELP_COUNCIL)
 	print(L.HELP_DISCORD)
-	print("  /oly decrees - decrees")
-	print("  /oly arms [text] | /oly muster [text] - decree (officers; 'test' = local preview)")
+	print(L.HELP_CMD_DECREES)
+	print(L.HELP_CMD_ARMS)
 	print(L.HELP_CHAN_ALL)
 	print(L.HELP_CHAN_CAPTAINS)
 	print(L.HELP_CHAN_LORDS)
 	print(L.HELP_CHAN_MUTE)
+	print(L.HELP_PIN)
 	print(L.HELP_CHATWIN)
 	print(L.HELP_VOX)
-	print("  /oly mates - show/hide guildmates on map and minimap")
-	print("  /oly share - share/stop sharing your position with your guild")
-	print("  /oly bug - copy a bug report (errors + diagnostics)")
-	print("  /oly status - print diagnostics in chat")
-	print("  /oly key <secret> - officers: seal the Olympus channel with a shared secret")
-	print("  /oly block <name> - ignore everything a player sends")
-	print("  /oly layer - show the layer id of your target (test)")
-	print("  /oly minimap - show/hide the minimap button")
-	print("  /oly debug - verbose log in chat")
-	print("  /oly reset - forget all cached guild reports and /who sightings")
+	print(L.HELP_CMD_MATES)
+	print(L.HELP_CMD_SHARE)
+	print(L.HELP_CMD_BUG)
+	print(L.HELP_CMD_STATUS)
+	print(L.HELP_CMD_KEY)
+	print(L.HELP_CMD_BLOCK)
+	print(L.HELP_CMD_LAYER)
+	print(L.HELP_CMD_MINIMAP)
+	print(L.HELP_CMD_DEBUG)
+	print(L.HELP_CMD_RESET)
 end
 
 SLASH_OLYMPUS1 = "/olympus"
@@ -1302,7 +1303,7 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.UI.SelectTab("heraldry")
 		elseif cmd == "sound" then
 			ns.db.sound = not ns.db.sound
-			ns.Print("sound = " .. tostring(ns.db.sound))
+			ns.Print(ns.db.sound and L.SOUND_ON or L.SOUND_OFF)
 		elseif cmd == "patrol" then
 			ns.Inspect.SetPatrol(not ns.Inspect.IsPatrolling())
 		elseif cmd == "mark" then
@@ -1414,7 +1415,7 @@ SlashCmdList.OLYMPUS = function(input)
 				name = name:gsub("%-([^%-]+)$", function(realm) return "-" .. realm:gsub("[%s%-]", "") end)
 				local key = ns.FullName(name):lower()
 				ns.db.blocked[key] = true
-				ns.Print("blocked " .. key)
+				ns.Print(L.BLOCKED_NOW:format(key))
 			end
 		elseif cmd == "layer" then
 			ns.PrintLayer()
@@ -1435,19 +1436,25 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "photo" then
 			-- The author's photo mode for the store's screenshots (UI.TogglePhoto, 1.0.0).
 			ns.UI.TogglePhoto()
+		elseif cmd == "released" then
+			-- The author: the version CurseForge lists, which his presence names as out (1.1).
+			ns.Workshop.MarkReleased(rest)
 		elseif cmd == "debug" then
 			ns.db.debug = not ns.db.debug
-			ns.Print("debug = " .. tostring(ns.db.debug))
+			ns.Print(ns.db.debug and L.DEBUG_ON or L.DEBUG_OFF)
 		elseif cmd == "reset" then
 			wipe(ns.rdb.guilds)
 			wipe(ns.Data.Seen())
 			ns.Who.Reset()
 			ns.Fire("DATA_CHANGED")
-			ns.Print("cache cleared")
+			ns.Print(L.CACHE_CLEARED)
 		elseif cmd == "error" then
 			error("test error from /oly error")   -- to check that bug capture works
 		elseif cmd == "all" or cmd == "captains" or cmd == "lords" then
 			ns.Channels.Send(ns.Channels.TierForWord(cmd), rest)
+		elseif cmd == "pin" then
+			-- One line pinned for everyone (1.1, Channels.lua): the King, his Stewards and Hands, the Lords.
+			ns.Channels.PinCommand(rest)
 		elseif cmd == "mute" then
 			ns.Channels.ToggleMute(rest)
 		elseif cmd == "chatwindow" then

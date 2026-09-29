@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -3061,6 +3061,9 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 			["OLYMPUS XXL"] = { online = 30, t = os.time() }, ["Olympus"] = { online = 3, t = os.time() } }
 		ns.UI = { StatusLine = function() return "status" end }
 		ns.Views.sort = { key = "members", desc = false } -- sorting moves reported guilds only
+		-- (1.1: a sealed channel. On a public one a warning goes above the guilds: its own test.)
+		local savedKey = ns.rdb.realmKey
+		ns.rdb.realmKey = "shared secret"
 		local lines = ns.Views.Build("census")
 		-- (1.0.0: the search box tops the list; nothing typed, the list under it as before.)
 		assert(lines[1].input and lines[1].input.text == "", "the search box")
@@ -3084,6 +3087,7 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 		ns.rdb.seen = {}
 		eq(#ns.Views.Build("census"), 4, "the search box, the King's layer line and 2 guilds")
 		ns.Views.sort = { key = "members", desc = true }
+		ns.rdb.realmKey = savedKey
 	end)
 end)
 
@@ -3093,6 +3097,9 @@ test("census Refresh: the roster, and one /who per click for the grey guilds", f
 			local scans = 0
 			C_GuildInfo = { GuildRoster = function() scans = scans + 1 end }
 			local UI = LoadUI()
+			-- (1.1: a sealed channel. On a public one a warning goes above the guilds: its own test.)
+			local savedKey = ns.rdb.realmKey
+			ns.rdb.realmKey = "shared secret"
 			UI.SelectTab("census")
 			local refresh = OlympusFrame.buttons[2]
 			eq(refresh:GetText(), ns.L.REFRESH)
@@ -3112,6 +3119,7 @@ test("census Refresh: the roster, and one /who per click for the grey guilds", f
 			OlympusPersonFrame.who:Click()
 			eq(server.sent[#server.sent], 'n-"Aa"', "our realm left out, as the server wants it")
 			C_GuildInfo = nil
+			ns.rdb.realmKey = savedKey
 		end)
 	end)
 end)
@@ -3822,7 +3830,8 @@ test("chat lines arrive through CHAT_MSG_ADDON_LOGGED, without our echo or block
 	cns.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
 	cns.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
 	cns.After, cns.Every = function() end, function() end
-	local slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS, StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY }
+	local slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS, StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY,
+		StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN }
 	C_ChatInfo = { RegisterAddonMessagePrefix = function() end }
 	ns.db.chatMute = nil
 	local ok, err = pcall(function()
@@ -3850,6 +3859,7 @@ test("chat lines arrive through CHAT_MSG_ADDON_LOGGED, without our echo or block
 	end)
 	SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = slash[1], slash[2], slash[3]
 	StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY = slash[4] -- (0.9.1: Channels.lua's warning, bound to the real module)
+	StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN = slash[5], slash[6] -- (1.1: its pinned line's too)
 	C_ChatInfo = nil
 	if not ok then error(err, 0) end
 end)
@@ -3865,7 +3875,8 @@ test("chat lines put together from pieces are never taken as logged, whichever p
 	cns.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
 	cns.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
 	cns.After, cns.Every = function() end, function() end
-	local slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS, StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY }
+	local slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS, StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY,
+		StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN }
 	C_ChatInfo = { RegisterAddonMessagePrefix = function() end, SendAddonMessageLogged = function() end }
 	ns.db.chatMute = nil
 	local ok, err = pcall(function()
@@ -3890,6 +3901,7 @@ test("chat lines put together from pieces are never taken as logged, whichever p
 	end)
 	SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = slash[1], slash[2], slash[3]
 	StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY = slash[4]
+	StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN = slash[5], slash[6]
 	C_ChatInfo = nil
 	if not ok then error(err, 0) end
 end)
@@ -24456,6 +24468,1074 @@ test("1.0.0 the Hands' hint says they speak with the King's Crown to the other g
 	if not ok then error(err, 0) end
 	assert(rawget(pt.L, "HANDS_HINT"):find("decretos reais", 1, true))
 end)
+
+-- 1.1's tests, in a block of their own (the main chunk is near Lua's 200 locals).
+do
+---------------------------------------------------------------------------
+-- 1.1: zones outside the Azeroth tree (request #3)
+---------------------------------------------------------------------------
+
+-- A map tree like TBC Anniversary's: Cosmic (946) holds Azeroth (947) and Outland (1945), and a
+-- map a later patch hung under no parent at all (3100). Runs fn(calls), calls.info counting
+-- C_Map.GetMapInfo; everything put back afterwards.
+local function WithOutland(fn)
+	local Z = ns.Zones
+	local tree = {
+		[946] = { "Cosmic", 0 }, [947] = { "Azeroth", 1, 946 }, [1415] = { "Eastern Kingdoms", 2, 947 },
+		[1429] = { "Elwynn Forest", 3, 1415 }, [1453] = { "Stormwind City", 3, 1415 }, [1436] = { "Westfall", 3, 1415 },
+		[1945] = { "Outland", 2, 946 }, [1944] = { "Hellfire Peninsula", 3, 1945 }, [1955] = { "Shattrath City", 3, 1945 },
+		-- A map of Outland sharing a name with an Azeroth zone: never Azeroth's id.
+		[1999] = { "Westfall", 3, 1945 },
+		[3100] = { "Isle of New Things", 3 },
+	}
+	local kids = { [946] = { 947, 1945 }, [947] = { 1415 }, [1415] = { 1429, 1453, 1436 }, [1945] = { 1944, 1955, 1999 } }
+	local calls = { info = 0 }
+	local saved = { info = C_Map.GetMapInfo, children = C_Map.GetMapChildrenInfo, best = C_Map.GetBestMapForUnit,
+		rect = C_Map.GetMapRectOnMap, guilds = ns.rdb.guilds, max = ns.Zones.SCAN_MAX }
+	C_Map.GetMapInfo = function(id)
+		calls.info = calls.info + 1
+		local m = tree[id]
+		return m and { mapID = id, name = m[1], mapType = m[2], parentMapID = m[3] }
+	end
+	C_Map.GetMapChildrenInfo = function(id)
+		local out = {}
+		for _, c in ipairs(kids[id] or {}) do out[#out + 1] = { mapID = c, name = tree[c][1], mapType = tree[c][2], parentMapID = id } end
+		return out
+	end
+	C_Map.GetBestMapForUnit = nil
+	Z.Reset()
+	local ok, err = pcall(fn, calls)
+	C_Map.GetMapInfo, C_Map.GetMapChildrenInfo, C_Map.GetBestMapForUnit = saved.info, saved.children, saved.best
+	C_Map.GetMapRectOnMap, ns.rdb.guilds, Z.SCAN_MAX = saved.rect, saved.guilds, saved.max
+	Z.Reset()
+	if not ok then error(err, 0) end
+end
+
+test("1.1 zones: Outland under the Cosmic map gets its map id (TBC Anniversary), Azeroth's names keep 1.0's ids", function()
+	WithOutland(function()
+		local Z = ns.Zones
+		eq(Z.KeyForName("Hellfire Peninsula"), "m1944", "a zone of Outland, under Cosmic (946), not Azeroth (947)")
+		eq(Z.KeyForName("Shattrath City"), "m1955")
+		eq(Z.MapID(Z.KeyForName("Hellfire Peninsula")), 1944)
+		eq(Z.NameForKey("m1944"), "Hellfire Peninsula", "its name back from the id (a 1.0 client reads it the same way)")
+		-- Azeroth's zones keep the id 1.0 gave them (clients of both versions send the same keys),
+		-- even where Outland has a map of the same name.
+		eq(Z.KeyForName("Westfall"), "m1436")
+		eq(Z.KeyForName("Stormwind City"), "m1453")
+		eq(Z.Unmapped()[1], nil, "nothing unmapped")
+		assert(ns.StatusText():find("zones without a map id: none", 1, true), "in /oly status")
+	end)
+end)
+
+test("1.1 zones: a name the tree lacks sets off one scan of every map id; what even that misses stays text and is listed in /oly status and /oly bug", function()
+	WithOutland(function(calls)
+		local Z = ns.Zones
+		Z.SCAN_MAX = 4000
+		eq(Z.KeyForName("Elwynn Forest"), "m1429", "the tree first")
+		local before = calls.info
+		eq(Z.KeyForName("Isle of New Things"), "m3100", "found by the scan at the first miss")
+		assert(calls.info - before >= 3100, "the scan read the map ids")
+		-- Once a session: a name even the scan misses costs no second scan.
+		before = calls.info
+		eq(Z.KeyForName("Nowhere Land"), "tNowhere Land", "still text")
+		eq(Z.KeyForName("Nowhere Land"), "tNowhere Land")
+		assert(calls.info - before < 10, "no second scan: " .. (calls.info - before))
+		local list, n = Z.Unmapped()
+		eq(n, 1); eq(list[1], "Nowhere Land")
+		assert(ns.StatusText():find("zones without a map id: 1: Nowhere Land", 1, true), "in /oly status")
+		local savedErrors, savedLog = ns.db.errors, ns.db.log
+		ns.db.errors, ns.db.log = {}, {}
+		local report = ns.BuildBugReport()
+		ns.db.errors, ns.db.log = savedErrors, savedLog
+		assert(report:find("zones without a map id: 1: Nowhere Land", 1, true), "in /oly bug")
+		eq(Z.KeyForName("Hellfire Peninsula"), "m1944")
+	end)
+end)
+
+test("1.1 zones: Outland's total goes on the map above it (Cosmic), Azeroth's continents stay on the Azeroth map", function()
+	WithOutland(function()
+		local Z, M = ns.Zones, ns.Map
+		ns.rdb.guilds = { ["Olympus"] = { total = 100, online = 12, t = os.time(),
+			zones = { [Z.KeyForName("Hellfire Peninsula")] = 5, [Z.KeyForName("Stormwind City")] = 7 } } }
+		local totals = M.ContinentTotals(ns.Data.Summary())
+		eq(totals[1945], 5, "Outland's own total"); eq(totals[1415], 7)
+		-- The game gives Outland no rect on the Azeroth map, but one on the Cosmic map.
+		C_Map.GetMapRectOnMap = function(cont, on)
+			if on == 947 and cont == 1415 then return 0.5, 0.7, 0.2, 0.6 end
+			if on == 946 and cont == 1945 then return 0.6, 0.9, 0.1, 0.5 end
+			return nil
+		end
+		eq(M.OverlayMap(1945), 946, "Outland on the Cosmic map")
+		eq(M.OverlayMap(1415), 947, "Eastern Kingdoms on Azeroth, as in 1.0")
+		eq(M.OverlayMap(1429), nil, "a zone is no continent of a top map")
+	end)
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: the census rebuilding after login (request #4)
+---------------------------------------------------------------------------
+
+test("1.1 census rebuilding: after login the header, the Census and the Realm say the census is refilling and how many guilds were heard, never 'No reports yet'; gone after the rebuild", function()
+	local L, D = ns.L, ns.Data
+	local savedLogin = ns.Comm.loginAt
+	local ok, err = pcall(function()
+		WithUI(function()
+			local UI = LoadUI()
+			ns.rdb.guilds = {} -- the beta loaded an empty save
+			ns.Comm.loginAt = ns.Now() - 20
+			UI.Toggle()
+			local main = OlympusFrame
+			eq(main.sub:GetText(), L.REBUILDING_SUB:format(0) .. "  ·  " .. UI.CensusName(), "the header")
+			local census = Texts((ns.Views.Build("census")))
+			assert(census:find(L.REBUILDING:format(0), 1, true), census)
+			assert(census:find(L.REBUILDING_WAIT, 1, true), census)
+			assert(not census:find(L.EMPTY, 1, true), "not 'No reports yet' while it refills")
+			local realm = Texts((ns.Views.Build("realm")))
+			assert(realm:find(L.REBUILDING:format(0), 1, true), realm)
+			assert(not realm:find(L.EMPTY, 1, true), realm)
+			-- Guilds heard since login count; our own (the roster's) and one kept from before do not.
+			ns.rdb.guilds = { ["Olympus Zeus"] = { total = 100, online = 5, t = ns.Now(), leader = "Zed" },
+				["Olympus II"] = { total = 1000, online = 300, t = ns.Now(), mine = true },
+				["Olympus Old"] = { total = 50, online = 0, t = ns.Comm.loginAt - 600 } }
+			eq(D.Rebuilding(), 1)
+			UI.Refresh()
+			eq(main.sub:GetText(), L.REBUILDING_SUB:format(1) .. "  ·  " .. UI.CensusName())
+			local lines = ns.Views.Build("census")
+			census = Texts(lines)
+			assert(census:find(L.REBUILDING:format(1), 1, true), census)
+			local row
+			for _, l in ipairs(lines) do if l.cols and l.cols[1] == "Olympus Zeus" then row = l end end
+			assert(row, "the guilds heard are listed under it")
+			-- The rebuild is over: the numbers as ever, no line.
+			ns.Comm.loginAt = ns.Now() - D.REBUILD_FOR
+			eq(D.Rebuilding(), nil)
+			UI.Refresh()
+			eq(main.sub:GetText():find(L.REBUILDING_SUB:format(1), 1, true), nil, "the header back to the numbers")
+			census = Texts((ns.Views.Build("census")))
+			eq(census:find(L.REBUILDING:format(1), 1, true), nil, census)
+			-- An empty census after the rebuild: "No reports yet" again.
+			ns.rdb.guilds = {}
+			census = Texts((ns.Views.Build("census")))
+			assert(census:find(L.EMPTY, 1, true), census)
+			-- Before any login (or outside an Olympus guild): nothing.
+			ns.Comm.loginAt = nil
+			eq(D.Rebuilding(), nil)
+		end)
+	end)
+	ns.Comm.loginAt = savedLogin
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 census rebuilding: its login timer only redraws the window: no /who, no popup, no dialog", function()
+	local D = ns.Data
+	local saved = { login = ns.Comm.loginAt, After = ns.After, SendWho = SendWho, FL = C_FriendList, Show = StaticPopup_Show,
+		Dialog = ns.ShowDialog, Auto = ns.Who.Auto, Search = ns.Who.Search }
+	local calls = { who = 0, popups = 0, redraws = 0 }
+	local timers = {}
+	local ok, err = pcall(function()
+		WithUI(function()
+			local UI = LoadUI()
+			ns.rdb.guilds = {}
+			ns.Comm.loginAt = ns.Now()
+			UI.Toggle() -- (a click: its own quiet /who is the window's, not the timer's)
+			ns.After = function(seconds, where, fn) timers[#timers + 1] = { seconds = seconds, where = where, fn = fn } end
+			SendWho = function() calls.who = calls.who + 1 end
+			C_FriendList = { SendWho = function() calls.who = calls.who + 1 end }
+			ns.Who.Auto = function() calls.who = calls.who + 1 end
+			ns.Who.Search = function() calls.who = calls.who + 1 end
+			StaticPopup_Show = function() calls.popups = calls.popups + 1 end
+			ns.ShowDialog = function() calls.popups = calls.popups + 1 end
+			local refresh = UI.Refresh
+			UI.Refresh = function(...) calls.redraws = calls.redraws + 1; return refresh(...) end
+			D.OnLogin()
+			eq(#timers, 1, "one timer at login")
+			eq(timers[1].where, "census rebuilt"); eq(timers[1].seconds, D.REBUILD_FOR + 1)
+			ns.Comm.loginAt = ns.Now() - D.REBUILD_FOR - 1
+			UI.lastRedraw = -math.huge -- (a redraw long ago: RefreshSoon draws at once)
+			local fire = timers
+			timers = {}
+			for _, t in ipairs(fire) do t.fn() end
+			for _, t in ipairs(timers) do t.fn() end
+			eq(calls.redraws >= 1, true, "the window drawn again")
+			eq(OlympusFrame.sub:GetText():find(ns.L.REBUILDING_SUB:format(0), 1, true), nil, "and its line gone")
+			eq(calls.who, 0, "no /who from the timer")
+			eq(calls.popups, 0, "no popup or dialog")
+			UI.Refresh = refresh
+		end)
+	end)
+	ns.Comm.loginAt, ns.After, SendWho, C_FriendList, StaticPopup_Show = saved.login, saved.After, saved.SendWho, saved.FL, saved.Show
+	ns.ShowDialog, ns.Who.Auto, ns.Who.Search = saved.Dialog, saved.Auto, saved.Search
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 census rebuilding: its lines in both languages", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, k in ipairs({ "REBUILDING", "REBUILDING_WAIT", "REBUILDING_SUB", "REBUILDING_TIP" }) do
+		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+	end
+	eq(ns.L.REBUILDING:format(3), "Rebuilding the census after login: 3 guilds heard so far")
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: behind the author's version, from his presence V4 (request #10)
+---------------------------------------------------------------------------
+
+test("1.1 behind the author: his presence naming a newer released version (V4~<his build>~<released>) gives one chat line a session, a line at the foot of the Census and /oly status; nothing is sent", function()
+	local L = ns.L
+	local saved = { release = ns.db.authorRelease, old = ns.db.authorVersion }
+	ns.db.authorRelease, ns.db.authorVersion = nil, nil
+	local ok, err = pcall(function()
+		WithWorkshop("Ann-Realm", function(w, W)
+			local function CensusText()
+				local out = {}
+				for _, l in ipairs(ns.Views.Build("census")) do out[#out + 1] = tostring(l.text) end
+				return table.concat(out, "\n")
+			end
+			local line = L.BEHIND_LINE:format("1.1.0", ns.VERSION)
+			-- Anyone else naming a version: nothing (only his client, by the name the server stamps).
+			W.HandlePresence("CHANNEL", "Faladoriel-Realm", "V4~9.9.9~9.9.9")
+			W.HandlePresence("CHANNEL", "Faladoriel Skylance-SomeEraRealm", "V4~9.9.9~9.9.9")
+			eq(W.Behind(), nil, "not him")
+			-- The version he marked as out, the same as ours or older: nothing.
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~9.9.9~" .. ns.VERSION)
+			eq(W.Behind(), nil); eq(#w.printed, 0)
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~9.9.9~0.9.9")
+			eq(W.Behind(), nil); eq(#w.printed, 0)
+			-- Newer: one line in chat, the foot of the Census, /oly status.
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.1.1~1.1.0")
+			eq(W.Behind(), "1.1.0", "the released version, not the build he runs")
+			eq(#w.printed, 1); eq(w.printed[1], L.BEHIND_CHAT:format("1.1.0", ns.VERSION))
+			local census = CensusText()
+			assert(census:find(line, 1, true), census)
+			assert(W.VersionLine():find("author's released version: 1.1.0", 1, true), W.VersionLine())
+			assert(W.VersionLine():find("behind", 1, true), W.VersionLine())
+			-- Every 5 minutes he says it again: no second chat line this session.
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.1.1~1.1.0")
+			eq(#w.printed, 1, "once a session")
+			-- Nothing left this client: no whisper, no message on the channel.
+			eq(#w.sent, 0, "nothing sent"); eq(#w.whispered, 0, "nobody whispered")
+			-- It is no roll call: it shows whatever /oly rollcall says.
+			ns.db.rollCall = false
+			eq(W.Answers(), false)
+			eq(W.Behind(), "1.1.0", "rollcall off: still shown")
+			assert(CensusText():find(line, 1, true))
+			ns.db.rollCall = nil
+			-- A later session: known from the SavedVariables before he speaks, with no chat line.
+			W.ResetVersion()
+			w.printed = {}
+			eq(W.Behind(), "1.1.0", "from the saved one")
+			assert(CensusText():find(line, 1, true))
+			eq(#w.printed, 0)
+			-- Updated to it: the line goes by itself.
+			local savedVersion = ns.VERSION
+			ns.VERSION = "1.1.0"
+			eq(W.Behind(), nil)
+			eq(CensusText():find(line, 1, true), nil)
+			assert(W.VersionLine():find("same", 1, true), W.VersionLine())
+			ns.VERSION = savedVersion
+			-- A garbled number: ignored.
+			W.ResetVersion(); ns.db.authorRelease = nil
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.2.0~1.1.0|cff")
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.2.0~1.2")
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.2.0~1234567890.1.1")
+			eq(W.Behind(), nil)
+			-- His own client never tells himself.
+			ns.db.authorRelease = { v = "9.0.0", t = w.clock }
+			ns.me = AUTHOR_FULL
+			eq(W.Behind(), nil)
+		end)
+	end)
+	ns.db.authorRelease, ns.db.authorVersion = saved.release, saved.old
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 behind the author: a build he runs before CurseForge lists it names nothing (his presence without a released version, or with one not newer than ours), even after he logs off; a later field is read past", function()
+	local saved = { release = ns.db.authorRelease, old = ns.db.authorVersion }
+	ns.db.authorRelease, ns.db.authorVersion = nil, nil
+	local ok, err = pcall(function()
+		WithWorkshop("Ann-Realm", function(w, W)
+			-- His preview build, as 1.0 sends it and as his 1.1 sends it with nothing marked: no line, nothing kept.
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~9.1.1")
+			eq(W.Behind(), nil); eq(#w.printed, 0); eq(ns.db.authorRelease, nil)
+			eq(W.AuthorOnline(), true, "he is online all the same")
+			-- His preview build, and the version he marked as out (ours): no line.
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~9.1.1~" .. ns.VERSION)
+			eq(W.Behind(), nil); eq(#w.printed, 0)
+			eq(ns.db.authorRelease.v, ns.VERSION)
+			-- A day later, a new session, he is offline: still nothing about his preview.
+			W.ResetVersion()
+			w.clock = w.clock + 24 * 3600
+			eq(W.AuthorOnline(), false)
+			eq(W.Behind(), nil); eq(W.BehindLine(), nil)
+			-- What a build before this one saved as the version his client ran: not read.
+			ns.db.authorRelease = nil
+			ns.db.authorVersion = { v = "9.1.1", t = w.clock }
+			eq(W.Behind(), nil)
+			-- Once he marks it as out: the line. A field after the released one (a later V4's) is read past.
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~9.1.1~9.1.1~r")
+			eq(W.Behind(), "9.1.1")
+			eq(#w.printed, 1)
+		end)
+	end)
+	ns.db.authorRelease, ns.db.authorVersion = saved.release, saved.old
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 behind the author: /oly released marks the version CurseForge lists; his presence names it at once (never one newer than the build he runs), and nobody else can mark one", function()
+	local saved = ns.db.releasedVersion
+	ns.db.releasedVersion = nil
+	local ok, err = pcall(function()
+		WithWorkshop(AUTHOR_FULL, function(w, W)
+			local L = ns.L
+			-- Nothing marked: his presence names the build he runs alone.
+			W.SendPresence()
+			eq(w.sent[1].msg, "V4~" .. ns.VERSION)
+			assert(W.VersionLine():find("none marked", 1, true), W.VersionLine())
+			-- /oly released: his build, said at once.
+			SlashCmdList.OLYMPUS("released")
+			eq(ns.db.releasedVersion, ns.VERSION)
+			eq(w.printed[#w.printed], L.RELEASED_DONE:format(ns.VERSION))
+			eq(w.sent[2].msg, "V4~" .. ns.VERSION .. "~" .. ns.VERSION)
+			assert(W.VersionLine():find("author's released version: " .. ns.VERSION, 1, true), W.VersionLine())
+			-- His tab says it.
+			local found = false
+			for _, l in ipairs((W.Build())) do
+				if l.text == L.WORKSHOP_RELEASED:format(ns.VERSION, ns.VERSION) then found = true end
+			end
+			assert(found, "on his tab")
+			-- An older one he can name; never one newer than he runs, nor a garbled one.
+			eq(W.MarkReleased("0.9.9"), true)
+			eq(w.sent[3].msg, "V4~" .. ns.VERSION .. "~0.9.9")
+			eq(W.MarkReleased("9.9.9"), false)
+			eq(w.printed[#w.printed], L.RELEASED_USAGE:format(ns.VERSION))
+			eq(W.MarkReleased("1.1"), false)
+			eq(ns.db.releasedVersion, "0.9.9")
+			eq(#w.sent, 3)
+			-- Marked newer than the build he runs (he went back to an older one): not named.
+			ns.db.releasedVersion = "9.9.9"
+			W.SendPresence()
+			eq(w.sent[4].msg, "V4~" .. ns.VERSION)
+			-- Anyone else: refused, nothing kept or sent.
+			ns.db.releasedVersion = nil
+			ns.me = "Ann-Realm"
+			eq(W.MarkReleased(), false)
+			eq(w.printed[#w.printed], L.RELEASED_ONLY_AUTHOR)
+			eq(ns.db.releasedVersion, nil)
+			W.SendPresence()
+			eq(#w.sent, 4)
+		end)
+	end)
+	ns.db.releasedVersion = saved
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 behind the author: /oly status carries the line", function()
+	local saved = ns.db.authorRelease
+	ns.Workshop.ResetVersion()
+	ns.db.authorRelease = { v = "1.1.0", t = os.time() }
+	local ok, err = pcall(function()
+		assert(ns.StatusText():find("author's released version: 1.1.0", 1, true), "in /oly status")
+	end)
+	ns.db.authorRelease = saved
+	ns.Workshop.ResetVersion()
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 behind the author: its lines in both languages", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, k in ipairs({ "BEHIND_LINE", "BEHIND_TIP", "BEHIND_CHAT", "RELEASED_DONE", "RELEASED_USAGE", "RELEASED_ONLY_AUTHOR",
+		"WORKSHOP_RELEASED", "WORKSHOP_RELEASED_TIP" }) do
+		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+	end
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: a warning while the Olympus channel is public (request #8)
+---------------------------------------------------------------------------
+
+test("1.1 public channel: while no realm key seals it, the Census, the Realm and the Olympus chats warn every member who can read it; officers are told how to seal it; sealed, no warning", function()
+	local L = ns.L
+	local saved = { key = ns.rdb.realmKey, guilds = ns.rdb.guilds, chat = ns.rdb.chat }
+	local function Has(lines, text)
+		for _, l in ipairs(lines) do if type(l.text) == "string" and l.text:find(text, 1, true) then return l end end
+		return nil
+	end
+	local ok, err = pcall(function()
+		ns.rdb.guilds = SampleGuilds()
+		ns.rdb.realmKey = nil
+		local warning = L.PUBLIC_NET:format(ns.CHANNEL)
+		AsRank(3, function()
+			eq(ns.Comm.IsPublic(), true)
+			local census = ns.Views.Build("census")
+			local line = Has(census, warning)
+			assert(line, "on the Census")
+			assert(Has(census, L.PUBLIC_NET_MEMBER), "a member: ask the officers")
+			eq(Has(census, L.PUBLIC_NET_OFFICER), nil)
+			-- Its tooltip says what it means and what to do.
+			local tip = {}
+			line.tooltip({ AddLine = function(_, t) tip[#tip + 1] = t end })
+			eq(tip[1], L.PUBLIC_NET_TITLE); eq(tip[2], L.PUBLIC_NET_TIP:format(ns.CHANNEL))
+			-- Above the guilds, under the King's lines (which stay first, for his stream).
+			local at, first
+			for i, l in ipairs(census) do
+				if l == line then at = i end
+				if l.cols and not first then first = i end
+			end
+			assert(at and first and at < first, "above the guild rows")
+			assert(census[2].onClick and not census[2].cols and census[2] ~= line, "the King's layer line still under the search box")
+			assert(Has(ns.Views.Build("realm"), warning), "on the Realm")
+			-- The Olympus chats: what is said there is what anyone can read.
+			ns.Views.ShowChat("A")
+			local chat = ns.Views.Build("realm")
+			assert(Has(chat, warning), "on the chats")
+			ns.Views.ShowChat(nil)
+		end)
+		AsRank(1, function()
+			local census = ns.Views.Build("census")
+			assert(Has(census, L.PUBLIC_NET_OFFICER), "an officer: how to seal it")
+			eq(Has(census, L.PUBLIC_NET_MEMBER), nil)
+		end)
+		-- Sealed with a realm key: no warning anywhere.
+		ns.rdb.realmKey = "shared secret"
+		eq(ns.Comm.IsPublic(), false)
+		eq(Has(ns.Views.Build("census"), warning), nil)
+		eq(Has(ns.Views.Build("realm"), warning), nil)
+		ns.Views.ShowChat("A")
+		eq(Has(ns.Views.Build("realm"), warning), nil)
+		ns.Views.ShowChat(nil)
+		-- Outside an Olympus guild the addon is on no channel: nothing to warn about.
+		ns.rdb.realmKey = nil
+		local savedGuild = GetGuildInfo
+		GetGuildInfo = function() return "House of Guedes", "Member", 3 end
+		eq(ns.Comm.IsPublic(), nil)
+		GetGuildInfo = savedGuild
+	end)
+	ns.rdb.realmKey, ns.rdb.guilds, ns.rdb.chat = saved.key, saved.guilds, saved.chat
+	ns.Views.ShowChat(nil)
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 public channel: guildmates whose hello says they are on the sealed channel are counted in the warning", function()
+	local savedChannel, savedComm, savedKey, savedGuilds = GetChannelName, ns.Comm, ns.rdb.realmKey, ns.rdb.guilds
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		local cns, Deliver = FreshComm()
+		local C = cns.Comm
+		ns.rdb.realmKey = nil
+		ns.rdb.guilds = SampleGuilds()
+		eq(C.SealedPeers(), 0)
+		Deliver("GUILD", "Aaa", "H1~1.0.0~Realm~p")
+		Deliver("GUILD", "Bcc", "H1~1.0.0~Realm~s")
+		Deliver("GUILD", "Bdd", "H1~1.0.0~Realm~s")
+		eq(C.SealedPeers(), 2, "the two on the sealed channel")
+		ns.Comm = C
+		local found = false
+		for _, l in ipairs(ns.Views.Build("census")) do
+			if type(l.text) == "string" and l.text:find(ns.L.PUBLIC_NET_SPLIT:format(2), 1, true) then found = true end
+		end
+		assert(found, "the census says so")
+		-- Quiet for longer than a hello round counts: no longer counted.
+		cns.clock = cns.clock + 721
+		eq(C.SealedPeers(), 0)
+	end)
+	GetChannelName, ns.Comm, ns.rdb.realmKey, ns.rdb.guilds, C_ChatInfo = savedChannel, savedComm, savedKey, savedGuilds, nil
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 public channel: its lines in both languages", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, k in ipairs({ "PUBLIC_NET", "PUBLIC_NET_OFFICER", "PUBLIC_NET_MEMBER", "PUBLIC_NET_SPLIT", "PUBLIC_NET_TITLE", "PUBLIC_NET_TIP" }) do
+		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+	end
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: one pinned line (request #9)
+---------------------------------------------------------------------------
+
+-- Runs fn(w, K, sent, C) on the Throne's bench (WithThrone), sends recorded with their logged
+-- flag, the channel ready, the pin forgotten before and after.
+local function WithPin(fn)
+	WithThrone(function(w, K)
+		local C = ns.Channels
+		local saved = { ready = ns.Comm.ChannelReady, send = ns.Comm.Send, info = C_ChatInfo, delivered = ns.Comm.DeliveredLogged, flood = C.PIN_FLOOD }
+		local sent = {}
+		local ok, err = pcall(function()
+			C.ResetPin()
+			ns.Comm.ChannelReady = function() return true end
+			ns.Comm.Send = function(dist, msg, key, urgent, logged) sent[#sent + 1] = { dist = dist, msg = msg, key = key, logged = logged } end
+			fn(w, K, sent, C)
+		end)
+		ns.Comm.ChannelReady, ns.Comm.Send, C_ChatInfo, ns.Comm.DeliveredLogged, C.PIN_FLOOD = saved.ready, saved.send, saved.info, saved.delivered, saved.flood
+		C.ResetPin()
+		ns.Views.ShowChat(nil)
+		if not ok then error(err, 0) end
+	end)
+end
+local function Find(lines, text)
+	for i, l in ipairs(lines) do if type(l.text) == "string" and l.text:find(text, 1, true) then return l, i end end
+	return nil
+end
+
+test("1.1 pinned line: a Lord pins one short line with the logged API; it tops the Olympus chats and the Realm for every member, with no popup and no sound", function()
+	WithPin(function(w, K, sent, C)
+		local L = ns.L
+		local popups, sounds = 0, 0
+		local savedPlay = ns.PlayAlert
+		ns.PlayAlert = function() sounds = sounds + 1 end
+		-- A soldier can't pin, and has no control for it.
+		AsSoldier()
+		eq(C.CanPin(), false)
+		eq(C.SetPin("Raid moves to Stranglethorn"), false)
+		assert(Printed(w, L.PIN_ONLY), "told who may")
+		eq(#sent, 0)
+		ns.Views.ShowChat("A")
+		eq(Find(ns.Views.Build("realm"), L.PIN_ADD), nil, "no control for a soldier")
+		ns.Views.ShowChat(nil)
+		-- A Lord: plain text, 100 bytes at most, no escape code or separator.
+		AsLord()
+		eq(C.CanPin(), true)
+		ns.Views.ShowChat("L")
+		assert(Find(ns.Views.Build("realm"), L.PIN_ADD), "the Lord's control on the chats")
+		ns.Views.ShowChat(nil)
+		local ok = C.SetPin("  Raid moves to |cffff0000Stranglethorn|r ~ at 9  " .. ("x"):rep(200))
+		eq(ok, true)
+		eq(#sent, 1)
+		eq(sent[1].dist, "CHANNEL"); eq(sent[1].logged, true, "the logged API: the server keeps the words")
+		local id, body = sent[1].msg:match("^N1~(%d+)~Olympus Zeus~7200~0~(.*)$")
+		assert(id, sent[1].msg)
+		eq(body:find("|", 1, true), nil, "no escape code"); eq(body:find("~", 1, true), nil)
+		assert(#body <= C.PIN_MAX, #body)
+		eq(body:sub(1, 40), "Raid moves to cffff0000Stranglethorn r a")
+		assert(Printed(w, L.PIN_DONE:format(body)), "told")
+		-- Too soon for another; too short.
+		eq(C.SetPin("Another line"), false); assert(Printed(w, L.PIN_WAIT:format(C.PIN_GAP)))
+		-- A soldier's client hears it: on top of the chats and the Realm, a chat line, nothing else.
+		AsSoldier()
+		C.ResetPin()
+		local savedShow = ns.ShowDialog
+		ns.ShowDialog = function() popups = popups + 1 end
+		eq(C.HandlePin("CHANNEL", "Zed-Realm", sent[1].msg), true)
+		ns.ShowDialog = savedShow
+		assert(Printed(w, L.PIN_NEW:format("Zed", "Olympus Zeus", body)), "one line in chat")
+		eq(popups, 0, "no popup"); eq(sounds, 0, "no sound")
+		local realm = ns.Views.Build("realm")
+		local line, at = Find(realm, body:sub(1, 30))
+		assert(line and at == 2, "on top of the Realm, under its search box: " .. tostring(at))
+		assert(line.text:find(L.PIN_LABEL, 1, true))
+		eq(line.onClick, nil, "a soldier can't take it down")
+		ns.Views.ShowChat("A")
+		local chat = ns.Views.Build("realm")
+		local cline, cat = Find(chat, body:sub(1, 30))
+		assert(cline and cat == 3, "on top of the chats, under the box and the way back: " .. tostring(cat))
+		ns.Views.ShowChat(nil)
+		assert(ns.StatusText():find("pinned line: by Zed <Olympus Zeus> (Lord)", 1, true), "in /oly status")
+		-- Said again (late logins): the same pin, its end never later.
+		local ends = C.Pin().expires
+		w.clock = w.clock + 300
+		eq(select(2, C.HandlePin("CHANNEL", "Zed-Realm", ("N1~%s~Olympus Zeus~7200~300~%s"):format(id, body))), "repeat")
+		eq(C.Pin().expires, ends)
+		-- It ends after 2 hours.
+		w.clock = ends
+		eq(C.Pin(), nil)
+		eq(Find(ns.Views.Build("realm"), body:sub(1, 30)), nil, "gone")
+		ns.PlayAlert = savedPlay
+	end)
+end)
+
+test("1.1 pinned line: who may pin (the King, his Stewards and Hands, the Lords), and the King's newer pin wins", function()
+	WithPin(function(w, K, sent, C)
+		local function Pin(sender, guild, text, id, age)
+			return C.HandlePin("CHANNEL", sender, ("N1~%d~%s~7200~%d~%s"):format(id or 1, guild, age or 0, text))
+		end
+		-- A soldier of a guild of neither Lord (our own guild's ranks come from our roster).
+		GetGuildInfo = function() return "Olympus Other", "Member", 3 end
+		ns.me = "Soldier-Realm"
+		-- Nobody we can place: a name claiming a guild, a Captain, a Lord of a guild nobody vouches for.
+		eq(select(2, Pin("Faker-Realm", "Olympus Zeus", "fake news")), "rank")
+		eq(select(2, Pin("Asmongold Asmongler-Realm", "Olympus Zeus", "not his guild")), "rank", "the King speaks for his guild")
+		ns.rdb.guilds["Olympus Zeus"].officers = { { name = "Cap2" } }
+		Vouched(ns.rdb.guilds["Olympus Zeus"], "W3-Realm", "W4-Realm")
+		eq(select(2, Pin("Cap2-Realm", "Olympus Zeus", "a Captain's")), "rank", "a Captain is no Lord")
+		eq(C.Pin(), nil)
+		-- A Lord's pin.
+		eq(Pin("Zed-Realm", "Olympus Zeus", "Lord Zed's line", 11), true)
+		eq(C.Pin().rank, C.PIN_LORD)
+		-- The King's newer pin wins.
+		w.clock = w.clock + 60
+		eq(Pin("Asmongold Asmongler-Realm", "Olympus", "The King's line", 22), true)
+		eq(C.Pin().text, "The King's line"); eq(C.Pin().rank, C.PIN_KING)
+		-- A Lord's pin, newer, never replaces the King's; nor does a Hand's.
+		w.clock = w.clock + 120
+		eq(select(2, Pin("Ceo-Realm", "Olympus II", "Lord Ceo's line", 33)), "older")
+		K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~H~5~Olympus~Helper-Realm")
+		eq(K.IsHandName("Helper-Realm"), true)
+		eq(select(2, Pin("Helper-Realm", "Olympus", "A Hand's line", 44)), "older")
+		eq(C.Pin().text, "The King's line")
+		-- A Lord can't take the King's pin down; the King can.
+		eq(select(2, C.HandlePin("CHANNEL", "Zed-Realm", "N1~11~Olympus Zeus~0~0~")), "nothing")
+		eq(C.Pin().text, "The King's line")
+		eq(select(2, C.HandlePin("CHANNEL", "Asmongold Asmongler-Realm", "N1~22~Olympus~0~0~")), "down")
+		eq(C.Pin(), nil)
+		-- A Hand's pin outranks the Lords'.
+		w.clock = w.clock + 120
+		eq(Pin("Helper-Realm", "Olympus", "A Hand's line", 45), true)
+		eq(C.Pin().rank, C.PIN_CROWN)
+		w.clock = w.clock + 120
+		eq(select(2, Pin("Zed-Realm", "Olympus Zeus", "Lord Zed again", 12)), "older")
+		-- Of one rank, the one set last: a pin set earlier (said again for late logins) never wins.
+		C.ResetPin()
+		eq(Pin("Zed-Realm", "Olympus Zeus", "Zed's", 13, 0), true)
+		eq(select(2, Pin("Ceo-Realm", "Olympus II", "Ceo's, set 10 minutes ago", 34, 600)), "older")
+		w.clock = w.clock + 60
+		eq(Pin("Ceo-Realm", "Olympus II", "Ceo's, newer", 35, 0), true)
+		eq(C.Pin().text, "Ceo's, newer")
+		-- A sender's new pin once a minute at most; the Lords together PIN_FLOOD a minute.
+		eq(select(2, Pin("Ceo-Realm", "Olympus II", "Ceo's again", 36, 0)), "fast")
+		C.ResetPin()
+		C.PIN_FLOOD = 1
+		eq(Pin("Zed-Realm", "Olympus Zeus", "one", 14), true)
+		w.clock = w.clock + 1
+		eq(select(2, Pin("Ceo-Realm", "Olympus II", "two", 37)), "flood")
+		-- Ignored players are ignored here too; and words sent with the plain API are dropped.
+		C.ResetPin()
+		C_ChatInfo = { SendAddonMessageLogged = function() end, IsIgnored = nil }
+		ns.Comm.DeliveredLogged = function() return false end
+		eq(select(2, Pin("Zed-Realm", "Olympus Zeus", "plain API", 15)), "unlogged")
+		ns.Comm.DeliveredLogged = function() return true end
+		eq(Pin("Zed-Realm", "Olympus Zeus", "logged API", 16), true)
+	end)
+end)
+
+test("1.1 pinned line: its setter's client repeats it for late logins, stops once it is replaced, and takes it down", function()
+	WithPin(function(w, K, sent, C)
+		AsLord()
+		eq(C.SetPin("Muster at Southshore"), true)
+		local id = sent[1].msg:match("^N1~(%d+)~")
+		C.RepeatPin()
+		eq(#sent, 1, "not yet")
+		w.clock = w.clock + C.PIN_RESEND
+		C.RepeatPin()
+		eq(#sent, 2)
+		eq(sent[2].msg, ("N1~%s~Olympus Zeus~%d~%d~Muster at Southshore"):format(id, 7200 - C.PIN_RESEND, C.PIN_RESEND), "its time left and its age")
+		eq(sent[2].logged, true)
+		-- Our line, taken down: for everyone.
+		eq(C.CanTakeDown(), true)
+		eq(C.TakeDownPin(), true)
+		eq(sent[3].msg, ("N1~%s~Olympus Zeus~0~0~"):format(id))
+		eq(C.Pin(), nil)
+		-- Pinned again, then the King's arrives: ours is no longer ours to repeat.
+		w.clock = w.clock + C.PIN_GAP
+		eq(C.SetPin("Muster at Tarren Mill"), true)
+		w.clock = w.clock + 5
+		eq(C.HandlePin("CHANNEL", "Asmongold Asmongler-Realm", "N1~9~Olympus~7200~0~The King's line"), true)
+		local before = #sent
+		w.clock = w.clock + C.PIN_RESEND
+		C.RepeatPin()
+		eq(#sent, before, "replaced: not repeated")
+		-- A Lord can't take the King's down: he is told so, nothing is sent.
+		eq(C.CanTakeDown(), false)
+		eq(C.TakeDownPin(), false)
+		assert(Printed(w, ns.L.PIN_NOT_YOURS))
+		eq(#sent, before)
+		-- /oly pin: what is pinned; /oly pin off.
+		w.printed = {}
+		SlashCmdList.OLYMPUS("pin")
+		assert(Printed(w, "The King's line"), "shown")
+		-- The King: his pin can be taken down from the line itself (a question first).
+		AsKing()
+		local line = Find(ns.Views.Build("realm"), "The King's line")
+		assert(line and line.onClick, "a click takes it down")
+		local asked
+		local savedShow = ns.ShowDialog
+		ns.ShowDialog = function(which) asked = which end
+		line.onClick()
+		ns.ShowDialog = savedShow
+		eq(asked, "OLYMPUS_PIN_DOWN")
+		SlashCmdList.OLYMPUS("pin off")
+		eq(C.Pin(), nil)
+		assert(sent[#sent].msg:find("^N1~%d+~Olympus~0~0~$"), sent[#sent].msg)
+	end)
+end)
+
+test("1.1 pinned line: with the gamepad UI the line is typed in Olympus's own dialog, never the game's popup", function()
+	WithUI(function()
+		LoadUI()
+		WithGamepadUI(true, function(game)
+			WithPin(function(w, K, sent, C)
+				AsLord()
+				ns.Views.ShowChat("L")
+				local add = Find(ns.Views.Build("realm"), ns.L.PIN_ADD)
+				assert(add and add.onClick, "the control")
+				add.onClick()
+				eq(#game.shown, 0, "never the game's popup")
+				local f = ns.Dialog.Find("OLYMPUS_PIN")
+				assert(f and f:IsShown() and f.editBox:IsShown(), "our dialog, with its box")
+				f.editBox:SetText("Raid at dawn")
+				f.buttons[1]:Click()
+				eq(f:IsShown(), false)
+				assert(sent[1] and sent[1].msg:find("~Raid at dawn$"), sent[1] and sent[1].msg)
+			end)
+		end)
+	end)
+end)
+
+test("1.1 pinned line: a client without N1 (1.0, 0.9.8) drops it unread", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		for _, old in ipairs({ false, true }) do
+			local cns, Deliver = FreshComm(old)
+			local C = cns.Comm
+			C.JoinChannel()
+			local captured
+			local savedCapture = ns.CaptureError
+			ns.CaptureError = function(where, e) captured = where .. ": " .. tostring(e) end
+			Deliver("CHANNEL", "Zed-Realm", "N1~5~Olympus Zeus~7200~0~Raid moves to Stranglethorn")
+			Deliver("CHANNEL", "Zed-Realm", "N1~5~Olympus Zeus~0~0~")
+			ns.CaptureError = savedCapture
+			eq(captured, nil, "no error")
+			eq(C.Stats().bad, 0, "not taken for a bad report")
+		end
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 pinned line: a Lord of a guild whose name has accented letters (24 letters at most, more bytes) pins for every client, as his [Lords] lines reach them", function()
+	WithPin(function(w, K, sent, C)
+		local G = "Olympus Legião Coração" -- 22 letters, 25 bytes
+		eq(#G, 25)
+		ns.rdb.guilds[G] = Vouched({ total = 50, online = 5, zones = {}, t = w.clock, leader = "Luz", realm = "Realm" }, "W7-Realm", "W8-Realm")
+		-- Its guild master's client: pinned for the army.
+		GetGuildInfo = function() return G, "Guild Master", 0 end
+		ns.me = "Luz-Realm"
+		eq(C.CanPin(), true)
+		eq(C.SetPin("Raid at nine in Ashenvale"), true)
+		assert(Printed(w, ns.L.PIN_DONE:format("Raid at nine in Ashenvale")), "told")
+		eq(sent[1].msg:match("^N1~%d+~(.-)~"), G)
+		-- Another guild's soldier: shown, as his [Lords] line from that guild would be.
+		AsSoldier()
+		C.ResetPin()
+		eq(Codec.DecodeChat(Codec.EncodeChat("L", G, 1, nil, "x")).guild, G, "his [Lords] line is read")
+		eq(C.PinRank("Luz-Realm", G), C.PIN_LORD)
+		eq(C.HandlePin("CHANNEL", "Luz-Realm", sent[1].msg), true)
+		eq(C.Pin().guild, G); eq(C.Pin().text, "Raid at nine in Ashenvale")
+		assert(Printed(w, ns.L.PIN_NEW:format("Luz", G, "Raid at nine in Ashenvale")), "one line in chat")
+		-- A name longer than any guild's (25 letters), or with a control byte: dropped unread.
+		C.ResetPin()
+		eq(select(2, C.HandlePin("CHANNEL", "Luz-Realm", "N1~5~Olympus Abcdefghijklmnopq~7200~0~too long")), "bad")
+		eq(select(2, C.HandlePin("CHANNEL", "Luz-Realm", "N1~5~Olympus\tLegion~7200~0~a control byte")), "bad")
+		eq(C.Pin(), nil)
+	end)
+end)
+
+test("1.1 pinned line: an officer of <Olympus> (a Lord on its own members' clients alone) pins only as a Hand, so every client shows the same line", function()
+	WithPin(function(w, K, sent, C)
+		local savedRank = ns.Roster.RankOf
+		local ok, err = pcall(function()
+			-- <Olympus>'s roster: Offi is one of its officers (rank 1), no Hand.
+			ns.Roster.RankOf = function(n) if ns.FullName(n) == "Offi-Realm" then return 1 end return savedRank(n) end
+			-- His own client: [Lords] is his, the pin is not; he is told, and nothing is sent.
+			GetGuildInfo = function() return "Olympus", "Officer", 1 end
+			ns.me = "Offi-Realm"
+			eq(K.IsHand(), false)
+			eq(C.CanUse("L"), true, "[Lords] is his")
+			eq(C.CanPin(), false)
+			eq(select(2, C.SetPin("Raid moves to Tarren Mill")), "rank")
+			assert(Printed(w, ns.L.PIN_ONLY), "told who may")
+			eq(#sent, 0, "nothing sent")
+			ns.Views.ShowChat("L")
+			eq(Find(ns.Views.Build("realm"), ns.L.PIN_ADD), nil, "no control on the chats")
+			ns.Views.ShowChat(nil)
+			-- A pin sent as his: dropped on an <Olympus> member's client, as on every other guild's.
+			local msg = "N1~7~Olympus~7200~0~Raid moves to Tarren Mill"
+			GetGuildInfo = function() return "Olympus", "Member", 4 end
+			ns.me = "Member-Realm"
+			eq(select(2, C.HandlePin("CHANNEL", "Offi-Realm", msg)), "rank", "an <Olympus> member's client")
+			eq(C.Pin(), nil)
+			AsSoldier()
+			eq(select(2, C.HandlePin("CHANNEL", "Offi-Realm", msg)), "rank", "another guild's client")
+			-- The King names him a Hand: now he pins, and both clients take it.
+			K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~H~5~Olympus~Offi-Realm")
+			GetGuildInfo = function() return "Olympus", "Officer", 1 end
+			ns.me = "Offi-Realm"
+			eq(K.IsHand(), true)
+			eq(C.CanPin(), true)
+			eq(C.SetPin("Raid moves to Tarren Mill"), true)
+			GetGuildInfo = function() return "Olympus", "Member", 4 end
+			ns.me = "Member-Realm"
+			C.ResetPin()
+			eq(C.HandlePin("CHANNEL", "Offi-Realm", sent[1].msg), true)
+			eq(C.Pin().rank, C.PIN_CROWN)
+			AsSoldier()
+			C.ResetPin()
+			eq(C.HandlePin("CHANNEL", "Offi-Realm", sent[1].msg), true)
+			eq(C.Pin().rank, C.PIN_CROWN)
+		end)
+		ns.Roster.RankOf = savedRank
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 pinned line: a Lord takes down no other Lord's pin; a higher rank's takedown names the pin, once a minute at most; every takedown says who in chat", function()
+	WithPin(function(w, K, sent, C)
+		local L = ns.L
+		local function Pin(sender, guild, text, id)
+			return C.HandlePin("CHANNEL", sender, ("N1~%d~%s~7200~0~%s"):format(id, guild, text))
+		end
+		local function Down(sender, guild, id) return select(2, C.HandlePin("CHANNEL", sender, ("N1~%d~%s~0~0~"):format(id, guild))) end
+		-- A soldier of a third guild.
+		GetGuildInfo = function() return "Olympus Other", "Member", 3 end
+		ns.me = "Soldier-Realm"
+		eq(Pin("Zed-Realm", "Olympus Zeus", "Lord Zed's line", 5), true)
+		-- Another Lord (the same rank): nothing taken down, even naming its id.
+		w.printed = {}
+		for _ = 1, 3 do eq(Down("Ceo-Realm", "Olympus II", 5), "nothing") end
+		eq(C.Pin().text, "Lord Zed's line")
+		eq(#w.printed, 0)
+		-- A Hand (a higher rank): the pin it names alone, and it is said who took it down.
+		K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~H~5~Olympus~Helper-Realm")
+		eq(Down("Helper-Realm", "Olympus", 99), "nothing", "another pin's id")
+		eq(C.Pin().text, "Lord Zed's line")
+		eq(Down("Helper-Realm", "Olympus", 5), "down")
+		eq(C.Pin(), nil)
+		assert(Printed(w, L.PIN_DOWN_BY:format("Helper", "Olympus", "Zed")), "who took it down, in chat")
+		-- Once a minute at most from each.
+		w.clock = w.clock + 5
+		eq(Pin("Ceo-Realm", "Olympus II", "Lord Ceo's line", 6), true)
+		w.clock = w.clock + 5
+		eq(Down("Helper-Realm", "Olympus", 6), "fast")
+		eq(C.Pin().text, "Lord Ceo's line")
+		w.clock = w.clock + C.PIN_GAP
+		eq(Down("Helper-Realm", "Olympus", 6), "down")
+		-- Its setter takes his own down: said too.
+		w.clock = w.clock + C.PIN_GAP
+		eq(Pin("Zed-Realm", "Olympus Zeus", "Lord Zed's third", 7), true)
+		w.printed = {}
+		eq(Down("Zed-Realm", "Olympus Zeus", 7), "down")
+		assert(Printed(w, L.PIN_DOWN_OWN:format("Zed", "Olympus Zeus")), "said")
+		-- The other Lord's own client: no click on Zed's line, and /oly pin off refused.
+		w.clock = w.clock + C.PIN_GAP
+		eq(Pin("Zed-Realm", "Olympus Zeus", "Lord Zed's fourth", 8), true)
+		GetGuildInfo = function() return "Olympus II", "Lord", 0 end
+		ns.me = "Ceo-Realm"
+		eq(C.CanTakeDown(), false)
+		local line = Find(ns.Views.Build("realm"), "Lord Zed's fourth")
+		assert(line, "shown"); eq(line.onClick, nil, "no click to take it down")
+		eq(select(2, C.TakeDownPin()), "rank")
+		assert(Printed(w, L.PIN_NOT_YOURS), "told")
+		eq(#sent, 0)
+		-- The Hand's own client: his takedown names the pin; another within the minute waits.
+		GetGuildInfo = function() return "Olympus Other", "Member", 3 end
+		ns.me = "Helper-Realm"
+		eq(C.CanTakeDown(), true)
+		eq(C.TakeDownPin(), true)
+		eq(sent[1].msg, "N1~8~Olympus~0~0~")
+		w.clock = w.clock + 5
+		eq(Pin("Ceo-Realm", "Olympus II", "Lord Ceo's second", 9), true)
+		eq(select(2, C.TakeDownPin()), "fast")
+		assert(Printed(w, L.PIN_DOWN_WAIT:format(C.PIN_GAP - 5)), "told to wait")
+		eq(#sent, 1)
+		eq(C.Pin().text, "Lord Ceo's second")
+	end)
+end)
+
+test("1.1 pinned line: its lines in both languages", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, k in ipairs({ "PIN_LABEL", "PIN_TIP", "PIN_DOWN_TIP", "PIN_NEW", "PIN_ADD", "PIN_ADD_TIP", "PIN_ASK", "PIN_BUTTON", "PIN_DOWN_ASK",
+		"PIN_DONE", "PIN_TAKEN_DOWN", "PIN_NONE", "PIN_NOW", "PIN_ONLY", "PIN_USAGE", "PIN_OUTRANKED", "PIN_WAIT", "PIN_NOT_YOURS", "HELP_PIN",
+		"PIN_DOWN_OWN", "PIN_DOWN_BY", "PIN_DOWN_WAIT" }) do
+		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+	end
+	eq(StaticPopupDialogs.OLYMPUS_PIN.text, ns.L.PIN_ASK)
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: more languages, strings only (request #6)
+---------------------------------------------------------------------------
+
+-- Locales.lua loaded fresh as the game in `code` would load it, then `files` (under Locales/),
+-- each as the game loads it. Returns the namespace, and each ns.Locale call's table by file.
+local function LoadLocale(code, files)
+	local lns = {}
+	local savedLocale = GetLocale
+	GetLocale = function() return code end
+	local calls = {}
+	local ok, err = pcall(function()
+		assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", lns)
+		local real = lns.Locale
+		for _, file in ipairs(files or {}) do
+			lns.Locale = function(codes, strings)
+				calls[file] = { codes = codes, strings = strings }
+				return real(codes, strings)
+			end
+			assert(loadfile(ADDON_DIR .. "Locales/" .. file .. ".lua"))("Olympus", lns)
+		end
+		lns.Locale = real
+	end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	return lns, calls
+end
+
+-- The format codes and escape codes of a line, in order, as the test reads them.
+local function Codes(s)
+	s = tostring(s):gsub("%%%%", "\1")
+	local specs = {}
+	for spec in s:gmatch("%%[%-%d%.]*%a") do specs[#specs + 1] = spec end
+	return table.concat(specs, " ") .. " / " .. select(2, s:gsub("|c", "")) .. "c" .. select(2, s:gsub("|r", "")) .. "r"
+		.. select(2, s:gsub("|T", "")) .. "T" .. select(2, s:gsub("|n", "")) .. "n"
+end
+
+test("1.1 languages: a language's file is taken key by key over English; a line missing, unknown, or with other format or escape codes stays English", function()
+	local lns = LoadLocale("xxXX")
+	local L = lns.L
+	local english = { total = L.ARMY_TOTAL, sub = L.ARMY_SUB, ask = L.CHAN_WARN_ASK, never = L.NEVER }
+	local savedLocale = GetLocale
+	GetLocale = function() return "xxXX" end -- (the game's language while the files load)
+	-- Another language's file: nothing taken.
+	eq(lns.Locale("yyYY", { NEVER = "jamais" }), 0)
+	eq(L.NEVER, english.never)
+	local taken = lns.Locale({ "xxXX", "xxYY" }, {
+		NEVER = "nimmer",                                   -- taken
+		ARMY_TOTAL = "%d soldiers of %s",                   -- other format codes: English stays
+		ARMY_SUB = "%s online, %d guilds",                  -- one format code short: English stays
+		CHAN_WARN_ASK = "[%s] no es privado. %s",           -- its colour code dropped: English stays
+		NO_SUCH_LINE = "typo",                              -- no such English line: left out
+		COPY_HINT = 42,                                     -- no text: left out
+	})
+	GetLocale = savedLocale
+	eq(taken, 1)
+	eq(L.NEVER, "nimmer")
+	eq(L.ARMY_TOTAL, english.total); eq(L.ARMY_SUB, english.sub); eq(L.CHAN_WARN_ASK, english.ask)
+	eq(rawget(L, "NO_SUCH_LINE"), nil)
+	eq(L.WHERE, "Where they are", "a line the file leaves out stays English")
+	local report = lns.LocaleReport()
+	assert(report:find("^xxXX, 1 of %d+ lines, left out: ARMY_SUB,ARMY_TOTAL,CHAN_WARN_ASK,COPY_HINT,NO_SUCH_LINE$"), report)
+	-- The codes a line is compared by.
+	eq(lns.LocaleCodes("|cffe6c35c[%s] x|r %d%% |Tpath:0|t %02dm"), "|c %s |r %d %% |T %02d")
+end)
+
+test("1.1 languages: the Spanish, French and German files: every line an English one, its codes the English line's, all taken; each language's own lines on the screens", function()
+	local files = { deDE = "deDE", esES = "esES", esMX = "esES", frFR = "frFR" }
+	local english = LoadLocale("enUS").L
+	for code, file in pairs(files) do
+		local lns, calls = LoadLocale(code, { file })
+		local call = calls[file]
+		assert(call and type(call.strings) == "table", file .. " calls ns.Locale")
+		local n = 0
+		for k, v in pairs(call.strings) do
+			n = n + 1
+			local en = rawget(english, k)
+			assert(type(en) == "string", file .. ": " .. tostring(k) .. " is no English line")
+			eq(Codes(v), Codes(en), file .. " " .. k .. " codes")
+			eq(lns.L[k], v, file .. " " .. k .. " taken")
+			-- Formatted as the addon formats it: no error, whatever the arguments.
+			local args = {}
+			for spec in en:gsub("%%%%", ""):gmatch("%%[%-%d%.]*(%a)") do args[#args + 1] = (spec == "s") and "x" or 1 end
+			assert(pcall(string.format, v, unpack(args)), file .. " " .. k .. " formats")
+		end
+		assert(n >= 150, file .. ": " .. n .. " lines")
+		local report = lns.LocaleReport()
+		assert(report:find("^" .. code .. ", " .. n .. " of %d+ lines$"), report)
+		-- What a member reads first, the alerts, the Join screen's whisper, the privacy questions and 1.1's lines.
+		for _, k in ipairs({ "TAB_CENSUS", "ARMS", "MUSTER", "ROYAL", "HERALDRY_CALL", "WRIT_TITLE", "RECRUIT_MESSAGE", "LOCATION_ASK",
+			"CHAN_WARN_ASK", "REBUILDING", "BEHIND_CHAT", "PUBLIC_NET", "PIN_NEW", "HELP_CMD_OPEN" }) do
+			assert(call.strings[k] and call.strings[k] ~= english[k], file .. " translates " .. k)
+		end
+	end
+	-- Loaded by an English (or Portuguese) game: nothing changes.
+	local lns = LoadLocale("enUS", { "deDE", "esES", "frFR" })
+	eq(lns.L.ARMS, "CALL TO ARMS!")
+	local pt = LoadLocale("ptBR", { "deDE", "esES", "frFR" })
+	eq(pt.L.ARMS, rawget(pt.L, "ARMS")); assert(pt.L.ARMS ~= "ZU DEN WAFFEN!" and pt.L.ARMS ~= "¡A LAS ARMAS!", pt.L.ARMS)
+	eq(LoadLocale("deDE", { "deDE" }).L.ARMS, "ZU DEN WAFFEN!")
+	eq(LoadLocale("esMX", { "esES" }).L.ARMS, "¡A LAS ARMAS!")
+	eq(LoadLocale("frFR", { "frFR" }).L.ARMS, "AUX ARMES !")
+end)
+
+test("1.1 languages: the TOC loads every file under Locales/ right after Locales.lua, before anything reads a line", function()
+	local toc = {}
+	for line in io.lines(ADDON_DIR .. "Olympus.toc") do
+		local entry = line:match("^%s*(.-)%s*$")
+		if entry ~= "" and entry:sub(1, 1) ~= "#" then toc[#toc + 1] = (entry:gsub("\\", "/")) end
+	end
+	local at
+	for i, e in ipairs(toc) do if e == "Locales.lua" then at = i end end
+	assert(at, "Locales.lua")
+	local listed = {}
+	local i = at + 1
+	while toc[i] and toc[i]:match("^Locales/") do listed[toc[i]:match("^Locales/(.+)$")] = true; i = i + 1 end
+	eq(toc[i], "Core.lua", "then Core.lua")
+	local p = io.popen('ls "' .. ADDON_DIR .. 'Locales"')
+	local n = 0
+	for file in p:lines() do
+		if file:match("%.lua$") then
+			n = n + 1
+			assert(listed[file], file .. " in the TOC")
+		end
+	end
+	p:close()
+	assert(n >= 3, "the language files")
+end)
+
+test("1.1 languages: /oly help and the replies once written in the code come from the locale (both languages); the language shows in /oly status", function()
+	-- No command help or reply left as literal text in Core.lua.
+	local src = assert(io.open(ADDON_DIR .. "Core.lua")):read("*a")
+	eq(src:find('print("  /oly', 1, true), nil, "the help's lines")
+	for _, literal in ipairs({ 'ns.Print("sound = "', 'ns.Print("blocked "', 'ns.Print("debug = "', 'ns.Print("cache cleared")', '" commands:")' }) do
+		eq(src:find(literal, 1, true), nil, literal)
+	end
+	-- /oly with an unknown word prints the help, from the locale.
+	local printed = {}
+	local savedPrint, savedNsPrint = print, ns.Print
+	print = function(s) printed[#printed + 1] = tostring(s) end
+	ns.Print = function(s) printed[#printed + 1] = tostring(s) end
+	local ok, err = pcall(SlashCmdList.OLYMPUS, "no-such-command")
+	print, ns.Print = savedPrint, savedNsPrint
+	if not ok then error(err, 0) end
+	local all = table.concat(printed, "\n")
+	for _, k in ipairs({ "HELP_CMD_OPEN", "HELP_CMD_RESET", "HELP_PIN" }) do assert(all:find(ns.L[k], 1, true), k) end
+	eq(printed[1], ns.L.HELP_CMD_HEAD:format(ns.VERSION))
+	local pt = LoadLocale("ptBR")
+	for _, k in ipairs({ "HELP_CMD_HEAD", "HELP_CMD_OPEN", "HELP_CMD_TABARD", "HELP_CMD_SOUND", "HELP_CMD_PATROL", "HELP_CMD_MARK", "HELP_CMD_MAP",
+		"HELP_CMD_REALM", "HELP_CMD_LAYERS", "HELP_CMD_DECREES", "HELP_CMD_ARMS", "HELP_CMD_MATES", "HELP_CMD_SHARE", "HELP_CMD_BUG",
+		"HELP_CMD_STATUS", "HELP_CMD_KEY", "HELP_CMD_BLOCK", "HELP_CMD_LAYER", "HELP_CMD_MINIMAP", "HELP_CMD_DEBUG", "HELP_CMD_RESET",
+		"SOUND_ON", "SOUND_OFF", "BLOCKED_NOW", "DEBUG_ON", "DEBUG_OFF", "CACHE_CLEARED" }) do
+		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+		eq(Codes(rawget(pt.L, k)), Codes(rawget(ns.L, k)), "pt-BR codes: " .. k)
+	end
+	assert(ns.StatusText():find("language: enUS", 1, true), "in /oly status")
+end)
+
+-- (the end of 1.1's tests)
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

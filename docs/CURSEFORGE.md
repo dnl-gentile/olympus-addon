@@ -52,6 +52,14 @@ are highlighted. It is rate limited, so nobody gets spammed.
   (Eastern Kingdoms, Kalimdor), counted by the guilds whose census comes from a member who
   shares their zone (see Privacy, below).
 - Hover a guild: members, online, free slots, average level, inactive members, classes online, top zones.
+- **Right after login** (1.1) the header, the Census and the Realm say *Rebuilding the census
+  after login: N guilds heard so far* for about 3 minutes, while every guild's reporter answers.
+  The beta often loads an empty save: the army is not gone, and no `/reload` is needed. The line
+  only waits: it asks nothing (no `/who`) and opens nothing.
+- **An update line** (1.1): when the author's own addon says on the Olympus channel that a newer
+  version than yours is out (he marks it once CurseForge lists it, never a build he is still
+  trying), a line at the foot of the Census, one line in chat once a session and `/oly status`
+  say so. It is yours alone: nothing is sent and nobody is whispered.
 
 ### The Realm: the hierarchy
 - The **King**, then every guild's **Lord** (guild master) and **Captains** (the officer rank
@@ -169,6 +177,19 @@ WoW channel number to join). Each channel is exclusive to a rank:
   newest first, even what was said while the window was closed. A click whispers the player.
 - Ranks follow the rule of the decrees: whoever founds a guild with "Olympus" in its name is
   its Lord and gets [Lords], and its officers get [Captains].
+- **One pinned line** (1.1): the King, his Stewards and Hands, and the guild masters of the
+  Olympus guilds can pin one short line (100 characters) on top of the Olympus chats and the
+  Realm, for every member, for 2 hours: a raid move, a gates change. (The officers of <Olympus>
+  read [Lords] only on its own members' addons, so they pin as the King's Hands.) `/oly pin
+  <text>`, or **Pin a line for the army...** on the chats page; `/oly pin off` (or a click on the
+  line) takes it down: its setter, or a higher rank (the King anyone's, his Stewards and Hands a
+  guild master's), never another guild master, and one line in chat says who took it down. It is
+  lighter than a writ: no parchment, nothing to acknowledge, no popup and no sound, one line in
+  chat when it arrives. There is one line for everyone: a newer pin replaces one of its own rank
+  or lower, so the King's newer pin always wins, and his Stewards' and Hands' outrank the guild
+  masters'. Its words are the setter's own, sent with the logged API like a chat line (abuse can
+  be reported), and its setter's addon repeats it for late logins. Charters and dues stay in
+  Discord, typed by a person. Addons before 1.1 don't show it.
 
 **Not encrypted, not private:** every client on the hidden Olympus channel receives the text of
 all three channels, and the addon only decides what to show. Anyone on that channel can read
@@ -176,6 +197,9 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 "OlympusNet" by name; with a key, every member of the guilds that have it. The guild tag on an
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
 Before your first line in each channel the addon tells you this and waits for **Send**.
+Since 1.1, while your channel is public, a red line on the Census, the Realm and the Olympus
+chats says so to every member (who can read it, what officers can do, and how many guildmates
+are already on the sealed channel). It only warns: nothing is sent and nothing changes.
 
 ### The Throne (the King and his Hands)
 A tab with a crown that only the King sees: the guild master of the guild named exactly
@@ -380,6 +404,11 @@ shows the army something of it.
   so its number stays readable; several around one circle each take a place of their own.
 - The round **Olympus** button in the bottom left corner of the map switches markers
   (army per zone, decrees) on and off.
+- Every zone of the game counts, not only Azeroth's (1.1): on TBC Anniversary Outland's zones
+  get their circles, and Outland's total shows on the map above Azeroth and Outland. A zone a
+  new patch adds is found by itself the first time a guildmate stands in it; one the addon still
+  can't place shows as plain text in the census, and `/oly status` (and `/oly bug`) lists its
+  name under "zones without a map id".
 
 ### Olympus Link: your Discord role (1.0.0, optional)
 Prove to the Olympus bot on Discord that a character is yours, and the bot gives you your role.
@@ -451,7 +480,10 @@ account, `/oly discord forget` drops this character's request and proof.
   Olympus, a `/reload` clears it; to tell us what it was, open the Olympus window, press its
   help button (left of the X), then **Report a bug**. Don't type `/oly bug` with the gamepad: a
   command typed in the chat there can set the block off again.
-- English and Portuguese (follows the game language).
+- English and Portuguese in full, and since 1.1 Spanish, French and German for the main
+  screens, the alerts and decrees, the Join screen and its whisper, the chats and the privacy
+  questions (the rest in English). It follows the game language, and only the text on your
+  screen changes: nothing sent between players does. `/oly status` shows the language in use.
 
 ## Install
 
@@ -540,6 +572,7 @@ message (the game adds it). What goes where:
 | A layer hop ask: the zone you are in and the layer you want | everyone on the Olympus channel | when you ask to hop |
 | An answer to an ask for your layer (it tells the asker you are on it) | the asker alone (a whisper) | only if you share your zone and layer, while layer help is on (`/oly layerhelp off` stops it) |
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one |
+| A pinned line (1.1): its words, your guild and, as on every message, your name | everyone on the Olympus channel | when you pin one (the King, his Stewards and Hands, the guild masters), again every 5 minutes while it lasts (2 hours at most), and when you take it down |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | everyone on the Olympus channel receives the bytes; the addon shows them to the King and his Steward, and to the army only with the King's switches | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
@@ -604,7 +637,13 @@ the same answer, and each addon answers him once every 4 minutes at most, howeve
 He can also ask a player on an old version to update: a fixed window with the two version
 numbers and nothing else. Only his character on his realm group
 can do either: every addon checks the sender's name, which nobody else can carry. `/oly
-rollcall off` refuses both. The addon's error catcher keeps only Olympus's own errors (for
+rollcall off` refuses both. Since 1.1 your addon also reads the released version his addon
+announces on the channel (his presence): newer than yours, the Census, `/oly status` and one chat
+line a session tell you to update. That is local to your client, sends nothing, and shows
+whatever `/oly rollcall` says. He runs a new build on his own PC before it is published, so his
+presence names only the version he marked as out with `/oly released [version]` (his character
+only; the Workshop tab shows it) once CurseForge lists it, never the build he runs, and never one
+newer than that build; addons before 1.1 read none of it. The addon's error catcher keeps only Olympus's own errors (for
 `/oly bug`), never another addon's. For the store's screenshots he has a photo mode (`/oly
 photo`, his character only): on his own screen it fades everything but Olympus and the world
 map to invisible, and gives every frame its look back on the second `/oly photo` or a
@@ -786,6 +825,7 @@ Other limits:
 | `/ol <text>` · `/olc <text>` · `/oll <text>` | write in [Olympus], [Captains] or [Lords] |
 | `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |
 | `/oly mute olympus` · `/oly mute captains` · `/oly mute lords` | hide or show a channel in chat |
+| `/oly pin <text>` · `/oly pin off` · `/oly pin` | the King, his Stewards and Hands, the guild masters: pin one line for everyone on top of the Olympus chats and the Realm (2 hours), take it down, or see what is pinned |
 | `/oly chatwindow <number or name> [olympus\|captains\|lords]` · `/oly chatwindow main` | show the Olympus chats in another chat window, or back in the main one |
 | `/oly treasurer on\|off` | a keeper of the treasury (the Treasurer, the King, a character he named) shares his book and the guild bank, or keeps them private |
 | `/oly rollcall on\|off` | answer the author's roll calls (version, client, channel state) or not |

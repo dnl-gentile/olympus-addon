@@ -295,6 +295,8 @@ function ns.StatusText()
 	local function add(fmt, ...) lines[#lines + 1] = fmt:format(...) end
 	local guild = GetGuildInfo("player")
 	add("Olympus v%s  |  %s", ns.VERSION, ClientInfo())
+	-- (1.1) The addon's language: the game's, when Olympus has lines for it (Locales.lua).
+	add("language: %s", ns.LocaleReport and ns.LocaleReport() or "?")
 	add("player %s  |  %s  |  guild %s  |  olympus member: %s", tostring(ns.me), tostring(ns.faction), tostring(guild), tostring(ns.IsMember()))
 	local realm, census = RealmLines()
 	add("%s", realm)
@@ -343,6 +345,8 @@ function ns.StatusText()
 				ch.sent, ch.shown, ch.hidden, c.chatQueue or 0, #ch.muted > 0 and table.concat(ch.muted, ",") or "none",
 				ch.bad, ch.dup, ch.rate, ch.flood, ch.forged, ch.unverified, ch.rank)
 			if ns.Channels.WindowStatus then add("chat windows: %s", ns.Channels.WindowStatus()) end
+			-- (1.1) The pinned line this client holds: whose, of what rank, and how long it has left.
+			if ns.Channels.PinStatus then add("pinned line: %s", ns.Channels.PinStatus()) end
 		end
 		-- What leaves this client about where the player is, and who reads the channel (0.9.1).
 		add("privacy: zone and layer %s  |  channel %s  |  chat warning accepted: %s",
@@ -359,6 +363,8 @@ function ns.StatusText()
 		end
 		add("royal inspection: %s (/oly inspection on|off)", ns.db.royalInspection == false and "not taking part" or "taking part when sampled")
 		add("author's roll call: %s (/oly rollcall on|off)", ns.Workshop and ns.Workshop.Answers and (ns.Workshop.Answers() and "answered" or "refused") or "?")
+		-- (1.1) The author's released version as his presence named it, and whether this client is behind it.
+		add("%s", ns.Workshop and ns.Workshop.VersionLine and ns.Workshop.VersionLine() or "author's released version: ?")
 		-- Olympus Link (0.9.10): the key's id and tier only, never the key.
 		add("discord link: %s", ns.Link and ns.Link.StatusLine and ns.Link.StatusLine() or "not loaded")
 	end
@@ -368,6 +374,9 @@ function ns.StatusText()
 	add("map lib: %s  |  zones indexed=%d  |  tabs: %s", tostring(ns.Map and ns.Map.libOk), ns.Zones and ns.Zones.Count() or 0,
 		ns.UI and ns.UI.tabTemplate and (ns.UI.tabTemplate .. " (" .. tostring(ns.UI.tabStyle) .. " spacing), window "
 			.. tostring(ns.UI.WindowStyle and ns.UI.WindowStyle())) or "not built")
+	-- (1.1) Zone names from the roster no map id matched, names only: a zone a new client added
+	-- somewhere the index does not reach yet, shown as text in the census and left off the map.
+	add("zones without a map id: %s", ns.Zones and ns.Zones.UnmappedLine and ns.Zones.UnmappedLine() or "?")
 	-- Old Guild tab or new Communities window: which ones exist and got the Olympus button.
 	add("guild UI: %s", ns.GuildFrameHook and ns.GuildFrameHook.StatusLine() or "not loaded")
 	local seen = 0

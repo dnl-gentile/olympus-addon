@@ -225,6 +225,37 @@ end
 -- guild's reporter and runner-up must have had the time to vote before outsiders can win.
 Data.CROWN_AFTER = 200
 
+-- The census after login (1.1): the beta often loads an empty save, and an empty window reads as
+-- "the army is gone", which sends players into /reload after /reload. The census refills on its
+-- own: the channel is joined within 15 s, every guild's reporter answers the census request (Q1,
+-- Comm.AskCensus) or reports within 170 s. For REBUILD_FOR after login the window says so, with
+-- how many guilds were heard since. A line and nothing else: no /who (the game takes it from a
+-- click alone), no window or popup of any kind.
+Data.REBUILD_FOR = 200
+
+-- The guilds heard since login while the census is being rebuilt (0 or more), nil once it is
+-- (or outside an Olympus guild, or before login).
+function Data.Rebuilding(now)
+	local login = ns.Comm and ns.Comm.loginAt
+	if not login or not ns.IsMember() then return nil end
+	now = now or ns.Now()
+	if now - login >= Data.REBUILD_FOR then return nil end
+	local heard = 0
+	for _, g in pairs(ns.rdb and ns.rdb.guilds or {}) do
+		if type(g) == "table" and not g.mine and (g.t or 0) >= login then heard = heard + 1 end
+	end
+	return heard
+end
+
+-- At login: the window drawn once more when the rebuild is over, so its line goes. That redraw
+-- is all it does (UI.RefreshSoon searches nothing, and does nothing while the window is closed).
+function Data.OnLogin()
+	ns.After(Data.REBUILD_FOR + 1, "census rebuilt", function()
+		if ns.UI and ns.UI.RefreshSoon then ns.UI.RefreshSoon() end
+	end)
+end
+ns.On("LOGIN", function() Data.OnLogin() end)
+
 function Data.Receive(r, sender)
 	if not ns.IsFederation(r.guild) then return false end
 	-- Our own guild comes straight from our roster, never from someone else's claim (in any spelling).

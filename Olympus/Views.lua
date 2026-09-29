@@ -583,6 +583,65 @@ local function SeenTooltip(e)
 	end
 end
 
+-- The census being rebuilt after login (1.1, Data.Rebuilding): two lines on top of the Census
+-- and the Realm, in place of "No reports yet", until it is. Nothing else (no /who, no popup).
+local function RebuildLines(lines)
+	local heard = ns.Data.Rebuilding and ns.Data.Rebuilding()
+	if not heard then return false end
+	local function tip(tt)
+		tt:AddLine(L.REBUILDING_SUB:format(heard), 1, 0.82, 0)
+		tt:AddLine(L.REBUILDING_TIP, 1, 1, 1, true)
+	end
+	lines[#lines + 1] = { text = Gold(L.REBUILDING:format(heard)), tooltip = tip }
+	lines[#lines + 1] = { text = Grey(L.REBUILDING_WAIT), tooltip = tip, gapAfter = true }
+	return true
+end
+Views.RebuildLines = RebuildLines
+
+-- The Olympus channel without a realm key (1.1, Comm.IsPublic): anyone who joins it by name reads
+-- what is sent there. While it is so, a warning on top of the Census, the Realm and the Olympus
+-- chats, for every member: what it means, what officers can do about it, and the guildmates
+-- already on the sealed channel (their hellos say so). Nothing is sent, nothing changes.
+local function PublicLines(lines)
+	local C = ns.Comm
+	if not (C and C.IsPublic and C.IsPublic()) then return false end
+	local name = C.ChannelSpec and C.ChannelSpec() or ns.CHANNEL
+	local function tip(tt)
+		tt:AddLine(L.PUBLIC_NET_TITLE, 1, 0.25, 0.25)
+		tt:AddLine(L.PUBLIC_NET_TIP:format(name), 1, 1, 1, true)
+	end
+	lines[#lines + 1] = { text = Red(L.PUBLIC_NET:format(name)), tooltip = tip }
+	local sealed = C.SealedPeers and C.SealedPeers() or 0
+	if sealed > 0 then lines[#lines + 1] = { text = Gold(L.PUBLIC_NET_SPLIT:format(sealed)), tooltip = tip } end
+	lines[#lines + 1] = { text = Grey(ns.Roster.IsOfficer() and L.PUBLIC_NET_OFFICER or L.PUBLIC_NET_MEMBER), tooltip = tip, gapAfter = true }
+	return true
+end
+Views.PublicLines = PublicLines
+
+-- The pinned line (1.1, Channels.Pin): on top of the Olympus chats and the Realm, for everyone.
+-- Its setter, or a higher rank, takes it down with a click (after a question).
+local function PinLine(lines)
+	local C = ns.Channels
+	local p = C and C.Pin and C.Pin()
+	if not p then return false end
+	local who = ns.DisplayName(p.sender) or "?"
+	local mayTakeDown = C.CanTakeDown and C.CanTakeDown()
+	lines[#lines + 1] = {
+		text = Gold(L.PIN_LABEL .. ": ") .. "|cffffffff" .. p.text .. "|r",
+		right = Grey(who),
+		onClick = mayTakeDown and function() ns.ShowDialog("OLYMPUS_PIN_DOWN") end or nil,
+		tooltip = function(tt)
+			tt:AddLine(L.PIN_LABEL, 1, 0.82, 0)
+			tt:AddLine(p.text, 1, 1, 1, true)
+			tt:AddLine(L.PIN_TIP:format(who, Plain(p.guild), ns.Ago(p.setAt), math.max(1, math.ceil((p.expires - ns.Now()) / 60))), 0.7, 0.7, 0.7, true)
+			if mayTakeDown then tt:AddLine(L.PIN_DOWN_TIP, 0.25, 1, 0.25, true) end
+		end,
+		gapAfter = true,
+	}
+	return true
+end
+Views.PinLine = PinLine
+
 -- How far the round of /who searches got (Who.lua), as grey lines under a list.
 local function WhoStatus(lines)
 	for _, text in ipairs(ns.Who.StatusLines() or {}) do lines[#lines + 1] = { text = Grey(text) } end
@@ -673,8 +732,14 @@ local function CensusLines(s, q)
 	if court then lines[#lines + 1] = court end
 	-- While the King is online: one click asks for an invite to his layer (Hop.lua).
 	for _, hop in ipairs(ns.Hop and ns.Hop.KingLines and ns.Hop.KingLines() or {}) do lines[#lines + 1] = hop end
+	local kings = #lines -- (the King's lines above: "No reports yet" counts what comes below them)
+	-- Above the guilds (1.1): the channel is public (who can read it), and right after login the
+	-- census being rebuilt (said instead of "No reports yet").
+	PublicLines(lines)
+	local rebuilding = RebuildLines(lines)
+	local top = #lines
 	for _, e in ipairs(SortedGuilds(s.guilds)) do lines[#lines + 1] = CensusRow(e) end
-	if #lines == 0 then lines[1] = { text = Grey(L.EMPTY) } end
+	if #lines == top and kings == 0 and not rebuilding then lines[#lines + 1] = { text = Grey(L.EMPTY) } end
 	for _, e in ipairs(s.seen or {}) do lines[#lines + 1] = SeenRow(e) end
 	if #(s.seen or {}) > 0 then
 		lines[#lines].gapAfter = true
@@ -686,6 +751,12 @@ local function CensusLines(s, q)
 	if author then
 		lines[#lines].gapAfter = true
 		lines[#lines + 1] = { text = Grey(L.AUTHOR_ONLINE:format(ns.DisplayName(author))) }
+	end
+	-- This client is behind the author's version (1.1, his presence names it): one line, here alone.
+	local behind = ns.Workshop and ns.Workshop.BehindLine and ns.Workshop.BehindLine()
+	if behind then
+		lines[#lines].gapAfter = true
+		lines[#lines + 1] = behind
 	end
 	return lines
 end
@@ -795,6 +866,11 @@ Views.CHAT_SHOWN = ns.Channels and ns.Channels.HISTORY or 100
 local function ChatLines(q)
 	local C = ns.Channels
 	local lines = { { text = Gold(L.CHATS_BACK), onClick = function() Views.ShowChat(nil) end, gapAfter = true } }
+	-- The pinned line, then whether the channel is public: who can read these lines (1.1).
+	if not q then
+		PinLine(lines)
+		PublicLines(lines)
+	end
 	local tiers = ChatTiers()
 	if not C.TIERS[chatTier] or not C.CanUse(chatTier) then chatTier = tiers[1] end
 	if not chatTier then
@@ -824,6 +900,20 @@ local function ChatLines(q)
 			end,
 			gapAfter = true,
 		}
+		-- The King, his Stewards and Hands, and the Lords: one line pinned for everyone (1.1),
+		-- typed in an Olympus dialog (ns.ShowDialog: the gamepad UI's own window there).
+		if C.CanPin and C.CanPin() then
+			lines[#lines].gapAfter = nil
+			lines[#lines + 1] = {
+				text = Green(L.PIN_ADD),
+				onClick = function() ns.ShowDialog("OLYMPUS_PIN") end,
+				tooltip = function(tt)
+					tt:AddLine(L.PIN_ADD, 1, 0.82, 0)
+					tt:AddLine(L.PIN_ADD_TIP, 1, 1, 1, true)
+				end,
+				gapAfter = true,
+			}
+		end
 	end
 	local history = C.History(chatTier)
 	if #history == 0 and not q then lines[#lines + 1] = { text = Grey(L.CHATS_EMPTY) } end
@@ -1090,6 +1180,8 @@ local function RealmLines(s, q)
 	local function Mark(name, home, online)
 		return ns.King and ns.King.RollCallMark and ns.King.RollCallMark(ns.FullName(name, home), online) or ""
 	end
+	-- The pinned line on top (1.1), for everyone.
+	if not q then PinLine(lines) end
 	-- The King holds court in our zone (Court.lua), then his layer (Hop.lua).
 	local court = not q and ns.Court and ns.Court.Line and ns.Court.Line()
 	if court then lines[#lines + 1] = court end
@@ -1127,6 +1219,15 @@ local function RealmLines(s, q)
 	end
 	-- The High Council, under them (0.9.9).
 	local found = councilShown and CouncilLines(lines, s, q) or 0
+	-- Above the chats and the guilds (1.1): the channel is public (who can read them), and right
+	-- after login the census being rebuilt (said instead of "No reports yet").
+	local rebuilding = false
+	if not q then
+		local before = #lines
+		PublicLines(lines)
+		rebuilding = RebuildLines(lines)
+		if #lines > before and lines[before] then lines[before].gapAfter = true end
+	end
 	-- The Olympus chats, one click away (the channels our rank reads), above the guilds.
 	if #ChatTiers() > 0 then
 		if lines[#lines] then lines[#lines].gapAfter = true end
@@ -1139,7 +1240,7 @@ local function RealmLines(s, q)
 			end,
 		}
 	end
-	if #s.guilds == 0 and not q then lines[#lines + 1] = { text = Grey(L.EMPTY) } end
+	if #s.guilds == 0 and not q and not rebuilding then lines[#lines + 1] = { text = Grey(L.EMPTY) } end
 	-- A guild's header and, opened, its rows. `only`: what the search found in it (GuildMatches),
 	-- its rows alone under the headers they belong to; nil: all of them. `folds`: its click
 	-- closes and opens what the search opened, instead of the guild itself.

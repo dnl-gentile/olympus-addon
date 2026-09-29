@@ -22,7 +22,7 @@ local L = ns.L
 --   V1~<id>~100    the author asks this player alone (0.9.9; 0.9.8 takes V1 from the channel only)  (whisper)
 --   V2~<id>~<version>~<guild>~<client>~<window>~<flags>~<errors>~<level>~<class>   (whisper)
 --   V3~<latest version>                                                (whisper)
---   V4~<version>                                                       (channel)
+--   V4~<version>[~<released>]  (1.1: the version he marked as out, /oly released; 1.0 and 0.9 read "V4~" alone)  (channel)
 --   V5~<id>~<i>~<n>~<piece>                                            (whisper)
 --   V6~<id>~<1|2>   the author got piece 1 (send the rest) | the whole report   (whisper)
 -- A bug report goes out one piece first: only once the author answers (he is really online)
@@ -549,16 +549,125 @@ StaticPopupDialogs["OLYMPUS_AUTHOR_UPDATE"] = {
 
 function Workshop.SendPresence()
 	if not Workshop.IsAuthor() then return end
-	ns.Comm.Send("CHANNEL", "V4~" .. Clean(ns.VERSION, 12), "presence")
+	local released = Workshop.Released()
+	ns.Comm.Send("CHANNEL", "V4~" .. Clean(ns.VERSION, 12) .. (released and ("~" .. released) or ""), "presence")
+end
+
+-- The version his presence names as out (its third field), or nil: the second is the build his
+-- client runs, which may be one CurseForge does not list yet. Later fields, if V4 ever gains
+-- any, are left for later versions.
+local function ReleasedField(text)
+	local v, rest = tostring(text or ""):match("^V4~[^~]*~(%d+%.%d+%.%d+)(.*)$")
+	if not v or (rest ~= "" and rest:sub(1, 1) ~= "~") then return nil end
+	return v
 end
 
 function Workshop.HandlePresence(dist, sender, text)
 	if dist ~= "CHANNEL" or not IsAuthorName(sender) or Workshop.IsAuthor() then return end
 	if not text:match("^V4~") then return end
 	local was = Workshop.AuthorOnline()
+	local wasBehind = Workshop.Behind()
 	authorAt, authorName = ns.Now(), ns.FullName(sender)
-	if not was then ns.Fire("DATA_CHANGED") end
+	Workshop.HeardVersion(ReleasedField(text))
+	if not was or Workshop.Behind() ~= wasBehind then ns.Fire("DATA_CHANGED") end
 end
+
+---------------------------------------------------------------------------
+-- Behind the author's version (1.1). His presence (V4, above) names the version he marked as out
+-- (/oly released, once CurseForge lists it): newer than ours, this client says so, to this player
+-- alone: one line in chat once a session, a line at the foot of the Census, and /oly status. The
+-- build his client runs is never the one named: he runs a new build before it is published (a
+-- preview on his own PC), and nobody is told to update to a version they can't get. Nothing is
+-- sent, and nobody is whispered (the author's own "please update", V3, stays the only one): so it
+-- is no roll call to answer, and it shows whatever /oly rollcall says (Workshop.Answers). Only the
+-- author's own client can name a version here (his name, which the server stamps, on his realm
+-- group); a number anyone else sends never counts. Kept account-wide (ns.db.authorRelease), so
+-- the next login knows it before he says it again; updated, the line goes by itself.
+---------------------------------------------------------------------------
+
+local heardVersion -- { v, t }: the released version his presence named this session
+local toldBehind = false -- the chat line said it this session
+
+-- On his own client: the version he marked as out (ns.db.releasedVersion), never one newer than
+-- the build he runs (a build rolled back: nothing named until he marks again).
+function Workshop.Released()
+	local v = ns.db and ns.db.releasedVersion
+	if type(v) ~= "string" or not Parts(v) or #v > 12 or Workshop.Newer(v, ns.VERSION) then return nil end
+	return v
+end
+
+-- /oly released [x.y.z]: the author marks the version CurseForge lists as out (his own by
+-- default, never a newer one), and his presence says it at once, then every PRESENCE_EVERY.
+function Workshop.MarkReleased(v)
+	if not Workshop.IsAuthor() then
+		ns.Print(L.RELEASED_ONLY_AUTHOR)
+		return false
+	end
+	v = (v == nil or v == "") and ns.VERSION or tostring(v)
+	if not Parts(v) or #v > 12 or Workshop.Newer(v, ns.VERSION) then
+		ns.Print(L.RELEASED_USAGE:format(ns.VERSION))
+		return false
+	end
+	ns.db.releasedVersion = v
+	ns.Print(L.RELEASED_DONE:format(v))
+	Workshop.SendPresence()
+	return true
+end
+
+function Workshop.HeardVersion(v)
+	if type(v) ~= "string" or not v:match("^%d+%.%d+%.%d+$") or #v > 12 then return end
+	local now = ns.Now()
+	heardVersion = { v = v, t = now }
+	if ns.db then ns.db.authorRelease = { v = v, t = now } end
+	local behind = Workshop.Behind()
+	if behind and not toldBehind then
+		toldBehind = true
+		ns.Print(L.BEHIND_CHAT:format(behind, ns.VERSION))
+	end
+end
+
+-- The author's released version as this client last heard it, and when: this session's, else the
+-- saved one.
+function Workshop.AuthorVersion()
+	local e = heardVersion
+	if not e and ns.db and type(ns.db.authorRelease) == "table" then e = ns.db.authorRelease end
+	if type(e) ~= "table" or type(e.v) ~= "string" or not e.v:match("^%d+%.%d+%.%d+$") then return nil end
+	return e.v, tonumber(e.t)
+end
+
+-- The author's released version when it is newer than ours, else nil (always nil on his own client).
+function Workshop.Behind()
+	if Workshop.IsAuthor() then return nil end
+	local v = Workshop.AuthorVersion()
+	if v and Workshop.Newer(v, ns.VERSION) then return v end
+	return nil
+end
+
+-- For /oly status.
+function Workshop.VersionLine()
+	if Workshop.IsAuthor() then
+		return ("author's released version: %s (/oly released; this client %s)"):format(Workshop.Released() or "none marked", ns.VERSION)
+	end
+	local v, t = Workshop.AuthorVersion()
+	if not v then return "author's released version: not heard yet (this client " .. ns.VERSION .. ")" end
+	local state = Workshop.Newer(v, ns.VERSION) and "behind" or (Workshop.Newer(ns.VERSION, v) and "ahead" or "same")
+	return ("author's released version: %s, heard %s (this client %s: %s)"):format(v, t and ns.Ago(t) or "?", ns.VERSION, state)
+end
+
+-- The line at the foot of the Census, or nil.
+function Workshop.BehindLine()
+	local v = Workshop.Behind()
+	if not v then return nil end
+	return {
+		text = "|cffffd200" .. L.BEHIND_LINE:format(v, ns.VERSION) .. "|r",
+		tooltip = function(tt)
+			tt:AddLine(L.BEHIND_LINE:format(v, ns.VERSION), 1, 0.82, 0)
+			tt:AddLine(L.BEHIND_TIP, 1, 1, 1, true)
+		end,
+	}
+end
+
+function Workshop.ResetVersion() heardVersion, toldBehind = nil, false end -- (tests: a new session)
 
 -- The bug report as it travels: no newlines or pipes (they are put back as "\n" and "!").
 local function Pack(text)
@@ -1015,6 +1124,14 @@ function Workshop.Build(report)
 	if not Workshop.Visible() then return {}, L.TAB_WORKSHOP, "" end
 	local lines = {}
 	if Workshop.Preview() then lines[#lines + 1] = { text = Grey(L.WORKSHOP_PREVIEW), gapAfter = true } end
+	-- The version his presence tells the army is out (1.1): /oly released marks it.
+	lines[#lines + 1] = {
+		text = L.WORKSHOP_RELEASED:format(Workshop.Released() or "-", ns.VERSION), noReport = true, gapAfter = true,
+		tooltip = function(tt)
+			tt:AddLine(L.WORKSHOP_RELEASED:format(Workshop.Released() or "-", ns.VERSION), 1, 0.82, 0)
+			tt:AddLine(L.WORKSHOP_RELEASED_TIP, 1, 1, 1, true)
+		end,
+	}
 	InstallLines(lines)
 	RollLines(lines, report)
 	BugLines(lines)
@@ -1048,6 +1165,7 @@ function Workshop.Reset()
 	lastRoll, lastRollAnswer, lastUpdateShown, lastBug, lastAsk = -math.huge, -math.huge, -math.huge, -math.huge, -math.huge
 	search, shownAnswers, lastAskOne = "", Workshop.ROLL_PAGE, -math.huge
 	changePending = false
+	Workshop.ResetVersion()
 end
 
 ---------------------------------------------------------------------------
