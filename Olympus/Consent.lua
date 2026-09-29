@@ -182,12 +182,21 @@ local function Make()
 	f:SetScript("OnDragStart", f.StartMoving)
 	f:SetScript("OnDragStop", f.StopMovingOrSizing)
 	f:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
-	local okBorder, border = pcall(CreateFrame, "Frame", nil, f, "DialogBorderTemplate")
-	if not okBorder or not border then
+	-- An opaque ground: the page is read line by line, and the plain dialog's lets the world show
+	-- through. The client's opaque dialog (Forever's SharedXML has it), else its dark one, else a
+	-- near-black texture; a template the client lacks leaves no Bg.
+	local border
+	for _, template in ipairs({ "DialogBorderOpaqueTemplate", "DialogBorderDarkTemplate" }) do
+		local ok, b = pcall(CreateFrame, "Frame", nil, f, template)
+		if ok and b and b.Bg then border = b break end
+		if ok and b then b:Hide() end
+	end
+	if not border then
 		border = f:CreateTexture(nil, "BACKGROUND")
-		border:SetColorTexture(0, 0, 0, 0.9)
+		border:SetColorTexture(0.03, 0.03, 0.04, 0.97)
 	end
 	border:SetAllPoints()
+	f.border = border
 	f.title = f:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 	f.title:SetPoint("TOP", 0, -18)
 	f.title:SetText(L.CONSENT_TITLE)

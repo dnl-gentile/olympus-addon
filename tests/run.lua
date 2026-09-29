@@ -1585,6 +1585,9 @@ local TEMPLATES = {
 	DialogBorderDarkTemplate = function(w)
 		w.Bg = NewWidget("Texture", nil, w)
 	end,
+	DialogBorderOpaqueTemplate = function(w) -- (Forever 1.60's SharedXML: a black Bg, alpha 1)
+		w.Bg = NewWidget("Texture", nil, w)
+	end,
 }
 
 local createdWidgets = {} -- everything FakeCreateFrame made in the current WithUI
@@ -36384,7 +36387,27 @@ do
 		return table.concat(out, "|")
 	end
 
-	test("1.1 review (#11): for the Treasurer whose 0.9.3 yes stands, his line says his book goes out, and that its Yes also sends the early supporters' names, before that Yes can send them", function()
+	test("1.1 the first-open page stands on an opaque ground: the client's opaque dialog, else its dark one, else a near-black texture", function()
+	local saved = TEMPLATES.DialogBorderOpaqueTemplate
+	local ok, err = pcall(function()
+		WithUI(function()
+			local page = ns.Consent.Show()
+			eq(page.border.template, "DialogBorderOpaqueTemplate", "the client's opaque dialog")
+			page:Hide()
+		end)
+		-- A client without it: the dark one.
+		TEMPLATES.DialogBorderOpaqueTemplate = nil
+		WithUI(function()
+			local page = ns.Consent.Show()
+			eq(page.border.template, "DialogBorderDarkTemplate")
+			page:Hide()
+		end)
+	end)
+	TEMPLATES.DialogBorderOpaqueTemplate = saved
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 review (#11): for the Treasurer whose 0.9.3 yes stands, his line says his book goes out, and that its Yes also sends the early supporters' names, before that Yes can send them", function()
 		Unanswered(function()
 			WithUI(function()
 				WithThrone(function(w, K)
