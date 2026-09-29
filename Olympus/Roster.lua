@@ -179,8 +179,9 @@ function Roster.TryScan()
 	lastScan = ns.Now()
 	local r = Roster.Scan()
 	if not r or not ns.IsFederation(r.guild) then return end
-	-- (1.1: our Lord away past warnDays, one line to our officers: Members.lua.)
-	ns.SafeCall("own lord", ns.Members.CheckOwnLord, r)
+	-- (1.1, Members.lua: who joined since login, for the Lord's recruits; our Lord away past
+	-- warnDays, one line to our officers.)
+	ns.SafeCall("members scan", ns.Members.OnScan, r)
 	-- Our guild lives on another realm: that realm shares our guilds, so it shares our census
 	-- (first, so our report lands in the shared store).
 	if r.home ~= ns.realm then ns.LinkRealms(ns.realm, r.home) end

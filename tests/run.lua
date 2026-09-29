@@ -24499,11 +24499,12 @@ do
 		return pt.L
 	end
 	-- Every key in English and in pt-BR, the pt-BR one its own (not the English text).
-	function Fern.BothLanguages(keys)
+	-- `same`: keys whose pt-BR text is the English one, on purpose ("mentor: %s").
+	function Fern.BothLanguages(keys, same)
 		local pt = Fern.PtBR()
 		for _, k in ipairs(keys) do
 			assert(rawget(ns.L, k) and rawget(ns.L, k) ~= "", "English: " .. k)
-			assert(rawget(pt, k) and rawget(pt, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+			assert(rawget(pt, k) and (rawget(pt, k) ~= rawget(ns.L, k) or (same and same[k])), "pt-BR: " .. k)
 		end
 		return pt
 	end
@@ -25174,6 +25175,133 @@ test("1.1 a Lord away (Fern #39): the King, his Steward and Hands get one line f
 	if not ok then error(err, 0) end
 	Fern.BothLanguages({ "LORD_AWAY_OWN", "LORD_AWAY_CROWN", "LORD_AWAY_ENTRY", "LORD_AWAY_CROWN_MANY", "LORD_AWAY_MORE", "WARNDAYS_USAGE",
 		"WARNDAYS_SET", "HELP_WARNDAYS" })
+end)
+
+
+-- Our guild for the mentors: Capty a Captain online, Cap2 one offline; Old (offline) and
+-- Newbie (online) in the lowest rank.
+function Fern.MentorRoster()
+	return {
+		{ "Lordy-Realm", 0, true, 30, "WARRIOR", { 0, 0, 0, 0 } },
+		{ "Capty-Realm", 1, true, 28, "PALADIN", { 0, 0, 0, 0 } },
+		{ "Cap2-Realm", 1, false, 26, "WARRIOR", { 0, 0, 2, 0 } },
+		{ "Old-Realm", 3, false, 20, "MAGE", { 0, 1, 15, 0 } },
+		{ "Newbie-Realm", 3, true, 3, "PRIEST", { 0, 0, 0, 0 } },
+		{ "Week-Realm", 2, false, 12, "WARRIOR", { 0, 0, 8, 0 } },
+	}
+end
+-- Words a dues line would carry (Fern: none in these whispers).
+Fern.DUES_WORDS = { "due", "tithe", "tax", "gold", "pay", "fee", "dízimo", "taxa", "ouro", "pag", "cobr", "mensalidade" }
+function Fern.NoDues(text, what)
+	local low = tostring(text):lower()
+	for _, w in ipairs(Fern.DUES_WORDS) do assert(not low:find(w, 1, true), what .. " names " .. w .. ": " .. text) end
+end
+
+test("1.1 mentors (Fern #19): the Lord clicks a recruit, then a Captain; one click sends one whisper to each, naming the other; the pair shows on his list", function()
+	local V, L, M = ns.Views, ns.L, ns.Members
+	local savedMentors = ns.rdb.mentors
+	local ok, err = pcall(function()
+		ns.rdb.mentors = nil
+		local roster = Fern.MentorRoster()
+		WithGamepadUI(false, function(game)
+			Fern.Guild(0, function(w)
+				local function Scan() ns.Roster.RequestScan(true); ns.Roster.TryScan() end
+				Scan()
+				M.Show(7)
+				local filter = Fern.Find(V.Build("realm"), L.MENTOR_FILTER)
+				assert(filter and filter.onClick, "the Lord's page")
+				eq(Fern.Bare(filter.right), "2", "two recruits: the lowest rank")
+				filter.onClick()
+				eq(M.Filter(), "recruits")
+				local lines = V.Build("realm")
+				assert(Fern.Find(lines, L.MENTOR_HINT), "how it works")
+				local rows = Fern.MemberRows(lines)
+				eq(Fern.Names(rows), "Newbie,Old", "online first")
+				assert(Fern.Bare(rows[1].right):find(L.MENTOR_NONE, 1, true))
+				-- Old is offline: a whisper can't reach him.
+				rows[2].onClick()
+				eq(w.printed[#w.printed], L.MENTOR_OFFLINE:format("Old")); eq(#game.shown, 0)
+				-- Newbie: the Captains, the one online to click.
+				rows[1].onClick()
+				lines = V.Build("realm")
+				assert(Fern.Find(lines, L.MENTOR_PICK:format("Newbie")), "who for")
+				local caps = Fern.MemberRows(lines)
+				eq(Fern.Names(caps), "Capty,Cap2")
+				eq(caps[2].onClick, nil, "Cap2 is offline")
+				caps[1].onClick()
+				eq(game.shown[1].which, "OLYMPUS_MENTOR"); eq(game.shown[1].a, "Capty"); eq(game.shown[1].b, "Newbie")
+				eq(#w.said, 0, "nothing before his yes")
+				eq(StaticPopupDialogs.OLYMPUS_MENTOR.text, L.MENTOR_CONFIRM); eq(StaticPopupDialogs.OLYMPUS_MENTOR.button1, L.MENTOR_SEND)
+				-- Yes: two whispers, one to each, from that click.
+				StaticPopupDialogs.OLYMPUS_MENTOR.OnAccept(nil, game.shown[1].data)
+				eq(#w.said, 2)
+				eq(w.said[1].kind, "WHISPER"); eq(w.said[1].to, "Capty"); eq(w.said[1].text, L.MENTOR_TO_CAPTAIN:format("Newbie", "Olympus II"))
+				eq(w.said[2].kind, "WHISPER"); eq(w.said[2].to, "Newbie"); eq(w.said[2].text, L.MENTOR_TO_RECRUIT:format("Olympus II", "Capty"))
+				eq(w.printed[#w.printed], L.MENTOR_DONE:format("Capty", "Newbie"))
+				eq(ns.rdb.mentors["Olympus II"]["Newbie-Realm"].mentor, "Capty-Realm")
+				-- Back on the recruits, the pair shown.
+				rows = Fern.MemberRows(V.Build("realm"))
+				local newbie
+				for _, r in ipairs(rows) do if r.key == "Newbie" then newbie = r end end
+				assert(Fern.Bare(newbie.right):find(L.MENTOR_OF:format("Capty"), 1, true), newbie.right)
+				-- Another pair at once: refused until the gap has passed.
+				local recruit, captain
+				for _, m in ipairs(ns.Roster.members) do
+					if m.name == "Newbie" then recruit = m elseif m.name == "Capty" then captain = m end
+				end
+				eq(M.AssignMentor(recruit, captain), false); eq(#w.said, 2); eq(w.printed[#w.printed], L.MENTOR_WAIT)
+				-- Someone joins: a recruit too, marked new, on top.
+				roster[#roster + 1] = { "Joiner-Realm", 2, true, 5, "MAGE", { 0, 0, 0, 0 } }
+				Scan()
+				rows = Fern.MemberRows(V.Build("realm"))
+				eq(rows[1].key, "Joiner"); assert(Fern.Bare(rows[1].text):find(L.MENTOR_NEW, 1, true))
+				eq(M.Joined("Joiner-Realm"), true); eq(M.Joined("Old-Realm"), false)
+				for _, s in ipairs(w.sent) do assert(not s:find("^WHISPER"), "no addon whisper: " .. s) end
+			end, roster)
+			-- A Captain: no such page, and no pairs from him.
+			Fern.Guild(1, function(w)
+				M.Show("recruits")
+				local lines = V.Build("realm")
+				eq(Fern.Find(lines, L.MENTOR_FILTER), nil)
+				eq(M.Filter(), 7, "back on the inactive list")
+				local recruit, captain
+				for _, m in ipairs(ns.Roster.members) do
+					if m.name == "Newbie" then recruit = m elseif m.name == "Capty" then captain = m end
+				end
+				eq(M.AssignMentor(recruit, captain), false); eq(#w.said, 0)
+			end, Fern.MentorRoster())
+		end)
+	end)
+	ns.rdb.mentors = savedMentors
+	if not ok then error(err, 0) end
+	-- No dues line in either whisper, in both languages.
+	local pt = Fern.BothLanguages({ "MENTOR_FILTER", "MENTOR_HINT", "MENTOR_PICK", "MENTOR_PICK_CANCEL", "MENTOR_COUNT", "MENTOR_OF", "MENTOR_NONE",
+		"MENTOR_NEW", "MENTOR_NO_RECRUITS", "MENTOR_NO_CAPTAINS", "MENTOR_OFFLINE", "MENTOR_CONFIRM", "MENTOR_SEND", "MENTOR_TO_CAPTAIN",
+		"MENTOR_TO_RECRUIT", "MENTOR_DONE", "MENTOR_WAIT", "MENTOR_TIP", "MENTOR_CAPTAIN_TIP", "HELP_MENTORS" }, { MENTOR_OF = true })
+	for _, k in ipairs({ "MENTOR_TO_CAPTAIN", "MENTOR_TO_RECRUIT" }) do
+		Fern.NoDues(L[k], k); Fern.NoDues(pt[k], "pt-BR " .. k)
+	end
+end)
+
+test("1.1 mentors (Fern #19): with the gamepad UI the question is Olympus's own window, and its button sends both whispers", function()
+	local savedMentors = ns.rdb.mentors
+	WithUI(function()
+		WithGamepadUI(true, function(game)
+			Fern.Guild(0, function(w)
+				ns.rdb.mentors = nil
+				ns.Members.Show("recruits")
+				local rows = Fern.MemberRows(ns.Views.Build("realm"))
+				rows[1].onClick()
+				Fern.MemberRows(ns.Views.Build("realm"))[1].onClick()
+				eq(#game.shown, 0, "not the game's popup")
+				local f = ns.Dialog.Find("OLYMPUS_MENTOR")
+				assert(f and f:IsShown(), "our dialog")
+				f.buttons[1]:Click()
+				eq(#w.said, 2); eq(w.said[1].to, "Capty"); eq(w.said[2].to, "Newbie")
+			end, Fern.MentorRoster())
+		end)
+	end)
+	ns.rdb.mentors = savedMentors
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

@@ -1249,6 +1249,7 @@ local function Help()
 	print("  /oly layers - layers of your zone (in the Realm tab)")
 	print(L.HELP_INACTIVE)
 	print(L.HELP_WARNDAYS)
+	print(L.HELP_MENTORS)
 	print(L.HELP_HOP)
 	print(L.HELP_LAYERHELP)
 	print(L.HELP_LAYERAUTO)
@@ -1330,10 +1331,12 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.UI.SelectTab("realm")
 		elseif cmd == "warndays" then
 			ns.Members.SetWarnDays(rest)
-		elseif cmd == "inactive" or cmd == "members" then
-			-- (1.1: our guild's members offline 7, 14 or 30 days and more, Members.lua.)
+		elseif cmd == "inactive" or cmd == "members" or cmd == "recruits" or cmd == "mentors" then
+			-- (1.1: our guild's members offline 7, 14 or 30 days and more; the Lord's recruits and
+			-- their mentors. Members.lua.)
 			local days = tonumber(rest)
-			ns.Members.Show((days == 14 or days == 30) and days or 7)
+			local lordPage = (cmd == "recruits" or cmd == "mentors") and ns.Members.IsLord and ns.Members.IsLord()
+			ns.Members.Show(lordPage and "recruits" or (days == 14 or days == 30) and days or 7)
 			ns.UI.SelectTab("realm")
 		elseif cmd == "decrees" then
 			ns.UI.SelectTab("decrees")

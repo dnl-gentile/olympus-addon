@@ -9,7 +9,9 @@ local L = ns.L
 --   as the game's own Guild window allows) removes one person per click: a question through
 --   ns.ShowDialog, then the game's own call (C_GuildInfo.Uninvite) inside that click, with a short
 --   gap between two removals. Nothing picks several at once: there is no kick-all.
--- Nothing here is sent, and nothing kept past the session.
+-- #19: the Lord attaches one of his Captains to a recruit as their mentor; each gets one whisper
+--   from him, naming the other, both sent by that one click of his (see Mentors, below).
+-- Nothing goes on the channel, and nothing but the Lord's own mentor pairs is kept.
 
 local Members = {}
 ns.Members = Members
@@ -92,7 +94,199 @@ function Members.Remove(m)
 	return true
 end
 
-function Members.ResetForTests() page, lastRemove = nil, -math.huge; wipe(removed) end
+---------------------------------------------------------------------------
+-- Mentors (Fern's #19). Recruits: our guild's lowest rank, and whoever joined since our first
+-- roster read this session (Classic keeps no join date). The Lord (rank 0 on his own roster)
+-- clicks a recruit who is online, then one of his Captains who is online, and says yes: one
+-- whisper to each (a whisper can't reach someone offline), both from that click, never the
+-- addon's by itself. The pair is his client's alone (ns.rdb.mentors, kept where the client keeps
+-- saves): the whispers are what the two of them keep.
+---------------------------------------------------------------------------
+
+Members.MENTOR_GAP = 2 -- seconds between two pairs (four whispers)
+local lastMentor = -math.huge
+local firstRoster -- { guild, names = { [raw] = true } }: the members at this session's first read
+local joined = {} -- [raw] = true: in our guild since then
+
+function Members.IsLord() return IsInGuild() and ns.Roster.MyRank() == 0 end
+
+local function Mentors(guild)
+	ns.rdb.mentors = ns.rdb.mentors or {}
+	local g = guild or GetGuildInfo("player") or "?"
+	ns.rdb.mentors[g] = ns.rdb.mentors[g] or {}
+	return ns.rdb.mentors[g]
+end
+-- A recruit's mentor (the Captain's name as the roster gives it), or nil.
+function Members.MentorOf(raw)
+	local e = raw and Mentors()[raw]
+	return type(e) == "table" and e.mentor or nil
+end
+
+-- Each roster read (Roster.TryScan): who joined since the first one, then our Lord away (#39).
+function Members.OnScan(r)
+	local all = ns.Roster.members or {}
+	local guild = type(r) == "table" and r.guild or GetGuildInfo("player")
+	if not firstRoster or firstRoster.guild ~= guild then
+		firstRoster = { guild = guild, names = {} }
+		wipe(joined)
+		for _, m in ipairs(all) do firstRoster.names[m.raw] = true end
+	else
+		for _, m in ipairs(all) do
+			if m.raw and not firstRoster.names[m.raw] then joined[m.raw] = true end
+		end
+	end
+	return Members.CheckOwnLord(r)
+end
+function Members.Joined(raw) return joined[raw] == true end
+
+function Members.Recruits()
+	local all, lowest = ns.Roster.members or {}, -1
+	for _, m in ipairs(all) do
+		if (m.rankIndex or -1) > lowest then lowest = m.rankIndex end
+	end
+	local out = {}
+	for _, m in ipairs(all) do
+		if (m.rankIndex or 0) > ns.CAPTAIN_RANK and (m.rankIndex == lowest or joined[m.raw]) then out[#out + 1] = m end
+	end
+	table.sort(out, function(a, b)
+		local ja, jb = joined[a.raw] or false, joined[b.raw] or false
+		if ja ~= jb then return ja end
+		local ma, mb = Members.MentorOf(a.raw) ~= nil, Members.MentorOf(b.raw) ~= nil
+		if ma ~= mb then return mb end
+		if a.online ~= b.online then return a.online end
+		return a.name < b.name
+	end)
+	return out
+end
+
+-- Our guild's Captains (the rank under the Lord, ns.CAPTAIN_RANK), online first.
+function Members.Captains()
+	local out = {}
+	for _, m in ipairs(ns.Roster.members or {}) do
+		if (m.rankIndex or 0) >= 1 and m.rankIndex <= ns.CAPTAIN_RANK then out[#out + 1] = m end
+	end
+	table.sort(out, function(a, b)
+		if a.online ~= b.online then return a.online end
+		return a.name < b.name
+	end)
+	return out
+end
+
+-- A recruit clicked: the Captains to pick from.
+function Members.PickMentor(m)
+	if not (page and Members.IsLord()) or type(m) ~= "table" then return false end
+	if not m.online then
+		ns.Print(L.MENTOR_OFFLINE:format(Plain(m.name)))
+		return false
+	end
+	page.mentorFor = m
+	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+	return true
+end
+
+-- A Captain clicked: the question, naming both.
+function Members.AskMentor(recruit, captain)
+	if not Members.IsLord() or type(recruit) ~= "table" or type(captain) ~= "table" then return nil end
+	if not captain.online then
+		ns.Print(L.MENTOR_OFFLINE:format(Plain(captain.name)))
+		return nil
+	end
+	return ns.ShowDialog("OLYMPUS_MENTOR", Plain(captain.name), Plain(recruit.name), { recruit = recruit, captain = captain })
+end
+
+-- The question answered: one whisper to each, from the Lord's click, and the pair kept.
+function Members.AssignMentor(recruit, captain)
+	if not Members.IsLord() or type(recruit) ~= "table" or type(captain) ~= "table" or not recruit.raw or not captain.raw then return false end
+	if not (recruit.online and captain.online) then
+		ns.Print(L.MENTOR_OFFLINE:format(Plain(recruit.online and captain.name or recruit.name)))
+		return false
+	end
+	local now = GetTime()
+	if now - lastMentor < Members.MENTOR_GAP then
+		ns.Print(L.MENTOR_WAIT)
+		return false
+	end
+	lastMentor = now
+	local guild = GetGuildInfo("player") or "?"
+	SendChatMessage(L.MENTOR_TO_CAPTAIN:format(Plain(recruit.name), guild), "WHISPER", nil, ns.TellName(captain.raw))
+	SendChatMessage(L.MENTOR_TO_RECRUIT:format(guild, Plain(captain.name)), "WHISPER", nil, ns.TellName(recruit.raw))
+	Mentors(guild)[recruit.raw] = { mentor = captain.raw, t = ns.Now() }
+	ns.Log("members: %s mentors %s", tostring(captain.raw), tostring(recruit.raw))
+	ns.Print(L.MENTOR_DONE:format(Plain(captain.name), Plain(recruit.name)))
+	if page then page.mentorFor = nil end
+	ns.Fire("DATA_CHANGED")
+	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+	return true
+end
+
+-- The recruits and mentors page (the Lord's), or the Captains to pick from.
+local function MentorLines(lines, q)
+	local V = ns.Views
+	local r = page.mentorFor
+	if r then
+		lines[#lines + 1] = { header = true, text = L.MENTOR_PICK:format(Plain(r.name)) }
+		lines[#lines + 1] = { text = V.Gold(L.MENTOR_PICK_CANCEL), onClick = function() page.mentorFor = nil; ns.UI.Refresh() end, gapAfter = true }
+		local mentees = {}
+		for _, e in pairs(Mentors()) do
+			if type(e) == "table" and e.mentor then mentees[e.mentor] = (mentees[e.mentor] or 0) + 1 end
+		end
+		local caps = Members.Captains()
+		for _, c in ipairs(caps) do
+			local _, file = ClassName(c)
+			lines[#lines + 1] = {
+				key = c.name,
+				text = V.ClassColored(c.name, file) .. "  " .. V.Grey(Plain(c.rank or "")),
+				right = (c.online and V.Green(L.ONLINE_NOW) or V.Grey(Members.LastOnline(c.days))) .. "  " .. V.Grey(L.MENTOR_COUNT:format(mentees[c.raw] or 0)),
+				onClick = c.online and function() Members.AskMentor(r, c) end or nil,
+				tooltip = function(tt)
+					tt:AddLine(Plain(c.name), 1, 0.82, 0)
+					tt:AddLine(c.online and L.MENTOR_CAPTAIN_TIP:format(Plain(r.name)) or L.MENTOR_OFFLINE:format(Plain(c.name)), 1, 1, 1, true)
+				end,
+			}
+		end
+		if #caps == 0 then lines[#lines + 1] = { text = V.Grey(L.MENTOR_NO_CAPTAINS) } end
+		return lines
+	end
+	lines[#lines + 1] = { text = V.Grey(L.MENTOR_HINT), gapAfter = true }
+	local list = {}
+	for _, m in ipairs(Members.Recruits()) do
+		if not q or ns.Holds(q, m.name, m.rank) then list[#list + 1] = m end
+	end
+	local shown = math.min(#list, page.shown)
+	for i = 1, shown do
+		local m = list[i]
+		local _, file = ClassName(m)
+		local mentor = Members.MentorOf(m.raw)
+		lines[#lines + 1] = {
+			key = m.name,
+			text = V.ClassColored(m.name, file) .. "  " .. V.Grey(Plain(m.rank or "") .. (joined[m.raw] and ("  ·  " .. L.MENTOR_NEW) or "")),
+			right = (mentor and V.Gold(L.MENTOR_OF:format(Plain(ns.DisplayName(ns.FullName(ns.Normal(mentor))) or mentor))) or V.Grey(L.MENTOR_NONE))
+				.. "  " .. (m.online and V.Green(L.ONLINE_NOW) or V.Grey(Members.LastOnline(m.days))),
+			onClick = function() Members.PickMentor(m) end,
+			tooltip = function(tt)
+				tt:AddLine(Plain(m.name), 1, 0.82, 0)
+				tt:AddLine(m.online and L.MENTOR_TIP or L.MENTOR_OFFLINE:format(Plain(m.name)), 1, 1, 1, true)
+			end,
+		}
+	end
+	if #list > shown then
+		lines[#lines + 1] = {
+			text = V.Gold(L.SHOW_MORE:format(math.min(Members.PAGE, #list - shown), shown, #list)),
+			onClick = function()
+				page.shown = page.shown + Members.PAGE
+				ns.UI.Refresh()
+			end,
+		}
+	end
+	if #list == 0 then lines[#lines + 1] = { text = V.Grey(q and L.SEARCH_NO_MATCH or L.MENTOR_NO_RECRUITS) } end
+	return lines
+end
+
+function Members.ResetForTests()
+	page, lastRemove, lastMentor, firstRoster = nil, -math.huge, -math.huge, nil
+	wipe(removed)
+	wipe(joined)
+end
 
 local function Row(m, canRemove)
 	local V = ns.Views
@@ -153,7 +347,19 @@ function Members.Lines(q)
 			onClick = not on and function() Members.Show(f) end or nil,
 		}
 	end
+	-- The Lord's: his recruits and their mentors (#19).
+	if Members.IsLord() then
+		local on = page.filter == "recruits"
+		lines[#lines + 1] = {
+			text = on and V.Gold("> " .. L.MENTOR_FILTER) or ("   " .. L.MENTOR_FILTER),
+			right = V.Grey(ns.FormatNumber(#Members.Recruits())),
+			onClick = not on and function() Members.Show("recruits") end or nil,
+		}
+	elseif page.filter == "recruits" then
+		page.filter = Members.FILTERS[1]
+	end
 	lines[#lines].gapAfter = true
+	if page.filter == "recruits" then return MentorLines(lines, q) end
 	local canRemove = Members.CanRemove()
 	lines[#lines + 1] = { text = V.Grey(canRemove and L.MEMBERS_REMOVE_HINT or L.MEMBERS_VIEW_HINT) }
 	-- The game lists only who is online (its "Show offline members" unticked): say so.
@@ -276,6 +482,20 @@ end
 ns.On("LOGIN", function()
 	ns.Every(60, "lords away", function() Members.CheckLords() end)
 end)
+
+StaticPopupDialogs["OLYMPUS_MENTOR"] = {
+	text = L.MENTOR_CONFIRM,
+	button1 = L.MENTOR_SEND,
+	button2 = CANCEL or "Cancel",
+	OnAccept = function(self, data)
+		data = data or (self and self.data)
+		if type(data) == "table" then ns.SafeCall("mentor", Members.AssignMentor, data.recruit, data.captain) end
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
 
 StaticPopupDialogs["OLYMPUS_GUILD_REMOVE"] = {
 	text = L.MEMBERS_REMOVE_CONFIRM,
