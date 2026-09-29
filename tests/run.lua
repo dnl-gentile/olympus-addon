@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -25150,6 +25150,165 @@ test("1.1 pinned line: its lines in both languages", function()
 		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
 	end
 	eq(StaticPopupDialogs.OLYMPUS_PIN.text, ns.L.PIN_ASK)
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: more languages, strings only (request #6)
+---------------------------------------------------------------------------
+
+-- Locales.lua loaded fresh as the game in `code` would load it, then `files` (under Locales/),
+-- each as the game loads it. Returns the namespace, and each ns.Locale call's table by file.
+local function LoadLocale(code, files)
+	local lns = {}
+	local savedLocale = GetLocale
+	GetLocale = function() return code end
+	local calls = {}
+	local ok, err = pcall(function()
+		assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", lns)
+		local real = lns.Locale
+		for _, file in ipairs(files or {}) do
+			lns.Locale = function(codes, strings)
+				calls[file] = { codes = codes, strings = strings }
+				return real(codes, strings)
+			end
+			assert(loadfile(ADDON_DIR .. "Locales/" .. file .. ".lua"))("Olympus", lns)
+		end
+		lns.Locale = real
+	end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	return lns, calls
+end
+
+-- The format codes and escape codes of a line, in order, as the test reads them.
+local function Codes(s)
+	s = tostring(s):gsub("%%%%", "\1")
+	local specs = {}
+	for spec in s:gmatch("%%[%-%d%.]*%a") do specs[#specs + 1] = spec end
+	return table.concat(specs, " ") .. " / " .. select(2, s:gsub("|c", "")) .. "c" .. select(2, s:gsub("|r", "")) .. "r"
+		.. select(2, s:gsub("|T", "")) .. "T" .. select(2, s:gsub("|n", "")) .. "n"
+end
+
+test("1.1 languages: a language's file is taken key by key over English; a line missing, unknown, or with other format or escape codes stays English", function()
+	local lns = LoadLocale("xxXX")
+	local L = lns.L
+	local english = { total = L.ARMY_TOTAL, sub = L.ARMY_SUB, ask = L.CHAN_WARN_ASK, never = L.NEVER }
+	local savedLocale = GetLocale
+	GetLocale = function() return "xxXX" end -- (the game's language while the files load)
+	-- Another language's file: nothing taken.
+	eq(lns.Locale("yyYY", { NEVER = "jamais" }), 0)
+	eq(L.NEVER, english.never)
+	local taken = lns.Locale({ "xxXX", "xxYY" }, {
+		NEVER = "nimmer",                                   -- taken
+		ARMY_TOTAL = "%d soldiers of %s",                   -- other format codes: English stays
+		ARMY_SUB = "%s online, %d guilds",                  -- one format code short: English stays
+		CHAN_WARN_ASK = "[%s] no es privado. %s",           -- its colour code dropped: English stays
+		NO_SUCH_LINE = "typo",                              -- no such English line: left out
+		COPY_HINT = 42,                                     -- no text: left out
+	})
+	GetLocale = savedLocale
+	eq(taken, 1)
+	eq(L.NEVER, "nimmer")
+	eq(L.ARMY_TOTAL, english.total); eq(L.ARMY_SUB, english.sub); eq(L.CHAN_WARN_ASK, english.ask)
+	eq(rawget(L, "NO_SUCH_LINE"), nil)
+	eq(L.WHERE, "Where they are", "a line the file leaves out stays English")
+	local report = lns.LocaleReport()
+	assert(report:find("^xxXX, 1 of %d+ lines, left out: ARMY_SUB,ARMY_TOTAL,CHAN_WARN_ASK,COPY_HINT,NO_SUCH_LINE$"), report)
+	-- The codes a line is compared by.
+	eq(lns.LocaleCodes("|cffe6c35c[%s] x|r %d%% |Tpath:0|t %02dm"), "|c %s |r %d %% |T %02d")
+end)
+
+test("1.1 languages: the Spanish, French and German files: every line an English one, its codes the English line's, all taken; each language's own lines on the screens", function()
+	local files = { deDE = "deDE", esES = "esES", esMX = "esES", frFR = "frFR" }
+	local english = LoadLocale("enUS").L
+	for code, file in pairs(files) do
+		local lns, calls = LoadLocale(code, { file })
+		local call = calls[file]
+		assert(call and type(call.strings) == "table", file .. " calls ns.Locale")
+		local n = 0
+		for k, v in pairs(call.strings) do
+			n = n + 1
+			local en = rawget(english, k)
+			assert(type(en) == "string", file .. ": " .. tostring(k) .. " is no English line")
+			eq(Codes(v), Codes(en), file .. " " .. k .. " codes")
+			eq(lns.L[k], v, file .. " " .. k .. " taken")
+			-- Formatted as the addon formats it: no error, whatever the arguments.
+			local args = {}
+			for spec in en:gsub("%%%%", ""):gmatch("%%[%-%d%.]*(%a)") do args[#args + 1] = (spec == "s") and "x" or 1 end
+			assert(pcall(string.format, v, unpack(args)), file .. " " .. k .. " formats")
+		end
+		assert(n >= 150, file .. ": " .. n .. " lines")
+		local report = lns.LocaleReport()
+		assert(report:find("^" .. code .. ", " .. n .. " of %d+ lines$"), report)
+		-- What a member reads first, the alerts, the Join screen's whisper, the privacy questions and 1.1's lines.
+		for _, k in ipairs({ "TAB_CENSUS", "ARMS", "MUSTER", "ROYAL", "HERALDRY_CALL", "WRIT_TITLE", "RECRUIT_MESSAGE", "LOCATION_ASK",
+			"CHAN_WARN_ASK", "REBUILDING", "BEHIND_CHAT", "PUBLIC_NET", "PIN_NEW", "HELP_CMD_OPEN" }) do
+			assert(call.strings[k] and call.strings[k] ~= english[k], file .. " translates " .. k)
+		end
+	end
+	-- Loaded by an English (or Portuguese) game: nothing changes.
+	local lns = LoadLocale("enUS", { "deDE", "esES", "frFR" })
+	eq(lns.L.ARMS, "CALL TO ARMS!")
+	local pt = LoadLocale("ptBR", { "deDE", "esES", "frFR" })
+	eq(pt.L.ARMS, rawget(pt.L, "ARMS")); assert(pt.L.ARMS ~= "ZU DEN WAFFEN!" and pt.L.ARMS ~= "¡A LAS ARMAS!", pt.L.ARMS)
+	eq(LoadLocale("deDE", { "deDE" }).L.ARMS, "ZU DEN WAFFEN!")
+	eq(LoadLocale("esMX", { "esES" }).L.ARMS, "¡A LAS ARMAS!")
+	eq(LoadLocale("frFR", { "frFR" }).L.ARMS, "AUX ARMES !")
+end)
+
+test("1.1 languages: the TOC loads every file under Locales/ right after Locales.lua, before anything reads a line", function()
+	local toc = {}
+	for line in io.lines(ADDON_DIR .. "Olympus.toc") do
+		local entry = line:match("^%s*(.-)%s*$")
+		if entry ~= "" and entry:sub(1, 1) ~= "#" then toc[#toc + 1] = (entry:gsub("\\", "/")) end
+	end
+	local at
+	for i, e in ipairs(toc) do if e == "Locales.lua" then at = i end end
+	assert(at, "Locales.lua")
+	local listed = {}
+	local i = at + 1
+	while toc[i] and toc[i]:match("^Locales/") do listed[toc[i]:match("^Locales/(.+)$")] = true; i = i + 1 end
+	eq(toc[i], "Core.lua", "then Core.lua")
+	local p = io.popen('ls "' .. ADDON_DIR .. 'Locales"')
+	local n = 0
+	for file in p:lines() do
+		if file:match("%.lua$") then
+			n = n + 1
+			assert(listed[file], file .. " in the TOC")
+		end
+	end
+	p:close()
+	assert(n >= 3, "the language files")
+end)
+
+test("1.1 languages: /oly help and the replies once written in the code come from the locale (both languages); the language shows in /oly status", function()
+	-- No command help or reply left as literal text in Core.lua.
+	local src = assert(io.open(ADDON_DIR .. "Core.lua")):read("*a")
+	eq(src:find('print("  /oly', 1, true), nil, "the help's lines")
+	for _, literal in ipairs({ 'ns.Print("sound = "', 'ns.Print("blocked "', 'ns.Print("debug = "', 'ns.Print("cache cleared")', '" commands:")' }) do
+		eq(src:find(literal, 1, true), nil, literal)
+	end
+	-- /oly with an unknown word prints the help, from the locale.
+	local printed = {}
+	local savedPrint, savedNsPrint = print, ns.Print
+	print = function(s) printed[#printed + 1] = tostring(s) end
+	ns.Print = function(s) printed[#printed + 1] = tostring(s) end
+	local ok, err = pcall(SlashCmdList.OLYMPUS, "no-such-command")
+	print, ns.Print = savedPrint, savedNsPrint
+	if not ok then error(err, 0) end
+	local all = table.concat(printed, "\n")
+	for _, k in ipairs({ "HELP_CMD_OPEN", "HELP_CMD_RESET", "HELP_PIN" }) do assert(all:find(ns.L[k], 1, true), k) end
+	eq(printed[1], ns.L.HELP_CMD_HEAD:format(ns.VERSION))
+	local pt = LoadLocale("ptBR")
+	for _, k in ipairs({ "HELP_CMD_HEAD", "HELP_CMD_OPEN", "HELP_CMD_TABARD", "HELP_CMD_SOUND", "HELP_CMD_PATROL", "HELP_CMD_MARK", "HELP_CMD_MAP",
+		"HELP_CMD_REALM", "HELP_CMD_LAYERS", "HELP_CMD_DECREES", "HELP_CMD_ARMS", "HELP_CMD_MATES", "HELP_CMD_SHARE", "HELP_CMD_BUG",
+		"HELP_CMD_STATUS", "HELP_CMD_KEY", "HELP_CMD_BLOCK", "HELP_CMD_LAYER", "HELP_CMD_MINIMAP", "HELP_CMD_DEBUG", "HELP_CMD_RESET",
+		"SOUND_ON", "SOUND_OFF", "BLOCKED_NOW", "DEBUG_ON", "DEBUG_OFF", "CACHE_CLEARED" }) do
+		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+		eq(Codes(rawget(pt.L, k)), Codes(rawget(ns.L, k)), "pt-BR codes: " .. k)
+	end
+	assert(ns.StatusText():find("language: enUS", 1, true), "in /oly status")
 end)
 
 -- (the end of 1.1's tests)

@@ -295,6 +295,8 @@ function ns.StatusText()
 	local function add(fmt, ...) lines[#lines + 1] = fmt:format(...) end
 	local guild = GetGuildInfo("player")
 	add("Olympus v%s  |  %s", ns.VERSION, ClientInfo())
+	-- (1.1) The addon's language: the game's, when Olympus has lines for it (Locales.lua).
+	add("language: %s", ns.LocaleReport and ns.LocaleReport() or "?")
 	add("player %s  |  %s  |  guild %s  |  olympus member: %s", tostring(ns.me), tostring(ns.faction), tostring(guild), tostring(ns.IsMember()))
 	local realm, census = RealmLines()
 	add("%s", realm)

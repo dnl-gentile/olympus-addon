@@ -476,7 +476,10 @@ account, `/oly discord forget` drops this character's request and proof.
   Olympus, a `/reload` clears it; to tell us what it was, open the Olympus window, press its
   help button (left of the X), then **Report a bug**. Don't type `/oly bug` with the gamepad: a
   command typed in the chat there can set the block off again.
-- English and Portuguese (follows the game language).
+- English and Portuguese in full, and since 1.1 Spanish, French and German for the main
+  screens, the alerts and decrees, the Join screen and its whisper, the chats and the privacy
+  questions (the rest in English). It follows the game language, and only the text on your
+  screen changes: nothing sent between players does. `/oly status` shows the language in use.
 
 ## Install
 

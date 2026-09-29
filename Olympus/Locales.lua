@@ -1028,6 +1028,34 @@ L.PIN_OUTRANKED = "%s's pin outranks yours: it stays until it ends or is taken d
 L.PIN_WAIT = "Wait %ds before pinning again."
 L.PIN_NOT_YOURS = "Only its author or a higher rank can take this pin down."
 L.HELP_PIN = "  /oly pin <text> | /oly pin off - the King, his Stewards and Hands, the Lords: one line pinned for the army (2 hours)"
+-- 1.1: the commands' help and replies, once written in the code (request #6).
+L.HELP_CMD_HEAD = "v%s commands:"
+L.HELP_CMD_OPEN = "  /oly - open/close the window"
+L.HELP_CMD_TABARD = "  /oly tabard - Heraldry Inspection tab"
+L.HELP_CMD_SOUND = "  /oly sound - turn alert sounds on/off"
+L.HELP_CMD_PATROL = "  /oly patrol - start/stop inspecting nearby Olympus members"
+L.HELP_CMD_MARK = "  /oly mark [reason] - mark your target"
+L.HELP_CMD_MAP = "  /oly map - show/hide zone counts on the world map"
+L.HELP_CMD_REALM = "  /oly realm - the Realm tree (leaders, officers, ranks)"
+L.HELP_CMD_LAYERS = "  /oly layers - layers of your zone (in the Realm tab)"
+L.HELP_CMD_DECREES = "  /oly decrees - decrees"
+L.HELP_CMD_ARMS = "  /oly arms [text] | /oly muster [text] - decree (officers; 'test' = local preview)"
+L.HELP_CMD_MATES = "  /oly mates - show/hide guildmates on map and minimap"
+L.HELP_CMD_SHARE = "  /oly share - share/stop sharing your position with your guild"
+L.HELP_CMD_BUG = "  /oly bug - copy a bug report (errors + diagnostics)"
+L.HELP_CMD_STATUS = "  /oly status - print diagnostics in chat"
+L.HELP_CMD_KEY = "  /oly key <secret> - officers: seal the Olympus channel with a shared secret"
+L.HELP_CMD_BLOCK = "  /oly block <name> - ignore everything a player sends"
+L.HELP_CMD_LAYER = "  /oly layer - show the layer id of your target (test)"
+L.HELP_CMD_MINIMAP = "  /oly minimap - show/hide the minimap button"
+L.HELP_CMD_DEBUG = "  /oly debug - verbose log in chat"
+L.HELP_CMD_RESET = "  /oly reset - forget all cached guild reports and /who sightings"
+L.SOUND_ON = "Alert sounds: on."
+L.SOUND_OFF = "Alert sounds: off."
+L.BLOCKED_NOW = "Blocked %s: nothing this player sends reaches you."
+L.DEBUG_ON = "Debug log in chat: on."
+L.DEBUG_OFF = "Debug log in chat: off."
+L.CACHE_CLEARED = "Cache cleared: the guild reports and /who sightings kept here are forgotten, and the census refills from the channel."
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -2042,4 +2070,105 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.PIN_WAIT = "Espere %ds para fixar de novo."
 	L.PIN_NOT_YOURS = "Só o autor ou alguém de posto mais alto pode tirar essa fixação."
 	L.HELP_PIN = "  /oly pin <texto> | /oly pin off - o Rei, os Senescais e as Mãos dele, os Lordes: uma linha fixada para o exército (2 horas)"
+	-- 1.1: a ajuda dos comandos e as respostas deles, antes escritas no código (pedido #6).
+	L.HELP_CMD_HEAD = "comandos da v%s:"
+	L.HELP_CMD_OPEN = "  /oly - abrir/fechar a janela"
+	L.HELP_CMD_TABARD = "  /oly tabard - aba da Inspeção de Tabard"
+	L.HELP_CMD_SOUND = "  /oly sound - ligar/desligar os sons de alerta"
+	L.HELP_CMD_PATROL = "  /oly patrol - começar/parar de inspecionar os membros de Olympus por perto"
+	L.HELP_CMD_MARK = "  /oly mark [motivo] - marcar o seu alvo"
+	L.HELP_CMD_MAP = "  /oly map - mostrar/esconder as contagens por zona no mapa-múndi"
+	L.HELP_CMD_REALM = "  /oly realm - a árvore do Reino (líderes, oficiais, patentes)"
+	L.HELP_CMD_LAYERS = "  /oly layers - os layers da sua zona (na aba O Reino)"
+	L.HELP_CMD_DECREES = "  /oly decrees - decretos"
+	L.HELP_CMD_ARMS = "  /oly arms [texto] | /oly muster [texto] - decreto (oficiais; 'test' = prévia só sua)"
+	L.HELP_CMD_MATES = "  /oly mates - mostrar/esconder os colegas de guilda no mapa e no minimapa"
+	L.HELP_CMD_SHARE = "  /oly share - compartilhar/parar de compartilhar a sua posição com a guilda"
+	L.HELP_CMD_BUG = "  /oly bug - copiar um relatório de bug (erros + diagnóstico)"
+	L.HELP_CMD_STATUS = "  /oly status - mostrar o diagnóstico no chat"
+	L.HELP_CMD_KEY = "  /oly key <segredo> - oficiais: selar o canal de Olympus com um segredo em comum"
+	L.HELP_CMD_BLOCK = "  /oly block <nome> - ignorar tudo o que um jogador mandar"
+	L.HELP_CMD_LAYER = "  /oly layer - mostrar o id do layer do seu alvo (teste)"
+	L.HELP_CMD_MINIMAP = "  /oly minimap - mostrar/esconder o botão do minimapa"
+	L.HELP_CMD_DEBUG = "  /oly debug - log detalhado no chat"
+	L.HELP_CMD_RESET = "  /oly reset - esquecer os relatórios de guilda e os avistamentos do /who guardados"
+	L.SOUND_ON = "Sons de alerta: ligados."
+	L.SOUND_OFF = "Sons de alerta: desligados."
+	L.BLOCKED_NOW = "%s bloqueado: nada que esse jogador mandar chega até você."
+	L.DEBUG_ON = "Log detalhado no chat: ligado."
+	L.DEBUG_OFF = "Log detalhado no chat: desligado."
+	L.CACHE_CLEARED = "Cache limpo: os relatórios de guilda e os avistamentos do /who guardados aqui foram esquecidos, e o censo se refaz pelo canal."
+end -- (the Portuguese lines)
+
+---------------------------------------------------------------------------
+-- More languages (1.1). Each has a file of its own under Locales/, loaded right after this one
+-- (Olympus.toc), that calls ns.Locale(<the game's language codes>, { KEY = "text", ... }). Only
+-- the game's own language is taken, key by key over the English lines above: a key the file
+-- leaves out stays English. Left out too: a key English does not have (a typo, a line removed
+-- since), a value that is not text, and a line whose format codes (%s, %d...) and escape codes
+-- (|c...|r, |T...|t, |n...) are not the English line's, in the same order, so a translation can
+-- never break a line it is formatted into or colour the rest of a window. What was left out is
+-- kept for /oly status (ns.LocaleReport). Strings only: nothing that travels between players
+-- changes with the language. CONTRIBUTING.md says how to add or finish one.
+---------------------------------------------------------------------------
+
+-- A line's format and escape codes, in order: "%s %d |c |r".
+function ns.LocaleCodes(s)
+	s = tostring(s or "")
+	local out, i, n = {}, 1, #s
+	while i <= n do
+		local c = s:sub(i, i)
+		if c == "%" then
+			local spec = s:match("^%%[%-%+ #0]*%d*%.?%d*[%a%%]", i)
+			out[#out + 1] = spec or "%?"
+			i = i + (spec and #spec or 1)
+		elseif c == "|" then
+			local nxt = s:sub(i + 1, i + 1)
+			out[#out + 1] = "|" .. nxt
+			if nxt == "c" then
+				i = i + 10
+			elseif nxt == "T" then
+				local stop = s:find("|t", i + 2, true)
+				i = (stop or n) + 2
+			else
+				i = i + 2
+			end
+		else
+			i = i + 1
+		end
+	end
+	return table.concat(out, " ")
+end
+
+local localeReport -- { code, taken, skipped = { key, ... }, lines } for the language taken
+function ns.Locale(codes, strings)
+	local current = GetLocale and GetLocale()
+	if type(codes) == "string" then codes = { codes } end
+	local mine = false
+	for _, code in ipairs(type(codes) == "table" and codes or {}) do
+		if code == current then mine = true end
+	end
+	if not mine or type(strings) ~= "table" then return 0 end
+	local taken, skipped, lines = 0, {}, 0
+	for _ in pairs(L) do lines = lines + 1 end
+	for k, v in pairs(strings) do
+		local en = type(k) == "string" and rawget(L, k)
+		if type(en) == "string" and type(v) == "string" and v ~= "" and ns.LocaleCodes(v) == ns.LocaleCodes(en) then
+			L[k] = v
+			taken = taken + 1
+		else
+			skipped[#skipped + 1] = tostring(k)
+		end
+	end
+	table.sort(skipped)
+	localeReport = { code = current, taken = taken, skipped = skipped, lines = lines }
+	return taken
+end
+
+-- For /oly status: the language taken, how many of its lines, and any left out.
+function ns.LocaleReport()
+	local r = localeReport
+	if not r then return tostring(GetLocale and GetLocale() or "?") .. (GetLocale and GetLocale() == "ptBR" and ", in full" or ", English") end
+	return ("%s, %d of %d lines%s"):format(r.code, r.taken, r.lines,
+		#r.skipped > 0 and (", left out: " .. table.concat(r.skipped, ",", 1, math.min(5, #r.skipped)) .. (#r.skipped > 5 and ",..." or "")) or "")
 end
