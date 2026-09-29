@@ -183,6 +183,9 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 "OlympusNet" by name; with a key, every member of the guilds that have it. The guild tag on an
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
 Before your first line in each channel the addon tells you this and waits for **Send**.
+Since 1.1, while your channel is public, a red line on the Census, the Realm and the Olympus
+chats says so to every member (who can read it, what officers can do, and how many guildmates
+are already on the sealed channel). It only warns: nothing is sent and nothing changes.
 
 ### The Throne (the King and his Hands)
 A tab with a crown that only the King sees: the guild master of the guild named exactly

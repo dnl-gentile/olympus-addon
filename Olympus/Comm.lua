@@ -699,6 +699,23 @@ function Comm.Audience()
 	return (ns.rdb and ns.rdb.realmKey) and ns.L.CHANNEL_SEALED or ns.L.CHANNEL_PUBLIC
 end
 
+-- The channel is public (1.1): no realm key, so anyone who joins it by name reads what is sent
+-- there. nil outside an Olympus guild (the addon is on no channel there).
+function Comm.IsPublic()
+	if not ns.IsMember() then return nil end
+	return not (ns.rdb and ns.rdb.realmKey)
+end
+
+-- Our guild's addon users on the sealed channel now, as their hellos say (1.1: while we are on
+-- the public one, they are on another channel than ours).
+function Comm.SealedPeers()
+	local now, n = ns.Now(), 0
+	for name, t in pairs(peers) do
+		if now - t <= COUNT_WINDOW and peerSealed[name] == "s" then n = n + 1 end
+	end
+	return n
+end
+
 -- No key? Ask our guild (officers who have it answer, over GUILD).
 function Comm.RequestKey()
 	if ns.IsMember() and ns.rdb and not ns.rdb.realmKey then Enqueue("GUILD", "K0~", "keyreq") end

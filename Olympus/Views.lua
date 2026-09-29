@@ -598,6 +598,26 @@ local function RebuildLines(lines)
 end
 Views.RebuildLines = RebuildLines
 
+-- The Olympus channel without a realm key (1.1, Comm.IsPublic): anyone who joins it by name reads
+-- what is sent there. While it is so, a warning on top of the Census, the Realm and the Olympus
+-- chats, for every member: what it means, what officers can do about it, and the guildmates
+-- already on the sealed channel (their hellos say so). Nothing is sent, nothing changes.
+local function PublicLines(lines)
+	local C = ns.Comm
+	if not (C and C.IsPublic and C.IsPublic()) then return false end
+	local name = C.ChannelSpec and C.ChannelSpec() or ns.CHANNEL
+	local function tip(tt)
+		tt:AddLine(L.PUBLIC_NET_TITLE, 1, 0.25, 0.25)
+		tt:AddLine(L.PUBLIC_NET_TIP:format(name), 1, 1, 1, true)
+	end
+	lines[#lines + 1] = { text = Red(L.PUBLIC_NET:format(name)), tooltip = tip }
+	local sealed = C.SealedPeers and C.SealedPeers() or 0
+	if sealed > 0 then lines[#lines + 1] = { text = Gold(L.PUBLIC_NET_SPLIT:format(sealed)), tooltip = tip } end
+	lines[#lines + 1] = { text = Grey(ns.Roster.IsOfficer() and L.PUBLIC_NET_OFFICER or L.PUBLIC_NET_MEMBER), tooltip = tip, gapAfter = true }
+	return true
+end
+Views.PublicLines = PublicLines
+
 -- How far the round of /who searches got (Who.lua), as grey lines under a list.
 local function WhoStatus(lines)
 	for _, text in ipairs(ns.Who.StatusLines() or {}) do lines[#lines + 1] = { text = Grey(text) } end
@@ -678,8 +698,6 @@ local function CensusLines(s, q)
 		if #lines == 0 then lines[1] = NoMatch() end
 		return lines
 	end
-	-- Right after login: the census is being rebuilt (it says so instead of "No reports yet").
-	local rebuilding = RebuildLines(lines)
 	-- The King's Agenda, for the whole army (King.lua).
 	local a = ns.King and ns.King.Agenda and ns.King.Agenda()
 	if a then
@@ -690,8 +708,14 @@ local function CensusLines(s, q)
 	if court then lines[#lines + 1] = court end
 	-- While the King is online: one click asks for an invite to his layer (Hop.lua).
 	for _, hop in ipairs(ns.Hop and ns.Hop.KingLines and ns.Hop.KingLines() or {}) do lines[#lines + 1] = hop end
+	local kings = #lines -- (the King's lines above: "No reports yet" counts what comes below them)
+	-- Above the guilds (1.1): the channel is public (who can read it), and right after login the
+	-- census being rebuilt (said instead of "No reports yet").
+	PublicLines(lines)
+	local rebuilding = RebuildLines(lines)
+	local top = #lines
 	for _, e in ipairs(SortedGuilds(s.guilds)) do lines[#lines + 1] = CensusRow(e) end
-	if #lines == 0 and not rebuilding then lines[1] = { text = Grey(L.EMPTY) } end
+	if #lines == top and kings == 0 and not rebuilding then lines[#lines + 1] = { text = Grey(L.EMPTY) } end
 	for _, e in ipairs(s.seen or {}) do lines[#lines + 1] = SeenRow(e) end
 	if #(s.seen or {}) > 0 then
 		lines[#lines].gapAfter = true
@@ -818,6 +842,8 @@ Views.CHAT_SHOWN = ns.Channels and ns.Channels.HISTORY or 100
 local function ChatLines(q)
 	local C = ns.Channels
 	local lines = { { text = Gold(L.CHATS_BACK), onClick = function() Views.ShowChat(nil) end, gapAfter = true } }
+	-- The channel is public: who can read these lines (1.1).
+	if not q then PublicLines(lines) end
 	local tiers = ChatTiers()
 	if not C.TIERS[chatTier] or not C.CanUse(chatTier) then chatTier = tiers[1] end
 	if not chatTier then
@@ -1113,8 +1139,6 @@ local function RealmLines(s, q)
 	local function Mark(name, home, online)
 		return ns.King and ns.King.RollCallMark and ns.King.RollCallMark(ns.FullName(name, home), online) or ""
 	end
-	-- Right after login: the census is being rebuilt (it says so instead of "No reports yet").
-	local rebuilding = not q and RebuildLines(lines)
 	-- The King holds court in our zone (Court.lua), then his layer (Hop.lua).
 	local court = not q and ns.Court and ns.Court.Line and ns.Court.Line()
 	if court then lines[#lines + 1] = court end
@@ -1152,6 +1176,15 @@ local function RealmLines(s, q)
 	end
 	-- The High Council, under them (0.9.9).
 	local found = councilShown and CouncilLines(lines, s, q) or 0
+	-- Above the chats and the guilds (1.1): the channel is public (who can read them), and right
+	-- after login the census being rebuilt (said instead of "No reports yet").
+	local rebuilding = false
+	if not q then
+		local before = #lines
+		PublicLines(lines)
+		rebuilding = RebuildLines(lines)
+		if #lines > before and lines[before] then lines[before].gapAfter = true end
+	end
 	-- The Olympus chats, one click away (the channels our rank reads), above the guilds.
 	if #ChatTiers() > 0 then
 		if lines[#lines] then lines[#lines].gapAfter = true end

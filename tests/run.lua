@@ -3059,6 +3059,9 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 			["OLYMPUS XXL"] = { online = 30, t = os.time() }, ["Olympus"] = { online = 3, t = os.time() } }
 		ns.UI = { StatusLine = function() return "status" end }
 		ns.Views.sort = { key = "members", desc = false } -- sorting moves reported guilds only
+		-- (1.1: a sealed channel. On a public one a warning goes above the guilds: its own test.)
+		local savedKey = ns.rdb.realmKey
+		ns.rdb.realmKey = "shared secret"
 		local lines = ns.Views.Build("census")
 		-- (1.0.0: the search box tops the list; nothing typed, the list under it as before.)
 		assert(lines[1].input and lines[1].input.text == "", "the search box")
@@ -3082,6 +3085,7 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 		ns.rdb.seen = {}
 		eq(#ns.Views.Build("census"), 4, "the search box, the King's layer line and 2 guilds")
 		ns.Views.sort = { key = "members", desc = true }
+		ns.rdb.realmKey = savedKey
 	end)
 end)
 
@@ -3091,6 +3095,9 @@ test("census Refresh: the roster, and one /who per click for the grey guilds", f
 			local scans = 0
 			C_GuildInfo = { GuildRoster = function() scans = scans + 1 end }
 			local UI = LoadUI()
+			-- (1.1: a sealed channel. On a public one a warning goes above the guilds: its own test.)
+			local savedKey = ns.rdb.realmKey
+			ns.rdb.realmKey = "shared secret"
 			UI.SelectTab("census")
 			local refresh = OlympusFrame.buttons[2]
 			eq(refresh:GetText(), ns.L.REFRESH)
@@ -3110,6 +3117,7 @@ test("census Refresh: the roster, and one /who per click for the grey guilds", f
 			OlympusPersonFrame.who:Click()
 			eq(server.sent[#server.sent], 'n-"Aa"', "our realm left out, as the server wants it")
 			C_GuildInfo = nil
+			ns.rdb.realmKey = savedKey
 		end)
 	end)
 end)
@@ -24761,6 +24769,112 @@ test("1.1 behind the author: its lines in both languages", function()
 	GetLocale = savedLocale
 	if not ok then error(err, 0) end
 	for _, k in ipairs({ "BEHIND_LINE", "BEHIND_TIP", "BEHIND_CHAT" }) do
+		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+	end
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: a warning while the Olympus channel is public (request #8)
+---------------------------------------------------------------------------
+
+test("1.1 public channel: while no realm key seals it, the Census, the Realm and the Olympus chats warn every member who can read it; officers are told how to seal it; sealed, no warning", function()
+	local L = ns.L
+	local saved = { key = ns.rdb.realmKey, guilds = ns.rdb.guilds, chat = ns.rdb.chat }
+	local function Has(lines, text)
+		for _, l in ipairs(lines) do if type(l.text) == "string" and l.text:find(text, 1, true) then return l end end
+		return nil
+	end
+	local ok, err = pcall(function()
+		ns.rdb.guilds = SampleGuilds()
+		ns.rdb.realmKey = nil
+		local warning = L.PUBLIC_NET:format(ns.CHANNEL)
+		AsRank(3, function()
+			eq(ns.Comm.IsPublic(), true)
+			local census = ns.Views.Build("census")
+			local line = Has(census, warning)
+			assert(line, "on the Census")
+			assert(Has(census, L.PUBLIC_NET_MEMBER), "a member: ask the officers")
+			eq(Has(census, L.PUBLIC_NET_OFFICER), nil)
+			-- Its tooltip says what it means and what to do.
+			local tip = {}
+			line.tooltip({ AddLine = function(_, t) tip[#tip + 1] = t end })
+			eq(tip[1], L.PUBLIC_NET_TITLE); eq(tip[2], L.PUBLIC_NET_TIP:format(ns.CHANNEL))
+			-- Above the guilds, under the King's lines (which stay first, for his stream).
+			local at, first
+			for i, l in ipairs(census) do
+				if l == line then at = i end
+				if l.cols and not first then first = i end
+			end
+			assert(at and first and at < first, "above the guild rows")
+			assert(census[2].onClick and not census[2].cols and census[2] ~= line, "the King's layer line still under the search box")
+			assert(Has(ns.Views.Build("realm"), warning), "on the Realm")
+			-- The Olympus chats: what is said there is what anyone can read.
+			ns.Views.ShowChat("A")
+			local chat = ns.Views.Build("realm")
+			assert(Has(chat, warning), "on the chats")
+			ns.Views.ShowChat(nil)
+		end)
+		AsRank(1, function()
+			local census = ns.Views.Build("census")
+			assert(Has(census, L.PUBLIC_NET_OFFICER), "an officer: how to seal it")
+			eq(Has(census, L.PUBLIC_NET_MEMBER), nil)
+		end)
+		-- Sealed with a realm key: no warning anywhere.
+		ns.rdb.realmKey = "shared secret"
+		eq(ns.Comm.IsPublic(), false)
+		eq(Has(ns.Views.Build("census"), warning), nil)
+		eq(Has(ns.Views.Build("realm"), warning), nil)
+		ns.Views.ShowChat("A")
+		eq(Has(ns.Views.Build("realm"), warning), nil)
+		ns.Views.ShowChat(nil)
+		-- Outside an Olympus guild the addon is on no channel: nothing to warn about.
+		ns.rdb.realmKey = nil
+		local savedGuild = GetGuildInfo
+		GetGuildInfo = function() return "House of Guedes", "Member", 3 end
+		eq(ns.Comm.IsPublic(), nil)
+		GetGuildInfo = savedGuild
+	end)
+	ns.rdb.realmKey, ns.rdb.guilds, ns.rdb.chat = saved.key, saved.guilds, saved.chat
+	ns.Views.ShowChat(nil)
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 public channel: guildmates whose hello says they are on the sealed channel are counted in the warning", function()
+	local savedChannel, savedComm, savedKey, savedGuilds = GetChannelName, ns.Comm, ns.rdb.realmKey, ns.rdb.guilds
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		local cns, Deliver = FreshComm()
+		local C = cns.Comm
+		ns.rdb.realmKey = nil
+		ns.rdb.guilds = SampleGuilds()
+		eq(C.SealedPeers(), 0)
+		Deliver("GUILD", "Aaa", "H1~1.0.0~Realm~p")
+		Deliver("GUILD", "Bcc", "H1~1.0.0~Realm~s")
+		Deliver("GUILD", "Bdd", "H1~1.0.0~Realm~s")
+		eq(C.SealedPeers(), 2, "the two on the sealed channel")
+		ns.Comm = C
+		local found = false
+		for _, l in ipairs(ns.Views.Build("census")) do
+			if type(l.text) == "string" and l.text:find(ns.L.PUBLIC_NET_SPLIT:format(2), 1, true) then found = true end
+		end
+		assert(found, "the census says so")
+		-- Quiet for longer than a hello round counts: no longer counted.
+		cns.clock = cns.clock + 721
+		eq(C.SealedPeers(), 0)
+	end)
+	GetChannelName, ns.Comm, ns.rdb.realmKey, ns.rdb.guilds, C_ChatInfo = savedChannel, savedComm, savedKey, savedGuilds, nil
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 public channel: its lines in both languages", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, k in ipairs({ "PUBLIC_NET", "PUBLIC_NET_OFFICER", "PUBLIC_NET_MEMBER", "PUBLIC_NET_SPLIT", "PUBLIC_NET_TITLE", "PUBLIC_NET_TIP" }) do
 		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
 		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
 	end
