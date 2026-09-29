@@ -185,6 +185,9 @@ what each player chose to share, and the King's week.
   guild's events from the game's calendar among them, so nobody books the army twice. Olympus
   can't write into the game's calendar: an officer's click opens it on the right day's month and
   says which day to right-click for the guild event.
+- **The signup sheet**: Sign up on an Agenda entry with the role you claim; it goes to whoever set
+  it, alone, and the army sees the counts (4 tanks, 9 healers...). Nothing checks the role and
+  nothing invites you: whoever runs the event invites by hand.
 - **Raise a flag** with one click: **Dungeon**, **Raid**, **PvP** or **Layer**, plus a short
   note if you want one (40 bytes at most). A box says first what goes out: your name, level,
   class and guild, the flag and the note, to every Olympus player of your realm and faction.
@@ -569,6 +572,8 @@ message (the game adds it). What goes where:
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one |
 | A flag on the Board (1.1): your guild, level and class, the flag (dungeon, raid, PvP or layer), your note (with the logged API), and your zone only while you share it | everyone on the Olympus channel, and whispered to a player whose Board asked for the flags up | when you raise it, then every 10 to 30 minutes for an hour at most, until you lower it |
 | The Board's ask (1.1): nothing but your name | everyone on the Olympus channel | once a session, the first time you open the Board |
+| A signup (1.1): the Agenda entry, the role you claim (or that you withdraw) and your guild | whoever set that entry (the King, his Steward or a Hand), alone (a whisper) | only when you click Sign up |
+| A signup sheet (1.1): the counts per role of each entry, no names | everyone on the Olympus channel | from the client of whoever set the entries, every 5 minutes while one is ahead, and soon after a change |
 | A camp on the Board (1.1): your guild, level and class, the camp's zone (never your spot) and your note (with the logged API) | everyone on the Olympus channel, and whispered to a player whose Board asked | only with `/oly location on`, when you drop it, then every 10 minutes for its 30 minutes, until you take it down |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |

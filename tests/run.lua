@@ -25295,7 +25295,9 @@ test("1.1 the King's week: the Agenda's box puts an entry on the week (the King,
 		local sends = #w.sent
 		w.clock = w.clock + W.RESEND
 		W.Tick()
-		eq(#w.sent - sends, W.RESEND_PER_TICK)
+		local repeats = 0
+		for i = sends + 1, #w.sent do if w.sent[i].msg:find("^T1~D~") then repeats = repeats + 1 end end
+		eq(repeats, W.RESEND_PER_TICK)
 		assert(LastWeek(w):find("^T1~D~%d+~Olympus~%d+~0~"), "a repeat")
 		-- A /reload: the King's entries come back from his SavedVariables, and go on being repeated.
 		local kept = ns.rdb.week
@@ -25512,6 +25514,177 @@ test("1.1 the King's week: its words in both languages, the same placeholders", 
 		assert(rawget(ns.L, k):find("Sat 20", 1, true) or rawget(ns.L, k):find("day and an hour", 1, true), k)
 	end
 	eq(#ns.L.WEEK_WEEKDAYS, 7); eq(#ns.L.WEEK_MONTHS, 12)
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: the signup sheet on the King's Agenda (Week.lua, Fern's #27): the role the player claims,
+-- a click, a whisper to the entry's setter alone; counts for the army, names on his screen.
+---------------------------------------------------------------------------
+
+local function Line(lines, text)
+	for _, l in ipairs(lines) do if l.text and l.text:find(text, 1, true) then return l end end
+end
+
+test("1.1 signups: a click signs up with the role claimed, whispered to the entry's setter alone, while his addon takes it", function()
+	WithWeek(function(w, W, K, B)
+		AsSoldier()
+		local KING = ns.KingCharacter() .. "-Realm"
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400) .. "~1~~Raid night")
+		-- No sheet heard from the King's client yet: no Sign up (a whisper would find nobody).
+		eq(Line(B.Lines(), ns.L.SIGN_UP), nil)
+		eq(W.Sign(501, "H"), false); eq(#w.whispered, 0)
+		assert(Printed(w, ns.L.SIGN_NOT_NOW))
+		-- His sheet: the counts for everyone, and Sign up.
+		K.HandleCommand("CHANNEL", KING, "T1~R~9~Olympus~501:1:2:3:0")
+		local lines = B.Lines()
+		assert(Line(lines, ns.L.SIGN_COUNTS:format(1, 2, 3, 0)), Texts(lines))
+		local up = Line(lines, ns.L.SIGN_UP)
+		assert(up, "Sign up")
+		up.onClick()
+		lines = B.Lines()
+		for _, role in ipairs({ "T", "H", "D", "A" }) do assert(Line(lines, "> " .. ns.L["SIGN_ROLE_" .. role]), role) end
+		Line(lines, "> " .. ns.L.SIGN_ROLE_H).onClick()
+		local out = w.whispered[#w.whispered]
+		eq(out.to, KING); eq(out.msg, "Y2~501~H~Olympus II"); eq(out.urgent, true); eq(out.key, "sign501")
+		eq(#w.sent, 0, "nothing on the channel")
+		eq(W.MySignup(501), "H")
+		assert(Printed(w, ns.L.SIGN_DONE:format(ns.L.SIGN_ROLE_H, "Raid night")))
+		assert(Line(B.Lines(), ns.L.SIGN_YOU:format(ns.L.SIGN_ROLE_H)), "you: Healer")
+		-- Another role: the same whisper, the setter keeps one each; withdrawn: W.
+		w.clock = w.clock + W.SIGN_GAP
+		W.Sign(501, "T")
+		eq(w.whispered[#w.whispered].msg, "Y2~501~T~Olympus II")
+		w.clock = w.clock + W.SIGN_GAP
+		W.Sign(501, "W")
+		eq(w.whispered[#w.whispered].msg, "Y2~501~W~Olympus II"); eq(W.MySignup(501), nil)
+		eq(W.Sign(501, "X"), false, "no such role")
+		-- The King's client quiet for 6 minutes and more: no Sign up (the counts stay).
+		w.clock = w.clock + W.SHEET_FRESH + 1
+		lines = B.Lines()
+		eq(Line(lines, ns.L.SIGN_UP), nil); assert(Line(lines, ns.L.SIGN_COUNTS:format(1, 2, 3, 0)))
+		-- A sheet is its setter's alone: a Hand's for the King's entry, a stranger's, both left out.
+		K.HandleCommand("CHANNEL", KING, "T1~H~9~Olympus~Helper-Realm")
+		K.HandleCommand("CHANNEL", "Helper-Realm", "T1~R~10~Olympus II~501:40:0:0:0")
+		K.HandleCommand("CHANNEL", "Faker-Realm", "T1~R~11~Olympus II~501:40:0:0:0")
+		eq(W.Sheets()[501].T, 1)
+		-- The Agenda's current event takes signups too.
+		K.HandleCommand("CHANNEL", KING, "T1~A~77~Olympus~1800~Orgrimmar~Raid on the Crossroads")
+		K.HandleCommand("CHANNEL", KING, "T1~R~12~Olympus~77:0:0:5:0,501:1:2:3:0")
+		w.clock = w.clock + W.SIGN_GAP
+		eq(W.Sign(77, "D"), true)
+		eq(w.whispered[#w.whispered].msg, "Y2~77~D~Olympus II")
+	end)
+	-- Fern: "No auto-invite and no check against auras."
+	local src = assert(io.open(ADDON_DIR .. "Week.lua")):read("*a")
+	for _, api in ipairs({ "InviteUnit", "InviteToGroup", "C_PartyInfo", "UnitAura", "AuraUtil", "C_UnitAuras", "GetSpecialization",
+		"GetTalentInfo", "UnitGroupRolesAssigned", "GetInventoryItem" }) do
+		eq(src:find(api, 1, true), nil, api)
+	end
+end)
+
+test("1.1 signups: the setter's client keeps one each, counts the census-placed ones for the army, the names behind a click on his screen", function()
+	WithWeek(function(w, W, K, B)
+		local savedCouncil = ns.IsHighCouncillor
+		local ok, err = pcall(function()
+			ns.rdb.guilds["Olympus Tiny"] = Vouched({ total = 2, online = 1, zones = {}, t = w.clock, leader = "Tin", realm = "Realm" }, "W7-Realm", "W8-Realm")
+			AsKing()
+			K.SetAgenda("Sat 20:00 Raid night")
+			local id = W.Entries()[1].id
+			W.Tick()
+			local sheet = LastSent(w)
+			eq(sheet:match("^T1~R~%d+~Olympus~(.*)$"), id .. ":0:0:0:0", "an empty sheet at once: Sign up shows")
+			-- Signups by whisper.
+			W.HandleSignup("WHISPER", "Zed-Realm", ("Y2~%d~T~Olympus Zeus"):format(id))
+			eq(LastSent(w):match("^T1~R~%d+~Olympus~(.*)$"), id .. ":1:0:0:0", "the counts soon after a change")
+			W.HandleSignup("WHISPER", "Zed-Realm", ("Y2~%d~H~Olympus Zeus"):format(id))
+			eq(W.Counts(W.Entry(id)).T, 0); eq(W.Counts(W.Entry(id)).H, 1, "one each: the role changed")
+			W.HandleSignup("WHISPER", "Tin-Realm", ("Y2~%d~D~Olympus Tiny"):format(id))
+			W.HandleSignup("WHISPER", "Tin2-Realm", ("Y2~%d~D~Olympus Tiny"):format(id))
+			W.HandleSignup("WHISPER", "Tin3-Realm", ("Y2~%d~D~Olympus Tiny"):format(id))
+			W.HandleSignup("WHISPER", "Nomad-Realm", ("Y2~%d~A~Olympus Nowhere"):format(id))
+			W.HandleSignup("WHISPER", "Liar-Realm", ("Y2~%d~A~Olympus"):format(id))
+			W.HandleSignup("WHISPER", "Troll-Realm", ("Y2~%d~T~Horde Stompers"):format(id))
+			local c = W.Counts(W.Entry(id))
+			eq(c.D, 2, "a guild of 2: 2 at most"); eq(c.A, 0); eq(c.T, 0)
+			eq(c.others, 4, "the rest counted apart: past the cap, unknown to the census, our guild's name from outside our roster, not Olympus")
+			-- Not a whisper, not an entry of ours, a role that isn't one, withdrawn: as it should.
+			W.HandleSignup("CHANNEL", "Zed2-Realm", ("Y2~%d~T~Olympus Zeus"):format(id))
+			W.HandleSignup("WHISPER", "Zed3-Realm", "Y2~12345~T~Olympus Zeus")
+			W.HandleSignup("WHISPER", "Zed4-Realm", ("Y2~%d~Q~Olympus Zeus"):format(id))
+			eq(W.Counts(W.Entry(id)).T, 0)
+			W.HandleSignup("WHISPER", "Tin-Realm", ("Y2~%d~W~Olympus Tiny"):format(id))
+			eq(W.Counts(W.Entry(id)).D, 1)
+			-- The army's counts only; the names on his screen, behind a click, a councillor's cut short
+			-- while the council's names are hidden there (his stream).
+			ns.IsHighCouncillor = function(name) return name == "Zed-Realm" end
+			local lines = B.Lines()
+			assert(not Texts(lines):find("Tin2", 1, true), "no name before the click")
+			local who = Line(lines, ns.L.SIGN_WHO:format(6))
+			assert(who, Texts(lines))
+			who.onClick()
+			local text = Texts(B.Lines())
+			assert(text:find(ns.L.SIGN_ROLE_H .. " (1)", 1, true) and text:find(ns.MaskName("Zed"), 1, true) and not text:find("Zed ", 1, true), text)
+			assert(text:find("Tin2", 1, true) and text:find(ns.L.SIGN_UNCONFIRMED, 1, true), text)
+			-- The sheet every 5 minutes, and the Agenda's current event on it too.
+			K.SetAgenda("30 Raid on Crossroads")
+			local agenda = K.Agenda().id
+			W.HandleSignup("WHISPER", "Zed-Realm", ("Y2~%d~T~Olympus Zeus"):format(agenda))
+			w.clock = w.clock + W.SHEET_EVERY
+			W.Tick()
+			local last = LastSent(w):match("^T1~R~%d+~Olympus~(.*)$")
+			assert(last and last:find(agenda .. ":1:0:0:0", 1, true) and last:find(id .. ":0:1:1:0", 1, true), tostring(last))
+			-- A soldier's client sends no sheet, whatever it holds.
+			AsSoldier()
+			local n = #w.sent
+			w.clock = w.clock + W.SHEET_EVERY
+			W.Tick()
+			eq(#w.sent, n)
+		end)
+		ns.IsHighCouncillor = savedCouncil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 signups: clients before 1.1 leave the kind R out; a Hand's sheet only in their debug log", function()
+	local kns = setmetatable({ On = function() end, Comm = { Handle = function() end }, rdb = {} }, { __index = ns })
+	local logs = {}
+	kns.Log = function(fmt, ...) logs[#logs + 1] = fmt:format(...) end
+	assert(loadfile(ROOT .. "tests/fixtures/king-0.9.8.lua"))("Olympus", kns)
+	local OK = kns.King
+	local savedGuild = GetGuildInfo
+	local ok, err = pcall(function()
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		kns.me = "Soldier-Realm"
+		local KING = ns.KingCharacter() .. "-Realm"
+		OK.HandleCommand("CHANNEL", KING, "T1~R~9~Olympus~501:1:2:3:0")
+		OK.HandleCommand("CHANNEL", KING, "T1~H~9~Olympus~Helper-Realm")
+		OK.HandleCommand("CHANNEL", "Helper-Realm", "T1~R~10~Olympus II~501:1:2:3:0")
+		local left = 0
+		for _, line in ipairs(logs) do if line:find("throne R from Helper-Realm ignored", 1, true) then left = left + 1 end end
+		eq(left, 1)
+	end)
+	GetGuildInfo = savedGuild
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 signups: their words in both languages, the same placeholders", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	local function Specs(s) local out = {} for spec in s:gmatch("%%[%a%%]") do out[#out + 1] = spec end return table.concat(out) end
+	local n = 0
+	for k, en in pairs(ns.L) do
+		if type(k) == "string" and k:find("^SIGN_") then
+			n = n + 1
+			local ptText = rawget(pt.L, k)
+			assert(type(ptText) == "string" and ptText ~= "", "pt-BR " .. k)
+			eq(Specs(ptText), Specs(en), k)
+		end
+	end
+	assert(n >= 15, "the sheet's strings: " .. n)
 end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))

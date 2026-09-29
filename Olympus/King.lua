@@ -18,7 +18,7 @@ local L = ns.L
 --   T3~<id>~<guild>~<ok>~<none>~<other>~<name:guild,...>   an inspection report
 -- Other modules add their own kinds (King.Register): Vox Populi (V, E), writs (W), the court
 -- (C, Z), the gates (G), pardons (F), the treasury's switches and keepers (T, K: his and his
--- Steward's), the King's week (D, 1.1: Week.lua).
+-- Steward's), the King's week and its signup sheet (D, R, 1.1: Week.lua).
 -- The King's Steward (1.0.0, ns.IsSteward: the character the author marks in the signed titles
 -- list) has the Throne as the King has it, "acting for the King": he names and removes Hands of
 -- his own beside the King's, the treasury's keepers and its switches, and uses every tool of a

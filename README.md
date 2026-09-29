@@ -206,6 +206,16 @@ what each player chose to share, and the King's week.
   or in combat, it only says how to open it (the minimap clock, `/calendar`, or the gamepad
   menu's Calendar). The King's client repeats his entries every 10 minutes for late logins, and
   keeps them across a `/reload`.
+- **The signup sheet** (1.1) on every entry of the King's Agenda, its current event too: **Sign
+  up**, then the role you claim (Tank, Healer, DPS or Any role; Withdraw takes it back). Nothing
+  checks the claim and nothing invites you: the signup is a whisper to whoever set that entry,
+  alone, and whoever runs the event invites by hand. His client keeps one signup per character
+  and sends the army the counts ("Signed: 4 tanks · 9 healers · 60 dps · 3 any") every 5
+  minutes and soon after a change, so the King knows whether the raid is 4 or 40 before anyone
+  zones in; the names stay on his own screen, behind **Who signed** (a councillor's cut short on
+  the King's stream). Signups the census can't place (more than a guild's size, a guild it
+  doesn't know) are listed apart and not counted. Sign up shows only while that player's addon
+  is online to take it.
 - **Raise a flag** with one click: **Dungeon**, **Raid**, **PvP** or **Layer**, plus a short
   note if you want one (40 bytes at most; `/oly lfg raid need a healer` fills it in). A box
   says first what goes out: your name, level, class and guild, the flag and the note, to every
@@ -665,6 +675,8 @@ message (the game adds it). What goes where:
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one |
 | A flag on the Board (1.1): your guild, level and class, the flag (dungeon, raid, PvP or layer), your note (with the logged API), and your zone only while you share it | everyone on the Olympus channel, and whispered to a player whose Board asked for the flags up | when you raise it, then every 10 to 30 minutes for an hour at most, until you lower it |
 | The Board's ask (1.1): nothing but your name | everyone on the Olympus channel | once a session, the first time you open the Board |
+| A signup (1.1): the Agenda entry, the role you claim (or that you withdraw) and your guild | whoever set that entry (the King, his Steward or a Hand), alone (a whisper) | only when you click Sign up |
+| A signup sheet (1.1): the counts per role of each entry, no names | everyone on the Olympus channel | from the client of whoever set the entries, every 5 minutes while one is ahead, and soon after a change |
 | A camp on the Board (1.1): your guild, level and class, the camp's zone (never your spot) and your note (with the logged API) | everyone on the Olympus channel, and whispered to a player whose Board asked | only with `/oly location on`, when you drop it, then every 10 minutes for its 30 minutes, until you take it down |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |

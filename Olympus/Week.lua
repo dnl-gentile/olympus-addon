@@ -476,6 +476,8 @@ function Week.Section(lines, q)
 				if mayCancel and not e.agenda then
 					actions[#actions + 1] = { indent = 3, text = Grey("x " .. L.WEEK_CANCEL), onClick = function() Week.Cancel(e.id) end }
 				end
+				-- Its signup sheet (Fern's #27).
+				Week.SheetLines(lines, e)
 				for _, a in ipairs(actions) do lines[#lines + 1] = a end
 			end
 		end
@@ -486,6 +488,281 @@ function Week.Section(lines, q)
 	end
 	lines[#lines].gapAfter = true
 end
+
+---------------------------------------------------------------------------
+-- The signup sheet (1.1, Fern's #27): on any entry of the King's Agenda (its current event or
+-- one of the week's), a player clicks Sign up and picks the role he claims: Tank, Healer, DPS
+-- or Any. Nothing checks the claim (no aura, no spec, no gear), nothing invites anyone: the
+-- signup is a whisper to whoever set that entry, alone, and whoever runs the event invites by
+-- hand. The setter's client keeps one signup per character and repeats the counts to the army
+-- every 5 minutes, and sooner after a change, so the King knows whether the raid is 4 or 40
+-- before anyone zones in; the names stay on the setter's own screen, behind a click.
+--   Y2~<agendaId>~<role>~<guild>   role T|H|D|A, W withdraws; whispered to the entry's setter
+--   T1~R~<id>~<guild>~<agendaId>:<t>:<h>:<d>:<a>,...   the setter's sheet: counts per role of
+--       each entry of his (the census-placed signups; the rest counted apart, on his screen)
+-- The Sign up row shows only while the setter's sheet was heard in the last SHEET_FRESH (his
+-- client is online and knows signups): a whisper to a setter who left would only earn a "No
+-- player named" line. Clients before 1.1 leave the kind R out, and never see Y2.
+---------------------------------------------------------------------------
+
+Week.ROLES = { "T", "H", "D", "A" }
+Week.ROLE_OK = { T = true, H = true, D = true, A = true }
+Week.SHEET_EVERY = 300       -- the setter's client repeats its sheet this often
+Week.SHEET_SOON = 20         -- ...and this long after a change (one message for a burst)
+Week.SHEET_FRESH = 390       -- a sheet heard this recently: its setter takes signups
+Week.SIGN_GAP = 3            -- seconds between two of our signups
+Week.MAX_SIGNUPS = 2000      -- signups one entry keeps (the census-placed and the others)
+ns.King.HAND_MAY.R = true
+ns.King.STEWARD_MAY.R = true
+
+local sheets = {}            -- [agendaId] = { T, H, D, A = counts, at = when heard } (another's entries)
+local signups = {}           -- [agendaId] = { list = { [Name-Realm] = { role, guild, placed, t } }, byGuild = {}, others = n } (ours)
+local lastSheet, sheetPending, lastSign = -math.huge, false, -math.huge
+local signOpen, whoOpen = {}, {} -- [agendaId] = the role rows, the names shown
+
+local function RoleLabel(role) return L["SIGN_ROLE_" .. tostring(role)] or "?" end
+Week.RoleLabel = RoleLabel
+
+-- This character's own signups, kept for its next login (the reminder, #2): [agendaId] = role.
+local function Signed()
+	if not ns.rdb then return {} end
+	if type(ns.rdb.signed) ~= "table" then ns.rdb.signed = {} end
+	local me = ns.me or "?"
+	if type(ns.rdb.signed[me]) ~= "table" then ns.rdb.signed[me] = {} end
+	return ns.rdb.signed[me]
+end
+function Week.MySignup(id)
+	local s = ns.rdb and type(ns.rdb.signed) == "table" and ns.rdb.signed[ns.me or "?"]
+	local v = type(s) == "table" and s[id]
+	return type(v) == "table" and v.role or nil
+end
+
+-- The entry (the Agenda's current event or one of the week's) with that id, or nil.
+function Week.Entry(id)
+	for _, e in ipairs(Week.Entries()) do if e.id == id then return e end end
+	return nil
+end
+
+-- Whether a signup can reach this entry's setter now: ours, or his sheet heard lately.
+function Week.TakesSignups(e)
+	if not e or e.at <= ns.Now() or e.preview then return false end
+	if e.mine then return true end
+	local s = sheets[e.id]
+	return s ~= nil and ns.Now() - s.at <= Week.SHEET_FRESH
+end
+
+-- The counts of an entry: ours from the signups themselves, anyone else's from their sheet.
+function Week.Counts(e)
+	if e and e.mine then
+		local c = { T = 0, H = 0, D = 0, A = 0 }
+		local s = signups[e.id]
+		for _, v in pairs(s and s.list or {}) do if v.placed then c[v.role] = c[v.role] + 1 end end
+		c.others = s and s.others or 0
+		return c
+	end
+	return e and sheets[e.id] or nil
+end
+
+-- Our click: the role we claim (W: withdrawn), whispered to the setter alone.
+function Week.Sign(id, role)
+	local e = Week.Entry(id)
+	if not e or not (role == "W" or Week.ROLE_OK[role]) then return false end
+	if not ns.IsMember() then
+		ns.Print(L.MEMBERS_ONLY)
+		return false
+	end
+	if not Week.TakesSignups(e) then
+		ns.Print(L.SIGN_NOT_NOW)
+		return false
+	end
+	local now = ns.Now()
+	if now - lastSign < Week.SIGN_GAP then return false end
+	lastSign = now
+	local msg = ("Y2~%d~%s~%s"):format(id, role, GetGuildInfo("player") or "")
+	if e.mine then
+		Week.HandleSignup("WHISPER", ns.me, msg)
+	else
+		ns.Comm.Whisper(e.by, msg, "sign" .. id, true)
+	end
+	local mine = Signed()
+	if role == "W" then
+		mine[id] = nil
+		ns.Print(L.SIGN_WITHDRAWN:format(e.title))
+	else
+		mine[id] = { role = role, at = e.at }
+		ns.Print(L.SIGN_DONE:format(RoleLabel(role), e.title))
+	end
+	signOpen[id] = nil
+	Changed()
+	return true
+end
+
+-- Whose signup counts on the sheet: our own guild's members (the server's roster), or a guild of
+-- the census, fresh, never more signups from it than it has members. Anyone else's (nothing
+-- stops a stranger from whispering one) is counted apart, on the setter's screen alone.
+local sizes, sizesAt = {}, -math.huge
+local function GuildSize(guild)
+	local now = ns.Now()
+	if now - sizesAt > 60 then
+		sizes, sizesAt = {}, now
+		for _, g in ipairs(ns.Data.Summary().guilds) do
+			if g.fresh and not g.g.conflict then sizes[g.name] = tonumber(g.g.total) or 0 end
+		end
+	end
+	return sizes[guild]
+end
+local function Placed(s, sender, guild)
+	if sender == ns.me or ns.Roster.RankOf(sender) then return true end
+	local own = GetGuildInfo("player")
+	if not guild or (own and guild == own) then return false end
+	local size = GuildSize(guild)
+	return size ~= nil and (s.byGuild[guild] or 0) < math.max(size, 1)
+end
+
+local function SheetSoon()
+	if sheetPending then return end
+	sheetPending = true
+	Week.after(Week.SHEET_SOON, "week sheet", function()
+		sheetPending = false
+		Week.SendSheet(true)
+	end)
+end
+
+-- A signup, whispered to us: kept only for an entry of ours still to come.
+function Week.HandleSignup(dist, sender, text)
+	if dist ~= "WHISPER" then return end
+	local id, role, guild = tostring(text or ""):match("^Y2~(%d+)~([THDAW])~(.*)$")
+	local e = Week.Entry(tonumber(id))
+	if not e or not e.mine or e.preview or e.at <= ns.Now() then return end
+	sender = ns.FullName(sender)
+	guild = ns.King.CleanGuild(guild)
+	local s = signups[e.id]
+	if not s then
+		s = { list = {}, byGuild = {}, others = 0, n = 0 }
+		signups[e.id] = s
+	end
+	local old = s.list[sender]
+	if role == "W" then
+		if not old then return end
+		s.list[sender], s.n = nil, s.n - 1
+		if old.placed then s.byGuild[old.guild] = (s.byGuild[old.guild] or 1) - 1 else s.others = s.others - 1 end
+	elseif old then
+		old.role, old.t = role, ns.Now()
+	else
+		if s.n >= Week.MAX_SIGNUPS then return end
+		local placed = Placed(s, sender, guild)
+		s.list[sender] = { role = role, guild = guild or "?", placed = placed, t = ns.Now() }
+		s.n = s.n + 1
+		if placed then
+			if guild then s.byGuild[guild] = (s.byGuild[guild] or 0) + 1 end
+		else
+			s.others = s.others + 1
+		end
+	end
+	SheetSoon()
+	Changed()
+end
+ns.Comm.Handle("Y2", function(...) Week.HandleSignup(...) end)
+
+-- The setter's sheet: the counts of every entry of his still to come, in one message (pieces
+-- when long). `soon`: a change's, sent whatever the time since the last one.
+function Week.SendSheet(soon)
+	local K = ns.King
+	if K.Preview() or not K.CanCommand() then return false end
+	local now = ns.Now()
+	if not soon and now - lastSheet < Week.SHEET_EVERY then return false end
+	local parts = {}
+	for _, e in ipairs(Week.Entries(now)) do
+		if e.mine and not e.preview and e.at > now then
+			local c = Week.Counts(e)
+			parts[#parts + 1] = ("%d:%d:%d:%d:%d"):format(e.id, c.T, c.H, c.D, c.A)
+		end
+	end
+	if #parts == 0 then return false end
+	lastSheet = now
+	local msg = ("T1~R~%d~%s~%s"):format(K.NewId(), GetGuildInfo("player") or "", table.concat(parts, ","))
+	if #msg <= 250 then ns.Comm.Send("CHANNEL", msg, "sheet") else ns.Comm.SendChunked(msg) end
+	return true
+end
+
+-- Another setter's sheet: taken for the entries that setter set, as they are.
+local function OnSheet(sender, _, rest)
+	sender = ns.FullName(sender)
+	local now, any = ns.Now(), false
+	for part in tostring(rest or ""):gmatch("[^,]+") do
+		local id, t, h, d, a = part:match("^(%d+):(%d+):(%d+):(%d+):(%d+)$")
+		local e = id and Week.Entry(tonumber(id))
+		if e and not e.mine and e.by == sender then
+			local cap = Week.MAX_SIGNUPS
+			sheets[e.id] = { T = math.min(tonumber(t), cap), H = math.min(tonumber(h), cap), D = math.min(tonumber(d), cap),
+				A = math.min(tonumber(a), cap), at = now }
+			any = true
+		end
+	end
+	if any then Changed() end
+end
+ns.King.Register("R", OnSheet)
+
+-- An entry's sheet on the week: its counts, our own role, the role rows once Sign up is
+-- clicked; for its setter the names by role, behind a click (the King's stream: a councillor's
+-- name cut short while the council's names are hidden there).
+local function ShownName(name)
+	local shown = ns.DisplayName(name) or "?"
+	if ns.CouncilMasked() and ns.IsHighCouncillor(name) then return ns.MaskName(shown) end
+	return shown
+end
+
+function Week.SheetLines(lines, e)
+	local counts = Week.Counts(e)
+	local mine = Week.MySignup(e.id)
+	if counts or mine then
+		local text = counts and L.SIGN_COUNTS:format(counts.T or 0, counts.H or 0, counts.D or 0, counts.A or 0) or ""
+		if mine then text = text .. (text ~= "" and "  ·  " or "") .. Green(L.SIGN_YOU:format(RoleLabel(mine))) end
+		lines[#lines + 1] = { indent = 3, text = Grey(text), tooltip = function(tt)
+			tt:AddLine(L.SIGN_TITLE, 1, 0.82, 0)
+			tt:AddLine(L.SIGN_TIP, 1, 1, 1, true)
+		end }
+	end
+	if Week.TakesSignups(e) then
+		lines[#lines + 1] = { indent = 3, text = Gold((signOpen[e.id] and "[-] " or "[+] ") .. (mine and L.SIGN_CHANGE or L.SIGN_UP)),
+			onClick = function() signOpen[e.id] = not signOpen[e.id] or nil; Changed(); if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end end,
+			tooltip = function(tt) tt:AddLine(L.SIGN_UP, 1, 0.82, 0); tt:AddLine(L.SIGN_TIP, 1, 1, 1, true) end }
+		if signOpen[e.id] then
+			for _, role in ipairs(Week.ROLES) do
+				lines[#lines + 1] = { indent = 4, text = (mine == role and Green or Gold)("> " .. RoleLabel(role)),
+					onClick = function() Week.Sign(e.id, role) end }
+			end
+			if mine then lines[#lines + 1] = { indent = 4, text = Grey("x " .. L.SIGN_WITHDRAW), onClick = function() Week.Sign(e.id, "W") end } end
+		end
+	end
+	local s = e.mine and signups[e.id]
+	if s and s.n > 0 then
+		lines[#lines + 1] = { indent = 3, text = Gold((whoOpen[e.id] and "[-] " or "[+] ") .. L.SIGN_WHO:format(s.n)),
+			onClick = function() whoOpen[e.id] = not whoOpen[e.id] or nil; if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end end }
+		if whoOpen[e.id] then
+			for _, role in ipairs(Week.ROLES) do
+				local names = {}
+				for name, v in pairs(s.list) do if v.role == role then names[#names + 1] = name end end
+				table.sort(names)
+				if #names > 0 then
+					lines[#lines + 1] = { indent = 4, text = Gold(RoleLabel(role) .. " (" .. #names .. ")") }
+					for i, name in ipairs(names) do
+						if i > 25 then
+							lines[#lines + 1] = { indent = 5, text = Grey(L.AND_MORE:format(#names - 25)) }
+							break
+						end
+						local v = s.list[name]
+						lines[#lines + 1] = { indent = 5, text = ShownName(name) .. "  " .. Grey("<" .. ns.Codec.Plain(v.guild) .. ">")
+							.. (v.placed and "" or ("  " .. Grey(L.SIGN_UNCONFIRMED))) }
+					end
+				end
+			end
+		end
+	end
+end
+
+-- The sheets heard, as this client holds them (tests).
+function Week.Sheets() return sheets end
 
 -- "3 this week" for the tree's link to the Board.
 function Week.LinkPart()
@@ -499,14 +776,31 @@ end
 
 function Week.Tick(now)
 	now = now or ns.Now()
+	-- (Only while this character still may: a Hand the King's list no longer names stops.)
 	local due = {}
 	for _, e in pairs(entries) do
-		if e.mine and not e.preview and e.at - now >= 30 and now - (e.sentAt or -math.huge) >= Week.RESEND then due[#due + 1] = e end
+		if e.mine and not e.preview and e.at - now >= 30 and now - (e.sentAt or -math.huge) >= Week.RESEND and ns.King.CanCommand() then due[#due + 1] = e end
 	end
 	table.sort(due, function(x, y) return (x.sentAt or 0) < (y.sentAt or 0) end)
 	for i = 1, math.min(#due, Week.RESEND_PER_TICK) do Send(due[i], false) end
 	for id, e in pairs(entries) do
 		if e.at + Week.KEEP_AFTER < now then entries[id] = nil end
+	end
+	-- The setter's sheet: every 5 minutes, and at once for an entry of his none has heard yet.
+	local new = false
+	for _, e in ipairs(Week.Entries(now)) do
+		if e.mine and not e.preview and e.at > now and not signups[e.id] then
+			signups[e.id] = { list = {}, byGuild = {}, others = 0, n = 0 }
+			new = true
+		end
+	end
+	Week.SendSheet(new)
+	-- Signups and sheets of entries gone.
+	for id in pairs(signups) do if not Week.Entry(id) then signups[id] = nil end end
+	for id in pairs(sheets) do if not Week.Entry(id) then sheets[id] = nil end end
+	local mine = ns.rdb and type(ns.rdb.signed) == "table" and ns.rdb.signed[ns.me or "?"]
+	for id, v in pairs(type(mine) == "table" and mine or {}) do
+		if type(v) ~= "table" or not tonumber(v.at) or v.at + Week.KEEP_AFTER < now then mine[id] = nil end
 	end
 end
 
@@ -520,7 +814,9 @@ end
 function Week.Reset()
 	wipe(entries)
 	lastSet, lastNewLine, lastCalendarAsk, changePending = -math.huge, -math.huge, -math.huge, false
-	if ns.rdb then ns.rdb.week = nil end
+	wipe(sheets); wipe(signups); wipe(signOpen); wipe(whoOpen)
+	lastSheet, sheetPending, lastSign, sizesAt = -math.huge, false, -math.huge, -math.huge
+	if ns.rdb then ns.rdb.week, ns.rdb.signed = nil, nil end
 end
 
 ns.On("LOGIN", function()
