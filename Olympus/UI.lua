@@ -222,6 +222,9 @@ table.insert(DETAIL_BUTTONS.realm, { "COUNCIL_ASK_BTN", function() ns.ShowDialog
 -- to councillors alone.
 table.insert(DETAIL_BUTTONS.realm, { "COUNCIL_ICON_BTN", function() ns.Workshop.ShowIconPicker() end,
 	shown = function() return ns.IsHighCouncillor(ns.me) end })
+-- 1.1 (Fern's #28): an officer keeps the gear of the player he targets, in range (Inspect.lua).
+table.insert(DETAIL_BUTTONS.heraldry, 1, { "GEAR_BTN", function() ns.Inspect.InspectGear() end,
+	shown = function() return ns.IsMember() and ns.Roster.IsOfficer() end })
 
 -- Buttons that come and go (def.shown): only the ones shown, in order.
 local function Shown(defs)

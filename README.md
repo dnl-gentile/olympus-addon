@@ -378,6 +378,13 @@ shows the army something of it.
   and up, one by one (about 28 yards). Younger players are never flagged. It records who wears a tabard, who wears the wrong one and who
   wears none. Players it could not see properly are never accused.
 - **Mark** a player (with a note: `/oly mark complained about the rule`) or a whole guild.
+- **Gear seen** (1.1, officers): target a player in range (about 28 yards) and click **Inspect
+  gear** on the Tabards tab (or type `/oly gear`). The addon inspects him once, in turn with every
+  other inspection (one at a time, never in combat), and keeps what he wears in your saved
+  variables, under **Gear seen**: a click shows his items in their slots, each with its own
+  tooltip. A Captain can check a raid signup's last-seen gear days later without pulling him
+  again. Only the guild master and the officer rank right below keep gear; nothing is scored,
+  compared or sent, and nobody is told how to play.
 - Per guild: *"5 of 20 with problems"*.
 - **Untabarded** (the "Wall of Shame" before 0.9.2): the players the Royal Inspection found
   without the colors are on the King's list, which only he sees. He alone can let the army see
@@ -897,6 +904,7 @@ Other limits:
 | `/oly realm` · `/oly decrees` · `/oly tabard` | open a tab |
 | `/oly patrol` | start or stop the tabard patrol |
 | `/oly mark [note]` | mark your target |
+| `/oly gear` (or **Inspect gear** on the Tabards tab) | officers: inspect the player you target (in range) once and keep what he wears, under **Gear seen** on the Tabards tab; nothing is scored or sent |
 | `/oly arms [text]` · `/oly muster [text]` | send a decree (`test` = local preview) |
 | `/ol <text>` · `/olc <text>` · `/oll <text>` | write in [Olympus], [Captains] or [Lords] |
 | `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |

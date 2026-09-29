@@ -993,6 +993,19 @@ L.TREASURY_DETAIL_STEWARD = "The treasury as its keepers' addons send it. In the
 -- 1.0.0: the Hands each one named, on the King's and a Steward's Hands page (theirs to remove).
 L.HANDS_NAMED_BY_KING = "Named by the King (his to remove):"
 L.HANDS_NAMED_BY_STEWARD = "Named by the Steward %s (his to remove):"
+-- 1.1 (Fern's #28): the gear an officer's click keeps (Inspect.InspectGear).
+L.GEAR_BTN = "Inspect gear"
+L.GEAR_BTN_TIP = "Officers: inspects the player you target (in range, about 28 yards) once, paced like every inspection, and keeps what they wear in your saved variables: the Tabards tab lists it under Gear seen, for a raid signup days later without pulling them again. Nothing is scored or sent. Also /oly gear."
+L.GEAR_OFFICERS_ONLY = "Only officers keep other players' gear: the guild master and the officer rank right below."
+L.GEAR_OUT_OF_RANGE = "%s is out of inspect range: get closer (about 28 yards) and click again."
+L.GEAR_ASKING = "Inspecting %s's gear..."
+L.GEAR_SAVED = "Gear of %s kept: %d items, as seen now (Tabards tab, Gear seen)."
+L.GEAR_NOT_LOADED = "%s's gear did not load: nothing kept. Try again in a moment."
+L.GEAR_GONE = "The player left before the inspection came back: nothing kept."
+L.GEAR_TITLE = "Gear seen (your officer inspections)"
+L.GEAR_ITEMS = "%d items"
+L.GEAR_ROW_TIP = "What %s wore when you inspected them (%s). Your own record: nothing is scored, compared or sent. Click to show or hide it."
+L.HELP_GEAR = "  /oly gear - officers: inspect your target's gear (in range) and keep it"
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1972,4 +1985,17 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.TREASURY_DETAIL_STEWARD = "O tesouro como os addons dos guardiões mandam. Em nome do Rei seus botões escolhem o que o exército vê, e você nomeia os guardiões."
 	L.HANDS_NAMED_BY_KING = "Nomeadas pelo Rei (só ele as tira):"
 	L.HANDS_NAMED_BY_STEWARD = "Nomeadas pelo Senescal %s (só ele as tira):"
+	-- 1.1 (pedido #28 do Fern): o equipamento que o clique de um oficial guarda.
+	L.GEAR_BTN = "Inspecionar equipamento"
+	L.GEAR_BTN_TIP = "Oficiais: inspeciona uma vez o jogador no seu alvo (ao alcance, uns 28 metros), no mesmo ritmo de toda inspeção, e guarda o que ele veste nas suas variáveis salvas: a aba Tabards lista em Equipamento visto, para uma inscrição de raide dias depois sem chamar o jogador de novo. Nada é pontuado nem enviado. Também /oly gear."
+	L.GEAR_OFFICERS_ONLY = "Só oficiais guardam o equipamento de outros jogadores: o mestre da guilda e o cargo de oficial logo abaixo."
+	L.GEAR_OUT_OF_RANGE = "%s está fora do alcance de inspeção: chegue mais perto (uns 28 metros) e clique de novo."
+	L.GEAR_ASKING = "Inspecionando o equipamento de %s..."
+	L.GEAR_SAVED = "Equipamento de %s guardado: %d itens, como visto agora (aba Tabards, Equipamento visto)."
+	L.GEAR_NOT_LOADED = "O equipamento de %s não carregou: nada guardado. Tente de novo daqui a pouco."
+	L.GEAR_GONE = "O jogador saiu antes da inspeção voltar: nada guardado."
+	L.GEAR_TITLE = "Equipamento visto (suas inspeções de oficial)"
+	L.GEAR_ITEMS = "%d itens"
+	L.GEAR_ROW_TIP = "O que %s vestia quando você inspecionou (%s). Registro seu: nada é pontuado, comparado ou enviado. Clique para mostrar ou esconder."
+	L.HELP_GEAR = "  /oly gear - oficiais: inspecionar o equipamento do seu alvo (ao alcance) e guardar"
 end

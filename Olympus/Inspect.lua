@@ -45,7 +45,7 @@ Inspect.MAX_AGE = 14 * 86400
 Inspect.MAX_PLAYERS = 2000
 local function Keep(p)
 	if p.marked then return 1 end
-	if p.status == "NONE" or p.status == "OTHER" then return 2 end
+	if p.status == "NONE" or p.status == "OTHER" or p.gear then return 2 end
 	return 3
 end
 function Inspect.Prune()
@@ -66,6 +66,25 @@ function Inspect.Prune()
 		return a.name < b.name
 	end)
 	for i = Inspect.MAX_PLAYERS + 1, #list do players[list[i].name] = nil end
+end
+
+-- The gear an officer's click kept (1.1, Fern's #28): at most GEAR_MAX players carry it, the
+-- oldest gear dropped first (the player's inspection stays).
+Inspect.GEAR_MAX = 200
+function Inspect.PruneGear()
+	local list = {}
+	for name, p in pairs(Store().players) do
+		if type(p) == "table" and p.gear ~= nil then
+			if type(p.gear) ~= "table" or type(p.gear.items) ~= "table" then p.gear = nil
+			else list[#list + 1] = { name = name, t = tonumber(p.gear.t) or 0 } end
+		end
+	end
+	if #list <= Inspect.GEAR_MAX then return end
+	table.sort(list, function(a, b)
+		if a.t ~= b.t then return a.t > b.t end
+		return a.name < b.name
+	end)
+	for i = Inspect.GEAR_MAX + 1, #list do Store().players[list[i].name].gear = nil end
 end
 
 -- itemID nil + some other gear visible = really no tabard. Nothing visible at all usually
@@ -127,10 +146,25 @@ function Inspect.Record(name, guild, classFile, level, tabardID, anyGear)
 	return p
 end
 
-local function Enqueue(unit, force)
+-- gear (1.1): an officer's click asks for the gear too (Inspect.InspectGear); the same queue and
+-- pace as every other request, first in line.
+local function Enqueue(unit, force, gear)
 	if not UnitExists(unit) or not UnitIsPlayer(unit) or UnitIsUnit(unit, "player") then return end
 	local guid = UnitGUID(unit)
-	if not guid or queued[guid] or (pending and pending.guid == guid) then return end
+	if not guid then return end
+	if gear then
+		-- Already waiting (a patrol's) or asked: that request brings the gear too.
+		if pending and pending.guid == guid then pending.gear = true return end
+		for i, item in ipairs(queue) do
+			if item.guid == guid then
+				table.remove(queue, i)
+				item.gear, item.unit = true, unit
+				table.insert(queue, 1, item)
+				return
+			end
+		end
+	end
+	if queued[guid] or (pending and pending.guid == guid) then return end
 	local guild = GetGuildInfo(unit)
 	if not force and not ns.IsFederation(guild) then return end
 	-- Olympus guilds of the other faction are not ours to inspect (the Horde has its own too).
@@ -141,7 +175,7 @@ local function Enqueue(unit, force)
 		if p and p.status ~= "UNKNOWN" and p.status ~= "UNCHECKED" and ns.Now() - (p.t or 0) < RECHECK then return end
 	end
 	queued[guid] = true
-	table.insert(queue, force and 1 or #queue + 1, { unit = unit, guid = guid })
+	table.insert(queue, force and 1 or #queue + 1, { unit = unit, guid = guid, gear = gear or nil })
 end
 
 local function ScanNearby()
@@ -173,7 +207,7 @@ local function Pump()
 		queued[item.guid] = nil
 		local unit = item.unit
 		if UnitGUID(unit) == item.guid and CanInspect(unit) and CheckInteractDistance(unit, 1) then
-			pending = { guid = item.guid, unit = unit, at = GetTime() }
+			pending = { guid = item.guid, unit = unit, at = GetTime(), gear = item.gear }
 			lastRequest = GetTime()
 			Inspect.stats.requests = Inspect.stats.requests + 1
 			NotifyInspect(unit)
@@ -181,6 +215,7 @@ local function Pump()
 		end
 	end
 end
+Inspect.Pump = Pump -- (tests)
 
 local function FindUnit(guid, hint)
 	if hint and UnitGUID(hint) == guid then return hint end
@@ -193,9 +228,29 @@ local function FindUnit(guid, hint)
 	return nil
 end
 
+-- The items a unit wears, as the inspection gave them (1.1): slot -> the item's own string (its id,
+-- enchant and suffix, "item:19019:..."; its id alone when the client gave no link yet). What did not
+-- load is left out, never guessed. Nothing else: no item level, no score.
+local GEAR_SLOTS = 19
+local function ReadGear(unit)
+	local items, n = {}, 0
+	for slot = 1, GEAR_SLOTS do
+		local link = GetInventoryItemLink and GetInventoryItemLink(unit, slot)
+		local item = type(link) == "string" and link:match("item:[%-%d:]+") or nil
+		if item then item = item:gsub(":+$", "") end
+		if not item then
+			local id = GetInventoryItemID(unit, slot)
+			if type(id) == "number" and id > 0 then item = "item:" .. math.floor(id) end
+		end
+		if item and #item <= 120 then items[slot], n = item, n + 1 end
+	end
+	return items, n
+end
+
 local function OnInspectReady(guid)
 	if not pending or pending.guid ~= guid then return end
 	local unit = FindUnit(guid, pending.unit)
+	local gear = pending.gear
 	pending = nil
 	Inspect.stats.ready = Inspect.stats.ready + 1
 	if unit then
@@ -204,11 +259,27 @@ local function OnInspectReady(guid)
 			if GetInventoryItemID(unit, slot) then anyGear = true break end
 		end
 		local _, classFile = UnitClass(unit)
-		Inspect.Record(ns.UnitFullName(unit), GetGuildInfo(unit), classFile, UnitLevel(unit),
+		local name = ns.UnitFullName(unit)
+		local p = Inspect.Record(name, GetGuildInfo(unit), classFile, UnitLevel(unit),
 			GetInventoryItemID(unit, TABARD_SLOT), anyGear)
+		-- An officer's click (Inspect.InspectGear): the gear kept with the inspection.
+		if gear and p then
+			local items, n = ReadGear(unit)
+			if n > 0 then
+				p.gear = { t = ns.Now(), items = items }
+				Inspect.PruneGear()
+				ns.Print(L.GEAR_SAVED:format(ns.ShortName(p.name), n))
+				ns.Fire("INSPECT_CHANGED")
+			else
+				ns.Print(L.GEAR_NOT_LOADED:format(ns.ShortName(p.name)))
+			end
+		end
+	elseif gear then
+		ns.Print(L.GEAR_GONE)
 	end
 	if not (InspectFrame and InspectFrame:IsShown()) and ClearInspectPlayer then ClearInspectPlayer() end
 end
+Inspect.OnInspectReady = OnInspectReady -- (tests)
 
 function Inspect.SetPatrol(on)
 	if on and not ns.IsMember() then
@@ -228,6 +299,41 @@ function Inspect.InspectTarget()
 	end
 	Enqueue("target", true)
 	Pump()
+end
+
+-- 1.1 (Fern's #28): an officer's click keeps the gear of the player he targets, in range, as the
+-- game's inspection shows it: one request in the same queue and pace as the patrol's (one
+-- NotifyInspect at a time, never in combat or while the game's inspect window is open). Kept in
+-- his saved variables with the inspection, for a raid signup days later without pulling the player
+-- again. Nothing scored, nothing sent, nobody told how to play. Officers: the guild master and the
+-- officer rank right below (Roster.IsOfficer).
+function Inspect.InspectGear()
+	if not ns.IsMember() then return ns.Print(L.MEMBERS_ONLY) end
+	if not ns.Roster.IsOfficer() then return ns.Print(L.GEAR_OFFICERS_ONLY) end
+	if not UnitIsPlayer("target") or UnitIsUnit("target", "player") then return ns.Print(L.NEED_PLAYER_TARGET) end
+	local name = ns.ShortName(ns.UnitFullName("target") or "?")
+	-- (In combat the game keeps the distance to itself: the request waits in line, and the pump
+	-- looks at the range once the fight is over, as for every inspection.)
+	local fighting = InCombatLockdown and InCombatLockdown()
+	if not fighting and (not CanInspect("target") or not CheckInteractDistance("target", 1)) then return ns.Print(L.GEAR_OUT_OF_RANGE:format(name)) end
+	Enqueue("target", true, true)
+	ns.Print(L.GEAR_ASKING:format(name))
+	Pump()
+end
+
+-- The players whose gear is kept, newest first: { { name, guild, class, level, t, items } }.
+function Inspect.GearList()
+	local out = {}
+	for _, p in pairs(Source().players) do
+		if type(p) == "table" and type(p.gear) == "table" and type(p.gear.items) == "table" then
+			out[#out + 1] = { name = p.name, guild = p.guild, class = p.class, level = p.level, t = tonumber(p.gear.t) or 0, items = p.gear.items }
+		end
+	end
+	table.sort(out, function(a, b)
+		if a.t ~= b.t then return a.t > b.t end
+		return tostring(a.name) < tostring(b.name)
+	end)
+	return out
 end
 
 function Inspect.MarkTarget(note)
@@ -438,7 +544,7 @@ local function OnTooltipUnit(tooltip)
 	if patrol then Enqueue(unit) end
 end
 
-ns.On("INIT", function() Inspect.Prune() end) -- (Prune makes the store too)
+ns.On("INIT", function() Inspect.Prune(); Inspect.PruneGear() end) -- (Prune makes the store too)
 
 ns.On("LOGIN", function()
 	ns.RegisterEvent("INSPECT_READY", OnInspectReady)

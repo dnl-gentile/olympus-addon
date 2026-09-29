@@ -234,7 +234,7 @@ local function MergeNewest(dst, src)
 end
 
 -- Inspections: newest wins too, but an officer's mark and note never go with the older entry
--- (false is an explicit unmark: it stays).
+-- (false is an explicit unmark: it stays), nor the gear his click kept (1.1).
 local function MergePlayers(dst, src)
 	if type(src) ~= "table" then return end
 	for k, v in pairs(src) do
@@ -245,6 +245,9 @@ local function MergePlayers(dst, src)
 			if type(other) == "table" then
 				if keep.marked == nil then keep.marked = other.marked end
 				if keep.note == nil then keep.note = other.note end
+				-- (1.1: the gear an officer's click kept, the newer of the two.)
+				local g, o = keep.gear, other.gear
+				if type(o) == "table" and (type(g) ~= "table" or (tonumber(o.t) or 0) > (tonumber(g.t) or 0)) then keep.gear = o end
 			end
 			dst[k] = keep
 		end
@@ -1243,6 +1246,7 @@ local function Help()
 	print("  /oly sound - turn alert sounds on/off")
 	print("  /oly patrol - start/stop inspecting nearby Olympus members")
 	print("  /oly mark [reason] - mark your target")
+	print(L.HELP_GEAR)
 	print("  /oly map - show/hide zone counts on the world map")
 	print("  /oly realm - the Realm tree (leaders, officers, ranks)")
 	print("  /oly layers - layers of your zone (in the Realm tab)")
@@ -1305,6 +1309,9 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Inspect.SetPatrol(not ns.Inspect.IsPatrolling())
 		elseif cmd == "mark" then
 			ns.Inspect.MarkTarget(rest)
+		elseif cmd == "gear" then
+			-- 1.1 (Fern's #28): officers keep the gear of the player they target, in range.
+			ns.Inspect.InspectGear()
 		elseif cmd == "map" then
 			ns.Map.SetEnabled(not ns.db.showMap)
 		elseif cmd == "throne" or cmd == "trono" then

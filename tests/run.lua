@@ -24585,5 +24585,303 @@ test("1.1 nameplates preview: the mark by his own name sits after it, never left
 	end)
 end)
 
+---------------------------------------------------------------------------
+-- 1.1 (Fern's #28): an officer's click keeps the gear of the player he targets, in range
+---------------------------------------------------------------------------
+
+do
+-- The game's inspection as Inspect.lua meets it: units (target, player) with a GUID, a guild and
+-- what they wear (slot -> { id, link }), the clock, range, combat, NotifyInspect recorded; our rank
+-- (w.rank: 1 an officer). The inspections kept start empty.
+local GEAR_GLOBALS = { "UnitExists", "UnitIsPlayer", "UnitIsUnit", "UnitGUID", "GetGuildInfo", "UnitFactionGroup", "UnitLevel", "UnitClass",
+	"CanInspect", "CheckInteractDistance", "NotifyInspect", "GetInventoryItemID", "GetInventoryItemLink", "InCombatLockdown",
+	"InspectFrame", "ClearInspectPlayer", "UnitFullName", "GetTime", "GetItemInfo" }
+local GEAR_BOB = {
+	[1] = { id = 16866, link = "|cffa335ee|Hitem:16866:0:0:0:0:0:0:0:60|h[Helm of Might]|h|r" },
+	[5] = { id = 16865 }, -- (no link from the client yet: its id alone)
+	[16] = { id = 17104, link = "|cffa335ee|Hitem:17104:1900:0:0:0:0:0:0:60:::::|h[Spinal Reaper]|h|r" },
+	[19] = { id = 5976, link = "|cffffffff|Hitem:5976::::::::60:::::|h[Guild Tabard]|h|r" },
+}
+local function WithGear(fn)
+	local saved = {}
+	for _, k in ipairs(GEAR_GLOBALS) do saved[k] = _G[k] end
+	local savedPrint, savedStore, savedFire, savedMax = ns.Print, ns.rdb.inspect, ns.Fire, ns.Inspect.GEAR_MAX
+	local w = { printed = {}, notified = {}, clock = 1000, rank = 1, range = true, combat = false, fired = {},
+		units = { player = { name = "Tester", guid = "Player-1-me" } } }
+	ns.rdb.inspect = nil
+	ns.Print = function(m) w.printed[#w.printed + 1] = m end
+	ns.Fire = function(name) w.fired[#w.fired + 1] = name end
+	local function U(unit) return w.units[unit] end
+	GetTime = function() return w.clock end
+	UnitExists = function(unit) return U(unit) ~= nil end
+	UnitIsPlayer = function(unit) return U(unit) ~= nil and not U(unit).npc end
+	UnitIsUnit = function(a, b) return U(a) ~= nil and U(a) == U(b) end
+	UnitGUID = function(unit) return U(unit) and U(unit).guid end
+	GetGuildInfo = function(unit)
+		if unit == nil or unit == "player" then return MY_GUILD, "Titan", w.rank end
+		local u = U(unit)
+		return u and u.guild
+	end
+	UnitFactionGroup = function() return "Alliance" end
+	UnitLevel = function(unit) return U(unit) and U(unit).level or 60 end
+	UnitClass = function() return "Warrior", "WARRIOR" end
+	CanInspect = function(unit) return U(unit) ~= nil end
+	CheckInteractDistance = function() w.rangeAsked = (w.rangeAsked or 0) + 1 return w.range end
+	NotifyInspect = function(unit) w.notified[#w.notified + 1] = U(unit) and U(unit).name or unit end
+	GetInventoryItemID = function(unit, slot) local u = U(unit) local it = u and u.items and u.items[slot] return it and it.id end
+	GetInventoryItemLink = function(unit, slot) local u = U(unit) local it = u and u.items and u.items[slot] return it and it.link end
+	InCombatLockdown = function() return w.combat end
+	InspectFrame, ClearInspectPlayer = nil, function() end
+	UnitFullName = function(unit) local u = U(unit) if u then return u.name, "Realm" end return "Tester", "Realm" end
+	GetItemInfo = nil
+	w.target = function(name, extra)
+		local u = { name = name, guid = "Player-1-" .. name, guild = "Olympus Zeus", level = 60, items = {} }
+		for k, v in pairs(extra or {}) do u[k] = v end
+		w.units.target = u
+		return u
+	end
+	local ok, err = pcall(fn, w, ns.Inspect)
+	-- (Whatever was left waiting goes: the next test starts from an empty queue.)
+	w.combat, w.range = false, true
+	for _ = 1, 10 do
+		w.clock = w.clock + 5
+		pcall(ns.Inspect.Pump)
+	end
+	ns.Inspect.SetPace(nil)
+	for _, k in ipairs(GEAR_GLOBALS) do _G[k] = saved[k] end
+	ns.Print, ns.rdb.inspect, ns.Fire, ns.Inspect.GEAR_MAX = savedPrint, savedStore, savedFire, savedMax
+	if ns.Views.CloseGear then ns.Views.CloseGear() end
+	ns.Views.ClearFilters()
+	if not ok then error(err, 0) end
+end
+
+test("1.1 gear (#28): an officer's click on a player in range inspects him once and keeps what he wears, nothing scored, nothing sent", function()
+	WithGear(function(w, I)
+		local queued = ns.Comm.QueueSize()
+		local bob = w.target("Bob", { items = GEAR_BOB })
+		I.InspectGear()
+		eq(table.concat(w.notified, ","), "Bob", "one NotifyInspect, for him")
+		eq(w.printed[#w.printed], ns.L.GEAR_ASKING:format("Bob"))
+		I.OnInspectReady(bob.guid)
+		local p = I.Players()["Bob"]
+		assert(p and p.gear, "kept with his inspection")
+		eq(p.status, "GUILD", "his tabard recorded too, as an inspection does")
+		eq(p.gear.t, ns.Now())
+		eq(p.gear.items[1], "item:16866:0:0:0:0:0:0:0:60", "the item's own string: id, enchant, suffix")
+		eq(p.gear.items[5], "item:16865", "no link yet: its id alone")
+		eq(p.gear.items[16], "item:17104:1900:0:0:0:0:0:0:60", "its enchant kept")
+		eq(p.gear.items[19], "item:5976::::::::60")
+		eq(p.gear.items[2], nil, "an empty slot is left out, never guessed")
+		local keys = {}
+		for k in pairs(p.gear) do keys[#keys + 1] = k end
+		table.sort(keys)
+		eq(table.concat(keys, ","), "items,t", "no score, no item level, nothing added up")
+		eq(w.printed[#w.printed], ns.L.GEAR_SAVED:format("Bob", 4))
+		eq(ns.Comm.QueueSize(), queued, "nothing sent")
+		eq(#I.GearList(), 1); eq(I.GearList()[1].name, "Bob")
+		-- Nothing loaded yet: nothing kept, and it says so.
+		local ann = w.target("Ann", { items = {} })
+		w.clock = w.clock + 2
+		I.InspectGear()
+		I.OnInspectReady(ann.guid)
+		eq(I.Players()["Ann"].gear, nil)
+		eq(w.printed[#w.printed], ns.L.GEAR_NOT_LOADED:format("Ann"))
+	end)
+end)
+
+test("1.1 gear (#28): only an officer, only a player in range; a patrol's or a plain inspection keeps no gear", function()
+	WithGear(function(w, I)
+		local bob = w.target("Bob", { items = GEAR_BOB })
+		-- Not an officer (a Hero, rank 2): nothing asked.
+		w.rank = 2
+		I.InspectGear()
+		eq(#w.notified, 0); eq(w.printed[#w.printed], ns.L.GEAR_OFFICERS_ONLY)
+		-- The guild master is an officer too.
+		w.rank = 0
+		-- Out of range: nothing asked, and it says why.
+		w.range = false
+		I.InspectGear()
+		eq(#w.notified, 0); eq(w.printed[#w.printed], ns.L.GEAR_OUT_OF_RANGE:format("Bob"))
+		w.range = true
+		-- No player targeted, or ourselves.
+		w.units.target = nil
+		I.InspectGear()
+		eq(w.printed[#w.printed], ns.L.NEED_PLAYER_TARGET)
+		w.units.target = w.units.player
+		I.InspectGear()
+		eq(w.printed[#w.printed], ns.L.NEED_PLAYER_TARGET); eq(#w.notified, 0)
+		-- The plain "Inspect target" (and the patrol): the tabard alone, as ever.
+		w.units.target = bob
+		I.InspectTarget()
+		eq(#w.notified, 1)
+		I.OnInspectReady(bob.guid)
+		eq(I.Players()["Bob"].status, "GUILD"); eq(I.Players()["Bob"].gear, nil, "no gear without an officer's gear click")
+		-- Outside an Olympus guild: nothing.
+		local savedGuild = GetGuildInfo
+		GetGuildInfo = function() return "Stormwind Traders", "Boss", 0 end
+		I.InspectGear()
+		GetGuildInfo = savedGuild
+		eq(w.printed[#w.printed], ns.L.MEMBERS_ONLY); eq(#w.notified, 1)
+	end)
+end)
+
+test("1.1 gear (#28): the click waits its turn: one inspection at a time, the Royal Inspection's pace, never in combat", function()
+	WithGear(function(w, I)
+		local ann = w.target("Ann")
+		I.InspectTarget()
+		eq(table.concat(w.notified, ","), "Ann")
+		-- Bob's gear asked while Ann's inspection is out: it waits.
+		local bob = w.target("Bob", { items = GEAR_BOB })
+		I.InspectGear()
+		eq(table.concat(w.notified, ","), "Ann", "one request at a time")
+		w.clock = w.clock + 1.5
+		I.Pump()
+		eq(#w.notified, 1, "still waiting for Ann's")
+		I.OnInspectReady(ann.guid)
+		I.Pump()
+		eq(table.concat(w.notified, ","), "Ann,Bob", "his turn")
+		I.OnInspectReady(bob.guid)
+		assert(I.Players()["Bob"].gear, "kept")
+		-- During a Royal Inspection: its pace.
+		I.SetPace(5)
+		local cid = w.target("Cid", { items = GEAR_BOB })
+		w.clock = w.clock + 1
+		I.InspectGear()
+		eq(#w.notified, 2, "the pace holds it back")
+		w.clock = w.clock + 4
+		I.Pump()
+		eq(table.concat(w.notified, ","), "Ann,Bob,Cid")
+		I.OnInspectReady(cid.guid)
+		I.SetPace(nil)
+		-- In combat: it waits for the fight to end (the game keeps the distance to itself then: not asked).
+		w.combat = true
+		local dan = w.target("Dan", { items = GEAR_BOB })
+		local asked = w.rangeAsked
+		I.InspectGear()
+		eq(w.rangeAsked, asked, "no distance asked in combat"); eq(w.printed[#w.printed], ns.L.GEAR_ASKING:format("Dan"))
+		w.clock = w.clock + 10
+		I.Pump()
+		eq(#w.notified, 3, "never in combat")
+		w.combat = false
+		I.Pump()
+		eq(w.notified[4], "Dan")
+		I.OnInspectReady(dan.guid)
+		-- A patrol's request for the same player already waiting brings the gear too (one request).
+		local eve = w.target("Eve", { items = GEAR_BOB })
+		local fox = { name = "Fox", guid = "Player-1-Fox", guild = "Olympus Zeus", level = 60, items = {} }
+		I.InspectTarget()       -- Eve out
+		w.units.target = fox
+		I.InspectTarget()       -- Fox waits (tabard only)
+		I.InspectGear()         -- ...and now his gear too, the same request
+		I.OnInspectReady(eve.guid)
+		I.Pump()
+		eq(w.notified[#w.notified], "Fox"); eq(#w.notified, 6, "one request for Fox")
+		fox.items = GEAR_BOB
+		I.OnInspectReady(fox.guid)
+		assert(I.Players()["Fox"].gear, "his gear kept")
+	end)
+end)
+
+test("1.1 gear (#28): the Tabards tab lists the gear kept, newest first; a click shows it in its slots; the search finds it", function()
+	WithGear(function(w, I)
+		for i, name in ipairs({ "Bob", "Cid" }) do
+			local u = w.target(name, { items = GEAR_BOB, guild = i == 1 and "Olympus Zeus" or "Olympus Hera" })
+			w.clock = w.clock + 2
+			I.InspectGear()
+			I.OnInspectReady(u.guid)
+		end
+		I.Players()["Bob"].gear.t = ns.Now() - 3600
+		local function Lines()
+			local lines = ns.Views.Build("heraldry")
+			local header, rows, items
+			for i, l in ipairs(lines) do
+				if l.text == ns.L.GEAR_TITLE then header = i end
+				if header and l.items then items = l end
+				if header and l.key and not rows then rows = i end
+			end
+			return lines, header, rows, items
+		end
+		local lines, header, first = Lines()
+		assert(header, "a Gear seen header")
+		assert(lines[first].text:find("Cid", 1, true), "the newest first")
+		assert(lines[first + 1].text:find("Bob", 1, true))
+		assert(lines[first + 1].right:find(ns.L.GEAR_ITEMS:format(4), 1, true))
+		local tips = {}
+		lines[first + 1].tooltip({ AddLine = function(_, t) tips[#tips + 1] = t end })
+		assert(tips[2]:find("nothing is scored", 1, true), tips[2])
+		lines[first + 1].onClick()
+		local _, _, _, items = Lines()
+		assert(items, "its items shown")
+		eq(items.slots, 19, "every slot, in its place")
+		local by = {}
+		for _, it in ipairs(items.items) do by[it.s] = it.id end
+		eq(by[1], 16866); eq(by[5], 16865); eq(by[16], 17104); eq(by[19], 5976); eq(by[2], nil)
+		-- The search: a name, a guild; nothing else found says "No match".
+		ns.Views.SetFilter("heraldry", "hera")
+		lines = ns.Views.Build("heraldry")
+		local text = {}
+		for _, l in ipairs(lines) do text[#text + 1] = l.text or "" end
+		text = table.concat(text, "\n")
+		assert(text:find("Cid", 1, true) and not text:find("Bob", 1, true), text)
+		ns.Views.SetFilter("heraldry", "nobody here")
+		lines = ns.Views.Build("heraldry")
+		eq(lines[#lines].text, "|cff9d9d9d" .. ns.L.SEARCH_NO_MATCH .. "|r")
+		-- At most GEAR_MAX players carry gear: the oldest goes first, the inspection stays.
+		ns.Views.ClearFilters()
+		I.GEAR_MAX = 1
+		I.PruneGear()
+		eq(I.Players()["Bob"].gear, nil, "the oldest gear dropped"); assert(I.Players()["Bob"].status, "his inspection kept")
+		assert(I.Players()["Cid"].gear)
+	end)
+end)
+
+test("1.1 gear (#28): the button, /oly gear and the strings (both languages); README and CurseForge say what is kept", function()
+	WithGear(function(w, I)
+		local bob = w.target("Bob", { items = GEAR_BOB })
+		SlashCmdList.OLYMPUS("gear")
+		eq(table.concat(w.notified, ","), "Bob", "/oly gear asks the same")
+		I.OnInspectReady(bob.guid)
+	end)
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, key in ipairs({ "GEAR_BTN", "GEAR_BTN_TIP", "GEAR_OFFICERS_ONLY", "GEAR_OUT_OF_RANGE", "GEAR_ASKING", "GEAR_SAVED",
+		"GEAR_NOT_LOADED", "GEAR_GONE", "GEAR_TITLE", "GEAR_ITEMS", "GEAR_ROW_TIP", "HELP_GEAR" }) do
+		assert(type(ns.L[key]) == "string" and ns.L[key] ~= "", key)
+		local p = rawget(pt.L, key)
+		assert(type(p) == "string" and p ~= ns.L[key], "Portuguese " .. key)
+		eq(select(2, p:gsub("%%[sd]", "")), select(2, ns.L[key]:gsub("%%[sd]", "")), "the same %s and %d: " .. key)
+	end
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("/oly gear", 1, true), file .. " lists /oly gear")
+		assert(doc:find("nothing is scored", 1, true), file .. " says nothing is scored")
+	end
+end)
+end
+
+test("1.1 gear (#28): two realms' stores merged keep the newer gear an officer's click kept, whichever entry is newer", function()
+	local now = os.time()
+	local _, R = LoadAs("Classic Beta PvP", { configVersion = 3, realms = {
+		ClassicBetaPvP = { inspect = { players = {
+			["Bob Smith"] = { status = "GUILD", t = now - 900, gear = { t = now - 900, items = { [1] = "item:1" } } },
+			["Cy Jones"] = { status = "GUILD", t = now - 5 },
+			["Di Moon"] = { status = "NONE", t = now - 5, gear = { t = now - 50, items = { [1] = "item:3" } } } }, guildMarks = {} } },
+		ClassicBetaPvP2 = { inspect = { players = {
+			["Bob Smith"] = { status = "NONE", t = now - 5 },
+			["Cy Jones"] = { status = "GUILD", t = now - 900, gear = { t = now - 900, items = { [1] = "item:2" } } },
+			["Di Moon"] = { status = "GUILD", t = now - 900, gear = { t = now - 950, items = { [1] = "item:4" } } } }, guildMarks = {} } },
+	} })
+	local p = R.inspect.players
+	eq(p["Bob Smith"].status, "NONE", "the newer inspection..."); eq(p["Bob Smith"].gear.items[1], "item:1", "...keeps the gear the older one kept")
+	eq(p["Cy Jones"].gear.items[1], "item:2", "the gear merged in")
+	eq(p["Di Moon"].gear.items[1], "item:3", "the newer gear of the two")
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

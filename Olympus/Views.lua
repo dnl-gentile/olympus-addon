@@ -1450,6 +1450,60 @@ Views.RACE_MAX, Views.RACE_PAGE = 100, 25 -- the level race: its top 100, 25 at 
 Views.raceShown = Views.RACE_PAGE
 Views.INSPECT_ROWS = 200 -- inspected players listed on the Tabards page
 
+-- 1.1 (Fern's #28): the gear an officer's click kept (Inspect.InspectGear), newest first, the
+-- players whose name or guild holds `q`: a click shows or hides the items, in their slots, each
+-- with its own tooltip. Nothing added up, scored or compared. False when none shows.
+Views.GEAR_ROWS = 50
+local gearOpen = {}
+local function GearLines(lines, q)
+	local shown = {}
+	for _, g in ipairs(ns.Inspect.GearList and ns.Inspect.GearList() or {}) do
+		if not q or ns.Holds(q, ns.ShortName(g.name), g.guild) then shown[#shown + 1] = g end
+	end
+	if #shown == 0 then return false end
+	lines[#lines + 1] = { header = true, text = L.GEAR_TITLE, right = Grey(tostring(#shown)) }
+	for i = 1, math.min(#shown, Views.GEAR_ROWS) do
+		local g = shown[i]
+		local open = gearOpen[g.name] == true
+		local n = 0
+		for _ in pairs(g.items) do n = n + 1 end
+		lines[#lines + 1] = {
+			indent = 1, key = g.name,
+			text = (open and "[-] " or "[+] ") .. ClassColored(ns.ShortName(g.name), g.class) .. "  " .. Grey("<" .. (g.guild or "?") .. ">"),
+			right = Grey(L.GEAR_ITEMS:format(n) .. "  " .. ns.Ago(g.t)),
+			onClick = function()
+				gearOpen[g.name] = not open or nil
+				if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+			end,
+			tooltip = function(tt)
+				tt:AddLine(ClassColored(g.name, g.class))
+				tt:AddLine(L.GEAR_ROW_TIP:format(ns.ShortName(g.name), date("%Y-%m-%d %H:%M", g.t)), 1, 1, 1, true)
+			end,
+		}
+		if open then
+			local items = {}
+			for slot = 1, 19 do
+				local it = g.items[slot]
+				local id = type(it) == "string" and tonumber(it:match("^item:(%d+)")) or nil
+				if id then
+					-- The game's link for it, once the client knows the item (its enchant and suffix kept).
+					local link
+					if GetItemInfo then
+						local ok, _, l = pcall(GetItemInfo, it)
+						if ok and type(l) == "string" then link = l end
+					end
+					items[#items + 1] = { id = id, link = link, s = slot }
+				end
+			end
+			lines[#lines + 1] = { indent = 2, items = items, slots = 19 }
+		end
+	end
+	if #shown > Views.GEAR_ROWS then lines[#lines + 1] = { indent = 1, text = Grey(L.AND_MORE:format(#shown - Views.GEAR_ROWS)) } end
+	lines[#lines].gapAfter = true
+	return true
+end
+function Views.CloseGear() wipe(gearOpen) end -- (tests)
+
 -- `q`, the search (Views.Query): the untabarded and the inspected players whose name or guild
 -- holds it, each list under its header, a page as ever; "No match" for none. Nothing else.
 local function HeraldryLines(q)
@@ -1476,7 +1530,7 @@ local function HeraldryLines(q)
 		for _, p in ipairs(s.players) do
 			if ns.Holds(q, ns.ShortName(p.name), p.guild) then players[#players + 1] = p end
 		end
-		if not shame and #players == 0 then return { NoMatch() } end
+		if not shame and #players == 0 and not GearLines({}, q) then return { NoMatch() } end
 	end
 	if q and not shame then
 		-- (The search found none of the untabarded: their header goes too.)
@@ -1521,9 +1575,10 @@ local function HeraldryLines(q)
 		end
 		if #s.guilds == 0 then lines[#lines + 1] = { text = Grey(L.INSPECT_EMPTY) } end
 		lines[#lines].gapAfter = true
-	elseif #players == 0 then
-		return lines
 	end
+	-- 1.1: the gear officers' clicks kept.
+	GearLines(lines, q)
+	if q and #players == 0 then return lines end
 	lines[#lines + 1] = { header = true, text = L.INSPECTED_PLAYERS }
 	-- A line (and a frame) each: the first INSPECT_ROWS, marked and caught players first
 	-- (Inspect.Summary), the rest counted.
