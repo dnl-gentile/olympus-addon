@@ -1256,6 +1256,7 @@ local function Help()
 	print(L.HELP_TREASURER)
 	print(L.HELP_BANK)
 	print(L.HELP_NEED)
+	print(L.HELP_DONATIONS)
 	print(L.HELP_INSPECTION)
 	print(L.HELP_BORDERS)
 	print(L.HELP_NAMEPLATES)
@@ -1465,6 +1466,10 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "need" then
 			-- 1.1: a Lord or a Captain asks the treasury for an item and a count (Bank.lua).
 			ns.Bank.Slash(rest)
+		elseif cmd == "donations" then
+			-- 1.1: a keeper tells the army he is taking donations, until he logs out (Treasury.lua).
+			local on = rest:lower()
+			if on == "on" or on == "off" then ns.Treasury.SetDonations(on == "on") else ns.Print(L.HELP_DONATIONS) end
 		else
 			Help()
 		end

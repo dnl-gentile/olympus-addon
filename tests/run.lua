@@ -25104,7 +25104,103 @@ test("1.1 bank requests (Fern): a Lord or Captain asks for an item and a count, 
 	end)
 end)
 
-test("1.1 the bank's and the sister guilds' new lines are in both languages, with the same format arguments", function()
+test("1.1 taking donations (the Treasurer's idea): a keeper's switch, a line on the Realm and Treasury tabs, his zone only if shared, one chat ping, off at logout", function()
+	WithThrone(function(w, K)
+		local T = ns.Treasury
+		local saved = { chat = DEFAULT_CHAT_FRAME, best = C_Map.GetBestMapForUnit, share = ns.db.shareLocation, mute = ns.db.chatMute,
+			cci = C_ChatInfo, chan = GetChannelName, name = ns.Comm.ChannelName, split = ns.splitNames }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			local chat = {}
+			DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) chat[#chat + 1] = m end }
+			C_Map.GetBestMapForUnit = function() return 1453 end
+			local TREASURER = "Pyralis Ashandar-Realm"
+			-- Not a keeper: no switch.
+			AsSoldier()
+			T.SetDonations(true)
+			assert(Printed(w, ns.L.DONATIONS_ONLY), "told"); eq(T.TakingDonations(), false)
+			-- The Treasurer turns it on, not sharing his location: no zone in it.
+			AsTreasurer()
+			ns.db.shareLocation = nil
+			w.sent = {}
+			T.SetDonations(true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~"):format(w.clock), "on, no zone")
+			eq(T.SendDonations(), false, "repeated DONATIONS_EVERY apart")
+			w.clock = w.clock + T.DONATIONS_EVERY
+			eq(T.SendDonations(), true, "and repeated for late logins")
+			-- The Treasury tab: his switch, on.
+			local switch
+			for _, l in ipairs(T.Build()) do if l.key == "donations" then switch = l end end
+			assert(switch and switch.text:find("[x]", 1, true), "his switch shows it on")
+			-- Sharing his location: his zone goes with it, and again when he moves.
+			T.SetDonations(false)
+			eq(LastSent(w), "TD~Olympus~0~0~", "off said at once")
+			ns.db.shareLocation = true
+			local since = w.clock
+			T.SetDonations(true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~1453"):format(since), "his zone, shared")
+			C_Map.GetBestMapForUnit = function() return 1429 end
+			T.DonationsMoved()
+			eq(LastSent(w), ("TD~Olympus~1~%d~1429"):format(since), "moved: said again")
+			local onMsg = LastSent(w)
+			T.SetDonations(false) -- (his own; the soldier's client below never had it on)
+			-- A soldier's client: the line in the Realm and on the Treasury tab, one [Olympus] chat line.
+			AsSoldier()
+			T.HandleDonations("CHANNEL", "Faker Guy-Realm", onMsg:gsub("^TD~Olympus~", "TD~Olympus II~"))
+			eq(#T.DonationLines(), 0, "not a keeper")
+			T.HandleDonations("CHANNEL", TREASURER, onMsg)
+			local want = ns.L.DONATIONS_LINE_ZONE:format("Pyralis Ashandar", "Elwynn Forest")
+			local realm = Texts(ns.Views.RealmLines())
+			assert(realm:find(want, 1, true), realm)
+			eq(#chat, 1); assert(chat[1]:find("[" .. ns.L.CHAN_ALL .. "] " .. want, 1, true), chat[1])
+			T.HandleDonations("CHANNEL", TREASURER, onMsg)
+			eq(#chat, 1, "one ping, not one per repeat")
+			ns.rdb.treasuryFlags = { balance = true, at = 1 }
+			T.HandleReport("CHANNEL", TREASURER, "TB~1.0~Olympus~0~0~0~0~0~0~~-~100@1~~~~0:0")
+			assert(Texts((T.Build())):find(want, 1, true), "on the Treasury tab too")
+			-- Not repeated (he logged out without a word): gone after DONATIONS_FRESH.
+			w.clock = w.clock + T.DONATIONS_FRESH + 1
+			eq(#T.DonationLines(), 0, "dropped")
+			-- A late login hears an "on" of long ago: the line, no ping; a muted [Olympus]: no ping either.
+			T.HandleDonations("CHANNEL", TREASURER, onMsg)
+			eq(#T.DonationLines(), 1); eq(#chat, 1, "an old on: no ping")
+			ns.db.chatMute = { A = true }
+			T.HandleDonations("CHANNEL", TREASURER, ("TD~Olympus~1~%d~"):format(w.clock))
+			eq(#chat, 1, "muted: no ping")
+			-- Off: gone at once.
+			T.HandleDonations("CHANNEL", TREASURER, "TD~Olympus~0~0~")
+			eq(#T.DonationLines(), 0)
+			-- The King: by the army's name for him.
+			T.HandleDonations("CHANNEL", "Asmongold Asmongler-Realm", ("TD~Olympus~1~%d~"):format(w.clock))
+			assert(Texts(T.DonationLines()):find(ns.L.DONATIONS_LINE:format("Asmon"), 1, true), Texts(T.DonationLines()))
+			-- He logs out while on: his addon says off as it leaves; next session it starts off.
+			AsTreasurer()
+			T.SetDonations(true)
+			local said
+			C_ChatInfo = { SendAddonMessage = function(prefix, msg, dist, target) said = { prefix, msg, dist, target } end }
+			GetChannelName = function() return 7 end
+			ns.Comm.ChannelName = function() return "OlympusNet" end
+			T.DonationsLogout()
+			eq(said and said[2], "TD~Olympus~0~0~"); eq(said[3], "CHANNEL"); eq(said[4], 7)
+			eq(T.TakingDonations(), false)
+			-- A 1.0 client's addon leaves it unread.
+			C_ChatInfo = saved.cci
+			AsKing()
+			local fresh, DeliverOld = FreshComm()
+			local logs = {}
+			fresh.Log = function(fmt, ...) logs[#logs + 1] = tostring(fmt):format(...) end
+			DeliverOld("CHANNEL", TREASURER, onMsg)
+			local st = fresh.Comm.Stats()
+			eq(st.recv, 1); eq(st.bad, 0); eq(#logs, 0)
+		end)
+		DEFAULT_CHAT_FRAME, C_Map.GetBestMapForUnit, ns.db.shareLocation, ns.db.chatMute = saved.chat, saved.best, saved.share, saved.mute
+		C_ChatInfo, GetChannelName, ns.Comm.ChannelName, ns.splitNames = saved.cci, saved.chan, saved.name, saved.split
+		ns.rdb.treasuryFlags = nil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 the treasury's new lines (bank, sister guilds, requests, donations) are in both languages, with the same format arguments", function()
 	local savedLocale, pt = GetLocale, {}
 	GetLocale = function() return "ptBR" end
 	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
@@ -25117,7 +25213,9 @@ test("1.1 the bank's and the sister guilds' new lines are in both languages, wit
 		"BANK_REQUEST_NEW_LINE", "BANK_REQUEST_PROMPT", "BANK_REQUEST_ANY_PROMPT", "BANK_REQUEST_ASK", "BANK_REQUEST_ANSWER", "BANK_REQUEST_MARK_DONE",
 		"BANK_REQUEST_MARK_DECLINED", "BANK_REQUEST_CANCEL_ASK", "BANK_REQUEST_ONLY", "BANK_REQUEST_WHAT", "BANK_REQUEST_FULL", "BANK_REQUEST_SENT",
 		"BANK_REQUEST_WAITING", "BANK_REQUEST_CANCELLED", "BANK_REQUEST_NEW", "BANK_REQUEST_DONE", "BANK_REQUEST_DECLINED", "BANK_REQUEST_STATE_SENT",
-		"BANK_REQUEST_STATE_SEEN", "BANK_REQUEST_STATE_DONE", "BANK_REQUEST_STATE_DECLINED", "BANK_REQUEST_STATE_CANCELLED", "HELP_NEED" }) do
+		"BANK_REQUEST_STATE_SEEN", "BANK_REQUEST_STATE_DONE", "BANK_REQUEST_STATE_DECLINED", "BANK_REQUEST_STATE_CANCELLED", "HELP_NEED",
+		"DONATIONS_ONLY", "DONATIONS_NOW_ON", "DONATIONS_NOW_ON_ZONE", "DONATIONS_NOW_OFF", "DONATIONS_LINE", "DONATIONS_LINE_ZONE",
+		"DONATIONS_SWITCH", "DONATIONS_SWITCH_ON", "DONATIONS_SWITCH_OFF", "DONATIONS_SWITCH_TIP", "HELP_DONATIONS" }) do
 		assert(type(rawget(ns.L, key)) == "string", "English " .. key)
 		assert(type(rawget(pt.L, key)) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
 		eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)

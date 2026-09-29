@@ -2510,6 +2510,148 @@ ns.On("LOGIN", function()
 end)
 
 ---------------------------------------------------------------------------
+-- 1.1: "taking donations" (the Treasurer's idea: "being able to let everyone know when I'm around to
+-- take donations can be helpful too"). A keeper (the Treasurer, the King, a character he named)
+-- turns it on with a click on the Treasury tab or /oly donations on: every client shows a line on
+-- the Realm and Treasury tabs, with his zone only if he shares his location (/oly location; the
+-- King: his crown on the map), and one line in the [Olympus] chat when he turns it on. It is never
+-- saved: off when he logs out (his addon says so as it logs out; otherwise the others drop it
+-- DONATIONS_FRESH after his last word), and after a /reload.
+--   TD~<guild>~<1|0>~<since>~<uiMapID or empty>   on the channel: at once, then every DONATIONS_EVERY
+--                                                  while it is on, and when his zone changes
+---------------------------------------------------------------------------
+
+Treasury.DONATIONS_EVERY = 120
+Treasury.DONATIONS_FRESH = 300
+Treasury.DONATIONS_PING = 180   -- the chat line only for an "on" this fresh (a late login gets the lines alone)
+
+local donating                  -- our own: { since, mapID }, while on
+local donors = {}               -- [keeper's Name-Realm] = { since, mapID, t }: keepers taking donations
+local pinged = {}               -- [Name-Realm] = the "since" we already put in the chat
+local lastDonationSent = -math.huge
+
+function Treasury.TakingDonations() return donating ~= nil end
+
+-- Where we are, only while we share our location (Layers.Sharing: the King's is his crown).
+local function DonationZone()
+	if not (ns.Layers and ns.Layers.Sharing and ns.Layers.Sharing()) then return nil end
+	local mapID = ns.Court and ns.Court.Here and ns.Court.Here()
+	return tonumber(mapID)
+end
+
+local function DonationMessage(on)
+	local zone = on and donating and donating.mapID
+	return ("TD~%s~%d~%d~%s"):format(Clean(GetGuildInfo("player")), on and 1 or 0, on and donating and math.floor(donating.since) or 0, zone and tostring(zone) or "")
+end
+
+function Treasury.SendDonations(force)
+	if not donating or not RealKeeper() then return false end
+	local now = ns.Now()
+	if not force and now - lastDonationSent < Treasury.DONATIONS_EVERY then return false end
+	lastDonationSent = now
+	ns.Comm.Send("CHANNEL", DonationMessage(true), "treasurydonations")
+	return true
+end
+
+function Treasury.SetDonations(on)
+	if not RealKeeper() then return ns.Print(L.DONATIONS_ONLY) end
+	if on then
+		donating = { since = ns.Now(), mapID = DonationZone() }
+		Treasury.SendDonations(true)
+		ns.Print(donating.mapID and L.DONATIONS_NOW_ON_ZONE or L.DONATIONS_NOW_ON)
+	elseif donating then
+		donating = nil
+		ns.Comm.Send("CHANNEL", DonationMessage(false), "treasurydonations")
+		ns.Print(L.DONATIONS_NOW_OFF)
+	end
+	ns.Fire("TREASURY_CHANGED")
+	ns.Fire("DATA_CHANGED")
+end
+
+-- Our zone changed while on: said again at once (only while we share it).
+function Treasury.DonationsMoved()
+	if not donating then return end
+	local zone = DonationZone()
+	if zone == donating.mapID then return end
+	donating.mapID = zone
+	Treasury.SendDonations(true)
+end
+
+-- Logging out (or a /reload): off, said once as the addon leaves (the others drop it anyway).
+function Treasury.DonationsLogout()
+	if not donating then return end
+	donating = nil
+	local name = ns.Comm.ChannelName and ns.Comm.ChannelName()
+	local id = name and GetChannelName and GetChannelName(name) or 0
+	if id and id > 0 and C_ChatInfo and C_ChatInfo.SendAddonMessage then
+		pcall(C_ChatInfo.SendAddonMessage, ns.PREFIX, DonationMessage(false), "CHANNEL", id)
+	end
+end
+
+-- A keeper's word (from a keeper alone, his name, which the server sets): kept while repeated,
+-- one line in the [Olympus] chat for a fresh "on", unless that chat is muted.
+function Treasury.HandleDonations(dist, sender, text)
+	if dist ~= "CHANNEL" or type(text) ~= "string" then return end
+	local guild, on, since, zone = text:match("^TD~([^~]*)~([01])~(%d+)~(%d*)$")
+	if not guild or not Treasury.IsKeeperName(sender, guild) then return end
+	sender = ns.FullName(sender)
+	local now = ns.Now()
+	if on == "0" then
+		if donors[sender] then
+			donors[sender] = nil
+			ns.Fire("TREASURY_CHANGED")
+			ns.Fire("DATA_CHANGED")
+		end
+		return
+	end
+	since = math.min(tonumber(since) or now, now)
+	local mapID = tonumber(zone)
+	if mapID and (mapID < 1 or mapID > 100000) then mapID = nil end
+	donors[sender] = { since = since, mapID = mapID, t = now }
+	if pinged[sender] ~= since and now - since <= Treasury.DONATIONS_PING then
+		pinged[sender] = since
+		local muted = ns.db and type(ns.db.chatMute) == "table" and ns.db.chatMute.A
+		local f = not muted and ns.Channels and ns.Channels.Frame and ns.Channels.Frame("A")
+		if f and f.AddMessage then
+			local c = ns.Channels.TIERS and ns.Channels.TIERS.A and ns.Channels.TIERS.A.color or { 1, 0.82, 0 }
+			f:AddMessage("[" .. L.CHAN_ALL .. "] " .. Treasury.DonationText(sender, donors[sender]), c[1], c[2], c[3])
+		end
+	end
+	ns.Fire("TREASURY_CHANGED")
+	ns.Fire("DATA_CHANGED")
+end
+ns.Comm.Handle("TD", function(...) Treasury.HandleDonations(...) end)
+
+-- "Pyralis Ashandar is taking donations (in Stormwind City)": the King by the army's name for him.
+function Treasury.DonationText(name, d)
+	local who = (ns.faction ~= "Horde" and ns.IsKingCharacter(name)) and ns.KING_NAME or (ns.DisplayName(name) or "?")
+	local info = d and d.mapID and C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(d.mapID)
+	local zone = type(info) == "table" and type(info.name) == "string" and info.name ~= "" and info.name or nil
+	return zone and L.DONATIONS_LINE_ZONE:format(who, zone) or L.DONATIONS_LINE:format(who)
+end
+
+-- The keepers taking donations now (ours too), a line each, for the Realm and Treasury tabs.
+function Treasury.DonationLines()
+	local out, now, names = {}, ns.Now(), {}
+	for name, d in pairs(donors) do
+		if now - d.t > Treasury.DONATIONS_FRESH or not Treasury.KeeperByName(name) then donors[name] = nil else names[#names + 1] = name end
+	end
+	table.sort(names)
+	if donating and ns.me and RealKeeper() then out[#out + 1] = { text = ns.COIN .. Green(Treasury.DonationText(ns.me, donating)) } end
+	for _, name in ipairs(names) do
+		local d = donors[name]
+		out[#out + 1] = { text = ns.COIN .. Green(Treasury.DonationText(name, d)), right = Grey(ns.Ago(d.since)) }
+	end
+	return out
+end
+
+ns.On("LOGIN", function()
+	ns.Every(30, "treasury donations", function() Treasury.SendDonations() end)
+	pcall(ns.RegisterEvent, "ZONE_CHANGED_NEW_AREA", function() ns.SafeCall("treasury donations", Treasury.DonationsMoved) end)
+	pcall(ns.RegisterEvent, "PLAYER_LOGOUT", function() ns.SafeCall("treasury donations", Treasury.DonationsLogout) end)
+end)
+
+---------------------------------------------------------------------------
 -- What the tab shows
 ---------------------------------------------------------------------------
 
@@ -2977,6 +3119,19 @@ local function SummaryLines(role, q)
 		Para(lines, L.TREASURY_HOW)
 		lines[#lines].gapAfter = true
 	end
+	-- 1.1: who is taking donations now, and a keeper's own switch for it.
+	local taking = Treasury.DonationLines()
+	for _, l in ipairs(taking) do lines[#lines + 1] = l end
+	if RealKeeper() then
+		local on = Treasury.TakingDonations()
+		lines[#lines + 1] = { text = Gold((on and "[x] " or "[ ] ") .. L.DONATIONS_SWITCH), right = Grey(on and L.DONATIONS_SWITCH_ON or L.DONATIONS_SWITCH_OFF),
+			key = "donations", onClick = function() Treasury.SetDonations(not Treasury.TakingDonations()) end,
+			tooltip = function(tt)
+				tt:AddLine(L.DONATIONS_SWITCH, 1, 0.82, 0)
+				tt:AddLine(L.DONATIONS_SWITCH_TIP, 1, 1, 1, true)
+			end }
+	end
+	if #taking > 0 or RealKeeper() then lines[#lines].gapAfter = true end
 	local r = Treasury.Report()
 	if not r then
 		-- Nothing from the keepers yet: the King sees the sections waiting (the ranking empty),
@@ -3157,6 +3312,8 @@ function Treasury.Reset()
 	lastMoney, lastRelay = nil, -math.huge
 	lastEarlySent, earlySending, earlyPending, earlyCache = -math.huge, nil, nil, nil
 	Treasury.ResetPrivate()
+	donating, lastDonationSent = nil, -math.huge
+	wipe(donors); wipe(pinged)
 	earlyAsks, lastEarlyAsk, earlyArmed, heardEarlyAsk = 0, -math.huge, false, -math.huge
 	bookShown, rankShown, earlyShown = Treasury.BOOK_SHOWN, Treasury.RANK_PAGE, Treasury.EARLY_SHOWN
 	Treasury.mode = "summary"

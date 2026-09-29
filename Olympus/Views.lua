@@ -1144,6 +1144,8 @@ local function RealmLines(s, q)
 			if type(shared) == "string" then lines[#lines + 1] = { indent = 1, text = Grey(shared) } end
 		end
 	end
+	-- 1.1: the treasury's keepers taking donations now (Treasury.lua), under the King and the Treasurer.
+	for _, l in ipairs(not q and ns.Treasury and ns.Treasury.DonationLines and ns.Treasury.DonationLines() or {}) do lines[#lines + 1] = l end
 	-- The High Council, under them (0.9.9).
 	local found = councilShown and CouncilLines(lines, s, q) or 0
 	-- The Olympus chats, one click away (the channels our rank reads), above the guilds.
