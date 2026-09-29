@@ -24985,6 +24985,25 @@ do
 		for i, n in ipairs(names) do _G[n] = saved[i] end
 		if not ok then error(err, 0) end
 	end
+	-- Dues.lua loaded again, on its own: what it registers goes to `into` (events: the events it
+	-- listens to; on: its callbacks; timers: what it runs later), nothing reaches the addon's own
+	-- handlers, and its dialogs are put back as they were.
+	local function LoadAlone(into)
+		into.events, into.on, into.timers = into.events or {}, into.on or {}, into.timers or {}
+		local fresh = setmetatable({
+			On = function(name, f) into.on[name] = f end,
+			RegisterEvent = function(e) into.events[#into.events + 1] = e end,
+			After = function(_, _, f) into.timers[#into.timers + 1] = f end,
+			Every = function(_, _, f) into.timers[#into.timers + 1] = f end,
+			Comm = setmetatable({ Handle = function() end }, { __index = ns.Comm }),
+			King = setmetatable({ Register = function() end }, { __index = ns.King }),
+		}, { __index = ns })
+		local dialogs = {}
+		for k, v in pairs(StaticPopupDialogs) do if k:find("^OLYMPUS_DUES") then dialogs[k] = v end end
+		assert(loadfile(ADDON_DIR .. "Dues.lua"))("Olympus", fresh)
+		for k in pairs(StaticPopupDialogs) do if k:find("^OLYMPUS_DUES") then StaticPopupDialogs[k] = dialogs[k] end end
+		return fresh.Dues
+	end
 	local function SendRow(T)
 		local _, lines = Page(T)
 		for _, l in ipairs(lines) do
@@ -25074,20 +25093,11 @@ do
 			WithWindows(function(g)
 				-- The events Dues.lua listens to, loaded again on its own: the game refusing the trade's
 				-- gold, nothing else (no MAIL_SHOW, TRADE_SHOW or CHAT_MSG_LOOT: no fill-in, no popup).
-				local events, ons = {}, {}
-				local fresh = setmetatable({
-					On = function(name, f) ons[name] = f end,
-					RegisterEvent = function(e) events[#events + 1] = e end,
-					After = function() end, Every = function() end,
-					Comm = setmetatable({ Handle = function() end }, { __index = ns.Comm }),
-					King = setmetatable({ Register = function() end }, { __index = ns.King }),
-				}, { __index = ns })
-				local dialog = StaticPopupDialogs.OLYMPUS_DUES_AMOUNT
-				assert(loadfile(ADDON_DIR .. "Dues.lua"))("Olympus", fresh)
-				StaticPopupDialogs.OLYMPUS_DUES_AMOUNT = dialog
-				ons.LOGIN()
-				table.sort(events)
-				eq(table.concat(events, ","), "ADDON_ACTION_BLOCKED,ADDON_ACTION_FORBIDDEN")
+				local alone = {}
+				LoadAlone(alone)
+				alone.on.LOGIN()
+				table.sort(alone.events)
+				eq(table.concat(alone.events, ","), "ADDON_ACTION_BLOCKED,ADDON_ACTION_FORBIDDEN")
 				-- The mailbox and a trade with the Treasurer open, as a payer: the Treasury's own hooks fill nothing.
 				AsSoldier("Payer")
 				MailFrame:Show(); SendMailFrame:Show(); TradeFrame:Show(); trade.npc = "Pyralis Ashandar"
@@ -25138,6 +25148,173 @@ do
 			for _, bad in ipairs({ "deve", "dívida", "perde", "obrigat" }) do assert(not p:lower():find(bad, 1, true), key .. ": " .. bad) end
 		end
 		assert(ns.L.DUES_SEND_TIP:find("never moves gold", 1, true))
+	end)
+
+	-- A Captain of <Olympus II> (Cap, rank 1) with the Treasurer's list of his guild: Nm(7) paid the
+	-- amount, Nm(8) half of it, Nm(9) to Nm(12) nothing. fn(removed): the names the game was asked
+	-- to remove (C_GuildInfo.Uninvite), `can`: what CanGuildRemove says.
+	local function WithCaptainList(w, T, mail, fn)
+		local saved = { can = CanGuildRemove, info = C_GuildInfo, uninvite = GuildUninvite, scan = ns.Roster.RequestScan }
+		local removed, state = {}, { can = true }
+		CanGuildRemove = function() return state.can end
+		C_GuildInfo = { Uninvite = function(name) removed[#removed + 1] = name end }
+		GuildUninvite = nil
+		ns.Roster.RequestScan = function() end
+		local ok, err = pcall(function()
+			AsTreasurer()
+			local week = D.Week()
+			Mail(mail, Nm(7), 10000, D.Note(week, "Olympus II"))
+			Mail(mail, Nm(8), 5000, D.Note(week, "Olympus II"))
+			local msgs = D.GuildMessages(D.Ledger(), "Olympus II", 11)
+			AsCaptain()
+			for _, m in ipairs(msgs) do D.HandleGuild("WHISPER", TREASURER, m) end
+			D.Open()
+			fn(removed, state)
+		end)
+		CanGuildRemove, C_GuildInfo, GuildUninvite, ns.Roster.RequestScan = saved.can, saved.info, saved.uninvite, saved.scan
+		if not ok then error(err, 0) end
+	end
+	local function RemoveLines(lines)
+		local out = {}
+		for _, l in ipairs(lines) do if tostring(l.key):find("^dues remove ") then out[#out + 1] = l end end
+		return out
+	end
+
+	test("1.1 dues (#34): a Captain filters his roster to who is under the amount this week, picks one name, and one click is the game's own removal of that one member", function()
+		WithDues(function(w, K, T, mail)
+			WithCaptainList(w, T, mail, function(removed)
+				local text, lines = Page(T)
+				-- The filter: only those under the amount (Nm(8) with half of it, and the ten who paid nothing).
+				local filter = Row(lines, ns.L.DUES_FILTER_UNPAID:format(11))
+				assert(filter and filter.onClick, text)
+				filter.onClick()
+				text, lines = Page(T)
+				assert(Row(lines, Nm(8) .. " ") and Row(lines, Nm(9) .. " "), text)
+				assert(not Row(lines, Nm(7) .. " "), "paid: not in the filter")
+				assert(Row(lines, ns.L.DUES_FILTER_ALL:format(12)), "the way back to every member")
+				-- Nothing to remove until a name is picked.
+				eq(#RemoveLines(lines), 0)
+				Row(lines, Nm(8) .. " ").onClick()
+				text, lines = Page(T)
+				local picked = RemoveLines(lines)
+				eq(#picked, 1, "one Remove line: the picked member's")
+				assert(picked[1].text:find(ns.L.DUES_REMOVE:format(Nm(8)), 1, true), picked[1].text)
+				-- Its click asks first (the game's popup with mouse and keyboard); nothing removed yet.
+				picked[1].onClick()
+				local ask = w.popups[#w.popups]
+				eq(ask.name, "OLYMPUS_DUES_REMOVE"); eq(ask.a, Nm(8)); eq(#removed, 0)
+				assert(ns.L.DUES_REMOVE_CONFIRM:format(ask.a, ask.b):find(T.Coins(5000) .. " / " .. T.Coins(10000), 1, true))
+				-- Yes: the game's own removal, of that one member, by his roster name.
+				StaticPopupDialogs.OLYMPUS_DUES_REMOVE.OnAccept(nil, ask.data)
+				eq(#removed, 1); eq(removed[1], Nm(8) .. "-Realm")
+				assert(Printed(w, ns.L.DUES_REMOVED:format(Nm(8))))
+				-- Picking another one lets go of the first: one at a time, never several.
+				text, lines = Page(T)
+				Row(lines, Nm(9) .. " ").onClick()
+				text, lines = Page(T)
+				Row(lines, Nm(10) .. " ").onClick()
+				text, lines = Page(T)
+				picked = RemoveLines(lines)
+				eq(#picked, 1); assert(picked[1].text:find(Nm(10), 1, true))
+				-- The same click again lets go.
+				Row(lines, Nm(10) .. " ").onClick()
+				eq(#RemoveLines(select(2, Page(T))), 0)
+				-- Nobody the list says paid, nobody of his rank or above: no Remove line.
+				filter = Row(select(2, Page(T)), ns.L.DUES_FILTER_ALL:format(12))
+				filter.onClick()
+				for _, who in ipairs({ 7, 1, 2 }) do
+					text, lines = Page(T, Nm(who):lower())
+					Row(lines, Nm(who) .. " ").onClick()
+					eq(#RemoveLines(select(2, Page(T, Nm(who):lower()))), 0, Nm(who))
+				end
+			end)
+		end)
+	end)
+
+	test("1.1 dues (#34): no removal without the rank's right, a whole list, a click, or in another guild; nothing on a timer or at the weekly reset", function()
+		WithDues(function(w, K, T, mail)
+			WithCaptainList(w, T, mail, function(removed, state)
+				local lines = select(2, Page(T))
+				Row(lines, Nm(9) .. " ").onClick()
+				eq(#RemoveLines(select(2, Page(T))), 1)
+				-- A rank that can't remove members: no Remove line, and a removal asked anyway does nothing.
+				state.can = false
+				eq(#RemoveLines(select(2, Page(T))), 0)
+				eq(D.Remove({ key = Nm(9):lower(), name = Nm(9) }), false); eq(#removed, 0)
+				assert(Printed(w, ns.L.DUES_REMOVE_CANT))
+				state.can = true
+				-- Checked again at the click: paid meanwhile (a newer list), or not on the roster: nothing.
+				AsTreasurer()
+				Mail(mail, Nm(9), 10000, D.Note(D.Week(), "Olympus II"))
+				local msgs = D.GuildMessages(D.Ledger(), "Olympus II", 12)
+				AsCaptain()
+				for _, m in ipairs(msgs) do D.HandleGuild("WHISPER", TREASURER, m) end
+				eq(D.Remove({ key = Nm(9):lower(), name = Nm(9) }), false); eq(#removed, 0)
+				assert(Printed(w, ns.L.DUES_REMOVE_PAID:format(Nm(9))))
+				eq(D.Remove({ key = "zed", name = "Zed" }), false, "not on our roster: another guild's")
+				eq(#removed, 0)
+				-- A list still coming (or none yet): nobody is under the amount, nobody removable.
+				D.Reset(); AsCaptain(); D.Open()
+				lines = select(2, Page(T))
+				eq(Row(lines, ns.L.DUES_FILTER_UNPAID:format(0)) ~= nil, true, "nobody under the amount: the list isn't here")
+				Row(lines, Nm(11) .. " ").onClick()
+				eq(#RemoveLines(select(2, Page(T))), 0)
+				eq(D.Remove({ key = Nm(11):lower(), name = Nm(11) }), false); eq(#removed, 0)
+				-- The King looking at another guild's players: no pick, no removal.
+				AsKing()
+				for _, m in ipairs(msgs) do D.HandleGuild("WHISPER", TREASURER, m) end
+				D.Open("Olympus II")
+				for _, l in ipairs(select(2, Page(T))) do
+					if l.indent == 1 and l.right then eq(l.onClick, nil, "no pick in another guild: " .. tostring(l.text)) end
+				end
+				eq(#RemoveLines(select(2, Page(T))), 0)
+				-- Nothing on a timer: the dues' timers, a week on, and the reset passed, remove nobody.
+				local alone = {}
+				LoadAlone(alone)
+				alone.on.LOGIN()
+				AsCaptain()
+				w.clock = w.clock + 7 * 86400
+				assert(#alone.timers >= 2, "its timers")
+				for _, f in ipairs(alone.timers) do f() end
+				eq(#removed, 0, "nobody removed by a timer")
+			end)
+		end)
+	end)
+
+	test("1.1 dues (#34): with the gamepad UI the question is Olympus's own window, never the game's popup; its lines in both languages", function()
+		WithDues(function(w, K, T, mail)
+			WithCaptainList(w, T, mail, function(removed)
+				local lines = select(2, Page(T))
+				Row(lines, Nm(9) .. " ").onClick()
+				local savedPad, savedShow = ns.GamepadUI, ns.Dialog.Show
+				local shown = {}
+				ns.GamepadUI = function() return true end
+				ns.Dialog.Show = function(which, a, b, data) shown[#shown + 1] = { which = which, data = data } end
+				local popups = #w.popups
+				local ok, err = pcall(function()
+					RemoveLines(select(2, Page(T)))[1].onClick()
+					eq(#w.popups, popups, "not the game's popup"); eq(shown[1].which, "OLYMPUS_DUES_REMOVE")
+					eq(#removed, 0, "asked first")
+					StaticPopupDialogs.OLYMPUS_DUES_REMOVE.OnAccept(nil, shown[1].data)
+					eq(#removed, 1, table.concat(w.printed, " | ") .. " " .. tostring(ns.db.errors[#ns.db.errors] and ns.db.errors[#ns.db.errors].msg))
+				end)
+				ns.GamepadUI, ns.Dialog.Show = savedPad, savedShow
+				if not ok then error(err, 0) end
+			end)
+		end)
+		local pt = { L = setmetatable({}, { __index = ns.L }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		for _, key in ipairs({ "DUES_FILTER_UNPAID", "DUES_FILTER_ALL", "DUES_FILTER_TIP", "DUES_PICK_TIP", "DUES_UNPICK_TIP", "DUES_REMOVE", "DUES_REMOVE_TIP",
+			"DUES_REMOVE_CONFIRM", "DUES_REMOVE_YES", "DUES_REMOVED", "DUES_REMOVE_CANT", "DUES_REMOVE_GONE", "DUES_REMOVE_PAID", "DUES_REMOVE_FAILED" }) do
+			local en, p = rawget(ns.L, key), rawget(pt.L, key)
+			assert(en and p and p ~= en, key)
+			local function Slots(x) return (x:gsub("%%%%", ""):gsub("[^%%]", ""):len()) end
+			eq(Slots(p), Slots(en), key)
+		end
 	end)
 
 	test("1.1 dues (#37): its lines in both languages", function()

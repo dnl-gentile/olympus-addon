@@ -751,17 +751,78 @@ end
 
 local ORDER = { below = 1, unknown = 2, above = 3 }
 
--- Our own guild: every member (the roster), his last payment, his gold this week, above or below.
+---------------------------------------------------------------------------
+-- A seat cleared (#34): our own guild's roster filtered to who is under the amount this week,
+-- one member picked, one click on the game's own removal (as the Guild window's Remove). Only
+-- where the player's rank can already remove members, and only that member: no removing
+-- several at once, nothing at the weekly reset or on any timer, never another guild.
+---------------------------------------------------------------------------
+
+Dues.filter = nil            -- "unpaid": our roster shows only who is under the amount this week
+Dues.picked = nil            -- the member picked on our roster (his key), for the Remove line
+
+-- The player's rank may remove members: the game says so (a client that can't say: no).
+function Dues.CanRemove()
+	if not IsInGuild() or type(CanGuildRemove) ~= "function" then return false end
+	local ok, can = pcall(CanGuildRemove)
+	return ok and can and true or false
+end
+-- This member may be removed by this click: our roster's, below our own rank (as the game allows,
+-- never ourselves), and under the amount this week on a whole list.
+local function Removable(m, state)
+	return state == "below" and Dues.CanRemove() and m.rank > ns.Roster.MyRank() and m.key ~= Dues.Key(ns.me)
+end
+
+-- The confirm's answer (a click, a hardware event: the removal is the game's own call, made in
+-- it). Checked again first: still our roster's, below our rank, under the amount on the list.
+function Dues.Remove(data)
+	if type(data) ~= "table" or type(data.key) ~= "string" then return false end
+	local who = data.name or data.key
+	if not Dues.CanRemove() then ns.Print(L.DUES_REMOVE_CANT) return false end
+	local m
+	for _, r in ipairs(Dues.Roster()) do if r.key == data.key then m = r break end end
+	if not m or m.rank <= ns.Roster.MyRank() or m.key == Dues.Key(ns.me) then ns.Print(L.DUES_REMOVE_GONE:format(who)) return false end
+	local list = GuildData(GetGuildInfo("player"))
+	if not list or Dues.Standing(list, m.key) ~= "below" then ns.Print(L.DUES_REMOVE_PAID:format(who)) return false end
+	local ok = false
+	if C_GuildInfo and type(C_GuildInfo.Uninvite) == "function" then
+		ok = pcall(C_GuildInfo.Uninvite, m.raw)
+	elseif type(GuildUninvite) == "function" then
+		ok = pcall(GuildUninvite, m.raw)
+	end
+	ns.Log("dues: remove %s %s", tostring(m.raw), ok and "asked" or "failed")
+	ns.Print(ok and L.DUES_REMOVED:format(m.name) or L.DUES_REMOVE_FAILED:format(m.name))
+	if ok then
+		Dues.picked = nil
+		if ns.Roster.RequestScan then ns.Roster.RequestScan(true) end
+		ns.Fire("TREASURY_CHANGED")
+	end
+	return ok
+end
+
+StaticPopupDialogs["OLYMPUS_DUES_REMOVE"] = {
+	text = L.DUES_REMOVE_CONFIRM,
+	button1 = L.DUES_REMOVE_YES,
+	button2 = CANCEL or "Cancel",
+	OnAccept = function(self, data) ns.SafeCall("dues remove", Dues.Remove, data or (self and self.data)) end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+-- Our own guild: every member (the roster), his last payment, his gold this week, above or below;
+-- filtered to those under the amount (#34), a click picks one, and the picked one's Remove line.
 local function OwnGuildLines(lines, q)
 	local guild = GetGuildInfo("player")
 	local data = GuildData(guild)
-	local roster, rows, above = Dues.Roster(), {}, 0
+	local roster, rows, above, below = Dues.Roster(), {}, 0, 0
 	local amount = data and data.amount or Dues.Amount()
 	for _, m in ipairs(roster) do
 		local state, c, last = "unknown", 0, nil
 		if data and m.key then state, c, last = Dues.Standing(data, m.key) end
-		if state == "above" then above = above + 1 end
-		if ns.Holds(q, m.name) then rows[#rows + 1] = { m = m, state = state, c = c, last = last } end
+		if state == "above" then above = above + 1 elseif state == "below" then below = below + 1 end
+		if ns.Holds(q, m.name) and (Dues.filter ~= "unpaid" or state == "below") then rows[#rows + 1] = { m = m, state = state, c = c, last = last } end
 	end
 	table.sort(rows, function(a, b)
 		if a.state ~= b.state then return ORDER[a.state] < ORDER[b.state] end
@@ -770,10 +831,43 @@ local function OwnGuildLines(lines, q)
 	lines[#lines + 1] = { header = true, text = "<" .. tostring(guild) .. ">", right = Grey(L.DUES_OWN_COUNT:format(above, #roster, Coins(amount))) }
 	Waiting(lines, data)
 	Source(lines, data)
+	local unpaid = Dues.filter == "unpaid"
+	lines[#lines + 1] = { text = Gold("> " .. (unpaid and L.DUES_FILTER_ALL:format(#roster) or L.DUES_FILTER_UNPAID:format(below))),
+		onClick = function()
+			Dues.filter = not unpaid and "unpaid" or nil
+			shownRows = Dues.PAGE
+			ns.Fire("TREASURY_CHANGED")
+		end,
+		tooltip = function(tt) tt:AddLine(L.DUES_FILTER_TIP, 1, 1, 1, true) end }
 	if #rows == 0 then lines[#lines + 1] = { text = Grey(q and L.SEARCH_NO_MATCH or L.DUES_NONE) } end
 	for i = 1, math.min(#rows, shownRows) do
 		local r = rows[i]
-		lines[#lines + 1] = PlayerRow(r.m.name, r.state, r.c, r.last, amount, r.m.rankName)
+		local row = PlayerRow(r.m.name, r.state, r.c, r.last, amount, r.m.rankName)
+		local picked = Dues.picked ~= nil and Dues.picked == r.m.key
+		if picked then row.text = Gold("> ") .. row.text end
+		row.key = "dues member " .. tostring(r.m.key)
+		row.onClick = function()
+			Dues.picked = not picked and r.m.key or nil
+			ns.Fire("TREASURY_CHANGED")
+		end
+		local tip = row.tooltip
+		row.tooltip = function(tt)
+			tip(tt)
+			tt:AddLine(picked and L.DUES_UNPICK_TIP or L.DUES_PICK_TIP, 0.6, 1, 0.6, true)
+		end
+		lines[#lines + 1] = row
+		-- The picked member, when this click may remove him: the one Remove line, under him.
+		if picked and Removable(r.m, r.state) then
+			local m = r.m
+			lines[#lines + 1] = { indent = 2, key = "dues remove " .. tostring(m.key), text = Red(L.DUES_REMOVE:format(m.name)),
+				onClick = function()
+					ns.ShowDialog("OLYMPUS_DUES_REMOVE", m.name, Coins(r.c) .. " / " .. Coins(amount), { key = m.key, name = m.name })
+				end,
+				tooltip = function(tt)
+					tt:AddLine(L.DUES_REMOVE:format(m.name), 1, 0.82, 0)
+					tt:AddLine(L.DUES_REMOVE_TIP, 1, 1, 1, true)
+				end }
+		end
 	end
 	if #rows > shownRows then
 		lines[#lines + 1] = { indent = 1, text = Grey(L.SHOW_MORE:format(math.min(Dues.PAGE, #rows - shownRows), shownRows, #rows)),
@@ -1069,7 +1163,7 @@ function Dues.Reset()
 	lastAmountSent, lastRepeat, lastOlder = -math.huge, -math.huge, -math.huge
 	heardAt, heardName, summary = -math.huge, nil, nil
 	wipe(asked); wipe(answered); wipe(outbox); wipe(answers)
-	Dues.shown, shownRows = nil, Dues.PAGE
+	Dues.shown, shownRows, Dues.filter, Dues.picked = nil, Dues.PAGE, nil, nil
 	if ns.rdb then ns.rdb.duesAmount = nil end
 	if ns.db then ns.db.previewDuesAmount, ns.db.duesTradeBlocked = nil, nil end
 end

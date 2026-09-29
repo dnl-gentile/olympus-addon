@@ -375,6 +375,15 @@ alone until then).
     players a click away. A guild's Captains and Lord see their own guild alone: every member of
     their roster with his last payment, his gold this week, and above or below the amount (those
     below first). The army's Treasury tab keeps the King's three switches, and nothing of this.
+  - **Clearing a seat (a guild's Captains and Lord)**: on their own guild's list, one click
+    filters the roster to whoever is under the amount this week (never someone the Treasurer's
+    list can't tell yet: a list still coming, or cut). A click picks one name; under it,
+    **Remove <name> from the guild** asks first, then makes the game's own removal of that one
+    member, as the Guild window's Remove does. Only where the player's rank may already remove
+    members, only a member ranked below him, and checked again at the click. Never several at
+    once, nothing at the weekly reset or on any timer, and never another guild's member: the
+    King's and the Treasurer's view of the other guilds has no such line. The guild's size in
+    the census frees no seat: only a removal does.
   - **Send this week's dues**: a button on top of the Treasury tab, for every member on the
     Treasurer's realms (the tab is there for it even while the King shows the army nothing;
     a keeper has none: gold between keepers is a transfer). Its click fills in what the usual
