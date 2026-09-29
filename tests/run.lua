@@ -24815,6 +24815,7 @@ end)
 
 test("1.1 behind the author: his presence naming a newer released version (V4~<his build>~<released>) gives one chat line a session, a line at the foot of the Census and /oly status; nothing is sent", function()
 	local L = ns.L
+	local NEWER = "9.8.0" -- (a released version newer than ours, whatever ours is)
 	local saved = { release = ns.db.authorRelease, old = ns.db.authorVersion }
 	ns.db.authorRelease, ns.db.authorVersion = nil, nil
 	local ok, err = pcall(function()
@@ -24824,7 +24825,7 @@ test("1.1 behind the author: his presence naming a newer released version (V4~<h
 				for _, l in ipairs(ns.Views.Build("census")) do out[#out + 1] = tostring(l.text) end
 				return table.concat(out, "\n")
 			end
-			local line = L.BEHIND_LINE:format("1.1.0", ns.VERSION)
+			local line = L.BEHIND_LINE:format(NEWER, ns.VERSION)
 			-- Anyone else naming a version: nothing (only his client, by the name the server stamps).
 			W.HandlePresence("CHANNEL", "Faladoriel-Realm", "V4~9.9.9~9.9.9")
 			W.HandlePresence("CHANNEL", "Faladoriel Skylance-SomeEraRealm", "V4~9.9.9~9.9.9")
@@ -24835,33 +24836,33 @@ test("1.1 behind the author: his presence naming a newer released version (V4~<h
 			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~9.9.9~0.9.9")
 			eq(W.Behind(), nil); eq(#w.printed, 0)
 			-- Newer: one line in chat, the foot of the Census, /oly status.
-			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.1.1~1.1.0")
-			eq(W.Behind(), "1.1.0", "the released version, not the build he runs")
-			eq(#w.printed, 1); eq(w.printed[1], L.BEHIND_CHAT:format("1.1.0", ns.VERSION))
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~9.9.9~" .. NEWER)
+			eq(W.Behind(), NEWER, "the released version, not the build he runs")
+			eq(#w.printed, 1); eq(w.printed[1], L.BEHIND_CHAT:format(NEWER, ns.VERSION))
 			local census = CensusText()
 			assert(census:find(line, 1, true), census)
-			assert(W.VersionLine():find("author's released version: 1.1.0", 1, true), W.VersionLine())
+			assert(W.VersionLine():find("author's released version: " .. NEWER, 1, true), W.VersionLine())
 			assert(W.VersionLine():find("behind", 1, true), W.VersionLine())
 			-- Every 5 minutes he says it again: no second chat line this session.
-			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~1.1.1~1.1.0")
+			W.HandlePresence("CHANNEL", AUTHOR_FULL, "V4~9.9.9~" .. NEWER)
 			eq(#w.printed, 1, "once a session")
 			-- Nothing left this client: no whisper, no message on the channel.
 			eq(#w.sent, 0, "nothing sent"); eq(#w.whispered, 0, "nobody whispered")
 			-- It is no roll call: it shows whatever /oly rollcall says.
 			ns.db.rollCall = false
 			eq(W.Answers(), false)
-			eq(W.Behind(), "1.1.0", "rollcall off: still shown")
+			eq(W.Behind(), NEWER, "rollcall off: still shown")
 			assert(CensusText():find(line, 1, true))
 			ns.db.rollCall = nil
 			-- A later session: known from the SavedVariables before he speaks, with no chat line.
 			W.ResetVersion()
 			w.printed = {}
-			eq(W.Behind(), "1.1.0", "from the saved one")
+			eq(W.Behind(), NEWER, "from the saved one")
 			assert(CensusText():find(line, 1, true))
 			eq(#w.printed, 0)
 			-- Updated to it: the line goes by itself.
 			local savedVersion = ns.VERSION
-			ns.VERSION = "1.1.0"
+			ns.VERSION = NEWER
 			eq(W.Behind(), nil)
 			eq(CensusText():find(line, 1, true), nil)
 			assert(W.VersionLine():find("same", 1, true), W.VersionLine())
