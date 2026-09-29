@@ -38,6 +38,7 @@ Vox.lua
 Court.lua
 Treasury.lua
 Bank.lua
+Backup.lua
 Acts.lua
 Workshop.lua
 Ed25519.lua

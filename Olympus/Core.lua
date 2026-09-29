@@ -1141,6 +1141,7 @@ StandIn("Treasury", {})
 StandIn("Acts", { "WritPrompt" })
 StandIn("Dialog", {})
 StandIn("Bank", {})
+StandIn("Backup", { "Slash" }) -- (1.1)
 StandIn("Link", { "Slash" })
 StandIn("Borders", { "SetEnabled", "Report" })
 StandIn("Nameplates", { "SetEnabled", "Report" })
@@ -1222,7 +1223,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Backup" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1257,6 +1258,7 @@ local function Help()
 	print(L.HELP_BANK)
 	print(L.HELP_NEED)
 	print(L.HELP_DONATIONS)
+	print(L.HELP_BACKUP)
 	print(L.HELP_INSPECTION)
 	print(L.HELP_BORDERS)
 	print(L.HELP_NAMEPLATES)
@@ -1466,6 +1468,9 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "need" then
 			-- 1.1: a Lord or a Captain asks the treasury for an item and a count (Bank.lua).
 			ns.Bank.Slash(rest)
+		elseif cmd == "backup" or cmd == "restore" then
+			-- 1.1: the clipboard backup of this character's book, the channel key and its setup (Backup.lua).
+			ns.Backup.Slash(cmd)
 		elseif cmd == "donations" then
 			-- 1.1: a keeper tells the army he is taking donations, until he logs out (Treasury.lua).
 			local on = rest:lower()

@@ -24858,10 +24858,13 @@ test("1.1 sister guilds' banks (Fern): their treasurer's yes, whispered to the K
 			GetNumGuildBankTabs = function() return 0 end
 			GetGuildBankTabInfo = GetGuildBankTabInfo or function() end
 			GetGuildBankItemInfo = GetGuildBankItemInfo or function() end
+			ns.After = function() end -- (the bank's own read, after it settles, is not this test's)
 			B.Opened()
 			eq(w.popups[#w.popups].name, "OLYMPUS_SISTER_BANK"); eq(w.popups[#w.popups].a, "Olympus Zeus")
 			local n = #w.popups
 			B.Opened(); eq(#w.popups, n, "once a session")
+			B.Closed()
+			ns.After = After
 			GetNumGuildBankTabs = GetNum
 			-- The King's ask before his yes: nothing.
 			w.sent, w.whispered = {}, {}
@@ -24933,7 +24936,9 @@ test("1.1 sister guilds' banks (Fern): their treasurer's yes, whispered to the K
 			B.Reset()
 			WithGamepadUI(true, function(game)
 				GetNumGuildBankTabs = function() return 0 end
-				B.Opened()
+				ns.After = function() end
+				B.Opened(); B.Closed()
+				ns.After = After
 				GetNumGuildBankTabs = GetNum
 				eq(#game.shown, 0); assert(ns.Dialog.Find("OLYMPUS_SISTER_BANK"), "our own dialog")
 			end)
@@ -25200,7 +25205,240 @@ test("1.1 taking donations (the Treasurer's idea): a keeper's switch, a line on 
 	end)
 end)
 
-test("1.1 the treasury's new lines (bank, sister guilds, requests, donations) are in both languages, with the same format arguments", function()
+-- Backup.lua (1.1): a file of its own, loaded here as the game loads it (after Bank.lua).
+assert(loadfile(ADDON_DIR .. "Backup.lua"))("Olympus", ns)
+
+-- A backup as a modified text would carry it: `data` written, its header made to match.
+local function ForgedBackup(data)
+	local payload = ns.Backup.Write(data)
+	return ("OLYB1:%d:%s:%s"):format(#payload, ns.Backup.Sum(payload), payload)
+end
+
+test("1.1 the clipboard backup (Fern): the Treasurer's book, the key and the toggles out as text, and one paste restores them, nothing sent", function()
+	WithThrone(function(w, K)
+		local T, Bk = ns.Treasury, ns.Backup
+		local mail = MailWorld()
+		local saved = { split = ns.splitNames, join = ns.Comm.JoinChannel, key = ns.rdb.realmKey, sound = ns.db.sound, showMap = ns.db.showMap,
+			angle = ns.db.minimapAngle, windows = ns.db.chatWindows, blocked = ns.db.blocked, share = ns.db.shareLocation, officer = ns.Roster.IsOfficer }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			local joined = 0
+			ns.Comm.JoinChannel = function() joined = joined + 1 end
+			-- The Treasurer's book: an opening, donations (gold and an item), a payment; his setup.
+			AsTreasurer()
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			mail.gold = 5000000
+			T.OpenBook()
+			w.clock = w.clock + 10; T.Record("Generous Donor", 250000, "trade", nil, { quiet = true })
+			w.clock = w.clock + 10; T.Record("Fan", 12345, "mail", nil, { quiet = true })
+			w.clock = w.clock + 10; T.Record("Crafter", 50000, "mail", true, { quiet = true })
+			w.clock = w.clock + 10; T.Record("Item Giver", 0, "mail", nil, { quiet = true, item = 2589, count = 20 })
+			w.clock = w.clock + 10; T.Record("Buyer", 9000, "trade", nil, { quiet = true, excluded = true, kind = "sale" })
+			local balance, ranking, weekIn, lines = T.Balance(), T.Totals().ranking, T.Totals().weekIn, #T.Lines()
+			ns.rdb.realmKey = "our officers' s3cret @key <#1>"
+			ns.db.sound, ns.db.showMap, ns.db.minimapAngle = false, false, 123.5
+			ns.db.chatWindows = { [ns.me] = { A = "Olympus" } }
+			ns.db.blocked = { ["pest-realm"] = true }
+			ns.Roster.IsOfficer = function() return true end
+			-- The text: one line, nothing the copy box changes (no "|", "@", "<#"), no line break.
+			local text = Bk.Export()
+			assert(text:find("^OLYB1:%d+:%x%x%x%x%x%x%x%x:"), text:sub(1, 40))
+			assert(not text:find("[|@\n\r]") and not text:find("<#", 1, true), "safe for the copy box")
+			eq(ns.Codec.NoMentions(text), text, "the copy box leaves it as it is")
+			local sent = #w.sent
+			-- The beta wipes the saved variables: at the next login his book opens again at his gold.
+			ns.rdb.treasuryBooks, ns.rdb.realmKey = nil, nil
+			ns.db.sound, ns.db.showMap, ns.db.minimapAngle, ns.db.chatWindows, ns.db.blocked = true, true, 200, nil, {}
+			mail.gold = 5311345
+			T.OpenBook()
+			eq(#T.Lines(), 0); eq(T.Totals().ranking[1], nil)
+			-- One paste: read, what changes said, then restored after his yes.
+			local d, why = Bk.Read(text)
+			assert(d, why)
+			local summary = table.concat(Bk.Summary(d), "\n")
+			assert(summary:find(ns.L.BACKUP_BOOK_WHOLE:format("Pyralis Ashandar", lines, T.Coins(5000000)), 1, true), summary)
+			assert(summary:find(ns.L.BACKUP_KEY, 1, true) and summary:find(ns.L.BACKUP_NO_CONSENT, 1, true), summary)
+			eq(Bk.Take(text), true)
+			local p = w.popups[#w.popups]
+			eq(p.name, "OLYMPUS_BACKUP_RESTORE"); eq(p.a, table.concat(Bk.Summary(d), "\n"))
+			StaticPopupDialogs.OLYMPUS_BACKUP_RESTORE.OnAccept(nil, p.data)
+			eq(T.Balance(), balance, "the same balance"); eq(#T.Lines(), lines); eq(T.Totals().weekIn, weekIn, "the same week")
+			for i, g in ipairs(ranking) do eq(T.Totals().ranking[i].name, g.name); eq(T.Totals().ranking[i].money, g.money) end
+			eq(T.Totals().items[1].id, 2589, "the items donated")
+			assert(T.Book().restored, "marked restored")
+			eq(ns.rdb.realmKey, "our officers' s3cret @key <#1>", "the key, on an officer's character"); eq(joined, 1)
+			eq(ns.db.sound, false); eq(ns.db.showMap, false); eq(ns.db.minimapAngle, 123.5)
+			eq(ns.db.chatWindows[ns.me].A, "Olympus"); eq(ns.db.blocked["pest-realm"], true)
+			for i = sent + 1, #w.sent do assert(not w.sent[i].msg:find("^K1~"), "the key sent nowhere: " .. w.sent[i].msg) end
+			-- Written since: merged. A donation after the wipe stays, counted once, whatever the order.
+			ns.rdb.treasuryBooks = nil
+			T.OpenBook()
+			w.clock = w.clock + 100; T.Record("Late Donor", 7000, "trade", nil, { quiet = true })
+			d = Bk.Read(text)
+			assert(table.concat(Bk.Summary(d), "\n"):find(ns.L.BACKUP_BOOK_MERGE:format("Pyralis Ashandar", lines, T.Coins(5000000)), 1, true))
+			Bk.Apply(d)
+			eq(#T.Lines(), lines + 1); eq(T.Balance(), balance + 7000)
+			Bk.Apply(Bk.Read(text))
+			eq(#T.Lines(), lines + 1, "restored twice: nothing twice"); eq(T.Balance(), balance + 7000)
+			-- Refused: cut short, changed, not one, another player's, the other faction's.
+			local cut = text:sub(1, #text - 40)
+			local _, whyCut = Bk.Read(cut)
+			assert(whyCut and whyCut:find(ns.L.BACKUP_CUT:sub(1, 20), 1, true), tostring(whyCut))
+			local changed = text:gsub("Generous", "Generoux", 1)
+			local _, whyBad = Bk.Read(changed); eq(whyBad, ns.L.BACKUP_DAMAGED)
+			local _, whyNot = Bk.Read("hello there"); eq(whyNot, ns.L.BACKUP_NOT_ONE)
+			AsSoldier("Other Player")
+			local _, whyOther = Bk.Read(text); eq(whyOther, ns.L.BACKUP_OTHER:format("Pyralis Ashandar"))
+			AsTreasurer()
+			local _, whyFaction = Bk.Read(ForgedBackup({ v = 1, char = ns.me, faction = "Horde" })); eq(whyFaction, ns.L.BACKUP_OTHER_FACTION)
+			-- A text someone else made ("paste this"): never a yes to sharing, never another's book,
+			-- and on a member's character never a key (it would move him to another channel).
+			ns.Roster.IsOfficer = function() return false end
+			AsSoldier("Victim")
+			ns.db.shareLocation, ns.rdb.realmKey = nil, "the real key"
+			local forged = ForgedBackup({ v = 1, char = ns.me, faction = ns.faction, key = "attackerkey", settings = { shareLocation = true, sound = false },
+				keeperShares = { ["victim-realm"] = true }, royalInspection = true,
+				books = { { name = "Pyralis Ashandar-Realm", opening = 1, lines = {} }, { name = ns.me, opening = 5, lines = {} } } })
+			d = Bk.Read(forged)
+			eq(#d.books, 1, "his own book alone"); eq(d.books[1].name, ns.me)
+			assert(table.concat(Bk.Summary(d), "\n"):find(ns.L.BACKUP_KEY_NOT_OFFICER, 1, true))
+			Bk.Apply(d)
+			eq(ns.db.shareLocation, nil, "no yes to sharing"); eq(ns.rdb.realmKey, "the real key", "no key for a member")
+			eq((ns.db.keeperShares or {})["victim-realm"], nil, "no yes to share a book"); eq(ns.db.royalInspection, nil)
+			eq(ns.db.sound, false, "his toggles, yes")
+			-- A damaged text is never run as code: what can't be read is refused.
+			eq(Bk.Parse("{sa=os.exit()}"), nil)
+			eq(Bk.Parse(("{"):rep(50)), nil, "too deep")
+			-- The King's word: from his client, given again as a new word; the confirm says who comes back.
+			AsKing()
+			ns.db.keeperShares = { [KING_KEY] = true }
+			T.SetFlag("ranking", true); T.AddKeeper("Test Keeper")
+			local kingText = Bk.Export()
+			ns.rdb.treasuryFlags, ns.rdb.treasuryKeepers = nil, nil
+			w.sent = {}
+			d = Bk.Read(kingText)
+			local ks = table.concat(Bk.Summary(d), "\n")
+			assert(ks:find(ns.L.BACKUP_WORD_FLAGS:format(ns.L.TREASURY_PART_RANKING), 1, true) and ks:find(ns.L.BACKUP_WORD_KEEPERS_BACK:format("Test Keeper"), 1, true), ks)
+			Bk.Apply(d)
+			eq(T.Shows("ranking"), true); eq(T.Keepers()[1], "Test Keeper-Realm")
+			local flags, keepers
+			for _, s in ipairs(w.sent) do
+				if s.msg:find("^T1~T~") then flags = s.msg end
+				if s.msg:find("^T1~K~") then keepers = s.msg end
+			end
+			assert(flags and flags:find("~010~%d+$") and keepers and keepers:find("Test Keeper%-Realm$"), "his word, given again")
+			-- The same backup on another client of his (not the King's any more): the word left out.
+			AsSoldier("Asmongold Asmongler")
+			assert(table.concat(Bk.Summary(Bk.Read(kingText)), "\n"):find(ns.L.BACKUP_WORD_NOT_KING, 1, true))
+		end)
+		mail.Restore()
+		ns.splitNames, ns.Comm.JoinChannel, ns.rdb.realmKey, ns.db.sound, ns.db.showMap = saved.split, saved.join, saved.key, saved.sound, saved.showMap
+		ns.db.minimapAngle, ns.db.chatWindows, ns.db.blocked, ns.db.shareLocation, ns.Roster.IsOfficer = saved.angle, saved.windows, saved.blocked, saved.share, saved.officer
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 the clipboard backup: the Treasurer's mail character's book goes with his, a big book comes back whole, the text read by a small parser", function()
+	WithThrone(function(w, K)
+		local T, Bk = ns.Treasury, ns.Backup
+		local saved = { split = ns.splitNames }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			-- His mail character's book, kept on his account: in his backup, restored on either.
+			ns.db.myCharacters = { [TREASURER_KEY] = true, [ANDARAI_KEY] = true }
+			AsAndarai(nil)
+			local mb = T.BookOf(ANDARAI, true); mb.opening = 1000
+			T.Record("Mail Giver", 500, "mail", nil, { quiet = true, book = mb })
+			AsTreasurer()
+			local b = T.Book(); b.opening = 2000
+			-- A big book: its 500 lines (520 written), and 3000 more donors of all time in its sums.
+			for i = 1, 520 do T.Record("Donor " .. i, 100 + i, "trade", nil, { quiet = true }) end
+			for i = 1, 3000 do T.Book().sums.byDonor["Old Donor " .. i] = i end
+			local balance, donors = T.Balance(), 0
+			for _ in pairs(T.Book().sums.byDonor) do donors = donors + 1 end
+			local text = Bk.Export()
+			assert(#text < Bk.MAX, #text)
+			ns.rdb.treasuryBooks, ns.db.myCharacters = nil, nil
+			AsAndarai(nil)
+			local d = Bk.Read(text)
+			assert(d, "his mail character reads its account's backup")
+			eq(#d.books, 2, "both books")
+			Bk.Apply(d)
+			eq(T.Balance(T.BookOf(ANDARAI)), 1500)
+			eq(T.Balance(T.BookOf("Pyralis Ashandar-Realm")), balance, "the big book whole")
+			eq(#T.BookOf("Pyralis Ashandar-Realm").lines, T.MAX)
+			local n = 0
+			for _ in pairs(T.BookOf("Pyralis Ashandar-Realm").sums.byDonor) do n = n + 1 end
+			eq(n, donors, "every donor of all time")
+			-- The text round trips any value it may hold.
+			local v = { a = "x|y@z <#1> %20 é", [3] = -12.5, t = true, f = false, nested = { { 1, 2 }, { s = "" } } }
+			local back = Bk.Parse(Bk.Write(v))
+			eq(back.a, v.a); eq(back[3], -12.5); eq(back.t, true); eq(back.f, false); eq(back.nested[1][2], 2); eq(back.nested[2].s, "")
+		end)
+		ns.splitNames = saved.split
+		ns.db.myCharacters = nil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 the clipboard backup's windows: the copy box out; a paste box in, read as the paste types it, confirmed in Olympus's own dialog with the gamepad UI", function()
+	WithUI(function()
+		local Bk = ns.Backup
+		local saved = { show = ns.UI.ShowCopy, focus = GetCurrentKeyBoardFocus, time = GetTime, me = ns.me, guild = GetGuildInfo }
+		local ok, err = pcall(function()
+			ns.me = "Tester-Realm"
+			GetGuildInfo = function() return "Olympus II", "Member", 3 end
+			local copied
+			ns.UI.ShowCopy = function(title, text, action) copied = { title = title, text = text, action = action } end
+			SlashCmdList.OLYMPUS("backup")
+			eq(copied.title, ns.L.BACKUP_TITLE); assert(copied.text:find("^OLYB1:"), copied.text)
+			eq(copied.action.label, ns.L.BACKUP_RESTORE_BTN)
+			local text = copied.text
+			WithGamepadUI(true, function(game)
+				-- The chat box is typing: the paste box never takes the keyboard from it.
+				local focused = 0
+				Widget.SetFocus = function() focused = focused + 1 end
+				GetCurrentKeyBoardFocus = function() return { name = "ChatFrame1EditBox" } end
+				copied.action.fn()
+				local f = Bk.Frame()
+				assert(f and f:IsShown(), "the paste box")
+				eq(focused, 0, "not taken from the chat box")
+				eq(#UISpecialFrames, 0, "nothing on the escape list with the gamepad UI")
+				-- The paste: every character typed at once (one frame), read at the next.
+				GetTime = function() return 42 end
+				for i = 1, #text do f.eb:Fire("OnChar", text:sub(i, i)) end
+				f.eb:Fire("OnUpdate", 0)
+				eq(#game.shown, 0, "no game popup")
+				assert(ns.Dialog.Find("OLYMPUS_BACKUP_RESTORE"), "Olympus's own dialog")
+				eq(f.status:GetText() or f.status.text, ns.L.BACKUP_READ_OK)
+				Widget.SetFocus = nil
+			end)
+		end)
+		ns.UI.ShowCopy, GetCurrentKeyBoardFocus, GetTime, ns.me, GetGuildInfo = saved.show, saved.focus, saved.time, saved.me, saved.guild
+		Bk.Reset()
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 Backup.lua added by an update and not loaded yet: /oly backup says to restart the game", function()
+	local savedSlash, savedEvents, savedPrint = {}, #EVENT_SCRIPTS, print
+	for k, v in pairs(SlashCmdList) do savedSlash[k] = v end
+	local printed = {}
+	print = function(msg) printed[#printed + 1] = tostring(msg) end
+	local ok, err = pcall(function()
+		local fresh = {}
+		for _, file in ipairs({ "Bootstrap", "Locales", "Core" }) do assert(loadfile(ADDON_DIR .. file .. ".lua"))("Olympus", fresh) end
+		eq(fresh.Backup.missing, true, "Backup.lua stood in for")
+		fresh.Backup.Slash("backup")
+		eq(printed[#printed]:find("reopen the game", 1, true) ~= nil, true)
+	end)
+	print = savedPrint
+	for k in pairs(SlashCmdList) do SlashCmdList[k] = savedSlash[k] end
+	for i = #EVENT_SCRIPTS, savedEvents + 1, -1 do EVENT_SCRIPTS[i] = nil end
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 the treasury's new lines (bank, sister guilds, requests, donations, backup) are in both languages, with the same format arguments", function()
 	local savedLocale, pt = GetLocale, {}
 	GetLocale = function() return "ptBR" end
 	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
@@ -25215,7 +25453,12 @@ test("1.1 the treasury's new lines (bank, sister guilds, requests, donations) ar
 		"BANK_REQUEST_WAITING", "BANK_REQUEST_CANCELLED", "BANK_REQUEST_NEW", "BANK_REQUEST_DONE", "BANK_REQUEST_DECLINED", "BANK_REQUEST_STATE_SENT",
 		"BANK_REQUEST_STATE_SEEN", "BANK_REQUEST_STATE_DONE", "BANK_REQUEST_STATE_DECLINED", "BANK_REQUEST_STATE_CANCELLED", "HELP_NEED",
 		"DONATIONS_ONLY", "DONATIONS_NOW_ON", "DONATIONS_NOW_ON_ZONE", "DONATIONS_NOW_OFF", "DONATIONS_LINE", "DONATIONS_LINE_ZONE",
-		"DONATIONS_SWITCH", "DONATIONS_SWITCH_ON", "DONATIONS_SWITCH_OFF", "DONATIONS_SWITCH_TIP", "HELP_DONATIONS" }) do
+		"DONATIONS_SWITCH", "DONATIONS_SWITCH_ON", "DONATIONS_SWITCH_OFF", "DONATIONS_SWITCH_TIP", "HELP_DONATIONS",
+		"BACKUP_TITLE", "BACKUP_RESTORE_BTN", "BACKUP_COPIED", "BACKUP_RESTORE_TITLE", "BACKUP_PASTE_HINT", "BACKUP_READ_OK", "BACKUP_NOT_ONE",
+		"BACKUP_TOO_BIG", "BACKUP_CUT", "BACKUP_DAMAGED", "BACKUP_OTHER", "BACKUP_OTHER_FACTION", "BACKUP_CONFIRM", "BACKUP_CONFIRM_YES", "BACKUP_FROM",
+		"BACKUP_BOOK_WHOLE", "BACKUP_BOOK_MERGE", "BACKUP_WORD_FLAGS", "BACKUP_WORD_FLAGS_NONE", "BACKUP_WORD_KEEPERS", "BACKUP_WORD_KEEPERS_BACK",
+		"BACKUP_WORD_NOT_KING", "BACKUP_KEY", "BACKUP_KEY_NOT_OFFICER", "BACKUP_SETTINGS", "BACKUP_BLOCKED", "BACKUP_NO_CONSENT", "BACKUP_DONE",
+		"BACKUP_LINK", "BACKUP_RESTORE_LINK", "HELP_BACKUP" }) do
 		assert(type(rawget(ns.L, key)) == "string", "English " .. key)
 		assert(type(rawget(pt.L, key)) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
 		eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)

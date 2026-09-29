@@ -3132,6 +3132,12 @@ local function SummaryLines(role, q)
 			end }
 	end
 	if #taking > 0 or RealKeeper() then lines[#lines].gapAfter = true end
+	-- 1.1: a keeper's backup of his book (and his settings), and the way back (Backup.lua).
+	if RealKeeper() and ns.Backup then
+		lines[#lines + 1] = { text = Gold("> " .. L.BACKUP_LINK), onClick = function() ns.Backup.Slash("backup") end,
+			tooltip = function(tt) tt:AddLine(L.HELP_BACKUP, 1, 1, 1, true) end }
+		lines[#lines + 1] = { text = Gold("> " .. L.BACKUP_RESTORE_LINK), onClick = function() ns.Backup.Slash("restore") end, gapAfter = true }
+	end
 	local r = Treasury.Report()
 	if not r then
 		-- Nothing from the keepers yet: the King sees the sections waiting (the ranking empty),
@@ -3301,6 +3307,96 @@ StaticPopupDialogs["OLYMPUS_TREASURY_OPENING"] = {
 	hideOnEscape = true,
 	preferredIndex = 3,
 }
+
+---------------------------------------------------------------------------
+-- 1.1: the clipboard backup (Backup.lua, Fern's): this character's book, and on the Treasurer's
+-- characters the other pinned one's (his account keeps both), and the King's word.
+---------------------------------------------------------------------------
+
+-- The books a backup holds, as this client keeps them (lines, sums, opening).
+function Treasury.BackupBooks()
+	local out = {}
+	if not ns.rdb or not ns.me then return out end
+	local function Add(name)
+		local b = BookOf(name)
+		if b and b.epoch == Treasury.EPOCH and b.opening ~= nil then out[#out + 1] = b end
+	end
+	Add(ns.me)
+	if TreasurerPin(ns.me) then
+		for _, pin in ipairs(ns.TREASURER_CHARACTERS) do
+			local full = ns.FullName(pin, ns.TREASURER_REALM)
+			if not SameChar(full, ns.me) then Add(full) end
+		end
+	end
+	return out
+end
+
+-- A backup's book goes back only into this character's book, or on the Treasurer's characters into
+-- the other pinned one's: never another player's.
+function Treasury.MayRestoreBook(name)
+	if type(name) ~= "string" or name == "" or not ns.me then return false end
+	return SameChar(name, ns.me) or (TreasurerPin(ns.me) ~= nil and TreasurerPin(name) ~= nil)
+end
+
+local function LineKey(e)
+	return table.concat({ tostring(e.t), tostring(e.name), tostring(e.money), tostring(e.how), tostring(e.item), tostring(e.count), tostring(e.out), tostring(e.kind) }, "\1")
+end
+
+-- A backup's book (checked by Backup.lua) into this client's copy of that character's book. Ours
+-- fresh (nothing written since it opened, the usual after a wipe): the backup's, whole. Otherwise
+-- the backup's book (its opening, its lines, its sums of all time) with the lines ours holds that
+-- it doesn't added after it, each counted once. Returns the book and how many of ours were added.
+function Treasury.RestoreBook(saved)
+	if type(saved) ~= "table" or not Treasury.MayRestoreBook(saved.name) then return nil end
+	local b = BookOf(saved.name, true)
+	local base = { epoch = Treasury.EPOCH, name = b.name or saved.name, opening = saved.opening, openedAt = saved.openedAt, opened = saved.opened,
+		lines = {}, sums = saved.sums }
+	for i, e in ipairs(saved.lines or {}) do base.lines[i] = e end
+	Sums(base) -- (the backup's own sums, or rebuilt from its lines when they are of another shape)
+	local seen, added = {}, 0
+	for _, e in ipairs(base.lines) do seen[LineKey(e)] = true end
+	for _, e in ipairs(b.lines) do
+		if not seen[LineKey(e)] then
+			base.lines[#base.lines + 1] = e
+			if not e.excluded then Count(base, e, 1) end
+			added = added + 1
+		end
+	end
+	table.sort(base.lines, function(x, y) return (tonumber(x.t) or 0) < (tonumber(y.t) or 0) end)
+	while #base.lines > Treasury.MAX do table.remove(base.lines, 1) end
+	b.opening, b.openedAt, b.opened, b.lines, b.sums = base.opening, base.openedAt, base.opened, base.lines, base.sums
+	b.restored = ns.Now()
+	Touch(b)
+	ns.Fire("TREASURY_CHANGED")
+	return b, added
+end
+
+-- The King's word from a backup (his client's, or a Steward's): his switches and his keepers, given
+-- again as a new word (dated now, as a click gives it), repeated as ever.
+function Treasury.RestoreWord(flags, keepers)
+	if not ns.King.SetsLists() or not ns.rdb then return false end
+	if type(flags) == "table" then
+		local prev = ns.rdb.treasuryFlags
+		local f = { balance = flags.balance == true, ranking = flags.ranking == true, book = flags.book == true }
+		f.t, f.at, f.from = ns.Now(), math.max(Clock(), (type(prev) == "table" and tonumber(prev.at) or 0) + 1), ns.me
+		local was = FlagDigits(type(prev) == "table" and prev or {})
+		ns.rdb.treasuryFlags = f
+		Treasury.SendFlags(true)
+		Treasury.SwitchesChanged(was)
+	end
+	if type(keepers) == "table" then
+		local names = {}
+		for _, n in ipairs(keepers) do
+			local name = KeeperName(n)
+			if name and #names < Treasury.MAX_KEEPERS and not PinnedName(name) then names[#names + 1] = name end
+		end
+		SetKeepers(names)
+	end
+	ns.Fire("TREASURY_CHANGED")
+	ns.Fire("DATA_CHANGED")
+	return true
+end
+Treasury.FlagDigits = FlagDigits
 
 -- Tests start from a clean state.
 function Treasury.Reset()

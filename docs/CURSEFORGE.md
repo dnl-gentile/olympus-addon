@@ -474,6 +474,19 @@ account, `/oly discord forget` drops this character's request and proof.
 
 ### Everywhere
 - **Copy**: every tab produces a ready-to-paste text for Discord.
+- **Backup** (1.1): `/oly backup` puts one text in the copy box (keepers also have **Copy a
+  backup of your book and settings** on the Treasury tab): this character's book of the treasury
+  (its opening, its 500 lines and its sums of all time; on the Treasurer's characters his mail
+  character's book too), the King's switches and keepers on his client or a Steward's, the
+  channel key on an officer's character, and your settings (sound, map, minimap, borders,
+  nameplates, Vox, your chat windows and mutes, the players you blocked). Keep it in a text file:
+  when the beta wipes the saved variables, `/oly restore` opens a box to paste it back, says what
+  it restores and waits for your yes. Clipboard only: nothing is uploaded or sent anywhere (a
+  keeper's book goes out afterwards as it always does). A book goes back only into that
+  character's (merged with what it wrote since, nothing counted twice), a text that was cut or
+  changed is refused, and it never holds your yeses to sharing (the addon asks them again) nor
+  sets a key on a member's character (a text someone else made would move him to another
+  channel: his officers hand the key out as ever).
 - **Search**: a box on top of the Census (a guild or its Lord), the Realm (guilds, Lords, Captains,
   members seen online, the Olympus chats' lines), the Tabards (inspected and untabarded players,
   by name or guild) and the Treasury (donors in the ranking and the book, the bank's items since
@@ -838,6 +851,7 @@ Other limits:
 | `/oly mute olympus` · `/oly mute captains` · `/oly mute lords` | hide or show a channel in chat |
 | `/oly chatwindow <number or name> [olympus\|captains\|lords]` · `/oly chatwindow main` | show the Olympus chats in another chat window, or back in the main one |
 | `/oly treasurer on\|off` | a keeper of the treasury (the Treasurer, the King, a character he named) shares his book and the guild bank, or keeps them private (1.1: what the King hides goes only to the King, his Steward and the keepers, by whisper) |
+| `/oly backup` · `/oly restore` | copy a backup of your treasury book, the channel key (officers) and your settings as text, or paste one back after a wipe (nothing is sent anywhere) (1.1) |
 | `/oly donations on\|off` | a keeper of the treasury tells everyone with the addon he is taking donations (a line on the Realm and Treasury tabs, with his zone if he shares it, one line in the [Olympus] chat), until he logs out (1.1) |
 | `/oly need <count> <item>` · `/oly need` | Lords and Captains: ask the treasury for an item (shift-click it into the chat line, or its name or number); alone, your requests and where each stands (1.1) |
 | `/oly bank share on\|off` | the guild master or an officer of an Olympus guild other than the King's shows his guild bank's snapshot to the King, his Steward and his Hands (by whisper, never on the channel), or not (1.1) |
