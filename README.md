@@ -319,9 +319,10 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 "OlympusNet" by name; with a key, every member of the guilds that have it. The guild tag on an
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
 Before your first line in each channel the addon tells you this and waits for **Send**.
-Since 1.1, while your channel is public, a red line on the Census, the Realm and the Olympus
-chats says so to every member (who can read it, what officers can do, and how many guildmates
-are already on the sealed channel). It only warns: nothing is sent and nothing changes.
+Since 1.1, while your channel is public, officers see one quiet grey line saying so on the
+Census, the Realm and the Olympus chats (its tooltip says who can read it and how to seal it);
+every member sees how many guildmates are already on the sealed channel, and `/oly status`
+says public or sealed. It only tells: nothing is sent and nothing changes.
 
 ### The Board: who is looking for a group, and where (1.1)
 The Realm tab links **the Board** (or `/oly lfg`): who in Olympus wants a group right now, from

@@ -659,21 +659,26 @@ end
 Views.RebuildLines = RebuildLines
 
 -- The Olympus channel without a realm key (1.1, Comm.IsPublic): anyone who joins it by name reads
--- what is sent there. While it is so, a warning on top of the Census, the Realm and the Olympus
--- chats, for every member: what it means, what officers can do about it, and the guildmates
--- already on the sealed channel (their hellos say so). Nothing is sent, nothing changes.
+-- what is sent there. While it is so, one quiet grey line on top of the Census, the Realm and the
+-- Olympus chats for the officers, who can seal it (its tooltip says what it means and how); the
+-- others see only whether guildmates are already on the sealed channel (their hellos say so), and
+-- /oly status. Nothing is sent, nothing changes.
 local function PublicLines(lines)
 	local C = ns.Comm
 	if not (C and C.IsPublic and C.IsPublic()) then return false end
 	local name = C.ChannelSpec and C.ChannelSpec() or ns.CHANNEL
+	local officer = ns.Roster.IsOfficer()
 	local function tip(tt)
-		tt:AddLine(L.PUBLIC_NET_TITLE, 1, 0.25, 0.25)
+		tt:AddLine(L.PUBLIC_NET_TITLE, 1, 0.82, 0)
 		tt:AddLine(L.PUBLIC_NET_TIP:format(name), 1, 1, 1, true)
+		if officer then tt:AddLine(L.PUBLIC_NET_OFFICER, 0.75, 0.75, 0.75, true) end
 	end
-	lines[#lines + 1] = { text = Red(L.PUBLIC_NET:format(name)), tooltip = tip }
+	local before = #lines
+	if officer then lines[#lines + 1] = { text = Grey(L.PUBLIC_NET:format(name)), tooltip = tip } end
 	local sealed = C.SealedPeers and C.SealedPeers() or 0
-	if sealed > 0 then lines[#lines + 1] = { text = Gold(L.PUBLIC_NET_SPLIT:format(sealed)), tooltip = tip } end
-	lines[#lines + 1] = { text = Grey(ns.Roster.IsOfficer() and L.PUBLIC_NET_OFFICER or L.PUBLIC_NET_MEMBER), tooltip = tip, gapAfter = true }
+	if sealed > 0 then lines[#lines + 1] = { text = Grey(L.PUBLIC_NET_SPLIT:format(sealed)), tooltip = tip } end
+	if #lines == before then return false end
+	lines[#lines].gapAfter = true
 	return true
 end
 Views.PublicLines = PublicLines

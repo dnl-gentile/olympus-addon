@@ -248,7 +248,6 @@ ns.Locale("frFR", {
 	BEHIND_CHAT = "Olympus %s est sorti et vous avez la %s : mettez à jour depuis CurseForge ou votre appli d'addons, puis relancez le jeu.",
 	PUBLIC_NET = "Canal public : quiconque rejoint %s peut lire le recensement et les chats d'Olympus.",
 	PUBLIC_NET_OFFICER = "Officiers : scellez-le avec la clé des autres guildes (/oly key).",
-	PUBLIC_NET_MEMBER = "Demandez à vos officiers de le sceller avec la clé de l'armée (/oly key).",
 	PUBLIC_NET_SPLIT = "%d camarades de guilde sont sur le canal scellé : un officier en ligne vous donne la clé.",
 	PUBLIC_NET_TITLE = "Le canal Olympus est public",
 	PUBLIC_NET_TIP = "Aucune clé de royaume n'est définie : tous les addons Olympus se retrouvent sur le canal public %s. N'importe qui peut le rejoindre par son nom et, avec un script d'une ligne, lire tout ce qui y passe : le recensement, où sont les gens (ceux qui le partagent), les trois chats ([Capitaines] et [Seigneurs] aussi) et les décrets. Scellé avec une clé, le nom et le mot de passe du canal viennent de la clé et seuls ceux qui l'ont peuvent entrer. Un officier tape /oly key <secret> une fois, et les camarades de guilde avec l'addon reçoivent la clé tout seuls par le chat de guilde. Utilisez le secret des officiers des autres guildes : une clé à vous sépare votre guilde de l'armée.",

@@ -248,7 +248,6 @@ ns.Locale({ "esES", "esMX" }, {
 	BEHIND_CHAT = "Ya salió Olympus %s y tú tienes la %s: actualiza desde CurseForge o tu app de addons, y reinicia el juego.",
 	PUBLIC_NET = "Canal público: quien entre en %s puede leer el censo y los chats de Olympus.",
 	PUBLIC_NET_OFFICER = "Oficiales: se sella con la clave que usan las demás hermandades (/oly key).",
-	PUBLIC_NET_MEMBER = "Pide a tus oficiales que lo sellen con la clave del ejército (/oly key).",
 	PUBLIC_NET_SPLIT = "%d compañeros de hermandad están en el canal sellado: un oficial conectado te pasa la clave.",
 	PUBLIC_NET_TITLE = "El canal de Olympus es público",
 	PUBLIC_NET_TIP = "No hay clave de reino, así que todos los addons de Olympus se encuentran en el canal público %s. Cualquiera puede entrar por su nombre y, con un script de una línea, leer todo lo que se envía allí: el censo, dónde está la gente (de quien lo comparte), los tres chats ([Capitanes] y [Señores] también) y los decretos. Sellado con una clave, el nombre y la contraseña del canal salen de la clave y solo entra quien la tiene. Un oficial escribe /oly key <secreto> una vez, y los compañeros de hermandad con el addon reciben la clave solos por el chat de hermandad. Hay que usar el secreto que usan los oficiales de las demás hermandades: una clave propia separa a tu hermandad del ejército.",

@@ -24996,7 +24996,7 @@ end)
 -- 1.1: a warning while the Olympus channel is public (request #8)
 ---------------------------------------------------------------------------
 
-test("1.1 public channel: while no realm key seals it, the Census, the Realm and the Olympus chats warn every member who can read it; officers are told how to seal it; sealed, no warning", function()
+test("1.1 public channel: while no realm key seals it, a quiet grey line on the Census, the Realm and the Olympus chats for the officers, how to seal it in its tooltip; nothing for members; sealed, no line", function()
 	local L = ns.L
 	local saved = { key = ns.rdb.realmKey, guilds = ns.rdb.guilds, chat = ns.rdb.chat }
 	local function Has(lines, text)
@@ -25007,17 +25007,27 @@ test("1.1 public channel: while no realm key seals it, the Census, the Realm and
 		ns.rdb.guilds = SampleGuilds()
 		ns.rdb.realmKey = nil
 		local warning = L.PUBLIC_NET:format(ns.CHANNEL)
+		-- (Quiet since 1.1's in-game look, the author's call: officers alone see it, in grey, who can
+		-- seal it; a member sees nothing of it but /oly status.)
 		AsRank(3, function()
 			eq(ns.Comm.IsPublic(), true)
+			eq(Has(ns.Views.Build("census"), warning), nil, "a member: nothing on the Census")
+			eq(Has(ns.Views.Build("realm"), warning), nil, "nor the Realm")
+			ns.Views.ShowChat("A")
+			eq(Has(ns.Views.Build("realm"), warning), nil, "nor the chats")
+			ns.Views.ShowChat(nil)
+		end)
+		AsRank(1, function()
 			local census = ns.Views.Build("census")
 			local line = Has(census, warning)
-			assert(line, "on the Census")
-			assert(Has(census, L.PUBLIC_NET_MEMBER), "a member: ask the officers")
-			eq(Has(census, L.PUBLIC_NET_OFFICER), nil)
+			assert(line, "an officer: on the Census")
+			assert(line.text:find("^|cff"), "a coloured (grey) line")
+			assert(not line.text:find("ff4040", 1, true), "never red")
+			eq(Has(census, L.PUBLIC_NET_OFFICER), nil, "one line: how to seal it is in its tooltip")
 			-- Its tooltip says what it means and what to do.
 			local tip = {}
 			line.tooltip({ AddLine = function(_, t) tip[#tip + 1] = t end })
-			eq(tip[1], L.PUBLIC_NET_TITLE); eq(tip[2], L.PUBLIC_NET_TIP:format(ns.CHANNEL))
+			eq(tip[1], L.PUBLIC_NET_TITLE); eq(tip[2], L.PUBLIC_NET_TIP:format(ns.CHANNEL)); eq(tip[3], L.PUBLIC_NET_OFFICER)
 			-- Above the guilds, under the King's lines (which stay first, for his stream).
 			local at, first
 			for i, l in ipairs(census) do
@@ -25025,18 +25035,10 @@ test("1.1 public channel: while no realm key seals it, the Census, the Realm and
 				if l.cols and not first then first = i end
 			end
 			assert(at and first and at < first, "above the guild rows")
-			assert(census[2].onClick and not census[2].cols and census[2] ~= line, "the King's layer line still under the search box")
 			assert(Has(ns.Views.Build("realm"), warning), "on the Realm")
-			-- The Olympus chats: what is said there is what anyone can read.
 			ns.Views.ShowChat("A")
-			local chat = ns.Views.Build("realm")
-			assert(Has(chat, warning), "on the chats")
+			assert(Has(ns.Views.Build("realm"), warning), "on the chats")
 			ns.Views.ShowChat(nil)
-		end)
-		AsRank(1, function()
-			local census = ns.Views.Build("census")
-			assert(Has(census, L.PUBLIC_NET_OFFICER), "an officer: how to seal it")
-			eq(Has(census, L.PUBLIC_NET_MEMBER), nil)
 		end)
 		-- Sealed with a realm key: no warning anywhere.
 		ns.rdb.realmKey = "shared secret"
@@ -25092,7 +25094,7 @@ test("1.1 public channel: its lines in both languages", function()
 	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
 	GetLocale = savedLocale
 	if not ok then error(err, 0) end
-	for _, k in ipairs({ "PUBLIC_NET", "PUBLIC_NET_OFFICER", "PUBLIC_NET_MEMBER", "PUBLIC_NET_SPLIT", "PUBLIC_NET_TITLE", "PUBLIC_NET_TIP" }) do
+	for _, k in ipairs({ "PUBLIC_NET", "PUBLIC_NET_OFFICER", "PUBLIC_NET_SPLIT", "PUBLIC_NET_TITLE", "PUBLIC_NET_TIP" }) do
 		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
 		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
 	end

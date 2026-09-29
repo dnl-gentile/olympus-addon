@@ -1060,7 +1060,6 @@ L.WORKSHOP_RELEASED_TIP = "The version your presence tells the army is out: addo
 -- 1.1: the warning while the Olympus channel is public (request #8).
 L.PUBLIC_NET = "Public channel: anyone who joins %s can read Olympus's census and chats."
 L.PUBLIC_NET_OFFICER = "Officers: seal it with the key the other guilds use (/oly key)."
-L.PUBLIC_NET_MEMBER = "Ask your officers to seal it with the army's key (/oly key)."
 L.PUBLIC_NET_SPLIT = "%d guildmates are on the sealed channel: an officer online hands you the key."
 L.PUBLIC_NET_TITLE = "The Olympus channel is public"
 L.PUBLIC_NET_TIP = "No realm key is set, so every Olympus addon meets on the public %s channel. Anyone can join it by name and, with a one-line script, read everything sent there: the census, where people are (for those who share it), the three chats ([Captains] and [Lords] too) and the decrees. Sealed with a key, the channel's name and password come from the key and only players who hold it get in. An officer types /oly key <secret> once, and guildmates with the addon get the key by themselves over guild chat. Use the secret the officers of the other guilds use: a key of your own splits your guild off the army."
@@ -2740,7 +2739,6 @@ if GetLocale and GetLocale() == "ptBR" then
 	-- 1.1: o aviso enquanto o canal de Olympus é público (pedido #8).
 	L.PUBLIC_NET = "Canal público: qualquer um que entrar em %s lê o censo e os chats de Olympus."
 	L.PUBLIC_NET_OFFICER = "Oficiais: selem com a chave que as outras guildas usam (/oly key)."
-	L.PUBLIC_NET_MEMBER = "Peça aos seus oficiais para selar com a chave do exército (/oly key)."
 	L.PUBLIC_NET_SPLIT = "%d colegas de guilda estão no canal selado: um oficial online te passa a chave."
 	L.PUBLIC_NET_TITLE = "O canal de Olympus é público"
 	L.PUBLIC_NET_TIP = "Nenhuma chave de reino foi definida, então todo addon de Olympus se encontra no canal público %s. Qualquer um pode entrar nele pelo nome e, com um script de uma linha, ler tudo o que passa por lá: o censo, onde as pessoas estão (de quem compartilha), os três chats ([Capitães] e [Lordes] também) e os decretos. Selado com uma chave, o nome e a senha do canal vêm da chave e só entra quem a tem. Um oficial digita /oly key <segredo> uma vez, e os colegas de guilda com o addon recebem a chave sozinhos pelo chat da guilda. Use o segredo que os oficiais das outras guildas usam: uma chave só sua separa a sua guilda do exército."

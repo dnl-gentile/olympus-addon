@@ -248,7 +248,6 @@ ns.Locale("deDE", {
 	BEHIND_CHAT = "Olympus %s ist erschienen und du hast %s: aktualisiere über CurseForge oder deine Addon-App und starte das Spiel neu.",
 	PUBLIC_NET = "Öffentlicher Kanal: wer %s beitritt, kann Zensus und Chats von Olympus lesen.",
 	PUBLIC_NET_OFFICER = "Offiziere: versiegelt ihn mit dem Schlüssel der anderen Gilden (/oly key).",
-	PUBLIC_NET_MEMBER = "Bitte deine Offiziere, ihn mit dem Schlüssel der Armee zu versiegeln (/oly key).",
 	PUBLIC_NET_SPLIT = "%d Gildenkameraden sind im versiegelten Kanal: ein Offizier online gibt dir den Schlüssel.",
 	PUBLIC_NET_TITLE = "Der Olympus-Kanal ist öffentlich",
 	PUBLIC_NET_TIP = "Es ist kein Reichsschlüssel gesetzt, also treffen sich alle Olympus-Addons im öffentlichen Kanal %s. Jeder kann ihm über den Namen beitreten und mit einem einzeiligen Skript alles lesen, was dort gesendet wird: den Zensus, wo die Leute sind (bei denen, die es teilen), die drei Chats ([Hauptleute] und [Lords] auch) und die Erlasse. Mit einem Schlüssel versiegelt, kommen Name und Passwort des Kanals aus dem Schlüssel, und nur wer ihn hat, kommt hinein. Ein Offizier tippt einmal /oly key <Geheimnis>, und Gildenkameraden mit dem Addon bekommen den Schlüssel von selbst über den Gildenchat. Nehmt das Geheimnis, das die Offiziere der anderen Gilden nutzen: ein eigener Schlüssel trennt eure Gilde von der Armee.",
