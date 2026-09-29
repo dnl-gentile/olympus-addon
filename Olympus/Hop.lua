@@ -434,7 +434,8 @@ function Hop.Trusted(name)
 	if ns.Roster.RankOf(name) then return true end
 	local short = ns.ShortName(name)
 	for guild, g in pairs(ns.rdb.guilds or {}) do
-		if type(g) == "table" then
+		-- (1.1: never a guild the moderators took off the network, Moderation.lua.)
+		if type(g) == "table" and not (ns.Data.NetOff and ns.Data.NetOff(guild)) then
 			local listed = g.leader and ns.ShortName(g.leader) == short
 			for _, o in ipairs(not listed and g.officers or {}) do
 				if o.name and ns.ShortName(o.name) == short then listed = true break end

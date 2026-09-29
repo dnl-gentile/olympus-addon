@@ -24978,6 +24978,243 @@ end)
 			end
 		end
 	end)
+
+	-- The King's word on a guild, as heard here.
+	local function GuildOff(guild, reason) M.Handle("CHANNEL", KING, O1("g", true, ns.Now(), guild, KING, reason or "not Olympus")) end
+	local function GuildBack(guild) M.Handle("CHANNEL", KING, O1("g", false, ns.Now() + 1, guild, KING, "")) end
+
+	test("1.1 net-off (#33): the King, his Steward, a Hand or a signed High Councillor sets one guild off or on, with a free-text reason and the time; never the King's guild, never the whole realm", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Watcher")
+			local now = w.clock
+			M.Handle("CHANNEL", "Random Guy-Realm", O1("g", true, now, "Olympus Zeus", "Random Guy-Realm", "spam guild"))
+			eq(M.Guild("Olympus Zeus"), nil, "not an issuer")
+			M.Handle("CHANNEL", HC, O1("g", true, now, "Olympus Zeus", HC, "a spam guild that is not Olympus at all"))
+			local e = M.Guild("olympus zeus")
+			assert(e, "the councillor's word, whatever the case")
+			eq(e.reason, "a spam guild that is not Olympus at all"); eq(e.by, HC); eq(e.at, now)
+			-- A Hand, and the King's Steward (the King's powers here too).
+			K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Hand Guy-Realm")
+			M.Handle("CHANNEL", "Hand Guy-Realm", O1("g", true, now, "Olympus Gale", "Hand Guy-Realm", "flooding /ol"))
+			assert(M.Guild("Olympus Gale"), "a Hand's word")
+			WithSteward(function()
+				M.Handle("CHANNEL", STEWARD, O1("g", true, now, "Olympus Storm", STEWARD, "fake recruiting"))
+				assert(M.Guild("Olympus Storm"), "the Steward's word")
+			end)
+			-- Back on, by the same people.
+			M.Handle("CHANNEL", STEWARD, O1("g", false, now + 1, "Olympus Storm", STEWARD, ""))
+			assert(M.Guild("Olympus Storm"), "not a Steward any more once his list is gone")
+			M.Handle("CHANNEL", HC, O1("g", false, now + 2, "Olympus Storm", HC, ""))
+			eq(M.Guild("Olympus Storm"), nil, "back on")
+			-- Never the King's guild; never a guild that is not Olympus; never "every guild".
+			M.Handle("CHANNEL", HC, O1("g", true, now, "Olympus", HC, "the King's"))
+			M.Handle("CHANNEL", HC, O1("g", true, now, "Horde Heroes", HC, "not ours"))
+			for _, what in ipairs({ "*", "all", "ALL GUILDS", "" }) do M.Handle("CHANNEL", HC, O1("g", true, now, what, HC, "everyone")) end
+			eq(M.Guild("Olympus"), nil); eq(M.Guild("Horde Heroes"), nil); eq(M.Guild("*"), nil); eq(M.Guild("all"), nil)
+			-- Two kinds of word and no third: a character or one guild.
+			local kinds = {}
+			for k in pairs(M.KINDS) do kinds[#kinds + 1] = k end
+			table.sort(kinds)
+			eq(table.concat(kinds, ","), "c,g")
+			M.Handle("CHANNEL", KING, O1("r", true, now, "Realm", KING, "the whole realm"))
+			M.Handle("CHANNEL", KING, O1("a", true, now, "Olympus II", KING, "everyone"))
+			eq(#M.List(), 2, "Zeus and Gale only")
+			-- By click or command: the issuer's own word, logged.
+			AsSoldier("Test Councillor")
+			eq(M.Set("g", "Olympus", true, "test"), false)
+			assert(Printed(w, ns.L.NETOFF_NOT_KING_GUILD))
+			eq(M.Set("g", "Olympus Hunters", true, ""), false, "a reason is needed")
+			eq(M.Set("g", "Olympus Hunters", true, "made-up guild, 1000 soldiers"), true)
+			eq(w.sent[#w.sent].msg, O1("g", true, w.clock, "Olympus Hunters", HC, "made-up guild, 1000 soldiers")); eq(w.sent[#w.sent].logged, true)
+			SlashCmdList.OLYMPUS("netoff guild Olympus Tricksters: spam")
+			assert(M.Guild("Olympus Tricksters"), "/oly netoff guild Name: reason")
+			SlashCmdList.OLYMPUS("neton guild Olympus Tricksters")
+			eq(M.Guild("Olympus Tricksters"), nil, "/oly neton guild Name")
+			-- The target's guild, when no name is typed.
+			local savedGuild = GetGuildInfo
+			GetGuildInfo = function(unit) if unit == "target" then return "Olympus Targets", "Member", 3 end return "Olympus II", "Member", 3 end
+			local ok, err = pcall(function() eq(M.Set("g", "", true, "spam"), true); assert(M.Guild("Olympus Targets")) end)
+			GetGuildInfo = savedGuild
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 net-off (#33): while a guild is off, every client stops showing its census, map, hop, decrees, Vox and chats; the rest of the army stays; back on, it returns", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Watcher")
+			local D = ns.Data
+			ns.rdb.guilds["Olympus Zeus"].zones = { m1429 = 40 }
+			local s = D.Summary()
+			eq(s.total, 1400); eq(s.zones.m1429, 40)
+			-- A report of Zeus names its Lord (Zed) for the hop's checks below.
+			GuildOff("Olympus Zeus", "spam guild")
+			s = D.Summary()
+			eq(s.total, 1300, "its size leaves the army's total")
+			eq(s.zones.m1429, nil, "its zones leave the map")
+			for _, e in ipairs(s.guilds) do assert(e.name ~= "Olympus Zeus", "not listed") end
+			local census = Page((ns.Views.Build("census")))
+			assert(not census:find("Olympus Zeus", 1, true), census)
+			-- Its reports are not taken, not even as votes; nobody in it holds a rank on another client.
+			local r = ns.Codec.DecodeReport("R2~Olympus Zeus~120~12~Zed~1~1~~~0,0,0,0,0,0,0~~")
+			eq(D.Receive(r, "Zed-Realm"), false)
+			eq(ns.rdb.guilds["Olympus Zeus"].total, 100, "the kept row is not replaced")
+			eq(D.KnownRank("Zed-Realm", "Olympus Zeus"), nil)
+			-- Chats, layers, hop, Vox.
+			local C = ns.Channels
+			local n = 0
+			local function Line(sender, guild)
+				n = n + 1
+				local shown, why = C.Receive("CHANNEL", sender, ns.Codec.EncodeChat("A", guild, 6000 + n, "", "hi " .. n), 800000 + n * 10)
+				return shown and "shown" or why
+			end
+			eq(Line("Zeus Member-Realm", "Olympus Zeus"), "netoff")
+			eq(Line("Other Member-Realm", "Olympus Gale"), "shown", "another guild speaks")
+			ns.Layers.Reset()
+			ns.Layers.Receive("Zeus Member-Realm", { mapID = 1429, zoneUID = 9, rank = 3, guild = "Olympus Zeus" })
+			eq(#ns.Layers.ForMap(1429), 0, "no layer of theirs")
+			-- The hop's whispers name no guild: the guild their census or their lines named counts.
+			local before = ns.Hop.Crowd(1453, 7, w.clock)
+			ns.Hop.HandleAsk("CHANNEL", "Zeus Member-Realm", "LQ~42~1453~7")
+			eq(ns.Hop.Crowd(1453, 7, w.clock), before, "the ask of a member of a guild off the network is not heard")
+			ns.Hop.HandleAsk("CHANNEL", "Zed-Realm", "LQ~43~1453~7")
+			eq(ns.Hop.Crowd(1453, 7, w.clock), before, "nor its Lord's (named by its census report)")
+			AsKing()
+			assert(ns.Vox.Ask("Raid tonight? Yes / No"))
+			local id = tonumber(LastSent(w):match("^T1~V~(%d+)"))
+			ns.Vox.HandleVote("WHISPER", "Zeus Member-Realm", ("Y1~%d~1~Olympus Zeus"):format(id))
+			local poll = ns.Vox.State()
+			eq(poll.voters + poll.others, 0, "its votes don't count")
+			-- Back on: its census and chats return (its next report).
+			AsSoldier("Watcher")
+			GuildBack("Olympus Zeus")
+			eq(D.Summary().total, 1400)
+			eq(Line("Zeus Member-Realm", "Olympus Zeus"), "shown")
+		end)
+	end)
+
+	test("1.1 net-off (#33): its own members' clients send none of it, say why, and keep Blizzard's guild chat and the guild's own addon messages", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Member Of Two")
+			GuildOff("Olympus II", "not an Olympus guild")
+			assert(Printed(w, "Olympus II") and Printed(w, "not an Olympus guild"), "told why")
+			-- Chat, decrees, hop, Vox: refused with the reason; the backstop holds each message type.
+			local okSend, why = ns.Channels.Send("A", "hello?")
+			eq(okSend, false); eq(why, "netoff")
+			for _, msg in ipairs({ "M1~A~Olympus II~1~~x", "D1~ARMS~1~1~1~Olympus II~1~x", "L1~1453~7~3~Olympus II", "LQ~1~1453~7",
+				"LO~1~0~0", "LR~1", "Y1~1~1~Olympus II" }) do
+				eq(M.Blocks(msg), true, msg)
+			end
+			-- Its guild's own traffic over GUILD goes on (hello, the realm key, positions): only the network is off.
+			for _, msg in ipairs({ "H1~1.1.0~Realm~p", "K1~secret", "K0~", "P1~1453~500~500" }) do eq(M.Blocks(msg), false, msg) end
+			-- Its census report stays home.
+			local q = ns.Comm.QueueSize()
+			ns.Comm.Broadcast({ guild = "Olympus II", total = 300, online = 3, zones = {}, officers = {}, levels = {} })
+			eq(ns.Comm.QueueSize(), q, "no report enqueued")
+			eq(ns.Comm.heldReport, true)
+			-- Its own row is gone from its own census too, and the Decrees tab says why.
+			for _, e in ipairs(ns.Data.Summary().guilds) do assert(e.name ~= "Olympus II") end
+			assert(Page(M.Lines()):find(ns.L.NETOFF_YOUR_GUILD_SHORT, 1, true))
+			assert(ns.Moderation.StatusLine():find("your guild among them", 1, true))
+			-- Back on: told, and nothing held.
+			GuildBack("Olympus II")
+			assert(Printed(w, ns.L.NETOFF_YOUR_GUILD_BACK))
+			eq(M.Blocks("M1~A~Olympus II~1~~x"), false)
+			ns.Comm.heldReport = nil
+		end)
+	end)
+
+	test("1.1 net-off (#33): no treasury path can call it, and nothing ties it to a payment", function()
+		WithNetoff(function(w, K)
+			-- Every entry point of the net-off counted while the treasury's own paths run.
+			local calls = 0
+			local saved = {}
+			for _, fn in ipairs({ "Set", "Handle", "Ask", "Slash" }) do
+				saved[fn] = M[fn]
+				M[fn] = function(...) calls = calls + 1 return saved[fn](...) end
+			end
+			local ok, err = pcall(function()
+				AsKing()
+				local T = ns.Treasury
+				T.Report(); T.Build(); T.Show("keepers"); T.Build(); T.Show("summary"); T.Build()
+				T.AddKeeper("Test Keeper")
+				ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = w.clock }
+				AsSoldier("Watcher")
+				T.Report(); T.Build()
+			end)
+			for fn, f in pairs(saved) do M[fn] = f end
+			if not ok then error(err, 0) end
+			eq(calls, 0, "the treasury never reaches the net-off")
+		end)
+		-- In the code: no treasury or bank file names it, and it names no payment.
+		for _, file in ipairs({ "Treasury.lua", "Bank.lua" }) do
+			local code = Source(file)
+			for _, word in ipairs({ "Moderation", "O1~", "netoff", "NetOff", "Netoff" }) do assert(not code:find(word, 1, true), file .. " names " .. word) end
+		end
+		local src = Source("Moderation.lua"):lower()
+		for _, word in ipairs({ "unpaid", "dues", "tithe", "50%", "treasury.", "bank." }) do
+			assert(not src:find(word, 1, true), "Moderation.lua names " .. word)
+		end
+		local pt = PtBR()
+		for key, text in pairs(ns.L) do
+			if type(key) == "string" and key:find("^NETOFF_") then
+				for _, t in ipairs({ text, rawget(pt, key) or "" }) do
+					local low = t:lower()
+					for _, word in ipairs({ "unpaid", "dues", "pay", "paid", "50%", "pag", "dízimo" }) do
+						assert(not low:find(word, 1, true), key .. " names " .. word)
+					end
+				end
+			end
+		end
+	end)
+
+	test("1.1 net-off (#33) with the gamepad UI: the guild and why in Olympus's own dialogs", function()
+		WithUI(function()
+			LoadUI()
+			WithGamepadUI(true, function(game)
+				WithNetoff(function(w, K)
+					AsSoldier("Test Councillor")
+					for _, l in ipairs(M.Lines()) do if tostring(l.text):find(ns.L.NETOFF_ADD_GUILD, 1, true) then l.onClick() end end
+					eq(#game.shown, 0, "never the game's popup"); eq(#w.popups, 0)
+					local f = ns.Dialog.Find("OLYMPUS_NETOFF_GUILD")
+					assert(f and f:IsShown() and f.editBox:IsShown(), "our dialog, with its box")
+					f.editBox:SetText("Olympus Zeus")
+					f.buttons[1]:Click()
+					local why = ns.Dialog.Find("OLYMPUS_NETOFF_WHY")
+					assert(why and why:IsShown(), "then why")
+					why.editBox:SetText("spam guild")
+					why.buttons[1]:Click()
+					assert(M.Guild("Olympus Zeus"), "given")
+					eq(#game.shown, 0)
+				end)
+			end)
+		end)
+	end)
+
+	test("1.1 net-off (#33): 0.9.8 and 1.0.0 clients leave a guild's word alone; its strings in English and pt-BR; the README and the CurseForge page", function()
+		for _, old in ipairs({ true, false }) do
+			local cns, Deliver = FreshComm(old)
+			local bad = cns.Comm.Stats().bad
+			Deliver("CHANNEL", KING, O1("g", true, os.time(), "Olympus Zeus", KING, "spam guild"))
+			eq(cns.Comm.Stats().bad, bad)
+		end
+		local keys = { "NETOFF_GUILD_BAD", "NETOFF_NOT_KING_GUILD", "NETOFF_GUILD_DONE", "NETOFF_GUILD_UNDONE", "NETOFF_YOUR_GUILD",
+			"NETOFF_YOUR_GUILD_SHORT", "NETOFF_YOUR_GUILD_BACK", "NETOFF_GUILD_TIP", "NETOFF_GUILD_OFF", "NETOFF_ADD_GUILD", "NETOFF_GUILD_PROMPT" }
+		local pt = PtBR()
+		for _, k in ipairs(keys) do
+			assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+			assert(rawget(pt, k) and rawget(pt, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+			local _, a = rawget(ns.L, k):gsub("%%[sd]", "")
+			local _, b = rawget(pt, k):gsub("%%[sd]", "")
+			eq(b, a, "the same placeholders: " .. k)
+		end
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path))
+			for _, must in ipairs({ "take a guild off the Olympus network", "`/oly netoff guild Name: reason`", "Blizzard's guild chat and Guild window stay up",
+				"no switch for the whole realm", "the guild's name, off or on again" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+		end
+	end)
 end)()
 
 print(("\n%d passed, %d failed"):format(passed, failed))

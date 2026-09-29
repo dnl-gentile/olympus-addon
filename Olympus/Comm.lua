@@ -942,6 +942,14 @@ function Comm.MaybeBroadcast(report)
 end
 
 function Comm.Broadcast(report)
+	-- 1.1: our guild is off the Olympus network (net-off, Moderation.lua): its census stays home.
+	local M = ns.Moderation
+	if M and not M.missing and M.OwnGuildOff() then
+		if not Comm.heldReport then ns.Log("census of %s not sent: the guild is off the network", tostring(report and report.guild)) end
+		Comm.heldReport = true
+		return
+	end
+	Comm.heldReport = nil
 	lastBroadcast = ns.Now()
 	msgId = (msgId + 1) % 1000
 	-- Where people are goes out only with their yes (0.9.1): nothing of it unless we share our

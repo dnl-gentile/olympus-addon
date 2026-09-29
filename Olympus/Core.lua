@@ -1461,7 +1461,7 @@ SlashCmdList.OLYMPUS = function(input)
 			-- Olympus Link (Link.lua): this character's Discord role; confirmers' keys; watchers.
 			ns.Link.Slash(rest)
 		elseif cmd == "netoff" or cmd == "neton" then
-			-- 1.1: a character off Olympus's surfaces for the army, or back on (Moderation.lua).
+			-- 1.1: a character or a guild off Olympus for the army, or back on (Moderation.lua).
 			ns.Moderation.Slash(cmd == "netoff", rest)
 		else
 			Help()
