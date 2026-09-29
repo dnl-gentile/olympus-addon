@@ -21,6 +21,7 @@ local DEFAULTS = {
 	showMates = false,
 	showDecrees = true,    -- show decree markers on the map
 	sound = true,          -- alert sounds (throttled)
+	showCamps = true,      -- camps on the world map (1.1, Board.lua)
 }
 
 ---------------------------------------------------------------------------
@@ -1430,6 +1431,8 @@ StandIn("Members", { "Show", "SetWarnDays" }) -- (1.1)
 StandIn("Consent", { "Show" }) -- 1.1: the first-open page (Consent.lua)
 StandIn("Chronicle", { "Slash" }) -- 1.1: the log of acts this client saw (Chronicle.lua)
 StandIn("Filter", { "Slash" }) -- 1.1: block terms (Filter.lua)
+StandIn("Board", { "Slash" }) -- (1.1: the Board)
+StandIn("Week", {}) -- (1.1: the King's week)
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1508,7 +1511,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Consent", "Chronicle", "Filter", "Members" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Board", "Week", "Consent", "Chronicle", "Filter", "Members" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1575,6 +1578,9 @@ local function Help()
 	print(L.HELP_PIN)
 	print(L.HELP_CHATWIN)
 	print(L.HELP_VOX)
+	print(L.HELP_BOARD)
+	print(L.HELP_CAMP)
+	print(L.HELP_WEEK)
 	print(L.HELP_CMD_MATES)
 	print(L.HELP_CMD_SHARE)
 	print(L.HELP_CMD_BUG)
@@ -1807,6 +1813,9 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "discord" then
 			-- Olympus Link (Link.lua): this character's Discord role; confirmers' keys; watchers.
 			ns.Link.Slash(rest)
+		elseif cmd == "lfg" or cmd == "board" or cmd == "camp" or cmd == "camps" or cmd == "week" then
+			-- The Board (Board.lua, 1.1): who is looking for a group, and where; camps; the King's week.
+			ns.Board.Slash(cmd, rest)
 		else
 			Help()
 		end

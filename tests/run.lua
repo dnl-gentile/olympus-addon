@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Chronicle", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Consent", "Members", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Board", "Week", "Treasury", "Bank", "Acts", "Chronicle", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Consent", "Members", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -28568,6 +28568,1322 @@ do
 		end
 	end)
 end
+---------------------------------------------------------------------------
+-- 1.1: the Board (Board.lua, Fern's #1): a flag for a dungeon, a raid, PvP or a layer with a
+-- short note; the zone only while its player shares it; a whisper by click, never an invite.
+---------------------------------------------------------------------------
+
+local function WithBoard(fn)
+	WithThrone(function(w, K)
+		local B = ns.Board
+		local saved = { ready = ns.Comm.ChannelReady, sharing = ns.Layers.Sharing, current = ns.Layers.CurrentMap, after = B.after,
+			random = B.random, delivered = ns.Comm.DeliveredLogged, ci = C_ChatInfo, tell = ChatFrame_SendTell, friends = C_FriendList,
+			queue = ns.Comm.QueueSize, joined = ns.Comm.joinedAt, info = C_Map.GetMapInfo, level = UnitLevel, class = UnitClass,
+			instance = IsInInstance, ui = ns.UI, send = ns.Comm.Send, whisper = ns.Comm.Whisper }
+		local ok, err = pcall(function()
+			B.Reset()
+			ns.Views.CloseChat()
+			-- (w.logged: the message being read came through the logged API, as a note does.)
+			w.share, w.map, w.later, w.told, w.windows, w.logged = false, 1453, {}, {}, {}, true
+			ns.Comm.ChannelReady = function() return true end
+			ns.Layers.Sharing = function() return w.share end
+			ns.Layers.CurrentMap = function() return w.map end
+			-- (The redraw is at once here; anything else waits in w.later.)
+			B.after = function(s, where, f) if where == "board changed" then return f() end w.later[#w.later + 1] = { at = w.clock + s, fn = f, where = where } end
+			B.random = function(a) if a then return a end return 0 end
+			ns.Comm.DeliveredLogged = function() return w.logged end
+			ns.Comm.joinedAt = nil
+			ns.Comm.QueueSize = function() return 0 end
+			ns.Comm.Send = function(dist, msg, key, urgent, logged)
+				w.sent[#w.sent + 1] = { dist = dist, msg = msg, key = key, urgent = urgent, logged = logged }
+			end
+			ns.Comm.Whisper = function(to, msg, key, urgent, logged)
+				w.whispered[#w.whispered + 1] = { to = to, msg = msg, key = key, urgent = urgent, logged = logged }
+			end
+			C_ChatInfo = { SendAddonMessageLogged = function() end }
+			C_FriendList = { IsIgnored = function(name) return name == "Troll" end }
+			ChatFrame_SendTell = function(name) w.told[#w.told + 1] = name end
+			C_Map.GetMapInfo = function(id)
+				return ({ [1453] = { mapID = 1453, name = "Stormwind City", mapType = 3 }, [1429] = { mapID = 1429, name = "Elwynn Forest", mapType = 3 } })[id]
+			end
+			IsInInstance = function() return false end
+			UnitLevel = function() return 42 end
+			UnitClass = function() return "Priest", "PRIEST" end
+			ns.UI = setmetatable({ Refresh = function() end, RefreshSoon = function() end, IsShown = function() return false end, FilterChanged = function() end,
+				WhisperWindow = function(name) w.windows[#w.windows + 1] = name end,
+				SelectTab = function(tab) w.tab = tab end }, { __index = saved.ui })
+			fn(w, B, K)
+		end)
+		ns.Comm.ChannelReady, ns.Layers.Sharing, ns.Layers.CurrentMap, B.after, B.random = saved.ready, saved.sharing, saved.current, saved.after, saved.random
+		ns.Comm.DeliveredLogged, C_ChatInfo, ChatFrame_SendTell, C_FriendList = saved.delivered, saved.ci, saved.tell, saved.friends
+		ns.Comm.QueueSize, ns.Comm.joinedAt, C_Map.GetMapInfo, UnitLevel, UnitClass = saved.queue, saved.joined, saved.info, saved.level, saved.class
+		IsInInstance, ns.UI, ns.Comm.Send, ns.Comm.Whisper = saved.instance, saved.ui, saved.send, saved.whisper
+		B.Reset()
+		ns.Views.CloseChat()
+		ns.Views.ClearFilters()
+		if not ok then error(err, 0) end
+	end)
+end
+-- A flag as another player's addon sends it.
+local function Flag(id, guild, flag, age, zone, note, every)
+	return ns.Board.Encode({ id = id, guild = guild, flag = flag, level = 30, class = "WA", every = every or 10, age = age or 0, zone = zone, note = note })
+end
+local function Raised(w)
+	local s = w.sent[#w.sent]
+	return s and s.msg:find("^G1~") and s or nil
+end
+
+test("1.1 the Board: a flag's message, its checks, and its note made safe", function()
+	local B = ns.Board
+	local msg = B.Encode({ id = "a7", guild = "Olympus II", flag = "R", level = 42, class = "PR", every = 10, age = 3, zone = 1453,
+		note = "  need |cffff0000heals|r\n~now~  " })
+	eq(msg, "G1~a7~Olympus II~R~42~PR~10~3~1453~need cffff0000heals r now", "one line, no escape code, no separator")
+	local e = B.Decode(msg)
+	eq(e.id, "a7"); eq(e.guild, "Olympus II"); eq(e.flag, "R"); eq(e.level, 42); eq(e.class, "PR"); eq(e.every, 10); eq(e.age, 3)
+	eq(e.zone, 1453); eq(e.note, "need cffff0000heals r now")
+	-- No zone: an empty field, and no zone read back.
+	e = B.Decode(B.Encode({ id = "z", guild = "Olympus II", flag = "L", level = 1, class = "", every = 30, age = 0 }))
+	eq(e.zone, nil); eq(e.note, ""); eq(e.class, "")
+	-- A note is 40 bytes at most, never half a letter.
+	local long = string.rep("a", 39) .. "\195\169" .. "bc"
+	eq(B.CleanNote(long), string.rep("a", 39), "the accented letter would be cut: left out whole")
+	eq(#B.CleanNote(string.rep("x", 90)), B.NOTE_MAX)
+	-- Later versions may add fields after the note: read up to it.
+	eq(B.Decode("G1~a7~Olympus II~R~42~PR~10~3~~hello~future~more").note, "hello")
+	-- Malformed or out of bounds: nothing.
+	for _, bad in ipairs({
+		"G1~ABC~Olympus II~R~42~PR~10~3~~", "G1~a~Olympus II~X~42~PR~10~3~~", "G1~a~Olympus II~C~42~PR~10~3~~",
+		"G1~a~Olympus II~R~0~PR~10~3~~", "G1~a~Olympus II~R~100~PR~10~3~~", "G1~a~Olympus II~R~42~Pr~10~3~~",
+		"G1~a~Olympus II~R~42~PR~9~3~~", "G1~a~Olympus II~R~42~PR~31~3~~", "G1~a~Olympus II~R~42~PR~10~61~~",
+		"G1~a~Olympus II~R~42~PR~10~3~12a~", "G1~a~~R~42~PR~10~3~~", "G1~a~" .. string.rep("O", 25) .. "~R~42~PR~10~3~~",
+		"G1~a~Olympus II~R~42~PR~10", "G0~a", 42 }) do
+		eq(B.Decode(bad), nil, tostring(bad))
+	end
+	-- The longest it gets (a guild of 24 accented letters, a zone of 6 digits, a full note): one message.
+	local worst = B.Encode({ id = "zz", guild = string.rep("\195\169", 24), flag = "D", level = 60, class = "WA", every = 30, age = 59,
+		zone = 999999, note = string.rep("\195\169", 30) })
+	assert(#worst <= 250, "one message: " .. #worst)
+	eq(B.Decode(worst).zone, 999999)
+end)
+
+test("1.1 the Board: one click raises a flag with its note (logged), the zone only while shared; each refusal says why", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		-- The dialog first: the flag, whether the zone goes, who reads it; a box for the note.
+		B.Prompt("R", "  need tank ")
+		local p = w.popups[#w.popups]
+		eq(p.name, "OLYMPUS_BOARD_RAISE"); eq(p.a, ns.L.BOARD_FLAG_R); eq(p.data.flag, "R"); eq(p.data.note, "need tank")
+		assert(p.b:find(ns.L.BOARD_ASK_NO_ZONE, 1, true) and p.b:find(ns.Comm.Audience(), 1, true), p.b)
+		local def = StaticPopupDialogs.OLYMPUS_BOARD_RAISE
+		eq(def.hasEditBox, true); eq(def.maxBytes, B.NOTE_MAX + 1)
+		local box = { text = "", SetText = function(self, t) self.text = t end, GetText = function(self) return self.text end, SetFocus = function() end }
+		def.OnShow({ editBox = box, data = p.data }, p.data)
+		eq(box.text, "need tank", "the note typed after /oly lfg raid")
+		box.text = "need tank |cff00ff00!"
+		def.OnAccept({ editBox = box }, p.data)
+		local s = Raised(w)
+		assert(s, "raised")
+		eq(s.dist, "CHANNEL"); eq(s.key, "banner"); eq(s.logged, true, "a note: the logged API")
+		local e = B.Decode(s.msg)
+		eq(e.flag, "R"); eq(e.guild, "Olympus II"); eq(e.level, 42); eq(e.class, "PR"); eq(e.zone, nil, "not shared: no zone"); eq(e.note, "need tank cff00ff00!")
+		assert(Printed(w, ns.L.BOARD_RAISED_HIDDEN:format(ns.L.BOARD_FLAG_R)))
+		-- Answered twice (Enter, then the button): raised once.
+		local n = #w.sent
+		def.OnAccept({ editBox = box }, p.data)
+		eq(#w.sent, n)
+		-- Too soon for another.
+		eq(select(2, B.Raise("D")), "wait"); eq(#w.sent, n)
+		-- Shared: its zone goes; no note: the plain API.
+		w.clock = w.clock + B.RAISE_GAP
+		w.share = true
+		eq(B.Raise("D"), true)
+		s = Raised(w)
+		e = B.Decode(s.msg)
+		eq(e.flag, "D"); eq(e.zone, 1453); eq(s.logged, false, "no note: the plain API")
+		assert(Printed(w, ns.L.BOARD_RAISED:format(ns.L.BOARD_FLAG_D, "Stormwind City")))
+		eq(B.Mine().flag, "D", "one flag: the new one took its place")
+		-- In an instance its zone stays home.
+		w.clock = w.clock + B.RAISE_GAP
+		IsInInstance = function() return true end
+		eq(B.Raise("P"), true); eq(B.Decode(Raised(w).msg).zone, nil)
+		IsInInstance = function() return false end
+		-- Three an hour.
+		w.clock = w.clock + B.RAISE_GAP
+		n = #w.sent
+		eq(select(2, B.Raise("L")), "hourly"); eq(#w.sent, n)
+		w.clock = w.clock + 3600
+		eq(B.Raise("L"), true)
+		-- Not a flag, not a member, not on the channel, in lockdown: nothing sent.
+		w.clock = w.clock + B.RAISE_GAP
+		n = #w.sent
+		eq(select(2, B.Raise("C")), "flag")
+		GetGuildInfo = function() return "Some Guild", "Member", 3 end
+		eq(select(2, B.Raise("D")), "member")
+		AsSoldier()
+		ns.Comm.ChannelReady = function() return false end
+		eq(select(2, B.Raise("D")), "ready")
+		ns.Comm.ChannelReady = function() return true end
+		C_ChatInfo.InChatMessagingLockdown = function() return true end
+		eq(select(2, B.Raise("D")), "lockdown")
+		C_ChatInfo.InChatMessagingLockdown = nil
+		eq(#w.sent, n, "nothing sent")
+	end)
+end)
+
+test("1.1 the Board: our flag refreshes for late logins, drops its zone within 30 s of /oly location off, and comes down after an hour", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		w.share = true
+		local t0 = w.clock
+		B.Raise("R", "lfm")
+		local first = B.Decode(Raised(w).msg)
+		eq(first.every, 10, "a small Board: every 10 minutes")
+		local n = #w.sent
+		w.clock = t0 + 9 * 60
+		B.Tick()
+		eq(#w.sent, n, "not yet")
+		w.clock = t0 + 10 * 60
+		B.Tick()
+		local again = B.Decode(Raised(w).msg)
+		eq(again.id, first.id, "the same flag"); eq(again.age, 10); eq(again.zone, 1453)
+		-- The player stops sharing: the next tick sends it without its zone.
+		w.share = false
+		w.clock = t0 + 10 * 60 + 30
+		B.Tick()
+		eq(B.Decode(Raised(w).msg).zone, nil)
+		-- The refresh stretches with the Board (12 seconds a post, 30 minutes at most).
+		eq(B.Interval(0), 10); eq(B.Interval(100), 20); eq(B.Interval(150), 30); eq(B.Interval(1000), 30)
+		-- An hour after it went up: lowered for everyone, and the player told.
+		w.clock = t0 + 3600
+		B.Tick()
+		eq(B.Mine(), nil)
+		eq(LastSent(w), "G0~" .. first.id)
+		assert(Printed(w, ns.L.BOARD_LOWERED_HOUR))
+	end)
+end)
+
+test("1.1 the Board: cards from the channel, one flag a player, lowered with G0, gone after the hour; no note outside the logged API", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 2, 1429, "lfm molten core"))
+		local list = B.List()
+		eq(#list, 1)
+		local card = B.Card(list[1])
+		assert(card.text:find("[" .. ns.L.BOARD_FLAG_R .. "]", 1, true) and card.text:find("Aldric", 1, true)
+			and card.text:find("<Olympus Zeus>", 1, true) and card.text:find('"lfm molten core"', 1, true), card.text)
+		assert(card.right:find("Elwynn Forest", 1, true), card.right)
+		-- A player who keeps the zone private: the card says it is hidden.
+		B.HandlePost("CHANNEL", "Brenna-Realm", Flag("b1", "Olympus Zeus", "L", 0, nil, ""))
+		local hidden
+		for _, e in ipairs(B.List()) do if e.sender == "Brenna-Realm" then hidden = B.Card(e) end end
+		assert(hidden.right:find(ns.L.BOARD_ZONE_HIDDEN, 1, true), hidden.right)
+		eq(#B.List(), 2)
+		-- A refresh (same id): the same card, news kept.
+		w.clock = w.clock + 600
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 12, 1453, "now in SW"))
+		eq(#B.List(), 2)
+		local a
+		for _, e in ipairs(B.List()) do if e.sender == "Aldric-Realm" then a = e end end
+		eq(a.zone, 1453); eq(a.note, "now in SW")
+		-- A new flag of the same player replaces the old one, once a minute at most.
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a2", "Olympus Zeus", "D", 0))
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a3", "Olympus Zeus", "P", 0))
+		for _, e in ipairs(B.List()) do if e.sender == "Aldric-Realm" then a = e end end
+		eq(a.id, "a2", "the second within a minute: not taken"); eq(#B.List(), 2)
+		-- Lowered: gone, and a late copy of it can't bring it back.
+		B.HandleLower("CHANNEL", "Aldric-Realm", "G0~a2")
+		eq(#B.List(), 1)
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a2", "Olympus Zeus", "D", 1))
+		eq(#B.List(), 1, "lowered stays lowered")
+		B.HandleLower("CHANNEL", "Someone-Realm", "G0~b1")
+		eq(#B.List(), 1, "only its own poster lowers it")
+		-- Not from the channel, not an Olympus guild, our guild's name from outside our roster,
+		-- someone the game ignores, our own echo: nothing.
+		B.HandlePost("GUILD", "Cedric-Realm", Flag("c1", "Olympus Zeus", "R"))
+		B.HandlePost("WHISPER", "Cedric-Realm", Flag("c1", "Olympus Zeus", "R"))
+		B.HandlePost("CHANNEL", "Cedric-Realm", Flag("c1", "Horde Stompers", "R"))
+		B.HandlePost("CHANNEL", "Dorian-Realm", Flag("d1", "Olympus II", "R"))
+		B.HandlePost("CHANNEL", "Troll-Realm", Flag("t1", "Olympus Zeus", "R"))
+		B.HandlePost("CHANNEL", ns.me, Flag("m1", "Olympus II", "R"))
+		eq(#B.List(), 1)
+		-- The client has the logged API but this note didn't come through it: shown without its words.
+		w.logged = false
+		B.HandlePost("CHANNEL", "Emric-Realm", Flag("e1", "Olympus Zeus", "D", 0, nil, "buy gold at scam dot com"))
+		local emric
+		for _, e in ipairs(B.List()) do if e.sender == "Emric-Realm" then emric = e end end
+		eq(emric.note, "")
+		w.logged = true
+		B.HandlePost("CHANNEL", "Fara-Realm", Flag("f1", "Olympus Zeus", "D", 0, nil, "tank lfg"))
+		local fara
+		for _, e in ipairs(B.List()) do if e.sender == "Fara-Realm" then fara = e end end
+		eq(fara.note, "tank lfg")
+		-- An hour after it went up it is gone from every Board, refreshed or not (65 minutes at most
+		-- after it was first heard, whatever age its sender claims); a flag not heard for two of
+		-- its refreshes goes too.
+		B.Reset()
+		local t0 = w.clock
+		B.HandlePost("CHANNEL", "Gil-Realm", Flag("g1", "Olympus Zeus", "R", 55))
+		B.HandlePost("CHANNEL", "Hal-Realm", Flag("h1", "Olympus Zeus", "R", 0))
+		B.HandlePost("CHANNEL", "Ivo-Realm", Flag("i1", "Olympus Zeus", "R", 0))
+		w.clock = t0 + 5 * 60
+		eq(#B.List(), 2, "Gil's hour is up")
+		for m = 10, 50, 10 do w.clock = t0 + m * 60; B.HandlePost("CHANNEL", "Hal-Realm", Flag("h1", "Olympus Zeus", "R", 0)) end
+		w.clock = t0 + 55 * 60
+		local names = {}
+		for _, e in ipairs(B.List()) do names[#names + 1] = e.sender end
+		eq(table.concat(names, ","), "Hal-Realm", "Ivo not heard for 21 minutes")
+		w.clock = t0 + 60 * 60
+		eq(#B.List(), 0, "a sender that never ages its flag: an hour after it was first heard")
+		w.clock = t0 + 61 * 60
+		B.HandlePost("CHANNEL", "Hal-Realm", Flag("h1", "Olympus Zeus", "R", 0))
+		eq(#B.List(), 0, "and its refreshes can't bring it back")
+		-- A full Board: the flag ending soonest makes room.
+		local savedMax = B.MAX
+		B.MAX = 3
+		B.HandlePost("CHANNEL", "J1-Realm", Flag("j1", "Olympus Zeus", "D", 50))
+		B.HandlePost("CHANNEL", "J2-Realm", Flag("j2", "Olympus Zeus", "D", 10))
+		B.HandlePost("CHANNEL", "J3-Realm", Flag("j3", "Olympus Zeus", "D", 20))
+		B.HandlePost("CHANNEL", "J4-Realm", Flag("j4", "Olympus Zeus", "D", 0))
+		B.MAX = savedMax
+		names = {}
+		for _, e in ipairs(B.List()) do names[#names + 1] = e.sender end
+		table.sort(names)
+		eq(table.concat(names, ","), "J2-Realm,J3-Realm,J4-Realm")
+	end)
+end)
+
+test("1.1 the Board: a click whispers the poster (the chat box; Olympus's window with the gamepad UI), and nothing in it invites or queues", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 0))
+		local card = B.Card(B.List()[1])
+		card.onClick()
+		eq(w.told[1], "Aldric", "the game's chat box, to the name the server finds")
+		WithGamepadUI(true, function(game)
+			card.onClick()
+			eq(w.windows[1], "Aldric"); eq(#w.told, 1); eq(#game.shown, 0)
+		end)
+		eq(#w.sent, 0, "a whisper is the player's own: the addon sends nothing")
+	end)
+	-- Fern: "No auto-invite and no queue that forms the group." No call of the game's that invites,
+	-- accepts, leaves or lists a group is anywhere in the Board.
+	local src = assert(io.open(ADDON_DIR .. "Board.lua")):read("*a")
+	for _, api in ipairs({ "InviteUnit", "InviteToGroup", "AcceptGroup", "LeaveParty", "ConvertToRaid", "C_PartyInfo", "C_LFGList",
+		"SendChatMessage", "StaticPopup_Show" }) do
+		eq(src:find(api, 1, true), nil, api)
+	end
+end)
+
+test("1.1 the Board: the Realm links it; the page, its search and the way back; /oly lfg", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 0, 1429, "lfm"))
+		B.HandlePost("CHANNEL", "Brenna-Realm", Flag("b1", "Olympus Zeus", "P", 0, nil, "wsg premade"))
+		local link
+		for _, l in ipairs(ns.Views.RealmLines()) do if l.text and l.text:find(ns.L.BOARD_LINK, 1, true) then link = l end end
+		assert(link and link.onClick, "the link in the tree")
+		assert(link.right:find(ns.L.BOARD_LINK_FLAGS:format(2), 1, true), link.right)
+		link.onClick()
+		eq(ns.Views.BoardShown(), true)
+		local lines = ns.Views.RealmLines()
+		eq(lines[1].text:find(ns.L.BOARD_BACK, 1, true) ~= nil, true, "leads back")
+		local text = Texts(lines)
+		for _, flag in ipairs({ "D", "R", "P", "L" }) do assert(text:find(ns.L.BOARD_RAISE:format(ns.L["BOARD_FLAG_" .. flag]), 1, true), flag) end
+		assert(text:find(ns.L.BOARD_ZONE_PRIVATE, 1, true), "says the zone stays hidden")
+		assert(text:find("Aldric", 1, true) and text:find("Brenna", 1, true), text)
+		-- A raise option opens the dialog.
+		for _, l in ipairs(lines) do
+			if l.text and l.text:find(ns.L.BOARD_RAISE:format(ns.L.BOARD_FLAG_L), 1, true) then l.onClick() end
+		end
+		eq(w.popups[#w.popups].name, "OLYMPUS_BOARD_RAISE"); eq(w.popups[#w.popups].data.flag, "L")
+		-- Raised: our flag instead of the options; a click lowers it.
+		B.Raise("L", "can invite to my layer")
+		text = Texts(ns.Views.RealmLines())
+		assert(text:find(ns.L.BOARD_MINE:format(ns.L.BOARD_FLAG_L), 1, true), text)
+		assert(not text:find(ns.L.BOARD_RAISE:format(ns.L.BOARD_FLAG_D), 1, true), "no options while ours is up")
+		for _, l in ipairs(ns.Views.RealmLines()) do
+			if l.text and l.text:find(ns.L.BOARD_MINE:format(ns.L.BOARD_FLAG_L), 1, true) then l.onClick() end
+		end
+		eq(B.Mine(), nil); assert(LastSent(w):find("^G0~"))
+		-- The search (the Realm's box, its own tip here): a zone, a note.
+		ns.Views.SetFilter("realm", "elwynn")
+		local built = ns.Views.Build("realm")
+		text = Texts(built)
+		assert(text:find("Aldric", 1, true) and not text:find("Brenna", 1, true), text)
+		local tip = {}
+		built[1].tooltip({ AddLine = function(_, t) tip[#tip + 1] = t end })
+		eq(tip[2], ns.L.SEARCH_TIP_BOARD)
+		ns.Views.SetFilter("realm", "PREMADE")
+		text = Texts(ns.Views.Build("realm"))
+		assert(text:find("Brenna", 1, true) and not text:find("Aldric", 1, true), text)
+		ns.Views.SetFilter("realm", "")
+		-- Another tab: the Realm opens on its tree again; the way back too.
+		ns.Views.CloseChat()
+		eq(ns.Views.BoardShown(), false)
+		ns.Views.ShowBoard(true)
+		ns.Views.RealmLines()[1].onClick()
+		eq(ns.Views.BoardShown(), false)
+		-- /oly lfg: the page; /oly lfg raid <note>: the dialog with it; /oly lfg off.
+		SlashCmdList.OLYMPUS("lfg")
+		eq(ns.Views.BoardShown(), true); eq(w.tab, "realm")
+		SlashCmdList.OLYMPUS("lfg raid need a healer")
+		eq(w.popups[#w.popups].name, "OLYMPUS_BOARD_RAISE"); eq(w.popups[#w.popups].data.flag, "R"); eq(w.popups[#w.popups].data.note, "need a healer")
+		SlashCmdList.OLYMPUS("lfg off")
+		assert(Printed(w, ns.L.BOARD_NONE_UP))
+	end)
+end)
+
+test("1.1 the Board: the King's screen shows no note (his stream), names and guilds only", function()
+	WithBoard(function(w, B)
+		AsKing()
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 0, 1429, "some words"))
+		local card = B.Card(B.List()[1])
+		assert(not card.text:find("some words", 1, true), card.text)
+		assert(card.text:find("Aldric", 1, true), card.text)
+		AsSoldier()
+		assert(B.Card(B.List()[1]).text:find("some words", 1, true))
+	end)
+end)
+
+test("1.1 the Board: opened, it asks once for the flags up now; holders answer that asker alone by whisper, braked", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		-- Just joined the channel: the ask waits 20 seconds.
+		ns.Comm.joinedAt = w.clock - 5
+		ns.Views.ShowBoard(true)
+		eq(#w.sent, 0)
+		w.clock = w.clock + 15
+		B.Tick()
+		eq(LastSent(w), "GQ~"); eq(w.sent[#w.sent].key, "boardask")
+		ns.Views.ShowBoard(false); ns.Views.ShowBoard(true)
+		eq(#w.sent, 1, "once a session")
+		-- Answers whispered within 2 minutes of our ask are taken; none later, none unasked.
+		B.HandlePost("WHISPER", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 3))
+		eq(#B.List(), 1)
+		w.clock = w.clock + B.ANSWER_WINDOW + 1
+		B.HandlePost("WHISPER", "Brenna-Realm", Flag("b1", "Olympus Zeus", "R", 3))
+		eq(#B.List(), 1)
+	end)
+	WithBoard(function(w, B)
+		AsSoldier()
+		-- A holder: its flag, whispered to the asker alone after a short wait (its note logged).
+		B.Raise("D", "sm cath")
+		B.HandleAsk("CHANNEL", "Asker-Realm", "GQ~")
+		eq(#w.later, 1); eq(#w.whispered, 0)
+		w.later[1].fn()
+		eq(w.whispered[1].to, "Asker-Realm"); eq(w.whispered[1].logged, true)
+		local e = B.Decode(w.whispered[1].msg)
+		eq(e.flag, "D"); eq(e.note, "sm cath"); eq(e.id, B.Mine().id)
+		-- The same asker again within 10 minutes, an ask not from the channel: no answer.
+		B.HandleAsk("CHANNEL", "Asker-Realm", "GQ~")
+		B.HandleAsk("GUILD", "Other-Realm", "GQ~")
+		eq(#w.later, 1)
+		-- The first 4 asks of a minute only.
+		for i = 2, 5 do B.HandleAsk("CHANNEL", "Asker" .. i .. "-Realm", "GQ~") end
+		eq(#w.later, 3, "the 3rd and 4th asks of the minute answered, the 5th and 6th not")
+		-- A minute later, the next ones.
+		w.clock = w.clock + 61
+		for i = 1, 4 do B.HandleAsk("CHANNEL", "Late" .. i .. "-Realm", "GQ~") end
+		eq(#w.later, 7)
+		-- A full Board: a share of its holders answer (about 40 in all).
+		B.Reset(); w.later = {}
+		w.clock = w.clock + 120
+		B.Raise("D")
+		for i = 1, 80 do B.HandlePost("CHANNEL", "Holder" .. i .. "-Realm", Flag(("%02d"):format(i), "Olympus Zeus", "D", 0)) end
+		eq(B.Count(), 80)
+		B.random = function(a) if a then return a end return 0.9 end
+		B.HandleAsk("CHANNEL", "Newcomer-Realm", "GQ~")
+		eq(#w.later, 0, "40 of 80: this one stays quiet")
+		B.random = function(a) if a then return a end return 0.3 end
+		B.HandleAsk("CHANNEL", "Newcomer2-Realm", "GQ~")
+		eq(#w.later, 1)
+		-- The asker's brake: 4 asks heard in the last minute, ours waits.
+		B.Reset(); wipe(w.sent)
+		for i = 1, 4 do B.HandleAsk("CHANNEL", "Busy" .. i .. "-Realm", "GQ~") end
+		eq(B.Ask(), false); eq(#w.sent, 0)
+	end)
+end)
+
+test("1.1 the Board: clients before 1.1 leave G1, G0 and GQ unread, nothing counted bad", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		local old, Deliver = FreshComm(true)
+		old.Comm.JoinChannel()
+		local bad = old.Comm.Stats().bad
+		Deliver("CHANNEL", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 0, 1429, "lfm"))
+		Deliver("CHANNEL", "Aldric-Realm", "G0~a1")
+		Deliver("CHANNEL", "Aldric-Realm", "GQ~")
+		Deliver("WHISPER", "Aldric-Realm", Flag("a1", "Olympus Zeus", "R", 0))
+		local st = old.Comm.Stats()
+		eq(st.bad, bad, "no bad report"); eq(st.partial, 0)
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 the Board: with the gamepad UI its dialog is Olympus's own window, its note box never takes the chat's keyboard", function()
+	WithUI(function()
+		LoadUI()
+		WithGamepadUI(true, function(game)
+			WithBoard(function(w, B)
+				AsSoldier()
+				local chat = { name = "ChatFrame1EditBox" }
+				local savedFocus = GetCurrentKeyBoardFocus
+				GetCurrentKeyBoardFocus = function() return chat end
+				local focused = {}
+				Widget.SetFocus = function(self) focused[#focused + 1] = self end
+				local ok, err = pcall(function()
+					B.Prompt("P")
+					eq(#w.popups, 0, "not the game's popup"); eq(#game.shown, 0)
+					local f = ns.Dialog.Find("OLYMPUS_BOARD_RAISE")
+					assert(f and f:IsShown() and f.editBox:IsShown(), "our window, with its box")
+					eq(#focused, 0, "the chat box keeps the keyboard")
+					f.editBox:SetText("wsg anyone")
+					f.editBox:Fire("OnEnterPressed")
+					eq(f:IsShown(), false)
+					local e = B.Decode(Raised(w).msg)
+					eq(e.flag, "P"); eq(e.note, "wsg anyone")
+				end)
+				GetCurrentKeyBoardFocus, Widget.SetFocus = savedFocus, nil
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+end)
+
+test("1.1 the Board: its words in both languages, the same placeholders", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	local keys = {}
+	for k in pairs(ns.L) do if type(k) == "string" and k:find("^BOARD_") then keys[#keys + 1] = k end end
+	keys[#keys + 1], keys[#keys + 2] = "HELP_BOARD", "SEARCH_TIP_BOARD"
+	assert(#keys >= 30, "the Board's strings: " .. #keys)
+	local function Specs(s) local out = {} for spec in s:gmatch("%%[%a%%]") do out[#out + 1] = spec end return table.concat(out) end
+	for _, k in ipairs(keys) do
+		local en, ptText = rawget(ns.L, k), rawget(pt.L, k)
+		assert(type(en) == "string" and en ~= "", "English " .. k)
+		assert(type(ptText) == "string" and ptText ~= "", "pt-BR " .. k)
+		eq(Specs(ptText), Specs(en), k)
+	end
+end)
+
+test("1.1 the Board: after a /reload our flag is still ours (repeated, lowered with a click), never raised again once it ended", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		local t0 = w.clock
+		B.Raise("R", "lfm")
+		local id = B.Mine().id
+		-- A /reload: memory gone, the SavedVariables kept.
+		local kept = ns.rdb.board
+		B.Reset(); ns.rdb.board = kept
+		eq(B.Mine(), nil)
+		w.clock = t0 + 60
+		B.Restore()
+		eq(B.Mine().id, id, "the same flag"); eq(B.Mine().note, "lfm")
+		w.clock = t0 + 10 * 60
+		B.Tick()
+		eq(B.Decode(LastSent(w)).id, id, "repeated")
+		B.Lower()
+		eq(LastSent(w), "G0~" .. id, "and lowered for everyone")
+		eq(ns.rdb.board, nil, "nothing left to restore")
+		-- Logged back in long after: its Board forgot it (not heard for two refreshes); it stays down.
+		B.Raise("D")
+		kept = ns.rdb.board
+		B.Reset(); ns.rdb.board = kept
+		w.clock = w.clock + 21 * 60 + 1
+		B.Restore()
+		eq(B.Mine(), nil)
+		eq(ns.rdb.board, nil)
+		-- Another character of the account on this realm group: not its flag.
+		B.Raise("P")
+		kept = ns.rdb.board
+		B.Reset(); ns.rdb.board = kept
+		AsSoldier("Alt")
+		B.Restore()
+		eq(B.Mine(), nil)
+	end)
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: camps on the Board (Board.lua, Fern's #25): dropped by a player, ending on their own, a
+-- zone only, only with the player's /oly location on; one badge per zone on the world map.
+---------------------------------------------------------------------------
+
+local function Camp(id, guild, zone, age, note)
+	return ns.Board.Encode({ id = id, guild = guild, flag = "C", level = 30, class = "WA", every = 10, age = age or 0, zone = zone, note = note })
+end
+
+test("1.1 camps: dropped where the player stands, its zone and nothing finer, only with /oly location on; one every 10 minutes; down after 30", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		local savedPos = C_Map.GetPlayerMapPosition
+		C_Map.GetPlayerMapPosition = function() error("a camp never reads the player's spot") end
+		local ok, err = pcall(function()
+			-- Location private: no dialog, no camp, the player told why.
+			eq(B.PromptCamp(), nil); eq(#w.popups, 0)
+			assert(Printed(w, ns.L.BOARD_CAMP_NEEDS_LOCATION))
+			eq(select(2, B.DropCamp("x")), "private"); eq(#w.sent, 0)
+			-- In an instance: no zone for a camp.
+			w.share = true
+			IsInInstance = function() return true end
+			eq(select(2, B.DropCamp("x")), "zone"); eq(#w.sent, 0)
+			assert(Printed(w, ns.L.BOARD_CAMP_NO_ZONE))
+			IsInInstance = function() return false end
+			-- Shared, in a zone: the dialog says where and who reads it; its note, logged.
+			B.PromptCamp("fire by the bank")
+			local p = w.popups[#w.popups]
+			eq(p.name, "OLYMPUS_BOARD_CAMP"); eq(p.a, "Stormwind City"); eq(p.b, ns.Comm.Audience()); eq(p.data.note, "fire by the bank")
+			local box = { text = p.data.note, GetText = function(self) return self.text end }
+			StaticPopupDialogs.OLYMPUS_BOARD_CAMP.OnAccept({ editBox = box }, p.data)
+			local s = w.sent[#w.sent]
+			eq(s.key, "camp"); eq(s.logged, true)
+			local fields = select(2, s.msg:gsub("~", ""))
+			eq(fields, 9, "the ten fields of a flag: no position anywhere")
+			local e = B.Decode(s.msg)
+			eq(e.flag, "C"); eq(e.zone, 1453); eq(e.note, "fire by the bank"); eq(e.every, B.CAMP_EVERY)
+			assert(Printed(w, ns.L.BOARD_CAMP_DROPPED:format("Stormwind City")))
+			local id = B.MineIn("camp").id
+			-- A flag and a camp at once: each its own.
+			w.clock = w.clock + 1
+			eq(B.Raise("R", "lfm"), true)
+			eq(B.Mine().flag, "R"); eq(B.MineIn("camp").id, id)
+			-- One camp every 10 minutes.
+			eq(select(2, B.DropCamp()), "wait")
+			assert(Printed(w, ns.L.BOARD_CAMP_WAIT:format(10)))
+			-- Its refresh keeps the camp's zone wherever the player went since.
+			w.map = 1429
+			w.clock = w.clock + 10 * 60
+			B.Tick()
+			local refreshed
+			for _, x in ipairs(w.sent) do if x.key == "camp" then refreshed = x end end
+			eq(B.Decode(refreshed.msg).zone, 1453); eq(B.Decode(refreshed.msg).id, id)
+			-- 30 minutes after it was dropped: down for everyone.
+			w.clock = w.clock + 20 * 60
+			B.Tick()
+			eq(B.MineIn("camp"), nil)
+			local down
+			for _, x in ipairs(w.sent) do if x.msg == "G0~" .. id then down = x end end
+			assert(down and down.key == "camp", "lowered, in the camp's own lane")
+			assert(Printed(w, ns.L.BOARD_CAMP_ENDED))
+			-- A new one (10 minutes passed); the player stops sharing: down at the next tick.
+			eq(B.DropCamp(), true)
+			id = B.MineIn("camp").id
+			w.share = false
+			B.Tick()
+			eq(B.MineIn("camp"), nil); eq(LastSent(w), "G0~" .. id)
+			assert(Printed(w, ns.L.BOARD_CAMP_PRIVATE))
+			-- Taken down with a click (/oly camp off).
+			w.share = true
+			w.clock = w.clock + B.CAMP_GAP
+			B.DropCamp()
+			SlashCmdList.OLYMPUS("camp off")
+			eq(B.MineIn("camp"), nil)
+			assert(Printed(w, ns.L.BOARD_CAMP_LOWERED))
+			SlashCmdList.OLYMPUS("camp off")
+			assert(Printed(w, ns.L.BOARD_CAMP_NONE_UP))
+			SlashCmdList.OLYMPUS("camp by the lake")
+			eq(w.popups[#w.popups].name, "OLYMPUS_BOARD_CAMP"); eq(w.popups[#w.popups].data.note, "by the lake")
+		end)
+		C_Map.GetPlayerMapPosition = savedPos
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 camps: on the Board by zone beside the flags, a click whispers who dropped it; a camp without a zone, or older than 30 minutes, is nothing", function()
+	WithBoard(function(w, B)
+		AsSoldier()
+		B.HandlePost("CHANNEL", "Aldric-Realm", Camp("c1", "Olympus Zeus", 1453, 5, "cooking 300"))
+		B.HandlePost("CHANNEL", "Aldric-Realm", Flag("f1", "Olympus Zeus", "R", 0))
+		B.HandlePost("CHANNEL", "Brenna-Realm", Camp("c2", "Olympus Zeus", 1429, 0))
+		eq(#B.List("camp"), 2); eq(#B.List("flag"), 1, "a camp and a flag of one player, each kept")
+		eq(B.Decode("G1~c3~Olympus Zeus~C~30~WA~10~0~~no zone"), nil, "a camp is its zone")
+		eq(B.Decode(Camp("c4", "Olympus Zeus", 1453, 31)), nil, "past its 30 minutes")
+		local lines = B.Lines()
+		local text = Texts(lines)
+		assert(text:find(ns.L.BOARD_CAMPS:format(2), 1, true), text)
+		local card
+		for _, l in ipairs(lines) do if l.text and l.text:find("cooking 300", 1, true) then card = l end end
+		assert(card.text:find("[" .. ns.L.BOARD_FLAG_C .. "]|r Stormwind City: ", 1, true), card.text)
+		eq(card.right, "|cff9d9d9d" .. ns.L.BOARD_CAMP_LEFT:format(25) .. "|r")
+		card.onClick()
+		eq(w.told[#w.told], "Aldric")
+		-- By zone: Elwynn Forest before Stormwind City.
+		local a, b = text:find("Elwynn Forest: ", 1, true), text:find("Stormwind City: ", 1, true)
+		assert(a and b and a < b, text)
+		-- Location private: the page says camps need it; shared: the click to drop one here.
+		assert(text:find(ns.L.BOARD_CAMP_NEEDS_LOCATION, 1, true), text)
+		w.share = true
+		text = Texts(B.Lines())
+		assert(text:find(ns.L.BOARD_CAMP_DROP:format("Stormwind City"), 1, true), text)
+		-- The tree's link counts both.
+		local link = B.LinkLine()
+		assert(link.right:find(ns.L.BOARD_LINK_FLAGS:format(1), 1, true) and link.right:find(ns.L.BOARD_LINK_CAMPS:format(2), 1, true), link.right)
+		-- 30 minutes after it was dropped, a camp is gone, refreshed or not.
+		w.clock = w.clock + 10 * 60
+		B.HandlePost("CHANNEL", "Brenna-Realm", Camp("c2", "Olympus Zeus", 1429, 10))
+		w.clock = w.clock + 20 * 60
+		eq(#B.List("camp"), 0)
+		-- A full Board of camps: 60 at most.
+		for i = 1, B.CAMP_MAX + 5 do B.HandlePost("CHANNEL", "Camper" .. i .. "-Realm", Camp(("%02d"):format(i), "Olympus Zeus", 1453, 0)) end
+		eq(#B.List("camp"), B.CAMP_MAX)
+	end)
+end)
+
+test("1.1 camps: one badge per zone on the world map with how many, mouse and keyboard only; /oly camps off hides them", function()
+	WithMapIcons(function()
+		WithBoard(function(w, B)
+			local lib = RecordingPins()
+			lib.names[B] = "Board"
+			local savedStub, savedTip, savedShow = LibStub, GameTooltip, ns.db.showCamps
+			local tip = {}
+			GameTooltip = { SetOwner = function() end, Show = function() end, Hide = function() end, AddLine = function(_, t) tip[#tip + 1] = t end }
+			LibStub = function(name) if name == "HereBeDragons-Pins-2.0" then return lib end end
+			local ok, err = pcall(function()
+				AsSoldier()
+				ns.db.showCamps = true
+				local function Log() local out = lib:Take(); table.sort(out) return table.concat(out, ", ") end
+				B.HandlePost("CHANNEL", "Aldric-Realm", Camp("c1", "Olympus Zeus", 1453, 5, "cooking"))
+				B.HandlePost("CHANNEL", "Brenna-Realm", Camp("c2", "Olympus Zeus", 1453, 0))
+				B.HandlePost("CHANNEL", "Cedric-Realm", Camp("c3", "Olympus Zeus", 1429, 0))
+				B.HandlePost("CHANNEL", "Dorian-Realm", Flag("f1", "Olympus Zeus", "R", 0, 1436))
+				B.RefreshCamps()
+				eq(Log(), "world+ Board 1429, world+ Board 1453", "one per zone, flags none")
+				local badges = B.CampBadges()
+				eq(badges[1453].badge.count:GetText(), "2"); eq(badges[1429].badge.count:GetText(), "")
+				eq(badges[1453].badge.icon.texture, B.CAMP_ICON)
+				-- Its tooltip: the zone, who dropped each camp there, their notes.
+				B.CampTip(badges[1453].badge)
+				local t = table.concat(tip, " / ")
+				assert(t:find(ns.L.BOARD_CAMPS_IN:format("Stormwind City"), 1, true) and t:find("Aldric", 1, true)
+					and t:find("cooking", 1, true) and t:find("Brenna", 1, true) and not t:find("Cedric", 1, true), t)
+				-- Unchanged: nothing redrawn. A camp down: its zone's badge goes when it was the last.
+				B.RefreshCamps()
+				eq(Log(), "")
+				B.HandleLower("CHANNEL", "Cedric-Realm", "G0~c3")
+				B.RefreshCamps()
+				eq(Log(), "world- Board")
+				-- /oly camps off: off the map (the Board keeps them); on: back.
+				SlashCmdList.OLYMPUS("camps off")
+				eq(ns.db.showCamps, false); eq(Log(), "world- Board")
+				assert(Printed(w, ns.L.BOARD_CAMPS_MAP_OFF))
+				eq(#B.List("camp"), 2)
+				SlashCmdList.OLYMPUS("camps on")
+				eq(Log(), "world+ Board 1453")
+				-- The gamepad UI: no icon of ours on its world map (taken off once, never added).
+				WithGamepadUI(true, function()
+					B.RefreshCamps()
+					eq(Log(), "worldAll Board")
+					B.HandlePost("CHANNEL", "Emric-Realm", Camp("c5", "Olympus Zeus", 1429, 0))
+					B.RefreshCamps()
+					eq(Log(), "")
+				end)
+				-- Back to mouse and keyboard: back on the map.
+				B.RefreshCamps()
+				eq(Log(), "world+ Board 1429, world+ Board 1453")
+			end)
+			LibStub, GameTooltip, ns.db.showCamps = savedStub, savedTip, savedShow
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
+
+test("1.1 camps: the map's Olympus menu and /oly camps switch them, on by default; their words in both languages", function()
+	local src = assert(io.open(ADDON_DIR .. "Core.lua")):read("*a")
+	assert(src:find("showCamps = true", 1, true), "on by default")
+	local map = assert(io.open(ADDON_DIR .. "Map.lua")):read("*a")
+	assert(map:find('key = "showCamps", label = "MAPOPT_CAMPS"', 1, true), "in the map's menu")
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, k in ipairs({ "MAPOPT_CAMPS", "HELP_CAMP", "BOARD_FLAG_C", "BOARD_CAMP_ASK", "BOARD_CAMPS_TIP" }) do
+		assert(type(rawget(ns.L, k)) == "string" and type(rawget(pt.L, k)) == "string" and rawget(pt.L, k) ~= rawget(ns.L, k), k)
+	end
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: the King's week (Week.lua, Fern's #26): the Agenda holds dated entries for 7 days, shown
+-- by day on the Board with the guild's own calendar events; an officer's click opens the game's
+-- calendar (Olympus writes nothing into it).
+---------------------------------------------------------------------------
+
+-- The realm's calendar clock stands at Tuesday 29 September 2026, 18:30:15.
+local function WithWeek(fn)
+	WithBoard(function(w, B, K)
+		local W = ns.Week
+		local saved = { dt = C_DateAndTime, server = GetServerTime, cal = C_Calendar, rules = C_GameRules, guildInfo = C_GuildInfo,
+			toggle = ToggleCalendar, frame = CalendarFrame, combat = InCombatLockdown, after = W.after, notice = RaidNotice_AddMessage,
+			alert = ns.PlayAlert, rule = Enum.GameRule }
+		local ok, err = pcall(function()
+			W.Reset()
+			w.realm = { year = 2026, month = 9, monthDay = 29, weekday = 3, hour = 18, minute = 30 }
+			C_DateAndTime = { GetCurrentCalendarTime = function() return w.realm end }
+			GetServerTime = function() return 999999975 end -- (15 seconds into the minute)
+			W.after = function(_, _, f) f() end
+			w.alerts, w.notices = {}, {}
+			ns.PlayAlert = function(kind) w.alerts[#w.alerts + 1] = kind end
+			RaidNotice_AddMessage = function(_, text) w.notices[#w.notices + 1] = text end
+			C_Calendar, C_GameRules, C_GuildInfo, ToggleCalendar, CalendarFrame, InCombatLockdown = nil, nil, nil, nil, nil, nil
+			fn(w, W, K, B)
+		end)
+		C_DateAndTime, GetServerTime, C_Calendar, C_GameRules, C_GuildInfo = saved.dt, saved.server, saved.cal, saved.rules, saved.guildInfo
+		ToggleCalendar, CalendarFrame, InCombatLockdown, W.after, RaidNotice_AddMessage = saved.toggle, saved.frame, saved.combat, saved.after, saved.notice
+		ns.PlayAlert, Enum.GameRule = saved.alert, saved.rule
+		W.Reset()
+		if not ok then error(err, 0) end
+	end)
+end
+local function LastWeek(w)
+	for i = #w.sent, 1, -1 do if w.sent[i].msg:find("^T1~D~") then return w.sent[i].msg end end
+end
+
+test("1.1 the King's week: a day and an hour of the realm, in English or Portuguese, the next one within 7 days", function()
+	WithWeek(function(w, W)
+		local function P(s) return (W.Parse(s)) end
+		eq(P("Sat 20:00 Raid night"), 4 * 86400 + 90 * 60 - 15, "Tuesday 18:30:15 to Saturday 20:00")
+		eq(select(2, W.Parse("Sat 20:00 Raid night")), "Raid night")
+		eq(P("s\195\161b 20h Raide"), 4 * 86400 + 90 * 60 - 15, "Portuguese, 20h")
+		eq(P("S\195\161bado 20h30 Raide"), 4 * 86400 + 120 * 60 - 15)
+		eq(P("today 21:30 Court"), 180 * 60 - 15)
+		eq(P("amanh\195\163 19h JxJ"), 86400 + 30 * 60 - 15)
+		eq(P("tomorrow 8:05 Dawn raid"), 86400 - (10 * 60 + 25) * 60 - 15)
+		eq(P("19:00 Raid"), 30 * 60 - 15, "a time alone: the next one")
+		eq(P("18:00 Raid"), 86400 - 30 * 60 - 15, "passed today: tomorrow")
+		eq(P("Tue 19:00 Raid"), 30 * 60 - 15, "today's weekday, still ahead")
+		eq(P("Tue 18:00 Raid"), 7 * 86400 - 30 * 60 - 15, "today's weekday, passed: next week")
+		for _, bad in ipairs({ "Sat Raid", "Sat 25:00 Raid", "Sat 20:61 Raid", "Sat 20:00", "today 18:00 Raid", "30 Raid", "someday 20:00 Raid", "Sat 2000 Raid", "" }) do
+			eq(P(bad), nil, bad)
+		end
+		-- The labels, on the realm's calendar whatever this computer's clock.
+		local at = ns.Now() + P("Sat 20:00 Raid night")
+		eq(W.DayLabel(at), "Sat 3 Oct"); eq(W.TimeLabel(at), "20:00")
+		eq(W.DayLabel(ns.Now() + P("today 21:30 Court")), ns.L.WEEK_TODAY)
+		eq(W.DayLabel(ns.Now() + P("tomorrow 8:05 Dawn raid")), ns.L.WEEK_TOMORROW)
+		eq(W.InLabel(ns.Now() + 25 * 60), ns.L.WEEK_IN_MIN:format(25)); eq(W.InLabel(ns.Now() + 3 * 3600 + 5), ns.L.WEEK_IN_HOURS:format(3))
+		eq(W.InLabel(ns.Now() + 3 * 86400), ns.L.WEEK_IN_DAYS:format(3)); eq(W.InLabel(ns.Now() - 5), ns.L.WEEK_NOW)
+		-- Across a month and a year.
+		w.realm = { year = 2026, month = 12, monthDay = 31, weekday = 5, hour = 23, minute = 0 }
+		eq(W.DayLabel(ns.Now() + P("Fri 20:00 New year raid")), ns.L.WEEK_TOMORROW)
+		eq(W.DayLabel(ns.Now() + P("Sat 20:00 X")), "Sat 2 Jan")
+		eq(W.DaysFrom(1970, 1, 1), 0); eq(W.DaysFrom(2000, 3, 1), 11017)
+		eq(table.concat({ W.DateOf(W.DaysFrom(2024, 2, 29)) }, "-"), "2024-2-29")
+	end)
+end)
+
+test("1.1 the King's week: the Agenda's box puts an entry on the week (the King, his Steward, his Hands), repeated for late logins, kept across a /reload", function()
+	WithWeek(function(w, W, K)
+		-- A soldier: nothing.
+		AsSoldier()
+		eq(K.SetAgenda("Sat 20:00 Raid night"), false); eq(#w.sent, 0)
+		-- The King: a dated entry, the Agenda's current event untouched.
+		AsKing()
+		eq(K.SetAgenda("Sat 20:00 Raid night"), true)
+		local msg = LastWeek(w)
+		local id, seconds = msg:match("^T1~D~(%d+)~Olympus~(%d+)~1~~Raid night$")
+		assert(id, msg)
+		eq(tonumber(seconds), 4 * 86400 + 90 * 60 - 15)
+		eq(K.Agenda(), nil, "not the Agenda's one current event")
+		assert(Printed(w, ns.L.WEEK_SET:format("Raid night", "Sat 3 Oct", "20:00")))
+		eq(#w.notices, 0, "no raid warning"); eq(#w.popups, 0, "no popup")
+		-- Minutes still set the Agenda's current event, as always.
+		K.SetAgenda("30 Raid on Crossroads")
+		eq(K.Agenda().title, "Raid on Crossroads")
+		assert(LastSent(w):find("^T1~A~"))
+		-- Ten seconds between two, ten entries at most.
+		eq(K.SetAgenda("Sun 20:00 PvP night"), false, "too soon")
+		for i = 1, 9 do w.clock = w.clock + W.SET_GAP; K.SetAgenda(("Sun %02d:00 Night %d"):format(i + 10, i)) end
+		w.clock = w.clock + W.SET_GAP
+		eq(K.SetAgenda("Mon 20:00 One too many"), false)
+		assert(Printed(w, ns.L.WEEK_FULL:format(W.MAX_MINE)))
+		-- Repeated every 10 minutes, two a minute at most, never "new" again.
+		local sends = #w.sent
+		w.clock = w.clock + W.RESEND
+		W.Tick()
+		local repeats = 0
+		for i = sends + 1, #w.sent do if w.sent[i].msg:find("^T1~D~") then repeats = repeats + 1 end end
+		eq(repeats, W.RESEND_PER_TICK)
+		assert(LastWeek(w):find("^T1~D~%d+~Olympus~%d+~0~"), "a repeat")
+		-- A /reload: the King's entries come back from his SavedVariables, and go on being repeated.
+		local kept = ns.rdb.week
+		W.Reset(); ns.rdb.week = kept
+		eq(#W.Entries(), 1, "only the Agenda's current event before the restore")
+		W.Restore()
+		eq(#W.Entries(), 11)
+		-- Asmon's view (the author's): on his screen alone.
+		W.Reset(); K.Reset()
+		AsSoldier("Faladoriel")
+		ns.devThrone = true
+		w.clock = w.clock + W.SET_GAP
+		sends = #w.sent
+		eq(K.SetAgenda("Sat 21:00 Preview night"), true)
+		eq(#w.sent, sends, "a preview sends nothing"); eq(#W.Entries(), 1)
+		ns.devThrone = nil
+	end)
+end)
+
+test("1.1 the King's week: every client keeps the entries of the King and his Hands, a quiet line for a new one, never a raid warning; taken off for everyone", function()
+	WithWeek(function(w, W, K)
+		AsSoldier()
+		local KING = ns.KingCharacter() .. "-Realm"
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400) .. "~1~~Raid night")
+		local list = W.Entries()
+		eq(#list, 1); eq(list[1].title, "Raid night"); eq(list[1].by, KING)
+		assert(Printed(w, ns.L.WEEK_NEW:format(ns.KING_NAME, "Raid night", W.DayLabel(list[1].at), W.TimeLabel(list[1].at))))
+		eq(#w.notices, 0); eq(#w.popups, 0); eq(#w.alerts, 0, "no sound either")
+		-- A repeat: no second line; its time kept unless really off.
+		local lines = #w.printed
+		local at = list[1].at
+		w.clock = w.clock + 600
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400 - 600) .. "~0~~Raid night")
+		eq(#w.printed, lines); eq(W.Entries()[1].at, at)
+		-- Nobody's but the King's, his Steward's or a Hand's; only its setter repeats it.
+		K.HandleCommand("CHANNEL", "Faker-Realm", "T1~D~502~Olympus II~3600~1~~Fake raid")
+		eq(#W.Entries(), 1)
+		K.HandleCommand("CHANNEL", KING, "T1~H~9~Olympus~Helper-Realm")
+		K.HandleCommand("CHANNEL", "Helper-Realm", "T1~D~503~Olympus II~7200~1~~PvP night")
+		eq(#W.Entries(), 2, "a Hand's")
+		K.HandleCommand("CHANNEL", "Helper-Realm", "T1~D~501~Olympus II~60~0~~Hijacked")
+		for _, e in ipairs(W.Entries()) do assert(e.title ~= "Hijacked") end
+		-- Out of bounds: more than 7 days, no title.
+		K.HandleCommand("CHANNEL", KING, "T1~D~504~Olympus~" .. (8 * 86400) .. "~1~~Too far")
+		K.HandleCommand("CHANNEL", KING, "T1~D~505~Olympus~3600~1~~")
+		eq(#W.Entries(), 2)
+		-- Taken off by the King (or any of his Hands), for everyone.
+		K.HandleCommand("CHANNEL", KING, "T1~D~503~Olympus~0~0~~")
+		eq(#W.Entries(), 1)
+		-- An hour after it began it leaves the week.
+		w.clock = at + W.KEEP_AFTER + 1
+		eq(#W.Entries(), 0)
+		-- The King's Hand takes one off from the week's page: the same message.
+		AsKing(); K.AddHand("Helper")
+		AsSoldier("Helper")
+		K.HandleCommand("CHANNEL", KING, "T1~H~10~Olympus~Helper-Realm")
+		K.HandleCommand("CHANNEL", KING, "T1~D~506~Olympus~7200~1~~Court")
+		eq(W.Cancel(506), true)
+		assert(LastWeek(w):find("^T1~D~506~Olympus II~0~0~~$"), LastWeek(w))
+	end)
+end)
+
+test("1.1 the King's week: clients before 1.1 leave the kind D out, no error, their Agenda untouched", function()
+	local kns = setmetatable({ On = function() end, Comm = { Handle = function() end }, rdb = {} }, { __index = ns })
+	local logs = {}
+	kns.Log = function(fmt, ...) logs[#logs + 1] = fmt:format(...) end
+	assert(loadfile(ROOT .. "tests/fixtures/king-0.9.8.lua"))("Olympus", kns)
+	local OK = kns.King
+	local savedGuild, savedPopup = GetGuildInfo, StaticPopup_Show
+	local ok, err = pcall(function()
+		StaticPopup_Show = function() end
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		kns.me = "Soldier-Realm"
+		local KING = ns.KingCharacter() .. "-Realm"
+		OK.HandleCommand("CHANNEL", KING, "T1~A~7~Olympus~1800~Orgrimmar~Raid")
+		OK.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~345600~1~~Raid night")
+		OK.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~0~0~~")
+		eq(OK.Agenda().title, "Raid", "their Agenda as it was")
+		OK.HandleCommand("CHANNEL", KING, "T1~H~9~Olympus~Helper-Realm")
+		OK.HandleCommand("CHANNEL", "Helper-Realm", "T1~D~502~Olympus II~7200~1~~PvP night")
+		local left = 0
+		for _, line in ipairs(logs) do if line:find("throne D from Helper-Realm ignored", 1, true) then left = left + 1 end end
+		eq(left, 1, "a Hand's: left out, in their debug log")
+	end)
+	GetGuildInfo, StaticPopup_Show = savedGuild, savedPopup
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 the King's week: on the Board by day with the guild's own calendar events among them; guarded; titles hidden on the King's screen", function()
+	WithWeek(function(w, W, K, B)
+		AsSoldier()
+		local KING = ns.KingCharacter() .. "-Realm"
+		K.HandleCommand("CHANNEL", KING, "T1~A~77~Olympus~1800~Orgrimmar~Raid on the Crossroads")
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400 + 90 * 60 - 15) .. "~1~~Raid night")
+		K.HandleCommand("CHANNEL", KING, "T1~D~502~Olympus~" .. (4 * 86400 + 60 * 60 - 15) .. "~1~~Court")
+		-- The guild's calendar: Saturday 21:00, and one past the week (not shown).
+		local opened = 0
+		C_Calendar = {
+			OpenCalendar = function() opened = opened + 1 end,
+			GetNumGuildEvents = function() return 2 end,
+			GetGuildEventInfo = function(i)
+				if i == 1 then return { year = 2026, month = 10, monthDay = 3, weekday = 7, hour = 21, minute = 0, title = "Molten Core run" } end
+				return { year = 2026, month = 10, monthDay = 20, weekday = 3, hour = 20, minute = 0, title = "Far away" }
+			end,
+		}
+		local text = Texts(B.Lines())
+		eq(opened, 1, "the game's calendar asked for its data")
+		local order = {}
+		for _, what in ipairs({ ns.L.WEEK_TITLE, ns.L.WEEK_TODAY, "Raid on the Crossroads", "Sat 3 Oct", "19:30", "Court", "20:00", "Raid night",
+			"21:00", "Molten Core run", ns.L.WEEK_YOUR_GUILD, ns.L.BOARD_YOURS }) do
+			local at = text:find(what, 1, true)
+			assert(at, what .. " in:\n" .. text)
+			order[#order + 1] = at
+		end
+		for i = 2, #order do assert(order[i] > order[i - 1], "in order: " .. i .. "\n" .. text) end
+		assert(not text:find("Far away", 1, true), "past the week")
+		B.Lines()
+		eq(opened, 1, "once every 5 minutes at most")
+		-- The King's screen: guild titles hidden (his stream), the King's own entries shown.
+		AsKing()
+		text = Texts(B.Lines())
+		assert(not text:find("Molten Core", 1, true) and text:find(ns.L.WEEK_GUILD_EVENT, 1, true) and text:find("Raid night", 1, true), text)
+		AsSoldier()
+		-- Guarded: guild events off, the calendar ruled out, no calendar at all: no guild rows, no error.
+		C_GuildInfo = { AreGuildEventsEnabled = function() return false end }
+		assert(not Texts(B.Lines()):find("Molten Core", 1, true))
+		C_GuildInfo = nil
+		Enum.GameRule = { IngameCalendarDisabled = 42 }
+		C_GameRules = { IsGameRuleActive = function(rule) return rule == 42 end }
+		assert(not Texts(B.Lines()):find("Molten Core", 1, true))
+		C_GameRules = { IsGameRuleActive = function() error("no such rule") end }
+		assert(Texts(B.Lines()):find("Molten Core", 1, true), "a rule the client can't read: the calendar as usual")
+		C_Calendar = nil
+		assert(Texts(B.Lines()):find("Raid night", 1, true))
+		-- The search finds entries too; the tree's link counts the week.
+		eq(B.LinkLine().right:find(ns.L.WEEK_LINK:format(3), 1, true) ~= nil, true, B.LinkLine().right)
+		text = Texts(B.Lines(ns.Fold("court")))
+		assert(text:find("Court", 1, true) and not text:find("Raid night", 1, true), text)
+		-- Nothing on the week: says so, and the King's Hands how to add one.
+		W.Reset(); K.Reset()
+		text = Texts(B.Lines())
+		assert(text:find(ns.L.WEEK_EMPTY, 1, true) and not text:find(ns.L.WEEK_HOW, 1, true), text)
+		AsKing()
+		assert(Texts(B.Lines()):find(ns.L.WEEK_HOW, 1, true))
+	end)
+end)
+
+test("1.1 the King's week: an officer's click opens the game's calendar and names the day (mouse and keyboard, out of combat); otherwise how to open it", function()
+	WithWeek(function(w, W, K, B)
+		AsCaptain()
+		local KING = ns.KingCharacter() .. "-Realm"
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400 + 90 * 60 - 15) .. "~1~~Raid night")
+		local toggled = 0
+		ToggleCalendar = function() toggled = toggled + 1 end
+		-- No calendar on this client: no click offered.
+		local function Action()
+			for _, l in ipairs(B.Lines()) do if l.text and l.text:find(ns.L.WEEK_CAL_BTN, 1, true) then return l end end
+		end
+		eq(Action(), nil)
+		C_Calendar = { GetNumGuildEvents = function() return 0 end, GetGuildEventInfo = function() end, OpenCalendar = function() end }
+		local action = Action()
+		assert(action, "offered to an officer")
+		action.onClick()
+		eq(toggled, 1)
+		assert(Printed(w, ns.L.WEEK_CAL_OPENED:format("Sat 3 Oct 20:00", "Raid night")))
+		-- Already open: left open (the game's toggle would close it).
+		CalendarFrame = { IsShown = function() return true end }
+		action.onClick()
+		eq(toggled, 1)
+		CalendarFrame = nil
+		-- In combat, or with the gamepad UI (Olympus opens no Blizzard window there): how to open it.
+		InCombatLockdown = function() return true end
+		action.onClick()
+		eq(toggled, 1)
+		assert(Printed(w, ns.L.WEEK_CAL_HINT:format("Sat 3 Oct 20:00", "Raid night")))
+		InCombatLockdown = nil
+		WithGamepadUI(true, function(game)
+			w.printed = {}
+			action.onClick()
+			eq(toggled, 1); eq(#game.shown, 0)
+			assert(Printed(w, ns.L.WEEK_CAL_HINT:format("Sat 3 Oct 20:00", "Raid night")))
+		end)
+		-- A soldier: no such click.
+		AsSoldier()
+		eq(Action(), nil)
+	end)
+	-- Olympus never writes into the game's calendar.
+	local src = assert(io.open(ADDON_DIR .. "Week.lua")):read("*a")
+	for _, api in ipairs({ "AddEvent", "CreateGuildAnnouncementEvent", "CreateGuildSignUpEvent", "CreatePlayerEvent", "EventSetTitle", "EventSetDate", "UpdateEvent" }) do
+		eq(src:find(api .. "(", 1, true), nil, api)
+	end
+end)
+
+test("1.1 the King's week: its words in both languages, the same placeholders", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	local function Specs(s) local out = {} for spec in s:gmatch("%%[%a%%]") do out[#out + 1] = spec end return table.concat(out) end
+	local n = 0
+	for k, en in pairs(ns.L) do
+		if type(k) == "string" and k:find("^WEEK_") then
+			n = n + 1
+			local ptText = rawget(pt.L, k)
+			assert(ptText ~= nil, "pt-BR " .. k)
+			if type(en) == "string" then eq(Specs(ptText), Specs(en), k) else eq(#ptText, #en, k) end
+		end
+	end
+	assert(n >= 25, "the week's strings: " .. n)
+	for _, k in ipairs({ "HELP_WEEK", "THRONE_AGENDA_PROMPT", "THRONE_AGENDA_USAGE", "THRONE_AGENDA_TIP" }) do
+		assert(rawget(pt.L, k):find("dia", 1, true) or rawget(pt.L, k):find("s\195\161b 20", 1, true), "pt-BR " .. k .. " tells of the day and hour form")
+		assert(rawget(ns.L, k):find("Sat 20", 1, true) or rawget(ns.L, k):find("day and an hour", 1, true), k)
+	end
+	eq(#ns.L.WEEK_WEEKDAYS, 7); eq(#ns.L.WEEK_MONTHS, 12)
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: the signup sheet on the King's Agenda (Week.lua, Fern's #27): the role the player claims,
+-- a click, a whisper to the entry's setter alone; counts for the army, names on his screen.
+---------------------------------------------------------------------------
+
+local function Line(lines, text)
+	for _, l in ipairs(lines) do if l.text and l.text:find(text, 1, true) then return l end end
+end
+
+test("1.1 signups: a click signs up with the role claimed, whispered to the entry's setter alone, while his addon takes it", function()
+	WithWeek(function(w, W, K, B)
+		AsSoldier()
+		local KING = ns.KingCharacter() .. "-Realm"
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400) .. "~1~~Raid night")
+		-- No sheet heard from the King's client yet: no Sign up (a whisper would find nobody).
+		eq(Line(B.Lines(), ns.L.SIGN_UP), nil)
+		eq(W.Sign(501, "H"), false); eq(#w.whispered, 0)
+		assert(Printed(w, ns.L.SIGN_NOT_NOW))
+		-- His sheet: the counts for everyone, and Sign up.
+		K.HandleCommand("CHANNEL", KING, "T1~R~9~Olympus~501:1:2:3:0")
+		local lines = B.Lines()
+		assert(Line(lines, ns.L.SIGN_COUNTS:format(1, 2, 3, 0)), Texts(lines))
+		local up = Line(lines, ns.L.SIGN_UP)
+		assert(up, "Sign up")
+		up.onClick()
+		lines = B.Lines()
+		for _, role in ipairs({ "T", "H", "D", "A" }) do assert(Line(lines, "> " .. ns.L["SIGN_ROLE_" .. role]), role) end
+		Line(lines, "> " .. ns.L.SIGN_ROLE_H).onClick()
+		local out = w.whispered[#w.whispered]
+		eq(out.to, KING); eq(out.msg, "Y2~501~H~Olympus II"); eq(out.urgent, true); eq(out.key, "sign501")
+		eq(#w.sent, 0, "nothing on the channel")
+		eq(W.MySignup(501), "H")
+		assert(Printed(w, ns.L.SIGN_DONE:format(ns.L.SIGN_ROLE_H, "Raid night")))
+		assert(Line(B.Lines(), ns.L.SIGN_YOU:format(ns.L.SIGN_ROLE_H)), "you: Healer")
+		-- Another role: the same whisper, the setter keeps one each; withdrawn: W.
+		w.clock = w.clock + W.SIGN_GAP
+		W.Sign(501, "T")
+		eq(w.whispered[#w.whispered].msg, "Y2~501~T~Olympus II")
+		w.clock = w.clock + W.SIGN_GAP
+		W.Sign(501, "W")
+		eq(w.whispered[#w.whispered].msg, "Y2~501~W~Olympus II"); eq(W.MySignup(501), nil)
+		eq(W.Sign(501, "X"), false, "no such role")
+		-- The King's client quiet for 6 minutes and more: no Sign up (the counts stay).
+		w.clock = w.clock + W.SHEET_FRESH + 1
+		lines = B.Lines()
+		eq(Line(lines, ns.L.SIGN_UP), nil); assert(Line(lines, ns.L.SIGN_COUNTS:format(1, 2, 3, 0)))
+		-- A sheet is its setter's alone: a Hand's for the King's entry, a stranger's, both left out.
+		K.HandleCommand("CHANNEL", KING, "T1~H~9~Olympus~Helper-Realm")
+		K.HandleCommand("CHANNEL", "Helper-Realm", "T1~R~10~Olympus II~501:40:0:0:0")
+		K.HandleCommand("CHANNEL", "Faker-Realm", "T1~R~11~Olympus II~501:40:0:0:0")
+		eq(W.Sheets()[501].T, 1)
+		-- The Agenda's current event takes signups too.
+		K.HandleCommand("CHANNEL", KING, "T1~A~77~Olympus~1800~Orgrimmar~Raid on the Crossroads")
+		K.HandleCommand("CHANNEL", KING, "T1~R~12~Olympus~77:0:0:5:0,501:1:2:3:0")
+		w.clock = w.clock + W.SIGN_GAP
+		eq(W.Sign(77, "D"), true)
+		eq(w.whispered[#w.whispered].msg, "Y2~77~D~Olympus II")
+	end)
+	-- Fern: "No auto-invite and no check against auras."
+	local src = assert(io.open(ADDON_DIR .. "Week.lua")):read("*a")
+	for _, api in ipairs({ "InviteUnit", "InviteToGroup", "C_PartyInfo", "UnitAura", "AuraUtil", "C_UnitAuras", "GetSpecialization",
+		"GetTalentInfo", "UnitGroupRolesAssigned", "GetInventoryItem" }) do
+		eq(src:find(api, 1, true), nil, api)
+	end
+end)
+
+test("1.1 signups: the setter's client keeps one each, counts the census-placed ones for the army, the names behind a click on his screen", function()
+	WithWeek(function(w, W, K, B)
+		local savedCouncil = ns.IsHighCouncillor
+		local ok, err = pcall(function()
+			ns.rdb.guilds["Olympus Tiny"] = Vouched({ total = 2, online = 1, zones = {}, t = w.clock, leader = "Tin", realm = "Realm" }, "W7-Realm", "W8-Realm")
+			AsKing()
+			K.SetAgenda("Sat 20:00 Raid night")
+			local id = W.Entries()[1].id
+			W.Tick()
+			local sheet = LastSent(w)
+			eq(sheet:match("^T1~R~%d+~Olympus~(.*)$"), id .. ":0:0:0:0", "an empty sheet at once: Sign up shows")
+			-- Signups by whisper.
+			W.HandleSignup("WHISPER", "Zed-Realm", ("Y2~%d~T~Olympus Zeus"):format(id))
+			eq(LastSent(w):match("^T1~R~%d+~Olympus~(.*)$"), id .. ":1:0:0:0", "the counts soon after a change")
+			W.HandleSignup("WHISPER", "Zed-Realm", ("Y2~%d~H~Olympus Zeus"):format(id))
+			eq(W.Counts(W.Entry(id)).T, 0); eq(W.Counts(W.Entry(id)).H, 1, "one each: the role changed")
+			W.HandleSignup("WHISPER", "Tin-Realm", ("Y2~%d~D~Olympus Tiny"):format(id))
+			W.HandleSignup("WHISPER", "Tin2-Realm", ("Y2~%d~D~Olympus Tiny"):format(id))
+			W.HandleSignup("WHISPER", "Tin3-Realm", ("Y2~%d~D~Olympus Tiny"):format(id))
+			W.HandleSignup("WHISPER", "Nomad-Realm", ("Y2~%d~A~Olympus Nowhere"):format(id))
+			W.HandleSignup("WHISPER", "Liar-Realm", ("Y2~%d~A~Olympus"):format(id))
+			W.HandleSignup("WHISPER", "Troll-Realm", ("Y2~%d~T~Horde Stompers"):format(id))
+			local c = W.Counts(W.Entry(id))
+			eq(c.D, 2, "a guild of 2: 2 at most"); eq(c.A, 0); eq(c.T, 0)
+			eq(c.others, 4, "the rest counted apart: past the cap, unknown to the census, our guild's name from outside our roster, not Olympus")
+			-- Not a whisper, not an entry of ours, a role that isn't one, withdrawn: as it should.
+			W.HandleSignup("CHANNEL", "Zed2-Realm", ("Y2~%d~T~Olympus Zeus"):format(id))
+			W.HandleSignup("WHISPER", "Zed3-Realm", "Y2~12345~T~Olympus Zeus")
+			W.HandleSignup("WHISPER", "Zed4-Realm", ("Y2~%d~Q~Olympus Zeus"):format(id))
+			eq(W.Counts(W.Entry(id)).T, 0)
+			W.HandleSignup("WHISPER", "Tin-Realm", ("Y2~%d~W~Olympus Tiny"):format(id))
+			eq(W.Counts(W.Entry(id)).D, 1)
+			-- The army's counts only; the names on his screen, behind a click, a councillor's cut short
+			-- while the council's names are hidden there (his stream).
+			ns.IsHighCouncillor = function(name) return name == "Zed-Realm" end
+			local lines = B.Lines()
+			assert(not Texts(lines):find("Tin2", 1, true), "no name before the click")
+			local who = Line(lines, ns.L.SIGN_WHO:format(6))
+			assert(who, Texts(lines))
+			who.onClick()
+			local text = Texts(B.Lines())
+			assert(text:find(ns.L.SIGN_ROLE_H .. " (1)", 1, true) and text:find(ns.MaskName("Zed"), 1, true) and not text:find("Zed ", 1, true), text)
+			assert(text:find("Tin2", 1, true) and text:find(ns.L.SIGN_UNCONFIRMED, 1, true), text)
+			-- The sheet every 5 minutes, and the Agenda's current event on it too.
+			K.SetAgenda("30 Raid on Crossroads")
+			local agenda = K.Agenda().id
+			W.HandleSignup("WHISPER", "Zed-Realm", ("Y2~%d~T~Olympus Zeus"):format(agenda))
+			w.clock = w.clock + W.SHEET_EVERY
+			W.Tick()
+			local last = LastSent(w):match("^T1~R~%d+~Olympus~(.*)$")
+			assert(last and last:find(agenda .. ":1:0:0:0", 1, true) and last:find(id .. ":0:1:1:0", 1, true), tostring(last))
+			-- A soldier's client sends no sheet, whatever it holds.
+			AsSoldier()
+			local n = #w.sent
+			w.clock = w.clock + W.SHEET_EVERY
+			W.Tick()
+			eq(#w.sent, n)
+		end)
+		ns.IsHighCouncillor = savedCouncil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 signups: clients before 1.1 leave the kind R out; a Hand's sheet only in their debug log", function()
+	local kns = setmetatable({ On = function() end, Comm = { Handle = function() end }, rdb = {} }, { __index = ns })
+	local logs = {}
+	kns.Log = function(fmt, ...) logs[#logs + 1] = fmt:format(...) end
+	assert(loadfile(ROOT .. "tests/fixtures/king-0.9.8.lua"))("Olympus", kns)
+	local OK = kns.King
+	local savedGuild = GetGuildInfo
+	local ok, err = pcall(function()
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		kns.me = "Soldier-Realm"
+		local KING = ns.KingCharacter() .. "-Realm"
+		OK.HandleCommand("CHANNEL", KING, "T1~R~9~Olympus~501:1:2:3:0")
+		OK.HandleCommand("CHANNEL", KING, "T1~H~9~Olympus~Helper-Realm")
+		OK.HandleCommand("CHANNEL", "Helper-Realm", "T1~R~10~Olympus II~501:1:2:3:0")
+		local left = 0
+		for _, line in ipairs(logs) do if line:find("throne R from Helper-Realm ignored", 1, true) then left = left + 1 end end
+		eq(left, 1)
+	end)
+	GetGuildInfo = savedGuild
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 signups: their words in both languages, the same placeholders", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	local function Specs(s) local out = {} for spec in s:gmatch("%%[%a%%]") do out[#out + 1] = spec end return table.concat(out) end
+	local n = 0
+	for k, en in pairs(ns.L) do
+		if type(k) == "string" and k:find("^SIGN_") then
+			n = n + 1
+			local ptText = rawget(pt.L, k)
+			assert(type(ptText) == "string" and ptText ~= "", "pt-BR " .. k)
+			eq(Specs(ptText), Specs(en), k)
+		end
+	end
+	assert(n >= 15, "the sheet's strings: " .. n)
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: a nudge for what this character signed (Week.lua, Fern's #2): one line and the alert
+-- sound a few minutes before, on this client alone; never a raid warning, nothing sent.
+---------------------------------------------------------------------------
+
+test("1.1 the signed nudge: one line and the alert sound 5 minutes before an entry this character signed, nothing more, nothing sent", function()
+	WithWeek(function(w, W, K)
+		AsSoldier()
+		local KING = ns.KingCharacter() .. "-Realm"
+		local t0 = w.clock
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~3600~1~~Raid night")
+		K.HandleCommand("CHANNEL", KING, "T1~D~502~Olympus~3600~1~~PvP night")
+		K.HandleCommand("CHANNEL", KING, "T1~R~9~Olympus~501:0:0:0:0,502:0:0:0:0")
+		W.Sign(501, "H")
+		local sent, whispered, printed = #w.sent, #w.whispered, #w.printed
+		-- Ten minutes before: nothing yet.
+		w.clock = t0 + 3600 - 10 * 60
+		W.Tick()
+		eq(#w.printed, printed); eq(#w.alerts, 0)
+		-- Five minutes before: one line (the role, the entry, how long), the usual alert sound.
+		w.clock = t0 + 3600 - 5 * 60
+		W.Tick()
+		eq(#w.printed, printed + 1)
+		assert(w.printed[#w.printed]:find(ns.L.SIGN_SOON:format(ns.L.SIGN_ROLE_H, "Raid night", 5, ""), 1, true), w.printed[#w.printed])
+		eq(table.concat(w.alerts, ","), "soft")
+		-- Once: the next minutes say nothing more.
+		for m = 4, 1, -1 do w.clock = t0 + 3600 - m * 60; W.Tick() end
+		eq(#w.printed, printed + 1); eq(#w.alerts, 1)
+		-- Never a raid warning, never a popup, nothing on the channel or to anyone.
+		eq(#w.notices, 0); eq(#w.popups, 0)
+		local ours = 0
+		for i = sent + 1, #w.sent do if not w.sent[i].msg:find("^T1~R~") then ours = ours + 1 end end
+		eq(ours, 0); eq(#w.whispered, whispered)
+		-- The entry not signed (PvP night, same hour): not a word.
+		for _, p in ipairs(w.printed) do assert(not p:find("PvP night", 1, true), p) end
+	end)
+	WithWeek(function(w, W, K)
+		AsSoldier()
+		local KING = ns.KingCharacter() .. "-Realm"
+		local t0 = w.clock
+		-- Signed, then withdrawn: nothing. Signed after the five minutes began: at once, once.
+		K.HandleCommand("CHANNEL", KING, "T1~D~601~Olympus~3600~1~~Court")
+		K.HandleCommand("CHANNEL", KING, "T1~R~9~Olympus~601:0:0:0:0")
+		W.Sign(601, "T")
+		w.clock = w.clock + W.SIGN_GAP
+		W.Sign(601, "W")
+		w.clock = t0 + 3600 - 4 * 60
+		K.HandleCommand("CHANNEL", KING, "T1~R~10~Olympus~601:0:0:0:0")
+		W.Tick()
+		eq(#w.alerts, 0)
+		W.Sign(601, "D")
+		w.clock = w.clock + 30
+		W.Tick(); W.Tick()
+		eq(#w.alerts, 1)
+		assert(w.printed[#w.printed]:find(ns.L.SIGN_SOON:format(ns.L.SIGN_ROLE_D, "Court", 4, ""), 1, true), w.printed[#w.printed])
+		-- Kept across a /reload: no second nudge.
+		local kept = ns.rdb.signed
+		W.Reset(); ns.rdb.signed = kept
+		K.HandleCommand("CHANNEL", KING, "T1~D~601~Olympus~180~0~~Court")
+		W.Tick()
+		eq(#w.alerts, 1)
+		-- The Agenda's current event (its zone in the line), signed on another character: that
+		-- character alone is nudged.
+		K.HandleCommand("CHANNEL", KING, "T1~A~77~Olympus~600~Orgrimmar~Raid on the Crossroads")
+		K.HandleCommand("CHANNEL", KING, "T1~R~11~Olympus~77:0:0:0:0")
+		w.clock = w.clock + W.SIGN_GAP
+		W.Sign(77, "A")
+		local before = #w.alerts -- (the new Agenda's own raid warning and sound, as always)
+		AsSoldier("Alt")
+		w.clock = w.clock + 5 * 60
+		W.Tick()
+		eq(#w.alerts, before, "not this character's signup")
+		AsSoldier()
+		W.Tick()
+		eq(#w.alerts, before + 1)
+		assert(w.printed[#w.printed]:find(ns.L.SIGN_SOON:format(ns.L.SIGN_ROLE_A, "Raid on the Crossroads", 5, " (Orgrimmar)"), 1, true), w.printed[#w.printed])
+	end)
+	-- Its words in both languages.
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	assert(rawget(pt.L, "SIGN_SOON") and rawget(pt.L, "SIGN_SOON") ~= ns.L.SIGN_SOON)
+end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

@@ -294,6 +294,32 @@ Since 1.1, while your channel is public, a red line on the Census, the Realm and
 chats says so to every member (who can read it, what officers can do, and how many guildmates
 are already on the sealed channel). It only warns: nothing is sent and nothing changes.
 
+### The Board: who is looking for a group, and where (1.1)
+The Realm tab links **the Board** (or `/oly lfg`): who in Olympus wants a group right now, from
+what each player chose to share, and the King's week.
+
+- **The King's week** (`/oly week`): the King's Agenda for the next 7 days, by day, with your own
+  guild's events from the game's calendar among them, so nobody books the army twice. Olympus
+  can't write into the game's calendar: an officer's click opens it on the right day's month and
+  says which day to right-click for the guild event.
+- **The signup sheet**: Sign up on an Agenda entry with the role you claim; it goes to whoever set
+  it, alone, and the army sees the counts (4 tanks, 9 healers...). Nothing checks the role and
+  nothing invites you: whoever runs the event invites by hand. Five minutes before an entry you
+  signed, your client alone prints one line with the usual alert sound (nothing sent).
+- **Raise a flag** with one click: **Dungeon**, **Raid**, **PvP** or **Layer**, plus a short
+  note if you want one (40 bytes at most). A box says first what goes out: your name, level,
+  class and guild, the flag and the note, to every Olympus player of your realm and faction.
+  The note goes the way chat does (the game's servers keep it, so abuse can be reported); on the
+  King's screen no note shows.
+- **Your zone shows on your card only while you share it** (`/oly location on`); otherwise the
+  card says the zone is hidden. Never your position.
+- **A click on someone's card whispers them.** Nothing invites anyone, queues or forms a group.
+- One flag each, an hour at most; a click on yours, or `/oly lfg off`, lowers it at once.
+- **Camps**: drop one where you stand (`/oly camp [note]`) so the army reuses a fire already up.
+  Its zone only, never your spot; it needs `/oly location on` and ends by itself after 30
+  minutes. The Board lists them by zone, and the world map shows one badge per zone with how
+  many (mouse and keyboard only; `/oly camps off` hides them).
+
 ### The Throne (the King and his Hands)
 A tab with a crown that only the King sees: the guild master of the guild named exactly
 "Olympus" (of his faction), and on the Alliance that very character, Asmongold Asmongler: the
@@ -302,7 +328,11 @@ his court while it is open, and the Treasury), and holding court takes him there
 tools lives where it belongs:
 - **The King's Agenda** (a button on the Throne): minutes and an event ("30 Raid on
   Crossroads"). The whole army gets a popup with the appointment (what, in how long, where)
-  and sees it on the Census, with reminders 10 minutes and 1 minute before.
+  and sees it on the Census, with reminders 10 minutes and 1 minute before. Since 1.1 it also
+  holds **the King's week**: a day and an hour of the realm, then what ("Sat 20:00 Raid night",
+  "today 21:30 Court", "sáb 20h Raide"), up to 7 days ahead and 10 entries each for the King,
+  his Steward and each Hand. The army sees them on the Board, by day (below), with one quiet
+  chat line when an entry is added: no popup, raid warning or sound.
 - **Hold Court** (a button on the Throne): the King opens his court where he stands. Every
   Olympus player in that zone gets a line on top of the Census and the Realm; one click asks
   for an audience. The requests line up on his Throne and a click calls that player (a popup
@@ -493,10 +523,11 @@ shows the army something of it.
 - Soldiers per zone on zone and continent maps, and per continent on the world map (with
   Blizzard's gamepad mode, only per continent: see below).
 - Decrees are round icons (the horn, the war cry...) where they were called, and the King's
-  crown where he stands. Over a zone's circle they move just outside its edge, top right first,
-  so its number stays readable; several around one circle each take a place of their own.
+  crown where he stands; the Board's camps (1.1) one fire badge per zone, with how many. Over a
+  zone's circle they move just outside its edge, top right first, so its number stays readable;
+  several around one circle each take a place of their own.
 - The round **Olympus** button in the bottom left corner of the map switches markers
-  (army per zone, decrees) on and off.
+  (army per zone, decrees, camps) on and off.
 - Every zone of the game counts, not only Azeroth's (1.1): on TBC Anniversary Outland's zones
   get their circles, and Outland's total shows on the map above Azeroth and Outland. A zone a
   new patch adds is found by itself the first time a guildmate stands in it; one the addon still
@@ -673,6 +704,11 @@ message (the game adds it). What goes where:
 | An answer to an ask for your layer (it tells the asker you are on it) | the asker alone (a whisper) | only if you share your zone and layer and said yes to layer help (1.1: off until you answer, on the first-open page or with `/oly layerhelp on`; `/oly layerhelp off` stops it) |
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one, only while the Olympus chats are on (1.1: off until you say yes, on the first-open page or with `/oly chat on`) |
 | A pinned line (1.1): its words, your guild and, as on every message, your name | everyone on the Olympus channel | when you pin one (the King, his Stewards and Hands, the guild masters), again every 5 minutes while it lasts (2 hours at most), and when you take it down |
+| A flag on the Board (1.1): your guild, level and class, the flag (dungeon, raid, PvP or layer), your note (with the logged API), and your zone only while you share it | everyone on the Olympus channel, and whispered to a player whose Board asked for the flags up | when you raise it, then every 10 to 30 minutes for an hour at most, until you lower it |
+| The Board's ask (1.1): nothing but your name | everyone on the Olympus channel | once a session, the first time you open the Board |
+| A signup (1.1): the Agenda entry, the role you claim (or that you withdraw) and your guild | whoever set that entry (the King, his Steward or a Hand), alone (a whisper) | only when you click Sign up |
+| A signup sheet (1.1): the counts per role of each entry, no names | everyone on the Olympus channel | from the client of whoever set the entries, every 5 minutes while one is ahead, and soon after a change |
+| A camp on the Board (1.1): your guild, level and class, the camp's zone (never your spot) and your note (with the logged API) | everyone on the Olympus channel, and whispered to a player whose Board asked | only with `/oly location on`, when you drop it, then every 10 minutes for its 30 minutes, until you take it down |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | The shared block terms (1.1): each word, whether it was added or removed, and when | everyone on the Olympus channel | only from the client of the King, his Steward, a Hand or a High Councillor: at once when they edit it, and every 10 minutes while they play (not when another client just sent the same list). Your own filter is never sent |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
@@ -941,6 +977,8 @@ Other limits:
   louder alert after it).
 - Chat has its own short lane: a line goes out within about a second, and while reports are
   waiting it never takes more than every other message slot.
+- The Board (1.1): a flag is repeated every 10 to 30 minutes (less often the fuller the Board),
+  and a Board's ask is answered by whisper, by about 40 flag holders at most.
 
 ## Commands
 
@@ -972,6 +1010,9 @@ Other limits:
 | `/oly discord <code>` · `/oly discord` | Olympus Link: link this character to your Discord account with the bot's code (or paste it in a box) |
 | `/oly discord show` · `status` · `forget` | the Olympus Link window (QR code and link) again; every character's request or proof; drop this character's |
 | `/oly hop` | ask for an invite to the King's layer (while he is online) |
+| `/oly lfg` · `/oly lfg dungeon\|raid\|pvp\|layer [note]` · `/oly lfg off` | the Board (1.1): who is looking for a group; raise your flag (a box with your note first) or lower it |
+| `/oly week` | the King's week on the Board (1.1): his Agenda for 7 days with your guild's calendar events; the King and his Hands add entries with the Agenda button ("Sat 20:00 Raid night") |
+| `/oly camp [note]` · `/oly camp off` · `/oly camps on\|off` | drop a camp in your zone (1.1: it needs `/oly location on`) or take yours down; the camps' badges on the world map |
 | `/oly vox off` · `/oly vox on` | Vox Populi questions in chat only, or in a window |
 | `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer (1.1: not until you say yes) |
 | `/oly layerauto on` · `/oly layerauto off` | invite layer requests without the window |

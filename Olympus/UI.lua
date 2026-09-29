@@ -1302,7 +1302,7 @@ local function PageOf(tab, locked)
 	local sub
 	if tab == "realm" then
 		-- (1.1: our guild's members page, Members.lua, a page of its own.)
-		sub = ns.Views.ChatTier and ns.Views.ChatTier() or ns.Members and ns.Members.PageId and ns.Members.PageId() or "tree"
+		sub = (ns.Views.BoardShown and ns.Views.BoardShown() and "board") or ns.Views.ChatTier and ns.Views.ChatTier() or ns.Members and ns.Members.PageId and ns.Members.PageId() or "tree"
 	elseif tab == "throne" then sub = ns.King and ns.King.mode
 	elseif tab == "treasury" then sub = ns.Treasury and ns.Treasury.mode end
 	return tab .. "/" .. tostring(sub or "")

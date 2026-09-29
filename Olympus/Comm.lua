@@ -183,10 +183,11 @@ function Comm.Send(dist, msg, key, urgent, logged)
 	if dist == "GUILD" and not IsInGuild() then return end
 	Enqueue(dist, msg, key, nil, urgent, logged)
 end
--- An addon message to one player only (answers to the King, Throne tab).
-function Comm.Whisper(target, msg, key, urgent)
+-- An addon message to one player only (answers to the King, Throne tab). logged (1.1): a
+-- player's own words (a Board note), with the logged API, as Comm.Send.
+function Comm.Whisper(target, msg, key, urgent, logged)
 	if type(target) ~= "string" or target == "" then return end
-	Enqueue("WHISPER", msg, key, target, urgent)
+	Enqueue("WHISPER", msg, key, target, urgent, logged)
 end
 function Comm.Handle(msgType, fn)
 	handlers[msgType] = fn

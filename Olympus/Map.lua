@@ -463,6 +463,8 @@ local toggle, menu
 local OPTIONS = {
 	{ key = "showMap", label = "MAPOPT_ZONES", apply = function() Map.Refresh() end },
 	{ key = "showDecrees", label = "MAPOPT_DECREES", apply = function() ns.Decree.RefreshPins() end },
+	-- The Board's camps (1.1, Board.lua).
+	{ key = "showCamps", label = "MAPOPT_CAMPS", apply = function() if ns.Board and ns.Board.RefreshCamps then ns.Board.RefreshCamps() end end },
 }
 
 local function CreateMapToggle()
