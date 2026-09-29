@@ -704,6 +704,12 @@ local function CensusLines(s, q)
 		lines[#lines].gapAfter = true
 		lines[#lines + 1] = { text = Grey(L.AUTHOR_ONLINE:format(ns.DisplayName(author))) }
 	end
+	-- This client is behind the author's version (1.1, his presence names it): one line, here alone.
+	local behind = ns.Workshop and ns.Workshop.BehindLine and ns.Workshop.BehindLine()
+	if behind then
+		lines[#lines].gapAfter = true
+		lines[#lines + 1] = behind
+	end
 	return lines
 end
 

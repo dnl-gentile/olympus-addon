@@ -997,6 +997,10 @@ L.REBUILDING = "Rebuilding the census after login: %d guilds heard so far"
 L.REBUILDING_WAIT = "It refills by itself within about 3 minutes: no /reload needed."
 L.REBUILDING_SUB = "Rebuilding the census: %d guilds heard"
 L.REBUILDING_TIP = "Each login starts from what this client saved, and the beta often loads nothing back. Your addon asks the Olympus channel for the census, and every guild's reporter answers within a few minutes. The army is not gone: its numbers come back on their own."
+-- 1.1: behind the author's version, from his presence (request #10).
+L.BEHIND_LINE = "Update Olympus: the author runs %s, you have %s."
+L.BEHIND_TIP = "The addon's author announced his version on the Olympus channel. Update from the CurseForge app, WowUp or the CurseForge page once it lists that version, then restart the game. An older version drops what newer ones send, and its guild can look broken to the others."
+L.BEHIND_CHAT = "The addon's author runs Olympus %s and you have %s: update from CurseForge or your addon app once it lists it, then restart the game."
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -1980,4 +1984,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.REBUILDING_WAIT = "Ele se completa sozinho em uns 3 minutos: não precisa de /reload."
 	L.REBUILDING_SUB = "Refazendo o censo: %d guildas ouvidas"
 	L.REBUILDING_TIP = "Cada login começa do que este cliente salvou, e o beta muitas vezes não carrega nada de volta. O seu addon pede o censo ao canal de Olympus, e o relator de cada guilda responde em poucos minutos. O exército não sumiu: os números voltam sozinhos."
+	-- 1.1: atrás da versão do autor, pela presença dele (pedido #10).
+	L.BEHIND_LINE = "Atualize o Olympus: o autor usa a %s, você tem a %s."
+	L.BEHIND_TIP = "O autor do addon anunciou a versão dele no canal de Olympus. Atualize pelo app do CurseForge, pelo WowUp ou pela página do CurseForge assim que ela listar essa versão, e reinicie o jogo. Uma versão antiga descarta o que as novas mandam, e a guilda dela pode parecer quebrada para as outras."
+	L.BEHIND_CHAT = "O autor do addon usa o Olympus %s e você tem o %s: atualize pelo CurseForge ou pelo seu app de addons assim que ele listar, e reinicie o jogo."
 end

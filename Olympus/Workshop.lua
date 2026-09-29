@@ -556,9 +556,76 @@ function Workshop.HandlePresence(dist, sender, text)
 	if dist ~= "CHANNEL" or not IsAuthorName(sender) or Workshop.IsAuthor() then return end
 	if not text:match("^V4~") then return end
 	local was = Workshop.AuthorOnline()
+	local wasBehind = Workshop.Behind()
 	authorAt, authorName = ns.Now(), ns.FullName(sender)
-	if not was then ns.Fire("DATA_CHANGED") end
+	Workshop.HeardVersion(text:match("^V4~(%d+%.%d+%.%d+)$"))
+	if not was or Workshop.Behind() ~= wasBehind then ns.Fire("DATA_CHANGED") end
 end
+
+---------------------------------------------------------------------------
+-- Behind the author's version (1.1). His presence (V4, above) already names the version his
+-- client runs: newer than ours, this client says so, to this player alone: one line in chat once
+-- a session, a line at the foot of the Census, and /oly status. Nothing is sent, and nobody is
+-- whispered (the author's own "please update", V3, stays the only one): so it is no roll call to
+-- answer, and it shows whatever /oly rollcall says (Workshop.Answers). Only the author's own
+-- client can name a version here (his name, which the server stamps, on his realm group); a
+-- number anyone else sends never counts. Kept account-wide (ns.db.authorVersion), so the next
+-- login knows it before he says it again; updated, the line goes by itself.
+---------------------------------------------------------------------------
+
+local heardVersion -- { v, t }: the version his presence named this session
+local toldBehind = false -- the chat line said it this session
+
+function Workshop.HeardVersion(v)
+	if type(v) ~= "string" or not v:match("^%d+%.%d+%.%d+$") or #v > 12 then return end
+	local now = ns.Now()
+	heardVersion = { v = v, t = now }
+	if ns.db then ns.db.authorVersion = { v = v, t = now } end
+	local behind = Workshop.Behind()
+	if behind and not toldBehind then
+		toldBehind = true
+		ns.Print(L.BEHIND_CHAT:format(behind, ns.VERSION))
+	end
+end
+
+-- The author's version as this client last heard it, and when: this session's, else the saved one.
+function Workshop.AuthorVersion()
+	local e = heardVersion
+	if not e and ns.db and type(ns.db.authorVersion) == "table" then e = ns.db.authorVersion end
+	if type(e) ~= "table" or type(e.v) ~= "string" or not e.v:match("^%d+%.%d+%.%d+$") then return nil end
+	return e.v, tonumber(e.t)
+end
+
+-- The author's version when it is newer than ours, else nil (and always nil on his own client).
+function Workshop.Behind()
+	if Workshop.IsAuthor() then return nil end
+	local v = Workshop.AuthorVersion()
+	if v and Workshop.Newer(v, ns.VERSION) then return v end
+	return nil
+end
+
+-- For /oly status.
+function Workshop.VersionLine()
+	local v, t = Workshop.AuthorVersion()
+	if not v then return "author's version: not heard yet (this client " .. ns.VERSION .. ")" end
+	local state = Workshop.Newer(v, ns.VERSION) and "behind" or (Workshop.Newer(ns.VERSION, v) and "ahead" or "same")
+	return ("author's version: %s, heard %s (this client %s: %s)"):format(v, t and ns.Ago(t) or "?", ns.VERSION, state)
+end
+
+-- The line at the foot of the Census, or nil.
+function Workshop.BehindLine()
+	local v = Workshop.Behind()
+	if not v then return nil end
+	return {
+		text = "|cffffd200" .. L.BEHIND_LINE:format(v, ns.VERSION) .. "|r",
+		tooltip = function(tt)
+			tt:AddLine(L.BEHIND_LINE:format(v, ns.VERSION), 1, 0.82, 0)
+			tt:AddLine(L.BEHIND_TIP, 1, 1, 1, true)
+		end,
+	}
+end
+
+function Workshop.ResetVersion() heardVersion, toldBehind = nil, false end -- (tests: a new session)
 
 -- The bug report as it travels: no newlines or pipes (they are put back as "\n" and "!").
 local function Pack(text)
@@ -1048,6 +1115,7 @@ function Workshop.Reset()
 	lastRoll, lastRollAnswer, lastUpdateShown, lastBug, lastAsk = -math.huge, -math.huge, -math.huge, -math.huge, -math.huge
 	search, shownAnswers, lastAskOne = "", Workshop.ROLL_PAGE, -math.huge
 	changePending = false
+	Workshop.ResetVersion()
 end
 
 ---------------------------------------------------------------------------
