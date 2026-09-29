@@ -25317,6 +25317,69 @@ do
 		end
 	end)
 
+	test("1.1 dues (Fern's rule from #33): the dues never switch anyone off: a guild that pays nothing for weeks, and its players under the amount, keep the census, the chats, the decrees and the addon", function()
+		WithDues(function(w, K, T, mail)
+			local function Zeus()
+				ns.rdb.guilds["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", realm = "Realm",
+					officers = { { name = "Zeta", online = true, days = 0 } } }, "W3-Realm", "W4-Realm")
+			end
+			Zeus()
+			local blocked = {}
+			for k, v in pairs(ns.db.blocked) do blocked[k] = v end
+			local savedChat = CHAT_LINES
+			local ok, err = pcall(function()
+				-- <Olympus II> pays; <Olympus Zeus> never does. Weeks go by: the King's page, the
+				-- Treasurer's, the Captains' asks answered, every timer of the dues at each reset.
+				AsTreasurer()
+				local alone = {}
+				LoadAlone(alone)
+				alone.on.LOGIN()
+				for _ = 1, 3 do
+					Mail(mail, Nm(7), 10000, D.Note(D.Week(), "Olympus II"))
+					D.Open(); Page(T)
+					D.HandleAsk("WHISPER", KING, "FQ~" .. D.Week() .. "~*")
+					D.HandleAsk("WHISPER", "Zed-Realm", "FQ~" .. D.Week() .. "~Olympus Zeus")
+					PumpAll()
+					AsKing(); D.Open(); Page(T); D.Open("Olympus Zeus"); Page(T)
+					AsTreasurer()
+					for _, f in ipairs(alone.timers) do f() end
+					w.clock = w.clock + 7 * 86400
+					Zeus(); w.census()
+				end
+				eq(D.Ledger(D.Week() - 1).guilds["olympus zeus"], nil, "it paid nothing")
+				-- Still an Olympus guild, counted in the army, its Lord its Lord, its Captain its Captain.
+				eq(ns.IsFederation("Olympus Zeus"), true)
+				local counted
+				for _, e in ipairs(ns.Data.Summary().guilds) do if e.name == "Olympus Zeus" then counted = e.counted end end
+				eq(counted, true, "in the army's total")
+				eq(ns.Data.KnownRank("Zed-Realm", "Olympus Zeus"), 0); eq(ns.Data.KnownRank("Zeta-Realm", "Olympus Zeus"), 1)
+				-- Their lines reach everyone as before, [Lords] and [Captains] too.
+				AsKing()
+				CHAT_LINES = {}
+				eq((Chan.Receive("CHANNEL", "Zed-Realm", Msg("L", "Olympus Zeus", 901, "still here"), 1000)), true, "its Lord's [Lords] line")
+				eq((Chan.Receive("CHANNEL", "Zeta-Realm", Msg("C", "Olympus Zeus", 902, "me too"), 1001)), true, "its Captain's [Captains] line")
+				-- On their own clients: the Crown's decrees, the channels, the Treasury tab (the button,
+				-- never a lock), as for any guild.
+				GetGuildInfo = function() return "Olympus Zeus", "Lord", 0 end
+				ns.me = "Zed-Realm"
+				eq(ns.Decree.CanSend("ROYAL"), true, "his Royal decree")
+				eq(Chan.CanUse("L"), true)
+				eq(T.TabVisible(), true); eq(D.SendDues(), "closed", "a button that fills in a mail, nothing else")
+				-- Nobody blocked, no census entry touched by the dues' code.
+				for k in pairs(ns.db.blocked) do eq(blocked[k], true, k) end
+				for k in pairs(blocked) do eq(ns.db.blocked[k], true, k) end
+				local file = assert(io.open(ADDON_DIR .. "Dues.lua"))
+				local src = file:read("*a")
+				file:close()
+				for _, never in ipairs({ "db.blocked", "rdb.guilds", "ClaimGuild", "LeaveChannel", "JoinChannel", "IsFederation =" }) do
+					assert(not src:find(never, 1, true), "Dues.lua reaches " .. never)
+				end
+			end)
+			CHAT_LINES = savedChat
+			if not ok then error(err, 0) end
+		end)
+	end)
+
 	test("1.1 dues (#37): its lines in both languages", function()
 		local pt = { L = setmetatable({}, { __index = ns.L }) }
 		local savedLocale = GetLocale

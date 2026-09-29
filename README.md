@@ -412,6 +412,10 @@ alone until then).
     Olympus depends on paying. With the gamepad interface it fills in nothing (the game's
     windows are its own there) and says what to send instead; where the game refuses the
     addon a trade's gold, it says so once and from then on tells you the amount to type.
+  - **Never a switch**: nothing about the dues can turn anyone off. A guild that pays nothing,
+    and its players under the amount, keep the census, the chats, the decrees and every Olympus
+    feature (a test runs weeks of dues at 0% and checks it); nothing in Olympus is locked behind
+    paying.
   - **Never on the channel** (a switch that only hid them would still send them to
     every client on it: a list of who is short): the week's donors leave every keeper's book as a
     count, never by name, and the Treasurer's addon works the lists out from his books and

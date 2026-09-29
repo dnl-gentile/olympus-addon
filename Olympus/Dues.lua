@@ -24,6 +24,10 @@ local L = ns.L
 --   may see it: the King or his Steward (every guild), a guild's Captain (his own guild, his rank
 --   by the Treasurer's roster or the census). Only the amount, which is the same for everyone,
 --   is public.
+-- - Nothing here ever turns anyone off (Fern's rule, #33): no census report, chat line, decree,
+--   channel or feature of the addon waits on paying, for a guild or a player; a guild's Captains
+--   may only remove members one click at a time, as the game's Guild window does (#34). No
+--   access switch of the moderators' (1.1) may take anything from here.
 --   T1~Y~<id>~<guild>~<copper>~<time>            the King's amount (his, or his Steward's; King.lua)
 --   FK~<guild>~<copper>~<time>                   the Treasurer's client repeats it, with its time
 --   FQ~<week>~<Guild, or * for every guild>      an ask to the Treasurer (a whisper)
