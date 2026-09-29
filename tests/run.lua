@@ -33799,6 +33799,90 @@ test("1.1 patrol share (#29): the Tabards page names the officer who found each,
 		assert(doc:find("`/oly patrolshare on\\|off`", 1, true), file .. ": the commands")
 	end
 end)
+
+-- The 1.1 review: another officer's word reached the King's untabarded list (the King is his
+-- guild's master, an officer) and a sampled officer's Royal Inspection report.
+test("1.1 patrol share (#29): the King's untabarded list and the army's copy never take another officer's word, nor let it change his own", function()
+	WithShare(function(w, I)
+		local K = ns.King
+		local saved = { guild = GetGuildInfo, me = ns.me, on = ns.db.kingUntabarded }
+		local ok, err = pcall(function()
+			GetGuildInfo = function(unit) if unit == nil or unit == "player" then return "Olympus", "King", 0 end return nil end
+			ns.me = "Asmongold Asmongler-Realm"
+			eq(K.IsKing(), true); eq(I.MayShare(), true, "the King is his guild's officer: he takes his officers' findings")
+			Caught(I, "Mine")
+			I.AddReported("Rep", ZEUS, "OTHER")
+			-- Offi (a Captain of his guild) tells him of a player nobody else inspected, and "corrects" the King's own.
+			w.clock = w.clock + 30
+			I.HandleShare("GUILD", "Offi-Realm", "U1~Victim:Olympus Hera:N:0;Mine:Olympus Zeus:G:0;Rep:Olympus Zeus:G:0")
+			local P = I.Players()
+			eq(P["Victim"].shared, true, "on his Tabards page, as Offi's word")
+			eq(P["Mine"].status, "NONE", "his own patrol's finding stands"); eq(P["Mine"].shared, nil)
+			eq(P["Rep"].status, "OTHER", "the Royal Inspection's report stands"); eq(P["Rep"].shared, nil)
+			local function Names()
+				local names = {}
+				for _, e in ipairs(I.ShameList()) do names[#names + 1] = e.name end
+				table.sort(names)
+				return table.concat(names, ",")
+			end
+			eq(Names(), "Mine,Rep", "his list: his patrol and the reports, never Offi's word")
+			-- Shown to the army: the same list.
+			ns.db.kingUntabarded = true
+			w.sent = {}
+			K.SendUntabarded(true)
+			eq(#w.sent, 1); assert(w.sent[1]:find("^CHANNEL T1~U~"), w.sent[1])
+			assert(not w.sent[1]:find("Victim", 1, true), w.sent[1])
+			assert(w.sent[1]:find("Mine:", 1, true) and w.sent[1]:find("Rep:", 1, true), w.sent[1])
+			-- The Royal Inspection reports him later: then he is the King's, Offi's name gone.
+			I.AddReported("Victim", "Olympus Hera", "NONE")
+			eq(P["Victim"].shared, nil); eq(P["Victim"].by, nil)
+			eq(Names(), "Mine,Rep,Victim")
+			-- A player he marked by hand stays on it, whoever's word the tabard is.
+			I.HandleShare("GUILD", "Offi-Realm", "U1~Marked:Olympus Hera:G:0")
+			P["Marked"].marked = true
+			eq(Names(), "Marked,Mine,Rep,Victim")
+		end)
+		GetGuildInfo, ns.me, ns.db.kingUntabarded = saved.guild, saved.me, saved.on
+		if not ok then error(err, 0) end
+	end)
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("for their Tabards pages alone: never the King's untabarded list, nor a Royal Inspection's report", 1, true), file .. ": the privacy table")
+	end
+end)
+
+test("1.1 patrol share (#29): a sampled officer's Royal Inspection report names only what his own patrol saw", function()
+	WithShare(function(w, I)
+		local K = ns.King
+		local whispers, timers = {}, {}
+		local saved = { after = ns.After, whisper = ns.Comm.Whisper, patrol = I.SetPatrol, pace = I.SetPace, alert = ns.PlayAlert }
+		local ok, err = pcall(function()
+			ns.After = function(_, _, f) timers[#timers + 1] = f end
+			ns.Comm.Whisper = function(to, msg) whispers[#whispers + 1] = to .. " " .. msg end
+			I.SetPatrol, I.SetPace, ns.PlayAlert = function() end, function() end, function() end
+			K.RunInspection("King-Realm", 7)
+			eq(#timers, 1, "a patrol of INSPECT_TIME")
+			Caught(I, "Mine")
+			-- A fellow officer's findings arrive during the patrol: a stranger, and a "correction" of ours.
+			w.clock = w.clock + 30
+			I.HandleShare("GUILD", "Offi-Realm", "U1~Victim:Olympus Hera:N:0;Mine:Olympus Zeus:G:0")
+			eq(I.Players()["Victim"].shared, true, "on our page, as his word")
+			eq(I.Players()["Mine"].status, "NONE", "not while our report is being made")
+			timers[1]()
+			eq(#whispers, 1)
+			local names = whispers[1]:match("^King%-Realm T3~7~[^~]*~%d+~%d+~%d+~(.*)$")
+			eq(names, "Mine:Olympus Zeus:N", "ours alone, not the finding another officer passed on")
+		end)
+		ns.After, ns.Comm.Whisper, I.SetPatrol, I.SetPace, ns.PlayAlert = saved.after, saved.whisper, saved.patrol, saved.pace, saved.alert
+		if not ok then K.Reset() error(err, 0) end
+		-- Once the report went, a later word replaces an older own inspection again (an officer's page).
+		w.clock = w.clock + 100
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Mine:Olympus Zeus:G:0")
+		eq(I.Players()["Mine"].status, "GUILD"); eq(I.Players()["Mine"].shared, true)
+	end)
+end)
 end
 
 ---------------------------------------------------------------------------
@@ -34025,13 +34109,18 @@ local BELT = "|cffa335ee|Hitem:16830::::::::60:::::|h[Cenarion Bindings]|h|r"
 local function WithLoot(fn)
 	local Lt = ns.Loot
 	local saved = { send = ns.Comm.Send, chunked = ns.Comm.SendChunked, byName = ns.Roster.byName, loot = ns.rdb.loot, print = ns.Print,
-		fire = ns.Fire, after = Lt.after, random = Lt.random, dialog = ns.ShowDialog, ui = ns.UI }
+		fire = ns.Fire, after = Lt.after, random = Lt.random, dialog = ns.ShowDialog, ui = ns.UI, queue = ns.Comm.QueueSize, now = ns.Now,
+		peers = ns.Comm.Peers }
 	for _, k in ipairs(LOOT_GLOBALS) do saved[k] = _G[k] end
-	local w = { sent = {}, chunks = {}, rank = 1, printed = {}, clock = 1790000000, later = {}, dialogs = {}, group = true, fired = {},
-		items = { [16830] = { "Cenarion Bindings", BELT, 4 }, [2589] = { "Linen Cloth", "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", 1 } } }
+	local w = { sent = {}, chunks = {}, rank = 1, printed = {}, clock = 1790000000, later = {}, delays = {}, dialogs = {}, group = true, fired = {},
+		queue = 0, items = { [16830] = { "Cenarion Bindings", BELT, 4 }, [2589] = { "Linen Cloth", "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", 1 } } }
 	ns.rdb.loot = nil
 	Lt.Reset()
-	ns.Comm.Send = function(dist, msg, key, urgent, logged) w.sent[#w.sent + 1] = { dist = dist, msg = msg, logged = logged } end
+	-- (1.1 review: our clock, our send queue's length and the guildmates who said hello, for the answers' pace.)
+	ns.Now = function() return w.clock end
+	ns.Comm.QueueSize = function() return w.queue end
+	ns.Comm.Peers = function() return w.peers or {} end
+	ns.Comm.Send = function(dist, msg, key, urgent, logged) w.sent[#w.sent + 1] = { dist = dist, msg = msg, logged = logged, urgent = urgent } end
 	ns.Comm.SendChunked = function(payload, urgent, dist) w.chunks[#w.chunks + 1] = (dist or "CHANNEL") .. " " .. payload end
 	GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Titan", w.rank end return nil end
 	GetServerTime = function() return w.clock end
@@ -34046,7 +34135,7 @@ local function WithLoot(fn)
 	ns.Roster.byName = { ["Offi-Realm"] = 1, ["Tester-Realm"] = 1, ["Bob-Realm"] = 3, ["Ann Smith-Realm"] = 3 }
 	ns.Print = function(m) w.printed[#w.printed + 1] = m end
 	ns.Fire = function(name, key) w.fired[#w.fired + 1] = name .. ":" .. tostring(key) end
-	Lt.after = function(_, _, f) w.later[#w.later + 1] = f end
+	Lt.after = function(seconds, _, f) w.later[#w.later + 1] = f; w.delays[#w.delays + 1] = seconds end
 	Lt.random = function() return 0 end
 	ns.ShowDialog = function(which, a, b, data) w.dialogs[#w.dialogs + 1] = { which = which, a = a, data = data } end
 	w.run = function() local l = w.later; w.later = {}; for _, f in ipairs(l) do f() end end
@@ -34054,6 +34143,7 @@ local function WithLoot(fn)
 	local ok, err = pcall(fn, w, Lt)
 	ns.Comm.Send, ns.Comm.SendChunked, ns.Roster.byName, ns.rdb.loot, ns.Print = saved.send, saved.chunked, saved.byName, saved.loot, saved.print
 	ns.Fire, Lt.after, Lt.random, ns.ShowDialog, ns.UI = saved.fire, saved.after, saved.random, saved.dialog, saved.ui
+	ns.Comm.QueueSize, ns.Now, ns.Comm.Peers = saved.queue, saved.now, saved.peers
 	for _, k in ipairs(LOOT_GLOBALS) do _G[k] = saved[k] end
 	Lt.Reset()
 	ns.Views.CloseChat()
@@ -34069,7 +34159,8 @@ test("1.1 loot notes (#22): an officer writes the decision; his guild gets it ov
 		eq(w.printed[#w.printed], ns.L.LOOT_WRITTEN)
 		local m = w.last()
 		eq(m.dist, "GUILD"); eq(m.logged, true, "his own words, through the logged API")
-		eq(m.msg, ("J1~N~Tester-Realm~%s~%s~%s~16830~~Ann Smith~Ann passed on the gloves, Bob gets the next belt"):format(n.id, B36(w.clock), B36(w.clock)))
+		eq(m.urgent, true, "never dropped from his queue: addons online hold themselves whole from their session's start")
+		eq(m.msg, ("X1~N~Tester-Realm~%s~%s~%s~16830~~Ann Smith~Ann passed on the gloves, Bob gets the next belt"):format(n.id, B36(w.clock), B36(w.clock)))
 		eq(#Lt.Notes(), 1); eq(Lt.Notes()[1].n.to, "Ann Smith")
 		-- Escape codes, separators and runs of spaces go; the longest note fits one message.
 		w.clock = w.clock + 1
@@ -34092,29 +34183,29 @@ test("1.1 loot notes (#22): a guildmate's addon takes an officer's changes only 
 	WithLoot(function(w, Lt)
 		w.rank = 3 -- (a member's addon)
 		local t = B36(w.clock)
-		Lt.HandleLive("GUILD", "Offi-Realm", ("J1~N~Offi-Realm~a1~%s~%s~16830~~Ann Smith~Ann gets the belt"):format(t, t))
+		Lt.HandleLive("GUILD", "Offi-Realm", ("X1~N~Offi-Realm~a1~%s~%s~16830~~Ann Smith~Ann gets the belt"):format(t, t))
 		eq(#Lt.Notes(), 1); eq(Lt.Notes()[1].n.writer, "Offi-Realm")
 		-- A member's, the channel's, a note in someone else's name, a malformed one: nothing.
-		Lt.HandleLive("GUILD", "Bob-Realm", ("J1~N~Bob-Realm~b1~%s~%s~~~~Bob wins"):format(t, t))
-		Lt.HandleLive("CHANNEL", "Offi-Realm", ("J1~N~Offi-Realm~c1~%s~%s~~~~Channel note"):format(t, t))
-		Lt.HandleLive("GUILD", "Offi-Realm", ("J1~N~Lord-Realm~d1~%s~%s~~~~In his name"):format(t, t))
-		Lt.HandleLive("GUILD", "Offi-Realm", "J1~N~Offi-Realm~e1~zzzzzzzzz~1~~~~Bad times")
-		Lt.HandleLive("GUILD", "Offi-Realm", ("J1~N~Offi-Realm~f1~%s~%s~~~~"):format(t, t))
+		Lt.HandleLive("GUILD", "Bob-Realm", ("X1~N~Bob-Realm~b1~%s~%s~~~~Bob wins"):format(t, t))
+		Lt.HandleLive("CHANNEL", "Offi-Realm", ("X1~N~Offi-Realm~c1~%s~%s~~~~Channel note"):format(t, t))
+		Lt.HandleLive("GUILD", "Offi-Realm", ("X1~N~Lord-Realm~d1~%s~%s~~~~In his name"):format(t, t))
+		Lt.HandleLive("GUILD", "Offi-Realm", "X1~N~Offi-Realm~e1~zzzzzzzzz~1~~~~Bad times")
+		Lt.HandleLive("GUILD", "Offi-Realm", ("X1~N~Offi-Realm~f1~%s~%s~~~~"):format(t, t))
 		eq(#Lt.Notes(), 1, "only the officer's own note")
 		-- Another officer removes it: its mark holds against an older copy.
 		local later = B36(w.clock + 60)
-		Lt.HandleLive("GUILD", "Tester-Realm", ("J1~N~Offi-Realm~a1~%s~%s~16830~1~~"):format(t, later))
+		Lt.HandleLive("GUILD", "Tester-Realm", ("X1~N~Offi-Realm~a1~%s~%s~16830~1~~"):format(t, later))
 		eq(#Lt.Notes(), 0, "removed")
-		Lt.HandleBook("GUILD", "Offi-Realm", ("JB~N~Offi-Realm~a1~%s~%s~16830~~Ann Smith~Ann gets the belt"):format(t, t))
+		Lt.HandleBook("GUILD", "Offi-Realm", ("XB~S~0~0~0~0~0~0^N~Offi-Realm~a1~%s~%s~16830~~Ann Smith~Ann gets the belt"):format(t, t))
 		eq(#Lt.Notes(), 0, "an older copy never brings it back")
 		-- Points by hand: newest wins, a cleared one shows no more.
-		Lt.HandleLive("GUILD", "Offi-Realm", "J1~P~Bob-Realm~12~" .. B36(w.clock) .. "~Offi-Realm")
+		Lt.HandleLive("GUILD", "Offi-Realm", "X1~P~Bob-Realm~12~" .. B36(w.clock) .. "~Offi-Realm")
 		eq(Lt.Points()[1].v, 12)
-		Lt.HandleLive("GUILD", "Offi-Realm", "J1~P~Bob-Realm~99~" .. B36(w.clock - 5) .. "~Offi-Realm")
+		Lt.HandleLive("GUILD", "Offi-Realm", "X1~P~Bob-Realm~99~" .. B36(w.clock - 5) .. "~Offi-Realm")
 		eq(Lt.Points()[1].v, 12, "an older number")
-		Lt.HandleLive("GUILD", "Offi-Realm", "J1~P~Bob-Realm~~" .. B36(w.clock + 5) .. "~Offi-Realm")
+		Lt.HandleLive("GUILD", "Offi-Realm", "X1~P~Bob-Realm~~" .. B36(w.clock + 5) .. "~Offi-Realm")
 		eq(#Lt.Points(), 0, "cleared")
-		Lt.HandleLive("GUILD", "Offi-Realm", "J1~P~Bob-Realm~100000~" .. B36(w.clock + 9) .. "~Offi-Realm")
+		Lt.HandleLive("GUILD", "Offi-Realm", "X1~P~Bob-Realm~100000~" .. B36(w.clock + 9) .. "~Offi-Realm")
 		eq(#Lt.Points(), 0, "past the limit")
 		-- A removed note's mark is kept 30 days, then goes.
 		w.clock = w.clock + Lt.REMOVED_KEEP + 120
@@ -34127,7 +34218,7 @@ test("1.1 loot notes (#22): points are a notebook: an officer sets a member's nu
 	WithLoot(function(w, Lt)
 		Lt.SetPoints("bob 12")
 		eq(Lt.Points()[1].member, "Bob-Realm"); eq(Lt.Points()[1].v, 12)
-		eq(w.last().msg, "J1~P~Bob-Realm~12~" .. B36(w.clock) .. "~Tester-Realm"); eq(w.last().dist, "GUILD")
+		eq(w.last().msg, "X1~P~Bob-Realm~12~" .. B36(w.clock) .. "~Tester-Realm"); eq(w.last().dist, "GUILD")
 		eq(w.printed[#w.printed], ns.L.LOOT_POINTS_DONE:format("Bob", 12))
 		Lt.SetPoints("Bob +3")
 		eq(Lt.Points()[1].v, 3, "set, not added")
@@ -34146,53 +34237,96 @@ test("1.1 loot notes (#22): points are a notebook: an officer sets a member's nu
 	end)
 end)
 
-test("1.1 loot notes (#22): a guildmate's addon asks once a session; one officer's addon answers with the changes since, in pieces over GUILD", function()
+-- (1.1 review: the ask carried the newest change held and was answered with the changes newer than
+-- it, once each 2 minutes by every officer. It now names the ranges its book lacks, and an officer
+-- answers only ranges his own book holds whole: this test says so.)
+test("1.1 loot notes (#22): an ask names what its book lacks; an officer's addon holding it whole answers, in pieces over GUILD; the page asks again while something lacks", function()
 	WithLoot(function(w, Lt)
 		-- The officer's book: a note and points.
 		local n = Lt.Write("Ann gets the belt", 16830, "Ann Smith")
 		Lt.SetPoints("Bob 12")
+		eq(select(2, Lt.Book()), w.clock + 1, "this session holds every change from its start on")
+		local before = ("XQ~0~%s~0~%s"):format(B36(w.clock + 1), B36(w.clock + 1))
+		-- Not whole yet (his session only started): an ask for what came before is not his to answer.
 		w.sent = {}
-		-- A member's ask for everything (a login on the Forever beta).
-		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~0")
-		Lt.HandleAsk("GUILD", "Ann Smith-Realm", "JQ~0") -- (one answer covers both)
-		eq(#w.later, 1)
+		Lt.HandleAsk("GUILD", "Bob-Realm", before)
+		eq(#w.later, 0, "his book is not known whole")
+		-- His login's ask: everything before his session; nobody answered in ASK_WAIT: his book is the guild's.
+		eq(Lt.Ask(), true)
+		eq(w.last().msg, before); eq(w.last().dist, "GUILD")
+		eq(#w.later, 1); eq(w.delays[1], Lt.ASK_WAIT)
+		w.run()
+		eq(Lt.Ask(), false, "nothing lacks now")
+		w.delays = {}
+		-- A member's ask for everything (a login on the Forever beta), and another's meanwhile.
+		w.clock = w.clock + 100
+		local all = ("XQ~0~%s~0~%s"):format(B36(w.clock), B36(w.clock))
+		Lt.HandleAsk("GUILD", "Bob-Realm", all)
+		Lt.HandleAsk("GUILD", "Ann Smith-Realm", all) -- (one answer covers both)
+		eq(#w.later, 1); eq(w.delays[1], 2, "his turn: the first (no other officer said hello)")
 		w.run()
 		eq(#w.chunks, 1)
 		local payload = w.chunks[1]
-		assert(payload:find("^GUILD JB~"), payload)
+		eq(payload:match("^GUILD XB~([^%^]*)"), ("S~0~%s~0~0~%s~0"):format(B36(w.clock), B36(w.clock)), "every change up to the ask, whole")
 		assert(payload:find(("N~Tester-Realm~%s~"):format(n.id), 1, true), "the note")
 		assert(payload:find("P~Bob-Realm~12~", 1, true), "the points")
-		-- Within 2 minutes, or an ask holding everything: no answer.
-		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~0")
-		eq(#w.later, 0)
-		local savedNow = ns.Now
-		local now = ns.Now() + Lt.ANSWER_GAP
-		ns.Now = function() return now end
-		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~" .. B36(w.clock))
-		eq(#w.later, 0, "nothing newer than the asker's")
-		-- Another officer's answer heard while ours waits: ours is not sent.
-		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~0")
-		eq(#w.later, 1)
-		Lt.HandleBook("GUILD", "Offi-Realm", "JB~P~Ann Smith-Realm~7~" .. B36(w.clock) .. "~Offi-Realm")
-		w.run()
-		eq(#w.chunks, 1, "his answer covered it")
-		ns.Now = savedNow
-		-- A stranger's ask (not in our roster), or ours as a member: no answer.
-		Lt.HandleAsk("GUILD", "Stranger-Realm", "JQ~0")
+		assert(payload:find("^GUILD XB~S~[^%^]*%^N~"), "the notes before the points")
+		-- An ask for nothing, a stranger's ask (not in our roster), or one heard as a member: no answer.
+		Lt.HandleAsk("GUILD", "Bob-Realm", "XQ~5~5~0~0")
+		Lt.HandleAsk("GUILD", "Stranger-Realm", all)
 		w.rank = 3
-		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~0")
+		Lt.HandleAsk("GUILD", "Bob-Realm", all)
 		eq(#w.later, 0)
+		w.rank = 1
+		-- The next answer comes PAGE_GAP after ours at the soonest; another officer's answer heard
+		-- beginning meanwhile (its first piece) holds ours back.
+		Lt.HandleAsk("GUILD", "Bob-Realm", all)
+		eq(#w.later, 1); eq(w.delays[#w.delays], Lt.PAGE_GAP)
+		local other = ("XB~S~0~%s~0~0~%s~0^P~Ann Smith-Realm~7~%s~Offi-Realm"):format(B36(w.clock), B36(w.clock), B36(w.clock))
+		assert(ns.Comm.pieceHooks.loot, "the hook is set while our answer waits")
+		ns.Comm.pieceHooks.loot("GUILD", "Offi-Realm", ns.Codec.Chunk(other, "9")[1])
+		w.run()
+		eq(#w.chunks, 1, "his answer covers ours"); eq(ns.Comm.pieceHooks.loot, nil, "the hook went with it")
+		-- Our send queue long (the census): the answer waits, then gives up (the asker asks again).
+		w.clock = w.clock + Lt.PAGE_GAP
+		Lt.HandleAsk("GUILD", "Ann Smith-Realm", all)
+		w.queue = 20
+		for _ = 1, 4 do w.run() end
+		eq(#w.chunks, 1, "not over our census"); eq(#w.later, 0)
+		w.queue = 0
 		-- A member's answer is not taken.
-		Lt.HandleBook("GUILD", "Bob-Realm", "JB~P~Bob-Realm~999~" .. B36(w.clock + 50) .. "~Bob-Realm")
+		Lt.HandleBook("GUILD", "Bob-Realm", ("XB~S~0~%s~0~0~%s~0^P~Bob-Realm~999~%s~Bob-Realm"):format(B36(w.clock + 50), B36(w.clock + 50), B36(w.clock + 50)))
 		eq(Lt.Points()[1].v, 12, "Bob's own claim is nobody's word")
-		-- The page asks once a session.
+		-- A member's page: it asks for what its book lacks when it opens, again when it opens later
+		-- while something still lacks, and after each answer until nothing lacks.
+		ns.rdb.loot = nil
+		Lt.Reset()
+		w.rank, w.sent = 3, {}
 		ns.Views.CloseChat()
 		Lt.Show(true)
-		eq(w.last().msg, "JQ~" .. B36(w.clock)); eq(w.last().dist, "GUILD")
+		local L0 = w.clock + 1
+		eq(w.last().msg, ("XQ~0~%s~0~%s"):format(B36(L0), B36(L0)))
+		Lt.Show(false); Lt.Show(true)
+		eq(#w.sent, 1, "not again at once")
+		w.clock = w.clock + Lt.ASK_AGAIN
+		Lt.Show(false); Lt.Show(true)
+		eq(#w.sent, 2, "unanswered: asked again")
+		-- An answer that filled up with the newest notes: the points whole, the older notes asked for a moment later.
+		local mid = L0 - 1000
+		Lt.HandleBook("GUILD", "Offi-Realm", ("XB~S~0~%s~%s~0~%s~0^N~Offi-Realm~a1~%s~%s~~~~Newest note"):format(B36(L0), B36(mid), B36(L0), B36(mid + 10), B36(mid + 10)))
+		eq(#Lt.Notes(), 1)
+		eq(#w.later, 1); w.run()
+		eq(w.last().msg, ("XQ~0~%s~0~0"):format(B36(mid)), "the older notes, and no points")
+		-- The same asked by someone else just before ours would go: ours waits for that answer.
+		Lt.HandleBook("GUILD", "Offi-Realm", ("XB~S~0~%s~%s~0~0~0^N~Offi-Realm~a2~%s~%s~~~~Older note"):format(B36(mid), B36(mid - 500), B36(mid - 400), B36(mid - 400)))
+		Lt.HandleAsk("GUILD", "Ann Smith-Realm", ("XQ~0~%s~0~0"):format(B36(mid - 500)))
 		local count = #w.sent
-		Lt.Show(false)
-		Lt.Show(true)
-		eq(#w.sent, count, "once")
+		w.run()
+		eq(#w.sent, count, "Ann's ask covers ours")
+		-- The rest: nothing lacks, nothing more asked.
+		Lt.HandleBook("GUILD", "Offi-Realm", ("XB~S~0~%s~0~0~0~0"):format(B36(mid - 500)))
+		w.run()
+		eq(#w.sent, count); eq(Lt.Ask(), false, "the book whole"); eq(#Lt.Notes(), 2)
 	end)
 	-- The answer's pieces are put together over GUILD (Comm.lua), as the High Council's lists are.
 	local savedChannel = GetChannelName
@@ -34200,8 +34334,8 @@ test("1.1 loot notes (#22): a guildmate's addon asks once a session; one officer
 		GetChannelName = function() return 0 end
 		local cns, Deliver = FreshComm()
 		local got
-		cns.Comm.Handle("JB", function(dist, sender, text) got = dist .. " " .. sender .. " " .. #text end)
-		local payload = "JB~" .. ("N~Offi-Realm~a1~1~1~~~~" .. ("w"):rep(90) .. "^"):rep(8)
+		cns.Comm.Handle("XB", function(dist, sender, text) got = dist .. " " .. sender .. " " .. #text end)
+		local payload = "XB~S~0~1~0~0~0~0^" .. ("N~Offi-Realm~a1~1~1~~~~" .. ("w"):rep(90) .. "^"):rep(8)
 		for _, c in ipairs(ns.Codec.Chunk(payload, "5")) do Deliver("GUILD", "Offi-Realm", c) end
 		eq(got, "GUILD Offi-Realm " .. #payload)
 	end)
@@ -34236,7 +34370,7 @@ test("1.1 loot notes (#22): the group's loot shows to its officers this session,
 		local d = StaticPopupDialogs.OLYMPUS_LOOT_NOTE
 		d.OnAccept({ editBox = { GetText = function() return "Bob: first epic, Ann next" end } }, { item = 16830, to = "Bob" })
 		eq(Lt.Notes()[1].n.item, 16830); eq(Lt.Notes()[1].n.to, "Bob"); eq(Lt.Notes()[1].n.text, "Bob: first epic, Ann next")
-		for _, s in ipairs(w.sent) do assert(s.msg:find("^J1~"), "only the note went out: " .. s.msg) end
+		for _, s in ipairs(w.sent) do assert(s.msg:find("^X1~"), "only the note went out: " .. s.msg) end
 	end)
 end)
 
@@ -34313,7 +34447,297 @@ test("1.1 loot notes (#22): /oly loot, the strings in both languages; README and
 		assert(doc:find("/oly loot", 1, true), file)
 		assert(doc:find("| A loot note (1.1)", 1, true), file .. ": the privacy table")
 		assert(doc:find("not a bid window", 1, true), file)
+		-- (1.1 review: the book comes back whole, answer by answer; the ask names what it lacks.)
+		assert(doc:find("asks again after each until its book is whole", 1, true), file)
+		assert(doc:find("your addon's ask for the book (the spans of change times it lacks)", 1, true), file .. ": the privacy table")
 	end
+end)
+
+-- The 1.1 review: Loot.lua again for each addon of our guild (its own saved book, rank and draws),
+-- their messages passed as the game passes them over GUILD: a change or an ask at once, an
+-- answer's first piece 1.2 s after it went (Comm.pieceHooks: an answer heard beginning) and the
+-- whole answer once its last piece came (1.2 s each). g.Run(seconds) lets the time go by.
+local function Letters(i) return string.char(97 + math.floor((i - 1) / 26)) .. string.char(97 + (i - 1) % 26) end
+local function LootGuild(fn)
+	local g = { clock = 1790000000, clients = {}, timers = {}, seq = 0, byName = {} }
+	local savedDialogs, savedGlobals = {}, {}
+	for k, v in pairs(StaticPopupDialogs) do savedDialogs[k] = v end
+	for _, k in ipairs({ "GetGuildInfo", "GetServerTime", "IsInGuild" }) do savedGlobals[k] = _G[k] end
+	GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Member", 3 end return nil end
+	GetServerTime = function() return g.clock end
+	IsInGuild = function() return true end
+	function g.At(seconds, f)
+		g.seq = g.seq + 1
+		g.timers[#g.timers + 1] = { at = g.clock + seconds, seq = g.seq, f = f }
+	end
+	function g.Run(seconds)
+		local stop = g.clock + seconds
+		while true do
+			table.sort(g.timers, function(a, b) if a.at ~= b.at then return a.at < b.at end return a.seq < b.seq end)
+			local t = g.timers[1]
+			if not t or t.at > stop then break end
+			table.remove(g.timers, 1)
+			g.clock = math.max(g.clock, t.at)
+			t.f()
+		end
+		g.clock = stop
+	end
+	local function Others(c)
+		local out = {}
+		for _, o in ipairs(g.clients) do if o ~= c and not o.away then out[#out + 1] = o end end
+		return out
+	end
+	function g.Answers()
+		local n = 0
+		for _, c in ipairs(g.clients) do n = n + #c.pages end
+		return n
+	end
+	function g.Client(short, rank)
+		local c = { name = short .. "-Realm", rank = rank, sent = {}, pages = {}, rand = 0 }
+		g.byName[c.name] = rank
+		local cns = setmetatable({}, { __index = ns })
+		cns.me, cns.rdb, cns.RealmPages = c.name, {}, {}
+		cns.On, cns.Log, cns.Fire, cns.Print = function() end, function() end, function() end, function() end
+		cns.Now = function() return g.clock end
+		cns.IsMember = function() return true end
+		cns.Views = { ShowPage = function() end }
+		cns.Roster = { byName = g.byName, RankOf = function(n) return g.byName[ns.FullName(n)] end,
+			IsOfficer = function() return c.rank <= ns.CAPTAIN_RANK end }
+		local msgId = 0
+		cns.Comm = {
+			Handle = function() end, pieceHooks = {}, QueueSize = function() return 0 end,
+			Peers = function()
+				local out = {}
+				for _, o in ipairs(g.clients) do if o.hello and not o.away then out[#out + 1] = o.name end end
+				return out
+			end,
+			Send = function(dist, msg)
+				c.sent[#c.sent + 1] = msg
+				for _, o in ipairs(Others(c)) do
+					if msg:sub(1, 3) == "X1~" then o.Lt.HandleLive(dist, c.name, msg)
+					elseif msg:sub(1, 3) == "XQ~" then o.Lt.HandleAsk(dist, c.name, msg) end
+				end
+			end,
+			SendChunked = function(payload, urgent, dist)
+				c.pages[#c.pages + 1] = payload
+				msgId = msgId + 1
+				local pieces = ns.Codec.Chunk(payload, tostring(msgId))
+				g.At(1.2, function()
+					for _, o in ipairs(Others(c)) do
+						for _, hook in pairs(o.ns.Comm.pieceHooks) do hook(dist, c.name, pieces[1]) end
+					end
+				end)
+				g.At(1.2 * #pieces, function()
+					for _, o in ipairs(Others(c)) do o.Lt.HandleBook(dist, c.name, payload) end
+				end)
+			end,
+		}
+		assert(loadfile(ADDON_DIR .. "Loot.lua"))("Olympus", cns)
+		c.ns, c.Lt = cns, cns.Loot
+		c.Lt.after = function(seconds, _, f) g.At(seconds, f) end
+		c.Lt.random = function() return c.rand end
+		g.clients[#g.clients + 1] = c
+		return c
+	end
+	-- Officers whose books are the guild's: each logs in, asks, and nobody holding it whole answers.
+	function g.Officers(...)
+		local list = { ... }
+		for _, o in ipairs(list) do o.Lt.Ask() end
+		g.Run(list[1].Lt.ASK_WAIT)
+		for _, o in ipairs(list) do eq(o.Lt.Ask(), false, o.name .. " holds his book whole") end
+	end
+	local ok, err = pcall(fn, g)
+	for k in pairs(StaticPopupDialogs) do StaticPopupDialogs[k] = savedDialogs[k] end
+	for k, v in pairs(savedDialogs) do StaticPopupDialogs[k] = v end
+	-- (Each put back, nil too: a clock the harness had none of must go again, or the treasury
+	-- tests after it read this one.)
+	for _, k in ipairs({ "GetGuildInfo", "GetServerTime", "IsInGuild" }) do _G[k] = savedGlobals[k] end
+	if not ok then error(err, 0) end
+end
+
+test("1.1 loot notes (#22): a change heard as it is made never hides the older notes: a member's book comes back whole (Forever: every login)", function()
+	LootGuild(function(g)
+		local o = g.Client("Offi", 1)
+		-- Last week the officer wrote a decision; that session ended.
+		g.clock = g.clock - 7 * 86400
+		o.Lt.Write("Last week: Ann passed on the gloves, Bob gets the next belt", 16830, "Bob")
+		g.clock = g.clock + 7 * 86400
+		o.Lt.Reset()
+		g.Officers(o)
+		-- Tonight a member logs in (the beta forgot his book) and an officer writes during the raid:
+		-- the member hears it as it is made.
+		local m = g.Client("Bob", 3)
+		m.Lt.Book()
+		local from = g.clock + 1
+		g.Run(60)
+		o.Lt.Write("Tonight: the belt went to Bob", 16830, "Bob")
+		eq(#m.Lt.Notes(), 1)
+		-- Later he opens the page: his ask names everything before his session, whatever he heard since.
+		g.Run(600)
+		m.Lt.Show(true)
+		eq(m.sent[#m.sent], ("XQ~0~%s~0~%s"):format(B36(from), B36(from)), "not the newest change's time")
+		g.Run(60)
+		eq(#m.Lt.Notes(), 2, "last week's decision came too")
+		eq(m.Lt.Ask(), false, "nothing lacks")
+		-- An officer back from a week away, his book forgotten: not whole, he answers nothing; his own
+		-- ask makes it whole, then he answers too.
+		local o2 = g.Client("Offtwo", 1)
+		o2.Lt.Book()
+		g.Run(60)
+		local m2 = g.Client("Ann", 3)
+		o.away = true
+		m2.Lt.Show(true)
+		g.Run(120)
+		eq(#o2.pages, 0, "not his to answer"); eq(#m2.Lt.Notes(), 0)
+		o.away, m2.away = false, true
+		eq(o2.Lt.Ask(), true)
+		g.Run(60)
+		eq(#o2.Lt.Notes(), 2); eq(o2.Lt.Ask(), false, "whole now")
+		o.away, m2.away = true, false
+		g.Run(m2.Lt.ASK_AGAIN)
+		m2.Lt.Show(true)
+		g.Run(60)
+		eq(#o2.pages, 1); eq(#m2.Lt.Notes(), 2)
+	end)
+end)
+
+test("1.1 loot notes (#22): a book larger than one answer comes back whole, answer by answer: the newest notes first, then the points", function()
+	LootGuild(function(g)
+		local o = g.Client("Offi", 1)
+		g.Officers(o)
+		-- 60 notes over the weeks, then a round of points for 150 members.
+		for i = 1, 60 do
+			g.Run(3600)
+			o.Lt.Write(("Raid %d: %s"):format(i, ("the decision, and why, as the officers agreed it "):rep(2)), 16830, "Bob")
+		end
+		for i = 1, 150 do
+			g.byName["Mem" .. Letters(i) .. "-Realm"] = 3
+			o.Lt.SetPoints(("Mem%s %d"):format(Letters(i), i))
+			g.Run(i % 3 == 0 and 2 or 0) -- (by hand: now and then two in the same second)
+		end
+		eq(#o.Lt.Notes(), 60); eq(#o.Lt.Points(), 150)
+		local m = g.Client("Bob", 3)
+		m.Lt.Show(true)
+		g.Run(600)
+		eq(#m.Lt.Notes(), 60, "every note"); eq(#m.Lt.Points(), 150, "every member's points")
+		eq(m.Lt.Ask(), false, "nothing lacks")
+		assert(#o.pages >= 3, #o.pages .. " answers")
+		-- The first answer: the newest notes alone (it filled up with them), none of the points.
+		local first = o.pages[1]
+		assert(#first <= o.Lt.ANSWER_BYTES, #first)
+		assert(first:find("Raid 60: ", 1, true) and not first:find("Raid 1: ", 1, true), "the newest notes first")
+		assert(not first:find("^P~") and not first:find("%^P~"), "no points before the notes")
+		local ncut = first:match("^XB~S~0~[0-9a-z]+~([0-9a-z]+)~0~0~0")
+		assert(ncut and tonumber(ncut, 36) > 0, first:sub(1, 60))
+		-- His second ask: the older notes, and all the points.
+		local L0 = m.sent[1]:match("^XQ~0~([0-9a-z]+)~")
+		eq(m.sent[2], ("XQ~0~%s~0~%s"):format(ncut, L0))
+		eq(#m.sent, #o.pages, "one ask for each answer")
+	end)
+end)
+
+test("1.1 loot notes (#22): one officer's addon answers an ask; an answer heard beginning holds the others back; one guildmate's asks are limited", function()
+	LootGuild(function(g)
+		local o1, o2, o3 = g.Client("Offa", 1), g.Client("Offb", 1), g.Client("Offc", 0)
+		g.Officers(o1, o2, o3)
+		for i = 1, 25 do
+			g.Run(60)
+			o1.Lt.Write(("Raid %d: %s"):format(i, ("the decision, and why, as the officers agreed it "):rep(2)), 16830, "Bob")
+		end
+		eq(#o3.Lt.Notes(), 25, "heard as they were written")
+		-- Their hellos heard: each takes his turn, SLOT apart; the first answers, the others hear it begin.
+		o1.hello, o2.hello, o3.hello = true, true, true
+		local m = g.Client("Bob", 3)
+		m.Lt.Show(true)
+		g.Run(120)
+		eq(g.Answers(), 1, "one answer"); eq(#m.Lt.Notes(), 25)
+		-- No hello heard (the same turn for all): drawn a moment apart, the first answer's first piece still holds the others.
+		o1.hello, o2.hello, o3.hello = false, false, false
+		o1.rand, o2.rand, o3.rand = 0, 0.5, 1
+		local m2 = g.Client("Ann", 3)
+		m2.Lt.Show(true)
+		g.Run(120)
+		eq(g.Answers(), 2, "one answer again"); eq(#m2.Lt.Notes(), 25)
+		-- A guildmate asking for everything every 30 seconds for 10 minutes: ASKER_ASKS answers at most
+		-- (every officer answered each ask before, once each 2 minutes: 15 in all).
+		local x = g.Client("Grunt", 3)
+		local before = g.Answers()
+		for _ = 1, 20 do
+			x.ns.Comm.Send("GUILD", ("XQ~0~%s~0~%s"):format(B36(g.clock), B36(g.clock)))
+			g.Run(30)
+		end
+		local answered = g.Answers() - before
+		assert(answered >= 1 and answered <= o1.Lt.ASKER_ASKS, answered .. " answers")
+	end)
+end)
+
+test("1.1 loot notes (#22): two officers' books grown apart: the one holding more sends what the other's answer lacked", function()
+	LootGuild(function(g)
+		local a, b = g.Client("Offa", 1), g.Client("Offb", 1)
+		g.Officers(a, b)
+		a.Lt.Write("Both hold this one", 16830, "Bob")
+		-- B writes while A's addon hears nothing (away, or the message lost): A still takes his book as whole.
+		g.Run(60)
+		a.away = true
+		b.Lt.Write("Only B holds this one", 16830, "Ann")
+		a.away = false
+		eq(#a.Lt.Notes(), 1); eq(#b.Lt.Notes(), 2)
+		-- A member asks: A's turn comes first and B hears it begin; A's answer lacks B's note: B sends it.
+		a.rand, b.rand = 0, 1
+		g.Run(60)
+		local m = g.Client("Bob", 3)
+		m.Lt.Show(true)
+		g.Run(120)
+		eq(#a.pages, 1); eq(#b.pages, 1, "B's own note, once")
+		assert(b.pages[1]:find("^XB~S~0~0~0~0~0~0%^N~Offb%-Realm~"), b.pages[1])
+		eq(#m.Lt.Notes(), 2); eq(#a.Lt.Notes(), 2, "A holds it now too")
+		-- Another member later: A's answer holds both; nothing more from B.
+		local m2 = g.Client("Ann", 3)
+		m2.Lt.Show(true)
+		g.Run(120)
+		eq(#b.pages, 1); eq(#m2.Lt.Notes(), 2)
+	end)
+end)
+
+-- The 1.1 review: loot's J1 was the census's route ask too (Recruit.lua); Comm keeps a type's last
+-- handler only. Each type is registered in one file, and in Comm.lua's list of types.
+test("1.1 message types: each top-level type is registered by one file only, and each is in Comm.lua's list", function()
+	local registered, where = {}, {}
+	local toc = assert(io.open(ADDON_DIR .. "Olympus.toc"))
+	for line in toc:lines() do
+		local file = line:match("^([%w_]+)%.lua%s*$")
+		if file then
+			local f = io.open(ADDON_DIR .. file .. ".lua")
+			local n = 0
+			for code in f:lines() do
+				n = n + 1
+				code = code:gsub("%-%-.*$", "")
+				for kind in code:gmatch("Comm%.Handle%(\"(%w%w)\"") do
+					assert(not registered[kind], ("%s registered in %s and %s:%d"):format(kind, tostring(where[kind]), file, n))
+					registered[kind], where[kind] = true, file .. ":" .. n
+				end
+			end
+			f:close()
+		end
+	end
+	toc:close()
+	assert(registered.X1 and registered.XQ and registered.XB, "the loot notes' types")
+	-- (Registered by Recruit.lua alone once the census part of 1.1 is in; never by the loot notes.)
+	eq(registered.J1 and where.J1:match("^(%w+):"), "Recruit", "J1 is the census's route ask (Recruit.lua): " .. tostring(where.J1))
+	-- Comm.lua's list: every type once, every registered type in it.
+	local f = assert(io.open(ADDON_DIR .. "Comm.lua"))
+	local src = f:read("*a")
+	f:close()
+	local block = src:match("%-%- The top%-level types.-\nlocal handlers = {}")
+	assert(block, "Comm.lua's list of types")
+	local listed = {}
+	for kind in block:gmatch("%f[%w]([A-Z][A-Z0-9])%f[%W]") do
+		assert(not listed[kind], kind .. " listed twice")
+		listed[kind] = true
+	end
+	for kind in pairs(registered) do assert(listed[kind], kind .. " not in Comm.lua's list") end
+	-- What Comm.lua reads before any handler is nobody else's.
+	for _, kind in ipairs({ "K0", "K1", "H1", "R1", "R2" }) do eq(registered[kind], nil, kind); assert(listed[kind], kind) end
 end)
 end
 
@@ -34332,9 +34756,10 @@ local MOONCLOTH = "|cff1eff00|Hitem:14342::::::::60:::::|h[Mooncloth]|h|r"
 local function WithCraft(fn)
 	local Cr = ns.Crafters
 	local saved = { send = ns.Comm.Send, whisper = ns.Comm.Whisper, print = ns.Print, fire = ns.Fire, dialog = ns.ShowDialog, now = ns.Now,
-		after = Cr.after, random = Cr.random, ui = ns.UI, pad = ns.GamepadUI, choice = ns.db.crafterChoice, data = ns.db.crafterData, me = ns.me }
+		after = Cr.after, random = Cr.random, ui = ns.UI, pad = ns.GamepadUI, choice = ns.db.crafterChoice, data = ns.db.crafterData, me = ns.me,
+		queue = ns.Comm.QueueSize }
 	for _, k in ipairs(CRAFT_GLOBALS) do saved[k] = _G[k] end
-	local w = { sent = {}, whispers = {}, printed = {}, dialogs = {}, later = {}, clock = 5000000, calls = {}, chat = {}, tells = {}, windows = {},
+	local w = { sent = {}, whispers = {}, printed = {}, dialogs = {}, later = {}, delays = {}, clock = 5000000, calls = {}, chat = {}, tells = {}, windows = {},
 		prof = { id = 197, name = "Tailoring", skill = 245, max = 300 }, linked = false,
 		recipes = { { id = 3915, name = "Linen Bag", item = 4238, learned = true }, { id = 18560, name = "Mooncloth", item = 14342, learned = true },
 			{ id = 12088, name = "Cindercloth Boots", item = 10044, learned = false }, { id = 3914, name = "Brown Linen Pants", item = 4343, learned = true } } }
@@ -34346,8 +34771,10 @@ local function WithCraft(fn)
 	ns.Print = function(m) w.printed[#w.printed + 1] = m end
 	ns.Fire = function() end
 	ns.ShowDialog = function(which, a, b, data) w.dialogs[#w.dialogs + 1] = { which = which, a = a, data = data } end
-	Cr.after = function(_, _, f) w.later[#w.later + 1] = f end
+	Cr.after = function(seconds, _, f) w.later[#w.later + 1] = f; w.delays[#w.delays + 1] = seconds end
 	Cr.random = function() return 0 end
+	-- (1.1 review: our send queue's length, for the recipe lists' pace.)
+	ns.Comm.QueueSize = function() return w.queue or 0 end
 	ns.UI = { WhisperWindow = function(name) w.windows[#w.windows + 1] = name end, SelectTab = function() end }
 	ns.GamepadUI = function() return w.gamepad == true end
 	GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Member", 3 end return nil end
@@ -34398,7 +34825,7 @@ local function WithCraft(fn)
 	local ok, err = pcall(fn, w, Cr)
 	ns.Comm.Send, ns.Comm.Whisper, ns.Print, ns.Fire, ns.ShowDialog, ns.Now = saved.send, saved.whisper, saved.print, saved.fire, saved.dialog, saved.now
 	Cr.after, Cr.random, ns.UI, ns.GamepadUI = saved.after, saved.random, saved.ui, saved.pad
-	ns.db.crafterChoice, ns.db.crafterData, ns.me = saved.choice, saved.data, saved.me
+	ns.db.crafterChoice, ns.db.crafterData, ns.me, ns.Comm.QueueSize = saved.choice, saved.data, saved.me, saved.queue
 	for _, k in ipairs(CRAFT_GLOBALS) do _G[k] = saved[k] end
 	Cr.Reset()
 	ns.Views.CloseChat()
@@ -34446,7 +34873,9 @@ test("1.1 crafters (#24): opening a profession reads its skill and the recipes k
 	end)
 end)
 
-test("1.1 crafters (#24): the yes lists the profession on the channel (name, guild, skill, how many recipes); repeated every 45 minutes; a skill up at most each 2 minutes", function()
+-- (1.1 review: a skill up was sent CHANGED_GAP, 2 minutes, after the last listing: a crafter
+-- levelling put one on the channel every 2 minutes. It now waits LIST_GAP, 10 minutes.)
+test("1.1 crafters (#24): the yes lists the profession on the channel (name, guild, skill, how many recipes); repeated every 45 minutes; a skill up at most each 10 minutes", function()
 	WithCraft(function(w, Cr)
 		Cr.Opened()
 		StaticPopupDialogs.OLYMPUS_CRAFTER_LIST.OnAccept(nil, "197")
@@ -34455,7 +34884,7 @@ test("1.1 crafters (#24): the yes lists the profession on the channel (name, gui
 		-- Opened again, nothing changed: no question, nothing sent.
 		Cr.Opened()
 		eq(#w.dialogs, 1); eq(#w.sent, 1)
-		-- Crafting: a skill up, then another; the listing waits CHANGED_GAP, then the board's tick sends the last.
+		-- Crafting: a skill up, then another; the listing waits LIST_GAP, then the board's tick sends the last.
 		w.clock = w.clock + 10
 		w.prof.skill = 246
 		Cr.Opened()
@@ -34463,6 +34892,9 @@ test("1.1 crafters (#24): the yes lists the profession on the channel (name, gui
 		Cr.Opened()
 		eq(#w.sent, 1, "not at every skill up")
 		w.clock = w.clock + Cr.CHANGED_GAP
+		Cr.Tick()
+		eq(#w.sent, 1, "a skill up is no new profession")
+		w.clock = w.clock + Cr.LIST_GAP - Cr.CHANGED_GAP
 		Cr.Tick()
 		eq(w.sent[2], "CHANNEL W1~Olympus II~197:Tailoring:247:300:3")
 		Cr.Tick()
@@ -34576,7 +35008,10 @@ test("1.1 crafters (#24): a crafter's recipes on a click, by whisper, in parts; 
 		Cr.Opened()
 		Cr.Choose("197", true)
 		Cr.HandleListAsk("WHISPER", "Asker-Realm", "WR~197")
-		eq(#w.whispers, 2, "33 recipes: two parts")
+		-- (1.1 review: paced, a part each LIST_PACE, where every part went into the queue at once.)
+		eq(#w.whispers, 1, "the first part at once"); eq(w.delays[#w.delays], Cr.LIST_PACE)
+		w.run()
+		eq(#w.whispers, 2, "33 recipes: two parts"); eq(#w.later, 0, "the list done")
 		assert(w.whispers[1]:find("^Asker%-Realm WL~197~1/2~3915:4238,18560:14342,"), w.whispers[1])
 		for _, m in ipairs(w.whispers) do assert(#m - #"Asker-Realm " <= 250, "one message each") end
 		Cr.HandleListAsk("WHISPER", "Asker-Realm", "WR~197")
@@ -34692,6 +35127,194 @@ test("1.1 crafters (#24): /oly craft and /oly crafter; the strings in both langu
 		assert(doc:find("| Your crafter listing (1.1)", 1, true), file .. ": the privacy table")
 		assert(doc:find("| An answer to \"who can make it\"", 1, true), file .. ": the privacy table")
 	end
+end)
+
+-- The 1.1 review: the channel's budget of listings, and our send queue under recipe lists.
+local function CountW1(w)
+	local n = 0
+	for _, s in ipairs(w.sent) do if s:find("^CHANNEL W1~") then n = n + 1 end end
+	return n
+end
+
+test("1.1 crafters (#24): the channel's budget: nothing changed, the 45-minute repeat alone; levelling, a listing each 10 minutes at most; a new profession 2 minutes after the last", function()
+	WithCraft(function(w, Cr)
+		Cr.Opened()
+		Cr.Choose("197", true)
+		eq(CountW1(w), 1)
+		-- An hour of play, nothing changing, the window opened (or updated) each minute: the repeat alone.
+		for _ = 1, 60 do
+			w.clock = w.clock + 60
+			Cr.Opened()
+			Cr.Tick()
+		end
+		eq(CountW1(w), 2, "the first and the 45-minute repeat (7 before: the same again each 10 minutes)")
+		-- An hour of levelling: a skill up each minute, the window updated, the board's tick.
+		local before = CountW1(w)
+		for _ = 1, 60 do
+			w.clock = w.clock + 60
+			w.prof.skill = w.prof.skill + 1
+			Cr.Opened()
+			Cr.Tick()
+		end
+		local levelling = CountW1(w) - before
+		assert(levelling >= 5 and levelling <= 60 * 60 / Cr.LIST_GAP, levelling .. " listings in an hour of levelling (31 before)")
+		-- Another profession listed (his yes kept from before): CHANGED_GAP after the last.
+		w.clock = w.clock + Cr.LIST_GAP
+		Cr.Tick()
+		before = CountW1(w)
+		Cr.Choices()["164"] = true
+		w.prof = { id = 164, name = "Blacksmithing", skill = 100, max = 150 }
+		w.clock = w.clock + 10
+		Cr.Opened()
+		eq(CountW1(w), before, "not at once")
+		w.clock = w.clock + Cr.CHANGED_GAP
+		Cr.Tick()
+		eq(CountW1(w), before + 1)
+		assert(w.sent[#w.sent]:find("164:Blacksmithing:100:150:", 1, true) and w.sent[#w.sent]:find("197:Tailoring:", 1, true), w.sent[#w.sent])
+	end)
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("so about 1.3 an hour while you play and 6 at most while", 1, true), file)
+		assert(doc:find("a skill up or a new recipe (10 minutes)", 1, true), file .. ": the privacy table")
+		assert(doc:find("two players' lists at a time (the next is told you are busy)", 1, true), file .. ": the privacy table")
+	end
+end)
+
+test("1.1 crafters (#24): a login (or /reload) sends one listing: the board's ticker waits for the login's own draw, and a profession opened first counts as it", function()
+	WithCraft(function(w, Cr)
+		Cr.Opened()
+		Cr.Choose("197", true)
+		-- A /reload: the yes and the profession kept, the session's state gone; the login's timers
+		-- run for 10 minutes (openAt: the player opens his profession then).
+		local function Login(openAt)
+			Cr.Reset()
+			w.sent = {}
+			local timers, tickers = {}, {}
+			local saved = { after = ns.After, every = ns.Every, register = ns.RegisterEvent }
+			ns.After = function(seconds, _, f) timers[#timers + 1] = { at = w.clock + seconds, f = f } end
+			ns.Every = function(seconds, _, f) tickers[#tickers + 1] = { every = seconds, f = f } end
+			ns.RegisterEvent = function() end
+			Cr.random = function() return 0.5 end
+			local ok, err = pcall(function()
+				Cr.OnLogin()
+				local t0 = w.clock
+				for s = 1, 600 do
+					w.clock = t0 + s
+					if s == openAt then Cr.Opened() end
+					for _, t in ipairs(timers) do
+						if not t.done and t.at <= w.clock then t.done = true; t.f() end
+					end
+					for _, t in ipairs(tickers) do if s % t.every == 0 then t.f() end end
+				end
+			end)
+			ns.After, ns.Every, ns.RegisterEvent = saved.after, saved.every, saved.register
+			Cr.random = function() return 0 end
+			if not ok then error(err, 0) end
+			return CountW1(w)
+		end
+		eq(Login(nil), 1, "one listing, at the login's draw (two before: the ticker's at a minute, then the draw's)")
+		eq(Login(10), 1, "the profession opened first sent it; the draw finds nothing new")
+	end)
+end)
+
+test("1.1 crafters (#24): recipe lists go a part each LIST_PACE while our send queue is short: four players a minute for 20 minutes never fill it, and every census piece goes", function()
+	local function Name(i) return "Asker" .. string.char(97 + math.floor((i - 1) / 26) % 26) .. string.char(97 + (i - 1) % 26) .. "-Realm" end
+	local savedChannel, savedChat = GetChannelName, C_ChatInfo
+	local ok, err = pcall(function()
+		WithCraft(function(w, Cr)
+			-- A top crafter: 300 recipes (16 parts, the most a list sends).
+			for i = 1, 300 do w.recipes[#w.recipes + 1] = { id = 400000 + i, name = "Recipe " .. i, item = 200000 + i, learned = true } end
+			Cr.Opened()
+			Cr.Choose("197", true)
+			-- Our messages through a Comm of their own: its one queue, a message each 1.2 s (Comm.Pump).
+			GetChannelName = function() return 5 end
+			local cns = FreshComm()
+			local out = {}
+			C_ChatInfo = { RegisterAddonMessagePrefix = function() end,
+				SendAddonMessage = function(_, msg, dist) out[#out + 1] = { dist = dist, msg = msg } return true end }
+			cns.Comm.JoinChannel()
+			ns.Comm.Whisper, ns.Comm.QueueSize = cns.Comm.Whisper, cns.Comm.QueueSize
+			local timers = {}
+			Cr.after = function(seconds, _, f) timers[#timers + 1] = { at = w.clock + seconds, f = f } end
+			local maxQueue, reports, asked = 0, 0, 0
+			local t0 = w.clock
+			local function Step(s)
+				w.clock = t0 + s * 1.2
+				table.sort(timers, function(a, b) return a.at < b.at end)
+				while timers[1] and timers[1].at <= w.clock do table.remove(timers, 1).f() end
+				maxQueue = math.max(maxQueue, cns.Comm.QueueSize())
+				cns.Comm.Pump()
+			end
+			for s = 0, 1000 do -- (20 minutes)
+				-- Our census report (5 pieces) each 170 s, four players' asks each minute.
+				if s % 142 == 0 then cns.Comm.SendChunked(("R"):rep(1000), nil, "CHANNEL"); reports = reports + 1 end
+				if s % 50 == 0 then
+					for _ = 1, 4 do asked = asked + 1; Cr.HandleListAsk("WHISPER", Name(asked), "WR~197") end
+				end
+				Step(s)
+			end
+			for s = 1001, 1300 do Step(s) end -- (what was left goes)
+			local census, parts, busy = 0, 0, 0
+			for _, m in ipairs(out) do
+				if m.dist == "CHANNEL" and m.msg:find("^C%d+:%d:5:R") then census = census + 1 end
+				if m.dist == "WHISPER" and m.msg:find("^WL~197~%d+/%d+~") then
+					if m.msg:find("^WL~197~0/0~") then busy = busy + 1 else parts = parts + 1 end
+				end
+			end
+			eq(census, reports * 5, "every census piece went (the oldest were dropped from a full queue before)")
+			assert(maxQueue < 60 and maxQueue <= (Cr.LIST_QUEUE or 0) + 6, maxQueue .. " waiting at most (the queue holds 60)")
+			assert(parts >= 100 and parts <= 1300 * 1.2 / Cr.LIST_PACE + Cr.LIST_PARTS, parts .. " parts")
+			assert(busy >= 1, "the others were told he is busy")
+		end)
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, savedChat
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 crafters (#24): told he is busy, the page says so and a click asks again a minute later", function()
+	WithCraft(function(w, Cr)
+		eq(Cr.AskList("Tailor-Realm", "197"), true)
+		Cr.HandleList("WHISPER", "Tailor-Realm", "WL~197~0/0~")
+		local recipes, l = Cr.ListOf("Tailor-Realm", "197")
+		eq(#recipes, 0); assert(l.busy, "busy")
+		Cr.HandleListing("CHANNEL", "Tailor-Realm", "W1~Olympus Zeus~197:Tailoring:280:300:40")
+		local lines = Cr.Lines()
+		for _, line in ipairs(lines) do if line.key == "Tailor-Realm" then line.onClick() end end
+		local busyLine
+		for _, line in ipairs(Cr.Lines()) do if line.text and line.text:find(ns.L.CRAFTER_LIST_BUSY, 1, true) then busyLine = line end end
+		assert(busyLine, "the page says he is busy")
+		w.whispers = {}
+		busyLine.onClick()
+		eq(#w.whispers, 0, "not at once")
+		w.clock = w.clock + Cr.BUSY_WAIT
+		busyLine.onClick()
+		eq(w.whispers[1], "Tailor-Realm WR~197", "a minute later")
+		-- His parts: taken while they keep coming, a part each LIST_PACE, past ASK_WAIT from the ask.
+		for i = 1, 3 do
+			w.clock = w.clock + 60
+			Cr.HandleList("WHISPER", "Tailor-Realm", ("WL~197~%d/3~%d:%d"):format(i, 100 + i, 200 + i))
+		end
+		eq(#Cr.ListOf("Tailor-Realm", "197"), 3)
+		-- The crafter's side: two lists at a time; the third player told he is busy (4 such a minute at most).
+		for i = 1, 30 do w.recipes[#w.recipes + 1] = { id = 20000 + i, name = "Recipe " .. i, item = 30000 + i, learned = true } end
+		Cr.Opened()
+		Cr.Choose("197", true)
+		w.whispers = {}
+		Cr.HandleListAsk("WHISPER", "One-Realm", "WR~197")
+		Cr.HandleListAsk("WHISPER", "Two-Realm", "WR~197")
+		Cr.HandleListAsk("WHISPER", "Three-Realm", "WR~197")
+		eq(w.whispers[#w.whispers], "Three-Realm WL~197~0/0~")
+		eq(#w.whispers, 2, "One's first part, Three told")
+		-- Our queue long: the part waits.
+		w.queue = Cr.LIST_QUEUE + 1
+		w.run()
+		eq(#w.whispers, 2)
+		w.queue = 0
+		w.run(); w.run(); w.run()
+		eq(#w.whispers, 5, "One's second, then Two's two")
+	end)
 end)
 end
 ---------------------------------------------------------------------------

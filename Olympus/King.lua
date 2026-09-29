@@ -675,8 +675,9 @@ function King.RunInspection(king, id)
 		if not run.wasOn and ns.Inspect.IsPatrolling() then ns.Inspect.SetPatrol(false) end
 		local ok, none, other, names = 0, 0, 0, {}
 		-- A patrol does not re-inspect anyone checked in the last 10 minutes: those count too.
+		-- What another officer of our guild found (1.1, Inspect.lua) is his word, not ours: left out.
 		for name, p in pairs(ns.Inspect.Players()) do
-			if (p.t or 0) >= run.start - 600 then
+			if not p.shared and (p.t or 0) >= run.start - 600 then
 				if p.status == "GUILD" then ok = ok + 1
 				elseif p.status == "NONE" or p.status == "OTHER" then
 					if p.status == "NONE" then none = none + 1 else other = other + 1 end

@@ -14,17 +14,34 @@ local L = ns.L
 -- notes). Nothing is bid, rolled, handed out or traded: no bid window, no gold, no loot moved. The
 -- items the group loots show there to its officers (the game's own loot lines, this session),
 -- only so a note can name one with a click.
---   J1~<entry>              an officer's change: a note written or removed, points set (GUILD;
+--   X1~<entry>              an officer's change: a note written or removed, points set (GUILD;
 --                           a note's words go through the logged API, the server keeps them)
---   JQ~<newest change held> a member's addon asks for the changes since (GUILD): an officer's at
---                           login, anyone else's when the page first opens this session
---   JB~<entry>^<entry>...   an officer's answer: the changes since (GUILD, in pieces)
+--   XQ~<nlo>~<nhi>~<plo>~<phi>   a member's addon asks for the changes it lacks (GUILD): the notes
+--                           changed in (nlo, nhi], the points in (plo, phi] (lo = hi: none)
+--   XB~S~<nlo>~<nhi>~<ncut>~<plo>~<phi>~<pcut>^<entry>^...   an officer's answer (GUILD, in
+--                           pieces): the notes asked for first, then the points, newest first, as
+--                           much as ANSWER_BYTES holds; it holds every change in (ncut, nhi] and
+--                           (pcut, phi] (cut = lo: the whole range asked for)
 -- Entries:
 --   N~<writer>~<id>~<written>~<changed>~<item id>~<1: removed>~<to whom>~<words>
 --   P~<member>~<points, or nothing: cleared>~<changed>~<officer>
 -- (times in base 36, the server's clock). A reader takes a change only from an officer of its own
 -- roster, only newer than what it holds. Kept per guild in the saved variables; on the Forever
 -- beta, which forgets them at every login, the book comes back from the officers online.
+-- (1.1 review: the types were J1, JQ and JB, which the census's route ask took too; see Comm.lua.)
+--
+-- Which changes an addon holds whole is kept apart from the changes themselves (Whole): ranges of
+-- change times, the notes' and the points' each, those an officer's answer covered (kept with the
+-- book), and from the start of this session on every change as it is made. An addon asks for the
+-- newest range it lacks, and again after each answer until none is left: a change heard as it was
+-- made never hides older ones, and a book larger than one answer comes back whole, answer by
+-- answer, the newest notes first (the 1.1 review: the ask carried the newest change held). An
+-- officer's addon answers only for ranges it holds whole itself, so no answer makes a book look
+-- whole when it is not; at login it asks too, and takes its book as the guild's when nobody
+-- answers (ASK_WAIT). One officer answers an ask: the officers' turns come SLOT apart, in an order
+-- drawn from the ask, and an answer heard beginning (its first piece) holds the others back; an
+-- officer answers PAGE_GAP apart at most, WINDOW_PAGES in each WINDOW, and takes ASKER_ASKS asks
+-- from one guildmate in each WINDOW.
 
 local Loot = {}
 ns.Loot = Loot
@@ -35,15 +52,34 @@ Loot.NOTES_MAX = 150       -- notes kept per guild (the newest changes; removed 
 Loot.POINTS_MAX = 1000     -- members with points
 Loot.POINTS_LIMIT = 99999  -- points go from minus this to this
 Loot.REMOVED_KEEP = 30 * 86400 -- a removed note's mark is kept this long (so no old copy brings it back)
-Loot.ANSWER_GAP = 120      -- an officer answers asks once each 2 minutes at most...
-Loot.ANSWER_BYTES = 5000   -- ...with this much of the book (the newest changes first)
+Loot.ANSWER_BYTES = 5000   -- an answer holds this much of the book (some 23 pieces)
+Loot.PAGE_GAP = 30         -- an officer's answers this far apart at least (one takes 23 pieces x 1.2 s)...
+Loot.WINDOW = 600          -- ...and in each 10 minutes
+Loot.WINDOW_PAGES = 8      -- ...this many of them at most;
+Loot.ASKER_ASKS = 8        -- an officer takes this many asks from one guildmate in each WINDOW
+Loot.SLOT = 8              -- seconds between the officers' turns to answer one ask
+Loot.QUEUE_MAX = 3         -- an answer waits while its officer's send queue holds more than this
+Loot.ASK_WAIT = 30         -- an officer's ask nobody answered this long: his book is the guild's
+Loot.ASK_AGAIN = 60        -- the page opened this long after our last ask asks again, while a range lacks
+Loot.ASK_HOLD = 10         -- someone's ask heard this recently for what we lack: ours waits
+Loot.ASKS_MAX = 16         -- our asks in a session at most
+Loot.KNOWN_MAX = 8         -- ranges kept per stream (the oldest go first: they are asked for again)
 Loot.DROPS_MAX = 20        -- the group's loot kept for the officers' notes, this session
 Loot.random = math.random
 Loot.after = function(seconds, where, fn) ns.After(seconds, where, fn) end
 
-local answering        -- an answer of ours waiting: { since, heard }
+local STREAMS = { "n", "p" } -- the notes, then the points
+local answering        -- an answer of ours waiting: { n = { lo, hi }, p = { lo, hi }, heard, tries }
 local lastAnswer = -math.huge
-local askedThisSession = false
+local pageTimes = {}   -- our answers' times (the last WINDOW)
+local askerTimes = {}  -- [guildmate] = the times of his asks we took (the last WINDOW)
+local asks, lastAsk = 0, -math.huge -- our asks this session, and the last one's time
+local wanting = false  -- we asked this session: we ask again after an answer while a range lacks
+local continuing = false -- our next ask waiting
+local settling = false -- an officer's: whether nobody answered his first ask is being waited for
+local heardAsk         -- someone's ask last heard: { n, p, t }
+local heardPage = -math.huge -- an officer's answer last heard
+local liveFrom = {}    -- [guild key] = the change time from which this session hears every change
 local counter = 0
 local drops = {}       -- { { id, link, to, t } }, newest first
 
@@ -90,7 +126,9 @@ local function Book()
 	end
 	if type(b.notes) ~= "table" then b.notes = {} end
 	if type(b.points) ~= "table" then b.points = {} end
-	return b
+	-- From now on this session hears each change of the guild's as it is made (X1).
+	if not liveFrom[key] and ns.IsMember() then liveFrom[key] = ServerNow() + 1 end
+	return b, liveFrom[key]
 end
 Loot.Book = Book
 
@@ -100,14 +138,6 @@ function Loot.IsOfficer() return ns.IsMember() == true and ns.Roster.IsOfficer()
 local function SenderOfficer(sender)
 	local rank = ns.Roster.RankOf(sender)
 	return rank ~= nil and rank <= ns.CAPTAIN_RANK
-end
-
--- The newest change held (notes and points), 0 for none.
-local function Newest(b)
-	local at = 0
-	for _, n in pairs(b.notes) do if type(n) == "table" and (n.rev or 0) > at then at = n.rev end end
-	for _, p in pairs(b.points) do if type(p) == "table" and (p.rev or 0) > at then at = p.rev end end
-	return at
 end
 
 -- At most NOTES_MAX notes (the newest changes), a removed one's mark REMOVED_KEEP, POINTS_MAX points.
@@ -141,7 +171,7 @@ local function PointsEntry(member, p)
 end
 
 -- An entry heard from `sender` (an officer), taken into the book when newer than ours: true then.
--- live: an officer's own change (J1): a new note must be his own.
+-- live: an officer's own change (X1): a new note must be his own.
 local function Take(b, entry, sender, live)
 	local now = ServerNow()
 	if entry:sub(1, 2) == "N~" then
@@ -183,8 +213,10 @@ end
 -- The officers' changes
 ---------------------------------------------------------------------------
 
+-- (Ahead of the census in our queue, never dropped from it: an addon online holds itself whole
+-- from its session's start on, trusting it heard every change.)
 local function Send(entry, logged)
-	ns.Comm.Send("GUILD", "J1~" .. entry, nil, nil, logged)
+	ns.Comm.Send("GUILD", "X1~" .. entry, nil, true, logged)
 end
 
 -- A note: its words, and the item and whom it went to when one of the group's loot was clicked.
@@ -257,95 +289,392 @@ function Loot.SetPoints(text)
 	return p
 end
 
--- J1: an officer's change.
+-- X1: an officer's change.
 function Loot.HandleLive(dist, sender, text)
 	if dist ~= "GUILD" or not SenderOfficer(sender) then return end
 	local b = Book()
-	local entry = b and text:match("^J1~(.+)$")
+	local entry = b and text:match("^X1~(.+)$")
 	if entry and Take(b, entry, sender, true) then
 		Loot.Prune(b)
 		Changed()
 	end
 end
-ns.Comm.Handle("J1", function(...) Loot.HandleLive(...) end)
+ns.Comm.Handle("X1", function(...) Loot.HandleLive(...) end)
 
 ---------------------------------------------------------------------------
--- The book for a member's addon that lacks it (a login, a /reload on the Forever beta)
+-- The book for a member's addon that lacks it (a login, a /reload on the Forever beta, a
+-- guildmate offline when a change was made)
 ---------------------------------------------------------------------------
 
--- Our ask: an officer's addon at login, anyone else's the first time the page opens.
-function Loot.Ask()
-	local b = ns.IsMember() and Book()
-	if not b then return false end
-	askedThisSession = true
-	ns.Comm.Send("GUILD", "JQ~" .. B36(Newest(b)), "lootask")
+local function Recent(times, window)
+	local now = ns.Now()
+	for i = #times, 1, -1 do if now - times[i] >= window then table.remove(times, i) end end
+	return #times
+end
+
+-- The ranges of change times (lo, hi] a stream ("n" the notes, "p" the points) of the book is
+-- known whole in, kept with it: those officers' answers covered. Newest first.
+local function Ranges(b, kind)
+	if type(b.known) ~= "table" then b.known = {} end
+	local list = b.known[kind]
+	if type(list) ~= "table" then
+		list = {}
+		b.known[kind] = list
+	end
+	return list
+end
+
+-- (lo, hi] joined to a list of ranges (newest first), merged with every one it touches; `max`
+-- kept at most (the oldest go).
+local function AddRange(list, lo, hi, max)
+	lo, hi = tonumber(lo), tonumber(hi)
+	if not lo or not hi or lo >= hi then return end
+	local out = {}
+	for _, r in ipairs(list) do
+		local a, z = type(r) == "table" and tonumber(r[1]), type(r) == "table" and tonumber(r[2])
+		if a and z and a < z then
+			if z < lo or a > hi then out[#out + 1] = { a, z }
+			else lo, hi = math.min(lo, a), math.max(hi, z) end
+		end
+	end
+	out[#out + 1] = { lo, hi }
+	table.sort(out, function(x, y) return x[1] > y[1] end)
+	while max and #out > max do table.remove(out) end
+	for i = #list, 1, -1 do list[i] = nil end
+	for i, r in ipairs(out) do list[i] = r end
+end
+
+-- What we hold whole of a stream now: the ranges kept, and this session's changes from its start.
+local function Whole(b, kind, live)
+	local list = {}
+	for _, r in ipairs(Ranges(b, kind)) do
+		if type(r) == "table" then AddRange(list, r[1], r[2]) end
+	end
+	if live then AddRange(list, live, math.huge) end
+	return list
+end
+
+-- The newest range of a stream we lack, (lo, hi], or nil: we hold it whole.
+local function Missing(b, kind, live)
+	local list = Whole(b, kind, live)
+	local top = list[1]
+	if not top then return 0, ServerNow() end
+	if top[1] <= 0 then return nil end
+	return list[2] and list[2][2] or 0, top[1]
+end
+
+-- What we lack, as an ask carries it: { n = { lo, hi }, p = { lo, hi } }, or nil: nothing.
+local function Wanted(b, live)
+	local want, any = {}, false
+	for _, kind in ipairs(STREAMS) do
+		local lo, hi = Missing(b, kind, live)
+		if lo then want[kind], any = { lo, hi }, true end
+	end
+	return any and want or nil
+end
+
+local function Holds(b, kind, live, lo, hi)
+	for _, r in ipairs(Whole(b, kind, live)) do
+		if r[1] <= lo and r[2] >= hi then return true end
+	end
+	return false
+end
+
+-- Whether ranges `h` (an ask's or an answer's: { lo, hi }) take in every one of `want`.
+local function Within(want, h)
+	for _, kind in ipairs(STREAMS) do
+		local r, o = want[kind], h[kind]
+		if r and not (o and o[1] < o[2] and o[1] <= r[1] and o[2] >= r[2]) then return false end
+	end
 	return true
 end
 
--- The changes newer than `since`, newest first, as much as ANSWER_BYTES holds.
-local function Since(b, since)
+-- Our ask for what we lack: an officer's addon at login, anyone's when the page opens (and again
+-- after each answer while something still lacks). false: nothing lacks, or our asks are spent.
+function Loot.Ask()
+	local b, live = nil, nil
+	if ns.IsMember() then b, live = Book() end
+	if not b then return false end
+	wanting = true
+	local want = Wanted(b, live)
+	if not want or asks >= Loot.ASKS_MAX then return false end
+	asks, lastAsk = asks + 1, ns.Now()
+	local function R(r) return r and (B36(r[1]) .. "~" .. B36(r[2])) or "0~0" end
+	ns.Comm.Send("GUILD", ("XQ~%s~%s"):format(R(want.n), R(want.p)), "lootask")
+	-- An officer's first ask of the session that nobody answers: his book is the guild's.
+	if not settling and Loot.IsOfficer() and heardPage == -math.huge then
+		settling = true
+		Loot.after(Loot.ASK_WAIT, "loot settle", function() Loot.Settle() end)
+	end
+	return true
+end
+
+-- After an answer, while we want the book and a range still lacks: asked again a moment later,
+-- unless someone's ask heard meanwhile covers ours (its answer reaches us too).
+local function Continue()
+	if not wanting or continuing then return end
+	continuing = true
+	Loot.after(2 + Loot.random() * 3, "loot ask again", function()
+		continuing = false
+		local b, live = nil, nil
+		if ns.IsMember() then b, live = Book() end
+		local want = b and Wanted(b, live)
+		if not want then return end
+		local h = heardAsk
+		if h and ns.Now() - h.t < Loot.ASK_HOLD and Within(want, h) then return end
+		Loot.Ask()
+	end)
+end
+
+-- An officer's addon at login, once its ask went unanswered ASK_WAIT: nobody holds the book whole
+-- online but us (the only officer, or the first), so ours is the guild's.
+function Loot.Settle()
+	if not Loot.IsOfficer() or heardPage > -math.huge then return false end
+	local b, live = Book()
+	if not b or not live then return false end
+	for _, kind in ipairs(STREAMS) do AddRange(Ranges(b, kind), 0, live, Loot.KNOWN_MAX) end
+	ns.Log("loot notes: no officer answered; our book is the guild's")
+	return true
+end
+
+-- A stream's changes in (lo, hi], newest first.
+local function Entries(b, kind, lo, hi)
 	local list = {}
-	for _, n in pairs(b.notes) do
-		if type(n) == "table" and (n.rev or 0) > since then list[#list + 1] = { rev = n.rev, entry = NoteEntry(n) } end
+	if kind == "n" then
+		for _, n in pairs(b.notes) do
+			local r = type(n) == "table" and tonumber(n.rev) or nil
+			if r and r > lo and r <= hi then list[#list + 1] = { rev = r, entry = NoteEntry(n) } end
+		end
+	else
+		for member, p in pairs(b.points) do
+			local r = type(p) == "table" and tonumber(p.rev) or nil
+			if r and r > lo and r <= hi then list[#list + 1] = { rev = r, entry = PointsEntry(member, p) } end
+		end
 	end
-	for member, p in pairs(b.points) do
-		if type(p) == "table" and (p.rev or 0) > since then list[#list + 1] = { rev = p.rev, entry = PointsEntry(member, p) } end
+	table.sort(list, function(x, y) if x.rev ~= y.rev then return x.rev > y.rev end return x.entry < y.entry end)
+	return list
+end
+
+-- Our answer: the notes asked for first, then the points, newest first, as much as ANSWER_BYTES
+-- holds. Its head says what it holds whole: every change in (cut, hi] of each stream.
+local HEAD_ROOM = 64
+function Loot.Page(b, want)
+	local head, out, size, full = {}, {}, 0, false
+	for _, kind in ipairs(STREAMS) do
+		local r = want[kind]
+		local lo, hi, cut = 0, 0, 0
+		if r and not full then
+			lo, hi, cut = r[1], r[2], r[1]
+			local list, first = Entries(b, kind, lo, hi), #out
+			for i, e in ipairs(list) do
+				if size + #e.entry + 1 > Loot.ANSWER_BYTES - HEAD_ROOM then
+					cut, full = e.rev, true
+					-- (The changes of the cut's own second go whole in the next answer.)
+					for j = i - 1, 1, -1 do
+						if list[j].rev ~= e.rev or #out <= first + 1 then break end
+						size, out[#out] = size - #list[j].entry - 1, nil
+					end
+					break
+				end
+				out[#out + 1], size = e.entry, size + #e.entry + 1
+			end
+		end
+		head[#head + 1] = ("%s~%s~%s"):format(B36(lo), B36(hi), B36(cut))
 	end
-	table.sort(list, function(a, c) if a.rev ~= c.rev then return a.rev > c.rev end return a.entry < c.entry end)
-	local out, size = {}, 3
-	for _, e in ipairs(list) do
-		if size + #e.entry + 1 > Loot.ANSWER_BYTES then break end
-		out[#out + 1] = e.entry
-		size = size + #e.entry + 1
+	local text = "XB~S~" .. table.concat(head, "~")
+	if #out > 0 then text = text .. "^" .. table.concat(out, "^") end
+	return text
+end
+
+-- An answer's head ("S~..."): { n = { lo, hi, cut }, p = { lo, hi, cut } }, or nil.
+local function Head(s)
+	local f = {}
+	for v in tostring(s or ""):gmatch("[^~]+") do f[#f + 1] = v end
+	if #f ~= 7 or f[1] ~= "S" then return nil end
+	local limit, out = ServerNow() + 3600, {}
+	for i, kind in ipairs(STREAMS) do
+		local at = (i - 1) * 3
+		local lo, hi, cut = UnB36(f[2 + at]), UnB36(f[3 + at]), UnB36(f[4 + at])
+		if not (lo and hi and cut) or lo > cut or cut > hi or hi > limit then return nil end
+		out[kind] = { lo, hi, cut }
 	end
 	return out
 end
 
--- Someone's ask (JQ): an officer's addon holding newer changes answers, 2 to 12 seconds later,
--- once each ANSWER_GAP; another officer's answer heard meanwhile answers for it.
-function Loot.HandleAsk(dist, sender, text)
-	if dist ~= "GUILD" or not Loot.IsOfficer() then return end
-	if not ns.Roster.RankOf(sender) then return end -- (a guildmate our roster knows)
-	local since = UnB36(text:match("^JQ~([0-9a-z]+)$"))
-	local b = since and Book()
+-- Whether an answer another officer began holds what ours would: then ours is not sent.
+local function Covers(head, a)
+	for _, kind in ipairs(STREAMS) do
+		local r, h = a[kind], head[kind]
+		if r then
+			if not (h[1] < h[2] and h[1] <= r[1] and h[2] >= r[2]) then return false end
+			if h[3] > h[1] then return true end -- (it filled up there: the rest is asked for again)
+		end
+	end
+	return true
+end
+
+-- Another officer's answer beginning (its first piece) while ours waits (Comm.pieceHooks).
+local function OnPiece(dist, sender, text)
+	local a = answering
+	if not a or dist ~= "GUILD" or type(text) ~= "string" then return end
+	local head = text:match("^C%w+:1:%d+:XB~([^%^]*)")
+	head = head and SenderOfficer(sender) and Head(head)
+	if head and Covers(head, a) then a.heard = true end
+end
+local function HookPieces()
+	local hooks = ns.Comm and ns.Comm.pieceHooks
+	if hooks then hooks.loot = answering and OnPiece or nil end
+end
+
+-- Our turn among our guild's officers whose addon said hello lately (Comm.Peers), in an order
+-- drawn from the ask itself: the first answers, the next only if the first did not.
+local function Hash(s)
+	local h = 5381
+	for i = 1, #s do h = (h * 33 + s:byte(i)) % 2147483647 end
+	return h
+end
+local function Turn(salt)
+	local mine, turn = Hash(salt .. ns.Fold(ns.FullName(ns.me or ""))), 0
+	for _, name in ipairs(ns.Comm.Peers and ns.Comm.Peers() or {}) do
+		local full = ns.FullName(name)
+		if full ~= ns.FullName(ns.me or "") and SenderOfficer(full) and Hash(salt .. ns.Fold(full)) < mine then turn = turn + 1 end
+	end
+	return math.min(turn, 4)
+end
+
+local function Answer(a)
+	if answering ~= a then return end
+	if a.heard or not Loot.IsOfficer() then
+		answering = nil
+		return HookPieces()
+	end
+	-- Our census and hellos first: the answer waits while our queue is long, then gives up (the
+	-- asker asks again).
+	if ns.Comm.QueueSize and ns.Comm.QueueSize() > Loot.QUEUE_MAX then
+		a.tries = a.tries + 1
+		if a.tries <= 3 then return Loot.after(5, "loot answer", function() Answer(a) end) end
+		answering = nil
+		return HookPieces()
+	end
+	answering = nil
+	HookPieces()
+	local b = Book()
 	if not b then return end
+	lastAnswer = ns.Now()
+	pageTimes[#pageTimes + 1] = lastAnswer
+	ns.Comm.SendChunked(Loot.Page(b, a), nil, "GUILD")
+end
+
+-- A guildmate's ask (XQ): an officer's addon answers the ranges it holds whole itself, when its
+-- turn comes (SLOT apart among the officers online), unless another officer's answer began.
+function Loot.HandleAsk(dist, sender, text)
+	if dist ~= "GUILD" or type(text) ~= "string" or not ns.Roster.RankOf(sender) then return end -- (a guildmate our roster knows)
+	local a1, a2, a3, a4 = text:match("^XQ~([0-9a-z]+)~([0-9a-z]+)~([0-9a-z]+)~([0-9a-z]+)$")
+	local n1, n2, p1, p2 = UnB36(a1), UnB36(a2), UnB36(a3), UnB36(a4)
+	if not (n1 and n2 and p1 and p2) or n2 > ServerNow() + 3600 or p2 > ServerNow() + 3600 then return end
+	local want = { n = n1 < n2 and { n1, n2 } or nil, p = p1 < p2 and { p1, p2 } or nil }
+	if not (want.n or want.p) then return end
+	local now = ns.Now()
+	heardAsk = { n = want.n, p = want.p, t = now }
+	if not Loot.IsOfficer() then return end
+	local b, live = Book()
+	if not b then return end
+	for _, kind in ipairs(STREAMS) do
+		local r = want[kind]
+		if r and not Holds(b, kind, live, r[1], r[2]) then want[kind] = nil end
+	end
+	if not (want.n or want.p) then return end
+	sender = ns.FullName(sender)
+	local times = askerTimes[sender] or {}
+	askerTimes[sender] = times
+	if Recent(times, Loot.WINDOW) >= Loot.ASKER_ASKS then return end
+	times[#times + 1] = now
 	if answering then
-		answering.since = math.min(answering.since, since)
+		-- One answer covers the asks that come meanwhile: their ranges joined.
+		for _, kind in ipairs(STREAMS) do
+			local r, o = want[kind], answering[kind]
+			if r then answering[kind] = o and { math.min(o[1], r[1]), math.max(o[2], r[2]) } or r end
+		end
 		return
 	end
-	if ns.Now() - lastAnswer < Loot.ANSWER_GAP or Newest(b) <= since then return end
-	local a = { since = since }
+	if Recent(pageTimes, Loot.WINDOW) >= Loot.WINDOW_PAGES then return end
+	local a = { n = want.n, p = want.p, tries = 0 }
 	answering = a
-	Loot.after(2 + Loot.random() * 10, "loot answer", function()
-		if answering ~= a then return end
-		answering = nil
-		if a.heard or not Loot.IsOfficer() then return end
-		local book = Book()
-		local entries = book and Since(book, a.since) or {}
-		if #entries == 0 then return end
+	HookPieces()
+	local delay = math.max(2 + Turn(text) * Loot.SLOT + Loot.random() * 3, lastAnswer + Loot.PAGE_GAP - now)
+	Loot.after(delay, "loot answer", function() Answer(a) end)
+end
+ns.Comm.Handle("XQ", function(...) Loot.HandleAsk(...) end)
+
+-- Two officers' books can grow apart (one wrote while the other was away, who then took his own
+-- as the guild's: Loot.Settle). An officer's addon hearing another's answer that lacks changes of
+-- its own in the spans that answer holds whole sends them to the guild too, a moment later,
+-- unless an answer heard meanwhile carried them (a head of no span: "XB~S~0~0~0~0~0~0^...").
+local pushing -- { [entry] = its change time }: ours waiting to go
+local function Push(b, head, seen)
+	if not Loot.IsOfficer() then return end
+	local extra = {}
+	for _, kind in ipairs(STREAMS) do
+		local h = head[kind]
+		if h[3] < h[2] then
+			for _, e in ipairs(Entries(b, kind, h[3], h[2])) do
+				if not seen[e.entry] then extra[e.entry] = e.rev end
+			end
+		end
+	end
+	if next(extra) == nil then return end
+	if pushing then
+		for e, r in pairs(extra) do pushing[e] = r end
+		return
+	end
+	local p = extra
+	pushing = p
+	Loot.after(2 + Loot.random() * 5, "loot push", function()
+		if pushing == p then pushing = nil end
+		if not Loot.IsOfficer() or Recent(pageTimes, Loot.WINDOW) >= Loot.WINDOW_PAGES then return end
+		local list = {}
+		for e, r in pairs(p) do list[#list + 1] = { entry = e, rev = r } end
+		if #list == 0 then return end
+		table.sort(list, function(x, y) if x.rev ~= y.rev then return x.rev > y.rev end return x.entry < y.entry end)
+		local out, size = {}, 0
+		for _, e in ipairs(list) do
+			if size + #e.entry + 1 > Loot.ANSWER_BYTES - HEAD_ROOM then break end
+			out[#out + 1], size = e.entry, size + #e.entry + 1
+		end
 		lastAnswer = ns.Now()
-		ns.Comm.SendChunked("JB~" .. table.concat(entries, "^"), nil, "GUILD")
+		pageTimes[#pageTimes + 1] = lastAnswer
+		ns.Comm.SendChunked("XB~S~0~0~0~0~0~0^" .. table.concat(out, "^"), nil, "GUILD")
 	end)
 end
-ns.Comm.Handle("JQ", function(...) Loot.HandleAsk(...) end)
 
--- JB: an officer's answer (in pieces over GUILD, Comm.lua), taken entry by entry.
+-- XB: an officer's answer (in pieces over GUILD, Comm.lua), taken entry by entry; what its head
+-- says it holds whole is ours whole too then.
 function Loot.HandleBook(dist, sender, text)
-	if dist ~= "GUILD" or not SenderOfficer(sender) then return end
-	if answering then answering.heard = true end
+	if dist ~= "GUILD" or type(text) ~= "string" or not SenderOfficer(sender) then return end
 	local b = Book()
-	local body = b and text:match("^JB~(.+)$")
-	if not body then return end
-	local changed = false
+	local body = b and text:match("^XB~(.+)$")
+	local head = body and Head(body:match("^[^%^]*"))
+	if not head then return end
+	heardPage = ns.Now()
+	if answering and Covers(head, answering) then answering.heard = true end
+	local changed, seen = false, {}
 	for entry in body:gmatch("[^%^]+") do
+		seen[entry] = true
+		if pushing then pushing[entry] = nil end
 		if Take(b, entry, sender, false) then changed = true end
+	end
+	for _, kind in ipairs(STREAMS) do
+		local h = head[kind]
+		AddRange(Ranges(b, kind), h[3], h[2], Loot.KNOWN_MAX)
 	end
 	if changed then
 		Loot.Prune(b)
 		Changed()
 	end
+	Push(b, head, seen)
+	Continue()
 end
-ns.Comm.Handle("JB", function(...) Loot.HandleBook(...) end)
+ns.Comm.Handle("XB", function(...) Loot.HandleBook(...) end)
 
 ---------------------------------------------------------------------------
 -- The group's loot, for the officers' notes (the game's own loot lines, this session)
@@ -445,8 +774,9 @@ local function Date(t) return date("%Y-%m-%d", t) end
 function Loot.Show(open)
 	if open then
 		ns.Views.ShowPage("loot")
-		-- The book may be older than the officers' (a login on the Forever beta): asked once a session.
-		if not askedThisSession then Loot.Ask() end
+		-- The book may lack changes (a login on the Forever beta, a guildmate offline when they were
+		-- made): asked for, and again when the page opens later while something still lacks.
+		if asks == 0 or ns.Now() - lastAsk >= Loot.ASK_AGAIN then Loot.Ask() end
 	else
 		ns.Views.ShowPage(nil)
 	end
@@ -637,14 +967,17 @@ table.insert(ns.RealmPages, { key = "loot", Link = function() return Loot.Link()
 ns.On("LOGIN", function()
 	ns.RegisterEvent("CHAT_MSG_LOOT", function(text) Loot.OnLootMessage(text) end)
 	-- An officer's addon asks for the changes it lacks once the roster is in (the answers are
-	-- taken from officers our roster knows).
+	-- taken from officers our roster knows); nobody answering, its book is the guild's.
 	ns.After(50 + Loot.random() * 30, "loot ask", function()
-		if Loot.IsOfficer() and not askedThisSession then Loot.Ask() end
+		if Loot.IsOfficer() and asks == 0 then Loot.Ask() end
 	end)
 end)
 
 -- Tests start from a clean state.
 function Loot.Reset()
-	answering, lastAnswer, askedThisSession, counter = nil, -math.huge, false, 0
-	wipe(drops)
+	answering, lastAnswer, counter = nil, -math.huge, 0
+	asks, lastAsk, wanting, continuing, heardAsk, heardPage, pushing = 0, -math.huge, false, false, nil, -math.huge, nil
+	settling = false
+	wipe(drops); wipe(pageTimes); wipe(askerTimes); wipe(liveFrom)
+	HookPieces()
 end
