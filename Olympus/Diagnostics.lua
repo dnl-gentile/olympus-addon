@@ -368,6 +368,9 @@ function ns.StatusText()
 	add("map lib: %s  |  zones indexed=%d  |  tabs: %s", tostring(ns.Map and ns.Map.libOk), ns.Zones and ns.Zones.Count() or 0,
 		ns.UI and ns.UI.tabTemplate and (ns.UI.tabTemplate .. " (" .. tostring(ns.UI.tabStyle) .. " spacing), window "
 			.. tostring(ns.UI.WindowStyle and ns.UI.WindowStyle())) or "not built")
+	-- (1.1) Zone names from the roster no map id matched, names only: a zone a new client added
+	-- somewhere the index does not reach yet, shown as text in the census and left off the map.
+	add("zones without a map id: %s", ns.Zones and ns.Zones.UnmappedLine and ns.Zones.UnmappedLine() or "?")
 	-- Old Guild tab or new Communities window: which ones exist and got the Olympus button.
 	add("guild UI: %s", ns.GuildFrameHook and ns.GuildFrameHook.StatusLine() or "not loaded")
 	local seen = 0

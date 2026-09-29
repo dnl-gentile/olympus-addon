@@ -380,6 +380,11 @@ shows the army something of it.
   so its number stays readable; several around one circle each take a place of their own.
 - The round **Olympus** button in the bottom left corner of the map switches markers
   (army per zone, decrees) on and off.
+- Every zone of the game counts, not only Azeroth's (1.1): on TBC Anniversary Outland's zones
+  get their circles, and Outland's total shows on the map above Azeroth and Outland. A zone a
+  new patch adds is found by itself the first time a guildmate stands in it; one the addon still
+  can't place shows as plain text in the census, and `/oly status` (and `/oly bug`) lists its
+  name under "zones without a map id".
 
 ### Olympus Link: your Discord role (1.0.0, optional)
 Prove to the Olympus bot on Discord that a character is yours, and the bot gives you your role.

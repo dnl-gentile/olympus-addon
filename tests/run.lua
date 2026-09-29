@@ -24455,5 +24455,105 @@ test("1.0.0 the Hands' hint says they speak with the King's Crown to the other g
 	assert(rawget(pt.L, "HANDS_HINT"):find("decretos reais", 1, true))
 end)
 
+---------------------------------------------------------------------------
+-- 1.1: zones outside the Azeroth tree (request #3)
+---------------------------------------------------------------------------
+
+-- A map tree like TBC Anniversary's: Cosmic (946) holds Azeroth (947) and Outland (1945), and a
+-- map a later patch hung under no parent at all (3100). Runs fn(calls), calls.info counting
+-- C_Map.GetMapInfo; everything put back afterwards.
+local function WithOutland(fn)
+	local Z = ns.Zones
+	local tree = {
+		[946] = { "Cosmic", 0 }, [947] = { "Azeroth", 1, 946 }, [1415] = { "Eastern Kingdoms", 2, 947 },
+		[1429] = { "Elwynn Forest", 3, 1415 }, [1453] = { "Stormwind City", 3, 1415 }, [1436] = { "Westfall", 3, 1415 },
+		[1945] = { "Outland", 2, 946 }, [1944] = { "Hellfire Peninsula", 3, 1945 }, [1955] = { "Shattrath City", 3, 1945 },
+		-- A map of Outland sharing a name with an Azeroth zone: never Azeroth's id.
+		[1999] = { "Westfall", 3, 1945 },
+		[3100] = { "Isle of New Things", 3 },
+	}
+	local kids = { [946] = { 947, 1945 }, [947] = { 1415 }, [1415] = { 1429, 1453, 1436 }, [1945] = { 1944, 1955, 1999 } }
+	local calls = { info = 0 }
+	local saved = { info = C_Map.GetMapInfo, children = C_Map.GetMapChildrenInfo, best = C_Map.GetBestMapForUnit,
+		rect = C_Map.GetMapRectOnMap, guilds = ns.rdb.guilds, max = ns.Zones.SCAN_MAX }
+	C_Map.GetMapInfo = function(id)
+		calls.info = calls.info + 1
+		local m = tree[id]
+		return m and { mapID = id, name = m[1], mapType = m[2], parentMapID = m[3] }
+	end
+	C_Map.GetMapChildrenInfo = function(id)
+		local out = {}
+		for _, c in ipairs(kids[id] or {}) do out[#out + 1] = { mapID = c, name = tree[c][1], mapType = tree[c][2], parentMapID = id } end
+		return out
+	end
+	C_Map.GetBestMapForUnit = nil
+	Z.Reset()
+	local ok, err = pcall(fn, calls)
+	C_Map.GetMapInfo, C_Map.GetMapChildrenInfo, C_Map.GetBestMapForUnit = saved.info, saved.children, saved.best
+	C_Map.GetMapRectOnMap, ns.rdb.guilds, Z.SCAN_MAX = saved.rect, saved.guilds, saved.max
+	Z.Reset()
+	if not ok then error(err, 0) end
+end
+
+test("1.1 zones: Outland under the Cosmic map gets its map id (TBC Anniversary), Azeroth's names keep 1.0's ids", function()
+	WithOutland(function()
+		local Z = ns.Zones
+		eq(Z.KeyForName("Hellfire Peninsula"), "m1944", "a zone of Outland, under Cosmic (946), not Azeroth (947)")
+		eq(Z.KeyForName("Shattrath City"), "m1955")
+		eq(Z.MapID(Z.KeyForName("Hellfire Peninsula")), 1944)
+		eq(Z.NameForKey("m1944"), "Hellfire Peninsula", "its name back from the id (a 1.0 client reads it the same way)")
+		-- Azeroth's zones keep the id 1.0 gave them (clients of both versions send the same keys),
+		-- even where Outland has a map of the same name.
+		eq(Z.KeyForName("Westfall"), "m1436")
+		eq(Z.KeyForName("Stormwind City"), "m1453")
+		eq(Z.Unmapped()[1], nil, "nothing unmapped")
+		assert(ns.StatusText():find("zones without a map id: none", 1, true), "in /oly status")
+	end)
+end)
+
+test("1.1 zones: a name the tree lacks sets off one scan of every map id; what even that misses stays text and is listed in /oly status and /oly bug", function()
+	WithOutland(function(calls)
+		local Z = ns.Zones
+		Z.SCAN_MAX = 4000
+		eq(Z.KeyForName("Elwynn Forest"), "m1429", "the tree first")
+		local before = calls.info
+		eq(Z.KeyForName("Isle of New Things"), "m3100", "found by the scan at the first miss")
+		assert(calls.info - before >= 3100, "the scan read the map ids")
+		-- Once a session: a name even the scan misses costs no second scan.
+		before = calls.info
+		eq(Z.KeyForName("Nowhere Land"), "tNowhere Land", "still text")
+		eq(Z.KeyForName("Nowhere Land"), "tNowhere Land")
+		assert(calls.info - before < 10, "no second scan: " .. (calls.info - before))
+		local list, n = Z.Unmapped()
+		eq(n, 1); eq(list[1], "Nowhere Land")
+		assert(ns.StatusText():find("zones without a map id: 1: Nowhere Land", 1, true), "in /oly status")
+		local savedErrors, savedLog = ns.db.errors, ns.db.log
+		ns.db.errors, ns.db.log = {}, {}
+		local report = ns.BuildBugReport()
+		ns.db.errors, ns.db.log = savedErrors, savedLog
+		assert(report:find("zones without a map id: 1: Nowhere Land", 1, true), "in /oly bug")
+		eq(Z.KeyForName("Hellfire Peninsula"), "m1944")
+	end)
+end)
+
+test("1.1 zones: Outland's total goes on the map above it (Cosmic), Azeroth's continents stay on the Azeroth map", function()
+	WithOutland(function()
+		local Z, M = ns.Zones, ns.Map
+		ns.rdb.guilds = { ["Olympus"] = { total = 100, online = 12, t = os.time(),
+			zones = { [Z.KeyForName("Hellfire Peninsula")] = 5, [Z.KeyForName("Stormwind City")] = 7 } } }
+		local totals = M.ContinentTotals(ns.Data.Summary())
+		eq(totals[1945], 5, "Outland's own total"); eq(totals[1415], 7)
+		-- The game gives Outland no rect on the Azeroth map, but one on the Cosmic map.
+		C_Map.GetMapRectOnMap = function(cont, on)
+			if on == 947 and cont == 1415 then return 0.5, 0.7, 0.2, 0.6 end
+			if on == 946 and cont == 1945 then return 0.6, 0.9, 0.1, 0.5 end
+			return nil
+		end
+		eq(M.OverlayMap(1945), 946, "Outland on the Cosmic map")
+		eq(M.OverlayMap(1415), 947, "Eastern Kingdoms on Azeroth, as in 1.0")
+		eq(M.OverlayMap(1429), nil, "a zone is no continent of a top map")
+	end)
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
