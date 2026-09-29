@@ -304,7 +304,11 @@ function Acts.OpenGates(guild)
 	gates = { id = ns.King.NewId(), guild = guild, by = ns.me, at = ns.Now() + Acts.GATES_TIME, mine = true, preview = preview or nil }
 	if preview then ns.Print(L.THRONE_PREVIEW_NOTE) end
 	-- Kept across a /reload: the opener's client repeats them for late logins.
-	if not preview then ns.rdb.gates = { id = gates.id, guild = guild, at = gates.at } end
+	if not preview then
+		ns.rdb.gates = { id = gates.id, guild = guild, at = gates.at }
+		-- 1.1 (#12): our own act never comes back to us: in our log as we send it.
+		ns.Chronicle.Add("gates", ns.me, L.ACTS_GATES_OPEN:format(guild), { key = "gates", value = gates.id .. ":" .. guild })
+	end
 	SendGates()
 	ns.Print(L.GATES_OPENED:format(guild))
 	ns.Fire("DATA_CHANGED")
@@ -321,6 +325,7 @@ function Acts.CloseGates()
 	if not Acts.CanClose() then return ns.Print(L.GATES_ONLY_OPENER) end
 	if not gates.preview then
 		ns.Comm.Send("CHANNEL", ("T1~G~%d~%s~0~"):format(gates.id, GetGuildInfo("player") or ""), "gates")
+		ns.Chronicle.Add("gates", ns.me, L.ACTS_GATES_CLOSED, { key = "gates", value = "closed" })
 	end
 	gates = nil
 	ns.rdb.gates = nil
@@ -339,6 +344,8 @@ local function OnGates(sender, id, rest, guild)
 		if gates and (gates.by == sender or king) then
 			if gates.mine then ns.rdb.gates = nil end
 			gates = nil
+			-- 1.1 (#12): in this client's log of acts, with the name the server stamped.
+			ns.Chronicle.Add("gates", sender, L.ACTS_GATES_CLOSED, { key = "gates", value = "closed" })
 			ns.Fire("DATA_CHANGED")
 		end
 		return
@@ -347,6 +354,8 @@ local function OnGates(sender, id, rest, guild)
 	if not target then return end
 	local fresh = not gates or gates.id ~= id
 	gates = { id = id, guild = target, by = sender, at = ns.Now() + math.min(seconds, Acts.GATES_TIME) }
+	-- 1.1 (#12): in this client's log of acts, once per opening (repeated every 10 minutes).
+	ns.Chronicle.Add("gates", sender, L.ACTS_GATES_OPEN:format(target), { key = "gates", value = id .. ":" .. target })
 	-- In chat once a minute at most, whatever arrives.
 	local now = ns.Now()
 	if fresh and now - lastNews >= Acts.NEWS_GAP then
@@ -446,6 +455,8 @@ function Acts.Pardon(name)
 		ns.rdb.pardonsGiven = ns.rdb.pardonsGiven or {}
 		ns.rdb.pardonsGiven[short] = ns.Now()
 		SendPardons()
+		-- 1.1 (#12): our own act never comes back to us: in our log as we send it.
+		ns.Chronicle.Add("pardon", ns.me, L.ACTS_PARDON:format(short))
 	else
 		ns.Print(L.THRONE_PREVIEW_NOTE)
 	end
@@ -461,6 +472,8 @@ local function OnPardon(sender, id, rest)
 		if n > 30 then break end
 		if short and not Acts.Pardoned(short) then
 			Apply(short)
+			-- 1.1 (#12): in this client's log of acts, with the name the server stamped.
+			ns.Chronicle.Add("pardon", sender, L.ACTS_PARDON:format(short))
 			ns.Print("|cffffd200" .. L.PARDON_NEWS:format(ns.KingName(sender), short) .. "|r")
 		end
 	end

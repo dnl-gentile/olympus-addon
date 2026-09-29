@@ -148,6 +148,8 @@ function Decree.Send(kind, text)
 	local rank = steward and 0 or ns.Roster.MyRank()
 	-- Logged (1.0.0): the server keeps its words, so abuse can be reported (Comm.Send).
 	ns.Comm.Send("CHANNEL", ns.Codec.EncodeDecree(kind, mapID, x, y, guild, rank, text), nil, nil, true)
+	-- 1.1 (#12): our own decree never comes back to us: in our log as we send it.
+	ns.Chronicle.Add("decree", ns.me, Label({ kind = kind }) .. " " .. ns.Zones.NameForKey("m" .. mapID), { words = text })
 	Show({ kind = kind, mapID = mapID, x = x, y = y, guild = guild, rank = rank, text = text or "", sender = ns.DisplayName(ns.me), t = now })
 end
 
@@ -232,6 +234,8 @@ ns.Comm.Handle("D1", function(dist, sender, text)
 		d.text = ""
 	end
 	d.sender, d.t = ns.DisplayName(sender), now
+	-- 1.1 (#12): in this client's log of acts, with the name the server stamped.
+	ns.Chronicle.Add("decree", sender, Label(d) .. " " .. ns.Zones.NameForKey("m" .. d.mapID), { words = d.text })
 	Show(d)
 end)
 

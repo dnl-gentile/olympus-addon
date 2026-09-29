@@ -780,12 +780,19 @@ function King.ToggleUntabarded()
 	ns.db.kingUntabarded = not King.SharingUntabarded()
 	ns.Print(King.SharingUntabarded() and L.UNTABARDED_ON or L.UNTABARDED_OFF)
 	King.SendUntabarded(true)
+	-- 1.1 (#12): his own switch never comes back to him: in his log as he sends it.
+	local on = King.SharingUntabarded()
+	ns.Chronicle.Add("switch", ns.me, on and L.ACTS_UNTABARDED_ON or L.ACTS_UNTABARDED_OFF, { key = "untabarded", value = on and "1" or "0" })
 	Changed()
 end
 
 local function OnUntabarded(sender, rest)
 	if King.IsKing() then return end
 	local on, body = tostring(rest or ""):match("^(%d)~?(.*)$")
+	-- 1.1 (#12): in this client's log of acts when it flips (repeated every 5 minutes while on).
+	if on == "1" or on == "0" then
+		ns.Chronicle.Add("switch", sender, on == "1" and L.ACTS_UNTABARDED_ON or L.ACTS_UNTABARDED_OFF, { key = "untabarded", value = on })
+	end
 	if on == "1" then
 		local s = ns.Codec.DecodeShame("S1~Olympus~0~" .. body)
 		if s then ns.Inspect.ShowShame({ by = ns.KingName(sender), list = s.list, t = ns.Now() }) end

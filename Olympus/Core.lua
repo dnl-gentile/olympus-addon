@@ -1143,6 +1143,7 @@ StandIn("Link", { "Slash" })
 StandIn("Borders", { "SetEnabled", "Report" })
 StandIn("Nameplates", { "SetEnabled", "Report" })
 StandIn("Consent", { "Show" }) -- 1.1: the first-open page (Consent.lua)
+StandIn("Chronicle", { "Slash" }) -- 1.1: the log of acts this client saw (Chronicle.lua)
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1221,7 +1222,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Consent" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Consent", "Chronicle" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1254,6 +1255,7 @@ local function Help()
 	print(L.HELP_ROLLCALL)
 	print(L.HELP_PRIVACY_PAGE)
 	print(L.HELP_CHAT)
+	print(L.HELP_LOG)
 	print(L.HELP_TREASURER)
 	print(L.HELP_INSPECTION)
 	print(L.HELP_BORDERS)
@@ -1400,6 +1402,9 @@ SlashCmdList.OLYMPUS = function(input)
 			else
 				ns.Print(ns.Layers.Sharing() and L.LOCATION_ON or L.LOCATION_OFF)
 			end
+		elseif cmd == "log" then
+			-- 1.1 (Fern's #12): the acts this client saw (Chronicle.lua): [n], a word, copy, clear.
+			ns.Chronicle.Slash(rest)
 		elseif cmd == "privacy" or cmd == "privacidade" then
 			-- 1.1 (Fern's #11): the page of what this addon shares, each answer to change (Consent.lua).
 			ns.Consent.Show()

@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Consent", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Chronicle", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Consent", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -24802,6 +24802,187 @@ do
 		print = savedPrint
 		local all = table.concat(lines, "\n")
 		assert(all:find(ns.L.HELP_PRIVACY_PAGE, 1, true) and all:find(ns.L.HELP_CHAT, 1, true), "in /oly help")
+	end)
+end
+
+---------------------------------------------------------------------------
+-- 1.1 (batch B1, Fern's #12): the log of the acts this client saw (Chronicle.lua).
+---------------------------------------------------------------------------
+do
+	local Ch = ns.Chronicle
+	local function Kinds(from)
+		local out = {}
+		local list = Ch.Entries()
+		for i = (from or 0) + 1, #list do out[#out + 1] = list[i].kind end
+		return table.concat(out, ",")
+	end
+	local function Last() local list = Ch.Entries() return list[#list] end
+	local KING = "Asmongold Asmongler-Realm"
+
+	test("1.1 acts log (#12): the gates, pardons and the King's visibility switches this client saw, each once, with the server's sender name; a refused sender writes nothing", function()
+		Ch.Clear()
+		WithThrone(function(w, K)
+			AsSoldier("Watcher")
+			-- The gates: opened, repeated every 10 minutes (once in the log), closed.
+			K.HandleCommand("CHANNEL", KING, "T1~G~51~Olympus~7200~Olympus II")
+			eq(Kinds(), "gates"); eq(Last().by, KING, "the server's name for the sender")
+			eq(Last().what, ns.L.ACTS_GATES_OPEN:format("Olympus II"))
+			K.HandleCommand("CHANNEL", KING, "T1~G~51~Olympus~6600~Olympus II")
+			eq(Kinds(), "gates", "repeated: written once")
+			K.HandleCommand("CHANNEL", "Faker Guy-Realm", "T1~G~52~Olympus~7200~Olympus Zeus")
+			eq(Kinds(), "gates", "a refused sender writes nothing")
+			K.HandleCommand("CHANNEL", KING, "T1~G~51~Olympus~0~")
+			eq(Kinds(), "gates,gates"); eq(Last().what, ns.L.ACTS_GATES_CLOSED)
+			-- Pardons: each name once, however often the week's list is repeated.
+			K.HandleCommand("CHANNEL", KING, "T1~F~9~Olympus~Naked,Pirate")
+			K.HandleCommand("CHANNEL", KING, "T1~F~10~Olympus~Naked,Pirate")
+			K.HandleCommand("CHANNEL", "Faker Guy-Realm", "T1~F~11~Olympus~Innocent")
+			eq(Kinds(), "gates,gates,pardon,pardon")
+			eq(Last().what, ns.L.ACTS_PARDON:format("Pirate")); eq(Last().by, KING)
+			-- The untabarded list shown (repeated every 5 minutes: once), then hidden.
+			K.HandleCommand("CHANNEL", KING, "T1~U~3~Olympus~1~Naked:Olympus II")
+			K.HandleCommand("CHANNEL", KING, "T1~U~4~Olympus~1~Naked:Olympus II")
+			K.HandleCommand("CHANNEL", "Faker Guy-Realm", "T1~U~5~Olympus~0")
+			eq(Kinds(4), "switch"); eq(Last().what, ns.L.ACTS_UNTABARDED_ON)
+			K.HandleCommand("CHANNEL", KING, "T1~U~6~Olympus~0")
+			eq(Kinds(4), "switch,switch"); eq(Last().what, ns.L.ACTS_UNTABARDED_OFF)
+			-- What the army sees of the treasury: when it changes, not when the word is repeated.
+			K.HandleCommand("CHANNEL", KING, "T1~T~7~Olympus~000~" .. w.clock)
+			eq(Kinds(6), "", "nothing shown is where it starts")
+			K.HandleCommand("CHANNEL", KING, "T1~T~8~Olympus~110~" .. (w.clock + 1))
+			eq(Kinds(6), "switch")
+			eq(Last().what, ns.L.ACTS_TREASURY:format(ns.L.ACTS_TREASURY_BALANCE .. ", " .. ns.L.ACTS_TREASURY_RANKING))
+			K.HandleCommand("CHANNEL", KING, "T1~T~9~Olympus~110~" .. (w.clock + 2))
+			K.HandleCommand("CHANNEL", "Faker Guy-Realm", "T1~T~10~Olympus~111~" .. (w.clock + 3))
+			eq(Kinds(6), "switch", "the same word again, or a refused sender: nothing new")
+			-- Nothing of it was sent anywhere.
+			for _, s in ipairs(w.sent) do assert(not s.msg:find("ACTS", 1, true), s.msg) end
+			eq(#w.whispered, 0)
+		end)
+		Ch.Clear()
+	end)
+
+	test("1.1 acts log (#12): a decree the client took (and never one it refused), with its words; the King's and a Hand's own acts as they send them (theirs never come back)", function()
+		Ch.Clear()
+		local saved = { guild = GetGuildInfo, notice = RaidNotice_AddMessage, alert = ns.PlayAlert, print = ns.Print, chat = C_ChatInfo }
+		local ok, err = pcall(function()
+			GetGuildInfo = function() return "Olympus II", "Member", 3 end
+			RaidNotice_AddMessage, ns.PlayAlert, ns.Print = nil, function() end, function() end
+			local cns, Deliver = FreshComm()
+			assert(loadfile(ADDON_DIR .. "Decree.lua"))("Olympus", cns)
+			Deliver("CHANNEL", KING, Codec.EncodeDecree("ROYAL", 1453, 0.5, 0.5, "Olympus", 0, "hold the bridge"))
+			eq(Kinds(), "decree"); eq(Last().by, KING); eq(Last().words, "hold the bridge")
+			assert(Last().what:find(ns.L.ROYAL, 1, true) and Last().what:find("Stormwind City", 1, true), Last().what)
+			-- A decree from someone the census can't place is refused: not in the log.
+			Deliver("CHANNEL", "Nobody Special-Realm", Codec.EncodeDecree("ARMS", 1453, 0.5, 0.5, "Olympus Zeus", 0, "fake"))
+			eq(Kinds(), "decree")
+		end)
+		GetGuildInfo, RaidNotice_AddMessage, ns.PlayAlert, ns.Print, C_ChatInfo = saved.guild, saved.notice, saved.alert, saved.print, saved.chat
+		if not ok then error(err, 0) end
+		WithThrone(function(w, K)
+			AsKing()
+			ns.Acts.OpenGates("Olympus II")
+			eq(Kinds(1), "gates"); eq(Last().by, KING, "his own act, by his name")
+			-- His broadcast repeated (and never heard back): still once.
+			ns.Acts.CloseGates()
+			eq(Kinds(1), "gates,gates"); eq(Last().what, ns.L.ACTS_GATES_CLOSED)
+			K.ToggleUntabarded()
+			eq(Kinds(3), "switch"); eq(Last().what, ns.L.ACTS_UNTABARDED_ON)
+			ns.Acts.Pardon("Naked")
+			eq(Kinds(4), "pardon")
+			ns.Treasury.SetFlag("book", true)
+			eq(Kinds(5), "switch"); eq(Last().by, KING)
+			K.ToggleUntabarded()
+		end)
+		Ch.Clear()
+	end)
+
+	test("1.1 acts log (#12): a ring of 300, /oly log (n, a word, copy, clear), the Decrees tab's list with its search, its caveat, and never in /oly bug; the documented Add for other features", function()
+		Ch.Clear()
+		local saved = { print = print, Print = ns.Print, UI = ns.UI }
+		local printed, copied = {}, {}
+		local ok, err = pcall(function()
+			-- Another feature's act (a character taken off the net, from another batch): Add with a
+			-- state, written only when that state changes.
+			eq(Ch.Add("netoff", "Steward Person-Realm", "Spammer Guy taken off the net: spam", { key = "netoff:spammer guy", value = "on" }), true)
+			eq(Ch.Add("netoff", "Steward Person-Realm", "Spammer Guy taken off the net: spam", { key = "netoff:spammer guy", value = "on" }), false, "repeated: once")
+			eq(Ch.Add("netoff", "Steward Person-Realm", "Spammer Guy back on the net", { key = "netoff:spammer guy", value = "off" }), true)
+			eq(Ch.Add("guildnetoff", "Steward Person-Realm", "<Fake Olympus> out of the totals"), true)
+			eq(Ch.Add("", "x", "y"), false, "no kind: nothing")
+			-- No escape code gets in, whatever a caller hands it.
+			Ch.Add("terms", "Someone-Realm", "|cffff0000red|r |Hplayer:x|h[x]|h")
+			assert(not Last().what:find("|", 1, true), Last().what)
+			-- A ring: the newest 300.
+			for i = 1, 305 do Ch.Add("decree", "Cap" .. i .. "-Realm", "Muster " .. i) end
+			eq(#Ch.Entries(), Ch.MAX); eq(Ch.MAX, 300)
+			eq(Ch.Entries()[1].what, "Muster 6", "the oldest go first")
+			-- /oly log: the newest ten, with the sender's name; a number; a word.
+			print = function(s) printed[#printed + 1] = tostring(s) end
+			ns.Print = function(s) printed[#printed + 1] = tostring(s) end
+			SlashCmdList.OLYMPUS("log")
+			eq(printed[1], ns.L.ACTS_CHAT_HEAD:format(Ch.CHAT, Ch.MAX))
+			assert(printed[2]:find("Muster 305", 1, true) and printed[2]:find("Cap305-Realm", 1, true), printed[2])
+			eq(printed[#printed], "  " .. ns.L.ACTS_NOTE, "the caveat, every time")
+			printed = {}
+			SlashCmdList.OLYMPUS("log 3")
+			eq(printed[1], ns.L.ACTS_CHAT_HEAD:format(3, Ch.MAX))
+			Ch.Add("gates", KING, ns.L.ACTS_GATES_OPEN:format("Olympus II"))
+			printed = {}
+			SlashCmdList.OLYMPUS("log olympus ii")
+			eq(printed[1], ns.L.ACTS_CHAT_HEAD:format(1, Ch.MAX), "a word finds its entries, any case")
+			-- The Decrees tab: its caveat, a copy, the newest entries; its box searches the log alone.
+			ns.UI = { ShowCopy = function(title, text) copied[#copied + 1] = { title = title, text = text } end, Refresh = function() end, RefreshSoon = function() end }
+			local function Texts()
+				local out = {}
+				for _, l in ipairs(ns.Views.Build("decrees")) do out[#out + 1] = tostring(l.text) end
+				return out
+			end
+			local all = table.concat(Texts(), "\n")
+			assert(all:find(ns.L.ACTS_TITLE, 1, true) and all:find(ns.L.ACTS_NOTE, 1, true), "the section and its caveat")
+			assert(all:find(ns.L.ACTS_GATES_OPEN:format("Olympus II"), 1, true), "the newest entry")
+			assert(not all:find("Muster 6\n", 1, true), "not all 300 without a search")
+			assert(all:find(ns.L.DECREES, 1, true), "the decrees stay")
+			ns.Views.SetFilter("decrees", "MUSTER 30")
+			local found = 0
+			for _, t in ipairs(Texts()) do if t:find("Muster 30", 1, true) then found = found + 1 end end
+			eq(found, 7, "Muster 30 and 300 to 305: every match, any case")
+			ns.Views.SetFilter("decrees", "")
+			for _, l in ipairs(ns.Views.Build("decrees")) do
+				if l.text and l.text:find(ns.L.ACTS_COPY, 1, true) then l.onClick() end
+			end
+			eq(#copied, 1); eq(copied[1].title, ns.L.ACTS_TITLE)
+			assert(copied[1].text:find(ns.L.ACTS_NOTE, 1, true) and copied[1].text:find("Cap7-Realm", 1, true), "the whole log, with names")
+			SlashCmdList.OLYMPUS("log copy")
+			eq(#copied, 2)
+			-- Kept on this computer: never in a bug report.
+			assert(not ns.BuildBugReport():find("Muster 305", 1, true), "not in /oly bug")
+			SlashCmdList.OLYMPUS("log clear")
+			eq(#Ch.Entries(), 0); eq(printed[#printed], ns.L.ACTS_CLEARED)
+		end)
+		print, ns.Print, ns.UI = saved.print, saved.Print, saved.UI
+		ns.Views.ClearFilters()
+		Ch.Clear()
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.1 acts log (#12): its words in both languages, the same format arguments", function()
+		local pt = { L = setmetatable({}, { __index = function() return nil end }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		for _, key in ipairs({ "ACTS_TITLE", "ACTS_NOTE", "ACTS_COPY", "ACTS_EMPTY", "ACTS_BY", "ACTS_CLEARED", "ACTS_CHAT_HEAD",
+			"ACTS_KIND_DECREE", "ACTS_KIND_GATES", "ACTS_KIND_PARDON", "ACTS_KIND_SWITCH", "ACTS_KIND_NETOFF", "ACTS_KIND_GUILDNETOFF",
+			"ACTS_KIND_TERMS", "ACTS_GATES_OPEN", "ACTS_GATES_CLOSED", "ACTS_PARDON", "ACTS_UNTABARDED_ON", "ACTS_UNTABARDED_OFF",
+			"ACTS_TREASURY", "ACTS_TREASURY_BALANCE", "ACTS_TREASURY_RANKING", "ACTS_TREASURY_BOOK", "ACTS_TREASURY_NOTHING",
+			"SEARCH_TIP_LOG", "HELP_LOG" }) do
+			local en, br = rawget(ns.L, key), rawget(pt.L, key)
+			assert(type(en) == "string" and en ~= "", "English " .. key)
+			assert(type(br) == "string" and br ~= "" and br ~= en, "pt-BR " .. key)
+			local function Args(s) local out = {} for a in s:gmatch("%%%a") do out[#out + 1] = a end return table.concat(out) end
+			eq(Args(br), Args(en), key .. ": format arguments")
+		end
 	end)
 end
 

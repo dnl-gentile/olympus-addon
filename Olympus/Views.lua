@@ -1648,8 +1648,10 @@ local BUILD = {
 	decrees = function()
 		local title, text = DecreeDetail()
 		local lines = DecreeLines()
+		-- 1.1 (#12): this client's log of the acts it saw, its box searching it alone.
+		if ns.Chronicle and not ns.Chronicle.missing then ns.Chronicle.AddLines(lines, Views.Query("decrees")) end
 		DecreeHelp(lines)
-		return lines, title, text
+		return Searched(lines, "decrees", "LOG"), title, text
 	end,
 	heraldry = function()
 		local title, text = HeraldryDetail()

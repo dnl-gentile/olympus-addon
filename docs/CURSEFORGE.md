@@ -431,9 +431,17 @@ account, `/oly discord forget` drops this character's request and proof.
 
 ### Everywhere
 - **Copy**: every tab produces a ready-to-paste text for Discord.
+- **What this client saw** (1.1, the Decrees tab and `/oly log`): a log of the acts your addon
+  took while you were online (decrees, the gates opening and closing, pardons, the King's
+  visibility switches for the treasury and the untabarded list), each with the sender's name as
+  the server stamped it, the newest 300. So "who opened the gates" has an answer after the message
+  is gone. Kept on your computer only, never sent, never in `/oly bug`; a record, not proof
+  (anyone can edit their own saved files). The Decrees tab lists it with a search box and a copy;
+  `/oly log [n | word | copy | clear]` in chat.
 - **Search**: a box on top of the Census (a guild or its Lord), the Realm (guilds, Lords, Captains,
   members seen online, the Olympus chats' lines), the Tabards (inspected and untabarded players,
-  by name or guild) and the Treasury (donors in the ranking and the book). Any case, accents too;
+  by name or guild), the Treasury (donors in the ranking and the book) and, since 1.1, the Decrees
+  (the log of what this client saw). Any case, accents too;
   only what matches shows, under the headers it belongs to (a Captain under his guild, opened
   for you, a page of guilds at a time), with an **x** to empty it. Each tab keeps its text until
   you log out or `/reload`; a guild clicked in the Census opens in the Realm with its box emptied.
@@ -827,6 +835,7 @@ Other limits:
 | `/oly map` | zone markers on the world map |
 | `/oly sound` | alert sounds on or off |
 | `/oly bug` | copyable bug report (also: the help button left of the window's X, then **Report a bug**) |
+| `/oly log [n \| word \| copy \| clear]` | the acts this client saw (decrees, gates, pardons, visibility switches), each with the sender's name; kept on this computer, never sent (1.1) |
 | `/oly status` | diagnostics in chat (1.0.0: whom your addon knows as the King's Steward, and the lists of Hands it holds, whose each is) |
 
 ## Reporting a bug
