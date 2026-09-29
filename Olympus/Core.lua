@@ -594,7 +594,36 @@ end
 
 ns.HELD_MAX = 40
 local held = {} -- { kind, tone, what, key, t, open, show }, oldest first
-function ns.ResetHeld() held = {} end -- (tests)
+-- What was over when the list was full and went out of it: still counted in the grey line (the
+-- ones without a key; each key once, unless the same alert is current again by then).
+local goneN, goneKeys = 0, {}
+function ns.ResetHeld() held, goneN, goneKeys = {}, 0, {} end -- (tests)
+
+local function Current(h) return h.open == nil or h.open() == true end
+
+-- Past HELD_MAX: what is over goes first (forty Calls to Arms over by then no longer push a
+-- Muster or the Agenda out). Then, if all is still current: the same alert repeated as one (the
+-- latest, with the popup an earlier one had: ns.Held); then the oldest without a popup or
+-- window, and only if every one has one, the oldest.
+local function Trim()
+	if #held <= ns.HELD_MAX then return end
+	local keep = {}
+	for _, h in ipairs(held) do
+		if Current(h) then keep[#keep + 1] = h
+		elseif h.key then goneKeys[h.key] = true
+		else goneN = goneN + 1 end
+	end
+	held = keep
+	if #held <= ns.HELD_MAX then return end
+	held = ns.Held()
+	while #held > ns.HELD_MAX do
+		local drop = 1
+		for i, h in ipairs(held) do
+			if not h.show then drop = i; break end
+		end
+		table.remove(held, drop)
+	end
+end
 
 -- An alert that interrupts: its raid warning (a.text), its sound, its popup or window (a.show).
 -- The caller prints its chat line. While quiet (and not the player's own click, a.own) it waits:
@@ -605,7 +634,7 @@ function ns.Alert(kind, tone, a)
 	a = a or {}
 	if not a.own and ns.Quiet() then
 		held[#held + 1] = { kind = kind, tone = tone, what = a.what or a.text or kind, key = a.key, t = ns.Now(), open = a.open, show = a.show }
-		while #held > ns.HELD_MAX do table.remove(held, 1) end
+		Trim()
 		ns.Log("alert held (%s): %s", tostring(ns.Quiet()), tostring(kind))
 		ns.Fire("DECREES_CHANGED")
 		return false
@@ -617,8 +646,6 @@ function ns.Alert(kind, tone, a)
 	if a.show then a.show() end
 	return true
 end
-
-local function Current(h) return h.open == nil or h.open() == true end
 
 -- What waits and is still current, one per key (the latest, with the popup an earlier one
 -- had: the Agenda's, before its reminders), oldest first.
@@ -669,16 +696,20 @@ end
 -- What is over by then stays in its list: a grey line says how many.
 ns.HELD_WORDS = 5 -- alerts named in that line; the rest counted
 function ns.ReleaseHeld()
-	if #held == 0 or ns.Quiet() then return false end
+	if (#held == 0 and goneN == 0 and not next(goneKeys)) or ns.Quiet() then return false end
 	local list = ns.Held()
-	-- The ones over, each counted once (an Agenda and its reminders are one).
-	local live, counted, gone = {}, {}, 0
+	-- The ones over, each counted once (an Agenda and its reminders are one), with those over
+	-- that a full list let go (Trim).
+	local live, counted, gone = {}, {}, goneN
 	for _, h in ipairs(list) do live[h.key or h] = true end
+	for key in pairs(goneKeys) do
+		if not live[key] then counted[key], gone = true, gone + 1 end
+	end
 	for _, h in ipairs(held) do
 		local id = h.key or h
 		if not live[id] and not counted[id] then counted[id], gone = true, gone + 1 end
 	end
-	held = {}
+	held, goneN, goneKeys = {}, 0, {}
 	ns.Fire("DECREES_CHANGED")
 	if #list == 0 then
 		if gone > 0 then ns.Print("|cff9d9d9d" .. L.HELD_GONE:format(gone) .. "|r") end

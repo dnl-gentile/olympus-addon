@@ -24961,6 +24961,113 @@ test("1.1 held alerts: out comes through Olympus's own dialog with the gamepad U
 	end)
 end)
 
+test("1.1 held alerts: a full list lets go of what is over first: a Muster held before HELD_MAX Calls to Arms, all over once the player is out, is still named, warned and heard", function()
+	HoldBench(function(b)
+		local L = ns.L
+		local savedGuild, savedGuilds = GetGuildInfo, ns.rdb.guilds
+		local ok, err = pcall(function()
+			GetGuildInfo = function() return "Olympus II", "rank", 3 end
+			ns.rdb.guilds = {}
+			ns.Roster.Scan()
+			-- The real receive path: a D1 from our guild's officers (never flood-limited).
+			local cns, Deliver = FreshComm()
+			cns.Now = function() return b.clock end
+			cns.Comm.loginAt = b.clock - 3600
+			assert(loadfile(ADDON_DIR .. "Decree.lua"))("Olympus", cns)
+			local function Decree(sender, kind, text)
+				Deliver("CHANNEL", sender, Codec.EncodeDecree(kind, 1453, 0.5, 0.5, "Olympus II", 1, text))
+			end
+			local muster = L.HELP_MUSTER_NAME .. " (Stormwind City)"
+			b.inside = true
+			Decree("Member2-Realm", "MUSTER", "at the bridge")
+			-- Then HELD_MAX Calls to Arms, 20 seconds apart, from our officers in turn (each past his gap).
+			local officers = { "Member3-Realm", "Member4-Realm", "Member5-Realm", "Member6-Realm", "Member2-Realm" }
+			for i = 1, ns.HELD_MAX do
+				b.clock = b.clock + 20
+				Decree(officers[(i - 1) % #officers + 1], "ARMS", "wave " .. i)
+			end
+			local arms = 0
+			for _, p in ipairs(b.printed) do if p:find(L.ARMS, 1, true) and p:find("wave ", 1, true) then arms = arms + 1 end end
+			eq(arms, ns.HELD_MAX, "every Call to Arms taken (its chat line)")
+			eq(#b.warnings, 0); eq(#b.played, 0)
+			assert(Texts(ns.Views.Build("decrees")):find(muster, 1, true), "the Muster still waits on the Decrees tab")
+			-- Out six minutes after the last: every Call to Arms (5 minutes) is over, the Muster (30) is not.
+			b.clock = b.clock + 6 * 60
+			b.inside = false
+			local printed = #b.printed
+			eq(ns.ReleaseHeld(), true)
+			eq(#b.printed, printed + 1, "one line")
+			local line = b.printed[#b.printed]
+			assert(line:find(L.HELD_SUMMARY:format(muster), 1, true), "the Muster named: " .. line)
+			assert(line:find(L.HELD_AND_GONE:format(ns.HELD_MAX), 1, true), "every Call to Arms counted, once: " .. line)
+			eq(#b.warnings, 1, "one raid warning"); assert(b.warnings[1]:find(L.HELP_MUSTER_NAME, 1, true), b.warnings[1])
+			eq(#b.played, 1, "one sound"); eq(b.played[1], SOUNDKIT.READY_CHECK, "the Muster's")
+			eq(ns.ReleaseHeld(), false, "once")
+		end)
+		GetGuildInfo, ns.rdb.guilds, C_ChatInfo = savedGuild, savedGuilds, nil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 held alerts: a full list keeps the Agenda's popup: HELD_MAX Calls to Arms over by then, or HELD_MAX Musters still current, never push it out", function()
+	HoldBench(function(b)
+		WithUI(function()
+			WithThrone(function(w, K)
+				local L = ns.L
+				local function Wait(s) w.clock, b.clock = w.clock + s, b.clock + s end
+				-- Held as Decree.lua holds them: current until they expire.
+				local function Decree(kind, what, seconds)
+					local expires = ns.Now() + seconds
+					ns.Alert(kind, kind == "muster" and "soft" or "loud", { text = what, what = what, open = function() return ns.Now() <= expires end })
+				end
+				RaidNotice_AddMessage = b.notice
+				AsCaptain()
+				b.inside = true
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~A~82~Olympus~10800~The Crossroads~Raid on the Crossroads")
+				-- A question over within the minute, repeated (one key): one of those that came and went.
+				local asked = ns.Now()
+				for _ = 1, 2 do
+					ns.Alert("vox", "soft", { what = "a quick question", key = "vox9", open = function() return ns.Now() - asked < 60 end })
+				end
+				-- A Call to Arms every three minutes for two hours.
+				for i = 1, ns.HELD_MAX do Wait(180); Decree("arms", "Call to Arms " .. i, 300) end
+				-- Out ten minutes later: every Call to Arms is over, the Agenda is 50 minutes away.
+				Wait(10 * 60)
+				assert(K.Agenda() and K.Agenda().at - ns.Now() == 3000, "the Agenda is still to come")
+				b.inside = false
+				ns.ReleaseHeld()
+				local line = w.printed[#w.printed]
+				assert(line:find(L.HELD_SUMMARY:format(L.HELD_AGENDA:format("Raid on the Crossroads")), 1, true), line)
+				assert(line:find(L.HELD_AND_GONE:format(ns.HELD_MAX + 1), 1, true), "the Calls to Arms and the question, once: " .. line)
+				eq(#w.popups, 1, "the Agenda's popup"); eq(w.popups[1].name, "OLYMPUS_AGENDA_CALL")
+				assert(w.popups[1].a:find("50 min", 1, true), w.popups[1].a)
+				-- HELD_MAX Musters, all still current, after an Agenda and its reminder: the Agenda is one
+				-- line, and the oldest Muster goes, not the popup.
+				b.inside = true
+				Wait(60)
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~A~84~Olympus~3600~The Crossroads~Second raid")
+				ns.Alert("agenda", "soft", K.AgendaHeld(K.Agenda()))
+				for i = 1, ns.HELD_MAX do Wait(20); Decree("muster", "Muster " .. i, 1800) end
+				local list = ns.Held()
+				eq(#list, ns.HELD_MAX)
+				eq(list[1].what, L.HELD_AGENDA:format("Second raid"), "the Agenda kept")
+				eq(list[2].what, "Muster 2", "the oldest Muster went")
+				eq(list[#list].what, "Muster " .. ns.HELD_MAX)
+				b.inside = false
+				local popups = #w.popups
+				ns.ReleaseHeld()
+				eq(#w.popups, popups + 1); eq(w.popups[#w.popups].name, "OLYMPUS_AGENDA_CALL", "its popup kept")
+				assert(w.popups[#w.popups].a:find("Second raid", 1, true), w.popups[#w.popups].a)
+				-- Every one with a popup and still current: the oldest goes.
+				b.inside = true
+				for i = 1, ns.HELD_MAX + 1 do ns.Alert("court", "soft", { what = "call " .. i, show = function() end }) end
+				list = ns.Held()
+				eq(#list, ns.HELD_MAX); eq(list[1].what, "call 2"); eq(list[#list].what, "call " .. (ns.HELD_MAX + 1))
+			end)
+		end)
+	end)
+end)
+
 test("1.1 held alerts: their words in both languages, the same %s in each; /oly alerts in the help; /oly status says it", function()
 	local pt = { L = setmetatable({}, { __index = ns.L }) }
 	local savedLocale = GetLocale
