@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Loot", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Loot", "Crafters", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -25602,6 +25602,384 @@ test("1.1 loot notes (#22): /oly loot, the strings in both languages; README and
 		assert(doc:find("/oly loot", 1, true), file)
 		assert(doc:find("| A loot note (1.1)", 1, true), file .. ": the privacy table")
 		assert(doc:find("not a bid window", 1, true), file)
+	end
+end)
+end
+
+---------------------------------------------------------------------------
+-- 1.1 (Fern's #24): the crafters' board: a profession listed at its opening, a whisper by a click
+---------------------------------------------------------------------------
+
+do
+-- WoW: Forever's professions (C_TradeSkillUI: Tailoring, three recipes known, one not) or Classic
+-- Era's windows (w.era: GetTradeSkill*, GetCraft*); what goes out (w.sent: CHANNEL, w.whispers),
+-- the dialogs opened, the clock, the answers' delay (w.later), the chat and whisper boxes.
+local CRAFT_GLOBALS = { "C_TradeSkillUI", "C_ProfSpecs", "GetTradeSkillLine", "GetNumTradeSkills", "GetTradeSkillInfo", "GetTradeSkillItemLink",
+	"GetTradeSkillRecipeLink", "GetCraftDisplaySkillLine", "GetNumCrafts", "GetCraftInfo", "GetCraftItemLink", "GetCraftRecipeLink",
+	"IsTradeSkillLinked", "GetItemInfo", "GetGuildInfo", "ChatFrame_OpenChat", "ChatFrame_SendTell", "InCombatLockdown" }
+local MOONCLOTH = "|cff1eff00|Hitem:14342::::::::60:::::|h[Mooncloth]|h|r"
+local function WithCraft(fn)
+	local Cr = ns.Crafters
+	local saved = { send = ns.Comm.Send, whisper = ns.Comm.Whisper, print = ns.Print, fire = ns.Fire, dialog = ns.ShowDialog, now = ns.Now,
+		after = Cr.after, random = Cr.random, ui = ns.UI, pad = ns.GamepadUI, choice = ns.db.crafterChoice, data = ns.db.crafterData, me = ns.me }
+	for _, k in ipairs(CRAFT_GLOBALS) do saved[k] = _G[k] end
+	local w = { sent = {}, whispers = {}, printed = {}, dialogs = {}, later = {}, clock = 5000000, calls = {}, chat = {}, tells = {}, windows = {},
+		prof = { id = 197, name = "Tailoring", skill = 245, max = 300 }, linked = false,
+		recipes = { { id = 3915, name = "Linen Bag", item = 4238, learned = true }, { id = 18560, name = "Mooncloth", item = 14342, learned = true },
+			{ id = 12088, name = "Cindercloth Boots", item = 10044, learned = false }, { id = 3914, name = "Brown Linen Pants", item = 4343, learned = true } } }
+	Cr.Reset()
+	ns.db.crafterChoice, ns.db.crafterData, ns.me = nil, nil, "Tester-Realm"
+	ns.Now = function() return w.clock end
+	ns.Comm.Send = function(dist, msg, key, urgent) w.sent[#w.sent + 1] = dist .. " " .. msg .. (urgent and " (urgent)" or "") end
+	ns.Comm.Whisper = function(target, msg) w.whispers[#w.whispers + 1] = target .. " " .. msg end
+	ns.Print = function(m) w.printed[#w.printed + 1] = m end
+	ns.Fire = function() end
+	ns.ShowDialog = function(which, a, b, data) w.dialogs[#w.dialogs + 1] = { which = which, a = a, data = data } end
+	Cr.after = function(_, _, f) w.later[#w.later + 1] = f end
+	Cr.random = function() return 0 end
+	ns.UI = { WhisperWindow = function(name) w.windows[#w.windows + 1] = name end, SelectTab = function() end }
+	ns.GamepadUI = function() return w.gamepad == true end
+	GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Member", 3 end return nil end
+	GetItemInfo = function(id) id = tonumber(type(id) == "string" and id:match("item:(%d+)") or id) if id == 14342 then return "Mooncloth", MOONCLOTH, 2 end end
+	ChatFrame_OpenChat = function(text) w.chat[#w.chat + 1] = text end
+	ChatFrame_SendTell = function(name) w.tells[#w.tells + 1] = name end
+	InCombatLockdown = function() return false end
+	-- A specialization tree is never asked for (none exists on Forever): any call fails the test.
+	C_ProfSpecs = setmetatable({}, { __index = function(_, k) error("C_ProfSpecs." .. tostring(k) .. " asked for") end })
+	local function Log(name, fn) return function(...) w.calls[#w.calls + 1] = name; return fn(...) end end
+	C_TradeSkillUI = {
+		GetBaseProfessionInfo = Log("GetBaseProfessionInfo", function()
+			return { professionID = w.prof.id, professionName = w.prof.name, skillLevel = w.prof.skill, maxSkillLevel = w.prof.max }
+		end),
+		GetChildProfessionInfo = Log("GetChildProfessionInfo", function() return { professionID = 0, skillLevel = 0 } end),
+		GetAllRecipeIDs = Log("GetAllRecipeIDs", function()
+			local ids = {}
+			for _, r in ipairs(w.recipes) do ids[#ids + 1] = r.id end
+			return ids
+		end),
+		GetRecipeInfo = function(id)
+			for _, r in ipairs(w.recipes) do if r.id == id then return { recipeID = id, name = r.name, learned = r.learned } end end
+		end,
+		GetRecipeOutputItemData = function(id)
+			for _, r in ipairs(w.recipes) do if r.id == id then return { itemID = r.item } end end
+			return {}
+		end,
+		IsTradeSkillLinked = function() return w.linked end,
+		IsTradeSkillGuild = function() return false end,
+		IsNPCCrafting = function() return false end,
+	}
+	w.era = function()
+		C_TradeSkillUI = nil
+		GetTradeSkillLine = function() return "Blacksmithing", 150, 300 end
+		local list = { { "Blacksmithing Supplies", "header" }, { "Rough Sharpening Stone", "trivial", 2862, 2660 },
+			{ "Copper Chain Belt", "optimal", 2851, 2661 } }
+		GetNumTradeSkills = function() return #list end
+		GetTradeSkillInfo = function(i) return list[i][1], list[i][2] end
+		GetTradeSkillItemLink = function(i) return list[i][3] and ("|cffffffff|Hitem:%d::::::::60:::::|h[%s]|h|r"):format(list[i][3], list[i][1]) end
+		GetTradeSkillRecipeLink = function(i) return list[i][4] and ("|cffffd000|Henchant:%d|h[%s]|h|r"):format(list[i][4], list[i][1]) end
+		GetCraftDisplaySkillLine = function() return w.craftName, w.craftName and 120, w.craftName and 225 end
+		GetNumCrafts = function() return 2 end
+		GetCraftInfo = function(i) return ({ "Enchant Bracer - Minor Health", "Runed Copper Rod" })[i], nil, "optimal" end
+		GetCraftItemLink = function(i) return i == 1 and "|cffffd000|Henchant:7418|h[Enchant Bracer - Minor Health]|h|r" or "|cffffffff|Hitem:6218::::::::60:::::|h[Runed Copper Rod]|h|r" end
+		GetCraftRecipeLink = function(i) return i == 2 and "|cffffd000|Henchant:7421|h[Runed Copper Rod]|h|r" or nil end
+	end
+	w.run = function() local l = w.later; w.later = {}; for _, f in ipairs(l) do f() end end
+	local ok, err = pcall(fn, w, Cr)
+	ns.Comm.Send, ns.Comm.Whisper, ns.Print, ns.Fire, ns.ShowDialog, ns.Now = saved.send, saved.whisper, saved.print, saved.fire, saved.dialog, saved.now
+	Cr.after, Cr.random, ns.UI, ns.GamepadUI = saved.after, saved.random, saved.ui, saved.pad
+	ns.db.crafterChoice, ns.db.crafterData, ns.me = saved.choice, saved.data, saved.me
+	for _, k in ipairs(CRAFT_GLOBALS) do _G[k] = saved[k] end
+	Cr.Reset()
+	ns.Views.CloseChat()
+	ns.Views.ClearFilters()
+	if not ok then error(err, 0) end
+end
+
+test("1.1 crafters (#24): opening a profession reads its skill and the recipes known (Forever's API, no specialization tree) and asks once; nothing goes out without a yes", function()
+	WithCraft(function(w, Cr)
+		Cr.Opened()
+		local p = Cr.Mine()["197"]
+		assert(p, "Tailoring read")
+		eq(p.name, "Tailoring"); eq(p.rank, 245); eq(p.max, 300); eq(#p.recipes, 3, "the three learned, not the one unlearned")
+		eq(p.recipes[2].r, 18560); eq(p.recipes[2].i, 14342)
+		eq(#w.dialogs, 1); eq(w.dialogs[1].which, "OLYMPUS_CRAFTER_LIST"); eq(w.dialogs[1].a, "Tailoring"); eq(w.dialogs[1].data, "197")
+		eq(#w.sent, 0, "nothing listed before his yes")
+		-- Someone else's profession in the window (a link): nothing read.
+		ns.db.crafterData = nil
+		w.linked = true
+		Cr.Opened()
+		eq(next(Cr.Mine()), nil)
+		w.linked = false
+		-- "Not now": remembered, never asked again, nothing sent.
+		Cr.Opened()
+		StaticPopupDialogs.OLYMPUS_CRAFTER_LIST.OnCancel(nil, "197", "clicked")
+		eq(Cr.Choices()["197"], false); eq(w.printed[#w.printed], ns.L.CRAFTER_NOT_LISTED)
+		Cr.Opened()
+		Cr.Reset() -- (a new session: still not asked, the "no" is kept)
+		Cr.Opened()
+		eq(#w.dialogs, 1, "the one question, never again"); eq(#w.sent, 0)
+		-- Another popup taking its place is no answer, nor is Escape (it only closes the window);
+		-- asked once a session until answered, however often the game updates the list meanwhile.
+		ns.db.crafterChoice = nil
+		Cr.Reset()
+		Cr.Opened()
+		StaticPopupDialogs.OLYMPUS_CRAFTER_LIST.OnCancel(nil, "197", "override")
+		eq(Cr.Choices()["197"], nil)
+		eq(StaticPopupDialogs.OLYMPUS_CRAFTER_LIST.noCancelOnEscape, true)
+		local asked = #w.dialogs
+		Cr.Opened(); Cr.Opened()
+		eq(#w.dialogs, asked, "not again this session")
+		Cr.Reset() -- (a new session)
+		Cr.Opened()
+		eq(#w.dialogs, asked + 1, "asked again next session")
+	end)
+end)
+
+test("1.1 crafters (#24): the yes lists the profession on the channel (name, guild, skill, how many recipes); repeated every 45 minutes; a skill up at most each 2 minutes", function()
+	WithCraft(function(w, Cr)
+		Cr.Opened()
+		StaticPopupDialogs.OLYMPUS_CRAFTER_LIST.OnAccept(nil, "197")
+		eq(w.sent[1], "CHANNEL W1~Olympus II~197:Tailoring:245:300:3")
+		eq(w.printed[#w.printed], ns.L.CRAFTER_LISTED)
+		-- Opened again, nothing changed: no question, nothing sent.
+		Cr.Opened()
+		eq(#w.dialogs, 1); eq(#w.sent, 1)
+		-- Crafting: a skill up, then another; the listing waits CHANGED_GAP, then the board's tick sends the last.
+		w.clock = w.clock + 10
+		w.prof.skill = 246
+		Cr.Opened()
+		w.prof.skill = 247
+		Cr.Opened()
+		eq(#w.sent, 1, "not at every skill up")
+		w.clock = w.clock + Cr.CHANGED_GAP
+		Cr.Tick()
+		eq(w.sent[2], "CHANNEL W1~Olympus II~197:Tailoring:247:300:3")
+		Cr.Tick()
+		eq(#w.sent, 2)
+		w.clock = w.clock + Cr.LIST_EVERY
+		Cr.Tick()
+		eq(#w.sent, 3, "repeated for late logins")
+		-- Taken off: the board forgets him at once.
+		Cr.Choose(nil, false)
+		eq(w.sent[4], "CHANNEL W0~"); eq(w.printed[#w.printed], ns.L.CRAFTER_UNLISTED)
+		w.clock = w.clock + Cr.LIST_EVERY
+		Cr.Tick()
+		eq(#w.sent, 4, "nothing listed: nothing repeated")
+		SlashCmdList.OLYMPUS("crafter on")
+		eq(w.sent[5], "CHANNEL W1~Olympus II~197:Tailoring:247:300:3")
+	end)
+end)
+
+test("1.1 crafters (#24): Classic Era's windows: the trade skill's items and recipes as the window lists them, Enchanting's craft window; a pet's training is no profession", function()
+	WithCraft(function(w, Cr)
+		w.era()
+		Cr.Opened()
+		local p = Cr.Mine()["Blacksmithing"]
+		assert(p, "Blacksmithing read")
+		eq(#p.recipes, 2, "no header"); eq(p.recipes[1].i, 2862); eq(p.recipes[1].r, 2660); eq(p.rank, 150)
+		Cr.Opened(true)
+		eq(next(Cr.Mine(), nil) ~= nil and Cr.Mine()["Enchanting"], nil, "no craft skill line: nothing read (a hunter's Beast Training)")
+		w.craftName = "Enchanting"
+		Cr.Opened(true)
+		p = Cr.Mine()["Enchanting"]
+		assert(p, "Enchanting read")
+		eq(p.recipes[1].r, 7418); eq(p.recipes[1].i, nil, "an enchantment makes no item"); eq(p.recipes[2].i, 6218); eq(p.recipes[2].r, 7421)
+	end)
+end)
+
+test("1.1 crafters (#24): the board takes listings from the channel alone, Olympus guilds only, forgets who went quiet or left", function()
+	WithCraft(function(w, Cr)
+		Cr.HandleListing("CHANNEL", "Smith-Realm", "W1~Olympus Zeus~164:Blacksmithing:150:300:12,Bad Entry,185:Cooking:x:300:4")
+		local b = Cr.Board()
+		eq(#b, 1); eq(b[1].name, "Smith-Realm"); eq(b[1].guild, "Olympus Zeus"); eq(#b[1].profs, 1, "the bad entries left out")
+		eq(b[1].profs[1].name, "Blacksmithing"); eq(b[1].profs[1].rank, 150); eq(b[1].profs[1].n, 12)
+		Cr.HandleListing("CHANNEL", "Trader-Realm", "W1~Stormwind Traders~197:Tailoring:300:300:90")
+		Cr.HandleListing("GUILD", "Guildie-Realm", "W1~Olympus II~197:Tailoring:300:300:90")
+		Cr.HandleListing("WHISPER", "Whisperer-Realm", "W1~Olympus II~197:Tailoring:300:300:90")
+		eq(#Cr.Board(), 1, "no outsider, nothing but the channel")
+		Cr.HandleListing("CHANNEL", "Smith-Realm", "W0~")
+		eq(#Cr.Board(), 0, "unlisted")
+		Cr.HandleListing("CHANNEL", "Smith-Realm", "W1~Olympus Zeus~164:Blacksmithing:150:300:12")
+		w.clock = w.clock + Cr.LIST_KEEP + 1
+		eq(#Cr.Board(), 0, "quiet too long")
+	end)
+end)
+
+test("1.1 crafters (#24): who can make it: the ask (an item or words) on the channel, the listed crafters' answers by whisper, taken for a while", function()
+	WithCraft(function(w, Cr)
+		-- We are listed Tailoring.
+		Cr.Opened()
+		Cr.Choose("197", true)
+		w.sent = {}
+		-- Someone asks for Mooncloth, then for words: each answered by whisper, a moment later.
+		Cr.HandleAsk("CHANNEL", "Asker-Realm", "WQ~1~i~14342")
+		eq(#w.later, 1); w.run()
+		eq(w.whispers[1], "Asker-Realm WA~1~Olympus II~Tailoring~245~18560:14342")
+		Cr.HandleAsk("CHANNEL", "Other-Realm", "WQ~7~t~linen")
+		w.run()
+		eq(w.whispers[2], "Other-Realm WA~7~Olympus II~Tailoring~245~3915:4238,3914:4343", "both linen recipes")
+		-- The same asker within 30 s, an item we can't make, an ask not on the channel: nothing.
+		Cr.HandleAsk("CHANNEL", "Asker-Realm", "WQ~2~i~4238")
+		Cr.HandleAsk("CHANNEL", "Third-Realm", "WQ~3~i~999")
+		Cr.HandleAsk("WHISPER", "Fourth-Realm", "WQ~4~i~14342")
+		Cr.HandleAsk("CHANNEL", "Fifth-Realm", "WQ~5~t~ab")
+		eq(#w.later, 0)
+		-- Ten answers a minute at most.
+		for i = 1, 12 do Cr.HandleAsk("CHANNEL", "Many" .. string.char(96 + i) .. "-Realm", "WQ~9~i~14342") end
+		eq(#w.later, Cr.ANSWER_PER_MIN - 2, "the minute's budget")
+		w.later = {}
+		-- Not listed: no answer.
+		Cr.Choose(nil, false)
+		w.clock = w.clock + 120
+		Cr.HandleAsk("CHANNEL", "Sixth-Realm", "WQ~6~i~14342")
+		eq(#w.later, 0)
+		-- Our own ask: an item's link, or words; one each 15 seconds.
+		w.sent = {}
+		local a = Cr.Ask(MOONCLOTH)
+		eq(w.sent[1], "CHANNEL WQ~1~i~14342 (urgent)"); eq(a.label, "Mooncloth")
+		eq(ns.Views.PageShown(), "crafters", "the board shows the answers")
+		Cr.Ask("Linen Bag")
+		eq(w.printed[#w.printed], ns.L.CRAFTER_ASK_WAIT:format(15)); eq(#w.sent, 1)
+		w.clock = w.clock + 15
+		Cr.Ask("  Linen   BAG ")
+		eq(w.sent[2], "CHANNEL WQ~2~t~linen bag (urgent)")
+		w.clock = w.clock + 15
+		Cr.Ask("ab")
+		eq(w.printed[#w.printed], ns.L.CRAFTER_ASK_HOW); eq(#w.sent, 2)
+		-- The answers to it: from Olympus crafters, to our last ask, within 2 minutes, 30 at most.
+		Cr.HandleAnswer("WHISPER", "Tailor-Realm", "WA~2~Olympus Zeus~Tailoring~250~3915:4238")
+		Cr.HandleAnswer("WHISPER", "Old-Realm", "WA~1~Olympus Zeus~Tailoring~250~3915:4238")
+		Cr.HandleAnswer("WHISPER", "Trader-Realm", "WA~2~Stormwind Traders~Tailoring~300~3915:4238")
+		Cr.HandleAnswer("CHANNEL", "Loud-Realm", "WA~2~Olympus Zeus~Tailoring~300~3915:4238")
+		local ask = Cr.MyAsk()
+		eq(ask.count, 1); eq(ask.answers["Tailor-Realm"].rank, 250); eq(ask.answers["Tailor-Realm"].recipes[1].i, 4238)
+		w.clock = w.clock + Cr.ASK_WAIT + 1
+		Cr.HandleAnswer("WHISPER", "Late-Realm", "WA~2~Olympus Zeus~Tailoring~250~3915:4238")
+		eq(ask.count, 1, "too late")
+	end)
+end)
+
+test("1.1 crafters (#24): a crafter's recipes on a click, by whisper, in parts; his addon sends them once each 2 minutes to the same player", function()
+	WithCraft(function(w, Cr)
+		for i = 1, 30 do w.recipes[#w.recipes + 1] = { id = 20000 + i, name = "Recipe " .. i, item = 30000 + i, learned = true } end
+		Cr.Opened()
+		Cr.Choose("197", true)
+		Cr.HandleListAsk("WHISPER", "Asker-Realm", "WR~197")
+		eq(#w.whispers, 2, "33 recipes: two parts")
+		assert(w.whispers[1]:find("^Asker%-Realm WL~197~1/2~3915:4238,18560:14342,"), w.whispers[1])
+		for _, m in ipairs(w.whispers) do assert(#m - #"Asker-Realm " <= 250, "one message each") end
+		Cr.HandleListAsk("WHISPER", "Asker-Realm", "WR~197")
+		eq(#w.whispers, 2, "once each 2 minutes to the same player")
+		Cr.HandleListAsk("WHISPER", "Other-Realm", "WR~999")
+		Cr.HandleListAsk("CHANNEL", "Loud-Realm", "WR~197")
+		eq(#w.whispers, 2, "a profession not listed, or not a whisper: nothing")
+		-- The asker's side: asked for, then the parts taken.
+		w.whispers = {}
+		eq(Cr.AskList("Tailor-Realm", "197"), true)
+		eq(w.whispers[1], "Tailor-Realm WR~197")
+		eq(Cr.AskList("Tailor-Realm", "197"), false, "not again within 2 minutes")
+		Cr.HandleList("WHISPER", "Tailor-Realm", "WL~197~1/2~3915:4238,18560:14342")
+		Cr.HandleList("WHISPER", "Stranger-Realm", "WL~197~2/2~1:2")
+		local list, l = Cr.ListOf("Tailor-Realm", "197")
+		eq(#list, 2); eq(l.n, 2); eq(list[2].i, 14342)
+		Cr.HandleList("WHISPER", "Tailor-Realm", "WL~197~2/2~7418:0")
+		list = Cr.ListOf("Tailor-Realm", "197")
+		eq(#list, 3); eq(list[3].r, 7418); eq(list[3].i, nil)
+	end)
+end)
+
+test("1.1 crafters (#24): the Realm tab links the board; a crafter's row opens a whisper and his recipes; the answers whisper with a click (gamepad: Olympus's window)", function()
+	WithCraft(function(w, Cr)
+		Cr.HandleListing("CHANNEL", "Smith-Realm", "W1~Olympus Zeus~164:Blacksmithing:150:300:12,197:Tailoring:280:300:40")
+		Cr.HandleListing("CHANNEL", "Anvil-Realm", "W1~Olympus Hera~164:Blacksmithing:220:300:30")
+		local link
+		for _, l in ipairs(ns.Views.RealmLines()) do if l.text and l.text:find(ns.L.CRAFTER_LINK, 1, true) then link = l end end
+		assert(link, "linked from the Realm"); eq(link.right, "|cff9d9d9d2|r", "two crafters")
+		link.onClick()
+		eq(ns.Views.PageShown(), "crafters")
+		local lines = ns.Views.Build("realm")
+		local text, row = {}, nil
+		for _, l in ipairs(lines) do
+			text[#text + 1] = l.text or ""
+			if l.key == "Anvil-Realm" and not row then row = l end
+		end
+		local all = table.concat(text, "\n")
+		local bs, ta = all:find("Blacksmithing", 1, true), all:find("Tailoring", 1, true)
+		assert(bs and ta and bs < ta, "by profession")
+		local anvil, smith = all:find("Anvil", 1, true), all:find("Smith", 1, true)
+		assert(anvil < smith, "the highest skill first")
+		assert(all:find(ns.L.CRAFTER_HOW_LIST, 1, true), "how to list oneself")
+		-- A row opens: a whisper, and his recipes.
+		row.onClick()
+		lines = Cr.Lines()
+		local whisper, recipes
+		for _, l in ipairs(lines) do
+			if l.text == "|cffffd200" .. ns.L.CRAFTER_WHISPER_TO:format("Anvil") .. "|r" then whisper = l end
+			if l.text == "|cffffd200" .. ns.L.CRAFTER_SHOW_RECIPES .. "|r" then recipes = l end
+		end
+		assert(whisper and recipes, "opened")
+		whisper.onClick()
+		eq(w.tells[1], "Anvil", "the game's whisper box")
+		w.gamepad = true
+		whisper.onClick()
+		eq(w.windows[1], "Anvil", "Olympus's whisper window with the gamepad UI")
+		w.gamepad = false
+		recipes.onClick()
+		eq(w.whispers[1], "Anvil-Realm WR~164")
+		-- The ask's box: the chat's with /oly craft, Olympus's window with the gamepad UI.
+		Cr.AskPrompt()
+		eq(w.chat[1], "/oly craft ")
+		w.gamepad = true
+		Cr.AskPrompt()
+		eq(w.dialogs[#w.dialogs].which, "OLYMPUS_CRAFT_ASK")
+		StaticPopupDialogs.OLYMPUS_CRAFT_ASK.OnAccept({ editBox = { GetText = function() return "mooncloth" end } })
+		eq(w.sent[#w.sent], "CHANNEL WQ~1~t~mooncloth (urgent)")
+		w.gamepad = false
+		-- An answer shows with its whisper.
+		Cr.HandleAnswer("WHISPER", "Tailor-Realm", "WA~1~Olympus Zeus~Tailoring~250~18560:14342")
+		lines = Cr.Lines()
+		local answer
+		for _, l in ipairs(lines) do if l.key == "Tailor-Realm" then answer = l end end
+		assert(answer, "the answer"); assert(answer.right:find(ns.L.CRAFTER_WHISPER, 1, true))
+		answer.onClick()
+		eq(w.tells[#w.tells], "Tailor")
+		-- The search: a profession, a crafter or a guild.
+		ns.Views.SetFilter("realm", "hera")
+		lines = ns.Views.Build("realm")
+		text = {}
+		for _, l in ipairs(lines) do text[#text + 1] = l.text or "" end
+		all = table.concat(text, "\n")
+		assert(all:find("Anvil", 1, true) and not all:find("Smith", 1, true), all)
+	end)
+end)
+
+test("1.1 crafters (#24): /oly craft and /oly crafter; the strings in both languages; README and CurseForge (the privacy tables too)", function()
+	WithCraft(function(w, Cr)
+		SlashCmdList.OLYMPUS("craft " .. MOONCLOTH)
+		eq(w.sent[1], "CHANNEL WQ~1~i~14342 (urgent)")
+		SlashCmdList.OLYMPUS("crafter")
+		eq(w.printed[#w.printed], ns.L.CRAFTER_HOW_LIST)
+	end)
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for key, v in pairs(ns.L) do
+		if type(key) == "string" and (key:find("^CRAFTER_") or key == "SEARCH_TIP_CRAFTER" or key == "HELP_CRAFT") and key ~= "CRAFTER_ITEM_N" then
+			local p = rawget(pt.L, key)
+			assert(type(p) == "string" and p ~= v, "Portuguese " .. key)
+			eq(select(2, p:gsub("%%[sd]", "")), select(2, v:gsub("%%[sd]", "")), key)
+		end
+	end
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("/oly craft", 1, true), file)
+		assert(doc:find("| Your crafter listing (1.1)", 1, true), file .. ": the privacy table")
+		assert(doc:find("| An answer to \"who can make it\"", 1, true), file .. ": the privacy table")
 	end
 end)
 end

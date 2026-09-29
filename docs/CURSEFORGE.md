@@ -420,6 +420,22 @@ your guild keep it (on the Realm tab, or `/oly loot`).
   your saved variables (on the Forever beta, which forgets them at every login, the book comes back
   from the officers online).
 
+### Crafters' board (1.1)
+"Who can make this?" is a chat scroll: the **Crafters** page of the Realm tab turns it into one
+whisper to a named crafter (`/oly craft`).
+- When you open one of your professions, Olympus reads it (its skill, and the recipes you know:
+  their recipe and item ids, never a specialization tree) and asks once, in a window of its own,
+  whether to list it. With your yes the board of every Olympus player of your realm and faction
+  shows you: your name, guild, that profession and its skill. `/oly crafter off` takes you off at
+  once; `/oly crafter on` lists every profession read again.
+- **Ask who can make an item**: shift-click it after `/oly craft` (or type part of its name). The
+  crafters listed who know its recipe answer by whisper, their addons by themselves; the page shows
+  who can, with their skill and the item, and a click whispers one of them.
+- A crafter's row opens a whisper to him and, on a click, the recipes he listed (hover one for the
+  item). Search the board by crafter, guild or profession.
+- Nothing is crafted, ordered, bought or sold for anyone, nothing touches the auction house, and
+  nothing is whispered for you: the whisper is yours to write. Old clients ignore the board.
+
 ### World map
 - Soldiers per zone on zone and continent maps, and per continent on the world map (with
   Blizzard's gamepad mode, only per continent: see below).
@@ -597,6 +613,10 @@ message (the game adds it). What goes where:
 | A Royal Inspection's report (on by default): when the King, his Steward or a Hand calls one and your addon is in the sample, it patrols for 2 minutes, inspecting the Olympus players of your faction around you, level 15 and up, with the game's own inspect, and records whether each wears the guild tabard, another one or none (kept in your saved variables); then it reports your guild, how many it found in each case (your own tabard counted) and up to 6 names, with their guild, of players caught without the colors | whoever called it, alone (a whisper); the King can show the names to the army on his untabarded list | each Royal Inspection you are sampled for (one every 30 minutes at most, for the whole realm) until you say no with `/oly inspection off`; you still get its raid warning |
 | An officer's patrol findings (1.1): the name and guild of each player your own inspections caught without the colors or with another tabard (or wearing ours again after that), and how long ago | your guild's officers (a guild addon message: every guildmate's client receives the bytes, and only officers' addons keep them) | only while you are an officer (the guild master or the rank right below): each new finding once, at most once a minute, and the day's findings when another officer's addon asks after its login; `/oly patrolshare off` stops it. Nothing more is inspected for it |
 | A loot note (1.1): an officer's words, the item and whom it went to; a member's points set by hand; and your addon's ask for the book (the time of the newest change it holds) | your guild (guild addon messages): every guildmate's addon keeps the notes and points; the ask is answered by an officer's addon, with the changes since | a note or points when an officer writes or removes them (only officers do); the ask once a session, an officer's at login, anyone else's when the Loot notes page first opens |
+| Your crafter listing (1.1): your guild, and each profession you listed with its skill and how many recipes you know | everyone on the Olympus channel | only after your yes when you open that profession (asked once), then every 45 minutes while you play and after a skill up (2 minutes apart at most); `/oly crafter off` withdraws it at once |
+| An answer to "who can make it" (1.1): your guild, the profession, your skill and the recipe and item ids of up to 6 recipes that match | the asker alone (a whisper) | only while you are listed, to asks heard on the Olympus channel, by your addon by itself (10 a minute at most) |
+| Your recipes of a profession you listed (1.1): their recipe and item ids | the player who clicked "Show his recipes" (a whisper) | only while you are listed, on his click, once each 2 minutes to the same player |
+| Your ask "who can make it" (1.1): the item's id, or the words you typed | everyone on the Olympus channel | when you ask (one each 15 seconds at most) |
 | Other players' lines in the Olympus chats as your addon accepted them (channel, sender and text; [Captains] and [Lords] only if your rank reads them), and the High Council list | other addons in your own game, through `OlympusBridge` (made for OfficerSpy, the moderators' companion addon, but any addon you install can read it) | always, while such an addon is loaded: Olympus sends nothing through it and never learns what that addon does with what it read |
 | Olympus Link (1.0.0): a request (your guild, faction, a random number, your code's id and a tag made from your code's signature and your name) | the confirmers asked (a whisper each): a High Councillor, or verified players drawn for your code | only after you press **Accept** on `/oly discord <code>` |
 | Olympus Link: the finished proof (your character name, realm, guild, faction, the tag, and the confirmers' names, how each knew your guild, their signatures and their keys' certificates) | the Olympus bot, through the page you scan it with, or a watcher (a High Councillor, by whisper) who hands it to the bot | when it is ready, until it is delivered (5 days after your code expired at most) |
@@ -608,7 +628,8 @@ Decrees and the King's calls go out when someone sends one (a decree carries its
 position on the map).
 
 **What waits for your yes.** Your zone and layer (below), your dot on your guild's map, a
-treasury keeper's book and Olympus Link (your **Accept**, or a confirmer's typing in the key the
+treasury keeper's book, your crafter listing (and with it your addon's answers to who can make
+it) and Olympus Link (your **Accept**, or a confirmer's typing in the key the
 bot's keeper made them) wait for your yes. The rest of the table goes out while
 you are in an Olympus guild, with no question first: your guild's census (from the member it
 elects, with the names above), the hello, a Royal Inspection's report when you are sampled
@@ -837,6 +858,7 @@ Other limits:
 | `/oly gear` (or **Inspect gear** on the Tabards tab) | officers: inspect the player you target (in range) once and keep what he wears, under **Gear seen** on the Tabards tab; nothing is scored or sent |
 | `/oly patrolshare on\|off` | officers: pass what your inspections find to your guild's officers and take theirs (on by default), or not |
 | `/oly loot` | your guild's loot notes and points on the Realm tab (its officers write them; not a bid window) |
+| `/oly craft [item or name]` · `/oly crafter on\|off` | who can make it (the crafters' board on the Realm tab: shift-click an item after `/oly craft`); list your professions read so far, or take them off |
 | `/oly approved` · `/oly approved paste` | the guilds of Asmon's Olympus the author's signed list makes Olympus guilds (their names don't say Olympus), and whether yours is one; paste that signed list (the first member of such a guild: his addon then passes it to the guild) |
 | `/oly arms [text]` · `/oly muster [text]` | send a decree (`test` = local preview) |
 | `/ol <text>` · `/olc <text>` · `/oll <text>` | write in [Olympus], [Captains] or [Lords] |

@@ -1243,6 +1243,7 @@ StandIn("Link", { "Slash" })
 StandIn("Borders", { "SetEnabled", "Report" })
 StandIn("Nameplates", { "SetEnabled", "Report" })
 StandIn("Loot", { "Show" }) -- (1.1)
+StandIn("Crafters", { "Ask", "Slash" }) -- (1.1)
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1322,7 +1323,7 @@ ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
 	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates",
-		"Loot" }) do
+		"Loot", "Crafters" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1349,6 +1350,7 @@ local function Help()
 	print(L.HELP_PATROLSHARE)
 	print(L.HELP_APPROVED)
 	print(L.HELP_LOOT)
+	print(L.HELP_CRAFT)
 	print("  /oly map - show/hide zone counts on the world map")
 	print("  /oly realm - the Realm tree (leaders, officers, ranks)")
 	print("  /oly layers - layers of your zone (in the Realm tab)")
@@ -1418,6 +1420,16 @@ SlashCmdList.OLYMPUS = function(input)
 			-- 1.1 (Fern's #22): the guild's loot notes and points, on the Realm tab.
 			ns.UI.SelectTab("realm")
 			ns.Loot.Show(true)
+		elseif cmd == "craft" then
+			-- 1.1 (Fern's #24): who can make this item (a shift-clicked link) or these words.
+			if rest == "" then
+				ns.UI.SelectTab("realm")
+				ns.Views.ShowPage("crafters")
+			elseif ns.Crafters.Ask(rest) then
+				ns.UI.SelectTab("realm")
+			end
+		elseif cmd == "crafter" then
+			ns.Crafters.Slash(rest)
 		elseif cmd == "approved" then
 			-- 1.1: the guilds the author's signed list makes Olympus guilds; "paste" to paste that list.
 			ns.Workshop.Approved(rest)
