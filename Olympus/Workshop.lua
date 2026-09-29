@@ -530,8 +530,9 @@ function Workshop.HandleUpdate(dist, sender, text)
 	local now = ns.Now()
 	if now - lastUpdateShown < Workshop.UPDATE_GAP then return end
 	lastUpdateShown = now
-	ns.PlayAlert("soft")
-	ns.ShowDialog("OLYMPUS_AUTHOR_UPDATE", ns.VERSION, latest)
+	-- (In an instance or on Busy, 1.1: once the player is out.)
+	ns.Alert("update", "soft", { what = L.HELD_UPDATE:format(latest), key = "update",
+		show = function() ns.ShowDialog("OLYMPUS_AUTHOR_UPDATE", ns.VERSION, latest) end })
 end
 
 StaticPopupDialogs["OLYMPUS_AUTHOR_UPDATE"] = {
@@ -762,7 +763,7 @@ function Workshop.HandleBug(dist, sender, text)
 	ns.Comm.Whisper(sender, ("V6~%s~2"):format(id), "bugack:" .. sender)
 	reports[#reports + 1] = { from = sender, t = now, text = (table.concat(e.parts):gsub("\\n", "\n")) }
 	while #reports > Workshop.MAX_REPORTS do table.remove(reports, 1) end
-	ns.PlayAlert("soft")
+	ns.PlayAlert("soft", "help")
 	ns.Print(L.WORKSHOP_BUG_IN:format(ns.DisplayName(sender)))
 	Changed()
 end
@@ -1537,7 +1538,7 @@ function Workshop.TakeTitles(blob, sender, guild)
 	local now = Steward()
 	if now and not was then
 		ns.Print(L.STEWARD_YOU:format(ns.KingName(ns.KingCharacter())))
-		ns.PlayAlert("soft")
+		ns.PlayAlert("soft", "throne")
 	elseif was and not now then
 		ns.Print(L.STEWARD_NO_LONGER)
 	end
@@ -1876,7 +1877,7 @@ function Workshop.HandleAsk(dist, sender, text)
 	ns.Comm.Whisper(who, "HK~1", "councilack")
 	local msg = ns.Codec.Plain(text:match("^HR~(.*)$") or "")
 	ns.Print(L.COUNCIL_ASKED:format("|Hplayer:" .. ns.TellName(who) .. "|h[" .. ns.DisplayName(who) .. "]|h", msg))
-	ns.PlayAlert("soft")
+	ns.PlayAlert("soft", "help")
 end
 ns.Comm.Handle("HA", function(...) Workshop.HandleAvailable(...) end)
 ns.Comm.Handle("HR", function(...) Workshop.HandleAsk(...) end)

@@ -25523,7 +25523,7 @@ test("1.1 languages: /oly help and the replies once written in the code come fro
 	for _, k in ipairs({ "HELP_CMD_OPEN", "HELP_CMD_RESET", "HELP_PIN" }) do assert(all:find(ns.L[k], 1, true), k) end
 	eq(printed[1], ns.L.HELP_CMD_HEAD:format(ns.VERSION))
 	local pt = LoadLocale("ptBR")
-	for _, k in ipairs({ "HELP_CMD_HEAD", "HELP_CMD_OPEN", "HELP_CMD_TABARD", "HELP_CMD_SOUND", "HELP_CMD_PATROL", "HELP_CMD_MARK", "HELP_CMD_MAP",
+	for _, k in ipairs({ "HELP_CMD_HEAD", "HELP_CMD_OPEN", "HELP_CMD_TABARD", "HELP_CMD_PATROL", "HELP_CMD_MARK", "HELP_CMD_MAP",
 		"HELP_CMD_REALM", "HELP_CMD_LAYERS", "HELP_CMD_DECREES", "HELP_CMD_ARMS", "HELP_CMD_MATES", "HELP_CMD_SHARE", "HELP_CMD_BUG",
 		"HELP_CMD_STATUS", "HELP_CMD_KEY", "HELP_CMD_BLOCK", "HELP_CMD_LAYER", "HELP_CMD_MINIMAP", "HELP_CMD_DEBUG", "HELP_CMD_RESET",
 		"SOUND_ON", "SOUND_OFF", "BLOCKED_NOW", "DEBUG_ON", "DEBUG_OFF", "CACHE_CLEARED" }) do
@@ -25536,6 +25536,645 @@ end)
 
 -- (the end of 1.1's tests)
 end
+---------------------------------------------------------------------------
+-- 1.1: a sound switch for each kind of alert, besides the one for all; the Call to Arms never
+-- swallowed by a softer chime (Core.lua: ns.PlayAlert, ns.SoundSlash; the Decrees tab).
+---------------------------------------------------------------------------
+
+-- The game's sound: PlaySound spied, GetTime on a clock the test moves, every switch on.
+local function SoundBench(fn)
+	local saved = { play = PlaySound, kit = SOUNDKIT, time = GetTime, sound = ns.db.sound, off = ns.db.soundOff, print = ns.Print }
+	local b = { clock = 1000, played = {}, printed = {} }
+	PlaySound = function(id) b.played[#b.played + 1] = id end
+	SOUNDKIT = { RAID_WARNING = 8959, READY_CHECK = 8960 }
+	GetTime = function() return b.clock end
+	ns.Print = function(m) b.printed[#b.printed + 1] = tostring(m) end
+	ns.db.sound, ns.db.soundOff = true, nil
+	ns.ResetSounds()
+	local ok, err = pcall(fn, b)
+	PlaySound, SOUNDKIT, GetTime, ns.db.sound, ns.db.soundOff, ns.Print = saved.play, saved.kit, saved.time, saved.sound, saved.off, saved.print
+	ns.ResetSounds()
+	if not ok then error(err, 0) end
+end
+
+test("1.1 alert sounds: a softer chime never swallows the Call to Arms, a louder alert silences the softer ones", function()
+	SoundBench(function(b)
+		-- (What plays is counted, not what PlayAlert returns: 1.0's returned nothing.)
+		ns.PlayAlert("soft", "vox")
+		eq(#b.played, 1); eq(b.played[1], SOUNDKIT.READY_CHECK)
+		b.clock = b.clock + 5
+		ns.PlayAlert("soft", "court")
+		eq(#b.played, 1, "a second chime within 15 s: once is enough")
+		-- 1.0: one 15 s gap for every sound, and a Vox chime silenced the Call to Arms after it.
+		ns.PlayAlert("loud", "arms")
+		eq(#b.played, 2, "the Call to Arms sounds whatever chimed before it")
+		eq(b.played[2], SOUNDKIT.RAID_WARNING)
+		b.clock = b.clock + 5
+		eq(ns.PlayAlert("loud", "royal"), false, "the Call to Arms just said it")
+		eq(ns.PlayAlert("soft", "muster"), false)
+		b.clock = b.clock + 16
+		eq(ns.PlayAlert("soft", "muster"), true)
+		b.clock = b.clock + 1
+		eq(ns.PlayAlert("loud", "royal"), true, "a loud alert sounds whatever soft one did")
+		b.clock = b.clock + 1
+		eq(ns.PlayAlert("loud", "court"), false, "two loud ones: 15 s apart")
+		eq(ns.PlayAlert("loud", "arms"), true, "still the Call to Arms")
+		b.clock = b.clock + 1
+		eq(ns.PlayAlert("loud", "arms"), false, "two Calls to Arms: 15 s apart")
+		eq(#b.played, 5)
+	end)
+end)
+
+test("1.1 alert sounds: /oly sound <kind> on|off, the switch for all as before, 1.0's saves as they were", function()
+	SoundBench(function(b)
+		local L = ns.L
+		local Slash = SlashCmdList.OLYMPUS
+		Slash("sound muster off")
+		eq(ns.db.soundOff.muster, true); eq(ns.SoundOn("muster"), false); eq(ns.SoundOn("arms"), true)
+		eq(b.printed[#b.printed], L.SOUNDS_SOME_OFF:format("muster"))
+		eq(ns.PlayAlert("soft", "muster"), false, "the Muster silenced")
+		eq(ns.PlayAlert("soft", "vox"), true, "Vox Populi still chimes")
+		b.clock = b.clock + 16
+		Slash("sound vox") -- (alone: switched)
+		eq(ns.SoundOn("vox"), false)
+		Slash("SOUND Court OFF")
+		eq(b.printed[#b.printed], L.SOUNDS_SOME_OFF:format("muster, court, vox"), "in the kinds' order")
+		eq(ns.PlayAlert("soft", "court"), false)
+		eq(ns.PlayAlert("loud", "arms"), true, "the Call to Arms stays")
+		-- The switch for all, alone as before 1.1: every sound off; back on, each kind as it was.
+		b.clock = b.clock + 16
+		Slash("sound")
+		eq(ns.db.sound, false); eq(b.printed[#b.printed], L.SOUNDS_OFF)
+		eq(ns.PlayAlert("loud", "arms"), false, "every sound off")
+		Slash("sound on")
+		eq(ns.db.sound, true); eq(ns.SoundOn("muster"), false, "each kind kept its switch")
+		eq(ns.PlayAlert("loud", "arms"), true)
+		Slash("sound off"); eq(ns.db.sound, false)
+		Slash("sound on"); eq(ns.db.sound, true)
+		-- Each kind back on: nothing left in the save.
+		Slash("sound muster on"); Slash("sound vox on"); Slash("sound court on")
+		eq(ns.db.soundOff, nil); eq(b.printed[#b.printed], L.SOUNDS_ALL_ON)
+		-- A kind there is not: how to use it, nothing changed.
+		Slash("sound banana off")
+		eq(b.printed[#b.printed], L.SOUND_USAGE:format(table.concat(ns.SOUND_KINDS, ", ")))
+		eq(ns.db.soundOff, nil); eq(ns.SetSound("banana", false), false)
+		-- 0.9 and 1.0's saves: the one switch, no kinds.
+		ns.db.sound, ns.db.soundOff = false, nil
+		for _, k in ipairs(ns.SOUND_KINDS) do eq(ns.SoundOn(k), false, k) end
+		ns.db.sound = true
+		for _, k in ipairs(ns.SOUND_KINDS) do eq(ns.SoundOn(k), true, k) end
+		-- /oly status says which.
+		ns.db.soundOff = { vox = true, hop = true }
+		assert(ns.AlertStatus():find("^sounds on, off: vox,hop"), ns.AlertStatus())
+	end)
+end)
+
+test("1.1 alert sounds: every alert names its kind (ns.PlayAlert, King.Warn), each a kind with a switch and words in both languages", function()
+	local kinds = {}
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local okPt, errPt = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not okPt then error(errPt, 0) end
+	for _, k in ipairs(ns.SOUND_KINDS) do
+		kinds[k] = true
+		assert(rawget(ns.L, "SOUND_" .. k:upper()), k)
+		assert(rawget(pt.L, "SOUND_" .. k:upper()), "pt-BR " .. k)
+	end
+	for _, key in ipairs({ "HELP_SOUND", "SOUND_USAGE", "SOUNDS_ALL_ON", "SOUNDS_SOME_OFF", "SOUNDS_OFF", "SOUNDS_TITLE", "SOUNDS_TIP", "SOUND_KIND_TIP", "SOUND_ALL_ON", "SOUND_ALL_OFF", "SOUND_ON", "SOUND_OFF" }) do
+		assert(rawget(ns.L, key), key); assert(rawget(pt.L, key), "pt-BR " .. key)
+		local _, n = ns.L[key]:gsub("%%s", ""); local _, m = pt.L[key]:gsub("%%s", "")
+		eq(m, n, key .. ": the same %s in both")
+	end
+	local calls, seen = 0, {}
+	local p = io.popen('ls "' .. ADDON_DIR .. '"')
+	for file in p:lines() do
+		if file:match("%.lua$") then
+			local src = assert(io.open(ADDON_DIR .. file)):read("*a")
+			for line in src:gmatch("[^\n]+") do
+				-- (1.1: ns.Alert too, the alerts that wait in an instance; the kind on the call's first line.)
+				local call = not line:find("function", 1, true) and not line:match("^%s*%-%-")
+					and (line:find("PlayAlert(", 1, true) or line:find("Warn(", 1, true) or line:find("ns.Alert(", 1, true))
+				if call then
+					calls = calls + 1
+					-- Core.lua's own policy passes on the kind it was given (no word of its own).
+					local named = file == "Core.lua" and not line:find('"', 1, true)
+					for word in line:gmatch('"(%l+)"') do
+						if kinds[word] then named, seen[word] = true, true end
+					end
+					assert(named, file .. ": an alert without its kind: " .. line)
+				end
+			end
+		end
+	end
+	p:close()
+	assert(calls >= 25, "the alerts: " .. calls)
+	for _, k in ipairs({ "court", "vox", "agenda", "throne", "help", "hop", "treasury", "patrol", "update", "muster" }) do assert(seen[k], k) end
+	-- The decrees: each kind its switch, the Tabard inspection with the Royal decree.
+	eq(ns.Decree.SOUND.ARMS, "arms"); eq(ns.Decree.SOUND.MUSTER, "muster"); eq(ns.Decree.SOUND.ROYAL, "royal"); eq(ns.Decree.SOUND.HERALDRY, "royal")
+end)
+
+test("1.1 alert sounds: a decree, a court call and a Vox question sound by their own switch, and still show", function()
+	SoundBench(function(b)
+		WithUI(function()
+			-- A decree (the local preview, the path every decree takes: Decree.lua's Show), on a
+			-- client of its own.
+			local saved = { best = C_Map.GetBestMapForUnit, pos = C_Map.GetPlayerMapPosition }
+			local ok, err = pcall(function()
+				C_Map.GetBestMapForUnit = function() return 1453 end
+				C_Map.GetPlayerMapPosition = function() return { GetXY = function() return 0.5, 0.5 end } end
+				local cns = FreshComm()
+				assert(loadfile(ADDON_DIR .. "Decree.lua"))("Olympus", cns)
+				cns.Decree.Preview("MUSTER")
+				eq(#b.played, 1, "the Muster chimes"); eq(b.played[1], SOUNDKIT.READY_CHECK)
+				b.clock = b.clock + 3
+				cns.Decree.Preview("ARMS")
+				eq(#b.played, 2, "the Call to Arms right after it"); eq(b.played[2], SOUNDKIT.RAID_WARNING)
+				b.clock = b.clock + 16
+				ns.SoundSlash("muster off")
+				cns.Decree.Preview("MUSTER")
+				eq(#b.played, 2, "the Muster silenced")
+				eq(#cns.Decree.Active(), 3, "and shown all the same")
+				ns.SoundSlash("arms off")
+				cns.Decree.Preview("ARMS")
+				eq(#b.played, 2, "the Call to Arms silenced by its own switch")
+				ns.SoundSlash("royal off")
+				ns.SoundSlash("arms on")
+				cns.Decree.Preview("ARMS")
+				eq(#b.played, 3, "the Call to Arms back")
+			end)
+			C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition = saved.best, saved.pos
+			C_ChatInfo = nil
+			if not ok then error(err, 0) end
+			-- The court's call and a Vox question: the popup and the window, silent.
+			WithThrone(function(w, K)
+				local C = ns.Court
+				C_Map.GetBestMapForUnit = function() return 1453 end
+				C_Map.GetMapInfo = function() return { mapType = 3 } end
+				GetRealZoneText = function() return "Stormwind City" end
+				b.clock = b.clock + 16
+				ns.SoundSlash("court off"); ns.SoundSlash("vox off")
+				AsSoldier()
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~C~61~Olympus~1453~Stormwind City")
+				C.HandleCall("WHISPER", "Asmongold Asmongler-Realm", "T5~61")
+				eq(w.popups[#w.popups].name, "OLYMPUS_COURT_CALLED", "the call still shows")
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~V~62~Olympus~60~1~Raid?~Yes~No")
+				assert(ns.Vox.Frame():IsShown(), "the question's window still opens")
+				eq(#b.played, 3, "neither sounded")
+				ns.SoundSlash("vox on")
+				ns.Vox.Reset()
+				b.clock = b.clock + 16
+				w.clock = w.clock + 120
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~V~63~Olympus~60~1~Again?~Yes~No")
+				eq(#b.played, 4, "Vox Populi on again")
+			end)
+		end)
+	end)
+end)
+
+test("1.1 alert sounds: the switches on the Decrees tab, a click each (with the gamepad UI too: no popup, no text box)", function()
+	SoundBench(function(b)
+		WithGamepadUI(true, function(game)
+			local savedShow, savedFocus = ns.ShowDialog, ns.Focus
+			local asked = 0
+			ns.ShowDialog = function() asked = asked + 1 end
+			ns.Focus = function() asked = asked + 1 end
+			local ok, err = pcall(function()
+				local function Find()
+					local head, rows = nil, {}
+					for _, l in ipairs(ns.Views.Build("decrees")) do
+						if l.text == ns.L.SOUNDS_TITLE then head = l end
+						if l.sound then rows[l.sound] = l end
+					end
+					return head, rows
+				end
+				local head, rows = Find()
+				assert(head and head.header and head.onClick, "the switch for all, on the heading")
+				assert(head.right:find(ns.L.SOUND_ALL_ON, 1, true), head.right)
+				for _, k in ipairs(ns.SOUND_KINDS) do
+					assert(rows[k] and rows[k].onClick and rows[k].tooltip, k)
+					assert(rows[k].text:find(ns.SoundLabel(k), 1, true), rows[k].text)
+					assert(rows[k].right:find(ns.L.SOUND_ON, 1, true), k)
+				end
+				rows.muster.onClick()
+				eq(ns.SoundOn("muster"), false)
+				head, rows = Find()
+				assert(rows.muster.right:find(ns.L.SOUND_OFF, 1, true), rows.muster.right)
+				rows.muster.onClick()
+				eq(ns.SoundOn("muster"), true, "a second click: on again")
+				head.onClick()
+				eq(ns.db.sound, false)
+				head, rows = Find()
+				assert(head.right:find(ns.L.SOUND_ALL_OFF, 1, true), head.right)
+				head.onClick()
+				eq(ns.db.sound, true)
+				eq(asked, 0, "no dialog, no focus"); eq(#game.shown, 0, "no game popup")
+			end)
+			ns.ShowDialog, ns.Focus = savedShow, savedFocus
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: in an instance or Busy, Olympus's alerts wait: their chat line and a line on the
+-- Decrees tab now; once the player is out, one line (one raid warning, one sound) for what is
+-- still current, and only the popups still open (Core.lua: ns.Alert, ns.ReleaseHeld).
+---------------------------------------------------------------------------
+
+-- SoundBench's, with an instance (b.inside), the game's Busy (b.busy) and its raid warnings.
+local function HoldBench(fn)
+	SoundBench(function(b)
+		local saved = { inst = IsInInstance, dnd = UnitIsDND, notice = RaidNotice_AddMessage, frame = RaidWarningFrame, now = ns.Now,
+			always = ns.db.alertsAlways }
+		b.warnings, b.inside, b.busy = {}, false, false
+		IsInInstance = function() return b.inside, b.inside and "party" or "none" end
+		UnitIsDND = function(unit) return unit == "player" and b.busy end
+		RaidWarningFrame = {}
+		b.notice = function(_, text) b.warnings[#b.warnings + 1] = text end
+		RaidNotice_AddMessage = b.notice
+		ns.Now = function() return b.clock end
+		ns.db.alertsAlways = nil
+		ns.ResetHeld()
+		local ok, err = pcall(fn, b)
+		ns.ResetHeld()
+		IsInInstance, UnitIsDND, RaidNotice_AddMessage, RaidWarningFrame = saved.inst, saved.dnd, saved.notice, saved.frame
+		ns.Now, ns.db.alertsAlways = saved.now, saved.always
+		if not ok then error(err, 0) end
+	end)
+end
+local function Said(list, text)
+	for _, p in ipairs(list) do if p:find(text, 1, true) then return p end end
+	return nil
+end
+
+test("1.1 held alerts: in an instance a Call to Arms and a Muster leave their chat line and a line on the Decrees tab, no raid warning or sound; out, one line for what is still current", function()
+	HoldBench(function(b)
+		local L = ns.L
+		local savedGuild, savedGuilds = GetGuildInfo, ns.rdb.guilds
+		local ok, err = pcall(function()
+			GetGuildInfo = function() return "Olympus II", "rank", 3 end
+			ns.rdb.guilds = {}
+			ns.Roster.Scan()
+			-- The real receive path: a D1 from our guild's officers (our roster: Member2 to Member6).
+			local cns, Deliver = FreshComm()
+			cns.Now = function() return b.clock end
+			cns.Comm.loginAt = b.clock - 3600
+			assert(loadfile(ADDON_DIR .. "Decree.lua"))("Olympus", cns)
+			local function Decree(sender, kind, text)
+				Deliver("CHANNEL", sender, Codec.EncodeDecree(kind, 1453, 0.5, 0.5, "Olympus II", 1, text))
+			end
+			b.inside = true
+			Decree("Member2-Realm", "ARMS", "at the gates")
+			eq(#cns.Decree.Active(), 1, "the decree is taken")
+			assert(Said(b.printed, L.ARMS), "its chat line")
+			eq(#b.warnings, 0, "no raid warning in the dungeon")
+			eq(#b.played, 0, "no sound")
+			eq(ns.Quiet(), "instance")
+			b.clock = b.clock + 20
+			Decree("Member3-Realm", "MUSTER", "at the bridge")
+			eq(#b.warnings, 0); eq(#b.played, 0)
+			-- On top of the Decrees tab while they wait, besides the decrees' own list.
+			local tab = Texts(ns.Views.Build("decrees"))
+			assert(tab:find(L.HELD_TITLE, 1, true), tab)
+			assert(tab:find(L.HELP_ARMS_NAME .. " (Stormwind City)", 1, true), tab)
+			assert(tab:find(L.HELP_MUSTER_NAME .. " (Stormwind City)", 1, true), tab)
+			-- Still inside: nothing comes out.
+			eq(ns.ReleaseHeld(), false); eq(#b.warnings, 0)
+			-- Out six minutes later: the Call to Arms (5 minutes) is over, the Muster (30) is not.
+			b.clock = b.clock + 6 * 60
+			b.inside = false
+			local printed = #b.printed
+			eq(ns.ReleaseHeld(), true)
+			eq(#b.printed, printed + 1, "one line")
+			local line = b.printed[#b.printed]
+			assert(line:find(L.HELP_MUSTER_NAME .. " (Stormwind City)", 1, true), line)
+			assert(not line:find(L.HELP_ARMS_NAME, 1, true), "the expired Call to Arms does not come back: " .. line)
+			assert(line:find(L.HELD_AND_GONE:format(1), 1, true), line)
+			eq(#b.warnings, 1, "one raid warning"); assert(b.warnings[1]:find(L.HELP_MUSTER_NAME, 1, true), b.warnings[1])
+			eq(#b.played, 1, "one sound"); eq(b.played[1], SOUNDKIT.READY_CHECK, "the Muster's")
+			eq(ns.ReleaseHeld(), false, "once")
+			assert(not Texts(ns.Views.Build("decrees")):find(L.HELD_TITLE, 1, true), "nothing waits any more")
+			-- Out of the instance: as before 1.1.
+			b.clock = b.clock + 60
+			Decree("Member4-Realm", "ARMS", "again")
+			eq(#b.warnings, 2); eq(#b.played, 2); eq(b.played[2], SOUNDKIT.RAID_WARNING)
+			-- An officer's own decree (or its preview) shows in the instance: his own click.
+			b.inside = true
+			b.clock = b.clock + 16
+			local savedMap, savedPos = C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition
+			C_Map.GetBestMapForUnit = function() return 1453 end
+			C_Map.GetPlayerMapPosition = function() return { GetXY = function() return 0.5, 0.5 end } end
+			cns.Decree.Preview("ARMS")
+			C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition = savedMap, savedPos
+			eq(#b.warnings, 3, "the preview"); eq(#b.played, 3)
+			eq(#ns.Held(), 0)
+		end)
+		GetGuildInfo, ns.rdb.guilds, C_ChatInfo = savedGuild, savedGuilds, nil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 held alerts: on Busy the court's call and a Vox question wait (their chat line now, a click on the Decrees tab shows one); out, they pop while still open, never after", function()
+	HoldBench(function(b)
+		WithUI(function()
+			WithThrone(function(w, K)
+				local L, C, V = ns.L, ns.Court, ns.Vox
+				local function Wait(s) w.clock, b.clock = w.clock + s, b.clock + s end
+				local function Open() return V.Frame() ~= nil and V.Frame():IsShown() end
+				RaidNotice_AddMessage = b.notice -- (WithThrone had none)
+				C_Map.GetBestMapForUnit = function() return 1453 end
+				C_Map.GetMapInfo = function() return { mapType = 3 } end
+				GetRealZoneText = function() return "Stormwind City" end
+				AsSoldier()
+				b.busy = true
+				eq(ns.Quiet(), "busy")
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~C~71~Olympus~1453~Stormwind City")
+				assert(Printed(w, "holds court in Stormwind City"), "the court's chat line")
+				C.HandleCall("WHISPER", "Asmongold Asmongler-Realm", "T5~71")
+				assert(Printed(w, L.COURT_CALLED:format("Asmon", "Stormwind City")), "the call's chat line")
+				eq(#w.popups, 0, "no popup while Busy"); eq(#b.warnings, 0, "no raid warning"); eq(#b.played, 0, "no sound")
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~V~72~Olympus~60~1~Raid tonight?~Yes~No")
+				eq(Open(), false, "no window while Busy")
+				assert(Printed(w, "Raid tonight?  1) Yes  2) No"), "the question in chat")
+				local tab = Texts(ns.Views.Build("decrees"))
+				for _, text in ipairs({ L.HELD_TITLE, L.HELD_COURT:format("Stormwind City"), L.HELD_COURT_CALL:format("Asmon"), L.HELD_VOX:format("Raid tonight?") }) do
+					assert(tab:find(text, 1, true), text .. "\n" .. tab)
+				end
+				-- Back, 30 seconds later: one line, one raid warning, one sound (the call's, the loudest);
+				-- the call and the question, still open, pop.
+				Wait(30)
+				b.busy = false
+				ns.ReleaseHeld()
+				local line = w.printed[#w.printed]
+				assert(line:find(L.HELD_COURT_CALL:format("Asmon"), 1, true) and line:find(L.HELD_VOX:format("Raid tonight?"), 1, true), line)
+				eq(w.popups[#w.popups].name, "OLYMPUS_COURT_CALLED", "the call, still open, pops")
+				eq(Open(), true, "the question, still open: its window")
+				eq(#b.warnings, 1); eq(#b.played, 1, "one sound for all of them"); eq(b.played[1], SOUNDKIT.RAID_WARNING)
+				-- Busy again: a question over before the player is back never pops.
+				V.Frame():Hide()
+				b.busy = true
+				Wait(60)
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~V~73~Olympus~30~1~Quick one?~Yes~No")
+				Wait(40)
+				b.busy = false
+				local popups = #w.popups
+				ns.ReleaseHeld()
+				eq(Open(), false, "over: no window"); eq(#w.popups, popups)
+				assert(Printed(w, L.HELD_GONE:format(1)), "a grey line says one came and went")
+				eq(#b.warnings, 1, "and no raid warning for it")
+				-- A click on its line shows one now; it does not pop again later.
+				b.busy = true
+				Wait(60)
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~V~74~Olympus~120~1~Now?~Yes~No")
+				local row
+				for _, l in ipairs(ns.Views.Build("decrees")) do if l.onClick and l.text:find(L.HELD_VOX:format("Now?"), 1, true) then row = l end end
+				assert(row, "its line, a click away")
+				row.onClick()
+				eq(Open(), true, "the window, now")
+				eq(#ns.Held(), 0, "no longer waiting")
+				V.Frame():Hide()
+				b.busy = false
+				eq(ns.ReleaseHeld(), false, "nothing left to show")
+				eq(Open(), false)
+			end)
+		end)
+	end)
+end)
+
+test("1.1 held alerts: the roll call waits and is never answered for the player; the Agenda's popup says the minutes left; /oly alerts always shows them as before", function()
+	HoldBench(function(b)
+		WithUI(function()
+			WithThrone(function(w, K)
+				local L = ns.L
+				local function Wait(s) w.clock, b.clock = w.clock + s, b.clock + s end
+				RaidNotice_AddMessage = b.notice
+				AsCaptain()
+				b.inside = true
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~S~81~Olympus")
+				eq(#w.popups, 0, "the roll call waits")
+				assert(Printed(w, L.THRONE_SUMMONED:format("Asmon")), "its chat line")
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~A~82~Olympus~1800~The Crossroads~Raid on the Crossroads")
+				eq(#w.popups, 0); eq(#b.warnings, 0)
+				assert(Printed(w, "Raid on the Crossroads"), "the Agenda's chat line")
+				-- Out ten minutes later: the roll call (open a minute) is over, the Agenda is 20 minutes away.
+				Wait(10 * 60)
+				b.inside = false
+				ns.ReleaseHeld()
+				eq(#w.popups, 1, "the Agenda alone: the roll call closed"); eq(w.popups[1].name, "OLYMPUS_AGENDA_CALL")
+				assert(w.popups[1].a:find("20 min", 1, true), w.popups[1].a)
+				eq(#w.whispered, 0, "nobody answered for the player")
+				-- The Agenda and its reminders are one line while they wait.
+				b.inside = true
+				Wait(10 * 60 + 1)
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~A~84~Olympus~1200~The Crossroads~Second raid")
+				ns.Alert("agenda", "soft", K.AgendaHeld(K.Agenda()))
+				eq(#ns.Held(), 1, "one line for the Agenda and its reminder")
+				b.inside = false
+				ns.ReleaseHeld()
+				eq(w.popups[#w.popups].name, "OLYMPUS_AGENDA_CALL", "its popup kept")
+				-- /oly alerts always: in the instance as before 1.1.
+				SlashCmdList.OLYMPUS("alerts always")
+				eq(ns.db.alertsAlways, true)
+				assert(Printed(w, L.ALERTS_ALWAYS), "said")
+				b.inside = true
+				eq(ns.Quiet(), nil)
+				Wait(120)
+				local n = #w.popups
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~S~83~Olympus")
+				eq(#w.popups, n + 1, "at once"); eq(w.popups[#w.popups].name, "OLYMPUS_KING_SUMMON")
+				SlashCmdList.OLYMPUS("alerts quiet")
+				eq(ns.db.alertsAlways, nil); eq(ns.Quiet(), "instance")
+				-- The switch on the Decrees tab too.
+				local row
+				for _, l in ipairs(ns.Views.Build("decrees")) do if l.alerts then row = l end end
+				assert(row and row.onClick and row.right:find(L.ALERTS_HELD, 1, true), "held, by default")
+				row.onClick()
+				eq(ns.db.alertsAlways, true)
+				SlashCmdList.OLYMPUS("alerts quiet")
+			end)
+		end)
+	end)
+end)
+
+test("1.1 held alerts: out comes through Olympus's own dialog with the gamepad UI (no game popup, no focus); Busy hidden by the game counts as Busy; the list is bounded", function()
+	WithUI(function()
+		WithGamepadUI(true, function(game)
+			HoldBench(function(b)
+				local savedFocus, savedSecret = ns.Focus, issecretvalue
+				local focus = 0
+				local ok, err = pcall(function()
+					ns.Focus = function() focus = focus + 1 end
+					b.inside = true
+					ns.Alert("court", "loud", { text = "called", what = "the call",
+						show = function() ns.ShowDialog("OLYMPUS_COURT_CALLED", "Asmon", "Stormwind City") end })
+					eq(ns.Dialog.Find("OLYMPUS_COURT_CALLED"), nil, "waits")
+					b.inside = false
+					ns.ReleaseHeld()
+					assert(ns.Dialog.Find("OLYMPUS_COURT_CALLED"), "Olympus's own dialog")
+					eq(#game.shown, 0, "never the game's popup"); eq(focus, 0, "no focus taken")
+					-- The game hides Busy from addons in an encounter or a match (Forever: a secret value,
+					-- which no addon may test): counted as Busy, and never tested.
+					local SECRET = setmetatable({}, { __eq = function() error("a secret compared") end })
+					UnitIsDND = function() return SECRET end
+					issecretvalue = function(v) return rawequal(v, SECRET) end
+					eq(ns.Quiet(), "busy")
+					UnitIsDND = function() error("not now") end
+					eq(ns.Quiet(), nil, "an error: not Busy")
+					UnitIsDND = nil
+					eq(ns.Quiet(), nil)
+					-- A long dungeon keeps the newest HELD_MAX.
+					b.inside = true
+					for i = 1, ns.HELD_MAX + 10 do ns.Alert("muster", "soft", { what = "muster " .. i }) end
+					local list = ns.Held()
+					eq(#list, ns.HELD_MAX); eq(list[#list].what, "muster " .. (ns.HELD_MAX + 10))
+					-- One line, however many: the first few named, the rest counted.
+					b.inside = false
+					ns.ReleaseHeld()
+					local line = b.printed[#b.printed]
+					assert(line:find(ns.L.HELD_MORE:format(ns.HELD_MAX - ns.HELD_WORDS), 1, true), line)
+				end)
+				ns.Focus, issecretvalue = savedFocus, savedSecret
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+end)
+
+test("1.1 held alerts: a full list lets go of what is over first: a Muster held before HELD_MAX Calls to Arms, all over once the player is out, is still named, warned and heard", function()
+	HoldBench(function(b)
+		local L = ns.L
+		local savedGuild, savedGuilds = GetGuildInfo, ns.rdb.guilds
+		local ok, err = pcall(function()
+			GetGuildInfo = function() return "Olympus II", "rank", 3 end
+			ns.rdb.guilds = {}
+			ns.Roster.Scan()
+			-- The real receive path: a D1 from our guild's officers (never flood-limited).
+			local cns, Deliver = FreshComm()
+			cns.Now = function() return b.clock end
+			cns.Comm.loginAt = b.clock - 3600
+			assert(loadfile(ADDON_DIR .. "Decree.lua"))("Olympus", cns)
+			local function Decree(sender, kind, text)
+				Deliver("CHANNEL", sender, Codec.EncodeDecree(kind, 1453, 0.5, 0.5, "Olympus II", 1, text))
+			end
+			local muster = L.HELP_MUSTER_NAME .. " (Stormwind City)"
+			b.inside = true
+			Decree("Member2-Realm", "MUSTER", "at the bridge")
+			-- Then HELD_MAX Calls to Arms, 20 seconds apart, from our officers in turn (each past his gap).
+			local officers = { "Member3-Realm", "Member4-Realm", "Member5-Realm", "Member6-Realm", "Member2-Realm" }
+			for i = 1, ns.HELD_MAX do
+				b.clock = b.clock + 20
+				Decree(officers[(i - 1) % #officers + 1], "ARMS", "wave " .. i)
+			end
+			local arms = 0
+			for _, p in ipairs(b.printed) do if p:find(L.ARMS, 1, true) and p:find("wave ", 1, true) then arms = arms + 1 end end
+			eq(arms, ns.HELD_MAX, "every Call to Arms taken (its chat line)")
+			eq(#b.warnings, 0); eq(#b.played, 0)
+			assert(Texts(ns.Views.Build("decrees")):find(muster, 1, true), "the Muster still waits on the Decrees tab")
+			-- Out six minutes after the last: every Call to Arms (5 minutes) is over, the Muster (30) is not.
+			b.clock = b.clock + 6 * 60
+			b.inside = false
+			local printed = #b.printed
+			eq(ns.ReleaseHeld(), true)
+			eq(#b.printed, printed + 1, "one line")
+			local line = b.printed[#b.printed]
+			assert(line:find(L.HELD_SUMMARY:format(muster), 1, true), "the Muster named: " .. line)
+			assert(line:find(L.HELD_AND_GONE:format(ns.HELD_MAX), 1, true), "every Call to Arms counted, once: " .. line)
+			eq(#b.warnings, 1, "one raid warning"); assert(b.warnings[1]:find(L.HELP_MUSTER_NAME, 1, true), b.warnings[1])
+			eq(#b.played, 1, "one sound"); eq(b.played[1], SOUNDKIT.READY_CHECK, "the Muster's")
+			eq(ns.ReleaseHeld(), false, "once")
+		end)
+		GetGuildInfo, ns.rdb.guilds, C_ChatInfo = savedGuild, savedGuilds, nil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 held alerts: a full list keeps the Agenda's popup: HELD_MAX Calls to Arms over by then, or HELD_MAX Musters still current, never push it out", function()
+	HoldBench(function(b)
+		WithUI(function()
+			WithThrone(function(w, K)
+				local L = ns.L
+				local function Wait(s) w.clock, b.clock = w.clock + s, b.clock + s end
+				-- Held as Decree.lua holds them: current until they expire.
+				local function Decree(kind, what, seconds)
+					local expires = ns.Now() + seconds
+					ns.Alert(kind, kind == "muster" and "soft" or "loud", { text = what, what = what, open = function() return ns.Now() <= expires end })
+				end
+				RaidNotice_AddMessage = b.notice
+				AsCaptain()
+				b.inside = true
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~A~82~Olympus~10800~The Crossroads~Raid on the Crossroads")
+				-- A question over within the minute, repeated (one key): one of those that came and went.
+				local asked = ns.Now()
+				for _ = 1, 2 do
+					ns.Alert("vox", "soft", { what = "a quick question", key = "vox9", open = function() return ns.Now() - asked < 60 end })
+				end
+				-- A Call to Arms every three minutes for two hours.
+				for i = 1, ns.HELD_MAX do Wait(180); Decree("arms", "Call to Arms " .. i, 300) end
+				-- Out ten minutes later: every Call to Arms is over, the Agenda is 50 minutes away.
+				Wait(10 * 60)
+				assert(K.Agenda() and K.Agenda().at - ns.Now() == 3000, "the Agenda is still to come")
+				b.inside = false
+				ns.ReleaseHeld()
+				local line = w.printed[#w.printed]
+				assert(line:find(L.HELD_SUMMARY:format(L.HELD_AGENDA:format("Raid on the Crossroads")), 1, true), line)
+				assert(line:find(L.HELD_AND_GONE:format(ns.HELD_MAX + 1), 1, true), "the Calls to Arms and the question, once: " .. line)
+				eq(#w.popups, 1, "the Agenda's popup"); eq(w.popups[1].name, "OLYMPUS_AGENDA_CALL")
+				assert(w.popups[1].a:find("50 min", 1, true), w.popups[1].a)
+				-- HELD_MAX Musters, all still current, after an Agenda and its reminder: the Agenda is one
+				-- line, and the oldest Muster goes, not the popup.
+				b.inside = true
+				Wait(60)
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~A~84~Olympus~3600~The Crossroads~Second raid")
+				ns.Alert("agenda", "soft", K.AgendaHeld(K.Agenda()))
+				for i = 1, ns.HELD_MAX do Wait(20); Decree("muster", "Muster " .. i, 1800) end
+				local list = ns.Held()
+				eq(#list, ns.HELD_MAX)
+				eq(list[1].what, L.HELD_AGENDA:format("Second raid"), "the Agenda kept")
+				eq(list[2].what, "Muster 2", "the oldest Muster went")
+				eq(list[#list].what, "Muster " .. ns.HELD_MAX)
+				b.inside = false
+				local popups = #w.popups
+				ns.ReleaseHeld()
+				eq(#w.popups, popups + 1); eq(w.popups[#w.popups].name, "OLYMPUS_AGENDA_CALL", "its popup kept")
+				assert(w.popups[#w.popups].a:find("Second raid", 1, true), w.popups[#w.popups].a)
+				-- Every one with a popup and still current: the oldest goes.
+				b.inside = true
+				for i = 1, ns.HELD_MAX + 1 do ns.Alert("court", "soft", { what = "call " .. i, show = function() end }) end
+				list = ns.Held()
+				eq(#list, ns.HELD_MAX); eq(list[1].what, "call 2"); eq(list[#list].what, "call " .. (ns.HELD_MAX + 1))
+			end)
+		end)
+	end)
+end)
+
+test("1.1 held alerts: their words in both languages, the same %s in each; /oly alerts in the help; /oly status says it", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, key in ipairs({ "HELP_ALERTS", "ALERTS_QUIET", "ALERTS_ALWAYS", "ALERTS_LINE", "ALERTS_HELD", "ALERTS_SHOWN", "ALERTS_TIP",
+		"HELD_TITLE", "HELD_TIP", "HELD_LATER", "HELD_SUMMARY", "HELD_TIMES", "HELD_MORE", "HELD_AND_GONE", "HELD_GONE", "HELD_SUMMON",
+		"HELD_INSPECTION", "HELD_AGENDA", "HELD_COURT", "HELD_COURT_CALL", "HELD_WRIT", "HELD_VOX", "HELD_UPDATE", "VOX_HELD" }) do
+		assert(rawget(ns.L, key), key); assert(rawget(pt.L, key), "pt-BR " .. key)
+		local a, b = {}, {}
+		for f in ns.L[key]:gmatch("%%%a") do a[#a + 1] = f end
+		for f in pt.L[key]:gmatch("%%%a") do b[#b + 1] = f end
+		eq(table.concat(b, ","), table.concat(a, ","), key)
+	end
+	assert(pt.L.ALERTS_LINE:find("Ocupado", 1, true), "Busy as the Portuguese client says it")
+	local printed, savedPrint = {}, print
+	print = function(s) printed[#printed + 1] = tostring(s) end
+	local okHelp, errHelp = pcall(SlashCmdList.OLYMPUS, "help")
+	print = savedPrint
+	if not okHelp then error(errHelp, 0) end
+	assert(Said(printed, "/oly alerts"), "in the help")
+	assert(Said(printed, "/oly sound <kind>"), "in the help")
+	assert(ns.AlertStatus():find("in an instance or Busy: held", 1, true), ns.AlertStatus())
+end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

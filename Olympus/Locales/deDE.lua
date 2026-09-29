@@ -214,7 +214,6 @@ ns.Locale("deDE", {
 	HELP_CMD_HEAD = "Befehle der v%s:",
 	HELP_CMD_OPEN = "  /oly - das Fenster öffnen/schließen",
 	HELP_CMD_TABARD = "  /oly tabard - Reiter der Wappenrock-Inspektion",
-	HELP_CMD_SOUND = "  /oly sound - Warntöne an/aus",
 	HELP_CMD_PATROL = "  /oly patrol - Olympus-Mitglieder in der Nähe inspizieren: starten/stoppen",
 	HELP_CMD_MARK = "  /oly mark [Grund] - dein Ziel markieren",
 	HELP_CMD_MAP = "  /oly map - Zahlen pro Zone auf der Weltkarte zeigen/verbergen",

@@ -35,6 +35,9 @@ local function Where()
 end
 
 local LABEL = { ARMS = "ARMS", MUSTER = "MUSTER", ROYAL = "ROYAL", HERALDRY = "HERALDRY_CALL" }
+-- Each decree's sound switch (1.1, ns.SOUND_KINDS): the Tabard inspection goes with the Royal decree.
+local SOUND = { ARMS = "arms", MUSTER = "muster", ROYAL = "royal", HERALDRY = "royal" }
+Decree.SOUND = SOUND
 local ICONS = {
 	ARMS = "Interface\\Icons\\Ability_Warrior_WarCry",
 	MUSTER = "Interface\\Icons\\INV_Misc_Horn_01",
@@ -72,16 +75,20 @@ local function MakePin(d)
 	return f
 end
 
-local function Show(d)
+-- own: sent or previewed here (the player's click): shown in an instance too. Anyone else's
+-- waits there, and on Busy (1.1, ns.Alert): its chat line and its line on the Decrees tab now,
+-- its raid warning once the player is out, if it has not expired by then.
+local function Show(d, own)
 	d.expires = d.t + DURATION[d.kind]
 	table.insert(active, 1, d)
 	local zone = ns.Zones.NameForKey("m" .. d.mapID)
 	local text = ("%s %s%s"):format(Label(d), zone, d.text ~= "" and (" - " .. d.text) or "")
 	ns.Print(("|cffff4040%s|r  (%s <%s>)"):format(text, d.sender, d.guild))
-	if RaidNotice_AddMessage and RaidWarningFrame then
-		RaidNotice_AddMessage(RaidWarningFrame, text, ChatTypeInfo and ChatTypeInfo["RAID_WARNING"] or { r = 1, g = 0.3, b = 0.1 })
-	end
-	ns.PlayAlert(d.kind == "MUSTER" and "soft" or "loud")
+	ns.Alert(SOUND[d.kind] or "muster", d.kind == "MUSTER" and "soft" or "loud", {
+		text = text, color = { r = 1, g = 0.3, b = 0.1 }, own = own,
+		what = ("%s (%s)"):format(L["HELP_" .. d.kind .. "_NAME"], zone),
+		open = function() return ns.Now() <= d.expires end,
+	})
 	if Pins then d.pin = MakePin(d) end
 	Decree.RefreshPins()
 	ns.Log("decree %s from %s <%s> map %d", d.kind, d.sender, d.guild, d.mapID)
@@ -148,7 +155,7 @@ function Decree.Send(kind, text)
 	local rank = steward and 0 or ns.Roster.MyRank()
 	-- Logged (1.0.0): the server keeps its words, so abuse can be reported (Comm.Send).
 	ns.Comm.Send("CHANNEL", ns.Codec.EncodeDecree(kind, mapID, x, y, guild, rank, text), nil, nil, true)
-	Show({ kind = kind, mapID = mapID, x = x, y = y, guild = guild, rank = rank, text = text or "", sender = ns.DisplayName(ns.me), t = now })
+	Show({ kind = kind, mapID = mapID, x = x, y = y, guild = guild, rank = rank, text = text or "", sender = ns.DisplayName(ns.me), t = now }, true)
 end
 
 -- Local-only preview so anyone can see what a decree looks like (nothing is sent).
@@ -156,7 +163,7 @@ function Decree.Preview(kind)
 	local mapID, x, y = Where()
 	if not mapID then return end
 	Show({ kind = kind, mapID = mapID, x = x, y = y, guild = GetGuildInfo("player") or "Olympus", rank = 0,
-		text = L.DECREE_PREVIEW_TEXT, sender = ns.DisplayName(ns.me), t = ns.Now() })
+		text = L.DECREE_PREVIEW_TEXT, sender = ns.DisplayName(ns.me), t = ns.Now() }, true)
 end
 
 -- The 15 s expiry timer also follows a switch of the interface style without a /reload: to the

@@ -143,12 +143,15 @@ local function Changed()
 	end)
 end
 
-local function Warn(text, loud)
+-- kind: the alert's sound switch (1.1, ns.SOUND_KINDS). o (1.1, ns.Alert): its popup or window
+-- (show), how long it is current (open), its words while it waits (what), one line for the
+-- same one repeated (key), the player's own click (own). The chat line always comes now; the
+-- raid warning, the sound and the popup wait in an instance or on Busy.
+local function Warn(text, loud, kind, o)
 	ns.Print("|cffffd200" .. text .. "|r")
-	if RaidNotice_AddMessage and RaidWarningFrame then
-		RaidNotice_AddMessage(RaidWarningFrame, text, ChatTypeInfo and ChatTypeInfo["RAID_WARNING"] or { r = 1, g = 0.82, b = 0 })
-	end
-	ns.PlayAlert(loud and "loud" or "soft")
+	o = o or {}
+	return ns.Alert(kind or "throne", loud and "loud" or "soft", { text = text, color = { r = 1, g = 0.82, b = 0 },
+		what = o.what, open = o.open, show = o.show, key = o.key, own = o.own })
 end
 
 local function NewId() return math.random(1, 99999) end
@@ -374,7 +377,7 @@ local function HandChanged(was, told)
 	local now = King.IsHand()
 	if now and not was then
 		ns.Print(told())
-		ns.PlayAlert("soft")
+		ns.PlayAlert("soft", "throne")
 		ns.Fire("DATA_CHANGED") -- the Throne's tab appears
 	elseif was and not now then
 		ns.Fire("DATA_CHANGED")
@@ -503,7 +506,7 @@ StaticPopupDialogs["OLYMPUS_KING_UNHAND"] = {
 local kinds = {}
 function King.Register(kind, fn) kinds[kind] = fn end
 King.Changed = function() Changed() end
-King.Warn = function(text, loud) Warn(text, loud) end
+King.Warn = function(text, loud, kind, o) return Warn(text, loud, kind, o) end
 King.NewId = function() return NewId() end
 King.CleanName = function(s) return CleanName(s) end
 King.CleanGuild = function(s) return CleanGuild(s) end
@@ -545,10 +548,16 @@ local function OnSummon(king, id, guild)
 	if now - lastSummonSeen < King.SUMMON_GAP then return end
 	if not ns.IsMember() or ns.Roster.MyRank() > ns.CAPTAIN_RANK then return end
 	lastSummonSeen = now
-	ns.PlayAlert("soft")
 	-- The King by the army's name for him; a Hand by theirs.
 	local who = King.FromKing(king, guild) and L.THRONE_SUMMONED:format(ns.KingName(king)) or L.THRONE_SUMMONED_HAND:format(ns.DisplayName(king))
-	ns.ShowDialog("OLYMPUS_KING_SUMMON", who, nil, { king = king, id = id })
+	-- In an instance or on Busy (1.1): a chat line; the popup once the player is out, while it
+	-- is open (never answered for them).
+	local shown = ns.Alert("throne", "soft", {
+		what = L.HELD_SUMMON, key = "summon" .. tostring(id),
+		open = function() return ns.Now() - now < King.SUMMON_OPEN end,
+		show = function() ns.ShowDialog("OLYMPUS_KING_SUMMON", who, nil, { king = king, id = id }) end,
+	})
+	if not shown then ns.Print("|cffffd200" .. who .. "|r  |cff9d9d9d" .. L.HELD_LATER .. "|r") end
 end
 
 local function Answer(data, word)
@@ -636,13 +645,20 @@ function King.Inspect()
 	Changed()
 end
 
+-- Its raid warning, in an instance or on Busy (1.1, ns.Alert): current while the patrols run.
+-- own: the King's (or the preview's) own click.
+function King.InspectionHeld(start, id, own)
+	return { what = L.HELD_INSPECTION, key = "inspect" .. tostring(id or 0), own = own or nil,
+		open = function() return ns.Now() - start < King.INSPECT_TIME end }
+end
+
 -- Every addon (the King's too): a raid warning, a patrol of INSPECT_TIME, then a report to
 -- the King of what it saw (and our own tabard).
 function King.RunInspection(king, id)
 	if inspecting or not ns.IsMember() then return end
 	local start = ns.Now()
 	inspecting = { king = king, id = id, start = start, wasOn = ns.Inspect.IsPatrolling() }
-	Warn(L.THRONE_INSPECT_WARN, true)
+	Warn(L.THRONE_INSPECT_WARN, true, "throne", King.InspectionHeld(start, id, king == nil or king == ns.me))
 	if not inspecting.wasOn then ns.Inspect.SetPatrol(true) end
 	ns.Inspect.SetPace(King.INSPECT_PACE) -- the realm's budget (INSPECT_BUDGET)
 	ns.After(King.INSPECT_TIME, "royal inspection", function()
@@ -697,11 +713,11 @@ local function OnInspect(king, id)
 	-- a player who said no (/oly inspection off, 0.9.3).
 	if ns.db and ns.db.royalInspection == false then
 		ns.Log("inspection %d: not taking part (/oly inspection off)", id or 0)
-		return Warn(L.THRONE_INSPECT_WARN, true)
+		return Warn(L.THRONE_INSPECT_WARN, true, "throne", King.InspectionHeld(now, id))
 	end
 	if King.random() > King.InspectShare() then
 		ns.Log("inspection %d: not in this sample (%.2f)", id or 0, King.InspectShare())
-		return Warn(L.THRONE_INSPECT_WARN, true)
+		return Warn(L.THRONE_INSPECT_WARN, true, "throne", King.InspectionHeld(now, id))
 	end
 	King.RunInspection(king, id)
 end
@@ -832,7 +848,7 @@ function King.SetAgenda(input)
 	if not King.CanCommand() then return false end
 	agenda = mine
 	King.SendAgenda()
-	Warn(L.THRONE_AGENDA_SET:format(title, minutes, mine.zone))
+	Warn(L.THRONE_AGENDA_SET:format(title, minutes, mine.zone), false, "agenda", { own = true })
 	Changed()
 	return true
 end
@@ -876,15 +892,26 @@ local function OnAgenda(king, id, rest, guild)
 	-- not more than once a minute whatever arrives.
 	if now - lastAgendaWarn >= King.AGENDA_GAP then
 		lastAgendaWarn = now
-		local minutes = math.ceil(seconds / 60)
-		Warn(L.THRONE_AGENDA_SET:format(agenda.title, minutes, agenda.zone))
-		-- The King by the army's name for him; a Hand by theirs (as OnSummon).
-		local where = agenda.zone ~= "" and agenda.zone or "?"
-		local text = King.FromKing(king, guild) and L.THRONE_AGENDA_POPUP:format(ns.KingName(king), agenda.title, minutes, where)
-			or L.THRONE_AGENDA_POPUP_HAND:format(ns.DisplayName(king), agenda.title, minutes, where)
-		ns.ShowDialog("OLYMPUS_AGENDA_CALL", text)
+		local a, byKing = agenda, King.FromKing(king, guild)
+		-- The popup says the minutes left when it shows (later, after an instance: 1.1).
+		local function Popup()
+			local minutes = math.max(1, math.ceil((a.at - ns.Now()) / 60))
+			-- The King by the army's name for him; a Hand by theirs (as OnSummon).
+			local where = a.zone ~= "" and a.zone or "?"
+			local text = byKing and L.THRONE_AGENDA_POPUP:format(ns.KingName(king), a.title, minutes, where)
+				or L.THRONE_AGENDA_POPUP_HAND:format(ns.DisplayName(king), a.title, minutes, where)
+			ns.ShowDialog("OLYMPUS_AGENDA_CALL", text)
+		end
+		Warn(L.THRONE_AGENDA_SET:format(a.title, math.ceil(seconds / 60), a.zone), false, "agenda", King.AgendaHeld(a, Popup))
 	end
 	Changed()
+end
+
+-- The Agenda's raid warnings in an instance or on Busy (1.1, ns.Alert): one line for it and its
+-- reminders, current until it is due (and while it is still the Agenda).
+function King.AgendaHeld(a, show)
+	return { what = L.HELD_AGENDA:format(a.title), key = "agenda" .. tostring(a.id), show = show,
+		open = function() return agenda == a and a.at > ns.Now() end }
 end
 
 StaticPopupDialogs["OLYMPUS_AGENDA_CALL"] = {
@@ -1092,7 +1119,7 @@ ns.On("LOGIN", function()
 		for _, mark in ipairs({ 600, 60 }) do
 			if left <= mark and left > 0 and not a.fired[mark] then
 				a.fired[mark] = true
-				Warn(L.THRONE_AGENDA_SOON:format(a.title, math.max(1, math.ceil(left / 60)), a.zone))
+				Warn(L.THRONE_AGENDA_SOON:format(a.title, math.max(1, math.ceil(left / 60)), a.zone), false, "agenda", King.AgendaHeld(a))
 			end
 		end
 		if a.mine and (not a.sentAt or ns.Now() - a.sentAt >= King.AGENDA_RESEND) then

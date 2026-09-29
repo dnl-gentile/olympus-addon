@@ -163,8 +163,13 @@ local function OnWrit(sender, id, rest)
 	local w = { id = id, king = ns.FullName(sender), by = ns.KingName(sender), to = to, text = text, t = now }
 	list[#list + 1] = w
 	while #list > Acts.WRITS_KEPT do table.remove(list, 1) end
-	ns.King.Warn(L.WRIT_ARRIVED:format(w.by), false)
-	Acts.ShowWrit(w)
+	-- In an instance or on Busy (1.1): the chat line and its line on the Decrees tab now, the
+	-- parchment once the player is out, if still unread.
+	ns.King.Warn(L.WRIT_ARRIVED:format(w.by), false, "throne", {
+		what = L.HELD_WRIT:format(w.by), key = "writ",
+		open = function() return not w.acked end,
+		show = function() Acts.ShowWrit(w) end,
+	})
 	ns.Fire("DECREES_CHANGED")
 end
 ns.King.Register("W", OnWrit)

@@ -568,7 +568,7 @@ function Treasury.Record(name, copper, how, out, o)
 				end
 			end
 			ns.Print(line)
-			if not out then ns.PlayAlert("soft") end
+			if not out then ns.PlayAlert("soft", "treasury") end
 		end
 	end
 	ns.Fire("TREASURY_CHANGED")

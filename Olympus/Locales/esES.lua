@@ -214,7 +214,6 @@ ns.Locale({ "esES", "esMX" }, {
 	HELP_CMD_HEAD = "comandos de la v%s:",
 	HELP_CMD_OPEN = "  /oly - abrir/cerrar la ventana",
 	HELP_CMD_TABARD = "  /oly tabard - pestaña de la Inspección de Tabardos",
-	HELP_CMD_SOUND = "  /oly sound - activar/desactivar los sonidos de alerta",
 	HELP_CMD_PATROL = "  /oly patrol - empezar/parar de inspeccionar a los miembros de Olympus cercanos",
 	HELP_CMD_MARK = "  /oly mark [motivo] - marcar a tu objetivo",
 	HELP_CMD_MAP = "  /oly map - mostrar/ocultar los recuentos por zona en el mapa del mundo",

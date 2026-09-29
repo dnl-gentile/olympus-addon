@@ -362,6 +362,8 @@ function ns.StatusText()
 			add("Horde King: %s, realm %s", tostring(ns.KING_CHARACTER.Horde), tostring(ns.KingRealm and ns.KingRealm() or "?"))
 		end
 		add("royal inspection: %s (/oly inspection on|off)", ns.db.royalInspection == false and "not taking part" or "taking part when sampled")
+		-- 1.1: the switch for all alert sounds, and the kinds silenced on their own.
+		add("alerts: %s", ns.AlertStatus and ns.AlertStatus() or "?")
 		add("author's roll call: %s (/oly rollcall on|off)", ns.Workshop and ns.Workshop.Answers and (ns.Workshop.Answers() and "answered" or "refused") or "?")
 		-- (1.1) The author's released version as his presence named it, and whether this client is behind it.
 		add("%s", ns.Workshop and ns.Workshop.VersionLine and ns.Workshop.VersionLine() or "author's released version: ?")

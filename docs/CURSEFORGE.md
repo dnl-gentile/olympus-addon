@@ -148,6 +148,26 @@ author, by removing him. The
 King's Steward (1.0.0, below) sends the Crown's decrees for `<Olympus>` on every client,
 whatever his rank, like the King.
 
+**Alert sounds (1.1).** Each kind of alert has a sound switch of its own, at the bottom of the
+Decrees tab (a click on its line, with the gamepad UI too) or with `/oly sound <kind> on|off`:
+`arms` (Call to Arms), `muster`, `royal` (Royal decrees and Tabard inspections), `court`, `vox`,
+`agenda`, `throne` (the roll call, the Royal Inspection, writs), `help` (help requests and bug
+reports), `hop`, `treasury`, `patrol` and `update`. Silence the chimes you don't want and keep
+the Call to Arms: `/oly sound` alone is still the switch for every sound, and each kind keeps its
+own switch under it. A softer chime never silences the Call to Arms that follows it. Only the
+sound changes: the chat line, the raid warning and the Olympus window stay, and nothing is sent.
+
+**In an instance or Busy (1.1).** In a dungeon, raid, battleground or arena, or while you are
+Busy (`/dnd`), Olympus's alerts wait: no raid warning, no sound and no popup from the addon. Each
+one still prints its chat line and waits on top of the Decrees tab, where a click shows it now.
+Once you are out and not Busy, one line (and one raid warning and one sound) says what waited and
+is still current, and only what is still open pops up: a Vox question still open, the King's call
+to his audience within its two minutes, the Agenda still to come, a roll call within its minute,
+an unread writ. What is over by then (a Call to Arms lasts 5 minutes) only stays in its list, and
+nothing is ever answered for you. `/oly alerts always` shows them at once as before; `/oly alerts
+quiet` (the default) holds them again; or a click on the line at the bottom of the Decrees tab.
+Only on your computer: nothing is sent.
+
 ### Channels
 Chat for the whole federation, carried by the addon over its hidden Olympus channel (no
 WoW channel number to join). Each channel is exclusive to a rank:
@@ -809,7 +829,8 @@ Other limits:
   (the King's alone every minute, while his crown shows: one client, one message a minute).
 - A layer request goes out once; only about 6 players answer it, each by a whisper to the asker.
 - Messages are spaced 1.2 s apart, below Blizzard's addon message limits, and alert sounds
-  play at most once every 15 seconds.
+  play at most once every 15 seconds (1.1: a softer one never silences the Call to Arms or a
+  louder alert after it).
 - Chat has its own short lane: a line goes out within about a second, and while reports are
   waiting it never takes more than every other message slot.
 
@@ -846,7 +867,9 @@ Other limits:
 | `/oly key <secret>` | officers: seal the Olympus channel |
 | `/oly block <name>` | ignore a player |
 | `/oly map` | zone markers on the world map |
-| `/oly sound` | alert sounds on or off |
+| `/oly sound` · `/oly sound on\|off` | every alert sound on or off |
+| `/oly alerts quiet\|always` | in an instance or Busy, Olympus's raid warnings, sounds and popups wait until you are out (quiet, the default), or show at once (1.1) |
+| `/oly sound <kind> on\|off` | one kind's sound (1.1): `arms`, `muster`, `royal`, `court`, `vox`, `agenda`, `throne`, `help`, `hop`, `treasury`, `patrol`, `update`; also a click on its line at the bottom of the Decrees tab |
 | `/oly bug` | copyable bug report (also: the help button left of the window's X, then **Report a bug**) |
 | `/oly status` | diagnostics in chat (1.0.0: whom your addon knows as the King's Steward, and the lists of Hands it holds, whose each is) |
 

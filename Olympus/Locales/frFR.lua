@@ -214,7 +214,6 @@ ns.Locale("frFR", {
 	HELP_CMD_HEAD = "commandes de la v%s :",
 	HELP_CMD_OPEN = "  /oly - ouvrir/fermer la fenêtre",
 	HELP_CMD_TABARD = "  /oly tabard - onglet de l'Inspection des tabards",
-	HELP_CMD_SOUND = "  /oly sound - activer/désactiver les sons d'alerte",
 	HELP_CMD_PATROL = "  /oly patrol - commencer/arrêter d'inspecter les membres d'Olympus proches",
 	HELP_CMD_MARK = "  /oly mark [raison] - marquer votre cible",
 	HELP_CMD_MAP = "  /oly map - afficher/masquer les comptes par zone sur la carte du monde",

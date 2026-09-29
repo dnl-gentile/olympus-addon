@@ -120,7 +120,7 @@ function Inspect.Record(name, guild, classFile, level, tabardID, anyGear)
 	if (p.status == "NONE" or p.status == "OTHER") and previous ~= p.status then
 		local label = p.status == "NONE" and L.TABARD_NONE or L.TABARD_OTHER
 		ns.Print(("|cffff4040%s|r <%s>: %s"):format(ns.ShortName(name), guild or "?", label))
-		ns.PlayAlert("soft")
+		ns.PlayAlert("soft", "patrol")
 	end
 	if not previous then Inspect.Prune() end -- (only a new player makes the store grow)
 	ns.Fire("INSPECT_CHANGED")
