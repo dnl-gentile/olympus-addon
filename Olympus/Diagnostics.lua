@@ -364,6 +364,11 @@ function ns.StatusText()
 		-- (1.1, Fern's #11: each off until answered, on the first-open page or its command.)
 		local ri = ns.db.royalInspection
 		add("royal inspection: %s (/oly inspection on|off)", ri == true and "taking part when sampled" or (ri == false and "not taking part" or "not chosen (not taking part)"))
+		-- 1.1 (Fern's #29): an officer's findings shared with his guild's officers.
+		if ns.Inspect.MayShare then
+			add("patrol share: %s (/oly patrolshare on|off), %d of our officers' findings held", not ns.Inspect.Sharing() and "off"
+				or (ns.Inspect.MayShare() and "on" or "on, not an officer"), ns.Inspect.SharedCount())
+		end
 		-- 1.1: the switch for all alert sounds, and the kinds silenced on their own.
 		add("alerts: %s", ns.AlertStatus and ns.AlertStatus() or "?")
 		add("author's roll call: %s (/oly rollcall on|off)", ns.Workshop and ns.Workshop.AnswerState and ns.Workshop.AnswerState() or "?")
@@ -406,6 +411,12 @@ function ns.StatusText()
 	add("net-off: %s", ns.Moderation and ns.Moderation.StatusLine and ns.Moderation.StatusLine() or "not loaded")
 	add("alt links: %s", ns.Alts and ns.Alts.StatusLine and ns.Alts.StatusLine() or "not loaded")
 	add("realm key: %s", ns.Keys and ns.Keys.StatusLine and ns.Keys.StatusLine() or "not loaded")
+	-- 1.1: the guilds the author's signed list makes Olympus guilds (our faction's), and whether ours is one.
+	if ns.ApprovedGuilds then
+		local list, guild = ns.ApprovedGuilds(), GetGuildInfo("player")
+		add("approved guilds: %s%s", #list > 0 and table.concat(list, ", ") or "none", (guild and ns.IsApprovedGuild(guild))
+			and (ns.NamedOlympus(guild) and "  |  ours is on it" or "  |  ours is Olympus by the list alone") or "")
+	end
 	add("borders: %s", ns.Borders and ns.Borders.StatusLine and ns.Borders.StatusLine() or "not loaded")
 	add("nameplates: %s", ns.Nameplates and ns.Nameplates.StatusLine and ns.Nameplates.StatusLine() or "not loaded")
 	-- The gamepad UI and what the game refused us this session; what its code reads, as now.

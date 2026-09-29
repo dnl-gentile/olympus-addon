@@ -45,7 +45,7 @@ local chatQueue = {}  -- chat lines (Channels.lua): { msg, done, t }
 local lastWasChat = false
 local asm = Codec.NewAssembler()
 local guildAsm = Codec.NewAssembler() -- pieces over GUILD (1.0.0)...
-local GUILD_PIECES = { HS = true, HT = true } -- ...put together for these types alone: the High Council's lists
+local GUILD_PIECES = { HS = true, HT = true, JB = true } -- ...put together for these types alone: the High Council's lists, a guild's loot notes (1.1)
 local msgId = 0
 local lastBroadcast = 0
 local early -- { every, due }: the report due then went out early, as a census answer (see Q1)
@@ -1159,6 +1159,21 @@ function Comm.Admit(sender, now)
 end
 function Comm.ResetAdmission() wipe(admit); admitCount = 0 end
 
+-- A client outside any Olympus guild (1.1): over its own guild it puts together the pieces of the
+-- author's signed titles list alone (HT), which names the approved guilds (ns.IsApprovedGuild):
+-- the members of such a guild have nothing else to learn it from. Nothing else is read, kept or
+-- answered; a blocked sender, and one past the admission budget, are dropped as ever, and the list
+-- is checked like any other (Workshop.TakeTitles: the signature, the budgets of checks).
+local outsiderAsm = Codec.NewAssembler()
+function Comm.Outsider(sender, text)
+	if not IsInGuild() or type(text) ~= "string" or not text:match("^C%w+:") then return end
+	if ns.db.blocked[sender:lower()] or not Comm.Admit(sender, ns.Now()) then return end
+	stats.outsider = (stats.outsider or 0) + 1
+	local full = Codec.Feed(outsiderAsm, sender, text, ns.Now())
+	if full and full:sub(1, 3) == "HT~" and handlers.HT then handlers.HT("GUILD", sender, full) end
+end
+function Comm.ResetOutsider() outsiderAsm = Codec.NewAssembler() end -- (tests)
+
 local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID, localID, channelName)
 	if prefix ~= ns.PREFIX then return end
 	if type(sender) ~= "string" or sender == "" or type(text) ~= "string" then return end
@@ -1199,12 +1214,15 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		return
 	end
 	if not ns.IsMember() then
-		-- Outside an Olympus guild the addon hears nothing but the Join screen's answer (1.1): J2,
-		-- whispered by a member it asked (Comm.WhisperOutside).
+		-- Outside an Olympus guild the addon hears nothing of the army, but for two things (1.1): the
+		-- Join screen's answer, J2, whispered by a member it asked (Comm.WhisperOutside), and the
+		-- author's signed titles list over its own guild, which may make that guild an Olympus guild
+		-- (Comm.Outsider).
 		if dist == "WHISPER" and text:sub(1, 3) == "J2~" and outsideHandler and not ns.db.blocked[sender:lower()]
 			and Comm.Admit(sender, ns.Now()) then
 			ns.SafeCall("join route", outsideHandler, sender, text)
 		end
+		if dist == "GUILD" then Comm.Outsider(sender, text) end
 		return
 	end
 	if ns.db.blocked[sender:lower()] then return end
@@ -1370,6 +1388,7 @@ ns.On("LOGIN", function()
 	ns.Every(60, "housekeeping", function()
 		local dropped, sample = Codec.Gc(asm, ns.Now())
 		Codec.Gc(guildAsm, ns.Now())
+		Codec.Gc(outsiderAsm, ns.Now())
 		if dropped > 0 then
 			stats.partial = stats.partial + dropped
 			ns.Log("incomplete report dropped: %s", tostring(sample))

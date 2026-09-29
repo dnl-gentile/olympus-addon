@@ -235,7 +235,7 @@ local function MergeNewest(dst, src)
 end
 
 -- Inspections: newest wins too, but an officer's mark and note never go with the older entry
--- (false is an explicit unmark: it stays).
+-- (false is an explicit unmark: it stays), nor the gear his click kept (1.1).
 local function MergePlayers(dst, src)
 	if type(src) ~= "table" then return end
 	for k, v in pairs(src) do
@@ -246,6 +246,9 @@ local function MergePlayers(dst, src)
 			if type(other) == "table" then
 				if keep.marked == nil then keep.marked = other.marked end
 				if keep.note == nil then keep.note = other.note end
+				-- (1.1: the gear an officer's click kept, the newer of the two.)
+				local g, o = keep.gear, other.gear
+				if type(o) == "table" and (type(g) ~= "table" or (tonumber(o.t) or 0) > (tonumber(g.t) or 0)) then keep.gear = o end
 			end
 			dst[k] = keep
 		end
@@ -1032,6 +1035,89 @@ function ns.Stewards()
 	return type(list) == "table" and list or {}
 end
 
+-- The approved guilds (1.1, the author's): guilds of Asmon's Olympus whose names the name rule
+-- below leaves out (it leaves Olympian and Olympia out on purpose) count as Olympus guilds when
+-- the author's signed titles list names them, per faction, in an entry of its own after the
+-- departments, like the Steward:
+--   ^guilds^<Alliance|Horde>^<Guild Name>,<Guild Name>,...
+-- Three "^": clients of 0.9.9 and 1.0.0 leave it out unread (a department has two; 1.0.0 reads
+-- "^steward^" alone) and still take, show and pass on the whole list. No guild name is written in
+-- this code; the list counts on its realm group only, as every signed list (ns.CouncilTitles), and
+-- only the author's key signs it (scripts/council-sign.py guild).
+ns.APPROVED_MAX = 20
+local function ApprovedName(s)
+	s = tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if s == "" or #s > 72 or select(2, s:gsub("[^\128-\191]", "")) > 24 then return nil end
+	if not s:match("^[%a\128-\255][%a\128-\255 ]*$") then return nil end
+	return s
+end
+
+-- The approved guilds a titles list names: { Alliance = { name, ... }, Horde = { ... } }, a
+-- faction left out when it names none (ns.APPROVED_MAX each, each once).
+function ns.ReadApprovedGuilds(text)
+	local out = {}
+	for entry in tostring(text or ""):gmatch("[^;]+") do
+		local faction, list = entry:match("^%^guilds%^(%a+)%^([^%^]*)$")
+		if faction and STEWARD_FACTIONS[faction] then
+			local names, seen = out[faction] or {}, {}
+			for _, n in ipairs(names) do seen[ns.Fold(n)] = true end
+			for n in list:gmatch("[^,]+") do
+				local name = ApprovedName(n)
+				if name and not seen[ns.Fold(name)] and #names < ns.APPROVED_MAX then
+					seen[ns.Fold(name)] = true
+					names[#names + 1] = name
+				end
+			end
+			out[faction] = names
+		end
+	end
+	return out
+end
+
+-- The approved guilds of our faction, from the titles list we hold (read again from its signed
+-- text when a version before 1.1 took it): { name, ... }.
+function ns.ApprovedGuilds()
+	local t = ns.CouncilTitles()
+	if not t then return {} end
+	if type(t.guilds) ~= "table" then
+		t.guilds = ns.ReadApprovedGuilds(type(t.blob) == "string" and t.blob:match("^HT1~%d+~[^~]*~[01]~([^~]*)~%x+$") or "")
+	end
+	local list = t.guilds[ns.faction or "Alliance"]
+	return type(list) == "table" and list or {}
+end
+
+-- Is this guild on it? Asked for every report, line, tooltip and nameplate: the set is kept while
+-- the list, our faction, our character and our realm group are the same, and each name's answer
+-- with it (an empty list answers at once).
+local approvedMemo
+function ns.IsApprovedGuild(guild)
+	if type(guild) ~= "string" or guild == "" then return false end
+	local t = ns.rdb and ns.rdb.councilTitles
+	if type(t) ~= "table" then return false end
+	local m = approvedMemo
+	if not m or m.t ~= t or m.at ~= t.at or m.faction ~= ns.faction or m.me ~= ns.me or m.group ~= ns.group then
+		local set, any = {}, false
+		for _, name in ipairs(ns.ApprovedGuilds()) do set[ns.Fold(name)], any = true, true end
+		m = { t = t, at = t.at, faction = ns.faction, me = ns.me, group = ns.group, set = set, any = any, seen = {}, seenCount = 0 }
+		approvedMemo = m
+	end
+	if not m.any then return false end
+	local known = m.seen[guild]
+	if known == nil then
+		known = m.set[ns.Fold(guild)] == true
+		if m.seenCount >= 2000 then m.seen, m.seenCount = {}, 0 end
+		m.seen[guild], m.seenCount = known, m.seenCount + 1
+	end
+	return known
+end
+
+-- Our guild is an Olympus guild by the signed list alone (its name would not make it one): its
+-- members may not hold the list yet, and hear it only over GUILD (Comm.lua, Workshop.RelayGuild).
+function ns.ApprovedOnly()
+	local guild = IsInGuild and IsInGuild() and GetGuildInfo("player")
+	return type(guild) == "string" and ns.IsApprovedGuild(guild) and not ns.IsKingGuild(guild) and not ns.NamedOlympus(guild)
+end
+
 -- Is this character (a sender's name, which the server sets) a Steward of our King?
 function ns.IsSteward(name)
 	if type(name) ~= "string" or name == "" then return false end
@@ -1257,10 +1343,24 @@ local function Federation(guild)
 	return false
 end
 
+-- The name rule alone (cached): what IsFederation says without the King's guild or the signed list.
+function ns.NamedOlympus(guild)
+	if type(guild) ~= "string" or guild == "" then return false end
+	local known = federation[guild]
+	if known == nil then
+		known = Federation(guild)
+		if federationSize >= 2000 then federation, federationSize = {}, 0 end
+		federation[guild], federationSize = known, federationSize + 1
+	end
+	return known
+end
+
 function ns.IsFederation(guild)
 	if type(guild) ~= "string" or guild == "" then return false end
 	-- The King's own guild is Olympus whatever its name (the Horde's is <Mudhutters>, 0.9.4).
 	if ns.IsKingGuild(guild) then return true end
+	-- A guild the author's signed list approves (1.1), whatever its name.
+	if ns.IsApprovedGuild(guild) then return true end
 	local known = federation[guild]
 	if known == nil then
 		known = Federation(guild)
@@ -1417,7 +1517,7 @@ StandIn("Who", { "Search", "SendPlain" })
 StandIn("Channels", { "Send", "ToggleMute" })
 StandIn("King", { "Summon", "Inspect", "AgendaPrompt" })
 StandIn("Hop", { "Ask", "AskKing", "SetHelp", "SetAuto" })
-StandIn("Workshop", { "RollCall" })
+StandIn("Workshop", { "RollCall", "Approved" })
 StandIn("Vox", { "Prompt", "CloseNow", "SetOff" })
 StandIn("Court", { "Toggle" })
 StandIn("Treasury", {})
@@ -1438,6 +1538,8 @@ StandIn("Week", {}) -- (1.1: the King's week)
 StandIn("Moderation", { "Slash" })
 StandIn("Alts", { "Slash" })
 StandIn("Keys", { "RotatePrompt" })
+StandIn("Loot", { "Show" }) -- (1.1)
+StandIn("Crafters", { "Ask", "Slash" }) -- (1.1)
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1516,7 +1618,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Dues", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Board", "Week", "Consent", "Chronicle", "Filter", "Members", "Moderation", "Alts", "Keys" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Dues", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Loot", "Crafters", "Board", "Week", "Consent", "Chronicle", "Filter", "Members", "Moderation", "Alts", "Keys" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1551,6 +1653,11 @@ local function Help()
 	print(L.HELP_ALERTS)
 	print(L.HELP_CMD_PATROL)
 	print(L.HELP_CMD_MARK)
+	print(L.HELP_GEAR)
+	print(L.HELP_PATROLSHARE)
+	print(L.HELP_APPROVED)
+	print(L.HELP_LOOT)
+	print(L.HELP_CRAFT)
 	print(L.HELP_CMD_MAP)
 	print(L.HELP_CMD_REALM)
 	print(L.HELP_CMD_LAYERS)
@@ -1629,6 +1736,31 @@ SlashCmdList.OLYMPUS = function(input)
 			ns.Inspect.SetPatrol(not ns.Inspect.IsPatrolling())
 		elseif cmd == "mark" then
 			ns.Inspect.MarkTarget(rest)
+		elseif cmd == "gear" then
+			-- 1.1 (Fern's #28): officers keep the gear of the player they target, in range.
+			ns.Inspect.InspectGear()
+		elseif cmd == "loot" then
+			-- 1.1 (Fern's #22): the guild's loot notes and points, on the Realm tab.
+			ns.UI.SelectTab("realm")
+			ns.Loot.Show(true)
+		elseif cmd == "craft" then
+			-- 1.1 (Fern's #24): who can make this item (a shift-clicked link) or these words.
+			if rest == "" then
+				ns.UI.SelectTab("realm")
+				ns.Views.ShowPage("crafters")
+			elseif ns.Crafters.Ask(rest) then
+				ns.UI.SelectTab("realm")
+			end
+		elseif cmd == "crafter" then
+			ns.Crafters.Slash(rest)
+		elseif cmd == "approved" then
+			-- 1.1: the guilds the author's signed list makes Olympus guilds; "paste" to paste that list.
+			ns.Workshop.Approved(rest)
+		elseif cmd == "patrolshare" then
+			-- 1.1 (Fern's #29): officers pass their patrols' findings to their guild's officers.
+			local word, on = rest:lower(), nil
+			if word == "on" then on = true elseif word == "off" then on = false end
+			ns.Inspect.SetSharing(on)
 		elseif cmd == "map" then
 			ns.Map.SetEnabled(not ns.db.showMap)
 		elseif cmd == "throne" or cmd == "trono" then

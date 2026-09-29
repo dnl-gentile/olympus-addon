@@ -222,6 +222,9 @@ table.insert(DETAIL_BUTTONS.realm, { "COUNCIL_ASK_BTN", function() ns.ShowDialog
 -- to councillors alone.
 table.insert(DETAIL_BUTTONS.realm, { "COUNCIL_ICON_BTN", function() ns.Workshop.ShowIconPicker() end,
 	shown = function() return ns.IsHighCouncillor(ns.me) end })
+-- 1.1 (Fern's #28): an officer keeps the gear of the player he targets, in range (Inspect.lua).
+table.insert(DETAIL_BUTTONS.heraldry, 1, { "GEAR_BTN", function() ns.Inspect.InspectGear() end,
+	shown = function() return ns.IsMember() and ns.Roster.IsOfficer() end })
 
 -- Buttons that come and go (def.shown): only the ones shown, in order.
 local function Shown(defs)
@@ -1307,7 +1310,7 @@ local function PageOf(tab, locked)
 	local sub
 	if tab == "realm" then
 		-- (1.1: our guild's members page, Members.lua, a page of its own.)
-		sub = (ns.Views.BoardShown and ns.Views.BoardShown() and "board") or ns.Views.ChatTier and ns.Views.ChatTier() or ns.Members and ns.Members.PageId and ns.Members.PageId() or "tree"
+		sub = (ns.Views.BoardShown and ns.Views.BoardShown() and "board") or (ns.Views.PageShown and ns.Views.PageShown()) or ns.Views.ChatTier and ns.Views.ChatTier() or ns.Members and ns.Members.PageId and ns.Members.PageId() or "tree"
 	elseif tab == "throne" then sub = ns.King and ns.King.mode
 	elseif tab == "treasury" then sub = ns.Treasury and ns.Treasury.mode end
 	return tab .. "/" .. tostring(sub or "")
@@ -1888,6 +1891,10 @@ end)
 -- The court's line tops the Census and the Realm for the players in its zone.
 ns.On("COURT_CHANGED", function() if main and (main.tab == "census" or main.tab == "realm") then UI.RefreshSoon() end end)
 ns.On("CHAT_CHANGED", function() if main and main.tab == "realm" and ns.Views.ChatShown() then UI.RefreshSoon() end end)
+-- A page of the Realm tab changed (1.1: the loot notes, the crafters' board): redrawn while it shows.
+ns.On("REALM_PAGE_CHANGED", function(key)
+	if main and main.tab == "realm" and ns.Views.PageShown and ns.Views.PageShown() == key then UI.RefreshSoon() end
+end)
 ns.On("WORKSHOP_CHANGED", function() if main and main.tab == "workshop" then UI.RefreshSoon() end end)
 ns.On("RECRUIT_CHANGED", function() UI.RefreshSoon() end)
 -- The screen or the UI scale changed: the window's width in pixels did too, so the tabs

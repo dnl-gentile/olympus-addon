@@ -444,10 +444,12 @@ function Borders.SetPreview(word)
 		ns.Print(L.BORDERS_PREVIEW_OFF)
 	elseif TierNamed(word) then
 		preview = word
-		ns.Print(L.BORDERS_PREVIEW_ON:format(word))
+		-- (1.1: with the marks off, it says no mark shows with the border.)
+		ns.Print(ns.Nameplates.Enabled() == false and L.BORDERS_PREVIEW_ON_NO_MARK:format(word) or L.BORDERS_PREVIEW_ON:format(word))
 	elseif word == Borders.MEMBER then
 		preview = word
-		ns.Print(L.BORDERS_PREVIEW_ON_MEMBER)
+		-- (With the marks off it only waits: NAMEPLATES_PREVIEW_WHEN_OFF below says so.)
+		if ns.Nameplates.Enabled() ~= false then ns.Print(L.BORDERS_PREVIEW_ON_MEMBER) end
 	else
 		local names = {}
 		for _, t in ipairs(Borders.TIERS) do names[#names + 1] = t.name end
@@ -489,6 +491,8 @@ function Borders.PreviewLines(lines)
 			tooltip = function(tt)
 				tt:AddLine(L.BORDERS_PREVIEW_TITLE, 1, 0.82, 0)
 				tt:AddLine(name == Borders.MEMBER and L.BORDERS_PREVIEW_TIP_MEMBER or L.BORDERS_PREVIEW_TIP, 1, 1, 1, true)
+				-- (1.1: with the marks off, no mark shows with it.)
+				if ns.Nameplates.Enabled() == false then tt:AddLine(L.NAMEPLATES_PREVIEW_WHEN_OFF, 0.6, 0.6, 0.6, true) end
 			end,
 		}
 	end

@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Board", "Week", "Treasury", "Dues", "Bank", "Acts", "Chronicle", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Consent", "Members", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Board", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "Crafters", "Chronicle", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Consent", "Members", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -16430,6 +16430,10 @@ test("1.0.0 a guild clicked in the Census opens in the Realm with that guild in 
 		CommunitiesFrame:Show(); w.buttons[1]:Click()
 		local main = OlympusFrameHD
 		ns.rdb.guilds = ManyGuilds()
+		-- (1.1: a sealed channel, so the public channel's warning is not above the Realm's tree: the
+		-- Board's, loot notes' and crafters' links are, and the guild window's list is short.)
+		local savedKey = ns.rdb.realmKey
+		ns.rdb.realmKey = "sealed"
 		ns.Views.ExpandAll(false)
 		UI.SelectTab("census")
 		local scroll = main.scroll
@@ -16475,6 +16479,7 @@ test("1.0.0 a guild clicked in the Census opens in the Realm with that guild in 
 		DrawJumping(scroll)
 		eq(scroll:GetVerticalScroll(), 0, "the Realm's tab: its top")
 		ns.Views.ExpandAll(false)
+		ns.rdb.realmKey = savedKey
 	end)
 end)
 
@@ -22260,8 +22265,10 @@ test("1.0.0 nameplates preview: the author's /oly borders test <tier> shows that
 			eq(w.mark("nameplate2"), want, name .. " on the King's too")
 			eq(w.mark("nameplate3"), nil, "never on a hostile player"); eq(w.mark("nameplate4"), nil, "nor a creature")
 			local kind, mine = w.myMark()
-			eq(kind, want, name .. " left of his own name")
-			eq(mine.point, "RIGHT PlayerName LEFT -2 0", "left of his name, 2 px off"); eq(mine.size, "16 16")
+			eq(kind, want, name .. " by his own name")
+			-- (1.1, the 1.0 review: after his name, 2 px off. Left of it, the mark sat on his portrait's
+			-- ring. His name, 19 letters of 6 px, is past Forever's 96 px box: at the box's end.)
+			eq(mine.point, "LEFT PlayerName LEFT 98 0", "after his name, 2 px off"); eq(mine.size, "16 16")
 			eq(mine.layer, "OVERLAY")
 			eq(w.shown("player"), name ~= "member" and name or nil, "his border as the preview's (none for the star)")
 		end
@@ -22293,7 +22300,12 @@ test("1.0.0 nameplates preview: the author's /oly borders test <tier> shows that
 		SlashCmdList.OLYMPUS("nameplates on")
 		eq(w.myMark(), "member", "back with the marks"); eq(w.mark("nameplate1"), "member")
 		SlashCmdList.OLYMPUS("borders test off")
-	end, function(w) w.units.player = MARK_AUTHOR; ns.me = "Faladoriel Skylance-ClassicBetaPvP" end)
+	end, function(w)
+		w.units.player = MARK_AUTHOR; ns.me = "Faladoriel Skylance-ClassicBetaPvP"
+		-- (Forever's PlayerName: 96 px, his name in it.)
+		local name = rawget(PlayerFrame, "name")
+		name.text, name.width = "Faladoriel Skylance", 96
+	end)
 	-- The /reload: loaded afresh, the preview forgotten.
 	WithNameplates(function(w)
 		ns.Borders, ns.Nameplates = w.B, w.N
@@ -32183,6 +32195,1527 @@ do
 		end
 	end)
 end -- 1.1 dues
+---------------------------------------------------------------------------
+-- 1.1: the author's preview of the borders and nameplate marks (the 1.0 review's lows)
+---------------------------------------------------------------------------
+
+local function AsAuthor(w)
+	w.units.player = MARK_AUTHOR; ns.me = "Faladoriel Skylance-ClassicBetaPvP"
+	local name = rawget(PlayerFrame, "name")
+	name.text, name.width = "Faladoriel Skylance", 96
+end
+
+test("1.1 nameplates preview: what the census says while the preview shows is each plate's own mark once it ends, never the mark from before it", function()
+	WithNameplates(function(w)
+		ns.Borders, ns.Nameplates = w.B, w.N
+		local reports = ns.rdb.guilds
+		ns.Roster.byName = {}
+		w.internal("LOGIN")
+		w.add("nameplate1", BorderUnit("Capt", "Olympus Zeus", "Titan", 1))
+		w.add("nameplate2", BorderUnit("Trader", "Stormwind Traders", "Veteran", 3))
+		eq(w.mark("nameplate1"), "silver", "a Captain"); eq(w.mark("nameplate2"), nil)
+		SlashCmdList.OLYMPUS("borders test gold-elite")
+		eq(w.mark("nameplate1"), "gold"); eq(w.mark("nameplate2"), "gold", "the preview on every friendly plate")
+		-- His guild's report comes while the preview shows: he is no longer its Captain.
+		reports["Olympus Zeus"] = { guild = "Olympus Zeus", leader = "Zeusy", officers = {}, realm = "Realm", t = 300 }
+		w.internal("DATA_CHANGED")
+		eq(w.mark("nameplate1"), "gold", "still the preview")
+		-- A councillor named meanwhile too.
+		ns.rdb.council = { names = { ["trader"] = true } }
+		w.internal("DATA_CHANGED")
+		SlashCmdList.OLYMPUS("borders test off")
+		eq(w.mark("nameplate1"), "member", "no longer a Captain: the census's word, not the silver from before the preview")
+		eq(w.mark("nameplate2"), "silver", "the new councillor's mark")
+		-- The game writing the names again (a mouseover, a health change) keeps them.
+		CompactUnitFrame_UpdateName(w.frameOf("nameplate1")); CompactUnitFrame_UpdateName(w.frameOf("nameplate2"))
+		eq(w.mark("nameplate1"), "member"); eq(w.mark("nameplate2"), "silver")
+	end, AsAuthor)
+end)
+
+test("1.1 nameplates preview: with /oly nameplates off the preview's messages and tips say no mark shows (both languages)", function()
+	WithNameplates(function(w)
+		ns.Borders, ns.Nameplates = w.B, w.N
+		w.internal("LOGIN")
+		w.add("nameplate1", BorderUnit("Trader", "Stormwind Traders", "Veteran", 3))
+		SlashCmdList.OLYMPUS("nameplates off")
+		local from = #w.printed
+		SlashCmdList.OLYMPUS("borders test silver")
+		eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON_NO_MARK:format("silver"))
+		for i = from + 1, #w.printed do
+			assert(w.printed[i] ~= ns.L.BORDERS_PREVIEW_ON:format("silver"), "never 'its mark after your name' with the marks off")
+		end
+		eq(w.myMark(), nil, "no mark by his name"); eq(w.mark("nameplate1"), nil, "none on the plates")
+		eq(w.shown("player"), "silver", "the border itself shows")
+		-- The star alone: it only waits, and says so; nothing says it shows.
+		from = #w.printed
+		SlashCmdList.OLYMPUS("borders test member")
+		eq(#w.printed, from + 1, "one line: " .. tostring(w.printed[#w.printed]))
+		eq(w.printed[#w.printed], ns.L.NAMEPLATES_PREVIEW_WHEN_OFF)
+		-- The Workshop's lines say it in their tips.
+		local lines = {}
+		w.B.PreviewLines(lines)
+		local tips = {}
+		lines[2].tooltip({ AddLine = function(_, text) tips[#tips + 1] = text end })
+		eq(tips[#tips], ns.L.NAMEPLATES_PREVIEW_WHEN_OFF, "the tip says the marks are off")
+		-- With the marks on, as in 1.0.
+		SlashCmdList.OLYMPUS("nameplates on")
+		SlashCmdList.OLYMPUS("borders test silver")
+		eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON:format("silver"))
+		eq(w.myMark(), "silver"); eq(w.mark("nameplate1"), "silver")
+		tips = {}
+		lines = {}
+		w.B.PreviewLines(lines)
+		lines[2].tooltip({ AddLine = function(_, text) tips[#tips + 1] = text end })
+		assert(tips[#tips] ~= ns.L.NAMEPLATES_PREVIEW_WHEN_OFF)
+		SlashCmdList.OLYMPUS("borders test off")
+	end, AsAuthor)
+	assert(ns.L.BORDERS_PREVIEW_ON_NO_MARK:find("no mark", 1, true))
+	for _, key in ipairs({ "BORDERS_PREVIEW_ON", "BORDERS_PREVIEW_ON_MEMBER", "BORDERS_PREVIEW_TIP", "BORDERS_PREVIEW_TIP_MEMBER" }) do
+		eq(ns.L[key]:find("left of your name", 1, true), nil, key .. ": the mark is after his name now")
+	end
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	local no = rawget(pt.L, "BORDERS_PREVIEW_ON_NO_MARK")
+	assert(no and no ~= ns.L.BORDERS_PREVIEW_ON_NO_MARK and no:find("desligadas", 1, true) and no:find("%s", 1, true), tostring(no))
+	for _, key in ipairs({ "BORDERS_PREVIEW_ON", "BORDERS_PREVIEW_ON_MEMBER", "BORDERS_PREVIEW_TIP", "BORDERS_PREVIEW_TIP_MEMBER" }) do
+		eq(rawget(pt.L, key):find("esquerda do seu nome", 1, true), nil, "Portuguese " .. key)
+	end
+end)
+
+test("1.1 nameplates preview: the mark by his own name sits after it, never left of it on his portrait's ring", function()
+	WithNameplates(function(w)
+		ns.Borders, ns.Nameplates = w.B, w.N
+		w.internal("LOGIN")
+		SlashCmdList.OLYMPUS("borders test bronze")
+		local _, mine = w.myMark()
+		eq(mine.point, "LEFT PlayerName LEFT 98 0", "a name past the box: at the box's end, 2 px off")
+		SlashCmdList.OLYMPUS("borders test off")
+	end, AsAuthor)
+	WithNameplates(function(w)
+		ns.Borders, ns.Nameplates = w.B, w.N
+		w.internal("LOGIN")
+		SlashCmdList.OLYMPUS("borders test member")
+		local _, mine = w.myMark()
+		eq(mine.point, "LEFT PlayerName LEFT 20 0", "a short name: 2 px after its last letter")
+		local x = tonumber(mine.point:match("(%-?%d+) 0$"))
+		assert(x > 0, "right of the name's first letter, off the portrait")
+		SlashCmdList.OLYMPUS("borders test off")
+		-- Other layouts of the name: from its centre, from its right end; no text yet.
+		local function Name(text, justify, width)
+			return { GetStringWidth = function() return #text * 6 end, GetJustifyH = function() return justify end,
+				GetWidth = function() return width end }
+		end
+		local p, px = w.N.MineSpot(Name("Faladoriel", "CENTER", 180)); eq(p .. " " .. px, "CENTER 32")
+		p, px = w.N.MineSpot(Name("Faladoriel", "RIGHT", 180)); eq(p .. " " .. px, "RIGHT 2")
+		p, px = w.N.MineSpot(Name("", "LEFT", 96)); eq(p .. " " .. px, "RIGHT 2", "no text yet: the box's end")
+	end, function(w)
+		AsAuthor(w)
+		rawget(PlayerFrame, "name").text = "Fal"
+	end)
+end)
+
+---------------------------------------------------------------------------
+-- 1.1 (Fern's #28): an officer's click keeps the gear of the player he targets, in range
+---------------------------------------------------------------------------
+
+do
+-- The game's inspection as Inspect.lua meets it: units (target, player) with a GUID, a guild and
+-- what they wear (slot -> { id, link }), the clock, range, combat, NotifyInspect recorded; our rank
+-- (w.rank: 1 an officer). The inspections kept start empty.
+local GEAR_GLOBALS = { "UnitExists", "UnitIsPlayer", "UnitIsUnit", "UnitGUID", "GetGuildInfo", "UnitFactionGroup", "UnitLevel", "UnitClass",
+	"CanInspect", "CheckInteractDistance", "NotifyInspect", "GetInventoryItemID", "GetInventoryItemLink", "InCombatLockdown",
+	"InspectFrame", "ClearInspectPlayer", "UnitFullName", "GetTime", "GetItemInfo" }
+local GEAR_BOB = {
+	[1] = { id = 16866, link = "|cffa335ee|Hitem:16866:0:0:0:0:0:0:0:60|h[Helm of Might]|h|r" },
+	[5] = { id = 16865 }, -- (no link from the client yet: its id alone)
+	[16] = { id = 17104, link = "|cffa335ee|Hitem:17104:1900:0:0:0:0:0:0:60:::::|h[Spinal Reaper]|h|r" },
+	[19] = { id = 5976, link = "|cffffffff|Hitem:5976::::::::60:::::|h[Guild Tabard]|h|r" },
+}
+local function WithGear(fn)
+	local saved = {}
+	for _, k in ipairs(GEAR_GLOBALS) do saved[k] = _G[k] end
+	local savedPrint, savedStore, savedFire, savedMax = ns.Print, ns.rdb.inspect, ns.Fire, ns.Inspect.GEAR_MAX
+	local w = { printed = {}, notified = {}, clock = 1000, rank = 1, range = true, combat = false, fired = {},
+		units = { player = { name = "Tester", guid = "Player-1-me" } } }
+	ns.rdb.inspect = nil
+	ns.Print = function(m) w.printed[#w.printed + 1] = m end
+	ns.Fire = function(name) w.fired[#w.fired + 1] = name end
+	local function U(unit) return w.units[unit] end
+	GetTime = function() return w.clock end
+	UnitExists = function(unit) return U(unit) ~= nil end
+	UnitIsPlayer = function(unit) return U(unit) ~= nil and not U(unit).npc end
+	UnitIsUnit = function(a, b) return U(a) ~= nil and U(a) == U(b) end
+	UnitGUID = function(unit) return U(unit) and U(unit).guid end
+	GetGuildInfo = function(unit)
+		if unit == nil or unit == "player" then return MY_GUILD, "Titan", w.rank end
+		local u = U(unit)
+		return u and u.guild
+	end
+	UnitFactionGroup = function() return "Alliance" end
+	UnitLevel = function(unit) return U(unit) and U(unit).level or 60 end
+	UnitClass = function() return "Warrior", "WARRIOR" end
+	CanInspect = function(unit) return U(unit) ~= nil end
+	CheckInteractDistance = function() w.rangeAsked = (w.rangeAsked or 0) + 1 return w.range end
+	NotifyInspect = function(unit) w.notified[#w.notified + 1] = U(unit) and U(unit).name or unit end
+	GetInventoryItemID = function(unit, slot) local u = U(unit) local it = u and u.items and u.items[slot] return it and it.id end
+	GetInventoryItemLink = function(unit, slot) local u = U(unit) local it = u and u.items and u.items[slot] return it and it.link end
+	InCombatLockdown = function() return w.combat end
+	InspectFrame, ClearInspectPlayer = nil, function() end
+	UnitFullName = function(unit) local u = U(unit) if u then return u.name, "Realm" end return "Tester", "Realm" end
+	GetItemInfo = nil
+	w.target = function(name, extra)
+		local u = { name = name, guid = "Player-1-" .. name, guild = "Olympus Zeus", level = 60, items = {} }
+		for k, v in pairs(extra or {}) do u[k] = v end
+		w.units.target = u
+		return u
+	end
+	local ok, err = pcall(fn, w, ns.Inspect)
+	-- (Whatever was left waiting goes: the next test starts from an empty queue.)
+	w.combat, w.range = false, true
+	for _ = 1, 10 do
+		w.clock = w.clock + 5
+		pcall(ns.Inspect.Pump)
+	end
+	ns.Inspect.SetPace(nil)
+	for _, k in ipairs(GEAR_GLOBALS) do _G[k] = saved[k] end
+	ns.Print, ns.rdb.inspect, ns.Fire, ns.Inspect.GEAR_MAX = savedPrint, savedStore, savedFire, savedMax
+	if ns.Views.CloseGear then ns.Views.CloseGear() end
+	ns.Views.ClearFilters()
+	if not ok then error(err, 0) end
+end
+
+test("1.1 gear (#28): an officer's click on a player in range inspects him once and keeps what he wears, nothing scored, nothing sent", function()
+	WithGear(function(w, I)
+		local queued = ns.Comm.QueueSize()
+		local bob = w.target("Bob", { items = GEAR_BOB })
+		I.InspectGear()
+		eq(table.concat(w.notified, ","), "Bob", "one NotifyInspect, for him")
+		eq(w.printed[#w.printed], ns.L.GEAR_ASKING:format("Bob"))
+		I.OnInspectReady(bob.guid)
+		local p = I.Players()["Bob"]
+		assert(p and p.gear, "kept with his inspection")
+		eq(p.status, "GUILD", "his tabard recorded too, as an inspection does")
+		eq(p.gear.t, ns.Now())
+		eq(p.gear.items[1], "item:16866:0:0:0:0:0:0:0:60", "the item's own string: id, enchant, suffix")
+		eq(p.gear.items[5], "item:16865", "no link yet: its id alone")
+		eq(p.gear.items[16], "item:17104:1900:0:0:0:0:0:0:60", "its enchant kept")
+		eq(p.gear.items[19], "item:5976::::::::60")
+		eq(p.gear.items[2], nil, "an empty slot is left out, never guessed")
+		local keys = {}
+		for k in pairs(p.gear) do keys[#keys + 1] = k end
+		table.sort(keys)
+		eq(table.concat(keys, ","), "items,t", "no score, no item level, nothing added up")
+		eq(w.printed[#w.printed], ns.L.GEAR_SAVED:format("Bob", 4))
+		eq(ns.Comm.QueueSize(), queued, "nothing sent")
+		eq(#I.GearList(), 1); eq(I.GearList()[1].name, "Bob")
+		-- Nothing loaded yet: nothing kept, and it says so.
+		local ann = w.target("Ann", { items = {} })
+		w.clock = w.clock + 2
+		I.InspectGear()
+		I.OnInspectReady(ann.guid)
+		eq(I.Players()["Ann"].gear, nil)
+		eq(w.printed[#w.printed], ns.L.GEAR_NOT_LOADED:format("Ann"))
+	end)
+end)
+
+test("1.1 gear (#28): only an officer, only a player in range; a patrol's or a plain inspection keeps no gear", function()
+	WithGear(function(w, I)
+		local bob = w.target("Bob", { items = GEAR_BOB })
+		-- Not an officer (a Hero, rank 2): nothing asked.
+		w.rank = 2
+		I.InspectGear()
+		eq(#w.notified, 0); eq(w.printed[#w.printed], ns.L.GEAR_OFFICERS_ONLY)
+		-- The guild master is an officer too.
+		w.rank = 0
+		-- Out of range: nothing asked, and it says why.
+		w.range = false
+		I.InspectGear()
+		eq(#w.notified, 0); eq(w.printed[#w.printed], ns.L.GEAR_OUT_OF_RANGE:format("Bob"))
+		w.range = true
+		-- No player targeted, or ourselves.
+		w.units.target = nil
+		I.InspectGear()
+		eq(w.printed[#w.printed], ns.L.NEED_PLAYER_TARGET)
+		w.units.target = w.units.player
+		I.InspectGear()
+		eq(w.printed[#w.printed], ns.L.NEED_PLAYER_TARGET); eq(#w.notified, 0)
+		-- The plain "Inspect target" (and the patrol): the tabard alone, as ever.
+		w.units.target = bob
+		I.InspectTarget()
+		eq(#w.notified, 1)
+		I.OnInspectReady(bob.guid)
+		eq(I.Players()["Bob"].status, "GUILD"); eq(I.Players()["Bob"].gear, nil, "no gear without an officer's gear click")
+		-- Outside an Olympus guild: nothing.
+		local savedGuild = GetGuildInfo
+		GetGuildInfo = function() return "Stormwind Traders", "Boss", 0 end
+		I.InspectGear()
+		GetGuildInfo = savedGuild
+		eq(w.printed[#w.printed], ns.L.MEMBERS_ONLY); eq(#w.notified, 1)
+	end)
+end)
+
+test("1.1 gear (#28): the click waits its turn: one inspection at a time, the Royal Inspection's pace, never in combat", function()
+	WithGear(function(w, I)
+		local ann = w.target("Ann")
+		I.InspectTarget()
+		eq(table.concat(w.notified, ","), "Ann")
+		-- Bob's gear asked while Ann's inspection is out: it waits.
+		local bob = w.target("Bob", { items = GEAR_BOB })
+		I.InspectGear()
+		eq(table.concat(w.notified, ","), "Ann", "one request at a time")
+		w.clock = w.clock + 1.5
+		I.Pump()
+		eq(#w.notified, 1, "still waiting for Ann's")
+		I.OnInspectReady(ann.guid)
+		I.Pump()
+		eq(table.concat(w.notified, ","), "Ann,Bob", "his turn")
+		I.OnInspectReady(bob.guid)
+		assert(I.Players()["Bob"].gear, "kept")
+		-- During a Royal Inspection: its pace.
+		I.SetPace(5)
+		local cid = w.target("Cid", { items = GEAR_BOB })
+		w.clock = w.clock + 1
+		I.InspectGear()
+		eq(#w.notified, 2, "the pace holds it back")
+		w.clock = w.clock + 4
+		I.Pump()
+		eq(table.concat(w.notified, ","), "Ann,Bob,Cid")
+		I.OnInspectReady(cid.guid)
+		I.SetPace(nil)
+		-- In combat: it waits for the fight to end (the game keeps the distance to itself then: not asked).
+		w.combat = true
+		local dan = w.target("Dan", { items = GEAR_BOB })
+		local asked = w.rangeAsked
+		I.InspectGear()
+		eq(w.rangeAsked, asked, "no distance asked in combat"); eq(w.printed[#w.printed], ns.L.GEAR_ASKING:format("Dan"))
+		w.clock = w.clock + 10
+		I.Pump()
+		eq(#w.notified, 3, "never in combat")
+		w.combat = false
+		I.Pump()
+		eq(w.notified[4], "Dan")
+		I.OnInspectReady(dan.guid)
+		-- A patrol's request for the same player already waiting brings the gear too (one request).
+		local eve = w.target("Eve", { items = GEAR_BOB })
+		local fox = { name = "Fox", guid = "Player-1-Fox", guild = "Olympus Zeus", level = 60, items = {} }
+		I.InspectTarget()       -- Eve out
+		w.units.target = fox
+		I.InspectTarget()       -- Fox waits (tabard only)
+		I.InspectGear()         -- ...and now his gear too, the same request
+		I.OnInspectReady(eve.guid)
+		I.Pump()
+		eq(w.notified[#w.notified], "Fox"); eq(#w.notified, 6, "one request for Fox")
+		fox.items = GEAR_BOB
+		I.OnInspectReady(fox.guid)
+		assert(I.Players()["Fox"].gear, "his gear kept")
+	end)
+end)
+
+test("1.1 gear (#28): the Tabards tab lists the gear kept, newest first; a click shows it in its slots; the search finds it", function()
+	WithGear(function(w, I)
+		for i, name in ipairs({ "Bob", "Cid" }) do
+			local u = w.target(name, { items = GEAR_BOB, guild = i == 1 and "Olympus Zeus" or "Olympus Hera" })
+			w.clock = w.clock + 2
+			I.InspectGear()
+			I.OnInspectReady(u.guid)
+		end
+		I.Players()["Bob"].gear.t = ns.Now() - 3600
+		local function Lines()
+			local lines = ns.Views.Build("heraldry")
+			local header, rows, items
+			for i, l in ipairs(lines) do
+				if l.text == ns.L.GEAR_TITLE then header = i end
+				if header and l.items then items = l end
+				if header and l.key and not rows then rows = i end
+			end
+			return lines, header, rows, items
+		end
+		local lines, header, first = Lines()
+		assert(header, "a Gear seen header")
+		assert(lines[first].text:find("Cid", 1, true), "the newest first")
+		assert(lines[first + 1].text:find("Bob", 1, true))
+		assert(lines[first + 1].right:find(ns.L.GEAR_ITEMS:format(4), 1, true))
+		local tips = {}
+		lines[first + 1].tooltip({ AddLine = function(_, t) tips[#tips + 1] = t end })
+		assert(tips[2]:find("nothing is scored", 1, true), tips[2])
+		lines[first + 1].onClick()
+		local _, _, _, items = Lines()
+		assert(items, "its items shown")
+		eq(items.slots, 19, "every slot, in its place")
+		local by = {}
+		for _, it in ipairs(items.items) do by[it.s] = it.id end
+		eq(by[1], 16866); eq(by[5], 16865); eq(by[16], 17104); eq(by[19], 5976); eq(by[2], nil)
+		-- The search: a name, a guild; nothing else found says "No match".
+		ns.Views.SetFilter("heraldry", "hera")
+		lines = ns.Views.Build("heraldry")
+		local text = {}
+		for _, l in ipairs(lines) do text[#text + 1] = l.text or "" end
+		text = table.concat(text, "\n")
+		assert(text:find("Cid", 1, true) and not text:find("Bob", 1, true), text)
+		ns.Views.SetFilter("heraldry", "nobody here")
+		lines = ns.Views.Build("heraldry")
+		eq(lines[#lines].text, "|cff9d9d9d" .. ns.L.SEARCH_NO_MATCH .. "|r")
+		-- At most GEAR_MAX players carry gear: the oldest goes first, the inspection stays.
+		ns.Views.ClearFilters()
+		I.GEAR_MAX = 1
+		I.PruneGear()
+		eq(I.Players()["Bob"].gear, nil, "the oldest gear dropped"); assert(I.Players()["Bob"].status, "his inspection kept")
+		assert(I.Players()["Cid"].gear)
+	end)
+end)
+
+test("1.1 gear (#28): the button, /oly gear and the strings (both languages); README and CurseForge say what is kept", function()
+	WithGear(function(w, I)
+		local bob = w.target("Bob", { items = GEAR_BOB })
+		SlashCmdList.OLYMPUS("gear")
+		eq(table.concat(w.notified, ","), "Bob", "/oly gear asks the same")
+		I.OnInspectReady(bob.guid)
+	end)
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, key in ipairs({ "GEAR_BTN", "GEAR_BTN_TIP", "GEAR_OFFICERS_ONLY", "GEAR_OUT_OF_RANGE", "GEAR_ASKING", "GEAR_SAVED",
+		"GEAR_NOT_LOADED", "GEAR_GONE", "GEAR_TITLE", "GEAR_ITEMS", "GEAR_ROW_TIP", "HELP_GEAR" }) do
+		assert(type(ns.L[key]) == "string" and ns.L[key] ~= "", key)
+		local p = rawget(pt.L, key)
+		assert(type(p) == "string" and p ~= ns.L[key], "Portuguese " .. key)
+		eq(select(2, p:gsub("%%[sd]", "")), select(2, ns.L[key]:gsub("%%[sd]", "")), "the same %s and %d: " .. key)
+	end
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("/oly gear", 1, true), file .. " lists /oly gear")
+		assert(doc:find("nothing is scored", 1, true), file .. " says nothing is scored")
+	end
+end)
+end
+
+test("1.1 gear (#28): two realms' stores merged keep the newer gear an officer's click kept, whichever entry is newer", function()
+	local now = os.time()
+	local _, R = LoadAs("Classic Beta PvP", { configVersion = 3, realms = {
+		ClassicBetaPvP = { inspect = { players = {
+			["Bob Smith"] = { status = "GUILD", t = now - 900, gear = { t = now - 900, items = { [1] = "item:1" } } },
+			["Cy Jones"] = { status = "GUILD", t = now - 5 },
+			["Di Moon"] = { status = "NONE", t = now - 5, gear = { t = now - 50, items = { [1] = "item:3" } } } }, guildMarks = {} } },
+		ClassicBetaPvP2 = { inspect = { players = {
+			["Bob Smith"] = { status = "NONE", t = now - 5 },
+			["Cy Jones"] = { status = "GUILD", t = now - 900, gear = { t = now - 900, items = { [1] = "item:2" } } },
+			["Di Moon"] = { status = "GUILD", t = now - 900, gear = { t = now - 950, items = { [1] = "item:4" } } } }, guildMarks = {} } },
+	} })
+	local p = R.inspect.players
+	eq(p["Bob Smith"].status, "NONE", "the newer inspection..."); eq(p["Bob Smith"].gear.items[1], "item:1", "...keeps the gear the older one kept")
+	eq(p["Cy Jones"].gear.items[1], "item:2", "the gear merged in")
+	eq(p["Di Moon"].gear.items[1], "item:3", "the newer gear of the two")
+end)
+
+---------------------------------------------------------------------------
+-- 1.1 (Fern's #29): officers share their patrols' findings inside their guild
+---------------------------------------------------------------------------
+
+do
+-- Our rank (w.rank: 1 an officer), our roster (Offi a Captain, Lord the guild master, Grunt a
+-- member), what goes out over GUILD (w.sent), the clock (w.clock) and the answers' delay (w.later).
+local function WithShare(fn)
+	local I = ns.Inspect
+	local saved = { send = ns.Comm.Send, guild = GetGuildInfo, byName = ns.Roster.byName, store = ns.rdb.inspect, print = ns.Print,
+		fire = ns.Fire, after = I.after, random = I.random, share = ns.db.patrolShare, now = ns.Now, requests = I.stats.requests }
+	local w = { sent = {}, rank = 1, printed = {}, clock = 5000000, later = {} }
+	ns.rdb.inspect = nil
+	I.ResetShare()
+	ns.db.patrolShare = nil
+	ns.Now = function() return w.clock end
+	ns.Comm.Send = function(dist, msg) w.sent[#w.sent + 1] = dist .. " " .. msg end
+	GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Titan", w.rank end return nil end
+	ns.Roster.byName = { ["Offi-Realm"] = 1, ["Lord-Realm"] = 0, ["Grunt-Realm"] = 3 }
+	ns.Print = function(m) w.printed[#w.printed + 1] = m end
+	ns.Fire = function() end
+	I.after = function(_, _, f) w.later[#w.later + 1] = f end
+	I.random = function() return 0 end
+	w.run = function() local l = w.later; w.later = {}; for _, f in ipairs(l) do f() end end
+	local ok, err = pcall(fn, w, I)
+	eq(I.stats.requests, saved.requests, "nothing inspected for the sharing")
+	ns.Comm.Send, GetGuildInfo, ns.Roster.byName, ns.rdb.inspect, ns.Print = saved.send, saved.guild, saved.byName, saved.store, saved.print
+	ns.Fire, I.after, I.random, ns.db.patrolShare, ns.Now = saved.fire, saved.after, saved.random, saved.share, saved.now
+	I.ResetShare()
+	if not ok then error(err, 0) end
+end
+local ZEUS = "Olympus Zeus"
+local function Caught(I, name, level) return I.Record(name, ZEUS, "WARRIOR", level or 30, nil, true) end   -- no tabard
+local function Other(I, name) return I.Record(name, ZEUS, "WARRIOR", 30, 1234, true) end                -- another one
+local function Wears(I, name) return I.Record(name, ZEUS, "WARRIOR", 30, 5976, true) end                -- ours
+
+test("1.1 patrol share (#29): an officer's own findings go to his guild's officers over GUILD, once a minute at most, 6 a message", function()
+	WithShare(function(w, I)
+		Caught(I, "Bob")
+		eq(I.FlushShare(), 1)
+		eq(table.concat(w.sent, "|"), "GUILD U1~Bob:Olympus Zeus:N:0")
+		-- Within the minute: it waits.
+		w.clock = w.clock + 20
+		Other(I, "Cid")
+		eq(I.FlushShare(), 0); eq(#w.sent, 1)
+		w.clock = w.clock + 40
+		eq(I.FlushShare(), 1)
+		eq(w.sent[2], "GUILD U1~Cid:Olympus Zeus:O:" .. ns.Codec.Base36(40), "how long ago, in seconds")
+		-- Caught before, wearing ours now: the correction goes too.
+		w.clock = w.clock + 60
+		Wears(I, "Bob")
+		I.FlushShare()
+		eq(w.sent[3], "GUILD U1~Bob:Olympus Zeus:G:0")
+		-- Nothing to tell: a player under level 15, one we could not see properly, one wearing ours all along,
+		-- and the same finding again.
+		w.clock = w.clock + 60
+		Caught(I, "Kid", 10)
+		I.Record("Blur", ZEUS, "MAGE", 30, nil, false)
+		Wears(I, "Good")
+		Other(I, "Cid")
+		eq(I.FlushShare(), 0); eq(#w.sent, 3)
+		-- Twenty at once: three messages of six, the rest the next minute; each message short.
+		w.clock = w.clock + 60
+		for i = 1, 20 do Caught(I, "Many" .. string.char(96 + i)) end
+		eq(I.FlushShare(), 18)
+		eq(#w.sent, 6)
+		for i = 4, 6 do
+			local _, n = w.sent[i]:gsub(";", "")
+			eq(n, 5, "six in a message"); assert(#w.sent[i] <= 255 + 6, #w.sent[i])
+		end
+		w.clock = w.clock + 60
+		eq(I.FlushShare(), 2)
+	end)
+end)
+
+test("1.1 patrol share (#29): only officers send it, and nothing with /oly patrolshare off", function()
+	WithShare(function(w, I)
+		w.rank = 2
+		Caught(I, "Bob")
+		eq(I.FlushShare(), 0); eq(#w.sent, 0, "not an officer")
+		eq(I.AskShared(), false)
+		I.SetSharing(nil)
+		eq(w.printed[#w.printed], ns.L.PATROLSHARE_ON_NOT_OFFICER)
+		w.rank = 0
+		SlashCmdList.OLYMPUS("patrolshare off")
+		eq(w.printed[#w.printed], ns.L.PATROLSHARE_OFF); eq(ns.db.patrolShare, false)
+		Caught(I, "Cid")
+		w.clock = w.clock + 100
+		eq(I.FlushShare(), 0); eq(#w.sent, 0, "off")
+		eq(I.AskShared(), false)
+		SlashCmdList.OLYMPUS("patrolshare on")
+		eq(w.printed[#w.printed], ns.L.PATROLSHARE_ON, "the guild master is an officer")
+		eq(I.AskShared(), true); eq(w.sent[1], "GUILD U0~")
+	end)
+end)
+
+test("1.1 patrol share (#29): an officer's addon takes another officer's findings (his rank by our roster), newest wins, a day at most, never second hand", function()
+	WithShare(function(w, I)
+		local old = ns.Codec.Base36(I.SHARE_KEEP + 1)
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Eve:Olympus Hera:N:a;Fox-Other:Olympus Hera:O:0;Bad1:Olympus Hera:N:0;"
+			.. "Gil:Stormwind Traders:N:0;Old:Olympus Hera:N:" .. old)
+		local P = I.Players()
+		eq(P["Eve"].status, "NONE"); eq(P["Eve"].t, w.clock - 10); eq(P["Eve"].by, "Offi"); eq(P["Eve"].shared, true)
+		eq(P["Fox-Other"].status, "OTHER", "a player of another realm, by his full name")
+		eq(P["Bad1"], nil, "not a name"); eq(P["Gil"], nil, "not an Olympus guild's"); eq(P["Old"], nil, "more than a day old")
+		-- Not an officer's, or not over GUILD, or not ours to take: nothing.
+		I.HandleShare("GUILD", "Grunt-Realm", "U1~Hal:Olympus Hera:N:0")
+		I.HandleShare("GUILD", "Stranger-Realm", "U1~Hal:Olympus Hera:N:0")
+		I.HandleShare("CHANNEL", "Offi-Realm", "U1~Hal:Olympus Hera:N:0")
+		w.rank = 2
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Hal:Olympus Hera:N:0")
+		w.rank = 1
+		ns.db.patrolShare = false
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Hal:Olympus Hera:N:0")
+		ns.db.patrolShare = nil
+		eq(P["Hal"], nil, "a member's, a stranger's, the channel's, a non-officer's, or with sharing off")
+		-- Six entries a message at most.
+		I.HandleShare("GUILD", "Lord-Realm", "U1~Aa:Olympus Hera:N:0;Bb:Olympus Hera:N:0;Cc:Olympus Hera:N:0;Dd:Olympus Hera:N:0;"
+			.. "Ee:Olympus Hera:N:0;Ff:Olympus Hera:N:0;Gg:Olympus Hera:N:0")
+		eq(P["Ff"].by, "Lord"); eq(P["Gg"], nil, "a seventh")
+		-- Our own newer inspection stays; an older word of ours is replaced.
+		Wears(I, "Ivy")
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Ivy:Olympus Zeus:N:1e")
+		eq(P["Ivy"].status, "GUILD", "ours is newer"); eq(P["Ivy"].shared, nil)
+		w.clock = w.clock + 100
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Ivy:Olympus Zeus:N:0")
+		eq(P["Ivy"].status, "NONE", "newer than ours"); eq(P["Ivy"].by, "Offi")
+		-- Never passed on second hand.
+		w.clock = w.clock + 100
+		eq(I.FlushShare(), 0); eq(#w.sent, 0)
+		-- Our own later inspection replaces his word, and its correction goes out.
+		Wears(I, "Eve")
+		eq(P["Eve"].shared, nil); eq(P["Eve"].by, nil)
+		eq(I.FlushShare(), 1); eq(w.sent[1], "GUILD U1~Eve:Olympus Zeus:G:0", "in the guild we saw him in")
+		-- His word lasts a day; ours as every inspection.
+		Caught(I, "Mine")
+		w.clock = w.clock + I.SHARE_KEEP + 60
+		I.Prune()
+		eq(P["Fox-Other"], nil, "his word, a day later"); assert(P["Mine"], "ours stays")
+	end)
+end)
+
+test("1.1 patrol share (#29): an officer's addon asks after login; each officer answers with his own findings of the day, once each 5 minutes", function()
+	WithShare(function(w, I)
+		Caught(I, "Ivy")
+		w.clock = w.clock + 10
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Jay:Olympus Hera:N:0")
+		w.sent = {}
+		-- A member's ask, or one over the channel: nothing.
+		I.HandleAsk("GUILD", "Grunt-Realm"); I.HandleAsk("CHANNEL", "Offi-Realm")
+		eq(#w.later, 0)
+		I.HandleAsk("GUILD", "Lord-Realm")
+		I.HandleAsk("GUILD", "Offi-Realm") -- (one answer covers both)
+		eq(#w.later, 1, "a few seconds later")
+		w.run()
+		eq(table.concat(w.sent, "|"), "GUILD U1~Ivy:Olympus Zeus:N:" .. ns.Codec.Base36(10), "ours, not the one another officer told us")
+		w.clock = w.clock + 60
+		I.HandleAsk("GUILD", "Lord-Realm")
+		eq(#w.later, 0, "within 5 minutes")
+		w.clock = w.clock + I.SHARE_ANSWER_GAP
+		I.HandleAsk("GUILD", "Lord-Realm")
+		eq(#w.later, 1)
+		-- Nothing of our own found: no answer.
+		ns.rdb.inspect = nil
+		w.later = {}
+		w.clock = w.clock + I.SHARE_ANSWER_GAP
+		I.HandleAsk("GUILD", "Lord-Realm")
+		eq(#w.later, 0)
+	end)
+end)
+
+test("1.1 patrol share (#29): the Tabards page names the officer who found each, and counts them; strings in both languages; both privacy tables", function()
+	WithShare(function(w, I)
+		I.HandleShare("GUILD", "Offi-Realm", "U1~Eve:Olympus Hera:N:a")
+		local lines, _, text = ns.Views.Build("heraldry")
+		local row
+		for _, l in ipairs(lines) do if l.key == "Eve" then row = l end end
+		assert(row, "on the inspected players")
+		local tips = {}
+		row.tooltip({ AddLine = function(_, t) tips[#tips + 1] = t end })
+		local found = false
+		for _, t in ipairs(tips) do if t == ns.L.PATROLSHARE_BY:format("Offi") then found = true end end
+		assert(found, "the officer who found him")
+		assert(text:find(ns.L.PATROLSHARE_COUNT:format(1), 1, true), text)
+		assert(ns.StatusText():find("patrol share: on", 1, true))
+	end)
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, key in ipairs({ "PATROLSHARE_ON", "PATROLSHARE_ON_NOT_OFFICER", "PATROLSHARE_OFF", "PATROLSHARE_BY", "PATROLSHARE_COUNT", "HELP_PATROLSHARE" }) do
+		local p = rawget(pt.L, key)
+		assert(type(ns.L[key]) == "string" and type(p) == "string" and p ~= ns.L[key], key)
+		eq(select(2, p:gsub("%%[sd]", "")), select(2, ns.L[key]:gsub("%%[sd]", "")), key)
+	end
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("| An officer's patrol findings (1.1)", 1, true), file .. ": the privacy table")
+		assert(doc:find("`/oly patrolshare on\\|off`", 1, true), file .. ": the commands")
+	end
+end)
+end
+
+---------------------------------------------------------------------------
+-- 1.1: the approved guilds, named by the author's signed titles list (a throwaway key's lists here,
+-- made with scripts/council-sign.py: realm group "Realm", <Sentinels of Zeus> for the Alliance and
+-- <Horde Friends> for the Horde, then a newer list without them)
+---------------------------------------------------------------------------
+
+do
+local APPROVED_TEST_N = "9983c0e5410682110ce00cbdf7410b1af63070d308a91e4fdfd0974aaadf58c59973a06132d6ef0a3396eb57b5461e60d0a0b762341a15316e0a4d7b15fa886df7268aea0edeed1af693ee967774a0d5a12cf66d27355bf2d3578640636b00b8ba8dbe632e64d493fa9c27c84458465edab8da9910325449c5cb7a86fb0415fc039dd248f1e6222cbd48af17d78f5388428dd4f6a2cd2f44ffc0785840fdfb6bdacfc5d03d322eb0e507dd8cb4926643eea62fb07e50f66a66945a3e13fc10f47ba60c3c9cfab18ff452ecdc64010a19f3d32df309df23b02d0512d3cc1ae9d1d9974208ea95bec16fc2093c7173ec09a30ec75e1c6161f32fb78a25beacf56d"
+local APPROVED_TEST_MU = "1aae76297c5650040dc58b372dececcc68892a25a5df4aa48935b30ec130245d76e0fed116dae1f5334810148895736e44012b5ebb5959f2cb33fbb2d15174445a1f403ebc6cc5c83fbfcbafd2a8b765e32896415ee05f5f89e0138192451753bd4f77b7dbae26970695e769335acb86ce3bcc9b2a7c0281e21ce431f0dcd5a773c7de945bbf3823e8c4c2b45900e1a0b22af18b72240184a9ae2de440f6dd76dae00a7d8d668376d22876e27caa28206aefd9a029949e34a29ed5b4956efc5bd9ff12a22806de84102c889fe2ba041b93e2aef4f8cc37f3dc5d7365bcc66f3109bffea0399d827b920e57ed44e3f1e7fb967bf8560f3b1f974bdd45a12400b116ca6f02b"
+local APPROVED_TEST_K = 86
+local APPROVED_WITH = "HT1~1790664446~Realm~0~^^Test Councillor=Council Speaker;^guilds^Alliance^Sentinels of Zeus;^guilds^Horde^Horde Friends~20970bcaaf0d6c0698b957ccedc82f8a078fb6cc2fb34fcc77c5e16599da47735298d910aeda940b764b9bae292e85d6fcc6cf0082cbbeb3939c8321cdea7eab369d8149df52b7de9ce6e74b722ec1e5388a3b36ae774c0fb636786719d4eb84dac13003791d2fa854d40f7595fac0612ee3af794cf4007edace4bb13a00c9dd8a91f76fadb7e9975d48d25a4ef9fd7745945cc4aa571862b696ded1fa45f67c271309494c229a94b2c4ac907e70597f8da4e15ee673951927f47b1c95f771d271a5e9b95b8e500dbee7fab651c4000cd77dfe0a503495c48d42ac85e5c5446022fb179fffff61a64200e2c8dc8f4d705d0f86e216a4ce1d7fbe6b8e878c4880"
+local APPROVED_WITHOUT = "HT1~1790664448~Realm~0~^^Test Councillor=Council Speaker~96a7dadc57f6d426a032ad6d8a05c926ee9907f1bb6a0dbbfaea0e5ccbf9e6bff9db6ed41f9cd83e048e11d08b35c8d175f1d11c854d473d8c25f5b4c8abd95a14e59191c515ad0573d10e64a763527610668147ece863655503de37f92d215a080fdca7d61455feb665e12e0f3ed44b6bcfe61d376eacc09a465e5b259add1cfebb3a39da7c0cdc9bc2e03d39a9f02d8b2073c9cf2ba999c43bbb0190d52982e7b3a96aba3d921aca2249bb7a7bdb92a2ed78c1ca86d74f0fdc258336fa1bf478b4d92605f59fdc4dfb222502541ef52b062b04742ef378a3ee9ef0e0dd3b55de601afbcfdad5e5f8411b531d5d3809fbdea538685857d3faaafa07bb7b1e61"
+
+-- The approved guilds' test council: the test key in place of the author's, our guild <Sentinels
+-- of Zeus> (no Olympus by its name), every store put back after.
+local function WithApproved(fn)
+	local W = ns.Workshop
+	local saved = { council = ns.rdb.council, titles = ns.rdb.councilTitles, me = ns.me, guild = GetGuildInfo, print = ns.Print,
+		check = ns.Comm.CheckMembership, scan = ns.Roster.RequestScan, chunked = ns.Comm.SendChunked, random = W.random,
+		faction = ns.faction, signed = ns.COUNCIL_SIGNED, own = ns.COUNCIL_TITLES, queue = ns.Comm.QueueSize }
+	local w = { printed = {}, checked = 0, scanned = 0, guild = "Sentinels of Zeus", chunks = {} }
+	local ok, err = pcall(function()
+		ns.rdb.council, ns.rdb.councilTitles, ns.COUNCIL_SIGNED, ns.COUNCIL_TITLES = nil, nil, nil, nil
+		ns.me, ns.faction = "Tester-Realm", "Alliance"
+		GetGuildInfo = function() return w.guild, "Member", 3 end
+		ns.Print = function(m) w.printed[#w.printed + 1] = m end
+		ns.Comm.CheckMembership = function() w.checked = w.checked + 1 end
+		ns.Roster.RequestScan = function() w.scanned = w.scanned + 1 end
+		ns.Comm.SendChunked = function(payload, _, dist) w.chunks[#w.chunks + 1] = (dist or "CHANNEL") .. " " .. payload:sub(1, 3) end
+		W.random = function() return 0 end
+		ns.Comm.QueueSize = function() return 0 end
+		W.ResetVerify()
+		ns.Sign.WithKey(APPROVED_TEST_N, APPROVED_TEST_MU, APPROVED_TEST_K, function() fn(w, W) end)
+	end)
+	ns.rdb.council, ns.rdb.councilTitles, ns.me, GetGuildInfo, ns.Print = saved.council, saved.titles, saved.me, saved.guild, saved.print
+	ns.Comm.CheckMembership, ns.Roster.RequestScan, ns.Comm.SendChunked, W.random = saved.check, saved.scan, saved.chunked, saved.random
+	ns.faction, ns.COUNCIL_SIGNED, ns.COUNCIL_TITLES, ns.Comm.QueueSize = saved.faction, saved.signed, saved.own, saved.queue
+	W.ResetVerify()
+	if not ok then error(err, 0) end
+end
+
+test("1.1 approved guilds: the titles list's entry per faction, as the addon keeps it (letters and spaces, 24 at most, 20 a faction, each once)", function()
+	local long = ("Guild "):rep(5)
+	local names = {}
+	for i = 1, 22 do names[i] = "Guild " .. string.char(64 + i) end
+	local g = ns.ReadApprovedGuilds("^^Test Councillor=Speaker;Department^INV_X^A=B;^steward^Alliance^Some One-Realm;"
+		.. "^guilds^Alliance^ Sentinels of Zeus ,Bad1 Guild,sentinels of ZEUS," .. long .. ",Ok Guild;^guilds^Horde^Horde Friends;"
+		.. "^guilds^Neutral^Nobody;^guilds^Horde^" .. table.concat(names, ","))
+	eq(table.concat(g.Alliance, "|"), "Sentinels of Zeus|Ok Guild", "trimmed, each once, no digits, 24 characters at most")
+	eq(#g.Horde, 20, "20 a faction"); eq(g.Horde[1], "Horde Friends"); eq(g.Neutral, nil)
+	eq(next(ns.ReadApprovedGuilds("^^A=B;Dept^^C=D;^steward^Alliance^X Y-Realm")), nil, "departments and Stewards are no guilds")
+	-- A 1.0.0 client's reading of the same list: its departments and its Steward, the guilds left out.
+	eq(#ns.ReadStewards("^guilds^Alliance^Sentinels of Zeus;^steward^Alliance^Some One-Realm").Alliance, 1)
+end)
+
+test("1.1 approved guilds: a guild the author's signed list names is an Olympus guild, on the list's realm group and faction; a newer list without it ends it", function()
+	WithApproved(function(w, W)
+		eq(ns.IsFederation("Sentinels of Zeus"), false, "not by its name"); eq(ns.IsMember(), false)
+		eq(ns.IsFederation("Olympian"), false, "the name rule still leaves Olympian out")
+		-- A changed list is refused: nothing approved.
+		eq(W.TakeTitles((APPROVED_WITH:gsub("Sentinels of Zeus", "Sentinels of Hera", 1)), "Relay-Realm"), false)
+		eq(ns.IsFederation("Sentinels of Hera"), false)
+		eq(W.TakeTitles(APPROVED_WITH, "Relay1-Realm"), true, "the signed list")
+		eq(ns.IsFederation("Sentinels of Zeus"), true); eq(ns.IsFederation("SENTINELS OF ZEUS"), true, "any case")
+		eq(ns.NamedOlympus("Sentinels of Zeus"), false, "the name rule alone says no"); eq(ns.ApprovedOnly(), true)
+		eq(ns.IsMember(), true, "its members are Olympus members now")
+		eq(w.printed[#w.printed], ns.L.APPROVED_YOU:format("Sentinels of Zeus"))
+		eq(w.checked, 1, "the channel joined, the census asked for, as when one joins a guild"); eq(w.scanned, 1)
+		eq(ns.IsFederation("Horde Friends"), false, "the Horde's approved guild is not ours")
+		ns.faction = "Horde"
+		eq(ns.IsFederation("Horde Friends"), true); eq(ns.IsFederation("Sentinels of Zeus"), false)
+		ns.faction = "Alliance"
+		ns.me = "Tester-OtherRealm"
+		eq(ns.IsFederation("Sentinels of Zeus"), false, "another realm group")
+		ns.me = "Tester-Realm"
+		-- A list taken by 1.0.0 (no guilds kept): read again from its signed text.
+		ns.rdb.councilTitles.guilds = nil
+		eq(table.concat(ns.ApprovedGuilds(), ","), "Sentinels of Zeus")
+		eq(ns.IsApprovedGuild("Sentinels of Zeus"), true)
+		-- The census takes its reports now.
+		local savedGuilds = ns.rdb.guilds
+		ns.rdb.guilds = {}
+		w.guild = "Olympus II" -- (our own guild's report comes from our roster: another guild's here)
+		local r = { guild = "Sentinels of Zeus", total = 50, online = 10, leader = "Sentry", users = 2, zones = {}, officers = {}, ranks = {}, top = {} }
+		local taken = ns.Data.Receive(r, "Sentry-Realm")
+		ns.rdb.guilds = savedGuilds
+		w.guild = "Sentinels of Zeus"
+		eq(taken, true, "a report of it counts")
+		-- The newer list without it: no longer.
+		eq(W.TakeTitles(APPROVED_WITHOUT, "Relay2-Realm"), true)
+		eq(ns.IsFederation("Sentinels of Zeus"), false); eq(ns.IsMember(), false)
+		eq(w.printed[#w.printed], ns.L.APPROVED_NO_LONGER:format("Sentinels of Zeus")); eq(w.checked, 2)
+	end)
+end)
+
+test("1.1 approved guilds: outside any Olympus guild the addon puts together the author's titles list alone, over its own guild", function()
+	local savedGuild, savedChannel = GetGuildInfo, GetChannelName
+	local ok, err = pcall(function()
+		GetGuildInfo = function() return "Sentinels of Zeus", "Member", 3 end
+		GetChannelName = function() return 0 end
+		local cns, Deliver = FreshComm()
+		local got = {}
+		for _, kind in ipairs({ "HT", "HS", "U1", "M1" }) do
+			cns.Comm.Handle(kind, function(dist, sender, text) got[#got + 1] = dist .. " " .. sender .. " " .. text:sub(1, 12) end)
+		end
+		local function Pieces(dist, sender, payload, id)
+			for _, c in ipairs(ns.Codec.Chunk(payload, id)) do Deliver(dist, sender, c) end
+		end
+		Pieces("GUILD", "Sentry-Realm", "HT~" .. APPROVED_WITH, "7")
+		eq(#got, 1, "the titles list, put together"); eq(got[1], "GUILD Sentry-Realm HT~HT1~17906")
+		-- Nothing else: the names list, a lone message, anything on the channel, a blocked guildmate's.
+		Pieces("GUILD", "Sentry-Realm", "HS~HS1~1~Realm~A B~" .. ("0"):rep(512), "8")
+		Deliver("GUILD", "Sentry-Realm", "U1~Bob:Olympus Zeus:N:0")
+		Pieces("CHANNEL", "Stranger-Realm", "HT~" .. APPROVED_WITH, "9")
+		ns.db.blocked["troll-realm"] = true
+		Pieces("GUILD", "Troll-Realm", "HT~" .. APPROVED_WITH, "10")
+		ns.db.blocked["troll-realm"] = nil
+		eq(#got, 1, "only the titles list over our guild")
+	end)
+	GetGuildInfo, GetChannelName, C_ChatInfo = savedGuild, savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 approved guilds: its members holding the list pass it over their guild every 5 minutes; the first one pastes it (/oly approved paste)", function()
+	WithApproved(function(w, W)
+		W.ResetListAsk()
+		-- Nothing held: nothing to pass on.
+		eq(W.RelayGuild(), false)
+		-- The paste: junk refused, the list taken (the text around it left out), the same one again held.
+		eq(W.PasteTitles("hello"), false); eq(w.printed[#w.printed], ns.L.APPROVED_PASTE_BAD)
+		eq(W.PasteTitles("ns.COUNCIL_TITLES = \"" .. APPROVED_WITH .. "\""), true)
+		eq(w.printed[#w.printed - 1], ns.L.APPROVED_YOU:format("Sentinels of Zeus"))
+		eq(w.printed[#w.printed], ns.L.APPROVED_PASTE_TAKEN)
+		eq(table.concat(w.chunks, ","), "GUILD HT~,CHANNEL HT~", "to our guild at once, and our channel (the titles: no name list held)")
+		eq(W.PasteTitles(APPROVED_WITH), false); eq(w.printed[#w.printed], ns.L.APPROVED_PASTE_HELD)
+		-- A changed list pasted: refused (a newer time would need the author's signature).
+		W.ResetVerify()
+		eq(W.PasteTitles((APPROVED_WITHOUT:gsub("Council Speaker", "Council Boss", 1))), false)
+		eq(w.printed[#w.printed], ns.L.APPROVED_PASTE_BAD)
+		-- The relay over our guild: each APPROVED_RELAY_EVERY, whatever our guild's realms (its clock
+		-- starts again here: the test's reset above cleared it).
+		eq(W.RelayGuild(true), true)
+		w.chunks = {}
+		local savedNow = ns.Now
+		local now = ns.Now()
+		ns.Now = function() return now end
+		eq(W.RelayGuild(), false, "just passed on")
+		now = now + W.APPROVED_RELAY_EVERY
+		eq(W.RelayGuild(), true)
+		eq(table.concat(w.chunks, ","), "GUILD HT~")
+		-- A guild Olympus by its name keeps 1.0.0's rule: only while its addon users span realms.
+		w.guild = "Olympus II"
+		now = now + W.APPROVED_RELAY_EVERY
+		eq(W.RelayGuild(), false)
+		ns.Now = savedNow
+		-- /oly approved: the list, and whether ours is on it.
+		w.guild = "Sentinels of Zeus"
+		SlashCmdList.OLYMPUS("approved")
+		eq(w.printed[#w.printed - 1], ns.L.APPROVED_LIST:format("Sentinels of Zeus"))
+		eq(w.printed[#w.printed], ns.L.APPROVED_MINE:format("Sentinels of Zeus"))
+		w.guild = "Stormwind Traders"
+		SlashCmdList.OLYMPUS("approved")
+		eq(w.printed[#w.printed], ns.L.APPROVED_NOT_MINE:format("Stormwind Traders"))
+		w.guild = "Sentinels of Zeus"
+		assert(ns.StatusText():find("approved guilds: Sentinels of Zeus  |  ours is Olympus by the list alone", 1, true))
+		-- The Join screen (a guild not Olympus by its name, before the list): a click opens the paste box.
+		local savedDialog = ns.ShowDialog
+		local shown
+		ns.ShowDialog = function(which) shown = which end
+		w.guild = "Stormwind Traders"
+		local join = ns.Views.RecruitLines()
+		local hint = join[#join]
+		eq(hint.text, "|cff9d9d9d" .. ns.L.APPROVED_JOIN_HINT:format("Stormwind Traders") .. "|r")
+		hint.onClick()
+		ns.ShowDialog = savedDialog
+		eq(shown, "OLYMPUS_APPROVED_PASTE")
+		w.guild = "Sentinels of Zeus"
+		W.ResetListAsk()
+	end)
+end)
+
+test("1.1 approved guilds: strings in both languages; README and CurseForge say who counts and how the list is signed", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, key in ipairs({ "APPROVED_YOU", "APPROVED_NO_LONGER", "APPROVED_PASTE_PROMPT", "APPROVED_PASTE_TAKEN", "APPROVED_PASTE_HELD",
+		"APPROVED_PASTE_BAD", "APPROVED_LIST", "APPROVED_MINE", "APPROVED_NOT_MINE", "HELP_APPROVED", "APPROVED_JOIN_HINT" }) do
+		local p = rawget(pt.L, key)
+		assert(type(ns.L[key]) == "string" and type(p) == "string" and p ~= ns.L[key], key)
+		eq(select(2, p:gsub("%%s", "")), select(2, ns.L[key]:gsub("%%s", "")), key)
+	end
+	eq(StaticPopupDialogs.OLYMPUS_APPROVED_PASTE.maxLetters, ns.Workshop.TITLES_BLOB, "room for the whole list")
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("/oly approved paste", 1, true), file)
+		assert(doc:find("signed list", 1, true), file)
+	end
+	local f = assert(io.open(ROOT .. "README.md"))
+	local doc = f:read("*a")
+	f:close()
+	assert(doc:find("council-sign.py guild", 1, true), "README: the signing command")
+end)
+end
+
+---------------------------------------------------------------------------
+-- 1.1 (Fern's #22): the guild's loot notes and points, officers write them by hand
+---------------------------------------------------------------------------
+
+do
+-- Our guild's roster (Offi a Captain, Bob and Ann Smith members; we are an officer while w.rank is
+-- 1), what goes out (w.sent: dist, message, logged; w.chunks), the server's clock (w.clock), the
+-- answers' delay (w.later), the dialogs opened (w.dialogs), the group's state and the items the
+-- client knows.
+local LOOT_GLOBALS = { "GetGuildInfo", "GetServerTime", "GetItemInfo", "IsInGroup", "LOOT_ITEM", "LOOT_ITEM_MULTIPLE", "LOOT_ITEM_SELF",
+	"LOOT_ITEM_SELF_MULTIPLE" }
+local BELT = "|cffa335ee|Hitem:16830::::::::60:::::|h[Cenarion Bindings]|h|r"
+local function WithLoot(fn)
+	local Lt = ns.Loot
+	local saved = { send = ns.Comm.Send, chunked = ns.Comm.SendChunked, byName = ns.Roster.byName, loot = ns.rdb.loot, print = ns.Print,
+		fire = ns.Fire, after = Lt.after, random = Lt.random, dialog = ns.ShowDialog, ui = ns.UI }
+	for _, k in ipairs(LOOT_GLOBALS) do saved[k] = _G[k] end
+	local w = { sent = {}, chunks = {}, rank = 1, printed = {}, clock = 1790000000, later = {}, dialogs = {}, group = true, fired = {},
+		items = { [16830] = { "Cenarion Bindings", BELT, 4 }, [2589] = { "Linen Cloth", "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", 1 } } }
+	ns.rdb.loot = nil
+	Lt.Reset()
+	ns.Comm.Send = function(dist, msg, key, urgent, logged) w.sent[#w.sent + 1] = { dist = dist, msg = msg, logged = logged } end
+	ns.Comm.SendChunked = function(payload, urgent, dist) w.chunks[#w.chunks + 1] = (dist or "CHANNEL") .. " " .. payload end
+	GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Titan", w.rank end return nil end
+	GetServerTime = function() return w.clock end
+	GetItemInfo = function(id)
+		id = tonumber(type(id) == "string" and id:match("item:(%d+)") or id)
+		local it = w.items[id]
+		if it then return it[1], it[2], it[3] end
+	end
+	IsInGroup = function() return w.group end
+	LOOT_ITEM, LOOT_ITEM_MULTIPLE = "%s receives loot: %s.", "%s receives loot: %sx%d."
+	LOOT_ITEM_SELF, LOOT_ITEM_SELF_MULTIPLE = "You receive loot: %s.", "You receive loot: %sx%d."
+	ns.Roster.byName = { ["Offi-Realm"] = 1, ["Tester-Realm"] = 1, ["Bob-Realm"] = 3, ["Ann Smith-Realm"] = 3 }
+	ns.Print = function(m) w.printed[#w.printed + 1] = m end
+	ns.Fire = function(name, key) w.fired[#w.fired + 1] = name .. ":" .. tostring(key) end
+	Lt.after = function(_, _, f) w.later[#w.later + 1] = f end
+	Lt.random = function() return 0 end
+	ns.ShowDialog = function(which, a, b, data) w.dialogs[#w.dialogs + 1] = { which = which, a = a, data = data } end
+	w.run = function() local l = w.later; w.later = {}; for _, f in ipairs(l) do f() end end
+	w.last = function() return w.sent[#w.sent] end
+	local ok, err = pcall(fn, w, Lt)
+	ns.Comm.Send, ns.Comm.SendChunked, ns.Roster.byName, ns.rdb.loot, ns.Print = saved.send, saved.chunked, saved.byName, saved.loot, saved.print
+	ns.Fire, Lt.after, Lt.random, ns.ShowDialog, ns.UI = saved.fire, saved.after, saved.random, saved.dialog, saved.ui
+	for _, k in ipairs(LOOT_GLOBALS) do _G[k] = saved[k] end
+	Lt.Reset()
+	ns.Views.CloseChat()
+	ns.Views.ClearFilters()
+	if not ok then error(err, 0) end
+end
+local B36 = ns.Codec.Base36
+
+test("1.1 loot notes (#22): an officer writes the decision; his guild gets it over GUILD (his words logged), never the channel", function()
+	WithLoot(function(w, Lt)
+		local n = Lt.Write("Ann passed on the gloves, Bob gets the next belt", 16830, "Ann Smith")
+		assert(n, "written")
+		eq(w.printed[#w.printed], ns.L.LOOT_WRITTEN)
+		local m = w.last()
+		eq(m.dist, "GUILD"); eq(m.logged, true, "his own words, through the logged API")
+		eq(m.msg, ("J1~N~Tester-Realm~%s~%s~%s~16830~~Ann Smith~Ann passed on the gloves, Bob gets the next belt"):format(n.id, B36(w.clock), B36(w.clock)))
+		eq(#Lt.Notes(), 1); eq(Lt.Notes()[1].n.to, "Ann Smith")
+		-- Escape codes, separators and runs of spaces go; the longest note fits one message.
+		w.clock = w.clock + 1
+		n = Lt.Write("a|cffff0000red|r ~ b^c    d", nil, nil)
+		eq(n.text, "a cffff0000red r b c d")
+		n = Lt.Write(("x"):rep(300), 16830, ("Longname"):rep(10))
+		eq(#n.text, Lt.TEXT_MAX); assert(#w.last().msg <= 255, #w.last().msg)
+		-- Nothing to write, or not an officer: nothing sent.
+		local count = #w.sent
+		Lt.Write(" ")
+		eq(w.printed[#w.printed], ns.L.LOOT_TOO_SHORT)
+		w.rank = 3
+		Lt.Write("Bob gets it")
+		eq(w.printed[#w.printed], ns.L.LOOT_OFFICERS_ONLY); eq(#w.sent, count)
+		for _, s in ipairs(w.sent) do eq(s.dist, "GUILD", "never the channel") end
+	end)
+end)
+
+test("1.1 loot notes (#22): a guildmate's addon takes an officer's changes only (his rank by its roster), newest wins; a removal holds", function()
+	WithLoot(function(w, Lt)
+		w.rank = 3 -- (a member's addon)
+		local t = B36(w.clock)
+		Lt.HandleLive("GUILD", "Offi-Realm", ("J1~N~Offi-Realm~a1~%s~%s~16830~~Ann Smith~Ann gets the belt"):format(t, t))
+		eq(#Lt.Notes(), 1); eq(Lt.Notes()[1].n.writer, "Offi-Realm")
+		-- A member's, the channel's, a note in someone else's name, a malformed one: nothing.
+		Lt.HandleLive("GUILD", "Bob-Realm", ("J1~N~Bob-Realm~b1~%s~%s~~~~Bob wins"):format(t, t))
+		Lt.HandleLive("CHANNEL", "Offi-Realm", ("J1~N~Offi-Realm~c1~%s~%s~~~~Channel note"):format(t, t))
+		Lt.HandleLive("GUILD", "Offi-Realm", ("J1~N~Lord-Realm~d1~%s~%s~~~~In his name"):format(t, t))
+		Lt.HandleLive("GUILD", "Offi-Realm", "J1~N~Offi-Realm~e1~zzzzzzzzz~1~~~~Bad times")
+		Lt.HandleLive("GUILD", "Offi-Realm", ("J1~N~Offi-Realm~f1~%s~%s~~~~"):format(t, t))
+		eq(#Lt.Notes(), 1, "only the officer's own note")
+		-- Another officer removes it: its mark holds against an older copy.
+		local later = B36(w.clock + 60)
+		Lt.HandleLive("GUILD", "Tester-Realm", ("J1~N~Offi-Realm~a1~%s~%s~16830~1~~"):format(t, later))
+		eq(#Lt.Notes(), 0, "removed")
+		Lt.HandleBook("GUILD", "Offi-Realm", ("JB~N~Offi-Realm~a1~%s~%s~16830~~Ann Smith~Ann gets the belt"):format(t, t))
+		eq(#Lt.Notes(), 0, "an older copy never brings it back")
+		-- Points by hand: newest wins, a cleared one shows no more.
+		Lt.HandleLive("GUILD", "Offi-Realm", "J1~P~Bob-Realm~12~" .. B36(w.clock) .. "~Offi-Realm")
+		eq(Lt.Points()[1].v, 12)
+		Lt.HandleLive("GUILD", "Offi-Realm", "J1~P~Bob-Realm~99~" .. B36(w.clock - 5) .. "~Offi-Realm")
+		eq(Lt.Points()[1].v, 12, "an older number")
+		Lt.HandleLive("GUILD", "Offi-Realm", "J1~P~Bob-Realm~~" .. B36(w.clock + 5) .. "~Offi-Realm")
+		eq(#Lt.Points(), 0, "cleared")
+		Lt.HandleLive("GUILD", "Offi-Realm", "J1~P~Bob-Realm~100000~" .. B36(w.clock + 9) .. "~Offi-Realm")
+		eq(#Lt.Points(), 0, "past the limit")
+		-- A removed note's mark is kept 30 days, then goes.
+		w.clock = w.clock + Lt.REMOVED_KEEP + 120
+		Lt.Prune()
+		eq(next(Lt.Book().notes), nil)
+	end)
+end)
+
+test("1.1 loot notes (#22): points are a notebook: an officer sets a member's number by hand, nothing adds or takes any", function()
+	WithLoot(function(w, Lt)
+		Lt.SetPoints("bob 12")
+		eq(Lt.Points()[1].member, "Bob-Realm"); eq(Lt.Points()[1].v, 12)
+		eq(w.last().msg, "J1~P~Bob-Realm~12~" .. B36(w.clock) .. "~Tester-Realm"); eq(w.last().dist, "GUILD")
+		eq(w.printed[#w.printed], ns.L.LOOT_POINTS_DONE:format("Bob", 12))
+		Lt.SetPoints("Bob +3")
+		eq(Lt.Points()[1].v, 3, "set, not added")
+		Lt.SetPoints("Ann Smith -4")
+		eq(#Lt.Points(), 2); eq(Lt.Points()[2].member, "Ann Smith-Realm"); eq(Lt.Points()[2].v, -4)
+		Lt.SetPoints("Bob")
+		eq(#Lt.Points(), 1, "the name alone clears them"); eq(w.printed[#w.printed], ns.L.LOOT_POINTS_CLEARED:format("Bob"))
+		local count = #w.sent
+		Lt.SetPoints("Nobody 5")
+		eq(w.printed[#w.printed], ns.L.LOOT_POINTS_NOT_MEMBER:format("Nobody"))
+		Lt.SetPoints("Bob 100000")
+		eq(w.printed[#w.printed], ns.L.LOOT_POINTS_BAD:format(Lt.POINTS_LIMIT, Lt.POINTS_LIMIT))
+		w.rank = 2
+		Lt.SetPoints("Bob 5")
+		eq(w.printed[#w.printed], ns.L.LOOT_OFFICERS_ONLY); eq(#w.sent, count)
+	end)
+end)
+
+test("1.1 loot notes (#22): a guildmate's addon asks once a session; one officer's addon answers with the changes since, in pieces over GUILD", function()
+	WithLoot(function(w, Lt)
+		-- The officer's book: a note and points.
+		local n = Lt.Write("Ann gets the belt", 16830, "Ann Smith")
+		Lt.SetPoints("Bob 12")
+		w.sent = {}
+		-- A member's ask for everything (a login on the Forever beta).
+		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~0")
+		Lt.HandleAsk("GUILD", "Ann Smith-Realm", "JQ~0") -- (one answer covers both)
+		eq(#w.later, 1)
+		w.run()
+		eq(#w.chunks, 1)
+		local payload = w.chunks[1]
+		assert(payload:find("^GUILD JB~"), payload)
+		assert(payload:find(("N~Tester-Realm~%s~"):format(n.id), 1, true), "the note")
+		assert(payload:find("P~Bob-Realm~12~", 1, true), "the points")
+		-- Within 2 minutes, or an ask holding everything: no answer.
+		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~0")
+		eq(#w.later, 0)
+		local savedNow = ns.Now
+		local now = ns.Now() + Lt.ANSWER_GAP
+		ns.Now = function() return now end
+		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~" .. B36(w.clock))
+		eq(#w.later, 0, "nothing newer than the asker's")
+		-- Another officer's answer heard while ours waits: ours is not sent.
+		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~0")
+		eq(#w.later, 1)
+		Lt.HandleBook("GUILD", "Offi-Realm", "JB~P~Ann Smith-Realm~7~" .. B36(w.clock) .. "~Offi-Realm")
+		w.run()
+		eq(#w.chunks, 1, "his answer covered it")
+		ns.Now = savedNow
+		-- A stranger's ask (not in our roster), or ours as a member: no answer.
+		Lt.HandleAsk("GUILD", "Stranger-Realm", "JQ~0")
+		w.rank = 3
+		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~0")
+		eq(#w.later, 0)
+		-- A member's answer is not taken.
+		Lt.HandleBook("GUILD", "Bob-Realm", "JB~P~Bob-Realm~999~" .. B36(w.clock + 50) .. "~Bob-Realm")
+		eq(Lt.Points()[1].v, 12, "Bob's own claim is nobody's word")
+		-- The page asks once a session.
+		ns.Views.CloseChat()
+		Lt.Show(true)
+		eq(w.last().msg, "JQ~" .. B36(w.clock)); eq(w.last().dist, "GUILD")
+		local count = #w.sent
+		Lt.Show(false)
+		Lt.Show(true)
+		eq(#w.sent, count, "once")
+	end)
+	-- The answer's pieces are put together over GUILD (Comm.lua), as the High Council's lists are.
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		GetChannelName = function() return 0 end
+		local cns, Deliver = FreshComm()
+		local got
+		cns.Comm.Handle("JB", function(dist, sender, text) got = dist .. " " .. sender .. " " .. #text end)
+		local payload = "JB~" .. ("N~Offi-Realm~a1~1~1~~~~" .. ("w"):rep(90) .. "^"):rep(8)
+		for _, c in ipairs(ns.Codec.Chunk(payload, "5")) do Deliver("GUILD", "Offi-Realm", c) end
+		eq(got, "GUILD Offi-Realm " .. #payload)
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 loot notes (#22): the group's loot shows to its officers this session, a click opens its note; nothing is handed out", function()
+	WithLoot(function(w, Lt)
+		Lt.OnLootMessage("Bob receives loot: " .. BELT .. ".")
+		Lt.OnLootMessage("You receive loot: " .. BELT .. ".")
+		Lt.OnLootMessage("Bob receives loot: " .. w.items[2589][2] .. "x5.")
+		eq(#Lt.Drops(), 2, "a rare and better item, not linen cloth")
+		eq(Lt.Drops()[1].to, "Tester"); eq(Lt.Drops()[2].to, "Bob"); eq(Lt.Drops()[2].id, 16830)
+		-- Out of a group, or not an officer: nothing kept.
+		w.group = false
+		Lt.OnLootMessage("Ann Smith receives loot: " .. BELT .. ".")
+		w.group, w.rank = true, 3
+		Lt.OnLootMessage("Ann Smith receives loot: " .. BELT .. ".")
+		eq(#Lt.Drops(), 2)
+		w.rank = 1
+		-- On the page: under its header, a click opens the note with the item and whom it went to.
+		local lines = Lt.Lines()
+		local drop
+		for _, l in ipairs(lines) do if l.text and l.text:find("> Bob", 1, true) then drop = l end end
+		assert(drop, "Bob's belt listed")
+		drop.onClick()
+		eq(w.dialogs[#w.dialogs].which, "OLYMPUS_LOOT_NOTE")
+		eq(w.dialogs[#w.dialogs].data.item, 16830); eq(w.dialogs[#w.dialogs].data.to, "Bob")
+		eq(w.dialogs[#w.dialogs].a, ns.L.LOOT_NOTE_FOR:format("Cenarion Bindings", "Bob"))
+		-- The dialog writes it.
+		local d = StaticPopupDialogs.OLYMPUS_LOOT_NOTE
+		d.OnAccept({ editBox = { GetText = function() return "Bob: first epic, Ann next" end } }, { item = 16830, to = "Bob" })
+		eq(Lt.Notes()[1].n.item, 16830); eq(Lt.Notes()[1].n.to, "Bob"); eq(Lt.Notes()[1].n.text, "Bob: first epic, Ann next")
+		for _, s in ipairs(w.sent) do assert(s.msg:find("^J1~"), "only the note went out: " .. s.msg) end
+	end)
+end)
+
+test("1.1 loot notes (#22): the Realm tab links the page; notes newest first, points only once used, the search, a copy for Discord", function()
+	WithLoot(function(w, Lt)
+		Lt.Write("Ann gets the belt", 16830, "Ann Smith")
+		w.clock = w.clock + 60
+		Lt.Write("Bob gets the next @everyone", nil, "Bob")
+		-- The tree's link, for a member of an Olympus guild.
+		local tree = ns.Views.RealmLines()
+		local link
+		for _, l in ipairs(tree) do if l.text and l.text:find(ns.L.LOOT_LINK:format(MY_GUILD), 1, true) then link = l end end
+		assert(link, "linked from the Realm")
+		link.onClick()
+		eq(ns.Views.PageShown(), "loot")
+		local lines = ns.Views.Build("realm")
+		local text = {}
+		for _, l in ipairs(lines) do text[#text + 1] = l.text or "" end
+		text = table.concat(text, "\n")
+		assert(text:find(ns.L.LOOT_TITLE:format(MY_GUILD), 1, true))
+		assert(text:find(ns.L.LOOT_WRITE, 1, true), "an officer writes")
+		local first, second = text:find("Bob gets the next", 1, true), text:find("Ann gets the belt", 1, true)
+		assert(first and second and first < second, "newest first")
+		eq(text:find(ns.L.LOOT_POINTS_TITLE, 1, true), nil, "no points column until someone has points")
+		Lt.SetPoints("Bob 12")
+		lines = ns.Views.Build("realm")
+		text = {}
+		for _, l in ipairs(lines) do text[#text + 1] = (l.text or "") .. "|" .. (l.right or "") end
+		text = table.concat(text, "\n")
+		assert(text:find(ns.L.LOOT_POINTS_TITLE, 1, true), "the points once used")
+		-- A member sees the book, and nothing to write.
+		w.rank = 3
+		lines = Lt.Lines()
+		for _, l in ipairs(lines) do
+			assert(l.text ~= "|cff40ff40" .. ns.L.LOOT_WRITE .. "|r", "no write line for a member")
+		end
+		-- The search (the Realm's box): only what holds it.
+		ns.Views.SetFilter("realm", "belt")
+		lines = ns.Views.Build("realm")
+		text = {}
+		for _, l in ipairs(lines) do text[#text + 1] = l.text or "" end
+		text = table.concat(text, "\n")
+		assert(text:find("Ann gets the belt", 1, true) and not text:find("Bob gets the next", 1, true), text)
+		-- The copy for Discord pings nobody.
+		local copy = Lt.DiscordText()
+		assert(copy:find("Ann gets the belt", 1, true) and copy:find("Bob: 12", 1, true), copy)
+		assert(not copy:find("@everyone", 1, true), "no ping")
+		ns.Views.ShowPage(nil)
+		eq(ns.Views.PageShown(), nil)
+	end)
+end)
+
+test("1.1 loot notes (#22): /oly loot, the strings in both languages; README and CurseForge say what it is and what it is not", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, key in ipairs({ "LOOT_LINK", "LOOT_LINK_TIP", "LOOT_TITLE", "LOOT_ABOUT", "LOOT_WRITE", "LOOT_WRITE_TIP", "LOOT_NOTE_PROMPT",
+		"LOOT_NOTE_FOR", "LOOT_SAVE", "LOOT_WRITTEN", "LOOT_TOO_SHORT", "LOOT_OFFICERS_ONLY", "LOOT_REMOVE_PROMPT", "LOOT_REMOVE_BTN",
+		"LOOT_REMOVE_TIP", "LOOT_REMOVED", "LOOT_NOTE_TIP", "LOOT_EMPTY", "LOOT_EMPTY_OFFICER", "LOOT_DROPS", "LOOT_DROP_TIP",
+		"LOOT_POINTS_TITLE", "LOOT_POINTS_TIP", "LOOT_POINTS_SET", "LOOT_POINTS_SET_TIP", "LOOT_POINTS_PROMPT",
+		"LOOT_POINTS_DONE", "LOOT_POINTS_CLEARED", "LOOT_POINTS_NOT_MEMBER", "LOOT_POINTS_BAD", "LOOT_POINTS_BY", "SEARCH_TIP_LOOT", "HELP_LOOT" }) do
+		local p = rawget(pt.L, key)
+		assert(type(ns.L[key]) == "string" and type(p) == "string" and p ~= ns.L[key], key)
+		eq(select(2, p:gsub("%%[sd]", "")), select(2, ns.L[key]:gsub("%%[sd]", "")), key)
+	end
+	eq(rawget(pt.L, "LOOT_ITEM_N"), "item %d")
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("/oly loot", 1, true), file)
+		assert(doc:find("| A loot note (1.1)", 1, true), file .. ": the privacy table")
+		assert(doc:find("not a bid window", 1, true), file)
+	end
+end)
+end
+
+---------------------------------------------------------------------------
+-- 1.1 (Fern's #24): the crafters' board: a profession listed at its opening, a whisper by a click
+---------------------------------------------------------------------------
+
+do
+-- WoW: Forever's professions (C_TradeSkillUI: Tailoring, three recipes known, one not) or Classic
+-- Era's windows (w.era: GetTradeSkill*, GetCraft*); what goes out (w.sent: CHANNEL, w.whispers),
+-- the dialogs opened, the clock, the answers' delay (w.later), the chat and whisper boxes.
+local CRAFT_GLOBALS = { "C_TradeSkillUI", "C_ProfSpecs", "GetTradeSkillLine", "GetNumTradeSkills", "GetTradeSkillInfo", "GetTradeSkillItemLink",
+	"GetTradeSkillRecipeLink", "GetCraftDisplaySkillLine", "GetNumCrafts", "GetCraftInfo", "GetCraftItemLink", "GetCraftRecipeLink",
+	"IsTradeSkillLinked", "GetItemInfo", "GetGuildInfo", "ChatFrame_OpenChat", "ChatFrame_SendTell", "InCombatLockdown" }
+local MOONCLOTH = "|cff1eff00|Hitem:14342::::::::60:::::|h[Mooncloth]|h|r"
+local function WithCraft(fn)
+	local Cr = ns.Crafters
+	local saved = { send = ns.Comm.Send, whisper = ns.Comm.Whisper, print = ns.Print, fire = ns.Fire, dialog = ns.ShowDialog, now = ns.Now,
+		after = Cr.after, random = Cr.random, ui = ns.UI, pad = ns.GamepadUI, choice = ns.db.crafterChoice, data = ns.db.crafterData, me = ns.me }
+	for _, k in ipairs(CRAFT_GLOBALS) do saved[k] = _G[k] end
+	local w = { sent = {}, whispers = {}, printed = {}, dialogs = {}, later = {}, clock = 5000000, calls = {}, chat = {}, tells = {}, windows = {},
+		prof = { id = 197, name = "Tailoring", skill = 245, max = 300 }, linked = false,
+		recipes = { { id = 3915, name = "Linen Bag", item = 4238, learned = true }, { id = 18560, name = "Mooncloth", item = 14342, learned = true },
+			{ id = 12088, name = "Cindercloth Boots", item = 10044, learned = false }, { id = 3914, name = "Brown Linen Pants", item = 4343, learned = true } } }
+	Cr.Reset()
+	ns.db.crafterChoice, ns.db.crafterData, ns.me = nil, nil, "Tester-Realm"
+	ns.Now = function() return w.clock end
+	ns.Comm.Send = function(dist, msg, key, urgent) w.sent[#w.sent + 1] = dist .. " " .. msg .. (urgent and " (urgent)" or "") end
+	ns.Comm.Whisper = function(target, msg) w.whispers[#w.whispers + 1] = target .. " " .. msg end
+	ns.Print = function(m) w.printed[#w.printed + 1] = m end
+	ns.Fire = function() end
+	ns.ShowDialog = function(which, a, b, data) w.dialogs[#w.dialogs + 1] = { which = which, a = a, data = data } end
+	Cr.after = function(_, _, f) w.later[#w.later + 1] = f end
+	Cr.random = function() return 0 end
+	ns.UI = { WhisperWindow = function(name) w.windows[#w.windows + 1] = name end, SelectTab = function() end }
+	ns.GamepadUI = function() return w.gamepad == true end
+	GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Member", 3 end return nil end
+	GetItemInfo = function(id) id = tonumber(type(id) == "string" and id:match("item:(%d+)") or id) if id == 14342 then return "Mooncloth", MOONCLOTH, 2 end end
+	ChatFrame_OpenChat = function(text) w.chat[#w.chat + 1] = text end
+	ChatFrame_SendTell = function(name) w.tells[#w.tells + 1] = name end
+	InCombatLockdown = function() return false end
+	-- A specialization tree is never asked for (none exists on Forever): any call fails the test.
+	C_ProfSpecs = setmetatable({}, { __index = function(_, k) error("C_ProfSpecs." .. tostring(k) .. " asked for") end })
+	local function Log(name, fn) return function(...) w.calls[#w.calls + 1] = name; return fn(...) end end
+	C_TradeSkillUI = {
+		GetBaseProfessionInfo = Log("GetBaseProfessionInfo", function()
+			return { professionID = w.prof.id, professionName = w.prof.name, skillLevel = w.prof.skill, maxSkillLevel = w.prof.max }
+		end),
+		GetChildProfessionInfo = Log("GetChildProfessionInfo", function() return { professionID = 0, skillLevel = 0 } end),
+		GetAllRecipeIDs = Log("GetAllRecipeIDs", function()
+			local ids = {}
+			for _, r in ipairs(w.recipes) do ids[#ids + 1] = r.id end
+			return ids
+		end),
+		GetRecipeInfo = function(id)
+			for _, r in ipairs(w.recipes) do if r.id == id then return { recipeID = id, name = r.name, learned = r.learned } end end
+		end,
+		GetRecipeOutputItemData = function(id)
+			for _, r in ipairs(w.recipes) do if r.id == id then return { itemID = r.item } end end
+			return {}
+		end,
+		IsTradeSkillLinked = function() return w.linked end,
+		IsTradeSkillGuild = function() return false end,
+		IsNPCCrafting = function() return false end,
+	}
+	w.era = function()
+		C_TradeSkillUI = nil
+		GetTradeSkillLine = function() return "Blacksmithing", 150, 300 end
+		local list = { { "Blacksmithing Supplies", "header" }, { "Rough Sharpening Stone", "trivial", 2862, 2660 },
+			{ "Copper Chain Belt", "optimal", 2851, 2661 } }
+		GetNumTradeSkills = function() return #list end
+		GetTradeSkillInfo = function(i) return list[i][1], list[i][2] end
+		GetTradeSkillItemLink = function(i) return list[i][3] and ("|cffffffff|Hitem:%d::::::::60:::::|h[%s]|h|r"):format(list[i][3], list[i][1]) end
+		GetTradeSkillRecipeLink = function(i) return list[i][4] and ("|cffffd000|Henchant:%d|h[%s]|h|r"):format(list[i][4], list[i][1]) end
+		GetCraftDisplaySkillLine = function() return w.craftName, w.craftName and 120, w.craftName and 225 end
+		GetNumCrafts = function() return 2 end
+		GetCraftInfo = function(i) return ({ "Enchant Bracer - Minor Health", "Runed Copper Rod" })[i], nil, "optimal" end
+		GetCraftItemLink = function(i) return i == 1 and "|cffffd000|Henchant:7418|h[Enchant Bracer - Minor Health]|h|r" or "|cffffffff|Hitem:6218::::::::60:::::|h[Runed Copper Rod]|h|r" end
+		GetCraftRecipeLink = function(i) return i == 2 and "|cffffd000|Henchant:7421|h[Runed Copper Rod]|h|r" or nil end
+	end
+	w.run = function() local l = w.later; w.later = {}; for _, f in ipairs(l) do f() end end
+	local ok, err = pcall(fn, w, Cr)
+	ns.Comm.Send, ns.Comm.Whisper, ns.Print, ns.Fire, ns.ShowDialog, ns.Now = saved.send, saved.whisper, saved.print, saved.fire, saved.dialog, saved.now
+	Cr.after, Cr.random, ns.UI, ns.GamepadUI = saved.after, saved.random, saved.ui, saved.pad
+	ns.db.crafterChoice, ns.db.crafterData, ns.me = saved.choice, saved.data, saved.me
+	for _, k in ipairs(CRAFT_GLOBALS) do _G[k] = saved[k] end
+	Cr.Reset()
+	ns.Views.CloseChat()
+	ns.Views.ClearFilters()
+	if not ok then error(err, 0) end
+end
+
+test("1.1 crafters (#24): opening a profession reads its skill and the recipes known (Forever's API, no specialization tree) and asks once; nothing goes out without a yes", function()
+	WithCraft(function(w, Cr)
+		Cr.Opened()
+		local p = Cr.Mine()["197"]
+		assert(p, "Tailoring read")
+		eq(p.name, "Tailoring"); eq(p.rank, 245); eq(p.max, 300); eq(#p.recipes, 3, "the three learned, not the one unlearned")
+		eq(p.recipes[2].r, 18560); eq(p.recipes[2].i, 14342)
+		eq(#w.dialogs, 1); eq(w.dialogs[1].which, "OLYMPUS_CRAFTER_LIST"); eq(w.dialogs[1].a, "Tailoring"); eq(w.dialogs[1].data, "197")
+		eq(#w.sent, 0, "nothing listed before his yes")
+		-- Someone else's profession in the window (a link): nothing read.
+		ns.db.crafterData = nil
+		w.linked = true
+		Cr.Opened()
+		eq(next(Cr.Mine()), nil)
+		w.linked = false
+		-- "Not now": remembered, never asked again, nothing sent.
+		Cr.Opened()
+		StaticPopupDialogs.OLYMPUS_CRAFTER_LIST.OnCancel(nil, "197", "clicked")
+		eq(Cr.Choices()["197"], false); eq(w.printed[#w.printed], ns.L.CRAFTER_NOT_LISTED)
+		Cr.Opened()
+		Cr.Reset() -- (a new session: still not asked, the "no" is kept)
+		Cr.Opened()
+		eq(#w.dialogs, 1, "the one question, never again"); eq(#w.sent, 0)
+		-- Another popup taking its place is no answer, nor is Escape (it only closes the window);
+		-- asked once a session until answered, however often the game updates the list meanwhile.
+		ns.db.crafterChoice = nil
+		Cr.Reset()
+		Cr.Opened()
+		StaticPopupDialogs.OLYMPUS_CRAFTER_LIST.OnCancel(nil, "197", "override")
+		eq(Cr.Choices()["197"], nil)
+		eq(StaticPopupDialogs.OLYMPUS_CRAFTER_LIST.noCancelOnEscape, true)
+		local asked = #w.dialogs
+		Cr.Opened(); Cr.Opened()
+		eq(#w.dialogs, asked, "not again this session")
+		Cr.Reset() -- (a new session)
+		Cr.Opened()
+		eq(#w.dialogs, asked + 1, "asked again next session")
+	end)
+end)
+
+test("1.1 crafters (#24): the yes lists the profession on the channel (name, guild, skill, how many recipes); repeated every 45 minutes; a skill up at most each 2 minutes", function()
+	WithCraft(function(w, Cr)
+		Cr.Opened()
+		StaticPopupDialogs.OLYMPUS_CRAFTER_LIST.OnAccept(nil, "197")
+		eq(w.sent[1], "CHANNEL W1~Olympus II~197:Tailoring:245:300:3")
+		eq(w.printed[#w.printed], ns.L.CRAFTER_LISTED)
+		-- Opened again, nothing changed: no question, nothing sent.
+		Cr.Opened()
+		eq(#w.dialogs, 1); eq(#w.sent, 1)
+		-- Crafting: a skill up, then another; the listing waits CHANGED_GAP, then the board's tick sends the last.
+		w.clock = w.clock + 10
+		w.prof.skill = 246
+		Cr.Opened()
+		w.prof.skill = 247
+		Cr.Opened()
+		eq(#w.sent, 1, "not at every skill up")
+		w.clock = w.clock + Cr.CHANGED_GAP
+		Cr.Tick()
+		eq(w.sent[2], "CHANNEL W1~Olympus II~197:Tailoring:247:300:3")
+		Cr.Tick()
+		eq(#w.sent, 2)
+		w.clock = w.clock + Cr.LIST_EVERY
+		Cr.Tick()
+		eq(#w.sent, 3, "repeated for late logins")
+		-- Taken off: the board forgets him at once.
+		Cr.Choose(nil, false)
+		eq(w.sent[4], "CHANNEL W0~"); eq(w.printed[#w.printed], ns.L.CRAFTER_UNLISTED)
+		w.clock = w.clock + Cr.LIST_EVERY
+		Cr.Tick()
+		eq(#w.sent, 4, "nothing listed: nothing repeated")
+		SlashCmdList.OLYMPUS("crafter on")
+		eq(w.sent[5], "CHANNEL W1~Olympus II~197:Tailoring:247:300:3")
+	end)
+end)
+
+test("1.1 crafters (#24): Classic Era's windows: the trade skill's items and recipes as the window lists them, Enchanting's craft window; a pet's training is no profession", function()
+	WithCraft(function(w, Cr)
+		w.era()
+		Cr.Opened()
+		local p = Cr.Mine()["Blacksmithing"]
+		assert(p, "Blacksmithing read")
+		eq(#p.recipes, 2, "no header"); eq(p.recipes[1].i, 2862); eq(p.recipes[1].r, 2660); eq(p.rank, 150)
+		Cr.Opened(true)
+		eq(next(Cr.Mine(), nil) ~= nil and Cr.Mine()["Enchanting"], nil, "no craft skill line: nothing read (a hunter's Beast Training)")
+		w.craftName = "Enchanting"
+		Cr.Opened(true)
+		p = Cr.Mine()["Enchanting"]
+		assert(p, "Enchanting read")
+		eq(p.recipes[1].r, 7418); eq(p.recipes[1].i, nil, "an enchantment makes no item"); eq(p.recipes[2].i, 6218); eq(p.recipes[2].r, 7421)
+	end)
+end)
+
+test("1.1 crafters (#24): the board takes listings from the channel alone, Olympus guilds only, forgets who went quiet or left", function()
+	WithCraft(function(w, Cr)
+		Cr.HandleListing("CHANNEL", "Smith-Realm", "W1~Olympus Zeus~164:Blacksmithing:150:300:12,Bad Entry,185:Cooking:x:300:4")
+		local b = Cr.Board()
+		eq(#b, 1); eq(b[1].name, "Smith-Realm"); eq(b[1].guild, "Olympus Zeus"); eq(#b[1].profs, 1, "the bad entries left out")
+		eq(b[1].profs[1].name, "Blacksmithing"); eq(b[1].profs[1].rank, 150); eq(b[1].profs[1].n, 12)
+		Cr.HandleListing("CHANNEL", "Trader-Realm", "W1~Stormwind Traders~197:Tailoring:300:300:90")
+		Cr.HandleListing("GUILD", "Guildie-Realm", "W1~Olympus II~197:Tailoring:300:300:90")
+		Cr.HandleListing("WHISPER", "Whisperer-Realm", "W1~Olympus II~197:Tailoring:300:300:90")
+		eq(#Cr.Board(), 1, "no outsider, nothing but the channel")
+		Cr.HandleListing("CHANNEL", "Smith-Realm", "W0~")
+		eq(#Cr.Board(), 0, "unlisted")
+		Cr.HandleListing("CHANNEL", "Smith-Realm", "W1~Olympus Zeus~164:Blacksmithing:150:300:12")
+		w.clock = w.clock + Cr.LIST_KEEP + 1
+		eq(#Cr.Board(), 0, "quiet too long")
+	end)
+end)
+
+test("1.1 crafters (#24): who can make it: the ask (an item or words) on the channel, the listed crafters' answers by whisper, taken for a while", function()
+	WithCraft(function(w, Cr)
+		-- We are listed Tailoring.
+		Cr.Opened()
+		Cr.Choose("197", true)
+		w.sent = {}
+		-- Someone asks for Mooncloth, then for words: each answered by whisper, a moment later.
+		Cr.HandleAsk("CHANNEL", "Asker-Realm", "WQ~1~i~14342")
+		eq(#w.later, 1); w.run()
+		eq(w.whispers[1], "Asker-Realm WA~1~Olympus II~Tailoring~245~18560:14342")
+		Cr.HandleAsk("CHANNEL", "Other-Realm", "WQ~7~t~linen")
+		w.run()
+		eq(w.whispers[2], "Other-Realm WA~7~Olympus II~Tailoring~245~3915:4238,3914:4343", "both linen recipes")
+		-- The same asker within 30 s, an item we can't make, an ask not on the channel: nothing.
+		Cr.HandleAsk("CHANNEL", "Asker-Realm", "WQ~2~i~4238")
+		Cr.HandleAsk("CHANNEL", "Third-Realm", "WQ~3~i~999")
+		Cr.HandleAsk("WHISPER", "Fourth-Realm", "WQ~4~i~14342")
+		Cr.HandleAsk("CHANNEL", "Fifth-Realm", "WQ~5~t~ab")
+		eq(#w.later, 0)
+		-- Ten answers a minute at most.
+		for i = 1, 12 do Cr.HandleAsk("CHANNEL", "Many" .. string.char(96 + i) .. "-Realm", "WQ~9~i~14342") end
+		eq(#w.later, Cr.ANSWER_PER_MIN - 2, "the minute's budget")
+		w.later = {}
+		-- Not listed: no answer.
+		Cr.Choose(nil, false)
+		w.clock = w.clock + 120
+		Cr.HandleAsk("CHANNEL", "Sixth-Realm", "WQ~6~i~14342")
+		eq(#w.later, 0)
+		-- Our own ask: an item's link, or words; one each 15 seconds.
+		w.sent = {}
+		local a = Cr.Ask(MOONCLOTH)
+		eq(w.sent[1], "CHANNEL WQ~1~i~14342 (urgent)"); eq(a.label, "Mooncloth")
+		eq(ns.Views.PageShown(), "crafters", "the board shows the answers")
+		Cr.Ask("Linen Bag")
+		eq(w.printed[#w.printed], ns.L.CRAFTER_ASK_WAIT:format(15)); eq(#w.sent, 1)
+		w.clock = w.clock + 15
+		Cr.Ask("  Linen   BAG ")
+		eq(w.sent[2], "CHANNEL WQ~2~t~linen bag (urgent)")
+		w.clock = w.clock + 15
+		Cr.Ask("ab")
+		eq(w.printed[#w.printed], ns.L.CRAFTER_ASK_HOW); eq(#w.sent, 2)
+		-- The answers to it: from Olympus crafters, to our last ask, within 2 minutes, 30 at most.
+		Cr.HandleAnswer("WHISPER", "Tailor-Realm", "WA~2~Olympus Zeus~Tailoring~250~3915:4238")
+		Cr.HandleAnswer("WHISPER", "Old-Realm", "WA~1~Olympus Zeus~Tailoring~250~3915:4238")
+		Cr.HandleAnswer("WHISPER", "Trader-Realm", "WA~2~Stormwind Traders~Tailoring~300~3915:4238")
+		Cr.HandleAnswer("CHANNEL", "Loud-Realm", "WA~2~Olympus Zeus~Tailoring~300~3915:4238")
+		local ask = Cr.MyAsk()
+		eq(ask.count, 1); eq(ask.answers["Tailor-Realm"].rank, 250); eq(ask.answers["Tailor-Realm"].recipes[1].i, 4238)
+		w.clock = w.clock + Cr.ASK_WAIT + 1
+		Cr.HandleAnswer("WHISPER", "Late-Realm", "WA~2~Olympus Zeus~Tailoring~250~3915:4238")
+		eq(ask.count, 1, "too late")
+	end)
+end)
+
+test("1.1 crafters (#24): a crafter's recipes on a click, by whisper, in parts; his addon sends them once each 2 minutes to the same player", function()
+	WithCraft(function(w, Cr)
+		for i = 1, 30 do w.recipes[#w.recipes + 1] = { id = 20000 + i, name = "Recipe " .. i, item = 30000 + i, learned = true } end
+		Cr.Opened()
+		Cr.Choose("197", true)
+		Cr.HandleListAsk("WHISPER", "Asker-Realm", "WR~197")
+		eq(#w.whispers, 2, "33 recipes: two parts")
+		assert(w.whispers[1]:find("^Asker%-Realm WL~197~1/2~3915:4238,18560:14342,"), w.whispers[1])
+		for _, m in ipairs(w.whispers) do assert(#m - #"Asker-Realm " <= 250, "one message each") end
+		Cr.HandleListAsk("WHISPER", "Asker-Realm", "WR~197")
+		eq(#w.whispers, 2, "once each 2 minutes to the same player")
+		Cr.HandleListAsk("WHISPER", "Other-Realm", "WR~999")
+		Cr.HandleListAsk("CHANNEL", "Loud-Realm", "WR~197")
+		eq(#w.whispers, 2, "a profession not listed, or not a whisper: nothing")
+		-- The asker's side: asked for, then the parts taken.
+		w.whispers = {}
+		eq(Cr.AskList("Tailor-Realm", "197"), true)
+		eq(w.whispers[1], "Tailor-Realm WR~197")
+		eq(Cr.AskList("Tailor-Realm", "197"), false, "not again within 2 minutes")
+		Cr.HandleList("WHISPER", "Tailor-Realm", "WL~197~1/2~3915:4238,18560:14342")
+		Cr.HandleList("WHISPER", "Stranger-Realm", "WL~197~2/2~1:2")
+		local list, l = Cr.ListOf("Tailor-Realm", "197")
+		eq(#list, 2); eq(l.n, 2); eq(list[2].i, 14342)
+		Cr.HandleList("WHISPER", "Tailor-Realm", "WL~197~2/2~7418:0")
+		list = Cr.ListOf("Tailor-Realm", "197")
+		eq(#list, 3); eq(list[3].r, 7418); eq(list[3].i, nil)
+	end)
+end)
+
+test("1.1 crafters (#24): the Realm tab links the board; a crafter's row opens a whisper and his recipes; the answers whisper with a click (gamepad: Olympus's window)", function()
+	WithCraft(function(w, Cr)
+		Cr.HandleListing("CHANNEL", "Smith-Realm", "W1~Olympus Zeus~164:Blacksmithing:150:300:12,197:Tailoring:280:300:40")
+		Cr.HandleListing("CHANNEL", "Anvil-Realm", "W1~Olympus Hera~164:Blacksmithing:220:300:30")
+		local link
+		for _, l in ipairs(ns.Views.RealmLines()) do if l.text and l.text:find(ns.L.CRAFTER_LINK, 1, true) then link = l end end
+		assert(link, "linked from the Realm"); eq(link.right, "|cff9d9d9d2|r", "two crafters")
+		link.onClick()
+		eq(ns.Views.PageShown(), "crafters")
+		local lines = ns.Views.Build("realm")
+		local text, row = {}, nil
+		for _, l in ipairs(lines) do
+			text[#text + 1] = l.text or ""
+			if l.key == "Anvil-Realm" and not row then row = l end
+		end
+		local all = table.concat(text, "\n")
+		local bs, ta = all:find("Blacksmithing", 1, true), all:find("Tailoring", 1, true)
+		assert(bs and ta and bs < ta, "by profession")
+		local anvil, smith = all:find("Anvil", 1, true), all:find("Smith", 1, true)
+		assert(anvil < smith, "the highest skill first")
+		assert(all:find(ns.L.CRAFTER_HOW_LIST, 1, true), "how to list oneself")
+		-- A row opens: a whisper, and his recipes.
+		row.onClick()
+		lines = Cr.Lines()
+		local whisper, recipes
+		for _, l in ipairs(lines) do
+			if l.text == "|cffffd200" .. ns.L.CRAFTER_WHISPER_TO:format("Anvil") .. "|r" then whisper = l end
+			if l.text == "|cffffd200" .. ns.L.CRAFTER_SHOW_RECIPES .. "|r" then recipes = l end
+		end
+		assert(whisper and recipes, "opened")
+		whisper.onClick()
+		eq(w.tells[1], "Anvil", "the game's whisper box")
+		w.gamepad = true
+		whisper.onClick()
+		eq(w.windows[1], "Anvil", "Olympus's whisper window with the gamepad UI")
+		w.gamepad = false
+		recipes.onClick()
+		eq(w.whispers[1], "Anvil-Realm WR~164")
+		-- The ask's box: the chat's with /oly craft, Olympus's window with the gamepad UI.
+		Cr.AskPrompt()
+		eq(w.chat[1], "/oly craft ")
+		w.gamepad = true
+		Cr.AskPrompt()
+		eq(w.dialogs[#w.dialogs].which, "OLYMPUS_CRAFT_ASK")
+		StaticPopupDialogs.OLYMPUS_CRAFT_ASK.OnAccept({ editBox = { GetText = function() return "mooncloth" end } })
+		eq(w.sent[#w.sent], "CHANNEL WQ~1~t~mooncloth (urgent)")
+		w.gamepad = false
+		-- An answer shows with its whisper.
+		Cr.HandleAnswer("WHISPER", "Tailor-Realm", "WA~1~Olympus Zeus~Tailoring~250~18560:14342")
+		lines = Cr.Lines()
+		local answer
+		for _, l in ipairs(lines) do if l.key == "Tailor-Realm" then answer = l end end
+		assert(answer, "the answer"); assert(answer.right:find(ns.L.CRAFTER_WHISPER, 1, true))
+		answer.onClick()
+		eq(w.tells[#w.tells], "Tailor")
+		-- The search: a profession, a crafter or a guild.
+		ns.Views.SetFilter("realm", "hera")
+		lines = ns.Views.Build("realm")
+		text = {}
+		for _, l in ipairs(lines) do text[#text + 1] = l.text or "" end
+		all = table.concat(text, "\n")
+		assert(all:find("Anvil", 1, true) and not all:find("Smith", 1, true), all)
+	end)
+end)
+
+test("1.1 crafters (#24): /oly craft and /oly crafter; the strings in both languages; README and CurseForge (the privacy tables too)", function()
+	WithCraft(function(w, Cr)
+		SlashCmdList.OLYMPUS("craft " .. MOONCLOTH)
+		eq(w.sent[1], "CHANNEL WQ~1~i~14342 (urgent)")
+		SlashCmdList.OLYMPUS("crafter")
+		eq(w.printed[#w.printed], ns.L.CRAFTER_HOW_LIST)
+	end)
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for key, v in pairs(ns.L) do
+		if type(key) == "string" and (key:find("^CRAFTER_") or key == "SEARCH_TIP_CRAFTER" or key == "HELP_CRAFT") and key ~= "CRAFTER_ITEM_N" then
+			local p = rawget(pt.L, key)
+			assert(type(p) == "string" and p ~= v, "Portuguese " .. key)
+			eq(select(2, p:gsub("%%[sd]", "")), select(2, v:gsub("%%[sd]", "")), key)
+		end
+	end
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("/oly craft", 1, true), file)
+		assert(doc:find("| Your crafter listing (1.1)", 1, true), file .. ": the privacy table")
+		assert(doc:find("| An answer to \"who can make it\"", 1, true), file .. ": the privacy table")
+	end
+end)
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

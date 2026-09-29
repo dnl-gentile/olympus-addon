@@ -1080,18 +1080,39 @@ end
 
 local chatTier -- the channel shown instead of the Realm tree, or nil
 local boardShown = false -- the Board (Board.lua, 1.1) shown instead of the Realm tree
+-- Pages of the Realm tab (1.1): a module lists one in ns.RealmPages (Loot.lua's loot notes,
+-- Crafters.lua's board): { key, Link = function() return its link line, or nil end,
+-- Lines = function(q) return its lines end, tip = what its search finds (L.SEARCH_TIP_...) }.
+-- A link line under the chats' opens it in place of the tree, as the chats open.
+local pageShown -- the page shown instead of the Realm tree, or nil
 
 function Views.ChatShown() return chatTier ~= nil end
 function Views.ChatTier() return chatTier end
--- Another tab opened: the Realm opens on its tree again next time (our guild's members page and
--- the Board's page close too, 1.1).
+-- Another tab opened: the Realm opens on its tree again next time (our guild's members page, the
+-- Board's and the other pages close too, 1.1).
 function Views.CloseChat()
-	chatTier, boardShown = nil, false
+	chatTier, boardShown, pageShown = nil, false, nil
 	if ns.Members and ns.Members.Hide then ns.Members.Hide() end
 end
 function Views.ShowChat(tier)
-	chatTier, boardShown = tier, false
+	chatTier, boardShown, pageShown = tier, false, nil
 	if tier and ns.Members and ns.Members.Hide then ns.Members.Hide() end
+	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+end
+
+local function RealmPage(key)
+	for _, p in ipairs(ns.RealmPages or {}) do
+		if p.key == key then return p end
+	end
+	return nil
+end
+function Views.PageShown() return pageShown end
+function Views.ShowPage(key)
+	pageShown = RealmPage(key) and key or nil
+	if pageShown then
+		chatTier, boardShown = nil, false
+		if ns.Members and ns.Members.Hide then ns.Members.Hide() end
+	end
 	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
 end
 -- 1.1 (#31): the lines the player's block terms hide show too, marked, after a click on the
@@ -1108,7 +1129,7 @@ function Views.BoardShown() return boardShown end
 function Views.ShowBoard(on, quiet)
 	boardShown = on and true or false
 	if boardShown then
-		chatTier = nil
+		chatTier, pageShown = nil, nil
 		if ns.Members and ns.Members.Hide then ns.Members.Hide() end
 		if ns.Board and ns.Board.Ask then ns.SafeCall("board ask", ns.Board.Ask) end
 	end
@@ -1450,6 +1471,8 @@ end
 -- else: the King's lines, the level race, recruiting and the layers show once it is emptied.
 local function RealmLines(s, q)
 	if boardShown and ns.Board and not ns.Board.missing and ns.Board.Lines then return ns.Board.Lines(q) end
+	local page = pageShown and RealmPage(pageShown)
+	if page then return page.Lines(q) end
 	if chatTier then return ChatLines(q) end
 	-- Our guild's members page (1.1, Members.lua).
 	if ns.Members and ns.Members.Shown and ns.Members.Shown() then return ns.Members.Lines(q) end
@@ -1520,7 +1543,7 @@ local function RealmLines(s, q)
 	if #ChatTiers() > 0 and not ns.Channels.ChatOn() then
 		if lines[#lines] then lines[#lines].gapAfter = true end
 		lines[#lines + 1] = {
-			text = "|TInterface\\ChatFrame\\UI-ChatIcon-Chat-Up:14:14|t " .. Grey(L.CHATS_OFF_LINK), gapAfter = true,
+			text = "|TInterface\\ChatFrame\\UI-ChatIcon-Chat-Up:14:14|t " .. Grey(L.CHATS_OFF_LINK), gapAfter = true, pageLink = true,
 			onClick = function() ns.Consent.Show() end,
 			tooltip = function(tt)
 				tt:AddLine(L.CONSENT_CHAT, 1, 0.82, 0)
@@ -1530,7 +1553,7 @@ local function RealmLines(s, q)
 	elseif #ChatTiers() > 0 then
 		if lines[#lines] then lines[#lines].gapAfter = true end
 		lines[#lines + 1] = {
-			text = "|TInterface\\ChatFrame\\UI-ChatIcon-Chat-Up:14:14|t " .. Gold(L.CHATS_LINK), gapAfter = true,
+			text = "|TInterface\\ChatFrame\\UI-ChatIcon-Chat-Up:14:14|t " .. Gold(L.CHATS_LINK), gapAfter = true, pageLink = true,
 			onClick = function() Views.ShowChat(ChatTiers()[1]) end,
 			tooltip = function(tt)
 				tt:AddLine(L.CHATS_LINK, 1, 0.82, 0)
@@ -1538,11 +1561,24 @@ local function RealmLines(s, q)
 			end,
 		}
 	end
-	-- The Board (1.1, Board.lua): who is looking for a group, and where, one click away.
+	-- The Board (1.1, Board.lua) and the Realm's other pages (1.1, ns.RealmPages), one link each:
+	-- close together under the chats' link, one gap after the last, so the guilds stay in sight
+	-- on the guild window's short list.
+	local links = {}
 	local board = not q and ns.Board and ns.Board.LinkLine and ns.Board.LinkLine()
-	if board then
-		if lines[#lines] then lines[#lines].gapAfter = true end
-		lines[#lines + 1] = board
+	if board then links[#links + 1] = board end
+	for _, p in ipairs(not q and ns.RealmPages or {}) do
+		local link = p.Link and p.Link()
+		if link then links[#links + 1] = link end
+	end
+	if #links > 0 then
+		local prev = lines[#lines]
+		if prev then prev.gapAfter = not prev.pageLink end
+		for i, link in ipairs(links) do
+			link.pageLink = true
+			link.gapAfter = i == #links
+			lines[#lines + 1] = link
+		end
 	end
 	if #s.guilds == 0 and not q and not rebuilding then lines[#lines + 1] = { text = Grey(L.EMPTY) } end
 	-- A guild's header and, opened, its rows. `only`: what the search found in it (GuildMatches),
@@ -1954,6 +1990,60 @@ Views.RECRUIT_SHOWN = 5 -- guilds with room shown in the Realm's Recruiting, the
 Views.raceShown = Views.RACE_PAGE
 Views.INSPECT_ROWS = 200 -- inspected players listed on the Tabards page
 
+-- 1.1 (Fern's #28): the gear an officer's click kept (Inspect.InspectGear), newest first, the
+-- players whose name or guild holds `q`: a click shows or hides the items, in their slots, each
+-- with its own tooltip. Nothing added up, scored or compared. False when none shows.
+Views.GEAR_ROWS = 50
+local gearOpen = {}
+local function GearLines(lines, q)
+	local shown = {}
+	for _, g in ipairs(ns.Inspect.GearList and ns.Inspect.GearList() or {}) do
+		if not q or ns.Holds(q, ns.ShortName(g.name), g.guild) then shown[#shown + 1] = g end
+	end
+	if #shown == 0 then return false end
+	lines[#lines + 1] = { header = true, text = L.GEAR_TITLE, right = Grey(tostring(#shown)) }
+	for i = 1, math.min(#shown, Views.GEAR_ROWS) do
+		local g = shown[i]
+		local open = gearOpen[g.name] == true
+		local n = 0
+		for _ in pairs(g.items) do n = n + 1 end
+		lines[#lines + 1] = {
+			indent = 1, key = g.name,
+			text = (open and "[-] " or "[+] ") .. ClassColored(ns.ShortName(g.name), g.class) .. "  " .. Grey("<" .. (g.guild or "?") .. ">"),
+			right = Grey(L.GEAR_ITEMS:format(n) .. "  " .. ns.Ago(g.t)),
+			onClick = function()
+				gearOpen[g.name] = not open or nil
+				if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+			end,
+			tooltip = function(tt)
+				tt:AddLine(ClassColored(g.name, g.class))
+				tt:AddLine(L.GEAR_ROW_TIP:format(ns.ShortName(g.name), date("%Y-%m-%d %H:%M", g.t)), 1, 1, 1, true)
+			end,
+		}
+		if open then
+			local items = {}
+			for slot = 1, 19 do
+				local it = g.items[slot]
+				local id = type(it) == "string" and tonumber(it:match("^item:(%d+)")) or nil
+				if id then
+					-- The game's link for it, once the client knows the item (its enchant and suffix kept).
+					local link
+					if GetItemInfo then
+						local ok, _, l = pcall(GetItemInfo, it)
+						if ok and type(l) == "string" then link = l end
+					end
+					items[#items + 1] = { id = id, link = link, s = slot }
+				end
+			end
+			lines[#lines + 1] = { indent = 2, items = items, slots = 19 }
+		end
+	end
+	if #shown > Views.GEAR_ROWS then lines[#lines + 1] = { indent = 1, text = Grey(L.AND_MORE:format(#shown - Views.GEAR_ROWS)) } end
+	lines[#lines].gapAfter = true
+	return true
+end
+function Views.CloseGear() wipe(gearOpen) end -- (tests)
+
 -- `q`, the search (Views.Query): the untabarded and the inspected players whose name or guild
 -- holds it, each list under its header, a page as ever; "No match" for none. Nothing else.
 local function HeraldryLines(q)
@@ -1980,7 +2070,7 @@ local function HeraldryLines(q)
 		for _, p in ipairs(s.players) do
 			if ns.Holds(q, ns.ShortName(p.name), p.guild) then players[#players + 1] = p end
 		end
-		if not shame and #players == 0 then return { NoMatch() } end
+		if not shame and #players == 0 and not GearLines({}, q) then return { NoMatch() } end
 	end
 	if q and not shame then
 		-- (The search found none of the untabarded: their header goes too.)
@@ -2025,9 +2115,10 @@ local function HeraldryLines(q)
 		end
 		if #s.guilds == 0 then lines[#lines + 1] = { text = Grey(L.INSPECT_EMPTY) } end
 		lines[#lines].gapAfter = true
-	elseif #players == 0 then
-		return lines
 	end
+	-- 1.1: the gear officers' clicks kept.
+	GearLines(lines, q)
+	if q and #players == 0 then return lines end
 	lines[#lines + 1] = { header = true, text = L.INSPECTED_PLAYERS }
 	-- A line (and a frame) each: the first INSPECT_ROWS, marked and caught players first
 	-- (Inspect.Summary), the rest counted.
@@ -2054,6 +2145,8 @@ local function HeraldryLines(q)
 				tt:AddLine(ClassColored(p.name, p.class))
 				tt:AddLine("<" .. (p.guild or "?") .. ">" .. (p.level and ("  lvl " .. p.level) or ""), 0.25, 1, 0.25)
 				if p.note then tt:AddLine('"' .. p.note .. '"', 1, 0.5, 0.5, true) end
+				-- 1.1 (Fern's #29): another officer of our guild found it.
+				if p.shared and p.by then tt:AddLine(L.PATROLSHARE_BY:format(p.by), 0.6, 0.8, 1, true) end
 				tt:AddLine(L.CLICK_MARK_PLAYER, 0.6, 0.6, 0.6)
 			end,
 		}
@@ -2065,13 +2158,33 @@ end
 local function HeraldryDetail()
 	local s = ns.Inspect.Summary()
 	local c = s.counts
-	return L.INSPECT_COUNTS:format(s.total, c.GUILD, c.NONE, c.OTHER),
-		(ns.Inspect.IsPatrolling() and Green(L.PATROL_ON) or Grey(L.PATROL_HINT))
+	local text = ns.Inspect.IsPatrolling() and Green(L.PATROL_ON) or Grey(L.PATROL_HINT)
+	-- 1.1 (Fern's #29): how many on the list our guild's other officers found.
+	local shared = ns.Inspect.SharedCount and ns.Inspect.SharedCount() or 0
+	if shared > 0 then text = text .. "\n" .. Grey(L.PATROLSHARE_COUNT:format(shared)) end
+	return L.INSPECT_COUNTS:format(s.total, c.GUILD, c.NONE, c.OTHER), text
 end
 
 ---------------------------------------------------------------------------
 -- Join Olympus (what non-members see)
 ---------------------------------------------------------------------------
+
+-- 1.1: a guild of Asmon's Olympus whose name the rule leaves out counts once the author's signed
+-- list names it (ns.IsApprovedGuild): its first member pastes that list, from this screen too.
+local function ApprovedHint(lines)
+	local guild = IsInGuild() and GetGuildInfo("player")
+	if type(guild) ~= "string" or guild == "" then return lines end
+	if lines[#lines] then lines[#lines].gapAfter = true end
+	lines[#lines + 1] = {
+		text = Grey(L.APPROVED_JOIN_HINT:format(Plain(guild))),
+		onClick = function() ns.ShowDialog("OLYMPUS_APPROVED_PASTE") end,
+		tooltip = function(tt)
+			tt:AddLine(L.APPROVED_JOIN_HINT:format(Plain(guild)), 1, 0.82, 0, true)
+			tt:AddLine(L.APPROVED_PASTE_PROMPT, 1, 1, 1, true)
+		end,
+	}
+	return lines
+end
 
 function Views.RecruitLines()
 	local R = ns.Recruit
@@ -2079,7 +2192,7 @@ function Views.RecruitLines()
 	local guilds = R.Guilds()
 	if #guilds == 0 then
 		lines[#lines + 1] = { text = Grey(#R.found == 0 and not ns.Who.Searched() and L.RECRUIT_START or L.RECRUIT_NONE_FOUND) }
-		return lines
+		return ApprovedHint(lines)
 	end
 	-- "Showing 50 of 312 online", and which levels the next click searches.
 	WhoStatus(lines)
@@ -2144,7 +2257,7 @@ function Views.RecruitLines()
 		end
 		lines[#lines].gapAfter = true
 	end
-	return lines
+	return ApprovedHint(lines)
 end
 
 ---------------------------------------------------------------------------
@@ -2167,9 +2280,10 @@ local BUILD = {
 	realm = function(s)
 		local title, text = RealmDetail(s)
 		local lines = RealmLines(s, Views.Query("realm"))
-		-- (One box for the tab: the chats' lines are searched with it while they show.)
+		-- (One box for the tab: the chats' lines are searched with it while they show, a page's too.)
 		local members = ns.Members and ns.Members.Shown and ns.Members.Shown()
-		return Searched(lines, "realm", boardShown and "BOARD" or chatTier and "CHAT" or members and "MEMBERS" or "REALM"), title, text
+		local page = pageShown and RealmPage(pageShown)
+		return Searched(lines, "realm", boardShown and "BOARD" or (page and page.tip) or chatTier and "CHAT" or members and "MEMBERS" or "REALM"), title, text
 	end,
 	decrees = function()
 		local title, text = DecreeDetail()
