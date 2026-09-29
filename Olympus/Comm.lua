@@ -145,12 +145,18 @@ function Comm.Stats()
 end
 
 -- urgent: ahead of everything waiting (a player waits for the answer: a layer ask, an offer,
--- a vote), behind the other urgent ones.
-local function Enqueue(dist, msg, key, target, urgent, logged)
+-- a vote), behind the other urgent ones. done (1.1, Keys.lua): called once the message left
+-- (true) or was dropped from the queue (false).
+local function Done(item, sent)
+	local done = item[7]
+	if done then ns.SafeCall("send done", done, sent) end
+end
+local function Enqueue(dist, msg, key, target, urgent, logged, done)
 	if key then
 		for _, item in ipairs(queue) do
 			if item[3] == key then
 				item[2], item[4], item[6] = msg, target, logged or nil
+				if done then item[7] = done end
 				return
 			end
 		end
@@ -161,9 +167,9 @@ local function Enqueue(dist, msg, key, target, urgent, logged)
 		for i, item in ipairs(queue) do
 			if not item[5] then drop = i break end
 		end
-		table.remove(queue, drop)
+		Done(table.remove(queue, drop), false)
 	end
-	local item = { dist, msg, key, target, urgent or nil, logged or nil }
+	local item = { dist, msg, key, target, urgent or nil, logged or nil, done }
 	if urgent then
 		local at = 1
 		while queue[at] and queue[at][5] do at = at + 1 end
@@ -189,11 +195,11 @@ function Comm.Send(dist, msg, key, urgent, logged)
 	if Held(msg) then return end
 	Enqueue(dist, msg, key, nil, urgent, logged)
 end
--- An addon message to one player only (answers to the King, Throne tab).
-function Comm.Whisper(target, msg, key, urgent)
+-- An addon message to one player only (answers to the King, Throne tab). done: see Enqueue.
+function Comm.Whisper(target, msg, key, urgent, done)
 	if type(target) ~= "string" or target == "" then return end
 	if Held(msg) then return end
-	Enqueue("WHISPER", msg, key, target, urgent)
+	Enqueue("WHISPER", msg, key, target, urgent, nil, done)
 end
 function Comm.Handle(msgType, fn)
 	handlers[msgType] = fn
@@ -213,6 +219,11 @@ end
 -- Messages waiting to go out, one each SEND_INTERVAL (chat lines apart).
 function Comm.QueueSize()
 	return #queue
+end
+-- How many more fit before the oldest waiting message is dropped (1.1: the King's key rotation
+-- hands out no more than that, Keys.lua).
+function Comm.QueueRoom()
+	return MAX_QUEUE - #queue
 end
 
 -- Chat lines wait in a short lane of their own: they never go through Enqueue, so they can
@@ -262,7 +273,11 @@ end
 local function Pump()
 	if not queue[1] and not chatQueue[1] then return end
 	if not ns.IsMember() then
-		wipe(queue) -- outside an Olympus guild the addon sends nothing
+		-- Outside an Olympus guild the addon sends nothing.
+		local dropped = {}
+		for i, item in ipairs(queue) do dropped[i] = item end
+		wipe(queue)
+		for _, item in ipairs(dropped) do Done(item, false) end
 		DropChat()
 		return
 	end
@@ -299,9 +314,8 @@ local function Pump()
 		end
 	end
 	if not index then return end
-	local dist, msg, target, logged = queue[index][1], queue[index][2], queue[index][4], queue[index][6]
-	table.remove(queue, index)
-	SendNow(dist, msg, logged == true, target)
+	local item = table.remove(queue, index)
+	Done(item, SendNow(item[1], item[2], item[6] == true, item[4]))
 end
 Comm.Pump = Pump -- for tests
 
@@ -722,10 +736,12 @@ function Comm.SetRealmKey(secret)
 		ns.Print(ns.L.KEY_TOO_SHORT)
 		return
 	end
+	local was = ns.rdb.realmKey
 	ns.rdb.realmKey = secret
 	Enqueue("GUILD", "K1~" .. secret, "key")
-	-- 1.1 (Keys.lua): dated now, so our guild's 1.1 clients take it over a key the King rotated before.
-	if ns.Keys.Typed then ns.Keys.Typed(secret) end
+	-- 1.1 (Keys.lua): dated now, so our guild's 1.1 clients take it over a key the King rotated
+	-- before; the key it replaces named with it (a plain K1 of that one no longer pulls them back).
+	if ns.Keys.Typed then ns.Keys.Typed(secret, was) end
 	ns.Print(ns.L.KEY_SET)
 	Comm.JoinChannel()
 end
@@ -1181,9 +1197,10 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		if rank and rank <= ns.CAPTAIN_RANK then
 			local key = text:sub(4)
 			if key ~= "" and key ~= ns.rdb.realmKey then
-				-- 1.1 (Keys.lua): a key without an epoch no longer replaces one with (the King's rotation).
+				-- 1.1 (Keys.lua): a key a newer one replaced here (the King's rotation, an officer's
+				-- 1.1 /oly key) no longer comes back without an epoch; any other still does.
 				if ns.Keys.TakesLegacy and ns.Keys.TakesLegacy(key) == false then
-					ns.Log("realm key from officer %s ignored: we hold a newer one (with its epoch)", sender)
+					ns.Log("realm key from officer %s ignored: a key a newer one replaced", sender)
 				else
 					ns.rdb.realmKey = key
 					ns.Log("realm key received from officer %s", sender)
@@ -1200,10 +1217,9 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 			ns.After(math.random(1, 5), "key answer", function()
 				if not ns.rdb.realmKey then return end
 				Enqueue("GUILD", "K1~" .. ns.rdb.realmKey, "key")
-				-- 1.1 (Keys.lua): with its epoch too, for 1.1 guildmates.
-				local key, at
-				if ns.Keys.HandOut then key, at = ns.Keys.HandOut() end
-				if key and at then Enqueue("GUILD", ("K3~%d~%s"):format(at, key), "key3") end
+				-- 1.1 (Keys.lua): with its epoch too (and the keys it replaced), for 1.1 guildmates.
+				local k3 = ns.Keys.HandOutMessage and ns.Keys.HandOutMessage()
+				if type(k3) == "string" then Enqueue("GUILD", k3, "key3") end
 			end)
 		end
 		return

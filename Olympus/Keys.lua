@@ -4,37 +4,58 @@ local L = ns.L
 -- The King's key rotation (1.1, Fern's request #8, its second part): a leaked realm key (/oly key)
 -- shut without teaching everyone /oly key by hand. The King alone (his pinned character: no
 -- Steward, Hand or officer) presses Rotate on the Throne; his addon makes a new key (never typed,
--- never shown: not on his stream either) and hands it out where only its receivers read it,
--- never on the Olympus channel (public, or sealed with the key that leaked):
---   K3~<epoch>~<key>   by whisper from the King to every Lord and Captain the census confirms
---                      online (Data.KnownRank), and over GUILD from each of them (their officers)
---                      to their own guild; K1~<key> with it there, for guildmates before 1.1.
+-- never shown: not on his stream either). He then picks which guilds get it: those his own /who
+-- saw are checked (the server's word that a guild of that name exists: a census row alone is
+-- anyone's report, and two characters on the leaked channel can make up a guild and its Lords),
+-- the others wait for his click; nothing is sent before he hands it out. It goes where only its
+-- receivers read it, never on the Olympus channel (public, or sealed with the key that leaked):
+--   K3~<epoch>~<key>[~<h1.h2.h3>]
+--                      by whisper from the King to every Lord and Captain of the guilds he picked
+--                      the census confirms online (Data.KnownRank), and over GUILD from each of
+--                      them (their officers) to their own guild; K1~<key> with it there, for
+--                      guildmates before 1.1. The hashes: the keys it replaces (at most 3).
 --   K4~<epoch>~<guild> a Lord's or Captain's addon tells the King it has it (a whisper).
 --   K5~<epoch held>    over GUILD, after login: a guildmate asks whether a newer key exists;
 --                      an officer holding one answers with K3.
 -- The epoch is the server's second the key was made (or an officer typed one, 1.1): every 1.1
--- client keeps the newest, and a key without one (K1 alone, from an officer before 1.1) no
--- longer replaces it. A K3 takes a whisper from the King's pinned name alone, or GUILD from our
--- own officers (the server's roster), and never the channel.
--- The King's client keeps handing the key to Lords and Captains who come online for GRACE, on
--- the old channel, then moves (with his guild); "Move now" sooner. Guilds with no officer online
--- in that time stay on the old channel until one of theirs types the key by hand; the Throne says
--- how many acknowledged. Older clients ignore K3, K4 and K5.
+-- client keeps the newest, and remembers the keys a newer one replaced (their hashes): a key
+-- without an epoch (K1 alone, from an officer before 1.1) is taken as ever, unless it is one of
+-- those. So a 1.0 officer's K1 of the leaked key no longer pulls his 1.1 guildmates back, and a
+-- 1.0 officer who re-keys his guild by hand still moves all of it; an older key with an epoch
+-- does not undo his re-key either. A K3 takes a whisper from the King's pinned name alone, or
+-- GUILD from our own officers (the server's roster), and never the channel.
+-- Whoever is in a guild that gets it has it too (its officers hand it to the whole guild): the
+-- rotation leaves behind whoever holds the old key outside the guilds picked.
+-- The King's client hands the key out a few whispers at a time, never more than the send queue
+-- has room for (its other messages keep their place), and counts a whisper as sent once it left.
+-- It keeps handing it to Lords and Captains who come online for GRACE, on the old channel (a
+-- little longer while some picked still wait for their whisper), then moves (with his guild);
+-- "Move now" sooner. Guilds with no officer online in that time stay on the old channel until one
+-- of theirs types the key by hand; the Throne says how many acknowledged. Older clients ignore
+-- K3, K4 and K5.
 
 local Keys = {}
 ns.Keys = Keys
 
 Keys.GRACE = 600          -- the King's client hands the new key out this long before it moves
-Keys.RESEND = 600         -- the same Lord or Captain is whispered again after this long without an answer
+Keys.GRACE_MORE = 600     -- ...and up to this much longer while Lords and Captains picked wait for their whisper
+Keys.RESEND = 300         -- the same Lord or Captain is whispered again after this long without an answer
 Keys.MAX_WHISPERS = 60    -- whispers a round at most (the queue sends one each 1.2 s)
+Keys.QUEUE_SPARE = 20     -- ...and never more than leaves this much of the send queue free
+Keys.QUEUE_WAIT = 120     -- a whisper waiting this long in the queue (lost there) is handed again
 Keys.DATE_AHEAD = 60      -- an epoch further ahead of the server's clock is not taken
 Keys.ANSWER_GAP = 60      -- an officer answers a guildmate's ask (K5) once a minute at most
 Keys.ASK_AFTER = 25       -- the ask goes this long after login
 Keys.ONLINE_FRESH = 240   -- a Lord or Captain counts as online from a report this recent (a whisper to
                           -- someone who logged off since shows the King the game's "no player named" line)
+Keys.RETIRED_MAX = 16     -- keys replaced by a newer epoch this client remembers (their hashes)
+Keys.RETIRES_SENT = 3     -- ...and a K3 names at most this many
 
 local stats = { rotated = 0, taken = 0, refused = 0, whispered = 0, acks = 0, relayed = 0, answered = 0, legacy = 0 }
 local lastAnswer = -math.huge
+
+local READY = "|TInterface\\RaidFrame\\ReadyCheck-Ready:13:13|t "
+local NOT_READY = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:13:13|t "
 
 local function Clock() return ns.Data and ns.Data.ServerTime and ns.Data.ServerTime() or ns.Now() end
 local function Hash(key) return ns.Comm.Hash36(tostring(key)) end
@@ -52,30 +73,99 @@ end
 Keys.Epoch = Epoch
 function Keys.HoldsEpoch() return Epoch() ~= nil end
 
--- The King's rotation (ns.rdb.keyRotation): { at, key, till, acked = { [Name-Realm] = guild }, sent = { [Name-Realm] = t }, moved, movedAt }.
+-- The newest epoch this client heard of: its key's, or the one of the key a plain K1 (an officer
+-- before 1.1) replaced since. A K3 no newer is not taken: an older key never undoes a re-key.
+local function Latest()
+	local e = ns.rdb and ns.rdb.keyEpoch
+	return type(e) == "table" and tonumber(e.at) or nil
+end
+
+---------------------------------------------------------------------------
+-- The keys a newer one replaced (ns.rdb.keyRetired: [hash] = when)
+---------------------------------------------------------------------------
+
+local function Retired()
+	local r = ns.rdb
+	if not r then return {} end
+	if type(r.keyRetired) ~= "table" then r.keyRetired = {} end
+	return r.keyRetired
+end
+local function IsHash(h) return type(h) == "string" and #h >= 1 and #h <= 16 and h:match("^%w+$") ~= nil end
+local function Retire(hash)
+	if not IsHash(hash) or not ns.rdb then return end
+	if ValidKey(ns.rdb.realmKey) and hash == Hash(ns.rdb.realmKey) then return end -- (never the key we hold)
+	local list = Retired()
+	list[hash] = ns.Now()
+	local n, oldest = 0, nil
+	for h, t in pairs(list) do
+		n = n + 1
+		if not oldest or (tonumber(t) or 0) < (tonumber(list[oldest]) or 0) then oldest = h end
+	end
+	if n > Keys.RETIRED_MAX and oldest then list[oldest] = nil end
+end
+local function Unretire(key)
+	if ValidKey(key) and ns.rdb and type(ns.rdb.keyRetired) == "table" then ns.rdb.keyRetired[Hash(key)] = nil end
+end
+function Keys.IsRetired(key) return ValidKey(key) and Retired()[Hash(key)] ~= nil end
+
+-- "h1.h2" as it travels: the hashes, each once, never `except`, at most RETIRES_SENT.
+local function Hashes(s, first, except)
+	local out, seen = {}, { [except or ""] = true }
+	local function Add(h)
+		if IsHash(h) and not seen[h] and #out < Keys.RETIRES_SENT then
+			seen[h] = true
+			out[#out + 1] = h
+		end
+	end
+	Add(first)
+	for h in tostring(s or ""):gmatch("[^%.]+") do Add(h) end
+	return out
+end
+
+local function Message(at, key, retires)
+	local msg = ("K3~%d~%s"):format(at, key)
+	if type(retires) == "string" and #retires <= 60 and retires:match("^%w[%w%.]*$") then msg = msg .. "~" .. retires end
+	return msg
+end
+
+-- The King's rotation (ns.rdb.keyRotation): { at, key, retires, picking, picked = { [guild, lower
+-- case] = true | false }, till, acked = { [Name-Realm] = guild }, sent = { [Name-Realm] = t },
+-- queued = { [Name-Realm] = t }, moved, movedAt }.
 local function Rotation()
 	local r = ns.rdb and ns.rdb.keyRotation
 	return type(r) == "table" and r or nil
 end
 Keys.Rotation = Rotation
 
--- The key this client hands its guild (K0, K5): the one it holds. (The King's new key goes to his
--- guild when he moves to it.)
+-- The key this client hands its guild (K0, K5): the one it holds, its epoch and the keys it
+-- replaced. (The King's new key goes to his guild when he moves to it.)
 function Keys.HandOut()
 	local key = ns.rdb and ns.rdb.realmKey
 	if not ValidKey(key) then return nil end
-	return key, Epoch()
+	local at = Epoch()
+	return key, at, at and ns.rdb.keyEpoch.retires or nil
+end
+-- ...as the K3 an officer answers with (nil without an epoch: then K1 alone, as before 1.1).
+function Keys.HandOutMessage()
+	local key, at, retires = Keys.HandOut()
+	if key and at then return Message(at, key, retires) end
+	return nil
 end
 
--- A key with its epoch, taken when newer than ours: the channel follows.
-local function Take(key, at, quiet)
+-- A key with its epoch, taken when newer than any we heard of: the channel follows. The keys it
+-- replaces (those it came with, and the one we held) are remembered, and handed on with it.
+local function Take(key, at, quiet, retires)
 	local rdb = ns.rdb
 	if not rdb or not ValidKey(key) then return false end
-	local was = Epoch()
+	local was = Latest()
 	if was and at <= was then return false end
-	local changed = rdb.realmKey ~= key
+	local old = rdb.realmKey
+	local changed = old ~= key
+	local list = Hashes(retires, changed and ValidKey(old) and Hash(old) or nil, Hash(key))
 	rdb.realmKey = key
-	rdb.keyEpoch = { key = Hash(key), at = at }
+	rdb.keyEpoch = { key = Hash(key), at = at, retires = #list > 0 and table.concat(list, ".") or nil }
+	Unretire(key)
+	for _, h in ipairs(list) do Retire(h) end
 	stats.taken = stats.taken + 1
 	ns.Log("realm key: a key of epoch %d taken%s", at, changed and " (a new channel)" or "") -- (never the key)
 	if changed then
@@ -88,7 +178,8 @@ Keys.Take = Take
 
 -- To our guild (an officer): the key with its epoch, and alone for guildmates before 1.1.
 local function ToGuild(key, at)
-	ns.Comm.Send("GUILD", ("K3~%d~%s"):format(at, key), "key3")
+	local e = ns.rdb and ns.rdb.keyEpoch
+	ns.Comm.Send("GUILD", Message(at, key, type(e) == "table" and e.retires or nil), "key3")
 	ns.Comm.Send("GUILD", "K1~" .. key, "key")
 	stats.relayed = stats.relayed + 1
 end
@@ -98,7 +189,7 @@ end
 ---------------------------------------------------------------------------
 
 function Keys.HandleKey(dist, sender, text)
-	local at, key = tostring(text):match("^K3~(%d+)~(.+)$")
+	local at, key, retires = tostring(text):match("^K3~(%d+)~([^~]+)~?([%w%.]*)$")
 	at = tonumber(at)
 	if not at or not ValidKey(key) then return end
 	sender = ns.FullName(sender)
@@ -124,7 +215,7 @@ function Keys.HandleKey(dist, sender, text)
 		stats.refused = stats.refused + 1
 		return ns.Log("realm key from %s ignored: dated ahead", sender)
 	end
-	local took = Take(key, at)
+	local took = Take(key, at, false, retires)
 	if fromKing then
 		-- The King's client counts who has it; an officer hands it to his guild.
 		ns.Comm.Whisper(sender, ("K4~%d~%s"):format(at, GetGuildInfo("player") or ""), "key4")
@@ -150,13 +241,16 @@ function Keys.HandleAsk(dist, sender, text)
 	if dist ~= "GUILD" then return end
 	local asked = tonumber(tostring(text):match("^K5~(%d+)$"))
 	if not asked or not ns.Roster.IsOfficer() then return end
-	local key, at = Keys.HandOut()
-	if not key or not at or at <= asked then return end
+	local _, at = Keys.HandOut()
+	if not at or at <= asked then return end
 	local now = ns.Now()
 	if now - lastAnswer < Keys.ANSWER_GAP then return end
 	lastAnswer = now
 	stats.answered = stats.answered + 1
-	ns.After(math.random(1, 5), "key answer", function() ns.Comm.Send("GUILD", ("K3~%d~%s"):format(at, key), "key3") end)
+	ns.After(math.random(1, 5), "key answer", function()
+		local msg = Keys.HandOutMessage()
+		if msg then ns.Comm.Send("GUILD", msg, "key3") end
+	end)
 end
 
 ns.Comm.Handle("K3", function(...) Keys.HandleKey(...) end)
@@ -169,26 +263,30 @@ function Keys.Ask()
 	ns.Comm.Send("GUILD", ("K5~%d"):format(Epoch() or 0), "key5")
 end
 
--- An officer typed /oly key (Comm.SetRealmKey): his key, dated now, for his guild's 1.1 clients too.
-function Keys.Typed(key)
+-- An officer typed /oly key (Comm.SetRealmKey): his key, dated now, for his guild's 1.1 clients
+-- too. was: the key it replaces (then remembered, and named with it).
+function Keys.Typed(key, was)
 	if not ValidKey(key) or not ns.rdb then return end
 	local at = Clock()
-	local was = tonumber(ns.rdb.keyEpoch and ns.rdb.keyEpoch.at)
-	if was and at <= was then at = was + 1 end
-	ns.rdb.keyEpoch = { key = Hash(key), at = at }
-	ns.Comm.Send("GUILD", ("K3~%d~%s"):format(at, key), "key3")
+	local latest = Latest()
+	if latest and at <= latest then at = latest + 1 end
+	local retires = ValidKey(was) and was ~= key and Hash(was) or nil
+	ns.rdb.keyEpoch = { key = Hash(key), at = at, retires = retires }
+	Unretire(key)
+	if retires then Retire(retires) end
+	ns.Comm.Send("GUILD", Message(at, key, retires), "key3")
 end
 
 -- A K1 (a key without an epoch, from an officer before 1.1 or from before this version): taken
--- only while we hold no key with an epoch (Comm.lua).
+-- as ever (Comm.lua), unless it is a key a newer one replaced here (the leaked one).
 function Keys.TakesLegacy(key)
-	if not Keys.HoldsEpoch() or key == (ns.rdb and ns.rdb.realmKey) then return true end
+	if key == (ns.rdb and ns.rdb.realmKey) or not Keys.IsRetired(key) then return true end
 	stats.legacy = stats.legacy + 1
 	return false
 end
 
 ---------------------------------------------------------------------------
--- The King: rotate, hand out, move
+-- The King: rotate, pick the guilds, hand out, move
 ---------------------------------------------------------------------------
 
 -- A new key from this computer (the Link's entropy sample, the clocks, the game's generator),
@@ -209,42 +307,113 @@ function Keys.CanRotate()
 	return ns.King ~= nil and ns.King.IsKing() and ns.KingCharacter() ~= nil and ns.IsKingCharacter(ns.me)
 end
 
--- The Lords and Captains the census confirms online (two senders: Data.KnownRank), of every
--- guild but ours (ours gets it over GUILD when the King moves): { name, guild }.
-function Keys.Targets()
+-- The King's own /who saw someone of this guild (Data.Seen, within Data.KEEP): the server's word
+-- that a guild of that name exists. A census row alone is anyone's report.
+local function Seen(guild)
+	local now, lower = ns.Now(), tostring(guild):lower()
+	for name, s in pairs(ns.Data.Seen()) do
+		if type(name) == "string" and name:lower() == lower and type(s) == "table" and now - (tonumber(s.t) or 0) <= ns.Data.KEEP then
+			return true
+		end
+	end
+	return false
+end
+Keys.Seen = Seen
+
+-- Every guild but ours (ours gets it over GUILD when the King moves) with Lords and Captains the
+-- census confirms online (two senders: Data.KnownRank): { guild, names = { Name-Realm }, seen }.
+function Keys.Candidates()
 	local out, mine, now = {}, GetGuildInfo("player"), ns.Now()
 	for _, e in ipairs(ns.Data.Summary().guilds) do
 		local g = e.g
 		if e.fresh and e.name ~= mine and now - (tonumber(g.t) or 0) <= Keys.ONLINE_FRESH then
 			local home = g.realm or ns.realm
+			local names = {}
 			local function Add(name, online)
 				if type(name) ~= "string" or not online then return end
 				local full = ns.FullName(name, home)
 				local rank = ns.Data.KnownRank(full, e.name)
-				if rank and rank <= ns.CAPTAIN_RANK then out[#out + 1] = { name = full, guild = e.name } end
+				if rank and rank <= ns.CAPTAIN_RANK then names[#names + 1] = full end
 			end
 			Add(g.leader, g.leaderOnline)
 			for _, o in ipairs(g.officers or {}) do Add(o.name, o.online) end
+			if #names > 0 then out[#out + 1] = { guild = e.name, names = names, seen = Seen(e.name) } end
 		end
 	end
 	return out
 end
 
--- Whispers the new key to the Lords and Captains online who have not answered (again after RESEND).
+-- Does this guild get the new key? The King's click, else whether his /who saw it.
+local function Picked(rot, c)
+	local v = type(rot.picked) == "table" and rot.picked[c.guild:lower()] or nil
+	if v == nil then return c.seen end
+	return v == true
+end
+
+-- The Lords and Captains online of the guilds the King picked: { name, guild }.
+function Keys.Targets()
+	local rot, out = Rotation(), {}
+	if not rot then return out end
+	for _, c in ipairs(Keys.Candidates()) do
+		if Picked(rot, c) then
+			for _, name in ipairs(c.names) do out[#out + 1] = { name = name, guild = c.guild } end
+		end
+	end
+	return out
+end
+
+-- The King clicks a guild on the Throne: it gets the key, or not (later rounds too).
+function Keys.Toggle(guild)
+	local rot = Rotation()
+	if type(guild) ~= "string" or not rot or rot.moved or not Keys.CanRotate() then return end
+	rot.picked = type(rot.picked) == "table" and rot.picked or {}
+	local now = rot.picked[guild:lower()]
+	if now == nil then now = Seen(guild) end
+	rot.picked[guild:lower()] = not now
+	ns.King.Changed()
+end
+
+-- Picked Lords and Captains online whose whisper never left yet (nor did they answer).
+function Keys.Waiting()
+	local rot = Rotation()
+	if not rot then return 0 end
+	local n = 0
+	for _, t in ipairs(Keys.Targets()) do
+		if not (type(rot.acked) == "table" and rot.acked[t.name]) and not (type(rot.sent) == "table" and rot.sent[t.name]) then n = n + 1 end
+	end
+	return n
+end
+
+-- Whispers the new key to the Lords and Captains picked who have not answered (again after
+-- RESEND): as many as the send queue has room for, each counted once it left.
 function Keys.Hand()
 	local rot = Rotation()
-	if not rot or rot.moved or not Keys.CanRotate() then return 0 end
-	rot.acked, rot.sent = type(rot.acked) == "table" and rot.acked or {}, type(rot.sent) == "table" and rot.sent or {}
+	if not rot or rot.moved or rot.picking or not Keys.CanRotate() then return 0 end
+	rot.acked = type(rot.acked) == "table" and rot.acked or {}
+	rot.sent = type(rot.sent) == "table" and rot.sent or {}
+	rot.queued = type(rot.queued) == "table" and rot.queued or {}
 	local now, n = ns.Now(), 0
+	local room = Keys.MAX_WHISPERS
+	if ns.Comm.QueueRoom then room = math.min(room, ns.Comm.QueueRoom() - Keys.QUEUE_SPARE) end
 	for _, t in ipairs(Keys.Targets()) do
-		if n >= Keys.MAX_WHISPERS then break end
-		if not rot.acked[t.name] and now - (tonumber(rot.sent[t.name]) or -math.huge) >= Keys.RESEND then
-			rot.sent[t.name] = now
-			ns.Comm.Whisper(t.name, ("K3~%d~%s"):format(rot.at, rot.key), "key3:" .. t.name)
+		if n >= room then break end
+		local name = t.name
+		local waiting = tonumber(rot.queued[name])
+		if not rot.acked[name] and not (waiting and now - waiting < Keys.QUEUE_WAIT)
+			and now - (tonumber(rot.sent[name]) or -math.huge) >= Keys.RESEND then
+			rot.queued[name] = now
+			ns.Comm.Whisper(name, Message(rot.at, rot.key, rot.retires), "key3:" .. name, nil, function(sent)
+				if Rotation() ~= rot then return end
+				rot.queued[name] = nil
+				if sent then
+					rot.sent[name] = ns.Now()
+					stats.whispered = stats.whispered + 1
+					ns.King.Changed()
+				end
+			end)
 			n = n + 1
 		end
 	end
-	stats.whispered = stats.whispered + n
 	return n
 end
 
@@ -254,14 +423,40 @@ function Keys.Rotate()
 	local rot = Rotation()
 	if rot and not rot.moved then return ns.Print(L.KEY_ROTATE_BUSY) end
 	local at = Clock()
-	local was = Epoch()
+	local was = Latest()
 	if was and at <= was then at = was + 1 end
-	rot = { at = at, key = Keys.NewKey(), till = ns.Now() + Keys.GRACE, acked = {}, sent = {} }
+	local held = ns.rdb.realmKey
+	rot = { at = at, key = Keys.NewKey(), picking = true, picked = {}, acked = {}, sent = {}, queued = {} }
+	-- The keys it replaces: ours, and those ours replaced.
+	local list = Hashes(ns.rdb.keyEpoch and ns.rdb.keyEpoch.retires, ValidKey(held) and Hash(held) or nil, Hash(rot.key))
+	rot.retires = #list > 0 and table.concat(list, ".") or nil
 	ns.rdb.keyRotation = rot
 	stats.rotated = stats.rotated + 1
-	ns.Log("realm key: the King rotates it (epoch %d)", at)
+	ns.Log("realm key: the King rotates it (epoch %d): picking the guilds", at)
+	ns.Print(L.KEY_ROTATE_READY)
+	ns.King.Changed()
+	return true
+end
+
+-- The King hands it out to the guilds picked: whispers now, and for GRACE to those who log in.
+function Keys.Start()
+	local rot = Rotation()
+	if not rot or rot.moved or not rot.picking or not Keys.CanRotate() then return false end
+	rot.picking = nil
+	rot.till = ns.Now() + Keys.GRACE
+	ns.Log("realm key: handed out (epoch %d)", rot.at)
 	Keys.Hand()
 	ns.Print(L.KEY_ROTATED:format(math.ceil(Keys.GRACE / 60)))
+	ns.King.Changed()
+	return true
+end
+
+-- Before anything was sent: the new key is dropped.
+function Keys.Drop()
+	local rot = Rotation()
+	if not rot or not rot.picking or not Keys.CanRotate() then return false end
+	ns.rdb.keyRotation = nil
+	ns.Print(L.KEY_ROTATE_DROPPED)
 	ns.King.Changed()
 	return true
 end
@@ -269,9 +464,9 @@ end
 -- The King moves to his new key, and his guild with him (over GUILD).
 function Keys.Move()
 	local rot = Rotation()
-	if not rot or rot.moved or not Keys.CanRotate() then return false end
+	if not rot or rot.moved or rot.picking or not Keys.CanRotate() then return false end
 	rot.moved, rot.movedAt = true, ns.Now()
-	Take(rot.key, rot.at, true)
+	Take(rot.key, rot.at, true, rot.retires)
 	ToGuild(rot.key, rot.at)
 	ns.Print(L.KEY_ROTATION_MOVED)
 	ns.King.Changed()
@@ -280,8 +475,11 @@ end
 
 function Keys.Tick()
 	local rot = Rotation()
-	if not rot or rot.moved or not Keys.CanRotate() then return end
-	if ns.Now() >= (tonumber(rot.till) or 0) then return Keys.Move() end
+	if not rot or rot.moved or rot.picking or not Keys.CanRotate() then return end
+	local now, till = ns.Now(), tonumber(rot.till) or 0
+	-- The grace is over: he moves, a little later while Lords and Captains picked still wait for
+	-- their whisper (a long queue), GRACE_MORE at most.
+	if now >= till and (now >= till + Keys.GRACE_MORE or Keys.Waiting() == 0) then return Keys.Move() end
 	Keys.Hand()
 end
 
@@ -297,7 +495,7 @@ local function Counts(rot)
 	return sent, acked, n
 end
 
--- On the Throne (the King's alone): rotate, and while it is handed out, how far it got.
+-- On the Throne (the King's alone): rotate; then the guilds to pick, handing it out, how far it got.
 function Keys.ThroneLines()
 	local K = ns.King
 	if not (K and (K.IsKing() or (K.Preview and K.Preview()))) then return {} end
@@ -305,10 +503,35 @@ function Keys.ThroneLines()
 	local lines = { Line(L.KEY_ROTATE_TITLE, TITLE) }
 	local rot = Rotation()
 	if rot and not rot.moved then
-		local sent, acked, guilds = Counts(rot)
-		lines[#lines + 1] = Line(L.KEY_ROTATING:format(sent, acked, guilds), INK, { indent = 1 })
-		local left = math.max(0, math.ceil(((tonumber(rot.till) or 0) - ns.Now()) / 60))
-		lines[#lines + 1] = Line("> " .. L.KEY_MOVE_NOW:format(left), INK, { indent = 1, onClick = function() ns.ShowDialog("OLYMPUS_KEY_MOVE") end })
+		if rot.picking then
+			K.Para(lines, L.KEY_PICK_HINT, INK, { indent = 1 })
+		else
+			local sent, acked, guilds = Counts(rot)
+			lines[#lines + 1] = Line(L.KEY_ROTATING:format(sent, acked, guilds), INK, { indent = 1 })
+		end
+		local candidates, picked = Keys.Candidates(), 0
+		for _, c in ipairs(candidates) do
+			local on = Picked(rot, c)
+			if on then picked = picked + 1 end
+			lines[#lines + 1] = Line(("%s<%s>  %d · %s"):format(on and READY or NOT_READY, c.guild, #c.names, c.seen and L.KEY_GUILD_SEEN or L.KEY_GUILD_CENSUS),
+				INK, { indent = 1,
+				onClick = function() Keys.Toggle(c.guild) end,
+				tooltip = function(tt)
+					tt:AddLine("<" .. c.guild .. ">", 1, 0.82, 0)
+					local shown = {}
+					for _, n in ipairs(c.names) do shown[#shown + 1] = ns.DisplayName(n) end
+					tt:AddLine(L.KEY_GUILD_TIP:format(table.concat(shown, ", ")), 1, 1, 1, true)
+				end })
+		end
+		if #candidates == 0 then lines[#lines + 1] = Line(L.KEY_NO_GUILDS, INK, { indent = 1 }) end
+		if rot.picking then
+			lines[#lines + 1] = Line("> " .. L.KEY_HAND_OUT:format(picked), INK, { indent = 1,
+				onClick = function() ns.ShowDialog("OLYMPUS_KEY_HAND_OUT", tostring(picked)) end })
+			lines[#lines + 1] = Line("> " .. L.KEY_ROTATE_DROP, INK, { indent = 1, onClick = function() Keys.Drop() end })
+		else
+			local left = math.max(0, math.ceil(((tonumber(rot.till) or 0) - ns.Now()) / 60))
+			lines[#lines + 1] = Line("> " .. L.KEY_MOVE_NOW:format(left), INK, { indent = 1, onClick = function() ns.ShowDialog("OLYMPUS_KEY_MOVE") end })
+		end
 	else
 		if rot and rot.moved then
 			local _, acked, guilds = Counts(rot)
@@ -341,6 +564,16 @@ StaticPopupDialogs["OLYMPUS_KEY_ROTATE"] = {
 	hideOnEscape = true,
 	preferredIndex = 3,
 }
+StaticPopupDialogs["OLYMPUS_KEY_HAND_OUT"] = {
+	text = L.KEY_HAND_OUT_CONFIRM,
+	button1 = YES or "Yes",
+	button2 = NO or "No",
+	OnAccept = function() ns.SafeCall("key hand out", Keys.Start) end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
 StaticPopupDialogs["OLYMPUS_KEY_MOVE"] = {
 	text = L.KEY_MOVE_CONFIRM,
 	button1 = YES or "Yes",
@@ -356,14 +589,20 @@ StaticPopupDialogs["OLYMPUS_KEY_MOVE"] = {
 function Keys.StatusLine()
 	local at = Epoch()
 	local rot = Rotation()
-	local state = rot and (rot.moved and ("rotated by the King " .. ns.Ago(rot.movedAt)) or "the King's new key being handed out") or "no rotation here"
-	return ("%s  |  epoch %s  |  %s  |  taken %d, refused %d, legacy K1 ignored %d, whispered %d, acks %d, relayed %d"):format(
+	local state = rot and (rot.moved and ("rotated by the King " .. ns.Ago(rot.movedAt))
+		or rot.picking and "the King's new key waiting for him to pick the guilds" or "the King's new key being handed out") or "no rotation here"
+	local retired = 0
+	for _ in pairs(type(ns.rdb and ns.rdb.keyRetired) == "table" and ns.rdb.keyRetired or {}) do retired = retired + 1 end
+	return ("%s  |  epoch %s  |  %s  |  taken %d, refused %d, keys replaced %d (their K1 ignored %d), whispered %d, acks %d, relayed %d"):format(
 		ns.rdb and ns.rdb.realmKey and "sealed" or "public", at and (date and date("%Y-%m-%d %H:%M", at) or tostring(at)) or "none",
-		state, stats.taken, stats.refused, stats.legacy, stats.whispered, stats.acks, stats.relayed)
+		state, stats.taken, stats.refused, retired, stats.legacy, stats.whispered, stats.acks, stats.relayed)
 end
 function Keys.Stats() return stats end
 
 ns.On("LOGIN", function()
+	-- Whispers queued before a /reload left with the old queue, or never did: handed again.
+	local rot = Rotation()
+	if rot then rot.queued = {} end
 	ns.After(Keys.ASK_AFTER, "key epoch ask", Keys.Ask)
 	ns.Every(60, "key rotation", Keys.Tick)
 end)

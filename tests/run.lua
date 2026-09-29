@@ -25512,14 +25512,22 @@ end)
 	local function WithKeys(fn)
 		WithNetoff(function(w, K)
 			local saved = { key = ns.rdb.realmKey, epoch = ns.rdb.keyEpoch, rot = ns.rdb.keyRotation, join = ns.Comm.JoinChannel,
-				after = ns.After, log = ns.db.log }
+				after = ns.After, log = ns.db.log, retired = ns.rdb.keyRetired, seen = ns.rdb.seen, whisper = ns.Comm.Whisper }
 			local ok, err = pcall(function()
-				ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRotation = nil, nil, nil
+				ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRotation, ns.rdb.keyRetired = nil, nil, nil, nil
 				ns.db.log = {}
 				KY.Reset()
 				w.joined = 0
 				ns.Comm.JoinChannel = function() w.joined = w.joined + 1 end
 				ns.After = function(_, _, f) f() end
+				-- A whisper leaves at once here (Comm's queue says so: done(true)).
+				local record = ns.Comm.Whisper
+				ns.Comm.Whisper = function(to, msg, key, urgent, done)
+					record(to, msg, key, urgent)
+					if done then done(true) end
+				end
+				-- The King's own /who saw both guilds (the server's word that they exist).
+				ns.rdb.seen = { ["Olympus Zeus"] = { online = 5, t = w.clock }, ["Olympus II"] = { online = 2, t = w.clock } }
 				local G = ns.rdb.guilds
 				G["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", leaderOnline = true, realm = "Realm",
 					officers = { { name = "Zeus Cap", online = true, days = 0 }, { name = "Zeus Sleeper", online = false, days = 2 } } }, "W3-Realm", "W4-Realm")
@@ -25528,6 +25536,7 @@ end)
 			end)
 			ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRotation, ns.Comm.JoinChannel, ns.After, ns.db.log =
 				saved.key, saved.epoch, saved.rot, saved.join, saved.after, saved.log
+			ns.rdb.keyRetired, ns.rdb.seen, ns.Comm.Whisper = saved.retired, saved.seen, saved.whisper
 			KY.Reset()
 			if not ok then error(err, 0) end
 		end)
@@ -25565,6 +25574,10 @@ end)
 			eq(KY.Rotate(), true)
 			local rot = KY.Rotation()
 			assert(rot and rot.key:match("^%x+$") and #rot.key == 20, "a new key from his addon")
+			-- Nothing goes before he picked the guilds and handed it out (1.1 review: the census alone
+			-- is anyone's word).
+			eq(rot.picking, true); eq(#w.whispered, 0, "nothing sent while he picks")
+			eq(KY.Start(), true)
 			-- By whisper to the Lords and Captains the census confirms online, other guilds only.
 			eq(Whispered(w, "K3~"), "Zed-Realm,Zeus Cap-Realm")
 			for _, x in ipairs(w.whispered) do eq(x.msg, ("K3~%d~%s"):format(rot.at, rot.key)) end
@@ -25630,13 +25643,14 @@ end)
 			local at = w.clock
 			KY.HandleKey("GUILD", "Member9-Realm", ("K3~%d~guildkey0001"):format(at))
 			eq(ns.rdb.realmKey, nil, "not an officer of ours")
-			KY.HandleKey("GUILD", "Member2-Realm", ("K3~%d~guildkey0001"):format(at))
+			-- The K3 names the key it replaces (its hash): the leaked one.
+			KY.HandleKey("GUILD", "Member2-Realm", ("K3~%d~guildkey0001~%s"):format(at, ns.Comm.Hash36("leakedold01")))
 			eq(ns.rdb.realmKey, "guildkey0001"); eq(KY.Epoch(), at)
 			-- The real receive path: a plain K1 from an officer, as a client before 1.1 sends it.
 			local cns, Deliver = FreshComm()
 			cns.Comm.JoinChannel = function() w.joined = w.joined + 1 end
 			Deliver("GUILD", "Member3-Realm", "K1~leakedold01")
-			eq(ns.rdb.realmKey, "guildkey0001", "a key without an epoch doesn't replace the King's")
+			eq(ns.rdb.realmKey, "guildkey0001", "the key the new one replaced (leaked) doesn't pull us back")
 			-- Holding no epoch (before 1.1, or never rotated): as ever.
 			ns.rdb.keyEpoch = nil
 			Deliver("GUILD", "Member3-Realm", "K1~plainkey001")
@@ -25650,7 +25664,7 @@ end)
 			w.clock = w.clock + 60
 			cns.Comm.SetRealmKey("officers own key")
 			eq(ns.rdb.realmKey, "officers own key"); eq(KY.Epoch(), w.clock)
-			eq(Sent(w, "GUILD", "K3~")[1], ("K3~%d~officers own key"):format(w.clock))
+			eq(Sent(w, "GUILD", "K3~")[1], ("K3~%d~officers own key~%s"):format(w.clock, ns.Comm.Hash36("plainkey001")), "with the key it replaces")
 		end)
 	end)
 
@@ -25705,6 +25719,16 @@ end)
 			eq(w.popups[#w.popups].name, "OLYMPUS_KEY_ROTATE"); eq(w.popups[#w.popups].a, tostring(KY.GRACE / 60))
 			StaticPopupDialogs.OLYMPUS_KEY_ROTATE.OnAccept()
 			local rot = KY.Rotation()
+			-- He picks the guilds first (those his /who saw are checked), then hands it out.
+			local page = Page((K.Build()))
+			assert(page:find("<Olympus Zeus>", 1, true), page)
+			eq(#w.whispered, 0)
+			local handOut
+			for _, l in ipairs(K.Build()) do if tostring(l.text):find(ns.L.KEY_HAND_OUT:format(1), 1, true) then handOut = l end end
+			assert(handOut and handOut.onClick, "hand it out: " .. page)
+			handOut.onClick()
+			eq(w.popups[#w.popups].name, "OLYMPUS_KEY_HAND_OUT")
+			StaticPopupDialogs.OLYMPUS_KEY_HAND_OUT.OnAccept()
 			assert(Page((K.Build())):find(ns.L.KEY_ROTATING:format(2, 0, 0), 1, true), Page((K.Build())))
 			-- Acknowledged: counted (another rotation's answer is not).
 			KY.HandleAck("WHISPER", "Zed-Realm", ("K4~%d~Olympus Zeus"):format(rot.at))
@@ -25729,6 +25753,7 @@ end)
 			for _, x in ipairs(w.sent) do assert(x.dist ~= "CHANNEL" or not x.msg:find(rot.key, 1, true), "never on the channel") end
 			-- Move now, from the Throne, on the next one.
 			KY.Rotate()
+			KY.Start()
 			for _, l in ipairs(K.Build()) do if tostring(l.text):find(ns.L.KEY_MOVE_NOW:format(KY.GRACE / 60), 1, true) then l.onClick() end end
 			eq(w.popups[#w.popups].name, "OLYMPUS_KEY_MOVE")
 			StaticPopupDialogs.OLYMPUS_KEY_MOVE.OnAccept()
@@ -25776,6 +25801,459 @@ end)
 			end
 		end
 	end)
+	---------------------------------------------------------------------------
+	-- 1.1 (b2-moderation, review fixes): the net-off and the key rotation against what the review
+	-- showed (each test fails on the code before the fix).
+	---------------------------------------------------------------------------
+	-- A made-up name of letters only (a character's name has no digits): "Fake Qab".
+	local function Letters(i)
+		local s = ""
+		repeat
+			s = string.char(97 + i % 26) .. s
+			i = math.floor(i / 26)
+		until i == 0
+		return "Q" .. s
+	end
+	local function Tip(line)
+		local tip = { lines = {} }
+		function tip:AddLine(text) self.lines[#self.lines + 1] = tostring(text) end
+		line.tooltip(tip)
+		return table.concat(tip.lines, "\n")
+	end
+	local function KingAlt(main, alt)
+		return { Linked = function(name)
+			if name == alt then return { main } end
+			if name == main then return { alt } end
+			return {}
+		end }
+	end
+
+	test("1.1 net-off (#32) review: the pinned King in any case (name or realm) is never a word's target, never hidden, never told; nor the alts he linked", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Watcher")
+			local t = w.clock
+			for _, spelled in ipairs({ "asmongold asmongler-Realm", "ASMONGOLD ASMONGLER-Realm", "Asmongold Asmongler-realm", "aSmOnGoLd AsMoNgLeR" }) do
+				M.Handle("CHANNEL", HC, O1("c", true, t, spelled, HC, "the King is off"))
+			end
+			eq(#M.List(), 0, "no word on the King, whatever the case")
+			eq(M.Character(KING), nil)
+			-- His alt, linked to him: not hidden through him, and not a target either (it is him).
+			ns.Alts = KingAlt(KING, "King Alt-Realm")
+			M.Handle("CHANNEL", HC, O1("c", true, t, "King Alt-Realm", HC, "the King's alt"))
+			eq(M.Hidden("King Alt-Realm"), nil, "his alt")
+			-- A word kept from before (the saved variables can be edited): never read, dropped at load.
+			ns.rdb.netoff.c["asmongold asmongler-realm"] = { kind = "c", name = "asmongold asmongler-Realm", off = true, at = t, by = HC, reason = "edited", heard = t }
+			M.Reset()
+			eq(M.Character(KING), nil, "never read")
+			eq(M.Hidden("King Alt-Realm"), nil, "nor through his alt")
+			M.Load()
+			eq(ns.rdb.netoff.c["asmongold asmongler-realm"], nil, "dropped at load")
+			-- An issuer's own client refuses it, and sends nothing.
+			ns.Alts = altsBefore
+			AsSoldier("Test Councillor")
+			local sent = #w.sent
+			eq(M.Set("c", "ASMONGOLD ASMONGLER", true, "test"), false)
+			eq(M.Set("c", "asmongold asmongler", true, "test"), false)
+			assert(Printed(w, ns.L.NETOFF_NOT_KING))
+			eq(#w.sent, sent, "nothing sent")
+			-- On the King's own client, his stream on: no word about him or a name he linked prints anything.
+			AsKing()
+			ns.Alts = KingAlt(KING, "King Alt-Realm")
+			ns.SetCouncilNamesShown(false)
+			w.printed = {}
+			M.Handle("CHANNEL", HC, O1("c", true, t + 1, "asmongold asmongler-Realm", HC, "ANY TEXT ON THE KINGS STREAM"))
+			M.Handle("CHANNEL", HC, O1("c", true, t + 1, "King Alt-Realm", HC, "ANY TEXT ON THE KINGS STREAM"))
+			for _, p in ipairs(w.printed) do assert(not p:find("ANY TEXT", 1, true), "printed on his screen: " .. p) end
+			eq(M.SelfOff(), nil, "his client holds nothing back")
+			ns.Alts = altsBefore
+		end)
+	end)
+
+	test("1.1 net-off (#32/#33) review: a word passed on names who passed it on and counts only while its giver gives words; the King's stream shows only his own reasons; a tie keeps the same word everywhere", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Watcher")
+			local t = w.clock
+			-- In a bystander's name: refused (he gives no word).
+			M.Handle("CHANNEL", HC, O1("c", true, t, "Spammer Guy-Realm", "Innocent Bystander-Realm", "framed"))
+			eq(M.Hidden("Spammer Guy-Realm"), nil, "not in a bystander's name")
+			-- In the King's name, by a councillor: passed on, and it says so (the server's name).
+			M.Handle("CHANNEL", HC, O1("c", true, t, "Spammer Guy-Realm", KING, "ANY FREE TEXT OF THE COUNCILLOR"))
+			local e = M.Hidden("Spammer Guy-Realm")
+			assert(e, "taken")
+			eq(e.by, KING); eq(e.via, HC)
+			local text = Tip(M.Lines()[2])
+			assert(text:find(ns.L.NETOFF_VIA:format("Asmongold Asmongler", "Test Councillor"), 1, true), text)
+			AsSoldier("Spammer Guy")
+			assert(M.YouText(e):find("Test Councillor", 1, true), "the hidden player is told who passed it on: " .. M.YouText(e))
+			-- The King's screen with the council's names hidden (his stream): not his own word, so its reason stays hidden.
+			AsKing()
+			ns.SetCouncilNamesShown(false)
+			eq(M.ReasonShown(e), ns.L.NETOFF_REASON_HIDDEN)
+			text = Tip(M.Lines()[2])
+			assert(not text:find("ANY FREE TEXT", 1, true) and not text:find("Test Councillor", 1, true), text)
+			-- His own word (heard from him, or given on his client): its reason shows there.
+			M.Handle("CHANNEL", KING, O1("c", true, t + 5, "Other Spammer-Realm", KING, "his own words"))
+			eq(M.ReasonShown(M.Hidden("Other Spammer-Realm")), "his own words")
+			eq(M.Set("c", "Third Spammer", true, "given here"), true)
+			eq(M.ReasonShown(M.Hidden("Third Spammer-Realm")), "given here")
+			-- A real word first passed on, then repeated by its giver himself: first-hand from then on.
+			AsSoldier("Watcher")
+			M.Handle("CHANNEL", HC, O1("c", true, t + 6, "Fourth Spammer-Realm", KING, "spam"))
+			eq(M.Hidden("Fourth Spammer-Realm").via, HC)
+			M.Handle("CHANNEL", KING, O1("c", true, t + 6, "Fourth Spammer-Realm", KING, "spam"))
+			eq(M.Hidden("Fourth Spammer-Realm").via, nil)
+			-- Two different words of the same second: the same one kept whatever came first.
+			K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Hand Guy-Realm")
+			local function Tie(first, second)
+				M.Reset()
+				ns.rdb.netoff = nil
+				first()
+				second()
+				return M.Hidden("Tied Guy-Realm") ~= nil
+			end
+			local off = function() M.Handle("CHANNEL", HC, O1("c", true, t + 9, "Tied Guy-Realm", HC, "spam")) end
+			local on = function() M.Handle("CHANNEL", "Hand Guy-Realm", O1("c", false, t + 9, "Tied Guy-Realm", "Hand Guy-Realm", "")) end
+			eq(Tie(off, on), true); eq(Tie(on, off), true, "the one hiding the name, whatever came first")
+			-- Written in the King's name, passed on: not the King's tie; his own is.
+			local forged = function() M.Handle("CHANNEL", HC, O1("c", false, t + 9, "Tied Guy-Realm", KING, "")) end
+			local real = function() M.Handle("CHANNEL", KING, O1("c", false, t + 9, "Tied Guy-Realm", KING, "")) end
+			eq(Tie(off, forged), true, "only written in his name")
+			eq(Tie(off, real), false, "the King's own"); eq(Tie(real, off), false)
+		end)
+	end)
+
+	test("1.1 net-off (#33) review: a census report of a guild that is off marks only its sender as that guild's, never the names written in it", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Watcher")
+			GuildOff("Olympus Zeus", "spam guild")
+			local r = { guild = "Olympus Zeus", total = 50, online = 5, zones = {}, leader = "Innocent Guy", leaderOnline = true,
+				officers = { { name = "Streamer Friend", online = true, days = 0 }, { name = "Far Guy-OtherRealm", online = true, days = 0 } } }
+			eq(ns.Data.Receive(r, "Troll Guy-Realm"), false, "not taken")
+			eq(M.Hides("Innocent Guy-Realm"), nil, "a name written in it"); eq(M.Hides("Streamer Friend-Realm"), nil); eq(M.Hides("Far Guy-OtherRealm"), nil)
+			local before = ns.Hop.Crowd(1453, 8, w.clock)
+			ns.Hop.HandleAsk("CHANNEL", "Innocent Guy-Realm", "LQ~51~1453~8")
+			ns.Hop.HandleAsk("CHANNEL", "Streamer Friend-Realm", "LQ~52~1453~8")
+			eq(ns.Hop.Crowd(1453, 8, w.clock), before + 2, "their hop asks are heard")
+			-- Its sender (the server's name) speaks for that guild: his own ask is not.
+			assert(M.Hides("Troll Guy-Realm"), "the sender")
+			ns.Hop.HandleAsk("CHANNEL", "Troll Guy-Realm", "LQ~53~1453~8")
+			eq(ns.Hop.Crowd(1453, 8, w.clock), before + 2)
+		end)
+	end)
+
+	test("1.1 net-off (#32/#33) review: only a word from higher up reaches one who gives words; a rogue Hand or councillor hides no Steward, Hand or councillor, nor puts back one the King hid", function()
+		WithNetoff(function(w, K)
+			WithSteward(function()
+				AsSoldier("Watcher")
+				local t = w.clock
+				K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Rogue Hand-Realm,Other Hand-Realm")
+				eq(M.IsIssuer("Rogue Hand-Realm"), true); eq(M.IsIssuer(STEWARD), true); eq(M.IsIssuer(HC), true)
+				-- The rogue Hand's words on the Steward, a councillor and another Hand: refused.
+				for _, name in ipairs({ STEWARD, HC, "Other Hand-Realm" }) do
+					M.Handle("CHANNEL", "Rogue Hand-Realm", O1("c", true, t, name, "Rogue Hand-Realm", "rogue"))
+					eq(M.Hidden(name), nil, name); eq(M.IsIssuer(name), true, name)
+				end
+				-- ...written in the King's name, passed on by him: a Hand's weight.
+				M.Handle("CHANNEL", "Rogue Hand-Realm", O1("c", true, t, STEWARD, KING, "rogue"))
+				eq(M.Hidden(STEWARD), nil, "passed on by a Hand")
+				-- ...through a name the Steward linked as his alt.
+				ns.Alts = KingAlt(STEWARD, "Steward Alt-Realm")
+				M.Handle("CHANNEL", "Rogue Hand-Realm", O1("c", true, t, "Steward Alt-Realm", "Rogue Hand-Realm", "rogue"))
+				eq(M.Hidden("Steward Alt-Realm"), nil); eq(M.Hidden(STEWARD), nil)
+				-- A word on that alt taken before the link was known hides the alt, never the Steward.
+				ns.Alts = altsBefore
+				M.Handle("CHANNEL", "Rogue Hand-Realm", O1("c", true, t, "Steward Alt-Realm", "Rogue Hand-Realm", "rogue"))
+				assert(M.Hidden("Steward Alt-Realm"), "an ordinary name then")
+				ns.Alts = KingAlt(STEWARD, "Steward Alt-Realm")
+				eq(M.Hidden(STEWARD), nil, "not the Steward through it"); eq(M.IsIssuer(STEWARD), true)
+				ns.Alts = altsBefore
+				-- The Steward's word on the rogue: taken; the rogue gives no word then.
+				M.Handle("CHANNEL", STEWARD, O1("c", true, t + 1, "Rogue Hand-Realm", STEWARD, "abuse of the net-off"))
+				assert(M.Hidden("Rogue Hand-Realm")); eq(M.IsIssuer("Rogue Hand-Realm"), false)
+				-- The King hides a councillor: a fellow councillor can't put him back on; the Steward can.
+				M.Handle("CHANNEL", KING, O1("c", true, t + 2, HC, KING, "rogue moderator"))
+				assert(M.Hidden(HC))
+				ns.rdb.council.names["second councillor"] = "Second Councillor"
+				M.Handle("CHANNEL", "Second Councillor-Realm", O1("c", false, t + 3, HC, "Second Councillor-Realm", ""))
+				assert(M.Hidden(HC), "not by a peer")
+				M.Handle("CHANNEL", STEWARD, O1("c", false, t + 4, HC, STEWARD, ""))
+				eq(M.Hidden(HC), nil, "by the Steward"); eq(M.IsIssuer(HC), true)
+				-- An issuer's own client says so, and sends nothing.
+				AsSoldier("Other Hand")
+				local sent = #w.sent
+				eq(M.Set("c", "Test Steward", true, "rogue"), false)
+				assert(Printed(w, ns.L.NETOFF_OUTRANKED:format("Test Steward")))
+				eq(#w.sent, sent)
+				-- A councillor's word on a guild hides its members, not the Steward's calls in its name.
+				M.Handle("CHANNEL", HC, O1("g", true, t + 5, "Olympus Gale", HC, "spam guild"))
+				assert(M.Hides("Gale Member-Realm", "Olympus Gale"))
+				eq(M.Hides(STEWARD, "Olympus Gale"), nil)
+				ns.rdb.council.names["second councillor"] = nil
+			end)
+		end)
+	end)
+
+	test("1.1 net-off (#32/#33) review: a full list never shuts the King out; a long list is repeated less often; a word lapses after OFF_KEEP; the words of one who no longer gives any fade", function()
+		WithNetoff(function(w, K)
+			AsSoldier("Watcher")
+			local t = w.clock
+			for i = 1, M.MAX.c do M.Handle("CHANNEL", HC, O1("c", true, t, "Fake " .. Letters(i) .. "-Realm", HC, "flood")) end
+			eq(#M.List(), M.MAX.c, "full")
+			M.Handle("CHANNEL", HC, O1("c", true, t + 1, "Late Spammer-Realm", HC, "spam"))
+			eq(M.Hidden("Late Spammer-Realm"), nil, "no room for another issuer's word")
+			-- The King's word always finds room: the oldest word not his own goes.
+			M.Handle("CHANNEL", KING, O1("c", true, t + 1, "Real Spammer-Realm", KING, "spam"))
+			assert(M.Hidden("Real Spammer-Realm"), "the King's word")
+			eq(#M.List(), M.MAX.c)
+			AsKing()
+			eq(M.Set("c", "Second Real", true, "spam"), true, "and by click on his client")
+			assert(M.Hidden("Second Real-Realm"))
+			-- The army repeats a long list less often: 500 words wait 25 minutes, not 5.
+			M.random = function() return 0 end
+			for _, x in pairs(ns.rdb.netoff.c) do x.heard = w.clock end
+			w.clock = w.clock + M.REPEAT + 1
+			eq(M.Tick(), 0, "not due yet")
+			w.clock = w.clock + M.MAX.c * 60 / M.REPEATS_A_MINUTE
+			eq(M.Tick(), M.PER_TICK, "then due")
+			-- A word lapses OFF_KEEP after it was given, on every client, the issuers' too.
+			w.clock = t + M.OFF_KEEP + 60
+			M.Tick()
+			eq(#M.List(), 0, "all lapsed")
+			-- A councillor taken off the list: the issuers stop repeating his words, and they fade.
+			local fresh = w.clock
+			M.Handle("CHANNEL", HC, O1("c", true, fresh, "Hc Target-Realm", HC, "spam"))
+			M.Handle("CHANNEL", KING, O1("c", true, fresh, "King Target-Realm", KING, "spam"))
+			ns.rdb.council.names["test councillor"] = nil
+			w.sent = {}
+			w.clock = w.clock + M.REPEAT + 1
+			M.Tick()
+			local repeated = {}
+			for _, x in ipairs(w.sent) do repeated[#repeated + 1] = x.msg end
+			local all = table.concat(repeated, "\n")
+			assert(all:find("King Target", 1, true) and not all:find("Hc Target", 1, true), all)
+			w.clock = w.clock + M.STALE + 1
+			M.Tick()
+			eq(M.Hidden("Hc Target-Realm"), nil, "faded"); assert(M.Hidden("King Target-Realm"), "the King's stays")
+			-- On a soldier's client: another issuer who keeps repeating that councillor's word doesn't keep it alive.
+			ns.rdb.council.names["test councillor"] = "Test Councillor"
+			AsSoldier("Watcher")
+			K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Hand Guy-Realm")
+			local at = w.clock
+			M.Handle("CHANNEL", HC, O1("c", true, at, "Kept Alive-Realm", HC, "spam"))
+			assert(M.Hidden("Kept Alive-Realm"))
+			ns.rdb.council.names["test councillor"] = nil
+			for _ = 1, 4 do
+				w.clock = w.clock + M.STALE / 3
+				K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Hand Guy-Realm") -- (the King keeps his list alive)
+				eq(M.IsIssuer("Hand Guy-Realm"), true)
+				M.Handle("CHANNEL", "Hand Guy-Realm", O1("c", true, at, "Kept Alive-Realm", HC, "spam"))
+				M.Tick()
+			end
+			eq(M.Hidden("Kept Alive-Realm"), nil, "faded all the same")
+			ns.rdb.council.names["test councillor"] = "Test Councillor"
+			M.random = math.random
+		end)
+	end)
+
+	test("1.1 key rotation (#8) review: a guild only the census names (two characters can make one up) gets no key unless the King checks it; nothing goes before he hands it out", function()
+		WithKeys(function(w, K)
+			AsKing()
+			ns.rdb.guilds["Olympus Spies"] = Vouched({ total = 50, online = 2, zones = {}, t = w.clock, leader = "Leaker One", leaderOnline = true, realm = "Realm",
+				officers = { { name = "Leaker Two", online = true, days = 0 } } }, "Leaker One-Realm", "Leaker Two-Realm")
+			eq(ns.Data.KnownRank("Leaker One-Realm", "Olympus Spies"), 0, "the census believes them")
+			eq(KY.Rotate(), true)
+			eq(#w.whispered, 0, "nothing before he hands it out")
+			K.Show("home")
+			local page = Page((K.Build()))
+			assert(page:find("<Olympus Spies>  2 · " .. ns.L.KEY_GUILD_CENSUS, 1, true), page)
+			assert(page:find("<Olympus Zeus>  2 · " .. ns.L.KEY_GUILD_SEEN, 1, true), page)
+			eq(KY.Start(), true)
+			eq(Whispered(w, "K3~"), "Zed-Realm,Zeus Cap-Realm", "the guild his /who saw, not the made-up one")
+			-- He checks it himself (or unchecks one): from the next round.
+			KY.Toggle("Olympus Spies")
+			w.clock = w.clock + 60
+			KY.Tick()
+			eq(Whispered(w, "K3~"), "Leaker One-Realm,Leaker Two-Realm,Zed-Realm,Zeus Cap-Realm")
+			-- Dropped before handing out: nothing sent, and another rotation may start.
+			KY.Move()
+			w.whispered = {}
+			KY.Rotate()
+			eq(KY.Drop(), true)
+			eq(ns.rdb.keyRotation, nil); eq(#w.whispered, 0)
+			eq(KY.Rotate(), true)
+		end)
+	end)
+
+	test("1.1 key rotation (#8) review with the gamepad UI: handing the key out asks in Olympus's own dialog, never the game's popup", function()
+		WithUI(function()
+			LoadUI()
+			WithGamepadUI(true, function(game)
+				WithKeys(function(w, K)
+					AsKing()
+					KY.Rotate()
+					K.Show("home")
+					for _, l in ipairs(K.Build()) do if tostring(l.text):find(ns.L.KEY_HAND_OUT:format(1), 1, true) then l.onClick() end end
+					eq(#game.shown, 0, "never the game's popup"); eq(#w.popups, 0)
+					local f = ns.Dialog.Find("OLYMPUS_KEY_HAND_OUT")
+					assert(f and f:IsShown(), "our dialog")
+					eq(#w.whispered, 0, "nothing before his yes")
+					f.buttons[1]:Click()
+					eq(Whispered(w, "K3~"), "Zed-Realm,Zeus Cap-Realm")
+				end)
+			end)
+		end)
+	end)
+
+	test("1.1 key rotation (#8) review: '/oly key rotate' is never a key: an officer (or the King before the restart a new file needs) is told, and his guild keeps its channel; /oly help shows it to the King alone", function()
+		WithKeys(function(w, K)
+			for _, who in ipairs({ AsCaptain, AsLord }) do
+				who()
+				w.printed = {}
+				SlashCmdList.OLYMPUS("key rotate")
+				eq(ns.rdb.realmKey, nil, "no guild sealed with 'rotate'")
+				assert(Printed(w, ns.L.KEY_ROTATE_ONLY_KING))
+			end
+			-- The King after a /reload, Keys.lua not loaded yet (Core.lua's stand-in).
+			AsKing()
+			local real = ns.Keys
+			ns.Keys = setmetatable({ missing = true }, { __index = function() return function() end end })
+			local ok, err = pcall(function()
+				w.printed = {}
+				SlashCmdList.OLYMPUS("key rotate")
+				eq(ns.rdb.realmKey, nil); assert(Printed(w, ns.L.RESTART_NEEDED))
+			end)
+			ns.Keys = real
+			if not ok then error(err, 0) end
+			-- /oly help: its line for the King alone.
+			local savedPrint, lines = print, {}
+			print = function(s) lines[#lines + 1] = tostring(s) end
+			local ok2, err2 = pcall(function()
+				AsSoldier("Watcher")
+				SlashCmdList.OLYMPUS("help")
+				assert(not table.concat(lines, "\n"):find(ns.L.HELP_KEY_ROTATE, 1, true), "a soldier's help")
+				lines = {}
+				AsKing()
+				SlashCmdList.OLYMPUS("help")
+				assert(table.concat(lines, "\n"):find(ns.L.HELP_KEY_ROTATE, 1, true), "the King's help")
+			end)
+			print = savedPrint
+			if not ok2 then error(err2, 0) end
+		end)
+	end)
+
+	test("1.1 key rotation (#8) review: a 1.0.0 officer who re-keys his guild by hand still moves his 1.1 guildmates; an older key with an epoch doesn't undo it; a key a newer one replaced stays out", function()
+		WithKeys(function(w, K)
+			AsSoldier("Watcher") -- (Olympus II: Member1 its guild master, Member2 to Member6 its officers)
+			ns.Roster.Scan()
+			local at = w.clock
+			local cns, Deliver = FreshComm()
+			cns.Comm.JoinChannel = function() w.joined = w.joined + 1 end
+			-- The guild's shared key, then a 1.1 officer's /oly key (dated): the key it replaced here is remembered.
+			ns.rdb.realmKey = "oldsharedkey"
+			KY.HandleKey("GUILD", "Member2-Realm", ("K3~%d~guildkey0001"):format(at))
+			eq(ns.rdb.realmKey, "guildkey0001"); eq(KY.HoldsEpoch(), true)
+			-- Three days later a 1.0.0 officer re-keys the guild by hand: K1 alone, as 1.0.0 sends it.
+			w.clock = w.clock + 3 * 86400
+			Deliver("GUILD", "Member3-Realm", "K1~brandnewkey9")
+			eq(ns.rdb.realmKey, "brandnewkey9", "the 1.1 client follows, as a 1.0.0 client does: no split")
+			-- A 1.1 officer back from a break answers with the older key and its epoch: no undo.
+			KY.HandleKey("GUILD", "Member2-Realm", ("K3~%d~guildkey0001"):format(at))
+			eq(ns.rdb.realmKey, "brandnewkey9")
+			-- The key a newer one replaced (the leaked one), from a 1.0.0 officer who kept it: stays out.
+			Deliver("GUILD", "Member3-Realm", "K1~oldsharedkey")
+			eq(ns.rdb.realmKey, "brandnewkey9")
+			-- The King's rotation later (a newer epoch): taken, and an officer hands on what it replaced.
+			KY.HandleKey("WHISPER", KING, ("K3~%d~kingsnewkey1"):format(w.clock))
+			eq(ns.rdb.realmKey, "kingsnewkey1")
+			eq(KY.HandOutMessage(), ("K3~%d~kingsnewkey1~%s"):format(w.clock, ns.Comm.Hash36("brandnewkey9")))
+			Deliver("GUILD", "Member3-Realm", "K1~brandnewkey9")
+			eq(ns.rdb.realmKey, "kingsnewkey1", "the key the King's replaced")
+		end)
+	end)
+
+	test("1.1 key rotation (#8) review: the King's rounds never overflow the send queue (his other messages keep their place), a whisper counts once it left, and every Lord and Captain picked gets it before he moves", function()
+		local whisper = ns.Comm.Whisper -- Comm's own (WithThrone's recorder stands in below)
+		WithKeys(function(w, K)
+			AsKing()
+			local savedInfo = C_ChatInfo
+			local out = {}
+			C_ChatInfo = { SendAddonMessage = function(_, msg, dist, target) out[#out + 1] = { msg = msg, dist = dist, to = target } return true end }
+			local ok, err = pcall(function()
+				for _ = 1, 100 do ns.Comm.Pump() end -- (whatever earlier tests left waiting)
+				out = {}
+				ns.Comm.Whisper = whisper
+				-- 66 guilds his /who saw, each with its Lord and a Captain online: 132 whispers.
+				local names = {}
+				for i = 1, 66 do
+					local guild = "Olympus " .. Letters(i)
+					ns.rdb.guilds[guild] = Vouched({ total = 10, online = 2, zones = {}, t = w.clock, leader = "Lord " .. Letters(i), leaderOnline = true,
+						realm = "Realm", officers = { { name = "Cap " .. Letters(i), online = true, days = 0 } } }, "Wa" .. i .. "-Realm", "Wb" .. i .. "-Realm")
+					ns.rdb.seen[guild] = { online = 2, t = w.clock }
+					names["Lord " .. Letters(i) .. "-Realm"], names["Cap " .. Letters(i) .. "-Realm"] = true, true
+				end
+				names["Zed-Realm"], names["Zeus Cap-Realm"] = true, true
+				-- Three other messages of his were waiting (an agenda, a Hands list...).
+				for i = 1, 3 do whisper("Other" .. i .. "-Realm", "T9~other" .. i, "other" .. i) end
+				KY.Rotate()
+				KY.Start()
+				assert(ns.Comm.QueueRoom() >= KY.QUEUE_SPARE, "a round leaves room: " .. ns.Comm.QueueRoom())
+				-- The queue sends one each 1.2 s; his rounds come each minute, until he moves.
+				local start = w.clock
+				local nextTick = start + 60
+				local clock = start
+				while not KY.Rotation().moved and clock < start + KY.GRACE + KY.GRACE_MORE + 120 do
+					clock = clock + 1.2
+					w.clock = clock
+					ns.Comm.Pump()
+					if clock >= nextTick then
+						nextTick = nextTick + 60
+						KY.Tick()
+					end
+				end
+				eq(KY.Rotation().moved, true, "he moved")
+				local got, others, missing = {}, 0, {}
+				for _, x in ipairs(out) do
+					if x.msg:sub(1, 3) == "K3~" and x.dist == "WHISPER" then got[x.to] = true end
+					if x.msg:sub(1, 7) == "T9~othe" then others = others + 1 end
+				end
+				for name in pairs(names) do if not got[ns.TellName(name)] and not got[name] then missing[#missing + 1] = name end end
+				eq(#missing, 0, "never handed the key: " .. table.concat(missing, ", "))
+				eq(others, 3, "his other messages kept their place")
+				local sent = 0
+				for _ in pairs(KY.Rotation().sent) do sent = sent + 1 end
+				eq(sent, 134, "each counted once it left")
+			end)
+			C_ChatInfo = savedInfo
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 net-off and key rotation (#8, #32, #33) review: the new strings in English and pt-BR; the README and the CurseForge page say what the addon does", function()
+		local keys = { "NETOFF_VIA", "NETOFF_OUTRANKED", "NETOFF_LAPSES", "KEY_ROTATE_READY", "KEY_PICK_HINT", "KEY_GUILD_SEEN", "KEY_GUILD_CENSUS",
+			"KEY_GUILD_TIP", "KEY_NO_GUILDS", "KEY_HAND_OUT", "KEY_HAND_OUT_CONFIRM", "KEY_ROTATE_DROP", "KEY_ROTATE_DROPPED" }
+		local pt = PtBR()
+		for _, k in ipairs(keys) do
+			assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+			assert(rawget(pt, k) and rawget(pt, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+			local _, a = rawget(ns.L, k):gsub("%%[sd]", "")
+			local _, b = rawget(pt, k):gsub("%%[sd]", "")
+			eq(b, a, "the same placeholders: " .. k)
+		end
+		-- The claim the review found false is gone from the tooltip, in both languages.
+		assert(not ns.L.KEY_ROTATE_TIP:find("Whoever leaked the old key stays behind", 1, true))
+		assert(not rawget(pt, "KEY_ROTATE_TIP"):find("Quem vazou a chave antiga fica para trás", 1, true))
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, must in ipairs({ "who passed the word on", "Only a word from higher up reaches one who gives words",
+				"lapses 30 days after it was given", "those his own /who saw are checked", "still moves his guild, as ever",
+				"never by the names written inside someone else's report", "the King's own, which always finds it" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+			assert(not doc:find("whoever leaked the old key stays behind", 1, true), path .. ": the false claim")
+			assert(not doc:find("no longer pulls it back", 1, true), path .. ": the old K1 claim")
+		end
+	end)
+
 end)()
 
 print(("\n%d passed, %d failed"):format(passed, failed))
