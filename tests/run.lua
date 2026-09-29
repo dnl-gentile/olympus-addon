@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Inspect", "King", "Vox", "Court", "Treasury", "Bank", "Acts", "Loot", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -25296,6 +25296,313 @@ test("1.1 approved guilds: strings in both languages; README and CurseForge say 
 	local doc = f:read("*a")
 	f:close()
 	assert(doc:find("council-sign.py guild", 1, true), "README: the signing command")
+end)
+end
+
+---------------------------------------------------------------------------
+-- 1.1 (Fern's #22): the guild's loot notes and points, officers write them by hand
+---------------------------------------------------------------------------
+
+do
+-- Our guild's roster (Offi a Captain, Bob and Ann Smith members; we are an officer while w.rank is
+-- 1), what goes out (w.sent: dist, message, logged; w.chunks), the server's clock (w.clock), the
+-- answers' delay (w.later), the dialogs opened (w.dialogs), the group's state and the items the
+-- client knows.
+local LOOT_GLOBALS = { "GetGuildInfo", "GetServerTime", "GetItemInfo", "IsInGroup", "LOOT_ITEM", "LOOT_ITEM_MULTIPLE", "LOOT_ITEM_SELF",
+	"LOOT_ITEM_SELF_MULTIPLE" }
+local BELT = "|cffa335ee|Hitem:16830::::::::60:::::|h[Cenarion Bindings]|h|r"
+local function WithLoot(fn)
+	local Lt = ns.Loot
+	local saved = { send = ns.Comm.Send, chunked = ns.Comm.SendChunked, byName = ns.Roster.byName, loot = ns.rdb.loot, print = ns.Print,
+		fire = ns.Fire, after = Lt.after, random = Lt.random, dialog = ns.ShowDialog, ui = ns.UI }
+	for _, k in ipairs(LOOT_GLOBALS) do saved[k] = _G[k] end
+	local w = { sent = {}, chunks = {}, rank = 1, printed = {}, clock = 1790000000, later = {}, dialogs = {}, group = true, fired = {},
+		items = { [16830] = { "Cenarion Bindings", BELT, 4 }, [2589] = { "Linen Cloth", "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", 1 } } }
+	ns.rdb.loot = nil
+	Lt.Reset()
+	ns.Comm.Send = function(dist, msg, key, urgent, logged) w.sent[#w.sent + 1] = { dist = dist, msg = msg, logged = logged } end
+	ns.Comm.SendChunked = function(payload, urgent, dist) w.chunks[#w.chunks + 1] = (dist or "CHANNEL") .. " " .. payload end
+	GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Titan", w.rank end return nil end
+	GetServerTime = function() return w.clock end
+	GetItemInfo = function(id)
+		id = tonumber(type(id) == "string" and id:match("item:(%d+)") or id)
+		local it = w.items[id]
+		if it then return it[1], it[2], it[3] end
+	end
+	IsInGroup = function() return w.group end
+	LOOT_ITEM, LOOT_ITEM_MULTIPLE = "%s receives loot: %s.", "%s receives loot: %sx%d."
+	LOOT_ITEM_SELF, LOOT_ITEM_SELF_MULTIPLE = "You receive loot: %s.", "You receive loot: %sx%d."
+	ns.Roster.byName = { ["Offi-Realm"] = 1, ["Tester-Realm"] = 1, ["Bob-Realm"] = 3, ["Ann Smith-Realm"] = 3 }
+	ns.Print = function(m) w.printed[#w.printed + 1] = m end
+	ns.Fire = function(name, key) w.fired[#w.fired + 1] = name .. ":" .. tostring(key) end
+	Lt.after = function(_, _, f) w.later[#w.later + 1] = f end
+	Lt.random = function() return 0 end
+	ns.ShowDialog = function(which, a, b, data) w.dialogs[#w.dialogs + 1] = { which = which, a = a, data = data } end
+	w.run = function() local l = w.later; w.later = {}; for _, f in ipairs(l) do f() end end
+	w.last = function() return w.sent[#w.sent] end
+	local ok, err = pcall(fn, w, Lt)
+	ns.Comm.Send, ns.Comm.SendChunked, ns.Roster.byName, ns.rdb.loot, ns.Print = saved.send, saved.chunked, saved.byName, saved.loot, saved.print
+	ns.Fire, Lt.after, Lt.random, ns.ShowDialog, ns.UI = saved.fire, saved.after, saved.random, saved.dialog, saved.ui
+	for _, k in ipairs(LOOT_GLOBALS) do _G[k] = saved[k] end
+	Lt.Reset()
+	ns.Views.CloseChat()
+	ns.Views.ClearFilters()
+	if not ok then error(err, 0) end
+end
+local B36 = ns.Codec.Base36
+
+test("1.1 loot notes (#22): an officer writes the decision; his guild gets it over GUILD (his words logged), never the channel", function()
+	WithLoot(function(w, Lt)
+		local n = Lt.Write("Ann passed on the gloves, Bob gets the next belt", 16830, "Ann Smith")
+		assert(n, "written")
+		eq(w.printed[#w.printed], ns.L.LOOT_WRITTEN)
+		local m = w.last()
+		eq(m.dist, "GUILD"); eq(m.logged, true, "his own words, through the logged API")
+		eq(m.msg, ("J1~N~Tester-Realm~%s~%s~%s~16830~~Ann Smith~Ann passed on the gloves, Bob gets the next belt"):format(n.id, B36(w.clock), B36(w.clock)))
+		eq(#Lt.Notes(), 1); eq(Lt.Notes()[1].n.to, "Ann Smith")
+		-- Escape codes, separators and runs of spaces go; the longest note fits one message.
+		w.clock = w.clock + 1
+		n = Lt.Write("a|cffff0000red|r ~ b^c    d", nil, nil)
+		eq(n.text, "a cffff0000red r b c d")
+		n = Lt.Write(("x"):rep(300), 16830, ("Longname"):rep(10))
+		eq(#n.text, Lt.TEXT_MAX); assert(#w.last().msg <= 255, #w.last().msg)
+		-- Nothing to write, or not an officer: nothing sent.
+		local count = #w.sent
+		Lt.Write(" ")
+		eq(w.printed[#w.printed], ns.L.LOOT_TOO_SHORT)
+		w.rank = 3
+		Lt.Write("Bob gets it")
+		eq(w.printed[#w.printed], ns.L.LOOT_OFFICERS_ONLY); eq(#w.sent, count)
+		for _, s in ipairs(w.sent) do eq(s.dist, "GUILD", "never the channel") end
+	end)
+end)
+
+test("1.1 loot notes (#22): a guildmate's addon takes an officer's changes only (his rank by its roster), newest wins; a removal holds", function()
+	WithLoot(function(w, Lt)
+		w.rank = 3 -- (a member's addon)
+		local t = B36(w.clock)
+		Lt.HandleLive("GUILD", "Offi-Realm", ("J1~N~Offi-Realm~a1~%s~%s~16830~~Ann Smith~Ann gets the belt"):format(t, t))
+		eq(#Lt.Notes(), 1); eq(Lt.Notes()[1].n.writer, "Offi-Realm")
+		-- A member's, the channel's, a note in someone else's name, a malformed one: nothing.
+		Lt.HandleLive("GUILD", "Bob-Realm", ("J1~N~Bob-Realm~b1~%s~%s~~~~Bob wins"):format(t, t))
+		Lt.HandleLive("CHANNEL", "Offi-Realm", ("J1~N~Offi-Realm~c1~%s~%s~~~~Channel note"):format(t, t))
+		Lt.HandleLive("GUILD", "Offi-Realm", ("J1~N~Lord-Realm~d1~%s~%s~~~~In his name"):format(t, t))
+		Lt.HandleLive("GUILD", "Offi-Realm", "J1~N~Offi-Realm~e1~zzzzzzzzz~1~~~~Bad times")
+		Lt.HandleLive("GUILD", "Offi-Realm", ("J1~N~Offi-Realm~f1~%s~%s~~~~"):format(t, t))
+		eq(#Lt.Notes(), 1, "only the officer's own note")
+		-- Another officer removes it: its mark holds against an older copy.
+		local later = B36(w.clock + 60)
+		Lt.HandleLive("GUILD", "Tester-Realm", ("J1~N~Offi-Realm~a1~%s~%s~16830~1~~"):format(t, later))
+		eq(#Lt.Notes(), 0, "removed")
+		Lt.HandleBook("GUILD", "Offi-Realm", ("JB~N~Offi-Realm~a1~%s~%s~16830~~Ann Smith~Ann gets the belt"):format(t, t))
+		eq(#Lt.Notes(), 0, "an older copy never brings it back")
+		-- Points by hand: newest wins, a cleared one shows no more.
+		Lt.HandleLive("GUILD", "Offi-Realm", "J1~P~Bob-Realm~12~" .. B36(w.clock) .. "~Offi-Realm")
+		eq(Lt.Points()[1].v, 12)
+		Lt.HandleLive("GUILD", "Offi-Realm", "J1~P~Bob-Realm~99~" .. B36(w.clock - 5) .. "~Offi-Realm")
+		eq(Lt.Points()[1].v, 12, "an older number")
+		Lt.HandleLive("GUILD", "Offi-Realm", "J1~P~Bob-Realm~~" .. B36(w.clock + 5) .. "~Offi-Realm")
+		eq(#Lt.Points(), 0, "cleared")
+		Lt.HandleLive("GUILD", "Offi-Realm", "J1~P~Bob-Realm~100000~" .. B36(w.clock + 9) .. "~Offi-Realm")
+		eq(#Lt.Points(), 0, "past the limit")
+		-- A removed note's mark is kept 30 days, then goes.
+		w.clock = w.clock + Lt.REMOVED_KEEP + 120
+		Lt.Prune()
+		eq(next(Lt.Book().notes), nil)
+	end)
+end)
+
+test("1.1 loot notes (#22): points are a notebook: an officer sets a member's number by hand, nothing adds or takes any", function()
+	WithLoot(function(w, Lt)
+		Lt.SetPoints("bob 12")
+		eq(Lt.Points()[1].member, "Bob-Realm"); eq(Lt.Points()[1].v, 12)
+		eq(w.last().msg, "J1~P~Bob-Realm~12~" .. B36(w.clock) .. "~Tester-Realm"); eq(w.last().dist, "GUILD")
+		eq(w.printed[#w.printed], ns.L.LOOT_POINTS_DONE:format("Bob", 12))
+		Lt.SetPoints("Bob +3")
+		eq(Lt.Points()[1].v, 3, "set, not added")
+		Lt.SetPoints("Ann Smith -4")
+		eq(#Lt.Points(), 2); eq(Lt.Points()[2].member, "Ann Smith-Realm"); eq(Lt.Points()[2].v, -4)
+		Lt.SetPoints("Bob")
+		eq(#Lt.Points(), 1, "the name alone clears them"); eq(w.printed[#w.printed], ns.L.LOOT_POINTS_CLEARED:format("Bob"))
+		local count = #w.sent
+		Lt.SetPoints("Nobody 5")
+		eq(w.printed[#w.printed], ns.L.LOOT_POINTS_NOT_MEMBER:format("Nobody"))
+		Lt.SetPoints("Bob 100000")
+		eq(w.printed[#w.printed], ns.L.LOOT_POINTS_BAD:format(Lt.POINTS_LIMIT, Lt.POINTS_LIMIT))
+		w.rank = 2
+		Lt.SetPoints("Bob 5")
+		eq(w.printed[#w.printed], ns.L.LOOT_OFFICERS_ONLY); eq(#w.sent, count)
+	end)
+end)
+
+test("1.1 loot notes (#22): a guildmate's addon asks once a session; one officer's addon answers with the changes since, in pieces over GUILD", function()
+	WithLoot(function(w, Lt)
+		-- The officer's book: a note and points.
+		local n = Lt.Write("Ann gets the belt", 16830, "Ann Smith")
+		Lt.SetPoints("Bob 12")
+		w.sent = {}
+		-- A member's ask for everything (a login on the Forever beta).
+		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~0")
+		Lt.HandleAsk("GUILD", "Ann Smith-Realm", "JQ~0") -- (one answer covers both)
+		eq(#w.later, 1)
+		w.run()
+		eq(#w.chunks, 1)
+		local payload = w.chunks[1]
+		assert(payload:find("^GUILD JB~"), payload)
+		assert(payload:find(("N~Tester-Realm~%s~"):format(n.id), 1, true), "the note")
+		assert(payload:find("P~Bob-Realm~12~", 1, true), "the points")
+		-- Within 2 minutes, or an ask holding everything: no answer.
+		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~0")
+		eq(#w.later, 0)
+		local savedNow = ns.Now
+		local now = ns.Now() + Lt.ANSWER_GAP
+		ns.Now = function() return now end
+		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~" .. B36(w.clock))
+		eq(#w.later, 0, "nothing newer than the asker's")
+		-- Another officer's answer heard while ours waits: ours is not sent.
+		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~0")
+		eq(#w.later, 1)
+		Lt.HandleBook("GUILD", "Offi-Realm", "JB~P~Ann Smith-Realm~7~" .. B36(w.clock) .. "~Offi-Realm")
+		w.run()
+		eq(#w.chunks, 1, "his answer covered it")
+		ns.Now = savedNow
+		-- A stranger's ask (not in our roster), or ours as a member: no answer.
+		Lt.HandleAsk("GUILD", "Stranger-Realm", "JQ~0")
+		w.rank = 3
+		Lt.HandleAsk("GUILD", "Bob-Realm", "JQ~0")
+		eq(#w.later, 0)
+		-- A member's answer is not taken.
+		Lt.HandleBook("GUILD", "Bob-Realm", "JB~P~Bob-Realm~999~" .. B36(w.clock + 50) .. "~Bob-Realm")
+		eq(Lt.Points()[1].v, 12, "Bob's own claim is nobody's word")
+		-- The page asks once a session.
+		ns.Views.CloseChat()
+		Lt.Show(true)
+		eq(w.last().msg, "JQ~" .. B36(w.clock)); eq(w.last().dist, "GUILD")
+		local count = #w.sent
+		Lt.Show(false)
+		Lt.Show(true)
+		eq(#w.sent, count, "once")
+	end)
+	-- The answer's pieces are put together over GUILD (Comm.lua), as the High Council's lists are.
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		GetChannelName = function() return 0 end
+		local cns, Deliver = FreshComm()
+		local got
+		cns.Comm.Handle("JB", function(dist, sender, text) got = dist .. " " .. sender .. " " .. #text end)
+		local payload = "JB~" .. ("N~Offi-Realm~a1~1~1~~~~" .. ("w"):rep(90) .. "^"):rep(8)
+		for _, c in ipairs(ns.Codec.Chunk(payload, "5")) do Deliver("GUILD", "Offi-Realm", c) end
+		eq(got, "GUILD Offi-Realm " .. #payload)
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 loot notes (#22): the group's loot shows to its officers this session, a click opens its note; nothing is handed out", function()
+	WithLoot(function(w, Lt)
+		Lt.OnLootMessage("Bob receives loot: " .. BELT .. ".")
+		Lt.OnLootMessage("You receive loot: " .. BELT .. ".")
+		Lt.OnLootMessage("Bob receives loot: " .. w.items[2589][2] .. "x5.")
+		eq(#Lt.Drops(), 2, "a rare and better item, not linen cloth")
+		eq(Lt.Drops()[1].to, "Tester"); eq(Lt.Drops()[2].to, "Bob"); eq(Lt.Drops()[2].id, 16830)
+		-- Out of a group, or not an officer: nothing kept.
+		w.group = false
+		Lt.OnLootMessage("Ann Smith receives loot: " .. BELT .. ".")
+		w.group, w.rank = true, 3
+		Lt.OnLootMessage("Ann Smith receives loot: " .. BELT .. ".")
+		eq(#Lt.Drops(), 2)
+		w.rank = 1
+		-- On the page: under its header, a click opens the note with the item and whom it went to.
+		local lines = Lt.Lines()
+		local drop
+		for _, l in ipairs(lines) do if l.text and l.text:find("> Bob", 1, true) then drop = l end end
+		assert(drop, "Bob's belt listed")
+		drop.onClick()
+		eq(w.dialogs[#w.dialogs].which, "OLYMPUS_LOOT_NOTE")
+		eq(w.dialogs[#w.dialogs].data.item, 16830); eq(w.dialogs[#w.dialogs].data.to, "Bob")
+		eq(w.dialogs[#w.dialogs].a, ns.L.LOOT_NOTE_FOR:format("Cenarion Bindings", "Bob"))
+		-- The dialog writes it.
+		local d = StaticPopupDialogs.OLYMPUS_LOOT_NOTE
+		d.OnAccept({ editBox = { GetText = function() return "Bob: first epic, Ann next" end } }, { item = 16830, to = "Bob" })
+		eq(Lt.Notes()[1].n.item, 16830); eq(Lt.Notes()[1].n.to, "Bob"); eq(Lt.Notes()[1].n.text, "Bob: first epic, Ann next")
+		for _, s in ipairs(w.sent) do assert(s.msg:find("^J1~"), "only the note went out: " .. s.msg) end
+	end)
+end)
+
+test("1.1 loot notes (#22): the Realm tab links the page; notes newest first, points only once used, the search, a copy for Discord", function()
+	WithLoot(function(w, Lt)
+		Lt.Write("Ann gets the belt", 16830, "Ann Smith")
+		w.clock = w.clock + 60
+		Lt.Write("Bob gets the next @everyone", nil, "Bob")
+		-- The tree's link, for a member of an Olympus guild.
+		local tree = ns.Views.RealmLines()
+		local link
+		for _, l in ipairs(tree) do if l.text and l.text:find(ns.L.LOOT_LINK:format(MY_GUILD), 1, true) then link = l end end
+		assert(link, "linked from the Realm")
+		link.onClick()
+		eq(ns.Views.PageShown(), "loot")
+		local lines = ns.Views.Build("realm")
+		local text = {}
+		for _, l in ipairs(lines) do text[#text + 1] = l.text or "" end
+		text = table.concat(text, "\n")
+		assert(text:find(ns.L.LOOT_TITLE:format(MY_GUILD), 1, true))
+		assert(text:find(ns.L.LOOT_WRITE, 1, true), "an officer writes")
+		local first, second = text:find("Bob gets the next", 1, true), text:find("Ann gets the belt", 1, true)
+		assert(first and second and first < second, "newest first")
+		eq(text:find(ns.L.LOOT_POINTS_TITLE, 1, true), nil, "no points column until someone has points")
+		Lt.SetPoints("Bob 12")
+		lines = ns.Views.Build("realm")
+		text = {}
+		for _, l in ipairs(lines) do text[#text + 1] = (l.text or "") .. "|" .. (l.right or "") end
+		text = table.concat(text, "\n")
+		assert(text:find(ns.L.LOOT_POINTS_TITLE, 1, true), "the points once used")
+		-- A member sees the book, and nothing to write.
+		w.rank = 3
+		lines = Lt.Lines()
+		for _, l in ipairs(lines) do
+			assert(l.text ~= "|cff40ff40" .. ns.L.LOOT_WRITE .. "|r", "no write line for a member")
+		end
+		-- The search (the Realm's box): only what holds it.
+		ns.Views.SetFilter("realm", "belt")
+		lines = ns.Views.Build("realm")
+		text = {}
+		for _, l in ipairs(lines) do text[#text + 1] = l.text or "" end
+		text = table.concat(text, "\n")
+		assert(text:find("Ann gets the belt", 1, true) and not text:find("Bob gets the next", 1, true), text)
+		-- The copy for Discord pings nobody.
+		local copy = Lt.DiscordText()
+		assert(copy:find("Ann gets the belt", 1, true) and copy:find("Bob: 12", 1, true), copy)
+		assert(not copy:find("@everyone", 1, true), "no ping")
+		ns.Views.ShowPage(nil)
+		eq(ns.Views.PageShown(), nil)
+	end)
+end)
+
+test("1.1 loot notes (#22): /oly loot, the strings in both languages; README and CurseForge say what it is and what it is not", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, key in ipairs({ "LOOT_LINK", "LOOT_LINK_TIP", "LOOT_TITLE", "LOOT_ABOUT", "LOOT_WRITE", "LOOT_WRITE_TIP", "LOOT_NOTE_PROMPT",
+		"LOOT_NOTE_FOR", "LOOT_SAVE", "LOOT_WRITTEN", "LOOT_TOO_SHORT", "LOOT_OFFICERS_ONLY", "LOOT_REMOVE_PROMPT", "LOOT_REMOVE_BTN",
+		"LOOT_REMOVE_TIP", "LOOT_REMOVED", "LOOT_NOTE_TIP", "LOOT_EMPTY", "LOOT_EMPTY_OFFICER", "LOOT_DROPS", "LOOT_DROP_TIP",
+		"LOOT_POINTS_TITLE", "LOOT_POINTS_TIP", "LOOT_POINTS_SET", "LOOT_POINTS_SET_TIP", "LOOT_POINTS_PROMPT",
+		"LOOT_POINTS_DONE", "LOOT_POINTS_CLEARED", "LOOT_POINTS_NOT_MEMBER", "LOOT_POINTS_BAD", "LOOT_POINTS_BY", "SEARCH_TIP_LOOT", "HELP_LOOT" }) do
+		local p = rawget(pt.L, key)
+		assert(type(ns.L[key]) == "string" and type(p) == "string" and p ~= ns.L[key], key)
+		eq(select(2, p:gsub("%%[sd]", "")), select(2, ns.L[key]:gsub("%%[sd]", "")), key)
+	end
+	eq(rawget(pt.L, "LOOT_ITEM_N"), "item %d")
+	for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local f = assert(io.open(ROOT .. file))
+		local doc = f:read("*a")
+		f:close()
+		assert(doc:find("/oly loot", 1, true), file)
+		assert(doc:find("| A loot note (1.1)", 1, true), file .. ": the privacy table")
+		assert(doc:find("not a bid window", 1, true), file)
+	end
 end)
 end
 

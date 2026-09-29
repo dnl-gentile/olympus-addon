@@ -45,7 +45,7 @@ local chatQueue = {}  -- chat lines (Channels.lua): { msg, done, t }
 local lastWasChat = false
 local asm = Codec.NewAssembler()
 local guildAsm = Codec.NewAssembler() -- pieces over GUILD (1.0.0)...
-local GUILD_PIECES = { HS = true, HT = true } -- ...put together for these types alone: the High Council's lists
+local GUILD_PIECES = { HS = true, HT = true, JB = true } -- ...put together for these types alone: the High Council's lists, a guild's loot notes (1.1)
 local msgId = 0
 local lastBroadcast = 0
 local early -- { every, due }: the report due then went out early, as a census answer (see Q1)

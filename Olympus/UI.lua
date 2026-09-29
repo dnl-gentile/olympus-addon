@@ -1300,7 +1300,7 @@ UI.PLACE_HOLD = 1  -- seconds a redraw's place is given again when the client me
 local function PageOf(tab, locked)
 	if locked then return "join" end
 	local sub
-	if tab == "realm" then sub = ns.Views.ChatTier and ns.Views.ChatTier() or "tree"
+	if tab == "realm" then sub = (ns.Views.PageShown and ns.Views.PageShown()) or (ns.Views.ChatTier and ns.Views.ChatTier()) or "tree"
 	elseif tab == "throne" then sub = ns.King and ns.King.mode
 	elseif tab == "treasury" then sub = ns.Treasury and ns.Treasury.mode end
 	return tab .. "/" .. tostring(sub or "")
@@ -1878,6 +1878,10 @@ end)
 -- The court's line tops the Census and the Realm for the players in its zone.
 ns.On("COURT_CHANGED", function() if main and (main.tab == "census" or main.tab == "realm") then UI.RefreshSoon() end end)
 ns.On("CHAT_CHANGED", function() if main and main.tab == "realm" and ns.Views.ChatShown() then UI.RefreshSoon() end end)
+-- A page of the Realm tab changed (1.1: the loot notes, the crafters' board): redrawn while it shows.
+ns.On("REALM_PAGE_CHANGED", function(key)
+	if main and main.tab == "realm" and ns.Views.PageShown and ns.Views.PageShown() == key then UI.RefreshSoon() end
+end)
 ns.On("WORKSHOP_CHANGED", function() if main and main.tab == "workshop" then UI.RefreshSoon() end end)
 ns.On("RECRUIT_CHANGED", function() UI.RefreshSoon() end)
 -- The screen or the UI scale changed: the window's width in pixels did too, so the tabs

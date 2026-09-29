@@ -770,13 +770,31 @@ end
 ---------------------------------------------------------------------------
 
 local chatTier -- the channel shown instead of the Realm tree, or nil
+-- Pages of the Realm tab (1.1): a module lists one in ns.RealmPages (Loot.lua's loot notes,
+-- Crafters.lua's board): { key, Link = function() return its link line, or nil end,
+-- Lines = function(q) return its lines end, tip = what its search finds (L.SEARCH_TIP_...) }.
+-- A link line under the chats' opens it in place of the tree, as the chats open.
+local pageShown -- the page shown instead of the Realm tree, or nil
 
 function Views.ChatShown() return chatTier ~= nil end
 function Views.ChatTier() return chatTier end
 -- Another tab opened: the Realm opens on its tree again next time.
-function Views.CloseChat() chatTier = nil end
+function Views.CloseChat() chatTier, pageShown = nil, nil end
 function Views.ShowChat(tier)
-	chatTier = tier
+	chatTier, pageShown = tier, nil
+	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+end
+
+local function RealmPage(key)
+	for _, p in ipairs(ns.RealmPages or {}) do
+		if p.key == key then return p end
+	end
+	return nil
+end
+function Views.PageShown() return pageShown end
+function Views.ShowPage(key)
+	pageShown = RealmPage(key) and key or nil
+	if pageShown then chatTier = nil end
 	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
 end
 
@@ -1075,6 +1093,8 @@ end
 -- those alone; "No match" for none. The chats' link stays (they are searched there). Nothing
 -- else: the King's lines, the level race, recruiting and the layers show once it is emptied.
 local function RealmLines(s, q)
+	local page = pageShown and RealmPage(pageShown)
+	if page then return page.Lines(q) end
 	if chatTier then return ChatLines(q) end
 	local lines = {}
 	-- A councillor's mark and own icon after their name in the rows below (0.9.9), for whoever
@@ -1138,6 +1158,15 @@ local function RealmLines(s, q)
 				tt:AddLine(L.CHATS_TIP, 1, 1, 1, true)
 			end,
 		}
+	end
+	-- The Realm's pages (1.1), one link each.
+	for _, p in ipairs(not q and ns.RealmPages or {}) do
+		local link = p.Link and p.Link()
+		if link then
+			if lines[#lines] then lines[#lines].gapAfter = true end
+			link.gapAfter = true
+			lines[#lines + 1] = link
+		end
 	end
 	if #s.guilds == 0 and not q then lines[#lines + 1] = { text = Grey(L.EMPTY) } end
 	-- A guild's header and, opened, its rows. `only`: what the search found in it (GuildMatches),
@@ -1708,8 +1737,9 @@ local BUILD = {
 	realm = function(s)
 		local title, text = RealmDetail(s)
 		local lines = RealmLines(s, Views.Query("realm"))
-		-- (One box for the tab: the chats' lines are searched with it while they show.)
-		return Searched(lines, "realm", chatTier and "CHAT" or "REALM"), title, text
+		-- (One box for the tab: the chats' lines are searched with it while they show, a page's too.)
+		local page = pageShown and RealmPage(pageShown)
+		return Searched(lines, "realm", (page and page.tip) or (chatTier and "CHAT") or "REALM"), title, text
 	end,
 	decrees = function()
 		local title, text = DecreeDetail()
