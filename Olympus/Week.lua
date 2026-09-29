@@ -764,6 +764,26 @@ end
 -- The sheets heard, as this client holds them (tests).
 function Week.Sheets() return sheets end
 
+-- A nudge for what this character signed (1.1, Fern's #2): a few minutes before an entry it
+-- signed, one chat line and the usual alert sound, on this client alone: never a raid warning,
+-- nothing sent. Once per entry (kept with the signup, across a /reload).
+Week.REMIND = 5 * 60
+function Week.Remind(now)
+	now = now or ns.Now()
+	local mine = ns.rdb and type(ns.rdb.signed) == "table" and ns.rdb.signed[ns.me or "?"]
+	if type(mine) ~= "table" then return end
+	for _, e in ipairs(Week.Entries(now)) do
+		local v = mine[e.id]
+		local left = e.at - now
+		if type(v) == "table" and v.role and not v.reminded and left > 0 and left <= Week.REMIND then
+			v.reminded = true
+			local where = e.zone and e.zone ~= "" and (" (" .. e.zone .. ")") or ""
+			ns.Print("|cffffd200" .. L.SIGN_SOON:format(RoleLabel(v.role), e.title, math.max(1, math.ceil(left / 60)), where) .. "|r")
+			ns.PlayAlert("soft")
+		end
+	end
+end
+
 -- "3 this week" for the tree's link to the Board.
 function Week.LinkPart()
 	local n = #Week.Entries()
@@ -786,6 +806,8 @@ function Week.Tick(now)
 	for id, e in pairs(entries) do
 		if e.at + Week.KEEP_AFTER < now then entries[id] = nil end
 	end
+	-- What this character signed, a few minutes before (#2).
+	Week.Remind(now)
 	-- The setter's sheet: every 5 minutes, and at once for an entry of his none has heard yet.
 	local new = false
 	for _, e in ipairs(Week.Entries(now)) do

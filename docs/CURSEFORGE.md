@@ -187,7 +187,8 @@ what each player chose to share, and the King's week.
   says which day to right-click for the guild event.
 - **The signup sheet**: Sign up on an Agenda entry with the role you claim; it goes to whoever set
   it, alone, and the army sees the counts (4 tanks, 9 healers...). Nothing checks the role and
-  nothing invites you: whoever runs the event invites by hand.
+  nothing invites you: whoever runs the event invites by hand. Five minutes before an entry you
+  signed, your client alone prints one line with the usual alert sound (nothing sent).
 - **Raise a flag** with one click: **Dungeon**, **Raid**, **PvP** or **Layer**, plus a short
   note if you want one (40 bytes at most). A box says first what goes out: your name, level,
   class and guild, the flag and the note, to every Olympus player of your realm and faction.

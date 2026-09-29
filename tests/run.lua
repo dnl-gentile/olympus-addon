@@ -25687,5 +25687,92 @@ test("1.1 signups: their words in both languages, the same placeholders", functi
 	assert(n >= 15, "the sheet's strings: " .. n)
 end)
 
+---------------------------------------------------------------------------
+-- 1.1: a nudge for what this character signed (Week.lua, Fern's #2): one line and the alert
+-- sound a few minutes before, on this client alone; never a raid warning, nothing sent.
+---------------------------------------------------------------------------
+
+test("1.1 the signed nudge: one line and the alert sound 5 minutes before an entry this character signed, nothing more, nothing sent", function()
+	WithWeek(function(w, W, K)
+		AsSoldier()
+		local KING = ns.KingCharacter() .. "-Realm"
+		local t0 = w.clock
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~3600~1~~Raid night")
+		K.HandleCommand("CHANNEL", KING, "T1~D~502~Olympus~3600~1~~PvP night")
+		K.HandleCommand("CHANNEL", KING, "T1~R~9~Olympus~501:0:0:0:0,502:0:0:0:0")
+		W.Sign(501, "H")
+		local sent, whispered, printed = #w.sent, #w.whispered, #w.printed
+		-- Ten minutes before: nothing yet.
+		w.clock = t0 + 3600 - 10 * 60
+		W.Tick()
+		eq(#w.printed, printed); eq(#w.alerts, 0)
+		-- Five minutes before: one line (the role, the entry, how long), the usual alert sound.
+		w.clock = t0 + 3600 - 5 * 60
+		W.Tick()
+		eq(#w.printed, printed + 1)
+		assert(w.printed[#w.printed]:find(ns.L.SIGN_SOON:format(ns.L.SIGN_ROLE_H, "Raid night", 5, ""), 1, true), w.printed[#w.printed])
+		eq(table.concat(w.alerts, ","), "soft")
+		-- Once: the next minutes say nothing more.
+		for m = 4, 1, -1 do w.clock = t0 + 3600 - m * 60; W.Tick() end
+		eq(#w.printed, printed + 1); eq(#w.alerts, 1)
+		-- Never a raid warning, never a popup, nothing on the channel or to anyone.
+		eq(#w.notices, 0); eq(#w.popups, 0)
+		local ours = 0
+		for i = sent + 1, #w.sent do if not w.sent[i].msg:find("^T1~R~") then ours = ours + 1 end end
+		eq(ours, 0); eq(#w.whispered, whispered)
+		-- The entry not signed (PvP night, same hour): not a word.
+		for _, p in ipairs(w.printed) do assert(not p:find("PvP night", 1, true), p) end
+	end)
+	WithWeek(function(w, W, K)
+		AsSoldier()
+		local KING = ns.KingCharacter() .. "-Realm"
+		local t0 = w.clock
+		-- Signed, then withdrawn: nothing. Signed after the five minutes began: at once, once.
+		K.HandleCommand("CHANNEL", KING, "T1~D~601~Olympus~3600~1~~Court")
+		K.HandleCommand("CHANNEL", KING, "T1~R~9~Olympus~601:0:0:0:0")
+		W.Sign(601, "T")
+		w.clock = w.clock + W.SIGN_GAP
+		W.Sign(601, "W")
+		w.clock = t0 + 3600 - 4 * 60
+		K.HandleCommand("CHANNEL", KING, "T1~R~10~Olympus~601:0:0:0:0")
+		W.Tick()
+		eq(#w.alerts, 0)
+		W.Sign(601, "D")
+		w.clock = w.clock + 30
+		W.Tick(); W.Tick()
+		eq(#w.alerts, 1)
+		assert(w.printed[#w.printed]:find(ns.L.SIGN_SOON:format(ns.L.SIGN_ROLE_D, "Court", 4, ""), 1, true), w.printed[#w.printed])
+		-- Kept across a /reload: no second nudge.
+		local kept = ns.rdb.signed
+		W.Reset(); ns.rdb.signed = kept
+		K.HandleCommand("CHANNEL", KING, "T1~D~601~Olympus~180~0~~Court")
+		W.Tick()
+		eq(#w.alerts, 1)
+		-- The Agenda's current event (its zone in the line), signed on another character: that
+		-- character alone is nudged.
+		K.HandleCommand("CHANNEL", KING, "T1~A~77~Olympus~600~Orgrimmar~Raid on the Crossroads")
+		K.HandleCommand("CHANNEL", KING, "T1~R~11~Olympus~77:0:0:0:0")
+		w.clock = w.clock + W.SIGN_GAP
+		W.Sign(77, "A")
+		local before = #w.alerts -- (the new Agenda's own raid warning and sound, as always)
+		AsSoldier("Alt")
+		w.clock = w.clock + 5 * 60
+		W.Tick()
+		eq(#w.alerts, before, "not this character's signup")
+		AsSoldier()
+		W.Tick()
+		eq(#w.alerts, before + 1)
+		assert(w.printed[#w.printed]:find(ns.L.SIGN_SOON:format(ns.L.SIGN_ROLE_A, "Raid on the Crossroads", 5, " (Orgrimmar)"), 1, true), w.printed[#w.printed])
+	end)
+	-- Its words in both languages.
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	assert(rawget(pt.L, "SIGN_SOON") and rawget(pt.L, "SIGN_SOON") ~= ns.L.SIGN_SOON)
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

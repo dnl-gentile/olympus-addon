@@ -216,6 +216,9 @@ what each player chose to share, and the King's week.
   the King's stream). Signups the census can't place (more than a guild's size, a guild it
   doesn't know) are listed apart and not counted. Sign up shows only while that player's addon
   is online to take it.
+- **A nudge for what you signed** (1.1): 5 minutes before an entry this character signed, your
+  client alone prints one line with the usual alert sound ("You signed up as Healer: Raid night
+  in 5 min"), once. Not a raid warning, and nothing is sent: the army gets no extra alert.
 - **Raise a flag** with one click: **Dungeon**, **Raid**, **PvP** or **Layer**, plus a short
   note if you want one (40 bytes at most; `/oly lfg raid need a healer` fills it in). A box
   says first what goes out: your name, level, class and guild, the flag and the note, to every

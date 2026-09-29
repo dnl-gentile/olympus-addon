@@ -1104,6 +1104,8 @@ L.SIGN_WITHDRAWN = "Your signup for %s is withdrawn."
 L.SIGN_NOT_NOW = "Whoever set that entry isn't online with the addon right now: sign up when their counts show again."
 L.SIGN_WHO = "Who signed (%d)"
 L.SIGN_UNCONFIRMED = "(the census can't place this one: not counted)"
+-- 1.1: the nudge for what this character signed (Week.lua, Fern's #2).
+L.SIGN_SOON = "You signed up as %s: %s in %d min%s."
 if GetLocale and GetLocale() == "ptBR" then
 	L.THOUSANDS = "."
 	L.ARMY_TOTAL = "%s soldados"
@@ -2194,4 +2196,6 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.SIGN_NOT_NOW = "Quem marcou essa entrada não está online com o addon agora: inscreva-se quando as contagens dele aparecerem de novo."
 	L.SIGN_WHO = "Quem se inscreveu (%d)"
 	L.SIGN_UNCONFIRMED = "(o censo não consegue situar este: não conta)"
+	-- 1.1: o lembrete do que este personagem assinou (Week.lua, do Fern).
+	L.SIGN_SOON = "Você se inscreveu como %s: %s em %d min%s."
 end
