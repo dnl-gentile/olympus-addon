@@ -401,12 +401,17 @@ shows the army something of it.
   in the Realm. The Treasurer's addon repeats the King's latest word, so members who never meet
   the King online get it too. The King and his Steward always see all of it, whatever the
   switches, and the King the balance next to the soldiers on top of his window. **What he hides
-  never goes on the channel** (1.1), which anyone on it can read: not in a keeper's book, not
-  the guild bank, not the early supporters. Each keeper's addon whispers it to the King, his
-  Steward and the keepers alone (guild chat would reach every member of `<Olympus>`). What he
-  shows goes on the channel, and every client on it receives it. A 1.0 addon of the army shows
-  what he shows as before; a King's, Steward's or keeper's 1.0 addon sees only that part until
-  it updates.
+  never goes on the channel from a keeper whose addon is 1.1**, which anyone on it can read: not
+  in his book, not the guild bank, not the early supporters. His addon whispers it to the King,
+  his Steward and the keepers alone (guild chat would reach every member of `<Olympus>`). What
+  he shows goes on the channel, and every client on it receives it. A keeper still on 1.0 keeps
+  sending his whole book on the channel, as 1.0 did, until he updates. A 1.0 addon of the army
+  shows what the King shows, as before. A King's, Steward's or keeper's 1.0 addon is never
+  whispered: it shows what the army sees of the books of keepers on 1.1, so, while the King
+  hides the balance, a balance of zero (every switch off, as the King starts) or of only the
+  parts he shows, as if it were the treasury's, until it updates. **The King, his Steward and
+  the keepers should update to 1.1 first**; a 1.1 insider's Treasury tab names, in red, those
+  heard lately still on 1.0.
 
 ### Tabards: tabard inspection and the untabarded list
 - **Patrol**: walk through the crowd and the addon inspects nearby Olympus members level 15
@@ -606,7 +611,7 @@ message (the game adds it). What goes where:
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
-| A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | the parts the King shows the army (his switches): everyone on the Olympus channel. The rest (1.1): the King, his Steward and the keepers alone, by whisper, never on the channel | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
+| A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | the parts the King shows the army (his switches): everyone on the Olympus channel. The rest (1.1): the King, his Steward and the keepers alone, by whisper, never on the channel (from a keeper whose addon is 1.1: one still on 1.0 sends his whole book on the channel, as 1.0 did) | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the week's donors, the items donated (with who gave each last) and the book's latest lines | with the King's ranking or book switch on: everyone on the Olympus channel. Otherwise (1.1): the keepers, the King and his Steward alone, by whisper | while that keeper shares his book: his yes, and a donor is not asked |
 | That you are taking donations, if you keep a book of the treasury (1.1), with your zone only if you share your location | everyone on the Olympus channel | only while you turn it on (**Taking donations**, `/oly donations on`): every 2 minutes and when your zone changes, off when you log out |
 | A request to the treasury, if you are a Lord or a Captain (1.1): the item's number, the count, your guild | the treasury's keepers, the King and his Steward heard online (their addon 1.1 or later), by whisper; while the King shows the army the book, the open ones also on the Olympus channel, from the keepers' addons | when you ask (a click on an item, or `/oly need`), then every 15 minutes while it is open |

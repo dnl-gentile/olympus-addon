@@ -25676,5 +25676,82 @@ test("1.1 Zeal's promise, the keeper's message budget: a donation a minute with 
 	end
 end)
 
+test("1.1 Zeal's promise and 1.0: a King, Steward or keeper still on 1.0 is named on a 1.1 insider's Treasury tab while the King hides a part", function()
+	WithThrone(function(w, K)
+		local T = ns.Treasury
+		local saved = { split = ns.splitNames }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			local KING, TREASURER = "Asmongold Asmongler-Realm", "Pyralis Ashandar-Realm"
+			AsTreasurer()
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			T.Record("Secret Donor", 250000, "trade", nil, { quiet = true })
+			-- The tab's text, its paragraphs' rows put back together, colors off.
+			local function Page()
+				local out = {}
+				for _, l in ipairs(T.Build()) do out[#out + 1] = (tostring(l.text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+				return table.concat(out, " ")
+			end
+			local want = ns.L.TREASURY_NOT_UPDATED:format("Asmon")
+			local function Shown() return Page():find(want, 1, true) ~= nil end
+			-- The King's switches heard (his addon, whatever its version): not named at once (a 1.1
+			-- addon asks ASK_AFTER after its login).
+			T.Heard(KING)
+			eq(#T.NotUpdated(), 0, "just heard"); eq(Shown(), false)
+			-- Heard again later, never asking: a 1.0 addon, named in red on the keeper's tab.
+			w.clock = w.clock + T.ASK_AFTER + 61
+			T.Heard(KING)
+			eq(T.NotUpdated()[1], KING); eq(#T.NotUpdated(), 1)
+			assert(Shown(), Page())
+			-- What that 1.0 addon shows (1.0.0's Treasury.lua, as a 1.0 King's client runs it): it
+			-- held the Treasurer's whole book from 1.0; the channel's copy with every switch off
+			-- (the King's starting state) takes its place, the King's switches with it, and his
+			-- balance reads zero. (Taken, so no 1.0 client keeps a whole book of 1.0 the King now
+			-- hides; the note is how he learns to update.)
+			local Old, old = OldTreasury()
+			old.me = KING
+			Old.HandleReport("CHANNEL", TREASURER, T.Message())
+			eq(old.rdb.treasuryReports[TREASURER].balance, T.Balance(), "the whole book of 1.0")
+			ns.rdb.treasuryFlags = { balance = false, ranking = false, book = false, at = w.clock }
+			Old.HandleReport("CHANNEL", TREASURER, T.Message(nil, (T.PublicParts())))
+			eq(old.rdb.treasuryReports[TREASURER].balance, 0, "a 1.0 King reads zero")
+			eq(#old.rdb.treasuryReports[TREASURER].rank, 0, "and no ranking")
+			-- His addon updated: it asks, and he is named no more.
+			T.HandleAsk("CHANNEL", KING, "TA~Olympus~0")
+			eq(#T.NotUpdated(), 0); eq(Shown(), false)
+			-- A keeper still on 1.0, while the King shows every part: the channel carries the whole
+			-- book, nothing to tell.
+			ns.rdb.treasuryKeepers = { at = 1, names = { "Test Keeper-Realm" } }
+			T.Heard("Test Keeper-Realm")
+			w.clock = w.clock + T.ASK_AFTER + 61
+			T.Heard("Test Keeper-Realm")
+			eq(T.NotUpdated()[1], "Test Keeper-Realm")
+			ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = w.clock }
+			assert(not Page():find(ns.L.TREASURY_NOT_UPDATED:format("Test Keeper"), 1, true), "every part shown: no note")
+			ns.rdb.treasuryFlags = { balance = true, at = w.clock }
+			assert(Page():find(ns.L.TREASURY_NOT_UPDATED:format("Test Keeper"), 1, true), "a part hidden: named: " .. Page())
+			-- A soldier's tab never names anyone.
+			AsSoldier()
+			assert(not Page():find("Olympus 1.0", 1, true), "not on a soldier's tab")
+		end)
+		ns.splitNames = saved.split
+		ns.rdb.treasuryKeepers, ns.db.keeperShares = nil, nil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 the treasury's review lines are in both languages, with the same format arguments", function()
+	local savedLocale, pt = GetLocale, {}
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, key in ipairs({ "TREASURY_NOT_UPDATED" }) do
+		assert(type(rawget(ns.L, key)) == "string", "English " .. key)
+		assert(type(rawget(pt.L, key)) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
+		eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)
+	end
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

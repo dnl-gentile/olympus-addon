@@ -1166,6 +1166,13 @@ end
 -- opening, the balance, the totals, the week, the transfers) with "balance", the ranking with
 -- "ranking", the book's lines and the items donated with "book". Its keepers' field (read by
 -- nobody before 1.1) says which parts it holds: "<balance><ranking><book>@1", "110@1".
+-- A 1.0 client takes it as that keeper's whole book: its army shows what the King shows, as
+-- before, and the King's switches still reach it from the Treasurer's copy (which also takes the
+-- place of any whole book of 1.0 it kept). But a King's, Steward's or keeper's 1.0 addon, which
+-- shows everything whatever the switches, shows a balance of zero there with the balance hidden
+-- (every switch off, as the King starts) or the sums of the lists shown, until it updates: 1.1
+-- whispers the whole book to 1.1 alone. A 1.1 insider's Treasury tab names them
+-- (Treasury.NotUpdated), so they can be told.
 function Treasury.Message(b, parts)
 	b = b or BookOf(ns.me, true)
 	local t = Treasury.Totals(b)
@@ -1737,6 +1744,7 @@ Treasury.PRIVATE_REPEAT = 1800     -- the same one whispered again to the same p
                                    -- (a piece lost on the way, a wipe of his: he gets it whole again)
 
 local heard = {}         -- [Name-Realm] = when the King, a Steward or a keeper was last heard
+local firstHeard = {}    -- [Name-Realm] = when he was first heard this session
 local outbox = {}        -- whispers waiting: { to, kind, key, msg, pieces }
 local sending            -- the one going out now (its pieces, PRIVATE_PACE apart)
 local sentTo = {}        -- [Name-Realm] = { [key] = { msg, at }: the message last whispered whole to him, when }
@@ -1773,7 +1781,9 @@ end
 -- One of them was heard (any message of theirs: his book, his switches, his ask).
 function Treasury.Heard(name)
 	if not Insider(name) then return end
-	heard[ns.FullName(name)] = ns.Now()
+	name = ns.FullName(name)
+	heard[name] = ns.Now()
+	firstHeard[name] = firstHeard[name] or heard[name]
 end
 
 -- His addon reads whispers (TW, the bank requests): he was heard asking (TA), which 1.1 sends
@@ -1790,6 +1800,22 @@ function Treasury.MarkReader(name)
 	local now = ns.Now()
 	r[ns.FullName(name)] = now
 	for n, t in pairs(r) do if type(t) ~= "number" or now - t > Treasury.READERS_FOR then r[n] = nil end end
+end
+
+-- The King, the Stewards and the keepers heard within AUDIENCE_FRESH whose addon never asked
+-- (1.0: a 1.1 addon asks ASK_AFTER after its login), but us, sorted: while the King hides a part
+-- of the treasury, their addon shows only what the army sees of the books of keepers on 1.1
+-- (Treasury.Message), so a 1.1 insider's Treasury tab names them.
+function Treasury.NotUpdated()
+	local now, out = ns.Now(), {}
+	for name, t in pairs(heard) do
+		if now - t <= Treasury.AUDIENCE_FRESH and now - (firstHeard[name] or now) > Treasury.ASK_AFTER + 60
+			and not SameChar(name, ns.me) and Insider(name) and not Treasury.Reads(name) then
+			out[#out + 1] = name
+		end
+	end
+	table.sort(out)
+	return out
 end
 
 -- The King, the Stewards and the keepers heard within AUDIENCE_FRESH whose addon reads
@@ -1977,6 +2003,7 @@ function Treasury.NotFound(text)
 	for i = #outbox, 1, -1 do if Is(outbox[i].to) then table.remove(outbox, i) end end
 	for name in pairs(heard) do if Is(name) then heard[name] = nil end end
 	if ns.Bank and ns.Bank.NotFound then ns.Bank.NotFound(Is) end
+	for name in pairs(firstHeard) do if Is(name) then firstHeard[name] = nil end end
 	if sending and Is(sending.to) then
 		sending = nil
 		PumpPrivate()
@@ -1986,7 +2013,7 @@ end
 -- For tests: what waits, and what goes.
 function Treasury.PrivateState() return { outbox = outbox, sending = sending, sentTo = sentTo, heard = heard, held = held } end
 function Treasury.ResetPrivate()
-	wipe(heard); wipe(outbox); wipe(sentTo); wipe(resetAt)
+	wipe(heard); wipe(firstHeard); wipe(outbox); wipe(sentTo); wipe(resetAt)
 	sending, lastAsk, notFound, held = nil, -math.huge, nil, false
 	if ns.rdb then ns.rdb.treasuryReaders = nil end
 	privAsm = ns.Codec.NewAssembler()
@@ -3204,6 +3231,15 @@ local function SummaryLines(role, q)
 		lines[#lines + 1] = { text = Gold("> " .. L.BACKUP_LINK), onClick = function() ns.Backup.Slash("backup") end,
 			tooltip = function(tt) tt:AddLine(L.HELP_BACKUP, 1, 1, 1, true) end }
 		lines[#lines + 1] = { text = Gold("> " .. L.BACKUP_RESTORE_LINK), onClick = function() ns.Backup.Slash("restore") end, gapAfter = true }
+	end
+	-- 1.1: the King, a Steward or a keeper still on 1.0, heard lately, while the King hides a part.
+	if Treasury.IsInsider() and not select(2, Treasury.PublicParts()) then
+		local old = {}
+		for _, name in ipairs(Treasury.NotUpdated()) do old[#old + 1] = KeeperLabel(name) end
+		if #old > 0 then
+			Para(lines, L.TREASURY_NOT_UPDATED:format(table.concat(old, ", ")), Red)
+			lines[#lines].gapAfter = true
+		end
 	end
 	local r = Treasury.Report()
 	if not r then
