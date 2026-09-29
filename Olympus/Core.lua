@@ -1703,7 +1703,7 @@ local function Help()
 	print(L.HELP_CMD_BUG)
 	print(L.HELP_CMD_STATUS)
 	print(L.HELP_CMD_KEY)
-	print(L.HELP_KEY_ROTATE)
+	if ns.Keys.CanRotate and ns.Keys.CanRotate() then print(L.HELP_KEY_ROTATE) end -- (1.1: the King's alone)
 	print(L.HELP_CMD_BLOCK)
 	print(L.HELP_NETOFF)
 	print(L.HELP_ALT)
@@ -1902,9 +1902,17 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "status" then
 			for line in ns.StatusText():gmatch("[^\n]+") do print("  " .. line) end
 		elseif cmd == "key" then
-			-- 1.1: the King's rotation of the army's key (Keys.lua); anyone else's "rotate" is a secret, as before.
-			if rest:lower() == "rotate" and ns.Keys.CanRotate and ns.Keys.CanRotate() then
-				ns.Keys.RotatePrompt()
+			-- 1.1: "rotate" is the King's rotation of the army's key (Keys.lua), never a key: anyone
+			-- else is told so (and a /reload before the restart the new file needs), and no guild is
+			-- sealed with that word.
+			if rest:lower() == "rotate" then
+				if ns.Keys.missing then
+					ns.Print(L.RESTART_NEEDED)
+				elseif ns.Keys.CanRotate() then
+					ns.Keys.RotatePrompt()
+				else
+					ns.Print(L.KEY_ROTATE_ONLY_KING)
+				end
 			else
 				ns.Comm.SetRealmKey(rest)
 			end
