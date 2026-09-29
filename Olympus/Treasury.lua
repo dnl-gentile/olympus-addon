@@ -68,7 +68,7 @@ Treasury.RANK_SENT = 100     -- donors in the ranking sent (0.9.7; the message g
 Treasury.RANK_PAGE = 25      -- ranking lines shown, 25 more a click (the window stays light)
 Treasury.BOOK_SENT = 15      -- latest lines of the book sent
 Treasury.BOOK_SHOWN = 40     -- lines of the book shown, 40 more a click
-Treasury.WEEK_SENT = 40      -- donors of the week named in the message (for the merged count)
+Treasury.WEEK_SENT = 40      -- donors of the week a book of 1.0 named (1.1 names none; read, for the merged count)
 Treasury.ITEMS_SENT = 20     -- items donated sent, the most given first
 Treasury.ITEMS_SHOWN = 25    -- items donated listed on the tab
 Treasury.LEGACY_RANK = 25    -- 0.9's treasury, for 0.9 clients: short
@@ -1171,10 +1171,14 @@ function Treasury.Message(b)
 	-- Stewards' to set, from their own clients (Konig's review of 1.0.0), and the field stays "-".
 	local mine = ns.IsTreasurer(ns.me, GetGuildInfo("player") or "") and SameChar(b.name or ns.me, ns.me)
 	local flags, keepers = mine and FlagsWord() or "-", "-"
-	local caps = { rank = Treasury.RANK_SENT, week = Treasury.WEEK_SENT, book = Treasury.BOOK_SENT, items = Treasury.ITEMS_SENT }
+	local caps = { rank = Treasury.RANK_SENT, book = Treasury.BOOK_SENT, items = Treasury.ITEMS_SENT }
 	local function Build()
+		-- 1.1 (Fern's #36): the week's donors go out as a count, never by name. With the dues (one
+		-- fixed amount a week, Dues.lua) their names on the channel would be a public list of who
+		-- paid this week, and so of who did not: every client on it receives the bytes, whatever the
+		-- King's switches show. The ranking (all time) and the book's latest lines stay: gifts, not
+		-- anyone's dues.
 		local week, rank, lines, items = {}, {}, {}, {}
-		for i = 1, math.min(caps.week, #t.givers) do week[i] = Clean(t.givers[i].name) end
 		for i = 1, math.min(caps.rank, #t.ranking) do
 			rank[i] = ("%s:%d"):format(Clean(t.ranking[i].name), U(t.ranking[i].money))
 		end
@@ -1197,9 +1201,9 @@ function Treasury.Message(b)
 			S(Treasury.Balance(b)), U(t.allIn), U(t.allOut), U(t.weekIn), math.min(#t.givers, 9999), table.concat(week, ","), flags, keepers,
 			table.concat(rank, ","), table.concat(lines, ","), table.concat(items, ","), U(t.transIn), U(t.transOut))
 	end
-	-- Too long (it is rare): the week's names go first (they only count the donors), then items,
-	-- then the ranking's tail, then lines of the book; the top 25 donors last of all.
-	local STEPS = { { "week", 10, 10 }, { "items", 10, 5 }, { "rank", 50, 10 }, { "book", 5, 5 }, { "rank", 25, 5 }, { "items", 5, 5 }, { "rank", 0, 5 } }
+	-- Too long (it is rare): items first, then the ranking's tail, then lines of the book; the top
+	-- 25 donors last of all.
+	local STEPS = { { "items", 10, 5 }, { "rank", 50, 10 }, { "book", 5, 5 }, { "rank", 25, 5 }, { "items", 5, 5 }, { "rank", 0, 5 } }
 	local msg = Build()
 	while #msg > Treasury.ROOM do
 		local step

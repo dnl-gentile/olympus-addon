@@ -6295,7 +6295,8 @@ test("The Treasury: the Treasurer's book (not his gold), the King's three switch
 			T.Share(true)
 			ns.Comm.SendChunked = savedChunked
 			local msg = LastSent(w)
-			assert(msg:find("^TB~1%.0~Olympus~1000000~1170456~175456~5000~175456~3~Trader,Giver,Friend~%-~%-~Trader:123456,Giver:50000,Friend:2000~o:5000:Crafter:m:"), msg)
+			-- (1.1, Fern's #36: the week's donors go out as a count, 3, never by name.)
+			assert(msg:find("^TB~1%.0~Olympus~1000000~1170456~175456~5000~175456~3~~%-~%-~Trader:123456,Giver:50000,Friend:2000~o:5000:Crafter:m:"), msg)
 			assert(not msg:find("Linen", 1, true) and not msg:find(":40000:", 1, true), "sales and purchases are not sent")
 			-- And for 0.9 clients, 0.9's treasury as they read it (the Treasurer's alone).
 			local legacy = w.sent[#w.sent - 1].msg
@@ -17817,7 +17818,7 @@ test("1.0 a keeper named: his own book opens at his gold, his own yes (the King'
 			StaticPopupDialogs.OLYMPUS_TREASURER_SHARE.OnAccept()
 			eq(ns.db.keeperShares["test keeper-realm"], true, "his own yes, by his character")
 			local book = LastSent(w)
-			assert(book:find("^TB~1%.0~Olympus II~250000~260000~10000~0~10000~1~Fan~%-~%-~Fan:10000~i:10000:Fan:m:"), book)
+			assert(book:find("^TB~1%.0~Olympus II~250000~260000~10000~0~10000~1~~%-~%-~Fan:10000~i:10000:Fan:m:"), book) -- (1.1: the week's donors as a count, #36)
 			eq(w.sent[#w.sent - 1].msg:find("^T8~") , nil, "0.9's treasury is the Treasurer's alone")
 			-- The King is asked his own yes; his no is his: the Treasurer's 0.9.3 yes stays.
 			AsKing()
@@ -17883,7 +17884,9 @@ test("1.0 one treasury: every keeper's book together (the balance summed, one ra
 			eq(#r.keepers, 2); eq(r.keepers[1].name, "Pyralis Ashandar-Realm", "the Treasurer first")
 			eq(r.balance, (10000000 + 150000 - 20000) + (5000000 + 35000), "the sum of the books")
 			eq(r.allIn, 185000); eq(r.allOut, 20000); eq(r.week, 185000)
-			eq(r.donors, 3, "Romani gave to both: one donor this week")
+			-- 1.1 (Fern's #36): a book sends its week's donors as a count, never by name, so a donor who
+			-- gave to two keepers counts in each book that came by the channel (1.0 named them: 3).
+			eq(r.donors, 4, "Romani gave to both: counted by each keeper")
 			eq(#r.rank, 3, "one line each"); eq(r.rank[1].name, "Generous Donor"); eq(r.rank[1].money, 130000)
 			eq(r.rank[2].name, "Fan"); eq(r.rank[3].name, "Other")
 			-- The book: every keeper's lines, newest first, each with who received it.
@@ -17905,13 +17908,13 @@ test("1.0 one treasury: every keeper's book together (the balance summed, one ra
 			page = Texts((T.Build()))
 			assert(page:find(ns.L.TREASURY_KEPT_BY:format("Pyralis Ashandar", "0s ago"), 1, true), page)
 			assert(page:find(ns.L.TREASURY_KEPT_BY:format("Asmon", ns.L.TREASURY_KEPT_NOW), 1, true), page)
-			assert(page:find(ns.L.TREASURY_WEEK:format(3), 1, true), page)
+			assert(page:find(ns.L.TREASURY_WEEK:format(4), 1, true), page) -- (1.1: counted by each keeper, #36)
 			-- A soldier (the King shows the balance and the ranking): the same treasury.
 			T.SetFlag("balance", true); T.SetFlag("ranking", true)
 			AsSoldier()
 			T.HandleReport("CHANNEL", "Asmongold Asmongler-Realm", kings)
 			r = T.Report()
-			eq(r.balance, 15165000); eq(r.rank[1].money, 130000); eq(r.donors, 3)
+			eq(r.balance, 15165000); eq(r.rank[1].money, 130000); eq(r.donors, 4, "(1.1: counted by each keeper, #36)")
 			assert(T.RealmText():find(T.GoldText(15165000), 1, true), T.RealmText())
 			page = Texts((T.Build()))
 			assert(page:find("1. Generous Donor", 1, true) and page:find(ns.L.TREASURY_KEPT_BY:format("Asmon", "0s ago"), 1, true), page)
@@ -18583,7 +18586,7 @@ test("1.0 the Treasurer's client passes on his mail character's book (it never r
 			T.Share(true)
 			local tr = Sent("TR~")
 			eq(#tr, 1, "passed on once")
-			assert(tr[1]:find("^TR~Pyralis Andarai%-Realm~" .. changed .. "~TB~1%.0~Olympus~400000~450000~50000~0~50000~1~Generous Donor~%-~%-~"), tr[1])
+			assert(tr[1]:find("^TR~Pyralis Andarai%-Realm~" .. changed .. "~TB~1%.0~Olympus~400000~450000~50000~0~50000~1~~%-~%-~"), tr[1]) -- (1.1: the week's donors as a count, #36)
 			eq(#Sent("TB~"), 1, "and his own book")
 			eq(Sent("T8~")[1]:match("^T8~Olympus~(%-?%d+)~"), "1450000", "0.9's short copy: the two books")
 			w.clock = w.clock + 120
@@ -19055,7 +19058,8 @@ test("1.0.0 Konig's review: a keeper's book is checked when it comes (shape, siz
 				["a number that is not digits"] = With(msg, { [6] = "5e4" }),
 				["an amount over the most a book holds"] = With(msg, { [4] = tostring(T.MAX_COPPER + 1) }),
 				["a week larger than all time"] = With(msg, { [8] = "50001" }),
-				["more donors named than counted"] = With(msg, { [9] = "0" }),
+				-- (1.1 names none, #36; a book of 1.0 did, and is still checked.)
+				["more donors named than counted"] = With(msg, { [9] = "0", [10] = "Giver One" }),
 				["a ranking worth more than all that came in"] = With(msg, { [13] = "Giver One:40000,Giver Two:20000" }),
 				["a ranking out of its order"] = With(msg, { [13] = "Giver Two:20000,Giver One:30000" }),
 				["a donor who gave nothing"] = With(msg, { [13] = "Giver One:30000,Giver Two:0" }),
@@ -24881,6 +24885,67 @@ do
 			end)
 			D.MAX_PIECES = savedMax
 			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 dues (#36): nothing of anyone's dues rides the Olympus channel: the week's donors go as a count, each list only by whisper to whoever asked", function()
+		WithDues(function(w, K, T, mail)
+			AsTreasurer()
+			local week = D.Week()
+			ns.Roster.byName = { ["Guildmate-Realm"] = 3 }
+			Mail(mail, Nm(7), 10000, D.Note(week, "Olympus II"))
+			Mail(mail, Nm(8), 500, D.Note(week, "Olympus II")) -- (under the amount)
+			Mail(mail, "Guildmate", 20000, "for the treasury")
+			ns.rdb.duesAmount = { copper = 10000, at = w.clock, from = KING }
+			w.sent, w.whispered = {}, {}
+			-- Everything his client sends: his book and 0.9's short treasury, the amount, both lists.
+			T.Share(true)
+			D.Repeat(true)
+			D.HandleAsk("WHISPER", KING, "FQ~" .. week .. "~*")
+			w.census()
+			D.HandleAsk("WHISPER", "Cap-Realm", "FQ~" .. week .. "~Olympus II")
+			PumpAll()
+			local kinds, tb, t8 = {}, nil, nil
+			for _, x in ipairs(w.sent) do
+				eq(x.dist, "CHANNEL")
+				kinds[x.msg:sub(1, 2)] = true
+				assert(not x.msg:find("^F[ASQ]~"), "a dues list on the channel: " .. x.msg)
+				assert(not x.msg:find("Olympus fund", 1, true) and not x.msg:find("Olympus II", 1, true), "a payer's note or guild: " .. x.msg)
+				if x.msg:find("^TB~") then tb = x.msg elseif x.msg:find("^T8~") then t8 = x.msg end
+			end
+			eq(kinds.TB, true); eq(kinds.T8, true); eq(kinds.FK, true)
+			-- His book in 1.0's shape: the week's donors a count (3), no names; its lines, as ever,
+			-- a donor, an amount, mail or trade and a time: no week, no guild.
+			local f = {}
+			for field in (tb .. "~"):gmatch("([^~]*)~") do f[#f + 1] = field end
+			eq(#f, 16); eq(f[9], "3"); eq(f[10], "", "no names of this week's donors")
+			for entry in f[14]:gmatch("[^,]+") do assert(entry:find("^[iors]:%d+:[^:]+:[mt]:%d+$"), entry) end
+			-- 0.9's short treasury: totals, the count, the ranking and its latest lines, as before.
+			local g = {}
+			for field in (t8 .. "~"):gmatch("([^~]*)~") do g[#g + 1] = field end
+			eq(#g, 10); eq(g[7], "3")
+			-- Every client reads the book as before (the same reader as 1.0's).
+			AsSoldier()
+			ns.rdb.treasuryReports = nil
+			T.HandleReport("CHANNEL", TREASURER, tb)
+			local r = ns.rdb.treasuryReports and ns.rdb.treasuryReports[TREASURER]
+			assert(r, "taken"); eq(r.donors, 3); eq(#r.weekNames, 0)
+			-- The lists went by whisper, each to whoever asked alone: the King every guild, the
+			-- Captain his own (its payers, never the Treasurer's guildmates).
+			assert(#w.whispered >= 2)
+			for _, x in ipairs(w.whispered) do
+				if x.to == KING then assert(x.msg:find("^FS~"), x.msg)
+				else
+					eq(x.to, "Cap-Realm"); assert(x.msg:find("^FA~"), x.msg)
+					assert(not x.msg:find("Guildmate", 1, true), "another guild's payer")
+				end
+			end
+			-- With every switch on, the army's tab shows the balance, the ranking and the book, and
+			-- nobody's dues.
+			ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = w.clock }
+			local page = Page(T)
+			assert(page:find(ns.L.TREASURY_RANKING, 1, true), page)
+			for _, key in ipairs({ "DUES_ABOVE", "DUES_BELOW", "DUES_GUILDS" }) do assert(not page:find(ns.L[key], 1, true), key) end
 		end)
 	end)
 
