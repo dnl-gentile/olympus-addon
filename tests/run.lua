@@ -25052,5 +25052,129 @@ test("1.1 inactive list (Fern #38): with the gamepad UI the question is Olympus'
 	end)
 end)
 
+
+-- Fern.ROSTER with our Lord away `days` days (online when nil).
+function Fern.AwayRoster(days)
+	local out = {}
+	for i, m in ipairs(Fern.ROSTER) do out[i] = { m[1], m[2], m[3], m[4], m[5], m[6] } end
+	if days then out[1][3], out[1][6] = false, { 0, 0, days, 0 } end
+	return out
+end
+function Fern.Count(list, text)
+	local n = 0
+	for _, s in ipairs(list) do if tostring(s):find(text, 1, true) then n = n + 1 end end
+	return n
+end
+
+test("1.1 a Lord away (Fern #39): one line to our officers when our Lord crosses warnDays, from our roster; again only after he came back; never to members or to him", function()
+	local L, M = ns.L, ns.Members
+	local savedWarn, savedWarned = ns.db.warnDays, ns.rdb.lordWarned
+	local ok, err = pcall(function()
+		ns.db.warnDays = 3
+		local roster = Fern.AwayRoster(4)
+		local line = L.LORD_AWAY_OWN:format("Lordy", 4, 3)
+		-- An officer (rank 1): the scan's line, once.
+		Fern.Guild(1, function(w)
+			ns.rdb.lordWarned = nil
+			local function Scan()
+				ns.Roster.RequestScan(true)
+				ns.Roster.TryScan()
+			end
+			Scan()
+			eq(Fern.Count(w.printed, line), 1, "one line")
+			Scan(); Scan()
+			eq(Fern.Count(w.printed, line), 1, "not again while he stays away")
+			-- He comes back, then goes away again: a new crossing, a new line.
+			roster[1][3] = true
+			Scan()
+			roster[1][3] = false
+			Scan()
+			eq(Fern.Count(w.printed, line), 2, "a new crossing")
+			-- Under the officer's own warnDays: nothing.
+			ns.rdb.lordWarned, ns.db.warnDays = nil, 5
+			Scan()
+			eq(Fern.Count(w.printed, L.LORD_AWAY_OWN:format("Lordy", 4, 5)), 0)
+			ns.db.warnDays = 3
+			for _, s in ipairs(w.sent) do assert(not s:find("Lordy", 1, true) or not s:find("away", 1, true), "nothing sent about him") end
+		end, roster)
+		-- A member, and the Lord himself: nothing.
+		for _, rank in ipairs({ 3, 0 }) do
+			Fern.Guild(rank, function(w)
+				ns.rdb.lordWarned = nil
+				ns.Roster.RequestScan(true)
+				ns.Roster.TryScan()
+				eq(Fern.Count(w.printed, "Lordy"), 0, "rank " .. rank)
+			end, roster)
+		end
+	end)
+	ns.db.warnDays, ns.rdb.lordWarned = savedWarn, savedWarned
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 a Lord away (Fern #39): the King, his Steward and Hands get one line for the Lords of other guilds past warnDays, by the census's word, a guild that stopped reporting included; never twice for one absence", function()
+	local L, M = ns.L, ns.Members
+	local savedWarn, savedCan, savedWarned = ns.db.warnDays, ns.King.CanCommand, ns.rdb.lordWarned
+	local ok, err = pcall(function()
+		Fern.Census(function(w)
+			ns.db.warnDays, ns.rdb.lordWarned = 3, nil
+			local now = os.time()
+			local crown = true
+			ns.King.CanCommand = function() return crown end
+			ns.Comm.loginAt = now - 1000
+			ns.rdb.guilds = {
+				-- 2 days away when it last reported, a day and a half ago: 3.5 now.
+				["Olympus A"] = { total = 100, online = 0, zones = {}, t = now - 36 * 3600, leader = "Al", leaderOnline = false, leaderDays = 2, officers = {} },
+				["Olympus B"] = { total = 100, online = 5, zones = {}, t = now, leader = "Bl", leaderOnline = false, leaderDays = 1, officers = {} },
+				["Olympus C"] = { total = 100, online = 5, zones = {}, t = now, leader = "Cl", leaderOnline = true, leaderDays = 0, officers = {} },
+				["Olympus D"] = { total = 100, online = 5, zones = {}, t = now, leader = "Dl", leaderOnline = false, leaderDays = 10, officers = {} },
+				-- Our own guild: our roster's line, not the census's.
+				["Olympus II"] = { total = 100, online = 5, zones = {}, t = now, leader = "Lordy", leaderOnline = false, leaderDays = 9, officers = {}, mine = true },
+			}
+			eq(M.CheckLords(now), 2)
+			eq(w.printed[#w.printed], L.LORD_AWAY_CROWN_MANY:format(2, 3, L.LORD_AWAY_ENTRY:format("Dl", "Olympus D", 10) .. ", "
+				.. L.LORD_AWAY_ENTRY:format("Al", "Olympus A", 3)), "longest away first, one line")
+			local printed = #w.printed
+			eq(M.CheckLords(now + 60), 0); eq(#w.printed, printed, "not twice")
+			-- D's Lord comes back, then leaves again: one line, for him alone.
+			ns.rdb.guilds["Olympus D"].leaderOnline = true
+			eq(M.CheckLords(now + 120), 0)
+			ns.rdb.guilds["Olympus D"].leaderOnline, ns.rdb.guilds["Olympus D"].leaderDays = false, 4
+			eq(M.CheckLords(now + 180), 1)
+			eq(w.printed[#w.printed], L.LORD_AWAY_CROWN:format("Dl", "Olympus D", 4))
+			-- Seven at once: five named, the rest counted.
+			for k = 1, 7 do
+				ns.rdb.guilds["Olympus M" .. k] = { total = 10, online = 1, zones = {}, t = now, leader = "M" .. k, leaderOnline = false, leaderDays = 5 + k, officers = {} }
+			end
+			eq(M.CheckLords(now + 240), 7)
+			assert(w.printed[#w.printed]:find(L.LORD_AWAY_MORE:format(2), 1, true), w.printed[#w.printed])
+			-- Rebuilding after login: nothing yet.
+			ns.rdb.guilds["Olympus E"] = { total = 10, online = 1, zones = {}, t = now, leader = "El", leaderOnline = false, leaderDays = 6, officers = {} }
+			ns.Comm.loginAt = now + 250
+			eq(M.CheckLords(now + 260), 0)
+			eq(M.CheckLords(now + 250 + ns.Data.CROWN_AFTER), 1)
+			-- Not the Crown: never.
+			crown = false
+			ns.rdb.lordWarned = nil
+			eq(M.CheckLords(now + 999), 0)
+			eq(#w.sent, 0, "nothing sent")
+		end)
+		-- /oly warndays.
+		local saved = ns.Print
+		local printed = {}
+		ns.Print = function(m) printed[#printed + 1] = m end
+		SlashCmdList.OLYMPUS("warndays 5")
+		eq(ns.db.warnDays, 5); eq(printed[1], L.WARNDAYS_SET:format(5))
+		SlashCmdList.OLYMPUS("warndays soon")
+		eq(ns.db.warnDays, 5); eq(printed[2], L.WARNDAYS_USAGE:format(5))
+		SlashCmdList.OLYMPUS("warndays 0")
+		eq(ns.db.warnDays, 5)
+		ns.Print = saved
+	end)
+	ns.db.warnDays, ns.King.CanCommand, ns.rdb.lordWarned = savedWarn, savedCan, savedWarned
+	if not ok then error(err, 0) end
+	Fern.BothLanguages({ "LORD_AWAY_OWN", "LORD_AWAY_CROWN", "LORD_AWAY_ENTRY", "LORD_AWAY_CROWN_MANY", "LORD_AWAY_MORE", "WARNDAYS_USAGE",
+		"WARNDAYS_SET", "HELP_WARNDAYS" })
+end)
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

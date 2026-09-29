@@ -84,7 +84,11 @@ are highlighted. It is rate limited, so nobody gets spammed. The game lists 50 p
 ### The Realm: the hierarchy
 - The **King**, then every guild's **Lord** (guild master) and **Captains** (the officer rank
   right below the guild master).
-  Each shows level, class and online or *offline 3d*. Long absences show in red.
+  Each shows level, class and online or *offline 3d*. Long absences show in red
+  (`/oly warndays <days>`, 3 by default). **A Lord away** (1.1): when a Lord crosses that, one
+  chat line, once per absence: to his own guild's officers from their roster, and to the King,
+  his Steward and his Hands for every guild's Lord, by the census's word (a guild that stopped
+  reporting included). Never a popup, and nothing is done to anyone.
 - The **Treasurer of Olympus** (Pyralis Ashandar, chosen by Asmongold's chat) right under
   the King, with a gold coin next to his name wherever he shows, his tooltip and his lines in
   the Olympus chats included. Only
@@ -917,6 +921,7 @@ Other limits:
 | `/oly` | open or close the window |
 | `/oly realm` · `/oly decrees` · `/oly tabard` | open a tab |
 | `/oly inactive [7\|14\|30]` | your guild's members offline that long, by name (a rank that may remove members removes one per click, asked first) |
+| `/oly warndays <days>` | when a Lord or Captain counts as away: red in the Realm, and one line when a Lord crosses it |
 | `/oly patrol` | start or stop the tabard patrol |
 | `/oly mark [note]` | mark your target |
 | `/oly arms [text]` · `/oly muster [text]` | send a decree (`test` = local preview) |
