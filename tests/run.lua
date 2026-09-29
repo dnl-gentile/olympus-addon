@@ -3828,7 +3828,8 @@ test("chat lines arrive through CHAT_MSG_ADDON_LOGGED, without our echo or block
 	cns.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
 	cns.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
 	cns.After, cns.Every = function() end, function() end
-	local slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS, StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY }
+	local slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS, StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY,
+		StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN }
 	C_ChatInfo = { RegisterAddonMessagePrefix = function() end }
 	ns.db.chatMute = nil
 	local ok, err = pcall(function()
@@ -3856,6 +3857,7 @@ test("chat lines arrive through CHAT_MSG_ADDON_LOGGED, without our echo or block
 	end)
 	SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = slash[1], slash[2], slash[3]
 	StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY = slash[4] -- (0.9.1: Channels.lua's warning, bound to the real module)
+	StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN = slash[5], slash[6] -- (1.1: its pinned line's too)
 	C_ChatInfo = nil
 	if not ok then error(err, 0) end
 end)
@@ -3871,7 +3873,8 @@ test("chat lines put together from pieces are never taken as logged, whichever p
 	cns.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
 	cns.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
 	cns.After, cns.Every = function() end, function() end
-	local slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS, StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY }
+	local slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS, StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY,
+		StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN }
 	C_ChatInfo = { RegisterAddonMessagePrefix = function() end, SendAddonMessageLogged = function() end }
 	ns.db.chatMute = nil
 	local ok, err = pcall(function()
@@ -3896,6 +3899,7 @@ test("chat lines put together from pieces are never taken as logged, whichever p
 	end)
 	SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = slash[1], slash[2], slash[3]
 	StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY = slash[4]
+	StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN = slash[5], slash[6]
 	C_ChatInfo = nil
 	if not ok then error(err, 0) end
 end)
@@ -24878,6 +24882,274 @@ test("1.1 public channel: its lines in both languages", function()
 		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
 		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
 	end
+end)
+
+---------------------------------------------------------------------------
+-- 1.1: one pinned line (request #9)
+---------------------------------------------------------------------------
+
+-- Runs fn(w, K, sent, C) on the Throne's bench (WithThrone), sends recorded with their logged
+-- flag, the channel ready, the pin forgotten before and after.
+local function WithPin(fn)
+	WithThrone(function(w, K)
+		local C = ns.Channels
+		local saved = { ready = ns.Comm.ChannelReady, send = ns.Comm.Send, info = C_ChatInfo, delivered = ns.Comm.DeliveredLogged, flood = C.PIN_FLOOD }
+		local sent = {}
+		local ok, err = pcall(function()
+			C.ResetPin()
+			ns.Comm.ChannelReady = function() return true end
+			ns.Comm.Send = function(dist, msg, key, urgent, logged) sent[#sent + 1] = { dist = dist, msg = msg, key = key, logged = logged } end
+			fn(w, K, sent, C)
+		end)
+		ns.Comm.ChannelReady, ns.Comm.Send, C_ChatInfo, ns.Comm.DeliveredLogged, C.PIN_FLOOD = saved.ready, saved.send, saved.info, saved.delivered, saved.flood
+		C.ResetPin()
+		ns.Views.ShowChat(nil)
+		if not ok then error(err, 0) end
+	end)
+end
+local function Find(lines, text)
+	for i, l in ipairs(lines) do if type(l.text) == "string" and l.text:find(text, 1, true) then return l, i end end
+	return nil
+end
+
+test("1.1 pinned line: a Lord pins one short line with the logged API; it tops the Olympus chats and the Realm for every member, with no popup and no sound", function()
+	WithPin(function(w, K, sent, C)
+		local L = ns.L
+		local popups, sounds = 0, 0
+		local savedPlay = ns.PlayAlert
+		ns.PlayAlert = function() sounds = sounds + 1 end
+		-- A soldier can't pin, and has no control for it.
+		AsSoldier()
+		eq(C.CanPin(), false)
+		eq(C.SetPin("Raid moves to Stranglethorn"), false)
+		assert(Printed(w, L.PIN_ONLY), "told who may")
+		eq(#sent, 0)
+		ns.Views.ShowChat("A")
+		eq(Find(ns.Views.Build("realm"), L.PIN_ADD), nil, "no control for a soldier")
+		ns.Views.ShowChat(nil)
+		-- A Lord: plain text, 100 bytes at most, no escape code or separator.
+		AsLord()
+		eq(C.CanPin(), true)
+		ns.Views.ShowChat("L")
+		assert(Find(ns.Views.Build("realm"), L.PIN_ADD), "the Lord's control on the chats")
+		ns.Views.ShowChat(nil)
+		local ok = C.SetPin("  Raid moves to |cffff0000Stranglethorn|r ~ at 9  " .. ("x"):rep(200))
+		eq(ok, true)
+		eq(#sent, 1)
+		eq(sent[1].dist, "CHANNEL"); eq(sent[1].logged, true, "the logged API: the server keeps the words")
+		local id, body = sent[1].msg:match("^N1~(%d+)~Olympus Zeus~7200~0~(.*)$")
+		assert(id, sent[1].msg)
+		eq(body:find("|", 1, true), nil, "no escape code"); eq(body:find("~", 1, true), nil)
+		assert(#body <= C.PIN_MAX, #body)
+		eq(body:sub(1, 40), "Raid moves to cffff0000Stranglethorn r a")
+		assert(Printed(w, L.PIN_DONE:format(body)), "told")
+		-- Too soon for another; too short.
+		eq(C.SetPin("Another line"), false); assert(Printed(w, L.PIN_WAIT:format(C.PIN_GAP)))
+		-- A soldier's client hears it: on top of the chats and the Realm, a chat line, nothing else.
+		AsSoldier()
+		C.ResetPin()
+		local savedShow = ns.ShowDialog
+		ns.ShowDialog = function() popups = popups + 1 end
+		eq(C.HandlePin("CHANNEL", "Zed-Realm", sent[1].msg), true)
+		ns.ShowDialog = savedShow
+		assert(Printed(w, L.PIN_NEW:format("Zed", "Olympus Zeus", body)), "one line in chat")
+		eq(popups, 0, "no popup"); eq(sounds, 0, "no sound")
+		local realm = ns.Views.Build("realm")
+		local line, at = Find(realm, body:sub(1, 30))
+		assert(line and at == 2, "on top of the Realm, under its search box: " .. tostring(at))
+		assert(line.text:find(L.PIN_LABEL, 1, true))
+		eq(line.onClick, nil, "a soldier can't take it down")
+		ns.Views.ShowChat("A")
+		local chat = ns.Views.Build("realm")
+		local cline, cat = Find(chat, body:sub(1, 30))
+		assert(cline and cat == 3, "on top of the chats, under the box and the way back: " .. tostring(cat))
+		ns.Views.ShowChat(nil)
+		assert(ns.StatusText():find("pinned line: by Zed <Olympus Zeus> (Lord)", 1, true), "in /oly status")
+		-- Said again (late logins): the same pin, its end never later.
+		local ends = C.Pin().expires
+		w.clock = w.clock + 300
+		eq(select(2, C.HandlePin("CHANNEL", "Zed-Realm", ("N1~%s~Olympus Zeus~7200~300~%s"):format(id, body))), "repeat")
+		eq(C.Pin().expires, ends)
+		-- It ends after 2 hours.
+		w.clock = ends
+		eq(C.Pin(), nil)
+		eq(Find(ns.Views.Build("realm"), body:sub(1, 30)), nil, "gone")
+		ns.PlayAlert = savedPlay
+	end)
+end)
+
+test("1.1 pinned line: who may pin (the King, his Stewards and Hands, the Lords), and the King's newer pin wins", function()
+	WithPin(function(w, K, sent, C)
+		local function Pin(sender, guild, text, id, age)
+			return C.HandlePin("CHANNEL", sender, ("N1~%d~%s~7200~%d~%s"):format(id or 1, guild, age or 0, text))
+		end
+		-- A soldier of a guild of neither Lord (our own guild's ranks come from our roster).
+		GetGuildInfo = function() return "Olympus Other", "Member", 3 end
+		ns.me = "Soldier-Realm"
+		-- Nobody we can place: a name claiming a guild, a Captain, a Lord of a guild nobody vouches for.
+		eq(select(2, Pin("Faker-Realm", "Olympus Zeus", "fake news")), "rank")
+		eq(select(2, Pin("Asmongold Asmongler-Realm", "Olympus Zeus", "not his guild")), "rank", "the King speaks for his guild")
+		ns.rdb.guilds["Olympus Zeus"].officers = { { name = "Cap2" } }
+		Vouched(ns.rdb.guilds["Olympus Zeus"], "W3-Realm", "W4-Realm")
+		eq(select(2, Pin("Cap2-Realm", "Olympus Zeus", "a Captain's")), "rank", "a Captain is no Lord")
+		eq(C.Pin(), nil)
+		-- A Lord's pin.
+		eq(Pin("Zed-Realm", "Olympus Zeus", "Lord Zed's line", 11), true)
+		eq(C.Pin().rank, C.PIN_LORD)
+		-- The King's newer pin wins.
+		w.clock = w.clock + 60
+		eq(Pin("Asmongold Asmongler-Realm", "Olympus", "The King's line", 22), true)
+		eq(C.Pin().text, "The King's line"); eq(C.Pin().rank, C.PIN_KING)
+		-- A Lord's pin, newer, never replaces the King's; nor does a Hand's.
+		w.clock = w.clock + 120
+		eq(select(2, Pin("Ceo-Realm", "Olympus II", "Lord Ceo's line", 33)), "older")
+		K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~H~5~Olympus~Helper-Realm")
+		eq(K.IsHandName("Helper-Realm"), true)
+		eq(select(2, Pin("Helper-Realm", "Olympus", "A Hand's line", 44)), "older")
+		eq(C.Pin().text, "The King's line")
+		-- A Lord can't take the King's pin down; the King can.
+		eq(select(2, C.HandlePin("CHANNEL", "Zed-Realm", "N1~11~Olympus Zeus~0~0~")), "nothing")
+		eq(C.Pin().text, "The King's line")
+		eq(select(2, C.HandlePin("CHANNEL", "Asmongold Asmongler-Realm", "N1~22~Olympus~0~0~")), "down")
+		eq(C.Pin(), nil)
+		-- A Hand's pin outranks the Lords'.
+		w.clock = w.clock + 120
+		eq(Pin("Helper-Realm", "Olympus", "A Hand's line", 45), true)
+		eq(C.Pin().rank, C.PIN_CROWN)
+		w.clock = w.clock + 120
+		eq(select(2, Pin("Zed-Realm", "Olympus Zeus", "Lord Zed again", 12)), "older")
+		-- Of one rank, the one set last: a pin set earlier (said again for late logins) never wins.
+		C.ResetPin()
+		eq(Pin("Zed-Realm", "Olympus Zeus", "Zed's", 13, 0), true)
+		eq(select(2, Pin("Ceo-Realm", "Olympus II", "Ceo's, set 10 minutes ago", 34, 600)), "older")
+		w.clock = w.clock + 60
+		eq(Pin("Ceo-Realm", "Olympus II", "Ceo's, newer", 35, 0), true)
+		eq(C.Pin().text, "Ceo's, newer")
+		-- A sender's new pin once a minute at most; the Lords together PIN_FLOOD a minute.
+		eq(select(2, Pin("Ceo-Realm", "Olympus II", "Ceo's again", 36, 0)), "fast")
+		C.ResetPin()
+		C.PIN_FLOOD = 1
+		eq(Pin("Zed-Realm", "Olympus Zeus", "one", 14), true)
+		w.clock = w.clock + 1
+		eq(select(2, Pin("Ceo-Realm", "Olympus II", "two", 37)), "flood")
+		-- Ignored players are ignored here too; and words sent with the plain API are dropped.
+		C.ResetPin()
+		C_ChatInfo = { SendAddonMessageLogged = function() end, IsIgnored = nil }
+		ns.Comm.DeliveredLogged = function() return false end
+		eq(select(2, Pin("Zed-Realm", "Olympus Zeus", "plain API", 15)), "unlogged")
+		ns.Comm.DeliveredLogged = function() return true end
+		eq(Pin("Zed-Realm", "Olympus Zeus", "logged API", 16), true)
+	end)
+end)
+
+test("1.1 pinned line: its setter's client repeats it for late logins, stops once it is replaced, and takes it down", function()
+	WithPin(function(w, K, sent, C)
+		AsLord()
+		eq(C.SetPin("Muster at Southshore"), true)
+		local id = sent[1].msg:match("^N1~(%d+)~")
+		C.RepeatPin()
+		eq(#sent, 1, "not yet")
+		w.clock = w.clock + C.PIN_RESEND
+		C.RepeatPin()
+		eq(#sent, 2)
+		eq(sent[2].msg, ("N1~%s~Olympus Zeus~%d~%d~Muster at Southshore"):format(id, 7200 - C.PIN_RESEND, C.PIN_RESEND), "its time left and its age")
+		eq(sent[2].logged, true)
+		-- Our line, taken down: for everyone.
+		eq(C.CanTakeDown(), true)
+		eq(C.TakeDownPin(), true)
+		eq(sent[3].msg, ("N1~%s~Olympus Zeus~0~0~"):format(id))
+		eq(C.Pin(), nil)
+		-- Pinned again, then the King's arrives: ours is no longer ours to repeat.
+		w.clock = w.clock + C.PIN_GAP
+		eq(C.SetPin("Muster at Tarren Mill"), true)
+		w.clock = w.clock + 5
+		eq(C.HandlePin("CHANNEL", "Asmongold Asmongler-Realm", "N1~9~Olympus~7200~0~The King's line"), true)
+		local before = #sent
+		w.clock = w.clock + C.PIN_RESEND
+		C.RepeatPin()
+		eq(#sent, before, "replaced: not repeated")
+		-- A Lord can't take the King's down: he is told so, nothing is sent.
+		eq(C.CanTakeDown(), false)
+		eq(C.TakeDownPin(), false)
+		assert(Printed(w, ns.L.PIN_NOT_YOURS))
+		eq(#sent, before)
+		-- /oly pin: what is pinned; /oly pin off.
+		w.printed = {}
+		SlashCmdList.OLYMPUS("pin")
+		assert(Printed(w, "The King's line"), "shown")
+		-- The King: his pin can be taken down from the line itself (a question first).
+		AsKing()
+		local line = Find(ns.Views.Build("realm"), "The King's line")
+		assert(line and line.onClick, "a click takes it down")
+		local asked
+		local savedShow = ns.ShowDialog
+		ns.ShowDialog = function(which) asked = which end
+		line.onClick()
+		ns.ShowDialog = savedShow
+		eq(asked, "OLYMPUS_PIN_DOWN")
+		SlashCmdList.OLYMPUS("pin off")
+		eq(C.Pin(), nil)
+		assert(sent[#sent].msg:find("^N1~%d+~Olympus~0~0~$"), sent[#sent].msg)
+	end)
+end)
+
+test("1.1 pinned line: with the gamepad UI the line is typed in Olympus's own dialog, never the game's popup", function()
+	WithUI(function()
+		LoadUI()
+		WithGamepadUI(true, function(game)
+			WithPin(function(w, K, sent, C)
+				AsLord()
+				ns.Views.ShowChat("L")
+				local add = Find(ns.Views.Build("realm"), ns.L.PIN_ADD)
+				assert(add and add.onClick, "the control")
+				add.onClick()
+				eq(#game.shown, 0, "never the game's popup")
+				local f = ns.Dialog.Find("OLYMPUS_PIN")
+				assert(f and f:IsShown() and f.editBox:IsShown(), "our dialog, with its box")
+				f.editBox:SetText("Raid at dawn")
+				f.buttons[1]:Click()
+				eq(f:IsShown(), false)
+				assert(sent[1] and sent[1].msg:find("~Raid at dawn$"), sent[1] and sent[1].msg)
+			end)
+		end)
+	end)
+end)
+
+test("1.1 pinned line: a client without N1 (1.0, 0.9.8) drops it unread", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		for _, old in ipairs({ false, true }) do
+			local cns, Deliver = FreshComm(old)
+			local C = cns.Comm
+			C.JoinChannel()
+			local captured
+			local savedCapture = ns.CaptureError
+			ns.CaptureError = function(where, e) captured = where .. ": " .. tostring(e) end
+			Deliver("CHANNEL", "Zed-Realm", "N1~5~Olympus Zeus~7200~0~Raid moves to Stranglethorn")
+			Deliver("CHANNEL", "Zed-Realm", "N1~5~Olympus Zeus~0~0~")
+			ns.CaptureError = savedCapture
+			eq(captured, nil, "no error")
+			eq(C.Stats().bad, 0, "not taken for a bad report")
+		end
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 pinned line: its lines in both languages", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, k in ipairs({ "PIN_LABEL", "PIN_TIP", "PIN_DOWN_TIP", "PIN_NEW", "PIN_ADD", "PIN_ADD_TIP", "PIN_ASK", "PIN_BUTTON", "PIN_DOWN_ASK",
+		"PIN_DONE", "PIN_TAKEN_DOWN", "PIN_NONE", "PIN_NOW", "PIN_ONLY", "PIN_USAGE", "PIN_OUTRANKED", "PIN_WAIT", "PIN_NOT_YOURS", "HELP_PIN" }) do
+		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+	end
+	eq(StaticPopupDialogs.OLYMPUS_PIN.text, ns.L.PIN_ASK)
 end)
 
 -- (the end of 1.1's tests)

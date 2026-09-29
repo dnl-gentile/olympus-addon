@@ -1264,6 +1264,7 @@ local function Help()
 	print(L.HELP_CHAN_CAPTAINS)
 	print(L.HELP_CHAN_LORDS)
 	print(L.HELP_CHAN_MUTE)
+	print(L.HELP_PIN)
 	print(L.HELP_CHATWIN)
 	print(L.HELP_VOX)
 	print("  /oly mates - show/hide guildmates on map and minimap")
@@ -1446,6 +1447,9 @@ SlashCmdList.OLYMPUS = function(input)
 			error("test error from /oly error")   -- to check that bug capture works
 		elseif cmd == "all" or cmd == "captains" or cmd == "lords" then
 			ns.Channels.Send(ns.Channels.TierForWord(cmd), rest)
+		elseif cmd == "pin" then
+			-- One line pinned for everyone (1.1, Channels.lua): the King, his Stewards and Hands, the Lords.
+			ns.Channels.PinCommand(rest)
 		elseif cmd == "mute" then
 			ns.Channels.ToggleMute(rest)
 		elseif cmd == "chatwindow" then
