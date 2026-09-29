@@ -45,6 +45,7 @@ Week.lua
 Treasury.lua
 Dues.lua
 Bank.lua
+Backup.lua
 Acts.lua
 Chronicle.lua
 Moderation.lua

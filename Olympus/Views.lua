@@ -176,9 +176,16 @@ local function ItemButton(r, k)
 	end
 	b:RegisterForClicks("LeftButtonUp")
 	b:SetScript("OnClick", function(self)
+		-- 1.1: a grid whose line takes a click on an item (the Treasury's bank: a Lord or a
+		-- Captain asks the treasury for it, Bank.lua), a plain click.
+		local it = self.item
+		local row = self.GetParent and self:GetParent()
+		local line = row and row.line
+		if it and not it.gone and line and line.onItem and not (IsShiftKeyDown and IsShiftKeyDown()) then
+			return ns.SafeCall("view item", line.onItem, it)
+		end
 		-- Shift-click: the link into the chat box, as in a bag (not with the gamepad UI: its
 		-- chat box would be blocked, see Dialog.lua).
-		local it = self.item
 		if not it or not IsShiftKeyDown or not IsShiftKeyDown() or ns.GamepadUI() or not ChatEdit_InsertLink then return end
 		local link = it.link
 		if not link and GetItemInfo then local okInfo, _, l = pcall(GetItemInfo, it.id); if okInfo then link = l end end
@@ -193,6 +200,10 @@ local function ItemButton(r, k)
 		if not ok and it.id and GameTooltip.SetItemByID then ok = pcall(GameTooltip.SetItemByID, GameTooltip, it.id) end
 		if not ok then GameTooltip:AddLine("#" .. tostring(it.id), 1, 1, 1) end
 		if (it.n or 0) > 1 then GameTooltip:AddLine("x" .. it.n, 0.8, 0.8, 0.8) end
+		if it.gone then GameTooltip:AddLine(L.BANK_GONE_SLOT, 1, 0.4, 0.4, true) end
+		local row = self.GetParent and self:GetParent()
+		local hint = not it.gone and row and row.line and row.line.itemHint
+		if hint then GameTooltip:AddLine(hint, 0.6, 1, 0.6, true) end
 		GameTooltip:Show()
 	end)
 	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -220,6 +231,14 @@ local function SetSlot(b, it)
 		b.icon:SetShown(it ~= nil)
 		b.count:SetText(it and (it.n or 0) > 1 and tostring(it.n) or "")
 	end
+	-- 1.1: a stack gone since the snapshot before (the Treasury's bank, Bank.Gone): faded and red,
+	-- in the slot it sat in.
+	local gone = it ~= nil and it.gone == true
+	if b.icon.SetDesaturated then b.icon:SetDesaturated(gone) end
+	if b.icon.SetVertexColor then
+		if gone then b.icon:SetVertexColor(1, 0.35, 0.35) else b.icon:SetVertexColor(1, 1, 1) end
+	end
+	if b.SetAlpha then b:SetAlpha(gone and 0.6 or 1) end
 end
 
 function Views.LayoutColumns(fontStrings, layout, width, offset)
@@ -1527,6 +1546,8 @@ local function RealmLines(s, q)
 			if type(shared) == "string" then lines[#lines + 1] = { indent = 1, text = Grey(shared) } end
 		end
 	end
+	-- 1.1: the treasury's keepers taking donations now (Treasury.lua), under the King and the Treasurer.
+	for _, l in ipairs(not q and ns.Treasury and ns.Treasury.DonationLines and ns.Treasury.DonationLines() or {}) do lines[#lines + 1] = l end
 	-- The High Council, under them (0.9.9).
 	local found = councilShown and CouncilLines(lines, s, q) or 0
 	-- Above the chats and the guilds (1.1): the channel is public (who can read them), and right

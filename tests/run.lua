@@ -6322,12 +6322,17 @@ test("The Treasury: the Treasurer's book (not his gold), the King's three switch
 			ns.Comm.SendChunked = function(m) w.sent[#w.sent + 1] = { dist = "CHANNEL", msg = m, chunked = true } end
 			T.Share(true)
 			ns.Comm.SendChunked = savedChunked
-			local msg = LastSent(w)
-			-- (1.1, Fern's #36: the week's donors go out as a count, 3, never by name.)
+			-- 1.1: the channel carries the army's part alone, and the King shows the army nothing
+			-- yet: no name and no number there (Zeal's promise, its own test further down). The
+			-- whole book is what goes by whisper to the King, a Steward and the keepers.
+			eq(LastSent(w), "TB~1.0~Olympus~0~0~0~0~0~0~~-~000@1~~~~0:0", "the army's part: nothing")
+			local msg = T.Message() -- (Fern's #36: the week's donors as a count, 3, never by name)
 			assert(msg:find("^TB~1%.0~Olympus~1000000~1170456~175456~5000~175456~3~~%-~%-~Trader:123456,Giver:50000,Friend:2000~o:5000:Crafter:m:"), msg)
 			assert(not msg:find("Linen", 1, true) and not msg:find(":40000:", 1, true), "sales and purchases are not sent")
-			-- And for 0.9 clients, 0.9's treasury as they read it (the Treasurer's alone).
-			local legacy = w.sent[#w.sent - 1].msg
+			-- And for 0.9 clients, 0.9's treasury as they read it (the Treasurer's alone): on the
+			-- channel too, so nothing the King hides; whole, what his client would send with all shown.
+			eq(w.sent[#w.sent - 1].msg, "T8~Olympus~0~0~0~0~0~-~~", "0.9's copy: nothing hidden either")
+			local legacy = T.LegacyMessage()
 			assert(legacy:find("^T8~Olympus~1170456~175456~5000~175456~3~%-~Trader:123456,Giver:50000,Friend:2000~o:5000:Crafter:m:"), legacy)
 			-- The King's copy: from the Treasurer himself only (the King's own book is empty here).
 			AsKing()
@@ -6338,7 +6343,7 @@ test("The Treasury: the Treasurer's book (not his gold), the King's three switch
 			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", "T7~Olympus~123~1~1~1~"); eq(Books(), 1, "0.8.3's (his own gold): not read")
 			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", (msg:gsub("^TB", "T7"))); eq(Books(), 1, "T7 is 0.8.3's")
 			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", legacy); eq(Books(), 1, "T8 is 0.9's: 1.0 never reads it")
-			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", msg)
+			T.HandleReport("WHISPER", "Pyralis Ashandar-Realm", msg)
 			local r = T.Report()
 			eq(Books(), 2)
 			eq(r.balance, 1170456); eq(r.rank[1].name, "Trader"); eq(#r.book, 5); eq(r.book[1].e.out, true)
@@ -6518,7 +6523,9 @@ test("Treasury review fixes: the week survives the update, the King's word reach
 			ns.Comm.SendChunked = function(msg) w.sent[#w.sent + 1] = { dist = "CHANNEL", msg = msg, chunked = true } end
 			T.Share(true)
 			ns.Comm.SendChunked = savedChunked
-			eq(w.sent[#w.sent].chunked, true, "a long treasury goes in pieces")
+			-- (1.1: with the balance alone shown, the channel carries its numbers and no name at all, the
+			-- week's donors a count (#36): one message now, where the whole book went in pieces.)
+			eq(w.sent[#w.sent].chunked, nil, "the army's part, the balance alone: one message")
 			local report = LastSent(w)
 			assert(report:find("~100@" .. at .. "~", 1, true), report)
 			AsSoldier(); ns.rdb.treasuryFlags = nil
@@ -6932,10 +6939,13 @@ test("the guild bank of <Olympus>: a snapshot when it is opened, the Treasurer's
 			ns.rdb.bank = snap
 			local msg = B.Message()
 			eq(msg, ("T9~Olympus~%d~1234567~Consumables;929x20,.3,6948x3~Mate rials x;2589x200"):format(snap.t), "the empty slots between as a gap")
-			-- Shared by the Treasurer's client alone, once per gap unless it changed.
+			-- Shared by the Treasurer's client alone, once per gap unless it changed. (1.1: on the
+			-- channel while the King shows the army the book, as here; by whisper otherwise, its own test.)
+			ns.rdb.treasuryFlags = { book = true, at = 1 }
 			ns.Comm.SendChunked = function(m) w.sent[#w.sent + 1] = { dist = "CHANNEL", msg = m, chunked = true } end
 			eq(B.Share(), true); eq(LastSent(w), msg)
 			eq(B.Share(), false, "unchanged, within the gap")
+			ns.rdb.treasuryFlags = nil
 			AsSoldier()
 			eq(B.Share(true), false, "not the Treasurer")
 			-- The King's copy: from the Treasurer alone, of the King's guild's bank.
@@ -6944,7 +6954,9 @@ test("the guild bank of <Olympus>: a snapshot when it is opened, the Treasurer's
 			ns.Roster.RankOf = function(n) if ns.FullName(n) == "Pyralis Ashandar-Realm" then return 1 end return savedRank(n) end
 			B.HandleReport("CHANNEL", "Fake-Realm", msg); eq(B.Report(), nil, "not the Treasurer")
 			B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", (msg:gsub("^T9~Olympus~", "T9~Olympus II~"))); eq(B.Report(), nil, "not the King's guild")
-			B.HandleReport("WHISPER", "Pyralis Ashandar-Realm", msg); eq(B.Report(), nil, "the channel alone")
+			-- (1.1: by whisper to the King, a Steward or a keeper alone; a soldier's client never takes it.)
+			AsSoldier(); B.HandleReport("WHISPER", "Pyralis Ashandar-Realm", msg); eq(B.Report(), nil, "a whisper to a soldier: not taken")
+			AsKing()
 			B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", msg)
 			local r = B.Report()
 			eq(#r.tabs, 2); eq(r.tabs[2].items[1].id, 2589); eq(r.tabs[2].items[1].n, 200); eq(r.money, 1234567); eq(r.by, "Pyralis Ashandar-Realm")
@@ -7954,6 +7966,8 @@ test("0.9.1 guild bank: read once the slots settle, a tab that never arrived kee
 		local ok, err = pcall(function()
 			B.Reset()
 			AsTreasurer()
+			-- (1.1: the bank goes on the channel while the King shows the army the book.)
+			ns.rdb.treasuryFlags = { book = true, at = 1 }
 			local gt, timers = 100, {}
 			GetTime = function() return gt end
 			ns.After = function(sec, _, fn) timers[#timers + 1] = { at = gt + sec, fn = fn } end
@@ -17852,8 +17866,11 @@ test("1.0 a keeper named: his own book opens at his gold, his own yes (the King'
 			eq(#w.sent, sent, "no yes: nothing sent")
 			StaticPopupDialogs.OLYMPUS_TREASURER_SHARE.OnAccept()
 			eq(ns.db.keeperShares["test keeper-realm"], true, "his own yes, by his character")
-			local book = LastSent(w)
-			assert(book:find("^TB~1%.0~Olympus II~250000~260000~10000~0~10000~1~~%-~%-~Fan:10000~i:10000:Fan:m:"), book) -- (1.1: the week's donors as a count, #36)
+			-- (1.1: on the channel the army's part, nothing while the King shows nothing; his whole
+			-- book goes by whisper to the King, a Steward and the keepers.)
+			eq(LastSent(w), "TB~1.0~Olympus II~0~0~0~0~0~0~~-~000@1~~~~0:0")
+			local book = T.Message() -- (the week's donors as a count, #36)
+			assert(book:find("^TB~1%.0~Olympus II~250000~260000~10000~0~10000~1~~%-~%-~Fan:10000~i:10000:Fan:m:"), book)
 			eq(w.sent[#w.sent - 1].msg:find("^T8~") , nil, "0.9's treasury is the Treasurer's alone")
 			-- The King is asked his own yes; his no is his: the Treasurer's 0.9.3 yes stays.
 			AsKing()
@@ -18301,8 +18318,12 @@ test("1.0 the guild bank on Forever: its window opens through the interaction ma
 				After = function(sec, _, fn) timers[#timers + 1] = { at = gt + sec, fn = fn } end,
 				Every = function() end,
 				Comm = setmetatable({ Handle = function() end }, { __index = ns.Comm }),
+				-- (1.1: its whisper handlers and its popup registered nowhere: the addon's own Bank.lua keeps them.)
+				Treasury = setmetatable({ OnPrivate = function() end }, { __index = ns.Treasury }),
 			}, { __index = ns })
+			local popup = StaticPopupDialogs.OLYMPUS_SISTER_BANK
 			assert(loadfile(ADDON_DIR .. "Bank.lua"))("Olympus", bns)
+			StaticPopupDialogs.OLYMPUS_SISTER_BANK = popup
 			local Bank = bns.Bank
 			Bank.Reset()
 			local function Run()
@@ -18315,6 +18336,8 @@ test("1.0 the guild bank on Forever: its window opens through the interaction ma
 			assert(events.GUILDBANKFRAME_OPENED, "and the older clients' event")
 			AsKing()
 			ns.db.keeperShares = { [KING_KEY] = true }
+			-- (1.1: the bank goes on the channel while the King shows the army the book.)
+			ns.rdb.treasuryFlags = { book = true, at = 1 }
 			-- Another window of the interaction manager (a merchant): nothing.
 			events.PLAYER_INTERACTION_MANAGER_FRAME_SHOW(5)
 			gt = gt + 2; Run()
@@ -18606,6 +18629,9 @@ test("1.0 the Treasurer's client passes on his mail character's book (it never r
 			end
 			ns.db.myCharacters = { [TREASURER_KEY] = true, [ANDARAI_KEY] = true }
 			ns.db.keeperShares = { [TREASURER_KEY] = true, [ANDARAI_KEY] = true }
+			-- (1.1: the King shows the army all three parts here, so the whole books go on the channel
+			-- as in 1.0; with a part hidden they go whole by whisper, their own test.)
+			ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = 1 }
 			-- Its book, on the account (no guild: its own client sends nothing).
 			AsAndarai(nil)
 			mail.gold = 400000
@@ -18737,7 +18763,9 @@ test("1.0 the early supporters: everyone who gave before 1.0, names only, alphab
 			assert(page:find("alice Early, Bob Early, Carl Early, Zed Donor", 1, true), page)
 			assert(not page:find("Paid Crafter", 1, true) and not page:find("Buyer Guy", 1, true), "a payment, a sale: no gift")
 			assert(not page:find(T.Coins(900001), 1, true) and not page:find(T.Coins(200000), 1, true), "no amount of 0.9's")
-			-- Sent with his yes alone, in pieces of one message each, names only.
+			-- Sent with his yes alone, in pieces of one message each, names only. (1.1: on the
+			-- channel while the King shows the army the ranking; by whisper otherwise, its own test.)
+			ns.rdb.treasuryFlags = { ranking = true, at = w.clock - 1 }
 			ns.db.keeperShares = { [TREASURER_KEY] = false }
 			eq(T.SendEarly(true), false); eq(#Sent("TE~"), 0, "his no: nothing sent")
 			ns.db.keeperShares = { [TREASURER_KEY] = true }
@@ -18860,6 +18888,8 @@ test("1.0 the early supporters go out from his mail character only with the Trea
 			-- His 0.9 book, archived on his account (his mail character reads it there too).
 			ns.rdb.treasuryEpoch = nil
 			ns.rdb.treasury = { { name = "Alice Early", money = 100, how = "mail", t = w.clock - 1000 } }
+			-- (1.1: on the channel while the King shows the army the ranking, as here.)
+			ns.rdb.treasuryFlags = { ranking = true, at = w.clock - 1 }
 			AsTreasurer()
 			T.Migrate()
 			local want = ("TE~Olympus~%d~1~1~Alice Early"):format(ns.rdb.treasuryArchive["0.9"].closed)
@@ -19253,7 +19283,10 @@ test("1.0.0 Konig's review: a keeper whose PC clock is wrong still has his book 
 			mailBook.opening = 0
 			T.Record("Mail Giver", 900, "mail", nil, { quiet = true, book = mailBook })
 			w.sent = {}
+			-- (1.1: whole on the channel while the King shows the army all of it, as here.)
+			ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = 1 }
 			T.Relay(true)
+			ns.rdb.treasuryFlags = nil
 			local tr
 			for _, s in ipairs(w.sent) do if s.msg:find("^TR~") then tr = s.msg end end
 			assert(tr, "relayed")
@@ -19381,6 +19414,8 @@ test("1.0.0 Konig's review: the early supporters go out only with the Treasurer'
 				return out
 			end
 			-- His 0.9 book, archived on his account; his 0.9.3 yes, no answer to 1.0's question yet.
+			-- (1.1: the list goes on the channel while the King shows the army the ranking, as here.)
+			ns.rdb.treasuryFlags = { ranking = true, at = 1 }
 			ns.rdb.treasuryEpoch = nil
 			ns.rdb.treasury = { { name = "Alice Early", money = 100, how = "mail", t = w.clock - 1000 } }
 			AsTreasurer()
@@ -19397,7 +19432,9 @@ test("1.0.0 Konig's review: the early supporters go out only with the Treasurer'
 			eq(T.AskConsent(), true, "1.0's question, though 0.9.3's yes stands")
 			eq(w.popups[#w.popups].name, "OLYMPUS_TREASURER_SHARE")
 			local ask = StaticPopupDialogs.OLYMPUS_TREASURER_SHARE.text
-			assert(ask:find("names of everyone who gave before 1.0", 1, true) and ask:find("every client on it receives them, the names too", 1, true), ask)
+			-- (1.1: what the King shows the army goes on the channel, the names too; the rest by whisper.)
+			assert(ask:find("names of everyone who gave before 1.0", 1, true) and ask:find("every client on it receives it, the names too", 1, true), ask)
+			assert(ask:find("The rest goes by whisper to the King", 1, true), ask)
 			-- His yes to it: the list goes out, and an ask is answered.
 			StaticPopupDialogs.OLYMPUS_TREASURER_SHARE.OnAccept()
 			eq(ns.db.keeperShares[TREASURER_KEY], true)
@@ -23006,14 +23043,18 @@ test("1.0.0 OfficerSpy's bridge: on the King's screen, while the councillors' na
 	if not ok then error(err, 0) end
 end)
 
-test("1.0.0 treasury: the reminder a sharing keeper gets says what he shares goes out on the Olympus channel, hidden or shown (both languages)", function()
+-- 1.1: what the King hides no longer goes on the channel (Zeal's promise): the reminder says the
+-- hidden parts are whispered to the keepers, the King and his Steward alone, and the part the
+-- army sees goes on the channel, which every client on it receives.
+test("1.0.0 treasury: the reminder a sharing keeper gets says where what he shares goes, hidden or shown (both languages)", function()
 	local T, L = ns.Treasury, ns.L
 	local saved = ns.rdb.treasuryFlags
 	ns.rdb.treasuryFlags = {}
-	assert(T.WhoSees():find("every client on it receives it", 1, true), T.WhoSees())
+	assert(T.WhoSees():find("none of it goes on the Olympus channel", 1, true) and T.WhoSees():find("whispers it to them alone", 1, true), T.WhoSees())
 	assert(T.WhoSees():find("bank", 1, true), "the bank named too: " .. T.WhoSees())
 	ns.rdb.treasuryFlags = { ranking = true }
 	assert(T.WhoSees():find(L.TREASURY_PART_RANKING, 1, true) and T.WhoSees():find("every client on it receives it", 1, true), T.WhoSees())
+	assert(T.WhoSees():find("whispers only to the keepers", 1, true), T.WhoSees())
 	ns.rdb.treasuryFlags = saved
 	local pt = { L = setmetatable({}, { __index = ns.L }) }
 	local savedLocale = GetLocale
@@ -23021,8 +23062,9 @@ test("1.0.0 treasury: the reminder a sharing keeper gets says what he shares goe
 	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
 	GetLocale = savedLocale
 	if not ok then error(err, 0) end
-	assert(rawget(pt.L, "TREASURY_YOU_AND_KING"):find("todo cliente nele recebe", 1, true))
+	assert(rawget(pt.L, "TREASURY_YOU_AND_KING"):find("nada disso sai no canal", 1, true))
 	assert(rawget(pt.L, "TREASURY_YOU_AND_KING_BUT"):find("todo cliente nele recebe", 1, true))
+	assert(rawget(pt.L, "TREASURY_YOU_AND_KING_BUT"):find("sussurra", 1, true))
 end)
 
 ---------------------------------------------------------------------------
@@ -31660,6 +31702,9 @@ do
 			Mail(mail, Nm(8), 500, D.Note(week, "Olympus II")) -- (under the amount)
 			Mail(mail, "Guildmate", 20000, "for the treasury")
 			ns.rdb.duesAmount = { copper = 10000, at = w.clock, from = KING }
+			-- (The King shows the army everything, so the whole book rides the channel: still no names
+			-- of the week's donors. Showing less sends less, 1.1's treasury part E.)
+			ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = w.clock, from = KING }
 			w.sent, w.whispered = {}, {}
 			-- Everything his client sends: his book and 0.9's short treasury, the amount, both lists.
 			T.Share(true)
@@ -33716,6 +33761,996 @@ test("1.1 crafters (#24): /oly craft and /oly crafter; the strings in both langu
 	end
 end)
 end
+---------------------------------------------------------------------------
+-- 1.1 (batch E): the treasury. What the King's switches hide off the public channel (Zeal's
+-- promise), the bank's search, what left it and the sister guilds' banks, bank requests, the
+-- Treasurer's "taking donations", and a clipboard backup.
+---------------------------------------------------------------------------
+
+-- Timers (ns.After) queued, run in order by Run(): whispers in pieces go out whole.
+local function Queued()
+	local queue = {}
+	local function After(_, _, fn) queue[#queue + 1] = fn end
+	local function Run() while #queue > 0 do table.remove(queue, 1)() end end
+	return After, Run, queue
+end
+
+-- 1.0.0's Treasury.lua (tests/fixtures/treasury-1.0.0.lua) in a namespace of its own, as a 1.0
+-- client runs it: its own saved variables, its handlers and popups registered nowhere.
+local function OldTreasury()
+	local popups = {}
+	for k, v in pairs(StaticPopupDialogs) do popups[k] = v end
+	local logs = {}
+	local tns = setmetatable({
+		On = function() end, Fire = function() end, rdb = {}, Log = function(fmt, ...) logs[#logs + 1] = tostring(fmt):format(...) end,
+		Comm = setmetatable({ Handle = function() end }, { __index = ns.Comm }),
+		King = setmetatable({ Register = function() end }, { __index = ns.King }),
+	}, { __index = ns })
+	local ok, err = pcall(function() assert(loadfile(ROOT .. "tests/fixtures/treasury-1.0.0.lua"))("Olympus", tns) end)
+	for k in pairs(StaticPopupDialogs) do StaticPopupDialogs[k] = nil end
+	for k, v in pairs(popups) do StaticPopupDialogs[k] = v end
+	if not ok then error(err, 0) end
+	return tns.Treasury, tns, logs
+end
+
+test("1.1 Zeal's promise: what the King hides never goes on the channel; the King, his Stewards and the keepers get it whole by whisper", function()
+	WithThrone(function(w, K)
+		local T, B = ns.Treasury, ns.Bank
+		local saved = { split = ns.splitNames, after = ns.After, chunked = ns.Comm.SendChunked, notFound = ERR_CHAT_PLAYER_NOT_FOUND_S, chat = C_ChatInfo }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			local After, Run = Queued()
+			ns.After = After
+			ns.Comm.SendChunked = function(m) w.sent[#w.sent + 1] = { dist = "CHANNEL", msg = m } end
+			local function Channel(prefix)
+				local out = {}
+				for _, s in ipairs(w.sent) do if s.msg:sub(1, #prefix) == prefix then out[#out + 1] = s.msg end end
+				return out
+			end
+			local KING = "Asmongold Asmongler-Realm"
+			-- The Treasurer's book (a donor, a payment, an item), his snapshot of the bank, 0.9's early supporters.
+			ns.rdb.treasuryEpoch = nil
+			ns.rdb.treasury = { { name = "Early Friend", money = 100, how = "mail", t = w.clock - 1000 } }
+			AsTreasurer()
+			T.Migrate()
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			T.SetOpening("1000")
+			T.Record("Secret Donor", 250000, "trade", nil, { quiet = true })
+			T.Record("Paid Crafter", 50000, "mail", true, { quiet = true })
+			T.Record("Item Giver", 0, "mail", nil, { quiet = true, item = 2589, count = 20 })
+			ns.rdb.bank = { t = w.clock, guild = "Olympus", by = ns.me, money = 777777, tabs = { { name = "Main", i = 1, items = { { id = 2589, n = 200, s = 1 } } } } }
+			local SECRETS = { "Secret Donor", "Paid Crafter", "Item Giver", "250000", "50000", "777777", "2589", "Early Friend", "10000000" }
+			local function NothingHidden(msgs, what)
+				for _, m in ipairs(msgs) do
+					for _, secret in ipairs(SECRETS) do assert(not m:find(secret, 1, true), what .. ": " .. secret .. " in " .. m) end
+				end
+			end
+			-- Every switch off (as the King starts): his book, the bank, the early supporters, 0.9's
+			-- copy: none of it on the channel.
+			w.sent = {}
+			T.Share(true); B.Share(true); T.SendEarly(true); Run()
+			local all = {}
+			for _, s in ipairs(w.sent) do all[#all + 1] = s.msg end
+			NothingHidden(all, "on the channel")
+			eq(Channel("TB~")[1], "TB~1.0~Olympus~0~0~0~0~0~0~~-~000@1~~~~0:0", "his book: the army's part, nothing")
+			eq(Channel("T8~")[1], "T8~Olympus~0~0~0~0~0~-~~", "0.9's copy: nothing either")
+			eq(#Channel("T9~"), 0, "no bank"); eq(#Channel("TE~"), 0, "no early supporters")
+			eq(#w.whispered, 0, "nobody of theirs heard yet: nothing whispered")
+			-- A soldier asks: nothing. The King's client asks (after his login): all of it, whole,
+			-- by whisper to him alone, one message of the game's size each.
+			T.HandleAsk("CHANNEL", "Soldier-Realm", "TA~Olympus II~0"); Run()
+			eq(#w.whispered, 0, "a soldier's ask: nothing")
+			T.HandleAsk("CHANNEL", KING, "TA~Olympus~0"); Run()
+			local toKing, kinds = {}, {}
+			for _, x in ipairs(w.whispered) do
+				eq(x.to, KING, "to the King alone")
+				assert(#x.msg <= 255, "one message each: " .. #x.msg)
+				toKing[#toKing + 1] = x.msg
+				kinds[x.msg:match("^TW~(%w%w)~") or x.msg:sub(1, 2)] = true
+			end
+			assert(kinds.TB and kinds.T9 and kinds.TE, "his book, the bank, the early supporters")
+			-- Asked again (what changed): nothing new, nothing again.
+			local n = #w.whispered
+			T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+			eq(#w.whispered, n, "nothing changed: nothing whispered again")
+			-- Unchanged, whispered again once PRIVATE_REPEAT is over (a piece lost on the way).
+			w.clock = w.clock + T.PRIVATE_REPEAT
+			T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+			assert(#w.whispered > n, "again after PRIVATE_REPEAT")
+			n = #w.whispered
+			-- His book changes: on the channel still nothing of it, the King (heard) gets it at once.
+			w.sent = {}
+			w.clock = w.clock + T.SHARE_GAP
+			T.Record("Secret Donor", 1000, "trade", nil, { quiet = true }); T.Share(true); Run()
+			assert(#w.whispered > n and w.whispered[#w.whispered].to == KING, "the new book whispered")
+			NothingHidden({ Channel("TB~")[1] }, "a new book on the channel")
+			local book = T.Message()
+			-- (The army's part as the channel carries it with the ranking alone shown.)
+			local public = T.Message(nil, { ranking = true })
+			-- The King's client: every piece put together, taken whole.
+			local function Deliver(from, msgs)
+				for _, m in ipairs(msgs) do
+					if m:sub(1, 3) == "TW~" then T.HandlePrivate("WHISPER", from, m) else T.HandleEarly("WHISPER", from, m) end
+				end
+			end
+			local whispers = {}
+			for _, x in ipairs(w.whispered) do whispers[#whispers + 1] = x.msg end
+			local function Clear() ns.rdb.treasuryReports, ns.rdb.bankReport, ns.rdb.treasuryEarly = nil, nil, nil end
+			AsKing(); Clear()
+			ns.db.keeperShares = nil
+			Deliver("Pyralis Ashandar-Realm", whispers)
+			local r = T.Report()
+			eq(r.balance, 10000000 + 251000 - 50000, "the whole balance"); eq(r.rank[1].name, "Secret Donor"); eq(r.rank[1].money, 251000)
+			eq(#r.book, 4, "every line"); eq(r.items[1].id, 2589)
+			eq(B.Report().money, 777777, "the bank"); eq(T.EarlySupporters().names[1], "Early Friend", "the early supporters")
+			-- A later copy for the army (the channel's) never replaces the whole one on his screen.
+			eq(select(12, strsplit("~", public)), "010@1")
+			eq(select(12, strsplit("~", book)), "-", "the whole book, as 1.0 sends it")
+			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", public)
+			eq(T.Report().balance, 10000000 + 251000 - 50000, "still the whole book"); eq(#T.Report().book, 4)
+			-- A soldier's client, given the same whispers: takes none of it; the channel's copy it takes.
+			AsSoldier(); Clear()
+			Deliver("Pyralis Ashandar-Realm", whispers)
+			eq(T.Report(), nil); eq(B.Report(), nil); eq(T.EarlySupporters(), nil)
+			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", public)
+			eq(T.Report().rank[1].name, "Secret Donor", "the ranking the King shows")
+			eq(T.Report().balance, 0, "no balance of it"); eq(#T.Report().book, 0, "no book")
+			-- Whispers from anyone but a keeper: nothing.
+			AsKing(); Clear()
+			Deliver("Faker Guy-Realm", whispers)
+			eq(next(ns.rdb.treasuryReports or {}), nil, "not a keeper's"); eq(B.Report(), nil)
+			-- A keeper named by the King asks too: his whisper; one who is no longer: nothing.
+			AsTreasurer(); ns.db.keeperShares = { [TREASURER_KEY] = true }
+			ns.rdb.treasuryKeepers = { at = w.clock, names = { "Test Keeper-Realm" } }
+			w.whispered = {}
+			T.HandleAsk("CHANNEL", "Test Keeper-Realm", "TA~Olympus II~0"); Run()
+			assert(#w.whispered > 0 and w.whispered[1].to == "Test Keeper-Realm", "a keeper's ask")
+			ns.rdb.treasuryKeepers = { at = w.clock + 1, names = {} }
+			w.whispered = {}
+			w.clock = w.clock + T.RESET_GAP
+			T.HandleAsk("CHANNEL", "Test Keeper-Realm", "TA~Olympus II~0"); Run()
+			eq(#w.whispered, 0, "no longer a keeper")
+			-- 1.0.0's addon (as a 1.0 client runs it) takes the channel's copy whatever the switches
+			-- show: its totals are the sums of what it shows. The army of 1.0 keeps seeing what the King shows.
+			local Old, old = OldTreasury()
+			for mask = 0, 7 do
+				local parts = { balance = mask % 2 == 1, ranking = math.floor(mask / 2) % 2 == 1, book = math.floor(mask / 4) % 2 == 1 }
+				local copy = T.Message(nil, parts)
+				old.rdb.treasuryReports = nil
+				Old.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", copy)
+				local taken = old.rdb.treasuryReports and old.rdb.treasuryReports["Pyralis Ashandar-Realm"]
+				assert(taken, "1.0.0 takes the army's part " .. mask .. ": " .. copy)
+				if parts.ranking then eq(taken.rank[1].name, "Secret Donor") else eq(#taken.rank, 0) end
+				if parts.book then eq(#taken.book, 4) else eq(#taken.book, 0) end
+				if parts.balance then eq(taken.balance, 10000000 + 251000 - 50000) else eq(taken.opening, 0) end
+			end
+			-- With every switch on, the whole book goes on the channel as in 1.0, and nothing by whisper.
+			ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = w.clock }
+			w.sent, w.whispered = {}, {}
+			T.Share(true); B.Share(true); Run()
+			eq(Channel("TB~")[1], T.Message(), "whole, as in 1.0"); eq(#Channel("T9~"), 1, "the bank"); eq(#w.whispered, 0)
+			-- The King turns a switch off: the keeper's client sends the channel's copy without it at once.
+			w.sent = {}
+			T.TakeFlags("011", w.clock + 1, KING)
+			assert(Channel("TB~")[1] and select(12, strsplit("~", Channel("TB~")[1])) == "011@1", tostring(Channel("TB~")[1]))
+			Run()
+			eq(w.whispered[#w.whispered].to, KING, "and the part now hidden goes to the King by whisper")
+			-- The King logs off while his whisper is going out: the server says so, the rest is dropped.
+			ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
+			ns.rdb.treasuryFlags = nil
+			local pending
+			ns.After = function(_, _, fn) pending = fn end
+			w.whispered = {}
+			w.clock = w.clock + T.RESET_GAP
+			T.HandleAsk("CHANNEL", KING, "TA~Olympus~0")
+			eq(#w.whispered, 1, "its first piece")
+			T.NotFound("No player named 'Asmongold Asmongler' is currently playing.")
+			if pending then pending() end
+			eq(#w.whispered, 1, "nothing more to him"); eq(#T.Online(), 0, "the King no longer counted online")
+			ns.After = After
+			Run()
+			-- A whisper whose timer never comes back (an error on the way) holds the others 5 minutes at most.
+			ns.After = function() end
+			w.whispered = {}
+			T.Private("Test Keeper-Realm", "TB", ("x"):rep(600))
+			eq(#w.whispered, 1, "its first piece; the rest waits for a timer that never comes")
+			T.Private("Other Keeper-Realm", "TB", "TB~short")
+			eq(#w.whispered, 1, "held behind it")
+			w.clock = w.clock + 301
+			T.Private("Third Keeper-Realm", "TB", "TB~short too")
+			eq(w.whispered[2].to, "Other Keeper-Realm", "no longer held")
+			ns.After = After
+			-- A 1.0 client's addon hears an ask and a whisper piece: left unread, nothing counted bad.
+			AsKing()
+			local fresh, DeliverOld = FreshComm()
+			local logs = {}
+			fresh.Log = function(fmt, ...) logs[#logs + 1] = tostring(fmt):format(...) end
+			DeliverOld("CHANNEL", "Test Keeper-Realm", "TA~Olympus II~0")
+			DeliverOld("WHISPER", "Pyralis Ashandar-Realm", toKing[1])
+			local st = fresh.Comm.Stats()
+			eq(st.recv, 2); eq(st.bad, 0); eq(st.partial, 0); eq(#logs, 0)
+		end)
+		ns.splitNames, ns.After, ns.Comm.SendChunked, ERR_CHAT_PLAYER_NOT_FOUND_S, C_ChatInfo = saved.split, saved.after, saved.chunked, saved.notFound, saved.chat
+		ns.rdb.treasuryFlags = nil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- The items of a Treasury page (its grids), each with its slot: { [slot] = item }.
+local function Grid(lines)
+	for _, l in ipairs(lines) do
+		if l.items then
+			local out = {}
+			for _, it in ipairs(l.items) do out[it.s] = it end
+			return out
+		end
+	end
+end
+
+test("1.1 the bank (Fern): the tab's search finds its items, and what left it since the last visit shows, faded where it sat", function()
+	WithThrone(function(w, K)
+		local T, B, V = ns.Treasury, ns.Bank, ns.Views
+		local saved = { item = C_Item, after = ns.After, time = GetTime, tabs = GetNumGuildBankTabs, info = GetGuildBankTabInfo, slot = GetGuildBankItemInfo,
+			link = GetGuildBankItemLink, money = GetGuildBankMoney, query = QueryGuildBankTab, current = GetCurrentGuildBankTab }
+		local ok, err = pcall(function()
+			C_Item = { GetItemNameByID = function(id) return ({ [2589] = "Linen Cloth", [2770] = "Copper Ore", [929] = "Healing Potion" })[id] end }
+			-- The Treasurer opens the bank: a first visit, then a second one where stacks are gone.
+			AsTreasurer()
+			local After, Run = Queued()
+			ns.After = After
+			local gt = 100
+			GetTime = function() return gt end
+			GetNumGuildBankTabs = function() return 3 end
+			GetGuildBankTabInfo = function(tab) return ({ "Mats", "Potions", "Officers" })[tab], "icon" .. tab, true end
+			local slots = { [1] = { [1] = { 200, 2589 }, [2] = { 20, 2770 } }, [2] = { [1] = { 5, 929 } }, [3] = { [4] = { 10, 2770 } } }
+			GetGuildBankItemInfo = function(tab, slot) local s = slots[tab] and slots[tab][slot]; if s then return "tex", s[1] end end
+			GetGuildBankItemLink = function(tab, slot) local s = slots[tab] and slots[tab][slot]; return s and ("|Hitem:" .. s[2] .. ":0|h[x]|h") end
+			GetGuildBankMoney = function() return 5000 end
+			QueryGuildBankTab, GetCurrentGuildBankTab = function() end, function() return 1 end
+			B.Opened(); gt = gt + B.SETTLE; Run(); B.Closed(); gt = gt + B.SETTLE; Run()
+			local first = ns.rdb.bank
+			assert(first and first.tabs[1].items[1].id == 2589, "the first visit's snapshot")
+			eq(ns.rdb.bankPrev, nil, "nothing before it")
+			eq(#B.Gone(first, B.Previous(first)), 0)
+			-- Two hours later: 50 Linen Cloth and the Copper Ore of Mats gone; the potions moved to Mats
+			-- (a stack moved between tabs both snapshots hold is not gone); Officers' tab unseen this time.
+			w.clock = w.clock + 7200
+			slots = { [1] = { [1] = { 150, 2589 }, [3] = { 5, 929 } }, [2] = {} }
+			GetNumGuildBankTabs = function() return 2 end
+			B.Opened(); gt = gt + B.SETTLE; Run()
+			local second = ns.rdb.bank
+			eq(ns.rdb.bankPrev, first, "the last snapshot of the visit before"); eq(B.Previous(second), first)
+			B.Changed(); gt = gt + B.SETTLE; Run()
+			eq(ns.rdb.bankPrev, first, "a second read of the same visit keeps comparing with the visit before")
+			local gone, ghosts = B.Gone(ns.rdb.bank, B.Previous(ns.rdb.bank))
+			eq(#gone, 2); eq(gone[1].id, 2589); eq(gone[1].n, 50); eq(gone[2].id, 2770); eq(gone[2].n, 20, "the tab not seen now counts for nothing")
+			eq(gone[2].tabs[1], "Mats")
+			eq(#ghosts[1], 1, "one slot emptied"); eq(ghosts[1][1].id, 2770); eq(ghosts[1][1].s, 2); eq(ghosts[1][1].gone, true)
+			-- On the tab: the lines, and the slot faded in the grid.
+			T.bankTab = 1
+			local lines = T.Build()
+			local page = Texts(lines)
+			assert(page:find(ns.L.BANK_GONE:format(ns.Ago(first.t)), 1, true), page)
+			assert(page:find("Linen Cloth", 1, true) and page:find("-50x", 1, true) and page:find("-20x", 1, true), page)
+			local grid = Grid(lines)
+			eq(grid[1].id, 2589); eq(grid[1].gone, nil); eq(grid[2].id, 2770); eq(grid[2].gone, true, "where the ore sat")
+			-- The grid draws it faded, and its tooltip says so.
+			WithUI(function()
+				LoadUI()
+				local desat = {}
+				Widget.SetDesaturated = function(self, on) desat[#desat + 1] = on and true or false end
+				local content = CreateFrame("Frame")
+				content.w, content.style = 300, "hd"
+				local okR, errR = pcall(function()
+					for _, l in ipairs(lines) do if l.items then ns.Views.Render(content, { l }) end end
+					local r = content.rows[1]
+					eq(r.items[2].item.gone, true)
+					r.items[2]:Fire("OnEnter")
+					local said = false
+					for _, l in ipairs(GameTooltip.lines or {}) do if l == ns.L.BANK_GONE_SLOT then said = true end end
+					eq(said, true, "the tooltip says it is gone")
+				end)
+				Widget.SetDesaturated = nil
+				if not okR then error(errR, 0) end
+				local faded = false
+				for _, d in ipairs(desat) do if d then faded = true end end
+				eq(faded, true, "drawn faded")
+			end)
+			-- A keeper's snapshot heard: the one it replaces (another visit) is what it compares with.
+			AsKing(); ns.rdb.bank, ns.rdb.bankPrev = nil, nil
+			local savedRank = ns.Roster.RankOf
+			ns.Roster.RankOf = function(n) if ns.FullName(n) == "Pyralis Ashandar-Realm" then return 1 end return savedRank(n) end
+			B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", ("T9~Olympus~%d~5000~Mats;2589x200,2770x20"):format(w.clock - 100))
+			B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", ("T9~Olympus~%d~5000~Mats;2589x200,2770x20"):format(w.clock - 100))
+			eq(ns.rdb.bankReportPrev, nil, "the same snapshot again: nothing before it")
+			B.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", ("T9~Olympus~%d~5000~Mats;2589x190"):format(w.clock))
+			ns.Roster.RankOf = savedRank
+			gone = B.Gone(B.Current(), B.Previous(B.Current()))
+			eq(#gone, 2); eq(gone[1].id, 2770); eq(gone[2].n, 10)
+			-- The search: the bank's items whose name holds it, how many in all, in which tabs.
+			V.ClearFilters()
+			T.Show("summary")
+			eq(T.Searchable(), true)
+			page = Texts((T.Build("linen")))
+			assert(page:find(ns.L.TREASURY_BANK, 1, true) and page:find("Linen Cloth", 1, true) and page:find("190x", 1, true) and page:find("(Mats)", 1, true), page)
+			assert(not page:find(ns.L.SEARCH_NO_MATCH, 1, true), page)
+			page = Texts((T.Build("2589")))
+			assert(page:find("Linen Cloth", 1, true), "by its number too: " .. page)
+			page = Texts((T.Build("nothing like it")))
+			assert(page:find(ns.L.SEARCH_NO_MATCH, 1, true), page)
+			-- A soldier: the bank only with the King's book switch, its search with it.
+			AsSoldier()
+			ns.rdb.treasuryFlags = { balance = true, at = 1 }
+			page = Texts((T.Build("linen")))
+			assert(not page:find("Linen Cloth", 1, true), "hidden from the army: " .. page)
+			ns.rdb.treasuryFlags = { book = true, at = 2 }
+			eq(T.Searchable(), true, "the box shows with the bank")
+			page = Texts((T.Build("linen")))
+			assert(page:find("Linen Cloth", 1, true), page)
+		end)
+		C_Item, ns.After, GetTime = saved.item, saved.after, saved.time
+		GetNumGuildBankTabs, GetGuildBankTabInfo, GetGuildBankItemInfo, GetGuildBankItemLink = saved.tabs, saved.info, saved.slot, saved.link
+		GetGuildBankMoney, QueryGuildBankTab, GetCurrentGuildBankTab = saved.money, saved.query, saved.current
+		ns.rdb.treasuryFlags = nil
+		T.bankTab = nil
+		ns.Bank.Reset()
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 sister guilds' banks (Fern): their treasurer's yes, whispered to the King, his Stewards and his Hands alone, never on the channel", function()
+	WithThrone(function(w, K)
+		local T, B = ns.Treasury, ns.Bank
+		local saved = { item = C_Item, after = ns.After, chunked = ns.Comm.SendChunked }
+		local ok, err = pcall(function()
+			C_Item = { GetItemNameByID = function(id) return ({ [2589] = "Linen Cloth" })[id] end }
+			local After, Run = Queued()
+			ns.After = After
+			ns.Comm.SendChunked = function(m) w.sent[#w.sent + 1] = { dist = "CHANNEL", msg = m } end
+			local KING = "Asmongold Asmongler-Realm"
+			-- The King names a Hand; the Lord of Olympus Zeus (the census confirms him) opens his guild's bank.
+			AsKing(); K.AddHand("Helper"); K.SendHands(true); local hands = LastSent(w)
+			AsLord()
+			K.HandleCommand("CHANNEL", KING, hands)
+			ns.rdb.bank = { t = w.clock, guild = "Olympus Zeus", by = ns.me, money = 424242,
+				tabs = { { i = 1, name = "Secret Stash", items = { { id = 2589, n = 60, s = 3 } } }, { i = 2, name = "Other", items = {} } } }
+			eq(B.SisterTreasurer(), true); eq(B.SisterConsent(), nil)
+			eq(B.SisterMessage(), nil, "nothing before his yes")
+			-- Asked once a session when he opens it; a soldier never.
+			local GetNum = GetNumGuildBankTabs
+			GetNumGuildBankTabs = function() return 0 end
+			GetGuildBankTabInfo = GetGuildBankTabInfo or function() end
+			GetGuildBankItemInfo = GetGuildBankItemInfo or function() end
+			ns.After = function() end -- (the bank's own read, after it settles, is not this test's)
+			B.Opened()
+			eq(w.popups[#w.popups].name, "OLYMPUS_SISTER_BANK"); eq(w.popups[#w.popups].a, "Olympus Zeus")
+			local n = #w.popups
+			B.Opened(); eq(#w.popups, n, "once a session")
+			B.Closed()
+			ns.After = After
+			GetNumGuildBankTabs = GetNum
+			-- The King's ask before his yes: nothing.
+			w.sent, w.whispered = {}, {}
+			T.HandleAsk("CHANNEL", KING, "TA~Olympus~0"); Run()
+			eq(#w.whispered, 0, "no yes: nothing")
+			StaticPopupDialogs.OLYMPUS_SISTER_BANK.OnAccept()
+			eq(B.SisterConsent(), true)
+			assert(B.SisterMessage():find("^TS~Olympus Zeus~%d+~424242~;%.2,2589x60~;$"), B.SisterMessage())
+			-- He said yes: the King (who asked) gets it at once; a soldier's ask gets nothing.
+			Run()
+			local toKing = {}
+			for _, x in ipairs(w.whispered) do eq(x.to, KING); toKing[#toKing + 1] = x.msg end
+			assert(#toKing > 0 and toKing[1]:find("^TW~TS~"), "whispered: " .. tostring(toKing[1]))
+			T.HandleAsk("CHANNEL", "Soldier-Realm", "TA~Olympus II~0"); Run()
+			eq(#w.whispered, #toKing, "a soldier: nothing")
+			-- A Hand's ask: his too.
+			T.HandleAsk("CHANNEL", "Helper-Realm", "TA~Olympus II~0"); Run()
+			eq(w.whispered[#w.whispered].to, "Helper-Realm")
+			-- Nothing of it on the channel, and no tab's name anywhere.
+			for _, s in ipairs(w.sent) do assert(not s.msg:find("424242", 1, true) and not s.msg:find("2589", 1, true), "on the channel: " .. s.msg) end
+			for _, x in ipairs(w.whispered) do assert(not x.msg:find("Secret Stash", 1, true), "a tab's name: " .. x.msg) end
+			-- The King's client: taken from the Lord, the tabs as "Tab 1", in the Treasury tab and its search.
+			local function Deliver(from) for _, m in ipairs(toKing) do T.HandlePrivate("WHISPER", from, m) end end
+			AsKing()
+			Deliver("Faker Guy-Realm")
+			eq(#B.Sisters(), 0, "not a Lord or Captain of that guild")
+			Deliver("Zed-Realm")
+			local s = B.Sisters()
+			eq(#s, 1); eq(s[1].guild, "Olympus Zeus"); eq(s[1].money, 424242); eq(s[1].tabs[1].name, "Tab 1"); eq(s[1].tabs[1].items[1].s, 3)
+			T.Show("summary")
+			local lines = T.Build()
+			local page = Texts(lines)
+			assert(page:find(ns.L.BANK_SISTERS, 1, true) and page:find("<Olympus Zeus>", 1, true), page)
+			for _, l in ipairs(lines) do if l.key == "sister:Olympus Zeus" then l.onClick() end end
+			lines = T.Build()
+			assert(Texts(lines):find("Tab 1", 1, true), Texts(lines))
+			eq(Grid(lines)[3].id, 2589, "its grid, where the stack sits")
+			page = Texts((T.Build("linen")))
+			assert(page:find(ns.L.BANK_SISTER_OF:format("Olympus Zeus"), 1, true) and page:find("60x", 1, true), page)
+			-- A Hand's client: the tab appears for it; a soldier's takes nothing.
+			AsSoldier("Helper"); K.HandleCommand("CHANNEL", KING, hands)
+			eq(K.IsHand(), true)
+			w.sent = {}
+			eq(T.Ask(true), true, "a Hand's client asks too"); eq(LastSent(w), "TA~Olympus II~0")
+			Deliver("Zed-Realm")
+			eq(#B.Sisters(), 1); eq(T.Visible(), true, "the tab, for a Hand holding one")
+			B.Reset()
+			AsSoldier()
+			Deliver("Zed-Realm")
+			eq(#B.Sisters(), 0, "a soldier: nothing")
+			eq(T.Ask(true), false, "and a soldier's client never asks")
+			-- His no takes it back from the King's screen.
+			AsLord(); ns.db.sisterBankShares = { ["zed-realm"] = true }
+			B.HeardAsk(KING, true); Run()
+			w.whispered = {}
+			SlashCmdList.OLYMPUS("bank share off")
+			eq(B.SisterConsent(), false)
+			local back = w.whispered[#w.whispered]
+			eq(back.to, KING); eq(back.msg, "TS~Olympus Zeus~0~0~")
+			AsKing(); Deliver("Zed-Realm"); eq(#B.Sisters(), 1)
+			B.HandleSister("WHISPER", "Zed-Realm", back.msg)
+			eq(#B.Sisters(), 0, "withdrawn")
+			-- Not a Lord or an officer, or the King's own guild: no question, no switch.
+			AsSoldier(); eq(B.SisterTreasurer(), false)
+			AsKing(); eq(B.SisterTreasurer(), false)
+			B.SetSisterConsent(true); assert(Printed(w, ns.L.BANK_SISTER_ONLY), "told")
+			-- With the gamepad UI the question is Olympus's own window, never the game's popup.
+			AsLord(); ns.db.sisterBankShares = nil
+			B.Reset()
+			WithGamepadUI(true, function(game)
+				GetNumGuildBankTabs = function() return 0 end
+				ns.After = function() end
+				B.Opened(); B.Closed()
+				ns.After = After
+				GetNumGuildBankTabs = GetNum
+				eq(#game.shown, 0); assert(ns.Dialog.Find("OLYMPUS_SISTER_BANK"), "our own dialog")
+			end)
+		end)
+		C_Item, ns.After, ns.Comm.SendChunked = saved.item, saved.after, saved.chunked
+		ns.db.sisterBankShares = nil
+		ns.Bank.Reset()
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 bank requests (Fern): a Lord or Captain asks for an item and a count, shown next to the bank; handing it over stays a trade or mail", function()
+	WithThrone(function(w, K)
+		local T, B = ns.Treasury, ns.Bank
+		local mail = MailWorld()
+		local saved = { after = ns.After, chunked = ns.Comm.SendChunked, split = ns.splitNames, chat = C_ChatInfo }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			local After, Run = Queued()
+			ns.After = After
+			ns.Comm.SendChunked = function(m) w.sent[#w.sent + 1] = { dist = "CHANNEL", msg = m } end
+			local TREASURER, KING = "Pyralis Ashandar-Realm", "Asmongold Asmongler-Realm"
+			local function Whispered(prefix, to)
+				local out = {}
+				for _, x in ipairs(w.whispered) do if x.msg:sub(1, #prefix) == prefix and (not to or x.to == to) then out[#out + 1] = x.msg end end
+				return out
+			end
+			-- A soldier may not ask; nor the King or a keeper (the treasury is theirs already).
+			AsSoldier()
+			B.Request(2589, 10)
+			assert(Printed(w, ns.L.BANK_REQUEST_ONLY), "told"); eq(#B.MyRequests(), 0)
+			AsTreasurer(); eq(B.MayRequest(), false); AsKing(); eq(B.MayRequest(), false)
+			local faction = ns.faction
+			AsLord(); ns.faction = "Horde"; eq(B.MayRequest(), false, "the Horde has no treasury"); ns.faction = faction
+			-- The Lord of Olympus Zeus asks before any keeper is heard: it waits.
+			AsLord()
+			local e = B.Request(2589, 10)
+			assert(e and Printed(w, ns.L.BANK_REQUEST_WAITING:format(T.ItemText(2589, 10))), "waits")
+			eq(#w.whispered, 0)
+			eq(T.Visible(), true, "the Treasury tab shows his request")
+			-- The Treasurer's book heard on the channel: the request goes to him (by whisper), again
+			-- every REQUEST_AGAIN while open, never on the channel.
+			T.HandleReport("CHANNEL", TREASURER, "TB~1.0~Olympus~0~0~0~0~0~0~~-~000@1~~~~0:0")
+			eq(B.SendRequests(), 1)
+			local tn = Whispered("TN~", TREASURER)
+			eq(#tn, 1); eq(tn[1], ("TN~%d~2589~10~Olympus Zeus"):format(e.id))
+			eq(B.SendRequests(), 0, "not again before REQUEST_AGAIN")
+			for _, s in ipairs(w.sent) do assert(not s.msg:find("^TN~"), "never on the channel") end
+			-- Three open at most; the count and the item checked.
+			B.Request(2770, 5); B.Request(929, 1)
+			eq(B.Request(118, 1), nil); assert(Printed(w, ns.L.BANK_REQUEST_FULL:format(B.REQUEST_OPEN)), "three at most")
+			B.Request(2589, 0); B.Request(2589, 10000); B.RequestText("10 nothing known")
+			assert(Printed(w, ns.L.BANK_REQUEST_WHAT), "which item?")
+			eq(#B.MyRequests(), 3)
+			-- The Treasurer's client: a request from the Lord (the census confirms him), shown next to
+			-- the bank with what the bank holds; one from a stranger, or a fourth, is not.
+			AsTreasurer()
+			ns.rdb.bank = { t = w.clock, guild = "Olympus", by = ns.me, money = 1, tabs = { { i = 1, name = "Mats", items = { { id = 2589, n = 200, s = 1 } } } } }
+			w.whispered = {}
+			B.HandleRequest("WHISPER", "Faker Guy-Realm", ("TN~%d~2589~10~Olympus Zeus"):format(e.id))
+			eq(#B.Requests(), 0, "not the Lord or a Captain of that guild")
+			B.HandleRequest("WHISPER", "Zed-Realm", tn[1])
+			B.HandleRequest("WHISPER", "Zed-Realm", "TN~2~2770~5~Olympus Zeus")
+			B.HandleRequest("WHISPER", "Zed-Realm", "TN~3~929~1~Olympus Zeus")
+			B.HandleRequest("WHISPER", "Zed-Realm", "TN~4~118~1~Olympus Zeus")
+			eq(#B.Requests(), 3, "three open each at most")
+			eq(Whispered("TO~", "Zed-Realm")[1], ("TO~%d~o"):format(e.id), "answered: seen")
+			assert(Printed(w, ns.L.BANK_REQUEST_NEW:format("Zed", "Olympus Zeus", T.ItemText(2589, 10))), "told in chat")
+			local lines = T.Build()
+			local page = Texts(lines)
+			assert(page:find(ns.L.BANK_REQUESTS, 1, true) and page:find("Zed <Olympus Zeus>: ", 1, true), page)
+			assert(page:find(ns.L.BANK_REQUEST_HOLDS:format(200), 1, true), "what the bank holds: " .. page)
+			-- The Lord's client hears "seen".
+			AsLord()
+			B.HandleAnswer("WHISPER", "Faker Guy-Realm", ("TO~%d~d"):format(e.id))
+			eq(B.MyRequests()[3].state, "sent", "only a keeper's answer counts")
+			B.HandleAnswer("WHISPER", TREASURER, ("TO~%d~o"):format(e.id))
+			local mine
+			for _, x in ipairs(B.MyRequests()) do if x.id == e.id then mine = x end end
+			eq(mine.state, "seen"); eq(B.StateText(mine), ns.L.BANK_REQUEST_STATE_SEEN:format("Pyralis Ashandar"))
+			-- He hands it over by mail: the book records the item given, and the request closes by
+			-- itself, the Lord told, the King (heard) too.
+			AsTreasurer()
+			T.Heard(KING)
+			w.whispered = {}
+			mail.Send("Zed", 0, { { name = "Linen Cloth", id = 2589, n = 10 } })
+			local done
+			for _, x in ipairs(B.Requests()) do if x.id == e.id then done = x end end
+			eq(done.state, "done"); eq(done.by, ns.me)
+			eq(Whispered("TO~", "Zed-Realm")[1], ("TO~%d~d"):format(e.id))
+			eq(Whispered("TO~", KING)[1], ("TO~%d~d~Zed-Realm"):format(e.id), "the King's copy follows")
+			-- Another one declined with his click (the dialog's third button).
+			for _, l in ipairs(T.Build()) do if l.key == "request:Zed-Realm#2" then l.onClick() end end
+			local p = w.popups[#w.popups]
+			eq(p.name, "OLYMPUS_BANK_REQUEST_ANSWER"); eq(p.data, "Zed-Realm#2")
+			StaticPopupDialogs.OLYMPUS_BANK_REQUEST_ANSWER.OnAlt(nil, p.data)
+			for _, x in ipairs(B.Requests()) do if x.id == 2 then eq(x.state, "declined") end end
+			-- The Lord's client: done, told who did it.
+			AsLord()
+			B.HandleAnswer("WHISPER", TREASURER, ("TO~%d~d"):format(e.id))
+			assert(Printed(w, ns.L.BANK_REQUEST_DONE:format(T.ItemText(2589, 10), "Pyralis Ashandar")), "told")
+			-- He takes one back: the keepers are told (count 0), their copy closes.
+			local third
+			for _, x in ipairs(B.MyRequests()) do if x.item == 929 then third = x end end
+			T.Heard(TREASURER); w.whispered = {}
+			B.Cancel(third.id)
+			local cancel = Whispered("TN~", TREASURER)[1]
+			eq(cancel, ("TN~%d~929~0~Olympus Zeus"):format(third.id))
+			AsTreasurer()
+			B.HandleRequest("WHISPER", "Zed-Realm", ("TN~3~929~0~Olympus Zeus"))
+			for _, x in ipairs(B.Requests()) do if x.id == 3 then eq(x.state, "cancelled") end end
+			-- The open requests go on the channel next to the bank only while the King shows the
+			-- army the book; a soldier sees them there.
+			B.HandleRequest("WHISPER", "Zed-Realm", ("TN~5~2770~7~Olympus Zeus"))
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			w.sent = {}
+			T.Share(true)
+			for _, s in ipairs(w.sent) do assert(not s.msg:find("^TL~"), "the book hidden: nothing of it on the channel") end
+			ns.rdb.treasuryFlags = { book = true, at = w.clock }
+			w.sent = {}
+			T.Share(true)
+			local tl
+			for _, s in ipairs(w.sent) do if s.msg:find("^TL~") then tl = s.msg end end
+			eq(tl, "TL~Olympus~5:2770:7:Zed-Realm:Olympus Zeus")
+			AsSoldier()
+			B.HandlePublic("CHANNEL", "Faker Guy-Realm", tl)
+			eq(#B.PublicRequests(), 0, "a keeper's list alone")
+			B.HandlePublic("CHANNEL", TREASURER, tl)
+			eq(#B.PublicRequests(), 1)
+			page = Texts((T.Build()))
+			assert(page:find(ns.L.BANK_REQUESTS, 1, true) and page:find("Zed <Olympus Zeus>: ", 1, true), page)
+			-- A Lord who sees the bank: a click on an item asks for it (the count in a dialog).
+			AsLord()
+			for _, x in ipairs(B.MyRequests()) do if x.state == "sent" or x.state == "seen" then x.state = "done" end end
+			ns.rdb.bankReport = { t = w.clock, guild = "Olympus", by = TREASURER, money = 1, tabs = { { name = "Mats", items = { { id = 2589, n = 200, s = 1 } } } } }
+			local grid
+			for _, l in ipairs(T.Build()) do if l.items then grid = l end end
+			assert(grid and grid.onItem and grid.itemHint == ns.L.BANK_REQUEST_CLICK, "the grid takes a click")
+			grid.onItem(grid.items[1])
+			p = w.popups[#w.popups]
+			eq(p.name, "OLYMPUS_BANK_REQUEST"); eq(p.data, 2589)
+			StaticPopupDialogs.OLYMPUS_BANK_REQUEST.OnAccept({ editBox = { GetText = function() return "5" end } }, p.data)
+			eq(B.MyRequests()[1].item, 2589); eq(B.MyRequests()[1].n, 5)
+			-- And by the chat line: /oly need 3 <a shift-clicked link>.
+			SlashCmdList.OLYMPUS("need 3 |cffffffff|Hitem:2770::::|h[Copper Ore]|h|r")
+			eq(B.MyRequests()[1].item, 2770); eq(B.MyRequests()[1].n, 3)
+			-- With the gamepad UI the dialogs are Olympus's own windows.
+			WithGamepadUI(true, function(game)
+				B.RequestPrompt(2589)
+				eq(#game.shown, 0); assert(ns.Dialog.Find("OLYMPUS_BANK_REQUEST"), "our own dialog")
+			end)
+			-- A 1.0 client's addon leaves requests, answers and the list unread.
+			AsKing()
+			local fresh, DeliverOld = FreshComm()
+			local logs = {}
+			fresh.Log = function(fmt, ...) logs[#logs + 1] = tostring(fmt):format(...) end
+			DeliverOld("WHISPER", "Zed-Realm", tn[1])
+			DeliverOld("WHISPER", TREASURER, ("TO~%d~d"):format(e.id))
+			DeliverOld("CHANNEL", TREASURER, tl)
+			local st = fresh.Comm.Stats()
+			eq(st.recv, 3); eq(st.bad, 0); eq(st.partial, 0); eq(#logs, 0)
+		end)
+		mail.Restore()
+		ns.After, ns.Comm.SendChunked, ns.splitNames, C_ChatInfo = saved.after, saved.chunked, saved.split, saved.chat
+		ns.rdb.treasuryFlags = nil
+		ns.Bank.Reset()
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 taking donations (the Treasurer's idea): a keeper's switch, a line on the Realm and Treasury tabs, his zone only if shared, one chat ping, off at logout", function()
+	WithThrone(function(w, K)
+		local T = ns.Treasury
+		local saved = { chat = DEFAULT_CHAT_FRAME, best = C_Map.GetBestMapForUnit, share = ns.db.shareLocation, mute = ns.db.chatMute,
+			cci = C_ChatInfo, chan = GetChannelName, name = ns.Comm.ChannelName, split = ns.splitNames }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			local chat = {}
+			DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) chat[#chat + 1] = m end }
+			C_Map.GetBestMapForUnit = function() return 1453 end
+			local TREASURER = "Pyralis Ashandar-Realm"
+			-- Not a keeper: no switch.
+			AsSoldier()
+			T.SetDonations(true)
+			assert(Printed(w, ns.L.DONATIONS_ONLY), "told"); eq(T.TakingDonations(), false)
+			-- The Treasurer turns it on, not sharing his location: no zone in it.
+			AsTreasurer()
+			ns.db.shareLocation = nil
+			w.sent = {}
+			T.SetDonations(true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~"):format(w.clock), "on, no zone")
+			eq(T.SendDonations(), false, "repeated DONATIONS_EVERY apart")
+			w.clock = w.clock + T.DONATIONS_EVERY
+			eq(T.SendDonations(), true, "and repeated for late logins")
+			-- The Treasury tab: his switch, on.
+			local switch
+			for _, l in ipairs(T.Build()) do if l.key == "donations" then switch = l end end
+			assert(switch and switch.text:find("[x]", 1, true), "his switch shows it on")
+			-- Sharing his location: his zone goes with it, and again when he moves.
+			T.SetDonations(false)
+			eq(LastSent(w), "TD~Olympus~0~0~", "off said at once")
+			ns.db.shareLocation = true
+			local since = w.clock
+			T.SetDonations(true)
+			eq(LastSent(w), ("TD~Olympus~1~%d~1453"):format(since), "his zone, shared")
+			C_Map.GetBestMapForUnit = function() return 1429 end
+			T.DonationsMoved()
+			eq(LastSent(w), ("TD~Olympus~1~%d~1429"):format(since), "moved: said again")
+			local onMsg = LastSent(w)
+			T.SetDonations(false) -- (his own; the soldier's client below never had it on)
+			-- A soldier's client: the line in the Realm and on the Treasury tab, one [Olympus] chat line.
+			AsSoldier()
+			T.HandleDonations("CHANNEL", "Faker Guy-Realm", onMsg:gsub("^TD~Olympus~", "TD~Olympus II~"))
+			eq(#T.DonationLines(), 0, "not a keeper")
+			T.HandleDonations("CHANNEL", TREASURER, onMsg)
+			local want = ns.L.DONATIONS_LINE_ZONE:format("Pyralis Ashandar", "Elwynn Forest")
+			local realm = Texts(ns.Views.RealmLines())
+			assert(realm:find(want, 1, true), realm)
+			eq(#chat, 1); assert(chat[1]:find("[" .. ns.L.CHAN_ALL .. "] " .. want, 1, true), chat[1])
+			T.HandleDonations("CHANNEL", TREASURER, onMsg)
+			eq(#chat, 1, "one ping, not one per repeat")
+			ns.rdb.treasuryFlags = { balance = true, at = 1 }
+			T.HandleReport("CHANNEL", TREASURER, "TB~1.0~Olympus~0~0~0~0~0~0~~-~100@1~~~~0:0")
+			assert(Texts((T.Build())):find(want, 1, true), "on the Treasury tab too")
+			-- Not repeated (he logged out without a word): gone after DONATIONS_FRESH.
+			w.clock = w.clock + T.DONATIONS_FRESH + 1
+			eq(#T.DonationLines(), 0, "dropped")
+			-- A late login hears an "on" of long ago: the line, no ping; a muted [Olympus]: no ping either.
+			T.HandleDonations("CHANNEL", TREASURER, onMsg)
+			eq(#T.DonationLines(), 1); eq(#chat, 1, "an old on: no ping")
+			ns.db.chatMute = { A = true }
+			T.HandleDonations("CHANNEL", TREASURER, ("TD~Olympus~1~%d~"):format(w.clock))
+			eq(#chat, 1, "muted: no ping")
+			-- Off: gone at once.
+			T.HandleDonations("CHANNEL", TREASURER, "TD~Olympus~0~0~")
+			eq(#T.DonationLines(), 0)
+			-- The King: by the army's name for him.
+			T.HandleDonations("CHANNEL", "Asmongold Asmongler-Realm", ("TD~Olympus~1~%d~"):format(w.clock))
+			assert(Texts(T.DonationLines()):find(ns.L.DONATIONS_LINE:format("Asmon"), 1, true), Texts(T.DonationLines()))
+			-- He logs out while on: his addon says off as it leaves; next session it starts off.
+			AsTreasurer()
+			T.SetDonations(true)
+			local said
+			C_ChatInfo = { SendAddonMessage = function(prefix, msg, dist, target) said = { prefix, msg, dist, target } end }
+			GetChannelName = function() return 7 end
+			ns.Comm.ChannelName = function() return "OlympusNet" end
+			T.DonationsLogout()
+			eq(said and said[2], "TD~Olympus~0~0~"); eq(said[3], "CHANNEL"); eq(said[4], 7)
+			eq(T.TakingDonations(), false)
+			-- A 1.0 client's addon leaves it unread.
+			C_ChatInfo = saved.cci
+			AsKing()
+			local fresh, DeliverOld = FreshComm()
+			local logs = {}
+			fresh.Log = function(fmt, ...) logs[#logs + 1] = tostring(fmt):format(...) end
+			DeliverOld("CHANNEL", TREASURER, onMsg)
+			local st = fresh.Comm.Stats()
+			eq(st.recv, 1); eq(st.bad, 0); eq(#logs, 0)
+		end)
+		DEFAULT_CHAT_FRAME, C_Map.GetBestMapForUnit, ns.db.shareLocation, ns.db.chatMute = saved.chat, saved.best, saved.share, saved.mute
+		C_ChatInfo, GetChannelName, ns.Comm.ChannelName, ns.splitNames = saved.cci, saved.chan, saved.name, saved.split
+		ns.rdb.treasuryFlags = nil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- Backup.lua (1.1): a file of its own, loaded here as the game loads it (after Bank.lua).
+assert(loadfile(ADDON_DIR .. "Backup.lua"))("Olympus", ns)
+
+-- A backup as a modified text would carry it: `data` written, its header made to match.
+local function ForgedBackup(data)
+	local payload = ns.Backup.Write(data)
+	return ("OLYB1:%d:%s:%s"):format(#payload, ns.Backup.Sum(payload), payload)
+end
+
+test("1.1 the clipboard backup keeps the other parts' toggles: alerts, camps, shared block terms, do not contact, the sounds silenced", function()
+	local Bk = ns.Backup
+	local keys = { "alertsAlways", "showCamps", "filterSharedOff", "recruitsOff", "soundOff" }
+	local saved = {}
+	for _, k in ipairs(keys) do saved[k] = ns.db[k] end
+	local ok, err = pcall(function()
+		ns.db.alertsAlways, ns.db.showCamps, ns.db.filterSharedOff, ns.db.recruitsOff = true, false, true, true
+		ns.db.soundOff = { court = true, vox = true }
+		local text = Bk.Export()
+		for _, k in ipairs(keys) do ns.db[k] = nil end
+		Bk.Apply((Bk.Read(text)))
+		eq(ns.db.alertsAlways, true); eq(ns.db.showCamps, false); eq(ns.db.filterSharedOff, true); eq(ns.db.recruitsOff, true)
+		eq(ns.db.soundOff.court, true); eq(ns.db.soundOff.vox, true); eq(ns.db.soundOff.arms, nil)
+		-- A made-up kind of sound is not taken.
+		ns.db.soundOff = nil
+		local d = Bk.Read(ForgedBackup({ v = 1, char = ns.me, faction = ns.faction, soundOff = { made_up = true, muster = true } }))
+		Bk.Apply(d)
+		eq(ns.db.soundOff.muster, true); eq(ns.db.soundOff.made_up, nil)
+	end)
+	for _, k in ipairs(keys) do ns.db[k] = saved[k] end
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 the clipboard backup (Fern): the Treasurer's book, the key and the toggles out as text, and one paste restores them, nothing sent", function()
+	WithThrone(function(w, K)
+		local T, Bk = ns.Treasury, ns.Backup
+		local mail = MailWorld()
+		local saved = { split = ns.splitNames, join = ns.Comm.JoinChannel, key = ns.rdb.realmKey, sound = ns.db.sound, showMap = ns.db.showMap,
+			angle = ns.db.minimapAngle, windows = ns.db.chatWindows, blocked = ns.db.blocked, share = ns.db.shareLocation, officer = ns.Roster.IsOfficer }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			local joined = 0
+			ns.Comm.JoinChannel = function() joined = joined + 1 end
+			-- The Treasurer's book: an opening, donations (gold and an item), a payment; his setup.
+			AsTreasurer()
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			mail.gold = 5000000
+			T.OpenBook()
+			w.clock = w.clock + 10; T.Record("Generous Donor", 250000, "trade", nil, { quiet = true })
+			w.clock = w.clock + 10; T.Record("Fan", 12345, "mail", nil, { quiet = true })
+			w.clock = w.clock + 10; T.Record("Crafter", 50000, "mail", true, { quiet = true })
+			w.clock = w.clock + 10; T.Record("Item Giver", 0, "mail", nil, { quiet = true, item = 2589, count = 20 })
+			w.clock = w.clock + 10; T.Record("Buyer", 9000, "trade", nil, { quiet = true, excluded = true, kind = "sale" })
+			local balance, ranking, weekIn, lines = T.Balance(), T.Totals().ranking, T.Totals().weekIn, #T.Lines()
+			ns.rdb.realmKey = "our officers' s3cret @key <#1>"
+			ns.db.sound, ns.db.showMap, ns.db.minimapAngle = false, false, 123.5
+			ns.db.chatWindows = { [ns.me] = { A = "Olympus" } }
+			ns.db.blocked = { ["pest-realm"] = true }
+			ns.Roster.IsOfficer = function() return true end
+			-- The text: one line, nothing the copy box changes (no "|", "@", "<#"), no line break.
+			local text = Bk.Export()
+			assert(text:find("^OLYB1:%d+:%x%x%x%x%x%x%x%x:"), text:sub(1, 40))
+			assert(not text:find("[|@\n\r]") and not text:find("<#", 1, true), "safe for the copy box")
+			eq(ns.Codec.NoMentions(text), text, "the copy box leaves it as it is")
+			local sent = #w.sent
+			-- The beta wipes the saved variables: at the next login his book opens again at his gold.
+			ns.rdb.treasuryBooks, ns.rdb.realmKey = nil, nil
+			ns.db.sound, ns.db.showMap, ns.db.minimapAngle, ns.db.chatWindows, ns.db.blocked = true, true, 200, nil, {}
+			mail.gold = 5311345
+			T.OpenBook()
+			eq(#T.Lines(), 0); eq(T.Totals().ranking[1], nil)
+			-- One paste: read, what changes said, then restored after his yes.
+			local d, why = Bk.Read(text)
+			assert(d, why)
+			local summary = table.concat(Bk.Summary(d), "\n")
+			assert(summary:find(ns.L.BACKUP_BOOK_WHOLE:format("Pyralis Ashandar", lines, T.Coins(5000000)), 1, true), summary)
+			assert(summary:find(ns.L.BACKUP_KEY, 1, true) and summary:find(ns.L.BACKUP_NO_CONSENT, 1, true), summary)
+			eq(Bk.Take(text), true)
+			local p = w.popups[#w.popups]
+			eq(p.name, "OLYMPUS_BACKUP_RESTORE"); eq(p.a, table.concat(Bk.Summary(d), "\n"))
+			StaticPopupDialogs.OLYMPUS_BACKUP_RESTORE.OnAccept(nil, p.data)
+			eq(T.Balance(), balance, "the same balance"); eq(#T.Lines(), lines); eq(T.Totals().weekIn, weekIn, "the same week")
+			for i, g in ipairs(ranking) do eq(T.Totals().ranking[i].name, g.name); eq(T.Totals().ranking[i].money, g.money) end
+			eq(T.Totals().items[1].id, 2589, "the items donated")
+			assert(T.Book().restored, "marked restored")
+			eq(ns.rdb.realmKey, "our officers' s3cret @key <#1>", "the key, on an officer's character"); eq(joined, 1)
+			eq(ns.db.sound, false); eq(ns.db.showMap, false); eq(ns.db.minimapAngle, 123.5)
+			eq(ns.db.chatWindows[ns.me].A, "Olympus"); eq(ns.db.blocked["pest-realm"], true)
+			for i = sent + 1, #w.sent do assert(not w.sent[i].msg:find("^K1~"), "the key sent nowhere: " .. w.sent[i].msg) end
+			-- Written since: merged. A donation after the wipe stays, counted once, whatever the order.
+			ns.rdb.treasuryBooks = nil
+			T.OpenBook()
+			w.clock = w.clock + 100; T.Record("Late Donor", 7000, "trade", nil, { quiet = true })
+			d = Bk.Read(text)
+			assert(table.concat(Bk.Summary(d), "\n"):find(ns.L.BACKUP_BOOK_MERGE:format("Pyralis Ashandar", lines, T.Coins(5000000)), 1, true))
+			Bk.Apply(d)
+			eq(#T.Lines(), lines + 1); eq(T.Balance(), balance + 7000)
+			Bk.Apply(Bk.Read(text))
+			eq(#T.Lines(), lines + 1, "restored twice: nothing twice"); eq(T.Balance(), balance + 7000)
+			-- Refused: cut short, changed, not one, another player's, the other faction's.
+			local cut = text:sub(1, #text - 40)
+			local _, whyCut = Bk.Read(cut)
+			assert(whyCut and whyCut:find(ns.L.BACKUP_CUT:sub(1, 20), 1, true), tostring(whyCut))
+			local changed = text:gsub("Generous", "Generoux", 1)
+			local _, whyBad = Bk.Read(changed); eq(whyBad, ns.L.BACKUP_DAMAGED)
+			local _, whyNot = Bk.Read("hello there"); eq(whyNot, ns.L.BACKUP_NOT_ONE)
+			AsSoldier("Other Player")
+			local _, whyOther = Bk.Read(text); eq(whyOther, ns.L.BACKUP_OTHER:format("Pyralis Ashandar"))
+			AsTreasurer()
+			local _, whyFaction = Bk.Read(ForgedBackup({ v = 1, char = ns.me, faction = "Horde" })); eq(whyFaction, ns.L.BACKUP_OTHER_FACTION)
+			-- A text someone else made ("paste this"): never a yes to sharing, never another's book,
+			-- and on a member's character never a key (it would move him to another channel).
+			ns.Roster.IsOfficer = function() return false end
+			AsSoldier("Victim")
+			ns.db.shareLocation, ns.rdb.realmKey = nil, "the real key"
+			ns.db.royalInspection = nil -- (1.1: not answered yet; the harness answers yes for the older tests)
+			local forged = ForgedBackup({ v = 1, char = ns.me, faction = ns.faction, key = "attackerkey", settings = { shareLocation = true, sound = false },
+				keeperShares = { ["victim-realm"] = true }, royalInspection = true,
+				books = { { name = "Pyralis Ashandar-Realm", opening = 1, lines = {} }, { name = ns.me, opening = 5, lines = {} } } })
+			d = Bk.Read(forged)
+			eq(#d.books, 1, "his own book alone"); eq(d.books[1].name, ns.me)
+			assert(table.concat(Bk.Summary(d), "\n"):find(ns.L.BACKUP_KEY_NOT_OFFICER, 1, true))
+			Bk.Apply(d)
+			eq(ns.db.shareLocation, nil, "no yes to sharing"); eq(ns.rdb.realmKey, "the real key", "no key for a member")
+			eq((ns.db.keeperShares or {})["victim-realm"], nil, "no yes to share a book"); eq(ns.db.royalInspection, nil)
+			eq(ns.db.sound, false, "his toggles, yes")
+			-- A damaged text is never run as code: what can't be read is refused.
+			eq(Bk.Parse("{sa=os.exit()}"), nil)
+			eq(Bk.Parse(("{"):rep(50)), nil, "too deep")
+			-- The King's word: from his client, given again as a new word; the confirm says who comes back.
+			AsKing()
+			ns.db.keeperShares = { [KING_KEY] = true }
+			T.SetFlag("ranking", true); T.AddKeeper("Test Keeper")
+			local kingText = Bk.Export()
+			ns.rdb.treasuryFlags, ns.rdb.treasuryKeepers = nil, nil
+			w.sent = {}
+			d = Bk.Read(kingText)
+			local ks = table.concat(Bk.Summary(d), "\n")
+			assert(ks:find(ns.L.BACKUP_WORD_FLAGS:format(ns.L.TREASURY_PART_RANKING), 1, true) and ks:find(ns.L.BACKUP_WORD_KEEPERS_BACK:format("Test Keeper"), 1, true), ks)
+			Bk.Apply(d)
+			eq(T.Shows("ranking"), true); eq(T.Keepers()[1], "Test Keeper-Realm")
+			local flags, keepers
+			for _, s in ipairs(w.sent) do
+				if s.msg:find("^T1~T~") then flags = s.msg end
+				if s.msg:find("^T1~K~") then keepers = s.msg end
+			end
+			assert(flags and flags:find("~010~%d+$") and keepers and keepers:find("Test Keeper%-Realm$"), "his word, given again")
+			-- The same backup on another client of his (not the King's any more): the word left out.
+			AsSoldier("Asmongold Asmongler")
+			assert(table.concat(Bk.Summary(Bk.Read(kingText)), "\n"):find(ns.L.BACKUP_WORD_NOT_KING, 1, true))
+		end)
+		mail.Restore()
+		ns.splitNames, ns.Comm.JoinChannel, ns.rdb.realmKey, ns.db.sound, ns.db.showMap = saved.split, saved.join, saved.key, saved.sound, saved.showMap
+		ns.db.minimapAngle, ns.db.chatWindows, ns.db.blocked, ns.db.shareLocation, ns.Roster.IsOfficer = saved.angle, saved.windows, saved.blocked, saved.share, saved.officer
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 the clipboard backup: the Treasurer's mail character's book goes with his, a big book comes back whole, the text read by a small parser", function()
+	WithThrone(function(w, K)
+		local T, Bk = ns.Treasury, ns.Backup
+		local saved = { split = ns.splitNames }
+		local ok, err = pcall(function()
+			ns.splitNames = true
+			-- His mail character's book, kept on his account: in his backup, restored on either.
+			ns.db.myCharacters = { [TREASURER_KEY] = true, [ANDARAI_KEY] = true }
+			AsAndarai(nil)
+			local mb = T.BookOf(ANDARAI, true); mb.opening = 1000
+			T.Record("Mail Giver", 500, "mail", nil, { quiet = true, book = mb })
+			AsTreasurer()
+			local b = T.Book(); b.opening = 2000
+			-- A big book: its 500 lines (520 written), and 3000 more donors of all time in its sums.
+			for i = 1, 520 do T.Record("Donor " .. i, 100 + i, "trade", nil, { quiet = true }) end
+			for i = 1, 3000 do T.Book().sums.byDonor["Old Donor " .. i] = i end
+			local balance, donors = T.Balance(), 0
+			for _ in pairs(T.Book().sums.byDonor) do donors = donors + 1 end
+			local text = Bk.Export()
+			assert(#text < Bk.MAX, #text)
+			ns.rdb.treasuryBooks, ns.db.myCharacters = nil, nil
+			AsAndarai(nil)
+			local d = Bk.Read(text)
+			assert(d, "his mail character reads its account's backup")
+			eq(#d.books, 2, "both books")
+			Bk.Apply(d)
+			eq(T.Balance(T.BookOf(ANDARAI)), 1500)
+			eq(T.Balance(T.BookOf("Pyralis Ashandar-Realm")), balance, "the big book whole")
+			eq(#T.BookOf("Pyralis Ashandar-Realm").lines, T.MAX)
+			local n = 0
+			for _ in pairs(T.BookOf("Pyralis Ashandar-Realm").sums.byDonor) do n = n + 1 end
+			eq(n, donors, "every donor of all time")
+			-- The text round trips any value it may hold.
+			local v = { a = "x|y@z <#1> %20 é", [3] = -12.5, t = true, f = false, nested = { { 1, 2 }, { s = "" } } }
+			local back = Bk.Parse(Bk.Write(v))
+			eq(back.a, v.a); eq(back[3], -12.5); eq(back.t, true); eq(back.f, false); eq(back.nested[1][2], 2); eq(back.nested[2].s, "")
+		end)
+		ns.splitNames = saved.split
+		ns.db.myCharacters = nil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 the clipboard backup's windows: the copy box out; a paste box in, read as the paste types it, confirmed in Olympus's own dialog with the gamepad UI", function()
+	WithUI(function()
+		local Bk = ns.Backup
+		local saved = { show = ns.UI.ShowCopy, focus = GetCurrentKeyBoardFocus, time = GetTime, me = ns.me, guild = GetGuildInfo }
+		local ok, err = pcall(function()
+			ns.me = "Tester-Realm"
+			GetGuildInfo = function() return "Olympus II", "Member", 3 end
+			local copied
+			ns.UI.ShowCopy = function(title, text, action) copied = { title = title, text = text, action = action } end
+			SlashCmdList.OLYMPUS("backup")
+			eq(copied.title, ns.L.BACKUP_TITLE); assert(copied.text:find("^OLYB1:"), copied.text)
+			eq(copied.action.label, ns.L.BACKUP_RESTORE_BTN)
+			local text = copied.text
+			WithGamepadUI(true, function(game)
+				-- The chat box is typing: the paste box never takes the keyboard from it.
+				local focused = 0
+				Widget.SetFocus = function() focused = focused + 1 end
+				GetCurrentKeyBoardFocus = function() return { name = "ChatFrame1EditBox" } end
+				copied.action.fn()
+				local f = Bk.Frame()
+				assert(f and f:IsShown(), "the paste box")
+				eq(focused, 0, "not taken from the chat box")
+				eq(#UISpecialFrames, 0, "nothing on the escape list with the gamepad UI")
+				-- The paste: every character typed at once (one frame), read at the next.
+				GetTime = function() return 42 end
+				for i = 1, #text do f.eb:Fire("OnChar", text:sub(i, i)) end
+				f.eb:Fire("OnUpdate", 0)
+				eq(#game.shown, 0, "no game popup")
+				assert(ns.Dialog.Find("OLYMPUS_BACKUP_RESTORE"), "Olympus's own dialog")
+				eq(f.status:GetText() or f.status.text, ns.L.BACKUP_READ_OK)
+				Widget.SetFocus = nil
+			end)
+		end)
+		ns.UI.ShowCopy, GetCurrentKeyBoardFocus, GetTime, ns.me, GetGuildInfo = saved.show, saved.focus, saved.time, saved.me, saved.guild
+		Bk.Reset()
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 Backup.lua added by an update and not loaded yet: /oly backup says to restart the game", function()
+	local savedSlash, savedEvents, savedPrint = {}, #EVENT_SCRIPTS, print
+	for k, v in pairs(SlashCmdList) do savedSlash[k] = v end
+	local printed = {}
+	print = function(msg) printed[#printed + 1] = tostring(msg) end
+	local ok, err = pcall(function()
+		local fresh = {}
+		for _, file in ipairs({ "Bootstrap", "Locales", "Core" }) do assert(loadfile(ADDON_DIR .. file .. ".lua"))("Olympus", fresh) end
+		eq(fresh.Backup.missing, true, "Backup.lua stood in for")
+		fresh.Backup.Slash("backup")
+		eq(printed[#printed]:find("reopen the game", 1, true) ~= nil, true)
+	end)
+	print = savedPrint
+	for k in pairs(SlashCmdList) do SlashCmdList[k] = savedSlash[k] end
+	for i = #EVENT_SCRIPTS, savedEvents + 1, -1 do EVENT_SCRIPTS[i] = nil end
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 the treasury's new lines (bank, sister guilds, requests, donations, backup) are in both languages, with the same format arguments", function()
+	local savedLocale, pt = GetLocale, {}
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, key in ipairs({ "TREASURY_PART_WAIT", "BANK_GONE", "BANK_GONE_TITLE", "BANK_GONE_TIP", "BANK_GONE_SLOT", "BANK_FOUND_TIP", "BANK_SISTERS",
+		"BANK_SISTERS_TIP", "BANK_SISTER_OF", "BANK_SISTER_TAB", "BANK_SISTER_ASK", "BANK_SISTER_YES", "BANK_SISTER_NO", "BANK_SISTER_ON",
+		"BANK_SISTER_OFF", "BANK_SISTER_ONLY", "HELP_BANK",
+		"BANK_REQUESTS", "BANK_REQUESTS_TIP", "BANK_MY_REQUESTS", "BANK_REQUEST_HOLDS", "BANK_REQUEST_CLICK", "BANK_REQUEST_CLICK_ANSWER",
+		"BANK_REQUEST_NEW_LINE", "BANK_REQUEST_PROMPT", "BANK_REQUEST_ANY_PROMPT", "BANK_REQUEST_ASK", "BANK_REQUEST_ANSWER", "BANK_REQUEST_MARK_DONE",
+		"BANK_REQUEST_MARK_DECLINED", "BANK_REQUEST_CANCEL_ASK", "BANK_REQUEST_ONLY", "BANK_REQUEST_WHAT", "BANK_REQUEST_FULL", "BANK_REQUEST_SENT",
+		"BANK_REQUEST_WAITING", "BANK_REQUEST_CANCELLED", "BANK_REQUEST_NEW", "BANK_REQUEST_DONE", "BANK_REQUEST_DECLINED", "BANK_REQUEST_STATE_SENT",
+		"BANK_REQUEST_STATE_SEEN", "BANK_REQUEST_STATE_DONE", "BANK_REQUEST_STATE_DECLINED", "BANK_REQUEST_STATE_CANCELLED", "HELP_NEED",
+		"DONATIONS_ONLY", "DONATIONS_NOW_ON", "DONATIONS_NOW_ON_ZONE", "DONATIONS_NOW_OFF", "DONATIONS_LINE", "DONATIONS_LINE_ZONE",
+		"DONATIONS_SWITCH", "DONATIONS_SWITCH_ON", "DONATIONS_SWITCH_OFF", "DONATIONS_SWITCH_TIP", "HELP_DONATIONS",
+		"BACKUP_TITLE", "BACKUP_RESTORE_BTN", "BACKUP_COPIED", "BACKUP_RESTORE_TITLE", "BACKUP_PASTE_HINT", "BACKUP_READ_OK", "BACKUP_NOT_ONE",
+		"BACKUP_TOO_BIG", "BACKUP_CUT", "BACKUP_DAMAGED", "BACKUP_OTHER", "BACKUP_OTHER_FACTION", "BACKUP_CONFIRM", "BACKUP_CONFIRM_YES", "BACKUP_FROM",
+		"BACKUP_BOOK_WHOLE", "BACKUP_BOOK_MERGE", "BACKUP_WORD_FLAGS", "BACKUP_WORD_FLAGS_NONE", "BACKUP_WORD_KEEPERS", "BACKUP_WORD_KEEPERS_BACK",
+		"BACKUP_WORD_NOT_KING", "BACKUP_KEY", "BACKUP_KEY_NOT_OFFICER", "BACKUP_SETTINGS", "BACKUP_BLOCKED", "BACKUP_NO_CONSENT", "BACKUP_DONE",
+		"BACKUP_LINK", "BACKUP_RESTORE_LINK", "HELP_BACKUP" }) do
+		assert(type(rawget(ns.L, key)) == "string", "English " .. key)
+		assert(type(rawget(pt.L, key)) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
+		eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)
+	end
+end)
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

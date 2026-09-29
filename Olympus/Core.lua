@@ -1525,6 +1525,7 @@ StandIn("Dues", {}) -- (1.1)
 StandIn("Acts", { "WritPrompt" })
 StandIn("Dialog", {})
 StandIn("Bank", {})
+StandIn("Backup", { "Slash" }) -- (1.1)
 StandIn("Link", { "Slash" })
 StandIn("Borders", { "SetEnabled", "Report" })
 StandIn("Nameplates", { "SetEnabled", "Report" })
@@ -1618,7 +1619,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Dues", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Loot", "Crafters", "Board", "Week", "Consent", "Chronicle", "Filter", "Members", "Moderation", "Alts", "Keys" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Dues", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Backup", "Loot", "Crafters", "Board", "Week", "Consent", "Chronicle", "Filter", "Members", "Moderation", "Alts", "Keys" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1675,6 +1676,10 @@ local function Help()
 	print(L.HELP_LOG)
 	print(L.HELP_FILTER)
 	print(L.HELP_TREASURER)
+	print(L.HELP_BANK)
+	print(L.HELP_NEED)
+	print(L.HELP_DONATIONS)
+	print(L.HELP_BACKUP)
 	print(L.HELP_INSPECTION)
 	print(L.HELP_BORDERS)
 	print(L.HELP_NAMEPLATES)
@@ -1967,6 +1972,21 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "alt" or cmd == "alts" then
 			-- 1.1: this account's characters linked as one player (Alts.lua).
 			ns.Alts.Slash(rest)
+		elseif cmd == "bank" then
+			-- 1.1: a sister guild's treasurer shows his guild bank to the King, his Steward and his
+			-- Hands, by whisper, or not (Bank.lua).
+			local verb, on = rest:lower():match("^(%S*)%s*(%S*)")
+			if verb == "share" and (on == "on" or on == "off") then ns.Bank.SetSisterConsent(on == "on") else ns.Print(L.HELP_BANK) end
+		elseif cmd == "need" then
+			-- 1.1: a Lord or a Captain asks the treasury for an item and a count (Bank.lua).
+			ns.Bank.Slash(rest)
+		elseif cmd == "backup" or cmd == "restore" then
+			-- 1.1: the clipboard backup of this character's book, the channel key and its setup (Backup.lua).
+			ns.Backup.Slash(cmd)
+		elseif cmd == "donations" then
+			-- 1.1: a keeper tells the army he is taking donations, until he logs out (Treasury.lua).
+			local on = rest:lower()
+			if on == "on" or on == "off" then ns.Treasury.SetDonations(on == "on") else ns.Print(L.HELP_DONATIONS) end
 		else
 			Help()
 		end

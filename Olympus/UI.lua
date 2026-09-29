@@ -1950,6 +1950,7 @@ function UI.ShowHelp()
 		L.HELP_PRIVACY_PAGE,
 		L.HELP_FILTER,
 		L.HELP_LOG,
+		L.HELP_BACKUP,
 		"",
 		L.HELP_CHATS,
 		L.HELP_CHAN_ALL,
