@@ -289,13 +289,23 @@ WoW channel number to join). Each channel is exclusive to a rank:
   changes: the addon never touches the chat box, so every command typed there works as always.
   A window closed or renamed sends its lines back to the main window, with a notice.
   `/oly status` shows where each channel goes.
-- **Chattynator tabs:** create a regular chat tab in Chattynator, then use its name with
-  `/oly chatwindow`, for example `/oly chatwindow Olympus olympus`. Allow **Olympus** in
-  that tab's addon filters, or allow all addon messages. Names are case-insensitive; use
-  unique names. A matching Chattynator tab takes priority over a Blizzard window of the
-  same name. Moving a tab keeps its route; removing or renaming it uses the main-window
-  fallback above. Chattynator is optional. Routing does not turn the Olympus chats on;
-  choose that separately in the privacy screen or with `/oly chat on`.
+- **Chattynator (1.1.2, from hypertectonic's pull request #47).** With the Chattynator chat
+  addon, its tabs are your chat windows: the game's own windows are hidden behind them, so
+  Olympus leaves those out and picks Chattynator's tabs instead. `/oly chatwindow tab` (or the
+  Chat tab's settings) sends the three channels to a Chattynator tab named Olympus, without the
+  channel's name, and says how to make it: in Chattynator, click the + after its tabs, rename
+  the new tab Olympus (right-click it, Rename tab), then right-click it, Tab Settings, and under
+  Addons tick Olympus. `/oly chatwindow <name>` picks any other tab of Chattynator's by its
+  name, in any case (`/oly chatwindow Guild captains`), as the tab shows it or as Chattynator
+  keeps it ("GENERAL" for General); not by number. A tab shows Olympus's lines only if its
+  filter lets Olympus in, which Olympus cannot see: each time you choose a Chattynator tab, the
+  main window says how. A tab moved gets the new lines where it now is (the lines it showed
+  before may not follow it: Chattynator files each line under the tab's place when it came);
+  one removed or renamed sends them back to the main window, with a notice. Olympus only reads
+  the names of Chattynator's tabs and prints its lines there through Chattynator's public API:
+  it never makes, renames or sets up a tab, and your chat box works as always. Choosing a tab
+  does not turn the Olympus chats on (the first-open page, or `/oly chat on`). Without
+  Chattynator nothing changes.
 - The flood guard keeps a busy channel readable: past 60 lines a minute (or 10 from one player
   while the channel is half full) the rest stay off the chat, and a notice says how many, at
   most once a minute. Those lines still go to the Chat tab (1.1.1), which keeps the last 100
@@ -446,14 +456,18 @@ window's left edge (for the author, his Workshop goes there first).
   pointer (the game's chat tabs work otherwise there): the line gives the same steps as text. The
   line stays away while you send a channel to a chat window of your own (`/oly chatwindow`), and
   its **x** puts it away for good, on every character: the settings and `/oly chatwindow tab`
-  still make the tab.
+  still make the tab. With Chattynator (1.1.2) there is no pointer either (the game's tabs are
+  hidden behind Chattynator's): the click sends the chats to its tab named Olympus at once, and
+  chat says how to make that tab in Chattynator; the Chat tab reads Chattynator's tabs while it
+  shows, and says so once when the tab is there.
 - **Settings**: the gear at the end of the top row shows them in place of the lines (a click on it
   again, or **< Back to the lines**, goes back). The Olympus chats on or off on this client, what
   that means, and a click to choose (the first-open page); for officers while your channel is
   public, its quiet grey line. For each channel your rank reads: whether it shows in your game
   chat (a click mutes it there or shows it again, as `/oly mute`), and the chat window it prints
   in (a click moves it to the next chat window open in your game, then back to the main one, as
-  `/oly chatwindow`). The Olympus tab of the game chat: add it (as the line over the lines does),
+  `/oly chatwindow`; with Chattynator, to its next tab, by name, 1.1.2). The Olympus tab of the
+  game chat: add it (as the line over the lines does),
   the steps while it is awaited, **on**, or waiting for a chat tab named Olympus. And for whoever
   may pin, **Pin a line for the army...** (or **for your guild...**). Each choice is the one its
   command makes, kept where it always was, so nothing chosen before 1.1.1 is lost; the game's chat
@@ -1785,7 +1799,7 @@ Other limits:
 | `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |
 | `/oly mute olympus` · `/oly mute captains` · `/oly mute lords` | hide or show a channel in chat |
 | `/oly pin <text>` · `/oly pin off` · `/oly pin` | the King, his Stewards and Hands: pin one line for the army on top of the Olympus chats and the Realm (2 hours); a guild master: one for his own guild. Take it down, or see what is pinned |
-| `/oly chatwindow tab` · `/oly chatwindow <number or name> [olympus\|captains\|lords]` · `/oly chatwindow main` | the Olympus chats in a chat tab named Olympus (without the channel's name; it says how to make the tab), in another chat window, or back in the main one |
+| `/oly chatwindow tab` · `/oly chatwindow <number or name> [olympus\|captains\|lords]` · `/oly chatwindow main` | the Olympus chats in a chat tab named Olympus (without the channel's name; it says how to make the tab), in another chat window (with Chattynator, one of its tabs, by name), or back in the main one |
 | `/oly treasurer on\|off` | a keeper of the treasury (the Treasurer, the King, a character he named) shares his book and the guild bank, or keeps them private (1.1: what the King hides goes only to the King, his Steward and the keepers, by whisper) |
 | `/oly backup` · `/oly restore` | copy a backup of your treasury book and your settings as text, or paste one back after a wipe (nothing is sent anywhere, never the channel key) (1.1) |
 | `/oly donations on\|off` | a keeper of the treasury tells everyone with the addon he is taking donations (a line on the Realm and Treasury tabs, with his zone if he shares it, one line in the [Olympus] chat), until he logs out (1.1) |
@@ -1955,7 +1969,7 @@ Gundlach and contributors (speedata, 3-clause BSD) for Olympus Link's QR code
 - **Security reviews:** Konig, bjess9 (jess), lordjumper and Fadirstave, who read the code and
   showed what an attacker could do.
 - **Code and ideas:** RoyLeviGit (Olympus chats in their own chat window), Artz (hiding the
-  Issue Reporter), bjess9 (CI and the shared checks).
+  Issue Reporter), bjess9 (CI and the shared checks), hypertectonic (Chattynator's tabs).
 - **Feature requests:** Fernmelder, whose 39 posts became 1.1 (the Fernmelder release);
   shenanigans_ (the nameplate marks), Valdericht (`<OLYMPIAN>`), Pyralis Ashandar (taking
   donations) and Zeal (what the King hides stays off the channel).

@@ -45738,6 +45738,41 @@ end)()
 		eq(pages[1], pages[2], "the Channels section is the same on both pages")
 	end)
 
+	test("1.1.2: Chattynator's strings in English and pt-BR, with the same format codes, in Chattynator's own words for its menus; the README and the CurseForge page tell of its tabs in the same words", function()
+		local en, pt = LoadedL("enUS"), LoadedL("ptBR")
+		for _, k in ipairs({ "CHATTY_STEPS", "CHATTY_FILTER", "CHATTY_NOT_FOUND", "CHATTY_TAB_STEPS", "CHATSET_WHERE_TIP_CHATTY" }) do
+			assert(type(en[k]) == "string" and en[k] ~= "", k .. ": English")
+			assert(type(pt[k]) == "string" and pt[k] ~= "" and pt[k] ~= en[k], k .. ": pt-BR")
+			local function Codes(s) local out = {} for c in s:gmatch("%%%a") do out[#out + 1] = c end return table.concat(out) end
+			eq(Codes(pt[k]), Codes(en[k]), k .. ": format codes")
+		end
+		eq(select(2, en.CHATTY_FILTER:gsub("%%s", "")), 1, "the tab's name")
+		eq(select(2, en.CHATTY_NOT_FOUND:gsub("%%s", "")), 2, "the name asked for, its tabs")
+		-- (Chattynator 224's Locales.lua: its menus as the player sees them.)
+		for _, words in ipairs({ { en, "Rename tab", "Tab Settings", "Addons" }, { pt, "Renomear aba", "Configurações da aba", "Addons" } }) do
+			for i = 2, 4 do assert(words[1].CHATTY_STEPS:find(words[i], 1, true), words[i]) end
+			assert(words[1].CHATTY_FILTER:find(words[3], 1, true), words[3])
+		end
+		local PHRASES = {
+			"**Chattynator (1.1.2, from hypertectonic's pull request #47).**",
+			"the game's own windows are hidden behind them",
+			"right-click it, Tab Settings, and under Addons tick Olympus",
+			"picks any other tab of Chattynator's by its name",
+			"which Olympus cannot see: each time you choose a Chattynator tab, the main window says how",
+			"the lines it showed before may not follow it",
+			"it never makes, renames or sets up a tab",
+			"With Chattynator (1.1.2) there is no pointer either",
+			"with Chattynator, to its next tab, by name, 1.1.2",
+			"in another chat window (with Chattynator, one of its tabs, by name)",
+			"hypertectonic (Chattynator's tabs)",
+		}
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, phrase in ipairs(PHRASES) do assert(doc:find(phrase, 1, true), path .. ": " .. phrase) end
+			assert(not doc:find("create a regular chat tab in Chattynator", 1, true), path .. ": PR #47's bullet, rewritten for 1.1.1's tab")
+		end
+	end)
+
 	---------------------------------------------------------------------------
 	-- 1.1.1, the review of the #34 and Olympus tab commits: a part the game refuses keeps the rest
 	-- of its line off the channel; after a move, the notice says which parts left; a privacy
