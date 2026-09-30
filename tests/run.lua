@@ -37795,7 +37795,15 @@ do
 			eq(#KY.Targets(), 2)
 			-- Nor when /who saw one of them in another guild long ago, or in that guild too long ago.
 			assert(not KY.WhoSaw("Leaker One-Realm", "Olympus II"))
-			server.clock = server.clock + KY.WHO_FRESH + 1
+			-- (Both clocks move in the game: the /who's and the server's, by which the rotation keeps
+			-- what his /who saw. The census stays fresh: only his /who is old.)
+			server.clock, w.clock = server.clock + KY.WHO_FRESH + 1, w.clock + KY.WHO_FRESH + 1
+			for _, g in pairs(ns.rdb.guilds) do
+				g.t = w.clock
+				for _, v in pairs(g.vouch or {}) do v.t = w.clock end
+			end
+			for _, s in pairs(ns.rdb.seen) do s.t = w.clock end
+			assert(Page((K.Build())):find("<Olympus Zeus>  0 · " .. ns.L.KEY_GUILD_SEEN .. " · " .. ns.L.KEY_GUILD_WAITING:format(2), 1, true), Page((K.Build())))
 			eq(#KY.Targets(), 0, "his /who of Zed and Zeus Cap is too old now")
 		end)
 	end)
@@ -37940,6 +37948,196 @@ do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
 			assert(not doc:find("The King alone: not his Steward or a Hand", 1, true), path .. ": his Steward rotates too")
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- 1.1 (Konig's review of the key rotation's /who, #45): what the King's /who saw of the Lords and
+-- Captains is kept with the rotation (a /reload, a relog or Who.lua's forgetting past SEEN_MAX
+-- names no longer undoes it).
+---------------------------------------------------------------------------
+do
+	local KY = ns.Keys
+	local function LineWith(lines, text)
+		for _, l in ipairs(lines) do if tostring(l.text):find(text, 1, true) then return l end end
+		return nil
+	end
+	local function Whispered(w)
+		local out = {}
+		for _, x in ipairs(w.whispered) do if x.msg:sub(1, 3) == "K3~" then out[#out + 1] = x.to end end
+		table.sort(out)
+		return table.concat(out, ",")
+	end
+	local function Targets()
+		local out = {}
+		for _, t in ipairs(KY.Targets()) do out[#out + 1] = t.name end
+		table.sort(out)
+		return table.concat(out, ",")
+	end
+	-- The census's reports as just made: in these tests only what the King's /who saw ages.
+	local function Fresh(w)
+		for _, g in pairs(ns.rdb.guilds) do
+			g.t = w.clock
+			for _, v in pairs(g.vouch or {}) do v.t = w.clock end
+		end
+		for _, s in pairs(ns.rdb.seen) do s.t = w.clock end
+	end
+	-- The King's client with a stand-in of the game's /who (WithWho: GetTime is its clock) and the
+	-- Throne (WithThrone; ns.Now, the server's clock here, is w.clock). The census: <Olympus Zeus>,
+	-- its Lord Zed and Captain Zeus Cap online (two senders: the census believes them), checked
+	-- (his /who saw a guild of that name). A whisper leaves at once (done(true)).
+	local function WithKing(fn)
+		WithWho(function(server)
+			WithThrone(function(w, K)
+				local saved = { key = ns.rdb.realmKey, epoch = ns.rdb.keyEpoch, rot = ns.rdb.keyRotation, retired = ns.rdb.keyRetired,
+					join = ns.Comm.JoinChannel, log = ns.db.log }
+				local ok, err = pcall(function()
+					ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRotation, ns.rdb.keyRetired = nil, nil, nil, nil
+					ns.db.log = {}
+					KY.Reset()
+					ns.Comm.JoinChannel = function() end
+					local record = ns.Comm.Whisper
+					ns.Comm.Whisper = function(to, msg, key, urgent, logged, done)
+						record(to, msg, key, urgent)
+						if done then done(true) end
+					end
+					ns.rdb.guilds["Olympus II"] = nil
+					ns.rdb.seen = { ["Olympus Zeus"] = { online = 9, t = w.clock } }
+					ns.rdb.guilds["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", leaderOnline = true, realm = "Realm",
+						officers = { { name = "Zeus Cap", online = true, days = 0 } } }, "W3-Realm", "W4-Realm")
+					AsKing()
+					fn(w, K, server)
+				end)
+				ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRotation, ns.rdb.keyRetired = saved.key, saved.epoch, saved.rot, saved.retired
+				ns.Comm.JoinChannel, ns.db.log = saved.join, saved.log
+				KY.Reset()
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end
+	-- A /reload (or a relog): Who.lua starts empty, and Keys' LOGIN handler forgets the old send queue.
+	local function Reload()
+		ns.Who.Reset()
+		KY.Rotation().queued = {}
+	end
+
+	test("1.1 key rotation, Konig's review: after a /reload during the hand-out, the Lords and Captains the King's /who saw (before he rotated, or since) whose whisper never left are whispered again, and he does not move while they wait", function()
+		WithKing(function(w, K, server)
+			-- His /who before he rotates lists Zed in Olympus Zeus (a full answer: not Zeus Cap).
+			eq(ns.Who.Search(true), true)
+			server.Answer({ { "Zed", "Olympus Zeus", 60, "WARRIOR" } })
+			server.Run(ns.Who.SETTLE)
+			eq(KY.Rotate(), true)
+			-- Then the Throne's /who line searches Olympus Zeus: a full answer, Zeus Cap in it, not Zed.
+			K.Show("home")
+			server.clock = server.clock + ns.Who.COOLDOWN + 1
+			LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:format(1)).onClick()
+			eq(server.sent[#server.sent], 'g-"Olympus Zeus"')
+			local rows = { { "Zeus Cap", "Olympus Zeus", 60, "MAGE" } }
+			for i = 2, 50 do rows[i] = { "Zeus Soldier" .. i, "Olympus Zeus", 20, "MAGE" } end
+			server.Answer(rows, 60)
+			server.Run(ns.Who.SETTLE)
+			-- A long send queue: the whispers wait there, none leaves before the /reload.
+			ns.Comm.Whisper = function(to, msg) w.whispered[#w.whispered + 1] = { to = to, msg = msg } end
+			eq(KY.Start(), true)
+			eq(Whispered(w), "Zed-Realm,Zeus Cap-Realm", "queued")
+			Reload()
+			w.whispered = {}
+			w.clock = w.clock + 60
+			Fresh(w)
+			KY.Tick()
+			eq(Whispered(w), "Zed-Realm,Zeus Cap-Realm", "handed again after the /reload")
+			eq(KY.Waiting(), 2)
+			-- The grace is over, their whisper still waits: he does not move yet...
+			Reload()
+			w.clock = KY.Rotation().till + 1
+			Fresh(w)
+			KY.Tick()
+			eq(KY.Rotation().moved, nil, "two picked still wait for their whisper")
+			-- ...until GRACE_MORE is over; what his /who saw goes with the hand-out.
+			w.clock = KY.Rotation().till + KY.GRACE_MORE
+			Fresh(w)
+			KY.Tick()
+			eq(KY.Rotation().moved, true)
+			eq(KY.Rotation().saw, nil)
+		end)
+	end)
+
+	test("1.1 key rotation, Konig's review: the rotation's record of the King's /who follows its newest answer: a Lord it later lists in another guild is no longer whispered, after a /reload too", function()
+		WithKing(function(w, K, server)
+			eq(KY.Rotate(), true)
+			eq(ns.Who.Search(true), true)
+			server.Answer({ { "Zed", "Olympus Zeus", 60, "WARRIOR" }, { "Zeus Cap", "Olympus Zeus", 60, "MAGE" } })
+			server.Run(ns.Who.SETTLE)
+			Reload()
+			eq(Targets(), "Zed-Realm,Zeus Cap-Realm", "kept through the /reload")
+			-- He left it since: a /who by name lists him in another guild (the census still names him).
+			server.clock = server.clock + ns.Who.COOLDOWN + 1
+			eq(ns.Who.Search(true, nil, "Zed"), true)
+			server.Answer({ { "Zed", "Leakers Club", 60, "WARRIOR" } })
+			server.Run(ns.Who.SETTLE)
+			eq(Targets(), "Zeus Cap-Realm")
+			Reload()
+			eq(Targets(), "Zeus Cap-Realm", "after a /reload too")
+			eq(KY.Start(), true)
+			eq(Whispered(w), "Zeus Cap-Realm")
+		end)
+	end)
+
+	test("1.1 key rotation, Konig's review, at the army's scale: his /who of 46 guilds of 50 players (more than Who.lua keeps) confirms every Lord and Captain with one search a guild, and the census's later searches don't undo it", function()
+		WithKing(function(w, K, server)
+			local function Tag(i) return string.char(65 + math.floor(i / 26)) .. string.char(97 + i % 26) end
+			local lords = { ["Olympus Zeus"] = { "Zed", "Zeus Cap" } }
+			for i = 1, 45 do
+				local guild = "Olympus " .. Tag(i)
+				ns.rdb.guilds[guild] = Vouched({ total = 100, online = 60, zones = {}, t = w.clock, leader = "Lord" .. Tag(i), leaderOnline = true, realm = "Realm",
+					officers = { { name = "Cap" .. Tag(i), online = true, days = 0 } } }, "Wa" .. i .. "-Realm", "Wb" .. i .. "-Realm")
+				ns.rdb.seen[guild] = { online = 60, t = w.clock }
+				lords[guild] = { "Lord" .. Tag(i), "Cap" .. Tag(i) }
+			end
+			eq(KY.Rotate(), true)
+			K.Show("home")
+			local listed, first, last = 0, nil, nil
+			for click = 1, 46 do
+				server.clock = server.clock + ns.Who.COOLDOWN + 1
+				local before = #server.sent
+				LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:sub(1, 12)).onClick()
+				eq(#server.sent, before + 1, "one search a click")
+				local guild = server.sent[#server.sent]:match('^g%-"(.*)"$')
+				assert(guild and lords[guild], "click " .. click .. ", a guild's search: " .. server.sent[#server.sent])
+				first, last = first or guild, guild
+				-- The server lists 50 at most: its Lord and Captain, and 48 more.
+				local rows = { { lords[guild][1], guild, 60, "WARRIOR" }, { lords[guild][2], guild, 60, "MAGE" } }
+				for j = 3, 50 do rows[j] = { "S" .. click .. "x" .. j, guild, 30, "MAGE" } end
+				server.Answer(rows, 60)
+				server.Run(ns.Who.SETTLE)
+				listed = listed + #rows
+			end
+			assert(listed > ns.Who.SEEN_MAX, "more players than Who.lua keeps")
+			eq(ns.Who.SeenGuild(lords[first][1]), nil, "Who.lua forgot the first guild's")
+			-- Right after the last guild's answer, the census's own searches (his other clicks in the
+			-- window) list 2050 more: Who.lua forgets the last guild's too, the rotation does not.
+			for i = 1, 41 do
+				server.clock = server.clock + ns.Who.COOLDOWN + 1
+				eq(ns.Who.Search(true), true)
+				local rows = {}
+				for j = 1, 50 do rows[j] = { "T" .. i .. "x" .. j, "Horde Pals", 30, "MAGE" } end
+				server.Answer(rows, 50)
+				server.Run(ns.Who.SETTLE)
+			end
+			eq(ns.Who.SeenGuild(lords[last][1]), nil, "Who.lua forgot the last guild's")
+			eq(#KY.Targets(), 92, "every Lord and Captain his /who listed in his guild")
+			eq(LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:sub(1, 12)), nil, "nobody left to look for")
+		end)
+	end)
+
+	test("1.1 key rotation, Konig's review: the README and the CurseForge page say that what the King's /who saw survives a /reload", function()
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, must in ipairs({ "What his /who saw is kept with the rotation, through a /reload or relog too" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
 		end
 	end)
 end

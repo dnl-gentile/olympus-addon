@@ -37,7 +37,8 @@ local L = ns.L
 -- The King's client hands the key out a few whispers at a time, never more than the send queue
 -- has room for (its other messages keep their place), and counts a whisper as sent once it left.
 -- /who goes from a click alone: his click on a guild, or on the Throne's /who line, searches the
--- next one picked whose Lords and Captains it has not seen there yet (Keys.Confirm).
+-- next one picked whose Lords and Captains it has not seen there yet (Keys.Confirm). What it saw
+-- is kept with the rotation (rot.saw), through a /reload too.
 -- It keeps handing it to Lords and Captains who come online for GRACE, on the old channel (a
 -- little longer while some picked still wait for their whisper), then moves (with his guild);
 -- "Move now" sooner. Guilds with no officer online in that time stay on the old channel until one
@@ -141,7 +142,7 @@ end
 
 -- The King's rotation (ns.rdb.keyRotation): { at, key, retires, picking, picked = { [guild, lower
 -- case] = true | false }, till, acked = { [Name-Realm] = guild }, sent = { [Name-Realm] = t },
--- queued = { [Name-Realm] = t }, moved, movedAt }.
+-- queued = { [Name-Realm] = t }, saw = { [Name-Realm] = { guild, at } } (WhoSaw), moved, movedAt }.
 local function Rotation()
 	local r = ns.rdb and ns.rdb.keyRotation
 	return type(r) == "table" and r or nil
@@ -339,12 +340,45 @@ local function Seen(guild)
 end
 Keys.Seen = Seen
 
--- His own /who listed this player in exactly this guild within WHO_FRESH (Who.SeenGuild): the
--- server's word. The census alone can't say it: two characters on the leaked channel can report
--- themselves a real guild's Lord and Captain (Data.KnownRank asks two senders, they are two).
+-- What his /who saw of the Lords and Captains the census names is kept in the rotation (rot.saw:
+-- [Name-Realm] = { guild, at = server time }), like the rest of it: Who.lua's own list starts
+-- empty after a /reload or relog, and is forgotten whole past Who.SEEN_MAX names (a pass over
+-- the army's guilds lists more), while the hand-out depends on it (Konig's review).
+local function Keep(rot, name, guild, at)
+	rot.saw = type(rot.saw) == "table" and rot.saw or {}
+	rot.saw[name] = { guild = guild, at = at }
+end
+-- Every player an answer of ours lists (Who.OnSaw): kept when the census names him a Lord or
+-- Captain of the guild it shows, or was kept already (seen elsewhere now: that counts too).
+function Keys.Saw(name, guild)
+	local rot = Rotation()
+	if not rot or rot.moved or type(name) ~= "string" or not Keys.CanRotate() then return end
+	name = ns.FullName(name)
+	guild = type(guild) == "string" and guild or ""
+	local kept = type(rot.saw) == "table" and rot.saw[name]
+	if kept or (guild ~= "" and (ns.Data.KnownRank(name, guild) or math.huge) <= ns.CAPTAIN_RANK) then
+		Keep(rot, name, guild, Clock())
+	end
+end
+if ns.Who and ns.Who.OnSaw then ns.Who.OnSaw(function(name, guild) Keys.Saw(name, guild) end) end
+
+-- His own /who listed this player in exactly this guild within WHO_FRESH (Who.SeenGuild, or the
+-- rotation's own record: the newer): the server's word. The census alone can't say it: two
+-- characters on the leaked channel can report themselves a real guild's Lord and Captain
+-- (Data.KnownRank asks two senders, they are two). A sighting from before the rotation that holds
+-- is kept in it from then on.
 local function WhoSaw(name, guild)
-	if not (ns.Who and ns.Who.SeenGuild) then return false end
-	local seen, age = ns.Who.SeenGuild(name)
+	name = ns.FullName(name)
+	local seen, age
+	if ns.Who and ns.Who.SeenGuild then seen, age = ns.Who.SeenGuild(name) end
+	local rot = Rotation()
+	local kept = rot and type(rot.saw) == "table" and rot.saw[name] or nil
+	local keptAt = type(kept) == "table" and tonumber(kept.at) or nil
+	if keptAt and (type(age) ~= "number" or Clock() - keptAt < age) then
+		seen, age = kept.guild, Clock() - keptAt
+	elseif rot and not rot.moved and seen == guild and type(age) == "number" and age <= Keys.WHO_FRESH then
+		Keep(rot, name, seen, Clock() - math.floor(age))
+	end
 	return seen == guild and type(age) == "number" and age <= Keys.WHO_FRESH
 end
 Keys.WhoSaw = WhoSaw
@@ -535,6 +569,7 @@ function Keys.Move()
 	local rot = Rotation()
 	if not rot or rot.moved or rot.picking or not Keys.CanRotate() then return false end
 	rot.moved, rot.movedAt = true, ns.Now()
+	rot.saw = nil -- (nothing is handed any more: what his /who saw goes)
 	Take(rot.key, rot.at, true, rot.retires)
 	ToGuild(rot.key, rot.at)
 	ns.Print(L.KEY_ROTATION_MOVED)

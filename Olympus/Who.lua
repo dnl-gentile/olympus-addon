@@ -408,6 +408,11 @@ end
 -- most 15 minutes old). [Name-Realm] = { guild, t }.
 Who.SEEN_MAX = 2000
 local seenAt, nSeen = {}, 0
+-- fn(Name-Realm, guild) for each player an answer of ours lists, the guild as SeenGuild tells it
+-- (1.1: the King's key rotation keeps what it depends on, Keys.Saw: this list starts empty after
+-- a /reload, and is forgotten whole past SEEN_MAX names).
+local sawListeners = {}
+function Who.OnSaw(fn) sawListeners[#sawListeners + 1] = fn end
 local function Saw(name, guild)
 	local full = ns.FullName(name)
 	if not seenAt[full] then
@@ -417,7 +422,9 @@ local function Saw(name, guild)
 		end
 		nSeen = nSeen + 1
 	end
-	seenAt[full] = { guild = type(guild) == "string" and guild ~= "" and Who.GuildName(guild) or "", t = GetTime() }
+	local e = { guild = type(guild) == "string" and guild ~= "" and Who.GuildName(guild) or "", t = GetTime() }
+	seenAt[full] = e
+	for _, fn in ipairs(sawListeners) do ns.SafeCall("who seen", fn, full, e.guild) end
 end
 
 -- The guild the last answer of ours that listed `name` showed ("" for none), and how many
