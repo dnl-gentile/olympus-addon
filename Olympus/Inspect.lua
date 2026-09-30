@@ -475,11 +475,14 @@ end
 -- runs here (the 1.1 review: an officer of the King's guild could put any name on the army's
 -- list, or have a sampled officer report it as his own).
 --   U1~<name>:<guild>:<N|O|G>:<seconds ago, base36>;...   an officer's own findings (GUILD)
---   U0~                                                   an officer's addon after login: "what
+--   U0~                                                   an officer's addon after login, or at his
+--                                                         yes if later (once a session): "what
 --                                                         did you find today?" (GUILD)
 -- A GUILD message reaches every guildmate's client (any of them can read its bytes with a
 -- script); the addon of anyone but an officer drops it unread. Versions before 1.1 have no
--- handler for these and drop them. /oly patrolshare off: nothing sent, nothing taken.
+-- handler for these and drop them. Off until the officer says yes (Konig's review of 1.1: it was
+-- on by default and missing from the first-open page): his line there (Consent.lua), or /oly
+-- patrolshare on; off, or never answered: nothing sent, nothing taken.
 ---------------------------------------------------------------------------
 
 Inspect.SHARE_EVERY = 60         -- an officer's findings go out once a minute at most...
@@ -493,8 +496,9 @@ local STATUS_CODE = { NONE = "N", OTHER = "O", GUILD = "G" }
 local CODE_STATUS = { N = "NONE", O = "OTHER", G = "GUILD" }
 local shareQueue, shareQueued = {}, {} -- the names of our own findings waiting to go out
 local lastShare, lastAnswer, answering = -math.huge, -math.huge, false
+local askedToday = false -- our U0 went out this session (one a session at most)
 
-function Inspect.Sharing() return not (ns.db and ns.db.patrolShare == false) end
+function Inspect.Sharing() return ns.db ~= nil and ns.db.patrolShare == true end
 local function Officer() return ns.IsMember() == true and ns.Roster.IsOfficer() == true end
 local function MayShare() return Inspect.Sharing() and Officer() end
 Inspect.MayShare = MayShare
@@ -650,9 +654,11 @@ local function OwnFindings(now)
 end
 
 -- After login, an officer's addon asks the others for the day's findings (its own list starts
--- empty: the Forever beta forgets saved data at every login).
+-- empty: the Forever beta forgets saved data at every login), or once he says yes if that came
+-- later (SetSharing). Once a session.
 function Inspect.AskShared()
-	if not MayShare() then return false end
+	if askedToday or not MayShare() then return false end
+	askedToday = true
 	ns.Comm.Send("GUILD", "U0~", "tabardask")
 	return true
 end
@@ -686,6 +692,9 @@ function Inspect.SetSharing(on)
 	if on ~= nil then ns.db.patrolShare = on and true or false end
 	if not Inspect.Sharing() then return ns.Print(L.PATROLSHARE_OFF) end
 	ns.Print(Officer() and L.PATROLSHARE_ON or L.PATROLSHARE_ON_NOT_OFFICER)
+	-- (Konig's review of 1.1: the login's ask comes 40 to 70 s in, off until he answers; a yes on
+	-- the first-open page, 45 s in, or later asks then, unless ours went out this session.)
+	if on and Officer() then Inspect.AskShared() end
 end
 
 -- How many on our list are another officer's word (the Tabards tab's detail box).
@@ -701,6 +710,7 @@ end
 function Inspect.ResetShare()
 	wipe(shareQueue); wipe(shareQueued)
 	lastShare, lastAnswer, answering = -math.huge, -math.huge, false
+	askedToday = false
 end
 
 ---------------------------------------------------------------------------

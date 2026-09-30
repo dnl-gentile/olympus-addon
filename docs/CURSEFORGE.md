@@ -99,10 +99,11 @@ versions before 1.1 just get the whisper, as before.
   the mark changes nothing that counts. Your own guild (your roster) is never marked.
 - **Asking to join** (1.1): a recruit who asked you from the Join Olympus screen shows on top of
   the Census, with their whisper. An officer (the game's guild invite permission) answers with
-  **Invite** (the game's own guild invite) or **Decline** (one whisper pointing to the gates or
-  the guild with the most room), one click each; anyone else can point them to an officer
-  online. **Dismiss** sends nothing. In the Realm's Recruiting, one click (or `/oly nocontact`)
-  sets your **do not contact** flag.
+  **Invite** (the game's own guild invite) or **Decline** (one whisper pointing to the gates'
+  guild while the King's gates are open, else naming your guild alone: never a guild the census
+  lists for its room, which two made-up characters could report), one click each; anyone else
+  can point them to an officer online. **Dismiss** sends nothing. In the Realm's Recruiting, one
+  click (or `/oly nocontact`) sets your **do not contact** flag.
 - **Search the census** (1.1): a guild, a Lord, a Captain, a player of a guild's top five or one
   seen online (the player shows under the guild's row), or a zone ("Stormwind": its soldiers
   and its guilds, most first). Type **recruiting** (or `free 50`) for every guild with room,
@@ -817,13 +818,14 @@ alone until then).
 - **Shared among officers** (1.1): what an officer's own inspections find (a player without the
   colors or with another tabard, and one caught before who wears ours again) goes to his guild's
   officers over guild addon messages, once a minute at most, and an officer's addon asks the others
-  for the day's findings after its login. Each officer's Tabards page shows them with his own, the
-  officer who found each in its tooltip, for a day (his own later inspection of that player
-  replaces it). Nothing is inspected more or sooner for it, nothing goes on the Olympus channel,
-  and only officers (the guild master and the rank right below, by each addon's own roster) send
-  or keep it. The King's untabarded list stays his: another officer's finding never joins it,
-  never rides in a Royal Inspection's report and never replaces what the King saw himself.
-  `/oly patrolshare off` stops it.
+  for the day's findings once a session: after its login, or at his yes if that came later. Each
+  officer's Tabards page shows them with his own, the officer who found each in its tooltip, for a
+  day (his own later inspection of that player replaces it). Nothing is inspected more or sooner for
+  it, nothing goes on the Olympus channel, and only officers (the guild master and the rank right
+  below, by each addon's own roster) send or keep it. The King's untabarded list stays his: another
+  officer's finding never joins it, never rides in a Royal Inspection's report and never replaces
+  what the King saw himself. Off until you say yes (officers get its line on the first-open page, or
+  `/oly patrolshare on`); `/oly patrolshare off` stops it.
 - Per guild: *"5 of 20 with problems"*.
 - **Untabarded** (the "Wall of Shame" before 0.9.2): the players the Royal Inspection found
   without the colors are on the King's list, which only he sees. He alone can let the army see
@@ -852,9 +854,16 @@ your guild keep it (on the Realm tab, or `/oly loot`).
   anyone else's when the page opens): an answer holds some 5 KB, the newest notes first, and the
   addon asks again after each until its book is whole, however large. One officer's addon answers
   each ask, and only an officer's addon that holds that part of the book whole itself (the first
-  officer online takes his own as the guild's). Each addon takes a change only from a sender its
-  own roster ranks an officer. Kept per guild in your saved variables (on the Forever beta, which
-  forgets them at every login, the book comes back from the officers online).
+  officer online takes his own as the guild's). Each addon takes a change only from a sender its own
+  roster ranks an officer, and one dated during your session only from the officer it names (a
+  note's writer, the officer of a points change). Another officer's answer passes on changes from
+  before your session began, and those come on the passing officer's word: nothing proves who made
+  them (one made up and dated back looks the same), so the page names the officer who passed each
+  one on ("Offi via Rival" on a note and in the copy for Discord, and in the tooltips of notes and
+  points). Once your addon holds a note, no other officer changes its words (any officer can remove
+  it), save its writer's own copy replacing one another officer passed on; an officer's addon sends
+  a change in his name only as he made it. Kept per guild in your saved variables (on the Forever
+  beta, which forgets them at every login, the book comes back from the officers online).
 
 ### Crafters' board (1.1)
 "Who can make this?" is a chat scroll: the **Crafters** page of the Realm tab turns it into one
@@ -954,16 +963,18 @@ account, `/oly discord forget` drops this character's request and proof.
 - **Backup** (1.1): `/oly backup` puts one text in the copy box (keepers also have **Copy a
   backup of your book and settings** on the Treasury tab): this character's book of the treasury
   (its opening, its 500 lines and its sums of all time; on the Treasurer's characters his mail
-  character's book too), the King's switches and keepers on his client or a Steward's, the
-  channel key on an officer's character, and your settings (sound, map, minimap, borders,
-  nameplates, Vox, your chat windows and mutes, the players you blocked). Keep it in a text file:
-  when the beta wipes the saved variables, `/oly restore` opens a box to paste it back, says what
-  it restores and waits for your yes. Clipboard only: nothing is uploaded or sent anywhere (a
-  keeper's book goes out afterwards as it always does). A book goes back only into that
-  character's (merged with what it wrote since, nothing counted twice), a text that was cut or
-  changed is refused, and it never holds your yeses to sharing (the addon asks them again) nor
-  sets a key on a member's character (a text someone else made would move him to another
-  channel: his officers hand the key out as ever).
+  character's book too), the King's switches and keepers on his client or a Steward's, and your
+  settings (sound, map, minimap, borders, nameplates, Vox, your chat windows and mutes, the
+  players you blocked). Keep it in a text file: when the beta wipes the saved variables, `/oly
+  restore` opens a box to paste it back, says what it restores and waits for your yes. Clipboard
+  only: nothing is uploaded or sent anywhere (a keeper's book goes out afterwards as it always
+  does). A book goes back only into that character's (merged with what it wrote since, nothing
+  counted twice), a text that was cut or changed is refused, and it never holds your yeses to
+  sharing (the addon asks them again). It never holds or sets the channel key, on anyone's
+  character: a text someone else made would move your guild to another channel (your officers
+  hand the key out in game as ever, or `/oly key`); the confirm says a key in a text is left out,
+  and warns when it is one your guild replaced. The players it would block are named one by one
+  in the confirm (30 at most) and added only on your yes.
 - **Search**: a box on top of the Census (guilds, Lords, Captains, players, zones, recruiting),
   the Realm (guilds, Lords, Captains, members seen online, the Olympus chats' lines), the
   Tabards (inspected and untabarded players, by name or guild), the Treasury (donors in the
@@ -1112,7 +1123,7 @@ message (the game adds it). What goes where:
 | The dues' note (1.1): the fund, the week and your guild's name, in the subject of the mail the Send this week's dues button fills in | the Treasurer's mail character, in your mail | only when you click that button and then press Send yourself |
 | The King's crown on the map, and with it his zone and layer | everyone on the Olympus channel | only while the King turns it on (Throne tab), whatever he answered to the question |
 | A Royal Inspection's report (1.1: off until you say yes, on the first-open page or with `/oly inspection on`): when the King, his Steward or a Hand calls one and your addon is in the sample, it patrols for 2 minutes, inspecting the Olympus players of your faction around you, level 15 and up, with the game's own inspect, and records whether each wears the guild tabard, another one or none (kept in your saved variables); then it reports your guild, how many it found in each case (your own tabard counted) and up to 6 names, with their guild, of players caught without the colors | whoever called it, alone (a whisper); the King can show the names to the army on his untabarded list | each Royal Inspection you are sampled for (one every 30 minutes at most, for the whole realm), once you said yes and until `/oly inspection off`; you still get its raid warning either way |
-| An officer's patrol findings (1.1): the name and guild of each player your own inspections caught without the colors or with another tabard (or wearing ours again after that), and how long ago | your guild's officers (a guild addon message: every guildmate's client receives the bytes, and only officers' addons keep them), for their Tabards pages alone: never the King's untabarded list, nor a Royal Inspection's report | only while you are an officer (the guild master or the rank right below): each new finding once, at most once a minute, and the day's findings when another officer's addon asks after its login; `/oly patrolshare off` stops it. Nothing more is inspected for it |
+| An officer's patrol findings (1.1): the name and guild of each player your own inspections caught without the colors or with another tabard (or wearing ours again after that), and how long ago | your guild's officers (a guild addon message: every guildmate's client receives the bytes, and only officers' addons keep them), for their Tabards pages alone: never the King's untabarded list, nor a Royal Inspection's report | only while you are an officer (the guild master or the rank right below) and said yes (1.1: off until you answer, on the first-open page or with `/oly patrolshare on`): each new finding once, at most once a minute, and the day's findings when another officer's addon asks (once a session: after its login, or at its officer's yes if later); `/oly patrolshare off` stops it. Nothing more is inspected for it |
 | A loot note (1.1): an officer's words, the item and whom it went to; a member's points set by hand; and your addon's ask for the book (the spans of change times it lacks) | your guild (guild addon messages): every guildmate's addon keeps the notes and points; the ask is answered by one officer's addon, with the changes in those spans | a note or points when an officer writes or removes them (only officers do); the ask when the Loot notes page opens (an officer's at login), again after each answer while the book lacks something (16 a session at most) |
 | Your crafter listing (1.1): your guild, and each profession you listed with its skill and how many recipes you know | everyone on the Olympus channel | only after your yes when you open that profession (asked once), once at login, then every 45 minutes while you play, and after a change: a profession listed or taken off (2 minutes after the last at the soonest), a skill up or a new recipe (10 minutes); `/oly crafter off` withdraws it at once |
 | An answer to "who can make it" (1.1): your guild, the profession, your skill and the recipe and item ids of up to 6 recipes that match | the asker alone (a whisper) | only while you are listed, to asks heard on the Olympus channel, by your addon by itself (10 a minute at most) |
@@ -1130,12 +1141,11 @@ position on the map).
 
 **What waits for your yes.** Your zone and layer (below), layer help, your dot on your guild's
 map, a treasury keeper's book, a sister guild's bank (1.1), a Royal Inspection's report, your answers to the author's roll
-calls, the Olympus chats, your crafter listing (and with it your addon's answers to who can
-make it) and Olympus Link (your **Accept**, or a confirmer's typing in the key the
+calls, the Olympus chats, an officer's patrol findings to his guild's officers, your crafter
+listing (and with it your addon's answers to who can make it) and Olympus Link (your **Accept**, or a confirmer's typing in the key the
 bot's keeper made them) wait for your yes. The rest of the table goes out while you are in an
 Olympus guild, with no question first: your guild's census (from the member it elects, with the
-names above), the hello, an officer's patrol findings to his guild's officers (`/oly patrolshare
-off`), an officer's loot notes and points to his guild and your addon's ask for what its book lacks
+names above), the hello, an officer's loot notes and points to his guild and your addon's ask for what its book lacks
 (when the page opens), and what other addons read through the bridge.
 
 **The first-open page (1.1).** It is the first question the addon asks. About 45 seconds after
@@ -1143,11 +1153,13 @@ login, or when you open the Olympus window first (never in combat or in an insta
 session, while something on it has no answer), a page of its own says in plain words what always
 goes out (the census, with the names it carries, and the hello) and asks **Yes** or **No** for
 each of the rest: your zone and layer, layer help, your book of the treasury (keepers only), the
-Royal Inspection, the author's roll call and the Olympus chats. Each one stays off until its Yes.
+Royal Inspection, the author's roll call, the Olympus chats and your patrols' findings to your
+guild's officers (officers only). Each one stays off until its Yes.
 No on the chats means this client neither sends nor shows [Olympus], [Captains] or [Lords]. The
 window, the census and your own guild's roster work whatever you answer, location included.
 `/oly privacy` opens the page again, and each answer has its own command too (`/oly location`,
-`/oly layerhelp`, `/oly treasurer`, `/oly inspection`, `/oly rollcall`, `/oly chat`). It is
+`/oly layerhelp`, `/oly treasurer`, `/oly inspection`, `/oly rollcall`, `/oly chat`,
+`/oly patrolshare`). It is
 Olympus's own window, never the game's popup, so it works with Blizzard's gamepad UI. The
 author's update notices, which send nothing, still show until you say No to his roll call. The
 Treasurer's line says what his 0.9.3 yes still sends until he answers there (his book), and that
@@ -1209,7 +1221,8 @@ newer than that build; addons before 1.1 read none of it. The addon's error catc
 `/oly bug`), never another addon's. For the store's screenshots he has a photo mode (`/oly
 photo`, his character only): on his own screen it fades everything but Olympus and the world
 map to invisible, and gives every frame its look back on the second `/oly photo` or a
-`/reload`. Never in combat, not with the gamepad UI, and nothing is sent to anyone.
+`/reload`. Never in combat, not with the gamepad UI, not on a screen of more than 1000 frames
+(it says so and leaves them as they are), and nothing is sent to anyone.
 To check the elite borders his own rank doesn't carry, `/oly borders test <tier>` (his
 character only) shows one of the six round his own portrait, and on his target frame when he
 targets himself, and its nameplate mark after his own name on his player frame and on every
@@ -1423,7 +1436,7 @@ Other limits:
 | `/oly patrol` | start or stop the tabard patrol |
 | `/oly mark [note]` | mark your target |
 | `/oly gear` (or **Inspect gear** on the Tabards tab) | officers: inspect the player you target (in range) once and keep what he wears, under **Gear seen** on the Tabards tab; nothing is scored or sent |
-| `/oly patrolshare on\|off` | officers: pass what your inspections find to your guild's officers and take theirs (on by default), or not |
+| `/oly patrolshare on\|off` | officers: pass what your inspections find to your guild's officers and take theirs (off until you say yes, here or on the first-open page), or not |
 | `/oly loot` | your guild's loot notes and points on the Realm tab (its officers write them; not a bid window) |
 | `/oly craft [item or name]` · `/oly crafter on\|off` | who can make it (the crafters' board on the Realm tab: shift-click an item after `/oly craft`); list your professions read so far, or take them off |
 | `/oly approved` · `/oly approved paste` | the guilds of Asmon's Olympus the author's signed list makes Olympus guilds (their names don't say Olympus), and whether yours is one; paste that signed list (the first member of such a guild: his addon then passes it to the guild) |
@@ -1434,7 +1447,7 @@ Other limits:
 | `/oly pin <text>` · `/oly pin off` · `/oly pin` | the King, his Stewards and Hands: pin one line for the army on top of the Olympus chats and the Realm (2 hours); a guild master: one for his own guild. Take it down, or see what is pinned |
 | `/oly chatwindow <number or name> [olympus\|captains\|lords]` · `/oly chatwindow main` | show the Olympus chats in another chat window, or back in the main one |
 | `/oly treasurer on\|off` | a keeper of the treasury (the Treasurer, the King, a character he named) shares his book and the guild bank, or keeps them private (1.1: what the King hides goes only to the King, his Steward and the keepers, by whisper) |
-| `/oly backup` · `/oly restore` | copy a backup of your treasury book, the channel key (officers) and your settings as text, or paste one back after a wipe (nothing is sent anywhere) (1.1) |
+| `/oly backup` · `/oly restore` | copy a backup of your treasury book and your settings as text, or paste one back after a wipe (nothing is sent anywhere, never the channel key) (1.1) |
 | `/oly donations on\|off` | a keeper of the treasury tells everyone with the addon he is taking donations (a line on the Realm and Treasury tabs, with his zone if he shares it, one line in the [Olympus] chat), until he logs out (1.1) |
 | `/oly need <count> <item>` · `/oly need` | Lords and Captains: ask the treasury for an item (shift-click it into the chat line, or its name or number); alone, your requests and where each stands (1.1) |
 | `/oly bank share on\|off` | the guild master or an officer of an Olympus guild other than the King's shows his guild bank's snapshot to the King, his Steward and his Hands (by whisper, never on the channel), or not (1.1) |

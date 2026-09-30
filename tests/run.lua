@@ -16797,7 +16797,8 @@ test("1.0.0 photo mode: the author's /oly photo hides all but Olympus and the wo
 		local forbidden = PhotoFrame(nil, 1, { IsForbidden = function() return true end })
 		local window, card, pin = PhotoFrame("OlympusFrameHD", 1), PhotoFrame("OlympusPersonFrameHD", 0.9), PhotoFrame(nil, 1, { olympus = true })
 		local children = { chat, bars, faded, gone, map, tip, forbidden, window, card, pin }
-		UIParent = { GetChildren = function() return unpack(children) end }
+		-- (GetNumChildren: the client's Frame method, counted first since Konig's review of 1.1.)
+		UIParent = { GetChildren = function() return unpack(children) end, GetNumChildren = function() return #children end }
 		WorldMapFrame, GameTooltip = map, tip
 		InCombatLockdown = function() return false end
 		ns.devThrone, ns.devWorkshop = nil, nil
@@ -16848,7 +16849,8 @@ test("1.0.0 photo mode: the author's /oly photo hides all but Olympus and the wo
 end)
 
 -- Konig's review of 1.0.0 (H-1, the author's client only): /oly photo walked every child of
--- UIParent, however many a screen holds. Now PHOTO_MAX at most; the rest are left as they are.
+-- UIParent, however many a screen holds. Now PHOTO_MAX at most (since Konig's review of 1.1 a screen
+-- with more is not walked at all: the test for it is with that review's, near the end).
 test("1.0.0 photo mode walks PHOTO_MAX children of UIParent at most, and gives back what it changed", function()
 	local UI = LoadUI()
 	local saved = { UIParent = UIParent, combat = InCombatLockdown, print = ns.Print, me = ns.me, devThrone = ns.devThrone, UI = ns.UI }
@@ -16858,15 +16860,14 @@ test("1.0.0 photo mode walks PHOTO_MAX children of UIParent at most, and gives b
 		InCombatLockdown = function() return false end
 		local cap = UI.PHOTO_MAX or 1000 -- (1000 before it was a setting: the walk had no cap)
 		local children = {}
-		for i = 1, cap + 5 do children[i] = PhotoFrame("Frame" .. i, 1) end
-		UIParent = { GetChildren = function() return unpack(children) end }
+		for i = 1, cap do children[i] = PhotoFrame("Frame" .. i, 1) end
+		UIParent = { GetChildren = function() return unpack(children) end, GetNumChildren = function() return #children end }
 		ns.me, ns.devThrone = "Tester-Realm", { Tester = true } -- (the author's test build)
 		SlashCmdList.OLYMPUS("photo")
 		eq(UI.PhotoMode(), true)
 		local hidden = 0
 		for _, f in ipairs(children) do if f.alpha == 0 then hidden = hidden + 1 end end
 		eq(hidden, cap, "PHOTO_MAX walked")
-		for i = cap + 1, #children do eq(children[i].sets, 0, "left as it is: " .. i) end
 		SlashCmdList.OLYMPUS("photo")
 		eq(UI.PhotoMode(), false)
 		for i, f in ipairs(children) do eq(f.alpha, 1, "given back: " .. i) end
@@ -27509,9 +27510,9 @@ test("1.1 join requests (Fern #20): an officer gets a recruit's request with Inv
 			decline.onClick()
 			eq(#w.said, 1); eq(w.said[1].kind, "WHISPER"); eq(w.said[1].to, "Other"); eq(w.said[1].text, L.JOIN_DECLINE_TEXT:format("Olympus II", "Olympus R2"))
 			eq(#R.requests, 0)
-			-- No gates: the most room that isn't ours.
+			-- No gates: our own guild alone (Konig's review of 1.1: never the census's "most room").
 			ns.Acts.Gates = function() return nil end
-			eq(R.DeclineText({}), L.JOIN_DECLINE_TEXT:format("Olympus II", "Olympus R1"))
+			eq(R.DeclineText({}), L.JOIN_DECLINE_TEXT_PLAIN:format("Olympus II"))
 			-- Dismiss: nothing sent.
 			R.OnJoinRequest("WHISPER", "Third-Realm", "J3~Olympus II~9~WARRIOR")
 			Fern.Find(V.Build("census"), L.JOIN_DISMISS).onClick()
@@ -27600,8 +27601,8 @@ test("1.1 join routing (Fern #20): one forged report names no guild and nobody t
 		local route = R.ParseRoute(msg)
 		eq(route.list[1].name, "Olympus R1", "the most room the census confirms first")
 		eq(table.concat(route.list[1].contacts, "/"), "Rlord/Rcap", "named by both senders")
-		-- A declined recruit is not sent there either.
-		eq(R.DeclineText({}), L.JOIN_DECLINE_TEXT:format("Olympus II", "Olympus R1"))
+		-- A declined recruit is not sent there either (since Konig's review of 1.1, to no guild but the gates').
+		eq(R.DeclineText({}), L.JOIN_DECLINE_TEXT_PLAIN:format("Olympus II"))
 		-- A Captain only one sender names (lists cut at MAX_OFFICERS leave the officers out of the
 		-- picture both senders agree on): not named; one both name is.
 		local function Officers(last)
@@ -28124,7 +28125,8 @@ do
 					GetGuildInfo = function() return "Olympus", "King", 0 end
 					ns.me = "Asmongold Asmongler-Realm"
 					local page = ns.Consent.Show()
-					eq(Keys(page), "treasurer,inspection,rollcall,chat", "the King: his crown is his zone and layer; a keeper")
+					-- (Konig's review of 1.1: an officer, the guild master too, is asked about his patrol findings.)
+					eq(Keys(page), "treasurer,inspection,rollcall,chat,patrolshare", "the King: his crown is his zone and layer; a keeper; an officer")
 					page:Hide()
 					ns.Consent.Reset()
 					ns.db.keeperShares, ns.db.treasurerShares = nil, nil
@@ -33748,7 +33750,7 @@ local function WithShare(fn)
 	local w = { sent = {}, rank = 1, printed = {}, clock = 5000000, later = {} }
 	ns.rdb.inspect = nil
 	I.ResetShare()
-	ns.db.patrolShare = nil
+	ns.db.patrolShare = true -- (Konig's review of 1.1: off until answered; here the officer said yes, its own test asks)
 	ns.Now = function() return w.clock end
 	ns.Comm.Send = function(dist, msg) w.sent[#w.sent + 1] = dist .. " " .. msg end
 	GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Titan", w.rank end return nil end
@@ -33826,7 +33828,9 @@ test("1.1 patrol share (#29): only officers send it, and nothing with /oly patro
 		eq(I.AskShared(), false)
 		SlashCmdList.OLYMPUS("patrolshare on")
 		eq(w.printed[#w.printed], ns.L.PATROLSHARE_ON, "the guild master is an officer")
-		eq(I.AskShared(), true); eq(w.sent[1], "GUILD U0~")
+		-- (Konig's review of 1.1: his yes asks for the day's findings itself, once a session.)
+		eq(w.sent[1], "GUILD U0~"); eq(#w.sent, 1)
+		eq(I.AskShared(), false, "asked this session already"); eq(#w.sent, 1)
 	end)
 end)
 
@@ -33848,7 +33852,7 @@ test("1.1 patrol share (#29): an officer's addon takes another officer's finding
 		w.rank = 1
 		ns.db.patrolShare = false
 		I.HandleShare("GUILD", "Offi-Realm", "U1~Hal:Olympus Hera:N:0")
-		ns.db.patrolShare = nil
+		ns.db.patrolShare = true
 		eq(P["Hal"], nil, "a member's, a stranger's, the channel's, a non-officer's, or with sharing off")
 		-- Six entries a message at most.
 		I.HandleShare("GUILD", "Lord-Realm", "U1~Aa:Olympus Hera:N:0;Bb:Olympus Hera:N:0;Cc:Olympus Hera:N:0;Dd:Olympus Hera:N:0;"
@@ -34717,6 +34721,7 @@ local function LootGuild(fn)
 	for _, k in ipairs({ "GetGuildInfo", "GetServerTime", "IsInGuild" }) do _G[k] = savedGlobals[k] end
 	if not ok then error(err, 0) end
 end
+Fern.LootGuild = LootGuild -- (for the review's tests further down)
 
 test("1.1 loot notes (#22): a change heard as it is made never hides the older notes: a member's book comes back whole (Forever: every login)", function()
 	LootGuild(function(g)
@@ -36235,7 +36240,7 @@ test("1.1 the clipboard backup keeps the other parts' toggles: alerts, camps, sh
 	if not ok then error(err, 0) end
 end)
 
-test("1.1 the clipboard backup (Fern): the Treasurer's book, the key and the toggles out as text, and one paste restores them, nothing sent", function()
+test("1.1 the clipboard backup (Fern): the Treasurer's book and the toggles out as text (never the key), and one paste restores them, nothing sent", function()
 	WithThrone(function(w, K)
 		local T, Bk = ns.Treasury, ns.Backup
 		local mail = MailWorld()
@@ -36266,6 +36271,8 @@ test("1.1 the clipboard backup (Fern): the Treasurer's book, the key and the tog
 			assert(text:find("^OLYB1:%d+:%x%x%x%x%x%x%x%x:"), text:sub(1, 40))
 			assert(not text:find("[|@\n\r]") and not text:find("<#", 1, true), "safe for the copy box")
 			eq(ns.Codec.NoMentions(text), text, "the copy box leaves it as it is")
+			-- (Konig's review of 1.1: the channel key is no longer in it, on an officer's character too.)
+			eq(text:find("s3cret", 1, true), nil, "never the channel key")
 			local sent = #w.sent
 			-- The beta wipes the saved variables: at the next login his book opens again at his gold.
 			ns.rdb.treasuryBooks, ns.rdb.realmKey = nil, nil
@@ -36278,7 +36285,7 @@ test("1.1 the clipboard backup (Fern): the Treasurer's book, the key and the tog
 			assert(d, why)
 			local summary = table.concat(Bk.Summary(d), "\n")
 			assert(summary:find(ns.L.BACKUP_BOOK_WHOLE:format("Pyralis Ashandar", lines, T.Coins(5000000)), 1, true), summary)
-			assert(summary:find(ns.L.BACKUP_KEY, 1, true) and summary:find(ns.L.BACKUP_NO_CONSENT, 1, true), summary)
+			assert(not summary:find(ns.L.BACKUP_KEY, 1, true) and summary:find(ns.L.BACKUP_NO_CONSENT, 1, true), summary)
 			eq(Bk.Take(text), true)
 			local p = w.popups[#w.popups]
 			eq(p.name, "OLYMPUS_BACKUP_RESTORE"); eq(p.a, table.concat(Bk.Summary(d), "\n"))
@@ -36287,7 +36294,7 @@ test("1.1 the clipboard backup (Fern): the Treasurer's book, the key and the tog
 			for i, g in ipairs(ranking) do eq(T.Totals().ranking[i].name, g.name); eq(T.Totals().ranking[i].money, g.money) end
 			eq(T.Totals().items[1].id, 2589, "the items donated")
 			assert(T.Book().restored, "marked restored")
-			eq(ns.rdb.realmKey, "our officers' s3cret @key <#1>", "the key, on an officer's character"); eq(joined, 1)
+			eq(ns.rdb.realmKey, nil, "no key from a backup: his officers hand it over in game"); eq(joined, 0)
 			eq(ns.db.sound, false); eq(ns.db.showMap, false); eq(ns.db.minimapAngle, 123.5)
 			eq(ns.db.chatWindows[ns.me].A, "Olympus"); eq(ns.db.blocked["pest-realm"], true)
 			for i = sent + 1, #w.sent do assert(not w.sent[i].msg:find("^K1~"), "the key sent nowhere: " .. w.sent[i].msg) end
@@ -39114,6 +39121,506 @@ end)()
 		end
 	end)
 end)()
+---------------------------------------------------------------------------
+-- Konig's review of 1.1 (#45), guild tools: items 3 and 4 and their follow-ups.
+---------------------------------------------------------------------------
+do
+	-- Item 3: "A pasted backup can swap an officer's channel key ... Suggest: never restore a
+	-- different key, refuse retired ones, show the blocked names."
+	test("1.1 Konig's review (#3): a pasted backup never sets a channel key: not a different one, not with none held, and one a newer key replaced is refused", function()
+		WithThrone(function(w)
+			local Bk = ns.Backup
+			local saved = { key = ns.rdb.realmKey, epoch = ns.rdb.keyEpoch, retired = ns.rdb.keyRetired, join = ns.Comm.JoinChannel, sound = ns.db.sound }
+			local ok, err = pcall(function()
+				local joined = 0
+				ns.Comm.JoinChannel = function() joined = joined + 1 end
+				AsCaptain() -- (an officer: his restore took the text's key, and his client hands it to his guild)
+				ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRetired = "ourrealkey1", nil, nil
+				-- "Paste this to fix your settings": a text carrying the sender's key.
+				local forged = ForgedBackup({ v = 1, char = ns.me, faction = ns.faction, key = "attackerkey", settings = { sound = false } })
+				local d = assert(Bk.Read(forged))
+				local summary = table.concat(Bk.Summary(d), "\n")
+				assert(summary:find(ns.L.BACKUP_KEY, 1, true), summary)
+				Bk.Apply(d)
+				eq(ns.rdb.realmKey, "ourrealkey1", "a different key: never set"); eq(joined, 0)
+				eq(ns.db.sound, false, "the rest is restored")
+				-- None held (the saved variables wiped): none from a text either (his officers hand it over, K0).
+				ns.rdb.realmKey = nil
+				Bk.Apply(Bk.Read(forged))
+				eq(ns.rdb.realmKey, nil, "none held: none from a text"); eq(joined, 0)
+				-- A key a newer one replaced (the leaked one): refused, and the confirm warns.
+				ns.rdb.realmKey = "leakedkey1"
+				ns.Keys.Take("newerkey22", w.clock, true)
+				eq(ns.Keys.IsRetired("leakedkey1"), true)
+				joined = 0
+				d = assert(Bk.Read(ForgedBackup({ v = 1, char = ns.me, faction = ns.faction, key = "leakedkey1" })))
+				summary = table.concat(Bk.Summary(d), "\n")
+				assert(summary:find(ns.L.BACKUP_KEY_RETIRED, 1, true), summary)
+				Bk.Apply(d)
+				eq(ns.rdb.realmKey, "newerkey22", "never back to the replaced key"); eq(joined, 0)
+				-- His own backup carries no key at all.
+				local own = Bk.Export()
+				eq(own:find("newerkey22", 1, true), nil, "not in the text"); eq(Bk.Read(own).key, nil)
+			end)
+			ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRetired, ns.Comm.JoinChannel, ns.db.sound = saved.key, saved.epoch, saved.retired, saved.join, saved.sound
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 Konig's review (#3): a pasted backup's confirm names each player it would block, adds them only on its yes, 30 at most", function()
+		WithThrone(function(w)
+			local Bk = ns.Backup
+			local saved = ns.db.blocked
+			local ok, err = pcall(function()
+				AsSoldier("Victim")
+				ns.db.blocked = { ["pest-realm"] = true }
+				local text = ForgedBackup({ v = 1, char = ns.me, faction = ns.faction,
+					blocked = { ["pest-realm"] = true, ["officer one-realm"] = true, ["officer two-realm"] = true } })
+				eq(Bk.Take(text), true)
+				local p = w.popups[#w.popups]
+				eq(p.name, "OLYMPUS_BACKUP_RESTORE")
+				-- The names it would add (not the one blocked already), before anything changes.
+				assert(p.a:find(ns.L.BACKUP_BLOCKED:format(2, "officer one-realm, officer two-realm"), 1, true), p.a)
+				eq(ns.db.blocked["officer one-realm"], nil, "nothing added before the yes")
+				StaticPopupDialogs.OLYMPUS_BACKUP_RESTORE.OnAccept(nil, p.data)
+				eq(ns.db.blocked["officer one-realm"], true); eq(ns.db.blocked["officer two-realm"], true)
+				-- 2000 names: the first BLOCKED_MAX by name, each named; the rest left out, and said so.
+				local many = {}
+				for i = 1, 2000 do many[("name%04d-realm"):format(i)] = true end
+				local d = assert(Bk.Read(ForgedBackup({ v = 1, char = ns.me, faction = ns.faction, blocked = many })))
+				local summary = table.concat(Bk.Summary(d), "\n")
+				local names = {}
+				for i = 1, Bk.BLOCKED_MAX do names[i] = ("name%04d-realm"):format(i) end
+				assert(summary:find(ns.L.BACKUP_BLOCKED:format(Bk.BLOCKED_MAX, table.concat(names, ", ")), 1, true), summary)
+				assert(summary:find(ns.L.BACKUP_BLOCKED_MORE:format(2000 - Bk.BLOCKED_MAX, Bk.BLOCKED_MAX), 1, true), summary)
+				Bk.Apply(d)
+				eq(ns.db.blocked[names[Bk.BLOCKED_MAX]], true)
+				eq(ns.db.blocked[("name%04d-realm"):format(Bk.BLOCKED_MAX + 1)], nil, "not in the confirm: not added")
+			end)
+			ns.db.blocked = saved
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	-- Item 4: "Decline whispers can advertise a forged guild ... Name only the gates or our own guild."
+	test("1.1 Konig's review (#4): an officer's decline whisper names only the King's gates or his own guild, never a 'most room' guild two characters made up", function()
+		local R, D, L = ns.Recruit, ns.Data, ns.L
+		local saved = { can = CanGuildInvite, byName = ns.Roster.byName }
+		Fern.Census(function(w)
+			local ok, err = pcall(function()
+				R.ResetForTests()
+				local now = os.time()
+				ns.Acts.Gates = function() return nil end
+				CanGuildInvite = function() return true end
+				ns.Roster.byName = {}
+				-- Two made-up characters report a made-up guild with 999 free slots, and agree.
+				local fake = "R2~Olympus Fake~1~1~Fakelord~1~1~~~0,0,0,0,0,0,0~~"
+				eq(D.Receive(Codec.DecodeReport(fake), "Forgera-Realm"), true)
+				eq(D.Receive(Codec.DecodeReport(fake), "Forgerb-Realm"), true)
+				eq(D.Dispute(ns.rdb.guilds["Olympus Fake"]), nil, "two senders agree: the census does not mark it")
+				eq(R.OpenGuilds()[1].name, "Olympus Fake", "the most room")
+				-- A recruit asks; the officer's Decline, sent from his own chat, names only his guild.
+				eq(R.OnJoinRequest("WHISPER", "Newbie-Realm", "J3~Olympus II~12~MAGE"), true)
+				eq(R.Decline(R.requests[1]), true)
+				eq(#w.said, 1); eq(w.said[1].kind, "WHISPER"); eq(w.said[1].to, "Newbie")
+				eq(w.said[1].text, L.JOIN_DECLINE_TEXT_PLAIN:format("Olympus II"))
+				eq(w.said[1].text:find("Fake", 1, true), nil, w.said[1].text)
+				-- The King's gates open on another guild: that one, named.
+				ns.Acts.Gates = function() return { guild = "Olympus Zeus", at = now + 600 } end
+				eq(R.DeclineText({}), L.JOIN_DECLINE_TEXT:format("Olympus II", "Olympus Zeus"))
+				-- ...on ours: ours alone.
+				ns.Acts.Gates = function() return { guild = "Olympus II", at = now + 600 } end
+				eq(R.DeclineText({}), L.JOIN_DECLINE_TEXT_PLAIN:format("Olympus II"))
+			end)
+			CanGuildInvite, ns.Roster.byName = saved.can, saved.byName
+			R.ResetForTests()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	-- Follow-up: "patrol share default-on and not on the privacy page".
+	test("1.1 Konig's review: an officer's patrol share is off until he answers, and his line on the first-open page asks him (officers only)", function()
+		local I = ns.Inspect
+		local saved = { share = ns.db.patrolShare, send = ns.Comm.Send, guild = GetGuildInfo, byName = ns.Roster.byName, store = ns.rdb.inspect,
+			print = ns.Print, fire = ns.Fire }
+		local sent, printed = {}, {}
+		local ok, err = pcall(function()
+			ns.rdb.inspect = nil
+			I.ResetShare()
+			ns.Consent.Reset()
+			ns.db.patrolShare = nil
+			ns.Comm.Send = function(dist, msg) sent[#sent + 1] = dist .. " " .. msg end
+			ns.Print = function(m) printed[#printed + 1] = m end
+			ns.Fire = function() end
+			GetGuildInfo = function(unit) if unit == nil or unit == "player" then return "Olympus II", "Officer", 1 end return nil end
+			ns.Roster.byName = { ["Offi-Realm"] = 1 }
+			-- Never answered: his findings stay his, another officer's are not taken, nothing is asked.
+			eq(I.Sharing(), false, "off until answered")
+			I.Record("Bob", "Olympus Zeus", "WARRIOR", 30, nil, true)
+			eq(I.FlushShare(), 0); eq(I.AskShared(), false)
+			I.HandleShare("GUILD", "Offi-Realm", "U1~Eve:Olympus Hera:N:0")
+			eq(I.Players()["Eve"], nil, "not taken")
+			eq(#sent, 0, "nothing sent")
+			-- The first-open page has his line, waiting for his answer; his Yes turns it on, his No off.
+			local pending = {}
+			for _, item in ipairs(ns.Consent.Pending()) do pending[item.key] = true end
+			eq(pending.patrolshare, true, "asked on the first-open page")
+			eq(ns.Consent.Choose("patrolshare", true), true)
+			eq(ns.db.patrolShare, true); eq(I.Sharing(), true); eq(printed[#printed], ns.L.PATROLSHARE_ON)
+			I.Record("Cid", "Olympus Zeus", "WARRIOR", 30, nil, true)
+			eq(I.FlushShare(), 1); eq(sent[#sent], "GUILD U1~Cid:Olympus Zeus:N:0")
+			ns.Consent.Choose("patrolshare", false)
+			eq(I.Sharing(), false); eq(printed[#printed], ns.L.PATROLSHARE_OFF)
+			-- A member (he neither sends nor keeps them) is not asked.
+			GetGuildInfo = function(unit) if unit == nil or unit == "player" then return "Olympus II", "Member", 3 end return nil end
+			for _, item in ipairs(ns.Consent.Items()) do eq(item.key ~= "patrolshare", true, "a member's page") end
+		end)
+		ns.db.patrolShare, ns.Comm.Send, GetGuildInfo, ns.Roster.byName, ns.rdb.inspect = saved.share, saved.send, saved.guild, saved.byName, saved.store
+		ns.Print, ns.Fire = saved.print, saved.fire
+		I.ResetShare()
+		ns.Consent.Reset()
+		if not ok then error(err, 0) end
+		-- Both pages say so, in the privacy table and the first-open page's list.
+		for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local f = assert(io.open(ROOT .. file))
+			local doc = f:read("*a")
+			f:close()
+			assert(doc:find("and said yes (1.1: off until you answer, on the first-open page or with `/oly patrolshare on`)", 1, true), file .. ": the privacy table")
+			assert(doc:find("the Olympus chats and your patrols' findings to your\nguild's officers (officers only)", 1, true), file .. ": the first-open page")
+		end
+	end)
+
+	-- Follow-up: "loot notes rewritable": the writer's own note and the "by" of a points change hold
+	-- for answers and pushes (XB) too, not only live (X1).
+	test("1.1 Konig's review: a loot note stays its writer's and a points change its officer's, in officers' answers too", function()
+		local Lt, B36 = ns.Loot, ns.Codec.Base36
+		local saved = { guild = GetGuildInfo, time = GetServerTime, byName = ns.Roster.byName, loot = ns.rdb.loot, fire = ns.Fire }
+		local base = 1790000000
+		local function Answer(entries) return "XB~S~0~0~0~0~0~0^" .. table.concat(entries, "^") end
+		local ok, err = pcall(function()
+			ns.rdb.loot = nil
+			Lt.Reset()
+			GetGuildInfo = function(unit) if unit == nil or unit == "player" then return "Olympus II", "Member", 3 end return nil end
+			GetServerTime = function() return base end
+			ns.Fire = function() end
+			ns.Roster.byName = { ["Offi-Realm"] = 1, ["Rival-Realm"] = 1, ["Bob-Realm"] = 3, ["Ann Smith-Realm"] = 3 }
+			Lt.Book() -- (a member's session starts: from here on it hears each change as it is made)
+			local old1, old2, later = B36(base - 1000), B36(base - 500), B36(base + 60)
+			local function Note(key) return Lt.Book().notes[key] end
+			-- Offi's note of last week, from his own answer.
+			Lt.HandleBook("GUILD", "Offi-Realm", Answer({ ("N~Offi-Realm~a1~%s~%s~16830~~Ann Smith~Ann gets the belt"):format(old1, old1) }))
+			eq(Note("Offi-Realm#a1").text, "Ann gets the belt")
+			-- Another officer's answer puts other words in it (a newer change time): a note is written once.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~a1~%s~%s~16830~~Bob Rival~Bob gets the belt"):format(old1, old2) }))
+			eq(Note("Offi-Realm#a1").text, "Ann gets the belt", "his words stay"); eq(Note("Offi-Realm#a1").to, "Ann Smith")
+			-- A new note in Offi's name made this session, in Rival's answer: it would have come from Offi, live.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~b1~%s~%s~~~~Offi says Bob"):format(later, later) }))
+			eq(Note("Offi-Realm#b1"), nil, "not in his name")
+			-- A points change in Offi's name from Rival, live or in an answer made this session: refused.
+			Lt.HandleLive("GUILD", "Rival-Realm", "X1~P~Bob-Realm~50~" .. later .. "~Offi-Realm")
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ "P~Bob-Realm~50~" .. later .. "~Offi-Realm" }))
+			eq(Lt.Book().points["Bob-Realm"], nil, "never claimed in his name")
+			-- Rival's own, in his own name: taken.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ "P~Bob-Realm~7~" .. later .. "~Rival-Realm" }))
+			eq(Lt.Book().points["Bob-Realm"].v, 7); eq(Lt.Book().points["Bob-Realm"].by, "Rival-Realm")
+			-- Changes from before this session (it could have missed them) still come back in any officer's answer.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~c1~%s~%s~~~~Last week's decision"):format(old1, old1),
+				"P~Ann Smith-Realm~3~" .. old1 .. "~Offi-Realm" }))
+			eq(Note("Offi-Realm#c1").text, "Last week's decision"); eq(Lt.Book().points["Ann Smith-Realm"].by, "Offi-Realm")
+			-- A relay's copy that differs from its writer's (nothing tells them apart): his own copy replaces it, and holds.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~d1~%s~%s~~~~Forged words"):format(old1, old2) }))
+			Lt.HandleBook("GUILD", "Offi-Realm", Answer({ ("N~Offi-Realm~d1~%s~%s~~~~His words"):format(old1, old1) }))
+			eq(Note("Offi-Realm#d1").text, "His words")
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~d1~%s~%s~~~~Forged again"):format(old1, B36(base - 10)) }))
+			eq(Note("Offi-Realm#d1").text, "His words")
+			-- Any officer still removes a note, and Offi's own change this session comes live, his name on it.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~a1~%s~%s~16830~1~~"):format(old1, later) }))
+			eq(Note("Offi-Realm#a1").del, true)
+			Lt.HandleLive("GUILD", "Offi-Realm", "X1~P~Bob-Realm~12~" .. B36(base + 90) .. "~Offi-Realm")
+			eq(Lt.Book().points["Bob-Realm"].v, 12); eq(Lt.Book().points["Bob-Realm"].by, "Offi-Realm")
+		end)
+		GetGuildInfo, GetServerTime, ns.Roster.byName, ns.rdb.loot, ns.Fire = saved.guild, saved.time, saved.byName, saved.loot, saved.fire
+		Lt.Reset()
+		if not ok then error(err, 0) end
+		for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local f = assert(io.open(ROOT .. file))
+			local doc = f:read("*a"):gsub("%s+", " ")
+			f:close()
+			-- (Konig's second round: "nobody changes its words afterwards" claimed more than the code
+			-- does; the page now says what holds, and the limit: see the relayer's test below.)
+			assert(doc:find("Once your addon holds a note, no other officer changes its words", 1, true), file .. ": the loot notes")
+		end
+	end)
+
+	-- Follow-up: "/oly photo H-1 still there": GetChildren listed every child before the cap applied.
+	test("1.1 Konig's review: /oly photo on a screen of more than PHOTO_MAX children never lists them, changes nothing, and says why", function()
+		local UI = LoadUI()
+		local saved = { UIParent = UIParent, combat = InCombatLockdown, print = ns.Print, me = ns.me, devThrone = ns.devThrone, UI = ns.UI }
+		local printed = {}
+		local ok, err = pcall(function()
+			ns.UI = UI
+			ns.Print = function(m) printed[#printed + 1] = m end
+			InCombatLockdown = function() return false end
+			local children, listed = {}, 0
+			for i = 1, UI.PHOTO_MAX + 5 do children[i] = PhotoFrame("Frame" .. i, 1) end
+			UIParent = { GetNumChildren = function() return #children end,
+				GetChildren = function() listed = listed + 1 return unpack(children) end }
+			ns.me, ns.devThrone = "Tester-Realm", { Tester = true } -- (the author's test build)
+			SlashCmdList.OLYMPUS("photo")
+			eq(UI.PhotoMode(), false); eq(listed, 0, "never listed")
+			eq(printed[#printed], ns.L.PHOTO_TOO_MANY:format(UI.PHOTO_MAX))
+			for i, f in ipairs(children) do eq(f.sets, 0, "left as it is: " .. i) end
+			-- No count to go by: not listed either.
+			UIParent = { GetChildren = function() listed = listed + 1 return unpack(children) end }
+			SlashCmdList.OLYMPUS("photo")
+			eq(UI.PhotoMode(), false); eq(listed, 0)
+		end)
+		UIParent, InCombatLockdown, ns.Print, ns.me, ns.devThrone, ns.UI = saved.UIParent, saved.combat, saved.print, saved.me, saved.devThrone, saved.UI
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.1 Konig's review (guild tools): the new lines in English and pt-BR, with the same format arguments", function()
+		local savedLocale, pt = GetLocale, {}
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		for _, key in ipairs({ "BACKUP_KEY", "BACKUP_KEY_RETIRED", "BACKUP_BLOCKED", "BACKUP_BLOCKED_MORE", "HELP_BACKUP", "JOIN_REQUESTS_TIP",
+			"CONSENT_PATROLSHARE", "CONSENT_PATROLSHARE_TEXT", "PATROLSHARE_OFF", "PHOTO_TOO_MANY" }) do
+			assert(type(rawget(ns.L, key)) == "string", "English " .. key)
+			assert(type(rawget(pt.L, key)) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
+			eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- Konig's review of 1.1 (#45), guild tools, second round: the patrol share's ask and the loot
+-- notes' relays.
+---------------------------------------------------------------------------
+do
+	-- "Patrol share follow-up: off until answered": the login's ask (40 to 70 s in) went while he had
+	-- not answered, and his yes on the first-open page (45 s in) asked nothing: no findings of the day.
+	test("1.1 Konig's review: an officer who says yes after the login's ask asks for the day's findings then, once a session", function()
+		local I = ns.Inspect
+		local saved = { share = ns.db.patrolShare, send = ns.Comm.Send, guild = GetGuildInfo, byName = ns.Roster.byName, store = ns.rdb.inspect,
+			print = ns.Print, fire = ns.Fire }
+		local sent = {}
+		local function Asks()
+			local n = 0
+			for _, m in ipairs(sent) do if m == "GUILD U0~" then n = n + 1 end end
+			return n
+		end
+		local function Rank(rank)
+			GetGuildInfo = function(unit) if unit == nil or unit == "player" then return "Olympus II", "Titan", rank end return nil end
+		end
+		local ok, err = pcall(function()
+			ns.rdb.inspect = nil
+			I.ResetShare()
+			ns.Consent.Reset()
+			ns.db.patrolShare = nil -- (a login on the Forever beta: never answered)
+			ns.Comm.Send = function(dist, msg) sent[#sent + 1] = dist .. " " .. msg end
+			ns.Print = function() end
+			ns.Fire = function() end
+			Rank(1)
+			ns.Roster.byName = { ["Offi-Realm"] = 1 }
+			-- The login's timer first, before his answer: nothing asked.
+			eq(I.AskShared(), false); eq(Asks(), 0)
+			-- His yes on the first-open page: the day's findings asked for then.
+			eq(ns.Consent.Choose("patrolshare", true), true)
+			eq(Asks(), 1, "asked once he said yes")
+			-- A second yes, /oly patrolshare on, off and on again, a later timer: none more this session.
+			ns.Consent.Choose("patrolshare", true)
+			SlashCmdList.OLYMPUS("patrolshare on")
+			ns.Consent.Choose("patrolshare", false)
+			ns.Consent.Choose("patrolshare", true)
+			eq(I.AskShared(), false)
+			eq(Asks(), 1, "one a session")
+			-- The next session: the timer asks (he said yes before), and a yes after it asks nothing more.
+			I.ResetShare()
+			eq(I.AskShared(), true); eq(Asks(), 2)
+			SlashCmdList.OLYMPUS("patrolshare on")
+			eq(Asks(), 2)
+			-- Another session: /oly patrolshare alone (it only says which) and a member's yes ask nothing.
+			I.ResetShare()
+			SlashCmdList.OLYMPUS("patrolshare")
+			eq(Asks(), 2, "not turned on")
+			Rank(3)
+			SlashCmdList.OLYMPUS("patrolshare on")
+			eq(Asks(), 2, "not an officer")
+		end)
+		ns.db.patrolShare, ns.Comm.Send, GetGuildInfo, ns.Roster.byName, ns.rdb.inspect = saved.share, saved.send, saved.guild, saved.byName, saved.store
+		ns.Print, ns.Fire = saved.print, saved.fire
+		I.ResetShare()
+		ns.Consent.Reset()
+		if not ok then error(err, 0) end
+		for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local f = assert(io.open(ROOT .. file))
+			local doc = f:read("*a")
+			f:close()
+			assert(doc:find("for the day's findings once a session: after its login, or at his yes if that came later.", 1, true), file .. ": the patrol share")
+			assert(doc:find("when another officer's addon asks (once a session: after its login, or at its officer's yes if later)", 1, true), file .. ": the privacy table")
+		end
+	end)
+
+	-- "Loot notes follow-up: 'nobody rewrites another officer's note' in answers/replays": a note's
+	-- writer's own copy replaces a relayed one, so his wiped addon (the Forever beta, every login),
+	-- holding a rogue officer's copy of his note, sent it to the guild as his own, over a reader's
+	-- honest copy, in a push and in its answers.
+	test("1.1 Konig's review: an officer's addon never sends, as its own, a copy of its note another officer gave it; a reader's honest copy stays", function()
+		local B36 = ns.Codec.Base36
+		Fern.LootGuild(function(g)
+			local o, h, r = g.Client("Offi", 1), g.Client("Honest", 1), g.Client("Rival", 1)
+			r.away = true -- (Rival's addon is his own: what it sends is written here by hand)
+			g.Officers(o, h)
+			local a1 = o.Lt.Write("Ann gets the belt", 16830, "Ann Smith")
+			local key = "Offi-Realm#" .. a1.id
+			local function Note(c) return c.Lt.Book().notes[key] end
+			eq(Note(h).text, "Ann gets the belt")
+			-- The next day a member logs in while Offi is away: Honest's answer gives him Offi's note.
+			o.away = true
+			g.Run(86400)
+			local m = g.Client("Bob", 3)
+			m.Lt.Show(true)
+			g.Run(60)
+			eq(Note(m).text, "Ann gets the belt"); eq(Note(m).by, "Honest-Realm")
+			-- Offi logs in, his book wiped; Rival's push, other words in his note, reaches his addon first.
+			o.away = false
+			o.ns.rdb = {}
+			o.Lt.Reset()
+			o.Lt.Book()
+			g.Run(5)
+			r.ns.Comm.SendChunked(("XB~S~0~0~0~0~0~0^N~Offi-Realm~%s~%s~%s~16830~~Bob Rival~Bob gets the belt"):format(a1.id, B36(a1.t), B36(a1.rev)),
+				nil, "GUILD")
+			g.Run(10)
+			eq(Note(o).text, "Bob gets the belt", "(his wiped addon cannot tell)"); eq(Note(o).by, "Rival-Realm")
+			eq(Note(m).text, "Ann gets the belt"); eq(Note(h).text, "Ann gets the belt")
+			-- His login ask: Honest answers; Offi's addon hears an answer without its copy and pushes none of it.
+			eq(o.Lt.Ask(), true)
+			g.Run(60)
+			eq(Note(m).text, "Ann gets the belt", "the honest copy stays"); eq(Note(m).by, "Honest-Realm")
+			-- Another member asks and Offi's addon answers first: without that note, which Honest's then sends.
+			o.rand, h.rand = 0, 1
+			local m2 = g.Client("Ann", 3)
+			m2.Lt.Show(true)
+			g.Run(120)
+			assert(#o.pages >= 1, "Offi's addon answered")
+			eq(Note(m2).text, "Ann gets the belt"); eq(Note(m2).by, "Honest-Realm")
+			for _, page in ipairs(o.pages) do eq(page:find("Bob gets the belt", 1, true), nil, "never from Offi's addon: " .. page) end
+			-- A note he writes himself goes out in his answers as his.
+			o.Lt.Write("Cid gets the ring", nil, "Cid")
+			local page = o.Lt.Page(o.Lt.Book(), { n = { 0, g.clock + 1 } })
+			assert(page:find("~Cid~Cid gets the ring", 1, true), page)
+			eq(page:find("Bob gets the belt", 1, true), nil, page)
+		end)
+	end)
+
+	-- "Loot notes follow-up: backdated relays": a change another officer passes on, dated before the
+	-- reader's session, is taken on his word (nothing signs it). He is named with it now, and the pages
+	-- say the limit.
+	test("1.1 Konig's review: a change another officer passes on, dated before the reader's session, keeps who passed it on, and the page names him", function()
+		local Lt, B36, L = ns.Loot, ns.Codec.Base36, ns.L
+		local saved = { guild = GetGuildInfo, time = GetServerTime, byName = ns.Roster.byName, loot = ns.rdb.loot, fire = ns.Fire }
+		local base = 1790000000
+		local function Answer(entries) return "XB~S~0~0~0~0~0~0^" .. table.concat(entries, "^") end
+		local ok, err = pcall(function()
+			ns.rdb.loot = nil
+			Lt.Reset()
+			GetGuildInfo = function(unit) if unit == nil or unit == "player" then return "Olympus II", "Member", 3 end return nil end
+			GetServerTime = function() return base end
+			ns.Fire = function() end
+			ns.Roster.byName = { ["Offi-Realm"] = 1, ["Rival-Realm"] = 1, ["Bob-Realm"] = 3, ["Cid-Realm"] = 3 }
+			Lt.Book() -- (a member's session starts)
+			local week, day, minute = B36(base - 7 * 86400), B36(base - 86400), B36(base - 60)
+			local notes, points = Lt.Book().notes, Lt.Book().points
+			-- Offi's own answer: his note and his points change, nobody else's word.
+			Lt.HandleBook("GUILD", "Offi-Realm", Answer({ ("N~Offi-Realm~a1~%s~%s~~~Ann Smith~Ann gets the belt"):format(week, week),
+				"P~Bob-Realm~5~" .. week .. "~Offi-Realm" }))
+			eq(notes["Offi-Realm#a1"].via, nil); eq(points["Bob-Realm"].via, nil)
+			-- Rival's push: a note in Offi's name dated yesterday, a points change "by Offi" a minute before
+			-- this session. Nothing tells them from real ones: taken, with Rival kept as who passed them on.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~zz~%s~%s~~~Bob Rival~Correction: Bob gets the belt"):format(day, day),
+				"P~Bob-Realm~99999~" .. minute .. "~Offi-Realm", "P~Cid-Realm~4~" .. minute .. "~Rival-Realm" }))
+			eq(notes["Offi-Realm#zz"].text, "Correction: Bob gets the belt"); eq(notes["Offi-Realm#zz"].via, "Rival-Realm")
+			eq(points["Bob-Realm"].v, 99999); eq(points["Bob-Realm"].by, "Offi-Realm"); eq(points["Bob-Realm"].via, "Rival-Realm")
+			eq(points["Cid-Realm"].by, "Rival-Realm"); eq(points["Cid-Realm"].via, nil, "his own: nobody else named")
+			-- The page: the relayed note's line names both, its tooltip and the points' say who passed them on.
+			local lines = Lt.Lines()
+			local forged, real = Fern.Find(lines, "Correction: Bob gets the belt"), Fern.Find(lines, "Ann gets the belt")
+			eq(Fern.Bare(forged.right), L.LOOT_VIA:format("Offi", "Rival") .. "  " .. date("%Y-%m-%d", base - 86400))
+			eq(Fern.Bare(real.right), "Offi  " .. date("%Y-%m-%d", base - 7 * 86400))
+			assert(Fern.Tip(forged):find(L.LOOT_VIA_TIP:format("Rival"), 1, true), Fern.Tip(forged))
+			eq(Fern.Tip(real):find("Passed on by", 1, true), nil, Fern.Tip(real))
+			local function Row(name) for _, l in ipairs(lines) do if Fern.Bare(l.text) == name then return l end end end
+			local tip = Fern.Tip(Row("Bob"))
+			assert(tip:find(L.LOOT_POINTS_BY:format("Offi", date("%Y-%m-%d %H:%M", base - 60)), 1, true), tip)
+			assert(tip:find(L.LOOT_VIA_TIP:format("Rival"), 1, true), tip)
+			eq(Fern.Tip(Row("Cid")):find("Passed on by", 1, true), nil, "Rival's own")
+			-- The copy for Discord names him too.
+			local text = Lt.DiscordText()
+			assert(text:find("Correction: Bob gets the belt (" .. L.LOOT_VIA:format("Offi", "Rival") .. ")", 1, true), text)
+			assert(text:find("Ann gets the belt (Offi)", 1, true), text)
+			-- Offi's own change later, live: his, and the relayer goes.
+			GetServerTime = function() return base + 60 end
+			Lt.HandleLive("GUILD", "Offi-Realm", "X1~P~Bob-Realm~6~" .. B36(base + 30) .. "~Offi-Realm")
+			eq(points["Bob-Realm"].v, 6); eq(points["Bob-Realm"].via, nil)
+		end)
+		GetGuildInfo, GetServerTime, ns.Roster.byName, ns.rdb.loot, ns.Fire = saved.guild, saved.time, saved.byName, saved.loot, saved.fire
+		Lt.Reset()
+		if not ok then error(err, 0) end
+		-- In English and pt-BR (the list's "%s via %s" is the same words in both), and both pages say the limit.
+		local pt = Fern.BothLanguages({ "LOOT_VIA", "LOOT_VIA_TIP" }, { LOOT_VIA = true })
+		for _, key in ipairs({ "LOOT_VIA", "LOOT_VIA_TIP" }) do eq(select(2, pt[key]:gsub("%%s", "")), select(2, L[key]:gsub("%%s", "")), key) end
+		for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local f = assert(io.open(ROOT .. file))
+			local doc = f:read("*a"):gsub("%s+", " ")
+			f:close()
+			assert(doc:find("changes from before your session began, and those come on the passing officer's word: nothing proves who made them", 1, true), file)
+			assert(doc:find("the page names the officer who passed each one on (\"Offi via Rival\" on a note and in the copy for Discord, and in the tooltips of notes and points)", 1, true), file)
+			assert(doc:find("an officer's addon sends a change in his name only as he made it", 1, true), file)
+			eq(doc:find("nobody changes its words afterwards", 1, true), nil, file .. ": more than the code holds")
+		end
+	end)
+
+	-- The points' half of the first item: a points change "by Offi" his wiped addon took from Rival's
+	-- push, sent by it, read as his own (past the check of a reader whose session began before it).
+	test("1.1 Konig's review: an officer's addon never sends, as its own, a points change in its name another officer passed on to it", function()
+		local B36 = ns.Codec.Base36
+		Fern.LootGuild(function(g)
+			local o, h, r = g.Client("Offi", 1), g.Client("Honest", 1), g.Client("Rival", 1)
+			r.away = true -- (Rival's addon is his own: what it sends is written here by hand)
+			g.byName["Cid-Realm"] = 3
+			g.Officers(o, h)
+			o.away = true
+			g.Run(3600)
+			-- A member logs in; ten minutes later Offi does, his book wiped.
+			local m = g.Client("Bob", 3)
+			m.Lt.Book()
+			local memberFrom = g.clock + 1
+			g.Run(600)
+			o.away = false
+			o.ns.rdb = {}
+			o.Lt.Reset()
+			o.Lt.Book()
+			-- Rival pushes a points change "by Offi" dated between the two logins.
+			r.ns.Comm.SendChunked("XB~S~0~0~0~0~0~0^P~Cid-Realm~99999~" .. B36(memberFrom + 300) .. "~Offi-Realm", nil, "GUILD")
+			g.Run(10)
+			local function Points(c) return c.Lt.Book().points["Cid-Realm"] end
+			eq(Points(m), nil, "dated in the member's session: not from Rival"); eq(Points(h), nil)
+			eq(Points(o).v, 99999, "(Offi's addon, its session younger, cannot tell)"); eq(Points(o).via, "Rival-Realm")
+			-- Offi's login ask: Honest answers without it; Offi's addon pushes none of it.
+			eq(o.Lt.Ask(), true)
+			g.Run(60)
+			eq(Points(m), nil, "never from Offi's addon as his")
+			for _, page in ipairs(o.pages) do eq(page:find("P~Cid-Realm~99999", 1, true), nil, page) end
+			eq(o.Lt.Page(o.Lt.Book(), { p = { 0, g.clock + 1 } }):find("P~Cid-Realm~99999", 1, true), nil, "nor in his answers")
+			-- His own change goes out as his, and the member takes it.
+			o.Lt.SetPoints("Cid 7")
+			eq(Points(m).v, 7); eq(Points(m).by, "Offi-Realm"); eq(Points(m).via, nil)
+			assert(o.Lt.Page(o.Lt.Book(), { p = { 0, g.clock + 1 } }):find("P~Cid-Realm~7~", 1, true))
+		end)
+	end)
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
