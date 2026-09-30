@@ -264,6 +264,47 @@ function Borders.MarkOf(unit)
 	return mark, Inputs(f)
 end
 
+-- 1.1.1: the mark by a name in Olympus's chat window (ChatWindow.lua), where there is a line's
+-- sender and guild but no unit: MarkOf's twin, from the same trust rules, lookups only. The
+-- sender's guild is the one his line carries (Channels verified his rank for it before keeping
+-- the line). Our own guild: his rank from our roster, its name from the game's list of our ranks
+-- (Raiders and Veterans bronze). Another guild: the rank its census gives him, two senders
+-- naming him (as Facts asks), and no rank name (the census carries none: no bronze from other
+-- guilds). The King, a High Councillor and net-off as MarkOf. Not tied to /oly borders or
+-- /oly nameplates, nor to the gamepad UI: the chat's marks are the chat's, in Olympus's own
+-- window. Returns the mark ("gold", "silver", "bronze", "member" or nil) and the facts.
+function Borders.MarkOfName(who, guild)
+	if type(who) ~= "string" or who == "" then return nil end
+	who = ns.FullName(who)
+	guild = type(guild) == "string" and guild ~= "" and guild or nil
+	local f = { guild = guild, who = who }
+	f.off = NetOff(who, guild)
+	f.councillor = ns.IsHighCouncillor(who) == true
+	f.council = f.councillor and not ns.CouncilMasked()
+	if f.off then return nil, f end
+	if guild and ns.IsFederation(guild) then
+		f.olympus = true
+		local rank
+		local mine = GetGuildInfo("player")
+		if mine and guild == mine then
+			rank = ns.Roster and ns.Roster.RankOf(who)
+			if type(rank) == "number" and type(GuildControlGetRankName) == "function" then
+				local ok, name = pcall(GuildControlGetRankName, rank + 1)
+				if ok and type(name) == "string" and not Secret(name) then f.rankName = name end
+			end
+		else
+			local known, named = ns.Data.KnownRank(who, guild)
+			if (named or 0) >= 2 then rank = known end
+		end
+		f.king = ns.IsKingGuild(guild) and (ns.IsKingCharacter(who) or (ns.KingCharacter() == nil and rank == 0))
+		f.leader = rank == 0
+		f.officer = type(rank) == "number" and rank > 0 and rank <= ns.CAPTAIN_RANK
+	end
+	if f.king then return "gold", f end
+	local t = Match(f)
+	return t and Borders.MARK_OF[t.name] or (f.olympus and "member" or nil), f
+end
+
 function Borders.Enabled() return not (ns.db and ns.db.borders == false) end
 
 -- On, with mouse and keyboard, for a member of an Olympus guild (outside one the addon offers

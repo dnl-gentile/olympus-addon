@@ -42120,6 +42120,164 @@ do
 	end)
 end
 
+---------------------------------------------------------------------------
+-- 1.1.1: the Olympus chat window (ChatWindow.lua) and its ways in (/oly talk, the minimap button's
+-- Shift-click, the Realm tab's chats page), and the marks by a name (Borders.MarkOfName).
+---------------------------------------------------------------------------
+do
+	local L = ns.L
+	local CW_LINE = 14
+	local T0 = os.time({ year = 2026, month = 9, day = 30, hour = 12, min = 0, sec = 0 })
+	local MOONCLOTH_LINK = "item:14342::::::::60:::::"
+	local MOONCLOTH_TEXT = "|cff1eff00|H" .. MOONCLOTH_LINK .. "|h[Mooncloth]|h|r"
+
+	-- What the client gives that the widget toolkit does not, installed for these tests alone and
+	-- taken off after each (the older tests keep the toolkit they were written for: Dialog.lua's
+	-- height fallback expects no GetStringHeight there). A FontString's height: its lines at 14
+	-- each, a line per width of text where it wraps (the client wraps at word breaks, so a real
+	-- height can be a line more: the tests assert growth and nothing cut, not pixels). An EditBox's
+	-- focus as the client keeps it (HasFocus, ClearFocus), Insert at the end (where the cursor is
+	-- after SetText), SetFocus and SetAutoFocus recorded, StartSizing recorded, and each named
+	-- frame's Show logged (the order of the box's SetAutoFocus(false) and the window's first Show).
+	local function Mocks(orig, w)
+		return {
+			GetStringHeight = function(self)
+				local width = self.w or 0
+				local lines = 1
+				if self.wrap ~= false and width > 0 then lines = math.max(1, math.ceil(self:GetUnboundedStringWidth() / width)) end
+				return lines * CW_LINE
+			end,
+			HasFocus = function(self) return self.focused == true end,
+			Insert = function(self, text) self:SetText((self:GetText() or "") .. text) end,
+			SetFocus = function(self) w.focus[#w.focus + 1] = self.name or "?" end,
+			ClearFocus = function(self) self.focused = false; self.cleared = (self.cleared or 0) + 1 end,
+			SetAutoFocus = function(self, on) self.autoFocus = on; w.log[#w.log + 1] = "autofocus " .. tostring(on) end,
+			StartSizing = function(self, point) self.sizing = point end,
+			Show = function(self)
+				if self.name then w.log[#w.log + 1] = "show " .. self.name end
+				return orig.Show(self)
+			end,
+		}
+	end
+
+	-- The window on the widget toolkit, as a soldier of Olympus II with an empty history, loaded
+	-- fresh (ChatWindow.lua in a namespace of its own, its ns.On listeners kept so a test fires
+	-- them: w.fire) and put where Views, UI and the commands reach it (ns.ChatWindow).
+	local function WithWindow(fn)
+		WithUI(function()
+			local w = { printed = {}, focus = {}, log = {}, on = {} }
+			local orig = {}
+			local mocks = Mocks(orig, w)
+			for k in pairs(mocks) do orig[k] = rawget(Widget, k) end
+			for k, f in pairs(mocks) do Widget[k] = f end
+			local C = ns.Channels
+			local saved = { chat = ns.rdb.chat, me = ns.me, print = ns.Print, win = ns.db.chatWin, cw = ns.ChatWindow, send = C.Send,
+				shift = IsShiftKeyDown, addonChat = ns.db.addonChat, mute = ns.db.chatMute, dialog = ns.ShowDialog, hides = ns.Filter.Hides,
+				pin = C.Pin, canDown = C.CanTakeDown, consent = ns.Consent.Show, borders = ns.Borders, council = ns.rdb.council,
+				history = C.History, getTime = GetTime, selfOff = ns.Moderation.SelfOff, youText = ns.Moderation.YouText,
+				setup = rawget(C, "SetupTab"), tabState = rawget(C, "TabState") }
+			local ok, err = pcall(function()
+				ns.Print = function(m) w.printed[#w.printed + 1] = tostring(m) end
+				ns.rdb.chat = {}
+				ns.db.chatWin = nil
+				AsSoldier()
+				local cns = setmetatable({}, { __index = ns })
+				cns.On = function(name, f) w.on[name] = w.on[name] or {}; table.insert(w.on[name], f) end
+				assert(loadfile(ADDON_DIR .. "ChatWindow.lua"))("Olympus", cns)
+				w.CW = cns.ChatWindow
+				ns.ChatWindow = w.CW
+				w.fire = function(name, ...) for _, f in ipairs(w.on[name] or {}) do f(...) end end
+				fn(w)
+			end)
+			for k in pairs(mocks) do Widget[k] = orig[k] end
+			ns.rdb.chat, ns.me, ns.Print, ns.db.chatWin, ns.ChatWindow, C.Send = saved.chat, saved.me, saved.print, saved.win, saved.cw, saved.send
+			IsShiftKeyDown, ns.db.addonChat, ns.db.chatMute, ns.ShowDialog, ns.Filter.Hides = saved.shift, saved.addonChat, saved.mute, saved.dialog, saved.hides
+			C.Pin, C.CanTakeDown, ns.Consent.Show, ns.Borders, ns.rdb.council = saved.pin, saved.canDown, saved.consent, saved.borders, saved.council
+			C.History, GetTime, ns.Moderation.SelfOff, ns.Moderation.YouText = saved.history, saved.getTime, saved.selfOff, saved.youText
+			C.SetupTab, C.TabState = saved.setup, saved.tabState
+			if not ok then error(err, 0) end
+		end)
+	end
+
+	local function Line(t, sender, text, extra)
+		local e = { t = t, sender = sender, guild = "Olympus II", text = text }
+		for k, v in pairs(extra or {}) do e[k] = v end
+		return e
+	end
+	local function Visible(list)
+		local out = {}
+		for _, x in ipairs(list) do if x:IsShown() then out[#out + 1] = x end end
+		return out
+	end
+	local function Said(w, text)
+		for _, p in ipairs(w.printed) do if p:find(text, 1, true) then return true end end
+		return false
+	end
+	local function RowWith(f, text)
+		for _, r in ipairs(Visible(f.rows)) do if (r.text:GetText() or ""):find(text, 1, true) then return r end end
+	end
+	local function BubbleWith(f, text)
+		for _, b in ipairs(Visible(f.bubbles)) do if (b.body:GetText() or ""):find(text, 1, true) then return b end end
+	end
+	-- A bubble's place from the top of the box's content.
+	local function Top(b)
+		local a = b:Anchor("TOPLEFT") or b:Anchor("TOPRIGHT")
+		return -a[5]
+	end
+	local function TipLines()
+		local out = {}
+		for _, l in ipairs(GameTooltip.lines or {}) do out[#out + 1] = tostring(l) end
+		return out
+	end
+
+	test("1.1.1 marks by a name (Borders.MarkOfName): the King gold; the High Council, Lords and Captains silver; Raiders and Veterans of our guild bronze; members the star; nobody for net-off or outside Olympus", function()
+		WithBorders(function(w)
+			local B = w.B
+			local saved = { byName = ns.Roster.byName, rankName = GuildControlGetRankName, hides = ns.Moderation.Hides }
+			local ok, err = pcall(function()
+				-- Our guild (Olympus II): its ranks from our roster, their names from the game's list.
+				ns.Roster.byName = { ["Guildie Master-Realm"] = 0, ["Guildie Officer-Realm"] = 1, ["Raider Guy-Realm"] = 2,
+					["Vet Guy-Realm"] = 3, ["Plain Guy-Realm"] = 4 }
+				GuildControlGetRankName = function(i) return ({ "Master", "Officer", "Raider", "Veteran", "Member" })[i] end
+				eq(B.MarkOfName("Asmongold Asmongler-Realm", "OLYMPUS"), "gold", "the King by his pinned name in his guild")
+				eq(B.MarkOfName("Asmongold Asmongler-Realm", "Olympus II"), "member", "his name in another guild is not him")
+				local mark, facts = B.MarkOfName("Sage Owl", "Olympus II")
+				eq(mark, "silver", "a High Councillor"); eq(facts.council, true); eq(facts.who, "Sage Owl-Realm", "the name made whole")
+				eq(B.MarkOfName("Guildie Master-Realm", "Olympus II"), "silver", "our guild master")
+				eq(B.MarkOfName("Guildie Officer-Realm", "Olympus II"), "silver", "our officer")
+				eq(B.MarkOfName("Raider Guy-Realm", "Olympus II"), "bronze", "our Raider")
+				eq(B.MarkOfName("Vet Guy-Realm", "Olympus II"), "bronze", "our Veteran")
+				eq(B.MarkOfName("Plain Guy-Realm", "Olympus II"), "member", "our Member")
+				eq(B.MarkOfName("Stranger-Realm", "Olympus II"), "member", "not in our roster: a member of an Olympus guild")
+				-- Another guild: the census, two senders naming him.
+				eq(B.MarkOfName("Zeusy-Realm", "Olympus Zeus"), "silver", "another guild's Lord, two senders")
+				eq(B.MarkOfName("Capt-Realm", "Olympus Zeus"), "silver", "another guild's Captain, two senders")
+				ns.rdb.guilds["Olympus Lone"] = Vouched({ guild = "Olympus Lone", leader = "Loner", officers = { { name = "Lone Capt" } }, realm = "Realm",
+					t = ns.Now() }, "W1-Realm")
+				eq(B.MarkOfName("Loner-Realm", "Olympus Lone"), "member", "one sender names him: a member")
+				eq(ns.Data.KnownRank("Lone Capt-Realm", "Olympus Lone"), 1, "(the census's rank for a Captain one sender names)")
+				eq(B.MarkOfName("Lone Capt-Realm", "Olympus Lone"), "member", "a Captain one sender names: a member, as the borders ask two")
+				-- Nobody outside Olympus; nobody the moderators took off.
+				eq(B.MarkOfName("Joe-Realm", "Wanderers"), nil)
+				eq(B.MarkOfName("Joe-Realm", nil), nil)
+				eq(B.MarkOfName(nil, "Olympus II"), nil)
+				ns.Moderation.Hides = function(who) if who == "Zeusy-Realm" then return { kind = "c" } end end
+				eq(B.MarkOfName("Zeusy-Realm", "Olympus Zeus"), nil, "net-off")
+				ns.Moderation.Hides = saved.hides
+				-- Independent of /oly borders off (the chat's marks are the chat's).
+				ns.db.borders = false
+				eq(B.MarkOfName("Raider Guy-Realm", "Olympus II"), "bronze")
+				-- MarkOf and the borders unchanged: the unit functions still decide theirs.
+				w.target(BorderUnit("Raider Guy", "Olympus II", "Raider", 2))
+				eq(B.MarkOf("target"), "bronze")
+			end)
+			ns.Roster.byName, GuildControlGetRankName, ns.Moderation.Hides = saved.byName, saved.rankName, saved.hides
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+end
+
 -- 1.1: the review of the net-off fixes, its last point (the Agenda's event).
 ;(function()
 	local M = ns.Moderation
