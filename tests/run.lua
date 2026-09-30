@@ -42314,6 +42314,22 @@ do
 	local function Setting(f, text)
 		for _, r in ipairs(Visible(f.setRows)) do if (r.text:GetText() or ""):find(text, 1, true) then return r end end
 	end
+	-- Channels' send gap (lastSend, Channels.Send's own) fresh for fn, and as it was after: the
+	-- earlier tests' clocks never refuse fn's lines, and fn's clock never refuses a later test's.
+	-- (Moved here from the review's block below: the settings' tests send a line too.)
+	local function KeepSendGap(fn)
+		local send, at, was = ns.Channels.Send, nil, nil
+		for i = 1, 200 do
+			local n, v = debug.getupvalue(send, i)
+			if n == nil then break end
+			if n == "lastSend" then at, was = i, v break end
+		end
+		assert(at, "(Channels.Send's lastSend)")
+		debug.setupvalue(send, at, -math.huge)
+		local ok, err = pcall(fn)
+		debug.setupvalue(send, at, was)
+		if not ok then error(err, 0) end
+	end
 
 	test("1.1.1 marks by a name (Borders.MarkOfName): the King gold; the High Council, Lords and Captains silver; Raiders and Veterans of our guild bronze; members the star; nobody for net-off or outside Olympus", function()
 		WithBorders(function(w)
@@ -42495,6 +42511,14 @@ do
 			assert(b:GetWidth() > wide and b:GetHeight() < tall, "wrapped again")
 			assert(b:GetWidth() <= f.content:GetWidth() * 0.82)
 			eq(#f.bubbles, 6); w.CW.Render(); eq(#f.bubbles, 6, "reused")
+			-- (The review of the page's removal: the Realm tab's chats page asserted this, and no Chat
+			-- tab test did.) A colour code typed in a line shows as typed: escaped (SanitizeChat), its
+			-- bar doubled, never a colour.
+			ns.rdb.chat.A = { Line(T0, "Bb-Realm", "second |cffff0000red") }
+			w.CW.Render()
+			local coded = BubbleWith(f, "red")
+			assert(coded and coded.body:GetText():find("second ||cffff0000red", 1, true), coded and coded.body:GetText() or "no bubble")
+			eq(coded.body:GetText():find("second |cffff0000red", 1, true), nil, "no bare colour code")
 			-- A channel with fewer lines: the others hidden, not dropped.
 			ns.rdb.chat.A = { Line(T0, "Aa-Realm", "alone") }
 			w.CW.Render()
@@ -43317,6 +43341,16 @@ do
 				assert(lang.HELP_TAB_CHAT:find("[" .. lang[chan] .. "]", 1, true), code .. ": the channel's name as the language has it, " .. lang[chan])
 			end
 		end
+		-- (The review of the page's removal: the help's line for the Realm tab still listed the Olympus
+		-- chats among the Realm's own, the Chat tab's line right under it.) It says the Realm links
+		-- them, on the Chat tab, by the tab's name in each language.
+		for code, where in pairs({ enUS = "the Chat tab", ptBR = "aba Chat", deDE = "Reiter Chat", esES = "pestaña Chat",
+			esMX = "pestaña Chat", frFR = "onglet Discussion" }) do
+			local file = ({ deDE = "deDE", esES = "esES", esMX = "esES", frFR = "frFR" })[code]
+			local lang = Lang(code, file)
+			assert(lang.HELP_TAB_REALM:find(where, 1, true) and lang.HELP_TAB_REALM:find(lang.TAB_CHAT, 1, true),
+				code .. ": the Realm's help line names the Chat tab: " .. lang.HELP_TAB_REALM)
+		end
 		eq(select(2, ns.L.CHATS_TAB_STEPS:gsub("%%s", "")), 2, "the main tab, Create New Window")
 		eq(select(2, ns.L.CHATTAB_POINTER:gsub("%%s", "")), 1, "Create New Window")
 		-- The help's page (UI.ShowHelp): the Chat tab's line after the Realm's.
@@ -43356,8 +43390,10 @@ do
 				"There is no row of channels: most players read [Olympus] alone, and the lines take that room",
 				"The pinned line shows over the lines, as on the Realm tab, and takes no room while nothing is pinned",
 				"or click **the Olympus chats** on the Realm tab: each opens the Olympus window on its Chat tab",
-				"It replaced the Realm tab's page of the chats (1.1.1): what that page offered is here, the most of it in the tab's settings",
-				"over the lines, how many your filter hides in the channel, and a click there shows them all (another hides them again)",
+				-- (Changed on purpose, the review of the page's removal: the pages no longer mention the
+				-- Realm tab's page of the chats, not even as gone (the brief: they do not mention it); the
+				-- count of the hidden lines is a strip over the lines, taking no room without one.)
+				"Over the lines, like the pinned line, how many your filter hides in the channel (no room while it hides none), and a click there shows them all (another hides them again)",
 				"**Settings**: the gear at the end of the top row shows them in place of the lines",
 				"a click mutes it there or shows it again, as `/oly mute`",
 				"a click moves it to the next chat window open in your game, then back to the main one, as `/oly chatwindow`",
@@ -43379,7 +43415,8 @@ do
 			for _, gone in ipairs({ "340 x 300 to 900 x 1000", "Olympus chat window", "the Treasury and then the author's Workshop",
 				"where the other tabs have their column titles", "Realm tab's chats page", "**Open the Chat tab**", "**Write in [Olympus]**",
 				"a line under the channels", "Realm tab's Olympus chats", "Realm tab's chats say", "on the chats page",
-				"members seen online, the Olympus chats' lines", "newest first, even what was said" }) do
+				"members seen online, the Olympus chats' lines", "newest first, even what was said",
+				"page of the chats", "Realm tab's page", "gone since 1.1.1", "offers everything it did" }) do
 				assert(not flat:find(gone, 1, true), path .. ": no more " .. gone)
 			end
 		end
@@ -43422,22 +43459,6 @@ do
 			f:Fire("OnUpdate", 0.3)
 			f.scroll:Settle()
 		end
-		-- Channels' send gap (lastSend, Channels.Send's own) fresh for fn, and as it was after: the
-		-- earlier tests' clocks never refuse fn's lines, and fn's clock never refuses a later test's.
-		local function KeepSendGap(fn)
-			local send, at, was = ns.Channels.Send, nil, nil
-			for i = 1, 200 do
-				local n, v = debug.getupvalue(send, i)
-				if n == nil then break end
-				if n == "lastSend" then at, was = i, v break end
-			end
-			assert(at, "(Channels.Send's lastSend)")
-			debug.setupvalue(send, at, -math.huge)
-			local ok, err = pcall(fn)
-			debug.setupvalue(send, at, was)
-			if not ok then error(err, 0) end
-		end
-
 		test("1.1.1 review: scrolled up in a channel at its 100 lines, the line being read stays in its place while new lines drop the oldest (the next one's place when it goes); a resize keeps it too", function()
 			WithWindow(function(w)
 				ns.db.addonChat = true
@@ -43885,6 +43906,20 @@ do
 				sb.focused = true; sb:Fire("OnEscapePressed"); eq(sb.focused, false)
 				eq(ns.Views.Filter("realm"), ""); eq(ns.Views.Filter("census"), "")
 				eq(#ns.rdb.chat.A, 23, "the history untouched")
+				-- (The review of the page's removal: the Realm tab's search of the chats checked these,
+				-- and no Chat tab test did.) A writer's name with an accented capital, typed in capitals;
+				-- a word after a colour code typed in a line; the code itself, found as the line shows it
+				-- (escaped, SanitizeChat), not as the colour it would have been.
+				ns.rdb.chat.A = { Line(T0, "Élise-Realm", "third"), Line(T0 + 10, "Bb-Realm", "second |cffff0000red"),
+					Line(T0 + 20, "Cc-Realm", "plain words") }
+				Search("ÉLISE")
+				eq(#Visible(f.bubbles), 1); assert(BubbleWith(f, "third"), "the accented writer")
+				Search("red")
+				eq(#Visible(f.bubbles), 1); assert(BubbleWith(f, "second ||cffff0000red"), "a word after the code")
+				Search("|cff")
+				eq(#Visible(f.bubbles), 1, "the code as the line shows it"); assert(BubbleWith(f, "second ||cffff0000red"))
+				Search("")
+				eq(#Visible(f.bubbles), 3)
 			end)
 		end)
 
@@ -44254,20 +44289,24 @@ do
 			end)
 		end)
 
-		test("1.1.1 Chat tab: the lines the block terms hide, counted over the lines as the Realm tab's chats page counted them: a click shows them all, marked, another hides them; ours never counted", function()
+		-- (Changed on purpose, the review of the page's removal: the count was a grey row at the top of
+		-- the scrolled lines, out of sight when the tab opens on the newest line; it is a strip over the
+		-- lines now, as the pinned line is, so the rows among the lines are the kept note and the day.)
+		test("1.1.1 Chat tab: the lines the block terms hide, counted on a strip over the lines as the Realm tab's chats page counted them: a click shows them all, marked, another hides them; ours never counted", function()
 			WithWindow(function(w)
 				ns.Filter.Hides = function(text) return text:find("junk", 1, true) ~= nil end
 				ns.rdb.chat = { A = { Line(T0, "Aa-Realm", "selling junk cheap"), Line(T0 + 10, "Bb-Realm", "hello army"),
 					Line(T0 + 20, "Soldier-Realm", "my junk", { mine = true }), Line(T0 + 30, "Cc-Realm", "more junk") } }
 				local f = w.CW.Open()
-				eq(#Visible(f.rows), 3, "the kept note, the count, the day")
-				local count = RowWith(f, L.FILTER_HIDDEN_LINES:format(2))
-				assert(count, "the count: two, ours never hidden")
+				eq(#Visible(f.rows), 2, "the kept note and the day: the count is not among the lines")
+				local count = f.hiddenCount
+				eq(count:IsShown(), true, "the count, over the lines")
+				eq(count.text:GetText(), Grey(L.FILTER_HIDDEN_LINES:format(2)), "two: ours never hidden")
 				local tip = TipOf(count)
 				assert(tip:find(L.FILTER_TIP_TITLE, 1, true) and tip:find(L.FILTER_TIP, 1, true), tip)
 				eq(BubbleWith(f, "selling junk"), nil, "not shown"); assert(BubbleWith(f, "hello army"))
 				count:Click()
-				assert(RowWith(f, L.FILTER_SHOWING_LINES:format(2)), "showing them")
+				eq(count.text:GetText(), Grey(L.FILTER_SHOWING_LINES:format(2)), "showing them")
 				for _, text in ipairs({ "selling junk cheap", "more junk" }) do
 					local b = BubbleWith(f, text)
 					assert(b and b.body:GetText():find(L.FILTER_HIDDEN_MARK, 1, true), "shown, marked: " .. text)
@@ -44275,16 +44314,63 @@ do
 				end
 				eq(BubbleWith(f, "my junk").body:GetText():find(L.FILTER_HIDDEN_MARK, 1, true), nil, "ours never marked")
 				eq(BubbleWith(f, "hello army").body:GetText():find(L.FILTER_HIDDEN_MARK, 1, true), nil)
-				RowWith(f, L.FILTER_SHOWING_LINES:format(2)):Click()
-				eq(BubbleWith(f, "selling junk"), nil, "hidden again"); assert(RowWith(f, L.FILTER_HIDDEN_LINES:format(2)))
+				count:Click()
+				eq(BubbleWith(f, "selling junk"), nil, "hidden again"); eq(count.text:GetText(), Grey(L.FILTER_HIDDEN_LINES:format(2)))
 				-- One shown by its own click: the count still offers them all.
 				BubbleWith(f, L.CHATWIN_HIDDEN):Fire("OnMouseUp", "LeftButton")
-				assert(RowWith(f, L.FILTER_HIDDEN_LINES:format(2)), "one of two shown: the count stays")
+				eq(count.text:GetText(), Grey(L.FILTER_HIDDEN_LINES:format(2)), "one of two shown: the count stays")
 				-- The history untouched; nothing hidden, no count.
 				eq(ns.rdb.chat.A[1].text, "selling junk cheap"); eq(ns.rdb.chat.A[1].revealed, nil)
 				ns.Filter.Hides = function() return false end
 				w.fire("FILTER_CHANGED"); w.CW.Render()
-				eq(#Visible(f.rows), 2, "no count")
+				eq(count:IsShown(), false, "no count"); eq(#Visible(f.rows), 2)
+				eq(#w.focus, 0)
+			end)
+		end)
+
+		-- (The review of the page's removal: the count sat at the top of the scrolled lines, above the
+		-- oldest, and the tab opens on the newest: with a full channel it showed only after scrolling
+		-- all the way up.)
+		test("1.1.1 review: the count of the lines the block terms hide is in sight when the tab opens on a full channel: a strip over the lines, under the pinned line, pushing the lines down; no room without a hidden line; none on the settings or with the chats off", function()
+			WithWindow(function(w)
+				ns.Channels.TabState = function() return "open" end -- (no Olympus tab line: the places alone)
+				ns.Channels.Pin = function() return nil end
+				ns.db.addonChat = true
+				ns.Filter.Hides = function(text) return text:find("junk", 1, true) ~= nil end
+				local list = { Line(T0, "Aa-Realm", "old junk"), Line(T0 + 5, "Bb-Realm", "junk again") }
+				for i = 1, 98 do list[#list + 1] = Line(T0 + 10 + i * 10, "Member" .. (800 + i) .. "-Realm", "line " .. i) end
+				ns.rdb.chat = { A = list }
+				local f = w.CW.Open()
+				f.scroll:Settle()
+				local range = f.scroll:GetVerticalScrollRange()
+				assert(range > 0, "a full channel scrolls"); eq(f.scroll:GetVerticalScroll(), range, "opened on the newest")
+				local count = f.hiddenCount
+				eq(count:IsShown(), true, "in sight"); eq(count.text:GetText(), Grey(L.FILTER_HIDDEN_LINES:format(2)))
+				eq(count:GetParent(), f, "on the tab, not scrolled with the lines")
+				eq(count:Anchor("TOPLEFT")[2], f); eq(count:Anchor("TOPLEFT")[5], -59, "at the lines' top (-56 in the old look)")
+				assert(f.box:Anchor("TOPLEFT")[5] <= -56 - count:GetHeight(), "the lines under it")
+				-- A pinned line: the count under it.
+				ns.Channels.Pin = function() return { sender = "Kingly Man-Realm", guild = "Olympus", text = "raid", setAt = ns.Now(), expires = ns.Now() + 60 } end
+				w.CW.Render()
+				eq(f.pin:Anchor("TOPLEFT")[5], -59)
+				assert(count:Anchor("TOPLEFT")[5] <= -59 - f.pin:GetHeight(), "under the pin")
+				assert(f.box:Anchor("TOPLEFT")[5] <= count:Anchor("TOPLEFT")[5] - count:GetHeight(), "the lines under both")
+				ns.Channels.Pin = function() return nil end
+				-- The settings and the chats off: no count.
+				f.gear:Click()
+				eq(count:IsShown(), false, "not on the settings")
+				f.gear:Click()
+				eq(count:IsShown(), true)
+				ns.db.addonChat = false
+				w.CW.Render()
+				eq(count:IsShown(), false, "not with the chats off")
+				ns.db.addonChat = true
+				w.CW.Render()
+				eq(count:IsShown(), true)
+				-- Nothing hidden: no count, and no room kept.
+				ns.Filter.Hides = function() return false end
+				w.fire("FILTER_CHANGED"); w.CW.Render()
+				eq(count:IsShown(), false); eq(f.box:Anchor("TOPLEFT")[5], -56, "no room kept")
 				eq(#w.focus, 0)
 			end)
 		end)
@@ -44383,6 +44469,89 @@ do
 						eq(#game.shown, 0, "no game popup"); eq(#w.focus, 0)
 						f.gear:Click()
 					end)
+				end)
+			end)
+		end)
+
+		-- (The review of the page's removal: nothing drew the settings again for a change made
+		-- elsewhere while they showed, and a label left stale did the opposite of what it said: "Shows
+		-- in your chat (click to mute it there)" on a channel /oly mute had muted, whose click
+		-- unmuted it.)
+		test("1.1.1 review: the settings follow what changes while they show: /oly mute, /oly chatwindow and its tab, a line typed with /olc that unmutes its channel, a game chat window closed or open again", function()
+			WithWindow(function(w)
+				WithGameChat(function(g)
+					local saved = { fire = ns.Fire, room = ns.Comm.ChatRoom, warned = ns.db.chatWarned }
+					local ok, err = pcall(function()
+						-- (The tab's ChatWindow.lua is loaded apart: the addon's own events reach it here as
+						-- they reach it in the game.)
+						ns.Fire = function(name, ...) saved.fire(name, ...); w.fire(name, ...) end
+						AsCaptain()
+						ns.db.addonChat = true
+						ns.db.chatMute = {}
+						ns.Channels.Pin = function() return nil end
+						rawset(g[3], "name", "Guild"); rawset(g[3], "shown", true)
+						local f = w.CW.Open("A")
+						f.gear:Click()
+						assert(Under(f, CAPTH, L.CHATSET_SHOWN), "[Captains] shows in chat")
+						-- /oly mute captains, typed while they show: said muted, and its click shows it again.
+						SlashCmdList.OLYMPUS("mute captains")
+						eq(ns.db.chatMute.C, true)
+						f:Fire("OnUpdate", 0.3)
+						local muted = Under(f, CAPTH, L.CHATSET_MUTED)
+						assert(muted, "said muted"); eq(Under(f, CAPTH, L.CHATSET_SHOWN), nil, "not said shown")
+						muted:Click()
+						eq(ns.db.chatMute.C, nil, "its click does what it says")
+						assert(Under(f, CAPTH, L.CHATSET_SHOWN))
+						-- /olc typed in the game's chat box unmutes [Captains], as ever (Channels.Send): said
+						-- shown again, the lines of [Olympus] still the ones shown.
+						SlashCmdList.OLYMPUS("mute captains")
+						f:Fire("OnUpdate", 0.3)
+						assert(Under(f, CAPTH, L.CHATSET_MUTED))
+						KeepSendGap(function()
+							WithLane(function(sent)
+								ns.Comm.ChatRoom = function() return 3 end
+								ns.db.chatWarned = { A = true, C = true, L = true }
+								GetTime = function() return 1e7 end
+								ns.Channels.Send("C", "typed in chat")
+								eq(#sent, 1, "sent: " .. table.concat(w.printed, " / ")); eq(ns.db.chatMute.C, nil, "unmuted")
+							end)
+						end)
+						f:Fire("OnUpdate", 0.3)
+						assert(Under(f, CAPTH, L.CHATSET_SHOWN), "said shown again"); eq(w.CW.Tier(), "A")
+						-- /oly chatwindow Guild olympus: the window named.
+						SlashCmdList.OLYMPUS("chatwindow Guild olympus")
+						eq(ns.Channels.ChosenWindow("A"), "Guild")
+						f:Fire("OnUpdate", 0.3)
+						assert(Under(f, ALLH, L.CHATSET_WHERE:format('"Guild"')), "the window named")
+						-- The game's chat window closed (the game says its chat windows changed): gone; open
+						-- again: back.
+						g.Close(3)
+						w.event("UPDATE_CHAT_WINDOWS")
+						f:Fire("OnUpdate", 0.3)
+						assert(Under(f, ALLH, L.CHATSET_WHERE:format('"Guild" ' .. L.CHATWIN_GONE_TAG)), "said gone")
+						rawset(g[3], "shown", true)
+						w.event("UPDATE_FLOATING_CHAT_WINDOWS")
+						f:Fire("OnUpdate", 0.3)
+						assert(Under(f, ALLH, L.CHATSET_WHERE:format('"Guild"'))); eq(Under(f, ALLH, L.CHATWIN_GONE_TAG), nil, "not gone")
+						-- /oly chatwindow tab, no Olympus window yet: the Olympus tab awaited, each channel there.
+						assert(Under(f, L.CHATSET_TAB, L.CHATS_TAB_ADD), "the Olympus tab to add")
+						SlashCmdList.OLYMPUS("chatwindow tab")
+						eq(ns.Channels.TabState(), "waiting")
+						f:Fire("OnUpdate", 0.3)
+						assert(Under(f, L.CHATSET_TAB, L.CHATS_TAB_WAITING), "waiting for it")
+						assert(Under(f, CAPTH, L.CHATSET_WHERE:format('"Olympus" ' .. L.CHATWIN_GONE_TAG)))
+						-- A window named Olympus there (no word from the game yet), and /oly chatwindow tab again: on.
+						g.Make(4)
+						SlashCmdList.OLYMPUS("chatwindow tab")
+						eq(ns.Channels.TabState(), "open")
+						f:Fire("OnUpdate", 0.3)
+						assert(Under(f, L.CHATSET_TAB, L.CHATS_TAB_ON), "on")
+						assert(Under(f, CAPTH, L.CHATSET_WHERE:format('"Olympus"'))); eq(Under(f, CAPTH, L.CHATWIN_GONE_TAG), nil)
+						-- Still the settings; nothing taken from the keyboard.
+						eq(w.CW.SettingsShown(), true); eq(#w.focus, 0)
+					end)
+					ns.Fire, ns.Comm.ChatRoom, ns.db.chatWarned = saved.fire, saved.room, saved.warned
+					if not ok then error(err, 0) end
 				end)
 			end)
 		end)

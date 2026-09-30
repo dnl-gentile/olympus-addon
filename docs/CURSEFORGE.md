@@ -317,8 +317,7 @@ WoW channel number to join). Each channel is exclusive to a rank:
   tab say the chats are off, a click to choose.
 - The Realm tab links **the Olympus chats**: a click opens the Olympus window on its Chat tab
   (1.1.1, below), with the last lines of each channel your rank reads, even what was said while
-  the window was closed. The Realm tab's own page of the chats is gone since 1.1.1: the Chat tab
-  offers everything it did.
+  the window was closed.
 - Ranks follow the rule of the decrees: whoever founds a guild with "Olympus" in its name is
   its Lord and gets [Lords], and its officers get [Captains].
 - **One pinned line** (1.1): the King, his Stewards and Hands can pin one short line (100
@@ -372,9 +371,8 @@ says public or sealed. It only tells: nothing is sent and nothing changes.
 The Olympus chats in a tab of the Olympus window, **Chat**, right after the Realm, like the chat
 pane of the Guild & Communities window. Click the tab, or type `/oly talk` (or `/ol`, `/olc` or
 `/oll` with nothing after it), Shift-click the minimap button, or click **the Olympus chats** on
-the Realm tab: each opens the Olympus window on its Chat tab, on that channel. It replaced the
-Realm tab's page of the chats (1.1.1): what that page offered is here, the most of it in the
-tab's settings. `/oly talk lords` opens it on [Lords]; the same command again closes the window.
+the Realm tab: each opens the Olympus window on its Chat tab, on that channel. `/oly talk lords`
+opens it on [Lords]; the same command again closes the window.
 With the King's tabs the side column of the new look runs out of room: his Treasury moves to the
 window's left edge (for the author, his Workshop goes there first).
 
@@ -405,10 +403,10 @@ window's left edge (for the author, his Workshop goes there first).
   the Treasurer's coin, and **Steward** or **Hand** after the King's. A name whose Olympus guild
   cannot be checked (a plain member of another guild, or anyone claiming a guild's name) gets no
   mark. A click on a name whispers that player, in Olympus's whisper window.
-- A line your block terms hide shows as a grey bubble, and a click shows it, marked; over the
-  lines, how many your filter hides in the channel, and a click there shows them all (another
-  hides them again). A link shows its tooltip when you hover it, and a Shift-click puts it in the
-  tab's box.
+- A line your block terms hide shows as a grey bubble, and a click shows it, marked. Over the
+  lines, like the pinned line, how many your filter hides in the channel (no room while it hides
+  none), and a click there shows them all (another hides them again). A link shows its tooltip
+  when you hover it, and a Shift-click puts it in the tab's box.
 - **The box** runs across the bottom, where the other tabs have their buttons, with no Send
   button: Enter sends. It is Olympus's own, not the game's chat box: it takes the keyboard only
   when you click into it (the tab never takes it when it opens, so your movement keys keep

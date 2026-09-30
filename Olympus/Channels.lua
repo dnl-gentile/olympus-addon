@@ -409,12 +409,14 @@ function Channels.SetupTab()
 		found[TAB_KEY] = true
 		ns.Print(L.CHATTAB_SET:format(table.concat(labels, ", ")))
 		Intro(f, i)
+		ns.Fire("CHAT_SETTINGS_CHANGED")
 		return true, "open"
 	end
 	found[TAB_KEY] = nil
 	SetIntroSaid(false) -- (the tab the player makes now says what it holds)
 	ns.Print(L.CHATTAB_STEPS:format(MainTabName(), GameWord(NEW_CHAT_WINDOW, L.CHATWIN_NEW),
 		GameWord(CHAT_CONFIGURATION, L.CHATTAB_SETTINGS)))
+	ns.Fire("CHAT_SETTINGS_CHANGED")
 	return true, "waiting"
 end
 
@@ -541,6 +543,7 @@ function Channels.ChooseWindow(input)
 	if next(list) == nil then ns.db.chatWindows[ns.me] = nil end
 	if next(ns.db.chatWindows) == nil then ns.db.chatWindows = nil end
 	wipe(gone)
+	ns.Fire("CHAT_SETTINGS_CHANGED")
 	if not name then
 		ns.Print(L.CHATWIN_MAIN:format(table.concat(labels, ", ")))
 		return true
@@ -680,6 +683,7 @@ function Channels.Send(tier, text, now, keepMute)
 	if Muted()[tier] and not keepMute then
 		Muted()[tier] = nil
 		ns.Print(L.CHAN_UNMUTED:format(Label(tier)))
+		ns.Fire("CHAT_SETTINGS_CHANGED")
 	end
 	lastSend = now
 	local failed, sentParts = false, 0
@@ -1584,7 +1588,9 @@ function Channels.TierForWord(w)
 	return WORDS[(tostring(w or ""):lower():gsub("^%s+", ""):gsub("%s+$", ""))]
 end
 
--- A muted channel stays out of chat but keeps its history. Account-wide.
+-- A muted channel stays out of chat but keeps its history. Account-wide. Every change to a
+-- channel's place in the game's chat (muted or not here and in Send, its window in ChooseWindow and
+-- SetupTab) fires CHAT_SETTINGS_CHANGED: the Chat tab's settings show it at once (ChatWindow.lua).
 function Channels.ToggleMute(word)
 	local tier = Channels.TierForWord(word)
 	if not tier then
@@ -1599,6 +1605,7 @@ function Channels.ToggleMute(word)
 		muted[tier] = true
 		ns.Print(L.CHAN_MUTED:format(Label(tier), TIERS[tier].word))
 	end
+	ns.Fire("CHAT_SETTINGS_CHANGED")
 end
 
 function Channels.Prune(now)

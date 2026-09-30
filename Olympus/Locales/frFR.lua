@@ -195,7 +195,7 @@ ns.Locale("frFR", {
 	HELP_TITLE = "Aide d'Olympus",
 	HELP_TABS = "Les onglets :",
 	HELP_TAB_CENSUS = "toutes les guildes Olympus, les soldats en ligne et où se trouve l'armée.",
-	HELP_TAB_REALM = "le Roi, les Seigneurs et Capitaines, les rangs, les couches, le recrutement et les chats Olympus.",
+	HELP_TAB_REALM = "le Roi, les Seigneurs et Capitaines, les rangs, les couches, le recrutement et un lien vers les chats Olympus (dans l'onglet Discussion).",
 	HELP_TAB_DECREES = "appels aux armes, rassemblements et décrets royaux pour toute l'armée.",
 	HELP_TAB_HERALDRY = "la patrouille des tabards : qui porte les couleurs d'Olympus, et qui ne les porte pas.",
 	HELP_TAB_CHAT = "les chats Olympus, [Olympus], [Capitaines] et [Seigneurs] : chaque ligne en entier, et une zone pour écrire (Entrée envoie).",

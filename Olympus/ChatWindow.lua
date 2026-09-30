@@ -65,7 +65,7 @@ local GROUP_TIME = 300                                -- a pause this long start
 local STICK_SLACK = 2
 local THROTTLE, DATA_GAP = 0.2, 5
 local LINE_H = 14                                     -- a line of text, where the client gives no height
-local PIN_LINES, GUIDE_LINES = 3, 4
+local PIN_LINES, GUIDE_LINES, COUNT_LINES = 3, 4, 2   -- the strips over the lines, at most
 local GUIDE_X = 20                                    -- the Olympus tab's line: the room its x takes on the right
 local MAX_NOTES = 5
 local LOOK_GAP = 1                                    -- the Olympus tab awaited: the game's chat windows read this often
@@ -443,8 +443,8 @@ local function NewBubble()
 	return b
 end
 
--- A grey row across the box: the kept note, the lines the block terms hide, a day, the empty
--- channel, no match, a line that was not sent.
+-- A grey row across the box: the kept note, a day, the empty channel, no match, a line that was
+-- not sent.
 local function NewRow()
 	local r = CreateFrame("Button", nil, Content())
 	r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -596,38 +596,35 @@ local function Query()
 	return V and type(V.Query) == "function" and V.Query(TAB) or nil
 end
 
-local function DrawLines()
+-- The block terms (Filter.lua), when this client has them.
+local function Hides()
+	local F = ns.Filter
+	return F and not F.missing and type(F.Hides) == "function" and F.Hides or nil
+end
+
+-- The lines of `all` (the channel's history) that the block terms hide (never ours), in its order.
+local function HiddenLines(all)
+	local hides, out = Hides(), {}
+	if not hides then return out end
+	for _, e in ipairs(all) do
+		if not Own(e) and hides(e.text or "") then out[#out + 1] = e end
+	end
+	return out
+end
+
+-- The lines of `all`, the channel's history (Render reads it once for the strips and the lines).
+local function DrawLines(all)
 	local C = ns.Channels
-	local all = C.History(tier)
 	local width = ContentWidth()
 	frame.content:SetWidth(width)
-	local F = ns.Filter
-	local hides = F and not F.missing and type(F.Hides) == "function" and F.Hides or nil
+	local hides = Hides()
 	local q = Query()
 	local list = Searched(all, q, hides)
 	local nb, nr = 0, 0
 	local y = 6
 	nr = nr + 1
 	y = y + Row(nr, Grey(L.CHATWIN_KEPT:format(C.HISTORY or 100)), y, width) + 6
-	-- The lines the block terms hide in this channel, counted (as the Realm tab's chats page counted
-	-- them): a click shows them all, another hides them again (each hidden one is a grey bubble,
-	-- shown alone by its own click too).
-	local hidden = {}
-	for _, e in ipairs(hides and all or {}) do
-		if not Own(e) and hides(e.text or "") then hidden[#hidden + 1] = e end
-	end
-	if #hidden > 0 then
-		local shown = true
-		for _, e in ipairs(hidden) do shown = shown and revealed[e] == true end
-		nr = nr + 1
-		y = y + Row(nr, Grey((shown and L.FILTER_SHOWING_LINES or L.FILTER_HIDDEN_LINES):format(#hidden)), y, width, function()
-			for _, e in ipairs(hidden) do revealed[e] = not shown or nil end
-			Render()
-		end, function(tt)
-			tt:AddLine(L.FILTER_TIP_TITLE, 1, 0.82, 0)
-			tt:AddLine(L.FILTER_TIP, 1, 1, 1, true)
-		end) + 6
-	end
+	-- (The count of the lines the block terms hide is a strip over the lines: DrawHiddenCount.)
 	if #all == 0 then
 		nr = nr + 1
 		y = y + 8 + Row(nr, Grey(L.CHATWIN_EMPTY:format(Label(tier))), y + 8, width)
@@ -672,7 +669,8 @@ end
 -- The top row: the search box, the channels' switch right of it (a rank that reads more than
 -- one channel), the gear at its end. The owner's ask: the row of pills under it (one lone
 -- underlined "Olympus" for most players) took the lines' room; there is no row of its own now.
--- Then, over the lines, the pinned line and the way to the Olympus tab, each only while it shows.
+-- Then, over the lines, the pinned line, the way to the Olympus tab and the count of the lines the
+-- block terms hide, each only while it shows.
 ---------------------------------------------------------------------------
 
 -- The lines that came in on the channels not shown (unread[t] counts only those, CHAT_LINE).
@@ -790,7 +788,8 @@ local function DrawTop(tiers, on)
 	frame.setTitle:SetShown(settings)
 end
 
--- The room between the box's sides (a strip over it: the pinned line, the Olympus tab's line).
+-- The room between the box's sides (a strip over it: the pinned line, the Olympus tab's line, the
+-- count of the hidden lines).
 local function StripWidth()
 	local box = frame.places.box
 	return math.max(100, (frame:GetWidth() or 338) - box.left + box.right - 12)
@@ -840,6 +839,36 @@ local function DrawPin(y)
 	pin:SetHeight(h)
 	Strip(pin, y)
 	pin:Show()
+	return h + 6
+end
+
+-- The lines the block terms hide in this channel, counted (as the Realm tab's chats page counted
+-- them): a click shows them all, marked, another hides them again (each hidden one is a grey
+-- bubble, shown alone by its own click too). A strip over the lines, at `y` (the review of the
+-- page's removal: a row atop the scrolled lines sat above the oldest line, out of sight, the tab
+-- opening on the newest). `all`: the channel's history. Returns the room it takes (none while no
+-- line is hidden).
+local function DrawHiddenCount(y, all)
+	local s = frame.hiddenCount
+	local hidden = HiddenLines(all)
+	if #hidden == 0 then
+		s.onClick = nil
+		s:Hide()
+		return 0
+	end
+	local shown = true
+	for _, e in ipairs(hidden) do shown = shown and revealed[e] == true end
+	s.onClick = function()
+		for _, e in ipairs(hidden) do revealed[e] = not shown or nil end
+		Render()
+	end
+	s.text:SetText(Grey((shown and L.FILTER_SHOWING_LINES or L.FILTER_HIDDEN_LINES):format(#hidden)))
+	local width = StripWidth()
+	s.text:SetWidth(width)
+	local h = math.min(TextHeight(s.text, width), COUNT_LINES * LINE_H)
+	s:SetHeight(h)
+	Strip(s, y)
+	s:Show()
 	return h + 6
 end
 
@@ -998,8 +1027,14 @@ end
 function ChatWindow.Watching() return watching end
 function ChatWindow.Pointer() return pointer end -- (tests)
 
+-- (And drawn again: the settings name each channel's window, "gone" while it is not open, and the
+-- Olympus tab's state; the line over the lines follows that state too. The review of the page's
+-- removal: a window closed or opened while they showed left them stale.)
 for _, event in ipairs({ "UPDATE_CHAT_WINDOWS", "UPDATE_FLOATING_CHAT_WINDOWS" }) do
-	ns.RegisterEvent(event, function() if watching then Look() end end)
+	ns.RegisterEvent(event, function()
+		if watching then Look() end
+		MarkDirty()
+	end)
 end
 
 -- Whether the line shows, the Olympus tab not open (the review of the Chat tab: it showed for
@@ -1288,6 +1323,7 @@ local function ShowParts(mode)
 	if not lines then
 		frame.newPill:Hide()
 		frame.guide:Hide()
+		frame.hiddenCount:Hide()
 	end
 	if mode == "settings" then frame.pin:Hide() end
 end
@@ -1319,9 +1355,14 @@ function ChatWindow.Render()
 		DrawSettings()
 		return
 	end
-	-- The strips over the lines, each taking room only while it shows.
+	-- The strips over the lines, each taking room only while it shows: the pinned line, the way to
+	-- the Olympus tab, the count of the lines the block terms hide (nearest the lines it counts).
 	y = y - DrawPin(y)
-	if on then y = y - DrawGuide(y) end
+	local all = on and C.History(tier) or nil -- (read once, for the count and the lines)
+	if on then
+		y = y - DrawGuide(y)
+		y = y - DrawHiddenCount(y, all)
+	end
 	frame.box:SetPoint("TOPLEFT", frame, "TOPLEFT", box.left, y)
 	ShowParts(on and "lines" or "off")
 	if not on then
@@ -1332,7 +1373,7 @@ function ChatWindow.Render()
 	DrawSearch()
 	DrawInput()
 	local was = not stick and InView() or nil
-	DrawLines()
+	DrawLines(all)
 	if stick then
 		want = nil
 		ToBottom()
@@ -1595,7 +1636,8 @@ local function Button(parent, text, width)
 	return b
 end
 
--- A strip over the lines (the pinned line, the Olympus tab's line): a button with wrapped text.
+-- A strip over the lines (the pinned line, the Olympus tab's line, the count of the hidden lines): a
+-- button with wrapped text.
 local function StripButton(p, lines)
 	local s = CreateFrame("Button", nil, p)
 	s.text = s:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1675,6 +1717,14 @@ local function Build(h)
 	-- The pinned line.
 	p.pin = StripButton(p, PIN_LINES)
 	p.pin:SetScript("OnClick", function(self) if self.onClick then ns.SafeCall("chat tab pin", self.onClick) end end)
+
+	-- The count of the lines the block terms hide.
+	p.hiddenCount = StripButton(p, COUNT_LINES)
+	p.hiddenCount:SetScript("OnClick", function(self) if self.onClick then ns.SafeCall("chat tab hidden", self.onClick) end end)
+	p.hiddenCount.tip = function(tt)
+		tt:AddLine(L.FILTER_TIP_TITLE, 1, 0.82, 0)
+		tt:AddLine(L.FILTER_TIP, 1, 1, 1, true)
+	end
 
 	-- The way to the Olympus tab of the game's chat.
 	p.guide = StripButton(p, GUIDE_LINES)
@@ -1824,8 +1874,8 @@ end
 -- Where the tab's parts go in its window, from UI.lua (offsets from the window's corners, for
 -- its look): places = { search = { left, right, top }, box = { left, right, top, bottom },
 -- input = { left, right, y, h } }. The search row holds the switch and the gear too (DrawTop:
--- the search box ends where they begin); the box's top moves down under the pinned line and the
--- Olympus tab's line while they show (Render).
+-- the search box ends where they begin); the box's top moves down under the pinned line, the
+-- Olympus tab's line and the count of the hidden lines while they show (Render).
 local function Place(p, places)
 	if p.places == places then return end
 	p.places = places
@@ -1971,7 +2021,12 @@ ns.On("CHAT_LINE", function(t)
 	end
 	MarkDirty()
 end)
-for _, event in ipairs({ "PIN_CHANGED", "FILTER_CHANGED", "NETOFF_CHANGED", "COUNCIL_MASK_CHANGED", "CONSENT_CHANGED" }) do
+-- (CHAT_SETTINGS_CHANGED, Channels.lua: a channel muted or shown in the game's chat, or sent to
+-- another chat window, by /oly mute, /oly chatwindow, a line typed with /ol or the settings' own
+-- clicks. The review of the page's removal: the settings stayed as they were drawn, and a stale
+-- "shows in your chat" unmuted a channel /oly mute had muted.)
+for _, event in ipairs({ "PIN_CHANGED", "FILTER_CHANGED", "NETOFF_CHANGED", "COUNCIL_MASK_CHANGED", "CONSENT_CHANGED",
+	"CHAT_SETTINGS_CHANGED" }) do
 	ns.On(event, MarkDirty)
 end
 -- The marks follow the census, at most once every DATA_GAP seconds.
