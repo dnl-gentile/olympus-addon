@@ -1188,6 +1188,33 @@ local function ChatLines(q)
 	if not q then
 		PinLine(lines)
 		PublicLines(lines)
+		-- 1.1.1: the chats in Olympus's own window (ChatWindow.lua), every line whole, a box to write in.
+		lines[#lines + 1] = {
+			text = Gold(L.CHATS_OPEN_WINDOW),
+			onClick = function() ns.ChatWindow.Open(chatTier) end,
+			tooltip = function(tt)
+				tt:AddLine(L.CHATS_OPEN_WINDOW, 1, 0.82, 0)
+				tt:AddLine(L.CHATS_OPEN_WINDOW_TIP, 1, 1, 1, true)
+			end,
+		}
+		-- The Olympus tab of the game's chat (Channels.lua, 1.1.1), by the player's click: where it
+		-- stands, a click makes it the chats' window (or says how to make the tab in the game).
+		if not C.missing and type(C.SetupTab) == "function" and type(C.TabState) == "function" then
+			local state = C.TabState()
+			local text = state == "open" and Grey(L.CHATS_TAB_ON) or (state == "waiting" and Grey(L.CHATS_TAB_WAITING) or Green(L.CHATS_TAB_MAKE))
+			lines[#lines + 1] = {
+				text = text,
+				onClick = function()
+					C.SetupTab()
+					if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+				end,
+				tooltip = function(tt)
+					tt:AddLine(L.CHATS_TAB_MAKE, 1, 0.82, 0)
+					tt:AddLine(L.CHATS_TAB_TIP, 1, 1, 1, true)
+				end,
+			}
+		end
+		lines[#lines].gapAfter = true
 	end
 	local tiers = ChatTiers()
 	if not C.TIERS[chatTier] or not C.CanUse(chatTier) then chatTier = tiers[1] end
@@ -1211,11 +1238,11 @@ local function ChatLines(q)
 	if not q then
 		lines[#lines + 1] = {
 			text = Green(L.CHATS_WRITE:format(L[tierDef.label])),
-			onClick = function()
-				-- (The gamepad UI: an Olympus window, the game's chat box would be blocked; UI.lua.)
-				if ns.GamepadUI() then return ns.UI.ChatWindow(chatTier, L[tierDef.label]) end
-				if ChatFrame_OpenChat then ChatFrame_OpenChat(tierDef.slash .. " ") end
-			end,
+			-- 1.1.1: the Olympus chat window on this channel, its own box to write in, with mouse and
+			-- keyboard too. Never the game's chat box opened from here (ChatFrame_OpenChat writes the
+			-- chat's last active box from addon code: the game then blocks /cast and the like typed
+			-- there, and the gamepad UI froze on it in 0.8.5).
+			onClick = function() ns.ChatWindow.Open(chatTier) end,
 			gapAfter = true,
 		}
 		-- The King, his Stewards and Hands: one line pinned for the army (1.1); a guild master: one

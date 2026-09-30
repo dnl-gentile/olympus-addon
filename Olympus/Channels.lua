@@ -588,8 +588,10 @@ local function Locked()
 	return C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() and true or false
 end
 
--- Returns ok, reason. Every refusal tells the player why.
-function Channels.Send(tier, text, now)
+-- Returns ok, reason. Every refusal tells the player why. A line sent unmutes its channel in the
+-- chat frame (/ol typed in chat), unless keepMute: the chat window (1.1.1) shows a channel muted
+-- in chat and writes in it without bringing it back there.
+function Channels.Send(tier, text, now, keepMute)
 	local t = TIERS[tier]
 	if not t then return false, "tier" end
 	if not ns.IsMember() then
@@ -638,7 +640,7 @@ function Channels.Send(tier, text, now)
 	-- they are told so before anything leaves (Channels.Confirm sends it). The warning holds the
 	-- channel it named too (GitHub #34).
 	if not Warned()[tier] then
-		ns.ShowDialog("OLYMPUS_CHAT_PRIVACY", Label(tier), ns.Comm.Audience(), { tier = tier, text = text, channel = ns.Comm.ChannelName() })
+		ns.ShowDialog("OLYMPUS_CHAT_PRIVACY", Label(tier), ns.Comm.Audience(), { tier = tier, text = text, channel = ns.Comm.ChannelName(), keepMute = keepMute or nil })
 		return false, "confirm"
 	end
 	local guild = GetGuildInfo("player")
@@ -651,7 +653,7 @@ function Channels.Send(tier, text, now)
 		return false, "busy"
 	end
 	if cut then ns.Print(L.CHAN_TRUNCATED) end
-	if Muted()[tier] then
+	if Muted()[tier] and not keepMute then
 		Muted()[tier] = nil
 		ns.Print(L.CHAN_UNMUTED:format(Label(tier)))
 	end
@@ -719,7 +721,7 @@ function Channels.Confirm(data, send)
 		return
 	end
 	local channel = ns.Comm.ChannelName()
-	if not ns.IsMember() or channel == nil then return Channels.Send(data.tier, data.text) end
+	if not ns.IsMember() or channel == nil then return Channels.Send(data.tier, data.text, nil, data.keepMute) end
 	if data.channel ~= channel then
 		stats.moved = stats.moved + 1
 		ns.Print(L.CHAN_MOVED:format(Label(data.tier)))
@@ -727,7 +729,7 @@ function Channels.Confirm(data, send)
 		return false, "moved"
 	end
 	Warned()[data.tier] = true
-	return Channels.Send(data.tier, data.text)
+	return Channels.Send(data.tier, data.text, nil, data.keepMute)
 end
 
 StaticPopupDialogs["OLYMPUS_CHAT_PRIVACY"] = {
