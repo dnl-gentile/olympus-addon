@@ -37880,6 +37880,43 @@ do
 		end)
 	end)
 
+	test("1.1 key rotation, Konig's review: the King's Throne counts an acknowledgement (K4) only from a name his client whispered the key to", function()
+		WithRotation(function(w, K, server)
+			AsKing()
+			eq(ns.Who.Search(true), true)
+			server.Answer({ { "Zed", "Olympus Zeus", 60, "WARRIOR" }, { "Zeus Cap", "Olympus Zeus", 60, "MAGE" } })
+			server.Run(ns.Who.SETTLE)
+			eq(KY.Rotate(), true)
+			local rot = KY.Rotation()
+			local ack = ("K4~%d~%s"):format(rot.at, "Olympus II")
+			-- Before anything left: nobody's answer counts.
+			KY.HandleAck("WHISPER", "Zed-Realm", ("K4~%d~Olympus Zeus"):format(rot.at))
+			eq(KY.Stats().acks, 0, "not whispered yet")
+			eq(KY.Start(), true)
+			eq(Whispered(w), "Zed-Realm,Zeus Cap-Realm")
+			K.Show("home")
+			assert(Page((K.Build())):find(ns.L.KEY_ROTATING:format(2, 0, 0), 1, true), Page((K.Build())))
+			-- The census's two "Lords" of Olympus II and anyone else, with the right epoch: not counted.
+			KY.HandleAck("WHISPER", "Leaker One-Realm", ack)
+			KY.HandleAck("WHISPER", "Leaker Two-Realm", ack)
+			KY.HandleAck("WHISPER", "Some Soldier-Realm", ("K4~%d~Olympus Made Up"):format(rot.at))
+			eq(KY.Stats().acks, 0)
+			assert(Page((K.Build())):find(ns.L.KEY_ROTATING:format(2, 0, 0), 1, true), Page((K.Build())))
+			-- Zed, whom it whispered: counted, once.
+			KY.HandleAck("WHISPER", "Zed-Realm", ("K4~%d~Olympus Zeus"):format(rot.at))
+			KY.HandleAck("WHISPER", "Zed-Realm", ("K4~%d~Olympus Zeus"):format(rot.at))
+			eq(KY.Stats().acks, 1)
+			assert(Page((K.Build())):find(ns.L.KEY_ROTATING:format(2, 1, 1), 1, true), Page((K.Build())))
+			-- After he moves, the same count.
+			eq(KY.Move(), true)
+			assert(Page((K.Build())):find(ns.L.KEY_ROTATED_AGO:format(ns.Ago(rot.movedAt), 1, 1), 1, true), Page((K.Build())))
+		end)
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			assert(doc:find("the Throne says how many of those he whispered have it (an answer from anyone else is not counted)", 1, true), path)
+		end
+	end)
+
 	test("1.1 key rotation, Konig's review: the Throne's new words in English and pt-BR; the README and the CurseForge page say only whom the King's /who saw in their guild get the key", function()
 		local pt = { L = setmetatable({}, { __index = ns.L }) }
 		local savedLocale = GetLocale

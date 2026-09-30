@@ -20,7 +20,8 @@ local L = ns.L
 --                      and over GUILD from each of
 --                      them (their officers) to their own guild; K1~<key> with it there, for
 --                      guildmates before 1.1. The hashes: the keys it replaces (at most 3).
---   K4~<epoch>~<guild> a Lord's or Captain's addon tells the King it has it (a whisper).
+--   K4~<epoch>~<guild> a Lord's or Captain's addon tells the King it has it (a whisper); his
+--                      Throne counts it only from a name his client whispered the key to.
 --   K5~<epoch held>    over GUILD, after login: a guildmate asks whether a newer key exists;
 --                      an officer holding one answers with K3.
 -- The epoch is the server's second the key was made (or an officer typed one, 1.1): every 1.1
@@ -241,6 +242,11 @@ function Keys.HandleAck(dist, sender, text)
 	local at, guild = tostring(text):match("^K4~(%d+)~(.*)$")
 	if tonumber(at) ~= rot.at then return end
 	sender = ns.FullName(sender)
+	-- Only from a name his client whispered the key to (counted once it left): anyone else's K4
+	-- would pass on his Throne for a Lord or Captain who has it (Konig's review).
+	if not (type(rot.sent) == "table" and rot.sent[sender]) then
+		return ns.Log("realm key: %s's acknowledgement ignored: not whispered the key", sender)
+	end
 	rot.acked = type(rot.acked) == "table" and rot.acked or {}
 	if rot.acked[sender] then return end
 	rot.acked[sender] = ns.King.CleanGuild(guild) or "?"
