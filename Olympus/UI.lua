@@ -12,6 +12,9 @@ local L = ns.L
 -- Guild tab). "hd" mirrors Forever's Guild & Communities window: the same metal frame,
 -- icon tabs on the right side, 20 px rows, Blizzard's column headers, buttons and member
 -- card. The old one is built exactly as it always was.
+-- The Chat tab (1.1.1) is drawn by ChatWindow.lua over the list's place: the search box where
+-- the header's counts are, the channels where the column titles are, the lines over the list and
+-- the detail box, and a box to write in across the buttons' row (UI.ChatPlaces).
 
 local UI = {}
 ns.UI = UI
@@ -23,6 +26,9 @@ local HD_TABS_REACH = 40            -- a side tab and its art, past the window's
 local SIDE_TOP, SIDE_GAP = 36, 20   -- CommunitiesFrame.xml: the first side tab 36 down, then 20 apart
 local SIDE_ART_BELOW = 21           -- RightSideTab.xml: a side tab's art, below its button
 local SIDE_LEFT_UP = 46             -- the one on the left edge: its art as far from the bottom as theirs from the top
+-- The side tabs that go to the left edge when the right one runs out of room, first to last
+-- (1.1.1, the author's ask: the Chat tab makes the King's column one too many).
+local SIDE_LEFT_ORDER = { "workshop", "treasury" }
 local HD_DEFAULT_H = 426            -- CommunitiesFrame.xml
 local main                          -- the window in use: frames.old or frames.hd
 local frames = {}                   -- style -> window, each created on first use
@@ -37,6 +43,9 @@ local TABS = {
 		local faction = ns.faction or (UnitFactionGroup and UnitFactionGroup("player"))
 		return faction == "Horde" and "Interface\\Icons\\INV_BannerPVP_01" or "Interface\\Icons\\INV_BannerPVP_02"
 	end },
+	-- 1.1.1: the Olympus chats (ChatWindow.lua), for every member: the Guild & Communities window's
+	-- own chat icon (CommunitiesFrame.xml's ChatTab), else a note.
+	{ key = "chat", label = "TAB_CHAT", icon = function() return UI.FirstTexture(UI.CHAT_ICONS) end },
 	{ key = "decrees", label = "TAB_DECREES", icon = "Interface\\Icons\\INV_Scroll_04" },
 	{ key = "heraldry", label = "TAB_HERALDRY", icon = "Interface\\Icons\\INV_Shirt_GuildTabard_01" },
 	-- The King's alone (King.lua): hidden for everyone else, see UI.Refresh.
@@ -58,6 +67,7 @@ function UI.FirstTexture(paths)
 end
 UI.CROWNS = { "Interface\\Icons\\INV_Crown_01", "Interface\\Icons\\INV_Crown_02", "Interface\\Icons\\INV_Misc_Head_Dragon_01" }
 UI.HORNS = { "Interface\\Icons\\Ability_Warrior_BattleShout", "Interface\\Icons\\INV_Misc_Horn_01" }
+UI.CHAT_ICONS = { "Interface\\Icons\\UI_Chat", "Interface\\Icons\\INV_Misc_Note_01" }
 UI.PARCHMENTS = { "Interface\\QuestFrame\\QuestBG", "Interface\\Stationery\\StationeryTest1" }
 UI.TABS = TABS
 
@@ -545,6 +555,55 @@ local GEOMETRY = {
 	},
 }
 
+---------------------------------------------------------------------------
+-- The Chat tab (1.1.1): ChatWindow.lua draws it in the window, over the list's place. The author's
+-- words: no soldiers' counts on top (the search box goes there), the channels where the column
+-- titles are, no detail box (the lines take its room), and the box to write in where the buttons
+-- are, with no Send button (Enter sends).
+---------------------------------------------------------------------------
+
+-- The tab shows for whoever reads an Olympus chat (every member, as the Realm tab's chats' line),
+-- with ChatWindow.lua loaded or not (a client updated without a restart: the tab says so).
+local function ChatTabVisible()
+	local C = ns.Channels
+	if not C or C.missing or type(C.CanUse) ~= "function" then return false end
+	for _, t in ipairs(C.ORDER or {}) do
+		if C.CanUse(t) then return true end
+	end
+	return false
+end
+
+-- ChatWindow.lua there to draw it.
+local function ChatPaneReady()
+	local CW = ns.ChatWindow
+	return type(CW) == "table" and not CW.missing and type(CW.Attach) == "function" and type(CW.Detach) == "function"
+end
+
+-- Where the Chat tab's parts go in window `f`, from its look's numbers (offsets from its corners):
+-- the search box right of the portrait, where the counts are; the channels on the column titles'
+-- row; the lines from under them down to the buttons' row; the box across that row, as wide as
+-- its buttons together.
+function UI.ChatPlaces(f)
+	f = f or main
+	if not f then return nil end
+	if f.chatPlaces then return f.chatPlaces end
+	local g = GEOMETRY[f.style]
+	local b, head = g.buttons, g.header
+	f.chatPlaces = {
+		search = { left = f.headerX or 12, right = -HEADER_RIGHT, top = -30 },
+		pills = { left = head.left, top = head.y, h = head.h },
+		box = { left = g.box.left, right = g.box.right, top = head.y - head.h - 2, bottom = b.y + b.h + 4 },
+		input = { left = b.x, right = b.x - b.margin, y = b.y, h = b.h },
+	}
+	return f.chatPlaces
+end
+
+-- The Chat tab in the window in use (on), or not.
+local function ChatPane(on)
+	if not ChatPaneReady() or not main then return end
+	if on then ns.ChatWindow.Attach(main, UI.ChatPlaces(main)) else ns.ChatWindow.Detach(main) end
+end
+
 -- A column title. The old window: the old Guild or Who window's (named, for
 -- WhoFrameColumn_SetWidth). The HD one: the Communities roster's, ColumnDisplay (the variant
 -- without scripts: the other calls its parent's OnClick), not named; the Who one is named
@@ -959,6 +1018,8 @@ local function CreateMain(style)
 	f:SetScript("OnHide", function(self)
 		local person = personFrames[self.style]
 		if person then person:Hide() end
+		-- (The Chat tab goes with it: its boxes let go of the keyboard.)
+		if ChatPaneReady() then ns.ChatWindow.Detach(self) end
 	end)
 	f:SetScript("OnSizeChanged", function(self) if self == main then UI.Layout() end end)
 	return f
@@ -1030,9 +1091,12 @@ end
 -- wide each on the Classic clients), wider together than our window once there are four or
 -- five (the King's Throne): past it they shrink evenly, their text cut by the tab itself.
 -- The shown tabs follow one another, a hidden one (the Throne, the Workshop) leaving no gap,
--- in the HD window's side column too. That column holds seven: the author's Workshop next to
--- all the King's tabs (King.Preview) makes eight, and the Workshop moves to the left edge,
--- low, clear of the Communities window's own side tabs when ours is docked beside it.
+-- in the HD window's side column too. That column holds seven: past them, the tabs of
+-- SIDE_LEFT_ORDER move to the left edge, one by one until the rest fit (1.1.1: with the Chat tab
+-- the King's view makes eight, and his Treasury, the last of his, goes left; the author's
+-- preview adds the Workshop, which goes first). The left ones stack up from low on that edge, in
+-- their order down (the last one lowest), clear of the Communities window's own side tabs when
+-- ours is docked beside it.
 function UI.LayoutTabs()
 	if not main or not main.tabs then return end
 	local shown = {}
@@ -1040,25 +1104,39 @@ function UI.LayoutTabs()
 		if tab:IsShown() then shown[#shown + 1] = tab end
 	end
 	if #shown == 0 then return end
-	local left
+	local left, onLeft = {}, {}
 	if main.tabStyle == "side" then
 		local height, tabHeight = main:GetHeight() or 0, shown[1]:GetHeight() or 0
-		if height > 0 and tabHeight > 0 and not UI.SideTabsFit(#shown, tabHeight, height) then
-			for i, tab in ipairs(shown) do
-				if tab.key == "workshop" then left = table.remove(shown, i) break end
+		if height > 0 and tabHeight > 0 then
+			for _, key in ipairs(SIDE_LEFT_ORDER) do
+				if UI.SideTabsFit(#shown, tabHeight, height) then break end
+				for i, tab in ipairs(shown) do
+					if tab.key == key then
+						onLeft[table.remove(shown, i)] = true
+						break
+					end
+				end
 			end
 		end
-		for _, tab in ipairs(main.tabs) do SideTabOnLeft(tab, tab == left) end
+		for _, tab in ipairs(main.tabs) do
+			SideTabOnLeft(tab, onLeft[tab])
+			if onLeft[tab] then left[#left + 1] = tab end -- (in the tabs' order)
+		end
 		-- Those tabs stay on the screen too.
-		if main.SetClampRectInsets then main:SetClampRectInsets(left and -HD_TABS_REACH or 0, HD_TABS_REACH, 0, 0) end
+		if main.SetClampRectInsets then main:SetClampRectInsets(#left > 0 and -HD_TABS_REACH or 0, HD_TABS_REACH, 0, 0) end
 	end
 	for i, tab in ipairs(shown) do
 		tab:ClearAllPoints()
 		tab:SetPoint(UI.TabAnchor(main.tabStyle, i, main, shown[i - 1]))
 	end
-	if left then
-		left:ClearAllPoints()
-		left:SetPoint("BOTTOMRIGHT", main, "BOTTOMLEFT", 0, SIDE_LEFT_UP)
+	for i = #left, 1, -1 do
+		local tab = left[i]
+		tab:ClearAllPoints()
+		if i == #left then
+			tab:SetPoint("BOTTOMRIGHT", main, "BOTTOMLEFT", 0, SIDE_LEFT_UP)
+		else
+			tab:SetPoint("BOTTOMRIGHT", left[i + 1], "TOPRIGHT", 0, SIDE_GAP)
+		end
 	end
 	if main.tabStyle == "side" then return end
 	local resize = PanelTemplates_TabResize
@@ -1103,6 +1181,11 @@ function UI.Layout()
 	main.layoutLocked = not ns.IsMember()
 	local hasCols = not main.layoutLocked and ns.Views.COLUMNS[main.tab] ~= nil and main.tab == "census"
 	main.colHeader:SetShown(hasCols)
+	-- The Chat tab: the header's counts, the list and the detail box give their place to its parts.
+	local chat = not main.layoutLocked and main.tab == "chat" and ChatPaneReady()
+	for _, key in ipairs({ "total", "sub", "headerHover", "listBox", "scroll", "detail" }) do
+		if main[key] then main[key]:SetShown(not chat) end
+	end
 	-- The HD list box starts right under the column titles, higher without them.
 	if g.box.topNoCols and main.listBox then
 		main.listBox:ClearAllPoints()
@@ -1434,6 +1517,7 @@ function UI.Refresh()
 		-- The Throne only for the King, the Workshop only for the addon's author (and their
 		-- test builds, King.Preview and Workshop.Preview).
 		local only = {
+			chat = ChatTabVisible(), -- (1.1.1)
 			throne = ns.King and ns.King.Visible and ns.King.Visible() or false,
 			vox = ns.Vox and ns.Vox.Visible and ns.Vox.Visible() or false,
 			treasury = ns.Treasury and ns.Treasury.TabVisible and ns.Treasury.TabVisible() or false, -- (1.1: the dues' button too)
@@ -1442,6 +1526,8 @@ function UI.Refresh()
 		if only[main.tab] == false then return ShowTab("census") end
 		for _, tab in ipairs(main.tabs) do tab:SetShown(not locked and only[tab.key] ~= false) end
 		UI.LayoutTabs()
+		-- The Chat tab (ChatWindow.lua) over the list's place while it is the one shown.
+		ChatPane(not locked and main.tab == "chat")
 		local detail = not locked and Shown(DETAIL_BUTTONS[main.tab]) or nil
 		SetButtons(main.detailButtons, detail)
 		-- Room for the text where no button shows (the Decrees tab has one for the King alone).
@@ -1937,6 +2023,7 @@ function UI.ShowHelp()
 		L.HELP_TABS,
 		"  " .. L.TAB_CENSUS .. ": " .. L.HELP_TAB_CENSUS,
 		"  " .. L.TAB_REALM .. ": " .. L.HELP_TAB_REALM,
+		"  " .. L.TAB_CHAT .. ": " .. L.HELP_TAB_CHAT,
 		"  " .. L.TAB_DECREES .. ": " .. L.HELP_TAB_DECREES,
 		"  " .. L.TAB_HERALDRY .. ": " .. L.HELP_TAB_HERALDRY,
 		"  " .. L.HELP_TAB_OTHERS,
@@ -2078,7 +2165,7 @@ local function CreateMinimapButton()
 			if button == "RightButton" then
 				ns.Map.SetEnabled(not ns.db.showMap)
 			elseif IsShiftKeyDown and IsShiftKeyDown() then
-				-- 1.1.1: Shift + left-click, the Olympus chat window (ChatWindow.lua).
+				-- 1.1.1: Shift + left-click, the Olympus window on its Chat tab (ChatWindow.lua).
 				ns.ChatWindow.Toggle()
 			else
 				UI.Toggle()

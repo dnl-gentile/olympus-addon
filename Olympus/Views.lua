@@ -1188,7 +1188,8 @@ local function ChatLines(q)
 	if not q then
 		PinLine(lines)
 		PublicLines(lines)
-		-- 1.1.1: the chats in Olympus's own window (ChatWindow.lua), every line whole, a box to write in.
+		-- 1.1.1: the chats in the Olympus window's Chat tab (ChatWindow.lua), every line whole, a box
+		-- to write in.
 		lines[#lines + 1] = {
 			text = Gold(L.CHATS_OPEN_WINDOW),
 			onClick = function() ns.ChatWindow.Open(chatTier) end,
@@ -1238,8 +1239,8 @@ local function ChatLines(q)
 	if not q then
 		lines[#lines + 1] = {
 			text = Green(L.CHATS_WRITE:format(L[tierDef.label])),
-			-- 1.1.1: the Olympus chat window on this channel, its own box to write in, with mouse and
-			-- keyboard too. Never the game's chat box opened from here (ChatFrame_OpenChat writes the
+			-- 1.1.1: the Chat tab on this channel, its own box to write in, with mouse and keyboard
+			-- too. Never the game's chat box opened from here (ChatFrame_OpenChat writes the
 			-- chat's last active box from addon code: the game then blocks /cast and the like typed
 			-- there, and the gamepad UI froze on it in 0.8.5).
 			onClick = function() ns.ChatWindow.Open(chatTier) end,
@@ -2387,6 +2388,13 @@ local BUILD = {
 		if not (ns.Workshop and ns.Workshop.Build) then return {}, nil, nil end
 		local lines, title, text = ns.Workshop.Build()
 		return lines or {}, title, text
+	end,
+	-- 1.1.1: the Chat tab. ChatWindow.lua draws it over this list; on a client updated without a
+	-- restart (no ChatWindow.lua yet), the list says what to do.
+	chat = function()
+		local CW = ns.ChatWindow
+		if type(CW) ~= "table" or CW.missing then return { { text = Grey(L.RESTART_NEEDED) } }, nil, nil end
+		return {}, nil, nil
 	end,
 }
 

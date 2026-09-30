@@ -43,6 +43,7 @@ ns.Locale("deDE", {
 	TAB_HERALDRY = "Wappenröcke",
 	TAB_THRONE = "Thron",
 	TAB_TREASURY = "Schatzkammer",
+	TAB_CHAT = "Chat",
 	KING = "König",
 	LORD = "Lord",
 	CAPTAIN = "Hauptmann",

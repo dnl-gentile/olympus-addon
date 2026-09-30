@@ -43,6 +43,7 @@ ns.Locale("frFR", {
 	TAB_HERALDRY = "Tabards",
 	TAB_THRONE = "Trône",
 	TAB_TREASURY = "Trésor",
+	TAB_CHAT = "Discussion",
 	KING = "Roi",
 	LORD = "Seigneur",
 	CAPTAIN = "Capitaine",

@@ -1565,7 +1565,7 @@ StandIn("Alts", { "Slash" })
 StandIn("Keys", { "RotatePrompt" })
 StandIn("Loot", { "Show" }) -- (1.1)
 StandIn("Crafters", { "Ask", "Slash" }) -- (1.1)
-StandIn("ChatWindow", { "Open", "Toggle" }) -- 1.1.1: the Olympus chat window (ChatWindow.lua)
+StandIn("ChatWindow", { "Open", "Toggle" }) -- 1.1.1: the Chat tab of the Olympus window (ChatWindow.lua)
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1995,7 +1995,7 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "chatwindow" then
 			ns.Channels.ChooseWindow(rest)
 		elseif cmd == "talk" or cmd == "falar" then
-			-- 1.1.1: the Olympus chat window (ChatWindow.lua), on a channel if one is named.
+			-- 1.1.1: the Olympus window on its Chat tab (ChatWindow.lua), on a channel if one is named.
 			ns.ChatWindow.Toggle(ns.Channels.TierForWord(rest))
 		elseif cmd == "discord" then
 			-- Olympus Link (Link.lua): this character's Discord role; confirmers' keys; watchers.

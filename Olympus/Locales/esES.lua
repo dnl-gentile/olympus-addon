@@ -43,6 +43,7 @@ ns.Locale({ "esES", "esMX" }, {
 	TAB_HERALDRY = "Tabardos",
 	TAB_THRONE = "Trono",
 	TAB_TREASURY = "Tesoro",
+	TAB_CHAT = "Chat",
 	KING = "Rey",
 	LORD = "Señor",
 	CAPTAIN = "Capitán",

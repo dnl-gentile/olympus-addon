@@ -696,9 +696,9 @@ L.CHAN_LOCKDOWN = "The game blocks addon chat right now (instance restrictions).
 L.CHAN_MUTED = "[%s] muted. /oly mute %s shows it again."
 L.CHAN_UNMUTED = "[%s] shows in chat again."
 L.CHAN_MUTE_USAGE = "Usage: /oly mute olympus | captains | lords"
-L.HELP_CHAN_ALL = "  /ol <text> - talk to every Olympus guild (players with the addon); alone, opens the chat window"
-L.HELP_CHAN_CAPTAINS = "  /olc <text> - Captains and Lords channel; alone, opens the chat window"
-L.HELP_CHAN_LORDS = "  /oll <text> - Lords channel (with the officers of <Olympus>); alone, opens the chat window"
+L.HELP_CHAN_ALL = "  /ol <text> - talk to every Olympus guild (players with the addon); alone, opens the Chat tab"
+L.HELP_CHAN_CAPTAINS = "  /olc <text> - Captains and Lords channel; alone, opens the Chat tab"
+L.HELP_CHAN_LORDS = "  /oll <text> - Lords channel (with the officers of <Olympus>); alone, opens the Chat tab"
 L.HELP_CHAN_MUTE = "  /oly mute olympus | captains | lords - hide or show a channel in chat"
 
 -- 0.9.1: king-trust
@@ -2408,9 +2408,9 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CHAN_MUTED = "[%s] silenciado. /oly mute %s mostra de novo."
 	L.CHAN_UNMUTED = "[%s] aparece no chat de novo."
 	L.CHAN_MUTE_USAGE = "Uso: /oly mute olympus | captains | lords"
-	L.HELP_CHAN_ALL = "  /ol <texto> - falar com todas as guildas Olympus (quem tem o addon); sozinho, abre a janela de chat"
-	L.HELP_CHAN_CAPTAINS = "  /olc <texto> - canal dos Capitães e Lordes; sozinho, abre a janela de chat"
-	L.HELP_CHAN_LORDS = "  /oll <texto> - canal dos Lordes (com os officers da <Olympus>); sozinho, abre a janela de chat"
+	L.HELP_CHAN_ALL = "  /ol <texto> - falar com todas as guildas Olympus (quem tem o addon); sozinho, abre a aba Chat"
+	L.HELP_CHAN_CAPTAINS = "  /olc <texto> - canal dos Capitães e Lordes; sozinho, abre a aba Chat"
+	L.HELP_CHAN_LORDS = "  /oll <texto> - canal dos Lordes (com os officers da <Olympus>); sozinho, abre a aba Chat"
 	L.HELP_CHAN_MUTE = "  /oly mute olympus | captains | lords - esconder ou mostrar um canal no chat"
 
 	-- 0.9.1: king-trust
@@ -3694,11 +3694,14 @@ if GetLocale and GetLocale() == "ptBR" then
 end
 
 ---------------------------------------------------------------------------
--- 1.1.1: the Olympus chat window (ChatWindow.lua): the three chats in a window of Olympus's own,
--- every line whole, and a box of its own to write in. Its ways in: /oly talk, /ol, /olc or /oll
--- alone, Shift-click on the minimap button, and two lines on the Realm tab's chats page.
+-- 1.1.1: the Chat tab of the Olympus window (ChatWindow.lua): the three chats, every line whole,
+-- and a box of its own to write in. Its ways in: the tab itself, /oly talk, /ol, /olc or /oll
+-- alone, Shift-click on the minimap button, and two lines on the Realm tab's chats page. (The
+-- first 1.1.1 build had them in a window of its own, with its own title: CHATWIN_ keys.) The way
+-- to the Olympus tab of the game's chat (the player makes it; Olympus shows where).
 ---------------------------------------------------------------------------
-L.CHATWIN_TITLE = "Olympus chats"
+L.TAB_CHAT = "Chat"
+L.HELP_TAB_CHAT = "the Olympus chats, [Olympus], [Captains] and [Lords]: every line whole, and a box to write in (Enter sends)."
 L.CHATWIN_PLACEHOLDER = "Write in [%s]..."
 L.CHATWIN_PUBLIC = " (public channel)"
 L.CHATWIN_YOU = "You"
@@ -3722,16 +3725,22 @@ L.CHATWIN_OFF = "The Olympus chats are off on this client: nothing is sent or sh
 L.CHATWIN_OFF_BUTTON = "Choose"
 L.CHATWIN_MUTED_TIP = "Muted in your chat (/oly mute): its lines still show here, and a line you write here keeps it muted."
 L.CHATWIN_PINNED = "Pinned"
-L.CHATS_OPEN_WINDOW = "Open the chat window"
-L.CHATS_OPEN_WINDOW_TIP = "The Olympus chats in a window of their own: every line whole, and a box to write in. Also /oly talk, or /ol alone."
+L.CHATS_OPEN_WINDOW = "Open the Chat tab"
+L.CHATS_OPEN_WINDOW_TIP = "The Olympus chats in the Chat tab of this window: every line whole, and a box to write in. Also /oly talk, or /ol alone."
 L.CHATS_TAB_MAKE = "Make an Olympus tab in your chat"
 L.CHATS_TAB_WAITING = "Olympus tab: waiting for a chat tab named Olympus"
 L.CHATS_TAB_ON = "Olympus tab: on"
 L.CHATS_TAB_TIP = "The Olympus chats in a tab of the game's chat, each line in its channel's colour, without the channel's name. /oly chatwindow main puts them back."
-L.HELP_TALK = "  /oly talk - open or close the Olympus chat window (also /ol, /olc or /oll alone, or Shift-click the minimap button)"
-L.MINIMAP_SHIFT = "Shift-click: the Olympus chat window"
+L.HELP_TALK = "  /oly talk - open or close the Olympus window on its Chat tab (also /ol, /olc or /oll alone, or Shift-click the minimap button)"
+L.MINIMAP_SHIFT = "Shift-click: the Chat tab"
+L.CHATS_TAB_ADD = "Add an Olympus tab to the game chat"
+L.CHATS_TAB_ADD_TIP = "The Olympus chats in a tab of the game's chat too, each line in its channel's colour. Olympus cannot make that tab itself (the game would then block /cast, /target and other commands you type in chat): a click shows you where to make it, and the chats go there the moment it exists."
+L.CHATS_TAB_STEPS = "Waiting for your Olympus tab: right-click the %s chat tab, %s, and name it Olympus."
+L.CHATTAB_POINTER_TITLE = "Your Olympus tab"
+L.CHATTAB_POINTER = "Right-click this tab, then %s, and name it Olympus. The Olympus chats go there the moment it exists."
 if GetLocale and GetLocale() == "ptBR" then
-	L.CHATWIN_TITLE = "Chats Olympus"
+	L.TAB_CHAT = "Chat"
+	L.HELP_TAB_CHAT = "os chats Olympus, [Olympus], [Capitães] e [Lordes]: cada linha inteira, e uma caixa para escrever (Enter envia)."
 	L.CHATWIN_PLACEHOLDER = "Escreva em [%s]..."
 	L.CHATWIN_PUBLIC = " (canal público)"
 	L.CHATWIN_YOU = "Você"
@@ -3754,14 +3763,19 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CHATWIN_OFF_BUTTON = "Escolher"
 	L.CHATWIN_MUTED_TIP = "Silenciado no seu chat (/oly mute): as linhas dele ainda aparecem aqui, e uma linha escrita aqui o mantém silenciado."
 	L.CHATWIN_PINNED = "Fixada"
-	L.CHATS_OPEN_WINDOW = "Abrir a janela de chat"
-	L.CHATS_OPEN_WINDOW_TIP = "Os chats Olympus numa janela só deles: cada linha inteira, e uma caixa para escrever. Também /oly talk, ou /ol sozinho."
+	L.CHATS_OPEN_WINDOW = "Abrir a aba Chat"
+	L.CHATS_OPEN_WINDOW_TIP = "Os chats Olympus na aba Chat desta janela: cada linha inteira, e uma caixa para escrever. Também /oly talk, ou /ol sozinho."
 	L.CHATS_TAB_MAKE = "Criar uma aba Olympus no seu chat"
 	L.CHATS_TAB_WAITING = "Aba Olympus: esperando uma aba de chat chamada Olympus"
 	L.CHATS_TAB_ON = "Aba Olympus: ligada"
 	L.CHATS_TAB_TIP = "Os chats Olympus numa aba do chat do jogo, cada linha na cor do seu canal, sem o nome do canal. /oly chatwindow main devolve."
-	L.HELP_TALK = "  /oly talk - abrir ou fechar a janela de chat Olympus (também /ol, /olc ou /oll sozinhos, ou Shift-clique no botão do minimapa)"
-	L.MINIMAP_SHIFT = "Shift-clique: a janela de chat Olympus"
+	L.HELP_TALK = "  /oly talk - abrir ou fechar a janela Olympus na aba Chat (também /ol, /olc ou /oll sozinhos, ou Shift-clique no botão do minimapa)"
+	L.MINIMAP_SHIFT = "Shift-clique: a aba Chat"
+	L.CHATS_TAB_ADD = "Adicionar uma aba Olympus ao chat do jogo"
+	L.CHATS_TAB_ADD_TIP = "Os chats Olympus também numa aba do chat do jogo, cada linha na cor do seu canal. O Olympus não pode criar essa aba sozinho (o jogo então bloquearia /cast, /target e outros comandos que você digita no chat): um clique mostra onde criá-la, e os chats vão para lá assim que ela existir."
+	L.CHATS_TAB_STEPS = "Esperando a sua aba Olympus: botão direito na aba %s do chat, %s, e dê o nome Olympus."
+	L.CHATTAB_POINTER_TITLE = "A sua aba Olympus"
+	L.CHATTAB_POINTER = "Botão direito nesta aba, depois %s, e dê o nome Olympus. Os chats Olympus vão para lá assim que ela existir."
 end
 
 ---------------------------------------------------------------------------

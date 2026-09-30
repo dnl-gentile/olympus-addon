@@ -278,6 +278,8 @@ local function FindTab()
 	end
 	return nil
 end
+-- (Read only, for the Chat tab's guided way to the Olympus tab, ChatWindow.lua.)
+Channels.FindTab = FindTab
 
 local function IndexOf(f)
 	for i = 1, MaxWindows() do
@@ -302,6 +304,7 @@ local function MainTabName()
 	end
 	return L.CHATTAB_MAIN_TAB
 end
+Channels.MainTabName = MainTabName
 
 -- Whether chat window i also shows other chat (Say, Guild, whispers, channels): what the game
 -- registers it for, read as Blizzard's ChatFrameOverrides.lua reads it. Neither function is in
@@ -1645,8 +1648,9 @@ ns.On("LOGIN", function()
 end)
 
 -- /ol, /olc, /oll <text>: a line in that channel. Alone (nothing but spaces, 1.1.1): the Olympus
--- chat window on that channel (ChatWindow.lua, or Core.lua's stand-in on a client updated without
--- a restart), else, where this client has no such window, what to type (Channels.Send says it).
+-- window on its Chat tab, on that channel (ChatWindow.lua, or Core.lua's stand-in on a client
+-- updated without a restart), else, where this client has no such tab, what to type (Channels.Send
+-- says it).
 local function Slash(tier, where)
 	return function(msg)
 		local W = ns.ChatWindow
