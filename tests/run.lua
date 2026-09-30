@@ -37933,7 +37933,8 @@ do
 		end
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
-			for _, must in ipairs({ "confirms online and his own /who saw in that guild", "a name the census alone gives gets nothing",
+			eq(KY.WHO_FRESH, 30 * 60, "the docs say 30 minutes")
+			for _, must in ipairs({ "confirms online and his own /who saw in that guild in the last 30 minutes", "a name the census alone gives gets nothing",
 				"on the Throne's /who line", "the census's Refresh searches", "whom his own /who saw in that guild (a whisper from the King each)",
 				"whispers the key only to the Lords and Captains his own /who saw in that very guild" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)

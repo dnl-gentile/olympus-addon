@@ -3346,7 +3346,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.KEY_ROTATE_CONFIRM = "Trocar a chave do exército? O seu addon faz uma nova (ninguém vê, nem você). Depois você escolhe no Trono quais guildas recebem, e nada é enviado antes de você entregar: ela vai por sussurro aos Lordes e Capitães online delas que o seu /who viu nelas, e cada um passa para a guilda dele pelo chat da guilda. Você e a sua guilda passam para ela %s minutos depois da entrega (ou quando você mandar), para os Lordes que entrarem nesse meio-tempo também receberem. Uma guilda sem oficial online até lá fica no canal antigo até um oficial dela digitar a chave."
 	L.KEY_ROTATE_ONLY_KING = "Só o Rei ou o Steward dele troca a chave do exército. Os oficiais continuam selando o canal da própria guilda com /oly key."
 	L.KEY_ROTATE_BUSY = "Uma chave nova está esperando no Trono: entregue e passe para ela, ou descarte, primeiro."
-	L.KEY_ROTATED = "A chave nova do exército vai por sussurro aos Lordes e Capitães online das guildas que você escolheu que o seu /who viu nelas. Você e a sua guilda passam para ela em %d minutos, ou antes pelo Trono."
+	L.KEY_ROTATED = "A chave nova do exército vai por sussurro aos Lordes e Capitães online das guildas que você escolheu, os que o seu /who viu nelas. Você e a sua guilda passam para ela em %d minutos, ou antes pelo Trono."
 	L.KEY_ROTATING = "Entregue a %d Lordes e Capitães, %d já têm (%d guildas)"
 	L.KEY_MOVE_NOW = "Passar para a chave nova agora (em %d min de qualquer jeito)"
 	L.KEY_MOVE_CONFIRM = "Passar para a chave nova agora? A sua guilda vai junto. Lordes e Capitães que entrarem depois não recebem mais por sussurro."

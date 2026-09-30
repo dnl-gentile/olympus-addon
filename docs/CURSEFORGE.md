@@ -467,9 +467,9 @@ tools lives where it belongs:
   get it: those his own /who saw are checked, and a guild only the census names waits for his
   click (two characters on the leaked channel can make up a guild and its Lords); nothing is
   sent before he hands it out. His addon whispers it to their Lords and Captains the census
-  confirms online and his own /who saw in that guild (the server's word: two characters can
-  also call themselves a real guild's Lord and Captain in the census, and a name the census
-  alone gives gets nothing). His click on a guild, or on the Throne's /who line, searches /who
+  confirms online and his own /who saw in that guild in the last 30 minutes (the server's word:
+  two characters can also call themselves a real guild's Lord and Captain in the census, and a
+  name the census alone gives gets nothing). His click on a guild, or on the Throne's /who line, searches /who
   for the Lords and Captains picked it has not seen there yet, one search a click (with the
   gamepad UI, the census's Refresh searches). Each hands it to his guild over guild chat, so
   nobody types `/oly key` by hand. It never travels on the Olympus channel. Whoever holds the
