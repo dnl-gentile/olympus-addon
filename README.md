@@ -825,8 +825,13 @@ alone until then).
     below first). A player who paid with no guild on his payment (a mail without the dues' note)
     is in no guild's list: a Captain's page asks the Treasurer's addon about the members of his
     roster missing from his list, by five letters of each name's hash, and hears back about those
-    alone (until then they show as "not known yet", never below). The army's Treasury tab keeps
-    the King's three switches, and nothing of this.
+    alone (until then they show as "not known yet", never below). Above and below go by the
+    week's amount as the King's word reached the viewer's own addon, never by the amount the
+    Treasurer's list came with (the review of Konig's fixes: his addon, which receives the dues,
+    decided who was under it). Where the two differ (one of the two addons has not heard the
+    King's latest, or the Treasurer's is not the addon it says), the page says so and asks for a
+    newer list, the King's table shows its "paid" as "?", and that list removes nobody. The
+    army's Treasury tab keeps the King's three switches, and nothing of this.
   - **Clearing a seat (a guild's Captains and Lord)**: on their own guild's list, one click
     filters the roster to whoever is under the amount this week (never someone the Treasurer's
     list can't tell yet: a list still coming, or cut). A click picks one name; under it,
@@ -844,8 +849,8 @@ alone until then).
     "not in the book yet" (a plain "below" only with part of the amount); the page, the filter's
     tip and the removal's question say that a mail not taken yet is not counted, and when the mail
     character last played. **Remove** shows only with the Treasurer's list of the last 10
-    minutes; with an older one it says so, and a removal confirmed anyway does nothing and asks
-    again.
+    minutes, counted by the King's amount; with an older one, or one counted by another amount,
+    it says so, and a removal confirmed anyway does nothing and asks again.
   - **Send this week's dues**: a button on top of the Treasury tab, for every member on the
     Treasurer's realms (the tab is there for it even while the King shows the army nothing;
     a keeper has none: gold between keepers is a transfer). Its click fills in what the usual
