@@ -9,9 +9,9 @@ local L = ns.L
 -- Whole words only, any case and accent the search folds (ns.Fold), read as the line shows
 -- (Codec.SanitizeChat, then ns.Searchable: a link's text counts, its data doesn't). Only on addon
 -- text: the [Olympus], [Captains] and [Lords] lines and the pinned line's words (Channels.lua), the
--- King's writs (Acts.lua), a decree's words (Decree.lua) and Vox Populi's question and answers
--- (Vox.lua). Never a name, a guild, a census row, the treasury, or the game's own chat (Say,
--- Trade, General: never read).
+-- King's writs (Acts.lua: the player's own list alone, never the shared one, 1.1 review), a
+-- decree's words (Decree.lua) and Vox Populi's question and answers (Vox.lua). Never a name, a
+-- guild, a census row, the treasury, or the game's own chat (Say, Trade, General: never read).
 -- A hit hides the line on this screen, nothing more: no kick, no net-off, no ignore, nothing sent
 -- about it, and the same player's next line shows. A hidden line stays one click away (the Realm
 -- tab's chats: "N lines hidden by your filter"; the Decrees tab for a writ, a decree's words or a
@@ -21,9 +21,10 @@ local L = ns.L
 -- stamps the sender: the King by his pinned name, a Steward by the signed titles list, a Hand by
 -- the King's or a Steward's list, a High Councillor by the signed council list):
 --   BW~<digest>~<+|-><term>@<server time>[@<editor>],...
--- Each word is its own entry, added (+) or removed (-) at a time; the newest time wins, word by
--- word, so two editors never undo each other's other words, and an editor who logs in with an old
--- or empty list changes nothing (a removal is kept for SHARED_TOMB). Each message stands alone
+-- Each word is its own entry (SHARED_TERM_MIN letters at least), added (+) or removed (-) at a
+-- time; the newest time wins, word by word, so two editors never undo each other's other words,
+-- and an editor who logs in with an old or empty list changes nothing (a removal is kept for
+-- SHARED_TOMB, SHARED_KEEP entries at most, the oldest removals first). Each message stands alone
 -- (as many as the list needs, PAGE bytes each); <digest> names the sender's whole list. An edit
 -- goes out at once; each editor's client repeats the whole list every REPEAT, unless it just
 -- heard another client holding the same (the digest). Clients before 1.1 know no "BW": they
@@ -41,6 +42,7 @@ Filter.SHARED_MAX = 50          -- words the shared list hides at once
 Filter.SHARED_KEEP = 100        -- entries it keeps, the removed ones included
 Filter.SHARED_TOMB = 30 * 86400 -- a removal is kept this long (an old client can't bring the word back)
 Filter.TERM_MIN, Filter.TERM_MAX = 2, 24
+Filter.SHARED_TERM_MIN = 4      -- letters of a shared term at least (1.1, Konig's review: Filter.SharedTerm)
 Filter.REPEAT = 600
 Filter.FRESH = 900              -- an edit this recent goes out with its editor's name (the log of acts)
 Filter.AHEAD = 60               -- a time further ahead of the server's clock is not taken
@@ -60,6 +62,15 @@ function Filter.Term(s)
 	s = ns.Fold((tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", "")))
 	if #s < Filter.TERM_MIN or #s > Filter.TERM_MAX or not s:match("^[%w\128-\255]+$") then return nil end
 	return s
+end
+
+-- A term the shared list takes: one of SHARED_TERM_MIN letters at least (1.1, Konig's review: one
+-- editor adding "the" or "de" hid nearly every decree for everyone). The player's own list still
+-- takes shorter ones: it hides lines on his screen alone.
+function Filter.SharedTerm(s)
+	local term = Filter.Term(s)
+	if not term or select(2, term:gsub("[^\128-\191]", "")) < Filter.SHARED_TERM_MIN then return nil end
+	return term
 end
 
 -- The words of a text as a line shows it, folded. Punctuation of the Latin-1 and general
@@ -84,11 +95,12 @@ end
 
 function Filter.SharedOn() return not (ns.db and ns.db.filterSharedOff == true) end
 
--- The term that hides this text, or nil.
-function Filter.Hit(text)
+-- The term that hides this text, or nil. ownOnly: the player's own list alone (the King's writs:
+-- 1.1, Konig's review, the shared list never hides them; the player's own filter still may).
+function Filter.Hit(text, ownOnly)
 	if type(text) ~= "string" or text == "" or not ns.db then return nil end
 	local mine = ns.db.filterWords
-	local shared = Filter.SharedOn() and ns.rdb and ns.rdb.filterShared or nil
+	local shared = not ownOnly and Filter.SharedOn() and ns.rdb and ns.rdb.filterShared or nil
 	local any = (type(mine) == "table" and next(mine) ~= nil) or (type(shared) == "table" and next(shared) ~= nil)
 	if not any then return nil end
 	for _, w in ipairs(Filter.WordsOf(text)) do
@@ -98,7 +110,7 @@ function Filter.Hit(text)
 	end
 	return nil
 end
-function Filter.Hides(text) return Filter.Hit(text) ~= nil end
+function Filter.Hides(text, ownOnly) return Filter.Hit(text, ownOnly) ~= nil end
 
 -- A list of terms, sorted; masked on the King's own screen (his stream): its first letter.
 local function Shown(term)
@@ -184,12 +196,14 @@ local function Active()
 	return n
 end
 
--- Removals past SHARED_TOMB go, then the oldest removals while the list keeps too many; anything
--- a saved file holds that the list would never take goes too.
+-- Removals past SHARED_TOMB go, then the oldest removals while the list keeps too many (on the
+-- same second, by the term: every client keeps the same entries whatever order it heard them in,
+-- so the digests agree; 1.1, Konig's review); anything a saved file holds that the list would
+-- never take goes too.
 local function Prune()
 	local S, now = Shared(), Clock()
 	for term, e in pairs(S) do
-		if type(e) ~= "table" or Filter.Term(term) ~= term or type(e.at) ~= "number" then S[term] = nil
+		if type(e) ~= "table" or Filter.SharedTerm(term) ~= term or type(e.at) ~= "number" then S[term] = nil
 		elseif e.on ~= true and now - e.at > Filter.SHARED_TOMB then S[term] = nil end
 	end
 	local all, gone = {}, {}
@@ -197,7 +211,8 @@ local function Prune()
 	if #all <= Filter.SHARED_KEEP then return end
 	table.sort(all, function(a, b)
 		if (a.e.on == true) ~= (b.e.on == true) then return a.e.on ~= true end
-		return a.e.at < b.e.at
+		if a.e.at ~= b.e.at then return a.e.at < b.e.at end
+		return a.term < b.term
 	end)
 	for i = 1, #all - Filter.SHARED_KEEP do gone[#gone + 1] = all[i].term end
 	for _, term in ipairs(gone) do S[term] = nil end
@@ -286,8 +301,8 @@ end
 -- An editor adds a word to the shared list, or takes it off: at once on the channel.
 function Filter.EditShared(word, on)
 	if not Filter.CanEdit() then return ns.Print(L.FILTER_NOT_EDITOR) end
-	local term = Filter.Term(word)
-	if not term then return ns.Print(L.FILTER_BAD_TERM) end
+	local term = Filter.SharedTerm(word)
+	if not term then return ns.Print(Filter.Term(word) and L.FILTER_SHARED_SHORT:format(Filter.SHARED_TERM_MIN) or L.FILTER_BAD_TERM) end
 	local S = Shared()
 	local e = S[term]
 	if (type(e) == "table" and e.on == true) == (on and true or false) then
@@ -316,13 +331,13 @@ function Filter.Receive(dist, sender, text)
 		return
 	end
 	local S, now = Shared(), Clock()
-	local added, removed, changed, n = {}, {}, false, 0
+	local added, removed, changed, stored, n = {}, {}, false, false, 0
 	for piece in body:gmatch("[^,]+") do
 		n = n + 1
 		if n > Filter.ENTRIES_PER_MESSAGE then break end
 		local sign, word, at, editor = piece:match("^([%+%-])([^@]+)@(%d+)@([^@]+)$")
 		if not sign then sign, word, at = piece:match("^([%+%-])([^@]+)@(%d+)$") end
-		local term = word and Filter.Term(word)
+		local term = word and Filter.SharedTerm(word)
 		at = tonumber(at)
 		if term == word and at and at <= now + Filter.AHEAD and at >= Filter.FIRST_DAY then
 			local on = sign == "+"
@@ -332,6 +347,7 @@ function Filter.Receive(dist, sender, text)
 			local stale = not on and now - at > Filter.SHARED_TOMB
 			if newer and not stale and not (on and not was and Active() >= Filter.SHARED_MAX) then
 				S[term] = { on = on, at = at, by = sender }
+				stored = true
 				if was ~= on then
 					changed = true
 					-- Heard from whoever made it (its entry names the sender, as the server stamped
@@ -344,7 +360,9 @@ function Filter.Receive(dist, sender, text)
 			end
 		end
 	end
-	if changed then Prune() end
+	-- Whatever was stored, the list kept within SHARED_KEEP (1.1, Konig's review: the removal of a
+	-- word the list never held changes nothing shown, and the list grew with each one, without end).
+	if stored then Prune() end
 	if digest == Filter.Digest() then heardSame = ns.Now() end
 	if #added + #removed > 0 then
 		ns.Chronicle.Add("terms", sender, L.ACTS_TERMS:format(#added, #removed), { words = Words(added, removed) })
@@ -380,8 +398,12 @@ function Filter.Slash(rest)
 end
 
 -- After login an editor's client waits LOGIN_WAIT (and its own part of REPEAT) before its first
--- repeat: another editor's list may come first, the same.
-function Filter.OnLogin() lastSent = ns.Now() - Filter.REPEAT + Filter.LOGIN_WAIT end
+-- repeat: another editor's list may come first, the same. The list kept from an earlier session
+-- is checked again first (a term too short for it since, 1.1: Filter.SharedTerm).
+function Filter.OnLogin()
+	if ns.rdb then Prune() end
+	lastSent = ns.Now() - Filter.REPEAT + Filter.LOGIN_WAIT
+end
 
 -- Tests start from a clean state.
 function Filter.Reset()

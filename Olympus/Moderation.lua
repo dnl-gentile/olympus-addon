@@ -5,36 +5,47 @@ local L = ns.L
 -- Steward's) or a High Councillor of the author's signed list gives a word, with a reason and the
 -- time, on one of two things:
 --   a character (c): every honest client hides that character on every addon surface: the chats
---     (and their history), the pinned line (Channels.Pin), decrees, layers and hop offers, Vox
---     Populi (questions and votes) and the court's queue. The names that character's player
---     linked as alts (Alts.lua, confirmed on each character) are hidden with it. The rest of the
---     guild, and the census, stay.
+--     (and their history), the pinned line (Channels.Pin), decrees, layers and hop offers, Vox Populi (questions and votes), the
+--     court's queue, and (1.1, Konig's review) the King's week (entries, sheets and signups), the
+--     Board (flags and camps), the crafters' board (listings, answers and recipe lists), and the
+--     elite borders and nameplate marks (Borders.lua). The names that character's player linked
+--     as alts (Alts.lua, confirmed on each character) are hidden with it. The rest of the guild,
+--     and the census, stay.
 --   a guild (g): while it is off, honest clients stop sending and showing that guild's census,
---     map, hop, decrees, Vox and addon channels: its members' own clients send none of them, and
---     every client drops what still comes. Blizzard's guild chat and Guild window stay up (the
---     guild's own addon messages over GUILD too, but its master's pinned line, hidden with its
---     chats: Channels.Pin). One guild at a time: there is no switch for the
---     whole realm, and never the King's guild.
+--     map, hop, decrees, Vox and addon channels, and the rest above: its members' own clients
+--     send none of them, and every client drops what still comes. Blizzard's guild chat and Guild
+--     window stay up (the guild's own addon messages over GUILD too, but its master's pinned line,
+--     hidden with its chats: Channels.Pin). One guild at a time: there
+--     is no switch for the whole realm, and never the King's guild.
 -- The same people put either back on.
 --   O1~<c|g>~<1 off|0 on>~<server time>~<Name-Realm or Guild>~<by Name-Realm>~<reason>
 -- Its words travel with the logged API, as a chat line's do (the server keeps them, so abuse
--- can be reported), one word per message. Every client keeps the newest word on each name
--- (by the server's clock; on the same second the King's own, else the one taking the name off,
--- else by its giver's name: every client keeps the same one), and takes a word only from
--- someone who may give one now, as this client knows them (the server stamps every sender's
--- name): the King by his pinned name, a Steward of the signed titles list, a Hand of the King's
--- list or a Steward's, a councillor of the signed council list; never a name that is off
--- itself. A word one of them passes on for another (a repeat) is taken only while its giver
--- may give one too, and shows who passed it on (the server's name): nobody writes a word in
--- someone else's name unseen. Their clients repeat the list for late logins, sharing the load:
--- a word heard repeated is not sent again for REPEAT (longer when the list is long: the army
--- repeats REPEATS_A_MINUTE words a minute at most), and a word whose giver may no longer give
--- one is not repeated (it lapses). A word taking a name off lapses OFF_KEEP after it was given
--- (given again, it starts over); one putting a name back on is kept and repeated for ON_KEEP,
--- so an older word never comes back.
+-- can be reported), one word per message. Every client keeps, on each name, the word from
+-- highest up (its weight: its giver's rank, the King 3, a Steward 2, a Hand or a councillor 1;
+-- no word replaces one from higher up, whatever its date: Konig's review of 1.1), and among
+-- words of the same weight the newest (by the server's clock; on the same second the King's
+-- own, else the one taking the name off, else by its giver's name: every client keeps the same
+-- one), and takes a word only from someone who may give one now, as this client knows them (the
+-- server stamps every sender's name): the King by his pinned name, a Steward of the signed titles
+-- list, a Hand of the King's list or a Steward's, a councillor of the signed council list; never
+-- a name that is off itself. A word one of them passes on for another (only a modified client
+-- does: an honest one repeats its own words alone) is taken only while its giver may give one
+-- too, weighs no more than whoever passed it on, and shows who did (the server's name): nobody
+-- writes a word in someone else's name unseen. Each giver's client repeats his own words for
+-- late logins, never anyone else's (1.1 review: a word passed on in the King's name went out
+-- from his client as his own), every REPEAT (longer when the list is long: the army repeats
+-- REPEATS_A_MINUTE words a minute at most), and not once he may no longer give one (it lapses;
+-- so does a word whose giver was not online to repeat it for STALE). A word taking a name off
+-- lapses OFF_KEEP after it was given (given again, it starts over); one putting a name back on
+-- is kept and repeated for ON_KEEP, so an older word never comes back.
 -- Among those who give words, only a word from higher up reaches one of them (the King above a
 -- Steward, a Steward above the Hands and councillors): a Hand or a councillor never hides the
--- Steward, another Hand or another councillor, nor puts back one the King hid.
+-- Steward, another Hand or another councillor. And no word replaces one from higher up (Take):
+-- a Hand or a councillor never puts back one the King or a Steward hid, nor hides again one the
+-- King showed again; nor does a Steward undo the King's word. Nor does a word push one from
+-- higher up out of a full list (MakeRoom), nor hide a name through another name of its player
+-- (a linked alt, or the same name on another realm of the group) when the name's own word
+-- weighs more, or as much and is newer (Hidden, Character): 1.1, Konig's review.
 -- What it is not: /oly block stays one client's and one player's, and nothing here uninvites,
 -- demotes, or writes Blizzard's ignore list. It never aims at the pinned King (his name in any
 -- case) or his guild. It knows nothing of the treasury or of payments, and no treasury code
@@ -45,7 +56,8 @@ ns.Moderation = Moderation
 
 Moderation.KINDS = { c = true, g = true } -- what a word may aim at: a character, a guild (no third)
 Moderation.MAX = { c = 500, g = 200 }     -- words kept per kind (full: the oldest "on" word goes; for the
-                                          -- King's own word, the oldest word not his)
+                                          -- King's own word, the oldest word not his; never one from
+                                          -- higher up than the new word: MakeRoom)
 Moderation.REPEAT = 300           -- an issuer's client repeats each word this long after it was last heard
 Moderation.JITTER = 90            -- ...and up to this much later, its own draw (the others' repeat first)
 Moderation.PER_TICK = 3           -- words one client repeats a minute at most
@@ -60,9 +72,13 @@ Moderation.DATE_AHEAD = 60        -- a word dated further ahead of the server's 
 Moderation.REASON_MAX = 80        -- bytes of a reason
 Moderation.GUILDS_KNOWN = 3000    -- senders whose guild this client remembers (the hop's whispers name none)
 -- What a client whose own character or guild is off stops sending (the receivers drop it anyway):
--- chat lines, decrees, layer announcements, hop asks, offers and answers, Vox votes. (Its census
--- report: Comm.Broadcast.) Nothing over GUILD is in it: the guild's own hello and key go on.
-Moderation.BLOCKED = { M1 = true, D1 = true, L1 = true, LQ = true, LO = true, LR = true, LN = true, LX = true, Y1 = true }
+-- chat lines, decrees, layer announcements, hop asks, offers and answers, Vox votes; and (1.1,
+-- Konig's review) its signups to the King's week (Y2), its flags and camps on the Board (G1), its
+-- crafter's listing, answers and recipe lists (W1, WA, WL), and the Throne's calls to the army,
+-- the week's entries among them (T1 of a kind in King.HIDDEN_CALLS: its lists still go). (Its
+-- census report: Comm.Broadcast.) Nothing over GUILD is in it: the guild's own hello and key go on.
+Moderation.BLOCKED = { M1 = true, D1 = true, L1 = true, LQ = true, LO = true, LR = true, LN = true, LX = true, Y1 = true, Y2 = true, G1 = true,
+	W1 = true, WA = true, WL = true }
 
 Moderation.random = math.random -- tests
 
@@ -154,6 +170,11 @@ local function Reaches(e, rank) return e ~= nil and (rank == 0 or Weight(e) > ra
 -- The King's own word: heard from him (not passed on), or given on his own client.
 local function KingsOwn(e) return type(e) == "table" and not e.via and ns.IsKingCharacter(e.by) end
 
+-- A word this client's own player gave (on this client: never one passed on in his name).
+local function Given(e)
+	return type(e) == "table" and not e.via and type(ns.me) == "string" and tostring(e.by):lower() == ns.me:lower()
+end
+
 ---------------------------------------------------------------------------
 -- The words kept (ns.rdb.netoff, per realm group like the census) and who they hide
 ---------------------------------------------------------------------------
@@ -196,8 +217,23 @@ local function Index()
 end
 local function Dirty() index = nil end
 
+-- A name's own word, "on" words included (the index holds "off" words alone), or nil.
+local function OwnWord(full) return Store().c[Key("c", full)] end
+
+-- Does a name's own word stand above a word found on another name of its player (the same name
+-- on another realm of the group, or a name its player linked)? It does when it weighs more, or
+-- as much and is newer: then that word doesn't hide it (1.1, Konig's review: a rogue Hand's word
+-- on the victim's alt, or on his name on the group's other realm, hid again one the King had
+-- shown again).
+local function Overrides(own, e)
+	if type(own) ~= "table" or own == e then return false end
+	local a, b = Weight(own), Weight(e)
+	return a > b or (a == b and own.at > e.at)
+end
+
 -- The word taking this character itself off, or nil. On WoW: Forever a name is one across its
--- realm group (ns.splitNames): the same name on another realm of the group is the same player.
+-- realm group (ns.splitNames): the same name on another realm of the group is the same player,
+-- unless the name's own word stands above that one (Overrides).
 function Moderation.Character(name)
 	if type(name) ~= "string" or name == "" or IsKing(name) then return nil end
 	local x = Index()
@@ -206,8 +242,9 @@ function Moderation.Character(name)
 	local e = x.c[Key("c", full)]
 	if e or not ns.splitNames then return e end
 	local group = ns.GroupOf(ns.RealmOf(full) or ns.realm or "")
+	local own = OwnWord(full)
 	for _, y in ipairs(x.short[ns.ShortName(full):lower()] or {}) do
-		if ns.GroupOf(ns.RealmOf(y.name) or ns.realm or "") == group then return y end
+		if ns.GroupOf(ns.RealmOf(y.name) or ns.realm or "") == group and not Overrides(own, y) then return y end
 	end
 	return nil
 end
@@ -223,6 +260,8 @@ end
 -- The word hiding this name: its own, or one on a name its player linked (Alts.lua), and the
 -- name it is on; nil for anyone else, and always for the pinned King. One who gives words is
 -- hidden only by a word from higher up (a councillor's word on a Steward's alt hides no Steward).
+-- A word on a linked name doesn't hide one whose own word stands above it (Overrides: the King
+-- showed him again, and a Hand's word on his alt doesn't hide him again).
 function Moderation.Hidden(name)
 	if type(name) ~= "string" or name == "" or IsKing(name) then return nil end
 	if Index().n.c == 0 then return nil end
@@ -235,9 +274,13 @@ function Moderation.Hidden(name)
 	local e = Moderation.Character(name)
 	if Counts(e) then return e, e.name end
 	local linked = ns.Alts and ns.Alts.Linked and ns.Alts.Linked(name)
+	local own
 	for _, other in ipairs(type(linked) == "table" and linked or {}) do
 		e = Moderation.Character(other)
-		if Counts(e) then return e, other end
+		if Counts(e) then
+			if own == nil then own = OwnWord(ns.FullName(ns.Normal(name))) or false end
+			if not Overrides(own, e) then return e, other end
+		end
 	end
 	return nil
 end
@@ -336,14 +379,16 @@ end
 
 -- Room for one more: the oldest word putting a name back on goes; none, no room, except for the
 -- King's own word (king), for which the oldest word taking a name off that is not his own goes:
--- a list filled by anyone never shuts the King out.
-local function MakeRoom(list, kind, king)
+-- a list filled by anyone never shuts the King out. Never a word that weighs more than the new
+-- one (weight: 1.1, Konig's review: a rogue Hand who filled the list pushed out the King's word
+-- showing a name again, then hid that name anyway).
+local function MakeRoom(list, kind, king, weight)
 	if Count(list) < Moderation.MAX[kind] then return true end
 	local oldest, oldestOff
 	for key, e in pairs(list) do
 		if not e.off then
-			if not oldest or e.at < list[oldest].at then oldest = key end
-		elseif king and not KingsOwn(e) and (not oldestOff or e.at < list[oldestOff].at) then
+			if (not oldest or e.at < list[oldest].at) and Weight(e) <= weight then oldest = key end
+		elseif king and not KingsOwn(e) and (not oldestOff or e.at < list[oldestOff].at) and Weight(e) <= weight then
 			oldestOff = key
 		end
 	end
@@ -445,19 +490,28 @@ local function Outranks(e, kept)
 	return tostring(e.reason) < tostring(kept.reason)
 end
 
--- "taken", "older" (ours is newer), "same" (the same word: a repeat), "tie" or "full".
+-- "taken", "older" (ours is newer), "same" (the same word: a repeat), "tie", "outranked" (ours
+-- comes from higher up) or "full".
+-- 1.1 review (Konig): no word replaces one from higher up (Weight: the King's, then a Steward's,
+-- then a Hand's or a councillor's), whatever its date, so a rogue Hand never wins an edit war with
+-- the King's undo; a word from higher up replaces a lower one whatever its date, so every client
+-- keeps the same word whatever came first. Between words of the same weight the newest wins.
 local function Take(e)
 	local list = Store()[e.kind]
 	local key = Key(e.kind, e.name)
 	local kept = list[key]
 	if type(kept) == "table" then
-		if e.at < kept.at then return "older", kept end
 		if Same(e, kept) then
 			kept.heard = ns.Now()
 			return "same", kept
 		end
-		if e.at == kept.at and not Outranks(e, kept) then return "tie", kept end
-	elseif not MakeRoom(list, e.kind, KingsOwn(e)) then
+		local ours, held = Weight(e), Weight(kept)
+		if ours < held then return "outranked", kept end
+		if ours == held then
+			if e.at < kept.at then return "older", kept end
+			if e.at == kept.at and not Outranks(e, kept) then return "tie", kept end
+		end
+	elseif not MakeRoom(list, e.kind, KingsOwn(e), Weight(e)) then
 		return "full"
 	end
 	e.heard = ns.Now()
@@ -539,8 +593,9 @@ function Moderation.Handle(dist, sender, text)
 	end
 	local result, held = Take(e)
 	stats[result] = (stats[result] or 0) + 1
-	-- Ours is newer: an issuer answers with it at its next round.
-	if result == "older" and held and Moderation.CanIssue() then held.heard = ns.Now() - Moderation.REPEAT - Moderation.JITTER end
+	-- Ours is newer, or from higher up, and our own player gave it: his client answers with it at
+	-- its next round.
+	if (result == "older" or result == "outranked") and Given(held) and Moderation.CanIssue() then held.heard = ns.Now() - Moderation.REPEAT - Moderation.JITTER end
 end
 ns.Comm.Handle("O1", function(...) Moderation.Handle(...) end)
 
@@ -590,6 +645,8 @@ function Moderation.Set(kind, input, off, reason)
 	if type(kept) == "table" and kept.at >= at then at = kept.at + 1 end
 	local e = { kind = kind, name = name, off = off and true or false, at = at, by = ns.me, reason = reason }
 	local result = Take(e)
+	-- (1.1 review: a word from higher up holds that name; ours would not replace it anywhere.)
+	if result == "outranked" then ns.Print(L.NETOFF_HELD_HIGHER:format(label)) return false end
 	if result ~= "taken" then ns.Print(L.NETOFF_FULL) return false end
 	Send(e)
 	if kind == "g" then
@@ -810,8 +867,9 @@ local function Live(e, clock)
 end
 
 -- Words past their time go, on every client. An "off" word nobody repeated for STALE lapses here
--- too, unless this client gives words and its giver still may (it repeats it, after WARMUP): the
--- words of one who may no longer give any (hidden, or off the lists) fade from the army.
+-- too, unless this client's own player gave it and still may give words (it repeats it, after
+-- WARMUP): the words of one who may no longer give any (hidden, or off the lists), or who has not
+-- been online to repeat them, fade from the army.
 function Moderation.Prune()
 	local now, clock = ns.Now(), Clock()
 	local issuer = Moderation.CanIssue()
@@ -819,7 +877,7 @@ function Moderation.Prune()
 	for kind in pairs(Moderation.MAX) do
 		for key, e in pairs(Store()[kind]) do
 			if type(e) ~= "table" or type(e.at) ~= "number" or type(e.name) ~= "string" or not Live(e, clock)
-				or (e.off and now - (tonumber(e.heard) or 0) > Moderation.STALE and not (issuer and Moderation.IsIssuer(e.by))) then
+				or (e.off and now - (tonumber(e.heard) or 0) > Moderation.STALE and not (issuer and Given(e) and Moderation.IsIssuer(e.by))) then
 				drops[#drops + 1] = { kind, key }
 			end
 		end
@@ -834,11 +892,13 @@ function Moderation.Prune()
 	end
 end
 
--- Every minute: an issuer's client repeats the words due (the others' repeats count), a few at a
--- time; a word it held unheard waits until it has been online WARMUP (a newer word may come).
--- The army repeats REPEATS_A_MINUTE words a minute at most, however long the list: a longer one
--- is repeated less often. Only a word its giver may still give, and one the others would take
--- from this client (a word aimed at one who gives words, only from higher up).
+-- Every minute: an issuer's client repeats the words due, a few at a time; a word it held unheard
+-- waits until it has been online WARMUP (a newer word may come). The army repeats
+-- REPEATS_A_MINUTE words a minute at most, however long the list: a longer one is repeated less
+-- often. Only a word its own player gave (1.1 review, Konig: never one heard, whose giver it
+-- names: a word passed on in the King's name went out from his client as his own, at his rank),
+-- while he may still give words, and one the others would take from this client (a word aimed
+-- at one who gives words, only from higher up).
 function Moderation.Tick()
 	Moderation.Prune()
 	if not Moderation.CanIssue() then return 0 end
@@ -851,7 +911,7 @@ function Moderation.Tick()
 	for kind in pairs(Moderation.KINDS) do
 		for _, e in pairs(Store()[kind]) do
 			if sent >= Moderation.PER_TICK then return sent end
-			if type(e) == "table" then
+			if Given(e) then
 				e.jitter = e.jitter or Moderation.random(0, Moderation.JITTER)
 				local every = math.max(e.off and Moderation.REPEAT or Moderation.ON_EVERY, spread)
 				local age = now - (tonumber(e.heard) or 0)
@@ -868,9 +928,15 @@ function Moderation.Tick()
 	return sent
 end
 
--- The backstop in Comm (1.1): a client whose own character or guild is off sends none of BLOCKED.
+-- The backstop in Comm (1.1): a client whose own character or guild is off sends none of BLOCKED,
+-- nor a call of the Throne's that every receiver would drop (King.HIDDEN_CALLS).
+local function HiddenCall(msg)
+	local K = ns.King
+	return msg:sub(1, 3) == "T1~" and type(K) == "table" and type(K.HIDDEN_CALLS) == "table" and K.HIDDEN_CALLS[msg:sub(4, 4)] == true
+end
 function Moderation.Blocks(msg)
-	if type(msg) ~= "string" or msg:sub(3, 3) ~= "~" or not Moderation.BLOCKED[msg:sub(1, 2)] then return false end
+	if type(msg) ~= "string" or msg:sub(3, 3) ~= "~" then return false end
+	if not Moderation.BLOCKED[msg:sub(1, 2)] and not HiddenCall(msg) then return false end
 	if not Moderation.SelfOff() then return false end
 	stats.blocked = stats.blocked + 1
 	return true

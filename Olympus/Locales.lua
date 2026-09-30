@@ -1340,7 +1340,7 @@ L.SIGN_SOON = "You signed up as %s: %s in %d min%s."
 -- 1.1 (b2-moderation): net-off of a character (Moderation.lua).
 L.HELP_NETOFF = "  /oly netoff [guild] [name: reason] | /oly neton [guild] <name> - the King, his Steward, a Hand or a High Councillor: hide a character on every Olympus surface for the whole army, or take a guild off the Olympus network; neton puts it back (/oly netoff alone lists them)"
 L.NETOFF_TITLE = "Hidden by the moderators"
-L.NETOFF_TIP = "The King, his Steward, a Hand or a High Councillor hid these characters for everyone with the addon: their chat lines, decrees, layers and hop offers, Vox Populi and requests at court don't show, and neither do those of the characters their player linked as alts. Nobody is removed from a guild or demoted, and Blizzard's ignore list is not touched. /oly block is still yours alone. A modified addon can ignore this."
+L.NETOFF_TIP = "The King, his Steward, a Hand or a High Councillor hid these characters for everyone with the addon: their chat lines, decrees, layers and hop offers, Vox Populi, requests at court, the King's week (entries and signups), the Board's flags and camps and the crafters' board don't show, nor their elite border or nameplate mark, and neither do those of the characters their player linked as alts. Nobody is removed from a guild or demoted, and Blizzard's ignore list is not touched. /oly block is still yours alone. A modified addon can ignore this."
 L.NETOFF_YOU = "The moderators hid you from Olympus's chats, decrees, hop and Vox for everyone with the addon (reason: %s; by %s, %s). Blizzard's chat and your guild are not touched. Ask a moderator if you think it is a mistake."
 L.NETOFF_YOU_SHORT = "You are hidden by the moderators (hover for why)"
 L.NETOFF_YOU_BACK = "The moderators showed you again: Olympus's chats, decrees, hop and Vox carry your words again."
@@ -3292,7 +3292,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	-- 1.1 (b2-moderation): net-off de um personagem (Moderation.lua).
 	L.HELP_NETOFF = "  /oly netoff [guild] [nome: motivo] | /oly neton [guild] <nome> - o Rei, o Senescal dele, uma Mão ou um High Councillor: esconde um personagem em tudo do Olympus para o exército inteiro, ou tira uma guilda da rede do Olympus; neton devolve (/oly netoff sozinho lista)"
 	L.NETOFF_TITLE = "Escondidos pelos moderadores"
-	L.NETOFF_TIP = "O Rei, o Senescal dele, uma Mão ou um High Councillor esconderam esses personagens para todo mundo com o addon: as falas no chat, os decretos, as camadas e ofertas de salto, a Vox Populi e os pedidos na corte deles não aparecem, nem os dos personagens que o jogador ligou como alts. Ninguém sai da guilda nem perde cargo, e a lista de ignorados da Blizzard não é tocada. O /oly block continua sendo só seu. Um addon modificado pode ignorar isso."
+	L.NETOFF_TIP = "O Rei, o Senescal dele, uma Mão ou um High Councillor esconderam esses personagens para todo mundo com o addon: as falas no chat, os decretos, as camadas e ofertas de salto, a Vox Populi, os pedidos na corte, a semana do Rei (entradas e inscrições), as bandeiras e acampamentos do Mural e a lista de artesãos deles não aparecem, nem a borda de elite ou a marca na placa de identificação, nem os dos personagens que o jogador ligou como alts. Ninguém sai da guilda nem perde cargo, e a lista de ignorados da Blizzard não é tocada. O /oly block continua sendo só seu. Um addon modificado pode ignorar isso."
 	L.NETOFF_YOU = "Os moderadores esconderam você dos chats, decretos, saltos e Vox do Olympus para todo mundo com o addon (motivo: %s; por %s, %s). O chat da Blizzard e a sua guilda não são tocados. Fale com um moderador se achar que foi um engano."
 	L.NETOFF_YOU_SHORT = "Você está escondido pelos moderadores (passe o mouse para ver o motivo)"
 	L.NETOFF_YOU_BACK = "Os moderadores mostraram você de novo: os chats, decretos, saltos e Vox do Olympus levam suas palavras de novo."
@@ -3651,4 +3651,15 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.KEY_HAND_OUT_CONFIRM = "Sussurrar a chave nova aos Lordes e Capitães online das %s guildas marcadas? Cada um passa para a guilda inteira dele pelo chat da guilda."
 	L.KEY_ROTATE_DROP = "Descartar esta chave nova (nada foi enviado)"
 	L.KEY_ROTATE_DROPPED = "A chave nova foi descartada: nada foi enviado."
+end
+
+---------------------------------------------------------------------------
+-- 1.1 (Konig's review of 1.1, moderation): a net-off word from higher up holds a name
+-- (Moderation.lua); a shared block term's length (Filter.lua).
+---------------------------------------------------------------------------
+L.NETOFF_HELD_HIGHER = "%s was hidden or shown again by a word from higher up than yours: only someone as high can change it."
+L.FILTER_SHARED_SHORT = "A shared block term is one word of %d letters at least: a short common word would hide nearly every line for everyone."
+if GetLocale and GetLocale() == "ptBR" then
+	L.NETOFF_HELD_HIGHER = "%s foi escondido ou mostrado de novo por uma palavra de mais alto que a sua: só alguém tão alto pode mudar isso."
+	L.FILTER_SHARED_SHORT = "Um termo bloqueado compartilhado é uma palavra de pelo menos %d letras: uma palavra curta e comum esconderia quase todas as linhas para todo mundo."
 end

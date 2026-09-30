@@ -24,6 +24,9 @@ local L = ns.L
 --                                                   part each LIST_PACE); WL~<key>~0/0~: he is busy
 -- Ids travel as numbers; each client names them itself (the item's name in its own language).
 -- Versions before 1.1 have no handler for these and drop them.
+-- A crafter the moderators took off (net-off, Moderation.lua; 1.1, Konig's review): his listing,
+-- answers and recipe lists are not taken, what a client heard of him before the word shows no
+-- more, and his own client sends none of them (Moderation.BLOCKED: W1, WA, WL).
 
 local Crafters = {}
 ns.Crafters = Crafters
@@ -87,6 +90,17 @@ local function Num(s, max)
 end
 
 local function Changed() ns.Fire("REALM_PAGE_CHANGED", "crafters") end
+
+-- A name the moderators took off (net-off, Moderation.lua), in the name of `guild` when known.
+local function Off(name, guild)
+	local M = ns.Moderation
+	return M.Hides ~= nil and M.Hides(name, guild) ~= nil
+end
+-- This client's own character or guild is off: the word (nothing it sends would show).
+local function SelfOff()
+	local M = ns.Moderation
+	return M.SelfOff and M.SelfOff() or nil
+end
 local function Recent(times, window)
 	local now = ns.Now()
 	for i = #times, 1, -1 do if now - times[i] >= window then table.remove(times, i) end end
@@ -224,7 +238,11 @@ function Crafters.Choose(key, yes)
 		for k in pairs(Crafters.Mine()) do choices[k] = yes and true or false end
 	end
 	local now = #Crafters.Listed()
-	if yes then
+	local off = SelfOff()
+	if yes and off then
+		-- (1.1, Konig's review: kept, and listed once the moderators put us back on.)
+		ns.Print(ns.Moderation.YouText(off))
+	elseif yes then
 		Crafters.SendListing(true)
 		ns.Print(L.CRAFTER_LISTED)
 	elseif was > 0 then
@@ -262,7 +280,9 @@ local changedWaiting = false
 local lastListingKeys  -- the professions of the listing sent last
 local loginWait = false -- after login, our first listing waits for its own draw (Crafters.OnLogin)
 function Crafters.SendListing(force)
-	if not ns.IsMember() then return false end
+	-- (1.1, Konig's review: while the moderators have us off, nothing: the next tick sends it once
+	-- we are back on.)
+	if not ns.IsMember() or SelfOff() then return false end
 	local listed = Crafters.Listed()
 	if #listed == 0 then return false end
 	local head = ("W1~%s~"):format(Clean(GetGuildInfo("player"), 72))
@@ -302,7 +322,16 @@ function Crafters.HandleListing(dist, sender, text)
 		return
 	end
 	local guild, list = text:match("^W1~([^~]+)~([^~]+)$")
-	if not guild or #guild > 72 or not ns.IsFederation(guild) or not ns.Data.ClaimGuild(sender, guild) then return end
+	if not guild or #guild > 72 or not ns.IsFederation(guild) then return end
+	-- 1.1 (Konig's review): a name the moderators took off (net-off): not listed, and off the board.
+	if Off(sender, guild) then
+		if board[sender] then
+			board[sender], boardCount = nil, boardCount - 1
+			Changed()
+		end
+		return
+	end
+	if not ns.Data.ClaimGuild(sender, guild) then return end
 	local profs = {}
 	for entry in list:gmatch("[^,]+") do
 		local key, name, rank, max, n = entry:match("^([^:]+):([^:]+):(%d+):(%d+):(%d+)$")
@@ -327,13 +356,14 @@ end
 ns.Comm.Handle("W1", function(...) Crafters.HandleListing(...) end)
 ns.Comm.Handle("W0", function(...) Crafters.HandleListing(...) end)
 
--- The board now, listings heard in the last LIST_KEEP: { { name, guild, profs, t } }.
+-- The board now, listings heard in the last LIST_KEEP: { { name, guild, profs, t } }. Never a
+-- crafter the moderators took off since (1.1, Konig's review): back on, his next listing shows.
 function Crafters.Board()
 	local now, out = ns.Now(), {}
 	for name, e in pairs(board) do
 		if now - e.t > Crafters.LIST_KEEP then
 			board[name], boardCount = nil, boardCount - 1
-		else
+		elseif not Off(name, e.guild) then
 			out[#out + 1] = { name = name, guild = e.guild, profs = e.profs, t = e.t }
 		end
 	end
@@ -397,7 +427,7 @@ end
 -- Someone's ask on the channel: answered by whisper, 1 to 8 seconds later, when a profession we
 -- listed has a recipe for it (our budget of answers allowing).
 function Crafters.HandleAsk(dist, sender, text)
-	if dist ~= "CHANNEL" or not ns.IsMember() or #Crafters.Listed() == 0 then return end
+	if dist ~= "CHANNEL" or not ns.IsMember() or #Crafters.Listed() == 0 or SelfOff() then return end
 	local askId, kind, what = text:match("^WQ~([0-9a-z][0-9a-z]?)~([it])~(.+)$")
 	if not askId then return end
 	if kind == "i" then
@@ -439,6 +469,7 @@ function Crafters.HandleAnswer(dist, sender, text)
 	local askId, guild, prof, rank, list = text:match("^WA~([0-9a-z]+)~([^~]+)~([^~]+)~(%d+)~([^~]*)$")
 	if askId ~= myAsk.id or not ns.IsFederation(guild) or #prof > 24 or not Num(rank, 9999) then return end
 	sender = ns.FullName(sender)
+	if Off(sender, guild) then return end -- (1.1, Konig's review: net-off)
 	if myAsk.answers[sender] then return end
 	if myAsk.count >= Crafters.ANSWERS_MAX then return end
 	local recipes = Recipes(list, Crafters.MATCHES_MAX)
@@ -489,7 +520,7 @@ local function PumpLists()
 end
 
 function Crafters.HandleListAsk(dist, sender, text)
-	if dist ~= "WHISPER" or not ns.IsMember() then return end
+	if dist ~= "WHISPER" or not ns.IsMember() or SelfOff() then return end
 	local key = text:match("^WR~([^~]+)$")
 	local p = key and Crafters.Mine()[key]
 	if not p or Crafters.Choices()[key] ~= true then return end
@@ -531,6 +562,7 @@ function Crafters.HandleList(dist, sender, text)
 	if dist ~= "WHISPER" then return end
 	local key, part, parts, list = text:match("^WL~([^~]+)~(%d+)/(%d+)~([^~]*)$")
 	sender = ns.FullName(sender)
+	if Off(sender) then return end -- (1.1, Konig's review: net-off)
 	local l = key and lists[sender .. "~" .. key]
 	part, parts = Num(part, Crafters.LIST_PARTS), Num(parts, Crafters.LIST_PARTS)
 	local now = ns.Now()
@@ -625,7 +657,9 @@ function Crafters.Lines(q)
 		local a = myAsk
 		if a then
 			local answers = {}
-			for name, e in pairs(a.answers) do answers[#answers + 1] = { name = name, e = e } end
+			for name, e in pairs(a.answers) do
+				if not Off(name, e.guild) then answers[#answers + 1] = { name = name, e = e } end -- (1.1: net-off)
+			end
 			table.sort(answers, function(x, y)
 				if x.e.rank ~= y.e.rank then return x.e.rank > y.e.rank end
 				return x.name < y.name
