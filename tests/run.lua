@@ -43018,7 +43018,7 @@ do
 		assert(found, "the login's list: " .. table.concat(logged, " / "))
 	end)
 
-	test("1.1.1 chat window: its words in English and pt-BR, the same codes in both; the help says how to open it", function()
+	test("1.1.1 chat window: its words in English and pt-BR, the same codes in both; the help and the pages say how to open it", function()
 		local pt = {}
 		local savedLocale = GetLocale
 		GetLocale = function() return "ptBR" end
@@ -43055,8 +43055,18 @@ do
 		local at
 		for i, p in ipairs(printed) do if p == L.HELP_CHATWIN then at = i end end
 		assert(at, "the help"); eq(printed[at + 1], L.HELP_TALK)
+		-- README and the CurseForge page: the section before the Board's, the command's row after /oly chat's, the Shift-click.
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path))
+			local section, board = doc:find("\n### The chat window (1.1.1)\n", 1, true), doc:find("\n### The Board: who is looking for a group", 1, true)
+			assert(section and board and section < board, path .. ": the section, before the Board's")
+			local chat = doc:find("\n| `/oly chat on\\|off` |", 1, true)
+			assert(chat, path .. ": /oly chat's row")
+			local nextRow = doc:find("\n", chat + 1, true)
+			assert(doc:sub(nextRow, nextRow + 20):find("| `/oly talk", 1, true), path .. ": /oly talk's row right after it")
+			assert(doc:find("Shift-click the minimap button for the chat window", 1, true), path .. ": the Shift-click")
+		end
 	end)
-
 end
 
 -- 1.1: the review of the net-off fixes, its last point (the Agenda's event).

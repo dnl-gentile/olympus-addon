@@ -351,6 +351,43 @@ Census, the Realm and the Olympus chats (its tooltip says who can read it and ho
 every member sees how many guildmates are already on the sealed channel, and `/oly status`
 says public or sealed. It only tells: nothing is sent and nothing changes.
 
+### The chat window (1.1.1)
+The Olympus chats in a window of their own, like the chat pane of the Guild & Communities window:
+`/oly talk` (or `/ol`, `/olc` or `/oll` with nothing after it), Shift-click on the minimap button,
+or **Open the chat window** on the Realm tab's chats page (its **Write in [Olympus]** line opens
+it too). `/oly talk lords` opens it on [Lords]; the same command again closes it.
+
+- A tab for each channel your rank reads, with a count of the lines that came in on the others
+  while the window was open. A channel muted in chat (`/oly mute`) still shows here. The pinned
+  line shows on top, as on the Realm tab.
+- Every line whole, in a bubble that wraps: never cut, nothing to hover to read it. Other
+  players' lines on the left, yours on the right in the channel's colour; the writer's name,
+  guild and time where a writer starts, and the date where the day changes. The last 100 lines of
+  each channel are kept, from every session, and scroll back. The window follows the newest line
+  until you scroll up; then **N new** at the bottom takes you down to them.
+- By each name, Olympus's marks, from the same facts as the borders and the nameplate marks (but
+  not switched off with them): the King's crown, the High Council's mark and colour, the game's
+  silver elite mark for Lords and Captains, bronze for Raiders and Veterans of your own guild (the
+  census does not carry other guilds' rank names), a star for any other member, the Treasurer's
+  coin, and **Steward** or **Hand** after the King's. A click on a name whispers that player, in
+  Olympus's whisper window.
+- A line your block terms hide shows as a grey bubble, and a click shows it. A link shows its
+  tooltip when you hover it, and a Shift-click puts it in the window's box.
+- **The box** is Olympus's own, not the game's chat box: it takes the keyboard only when you click
+  into it (the window never takes it when it opens, so your movement keys keep working). Enter
+  sends to the channel shown and lets the keyboard go; Tab changes channel; Escape lets go. It runs
+  no command: a line that starts with `/` stays in the box and is not sent (commands go in the
+  game's chat box, which Olympus never opens or touches). Your first line in each channel still
+  waits for the privacy warning's **Send**. A line of yours that did not leave shows a note in its
+  channel, and a click puts it back in the box.
+- Drag it to move it, and resize it from its bottom right corner (340 x 300 to 900 x 1000): where
+  it stands, its size and its channel are kept. Escape or its X closes it; it never opens by
+  itself. With the chats off on this client it says so and offers the choice.
+- **Blizzard's gamepad mode**: the same window, opened with `/oly talk`, `/ol` or the Realm tab's
+  line; click into the box with the gamepad cursor to write. It stays off the Escape list there
+  (its X closes it), and it opens no game popup: the whisper and a pinned line's takedown use
+  Olympus's own windows.
+
 ### The Board: who is looking for a group, and where (1.1)
 The Realm tab links **the Board** (or `/oly lfg`): who in Olympus wants a group right now, from
 what each player chose to share, and the King's week.
@@ -1155,6 +1192,7 @@ the game is removed at login, with one line saying so.
   It only changes what the list shows: **Copy** still gives everything, and nothing is sent.
 - The window opens from `/oly`, the minimap button, or the round button in your guild window:
   the old Guild tab or the new Guild & Communities window, whichever one you use.
+  Shift-click the minimap button for the chat window (1.1.1, above).
 - Next to Forever's Guild & Communities window it takes that window's look: icon tabs down
   the right side, its rows, column headers, buttons and member card.
 - **Blizzard's gamepad mode** (Forever's controller interface): Olympus asks its questions in
@@ -1674,6 +1712,7 @@ Other limits:
 | `/oly rollcall on\|off` | answer the author's roll calls (version, client, channel state) or not (1.1: not until you say yes) |
 | `/oly privacy` | the first-open page again: what the addon shares, and your Yes or No to each (1.1) |
 | `/oly chat on\|off` | the Olympus chats on this client; off, nothing is sent or shown (1.1: off until you say yes) |
+| `/oly talk [olympus\|captains\|lords]` | open or close the Olympus chat window, on that channel; also `/ol`, `/olc` or `/oll` with nothing after it, or Shift-click the minimap button (1.1.1) |
 | `/oly inspection on\|off` | take part in the King's Royal Inspection when sampled (a 2-minute patrol reported to him), or not (1.1: not until you say yes) |
 | `/oly issuereporter hide\|show` | hide Blizzard's Issue Reporter box (beta clients) at every login, or show it again (also a "Hide" button on it) |
 | `/oly helpme [text]` (or **Ask a High Councillor** on the Realm tab) | ask the High Council (the moderators) for help: it goes by whisper to up to three of them online who take requests |
