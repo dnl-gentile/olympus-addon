@@ -1493,10 +1493,12 @@ L.HELP_GEAR = "  /oly gear - officers: inspect your target's gear (in range) and
 -- 1.1 (Fern's #29): officers share their patrols' findings inside their guild (Inspect.lua).
 L.PATROLSHARE_ON = "Patrol share on: what your inspections find (a player without the colors or with another tabard, or wearing ours again) goes to your guild's officers, and theirs comes to you, on the Tabards tab. Nothing is inspected more or sooner for it. /oly patrolshare off stops it."
 L.PATROLSHARE_ON_NOT_OFFICER = "Patrol share on, but only officers (the guild master and the officer rank right below) send and keep it: nothing is shared from this character."
-L.PATROLSHARE_OFF = "Patrol share off: your findings stay yours, and your officers' are not taken. /oly patrolshare on shares them again."
+L.PATROLSHARE_OFF = "Patrol share off: your findings stay yours, and your officers' are not taken. /oly patrolshare on (or the Olympus page: /oly privacy) shares them."
 L.PATROLSHARE_BY = "Found by %s, an officer of your guild (shared by his addon)"
 L.PATROLSHARE_COUNT = "%d found by your guild's other officers"
 L.HELP_PATROLSHARE = "  /oly patrolshare on|off - officers: share your patrols' findings with your guild's officers, or not"
+L.CONSENT_PATROLSHARE = "Your patrols' findings (officers)"
+L.CONSENT_PATROLSHARE_TEXT = "The name and guild of each player your own inspections catch without the colors or with another tabard (or wearing ours again), to your guild's officers over guild addon messages, once a minute at most; theirs show on your Tabards page. Nothing is inspected more or sooner for it, and nothing goes on the Olympus channel. (/oly patrolshare on|off)"
 -- 1.1: the approved guilds, named by the author's signed titles list (Core.lua, Workshop.lua).
 L.APPROVED_YOU = "<%s> is on the author's signed list of Olympus guilds: welcome to Olympus. The census, the Realm and the channels open now."
 L.APPROVED_NO_LONGER = "<%s> is no longer on the author's signed list of Olympus guilds: the addon stops here, as outside any Olympus guild."
@@ -3426,10 +3428,12 @@ if GetLocale and GetLocale() == "ptBR" then
 	-- 1.1 (pedido #29 do Fern): os oficiais compartilham o que as patrulhas acham dentro da guilda.
 	L.PATROLSHARE_ON = "Patrulha compartilhada ligada: o que as suas inspeções acham (um jogador sem as cores ou com outro tabard, ou de novo com o nosso) vai para os oficiais da sua guilda, e o que eles acham vem para você, na aba Tabards. Nada é inspecionado a mais nem antes por isso. /oly patrolshare off para."
 	L.PATROLSHARE_ON_NOT_OFFICER = "Patrulha compartilhada ligada, mas só oficiais (o mestre da guilda e o cargo de oficial logo abaixo) enviam e guardam: nada é compartilhado deste personagem."
-	L.PATROLSHARE_OFF = "Patrulha compartilhada desligada: o que você acha fica com você, e o dos seus oficiais não é aceito. /oly patrolshare on compartilha de novo."
+	L.PATROLSHARE_OFF = "Patrulha compartilhada desligada: o que você acha fica com você, e o dos seus oficiais não é aceito. /oly patrolshare on (ou a página do Olympus: /oly privacy) compartilha."
 	L.PATROLSHARE_BY = "Achado por %s, oficial da sua guilda (compartilhado pelo addon dele)"
 	L.PATROLSHARE_COUNT = "%d achados pelos outros oficiais da sua guilda"
 	L.HELP_PATROLSHARE = "  /oly patrolshare on|off - oficiais: compartilhar o que as suas patrulhas acham com os oficiais da sua guilda, ou não"
+	L.CONSENT_PATROLSHARE = "O que as suas patrulhas acham (oficiais)"
+	L.CONSENT_PATROLSHARE_TEXT = "O nome e a guilda de cada jogador que as suas próprias inspeções pegam sem as cores ou com outro tabard (ou de novo com o nosso), para os oficiais da sua guilda por mensagens de addon da guilda, uma vez por minuto no máximo; o que eles acham aparece na sua aba Tabards. Nada é inspecionado a mais nem antes por isso, e nada vai no canal Olympus. (/oly patrolshare on|off)"
 	-- 1.1: as guildas aprovadas, nomeadas pela lista assinada de títulos do autor.
 	L.APPROVED_YOU = "<%s> está na lista assinada do autor de guildas do Olympus: bem-vindo ao Olympus. O censo, o Reino e os canais abrem agora."
 	L.APPROVED_NO_LONGER = "<%s> não está mais na lista assinada do autor de guildas do Olympus: o addon para aqui, como fora de qualquer guilda do Olympus."

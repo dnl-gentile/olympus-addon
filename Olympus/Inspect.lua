@@ -479,7 +479,9 @@ end
 --                                                         did you find today?" (GUILD)
 -- A GUILD message reaches every guildmate's client (any of them can read its bytes with a
 -- script); the addon of anyone but an officer drops it unread. Versions before 1.1 have no
--- handler for these and drop them. /oly patrolshare off: nothing sent, nothing taken.
+-- handler for these and drop them. Off until the officer says yes (Konig's review of 1.1: it was
+-- on by default and missing from the first-open page): his line there (Consent.lua), or /oly
+-- patrolshare on; off, or never answered: nothing sent, nothing taken.
 ---------------------------------------------------------------------------
 
 Inspect.SHARE_EVERY = 60         -- an officer's findings go out once a minute at most...
@@ -494,7 +496,7 @@ local CODE_STATUS = { N = "NONE", O = "OTHER", G = "GUILD" }
 local shareQueue, shareQueued = {}, {} -- the names of our own findings waiting to go out
 local lastShare, lastAnswer, answering = -math.huge, -math.huge, false
 
-function Inspect.Sharing() return not (ns.db and ns.db.patrolShare == false) end
+function Inspect.Sharing() return ns.db ~= nil and ns.db.patrolShare == true end
 local function Officer() return ns.IsMember() == true and ns.Roster.IsOfficer() == true end
 local function MayShare() return Inspect.Sharing() and Officer() end
 Inspect.MayShare = MayShare

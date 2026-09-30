@@ -28040,7 +28040,8 @@ do
 					GetGuildInfo = function() return "Olympus", "King", 0 end
 					ns.me = "Asmongold Asmongler-Realm"
 					local page = ns.Consent.Show()
-					eq(Keys(page), "treasurer,inspection,rollcall,chat", "the King: his crown is his zone and layer; a keeper")
+					-- (Konig's review of 1.1: an officer, the guild master too, is asked about his patrol findings.)
+					eq(Keys(page), "treasurer,inspection,rollcall,chat,patrolshare", "the King: his crown is his zone and layer; a keeper; an officer")
 					page:Hide()
 					ns.Consent.Reset()
 					ns.db.keeperShares, ns.db.treasurerShares = nil, nil
@@ -33648,7 +33649,7 @@ local function WithShare(fn)
 	local w = { sent = {}, rank = 1, printed = {}, clock = 5000000, later = {} }
 	ns.rdb.inspect = nil
 	I.ResetShare()
-	ns.db.patrolShare = nil
+	ns.db.patrolShare = true -- (Konig's review of 1.1: off until answered; here the officer said yes, its own test asks)
 	ns.Now = function() return w.clock end
 	ns.Comm.Send = function(dist, msg) w.sent[#w.sent + 1] = dist .. " " .. msg end
 	GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Titan", w.rank end return nil end
@@ -33748,7 +33749,7 @@ test("1.1 patrol share (#29): an officer's addon takes another officer's finding
 		w.rank = 1
 		ns.db.patrolShare = false
 		I.HandleShare("GUILD", "Offi-Realm", "U1~Hal:Olympus Hera:N:0")
-		ns.db.patrolShare = nil
+		ns.db.patrolShare = true
 		eq(P["Hal"], nil, "a member's, a stranger's, the channel's, a non-officer's, or with sharing off")
 		-- Six entries a message at most.
 		I.HandleShare("GUILD", "Lord-Realm", "U1~Aa:Olympus Hera:N:0;Bb:Olympus Hera:N:0;Cc:Olympus Hera:N:0;Dd:Olympus Hera:N:0;"
@@ -37776,6 +37777,58 @@ do
 			R.ResetForTests()
 			if not ok then error(err, 0) end
 		end)
+	end)
+
+	-- Follow-up: "patrol share default-on and not on the privacy page".
+	test("1.1 Konig's review: an officer's patrol share is off until he answers, and his line on the first-open page asks him (officers only)", function()
+		local I = ns.Inspect
+		local saved = { share = ns.db.patrolShare, send = ns.Comm.Send, guild = GetGuildInfo, byName = ns.Roster.byName, store = ns.rdb.inspect,
+			print = ns.Print, fire = ns.Fire }
+		local sent, printed = {}, {}
+		local ok, err = pcall(function()
+			ns.rdb.inspect = nil
+			I.ResetShare()
+			ns.Consent.Reset()
+			ns.db.patrolShare = nil
+			ns.Comm.Send = function(dist, msg) sent[#sent + 1] = dist .. " " .. msg end
+			ns.Print = function(m) printed[#printed + 1] = m end
+			ns.Fire = function() end
+			GetGuildInfo = function(unit) if unit == nil or unit == "player" then return "Olympus II", "Officer", 1 end return nil end
+			ns.Roster.byName = { ["Offi-Realm"] = 1 }
+			-- Never answered: his findings stay his, another officer's are not taken, nothing is asked.
+			eq(I.Sharing(), false, "off until answered")
+			I.Record("Bob", "Olympus Zeus", "WARRIOR", 30, nil, true)
+			eq(I.FlushShare(), 0); eq(I.AskShared(), false)
+			I.HandleShare("GUILD", "Offi-Realm", "U1~Eve:Olympus Hera:N:0")
+			eq(I.Players()["Eve"], nil, "not taken")
+			eq(#sent, 0, "nothing sent")
+			-- The first-open page has his line, waiting for his answer; his Yes turns it on, his No off.
+			local pending = {}
+			for _, item in ipairs(ns.Consent.Pending()) do pending[item.key] = true end
+			eq(pending.patrolshare, true, "asked on the first-open page")
+			eq(ns.Consent.Choose("patrolshare", true), true)
+			eq(ns.db.patrolShare, true); eq(I.Sharing(), true); eq(printed[#printed], ns.L.PATROLSHARE_ON)
+			I.Record("Cid", "Olympus Zeus", "WARRIOR", 30, nil, true)
+			eq(I.FlushShare(), 1); eq(sent[#sent], "GUILD U1~Cid:Olympus Zeus:N:0")
+			ns.Consent.Choose("patrolshare", false)
+			eq(I.Sharing(), false); eq(printed[#printed], ns.L.PATROLSHARE_OFF)
+			-- A member (he neither sends nor keeps them) is not asked.
+			GetGuildInfo = function(unit) if unit == nil or unit == "player" then return "Olympus II", "Member", 3 end return nil end
+			for _, item in ipairs(ns.Consent.Items()) do eq(item.key ~= "patrolshare", true, "a member's page") end
+		end)
+		ns.db.patrolShare, ns.Comm.Send, GetGuildInfo, ns.Roster.byName, ns.rdb.inspect = saved.share, saved.send, saved.guild, saved.byName, saved.store
+		ns.Print, ns.Fire = saved.print, saved.fire
+		I.ResetShare()
+		ns.Consent.Reset()
+		if not ok then error(err, 0) end
+		-- Both pages say so, in the privacy table and the first-open page's list.
+		for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local f = assert(io.open(ROOT .. file))
+			local doc = f:read("*a")
+			f:close()
+			assert(doc:find("and said yes (1.1: off until you answer, on the first-open page or with `/oly patrolshare on`)", 1, true), file .. ": the privacy table")
+			assert(doc:find("the Olympus chats and your patrols' findings to your\nguild's officers (officers only)", 1, true), file .. ": the first-open page")
+		end
 	end)
 end
 

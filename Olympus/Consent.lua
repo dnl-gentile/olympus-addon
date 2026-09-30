@@ -9,9 +9,10 @@ local L = ns.L
 -- for a client without this file (updated without a restart) and a keeper outside a guild.
 -- It has a Yes and a No for each thing the addon would otherwise share or show on its own: the
 -- zone and layer, layer help, a treasury keeper's book (keepers only), the Royal Inspection, the
--- author's roll call and the Olympus chats. Each stays off until its Yes: nil, never answered, is off
--- (Layers.Sharing, Hop.Helps, Treasury.Consent, King's OnInspect, Workshop.Answers,
--- Channels.ChatOn). The page also says what always goes out while the player is in an Olympus
+-- author's roll call, the Olympus chats and an officer's patrol findings (officers only). Each
+-- stays off until its Yes: nil, never answered, is off (Layers.Sharing, Hop.Helps,
+-- Treasury.Consent, King's OnInspect, Workshop.Answers, Channels.ChatOn, Inspect.Sharing).
+-- The page also says what always goes out while the player is in an Olympus
 -- guild (the census the elected member sends, names included, and the hello), so it never
 -- promises that nothing does. The window works whatever the answers: the census, the Realm and
 -- the player's own guild roster need none of them, location included.
@@ -371,6 +372,15 @@ Consent.Register({
 	key = "chat", label = "CONSENT_CHAT", text = "CONSENT_CHAT_TEXT",
 	get = function() return ns.db.addonChat end,
 	set = function(on) ns.Channels.SetChatOn(on) end,
+})
+-- An officer's patrol findings to his guild's officers (Inspect.lua, Fern's #29): officers alone
+-- send and keep them, so only they are asked (Konig's review of 1.1: it was on by default and
+-- missing from this page).
+Consent.Register({
+	key = "patrolshare", label = "CONSENT_PATROLSHARE", text = "CONSENT_PATROLSHARE_TEXT",
+	shown = function() return ns.IsMember() == true and ns.Roster.IsOfficer() == true end,
+	get = function() return ns.db.patrolShare end,
+	set = function(on) ns.Inspect.SetSharing(on) end,
 })
 
 -- The first question after login: the page, once the login settled, then on the minute until it
