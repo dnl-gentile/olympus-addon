@@ -100,6 +100,7 @@ local acc, lookAcc = 0, 0
 local tipOwner
 local pointer                -- the Olympus tab awaited: Olympus's own pointer by the game's chat tab
 local watching = false       -- ... and the game's chat windows read until it is there
+local sent = false           -- ... the click having sent the channels there already (Chattynator)
 local settings = false       -- the settings (the gear) shown in place of the lines
 
 local function Grey(s) return GREY .. s .. "|r" end
@@ -927,11 +928,15 @@ local function MainChatTab()
 end
 
 local function StopWatching()
-	watching, lookAcc = false, 0
+	watching, lookAcc, sent = false, 0, false
 	if pointer then pointer:Hide() end
 end
 
 -- The game's chat windows read: a window named Olympus there, the chats go to it (SetupTab, once).
+-- With Chattynator (1.1.2) the click sent them there already (AddTab): the tab there, it is said
+-- once (Channels.TabArrived: not when a line got there first, its intro saying it), and nothing is
+-- chosen again. (The review of 1.1.2: SetupTab again, when the Chat tab next showed, undid a
+-- channel the player had moved since, and said the tab's intro and filter hint a second time.)
 local function Look()
 	if not watching then return false end
 	if not TabReady() then
@@ -941,8 +946,9 @@ local function Look()
 	local C = ns.Channels
 	if not C.FindTab() then return false end
 	-- (Awaited from the line's click: chosen or not before, it is set up now, and said once.)
+	local already = sent
 	StopWatching()
-	C.SetupTab()
+	if already and type(C.TabArrived) == "function" then C.TabArrived() else C.SetupTab() end
 	MarkDirty()
 	if ns.UI and type(ns.UI.RefreshSoon) == "function" then ns.UI.RefreshSoon() end
 	return true
@@ -1039,11 +1045,12 @@ function ChatWindow.AddTab()
 		MarkDirty()
 		return true
 	end
-	watching, lookAcc = true, 0
+	watching, lookAcc, sent = true, 0, false
 	if Look() then return true end
 	if Chatty() then
 		if pointer then pointer:Hide() end
 		C.SetupTab()
+		sent = true
 	else
 		ShowPointer()
 	end
@@ -1149,7 +1156,16 @@ end
 local function NextWindow(t)
 	local C = ns.Channels
 	if type(C.OpenWindows) ~= "function" or type(C.ChooseWindow) ~= "function" then return end
-	local list = C.OpenWindows()
+	-- One window for each name (the first of it): the choice is a name, and a name picks the first
+	-- window of it, so a second one could never be passed (the review of 1.1.2: Chattynator names
+	-- each new tab "New tab", and two of them kept the click there, on and on).
+	local list, seen = {}, {}
+	for _, w in ipairs(C.OpenWindows()) do
+		local key = Trim(w.name):lower()
+		local rawKey = type(w.raw) == "string" and Trim(w.raw):lower() or key
+		if not seen[key] and not seen[rawKey] then list[#list + 1] = w end
+		seen[key], seen[rawKey] = true, true
+	end
 	local current = type(C.ChosenWindow) == "function" and C.ChosenWindow(t) or nil
 	local at = 0 -- (the main window)
 	if current then

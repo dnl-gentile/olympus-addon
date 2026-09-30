@@ -248,7 +248,9 @@ end
 -- Chattynator's tabs now, in its order: { window, tab, raw (its name as kept), name (as it shows),
 -- combat }, each; nil when Chattynator does not answer (not loaded, an API without these two
 -- functions, or failing), and then the game's windows are the ones. All of it through pcall: a
--- broken Chattynator, or anything else called Chattynator, is only "not there".
+-- broken Chattynator, or anything else called Chattynator, is only "not there". A name with a
+-- "|" in it is left out: Chattynator's search tab, a passing one, is named with a texture code
+-- (Display/Buttons.lua), shown escaped in a list and only showing the lines its search finds.
 local function ChattyTabs()
 	local ok, list = pcall(function()
 		local api = type(Chattynator) == "table" and Chattynator.API or nil
@@ -261,7 +263,7 @@ local function ChattyTabs()
 		for wi, tabs in ipairs(windows) do
 			if type(tabs) == "table" then
 				for ti, raw in ipairs(tabs) do
-					if type(raw) == "string" and Trim(raw) ~= "" then
+					if type(raw) == "string" and Trim(raw) ~= "" and not raw:find("|", 1, true) then
 						out[#out + 1] = { window = wi, tab = ti, raw = raw, name = ChattyLabel(raw), combat = raw == CHATTY_COMBAT }
 					end
 				end
@@ -384,8 +386,9 @@ end
 local function FindTab()
 	local tabs = ChattyTabs()
 	if tabs then
+		-- (Its combat log tab, "COMBAT_LOG", is never the one named Olympus.)
 		local t, as = FindChatty(TAB_KEY, tabs)
-		if t and not t.combat then return ChattyTarget(t), nil, as end
+		if t then return ChattyTarget(t), nil, as end
 		return nil
 	end
 	for i = 1, MaxWindows() do
@@ -446,15 +449,19 @@ local function Legend()
 end
 
 -- Whether this character was told, in its Olympus tab, what the tab holds (per character, as the
--- choice of windows is).
-local function IntroSaid()
+-- choice of windows is). Which Olympus tab (1.1.2): true for the game's, "chatty" for Chattynator's,
+-- so a player told in the game's tab before Chattynator is told again in its tab, with the hint
+-- of its filter (a new tab of Chattynator's lets no addon in: without it he would see nothing, and
+-- not know why). f: the tab's target (nil: the game's).
+local function IntroKind(f) return IsChatty(f) and "chatty" or true end
+local function IntroSaid(f)
 	local all = ns.db and ns.db.chatTabIntro
-	return type(all) == "table" and ns.me ~= nil and all[ns.me] == true
+	return type(all) == "table" and ns.me ~= nil and all[ns.me] == IntroKind(f)
 end
-local function SetIntroSaid(said)
+local function SetIntroSaid(said, f)
 	if not ns.db or not ns.me then return end
 	local all = type(ns.db.chatTabIntro) == "table" and ns.db.chatTabIntro or {}
-	all[ns.me] = said and true or nil
+	all[ns.me] = said and IntroKind(f) or nil
 	ns.db.chatTabIntro = next(all) ~= nil and all or nil
 end
 
@@ -468,7 +475,7 @@ end
 -- colours, and, when the tab shows other chat too, how to have them alone there. In Chattynator's
 -- tab (1.1.2) the tab may not show it (its filter): the main window says how to let Olympus in.
 local function Intro(f, i, name)
-	SetIntroSaid(true)
+	SetIntroSaid(true, f)
 	Say(f, L.CHATTAB_HERE:format(Legend()))
 	if IsChatty(f) then
 		FilterHint(f, name or Channels.TAB_NAME)
@@ -495,7 +502,7 @@ function Channels.Frame(tier)
 			gone[key] = nil
 			found[key] = true
 			if f == DEFAULT_CHAT_FRAME then return f end
-			if Channels.IsTabName(wname) and not IntroSaid() then Intro(f, i, wname) end
+			if Channels.IsTabName(wname) and not IntroSaid(f) then Intro(f, i, wname) end
 			return f, wname
 		end
 		if not gone[key] then
@@ -550,6 +557,29 @@ function Channels.SetupTab()
 	end
 	ns.Fire("CHAT_SETTINGS_CHANGED")
 	return true, "waiting"
+end
+
+-- The Olympus tab there at last, after a click that already sent the channels to it (with
+-- Chattynator, 1.1.2: SetupTab ran at the click, "waiting"; the Chat tab reads Chattynator's tabs,
+-- ChatWindow.lua). Said as SetupTab says it, once, and nothing chosen again: the channels still
+-- going there (one the player moved since stays where he put it), and not at all when a line got
+-- there first (its intro said it then) or none goes there now. Returns true when said.
+function Channels.TabArrived()
+	if not ns.db or not ns.me then return false end
+	local chosen = Chosen()
+	if not chosen then return false end
+	local labels = {}
+	for _, tier in ipairs(Channels.ORDER) do
+		if Channels.IsTabName(chosen[tier]) then labels[#labels + 1] = "[" .. Label(tier) .. "]" end
+	end
+	if #labels == 0 then return false end
+	local f, i, wname = FindTab()
+	if not f or IntroSaid(f) then return false end
+	gone[TAB_KEY], found[TAB_KEY] = nil, true
+	ns.Print(L.CHATTAB_SET:format(table.concat(labels, ", ")))
+	Intro(f, i, wname)
+	ns.Fire("CHAT_SETTINGS_CHANGED")
+	return true
 end
 
 -- "open": a channel of this character's goes to the Olympus tab, and it is open; "waiting":
@@ -1833,11 +1863,12 @@ end
 ns.On("INIT", function()
 	-- (0.9.1: the warning comes before the first line in each channel, Channels.Confirm.)
 	ns.db.chatNoticeShown = nil
-	-- 1.1.1: the characters told what their Olympus tab holds, [name] = true alone.
+	-- 1.1.1: the characters told what their Olympus tab holds, [name] = true alone (the game's
+	-- tab), or "chatty" (Chattynator's, 1.1.2).
 	local intro = ns.db.chatTabIntro
 	if type(intro) == "table" then
 		for k, v in pairs(intro) do
-			if type(k) ~= "string" or v ~= true then intro[k] = nil end
+			if type(k) ~= "string" or (v ~= true and v ~= "chatty") then intro[k] = nil end
 		end
 		if next(intro) == nil then ns.db.chatTabIntro = nil end
 	else

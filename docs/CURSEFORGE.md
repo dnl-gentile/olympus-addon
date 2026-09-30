@@ -445,7 +445,8 @@ window's left edge (for the author, his Workshop goes there first).
   still make the tab. With Chattynator (1.1.2) there is no pointer either (the game's tabs are
   hidden behind Chattynator's): the click sends the chats to its tab named Olympus at once, and
   chat says how to make that tab in Chattynator; the Chat tab reads Chattynator's tabs while it
-  shows, and says so once when the tab is there.
+  shows. The tab is announced once, by the Chat tab when it sees the tab or by the tab's first
+  line if that comes first, and a channel you moved meanwhile stays where you put it.
 - **Settings**: the gear at the end of the top row shows them in place of the lines (a click on it
   again, or **< Back to the lines**, goes back). The Olympus chats on or off on this client, what
   that means, and a click to choose (the first-open page); for officers while your channel is
