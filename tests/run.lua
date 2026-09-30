@@ -9195,6 +9195,119 @@ do
 		end)
 	end)
 
+	-- Chattynator 224's public API returns arrays of tab names and accepts window/tab
+	-- indices followed by the AddMessage arguments. It does not expose Blizzard frames.
+	local function WithChattynator(fn)
+		local saved = Chattynator
+		local tabs, calls = { { "General", "Olympus" }, { "Captains", "Lords" } }, {}
+		Chattynator = { API = {
+			GetWindowsAndTabs = function() return tabs end,
+			AddMessageToWindowAndTab = function(...) calls[#calls + 1] = { ... } end,
+		} }
+		local ok, err = pcall(WithWindows, function(w, printed) fn(tabs, calls, w, printed) end)
+		Chattynator = saved
+		if not ok then error(err, 0) end
+	end
+
+	test("chat window: Chattynator tabs receive each tier and our echo instead of hidden native frames", function()
+		WithChattynator(function(tabs, calls, w)
+			-- A native window with the same name still exists after Chattynator hides it.
+			SlashCmdList.OLYMPUS("chatwindow oLYMPus olympus")
+			eq(ns.db.chatWindows["Tester-Realm"].A, "Olympus")
+			eq(#calls, 1, "confirmation reaches the Chattynator tab")
+			eq(Chan.ChooseWindow("Captains captains"), true, "no native window with this name")
+			eq(Chan.ChooseWindow("Lords lords"), true)
+			eq(Chan.WindowStatus(), '[Olympus] "Olympus", [Captains] "Captains", [Lords] "Lords"')
+			wipe(calls)
+			for index, tier in ipairs({ "A", "C", "L" }) do
+				id = id + 1
+				eq((Chan.Receive("CHANNEL", "Member1", Msg(tier, MY_GUILD, id, "routed " .. tier), 3200000 + index * 10)), true)
+			end
+			eq(#calls, 3)
+			for index, target in ipairs({ { 1, 2 }, { 2, 1 }, { 2, 2 } }) do
+				eq(calls[index][1], target[1]); eq(calls[index][2], target[2])
+				assert(calls[index][3]:find("routed " .. ({ "A", "C", "L" })[index], 1, true))
+				local color = Chan.TIERS[({ "A", "C", "L" })[index]].color
+				for c = 1, 3 do eq(calls[index][3 + c], color[c], "channel color") end
+			end
+			WithLane(function()
+				ns.db.chatWarned = { A = true, C = true, L = true }
+				local ok, why = Chan.Send("A", "own Chattynator echo", 1e12 + 200)
+				eq(ok, true, tostring(why))
+			end)
+			eq(#calls, 4); eq(calls[4][1], 1); eq(calls[4][2], 2)
+			assert(calls[4][3]:find("own Chattynator echo", 1, true))
+			eq(#w[1].lines, 0); eq(#w[4].lines, 0, "no hidden native output")
+		end)
+	end)
+
+	test("chat window: Chattynator names follow moved tabs and fall back once when removed", function()
+		WithChattynator(function(tabs, calls, w, printed)
+			eq(Chan.ChooseWindow("Captains captains"), true)
+			tabs[1], tabs[2] = { "Captains", "General", "Olympus" }, { "Lords" }
+			wipe(calls)
+			id = id + 1
+			eq((Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, id, "moved tab"), 3200100)), true)
+			eq(#calls, 1); eq(calls[1][1], 1); eq(calls[1][2], 1)
+			tabs[1][1] = "Renamed"
+			local n = #printed
+			for k = 1, 2 do
+				id = id + 1
+				eq((Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, id, "fallback " .. k), 3200110 + k * 10)), true)
+			end
+			eq(#calls, 1); eq(Count(w[1].lines, "fallback"), 2)
+			eq(#printed, n + 1); eq(printed[#printed], ns.L.CHATWIN_GONE:format('"Captains"'))
+			tabs[2][2] = "Captains"
+			id = id + 1
+			eq((Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, id, "restored tab"), 3200150)), true)
+			eq(#calls, 2); eq(calls[2][1], 2); eq(calls[2][2], 2)
+			eq(Chan.ChooseWindow("main captains"), true)
+			eq(ns.db.chatWindows, nil)
+		end)
+	end)
+
+	test("chat window: Chattynator routing preserves chat opt-in", function()
+		WithChattynator(function(tabs, calls, w)
+			local savedChatOn = ns.db.addonChat
+			local ok, err = pcall(function()
+				for _, state in ipairs({ "unanswered", "off" }) do
+					if state == "unanswered" then ns.db.addonChat = nil else ns.db.addonChat = false end
+					eq(Chan.ChooseWindow("Captains captains"), true)
+					if state == "unanswered" then eq(ns.db.addonChat, nil) else eq(ns.db.addonChat, false) end
+					wipe(calls)
+					id = id + 1
+					local shown, why = Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, id, "chat is off"), 3200200)
+					eq(shown, false); eq(why, "off"); eq(#calls, 0)
+					eq(#Chan.History("C"), 0)
+				end
+				ns.db.addonChat = true
+				id = id + 1
+				eq((Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, id, "chat is on"), 3200210)), true)
+				eq(#calls, 1); eq(calls[1][1], 2); eq(calls[1][2], 1)
+				eq(#Chan.History("C"), 1)
+				eq(#w[1].lines, 0)
+			end)
+			ns.db.addonChat = savedChatOn
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("chat window: unavailable Chattynator API preserves native lookup and lists available tabs", function()
+		WithChattynator(function(tabs, calls, w, printed)
+			eq(Chan.ChooseWindow("Missing"), false)
+			assert(printed[#printed]:find('Chattynator "Captains"', 1, true), printed[#printed])
+			local api = Chattynator.API
+			for _, unavailable in ipairs({ {}, { GetWindowsAndTabs = api.GetWindowsAndTabs },
+				{ GetWindowsAndTabs = function() error("not initialized") end, AddMessageToWindowAndTab = api.AddMessageToWindowAndTab } }) do
+				Chattynator.API = unavailable
+				eq(Chan.FindWindow("Olympus"), w[4], "native fallback")
+				eq(Chan.ChooseWindow("Captains captains"), false)
+			end
+			Chattynator.API = api
+			eq(Chan.ChooseWindow("2"), false, "native combat log remains refused")
+		end)
+	end)
+
 	test("flood guard: lines held back are told in one notice a minute, counted, and kept (#15)", function()
 		WithWindows(function(w, printed)
 			local stats0 = Chan.Stats().flood
