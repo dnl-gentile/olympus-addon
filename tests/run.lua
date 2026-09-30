@@ -41154,6 +41154,89 @@ end
 			end)
 		end)
 	end)
+
+	-- SavedVariables as a /reload leaves them: written out and read back, Lua's memory of the week
+	-- and of the guilds senders named (Moderation's, for this session) gone; the words kept.
+	-- `edit` changes what was saved first.
+	local function SavedCopy(t)
+		if type(t) ~= "table" then return t end
+		local out = {}
+		for k, v in pairs(t) do out[k] = SavedCopy(v) end
+		return out
+	end
+	local function Reload(W, edit)
+		local saved = SavedCopy({ week = ns.rdb.week, weekHeard = ns.rdb.weekHeard, signups = ns.rdb.signups, signed = ns.rdb.signed })
+		if edit then edit(saved) end
+		W.Reset()
+		M.Reset()
+		ns.rdb.week, ns.rdb.weekHeard, ns.rdb.signups, ns.rdb.signed = saved.week, saved.weekHeard, saved.signups, saved.signed
+		W.Restore()
+	end
+	local GALE = "Gale Hand-Realm" -- a made-up Hand of another guild
+	-- Watcher's client: two Hands' entries 2 days ahead (the rogue's, the other guild's a minute
+	-- later), their sheets heard, and his signup for each. The clock of the first, the second.
+	local function SignedBoth(w, W, K)
+		AsSoldier("Watcher")
+		K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Rogue Hand-Realm,Gale Hand-Realm")
+		local t0 = w.clock
+		K.HandleCommand("CHANNEL", ROGUE, "T1~D~601~Olympus II~" .. (2 * 86400) .. "~1~~Rogue raid")
+		K.HandleCommand("CHANNEL", GALE, "T1~D~611~Olympus Gale~" .. (2 * 86400 + 60) .. "~1~~Gale raid")
+		K.HandleCommand("CHANNEL", ROGUE, "T1~R~1~Olympus II~601:0:0:0:0~5")
+		K.HandleCommand("CHANNEL", GALE, "T1~R~2~Olympus Gale~611:0:0:0:0~5")
+		eq(W.Sign(601, "T"), true)
+		w.clock = w.clock + W.SIGN_GAP
+		eq(W.Sign(611, "H"), true)
+		return t0 + 2 * 86400, t0 + 2 * 86400 + 60
+	end
+	local function Nudged(w, title) return Printed(w, title .. " in ") end
+
+	test("1.1 review (net-off, item 2): no nudge for an entry we signed once its setter, or his guild, is off; shown again before it begins, it comes", function()
+		WithWeek(function(w, W, K)
+			NoWords(function()
+				local at = SignedBoth(w, W, K)
+				-- The King takes the rogue Hand, and the other Hand's guild, off.
+				Off(ROGUE, "abuse of the week"); GuildOff("Olympus Gale")
+				eq(Titles(W), "", "both entries hidden")
+				-- Four minutes before: no line, no sound.
+				w.printed, w.alerts = {}, {}
+				w.clock = at - 240
+				W.Remind()
+				assert(not Nudged(w, "Rogue raid") and not Nudged(w, "Gale raid"), "no nudge: " .. table.concat(w.printed, " / "))
+				eq(#w.alerts, 0, "no sound")
+				-- The rogue shown again before it begins: his nudge comes (it wasn't spent), the other's not yet.
+				Back(ROGUE)
+				W.Remind()
+				assert(Printed(w, ns.L.SIGN_SOON:format(W.RoleLabel("T"), "Rogue raid", 4, "")), "the rogue's entry")
+				assert(not Nudged(w, "Gale raid"), "the guild still off")
+				eq(#w.alerts, 1)
+				GuildBack("Olympus Gale")
+				W.Remind()
+				assert(Nudged(w, "Gale raid"), "the guild back on")
+				eq(#w.alerts, 2)
+			end)
+		end)
+	end)
+
+	test("1.1 review (net-off, item 2): after a /reload, the nudge from the signup alone (its entry not heard again) stays quiet too while its setter or his guild is off", function()
+		WithWeek(function(w, W, K)
+			NoWords(function()
+				local at = SignedBoth(w, W, K)
+				Off(ROGUE, "abuse of the week"); GuildOff("Olympus Gale")
+				-- The /reload: the entries not kept (their setters' next repeats after the pull).
+				Reload(W, function(saved) saved.weekHeard = nil end)
+				eq(W.Entry(601), nil); eq(W.Entry(611), nil)
+				w.printed, w.alerts = {}, {}
+				w.clock = at - 240
+				W.Remind()
+				assert(not Nudged(w, "Rogue raid") and not Nudged(w, "Gale raid"), "no nudge: " .. table.concat(w.printed, " / "))
+				eq(#w.alerts, 0, "no sound")
+				Back(ROGUE); GuildBack("Olympus Gale")
+				W.Remind()
+				assert(Nudged(w, "Rogue raid") and Nudged(w, "Gale raid"), "both shown again")
+				eq(#w.alerts, 2)
+			end)
+		end)
+	end)
 end)()
 
 print(("\n%d passed, %d failed"):format(passed, failed))

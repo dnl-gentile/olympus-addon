@@ -645,7 +645,8 @@ local function RoleLabel(role) return L["SIGN_ROLE_" .. tostring(role)] or "?" e
 Week.RoleLabel = RoleLabel
 
 -- This character's own signups, kept for its next login (the reminder, #2): [agendaId] =
--- { role, at, title, zone, agenda }: enough for the nudge even while the entry isn't heard again.
+-- { role, at, title, zone, agenda, by, guild (its setter and his guild: the net-off) }: enough
+-- for the nudge even while the entry isn't heard again.
 local function Signed()
 	if not ns.rdb then return {} end
 	if type(ns.rdb.signed) ~= "table" then ns.rdb.signed = {} end
@@ -766,7 +767,7 @@ function Week.Sign(id, role)
 		mine[id] = nil
 		ns.Print(L.SIGN_WITHDRAWN:format(e.title))
 	else
-		mine[id] = { role = role, at = e.at, title = e.title, zone = e.zone, agenda = e.agenda or nil }
+		mine[id] = { role = role, at = e.at, title = e.title, zone = e.zone, agenda = e.agenda or nil, by = e.by, guild = e.setterGuild }
 		ns.Print(L.SIGN_DONE:format(RoleLabel(role), e.title))
 	end
 	signOpen[id] = nil
@@ -966,6 +967,15 @@ function Week.Sheets() return sheets end
 -- (its time, title and zone) when the entry isn't heard again before it begins (1.1 review: a
 -- /reload a few minutes before the pull, its setter's next repeat after it).
 Week.REMIND = 5 * 60
+-- Whose entry a signup is for, and in which guild's name: the entry as heard (hidden or not),
+-- else the Agenda's current event, else what the signup kept.
+local function SetterOf(id, v)
+	local e = entries[id]
+	if e then return e.by, e.setterGuild end
+	local a = ns.King.Agenda and ns.King.Agenda()
+	if a and a.id == id then return ns.FullName(a.by), nil end
+	return v.by, type(v.guild) == "string" and v.guild or nil
+end
 function Week.Remind(now)
 	now = now or ns.Now()
 	local mine = ns.rdb and type(ns.rdb.signed) == "table" and ns.rdb.signed[ns.me or "?"]
@@ -983,7 +993,10 @@ function Week.Remind(now)
 			mine[id] = nil -- the Agenda's current event, replaced by another
 		end
 		local left = type(v) == "table" and mine[id] and tonumber(v.at) and v.at - now
-		if left and v.role and not v.reminded and type(v.title) == "string" and v.title ~= "" and left > 0 and left <= Week.REMIND then
+		-- (1.1 review: nothing while its setter, or his guild, is off: net-off. Not marked reminded:
+		-- shown again before it begins, the nudge comes.)
+		if left and v.role and not v.reminded and type(v.title) == "string" and v.title ~= "" and left > 0 and left <= Week.REMIND
+			and not Off(SetterOf(id, v)) then
 			v.reminded = true
 			local zone = type(v.zone) == "string" and v.zone or ""
 			local where = zone ~= "" and (" (" .. zone .. ")") or ""
