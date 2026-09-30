@@ -89,9 +89,9 @@ Borders.TIERS = {
 	{ name = "gold", atlas = PLAIN, x = 0, y = 1, leader = true },
 	{ name = "silver", atlas = "ui-hud-unitframe-target-portraiton-boss-rare-silver", x = 0, y = 1, officer = true },
 	{ name = "bronze-elite", file = MEDIA .. "bronze-winged", coords = { 0, 220 / 256, 0, 180 / 256 }, width = 110, height = 90,
-		x = 11, y = -4, fallback = WINGED, ranks = { "raider" } },
+		x = 11, y = -4, fallback = WINGED, ranks = { "raider", "swarm" } }, -- (<Olympus>'s Swarm: its core raiders, 1.1)
 	{ name = "bronze", file = MEDIA .. "bronze-plain", coords = { 0, 200 / 256, 0, 200 / 256 }, width = 100, height = 100,
-		x = 0, y = 1, fallback = PLAIN, ranks = { "veteran", "veterano", "veterana" } },
+		x = 0, y = 1, fallback = PLAIN, ranks = { "veteran", "veterano", "veterana", "hardshell" } }, -- (its Hardshell: veterans and crafters)
 }
 
 -- Where they go: the frame (a global of the game's), its container, and the hook that follows the
