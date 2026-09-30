@@ -2,11 +2,11 @@ local ADDON, ns = ...
 local L = ns.L
 
 -- 1.1: a clipboard backup (asked by Fern, a moderator on Asmon's team: "the beta has been wiping
--- saved variables"). A wiped SavedVariables file loses the treasury's book and the channel key
--- with no server to restore them: one text, copied out (/oly backup) and pasted back (/oly
--- restore), brings back this character's book of the treasury, the channel key and the player's
--- setup. Clipboard only: nothing is uploaded or sent anywhere, and restoring sends nothing either
--- (a keeper's book goes out afterwards as it always does, under his own yes).
+-- saved variables"). A wiped SavedVariables file loses the treasury's book with no server to
+-- restore it: one text, copied out (/oly backup) and pasted back (/oly restore), brings back this
+-- character's book of the treasury and the player's setup. Clipboard only: nothing is uploaded or
+-- sent anywhere, and restoring sends nothing either (a keeper's book goes out afterwards as it
+-- always does, under his own yes).
 --   OLYB1:<length>:<adler-32>:<payload>
 -- The payload is a table written as text by this file alone (never run as code: it is read by a
 -- small parser with limits), each string's bytes other than letters, digits and _ . - written
@@ -17,10 +17,16 @@ local L = ns.L
 --     it goes back into that character's book alone, merged with what was written since
 --     (Treasury.RestoreBook);
 --   word: the King's switches and keepers (his client's or a Steward's), given again as a new word;
---   key: the channel key, on an officer's character (the officers set it: /oly key); a member's
---     restore never sets a key (a text someone else made would move him to another channel), his
---     officers hand it out again over guild chat as ever;
---   settings: the player's toggles (Backup.SETTINGS) and this character's chat windows.
+--   settings: the player's toggles (Backup.SETTINGS) and this character's chat windows;
+--   blocked: the players this character blocked (/oly block).
+-- Never the channel key (Konig's review of 1.1: a restore took whatever key the text carried, and
+-- an officer's client then hands it to every guildmate, so "paste this to fix your settings" moved
+-- a guild to a channel the sender knows). A restore never sets one, on anyone's character, held or
+-- not: the guild's officers hand it over in game as ever (K0, K5), or /oly key. A text that carries
+-- one (a 1.1 beta's, or a made one) has it left out, and the confirm says so, louder for a key a
+-- newer one replaced (Keys.IsRetired: the leaked one, most likely).
+-- The players it blocks are named in the confirm, BLOCKED_MAX at most (the dialog lists them all),
+-- and added only on its yes (a text with 2000 names could silence a guild's officers unseen).
 -- Never a yes to sharing (the location, a keeper's book, a sister guild's bank, the roll call, the
 -- inspection, layer help): a text someone else made must never turn sharing on. The addon asks
 -- those again. Nothing restores before the player reads what changes and says yes.
@@ -32,6 +38,8 @@ Backup.VERSION = "OLYB1"
 Backup.MAX = 1000000       -- bytes of a backup, at most
 Backup.MAX_DEPTH = 8
 Backup.MAX_ENTRIES = 250000 -- values in it, at most
+Backup.BLOCKED_MAX = 30    -- players a restore blocks at most (its confirm names each)
+Backup.BLOCKED_NAME = 48   -- bytes of a blocked name ("name-realm")
 
 -- The player's toggles (ns.db): what each may hold. Other batches of 1.1 add theirs here.
 Backup.SETTINGS = {
@@ -175,8 +183,6 @@ function Backup.Data()
 		d.word = { flags = type(f) == "table" and { balance = f.balance == true, ranking = f.ranking == true, book = f.book == true } or nil,
 			keepers = type(k) == "table" and type(k.names) == "table" and Copy(k.names) or nil }
 	end
-	-- The channel key, on an officer's character: the officers set it.
-	if ns.rdb and type(ns.rdb.realmKey) == "string" and ns.rdb.realmKey ~= "" and ns.IsMember() and ns.Roster.IsOfficer() then d.key = ns.rdb.realmKey end
 	for key, kind in pairs(Backup.SETTINGS) do
 		local v = ns.db and ns.db[key]
 		if type(v) == kind then d.settings[key] = v end
@@ -269,7 +275,7 @@ function Backup.Read(text)
 		local book = CheckBook(b)
 		if book and ns.Treasury.MayRestoreBook(book.name) then out.books[#out.books + 1] = book end
 	end
-	if not same then return out end -- (the other character's settings and key stay its own)
+	if not same then return out end -- (the other character's settings stay its own)
 	if type(d.word) == "table" then
 		local w = { }
 		if type(d.word.flags) == "table" then w.flags = { balance = d.word.flags.balance == true, ranking = d.word.flags.ranking == true, book = d.word.flags.book == true } end
@@ -279,6 +285,8 @@ function Backup.Read(text)
 		end
 		out.word = w
 	end
+	-- A channel key in it (a 1.1 beta's text, or a made one): read only for the confirm to say it
+	-- is left out (Summary); never set (Apply).
 	if type(d.key) == "string" then
 		local key = d.key:gsub("[~|\n]", "")
 		if #key >= 6 and #key <= 64 then out.key = key end
@@ -308,7 +316,21 @@ function Backup.Read(text)
 		end
 		if next(kinds) then out.soundOff = kinds end
 	end
-	if type(d.blocked) == "table" then out.blocked = Names(d.blocked, 2000) end
+	-- The players it would block: those not blocked here yet, BLOCKED_MAX at most (the first by
+	-- name), each named in the confirm; how many more it holds, said there too.
+	if type(d.blocked) == "table" then
+		local held = ns.db and type(ns.db.blocked) == "table" and ns.db.blocked or {}
+		local names, seen = {}, 0
+		for k, v in pairs(d.blocked) do
+			seen = seen + 1
+			if seen > 2000 then break end
+			if type(k) == "string" and k ~= "" and #k <= Backup.BLOCKED_NAME and not k:find("[|%c]") and v == true and not held[k] then names[#names + 1] = k end
+		end
+		table.sort(names)
+		out.blocked = {}
+		for i = 1, math.min(#names, Backup.BLOCKED_MAX) do out.blocked[names[i]] = true end
+		if #names > Backup.BLOCKED_MAX then out.blockedLeft = #names - Backup.BLOCKED_MAX end
+	end
 	return out
 end
 
@@ -345,8 +367,10 @@ function Backup.Summary(d)
 			lines[#lines + 1] = L.BACKUP_WORD_NOT_KING
 		end
 	end
+	-- A key in it is never set (Konig's review of 1.1); one a newer key replaced, said so.
 	if d.key then
-		lines[#lines + 1] = (ns.IsMember() and ns.Roster.IsOfficer()) and L.BACKUP_KEY or L.BACKUP_KEY_NOT_OFFICER
+		if ns.Keys and ns.Keys.IsRetired and ns.Keys.IsRetired(d.key) then lines[#lines + 1] = L.BACKUP_KEY_RETIRED
+		else lines[#lines + 1] = (ns.IsMember() and ns.Roster.IsOfficer()) and L.BACKUP_KEY or L.BACKUP_KEY_NOT_OFFICER end
 	end
 	local n = 0
 	for _ in pairs(d.settings) do n = n + 1 end
@@ -355,16 +379,19 @@ function Backup.Summary(d)
 	if d.soundOff then n = n + 1 end
 	if n > 0 then lines[#lines + 1] = L.BACKUP_SETTINGS:format(n) end
 	if d.blocked and next(d.blocked) then
-		local b = 0
-		for _ in pairs(d.blocked) do b = b + 1 end
-		lines[#lines + 1] = L.BACKUP_BLOCKED:format(b)
+		local names = {}
+		for k in pairs(d.blocked) do names[#names + 1] = k end
+		table.sort(names)
+		lines[#lines + 1] = L.BACKUP_BLOCKED:format(#names, table.concat(names, ", "))
 	end
+	if d.blockedLeft then lines[#lines + 1] = L.BACKUP_BLOCKED_MORE:format(d.blockedLeft, Backup.BLOCKED_MAX) end
 	lines[#lines + 1] = L.BACKUP_NO_CONSENT
 	return lines
 end
 
--- Restores it (after the player's yes): books, the King's word, the key (an officer's), settings.
--- Sends nothing: a keeper's book goes out afterwards as it always does, under his own yes.
+-- Restores it (after the player's yes): books, the King's word, settings, the players the confirm
+-- named as blocked. Never a channel key. Sends nothing: a keeper's book goes out afterwards as it
+-- always does, under his own yes.
 function Backup.Apply(d)
 	if type(d) ~= "table" or not ns.me then return false end
 	local T = ns.Treasury
@@ -378,10 +405,6 @@ function Backup.Apply(d)
 		for _, b in ipairs(d.books) do ns.db.myCharacters[tostring(ns.FullName(ns.Normal(b.name))):lower()] = true end
 	end
 	if d.word and ns.King.SetsLists() then T.RestoreWord(d.word.flags, d.word.keepers) end
-	if d.key and ns.IsMember() and ns.Roster.IsOfficer() and ns.rdb and ns.rdb.realmKey ~= d.key then
-		ns.rdb.realmKey = d.key
-		if ns.Comm and ns.Comm.JoinChannel then ns.Comm.JoinChannel() end
-	end
 	local shown = {}
 	for key, v in pairs(d.settings or {}) do
 		if ns.db[key] ~= v then shown[key] = true end

@@ -36135,7 +36135,7 @@ test("1.1 the clipboard backup keeps the other parts' toggles: alerts, camps, sh
 	if not ok then error(err, 0) end
 end)
 
-test("1.1 the clipboard backup (Fern): the Treasurer's book, the key and the toggles out as text, and one paste restores them, nothing sent", function()
+test("1.1 the clipboard backup (Fern): the Treasurer's book and the toggles out as text (never the key), and one paste restores them, nothing sent", function()
 	WithThrone(function(w, K)
 		local T, Bk = ns.Treasury, ns.Backup
 		local mail = MailWorld()
@@ -36166,6 +36166,8 @@ test("1.1 the clipboard backup (Fern): the Treasurer's book, the key and the tog
 			assert(text:find("^OLYB1:%d+:%x%x%x%x%x%x%x%x:"), text:sub(1, 40))
 			assert(not text:find("[|@\n\r]") and not text:find("<#", 1, true), "safe for the copy box")
 			eq(ns.Codec.NoMentions(text), text, "the copy box leaves it as it is")
+			-- (Konig's review of 1.1: the channel key is no longer in it, on an officer's character too.)
+			eq(text:find("s3cret", 1, true), nil, "never the channel key")
 			local sent = #w.sent
 			-- The beta wipes the saved variables: at the next login his book opens again at his gold.
 			ns.rdb.treasuryBooks, ns.rdb.realmKey = nil, nil
@@ -36178,7 +36180,7 @@ test("1.1 the clipboard backup (Fern): the Treasurer's book, the key and the tog
 			assert(d, why)
 			local summary = table.concat(Bk.Summary(d), "\n")
 			assert(summary:find(ns.L.BACKUP_BOOK_WHOLE:format("Pyralis Ashandar", lines, T.Coins(5000000)), 1, true), summary)
-			assert(summary:find(ns.L.BACKUP_KEY, 1, true) and summary:find(ns.L.BACKUP_NO_CONSENT, 1, true), summary)
+			assert(not summary:find(ns.L.BACKUP_KEY, 1, true) and summary:find(ns.L.BACKUP_NO_CONSENT, 1, true), summary)
 			eq(Bk.Take(text), true)
 			local p = w.popups[#w.popups]
 			eq(p.name, "OLYMPUS_BACKUP_RESTORE"); eq(p.a, table.concat(Bk.Summary(d), "\n"))
@@ -36187,7 +36189,7 @@ test("1.1 the clipboard backup (Fern): the Treasurer's book, the key and the tog
 			for i, g in ipairs(ranking) do eq(T.Totals().ranking[i].name, g.name); eq(T.Totals().ranking[i].money, g.money) end
 			eq(T.Totals().items[1].id, 2589, "the items donated")
 			assert(T.Book().restored, "marked restored")
-			eq(ns.rdb.realmKey, "our officers' s3cret @key <#1>", "the key, on an officer's character"); eq(joined, 1)
+			eq(ns.rdb.realmKey, nil, "no key from a backup: his officers hand it over in game"); eq(joined, 0)
 			eq(ns.db.sound, false); eq(ns.db.showMap, false); eq(ns.db.minimapAngle, 123.5)
 			eq(ns.db.chatWindows[ns.me].A, "Olympus"); eq(ns.db.blocked["pest-realm"], true)
 			for i = sent + 1, #w.sent do assert(not w.sent[i].msg:find("^K1~"), "the key sent nowhere: " .. w.sent[i].msg) end
@@ -37658,6 +37660,88 @@ test("1.1 the bank's gone since the last snapshot: a tab that never loaded, with
 		if not ok then error(err, 0) end
 	end)
 end)
+
+---------------------------------------------------------------------------
+-- Konig's review of 1.1 (#45), guild tools: items 3 and 4 and their follow-ups.
+---------------------------------------------------------------------------
+do
+	-- Item 3: "A pasted backup can swap an officer's channel key ... Suggest: never restore a
+	-- different key, refuse retired ones, show the blocked names."
+	test("1.1 Konig's review (#3): a pasted backup never sets a channel key: not a different one, not with none held, and one a newer key replaced is refused", function()
+		WithThrone(function(w)
+			local Bk = ns.Backup
+			local saved = { key = ns.rdb.realmKey, epoch = ns.rdb.keyEpoch, retired = ns.rdb.keyRetired, join = ns.Comm.JoinChannel, sound = ns.db.sound }
+			local ok, err = pcall(function()
+				local joined = 0
+				ns.Comm.JoinChannel = function() joined = joined + 1 end
+				AsCaptain() -- (an officer: his restore took the text's key, and his client hands it to his guild)
+				ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRetired = "ourrealkey1", nil, nil
+				-- "Paste this to fix your settings": a text carrying the sender's key.
+				local forged = ForgedBackup({ v = 1, char = ns.me, faction = ns.faction, key = "attackerkey", settings = { sound = false } })
+				local d = assert(Bk.Read(forged))
+				local summary = table.concat(Bk.Summary(d), "\n")
+				assert(summary:find(ns.L.BACKUP_KEY, 1, true), summary)
+				Bk.Apply(d)
+				eq(ns.rdb.realmKey, "ourrealkey1", "a different key: never set"); eq(joined, 0)
+				eq(ns.db.sound, false, "the rest is restored")
+				-- None held (the saved variables wiped): none from a text either (his officers hand it over, K0).
+				ns.rdb.realmKey = nil
+				Bk.Apply(Bk.Read(forged))
+				eq(ns.rdb.realmKey, nil, "none held: none from a text"); eq(joined, 0)
+				-- A key a newer one replaced (the leaked one): refused, and the confirm warns.
+				ns.rdb.realmKey = "leakedkey1"
+				ns.Keys.Take("newerkey22", w.clock, true)
+				eq(ns.Keys.IsRetired("leakedkey1"), true)
+				joined = 0
+				d = assert(Bk.Read(ForgedBackup({ v = 1, char = ns.me, faction = ns.faction, key = "leakedkey1" })))
+				summary = table.concat(Bk.Summary(d), "\n")
+				assert(summary:find(ns.L.BACKUP_KEY_RETIRED, 1, true), summary)
+				Bk.Apply(d)
+				eq(ns.rdb.realmKey, "newerkey22", "never back to the replaced key"); eq(joined, 0)
+				-- His own backup carries no key at all.
+				local own = Bk.Export()
+				eq(own:find("newerkey22", 1, true), nil, "not in the text"); eq(Bk.Read(own).key, nil)
+			end)
+			ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRetired, ns.Comm.JoinChannel, ns.db.sound = saved.key, saved.epoch, saved.retired, saved.join, saved.sound
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 Konig's review (#3): a pasted backup's confirm names each player it would block, adds them only on its yes, 30 at most", function()
+		WithThrone(function(w)
+			local Bk = ns.Backup
+			local saved = ns.db.blocked
+			local ok, err = pcall(function()
+				AsSoldier("Victim")
+				ns.db.blocked = { ["pest-realm"] = true }
+				local text = ForgedBackup({ v = 1, char = ns.me, faction = ns.faction,
+					blocked = { ["pest-realm"] = true, ["officer one-realm"] = true, ["officer two-realm"] = true } })
+				eq(Bk.Take(text), true)
+				local p = w.popups[#w.popups]
+				eq(p.name, "OLYMPUS_BACKUP_RESTORE")
+				-- The names it would add (not the one blocked already), before anything changes.
+				assert(p.a:find(ns.L.BACKUP_BLOCKED:format(2, "officer one-realm, officer two-realm"), 1, true), p.a)
+				eq(ns.db.blocked["officer one-realm"], nil, "nothing added before the yes")
+				StaticPopupDialogs.OLYMPUS_BACKUP_RESTORE.OnAccept(nil, p.data)
+				eq(ns.db.blocked["officer one-realm"], true); eq(ns.db.blocked["officer two-realm"], true)
+				-- 2000 names: the first BLOCKED_MAX by name, each named; the rest left out, and said so.
+				local many = {}
+				for i = 1, 2000 do many[("name%04d-realm"):format(i)] = true end
+				local d = assert(Bk.Read(ForgedBackup({ v = 1, char = ns.me, faction = ns.faction, blocked = many })))
+				local summary = table.concat(Bk.Summary(d), "\n")
+				local names = {}
+				for i = 1, Bk.BLOCKED_MAX do names[i] = ("name%04d-realm"):format(i) end
+				assert(summary:find(ns.L.BACKUP_BLOCKED:format(Bk.BLOCKED_MAX, table.concat(names, ", ")), 1, true), summary)
+				assert(summary:find(ns.L.BACKUP_BLOCKED_MORE:format(2000 - Bk.BLOCKED_MAX, Bk.BLOCKED_MAX), 1, true), summary)
+				Bk.Apply(d)
+				eq(ns.db.blocked[names[Bk.BLOCKED_MAX]], true)
+				eq(ns.db.blocked[("name%04d-realm"):format(Bk.BLOCKED_MAX + 1)], nil, "not in the confirm: not added")
+			end)
+			ns.db.blocked = saved
+			if not ok then error(err, 0) end
+		end)
+	end)
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
