@@ -75,10 +75,6 @@ local MAX_NOTES = 5
 local LOOK_GAP = 1                                    -- the Olympus tab awaited: the game's chat windows read this often
 local GREY = "|cff9d9d9d"
 local LINK_TIPS = { item = true, spell = true, enchant = true, quest = true } -- (the links Codec lets through)
-local STAR = "|TInterface\\AddOns\\Olympus\\media\\borders\\star:14:14|t"
-local SILVER = "nameplates-icon-elite-silver"
-local BRONZE = "nameplates-icon-elite-gold"
-local BRONZE_TINT = ":0:0:158:118:86" -- (Nameplates.BRONZE x 255)
 local WHY = { moved = "CHATWIN_WHY_MOVED", late = "CHATWIN_WHY_LATE", failed = "CHATWIN_WHY_FAILED", left = "CHATWIN_WHY_LEFT" }
 -- The pointer's arrow: the game's tutorial arrow (Blizzard_TutorialTemplates), else the chat
 -- frame's own scroll-down arrow (Blizzard_SharedXML's dropdown and store templates use it).
@@ -312,38 +308,21 @@ local function BackInView(was)
 end
 
 ---------------------------------------------------------------------------
--- A name's header: one mark, the name, a tag, the guild (Borders.MarkOfName: the elite borders'
--- and nameplate marks' rules, and a mark only where the guild the line names is proven).
+-- A name's header: one mark, the name, a tag, the guild (Borders.ChatMark over Borders.MarkOfName:
+-- the elite borders' and nameplate marks' rules, and a mark only where the guild the line names is
+-- proven).
 ---------------------------------------------------------------------------
-
-local function AtlasMark(atlas, tint)
-	local info = C_Texture and C_Texture.GetAtlasInfo
-	if type(info) == "function" then
-		local ok, v = pcall(info, atlas)
-		if not ok or v == nil then return STAR end
-	end
-	return "|A:" .. atlas .. ":14:14" .. (tint or "") .. "|a"
-end
 
 local function NameText(e)
 	local who = ns.FullName(e.sender)
 	local guild = e.guild
 	local B = ns.Borders
-	local mark = B and type(B.MarkOfName) == "function" and B.MarkOfName(who, guild) or nil
 	local council = ns.IsHighCouncillor(who) and not ns.CouncilMasked()
 	local name = ns.Codec.Plain(ns.DisplayName(e.sender) or "?")
-	local lead = ""
-	if mark == "gold" then
-		lead = "|T" .. ns.CROWN_ICON .. ":14:14|t " -- (the King's mark in chat is his crown)
-	elseif council then
-		lead = ns.CouncilMark(who) .. " "
-	elseif mark == "silver" then
-		lead = AtlasMark(SILVER) .. " "
-	elseif mark == "bronze" then
-		lead = AtlasMark(BRONZE, BRONZE_TINT) .. " "
-	elseif mark == "member" then
-		lead = STAR .. " "
-	end
+	-- (Borders.ChatMark, shared with the game's chat windows since 1.1.2; without Borders.lua, a
+	-- client updated without a restart, the High Council's mark alone.)
+	local lead = B and type(B.ChatMark) == "function" and B.ChatMark(who, guild) or (council and ns.CouncilMark(who)) or ""
+	if lead ~= "" then lead = lead .. " " end
 	if ns.IsTreasurer(who, guild) then lead = lead .. (ns.COIN:gsub(" $", "")) end
 	if council then
 		name = "|c" .. ns.HIGH_COUNCIL_COLOR .. name .. "|r"

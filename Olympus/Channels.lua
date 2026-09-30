@@ -160,17 +160,25 @@ end
 -- Olympus tab): without "[Captains] ", the rest byte for byte the same.
 function Channels.FormatLine(tier, sender, guild, class, text, bare)
 	local name = ns.DisplayName(sender) or "?"
-	local file = class and ns.CLASS_FILES[class]
-	local color = file and RAID_CLASS_COLORS and RAID_CLASS_COLORS[file]
-	if color and color.colorStr then name = "|c" .. color.colorStr .. name .. "|r" end
-	-- The High Council (the moderators, Core.lua): the fixed mark, their own icon after it if
-	-- they picked one (0.9.9), and their colour. For everyone, as in 0.9.8, but the King while
-	-- the councillors' names are hidden on his screen (his stream, ns.CouncilMasked): a plain line.
-	if ns.IsHighCouncillor(sender) and not ns.CouncilMasked() then
-		name = ns.CouncilMark(sender) .. "|c" .. ns.HIGH_COUNCIL_COLOR .. ns.DisplayName(sender) .. "|r"
+	-- The High Council (the moderators, Core.lua): their colour. For everyone, as in 0.9.8, but the
+	-- King while the councillors' names are hidden on his screen (his stream, ns.CouncilMasked): a
+	-- plain line.
+	local council = ns.IsHighCouncillor(sender) and not ns.CouncilMasked()
+	if council then
+		name = "|c" .. ns.HIGH_COUNCIL_COLOR .. name .. "|r"
+	else
+		local file = class and ns.CLASS_FILES[class]
+		local color = file and RAID_CLASS_COLORS and RAID_CLASS_COLORS[file]
+		if color and color.colorStr then name = "|c" .. color.colorStr .. name .. "|r" end
 	end
-	-- The Treasurer: the gold coin he carries in tooltips and the census (0.9.9).
-	if ns.IsTreasurer(sender, guild) then name = ns.COIN:gsub(" $", "") .. name end
+	-- The mark before the name, as the Chat tab shows it (1.1.2, Borders.ChatMark): the King's crown,
+	-- the High Council's mark and icon (0.9.9), silver, bronze, the star. Without Borders.lua (a
+	-- client updated without a restart), the High Council's alone, as before 1.1.2.
+	local B = ns.Borders
+	local mark = B and type(B.ChatMark) == "function" and B.ChatMark(sender, guild) or (council and ns.CouncilMark(sender)) or ""
+	-- The Treasurer: the gold coin he carries in tooltips and the census (0.9.9), first.
+	if ns.IsTreasurer(sender, guild) then mark = (ns.COIN:gsub(" $", "")) .. mark end
+	name = mark .. name
 	return (bare and "" or "[" .. Label(tier) .. "] ") .. "|Hplayer:" .. (ns.TellName(sender) or "?") .. "|h[" .. name .. "]|h <"
 		.. tostring(guild or "?"):gsub("|", "||") .. ">: " .. Codec.SanitizeChat(text)
 end

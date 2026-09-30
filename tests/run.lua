@@ -42959,6 +42959,66 @@ do
 		end)
 	end)
 
+	-- 1.1.2 (the owner, from a screenshot: the silver mark in the Chat tab, none on the same line in the
+	-- game's Olympus chat tab): the game's chat windows show the Chat tab's marks.
+	test("1.1.2 the game's chat windows: each Olympus line carries the mark its Chat tab header shows (crown, High Council, silver, bronze, star, none)", function()
+		WithWindow(function(w)
+			local saved = { byName = ns.Roster.byName, rankName = GuildControlGetRankName, loginAt = ns.Comm.loginAt, tex = C_Texture,
+				masked = ns.CouncilMasked, borders = ns.Borders }
+			local ok, err = pcall(function()
+				local bns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
+				assert(loadfile(ADDON_DIR .. "Borders.lua"))("Olympus", bns)
+				ns.Borders = bns.Borders
+				ns.rdb.council = { names = { ["sage owl"] = true } } -- (made-up names only)
+				ns.Roster.byName = { ["Raider Guy-Realm"] = 2, ["Vet Guy-Realm"] = 3, ["Plain Guy-Realm"] = 4 }
+				GuildControlGetRankName = function(i) return ({ "Master", "Officer", "Raider", "Veteran", "Member" })[i] end
+				ns.Comm.loginAt = ns.Now() - ns.Data.CROWN_AFTER - 1
+				ns.rdb.guilds["Olympus Zeus"] = Vouched({ guild = "Olympus Zeus", leader = "Zeusy", officers = {}, realm = "Realm", t = ns.Now() }, "W1-Realm", "W2-Realm")
+				C_Texture = nil
+				local CROWN = "|T" .. ns.CROWN_ICON .. ":14:14|t"
+				local SILVER = "|A:nameplates-icon-elite-silver:14:14|a"
+				local BRONZE = "|A:nameplates-icon-elite-gold:14:14:0:0:158:118:86|a"
+				local STAR = "|TInterface\\AddOns\\Olympus\\media\\borders\\star:14:14|t"
+				local cases = {
+					{ "Asmongold Asmongler-Realm", "Olympus", CROWN, "the King's crown" },
+					{ "Sage Owl-Realm", "Olympus II", ns.HIGH_COUNCIL_MARK, "the High Council's mark" },
+					{ "Zeusy-Realm", "Olympus Zeus", SILVER, "a Lord: silver" },
+					{ "Raider Guy-Realm", "Olympus II", BRONZE, "a Raider: bronze" },
+					{ "Vet Guy-Realm", "Olympus II", BRONZE, "a Veteran: bronze" },
+					{ "Plain Guy-Realm", "Olympus II", STAR, "a member: the star" },
+				}
+				for _, c in ipairs(cases) do
+					local who, guild, mark, what = c[1], c[2], c[3], c[4]
+					local line = ns.Channels.FormatLine("A", who, guild, "PA", "hello")
+					local bare = ns.Channels.FormatLine("A", who, guild, "PA", "hello", true)
+					assert(line:find("|h[" .. mark, 1, true), what .. ", right before the name: " .. line)
+					assert(bare:find("|h[" .. mark, 1, true), what .. " in the Olympus tab: " .. bare)
+					eq(ns.Borders.ChatMark(who, guild), line:match("|h%[(.-)|c") or line:match("|h%[(.-)" .. ns.DisplayName(who)), what .. ": the Chat tab's mark")
+				end
+				assert(not ns.Channels.FormatLine("A", "Sage Owl-Realm", "Olympus II", nil, "hi"):find(SILVER, 1, true), "the council's mark, not silver")
+				-- Nobody our roster or a census proves: no mark, as in the Chat tab.
+				local line = ns.Channels.FormatLine("A", "Stranger-Realm", "Olympus II", "PA", "hello")
+				assert(not line:find("|A:", 1, true) and not line:find(STAR, 1, true) and not line:find(ns.CROWN_ICON, 1, true), "no mark: " .. line)
+				-- An atlas the client does not know: the star, as the Chat tab.
+				C_Texture = { GetAtlasInfo = function() return nil end }
+				assert(ns.Channels.FormatLine("A", "Zeusy-Realm", "Olympus Zeus", nil, "x"):find("|h[" .. STAR, 1, true))
+				C_Texture = nil
+				-- The King's screen while the councillors' names are hidden: no council mark or colour.
+				ns.CouncilMasked = function() return true end
+				line = ns.Channels.FormatLine("A", "Sage Owl-Realm", "Olympus II", nil, "hi")
+				assert(not line:find(ns.HIGH_COUNCIL_MARK, 1, true) and not line:find(ns.HIGH_COUNCIL_COLOR, 1, true), line)
+				ns.CouncilMasked = saved.masked
+				-- Without Borders.lua (a client updated without a restart): the council's mark alone, as before.
+				ns.Borders = nil
+				assert(ns.Channels.FormatLine("A", "Sage Owl-Realm", "Olympus II", nil, "hi"):find("|h[" .. ns.HIGH_COUNCIL_MARK .. "|c", 1, true))
+				assert(not ns.Channels.FormatLine("A", "Zeusy-Realm", "Olympus Zeus", nil, "x"):find("|A:", 1, true))
+			end)
+			ns.Roster.byName, GuildControlGetRankName, ns.Comm.loginAt, C_Texture = saved.byName, saved.rankName, saved.loginAt, saved.tex
+			ns.CouncilMasked, ns.Borders = saved.masked, saved.borders
+			if not ok then error(err, 0) end
+		end)
+	end)
+
 	-- (Changed on purpose, the owner's ask after trying the tab: "Enter and keep typing, Enter and keep
 	-- typing, without going back to the game's controls". With mouse and keyboard a line sent, a
 	-- refused one and a command kept leave the cursor in the box; an empty Enter, Escape and the
