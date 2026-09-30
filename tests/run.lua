@@ -44700,7 +44700,9 @@ do
 	-- The client's key bindings as a stand-in: GetBindingKey answers the keys the player bound
 	-- (k.keys; its overrides left out, as the client does unless asked), SetOverrideBindingClick and
 	-- ClearOverrideBindings keep the overrides by owner, and a call in combat lockdown is refused and
-	-- recorded (k.blocked: the client's ADDON_ACTION_BLOCKED). k.Press runs a key as the client
+	-- recorded (k.blocked: the client's ADDON_ACTION_BLOCKED). The game's "Open chat with /"
+	-- (OPENCHATSLASH) is k.slash, and GetBindingText names a key as the game shows it (k.names; the
+	-- key itself when none is given, as the client's own names do for "/"). k.Press runs a key as the client
 	-- does: into the box that has the keyboard, else its override's click, on the press and on the
 	-- release as the button registered for them (RegisterForClicks; a Button's default is the
 	-- release, LeftButtonUp).
@@ -44708,13 +44710,14 @@ do
 	do
 		local function WithKeys(fn)
 			local saved = { get = GetBindingKey, set = SetOverrideBindingClick, clear = ClearOverrideBindings,
-				combat = InCombatLockdown, reg = rawget(Widget, "RegisterForClicks") }
-			local k = { keys = { "ENTER" }, binds = {}, blocked = {}, cleared = {}, calls = 0, combat = false }
+				combat = InCombatLockdown, reg = rawget(Widget, "RegisterForClicks"), text = GetBindingText }
+			local k = { keys = { "ENTER" }, slash = { "/" }, names = {}, binds = {}, blocked = {}, cleared = {}, calls = 0, combat = false }
 			local ok, err = pcall(function()
 				GetBindingKey = function(action)
 					if action == "OPENCHAT" then return unpack(k.keys) end
-					if action == "OPENCHATSLASH" then return "/" end
+					if action == "OPENCHATSLASH" then return unpack(k.slash) end
 				end
+				GetBindingText = function(key) return k.names[key] or key end
 				InCombatLockdown = function() return k.combat end
 				SetOverrideBindingClick = function(owner, priority, key, name, button)
 					k.calls = k.calls + 1
@@ -44755,7 +44758,7 @@ do
 				fn(k)
 			end)
 			GetBindingKey, SetOverrideBindingClick, ClearOverrideBindings, InCombatLockdown = saved.get, saved.set, saved.clear, saved.combat
-			Widget.RegisterForClicks = saved.reg
+			Widget.RegisterForClicks, GetBindingText = saved.reg, saved.text
 			if not ok then error(err, 0) end
 		end
 		local function Focused(eb) return eb.focused == true end
@@ -44826,8 +44829,11 @@ do
 					k.Press("ENTER", f.input)
 					k.Press("ENTER", f.input)
 					eq(Focused(f.input), false, "nothing typed in"); eq(#w.focus, 0)
+					-- (Changed on purpose, the review: the message is CHATWIN_KEY_LATER and then the player's own
+					-- key for the game's chat with /, read from the game; it was that line alone, "/" written in
+					-- it. Its words and the key's are the test after the gamepad UI's.)
 					local told = 0
-					for _, p in ipairs(w.printed) do if p == L.CHATWIN_KEY_LATER then told = told + 1 end end
+					for _, p in ipairs(w.printed) do if p:find(L.CHATWIN_KEY_LATER, 1, true) == 1 then told = told + 1 end end
 					eq(told, 1, "said once a fight: " .. table.concat(w.printed, " / "))
 					eq(k.calls, calls, "still nothing changed in combat")
 					k.combat = false
@@ -44859,7 +44865,7 @@ do
 					w.CW.Close()
 					w.printed = {}
 					k.Press("ENTER", f.input)
-					eq(w.printed[1], L.CHATWIN_KEY_LATER, "another fight: said again")
+					assert((w.printed[1] or ""):find(L.CHATWIN_KEY_LATER, 1, true) == 1, "another fight: said again")
 					k.combat = false
 					w.event("PLAYER_REGEN_ENABLED")
 					eq(k.Bound(), "")
@@ -45016,21 +45022,228 @@ do
 						w.UI.SelectTab("chat")
 						eq(k.calls, 0, "never a binding with the gamepad UI"); eq(#w.focus, 0)
 					end)
-					-- Mouse and keyboard again: bound at the next redraw. Switched to the gamepad UI with the key
-					-- bound: the key pressed types nothing and goes; a redraw takes it off too.
+					-- Mouse and keyboard again: bound at the next redraw (the switch's own event is the next test's).
 					w.CW.Render()
 					eq(k.Bound(), "ENTER")
+					-- (Changed on purpose, the review of the key: switched to the gamepad UI with the key bound,
+					-- the key pressed and a redraw took it off there, a binding changed under the gamepad UI (its
+					-- UPDATE_BINDINGS handlers run from ours). Under it now nothing but the switch itself changes a
+					-- binding: the key pressed types nothing and the binding is left to the switch.)
+					local calls = k.calls
 					WithGamepadUI(true, function()
 						k.Press("ENTER", f.input)
-						eq(Focused(f.input), false, "the key pressed: nothing typed in"); eq(k.Bound(), "", "and taken off")
-					end)
-					w.CW.Render()
-					eq(k.Bound(), "ENTER")
-					WithGamepadUI(true, function()
 						w.CW.Render()
-						eq(k.Bound(), "", "a redraw with the gamepad UI: taken off")
+						eq(Focused(f.input), false, "the key pressed: nothing typed in"); eq(k.calls, calls, "no binding call under the gamepad UI")
 					end)
 					eq(#w.focus, 0); eq(#k.blocked, 0)
+				end)
+			end)
+		end)
+
+		-- (The review of the key, its first point: switched to the gamepad UI with the key bound, Olympus
+		-- took the binding off later, under the gamepad UI (at a redraw, the tab hidden, the key pressed),
+		-- each change running the gamepad UI's UPDATE_BINDINGS handlers from ours; and back to mouse and
+		-- keyboard the key waited for a redraw. Now the switch itself (INPUT_DEVICE_INTERFACE_TRANSITION)
+		-- takes it off and puts it back; a switch in a fight waits for its end.)
+		test("1.1.1 Chat tab key review: a switch to the gamepad UI takes the key off at the switch, and under it no redraw, hiding, key press or Key Bindings change makes a binding call; back to mouse and keyboard it is bound at once; a switch in a fight waits for its end", function()
+			WithWindow(function(w)
+				WithKeys(function(k)
+					AsCaptain()
+					ns.db.addonChat = true
+					local f = w.CW.Open("A")
+					eq(k.Bound(), "ENTER")
+					WithGamepadUI(true, function()
+						w.event("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
+						eq(k.Bound(), "", "taken off at the switch")
+						local calls = k.calls
+						w.CW.Render()
+						k.Press("ENTER", f.input)
+						k.keys = { "CTRL-T" }
+						w.event("UPDATE_BINDINGS")
+						k.keys = { "ENTER" }
+						w.event("UPDATE_BINDINGS")
+						w.UI.SelectTab("census")
+						w.UI.SelectTab("chat")
+						w.CW.Close()
+						f = w.CW.Open()
+						w.CW.Render()
+						eq(k.calls, calls, "no binding call under the gamepad UI"); eq(k.Bound(), "")
+						eq(Focused(f.input), false); eq(#w.focus, 0)
+					end)
+					-- Back to mouse and keyboard with the tab open: bound at the switch, no redraw needed.
+					w.event("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
+					eq(k.Bound(), "ENTER", "bound at the switch back")
+					k.Press("ENTER", f.input)
+					eq(Focused(f.input), true, "and it types in the box")
+					f.input:Fire("OnEscapePressed")
+					-- The switch in a fight: nothing changed in it; the key comes off when it ends, and nothing
+					-- changes after that under the gamepad UI.
+					k.combat = true
+					local calls = k.calls
+					WithGamepadUI(true, function()
+						w.event("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
+						eq(k.calls, calls, "nothing changed in combat"); eq(k.Bound(), "ENTER")
+						w.printed = {}
+						k.Press("ENTER", f.input)
+						w.CW.Render()
+						eq(Focused(f.input), false, "nothing typed in"); eq(k.calls, calls, "nor a binding changed")
+						assert(Said(w, L.CHATWIN_KEY_LATER), "told the key comes back when the fight ends")
+						k.combat = false
+						w.event("PLAYER_REGEN_ENABLED")
+						eq(k.Bound(), "", "taken off when the fight ends")
+						calls = k.calls
+						w.CW.Render()
+						w.CW.Close()
+						w.CW.Open()
+						w.event("PLAYER_REGEN_ENABLED")
+						eq(k.calls, calls, "and nothing after it")
+					end)
+					-- Back to mouse and keyboard in a fight: bound when it ends, the tab open.
+					k.combat = true
+					w.event("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
+					eq(k.calls, calls); eq(k.Bound(), "")
+					k.combat = false
+					w.event("PLAYER_REGEN_ENABLED")
+					eq(k.Bound(), "ENTER", "bound when the fight ends")
+					-- The style the event names is the one switched to, whatever the game's current style still
+					-- reads at that moment (the event's newMode, as Borders.lua takes it).
+					WithGamepadUI(false, function()
+						w.event("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
+						eq(k.Bound(), "", "to the gamepad UI, as the event says")
+					end)
+					WithGamepadUI(true, function()
+						w.event("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
+						eq(k.Bound(), "ENTER", "back to mouse and keyboard, as the event says")
+					end)
+					-- A switch while the tab is closed: nothing to bind or take off.
+					w.CW.Close()
+					eq(k.Bound(), "")
+					calls = k.calls
+					WithGamepadUI(true, function() w.event("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0) end)
+					w.event("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
+					eq(k.calls, calls, "nothing to change")
+					eq(#k.blocked, 0, table.concat(k.blocked, ", "))
+				end)
+			end)
+		end)
+
+		-- (The review of the key, its second points: the fight's message said "/" opens the game's chat,
+		-- and that key can be another or none (the game's "Open chat with /", OPENCHATSLASH, in the
+		-- player's Key Bindings); and the "/" line's message gave no way to the game's box now that the
+		-- open-chat key comes back to this one. Both name the key the player bound, read from the game
+		-- (GetBindingText), and leave it out when none is bound.)
+		test("1.1.1 Chat tab key review: the fight's message and the / line's name the player's own key for the game's chat with / (Escape first, from the box), and leave it out when none is bound; with the gamepad UI the / line's is as before", function()
+			WithWindow(function(w)
+				WithKeys(function(k)
+					AsCaptain()
+					ns.db.addonChat = true
+					assert(not L.CHATWIN_KEY_LATER:find("/", 1, true), "no \"/\" written in the fight's message: " .. L.CHATWIN_KEY_LATER)
+					local function Fight()
+						local f = w.CW.Open("A")
+						k.combat = true
+						w.CW.Close()
+						w.printed = {}
+						k.Press("ENTER", f.input)
+						k.combat = false
+						w.event("PLAYER_REGEN_ENABLED")
+						eq(#w.printed, 1, table.concat(w.printed, " / "))
+						return w.printed[1]
+					end
+					eq(Fight(), L.CHATWIN_KEY_LATER .. " " .. L.CHATWIN_KEY_LATER_SLASH:format("/"), "the / key, read from the game")
+					k.slash, k.names.BUTTON4 = { "BUTTON4" }, "Mouse Button 4"
+					eq(Fight(), L.CHATWIN_KEY_LATER .. " " .. L.CHATWIN_KEY_LATER_SLASH:format("Mouse Button 4"), "another key, as the game names it")
+					k.slash = {}
+					eq(Fight(), L.CHATWIN_KEY_LATER, "none bound: nothing said of it")
+					-- The "/" line, the cursor kept in the box: Escape, then the key.
+					local f = w.CW.Open("A")
+					local eb = f.input
+					k.Press("ENTER", eb)
+					eq(Focused(eb), true)
+					k.slash = { "/" }
+					eb:SetText("/cast Fireball")
+					w.printed = {}
+					k.Press("ENTER", eb)
+					eq(w.printed[#w.printed], L.CHATWIN_NO_SLASH:format(L.CHAN_ALL) .. " " .. L.CHATWIN_SLASH_WAY:format("/"))
+					eq(eb:GetText(), "/cast Fireball"); eq(Focused(eb), true)
+					k.slash = { "BUTTON4" }
+					k.Press("ENTER", eb)
+					eq(w.printed[#w.printed], L.CHATWIN_NO_SLASH:format(L.CHAN_ALL) .. " " .. L.CHATWIN_SLASH_WAY:format("Mouse Button 4"))
+					k.slash = {}
+					k.Press("ENTER", eb)
+					eq(w.printed[#w.printed], L.CHATWIN_NO_SLASH:format(L.CHAN_ALL), "none bound: nothing said of it")
+					-- The gamepad UI: the box lets go at every Enter, as before, and the message is as before.
+					k.slash = { "/" }
+					WithGamepadUI(true, function()
+						eb.focused = true
+						k.Press("ENTER", eb)
+						eq(w.printed[#w.printed], L.CHATWIN_NO_SLASH:format(L.CHAN_ALL)); eq(Focused(eb), false)
+					end)
+					-- English and pt-BR: the key's place in each (one %s), and no "/" written in the fight's.
+					local pns = {}
+					local savedLocale = GetLocale
+					GetLocale = function() return "ptBR" end
+					local okPt, errPt = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pns) end)
+					GetLocale = savedLocale
+					if not okPt then error(errPt, 0) end
+					local pt = pns.L
+					for _, key in ipairs({ "CHATWIN_KEY_LATER", "CHATWIN_KEY_LATER_SLASH", "CHATWIN_SLASH_WAY" }) do
+						assert(type(pt[key]) == "string" and pt[key] ~= L[key], "pt-BR " .. key)
+						local n = key == "CHATWIN_KEY_LATER" and 0 or 1
+						eq(select(2, L[key]:gsub("%%s", "")), n, "English " .. key); eq(select(2, pt[key]:gsub("%%s", "")), n, "pt-BR " .. key)
+					end
+					assert(not pt.CHATWIN_KEY_LATER:find("/", 1, true), pt.CHATWIN_KEY_LATER)
+					eq(#k.blocked, 0)
+				end)
+			end)
+		end)
+
+		-- (The review of the key, a point of coverage: the interface hidden with Alt-Z (UIParent hidden,
+		-- the tab still shown in its window but not in sight) was done but never run by a test, the toolkit
+		-- passing no parent's OnHide down; the tab's is fired here as the client does. And the channels'
+		-- list open when the key is pressed.)
+		test("1.1.1 Chat tab key review: the interface hidden (Alt-Z) gives the key back to the game, shown again takes it; in a fight each waits for its end; the key closes the channels' list", function()
+			WithWindow(function(w)
+				WithKeys(function(k)
+					local ok, err = pcall(function()
+						AsCaptain()
+						ns.db.addonChat = true
+						local f = w.CW.Open("A")
+						eq(k.Bound(), "ENTER")
+						UIParent:Hide()
+						f:Fire("OnHide") -- (the client: a parent hidden hides what it holds)
+						eq(f:IsShown(), true, "(the tab still shown in its window)"); eq(f:IsVisible(), false, "(not in sight)")
+						eq(k.Bound(), "", "the key back to the game")
+						w.CW.Render()
+						eq(k.Bound(), "", "a redraw meanwhile binds nothing")
+						UIParent:Show()
+						f:Fire("OnShow")
+						eq(k.Bound(), "ENTER", "the interface back: the key again")
+						-- In a fight: nothing changed in it, each change made when it ends.
+						k.combat = true
+						local calls = k.calls
+						UIParent:Hide()
+						f:Fire("OnHide")
+						eq(k.calls, calls, "nothing changed in combat"); eq(k.Bound(), "ENTER")
+						k.combat = false
+						w.event("PLAYER_REGEN_ENABLED")
+						eq(k.Bound(), "", "given back when the fight ends")
+						k.combat = true
+						calls = k.calls
+						UIParent:Show()
+						f:Fire("OnShow")
+						eq(k.calls, calls, "nothing changed in combat"); eq(k.Bound(), "")
+						k.combat = false
+						w.event("PLAYER_REGEN_ENABLED")
+						eq(k.Bound(), "ENTER", "taken when the fight ends")
+						-- The channels' list open: the key closes it and types in the box.
+						f.switch:Click()
+						eq(f.menu:IsShown(), true, "(the channels' list)")
+						k.Press("ENTER", f.input)
+						eq(f.menu:IsShown(), false, "the key closes the list"); eq(Focused(f.input), true, "and types in the box")
+						eq(#k.blocked, 0)
+					end)
+					UIParent:Show()
+					if not ok then error(err, 0) end
 				end)
 			end)
 		end)
@@ -45101,6 +45314,9 @@ do
 				assert(doc:find("or press your open-chat key (Enter, unless you changed it) while the tab shows", 1, true), path .. ": the key")
 				assert(doc:find("the cursor stays for the next line", 1, true), path .. ": the cursor")
 				assert(not doc:find("Enter sends to the channel shown and lets the keyboard go", 1, true), path .. ": no longer lets go")
+				-- (The review of the key: the client clears a box's focus on a plain left-click alone,
+				-- Blizzard_Game/Mainline/EventImplementation.lua's ClearCurrentKeyboardFocus.)
+				assert(doc:find("Enter on an empty box, Escape or a left-click elsewhere gives the keyboard back", 1, true), path .. ": a left-click")
 			end
 		end)
 	end

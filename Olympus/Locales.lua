@@ -3745,7 +3745,11 @@ L.CHATSET_WHERE = "In your chat: %s"
 L.CHATSET_WHERE_NEXT = "(click: the next chat window)"
 L.CHATSET_WHERE_TIP = "The game's chat window its lines print in. A click moves them to the next chat window open in your game, then back to the main one, as /oly chatwindow does; nothing of the game's chat is changed. For a new window: right-click a chat tab, %s."
 L.CHATSET_TAB = "The Olympus tab of the game chat"
-L.CHATWIN_KEY_LATER = "Your chat key opens the game's chat again when this fight ends (the game lets no addon change a key in combat). Until then, / opens it."
+L.CHATWIN_KEY_LATER = "Your chat key opens the game's chat again when this fight ends (the game lets no addon change a key in combat)."
+-- (After CHATWIN_KEY_LATER and CHATWIN_NO_SLASH: %s is the key the player bound to the game's "Open
+-- chat with /", as the game names it; left out when none is bound.)
+L.CHATWIN_KEY_LATER_SLASH = "Until then, %s opens it."
+L.CHATWIN_SLASH_WAY = "Escape leaves this box; then %s opens the game's."
 if GetLocale and GetLocale() == "ptBR" then
 	L.TAB_CHAT = "Chat"
 	L.HELP_TAB_CHAT = "os chats Olympus, [Olympus], [Capitães] e [Lordes]: cada linha inteira, e uma caixa para escrever (Enter envia)."
@@ -3798,7 +3802,9 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CHATSET_WHERE_NEXT = "(clique: a próxima janela de chat)"
 	L.CHATSET_WHERE_TIP = "A janela de chat do jogo onde as linhas dele aparecem. Um clique leva para a próxima janela de chat aberta no seu jogo, e depois de volta à principal, como /oly chatwindow faz; nada do chat do jogo muda. Para uma janela nova: botão direito numa aba de chat, %s."
 	L.CHATSET_TAB = "A aba Olympus do chat do jogo"
-	L.CHATWIN_KEY_LATER = "A sua tecla de chat volta a abrir o chat do jogo quando esta luta acabar (o jogo não deixa nenhum addon mudar uma tecla em combate). Até lá, a / abre o chat."
+	L.CHATWIN_KEY_LATER = "A sua tecla de chat volta a abrir o chat do jogo quando esta luta acabar (o jogo não deixa nenhum addon mudar uma tecla em combate)."
+	L.CHATWIN_KEY_LATER_SLASH = "Até lá, %s abre o chat."
+	L.CHATWIN_SLASH_WAY = "Esc sai desta caixa; depois %s abre a do jogo."
 end
 
 ---------------------------------------------------------------------------
