@@ -457,10 +457,15 @@ end
 --   "Tab 1", "Tab 2"); TS~<guild>~0~0~ withdraws it (his no)
 -- Taken only from a Lord or Captain of that guild as our roster or its census confirms (the
 -- census can be gamed: a snapshot is its sender's word, shown with his name), kept in memory
--- alone, SISTERS_MAX guilds at most.
+-- alone, SISTERS_MAX guilds at most. A no is taken from them too, and from whoever sent the
+-- snapshot held. Konig's review of 1.1: his no reaches every viewer holding his bank, at once
+-- those heard within AUDIENCE_FRESH, the others (heard before: a viewer asks every ASK_EVERY, which
+-- is longer, or before a /reload of ours) at their next ask, once a session, for as long as it
+-- stands: a character whose snapshot went out is remembered (ns.db.sisterBankSent).
 Bank.SISTERS_MAX = 20
 local sisters, sisterCount = {}, 0   -- [guild, lower case] = { guild, by, t, money, tabs, heard }
 local sisterHeard = {}               -- [Name-Realm] = when the King, a Steward or a Hand asked
+local sisterNoTold = {}              -- [Name-Realm] = true: he holds nothing of ours (told our no, or asked afresh)
 local sisterAsked = false
 
 -- The King, his Steward, his Hands: who may see them (their names, which the server stamps).
@@ -495,6 +500,23 @@ function Bank.SisterConsent()
 	return t[SisterKey()]
 end
 
+-- This character's snapshot went out (`guild`'s), or the guild it last went out of (nil: never).
+local function MarkSent(guild)
+	if not ns.db or type(guild) ~= "string" or guild == "" then return end
+	ns.db.sisterBankSent = type(ns.db.sisterBankSent) == "table" and ns.db.sisterBankSent or {}
+	ns.db.sisterBankSent[SisterKey()] = guild
+end
+local function SentGuild()
+	local t = ns.db and ns.db.sisterBankSent
+	local g = type(t) == "table" and t[SisterKey()]
+	return type(g) == "string" and g ~= "" and g or nil
+end
+-- Our no, whispered to one viewer.
+local function TellNo(name, guild)
+	sisterNoTold[ns.FullName(name)] = true
+	ns.Comm.Whisper(name, ("TS~%s~0~0~"):format(Clean(guild, 40)), "sisterbank " .. name)
+end
+
 -- Our own guild's snapshot as it is whispered (TS), with his yes; nil otherwise.
 function Bank.SisterMessage()
 	if not Bank.SisterTreasurer() or Bank.SisterConsent() ~= true then return nil end
@@ -512,16 +534,26 @@ function Bank.ShareSister()
 	for name, t in pairs(sisterHeard) do
 		if now - t <= ns.Treasury.AUDIENCE_FRESH and SisterViewer(name) and ns.Treasury.Private(name, "TS", msg) then n = n + 1 end
 	end
+	if n > 0 then MarkSent(GetGuildInfo("player")) end
 	return n
 end
 
 -- The King, a Steward or a Hand asked (TA): our guild's bank goes to him (fresh: he holds none).
+-- While our no stands, after our snapshot went out: the no, once a session (Konig's review of 1.1).
 function Bank.HeardAsk(sender, fresh)
 	if not SisterViewer(sender) then return end
-	sisterHeard[ns.FullName(sender)] = ns.Now()
+	local name = ns.FullName(sender)
+	sisterHeard[name] = ns.Now()
 	if fresh then ns.Treasury.ForgetSent(sender, "TS") end
+	if Bank.SisterConsent() == false then
+		local guild = SentGuild()
+		if guild and not sisterNoTold[name] then
+			if fresh then sisterNoTold[name] = true else TellNo(sender, guild) end
+		end
+		return
+	end
 	local msg = Bank.SisterMessage()
-	if msg then ns.Treasury.Private(sender, "TS", msg) end
+	if msg and ns.Treasury.Private(sender, "TS", msg) then MarkSent(GetGuildInfo("player")) end
 end
 function Bank.NotFound(Is) for name in pairs(sisterHeard) do if Is(name) then sisterHeard[name] = nil end end end
 
@@ -530,11 +562,15 @@ function Bank.SetSisterConsent(on)
 	ns.db.sisterBankShares = type(ns.db.sisterBankShares) == "table" and ns.db.sisterBankShares or {}
 	ns.db.sisterBankShares[SisterKey()] = on and true or false
 	ns.Print(on and L.BANK_SISTER_ON or L.BANK_SISTER_OFF)
-	if on then return Bank.ShareSister() end
-	-- His no: taken back from the screens it reached (the ones his addon whispered).
-	local guild, now = GetGuildInfo("player"), ns.Now()
+	if on then
+		wipe(sisterNoTold) -- (a later no goes to every viewer again)
+		return Bank.ShareSister()
+	end
+	-- His no: taken back from the screens it reached, at once from those heard lately, from the
+	-- others at their next ask (HeardAsk).
+	local guild, now = SentGuild() or GetGuildInfo("player"), ns.Now()
 	for name, t in pairs(sisterHeard) do
-		if now - t <= ns.Treasury.AUDIENCE_FRESH then ns.Comm.Whisper(name, ("TS~%s~0~0~"):format(Clean(guild, 40)), "sisterbank " .. name) end
+		if now - t <= ns.Treasury.AUDIENCE_FRESH then TellNo(name, guild) end
 		ns.Treasury.ForgetSent(name, "TS")
 	end
 end
@@ -568,9 +604,12 @@ function Bank.HandleSister(dist, sender, text)
 	if dist ~= "WHISPER" or type(text) ~= "string" or not Bank.SeesSisters() then return end
 	local guild, when, money, rest = text:match("^TS~([^~]*)~(%d+)~(%d+)~?(.*)$")
 	guild = guild and ns.King.CleanGuild(guild)
-	if not guild or ns.IsKingGuild(guild) or not Bank.LordOrCaptain(sender, guild) then return end
+	if not guild or ns.IsKingGuild(guild) then return end
 	local key, now = guild:lower(), ns.Now()
 	when = tonumber(when)
+	-- (A no from whoever sent the snapshot held counts, whatever the census says of him now.)
+	local own = when == 0 and sisters[key] and ns.Treasury.SameChar(sisters[key].by, ns.FullName(sender))
+	if not own and not Bank.LordOrCaptain(sender, guild) then return end
 	if when == 0 then
 		if sisters[key] then sisters[key], sisterCount = nil, sisterCount - 1 end
 		ns.Fire("TREASURY_CHANGED")
@@ -1057,7 +1096,7 @@ function Bank.Reset()
 	open, readPending, lastShare, lastSent = false, false, -math.huge, nil
 	firstChange, lastChange, sharePending, openedAt = 0, 0, false, -math.huge
 	wipe(queried)
-	wipe(sisters); wipe(sisterHeard)
+	wipe(sisters); wipe(sisterHeard); wipe(sisterNoTold)
 	sisterCount, sisterAsked = 0, false
 	wipe(lastAsked); wipe(publicLists)
 	lastPublic = nil

@@ -37794,6 +37794,86 @@ do
 			end
 		end)
 	end)
+
+	test("1.1 Konig's review: a sister guild's no reaches every viewer holding its bank, one heard too long ago at his next ask, once, after a /reload of its sender too", function()
+		WithStewards(function(w, K)
+			local T, B = ns.Treasury, ns.Bank
+			local saved = { after = ns.After, shares = ns.db.sisterBankShares, sent = ns.db.sisterBankSent, zeus = ns.rdb.guilds["Olympus Zeus"] }
+			local ok, err = pcall(function()
+				local After, Run = Queued()
+				ns.After = After
+				ns.db.sisterBankShares, ns.db.sisterBankSent = nil, nil
+				-- The Lord of Olympus Zeus (the census confirms him) says yes; the King's addon asks after its login.
+				AsLord()
+				ns.rdb.bank = { t = w.clock, guild = "Olympus Zeus", by = ns.me, money = 424242,
+					tabs = { { i = 1, name = "Stash", items = { { id = 2589, n = 60, s = 1 } } } } }
+				B.SetSisterConsent(true)
+				w.whispered = {}
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~0"); Run()
+				local pieces = {}
+				for _, x in ipairs(w.whispered) do eq(x.to, KING); pieces[#pieces + 1] = x.msg end
+				assert(#pieces > 0, "whispered to the King")
+				local function Holds()
+					-- (The census as its reporters say it now: reports count 30 minutes.)
+					ns.rdb.guilds["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", realm = "Realm" }, "W3-Realm", "W4-Realm")
+					AsKing()
+					for _, m in ipairs(pieces) do T.HandlePrivate("WHISPER", "Zed-Realm", m) end
+					eq(#B.Sisters(), 1, "the King holds it")
+				end
+				Holds()
+				-- 12 minutes later (his addon asks every 15), the Lord says no: the King was heard too
+				-- long ago for it to go at once.
+				AsLord()
+				w.clock = w.clock + T.AUDIENCE_FRESH + 60
+				w.whispered = {}
+				B.SetSisterConsent(false)
+				eq(#w.whispered, 0, "not heard lately: nothing at once")
+				-- His next ask: the no, and the bank leaves his screen.
+				w.clock = w.clock + (T.ASK_EVERY - T.AUDIENCE_FRESH)
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+				eq(#w.whispered, 1, "the no"); eq(w.whispered[1].to, KING); eq(w.whispered[1].msg, "TS~Olympus Zeus~0~0~")
+				AsKing(); B.HandleSister("WHISPER", "Zed-Realm", w.whispered[1].msg)
+				eq(#B.Sisters(), 0, "withdrawn")
+				-- Once a session: his asks after that cost nothing; a Hand's addon asking afresh (after its
+				-- login: it holds nothing) is not told either.
+				AsLord(); w.clock = w.clock + T.ASK_EVERY
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+				eq(#w.whispered, 1, "told once")
+				AsKing(); K.AddHand("Helper"); K.SendHands(true); local hands = LastSent(w)
+				AsLord(); K.HandleCommand("CHANNEL", KING, hands)
+				T.HandleAsk("CHANNEL", "Helper-Realm", "TA~Olympus II~0"); Run()
+				eq(#w.whispered, 1, "a fresh ask holds nothing")
+				-- The Lord's addon reloads (its session's memory gone) while the King still holds his bank
+				-- (sent before the no): remembered, the King's next ask gets the no.
+				B.Reset(); Holds()
+				AsLord(); w.whispered = {}
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+				eq(#w.whispered, 1, "told after the reload"); eq(w.whispered[1].msg, "TS~Olympus Zeus~0~0~")
+				-- The census no longer names him Lord (his guild's reports stopped): his no still counts, from
+				-- the one whose snapshot the King holds; nobody else's does.
+				ns.rdb.guilds["Olympus Zeus"] = nil
+				AsKing()
+				B.HandleSister("WHISPER", "Faker Guy-Realm", w.whispered[1].msg)
+				eq(#B.Sisters(), 1, "not from anyone")
+				B.HandleSister("WHISPER", "Zed-Realm", w.whispered[1].msg)
+				eq(#B.Sisters(), 0, "his own no")
+				-- An officer who said no and never shared: nothing whispered, ever.
+				B.Reset()
+				AsCaptain(); ns.db.sisterBankShares = { ["cap-realm"] = false }
+				w.whispered = {}
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+				eq(#w.whispered, 0, "never shared: nothing to take back")
+				-- Both pages say how the no travels.
+				for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+					local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+					assert(doc:find("from the others at their next ask", 1, true), path)
+				end
+			end)
+			ns.After, ns.db.sisterBankShares, ns.db.sisterBankSent, ns.rdb.guilds["Olympus Zeus"] = saved.after, saved.shares, saved.sent, saved.zeus
+			ns.Bank.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end)
 end
 
 print(("\n%d passed, %d failed"):format(passed, failed))

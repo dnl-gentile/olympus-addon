@@ -706,7 +706,11 @@ alone until then).
   his Hands when their addon asks, never on the Olympus channel. Their addon takes it only from
   a Lord or Captain of that guild as the census confirms (a snapshot is its sender's word), keeps
   it until logout, and shows it on the Treasury tab under **Sister guilds' banks** (a Hand's tab
-  appears for it), its items in the search too.
+  appears for it), its items in the search too. His no takes it back from their screens: at once
+  from those whose addon asked in the last few minutes, from the others at their next ask (every
+  15 minutes), once each, even after a `/reload` of his, for as long as his no stands (Konig's
+  review: one who asked before could keep it all session); it counts from him even when the census
+  no longer names him.
 - **Sent by each keeper's addon by itself** (every 5 minutes and after a change), once he said
   yes: his book's balance, totals, ranking, items donated and latest lines (1.1: never a line of
   gold given to the Treasurer's characters, see the dues below). On the Olympus
