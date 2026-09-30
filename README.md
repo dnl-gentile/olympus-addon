@@ -867,8 +867,12 @@ your guild keep it (on the Realm tab, or `/oly loot`).
   addon asks again after each until its book is whole, however large. One officer's addon answers
   each ask, and only an officer's addon that holds that part of the book whole itself (the first
   officer online takes his own as the guild's). Each addon takes a change only from a sender its
-  own roster ranks an officer. Kept per guild in your saved variables (on the Forever beta, which
-  forgets them at every login, the book comes back from the officers online).
+  own roster ranks an officer. A note is its writer's: nobody changes its words afterwards (any
+  officer can remove it), and a points change names the officer who made it. An officer's answer
+  passes on another officer's change only from before your session began (the later ones reached
+  you from whoever made them), and a note's writer's own copy replaces one another officer passed
+  on. Kept per guild in your saved variables (on the Forever beta, which forgets them at every
+  login, the book comes back from the officers online).
 
 ### Crafters' board (1.1)
 "Who can make this?" is a chat scroll: the **Crafters** page of the Realm tab turns it into one

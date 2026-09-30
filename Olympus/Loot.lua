@@ -26,8 +26,11 @@ local L = ns.L
 --   N~<writer>~<id>~<written>~<changed>~<item id>~<1: removed>~<to whom>~<words>
 --   P~<member>~<points, or nothing: cleared>~<changed>~<officer>
 -- (times in base 36, the server's clock). A reader takes a change only from an officer of its own
--- roster, only newer than what it holds. Kept per guild in the saved variables; on the Forever
--- beta, which forgets them at every login, the book comes back from the officers online.
+-- roster, only newer than what it holds. A note is its writer's (never rewritten, only removed, by
+-- any officer), a points change its officer's ("by"): an X1 carries its sender's own, and an XB
+-- another officer's only from before the reader's session began (Take). Kept per guild in the
+-- saved variables; on the Forever beta, which forgets them at every login, the book comes back
+-- from the officers online.
 -- (1.1 review: the types were J1, JQ and JB, which the census's route ask took too; see Comm.lua.)
 --
 -- Which changes an addon holds whole is kept apart from the changes themselves (Whole): ranges of
@@ -171,19 +174,32 @@ local function PointsEntry(member, p)
 end
 
 -- An entry heard from `sender` (an officer), taken into the book when newer than ours: true then.
--- live: an officer's own change (X1): a new note must be his own.
-local function Take(b, entry, sender, live)
+-- live: an officer's own change (X1): a new note, and a points change's "by", must be his own.
+-- Otherwise (an answer or a push, XB) it may pass on another officer's change: only one made
+-- before `from`, the start of this session (one made since reached us from him, live), and never
+-- one that rewrites a note (Konig's review of 1.1: an answer could put words in another officer's
+-- note, or his name on a points change). A note is written once: after that only its removal
+-- changes it (any officer's), save that its writer's own copy replaces one a relay gave us.
+local function Take(b, entry, sender, live, from)
 	local now = ServerNow()
+	local s = ns.FullName(sender)
 	if entry:sub(1, 2) == "N~" then
 		local writer, id, t, rev, item, del, to, text = entry:match("^N~([^~]+)~([0-9a-z]+)~([0-9a-z]+)~([0-9a-z]+)~(%d*)~(1?)~([^~]*)~([^~]*)$")
 		writer, t, rev = NameField(writer), UnB36(t), UnB36(rev)
 		if not writer or not t or not rev or #id > 10 or rev < t or rev > now + 3600 or #item > 9 then return false end
 		if #to > Loot.TO_MAX or #text > Loot.TEXT_MAX then return false end
 		if del ~= "1" and text == "" then return false end
-		if live and del ~= "1" and ns.FullName(writer) ~= ns.FullName(sender) then return false end
+		local own = ns.FullName(writer) == s
+		if del ~= "1" and not own and (live or (from and rev >= from)) then return false end
 		local key = ns.FullName(writer) .. "#" .. id
 		local old = b.notes[key]
-		if type(old) == "table" and (old.rev or 0) >= rev then return false end
+		if type(old) == "table" then
+			if del ~= "1" then
+				if old.del or not own or old.by == old.writer then return false end
+			elseif (old.rev or 0) >= rev then
+				return false
+			end
+		end
 		if del == "1" then
 			b.notes[key] = { writer = ns.FullName(writer), id = id, t = t, rev = rev, del = true, item = tonumber(item), by = ns.FullName(sender) }
 		else
@@ -196,10 +212,12 @@ local function Take(b, entry, sender, live)
 		member, rev = NameField(member), UnB36(rev)
 		local v = value ~= "" and tonumber(value) or nil
 		if not member or not rev or rev > now + 3600 or (value ~= "" and (not v or math.abs(v) > Loot.POINTS_LIMIT)) then return false end
+		by = NameField(by) and ns.FullName(by) or s
+		if by ~= s and (live or (from and rev >= from)) then return false end
 		local key = ns.FullName(member)
 		local old = b.points[key]
 		if type(old) == "table" and (old.rev or 0) >= rev then return false end
-		b.points[key] = { v = v, rev = rev, by = NameField(by) and ns.FullName(by) or ns.FullName(sender) }
+		b.points[key] = { v = v, rev = rev, by = by }
 		return true
 	end
 	return false
@@ -651,7 +669,7 @@ end
 -- says it holds whole is ours whole too then.
 function Loot.HandleBook(dist, sender, text)
 	if dist ~= "GUILD" or type(text) ~= "string" or not SenderOfficer(sender) then return end
-	local b = Book()
+	local b, live = Book()
 	local body = b and text:match("^XB~(.+)$")
 	local head = body and Head(body:match("^[^%^]*"))
 	if not head then return end
@@ -661,7 +679,7 @@ function Loot.HandleBook(dist, sender, text)
 	for entry in body:gmatch("[^%^]+") do
 		seen[entry] = true
 		if pushing then pushing[entry] = nil end
-		if Take(b, entry, sender, false) then changed = true end
+		if Take(b, entry, sender, false, live) then changed = true end
 	end
 	for _, kind in ipairs(STREAMS) do
 		local h = head[kind]

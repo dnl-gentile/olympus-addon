@@ -37830,6 +37830,66 @@ do
 			assert(doc:find("the Olympus chats and your patrols' findings to your\nguild's officers (officers only)", 1, true), file .. ": the first-open page")
 		end
 	end)
+
+	-- Follow-up: "loot notes rewritable": the writer's own note and the "by" of a points change hold
+	-- for answers and pushes (XB) too, not only live (X1).
+	test("1.1 Konig's review: a loot note stays its writer's and a points change its officer's, in officers' answers too", function()
+		local Lt, B36 = ns.Loot, ns.Codec.Base36
+		local saved = { guild = GetGuildInfo, time = GetServerTime, byName = ns.Roster.byName, loot = ns.rdb.loot, fire = ns.Fire }
+		local base = 1790000000
+		local function Answer(entries) return "XB~S~0~0~0~0~0~0^" .. table.concat(entries, "^") end
+		local ok, err = pcall(function()
+			ns.rdb.loot = nil
+			Lt.Reset()
+			GetGuildInfo = function(unit) if unit == nil or unit == "player" then return "Olympus II", "Member", 3 end return nil end
+			GetServerTime = function() return base end
+			ns.Fire = function() end
+			ns.Roster.byName = { ["Offi-Realm"] = 1, ["Rival-Realm"] = 1, ["Bob-Realm"] = 3, ["Ann Smith-Realm"] = 3 }
+			Lt.Book() -- (a member's session starts: from here on it hears each change as it is made)
+			local old1, old2, later = B36(base - 1000), B36(base - 500), B36(base + 60)
+			local function Note(key) return Lt.Book().notes[key] end
+			-- Offi's note of last week, from his own answer.
+			Lt.HandleBook("GUILD", "Offi-Realm", Answer({ ("N~Offi-Realm~a1~%s~%s~16830~~Ann Smith~Ann gets the belt"):format(old1, old1) }))
+			eq(Note("Offi-Realm#a1").text, "Ann gets the belt")
+			-- Another officer's answer puts other words in it (a newer change time): a note is written once.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~a1~%s~%s~16830~~Bob Rival~Bob gets the belt"):format(old1, old2) }))
+			eq(Note("Offi-Realm#a1").text, "Ann gets the belt", "his words stay"); eq(Note("Offi-Realm#a1").to, "Ann Smith")
+			-- A new note in Offi's name made this session, in Rival's answer: it would have come from Offi, live.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~b1~%s~%s~~~~Offi says Bob"):format(later, later) }))
+			eq(Note("Offi-Realm#b1"), nil, "not in his name")
+			-- A points change in Offi's name from Rival, live or in an answer made this session: refused.
+			Lt.HandleLive("GUILD", "Rival-Realm", "X1~P~Bob-Realm~50~" .. later .. "~Offi-Realm")
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ "P~Bob-Realm~50~" .. later .. "~Offi-Realm" }))
+			eq(Lt.Book().points["Bob-Realm"], nil, "never claimed in his name")
+			-- Rival's own, in his own name: taken.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ "P~Bob-Realm~7~" .. later .. "~Rival-Realm" }))
+			eq(Lt.Book().points["Bob-Realm"].v, 7); eq(Lt.Book().points["Bob-Realm"].by, "Rival-Realm")
+			-- Changes from before this session (it could have missed them) still come back in any officer's answer.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~c1~%s~%s~~~~Last week's decision"):format(old1, old1),
+				"P~Ann Smith-Realm~3~" .. old1 .. "~Offi-Realm" }))
+			eq(Note("Offi-Realm#c1").text, "Last week's decision"); eq(Lt.Book().points["Ann Smith-Realm"].by, "Offi-Realm")
+			-- A relay's copy that differs from its writer's (nothing tells them apart): his own copy replaces it, and holds.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~d1~%s~%s~~~~Forged words"):format(old1, old2) }))
+			Lt.HandleBook("GUILD", "Offi-Realm", Answer({ ("N~Offi-Realm~d1~%s~%s~~~~His words"):format(old1, old1) }))
+			eq(Note("Offi-Realm#d1").text, "His words")
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~d1~%s~%s~~~~Forged again"):format(old1, B36(base - 10)) }))
+			eq(Note("Offi-Realm#d1").text, "His words")
+			-- Any officer still removes a note, and Offi's own change this session comes live, his name on it.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~a1~%s~%s~16830~1~~"):format(old1, later) }))
+			eq(Note("Offi-Realm#a1").del, true)
+			Lt.HandleLive("GUILD", "Offi-Realm", "X1~P~Bob-Realm~12~" .. B36(base + 90) .. "~Offi-Realm")
+			eq(Lt.Book().points["Bob-Realm"].v, 12); eq(Lt.Book().points["Bob-Realm"].by, "Offi-Realm")
+		end)
+		GetGuildInfo, GetServerTime, ns.Roster.byName, ns.rdb.loot, ns.Fire = saved.guild, saved.time, saved.byName, saved.loot, saved.fire
+		Lt.Reset()
+		if not ok then error(err, 0) end
+		for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local f = assert(io.open(ROOT .. file))
+			local doc = f:read("*a")
+			f:close()
+			assert(doc:find("A note is its writer's: nobody changes its words afterwards", 1, true), file .. ": the loot notes")
+		end
+	end)
 end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
