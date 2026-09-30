@@ -69,6 +69,7 @@ local notes = {}             -- tier -> { { why, text } }: lines that were not s
 local revealed = setmetatable({}, { __mode = "k" }) -- history entry -> shown despite the block terms
 local stick, newCount = true, 0 -- the view follows the newest line; lines come while it doesn't
 local lastAt = 0             -- the offset the view had last
+local want                   -- scrolled up: the offset that keeps the line read in its place
 local quiet = false          -- our own scrolling: not the player's
 local acc = 0
 local tipOwner
@@ -196,23 +197,34 @@ local function ToBottom()
 end
 
 local function ScrollToBottom()
-	stick, newCount = true, 0
+	stick, newCount, want = true, 0, nil
 	if not frame then return end
 	ToBottom()
 	ShowNew()
 end
 
--- The range measured again: at its end while the view follows.
+-- The range measured again: at its end while the view follows; scrolled up, where the line read
+-- stays in its place (Render's anchor, as far as the new range reaches).
 local function Held()
-	if not frame or not stick then return end
+	if not frame then return end
 	local s = frame.scroll
-	Quietly(function() s:SetVerticalScroll(s:GetVerticalScrollRange() or 0) end)
+	local range = s:GetVerticalScrollRange() or 0
+	local to
+	if stick then
+		to = range
+	elseif want then
+		to = math.min(want, range)
+	else
+		return
+	end
+	Quietly(function() s:SetVerticalScroll(to) end)
 	lastAt = s:GetVerticalScroll() or 0
 end
 
 -- The player scrolled: at the end it follows again; up from where it was, it stays where he put it.
 local function Scrolled()
 	if quiet or not frame then return end
+	want = nil -- (his offset now, not the one a redraw worked out)
 	local s = frame.scroll
 	local range, at = s:GetVerticalScrollRange() or 0, s:GetVerticalScroll() or 0
 	if range - at <= STICK_SLACK then
@@ -224,9 +236,43 @@ local function Scrolled()
 	ShowNew()
 end
 
+-- Scrolled up, the view is held by the lines it shows, not by pixels: at a channel's 100 lines
+-- each new one drops the oldest (Channels' AddHistory), everything under it moves up by that
+-- bubble, and an offset kept as it was would show other lines. Before a redraw: the bubbles from
+-- the one at the view's top down, each with how far it sat from the view's top.
+local function InView()
+	local at = frame.scroll:GetVerticalScroll() or 0
+	local out = {}
+	for _, b in ipairs(frame.bubbles) do
+		if b:IsShown() and b.entry and b.y and (#out > 0 or b.y + (b:GetHeight() or 0) > at) then
+			out[#out + 1] = { entry = b.entry, delta = b.y - at }
+		end
+	end
+	return out
+end
+
+-- After it: the first of them still drawn back where it was (the one read dropped: the next
+-- one's place); none left, the top.
+local function BackInView(was)
+	local at = {}
+	for _, b in ipairs(frame.bubbles) do
+		if b:IsShown() and b.entry and b.y then at[b.entry] = b.y end
+	end
+	want = 0
+	for _, v in ipairs(was) do
+		if at[v.entry] then
+			want = math.max(0, at[v.entry] - v.delta)
+			break
+		end
+	end
+	local s = frame.scroll
+	Quietly(function() s:SetVerticalScroll(want) end)
+	lastAt = s:GetVerticalScroll() or 0
+end
+
 ---------------------------------------------------------------------------
--- A name's header: one mark, the name, a tag, the guild (the same facts and trust rules as the
--- elite borders and nameplate marks: Borders.MarkOfName).
+-- A name's header: one mark, the name, a tag, the guild (Borders.MarkOfName: the elite borders'
+-- and nameplate marks' rules, and a mark only where the guild the line names is proven).
 ---------------------------------------------------------------------------
 
 local function AtlasMark(atlas, tint)
@@ -402,8 +448,15 @@ local function Hint()
 	eb.hint:SetShown(empty and not focused)
 end
 
--- A line that was not sent, back in the box (the keyboard stays where it is: no focus).
+-- A line that was not sent, back in the box (the keyboard stays where it is: no focus). Only into
+-- an empty box: what the player is writing is never replaced; the note stays, and he is told.
 local function PutBack(t, note)
+	local eb = frame and frame.input
+	if not eb or not eb:IsShown() then return end
+	if Trim(eb:GetText()) ~= "" then
+		ns.Print(L.CHATWIN_PUT_BACK_BUSY)
+		return
+	end
 	local list = notes[t]
 	if list then
 		for i, n in ipairs(list) do
@@ -411,11 +464,16 @@ local function PutBack(t, note)
 		end
 		if #list == 0 then notes[t] = nil end
 	end
-	if frame and frame.input:IsShown() then
-		frame.input:SetText(note.text)
-		Hint()
-	end
+	eb:SetText(note.text)
+	Hint()
 	Render()
+end
+
+-- A line this character wrote: sent from here (mine) under this name. The history is the realm
+-- group's, shared by every character of the account (ns.rdb): a line another character of it
+-- sent shows as that character's, with his name, guild and whisper, on the left.
+local function Own(e)
+	return e.mine and ns.Channels.IsMe(e.sender) and true or false
 end
 
 -- One line of the history in its bubble. Returns its height.
@@ -423,9 +481,9 @@ local function Bubble(i, e, start, y, maxInner, hides)
 	local bubbles = frame.bubbles
 	local b = bubbles[i] or NewBubble()
 	bubbles[i] = b
-	local mine = e.mine and true or false
+	local mine = Own(e)
 	local hidden = not mine and not revealed[e] and hides ~= nil and hides(e.text or "") or false
-	b.entry, b.hidden, b.mine = e, hidden, mine
+	b.entry, b.hidden, b.mine, b.y = e, hidden, mine, y
 	local c = Colour(tier)
 	local r, g, bl, a = 0.09, 0.09, 0.11, 0.92
 	if mine then r, g, bl, a = c[1] * 0.28, c[2] * 0.28, c[3] * 0.28, 0.95 end
@@ -508,7 +566,7 @@ local function DrawLines()
 			prevDay = day
 		end
 		local start = newDay or not prev or ns.FullName(prev.sender) ~= ns.FullName(e.sender)
-			or (prev.mine and true or false) ~= (e.mine and true or false) or t - (tonumber(prev.t) or 0) > GROUP_TIME
+			or Own(prev) ~= Own(e) or t - (tonumber(prev.t) or 0) > GROUP_TIME
 		if prev and not newDay then y = y + (start and GAP_OUT or GAP_IN) end
 		nb = nb + 1
 		y = y + Bubble(nb, e, start, y, maxInner, hides)
@@ -523,7 +581,7 @@ local function DrawLines()
 		y = y + Row(nr, Grey(L.CHATWIN_NOT_SENT:format(L[key]) .. " " .. L.CHATWIN_PUT_BACK), y, width, function() PutBack(t, note) end)
 	end
 	y = y + 8
-	for i = nb + 1, #frame.bubbles do frame.bubbles[i]:Hide(); frame.bubbles[i].entry = nil end
+	for i = nb + 1, #frame.bubbles do frame.bubbles[i]:Hide(); frame.bubbles[i].entry, frame.bubbles[i].y = nil, nil end
 	for i = nr + 1, #frame.rows do frame.rows[i]:Hide(); frame.rows[i].onClick = nil end
 	frame.content:SetHeight(math.max(1, y))
 end
@@ -661,8 +719,16 @@ function ChatWindow.Render()
 		return
 	end
 	DrawInput()
+	local was = not stick and InView() or nil
 	DrawLines()
-	if stick then ToBottom() end
+	if stick then
+		want = nil
+		ToBottom()
+	elseif was and #was > 0 then
+		BackInView(was)
+	else
+		want = nil -- (no line in view: the offset stays as the player left it)
+	end
 	ShowNew()
 end
 
@@ -708,7 +774,8 @@ local function Submit()
 		-- This box runs no command and never hands one to the game: the text stays, nothing is sent.
 		ns.Print(L.CHATWIN_NO_SLASH:format(Label(tier)))
 	else
-		local ok, why = ns.Channels.Send(tier, text)
+		-- keepMute: a channel muted in chat stays muted there (this window shows it all the same).
+		local ok, why = ns.Channels.Send(tier, text, nil, true)
 		-- Sent, or held by the privacy warning (it sends the line on the player's OK): the box
 		-- empties. Refused: the text stays (Send said why).
 		if ok or why == "confirm" then
@@ -1034,7 +1101,7 @@ function ChatWindow.Reset()
 	dirty, dataPending, lastData = false, false, -math.huge
 	unread, notes = {}, {}
 	revealed = setmetatable({}, { __mode = "k" })
-	stick, newCount, lastAt, quiet, acc = true, 0, 0, false, 0
+	stick, newCount, lastAt, quiet, acc, want = true, 0, 0, false, 0, nil
 end
 
 ---------------------------------------------------------------------------

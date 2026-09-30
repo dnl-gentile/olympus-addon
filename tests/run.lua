@@ -42157,6 +42157,27 @@ do
 				if self.name then w.log[#w.log + 1] = "show " .. self.name end
 				return orig.Show(self)
 			end,
+			-- (Review of 1.1.1) What the window's asks rest on, recorded where the toolkit made them
+			-- no-ops (each could be deleted with every test green): a bubble's links and clicks, a long
+			-- word's wrap, the resize bounds, the window kept on the screen, the box's byte cap.
+			SetHyperlinksEnabled = function(self, on) self.hyperlinks = on and true or false end,
+			SetNonSpaceWrap = function(self, on) self.nonSpaceWrap = on and true or false end,
+			EnableMouse = function(self, on) self.mouse = on and true or false end,
+			SetResizeBounds = function(self, ...) self.resizeBounds = { ... } end,
+			SetClampedToScreen = function(self, on) self.clamped = on and true or false end,
+			SetMaxBytes = function(self, n) self.maxBytes = n end,
+			-- As the client: a frame's links answer the mouse only with its hyperlinks on
+			-- (SetHyperlinksEnabled) and the mouse on (the client's own link frames that are not
+			-- chat frames set enableMouse with hyperlinksEnabled, Blizzard_CatalogShop), and its
+			-- OnMouseDown/OnMouseUp only with the mouse on. A Button or an EditBox has the mouse on
+			-- from the start, a plain Frame not (EnableMouse).
+			Fire = function(self, kind, ...)
+				local mouse = self.mouse
+				if mouse == nil then mouse = self.kind == "Button" or self.kind == "CheckButton" or self.kind == "EditBox" end
+				if type(kind) == "string" and kind:find("^OnHyperlink") and not (self.hyperlinks and mouse) then return end
+				if (kind == "OnMouseDown" or kind == "OnMouseUp") and not mouse then return end
+				return orig.Fire(self, kind, ...)
+			end,
 		}
 	end
 
@@ -42240,7 +42261,9 @@ do
 					["Vet Guy-Realm"] = 3, ["Plain Guy-Realm"] = 4 }
 				GuildControlGetRankName = function(i) return ({ "Master", "Officer", "Raider", "Veteran", "Member" })[i] end
 				eq(B.MarkOfName("Asmongold Asmongler-Realm", "OLYMPUS"), "gold", "the King by his pinned name in his guild")
-				eq(B.MarkOfName("Asmongold Asmongler-Realm", "Olympus II"), "member", "his name in another guild is not him")
+				-- (Review of 1.1.1: a name our roster lacks is not proven one of ours, so no star; it was
+				-- "member" before, from the guild the line names alone. REVIEW star below.)
+				eq(B.MarkOfName("Asmongold Asmongler-Realm", "Olympus II"), nil, "his name in another guild is not him, nor proven one of ours")
 				local mark, facts = B.MarkOfName("Sage Owl", "Olympus II")
 				eq(mark, "silver", "a High Councillor"); eq(facts.council, true); eq(facts.who, "Sage Owl-Realm", "the name made whole")
 				eq(B.MarkOfName("Guildie Master-Realm", "Olympus II"), "silver", "our guild master")
@@ -42248,13 +42271,16 @@ do
 				eq(B.MarkOfName("Raider Guy-Realm", "Olympus II"), "bronze", "our Raider")
 				eq(B.MarkOfName("Vet Guy-Realm", "Olympus II"), "bronze", "our Veteran")
 				eq(B.MarkOfName("Plain Guy-Realm", "Olympus II"), "member", "our Member")
-				eq(B.MarkOfName("Stranger-Realm", "Olympus II"), "member", "not in our roster: a member of an Olympus guild")
+				eq(B.MarkOfName("Stranger-Realm", "Olympus II"), nil, "not in our roster: nothing proves him one of ours (it was the star before the review)")
 				-- Another guild: the census, two senders naming him.
 				eq(B.MarkOfName("Zeusy-Realm", "Olympus Zeus"), "silver", "another guild's Lord, two senders")
 				eq(B.MarkOfName("Capt-Realm", "Olympus Zeus"), "silver", "another guild's Captain, two senders")
 				ns.rdb.guilds["Olympus Lone"] = Vouched({ guild = "Olympus Lone", leader = "Loner", officers = { { name = "Lone Capt" } }, realm = "Realm",
 					t = ns.Now() }, "W1-Realm")
-				eq(B.MarkOfName("Loner-Realm", "Olympus Lone"), "member", "one sender names him: a member")
+				-- (Review of 1.1.1: it was the star before. A guild master one sender names has no rank from
+				-- the census (the Crown needs two), so Channels does not verify him either: no mark.)
+				eq(ns.Data.KnownRank("Loner-Realm", "Olympus Lone"), nil, "(the census gives the master one sender names no rank)")
+				eq(B.MarkOfName("Loner-Realm", "Olympus Lone"), nil, "one sender names him master: not proven, no mark")
 				eq(ns.Data.KnownRank("Lone Capt-Realm", "Olympus Lone"), 1, "(the census's rank for a Captain one sender names)")
 				eq(B.MarkOfName("Lone Capt-Realm", "Olympus Lone"), "member", "a Captain one sender names: a member, as the borders ask two")
 				-- Nobody outside Olympus; nobody the moderators took off.
@@ -43067,6 +43093,333 @@ do
 			assert(doc:find("Shift-click the minimap button for the chat window", 1, true), path .. ": the Shift-click")
 		end
 	end)
+
+	---------------------------------------------------------------------------
+	-- The review of the 1.1.1 chat window: the view held by the line read at a channel's 100 lines,
+	-- no member star for a guild a line only claims, the mute kept by a line written in the window,
+	-- an alt's lines under his name, a note never replacing a draft, and the widget calls the
+	-- window's asks rest on.
+	---------------------------------------------------------------------------
+	do
+		local STAR = "|TInterface\\AddOns\\Olympus\\media\\borders\\star:14:14|t"
+		local function BubbleOf(f, e)
+			for _, b in ipairs(Visible(f.bubbles)) do if b.entry == e then return b end end
+		end
+		-- The bubble at the view's top, and how far its top sits from the view's.
+		local function AtTop(f)
+			local at = f.scroll:GetVerticalScroll()
+			for _, b in ipairs(Visible(f.bubbles)) do
+				if Top(b) + b:GetHeight() > at then return b.entry, Top(b) - at end
+			end
+		end
+		-- A line from the channel through Channels.Receive, whose history keeps 100 (the oldest goes);
+		-- the channel muted in chat, so the line only goes to the history (no chat frame, no flood
+		-- guard: nothing left for a later test). Then the window's own redraw, and the client
+		-- measuring the new range.
+		local arrivals = 0
+		local function Arrive(w, f, text)
+			arrivals = arrivals + 1
+			local sender = "Newcomer" .. arrivals .. "-Realm"
+			local _, why = ns.Channels.Receive("CHANNEL", sender, ns.Codec.EncodeChat("A", "Olympus Zeus", 700 + arrivals, "", text), 9000 + arrivals)
+			eq(why, "muted", "kept")
+			w.fire("CHAT_CHANGED", "A"); w.fire("CHAT_LINE", "A", sender, text)
+			f:Fire("OnUpdate", 0.3)
+			f.scroll:Settle()
+		end
+		-- Channels' send gap (lastSend, Channels.Send's own) fresh for fn, and as it was after: the
+		-- earlier tests' clocks never refuse fn's lines, and fn's clock never refuses a later test's.
+		local function KeepSendGap(fn)
+			local send, at, was = ns.Channels.Send, nil, nil
+			for i = 1, 200 do
+				local n, v = debug.getupvalue(send, i)
+				if n == nil then break end
+				if n == "lastSend" then at, was = i, v break end
+			end
+			assert(at, "(Channels.Send's lastSend)")
+			debug.setupvalue(send, at, -math.huge)
+			local ok, err = pcall(fn)
+			debug.setupvalue(send, at, was)
+			if not ok then error(err, 0) end
+		end
+
+		test("1.1.1 review: scrolled up in a channel at its 100 lines, the line being read stays in its place while new lines drop the oldest (the next one's place when it goes); a resize keeps it too", function()
+			WithWindow(function(w)
+				ns.db.addonChat = true
+				ns.db.chatMute = { A = true }
+				local list = {}
+				for i = 1, 100 do
+					list[i] = Line(T0 + i * 400, (i % 2 == 0) and "Aa-Realm" or "Bb-Realm", "line number " .. i .. " " .. ("words "):rep(i % 7 * 5))
+				end
+				ns.rdb.chat = { A = list }
+				local f = w.CW.Open("A")
+				local s = f.scroll
+				s:Settle()
+				s:SetVerticalScroll(math.floor(s:GetVerticalScrollRange() / 2))
+				local read, off = AtTop(f)
+				assert(read and read ~= list[1], "a line in the middle")
+				for k = 1, 3 do Arrive(w, f, "new " .. k) end
+				eq(#ns.rdb.chat.A, 100, "Channels keeps 100")
+				assert(BubbleWith(f, "new 3"), "the new lines drawn")
+				eq(BubbleWith(f, "line number 1 "), nil, "the oldest gone")
+				local now, nowOff = AtTop(f)
+				eq(now, read, "the same line at the view's top")
+				eq(nowOff, off, "in the same place")
+				eq(f.newPill:IsShown(), true); eq(f.newPill:GetText(), L.CHATWIN_NEW_LINES:format(3))
+				-- The line read taken off the view (the moderators took its writer off: net-off): the next
+				-- line under it stays where it was.
+				local saved = { any = ns.Moderation.Any, hides = ns.Moderation.Hides }
+				local ok, err = pcall(function()
+					local gone = read.sender
+					local after
+					for _, b in ipairs(Visible(f.bubbles)) do
+						if Top(b) > Top(BubbleOf(f, read)) and b.entry.sender ~= gone then after = b.entry break end
+					end
+					local afterOff = Top(BubbleOf(f, after)) - s:GetVerticalScroll()
+					ns.Moderation.Any = function() return true end
+					ns.Moderation.Hides = function(who) if who == gone then return { kind = "c" } end end
+					w.fire("NETOFF_CHANGED", {})
+					f:Fire("OnUpdate", 0.3)
+					s:Settle()
+					eq(BubbleOf(f, read), nil, "(off the view)")
+					eq(Top(BubbleOf(f, after)) - s:GetVerticalScroll(), afterOff, "the next line where it was")
+				end)
+				ns.Moderation.Any, ns.Moderation.Hides = saved.any, saved.hides
+				if not ok then error(err, 0) end
+				w.fire("NETOFF_CHANGED", {})
+				f:Fire("OnUpdate", 0.3)
+				s:Settle()
+				-- Reading the oldest kept, at the top of the history: when it goes, the view stays at the
+				-- top, the next line whole in it.
+				local oldest, second = ns.rdb.chat.A[1], ns.rdb.chat.A[2]
+				s:SetVerticalScroll(Top(BubbleOf(f, oldest)) + 4)
+				eq((AtTop(f)), oldest)
+				Arrive(w, f, "new 4")
+				eq(BubbleOf(f, oldest), nil, "dropped")
+				eq(s:GetVerticalScroll(), 0, "at the top")
+				eq((AtTop(f)), second); assert(Top(BubbleOf(f, second)) - s:GetVerticalScroll() >= 0, "whole in the view")
+				-- A narrower window: every line above wraps on more lines; once the client measured the
+				-- longer range, the line read is back in its place.
+				s:SetVerticalScroll(s:GetVerticalScrollRange() - 40)
+				read, off = AtTop(f)
+				local before = f.content:GetHeight()
+				f:SetSize(360, 520)
+				f:Fire("OnUpdate", 0.3)
+				s:Settle()
+				assert(f.content:GetHeight() > before, "(taller)")
+				now, nowOff = AtTop(f)
+				eq(now, read); eq(nowOff, off)
+				-- Followed again at the bottom: the newest line, as ever.
+				s:SetVerticalScroll(s:GetVerticalScrollRange())
+				Arrive(w, f, "new 5")
+				eq(s:GetVerticalScroll(), s:GetVerticalScrollRange())
+				eq(f.newPill:IsShown(), false)
+			end)
+		end)
+
+		test("1.1.1 review: no member star for a guild a line only claims (an unknown name in a made-up Olympus guild, a stranger in our guild's name); our roster, a census and the King's names still give theirs; a redraw records no guild claim", function()
+			WithWindow(function(w)
+				local saved = { byName = ns.Roster.byName, steward = ns.King.IsStewardName, loginAt = ns.Comm.loginAt }
+				local ok, err = pcall(function()
+					local bns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
+					assert(loadfile(ADDON_DIR .. "Borders.lua"))("Olympus", bns)
+					ns.Borders = bns.Borders
+					ns.db.addonChat = true
+					ns.db.chatMute = { A = true }
+					ns.Roster.byName = { ["Plain Guy-Realm"] = 4, ["Soldier-Realm"] = 3 }
+					ns.King.IsStewardName = function(n) return n == "Stew Ard-Realm" end
+					ns.rdb.guilds["Olympus Lone"] = Vouched({ guild = "Olympus Lone", leader = "Loner", officers = { { name = "Lone Capt" }, { name = "Plain Guy" } }, realm = "Realm",
+						t = ns.Now() }, "W1-Realm")
+					ns.rdb.chat = { A = {
+						Line(T0, "Plain Guy-Realm", "a guildmate speaks"),
+						Line(T0 + 100, "Stranger-Realm", "a stranger in our guild's name"),
+						Line(T0 + 200, "Lone Capt-Realm", "a captain his census names", { guild = "Olympus Lone" }),
+						Line(T0 + 300, "Stew Ard-Realm", "the king's steward", { guild = "Olympus" }),
+						Line(T0 + 400, "Drifter-Realm", "a drifter's claim", { guild = "Olympus Nowhere" }),
+					} }
+					-- Anyone on the channel: Channels keeps his [Olympus] line, unverified.
+					eq(ns.IsFederation("Olympus Nowhere"), true, "(a name the Olympus rule takes)")
+					local have, verified = ns.Channels.VerifiedLevel("Outsider-Realm", "Olympus Nowhere")
+					eq(have, 1); eq(verified, false)
+					local _, why = ns.Channels.Receive("CHANNEL", "Outsider-Realm", ns.Codec.EncodeChat("A", "Olympus Nowhere", 42, "", "hello from outside"), 1000)
+					eq(why, "muted", "kept")
+					local f = w.CW.Open("A")
+					local function Header(text)
+						local b = BubbleWith(f, text)
+						assert(b, text)
+						return b.who:GetText()
+					end
+					local h = Header("hello from outside")
+					assert(not h:find(STAR, 1, true) and not h:find("|A:", 1, true), "no mark: " .. h)
+					assert(h:find("Outsider", 1, true) and h:find("<Olympus Nowhere>", 1, true), "his name and the guild his line names still show: " .. h)
+					h = Header("a stranger in our guild's name")
+					assert(not h:find(STAR, 1, true), "our guild's name, not in our roster: " .. h)
+					assert(Header("a guildmate speaks"):find(STAR, 1, true), "in our roster: the star")
+					assert(Header("a captain his census names"):find(STAR, 1, true), "named in his guild's census: the star")
+					assert(Header("the king's steward"):find(STAR, 1, true), "the King's Steward, by the name Channels verifies him by: the star")
+					-- Our guild's name spelled another way, by a name our census names but our roster lacks:
+					-- not one of ours (Channels says 0), no mark from the census either.
+					ns.rdb.guilds["Olympus II"] = Vouched({ guild = "Olympus II", leader = "Old Boss", officers = {}, realm = "Realm", t = ns.Now() },
+						"W1-Realm", "W2-Realm")
+					ns.Comm.loginAt = ns.Now() - ns.Data.CROWN_AFTER - 1
+					eq(ns.Channels.VerifiedLevel("Old Boss-Realm", "OLYMPUS II"), 0, "(not one of ours)")
+					eq(ns.Borders.MarkOfName("Old Boss-Realm", "OLYMPUS II"), nil, "no mark")
+					-- A guildmate of ours speaking for another guild, even one whose census names him: no mark
+					-- (Channels says 0 for him there).
+					eq(ns.Data.KnownRank("Plain Guy-Realm", "Olympus Lone"), 1, "(its census names him)")
+					eq(ns.Channels.VerifiedLevel("Plain Guy-Realm", "Olympus Lone"), 0, "(not his guild)")
+					eq(ns.Borders.MarkOfName("Plain Guy-Realm", "Olympus Lone"), nil, "no mark")
+					eq(ns.Borders.MarkOfName("Plain Guy-Realm", "Olympus II"), "member", "his own guild: the star")
+					-- Drawn again: the window left no guild claim (Channels.VerifiedLevel's Data.ClaimGuild
+					-- would have, and his next line for his real guild would be refused as forged).
+					w.CW.Render()
+					eq(ns.Data.ClaimGuild("Drifter-Realm", "Olympus Zeus"), true, "no claim left by the window")
+				end)
+				ns.Roster.byName, ns.King.IsStewardName, ns.Comm.loginAt = saved.byName, saved.steward, saved.loginAt
+				if not ok then error(err, 0) end
+			end)
+		end)
+
+		test("1.1.1 review: a line written in the window keeps its channel muted in chat, the privacy warning's Send too; /ol typed in chat still unmutes it", function()
+			WithWindow(function(w)
+				local saved = { room = ns.Comm.ChatRoom, warned = ns.db.chatWarned }
+				local ok, err = pcall(KeepSendGap, function()
+					WithLane(function(sent)
+						ns.db.addonChat = true
+						ns.db.chatMute = { A = true }
+						ns.db.chatWarned = { A = true }
+						ns.Comm.ChatRoom = function() return 3 end
+						local clock = 1e7
+						GetTime = function() return clock end
+						local f = w.CW.Open("A")
+						f.input:SetText("from the window")
+						f.input:Fire("OnEnterPressed")
+						eq(#sent, 1, "sent: " .. table.concat(w.printed, " / ")); assert(sent[1]:find("from the window", 1, true), sent[1])
+						eq(ns.db.chatMute.A, true, "still muted in chat")
+						assert(not Said(w, L.CHAN_UNMUTED:format(L.CHAN_ALL)), "no word of unmuting")
+						f:Fire("OnUpdate", 0.3)
+						local b = BubbleWith(f, "from the window")
+						assert(b and b.mine, "in the window, ours")
+						-- The first line in a channel, held by the privacy warning: its Send keeps the mute too.
+						ns.db.chatWarned = {}
+						local dialogs = {}
+						ns.ShowDialog = function(which, _, _, data) dialogs[#dialogs + 1] = { which = which, data = data } end
+						clock = clock + 10
+						f.input:SetText("a first line")
+						f.input:Fire("OnEnterPressed")
+						eq(dialogs[1].which, "OLYMPUS_CHAT_PRIVACY"); eq(#sent, 1, "held")
+						clock = clock + 10
+						ns.Channels.Confirm(dialogs[1].data, true)
+						eq(#sent, 2, "sent on the OK"); eq(ns.db.chatMute.A, true, "still muted")
+						-- /ol typed in chat: unmuted, as ever.
+						clock = clock + 10
+						ns.Channels.Send("A", "typed in chat")
+						eq(#sent, 3); eq(ns.db.chatMute.A, nil, "unmuted")
+						assert(Said(w, L.CHAN_UNMUTED:format(L.CHAN_ALL)), "and told")
+					end)
+				end)
+				ns.Comm.ChatRoom, ns.db.chatWarned = saved.room, saved.warned
+				if not ok then error(err, 0) end
+			end)
+		end)
+
+		test("1.1.1 review: a line another character of the account wrote shows under his name, on the left, with a whisper; this character's own as You on the right", function()
+			WithWindow(function(w)
+				ns.rdb.chat = { A = {
+					Line(T0, "Altchar-Realm", "written by my alt", { mine = true, guild = "Olympus Zeus" }),
+					Line(T0 + 10, "Soldier-Realm", "written by me", { mine = true }),
+				} }
+				local f = w.CW.Open("A")
+				local alt, me = BubbleWith(f, "written by my alt"), BubbleWith(f, "written by me")
+				eq(alt.mine, false)
+				assert(alt:Anchor("TOPLEFT") and not alt:Anchor("TOPRIGHT"), "the alt's: left")
+				local h = alt.who:GetText()
+				assert(h:find("Altchar", 1, true) and h:find("<Olympus Zeus>", 1, true) and not h:find(L.CHATWIN_YOU, 1, true), h)
+				eq(alt.header.whisper, "Altchar", "a click whispers him")
+				eq(me.mine, true); eq(me.who:GetText(), L.CHATWIN_YOU)
+				assert(me:Anchor("TOPRIGHT") and not me:Anchor("TOPLEFT"), "ours: right")
+				-- The same history, played from the alt.
+				AsSoldier("Altchar")
+				w.CW.Render()
+				eq(BubbleWith(f, "written by my alt").who:GetText(), L.CHATWIN_YOU)
+				assert(BubbleWith(f, "written by me").who:GetText():find("Soldier", 1, true))
+			end)
+		end)
+
+		test("1.1.1 review: a note's click never replaces what the player is writing (the draft and the note stay, and he is told); into an empty box it goes", function()
+			WithWindow(function(w)
+				local f = w.CW.Open("A")
+				w.fire("CHAT_SEND_FAILED", "A", "moved", "my lost line", 0)
+				w.CW.Render()
+				local moved = L.CHATWIN_NOT_SENT:format(L.CHATWIN_WHY_MOVED)
+				f.input:SetText("a new draft I am typing")
+				RowWith(f, moved):Click()
+				eq(f.input:GetText(), "a new draft I am typing", "the draft stays")
+				assert(RowWith(f, moved), "the note stays")
+				assert(Said(w, L.CHATWIN_PUT_BACK_BUSY), "told")
+				f.input:SetText("   ")
+				RowWith(f, moved):Click()
+				eq(f.input:GetText(), "my lost line", "an empty box: back in it")
+				eq(RowWith(f, moved), nil, "the note gone")
+				eq(#w.focus, 0, "never focused")
+			end)
+		end)
+
+		test("1.1.1 review: what the window's asks rest on is set: a bubble's links and clicks, a long word's wrap, the resize bounds, the window kept on the screen, the box's byte cap", function()
+			WithWindow(function(w)
+				ns.rdb.chat = { A = { Line(T0, "Aa-Realm", "look " .. MOONCLOTH_TEXT), Line(T0 + 10, "Soldier-Realm", "mine", { mine = true }) } }
+				local f = w.CW.Open("A")
+				local bs = Visible(f.bubbles)
+				eq(#bs, 2)
+				for _, b in ipairs(bs) do
+					eq(b.hyperlinks, true, "its links answer the mouse (tooltip, Shift-click)")
+					eq(b.mouse, true, "the mouse on: its links, and the click that shows a hidden line")
+					eq(b.body.nonSpaceWrap, true, "a long word or link wraps inside the bubble")
+					eq(b.body.wrap, true)
+				end
+				eq(table.concat(f.resizeBounds, " "), "340 300 900 1000", "resized within its bounds")
+				eq(f.clamped, true, "kept on the screen")
+				eq(f.input.maxBytes, ns.Codec.CHAT_PARTS * 210 + 1, "the box holds what Channels.Send can send")
+				-- (The toolkit here answers links and mouse clicks only where they are on, as the client.)
+				local plain = NewWidget("Frame", nil, UIParent)
+				local fired = 0
+				plain:SetScript("OnHyperlinkEnter", function() fired = fired + 1 end)
+				plain:SetScript("OnMouseUp", function() fired = fired + 1 end)
+				plain:Fire("OnHyperlinkEnter", MOONCLOTH_LINK); plain:Fire("OnMouseUp", "LeftButton")
+				eq(fired, 0, "a plain frame: neither")
+				plain:SetHyperlinksEnabled(true)
+				plain:Fire("OnHyperlinkEnter", MOONCLOTH_LINK)
+				eq(fired, 0, "links on, the mouse off: nothing")
+				plain:EnableMouse(true)
+				plain:Fire("OnHyperlinkEnter", MOONCLOTH_LINK); plain:Fire("OnMouseUp", "LeftButton")
+				eq(fired, 2)
+			end)
+		end)
+
+		test("1.1.1 review: the new words in English and pt-BR, and the pages say what changed", function()
+			local pt = {}
+			local savedLocale = GetLocale
+			GetLocale = function() return "ptBR" end
+			local okPt, errPt = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+			GetLocale = savedLocale
+			if not okPt then error(errPt, 0) end
+			for _, k in ipairs({ "CHATWIN_PUT_BACK_BUSY", "CHATWIN_MUTED_TIP" }) do
+				assert(type(rawget(ns.L, k)) == "string" and rawget(ns.L, k) ~= "", "English: " .. k)
+				assert(type(rawget(pt.L, k)) == "string" and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+				eq(rawget(pt.L, k):find("%", 1, true), nil, "no format code: " .. k)
+			end
+			assert(ns.L.CHATWIN_MUTED_TIP:find("keeps it muted", 1, true), ns.L.CHATWIN_MUTED_TIP)
+			for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+				local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+				assert(doc:find("a line you write here keeps it muted in chat", 1, true), path .. ": the mute")
+				assert(doc:find("the line you are reading stays in its place while new lines come in and the oldest go", 1, true), path .. ": the scroll")
+				assert(doc:find("and only where the guild a line names is proven", 1, true), path .. ": the marks")
+				assert(doc:find("A name whose Olympus guild cannot be checked", 1, true), path .. ": no mark then")
+				assert(not doc:find("from the same facts as the borders and the nameplate marks", 1, true), path .. ": no longer the same facts")
+				assert(doc:find("a click puts it back in the box when the box is empty", 1, true), path .. ": the note")
+				assert(doc:find("a line another of your characters wrote shows under that character's name, on the left", 1, true), path .. ": an alt's line")
+			end
+		end)
+	end
 end
 
 -- 1.1: the review of the net-off fixes, its last point (the Agenda's event).

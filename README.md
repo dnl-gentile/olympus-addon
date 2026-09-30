@@ -358,19 +358,24 @@ or **Open the chat window** on the Realm tab's chats page (its **Write in [Olymp
 it too). `/oly talk lords` opens it on [Lords]; the same command again closes it.
 
 - A tab for each channel your rank reads, with a count of the lines that came in on the others
-  while the window was open. A channel muted in chat (`/oly mute`) still shows here. The pinned
-  line shows on top, as on the Realm tab.
+  while the window was open. A channel muted in chat (`/oly mute`) still shows here, and a line
+  you write here keeps it muted in chat. The pinned line shows on top, as on the Realm tab.
 - Every line whole, in a bubble that wraps: never cut, nothing to hover to read it. Other
-  players' lines on the left, yours on the right in the channel's colour; the writer's name,
-  guild and time where a writer starts, and the date where the day changes. The last 100 lines of
-  each channel are kept, from every session, and scroll back. The window follows the newest line
-  until you scroll up; then **N new** at the bottom takes you down to them.
-- By each name, Olympus's marks, from the same facts as the borders and the nameplate marks (but
-  not switched off with them): the King's crown, the High Council's mark and colour, the game's
-  silver elite mark for Lords and Captains, bronze for Raiders and Veterans of your own guild (the
-  census does not carry other guilds' rank names), a star for any other member, the Treasurer's
-  coin, and **Steward** or **Hand** after the King's. A click on a name whispers that player, in
-  Olympus's whisper window.
+  players' lines on the left, yours on the right in the channel's colour (a line another of your
+  characters wrote shows under that character's name, on the left); the writer's name, guild and
+  time where a writer starts, and the date where the day changes. The last 100 lines of each
+  channel are kept, from every session, and scroll back. The window follows the newest line until
+  you scroll up; then the line you are reading stays in its place while new lines come in and the
+  oldest go, and **N new** at the bottom takes you down to them.
+- By each name, Olympus's marks, by the rules of the borders and the nameplate marks (but not
+  switched off with them), and only where the guild a line names is proven: a nameplate reads the
+  guild from the game, a chat line only claims it. The King's crown, the High Council's mark and
+  colour, the game's silver elite mark for Lords and Captains, bronze for Raiders and Veterans of
+  your own guild (the census does not carry other guilds' rank names), a star for any other member
+  of your guild's roster or anyone the census names in theirs (and the King's Stewards and Hands),
+  the Treasurer's coin, and **Steward** or **Hand** after the King's. A name whose Olympus guild
+  cannot be checked (a plain member of another guild, or anyone claiming a guild's name) gets no
+  mark. A click on a name whispers that player, in Olympus's whisper window.
 - A line your block terms hide shows as a grey bubble, and a click shows it. A link shows its
   tooltip when you hover it, and a Shift-click puts it in the window's box.
 - **The box** is Olympus's own, not the game's chat box: it takes the keyboard only when you click
@@ -379,7 +384,8 @@ it too). `/oly talk lords` opens it on [Lords]; the same command again closes it
   no command: a line that starts with `/` stays in the box and is not sent (commands go in the
   game's chat box, which Olympus never opens or touches). Your first line in each channel still
   waits for the privacy warning's **Send**. A line of yours that did not leave shows a note in its
-  channel, and a click puts it back in the box.
+  channel, and a click puts it back in the box when the box is empty (what you are writing is never
+  replaced: the note waits).
 - Drag it to move it, and resize it from its bottom right corner (340 x 300 to 900 x 1000): where
   it stands, its size and its channel are kept. Escape or its X closes it; it never opens by
   itself. With the chats off on this client it says so and offers the choice.
