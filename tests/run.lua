@@ -37795,6 +37795,31 @@ end)
 		end)
 	end)
 
+	test("1.1 Konig's review (item 2): a Hand is known whatever the case his name is written in, so one Hand can't hide another", function()
+		WithModeration(function(w, K)
+			AsSoldier("Watcher")
+			local t = w.clock
+			-- The King typed the second Hand's name in lower case; the server spells it its own way.
+			K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Rogue Hand-Realm,other hand-Realm")
+			eq(K.IsHandName("Other Hand-Realm"), true, "his name as the server writes it")
+			eq(M.IsIssuer("Other Hand-Realm"), true)
+			-- The rogue aims at him, spelled any way: no word is taken on him.
+			for _, spelled in ipairs({ "Other Hand-Realm", "OTHER HAND-Realm", "other hand-realm" }) do
+				M.Handle("CHANNEL", ROGUE, O1("c", true, t, spelled, ROGUE, "rogue"))
+			end
+			eq(M.Character("Other Hand-Realm"), nil, "no word on him")
+			eq(M.Hidden("Other Hand-Realm"), nil); eq(M.IsIssuer("Other Hand-Realm"), true)
+			-- His own client knows he is a Hand.
+			AsSoldier("Other Hand")
+			eq(K.IsHand(), true)
+			-- The King's own client, his list as he typed it.
+			AsKing()
+			K.AddHand("third hand")
+			eq(K.IsHandName("Third Hand-Realm"), true)
+			eq(M.Rank("THIRD HAND-Realm"), 1)
+		end)
+	end)
+
 	test("1.1 Konig's review: the README and the CurseForge page say what the net-off and the shared block terms do now", function()
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")

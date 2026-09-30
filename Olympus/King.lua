@@ -191,7 +191,7 @@ King.HIDDEN_CALLS = { S = true, I = true, A = true, X = true, V = true, E = true
 -- the King's newer one for as long (a review asked for a minute, not ten).
 King.DATE_AHEAD = 60
 
-local hands = {}         -- [Name-Realm] = true, as the King last sent it
+local hands = {}         -- [name-realm, lower case] = true, as the King last sent it
 local handsOrder = {}    -- the same names, in his order (the Hands page)
 local handsAt = -math.huge
 local handsKing          -- who sent that list (the King's name on a Hand's Throne Room)
@@ -199,7 +199,7 @@ local myHands = {}       -- the King's own list, in order: { "Name-Realm", ... }
 local lastHandsSent = -math.huge
 local handsSendPending = false
 -- 1.0.0: each Steward's list as this client last heard it from him:
--- [his Name-Realm] = { names = { "Name-Realm", ... }, set = { [Name-Realm] = true }, at = when }
+-- [his Name-Realm] = { names = { "Name-Realm", ... }, set = { [name-realm, lower case] = true }, at = when }
 local stewardHands = {}
 -- A Steward's own list, on his client, in order (saved: rdb.stewardHands[his Name-Realm]: the
 -- characters of one account on a realm group share what they save).
@@ -217,19 +217,26 @@ end
 -- On the King's own client his list is the one he keeps (his broadcast never comes back to
 -- him); everyone else trusts the list he last sent, while he keeps sending it. A Steward's
 -- the same (1.0.0): his own on his client, the one he last sent on everyone else's.
+-- Whatever the case a name is written in (1.1, Konig's review): the King types a Hand's name as
+-- he likes, and a net-off word's target is free text, while the server spells a sender's name
+-- its own way; they are one character (hands and each Steward's set are kept in lower case).
+local function Named(list, key)
+	for _, n in ipairs(list) do if type(n) == "string" and n:lower() == key then return true end end
+	return false
+end
 local function Hand(name)
 	local full = ns.FullName(name)
+	if type(full) ~= "string" then return false end
+	local key = full:lower()
 	if King.IsKing() then
-		for _, n in ipairs(myHands) do if n == full then return true end end
-	elseif ns.Now() - handsAt <= King.HANDS_FRESH and hands[full] == true then
+		if Named(myHands, key) then return true end
+	elseif ns.Now() - handsAt <= King.HANDS_FRESH and hands[key] == true then
 		return true
 	end
-	if King.IsSteward() then
-		for _, n in ipairs(myStewardHands) do if n == full then return true end end
-	end
+	if King.IsSteward() and Named(myStewardHands, key) then return true end
 	for steward in pairs(stewardHands) do
 		local s = StewardList(steward)
-		if s and s.set[full] then return true end
+		if s and s.set[key] then return true end
 	end
 	return false
 end
@@ -397,8 +404,8 @@ local function OnHands(king, rest)
 		local short = CleanName(name)
 		if short and n < King.MAX_HANDS then
 			local full = ns.FullName(short, ns.RealmOf(name))
-			if not list[full] then order[#order + 1] = full end
-			list[full] = true
+			if not list[full:lower()] then order[#order + 1] = full end
+			list[full:lower()] = true
 			n = n + 1
 		end
 	end
@@ -418,8 +425,8 @@ local function OnStewardHands(sender, rest)
 	for name in tostring(rest or ""):gmatch("[^,]+") do
 		local short = CleanName(name)
 		local full = short and ns.FullName(short, ns.RealmOf(name))
-		if full and not set[full] and #names < King.MAX_HANDS then
-			set[full] = true
+		if full and not set[full:lower()] and #names < King.MAX_HANDS then
+			set[full:lower()] = true
 			names[#names + 1] = full
 		end
 	end
