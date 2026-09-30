@@ -215,12 +215,36 @@ end
 
 local function Trim(text) return (tostring(text):match("^%s*(.-)%s*$")) end
 
--- The open chat window called `name` (in any case, spaces around it aside): its frame, number and
--- name as the game has it.
+-- Chattynator owns its tabs separately from Blizzard's chat frames. Its public API
+-- may exist before its configuration is ready, so native routing remains available.
+local function ChattynatorTabs()
+	local api = type(Chattynator) == "table" and Chattynator.API
+	if type(api) ~= "table" or type(api.GetWindowsAndTabs) ~= "function"
+		or type(api.AddMessageToWindowAndTab) ~= "function" then return nil end
+	local ok, windows = pcall(api.GetWindowsAndTabs)
+	if ok and type(windows) == "table" then return api, windows end
+end
+
+-- The open chat window called `name` (in any case, spaces around it aside): its output target,
+-- native frame number (nil for Chattynator), and name. Prefer Chattynator over native frames it
+-- hides.
 function Channels.FindWindow(name)
 	if type(name) ~= "string" then return nil end
 	local want = Trim(name):lower()
 	if want == "" then return nil end
+	local api, windows = ChattynatorTabs()
+	if api then
+		for wi, tabs in ipairs(windows) do
+			for ti, tabName in ipairs(tabs) do
+				if type(tabName) == "string" and tabName:lower() == want then
+					-- Resolve indices for each line, so moving a tab keeps its name-based route.
+					return { AddMessage = function(_, text, r, g, b)
+						api.AddMessageToWindowAndTab(wi, ti, text, r, g, b)
+					end }, nil, tabName
+				end
+			end
+		end
+	end
 	for i = 1, MaxWindows() do
 		local f, wname, open, combat = WindowAt(i)
 		if f and open and not combat and wname and Trim(wname):lower() == want then return f, i, wname end
@@ -239,7 +263,7 @@ local function Chosen()
 	return type(list) == "table" and list or nil
 end
 
--- A line of ours ("Olympus: ...") in frame f, what ns.Print writes in the main window.
+-- A line of ours ("Olympus: ...") in target f, what ns.Print writes in the main window.
 local function Say(f, msg)
 	if not f or f == DEFAULT_CHAT_FRAME then return ns.Print(msg) end
 	f:AddMessage("|c" .. ns.COLOR .. "Olympus:|r " .. tostring(msg))
@@ -350,8 +374,9 @@ local function Intro(f, i)
 	if Mixed(i or IndexOf(f)) then Say(f, L.CHATTAB_MIXED:format(GameWord(CHAT_CONFIGURATION, L.CHATTAB_SETTINGS))) end
 end
 
--- The frame a channel's lines go to, and the chosen window's name as the game has it (nil for the
--- main window): its chosen window while it is open, else the main one. A window closed or renamed
+-- The output target a channel's lines go to (a chat frame, or a Chattynator tab), and the chosen
+-- window's name as the game has it (nil for the main window): its chosen window or tab while it is
+-- available, else the main one. A window closed or renamed
 -- is said once. The Olympus tab (1.1.1): chosen and never seen this session (the one click made
 -- the choice before the player made the tab), the main window says once that the chats wait for
 -- it, not that it is gone; the first time it takes the lines for this character, it says so first.
@@ -527,6 +552,14 @@ function Channels.ChooseWindow(input)
 					local wf, wname, isOpen, combat = WindowAt(i)
 					if wf and isOpen and not combat and wname then open[#open + 1] = i .. " " .. Quoted(wname) end
 				end
+				local api, windows = ChattynatorTabs()
+				if api then
+					for _, tabs in ipairs(windows) do
+						for _, tabName in ipairs(tabs) do
+							if type(tabName) == "string" and tabName ~= "" then open[#open + 1] = "Chattynator " .. Quoted(tabName) end
+						end
+					end
+				end
 				local menu = type(NEW_CHAT_WINDOW) == "string" and NEW_CHAT_WINDOW ~= "" and NEW_CHAT_WINDOW or L.CHATWIN_NEW
 				ns.Print(L.CHATWIN_NOT_FOUND:format(Quoted(target), #open > 0 and table.concat(open, ", ") or "-", menu))
 			end
@@ -556,9 +589,10 @@ function Channels.ChooseWindow(input)
 	return true
 end
 
--- A plain AddMessage on the channel's chat window (what print does on the main one): nothing
--- of Blizzard's is replaced or hooked. In the Olympus tab without the channel's name (1.1.1): the
--- line's colour tells the channels apart, and the tab's first line gave the legend.
+-- AddMessage on the channel's output target (what print does on the main one), using
+-- Chattynator's public API for its tabs: nothing of Blizzard's is replaced or hooked. In the
+-- Olympus tab without the channel's name (1.1.1): the line's colour tells the channels apart, and
+-- the tab's first line gave the legend.
 local function Show(tier, sender, guild, class, text)
 	local f, wname = Channels.Frame(tier)
 	if not f then return end

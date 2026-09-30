@@ -275,6 +275,13 @@ WoW channel number to join). Each channel is exclusive to a rank:
   changes: the addon never touches the chat box, so every command typed there works as always.
   A window closed or renamed sends its lines back to the main window, with a notice.
   `/oly status` shows where each channel goes.
+- **Chattynator tabs:** create a regular chat tab in Chattynator, then use its name with
+  `/oly chatwindow`, for example `/oly chatwindow Olympus olympus`. Allow **Olympus** in
+  that tab's addon filters, or allow all addon messages. Names are case-insensitive; use
+  unique names. A matching Chattynator tab takes priority over a Blizzard window of the
+  same name. Moving a tab keeps its route; removing or renaming it uses the main-window
+  fallback above. Chattynator is optional. Routing does not turn the Olympus chats on;
+  choose that separately in the privacy screen or with `/oly chat on`.
 - The flood guard keeps a busy channel readable: past 60 lines a minute (or 10 from one player
   while the channel is half full) the rest stay off the chat, and a notice says how many, at
   most once a minute. Those lines still go to the Chat tab (1.1.1), which keeps the last 100
