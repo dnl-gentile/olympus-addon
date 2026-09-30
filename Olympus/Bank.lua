@@ -467,10 +467,14 @@ end
 -- census can be gamed: a snapshot is its sender's word, shown with his name), kept in memory
 -- alone, SISTERS_MAX guilds at most. A no is taken from them too, and from whoever sent the
 -- snapshot held. Konig's review of 1.1: his no reaches every viewer holding his bank, at once
--- those heard within AUDIENCE_FRESH, the others (heard before: a viewer asks every ASK_EVERY, which
--- is longer, or before a /reload of ours) at their next ask, once a session, for as long as it
--- stands: a character whose snapshot went out is remembered (ns.db.sisterBankSent).
+-- those whose addon asked within ASK_EVERY and NO_MARGIN (before a /reload of ours too: the names
+-- and times are kept in ns.db.sisterHeard that long), the others (heard before that: we were
+-- offline) at their next ask, once a session, for as long as it stands: a character whose snapshot
+-- went out is remembered (ns.db.sisterBankSent). A viewer we never hear again keeps it until he
+-- logs out (his client keeps it in memory alone).
 Bank.SISTERS_MAX = 20
+Bank.NO_MARGIN = 180 -- a viewer heard within ASK_EVERY and this is told our no at once (his ask: on a minute's timer, queued)
+function Bank.NoWithin() return ns.Treasury.ASK_EVERY + Bank.NO_MARGIN end
 local sisters, sisterCount = {}, 0   -- [guild, lower case] = { guild, by, t, money, tabs, heard }
 local sisterHeard = {}               -- [Name-Realm] = when the King, a Steward or a Hand asked
 local sisterNoTold = {}              -- [Name-Realm] = true: he holds nothing of ours (told our no, or asked afresh)
@@ -519,6 +523,17 @@ local function SentGuild()
 	local g = type(t) == "table" and t[SisterKey()]
 	return type(g) == "string" and g ~= "" and g or nil
 end
+-- The viewers heard asking, kept over a /reload of ours (ns.db.sisterHeard, by name: when) for as
+-- long as our no goes to them at once (NO_WITHIN), older ones dropped. Konig's review of 1.1.
+local function KeptHeard()
+	if not ns.db then return {} end
+	local t, now = type(ns.db.sisterHeard) == "table" and ns.db.sisterHeard or {}, ns.Now()
+	ns.db.sisterHeard = t
+	for name, at in pairs(t) do
+		if type(name) ~= "string" or type(at) ~= "number" or now - at > Bank.NoWithin() then t[name] = nil end
+	end
+	return t
+end
 -- Our no, whispered to one viewer.
 local function TellNo(name, guild)
 	sisterNoTold[ns.FullName(name)] = true
@@ -552,6 +567,7 @@ function Bank.HeardAsk(sender, fresh)
 	if not SisterViewer(sender) then return end
 	local name = ns.FullName(sender)
 	sisterHeard[name] = ns.Now()
+	KeptHeard()[name] = sisterHeard[name]
 	if fresh then ns.Treasury.ForgetSent(sender, "TS") end
 	if Bank.SisterConsent() == false then
 		local guild = SentGuild()
@@ -563,7 +579,11 @@ function Bank.HeardAsk(sender, fresh)
 	local msg = Bank.SisterMessage()
 	if msg and ns.Treasury.Private(sender, "TS", msg) then MarkSent(GetGuildInfo("player")) end
 end
-function Bank.NotFound(Is) for name in pairs(sisterHeard) do if Is(name) then sisterHeard[name] = nil end end end
+function Bank.NotFound(Is)
+	for name in pairs(sisterHeard) do if Is(name) then sisterHeard[name] = nil end end
+	local kept = KeptHeard()
+	for name in pairs(kept) do if Is(name) then kept[name] = nil end end
+end
 
 function Bank.SetSisterConsent(on)
 	if not Bank.SisterTreasurer() then return ns.Print(L.BANK_SISTER_ONLY) end
@@ -574,12 +594,20 @@ function Bank.SetSisterConsent(on)
 		wipe(sisterNoTold) -- (a later no goes to every viewer again)
 		return Bank.ShareSister()
 	end
-	-- His no: taken back from the screens it reached, at once from those heard lately, from the
-	-- others at their next ask (HeardAsk).
+	-- His no: taken back from the screens it reached, at once from every viewer whose addon asked
+	-- within NO_WITHIN (they ask every ASK_EVERY: Konig's review of 1.1; AUDIENCE_FRESH, shorter,
+	-- missed one who asked 12 minutes before), those heard before a /reload of ours too (KeptHeard);
+	-- from the others at their next ask (HeardAsk). Whole snapshots still go only to those heard
+	-- within AUDIENCE_FRESH (ShareSister).
 	local guild, now = SentGuild() or GetGuildInfo("player"), ns.Now()
+	local within = {}
+	for name, t in pairs(KeptHeard()) do within[name] = t end
 	for name, t in pairs(sisterHeard) do
-		if now - t <= ns.Treasury.AUDIENCE_FRESH then TellNo(name, guild) end
+		if t > (within[name] or -math.huge) then within[name] = t end
 		ns.Treasury.ForgetSent(name, "TS")
+	end
+	for name, t in pairs(within) do
+		if now - t <= Bank.NoWithin() then TellNo(name, guild) end
 	end
 end
 
@@ -1153,6 +1181,7 @@ function Bank.Reset()
 	firstChange, lastChange, sharePending, openedAt = 0, 0, false, -math.huge
 	wipe(queried)
 	wipe(sisters); wipe(sisterHeard); wipe(sisterNoTold)
+	if ns.db then ns.db.sisterHeard = nil end
 	sisterCount, sisterAsked = 0, false
 	wipe(lastAsked); wipe(publicLists)
 	lastPublic, lastPublicAt, publicPending = nil, -math.huge, false

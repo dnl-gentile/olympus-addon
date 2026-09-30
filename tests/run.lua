@@ -37828,15 +37828,17 @@ do
 					eq(#B.Sisters(), 1, "the King holds it")
 				end
 				Holds()
-				-- 12 minutes later (his addon asks every 15), the Lord says no: the King was heard too
-				-- long ago for it to go at once.
+				-- Longer than NO_WITHIN later (his addon asks every 15 minutes; the Lord's heard none of
+				-- them, offline meanwhile), the Lord says no: the King was heard too long ago for it to go
+				-- at once. (Konig's review of 1.1, again: 12 minutes later it went at his next ask alone;
+				-- within NO_WITHIN it now goes at once, tested with the review's second pass below.)
 				AsLord()
-				w.clock = w.clock + T.AUDIENCE_FRESH + 60
+				w.clock = w.clock + B.NoWithin() + 60
 				w.whispered = {}
 				B.SetSisterConsent(false)
 				eq(#w.whispered, 0, "not heard lately: nothing at once")
 				-- His next ask: the no, and the bank leaves his screen.
-				w.clock = w.clock + (T.ASK_EVERY - T.AUDIENCE_FRESH)
+				w.clock = w.clock + 60
 				T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
 				eq(#w.whispered, 1, "the no"); eq(w.whispered[1].to, KING); eq(w.whispered[1].msg, "TS~Olympus Zeus~0~0~")
 				AsKing(); B.HandleSister("WHISPER", "Zed-Realm", w.whispered[1].msg)
@@ -38159,7 +38161,9 @@ end
 
 ---------------------------------------------------------------------------
 -- 1.1, Konig's review of #45, second pass (the treasury): each week's dues amount kept in the
--- Treasurer's book as his client knew it, and gold sent with the dues' note dues in full.
+-- Treasurer's book as his client knew it, gold sent with the dues' note dues in full, and a
+-- sister guild's no at once to each viewer whose addon asked within ASK_EVERY (before a /reload
+-- of its sender too).
 ---------------------------------------------------------------------------
 do
 	local KING, STEWARD = "Asmongold Asmongler-Realm", "Test Steward-Realm"
@@ -38330,6 +38334,119 @@ do
 				assert(not doc:find("the ranking never shows who did not pay", 1, true), path)
 				assert(doc:find("less all you sent with the dues' note", 1, true), path)
 			end)
+		end)
+	end)
+
+	test("1.1 Konig's review, second pass: a sister guild's no goes at once to each viewer whose addon asked within ASK_EVERY, one heard before a /reload of its sender too", function()
+		WithStewards(function(w, K)
+			local T, B = ns.Treasury, ns.Bank
+			local saved = { after = ns.After, shares = ns.db.sisterBankShares, sent = ns.db.sisterBankSent, heard = ns.db.sisterHeard,
+				zeus = ns.rdb.guilds["Olympus Zeus"] }
+			local ok, err = pcall(function()
+				local After, Run = Queued()
+				ns.After = After
+				ns.db.sisterBankShares, ns.db.sisterBankSent, ns.db.sisterHeard = nil, nil, nil
+				-- The census as its reporters say it now (reports count 30 minutes): Zed the Lord of Olympus Zeus.
+				local function Census()
+					ns.rdb.guilds["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", realm = "Realm" }, "W3-Realm", "W4-Realm")
+				end
+				local pieces
+				local function Hold()
+					Census()
+					AsKing()
+					for _, m in ipairs(pieces) do T.HandlePrivate("WHISPER", "Zed-Realm", m) end
+					eq(#B.Sisters(), 1, "the King holds it")
+				end
+				-- The Lord says yes; the King's addon asks and holds his bank.
+				local function Share()
+					Census()
+					AsLord()
+					ns.rdb.bank = { t = w.clock, guild = "Olympus Zeus", by = ns.me, money = 424242,
+						tabs = { { i = 1, name = "Stash", items = { { id = 2589, n = 60, s = 1 } } } } }
+					w.whispered = {} -- (what it sends at once, to a viewer heard lately, and what the ask gets)
+					B.SetSisterConsent(true)
+					T.HandleAsk("CHANNEL", KING, "TA~Olympus~0"); Run()
+					pieces = {}
+					for _, x in ipairs(w.whispered) do pieces[#pieces + 1] = x.msg end
+					assert(#pieces > 0, "whispered to the King")
+					Hold()
+				end
+				-- A /reload of the Lord's addon: its session's memory gone, its saved variables kept (the
+				-- King's client, in the same test, holds the bank again as before).
+				local function Reload()
+					local kept = ns.db.sisterHeard
+					B.Reset()
+					ns.db.sisterHeard = kept
+					Hold()
+				end
+				-- The Lord says no: what reaches the King's screen at once.
+				local function No()
+					AsLord()
+					w.whispered = {}
+					B.SetSisterConsent(false)
+					local told = 0
+					AsKing()
+					for _, x in ipairs(w.whispered) do
+						if x.to == KING then
+							eq(x.msg, "TS~Olympus Zeus~0~0~")
+							told = told + 1
+							B.HandleSister("WHISPER", "Zed-Realm", x.msg)
+						end
+					end
+					return told
+				end
+				-- 12 minutes after the King's ask (his addon asks every 15), the Lord says no, and may log
+				-- off before the next: the no goes at once.
+				Share()
+				w.clock = w.clock + T.AUDIENCE_FRESH + 60
+				eq(No(), 1, "told at once")
+				eq(#B.Sisters(), 0, "withdrawn from the King's screen")
+				-- His next ask: nothing more (told once).
+				AsLord(); w.whispered = {}
+				w.clock = w.clock + (T.ASK_EVERY - T.AUDIENCE_FRESH)
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+				eq(#w.whispered, 0, "told once")
+				-- Heard before a /reload of the Lord's addon, 17 minutes before the no: at once too.
+				w.clock = w.clock + T.RESET_GAP
+				Share()
+				w.clock = w.clock + 5 * 60
+				Reload()
+				w.clock = w.clock + 12 * 60
+				eq(No(), 1, "told at once after the reload")
+				eq(#B.Sisters(), 0, "withdrawn")
+				-- Heard longer ago than that (the Lord's addon was offline meanwhile and heard none of his
+				-- asks): not at once (he may be offline), at his next ask while the Lord plays.
+				w.clock = w.clock + T.RESET_GAP
+				Share()
+				w.clock = w.clock + B.NoWithin() + 60
+				Reload()
+				eq(No(), 0, "heard too long ago: not at once")
+				eq(#B.Sisters(), 1, "the limit both pages state: until his next ask")
+				AsLord(); w.whispered = {}
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+				eq(#w.whispered, 1, "his next ask: the no")
+				AsKing(); B.HandleSister("WHISPER", "Zed-Realm", w.whispered[1].msg)
+				eq(#B.Sisters(), 0, "withdrawn")
+				-- The server says the King is offline: he is no longer one to tell at once.
+				AsLord()
+				ns.db.sisterHeard = { [KING] = w.clock }
+				local savedErr = ERR_CHAT_PLAYER_NOT_FOUND_S
+				ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
+				T.NotFound(ERR_CHAT_PLAYER_NOT_FOUND_S:format(ns.TellName(KING)))
+				ERR_CHAT_PLAYER_NOT_FOUND_S = savedErr
+				eq(ns.db.sisterHeard[KING], nil, "offline: forgotten")
+				eq(B.NoWithin(), 18 * 60, "(the pages' 18 minutes)")
+				Pages(function(path, doc)
+					assert(doc:find("from each one whose addon asked in the last 18 minutes", 1, true), path)
+					assert(doc:find("from the others at their next ask", 1, true), path)
+					assert(doc:find("keeps it on his screen until that player logs out", 1, true), path)
+					assert(doc:find("your no takes it back from their screens: at once from those whose addon asked in the last 18 minutes", 1, true), path)
+				end)
+			end)
+			ns.After, ns.db.sisterBankShares, ns.db.sisterBankSent, ns.db.sisterHeard = saved.after, saved.shares, saved.sent, saved.heard
+			ns.rdb.guilds["Olympus Zeus"] = saved.zeus
+			B.Reset()
+			if not ok then error(err, 0) end
 		end)
 	end)
 end
