@@ -366,10 +366,11 @@ the census, are not touched: one name stops the spam.
   hidden calls the army in vain: their Agenda, roll call, Vox Populi, inspection and gates show
   nowhere (whoever named them a Hand still decides whether they stay one).
 - A word goes on the Olympus channel with Blizzard's logged addon-message function (the issuer's
-  own words: the server keeps them, so abuse can be reported), one word per name. The issuers'
-  addons repeat the list for late logins, every 5 minutes, and share it: a word heard repeated
-  is not sent again, and the army repeats at most 20 words a minute however long the list (a
-  long list is repeated less often). Among words of the same rank the newest wins, by the
+  own words: the server keeps them, so abuse can be reported), one word per name. Each issuer's
+  addon repeats his own words for late logins, every 5 minutes, and never anyone else's (1.1,
+  Konig's review: a word passed on in the King's name went out from the King's addon as his
+  own), and the army repeats at most 20 words a minute however long the list (a long list is
+  repeated less often). Among words of the same rank the newest wins, by the
   server's clock; on the same second the King's own, else the one hiding the name, so every
   addon keeps the same word, whatever reached it first.
   A word hiding someone lapses 30 days after it was given (give it again to keep it); a word
@@ -378,7 +379,8 @@ the census, are not touched: one name stops the spam.
   name), never from a name that is hidden itself, and a word passed on only while its giver
   may still give one on that client: the words of someone taken off the lists or hidden (or of
   a Hand while nobody who named him keeps his list alive) are no longer repeated, and fade
-  within 3 days. When the list is full (500 characters, 200 guilds) a new word waits for room,
+  within 3 days, as do, on the other addons, the words of an issuer who has not played for 3
+  days (his addon repeats them when he is back). When the list is full (500 characters, 200 guilds) a new word waits for room,
   except the King's own, which always finds it.
 - On the King's screen, while the council's names are hidden (his stream), another issuer's
   reason (even one written in his name) and a councillor's name stay hidden until he shows the
@@ -1053,7 +1055,7 @@ message (the game adds it). What goes where:
 | A signup (1.1): the Agenda entry, the role you claim (or that you withdraw) and your guild | whoever set that entry (the King, his Steward or a Hand), alone (a whisper) | only when you click Sign up |
 | A signup sheet (1.1): the counts per role of each entry, no names, and when the next one comes | everyone on the Olympus channel | from the client of whoever set the entries, soon after a change, then every 5 minutes while one of them has signups or is within 2 days, every 15 otherwise |
 | A camp on the Board (1.1): your guild, level and class, the camp's zone (never your spot) and your note (with the logged API) | everyone on the Olympus channel, and whispered to a player whose Board asked | only with `/oly location on`, when you drop it, then every 10 minutes for its 30 minutes, until you take it down |
-| A net-off word (1.1): the character's name, hidden or shown again (or the guild's name, off or on again), the time, who gave it and the reason | everyone on the Olympus channel | when the King, his Steward, a Hand or a High Councillor gives one, then from their addons every few minutes for late logins |
+| A net-off word (1.1): the character's name, hidden or shown again (or the guild's name, off or on again), the time, who gave it and the reason | everyone on the Olympus channel | when the King, his Steward, a Hand or a High Councillor gives one, then from the giver's own addon every few minutes for late logins |
 | The army's key (1.1, when the King or his Steward rotates it): the new key, the time it was made and the hashes of the keys it replaces | each Lord and Captain the census confirms online in the guilds the King picks (a whisper from the King each), then each one's guild over guild chat; never the Olympus channel. Each 1.1 addon that has it tells the King so (a whisper), and after login asks its guild whether a newer key exists | only when the King rotates it on the Throne; a guildmate's ask once a login |
 | Your alt links (1.1, only if you link your characters): each linked character's name and guild, and the names it confirmed (its main, or its alts) | everyone on the Olympus channel | from each character you linked yourself, confirmed on each: at login, when a link changes and every 30 minutes while you play |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
@@ -1356,8 +1358,8 @@ Other limits:
   replaces one from higher up. Only the King, or the
   Steward for a Hand or a councillor, can hide an issuer, and a name that is hidden gives no
   word: its words fade. Without signatures, one issuer can still write a word in another
-  issuer's name: the addon then shows who passed it on, and his reason stays off the King's
-  stream.
+  issuer's name: the addon then shows who passed it on, his reason stays off the King's
+  stream, the word weighs no more than his own rank, and no addon repeats it.
 
 ## Built for a crowd of thousands
 

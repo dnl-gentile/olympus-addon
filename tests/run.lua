@@ -31603,13 +31603,17 @@ end)
 			AsKing()
 			eq(M.Set("c", "Second Real", true, "spam"), true, "and by click on his client")
 			assert(M.Hidden("Second Real-Realm"))
-			-- The army repeats a long list less often: 500 words wait 25 minutes, not 5.
+			-- The army repeats a long list less often: 500 words wait 25 minutes, not 5. (On the
+			-- councillor's client, whose words these are: since Konig's review of 1.1 a client repeats
+			-- only the words its own player gave.)
 			M.random = function() return 0 end
+			AsSoldier("Test Councillor")
 			for _, x in pairs(ns.rdb.netoff.c) do x.heard = w.clock end
 			w.clock = w.clock + M.REPEAT + 1
 			eq(M.Tick(), 0, "not due yet")
 			w.clock = w.clock + M.MAX.c * 60 / M.REPEATS_A_MINUTE
 			eq(M.Tick(), M.PER_TICK, "then due")
+			AsKing()
 			-- A word lapses OFF_KEEP after it was given, on every client, the issuers' too.
 			w.clock = t + M.OFF_KEEP + 60
 			M.Tick()
@@ -37755,14 +37759,53 @@ end)
 		end)
 	end)
 
+	test("1.1 Konig's review (item 2): an issuer's client repeats only the words its own player gave: a word passed on in the King's name never goes out from his client as his own", function()
+		WithModeration(function(w, K)
+			AsKing()
+			local t = w.clock
+			-- A councillor writes a word in the King's name: the King's client takes it, passed on.
+			M.Handle("CHANNEL", HC, O1("c", true, t, "Victim Guy-Realm", KING, "written in the King's name"))
+			local e = M.Hidden("Victim Guy-Realm")
+			assert(e, "taken"); eq(e.via, HC)
+			-- And the King's own word, given on his client.
+			eq(M.Set("c", "Real Spammer", true, "spam"), true)
+			M.random = function() return 0 end
+			local ok, err = pcall(function()
+				w.sent = {}
+				w.clock = w.clock + M.REPEAT + 1
+				eq(M.Tick(), 1, "his own word alone")
+				local all = Sent(w)
+				assert(all:find("Real Spammer", 1, true), all)
+				assert(not all:find("Victim Guy", 1, true), "never the word passed on in his name: " .. all)
+				for _ = 1, 5 do w.clock = w.clock + M.REPEAT + 1; M.Tick() end
+				assert(not Sent(w):find("Victim Guy", 1, true), "nor later")
+				-- A councillor's client: his own words, never the King's he heard.
+				AsSoldier("Test Councillor")
+				M.Handle("CHANNEL", KING, O1("c", true, w.clock, "King Target-Realm", KING, "the King's own"))
+				eq(M.Set("c", "Hc Target", true, "spam"), true)
+				w.sent = {}
+				w.clock = w.clock + M.REPEAT + 1
+				M.Tick()
+				all = Sent(w)
+				assert(all:find("Hc Target", 1, true), all)
+				assert(not all:find("King Target", 1, true) and not all:find("Real Spammer", 1, true) and not all:find("Victim Guy", 1, true), all)
+			end)
+			M.random = math.random
+			if not ok then error(err, 0) end
+		end)
+	end)
+
 	test("1.1 Konig's review: the README and the CurseForge page say what the net-off and the shared block terms do now", function()
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
 			for _, must in ipairs({ "And no word replaces one from higher up, whatever its date", "Among words of the same rank the newest wins",
-				"an issuer as high or higher (the King always) can put it back on" }) do
+				"an issuer as high or higher (the King always) can put it back on",
+				"Each issuer's addon repeats his own words for late logins, every 5 minutes, and never anyone else's",
+				"then from the giver's own addon every few minutes for late logins", "no addon repeats it" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
 			assert(not doc:find("The newest word wins, by the server's clock", 1, true), path .. ": the old claim")
+			assert(not doc:find("a word heard repeated is not sent again", 1, true), path .. ": the old repeats")
 		end
 	end)
 

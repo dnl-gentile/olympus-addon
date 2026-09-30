@@ -26,10 +26,11 @@ local L = ns.L
 -- list or a Steward's, a councillor of the signed council list; never a name that is off
 -- itself. A word one of them passes on for another (a repeat) is taken only while its giver
 -- may give one too, and shows who passed it on (the server's name): nobody writes a word in
--- someone else's name unseen. Their clients repeat the list for late logins, sharing the load:
--- a word heard repeated is not sent again for REPEAT (longer when the list is long: the army
--- repeats REPEATS_A_MINUTE words a minute at most), and a word whose giver may no longer give
--- one is not repeated (it lapses). A word taking a name off lapses OFF_KEEP after it was given
+-- someone else's name unseen. Each giver's client repeats his own words for late logins, never
+-- anyone else's (1.1 review: a word passed on in the King's name went out from his client as his
+-- own), every REPEAT (longer when the list is long: the army repeats REPEATS_A_MINUTE words a
+-- minute at most), and not once he may no longer give one (it lapses; so does a word whose giver
+-- was not online to repeat it for STALE). A word taking a name off lapses OFF_KEEP after it was given
 -- (given again, it starts over); one putting a name back on is kept and repeated for ON_KEEP,
 -- so an older word never comes back.
 -- Among those who give words, only a word from higher up reaches one of them (the King above a
@@ -155,6 +156,11 @@ local function Reaches(e, rank) return e ~= nil and (rank == 0 or Weight(e) > ra
 
 -- The King's own word: heard from him (not passed on), or given on his own client.
 local function KingsOwn(e) return type(e) == "table" and not e.via and ns.IsKingCharacter(e.by) end
+
+-- A word this client's own player gave (on this client: never one passed on in his name).
+local function Given(e)
+	return type(e) == "table" and not e.via and type(ns.me) == "string" and tostring(e.by):lower() == ns.me:lower()
+end
 
 ---------------------------------------------------------------------------
 -- The words kept (ns.rdb.netoff, per realm group like the census) and who they hide
@@ -550,8 +556,9 @@ function Moderation.Handle(dist, sender, text)
 	end
 	local result, held = Take(e)
 	stats[result] = (stats[result] or 0) + 1
-	-- Ours is newer, or from higher up: an issuer answers with it at its next round.
-	if (result == "older" or result == "outranked") and held and Moderation.CanIssue() then held.heard = ns.Now() - Moderation.REPEAT - Moderation.JITTER end
+	-- Ours is newer, or from higher up, and our own player gave it: his client answers with it at
+	-- its next round.
+	if (result == "older" or result == "outranked") and Given(held) and Moderation.CanIssue() then held.heard = ns.Now() - Moderation.REPEAT - Moderation.JITTER end
 end
 ns.Comm.Handle("O1", function(...) Moderation.Handle(...) end)
 
@@ -823,8 +830,9 @@ local function Live(e, clock)
 end
 
 -- Words past their time go, on every client. An "off" word nobody repeated for STALE lapses here
--- too, unless this client gives words and its giver still may (it repeats it, after WARMUP): the
--- words of one who may no longer give any (hidden, or off the lists) fade from the army.
+-- too, unless this client's own player gave it and still may give words (it repeats it, after
+-- WARMUP): the words of one who may no longer give any (hidden, or off the lists), or who has not
+-- been online to repeat them, fade from the army.
 function Moderation.Prune()
 	local now, clock = ns.Now(), Clock()
 	local issuer = Moderation.CanIssue()
@@ -832,7 +840,7 @@ function Moderation.Prune()
 	for kind in pairs(Moderation.MAX) do
 		for key, e in pairs(Store()[kind]) do
 			if type(e) ~= "table" or type(e.at) ~= "number" or type(e.name) ~= "string" or not Live(e, clock)
-				or (e.off and now - (tonumber(e.heard) or 0) > Moderation.STALE and not (issuer and Moderation.IsIssuer(e.by))) then
+				or (e.off and now - (tonumber(e.heard) or 0) > Moderation.STALE and not (issuer and Given(e) and Moderation.IsIssuer(e.by))) then
 				drops[#drops + 1] = { kind, key }
 			end
 		end
@@ -847,11 +855,13 @@ function Moderation.Prune()
 	end
 end
 
--- Every minute: an issuer's client repeats the words due (the others' repeats count), a few at a
--- time; a word it held unheard waits until it has been online WARMUP (a newer word may come).
--- The army repeats REPEATS_A_MINUTE words a minute at most, however long the list: a longer one
--- is repeated less often. Only a word its giver may still give, and one the others would take
--- from this client (a word aimed at one who gives words, only from higher up).
+-- Every minute: an issuer's client repeats the words due, a few at a time; a word it held unheard
+-- waits until it has been online WARMUP (a newer word may come). The army repeats
+-- REPEATS_A_MINUTE words a minute at most, however long the list: a longer one is repeated less
+-- often. Only a word its own player gave (1.1 review, Konig: never one heard, whose giver it
+-- names: a word passed on in the King's name went out from his client as his own, at his rank),
+-- while he may still give words, and one the others would take from this client (a word aimed
+-- at one who gives words, only from higher up).
 function Moderation.Tick()
 	Moderation.Prune()
 	if not Moderation.CanIssue() then return 0 end
@@ -864,7 +874,7 @@ function Moderation.Tick()
 	for kind in pairs(Moderation.KINDS) do
 		for _, e in pairs(Store()[kind]) do
 			if sent >= Moderation.PER_TICK then return sent end
-			if type(e) == "table" then
+			if Given(e) then
 				e.jitter = e.jitter or Moderation.random(0, Moderation.JITTER)
 				local every = math.max(e.off and Moderation.REPEAT or Moderation.ON_EVERY, spread)
 				local age = now - (tonumber(e.heard) or 0)
