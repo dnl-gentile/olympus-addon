@@ -3258,6 +3258,29 @@ local function Msg(tier, guild, id, text)
 	return Codec.EncodeChat(tier, guild, id, "PA", text or "hi")
 end
 
+-- Chattynator 224's public API (its API/Main.lua) as a stand-in, the global Chattynator (1.1.2,
+-- PR #47): GetWindowsAndTabs answers c.windows (its tabs' names, window by window; a test may
+-- change them between calls); AddMessageToWindowAndTab(window, tab, text, r, g, b) records each line
+-- in c.calls, and in c.calls[i].source the file of its caller: Chattynator names the line's addon
+-- after that caller (debugstack(2)), and a tab's filter lets the line in by that name. fn(c); the
+-- global put back after.
+local function WithChattynatorAPI(windows, fn)
+	local saved = rawget(_G, "Chattynator")
+	local c = { windows = windows, calls = {} }
+	Chattynator = { API = {
+		GetWindowsAndTabs = function() return c.windows end,
+		AddMessageToWindowAndTab = function(...)
+			local info = debug.getinfo(2, "S")
+			local call = { ... }
+			call.source = info and info.source or "?"
+			c.calls[#c.calls + 1] = call
+		end,
+	} }
+	local ok, err = pcall(fn, c)
+	Chattynator = saved
+	if not ok then error(err, 0) end
+end
+
 test("chat message round trip: separators, escapes and unicode", function()
 	local text = "ataque em ~Tarren:Mill, já! a=b " .. ITEM .. " e " .. ITEM_Q
 	eq(Codec.SanitizeChat(text), text, "nothing to neutralise")
@@ -9290,25 +9313,32 @@ do
 
 	-- Chattynator 224's public API returns arrays of tab names and accepts window/tab
 	-- indices followed by the AddMessage arguments. It does not expose Blizzard frames.
+	-- (1.1.2: the stand-in is WithChattynatorAPI's, which also records the caller's file.)
 	local function WithChattynator(fn)
-		local saved = Chattynator
-		local tabs, calls = { { "General", "Olympus" }, { "Captains", "Lords" } }, {}
-		Chattynator = { API = {
-			GetWindowsAndTabs = function() return tabs end,
-			AddMessageToWindowAndTab = function(...) calls[#calls + 1] = { ... } end,
-		} }
-		local ok, err = pcall(WithWindows, function(w, printed) fn(tabs, calls, w, printed) end)
-		Chattynator = saved
-		if not ok then error(err, 0) end
+		WithChattynatorAPI({ { "General", "Olympus" }, { "Captains", "Lords" } }, function(c)
+			WithWindows(function(w, printed) fn(c.windows, c.calls, w, printed) end)
+		end)
 	end
+	local function Our(text) return "|c" .. ns.COLOR .. "Olympus:|r " .. text end
+	local LEGEND = "|cffe6c45c[Olympus]|r, |cff59d9d9[Captains]|r, |cffbf80ff[Lords]|r"
 
+	-- (1.1.2, PR #47's test on 1.1.1: a tab named Olympus is the Olympus tab, whose first line says
+	-- what it holds, CHATTAB_HERE, where another tab gets CHATWIN_SET, and whose lines come without
+	-- the channel's name; the main window says, for each tab chosen, how to let Olympus in through its
+	-- filter, which Olympus cannot read. On 1.1.1's Channels.Frame, without the adaptation, the
+	-- Olympus tab's lines went to the game's hidden window named Olympus: 2 calls of 3.)
 	test("chat window: Chattynator tabs receive each tier and our echo instead of hidden native frames", function()
-		WithChattynator(function(tabs, calls, w)
+		WithChattynator(function(tabs, calls, w, printed)
 			-- A native window with the same name still exists after Chattynator hides it.
 			SlashCmdList.OLYMPUS("chatwindow oLYMPus olympus")
 			eq(ns.db.chatWindows["Tester-Realm"].A, "Olympus")
 			eq(#calls, 1, "confirmation reaches the Chattynator tab")
+			eq(calls[1][3], Our(ns.L.CHATTAB_HERE:format(LEGEND)), "the Olympus tab says what it holds")
+			eq(printed[#printed - 1], ns.L.CHATWIN_SET:format("[Olympus]", '"Olympus"'))
+			eq(printed[#printed], ns.L.CHATTY_FILTER:format('"Olympus"'), "and how to let Olympus in, in the main window")
 			eq(Chan.ChooseWindow("Captains captains"), true, "no native window with this name")
+			eq(calls[2][3], Our(ns.L.CHATWIN_SET:format("[Captains]", '"Captains"')))
+			eq(printed[#printed], ns.L.CHATTY_FILTER:format('"Captains"'))
 			eq(Chan.ChooseWindow("Lords lords"), true)
 			eq(Chan.WindowStatus(), '[Olympus] "Olympus", [Captains] "Captains", [Lords] "Lords"')
 			wipe(calls)
@@ -9323,6 +9353,9 @@ do
 				local color = Chan.TIERS[({ "A", "C", "L" })[index]].color
 				for c = 1, 3 do eq(calls[index][3 + c], color[c], "channel color") end
 			end
+			assert(calls[1][3]:find("^|Hplayer:Member1|h%["), "the Olympus tab: no channel name: " .. calls[1][3])
+			assert(calls[2][3]:find("^%[Captains%] |Hplayer:"), calls[2][3])
+			assert(calls[3][3]:find("^%[Lords%] |Hplayer:"), calls[3][3])
 			WithLane(function()
 				ns.db.chatWarned = { A = true, C = true, L = true }
 				local ok, why = Chan.Send("A", "own Chattynator echo", 1e12 + 200)
@@ -9330,6 +9363,7 @@ do
 			end)
 			eq(#calls, 4); eq(calls[4][1], 1); eq(calls[4][2], 2)
 			assert(calls[4][3]:find("own Chattynator echo", 1, true))
+			assert(calls[4][3]:find("^|Hplayer:"), calls[4][3])
 			eq(#w[1].lines, 0); eq(#w[4].lines, 0, "no hidden native output")
 		end)
 	end)
@@ -9385,10 +9419,14 @@ do
 		end)
 	end)
 
+	-- (1.1.2, PR #47's test on 1.1.1: while Chattynator answers, a name not found lists its tabs by
+	-- name with how to make one there, CHATTY_NOT_FOUND, where the PR added them to the game's
+	-- windows' list; "2" is a tab's name there, the game's windows being hidden behind Chattynator's,
+	-- and Chattynator's own combat log tab is refused as the game's is.)
 	test("chat window: unavailable Chattynator API preserves native lookup and lists available tabs", function()
 		WithChattynator(function(tabs, calls, w, printed)
 			eq(Chan.ChooseWindow("Missing"), false)
-			assert(printed[#printed]:find('Chattynator "Captains"', 1, true), printed[#printed])
+			eq(printed[#printed], ns.L.CHATTY_NOT_FOUND:format('"Missing"', '"General", "Olympus", "Captains", "Lords"'))
 			local api = Chattynator.API
 			for _, unavailable in ipairs({ {}, { GetWindowsAndTabs = api.GetWindowsAndTabs },
 				{ GetWindowsAndTabs = function() error("not initialized") end, AddMessageToWindowAndTab = api.AddMessageToWindowAndTab } }) do
@@ -9397,7 +9435,135 @@ do
 				eq(Chan.ChooseWindow("Captains captains"), false)
 			end
 			Chattynator.API = api
-			eq(Chan.ChooseWindow("2"), false, "native combat log remains refused")
+			eq(Chan.ChooseWindow("2"), false, "a tab's name while Chattynator answers: the game's window 2 is hidden")
+			eq(printed[#printed], ns.L.CHATTY_NOT_FOUND:format('"2"', '"General", "Olympus", "Captains", "Lords"'))
+			tabs[1][3] = "COMBAT_LOG"
+			eq(Chan.ChooseWindow("combat_log"), false); eq(printed[#printed], ns.L.CHATWIN_COMBATLOG, "Chattynator's combat log")
+			eq(Chan.ChooseWindow("Missing"), false)
+			eq(printed[#printed], ns.L.CHATTY_NOT_FOUND:format('"Missing"', '"General", "Olympus", "Captains", "Lords"'), "not listed")
+			Chattynator.API = {}
+			eq(Chan.ChooseWindow("2"), false, "native combat log remains refused"); eq(printed[#printed], ns.L.CHATWIN_COMBATLOG)
+		end)
+	end)
+
+	-- (1.1.2, the review of PR #47: its delivery had no pcall, and a window that was not a list threw
+	-- at every line, /oly status included.)
+	test("chat window (1.1.2): a Chattynator that fails, or answers a window that is not a list, costs no line and raises no error", function()
+		WithChattynator(function(tabs, calls, w, printed)
+			eq(Chan.ChooseWindow("Captains captains"), true)
+			wipe(calls)
+			-- A window that is not a list of names: left out, the others still read; names not strings too.
+			tabs[1] = "not a window"
+			eq(Chan.WindowStatus(), '[Olympus] main window, [Captains] "Captains", [Lords] main window')
+			id = id + 1
+			eq((Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, id, "still routed"), 3200300)), true)
+			eq(#calls, 1); eq(calls[1][1], 2); eq(calls[1][2], 1)
+			tabs[1] = { 42, false, "", "Olympus" }
+			local f, i, name = Chan.FindWindow("olympus")
+			assert(f and f ~= w[4], "Chattynator's tab"); eq(i, nil); eq(name, "Olympus")
+			eq(Chan.OpenWindows()[1].name, "Olympus", "only the names")
+			-- Its delivery failing: the main window has the line, whole, and nothing raises.
+			local api = Chattynator.API
+			Chattynator.API = { GetWindowsAndTabs = api.GetWindowsAndTabs, AddMessageToWindowAndTab = function() error("Chattynator broke") end }
+			id = id + 1
+			local shown, why = Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, id, "delivery failed"), 3200310)
+			eq(shown, true, tostring(why))
+			eq(Count(w[1].lines, "delivery failed"), 1, "in the main window")
+			assert(w[1].lines[#w[1].lines]:find("^%[Captains%] "), w[1].lines[#w[1].lines])
+			eq(Chan.ChooseWindow("Lords lords"), true, "no error either")
+			eq(Count(w[1].lines, ns.L.CHATWIN_SET:format("[Lords]", '"Lords"')), 1, "the tab's line, in the main window")
+			WithLane(function()
+				ns.db.chatWarned = { A = true, C = true, L = true }
+				local ok, why2 = Chan.Send("L", "own line, delivery failed", 1e12 + 300)
+				eq(ok, true, tostring(why2))
+			end)
+			eq(Count(w[1].lines, "own line, delivery failed"), 1)
+			-- Answering what is not a list, or a Chattynator that throws when read: the game's windows.
+			Chattynator.API = { GetWindowsAndTabs = function() return "x" end, AddMessageToWindowAndTab = api.AddMessageToWindowAndTab }
+			eq(Chan.Chattynator(), false); eq(Chan.FindWindow("Officers"), w[5])
+			Chattynator = setmetatable({}, { __index = function() error("not a table to read") end })
+			eq(Chan.Chattynator(), false); eq(Chan.FindWindow("Officers"), w[5])
+			Chattynator = "not a table"
+			eq(Chan.Chattynator(), false); eq(Chan.FindWindow("Officers"), w[5])
+			eq(#calls, 1, "nothing reached the tab after its failure")
+		end)
+	end)
+
+	-- (1.1.2: Chattynator names the line's addon after the caller of AddMessageToWindowAndTab,
+	-- debugstack(2), and a tab that lets Olympus in shows only lines named Olympus. Called through
+	-- pcall(api.AddMessageToWindowAndTab, ...), or as a tail call, the caller is not our file and the
+	-- line is "/loadstring": this fails on either.)
+	test("chat window (1.1.2): every line reaches Chattynator from Olympus/Channels.lua, the addon its tab's filter lets in", function()
+		WithChattynator(function(tabs, calls, w)
+			eq(Chan.ChooseWindow("Captains captains"), true)
+			eq(Chan.ChooseWindow("olympus"), true)
+			id = id + 1
+			eq((Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, id, "a line"), 3200400)), true)
+			id = id + 1
+			eq((Chan.Receive("CHANNEL", "Member2", Msg("A", MY_GUILD, id, "a bare line"), 3200410)), true)
+			eq(#calls, 4, "two choices said in their tabs, two lines")
+			for _, call in ipairs(calls) do assert(call.source:find("Olympus/Channels%.lua$"), call.source) end
+		end)
+	end)
+
+	test("chat window (1.1.2): Chattynator's tab by any case, spaces around it aside, or by the name it shows; the game's windows hidden behind its tabs are not picked", function()
+		WithChattynator(function(tabs, calls, w, printed)
+			local saved = rawget(_G, "GENERAL")
+			local ok, err = pcall(function()
+				GENERAL = "General" -- (the game's string: Chattynator shows its "GENERAL" tab so)
+				tabs[1] = { "GENERAL", " olympus " }
+				eq(Chan.ChooseWindow("Olympus"), true)
+				eq(ns.db.chatWindows["Tester-Realm"].A, " olympus ", "as Chattynator has it")
+				eq(calls[#calls][1], 1); eq(calls[#calls][2], 2); eq(calls[#calls][3], Our(ns.L.CHATTAB_HERE:format(LEGEND)))
+				eq(Chan.ChooseWindow("general captains"), true)
+				eq(ns.db.chatWindows["Tester-Realm"].C, "General", "the name it shows")
+				eq(Chan.ChooseWindow("GENERAL lords"), true); eq(ns.db.chatWindows["Tester-Realm"].L, "General")
+				wipe(calls)
+				id = id + 1
+				eq((Chan.Receive("CHANNEL", "Member2", Msg("A", MY_GUILD, id, "spaced tab"), 3200500)), true)
+				id = id + 1
+				eq((Chan.Receive("CHANNEL", "Member2", Msg("C", MY_GUILD, id, "general tab"), 3200510)), true)
+				eq(#calls, 2)
+				eq(calls[1][2], 2); assert(calls[1][3]:find("^|Hplayer:"), "the Olympus tab, bare: " .. calls[1][3])
+				eq(calls[2][2], 1); assert(calls[2][3]:find("^%[Captains%] "), calls[2][3])
+				-- A game window no tab of Chattynator's is named after: not found, by name or number.
+				eq(Chan.ChooseWindow("Officers"), false)
+				eq(printed[#printed], ns.L.CHATTY_NOT_FOUND:format('"Officers"', '"General", " olympus ", "Captains", "Lords"'))
+				eq(Chan.ChooseWindow("5"), false)
+				-- Chosen before Chattynator: hidden now, so gone: the main window, one notice.
+				ns.db.chatWindows["Tester-Realm"].L = "Officers"
+				local n = #printed
+				for k = 1, 2 do
+					id = id + 1
+					eq((Chan.Receive("CHANNEL", "Member1", Msg("L", MY_GUILD, id, "officers " .. k), 3200520 + k * 10)), true)
+				end
+				eq(Count(w[1].lines, "officers "), 2); eq(#w[5].lines, 0, "nothing in the hidden window")
+				eq(#printed, n + 1); eq(printed[#printed], ns.L.CHATWIN_GONE:format('"Officers"'))
+				assert(Chan.WindowStatus():find('[Lords] "Officers" ' .. ns.L.CHATWIN_GONE_TAG, 1, true), Chan.WindowStatus())
+			end)
+			GENERAL = saved
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("chat window (1.1.2): ChooseTab picks Chattynator's tab by its name alone (one called main is that tab), for one channel, said as /oly chatwindow says it", function()
+		WithChattynator(function(tabs, calls, w, printed)
+			tabs[2][3] = "main"
+			eq(Chan.ChooseTab("main", "C"), true)
+			eq(ns.db.chatWindows["Tester-Realm"].C, "main"); eq(ns.db.chatWindows["Tester-Realm"].A, nil, "that channel alone")
+			eq(printed[#printed - 1], ns.L.CHATWIN_SET:format("[Captains]", '"main"'))
+			eq(printed[#printed], ns.L.CHATTY_FILTER:format('"main"'))
+			eq(calls[#calls][1], 2); eq(calls[#calls][2], 3); eq(calls[#calls][3], Our(ns.L.CHATWIN_SET:format("[Captains]", '"main"')))
+			eq(Chan.ChooseTab(" OLYMPUS ", "A"), true); eq(ns.db.chatWindows["Tester-Realm"].A, "Olympus")
+			eq(calls[#calls][3], Our(ns.L.CHATTAB_HERE:format(LEGEND)), "the Olympus tab says what it holds")
+			local n = #calls
+			eq(Chan.ChooseTab("Nowhere", "C"), false); eq(ns.db.chatWindows["Tester-Realm"].C, "main", "unchanged")
+			eq(Chan.ChooseTab("Lords", "X"), false, "no such channel"); eq(Chan.ChooseTab(nil, "L"), false)
+			tabs[1][3] = "COMBAT_LOG"
+			eq(Chan.ChooseTab("COMBAT_LOG", "L"), false, "its combat log")
+			Chattynator.API = {}
+			eq(Chan.ChooseTab("Lords", "L"), false, "no Chattynator"); eq(ns.db.chatWindows["Tester-Realm"].L, nil)
+			eq(#calls, n)
 		end)
 	end)
 
@@ -44795,6 +44961,111 @@ do
 				end)
 			end)
 		end)
+
+		-- (1.1.2, PR #47 on 1.1.1's Chat tab: with Chattynator its tabs are the chat windows. The
+		-- settings' choice of a channel's window went by the game's windows' numbers, hidden behind
+		-- Chattynator's tabs; it goes through its tabs by name now, Channels.ChooseTab.)
+		test("1.1.2 Chat tab settings with Chattynator: each channel's window goes through Chattynator's tabs by name (its combat log never, a tab called main is that tab), then the main window; its tip says so; the game's hidden windows never offered", function()
+			WithWindow(function(w)
+				WithGameChat(function(g)
+					AsCaptain()
+					ns.db.addonChat = true
+					ns.Channels.Pin = function() return nil end
+					rawset(g[3], "name", "Guild"); rawset(g[3], "shown", true) -- (the game's, hidden behind Chattynator's)
+					local f
+					WithChattynatorAPI({ { "GENERAL", "main", "COMBAT_LOG" }, { "Olympus Talk" } }, function(c)
+						f = w.CW.Open("A")
+						f.gear:Click()
+						local where = Under(f, ALLH, L.CHATSET_WHERE:format(L.CHATWIN_MAIN_NAME))
+						assert(where, "[Olympus] in the main window")
+						assert(TipOf(where):find(L.CHATSET_WHERE_TIP_CHATTY, 1, true), TipOf(where))
+						w.printed = {}
+						where:Click()
+						eq(ns.Channels.ChosenWindow("A"), "GENERAL"); eq(ns.Channels.ChosenWindow("C"), nil, "that channel alone")
+						eq(w.printed[1], L.CHATWIN_SET:format(ALLH, '"GENERAL"'), "said as /oly chatwindow says it")
+						eq(w.printed[2], L.CHATTY_FILTER:format('"GENERAL"'), "and how to let Olympus in")
+						eq(c.calls[#c.calls][1], 1); eq(c.calls[#c.calls][2], 1, "and in that tab")
+						Under(f, ALLH, L.CHATSET_WHERE:format('"GENERAL"')):Click()
+						eq(ns.Channels.ChosenWindow("A"), "main", "a tab called main is that tab")
+						eq(c.calls[#c.calls][1], 1); eq(c.calls[#c.calls][2], 2)
+						Under(f, ALLH, L.CHATSET_WHERE:format('"main"')):Click()
+						eq(ns.Channels.ChosenWindow("A"), "Olympus Talk", "its combat log left out")
+						Under(f, ALLH, L.CHATSET_WHERE:format('"Olympus Talk"')):Click()
+						eq(ns.Channels.ChosenWindow("A"), nil, "the main window again")
+						assert(Under(f, ALLH, L.CHATSET_WHERE:format(L.CHATWIN_MAIN_NAME)))
+						-- A tab removed in Chattynator: gone; a click takes its first tab.
+						eq(ns.Channels.ChooseTab("Olympus Talk", "C"), true)
+						c.windows[2] = {}
+						w.CW.Render()
+						local gone = Under(f, CAPTH, L.CHATSET_WHERE:format('"Olympus Talk" ' .. L.CHATWIN_GONE_TAG))
+						assert(gone, "gone")
+						gone:Click()
+						eq(ns.Channels.ChosenWindow("C"), "GENERAL")
+						for _, call in ipairs(c.calls) do assert(call[1] ~= 1 or call[2] ~= 3, "never its combat log") end
+						eq(#g[3].lines, 0, "never the game's hidden window")
+					end)
+					-- Chattynator off: the game's windows again, by their numbers, in the game's words.
+					w.CW.Render()
+					local where = Under(f, CAPTH, L.CHATSET_WHERE:format('"GENERAL"'))
+					assert(where, "the name chosen (the game's main window has it)")
+					assert(TipOf(where):find(L.CHATSET_WHERE_TIP:format("Create New Window"), 1, true), TipOf(where))
+					where:Click()
+					eq(ns.Channels.ChosenWindow("C"), "Guild", "the game's window 3, by its number")
+				end)
+			end)
+		end)
+
+		test("1.1.2 Chat tab settings with Chattynator: the Olympus tab's line: no pointer (the game's tabs are hidden; one shown before goes), its click sends the channels there and says Chattynator's steps, the line and the settings show them; the Chat tab reads its tabs while it shows and says it once when the tab is there", function()
+			WithWindow(function(w)
+				WithGameChat(function(g)
+					AsCaptain()
+					ns.db.addonChat = true
+					ns.Channels.Pin = function() return nil end
+					-- Before Chattynator answers: the game's way, its pointer by the game's chat tab.
+					local f = w.CW.Open()
+					eq(f.guide:IsShown(), true, "the line over the lines")
+					f.guide:Click()
+					local p = w.CW.Pointer()
+					assert(p and p:IsShown(), "the pointer")
+					eq(ns.Channels.TabState(), "none")
+					g.reads = {}
+					WithChattynatorAPI({ { "GENERAL", "GUILD" } }, function(c)
+						w.printed = {}
+						w.CW.Render()
+						assert(f.guide.text:GetText():find(L.CHATTY_TAB_STEPS, 1, true), "Chattynator's steps: " .. f.guide.text:GetText())
+						f.guide:Click()
+						eq(p:IsShown(), false, "the pointer goes: it would point at nothing")
+						eq(w.CW.Watching(), true); eq(ns.Channels.TabState(), "waiting")
+						eq(Count(w.printed, L.CHATTY_STEPS), 1, "Chattynator's steps, in chat")
+						eq(ns.Channels.ChosenWindow("A"), "Olympus"); eq(ns.Channels.ChosenWindow("C"), "Olympus")
+						f:Fire("OnUpdate", 0.3)
+						assert(f.guide.text:GetText():find(L.CHATTY_TAB_STEPS, 1, true), f.guide.text:GetText())
+						-- The settings: the same steps; a click says them again, still no pointer.
+						f.gear:Click()
+						local steps = Under(f, L.CHATSET_TAB, L.CHATTY_TAB_STEPS)
+						assert(steps, "the steps while it is awaited")
+						steps:Click()
+						eq(Count(w.printed, L.CHATTY_STEPS), 2)
+						p = w.CW.Pointer()
+						eq(p == nil or not p:IsShown(), true, "no pointer")
+						-- The player makes it in Chattynator: no event of the game's; the Chat tab reads its tabs.
+						table.insert(c.windows[1], "Olympus")
+						f:Fire("OnUpdate", 1.1)
+						eq(ns.Channels.TabState(), "open"); eq(w.CW.Watching(), false)
+						eq(Count(w.printed, SET), 1, "said once")
+						eq(Count(w.printed, L.CHATTY_FILTER:format('"Olympus"')), 1)
+						eq(#c.calls, 1); eq(c.calls[1][1], 1); eq(c.calls[1][2], 3)
+						assert(c.calls[1][3]:find(L.CHATTAB_HERE:sub(1, 20), 1, true), c.calls[1][3])
+						f:Fire("OnUpdate", 1.1)
+						eq(Count(w.printed, SET), 1, "once")
+						w.CW.Render()
+						assert(Under(f, L.CHATSET_TAB, L.CHATS_TAB_ON), "on")
+						assert(Under(f, CAPTH, L.CHATSET_WHERE:format('"Olympus"'))); eq(Under(f, CAPTH, L.CHATWIN_GONE_TAG), nil)
+						eq(#g.reads, 0, "the game's chat tab never read for a pointer")
+					end)
+				end)
+			end)
+		end)
 		end)()
 	end
 end
@@ -45304,6 +45575,80 @@ end)()
 		assert(not ok and tostring(err):find("FCF_OpenNewWindow, ChatFrameUtil.SetLastActiveWindow, ChatFrame4:RemoveAllMessageGroups", 1, true), tostring(err))
 	end)
 
+	-- (1.1.2, PR #47 on 1.1.1's Olympus tab: with Chattynator the game's window named Olympus is
+	-- hidden behind Chattynator's tabs, and 1.1.1's FindTab found it first: the lines went where
+	-- nobody saw them, GitHub #46 again. Chattynator's tab named Olympus is the Olympus tab now.)
+	test("1.1.2 Olympus tab with Chattynator: its tab named Olympus, not the game's hidden one: the one click says so, one intro in that tab and how to let Olympus in (the main window); the lines bare, each in its channel's colour, from Olympus's own file; nothing of the game's called", function()
+		WithTabs(function(w, printed)
+			w[4].name, w[4].isDocked = "Olympus", true -- (the game's, hidden behind Chattynator's)
+			WithChattynatorAPI({ { "GENERAL", "GUILD" }, { "Olympus" } }, function(c)
+				eq(Chan.TabState(), "none")
+				local ok, state = Chan.SetupTab()
+				eq(ok, true); eq(state, "open")
+				eq(printed[#printed - 1], ns.L.CHATTAB_SET:format("[Olympus], [Captains], [Lords]"))
+				eq(printed[#printed], ns.L.CHATTY_FILTER:format('"Olympus"'), "the main window: its filter")
+				eq(#c.calls, 1); eq(c.calls[1][1], 2); eq(c.calls[1][2], 1)
+				eq(c.calls[1][3], Our(ns.L.CHATTAB_HERE:format(LEGEND)), "no word of the game's Settings (CHATTAB_MIXED)")
+				eq(ns.db.chatTabIntro["Tester-Realm"], true); eq(Chan.TabState(), "open")
+				eq(Recv("A", "Member500", "army line"), true)
+				eq(Recv("C", "Member2", "captains line"), true)
+				eq(Recv("L", "Member1", "lords line"), true)
+				eq(#c.calls, 4, "no second intro")
+				for k, tier in ipairs({ "A", "C", "L" }) do
+					local call = c.calls[k + 1]
+					assert(call[3]:find("^|Hplayer:Member"), "bare: " .. call[3])
+					local color = Chan.TIERS[tier].color
+					eq(call[4], color[1]); eq(call[5], color[2]); eq(call[6], color[3])
+				end
+				WithLane(function() local sent, why = Chan.Send("C", "my own line", 5e12 + 100); eq(sent, true, tostring(why)) end)
+				eq(#c.calls, 5); assert(c.calls[5][3]:find("^|Hplayer:"), c.calls[5][3])
+				assert(c.calls[5][3]:find("my own line", 1, true))
+				for _, call in ipairs(c.calls) do assert(call.source:find("Olympus/Channels%.lua$"), call.source) end
+				eq(#w[4].lines, 0, "nothing in the game's hidden tab"); eq(#w[1].lines, 0)
+				eq(Has(printed, ns.L.CHATTAB_STEPS:sub(1, 20)), 0, "no word of the game's menu")
+			end)
+			-- Chattynator gone (disabled): the game's tab named Olympus again.
+			eq(Chan.TabState(), "open")
+			eq(Recv("A", "Member503", "the game's tab again"), true)
+			eq(#w[4].lines, 1); assert(w[4].lines[1]:find("^|Hplayer:Member503|h%["), w[4].lines[1])
+		end)
+	end)
+
+	test("1.1.2 Olympus tab with Chattynator, not made yet: the one click says how in Chattynator; the lines wait in the main window, said once, and land in its tab, bare, after one intro and the filter's hint, the moment it exists (no event of the game's)", function()
+		WithTabs(function(w, printed)
+			w[4].name, w[4].isDocked = "Olympus", true -- (the game's, hidden behind Chattynator's)
+			WithChattynatorAPI({ { "GENERAL", "GUILD" } }, function(c)
+				ns.db.chatTabIntro = { ["Tester-Realm"] = true } -- (told of an earlier tab: the new one says it again)
+				local ok, state = Chan.SetupTab()
+				eq(ok, true); eq(state, "waiting")
+				eq(printed[#printed], ns.L.CHATTY_STEPS, "Chattynator's steps, not the game's menu")
+				eq(ns.db.chatTabIntro, nil); eq(Chan.TabState(), "waiting")
+				local n = #printed
+				eq(Recv("A", "Member500", "before the tab"), true)
+				eq(Has(w[1].lines, "before the tab"), 1); eq(#w[4].lines, 0, "never the game's hidden tab")
+				eq(#printed, n + 1); eq(printed[#printed], ns.L.CHATTAB_WAITING)
+				-- The player makes it in Chattynator, in a second window of its own.
+				c.windows[2] = { "Olympus" }
+				eq(Chan.TabState(), "open")
+				eq(Recv("L", "Member1", "now in the tab"), true)
+				eq(#c.calls, 2)
+				eq(c.calls[1][3], Our(ns.L.CHATTAB_HERE:format(LEGEND)), "the intro first")
+				eq(c.calls[1][1], 2); eq(c.calls[1][2], 1)
+				assert(c.calls[2][3]:find("^|Hplayer:Member1|h%["), c.calls[2][3])
+				eq(#printed, n + 2); eq(printed[#printed], ns.L.CHATTY_FILTER:format('"Olympus"'))
+				eq(Recv("C", "Member2", "no second intro"), true)
+				eq(#c.calls, 3); eq(#printed, n + 2)
+				-- Removed: the usual notice, once; /oly chatwindow tab says Chattynator's steps again.
+				c.windows[2] = {}
+				eq(Recv("A", "Member504", "tab removed"), true)
+				eq(printed[#printed], ns.L.CHATWIN_GONE:format('"Olympus"')); eq(Chan.TabState(), "waiting")
+				eq(Has(w[1].lines, "tab removed"), 1)
+				SlashCmdList.OLYMPUS("chatwindow tab")
+				eq(printed[#printed], ns.L.CHATTY_STEPS)
+			end)
+		end)
+	end)
+
 	test("1.1.1 /ol, /olc, /oll alone open the Olympus window's Chat tab on that channel; without one, the usage line; with text, a line as before", function()
 		WithTabs(function(w, printed)
 			local savedWindow, savedSend = ns.ChatWindow, Chan.Send
@@ -45560,6 +45905,36 @@ end)()
 					eq(#w[4].lines, 2); eq(#w[1].lines, 0)
 				end)
 				for _, name in ipairs(keepers) do T.HandleDonations("CHANNEL", name, "TD~Olympus II~0~0~") end
+				T.IsKeeperName = savedKeeper
+				if not ok then error(err, 0) end
+			end)
+		end)
+
+		-- (1.1.2: the Treasury prints this line on the frame Channels.Frame gives, as Show does; with
+		-- Chattynator that is its tab, and the line is still Olympus's for the tab's filter: the
+		-- stand-in's own code, in Channels.lua, calls Chattynator.)
+		test("1.1.2 review: the Treasury's donation line reaches Chattynator's tab named Olympus, without [Olympus], in its colour, as a line of Olympus's", function()
+			WithTabs(function(w, printed)
+				local T = ns.Treasury
+				local savedKeeper = T.IsKeeperName
+				local keeper = "Keeper Four-Realm"
+				local ok, err = pcall(function()
+					T.IsKeeperName = function() return true end
+					w[4].name, w[4].isDocked = "Olympus", true -- (the game's, hidden behind Chattynator's)
+					ns.db.chatWindows = { ["Tester-Realm"] = { A = "Olympus", C = "Olympus", L = "Olympus" } }
+					ns.db.chatTabIntro = { ["Tester-Realm"] = true }
+					WithChattynatorAPI({ { "GENERAL" }, { "Olympus" } }, function(c)
+						T.HandleDonations("CHANNEL", keeper, ("TD~Olympus II~1~%d~"):format(ns.Now()))
+						eq(#c.calls, 1)
+						eq(c.calls[1][1], 2); eq(c.calls[1][2], 1)
+						eq(c.calls[1][3], T.DonationText(keeper, nil), "no [Olympus] in the tab:")
+						local color = Chan.TIERS.A.color
+						eq(c.calls[1][4], color[1]); eq(c.calls[1][5], color[2]); eq(c.calls[1][6], color[3])
+						assert(c.calls[1].source:find("Olympus/Channels%.lua$"), c.calls[1].source)
+						eq(#w[4].lines, 0, "not the game's hidden tab"); eq(#w[1].lines, 0)
+					end)
+				end)
+				T.HandleDonations("CHANNEL", keeper, "TD~Olympus II~0~0~")
 				T.IsKeeperName = savedKeeper
 				if not ok then error(err, 0) end
 			end)
