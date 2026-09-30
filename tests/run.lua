@@ -6341,7 +6341,9 @@ test("The Treasury: the Treasurer's book (not his gold), the King's three switch
 			-- whole book is what goes by whisper to the King, a Steward and the keepers.
 			eq(LastSent(w), "TB~1.0~Olympus~0~0~0~0~0~0~~-~000@1~~~~0:0", "the army's part: nothing")
 			local msg = T.Message() -- (Fern's #36: the week's donors as a count, 3, never by name)
-			assert(msg:find("^TB~1%.0~Olympus~1000000~1170456~175456~5000~175456~3~~%-~%-~Trader:123456,Giver:50000,Friend:2000~o:5000:Crafter:m:"), msg)
+			-- (Konig's review of 1.1: the ranking leaving the Treasurer's client leaves out each giver's
+			-- gold of the week up to its dues' amount, 1 gold here: Friend's 20 silver, all of it.)
+			assert(msg:find("^TB~1%.0~Olympus~1000000~1170456~175456~5000~175456~3~~%-~%-~Trader:113456,Giver:40000~o:5000:Crafter:m:"), msg)
 			assert(not msg:find("Linen", 1, true) and not msg:find(":40000:", 1, true), "sales and purchases are not sent")
 			-- 1.1 (Fern's #36): gold given to the Treasurer is someone's dues: its line (a name and his
 			-- last payment) never goes out, in TB or in 0.9's T8. His payment's line still does.
@@ -6352,7 +6354,7 @@ test("The Treasury: the Treasurer's book (not his gold), the King's three switch
 			-- channel too, so nothing the King hides; whole, what his client would send with all shown.
 			eq(w.sent[#w.sent - 1].msg, "T8~Olympus~0~0~0~0~0~-~~", "0.9's copy: nothing hidden either")
 			local legacy = T.LegacyMessage()
-			assert(legacy:find("^T8~Olympus~1170456~175456~5000~175456~3~%-~Trader:123456,Giver:50000,Friend:2000~o:5000:Crafter:m:%d+$"), legacy) -- (no dues line either, #36)
+			assert(legacy:find("^T8~Olympus~1170456~175456~5000~175456~3~%-~Trader:113456,Giver:40000~o:5000:Crafter:m:%d+$"), legacy) -- (no dues line either, #36; nor its part of the ranking, Konig's review)
 			-- The King's copy: from the Treasurer himself only (the King's own book is empty here).
 			AsKing()
 			local savedRank = ns.Roster.RankOf
@@ -17969,7 +17971,9 @@ test("1.0 one treasury: every keeper's book together (the balance summed, one ra
 			-- 1.1 (Fern's #36): a book sends its week's donors as a count, never by name, so a donor who
 			-- gave to two keepers counts in each book that came by the channel (1.0 named them: 3).
 			eq(r.donors, 4, "Romani gave to both: counted by each keeper")
-			eq(#r.rank, 3, "one line each"); eq(r.rank[1].name, "Generous Donor"); eq(r.rank[1].money, 130000)
+			-- (Konig's review of 1.1: the Treasurer's copy leaves out each giver's gold of the week up to
+			-- the dues' amount, 1 gold here: 90000 of his 100000, and the King's 30000.)
+			eq(#r.rank, 3, "one line each"); eq(r.rank[1].name, "Generous Donor"); eq(r.rank[1].money, 120000)
 			eq(r.rank[2].name, "Fan"); eq(r.rank[3].name, "Other")
 			-- The book: every keeper's lines, newest first, each with who received it. (1.1, Fern's
 			-- #36: the gold given to the Treasurer is the dues, and never leaves his client: of his
@@ -17999,7 +18003,7 @@ test("1.0 one treasury: every keeper's book together (the balance summed, one ra
 			AsSoldier()
 			T.HandleReport("CHANNEL", "Asmongold Asmongler-Realm", kings)
 			r = T.Report()
-			eq(r.balance, 15165000); eq(r.rank[1].money, 130000); eq(r.donors, 4, "(1.1: counted by each keeper, #36)")
+			eq(r.balance, 15165000); eq(r.rank[1].money, 120000, "(the Treasurer's copy: Konig's review of 1.1)"); eq(r.donors, 4, "(1.1: counted by each keeper, #36)")
 			assert(T.RealmText():find(T.GoldText(15165000), 1, true), T.RealmText())
 			page = Texts((T.Build()))
 			assert(page:find("1. Generous Donor", 1, true) and page:find(ns.L.TREASURY_KEPT_BY:format("Asmon", "0s ago"), 1, true), page)
@@ -18015,7 +18019,7 @@ test("1.0 one treasury: every keeper's book together (the balance summed, one ra
 			local legacy = T.LegacyMessage()
 			local balance, rest = legacy:match("^T8~Olympus~(%-?%d+)~(.*)$")
 			eq(tonumber(balance), 15165000)
-			assert(rest:find("^185000~20000~%d+~%d+~[^~]*~Generous Donor:130000,"), legacy)
+			assert(rest:find("^185000~20000~%d+~%d+~[^~]*~Generous Donor:120000,"), legacy) -- (his own book's part: Konig's review of 1.1)
 		end)
 		ns.splitNames = savedSplit
 		if not ok then error(err, 0) end
@@ -32354,7 +32358,9 @@ do
 			for field in (tr:match("~(TB~.*)$") .. "~"):gmatch("([^~]*)~") do rf[#rf + 1] = field end
 			assert(not rf[14]:find(Nm(9), 1, true), "a dues line in the relay: " .. tr)
 			assert(rf[14]:find("^o:700:Paid Crafter:m:%d+$"), tr)
-			eq(rf[13], Nm(9) .. ":10000", "(the ranking, all time, stays: Fern's word)")
+			-- (The ranking, all time, stays: Fern's word. Less what may be each giver's dues, Konig's review
+			-- of 1.1: his 1 gold this week, the amount, is all of it, so he is not in it.)
+			eq(rf[13], "", "no part of anyone's dues in the ranking")
 			eq(D.Ledger().players[Nm(9):lower()].c, 10000, "counted in the dues all the same")
 			-- The same for any keeper who is not the Treasurer: his gifts are not the dues, and their
 			-- lines still go (the King's book, here).
@@ -35499,10 +35505,11 @@ test("1.1 Zeal's promise: what the King hides never goes on the channel; the Kin
 			ns.db.keeperShares = nil
 			Deliver("Pyralis Ashandar-Realm", whispers)
 			local r = T.Report()
-			eq(r.balance, 10000000 + 251000 - 50000, "the whole balance"); eq(r.rank[1].name, "Secret Donor"); eq(r.rank[1].money, 251000)
+			-- (His total less the week's gold up to the dues' amount, 1 gold: Konig's review of 1.1.)
+			eq(r.balance, 10000000 + 251000 - 50000, "the whole balance"); eq(r.rank[1].name, "Secret Donor"); eq(r.rank[1].money, 241000)
 			-- (Every line but Secret Donor's two: gold given to the Treasurer is someone's dues, and its
 			-- line never leaves his client in a book, by whisper either (1.1 part F, Fern's #36: the King
-			-- sees the dues on the dues page). His total still ranks.)
+			-- sees the dues on the dues page). His total still ranks, less what may be his dues.)
 			eq(#r.book, 2, "every line but the dues'"); eq(r.items[1].id, 2589)
 			eq(B.Report().money, 777777, "the bank"); eq(T.EarlySupporters().names[1], "Early Friend", "the early supporters")
 			-- A later copy for the army (the channel's) never replaces the whole one on his screen.
@@ -38053,6 +38060,98 @@ do
 			end
 			ns.rdb.treasuryKeepers = nil
 			B.Reset()
+		end)
+	end)
+
+	test("1.1 Konig's review: the ranking that leaves the Treasurer's client never tells who paid the dues; a total grows only by what a week's gold went over the amount", function()
+		WithStewards(function(w, K)
+			local T, D = ns.Treasury, ns.Dues
+			local saved = { chars = ns.db.myCharacters, gst = GetServerTime }
+			local ok, err = pcall(function()
+				D.Reset()
+				GetServerTime = nil -- (the server's clock is the test's)
+				AsTreasurer()
+				ns.db.keeperShares = { [TREASURER_KEY] = true }
+				ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = w.clock, from = KING }
+				-- The King's amount: 5 gold a week, for weeks already.
+				ns.rdb.duesAmount = { copper = 50000, at = w.clock - 60 * 86400, before = 50000, from = KING }
+				T.SetOpening("100")
+				local function Give(name, copper, book) T.Record(name, copper, "mail", nil, { quiet = true, book = book }) end
+				local function Field(msg, i)
+					local f = {}
+					for x in (msg .. "~"):gmatch("([^~]*)~") do f[#f + 1] = x end
+					return f[i]
+				end
+				local function Ranked(list)
+					local out = {}
+					for e in (list or ""):gmatch("[^,]+") do
+						local n, c = e:match("^(.-):(%d+)$")
+						out[n] = tonumber(c)
+					end
+					return out
+				end
+				-- The ranking on the channel (the army's part with the ranking shown).
+				local function Channel() return Ranked(Field(T.Message(nil, { ranking = true }), 13)) end
+				-- A patron's gift; then week after week Payer pays the amount, Tipper too and one week
+				-- 20 gold more; Skipper pays nothing.
+				Give("Patron", 5000000)
+				eq(Channel().Patron, 5000000 - 50000, "a donation ranks, less what may be his dues")
+				for week = 1, 7 do
+					Give("Payer", 50000)
+					Give("Tipper", 50000 + (week == 3 and 200000 or 0))
+					local now = Channel()
+					eq(now.Payer, nil, "week " .. week .. ": a payer, not told from Skipper")
+					eq(now.Skipper, nil)
+					eq(now.Tipper, week >= 3 and 200000 or nil, "week " .. week .. ": only what went over the amount")
+					eq(now.Patron, 4950000, "week " .. week .. ": no total grows back, weeks dropped too")
+					w.clock = w.clock + 7 * 86400
+				end
+				-- His own screen: all of it.
+				local mine = {}
+				for _, g in ipairs(T.Totals().ranking) do mine[g.name] = g.money end
+				eq(mine.Payer, 7 * 50000); eq(mine.Patron, 5000000)
+				-- The whole book (whispered to the King, a Steward, the keepers) and 0.9's copy: the same.
+				eq(Ranked(Field(T.Message(), 13)).Payer, nil, "whispered: nor there")
+				eq(Ranked(Field(T.Message(), 13)).Tipper, 200000)
+				eq(Ranked(Field(T.LegacyMessage(), 9)).Payer, nil, "0.9's copy: nor there")
+				-- His mail character's book, passed on by his client: the same.
+				ns.db.myCharacters = { [TREASURER_KEY] = true, [ANDARAI_KEY] = true }
+				ns.db.keeperShares = { [TREASURER_KEY] = true, [ANDARAI_KEY] = true }
+				local mailBook = T.BookOf(ANDARAI, true)
+				mailBook.opening = 0
+				Give("Mail Payer", 50000, mailBook)
+				Give("Mail Patron", 800000, mailBook)
+				w.sent = {}
+				T.Relay(true)
+				local tr
+				for _, x in ipairs(w.sent) do if x.msg:find("^TR~") then tr = x.msg end end
+				assert(tr, "relayed")
+				local relayed = Ranked(Field(tr:match("~(TB~.*)$"), 13))
+				eq(relayed["Mail Payer"], nil); eq(relayed["Mail Patron"], 750000)
+				-- Another keeper's book (the King's): no dues there, his donors as they gave.
+				AsKing()
+				Give("Payer", 50000)
+				eq(Ranked(Field(T.Message(), 13)).Payer, 50000, "gold to the King is no dues")
+				-- A backup of the Treasurer's book, restored after a wipe: the ranking as before (the weeks
+				-- dropped still left out).
+				AsTreasurer()
+				ns.db.myCharacters = { [TREASURER_KEY] = true }
+				local before = Field(T.Message(nil, { ranking = true }), 13)
+				local text = ns.Backup.Export()
+				ns.rdb.treasuryBooks = nil
+				local d = assert(ns.Backup.Read(text))
+				ns.Backup.Apply(d)
+				eq(Field(T.Message(nil, { ranking = true }), 13), before, "restored: the same ranking")
+				-- Both pages say so.
+				for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+					local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+					assert(doc:find("each week's gold up to that week's amount", 1, true), path)
+					assert(not doc:find("a ranked donor's total still grows on the channel when he gives", 1, true), path)
+				end
+			end)
+			ns.db.myCharacters, GetServerTime = saved.chars, saved.gst
+			D.Reset()
+			if not ok then error(err, 0) end
 		end)
 	end)
 end

@@ -238,6 +238,34 @@ local function CheckBook(b)
 			end
 			sums.days[day] = { inn = x.inn, out = x.out, by = by }
 		end
+		-- (1.1: each giver's sum a week, the dues' weeks (Dues.WeekAdd), and what may be each giver's
+		-- dues in the weeks no longer kept (Dues.DuesPart): rebuilt from the lines instead, a restored
+		-- book's ranking would send again what they left out, Konig's review of 1.1.)
+		if good and type(s.weeks) == "table" then
+			sums.weeks = {}
+			for wk, list in pairs(s.weeks) do
+				if not Num(wk, -2 ^ 31, 2 ^ 31) or type(list) ~= "table" then good = false break end
+				local week = {}
+				for key, p in pairs(list) do
+					if type(key) ~= "string" or #key > 80 or key:find("[|%c]") or type(p) ~= "table" or type(p.n) ~= "string" or #p.n > 80
+						or p.n:find("[|%c]") or not Num(p.c, 1, MAX) or not Num(p.t, 0, 2 ^ 31)
+						or (p.g ~= nil and (type(p.g) ~= "string" or #p.g > 80 or p.g:find("[|%c]"))) then
+						good = false
+						break
+					end
+					week[key] = { n = p.n, c = p.c, t = p.t, g = p.g, gv = p.gv == true or nil }
+				end
+				if not good then break end
+				sums.weeks[wk] = week
+			end
+		end
+		if good and type(s.duesOut) == "table" then
+			sums.duesOut = {}
+			for key, c in pairs(s.duesOut) do
+				if type(key) ~= "string" or #key > 80 or key:find("[|%c]") or not Num(c, 1, MAX) then good = false break end
+				sums.duesOut[key] = c
+			end
+		end
 		if good then out.sums = sums end
 	end
 	return out

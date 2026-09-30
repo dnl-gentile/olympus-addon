@@ -365,8 +365,37 @@ function Dues.Stamp(e, name, o)
 	if guild then e.guild, e.gv = guild, verified or nil end
 end
 
+-- Konig's review of 1.1 (the ranking): of each giver's gold in a book, what may be his dues, each
+-- week's gold up to that week's amount (paid or not: nobody can tell which). The ranking that leaves
+-- the Treasurer's client leaves it out (Treasury.PublicRanking). A week dropped from the WEEKS_KEPT
+-- is folded into the book's sums first (s.duesOut, by giver), so no total grows back when it goes.
+local function Fold(s, wk, list)
+	if type(wk) ~= "number" or type(list) ~= "table" then return end
+	local amount = Dues.AmountOf(wk)
+	s.duesOut = type(s.duesOut) == "table" and s.duesOut or {}
+	for key, p in pairs(list) do
+		local c = type(p) == "table" and math.min(tonumber(p.c) or 0, amount) or 0
+		if type(key) == "string" and c > 0 then s.duesOut[key] = math.min((tonumber(s.duesOut[key]) or 0) + c, MAX_COPPER) end
+	end
+end
+-- { [giver's key] = copper }: the weeks kept as they are now, and those folded.
+function Dues.DuesPart(s)
+	local out = {}
+	if type(s) ~= "table" then return out end
+	for key, c in pairs(type(s.duesOut) == "table" and s.duesOut or {}) do out[key] = tonumber(c) or 0 end
+	for wk, list in pairs(type(s.weeks) == "table" and s.weeks or {}) do
+		if type(wk) == "number" and type(list) == "table" then
+			local amount = Dues.AmountOf(wk)
+			for key, p in pairs(list) do
+				if type(p) == "table" then out[key] = math.min((out[key] or 0) + math.min(tonumber(p.c) or 0, amount), MAX_COPPER) end
+			end
+		end
+	end
+	return out
+end
+
 -- A counted gift into its giver's sum for its week (copper < 0: out of it), while the week is
--- one of the WEEKS_KEPT; older weeks are dropped.
+-- one of the WEEKS_KEPT; older weeks are dropped (folded first: Fold).
 function Dues.WeekAdd(s, e, copper)
 	if type(s) ~= "table" or type(e) ~= "table" or e.item or e.out or e.kind == "transfer" then return end
 	copper = math.floor(tonumber(copper) or 0)
@@ -375,8 +404,11 @@ function Dues.WeekAdd(s, e, copper)
 	local now = Dues.Week()
 	local wk = tonumber(e.wk) or Dues.WeekOf(e.t)
 	if type(s.weeks) ~= "table" then s.weeks = {} end
-	for w in pairs(s.weeks) do
-		if type(w) ~= "number" or w < now - (Dues.WEEKS_KEPT - 1) then s.weeks[w] = nil end
+	for w, list in pairs(s.weeks) do
+		if type(w) ~= "number" or w < now - (Dues.WEEKS_KEPT - 1) then
+			Fold(s, w, list)
+			s.weeks[w] = nil
+		end
 	end
 	if wk < now - (Dues.WEEKS_KEPT - 1) or wk > now + 1 then return end
 	local week = s.weeks[wk]

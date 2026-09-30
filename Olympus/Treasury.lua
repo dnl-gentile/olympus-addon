@@ -1047,6 +1047,33 @@ function Treasury.Totals(b)
 	return t
 end
 
+-- 1.1, Konig's review (the ranking): a ranked donor's total in the Treasurer's book grew by the
+-- dues' amount the week he paid it (one fixed amount), which told the channel who paid and so who
+-- did not (Fern's #36). The ranking (all time, which Fern kept public) that leaves the Treasurer's
+-- client (the channel's, the whole book whispered, 0.9's copy, his mail character's he passes on)
+-- leaves out, of each giver's gold to the Treasurer's characters, each week's up to that week's
+-- amount (Dues.DuesPart): what may be his dues, paid or not. A total grows only by what a week's
+-- gold went over the amount, so one that did not grow may be a payer's or not: it never shows who
+-- did not pay. It is that much lower than on the Treasurer's own screen. Another keeper's book,
+-- which is no dues: as it is.
+local function PublicRanking(b, t)
+	t = t or Treasury.Totals(b)
+	if not (b and TreasurerPin(b.name)) then return t.ranking end
+	local part, out = ns.Dues.DuesPart(Sums(b)), {}
+	for _, g in ipairs(t.ranking) do
+		local key = ns.Dues.Key(g.name)
+		local take = key and math.min(g.money, part[key] or 0) or 0
+		if key then part[key] = (part[key] or 0) - take end
+		if g.money - take >= 1 then out[#out + 1] = { name = g.name, money = g.money - take } end
+	end
+	table.sort(out, function(x, y)
+		if x.money ~= y.money then return x.money > y.money end
+		return x.name < y.name
+	end)
+	return out
+end
+Treasury.PublicRanking = PublicRanking
+
 ---------------------------------------------------------------------------
 -- Sharing: each keeper's book, and everyone's copy of them
 ---------------------------------------------------------------------------
@@ -1229,19 +1256,22 @@ function Treasury.Message(b, parts)
 	local flags = mine and FlagsWord() or "-"
 	local keepers = whole and "-" or ((showBalance and "1" or "0") .. (showRanking and "1" or "0") .. (showBook and "1" or "0") .. "@1")
 	local caps = { rank = Treasury.RANK_SENT, book = Treasury.BOOK_SENT, items = Treasury.ITEMS_SENT }
+	-- (1.1, Konig's review: never what may be someone's dues in the Treasurer's ranking.)
+	local ranking = PublicRanking(b, t)
 	local function Build()
 		-- 1.1 (Fern's #36): the week's donors go out as a count, never by name. With the dues (one
 		-- fixed amount a week, Dues.lua) their names on the channel would be a public list of who
 		-- paid this week, and so of who did not: every client on it receives the bytes, whatever the
-		-- King's switches show. The ranking (all time, which Fern kept) stays; so do the book's
-		-- latest lines, except the gold given to the Treasurer's characters: each of those is
-		-- someone's dues (a name and his last payment: DuesLine), and never goes out.
+		-- King's switches show. The ranking (all time, which Fern kept) stays, less what may be each
+		-- giver's dues in the Treasurer's (PublicRanking); so do the book's latest lines, except the
+		-- gold given to the Treasurer's characters: each of those is someone's dues (a name and his
+		-- last payment: DuesLine), and never goes out.
 		local week, rank, lines, items = {}, {}, {}, {}
 		local sums = { rank = 0, i = 0, o = 0, r = 0, s = 0 }
 		if showRanking then
-			for i = 1, math.min(caps.rank, #t.ranking) do
-				rank[i] = ("%s:%d"):format(Clean(t.ranking[i].name), U(t.ranking[i].money))
-				sums.rank = sums.rank + U(t.ranking[i].money)
+			for i = 1, math.min(caps.rank, #ranking) do
+				rank[i] = ("%s:%d"):format(Clean(ranking[i].name), U(ranking[i].money))
+				sums.rank = sums.rank + U(ranking[i].money)
 			end
 		end
 		for i = #b.lines, 1, -1 do
@@ -1615,7 +1645,7 @@ ns.Comm.Handle("T8", function() end)
 -- one character at a time: theirs never reach it by the channel), and every other keeper's
 -- book as it last reached us. A keeper's book stays while he is one, however old (it says
 -- when it came); a character no longer on the King's list is no longer counted.
-local function LivePart(b, own)
+local function LivePart(b, own, shared)
 	local t = Treasury.Totals(b)
 	local names, lines = {}, {}
 	for i = 1, math.min(Treasury.WEEK_SENT, #t.givers) do names[i] = t.givers[i].name end
@@ -1626,7 +1656,7 @@ local function LivePart(b, own)
 	-- (Ours is as of now; another character's of this account, as of its latest change.)
 	local when = own and ns.Now() or BookTime(b)
 	return { name = b.name, opening = Treasury.Opening(b), balance = Treasury.Balance(b), allIn = t.allIn, allOut = t.allOut, week = t.weekIn,
-		donors = #t.givers, weekNames = names, rank = t.ranking, book = lines, items = t.items, t = when, own = own, b = b }
+		donors = #t.givers, weekNames = names, rank = shared and PublicRanking(b, t) or t.ranking, book = lines, items = t.items, t = when, own = own, b = b }
 end
 -- Another character of this account said yes to sharing its book (the Treasurer's 0.9.3 yes is his,
 -- while he has given no answer since: his no of 1.0 stays a no).
@@ -1643,13 +1673,13 @@ local function Parts(shared)
 	if not ns.rdb then return parts end
 	if Treasury.IsKeeper() then
 		local b = BookOf(ns.me, true)
-		parts[1], seen[OwnKey(ns.me)] = LivePart(b, true), true
+		parts[1], seen[OwnKey(ns.me)] = LivePart(b, true, shared), true
 	end
 	for key, b in pairs(Books()) do
 		if not seen[key] and type(b) == "table" and b.epoch == Treasury.EPOCH and type(b.lines) == "table" and Treasury.IsOwnCharacter(b.name)
 			and Treasury.KeeperByName(b.name) then
 			-- (Kept private: left out, and no copy of it either.)
-			if not shared or SharesBook(key, b.name) then parts[#parts + 1] = LivePart(b, false) end
+			if not shared or SharesBook(key, b.name) then parts[#parts + 1] = LivePart(b, false, shared) end
 			seen[key] = true
 		end
 	end
