@@ -21,7 +21,8 @@ local L = ns.L
 --                      them (their officers) to their own guild; K1~<key> with it there, for
 --                      guildmates before 1.1. The hashes: the keys it replaces (at most 3).
 --   K4~<epoch>~<guild> a Lord's or Captain's addon tells the King it has it (a whisper); his
---                      Throne counts it only from a name his client whispered the key to.
+--                      Throne counts it only from a name his client whispered the key to, and
+--                      under the guild it whispered him for (its own record), never the one named.
 --   K5~<epoch held>    over GUILD, after login: a guildmate asks whether a newer key exists;
 --                      an officer holding one answers with K3.
 -- The epoch is the server's second the key was made (or an officer typed one, 1.1): every 1.1
@@ -38,7 +39,8 @@ local L = ns.L
 -- has room for (its other messages keep their place), and counts a whisper as sent once it left.
 -- /who goes from a click alone: his click on a guild, or on the Throne's /who line, searches the
 -- next one picked whose Lords and Captains it has not seen there yet, then each of them by name
--- (Keys.Confirm). What it saw is kept with the rotation (rot.saw), through a /reload too.
+-- (Keys.Confirm); with the gamepad UI his click on the /who line searches a guild picked plainly,
+-- never a name. What it saw is kept with the rotation (rot.saw), through a /reload too.
 -- It keeps handing it to Lords and Captains who come online for GRACE, on the old channel (a
 -- little longer while some picked still wait for their whisper), then moves (with his guild);
 -- "Move now" sooner. Guilds with no officer online in that time stay on the old channel until one
@@ -142,7 +144,8 @@ end
 
 -- The King's rotation (ns.rdb.keyRotation): { at, key, retires, picking, picked = { [guild, lower
 -- case] = true | false }, till, acked = { [Name-Realm] = guild }, sent = { [Name-Realm] = t },
--- queued = { [Name-Realm] = t }, saw = { [Name-Realm] = { guild, at } } (WhoSaw), moved, movedAt }.
+-- sentFor = { [Name-Realm] = the guild he was whispered for }, queued = { [Name-Realm] = t },
+-- saw = { [Name-Realm] = { guild, at } } (WhoSaw), moved, movedAt }.
 local function Rotation()
 	local r = ns.rdb and ns.rdb.keyRotation
 	return type(r) == "table" and r or nil
@@ -240,7 +243,7 @@ function Keys.HandleAck(dist, sender, text)
 	if dist ~= "WHISPER" then return end
 	local rot = Rotation()
 	if not rot or not Keys.CanRotate() then return end
-	local at, guild = tostring(text):match("^K4~(%d+)~(.*)$")
+	local at = tostring(text):match("^K4~(%d+)~")
 	if tonumber(at) ~= rot.at then return end
 	sender = ns.FullName(sender)
 	-- Only from a name his client whispered the key to (counted once it left): anyone else's K4
@@ -250,7 +253,9 @@ function Keys.HandleAck(dist, sender, text)
 	end
 	rot.acked = type(rot.acked) == "table" and rot.acked or {}
 	if rot.acked[sender] then return end
-	rot.acked[sender] = ns.King.CleanGuild(guild) or "?"
+	-- Under the guild his client whispered him for, never the one the K4 names: a Lord whispered
+	-- could name any guild, and the Throne would count it as having the key (1.1 review).
+	rot.acked[sender] = type(rot.sentFor) == "table" and type(rot.sentFor[sender]) == "string" and rot.sentFor[sender] or ""
 	stats.acks = stats.acks + 1
 	ns.King.Changed()
 end
@@ -450,17 +455,40 @@ end
 -- by name each one those answers did not list (full, or he logged in since), the one asked
 -- longest ago first and each at most once in WHO_FRESH: made-up names in one guild's census
 -- never keep the next guild from its search (Konig's review). `only`: that guild alone (the one
--- he clicked). With the gamepad UI no quiet search goes: the census's Refresh searches there
--- (what it lists counts too).
+-- he clicked).
+-- With the gamepad UI no quiet search goes, and none by name (1.1 review): his click on the
+-- /who line searches one guild picked plainly, as the census's Refresh does there (the answer in
+-- the game's Who list, nothing silenced; Who.OnSaw reads it), the one searched longest ago
+-- first, each again a minute after its last (Who.GUILD_AGAIN: a Lord who logged in since). A
+-- click on a guild's row only checks it there (the game's list opening would take the gamepad's
+-- focus). What the census's Refresh lists counts too.
 local asked, askedFor = {}, nil -- [Name-Realm] = GetTime() of our search for him by name; the rotation's epoch
+local askedGuild = {} -- [guild] = GetTime() of our plain search of it (the gamepad UI)
+local function ConfirmPlain(rot, W, only)
+	if only then return false end
+	local now, pick, pickAt, waiting = GetTime(), nil, nil, false
+	for _, c in ipairs(Keys.Candidates()) do
+		if #c.waiting > 0 and Picked(rot, c) then
+			waiting = true
+			local at = askedGuild[c.guild] or -math.huge
+			if now - at >= (W.GUILD_AGAIN or 60) and (pick == nil or at < pickAt) then pick, pickAt = c.guild, at end
+		end
+	end
+	if pick then
+		if W.SearchGuild(pick, true) then
+			askedGuild[pick] = now
+			return true
+		end
+		return false
+	end
+	if waiting then ns.Print(L.KEY_WHO_GAMEPAD) end
+	return false
+end
 function Keys.Confirm(only)
 	local rot, W = Rotation(), ns.Who
 	if not rot or rot.moved or not Keys.CanRotate() or not (W and W.SearchGuild and W.GuildSeen and W.Search) then return false end
-	if ns.GamepadUI() then
-		if not only then ns.Print(L.KEY_WHO_GAMEPAD) end
-		return false
-	end
-	if askedFor ~= rot.at then wipe(asked); askedFor = rot.at end
+	if askedFor ~= rot.at then wipe(asked); wipe(askedGuild); askedFor = rot.at end
+	if ns.GamepadUI() then return ConfirmPlain(rot, W, only) end
 	local now, byName, byNameAt = GetTime(), nil, nil
 	for _, c in ipairs(Keys.Candidates()) do
 		if #c.waiting > 0 and (only == nil or c.guild == only) and Picked(rot, c) then
@@ -499,13 +527,14 @@ function Keys.Hand()
 	if not rot or rot.moved or rot.picking or not Keys.CanRotate() then return 0 end
 	rot.acked = type(rot.acked) == "table" and rot.acked or {}
 	rot.sent = type(rot.sent) == "table" and rot.sent or {}
+	rot.sentFor = type(rot.sentFor) == "table" and rot.sentFor or {}
 	rot.queued = type(rot.queued) == "table" and rot.queued or {}
 	local now, n = ns.Now(), 0
 	local room = Keys.MAX_WHISPERS
 	if ns.Comm.QueueRoom then room = math.min(room, ns.Comm.QueueRoom() - Keys.QUEUE_SPARE) end
 	for _, t in ipairs(Keys.Targets()) do
 		if n >= room then break end
-		local name = t.name
+		local name, guild = t.name, t.guild
 		local waiting = tonumber(rot.queued[name])
 		if not rot.acked[name] and not (waiting and now - waiting < Keys.QUEUE_WAIT)
 			and now - (tonumber(rot.sent[name]) or -math.huge) >= Keys.RESEND then
@@ -515,6 +544,7 @@ function Keys.Hand()
 				rot.queued[name] = nil
 				if sent then
 					rot.sent[name] = ns.Now()
+					rot.sentFor[name] = guild -- (his acknowledgement counts for this guild, HandleAck)
 					stats.whispered = stats.whispered + 1
 					ns.King.Changed()
 				end
@@ -534,7 +564,7 @@ function Keys.Rotate()
 	local was = Latest()
 	if was and at <= was then at = was + 1 end
 	local held = ns.rdb.realmKey
-	rot = { at = at, key = Keys.NewKey(), picking = true, picked = {}, acked = {}, sent = {}, queued = {} }
+	rot = { at = at, key = Keys.NewKey(), picking = true, picked = {}, acked = {}, sent = {}, sentFor = {}, queued = {} }
 	-- The keys it replaces: ours, and those ours replaced.
 	local list = Hashes(ns.rdb.keyEpoch and ns.rdb.keyEpoch.retires, ValidKey(held) and Hash(held) or nil, Hash(rot.key))
 	rot.retires = #list > 0 and table.concat(list, ".") or nil
@@ -596,7 +626,7 @@ local function Counts(rot)
 	local acked, guilds, sent = 0, {}, 0
 	for _, g in pairs(type(rot.acked) == "table" and rot.acked or {}) do
 		acked = acked + 1
-		guilds[g] = true
+		if g ~= "" then guilds[g] = true end -- (a whisper recorded before 1.1's review: no guild)
 	end
 	for _ in pairs(type(rot.sent) == "table" and rot.sent or {}) do sent = sent + 1 end
 	local n = 0
@@ -731,5 +761,6 @@ function Keys.Reset()
 	lastAnswer = -math.huge
 	for k in pairs(stats) do stats[k] = 0 end
 	wipe(asked)
+	wipe(askedGuild)
 	askedFor = nil
 end

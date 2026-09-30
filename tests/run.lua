@@ -40708,7 +40708,7 @@ do
 		end)
 	end)
 
-	test("1.1 key rotation, Konig's review, with the gamepad UI: the /who line sends no quiet search (a line tells him the census's Refresh searches); what that Refresh lists counts; no popup", function()
+	test("1.1 key rotation, Konig's review, with the gamepad UI: the /who line sends no quiet search (a plain one of a guild picked, 1.1 review); what the census's Refresh lists counts; no popup", function()
 		WithUI(function()
 			LoadUI()
 			WithGamepadUI(true, function(game)
@@ -40717,10 +40717,12 @@ do
 					eq(KY.Rotate(), true)
 					K.Show("home")
 					LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:format(4)).onClick()
-					eq(#server.sent, 0, "no quiet /who with the gamepad UI")
-					assert(Printed(w, ns.L.KEY_WHO_GAMEPAD))
+					-- (1.1 review: it searched nothing there, and the King could confirm almost nobody;
+					-- now a plain /who of a guild picked, as Refresh: see the review's tests at the end.)
+					eq(table.concat(server.sent, "|"), 'g-"Olympus II"', "no quiet /who with the gamepad UI: a plain one")
 					eq(#game.shown, 0); eq(#w.popups, 0)
 					-- The census's Refresh: a plain /who of his, its answer in the game's list.
+					server.clock = server.clock + ns.Who.COOLDOWN + 1
 					eq(ns.Who.Search(), true)
 					server.Answer({ { "Zed", "Olympus Zeus", 60, "WARRIOR" }, { "Zeus Cap", "Olympus Zeus", 60, "MAGE" } })
 					server.Run(ns.Who.SETTLE)
@@ -41837,6 +41839,254 @@ do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
 			assert(not doc:find("the Discord copy he makes there, are whole", 1, true), path .. ": the copy is no longer whole")
+		end
+	end)
+end
+---------------------------------------------------------------------------
+-- 1.1 (a review of Konig's key rotation fixes, #45): with the gamepad UI the King's click on the
+-- Throne's /who line searches a guild picked plainly, as the census's Refresh does there; an
+-- acknowledgement counts under the guild his client whispered its sender for; the rotate
+-- question says what a Lord who logs in during the grace gets.
+---------------------------------------------------------------------------
+do
+	local KY = ns.Keys
+	local function Page(lines)
+		local out = {}
+		for _, l in ipairs(lines) do out[#out + 1] = tostring(l.text) end
+		return table.concat(out, "\n")
+	end
+	local function LineWith(lines, text)
+		for _, l in ipairs(lines) do if tostring(l.text):find(text, 1, true) then return l end end
+		return nil
+	end
+	local function Whispered(w)
+		local out = {}
+		for _, x in ipairs(w.whispered) do if x.msg:sub(1, 3) == "K3~" then out[#out + 1] = x.to end end
+		table.sort(out)
+		return table.concat(out, ",")
+	end
+	local function Targets()
+		local out = {}
+		for _, t in ipairs(KY.Targets()) do out[#out + 1] = t.name end
+		table.sort(out)
+		return table.concat(out, ",")
+	end
+	-- Locales.lua as the game in `code` loads it, then that language's file under Locales/ (if
+	-- any): the lines in use, and the ones that file gives.
+	local function Loaded(code, file)
+		local lns, given = {}, nil
+		local savedLocale = GetLocale
+		GetLocale = function() return code end
+		local ok, err = pcall(function()
+			assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", lns)
+			if file then
+				local real = lns.Locale
+				lns.Locale = function(codes, strings) given = strings; return real(codes, strings) end
+				assert(loadfile(ADDON_DIR .. "Locales/" .. file .. ".lua"))("Olympus", lns)
+				lns.Locale = real
+			end
+		end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		return lns.L, given
+	end
+	-- The King's client with a stand-in of the game's /who (WithWho: GetTime is its clock) and the
+	-- Throne (WithThrone). The census: <Olympus Zeus> (its Lord Zed and Captain Zeus Cap online)
+	-- and <Olympus Nyx> (Nyx and Nyx Cap), each vouched by two senders and checked (his /who saw
+	-- a guild of each name). A whisper leaves at once (done(true)).
+	local function WithKing(fn)
+		WithWho(function(server)
+			WithThrone(function(w, K)
+				local saved = { key = ns.rdb.realmKey, epoch = ns.rdb.keyEpoch, rot = ns.rdb.keyRotation, retired = ns.rdb.keyRetired,
+					join = ns.Comm.JoinChannel, log = ns.db.log }
+				local ok, err = pcall(function()
+					ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRotation, ns.rdb.keyRetired = nil, nil, nil, nil
+					ns.db.log = {}
+					KY.Reset()
+					ns.Comm.JoinChannel = function() end
+					local record = ns.Comm.Whisper
+					ns.Comm.Whisper = function(to, msg, key, urgent, logged, done)
+						record(to, msg, key, urgent)
+						if done then done(true) end
+					end
+					local G = ns.rdb.guilds
+					G["Olympus II"] = nil
+					G["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", leaderOnline = true, realm = "Realm",
+						officers = { { name = "Zeus Cap", online = true, days = 0 } } }, "W3-Realm", "W4-Realm")
+					G["Olympus Nyx"] = Vouched({ total = 200, online = 12, zones = {}, t = w.clock, leader = "Nyx", leaderOnline = true, realm = "Realm",
+						officers = { { name = "Nyx Cap", online = true, days = 0 } } }, "W7-Realm", "W8-Realm")
+					ns.rdb.seen = { ["Olympus Zeus"] = { online = 9, t = w.clock }, ["Olympus Nyx"] = { online = 12, t = w.clock } }
+					AsKing()
+					fn(w, K, server)
+				end)
+				ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRotation, ns.rdb.keyRetired = saved.key, saved.epoch, saved.rot, saved.retired
+				ns.Comm.JoinChannel, ns.db.log = saved.join, saved.log
+				KY.Reset()
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end
+
+	test("1.1 key rotation review, with the gamepad UI: the King's click on the Throne's /who line searches a guild picked plainly (the answer in the game's Who list, nothing silenced) and its Lords and Captains get the key; never quietly, never a name, never from a click on a guild", function()
+		-- What the server lists for each guild's search (Nyx Cap logs in later).
+		local listed = {
+			["Olympus Zeus"] = { { "Zed", "Olympus Zeus", 60, "WARRIOR" }, { "Zeus Cap", "Olympus Zeus", 60, "MAGE" }, { "Zeus Soldier", "Olympus Zeus", 20, "PRIEST" } },
+			["Olympus Nyx"] = { { "Nyx", "Olympus Nyx", 60, "PALADIN" }, { "Nyx Soldier", "Olympus Nyx", 30, "HUNTER" } },
+		}
+		WithUI(function()
+			LoadUI()
+			WithGamepadUI(true, function(game)
+				WithKing(function(w, K, server)
+					LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+					local sendWho = C_FriendList.SendWho
+					eq(KY.Rotate(), true)
+					K.Show("home")
+					eq(#KY.Targets(), 0, "nobody his /who saw in his guild yet")
+					-- A click on a guild's row only checks it there: the game's list opening would take the
+					-- gamepad's focus.
+					LineWith(K.Build(), "<Olympus Zeus>").onClick()
+					LineWith(K.Build(), "<Olympus Zeus>").onClick()
+					assert(tostring(LineWith(K.Build(), "<Olympus Zeus>").text):find("ReadyCheck-Ready", 1, true), "checked again")
+					eq(#server.sent, 0, "no /who from a click on a guild")
+					-- His click on the /who line: a plain /who of a guild picked, as the census's Refresh there.
+					local toUi -- (where the answer went while it came: after it, results go back to chat)
+					local function Click()
+						local before = #server.sent
+						LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:sub(1, 12)).onClick()
+						if #server.sent == before then return nil end
+						toUi = server.toUi[#server.toUi]
+						local q = server.sent[#server.sent]
+						local guild = q:match('^g%-"(.*)"$')
+						assert(guild and listed[guild], "a guild's search: " .. q)
+						server.Answer(listed[guild])
+						server.Run(ns.Who.SETTLE)
+						return guild
+					end
+					assert(LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:format(4)), Page((K.Build())))
+					local first = Click()
+					assert(first, "his click on the /who line searches")
+					eq(toUi, true, "its answer to the game's Who list, as a /who with it open")
+					eq(#LFGWhoListFrame.calls, 0, "the game's Who list never silenced")
+					eq(C_FriendList.SendWho, sendWho, "Blizzard's SendWho left as it is")
+					-- Within the cooldown: nothing, and he is told when (as Refresh tells him).
+					eq(Click(), nil)
+					assert(Printed(w, ns.L.WHO_WAIT:match("^(.-)%%")), "the wait said")
+					server.clock = server.clock + ns.Who.COOLDOWN + 1
+					local second = Click()
+					local both = { first, tostring(second) }
+					table.sort(both)
+					eq(table.concat(both, ","), "Olympus Nyx,Olympus Zeus", "the next click the other guild")
+					eq(Targets(), "Nyx-Realm,Zed-Realm,Zeus Cap-Realm", "the Lords and Captains his /who listed in their guild")
+					-- Nyx Cap is not in his guild's answer: never searched by name there; his guild again a
+					-- minute after its last search (he may have logged in since).
+					w.printed = {}
+					server.clock = server.clock + ns.Who.COOLDOWN + 1
+					eq(Click(), nil, "every guild still waiting searched within the minute")
+					assert(Printed(w, ns.L.KEY_WHO_GAMEPAD), "and he is told why")
+					for _, q in ipairs(server.sent) do assert(not q:find("^n%-"), "never a name: " .. q) end
+					eq(ns.Who.GUILD_AGAIN, 60, "(the words say a minute)")
+					server.clock = server.clock + ns.Who.GUILD_AGAIN
+					listed["Olympus Nyx"][3] = { "Nyx Cap", "Olympus Nyx", 60, "DRUID" }
+					eq(Click(), "Olympus Nyx")
+					eq(Targets(), "Nyx Cap-Realm,Nyx-Realm,Zed-Realm,Zeus Cap-Realm")
+					eq(LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:sub(1, 12)), nil, "nobody left to look for")
+					eq(KY.Start(), true)
+					eq(Whispered(w), "Nyx Cap-Realm,Nyx-Realm,Zed-Realm,Zeus Cap-Realm")
+					-- Still no quiet search there, and none by name: the Realm tab's search of a guild,
+					-- Auto's, Olympus Link's.
+					server.clock = server.clock + ns.Who.COOLDOWN + 1
+					local sent = #server.sent
+					eq(ns.Who.SearchGuild("Olympus Other"), false, "the Realm tab's quiet search of a guild")
+					eq(ns.Who.Search(true, "Olympus Other"), false)
+					eq(ns.Who.Search(false, nil, "Zed"), false, "a name")
+					eq(ns.Who.Auto(), false)
+					eq(#server.sent, sent)
+					eq(#LFGWhoListFrame.calls, 0)
+					eq(#game.shown, 0); eq(#w.popups, 0)
+				end)
+			end)
+		end)
+	end)
+
+	test("1.1 key rotation review, with the gamepad UI: its line says what his /who does there (English and pt-BR; Spanish, French and German show the English); the README and the CurseForge page too", function()
+		local en, pt = ns.L, Loaded("ptBR")
+		assert(type(pt.KEY_WHO_GAMEPAD) == "string" and pt.KEY_WHO_GAMEPAD ~= en.KEY_WHO_GAMEPAD, "pt-BR")
+		assert(en.KEY_WHO_GAMEPAD:find("your /who searches each guild picked (one a click, never a name), and a guild again a minute after its last search", 1, true), en.KEY_WHO_GAMEPAD)
+		assert(pt.KEY_WHO_GAMEPAD:find("o seu /who busca cada guilda escolhida (uma por clique, nunca um nome), e uma guilda de novo um minuto depois da última busca dela", 1, true), pt.KEY_WHO_GAMEPAD)
+		for _, s in ipairs({ en.KEY_WHO_GAMEPAD, pt.KEY_WHO_GAMEPAD }) do
+			assert(not s:find("Refresh", 1, true) and not s:find("Atualizar", 1, true), "no longer the census's Refresh alone: " .. s)
+		end
+		for code, file in pairs({ esES = "esES", frFR = "frFR", deDE = "deDE" }) do
+			local shown, given = Loaded(code, file)
+			assert(type(given) == "table" and next(given), file .. ": its lines")
+			eq(given.KEY_WHO_GAMEPAD, nil, file .. ": no line of its own")
+			eq(shown.KEY_WHO_GAMEPAD, en.KEY_WHO_GAMEPAD, file .. ": the English shows")
+		end
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, must in ipairs({ "with the gamepad UI his click on the /who line searches each guild picked plainly, its answer in the game's Who list, never a name, and a guild again a minute after its last search; a click on a guild only checks it there",
+				"so does the King's click on his Throne's /who line for his key rotation, 1.1: the answer shows in the game's Who list" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+		end
+	end)
+
+	test("1.1 key rotation review: the Throne counts an acknowledgement (K4) under the guild the King's client whispered its sender for, never the guild the K4 names", function()
+		WithKing(function(w, K, server)
+			eq(ns.Who.Search(true), true)
+			server.Answer({ { "Zed", "Olympus Zeus", 60, "WARRIOR" }, { "Zeus Cap", "Olympus Zeus", 60, "MAGE" } })
+			server.Run(ns.Who.SETTLE)
+			eq(KY.Rotate(), true)
+			eq(KY.Start(), true)
+			eq(Whispered(w), "Zed-Realm,Zeus Cap-Realm", "Olympus Nyx picked, nobody of it whispered")
+			local rot = KY.Rotation()
+			K.Show("home")
+			-- Zed names Olympus Nyx (picked, never whispered), Zeus Cap a guild nobody heard of: both
+			-- have it, and one guild does, his.
+			KY.HandleAck("WHISPER", "Zed-Realm", ("K4~%d~Olympus Nyx"):format(rot.at))
+			KY.HandleAck("WHISPER", "Zeus Cap-Realm", ("K4~%d~Olympus Made Up"):format(rot.at))
+			eq(KY.Stats().acks, 2)
+			assert(Page((K.Build())):find(ns.L.KEY_ROTATING:format(2, 2, 1), 1, true), Page((K.Build())))
+			-- Nyx, whispered for Olympus Nyx once his /who saw him there, names no guild (he left it
+			-- since): counted under Olympus Nyx.
+			server.clock = server.clock + ns.Who.COOLDOWN + 1
+			eq(ns.Who.Search(true, nil, "Nyx"), true)
+			server.Answer({ { "Nyx", "Olympus Nyx", 60, "PALADIN" } })
+			server.Run(ns.Who.SETTLE)
+			w.clock = w.clock + 60
+			KY.Tick()
+			eq(Whispered(w), "Nyx-Realm,Zed-Realm,Zeus Cap-Realm")
+			KY.HandleAck("WHISPER", "Nyx-Realm", ("K4~%d~"):format(rot.at))
+			assert(Page((K.Build())):find(ns.L.KEY_ROTATING:format(3, 3, 2), 1, true), Page((K.Build())))
+			-- The record is the rotation's (saved): after he moves, the same count.
+			eq(KY.Move(), true)
+			assert(Page((K.Build())):find(ns.L.KEY_ROTATED_AGO:format(ns.Ago(rot.movedAt), 3, 2), 1, true), Page((K.Build())))
+		end)
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			assert(doc:find("and of how many guilds (each counted for the guild his addon whispered him for, never the one his answer names)", 1, true), path)
+		end
+	end)
+
+	test("1.1 key rotation review: the rotate question says a Lord or Captain who logs in during the grace gets nothing until the King's /who sees him in his guild (English and pt-BR; Spanish, French and German show the English)", function()
+		local en, pt = ns.L, Loaded("ptBR")
+		assert(type(pt.KEY_ROTATE_CONFIRM) == "string" and pt.KEY_ROTATE_CONFIRM ~= en.KEY_ROTATE_CONFIRM, "pt-BR")
+		eq(select(2, pt.KEY_ROTATE_CONFIRM:gsub("%%[sd]", "")), 1, "pt-BR: the minutes")
+		eq(select(2, en.KEY_ROTATE_CONFIRM:gsub("%%[sd]", "")), 1, "English: the minutes")
+		assert(en.KEY_ROTATE_CONFIRM:find("A Lord or Captain who logs in meanwhile gets nothing until your /who sees him in his guild", 1, true), en.KEY_ROTATE_CONFIRM)
+		assert(not en.KEY_ROTATE_CONFIRM:find("get it too", 1, true), "no longer that those who log in meanwhile get it")
+		assert(pt.KEY_ROTATE_CONFIRM:find("Um Lorde ou Capitão que entrar nesse meio-tempo não recebe nada até o seu /who vê-lo na guilda dele", 1, true), pt.KEY_ROTATE_CONFIRM)
+		assert(not pt.KEY_ROTATE_CONFIRM:find("também receberem", 1, true), pt.KEY_ROTATE_CONFIRM)
+		for code, file in pairs({ esES = "esES", frFR = "frFR", deDE = "deDE" }) do
+			local shown, given = Loaded(code, file)
+			assert(type(given) == "table" and next(given), file .. ": its lines")
+			eq(given.KEY_ROTATE_CONFIRM, nil, file .. ": no line of its own")
+			eq(shown.KEY_ROTATE_CONFIRM, en.KEY_ROTATE_CONFIRM, file .. ": the English shows")
+		end
+		-- The pages said it already.
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			assert(doc:find("For 10 minutes his addon keeps handing it to Lords and Captains who log in (once his /who saw them in their guild)", 1, true), path)
 		end
 	end)
 end

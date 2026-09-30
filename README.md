@@ -570,8 +570,10 @@ tools lives where it belongs:
   two characters can also call themselves a real guild's Lord and Captain in the census, and a
   name the census alone gives gets nothing). His click on a guild, or on the Throne's /who line, searches /who
   for the Lords and Captains picked it has not seen there yet, one search a click: every guild
-  picked first, then each of them by name, at most once in 30 minutes (with the gamepad UI, the
-  census's Refresh searches). What his /who saw is kept with the rotation, through a /reload or
+  picked first, then each of them by name, at most once in 30 minutes (with the gamepad UI his
+  click on the /who line searches each guild picked plainly, its answer in the game's Who list,
+  never a name, and a guild again a minute after its last search; a click on a guild only checks
+  it there, and the census's Refresh searches too). What his /who saw is kept with the rotation, through a /reload or
   relog too. Each hands it to his guild over guild chat, so
   nobody types `/oly key` by hand. It never travels on the Olympus channel. Whoever holds the
   old key outside the guilds he picks stays behind on the old channel; anyone in a guild that
@@ -580,7 +582,8 @@ tools lives where it belongs:
   whispers at a time so his other messages keep their place (a little longer while some picked
   still wait for their whisper), then he and his guild move to it ("Move now" sooner); the
   Throne says how many of those he whispered have it (an answer from anyone else is not
-  counted). A guild with no officer online by then stays on the old channel
+  counted), and of how many guilds (each counted for the guild his addon whispered him for,
+  never the one his answer names). A guild with no officer online by then stays on the old channel
   until one of its officers types the key by hand. The King or his Steward: never a Hand.
   Each 1.1 addon keeps the newest key by the time it was made and remembers the keys a newer
   one replaced: an officer's plain `/oly key` from a version before 1.1 still moves his guild,
@@ -1158,7 +1161,8 @@ the game is removed at login, with one line saying so.
   windows of its own instead of the game's popups, which Blizzard's gamepad code blocks (and
   freezes) when an addon opens one. With mouse and keyboard, the game's popups as always.
   Since 0.9.8 it also leaves the game's own frames alone there: no quiet `/who` on its own
-  (**Refresh** and **Find Olympus online** still search, and the answer shows in the game's
+  (**Refresh** and **Find Olympus online** still search, and so does the King's click on his
+  Throne's /who line for his key rotation, 1.1: the answer shows in the game's
   Who list), and the Issue Reporter is the game's to show. Since 0.9.9 it leaves the world map
   alone there too: no zone counts, decrees, crown or guildmate dots on it (the minimap keeps
   the crown and the dots, the Azeroth map its continent totals), because each of those went
