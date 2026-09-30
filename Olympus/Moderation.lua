@@ -75,7 +75,8 @@ Moderation.GUILDS_KNOWN = 3000    -- senders whose guild this client remembers (
 -- chat lines, decrees, layer announcements, hop asks, offers and answers, Vox votes; and (1.1,
 -- Konig's review) its signups to the King's week (Y2), its flags and camps on the Board (G1), its
 -- crafter's listing, answers and recipe lists (W1, WA, WL), and the Throne's calls to the army,
--- the week's entries among them (T1 of a kind in King.HIDDEN_CALLS: its lists still go). (Its
+-- the week's entries among them (T1 of a kind in King.HIDDEN_CALLS: its lists still go, and so
+-- does a setter's cancel of his own entry on the week, 1.1 review). (Its
 -- census report: Comm.Broadcast.) Nothing over GUILD is in it: the guild's own hello and key go on.
 Moderation.BLOCKED = { M1 = true, D1 = true, L1 = true, LQ = true, LO = true, LR = true, LN = true, LX = true, Y1 = true, Y2 = true, G1 = true,
 	W1 = true, WA = true, WL = true }
@@ -929,9 +930,13 @@ function Moderation.Tick()
 end
 
 -- The backstop in Comm (1.1): a client whose own character or guild is off sends none of BLOCKED,
--- nor a call of the Throne's that every receiver would drop (King.HIDDEN_CALLS).
+-- nor a call of the Throne's that every receiver would drop (King.HIDDEN_CALLS). Its setter's
+-- cancel of an entry on the King's week (a D of 0 seconds; Week.Cancel sends one for his own
+-- entry alone) still goes: every client takes it for his own entry (1.1 review: held, the entry
+-- showed again everywhere once he was shown again).
 local function HiddenCall(msg)
 	local K = ns.King
+	if msg:find("^T1~D~%d+~[^~]*~0~") then return false end
 	return msg:sub(1, 3) == "T1~" and type(K) == "table" and type(K.HIDDEN_CALLS) == "table" and K.HIDDEN_CALLS[msg:sub(4, 4)] == true
 end
 function Moderation.Blocks(msg)

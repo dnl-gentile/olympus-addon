@@ -18,7 +18,9 @@ local L = ns.L
 -- Clients before 1.1 leave the kind D out (King.HandleCommand), as any kind they don't know.
 -- A setter or a signer the moderators took off (net-off, Moderation.lua; 1.1, Konig's review)
 -- shows nowhere: every client drops their D, R and Y2 and hides what it heard of them before,
--- and their own client sends none.
+-- and their own client sends none, but a setter taking his own entry down: that cancel still
+-- goes, and every client takes it for his own entry alone (1.1 review: it was held, and the
+-- entry showed again everywhere once he was shown again).
 
 local Week = {}
 ns.Week = Week
@@ -356,11 +358,15 @@ function Week.SetEntry(input)
 end
 
 -- Taken off the week, for everyone (its setter, the King, his Steward or a Hand, as the Agenda).
+-- 1.1 review: while the moderators have us off (net-off), our own entry still goes down for
+-- everyone (Moderation.Blocks lets its cancel out); anyone else's stays, the reason said (no
+-- client would take our cancel of it).
 function Week.Cancel(id)
 	local e = entries[id]
 	if not e then return false end
 	local K = ns.King
 	if not e.preview and not K.Preview() and (e.mine or K.CanCommand()) then
+		if not e.mine and SelfOff() then return false end
 		ns.Comm.Send("CHANNEL", ("T1~D~%d~%s~0~0~~"):format(id, GetGuildInfo("player") or ""), "week" .. id)
 	end
 	entries[id] = nil
@@ -391,8 +397,14 @@ local function OnEntry(sender, id, rest, guild)
 	if not id or not seconds then return end
 	local now = ns.Now()
 	sender = ns.FullName(sender)
-	HeardFrom(sender, now)
 	local e = entries[id]
+	-- 1.1 review: a setter the moderators took off (net-off) reaches here with a cancel alone
+	-- (King.HandleCommand): it takes his own entry down, nothing else (nor counts as hearing him).
+	if Off(sender, guild) then
+		if seconds ~= 0 or not e or e.by ~= sender then return end
+	else
+		HeardFrom(sender, now)
+	end
 	if seconds == 0 then
 		if e then
 			-- (Another's cancel reaching its setter: he stops repeating it.)

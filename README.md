@@ -443,9 +443,10 @@ The rest of their guild, and the census, are not touched: one name stops the spa
   `/oly block` stays one client's and one player's. No treasury code can call it.
 - The hidden player's addon tells them why, and sends none of it. A Hand or a Steward who is
   hidden calls the army in vain: their Agenda, roll call, Vox Populi, inspection and gates, and
-  their entries on the King's week (their cancels of anyone's too) and its signup sheets, show
-  nowhere, and what an addon heard of them before the word leaves its week (whoever named them a
-  Hand still decides whether they stay one).
+  their entries on the King's week (their cancels of anyone else's too) and its signup sheets,
+  show nowhere, and what an addon heard of them before the word leaves its week (whoever named
+  them a Hand still decides whether they stay one). Taking their own entry off the week still
+  reaches every addon, so it doesn't come back once they are shown again.
 - A word goes on the Olympus channel with Blizzard's logged addon-message function (the issuer's
   own words: the server keeps them, so abuse can be reported), one word per name. Each issuer's
   addon repeats his own words for late logins, every 5 minutes, and never anyone else's (1.1,
