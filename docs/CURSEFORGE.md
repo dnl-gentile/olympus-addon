@@ -397,9 +397,10 @@ the census, are not touched: one name stops the spam.
   `/oly block` stays one client's and one player's. No treasury code can call it.
 - The hidden player's addon tells them why, and sends none of it. A Hand or a Steward who is
   hidden calls the army in vain: their Agenda, roll call, Vox Populi, inspection and gates, and
-  their entries on the King's week (their cancels of anyone's too) and its signup sheets, show
-  nowhere, and what an addon heard of them before the word leaves its week (whoever named them a
-  Hand still decides whether they stay one).
+  their entries on the King's week (their cancels of anyone else's too) and its signup sheets,
+  show nowhere, and what an addon heard of them before the word leaves its week (whoever named
+  them a Hand still decides whether they stay one). Taking their own entry off the week still
+  reaches every addon, so it doesn't come back once they are shown again.
 - A word goes on the Olympus channel with Blizzard's logged addon-message function (the issuer's
   own words: the server keeps them, so abuse can be reported), one word per name. Each issuer's
   addon repeats his own words for late logins, every 5 minutes, and never anyone else's (1.1,
@@ -429,10 +430,14 @@ The same people can also **take a guild off the Olympus network** (**Take a guil
 network** on the Decrees tab: the guild's name or your target's guild, then the reason; or
 `/oly netoff guild Name: reason`), and put it back on (`/oly neton guild Name`). While it is off,
 honest addons stop sending and showing that guild's census (its size leaves the army's total),
-its zones on the map, its layers and hop, its decrees, its Vox Populi votes and its Olympus
-chats: its own members' addons send none of it and say why, and every other addon drops what
-still comes. Blizzard's guild chat and Guild window stay up, and so do the guild's own addon
-messages among its members (its guild master's pinned line aside: hidden with its chats). A
+its zones on the map, its layers and hop, its decrees, its Vox Populi votes, its Olympus chats
+and pinned lines, and (1.1, Konig's review) its members' entries and signups on the King's
+week, their flags and camps on the Board, and their listings, answers and recipe lists on the
+crafters' board: its own members' addons send none of it and say why, and every other addon
+drops what still comes. Every addon also drops its members' requests at court, and shows them
+with no elite border or nameplate mark (as no Olympus player). Blizzard's guild chat and Guild
+window stay up, and so do the guild's own addon messages among its members (its guild master's
+pinned line aside: hidden with its chats). A
 spam guild, or one that is not really Olympus, is cut out of the
 federation without touching anyone's rank. One guild per word and never the King's: there is
 no switch for the whole realm. Nothing about it is tied to the treasury or to any payment, and

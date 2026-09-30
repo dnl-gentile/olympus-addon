@@ -185,7 +185,8 @@ King.STEWARD_MAY = { S = true, I = true, A = true, X = true, V = true, E = true,
 -- news): none shows from a name the moderators took off (net-off, Moderation.lua). Their lists (the
 -- Hands, the treasury's words) are not calls: they still count. The same for the King's week (1.1,
 -- Konig's review): its entries and their cancels (D), and the signup sheets (R, Week.lua). A client
--- the moderators took off sends none of them (Moderation.Blocks).
+-- the moderators took off sends none of them (Moderation.Blocks), but its setter's cancel of his
+-- own entry, which every client takes for that entry alone (1.1 review).
 King.HIDDEN_CALLS = { S = true, I = true, A = true, X = true, V = true, E = true, G = true, D = true, R = true }
 -- A word of the treasury (its switches, its keepers: Treasury.lua) dated further ahead of the
 -- server's clock is not taken. A minute: every client reads the same server clock, so a word
@@ -1105,7 +1106,9 @@ function King.HandleCommand(dist, sender, text)
 	id = tonumber(id)
 	-- 1.1: a Hand (or a Steward) the moderators took off (net-off, Moderation.lua): none of their
 	-- calls to the army shows. (Never the King: nobody takes him off.)
-	if King.HIDDEN_CALLS[kind] and ns.Moderation.Hides and ns.Moderation.Hides(sender, guild) then
+	-- But a setter taking his own entry off the King's week (a D of 0 seconds): Week.lua takes it
+	-- for his own entry alone (1.1 review: held, it showed again everywhere once he was back).
+	if King.HIDDEN_CALLS[kind] and ns.Moderation.Hides and ns.Moderation.Hides(sender, guild) and not (kind == "D" and rest:find("^0~")) then
 		return ns.Log("throne %s from %s ignored: net-off", kind, sender)
 	end
 	-- The King's own client takes his Hands' news (the agenda, the gates, a cancel), not

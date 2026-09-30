@@ -38954,7 +38954,8 @@ end -- (the pinned line's review)
 				"the list keeps 100 entries at most, the oldest removals going first",
 				"their signups to the King's week, their flags and camps on the Board (the camps' map badges too), their listing, answers and recipe lists as a crafter, and their elite border and nameplate mark",
 				"(none for a character or a guild the moderators took off, net-off)",
-				"their entries on the King's week (their cancels of anyone's too) and its signup sheets, show nowhere" }) do
+				-- (1.1 review: their cancel of their own entry now reaches every addon: "anyone else's".)
+				"their entries on the King's week (their cancels of anyone else's too) and its signup sheets, show nowhere" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
 			assert(not doc:find("The newest word wins, by the server's clock", 1, true), path .. ": the old claim")
@@ -41283,6 +41284,282 @@ do
 		end
 	end)
 end
+---------------------------------------------------------------------------
+-- 1.1 review of Konig's fixes (net-off): a hidden setter's cancel of his own entry on the King's
+-- week, the nudge for an entry whose setter is hidden, a hidden guild's entries after a /reload,
+-- and the texts that say what the net-off drops. Each test fails on the code before its fix. One
+-- function (the file's top level is near Lua's 200 locals).
+---------------------------------------------------------------------------
+;(function()
+	local M = ns.Moderation
+	local KING = "Asmongold Asmongler-Realm"
+	local ROGUE = "Rogue Hand-Realm" -- a made-up Hand
+	-- A net-off word as an issuer's client sends it.
+	local function O1(kind, off, at, name, by, reason)
+		return ("O1~%s~%s~%d~%s~%s~%s"):format(kind, off and "1" or "0", at, name, by, reason or "")
+	end
+	-- fn with no net-off word yet and a council of one (Test Councillor); all put back after.
+	local function NoWords(fn)
+		local saved = { council = ns.rdb.council, netoff = ns.rdb.netoff, info = C_ChatInfo }
+		local ok, err = pcall(function()
+			M.Reset()
+			ns.rdb.netoff = nil
+			ns.rdb.council = { at = 1, names = { ["test councillor"] = "Test Councillor" } }
+			fn()
+		end)
+		ns.rdb.council, ns.rdb.netoff, C_ChatInfo = saved.council, saved.netoff, saved.info
+		M.Reset()
+		if not ok then error(err, 0) end
+	end
+	-- The King's word on a character or a guild, dated by the server's clock (the scene's own, else ns.Now).
+	local function Clock() return ns.Data.ServerTime() or ns.Now() end
+	local function Off(name, reason) M.Handle("CHANNEL", KING, O1("c", true, Clock(), name, KING, reason or "spam")) end
+	local function Back(name) M.Handle("CHANNEL", KING, O1("c", false, Clock() + 1, name, KING, "")) end
+	local function GuildOff(guild) M.Handle("CHANNEL", KING, O1("g", true, Clock(), guild, KING, "spam guild")) end
+	local function GuildBack(guild) M.Handle("CHANNEL", KING, O1("g", false, Clock() + 1, guild, KING, "")) end
+	local function Titles(W)
+		local out = {}
+		for _, e in ipairs(W.Entries()) do out[#out + 1] = e.title end
+		return table.concat(out, ",")
+	end
+
+	test("1.1 review (net-off, item 1): a Hand the moderators took off still takes his own entry off the King's week: his client sends the cancel past Comm's backstop; anyone else's entry stays, the reason said", function()
+		WithWeek(function(w, W, K)
+			NoWords(function()
+				AsSoldier("Watcher")
+				K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Rogue Hand-Realm")
+				K.HandleCommand("CHANNEL", KING, "T1~D~602~Olympus~" .. (3 * 86400) .. "~1~~Raid night")
+				-- The rogue Hand's own client: his entry, set before the word.
+				AsSoldier("Rogue Hand")
+				eq(W.SetEntry("Sat 20:00 Rogue raid"), true)
+				local mine
+				for _, e in ipairs(W.Entries()) do if e.mine then mine = e end end
+				Off(ROGUE, "abuse of the week")
+				assert(M.SelfOff(), "his client knows he is off")
+				local sent = #w.sent
+				-- He takes it down: the cancel goes out, and Comm.Send's backstop lets it through.
+				eq(W.Cancel(mine.id), true)
+				local cancel = LastWeek(w)
+				eq(cancel, ("T1~D~%d~Olympus II~0~0~~"):format(mine.id), "his cancel")
+				eq(#w.sent, sent + 1)
+				eq(M.Blocks(cancel), false, "not held")
+				assert(Printed(w, ns.L.WEEK_CANCELLED:format("Rogue raid")))
+				-- The King's entry: no client would take his cancel of it; it stays, and he is told why.
+				w.printed = {}
+				eq(W.Cancel(602), false)
+				assert(W.Entry(602), "still on his week")
+				assert(Printed(w, M.YouText(M.SelfOff())), "said why")
+				assert(not Printed(w, ns.L.WEEK_CANCELLED:format("Raid night")), "not said cancelled")
+				eq(#w.sent, sent + 1, "nothing more sent")
+				-- Anything else of the week is still held: an entry, a repeat, a sheet.
+				eq(M.Blocks("T1~D~9~Olympus II~3600~1~~Raid"), true, "an entry")
+				eq(M.Blocks("T1~D~9~Olympus II~3600~0~~Raid"), true, "a repeat")
+				eq(M.Blocks("T1~R~9~Olympus II~9:1:0:0:0~5"), true, "a sheet")
+				-- Shown again: his cancels of anyone's go as before.
+				Back(ROGUE)
+				eq(M.SelfOff(), nil)
+				eq(W.Cancel(602), true)
+				eq(LastWeek(w), "T1~D~602~Olympus II~0~0~~")
+			end)
+		end)
+	end)
+
+	test("1.1 review (net-off, item 1): every client takes a hidden setter's cancel of his own entry, so it doesn't come back once he is shown again; never his cancel of another's entry, nor a new entry", function()
+		WithWeek(function(w, W, K)
+			NoWords(function()
+				AsSoldier("Watcher")
+				K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Rogue Hand-Realm")
+				-- Two entries of his heard before the word, and the King's own.
+				K.HandleCommand("CHANNEL", ROGUE, "T1~D~601~Olympus II~" .. (2 * 86400) .. "~1~~Taken down")
+				K.HandleCommand("CHANNEL", ROGUE, "T1~D~604~Olympus II~" .. (3 * 86400) .. "~1~~Kept")
+				K.HandleCommand("CHANNEL", KING, "T1~D~602~Olympus~" .. (3 * 86400) .. "~1~~Raid night")
+				-- Our signup for the one he takes down.
+				ns.rdb.signed = { [ns.me] = { [601] = { role = "T", at = w.clock + 2 * 86400, title = "Taken down", zone = "" } } }
+				Off(ROGUE, "abuse of the week")
+				eq(Titles(W), "Raid night", "his entries hidden")
+				-- He takes his own down (his client lets it out): taken, our signup for it gone.
+				K.HandleCommand("CHANNEL", ROGUE, "T1~D~601~Olympus II~0~0~~")
+				eq(W.MySignup(601), nil, "our signup for it goes")
+				-- His cancel of the King's entry, and a new entry of his: dropped as ever.
+				K.HandleCommand("CHANNEL", ROGUE, "T1~D~602~Olympus II~0~0~~")
+				K.HandleCommand("CHANNEL", ROGUE, "T1~D~605~Olympus II~" .. 86400 .. "~1~~After the word")
+				eq(Titles(W), "Raid night", "the King's entry stays")
+				-- His cancels (of nothing we hold) over more than an hour don't count as hearing him:
+				-- his other entry, which his client can't repeat while he is off, isn't taken for stale.
+				for i = 1, 3 do
+					w.clock = w.clock + 3000
+					K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Rogue Hand-Realm") -- (the King repeats his list)
+					K.HandleCommand("CHANNEL", ROGUE, ("T1~D~%d~Olympus II~0~0~~"):format(700 + i))
+					W.Tick()
+				end
+				-- Shown again: the entry he took down stays down; the other shows again.
+				Back(ROGUE)
+				eq(Titles(W), "Raid night,Kept", "not the entry he took down")
+				eq(W.Entry(601), nil)
+				-- A /reload after: still down (it left the week this client keeps).
+				eq(#ns.rdb.weekHeard, 2)
+				for _, e in ipairs(ns.rdb.weekHeard) do assert(e.id ~= 601, "not saved") end
+			end)
+		end)
+	end)
+
+	-- SavedVariables as a /reload leaves them: written out and read back, Lua's memory of the week
+	-- and of the guilds senders named (Moderation's, for this session) gone; the words kept.
+	-- `edit` changes what was saved first.
+	local function SavedCopy(t)
+		if type(t) ~= "table" then return t end
+		local out = {}
+		for k, v in pairs(t) do out[k] = SavedCopy(v) end
+		return out
+	end
+	local function Reload(W, edit)
+		local saved = SavedCopy({ week = ns.rdb.week, weekHeard = ns.rdb.weekHeard, signups = ns.rdb.signups, signed = ns.rdb.signed })
+		if edit then edit(saved) end
+		W.Reset()
+		M.Reset()
+		ns.rdb.week, ns.rdb.weekHeard, ns.rdb.signups, ns.rdb.signed = saved.week, saved.weekHeard, saved.signups, saved.signed
+		W.Restore()
+	end
+	local GALE = "Gale Hand-Realm" -- a made-up Hand of another guild
+	-- Watcher's client: two Hands' entries 2 days ahead (the rogue's, the other guild's a minute
+	-- later), their sheets heard, and his signup for each. The clock of the first, the second.
+	local function SignedBoth(w, W, K)
+		AsSoldier("Watcher")
+		K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Rogue Hand-Realm,Gale Hand-Realm")
+		local t0 = w.clock
+		K.HandleCommand("CHANNEL", ROGUE, "T1~D~601~Olympus II~" .. (2 * 86400) .. "~1~~Rogue raid")
+		K.HandleCommand("CHANNEL", GALE, "T1~D~611~Olympus Gale~" .. (2 * 86400 + 60) .. "~1~~Gale raid")
+		K.HandleCommand("CHANNEL", ROGUE, "T1~R~1~Olympus II~601:0:0:0:0~5")
+		K.HandleCommand("CHANNEL", GALE, "T1~R~2~Olympus Gale~611:0:0:0:0~5")
+		eq(W.Sign(601, "T"), true)
+		w.clock = w.clock + W.SIGN_GAP
+		eq(W.Sign(611, "H"), true)
+		return t0 + 2 * 86400, t0 + 2 * 86400 + 60
+	end
+	local function Nudged(w, title) return Printed(w, title .. " in ") end
+
+	test("1.1 review (net-off, item 2): no nudge for an entry we signed once its setter, or his guild, is off; shown again before it begins, it comes", function()
+		WithWeek(function(w, W, K)
+			NoWords(function()
+				local at = SignedBoth(w, W, K)
+				-- The King takes the rogue Hand, and the other Hand's guild, off.
+				Off(ROGUE, "abuse of the week"); GuildOff("Olympus Gale")
+				eq(Titles(W), "", "both entries hidden")
+				-- Four minutes before: no line, no sound.
+				w.printed, w.alerts = {}, {}
+				w.clock = at - 240
+				W.Remind()
+				assert(not Nudged(w, "Rogue raid") and not Nudged(w, "Gale raid"), "no nudge: " .. table.concat(w.printed, " / "))
+				eq(#w.alerts, 0, "no sound")
+				-- The rogue shown again before it begins: his nudge comes (it wasn't spent), the other's not yet.
+				Back(ROGUE)
+				W.Remind()
+				assert(Printed(w, ns.L.SIGN_SOON:format(W.RoleLabel("T"), "Rogue raid", 4, "")), "the rogue's entry")
+				assert(not Nudged(w, "Gale raid"), "the guild still off")
+				eq(#w.alerts, 1)
+				GuildBack("Olympus Gale")
+				W.Remind()
+				assert(Nudged(w, "Gale raid"), "the guild back on")
+				eq(#w.alerts, 2)
+			end)
+		end)
+	end)
+
+	test("1.1 review (net-off, item 2): after a /reload, the nudge from the signup alone (its entry not heard again) stays quiet too while its setter or his guild is off", function()
+		WithWeek(function(w, W, K)
+			NoWords(function()
+				local at = SignedBoth(w, W, K)
+				Off(ROGUE, "abuse of the week"); GuildOff("Olympus Gale")
+				-- The /reload: the entries not kept (their setters' next repeats after the pull).
+				Reload(W, function(saved) saved.weekHeard = nil end)
+				eq(W.Entry(601), nil); eq(W.Entry(611), nil)
+				w.printed, w.alerts = {}, {}
+				w.clock = at - 240
+				W.Remind()
+				assert(not Nudged(w, "Rogue raid") and not Nudged(w, "Gale raid"), "no nudge: " .. table.concat(w.printed, " / "))
+				eq(#w.alerts, 0, "no sound")
+				Back(ROGUE); GuildBack("Olympus Gale")
+				W.Remind()
+				assert(Nudged(w, "Rogue raid") and Nudged(w, "Gale raid"), "both shown again")
+				eq(#w.alerts, 2)
+			end)
+		end)
+	end)
+
+	test("1.1 review (net-off, item 3): after a /reload, the entries of a Hand whose guild is off stay hidden until it is back on: the guild his messages named is kept with them", function()
+		WithWeek(function(w, W, K)
+			NoWords(function()
+				AsSoldier("Watcher")
+				K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Gale Hand-Realm")
+				K.HandleCommand("CHANNEL", GALE, "T1~D~611~Olympus Gale~" .. (2 * 86400) .. "~1~~Gale raid")
+				K.HandleCommand("CHANNEL", KING, "T1~D~602~Olympus~" .. (3 * 86400) .. "~1~~Raid night")
+				GuildOff("Olympus Gale")
+				eq(Titles(W), "Raid night", "hidden")
+				-- The /reload: this session's memory of the guild his messages named is gone.
+				Reload(W)
+				eq(Titles(W), "Raid night", "still hidden after the /reload")
+				Reload(W)
+				eq(Titles(W), "Raid night", "and after the next")
+				GuildBack("Olympus Gale")
+				eq(Titles(W), "Gale raid,Raid night", "back on: it shows again")
+				-- Kept without it (an earlier build, or an edited file: never trusted): his next repeat names it again.
+				Reload(W, function(saved)
+					for _, e in ipairs(saved.weekHeard) do if e.id == 611 then e.guild = { "not a name" } end end
+				end)
+				eq(Titles(W), "Gale raid,Raid night", "kept, the bad guild left out")
+				K.HandleCommand("CHANNEL", GALE, "T1~D~611~Olympus Gale~" .. (2 * 86400 - 600) .. "~0~~Gale raid")
+				M.Handle("CHANNEL", KING, O1("g", true, Clock() + 2, "Olympus Gale", KING, "spam guild again"))
+				Reload(W)
+				eq(Titles(W), "Raid night", "hidden again after the /reload")
+			end)
+		end)
+	end)
+
+	test("1.1 review (net-off, item 4): what a hidden player or guild reads names every surface the net-off drops (the week, the Board, the crafter board, the pinned line, the elite border and nameplate mark), in English and pt-BR; es/fr/de say nothing of it; so do the README and the CurseForge page", function()
+		local pt = { L = setmetatable({}, { __index = function() return nil end }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		local keys = { "NETOFF_YOU", "NETOFF_YOU_BACK", "NETOFF_YOUR_GUILD", "NETOFF_GUILD_TIP", "NETOFF_GUILD_OFF" }
+		local en = { "week", "Board", "crafter", "pinned line", "elite border", "nameplate mark", "decrees", "hop", "Vox", "chat" }
+		local br = { "semana", "Mural", "artes", "linha fixada", "borda", "placa", "decretos", "saltos", "Vox", "chats" }
+		for _, key in ipairs(keys) do
+			for _, word in ipairs(en) do assert(ns.L[key]:find(word, 1, true), key .. " (English): " .. word) end
+			for _, word in ipairs(br) do assert(rawget(pt.L, key):find(word, 1, true), key .. " (pt-BR): " .. word) end
+		end
+		-- (es/fr/de have none of them: the English shows there.)
+		for _, lang in ipairs({ "esES", "frFR", "deDE" }) do
+			local src = assert(ReadFile(ADDON_DIR .. "Locales/" .. lang .. ".lua"))
+			for _, key in ipairs(keys) do assert(not src:find("L." .. key .. " ", 1, true), lang .. ": " .. key) end
+		end
+		-- Where the addon says it: a hidden Hand's own client refusing an entry on the week names the
+		-- week, the Board and the crafter board (the reason Week.Sign, Board.Ready and Crafters.Choose print too).
+		WithWeek(function(w, W, K)
+			NoWords(function()
+				AsSoldier("Watcher")
+				K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Rogue Hand-Realm")
+				AsSoldier("Rogue Hand")
+				Off(ROGUE, "abuse of the week")
+				w.printed = {}
+				eq(W.SetEntry("Sat 20:00 Rogue raid"), false)
+				local said = w.printed[#w.printed] or ""
+				for _, word in ipairs({ "entries and signups on the King's week", "flags and camps on the Board", "listing on the crafter board" }) do
+					assert(said:find(word, 1, true), "the reason printed: " .. word .. " in " .. said)
+				end
+			end)
+		end)
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, must in ipairs({ "its Vox Populi votes, its Olympus chats and pinned lines, and (1.1, Konig's review) its members' entries and signups on the King's week, their flags and camps on the Board, and their listings, answers and recipe lists on the crafters' board",
+				"Every addon also drops its members' requests at court, and shows them with no elite border or nameplate mark" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+			assert(not doc:find("its Vox Populi votes and its Olympus chats: its own members' addons", 1, true), path .. ": the old list")
+		end
+	end)
+end)()
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

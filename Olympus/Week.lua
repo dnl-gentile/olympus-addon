@@ -18,7 +18,9 @@ local L = ns.L
 -- Clients before 1.1 leave the kind D out (King.HandleCommand), as any kind they don't know.
 -- A setter or a signer the moderators took off (net-off, Moderation.lua; 1.1, Konig's review)
 -- shows nowhere: every client drops their D, R and Y2 and hides what it heard of them before,
--- and their own client sends none.
+-- and their own client sends none, but a setter taking his own entry down: that cancel still
+-- goes, and every client takes it for his own entry alone (1.1 review: it was held, and the
+-- entry showed again everywhere once he was shown again).
 
 local Week = {}
 ns.Week = Week
@@ -44,7 +46,7 @@ ns.King.HAND_MAY.D = true
 ns.King.STEWARD_MAY.D = true
 
 local entries = {}           -- [id] = { id, title, zone, at, by, mine, crown (the King's or his Steward's), sentAt, heardAt,
-                             --   setterGuild (the guild his message named, for the net-off: this session only) }
+                             --   setterGuild (the guild his messages named, for the net-off: kept with it) }
 local heardFrom = {}         -- [setter] = { first, last }: when we heard him, this stretch online
 local lastSet, lastNewLine, lastCalendarAsk = -math.huge, -math.huge, -math.huge
 
@@ -275,13 +277,16 @@ local function SaveMine()
 end
 
 -- The entries this client heard, kept for the realm (1.1 review: the week must not go blank
--- after a /reload or a login while their setter is offline), with when each was last heard.
+-- after a /reload or a login while their setter is offline), with when each was last heard and
+-- the guild its setter's messages named (1.1 review: a /reload showed again the entries of a
+-- setter whose guild is off, net-off, until they passed).
 local function SaveHeard()
 	if not ns.rdb then return end
 	local list = {}
 	for _, e in pairs(entries) do
 		if not e.mine then
-			list[#list + 1] = { id = e.id, by = e.by, title = e.title, zone = e.zone, at = e.at, crown = e.crown or nil, heardAt = e.heardAt }
+			list[#list + 1] = { id = e.id, by = e.by, title = e.title, zone = e.zone, at = e.at, crown = e.crown or nil, heardAt = e.heardAt,
+				guild = e.setterGuild }
 		end
 	end
 	ns.rdb.weekHeard = #list > 0 and list or nil
@@ -305,7 +310,7 @@ function Week.Restore(now)
 		if type(e) == "table" and tonumber(e.id) and type(e.by) == "string" and e.by ~= ns.me and type(e.title) == "string" and tonumber(e.at)
 			and e.at + Week.KEEP_AFTER >= now and e.at <= now + Week.MAX_AHEAD + 60 and not entries[e.id] and Clean(e.title, 60) ~= "" then
 			Keep({ id = e.id, title = Clean(e.title, 60), zone = Clean(e.zone, 40), at = e.at, by = e.by, crown = e.crown == true or nil,
-				heardAt = tonumber(e.heardAt) or now })
+				heardAt = tonumber(e.heardAt) or now, setterGuild = type(e.guild) == "string" and ns.King.CleanGuild(e.guild) or nil })
 		end
 	end
 	RestoreSignups(now)
@@ -356,11 +361,15 @@ function Week.SetEntry(input)
 end
 
 -- Taken off the week, for everyone (its setter, the King, his Steward or a Hand, as the Agenda).
+-- 1.1 review: while the moderators have us off (net-off), our own entry still goes down for
+-- everyone (Moderation.Blocks lets its cancel out); anyone else's stays, the reason said (no
+-- client would take our cancel of it).
 function Week.Cancel(id)
 	local e = entries[id]
 	if not e then return false end
 	local K = ns.King
 	if not e.preview and not K.Preview() and (e.mine or K.CanCommand()) then
+		if not e.mine and SelfOff() then return false end
 		ns.Comm.Send("CHANNEL", ("T1~D~%d~%s~0~0~~"):format(id, GetGuildInfo("player") or ""), "week" .. id)
 	end
 	entries[id] = nil
@@ -391,8 +400,14 @@ local function OnEntry(sender, id, rest, guild)
 	if not id or not seconds then return end
 	local now = ns.Now()
 	sender = ns.FullName(sender)
-	HeardFrom(sender, now)
 	local e = entries[id]
+	-- 1.1 review: a setter the moderators took off (net-off) reaches here with a cancel alone
+	-- (King.HandleCommand): it takes his own entry down, nothing else (nor counts as hearing him).
+	if Off(sender, guild) then
+		if seconds ~= 0 or not e or e.by ~= sender then return end
+	else
+		HeardFrom(sender, now)
+	end
 	if seconds == 0 then
 		if e then
 			-- (Another's cancel reaching its setter: he stops repeating it.)
@@ -411,6 +426,7 @@ local function OnEntry(sender, id, rest, guild)
 		if e.by ~= sender then return end
 		if math.abs((now + seconds) - e.at) > 60 then e.at = now + seconds end
 		e.title, e.zone, e.heardAt = title, Clean(zone, 40), now
+		e.setterGuild = ns.King.CleanGuild(guild) or e.setterGuild -- (the guild his latest message named, saved with it)
 		SaveHeard()
 		return Changed()
 	end
@@ -633,7 +649,8 @@ local function RoleLabel(role) return L["SIGN_ROLE_" .. tostring(role)] or "?" e
 Week.RoleLabel = RoleLabel
 
 -- This character's own signups, kept for its next login (the reminder, #2): [agendaId] =
--- { role, at, title, zone, agenda }: enough for the nudge even while the entry isn't heard again.
+-- { role, at, title, zone, agenda, by, guild (its setter and his guild: the net-off) }: enough
+-- for the nudge even while the entry isn't heard again.
 local function Signed()
 	if not ns.rdb then return {} end
 	if type(ns.rdb.signed) ~= "table" then ns.rdb.signed = {} end
@@ -754,7 +771,7 @@ function Week.Sign(id, role)
 		mine[id] = nil
 		ns.Print(L.SIGN_WITHDRAWN:format(e.title))
 	else
-		mine[id] = { role = role, at = e.at, title = e.title, zone = e.zone, agenda = e.agenda or nil }
+		mine[id] = { role = role, at = e.at, title = e.title, zone = e.zone, agenda = e.agenda or nil, by = e.by, guild = e.setterGuild }
 		ns.Print(L.SIGN_DONE:format(RoleLabel(role), e.title))
 	end
 	signOpen[id] = nil
@@ -954,6 +971,15 @@ function Week.Sheets() return sheets end
 -- (its time, title and zone) when the entry isn't heard again before it begins (1.1 review: a
 -- /reload a few minutes before the pull, its setter's next repeat after it).
 Week.REMIND = 5 * 60
+-- Whose entry a signup is for, and in which guild's name: the entry as heard (hidden or not),
+-- else the Agenda's current event, else what the signup kept.
+local function SetterOf(id, v)
+	local e = entries[id]
+	if e then return e.by, e.setterGuild end
+	local a = ns.King.Agenda and ns.King.Agenda()
+	if a and a.id == id then return ns.FullName(a.by), nil end
+	return v.by, type(v.guild) == "string" and v.guild or nil
+end
 function Week.Remind(now)
 	now = now or ns.Now()
 	local mine = ns.rdb and type(ns.rdb.signed) == "table" and ns.rdb.signed[ns.me or "?"]
@@ -971,7 +997,10 @@ function Week.Remind(now)
 			mine[id] = nil -- the Agenda's current event, replaced by another
 		end
 		local left = type(v) == "table" and mine[id] and tonumber(v.at) and v.at - now
-		if left and v.role and not v.reminded and type(v.title) == "string" and v.title ~= "" and left > 0 and left <= Week.REMIND then
+		-- (1.1 review: nothing while its setter, or his guild, is off: net-off. Not marked reminded:
+		-- shown again before it begins, the nudge comes.)
+		if left and v.role and not v.reminded and type(v.title) == "string" and v.title ~= "" and left > 0 and left <= Week.REMIND
+			and not Off(SetterOf(id, v)) then
 			v.reminded = true
 			local zone = type(v.zone) == "string" and v.zone or ""
 			local where = zone ~= "" and (" (" .. zone .. ")") or ""
