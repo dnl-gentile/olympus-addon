@@ -426,10 +426,14 @@ The same people can also **take a guild off the Olympus network** (**Take a guil
 network** on the Decrees tab: the guild's name or your target's guild, then the reason; or
 `/oly netoff guild Name: reason`), and put it back on (`/oly neton guild Name`). While it is off,
 honest addons stop sending and showing that guild's census (its size leaves the army's total),
-its zones on the map, its layers and hop, its decrees, its Vox Populi votes and its Olympus
-chats: its own members' addons send none of it and say why, and every other addon drops what
-still comes. Blizzard's guild chat and Guild window stay up, and so do the guild's own addon
-messages among its members (its guild master's pinned line aside: hidden with its chats). A
+its zones on the map, its layers and hop, its decrees, its Vox Populi votes, its Olympus chats
+and pinned lines, and (1.1, Konig's review) its members' entries and signups on the King's
+week, their flags and camps on the Board, and their listings, answers and recipe lists on the
+crafters' board: its own members' addons send none of it and say why, and every other addon
+drops what still comes. Every addon also drops its members' requests at court, and shows them
+with no elite border or nameplate mark (as no Olympus player). Blizzard's guild chat and Guild
+window stay up, and so do the guild's own addon messages among its members (its guild master's
+pinned line aside: hidden with its chats). A
 spam guild, or one that is not really Olympus, is cut out of the
 federation without touching anyone's rank. One guild per word and never the King's: there is
 no switch for the whole realm. Nothing about it is tied to the treasury or to any payment, and

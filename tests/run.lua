@@ -41266,6 +41266,51 @@ end
 			end)
 		end)
 	end)
+
+	test("1.1 review (net-off, item 4): what a hidden player or guild reads names every surface the net-off drops (the week, the Board, the crafter board, the pinned line, the elite border and nameplate mark), in English and pt-BR; es/fr/de say nothing of it; so do the README and the CurseForge page", function()
+		local pt = { L = setmetatable({}, { __index = function() return nil end }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		local keys = { "NETOFF_YOU", "NETOFF_YOU_BACK", "NETOFF_YOUR_GUILD", "NETOFF_GUILD_TIP", "NETOFF_GUILD_OFF" }
+		local en = { "week", "Board", "crafter", "pinned line", "elite border", "nameplate mark", "decrees", "hop", "Vox", "chat" }
+		local br = { "semana", "Mural", "artes", "linha fixada", "borda", "placa", "decretos", "saltos", "Vox", "chats" }
+		for _, key in ipairs(keys) do
+			for _, word in ipairs(en) do assert(ns.L[key]:find(word, 1, true), key .. " (English): " .. word) end
+			for _, word in ipairs(br) do assert(rawget(pt.L, key):find(word, 1, true), key .. " (pt-BR): " .. word) end
+		end
+		-- (es/fr/de have none of them: the English shows there.)
+		for _, lang in ipairs({ "esES", "frFR", "deDE" }) do
+			local src = assert(ReadFile(ADDON_DIR .. "Locales/" .. lang .. ".lua"))
+			for _, key in ipairs(keys) do assert(not src:find("L." .. key .. " ", 1, true), lang .. ": " .. key) end
+		end
+		-- Where the addon says it: a hidden Hand's own client refusing an entry on the week names the
+		-- week, the Board and the crafter board (the reason Week.Sign, Board.Ready and Crafters.Choose print too).
+		WithWeek(function(w, W, K)
+			NoWords(function()
+				AsSoldier("Watcher")
+				K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Rogue Hand-Realm")
+				AsSoldier("Rogue Hand")
+				Off(ROGUE, "abuse of the week")
+				w.printed = {}
+				eq(W.SetEntry("Sat 20:00 Rogue raid"), false)
+				local said = w.printed[#w.printed] or ""
+				for _, word in ipairs({ "entries and signups on the King's week", "flags and camps on the Board", "listing on the crafter board" }) do
+					assert(said:find(word, 1, true), "the reason printed: " .. word .. " in " .. said)
+				end
+			end)
+		end)
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, must in ipairs({ "its Vox Populi votes, its Olympus chats and pinned lines, and (1.1, Konig's review) its members' entries and signups on the King's week, their flags and camps on the Board, and their listings, answers and recipe lists on the crafters' board",
+				"Every addon also drops its members' requests at court, and shows them with no elite border or nameplate mark" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+			assert(not doc:find("its Vox Populi votes and its Olympus chats: its own members' addons", 1, true), path .. ": the old list")
+		end
+	end)
 end)()
 
 print(("\n%d passed, %d failed"):format(passed, failed))
