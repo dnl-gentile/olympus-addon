@@ -744,15 +744,18 @@ end)
 -- and the setter's client lets it go. The setter's client repeats its pin every PIN_RESEND for
 -- late logins (a pin replaced there is no longer its to repeat), with how long it has left and
 -- how long ago it was set: a repeat never makes a pin newer. It keeps its pin through a /reload
--- (ns.rdb.pinMine), to repeat it and take it down. Its words go out with the logged API (the
--- server keeps them, so abuse can be reported), plain text, PIN_MAX bytes at most; a sender's
--- new pin is taken once a minute at most.
+-- (ns.rdb.pinMine), to repeat it and take it down; where a /reload kept nothing (the Forever
+-- beta never loads the saved variables back), /oly pin off still sends its setter's takedown
+-- (id 0), and each client drops whichever of his it shows. Its words go out with the logged API
+-- (the server keeps them, so abuse can be reported), plain text, PIN_MAX bytes at most; a
+-- sender's new pin is taken once a minute at most.
 -- What a client shows (Channels.Pin): no pin while its Olympus chats are off (the player's
 -- choice, Consent.lua: none sent either), none from a name or guild the moderators took off
 -- (net-off, Moderation.lua: their own client sends none, their takedown of their own pin
 -- aside), and the player's block terms hide its words (Filter.lua) until a click shows them.
 --   N1~<id>~<guild>~<seconds left>~<seconds since set>~<text>     a pin
 --   N1~<id>~<guild>~0~0~        taken down (<id>: the pin's; <guild>: the sender's own)
+--                               (<id> 0: its setter's, from a client that holds none of his)
 -- On the Olympus channel from the King, his Stewards and Hands (<guild>: the King's); over GUILD
 -- from a guild master (<guild>: his own). Clients before 1.1 know no N1 and drop it unread.
 -- A higher rank's takedown of a guild master's pin, and its repeat, go where that pin went: over
@@ -993,8 +996,23 @@ function Channels.TakeDownPin(now)
 	local p = Current(now)
 	if p and not Ours(p) and Channels.Pin(now) ~= p then p = nil end
 	if not p then
-		ns.Print(L.PIN_NONE)
-		return false, "none"
+		-- Nothing held here, though we may pin (Konig's review): the Forever beta never loads the
+		-- saved variables back, so after a /reload our own pin is gone here while the others still
+		-- show it. Our takedown goes all the same, where our pin would go, once a minute at most:
+		-- theirs drop whichever of ours they show (id 0 names no pin; any other's stays).
+		local rank, guild, dist = MyPin()
+		if not rank then
+			ns.Print(L.PIN_NONE)
+			return false, "none"
+		end
+		if now - lastPinDown < Channels.PIN_GAP then
+			ns.Print(L.PIN_DOWN_WAIT:format(math.ceil(Channels.PIN_GAP - (now - lastPinDown))))
+			return false, "fast"
+		end
+		lastPinDown = now
+		SendPin({ id = 0, guild = guild, dist = dist }, now, true)
+		ns.Print(L.PIN_DOWN_ANY)
+		return true, "any"
 	end
 	if not Channels.CanTakeDown(now) then
 		ns.Print(L.PIN_NOT_YOURS)

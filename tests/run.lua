@@ -38163,7 +38163,8 @@ end)
 
 -- 1.1 (Konig's review of #45, the pinned line, second pass): a higher rank's takedown of a guild
 -- master's pin goes where that pin went (over GUILD), so his guildmates on another realm or the
--- other channel take it too.
+-- other channel take it too; a setter whose /reload kept nothing (the Forever beta) still takes
+-- his own line down.
 do
 test("1.1 pinned line (Konig's review, 2): a Hand's takedown of a guild master's pin goes over GUILD, and his guildmates on another realm take it", function()
 	PinBench(function(w, K, sent, C)
@@ -38238,6 +38239,70 @@ test("1.1 pinned line (Konig's review, 2): over GUILD the channel's rule counts 
 		w.clock = w.clock + C.PIN_RESEND
 		eq(select(2, C.HandlePin("CHANNEL", "Helper-Realm", "N1~60~Olympus~6900~300~A Hand's line")), "downed")
 		eq(#sent, n + 1); eq(sent[#sent].dist, "CHANNEL"); eq(sent[#sent].msg, "N1~60~Olympus~0~0~")
+	end)
+end)
+test("1.1 pinned line (Konig's review, 2): after a /reload that kept nothing (the Forever beta), /oly pin off still takes the setter's line down everywhere", function()
+	PinBench(function(w, K, sent, C)
+		local L = ns.L
+		local KING = "Asmongold Asmongler-Realm"
+		-- The King pins.
+		AsKing()
+		eq(C.SetPin("Muster at the gates at nine"), true)
+		local pinned = sent[#sent].msg
+		-- A /reload on the beta: what Lua held is gone, and the saved variables never load back.
+		w.clock = w.clock + 100
+		C.ResetPin()
+		eq(C.RestorePin(), false)
+		eq(C.Pin(), nil)
+		-- /oly pin off: his takedown goes all the same, where his pin went, and he is told.
+		local n = #sent
+		w.printed = {}
+		SlashCmdList.OLYMPUS("pin off")
+		eq(#sent, n + 1, "a takedown went out")
+		eq(sent[#sent].dist, "CHANNEL"); eq(sent[#sent].msg, "N1~0~Olympus~0~0~"); eq(sent[#sent].logged, true)
+		assert(Printed(w, L.PIN_DOWN_ANY), table.concat(w.printed, "\n"))
+		eq(Printed(w, L.PIN_NONE), false)
+		local blind = sent[#sent].msg
+		-- Once a minute at most.
+		w.clock = w.clock + 30
+		eq(select(2, C.TakeDownPin()), "fast"); eq(#sent, n + 1)
+		-- A soldier's client that shows his line takes it down, and his repeat, late, never brings it back.
+		AsSoldier()
+		C.ResetPin()
+		eq(C.HandlePin("CHANNEL", KING, pinned), true)
+		w.printed = {}
+		eq(select(2, C.HandlePin("CHANNEL", KING, blind)), "down")
+		eq(C.Pin(), nil)
+		assert(Printed(w, L.PIN_DOWN_OWN:format(ns.DisplayName(KING), "Olympus")), "said who")
+		eq(select(2, C.HandlePin("CHANNEL", KING, pinned)), "downed")
+		eq(C.Pin(), nil)
+		-- Someone else's line stays.
+		K.HandleCommand("CHANNEL", KING, "T1~H~5~Olympus~Helper-Realm")
+		w.clock = w.clock + 60
+		eq(C.HandlePin("CHANNEL", "Helper-Realm", "N1~9~Olympus~7200~0~A Hand's line"), true)
+		eq(select(2, C.HandlePin("CHANNEL", KING, blind)), "nothing")
+		eq(C.Pin().text, "A Hand's line")
+		-- A guild master's goes over his guild.
+		AsLord()
+		C.ResetPin()
+		eq(C.TakeDownPin(), true)
+		eq(sent[#sent].dist, "GUILD"); eq(sent[#sent].msg, "N1~0~Olympus Zeus~0~0~")
+		-- Whoever may not pin sends nothing: nothing is pinned.
+		AsSoldier()
+		C.ResetPin()
+		n = #sent
+		w.printed = {}
+		eq(select(2, C.TakeDownPin()), "none"); eq(#sent, n)
+		assert(Printed(w, L.PIN_NONE), "told")
+		-- Its line in both languages.
+		local pt = { L = setmetatable({}, { __index = ns.L }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		assert(rawget(ns.L, "PIN_DOWN_ANY"), "English")
+		assert(rawget(pt.L, "PIN_DOWN_ANY") and rawget(pt.L, "PIN_DOWN_ANY") ~= ns.L.PIN_DOWN_ANY, "pt-BR")
 	end)
 end)
 end -- (the pinned line's review, second pass)

@@ -1090,6 +1090,8 @@ L.HELP_PIN = "  /oly pin <text> | /oly pin off - one line pinned for 2 hours: th
 L.PIN_ADD_GUILD = "Pin a line for your guild..."
 L.PIN_ADD_GUILD_TIP = "One short line on top of the Olympus chats and the Realm, for your guild's members, for 2 hours: a raid move, a change of plans. It goes over guild chat, where each guildmate's addon reads your rank in its own roster. No popup and no sound. A pin of the King, his Stewards or Hands outranks yours. Your words go out with the logged API, like a chat line, so abuse can be reported."
 L.PIN_DONE_GUILD = "Pinned for your guild for 2 hours: %s"
+-- 1.1 (Konig's review): /oly pin off with nothing pinned here (a /reload on the Forever beta forgets your pin).
+L.PIN_DOWN_ANY = "Nothing is pinned here (a /reload on the Forever beta forgets your pin): your takedown went out all the same, so wherever a line of yours still shows, it comes down."
 -- 1.1: the commands' help and replies, once written in the code (request #6).
 L.HELP_CMD_HEAD = "v%s commands:"
 L.HELP_CMD_OPEN = "  /oly - open/close the window"
@@ -2773,6 +2775,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.PIN_ADD_GUILD = "Fixar uma linha para a sua guilda..."
 	L.PIN_ADD_GUILD_TIP = "Uma linha curta no topo dos chats de Olympus e do Reino, para os membros da sua guilda, por 2 horas: uma mudança de raid, uma mudança de planos. Ela vai pelo chat da guilda, onde o addon de cada colega lê o seu posto no próprio roster. Sem popup e sem som. A fixação do Rei, dos Senescais ou das Mãos dele passa na frente da sua. As suas palavras vão pela API registrada, como uma linha de chat, então abusos podem ser denunciados."
 	L.PIN_DONE_GUILD = "Fixado para a sua guilda por 2 horas: %s"
+	-- 1.1 (revisão do Konig): /oly pin off sem nada fixado aqui (um /reload no beta do Forever esquece a sua fixação).
+	L.PIN_DOWN_ANY = "Nada está fixado aqui (um /reload no beta do Forever esquece a sua fixação): o seu pedido para tirar saiu mesmo assim, então onde uma linha sua ainda aparecer, ela sai."
 	-- 1.1: a ajuda dos comandos e as respostas deles, antes escritas no código (pedido #6).
 	L.HELP_CMD_HEAD = "comandos da v%s:"
 	L.HELP_CMD_OPEN = "  /oly - abrir/fechar a janela"
