@@ -41262,6 +41262,28 @@ do
 			assert(doc:find("and of how many guilds (each counted for the guild his addon whispered him for, never the one his answer names)", 1, true), path)
 		end
 	end)
+
+	test("1.1 key rotation review: the rotate question says a Lord or Captain who logs in during the grace gets nothing until the King's /who sees him in his guild (English and pt-BR; Spanish, French and German show the English)", function()
+		local en, pt = ns.L, Loaded("ptBR")
+		assert(type(pt.KEY_ROTATE_CONFIRM) == "string" and pt.KEY_ROTATE_CONFIRM ~= en.KEY_ROTATE_CONFIRM, "pt-BR")
+		eq(select(2, pt.KEY_ROTATE_CONFIRM:gsub("%%[sd]", "")), 1, "pt-BR: the minutes")
+		eq(select(2, en.KEY_ROTATE_CONFIRM:gsub("%%[sd]", "")), 1, "English: the minutes")
+		assert(en.KEY_ROTATE_CONFIRM:find("A Lord or Captain who logs in meanwhile gets nothing until your /who sees him in his guild", 1, true), en.KEY_ROTATE_CONFIRM)
+		assert(not en.KEY_ROTATE_CONFIRM:find("get it too", 1, true), "no longer that those who log in meanwhile get it")
+		assert(pt.KEY_ROTATE_CONFIRM:find("Um Lorde ou Capitão que entrar nesse meio-tempo não recebe nada até o seu /who vê-lo na guilda dele", 1, true), pt.KEY_ROTATE_CONFIRM)
+		assert(not pt.KEY_ROTATE_CONFIRM:find("também receberem", 1, true), pt.KEY_ROTATE_CONFIRM)
+		for code, file in pairs({ esES = "esES", frFR = "frFR", deDE = "deDE" }) do
+			local shown, given = Loaded(code, file)
+			assert(type(given) == "table" and next(given), file .. ": its lines")
+			eq(given.KEY_ROTATE_CONFIRM, nil, file .. ": no line of its own")
+			eq(shown.KEY_ROTATE_CONFIRM, en.KEY_ROTATE_CONFIRM, file .. ": the English shows")
+		end
+		-- The pages said it already.
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			assert(doc:find("For 10 minutes his addon keeps handing it to Lords and Captains who log in (once his /who saw them in their guild)", 1, true), path)
+		end
+	end)
 end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
