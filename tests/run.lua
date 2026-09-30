@@ -42031,6 +42031,35 @@ do
 		end
 	end)
 
+	test("1.1 key rotation review, with the gamepad UI: a guild the /who refuses now (searched lately another way) is passed over for the next waiting one, never a click that does nothing", function()
+		WithUI(function()
+			LoadUI()
+			WithGamepadUI(true, function(game)
+				WithKing(function(w, K, server)
+					LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
+					eq(KY.Rotate(), true)
+					K.Show("home")
+					local real, calls, refused = ns.Who.SearchGuild, {}, nil
+					ns.Who.SearchGuild = function(g, plain)
+						calls[#calls + 1] = g
+						if not refused then refused = g return false end -- (searched lately, as Who's own timer says)
+						return real(g, plain)
+					end
+					local ok, err = pcall(function()
+						local before = #server.sent
+						LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:sub(1, 12)).onClick()
+						eq(#calls, 2, "the refused guild, then the next")
+						assert(calls[2] ~= calls[1], "another guild")
+						eq(#server.sent, before + 1, "one /who sent")
+						assert(server.sent[#server.sent]:find(calls[2], 1, true), server.sent[#server.sent])
+					end)
+					ns.Who.SearchGuild = real
+					if not ok then error(err, 0) end
+				end)
+			end)
+		end)
+	end)
+
 	test("1.1 key rotation review: the Throne counts an acknowledgement (K4) under the guild the King's client whispered its sender for, never the guild the K4 names", function()
 		WithKing(function(w, K, server)
 			eq(ns.Who.Search(true), true)
@@ -42090,6 +42119,61 @@ do
 		end
 	end)
 end
+
+-- 1.1: the review of the net-off fixes, its last point (the Agenda's event).
+;(function()
+	local M = ns.Moderation
+	local KING = "Asmongold Asmongler-Realm"
+	local GALE = "Gale Hand-Realm"
+	local function O1(kind, off, at, name, by, reason)
+		return ("O1~%s~%s~%d~%s~%s~%s"):format(kind, off and "1" or "0", at, name, by, reason or "")
+	end
+	local function NoWords(fn)
+		local saved = { council = ns.rdb.council, netoff = ns.rdb.netoff, info = C_ChatInfo }
+		local ok, err = pcall(function()
+			M.Reset()
+			ns.rdb.netoff = nil
+			ns.rdb.council = { at = 1, names = { ["test councillor"] = "Test Councillor" } }
+			fn()
+		end)
+		ns.rdb.council, ns.rdb.netoff, C_ChatInfo = saved.council, saved.netoff, saved.info
+		M.Reset()
+		if not ok then error(err, 0) end
+	end
+	local function Clock() return ns.Data.ServerTime() or ns.Now() end
+	local function GuildOff(guild) M.Handle("CHANNEL", KING, O1("g", true, Clock(), guild, KING, "spam guild")) end
+	test("1.1 net-off review: no nudge for the Agenda's event of a Hand whose guild is off, after a /reload too (the Agenda keeps its setter's guild)", function()
+		WithWeek(function(w, W, K)
+			NoWords(function()
+				AsSoldier("Watcher")
+				K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Gale Hand-Realm")
+				K.HandleCommand("CHANNEL", GALE, "T1~A~900~Olympus Gale~3600~~Gale agenda")
+				assert(K.Agenda(), "agenda heard")
+				K.HandleCommand("CHANNEL", GALE, "T1~R~1~Olympus Gale~900:0:0:0:0~5")
+				eq(W.Sign(900, "T"), true)
+				GuildOff("Olympus Gale")
+				eq(#W.Entries(), 0, "agenda hidden in session")
+				-- in-session: no nudge
+				w.printed, w.alerts = {}, {}
+				local t0 = w.clock
+				w.clock = t0 + 3600 - 240
+				W.Remind()
+				eq(#w.alerts, 0, "no nudge while his guild is off")
+				w.clock = t0
+				-- /reload: agenda (session) gone, guildOf gone, words kept
+				local signed = ns.rdb.signed
+				K.Reset(); M.Reset(); W.Reset()
+				ns.rdb.signed = signed
+				K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Gale Hand-Realm")
+				W.Restore()
+				w.printed, w.alerts = {}, {}
+				w.clock = t0 + 3600 - 240
+				W.Remind()
+				eq(#w.alerts, 0, "no nudge after a /reload either")
+			end)
+		end)
+	end)
+end)()
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

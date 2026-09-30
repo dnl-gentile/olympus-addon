@@ -923,7 +923,8 @@ local function OnAgenda(king, id, rest, guild)
 		if math.abs((now + seconds) - agenda.at) > 60 then agenda.at = now + seconds end
 		return Changed()
 	end
-	agenda = { id = id, title = Clean(title, 60), at = now + seconds, zone = Clean(zone, 40), by = king, fired = {} }
+	agenda = { id = id, title = Clean(title, 60), at = now + seconds, zone = Clean(zone, 40), by = king, fired = {},
+		guild = King.CleanGuild(guild) } -- (1.1: its setter's guild, for the net-off: Week.lua)
 	-- A new agenda is a raid warning and a popup (the appointment: what, when, where), but
 	-- not more than once a minute whatever arrives.
 	if now - lastAgendaWarn >= King.AGENDA_GAP then

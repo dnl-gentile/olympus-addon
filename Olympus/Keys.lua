@@ -466,20 +466,22 @@ local asked, askedFor = {}, nil -- [Name-Realm] = GetTime() of our search for hi
 local askedGuild = {} -- [guild] = GetTime() of our plain search of it (the gamepad UI)
 local function ConfirmPlain(rot, W, only)
 	if only then return false end
-	local now, pick, pickAt, waiting = GetTime(), nil, nil, false
+	local now, list, waiting = GetTime(), {}, false
 	for _, c in ipairs(Keys.Candidates()) do
 		if #c.waiting > 0 and Picked(rot, c) then
 			waiting = true
 			local at = askedGuild[c.guild] or -math.huge
-			if now - at >= (W.GUILD_AGAIN or 60) and (pick == nil or at < pickAt) then pick, pickAt = c.guild, at end
+			if now - at >= (W.GUILD_AGAIN or 60) then list[#list + 1] = { guild = c.guild, at = at } end
 		end
 	end
-	if pick then
-		if W.SearchGuild(pick, true) then
-			askedGuild[pick] = now
+	-- The guild asked longest ago first; one the /who itself refuses now (searched lately another
+	-- way: a mouse click before the switch, an earlier rotation) is passed over for the next.
+	table.sort(list, function(a, b) return a.at < b.at end)
+	for _, p in ipairs(list) do
+		if W.SearchGuild(p.guild, true) then
+			askedGuild[p.guild] = now
 			return true
 		end
-		return false
 	end
 	if waiting then ns.Print(L.KEY_WHO_GAMEPAD) end
 	return false

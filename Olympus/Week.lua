@@ -469,7 +469,8 @@ function Week.Entries(now)
 	end
 	local a = ns.King.Agenda and ns.King.Agenda()
 	if a and not entries[a.id] and (a.mine or not Off(ns.FullName(a.by))) then
-		out[#out + 1] = { id = a.id, title = a.title, zone = a.zone, at = a.at, by = ns.FullName(a.by), mine = a.mine, agenda = true }
+		out[#out + 1] = { id = a.id, title = a.title, zone = a.zone, at = a.at, by = ns.FullName(a.by), mine = a.mine, agenda = true,
+			setterGuild = a.guild } -- (its setter's guild, saved with a signup: the reminder's net-off check after a /reload)
 	end
 	table.sort(out, function(x, y) if x.at ~= y.at then return x.at < y.at end return x.id < y.id end)
 	return out
@@ -977,7 +978,7 @@ local function SetterOf(id, v)
 	local e = entries[id]
 	if e then return e.by, e.setterGuild end
 	local a = ns.King.Agenda and ns.King.Agenda()
-	if a and a.id == id then return ns.FullName(a.by), nil end
+	if a and a.id == id then return ns.FullName(a.by), a.guild or (type(v.guild) == "string" and v.guild or nil) end
 	return v.by, type(v.guild) == "string" and v.guild or nil
 end
 function Week.Remind(now)
