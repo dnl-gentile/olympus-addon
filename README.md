@@ -557,14 +557,22 @@ tools lives where it belongs:
   get it: those his own /who saw are checked, and a guild only the census names waits for his
   click (two characters on the leaked channel can make up a guild and its Lords); nothing is
   sent before he hands it out. His addon whispers it to their Lords and Captains the census
-  confirms online, and each hands it to his guild over guild chat, so nobody types `/oly key`
-  by hand. It never travels on the Olympus channel. Whoever holds the old key outside the guilds
-  he picks stays behind on the old channel; anyone in a guild that gets it has it too. For 10
-  minutes his addon keeps handing it to Lords and Captains who log in, on the old channel, a few
+  confirms online and his own /who saw in that guild in the last 30 minutes (the server's word:
+  two characters can also call themselves a real guild's Lord and Captain in the census, and a
+  name the census alone gives gets nothing). His click on a guild, or on the Throne's /who line, searches /who
+  for the Lords and Captains picked it has not seen there yet, one search a click: every guild
+  picked first, then each of them by name, at most once in 30 minutes (with the gamepad UI, the
+  census's Refresh searches). What his /who saw is kept with the rotation, through a /reload or
+  relog too. Each hands it to his guild over guild chat, so
+  nobody types `/oly key` by hand. It never travels on the Olympus channel. Whoever holds the
+  old key outside the guilds he picks stays behind on the old channel; anyone in a guild that
+  gets it has it too. For 10 minutes his addon keeps handing it to Lords and Captains who log in
+  (once his /who saw them in their guild), on the old channel, a few
   whispers at a time so his other messages keep their place (a little longer while some picked
   still wait for their whisper), then he and his guild move to it ("Move now" sooner); the
-  Throne says how many have it. A guild with no officer online by then stays on the old channel
-  until one of its officers types the key by hand. The King alone: not his Steward or a Hand.
+  Throne says how many of those he whispered have it (an answer from anyone else is not
+  counted). A guild with no officer online by then stays on the old channel
+  until one of its officers types the key by hand. The King or his Steward: never a Hand.
   Each 1.1 addon keeps the newest key by the time it was made and remembers the keys a newer
   one replaced: an officer's plain `/oly key` from a version before 1.1 still moves his guild,
   as ever, but never back to a key a newer one replaced (the leaked one). A 1.1 officer's own
@@ -1185,8 +1193,8 @@ the Olympus channel has a name and password derived from the secret, and outside
 find or join it. Share the same secret with the officers of the other Olympus guilds
 (for example in the officers' Discord), so all guilds meet on the same sealed channel.
 Since 1.1 the King (or his Steward, for him) can also rotate the army's key from the Throne: his new key reaches the
-Lords and Captains online of the guilds he picks by whisper, and their guilds over guild chat,
-never on the Olympus channel.
+Lords and Captains online of the guilds he picks whom his own /who saw in them by whisper, and
+their guilds over guild chat, never on the Olympus channel.
 
 ## How it works
 
@@ -1248,7 +1256,7 @@ message (the game adds it). What goes where:
 | A signup sheet (1.1): the counts per role of each entry, no names, and when the next one comes | everyone on the Olympus channel | from the client of whoever set the entries, soon after a change, then every 5 minutes while one of them has signups or is within 2 days, every 15 otherwise |
 | A camp on the Board (1.1): your guild, level and class, the camp's zone (never your spot) and your note (with the logged API) | everyone on the Olympus channel, and whispered to a player whose Board asked | only with `/oly location on`, when you drop it, then every 10 minutes for its 30 minutes, until you take it down |
 | A net-off word (1.1): the character's name, hidden or shown again (or the guild's name, off or on again), the time, who gave it and the reason | everyone on the Olympus channel | when the King, his Steward, a Hand or a High Councillor gives one, then from the giver's own addon every few minutes for late logins |
-| The army's key (1.1, when the King or his Steward rotates it): the new key, the time it was made and the hashes of the keys it replaces | each Lord and Captain the census confirms online in the guilds the King picks (a whisper from the King each), then each one's guild over guild chat; never the Olympus channel. Each 1.1 addon that has it tells the King so (a whisper), and after login asks its guild whether a newer key exists | only when the King rotates it on the Throne; a guildmate's ask once a login |
+| The army's key (1.1, when the King or his Steward rotates it): the new key, the time it was made and the hashes of the keys it replaces | each Lord and Captain the census confirms online in the guilds the King picks whom his own /who saw in that guild (a whisper from the King each), then each one's guild over guild chat; never the Olympus channel. Each 1.1 addon that has it tells the King so (a whisper), and after login asks its guild whether a newer key exists | only when the King rotates it on the Throne; a guildmate's ask once a login |
 | Your alt links (1.1, only if you link your characters): each linked character's name and guild, and the names it confirmed (its main, or its alts) | everyone on the Olympus channel | from each character you linked yourself, confirmed on each: at login, when a link changes and every 30 minutes while you play |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | The shared block terms (1.1): each word, whether it was added or removed, and when; for 15 minutes after an edit, the editor's own client adds his name to it (never to anyone else's) | everyone on the Olympus channel | only from the client of the King, his Steward, a Hand or a High Councillor: at once when they edit it, and every 10 minutes while they play (not when another client just sent the same list). Your own filter is never sent |
@@ -1335,8 +1343,8 @@ script. With a key (`/oly key`) it gets a hidden name and the key as its passwor
 the key's holders can join. A shared key is only as private as its least careful holder:
 every member of every guild that has it can read the channel, anyone can pass it on, and
 nobody can take it back. If it leaks, the King or his Steward rotates it for the whole army (1.1, on the
-Throne: a new key by whisper to the Lords and Captains of the guilds he picks and over guild
-chat, never on the Olympus channel), or officers set a new one (`/oly key <new secret>`) and
+Throne: a new key by whisper to the Lords and Captains his /who saw in the guilds he picks and
+over guild chat, never on the Olympus channel), or officers set a new one (`/oly key <new secret>`) and
 hand it out again.
 
 **Chat is never private.** Every client on the channel receives [Olympus], [Captains] and
@@ -1546,9 +1554,12 @@ code.
   who pay without either can be found that way.
 - **The King's new key (1.1).** Two characters who make a Lord of a made-up guild (above) are
   listed among the guilds the King can hand a new army key to when he rotates it. That guild is
-  not checked unless his own /who saw a guild of that name, and he can uncheck any guild; but
-  anyone in a real Olympus guild he picks gets the key from its officers, whoever leaked the old
-  one. (Every member of an Olympus guild that has the key can read the sealed channel anyway.)
+  not checked unless his own /who saw a guild of that name, and he can uncheck any guild. Either
+  way his addon whispers the key only to the Lords and Captains his own /who saw in that very
+  guild (the server's word), so two characters who call themselves a real guild's Lord and
+  Captain in the census get nothing either. Anyone in a real Olympus guild he picks gets the key
+  from its officers, whoever leaked the old one. (Every member of an Olympus guild that has the
+  key can read the sealed channel anyway.)
 
 What 1.0.0 hardened: the King's decrees and [Lords] lines count by his name, with no census at
 all, and the Hands' for `<Olympus>` by the word of the King or of the Steward whose own list
@@ -1666,7 +1677,7 @@ Other limits:
 | `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council, gold for Lords and silver for Captains, and Max's bronze wings for Raiders and bronze for Veterans of Olympus guilds (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI. Off, the nameplate marks go too |
 | `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, Lords and Captains, bronze for Raiders and Veterans, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
 | `/oly key <secret>` | officers: seal the Olympus channel |
-| `/oly key rotate` | the King or his Steward: a new key for the whole army, by whisper to the Lords and Captains of the guilds he picks and over guild chat, never on the Olympus channel (also on the Throne) (1.1) |
+| `/oly key rotate` | the King or his Steward: a new key for the whole army, by whisper to the Lords and Captains his /who saw in the guilds he picks and over guild chat, never on the Olympus channel (also on the Throne) (1.1) |
 | `/oly block <name>` | ignore a player |
 | `/oly filter add\|remove <word>` · `/oly filter` | block terms: hide, on your screen, lines of addon text (Olympus chats, writs, decrees, Vox) with a word; the list (1.1) |
 | `/oly filter shared on\|off` · `/oly filter shared add\|remove <word>` | use the shared block terms or not; the King, his Steward, his Hands and the High Council edit them (1.1) |
