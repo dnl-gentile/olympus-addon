@@ -755,6 +755,9 @@ end)
 --   N1~<id>~<guild>~0~0~        taken down (<id>: the pin's; <guild>: the sender's own)
 -- On the Olympus channel from the King, his Stewards and Hands (<guild>: the King's); over GUILD
 -- from a guild master (<guild>: his own). Clients before 1.1 know no N1 and drop it unread.
+-- A higher rank's takedown of a guild master's pin, and its repeat, go where that pin went: over
+-- GUILD (<guild>: still the King's), which reaches his guildmates on every realm and on either
+-- channel (Konig's review); their clients take it by the channel's rule (PinRank).
 ---------------------------------------------------------------------------
 
 Channels.PIN_MAX = 100         -- bytes of a pinned line
@@ -984,7 +987,7 @@ end
 
 -- /oly pin off, or the pinned line's click: taken down for everyone it reached (ours: where it
 -- went). Someone else's: named by its id, once a minute at most (as the others' clients take
--- it, HandlePin), where our own pin would go.
+-- it, HandlePin), where our own pin would go, or where it went (a guild master's: GUILD).
 function Channels.TakeDownPin(now)
 	now = now or ns.Now()
 	local p = Current(now)
@@ -1011,7 +1014,11 @@ function Channels.TakeDownPin(now)
 	if own then
 		SendPin({ id = p.id, guild = p.guild, dist = p.dist }, now, true)
 	else
-		SendPin({ id = p.id, guild = guild, dist = dist }, now, true, "pindown")
+		-- A guild master's pin (it came over GUILD): taken down over GUILD too (Konig's review),
+		-- which reaches every client that holds it (his guildmates, on every realm and either
+		-- channel); we are in that guild, since we heard it. The channel would miss those on
+		-- another realm or the other channel, and reach thousands that hold nothing.
+		SendPin({ id = p.id, guild = guild, dist = p.dist == "GUILD" and "GUILD" or dist }, now, true, "pindown")
 	end
 	Hold(nil)
 	ns.Print(L.PIN_TAKEN_DOWN)
@@ -1034,12 +1041,13 @@ function Channels.RepeatPin(now)
 end
 
 -- A pin this client took down, heard again: its setter's client missed the takedown. Said again,
--- named by its id, as rarely as our own takedowns, while we still outrank it.
-local function ResendDown(sender, id, rank, now)
-	local mine, guild, dist = MyPin()
+-- named by its id, as rarely as our own takedowns, while we still outrank it, over the dist the
+-- repeat came in on (a guild master's: GUILD, Konig's review).
+local function ResendDown(sender, id, rank, now, heard)
+	local mine, guild = MyPin()
 	if not mine or mine <= rank or now - lastPinDown < Channels.PIN_GAP then return false end
 	lastPinDown = now
-	SendPin({ id = id, guild = guild, dist = dist }, now, true, "pindown")
+	SendPin({ id = id, guild = guild, dist = heard }, now, true, "pindown")
 	ns.Log("pin %d of %s taken down again: its setter's client still repeats it", id, sender)
 	return true
 end
@@ -1059,7 +1067,16 @@ function Channels.HandlePin(dist, sender, text, now)
 	if C_ChatInfo and C_ChatInfo.SendAddonMessageLogged and ns.Comm.DeliveredLogged and not ns.Comm.DeliveredLogged() then
 		return false, "unlogged"
 	end
+	body = Channels.CleanPin(body)
+	local takedown = body == "" or left == 0
 	local rank = Channels.PinRank(sender, guild, dist)
+	-- A takedown over GUILD from the King, a Steward or a Hand (Konig's review): of our guild
+	-- master's pin, sent where it went. Their rank by the channel's rule: it only removes a pin,
+	-- and the server vouches for the guildmate who sent it.
+	if takedown and dist == "GUILD" then
+		local crown = Channels.PinRank(sender, guild, "CHANNEL")
+		if crown and (not rank or crown > rank) then rank = crown end
+	end
 	if not rank then
 		ns.Log("pin from %s <%s> (%s) ignored: not the King, his Stewards or Hands, nor our own guild master", sender, guild, dist)
 		return false, "rank"
@@ -1068,8 +1085,7 @@ function Channels.HandlePin(dist, sender, text, now)
 	-- A name or guild the moderators took off (net-off, Konig's review): no pin of theirs.
 	local M = ns.Moderation
 	local hidden = M and M.Hides and M.Hides(sender, guild)
-	body = Channels.CleanPin(body)
-	if body == "" or left == 0 then
+	if takedown then
 		-- Its setter's takes his line down (whichever of his we show); a higher rank's, the pin it
 		-- names, once a minute at most from each. A guild master takes down no one else's. Taken
 		-- whether or not our chats are on: a takedown only ever removes.
@@ -1113,7 +1129,7 @@ function Channels.HandlePin(dist, sender, text, now)
 	-- setter's client lets it go.
 	local down = WasDown(sender, id, now)
 	if down then
-		if down.us then ResendDown(sender, id, rank, now) end
+		if down.us then ResendDown(sender, id, rank, now, dist) end
 		return false, "downed"
 	end
 	-- The pin we hold, said again: only its end, never later than it was.

@@ -25497,13 +25497,13 @@ test("1.1 pinned line: only its setter or a higher rank takes a pin down; a high
 		eq(select(2, C.TakeDownPin()), "rank")
 		assert(Printed(w, L.PIN_NOT_YOURS), "told")
 		eq(#sent, 0)
-		-- The Hand's own client (a member of that guild): his takedown names the pin, on the
-		-- channel; another within the minute waits.
+		-- The Hand's own client (a member of that guild): his takedown names the pin, over GUILD
+		-- where the pin went (Konig's review); another within the minute waits.
 		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
 		ns.me = "Helper-Realm"
 		eq(C.CanTakeDown(), true)
 		eq(C.TakeDownPin(), true)
-		eq(sent[1].msg, "N1~8~Olympus~0~0~"); eq(sent[1].dist, "CHANNEL")
+		eq(sent[1].msg, "N1~8~Olympus~0~0~"); eq(sent[1].dist, "GUILD")
 		w.clock = w.clock + 50
 		eq(GuildPin("Zed-Realm", "Lord Zed's fifth", 9), true)
 		eq(select(2, C.TakeDownPin()), "fast")
@@ -37855,15 +37855,15 @@ test("1.1 pinned line (Konig's review): the client that took a pin down says so 
 		ns.Roster.byName = { ["Zed-Realm"] = 0, ["Helper-Realm"] = 3 }
 		eq(C.HandlePin("GUILD", "Zed-Realm", "N1~42~Olympus Zeus~7200~0~Raid at nine"), true)
 		eq(C.TakeDownPin(), true)
-		eq(#sent, 1); eq(sent[1].msg, "N1~42~Olympus~0~0~"); eq(sent[1].dist, "CHANNEL")
+		eq(#sent, 1); eq(sent[1].msg, "N1~42~Olympus~0~0~"); eq(sent[1].dist, "GUILD", "where his pin went")
 		-- Zed's repeat, within the minute: not shown, and not answered yet (a takedown a minute at most).
 		w.clock = w.clock + 30
 		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~42~Olympus Zeus~7170~30~Raid at nine")), "downed")
 		eq(#sent, 1)
-		-- Later: answered once, named by its id, on the channel; not again within the minute.
+		-- Later: answered once, named by its id, over GUILD (where the repeat came from); not again within the minute.
 		w.clock = w.clock + C.PIN_RESEND
 		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~42~Olympus Zeus~6870~330~Raid at nine")), "downed")
-		eq(#sent, 2); eq(sent[2].msg, "N1~42~Olympus~0~0~"); eq(sent[2].dist, "CHANNEL"); eq(sent[2].logged, true)
+		eq(#sent, 2); eq(sent[2].msg, "N1~42~Olympus~0~0~"); eq(sent[2].dist, "GUILD"); eq(sent[2].logged, true)
 		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~42~Olympus Zeus~6869~331~Raid at nine")), "downed")
 		eq(#sent, 2)
 		eq(C.Pin(), nil)
@@ -37876,7 +37876,7 @@ test("1.1 pinned line (Konig's review): the client that took a pin down says so 
 		local id = sent[#sent].msg:match("^N1~(%d+)~")
 		down = down:gsub("^N1~%d+~", "N1~" .. id .. "~")
 		w.clock = w.clock + 60
-		eq(select(2, C.HandlePin("CHANNEL", "Helper-Realm", down)), "down")
+		eq(select(2, C.HandlePin("GUILD", "Helper-Realm", down)), "down")
 		eq(C.Pin(), nil)
 		eq(ns.rdb.pinMine, nil, "no longer kept for a /reload")
 		local before = #sent
@@ -38160,6 +38160,87 @@ test("1.1 pinned line (Konig's review): the player's block terms hide a pin's wo
 		assert(FindLine(ns.Views.Build("realm"), "Raid at nine at the gates"), "his own words")
 	end)
 end)
+
+-- 1.1 (Konig's review of #45, the pinned line, second pass): a higher rank's takedown of a guild
+-- master's pin goes where that pin went (over GUILD), so his guildmates on another realm or the
+-- other channel take it too.
+do
+test("1.1 pinned line (Konig's review, 2): a Hand's takedown of a guild master's pin goes over GUILD, and his guildmates on another realm take it", function()
+	PinBench(function(w, K, sent, C)
+		local L = ns.L
+		K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~H~5~Olympus~Helper-Realm")
+		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+		ns.Roster.byName = { ["Zed-Realmtwo"] = 0, ["Helper-Realm"] = 3, ["Mate-Realmtwo"] = 3 }
+		-- The Hand's client (a member of <Olympus Zeus>) takes Zed's pin down: over GUILD, where it came from.
+		ns.me = "Helper-Realm"
+		eq(C.HandlePin("GUILD", "Zed-Realmtwo", "N1~42~Olympus Zeus~7200~0~Raid at nine"), true)
+		eq(C.TakeDownPin(), true)
+		eq(#sent, 1); eq(sent[1].dist, "GUILD", "where his pin went"); eq(sent[1].msg, "N1~42~Olympus~0~0~"); eq(sent[1].logged, true)
+		local down = sent[1].msg
+		-- Zed's client missed it and repeats his pin: the Hand's answers where the repeat came from.
+		w.clock = w.clock + C.PIN_RESEND
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realmtwo", "N1~42~Olympus Zeus~6900~300~Raid at nine")), "downed")
+		eq(#sent, 2); eq(sent[2].dist, "GUILD"); eq(sent[2].msg, down)
+		-- A guildmate on the other realm (another OlympusNet: he hears it over GUILD alone) takes it, and is told who.
+		ns.me = "Mate-Realmtwo"
+		C.ResetPin()
+		eq(C.HandlePin("GUILD", "Zed-Realmtwo", "N1~42~Olympus Zeus~7200~0~Raid at nine"), true)
+		w.clock = w.clock + 60
+		w.printed = {}
+		eq(select(2, C.HandlePin("GUILD", "Helper-Realm", down)), "down")
+		eq(C.Pin(), nil)
+		eq(FindLine(ns.Views.Build("realm"), "Raid at nine"), nil, "gone from the Realm")
+		assert(Printed(w, L.PIN_DOWN_BY:format("Helper", "Olympus", ns.DisplayName("Zed-Realmtwo"))), table.concat(w.printed, "\n"))
+		-- It sticks there: Zed's repeat is not taken again.
+		w.clock = w.clock + C.PIN_RESEND
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realmtwo", "N1~42~Olympus Zeus~6840~360~Raid at nine")), "downed")
+		eq(C.Pin(), nil)
+		-- Zed's own client, on that other realm: it lets his line go, and repeats it no more.
+		GetGuildInfo = function() return "Olympus Zeus", "Guild Master", 0 end
+		ns.me = "Zed-Realmtwo"
+		C.ResetPin()
+		eq(C.SetPin("Raid at nine"), true)
+		eq(sent[#sent].dist, "GUILD")
+		local id = sent[#sent].msg:match("^N1~(%d+)~")
+		w.clock = w.clock + 60
+		eq(select(2, C.HandlePin("GUILD", "Helper-Realm", ("N1~%s~Olympus~0~0~"):format(id))), "down")
+		eq(C.Pin(), nil); eq(ns.rdb.pinMine, nil, "no longer his to repeat")
+		local n = #sent
+		w.clock = w.clock + C.PIN_RESEND
+		eq(C.RepeatPin(), false); eq(#sent, n, "never repeated again")
+	end)
+end)
+
+test("1.1 pinned line (Konig's review, 2): over GUILD the channel's rule counts for a takedown alone; the channel's pins are still taken down on the channel", function()
+	PinBench(function(w, K, sent, C)
+		local KING = "Asmongold Asmongler-Realm"
+		K.HandleCommand("CHANNEL", KING, "T1~H~5~Olympus~Helper-Realm")
+		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+		ns.me = "Mate-Realmtwo"
+		ns.Roster.byName = { ["Zed-Realmtwo"] = 0, ["Helper-Realm"] = 3, ["Mate-Realmtwo"] = 3, ["Cap3-Realmtwo"] = 1 }
+		eq(C.HandlePin("GUILD", "Zed-Realmtwo", "N1~42~Olympus Zeus~7200~0~Raid at nine"), true)
+		w.clock = w.clock + 60
+		-- An officer of the guild, no Hand, names it, with the King's guild or his own: refused.
+		eq(select(2, C.HandlePin("GUILD", "Cap3-Realmtwo", "N1~42~Olympus~0~0~")), "rank")
+		eq(select(2, C.HandlePin("GUILD", "Cap3-Realmtwo", "N1~42~Olympus Zeus~0~0~")), "rank")
+		eq(C.Pin().text, "Raid at nine")
+		-- A Hand's pin over GUILD is nobody's: the army's line goes on the channel.
+		eq(select(2, C.HandlePin("GUILD", "Helper-Realm", "N1~50~Olympus~7200~0~A Hand's line over guild chat")), "rank")
+		eq(C.Pin().text, "Raid at nine")
+		-- The King's client: a Hand's pin (on the channel) taken down on the channel, its repeat answered there.
+		AsKing()
+		K.AddHand("Helper")
+		C.ResetPin()
+		eq(C.HandlePin("CHANNEL", "Helper-Realm", "N1~60~Olympus~7200~0~A Hand's line"), true)
+		eq(C.TakeDownPin(), true)
+		eq(sent[#sent].dist, "CHANNEL"); eq(sent[#sent].msg, "N1~60~Olympus~0~0~")
+		local n = #sent
+		w.clock = w.clock + C.PIN_RESEND
+		eq(select(2, C.HandlePin("CHANNEL", "Helper-Realm", "N1~60~Olympus~6900~300~A Hand's line")), "downed")
+		eq(#sent, n + 1); eq(sent[#sent].dist, "CHANNEL"); eq(sent[#sent].msg, "N1~60~Olympus~0~0~")
+	end)
+end)
+end -- (the pinned line's review, second pass)
 
 end -- (the pinned line's review)
 
