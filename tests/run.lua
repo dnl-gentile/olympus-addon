@@ -37962,8 +37962,9 @@ do
 				end
 				assert(his <= B.REQUESTS_EACH, "his, kept: " .. his)
 				eq(other, true, "another player's request is not pushed out by his")
-				-- One request asked about again and again: answered once a minute while unchanged, at once
-				-- when it changes. (An hour later: his last six are out of the window.)
+				-- One request asked about again and again: answered once an ANSWER_GAP while unchanged (7.5
+				-- minutes since the review's second pass), at once when it changes. (An hour later: his last
+				-- six are out of the window.)
 				w.clock = w.clock + B.REQUEST_WINDOW
 				Census()
 				B.HandleRequest("WHISPER", "Zed-Realm", "TN~5000~118~1~Olympus Zeus")
@@ -37972,7 +37973,7 @@ do
 				eq(Count("TO~", "Zed-Realm"), 0, "answered a moment ago")
 				w.clock = w.clock + B.ANSWER_GAP
 				for _ = 1, 10 do B.HandleRequest("WHISPER", "Zed-Realm", "TN~5000~118~1~Olympus Zeus") end
-				eq(Count("TO~", "Zed-Realm"), 1, "once a minute")
+				eq(Count("TO~", "Zed-Realm"), 1, "once an ANSWER_GAP")
 				B.Answer("Zed-Realm#5000", "done")
 				eq(Count("TO~5000~d", "Zed-Realm"), 1, "a change: at once")
 				B.Answer("Zed-Realm#5000", "done")
@@ -38161,9 +38162,9 @@ end
 
 ---------------------------------------------------------------------------
 -- 1.1, Konig's review of #45, second pass (the treasury): each week's dues amount kept in the
--- Treasurer's book as his client knew it, gold sent with the dues' note dues in full, and a
--- sister guild's no at once to each viewer whose addon asked within ASK_EVERY (before a /reload
--- of its sender too).
+-- Treasurer's book as his client knew it, gold sent with the dues' note dues in full, a sister
+-- guild's no at once to each viewer whose addon asked within ASK_EVERY (before a /reload of its
+-- sender too), and a keeper's answers to one requester's requests paced.
 ---------------------------------------------------------------------------
 do
 	local KING, STEWARD = "Asmongold Asmongler-Realm", "Test Steward-Realm"
@@ -38446,6 +38447,91 @@ do
 			ns.After, ns.db.sisterBankShares, ns.db.sisterBankSent, ns.db.sisterHeard = saved.after, saved.shares, saved.sent, saved.heard
 			ns.rdb.guilds["Olympus Zeus"] = saved.zeus
 			B.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 Konig's review, second pass: a keeper answers one requester paced: a closed request he was told of never again, an open one unchanged once an ANSWER_GAP, a change at once", function()
+		WithStewards(function(w)
+			local B = ns.Bank
+			local saved = { after = ns.After, zeus = ns.rdb.guilds["Olympus Zeus"] }
+			local ok, err = pcall(function()
+				ns.After = (Queued())
+				local function Census()
+					ns.rdb.guilds["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", realm = "Realm" }, "W3-Realm", "W4-Realm")
+				end
+				local function Ask(id, count) B.HandleRequest("WHISPER", "Zed-Realm", ("TN~%d~2589~%d~Olympus Zeus"):format(id, count)) end
+				local function Answers()
+					local n = 0
+					for _, x in ipairs(w.whispered) do if x.to == "Zed-Realm" and x.msg:find("^TO~") then n = n + 1 end end
+					return n
+				end
+				Census()
+				AsTreasurer()
+				ns.db.keeperShares = { [TREASURER_KEY] = true }
+				-- A modified client: six new ids in an hour and four in the next, each taken back at once
+				-- (a change each time, answered), ten held on the keeper's client.
+				w.whispered = {}
+				for id = 1, 6 do Ask(id, 10); Ask(id, 0) end
+				w.clock = w.clock + B.REQUEST_WINDOW; Census()
+				for id = 7, 10 do Ask(id, 10); Ask(id, 0) end
+				eq(Answers(), 20, "each new one and its taking back")
+				-- Then it asks about each of them every minute for an hour: closed, and he was told.
+				w.whispered = {}
+				for _ = 1, 60 do
+					w.clock = w.clock + 60; Census()
+					for id = 1, 10 do Ask(id, 10) end
+				end
+				eq(Answers(), 0, "closed and told: never again (600 whispers an hour before)")
+				-- Three open ones (his most), asked about every minute for an hour: each answered once an
+				-- ANSWER_GAP at most, twice what an honest client draws at the most (it asks about each every
+				-- REQUEST_AGAIN).
+				w.clock = w.clock + B.REQUEST_WINDOW; Census()
+				for id = 21, 23 do Ask(id, 10) end
+				w.whispered = {}
+				for _ = 1, 60 do
+					w.clock = w.clock + 60; Census()
+					for id = 21, 23 do Ask(id, 10) end
+				end
+				local n = Answers()
+				assert(n > 0 and n <= 2 * 3 * 3600 / B.REQUEST_AGAIN, "open ones, unchanged, an hour: " .. n)
+				-- An honest client asks every REQUEST_AGAIN: each ask answered.
+				w.whispered = {}
+				for _ = 1, 4 do
+					w.clock = w.clock + B.REQUEST_AGAIN; Census()
+					Ask(21, 10)
+				end
+				eq(Answers(), 4, "each honest ask answered")
+				-- A change goes at once; the keeper's click does not count as telling him (he may have
+				-- logged off since he was heard), so his next ask gets it once more; then that request,
+				-- closed and told, is never answered again.
+				w.whispered = {}
+				B.Answer("Zed-Realm#21", "done")
+				eq(Answers(), 1, "done: at once")
+				for _ = 1, 30 do
+					w.clock = w.clock + 60; Census()
+					Ask(21, 10)
+				end
+				eq(Answers(), 2, "once more at his next ask, then never again")
+				-- One who logged off just after his ask: the click's whisper never reaches him, and his
+				-- next ask, a day later, is answered (once).
+				Ask(23, 10)
+				w.clock = w.clock + 5 * 60
+				w.whispered = {}
+				B.Answer("Zed-Realm#23", "declined")
+				eq(Answers(), 1, "heard lately: whispered at the click")
+				w.clock = w.clock + 86400; Census()
+				w.whispered = {}
+				Ask(23, 10); Ask(23, 10)
+				eq(Answers(), 1, "his next ask: declined, once")
+				assert(w.whispered[#w.whispered].msg == "TO~23~x", w.whispered[#w.whispered].msg)
+				eq(B.ANSWER_GAP, 7.5 * 60, "(the pages' 7.5 minutes: half a requester's REQUEST_AGAIN)")
+				Pages(function(path, doc)
+					assert(doc:find("answers an open request once every 7.5 minutes at most while nothing changed, a closed one never again once its asker was told", 1, true), path)
+				end)
+			end)
+			ns.After, ns.rdb.guilds["Olympus Zeus"] = saved.after, saved.zeus
+			ns.Bank.Reset()
 			if not ok then error(err, 0) end
 		end)
 	end)

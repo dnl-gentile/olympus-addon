@@ -651,9 +651,10 @@ alone until then).
   stack). Taken only from a Lord or Captain as the census confirms (it can be gamed: a request is
   its sender's word, shown with his name). Paced (Konig's review): at most 6 new requests an hour
   per character, one taken back included (his addon says when the next may go; a keeper's addon
-  takes no more from one player, keeps 10 of his at most, and answers the same request once a
-  minute at most while nothing changed), and a keeper's list on the channel once a minute at most
-  (a change inside it goes when the minute is over).
+  takes no more from one player, keeps 10 of his at most, and answers an open request once every
+  7.5 minutes at most while nothing changed, a closed one never again once its asker was told),
+  and a keeper's list on the channel once a minute at most (a change inside it goes when the
+  minute is over).
 - **Sister guilds' banks** (1.1): the guild master or an officer of another Olympus guild is
   asked once, when he opens his guild's bank, whether the King sees it (`/oly bank share
   on|off`). With his yes, his addon whispers its snapshot (items and counts, its gold, when it

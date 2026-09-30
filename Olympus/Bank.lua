@@ -702,8 +702,9 @@ end
 -- Paced (Konig's review of 1.1: a request taken back and made again, or a modified client's new
 -- ids, had every keeper print a line, answer and put his list on the channel each time): REQUEST_NEW
 -- new requests a REQUEST_WINDOW per character (his own client says so; a keeper's takes no more from
--- one player, and keeps REQUESTS_EACH of his at most), one answer to the same request unchanged a
--- ANSWER_GAP, and a keeper's list on the channel once a PUBLIC_GAP (a change inside it goes then).
+-- one player, and keeps REQUESTS_EACH of his at most), one answer to the same open request unchanged
+-- an ANSWER_GAP and none to a closed one he was told of (so REQUEST_OPEN of his a keeper answers
+-- again at most), and a keeper's list on the channel once a PUBLIC_GAP (a change inside it goes then).
 ---------------------------------------------------------------------------
 Bank.REQUEST_OPEN = 3
 Bank.REQUEST_DAYS = 3
@@ -713,7 +714,8 @@ Bank.REQUESTS_KEPT = 60
 Bank.REQUEST_NEW = 6        -- new requests of one character a REQUEST_WINDOW, at most
 Bank.REQUEST_WINDOW = 3600
 Bank.REQUESTS_EACH = 10     -- requests of one player a keeper's client keeps (his oldest closed one goes)
-Bank.ANSWER_GAP = 60        -- the same answer to the same request again this long after at the soonest
+Bank.ANSWER_GAP = Bank.REQUEST_AGAIN / 2 -- an open request unchanged answered again this long after at the soonest
+                            -- (a closed one, its state told, never again: Konig's review of 1.1)
 Bank.PUBLIC_GAP = 60        -- a keeper's list goes on the channel this often at most
 Bank.PUBLIC_KEPT = 1800   -- a keeper's list on the channel not repeated this long is dropped
 Bank.PUBLIC_MSGS = 2      -- messages of it at most, each one of the channel's size
@@ -923,9 +925,12 @@ function Bank.HandleRequest(dist, sender, text)
 	end
 	if not e then return end
 	e.heard = now
-	-- (The same answer to the same request once an ANSWER_GAP at most.)
+	-- (A change at once. Unchanged: an open request once an ANSWER_GAP at most, half its asker's
+	-- REQUEST_AGAIN, so each honest ask is answered; a closed one, its state told, never again.
+	-- Konig's review of 1.1: paced per request id alone, a requester's REQUESTS_EACH ids asked about
+	-- every minute drew as many whispers a minute from every keeper, the King and each Steward.)
 	local code = CODE[e.state] or "o"
-	if e.told ~= code or now - (tonumber(e.toldAt) or 0) >= Bank.ANSWER_GAP then
+	if e.told ~= code or (Open(e.state) and now - (tonumber(e.toldAt) or 0) >= Bank.ANSWER_GAP) then
 		e.told, e.toldAt = code, now
 		ns.Comm.Whisper(sender, ("TO~%d~%s"):format(id, code), "bankans " .. key)
 	end
@@ -939,8 +944,9 @@ function Bank.Answer(key, state)
 	local e = ns.Treasury.IsInsider() and ns.rdb and Held()[key]
 	if not e or not CODE[state] or e.state == state then return end
 	e.state, e.by, e.at = state, ns.me, ns.Now()
+	-- (Not marked told: he may have logged off since he was heard, and a closed request he was told
+	-- of is never answered again, HandleRequest. The answer to his own next ask marks it.)
 	if ns.Now() - (e.heard or -math.huge) <= ns.Treasury.AUDIENCE_FRESH then
-		e.told, e.toldAt = CODE[state], ns.Now()
 		ns.Comm.Whisper(e.from, ("TO~%d~%s"):format(e.id, CODE[state]), "bankans " .. key)
 	end
 	for _, to in ipairs(ns.Treasury.Online()) do
