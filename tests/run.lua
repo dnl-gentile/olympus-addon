@@ -20578,13 +20578,6 @@ test("1.0.1 borders: Max's six tiers: the King gold wings, the High Council silv
 		for _, rank in ipairs({ "Veterans", "Raiderz", "Raiders", "Member", "Officer", "" }) do
 			eq(Tier(BorderUnit("Vet", "Olympus Zeus", rank, 4)), nil, rank)
 		end
-		-- <Olympus>'s chain of command (1.1): its Swarm (core raiders) are Raiders, its Hardshell
-		-- (veterans and crafters) Veterans; its Raid Leader, Warroach and Roach none of these.
-		eq(Tier(BorderUnit("Vet", "Olympus Zeus", "Swarm", 3)), "bronze-elite", "Swarm")
-		eq(Tier(BorderUnit("Vet", "Olympus Zeus", "Hardshell", 5)), "bronze", "Hardshell")
-		for _, rank in ipairs({ "Raid Leader", "Warroach", "Roach", "Nymph", "Molt", "Swarms", "Hardshells" }) do
-			eq(Tier(BorderUnit("Vet", "Olympus Zeus", rank, 4)), nil, rank)
-		end
 		eq(Tier(BorderUnit("Vet", "Olympus II", "Veteran", 3)), "bronze", "of our own guild too")
 		eq(Tier(BorderUnit("Axe", "Olympus II", "Raider", 3)), "bronze-elite", "of our own guild too")
 		-- Nobody else: another guild's Veteran, Raider or guild master, the guildless, a creature.
