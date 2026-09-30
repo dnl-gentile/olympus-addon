@@ -38002,6 +38002,59 @@ do
 			if not ok then error(err, 0) end
 		end)
 	end)
+
+	test("1.1 Konig's review: the bank's gone since the last snapshot compares one source's own snapshots; another keeper's never marks anything gone", function()
+		WithStewards(function(w, K)
+			local B = ns.Bank
+			local KEEPER = "Test Keeper-Realm"
+			local t = w.clock
+			-- (A snapshot taken at `when`, heard then: never dated after its arrival.)
+			local function T9(when, tabs)
+				w.clock = math.max(w.clock, when)
+				return ("T9~Olympus~%d~5000~%s"):format(when, tabs)
+			end
+			-- The King's client holds none of its own; the King named a keeper besides the Treasurer.
+			AsKing()
+			B.Reset()
+			ns.rdb.treasuryKeepers = { at = 1, names = { KEEPER } }
+			-- The other keeper's snapshot (his word: more than the bank holds, or tabs the Treasurer can't
+			-- see), then the Treasurer's, newer: nothing gone, they are two sources.
+			B.HandleReport("CHANNEL", KEEPER, T9(t - 100, "Mats;2589x200,2770x20"))
+			B.HandleReport("CHANNEL", TREASURER, T9(t, "Mats;2589x190"))
+			eq(B.Current().by, TREASURER)
+			eq(GoneList(B.Current()), "", "another keeper's snapshot marks nothing gone")
+			-- The Treasurer's next one: compared with his own before it.
+			B.HandleReport("CHANNEL", TREASURER, T9(t + 100, "Mats;2589x150"))
+			eq(GoneList(B.Current()), "2589 -40 (Mats)")
+			-- The other keeper's again (inflated), and the Treasurer's after it: each only with his own.
+			B.HandleReport("CHANNEL", KEEPER, T9(t + 150, "Mats;2589x999,2770x999"))
+			eq(B.Current().by, KEEPER)
+			eq(GoneList(B.Current()), "", "the Treasurer's snapshots are not his to compare with")
+			B.HandleReport("CHANNEL", TREASURER, T9(t + 200, "Mats;2589x140"))
+			local gone = GoneList(B.Current())
+			assert(not gone:find("999", 1, true) and not gone:find("2770", 1, true), "nothing of the other keeper's: " .. gone)
+			-- Our own snapshot (the King opens the bank), newer than the reports: compared with ours alone,
+			-- none before it; a keeper's newer one after it is never compared with ours.
+			ns.rdb.bank = { t = t + 250, guild = "Olympus", by = KING, money = 5000, tabs = { { i = 1, name = "Mats", items = { { id = 2589, n = 100, s = 1 } } } } }
+			eq(B.Current(), ns.rdb.bank)
+			eq(GoneList(B.Current()), "", "no snapshot of ours before it")
+			B.HandleReport("CHANNEL", KEEPER, T9(t + 300, "Mats;2589x10"))
+			eq(B.Current().by, KEEPER)
+			-- (His own earlier one went when the Treasurer's replaced it: nothing listed, rather than a
+			-- list made from ours or the Treasurer's.)
+			eq(GoneList(B.Current()), "", "never ours, never the Treasurer's")
+			-- The Treasurer's after it: his own earlier one, still kept.
+			B.HandleReport("CHANNEL", TREASURER, T9(t + 400, "Mats;2589x130"))
+			eq(GoneList(B.Current()), "2589 -60 (Mats)", "with his own of " .. (t))
+			-- Both pages say so.
+			for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+				local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+				assert(doc:find("never another keeper's", 1, true), path)
+			end
+			ns.rdb.treasuryKeepers = nil
+			B.Reset()
+		end)
+	end)
 end
 
 print(("\n%d passed, %d failed"):format(passed, failed))

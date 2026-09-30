@@ -214,8 +214,11 @@ function Bank.HandleReport(dist, sender, text)
 	if #r.tabs == 0 then return end
 	local kept = ns.rdb.bankReport
 	if type(kept) == "table" and (tonumber(kept.t) or 0) > r.t and not (ns.Treasury.SameChar and ns.Treasury.SameChar(kept.by, r.by)) then return end
-	-- (1.1: the snapshot it replaces, of another visit, is what "gone since" compares with.)
-	if type(kept) == "table" and tonumber(kept.t) ~= r.t and kept.guild == r.guild then ns.rdb.bankReportPrev = kept end
+	-- (1.1: the snapshot it replaces, of another visit, is what "gone since" compares with: only the
+	-- same keeper's, Konig's review of 1.1. Another's stays where it was, for that keeper's next.)
+	if type(kept) == "table" and tonumber(kept.t) ~= r.t and kept.guild == r.guild and ns.Treasury.SameChar(kept.by, r.by) then
+		ns.rdb.bankReportPrev = kept
+	end
 	ns.rdb.bankReport = r
 	ns.Fire("TREASURY_CHANGED")
 	ns.Fire("DATA_CHANGED")
@@ -353,14 +356,19 @@ end)
 -- (who took what) is never read, and nothing in any bank is ever moved.
 ---------------------------------------------------------------------------
 
--- The snapshot before `cur` (the same guild's, older: of an earlier visit, ours or a keeper's),
--- which "gone since" compares with; nil when none.
+-- The snapshot before `cur` (the same guild's, older: of an earlier visit), which "gone since"
+-- compares with; nil when none. Konig's review of 1.1: of the same source alone, this client's own
+-- snapshots with each other, a keeper's with his own earlier one. Another keeper's snapshot (a
+-- modified client's, or one of fewer tabs) never marks anything gone: a snapshot is its sender's
+-- word, and "gone" reads as a theft.
 function Bank.Previous(cur)
 	if type(cur) ~= "table" or not ns.rdb then return nil end
+	local own = cur == ns.rdb.bank or cur == ns.rdb.bankPrev
 	local best
-	for _, key in ipairs({ "bankPrev", "bankReportPrev", "bank", "bankReport" }) do
+	for _, key in ipairs(own and { "bankPrev", "bank" } or { "bankReportPrev", "bankReport" }) do
 		local s = ns.rdb[key]
 		if type(s) == "table" and s ~= cur and s.guild == cur.guild and type(s.tabs) == "table" and (tonumber(s.t) or 0) < (tonumber(cur.t) or 0)
+			and (own or ns.Treasury.SameChar(s.by, cur.by))
 			and (not best or (tonumber(s.t) or 0) > (tonumber(best.t) or 0)) then
 			best = s
 		end

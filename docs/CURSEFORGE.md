@@ -614,8 +614,10 @@ alone until then).
 - **The bank's search and what left it** (1.1): the Treasury tab's search box finds the bank's
   items too (by the item's name as your game knows it, or its number: how many in all, and in
   which tabs; a click opens the first). Under the bank, **Gone since the last snapshot** lists
-  the items whose count dropped since the snapshot before (the last one of an earlier visit, or
-  the one a keeper's newer snapshot replaced), counted over the tabs both snapshots saw, and the
+  the items whose count dropped since the snapshot before of the same source (the last one of
+  your earlier visit, or the same keeper's before his newer one: never another keeper's, since a
+  snapshot is its sender's word, Konig's review; with another's in between, an older one of his, or
+  none until his next), counted over the tabs both snapshots saw, and the
   grid shows those stacks faded and red in the slots they sat in. Counts only: who took them is
   not known, the addon never reads the bank's log (a withdrawal nobody noted, a stack moved to a
   tab the other snapshot didn't see, or theft). The game sends a tab's slots only when asked,
