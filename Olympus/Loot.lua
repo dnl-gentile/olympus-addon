@@ -28,9 +28,10 @@ local L = ns.L
 -- (times in base 36, the server's clock). A reader takes a change only from an officer of its own
 -- roster, only newer than what it holds. A note is its writer's (never rewritten, only removed, by
 -- any officer), a points change its officer's ("by"): an X1 carries its sender's own, and an XB
--- another officer's only from before the reader's session began (Take). Kept per guild in the
--- saved variables; on the Forever beta, which forgets them at every login, the book comes back
--- from the officers online.
+-- another officer's only from before the reader's session began (Take). An officer's addon sends a
+-- note in its own name only as it wrote it (Entries): one another officer gave it back is theirs to
+-- pass on. Kept per guild in the saved variables; on the Forever beta, which forgets them at every
+-- login, the book comes back from the officers online.
 -- (1.1 review: the types were J1, JQ and JB, which the census's route ask took too; see Comm.lua.)
 --
 -- Which changes an addon holds whole is kept apart from the changes themselves (Whole): ranges of
@@ -455,13 +456,18 @@ function Loot.Settle()
 	return true
 end
 
--- A stream's changes in (lo, hi], newest first.
+-- A stream's changes in (lo, hi], newest first: what our answers and pushes carry. A note in our
+-- own name only as we hold it ourselves (by == writer, as Write makes it): a copy of ours another
+-- officer gave us (a wiped book on the Forever beta) would read, sent by us, as our own and replace
+-- a reader's honest copy (Konig's review of 1.1); the officers who hold it pass it on.
 local function Entries(b, kind, lo, hi)
 	local list = {}
 	if kind == "n" then
+		local me = ns.FullName(ns.me or "")
 		for _, n in pairs(b.notes) do
 			local r = type(n) == "table" and tonumber(n.rev) or nil
-			if r and r > lo and r <= hi then list[#list + 1] = { rev = r, entry = NoteEntry(n) } end
+			local relayed = r and not n.del and n.by ~= n.writer and ns.FullName(n.writer or "") == me
+			if r and r > lo and r <= hi and not relayed then list[#list + 1] = { rev = r, entry = NoteEntry(n) } end
 		end
 	else
 		for member, p in pairs(b.points) do

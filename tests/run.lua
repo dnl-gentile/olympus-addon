@@ -34621,6 +34621,7 @@ local function LootGuild(fn)
 	for _, k in ipairs({ "GetGuildInfo", "GetServerTime", "IsInGuild" }) do _G[k] = savedGlobals[k] end
 	if not ok then error(err, 0) end
 end
+Fern.LootGuild = LootGuild -- (for the review's tests further down)
 
 test("1.1 loot notes (#22): a change heard as it is made never hides the older notes: a member's book comes back whole (Forever: every login)", function()
 	LootGuild(function(g)
@@ -38003,6 +38004,58 @@ do
 			assert(doc:find("for the day's findings once a session: after its login, or at his yes if that came later.", 1, true), file .. ": the patrol share")
 			assert(doc:find("when another officer's addon asks (once a session: after its login, or at its officer's yes if later)", 1, true), file .. ": the privacy table")
 		end
+	end)
+
+	-- "Loot notes follow-up: 'nobody rewrites another officer's note' in answers/replays": a note's
+	-- writer's own copy replaces a relayed one, so his wiped addon (the Forever beta, every login),
+	-- holding a rogue officer's copy of his note, sent it to the guild as his own, over a reader's
+	-- honest copy, in a push and in its answers.
+	test("1.1 Konig's review: an officer's addon never sends, as its own, a copy of its note another officer gave it; a reader's honest copy stays", function()
+		local B36 = ns.Codec.Base36
+		Fern.LootGuild(function(g)
+			local o, h, r = g.Client("Offi", 1), g.Client("Honest", 1), g.Client("Rival", 1)
+			r.away = true -- (Rival's addon is his own: what it sends is written here by hand)
+			g.Officers(o, h)
+			local a1 = o.Lt.Write("Ann gets the belt", 16830, "Ann Smith")
+			local key = "Offi-Realm#" .. a1.id
+			local function Note(c) return c.Lt.Book().notes[key] end
+			eq(Note(h).text, "Ann gets the belt")
+			-- The next day a member logs in while Offi is away: Honest's answer gives him Offi's note.
+			o.away = true
+			g.Run(86400)
+			local m = g.Client("Bob", 3)
+			m.Lt.Show(true)
+			g.Run(60)
+			eq(Note(m).text, "Ann gets the belt"); eq(Note(m).by, "Honest-Realm")
+			-- Offi logs in, his book wiped; Rival's push, other words in his note, reaches his addon first.
+			o.away = false
+			o.ns.rdb = {}
+			o.Lt.Reset()
+			o.Lt.Book()
+			g.Run(5)
+			r.ns.Comm.SendChunked(("XB~S~0~0~0~0~0~0^N~Offi-Realm~%s~%s~%s~16830~~Bob Rival~Bob gets the belt"):format(a1.id, B36(a1.t), B36(a1.rev)),
+				nil, "GUILD")
+			g.Run(10)
+			eq(Note(o).text, "Bob gets the belt", "(his wiped addon cannot tell)"); eq(Note(o).by, "Rival-Realm")
+			eq(Note(m).text, "Ann gets the belt"); eq(Note(h).text, "Ann gets the belt")
+			-- His login ask: Honest answers; Offi's addon hears an answer without its copy and pushes none of it.
+			eq(o.Lt.Ask(), true)
+			g.Run(60)
+			eq(Note(m).text, "Ann gets the belt", "the honest copy stays"); eq(Note(m).by, "Honest-Realm")
+			-- Another member asks and Offi's addon answers first: without that note, which Honest's then sends.
+			o.rand, h.rand = 0, 1
+			local m2 = g.Client("Ann", 3)
+			m2.Lt.Show(true)
+			g.Run(120)
+			assert(#o.pages >= 1, "Offi's addon answered")
+			eq(Note(m2).text, "Ann gets the belt"); eq(Note(m2).by, "Honest-Realm")
+			for _, page in ipairs(o.pages) do eq(page:find("Bob gets the belt", 1, true), nil, "never from Offi's addon: " .. page) end
+			-- A note he writes himself goes out in his answers as his.
+			o.Lt.Write("Cid gets the ring", nil, "Cid")
+			local page = o.Lt.Page(o.Lt.Book(), { n = { 0, g.clock + 1 } })
+			assert(page:find("~Cid~Cid gets the ring", 1, true), page)
+			eq(page:find("Bob gets the belt", 1, true), nil, page)
+		end)
 	end)
 end
 
