@@ -3638,3 +3638,12 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.KEY_ROTATE_DROP = "Descartar esta chave nova (nada foi enviado)"
 	L.KEY_ROTATE_DROPPED = "A chave nova foi descartada: nada foi enviado."
 end
+
+---------------------------------------------------------------------------
+-- 1.1 (Konig's review of 1.1, moderation): a net-off word from higher up holds a name
+-- (Moderation.lua).
+---------------------------------------------------------------------------
+L.NETOFF_HELD_HIGHER = "%s was hidden or shown again by a word from higher up than yours: only someone as high can change it."
+if GetLocale and GetLocale() == "ptBR" then
+	L.NETOFF_HELD_HIGHER = "%s foi escondido ou mostrado de novo por uma palavra de mais alto que a sua: só alguém tão alto pode mudar isso."
+end

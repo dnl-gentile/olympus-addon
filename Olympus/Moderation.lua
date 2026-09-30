@@ -16,9 +16,11 @@ local L = ns.L
 -- The same people put either back on.
 --   O1~<c|g>~<1 off|0 on>~<server time>~<Name-Realm or Guild>~<by Name-Realm>~<reason>
 -- Its words travel with the logged API, as a chat line's do (the server keeps them, so abuse
--- can be reported), one word per message. Every client keeps the newest word on each name
--- (by the server's clock; on the same second the King's own, else the one taking the name off,
--- else by its giver's name: every client keeps the same one), and takes a word only from
+-- can be reported), one word per message. Every client keeps, on each name, the word from highest
+-- up (its weight: its giver's rank, the King 3, a Steward 2, a Hand or a councillor 1; no word
+-- replaces one from higher up, whatever its date: the 1.1 review), and among words of the same
+-- weight the newest (by the server's clock; on the same second the King's own, else the one
+-- taking the name off, else by its giver's name: every client keeps the same one), and takes a word only from
 -- someone who may give one now, as this client knows them (the server stamps every sender's
 -- name): the King by his pinned name, a Steward of the signed titles list, a Hand of the King's
 -- list or a Steward's, a councillor of the signed council list; never a name that is off
@@ -32,7 +34,9 @@ local L = ns.L
 -- so an older word never comes back.
 -- Among those who give words, only a word from higher up reaches one of them (the King above a
 -- Steward, a Steward above the Hands and councillors): a Hand or a councillor never hides the
--- Steward, another Hand or another councillor, nor puts back one the King hid.
+-- Steward, another Hand or another councillor. And no word replaces one from higher up (Take): a
+-- Hand or a councillor never puts back one the King or a Steward hid, nor hides again one the King
+-- showed again; nor does a Steward undo the King's word.
 -- What it is not: /oly block stays one client's and one player's, and nothing here uninvites,
 -- demotes, or writes Blizzard's ignore list. It never aims at the pinned King (his name in any
 -- case) or his guild. It knows nothing of the treasury or of payments, and no treasury code
@@ -443,18 +447,27 @@ local function Outranks(e, kept)
 	return tostring(e.reason) < tostring(kept.reason)
 end
 
--- "taken", "older" (ours is newer), "same" (the same word: a repeat), "tie" or "full".
+-- "taken", "older" (ours is newer), "same" (the same word: a repeat), "tie", "outranked" (ours
+-- comes from higher up) or "full".
+-- 1.1 review (Konig): no word replaces one from higher up (Weight: the King's, then a Steward's,
+-- then a Hand's or a councillor's), whatever its date, so a rogue Hand never wins an edit war with
+-- the King's undo; a word from higher up replaces a lower one whatever its date, so every client
+-- keeps the same word whatever came first. Between words of the same weight the newest wins.
 local function Take(e)
 	local list = Store()[e.kind]
 	local key = Key(e.kind, e.name)
 	local kept = list[key]
 	if type(kept) == "table" then
-		if e.at < kept.at then return "older", kept end
 		if Same(e, kept) then
 			kept.heard = ns.Now()
 			return "same", kept
 		end
-		if e.at == kept.at and not Outranks(e, kept) then return "tie", kept end
+		local ours, held = Weight(e), Weight(kept)
+		if ours < held then return "outranked", kept end
+		if ours == held then
+			if e.at < kept.at then return "older", kept end
+			if e.at == kept.at and not Outranks(e, kept) then return "tie", kept end
+		end
 	elseif not MakeRoom(list, e.kind, KingsOwn(e)) then
 		return "full"
 	end
@@ -537,8 +550,8 @@ function Moderation.Handle(dist, sender, text)
 	end
 	local result, held = Take(e)
 	stats[result] = (stats[result] or 0) + 1
-	-- Ours is newer: an issuer answers with it at its next round.
-	if result == "older" and held and Moderation.CanIssue() then held.heard = ns.Now() - Moderation.REPEAT - Moderation.JITTER end
+	-- Ours is newer, or from higher up: an issuer answers with it at its next round.
+	if (result == "older" or result == "outranked") and held and Moderation.CanIssue() then held.heard = ns.Now() - Moderation.REPEAT - Moderation.JITTER end
 end
 ns.Comm.Handle("O1", function(...) Moderation.Handle(...) end)
 
@@ -588,6 +601,8 @@ function Moderation.Set(kind, input, off, reason)
 	if type(kept) == "table" and kept.at >= at then at = kept.at + 1 end
 	local e = { kind = kind, name = name, off = off and true or false, at = at, by = ns.me, reason = reason }
 	local result = Take(e)
+	-- (1.1 review: a word from higher up holds that name; ours would not replace it anywhere.)
+	if result == "outranked" then ns.Print(L.NETOFF_HELD_HIGHER:format(label)) return false end
 	if result ~= "taken" then ns.Print(L.NETOFF_FULL) return false end
 	Send(e)
 	if kind == "g" then

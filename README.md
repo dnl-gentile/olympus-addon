@@ -404,8 +404,11 @@ The rest of their guild, and the census, are not touched: one name stops the spa
 - Only a word from higher up reaches one who gives words: the King's reaches everyone but
   himself, a Steward's the Hands and High Councillors, and a Hand's or a councillor's no other
   issuer (nor the names they linked as alts). So a rogue Hand or councillor can't hide the
-  Steward, another Hand or a councillor, nor put back on one the King hid; the King (or the
-  Steward, for a Hand or a councillor) hides the rogue, and the rogue's words then fade.
+  Steward, another Hand or a councillor; the King (or the Steward, for a Hand or a councillor)
+  hides the rogue, and the rogue's words then fade. And no word replaces one from higher up,
+  whatever its date: a Hand or a councillor never shows again one the King or the Steward hid,
+  nor hides again one they showed again, and the Steward never undoes the King's word (1.1,
+  Konig's review: the King's undo no longer loses an edit war to a newer word).
 - It never aims at the King (his name in any case), nor at the characters he linked as his
   alts. It uninvites nobody, demotes nobody and writes nothing to Blizzard's ignore list, and
   `/oly block` stays one client's and one player's. No treasury code can call it.
@@ -416,8 +419,9 @@ The rest of their guild, and the census, are not touched: one name stops the spa
   own words: the server keeps them, so abuse can be reported), one word per name. The issuers'
   addons repeat the list for late logins, every 5 minutes, and share it: a word heard repeated
   is not sent again, and the army repeats at most 20 words a minute however long the list (a
-  long list is repeated less often). The newest word wins, by the server's clock; on the same
-  second the King's own, else the one hiding the name, so every addon keeps the same word.
+  long list is repeated less often). Among words of the same rank the newest wins, by the
+  server's clock; on the same second the King's own, else the one hiding the name, so every
+  addon keeps the same word, whatever reached it first.
   A word hiding someone lapses 30 days after it was given (give it again to keep it); a word
   showing a name again is kept for 30 days, so an older word never comes back. A word counts
   only from someone who may give one on that client now (the server stamps every sender's
@@ -1488,7 +1492,8 @@ Other limits:
 - **Net-off is its issuers' word (1.1).** One Hand or High Councillor can hide anyone who gives
   no words (and neither the King nor his alts) for the whole army, or take any guild but the
   King's off the network. The Decrees tab shows everyone who did it, why and when, and who
-  passed it on; any other issuer (the King always) can put it back on. Only the King, or the
+  passed it on; an issuer as high or higher (the King always) can put it back on, and no word
+  replaces one from higher up. Only the King, or the
   Steward for a Hand or a councillor, can hide an issuer, and a name that is hidden gives no
   word: its words fade. Without signatures, one issuer can still write a word in another
   issuer's name: the addon then shows who passed it on, and his reason stays off the King's

@@ -30304,9 +30304,13 @@ end)
 			M.Handle("CHANNEL", HC, O1("c", true, t + 20, "Spammer Guy-Realm", HC, "spam again"))
 			M.Handle("CHANNEL", KING, O1("c", false, t + 20, "Spammer Guy-Realm", KING, ""))
 			eq(M.Hidden("Spammer Guy-Realm"), nil, "the King's word of that second")
+			-- (Konig's review of 1.1: no word replaces one from higher up, so a councillor's newer word
+			-- leaves the King's standing; the same second between two councillor's words on another name.)
 			M.Handle("CHANNEL", HC, O1("c", true, t + 30, "Spammer Guy-Realm", HC, "and again"))
-			M.Handle("CHANNEL", "Test Councillor-Realm", O1("c", false, t + 30, "Spammer Guy-Realm", HC, ""))
-			assert(M.Hidden("Spammer Guy-Realm"), "same second, not the King's: the one kept")
+			eq(M.Hidden("Spammer Guy-Realm"), nil, "the King's word holds")
+			M.Handle("CHANNEL", HC, O1("c", true, t + 30, "Second Spammer-Realm", HC, "and again"))
+			M.Handle("CHANNEL", "Test Councillor-Realm", O1("c", false, t + 30, "Second Spammer-Realm", HC, ""))
+			assert(M.Hidden("Second Spammer-Realm"), "same second, not the King's: the one kept")
 			-- The list keeps its words across a /reload (ns.rdb.netoff), checked again when loaded.
 			ns.rdb.netoff.c["forged-realm"] = { name = "Forged-Realm", off = true, at = t, by = "Nobody", reason = "" }
 			ns.rdb.netoff.c["asmongold asmongler-realm"] = { name = KING, off = true, at = t, by = HC, reason = "edited" }
@@ -30314,7 +30318,7 @@ end)
 			M.Load()
 			eq(ns.rdb.netoff.c["asmongold asmongler-realm"], nil, "never the King, even from the saved variables")
 			eq(ns.rdb.netoff.c["forged-realm"], nil, "a word without a reason is not kept")
-			assert(M.Hidden("Spammer Guy-Realm"), "the rest stays")
+			assert(M.Hidden("Second Spammer-Realm"), "the rest stays")
 		end)
 	end)
 
@@ -31553,14 +31557,22 @@ end)
 				-- The Steward's word on the rogue: taken; the rogue gives no word then.
 				M.Handle("CHANNEL", STEWARD, O1("c", true, t + 1, "Rogue Hand-Realm", STEWARD, "abuse of the net-off"))
 				assert(M.Hidden("Rogue Hand-Realm")); eq(M.IsIssuer("Rogue Hand-Realm"), false)
-				-- The King hides a councillor: a fellow councillor can't put him back on; the Steward can.
+				-- The King hides a councillor: a fellow councillor can't put him back on; nor, since
+				-- Konig's review of 1.1 (no word replaces one from higher up), can the Steward: the King can.
 				M.Handle("CHANNEL", KING, O1("c", true, t + 2, HC, KING, "rogue moderator"))
 				assert(M.Hidden(HC))
 				ns.rdb.council.names["second councillor"] = "Second Councillor"
 				M.Handle("CHANNEL", "Second Councillor-Realm", O1("c", false, t + 3, HC, "Second Councillor-Realm", ""))
 				assert(M.Hidden(HC), "not by a peer")
 				M.Handle("CHANNEL", STEWARD, O1("c", false, t + 4, HC, STEWARD, ""))
-				eq(M.Hidden(HC), nil, "by the Steward"); eq(M.IsIssuer(HC), true)
+				assert(M.Hidden(HC), "nor by the Steward: the King's word holds")
+				M.Handle("CHANNEL", KING, O1("c", false, t + 4, HC, KING, ""))
+				eq(M.Hidden(HC), nil, "by the King"); eq(M.IsIssuer(HC), true)
+				-- A councillor hidden by the Steward: the Steward (or the King) puts him back on.
+				M.Handle("CHANNEL", STEWARD, O1("c", true, t + 4, "Second Councillor-Realm", STEWARD, "rogue moderator"))
+				assert(M.Hidden("Second Councillor-Realm"))
+				M.Handle("CHANNEL", STEWARD, O1("c", false, t + 5, "Second Councillor-Realm", STEWARD, ""))
+				eq(M.Hidden("Second Councillor-Realm"), nil, "by the Steward")
 				-- An issuer's own client says so, and sends nothing.
 				AsSoldier("Other Hand")
 				local sent = #w.sent
@@ -37658,6 +37670,118 @@ test("1.1 the bank's gone since the last snapshot: a tab that never loaded, with
 		if not ok then error(err, 0) end
 	end)
 end)
+
+---------------------------------------------------------------------------
+-- 1.1 (Konig's review of 1.1, moderation: items 2 and 5): the net-off's ranks and repeats, the
+-- shared block terms, and the net-off on the 1.1 surfaces. Each test fails on the code before its
+-- fix. One function (the file's top level is near Lua's 200 locals).
+---------------------------------------------------------------------------
+;(function()
+	local M = ns.Moderation
+	local KING = "Asmongold Asmongler-Realm"
+	local HC = "Test Councillor-Realm" -- a made-up councillor of the test council
+	local ROGUE = "Rogue Hand-Realm"   -- a made-up Hand
+	-- A net-off word as an issuer's client sends it.
+	local function O1(kind, off, at, name, by, reason)
+		return ("O1~%s~%s~%d~%s~%s~%s"):format(kind, off and "1" or "0", at, name, by, reason or "")
+	end
+	-- fn with no net-off word yet and a council of one (Test Councillor); all put back after.
+	local function NoWords(fn)
+		local saved = { council = ns.rdb.council, netoff = ns.rdb.netoff, info = C_ChatInfo }
+		local ok, err = pcall(function()
+			M.Reset()
+			ns.rdb.netoff = nil
+			ns.rdb.council = { at = 1, names = { ["test councillor"] = "Test Councillor" } }
+			fn()
+		end)
+		ns.rdb.council, ns.rdb.netoff, C_ChatInfo = saved.council, saved.netoff, saved.info
+		M.Reset()
+		if not ok then error(err, 0) end
+	end
+	-- The Throne's scene (WithThrone) with no word yet, the plain API, Comm.Send's logged flag kept.
+	local function WithModeration(fn)
+		WithThrone(function(w, K)
+			NoWords(function()
+				C_ChatInfo = nil
+				ns.Comm.Send = function(dist, msg, key, urgent, logged)
+					w.sent[#w.sent + 1] = { dist = dist, msg = msg, key = key, urgent = urgent, logged = logged }
+				end
+				fn(w, K)
+			end)
+		end)
+	end
+	local function Sent(w)
+		local out = {}
+		for _, s in ipairs(w.sent) do out[#out + 1] = s.msg end
+		return table.concat(out, "\n")
+	end
+
+	test("1.1 Konig's review (item 2): no net-off word replaces one from higher up: the King's undo holds against a rogue Hand's newer word, on every client whatever came first", function()
+		WithModeration(function(w, K)
+			AsSoldier("Watcher")
+			K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Rogue Hand-Realm")
+			local t = w.clock
+			-- The rogue Hand hides a player; the King shows him again; the rogue hides him again.
+			M.Handle("CHANNEL", ROGUE, O1("c", true, t, "Victim Guy-Realm", ROGUE, "rogue"))
+			assert(M.Hidden("Victim Guy-Realm"), "a Hand's word")
+			M.Handle("CHANNEL", KING, O1("c", false, t + 1, "Victim Guy-Realm", KING, ""))
+			eq(M.Hidden("Victim Guy-Realm"), nil, "the King's undo")
+			M.Handle("CHANNEL", ROGUE, O1("c", true, t + 2, "Victim Guy-Realm", ROGUE, "edit war"))
+			eq(M.Hidden("Victim Guy-Realm"), nil, "the King's word holds against a newer one")
+			-- A client that heard them the other way round keeps the same word.
+			M.Reset(); ns.rdb.netoff = nil
+			M.Handle("CHANNEL", ROGUE, O1("c", true, t + 2, "Victim Guy-Realm", ROGUE, "edit war"))
+			assert(M.Hidden("Victim Guy-Realm"))
+			M.Handle("CHANNEL", KING, O1("c", false, t + 1, "Victim Guy-Realm", KING, ""))
+			eq(M.Hidden("Victim Guy-Realm"), nil, "the King's word replaces a lower one whatever its date")
+			-- The same the other way: the King hid him; no Hand shows him again.
+			M.Handle("CHANNEL", KING, O1("c", true, t + 3, "Victim Guy-Realm", KING, "the King's word"))
+			M.Handle("CHANNEL", ROGUE, O1("c", false, t + 4, "Victim Guy-Realm", ROGUE, ""))
+			assert(M.Hidden("Victim Guy-Realm"), "a Hand doesn't show again one the King hid")
+			-- Between words of the same rank the newest still wins.
+			M.Handle("CHANNEL", ROGUE, O1("c", true, t + 5, "Other Guy-Realm", ROGUE, "spam"))
+			M.Handle("CHANNEL", HC, O1("c", false, t + 6, "Other Guy-Realm", HC, ""))
+			eq(M.Hidden("Other Guy-Realm"), nil, "a councillor's newer word over a Hand's")
+			-- The rogue's own client: refused and said, nothing sent.
+			AsSoldier("Rogue Hand")
+			local sent = #w.sent
+			eq(M.Set("c", "Victim Guy", false, ""), false)
+			assert(Printed(w, ns.L.NETOFF_HELD_HIGHER:format("Victim Guy")), "said why")
+			eq(#w.sent, sent, "nothing sent")
+			-- The King's own client: his word replaces his own.
+			AsKing()
+			eq(M.Set("c", "Victim Guy", false, ""), true)
+			eq(M.Hidden("Victim Guy-Realm"), nil)
+		end)
+	end)
+
+	test("1.1 Konig's review: the README and the CurseForge page say what the net-off and the shared block terms do now", function()
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, must in ipairs({ "And no word replaces one from higher up, whatever its date", "Among words of the same rank the newest wins",
+				"an issuer as high or higher (the King always) can put it back on" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+			assert(not doc:find("The newest word wins, by the server's clock", 1, true), path .. ": the old claim")
+		end
+	end)
+
+	test("1.1 Konig's review: the new strings in English and pt-BR", function()
+		local pt = { L = setmetatable({}, { __index = function() return nil end }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		for _, key in ipairs({ "NETOFF_HELD_HIGHER" }) do
+			local en, br = rawget(ns.L, key), rawget(pt.L, key)
+			assert(type(en) == "string" and en ~= "", "English " .. key)
+			assert(type(br) == "string" and br ~= "" and br ~= en, "pt-BR " .. key)
+			local function Args(s) local out = {} for a in s:gmatch("%%%a") do out[#out + 1] = a end return table.concat(out) end
+			eq(Args(br), Args(en), key .. ": format arguments")
+		end
+	end)
+end)()
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
