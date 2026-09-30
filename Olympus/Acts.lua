@@ -171,7 +171,7 @@ local function OnWrit(sender, id, rest)
 		-- In an instance or on Busy (1.1): the chat line and its line on the Decrees tab now, the
 		-- parchment once the player is out, if still unread.
 		ns.King.Warn(L.WRIT_ARRIVED:format(w.by), false, "throne", {
-			what = L.HELD_WRIT:format(w.by), key = "writ",
+			what = L.HELD_WRIT:format(w.by), key = "writ:" .. tostring(w.id), -- (each writ its own: two unread both pop)
 			open = function() return not w.acked end,
 			show = function() Acts.ShowWrit(w) end,
 		})

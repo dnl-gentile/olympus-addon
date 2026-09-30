@@ -1338,6 +1338,9 @@ local AGAINST = { anti = true, against = true, no = true, ["not"] = true, never 
 	doom = true, wreck = true } -- "Ruin Olympus", "Ruins of Olympus", "Burn Olympus" (1.0.1)
 local LINKS = { with = true, to = true, the = true, of = true }
 local AGAINST_AFTER = { haters = true, hater = true, sucks = true, ruined = true, burns = true, falls = true }
+-- ...or after one or two linking words: "Olympus in Ruins", "Olympus in the Ruins" (1.1).
+local LINKS_AFTER = { ["in"] = true, of = true, on = true, to = true, the = true }
+local RUIN_AFTER = { ruin = true, ruins = true, ruined = true, ashes = true }
 
 local function Against(words, i)
 	if words[i]:find("^anti") then return true end -- glued: AntiOlympus
@@ -1345,7 +1348,13 @@ local function Against(words, i)
 	if before and AGAINST[before] then return true end
 	if before and LINKS[before] and before2 and AGAINST[before2] then return true end
 	local after = words[i + 1]
-	return after ~= nil and AGAINST_AFTER[after] == true
+	if after ~= nil and AGAINST_AFTER[after] then return true end
+	for j = i + 1, i + 2 do
+		if not (words[j] and LINKS_AFTER[words[j]]) then break end
+		local w = words[j + 1]
+		if w and (RUIN_AFTER[w] or AGAINST_AFTER[w]) then return true end
+	end
+	return false
 end
 
 local federation, federationSize = {}, 0 -- [name] = true|false, asked often: kept

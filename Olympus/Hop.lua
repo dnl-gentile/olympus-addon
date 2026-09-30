@@ -248,8 +248,12 @@ function Hop.HandleRequest(dist, sender, text)
 	local auto = ns.db.layerAutoInvite or (KingChoice() == "auto" and OnKingLayer(true))
 	if auto and OnlyGuests() then return Invite(sender, id, true) end
 	pending = { from = sender, id = id, t = ns.Now() }
-	ns.PlayAlert("soft", "hop")
-	ns.ShowDialog("OLYMPUS_HOP_REQUEST", ns.DisplayName(sender), nil, pending)
+	-- In an instance or on Busy (1.1, ns.Alert): no sound and no window; they come once the player
+	-- is out, while the asker still waits (Hop.WAIT), else the request only lapses.
+	local ask = pending
+	ns.Alert("hop", "soft", { what = L.HELD_HOP:format(ns.DisplayName(sender)), key = "hop:" .. id,
+		open = function() return pending == ask and ns.Now() - ask.t <= Hop.WAIT end,
+		show = function() if pending == ask then ns.ShowDialog("OLYMPUS_HOP_REQUEST", ns.DisplayName(sender), nil, ask) end end })
 	Changed()
 end
 

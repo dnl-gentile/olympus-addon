@@ -282,11 +282,13 @@ test("federation filter: Olympus however it was spelled, but not other words", f
 	for _, name in ipairs({ "ANTI OLYMPUS", "Anti-Olympus", "AntiOlympus", "Anti Olimpvs", "Against Olympus", "No Olympus",
 		"Down with Olympus", "Death to Olympus", "Olympus Haters", "Olympus Sucks", "Kill Olympus",
 		"Ruin Olympus", "RUIN OLYMPUS", "Ruins of Olympus", "Ruined Olympus", "Olympus Ruined", "Burn Olympus",
-		"Crush Olympus", "Raze Olympus", "Doom of Olympus", "Olympus Falls" }) do
+		"Crush Olympus", "Raze Olympus", "Doom of Olympus", "Olympus Falls",
+		"Olympus in Ruins", "Olympus In Ruin", "Olympus in the Ruins", "Olympus to Ashes", "Olympus of Ruin" }) do
 		eq(ns.IsFederation(name), false, name)
 	end
 	for _, name in ipairs({ "Knights of Olympus", "Sons of Olympus", "Olympus No Mercy", "OLYMPUS NULLA", "Order of the Olympus",
-		"Olympus Killers", "Anti Horde Olympus", "Olympus Rising", "Olympus Reborn", "Rise of Olympus", "Dark Olympus", "DARK OLYMPUS" }) do
+		"Olympus Killers", "Anti Horde Olympus", "Olympus Rising", "Olympus Reborn", "Rise of Olympus", "Dark Olympus", "DARK OLYMPUS",
+		"Olympus in Stormwind", "Olympus of Zeus", "Olympus on Top", "Olympus to Victory" }) do
 		eq(ns.IsFederation(name), true, name)
 	end
 	eq(ns.Slips("olmps", "olympus", 2), 2); eq(ns.Slips("olympia", "olympus", 2), 2); eq(ns.Slips("abcdefg", "olympus", 2), 3)
@@ -26289,6 +26291,67 @@ test("1.1 held alerts: a full list keeps the Agenda's popup: HELD_MAX Calls to A
 	end)
 end)
 
+test("1.1 held alerts: two Royal Writs held while Busy both wait and both come once out, each unread one its own (review)", function()
+	HoldBench(function(b)
+		WithUI(function()
+			WithThrone(function(w, K)
+				local A = ns.Acts
+				RaidNotice_AddMessage = b.notice
+				AsLord(); A.Reset(); ns.rdb.writs = nil
+				local shown, real = {}, A.ShowWrit
+				A.ShowWrit = function(wr) shown[#shown + 1] = wr.id end
+				local ok, err = pcall(function()
+					b.busy = true
+					K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~W~21~Olympus~L~First writ")
+					w.clock, b.clock = w.clock + A.WRIT_SHOW_GAP + 1, b.clock + A.WRIT_SHOW_GAP + 1 -- (writs a gap apart)
+					K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~W~22~Olympus~L~Second writ")
+					eq(#ns.rdb.writs, 2); eq(#shown, 0, "no parchment while Busy")
+					local writs = 0
+					for _, h in ipairs(ns.Held()) do if tostring(h.key):find("^writ") then writs = writs + 1 end end
+					eq(writs, 2, "both wait, the older one too")
+					b.busy = false
+					eq(ns.ReleaseHeld(), true)
+					table.sort(shown)
+					eq(table.concat(shown, ","), "21,22", "both unread parchments come")
+				end)
+				A.ShowWrit = real
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+end)
+
+test("1.1 held alerts: a layer hop request while Busy opens no window and plays no sound; out while the asker still waits, the window comes (review)", function()
+	WithHop(function(w, H)
+		local savedDnd, busy = UnitIsDND, true
+		UnitIsDND = function(unit) return unit == "player" and busy end
+		ns.ResetHeld()
+		local ok, err = pcall(function()
+			w.see(7)
+			H.HandleAsk("CHANNEL", "Asker-Realm", "LQ~42~1453~7")
+			eq(w.whispered[1], "Asker-Realm LO~42~0~0")
+			eq(ns.Quiet(), "busy")
+			H.HandleRequest("WHISPER", "Asker-Realm", "LR~42")
+			eq(#w.popups, 0, "no window while Busy")
+			local found
+			for _, h in ipairs(ns.Held()) do if h.key == "hop:42" then found = h end end
+			assert(found and found.what == ns.L.HELD_HOP:format("Asker"), "it waits on the Decrees tab")
+			busy = false
+			ns.ReleaseHeld()
+			eq(#w.popups, 1); eq(w.popups[1].name, "OLYMPUS_HOP_REQUEST"); eq(w.popups[1].arg, "Asker")
+		end)
+		UnitIsDND = savedDnd
+		ns.ResetHeld()
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 languages: a translation whose later format code differs from English (a %s turned %d) is refused", function()
+	eq(ns.LocaleCodes("%s joined %s ago"), "%s %s")
+	eq(ns.LocaleCodes("%s entrou há %d"), "%s %d")
+	assert(ns.LocaleCodes("%s joined %s ago") ~= ns.LocaleCodes("%s entrou há %d"), "the second code is read too")
+end)
+
 test("1.1 held alerts: their words in both languages, the same %s in each; /oly alerts in the help; /oly status says it", function()
 	local pt = { L = setmetatable({}, { __index = ns.L }) }
 	local savedLocale = GetLocale
@@ -26298,7 +26361,7 @@ test("1.1 held alerts: their words in both languages, the same %s in each; /oly 
 	if not ok then error(err, 0) end
 	for _, key in ipairs({ "HELP_ALERTS", "ALERTS_QUIET", "ALERTS_ALWAYS", "ALERTS_LINE", "ALERTS_HELD", "ALERTS_SHOWN", "ALERTS_TIP",
 		"HELD_TITLE", "HELD_TIP", "HELD_LATER", "HELD_SUMMARY", "HELD_TIMES", "HELD_MORE", "HELD_AND_GONE", "HELD_GONE", "HELD_SUMMON",
-		"HELD_INSPECTION", "HELD_AGENDA", "HELD_COURT", "HELD_COURT_CALL", "HELD_WRIT", "HELD_VOX", "HELD_UPDATE", "VOX_HELD" }) do
+		"HELD_INSPECTION", "HELD_AGENDA", "HELD_COURT", "HELD_COURT_CALL", "HELD_WRIT", "HELD_HOP", "HELD_VOX", "HELD_UPDATE", "VOX_HELD" }) do
 		assert(rawget(ns.L, key), key); assert(rawget(pt.L, key), "pt-BR " .. key)
 		local a, b = {}, {}
 		for f in ns.L[key]:gmatch("%%%a") do a[#a + 1] = f end
