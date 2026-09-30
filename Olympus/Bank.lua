@@ -663,18 +663,29 @@ end
 --                                     goes with it), for everyone who sees the bank; none: not sent
 -- No text travels, only an item's number and a count; REQUEST_OPEN open per character at most, each
 -- for REQUEST_DAYS. Whom it comes from is checked as a sister guild's bank is (Bank.LordOrCaptain).
+-- Paced (Konig's review of 1.1: a request taken back and made again, or a modified client's new
+-- ids, had every keeper print a line, answer and put his list on the channel each time): REQUEST_NEW
+-- new requests a REQUEST_WINDOW per character (his own client says so; a keeper's takes no more from
+-- one player, and keeps REQUESTS_EACH of his at most), one answer to the same request unchanged a
+-- ANSWER_GAP, and a keeper's list on the channel once a PUBLIC_GAP (a change inside it goes then).
 ---------------------------------------------------------------------------
 Bank.REQUEST_OPEN = 3
 Bank.REQUEST_DAYS = 3
 Bank.REQUEST_MAX_COUNT = 9999
 Bank.REQUEST_AGAIN = 900
 Bank.REQUESTS_KEPT = 60
+Bank.REQUEST_NEW = 6        -- new requests of one character a REQUEST_WINDOW, at most
+Bank.REQUEST_WINDOW = 3600
+Bank.REQUESTS_EACH = 10     -- requests of one player a keeper's client keeps (his oldest closed one goes)
+Bank.ANSWER_GAP = 60        -- the same answer to the same request again this long after at the soonest
+Bank.PUBLIC_GAP = 60        -- a keeper's list goes on the channel this often at most
 Bank.PUBLIC_KEPT = 1800   -- a keeper's list on the channel not repeated this long is dropped
 Bank.PUBLIC_MSGS = 2      -- messages of it at most, each one of the channel's size
 
 local lastAsked = {}      -- ["Name-Realm#id"] = when our request was last whispered to him
 local publicLists = {}    -- [keeper's Name-Realm] = { t, list = { { id, item, n, from, guild } } }
 local lastPublic          -- what our client last put on the channel ("" once it said none)
+local lastPublicAt, publicPending = -math.huge, false
 local CODE = { open = "o", done = "d", declined = "x", cancelled = "c" }
 local STATE = { o = "open", d = "done", x = "declined", c = "cancelled" }
 
@@ -781,9 +792,19 @@ function Bank.Request(item, count)
 	if not Bank.MayRequest() then return ns.Print(L.BANK_REQUEST_ONLY) end
 	item, count = tonumber(item), math.floor(tonumber(count) or 0)
 	if not item or item <= 0 or item >= 2147483647 or count < 1 or count > Bank.REQUEST_MAX_COUNT then return ns.Print(L.BANK_REQUEST_WHAT) end
-	local list, open = Mine(), 0
-	for _, e in ipairs(list) do if Open(e.state) and not Expired(e) then open = open + 1 end end
+	local list, open, recent, first, now = Mine(), 0, 0, nil, ns.Now()
+	for _, e in ipairs(list) do
+		if Open(e.state) and not Expired(e) then open = open + 1 end
+		local t = tonumber(e.t) or 0
+		if now - t < Bank.REQUEST_WINDOW then
+			recent = recent + 1
+			if not first or t < first then first = t end
+		end
+	end
 	if open >= Bank.REQUEST_OPEN then return ns.Print(L.BANK_REQUEST_FULL:format(Bank.REQUEST_OPEN)) end
+	if recent >= Bank.REQUEST_NEW then
+		return ns.Print(L.BANK_REQUEST_PACED:format(recent, math.max(1, math.ceil((first + Bank.REQUEST_WINDOW - now) / 60))))
+	end
 	local e = { id = math.random(1, 99999), item = item, n = count, t = ns.Now(), state = "sent", seen = {} }
 	list[#list + 1] = e
 	while #list > 10 do table.remove(list, 1) end
@@ -836,19 +857,29 @@ function Bank.HandleRequest(dist, sender, text)
 	if count == 0 then
 		if e and Open(e.state) then e.state, e.at, e.by = "cancelled", now, nil end
 	elseif not e then
-		local open, n, closed, oldest = 0, 0, nil, nil
+		local open, n, closed, oldest, mine, recent, myClosed = 0, 0, nil, nil, 0, 0, nil
 		for k, x in pairs(held) do
 			n = n + 1
-			if x.from == sender and Open(x.state) and not Expired(x) then open = open + 1 end
+			if x.from == sender then
+				mine = mine + 1
+				if Open(x.state) and not Expired(x) then open = open + 1 end
+				if now - (tonumber(x.t) or 0) < Bank.REQUEST_WINDOW then recent = recent + 1 end
+				if not Open(x.state) and (not myClosed or (x.t or 0) < (held[myClosed].t or 0)) then myClosed = k end
+			end
 			if Open(x.state) then
 				if not oldest or (x.t or 0) < (held[oldest].t or 0) then oldest = k end
 			elseif not closed or (x.t or 0) < (held[closed].t or 0) then
 				closed = k
 			end
 		end
-		if open >= Bank.REQUEST_OPEN then return end
-		-- Full: the oldest closed one goes, else the oldest.
-		if n >= Bank.REQUESTS_KEPT then held[closed or oldest] = nil end
+		-- (Paced, Konig's review of 1.1: past REQUEST_NEW new ones in the window, nothing at all.)
+		if open >= Bank.REQUEST_OPEN or recent >= Bank.REQUEST_NEW then return end
+		-- His REQUESTS_EACH: his oldest closed one goes. Full: the oldest closed one goes, else the oldest.
+		if mine >= Bank.REQUESTS_EACH and myClosed then
+			held[myClosed] = nil
+		elseif n >= Bank.REQUESTS_KEPT then
+			held[closed or oldest] = nil
+		end
 		e = { from = sender, guild = guild, id = id, item = item, n = count, t = now, state = "open" }
 		held[key] = e
 		ns.Print(L.BANK_REQUEST_NEW:format(ns.DisplayName(sender), guild, Label(item, count)))
@@ -856,7 +887,12 @@ function Bank.HandleRequest(dist, sender, text)
 	end
 	if not e then return end
 	e.heard = now
-	ns.Comm.Whisper(sender, ("TO~%d~%s"):format(id, CODE[e.state] or "o"), "bankans " .. key)
+	-- (The same answer to the same request once an ANSWER_GAP at most.)
+	local code = CODE[e.state] or "o"
+	if e.told ~= code or now - (tonumber(e.toldAt) or 0) >= Bank.ANSWER_GAP then
+		e.told, e.toldAt = code, now
+		ns.Comm.Whisper(sender, ("TO~%d~%s"):format(id, code), "bankans " .. key)
+	end
 	Fire()
 end
 ns.Comm.Handle("TN", function(...) Bank.HandleRequest(...) end)
@@ -865,9 +901,10 @@ ns.Comm.Handle("TN", function(...) Bank.HandleRequest(...) end)
 -- he was heard lately: otherwise his next ask gets it), and the others who hold it.
 function Bank.Answer(key, state)
 	local e = ns.Treasury.IsInsider() and ns.rdb and Held()[key]
-	if not e or not CODE[state] then return end
+	if not e or not CODE[state] or e.state == state then return end
 	e.state, e.by, e.at = state, ns.me, ns.Now()
 	if ns.Now() - (e.heard or -math.huge) <= ns.Treasury.AUDIENCE_FRESH then
+		e.told, e.toldAt = CODE[state], ns.Now()
 		ns.Comm.Whisper(e.from, ("TO~%d~%s"):format(e.id, CODE[state]), "bankans " .. key)
 	end
 	for _, to in ipairs(ns.Treasury.Online()) do
@@ -925,9 +962,20 @@ end
 
 -- While the King shows the army the book, a keeper's client puts the open requests it holds on the
 -- channel next to the bank (TL), when they change and with its book; a list it had put there and
--- that emptied, once more, empty.
+-- that emptied, once more, empty. Once a PUBLIC_GAP at most: a change inside it goes once it ends.
 function Bank.SharePublic(force)
 	if not CanSend() or not ns.Treasury.PublicShows("book") then return false end
+	local now = ns.Now()
+	if now - lastPublicAt < Bank.PUBLIC_GAP then
+		if not publicPending then
+			publicPending = true
+			ns.After(Bank.PUBLIC_GAP - (now - lastPublicAt) + 1, "bank list", function()
+				publicPending = false
+				Bank.SharePublic()
+			end)
+		end
+		return false
+	end
 	local guild = Clean(GetGuildInfo("player"), 40)
 	local entries = {}
 	for _, e in ipairs(Bank.Requests()) do
@@ -948,7 +996,7 @@ function Bank.SharePublic(force)
 	-- (None, and none said: nothing. Unchanged: only with the book's repeat, force.)
 	if #entries == 0 and (lastPublic == nil or lastPublic == "") then return false end
 	if not force and all == lastPublic then return false end
-	lastPublic = #entries == 0 and "" or all
+	lastPublic, lastPublicAt = #entries == 0 and "" or all, now
 	for i, m in ipairs(msgs) do ns.Comm.Send("CHANNEL", m, "banklist" .. i) end
 	return true
 end
@@ -1099,7 +1147,7 @@ function Bank.Reset()
 	wipe(sisters); wipe(sisterHeard); wipe(sisterNoTold)
 	sisterCount, sisterAsked = 0, false
 	wipe(lastAsked); wipe(publicLists)
-	lastPublic = nil
+	lastPublic, lastPublicAt, publicPending = nil, -math.huge, false
 	if ns.rdb then ns.rdb.bank, ns.rdb.bankReport, ns.rdb.bankPrev, ns.rdb.bankReportPrev = nil, nil, nil, nil end
 	if ns.rdb then ns.rdb.bankAsks, ns.rdb.bankRequests = nil, nil end
 end

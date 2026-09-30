@@ -37874,6 +37874,134 @@ do
 			if not ok then error(err, 0) end
 		end)
 	end)
+
+	test("1.1 Konig's review: requests to the treasury are paced, each requester's new ones, each keeper's answers and his list on the channel", function()
+		WithStewards(function(w, K)
+			local T, B = ns.Treasury, ns.Bank
+			local saved = { after = ns.After, zeus = ns.rdb.guilds["Olympus Zeus"], two = ns.rdb.guilds["Olympus II"] }
+			local ok, err = pcall(function()
+				local After, Run = Queued()
+				ns.After = After
+				-- The census as its reporters say it now (reports count 30 minutes): Zed the Lord of
+				-- Olympus Zeus, Cap a Captain of Olympus II.
+				local function Census()
+					ns.rdb.guilds["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", realm = "Realm" }, "W3-Realm", "W4-Realm")
+					ns.rdb.guilds["Olympus II"] = Vouched({ total = 300, online = 3, zones = {}, t = w.clock, leader = "Ceo", realm = "Realm",
+						officers = { { name = "Cap", online = true, days = 0 } } }, "W5-Realm", "W6-Realm")
+				end
+				local function Count(prefix, to)
+					local n = 0
+					for _, x in ipairs(w.whispered) do if x.msg:sub(1, #prefix) == prefix and (not to or x.to == to) then n = n + 1 end end
+					return n
+				end
+				local function NewLines()
+					local n = 0
+					for _, p in ipairs(w.printed) do if p:find(" <Olympus Zeus>", 1, true) and p:find("Zed", 1, true) then n = n + 1 end end
+					return n
+				end
+				Census()
+				-- The Lord's own client: a request taken back and made again, six in the hour; the
+				-- seventh waits, and he is told when it may go. No whisper for it.
+				AsLord()
+				T.Heard(TREASURER); T.MarkReader(TREASURER)
+				w.whispered = {}
+				for i = 1, B.REQUEST_NEW do
+					local e = B.Request(2589, i)
+					assert(e, "request " .. i)
+					B.Cancel(e.id)
+					w.clock = w.clock + 60
+				end
+				local sent = Count("TN~", TREASURER)
+				eq(sent, 2 * B.REQUEST_NEW, "each one and its taking back, to the keeper heard")
+				eq(B.Request(2589, 1), nil, "paced")
+				assert(Printed(w, ns.L.BANK_REQUEST_PACED:format(B.REQUEST_NEW, (B.REQUEST_WINDOW - B.REQUEST_NEW * 60) / 60)), "told when")
+				eq(Count("TN~", TREASURER), sent, "nothing sent for it")
+				-- An hour after the first: one more may go.
+				w.clock = w.clock - B.REQUEST_NEW * 60 + B.REQUEST_WINDOW
+				assert(B.Request(2589, 1), "the window moved on")
+				-- A keeper's client, a modified client's flood of new ids (each taken back at once): six
+				-- an hour taken, told in chat, answered; the rest nothing at all, and never on the channel.
+				B.Reset(); Census()
+				AsTreasurer()
+				ns.db.keeperShares = { [TREASURER_KEY] = true }
+				ns.rdb.treasuryFlags = { book = true, at = w.clock, from = KING }
+				w.whispered, w.printed, w.sent = {}, {}, {}
+				for id = 1, 40 do
+					B.HandleRequest("WHISPER", "Zed-Realm", ("TN~%d~2589~10~Olympus Zeus"):format(id))
+					B.HandleRequest("WHISPER", "Zed-Realm", ("TN~%d~2589~0~Olympus Zeus"):format(id))
+				end
+				eq(NewLines(), B.REQUEST_NEW, "six lines in his chat")
+				eq(Count("TO~", "Zed-Realm"), 2 * B.REQUEST_NEW, "each taken one answered, and its taking back")
+				local lists = 0
+				for _, s in ipairs(w.sent) do if s.msg:find("^TL~") then lists = lists + 1 end end
+				assert(lists <= 1, "his list on the channel once in the minute: " .. lists)
+				-- Hours of it: he keeps ten of that player's at most, and another player's request stays.
+				B.HandleRequest("WHISPER", "Cap-Realm", "TN~7~929~2~Olympus II")
+				B.Answer("Cap-Realm#7", "declined")
+				for hour = 1, 12 do
+					w.clock = w.clock + B.REQUEST_WINDOW
+					Census()
+					for id = 100 * hour, 100 * hour + 10 do
+						B.HandleRequest("WHISPER", "Zed-Realm", ("TN~%d~2589~10~Olympus Zeus"):format(id))
+						B.HandleRequest("WHISPER", "Zed-Realm", ("TN~%d~2589~0~Olympus Zeus"):format(id))
+					end
+				end
+				local his, other = 0, false
+				for key in pairs(ns.rdb.bankRequests) do
+					if key:find("^Zed%-Realm#") then his = his + 1 end
+					if key == "Cap-Realm#7" then other = true end
+				end
+				assert(his <= B.REQUESTS_EACH, "his, kept: " .. his)
+				eq(other, true, "another player's request is not pushed out by his")
+				-- One request asked about again and again: answered once a minute while unchanged, at once
+				-- when it changes. (An hour later: his last six are out of the window.)
+				w.clock = w.clock + B.REQUEST_WINDOW
+				Census()
+				B.HandleRequest("WHISPER", "Zed-Realm", "TN~5000~118~1~Olympus Zeus")
+				w.whispered = {}
+				for _ = 1, 10 do B.HandleRequest("WHISPER", "Zed-Realm", "TN~5000~118~1~Olympus Zeus") end
+				eq(Count("TO~", "Zed-Realm"), 0, "answered a moment ago")
+				w.clock = w.clock + B.ANSWER_GAP
+				for _ = 1, 10 do B.HandleRequest("WHISPER", "Zed-Realm", "TN~5000~118~1~Olympus Zeus") end
+				eq(Count("TO~", "Zed-Realm"), 1, "once a minute")
+				B.Answer("Zed-Realm#5000", "done")
+				eq(Count("TO~5000~d", "Zed-Realm"), 1, "a change: at once")
+				B.Answer("Zed-Realm#5000", "done")
+				eq(Count("TO~5000~d", "Zed-Realm"), 1, "the same click again: nothing")
+				-- His list on the channel: once a minute, a change inside it once the minute is over.
+				w.clock = w.clock + B.PUBLIC_GAP
+				Run() -- (what waited goes)
+				w.clock = w.clock + B.PUBLIC_GAP
+				B.HandleRequest("WHISPER", "Cap-Realm", "TN~8~2770~3~Olympus II")
+				w.sent = {}
+				B.HandleRequest("WHISPER", "Cap-Realm", "TN~9~2771~3~Olympus II")
+				B.HandleRequest("WHISPER", "Cap-Realm", "TN~10~2772~3~Olympus II")
+				eq(#w.sent, 0, "inside the minute: held")
+				w.clock = w.clock + B.PUBLIC_GAP
+				Run()
+				eq(#w.sent, 1, "then once, as it is then")
+				assert(w.sent[1].msg:find("10:2772:3:Cap%-Realm", 1) and w.sent[1].msg:find("9:2771:3:Cap%-Realm", 1), w.sent[1].msg)
+				-- Both languages, the same format arguments; both pages say so.
+				local savedLocale, pt = GetLocale, {}
+				GetLocale = function() return "ptBR" end
+				local okL, errL = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+				GetLocale = savedLocale
+				if not okL then error(errL, 0) end
+				local key = "BANK_REQUEST_PACED"
+				assert(type(rawget(ns.L, key)) == "string", "English " .. key)
+				assert(type(rawget(pt.L, key)) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
+				eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)
+				for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+					local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+					assert(doc:find("6 new requests an hour per character", 1, true), path)
+				end
+			end)
+			ns.After, ns.rdb.guilds["Olympus Zeus"], ns.rdb.guilds["Olympus II"] = saved.after, saved.zeus, saved.two
+			ns.rdb.treasuryFlags = nil
+			ns.Bank.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end)
 end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
