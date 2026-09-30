@@ -1052,10 +1052,11 @@ end
 -- did not (Fern's #36). The ranking (all time, which Fern kept public) that leaves the Treasurer's
 -- client (the channel's, the whole book whispered, 0.9's copy, his mail character's he passes on)
 -- leaves out, of each giver's gold to the Treasurer's characters, each week's up to that week's
--- amount (Dues.DuesPart): what may be his dues, paid or not. A total grows only by what a week's
--- gold went over the amount, so one that did not grow may be a payer's or not: it never shows who
--- did not pay. It is that much lower than on the Treasurer's own screen. Another keeper's book,
--- which is no dues: as it is.
+-- amount as the book kept it, and all he sent with the dues' note (Dues.DuesPart): what may be his
+-- dues, paid or not. A total grows only by what a week's gold went over the amount, so one that did
+-- not grow may be a payer's or not: it shows no payer of the amount the Treasurer's client knew that
+-- week (one who paid more by trade or plain mail while it knew less shows by the difference). It is
+-- that much lower than on the Treasurer's own screen. Another keeper's book, which is no dues: as it is.
 local function PublicRanking(b, t)
 	t = t or Treasury.Totals(b)
 	if not (b and TreasurerPin(b.name)) then return t.ranking end

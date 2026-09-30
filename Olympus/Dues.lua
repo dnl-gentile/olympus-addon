@@ -278,6 +278,7 @@ function Dues.SetAmount(input)
 		ns.Print(L.THRONE_PREVIEW_NOTE)
 	else
 		ns.rdb.duesAmount = w
+		Dues.KeepAmounts()
 		Dues.SendAmount(true)
 	end
 	ns.Fire("TREASURY_CHANGED")
@@ -308,6 +309,7 @@ function Dues.TakeAmount(copper, at, sender, before)
 	before = Copper(before) or AmountIn(kept, week)
 	local was, wasBefore = type(kept) == "table" and tonumber(kept.copper) or nil, AmountIn(kept, week)
 	ns.rdb.duesAmount = { copper = copper, at = at, before = before, from = ns.FullName(sender), t = ns.Now() }
+	Dues.KeepAmounts() -- (the running week's amount as known now, into the ledger's books: Konig's review of 1.1)
 	if was ~= copper or wasBefore ~= before then
 		if ns.King.IsKing() and ns.King.IsStewardName(sender) then
 			ns.Print(L.STEWARD_SET_DUES:format(ns.King.StewardLabel(sender), Coins(copper), Dues.DateLabel(week + 1)))
@@ -358,7 +360,8 @@ function Dues.Stamp(e, name, o)
 	e.wk = week
 	if e.out or e.item or e.kind == "transfer" or (tonumber(e.money) or 0) <= 0 then return end
 	local noted, claimed = Dues.ReadNote(o.note, week)
-	if noted then e.wk = noted end
+	-- (e.noted: sent with the dues' note, his dues all of it: Dues.DuesPart, Konig's review of 1.1.)
+	if noted then e.wk, e.noted = noted, true end
 	local guild, verified = ns.King.CleanGuild(o.guild), true
 	if not guild and ns.IsMember() and ns.Roster.RankOf(ns.FullName(ns.Normal(name))) then guild = GetGuildInfo("player") end
 	if not guild then guild, verified = claimed, false end
@@ -366,15 +369,39 @@ function Dues.Stamp(e, name, o)
 end
 
 -- Konig's review of 1.1 (the ranking): of each giver's gold in a book, what may be his dues, each
--- week's gold up to that week's amount (paid or not: nobody can tell which). The ranking that leaves
--- the Treasurer's client leaves it out (Treasury.PublicRanking). A week dropped from the WEEKS_KEPT
--- is folded into the book's sums first (s.duesOut, by giver), so no total grows back when it goes.
+-- week's gold up to that week's amount (paid or not: nobody can tell which), and all of what he sent
+-- with the dues' note. The ranking that leaves the Treasurer's client leaves it out
+-- (Treasury.PublicRanking). A week dropped from the WEEKS_KEPT is folded into the book's sums first
+-- (s.duesOut, by giver), so no total grows back when it goes.
+-- A week's amount (Konig's review of 1.1, again), as the book keeps it next to that week's sums
+-- (s.amounts[week]): the amount this client knew while the week ran, raised when it hears a higher
+-- one, never lowered, and never worked out again once the week is gone (a word carries only the
+-- amount of the week it was given in, its <before>, and of the weeks after it: worked out from the
+-- latest word, a second change of the amount re-judged every week kept, and the ranking then showed
+-- an earlier week's payers). A week gone by that kept none (a book from before this, a gift noted
+-- for last week after the reset): the amount known now, kept from then on. (Next to s.weeks[week],
+-- not in it: its keys are the givers', and each reader takes every entry for one.)
+local function WeekAmount(s, wk)
+	if type(s) ~= "table" or type(wk) ~= "number" then return Dues.AMOUNT end
+	if type(s.amounts) ~= "table" then s.amounts = {} end
+	local kept = Copper(s.amounts[wk])
+	if kept and wk < Dues.Week() then return kept end
+	local known = Dues.AmountOf(wk)
+	if not kept or known > kept then s.amounts[wk], kept = known, known end
+	return kept
+end
+-- A giver's part of one week that may be his dues: his gold up to the week's amount, and all of
+-- what he sent with the dues' note (p.d, Dues.Stamp's e.noted: a payer of an amount this client
+-- had not heard yet stays out of the ranking all the same).
+local function DuesOf(p, amount)
+	return math.min(tonumber(p.c) or 0, math.max(amount, tonumber(p.d) or 0))
+end
 local function Fold(s, wk, list)
 	if type(wk) ~= "number" or type(list) ~= "table" then return end
-	local amount = Dues.AmountOf(wk)
+	local amount = WeekAmount(s, wk)
 	s.duesOut = type(s.duesOut) == "table" and s.duesOut or {}
 	for key, p in pairs(list) do
-		local c = type(p) == "table" and math.min(tonumber(p.c) or 0, amount) or 0
+		local c = type(p) == "table" and DuesOf(p, amount) or 0
 		if type(key) == "string" and c > 0 then s.duesOut[key] = math.min((tonumber(s.duesOut[key]) or 0) + c, MAX_COPPER) end
 	end
 end
@@ -385,9 +412,9 @@ function Dues.DuesPart(s)
 	for key, c in pairs(type(s.duesOut) == "table" and s.duesOut or {}) do out[key] = tonumber(c) or 0 end
 	for wk, list in pairs(type(s.weeks) == "table" and s.weeks or {}) do
 		if type(wk) == "number" and type(list) == "table" then
-			local amount = Dues.AmountOf(wk)
+			local amount = WeekAmount(s, wk)
 			for key, p in pairs(list) do
-				if type(p) == "table" then out[key] = math.min((out[key] or 0) + math.min(tonumber(p.c) or 0, amount), MAX_COPPER) end
+				if type(p) == "table" then out[key] = math.min((out[key] or 0) + DuesOf(p, amount), MAX_COPPER) end
 			end
 		end
 	end
@@ -408,7 +435,11 @@ function Dues.WeekAdd(s, e, copper)
 		if type(w) ~= "number" or w < now - (Dues.WEEKS_KEPT - 1) then
 			Fold(s, w, list)
 			s.weeks[w] = nil
+			if type(s.amounts) == "table" then s.amounts[w] = nil end
 		end
+	end
+	for w in pairs(type(s.amounts) == "table" and s.amounts or {}) do
+		if type(w) ~= "number" or (w < now - (Dues.WEEKS_KEPT - 1) and not s.weeks[w]) then s.amounts[w] = nil end
 	end
 	if wk < now - (Dues.WEEKS_KEPT - 1) or wk > now + 1 then return end
 	local week = s.weeks[wk]
@@ -424,9 +455,14 @@ function Dues.WeekAdd(s, e, copper)
 		week[key] = p
 	end
 	p.c = math.max(0, math.min(p.c + copper, MAX_COPPER))
+	if e.noted then
+		p.d = math.max(0, math.min((tonumber(p.d) or 0) + copper, MAX_COPPER))
+		if p.d <= 0 then p.d = nil end
+	end
 	if copper > 0 then
 		p.n = e.name
 		if (tonumber(e.t) or 0) > p.t then p.t = tonumber(e.t) end
+		WeekAmount(s, wk) -- (its amount kept as this client knows it now: Konig's review of 1.1)
 	end
 	if e.guild and (e.gv or not p.gv) then p.g, p.gv = e.guild, e.gv or nil end
 	if p.c <= 0 then week[key] = nil end
@@ -458,6 +494,12 @@ local function LedgerBooks()
 		end
 	end
 	return out
+end
+-- A word taken or given (Dues.TakeAmount, SetAmount): the running week's amount as this client
+-- knows it now, kept in each of the ledger's books (raised only: WeekAmount). Konig's review of 1.1.
+function Dues.KeepAmounts()
+	local week = Dues.Week()
+	for _, b in ipairs(LedgerBooks()) do WeekAmount(ns.Treasury.SumsOf(b), week) end
 end
 
 -- A guild for a player: the server's word over a note's, the latest week's otherwise.

@@ -38156,5 +38156,183 @@ do
 	end)
 end
 
+
+---------------------------------------------------------------------------
+-- 1.1, Konig's review of #45, second pass (the treasury): each week's dues amount kept in the
+-- Treasurer's book as his client knew it, and gold sent with the dues' note dues in full.
+---------------------------------------------------------------------------
+do
+	local KING, STEWARD = "Asmongold Asmongler-Realm", "Test Steward-Realm"
+	local WEEK = 7 * 86400
+	-- The Throne's world with a Steward the signed list names (STEWARD), the server's clock the
+	-- test's, the dues as new; all put back after.
+	local function WithStewards(fn)
+		WithThrone(function(w, K)
+			local saved = { steward = ns.IsSteward, split = ns.splitNames, shares = ns.db.keeperShares, gst = GetServerTime, chars = ns.db.myCharacters }
+			local ok, err = pcall(function()
+				ns.IsSteward = function(n) return type(n) == "string" and ns.FullName(n) == STEWARD end
+				ns.splitNames = true
+				GetServerTime = nil
+				ns.Dues.Reset()
+				fn(w, K)
+			end)
+			ns.IsSteward, ns.splitNames, ns.db.keeperShares, GetServerTime = saved.steward, saved.split, saved.shares, saved.gst
+			ns.db.myCharacters = saved.chars
+			ns.rdb.duesAmount, ns.rdb.treasuryKeepers, ns.rdb.treasuryFlags = nil, nil, nil
+			ns.Dues.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end
+	-- The Treasurer, sharing his book, while the King shows the army the ranking.
+	local function SharingTreasurer(w)
+		AsTreasurer()
+		ns.db.keeperShares = { [TREASURER_KEY] = true }
+		ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = w.clock, from = KING }
+		ns.Treasury.SetOpening("100")
+	end
+	-- The ranking his client puts on the channel: { [name] = copper }.
+	local function Channel()
+		local f = {}
+		for x in (ns.Treasury.Message(nil, { ranking = true }) .. "~"):gmatch("([^~]*)~") do f[#f + 1] = x end
+		local out = {}
+		for e in (f[13] or ""):gmatch("[^,]+") do
+			local n, c = e:match("^(.-):(%d+)$")
+			out[n] = tonumber(c)
+		end
+		return out
+	end
+	local function Give(name, copper, note) return ns.Treasury.Record(name, copper, "mail", nil, { quiet = true, note = note }) end
+	local function Pages(fn)
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do fn(path, (assert(ReadFile(ROOT .. path)):gsub("%s+", " "))) end
+	end
+
+	test("1.1 Konig's review, second pass: each week's dues amount stays as the Treasurer's book kept it; a later word never re-judges a week kept, so its payers stay out of the ranking", function()
+		WithStewards(function(w)
+			local T, D = ns.Treasury, ns.Dues
+			SharingTreasurer(w)
+			-- The King's amount: 5 gold from next week. That week Payer pays it; Skipper pays nothing.
+			eq(D.TakeAmount(50000, w.clock, KING, 10000), true)
+			w.clock = w.clock + WEEK
+			local paid = D.Week()
+			Give("Payer", 50000)
+			eq(Channel().Payer, nil, "the week of 5 gold")
+			-- He lowers it to 2 gold from the week after; a week later he sets 3 gold. That word carries
+			-- 2 gold as the amount of its own week and of every week before it.
+			eq(D.TakeAmount(20000, w.clock, KING, 50000), true)
+			eq(Channel().Payer, nil, "after the lower amount")
+			w.clock = w.clock + WEEK
+			eq(D.TakeAmount(30000, w.clock, KING, 20000), true)
+			eq(D.AmountOf(paid), 20000, "(the latest word alone would judge Payer's week by 2 gold)")
+			eq(Channel().Payer, nil, "a payer of a week kept never shows on the channel")
+			local mine = {}
+			for _, g in ipairs(T.Totals().ranking) do mine[g.name] = g.money end
+			eq(mine.Payer, 50000, "his own screen: all of it")
+			-- Two words are enough when the first lowers the amount under the 1 gold it had: Early paid
+			-- 1 gold, then the King says 50 silver from next week, and next week 2 gold.
+			D.Reset(); ns.rdb.treasuryBooks = nil
+			SharingTreasurer(w)
+			Give("Early", 10000)
+			eq(D.TakeAmount(5000, w.clock, KING, 10000), true)
+			w.clock = w.clock + WEEK
+			eq(D.TakeAmount(20000, w.clock, KING, 5000), true)
+			eq(Channel().Early, nil, "a 1 gold payer of the week before both words")
+			-- Its week dropped from the weeks kept, folded with the amount it kept: still not there.
+			for _ = 1, D.WEEKS_KEPT do
+				w.clock = w.clock + WEEK
+				Give("Other", 30000)
+			end
+			eq(Channel().Early, nil, "nor once its week is folded")
+			-- This week's payer of 2 gold; three more words (3 gold, 1 gold, 4 gold: the last carries 1
+			-- gold for its own week and every week before it), then a backup restored after a wipe: each
+			-- week's amount comes back with the book, never worked out again from the latest word.
+			Give("Late", 20000)
+			eq(D.TakeAmount(30000, w.clock, KING, 20000), true)
+			w.clock = w.clock + WEEK
+			eq(D.TakeAmount(10000, w.clock, KING, 30000), true)
+			w.clock = w.clock + WEEK
+			eq(D.TakeAmount(40000, w.clock, KING, 10000), true)
+			eq(Channel().Late, nil, "three words later: his week keeps its 2 gold")
+			ns.db.myCharacters = { [TREASURER_KEY] = true }
+			local text = ns.Backup.Export()
+			ns.rdb.treasuryBooks = nil
+			ns.Backup.Apply(assert(ns.Backup.Read(text)))
+			local now = Channel()
+			eq(now.Late, nil, "restored: the same"); eq(now.Early, nil, "restored: the weeks folded too")
+			eq(now.Other, 5 * 10000, "(a gift over the amount still shows its excess: 1 gold a week)")
+			-- A payer's week while the Treasurer's book was not shared (nothing built the ranking then):
+			-- the week's amount is kept with the gift all the same, so a Steward's word the week after
+			-- (his client had not heard the King's: 1 gold for its own week and every week before)
+			-- changes nothing once the book is shared.
+			D.Reset(); ns.rdb.treasuryBooks = nil
+			eq(D.TakeAmount(50000, w.clock - WEEK, KING, 10000), true)
+			SharingTreasurer(w)
+			ns.db.keeperShares = nil
+			Give("Quiet Payer", 50000)
+			w.clock = w.clock + WEEK
+			eq(D.TakeAmount(20000, w.clock, STEWARD, 10000), true)
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			eq(Channel()["Quiet Payer"], nil, "the amount kept with his gift")
+		end)
+	end)
+
+	test("1.1 Konig's review, second pass: gold sent with the dues' note is dues in full, an amount the Treasurer's client never heard too; a week's amount only rises while it runs", function()
+		WithStewards(function(w)
+			local T, D = ns.Treasury, ns.Dues
+			SharingTreasurer(w)
+			-- The King set 5 gold from this week while the Treasurer was offline, and no King's or
+			-- Steward's addon met his since: his client still holds 1 gold. Members who heard the King
+			-- pay 5 gold, by the button (its mail's note) or by hand.
+			eq(D.Amount(), 10000)
+			local line = Give("Noted Payer", 50000, D.Note(D.Week(), "Olympus II"))
+			Give("Plain Payer", 50000)
+			local now = Channel()
+			eq(now["Noted Payer"], nil, "sent with the note: dues, all of it")
+			eq(now["Plain Payer"], 40000, "by hand, while his client knows 1 gold: the limit both pages state")
+			-- A tip on top of the note shows as any gift over the amount does; a line taken out of the
+			-- count and put back leaves it as it was.
+			Give("Noted Payer", 30000)
+			eq(Channel()["Noted Payer"], 30000, "the tip alone")
+			T.Toggle(line)
+			eq(Channel()["Noted Payer"], 20000, "the paid line not counted: his tip less the amount")
+			T.Toggle(line)
+			eq(Channel()["Noted Payer"], 30000, "counted again")
+			-- A backup restored after a wipe keeps what went with the note.
+			ns.db.myCharacters = { [TREASURER_KEY] = true }
+			local function Restore()
+				local text = ns.Backup.Export()
+				ns.rdb.treasuryBooks = nil
+				ns.Backup.Apply(assert(ns.Backup.Read(text)))
+			end
+			Restore()
+			now = Channel()
+			eq(now["Noted Payer"], 30000, "restored: the tip alone"); eq(now["Plain Payer"], 40000)
+			-- The King's word reaches the Treasurer's client in that week: the week's amount rises as it
+			-- is heard. A Steward's later word says 1 gold for this week (his client had not heard the
+			-- King's): the week's amount kept never goes down, so nobody who paid shows because of it.
+			eq(D.TakeAmount(50000, w.clock - WEEK, KING, 10000), true)
+			eq(D.TakeAmount(20000, w.clock, STEWARD, 10000), true)
+			eq(D.Amount(), 10000, "(the word says 1 gold for this week)")
+			now = Channel()
+			eq(now["Plain Payer"], nil, "the amount heard while the week ran, never lowered"); eq(now["Noted Payer"], 30000)
+			-- The week gone by (a new word carries 2 gold for every week before its own), then a backup
+			-- restored: the week keeps the 5 gold its book kept.
+			w.clock = w.clock + WEEK
+			eq(D.TakeAmount(30000, w.clock, KING, 20000), true)
+			eq(Channel()["Plain Payer"], nil, "the week gone by")
+			Restore()
+			now = Channel()
+			eq(now["Plain Payer"], nil, "restored"); eq(now["Noted Payer"], 30000, "restored: the tip alone")
+			-- Both pages say how it holds, and where it does not.
+			Pages(function(path, doc)
+				assert(doc:find("all he sent with the dues' note", 1, true), path)
+				assert(doc:find("never changed by a later word of the King's", 1, true), path)
+				assert(doc:find("grows by the difference, which can tell that he paid", 1, true), path)
+				assert(not doc:find("the ranking never shows who did not pay", 1, true), path)
+				assert(doc:find("less all you sent with the dues' note", 1, true), path)
+			end)
+		end)
+	end)
+end
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
