@@ -696,9 +696,9 @@ L.CHAN_LOCKDOWN = "The game blocks addon chat right now (instance restrictions).
 L.CHAN_MUTED = "[%s] muted. /oly mute %s shows it again."
 L.CHAN_UNMUTED = "[%s] shows in chat again."
 L.CHAN_MUTE_USAGE = "Usage: /oly mute olympus | captains | lords"
-L.HELP_CHAN_ALL = "  /ol <text> - talk to every Olympus guild (players with the addon)"
-L.HELP_CHAN_CAPTAINS = "  /olc <text> - Captains and Lords channel"
-L.HELP_CHAN_LORDS = "  /oll <text> - Lords channel (with the officers of <Olympus>)"
+L.HELP_CHAN_ALL = "  /ol <text> - talk to every Olympus guild (players with the addon); alone, opens the chat window"
+L.HELP_CHAN_CAPTAINS = "  /olc <text> - Captains and Lords channel; alone, opens the chat window"
+L.HELP_CHAN_LORDS = "  /oll <text> - Lords channel (with the officers of <Olympus>); alone, opens the chat window"
 L.HELP_CHAN_MUTE = "  /oly mute olympus | captains | lords - hide or show a channel in chat"
 
 -- 0.9.1: king-trust
@@ -2408,9 +2408,9 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CHAN_MUTED = "[%s] silenciado. /oly mute %s mostra de novo."
 	L.CHAN_UNMUTED = "[%s] aparece no chat de novo."
 	L.CHAN_MUTE_USAGE = "Uso: /oly mute olympus | captains | lords"
-	L.HELP_CHAN_ALL = "  /ol <texto> - falar com todas as guildas Olympus (quem tem o addon)"
-	L.HELP_CHAN_CAPTAINS = "  /olc <texto> - canal dos Capitães e Lordes"
-	L.HELP_CHAN_LORDS = "  /oll <texto> - canal dos Lordes (com os officers da <Olympus>)"
+	L.HELP_CHAN_ALL = "  /ol <texto> - falar com todas as guildas Olympus (quem tem o addon); sozinho, abre a janela de chat"
+	L.HELP_CHAN_CAPTAINS = "  /olc <texto> - canal dos Capitães e Lordes; sozinho, abre a janela de chat"
+	L.HELP_CHAN_LORDS = "  /oll <texto> - canal dos Lordes (com os officers da <Olympus>); sozinho, abre a janela de chat"
 	L.HELP_CHAN_MUTE = "  /oly mute olympus | captains | lords - esconder ou mostrar um canal no chat"
 
 	-- 0.9.1: king-trust

@@ -1626,7 +1626,20 @@ ns.On("LOGIN", function()
 	ns.Every(60, "pin repeat", function() Channels.RepeatPin() end)
 end)
 
+-- /ol, /olc, /oll <text>: a line in that channel. Alone (nothing but spaces, 1.1.1): the Olympus
+-- chat window on that channel (ChatWindow.lua, or Core.lua's stand-in on a client updated without
+-- a restart), else, where this client has no such window, what to type (Channels.Send says it).
+local function Slash(tier, where)
+	return function(msg)
+		local W = ns.ChatWindow
+		if tostring(msg or ""):match("^%s*$") and W and type(W.Toggle) == "function" then
+			ns.SafeCall(where, W.Toggle, tier)
+			return
+		end
+		ns.SafeCall(where, Channels.Send, tier, msg)
+	end
+end
 SLASH_OLYMPUSALL1, SLASH_OLYMPUSCAPTAINS1, SLASH_OLYMPUSLORDS1 = "/ol", "/olc", "/oll"
-SlashCmdList.OLYMPUSALL = function(msg) ns.SafeCall("slash /ol", Channels.Send, "A", msg) end
-SlashCmdList.OLYMPUSCAPTAINS = function(msg) ns.SafeCall("slash /olc", Channels.Send, "C", msg) end
-SlashCmdList.OLYMPUSLORDS = function(msg) ns.SafeCall("slash /oll", Channels.Send, "L", msg) end
+SlashCmdList.OLYMPUSALL = Slash("A", "slash /ol")
+SlashCmdList.OLYMPUSCAPTAINS = Slash("C", "slash /olc")
+SlashCmdList.OLYMPUSLORDS = Slash("L", "slash /oll")

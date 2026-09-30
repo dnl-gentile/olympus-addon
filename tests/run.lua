@@ -42184,9 +42184,10 @@ end
 end)()
 
 -- 1.1.1: GitHub #34 (a queued chat line never follows a channel change), the Olympus tab (a chat
--- tab of the game's named Olympus, its lines without the channel's name) and /ol alone. Comm.lua
--- and Channels.lua loaded fresh into one namespace (FreshComm), on channels whose numbers the
--- test sets. (A function of its own: the main chunk is near LuaJIT's 200 locals.)
+-- tab of the game's named Olympus, its lines without the channel's name) and /ol alone. The #34
+-- tests load Comm.lua and Channels.lua fresh into one namespace (FreshComm), on channels whose
+-- numbers the test sets; the tab's use the addon's Channels on stand-ins of the game's chat
+-- windows. (A function of its own: the main chunk is near LuaJIT's 200 locals.)
 ;(function()
 	local SEND_OK, SEND_REFUSED = 0, 9 -- (Enum.SendAddonMessageResult: 0 is success)
 	-- fn(w, C, Chan) as a Lord of Olympus II, every channel warned, on the channel of realm key "key
@@ -42632,6 +42633,37 @@ end)()
 		assert(not ok and tostring(err):find("FCF_OpenNewWindow, ChatFrameUtil.SetLastActiveWindow, ChatFrame4:RemoveAllMessageGroups", 1, true), tostring(err))
 	end)
 
+	test("1.1.1 /ol, /olc, /oll alone open the Olympus chat window on that channel; without one, the usage line; with text, a line as before", function()
+		WithTabs(function(w, printed)
+			local savedWindow, savedSend = ns.ChatWindow, Chan.Send
+			local ok, err = pcall(function()
+				local toggled, sent = {}, {}
+				ns.ChatWindow = { Toggle = function(tier) toggled[#toggled + 1] = tostring(tier) end }
+				SlashCmdList.OLYMPUSALL("")
+				SlashCmdList.OLYMPUSCAPTAINS("   ")
+				SlashCmdList.OLYMPUSLORDS(nil)
+				eq(table.concat(toggled, ","), "A,C,L")
+				eq(#printed, 0, "nothing printed")
+				-- With text: the line, as before (the window is not touched).
+				Chan.Send = function(tier, text) sent[#sent + 1] = tier .. ":" .. tostring(text) end
+				SlashCmdList.OLYMPUSALL("hi")
+				SlashCmdList.OLYMPUSLORDS(" raid at eight ")
+				eq(table.concat(sent, ","), "A:hi,L: raid at eight "); eq(#toggled, 3)
+				Chan.Send = savedSend
+				-- No chat window on this client (or not a function): the usage line, as in 1.1.
+				ns.ChatWindow = nil
+				SlashCmdList.OLYMPUSALL("")
+				eq(printed[#printed], ns.L.CHAN_USAGE:format("/ol", "Olympus"))
+				ns.ChatWindow = { Toggle = true }
+				SlashCmdList.OLYMPUSCAPTAINS(" ")
+				eq(printed[#printed], ns.L.CHAN_USAGE:format("/olc", "Captains"))
+				eq(#toggled, 3)
+			end)
+			ns.ChatWindow, Chan.Send = savedWindow, savedSend
+			if not ok then error(err, 0) end
+		end)
+	end)
+
 	-- Locales.lua as the game in `code` loads it.
 	local function LoadedL(code)
 		local lns, savedLocale = {}, GetLocale
@@ -42643,7 +42675,7 @@ end)()
 	end
 	-- The strings of this part: their own in English and pt-BR, with the same format codes.
 	local KEYS = { "CHAN_MOVED", "CHATTAB_STEPS", "CHATTAB_SET", "CHATTAB_HERE", "CHATTAB_MIXED", "CHATTAB_WAITING",
-		"CHATTAB_SETTINGS", "CHATTAB_MAIN_TAB", "HELP_CHATWIN", "CHATWIN_USAGE" }
+		"CHATTAB_SETTINGS", "CHATTAB_MAIN_TAB", "HELP_CHATWIN", "CHATWIN_USAGE", "HELP_CHAN_ALL", "HELP_CHAN_CAPTAINS", "HELP_CHAN_LORDS" }
 	test("1.1.1: the strings of the Olympus tab and of #34 in English and pt-BR, with the same format codes", function()
 		local en, pt = LoadedL("enUS"), LoadedL("ptBR")
 		for _, k in ipairs(KEYS) do
@@ -42659,6 +42691,10 @@ end)()
 			assert(l.HELP_CHATWIN:find("/oly chatwindow tab", 1, true) and l.CHATWIN_USAGE:find("/oly chatwindow tab", 1, true), "tab first")
 			assert(l.CHATWIN_USAGE:find("/oly chatwindow tab", 1, true) < l.CHATWIN_USAGE:find("<", 1, true), l.CHATWIN_USAGE)
 		end
+		for _, k in ipairs({ "HELP_CHAN_ALL", "HELP_CHAN_CAPTAINS", "HELP_CHAN_LORDS" }) do
+			assert(en[k]:find("; alone, opens the chat window$"), en[k])
+			assert(pt[k]:find("; sozinho, abre a janela de chat$"), pt[k])
+		end
 	end)
 
 	test("1.1.1: the README and the CurseForge page tell of the Olympus tab and of #34, in the same words", function()
@@ -42671,6 +42707,7 @@ end)()
 			"A line still waiting to leave when the Olympus channel changes (a new realm key",
 			"is not sent, to either channel, and you are told",
 			"| `/oly chatwindow tab` · `/oly chatwindow <number or name>",
+			"alone (`/ol`, `/olc`, `/oll`): open the chat window on that channel (1.1.1) |",
 		}
 		local pages = {}
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
