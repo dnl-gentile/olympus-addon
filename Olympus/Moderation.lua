@@ -19,28 +19,29 @@ local L = ns.L
 -- The same people put either back on.
 --   O1~<c|g>~<1 off|0 on>~<server time>~<Name-Realm or Guild>~<by Name-Realm>~<reason>
 -- Its words travel with the logged API, as a chat line's do (the server keeps them, so abuse
--- can be reported), one word per message. Every client keeps, on each name, the word from highest
--- up (its weight: its giver's rank, the King 3, a Steward 2, a Hand or a councillor 1; no word
--- replaces one from higher up, whatever its date: the 1.1 review), and among words of the same
--- weight the newest (by the server's clock; on the same second the King's own, else the one
--- taking the name off, else by its giver's name: every client keeps the same one), and takes a word only from
--- someone who may give one now, as this client knows them (the server stamps every sender's
--- name): the King by his pinned name, a Steward of the signed titles list, a Hand of the King's
--- list or a Steward's, a councillor of the signed council list; never a name that is off
--- itself. A word one of them passes on for another (a repeat) is taken only while its giver
--- may give one too, and shows who passed it on (the server's name): nobody writes a word in
--- someone else's name unseen. Each giver's client repeats his own words for late logins, never
--- anyone else's (1.1 review: a word passed on in the King's name went out from his client as his
--- own), every REPEAT (longer when the list is long: the army repeats REPEATS_A_MINUTE words a
--- minute at most), and not once he may no longer give one (it lapses; so does a word whose giver
--- was not online to repeat it for STALE). A word taking a name off lapses OFF_KEEP after it was given
--- (given again, it starts over); one putting a name back on is kept and repeated for ON_KEEP,
--- so an older word never comes back.
+-- can be reported), one word per message. Every client keeps, on each name, the word from
+-- highest up (its weight: its giver's rank, the King 3, a Steward 2, a Hand or a councillor 1;
+-- no word replaces one from higher up, whatever its date: Konig's review of 1.1), and among
+-- words of the same weight the newest (by the server's clock; on the same second the King's
+-- own, else the one taking the name off, else by its giver's name: every client keeps the same
+-- one), and takes a word only from someone who may give one now, as this client knows them (the
+-- server stamps every sender's name): the King by his pinned name, a Steward of the signed titles
+-- list, a Hand of the King's list or a Steward's, a councillor of the signed council list; never
+-- a name that is off itself. A word one of them passes on for another (only a modified client
+-- does: an honest one repeats its own words alone) is taken only while its giver may give one
+-- too, weighs no more than whoever passed it on, and shows who did (the server's name): nobody
+-- writes a word in someone else's name unseen. Each giver's client repeats his own words for
+-- late logins, never anyone else's (1.1 review: a word passed on in the King's name went out
+-- from his client as his own), every REPEAT (longer when the list is long: the army repeats
+-- REPEATS_A_MINUTE words a minute at most), and not once he may no longer give one (it lapses;
+-- so does a word whose giver was not online to repeat it for STALE). A word taking a name off
+-- lapses OFF_KEEP after it was given (given again, it starts over); one putting a name back on
+-- is kept and repeated for ON_KEEP, so an older word never comes back.
 -- Among those who give words, only a word from higher up reaches one of them (the King above a
 -- Steward, a Steward above the Hands and councillors): a Hand or a councillor never hides the
--- Steward, another Hand or another councillor. And no word replaces one from higher up (Take): a
--- Hand or a councillor never puts back one the King or a Steward hid, nor hides again one the King
--- showed again; nor does a Steward undo the King's word.
+-- Steward, another Hand or another councillor. And no word replaces one from higher up (Take):
+-- a Hand or a councillor never puts back one the King or a Steward hid, nor hides again one the
+-- King showed again; nor does a Steward undo the King's word.
 -- What it is not: /oly block stays one client's and one player's, and nothing here uninvites,
 -- demotes, or writes Blizzard's ignore list. It never aims at the pinned King (his name in any
 -- case) or his guild. It knows nothing of the treasury or of payments, and no treasury code
@@ -69,8 +70,8 @@ Moderation.GUILDS_KNOWN = 3000    -- senders whose guild this client remembers (
 -- chat lines, decrees, layer announcements, hop asks, offers and answers, Vox votes; and (1.1,
 -- Konig's review) its signups to the King's week (Y2), its flags and camps on the Board (G1), its
 -- crafter's listing, answers and recipe lists (W1, WA, WL), and the Throne's calls to the army,
--- the week's entries among them (T1 of a kind in King.HIDDEN_CALLS: its lists still go). (Its census
--- report: Comm.Broadcast.) Nothing over GUILD is in it: the guild's own hello and key go on.
+-- the week's entries among them (T1 of a kind in King.HIDDEN_CALLS: its lists still go). (Its
+-- census report: Comm.Broadcast.) Nothing over GUILD is in it: the guild's own hello and key go on.
 Moderation.BLOCKED = { M1 = true, D1 = true, L1 = true, LQ = true, LO = true, LR = true, LN = true, LX = true, Y1 = true, Y2 = true, G1 = true,
 	W1 = true, WA = true, WL = true }
 

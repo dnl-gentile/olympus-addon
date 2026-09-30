@@ -10,8 +10,8 @@ local L = ns.L
 -- (Codec.SanitizeChat, then ns.Searchable: a link's text counts, its data doesn't). Only on addon
 -- text: the [Olympus], [Captains] and [Lords] lines (Channels.lua), the King's writs (Acts.lua: the
 -- player's own list alone, never the shared one, 1.1 review), a decree's words (Decree.lua) and
--- Vox Populi's question and answers (Vox.lua). Never a name, a
--- guild, a census row, the treasury, or the game's own chat (Say, Trade, General: never read).
+-- Vox Populi's question and answers (Vox.lua). Never a name, a guild, a census row, the treasury,
+-- or the game's own chat (Say, Trade, General: never read).
 -- A hit hides the line on this screen, nothing more: no kick, no net-off, no ignore, nothing sent
 -- about it, and the same player's next line shows. A hidden line stays one click away (the Realm
 -- tab's chats: "N lines hidden by your filter"; the Decrees tab for a writ, a decree's words or a
@@ -22,9 +22,9 @@ local L = ns.L
 -- the King's or a Steward's list, a High Councillor by the signed council list):
 --   BW~<digest>~<+|-><term>@<server time>[@<editor>],...
 -- Each word is its own entry (SHARED_TERM_MIN letters at least), added (+) or removed (-) at a
--- time; the newest time wins, word by
--- word, so two editors never undo each other's other words, and an editor who logs in with an old
--- or empty list changes nothing (a removal is kept for SHARED_TOMB). Each message stands alone
+-- time; the newest time wins, word by word, so two editors never undo each other's other words,
+-- and an editor who logs in with an old or empty list changes nothing (a removal is kept for
+-- SHARED_TOMB, SHARED_KEEP entries at most, the oldest removals first). Each message stands alone
 -- (as many as the list needs, PAGE bytes each); <digest> names the sender's whole list. An edit
 -- goes out at once; each editor's client repeats the whole list every REPEAT, unless it just
 -- heard another client holding the same (the digest). Clients before 1.1 know no "BW": they
