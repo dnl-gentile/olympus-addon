@@ -3694,6 +3694,75 @@ if GetLocale and GetLocale() == "ptBR" then
 end
 
 ---------------------------------------------------------------------------
+-- 1.1.1: the Olympus chat window (ChatWindow.lua): the three chats in a window of Olympus's own,
+-- every line whole, and a box of its own to write in. Its ways in: /oly talk, /ol, /olc or /oll
+-- alone, Shift-click on the minimap button, and two lines on the Realm tab's chats page.
+---------------------------------------------------------------------------
+L.CHATWIN_TITLE = "Olympus chats"
+L.CHATWIN_PLACEHOLDER = "Write in [%s]..."
+L.CHATWIN_PUBLIC = " (public channel)"
+L.CHATWIN_YOU = "You"
+L.CHATWIN_TAG_STEWARD = "Steward"
+L.CHATWIN_TAG_HAND = "Hand"
+L.CHATWIN_KEPT = "The last %d lines of each channel are kept, from every session."
+L.CHATWIN_EMPTY = "Nothing said in [%s] yet."
+-- (CHATWIN_NEW is taken: the game's "Create New Window" menu, /oly chatwindow.)
+L.CHATWIN_NEW_LINES = "%d new"
+L.CHATWIN_HIDDEN = "A line your block terms hide: click to show it."
+L.CHATWIN_NO_SLASH = "Slash commands go in the game's chat box: this box only writes in [%s]."
+L.CHATWIN_NOT_SENT = "Not sent: %s."
+L.CHATWIN_WHY_MOVED = "the Olympus channel changed"
+L.CHATWIN_WHY_LATE = "it waited too long to leave"
+L.CHATWIN_WHY_FAILED = "the game refused it"
+L.CHATWIN_WHY_LEFT = "you are not in an Olympus guild"
+L.CHATWIN_PUT_BACK = "Click to put it back in the box."
+L.CHATWIN_WHISPER_TIP = "Click: whisper %s"
+L.CHATWIN_OFF = "The Olympus chats are off on this client: nothing is sent or shown."
+L.CHATWIN_OFF_BUTTON = "Choose"
+L.CHATWIN_MUTED_TIP = "Muted in your chat (/oly mute): its lines still show here."
+L.CHATWIN_PINNED = "Pinned"
+L.CHATS_OPEN_WINDOW = "Open the chat window"
+L.CHATS_OPEN_WINDOW_TIP = "The Olympus chats in a window of their own: every line whole, and a box to write in. Also /oly talk, or /ol alone."
+L.CHATS_TAB_MAKE = "Make an Olympus tab in your chat"
+L.CHATS_TAB_WAITING = "Olympus tab: waiting for a chat tab named Olympus"
+L.CHATS_TAB_ON = "Olympus tab: on"
+L.CHATS_TAB_TIP = "The Olympus chats in a tab of the game's chat, each line in its channel's colour, without the channel's name. /oly chatwindow main puts them back."
+L.HELP_TALK = "  /oly talk - open or close the Olympus chat window (also /ol, /olc or /oll alone, or Shift-click the minimap button)"
+L.MINIMAP_SHIFT = "Shift-click: the Olympus chat window"
+if GetLocale and GetLocale() == "ptBR" then
+	L.CHATWIN_TITLE = "Chats Olympus"
+	L.CHATWIN_PLACEHOLDER = "Escreva em [%s]..."
+	L.CHATWIN_PUBLIC = " (canal público)"
+	L.CHATWIN_YOU = "Você"
+	L.CHATWIN_TAG_STEWARD = "Senescal"
+	L.CHATWIN_TAG_HAND = "Mão"
+	L.CHATWIN_KEPT = "As últimas %d linhas de cada canal ficam guardadas, de todas as sessões."
+	L.CHATWIN_EMPTY = "Nada dito em [%s] ainda."
+	L.CHATWIN_NEW_LINES = "%d novas"
+	L.CHATWIN_HIDDEN = "Uma linha que os seus termos bloqueados escondem: clique para mostrar."
+	L.CHATWIN_NO_SLASH = "Comandos com / vão na caixa de chat do jogo: esta caixa só escreve em [%s]."
+	L.CHATWIN_NOT_SENT = "Não enviada: %s."
+	L.CHATWIN_WHY_MOVED = "o canal Olympus mudou"
+	L.CHATWIN_WHY_LATE = "esperou demais para sair"
+	L.CHATWIN_WHY_FAILED = "o jogo recusou"
+	L.CHATWIN_WHY_LEFT = "você não está numa guilda Olympus"
+	L.CHATWIN_PUT_BACK = "Clique para devolvê-la à caixa."
+	L.CHATWIN_WHISPER_TIP = "Clique: sussurrar para %s"
+	L.CHATWIN_OFF = "Os chats Olympus estão desligados neste cliente: nada é enviado nem mostrado."
+	L.CHATWIN_OFF_BUTTON = "Escolher"
+	L.CHATWIN_MUTED_TIP = "Silenciado no seu chat (/oly mute): as linhas dele ainda aparecem aqui."
+	L.CHATWIN_PINNED = "Fixada"
+	L.CHATS_OPEN_WINDOW = "Abrir a janela de chat"
+	L.CHATS_OPEN_WINDOW_TIP = "Os chats Olympus numa janela só deles: cada linha inteira, e uma caixa para escrever. Também /oly talk, ou /ol sozinho."
+	L.CHATS_TAB_MAKE = "Criar uma aba Olympus no seu chat"
+	L.CHATS_TAB_WAITING = "Aba Olympus: esperando uma aba de chat chamada Olympus"
+	L.CHATS_TAB_ON = "Aba Olympus: ligada"
+	L.CHATS_TAB_TIP = "Os chats Olympus numa aba do chat do jogo, cada linha na cor do seu canal, sem o nome do canal. /oly chatwindow main devolve."
+	L.HELP_TALK = "  /oly talk - abrir ou fechar a janela de chat Olympus (também /ol, /olc ou /oll sozinhos, ou Shift-clique no botão do minimapa)"
+	L.MINIMAP_SHIFT = "Shift-clique: a janela de chat Olympus"
+end
+
+---------------------------------------------------------------------------
 -- 1.1 (Konig's review of 1.1, moderation): a net-off word from higher up holds a name
 -- (Moderation.lua); a shared block term's length (Filter.lua).
 ---------------------------------------------------------------------------
