@@ -9051,10 +9051,12 @@ do
 	-- The game's chat windows as GetChatWindowInfo tells them: 1 the main one, 2 the combat log
 	-- (docked), 3 unused, 4 "Olympus" docked behind another tab (hidden, so "not shown"), 5
 	-- "Officers" floating, 6-10 unused. fn(w, printed) runs with them, as a Lord of Olympus II.
+	-- (1.1.1: window 4 is the Olympus tab, whose first line for a character says what it holds,
+	-- ns.db.chatTabIntro: none said yet, and put back as it was.)
 	local function WithWindows(fn)
 		local saved = { info = GetChatWindowInfo, fcf = FCF_GetChatWindowInfo, combat = IsCombatLog, num = NUM_CHAT_WINDOWS,
 			default = DEFAULT_CHAT_FRAME, lines = CHAT_LINES, windows = ns.db.chatWindows, chat = ns.rdb.chat, mute = ns.db.chatMute,
-			me = ns.me, frames = {} }
+			me = ns.me, frames = {}, intro = ns.db.chatTabIntro }
 		local w = {}
 		for i = 1, 10 do
 			saved.frames[i] = _G["ChatFrame" .. i]
@@ -9075,11 +9077,11 @@ do
 		FCF_GetChatWindowInfo = nil
 		IsCombatLog = function(f) return f == w[2] end
 		DEFAULT_CHAT_FRAME = w[1]
-		ns.db.chatWindows, ns.rdb.chat, ns.db.chatMute, ns.me = nil, nil, nil, "Tester-Realm"
+		ns.db.chatWindows, ns.rdb.chat, ns.db.chatMute, ns.me, ns.db.chatTabIntro = nil, nil, nil, "Tester-Realm", nil
 		local ok, err = pcall(AsRank, 0, function(printed) fn(w, printed) end)
 		GetChatWindowInfo, FCF_GetChatWindowInfo, IsCombatLog, NUM_CHAT_WINDOWS = saved.info, saved.fcf, saved.combat, saved.num
 		DEFAULT_CHAT_FRAME, CHAT_LINES, ns.db.chatWindows, ns.rdb.chat, ns.db.chatMute = saved.default, saved.lines, saved.windows, saved.chat, saved.mute
-		ns.me = saved.me
+		ns.me, ns.db.chatTabIntro = saved.me, saved.intro
 		for i = 1, 10 do _G["ChatFrame" .. i] = saved.frames[i] end
 		if not ok then error(err, 0) end
 	end
@@ -9096,7 +9098,10 @@ do
 			eq(ns.db.chatWindows["Tester-Realm"].A, "Olympus", "stored as the game names it")
 			eq(ns.db.chatWindows["Tester-Realm"].C, "Olympus"); eq(ns.db.chatWindows["Tester-Realm"].L, "Olympus")
 			eq(printed[#printed], ns.L.CHATWIN_SET:format("[Olympus], [Captains], [Lords]", '"Olympus"'))
-			eq(Count(w[4].lines, "[Lords]"), 1, "the choice is said in that window too")
+			-- (1.1.1: a window named Olympus is the Olympus tab: it says what it holds, the legend of
+			-- the channels' colours, where another window gets CHATWIN_SET.)
+			eq(Count(w[4].lines, (ns.L.CHATTAB_HERE:gsub("%%s.*$", ""))), 1, "the choice is said in that window too")
+			eq(Count(w[4].lines, "[Lords]"), 1, "its legend names the channels")
 			eq(Chan.ChooseWindow("5 captains"), true, "by number, one channel")
 			eq(ns.db.chatWindows["Tester-Realm"].C, "Officers"); eq(ns.db.chatWindows["Tester-Realm"].A, "Olympus")
 			w[1].lines, w[4].lines, w[5].lines = {}, {}, {}
@@ -9106,6 +9111,9 @@ do
 			eq((Chan.Receive("CHANNEL", "Member1", Msg("L", MY_GUILD, id, "lords to the olympus tab"), 3000002)), true)
 			eq(Count(w[4].lines, "to the olympus tab"), 2); eq(Count(w[5].lines, "to the officers window"), 1)
 			eq(#w[1].lines, 0, "nothing in the main window")
+			-- (1.1.1: in the Olympus tab without the channel's name; in "Officers" with it.)
+			for _, l in ipairs(w[4].lines) do assert(l:find("^|Hplayer:"), l) end
+			assert(w[5].lines[1]:find("^%[Captains%] |Hplayer:"), w[5].lines[1])
 			-- Our own line, shown when sent, lands with the others.
 			WithLane(function() ns.db.chatWarned = { A = true, C = true, L = true }; local ok, why = Chan.Send("A", "my own line", 1e12); eq(ok, true, tostring(why)) end)
 			eq(Count(w[4].lines, "my own line"), 1); eq(#w[1].lines, 0)
@@ -42374,6 +42382,256 @@ end)()
 		assert(ns.StatusText():find("lane=%d+ moved=%d+ muted="), "moved= in /oly status")
 	end)
 
+	-- The game's chat windows, as the 0.9.1 chat tests build them: 1 "General" the main one, 2 the
+	-- combat log (docked), 5 "Officers" floating, the others unused; GetChatWindowMessages and
+	-- GetChatWindowChannels answer what w[i].messages and w[i].channels hold. Every function of the
+	-- game's that makes, names, docks or sets up a chat window, opens the chat box or shows a popup,
+	-- and every method of a chat window but AddMessage, is a spy: w.unsafe lists what was called
+	-- (asked empty at the end). fn(w, printed) as a Lord of Olympus II, ns.me "Tester-Realm", the
+	-- chats on and every channel warned, nothing chosen.
+	local UNSAFE = { "FCF_OpenNewWindow", "FCF_NewChatWindow", "FCF_SetWindowName", "FCF_DockFrame", "FCF_SetWindowColor",
+		"FCF_SetWindowAlpha", "FCF_StartAlertFlash", "StaticPopup_Show", "ChatFrame_OpenChat", "ChatEdit_ActivateChat",
+		"ChatFrame_AddMessageEventFilter", "SetChatWindowName", "SetChatWindowShown", "AddChatWindowMessages",
+		"RemoveChatWindowMessages", "AddChatWindowChannel", "RemoveChatWindowChannel" }
+	local function WithTabs(fn)
+		local saved = { info = GetChatWindowInfo, fcf = FCF_GetChatWindowInfo, combat = IsCombatLog, num = NUM_CHAT_WINDOWS,
+			msgs = GetChatWindowMessages, chans = GetChatWindowChannels, util = ChatFrameUtil, new = NEW_CHAT_WINDOW,
+			config = CHAT_CONFIGURATION, default = DEFAULT_CHAT_FRAME, frames = {}, spies = {}, me = ns.me,
+			db = { chatWindows = ns.db.chatWindows, chatTabIntro = ns.db.chatTabIntro, chatMute = ns.db.chatMute,
+				chatWarned = ns.db.chatWarned, addonChat = ns.db.addonChat }, chat = ns.rdb.chat }
+		local w = { unsafe = {} }
+		local function Spy(name) return function() w.unsafe[#w.unsafe + 1] = name end end
+		for i = 1, 10 do
+			saved.frames[i] = _G["ChatFrame" .. i]
+			local f = { name = "", shown = false, lines = {}, colors = {} }
+			f.AddMessage = function(self, text, r, g, b)
+				self.lines[#self.lines + 1] = text
+				self.colors[#self.colors + 1] = { r, g, b }
+			end
+			w[i] = setmetatable(f, { __index = function(_, k)
+				if type(k) == "string" and k:match("^%u") then return Spy("ChatFrame" .. i .. ":" .. k) end
+			end })
+			_G["ChatFrame" .. i] = w[i]
+		end
+		w[1].name, w[1].shown = "General", true
+		w[2].name, w[2].isDocked = "Combat Log", true
+		w[5].name, w[5].shown = "Officers", true
+		NUM_CHAT_WINDOWS = 10
+		GetChatWindowInfo = function(i)
+			local f = w[i]
+			return f.name, 14, 0, 0, 0, 1, f.shown, false, f.isDocked and 1 or nil, false
+		end
+		FCF_GetChatWindowInfo = nil
+		IsCombatLog = function(f) return f == w[2] end
+		GetChatWindowMessages = function(i) if w[i].messages then return unpack(w[i].messages) end end
+		GetChatWindowChannels = function(i) if w[i].channels then return unpack(w[i].channels) end end
+		NEW_CHAT_WINDOW, CHAT_CONFIGURATION = "Create New Window", "Settings"
+		for _, name in ipairs(UNSAFE) do
+			saved.spies[name] = _G[name]
+			_G[name] = Spy(name)
+		end
+		ChatFrameUtil = { SetLastActiveWindow = Spy("ChatFrameUtil.SetLastActiveWindow"), OpenChat = Spy("ChatFrameUtil.OpenChat"),
+			ActivateChat = Spy("ChatFrameUtil.ActivateChat"), SetChatFocusOverride = Spy("ChatFrameUtil.SetChatFocusOverride") }
+		DEFAULT_CHAT_FRAME = w[1]
+		ns.db.chatWindows, ns.db.chatTabIntro, ns.db.chatMute, ns.rdb.chat, ns.me = nil, nil, nil, nil, "Tester-Realm"
+		ns.db.addonChat, ns.db.chatWarned = true, { A = true, C = true, L = true }
+		local ok, err = pcall(AsRank, 0, function(printed)
+			fn(w, printed)
+			eq(#w.unsafe, 0, "never called: " .. table.concat(w.unsafe, ", "))
+		end)
+		GetChatWindowInfo, FCF_GetChatWindowInfo, IsCombatLog, NUM_CHAT_WINDOWS = saved.info, saved.fcf, saved.combat, saved.num
+		GetChatWindowMessages, GetChatWindowChannels, ChatFrameUtil = saved.msgs, saved.chans, saved.util
+		NEW_CHAT_WINDOW, CHAT_CONFIGURATION, DEFAULT_CHAT_FRAME = saved.new, saved.config, saved.default
+		for _, name in ipairs(UNSAFE) do _G[name] = saved.spies[name] end
+		for i = 1, 10 do _G["ChatFrame" .. i] = saved.frames[i] end
+		for k, v in pairs(saved.db) do ns.db[k] = v end
+		ns.rdb.chat, ns.me = saved.chat, saved.me
+		if not ok then error(err, 0) end
+	end
+	-- A line heard on the channel, a new id and a new time each (no dedupe, rate or flood guard).
+	local recvId, recvAt = 7000, 8000000
+	local function Recv(tier, sender, text)
+		recvId, recvAt = recvId + 1, recvAt + 100
+		return (Chan.Receive("CHANNEL", sender, Msg(tier, MY_GUILD, recvId, text), recvAt))
+	end
+	-- The tab's legend: each channel's name in its colour (TIERS: gold, teal, purple).
+	local LEGEND = "|cffe6c45c[Olympus]|r, |cff59d9d9[Captains]|r, |cffbf80ff[Lords]|r"
+	local function Our(text) return "|c" .. ns.COLOR .. "Olympus:|r " .. text end
+	local function Has(list, text)
+		local n = 0
+		for _, l in ipairs(list) do if tostring(l):find(text, 1, true) then n = n + 1 end end
+		return n
+	end
+
+	test("1.1.1 Olympus tab: FormatLine bare leaves out the channel's name and nothing else", function()
+		local full = Chan.FormatLine("C", "Bob-Other", "Olympus II", "PA", "hi |Tx|t " .. ITEM)
+		local bare = Chan.FormatLine("C", "Bob-Other", "Olympus II", "PA", "hi |Tx|t " .. ITEM, true)
+		assert(full:find("^%[Captains%] |Hplayer:Bob%-Other|h%["), full)
+		eq(full, "[Captains] " .. bare, "the rest byte for byte")
+		assert(bare:find("^|Hplayer:Bob%-Other|h%["), bare)
+		assert(bare:find(" <Olympus II>: hi ||Tx||t " .. ITEM, 1, true), "guild and sanitized text: " .. bare)
+		eq(Chan.FormatLine("L", "Bob-Other", "Olympus II", nil, "x", false), Chan.FormatLine("L", "Bob-Other", "Olympus II", nil, "x"))
+	end)
+
+	test("1.1.1 Olympus tab: lines in a chat window named Olympus come without the channel's name, in its colour; another window and the main one keep it", function()
+		WithTabs(function(w, printed)
+			w[4].name, w[4].isDocked = "Olympus", true
+			ns.db.chatWindows = { ["Tester-Realm"] = { A = "Olympus", C = "Officers" } }
+			ns.db.chatTabIntro = { ["Tester-Realm"] = true } -- (told already)
+			eq(Recv("A", "Member500", "army line"), true)
+			eq(Recv("C", "Member2", "captains line"), true)
+			eq(Recv("L", "Member1", "lords line"), true)
+			eq(#w[4].lines, 1); assert(w[4].lines[1]:find("^|Hplayer:Member500|h%["), w[4].lines[1])
+			assert(w[4].lines[1]:find(": army line$"), w[4].lines[1])
+			eq(w[4].colors[1][1], 0.90); eq(w[4].colors[1][2], 0.77); eq(w[4].colors[1][3], 0.36)
+			eq(#w[5].lines, 1); assert(w[5].lines[1]:find("^%[Captains%] |Hplayer:"), w[5].lines[1])
+			eq(#w[1].lines, 1); assert(w[1].lines[1]:find("^%[Lords%] |Hplayer:"), w[1].lines[1])
+			eq(w[1].colors[1][1], 0.75); eq(w[1].colors[1][3], 1.00)
+			-- Our own echo too.
+			WithLane(function() local ok, why = Chan.Send("A", "my own line", 5e12); eq(ok, true, tostring(why)) end)
+			eq(#w[4].lines, 2); assert(w[4].lines[2]:find("^|Hplayer:"), w[4].lines[2]); assert(w[4].lines[2]:find("my own line", 1, true))
+			-- Any case, spaces around it: still the Olympus tab.
+			w[4].name = " OLYMPUS "
+			eq(Recv("A", "Member501", "spaced name"), true)
+			eq(#w[4].lines, 3); assert(w[4].lines[3]:find("^|Hplayer:"), w[4].lines[3])
+			-- The main window renamed Olympus is still the main window: the name stays, as anywhere else.
+			w[4].isDocked, w[1].name = nil, "Olympus"
+			eq(Recv("A", "Member502", "main named olympus"), true)
+			eq(#w[4].lines, 3); assert(w[1].lines[#w[1].lines]:find("^%[Olympus%] |Hplayer:"), w[1].lines[#w[1].lines])
+			eq(#printed, 0, "no notice: the main window has it by name")
+		end)
+	end)
+
+	test("1.1.1 Olympus tab: the one click without the tab says how to make it; the lines wait in the main window, said once, and land in the tab, bare, after one intro, the moment it exists", function()
+		WithTabs(function(w, printed)
+			ns.db.chatTabIntro = { ["Tester-Realm"] = true } -- (told of an earlier tab: the new one says it again)
+			local ok, state = Chan.SetupTab()
+			eq(ok, true); eq(state, "waiting")
+			local mine = ns.db.chatWindows["Tester-Realm"]
+			eq(mine.A, "Olympus"); eq(mine.C, "Olympus"); eq(mine.L, "Olympus")
+			eq(printed[#printed], ns.L.CHATTAB_STEPS:format("General", "Create New Window", "Settings"), "the game's own words")
+			eq(ns.db.chatTabIntro, nil)
+			eq(Chan.TabState(), "waiting")
+			local n = #printed
+			eq(Recv("A", "Member500", "before the tab"), true)
+			eq(Has(w[1].lines, "before the tab"), 1); assert(w[1].lines[#w[1].lines]:find("^%[Olympus%] "), "the main window keeps the name")
+			eq(#printed, n + 1); eq(printed[#printed], ns.L.CHATTAB_WAITING, "not gone: it was never there")
+			eq(Recv("C", "Member2", "still no tab"), true)
+			eq(#printed, n + 1, "said once")
+			-- The player makes it (the game's menu): window 6, docked.
+			w[6].name, w[6].isDocked = "Olympus", true
+			eq(Recv("L", "Member1", "now in the tab"), true)
+			eq(#w[6].lines, 2)
+			eq(w[6].lines[1], Our(ns.L.CHATTAB_HERE:format(LEGEND)), "the intro first")
+			assert(w[6].lines[2]:find("^|Hplayer:Member1|h%["), w[6].lines[2])
+			eq(ns.db.chatTabIntro["Tester-Realm"], true)
+			eq(Chan.TabState(), "open"); eq(#printed, n + 1)
+			eq(Recv("A", "Member503", "no second intro"), true)
+			eq(#w[6].lines, 3); assert(w[6].lines[3]:find("^|Hplayer:"), w[6].lines[3])
+			-- Closed after it was there: the usual notice, once.
+			w[6].isDocked = nil
+			eq(Recv("A", "Member504", "tab closed"), true)
+			eq(printed[#printed], ns.L.CHATWIN_GONE:format('"Olympus"')); eq(Chan.TabState(), "waiting")
+			-- The game's words missing (another client): ours.
+			NEW_CHAT_WINDOW, CHAT_CONFIGURATION, w[1].name = nil, "", ""
+			eq(select(2, Chan.SetupTab()), "waiting")
+			eq(printed[#printed], ns.L.CHATTAB_STEPS:format(ns.L.CHATTAB_MAIN_TAB, ns.L.CHATWIN_NEW, ns.L.CHATTAB_SETTINGS))
+		end)
+	end)
+
+	test("1.1.1 Olympus tab: the one click with the tab open says so in the main window and in the tab, and how to keep other chat out while the tab shows some", function()
+		WithTabs(function(w, printed)
+			w[4].name, w[4].isDocked = "Olympus", true
+			w[4].messages = { "SAY", "GUILD", "WHISPER" }
+			local ok, state = Chan.SetupTab()
+			eq(ok, true); eq(state, "open")
+			eq(printed[#printed], ns.L.CHATTAB_SET:format("[Olympus], [Captains], [Lords]"))
+			eq(#w[4].lines, 2)
+			eq(w[4].lines[1], Our(ns.L.CHATTAB_HERE:format(LEGEND)))
+			eq(w[4].lines[2], Our(ns.L.CHATTAB_MIXED:format("Settings")))
+			eq(ns.db.chatTabIntro["Tester-Realm"], true); eq(Chan.TabState(), "open")
+			eq(Recv("A", "Member500", "first line"), true)
+			eq(#w[4].lines, 3, "no second intro"); assert(w[4].lines[3]:find("^|Hplayer:"), w[4].lines[3])
+			-- Channels alone (Trade, General): other chat too.
+			w[4].lines, w[4].messages, w[4].channels = {}, nil, { "Trade - City", 2 }
+			Chan.SetupTab()
+			eq(#w[4].lines, 2); eq(w[4].lines[2], Our(ns.L.CHATTAB_MIXED:format("Settings")))
+			-- Nothing else registered: no hint.
+			w[4].lines, w[4].channels = {}, nil
+			Chan.SetupTab()
+			eq(#w[4].lines, 1)
+			-- The game without those functions, or failing: unknown, so no hint.
+			w[4].lines, w[4].messages = {}, { "SAY" }
+			GetChatWindowMessages, GetChatWindowChannels = nil, nil
+			Chan.SetupTab(); eq(#w[4].lines, 1)
+			w[4].lines = {}
+			GetChatWindowMessages = function() error("no such window") end
+			Chan.SetupTab(); eq(#w[4].lines, 1)
+			-- Its Settings word missing: ours.
+			w[4].lines = {}
+			GetChatWindowMessages, CHAT_CONFIGURATION = function() return "SAY" end, nil
+			Chan.SetupTab(); eq(w[4].lines[2], Our(ns.L.CHATTAB_MIXED:format(ns.L.CHATTAB_SETTINGS)))
+		end)
+	end)
+
+	test("1.1.1 Olympus tab: /oly chatwindow tab (or aba) is the one click, /oly chatwindow main undoes it, and TabState follows", function()
+		WithTabs(function(w, printed)
+			eq(Chan.TabState(), "none")
+			SlashCmdList.OLYMPUS("chatwindow tab")
+			eq(printed[#printed], ns.L.CHATTAB_STEPS:format("General", "Create New Window", "Settings")); eq(Chan.TabState(), "waiting")
+			w[7].name, w[7].isDocked = "olympus", true
+			eq(Chan.TabState(), "open")
+			SlashCmdList.OLYMPUS("chatwindow main")
+			eq(ns.db.chatWindows, nil); eq(Chan.TabState(), "none")
+			eq(printed[#printed], ns.L.CHATWIN_MAIN:format("[Olympus], [Captains], [Lords]"))
+			eq(Chan.ChooseWindow("ABA"), true); eq(Chan.TabState(), "open")
+			eq(printed[#printed - 0], ns.L.CHATTAB_SET:format("[Olympus], [Captains], [Lords]"))
+			-- Another window by name: not the tab. One channel to the tab by name: the tab again.
+			eq(Chan.ChooseWindow("main"), true)
+			eq(Chan.ChooseWindow("5"), true); eq(Chan.TabState(), "none")
+			w[7].lines = {}
+			eq(Chan.ChooseWindow("Olympus lords"), true); eq(Chan.TabState(), "open")
+			eq(ns.db.chatWindows["Tester-Realm"].L, "olympus", "as the game names it")
+			eq(printed[#printed], ns.L.CHATWIN_SET:format("[Lords]", '"olympus"'), "the main window: where they go")
+			eq(w[7].lines[1], Our(ns.L.CHATTAB_HERE:format(LEGEND)), "the tab: what it holds")
+			eq(Has(w[7].lines, ns.L.CHATWIN_SET:format("[Lords]", '"olympus"')), 0)
+			assert(Chan.WindowStatus():find('[Lords] "olympus"', 1, true), Chan.WindowStatus())
+		end)
+	end)
+
+	test("1.1.1 Olympus tab: at login the saved list of characters told what their tab holds keeps [name] = true alone", function()
+		local init
+		local saved = { slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS },
+			dialogs = { StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN } }
+		local ins = setmetatable({ On = function(name, fn) if name == "INIT" then init = fn end end,
+			Comm = setmetatable({ Handle = function() end }, { __index = ns.Comm }) }, { __index = ns })
+		local ok, err = pcall(function()
+			assert(loadfile(ADDON_DIR .. "Channels.lua"))("Olympus", ins)
+			ins.db, ins.rdb = { chatTabIntro = { ["Tester-Realm"] = true, ["Other-Realm"] = "yes", [3] = true } }, {}
+			init()
+			eq(ins.db.chatTabIntro["Tester-Realm"], true); eq(ins.db.chatTabIntro["Other-Realm"], nil); eq(ins.db.chatTabIntro[3], nil)
+			ins.db.chatTabIntro = { x = false }
+			init()
+			eq(ins.db.chatTabIntro, nil, "nothing left")
+			ins.db.chatTabIntro = "broken"
+			init()
+			eq(ins.db.chatTabIntro, nil)
+		end)
+		SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = saved.slash[1], saved.slash[2], saved.slash[3]
+		StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN = saved.dialogs[1], saved.dialogs[2]
+		StaticPopupDialogs.OLYMPUS_PIN_DOWN = saved.dialogs[3]
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.1.1 Olympus tab: the spies catch what they stand for (so an empty list means never called)", function()
+		local ok, err = pcall(WithTabs, function()
+			FCF_OpenNewWindow("Olympus")
+			ChatFrameUtil.SetLastActiveWindow()
+			ChatFrame4:RemoveAllMessageGroups()
+		end)
+		assert(not ok and tostring(err):find("FCF_OpenNewWindow, ChatFrameUtil.SetLastActiveWindow, ChatFrame4:RemoveAllMessageGroups", 1, true), tostring(err))
+	end)
+
 	-- Locales.lua as the game in `code` loads it.
 	local function LoadedL(code)
 		local lns, savedLocale = {}, GetLocale
@@ -42384,7 +42642,8 @@ end)()
 		return lns.L
 	end
 	-- The strings of this part: their own in English and pt-BR, with the same format codes.
-	local KEYS = { "CHAN_MOVED" }
+	local KEYS = { "CHAN_MOVED", "CHATTAB_STEPS", "CHATTAB_SET", "CHATTAB_HERE", "CHATTAB_MIXED", "CHATTAB_WAITING",
+		"CHATTAB_SETTINGS", "CHATTAB_MAIN_TAB", "HELP_CHATWIN", "CHATWIN_USAGE" }
 	test("1.1.1: the strings of the Olympus tab and of #34 in English and pt-BR, with the same format codes", function()
 		local en, pt = LoadedL("enUS"), LoadedL("ptBR")
 		for _, k in ipairs(KEYS) do
@@ -42395,6 +42654,32 @@ end)()
 		end
 		assert(en.CHAN_MOVED:find("It was not sent to either channel", 1, true), en.CHAN_MOVED)
 		assert(pt.CHAN_MOVED:find("não foi enviada a nenhum dos dois canais", 1, true), pt.CHAN_MOVED)
+		eq(select(2, en.CHATTAB_STEPS:gsub("%%s", "")), 3, "the main tab, Create New Window, Settings")
+		for _, l in ipairs({ en, pt }) do
+			assert(l.HELP_CHATWIN:find("/oly chatwindow tab", 1, true) and l.CHATWIN_USAGE:find("/oly chatwindow tab", 1, true), "tab first")
+			assert(l.CHATWIN_USAGE:find("/oly chatwindow tab", 1, true) < l.CHATWIN_USAGE:find("<", 1, true), l.CHATWIN_USAGE)
+		end
+	end)
+
+	test("1.1.1: the README and the CurseForge page tell of the Olympus tab and of #34, in the same words", function()
+		local PHRASES = {
+			"**The Olympus tab (1.1.1).** One click on the Realm tab's chats page, or `/oly chatwindow tab`",
+			"right-click the General tab, Create New Window, and name it Olympus",
+			"Olympus cannot make it for you",
+			"right-click it, Settings, and untick everything",
+			"In a window named anything but Olympus the lines keep the channel's name",
+			"A line still waiting to leave when the Olympus channel changes (a new realm key",
+			"is not sent, to either channel, and you are told",
+			"| `/oly chatwindow tab` · `/oly chatwindow <number or name>",
+		}
+		local pages = {}
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, phrase in ipairs(PHRASES) do assert(doc:find(phrase, 1, true), path .. ": " .. phrase) end
+			assert(not doc:find("`/oly chatwindow Olympus` shows the three channels", 1, true), path .. ": the old bullet")
+			pages[#pages + 1] = doc:match("### Channels(.-)%*%*Not encrypted")
+		end
+		eq(pages[1], pages[2], "the Channels section is the same on both pages")
 	end)
 end)()
 

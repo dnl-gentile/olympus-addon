@@ -727,8 +727,8 @@ L.CHAN_WARN_ASK = "|cffe6c35c[%s] is not private.|r\n\nEvery addon on the Olympu
 L.CHAN_WARN_NOT_SENT = "Your line was not sent."
 L.THRONE_LOCATION_LAYER = "Your layer is announced with it, so the army can ask to join you there."
 -- 0.9.1: chat
-L.HELP_CHATWIN = "  /oly chatwindow <number|name> [olympus|captains|lords] - show the Olympus chats in another chat window (main: back to the main one)"
-L.CHATWIN_USAGE = "Usage: /oly chatwindow <number or name> [olympus | captains | lords]. Make the tab in the game first (right-click a chat tab), then pick it here. /oly chatwindow main puts them back in the main window."
+L.HELP_CHATWIN = "  /oly chatwindow tab - the Olympus chats in a chat tab named Olympus, without the channel's name; /oly chatwindow <number|name> [olympus|captains|lords] - in another chat window (main: back to the main one)"
+L.CHATWIN_USAGE = "Usage: /oly chatwindow tab puts the Olympus chats in a chat tab named Olympus, without the channel's name (it says how to make the tab). Or /oly chatwindow <number or name> [olympus | captains | lords] for another chat window: make it in the game first (right-click a chat tab), then pick it here. /oly chatwindow main puts them back in the main window."
 L.CHATWIN_NOW = "Olympus chats: %s."
 L.CHATWIN_SET = "%s: now in the chat window %s."
 L.CHATWIN_MAIN = "%s: back in the main chat window."
@@ -2439,8 +2439,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CHAN_WARN_NOT_SENT = "Sua linha não foi enviada."
 	L.THRONE_LOCATION_LAYER = "Seu layer é anunciado junto, para o exército poder pedir para entrar nele."
 	-- 0.9.1: chat
-	L.HELP_CHATWIN = "  /oly chatwindow <número|nome> [olympus|captains|lords] - mostrar os chats Olympus em outra janela de chat (main: de volta à principal)"
-	L.CHATWIN_USAGE = "Uso: /oly chatwindow <número ou nome> [olympus | captains | lords]. Crie a aba no jogo antes (botão direito numa aba do chat) e escolha aqui. /oly chatwindow main devolve os chats à janela principal."
+	L.HELP_CHATWIN = "  /oly chatwindow tab - os chats Olympus numa aba de chat chamada Olympus, sem o nome do canal; /oly chatwindow <número|nome> [olympus|captains|lords] - em outra janela de chat (main: de volta à principal)"
+	L.CHATWIN_USAGE = "Uso: /oly chatwindow tab põe os chats Olympus numa aba de chat chamada Olympus, sem o nome do canal (explica como criar a aba). Ou /oly chatwindow <número ou nome> [olympus | captains | lords] para outra janela de chat: crie no jogo antes (botão direito numa aba do chat) e escolha aqui. /oly chatwindow main devolve os chats à janela principal."
 	L.CHATWIN_NOW = "Chats Olympus: %s."
 	L.CHATWIN_SET = "%s: agora na janela de chat %s."
 	L.CHATWIN_MAIN = "%s: de volta à janela de chat principal."
@@ -3706,9 +3706,24 @@ end
 
 ---------------------------------------------------------------------------
 -- 1.1.1: the Olympus chats. A line still waiting to leave when the Olympus channel changes (a new
--- realm key) is sent to neither channel (GitHub #34, Comm.lua).
+-- realm key) is sent to neither channel (GitHub #34, Comm.lua). The Olympus tab: a chat tab of
+-- the game's named Olympus, its lines without the channel's name (Channels.SetupTab).
 ---------------------------------------------------------------------------
 L.CHAN_MOVED = "[%s]: the Olympus channel changed (a new channel key) before your line left. It was not sent to either channel: send it again to write on the new one."
+L.CHATTAB_STEPS = "No chat tab named Olympus yet. Make it in the game: right-click the %s tab, %s, and name it Olympus. The Olympus chats go there as soon as it exists (the main window until then). For them alone in it: right-click the new tab, %s, and untick everything."
+L.CHATTAB_SET = "%s: now in your Olympus tab, each line in its channel's colour, without the channel's name."
+L.CHATTAB_HERE = "The Olympus chats show in this tab, each line in its channel's colour: %s. /oly chatwindow main puts them back in the main window."
+L.CHATTAB_MIXED = "This tab also shows other chat (Say, Guild, whispers and more). For the Olympus chats alone here: right-click the tab, %s, and untick everything."
+L.CHATTAB_WAITING = "The Olympus chats show in the main window until there is a chat tab named Olympus (/oly chatwindow tab says how to make it)."
+L.CHATTAB_SETTINGS = "Settings"
+L.CHATTAB_MAIN_TAB = "General"
 if GetLocale and GetLocale() == "ptBR" then
 	L.CHAN_MOVED = "[%s]: o canal Olympus mudou (uma chave de canal nova) antes de a sua linha sair. Ela não foi enviada a nenhum dos dois canais: envie de novo para escrever no novo."
+	L.CHATTAB_STEPS = "Ainda não há aba de chat chamada Olympus. Crie no jogo: botão direito na aba %s, %s, e dê o nome Olympus. Os chats Olympus vão para lá assim que ela existir (até lá, a janela principal). Para ter só eles nela: botão direito na aba nova, %s, e desmarque tudo."
+	L.CHATTAB_SET = "%s: agora na sua aba Olympus, cada linha na cor do seu canal, sem o nome do canal."
+	L.CHATTAB_HERE = "Os chats Olympus aparecem nesta aba, cada linha na cor do seu canal: %s. /oly chatwindow main devolve os chats à janela principal."
+	L.CHATTAB_MIXED = "Esta aba também mostra outros chats (Dizer, Guilda, sussurros e mais). Para ter só os chats Olympus aqui: botão direito na aba, %s, e desmarque tudo."
+	L.CHATTAB_WAITING = "Os chats Olympus aparecem na janela principal até existir uma aba de chat chamada Olympus (/oly chatwindow tab explica como criar)."
+	L.CHATTAB_SETTINGS = "Configurações"
+	L.CHATTAB_MAIN_TAB = "Geral"
 end

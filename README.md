@@ -263,12 +263,27 @@ WoW channel number to join). Each channel is exclusive to a rank:
 
 - Higher ranks also use the channels below theirs: a Lord writes in all three.
 - `/oly mute captains` (or `olympus`, `lords`) hides a channel in chat; the same command shows it again.
-- `/oly chatwindow Olympus` shows the three channels in your chat window called "Olympus"
-  (make the tab in the game first: right-click a chat tab, Create New Window), by name or by
-  number; `/oly chatwindow Olympus captains` moves one channel only, and `/oly chatwindow main`
-  brings them back. Only where the lines are printed changes: the addon never touches the chat
-  box, so every command typed there works as always. A window closed or renamed sends its
-  lines back to the main window, with a notice. `/oly status` shows where each channel goes.
+- **The Olympus tab (1.1.1).** One click on the Realm tab's chats page, or `/oly chatwindow tab`
+  (`aba` works too), sends the three channels to a tab of your chat named "Olympus". There each
+  line comes without the channel's name, in its channel's colour: gold for [Olympus], teal for
+  [Captains], purple for [Lords] (the tab's first line gives that legend). You make the tab
+  yourself with the game's menu, as the click tells you: right-click the General tab, Create New
+  Window, and name it Olympus; the lines land there as soon as it exists, in the main window
+  until then. Olympus cannot make it for you: the game's own code for a new chat window, run by
+  an addon, taints the chat box, so `/cast`, `/target`, `/use` or `/click` typed there afterwards
+  get blocked (with the gamepad UI, the game froze in 0.8.5). A new tab also shows Say, Guild,
+  whispers and more: right-click it, Settings, and untick everything to have the Olympus chats
+  alone there (the addon says so when it sees the tab shows other chat). The main window keeps
+  Olympus's own notices and the pinned line's announcements. `/oly chatwindow main` brings the
+  channels back to the main window.
+- `/oly chatwindow <number or name>` shows the three channels in another chat window of yours
+  (make it in the game first: right-click a chat tab, Create New Window), by name or by number;
+  `/oly chatwindow Officers captains` moves one channel only, and `/oly chatwindow main` brings
+  them back. In a window named anything but Olympus the lines keep the channel's name (name the
+  tab "Oly" and pick it with `/oly chatwindow Oly` to have it). Only where the lines are printed
+  changes: the addon never touches the chat box, so every command typed there works as always.
+  A window closed or renamed sends its lines back to the main window, with a notice.
+  `/oly status` shows where each channel goes.
 - The flood guard keeps a busy channel readable: past 60 lines a minute (or 10 from one player
   while the channel is half full) the rest stay off the chat, and a notice says how many, at
   most once a minute. Those lines still go to the Realm tab's Olympus chats, which keep the
@@ -1669,7 +1684,7 @@ Other limits:
 | `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |
 | `/oly mute olympus` · `/oly mute captains` · `/oly mute lords` | hide or show a channel in chat |
 | `/oly pin <text>` · `/oly pin off` · `/oly pin` | the King, his Stewards and Hands: pin one line for the army on top of the Olympus chats and the Realm (2 hours); a guild master: one for his own guild. Take it down, or see what is pinned |
-| `/oly chatwindow <number or name> [olympus\|captains\|lords]` · `/oly chatwindow main` | show the Olympus chats in another chat window, or back in the main one |
+| `/oly chatwindow tab` · `/oly chatwindow <number or name> [olympus\|captains\|lords]` · `/oly chatwindow main` | the Olympus chats in a chat tab named Olympus (without the channel's name; it says how to make the tab), in another chat window, or back in the main one |
 | `/oly treasurer on\|off` | a keeper of the treasury (the Treasurer, the King, a character he named) shares his book and the guild bank, or keeps them private (1.1: what the King hides goes only to the King, his Steward and the keepers, by whisper) |
 | `/oly backup` · `/oly restore` | copy a backup of your treasury book and your settings as text, or paste one back after a wipe (nothing is sent anywhere, never the channel key) (1.1) |
 | `/oly donations on\|off` | a keeper of the treasury tells everyone with the addon he is taking donations (a line on the Realm and Treasury tabs, with his zone if he shares it, one line in the [Olympus] chat), until he logs out (1.1) |

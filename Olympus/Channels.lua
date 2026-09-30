@@ -47,6 +47,7 @@ local heldSince      -- when the first of them was held
 local lastNotice = -math.huge
 local noticeTimer = false
 local gone = {}      -- chosen window name (lower case) -> true once we said it is gone
+local found = {}     -- chosen window name (lower case) -> true once found this session (1.1.1)
 
 local function Label(tier)
 	return L[TIERS[tier].label]
@@ -155,8 +156,9 @@ end
 
 -- "[Captains] [Name] <Guild>: text". The name is a player link, like in any chat line, so a
 -- click opens the usual whisper and menu (to the name the server finds, ns.TellName). The
--- text is sanitized again here: history comes from the SavedVariables too.
-function Channels.FormatLine(tier, sender, guild, class, text)
+-- text is sanitized again here: history comes from the SavedVariables too. bare (1.1.1, the
+-- Olympus tab): without "[Captains] ", the rest byte for byte the same.
+function Channels.FormatLine(tier, sender, guild, class, text, bare)
 	local name = ns.DisplayName(sender) or "?"
 	local file = class and ns.CLASS_FILES[class]
 	local color = file and RAID_CLASS_COLORS and RAID_CLASS_COLORS[file]
@@ -169,7 +171,7 @@ function Channels.FormatLine(tier, sender, guild, class, text)
 	end
 	-- The Treasurer: the gold coin he carries in tooltips and the census (0.9.9).
 	if ns.IsTreasurer(sender, guild) then name = ns.COIN:gsub(" $", "") .. name end
-	return "[" .. Label(tier) .. "] |Hplayer:" .. (ns.TellName(sender) or "?") .. "|h[" .. name .. "]|h <"
+	return (bare and "" or "[" .. Label(tier) .. "] ") .. "|Hplayer:" .. (ns.TellName(sender) or "?") .. "|h[" .. name .. "]|h <"
 		.. tostring(guild or "?"):gsub("|", "||") .. ">: " .. Codec.SanitizeChat(text)
 end
 
@@ -211,13 +213,17 @@ local function WindowAt(i)
 	return f, name, (shown or f.isDocked) and true or false, combat
 end
 
--- The open chat window called `name` (in any case): its frame, number and name as the game has it.
+local function Trim(text) return (tostring(text):match("^%s*(.-)%s*$")) end
+
+-- The open chat window called `name` (in any case, spaces around it aside): its frame, number and
+-- name as the game has it.
 function Channels.FindWindow(name)
-	if type(name) ~= "string" or name == "" then return nil end
-	local want = name:lower()
+	if type(name) ~= "string" then return nil end
+	local want = Trim(name):lower()
+	if want == "" then return nil end
 	for i = 1, MaxWindows() do
 		local f, wname, open, combat = WindowAt(i)
-		if f and open and not combat and wname and wname:lower() == want then return f, i, wname end
+		if f and open and not combat and wname and Trim(wname):lower() == want then return f, i, wname end
 	end
 	return nil
 end
@@ -233,29 +239,191 @@ local function Chosen()
 	return type(list) == "table" and list or nil
 end
 
--- The frame a channel's lines go to: its chosen window while it is open, else the main one.
+-- A line of ours ("Olympus: ...") in frame f, what ns.Print writes in the main window.
+local function Say(f, msg)
+	if not f or f == DEFAULT_CHAT_FRAME then return ns.Print(msg) end
+	f:AddMessage("|c" .. ns.COLOR .. "Olympus:|r " .. tostring(msg))
+end
+
+---------------------------------------------------------------------------
+-- The Olympus tab (1.1.1): an open chat window of the game's, not the main one nor the combat
+-- log, whose name is "Olympus" (any case, spaces around it aside). Its lines come without the
+-- channel's name, each in its channel's colour (Show); anywhere else they keep it. The player
+-- makes the tab with the game's own menu (right-click the main tab, Create New Window), and
+-- Olympus routes the channels there by name, as /oly chatwindow does: it never makes, names,
+-- docks or sets up a chat window. FCF_OpenNewWindow (FloatingChatFrame.lua) writes the window's
+-- name, its message groups, the dock's tables and, last, LAST_ACTIVE_CHAT_EDIT_BOX
+-- (ChatFrameUtil.SetLastActiveWindow); called from an addon, all of it is written by insecure
+-- code, the game's secure chat code reads it next (ChatFrameUtil.ChooseBoxForSend) and /cast,
+-- /target, /use or /click typed in the chat box get blocked (with the gamepad UI, the 0.8.5
+-- freeze). FCF_NewChatWindow is the game's NAME_CHAT popup that runs it, and a frame's
+-- RemoveAllMessageGroups writes its message list. The one call Olympus makes on a game chat
+-- window is AddMessage, a secure elevation barrier (ScrollingMessageFrame.lua: it runs as if
+-- untainted, what print does on the main window); the rest is read (GetChatWindowInfo,
+-- GetChatWindowMessages, GetChatWindowChannels, the frame's own fields).
+---------------------------------------------------------------------------
+
+Channels.TAB_NAME = "Olympus"
+local TAB_KEY = Channels.TAB_NAME:lower()
+
+function Channels.IsTabName(name)
+	return type(name) == "string" and Trim(name):lower() == TAB_KEY
+end
+
+-- The Olympus tab open now: its frame, number and name as the game has it, else nil.
+local function FindTab()
+	for i = 1, MaxWindows() do
+		local f, wname, open, combat = WindowAt(i)
+		if f and open and not combat and f ~= DEFAULT_CHAT_FRAME and Channels.IsTabName(wname) then return f, i, wname end
+	end
+	return nil
+end
+
+local function IndexOf(f)
+	for i = 1, MaxWindows() do
+		if _G["ChatFrame" .. i] == f then return i end
+	end
+	return nil
+end
+
+-- The game's own words for its menus (its global strings, in the player's language), else ours.
+local function GameWord(value, fallback)
+	return type(value) == "string" and value ~= "" and value or fallback
+end
+
+-- The main window's tab as the game names it ("General"), where its menu makes a new window.
+local function MainTabName()
+	for i = 1, MaxWindows() do
+		local f, name = WindowAt(i)
+		if f and f == DEFAULT_CHAT_FRAME then
+			if type(name) == "string" and Trim(name) ~= "" then return (name:gsub("|", "||")) end
+			break
+		end
+	end
+	return L.CHATTAB_MAIN_TAB
+end
+
+-- Whether chat window i also shows other chat (Say, Guild, whispers, channels): what the game
+-- registers it for, read as Blizzard's ChatFrameOverrides.lua reads it. Neither function is in
+-- the API documentation: through pcall, and unknown says nothing.
+local function Registers(api, i)
+	if type(api) ~= "function" then return false end
+	local ok, first = pcall(api, i)
+	return ok and first ~= nil
+end
+local function Mixed(i)
+	return i ~= nil and (Registers(GetChatWindowMessages, i) or Registers(GetChatWindowChannels, i))
+end
+
+-- "[Olympus], [Captains], [Lords]", each in its channel's colour: the tab's legend.
+local function Legend()
+	local parts = {}
+	for _, tier in ipairs(Channels.ORDER) do
+		local c = TIERS[tier].color
+		parts[#parts + 1] = ("|cff%02x%02x%02x[%s]|r"):format(math.floor(c[1] * 255 + 0.5), math.floor(c[2] * 255 + 0.5),
+			math.floor(c[3] * 255 + 0.5), Label(tier))
+	end
+	return table.concat(parts, ", ")
+end
+
+-- Whether this character was told, in its Olympus tab, what the tab holds (per character, as the
+-- choice of windows is).
+local function IntroSaid()
+	local all = ns.db and ns.db.chatTabIntro
+	return type(all) == "table" and ns.me ~= nil and all[ns.me] == true
+end
+local function SetIntroSaid(said)
+	if not ns.db or not ns.me then return end
+	local all = type(ns.db.chatTabIntro) == "table" and ns.db.chatTabIntro or {}
+	all[ns.me] = said and true or nil
+	ns.db.chatTabIntro = next(all) ~= nil and all or nil
+end
+
+-- Said in the Olympus tab f (chat window i): the Olympus chats show there, the legend of their
+-- colours, and, when the tab shows other chat too, how to have them alone there.
+local function Intro(f, i)
+	SetIntroSaid(true)
+	Say(f, L.CHATTAB_HERE:format(Legend()))
+	if Mixed(i or IndexOf(f)) then Say(f, L.CHATTAB_MIXED:format(GameWord(CHAT_CONFIGURATION, L.CHATTAB_SETTINGS))) end
+end
+
+-- The frame a channel's lines go to, and the chosen window's name as the game has it (nil for the
+-- main window): its chosen window while it is open, else the main one. A window closed or renamed
+-- is said once. The Olympus tab (1.1.1): chosen and never seen this session (the one click made
+-- the choice before the player made the tab), the main window says once that the chats wait for
+-- it, not that it is gone; the first time it takes the lines for this character, it says so first.
 function Channels.Frame(tier)
 	local chosen = Chosen()
 	local name = chosen and chosen[tier]
 	if type(name) == "string" then
-		local f = Channels.FindWindow(name)
-		local key = name:lower()
+		local key = Trim(name):lower()
+		local f, i, wname
+		if Channels.IsTabName(name) then f, i, wname = FindTab() end
+		if not f then f, i, wname = Channels.FindWindow(name) end
 		if f then
 			gone[key] = nil
-			return f
+			found[key] = true
+			if f == DEFAULT_CHAT_FRAME then return f end
+			if Channels.IsTabName(wname) and not IntroSaid() then Intro(f, i) end
+			return f, wname
 		end
 		if not gone[key] then
 			gone[key] = true
-			ns.Print(L.CHATWIN_GONE:format(Quoted(name)))
+			if Channels.IsTabName(name) and not found[key] then
+				ns.Print(L.CHATTAB_WAITING)
+			else
+				ns.Print(L.CHATWIN_GONE:format(Quoted(name)))
+			end
 		end
 	end
 	return DEFAULT_CHAT_FRAME
 end
 
--- A line of ours ("Olympus: ...") in frame f, what ns.Print writes in the main window.
-local function Say(f, msg)
-	if not f or f == DEFAULT_CHAT_FRAME then return ns.Print(msg) end
-	f:AddMessage("|c" .. ns.COLOR .. "Olympus:|r " .. tostring(msg))
+-- This character's choices, made writable.
+local function Choices()
+	ns.db.chatWindows = type(ns.db.chatWindows) == "table" and ns.db.chatWindows or {}
+	local list = type(ns.db.chatWindows[ns.me]) == "table" and ns.db.chatWindows[ns.me] or {}
+	ns.db.chatWindows[ns.me] = list
+	return list
+end
+
+-- One click (the Realm tab's chats page, or /oly chatwindow tab): the three channels to the
+-- Olympus tab, for this character, even a channel its rank does not read yet (a promotion keeps
+-- it there). The tab open: said in the main window, and in the tab (Intro). Not made yet: how to
+-- make it, with the game's own words for its menus; the lines stay in the main window meanwhile,
+-- and land in the tab the moment it exists. /oly chatwindow main undoes it.
+-- Returns true, "open" | "waiting".
+function Channels.SetupTab()
+	if not ns.db or not ns.me then return false, "none" end
+	local list, labels = Choices(), {}
+	for _, tier in ipairs(Channels.ORDER) do
+		list[tier] = Channels.TAB_NAME
+		labels[#labels + 1] = "[" .. Label(tier) .. "]"
+	end
+	wipe(gone)
+	local f, i = FindTab()
+	if f then
+		found[TAB_KEY] = true
+		ns.Print(L.CHATTAB_SET:format(table.concat(labels, ", ")))
+		Intro(f, i)
+		return true, "open"
+	end
+	found[TAB_KEY] = nil
+	SetIntroSaid(false) -- (the tab the player makes now says what it holds)
+	ns.Print(L.CHATTAB_STEPS:format(MainTabName(), GameWord(NEW_CHAT_WINDOW, L.CHATWIN_NEW),
+		GameWord(CHAT_CONFIGURATION, L.CHATTAB_SETTINGS)))
+	return true, "waiting"
+end
+
+-- "open": a channel of this character's goes to the Olympus tab, and it is open; "waiting":
+-- chosen, not open (not made yet, closed or renamed); "none".
+function Channels.TabState()
+	local chosen = Chosen()
+	if not chosen then return "none" end
+	for _, tier in ipairs(Channels.ORDER) do
+		if Channels.IsTabName(chosen[tier]) then return FindTab() and "open" or "waiting" end
+	end
+	return "none"
 end
 
 -- "[Olympus] main window, [Captains] "Olympus"" for /oly chatwindow and /oly status.
@@ -296,8 +464,9 @@ end
 
 local MAIN_WORDS = { main = true, default = true, principal = true }
 local ALL_WORDS = { all = true, todos = true }
+local TAB_WORDS = { tab = true, aba = true }
 
--- /oly chatwindow <number | name | main> [olympus | captains | lords]
+-- /oly chatwindow <number | name | main | tab> [olympus | captains | lords]
 function Channels.ChooseWindow(input)
 	input = tostring(input or ""):match("^%s*(.-)%s*$")
 	if input == "" then
@@ -306,6 +475,8 @@ function Channels.ChooseWindow(input)
 		return false
 	end
 	if not ns.me then return false end
+	-- tab (or aba): the Olympus tab, made already or not (1.1.1). Before any window's name, as main.
+	if TAB_WORDS[input:lower()] then return Channels.SetupTab() end
 	-- The whole text first (a window may be called "Olympus Lords"), then a channel at its end.
 	local target, tiers = input, Channels.ORDER
 	if not MAIN_WORDS[input:lower()] and not PickWindow(input) then
@@ -337,9 +508,7 @@ function Channels.ChooseWindow(input)
 		end
 		if f == DEFAULT_CHAT_FRAME then name = nil end -- the main window: nothing to remember
 	end
-	ns.db.chatWindows = type(ns.db.chatWindows) == "table" and ns.db.chatWindows or {}
-	local list = type(ns.db.chatWindows[ns.me]) == "table" and ns.db.chatWindows[ns.me] or {}
-	ns.db.chatWindows[ns.me] = list
+	local list = Choices()
 	local labels = {}
 	for _, tier in ipairs(tiers) do
 		list[tier] = name
@@ -352,19 +521,23 @@ function Channels.ChooseWindow(input)
 		ns.Print(L.CHATWIN_MAIN:format(table.concat(labels, ", ")))
 		return true
 	end
+	found[Trim(name):lower()] = true
 	local msg = L.CHATWIN_SET:format(table.concat(labels, ", "), Quoted(name))
 	ns.Print(msg)
-	Say(f, msg) -- and in that window, to show where they land
+	-- And in that window, to show where they land; the Olympus tab says what it holds instead.
+	if Channels.IsTabName(name) then Intro(f) else Say(f, msg) end
 	return true
 end
 
 -- A plain AddMessage on the channel's chat window (what print does on the main one): nothing
--- of Blizzard's is replaced or hooked.
+-- of Blizzard's is replaced or hooked. In the Olympus tab without the channel's name (1.1.1): the
+-- line's colour tells the channels apart, and the tab's first line gave the legend.
 local function Show(tier, sender, guild, class, text)
-	local f = Channels.Frame(tier)
+	local f, wname = Channels.Frame(tier)
 	if not f then return end
 	local c = TIERS[tier].color
-	f:AddMessage(Channels.FormatLine(tier, sender, guild, class, text), c[1], c[2], c[3])
+	local bare = f ~= DEFAULT_CHAT_FRAME and Channels.IsTabName(wname)
+	f:AddMessage(Channels.FormatLine(tier, sender, guild, class, text, bare), c[1], c[2], c[3])
 end
 
 local function AddHistory(tier, e)
@@ -1420,6 +1593,16 @@ end
 ns.On("INIT", function()
 	-- (0.9.1: the warning comes before the first line in each channel, Channels.Confirm.)
 	ns.db.chatNoticeShown = nil
+	-- 1.1.1: the characters told what their Olympus tab holds, [name] = true alone.
+	local intro = ns.db.chatTabIntro
+	if type(intro) == "table" then
+		for k, v in pairs(intro) do
+			if type(k) ~= "string" or v ~= true then intro[k] = nil end
+		end
+		if next(intro) == nil then ns.db.chatTabIntro = nil end
+	else
+		ns.db.chatTabIntro = nil
+	end
 	local chat = ns.rdb.chat
 	if chat == nil then return end
 	if type(chat) ~= "table" then
