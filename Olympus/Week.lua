@@ -16,6 +16,9 @@ local L = ns.L
 -- as the minimap clock's) and says which day to pick: he creates the guild event there, with
 -- the game's own button. With the gamepad UI, or in combat, it only says how to open it.
 -- Clients before 1.1 leave the kind D out (King.HandleCommand), as any kind they don't know.
+-- A setter or a signer the moderators took off (net-off, Moderation.lua; 1.1, Konig's review)
+-- shows nowhere: every client drops their D, R and Y2 and hides what it heard of them before,
+-- and their own client sends none.
 
 local Week = {}
 ns.Week = Week
@@ -40,7 +43,8 @@ Week.NEW_LINE_GAP = 30       -- a chat line for a new entry at most this often
 ns.King.HAND_MAY.D = true
 ns.King.STEWARD_MAY.D = true
 
-local entries = {}           -- [id] = { id, title, zone, at, by, mine, crown (the King's or his Steward's), sentAt, heardAt }
+local entries = {}           -- [id] = { id, title, zone, at, by, mine, crown (the King's or his Steward's), sentAt, heardAt,
+                             --   setterGuild (the guild his message named, for the net-off: this session only) }
 local heardFrom = {}         -- [setter] = { first, last }: when we heard him, this stretch online
 local lastSet, lastNewLine, lastCalendarAsk = -math.huge, -math.huge, -math.huge
 
@@ -60,6 +64,21 @@ end
 Week.after = function(seconds, where, fn) ns.After(seconds, where, fn) end
 
 local function Clean(s, n) return ns.Cut((tostring(s or ""):gsub("[~|%c]", " "):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")), n) end
+
+-- 1.1 (Konig's review): a name the moderators took off (net-off, Moderation.lua), in the name of
+-- `guild` when known: its entries, sheets and signups show nowhere (King.HIDDEN_CALLS drops its D
+-- and R as they come; these are the ones heard before the word). Never our own.
+local function Off(name, guild)
+	local M = ns.Moderation
+	return type(name) == "string" and name ~= ns.me and M.Hides ~= nil and M.Hides(name, guild) ~= nil
+end
+-- This client's own character or guild is off: the word, after saying so (nothing it sends would show).
+local function SelfOff()
+	local M = ns.Moderation
+	local off = M.SelfOff and M.SelfOff()
+	if off then ns.Print(M.YouText(off)) end
+	return off
+end
 
 ---------------------------------------------------------------------------
 -- The realm's clock (the calendar's: C_DateAndTime), as days and minutes of the civil calendar,
@@ -311,6 +330,7 @@ function Week.SetEntry(input)
 	local K = ns.King
 	local preview = K.Preview()
 	if not preview and not K.CanCommand() then return false end
+	if not preview and SelfOff() then return false end
 	local now = ns.Now()
 	if now - lastSet < Week.SET_GAP then
 		ns.Print(L.THRONE_WAIT:format(math.ceil(Week.SET_GAP - (now - lastSet))))
@@ -396,7 +416,7 @@ local function OnEntry(sender, id, rest, guild)
 	end
 	local K = ns.King
 	e = { id = id, title = title, zone = Clean(zone, 40), at = now + seconds, by = sender, heardAt = now,
-		crown = (K.FromKing(sender, guild) or K.IsStewardName(sender)) and true or nil }
+		crown = (K.FromKing(sender, guild) or K.IsStewardName(sender)) and true or nil, setterGuild = K.CleanGuild(guild) or nil }
 	if not Keep(e) then return end
 	SaveHeard()
 	-- A new entry: one quiet chat line (never a raid warning or a popup), and not on repeats.
@@ -425,10 +445,14 @@ function Week.Entries(now)
 	now = now or ns.Now()
 	local out = {}
 	for id, e in pairs(entries) do
-		if e.at + Week.KEEP_AFTER < now then entries[id] = nil else out[#out + 1] = e end
+		if e.at + Week.KEEP_AFTER < now then
+			entries[id] = nil
+		elseif e.mine or not Off(e.by, e.setterGuild) then
+			out[#out + 1] = e
+		end
 	end
 	local a = ns.King.Agenda and ns.King.Agenda()
-	if a and not entries[a.id] then
+	if a and not entries[a.id] and (a.mine or not Off(ns.FullName(a.by))) then
 		out[#out + 1] = { id = a.id, title = a.title, zone = a.zone, at = a.at, by = ns.FullName(a.by), mine = a.mine, agenda = true }
 	end
 	table.sort(out, function(x, y) if x.at ~= y.at then return x.at < y.at end return x.id < y.id end)
@@ -690,10 +714,14 @@ end
 -- The counts of an entry: ours from the signups themselves, anyone else's from their sheet.
 function Week.Counts(e)
 	if e and e.mine then
-		local c = { T = 0, H = 0, D = 0, A = 0 }
+		local c = { T = 0, H = 0, D = 0, A = 0, others = 0 }
 		local s = signups[e.id]
-		for _, v in pairs(s and s.list or {}) do if v.placed then c[v.role] = c[v.role] + 1 end end
-		c.others = s and s.others or 0
+		for name, v in pairs(s and s.list or {}) do
+			-- (1.1, Konig's review: never a name the moderators took off since.)
+			if Off(name, v.guild) then
+			elseif v.placed then c[v.role] = c[v.role] + 1
+			else c.others = c.others + 1 end
+		end
 		return c
 	end
 	return e and sheets[e.id] or nil
@@ -707,6 +735,7 @@ function Week.Sign(id, role)
 		ns.Print(L.MEMBERS_ONLY)
 		return false
 	end
+	if SelfOff() then return false end
 	if not Week.TakesSignups(e) then
 		ns.Print(L.SIGN_NOT_NOW)
 		return false
@@ -772,6 +801,8 @@ function Week.HandleSignup(dist, sender, text)
 	if not e or not e.mine or e.preview or e.at <= ns.Now() then return end
 	sender = ns.FullName(sender)
 	guild = ns.King.CleanGuild(guild)
+	-- 1.1 (Konig's review): a name the moderators took off (net-off, Moderation.lua) signs nothing.
+	if Off(sender, guild) then return end
 	local s = signups[e.id]
 	if not s then
 		s = { list = {}, byGuild = {}, others = 0, n = 0 }
@@ -808,6 +839,10 @@ ns.Comm.Handle("Y2", function(...) Week.HandleSignup(...) end)
 function Week.SendSheet(soon)
 	local K = ns.King
 	if K.Preview() or not K.CanCommand() then return false end
+	-- (1.1, Konig's review: every client drops the sheet of a setter the moderators took off, and
+	-- a long one goes in pieces, past Comm.Send's backstop.)
+	local M = ns.Moderation
+	if M.SelfOff and M.SelfOff() then return false end
 	local now = ns.Now()
 	local parts, busy = {}, false
 	for _, e in ipairs(Week.Entries(now)) do
@@ -883,13 +918,15 @@ function Week.SheetLines(lines, e)
 		end
 	end
 	local s = e.mine and signups[e.id]
-	if s and s.n > 0 then
-		lines[#lines + 1] = { indent = 3, text = Gold((whoOpen[e.id] and "[-] " or "[+] ") .. L.SIGN_WHO:format(s.n)),
+	local shown = 0
+	for name, v in pairs(s and s.list or {}) do if not Off(name, v.guild) then shown = shown + 1 end end
+	if shown > 0 then
+		lines[#lines + 1] = { indent = 3, text = Gold((whoOpen[e.id] and "[-] " or "[+] ") .. L.SIGN_WHO:format(shown)),
 			onClick = function() whoOpen[e.id] = not whoOpen[e.id] or nil; if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end end }
 		if whoOpen[e.id] then
 			for _, role in ipairs(Week.ROLES) do
 				local names = {}
-				for name, v in pairs(s.list) do if v.role == role then names[#names + 1] = name end end
+				for name, v in pairs(s.list) do if v.role == role and not Off(name, v.guild) then names[#names + 1] = name end end
 				table.sort(names)
 				if #names > 0 then
 					lines[#lines + 1] = { indent = 4, text = Gold(RoleLabel(role) .. " (" .. #names .. ")") }

@@ -63,9 +63,11 @@ Moderation.DATE_AHEAD = 60        -- a word dated further ahead of the server's 
 Moderation.REASON_MAX = 80        -- bytes of a reason
 Moderation.GUILDS_KNOWN = 3000    -- senders whose guild this client remembers (the hop's whispers name none)
 -- What a client whose own character or guild is off stops sending (the receivers drop it anyway):
--- chat lines, decrees, layer announcements, hop asks, offers and answers, Vox votes. (Its census
+-- chat lines, decrees, layer announcements, hop asks, offers and answers, Vox votes; and (1.1,
+-- Konig's review) its signups to the King's week (Y2), and the Throne's calls to the army, the
+-- week's entries among them (T1 of a kind in King.HIDDEN_CALLS: its lists still go). (Its census
 -- report: Comm.Broadcast.) Nothing over GUILD is in it: the guild's own hello and key go on.
-Moderation.BLOCKED = { M1 = true, D1 = true, L1 = true, LQ = true, LO = true, LR = true, LN = true, LX = true, Y1 = true }
+Moderation.BLOCKED = { M1 = true, D1 = true, L1 = true, LQ = true, LO = true, LR = true, LN = true, LX = true, Y1 = true, Y2 = true }
 
 Moderation.random = math.random -- tests
 
@@ -891,9 +893,15 @@ function Moderation.Tick()
 	return sent
 end
 
--- The backstop in Comm (1.1): a client whose own character or guild is off sends none of BLOCKED.
+-- The backstop in Comm (1.1): a client whose own character or guild is off sends none of BLOCKED,
+-- nor a call of the Throne's that every receiver would drop (King.HIDDEN_CALLS).
+local function HiddenCall(msg)
+	local K = ns.King
+	return msg:sub(1, 3) == "T1~" and type(K) == "table" and type(K.HIDDEN_CALLS) == "table" and K.HIDDEN_CALLS[msg:sub(4, 4)] == true
+end
 function Moderation.Blocks(msg)
-	if type(msg) ~= "string" or msg:sub(3, 3) ~= "~" or not Moderation.BLOCKED[msg:sub(1, 2)] then return false end
+	if type(msg) ~= "string" or msg:sub(3, 3) ~= "~" then return false end
+	if not Moderation.BLOCKED[msg:sub(1, 2)] and not HiddenCall(msg) then return false end
 	if not Moderation.SelfOff() then return false end
 	stats.blocked = stats.blocked + 1
 	return true

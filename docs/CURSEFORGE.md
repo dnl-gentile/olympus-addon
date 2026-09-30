@@ -347,7 +347,8 @@ author's signed list can hide one character for the whole army: **Hide a charact
 **Decrees** tab (the name or your target, then the reason), or `/oly netoff Name: reason`. Every
 addon then hides that character on every Olympus surface: their [Olympus], [Captains] and
 [Lords] lines (and the lines the Olympus chats kept), their decrees, their layer and hop offers,
-their Vox Populi votes and questions, and their requests at court. The names their player
+their Vox Populi votes and questions, their requests at court, and their signups to the King's
+week (1.1, Konig's review). The names their player
 already linked as alts are hidden with them (alt links, below). The rest of their guild, and
 the census, are not touched: one name stops the spam.
 - The Decrees tab lists who is hidden, with the reason, who hid them and when (the server's
@@ -366,8 +367,10 @@ the census, are not touched: one name stops the spam.
   alts. It uninvites nobody, demotes nobody and writes nothing to Blizzard's ignore list, and
   `/oly block` stays one client's and one player's. No treasury code can call it.
 - The hidden player's addon tells them why, and sends none of it. A Hand or a Steward who is
-  hidden calls the army in vain: their Agenda, roll call, Vox Populi, inspection and gates show
-  nowhere (whoever named them a Hand still decides whether they stay one).
+  hidden calls the army in vain: their Agenda, roll call, Vox Populi, inspection and gates, and
+  their entries on the King's week (their cancels of anyone's too) and its signup sheets, show
+  nowhere, and what an addon heard of them before the word leaves its week (whoever named them a
+  Hand still decides whether they stay one).
 - A word goes on the Olympus channel with Blizzard's logged addon-message function (the issuer's
   own words: the server keeps them, so abuse can be reported), one word per name. Each issuer's
   addon repeats his own words for late logins, every 5 minutes, and never anyone else's (1.1,

@@ -37923,6 +37923,73 @@ end)
 		end)
 	end)
 
+	-- The King's word on a character or a guild, dated by the server's clock (the scene's own).
+	local function Off(name, reason) M.Handle("CHANNEL", KING, O1("c", true, GetServerTime(), name, KING, reason or "spam")) end
+	local function Back(name) M.Handle("CHANNEL", KING, O1("c", false, GetServerTime() + 1, name, KING, "")) end
+	local function GuildOff(guild) M.Handle("CHANNEL", KING, O1("g", true, GetServerTime(), guild, KING, "spam guild")) end
+
+	test("1.1 Konig's review (item 5): the King's week: a Hand the moderators took off sets, cancels and signs nothing any client shows, nor does a signer; their own client sends none of it", function()
+		WithWeek(function(w, W, K)
+			NoWords(function()
+				AsSoldier("Watcher")
+				K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Rogue Hand-Realm,Watcher-Realm")
+				-- An entry of his heard before the word, and the King's own.
+				K.HandleCommand("CHANNEL", ROGUE, "T1~D~601~Olympus II~" .. (2 * 86400) .. "~1~~Before the word")
+				K.HandleCommand("CHANNEL", KING, "T1~D~602~Olympus~" .. (3 * 86400) .. "~1~~Raid night")
+				eq(#W.Entries(), 2)
+				-- Our own entry, and a signup heard for it before any word.
+				eq(W.SetEntry("Sat 20:00 Our raid"), true)
+				local ours
+				for _, e in ipairs(W.Entries()) do if e.mine then ours = e end end
+				W.HandleSignup("WHISPER", "Spammer Guy-Realm", ("Y2~%d~T~Olympus II"):format(ours.id))
+				eq(W.Counts(ours).others, 1, "counted")
+				-- The King takes the rogue Hand and the spammer off.
+				Off(ROGUE, "abuse of the week"); Off("Spammer Guy-Realm")
+				assert(M.Hidden(ROGUE) and M.Hidden("Spammer Guy-Realm"))
+				local function Titles()
+					local out = {}
+					for _, e in ipairs(W.Entries()) do out[#out + 1] = e.title end
+					return table.concat(out, ",")
+				end
+				eq(Titles(), "Raid night,Our raid", "his entry heard before the word: gone")
+				-- A new entry of his: dropped, no chat line.
+				local printed = #w.printed
+				K.HandleCommand("CHANNEL", ROGUE, "T1~D~603~Olympus II~" .. 86400 .. "~1~~After the word")
+				eq(W.Entry(603), nil); eq(#w.printed, printed, "no chat line")
+				-- His cancel of the King's entry: dropped.
+				K.HandleCommand("CHANNEL", ROGUE, "T1~D~602~Olympus II~0~0~~")
+				assert(W.Entry(602), "the King's entry stays")
+				-- His sheet: dropped.
+				K.HandleCommand("CHANNEL", ROGUE, "T1~R~1~Olympus II~601:5:5:5:5~5")
+				eq(W.Sheets()[601], nil)
+				-- The spammer's signup: gone from the counts, a new one not taken.
+				eq(W.Counts(ours).others, 0, "not counted since the word")
+				W.HandleSignup("WHISPER", "Spammer Guy-Realm", ("Y2~%d~H~Olympus II"):format(ours.id))
+				eq(W.Counts(ours).others, 0)
+				W.HandleSignup("WHISPER", "Honest Guy-Realm", ("Y2~%d~H~Olympus II"):format(ours.id))
+				eq(W.Counts(ours).others, 1, "anyone else's still counts")
+				-- Put back on: his entries show again as he repeats them.
+				Back(ROGUE)
+				K.HandleCommand("CHANNEL", ROGUE, "T1~D~603~Olympus II~" .. 86400 .. "~0~~After the word")
+				assert(W.Entry(603), "back on")
+				M.Handle("CHANNEL", KING, O1("c", true, GetServerTime() + 2, ROGUE, KING, "abuse again"))
+				assert(M.Hidden(ROGUE), "off again")
+				-- The rogue's own client: says why, sends nothing.
+				AsSoldier("Rogue Hand")
+				w.clock = w.clock + W.SET_GAP + 1
+				local sent = #w.sent
+				eq(W.SetEntry("Sat 21:00 Rogue raid"), false)
+				assert(Printed(w, M.YouText(M.SelfOff())), "said why")
+				eq(W.Sign(602, "T"), false)
+				eq(#w.sent, sent, "nothing sent"); eq(#w.whispered, 0, "no signup whispered")
+				eq(M.Blocks("T1~D~9~Olympus II~3600~1~~Raid"), true, "an entry held back")
+				eq(M.Blocks("T1~R~9~Olympus II~9:1:0:0:0~5"), true, "a sheet held back")
+				eq(M.Blocks("Y2~602~T~Olympus II"), true, "a signup held back")
+				eq(M.Blocks("T1~N~9~Olympus II~Someone-Realm"), false, "a list still goes")
+			end)
+		end)
+	end)
+
 	test("1.1 Konig's review: the README and the CurseForge page say what the net-off and the shared block terms do now", function()
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
@@ -37931,7 +37998,8 @@ end)
 				"Each issuer's addon repeats his own words for late logins, every 5 minutes, and never anyone else's",
 				"then from the giver's own addon every few minutes for late logins", "no addon repeats it",
 				"each one word of 4 letters at least", "The shared list never hides the King's writs (your own filter still can)",
-				"the list keeps 100 entries at most, the oldest removals going first" }) do
+				"the list keeps 100 entries at most, the oldest removals going first",
+				"and their signups to the King's week", "their entries on the King's week (their cancels of anyone's too) and its signup sheets, show nowhere" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
 			assert(not doc:find("The newest word wins, by the server's clock", 1, true), path .. ": the old claim")

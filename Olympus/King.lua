@@ -183,8 +183,10 @@ King.HAND_MAY = { S = true, I = true, A = true, X = true, V = true, E = true, G 
 King.STEWARD_MAY = { S = true, I = true, A = true, X = true, V = true, E = true, G = true, N = true, T = true, K = true, Y = true }
 -- 1.1: the calls to the army a Hand or a Steward sends (popups, raid warnings, windows, the gates'
 -- news): none shows from a name the moderators took off (net-off, Moderation.lua). Their lists (the
--- Hands, the treasury's words) are not calls: they still count.
-King.HIDDEN_CALLS = { S = true, I = true, A = true, X = true, V = true, E = true, G = true }
+-- Hands, the treasury's words) are not calls: they still count. The same for the King's week (1.1,
+-- Konig's review): its entries and their cancels (D), and the signup sheets (R, Week.lua). A client
+-- the moderators took off sends none of them (Moderation.Blocks).
+King.HIDDEN_CALLS = { S = true, I = true, A = true, X = true, V = true, E = true, G = true, D = true, R = true }
 -- A word of the treasury (its switches, its keepers: Treasury.lua) dated further ahead of the
 -- server's clock is not taken. A minute: every client reads the same server clock, so a word
 -- dated further ahead comes from a modified client, which would otherwise keep its word over
