@@ -429,6 +429,15 @@ function Channels.TabState()
 	return "none"
 end
 
+-- The window this character chose for a channel's lines (its name as chosen), nil for the main
+-- one. (Read only: the Chat tab leaves its Olympus tab line out for a player who picked a window
+-- of his own, ChatWindow.lua.)
+function Channels.ChosenWindow(tier)
+	local chosen = Chosen()
+	local name = chosen and chosen[tier]
+	return type(name) == "string" and name or nil
+end
+
 -- "[Olympus] main window, [Captains] "Olympus"" for /oly chatwindow and /oly status.
 function Channels.WindowStatus()
 	local chosen = Chosen() or {}

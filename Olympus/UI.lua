@@ -776,6 +776,15 @@ local function CreateMain(style)
 	f:Hide()
 	ns.EscapeCloses(f:GetName())
 	f:HookScript("OnShow", function(self) ns.EscapeCloses(self:GetName()) end)
+	-- Its X hides it itself (1.1.1, as the first build's chat window did, and as Olympus's other
+	-- windows' X does): the template's button (UIPanelCloseButton_OnClick) would call HideUIPanel,
+	-- which does nothing in combat when the call is not secure (CheckProtectedFunctionsAllowed,
+	-- UIParentPanelManager.lua). With the chats in this window, and with the gamepad UI (no Escape
+	-- list), the X is the way to close it.
+	f.onCloseCallback = function()
+		f:Hide()
+		return false
+	end
 
 	if f.SetTitle then
 		f:SetTitle(L.TITLE)

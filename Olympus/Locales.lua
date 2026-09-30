@@ -3738,6 +3738,8 @@ L.CHATS_TAB_ADD_TIP = "The Olympus chats in a tab of the game's chat too, each l
 L.CHATS_TAB_STEPS = "Waiting for your Olympus tab: right-click the %s chat tab, %s, and name it Olympus."
 L.CHATTAB_POINTER_TITLE = "Your Olympus tab"
 L.CHATTAB_POINTER = "Right-click this tab, then %s, and name it Olympus. The Olympus chats go there the moment it exists."
+L.CHATS_TAB_AWAY = "Hide this line"
+L.CHATS_TAB_AWAY_TIP = "For good, on every character. The Olympus chats page of the Realm tab, or /oly chatwindow tab, still adds the Olympus tab."
 if GetLocale and GetLocale() == "ptBR" then
 	L.TAB_CHAT = "Chat"
 	L.HELP_TAB_CHAT = "os chats Olympus, [Olympus], [Capitães] e [Lordes]: cada linha inteira, e uma caixa para escrever (Enter envia)."
@@ -3776,6 +3778,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CHATS_TAB_STEPS = "Esperando a sua aba Olympus: botão direito na aba %s do chat, %s, e dê o nome Olympus."
 	L.CHATTAB_POINTER_TITLE = "A sua aba Olympus"
 	L.CHATTAB_POINTER = "Botão direito nesta aba, depois %s, e dê o nome Olympus. Os chats Olympus vão para lá assim que ela existir."
+	L.CHATS_TAB_AWAY = "Esconder esta linha"
+	L.CHATS_TAB_AWAY_TIP = "De vez, em todos os personagens. A página dos chats Olympus na aba O Reino, ou /oly chatwindow tab, ainda adiciona a aba Olympus."
 end
 
 ---------------------------------------------------------------------------

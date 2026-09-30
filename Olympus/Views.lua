@@ -1199,14 +1199,27 @@ local function ChatLines(q)
 			end,
 		}
 		-- The Olympus tab of the game's chat (Channels.lua, 1.1.1), by the player's click: where it
-		-- stands, a click makes it the chats' window (or says how to make the tab in the game).
+		-- stands. Not open, a click takes the Chat tab's guided way (ChatWindow.AddTab, the review of
+		-- the Chat tab: one way for the one action): a window named Olympus already there is taken at
+		-- once; else Olympus's pointer shows where to make it (the steps as text with the gamepad UI)
+		-- on the Chat tab, opened for it, and the chats go there the moment it exists. Open, or on a
+		-- client without that way, the click sets it up as before (Channels.SetupTab says so).
 		if not C.missing and type(C.SetupTab) == "function" and type(C.TabState) == "function" then
 			local state = C.TabState()
-			local text = state == "open" and Grey(L.CHATS_TAB_ON) or (state == "waiting" and Grey(L.CHATS_TAB_WAITING) or Green(L.CHATS_TAB_MAKE))
+			local CW = ns.ChatWindow
+			local awaited = state ~= "open" and CW and type(CW.Watching) == "function" and CW.Watching()
+			local text = state == "open" and Grey(L.CHATS_TAB_ON)
+				or ((state == "waiting" or awaited) and Grey(L.CHATS_TAB_WAITING) or Green(L.CHATS_TAB_MAKE))
 			lines[#lines + 1] = {
 				text = text,
 				onClick = function()
-					C.SetupTab()
+					local done
+					if C.TabState() ~= "open" and CW and type(CW.AddTab) == "function" then done = CW.AddTab() end
+					if done == nil then
+						C.SetupTab()
+					elseif done == false and type(CW.Open) == "function" then
+						CW.Open(chatTier) -- (the steps and the line are the Chat tab's)
+					end
 					if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
 				end,
 				tooltip = function(tt)

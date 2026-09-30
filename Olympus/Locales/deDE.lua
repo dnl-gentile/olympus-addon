@@ -202,6 +202,7 @@ ns.Locale("deDE", {
 	HELP_TAB_REALM = "der König, die Lords und Hauptleute, die Ränge, die Layer, die Rekrutierung und die Olympus-Chats.",
 	HELP_TAB_DECREES = "Rufe zu den Waffen, Sammelrufe und königliche Erlasse für die ganze Armee.",
 	HELP_TAB_HERALDRY = "die Wappenrock-Patrouille: wer die Farben von Olympus trägt und wer nicht.",
+	HELP_TAB_CHAT = "die Olympus-Chats, [Olympus], [Hauptleute] und [Lords]: jede Zeile ganz, und ein Feld zum Schreiben (Enter sendet).",
 	HELP_ALL_COMMANDS = "/oly help listet jeden Befehl im Chat.",
 	HELP_PRIVACY = "Privatsphäre:",
 	HELP_LINKS = "Links:",

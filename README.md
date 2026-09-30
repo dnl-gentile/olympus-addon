@@ -269,8 +269,9 @@ WoW channel number to join). Each channel is exclusive to a rank:
   [Captains], purple for [Lords] (the tab's first line gives that legend). You make the tab
   yourself with the game's menu, as the click tells you: right-click the General tab, Create New
   Window, and name it Olympus; the lines land there as soon as it exists, in the main window
-  until then. The Chat tab's **Add an Olympus tab to the game chat** shows you where, with a
-  pointer by that tab, and sends the channels there the moment it exists (1.1.1, below). Olympus
+  until then. The click shows you where on the Chat tab, as its **Add an Olympus tab to the game
+  chat** line does, with a pointer by that tab, and sends the channels there the moment it exists
+  (1.1.1, below). Olympus
   cannot make it for you: the game's own code for a new chat window, run by
   an addon, taints the chat box, so `/cast`, `/target`, `/use` or `/click` typed there afterwards
   get blocked (with the gamepad UI, the game froze in 0.8.5). A new tab also shows Say, Guild,
@@ -383,7 +384,7 @@ pane of the Guild & Communities window. Click the tab, or type `/oly talk` (or `
 the Realm tab's chats page (its **Write in [Olympus]** line opens it too): each opens the Olympus
 window on its Chat tab, on that channel. `/oly talk lords` opens it on [Lords]; the same command
 again closes the window. With the King's tabs the side column of the new look runs out of room:
-the Treasury, and the author's Workshop, hang from the window's left edge.
+his Treasury moves to the window's left edge (for the author, his Workshop goes there first).
 
 - On top, where the other tabs show the army's counts, the search box: a name, a guild or words
   of a line, and only the lines that hold it show (a line your block terms hide is found by its
@@ -426,7 +427,10 @@ the Treasury, and the author's Workshop, hang from the window's left edge.
   Window, and name it Olympus. The moment a chat window named Olympus exists, Olympus sends the
   chats there (as `/oly chatwindow tab` does) and says so once; the pointer and the line go. It
   only reads the game's chat windows to see the new one appear. With the gamepad UI there is no
-  pointer (the game's chat tabs work otherwise there): the line gives the same steps as text.
+  pointer (the game's chat tabs work otherwise there): the line gives the same steps as text. The
+  line stays away while you send a channel to a chat window of your own (`/oly chatwindow`), and
+  its **x** puts it away for good, on every character: the Realm tab's chats page and
+  `/oly chatwindow tab` still make the tab.
 - The tab has no place or size of its own: it is the Olympus window's, docked by your guild
   window or wherever you put it. Escape or the window's X closes it; it never opens by itself.
   With the chats off on this client it says so, what the choice means, and offers it.
@@ -1243,8 +1247,9 @@ the game is removed at login, with one line saying so.
   Shift-click the minimap button for the Chat tab (1.1.1, above).
 - Next to Forever's Guild & Communities window it takes that window's look: icon tabs down
   the right side, its rows, column headers, buttons and member card. When the tabs do not all fit
-  down that side (the King's, with the Chat tab), the Treasury and then the author's Workshop hang
-  from the window's left edge, low (1.1.1).
+  down that side, the Workshop and then the Treasury move to the window's left edge, low, until
+  the rest fit: the King's view with the Chat tab moves the Treasury alone, the author's preview
+  both (1.1.1).
 - **Blizzard's gamepad mode** (Forever's controller interface): Olympus asks its questions in
   windows of its own instead of the game's popups, which Blizzard's gamepad code blocks (and
   freezes) when an addon opens one. With mouse and keyboard, the game's popups as always.

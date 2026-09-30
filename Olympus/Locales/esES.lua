@@ -202,6 +202,7 @@ ns.Locale({ "esES", "esMX" }, {
 	HELP_TAB_REALM = "el Rey, los Señores y Capitanes, los rangos, las capas, el reclutamiento y los chats de Olympus.",
 	HELP_TAB_DECREES = "llamadas a las armas, reuniones y decretos reales para todo el ejército.",
 	HELP_TAB_HERALDRY = "la patrulla de tabardos: quién lleva los colores de Olympus y quién no.",
+	HELP_TAB_CHAT = "los chats de Olympus, [Olympus], [Capitanes] y [Señores]: cada línea entera, y una caja para escribir (Intro envía).",
 	HELP_ALL_COMMANDS = "/oly help lista todos los comandos en el chat.",
 	HELP_PRIVACY = "Privacidad:",
 	HELP_LINKS = "Enlaces:",

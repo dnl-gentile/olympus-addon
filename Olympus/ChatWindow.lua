@@ -55,6 +55,7 @@ local STICK_SLACK = 2
 local THROTTLE, DATA_GAP = 0.2, 5
 local LINE_H = 14                                     -- a line of text, where the client gives no height
 local PIN_LINES, GUIDE_LINES = 3, 4
+local GUIDE_X = 20                                    -- the Olympus tab's line: the room its x takes on the right
 local MAX_NOTES = 5
 local LOOK_GAP = 1                                    -- the Olympus tab awaited: the game's chat windows read this often
 local GREY = "|cff9d9d9d"
@@ -142,8 +143,9 @@ local function Untip(owner)
 end
 
 ---------------------------------------------------------------------------
--- The channel last shown: ns.db.chatWin = { tier }, account-wide (the first 1.1.1 build kept its
--- window's place and size there too; the tab has neither).
+-- The channel last shown, and the Olympus tab's line put away with its x: ns.db.chatWin =
+-- { tier, noTabLine }, account-wide (the first 1.1.1 build kept its window's place and size there
+-- too; the tab has neither).
 ---------------------------------------------------------------------------
 
 local function Saved()
@@ -155,6 +157,19 @@ local function Remember(t)
 	if not ns.db then return end
 	local p = Saved() or {}
 	p.tier = t
+	ns.db.chatWin = p
+end
+
+-- The Olympus tab's line, put away for good by its x (the Realm tab's chats page and /oly
+-- chatwindow tab still make the tab).
+local function TabLineOff()
+	local p = Saved()
+	return p ~= nil and p.noTabLine == true
+end
+local function PutTabLineAway()
+	if not ns.db then return end
+	local p = Saved() or {}
+	p.noTabLine = true
 	ns.db.chatWin = p
 end
 
@@ -865,12 +880,30 @@ for _, event in ipairs({ "UPDATE_CHAT_WINDOWS", "UPDATE_FLOATING_CHAT_WINDOWS" }
 	ns.RegisterEvent(event, function() if watching then Look() end end)
 end
 
+-- Whether the line shows, the Olympus tab not open (the review of the Chat tab: it showed for
+-- anyone without an open Olympus tab, and nothing put it away). Awaited (the player's click):
+-- always, with the steps. Put away with its x: no more. Chosen and not there ("waiting"): yes.
+-- Else only while no channel of this character goes to a window of his choosing: a player who
+-- sent them to another window (a tab named otherwise, to keep the channel's name there) chose.
+local function GuideWanted()
+	if watching then return true end
+	if TabLineOff() then return false end
+	local C = ns.Channels
+	if C.TabState() == "waiting" then return true end
+	if type(C.ChosenWindow) == "function" then
+		for _, t in ipairs(C.ORDER) do
+			if C.ChosenWindow(t) then return false end
+		end
+	end
+	return true
+end
+
 -- The line under the pills while the Olympus tab is not there: a click adds it (above); awaited,
--- the steps. Returns the room it takes.
+-- the steps; its x puts it away. Returns the room it takes.
 local function DrawGuide(y)
 	local g = frame.guide
 	local C = ns.Channels
-	if not TabReady() or not C.ChatOn() or C.TabState() == "open" then
+	if not TabReady() or not C.ChatOn() or C.TabState() == "open" or not GuideWanted() then
 		g:Hide()
 		return 0
 	end
@@ -881,7 +914,7 @@ local function DrawGuide(y)
 		text = Green("+ " .. L.CHATS_TAB_ADD)
 	end
 	g.text:SetText(text)
-	local width = StripWidth()
+	local width = StripWidth() - GUIDE_X -- (clear of its x)
 	g.text:SetWidth(width)
 	local h = math.min(TextHeight(g.text, width), GUIDE_LINES * LINE_H)
 	g:SetHeight(h)
@@ -1208,6 +1241,30 @@ local function Build(h)
 		tt:AddLine(L.CHATS_TAB_ADD, 1, 0.82, 0)
 		tt:AddLine(L.CHATS_TAB_ADD_TIP, 1, 1, 1, true)
 	end
+	-- Its x: the line put away for good (the review of the Chat tab: a player who keeps his chats
+	-- in the main window had it there always); the pointer goes, and the game's chat windows are no
+	-- longer read. The Realm tab's chats page and /oly chatwindow tab still make the Olympus tab.
+	local away = CreateFrame("Button", nil, p.guide)
+	away:SetSize(16, 16)
+	away:SetPoint("TOPRIGHT", p.guide, "TOPRIGHT", 2, 2)
+	away.label = away:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	away.label:SetPoint("CENTER", away, "CENTER", 0, 1)
+	away.label:SetText("x")
+	away:SetScript("OnClick", function()
+		ns.SafeCall("olympus tab", function()
+			PutTabLineAway()
+			StopWatching()
+			Render()
+		end)
+	end)
+	away:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:AddLine(L.CHATS_TAB_AWAY, 1, 0.82, 0)
+		GameTooltip:AddLine(L.CHATS_TAB_AWAY_TIP, 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	away:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	p.guide.away = away
 
 	-- The box of lines (the Communities chat pane's inset), its scroll frame and its lines: over
 	-- the list's and the detail box's room.
@@ -1472,11 +1529,16 @@ ns.On("CHAT_SEND_FAILED", function(t, why, text)
 	MarkDirty()
 end)
 
--- The channel last shown, kept only as a channel's letter (the first 1.1.1 build's window place
--- and size go).
+-- The channel last shown, kept only as a channel's letter, and the Olympus tab's line put away,
+-- only as true (the first 1.1.1 build's window place and size go).
 ns.On("INIT", function()
 	local p = ns.db.chatWin
 	if p == nil then return end
-	local t = type(p) == "table" and p.tier
-	ns.db.chatWin = type(t) == "string" and ns.Channels.TIERS[t] and { tier = t } or nil
+	local kept = {}
+	if type(p) == "table" then
+		local t = p.tier
+		if type(t) == "string" and ns.Channels.TIERS[t] then kept.tier = t end
+		if p.noTabLine == true then kept.noTabLine = true end
+	end
+	ns.db.chatWin = next(kept) ~= nil and kept or nil
 end)
