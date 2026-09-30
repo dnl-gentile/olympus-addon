@@ -37923,10 +37923,11 @@ end)
 		end)
 	end)
 
-	-- The King's word on a character or a guild, dated by the server's clock (the scene's own).
-	local function Off(name, reason) M.Handle("CHANNEL", KING, O1("c", true, GetServerTime(), name, KING, reason or "spam")) end
-	local function Back(name) M.Handle("CHANNEL", KING, O1("c", false, GetServerTime() + 1, name, KING, "")) end
-	local function GuildOff(guild) M.Handle("CHANNEL", KING, O1("g", true, GetServerTime(), guild, KING, "spam guild")) end
+	-- The King's word on a character or a guild, dated by the server's clock (the scene's own, else ns.Now).
+	local function Clock() return ns.Data.ServerTime() or ns.Now() end
+	local function Off(name, reason) M.Handle("CHANNEL", KING, O1("c", true, Clock(), name, KING, reason or "spam")) end
+	local function Back(name) M.Handle("CHANNEL", KING, O1("c", false, Clock() + 1, name, KING, "")) end
+	local function GuildOff(guild) M.Handle("CHANNEL", KING, O1("g", true, Clock(), guild, KING, "spam guild")) end
 
 	test("1.1 Konig's review (item 5): the King's week: a Hand the moderators took off sets, cancels and signs nothing any client shows, nor does a signer; their own client sends none of it", function()
 		WithWeek(function(w, W, K)
@@ -37972,7 +37973,7 @@ end)
 				Back(ROGUE)
 				K.HandleCommand("CHANNEL", ROGUE, "T1~D~603~Olympus II~" .. 86400 .. "~0~~After the word")
 				assert(W.Entry(603), "back on")
-				M.Handle("CHANNEL", KING, O1("c", true, GetServerTime() + 2, ROGUE, KING, "abuse again"))
+				M.Handle("CHANNEL", KING, O1("c", true, Clock() + 2, ROGUE, KING, "abuse again"))
 				assert(M.Hidden(ROGUE), "off again")
 				-- The rogue's own client: says why, sends nothing.
 				AsSoldier("Rogue Hand")
@@ -37990,6 +37991,53 @@ end)
 		end)
 	end)
 
+	test("1.1 Konig's review (item 5): the Board: a poster the moderators took off (or his guild) has no flag or camp on any Board; his own client raises none and sends no G1", function()
+		WithBoard(function(w, B, K)
+			NoWords(function()
+				AsSoldier("Watcher")
+				local function Posters(slot)
+					local out = {}
+					for _, e in ipairs(B.List(slot)) do out[#out + 1] = e.sender end
+					table.sort(out)
+					return table.concat(out, ",")
+				end
+				-- A spammer's flag and camp, a guild's member's flag, an honest player's flag.
+				B.HandlePost("CHANNEL", "Spammer Guy-Realm", Flag("a1", "Olympus Zeus", "D", 0, 1453, "buy gold"))
+				B.HandlePost("CHANNEL", "Spammer Guy-Realm", Flag("c1", "Olympus Zeus", "C", 0, 1453, "gold here"))
+				B.HandlePost("CHANNEL", "Gale Member-Realm", Flag("g1", "Olympus Gale", "R", 0, 1429))
+				B.HandlePost("CHANNEL", "Honest Guy-Realm", Flag("h1", "Olympus Zeus", "P", 0, 1429))
+				eq(Posters("flag"), "Gale Member-Realm,Honest Guy-Realm,Spammer Guy-Realm"); eq(Posters("camp"), "Spammer Guy-Realm")
+				-- The King takes the spammer and the guild off: what they had leaves the Board (map badges come from it).
+				Off("Spammer Guy-Realm"); GuildOff("Olympus Gale")
+				eq(Posters("flag"), "Honest Guy-Realm", "their flags gone"); eq(Posters("camp"), "", "his camp gone")
+				eq(B.Count("flag"), 1); eq(B.Count("camp"), 0)
+				-- New ones, or their refreshes: not taken.
+				w.clock = w.clock + B.NEW_ID_GAP + 1
+				B.HandlePost("CHANNEL", "Spammer Guy-Realm", Flag("a2", "Olympus Zeus", "D", 0, 1453, "buy gold"))
+				B.HandlePost("CHANNEL", "Spammer Guy-Realm", Flag("c1", "Olympus Zeus", "C", 1, 1453, "gold here"))
+				B.HandlePost("CHANNEL", "Other Gale-Realm", Flag("g2", "Olympus Gale", "D", 0, 1429))
+				eq(Posters("flag"), "Honest Guy-Realm"); eq(Posters("camp"), "")
+				-- His own client: says why, raises nothing, sends no G1 (a refresh or an answer to an ask).
+				AsSoldier("Spammer Guy")
+				local sent = #w.sent
+				local ok, why = B.Raise("D", "buy gold")
+				eq(ok, false); eq(why, "netoff")
+				assert(Printed(w, M.YouText(M.SelfOff())), "said why")
+				w.share = true
+				ok, why = B.DropCamp("gold")
+				eq(ok, false); eq(why, "netoff")
+				eq(#w.sent, sent, "nothing sent")
+				eq(M.Blocks(Flag("a2", "Olympus Zeus", "D", 0, 1453, "buy gold")), true, "a G1 held back")
+				eq(M.Blocks("G0~a2"), false, "taking his own down still goes")
+				-- Put back on: his next flag shows.
+				AsSoldier("Watcher")
+				Back("Spammer Guy-Realm")
+				B.HandlePost("CHANNEL", "Spammer Guy-Realm", Flag("a3", "Olympus Zeus", "D", 0, 1453, "sorry"))
+				eq(Posters("flag"), "Honest Guy-Realm,Spammer Guy-Realm")
+			end)
+		end)
+	end)
+
 	test("1.1 Konig's review: the README and the CurseForge page say what the net-off and the shared block terms do now", function()
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
@@ -37999,7 +38047,8 @@ end)
 				"then from the giver's own addon every few minutes for late logins", "no addon repeats it",
 				"each one word of 4 letters at least", "The shared list never hides the King's writs (your own filter still can)",
 				"the list keeps 100 entries at most, the oldest removals going first",
-				"and their signups to the King's week", "their entries on the King's week (their cancels of anyone's too) and its signup sheets, show nowhere" }) do
+				"their signups to the King's week and their flags and camps on the Board (the camps' map badges too)",
+				"their entries on the King's week (their cancels of anyone's too) and its signup sheets, show nowhere" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
 			assert(not doc:find("The newest word wins, by the server's clock", 1, true), path .. ": the old claim")

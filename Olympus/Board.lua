@@ -26,6 +26,9 @@ local L = ns.L
 --   GQ~       a client opened the Board: flag holders answer it alone, by whisper, with their
 --             G1, so a player who just logged in sees the Board without waiting for refreshes
 -- Clients before 1.1 have no handler for G1, G0 or GQ: they leave them unread.
+-- A poster the moderators took off (net-off, Moderation.lua; 1.1, Konig's review): his flags and
+-- camps (their map badges too) leave every Board and no new one is taken, and his own client
+-- raises none and sends no G1.
 
 local Board = {}
 ns.Board = Board
@@ -168,13 +171,23 @@ Board.Expires = Expires
 local function SlotOf(flag) return flag == "C" and "camp" or "flag" end
 local function Key(sender, slot) return slot == "flag" and sender or (sender .. "|" .. slot) end
 
+-- A poster the moderators took off (net-off, Moderation.lua), in the name of `guild`.
+local function Off(sender, guild)
+	local M = ns.Moderation
+	return M.Hides ~= nil and M.Hides(sender, guild) ~= nil
+end
+
 -- A post past its end leaves, and its id stays out like a lowered one: a refresh that still
--- comes (a sender claiming it was raised just now) can't bring it back.
+-- comes (a sender claiming it was raised just now) can't bring it back. A post of one the
+-- moderators took off since leaves too (1.1, Konig's review), its id not held: put back on, his
+-- next refresh shows it again.
 local function Prune(now)
 	for key, e in pairs(posts) do
 		if now >= Expires(e) then
 			posts[key] = nil
 			lowered[e.sender .. "#" .. e.id] = now
+		elseif Off(e.sender, e.guild) then
+			posts[key] = nil
 		end
 	end
 	for key, t in pairs(lowered) do
@@ -187,7 +200,7 @@ function Board.Count(slot, now)
 	now = now or ns.Now()
 	local n, soonest, which = 0, nil, nil
 	for key, e in pairs(posts) do
-		if now < Expires(e) and (not slot or SlotOf(e.flag) == slot) then
+		if now < Expires(e) and (not slot or SlotOf(e.flag) == slot) and not Off(e.sender, e.guild) then
 			n = n + 1
 			local x = Expires(e)
 			if not soonest or x < soonest then soonest, which = x, key end
@@ -230,6 +243,15 @@ function Board.HandlePost(dist, sender, text)
 	if not e or not ns.IsFederation(e.guild) then return end
 	sender = ns.FullName(sender)
 	if sender == ns.me or Ignored(sender) then return end
+	-- 1.1 (Konig's review): a name the moderators took off (net-off, Moderation.lua): no flag or
+	-- camp of his, and the ones he had leave the Board.
+	if Off(sender, e.guild) then
+		if posts[sender] or posts[Key(sender, "camp")] then
+			posts[sender], posts[Key(sender, "camp")] = nil, nil
+			Changed()
+		end
+		return
+	end
 	-- One guild per sender, as the chats: our own guild's name only from our roster.
 	local own = GetGuildInfo("player")
 	if own and e.guild == own then
@@ -367,7 +389,7 @@ local function Send(p, now)
 end
 Board.Send = Send
 
--- Whether we can put anything on the Board now: a member, on the channel, not in lockdown.
+-- Whether we can put anything on the Board now: a member, on the channel, not in lockdown, not off.
 function Board.Ready()
 	if not ns.IsMember() then
 		ns.Print(L.MEMBERS_ONLY)
@@ -380,6 +402,14 @@ function Board.Ready()
 	if Locked() then
 		ns.Print(L.CHAN_LOCKDOWN)
 		return false, "lockdown"
+	end
+	-- 1.1 (Konig's review): the moderators took this character off (net-off, Moderation.lua):
+	-- nobody would see it.
+	local M = ns.Moderation
+	local off = M.SelfOff and M.SelfOff()
+	if off then
+		ns.Print(M.YouText(off))
+		return false, "netoff"
 	end
 	return true
 end

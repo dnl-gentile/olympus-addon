@@ -5,12 +5,13 @@ local L = ns.L
 -- Steward's) or a High Councillor of the author's signed list gives a word, with a reason and the
 -- time, on one of two things:
 --   a character (c): every honest client hides that character on every addon surface: the chats
---     (and their history), decrees, layers and hop offers, Vox Populi (questions and votes) and
---     the court's queue. The names that character's player linked as alts (Alts.lua, confirmed on
---     each character) are hidden with it. The rest of the guild, and the census, stay.
+--     (and their history), decrees, layers and hop offers, Vox Populi (questions and votes), the
+--     court's queue, and (1.1, Konig's review) the King's week (entries, sheets and signups) and
+--     the Board (flags and camps). The names that character's player linked as alts (Alts.lua,
+--     confirmed on each character) are hidden with it. The rest of the guild, and the census, stay.
 --   a guild (g): while it is off, honest clients stop sending and showing that guild's census,
---     map, hop, decrees, Vox and addon channels: its members' own clients send none of them, and
---     every client drops what still comes. Blizzard's guild chat and Guild window stay up (the
+--     map, hop, decrees, Vox and addon channels, and the rest above: its members' own clients send
+--     none of them, and every client drops what still comes. Blizzard's guild chat and Guild window stay up (the
 --     guild's own addon messages over GUILD too). One guild at a time: there is no switch for the
 --     whole realm, and never the King's guild.
 -- The same people put either back on.
@@ -64,10 +65,11 @@ Moderation.REASON_MAX = 80        -- bytes of a reason
 Moderation.GUILDS_KNOWN = 3000    -- senders whose guild this client remembers (the hop's whispers name none)
 -- What a client whose own character or guild is off stops sending (the receivers drop it anyway):
 -- chat lines, decrees, layer announcements, hop asks, offers and answers, Vox votes; and (1.1,
--- Konig's review) its signups to the King's week (Y2), and the Throne's calls to the army, the
--- week's entries among them (T1 of a kind in King.HIDDEN_CALLS: its lists still go). (Its census
+-- Konig's review) its signups to the King's week (Y2), its flags and camps on the Board (G1), and
+-- the Throne's calls to the army, the week's entries among them (T1 of a kind in
+-- King.HIDDEN_CALLS: its lists still go). (Its census
 -- report: Comm.Broadcast.) Nothing over GUILD is in it: the guild's own hello and key go on.
-Moderation.BLOCKED = { M1 = true, D1 = true, L1 = true, LQ = true, LO = true, LR = true, LN = true, LX = true, Y1 = true, Y2 = true }
+Moderation.BLOCKED = { M1 = true, D1 = true, L1 = true, LQ = true, LO = true, LR = true, LN = true, LX = true, Y1 = true, Y2 = true, G1 = true }
 
 Moderation.random = math.random -- tests
 
