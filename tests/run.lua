@@ -27425,9 +27425,9 @@ test("1.1 join requests (Fern #20): an officer gets a recruit's request with Inv
 			decline.onClick()
 			eq(#w.said, 1); eq(w.said[1].kind, "WHISPER"); eq(w.said[1].to, "Other"); eq(w.said[1].text, L.JOIN_DECLINE_TEXT:format("Olympus II", "Olympus R2"))
 			eq(#R.requests, 0)
-			-- No gates: the most room that isn't ours.
+			-- No gates: our own guild alone (Konig's review of 1.1: never the census's "most room").
 			ns.Acts.Gates = function() return nil end
-			eq(R.DeclineText({}), L.JOIN_DECLINE_TEXT:format("Olympus II", "Olympus R1"))
+			eq(R.DeclineText({}), L.JOIN_DECLINE_TEXT_PLAIN:format("Olympus II"))
 			-- Dismiss: nothing sent.
 			R.OnJoinRequest("WHISPER", "Third-Realm", "J3~Olympus II~9~WARRIOR")
 			Fern.Find(V.Build("census"), L.JOIN_DISMISS).onClick()
@@ -27516,8 +27516,8 @@ test("1.1 join routing (Fern #20): one forged report names no guild and nobody t
 		local route = R.ParseRoute(msg)
 		eq(route.list[1].name, "Olympus R1", "the most room the census confirms first")
 		eq(table.concat(route.list[1].contacts, "/"), "Rlord/Rcap", "named by both senders")
-		-- A declined recruit is not sent there either.
-		eq(R.DeclineText({}), L.JOIN_DECLINE_TEXT:format("Olympus II", "Olympus R1"))
+		-- A declined recruit is not sent there either (since Konig's review of 1.1, to no guild but the gates').
+		eq(R.DeclineText({}), L.JOIN_DECLINE_TEXT_PLAIN:format("Olympus II"))
 		-- A Captain only one sender names (lists cut at MAX_OFFICERS leave the officers out of the
 		-- picture both senders agree on): not named; one both name is.
 		local function Officers(last)
@@ -37738,6 +37738,42 @@ do
 				eq(ns.db.blocked[("name%04d-realm"):format(Bk.BLOCKED_MAX + 1)], nil, "not in the confirm: not added")
 			end)
 			ns.db.blocked = saved
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	-- Item 4: "Decline whispers can advertise a forged guild ... Name only the gates or our own guild."
+	test("1.1 Konig's review (#4): an officer's decline whisper names only the King's gates or his own guild, never a 'most room' guild two characters made up", function()
+		local R, D, L = ns.Recruit, ns.Data, ns.L
+		local saved = { can = CanGuildInvite, byName = ns.Roster.byName }
+		Fern.Census(function(w)
+			local ok, err = pcall(function()
+				R.ResetForTests()
+				local now = os.time()
+				ns.Acts.Gates = function() return nil end
+				CanGuildInvite = function() return true end
+				ns.Roster.byName = {}
+				-- Two made-up characters report a made-up guild with 999 free slots, and agree.
+				local fake = "R2~Olympus Fake~1~1~Fakelord~1~1~~~0,0,0,0,0,0,0~~"
+				eq(D.Receive(Codec.DecodeReport(fake), "Forgera-Realm"), true)
+				eq(D.Receive(Codec.DecodeReport(fake), "Forgerb-Realm"), true)
+				eq(D.Dispute(ns.rdb.guilds["Olympus Fake"]), nil, "two senders agree: the census does not mark it")
+				eq(R.OpenGuilds()[1].name, "Olympus Fake", "the most room")
+				-- A recruit asks; the officer's Decline, sent from his own chat, names only his guild.
+				eq(R.OnJoinRequest("WHISPER", "Newbie-Realm", "J3~Olympus II~12~MAGE"), true)
+				eq(R.Decline(R.requests[1]), true)
+				eq(#w.said, 1); eq(w.said[1].kind, "WHISPER"); eq(w.said[1].to, "Newbie")
+				eq(w.said[1].text, L.JOIN_DECLINE_TEXT_PLAIN:format("Olympus II"))
+				eq(w.said[1].text:find("Fake", 1, true), nil, w.said[1].text)
+				-- The King's gates open on another guild: that one, named.
+				ns.Acts.Gates = function() return { guild = "Olympus Zeus", at = now + 600 } end
+				eq(R.DeclineText({}), L.JOIN_DECLINE_TEXT:format("Olympus II", "Olympus Zeus"))
+				-- ...on ours: ours alone.
+				ns.Acts.Gates = function() return { guild = "Olympus II", at = now + 600 } end
+				eq(R.DeclineText({}), L.JOIN_DECLINE_TEXT_PLAIN:format("Olympus II"))
+			end)
+			CanGuildInvite, ns.Roster.byName = saved.can, saved.byName
+			R.ResetForTests()
 			if not ok then error(err, 0) end
 		end)
 	end)

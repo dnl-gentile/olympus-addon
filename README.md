@@ -111,10 +111,11 @@ versions before 1.1 just get the whisper, as before.
   the mark changes nothing that counts. Your own guild (your roster) is never marked.
 - **Asking to join** (1.1): a recruit who asked you from the Join Olympus screen shows on top of
   the Census, with their whisper. An officer (the game's guild invite permission) answers with
-  **Invite** (the game's own guild invite) or **Decline** (one whisper pointing to the gates or
-  the guild with the most room), one click each; anyone else can point them to an officer
-  online. **Dismiss** sends nothing. In the Realm's Recruiting, one click (or `/oly nocontact`)
-  sets your **do not contact** flag.
+  **Invite** (the game's own guild invite) or **Decline** (one whisper pointing to the gates'
+  guild while the King's gates are open, else naming your guild alone: never a guild the census
+  lists for its room, which two made-up characters could report), one click each; anyone else
+  can point them to an officer online. **Dismiss** sends nothing. In the Realm's Recruiting, one
+  click (or `/oly nocontact`) sets your **do not contact** flag.
 - **Search the census** (1.1): a guild, a Lord, a Captain, a player of a guild's top five or one
   seen online (the player shows under the guild's row), or a zone ("Stormwind": its soldiers
   and its guilds, most first). Type **recruiting** (or `free 50`) for every guild with room,

@@ -552,17 +552,14 @@ function Recruit.Accept(req)
 	return true
 end
 
--- Where to send one we can't take: the gates' guild, or the one with the most room the census
--- does not mark, not ours.
+-- Where to send one we can't take: the gates' guild while the King's gates are open, else only
+-- ours (the Join screen shows who has room). Never a guild named for its free slots (Konig's
+-- review of 1.1: the top "most room" guild is one two characters can fake, and this whisper goes
+-- from the officer's own chat).
 function Recruit.DeclineText(req)
 	local own = GetGuildInfo("player")
 	local gates = ns.Acts and ns.Acts.Gates and ns.Acts.Gates()
 	local other = gates and gates.guild ~= own and gates.guild or nil
-	if not other then
-		for _, o in ipairs(Recruit.OpenGuilds()) do
-			if o.name ~= own then other = o.name break end
-		end
-	end
 	if other then return L.JOIN_DECLINE_TEXT:format(own or "?", other) end
 	return L.JOIN_DECLINE_TEXT_PLAIN:format(own or "?")
 end
