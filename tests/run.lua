@@ -31056,6 +31056,31 @@ end)
 	-- #8 (its second part): the King's rotation of the army's key (Keys.lua).
 	assert(loadfile(ADDON_DIR .. "Keys.lua"))("Olympus", ns)
 	local KY = ns.Keys
+	-- The rotating client's own /who (the server's word) lists these players ({ name, guild }):
+	-- one search of Who.lua's, answered by a stand-in of the game's /who, its timers run after the
+	-- answer. (1.1, Konig's review: the key is whispered only to whom it lists in their guild.)
+	local function WhoLists(rows)
+		local saved = { list = C_FriendList, after = ns.After }
+		local timers = {}
+		local ok, err = pcall(function()
+			C_FriendList = {
+				SendWho = function() end, SetWhoToUi = function() end,
+				GetNumWhoResults = function() return #rows, #rows end,
+				GetWhoInfo = function(i) return rows[i] and { fullName = rows[i][1], fullGuildName = rows[i][2], level = 60, filename = "WARRIOR" } end,
+			}
+			ns.After = function(_, _, f) timers[#timers + 1] = f end
+			ns.Who.lastSend, ns.Who.lastPlain = 0, 0
+			-- (With the gamepad UI no quiet search goes: there the census's Refresh, a plain one, is his /who.)
+			local sent
+			if ns.GamepadUI() then sent = ns.Who.Search() else sent = ns.Who.Search(true, nil, rows[1][1]) end
+			assert(sent, "a /who went")
+			for _, f in ipairs(EVENT_SCRIPTS) do f(nil, "WHO_LIST_UPDATE") end
+			for _, f in ipairs(timers) do f() end
+		end)
+		C_FriendList, ns.After = saved.list, saved.after
+		ns.Who.lastSend, ns.Who.lastPlain = 0, 0
+		if not ok then error(err, 0) end
+	end
 	-- The Throne's scene with Lords and Captains online the census confirms (two senders each), no
 	-- key yet; joining a channel counted, not done.
 	local function WithKeys(fn)
@@ -31081,11 +31106,15 @@ end)
 				G["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", leaderOnline = true, realm = "Realm",
 					officers = { { name = "Zeus Cap", online = true, days = 0 }, { name = "Zeus Sleeper", online = false, days = 2 } } }, "W3-Realm", "W4-Realm")
 				G["Olympus II"] = Vouched({ total = 300, online = 3, zones = {}, t = w.clock, leader = "Ceo", leaderOnline = false, realm = "Realm" }, "W5-Realm", "W6-Realm")
+				-- ...and listed Olympus Zeus's Lord and Captain online in it (Ceo is offline).
+				ns.Who.Reset()
+				WhoLists({ { "Zed", "Olympus Zeus" }, { "Zeus Cap", "Olympus Zeus" } })
 				fn(w, K)
 			end)
 			ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRotation, ns.Comm.JoinChannel, ns.After, ns.db.log =
 				saved.key, saved.epoch, saved.rot, saved.join, saved.after, saved.log
 			ns.rdb.keyRetired, ns.rdb.seen, ns.Comm.Whisper = saved.retired, saved.seen, saved.whisper
+			ns.Who.Reset()
 			KY.Reset()
 			if not ok then error(err, 0) end
 		end)
@@ -31318,8 +31347,10 @@ end)
 			KY.HandleAck("WHISPER", "Zeus Cap-Realm", ("K4~%d~Olympus Zeus"):format(rot.at - 1))
 			KY.HandleAck("CHANNEL", "Zeus Cap-Realm", ("K4~%d~Olympus Zeus"):format(rot.at))
 			assert(Page((K.Build())):find(ns.L.KEY_ROTATING:format(2, 1, 1), 1, true), Page((K.Build())))
-			-- A Lord who comes online meanwhile: handed it on the next round; the others not again before RESEND.
+			-- A Lord who comes online meanwhile (and the King's /who sees him in his guild): handed it on
+			-- the next round; the others not again before RESEND.
 			ns.rdb.guilds["Olympus II"].leaderOnline = true
+			WhoLists({ { "Ceo", "Olympus II" } })
 			local before = #w.whispered
 			w.clock = w.clock + 60
 			KY.Tick()
@@ -31648,15 +31679,17 @@ end)
 			eq(#w.whispered, 0, "nothing before he hands it out")
 			K.Show("home")
 			local page = Page((K.Build()))
-			assert(page:find("<Olympus Spies>  2 · " .. ns.L.KEY_GUILD_CENSUS, 1, true), page)
+			-- (Konig's later review: its two "Lords" are none his /who saw in it, so 0 get the key.)
+			assert(page:find("<Olympus Spies>  0 · " .. ns.L.KEY_GUILD_CENSUS .. " · " .. ns.L.KEY_GUILD_WAITING:format(2), 1, true), page)
 			assert(page:find("<Olympus Zeus>  2 · " .. ns.L.KEY_GUILD_SEEN, 1, true), page)
 			eq(KY.Start(), true)
 			eq(Whispered(w, "K3~"), "Zed-Realm,Zeus Cap-Realm", "the guild his /who saw, not the made-up one")
-			-- He checks it himself (or unchecks one): from the next round.
+			-- He checks it himself (or unchecks one): from the next round. (Before Konig's later review
+			-- the census's two "Lords" were whispered then; now only whom his /who sees in it.)
 			KY.Toggle("Olympus Spies")
 			w.clock = w.clock + 60
 			KY.Tick()
-			eq(Whispered(w, "K3~"), "Leaker One-Realm,Leaker Two-Realm,Zed-Realm,Zeus Cap-Realm")
+			eq(Whispered(w, "K3~"), "Zed-Realm,Zeus Cap-Realm")
 			-- Dropped before handing out: nothing sent, and another rotation may start.
 			KY.Move()
 			w.whispered = {}
@@ -31765,15 +31798,19 @@ end)
 				for _ = 1, 100 do ns.Comm.Pump() end -- (whatever earlier tests left waiting)
 				out = {}
 				ns.Comm.Whisper = whisper
-				-- 66 guilds his /who saw, each with its Lord and a Captain online: 132 whispers.
-				local names = {}
+				-- 66 guilds his /who saw, each with its Lord and a Captain online (his /who listed them in
+				-- it): 132 whispers.
+				local names, rows = {}, { { "Zed", "Olympus Zeus" }, { "Zeus Cap", "Olympus Zeus" } }
 				for i = 1, 66 do
 					local guild = "Olympus " .. Letters(i)
 					ns.rdb.guilds[guild] = Vouched({ total = 10, online = 2, zones = {}, t = w.clock, leader = "Lord " .. Letters(i), leaderOnline = true,
 						realm = "Realm", officers = { { name = "Cap " .. Letters(i), online = true, days = 0 } } }, "Wa" .. i .. "-Realm", "Wb" .. i .. "-Realm")
 					ns.rdb.seen[guild] = { online = 2, t = w.clock }
 					names["Lord " .. Letters(i) .. "-Realm"], names["Cap " .. Letters(i) .. "-Realm"] = true, true
+					rows[#rows + 1] = { "Lord " .. Letters(i), guild }
+					rows[#rows + 1] = { "Cap " .. Letters(i), guild }
 				end
+				WhoLists(rows)
 				names["Zed-Realm"], names["Zeus Cap-Realm"] = true, true
 				-- Three other messages of his were waiting (an agenda, a Hands list...).
 				for i = 1, 3 do whisper("Other" .. i .. "-Realm", "T9~other" .. i, "other" .. i) end
@@ -37658,6 +37695,194 @@ test("1.1 the bank's gone since the last snapshot: a tab that never loaded, with
 		if not ok then error(err, 0) end
 	end)
 end)
+
+---------------------------------------------------------------------------
+-- 1.1 (Konig's review of the key rotation, #45): the King's new key is whispered only to the
+-- Lords and Captains his own /who saw in their guild (the server's word), never to names the
+-- census alone gives (two characters on the leaked channel can report themselves a real guild's
+-- Lord and Captain).
+---------------------------------------------------------------------------
+do
+	local KY = ns.Keys
+	local function Page(lines)
+		local out = {}
+		for _, l in ipairs(lines) do out[#out + 1] = tostring(l.text) end
+		return table.concat(out, "\n")
+	end
+	local function LineWith(lines, text)
+		for _, l in ipairs(lines) do if tostring(l.text):find(text, 1, true) then return l end end
+		return nil
+	end
+	local function Whispered(w)
+		local out = {}
+		for _, x in ipairs(w.whispered) do if x.msg:sub(1, 3) == "K3~" then out[#out + 1] = x.to end end
+		table.sort(out)
+		return table.concat(out, ",")
+	end
+	-- The King's client with a stand-in of the game's /who (WithWho: GetTime is its clock) and the
+	-- Throne (WithThrone). The census: <Olympus Zeus>, its Lord Zed and Captain Zeus Cap online;
+	-- <Olympus II>, a real guild (his /who saw it), reported by two characters of the leaked
+	-- channel alone, each naming the other its Lord or Captain (two senders: the census believes
+	-- them). A whisper leaves at once (Comm's queue says so: done(true)).
+	local function WithRotation(fn)
+		WithWho(function(server)
+			WithThrone(function(w, K)
+				local saved = { key = ns.rdb.realmKey, epoch = ns.rdb.keyEpoch, rot = ns.rdb.keyRotation, retired = ns.rdb.keyRetired,
+					join = ns.Comm.JoinChannel, log = ns.db.log }
+				local ok, err = pcall(function()
+					ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRotation, ns.rdb.keyRetired = nil, nil, nil, nil
+					ns.db.log = {}
+					KY.Reset()
+					ns.Comm.JoinChannel = function() end
+					local record = ns.Comm.Whisper
+					ns.Comm.Whisper = function(to, msg, key, urgent, logged, done)
+						record(to, msg, key, urgent)
+						if done then done(true) end
+					end
+					ns.rdb.seen = { ["Olympus Zeus"] = { online = 9, t = w.clock }, ["Olympus II"] = { online = 40, t = w.clock } }
+					local G = ns.rdb.guilds
+					G["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", leaderOnline = true, realm = "Realm",
+						officers = { { name = "Zeus Cap", online = true, days = 0 } } }, "W3-Realm", "W4-Realm")
+					G["Olympus II"] = Vouched({ total = 300, online = 40, zones = {}, t = w.clock, leader = "Leaker One", leaderOnline = true, realm = "Realm",
+						officers = { { name = "Leaker Two", online = true, days = 0 } } }, "Leaker One-Realm", "Leaker Two-Realm")
+					fn(w, K, server)
+				end)
+				ns.rdb.realmKey, ns.rdb.keyEpoch, ns.rdb.keyRotation, ns.rdb.keyRetired = saved.key, saved.epoch, saved.rot, saved.retired
+				ns.Comm.JoinChannel, ns.db.log = saved.join, saved.log
+				KY.Reset()
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end
+
+	test("1.1 key rotation, Konig's review: two characters who call themselves a real guild's Lord and Captain in the census get no key; those the King's own /who saw in their guild do", function()
+		WithRotation(function(w, K, server)
+			AsKing()
+			eq(ns.Data.KnownRank("Leaker One-Realm", "Olympus II"), 0, "the census believes them")
+			eq(ns.Data.KnownRank("Leaker Two-Realm", "Olympus II"), 1)
+			-- His /who lists Olympus Zeus's two in it, and the two leakers where they really are.
+			eq(ns.Who.Search(true), true)
+			server.Answer({ { "Zed", "Olympus Zeus", 60, "WARRIOR" }, { "Zeus Cap", "Olympus Zeus", 60, "MAGE" },
+				{ "Leaker One", "Leakers Club", 60, "ROGUE" }, { "Leaker Two", "", 60, "ROGUE" } })
+			server.Run(ns.Who.SETTLE)
+			eq(KY.Rotate(), true)
+			-- Both guilds checked (his /who saw a guild of each name): the census's two show, not counted.
+			K.Show("home")
+			local page = Page((K.Build()))
+			assert(page:find("<Olympus II>  0 · " .. ns.L.KEY_GUILD_SEEN .. " · " .. ns.L.KEY_GUILD_WAITING:format(2), 1, true), page)
+			assert(page:find("<Olympus Zeus>  2 · " .. ns.L.KEY_GUILD_SEEN, 1, true), page)
+			eq(KY.Start(), true)
+			eq(Whispered(w), "Zed-Realm,Zeus Cap-Realm", "never a name the census alone gives")
+			-- His /who of that guild (a click on its row, twice: unchecked, then checked again) lists
+			-- its players, not them: still nothing for them, now or on a later round.
+			local row = LineWith(K.Build(), "<Olympus II>")
+			row.onClick()
+			server.clock = server.clock + ns.Who.COOLDOWN + 1
+			LineWith(K.Build(), "<Olympus II>").onClick()
+			eq(server.sent[#server.sent], 'g-"Olympus II"', "his /who of the guild clicked")
+			server.Answer({ { "Real Member", "Olympus II", 40, "PRIEST" }, { "Other Member", "Olympus II", 30, "MAGE" } })
+			server.Run(ns.Who.SETTLE)
+			-- The /who line then asks for each by name (he may have logged in since): the server
+			-- shows him in his own guild.
+			server.clock = server.clock + ns.Who.COOLDOWN + 1
+			LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:format(2)).onClick()
+			eq(server.sent[#server.sent], 'n-"Leaker One"')
+			server.Answer({ { "Leaker One", "Leakers Club", 60, "ROGUE" } })
+			server.Run(ns.Who.SETTLE)
+			w.clock = w.clock + 60
+			KY.Tick()
+			eq(Whispered(w), "Zed-Realm,Zeus Cap-Realm")
+			eq(#KY.Targets(), 2)
+			-- Nor when /who saw one of them in another guild long ago, or in that guild too long ago.
+			assert(not KY.WhoSaw("Leaker One-Realm", "Olympus II"))
+			server.clock = server.clock + KY.WHO_FRESH + 1
+			eq(#KY.Targets(), 0, "his /who of Zed and Zeus Cap is too old now")
+		end)
+	end)
+
+	test("1.1 key rotation, Konig's review: the Throne's /who line asks the server about the Lords and Captains picked it has not seen, one search a click: their guild, then by name whom its answer did not list", function()
+		WithRotation(function(w, K, server)
+			AsKing()
+			ns.rdb.seen["Olympus II"] = nil -- (the census alone names it: unchecked)
+			eq(KY.Rotate(), true)
+			K.Show("home")
+			local page = Page((K.Build()))
+			assert(page:find("<Olympus Zeus>  0 · " .. ns.L.KEY_GUILD_SEEN .. " · " .. ns.L.KEY_GUILD_WAITING:format(2), 1, true), page)
+			local line = LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:format(2))
+			assert(line and line.onClick, "the /who line: " .. page)
+			-- Nothing is whispered to names his /who has not seen.
+			eq(#KY.Targets(), 0)
+			line.onClick()
+			eq(server.sent[#server.sent], 'g-"Olympus Zeus"')
+			-- 50 of its players online: Zed among them, not Zeus Cap (the answer is full).
+			local rows = { { "Zed", "Olympus Zeus", 60, "WARRIOR" } }
+			for i = 2, 50 do rows[i] = { "Zeus Soldier" .. string.char(96 + i % 26) .. string.char(97 + math.floor(i / 26)), "Olympus Zeus", 20, "MAGE" } end
+			server.Answer(rows, 50)
+			server.Run(ns.Who.SETTLE)
+			assert(Page((K.Build())):find(ns.L.KEY_WHO_CONFIRM:format(1), 1, true), Page((K.Build())))
+			-- A click within the cooldown searches nothing; the next one asks for him by name.
+			local sent = #server.sent
+			LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:format(1)).onClick()
+			eq(#server.sent, sent, "one search each 10 seconds")
+			server.clock = server.clock + ns.Who.COOLDOWN + 1
+			LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:format(1)).onClick()
+			eq(server.sent[#server.sent], 'n-"Zeus Cap"')
+			server.Answer({ { "Zeus Cap", "Olympus Zeus", 60, "MAGE" } })
+			server.Run(ns.Who.SETTLE)
+			eq(LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:sub(1, 12)), nil, "nobody left to look for")
+			eq(KY.Start(), true)
+			eq(Whispered(w), "Zed-Realm,Zeus Cap-Realm")
+		end)
+	end)
+
+	test("1.1 key rotation, Konig's review, with the gamepad UI: the /who line sends no quiet search (a line tells him the census's Refresh searches); what that Refresh lists counts; no popup", function()
+		WithUI(function()
+			LoadUI()
+			WithGamepadUI(true, function(game)
+				WithRotation(function(w, K, server)
+					AsKing()
+					eq(KY.Rotate(), true)
+					K.Show("home")
+					LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:format(4)).onClick()
+					eq(#server.sent, 0, "no quiet /who with the gamepad UI")
+					assert(Printed(w, ns.L.KEY_WHO_GAMEPAD))
+					eq(#game.shown, 0); eq(#w.popups, 0)
+					-- The census's Refresh: a plain /who of his, its answer in the game's list.
+					eq(ns.Who.Search(), true)
+					server.Answer({ { "Zed", "Olympus Zeus", 60, "WARRIOR" }, { "Zeus Cap", "Olympus Zeus", 60, "MAGE" } })
+					server.Run(ns.Who.SETTLE)
+					eq(KY.Start(), true)
+					eq(Whispered(w), "Zed-Realm,Zeus Cap-Realm")
+				end)
+			end)
+		end)
+	end)
+
+	test("1.1 key rotation, Konig's review: the Throne's new words in English and pt-BR; the README and the CurseForge page say only whom the King's /who saw in their guild get the key", function()
+		local pt = { L = setmetatable({}, { __index = ns.L }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		for _, k in ipairs({ "KEY_GUILD_WAIT_TIP", "KEY_GUILD_WAITING", "KEY_WHO_CONFIRM", "KEY_WHO_GAMEPAD", "KEY_GUILD_TIP", "KEY_PICK_HINT",
+			"KEY_HAND_OUT_CONFIRM", "KEY_ROTATED", "KEY_ROTATE_TIP", "KEY_ROTATE_CONFIRM", "HELP_KEY_ROTATE" }) do
+			local en, br = rawget(ns.L, k), rawget(pt.L, k)
+			assert(type(en) == "string" and en:find("/who", 1, true), "English: " .. k)
+			assert(type(br) == "string" and br ~= en and br:find("/who", 1, true), "pt-BR: " .. k)
+			eq(select(2, br:gsub("%%[sd]", "")), select(2, en:gsub("%%[sd]", "")), "the same placeholders: " .. k)
+		end
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, must in ipairs({ "confirms online and his own /who saw in that guild", "a name the census alone gives gets nothing",
+				"on the Throne's /who line", "the census's Refresh searches", "whom his own /who saw in that guild (a whisper from the King each)",
+				"whispers the key only to the Lords and Captains his own /who saw in that very guild" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+			assert(not doc:find("The King alone: not his Steward or a Hand", 1, true), path .. ": his Steward rotates too")
+		end
+	end)
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

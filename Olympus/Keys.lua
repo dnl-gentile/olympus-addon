@@ -14,7 +14,10 @@ local L = ns.L
 --   K3~<epoch>~<key>[~<h1.h2.h3>]
 --                      by whisper from the King (or his Steward) to every Lord and Captain of the
 --                      guilds he picked
---                      the census confirms online (Data.KnownRank), and over GUILD from each of
+--                      the census confirms online (Data.KnownRank) whom his own /who saw in that
+--                      guild (Who.SeenGuild, the server's word: two characters on the leaked
+--                      channel can name themselves a real guild's Lord and Captain in the census),
+--                      and over GUILD from each of
 --                      them (their officers) to their own guild; K1~<key> with it there, for
 --                      guildmates before 1.1. The hashes: the keys it replaces (at most 3).
 --   K4~<epoch>~<guild> a Lord's or Captain's addon tells the King it has it (a whisper).
@@ -32,6 +35,8 @@ local L = ns.L
 -- rotation leaves behind whoever holds the old key outside the guilds picked.
 -- The King's client hands the key out a few whispers at a time, never more than the send queue
 -- has room for (its other messages keep their place), and counts a whisper as sent once it left.
+-- /who goes from a click alone: his click on a guild, or on the Throne's /who line, searches the
+-- next one picked whose Lords and Captains it has not seen there yet (Keys.Confirm).
 -- It keeps handing it to Lords and Captains who come online for GRACE, on the old channel (a
 -- little longer while some picked still wait for their whisper), then moves (with his guild);
 -- "Move now" sooner. Guilds with no officer online in that time stay on the old channel until one
@@ -54,6 +59,7 @@ Keys.ONLINE_FRESH = 240   -- a Lord or Captain counts as online from a report th
                           -- someone who logged off since shows the King the game's "no player named" line)
 Keys.RETIRED_MAX = 16     -- keys replaced by a newer epoch this client remembers (their hashes)
 Keys.RETIRES_SENT = 3     -- ...and a K3 names at most this many
+Keys.WHO_FRESH = 30 * 60  -- a Lord or Captain is whispered while his /who saw him in that guild this recently
 
 local stats = { rotated = 0, taken = 0, refused = 0, whispered = 0, acks = 0, relayed = 0, answered = 0, legacy = 0 }
 local lastAnswer = -math.huge
@@ -327,9 +333,20 @@ local function Seen(guild)
 end
 Keys.Seen = Seen
 
+-- His own /who listed this player in exactly this guild within WHO_FRESH (Who.SeenGuild): the
+-- server's word. The census alone can't say it: two characters on the leaked channel can report
+-- themselves a real guild's Lord and Captain (Data.KnownRank asks two senders, they are two).
+local function WhoSaw(name, guild)
+	if not (ns.Who and ns.Who.SeenGuild) then return false end
+	local seen, age = ns.Who.SeenGuild(name)
+	return seen == guild and type(age) == "number" and age <= Keys.WHO_FRESH
+end
+Keys.WhoSaw = WhoSaw
+
 -- Every guild but ours (ours gets it over GUILD when he moves: an officer's word there; a Steward
 -- who is no officer of his guild has it handed like any other) with Lords and Captains the census
--- confirms online (two senders: Data.KnownRank): { guild, names = { Name-Realm }, seen }.
+-- confirms online (two senders: Data.KnownRank): { guild, names = { Name-Realm } his /who saw
+-- in it (whispered), waiting = { Name-Realm } it did not (not whispered), seen }.
 function Keys.Candidates()
 	local out, now = {}, ns.Now()
 	local mine = ns.Roster.IsOfficer() and GetGuildInfo("player") or nil
@@ -337,16 +354,18 @@ function Keys.Candidates()
 		local g = e.g
 		if e.fresh and e.name ~= mine and now - (tonumber(g.t) or 0) <= Keys.ONLINE_FRESH then
 			local home = g.realm or ns.realm
-			local names = {}
+			local names, waiting = {}, {}
 			local function Add(name, online)
 				if type(name) ~= "string" or not online then return end
 				local full = ns.FullName(name, home)
 				local rank = ns.Data.KnownRank(full, e.name)
-				if rank and rank <= ns.CAPTAIN_RANK then names[#names + 1] = full end
+				if rank and rank <= ns.CAPTAIN_RANK then
+					if WhoSaw(full, e.name) then names[#names + 1] = full else waiting[#waiting + 1] = full end
+				end
 			end
 			Add(g.leader, g.leaderOnline)
 			for _, o in ipairs(g.officers or {}) do Add(o.name, o.online) end
-			if #names > 0 then out[#out + 1] = { guild = e.name, names = names, seen = Seen(e.name) } end
+			if #names + #waiting > 0 then out[#out + 1] = { guild = e.name, names = names, waiting = waiting, seen = Seen(e.name) } end
 		end
 	end
 	return out
@@ -359,7 +378,8 @@ local function Picked(rot, c)
 	return v == true
 end
 
--- The Lords and Captains online of the guilds the King picked: { name, guild }.
+-- The Lords and Captains online of the guilds the King picked, whom his /who saw in them:
+-- { name, guild }. Those the census alone names wait for his /who (Keys.Confirm).
 function Keys.Targets()
 	local rot, out = Rotation(), {}
 	if not rot then return out end
@@ -380,6 +400,38 @@ function Keys.Toggle(guild)
 	if now == nil then now = Seen(guild) end
 	rot.picked[guild:lower()] = not now
 	ns.King.Changed()
+end
+
+-- The King's click (the game takes /who from a click alone): his /who asks the server about the
+-- Lords and Captains picked it has not seen in their guild yet, one search a click at Who.lua's
+-- pace (quiet): their guild's players (up to 50), then each one its answer did not list by name
+-- (it was full, or he logged in since), a minute apart. `only`: that guild alone (the one he
+-- clicked). With the gamepad UI no quiet search goes: the census's Refresh searches there (what
+-- it lists counts too).
+local asked = {} -- [Name-Realm] = GetTime() of our search for him by name
+function Keys.Confirm(only)
+	local rot, W = Rotation(), ns.Who
+	if not rot or rot.moved or not Keys.CanRotate() or not (W and W.SearchGuild and W.GuildSeen and W.Search) then return false end
+	if ns.GamepadUI() then
+		if not only then ns.Print(L.KEY_WHO_GAMEPAD) end
+		return false
+	end
+	local now = GetTime()
+	for _, c in ipairs(Keys.Candidates()) do
+		if #c.waiting > 0 and (only == nil or c.guild == only) and Picked(rot, c) then
+			if not W.GuildSeen(c.guild) then
+				if W.SearchGuild(c.guild) then return true end
+			else
+				for _, name in ipairs(c.waiting) do
+					if now - (asked[name] or -math.huge) >= W.GUILD_AGAIN and W.Search(true, nil, name) then
+						asked[name] = now
+						return true
+					end
+				end
+			end
+		end
+	end
+	return false
 end
 
 -- Picked Lords and Captains online whose whisper never left yet (nor did they answer).
@@ -519,21 +571,30 @@ function Keys.ThroneLines()
 			local sent, acked, guilds = Counts(rot)
 			lines[#lines + 1] = Line(L.KEY_ROTATING:format(sent, acked, guilds), INK, { indent = 1 })
 		end
-		local candidates, picked = Keys.Candidates(), 0
+		local candidates, picked, waiting = Keys.Candidates(), 0, 0
+		local function Shown(names)
+			local shown = {}
+			for _, n in ipairs(names) do shown[#shown + 1] = ns.DisplayName(n) end
+			return #shown > 0 and table.concat(shown, ", ") or "-"
+		end
 		for _, c in ipairs(candidates) do
 			local on = Picked(rot, c)
-			if on then picked = picked + 1 end
-			lines[#lines + 1] = Line(("%s<%s>  %d · %s"):format(on and READY or NOT_READY, c.guild, #c.names, c.seen and L.KEY_GUILD_SEEN or L.KEY_GUILD_CENSUS),
-				INK, { indent = 1,
-				onClick = function() Keys.Toggle(c.guild) end,
+			if on then picked, waiting = picked + 1, waiting + #c.waiting end
+			local text = ("%s<%s>  %d · %s"):format(on and READY or NOT_READY, c.guild, #c.names, c.seen and L.KEY_GUILD_SEEN or L.KEY_GUILD_CENSUS)
+			if #c.waiting > 0 then text = text .. " · " .. L.KEY_GUILD_WAITING:format(#c.waiting) end
+			lines[#lines + 1] = Line(text, INK, { indent = 1,
+				-- (Checked, his click also asks /who for it: a click is when /who may go.)
+				onClick = function() Keys.Toggle(c.guild); Keys.Confirm(c.guild) end,
 				tooltip = function(tt)
 					tt:AddLine("<" .. c.guild .. ">", 1, 0.82, 0)
-					local shown = {}
-					for _, n in ipairs(c.names) do shown[#shown + 1] = ns.DisplayName(n) end
-					tt:AddLine(L.KEY_GUILD_TIP:format(table.concat(shown, ", ")), 1, 1, 1, true)
+					tt:AddLine(L.KEY_GUILD_TIP:format(Shown(c.names)), 1, 1, 1, true)
+					if #c.waiting > 0 then tt:AddLine(L.KEY_GUILD_WAIT_TIP:format(Shown(c.waiting)), 1, 1, 1, true) end
 				end })
 		end
 		if #candidates == 0 then lines[#lines + 1] = Line(L.KEY_NO_GUILDS, INK, { indent = 1 }) end
+		if waiting > 0 then
+			lines[#lines + 1] = Line("> " .. L.KEY_WHO_CONFIRM:format(waiting), INK, { indent = 1, onClick = function() Keys.Confirm() end })
+		end
 		if rot.picking then
 			lines[#lines + 1] = Line("> " .. L.KEY_HAND_OUT:format(picked), INK, { indent = 1,
 				onClick = function() ns.ShowDialog("OLYMPUS_KEY_HAND_OUT", tostring(picked)) end })
@@ -621,4 +682,5 @@ end)
 function Keys.Reset()
 	lastAnswer = -math.huge
 	for k in pairs(stats) do stats[k] = 0 end
+	wipe(asked)
 end
