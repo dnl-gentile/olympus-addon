@@ -33,10 +33,14 @@ local L = ns.L
 --   Olympus's own. The Olympus tab of the game's chat (below) is made by the player, with the
 --   game's own menu: Olympus only reads the game's chat windows to see it appear.
 -- - Its box is Olympus's own EditBox: it never takes the keyboard by itself (SetAutoFocus(false)
---   the moment it is made, never SetFocus, never ns.Focus); the player clicks into it, with the
---   mouse or the gamepad cursor. Enter sends through Channels.Send and lets the keyboard go (as
---   the Communities box does), so movement keys go back to the game. It runs no command: a line
---   starting with "/" is kept and the player is told the game's chat box is where commands go.
+--   the moment it is made, never focused on opening); the player clicks into it, with the mouse
+--   or the gamepad cursor, or (mouse and keyboard, 1.1.1, the owner's ask) presses the game's
+--   "Open chat" key while the tab shows: an override binding of Olympus's own button, below. Enter
+--   sends through Channels.Send and the cursor stays for the next line (an empty Enter, Escape or
+--   a plain left-click elsewhere, the client's own, lets the keyboard go back to the game); with
+--   the gamepad UI every Enter lets it go, as the Communities box does. It runs no command: a line
+--   starting with "/" is kept and the player is told the game's chat box is where commands go
+--   (and, with the cursor kept, that Escape and then his own key for it get him there).
 -- - No game popup from it: the pinned line's takedown and a whisper go through ns.ShowDialog
 --   (Olympus's own window with the gamepad UI); the Olympus window closes with Escape through
 --   ns.EscapeCloses (nothing on UISpecialFrames with the gamepad UI: its X closes it there).
@@ -101,6 +105,11 @@ local tipOwner
 local pointer                -- the Olympus tab awaited: Olympus's own pointer by the game's chat tab
 local watching = false       -- ... and the game's chat windows read until it is there
 local settings = false       -- the settings (the gear) shown in place of the lines
+local keyButton              -- Olympus's own button the "Open chat" key clicks (made when first bound)
+local boundKeys              -- the keys our override binding holds now (nil: none)
+local keysLater = false      -- a binding change asked in combat, made when the fight ends
+local toldLater = false      -- the key pressed in combat with the tab gone: said, once a fight
+local syncing = false
 
 local function Grey(s) return GREY .. s .. "|r" end
 local function Gold(s) return "|cffffd200" .. s .. "|r" end
@@ -1338,6 +1347,150 @@ local function DrawSearch()
 	sb.clear:SetShown(text ~= "")
 end
 
+---------------------------------------------------------------------------
+-- The game's key to start typing (1.1.1, the owner's ask after trying the tab: with the Chat tab
+-- open, the key that starts typing starts typing in it). While the tab shows with the chats on,
+-- the key or keys the player bound to the game's "Open chat" (OPENCHAT, Bindings_Standard.xml;
+-- read with GetBindingKey, never assumed, usually Enter) click Olympus's own button, which puts
+-- the keyboard in the tab's box: an override binding that button owns (SetOverrideBindingClick),
+-- taken off (ClearOverrideBindings on it) the moment the tab hides, the window closes, another tab
+-- is picked or the chats go off. Nothing of the game's chat box is opened, hooked or written (the
+-- rules at the top of the file); "/" (OPENCHATSLASH) stays the game's, where commands run.
+-- The game lets no addon change a binding in combat (secure code does it there, the restricted
+-- environment's SetBindingClick and ClearBindings, RestrictedFrames.lua): a change asked in combat
+-- waits for PLAYER_REGEN_ENABLED and is then what the tab is (still open: set; gone: taken off).
+-- The key pressed in combat with the tab gone does nothing but say so, once a fight. With the
+-- gamepad UI none of this (its own code keeps override bindings on UIParent, InputBindingManager):
+-- no binding, the box a click only. A binding change runs the game's UPDATE_BINDINGS handlers from
+-- ours at once (a synchronous event), the gamepad UI's among them (ActionBarEditFrame.lua, the HUD
+-- bags), so under it Olympus changes none, with one exception: the key ours still holds at the
+-- switch to it (INPUT_DEVICE_INTERFACE_TRANSITION, the game rebinding everything itself) goes back
+-- to the game there or, switched in a fight, when that fight ends. Switched back, bound at once.
+---------------------------------------------------------------------------
+
+local KEY_ACTION = "OPENCHAT"
+local SLASH_ACTION = "OPENCHATSLASH"
+local KEY_BUTTON = "OlympusChatKey"
+local SyncKeys
+
+local function InCombat() return InCombatLockdown ~= nil and InCombatLockdown() == true end
+
+-- The keys bound to the game's "Open chat" (its bindings: GetBindingKey leaves the overrides out
+-- unless asked, so ours never hides them): none, one or two.
+local function Keys(ok, ...)
+	local out = {}
+	if not ok then return out end
+	for i = 1, select("#", ...) do
+		local k = select(i, ...)
+		if type(k) == "string" and k ~= "" then out[#out + 1] = k end
+	end
+	return out
+end
+local function ChatKeys()
+	if type(GetBindingKey) ~= "function" then return {} end
+	return Keys(pcall(GetBindingKey, KEY_ACTION))
+end
+
+-- The key the player bound to the game's "Open chat with /" (OPENCHATSLASH), as the game names it
+-- (GetBindingText): nil when none is bound (never assumed to be "/"). A message ending with the way
+-- to the game's chat box names it (line: its words, the key's place a %s), or says nothing of it.
+local function SlashKey()
+	if type(GetBindingKey) ~= "function" then return nil end
+	local key = Keys(pcall(GetBindingKey, SLASH_ACTION))[1]
+	if not key then return nil end
+	if type(GetBindingText) == "function" then
+		local ok, text = pcall(GetBindingText, key)
+		if ok and type(text) == "string" and text ~= "" then return text end
+	end
+	return key
+end
+local function WithSlashKey(said, line)
+	local key = SlashKey()
+	if not key then return said end
+	return said .. " " .. line:format(key)
+end
+
+-- The gamepad UI on: at a switch, the style it switches to (the event's newMode, as Borders.lua
+-- reads it); else the game's current one.
+local function GamepadStyle(newMode)
+	local gamepad = Enum and Enum.InputDeviceInterfaceType and Enum.InputDeviceInterfaceType.Gamepad
+	if newMode ~= nil and gamepad ~= nil then return newMode == gamepad end
+	return ns.GamepadUI()
+end
+
+-- The tab in sight (UIParent hidden with Alt-Z: not), the chats on, mouse and keyboard.
+local function KeysWanted(gamepad)
+	if gamepad == nil then gamepad = ns.GamepadUI() end
+	if gamepad or not Shown() then return false end
+	if frame.IsVisible and not frame:IsVisible() then return false end
+	return ns.Channels.ChatOn() and true or false
+end
+
+-- The key pressed (our binding's click, on the press): the keyboard to the tab's box, its lines in
+-- place of the settings. The tab gone (a fight kept the binding): said, once a fight.
+local function KeyPressed(down)
+	if down == false then return end -- (the release: the press did it)
+	if not KeysWanted() then
+		if InCombat() and not toldLater then
+			toldLater = true
+			ns.Print(WithSlashKey(L.CHATWIN_KEY_LATER, L.CHATWIN_KEY_LATER_SLASH))
+		end
+		SyncKeys()
+		return
+	end
+	if settings then ChatWindow.ShowSettings(false) end
+	CloseMenu()
+	local eb = frame.input
+	if eb:IsShown() then ns.Focus(eb) end
+end
+
+local function KeyButton()
+	if keyButton then return keyButton end
+	local b = CreateFrame("Button", KEY_BUTTON, UIParent)
+	-- On the press, as the game's own binding runs: the release finds the box open (and after an
+	-- empty Enter let the keyboard go, the release does not take it back).
+	b:RegisterForClicks("AnyDown")
+	b:SetScript("OnClick", function(_, _, down) ns.SafeCall("chat tab key", KeyPressed, down) end)
+	keyButton = b
+	return b
+end
+
+local function SameKeys(a, b)
+	if #a ~= #b then return false end
+	for i = 1, #a do
+		if a[i] ~= b[i] then return false end
+	end
+	return true
+end
+
+-- The binding made what the tab is now (or, in combat, when the fight ends). With the gamepad UI
+-- nothing is changed but when due: at the switch between the two (gamepad: the style switched to)
+-- or at the end of the fight that held a change, the key ours still holds goes back to the game.
+SyncKeys = function(due, gamepad)
+	if syncing then return end
+	if gamepad == nil then gamepad = ns.GamepadUI() end
+	if gamepad and not due then return end
+	local keys = KeysWanted(gamepad) and ChatKeys() or {}
+	if SameKeys(keys, boundKeys or {}) then
+		keysLater = false
+		return
+	end
+	if InCombat() then
+		keysLater = true
+		return
+	end
+	if type(SetOverrideBindingClick) ~= "function" or type(ClearOverrideBindings) ~= "function" then return end
+	syncing = true
+	local ok, err = pcall(function()
+		local b = KeyButton()
+		boundKeys = #keys > 0 and keys or nil
+		ClearOverrideBindings(b)
+		for _, k in ipairs(keys) do SetOverrideBindingClick(b, false, k, KEY_BUTTON, "LeftButton") end
+	end)
+	syncing, keysLater = false, false
+	if not ok then error(err, 0) end
+end
+
 -- What the box shows: "lines" (the chats on: the lines, and the box to write in), "off" (the chats
 -- off on this client: the choice, and a way to it) or "settings" (the gear's). The top row is
 -- DrawTop's.
@@ -1355,8 +1508,7 @@ local function ShowParts(mode)
 	if mode == "settings" then frame.pin:Hide() end
 end
 
-function ChatWindow.Render()
-	dirty = false
+local function Draw()
 	if not frame or not frame.places then return end
 	local C = ns.Channels
 	local tiers = Readable()
@@ -1412,6 +1564,13 @@ function ChatWindow.Render()
 	ShowNew()
 end
 
+function ChatWindow.Render()
+	dirty = false
+	Draw()
+	-- (The "Open chat" key follows: the chats on or off, the tab gone with the last channel.)
+	ns.SafeCall("chat tab key", SyncKeys)
+end
+
 -- The settings in place of the lines (the gear), or the lines again. Never takes the keyboard.
 function ChatWindow.ShowSettings(on)
 	settings = on and true or false
@@ -1465,11 +1624,21 @@ local function Submit()
 	if not frame or not tier then return end
 	local eb = frame.input
 	local text = Trim(eb:GetText())
+	-- With mouse and keyboard the cursor stays for the next line (the owner's ask: Enter, type,
+	-- Enter, type), with a refused line or a command kept in the box too; an empty Enter lets the
+	-- keyboard go back to the game, and so does the privacy warning (its Send or Cancel is next).
+	-- With the gamepad UI, as the Communities box: every Enter lets it go.
+	local keep = not ns.GamepadUI()
 	if text == "" then
 		eb:SetText("")
+		keep = false
 	elseif text:sub(1, 1) == "/" then
 		-- This box runs no command and never hands one to the game: the text stays, nothing is sent.
-		ns.Print(L.CHATWIN_NO_SLASH:format(Label(tier)))
+		-- With the cursor kept, the way to the game's box too: Escape, then the player's own key for
+		-- it (the open-chat key comes back here; the gamepad UI's box already let go, as before).
+		local said = L.CHATWIN_NO_SLASH:format(Label(tier))
+		if keep then said = WithSlashKey(said, L.CHATWIN_SLASH_WAY) end
+		ns.Print(said)
 	else
 		-- keepMute: a channel muted in chat stays muted there (this tab shows it all the same).
 		local ok, why = ns.Channels.Send(tier, text, nil, true)
@@ -1481,9 +1650,9 @@ local function Submit()
 			ScrollToBottom()
 			MarkDirty()
 		end
+		if why == "confirm" then keep = false end
 	end
-	-- (As the Communities box: the keyboard goes back to the game.)
-	eb:ClearFocus()
+	if not keep then eb:ClearFocus() end
 	Hint()
 end
 
@@ -1886,7 +2055,8 @@ local function Build(h)
 	p.setScroll:Hide()
 
 	-- The box to write in, across the bottom where the other tabs have their buttons: Olympus's
-	-- own, never focused but by the player's click, and no Send button (Enter sends).
+	-- own, focused only by the player (his click, or his open-chat key while the tab shows: the key's
+	-- section above), and no Send button (Enter sends).
 	local eb = CreateFrame("EditBox", base .. "Input", p)
 	eb:SetAutoFocus(false)
 	eb.olympusBox = true
@@ -1929,7 +2099,10 @@ local function Build(h)
 		p.menu:Hide()
 		p.catcher:Hide()
 		Untip(tipOwner)
+		-- (The "Open chat" key back to the game: another tab, the window closed, the UI hidden.)
+		ns.SafeCall("chat tab key", SyncKeys)
 	end)
+	p:HookScript("OnShow", function() ns.SafeCall("chat tab key", SyncKeys) end)
 	-- The window resized (docked to a guild window that grew): the lines wrap again.
 	p:HookScript("OnSizeChanged", MarkDirty)
 	if h.HookScript then h:HookScript("OnSizeChanged", MarkDirty) end
@@ -2069,6 +2242,7 @@ function ChatWindow.Reset()
 	settings = false
 	StopWatching()
 	pointer = nil
+	keyButton, boundKeys, keysLater, toldLater, syncing = nil, nil, false, false, false
 end
 
 ---------------------------------------------------------------------------
@@ -2108,6 +2282,23 @@ ns.On("CHAT_SEND_FAILED", function(t, why, text)
 	list[#list + 1] = { why = WHY[why] and why or "failed", text = text }
 	while #list > MAX_NOTES do table.remove(list, 1) end
 	MarkDirty()
+end)
+
+-- The "Open chat" key: a change the fight held made now (the tab open then: set; gone: taken
+-- off); the player's own keys changed (the game's Key Bindings) while it is bound or the tab shows.
+-- (With the gamepad UI, the end of a fight that held the switch's change is when it is due.)
+ns.RegisterEvent("PLAYER_REGEN_ENABLED", function()
+	toldLater = false
+	if keysLater then SyncKeys(true) end
+end)
+ns.RegisterEvent("UPDATE_BINDINGS", function()
+	if boundKeys or Shown() then SyncKeys() end
+end)
+-- The switch between mouse and keyboard and the gamepad UI (Blizzard_SharedXML/InputUtil.lua's
+-- event, as Borders.lua reads it; not on every client): to the gamepad UI the key goes back to the
+-- game at the switch, the one binding change made there; back, bound at once while the tab shows.
+pcall(ns.RegisterEvent, "INPUT_DEVICE_INTERFACE_TRANSITION", function(newMode)
+	SyncKeys(true, GamepadStyle(newMode))
 end)
 
 -- The channel last shown, kept only as a channel's letter, and the Olympus tab's line put away,

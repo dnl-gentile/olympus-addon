@@ -459,9 +459,12 @@ window's left edge (for the author, his Workshop goes there first).
   when you hover it, and a Shift-click puts it in the tab's box.
 - **The box** runs across the bottom, where the other tabs have their buttons, with no Send
   button: Enter sends. It is Olympus's own, not the game's chat box: it takes the keyboard only
-  when you click into it (the tab never takes it when it opens, so your movement keys keep
-  working). Enter sends to the channel shown and lets the keyboard go; Tab changes channel;
-  Escape lets go. It runs no command: a line that starts with `/` stays in the box and is not sent
+  when you click into it or press your open-chat key (Enter, unless you changed it) while the tab
+  shows (the tab never takes it when it opens, so your movement keys keep working; in a fight the
+  key changes over when the fight ends). Enter sends to the channel shown and the cursor stays for
+  the next line; Enter on an empty box, Escape or a left-click elsewhere gives the keyboard back to
+  the game; Tab changes channel. With the gamepad UI only a click puts the cursor there, and Enter
+  lets it go. It runs no command: a line that starts with `/` stays in the box and is not sent
   (commands go in the game's chat box, which Olympus never opens or touches). Your first line in
   each channel still waits for the privacy warning's **Send**. A line of yours that did not leave
   shows a note in its channel, and a click puts it back in the box when the box is empty (what you
