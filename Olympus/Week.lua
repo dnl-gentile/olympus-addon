@@ -46,7 +46,7 @@ ns.King.HAND_MAY.D = true
 ns.King.STEWARD_MAY.D = true
 
 local entries = {}           -- [id] = { id, title, zone, at, by, mine, crown (the King's or his Steward's), sentAt, heardAt,
-                             --   setterGuild (the guild his message named, for the net-off: this session only) }
+                             --   setterGuild (the guild his messages named, for the net-off: kept with it) }
 local heardFrom = {}         -- [setter] = { first, last }: when we heard him, this stretch online
 local lastSet, lastNewLine, lastCalendarAsk = -math.huge, -math.huge, -math.huge
 
@@ -277,13 +277,16 @@ local function SaveMine()
 end
 
 -- The entries this client heard, kept for the realm (1.1 review: the week must not go blank
--- after a /reload or a login while their setter is offline), with when each was last heard.
+-- after a /reload or a login while their setter is offline), with when each was last heard and
+-- the guild its setter's messages named (1.1 review: a /reload showed again the entries of a
+-- setter whose guild is off, net-off, until they passed).
 local function SaveHeard()
 	if not ns.rdb then return end
 	local list = {}
 	for _, e in pairs(entries) do
 		if not e.mine then
-			list[#list + 1] = { id = e.id, by = e.by, title = e.title, zone = e.zone, at = e.at, crown = e.crown or nil, heardAt = e.heardAt }
+			list[#list + 1] = { id = e.id, by = e.by, title = e.title, zone = e.zone, at = e.at, crown = e.crown or nil, heardAt = e.heardAt,
+				guild = e.setterGuild }
 		end
 	end
 	ns.rdb.weekHeard = #list > 0 and list or nil
@@ -307,7 +310,7 @@ function Week.Restore(now)
 		if type(e) == "table" and tonumber(e.id) and type(e.by) == "string" and e.by ~= ns.me and type(e.title) == "string" and tonumber(e.at)
 			and e.at + Week.KEEP_AFTER >= now and e.at <= now + Week.MAX_AHEAD + 60 and not entries[e.id] and Clean(e.title, 60) ~= "" then
 			Keep({ id = e.id, title = Clean(e.title, 60), zone = Clean(e.zone, 40), at = e.at, by = e.by, crown = e.crown == true or nil,
-				heardAt = tonumber(e.heardAt) or now })
+				heardAt = tonumber(e.heardAt) or now, setterGuild = type(e.guild) == "string" and ns.King.CleanGuild(e.guild) or nil })
 		end
 	end
 	RestoreSignups(now)
@@ -423,6 +426,7 @@ local function OnEntry(sender, id, rest, guild)
 		if e.by ~= sender then return end
 		if math.abs((now + seconds) - e.at) > 60 then e.at = now + seconds end
 		e.title, e.zone, e.heardAt = title, Clean(zone, 40), now
+		e.setterGuild = ns.King.CleanGuild(guild) or e.setterGuild -- (the guild his latest message named, saved with it)
 		SaveHeard()
 		return Changed()
 	end
