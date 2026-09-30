@@ -146,6 +146,8 @@ function M.Check(bank)
 		ids[a.id] = true
 		assert(topics[a.topic], where .. ": unknown topic")
 		assert(type(a.in_game) == "string" and a.in_game ~= "" and #a.in_game <= M.IN_GAME_MAX, where .. ": in_game (1 to " .. M.IN_GAME_MAX .. " bytes)")
+		-- (1.1.2's review: the Chat tab's box sends no line that starts with "/", ChatWindow.lua.)
+		assert(a.in_game:sub(1, 1) ~= "/", where .. ": in_game starts with '/' (the Chat tab would not send it)")
 		assert(type(a.answer) == "string" and a.answer ~= "" and #a.answer <= M.ANSWER_MAX + 40, where .. ": answer")
 		for _, s in ipairs({ a.in_game, a.answer }) do
 			assert(not s:find("[|\r\n]"), where .. ": no '|' or line break (the chat's escape)")

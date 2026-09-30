@@ -516,6 +516,20 @@ test("Throne: only the King sees it and his commands are checked; Lords answer h
 		K.HandleAnswer("WHISPER", "Troll-Realm", ("T2~%d~P~Asmongold|cffff0000 smells"):format(id))
 		eq(st.summon.answers["Troll-Realm"], nil, "no free text on the King's screen")
 		eq(st.summon.answers["Late-Realm"], nil, "another roll call's answer")
+		-- (1.1.2's review: the unconfirmed answers say why the roll call's counts can be off, the
+		-- answer bank's line.)
+		local function RollLine(text)
+			for _, l in ipairs(K.RollCallLines()) do if tostring(l.text):find(text, 1, true) then return l end end
+		end
+		local whoLine = RollLine(ns.L.ROLL_WHO)
+		assert(whoLine, "who answered")
+		whoLine.onClick()
+		local unconfirmed = RollLine(ns.L.THRONE_UNCONFIRMED:match("%%d(.*)$"))
+		assert(unconfirmed and unconfirmed.tooltip, "the unconfirmed line's tooltip")
+		local rollTip = {}
+		unconfirmed.tooltip({ AddLine = function(_, s) rollTip[#rollTip + 1] = s end })
+		assert(table.concat(rollTip, "\n"):find(ns.Answers.Find("count-throne-silent").text, 1, true), table.concat(rollTip, "\n"))
+		whoLine.onClick()
 		-- Royal Inspection reports.
 		K.Reset()
 		GetGuildInfo = function() return "Olympus", "King", 0 end
@@ -956,7 +970,14 @@ test("map refresh runs end to end with a map library (continent totals included)
 	}, { __index = function() return function() end end })
 	local savedLibStub, savedCreateFrame, savedWMF = LibStub, CreateFrame, WorldMapFrame
 	LibStub = function(name) if name == "HereBeDragons-Pins-2.0" then return fakePins end end
-	CreateFrame = function() return deep() end
+	-- (1.1.2: the frames keep their OnEnter, for the pin's tooltip below.)
+	local made = {}
+	CreateFrame = function()
+		local f = deep()
+		rawset(f, "SetScript", function(self, kind, fn) rawset(self, "script" .. kind, fn) end)
+		made[#made + 1] = f
+		return f
+	end
 	WorldMapFrame = deep()
 	C_Map.GetMapRectOnMap = function() return 0.1, 0.3, 0.2, 0.8 end
 	MAPS[947] = { "Azeroth", 1 }; MAPS[1415] = { "Eastern Kingdoms", 2, 947 }
@@ -981,6 +1002,18 @@ test("map refresh runs end to end with a map library (continent totals included)
 	assert(calls.world >= 2, "zone pins were not added")
 	local totals = ns.Map.ContinentTotals(ns.Data.Summary())
 	eq(totals[1415], 10, "continent total")
+	-- (1.1.2's review: a zone pin's tooltip says why its soldiers add up to less than the army online.)
+	local pin
+	for _, f in ipairs(made) do if rawget(f, "scriptOnEnter") and rawget(f, "key") then pin = f end end
+	assert(pin, "a zone pin with its tooltip")
+	local savedTip = GameTooltip
+	local tip = {}
+	GameTooltip = setmetatable({ AddLine = function(_, s) tip[#tip + 1] = tostring(s) end,
+		AddDoubleLine = function(_, a, b) tip[#tip + 1] = tostring(a) .. " " .. tostring(b) end }, { __index = function() return function() end end })
+	local okTip, errTip = pcall(pin.scriptOnEnter, pin)
+	GameTooltip = savedTip
+	assert(okTip, errTip)
+	assert(table.concat(tip, "\n"):find(ns.Answers.Find("count-map-zones").text, 1, true), table.concat(tip, "\n"))
 end)
 
 ---------------------------------------------------------------------------
@@ -5728,7 +5761,13 @@ local function WithWorkshop(me, fn)
 		ns.me = me
 		ns.Now = function() return w.clock end
 		ns.Comm.Send = function(dist, msg, key) w.sent[#w.sent + 1] = { dist = dist, msg = msg, key = key } end
-		ns.Comm.Whisper = function(to, msg, key) w.whispered[#w.whispered + 1] = { to = to, msg = msg, key = key } end
+		-- (1.1.2: a whisper's done callback, Comm.Whisper's sixth argument, is told it left, as the
+		-- queue does once it sends; w.holdSends keeps it for the test to call, w.whispered[i].done.)
+		ns.Comm.Whisper = function(to, msg, key, urgent, logged, done)
+			local e = { to = to, msg = msg, key = key, urgent = urgent, done = done }
+			w.whispered[#w.whispered + 1] = e
+			if done and not w.holdSends then done(true) end
+		end
 		ns.Comm.ChannelReady = function() return true end
 		ns.Print = function(m) w.printed[#w.printed + 1] = m end
 		W.after = function(_, _, f) f() end
@@ -41809,6 +41848,8 @@ do
 			local tip = {}
 			row.tooltip({ AddLine = function(_, s) tip[#tip + 1] = s end })
 			eq(tip[2], ns.L.DUES_GUILD_TIP:format("300", "?", T.Coins(50000), T.Coins(150000), 2), "the King's amount in its tip")
+			-- (1.1.2's review: its members are the census's, and the tip says why they can differ.)
+			assert(table.concat(tip, "\n"):find(ns.Answers.Find("count-other-guild-report").text, 1, true), table.concat(tip, "\n"))
 			-- His addon hears the King: both paid 5 gold or more.
 			AsTreasurer()
 			Word(KING, 50000, w.clock - WEEK, 100000)
@@ -44706,11 +44747,31 @@ do
 					local box = OlympusCopyFrame
 					eq(box:IsShown(), true); eq(box.TitleText:GetText(), L.PAGE_HELP_TITLE:format(L.TAB_CHAT))
 					assert(box.text:find(ns.Answers.Find("feat-chat-tab").long, 1, true), box.text)
-					-- A High Councillor: the Answers button, left of the "?", the search box shorter.
+					-- A High Councillor: the Answers button at the end of the box it fills, the box ending
+					-- before it. (Changed on purpose, 1.1.2's review: on the top row, left of the "?", it
+					-- left a Lord of the High Council a search box of 6 px in the default window.)
 					ns.IsHighCouncillor = function(name) return name == ns.me end
 					w.CW.Render()
-					eq(f.answers:IsShown(), true); eq(f.answers:Anchor("TOPRIGHT")[4], -74)
-					eq(f.search:Anchor("TOPRIGHT")[4], -74 - f.answers:GetWidth() - 4)
+					eq(f.answers:IsShown(), true)
+					local a = f.answers:Anchor("BOTTOMRIGHT")
+					eq(a[4], -8, "the row's end, where the box's art ends"); eq(a[5], 9, "centred on the box")
+					eq(f.input:Anchor("BOTTOMRIGHT")[4], -18 - f.answers:GetWidth() - 4, "the box ends before it")
+					eq(f.search:Anchor("TOPRIGHT")[4], -74, "the search box as a soldier's")
+					-- A Lord of the High Council (three channels: the switch on the top row too): the search
+					-- box as long as a Lord's who is not on it.
+					AsLord()
+					w.CW.Render()
+					eq(f.switch:IsShown(), true); eq(f.answers:IsShown(), true)
+					local councilW = f.search:GetRight() - f.search:GetLeft()
+					ns.IsHighCouncillor = function() return false end
+					w.CW.Render()
+					eq(f.answers:IsShown(), false)
+					eq(f.search:GetRight() - f.search:GetLeft(), councilW, "the Answers take nothing from it")
+					assert(councilW >= 60, "a search box to type in: " .. councilW)
+					eq(f.input:Anchor("BOTTOMRIGHT")[4], -18, "the box across the row again")
+					ns.IsHighCouncillor = function(name) return name == ns.me end
+					AsSoldier()
+					w.CW.Render()
 					f.input:SetText("")
 					w.focus = {} -- (the copy box took its own box's keyboard, as it does with mouse and keyboard)
 					f.answers:Click()
@@ -44727,6 +44788,14 @@ do
 					w.CW.ShowSettings(true)
 					eq(f.answers:IsShown(), false)
 					w.CW.ShowSettings(false)
+					-- (1.1.2's review: every line of the bank goes from this box as picked; none starts
+					-- with "/", which this box never sends.)
+					for _, entry2 in ipairs(ns.ANSWER_BANK.answers) do
+						f.input:SetText(entry2.text)
+						f.input:Fire("OnEnterPressed")
+						eq(sent[#sent], entry2.text, entry2.id .. ": sent from the Chat tab's box")
+					end
+					eq(#sent, #ns.ANSWER_BANK.answers)
 				end)
 				ns.IsHighCouncillor, IsShiftKeyDown = savedHC, savedShift
 				ns.Answers.Reset()
@@ -45576,11 +45645,14 @@ end)()
 		WithWorkshop(me, function(w, W)
 			local saved = { peer = ns.Comm.PeerVersion, after = V.after, random = V.random, ui = ns.UI, release = ns.db.authorRelease,
 				asked = ns.db.updateAsked, times = ns.db.updateAskTimes, shown = ns.db.updateAskShown, snooze = ns.db.updateAskSnooze,
-				friends = C_FriendList, blocked = ns.db.blocked }
-			w.hellos, w.timers, w.copies = {}, {}, {}
+				friends = C_FriendList, blocked = ns.db.blocked, released = ns.db.releasedVersion, chat = C_ChatInfo, rollCall = ns.db.rollCall }
+			w.hellos, w.timers, w.copies, w.whispers = {}, {}, {}, {}
 			local ok, err = pcall(function()
 				V.Reset()
+				W.ResetVersion()
+				ns.ResetAfterCombat()
 				ns.db.authorRelease, ns.db.updateAsked, ns.db.updateAskTimes, ns.db.updateAskShown, ns.db.updateAskSnooze = nil, nil, nil, nil, nil
+				ns.db.releasedVersion = nil
 				ns.db.blocked = {}
 				ns.Comm.PeerVersion = function(name)
 					local v = w.hellos[ns.ShortName(ns.FullName(ns.Normal(name)))]
@@ -45591,13 +45663,17 @@ end)()
 				w.Run = function() local due = w.timers; w.timers = {}; for _, f in ipairs(due) do f() end end
 				if not keepUI then
 					ns.UI = { ShowCopy = function(title, text, action, opts) w.copies[#w.copies + 1] = { title = title, text = text, opts = opts } end,
+						-- (Olympus's whisper window with its text, UI.WhisperText: recorded, nothing sent.)
+						WhisperText = function(name, text) w.whispers[#w.whispers + 1] = { name = name, text = text } return {} end,
 						LINKS = { curseforge = "https://www.curseforge.com/wow/addons/olympus-guild" } }
 				end
 				fn(w, W)
 			end)
 			ns.Comm.PeerVersion, V.after, V.random, ns.UI, ns.db.authorRelease = saved.peer, saved.after, saved.random, saved.ui, saved.release
 			ns.db.updateAsked, ns.db.updateAskTimes, ns.db.updateAskShown, ns.db.updateAskSnooze = saved.asked, saved.times, saved.shown, saved.snooze
-			C_FriendList, ns.db.blocked = saved.friends, saved.blocked
+			C_FriendList, ns.db.blocked, ns.db.releasedVersion, C_ChatInfo, ns.db.rollCall = saved.friends, saved.blocked, saved.released, saved.chat, saved.rollCall
+			W.ResetVersion()
+			ns.ResetAfterCombat()
 			V.Reset()
 			if not ok then error(err, 0) end
 		end)
@@ -45647,7 +45723,10 @@ end)()
 				w.hellos.Bob = "1.0.0"
 				r = MenuRoot()
 				hooks.MENU_UNIT_PLAYER(nil, r, { unit = "target" })
-				eq(r.Texts(), "divider: | title:Olympus | title:" .. L.VERSION_LINE_OUTDATED:format("1.0.0") .. " | button:" .. L.VERSION_ASK)
+				-- (Changed on purpose, 1.1.2's review: under the version, a line of its own says where
+				-- from, when and the newest known: a gamepad can't reach a menu line's tooltip.)
+				local detail = L.VERSION_DETAIL_HELLO:format(ns.Ago(w.clock)) .. "; " .. L.VERSION_DETAIL_NEWEST:format(ns.VERSION)
+				eq(r.Texts(), "divider: | title:Olympus | title:" .. L.VERSION_LINE_OUTDATED:format("1.0.0") .. " | title:|cff9d9d9d" .. detail .. "|r | button:" .. L.VERSION_ASK)
 				eq(PM.Target("PLAYER", { unit = "target" }).name, "Bob-Realm")
 				for _, unit in ipairs({ "npc", "gone", "player" }) do eq(PM.Target("PLAYER", { unit = unit }), nil, unit) end
 				-- Classic's split name (the menu gives "Bob" and his realm apart): whole again.
@@ -45709,6 +45788,7 @@ end)()
 		WithVersions("Tester-Realm", function(w, W)
 			eq(V.Check("Ann-Realm"), true)
 			eq(#w.whispered, 1); eq(w.whispered[1].to, "Ann-Realm"); eq(w.whispered[1].msg, "V7~4242"); eq(w.whispered[1].key, "vcheck:ann")
+			eq(w.whispered[1].urgent, true, "the player waits for it: ahead of the census in the queue")
 			eq((V.Status("Ann")), "checking")
 			-- Wrong id, the channel, another sender: nothing.
 			V.HandleAnswer("WHISPER", "Ann-Realm", "V8~1~1.1.0")
@@ -45728,12 +45808,15 @@ end)()
 			eq((V.Status("Bob")), "none")
 			eq(w.printed[#w.printed], L.VERSION_RESULT_NONE:format("Bob"))
 			local root = MenuRoot()
+			local noneAt = w.clock
 			V.MenuLines({ name = "Bob-Realm" }, { Line = function(t) root:CreateTitle(t) end, Button = function(t) root:CreateButton(t) end })
-			eq(root.Texts(), "title:" .. L.VERSION_LINE_NONE .. " | button:" .. L.VERSION_TELL, "no Check again within 2 minutes")
+			-- (The line under the version, 1.1.2's review: where from and when.)
+			local function Detail() return " | title:|cff9d9d9d" .. L.VERSION_DETAIL_CHECK:format(ns.Ago(noneAt)) .. "|r" end
+			eq(root.Texts(), "title:" .. L.VERSION_LINE_NONE .. Detail() .. " | button:" .. L.VERSION_TELL, "no Check again within 2 minutes")
 			w.clock = w.clock + V.PING_GAP
 			root = MenuRoot()
 			V.MenuLines({ name = "Bob-Realm" }, { Line = function(t) root:CreateTitle(t) end, Button = function(t) root:CreateButton(t) end })
-			eq(root.Texts(), "title:" .. L.VERSION_LINE_NONE .. " | button:" .. L.VERSION_CHECK .. " | button:" .. L.VERSION_TELL)
+			eq(root.Texts(), "title:" .. L.VERSION_LINE_NONE .. Detail() .. " | button:" .. L.VERSION_CHECK .. " | button:" .. L.VERSION_TELL)
 			-- A late answer still counts.
 			V.HandleAnswer("WHISPER", "Bob-Realm", "V8~4242~1.0.9")
 			eq((V.Status("Bob")), "outdated")
@@ -45745,7 +45828,7 @@ end)()
 			-- Answering: the version and the id, to that player alone; once per 30 s each, 20 a minute.
 			w.whispered = {}
 			V.HandlePing("WHISPER", "Zed-Realm", "V7~77")
-			eq(#w.whispered, 1); eq(w.whispered[1].to, "Zed-Realm"); eq(w.whispered[1].msg, "V8~77~" .. ns.VERSION)
+			eq(#w.whispered, 1); eq(w.whispered[1].to, "Zed-Realm"); eq(w.whispered[1].msg, "V8~77~" .. ns.VERSION); eq(w.whispered[1].urgent, true)
 			V.HandlePing("WHISPER", "Zed-Realm", "V7~78")
 			V.HandlePing("CHANNEL", "Yan-Realm", "V7~79")
 			V.HandlePing("WHISPER", "Yan-Realm", "V7~1234567")
@@ -45769,29 +45852,58 @@ end)()
 
 	test("1.1.2 the author's version checks and 'Ask <name>' answers open his copy window, never chat lines", function()
 		WithVersions(AUTHOR_FULL, function(w, W)
+			-- (Changed on purpose, 1.1.2's review: his Check version is his roll call to that player
+			-- alone, V1, which every version since 0.9.9 answers after the player's yes; never a V7.)
 			V.Check("Ann-Realm")
+			local id = tonumber(w.whispered[#w.whispered].msg:match("^V1~(%d+)~100$"))
+			assert(id, "his roll call to her alone: " .. w.whispered[#w.whispered].msg)
+			eq((V.Status("Ann")), "checking")
 			local before = #w.printed
-			V.HandleAnswer("WHISPER", "Ann-Realm", "V8~4242~1.1.0")
+			W.HandleAnswer("WHISPER", "Ann-Realm", ("V2~%d~1.1.0~~Forever~~c~0~0~"):format(id))
 			eq(#w.printed, before, "no chat line")
 			eq(#w.copies, 1); eq(w.copies[1].title, L.VERSION_RESULTS_TITLE); eq(w.copies[1].opts.key, "versions")
+			eq(w.copies[1].opts.auto, true, "opened by the answer: no keyboard taken")
 			assert(w.copies[1].text:find("Ann  " .. L.VERSION_LINE_OUTDATED:format("1.1.0"), 1, true), w.copies[1].text)
-			assert(w.copies[1].text:find(L.VERSION_RESULTS_HEAD:format(W.Latest()), 1, true))
+			assert(w.copies[1].text:find(L.VERSION_RESULTS_HEAD:format(V.Latest()), 1, true))
+			local state, version, how = V.Status("Ann")
+			eq(state, "outdated"); eq(version, "1.1.0"); eq(how, "roll")
+			w.Run() -- (its 10 s: answered, nothing more)
+			eq(#w.copies, 1)
 			-- His roll call to one player alone (Ask <name>): the answer in the same window.
+			w.clock = w.clock + W.ASK_ONE_EVERY
 			W.AskOne("Bob-Realm")
-			local id = tonumber(w.whispered[#w.whispered].msg:match("^V1~(%d+)~100$"))
+			id = tonumber(w.whispered[#w.whispered].msg:match("^V1~(%d+)~100$"))
 			W.HandleAnswer("WHISPER", "Bob-Realm", ("V2~%d~1.0.0~~Forever~~c~0~0~"):format(id))
 			eq(#w.copies, 2)
 			assert(w.copies[2].text:find("Bob  " .. L.VERSION_LINE_OUTDATED:format("1.0.0"), 1, true), w.copies[2].text)
+			-- No answer (no Olympus, older than 0.9.9, or no yes to his roll calls): the window says so.
+			w.clock = w.clock + W.ASK_ONE_EVERY
+			V.Check("Cid-Realm")
+			w.Run()
+			eq((V.Status("Cid")), "none"); eq(#w.copies, 3); eq(w.copies[3].opts.auto, true)
+			assert(w.copies[3].text:find("Cid  " .. L.VERSION_LINE_NONE, 1, true), w.copies[3].text)
+			-- A player's addon never answers a V7 from his name without their yes to his roll calls.
+			ns.me = "Tester-Realm"
+			ns.db.rollCall = nil
+			local n = #w.whispered
+			V.HandlePing("WHISPER", AUTHOR_FULL, "V7~5")
+			eq(#w.whispered, n, "not answered: no yes to his roll calls")
+			ns.db.rollCall = true
+			V.HandlePing("WHISPER", AUTHOR_FULL, "V7~6")
+			eq(#w.whispered, n + 1, "answered after the yes"); eq(w.whispered[n + 1].msg, "V8~6~" .. ns.VERSION)
 		end)
 	end)
 
 	test("1.1.2 Ask to update: only for a player behind; one ask per player a day, five an hour; the author's is his usual update window (V3)", function()
 		WithVersions("Tester-Realm", function(w, W)
-			w.hellos = { Ann = ns.VERSION, Bob = "1.0.0", P1 = "1.0.0", P2 = "1.0.0", P3 = "1.0.0", P4 = "1.0.0", P5 = "1.0.0" }
+			-- (Changed on purpose, 1.1.2's review: a player's ask, V9, goes to 1.1.2 and newer alone,
+			-- the first that show it: here the author's presence named 1.1.3 as out.)
+			W.HeardVersion("1.1.3")
+			w.hellos = { Ann = "1.1.3", Bob = "1.1.2", P1 = "1.1.2", P2 = "1.1.2", P3 = "1.1.2", P4 = "1.1.2", P5 = "1.1.2" }
 			eq(V.AskUpdate("Ann-Realm"), false, "up to date"); eq(#w.whispered, 0)
 			eq(V.AskUpdate("Eve-Realm"), false, "nothing known"); eq(#w.whispered, 0)
 			eq(V.AskUpdate("Bob-Realm"), true)
-			eq(w.whispered[1].to, "Bob-Realm"); eq(w.whispered[1].msg, "V9~" .. ns.VERSION); eq(w.whispered[1].key, "vask:bob")
+			eq(w.whispered[1].to, "Bob-Realm"); eq(w.whispered[1].msg, "V9~1.1.3"); eq(w.whispered[1].key, "vask:bob")
 			eq(w.printed[#w.printed], L.VERSION_ASKED:format("Bob"))
 			eq(V.AskUpdate("Bob"), false, "once a day"); eq(w.printed[#w.printed], L.VERSION_ASK_WAIT_ONE:format("Bob"))
 			for i = 1, 5 do V.AskUpdate("P" .. i .. "-Realm") end
@@ -45805,63 +45917,188 @@ end)()
 			-- The menu offers it for Bob, not for Ann.
 			local root = MenuRoot()
 			V.MenuLines({ name = "Ann-Realm" }, { Line = function(t) root:CreateTitle(t) end, Button = function(t) root:CreateButton(t) end })
-			eq(root.Texts(), "title:" .. L.VERSION_LINE_CURRENT:format(ns.VERSION))
+			eq(root.Texts(), "title:" .. L.VERSION_LINE_CURRENT:format("1.1.3") .. " | title:|cff9d9d9d" .. L.VERSION_DETAIL_HELLO:format(ns.Ago(w.clock)) .. "|r")
 		end)
 		WithVersions(AUTHOR_FULL, function(w, W)
 			w.hellos = { Bob = "1.0.0" }
 			eq(V.AskUpdate("Bob-Realm"), true)
-			eq(w.whispered[1].msg, "V3~" .. W.Latest(), "the author's own update window"); eq(w.whispered[1].key, "askupdate:Bob-Realm")
+			eq(w.whispered[1].msg, "V3~" .. ns.VERSION, "the author's own update window"); eq(w.whispered[1].key, "askupdate:Bob-Realm")
+			eq(w.printed[#w.printed], L.VERSION_ASKED:format("Bob"))
 			eq(V.AskUpdate("Bob-Realm"), false, "his own gap (10 minutes)")
+			-- (1.1.2's review: from the menu, his too once a day per player, not every 10 minutes.)
+			w.clock = w.clock + W.UPDATE_GAP
+			eq(V.AskUpdate("Bob-Realm"), false, "once a day from the menu"); eq(#w.whispered, 1)
+			eq(w.printed[#w.printed], L.VERSION_ASK_WAIT_ONE:format("Bob"))
+			w.clock = w.clock + V.ASK_GAP
+			eq(V.AskUpdate("Bob-Realm"), true, "a day later"); eq(#w.whispered, 2)
+		end)
+	end)
+
+	test("1.1.2 review: the author's newest is the version he marked as out, not the preview he runs; his update window names it", function()
+		WithVersions(AUTHOR_FULL, function(w, W)
+			local mine = ns.VERSION
+			ns.VERSION = "1.1.3" -- (his preview, not on CurseForge yet)
+			local ok, err = pcall(function()
+				ns.db.releasedVersion = "1.1.2"
+				eq(V.Latest(), "1.1.2")
+				w.hellos = { Ann = "1.1.2", Bob = "1.1.1" }
+				eq((V.Status("Ann")), "current", "on the released version: up to date, whatever he runs")
+				local root = MenuRoot()
+				V.MenuLines({ name = "Ann-Realm" }, { Line = function(t) root:CreateTitle(t) end, Button = function(t) root:CreateButton(t) end })
+				eq(root.Find(L.VERSION_ASK), nil, "no Ask to update for her")
+				eq((V.Status("Bob")), "outdated")
+				eq(V.AskUpdate("Bob-Realm"), true)
+				eq(w.whispered[1].msg, "V3~1.1.2", "his window names the version that is out, never his preview")
+				-- Nothing marked: his build is the newest he knows (as before 1.1.2).
+				ns.db.releasedVersion = nil
+				eq(V.Latest(), "1.1.3")
+			end)
+			ns.VERSION = mine
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.2 review: a player older than 1.1.2 can't show a player's ask or answer a check: Ask to update opens a whisper to send yourself; no answer says it may be an older Olympus", function()
+		WithVersions("Tester-Realm", function(w, W)
+			w.hellos = { Old = "1.1.1" }
+			local root = MenuRoot()
+			V.MenuLines({ name = "Old-Realm" }, { Line = function(t) root:CreateTitle(t) end, Button = function(t, fn, title, tip) local d = root:CreateButton(t, fn); d.tipText = tip end })
+			local b = root.Find(L.VERSION_ASK)
+			assert(b, root.Texts()); eq(b.tipText, L.VERSION_ASK_OLD_TIP:format("1.1.1"))
+			eq(V.AskUpdate("Old-Realm"), true)
+			eq(#w.whispered, 0, "no V9 their addon would ignore"); eq(ns.db.updateAsked, nil, "no slot used: the player sends it himself")
+			eq(#w.whispers, 1); eq(w.whispers[1].name, "Old")
+			eq(w.whispers[1].text, L.VERSION_ASK_WHISPER:format("1.1.1", ns.VERSION, ns.UI.LINKS.curseforge))
+			assert(#w.whispers[1].text <= 255, "one whisper")
+			-- A check nobody answers: the texts say what it can mean (1.1.1 and older never answer).
+			assert(L.VERSION_RESULT_NONE:find("1.1.2", 1, true) and L.VERSION_CHECK_TIP:find("1.1.2", 1, true))
+			assert(L.VERSION_INVITE_TEXT:find("1.1.2", 1, true), "the invite says to update an older one")
+			V.Check("Eve-Realm")
+			w.Run()
+			eq(w.printed[#w.printed], L.VERSION_RESULT_NONE:format("Eve"))
 		end)
 	end)
 
 	test("1.1.2 asked to update: a small notice with both versions and where to update, once a day, not for 7 days after Don't remind me; never from a blocked or ignored player, nor for a version not newer", function()
-		WithVersions("Tester-Realm", function(w, W)
-			local mine = ns.VERSION
-			ns.VERSION = "1.1.0"
-			local ok, err = pcall(function()
-				V.HandleAsk("WHISPER", "Ann-Realm", "V9~1.1.0")
-				V.HandleAsk("WHISPER", "Ann-Realm", "V9~1.0.9")
-				V.HandleAsk("WHISPER", "Ann-Realm", "V9~go to evil.example")
-				V.HandleAsk("CHANNEL", "Ann-Realm", "V9~1.1.2")
-				eq(#w.popups, 0, "not newer, garbage or the channel: nothing")
-				ns.db.blocked["ann-realm"] = true
-				V.HandleAsk("WHISPER", "Ann-Realm", "V9~1.1.2")
-				C_FriendList = { IsIgnored = function(n) return n == "Bob" end }
-				V.HandleAsk("WHISPER", "Bob-Realm", "V9~1.1.2")
-				eq(#w.popups, 0, "blocked, ignored: nothing")
-				V.HandleAsk("WHISPER", "Cid-Realm", "V9~1.1.2")
-				eq(#w.popups, 1); eq(w.popups[1].name, "OLYMPUS_UPDATE_ASKED")
-				eq(w.popups[1].a, L.VERSION_NOTICE:format("Cid", "1.1.0", "1.1.2"))
-				assert(w.popups[1].a:find("CurseForge", 1, true), "where to update")
-				V.HandleAsk("WHISPER", "Dee-Realm", "V9~1.1.2")
-				eq(#w.popups, 1, "once a day")
-				w.clock = w.clock + V.SHOWN_GAP
-				V.HandleAsk("WHISPER", "Dee-Realm", "V9~1.1.2")
-				eq(#w.popups, 2, "the next day")
-				-- Don't remind me (its second button): 7 days of quiet.
-				StaticPopupDialogs.OLYMPUS_UPDATE_ASKED.OnCancel(nil, nil, "clicked")
-				eq(w.printed[#w.printed], L.VERSION_SNOOZED)
-				w.clock = w.clock + V.SHOWN_GAP
-				V.HandleAsk("WHISPER", "Eli-Realm", "V9~1.1.2")
-				eq(#w.popups, 2, "snoozed")
-				StaticPopupDialogs.OLYMPUS_UPDATE_ASKED.OnCancel(nil, nil, "timeout")
-				w.clock = w.clock + V.SNOOZE
-				V.HandleAsk("WHISPER", "Eli-Realm", "V9~1.1.2")
-				eq(#w.popups, 3, "after 7 days")
-				-- In an instance it waits, as any alert, and shows once out.
-				w.clock = w.clock + V.SHOWN_GAP
-				local savedInstance = IsInInstance
-				IsInInstance = function() return true end
-				V.HandleAsk("WHISPER", "Fay-Realm", "V9~1.1.2")
-				eq(#w.popups, 3, "held")
-				IsInInstance = savedInstance
-				ns.ReleaseHeld()
-				eq(#w.popups, 4); eq(w.popups[4].a, L.VERSION_NOTICE:format("Fay", "1.1.0", "1.1.2"))
+		-- (Changed on purpose, 1.1.2's review: the notice is Olympus's own window in both input modes,
+		-- never the game's popup, whose Escape pressed "Don't remind me"; the shown windows are read
+		-- from Dialog.lua, w.notices.)
+		WithUI(function()
+			WithGamepadUI(false, function(game)
+				WithVersions("Tester-Realm", function(w, W)
+					local mine = ns.VERSION
+					ns.VERSION = "1.1.0"
+					local notices = {}
+					local function Shown()
+						local d = ns.Dialog.Find("OLYMPUS_UPDATE_ASKED")
+						if d and d.text:GetText() ~= notices[#notices] then notices[#notices + 1] = d.text:GetText() end
+						return #notices
+					end
+					local ok, err = pcall(function()
+						V.HandleAsk("WHISPER", "Ann-Realm", "V9~1.1.0")
+						V.HandleAsk("WHISPER", "Ann-Realm", "V9~1.0.9")
+						V.HandleAsk("WHISPER", "Ann-Realm", "V9~go to evil.example")
+						V.HandleAsk("CHANNEL", "Ann-Realm", "V9~1.1.2")
+						eq(Shown(), 0, "not newer, garbage or the channel: nothing")
+						ns.db.blocked["ann-realm"] = true
+						V.HandleAsk("WHISPER", "Ann-Realm", "V9~1.1.2")
+						C_FriendList = { IsIgnored = function(n) return n == "Bob" end }
+						V.HandleAsk("WHISPER", "Bob-Realm", "V9~1.1.2")
+						eq(Shown(), 0, "blocked, ignored: nothing")
+						V.HandleAsk("WHISPER", "Cid-Realm", "V9~1.1.2")
+						eq(Shown(), 1); eq(#game.shown, 0, "never the game's popup"); eq(#w.popups, 0)
+						-- (No released version heard from the author: no number of theirs is shown.)
+						eq(notices[1], L.VERSION_NOTICE_ANY:format("Cid", "1.1.0"))
+						assert(notices[1]:find("CurseForge", 1, true), "where to update")
+						local d = ns.Dialog.Find("OLYMPUS_UPDATE_ASKED")
+						d.buttons[1]:Click()
+						V.HandleAsk("WHISPER", "Dee-Realm", "V9~1.1.2")
+						eq(Shown(), 1, "once a day")
+						w.clock = w.clock + V.SHOWN_GAP
+						V.HandleAsk("WHISPER", "Dee-Realm", "V9~1.1.2")
+						eq(Shown(), 2, "the next day")
+						-- Don't remind me (its second button): 7 days of quiet.
+						ns.Dialog.Find("OLYMPUS_UPDATE_ASKED").buttons[2]:Click()
+						eq(w.printed[#w.printed], L.VERSION_SNOOZED)
+						w.clock = w.clock + V.SHOWN_GAP
+						V.HandleAsk("WHISPER", "Eli-Realm", "V9~1.1.2")
+						eq(ns.Dialog.Find("OLYMPUS_UPDATE_ASKED"), nil, "snoozed")
+						w.clock = w.clock + V.SNOOZE
+						V.HandleAsk("WHISPER", "Eli-Realm", "V9~1.1.2")
+						eq(Shown(), 3, "after 7 days")
+						ns.Dialog.Find("OLYMPUS_UPDATE_ASKED").buttons[1]:Click()
+						-- In an instance it waits, as any alert, and shows once out.
+						w.clock = w.clock + V.SHOWN_GAP
+						local savedInstance = IsInInstance
+						IsInInstance = function() return true end
+						V.HandleAsk("WHISPER", "Fay-Realm", "V9~1.1.2")
+						eq(ns.Dialog.Find("OLYMPUS_UPDATE_ASKED"), nil, "held")
+						IsInInstance = savedInstance
+						ns.ReleaseHeld()
+						eq(Shown(), 4); eq(notices[4], L.VERSION_NOTICE_ANY:format("Fay", "1.1.0"))
+						ns.Dialog.Find("OLYMPUS_UPDATE_ASKED").buttons[1]:Click()
+					end)
+					ns.VERSION = mine
+					ns.ResetHeld()
+					if not ok then error(err, 0) end
+				end)
 			end)
-			ns.VERSION = mine
-			ns.ResetHeld()
-			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.2 review: an update ask never names a version the author has not released, never comes from a player the moderators took off, and Escape never means Don't remind me", function()
+		WithUI(function()
+			WithGamepadUI(false, function(game)
+				WithVersions("Tester-Realm", function(w, W)
+					local mine, savedHides, savedCombat = ns.VERSION, ns.Moderation.Hides, rawget(_G, "InCombatLockdown")
+					ns.VERSION = "1.1.2"
+					local ok, err = pcall(function()
+						-- Taken off by the moderators (net-off): nothing.
+						ns.Moderation.Hides = function(sender) if sender == "Gus-Realm" then return { kind = "c" } end return nil end
+						V.HandleAsk("WHISPER", "Gus-Realm", "V9~1.1.3")
+						eq(ns.Dialog.Find("OLYMPUS_UPDATE_ASKED"), nil, "net-off: dropped")
+						ns.Moderation.Hides = savedHides
+						-- The author's presence named 1.1.2 as out: ours is it, nothing to update to, whatever
+						-- a player's number says.
+						W.HeardVersion("1.1.2")
+						V.HandleAsk("WHISPER", "Hal-Realm", "V9~9.9.9")
+						eq(ns.Dialog.Find("OLYMPUS_UPDATE_ASKED"), nil, "up to date with what the author released")
+						-- He named 1.1.3: a claimed 9.9.9 shows as 1.1.3, the version that is out.
+						W.HeardVersion("1.1.3")
+						V.HandleAsk("WHISPER", "Hal-Realm", "V9~9.9.9")
+						local d = ns.Dialog.Find("OLYMPUS_UPDATE_ASKED")
+						assert(d, "shown"); eq(d.text:GetText(), L.VERSION_NOTICE:format("Hal", "1.1.2", "1.1.3"))
+						assert(not d.text:GetText():find("9.9.9", 1, true), "never the made-up number")
+						eq(#game.shown, 0, "Olympus's window, not the game's popup, with mouse and keyboard")
+						-- Escape: the game's popup would call OnCancel(..., "clicked") unless noCancelOnEscape
+						-- (Forever's StaticPopup_CallEscapeHandler); its definition says so, and ours ignores Escape.
+						eq(StaticPopupDialogs.OLYMPUS_UPDATE_ASKED.noCancelOnEscape, true)
+						eq(UISpecialFrames[1], nil, "not on the Escape list")
+						d.buttons[1]:Click()
+						eq(ns.db.updateAskSnooze, nil, "OK is not Don't remind me")
+						-- (The limits are the addon's saved data: on the beta, which loads none back, a new
+						-- login starts them over; the texts say so.)
+						assert(L.VERSION_SNOOZED:find("beta", 1, true) and L.VERSION_ASK_TIP:find("beta", 1, true))
+						ns.db.updateAskShown = nil -- (a beta login)
+						w.clock = w.clock + 1
+						V.HandleAsk("WHISPER", "Ivy-Realm", "V9~1.1.3")
+						assert(ns.Dialog.Find("OLYMPUS_UPDATE_ASKED"), "shown again after a login that loaded nothing")
+						ns.Dialog.Find("OLYMPUS_UPDATE_ASKED").buttons[1]:Click()
+						-- In a fight: after it.
+						ns.db.updateAskShown = nil
+						InCombatLockdown = function() return true end
+						V.HandleAsk("WHISPER", "Joy-Realm", "V9~1.1.3")
+						eq(ns.Dialog.Find("OLYMPUS_UPDATE_ASKED"), nil, "not in a fight")
+						InCombatLockdown = function() return false end
+						ns.RunAfterCombat()
+						assert(ns.Dialog.Find("OLYMPUS_UPDATE_ASKED"), "once it is over")
+					end)
+					InCombatLockdown = savedCombat
+					ns.VERSION, ns.Moderation.Hides = mine, savedHides
+					ns.ResetHeld()
+					if not ok then error(err, 0) end
+				end)
+			end)
 		end)
 	end)
 
@@ -46046,6 +46283,11 @@ end)()
 			local UI = LoadUI()
 			WithWorkshop(AUTHOR_FULL, function(w, W)
 				local ok, err = pcall(function()
+					-- (Changed on purpose, 1.1.2's review: a report opens by itself only when he asked
+					-- that player for it; anyone's else gets its sound and chat line, as before 1.1.2.)
+					W.AskBug("Ann-Realm")
+					W.AskBug("Bob-Realm")
+					w.printed = {}
 					W.HandleBug("WHISPER", "Ann-Realm", "V5~11~1~1~line one !\\nline two")
 					local f = OlympusCopyFrameBug
 					assert(f and f:IsShown(), "the report's window")
@@ -46079,6 +46321,353 @@ end)()
 				if not ok then error(err, 0) end
 			end)
 		end)
+	end)
+
+	-- 1.1.2's review: windows that open by themselves take no keyboard and wait out a fight; a report
+	-- nobody asked for never pops up; one never covers the report he reads.
+	local function WithFocusCount(fn)
+		local focused = {}
+		local saved = { focus = rawget(Widget, "SetFocus"), kbd = rawget(_G, "GetCurrentKeyBoardFocus"), combat = rawget(_G, "InCombatLockdown") }
+		Widget.SetFocus = function(self) focused[#focused + 1] = self end
+		GetCurrentKeyBoardFocus = function() return nil end
+		InCombatLockdown = function() return false end
+		ns.ResetAfterCombat()
+		local ok, err = pcall(fn, focused)
+		Widget.SetFocus, GetCurrentKeyBoardFocus, InCombatLockdown = saved.focus, saved.kbd, saved.combat
+		ns.ResetAfterCombat()
+		if not ok then error(err, 0) end
+	end
+
+	test("1.1.2 review: a report nobody asked for never pops up; the one he asked for does, with no keyboard taken (both input modes), after a fight, never over the one he reads; past the hour's three", function()
+		WithUI(function()
+			LoadUI()
+			WithFocusCount(function(focused)
+				for _, gamepad in ipairs({ false, true }) do
+					WithGamepadUI(gamepad, function()
+						WithWorkshop(AUTHOR_FULL, function(w, W)
+							-- Nobody asked: its sound and one line; no window.
+							W.HandleBug("WHISPER", "Zed-Realm", "V5~21~1~1~text nobody asked for")
+							local f = rawget(_G, "OlympusCopyFrameBug")
+							eq(f == nil or not f:IsShown(), true, "no window for a report nobody asked for")
+							eq(w.printed[#w.printed], L.WORKSHOP_BUG_IN:format("Zed")); eq(#W.Reports(), 1, "in the Workshop's list")
+							-- Asked: it opens by itself, and takes no keyboard.
+							W.AskBug("Ann-Realm")
+							W.HandleBug("WHISPER", "Ann-Realm", "V5~22~1~1~ann's report")
+							f = OlympusCopyFrameBug
+							assert(f and f:IsShown()); eq(f.eb:GetText(), "ann's report")
+							eq(#focused, 0, "no keyboard taken by a window that opened by itself")
+							-- A second one he asked for, while he reads the first: it waits for him to close it.
+							W.AskBug("Bob-Realm")
+							W.HandleBug("WHISPER", "Bob-Realm", "V5~23~1~1~bob's report")
+							eq(f.eb:GetText(), "ann's report", "the one he reads stays")
+							f.CloseButton:Click()
+							eq(f:IsShown(), true); eq(f.eb:GetText(), "bob's report", "the next, once he closed it")
+							eq(#focused, 0)
+							-- Select all: his click takes the keyboard.
+							f.selectAll:Click()
+							eq(#focused, 1, "Select all's click")
+							focused[1] = nil
+							f.CloseButton:Click()
+							-- In a fight: after it.
+							InCombatLockdown = function() return true end
+							W.AskBug("Cid-Realm")
+							W.HandleBug("WHISPER", "Cid-Realm", "V5~24~1~1~cid's report")
+							eq(f:IsShown(), false, "not in the middle of a fight")
+							InCombatLockdown = function() return false end
+							eq(ns.RunAfterCombat(), 1)
+							eq(f:IsShown(), true); eq(f.eb:GetText(), "cid's report"); eq(#focused, 0)
+							f.CloseButton:Click()
+							-- Three reports an hour from one player; the one he asks for gets in past them.
+							for i = 1, 3 do W.HandleBug("WHISPER", "Dee-Realm", ("V5~3%d~1~1~dee %d"):format(i, i)) end
+							W.HandleBug("WHISPER", "Dee-Realm", "V5~34~1~1~dee 4")
+							eq(W.Reports()[#W.Reports()].text, "dee 3", "a fourth this hour: dropped")
+							eq(f:IsShown(), false, "none of hers popped up")
+							W.AskBug("Dee-Realm")
+							W.HandleBug("WHISPER", "Dee-Realm", "V5~35~1~1~dee asked")
+							eq(W.Reports()[#W.Reports()].text, "dee asked", "the one he asked for")
+							eq(f:IsShown(), true); eq(f.eb:GetText(), "dee asked")
+							W.HandleBug("WHISPER", "Dee-Realm", "V5~36~1~1~dee again")
+							eq(W.Reports()[#W.Reports()].text, "dee asked", "once per ask")
+							f.CloseButton:Click()
+						end)
+					end)
+				end
+			end)
+		end)
+	end)
+
+	test("1.1.2 review: the author's version results and ask-one answers open with no keyboard taken, and after a fight", function()
+		WithUI(function()
+			local UI = LoadUI()
+			WithFocusCount(function(focused)
+				for _, gamepad in ipairs({ false, true }) do
+					WithGamepadUI(gamepad, function()
+						WithVersions(AUTHOR_FULL, function(w, W)
+							V.Check("Ann-Realm")
+							local id = tonumber(w.whispered[#w.whispered].msg:match("^V1~(%d+)~100$"))
+							W.HandleAnswer("WHISPER", "Ann-Realm", ("V2~%d~1.1.0~~Forever~~c~0~0~"):format(id))
+							local f = OlympusCopyFrameVersions
+							assert(f and f:IsShown(), "his results window")
+							eq(#focused, 0, "no keyboard taken")
+							f.CloseButton:Click()
+							-- No answer, in a fight: after it.
+							InCombatLockdown = function() return true end
+							w.clock = w.clock + W.ASK_ONE_EVERY
+							V.Check("Bob-Realm")
+							w.Run()
+							eq(f:IsShown(), false, "not in a fight")
+							InCombatLockdown = function() return false end
+							ns.RunAfterCombat()
+							eq(f:IsShown(), true); assert(f.text:find("Bob  " .. L.VERSION_LINE_NONE, 1, true), f.text)
+							eq(#focused, 0)
+							f.CloseButton:Click()
+						end, true)
+					end)
+				end
+			end)
+		end)
+	end)
+
+	test("1.1.2 review: the player's window for the author's ask: Alt+Z keeps the ask; an ask over by Send is said so; a newer ask keeps the text shown, which is what goes; Send while a report is on its way keeps the window; in a fight it waits", function()
+		BugAskWorld(function(w, W)
+			local savedBuild, savedCombat = ns.BuildBugReport, rawget(_G, "InCombatLockdown")
+			local ok, err = pcall(function()
+				ns.ResetAfterCombat()
+				ns.BuildBugReport = function() return "first text" end
+				W.HandleBugAsk("WHISPER", AUTHOR_FULL, "VR~5")
+				local f = OlympusBugAsk
+				assert(f:IsShown())
+				-- The whole interface hidden (Alt+Z): OnHide, the window still up: the ask stays.
+				f:Fire("OnHide")
+				assert(W.BugAsk(), "still asked")
+				-- Over by the time of Send: said so, nothing sent.
+				w.clock = w.clock + W.BUGASK_OPEN + 1
+				f.send:Click()
+				eq(#w.whispered, 0); eq(w.printed[#w.printed], L.BUGASK_GONE); eq(f:IsShown(), false)
+				-- A newer ask while it shows: the text shown stays the one that goes.
+				w.clock = w.clock + W.BUGASK_GAP
+				W.HandleBugAsk("WHISPER", AUTHOR_FULL, "VR~6")
+				eq(f.text, "first text")
+				ns.BuildBugReport = function() return "second text" end
+				w.clock = w.clock + 5
+				W.HandleBugAsk("WHISPER", AUTHOR_FULL, "VR~7")
+				eq(f:IsShown(), true); eq(f.text, "first text", "what it shows stays")
+				f.send:Click()
+				eq(#w.whispered, 1); assert(w.whispered[1].msg:find("first text", 1, true), w.whispered[1].msg)
+				-- A report still on its way (the author has not answered its first piece): the window
+				-- stays up and says so; once it is in, Send goes.
+				w.clock = w.clock + W.BUGASK_GAP
+				W.HandleBugAsk("WHISPER", AUTHOR_FULL, "VR~8")
+				eq(f:IsShown(), true)
+				f.send:Click()
+				eq(f:IsShown(), true, "kept up"); eq(w.printed[#w.printed], L.WORKSHOP_BUG_BUSY); eq(#w.whispered, 1)
+				local id = w.whispered[1].msg:match("^V5~(%d+)~")
+				W.HandleAck("WHISPER", AUTHOR_FULL, "V6~" .. id .. "~2")
+				f.send:Click()
+				eq(#w.whispered, 2); eq(f:IsShown(), false)
+				-- In a fight: the window waits for its end (the ask keeps its 10 minutes).
+				w.clock = w.clock + W.BUGASK_GAP
+				InCombatLockdown = function() return true end
+				W.HandleBugAsk("WHISPER", AUTHOR_FULL, "VR~9")
+				eq(f:IsShown(), false, "not in a fight")
+				InCombatLockdown = function() return false end
+				ns.RunAfterCombat()
+				eq(f:IsShown(), true)
+				f.later:Click()
+				-- In an instance: held as any alert, then shown once out (ns.ReleaseHeld).
+				w.clock = w.clock + W.BUGASK_GAP
+				local savedInstance = IsInInstance
+				IsInInstance = function() return true end
+				W.HandleBugAsk("WHISPER", AUTHOR_FULL, "VR~10")
+				eq(f:IsShown(), false, "held in an instance")
+				IsInInstance = savedInstance
+				ns.ReleaseHeld()
+				eq(f:IsShown(), true, "shown once out")
+				f.later:Click()
+				ns.ResetHeld()
+			end)
+			ns.BuildBugReport, InCombatLockdown = savedBuild, savedCombat
+			ns.ResetAfterCombat()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.2 review: in a dungeon, a raid or a match nothing is sent (the menu's lines grey out and say why); a send the queue drops leaves nothing recorded; a check's wait starts once it left", function()
+		PM.Add("versions", function(target, menu) V.MenuLines(target, menu) end, 10)
+		PM.Add("bugreport", function(target, menu) W.MenuLines(target, menu) end, 50)
+		WithVersions("Tester-Realm", function(w, W)
+			-- The 10 seconds start once the check left, not while it waits in the queue.
+			w.holdSends = true
+			V.Check("Ann-Realm")
+			eq(#w.timers, 0, "no wait before it left"); eq((V.Status("Ann")), "checking")
+			-- The menu meanwhile: "checking", and no Check version again.
+			local waiting = MenuRoot()
+			V.MenuLines({ name = "Ann-Realm" }, { Line = function(t) waiting:CreateTitle(t) end, Button = function(t) waiting:CreateButton(t) end })
+			eq(waiting.Texts(), "title:" .. L.VERSION_LINE_CHECKING)
+			w.whispered[1].done(true)
+			eq(#w.timers, 1)
+			-- Dropped by the queue: nothing recorded ("no answer" would offer an invite), the player told.
+			V.Check("Bob-Realm")
+			w.whispered[2].done(false)
+			eq((V.Status("Bob")), "unknown"); eq(w.printed[#w.printed], L.VERSION_NOT_SENT:format("Bob"))
+			eq(V.Check("Bob-Realm"), true, "checked again at once")
+			-- An ask to update dropped: the day's and the hour's slots come back.
+			W.HeardVersion("1.1.3")
+			w.hellos = { Cid = "1.1.2" }
+			eq(V.AskUpdate("Cid-Realm"), true)
+			local e = w.whispered[#w.whispered]
+			eq(e.msg, "V9~1.1.3")
+			e.done(false)
+			eq(ns.db.updateAsked.cid, nil); eq(#ns.db.updateAskTimes, 0); eq(w.printed[#w.printed], L.VERSION_NOT_SENT:format("Cid"))
+			w.holdSends = false
+			eq(V.AskUpdate("Cid-Realm"), true, "asked again at once"); eq(w.printed[#w.printed], L.VERSION_ASKED:format("Cid"))
+			-- Chat lockdown: nothing leaves, and the player is told.
+			C_ChatInfo = { InChatMessagingLockdown = function() return true end }
+			ns.db.updateAsked = nil
+			local n = #w.whispered
+			eq(V.Check("Dee-Realm"), false); eq(V.AskUpdate("Cid-Realm"), false)
+			eq(#w.whispered, n); eq(w.printed[#w.printed], L.VERSION_LOCKED)
+			-- The menu: the lines show, the ones that send greyed, saying why.
+			local root = MenuRoot()
+			PM.Build("FRIEND", root, { name = "Cid" })
+			local ask = root.Find(L.VERSION_ASK)
+			assert(ask, root.Texts()); eq(ask.enabled, false); assert(TipOf(ask):find(L.PLAYERMENU_LOCKED, 1, true))
+			root = MenuRoot()
+			PM.Build("FRIEND", root, { name = "Eve" })
+			local check = root.Find(L.VERSION_CHECK)
+			assert(check, root.Texts()); eq(check.enabled, false)
+			C_ChatInfo = nil
+		end)
+		WithVersions(AUTHOR_FULL, function(w, W)
+			w.hellos = { Ann = ns.VERSION }
+			-- His ask for a bug report dropped: said so, and it may go again at once.
+			w.holdSends = true
+			eq(W.AskBug("Ann-Realm"), true)
+			w.whispered[1].done(false)
+			eq(w.printed[#w.printed], L.VERSION_NOT_SENT:format("Ann"))
+			w.holdSends = false
+			eq(W.AskBug("Ann-Realm"), true, "again at once"); eq(w.printed[#w.printed], L.WORKSHOP_BUGASK_SENT:format("Ann"))
+			-- In a dungeon: refused, and greyed in the menu.
+			C_ChatInfo = { InChatMessagingLockdown = function() return true end }
+			w.clock = w.clock + W.BUGASK_EVERY
+			eq(W.AskBug("Ann-Realm"), false); eq(w.printed[#w.printed], L.VERSION_LOCKED); eq(#w.whispered, 2)
+			local root = MenuRoot()
+			PM.Build("FRIEND", root, { name = "Ann" })
+			local b = root.Find(L.WORKSHOP_BUGASK)
+			assert(b, root.Texts()); eq(b.enabled, false); assert(TipOf(b):find(L.PLAYERMENU_LOCKED, 1, true))
+			C_ChatInfo = nil
+		end)
+		-- Olympus's whisper windows: Send in a lockdown keeps the text and says why.
+		WithUI(function()
+			local UI = LoadUI()
+			local saved = { say = SendChatMessage, info = C_ChatInfo, print = ns.Print }
+			local said, printed = {}, {}
+			local ok, err = pcall(function()
+				SendChatMessage = function(text) said[#said + 1] = text end
+				ns.Print = function(m) printed[#printed + 1] = m end
+				WithGamepadUI(true, function()
+					C_ChatInfo = { InChatMessagingLockdown = function() return true end }
+					local d = UI.WhisperText("Ann", "hello")
+					d.buttons[1]:Click()
+					eq(#said, 0, "nothing sent"); eq(d:IsShown(), true, "the window and its text stay"); eq(d.editBox:GetText(), "hello")
+					eq(printed[#printed], L.WHISPER_LOCKDOWN)
+					d.editBox:Fire("OnEnterPressed")
+					eq(#said, 0); eq(d:IsShown(), true)
+					C_ChatInfo = nil
+					d.buttons[1]:Click()
+					eq(said[1], "hello"); eq(d:IsShown(), false)
+				end)
+			end)
+			SendChatMessage, C_ChatInfo, ns.Print = saved.say, saved.info, saved.print
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.2 review: a menu whose context holds values the game hides (secret values: a dungeon's guild roster, a restricted unit) gets no Olympus lines and no error", function()
+		WithVersions("Tester-Realm", function(w)
+			local SECRET = {}
+			local saved = { is = rawget(_G, "issecretvalue"), full = UnitFullName, player = UnitIsPlayer, capture = ns.CaptureError, enum = Enum.ClubMemberPresence }
+			local errors = {}
+			local ok, err = pcall(function()
+				issecretvalue = function(v) return rawequal(v, SECRET) end
+				ns.CaptureError = function(where, e) errors[#errors + 1] = where .. ": " .. tostring(e) end
+				Enum.ClubMemberPresence = { Online = 1, OnlineMobile = 2, Offline = 3 }
+				for _, ctx in ipairs({
+					{ name = "Ann", clubMemberInfo = { presence = SECRET } },
+					{ name = SECRET, clubMemberInfo = { presence = 1 } },
+					{ name = "Ann", isSelf = SECRET },
+					{ name = "Ann", clubMemberInfo = SECRET },
+				}) do
+					local r = MenuRoot()
+					eq(PM.Build("COMMUNITIES_GUILD_MEMBER", r, ctx), 0)
+					eq(#r.items, 0, "no line")
+				end
+				UnitIsPlayer = function() return true end
+				UnitFullName = function(unit) if unit == "target" then return SECRET, SECRET end return "Tester", "Realm" end
+				local r = MenuRoot()
+				eq(PM.Build("PLAYER", r, { unit = "target" }), 0); eq(#r.items, 0)
+				eq(#errors, 0, table.concat(errors, "\n"))
+				-- The same with plain values: the lines.
+				r = MenuRoot()
+				assert(PM.Build("COMMUNITIES_GUILD_MEMBER", r, { name = "Ann", clubMemberInfo = { presence = 1 } }) > 0)
+			end)
+			issecretvalue, UnitFullName, UnitIsPlayer, ns.CaptureError, Enum.ClubMemberPresence = saved.is, saved.full, saved.player, saved.capture, saved.enum
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.2 review: the Answers list lets go of a whisper window's box when it closes; a pick never lands in the next Olympus window that reuses the box", function()
+		WithUI(function()
+			local UI = LoadUI()
+			local saved = { hc = ns.IsHighCouncillor, shift = IsShiftKeyDown, print = ns.Print }
+			local printed = {}
+			local ok, err = pcall(function()
+				A.Reset()
+				ns.Print = function(m) printed[#printed + 1] = m end
+				IsShiftKeyDown = function() return false end
+				ns.IsHighCouncillor = function(name) return name == ns.me end
+				WithGamepadUI(false, function()
+					local d = UI.WhisperWindow("Ann")
+					d.extraButton:Click()
+					local p = OlympusAnswers
+					eq(p:IsShown(), true); eq(A.Target(), d.editBox)
+					d.buttons[2]:Click() -- (Cancel: the whisper closes)
+					eq(p:IsShown(), false, "the list closes with it"); eq(A.Target(), nil)
+					-- The next Olympus window takes the same box (Dialog.lua's pool).
+					StaticPopupDialogs.OLYMPUS_TEST_REUSE = { text = "amount", button1 = "OK", hasEditBox = true, timeout = 0 }
+					local other = ns.Dialog.Show("OLYMPUS_TEST_REUSE")
+					eq(other.editBox, d.editBox, "the same box, reused")
+					other.editBox:SetText("")
+					local entry = A.Find("count-not-a-bug")
+					for _, r in ipairs(p.rows) do if r.entry == entry then r:Click() end end
+					eq(other.editBox:GetText(), "", "nothing in another window's box")
+					eq(printed[#printed], L.ANSWERS_BOX_GONE)
+					other.buttons[1]:Click()
+					StaticPopupDialogs.OLYMPUS_TEST_REUSE = nil
+				end)
+			end)
+			ns.IsHighCouncillor, IsShiftKeyDown, ns.Print = saved.hc, saved.shift, saved.print
+			A.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.2 review: the explanations are English: a game in another language gets no English line in its tooltips, and its pages' ? says so first", function()
+		local savedLocale = GetLocale
+		local ok, err = pcall(function()
+			local tt = { lines = {} }
+			function tt:AddLine(text) self.lines[#self.lines + 1] = text end
+			eq(A.WhyTip(tt, "count-layer-sample"), true, "in English")
+			eq(A.ExplainText("census/"):find(L.PAGE_HELP_ENGLISH, 1, true), nil)
+			GetLocale = function() return "ptBR" end
+			tt.lines = {}
+			eq(A.WhyTip(tt, "count-layer-sample"), false); eq(#tt.lines, 0, "no English line in a Portuguese tooltip")
+			local text = A.ExplainText("census/")
+			eq(text:sub(1, #L.PAGE_HELP_ENGLISH), L.PAGE_HELP_ENGLISH, "said first")
+			assert(text:find(A.Find("count-not-a-bug").long, 1, true))
+		end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
 	end)
 
 	test("1.1.2 /oly status: the author's in a copy window, everyone else's in chat as before", function()
@@ -46296,7 +46885,28 @@ end)()
 			local tt = Tooltip()
 			row.tooltip(tt)
 			assert(tt.Has(L.WHY_DIFFER), "why")
-			assert(tt.Has(A.Find("count-own-guild-live").text) or tt.Has(A.Find("count-grey-rows").text), "the bank's line")
+			-- (Changed on purpose, 1.1.2's review: another guild's fresh row says its numbers are its last
+			-- report; only ours, from our roster, says it is live.)
+			ns.rdb.guilds["Olympus II"].mine = true
+			local own, other
+			for _, l in ipairs(ns.Views.Build("census")) do
+				if l.cols and l.tooltip then
+					if l.cols[1]:find("Olympus II", 1, true) then own = l elseif l.cols[1]:find("Olympus", 1, true) and not l.dim then other = l end
+				end
+			end
+			assert(own and other, "both rows")
+			tt = Tooltip(); own.tooltip(tt)
+			assert(tt.Has(A.Find("count-own-guild-live").text) and not tt.Has(A.Find("count-other-guild-report").text), "ours: live")
+			tt = Tooltip(); other.tooltip(tt)
+			assert(tt.Has(A.Find("count-other-guild-report").text) and not tt.Has(A.Find("count-own-guild-live").text), "another: its last report")
+			-- The Realm's Recruiting: free slots come from each guild's last report.
+			local recruiting
+			for _, l in ipairs(ns.Views.Build("realm")) do
+				if l.header and l.text == L.RECRUITING then recruiting = l end
+			end
+			assert(recruiting and recruiting.tooltip, "Recruiting's tooltip")
+			tt = Tooltip(); recruiting.tooltip(tt)
+			assert(tt.Has(L.WHY_DIFFER) and tt.Has(A.Find("count-other-guild-report").text), "Recruiting: why")
 			-- WhyTip itself: nothing for an id the bank lacks.
 			local t2 = Tooltip()
 			eq(A.WhyTip(t2, "no-such-answer"), false); eq(#t2.lines, 0)

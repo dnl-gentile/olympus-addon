@@ -472,9 +472,10 @@ function Workshop.HandleAnswer(dist, sender, text)
 	a.foldedName, a.foldedFull, a.foldedGuild = Fold(ns.DisplayName(sender)), Fold(sender), Fold(a.guild)
 	roll.answers[sender] = a
 	if Workshop.FullRunning() then FullEnough() end
-	-- 1.1.2: a player he asked alone answered: his results window (copyable), not a chat line.
+	-- 1.1.2: a player he asked alone answered: his results window (copyable), not a chat line;
+	-- opened by the answer, not his click: no keyboard taken, and after a fight (Versions.ShowResults).
 	if a.alone and AskedAlone(id, sender) and Workshop.IsAuthor() and ns.Versions and ns.Versions.ShowResults then
-		ns.SafeCall("ask one result", ns.Versions.ShowResults)
+		ns.SafeCall("ask one result", ns.Versions.ShowResults, true)
 	end
 	Changed()
 end
@@ -488,7 +489,9 @@ end
 -- The name a whisper goes to, and asks are remembered by.
 local function AskKey(name) return ns.FullName(ns.Normal(TrimText(name))) end
 
-function Workshop.AskOne(name)
+-- done(sent) (1.1.2, the right-click menu's Check version: Versions.lua): once the whisper left, or
+-- was dropped from the queue.
+function Workshop.AskOne(name, done)
 	if not Workshop.Visible() or not NameLike(TrimText(name)) then return false end
 	local now = ns.Now()
 	if now - lastAskOne < Workshop.ASK_ONE_EVERY then
@@ -501,7 +504,7 @@ function Workshop.AskOne(name)
 	roll.t = roll.t or now
 	roll.alone[id] = Fold(ns.ShortName(key)) -- (their answer is kept whatever the cap: MakeRoom)
 	askedOne[Fold(key)] = now
-	ns.Comm.Whisper(key, ("V1~%d~100"):format(id), "rollask:" .. key) -- (one queued per player)
+	ns.Comm.Whisper(key, ("V1~%d~100"):format(id), "rollask:" .. key, nil, nil, done) -- (one queued per player)
 	ns.Print(L.WORKSHOP_ASK_ONE_SENT:format(ns.DisplayName(key)))
 	Changed()
 	return true
@@ -511,13 +514,20 @@ end
 -- Please update
 ---------------------------------------------------------------------------
 
-function Workshop.AskUpdate(name)
+-- version (1.1.2, the right-click menu: Versions.lua): the one to name, never newer than his build
+-- (the one he marked as out, /oly released); none: Latest. done(sent): once it left, or was dropped
+-- (dropped, the player may be asked again at once).
+function Workshop.AskUpdate(name, version, done)
 	if not Workshop.Visible() or type(name) ~= "string" then return false end
 	local now = ns.Now()
 	local key = ns.FullName(name)
 	if now - (asked[key] or -math.huge) < Workshop.UPDATE_GAP then return false end
 	asked[key] = now
-	ns.Comm.Whisper(key, "V3~" .. Workshop.Latest(), "askupdate:" .. key) -- one queued per player
+	if type(version) ~= "string" or not Parts(version) or Workshop.Newer(version, ns.VERSION) then version = Workshop.Latest() end
+	ns.Comm.Whisper(key, "V3~" .. version, "askupdate:" .. key, nil, nil, function(sent) -- one queued per player
+		if not sent and asked[key] == now then asked[key] = nil end
+		if done then done(sent) end
+	end)
 	return true
 end
 
@@ -704,13 +714,35 @@ function Workshop.Outgoing(text)
 	return (Pack(text):gsub("\\n", "\n"))
 end
 
+-- 1.1.2: the author asks a player for their report (Workshop.AskBug, below). Here for HandleBug.
+Workshop.BUGASK_EVERY = 120   -- the author asks the same player at most this often
+Workshop.BUGASK_GAP = 60      -- a player's window opens for his asks at most this often
+Workshop.BUGASK_OPEN = 10 * 60 -- an ask not answered in this long is gone
+local bugAsked = {}           -- [folded short name] = when the author asked them (BUGASK_EVERY)
+local bugAwaited = {}         -- [folded short name] = when his ask left: their report, when it comes, is his
+local waitingReports = {}     -- reports that opened by themselves while another showed: next, once it closes
+-- Asks and reports are matched by the short name folded (Forever's names are one across its realm
+-- group; the menu may give the name without the realm the server stamps).
+local function ShortKey(name) return Fold(ns.ShortName(ns.FullName(ns.Normal(tostring(name or "")))) or "") end
+
+-- A report from `sender` answers the author's ask (sent within BUGASK_OPEN and a minute).
+local function Awaited(sender, now)
+	local t = bugAwaited[ShortKey(sender)]
+	return t ~= nil and now - t <= Workshop.BUGASK_OPEN + 60
+end
+
 -- Piece 1 now; the rest once the author answers it (Workshop.HandleAck). No answer within
 -- BUG_ACK: he is gone, the player is told and may try again later. requested (1.1.2): the author
 -- asked for it (Workshop.HandleBugAsk): the gap since the player's last report does not hold it back.
 function Workshop.SendBug(text, requested)
 	if not Workshop.AuthorOnline() or not authorName then return false end
 	local now = ns.Now()
-	if sending or (not requested and now - lastBug < Workshop.BUG_GAP) then
+	-- (1.1.2's review: one still on its way is said so, not as a wait of minutes.)
+	if sending then
+		ns.Print(L.WORKSHOP_BUG_BUSY)
+		return false
+	end
+	if not requested and now - lastBug < Workshop.BUG_GAP then
 		ns.Print(L.WORKSHOP_BUG_WAIT:format(math.max(1, math.ceil((Workshop.BUG_GAP - (now - lastBug)) / 60))))
 		return false
 	end
@@ -764,13 +796,17 @@ function Workshop.HandleBug(dist, sender, text)
 		if i ~= 1 then return end
 		local times = bugsFrom[sender] or {}
 		for k = #times, 1, -1 do if now - times[k] > 3600 then table.remove(times, k) end end
-		if #times >= 3 then return end
+		-- 1.1.2: the report the author asked for (his ask is one every 2 minutes at most) goes past
+		-- the hour's three, once per ask; nobody else's does.
+		local asked = Awaited(sender, now)
+		if #times >= 3 and not asked then return end
 		local open = 0
 		for k in pairs(pieces) do if k ~= sender then open = open + 1 end end
 		if open >= 10 then return end
 		times[#times + 1] = now
 		bugsFrom[sender] = times
-		e = { id = id, n = n, got = 0, parts = {}, t = now }
+		if asked then bugAwaited[ShortKey(sender)] = nil end
+		e = { id = id, n = n, got = 0, parts = {}, t = now, asked = asked or nil }
 		pieces[sender] = e
 		-- Here: the rest may come.
 		if n > 1 then ns.Comm.Whisper(sender, ("V6~%s~1"):format(id), "bugack:" .. sender) end
@@ -780,64 +816,120 @@ function Workshop.HandleBug(dist, sender, text)
 	if e.got < n then return end
 	pieces[sender] = nil
 	ns.Comm.Whisper(sender, ("V6~%s~2"):format(id), "bugack:" .. sender)
-	local r = { from = sender, t = now, text = (table.concat(e.parts):gsub("\\n", "\n")) }
+	local r = { from = sender, t = now, text = (table.concat(e.parts):gsub("\\n", "\n")), asked = e.asked }
 	reports[#reports + 1] = r
 	while #reports > Workshop.MAX_REPORTS do table.remove(reports, 1) end
-	-- 1.1.2 (the author's ask): the report opens by itself in a window he can copy from, never in
-	-- chat (a chat line can't be copied); chat gets one short line. In an instance or while Busy it
-	-- waits like any alert (its sound, then the window), and the Decrees tab's held list opens it.
+	-- Chat gets one short line either way.
 	ns.Print(L.WORKSHOP_BUG_IN:format(ns.DisplayName(sender)))
-	ns.Alert("help", "soft", { what = L.WORKSHOP_BUG_FROM:format(ns.DisplayName(sender)), key = "bugreport",
-		show = function() Workshop.ShowReport(r) end })
+	if r.asked then
+		-- 1.1.2 (his ask): the report he asked for opens by itself in a window he can copy from,
+		-- never in chat (a chat line can't be copied). In an instance or while Busy it waits like
+		-- any alert (its sound, then the window; each report its own), in a fight until it ends,
+		-- and behind a report he is reading (Workshop.ShowReport).
+		ns.Alert("help", "soft", { what = L.WORKSHOP_BUG_FROM:format(ns.DisplayName(sender)),
+			show = function() Workshop.ShowReport(r, true) end })
+	else
+		-- One nobody asked for (Report a bug's Send to): its sound and the line, as before 1.1.2;
+		-- the Workshop's list opens it. Anyone can send one: it never pops up on his screen.
+		ns.PlayAlert("soft", "help")
+	end
 	Changed()
 end
 
+-- The report window's report, shown now (auto: opened by itself, no keyboard taken).
+local function ShowReportNow(r, auto)
+	local n = 0
+	for i, x in ipairs(reports) do if x == r then n = i end end
+	local title = L.WORKSHOP_BUG_FROM_AT:format(ns.DisplayName(r.from), date and date("%H:%M", r.t) or "", n, #reports)
+	local f = ns.UI.ShowCopy(title, r.text, nil, { key = "bug", big = true, auto = auto and true or nil })
+	if type(f) == "table" then
+		f.olympusReport = r
+		-- Closed (its X, Escape): the next report waiting shows. (Alt+Z hides the whole interface:
+		-- the window is still up then.)
+		if not f.olympusHooked and f.HookScript then
+			f.olympusHooked = true
+			f:HookScript("OnHide", function(self)
+				if self:IsShown() then return end
+				self.olympusReport = nil
+				if #waitingReports > 0 then ns.OutOfCombat("bug reports", Workshop.NextReport) end
+			end)
+		end
+	end
+	return f
+end
+
+-- The next report waiting, unless one shows (he is reading it). True when one showed.
+function Workshop.NextReport()
+	local UI = ns.UI
+	local f = UI and UI.CopyFrame and UI.CopyFrame("bug")
+	if f and f:IsShown() and f.olympusReport then return false end
+	local r = table.remove(waitingReports, 1)
+	if not r then return false end
+	ShowReportNow(r, true)
+	return true
+end
+
 -- A report received, in its copy window: sender and time in its title, the whole text selected.
--- r: a report, or its place in the list (nil: the newest).
-function Workshop.ShowReport(r)
+-- r: a report, or its place in the list (nil: the newest). auto (1.1.2's review): opened by
+-- itself, not by his click: no keyboard taken, after a fight, and never over a report he is
+-- reading (it waits, and shows once he closes that one). A click (the Workshop's row) shows it now.
+function Workshop.ShowReport(r, auto)
 	if type(r) ~= "table" then r = reports[tonumber(r) or #reports] end
 	if not r then return false end
 	local UI = ns.UI
 	if not (UI and UI.ShowCopy) then return false end
-	local n = 0
-	for i, x in ipairs(reports) do if x == r then n = i end end
-	local title = L.WORKSHOP_BUG_FROM_AT:format(ns.DisplayName(r.from), date and date("%H:%M", r.t) or "", n, #reports)
-	UI.ShowCopy(title, r.text, nil, { key = "bug", big = true })
+	for i = #waitingReports, 1, -1 do if waitingReports[i] == r then table.remove(waitingReports, i) end end
+	if not auto then
+		ShowReportNow(r, false)
+		return true
+	end
+	waitingReports[#waitingReports + 1] = r
+	ns.OutOfCombat("bug reports", Workshop.NextReport)
 	return true
 end
 
 ---------------------------------------------------------------------------
 -- The author asks a player for their bug report (1.1.2, his ask): right-click a player who runs
 -- Olympus (PlayerMenu.lua), "Ask for a bug report". One small whisper, VR~<id>, at most once per
--- BUGASK_EVERY per player. Their addon opens a window of its own (never a game popup, nothing
--- focused: the gamepad UI's rules), where they see the exact text before anything goes and choose
--- Send or Not now: Send is the Report a bug window's own path (Workshop.SendBug) to him, his
--- request having just proved he is online; Not now sends nothing. Taken from his character alone
--- (the server stamps the sender), once per BUGASK_GAP; it waits in an instance or while Busy, and
--- goes stale after BUGASK_OPEN. His side opens the report in a copy window once it is in.
+-- BUGASK_EVERY per player (constants and state above, with SendBug). Their addon opens a window
+-- of its own (never a game popup, nothing focused: the gamepad UI's rules; after a fight), where
+-- they see the exact text before anything goes and choose Send or Not now: Send is the Report a
+-- bug window's own path (Workshop.SendBug) to him, his request having just proved he is online;
+-- Not now (its X, Escape) sends nothing. Taken from his character alone (the server stamps the
+-- sender), once per BUGASK_GAP; it waits in an instance or while Busy, and goes stale after
+-- BUGASK_OPEN. His side opens the report in a copy window once it is in (HandleBug).
 --   VR~<id>   the author asks for this player's bug report   (whisper)
 ---------------------------------------------------------------------------
 
-Workshop.BUGASK_EVERY = 120   -- the author asks the same player at most this often
-Workshop.BUGASK_GAP = 60      -- a player's window opens for his asks at most this often
-Workshop.BUGASK_OPEN = 10 * 60 -- an ask not answered in this long is gone
-local bugAsked = {}           -- [folded Name-Realm] = when the author asked them
 local bugAsk                  -- the author's ask waiting here: { id, from, t, text }
 local lastBugAskShown = -math.huge
 local bugAskFrame
 
 function Workshop.AskBug(name)
 	if not Workshop.IsAuthor() or type(name) ~= "string" then return false end
+	if ns.ChatLocked() then
+		ns.Print(L.VERSION_LOCKED)
+		return false
+	end
 	local key = AskKey(name)
+	local short = ShortKey(key)
 	local now = ns.Now()
-	local at = bugAsked[Fold(key)]
+	local at = bugAsked[short]
 	if at and now - at < Workshop.BUGASK_EVERY then
 		ns.Print(L.WORKSHOP_BUGASK_WAIT:format(ns.DisplayName(key), math.ceil(Workshop.BUGASK_EVERY - (now - at))))
 		return false
 	end
-	bugAsked[Fold(key)] = now
-	ns.Comm.Whisper(key, ("VR~%d"):format(Workshop.random(1, 99999)), "bugask:" .. key)
-	ns.Print(L.WORKSHOP_BUGASK_SENT:format(ns.DisplayName(key)))
+	bugAsked[short] = now
+	-- Told once it left (their report is then his, HandleBug); dropped before, it may go again at once.
+	ns.Comm.Whisper(key, ("VR~%d"):format(Workshop.random(1, 99999)), "bugask:" .. key, true, nil, function(sent)
+		if sent then
+			bugAwaited[short] = ns.Now()
+			ns.Print(L.WORKSHOP_BUGASK_SENT:format(ns.DisplayName(key)))
+		else
+			if bugAsked[short] == now then bugAsked[short] = nil end
+			ns.Print(L.VERSION_NOT_SENT:format(ns.DisplayName(key)))
+		end
+	end)
 	return true
 end
 
@@ -852,26 +944,42 @@ function Workshop.HandleBugAsk(dist, sender, text)
 	local id = tostring(text or ""):match("^VR~(%d+)$")
 	if not id or #id > 6 then return end
 	local now = ns.Now()
-	if now - lastBugAskShown < Workshop.BUGASK_GAP then return end
-	lastBugAskShown = now
 	-- He is online: his whisper says so (Workshop.SendBug sends to him).
 	authorAt, authorName = now, ns.FullName(sender)
+	-- Its window up already: the text it shows stays the one that goes; the ask only gets younger.
+	if bugAsk and bugAskFrame and bugAskFrame:IsShown() then
+		bugAsk.id, bugAsk.t, bugAsk.from = id, now, authorName
+		return
+	end
+	if now - lastBugAskShown < Workshop.BUGASK_GAP then return end
+	lastBugAskShown = now
 	bugAsk = { id = id, from = authorName, t = now }
 	local who = ns.DisplayName(authorName)
 	ns.Alert("help", "soft", { what = L.BUGASK_HELD:format(who), key = "bugask",
 		open = function() return Workshop.BugAsk() ~= nil end,
-		show = function() Workshop.ShowBugAsk() end })
+		show = function() ns.OutOfCombat("bug ask", Workshop.ShowBugAsk) end })
 end
 
--- Send: the report as shown, to the author; the window closes once it is on its way.
+-- Send: the report as the window showed it, to the author; the window closes once it is on its
+-- way. Not now (send false): nothing. An ask gone meanwhile (BUGASK_OPEN) is said so; a report of
+-- ours still on its way keeps the window up (try again in a moment).
 function Workshop.AnswerBugAsk(send)
 	local ask = Workshop.BugAsk()
-	if bugAskFrame then bugAskFrame:Hide() end
+	if send and ask and sending then
+		ns.Print(L.WORKSHOP_BUG_BUSY)
+		return false
+	end
+	local shown = bugAskFrame and bugAskFrame.text or (ask and ask.text)
 	bugAsk = nil
-	if not send or not ask then return false end
+	if bugAskFrame then bugAskFrame:Hide() end
+	if not send then return false end
+	if not ask then
+		ns.Print(L.BUGASK_GONE)
+		return false
+	end
 	-- (Sent to the author who asked, even if another presence was heard meanwhile.)
 	authorAt, authorName = math.max(authorAt or 0, ask.t), ask.from
-	return Workshop.SendBug(ask.text or ns.BuildBugReport(), true)
+	return Workshop.SendBug(shown or ns.BuildBugReport(), true)
 end
 
 local function BugAskButton(f, label, width)
@@ -947,9 +1055,11 @@ local function BuildBugAsk()
 	f.send:SetPoint("RIGHT", f.later, "LEFT", -6, 0)
 	f.send:SetScript("OnClick", function() ns.SafeCall("bug ask send", Workshop.AnswerBugAsk, true) end)
 	-- Its X, and Escape where Olympus may use it (never with the gamepad UI: ns.EscapeCloses): a
-	-- close without an answer is Not now.
+	-- close without an answer is Not now. The whole interface hidden (Alt+Z, a cinematic) is none:
+	-- the window is still up, its ask with it (1.1.2's review).
 	f:SetScript("OnHide", function(self)
 		self.box:ClearFocus()
+		if self:IsShown() then return end
 		bugAsk = nil
 	end)
 	return f
@@ -961,6 +1071,8 @@ function Workshop.ShowBugAsk()
 	if not ask then return nil end
 	bugAskFrame = bugAskFrame or BuildBugAsk()
 	ns.EscapeCloses("OlympusBugAsk")
+	-- Up already (an ask again while it shows): the text it shows stays the one that goes.
+	if bugAskFrame:IsShown() and bugAskFrame.text then return bugAskFrame end
 	-- The text shown is the one sent: built now, cut as it will be.
 	ask.text = Workshop.Outgoing(ns.BuildBugReport())
 	bugAskFrame.text = ask.text
@@ -972,15 +1084,16 @@ end
 function Workshop.BugAskFrame() return bugAskFrame end -- (tests)
 
 -- The author's line in the right-click menu of a player who runs Olympus (an addon older than 1.1.2
--- can't answer it: greyed, and its tooltip says why).
+-- can't answer it: greyed, and its tooltip says why; in a dungeon, a raid or a match: greyed too).
 function Workshop.MenuLines(target, menu)
 	if not Workshop.IsAuthor() then return end
 	local V = ns.Versions
 	if not (V and V.HasOlympus and V.HasOlympus(target.name)) then return end
 	local _, version = V.Status(target.name)
-	local old = version and Workshop.Newer("1.1.2", version)
-	menu.Button(L.WORKSHOP_BUGASK, function() Workshop.AskBug(target.name) end, L.WORKSHOP_BUGASK,
-		old and L.WORKSHOP_BUGASK_OLD:format(version) or L.WORKSHOP_BUGASK_TIP, not old)
+	local old = version and Workshop.Newer(V.FIRST or "1.1.2", version)
+	local locked = target.locked == true
+	local tip = locked and L.PLAYERMENU_LOCKED or (old and L.WORKSHOP_BUGASK_OLD:format(version) or L.WORKSHOP_BUGASK_TIP)
+	menu.Button(L.WORKSHOP_BUGASK, function() Workshop.AskBug(target.name) end, L.WORKSHOP_BUGASK, tip, not old and not locked)
 end
 ns.PlayerMenu.Add("bugreport", function(target, menu) Workshop.MenuLines(target, menu) end, 50)
 
@@ -1383,7 +1496,7 @@ function Workshop.Reset()
 	search, shownAnswers, lastAskOne = "", Workshop.ROLL_PAGE, -math.huge
 	changePending = false
 	Workshop.ResetVersion()
-	wipe(bugAsked)
+	wipe(bugAsked); wipe(bugAwaited); wipe(waitingReports)
 	bugAsk, lastBugAskShown = nil, -math.huge
 	if bugAskFrame then bugAskFrame:Hide() end
 	bugAskFrame = nil -- (the next one is made with the toolkit then in use)

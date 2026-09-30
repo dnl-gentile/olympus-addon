@@ -1619,6 +1619,14 @@ function ns.HideDialog(which, data)
 	if not ns.GamepadUI() and StaticPopup_Hide then StaticPopup_Hide(which, data) end
 end
 
+-- 1.1.2: the game holds addon messages and chat from addons now (C_ChatInfo.InChatMessagingLockdown:
+-- a dungeon or raid map, an encounter, a challenge, a PvP match). A send then fails (the addon
+-- message's result says so) and roster values come as secrets: the right-click menu's lines that
+-- send grey out, and their functions refuse (Versions.lua, Workshop.lua, UI.lua's whispers).
+function ns.ChatLocked()
+	return C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() and true or false
+end
+
 -- The keyboard to one of our edit boxes (setFocus: its own SetFocus). With the gamepad UI,
 -- not while another box has it (the chat's): its focus change would run the game's gamepad
 -- code from ours, and the game blocks it (see Dialog.lua); the player clicks into ours.
@@ -1671,6 +1679,37 @@ ns.On("LOGIN", function()
 	ns.RegisterEvent("PLAYER_FLAGS_CHANGED", Soon)
 	ns.Every(10, "held alerts", ns.ReleaseHeld)
 end)
+
+-- 1.1.2: a window that opens by itself (the author's bug report and version results, a player's
+-- window for his bug report ask) waits out a fight in the open world, where ns.Alert does not
+-- hold it: in the middle of the screen it would catch the mouse mid-combat. fn() now out of
+-- combat, else once it ends (PLAYER_REGEN_ENABLED). The same key waiting again: the newer fn, in
+-- the older's place. True when it ran now.
+local afterCombat = {} -- { key, fn }, in order
+function ns.OutOfCombat(key, fn)
+	if not (InCombatLockdown and InCombatLockdown()) then
+		fn()
+		return true
+	end
+	for _, e in ipairs(afterCombat) do
+		if key ~= nil and e.key == key then
+			e.fn = fn
+			return false
+		end
+	end
+	afterCombat[#afterCombat + 1] = { key = key, fn = fn }
+	return false
+end
+function ns.RunAfterCombat()
+	if (InCombatLockdown and InCombatLockdown()) or #afterCombat == 0 then return 0 end
+	local list = afterCombat
+	afterCombat = {}
+	for _, e in ipairs(list) do ns.SafeCall("after combat " .. tostring(e.key), e.fn) end
+	return #list
+end
+function ns.WaitingForCombat() return #afterCombat end -- (tests, /oly status)
+function ns.ResetAfterCombat() afterCombat = {} end -- (tests)
+ns.RegisterEvent("PLAYER_REGEN_ENABLED", ns.RunAfterCombat)
 
 ---------------------------------------------------------------------------
 -- Slash commands

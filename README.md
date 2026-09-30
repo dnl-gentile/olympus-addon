@@ -214,39 +214,52 @@ Any soldier can reach the Lord of another Olympus guild in two clicks.
 ### Right-click a player (1.1.2)
 Right-click a player (the target frame, party and raid frames, a name in chat, the Who list, the
 friends list, the guild roster) and the game's menu gets an **Olympus** part at the bottom:
-- **Their version**: "Olympus 1.1.1 (out of date)", "up to date" or "not seen yet". Guildmates
-  show up by themselves (their addon says hello to your guild), and so do a known version on the
-  person card. Opening the menu sends nothing.
+- **Their version**: "Olympus 1.1.1 (out of date)", "up to date" or "not seen yet", and under it
+  where it came from and when. Guildmates show up by themselves (their addon says hello to your
+  guild), and so does a known version on the person card. Opening the menu sends nothing.
 - **Check version**: for anyone else, one tiny addon whisper that their addon answers with its
-  version and nothing else (a player once every 2 minutes, 6 a minute). No answer in 10 seconds
-  usually means no Olympus, or no Olympus guild: outside one the addon sends nothing.
-- **Ask to update**, when they are behind the newest version your addon knows: their addon shows a
-  small notice with both versions and where to update. One ask per player a day, 5 an hour; they
-  see one a day at most, **Don't remind me** hides them for 7 days, and a player they block
-  (`/oly block`) or ignore never gets through. The author's pick sends his usual update window.
+  version and nothing else (a player once every 2 minutes, 6 a minute). Only 1.1.2 and newer
+  answer, so no answer in 10 seconds can mean no Olympus, an older one, a dungeon or raid, or no
+  Olympus guild (outside one the addon sends nothing). The author's check is his roll call to that
+  player alone, which every version since 0.9.9 answers, and only after their yes to his roll calls.
+- **Ask to update**, when they are behind the newest version your addon knows: on 1.1.2 or newer
+  their addon shows a small notice with both versions and where to update; an older one can't, so
+  the click opens a whisper with the ask for you to send. One ask per player a day, 5 an hour;
+  they see one a day at most, **Don't remind me** hides them for 7 days (on the beta, which forgets
+  addon data at login, these last until you log out), and a player they block (`/oly block`) or
+  ignore, or one the moderators took off, never gets through. The notice never names a version the
+  author has not released. The author's pick sends his usual update window, naming the version he
+  marked as out (`/oly released`).
 - **Tell them about Olympus**, when their addon did not answer: a whisper with a short invite and
-  the CurseForge link opens in Olympus's own window, for you to edit and send yourself. The click
-  sends nothing.
+  the CurseForge link (to get it, or update an old one) opens in Olympus's own window, for you to
+  edit and send yourself. The click sends nothing.
 - **Ask for a bug report** (the author alone, on a player running 1.1.2 or newer): their addon
   opens a window of its own, never a game popup, saying the author asks for their Olympus bug
   report, with **See what is sent** (the exact text, the same as `/oly bug`), **Send** and **Not
   now**. Send goes to him alone, in game; Not now sends nothing; an ask from anyone else is
-  ignored. On his side the report opens by itself in a window you can copy from (the sender and
-  time on top, **Select all**), and stays in the Workshop's list; chat gets one short line. His
-  version checks and his `/oly status` open in copy windows too.
-- Not on yourself, enemies, offline names or Battle.net friends. It uses the game's own way for
-  addons to add to its menus (a client without it gets no lines); no Blizzard function is
-  replaced, and nothing opens the game's chat box.
+  ignored. On his side the report he asked for opens by itself in a window you can copy from (the
+  sender and time on top, **Select all**), and stays in the Workshop's list; chat gets one short
+  line. A report nobody asked for gets its line and the list only. His version checks and his
+  `/oly status` open in copy windows too. A window that opens by itself takes no keyboard, waits
+  until a fight is over, and never covers a report he is reading.
+- In a dungeon, a raid or a match the game holds addon messages: the lines that send show greyed
+  and say why. Not on yourself, enemies, offline names or Battle.net friends, and only while you
+  are in an Olympus guild. It uses the game's own way for addons to add to its menus (a client
+  without it gets no lines); no Blizzard function is replaced, and nothing opens the game's chat
+  box.
 
 **Explanations and Answers.** Each page has a **?** in its bottom box (next to the gear on the
 Chat tab): what the page shows and, where it counts, why the numbers can differ between players.
-A count's tooltip (the header's totals, a guild's row, the Realm's online and Captains, a layer's
-~N, a zone, the Treasury's week and ranking) ends with **Why can this differ?** and a short
-answer. The author, the High Council and the Stewards also get an **Answers** button on the Chat
-tab and in Olympus's whisper window: ready answers by topic (the counts, each feature, installing
-and updating), with a search. A click puts one in the box to edit (Shift-click: the longer one, to
-copy for Discord); nothing is sent until you do. The answers live in `docs/answers.json`, and
-`luajit scripts/answers.lua` writes `Olympus/AnswerBank.lua` from it.
+A count's tooltip (the header's totals, a guild's row, the Realm's online, Captains and
+Recruiting, a layer's ~N, a zone and a map pin, the Treasury's week and ranking, the dues' guilds,
+the Throne's roll call) ends with **Why can this differ?** and a short answer. The author, the
+High Council and the Stewards also get an **Answers** button at the end of the Chat tab's box and
+in Olympus's whisper window: ready answers by topic (the counts, each feature, installing and
+updating), with a search. A click puts one in the box to edit (Shift-click: the longer one, to
+copy for Discord); nothing is sent until you do. The explanations and answers are in English: in
+another game language the tooltips leave them out, and a page's **?** says so first. The answers
+live in `docs/answers.json`, and `luajit scripts/answers.lua` writes `Olympus/AnswerBank.lua`
+from it.
 
 ### Decrees
 | Decree | Who | What happens |
@@ -1322,7 +1335,8 @@ the game is removed at login, with one line saying so.
   typed in the chat there can set the block off again.
 - English and Portuguese in full, and since 1.1 Spanish, French and German for the main
   screens, the alerts and decrees, the Join screen and its whisper, the chats and the privacy
-  questions (the rest in English). It follows the game language, and only the text on your
+  questions (the rest in English; the pages' **?** explanations and the Answers of 1.1.2 are in
+  English too). It follows the game language, and only the text on your
   screen changes: nothing sent between players does. `/oly status` shows the language in use.
   [CONTRIBUTING.md](CONTRIBUTING.md) says how to add a language or finish one.
 
@@ -1429,8 +1443,8 @@ message (the game adds it). What goes where:
 | Your alt links (1.1, only if you link your characters): each linked character's name and guild, and the names it confirmed (its main, or its alts) | everyone on the Olympus channel | from each character you linked yourself, confirmed on each: at login, when a link changes and every 30 minutes while you play |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
 | Check version (1.1.2): nothing but a number to match the answer | the player you right-clicked, alone (a whisper) | only when you pick **Check version** (a player once every 2 minutes, 6 a minute) |
-| The answer to a version check (1.1.2): your addon's version | the player whose addon asked, alone (a whisper) | when a player's addon asks: each once every 30 seconds at most, 20 a minute in all; never to a player you block or ignore |
-| Ask to update (1.1.2): the newest version your addon knows | the player you right-clicked, alone (a whisper) | only when you pick **Ask to update** (a player once a day, 5 an hour) |
+| The answer to a version check (1.1.2): your addon's version | the player whose addon asked, alone (a whisper) | when a player's addon asks: each once every 30 seconds at most, 20 a minute in all; never to a player you block or ignore, and to the author only after your yes to his roll calls (his checks are roll calls) |
+| Ask to update (1.1.2): the newest version your addon knows | the player you right-clicked, alone (a whisper) | only when you pick **Ask to update** for a player on 1.1.2 or newer (a player once a day, 5 an hour); for an older one it only opens a whisper you send yourself |
 | Your bug report (the same text as `/oly bug`) | the author alone (whispers) | only when you press **Send to** him in Report a bug, or **Send** in the window his ask opens (1.1.2) |
 | The shared block terms (1.1): each word, whether it was added or removed, and when; for 15 minutes after an edit, the editor's own client adds his name to it (never to anyone else's) | everyone on the Olympus channel | only from the client of the King, his Steward, a Hand or a High Councillor: at once when they edit it, and every 10 minutes while they play (not when another client just sent the same list). Your own filter is never sent |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
@@ -1870,7 +1884,7 @@ Other limits:
 
 While the addon's author is online, the **Report a bug** window also has a **Send to
 Faladoriel Skylance** button: your report goes to him in game, by addon whisper, and nowhere
-else (once every 10 minutes at most). It first checks he is really there: the rest follows
+else (once every 10 minutes at most, unless he asked for it). It first checks he is really there: the rest follows
 only once he answers, and you are told when he got it.
 
 Since 1.1.2 the author can also ask you for it from the right-click menu: your addon shows you

@@ -1631,9 +1631,24 @@ end
 -- mouse and keyboard, the game's chat box. (A line for an Olympus chat is written in the Chat
 -- tab's own box, ChatWindow.lua: the Realm tab's chats page and its window for that are gone.)
 local function Trim(text) return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
+-- 1.1.2: not while the game holds chat from addons (a dungeon, a raid, an encounter, a PvP
+-- match: ns.ChatLocked): the player is told, and the text stays in the box (false). True: sent,
+-- or nothing to send.
 local function SendWhisper(name, text)
 	text = Trim(text)
-	if text ~= "" and name then SendChatMessage(text:sub(1, 255), "WHISPER", nil, name) end
+	if text == "" or not name then return true end
+	if ns.ChatLocked() then
+		ns.Print(L.WHISPER_LOCKDOWN)
+		return false
+	end
+	SendChatMessage(text:sub(1, 255), "WHISPER", nil, name)
+	return true
+end
+-- A whisper window closed: the Answers list it opened lets go of its box (Answers.lua), which the
+-- next Olympus window may reuse.
+local function LetGo(self)
+	local eb = self and (self.editBox or self.EditBox)
+	if ns.Answers and ns.Answers.Release and eb then ns.Answers.Release(eb) end
 end
 -- The Answers of the author, the High Council and the Stewards (1.1.2, Answers.lua): a button in
 -- Olympus's whisper windows that fills their box with a ready answer to edit (Dialog.lua's extra).
@@ -1657,12 +1672,12 @@ StaticPopupDialogs["OLYMPUS_WHISPER"] = {
 	end,
 	OnAccept = function(self, name)
 		local eb = self.editBox or self.EditBox
-		SendWhisper(name, eb and eb:GetText())
+		return not SendWhisper(name, eb and eb:GetText()) -- (held: the window stays, its text in it)
 	end,
+	OnHide = LetGo,
 	EditBoxOnEnterPressed = function(self)
 		local parent = self:GetParent()
-		SendWhisper(parent.data, self:GetText())
-		parent:Hide()
+		if SendWhisper(parent.data, self:GetText()) then parent:Hide() end
 	end,
 	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
 	timeout = 0,
@@ -1697,13 +1712,13 @@ StaticPopupDialogs["OLYMPUS_WHISPER_TEXT"] = {
 	end,
 	OnAccept = function(self, data)
 		local eb = self.editBox or self.EditBox
-		SendWhisper(type(data) == "table" and data.name or nil, eb and eb:GetText())
+		return not SendWhisper(type(data) == "table" and data.name or nil, eb and eb:GetText())
 	end,
+	OnHide = LetGo,
 	EditBoxOnEnterPressed = function(self)
 		local parent = self:GetParent()
 		local data = parent.data
-		SendWhisper(type(data) == "table" and data.name or nil, self:GetText())
-		parent:Hide()
+		if SendWhisper(type(data) == "table" and data.name or nil, self:GetText()) then parent:Hide() end
 	end,
 	EditBoxOnEscapePressed = function(self) self:ClearFocus() end,
 	timeout = 0,
@@ -2131,8 +2146,8 @@ end
 -- (0.9.2, Codec.NoMentions).
 -- opts (1.1.2): { key = a window of its own (the author's bug reports "bug", his version checks
 -- "versions", his /oly status "status"; the help and every Copy share "copy"), big = larger, with
--- a Select all button (the reports: long, and read before copied) }. Each key's window keeps its
--- place and text while another one shows.
+-- a Select all button (the reports: long, and read before copied), auto = opened by itself (no
+-- keyboard: see the end) }. Each key's window keeps its place and text while another one shows.
 local copyFrames = {}
 local COPY_PLACES = { bug = { 0, 30 }, versions = { 60, -30 }, status = { -60, 30 } }
 
@@ -2246,7 +2261,10 @@ function UI.ShowCopy(title, text, action, opts)
 	end
 	copyFrame.eb.olympusBox = true
 	-- (Gamepad UI with the chat box typing: not taken from it; a click in the text selects it.)
-	if not ns.Focus(copyFrame.eb) then copyFrame.eb:SetScript("OnEditFocusGained", function(self) self:HighlightText() end) end
+	-- opts.auto (1.1.2): opened by itself, not by the player's click (a bug report that came in,
+	-- a version check's answer): never the keyboard, in either input mode, or his movement keys
+	-- and the chat line he was typing would go into it. A click in the text (or Select all) takes it.
+	if opts.auto or not ns.Focus(copyFrame.eb) then copyFrame.eb:SetScript("OnEditFocusGained", function(self) self:HighlightText() end) end
 	copyFrame.eb:HighlightText()
 	return copyFrame
 end

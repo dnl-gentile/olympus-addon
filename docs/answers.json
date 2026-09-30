@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Olympus answer bank",
-    "source": "Olympus 1.1.2 (branch v112/versions-answers); counts and features checked against 1.1.1's code, section 4 against 1.1.2's",
+    "source": "Olympus 1.1.2 (branch v112/versions-answers-2); counts and features checked against 1.1.1's code, section 4 and the new counts against 1.1.2's",
     "generated": "2026-09-30",
     "limits": {
       "answer": "280 characters max (Discord)",
@@ -12,7 +12,7 @@
       {
         "id": "counts",
         "title": "1. Counts: why the numbers differ",
-        "count": 18
+        "count": 20
       },
       {
         "id": "features",
@@ -30,7 +30,7 @@
         "count": 8
       }
     ],
-    "count": 112,
+    "count": 114,
     "regenerate": "luajit scripts/answers.lua writes Olympus/AnswerBank.lua from this file; --check only compares"
   },
   "answers": [
@@ -81,6 +81,21 @@
         "Roster.lua:21-22,110-112",
         "Data.lua:313-314",
         "Comm.lua:17"
+      ]
+    },
+    {
+      "id": "count-other-guild-report",
+      "topic": "counts",
+      "status": "1.1.2",
+      "questions": [
+        "Why is another guild's number different from what its members see?",
+        "Their guild says 180 online but I see 172"
+      ],
+      "answer": "Another guild's numbers are its last report, sent every ~3 minutes by one of its members with the addon. Its own members see it live from their roster, so on your screen it trails a little. Free slots are 1000 less that report's size.",
+      "in_game": "Another guild's numbers are its last report, sent every ~3 min, so they trail what its own members see live. Free slots come from that report too.",
+      "sources": [
+        "Data.lua:358-383 (a row is the last accepted report)",
+        "Comm.lua:17 (a reporter every 170 s)"
       ]
     },
     {
@@ -143,7 +158,7 @@
         "The guild window says something different"
       ],
       "answer": "/who lists 50 players per search, so it can't show a big guild's full count. Olympus uses each guild's own roster, sent by a member with the addon. Your own guild matches your guild window; other guilds are a report a few minutes old.",
-      "in_game": "/who stops at 50 per search. Olympus uses each guild's own roster instead. Yours matches your guild window; other guilds are a report a few minutes old.",
+      "in_game": "The /who list stops at 50 per search. Olympus uses each guild's own roster instead. Yours matches your guild window; other guilds are a report a few minutes old.",
       "notes": "Unchecked: Classic Era/Anniversary with the old Guild window's 'Show Offline Members' unticked.",
       "sources": [
         "Who.lua:32-36,50",
@@ -326,6 +341,20 @@
       "sources": [
         "README.md:805-811,992-1006",
         "Treasury.lua:1263-1270,1731,1757-1758"
+      ]
+    },
+    {
+      "id": "count-throne-silent",
+      "topic": "counts",
+      "status": "1.1.2",
+      "questions": [
+        "Why does the roll call say someone is silent when they logged off?",
+        "What does +N unconfirmed mean on the Throne?"
+      ],
+      "answer": "Silent means a Lord or Captain the latest report showed online didn't answer, and that report can be a few minutes old, so someone who just logged off counts. Unconfirmed answers came from players the census can't place yet.",
+      "in_game": "Silent = shown online by the latest report (a few min old) but no answer, so someone who just logged off counts. Unconfirmed: the census can't place them yet.",
+      "sources": [
+        "King.lua:1255-1329 (the roll call's groups)"
       ]
     },
     {
@@ -595,7 +624,7 @@
         "Can the addon kick inactive people?"
       ],
       "answer": "Type /oly inactive 7, 14 or 30 (or click your guild's inactive line in the Realm tab). If your rank can remove members, it's one person per click after a confirm. There's no kick-all, and nothing is sent.",
-      "in_game": "/oly inactive 7, 14 or 30 lists them. If your rank can remove members, it's one per click with a confirm. No kick-all.",
+      "in_game": "Type /oly inactive 7, 14 or 30 to list them. If your rank can remove members, it's one per click with a confirm. No kick-all.",
       "sources": [
         "README.md:148-153"
       ]
@@ -668,7 +697,7 @@
         "What's /oly helpme?"
       ],
       "answer": "Type /oly helpme and your question, or click Ask a High Councillor on the Realm tab. It whispers up to three High Councillors online who take requests.",
-      "in_game": "/oly helpme and your question: it whispers up to three High Councillors online.",
+      "in_game": "Type /oly helpme and your question: it whispers up to three High Councillors online.",
       "sources": [
         "README.md:1793 (Commands)",
         "L.HELP_COUNCIL"
@@ -713,7 +742,7 @@
         "What's the King's week?"
       ],
       "answer": "/oly lfg opens the Board: raise a Dungeon, Raid, PvP or Layer flag with a short note, and click someone's card to whisper them. It also has the King's week with signups, and camps so the army shares one fire per zone.",
-      "in_game": "/oly lfg opens the Board: raise a flag (Dungeon, Raid, PvP, Layer) and click cards to whisper. It has the King's week and camps too.",
+      "in_game": "Type /oly lfg for the Board: raise a flag (Dungeon, Raid, PvP, Layer) and click cards to whisper. It has the King's week and camps too.",
       "sources": [
         "README.md:462-525"
       ]
@@ -741,7 +770,7 @@
         "Can the addon track loot points?"
       ],
       "answer": "Your guild's loot decisions, kept: officers write who got what and why, and can set points by hand. Every member reads it in the Realm tab or /oly loot. It's a notebook, not a bid window.",
-      "in_game": "/oly loot: officers note who got what and why, with optional points. Everyone reads it. Not a bid window.",
+      "in_game": "Type /oly loot: officers note who got what and why, with optional points. Everyone reads it. Not a bid window.",
       "sources": [
         "README.md:1059-1088"
       ]
@@ -755,7 +784,7 @@
         "How do I list my professions?"
       ],
       "answer": "Type /oly craft and shift-click an item (or type its name): crafters who know it answer, and a click whispers one. Open a profession and say yes to be listed; /oly crafter off takes you off.",
-      "in_game": "/oly craft then shift-click an item: crafters who know it answer. Open a profession and say yes to get listed.",
+      "in_game": "Type /oly craft then shift-click an item: crafters who know it answer. Open a profession and say yes to get listed.",
       "sources": [
         "README.md:1089-1110"
       ]
@@ -816,7 +845,7 @@
         "Is Olympus chat private?"
       ],
       "answer": "/ol for [Olympus] (everyone), /olc for [Captains] (Captains and up), /oll for [Lords]. The chats stay off until you say yes (/oly chat on). They aren't private: anyone on the channel can read all three, so never share passwords.",
-      "in_game": "/ol, /olc, /oll to talk. /oly chat on to turn chats on. Not private: never share passwords there.",
+      "in_game": "Talk with /ol, /olc and /oll. /oly chat on turns chats on. Not private: never share passwords there.",
       "sources": [
         "README.md:254-262,371-380"
       ]
@@ -830,7 +859,7 @@
         "Can I hide Olympus chat?"
       ],
       "answer": "/oly chat off turns the chats off on your client: nothing shows or sends. Or /oly mute olympus to hide just that channel, or /oly filter add <word> to hide lines with a word.",
-      "in_game": "/oly chat off turns chats off. /oly mute olympus hides one channel. /oly filter add <word> hides lines with a word.",
+      "in_game": "Type /oly chat off to turn chats off. /oly mute olympus hides one channel. /oly filter add <word> hides lines with a word.",
       "sources": [
         "README.md:264,340-345"
       ]
@@ -844,7 +873,7 @@
         "What does /oly filter do?"
       ],
       "answer": "/oly filter add <word> hides addon lines with that word on your screen only: chats, writs, decrees and Vox. The sender isn't blocked. Moderators also keep a shared list; /oly filter shared off ignores it.",
-      "in_game": "/oly filter add <word> hides lines with it, on your screen only. /oly filter shared off ignores the moderators' list.",
+      "in_game": "Type /oly filter add <word> to hide lines with it, on your screen only. /oly filter shared off ignores the moderators' list.",
       "sources": [
         "README.md:306-336"
       ]
@@ -872,7 +901,7 @@
         "Why didn't I get the raid warning in my dungeon?"
       ],
       "answer": "/oly sound off silences them all, or /oly sound vox off (or another kind) for one. In an instance or while Busy, alerts wait until you're out; /oly alerts always shows them at once.",
-      "in_game": "/oly sound off for all, or /oly sound <kind> off. In instances alerts wait; /oly alerts always shows them at once.",
+      "in_game": "Type /oly sound off for all, or /oly sound <kind> off. In instances alerts wait; /oly alerts always shows them at once.",
       "sources": [
         "README.md:234-252"
       ]
@@ -915,7 +944,7 @@
         "What's /oly log?"
       ],
       "answer": "What this client saw: decrees, gates, pardons and the King's switches, each with who did it. It's on the Decrees tab or /oly log, kept on your computer only and never sent.",
-      "in_game": "/oly log: decrees, gates and pardons your client saw, with who did them. Kept on your PC only.",
+      "in_game": "Type /oly log: decrees, gates and pardons your client saw, with who did them. Kept on your PC only.",
       "sources": [
         "README.md:1231-1241"
       ]
@@ -929,7 +958,7 @@
         "What's /oly mark?"
       ],
       "answer": "Start a patrol on the Tabards tab (or /oly patrol) and walk through the crowd: it checks nearby members level 15 and up for the Olympus tabard. /oly mark flags your target with a note. Hover anyone to see their last check.",
-      "in_game": "/oly patrol, then walk around: it checks nearby members (15+) for the tabard. /oly mark flags your target.",
+      "in_game": "Type /oly patrol, then walk around: it checks nearby members (15+) for the tabard. /oly mark flags your target.",
       "notes": "L.HELP_CMD_TABARD still says 'Heraldry Inspection tab'; the tab is Tabards.",
       "sources": [
         "README.md:1027-1058"
@@ -1174,7 +1203,7 @@
         "What's /oly backup?"
       ],
       "answer": "/oly backup copies your settings (and a keeper's treasury book) as text: keep it in a file. When the beta wipes addon data, /oly restore pastes it back. Nothing is uploaded, and it never holds the channel key.",
-      "in_game": "/oly backup copies your settings as text. Keep it; /oly restore brings it back after a wipe.",
+      "in_game": "Type /oly backup to copy your settings as text. Keep it; /oly restore brings it back after a wipe.",
       "sources": [
         "README.md:1242-1257"
       ]
@@ -1202,7 +1231,7 @@
         "How do I share my position with my guild?"
       ],
       "answer": "Off by default. /oly share shares your position with your guild, and /oly mates shows guildmates' dots on your map and minimap. It stays inside your guild.",
-      "in_game": "/oly share shares your spot with your guild; /oly mates shows guildmates on your map.",
+      "in_game": "Type /oly share to share your spot with your guild; /oly mates shows guildmates on your map.",
       "sources": [
         "L.HELP_CMD_SHARE",
         "L.HELP_CMD_MATES",
@@ -1235,7 +1264,7 @@
         "Why does my alt count twice?"
       ],
       "answer": "/oly alt add Name on your main, then log that alt and say yes, and the census and treasury count you once. Heads up: the beta forgets addon data at login, so right now the offer can't reach the alt.",
-      "in_game": "/oly alt add Name on your main, then say yes on the alt. On the beta the offer can't reach the alt yet.",
+      "in_game": "Type /oly alt add Name on your main, then say yes on the alt. On the beta the offer can't reach the alt yet.",
       "sources": [
         "README.md:606-627"
       ]
@@ -1280,7 +1309,7 @@
         "Where's the window?"
       ],
       "answer": "Type /oly, click the minimap button, or the round button in your guild window. Shift-click the minimap button for the Chat tab; right-click it to show or hide the map markers.",
-      "in_game": "/oly, the minimap button, or the round button in your guild window.",
+      "in_game": "Type /oly, or click the minimap button or the round button in your guild window.",
       "sources": [
         "README.md:1265-1272",
         "L.MINIMAP_*"
@@ -1309,8 +1338,8 @@
         "Is it in Portuguese or Spanish?",
         "How do I change the language?"
       ],
-      "answer": "It follows your game language. English and Portuguese are complete; Spanish, French and German cover the main screens. Only what's on your screen changes.",
-      "in_game": "It follows your game language: English and Portuguese in full, Spanish, French and German for the main screens.",
+      "answer": "It follows your game language. English and Portuguese are complete; Spanish, French and German cover the main screens. The pages' ? help and the Answers are in English for now. Only what's on your screen changes.",
+      "in_game": "It follows your game language: English and Portuguese in full, Spanish, French and German for the main screens. Page help is in English.",
       "sources": [
         "README.md:1286-1290"
       ]
@@ -1415,7 +1444,7 @@
         "What's the Answers button?",
         "How do moderators answer questions so fast?"
       ],
-      "answer": "The author, the High Council and the Stewards get an Answers button on the Chat tab and in Olympus's whisper window: short ready answers by topic, searchable. A click puts one in the box to edit; nothing is sent until you do.",
+      "answer": "The author, the High Council and the Stewards get an Answers button at the end of the Chat tab's box and in Olympus's whisper window: short ready answers by topic, searchable. A click puts one in the box to edit; nothing is sent until you do.",
       "in_game": "The author, High Council and Stewards have an Answers button: a click puts a ready answer in the box to edit, nothing is sent by itself.",
       "sources": [
         "Answers.lua"
@@ -1503,12 +1532,13 @@
         "I got a window saying the author asks me to update",
         "Is the update popup legit?"
       ],
-      "answer": "Yes: only the author's character can send it, and only when your version is older than his. Update in the CurseForge app or WowUp, then restart the game. /oly rollcall off stops these.",
-      "in_game": "It's real: only the author can send it, and only if you're behind. Update and restart. /oly rollcall off stops them.",
+      "answer": "If it says the author of the addon asks you, it's real: only his character can send it, and only when your version is older than the one he released. Update in the CurseForge app or WowUp, then restart. /oly rollcall off stops his. One naming a player is that player's ask.",
+      "in_game": "If it says the author asks, it's real: only his character can send it, and only if you're behind. Update and restart. /oly rollcall off stops his.",
       "sources": [
         "Workshop.lua:146-148,516,534-553 (V3 carries Workshop.Latest(), his running build)",
         "L.WORKSHOP_UPDATE_POPUP"
-      ]
+      ],
+      "notes": "A player's ask (1.1.2, V9) names the player; see rc-got-asked."
     },
     {
       "id": "help-report-bug",
@@ -1536,7 +1566,7 @@
         "I got an 'action blocked' error"
       ],
       "answer": "A /reload clears it. Then tell us what happened: Olympus window, help button, Report a bug. With the gamepad UI, don't type /oly bug in chat; use the button, since a typed command can set the block off again.",
-      "in_game": "/reload clears it. Then report it: Olympus window, help button, Report a bug (not /oly bug with the gamepad).",
+      "in_game": "A /reload clears it. Then report it: Olympus window, help button, Report a bug (not /oly bug with the gamepad).",
       "notes": "GitHub #40 ('Who List error') was ADDON_ACTION_FORBIDDEN UpdateGuildLobby() from Blizzard_GuildControlUI, not Olympus code.",
       "sources": [
         "README.md:1281-1285"
@@ -1564,7 +1594,7 @@
         "Is it safe? What does it send?",
         "Does the addon send my data anywhere?"
       ],
-      "answer": "It talks only through the game's own addon messages, with no server of its own. Your guild's census is shared with Olympus; your location, chats and the rest wait for your yes. /oly privacy shows every switch.",
+      "answer": "It talks only through the game's own addon messages, with no server of its own. Your guild's census, your addon's hello and its version (to a player's Check version) go out as is; your location, chats and the rest wait for your yes. /oly privacy shows every switch.",
       "in_game": "It only uses the game's addon messages, no outside server. Location, chats and the rest wait for your yes (/oly privacy).",
       "notes": "Exception: Olympus Link (not open yet) uses a web page and the Discord bot, only when a player chooses to link.",
       "sources": [
@@ -1625,9 +1655,9 @@
         "Why can't I see the version of someone in another guild?",
         "It says not seen for a player from another guild"
       ],
-      "answer": "Your addon only hears your own guild's versions by itself. For anyone else, right-click them and pick Check version: their addon answers with its version. No answer usually means they don't run Olympus, or they're not in an Olympus guild.",
-      "in_game": "Your addon only hears your own guild by itself. Right-click them and pick Check version; no answer usually means no Olympus.",
-      "notes": "Only players in an Olympus guild answer: outside one the addon sends nothing.",
+      "answer": "Your addon only hears your own guild's versions by itself. For anyone else, right-click them and pick Check version: their addon answers with its version. Only 1.1.2 and newer answer, so no answer can mean no Olympus, an older one, a dungeon or raid, or no Olympus guild.",
+      "in_game": "Your addon only hears your own guild by itself. Right-click them and pick Check version; only 1.1.2 and newer answer, so no answer can mean an older one.",
+      "notes": "Only players in an Olympus guild answer: outside one the addon sends nothing. The author's Check version is his roll call to that player alone (every version since 0.9.9 answers it, after the player's yes).",
       "sources": [
         "Versions.lua",
         "Comm.lua Pump (members only)"
@@ -1641,9 +1671,9 @@
         "How do I ask someone to update?",
         "Can I tell a guildmate their addon is old?"
       ],
-      "answer": "Right-click them and pick Ask to update (it only shows when they're behind the newest version you know). Their addon shows a small notice with both versions and where to update. One ask per player a day, a few an hour.",
-      "in_game": "Right-click them, Ask to update (it shows when they're behind). They get a small notice with where to update.",
-      "notes": "The author's pick sends his usual update window (V3); anyone else's sends V9, shown once a day at most, 7 days of quiet after Don't remind me.",
+      "answer": "Right-click them and pick Ask to update (it only shows when they're behind). On 1.1.2 or newer their addon shows a small notice with where to update; older ones can't, so it opens a whisper with the ask for you to send. One ask per player a day, 5 an hour.",
+      "in_game": "Right-click them, Ask to update (it shows when they're behind). 1.1.2+ get a small notice; for older ones it opens a whisper you send.",
+      "notes": "The author's pick sends his usual update window (V3), which every version shows, naming the version he marked as released. Anyone else's sends V9, shown once a day at most, 7 days of quiet after Don't remind me. On the beta the limits last until logout (addon data isn't loaded back).",
       "sources": [
         "Versions.lua",
         "Workshop.lua AskUpdate"
@@ -1657,9 +1687,9 @@
         "A window says someone asks me to update Olympus",
         "A player asked me to update, is that legit?"
       ],
-      "answer": "A player saw your Olympus is older than the one they know. Update in the CurseForge app or WowUp, then restart the game. Don't remind me hides these asks for 7 days.",
-      "in_game": "Someone saw your Olympus is older. Update in CurseForge or WowUp and restart the game; Don't remind me hides it for 7 days.",
-      "notes": "Only the author's ask opens the official update window; see help-author-update-popup.",
+      "answer": "A player saw your Olympus is older than the one they know (the window names them; the author's own says it's the author). Update in the CurseForge app or WowUp, then restart the game. Don't remind me hides these asks for 7 days (on the beta, until you log out).",
+      "in_game": "A player saw your Olympus is older. Update in CurseForge or WowUp and restart; Don't remind me hides these for 7 days (on the beta until you log out).",
+      "notes": "Only the author's ask opens the official update window; see help-author-update-popup. Never from a player you block, ignore or the moderators took off, and never naming a version the author hasn't released.",
       "sources": [
         "Versions.lua HandleAsk"
       ]
@@ -1672,7 +1702,7 @@
         "Does right-clicking send anything?",
         "Can people see when I check their version?"
       ],
-      "answer": "Opening the menu sends nothing. Check version sends one tiny addon message that their addon answers with its version, nothing else. Ask to update sends one notice. Tell them about Olympus only opens a whisper you send yourself.",
+      "answer": "Opening the menu sends nothing. Check version sends one tiny addon message that their addon answers with its version, nothing else. Ask to update sends one notice (or opens a whisper for an old version). Tell them about Olympus only opens a whisper you send yourself.",
       "in_game": "Opening the menu sends nothing. Check version sends one tiny addon message; Tell them about Olympus opens a whisper you send yourself.",
       "sources": [
         "Versions.lua"
@@ -1686,8 +1716,8 @@
         "Why is there no Olympus line when I right-click someone?",
         "The version check is missing from the menu"
       ],
-      "answer": "It shows on players you can reach: not on yourself, enemies, offline names or Battle.net friends. Game clients without the new right-click menus don't get it at all.",
-      "in_game": "It only shows where it can help: not on yourself, enemies, offline names or Battle.net friends.",
+      "answer": "It shows on players you can reach, while you're in an Olympus guild: not on yourself, enemies, offline names or Battle.net friends. In a dungeon or raid its buttons are greyed. Game clients without the new right-click menus don't get it at all.",
+      "in_game": "It only shows where it can help: not on yourself, enemies, offline names or Battle.net friends, and only while you're in an Olympus guild.",
       "notes": "Hooked menus: PLAYER, PARTY, RAID_PLAYER, RAID, FRIEND, COMMUNITIES_GUILD_MEMBER, COMMUNITIES_WOW_MEMBER, GUILD, CHAT_ROSTER, RECENT_ALLY (Menu.ModifyMenu).",
       "sources": [
         "PlayerMenu.lua"
@@ -1716,7 +1746,7 @@
         "How do I get someone to install Olympus?",
         "What's Tell them about Olympus?"
       ],
-      "answer": "Right-click them: when their addon didn't answer Check version, pick Tell them about Olympus. A whisper with the CurseForge link opens for you to edit, and nothing goes out until you press Send.",
+      "answer": "Right-click them: when their addon didn't answer Check version, pick Tell them about Olympus. A whisper with the CurseForge link opens (to get it, or update an old one) for you to edit, and nothing goes out until you press Send.",
       "in_game": "Right-click them, Check version, then Tell them about Olympus: a whisper with the link opens, and you send it yourself.",
       "sources": [
         "Versions.lua"

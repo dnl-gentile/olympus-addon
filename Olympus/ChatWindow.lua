@@ -757,6 +757,23 @@ local function PaintGear()
 	if settings then g:LockHighlight() else g:UnlockHighlight() end
 end
 
+-- The box to write in, across the bottom row; 1.1.2: the Answers button (the author, the High
+-- Council and the Stewards) at that row's end while it shows, the box ending before it. Never on
+-- the top row (1.1.2's review: next to the switch, the search box there shrank to nothing for a
+-- Lord of the High Council in the default window), and by the box it fills.
+local function PlaceInput(p)
+	local input = p.places and p.places.input
+	if not input then return end
+	local room = 0
+	if p.answers and p.answers:IsShown() then
+		p.answers:ClearAllPoints()
+		p.answers:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", input.right, input.y + math.floor((input.h - SEARCH_H) / 2))
+		room = p.answers:GetWidth() + TOP_GAP
+	end
+	-- (The box's border art reaches 10 past its ends.)
+	p.input:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", input.right - 10 - room, input.y)
+end
+
 -- The row: the gear at its end; the switch left of it while the lines show and the rank reads more
 -- than one channel (never a row of its own; one channel, nothing); the search box in the rest.
 -- The settings: their title there instead.
@@ -768,21 +785,15 @@ local function DrawTop(tiers, on)
 	PaintGear()
 	local right = s.right - GEAR_W - TOP_GAP
 	-- 1.1.2: the page's "?" left of the gear (Answers.lua: the tab's explanation, the detail box's
-	-- "?" of the other tabs being under this one), and the Answers of the author, the High Council
-	-- and the Stewards while the lines and their box show.
+	-- "?" of the other tabs being under this one). The Answers of the author, the High Council and
+	-- the Stewards: at the end of the box they fill, while the lines and that box show (PlaceInput).
 	frame.help:ClearAllPoints()
 	frame.help:SetPoint("TOPRIGHT", frame, "TOPRIGHT", right, s.top)
 	frame.help:Show()
 	right = right - GEAR_W - TOP_GAP
 	local A = ns.Answers
-	if lines and A and type(A.Allowed) == "function" and A.Allowed() then
-		frame.answers:ClearAllPoints()
-		frame.answers:SetPoint("TOPRIGHT", frame, "TOPRIGHT", right, s.top)
-		frame.answers:Show()
-		right = right - frame.answers:GetWidth() - TOP_GAP
-	else
-		frame.answers:Hide()
-	end
+	frame.answers:SetShown(lines and A ~= nil and type(A.Allowed) == "function" and A.Allowed() == true)
+	PlaceInput(frame)
 	local sw = frame.switch
 	if lines and #tiers > 1 then
 		PaintSwitch()
@@ -1652,8 +1663,9 @@ local function Button(parent, text, width)
 	return b
 end
 
--- 1.1.2: the tab's "?" (its explanation, Answers.lua) and the Answers button (the author, the High
--- Council and the Stewards: a ready answer into this box, Answers.lua), on the top row.
+-- 1.1.2: the tab's "?" (its explanation, Answers.lua), on the top row, and the Answers button (the
+-- author, the High Council and the Stewards: a ready answer into this box, Answers.lua), at the
+-- box's end (PlaceInput).
 local function MakeHelp(p)
 	local h = CreateFrame("Button", nil, p)
 	h:SetSize(GEAR_W, GEAR_W)
@@ -1945,7 +1957,7 @@ local function Place(p, places)
 	eb:ClearAllPoints()
 	eb:SetHeight(input.h)
 	eb:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", input.left + 10, input.y)
-	eb:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", input.right - 10, input.y)
+	PlaceInput(p)
 end
 
 ---------------------------------------------------------------------------

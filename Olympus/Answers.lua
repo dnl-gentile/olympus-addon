@@ -13,6 +13,8 @@ local L = ns.L
 --   bank, and where it counts, why the numbers can differ between players.
 -- * A count's tooltip ends with "Why can this differ?" and the bank's line for it (Answers.WhyTip).
 -- Everything here is read on this screen: nothing is sent, and the bank is the same for everyone.
+-- The bank is in English (1.1.2's review): a game in another language gets no English line in its
+-- tooltips (WhyTip adds none there), and its pages' "?" says first that what follows is English.
 
 local Answers = {}
 ns.Answers = Answers
@@ -58,11 +60,16 @@ function Answers.Entries(q)
 	return out
 end
 
+-- The game's language is English (the bank's).
+function Answers.English()
+	local locale = GetLocale and GetLocale() or "enUS"
+	return locale == "enUS" or locale == "enGB"
+end
+
 -- The line into `box` (an edit box): in place of nothing, else after what is typed. False when that
--- box is gone (its window closed).
+-- box is gone (its window closed: Answers.Release let go of it, or it is hidden).
 function Answers.Fill(box, text)
-	if type(box) ~= "table" or not box.SetText then return false end
-	if box.IsVisible and not box:IsVisible() then
+	if type(box) ~= "table" or not box.SetText or (box.IsVisible and not box:IsVisible()) then
 		ns.Print(L.ANSWERS_BOX_GONE)
 		return false
 	end
@@ -235,6 +242,15 @@ end
 function Answers.Picker() return picker end -- (tests)
 function Answers.Target() return target end
 
+-- A whisper window closed (UI.lua): the list it opened lets go of its box. Olympus's windows reuse
+-- their boxes (Dialog.lua), and a pick must never land in the next one's (a pin, an amount).
+function Answers.Release(box)
+	if box == nil or target ~= box then return false end
+	target = nil
+	if picker and picker:IsShown() then picker:Hide() end
+	return true
+end
+
 ---------------------------------------------------------------------------
 -- Explanations: each page's "?", and a count's "why"
 ---------------------------------------------------------------------------
@@ -289,6 +305,10 @@ function Answers.ExplainText(page)
 	local def, tab = Answers.PageOf(page)
 	if not def then return nil end
 	local out = {}
+	if not Answers.English() then
+		out[1] = L.PAGE_HELP_ENGLISH
+		out[2] = ""
+	end
 	for _, id in ipairs(def) do
 		local e = Answers.Find(id)
 		if e then
@@ -317,7 +337,7 @@ end
 
 -- A count's tooltip: a gap, "Why can this differ?" and the bank's line of each id given.
 function Answers.WhyTip(tt, ...)
-	if type(tt) ~= "table" or not tt.AddLine then return false end
+	if type(tt) ~= "table" or not tt.AddLine or not Answers.English() then return false end
 	local texts = {}
 	for i = 1, select("#", ...) do
 		local e = Answers.Find(select(i, ...))

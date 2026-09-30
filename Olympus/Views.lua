@@ -633,7 +633,8 @@ local function GuildTooltip(e)
 		tt:AddLine(L.REPORTED_BY:format(g.reporter or "?", ns.Ago(g.t)), 0.6, 0.6, 0.6)
 		if not e.fresh then tt:AddLine(L.STALE, 1, 0.4, 0.4) end
 		DisputeTooltip(tt, ns.Data.Dispute(g))
-		Why(tt, e.fresh and "count-own-guild-live" or "count-grey-rows")
+		-- (Ours is live from our roster; another guild's is its last report, 1.1.2's review.)
+		Why(tt, not e.fresh and "count-grey-rows" or (g.mine and "count-own-guild-live" or "count-other-guild-report"))
 	end
 end
 
@@ -1556,7 +1557,7 @@ local function RealmLines(s, q)
 					local ours = e.name == GetGuildInfo("player")
 					tt:AddLine(L.CAPTAINS:format(#officers), 1, 0.82, 0)
 					tt:AddLine(ours and L.CAPTAINS_OWN_TIP or L.CAPTAINS_TIP, 1, 1, 1, true)
-					Why(tt, "count-own-guild-live")
+					Why(tt, ours and "count-own-guild-live" or "count-other-guild-report")
 				end }
 		end
 		for _, o in ipairs(listed) do
@@ -1705,7 +1706,11 @@ local function RealmLines(s, q)
 	end
 
 	local open = Views.OpenGuilds(s)
-	lines[#lines + 1] = { header = true, text = L.RECRUITING }
+	-- (1.1.2's review: free slots are 1000 less the size of each guild's last report.)
+	lines[#lines + 1] = { header = true, text = L.RECRUITING, tooltip = function(tt)
+		tt:AddLine(L.RECRUITING, 1, 0.82, 0)
+		Why(tt, "count-other-guild-report")
+	end }
 	-- The gates the King (or a Hand) opened: where new recruits go now (Acts.lua).
 	local gates = ns.Acts and ns.Acts.Gates and ns.Acts.Gates()
 	local commands = ns.King and (ns.King.CanCommand() or ns.King.Preview())
@@ -1732,14 +1737,15 @@ local function RealmLines(s, q)
 			text = mark .. Green("<" .. name .. ">"), right = L.FREE_SLOTS:format(ns.FormatNumber(open[i].free)),
 			-- The King and his Hands open a guild's gates from here.
 			onClick = commands and function() ns.Acts.GatesClick(name) end or nil,
-			tooltip = (commands or d) and function(tt)
+			tooltip = function(tt)
 				tt:AddLine("<" .. name .. ">", 0.25, 1, 0.25)
 				if commands then
 					local closing = gates and gates.guild == name
 					tt:AddLine(closing and (ns.Acts.CanClose() and L.GATES_CLOSE_TIP or L.GATES_ONLY_OPENER) or L.GATES_CLICK_TIP, 1, 1, 1, true)
 				end
 				DisputeTooltip(tt, d)
-			end or nil,
+				Why(tt, "count-other-guild-report")
+			end,
 		}
 	end
 	if #open > Views.RECRUIT_SHOWN then

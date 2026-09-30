@@ -23,6 +23,11 @@ local L = ns.L
 -- - Only a player who can be reached: never ourselves, an enemy (ENEMY_PLAYER is not hooked), an
 --   offline name (FRIEND_OFFLINE, GUILD_OFFLINE and an offline guild roster row), a Battle.net
 --   friend (BN_*: an account, not a character) or a unit that is not a player.
+-- - Nothing from a value the game hides from addons (a secret value: the guild roster's member
+--   info in a dungeon or raid, C_Club.GetMemberInfo; a unit's name or identity where it is
+--   restricted): tested, a secret stops the addon's code with an error, so such a menu gets no
+--   Olympus lines. In a dungeon, a raid or a match (ns.ChatLocked) the lines that would send show
+--   greyed and say why: target.locked.
 
 local PlayerMenu = {}
 ns.PlayerMenu = PlayerMenu
@@ -39,8 +44,9 @@ local hooked = false -- Menu.ModifyMenu called for every menu above
 
 -- A feature's lines: build(target, menu) adds them to `menu` (below) for `target` = { name (the
 -- whole "Name-Realm" as the server writes it), which (the menu), unit (when it came from a unit
--- frame) }. `order`: lower first (Versions.lua 10, the author's lines 50, 1.2's later). The same
--- key again replaces its entry (a file loaded twice); no build takes it off.
+-- frame), locked (the game holds addon messages now: a line that sends is shown greyed) }.
+-- `order`: lower first (Versions.lua 10, the author's lines 50, 1.2's later). The same key again
+-- replaces its entry (a file loaded twice); no build takes it off.
 function PlayerMenu.Add(key, build, order)
 	if type(key) ~= "string" then return false end
 	for i = #entries, 1, -1 do
@@ -64,19 +70,35 @@ local function Joined(name, surname)
 	return name .. "-" .. surname
 end
 
+-- Values the client hides from addons (secret values): any of them, and nothing is read.
+local function Secret(...)
+	if type(issecretvalue) ~= "function" then return false end
+	for i = 1, select("#", ...) do
+		if issecretvalue((select(i, ...))) then return true end
+	end
+	return false
+end
+
 -- The player a menu is for, or nil when it is not one we can reach (see above).
 function PlayerMenu.Target(which, ctx)
 	if type(ctx) ~= "table" then return nil end
-	if ctx.isSelf or ctx.isOffline or ctx.bnetIDAccount or ctx.isMobile then return nil end
 	local info = ctx.clubMemberInfo
+	-- (Checked before any test of them: a secret can't be compared or tested.)
+	if Secret(ctx.name, ctx.surname, ctx.server, ctx.unit, ctx.isSelf, ctx.isOffline, ctx.bnetIDAccount, ctx.isMobile, info) then return nil end
+	if type(info) == "table" and Secret(info.presence, info.name, info.isSelf) then return nil end
+	if ctx.isSelf or ctx.isOffline or ctx.bnetIDAccount or ctx.isMobile then return nil end
 	local offline = Enum and Enum.ClubMemberPresence and Enum.ClubMemberPresence.Offline
 	if type(info) == "table" and offline ~= nil and info.presence == offline then return nil end
 	local unit = type(ctx.unit) == "string" and ctx.unit ~= "" and ctx.unit or nil
 	local name
 	if unit then
-		if UnitIsPlayer and not UnitIsPlayer(unit) then return nil end
-		if UnitIsUnit and UnitIsUnit(unit, "player") then return nil end
-		if UnitIsConnected and not UnitIsConnected(unit) then return nil end
+		local isPlayer = not UnitIsPlayer or UnitIsPlayer(unit)
+		local isMe = UnitIsUnit and UnitIsUnit(unit, "player")
+		local connected = not UnitIsConnected or UnitIsConnected(unit)
+		local first, realm
+		if UnitFullName then first, realm = UnitFullName(unit) end
+		if Secret(isPlayer, isMe, connected, first, realm) then return nil end
+		if not isPlayer or isMe or not connected then return nil end
 		name = ns.UnitFullName(unit)
 	else
 		local raw = ctx.name
@@ -85,7 +107,7 @@ function PlayerMenu.Target(which, ctx)
 	end
 	if type(name) ~= "string" or name == "" or name == ns.me then return nil end
 	if ns.me and ns.Fold(name) == ns.Fold(ns.me) then return nil end
-	return { name = name, which = which, unit = unit }
+	return { name = name, which = which, unit = unit, locked = ns.ChatLocked() }
 end
 
 -- What a feature's build gets to add lines with. The first line any of them adds puts a divider
