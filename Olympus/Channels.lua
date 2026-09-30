@@ -739,20 +739,25 @@ end)
 -- higher rank's takedown names the pin it takes down (its id), once a minute at most from each
 -- sender, and every takedown says in chat who took the line down. A takedown sticks: each client
 -- remembers the pins taken down (their setter and id, for PIN_TIME, ns.rdb.pinsDown), so a repeat
--- that comes late, or a setter's client that missed the takedown, never brings one back; the
--- client that took it down says so again when it hears it repeated (as rarely as its takedowns),
--- and the setter's client lets it go. The setter's client repeats its pin every PIN_RESEND for
--- late logins (a pin replaced there is no longer its to repeat), with how long it has left and
--- how long ago it was set: a repeat never makes a pin newer. It keeps its pin through a /reload
--- (ns.rdb.pinMine), to repeat it and take it down; where a /reload kept nothing (the Forever
--- beta never loads the saved variables back), /oly pin off still sends its setter's takedown
--- (id 0), and each client drops whichever of his it shows. Its words go out with the logged API
--- (the server keeps them, so abuse can be reported), plain text, PIN_MAX bytes at most; a
--- sender's new pin is taken once a minute at most.
+-- that comes late, or a setter's client that missed the takedown, never brings one back. That
+-- memory is bounded (PIN_DOWN_KEEP) and nobody's takedowns push a higher rank's out of it: a
+-- takedown naming a pin this client does not hold is remembered once a minute at most from each
+-- sender, a sender's takedowns of his own pins PIN_DOWN_EACH at most, and past PIN_DOWN_KEEP the
+-- lowest rank's go first (the rank of the takedown that put them there). The client that took
+-- it down says so again when it hears it repeated (as rarely as its takedowns, never while the
+-- moderators have it off), and the setter's client lets it go. The setter's client repeats its
+-- pin every PIN_RESEND for late logins (a pin replaced there is no longer its to repeat), with
+-- how long it has left and how long ago it was set: a repeat never makes a pin newer. It keeps
+-- its pin through a /reload (ns.rdb.pinMine), to repeat it and take it down; where a /reload
+-- kept nothing (the Forever beta never loads the saved variables back), /oly pin off still
+-- sends its setter's takedown (id 0), and each client drops whichever of his it shows. Its
+-- words go out with the logged API (the server keeps them, so abuse can be reported), plain
+-- text, PIN_MAX bytes at most; a sender's new pin is taken once a minute at most.
 -- What a client shows (Channels.Pin): no pin while its Olympus chats are off (the player's
 -- choice, Consent.lua: none sent either), none from a name or guild the moderators took off
--- (net-off, Moderation.lua: their own client sends none, their takedown of their own pin
--- aside), and the player's block terms hide its words (Filter.lua) until a click shows them.
+-- (net-off, Moderation.lua: their own client sends none and takes no one else's down, their
+-- takedown of their own pin aside), and the player's block terms hide its words (Filter.lua)
+-- until a click shows them.
 --   N1~<id>~<guild>~<seconds left>~<seconds since set>~<text>     a pin
 --   N1~<id>~<guild>~0~0~        taken down (<id>: the pin's; <guild>: the sender's own)
 --                               (<id> 0: its setter's, from a client that holds none of his)
@@ -767,7 +772,8 @@ Channels.PIN_MAX = 100         -- bytes of a pinned line
 Channels.PIN_TIME = 2 * 3600   -- a pin ends this long after it was set
 Channels.PIN_RESEND = 300      -- the setter's client repeats it this often
 Channels.PIN_GAP = 60          -- a sender's new pin at most this often (taken a little sooner: queues)
-Channels.PIN_DOWN_KEEP = 200   -- pins taken down a client remembers at most (the oldest go first)
+Channels.PIN_DOWN_KEEP = 200   -- pins taken down a client remembers at most (the lowest rank's go first, then the oldest)
+Channels.PIN_DOWN_EACH = 10    -- of them, a sender's takedowns of his own pins at most (his oldest go first)
 Channels.PIN_KING, Channels.PIN_CROWN, Channels.PIN_LORD = 3, 2, 1
 
 local pin            -- the pinned line: { id, sender, guild, text, rank, dist, setAt, expires, mine, sentAt }
@@ -775,6 +781,7 @@ local lastPinSet = -math.huge
 local lastPinDown = -math.huge -- when we last took down someone else's pin
 local pinFrom = {}   -- [sender] = when a new pin of theirs was last taken
 local downFrom = {}  -- [sender] = when their takedown of someone else's pin was last taken
+local blindFrom = {} -- [sender] = when their takedown of a pin we did not hold was last remembered
 
 -- Plain text: no escape code, separator or control byte; spaces tidied; PIN_MAX bytes at most.
 function Channels.CleanPin(text)
@@ -837,31 +844,62 @@ local function Hold(p)
 	rdb.pinMine = next(saved) ~= nil and saved or nil
 end
 
--- The pins taken down here: [setter (lower case) .. "#" .. id] = { t = until when, us = true when
--- this client took it down }. Such a pin is not taken again before then.
+-- The pins taken down here: [setter (lower case) .. "#" .. id] = { t = until when, r = the rank
+-- of the takedown that put it here (ours, when this client took it down), us = true when this
+-- client took it down }. Such a pin is not taken again before then.
 local function DownKey(sender, id) return tostring(sender):lower() .. "#" .. tostring(id) end
--- The lapsed go (and anything else a saved file holds), then the oldest past PIN_DOWN_KEEP.
+local function DownRank(e)
+	local r = type(e) == "table" and e.r
+	return (type(r) == "number" and r >= Channels.PIN_LORD and r <= Channels.PIN_KING) and r or 0
+end
+-- The oldest first (the key breaks a tie).
+local function Oldest(a, b)
+	if a.t ~= b.t then return a.t < b.t end
+	return a.k < b.k
+end
+-- The lapsed go (and anything else a saved file holds), then past PIN_DOWN_KEEP the lowest
+-- rank's, the oldest first (the review of Konig's fixes: a sender's takedowns never push out a
+-- higher rank's).
 local function PruneDown(list, now)
 	local kept = {}
 	for k, e in pairs(list) do
 		if type(k) ~= "string" or type(e) ~= "table" or type(e.t) ~= "number" or e.t <= now or e.t > now + Channels.PIN_TIME then
 			list[k] = nil
 		else
-			kept[#kept + 1] = { k = k, t = e.t }
+			kept[#kept + 1] = { k = k, t = e.t, r = DownRank(e) }
 		end
 	end
 	if #kept <= Channels.PIN_DOWN_KEEP then return end
-	table.sort(kept, function(a, b) return a.t < b.t end)
+	table.sort(kept, function(a, b)
+		if a.r ~= b.r then return a.r < b.r end
+		return Oldest(a, b)
+	end)
 	for i = 1, #kept - Channels.PIN_DOWN_KEEP do list[kept[i].k] = nil end
 end
-local function Remember(sender, id, now, us)
+-- `setter`'s pin `id`, taken down by a takedown of rank `rank` (us: ours). A sender's takedowns of
+-- his own pins (own) are PIN_DOWN_EACH at most here, his oldest going first: his never push out
+-- anyone else's, nor a higher rank's takedown of one of his.
+local function Remember(setter, id, now, rank, us, own)
 	local rdb = ns.rdb
 	if not rdb then return end
 	local list = type(rdb.pinsDown) == "table" and rdb.pinsDown or {}
 	rdb.pinsDown = list
-	local key = DownKey(sender, id)
-	local was = list[key]
-	list[key] = { t = now + Channels.PIN_TIME, us = (us or (type(was) == "table" and was.us)) and true or nil }
+	local key = DownKey(setter, id)
+	local was = type(list[key]) == "table" and list[key] or nil
+	list[key] = { t = now + Channels.PIN_TIME, r = math.max(rank or 0, DownRank(was)), us = (us or (was and was.us)) and true or nil }
+	if own then
+		local prefix, his = DownKey(setter, ""), {}
+		for k, e in pairs(list) do
+			if type(k) == "string" and k:sub(1, #prefix) == prefix and type(e) == "table" and type(e.t) == "number"
+				and not e.us and DownRank(e) <= (rank or 0) then
+				his[#his + 1] = { k = k, t = e.t }
+			end
+		end
+		if #his > Channels.PIN_DOWN_EACH then
+			table.sort(his, Oldest)
+			for i = 1, #his - Channels.PIN_DOWN_EACH do list[his[i].k] = nil end
+		end
+	end
 	PruneDown(list, now)
 end
 local function WasDown(sender, id, now)
@@ -977,13 +1015,21 @@ end
 -- Ours: set here, or one of ours this client heard (our name, as the server stamped it).
 local function Ours(p) return p.mine or Channels.IsMe(p.sender) end
 
+-- The moderators took us (or our guild) off (net-off): the word, or nil. Then we take no one
+-- else's line down (the review of Konig's fixes): every other client drops such a takedown
+-- (HandlePin), so none leaves, and the line stays here too. Our own still comes down.
+local function SelfOff()
+	local M = ns.Moderation
+	return M and M.SelfOff and M.SelfOff() or nil
+end
+
 -- Can we take the pinned line down: ours (shown here or not: our chats off, or the moderators
--- hiding us), or one shown here of a lower rank than ours.
+-- hiding us), or one shown here of a lower rank than ours, while the moderators have us on.
 function Channels.CanTakeDown(now)
 	local p = Current(now)
 	if not p then return false end
 	if Ours(p) then return true end
-	if Channels.Pin(now) ~= p then return false end
+	if Channels.Pin(now) ~= p or SelfOff() then return false end
 	local rank = MyPin()
 	return rank ~= nil and rank > p.rank
 end
@@ -1014,11 +1060,17 @@ function Channels.TakeDownPin(now)
 		ns.Print(L.PIN_DOWN_ANY)
 		return true, "any"
 	end
+	local own = Ours(p)
+	local off = not own and SelfOff()
+	if off then
+		ns.Print(ns.Moderation.YouText(off))
+		return false, "netoff"
+	end
 	if not Channels.CanTakeDown(now) then
 		ns.Print(L.PIN_NOT_YOURS)
 		return false, "rank"
 	end
-	local own = Ours(p)
+	local mine, guild, dist = MyPin()
 	if not own then
 		if now - lastPinDown < Channels.PIN_GAP then
 			ns.Print(L.PIN_DOWN_WAIT:format(math.ceil(Channels.PIN_GAP - (now - lastPinDown))))
@@ -1026,9 +1078,8 @@ function Channels.TakeDownPin(now)
 		end
 		lastPinDown = now
 		-- Remembered as ours to take down: its setter's repeat, heard again, is answered (HandlePin).
-		Remember(p.sender, p.id, now, true)
+		Remember(p.sender, p.id, now, mine, true)
 	end
-	local _, guild, dist = MyPin()
 	if own then
 		SendPin({ id = p.id, guild = p.guild, dist = p.dist }, now, true)
 	else
@@ -1060,10 +1111,11 @@ end
 
 -- A pin this client took down, heard again: its setter's client missed the takedown. Said again,
 -- named by its id, as rarely as our own takedowns, while we still outrank it, over the dist the
--- repeat came in on (a guild master's: GUILD, Konig's review).
+-- repeat came in on (a guild master's: GUILD, Konig's review). Never while the moderators have
+-- us off: nobody would take it (SelfOff).
 local function ResendDown(sender, id, rank, now, heard)
 	local mine, guild = MyPin()
-	if not mine or mine <= rank or now - lastPinDown < Channels.PIN_GAP then return false end
+	if not mine or mine <= rank or now - lastPinDown < Channels.PIN_GAP or SelfOff() then return false end
 	lastPinDown = now
 	SendPin({ id = id, guild = guild, dist = heard }, now, true, "pindown")
 	ns.Log("pin %d of %s taken down again: its setter's client still repeats it", id, sender)
@@ -1110,20 +1162,25 @@ function Channels.HandlePin(dist, sender, text, now)
 		local own = current ~= nil and current.sender == sender
 		if not own and not (current and current.id == id and rank > current.rank) then
 			-- Nothing we hold: its sender's own pin of that id is remembered all the same (we may
-			-- have missed it, or it may come late), so it never shows here.
-			Remember(sender, id, now)
+			-- have missed it, or it may come late), so it never shows here. Once a minute at most
+			-- from each (the review of Konig's fixes: a flood of made-up ids would push out what
+			-- the King took down), and never id 0 (it names no pin).
+			if id ~= 0 and now - (blindFrom[sender] or -math.huge) >= Channels.PIN_GAP * 0.75 then
+				blindFrom[sender] = now
+				Remember(sender, id, now, rank, nil, true)
+			end
 			return false, "nothing"
 		end
 		if not own then
 			if hidden then return false, "netoff" end -- (taken off, he takes no one else's down)
 			if now - (downFrom[sender] or -math.huge) < Channels.PIN_GAP * 0.75 then return false, "fast" end
 			downFrom[sender] = now
-		elseif current.id ~= id then
-			Remember(sender, id, now)
+		elseif current.id ~= id and id ~= 0 then
+			Remember(sender, id, now, rank, nil, true)
 		end
 		-- Taken down for good here: its setter's repeat, late or from a client that missed this, is
 		-- not taken again (a new pin of his is).
-		Remember(current.sender, current.id, now)
+		Remember(current.sender, current.id, now, rank, nil, own)
 		local shown = Channels.Pin(now) == current
 		Hold(nil)
 		-- Said in chat where it showed.
@@ -1212,7 +1269,7 @@ end
 -- Tests. keepSaved: what a /reload leaves (our own pin and the pins taken down, ns.rdb).
 function Channels.ResetPin(keepSaved)
 	pin, lastPinSet, lastPinDown = nil, -math.huge, -math.huge
-	wipe(pinFrom); wipe(downFrom)
+	wipe(pinFrom); wipe(downFrom); wipe(blindFrom)
 	if not keepSaved and ns.rdb then ns.rdb.pinMine, ns.rdb.pinsDown = nil, nil end
 end
 

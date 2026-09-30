@@ -38098,8 +38098,10 @@ test("1.1 pinned line (Konig's review): the pins taken down a client remembers a
 			GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
 			ns.me = "Mate-Realm"
 			ns.Roster.byName = { ["Zed-Realm"] = 0, ["Mate-Realm"] = 3 }
+			-- (A minute apart: a takedown of a pin never held here is remembered once a minute at most
+			-- from each sender, Konig's review of the fixes.)
 			for i = 1, 6 do
-				w.clock = w.clock + 1
+				w.clock = w.clock + C.PIN_GAP
 				C.HandlePin("GUILD", "Zed-Realm", ("N1~%d~Olympus Zeus~0~0~"):format(i))
 			end
 			local n = 0
@@ -41052,6 +41054,230 @@ do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
 			for _, must in ipairs({ "every guild picked first, then each of them by name, at most once in 30 minutes",
 				"What his /who saw is kept with the rotation, through a /reload or relog too" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- 1.1 (the internal review of Konig's fixes to the pinned line): the pins taken down are no
+-- longer anyone's to push out of a client's memory, a Hand the moderators took off takes no one
+-- else's line down, and the Spanish, French and German lines say who pins for whom. Each test
+-- fails on the code before its fix.
+---------------------------------------------------------------------------
+do
+	local KING = "Asmongold Asmongler-Realm"
+	-- The pinned line's bench, as its own tests run it (WithThrone): sends recorded with their
+	-- logged flag, the channel ready, no net-off word yet; the pin, what it saved, the net-off
+	-- words, our roster and the memory's bounds put back after.
+	local function PinBench(fn)
+		WithThrone(function(w, K)
+			local C, M = ns.Channels, ns.Moderation
+			local saved = { ready = ns.Comm.ChannelReady, send = ns.Comm.Send, info = C_ChatInfo, byName = ns.Roster.byName,
+				netoff = ns.rdb.netoff, chat = ns.db.addonChat, keep = C.PIN_DOWN_KEEP, each = C.PIN_DOWN_EACH }
+			local sent = {}
+			local ok, err = pcall(function()
+				C.ResetPin()
+				C_ChatInfo = nil
+				ns.rdb.netoff = nil
+				M.Reset()
+				ns.db.addonChat = true
+				ns.Comm.ChannelReady = function() return true end
+				ns.Comm.Send = function(dist, msg, key, urgent, logged) sent[#sent + 1] = { dist = dist, msg = msg, key = key, logged = logged } end
+				fn(w, K, sent, C, M)
+			end)
+			ns.Comm.ChannelReady, ns.Comm.Send, C_ChatInfo, ns.Roster.byName = saved.ready, saved.send, saved.info, saved.byName
+			ns.rdb.netoff, ns.db.addonChat, C.PIN_DOWN_KEEP, C.PIN_DOWN_EACH = saved.netoff, saved.chat, saved.keep, saved.each
+			M.Reset(); M.Load()
+			C.ResetPin()
+			ns.Views.ShowChat(nil)
+			if not ok then error(err, 0) end
+		end)
+	end
+	-- How many pins of this setter ("name-realm#") the client remembers taken down.
+	local function Remembered(prefix)
+		local n = 0
+		for k in pairs(ns.rdb.pinsDown or {}) do if k:sub(1, #prefix) == prefix then n = n + 1 end end
+		return n
+	end
+	-- A member of <Olympus Zeus> (Zed its master) who reads the channel too; Helper and Aide the King's Hands.
+	local function AsMate(K)
+		K.HandleCommand("CHANNEL", KING, "T1~H~5~Olympus~Helper-Realm,Aide-Realm")
+		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+		ns.me = "Mate-Realm"
+		ns.Roster.byName = { ["Zed-Realm"] = 0, ["Mate-Realm"] = 3, ["Helper-Realm"] = 3 }
+	end
+	local function PinLineWith(text)
+		for _, l in ipairs(ns.Views.Build("realm")) do if type(l.text) == "string" and l.text:find(text, 1, true) then return l end end
+		return nil
+	end
+
+	-- "A takedown naming a pin this client does not hold runs Remember with no rate limit ... any
+	-- sender PinRank accepts can evict every remembered takedown with 200 takedowns of fresh ids,
+	-- and a pin the King took down comes back at its setter's next repeat."
+	test("1.1 pinned line (review of Konig's fixes): a burst of takedowns naming pins nobody holds, from a guild master or a Hand, never brings back a line the King took down", function()
+		PinBench(function(w, K, sent, C)
+			AsMate(K)
+			eq(C.HandlePin("CHANNEL", "Helper-Realm", "N1~9~Olympus~7200~0~A Hand's line"), true)
+			w.clock = w.clock + 60
+			eq(select(2, C.HandlePin("CHANNEL", KING, "N1~9~Olympus~0~0~")), "down")
+			eq(C.Pin(), nil)
+			-- Zed over guild chat and Aide on the channel: 250 takedowns each, of made-up ids, at once.
+			for i = 1, 250 do
+				eq(select(2, C.HandlePin("GUILD", "Zed-Realm", ("N1~%d~Olympus Zeus~0~0~"):format(1000 + i))), "nothing")
+				eq(select(2, C.HandlePin("CHANNEL", "Aide-Realm", ("N1~%d~Olympus~0~0~"):format(2000 + i))), "nothing")
+			end
+			-- Helper's addon missed the King's takedown and repeats his line: it stays down.
+			w.clock = w.clock + C.PIN_RESEND
+			eq(select(2, C.HandlePin("CHANNEL", "Helper-Realm", "N1~9~Olympus~6840~360~A Hand's line")), "downed")
+			eq(C.Pin(), nil)
+			eq(PinLineWith("A Hand's line"), nil, "not back on the Realm")
+			eq(Remembered("zed-realm#"), 1, "one a minute at most from each")
+			eq(Remembered("aide-realm#"), 1)
+		end)
+	end)
+
+	test("1.1 pinned line (review of Konig's fixes): paced a minute apart, a sender's takedowns push out only his own: never the King's, nor a Hand's of a guild master's line", function()
+		PinBench(function(w, K, sent, C)
+			C.PIN_DOWN_KEEP = 12
+			AsMate(K)
+			-- The King takes a Hand's line down; a Hand takes Zed's down (over guild chat, where it went).
+			eq(C.HandlePin("CHANNEL", "Helper-Realm", "N1~9~Olympus~7200~0~A Hand's line"), true)
+			w.clock = w.clock + 60
+			eq(select(2, C.HandlePin("CHANNEL", KING, "N1~9~Olympus~0~0~")), "down")
+			eq(C.HandlePin("GUILD", "Zed-Realm", "N1~42~Olympus Zeus~7200~0~Raid at nine"), true)
+			w.clock = w.clock + 60
+			eq(select(2, C.HandlePin("GUILD", "Helper-Realm", "N1~42~Olympus~0~0~")), "down")
+			-- Aide (a Hand, as Helper) and Zed take down made-up pins of theirs, a minute apart, for half
+			-- an hour (the King's addon repeating his list of Hands meanwhile).
+			for i = 1, 30 do
+				w.clock = w.clock + C.PIN_GAP
+				if i % 10 == 0 then K.HandleCommand("CHANNEL", KING, "T1~H~5~Olympus~Helper-Realm,Aide-Realm") end
+				eq(select(2, C.HandlePin("CHANNEL", "Aide-Realm", ("N1~%d~Olympus~0~0~"):format(2000 + i))), "nothing")
+				eq(select(2, C.HandlePin("GUILD", "Zed-Realm", ("N1~%d~Olympus Zeus~0~0~"):format(1000 + i))), "nothing")
+			end
+			-- Both setters' addons missed the takedowns and repeat their lines: both stay down.
+			w.clock = w.clock + C.PIN_RESEND
+			eq(select(2, C.HandlePin("CHANNEL", "Helper-Realm", "N1~9~Olympus~5000~2200~A Hand's line")), "downed")
+			eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~42~Olympus Zeus~5000~2200~Raid at nine")), "downed")
+			eq(C.Pin(), nil)
+			-- Aide's own: PIN_DOWN_EACH at most, his newest; the oldest he pushed out is his to pin again.
+			eq(Remembered("aide-realm#"), C.PIN_DOWN_EACH)
+			assert(ns.rdb.pinsDown["aide-realm#2030"], "his newest remembered")
+			eq(C.HandlePin("CHANNEL", "Aide-Realm", "N1~2001~Olympus~7200~0~Aide's line"), true)
+		end)
+	end)
+
+	test("1.1 pinned line (review of Konig's fixes): a sender's takedowns of pins this addon does not hold are remembered once a minute at most, and id 0 (it names no pin) never", function()
+		PinBench(function(w, K, sent, C)
+			AsMate(K)
+			eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~501~Olympus Zeus~0~0~")), "nothing")
+			w.clock = w.clock + 10
+			eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~502~Olympus Zeus~0~0~")), "nothing")
+			eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~0~Olympus Zeus~0~0~")), "nothing")
+			assert(ns.rdb.pinsDown["zed-realm#501"], "the first remembered")
+			eq(ns.rdb.pinsDown["zed-realm#502"], nil, "not a second within the minute")
+			eq(ns.rdb.pinsDown["zed-realm#0"], nil, "id 0 names no pin")
+			eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~501~Olympus Zeus~7000~200~Raid at nine")), "downed")
+			w.clock = w.clock + C.PIN_GAP
+			eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~503~Olympus Zeus~0~0~")), "nothing")
+			assert(ns.rdb.pinsDown["zed-realm#503"], "a minute later: remembered")
+			eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~503~Olympus Zeus~7000~200~Raid at ten")), "downed")
+			eq(C.Pin(), nil)
+		end)
+	end)
+
+	-- "A Hand the moderators took off can 'take down' a guild master's line, his client removes it
+	-- and says it is down for everyone while every other client drops his takedown as netoff, and
+	-- every later repeat makes his client send another dropped takedown (ResendDown)."
+	test("1.1 pinned line (review of Konig's fixes): a Hand the moderators took off takes no one else's line down, sends nothing, and says no takedown again", function()
+		PinBench(function(w, K, sent, C, M)
+			local L = ns.L
+			local function Word(off)
+				w.clock = w.clock + 10
+				M.Handle("CHANNEL", KING, ("O1~c~%s~%d~Helper-Realm~%s~%s"):format(off and "1" or "0", w.clock, KING, off and "spam" or ""))
+			end
+			K.HandleCommand("CHANNEL", KING, "T1~H~5~Olympus~Helper-Realm")
+			-- Helper, a Hand and a member of <Olympus Zeus>, takes Zed's line down while he is on.
+			GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+			ns.me = "Helper-Realm"
+			ns.Roster.byName = { ["Zed-Realm"] = 0, ["Helper-Realm"] = 3 }
+			eq(C.HandlePin("GUILD", "Zed-Realm", "N1~42~Olympus Zeus~7200~0~Raid at nine"), true)
+			eq(C.TakeDownPin(), true)
+			eq(#sent, 1)
+			-- The moderators take him off.
+			Word(true)
+			local off = M.SelfOff()
+			assert(off, "he is off")
+			-- Zed's addon missed the takedown and repeats his line: not shown, and not answered (nobody would take it).
+			w.clock = w.clock + C.PIN_RESEND
+			eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~42~Olympus Zeus~6900~300~Raid at nine")), "downed")
+			eq(#sent, 1, "no takedown said again")
+			-- Zed's next line shows on Helper's screen: no click takes it down, and /oly pin off says why and sends nothing.
+			eq(C.HandlePin("GUILD", "Zed-Realm", "N1~43~Olympus Zeus~7200~0~Raid at ten"), true)
+			eq(C.CanTakeDown(), false)
+			local line = PinLineWith("Raid at ten")
+			assert(line, "shown")
+			eq(line.onClick, nil, "no click takes it down")
+			w.printed = {}
+			eq(select(2, C.TakeDownPin()), "netoff")
+			assert(Printed(w, M.YouText(off)), table.concat(w.printed, "\n"))
+			eq(Printed(w, L.PIN_TAKEN_DOWN), false)
+			eq(#sent, 1, "nothing sent")
+			eq(C.Pin().text, "Raid at ten", "still shown here")
+			w.printed = {}
+			SlashCmdList.OLYMPUS("pin off")
+			assert(Printed(w, M.YouText(off)), table.concat(w.printed, "\n"))
+			eq(#sent, 1)
+			-- Back on: he takes it down.
+			Word(false)
+			eq(C.CanTakeDown(), true)
+			eq(C.TakeDownPin(), true)
+			eq(#sent, 2); eq(sent[2].msg, "N1~43~Olympus~0~0~"); eq(sent[2].dist, "GUILD")
+		end)
+	end)
+
+	-- "es/fr/de: HELP_PIN still carries the old rule (the guild masters pin a line for the army), and
+	-- PIN_ADD_TIP there still speaks of Lords' pins being outranked."
+	test("1.1 pinned line (review of Konig's fixes): the Spanish, French and German help and army pin tooltip say who pins for whom (or are left out, and the English shows)", function()
+		local want = {
+			deDE = { help = { "der König, seine Seneschalle und Hände für die Armee", "ein Gildenmeister für seine Gilde" }, tip = "über der eines Gildenmeisters", old = "Lords" },
+			esES = { help = { "el Rey, sus Senescales y Manos para el ejército", "un maestro de hermandad para su hermandad" }, tip = "por delante de la de un maestro de hermandad", old = "Señores" },
+			frFR = { help = { "le Roi, ses Sénéchaux et ses Mains pour l'armée", "un maître de guilde pour sa guilde" }, tip = "devant celle d'un maître de guilde", old = "Seigneurs" },
+		}
+		for file, lines in pairs(want) do
+			-- The file's lines, as a game in that language loads them after Locales.lua.
+			local lns, s = {}, nil
+			local savedLocale = GetLocale
+			GetLocale = function() return file end
+			local ok, err = pcall(function()
+				assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", lns)
+				local real = lns.Locale
+				lns.Locale = function(codes, strings) s = strings; return real(codes, strings) end
+				assert(loadfile(ADDON_DIR .. "Locales/" .. file .. ".lua"))("Olympus", lns)
+			end)
+			GetLocale = savedLocale
+			if not ok then error(err, 0) end
+			assert(type(s) == "table", file .. " calls ns.Locale")
+			if s.HELP_PIN then
+				for _, must in ipairs(lines.help) do assert(s.HELP_PIN:find(must, 1, true), file .. " HELP_PIN: " .. s.HELP_PIN) end
+			end
+			if s.PIN_ADD_TIP then
+				assert(s.PIN_ADD_TIP:find(lines.tip, 1, true), file .. " PIN_ADD_TIP: " .. s.PIN_ADD_TIP)
+				assert(not s.PIN_ADD_TIP:find(lines.old, 1, true), file .. " PIN_ADD_TIP still speaks of Lords: " .. s.PIN_ADD_TIP)
+			end
+		end
+	end)
+
+	test("1.1 pinned line (review of Konig's fixes): the README and the CurseForge page say how the memory of the pins taken down is bounded, and that a net-off addon takes no one else's line down", function()
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, must in ipairs({ ("It remembers %d at most, and nobody's takedowns push a higher rank's out"):format(ns.Channels.PIN_DOWN_KEEP),
+				"a takedown naming a pin it does not hold is remembered once a minute at most from each sender",
+				("a sender's takedowns of his own pins %d at most"):format(ns.Channels.PIN_DOWN_EACH),
+				"whose own addon pins nothing and takes no one else's line down",
+				"when you take it down and again when its setter's addon repeats it, once a minute at most, never while the moderators have you off" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
 		end
