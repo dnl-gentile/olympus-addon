@@ -7,14 +7,15 @@ local L = ns.L
 --   a character (c): every honest client hides that character on every addon surface: the chats
 --     (and their history), decrees, layers and hop offers, Vox Populi (questions and votes), the
 --     court's queue, and (1.1, Konig's review) the King's week (entries, sheets and signups), the
---     Board (flags and camps) and the crafters' board (listings, answers and recipe lists). The
---     names that character's player linked as alts (Alts.lua,
---     confirmed on each character) are hidden with it. The rest of the guild, and the census, stay.
+--     Board (flags and camps), the crafters' board (listings, answers and recipe lists), and the
+--     elite borders and nameplate marks (Borders.lua). The names that character's player linked
+--     as alts (Alts.lua, confirmed on each character) are hidden with it. The rest of the guild,
+--     and the census, stay.
 --   a guild (g): while it is off, honest clients stop sending and showing that guild's census,
---     map, hop, decrees, Vox and addon channels, and the rest above: its members' own clients send
---     none of them, and every client drops what still comes. Blizzard's guild chat and Guild window stay up (the
---     guild's own addon messages over GUILD too). One guild at a time: there is no switch for the
---     whole realm, and never the King's guild.
+--     map, hop, decrees, Vox and addon channels, and the rest above: its members' own clients
+--     send none of them, and every client drops what still comes. Blizzard's guild chat and Guild
+--     window stay up (the guild's own addon messages over GUILD too). One guild at a time: there
+--     is no switch for the whole realm, and never the King's guild.
 -- The same people put either back on.
 --   O1~<c|g>~<1 off|0 on>~<server time>~<Name-Realm or Guild>~<by Name-Realm>~<reason>
 -- Its words travel with the logged API, as a chat line's do (the server keeps them, so abuse

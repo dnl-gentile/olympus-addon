@@ -398,9 +398,10 @@ author's signed list can hide one character for the whole army: **Hide a charact
 addon then hides that character on every Olympus surface: their [Olympus], [Captains] and
 [Lords] lines (and the lines the Olympus chats kept), their decrees, their layer and hop offers,
 their Vox Populi votes and questions, their requests at court, and (1.1, Konig's review) their
-signups to the King's week, their flags and camps on the Board (the camps' map badges too), and
-their listing, answers and recipe lists as a crafter. The names their player
-already linked as alts are hidden with them ([alt links](#alt-links-11-one-player-counted-once)).
+signups to the King's week, their flags and camps on the Board (the camps' map badges too),
+their listing, answers and recipe lists as a crafter, and their elite border and nameplate mark
+(they show as no Olympus player). The names their player already linked as alts are hidden with
+them ([alt links](#alt-links-11-one-player-counted-once)).
 The rest of their guild, and the census, are not touched: one name stops the spam.
 - The Decrees tab lists who is hidden, with the reason, who hid them and when (the server's
   clock), and who passed the word on when it reached you through another issuer's addon (the
@@ -427,9 +428,9 @@ The rest of their guild, and the census, are not touched: one name stops the spa
   addon repeats his own words for late logins, every 5 minutes, and never anyone else's (1.1,
   Konig's review: a word passed on in the King's name went out from the King's addon as his
   own), and the army repeats at most 20 words a minute however long the list (a long list is
-  repeated less often). Among words of the same rank the newest wins, by the
-  server's clock; on the same second the King's own, else the one hiding the name, so every
-  addon keeps the same word, whatever reached it first.
+  repeated less often). Among words of the same rank the newest wins, by the server's clock;
+  on the same second the King's own, else the one hiding the name, so every addon keeps the
+  same word, whatever reached it first.
   A word hiding someone lapses 30 days after it was given (give it again to keep it); a word
   showing a name again is kept for 30 days, so an older word never comes back. A word counts
   only from someone who may give one on that client now (the server stamps every sender's
@@ -437,8 +438,8 @@ The rest of their guild, and the census, are not touched: one name stops the spa
   may still give one on that client: the words of someone taken off the lists or hidden (or of
   a Hand while nobody who named him keeps his list alive) are no longer repeated, and fade
   within 3 days, as do, on the other addons, the words of an issuer who has not played for 3
-  days (his addon repeats them when he is back). When the list is full (500 characters, 200 guilds) a new word waits for room,
-  except the King's own, which always finds it.
+  days (his addon repeats them when he is back). When the list is full (500 characters, 200
+  guilds) a new word waits for room, except the King's own, which always finds it.
 - On the King's screen, while the council's names are hidden (his stream), another issuer's
   reason (even one written in his name) and a councillor's name stay hidden until he shows the
   council's names. Nothing about him or his alts is printed on his screen.
@@ -1504,9 +1505,8 @@ Other limits:
   no words (and neither the King nor his alts) for the whole army, or take any guild but the
   King's off the network. The Decrees tab shows everyone who did it, why and when, and who
   passed it on; an issuer as high or higher (the King always) can put it back on, and no word
-  replaces one from higher up. Only the King, or the
-  Steward for a Hand or a councillor, can hide an issuer, and a name that is hidden gives no
-  word: its words fade. Without signatures, one issuer can still write a word in another
+  replaces one from higher up. Only the King, or the Steward for a Hand or a councillor, can
+  hide an issuer, and a name that is hidden gives no word: its words fade. Without signatures, one issuer can still write a word in another
   issuer's name: the addon then shows who passed it on, his reason stays off the King's
   stream, the word weighs no more than his own rank, and no addon repeats it.
 
@@ -1589,8 +1589,8 @@ Other limits:
 | `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer (1.1: not until you say yes) |
 | `/oly layerauto on` · `/oly layerauto off` | invite layer requests without the window |
 | `/oly location on` · `/oly location off` | share (or not) your zone and layer on the Olympus channel |
-| `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council, gold for Lords and silver for Captains, and Max's bronze wings for Raiders and bronze for Veterans of Olympus guilds; on by default, hidden with the gamepad UI. Off, the nameplate marks go too |
-| `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, Lords and Captains, bronze for Raiders and Veterans, and a star for any other member of an Olympus guild; on by default, hidden with the gamepad UI and with `/oly borders off` |
+| `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council, gold for Lords and silver for Captains, and Max's bronze wings for Raiders and bronze for Veterans of Olympus guilds (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI. Off, the nameplate marks go too |
+| `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, Lords and Captains, bronze for Raiders and Veterans, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
 | `/oly key <secret>` | officers: seal the Olympus channel |
 | `/oly key rotate` | the King or his Steward: a new key for the whole army, by whisper to the Lords and Captains of the guilds he picks and over guild chat, never on the Olympus channel (also on the Throne) (1.1) |
 | `/oly block <name>` | ignore a player |

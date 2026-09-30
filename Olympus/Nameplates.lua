@@ -12,7 +12,8 @@ local L = ns.L
 --                                    here (no copy of the game's art is shipped)
 --   any other member of an Olympus   a plain four-point star, Olympus's own art
 --   guild of our faction             (media/borders/star.tga, drawn by scripts/make-borders.py)
--- Nobody else: hostile players, creatures, the other faction, anyone outside an Olympus guild.
+-- Nobody else: hostile players, creatures, the other faction, anyone outside an Olympus guild,
+-- and (1.1, Konig's review) a character or a guild the moderators took off (net-off, Borders.MarkOf).
 --
 -- Where (the author's choice): left of the name, not by the health bar, so it reads the same on
 -- the "names only" plates of friendly players. How, on Forever's nameplates (Blizzard_NamePlates):

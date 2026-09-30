@@ -38126,6 +38126,41 @@ end)
 		end)
 	end)
 
+	test("1.1 Konig's review (item 5): the elite borders and nameplate marks: a character or a guild the moderators took off shows as no Olympus player; back on, as before; never the King", function()
+		WithNameplates(function(w)
+			NoWords(function()
+				C_ChatInfo = nil
+				w.internal("LOGIN")
+				local capt = BorderUnit("Capt", "Olympus Zeus", "Titan", 1)
+				local axe = BorderUnit("Axe", "Olympus Gale", "Raider", 4)
+				w.add("nameplate1", capt); w.add("nameplate2", axe); w.add("nameplate3", BORDER_KING)
+				eq(w.mark("nameplate1"), "silver"); eq(w.mark("nameplate2"), "bronze"); eq(w.mark("nameplate3"), "gold")
+				w.target(capt)
+				eq(w.shown("target"), "silver")
+				-- The King takes the Captain and a guild off (the word fires DATA_CHANGED on every client).
+				Off("Capt-Realm"); GuildOff("Olympus Gale")
+				w.internal("DATA_CHANGED")
+				eq(w.mark("nameplate1"), nil, "no mark"); eq(w.mark("nameplate2"), nil, "his guild off: no mark")
+				eq(w.mark("nameplate3"), "gold", "the King's stays")
+				eq(w.shown("target"), nil, "no border")
+				-- Seen anew: none either.
+				w.target(nil); w.target(capt)
+				eq(w.shown("target"), nil)
+				w.remove("nameplate2"); w.add("nameplate2", axe)
+				eq(w.mark("nameplate2"), nil)
+				-- Back on: as before.
+				Back("Capt-Realm")
+				w.internal("DATA_CHANGED")
+				eq(w.mark("nameplate1"), "silver"); eq(w.shown("target"), "silver")
+				-- Never the King, whatever a word says.
+				Off("Asmongold Asmongler-Realm")
+				w.internal("DATA_CHANGED")
+				w.target(BORDER_KING)
+				eq(w.shown("target"), "gold-elite"); eq(w.mark("nameplate3"), "gold")
+			end)
+		end)
+	end)
+
 	test("1.1 Konig's review: the README and the CurseForge page say what the net-off and the shared block terms do now", function()
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
@@ -38135,7 +38170,8 @@ end)
 				"then from the giver's own addon every few minutes for late logins", "no addon repeats it",
 				"each one word of 4 letters at least", "The shared list never hides the King's writs (your own filter still can)",
 				"the list keeps 100 entries at most, the oldest removals going first",
-				"their signups to the King's week, their flags and camps on the Board (the camps' map badges too), and their listing, answers and recipe lists as a crafter",
+				"their signups to the King's week, their flags and camps on the Board (the camps' map badges too), their listing, answers and recipe lists as a crafter, and their elite border and nameplate mark",
+				"(none for a character or a guild the moderators took off, net-off)",
 				"their entries on the King's week (their cancels of anyone's too) and its signup sheets, show nowhere" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
