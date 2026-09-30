@@ -2075,7 +2075,14 @@ local function CreateMinimapButton()
 
 	b:SetScript("OnClick", function(_, button)
 		ns.SafeCall("minimap click", function()
-			if button == "RightButton" then ns.Map.SetEnabled(not ns.db.showMap) else UI.Toggle() end
+			if button == "RightButton" then
+				ns.Map.SetEnabled(not ns.db.showMap)
+			elseif IsShiftKeyDown and IsShiftKeyDown() then
+				-- 1.1.1: Shift + left-click, the Olympus chat window (ChatWindow.lua).
+				ns.ChatWindow.Toggle()
+			else
+				UI.Toggle()
+			end
 		end)
 	end)
 	b:SetScript("OnDragStart", function(self)
@@ -2098,6 +2105,7 @@ local function CreateMinimapButton()
 		if heard then GameTooltip:AddLine(L.REBUILDING_SUB:format(heard), 1, 0.82, 0) end
 		GameTooltip:AddLine(" ")
 		GameTooltip:AddLine(L.MINIMAP_LEFT, 0.6, 0.6, 0.6)
+		GameTooltip:AddLine(L.MINIMAP_SHIFT, 0.6, 0.6, 0.6)
 		GameTooltip:AddLine(L.MINIMAP_RIGHT, 0.6, 0.6, 0.6)
 		GameTooltip:AddLine(L.MINIMAP_DRAG, 0.6, 0.6, 0.6)
 		GameTooltip:Show()

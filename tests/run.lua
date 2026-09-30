@@ -42886,6 +42886,115 @@ do
 		end)
 	end)
 
+	test("1.1.1 chat window's ways in: /oly talk (and falar), the minimap button's Shift-click, the Realm tab's chats page (both input modes, never the game's chat box), its Olympus tab line only with Channels.SetupTab", function()
+		WithWindow(function(w)
+			local saved = { open = rawget(_G, "ChatFrame_OpenChat"), map = ns.Map.SetEnabled }
+			local ok, err = pcall(function()
+				-- /oly talk
+				SlashCmdList.OLYMPUS("talk")
+				eq(w.CW.IsShown(), true); eq(w.CW.Tier(), "A")
+				SlashCmdList.OLYMPUS("talk")
+				eq(w.CW.IsShown(), false)
+				AsLord()
+				SlashCmdList.OLYMPUS("talk lords")
+				eq(w.CW.IsShown(), true); eq(w.CW.Tier(), "L")
+				SlashCmdList.OLYMPUS("falar capitães")
+				eq(w.CW.IsShown(), true); eq(w.CW.Tier(), "C", "another channel: that one")
+				SlashCmdList.OLYMPUS("talk captains")
+				eq(w.CW.IsShown(), false)
+				AsSoldier()
+				w.printed = {}
+				SlashCmdList.OLYMPUS("talk lords")
+				eq(w.CW.IsShown(), false); eq(w.printed[1], L.CHAN_ONLY_LORDS:format(L.CHAN_LORDS))
+				-- The minimap button.
+				local UI = LoadUI()
+				Minimap = NewWidget("Frame", "Minimap", UIParent)
+				Minimap.w, Minimap.h = 140, 140
+				UI.UpdateMinimapButton()
+				local b = OlympusMinimapButton
+				local toggled, mapped = 0, 0
+				UI.Toggle = function() toggled = toggled + 1 end
+				ns.Map.SetEnabled = function() mapped = mapped + 1 end
+				IsShiftKeyDown = function() return true end
+				b:Fire("OnClick", "LeftButton")
+				eq(w.CW.IsShown(), true, "Shift-click: the chat window"); eq(toggled, 0)
+				b:Fire("OnClick", "LeftButton")
+				eq(w.CW.IsShown(), false)
+				IsShiftKeyDown = function() return false end
+				b:Fire("OnClick", "LeftButton")
+				eq(toggled, 1, "a plain click: the Olympus window"); eq(w.CW.IsShown(), false)
+				IsShiftKeyDown = nil
+				b:Fire("OnClick", "LeftButton")
+				eq(toggled, 2)
+				b:Fire("OnClick", "RightButton")
+				eq(mapped, 1, "right-click: the map, as ever")
+				b:Fire("OnEnter")
+				local lines = TipLines()
+				local left, shift
+				for i, l in ipairs(lines) do
+					if l == L.MINIMAP_LEFT then left = i end
+					if l == L.MINIMAP_SHIFT then shift = i end
+				end
+				assert(left and shift == left + 1, "the Shift-click line after the click's: " .. table.concat(lines, " / "))
+				-- The Realm tab's chats page.
+				local opened, uiChat = 0, 0
+				ChatFrame_OpenChat = function() opened = opened + 1 end
+				ns.UI = { Refresh = function() end, ChatWindow = function() uiChat = uiChat + 1 end, WhisperWindow = function() end,
+					StatusLine = function() return "status" end }
+				local function At(ls, text)
+					for i, l in ipairs(ls) do if (l.text or ""):find(text, 1, true) then return l, i end end
+				end
+				ns.Views.ShowChat("A")
+				local ls = ns.Views.RealmLines()
+				local open = At(ls, L.CHATS_OPEN_WINDOW)
+				assert(open and open.onClick, "the line")
+				local tip = {}
+				open.tooltip({ AddLine = function(_, s) tip[#tip + 1] = s end })
+				eq(tip[2], L.CHATS_OPEN_WINDOW_TIP)
+				eq(At(ls, L.CHATS_TAB_MAKE), nil, "no Olympus tab line without Channels.SetupTab")
+				open.onClick()
+				eq(w.CW.IsShown(), true); eq(w.CW.Tier(), "A")
+				w.CW.Close()
+				for _, pad in ipairs({ false, true }) do
+					WithGamepadUI(pad, function(game)
+						local write = At(ns.Views.RealmLines(), L.CHATS_WRITE:format(L.CHAN_ALL))
+						assert(write and write.onClick, "the Write line keeps its text")
+						write.onClick()
+						eq(w.CW.IsShown(), true, "it opens the window")
+						eq(opened, 0, "never the game's chat box"); eq(uiChat, 0, "nor the old gamepad dialog"); eq(#game.shown, 0)
+						w.CW.Close()
+					end)
+				end
+				-- Part A's Olympus tab (Channels.SetupTab / TabState), when this client has it.
+				local state, setups, refreshed = "none", 0, 0
+				ns.Channels.TabState = function() return state end
+				ns.Channels.SetupTab = function() setups = setups + 1; state = "waiting"; return true, "waiting" end
+				ns.UI.Refresh = function() refreshed = refreshed + 1 end
+				local tab = At(ns.Views.RealmLines(), L.CHATS_TAB_MAKE)
+				assert(tab and tab.onClick, "the tab line")
+				eq(tab.text, "|cff40ff40" .. L.CHATS_TAB_MAKE .. "|r")
+				tip = {}
+				tab.tooltip({ AddLine = function(_, s) tip[#tip + 1] = s end })
+				eq(tip[2], L.CHATS_TAB_TIP)
+				tab.onClick()
+				eq(setups, 1); assert(refreshed >= 1, "redrawn")
+				eq(At(ns.Views.RealmLines(), L.CHATS_TAB_WAITING).text, "|cff9d9d9d" .. L.CHATS_TAB_WAITING .. "|r")
+				state = "open"
+				eq(At(ns.Views.RealmLines(), L.CHATS_TAB_ON).text, "|cff9d9d9d" .. L.CHATS_TAB_ON .. "|r")
+				-- Searching: none of these lines.
+				ns.Views.SetFilter("realm", "zzz")
+				ls = ns.Views.Build("realm")
+				ns.Views.ClearFilters()
+				eq(At(ls, L.CHATS_OPEN_WINDOW), nil); eq(At(ls, L.CHATS_TAB_ON), nil)
+				ns.Views.ShowChat(nil)
+			end)
+			ChatFrame_OpenChat, ns.Map.SetEnabled = saved.open, saved.map
+			ns.Views.ClearFilters()
+			ns.Views.ShowChat(nil)
+			if not ok then error(err, 0) end
+		end)
+	end)
+
 	test("1.1.1 chat window: a client updated without a restart (no ChatWindow.lua yet): /oly talk says to restart the game, and the login names the file", function()
 		eq(ns.ChatWindow.missing, true, "Core.lua's stand-in")
 		local printed, logged = {}, {}
