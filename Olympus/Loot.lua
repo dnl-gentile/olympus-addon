@@ -28,10 +28,12 @@ local L = ns.L
 -- (times in base 36, the server's clock). A reader takes a change only from an officer of its own
 -- roster, only newer than what it holds. A note is its writer's (never rewritten, only removed, by
 -- any officer), a points change its officer's ("by"): an X1 carries its sender's own, and an XB
--- another officer's only from before the reader's session began (Take). An officer's addon sends a
--- note in its own name only as it wrote it (Entries): one another officer gave it back is theirs to
--- pass on. Kept per guild in the saved variables; on the Forever beta, which forgets them at every
--- login, the book comes back from the officers online.
+-- another officer's only from before the reader's session began (Take). Those come on the passing
+-- officer's word: nothing signs them, and one made up and dated back cannot be told from a real
+-- one, so the reader keeps who passed each on ("via") and the page names him ("Offi via Rival").
+-- An officer's addon sends a change in its own name only as it made it (Entries): one another
+-- officer gave it back is theirs to pass on. Kept per guild in the saved variables; on the Forever
+-- beta, which forgets them at every login, the book comes back from the officers online.
 -- (1.1 review: the types were J1, JQ and JB, which the census's route ask took too; see Comm.lua.)
 --
 -- Which changes an addon holds whole is kept apart from the changes themselves (Whole): ranges of
@@ -181,6 +183,8 @@ end
 -- one that rewrites a note (Konig's review of 1.1: an answer could put words in another officer's
 -- note, or his name on a points change). A note is written once: after that only its removal
 -- changes it (any officer's), save that its writer's own copy replaces one a relay gave us.
+-- Another officer's change passed on keeps who passed it ("via"; Konig's review of 1.1: one dated
+-- back to before our session cannot be told from a real one, so its relayer is named).
 local function Take(b, entry, sender, live, from)
 	local now = ServerNow()
 	local s = ns.FullName(sender)
@@ -205,7 +209,8 @@ local function Take(b, entry, sender, live, from)
 			b.notes[key] = { writer = ns.FullName(writer), id = id, t = t, rev = rev, del = true, item = tonumber(item), by = ns.FullName(sender) }
 		else
 			b.notes[key] = { writer = ns.FullName(writer), id = id, t = t, rev = rev, item = tonumber(item),
-				to = to ~= "" and Clean(to, Loot.TO_MAX) or nil, text = Clean(text, Loot.TEXT_MAX), by = ns.FullName(sender) }
+				to = to ~= "" and Clean(to, Loot.TO_MAX) or nil, text = Clean(text, Loot.TEXT_MAX), by = ns.FullName(sender),
+				via = not own and s or nil }
 		end
 		return true
 	elseif entry:sub(1, 2) == "P~" then
@@ -218,7 +223,7 @@ local function Take(b, entry, sender, live, from)
 		local key = ns.FullName(member)
 		local old = b.points[key]
 		if type(old) == "table" and (old.rev or 0) >= rev then return false end
-		b.points[key] = { v = v, rev = rev, by = by }
+		b.points[key] = { v = v, rev = rev, by = by, via = by ~= s and s or nil }
 		return true
 	end
 	return false
@@ -459,11 +464,11 @@ end
 -- A stream's changes in (lo, hi], newest first: what our answers and pushes carry. A note in our
 -- own name only as we hold it ourselves (by == writer, as Write makes it): a copy of ours another
 -- officer gave us (a wiped book on the Forever beta) would read, sent by us, as our own and replace
--- a reader's honest copy (Konig's review of 1.1); the officers who hold it pass it on.
+-- a reader's honest copy (Konig's review of 1.1); the officers who hold it pass it on. A points
+-- change "by" us likewise, but one another officer passed on to us ("via").
 local function Entries(b, kind, lo, hi)
-	local list = {}
+	local list, me = {}, ns.FullName(ns.me or "")
 	if kind == "n" then
-		local me = ns.FullName(ns.me or "")
 		for _, n in pairs(b.notes) do
 			local r = type(n) == "table" and tonumber(n.rev) or nil
 			local relayed = r and not n.del and n.by ~= n.writer and ns.FullName(n.writer or "") == me
@@ -472,7 +477,8 @@ local function Entries(b, kind, lo, hi)
 	else
 		for member, p in pairs(b.points) do
 			local r = type(p) == "table" and tonumber(p.rev) or nil
-			if r and r > lo and r <= hi then list[#list + 1] = { rev = r, entry = PointsEntry(member, p) } end
+			local relayed = r and p.via and p.by == me
+			if r and r > lo and r <= hi and not relayed then list[#list + 1] = { rev = r, entry = PointsEntry(member, p) } end
 		end
 	end
 	table.sort(list, function(x, y) if x.rev ~= y.rev then return x.rev > y.rev end return x.entry < y.entry end)
@@ -787,13 +793,20 @@ end
 function Loot.Points()
 	local b, out = Book(), {}
 	for member, p in pairs(b and b.points or {}) do
-		if type(p) == "table" and p.v then out[#out + 1] = { member = member, v = p.v, by = p.by, rev = p.rev } end
+		if type(p) == "table" and p.v then out[#out + 1] = { member = member, v = p.v, by = p.by, rev = p.rev, via = p.via } end
 	end
 	table.sort(out, function(a, c) if a.v ~= c.v then return a.v > c.v end return a.member < c.member end)
 	return out
 end
 
 local function Date(t) return date("%Y-%m-%d", t) end
+-- A note's writer as a line names him, and the officer who passed it on to us, if one did: it
+-- comes on his word, so he is named with it (Konig's review of 1.1).
+local function Who(n)
+	local who = ns.ShortName(ns.DisplayName(n.writer) or "?")
+	if n.via then who = L.LOOT_VIA:format(who, ns.ShortName(ns.DisplayName(n.via) or "?")) end
+	return who
+end
 
 function Loot.Show(open)
 	if open then
@@ -860,12 +873,13 @@ function Loot.Lines(q)
 		if not q or ns.Holds(q, n.text, n.to, n.item and ItemName(n.item), ns.DisplayName(n.writer)) then
 			shown = shown + 1
 			lines[#lines + 1] = {
-				text = what, right = Grey(ns.ShortName(ns.DisplayName(n.writer) or "?") .. "  " .. Date(n.t)),
+				text = what, right = Grey(Who(n) .. "  " .. Date(n.t)),
 				onClick = officer and function() ns.ShowDialog("OLYMPUS_LOOT_REMOVE", n.text, nil, e.key) end or nil,
 				tooltip = function(tt)
 					if n.item and tt.SetHyperlink then pcall(tt.SetHyperlink, tt, "item:" .. n.item) end
 					tt:AddLine(n.text, 1, 1, 1, true)
 					tt:AddLine(L.LOOT_NOTE_TIP:format(ns.DisplayName(n.writer) or "?", date("%Y-%m-%d %H:%M", n.t)), 0.6, 0.6, 0.6, true)
+					if n.via then tt:AddLine(L.LOOT_VIA_TIP:format(ns.DisplayName(n.via) or "?"), 0.6, 0.6, 0.6, true) end
 					if officer then tt:AddLine(L.LOOT_REMOVE_TIP, 0.6, 0.6, 0.6, true) end
 				end,
 			}
@@ -889,6 +903,7 @@ function Loot.Lines(q)
 					tooltip = function(tt)
 						tt:AddLine(ns.DisplayName(p.member), 1, 0.82, 0)
 						tt:AddLine(L.LOOT_POINTS_BY:format(ns.DisplayName(p.by) or "?", date("%Y-%m-%d %H:%M", p.rev)), 1, 1, 1, true)
+						if p.via then tt:AddLine(L.LOOT_VIA_TIP:format(ns.DisplayName(p.via) or "?"), 0.6, 0.6, 0.6, true) end
 					end }
 			end
 		end
@@ -908,7 +923,7 @@ function Loot.DiscordText()
 	for _, e in ipairs(Loot.Notes()) do
 		local n = e.n
 		out[#out + 1] = ("%s %s%s%s (%s)"):format(Date(n.t), n.item and ("[" .. ItemName(n.item) .. "] ") or "",
-			n.to and ("> " .. n.to .. ": ") or "", n.text, ns.ShortName(ns.DisplayName(n.writer) or "?"))
+			n.to and ("> " .. n.to .. ": ") or "", n.text, Who(n))
 	end
 	local points = Loot.Points()
 	if #points > 0 then

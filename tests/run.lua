@@ -37889,9 +37889,11 @@ do
 		if not ok then error(err, 0) end
 		for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local f = assert(io.open(ROOT .. file))
-			local doc = f:read("*a")
+			local doc = f:read("*a"):gsub("%s+", " ")
 			f:close()
-			assert(doc:find("A note is its writer's: nobody changes its words afterwards", 1, true), file .. ": the loot notes")
+			-- (Konig's second round: "nobody changes its words afterwards" claimed more than the code
+			-- does; the page now says what holds, and the limit: see the relayer's test below.)
+			assert(doc:find("Once your addon holds a note, no other officer changes its words", 1, true), file .. ": the loot notes")
 		end
 	end)
 
@@ -38055,6 +38057,112 @@ do
 			local page = o.Lt.Page(o.Lt.Book(), { n = { 0, g.clock + 1 } })
 			assert(page:find("~Cid~Cid gets the ring", 1, true), page)
 			eq(page:find("Bob gets the belt", 1, true), nil, page)
+		end)
+	end)
+
+	-- "Loot notes follow-up: backdated relays": a change another officer passes on, dated before the
+	-- reader's session, is taken on his word (nothing signs it). He is named with it now, and the pages
+	-- say the limit.
+	test("1.1 Konig's review: a change another officer passes on, dated before the reader's session, keeps who passed it on, and the page names him", function()
+		local Lt, B36, L = ns.Loot, ns.Codec.Base36, ns.L
+		local saved = { guild = GetGuildInfo, time = GetServerTime, byName = ns.Roster.byName, loot = ns.rdb.loot, fire = ns.Fire }
+		local base = 1790000000
+		local function Answer(entries) return "XB~S~0~0~0~0~0~0^" .. table.concat(entries, "^") end
+		local ok, err = pcall(function()
+			ns.rdb.loot = nil
+			Lt.Reset()
+			GetGuildInfo = function(unit) if unit == nil or unit == "player" then return "Olympus II", "Member", 3 end return nil end
+			GetServerTime = function() return base end
+			ns.Fire = function() end
+			ns.Roster.byName = { ["Offi-Realm"] = 1, ["Rival-Realm"] = 1, ["Bob-Realm"] = 3, ["Cid-Realm"] = 3 }
+			Lt.Book() -- (a member's session starts)
+			local week, day, minute = B36(base - 7 * 86400), B36(base - 86400), B36(base - 60)
+			local notes, points = Lt.Book().notes, Lt.Book().points
+			-- Offi's own answer: his note and his points change, nobody else's word.
+			Lt.HandleBook("GUILD", "Offi-Realm", Answer({ ("N~Offi-Realm~a1~%s~%s~~~Ann Smith~Ann gets the belt"):format(week, week),
+				"P~Bob-Realm~5~" .. week .. "~Offi-Realm" }))
+			eq(notes["Offi-Realm#a1"].via, nil); eq(points["Bob-Realm"].via, nil)
+			-- Rival's push: a note in Offi's name dated yesterday, a points change "by Offi" a minute before
+			-- this session. Nothing tells them from real ones: taken, with Rival kept as who passed them on.
+			Lt.HandleBook("GUILD", "Rival-Realm", Answer({ ("N~Offi-Realm~zz~%s~%s~~~Bob Rival~Correction: Bob gets the belt"):format(day, day),
+				"P~Bob-Realm~99999~" .. minute .. "~Offi-Realm", "P~Cid-Realm~4~" .. minute .. "~Rival-Realm" }))
+			eq(notes["Offi-Realm#zz"].text, "Correction: Bob gets the belt"); eq(notes["Offi-Realm#zz"].via, "Rival-Realm")
+			eq(points["Bob-Realm"].v, 99999); eq(points["Bob-Realm"].by, "Offi-Realm"); eq(points["Bob-Realm"].via, "Rival-Realm")
+			eq(points["Cid-Realm"].by, "Rival-Realm"); eq(points["Cid-Realm"].via, nil, "his own: nobody else named")
+			-- The page: the relayed note's line names both, its tooltip and the points' say who passed them on.
+			local lines = Lt.Lines()
+			local forged, real = Fern.Find(lines, "Correction: Bob gets the belt"), Fern.Find(lines, "Ann gets the belt")
+			eq(Fern.Bare(forged.right), L.LOOT_VIA:format("Offi", "Rival") .. "  " .. date("%Y-%m-%d", base - 86400))
+			eq(Fern.Bare(real.right), "Offi  " .. date("%Y-%m-%d", base - 7 * 86400))
+			assert(Fern.Tip(forged):find(L.LOOT_VIA_TIP:format("Rival"), 1, true), Fern.Tip(forged))
+			eq(Fern.Tip(real):find("Passed on by", 1, true), nil, Fern.Tip(real))
+			local function Row(name) for _, l in ipairs(lines) do if Fern.Bare(l.text) == name then return l end end end
+			local tip = Fern.Tip(Row("Bob"))
+			assert(tip:find(L.LOOT_POINTS_BY:format("Offi", date("%Y-%m-%d %H:%M", base - 60)), 1, true), tip)
+			assert(tip:find(L.LOOT_VIA_TIP:format("Rival"), 1, true), tip)
+			eq(Fern.Tip(Row("Cid")):find("Passed on by", 1, true), nil, "Rival's own")
+			-- The copy for Discord names him too.
+			local text = Lt.DiscordText()
+			assert(text:find("Correction: Bob gets the belt (" .. L.LOOT_VIA:format("Offi", "Rival") .. ")", 1, true), text)
+			assert(text:find("Ann gets the belt (Offi)", 1, true), text)
+			-- Offi's own change later, live: his, and the relayer goes.
+			GetServerTime = function() return base + 60 end
+			Lt.HandleLive("GUILD", "Offi-Realm", "X1~P~Bob-Realm~6~" .. B36(base + 30) .. "~Offi-Realm")
+			eq(points["Bob-Realm"].v, 6); eq(points["Bob-Realm"].via, nil)
+		end)
+		GetGuildInfo, GetServerTime, ns.Roster.byName, ns.rdb.loot, ns.Fire = saved.guild, saved.time, saved.byName, saved.loot, saved.fire
+		Lt.Reset()
+		if not ok then error(err, 0) end
+		-- In English and pt-BR (the list's "%s via %s" is the same words in both), and both pages say the limit.
+		local pt = Fern.BothLanguages({ "LOOT_VIA", "LOOT_VIA_TIP" }, { LOOT_VIA = true })
+		for _, key in ipairs({ "LOOT_VIA", "LOOT_VIA_TIP" }) do eq(select(2, pt[key]:gsub("%%s", "")), select(2, L[key]:gsub("%%s", "")), key) end
+		for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local f = assert(io.open(ROOT .. file))
+			local doc = f:read("*a"):gsub("%s+", " ")
+			f:close()
+			assert(doc:find("changes from before your session began, and those come on the passing officer's word: nothing proves who made them", 1, true), file)
+			assert(doc:find("the page names the officer who passed each one on (\"Offi via Rival\" on a note and in the copy for Discord, and in the tooltips of notes and points)", 1, true), file)
+			assert(doc:find("an officer's addon sends a change in his name only as he made it", 1, true), file)
+			eq(doc:find("nobody changes its words afterwards", 1, true), nil, file .. ": more than the code holds")
+		end
+	end)
+
+	-- The points' half of the first item: a points change "by Offi" his wiped addon took from Rival's
+	-- push, sent by it, read as his own (past the check of a reader whose session began before it).
+	test("1.1 Konig's review: an officer's addon never sends, as its own, a points change in its name another officer passed on to it", function()
+		local B36 = ns.Codec.Base36
+		Fern.LootGuild(function(g)
+			local o, h, r = g.Client("Offi", 1), g.Client("Honest", 1), g.Client("Rival", 1)
+			r.away = true -- (Rival's addon is his own: what it sends is written here by hand)
+			g.byName["Cid-Realm"] = 3
+			g.Officers(o, h)
+			o.away = true
+			g.Run(3600)
+			-- A member logs in; ten minutes later Offi does, his book wiped.
+			local m = g.Client("Bob", 3)
+			m.Lt.Book()
+			local memberFrom = g.clock + 1
+			g.Run(600)
+			o.away = false
+			o.ns.rdb = {}
+			o.Lt.Reset()
+			o.Lt.Book()
+			-- Rival pushes a points change "by Offi" dated between the two logins.
+			r.ns.Comm.SendChunked("XB~S~0~0~0~0~0~0^P~Cid-Realm~99999~" .. B36(memberFrom + 300) .. "~Offi-Realm", nil, "GUILD")
+			g.Run(10)
+			local function Points(c) return c.Lt.Book().points["Cid-Realm"] end
+			eq(Points(m), nil, "dated in the member's session: not from Rival"); eq(Points(h), nil)
+			eq(Points(o).v, 99999, "(Offi's addon, its session younger, cannot tell)"); eq(Points(o).via, "Rival-Realm")
+			-- Offi's login ask: Honest answers without it; Offi's addon pushes none of it.
+			eq(o.Lt.Ask(), true)
+			g.Run(60)
+			eq(Points(m), nil, "never from Offi's addon as his")
+			for _, page in ipairs(o.pages) do eq(page:find("P~Cid-Realm~99999", 1, true), nil, page) end
+			eq(o.Lt.Page(o.Lt.Book(), { p = { 0, g.clock + 1 } }):find("P~Cid-Realm~99999", 1, true), nil, "nor in his answers")
+			-- His own change goes out as his, and the member takes it.
+			o.Lt.SetPoints("Cid 7")
+			eq(Points(m).v, 7); eq(Points(m).by, "Offi-Realm"); eq(Points(m).via, nil)
+			assert(o.Lt.Page(o.Lt.Book(), { p = { 0, g.clock + 1 } }):find("P~Cid-Realm~7~", 1, true))
 		end)
 	end)
 end

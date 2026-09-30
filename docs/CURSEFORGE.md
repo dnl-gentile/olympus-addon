@@ -815,13 +815,16 @@ your guild keep it (on the Realm tab, or `/oly loot`).
   anyone else's when the page opens): an answer holds some 5 KB, the newest notes first, and the
   addon asks again after each until its book is whole, however large. One officer's addon answers
   each ask, and only an officer's addon that holds that part of the book whole itself (the first
-  officer online takes his own as the guild's). Each addon takes a change only from a sender its
-  own roster ranks an officer. A note is its writer's: nobody changes its words afterwards (any
-  officer can remove it), and a points change names the officer who made it. An officer's answer
-  passes on another officer's change only from before your session began (the later ones reached
-  you from whoever made them), and a note's writer's own copy replaces one another officer passed
-  on. Kept per guild in your saved variables (on the Forever beta, which forgets them at every
-  login, the book comes back from the officers online).
+  officer online takes his own as the guild's). Each addon takes a change only from a sender its own
+  roster ranks an officer, and one dated during your session only from the officer it names (a
+  note's writer, the officer of a points change). Another officer's answer passes on changes from
+  before your session began, and those come on the passing officer's word: nothing proves who made
+  them (one made up and dated back looks the same), so the page names the officer who passed each
+  one on ("Offi via Rival" on a note and in the copy for Discord, and in the tooltips of notes and
+  points). Once your addon holds a note, no other officer changes its words (any officer can remove
+  it), save its writer's own copy replacing one another officer passed on; an officer's addon sends
+  a change in his name only as he made it. Kept per guild in your saved variables (on the Forever
+  beta, which forgets them at every login, the book comes back from the officers online).
 
 ### Crafters' board (1.1)
 "Who can make this?" is a chat scroll: the **Crafters** page of the Realm tab turns it into one

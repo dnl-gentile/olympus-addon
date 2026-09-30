@@ -1545,6 +1545,8 @@ L.LOOT_POINTS_CLEARED = "%s: points cleared for your guild."
 L.LOOT_POINTS_NOT_MEMBER = "%s is not in your guild's roster."
 L.LOOT_POINTS_BAD = "Points go from -%d to %d."
 L.LOOT_POINTS_BY = "Set by %s, %s."
+L.LOOT_VIA = "%s via %s" -- (a note's writer, and the officer who passed it on)
+L.LOOT_VIA_TIP = "Passed on by %s. A change from before your session comes on the word of the officer who passes it on: nothing proves who made it."
 L.SEARCH_TIP_LOOT = "An item, a name or words of a note, any case: only the notes and points that hold it show."
 L.HELP_LOOT = "  /oly loot - your guild's loot notes and points (officers write them)"
 -- 1.1 (Fern's #24): the crafters' board (Crafters.lua).
@@ -3481,6 +3483,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.LOOT_POINTS_NOT_MEMBER = "%s não está no rol da sua guilda."
 	L.LOOT_POINTS_BAD = "Os pontos vão de -%d a %d."
 	L.LOOT_POINTS_BY = "Postos por %s, %s."
+	L.LOOT_VIA = "%s via %s"
+	L.LOOT_VIA_TIP = "%s repassou isto. Uma mudança de antes da sua sessão chega pela palavra do oficial que a repassa: nada prova quem a fez."
 	L.SEARCH_TIP_LOOT = "Um item, um nome ou palavras de uma nota, maiúsculas ou não: só aparecem as notas e os pontos que o contêm."
 	L.HELP_LOOT = "  /oly loot - as notas de loot e os pontos da sua guilda (os oficiais escrevem)"
 	-- 1.1 (pedido #24 do Fern): o quadro de artesãos.
