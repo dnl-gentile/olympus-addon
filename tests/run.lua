@@ -41039,7 +41039,8 @@ end
 -- 1.1, the review of Konig's fixes (the dues): a Captain's and the King's dues pages go by the
 -- King's amount for the week as their own client holds it, never by the one the Treasurer's list
 -- came with (a list counted by another amount removes nobody, and the King's table shows its
--- counts of who paid as not known).
+-- counts of who paid as not known); the Treasurer's copy for Discord ranks the donors as his
+-- client sends them, without what may be each giver's dues.
 ---------------------------------------------------------------------------
 do
 	local D, T = ns.Dues, ns.Treasury
@@ -41252,7 +41253,34 @@ do
 		end)
 	end)
 
-	test("1.1 dues, the review of Konig's fixes: the new lines in English and pt-BR (the same values; es/fr/de show the English); the README and the CurseForge page say what the page goes by", function()
+	test("1.1 dues, the review of Konig's fixes: the Treasurer's copy for Discord ranks the donors as his addon sends them, without what may be each giver's dues; his screen stays whole", function()
+		WithLows(function()
+			AsTreasurer()
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			local function Give(name, copper, note) T.Record(name, copper, "mail", nil, { quiet = true, note = note }) end
+			Give("Payer", 10000)                                     -- (the 1 gold in force: dues, or not)
+			Give("Noted", 30000, D.Note(D.Week(), "Olympus II"))     -- (sent with the dues' note: all of it)
+			Give("Patron", 35000)                                    -- (1 gold of it may be dues)
+			local copy = T.DiscordText()
+			assert(copy:find("1. Patron - 2g 50s", 1, true), "what went over the amount: " .. copy)
+			assert(not copy:find("Payer", 1, true), "a payer of the amount is never in the copy: " .. copy)
+			assert(not copy:find("Noted", 1, true), "nor what went with the dues' note: " .. copy)
+			-- The ranking that leaves his client, place by place.
+			for i, g in ipairs(T.PublicRanking(T.Book())) do assert(copy:find(("%d. %s - "):format(i, g.name), 1, true), g.name .. ": " .. copy) end
+			-- His own screen: whole, as ever.
+			local mine = {}
+			for _, g in ipairs(T.Totals().ranking) do mine[g.name] = g.money end
+			eq(mine.Payer, 10000); eq(mine.Noted, 30000); eq(mine.Patron, 35000)
+			-- Another character of his account (his mail character) copies his book as it leaves too.
+			ns.db.myCharacters = { [TREASURER_KEY] = true, [ANDARAI_KEY] = true }
+			ns.me = ANDARAI
+			copy = T.DiscordText()
+			assert(copy:find("Patron - 2g 50s", 1, true), copy)
+			assert(not copy:find("Payer", 1, true) and not copy:find("Noted", 1, true), copy)
+		end)
+	end)
+
+	test("1.1 dues, the review of Konig's fixes: the new lines in English and pt-BR (the same values; es/fr/de show the English); the README and the CurseForge page say what the page goes by and what the Discord copy leaves out", function()
 		local pt = { L = setmetatable({}, { __index = ns.L }) }
 		local savedLocale = GetLocale
 		GetLocale = function() return "ptBR" end
@@ -41279,9 +41307,11 @@ do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
 			for _, must in ipairs({ "never by the amount the Treasurer's list came with",
 				"the King's table shows its \"paid\" as \"?\", and that list removes nobody",
-				"counted by the King's amount; with an older one, or one counted by another amount" }) do
+				"counted by the King's amount; with an older one, or one counted by another amount",
+				"his screen alone is whole", "and in the Discord copy of the Treasury tab, his own too" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
+			assert(not doc:find("the Discord copy he makes there, are whole", 1, true), path .. ": the copy is no longer whole")
 		end
 	end)
 end

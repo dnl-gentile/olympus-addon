@@ -1646,7 +1646,8 @@ ns.Comm.Handle("T8", function() end)
 -- one character at a time: theirs never reach it by the channel), and every other keeper's
 -- book as it last reached us. A keeper's book stays while he is one, however old (it says
 -- when it came); a character no longer on the King's list is no longer counted.
-local function LivePart(b, own, shared)
+-- public: its ranking as it leaves this client (PublicRanking), never its whole one.
+local function LivePart(b, own, public)
 	local t = Treasury.Totals(b)
 	local names, lines = {}, {}
 	for i = 1, math.min(Treasury.WEEK_SENT, #t.givers) do names[i] = t.givers[i].name end
@@ -1657,7 +1658,7 @@ local function LivePart(b, own, shared)
 	-- (Ours is as of now; another character's of this account, as of its latest change.)
 	local when = own and ns.Now() or BookTime(b)
 	return { name = b.name, opening = Treasury.Opening(b), balance = Treasury.Balance(b), allIn = t.allIn, allOut = t.allOut, week = t.weekIn,
-		donors = #t.givers, weekNames = names, rank = shared and PublicRanking(b, t) or t.ranking, book = lines, items = t.items, t = when, own = own, b = b }
+		donors = #t.givers, weekNames = names, rank = public and PublicRanking(b, t) or t.ranking, book = lines, items = t.items, t = when, own = own, b = b }
 end
 -- Another character of this account said yes to sharing its book (the Treasurer's 0.9.3 yes is his,
 -- while he has given no answer since: his no of 1.0 stays a no).
@@ -1668,19 +1669,21 @@ local function SharesBook(key, name)
 	return TreasurerPin(name) == 1 and ns.db.treasurerShares == true
 end
 -- shared: the treasury as it may go out (0.9's T8): a book of another character of this account
--- only with that character's yes.
-local function Parts(shared)
+-- only with that character's yes. public (and shared): each of this account's books ranks as it
+-- leaves this client (PublicRanking: the Discord copy, the review of Konig's fixes, 1.1).
+local function Parts(shared, public)
+	public = shared or public
 	local parts, seen = {}, {}
 	if not ns.rdb then return parts end
 	if Treasury.IsKeeper() then
 		local b = BookOf(ns.me, true)
-		parts[1], seen[OwnKey(ns.me)] = LivePart(b, true, shared), true
+		parts[1], seen[OwnKey(ns.me)] = LivePart(b, true, public), true
 	end
 	for key, b in pairs(Books()) do
 		if not seen[key] and type(b) == "table" and b.epoch == Treasury.EPOCH and type(b.lines) == "table" and Treasury.IsOwnCharacter(b.name)
 			and Treasury.KeeperByName(b.name) then
 			-- (Kept private: left out, and no copy of it either.)
-			if not shared or SharesBook(key, b.name) then parts[#parts + 1] = LivePart(b, false, shared) end
+			if not shared or SharesBook(key, b.name) then parts[#parts + 1] = LivePart(b, false, public) end
 			seen[key] = true
 		end
 	end
@@ -1713,9 +1716,9 @@ end
 -- The treasury, all its keepers' books together, or nil while none reached us: the balance and
 -- the totals summed, the week's donors counted once, the donors and the items one list each,
 -- the book every keeper's lines by time ({ e = line, keeper = name, own = this keeper's, b }).
--- shared: as it may go out (Parts).
-function Treasury.Report(shared)
-	local parts = Parts(shared)
+-- shared: as it may go out (Parts); public: every book it holds, each ranked as it leaves (Parts).
+function Treasury.Report(shared, public)
+	local parts = Parts(shared, public)
 	if #parts == 0 then return nil end
 	local m = { balance = 0, opening = 0, allIn = 0, allOut = 0, week = 0, donors = 0, rank = {}, book = {}, items = {}, keepers = {}, t = 0, parts = parts }
 	local weekSeen, extra, byName, byItem = {}, 0, {}, {}
@@ -3459,9 +3462,12 @@ function Treasury.Searchable()
 	return Treasury.MaySee("ranking")
 end
 
--- For Discord.
+-- For Discord, a public place: each book of this account ranked as it leaves this client, never
+-- the Treasurer's screen's whole ranking, which grows by each payer's dues every week
+-- (PublicRanking; the review of Konig's fixes, 1.1). Other keepers' books as they came (the
+-- Treasurer's already so).
 function Treasury.DiscordText()
-	local r = Treasury.Report()
+	local r = Treasury.Report(false, true)
 	if not r then return "" end
 	local out = { ("**%s**"):format(L.TREASURY_TITLE) }
 	if Treasury.MaySee("balance") then

@@ -835,10 +835,11 @@ alone until then).
     the King's amount only from the King's or a Steward's addon while one of them is online, so a
     payer of a new amount it did not hear all that week, by trade or by a mail without the note,
     grows by the difference, which can tell that he paid. The tradeoff: it is that much lower
-    than the Treasurer's own screen shows (his, and the Discord copy he makes there, are whole),
-    also for a donor who never meant it as dues. This holds on the channel, in the whole book
-    whispered to the King, his Steward and the keepers, in 0.9's copy and in his mail character's
-    book he passes on; another keeper's book, which receives no dues, ranks as it is. It also
+    than the Treasurer's own screen shows (his screen alone is whole), also for a donor who never
+    meant it as dues. This holds on the channel, in the whole book whispered to the King, his
+    Steward and the keepers, in 0.9's copy, in his mail character's book he passes on, and in the
+    Discord copy of the Treasury tab, his own too (the review of Konig's fixes: his was whole);
+    another keeper's book, which receives no dues, ranks as it is. It also
     holds after his book is restored from a backup, which keeps the weeks. The Treasurer's addon
     works the lists out from his books and whispers
     each one to whoever asks and may see it (the King or his Steward: any guild; a Captain or
