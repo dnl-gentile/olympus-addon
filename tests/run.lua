@@ -42195,7 +42195,9 @@ do
 			end,
 			HasFocus = function(self) return self.focused == true end,
 			Insert = function(self, text) self:SetText((self:GetText() or "") .. text) end,
-			SetFocus = function(self) w.focus[#w.focus + 1] = self.name or "?" end,
+			-- (1.1.1, the "Open chat" key: SetFocus gives the box the keyboard, as the client does;
+			-- until then the tests only asked that nothing called it.)
+			SetFocus = function(self) w.focus[#w.focus + 1] = self.name or "?"; self.focused = true end,
 			ClearFocus = function(self) self.focused = false; self.cleared = (self.cleared or 0) + 1 end,
 			SetAutoFocus = function(self, on) self.autoFocus = on; w.log[#w.log + 1] = "autofocus " .. tostring(on) end,
 			StartSizing = function(self, point) self.sizing = point end,
@@ -42607,7 +42609,12 @@ do
 		end)
 	end)
 
-	test("1.1.1 Chat tab: its own box: Enter sends through Channels.Send and lets the keyboard go; a refusal keeps the text, the privacy warning empties it; no slash command; Tab changes channel", function()
+	-- (Changed on purpose, the owner's ask after trying the tab: "Enter and keep typing, Enter and keep
+	-- typing, without going back to the game's controls". With mouse and keyboard a line sent, a
+	-- refused one and a command kept leave the cursor in the box; an empty Enter, Escape and the
+	-- privacy warning still let it go. It was: every Enter let the keyboard go, as the Communities
+	-- box does, which the gamepad UI keeps: the key's tests below.)
+	test("1.1.1 Chat tab: its own box: Enter sends through Channels.Send and the cursor stays for the next line; a refusal keeps the text and the cursor, the privacy warning empties it and lets go; no slash command; an empty Enter or Escape lets go; Tab changes channel", function()
 		WithWindow(function(w)
 			AsCaptain()
 			local sent, answers = {}, {}
@@ -42626,28 +42633,30 @@ do
 			eq(eb.hint:IsShown(), false, "no hint while typing")
 			eb:SetText("  hi  ")
 			eb:Fire("OnEnterPressed")
-			eq(sent[1], "A hi"); eq(eb:GetText(), ""); eq(eb.focused, false, "the keyboard goes back to the game")
+			eq(sent[1], "A hi"); eq(eb:GetText(), ""); eq(eb.focused, true, "sent: the cursor stays for the next line")
+			eq(eb.hint:IsShown(), false, "no hint while it is there")
 			answers = { { false, "fast" } }
 			eb:SetText("again")
 			eb:Fire("OnEnterPressed")
-			eq(sent[2], "A again"); eq(eb:GetText(), "again", "refused: the text stays")
+			eq(sent[2], "A again"); eq(eb:GetText(), "again", "refused: the text stays"); eq(eb.focused, true, "and the cursor")
 			answers = { { false, "confirm" } }
 			eb:Fire("OnEnterPressed")
 			eq(sent[3], "A again"); eq(eb:GetText(), "", "held by the privacy warning: the box empties")
+			eq(eb.focused, false, "and lets go: the warning's Send or Cancel is next")
+			eb.focused = true
 			eb:SetText("/cast Fireball")
 			eb:Fire("OnEnterPressed")
-			eq(#sent, 3, "no command sent, none run"); eq(eb:GetText(), "/cast Fireball", "kept")
+			eq(#sent, 3, "no command sent, none run"); eq(eb:GetText(), "/cast Fireball", "kept"); eq(eb.focused, true)
 			assert(Said(w, L.CHATWIN_NO_SLASH:format(L.CHAN_ALL)), "told where commands go")
 			eb:SetText("   ")
-			eb.focused = true
 			eb:Fire("OnEnterPressed")
-			eq(#sent, 3, "nothing to send"); eq(eb.focused, false)
+			eq(#sent, 3, "nothing to send"); eq(eb.focused, false, "an empty Enter lets go"); eq(eb:GetText(), "")
 			-- (Changed on purpose, the author's ask: no Send button, so the box is not cramped: Enter sends.)
 			eq(f.send, nil, "no Send button")
 			eb:SetText("by enter")
 			eb.focused = true
 			eb:Fire("OnEnterPressed")
-			eq(sent[4], "A by enter"); eq(eb:GetText(), ""); eq(eb.focused, false, "sent, and the keyboard let go")
+			eq(sent[4], "A by enter"); eq(eb:GetText(), ""); eq(eb.focused, true, "sent, and the cursor still there")
 			eb.focused = true
 			eb:Fire("OnEscapePressed")
 			eq(eb.focused, false, "Escape lets go")
@@ -44683,6 +44692,417 @@ do
 			end)
 		end)
 		end)()
+	end
+
+	---------------------------------------------------------------------------
+	-- 1.1.1, the owner's ask after trying the Chat tab: with the tab open, the game's "Open chat" key
+	-- starts typing in its box, and the cursor stays there line after line until he takes it out.
+	-- The client's key bindings as a stand-in: GetBindingKey answers the keys the player bound
+	-- (k.keys; its overrides left out, as the client does unless asked), SetOverrideBindingClick and
+	-- ClearOverrideBindings keep the overrides by owner, and a call in combat lockdown is refused and
+	-- recorded (k.blocked: the client's ADDON_ACTION_BLOCKED). k.Press runs a key as the client
+	-- does: into the box that has the keyboard, else its override's click, on the press and on the
+	-- release as the button registered for them (RegisterForClicks; a Button's default is the
+	-- release, LeftButtonUp).
+	---------------------------------------------------------------------------
+	do
+		local function WithKeys(fn)
+			local saved = { get = GetBindingKey, set = SetOverrideBindingClick, clear = ClearOverrideBindings,
+				combat = InCombatLockdown, reg = rawget(Widget, "RegisterForClicks") }
+			local k = { keys = { "ENTER" }, binds = {}, blocked = {}, cleared = {}, calls = 0, combat = false }
+			local ok, err = pcall(function()
+				GetBindingKey = function(action)
+					if action == "OPENCHAT" then return unpack(k.keys) end
+					if action == "OPENCHATSLASH" then return "/" end
+				end
+				InCombatLockdown = function() return k.combat end
+				SetOverrideBindingClick = function(owner, priority, key, name, button)
+					k.calls = k.calls + 1
+					if k.combat then k.blocked[#k.blocked + 1] = "SetOverrideBindingClick " .. tostring(key) return end
+					k.binds[key] = { owner = owner, priority = priority, name = name, button = button }
+				end
+				ClearOverrideBindings = function(owner)
+					k.calls = k.calls + 1
+					k.cleared[#k.cleared + 1] = owner
+					if k.combat then k.blocked[#k.blocked + 1] = "ClearOverrideBindings" return end
+					for key, b in pairs(k.binds) do if b.owner == owner then k.binds[key] = nil end end
+				end
+				Widget.RegisterForClicks = function(self, ...) self.clicks = { ... } end
+				k.Bound = function()
+					local out = {}
+					for key in pairs(k.binds) do out[#out + 1] = key end
+					table.sort(out)
+					return table.concat(out, " ")
+				end
+				k.Press = function(key, box)
+					local function Click(down)
+						local b = k.binds[key]
+						if not b then return end
+						local target = _G[b.name]
+						local on = {}
+						for _, c in ipairs(target.clicks or { "LeftButtonUp" }) do on[c] = true end
+						if on[down and "AnyDown" or "AnyUp"] or on[b.button .. (down and "Down" or "Up")] then
+							target:Fire("OnClick", b.button, down)
+						end
+					end
+					if box and box.focused then
+						box:Fire(key == "ESCAPE" and "OnEscapePressed" or "OnEnterPressed")
+					else
+						Click(true)
+					end
+					if not (box and box.focused) then Click(false) end
+				end
+				fn(k)
+			end)
+			GetBindingKey, SetOverrideBindingClick, ClearOverrideBindings, InCombatLockdown = saved.get, saved.set, saved.clear, saved.combat
+			Widget.RegisterForClicks = saved.reg
+			if not ok then error(err, 0) end
+		end
+		local function Focused(eb) return eb.focused == true end
+
+		test("1.1.1 Chat tab key: the game's Open chat key is bound to Olympus's own button while the Chat tab shows, and taken off when it hides, the window closes, another tab is picked or the chats go off; / stays the game's", function()
+			WithWindow(function(w)
+				WithKeys(function(k)
+					AsCaptain()
+					ns.db.addonChat = true
+					eq(k.Bound(), "", "nothing before the tab shows")
+					local f = w.CW.Open("A")
+					eq(k.Bound(), "ENTER", "the key of the game's Open chat")
+					local b = k.binds.ENTER
+					eq(b.name, "OlympusChatKey"); eq(b.button, "LeftButton")
+					eq(b.owner, rawget(_G, "OlympusChatKey"), "owned by Olympus's own button"); eq(b.owner:GetObjectType(), "Button")
+					eq(b.priority, false, "not over the priority bindings (the gamepad UI's own)")
+					eq(b.owner.clicks and table.concat(b.owner.clicks, " "), "AnyDown", "on the press, as the game's own binding runs")
+					eq(k.binds["/"], nil, "/ stays the game's: commands run in its box")
+					eq(Focused(f.input), false, "opening takes no keyboard"); eq(#w.focus, 0)
+					w.CW.Close()
+					eq(k.Bound(), "", "the window closed")
+					w.CW.Open()
+					eq(k.Bound(), "ENTER")
+					w.UI.SelectTab("census")
+					eq(k.Bound(), "", "another tab")
+					w.UI.SelectTab("chat")
+					eq(k.Bound(), "ENTER", "the Chat tab again")
+					w.CW.Window():Hide()
+					eq(k.Bound(), "", "the window hidden (its X, Escape)")
+					f = w.CW.Open()
+					eq(k.Bound(), "ENTER")
+					ns.db.addonChat = false
+					w.fire("CHAT_CHANGED")
+					f:Fire("OnUpdate", 0.3)
+					eq(f.input:IsShown(), false, "(the chats off: no box)"); eq(k.Bound(), "", "the chats off")
+					ns.db.addonChat = true
+					w.fire("CHAT_CHANGED")
+					f:Fire("OnUpdate", 0.3)
+					eq(f.input:IsShown(), true); eq(k.Bound(), "ENTER", "on again")
+					-- Out of Olympus (no channel read any more): the tab goes, the key with it.
+					GetGuildInfo = function() return "Wanderers", "Member", 3 end
+					w.CW.Render()
+					eq(f:IsShown(), false, "(the tab gone)"); eq(k.Bound(), "")
+					for _, owner in ipairs(k.cleared) do eq(owner, b.owner, "only our own button's overrides cleared") end
+					eq(#k.blocked, 0)
+				end)
+			end)
+		end)
+
+		test("1.1.1 Chat tab key: no binding changed in combat; the tab opened in a fight is bound when it ends, closed in one the key goes back then; pressed meanwhile it opens nothing and says why, once a fight", function()
+			WithWindow(function(w)
+				WithKeys(function(k)
+					AsCaptain()
+					ns.db.addonChat = true
+					k.combat = true
+					local f = w.CW.Open("A")
+					assert(f and f:IsShown(), "the tab opens in a fight")
+					eq(k.calls, 0, "no binding call in combat"); eq(k.Bound(), "")
+					k.combat = false
+					w.event("PLAYER_REGEN_ENABLED")
+					eq(k.Bound(), "ENTER", "bound when the fight ends, the tab still open")
+					-- Closed in a fight: kept through it, taken off after.
+					k.combat = true
+					local calls = k.calls
+					w.CW.Close()
+					eq(k.calls, calls, "nothing changed in combat"); eq(k.Bound(), "ENTER")
+					w.printed = {}
+					k.Press("ENTER", f.input)
+					k.Press("ENTER", f.input)
+					eq(Focused(f.input), false, "nothing typed in"); eq(#w.focus, 0)
+					local told = 0
+					for _, p in ipairs(w.printed) do if p == L.CHATWIN_KEY_LATER then told = told + 1 end end
+					eq(told, 1, "said once a fight: " .. table.concat(w.printed, " / "))
+					eq(k.calls, calls, "still nothing changed in combat")
+					k.combat = false
+					w.event("PLAYER_REGEN_ENABLED")
+					eq(k.Bound(), "", "the key back to the game when the fight ends")
+					-- Opened and closed within one fight: nothing to do after it.
+					k.combat = true
+					w.CW.Open()
+					w.CW.Close()
+					k.combat = false
+					calls = k.calls
+					w.event("PLAYER_REGEN_ENABLED")
+					eq(k.calls, calls, "nothing to change"); eq(k.Bound(), "")
+					-- Closed and opened again within one fight: as it was.
+					f = w.CW.Open()
+					eq(k.Bound(), "ENTER")
+					k.combat = true
+					w.CW.Close()
+					f = w.CW.Open()
+					k.combat = false
+					calls = k.calls
+					w.event("PLAYER_REGEN_ENABLED")
+					eq(k.calls, calls, "nothing to change"); eq(k.Bound(), "ENTER")
+					k.Press("ENTER", f.input)
+					eq(Focused(f.input), true, "and it types in the box")
+					f.input:Fire("OnEscapePressed")
+					-- Another fight, the tab gone again: said again.
+					k.combat = true
+					w.CW.Close()
+					w.printed = {}
+					k.Press("ENTER", f.input)
+					eq(w.printed[1], L.CHATWIN_KEY_LATER, "another fight: said again")
+					k.combat = false
+					w.event("PLAYER_REGEN_ENABLED")
+					eq(k.Bound(), "")
+					eq(#k.blocked, 0, "no binding call the game would refuse: " .. table.concat(k.blocked, ", "))
+				end)
+			end)
+		end)
+
+		test("1.1.1 Chat tab key: the key is the player's own, read from the game (another key, two keys, changed in the game's Key Bindings while the tab shows); none bound, no binding", function()
+			WithWindow(function(w)
+				WithKeys(function(k)
+					AsCaptain()
+					ns.db.addonChat = true
+					k.keys = { "CTRL-T" }
+					local f = w.CW.Open("A")
+					eq(k.Bound(), "CTRL-T", "his own key"); eq(k.binds.ENTER, nil, "Enter left to the game")
+					k.Press("CTRL-T", f.input)
+					eq(Focused(f.input), true, "it starts typing here")
+					f.input:Fire("OnEscapePressed")
+					w.CW.Close()
+					k.keys = { "ENTER", "NUMPADENTER" }
+					f = w.CW.Open()
+					eq(k.Bound(), "ENTER NUMPADENTER", "both his keys")
+					k.Press("NUMPADENTER", f.input)
+					eq(Focused(f.input), true)
+					f.input:Fire("OnEscapePressed")
+					-- Changed in the game's Key Bindings while the tab shows: followed.
+					k.keys = { "SHIFT-ENTER" }
+					w.event("UPDATE_BINDINGS")
+					eq(k.Bound(), "SHIFT-ENTER")
+					-- None bound: no binding at all (nothing assumed).
+					k.keys = {}
+					w.event("UPDATE_BINDINGS")
+					eq(k.Bound(), "")
+					w.CW.Close()
+					f = w.CW.Open()
+					eq(k.Bound(), "", "none, and nothing assumed")
+					k.Press("ENTER", f.input)
+					eq(Focused(f.input), false)
+					-- A client without GetBindingKey: none either.
+					k.keys = { "ENTER" }
+					GetBindingKey = nil
+					w.CW.Render()
+					eq(k.Bound(), "")
+					eq(#k.blocked, 0)
+				end)
+			end)
+		end)
+
+		test("1.1.1 Chat tab key: the key puts the cursor in the box (the settings give way to the lines); Enter sends and the empty box keeps it for the next line; a refused line keeps its text and the cursor and says why; an empty Enter or Escape gives the keyboard back", function()
+			WithWindow(function(w)
+				WithKeys(function(k)
+					local saved = { room = ns.Comm.ChatRoom, warned = ns.db.chatWarned }
+					local ok, err = pcall(KeepSendGap, function()
+						WithLane(function(sent)
+							AsCaptain()
+							ns.db.addonChat = true
+							ns.db.chatWarned = { A = true }
+							ns.Comm.ChatRoom = function() return 3 end
+							local clock = 1e7
+							GetTime = function() return clock end
+							local f = w.CW.Open("A")
+							local eb = f.input
+							eq(Focused(eb), false)
+							k.Press("ENTER", eb)
+							eq(Focused(eb), true, "the key: the box has the keyboard"); eq(w.focus[1], "OlympusFrameChatInput")
+							eb:SetText("first line")
+							k.Press("ENTER", eb)
+							eq(#sent, 1, "sent: " .. table.concat(w.printed, " / ")); assert(sent[1]:find("first line", 1, true), sent[1])
+							eq(eb:GetText(), "", "the box empty"); eq(Focused(eb), true, "the cursor stays")
+							clock = clock + 10
+							eb:SetText("second line")
+							k.Press("ENTER", eb)
+							eq(#sent, 2); eq(eb:GetText(), ""); eq(Focused(eb), true, "and again")
+							-- The flood guard: too soon after it.
+							w.printed = {}
+							eb:SetText("too soon")
+							k.Press("ENTER", eb)
+							eq(#sent, 2, "refused"); eq(eb:GetText(), "too soon", "the text stays"); eq(Focused(eb), true, "and the cursor")
+							assert(Said(w, L.CHAN_TOO_FAST), "told why")
+							-- The game's chat lockdown.
+							clock = clock + 10
+							local info = C_ChatInfo
+							C_ChatInfo = { InChatMessagingLockdown = function() return true end }
+							w.printed = {}
+							k.Press("ENTER", eb)
+							C_ChatInfo = info
+							eq(#sent, 2); eq(eb:GetText(), "too soon"); eq(Focused(eb), true); assert(Said(w, L.CHAN_LOCKDOWN), "told why")
+							-- The chats turned off (another way) before the box goes: refused, kept, said.
+							ns.db.addonChat = false
+							w.printed = {}
+							k.Press("ENTER", eb)
+							ns.db.addonChat = true
+							eq(#sent, 2); eq(eb:GetText(), "too soon"); eq(Focused(eb), true); assert(Said(w, L.CHAT_OFF), "told why")
+							-- Sent at last.
+							k.Press("ENTER", eb)
+							eq(#sent, 3); eq(eb:GetText(), ""); eq(Focused(eb), true)
+							-- An empty Enter lets go (and its release takes nothing back); the key again, back in.
+							local asked = #w.focus
+							k.Press("ENTER", eb)
+							eq(Focused(eb), false, "an empty Enter: the game's controls back"); eq(#w.focus, asked, "the release took nothing")
+							k.Press("ENTER", eb)
+							eq(Focused(eb), true, "the key again: typing")
+							-- Escape lets go too; what was typed stays.
+							eb:SetText("half a thought")
+							k.Press("ESCAPE", eb)
+							eq(Focused(eb), false, "Escape: the game's controls back"); eq(eb:GetText(), "half a thought")
+							eq(#sent, 3)
+							-- The settings shown: the key brings the lines and the box back, and types there.
+							f.gear:Click()
+							eq(w.CW.SettingsShown(), true); eq(eb:IsShown(), false)
+							eq(k.Bound(), "ENTER", "(still bound: the tab shows)")
+							k.Press("ENTER", eb)
+							eq(w.CW.SettingsShown(), false, "the lines again"); eq(eb:IsShown(), true); eq(Focused(eb), true)
+							eq(#k.blocked, 0)
+						end)
+					end)
+					ns.Comm.ChatRoom, ns.db.chatWarned = saved.room, saved.warned
+					if not ok then error(err, 0) end
+				end)
+			end)
+		end)
+
+		test("1.1.1 Chat tab key: with the gamepad UI nothing changes: no binding, the box a click only, and every Enter lets the keyboard go as before", function()
+			WithWindow(function(w)
+				WithKeys(function(k)
+					AsCaptain()
+					ns.db.addonChat = true
+					local sent, answers = {}, {}
+					ns.Channels.Send = function(t, text)
+						sent[#sent + 1] = t .. " " .. text
+						local a = table.remove(answers, 1) or { true, "ok" }
+						return a[1], a[2]
+					end
+					local f
+					WithGamepadUI(true, function()
+						f = w.CW.Open("A")
+						local eb = f.input
+						eq(k.calls, 0, "no binding"); eq(k.Bound(), "")
+						k.Press("ENTER", eb)
+						eq(Focused(eb), false, "the key stays the game's"); eq(#w.focus, 0)
+						eb.focused = true -- (the player's click, with the gamepad cursor)
+						eb:SetText("hi")
+						k.Press("ENTER", eb)
+						eq(sent[1], "A hi"); eq(eb:GetText(), ""); eq(Focused(eb), false, "sent, and the keyboard let go, as before")
+						answers = { { false, "fast" } }
+						eb.focused = true
+						eb:SetText("again")
+						k.Press("ENTER", eb)
+						eq(eb:GetText(), "again", "refused: the text stays"); eq(Focused(eb), false, "the keyboard let go, as before")
+						w.CW.Close()
+						w.CW.Open()
+						w.UI.SelectTab("census")
+						w.UI.SelectTab("chat")
+						eq(k.calls, 0, "never a binding with the gamepad UI"); eq(#w.focus, 0)
+					end)
+					-- Mouse and keyboard again: bound at the next redraw. Switched to the gamepad UI with the key
+					-- bound: the key pressed types nothing and goes; a redraw takes it off too.
+					w.CW.Render()
+					eq(k.Bound(), "ENTER")
+					WithGamepadUI(true, function()
+						k.Press("ENTER", f.input)
+						eq(Focused(f.input), false, "the key pressed: nothing typed in"); eq(k.Bound(), "", "and taken off")
+					end)
+					w.CW.Render()
+					eq(k.Bound(), "ENTER")
+					WithGamepadUI(true, function()
+						w.CW.Render()
+						eq(k.Bound(), "", "a redraw with the gamepad UI: taken off")
+					end)
+					eq(#w.focus, 0); eq(#k.blocked, 0)
+				end)
+			end)
+		end)
+
+		test("1.1.1 Chat tab key: the game's chat box is never opened, focused or written, and no binding of the game's changed for good: only Olympus's own button's override", function()
+			WithWindow(function(w)
+				WithKeys(function(k)
+					local traps = { "ChatFrame_OpenChat", "ChatEdit_ActivateChat", "ChatFrame_ActivateChat", "ChatEdit_FocusActiveWindow",
+						"ChatEdit_DeactivateChat", "SetBinding", "SetBindingClick", "SaveBindings", "SetOverrideBinding",
+						"SetOverrideBindingSpell", "SetOverrideBindingMacro", "SetOverrideBindingItem", "ChatFrameUtil", "ChatFrame1EditBox" }
+					local calls, saved = {}, {}
+					for _, name in ipairs(traps) do saved[name] = rawget(_G, name) end
+					local boxes = { last = rawget(_G, "LAST_ACTIVE_CHAT_EDIT_BOX"), active = rawget(_G, "ACTIVE_CHAT_EDIT_BOX"),
+						override = rawget(_G, "CHAT_FOCUS_OVERRIDE") }
+					local theirs = {}
+					local ok, err = pcall(function()
+						for _, name in ipairs(traps) do _G[name] = function() calls[#calls + 1] = name end end
+						ChatFrameUtil = setmetatable({}, { __index = function(_, key) return function() calls[#calls + 1] = "ChatFrameUtil." .. key end end })
+						ChatFrame1EditBox = setmetatable({}, {
+							__index = function(_, key) return function() calls[#calls + 1] = "ChatFrame1EditBox:" .. key end end,
+							__newindex = function(_, key) calls[#calls + 1] = "ChatFrame1EditBox." .. key .. " written" end })
+						LAST_ACTIVE_CHAT_EDIT_BOX, ACTIVE_CHAT_EDIT_BOX, CHAT_FOCUS_OVERRIDE = theirs, nil, nil
+						AsCaptain()
+						ns.db.addonChat = true
+						ns.Channels.Send = function() return true, "ok" end
+						local f = w.CW.Open("A")
+						local eb = f.input
+						k.Press("ENTER", eb)
+						eb:SetText("one")
+						k.Press("ENTER", eb)
+						eb:SetText("/tar Boss")
+						k.Press("ENTER", eb)
+						eb:SetText("")
+						k.Press("ENTER", eb)
+						k.Press("/", eb)
+						k.Press("ENTER", eb)
+						k.Press("ESCAPE", eb)
+						f.gear:Click()
+						k.Press("ENTER", eb)
+						eb:Fire("OnEscapePressed")
+						k.combat = true
+						w.CW.Close()
+						k.Press("ENTER", eb)
+						k.combat = false
+						w.event("PLAYER_REGEN_ENABLED")
+						eq(#calls, 0, "the game's chat and its bindings untouched: " .. table.concat(calls, " "))
+						eq(rawget(_G, "LAST_ACTIVE_CHAT_EDIT_BOX"), theirs, "its last active box untouched")
+						eq(rawget(_G, "ACTIVE_CHAT_EDIT_BOX"), nil); eq(rawget(_G, "CHAT_FOCUS_OVERRIDE"), nil)
+						eq(k.binds["/"], nil, "/ stays the game's")
+						assert(#k.cleared > 0, "(taken off)")
+						for _, owner in ipairs(k.cleared) do
+							assert(owner == rawget(_G, "OlympusChatKey") and owner ~= UIParent, "only our own button's overrides cleared (never UIParent's: the gamepad UI's)")
+						end
+						assert(#w.focus > 0, "(typed in)")
+						for _, name in ipairs(w.focus) do eq(name, "OlympusFrameChatInput", "only our own box focused") end
+						eq(#k.blocked, 0)
+					end)
+					for _, name in ipairs(traps) do _G[name] = saved[name] end
+					LAST_ACTIVE_CHAT_EDIT_BOX, ACTIVE_CHAT_EDIT_BOX, CHAT_FOCUS_OVERRIDE = boxes.last, boxes.active, boxes.override
+					if not ok then error(err, 0) end
+				end)
+			end)
+		end)
+
+		test("1.1.1 Chat tab key: the README and the CurseForge page say the key starts typing in the tab and the cursor stays", function()
+			for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+				local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+				assert(doc:find("or press your open-chat key (Enter, unless you changed it) while the tab shows", 1, true), path .. ": the key")
+				assert(doc:find("the cursor stays for the next line", 1, true), path .. ": the cursor")
+				assert(not doc:find("Enter sends to the channel shown and lets the keyboard go", 1, true), path .. ": no longer lets go")
+			end
+		end)
 	end
 end
 
