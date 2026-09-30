@@ -38197,5 +38197,105 @@ end)
 	end)
 end)()
 
+---------------------------------------------------------------------------
+-- 1.1 (Konig's review of the moderation fixes): no net-off word pushes one from higher up out of
+-- a full list. Each test fails on the code before its fix. One function (the file's top level is
+-- near Lua's 200 locals).
+---------------------------------------------------------------------------
+;(function()
+	local M = ns.Moderation
+	local KING = "Asmongold Asmongler-Realm"
+	local HC = "Test Councillor-Realm" -- a made-up councillor of the test council
+	local ROGUE = "Rogue Hand-Realm"   -- a made-up Hand
+	-- A net-off word as an issuer's client sends it.
+	local function O1(kind, off, at, name, by, reason)
+		return ("O1~%s~%s~%d~%s~%s~%s"):format(kind, off and "1" or "0", at, name, by, reason or "")
+	end
+	-- The Throne's scene with no net-off word yet, a council of one (Test Councillor) and the plain
+	-- API; the alt links, the realm names and the repeats' draw all put back after.
+	local function WithModeration(fn)
+		WithThrone(function(w, K)
+			local saved = { council = ns.rdb.council, netoff = ns.rdb.netoff, info = C_ChatInfo, alts = ns.Alts,
+				split = ns.splitNames, random = M.random }
+			local ok, err = pcall(function()
+				M.Reset()
+				ns.rdb.netoff = nil
+				ns.rdb.council = { at = 1, names = { ["test councillor"] = "Test Councillor" } }
+				C_ChatInfo = nil
+				fn(w, K)
+			end)
+			ns.rdb.council, ns.rdb.netoff, C_ChatInfo, ns.Alts = saved.council, saved.netoff, saved.info, saved.alts
+			ns.splitNames, M.random = saved.split, saved.random
+			M.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end
+	-- A made-up name of lower-case letters: 1 "b", 26 "ba".
+	local function Letters(i)
+		local s = ""
+		repeat
+			s = string.char(97 + i % 26) .. s
+			i = math.floor(i / 26)
+		until i == 0
+		return s
+	end
+	-- The rogue Hand fills the list: MAX.c words hiding made-up names (one message each, at t),
+	-- then one of them shown again (at t + 1), so that his next word finds room.
+	local function Flood(t)
+		for i = 1, M.MAX.c do M.Handle("CHANNEL", ROGUE, O1("c", true, t, "Filler " .. Letters(i) .. "-Realm", ROGUE, "x")) end
+		M.Handle("CHANNEL", ROGUE, O1("c", false, t + 1, "Filler " .. Letters(1) .. "-Realm", ROGUE, ""))
+	end
+
+	test("1.1 Konig's review (net-off, a full list): a rogue Hand who fills the list never pushes out the King's word showing a name again, so he can't hide that name again", function()
+		WithModeration(function(w, K)
+			AsSoldier("Watcher")
+			K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Rogue Hand-Realm")
+			local t = w.clock
+			M.Handle("CHANNEL", ROGUE, O1("c", true, t, "Victim Guy-Realm", ROGUE, "rogue"))
+			M.Handle("CHANNEL", KING, O1("c", false, t + 1, "Victim Guy-Realm", KING, ""))
+			eq(M.Hidden("Victim Guy-Realm"), nil, "the King's undo")
+			Flood(t + 2)
+			local kept = ns.rdb.netoff.c["victim guy-realm"]
+			assert(type(kept) == "table" and kept.off == false and kept.by == KING, "the King's word stays in the full list")
+			M.Handle("CHANNEL", ROGUE, O1("c", true, t + 4, "Victim Guy-Realm", ROGUE, "edit war won"))
+			eq(M.Hidden("Victim Guy-Realm"), nil, "the King's word still holds")
+			-- A word as high as the one it pushes out still finds room: the rogue's own "on" word goes.
+			M.Handle("CHANNEL", ROGUE, O1("c", true, t + 5, "Late Spammer-Realm", ROGUE, "spam"))
+			assert(M.Hidden("Late Spammer-Realm"), "a Hand's word takes the room of a Hand's older 'on' word")
+			eq(ns.rdb.netoff.c["filler b-realm"], nil, "the rogue's 'on' word went")
+			assert(ns.rdb.netoff.c["victim guy-realm"].by == KING, "the King's did not")
+		end)
+	end)
+
+	test("1.1 Konig's review (net-off, a full list): on the King's own client the flood never pushes out his word showing a name again, and he goes on repeating it", function()
+		WithModeration(function(w, K)
+			AsKing()
+			K.AddHand("Rogue Hand")
+			local t = w.clock
+			M.Handle("CHANNEL", ROGUE, O1("c", true, t, "Victim Guy-Realm", ROGUE, "rogue"))
+			eq(M.Set("c", "Victim Guy", false, ""), true, "the King shows him again")
+			Flood(t + 2)
+			M.Handle("CHANNEL", ROGUE, O1("c", true, t + 4, "Victim Guy-Realm", ROGUE, "edit war won"))
+			local kept = ns.rdb.netoff.c["victim guy-realm"]
+			assert(type(kept) == "table" and kept.off == false and kept.by == KING, "his own word stays")
+			w.sent = {}
+			M.random = function() return 0 end
+			for _ = 1, 40 do w.clock = w.clock + 60; M.Tick() end
+			local repeated = false
+			for _, s in ipairs(w.sent) do if s.msg:find("~Victim Guy-Realm~" .. KING .. "~", 1, true) then repeated = true end end
+			assert(repeated, "his client repeats his word on Victim Guy")
+		end)
+	end)
+
+	test("1.1 Konig's review (moderation fixes): the README and the CurseForge page say a full list never loses a word from higher up", function()
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, must in ipairs({ "a new word waits for room, except the King's own, which always finds it, and no word ever makes room by pushing out one from higher up" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+		end
+	end)
+end)()
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

@@ -389,7 +389,9 @@ the census, are not touched: one name stops the spam.
   a Hand while nobody who named him keeps his list alive) are no longer repeated, and fade
   within 3 days, as do, on the other addons, the words of an issuer who has not played for 3
   days (his addon repeats them when he is back). When the list is full (500 characters, 200
-  guilds) a new word waits for room, except the King's own, which always finds it.
+  guilds) a new word waits for room, except the King's own, which always finds it, and no word
+  ever makes room by pushing out one from higher up (1.1, Konig's review: a Hand who filled the
+  list pushed out the King's word showing a name again).
 - On the King's screen, while the council's names are hidden (his stream), another issuer's
   reason (even one written in his name) and a councillor's name stay hidden until he shows the
   council's names. Nothing about him or his alts is printed on his screen.

@@ -41,7 +41,8 @@ local L = ns.L
 -- Steward, a Steward above the Hands and councillors): a Hand or a councillor never hides the
 -- Steward, another Hand or another councillor. And no word replaces one from higher up (Take):
 -- a Hand or a councillor never puts back one the King or a Steward hid, nor hides again one the
--- King showed again; nor does a Steward undo the King's word.
+-- King showed again; nor does a Steward undo the King's word. Nor does a word push one from
+-- higher up out of a full list (MakeRoom): 1.1, Konig's review.
 -- What it is not: /oly block stays one client's and one player's, and nothing here uninvites,
 -- demotes, or writes Blizzard's ignore list. It never aims at the pinned King (his name in any
 -- case) or his guild. It knows nothing of the treasury or of payments, and no treasury code
@@ -52,7 +53,8 @@ ns.Moderation = Moderation
 
 Moderation.KINDS = { c = true, g = true } -- what a word may aim at: a character, a guild (no third)
 Moderation.MAX = { c = 500, g = 200 }     -- words kept per kind (full: the oldest "on" word goes; for the
-                                          -- King's own word, the oldest word not his)
+                                          -- King's own word, the oldest word not his; never one from
+                                          -- higher up than the new word: MakeRoom)
 Moderation.REPEAT = 300           -- an issuer's client repeats each word this long after it was last heard
 Moderation.JITTER = 90            -- ...and up to this much later, its own draw (the others' repeat first)
 Moderation.PER_TICK = 3           -- words one client repeats a minute at most
@@ -352,14 +354,16 @@ end
 
 -- Room for one more: the oldest word putting a name back on goes; none, no room, except for the
 -- King's own word (king), for which the oldest word taking a name off that is not his own goes:
--- a list filled by anyone never shuts the King out.
-local function MakeRoom(list, kind, king)
+-- a list filled by anyone never shuts the King out. Never a word that weighs more than the new
+-- one (weight: 1.1, Konig's review: a rogue Hand who filled the list pushed out the King's word
+-- showing a name again, then hid that name anyway).
+local function MakeRoom(list, kind, king, weight)
 	if Count(list) < Moderation.MAX[kind] then return true end
 	local oldest, oldestOff
 	for key, e in pairs(list) do
 		if not e.off then
-			if not oldest or e.at < list[oldest].at then oldest = key end
-		elseif king and not KingsOwn(e) and (not oldestOff or e.at < list[oldestOff].at) then
+			if (not oldest or e.at < list[oldest].at) and Weight(e) <= weight then oldest = key end
+		elseif king and not KingsOwn(e) and (not oldestOff or e.at < list[oldestOff].at) and Weight(e) <= weight then
 			oldestOff = key
 		end
 	end
@@ -482,7 +486,7 @@ local function Take(e)
 			if e.at < kept.at then return "older", kept end
 			if e.at == kept.at and not Outranks(e, kept) then return "tie", kept end
 		end
-	elseif not MakeRoom(list, e.kind, KingsOwn(e)) then
+	elseif not MakeRoom(list, e.kind, KingsOwn(e), Weight(e)) then
 		return "full"
 	end
 	e.heard = ns.Now()
