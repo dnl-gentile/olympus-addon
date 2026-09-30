@@ -472,6 +472,10 @@ function Workshop.HandleAnswer(dist, sender, text)
 	a.foldedName, a.foldedFull, a.foldedGuild = Fold(ns.DisplayName(sender)), Fold(sender), Fold(a.guild)
 	roll.answers[sender] = a
 	if Workshop.FullRunning() then FullEnough() end
+	-- 1.1.2: a player he asked alone answered: his results window (copyable), not a chat line.
+	if a.alone and AskedAlone(id, sender) and Workshop.IsAuthor() and ns.Versions and ns.Versions.ShowResults then
+		ns.SafeCall("ask one result", ns.Versions.ShowResults)
+	end
 	Changed()
 end
 
@@ -694,12 +698,19 @@ function Workshop.BugAction(text)
 	}
 end
 
+-- The report as the author gets it (1.1.2: "See what is sent" shows this): cut where it would be,
+-- its pipes as "!" (Pack), its line breaks back.
+function Workshop.Outgoing(text)
+	return (Pack(text):gsub("\\n", "\n"))
+end
+
 -- Piece 1 now; the rest once the author answers it (Workshop.HandleAck). No answer within
--- BUG_ACK: he is gone, the player is told and may try again later.
-function Workshop.SendBug(text)
+-- BUG_ACK: he is gone, the player is told and may try again later. requested (1.1.2): the author
+-- asked for it (Workshop.HandleBugAsk): the gap since the player's last report does not hold it back.
+function Workshop.SendBug(text, requested)
 	if not Workshop.AuthorOnline() or not authorName then return false end
 	local now = ns.Now()
-	if sending or now - lastBug < Workshop.BUG_GAP then
+	if sending or (not requested and now - lastBug < Workshop.BUG_GAP) then
 		ns.Print(L.WORKSHOP_BUG_WAIT:format(math.max(1, math.ceil((Workshop.BUG_GAP - (now - lastBug)) / 60))))
 		return false
 	end
@@ -769,12 +780,209 @@ function Workshop.HandleBug(dist, sender, text)
 	if e.got < n then return end
 	pieces[sender] = nil
 	ns.Comm.Whisper(sender, ("V6~%s~2"):format(id), "bugack:" .. sender)
-	reports[#reports + 1] = { from = sender, t = now, text = (table.concat(e.parts):gsub("\\n", "\n")) }
+	local r = { from = sender, t = now, text = (table.concat(e.parts):gsub("\\n", "\n")) }
+	reports[#reports + 1] = r
 	while #reports > Workshop.MAX_REPORTS do table.remove(reports, 1) end
-	ns.PlayAlert("soft", "help")
+	-- 1.1.2 (the author's ask): the report opens by itself in a window he can copy from, never in
+	-- chat (a chat line can't be copied); chat gets one short line. In an instance or while Busy it
+	-- waits like any alert (its sound, then the window), and the Decrees tab's held list opens it.
 	ns.Print(L.WORKSHOP_BUG_IN:format(ns.DisplayName(sender)))
+	ns.Alert("help", "soft", { what = L.WORKSHOP_BUG_FROM:format(ns.DisplayName(sender)), key = "bugreport",
+		show = function() Workshop.ShowReport(r) end })
 	Changed()
 end
+
+-- A report received, in its copy window: sender and time in its title, the whole text selected.
+-- r: a report, or its place in the list (nil: the newest).
+function Workshop.ShowReport(r)
+	if type(r) ~= "table" then r = reports[tonumber(r) or #reports] end
+	if not r then return false end
+	local UI = ns.UI
+	if not (UI and UI.ShowCopy) then return false end
+	local n = 0
+	for i, x in ipairs(reports) do if x == r then n = i end end
+	local title = L.WORKSHOP_BUG_FROM_AT:format(ns.DisplayName(r.from), date and date("%H:%M", r.t) or "", n, #reports)
+	UI.ShowCopy(title, r.text, nil, { key = "bug", big = true })
+	return true
+end
+
+---------------------------------------------------------------------------
+-- The author asks a player for their bug report (1.1.2, his ask): right-click a player who runs
+-- Olympus (PlayerMenu.lua), "Ask for a bug report". One small whisper, VR~<id>, at most once per
+-- BUGASK_EVERY per player. Their addon opens a window of its own (never a game popup, nothing
+-- focused: the gamepad UI's rules), where they see the exact text before anything goes and choose
+-- Send or Not now: Send is the Report a bug window's own path (Workshop.SendBug) to him, his
+-- request having just proved he is online; Not now sends nothing. Taken from his character alone
+-- (the server stamps the sender), once per BUGASK_GAP; it waits in an instance or while Busy, and
+-- goes stale after BUGASK_OPEN. His side opens the report in a copy window once it is in.
+--   VR~<id>   the author asks for this player's bug report   (whisper)
+---------------------------------------------------------------------------
+
+Workshop.BUGASK_EVERY = 120   -- the author asks the same player at most this often
+Workshop.BUGASK_GAP = 60      -- a player's window opens for his asks at most this often
+Workshop.BUGASK_OPEN = 10 * 60 -- an ask not answered in this long is gone
+local bugAsked = {}           -- [folded Name-Realm] = when the author asked them
+local bugAsk                  -- the author's ask waiting here: { id, from, t, text }
+local lastBugAskShown = -math.huge
+local bugAskFrame
+
+function Workshop.AskBug(name)
+	if not Workshop.IsAuthor() or type(name) ~= "string" then return false end
+	local key = AskKey(name)
+	local now = ns.Now()
+	local at = bugAsked[Fold(key)]
+	if at and now - at < Workshop.BUGASK_EVERY then
+		ns.Print(L.WORKSHOP_BUGASK_WAIT:format(ns.DisplayName(key), math.ceil(Workshop.BUGASK_EVERY - (now - at))))
+		return false
+	end
+	bugAsked[Fold(key)] = now
+	ns.Comm.Whisper(key, ("VR~%d"):format(Workshop.random(1, 99999)), "bugask:" .. key)
+	ns.Print(L.WORKSHOP_BUGASK_SENT:format(ns.DisplayName(key)))
+	return true
+end
+
+-- The ask still open here, or nil.
+function Workshop.BugAsk()
+	if bugAsk and ns.Now() - bugAsk.t > Workshop.BUGASK_OPEN then bugAsk = nil end
+	return bugAsk
+end
+
+function Workshop.HandleBugAsk(dist, sender, text)
+	if dist ~= "WHISPER" or not IsAuthorName(sender) or Workshop.IsAuthor() then return end
+	local id = tostring(text or ""):match("^VR~(%d+)$")
+	if not id or #id > 6 then return end
+	local now = ns.Now()
+	if now - lastBugAskShown < Workshop.BUGASK_GAP then return end
+	lastBugAskShown = now
+	-- He is online: his whisper says so (Workshop.SendBug sends to him).
+	authorAt, authorName = now, ns.FullName(sender)
+	bugAsk = { id = id, from = authorName, t = now }
+	local who = ns.DisplayName(authorName)
+	ns.Alert("help", "soft", { what = L.BUGASK_HELD:format(who), key = "bugask",
+		open = function() return Workshop.BugAsk() ~= nil end,
+		show = function() Workshop.ShowBugAsk() end })
+end
+
+-- Send: the report as shown, to the author; the window closes once it is on its way.
+function Workshop.AnswerBugAsk(send)
+	local ask = Workshop.BugAsk()
+	if bugAskFrame then bugAskFrame:Hide() end
+	bugAsk = nil
+	if not send or not ask then return false end
+	-- (Sent to the author who asked, even if another presence was heard meanwhile.)
+	authorAt, authorName = math.max(authorAt or 0, ask.t), ask.from
+	return Workshop.SendBug(ask.text or ns.BuildBugReport(), true)
+end
+
+local function BugAskButton(f, label, width)
+	local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+	b:SetSize(width, 22)
+	b:SetText(label)
+	return b
+end
+
+local BUGASK_W, BUGASK_H, BUGASK_OPEN_H = 440, 150, 420
+
+-- The report's view in the window: shown ("See what is sent") or not.
+local function BugAskExpand(f, on)
+	f.expanded = on and true or false
+	f.view:SetShown(f.expanded)
+	f.see:SetText(f.expanded and L.BUGASK_HIDE or L.BUGASK_SEE)
+	f:SetHeight(f.expanded and BUGASK_OPEN_H or BUGASK_H)
+	if f.expanded then
+		f.box:SetText(f.text or "")
+		if f.box.SetCursorPosition then f.box:SetCursorPosition(0) end
+	end
+end
+
+local function BuildBugAsk()
+	local f = CreateFrame("Frame", "OlympusBugAsk", UIParent, "BasicFrameTemplateWithInset")
+	f:SetSize(BUGASK_W, BUGASK_H)
+	f:SetPoint("CENTER", 0, 120)
+	f:SetFrameStrata("DIALOG")
+	f:SetToplevel(true)
+	f:SetClampedToScreen(true)
+	f:SetMovable(true)
+	f:EnableMouse(true)
+	f:RegisterForDrag("LeftButton")
+	f:SetScript("OnDragStart", f.StartMoving)
+	f:SetScript("OnDragStop", f.StopMovingOrSizing)
+	f:Hide()
+	-- Its X hides it itself (as the Olympus window's, 1.1.1): the template's would call HideUIPanel,
+	-- which does nothing in combat for a call that is not secure.
+	f.onCloseCallback = function()
+		f:Hide()
+		return false
+	end
+	if f.TitleText then f.TitleText:SetText(L.BUGASK_TITLE) end
+	f.message = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	f.message:SetPoint("TOPLEFT", 16, -34)
+	f.message:SetPoint("TOPRIGHT", -16, -34)
+	f.message:SetJustifyH("LEFT")
+	f.message:SetWordWrap(true)
+	-- The exact text that goes, read only (a click in it selects; the keyboard only on that click).
+	local view = CreateFrame("ScrollFrame", "OlympusBugAskScroll", f, "UIPanelScrollFrameTemplate")
+	view:SetPoint("TOPLEFT", 14, -96)
+	view:SetPoint("BOTTOMRIGHT", -32, 44)
+	local box = CreateFrame("EditBox", nil, view)
+	box:SetMultiLine(true)
+	box:SetFontObject(ChatFontNormal)
+	box:SetWidth(BUGASK_W - 56)
+	box:SetAutoFocus(false)
+	box.olympusBox = true
+	box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+	box:SetScript("OnTextChanged", function(self, userInput)
+		if userInput then self:SetText(f.text or "") end -- (read only)
+	end)
+	view:SetScrollChild(box)
+	view:Hide()
+	f.view, f.box = view, box
+	f.see = BugAskButton(f, L.BUGASK_SEE, 150)
+	f.see:SetPoint("BOTTOMLEFT", 12, 12)
+	f.see:SetScript("OnClick", function() ns.SafeCall("bug ask see", BugAskExpand, f, not f.expanded) end)
+	f.later = BugAskButton(f, L.BUGASK_LATER, 110)
+	f.later:SetPoint("BOTTOMRIGHT", -12, 12)
+	f.later:SetScript("OnClick", function() ns.SafeCall("bug ask later", Workshop.AnswerBugAsk, false) end)
+	f.send = BugAskButton(f, L.BUGASK_SEND, 110)
+	f.send:SetPoint("RIGHT", f.later, "LEFT", -6, 0)
+	f.send:SetScript("OnClick", function() ns.SafeCall("bug ask send", Workshop.AnswerBugAsk, true) end)
+	-- Its X, and Escape where Olympus may use it (never with the gamepad UI: ns.EscapeCloses): a
+	-- close without an answer is Not now.
+	f:SetScript("OnHide", function(self)
+		self.box:ClearFocus()
+		bugAsk = nil
+	end)
+	return f
+end
+
+-- The author's ask, in Olympus's own window: who asks, what goes (on a click), Send or Not now.
+function Workshop.ShowBugAsk()
+	local ask = Workshop.BugAsk()
+	if not ask then return nil end
+	bugAskFrame = bugAskFrame or BuildBugAsk()
+	ns.EscapeCloses("OlympusBugAsk")
+	-- The text shown is the one sent: built now, cut as it will be.
+	ask.text = Workshop.Outgoing(ns.BuildBugReport())
+	bugAskFrame.text = ask.text
+	bugAskFrame.message:SetText(L.BUGASK_TEXT:format(ns.DisplayName(ask.from)))
+	BugAskExpand(bugAskFrame, false)
+	bugAskFrame:Show()
+	return bugAskFrame
+end
+function Workshop.BugAskFrame() return bugAskFrame end -- (tests)
+
+-- The author's line in the right-click menu of a player who runs Olympus (an addon older than 1.1.2
+-- can't answer it: greyed, and its tooltip says why).
+function Workshop.MenuLines(target, menu)
+	if not Workshop.IsAuthor() then return end
+	local V = ns.Versions
+	if not (V and V.HasOlympus and V.HasOlympus(target.name)) then return end
+	local _, version = V.Status(target.name)
+	local old = version and Workshop.Newer("1.1.2", version)
+	menu.Button(L.WORKSHOP_BUGASK, function() Workshop.AskBug(target.name) end, L.WORKSHOP_BUGASK,
+		old and L.WORKSHOP_BUGASK_OLD:format(version) or L.WORKSHOP_BUGASK_TIP, not old)
+end
+ns.PlayerMenu.Add("bugreport", function(target, menu) Workshop.MenuLines(target, menu) end, 50)
 
 ---------------------------------------------------------------------------
 -- The tab
@@ -1122,7 +1330,7 @@ local function BugLines(lines)
 		lines[#lines + 1] = {
 			indent = 1, text = ns.DisplayName(r.from) .. "  " .. Grey(first:sub(1, 60)),
 			right = Grey(ns.Ago(r.t)),
-			onClick = function() ns.UI.ShowCopy(L.WORKSHOP_BUG_FROM:format(ns.DisplayName(r.from)), r.text) end,
+			onClick = function() Workshop.ShowReport(r) end,
 		}
 	end
 end
@@ -1175,6 +1383,10 @@ function Workshop.Reset()
 	search, shownAnswers, lastAskOne = "", Workshop.ROLL_PAGE, -math.huge
 	changePending = false
 	Workshop.ResetVersion()
+	wipe(bugAsked)
+	bugAsk, lastBugAskShown = nil, -math.huge
+	if bugAskFrame then bugAskFrame:Hide() end
+	bugAskFrame = nil -- (the next one is made with the toolkit then in use)
 end
 
 ---------------------------------------------------------------------------
@@ -2409,6 +2621,7 @@ ns.Comm.Handle("V3", function(...) Workshop.HandleUpdate(...) end)
 ns.Comm.Handle("V4", function(...) Workshop.HandlePresence(...) end)
 ns.Comm.Handle("V5", function(...) Workshop.HandleBug(...) end)
 ns.Comm.Handle("V6", function(...) Workshop.HandleAck(...) end)
+ns.Comm.Handle("VR", function(...) Workshop.HandleBugAsk(...) end)
 
 ns.On("LOGIN", function()
 	-- The author says he is online once on the channel, then every PRESENCE_EVERY.

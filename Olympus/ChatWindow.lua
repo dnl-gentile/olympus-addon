@@ -767,6 +767,22 @@ local function DrawTop(tiers, on)
 	frame.gear:SetPoint("TOPRIGHT", frame, "TOPRIGHT", s.right, s.top)
 	PaintGear()
 	local right = s.right - GEAR_W - TOP_GAP
+	-- 1.1.2: the page's "?" left of the gear (Answers.lua: the tab's explanation, the detail box's
+	-- "?" of the other tabs being under this one), and the Answers of the author, the High Council
+	-- and the Stewards while the lines and their box show.
+	frame.help:ClearAllPoints()
+	frame.help:SetPoint("TOPRIGHT", frame, "TOPRIGHT", right, s.top)
+	frame.help:Show()
+	right = right - GEAR_W - TOP_GAP
+	local A = ns.Answers
+	if lines and A and type(A.Allowed) == "function" and A.Allowed() then
+		frame.answers:ClearAllPoints()
+		frame.answers:SetPoint("TOPRIGHT", frame, "TOPRIGHT", right, s.top)
+		frame.answers:Show()
+		right = right - frame.answers:GetWidth() - TOP_GAP
+	else
+		frame.answers:Hide()
+	end
 	local sw = frame.switch
 	if lines and #tiers > 1 then
 		PaintSwitch()
@@ -1636,6 +1652,43 @@ local function Button(parent, text, width)
 	return b
 end
 
+-- 1.1.2: the tab's "?" (its explanation, Answers.lua) and the Answers button (the author, the High
+-- Council and the Stewards: a ready answer into this box, Answers.lua), on the top row.
+local function MakeHelp(p)
+	local h = CreateFrame("Button", nil, p)
+	h:SetSize(GEAR_W, GEAR_W)
+	h.icon = h:CreateTexture(nil, "ARTWORK")
+	h.icon:SetSize(18, 18)
+	h.icon:SetPoint("CENTER", h, "CENTER", 0, 0)
+	h.icon:SetTexture("Interface\\Common\\help-i")
+	h:SetHighlightTexture("Interface\\Common\\help-i", "ADD")
+	h:SetScript("OnClick", function()
+		ns.SafeCall("chat help", function() if ns.Answers and ns.Answers.ExplainPage then ns.Answers.ExplainPage("chat/") end end)
+	end)
+	h:SetScript("OnEnter", function(self)
+		Tip(self, function(tt)
+			tt:AddLine(L.PAGE_HELP, 1, 0.82, 0)
+			tt:AddLine(L.PAGE_HELP_TIP, 1, 1, 1, true)
+		end)
+	end)
+	h:SetScript("OnLeave", function(self) Untip(self) end)
+	p.help = h
+	local a = Button(p, L.ANSWERS_BTN, 70)
+	a:SetHeight(SEARCH_H)
+	a:SetScript("OnClick", function()
+		ns.SafeCall("chat answers", function() if ns.Answers and ns.Answers.Open then ns.Answers.Open(p.input) end end)
+	end)
+	a:SetScript("OnEnter", function(self)
+		Tip(self, function(tt)
+			tt:AddLine(L.ANSWERS_BTN, 1, 0.82, 0)
+			tt:AddLine(L.ANSWERS_BTN_TIP, 1, 1, 1, true)
+		end)
+	end)
+	a:SetScript("OnLeave", function(self) Untip(self) end)
+	a:Hide()
+	p.answers = a
+end
+
 -- A strip over the lines (the pinned line, the Olympus tab's line, the count of the hidden lines): a
 -- button with wrapped text.
 local function StripButton(p, lines)
@@ -1713,6 +1766,7 @@ local function Build(h)
 	-- On the same row, right of the search: the channels' switch, and the gear at the row's end.
 	MakeSwitch(p)
 	MakeGear(p)
+	MakeHelp(p)
 
 	-- The pinned line.
 	p.pin = StripButton(p, PIN_LINES)

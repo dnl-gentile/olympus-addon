@@ -1566,6 +1566,11 @@ StandIn("Keys", { "RotatePrompt" })
 StandIn("Loot", { "Show" }) -- (1.1)
 StandIn("Crafters", { "Ask", "Slash" }) -- (1.1)
 StandIn("ChatWindow", { "Open", "Toggle" }) -- 1.1.1: the Chat tab of the Olympus window (ChatWindow.lua)
+-- 1.1.2: the right-click menus' lines (PlayerMenu.lua), a player's version (Versions.lua), the
+-- answer bank's Answers and explanations (Answers.lua).
+StandIn("PlayerMenu", {})
+StandIn("Versions", { "Check", "AskUpdate", "Tell" })
+StandIn("Answers", { "Open" })
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1644,7 +1649,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Dues", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Backup", "Loot", "Crafters", "Board", "Week", "Consent", "Chronicle", "Filter", "Members", "Moderation", "Alts", "Keys", "ChatWindow" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Dues", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Backup", "Loot", "Crafters", "Board", "Week", "Consent", "Chronicle", "Filter", "Members", "Moderation", "Alts", "Keys", "ChatWindow", "PlayerMenu", "Versions", "Answers" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then
@@ -1926,7 +1931,13 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "bug" then
 			ns.UI.ShowBugReport()
 		elseif cmd == "status" then
-			for line in ns.StatusText():gmatch("[^\n]+") do print("  " .. line) end
+			-- 1.1.2: the author's in a copy window (he copies it; a chat line can't be), everyone
+			-- else's in chat as before.
+			if ns.Workshop.IsAuthor and ns.Workshop.IsAuthor() == true and ns.UI.ShowCopy then
+				ns.UI.ShowCopy("/oly status", ns.StatusText(), nil, { key = "status" })
+			else
+				for line in ns.StatusText():gmatch("[^\n]+") do print("  " .. line) end
+			end
 		elseif cmd == "key" then
 			-- 1.1: "rotate" is the King's rotation of the army's key (Keys.lua), never a key: anyone
 			-- else is told so (and a /reload before the restart the new file needs), and no guild is

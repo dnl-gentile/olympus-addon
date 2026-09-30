@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "Diagnostics", "Dialog", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Board", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "Crafters", "Chronicle", "Workshop", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "Views", "Consent", "Members", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Board", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "Crafters", "Chronicle", "Workshop", "Versions", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "AnswerBank", "Answers", "Views", "Consent", "Members", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -43775,7 +43775,10 @@ do
 				local s = f.search:Anchor("TOPLEFT")
 				eq(s[2], f); eq(s[5], -30); assert(s[4] > main.headerX, "right of the portrait")
 				eq(f.gear:Anchor("TOPRIGHT")[4], -26); eq(f.gear:Anchor("TOPRIGHT")[5], -30); eq(f.gear:IsShown(), true)
-				eq(f.search:Anchor("TOPRIGHT")[4], -50, "the search ends where the gear begins"); eq(f.search:Anchor("TOPRIGHT")[5], -30)
+				-- (Changed on purpose, 1.1.2: the tab's "?" sits left of the gear, 20 wide and 4 apart,
+				-- its explanation, Answers.lua; the search box ends where the "?" begins, 24 further left.)
+				eq(f.help:Anchor("TOPRIGHT")[4], -50); eq(f.help:Anchor("TOPRIGHT")[5], -30); eq(f.help:IsShown(), true)
+				eq(f.search:Anchor("TOPRIGHT")[4], -74, "the search ends where the tab's ? begins"); eq(f.search:Anchor("TOPRIGHT")[5], -30)
 				eq(f.searchLabel:GetText(), L.SEARCH); eq(f.searchLabel:Anchor("TOPLEFT")[4], main.headerX)
 				eq(f.pills, nil, "no row of pills"); eq(f.switch:IsShown(), false, "one channel: no switch")
 				eq(f.box:Anchor("TOPLEFT")[4], 6); eq(f.box:Anchor("TOPLEFT")[5], -56, "the lines take the pills' row")
@@ -43796,9 +43799,9 @@ do
 				-- shorter; still no row of its own.
 				AsCaptain()
 				w.CW.Render()
-				eq(f.switch:IsShown(), true); eq(f.switch:Anchor("TOPRIGHT")[4], -50); eq(f.switch:Anchor("TOPRIGHT")[5], -30)
+				eq(f.switch:IsShown(), true); eq(f.switch:Anchor("TOPRIGHT")[4], -74, "left of the tab's ? (1.1.2)"); eq(f.switch:Anchor("TOPRIGHT")[5], -30)
 				eq(f.switch:GetHeight(), 20, "the search box's height")
-				eq(f.search:Anchor("TOPRIGHT")[4], -50 - f.switch:GetWidth() - 4, "the search ends where the switch begins")
+				eq(f.search:Anchor("TOPRIGHT")[4], -74 - f.switch:GetWidth() - 4, "the search ends where the switch begins")
 				eq(f.box:Anchor("TOPLEFT")[5], -56, "no row of its own")
 				AsSoldier()
 				w.CW.Render()
@@ -44684,6 +44687,53 @@ do
 		end)
 		end)()
 	end
+	-- 1.1.2: the Chat tab's "?" (its explanation, Answers.lua) and the Answers button of the author,
+	-- the High Council and the Stewards.
+	do
+		test("1.1.2 Chat tab: its '?' explains the tab from the answer bank; the Answers button for the High Council (and the author, the Stewards) alone fills the tab's box, never sends, never takes the keyboard", function()
+			WithWindow(function(w)
+				ns.Channels.TabState = function() return "open" end
+				ns.Channels.Pin = function() return nil end
+				local sent = {}
+				local savedHC, savedShift = ns.IsHighCouncillor, IsShiftKeyDown
+				local ok, err = pcall(function()
+					ns.Channels.Send = function(t, text) sent[#sent + 1] = text return true end
+					IsShiftKeyDown = function() return false end
+					local f = w.CW.Open()
+					-- A soldier: the "?", no Answers.
+					eq(f.help:IsShown(), true); eq(f.answers:IsShown(), false)
+					f.help:Click()
+					local box = OlympusCopyFrame
+					eq(box:IsShown(), true); eq(box.TitleText:GetText(), L.PAGE_HELP_TITLE:format(L.TAB_CHAT))
+					assert(box.text:find(ns.Answers.Find("feat-chat-tab").long, 1, true), box.text)
+					-- A High Councillor: the Answers button, left of the "?", the search box shorter.
+					ns.IsHighCouncillor = function(name) return name == ns.me end
+					w.CW.Render()
+					eq(f.answers:IsShown(), true); eq(f.answers:Anchor("TOPRIGHT")[4], -74)
+					eq(f.search:Anchor("TOPRIGHT")[4], -74 - f.answers:GetWidth() - 4)
+					f.input:SetText("")
+					w.focus = {} -- (the copy box took its own box's keyboard, as it does with mouse and keyboard)
+					f.answers:Click()
+					local picker = OlympusAnswers
+					eq(picker:IsShown(), true)
+					local entry = ns.Answers.Find("count-not-a-bug")
+					local row
+					for _, r in ipairs(picker.rows) do if r:IsShown() and r.entry == entry then row = r end end
+					assert(row, "the row")
+					row:Click()
+					eq(f.input:GetText(), entry.text); eq(picker:IsShown(), false)
+					eq(#sent, 0, "nothing sent"); eq(#w.focus, 0, "no keyboard taken")
+					-- The settings (the gear): no Answers there (no box to fill).
+					w.CW.ShowSettings(true)
+					eq(f.answers:IsShown(), false)
+					w.CW.ShowSettings(false)
+				end)
+				ns.IsHighCouncillor, IsShiftKeyDown = savedHC, savedShift
+				ns.Answers.Reset()
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end
 end
 
 -- 1.1: the review of the net-off fixes, its last point (the Agenda's event).
@@ -45466,6 +45516,888 @@ end)()
 			end
 		end)
 	end)()
+end)()
+
+---------------------------------------------------------------------------
+-- 1.1.2: the right-click menus (PlayerMenu.lua); a player's Olympus version, Ask to update, Check
+-- version and Tell them about Olympus (Versions.lua); the author's Ask for a bug report, the
+-- player's window for it and the author's report window (Workshop.lua); the answer bank
+-- (docs/answers.json, scripts/answers.lua, AnswerBank.lua), its Answers and each page's "?"
+-- (Answers.lua). A function of its own (the main chunk is near LuaJIT's 200 locals).
+---------------------------------------------------------------------------
+;(function()
+	local L = ns.L
+	local PM, V, A, W = ns.PlayerMenu, ns.Versions, ns.Answers, ns.Workshop
+
+	-- The game's menu description as Blizzard_Menu gives it to Menu.ModifyMenu's callbacks
+	-- (MenuUtil: CreateDivider, CreateTitle, CreateButton; SetTooltip and SetEnabled on a line).
+	local function MenuRoot()
+		local root = { items = {} }
+		local function Desc(kind, text, cb)
+			local d = { kind = kind, text = text, cb = cb, enabled = true }
+			function d:SetTooltip(fn) self.tip = fn end
+			function d:SetEnabled(on) self.enabled = on end
+			root.items[#root.items + 1] = d
+			return d
+		end
+		function root:CreateDivider() return Desc("divider") end
+		function root:CreateTitle(text) return Desc("title", text) end
+		function root:CreateButton(text, cb) return Desc("button", text, cb) end
+		function root.Find(text)
+			for _, d in ipairs(root.items) do if d.text == text then return d end end
+		end
+		function root.Texts()
+			local out = {}
+			for _, d in ipairs(root.items) do out[#out + 1] = d.kind .. ":" .. tostring(d.text or "") end
+			return table.concat(out, " | ")
+		end
+		return root
+	end
+	local function TipOf(d)
+		local tt = { lines = {} }
+		function tt:AddLine(text) self.lines[#self.lines + 1] = text end
+		d.tip(tt)
+		return table.concat(tt.lines, "\n")
+	end
+	-- A tooltip that records every line (AddLine, AddDoubleLine).
+	local function Tooltip()
+		local tt = { lines = {} }
+		function tt:AddLine(text) self.lines[#self.lines + 1] = tostring(text) end
+		function tt:AddDoubleLine(a, b) self.lines[#self.lines + 1] = tostring(a) .. " " .. tostring(b) end
+		function tt.Has(text) for _, l in ipairs(tt.lines) do if l:find(text, 1, true) then return true end end return false end
+		return tt
+	end
+
+	-- fn(w, W) as WithWorkshop's `me`, with: the versions' guild hellos from `hellos` ([short name] =
+	-- version, heard at w.clock - (w.helloAge or 0)), the version checks' timers in w.timers
+	-- (RunTimers-like: w.Run()), a fixed check id, no saved asks or released version, ns.UI's copy
+	-- windows recorded in w.copies (ns.UI a stand-in, unless keepUI).
+	local function WithVersions(me, fn, keepUI)
+		WithWorkshop(me, function(w, W)
+			local saved = { peer = ns.Comm.PeerVersion, after = V.after, random = V.random, ui = ns.UI, release = ns.db.authorRelease,
+				asked = ns.db.updateAsked, times = ns.db.updateAskTimes, shown = ns.db.updateAskShown, snooze = ns.db.updateAskSnooze,
+				friends = C_FriendList, blocked = ns.db.blocked }
+			w.hellos, w.timers, w.copies = {}, {}, {}
+			local ok, err = pcall(function()
+				V.Reset()
+				ns.db.authorRelease, ns.db.updateAsked, ns.db.updateAskTimes, ns.db.updateAskShown, ns.db.updateAskSnooze = nil, nil, nil, nil, nil
+				ns.db.blocked = {}
+				ns.Comm.PeerVersion = function(name)
+					local v = w.hellos[ns.ShortName(ns.FullName(ns.Normal(name)))]
+					if v then return v, w.clock - (w.helloAge or 0) end
+				end
+				V.after = function(_, _, f) w.timers[#w.timers + 1] = f end
+				V.random = function(a, b) if a then return 4242 end return 0.5 end
+				w.Run = function() local due = w.timers; w.timers = {}; for _, f in ipairs(due) do f() end end
+				if not keepUI then
+					ns.UI = { ShowCopy = function(title, text, action, opts) w.copies[#w.copies + 1] = { title = title, text = text, opts = opts } end,
+						LINKS = { curseforge = "https://www.curseforge.com/wow/addons/olympus-guild" } }
+				end
+				fn(w, W)
+			end)
+			ns.Comm.PeerVersion, V.after, V.random, ns.UI, ns.db.authorRelease = saved.peer, saved.after, saved.random, saved.ui, saved.release
+			ns.db.updateAsked, ns.db.updateAskTimes, ns.db.updateAskShown, ns.db.updateAskSnooze = saved.asked, saved.times, saved.shown, saved.snooze
+			C_FriendList, ns.db.blocked = saved.friends, saved.blocked
+			V.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end
+
+	test("1.1.2 player menus: Menu.ModifyMenu for each player menu (never ENEMY_PLAYER, SELF, offline names or Battle.net); Olympus's lines after a divider and its title, only for a player we can reach; nothing without Menu", function()
+		WithVersions("Tester-Realm", function(w)
+			local savedMenu, savedEnum = rawget(_G, "Menu"), Enum.ClubMemberPresence
+			local savedUnit = { player = UnitIsPlayer, is = UnitIsUnit, conn = UnitIsConnected, full = UnitFullName }
+			local hooks, order = {}, {}
+			local ok, err = pcall(function()
+				-- A client without the new menus: nothing hooked, and nothing breaks.
+				Menu = nil
+				PM.Reset()
+				eq(PM.Hook(), false)
+				Menu = { ModifyMenu = function(tag, cb) hooks[tag] = cb; order[#order + 1] = tag; return {} end }
+				eq(PM.Hook(), true); eq(PM.Hook(), true, "once")
+				eq(#order, #PM.WHICH, "each menu once")
+				for _, which in ipairs({ "PLAYER", "PARTY", "RAID_PLAYER", "RAID", "FRIEND", "COMMUNITIES_GUILD_MEMBER", "GUILD", "CHAT_ROSTER" }) do
+					assert(hooks["MENU_UNIT_" .. which], which)
+				end
+				for _, which in ipairs({ "ENEMY_PLAYER", "SELF", "FRIEND_OFFLINE", "GUILD_OFFLINE", "BN_FRIEND", "BN_FRIEND_OFFLINE", "TARGET" }) do
+					eq(hooks["MENU_UNIT_" .. which], nil, which)
+				end
+				-- A name in chat (FRIEND): the divider, "Olympus", the version line, Check version.
+				local root = MenuRoot()
+				hooks.MENU_UNIT_FRIEND(nil, root, { name = "Ann", which = "FRIEND" })
+				eq(root.Texts(), "divider: | title:Olympus | title:" .. L.VERSION_LINE_UNKNOWN .. " | button:" .. L.VERSION_CHECK)
+				assert(TipOf(root.Find(L.VERSION_CHECK)):find(L.VERSION_CHECK_TIP, 1, true))
+				eq(#w.whispered + #w.sent, 0, "opening a menu sends nothing")
+				-- Whoever we can't reach: no line at all.
+				Enum.ClubMemberPresence = { Online = 1, OnlineMobile = 2, Offline = 3 }
+				for _, ctx in ipairs({ { name = "Tester" }, { name = "Ann", isSelf = true }, { name = "Ann", bnetIDAccount = 7 },
+					{ name = "Ann", clubMemberInfo = { presence = 3 } }, { name = "Ann", isMobile = true }, { name = "" }, {} }) do
+					local r = MenuRoot()
+					hooks.MENU_UNIT_COMMUNITIES_GUILD_MEMBER(nil, r, ctx)
+					eq(#r.items, 0, "no line for " .. tostring(ctx.name))
+				end
+				local r = MenuRoot()
+				hooks.MENU_UNIT_COMMUNITIES_GUILD_MEMBER(nil, r, { name = "Ann", clubMemberInfo = { presence = 1 } })
+				assert(#r.items > 0, "online in the roster")
+				-- A unit (the target frame): its name as the server writes it; not a player, not connected: nothing.
+				UnitIsPlayer = function(unit) return unit ~= "npc" end
+				UnitIsUnit = function(a, b) return a == "player" and b == "player" end
+				UnitIsConnected = function(unit) return unit ~= "gone" end
+				UnitFullName = function(unit) if unit == "target" then return "Bob", "Realm" end return "Tester", "Realm" end
+				w.hellos.Bob = "1.0.0"
+				r = MenuRoot()
+				hooks.MENU_UNIT_PLAYER(nil, r, { unit = "target" })
+				eq(r.Texts(), "divider: | title:Olympus | title:" .. L.VERSION_LINE_OUTDATED:format("1.0.0") .. " | button:" .. L.VERSION_ASK)
+				eq(PM.Target("PLAYER", { unit = "target" }).name, "Bob-Realm")
+				for _, unit in ipairs({ "npc", "gone", "player" }) do eq(PM.Target("PLAYER", { unit = unit }), nil, unit) end
+				-- Classic's split name (the menu gives "Bob" and his realm apart): whole again.
+				eq(PM.Target("FRIEND", { name = "Bob", surname = "Otherrealm" }).name, "Bob-Otherrealm")
+				-- Outside an Olympus guild: nothing (the addon sends nothing there anyway).
+				GetGuildInfo = function() return "Wanderers", "Member", 3 end
+				r = MenuRoot()
+				hooks.MENU_UNIT_FRIEND(nil, r, { name = "Ann" })
+				eq(#r.items, 0, "not in an Olympus guild")
+				-- A feature that adds nothing: no divider, no title.
+				GetGuildInfo = function() return "Olympus II", "Member", 3 end
+				local root2 = MenuRoot()
+				eq(PM.Add("test-nothing", function() end, 1), true)
+				PM.Add("versions", function() end, 10) -- (replaced for this check, put back below)
+				hooks.MENU_UNIT_FRIEND(nil, root2, { name = "Ann" })
+				eq(#root2.items, 0, "nothing of Olympus without a line")
+				PM.Add("versions", function(target, menu) V.MenuLines(target, menu) end, 10)
+				eq(PM.Add("test-nothing", nil), false, "taken off")
+				assert(PM.StatusLine():find("hooked", 1, true))
+			end)
+			Menu, Enum.ClubMemberPresence = savedMenu, savedEnum
+			UnitIsPlayer, UnitIsUnit, UnitIsConnected, UnitFullName = savedUnit.player, savedUnit.is, savedUnit.conn, savedUnit.full
+			PM.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.2 versions: a guildmate's hello names it (by the short name too); up to date, out of date, newer, unreadable; the author's released version is the newest known", function()
+		local cns, Deliver = FreshComm()
+		Deliver("GUILD", "Ann", "H1~" .. ns.VERSION .. "~Realm~p")
+		Deliver("GUILD", "Bob", "H1~1.1.0~Realm~p")
+		Deliver("GUILD", "Dan", "H1~beta~Realm~p")
+		local v, at = cns.Comm.PeerVersion("Ann")
+		eq(v, ns.VERSION); eq(at, cns.clock)
+		eq((cns.Comm.PeerVersion("Ann-OtherRealm")), ns.VERSION, "the short name when the realm is written apart")
+		eq((cns.Comm.PeerVersion("Dan-Realm")), "?", "a version it can't read")
+		eq(cns.Comm.PeerVersion("Eve"), nil, "no hello: nothing")
+		WithVersions("Tester-Realm", function(w, W)
+			ns.Comm.PeerVersion = cns.Comm.PeerVersion
+			eq((V.Status("Ann-Realm")), "current")
+			local state, version, how = V.Status("Bob")
+			eq(state, "outdated"); eq(version, "1.1.0"); eq(how, "hello")
+			eq((V.Status("Dan")), "olympus"); eq((V.Status("Eve")), "unknown")
+			eq(V.Line("outdated", "1.1.0"), L.VERSION_LINE_OUTDATED:format("1.1.0"))
+			w.hellos = {}
+			ns.Comm.PeerVersion = function(name) if ns.ShortName(name) == "Cid" then return "9.9.9", w.clock end end
+			eq((V.Status("Cid")), "newer", "newer than ours: never the newest known (anyone can send any number)")
+			eq(V.Latest(), ns.VERSION)
+			-- The author's presence names 9.9.8 as out: Ann's version is behind it now.
+			W.HeardVersion("9.9.8")
+			eq(V.Latest(), "9.9.8")
+			ns.Comm.PeerVersion = cns.Comm.PeerVersion
+			eq((V.Status("Ann")), "outdated")
+			W.ResetVersion()
+		end)
+	end)
+
+	test("1.1.2 Check version: one addon whisper, answered with the version alone; 'no answer' after 10 s; once per player every 2 min, 6 a minute; the answering side's limits, blocks and ignores", function()
+		WithVersions("Tester-Realm", function(w, W)
+			eq(V.Check("Ann-Realm"), true)
+			eq(#w.whispered, 1); eq(w.whispered[1].to, "Ann-Realm"); eq(w.whispered[1].msg, "V7~4242"); eq(w.whispered[1].key, "vcheck:ann")
+			eq((V.Status("Ann")), "checking")
+			-- Wrong id, the channel, another sender: nothing.
+			V.HandleAnswer("WHISPER", "Ann-Realm", "V8~1~1.1.0")
+			V.HandleAnswer("CHANNEL", "Ann-Realm", "V8~4242~1.1.0")
+			V.HandleAnswer("WHISPER", "Bob-Realm", "V8~4242~1.1.0")
+			eq((V.Status("Ann")), "checking")
+			V.HandleAnswer("WHISPER", "Ann-Realm", "V8~4242~" .. ns.VERSION)
+			local state, version, how = V.Status("Ann")
+			eq(state, "current"); eq(version, ns.VERSION); eq(how, "check")
+			eq(w.printed[#w.printed], "Ann: " .. L.VERSION_LINE_CURRENT:format(ns.VERSION), "one line in chat")
+			eq(#w.copies, 0, "no window for a player")
+			-- Again soon: refused, nothing sent.
+			eq(V.Check("Ann"), false); eq(#w.whispered, 1)
+			-- No answer in 10 s: "no answer", and Tell them about Olympus in the menu.
+			V.Check("Bob-Realm")
+			w.Run()
+			eq((V.Status("Bob")), "none")
+			eq(w.printed[#w.printed], L.VERSION_RESULT_NONE:format("Bob"))
+			local root = MenuRoot()
+			V.MenuLines({ name = "Bob-Realm" }, { Line = function(t) root:CreateTitle(t) end, Button = function(t) root:CreateButton(t) end })
+			eq(root.Texts(), "title:" .. L.VERSION_LINE_NONE .. " | button:" .. L.VERSION_TELL, "no Check again within 2 minutes")
+			w.clock = w.clock + V.PING_GAP
+			root = MenuRoot()
+			V.MenuLines({ name = "Bob-Realm" }, { Line = function(t) root:CreateTitle(t) end, Button = function(t) root:CreateButton(t) end })
+			eq(root.Texts(), "title:" .. L.VERSION_LINE_NONE .. " | button:" .. L.VERSION_CHECK .. " | button:" .. L.VERSION_TELL)
+			-- A late answer still counts.
+			V.HandleAnswer("WHISPER", "Bob-Realm", "V8~4242~1.0.9")
+			eq((V.Status("Bob")), "outdated")
+			-- Six a minute at most, whoever they go to.
+			w.clock = w.clock + 61
+			local sent = 0
+			for i = 1, 8 do if V.Check("P" .. i .. "-Realm") then sent = sent + 1 end end
+			eq(sent, V.PING_MAX); eq(w.printed[#w.printed], L.VERSION_CHECK_BUSY)
+			-- Answering: the version and the id, to that player alone; once per 30 s each, 20 a minute.
+			w.whispered = {}
+			V.HandlePing("WHISPER", "Zed-Realm", "V7~77")
+			eq(#w.whispered, 1); eq(w.whispered[1].to, "Zed-Realm"); eq(w.whispered[1].msg, "V8~77~" .. ns.VERSION)
+			V.HandlePing("WHISPER", "Zed-Realm", "V7~78")
+			V.HandlePing("CHANNEL", "Yan-Realm", "V7~79")
+			V.HandlePing("WHISPER", "Yan-Realm", "V7~1234567")
+			V.HandlePing("WHISPER", "Yan-Realm", "V7~evil~text")
+			eq(#w.whispered, 1, "again too soon, the channel, a long id or garbage: no answer")
+			ns.db.blocked["yan-realm"] = true
+			V.HandlePing("WHISPER", "Yan-Realm", "V7~80")
+			C_FriendList = { IsIgnored = function(n) return n == "Xia" end }
+			V.HandlePing("WHISPER", "Xia-Realm", "V7~81")
+			eq(#w.whispered, 1, "blocked or ignored: no answer")
+			for i = 1, 30 do V.HandlePing("WHISPER", "Q" .. i .. "-Realm", "V7~" .. i) end
+			eq(#w.whispered, V.ANSWER_MAX, "20 a minute")
+			w.clock = w.clock + V.ANSWER_GAP
+			V.HandlePing("WHISPER", "Zed-Realm", "V7~90")
+			eq(#w.whispered, V.ANSWER_MAX, "the minute's budget still spent")
+			w.clock = w.clock + 60
+			V.HandlePing("WHISPER", "Zed-Realm", "V7~91")
+			eq(w.whispered[#w.whispered].msg, "V8~91~" .. ns.VERSION)
+		end)
+	end)
+
+	test("1.1.2 the author's version checks and 'Ask <name>' answers open his copy window, never chat lines", function()
+		WithVersions(AUTHOR_FULL, function(w, W)
+			V.Check("Ann-Realm")
+			local before = #w.printed
+			V.HandleAnswer("WHISPER", "Ann-Realm", "V8~4242~1.1.0")
+			eq(#w.printed, before, "no chat line")
+			eq(#w.copies, 1); eq(w.copies[1].title, L.VERSION_RESULTS_TITLE); eq(w.copies[1].opts.key, "versions")
+			assert(w.copies[1].text:find("Ann  " .. L.VERSION_LINE_OUTDATED:format("1.1.0"), 1, true), w.copies[1].text)
+			assert(w.copies[1].text:find(L.VERSION_RESULTS_HEAD:format(W.Latest()), 1, true))
+			-- His roll call to one player alone (Ask <name>): the answer in the same window.
+			W.AskOne("Bob-Realm")
+			local id = tonumber(w.whispered[#w.whispered].msg:match("^V1~(%d+)~100$"))
+			W.HandleAnswer("WHISPER", "Bob-Realm", ("V2~%d~1.0.0~~Forever~~c~0~0~"):format(id))
+			eq(#w.copies, 2)
+			assert(w.copies[2].text:find("Bob  " .. L.VERSION_LINE_OUTDATED:format("1.0.0"), 1, true), w.copies[2].text)
+		end)
+	end)
+
+	test("1.1.2 Ask to update: only for a player behind; one ask per player a day, five an hour; the author's is his usual update window (V3)", function()
+		WithVersions("Tester-Realm", function(w, W)
+			w.hellos = { Ann = ns.VERSION, Bob = "1.0.0", P1 = "1.0.0", P2 = "1.0.0", P3 = "1.0.0", P4 = "1.0.0", P5 = "1.0.0" }
+			eq(V.AskUpdate("Ann-Realm"), false, "up to date"); eq(#w.whispered, 0)
+			eq(V.AskUpdate("Eve-Realm"), false, "nothing known"); eq(#w.whispered, 0)
+			eq(V.AskUpdate("Bob-Realm"), true)
+			eq(w.whispered[1].to, "Bob-Realm"); eq(w.whispered[1].msg, "V9~" .. ns.VERSION); eq(w.whispered[1].key, "vask:bob")
+			eq(w.printed[#w.printed], L.VERSION_ASKED:format("Bob"))
+			eq(V.AskUpdate("Bob"), false, "once a day"); eq(w.printed[#w.printed], L.VERSION_ASK_WAIT_ONE:format("Bob"))
+			for i = 1, 5 do V.AskUpdate("P" .. i .. "-Realm") end
+			eq(#w.whispered, 5, "Bob and four more: five an hour")
+			eq(w.printed[#w.printed], L.VERSION_ASK_WAIT_HOUR:format(V.ASK_HOUR))
+			w.clock = w.clock + 3601
+			eq(V.AskUpdate("P5-Realm"), true, "the next hour")
+			eq(V.AskUpdate("Bob-Realm"), false, "Bob: still today")
+			w.clock = w.clock + V.ASK_GAP
+			eq(V.AskUpdate("Bob-Realm"), true, "a day later")
+			-- The menu offers it for Bob, not for Ann.
+			local root = MenuRoot()
+			V.MenuLines({ name = "Ann-Realm" }, { Line = function(t) root:CreateTitle(t) end, Button = function(t) root:CreateButton(t) end })
+			eq(root.Texts(), "title:" .. L.VERSION_LINE_CURRENT:format(ns.VERSION))
+		end)
+		WithVersions(AUTHOR_FULL, function(w, W)
+			w.hellos = { Bob = "1.0.0" }
+			eq(V.AskUpdate("Bob-Realm"), true)
+			eq(w.whispered[1].msg, "V3~" .. W.Latest(), "the author's own update window"); eq(w.whispered[1].key, "askupdate:Bob-Realm")
+			eq(V.AskUpdate("Bob-Realm"), false, "his own gap (10 minutes)")
+		end)
+	end)
+
+	test("1.1.2 asked to update: a small notice with both versions and where to update, once a day, not for 7 days after Don't remind me; never from a blocked or ignored player, nor for a version not newer", function()
+		WithVersions("Tester-Realm", function(w, W)
+			local mine = ns.VERSION
+			ns.VERSION = "1.1.0"
+			local ok, err = pcall(function()
+				V.HandleAsk("WHISPER", "Ann-Realm", "V9~1.1.0")
+				V.HandleAsk("WHISPER", "Ann-Realm", "V9~1.0.9")
+				V.HandleAsk("WHISPER", "Ann-Realm", "V9~go to evil.example")
+				V.HandleAsk("CHANNEL", "Ann-Realm", "V9~1.1.2")
+				eq(#w.popups, 0, "not newer, garbage or the channel: nothing")
+				ns.db.blocked["ann-realm"] = true
+				V.HandleAsk("WHISPER", "Ann-Realm", "V9~1.1.2")
+				C_FriendList = { IsIgnored = function(n) return n == "Bob" end }
+				V.HandleAsk("WHISPER", "Bob-Realm", "V9~1.1.2")
+				eq(#w.popups, 0, "blocked, ignored: nothing")
+				V.HandleAsk("WHISPER", "Cid-Realm", "V9~1.1.2")
+				eq(#w.popups, 1); eq(w.popups[1].name, "OLYMPUS_UPDATE_ASKED")
+				eq(w.popups[1].a, L.VERSION_NOTICE:format("Cid", "1.1.0", "1.1.2"))
+				assert(w.popups[1].a:find("CurseForge", 1, true), "where to update")
+				V.HandleAsk("WHISPER", "Dee-Realm", "V9~1.1.2")
+				eq(#w.popups, 1, "once a day")
+				w.clock = w.clock + V.SHOWN_GAP
+				V.HandleAsk("WHISPER", "Dee-Realm", "V9~1.1.2")
+				eq(#w.popups, 2, "the next day")
+				-- Don't remind me (its second button): 7 days of quiet.
+				StaticPopupDialogs.OLYMPUS_UPDATE_ASKED.OnCancel(nil, nil, "clicked")
+				eq(w.printed[#w.printed], L.VERSION_SNOOZED)
+				w.clock = w.clock + V.SHOWN_GAP
+				V.HandleAsk("WHISPER", "Eli-Realm", "V9~1.1.2")
+				eq(#w.popups, 2, "snoozed")
+				StaticPopupDialogs.OLYMPUS_UPDATE_ASKED.OnCancel(nil, nil, "timeout")
+				w.clock = w.clock + V.SNOOZE
+				V.HandleAsk("WHISPER", "Eli-Realm", "V9~1.1.2")
+				eq(#w.popups, 3, "after 7 days")
+				-- In an instance it waits, as any alert, and shows once out.
+				w.clock = w.clock + V.SHOWN_GAP
+				local savedInstance = IsInInstance
+				IsInInstance = function() return true end
+				V.HandleAsk("WHISPER", "Fay-Realm", "V9~1.1.2")
+				eq(#w.popups, 3, "held")
+				IsInInstance = savedInstance
+				ns.ReleaseHeld()
+				eq(#w.popups, 4); eq(w.popups[4].a, L.VERSION_NOTICE:format("Fay", "1.1.0", "1.1.2"))
+			end)
+			ns.VERSION = mine
+			ns.ResetHeld()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.2 Tell them about Olympus: Olympus's own whisper window with the invite and the CurseForge link, in both input modes; nothing sent until Send, and the keyboard untouched", function()
+		WithUI(function()
+			local UI = LoadUI()
+			local said, focus = {}, 0
+			local saved = { say = SendChatMessage, show = StaticPopup_Show }
+			SendChatMessage = function(text, kind, _, to) said[#said + 1] = kind .. " " .. tostring(to) .. " " .. text end
+			local ok, err = pcall(function()
+				for _, gamepad in ipairs({ false, true }) do
+					WithGamepadUI(gamepad, function(game)
+						local d = V.Tell("Ann-Realm")
+						assert(d, "a window")
+						eq(ns.Dialog.Find("OLYMPUS_WHISPER_TEXT"), d); eq(#game.shown, 0, "never the game's popup")
+						eq(d.text:GetText(), L.WHISPER_TO:format("Ann"))
+						eq(d.editBox:GetText(), L.VERSION_INVITE_TEXT:format(UI.LINKS.curseforge))
+						assert(#d.editBox:GetText() <= 255, "one whisper")
+						eq(#said, gamepad and 1 or 0, "nothing sent by the click")
+						d.editBox:SetText(d.editBox:GetText() .. " :)")
+						d.buttons[1]:Click()
+						eq(said[#said], "WHISPER Ann " .. L.VERSION_INVITE_TEXT:format(UI.LINKS.curseforge) .. " :)")
+						eq(d:IsShown(), false)
+						-- Cancel: nothing.
+						local n = #said
+						V.Tell("Bob-Realm").buttons[2]:Click()
+						eq(#said, n)
+					end)
+				end
+			end)
+			SendChatMessage, StaticPopup_Show = saved.say, saved.show
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	-- (The player's window for the author's ask is Olympus's own: these tests run on the widget
+	-- toolkit, WithUI, with WithWorkshop's recorded whispers.)
+	local function BugAskWorld(fn)
+		WithUI(function()
+			local UI = LoadUI()
+			WithWorkshop("Ann-Realm", function(w, W)
+				ns.UI = UI
+				-- (The report's timers kept, not run: the author answers in time.)
+				w.timers = {}
+				W.after = function(_, _, f) w.timers[#w.timers + 1] = f end
+				local ok, err = pcall(fn, w, W, UI)
+				W.Reset()
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end
+
+	test("1.1.2 the author asks for a bug report: the player's own window (no game popup) says who asks; See what is sent shows the exact text; Send goes to him even without his presence heard; Not now sends nothing; anyone else's ask is ignored", function()
+		BugAskWorld(function(w, W)
+			eq(W.AuthorOnline(), false, "no presence heard")
+			W.HandleBugAsk("WHISPER", "Faladoriel-Realm", "VR~5")
+			W.HandleBugAsk("WHISPER", "Faladoriel Skylance-SomeEraRealm", "VR~5")
+			W.HandleBugAsk("CHANNEL", AUTHOR_FULL, "VR~5")
+			eq(W.BugAsk(), nil, "not the author, or not a whisper: ignored")
+			eq(rawget(_G, "OlympusBugAsk"), nil, "no window")
+			W.HandleBugAsk("WHISPER", AUTHOR_FULL, "VR~5")
+			local f = OlympusBugAsk
+			assert(f and f:IsShown(), "the window")
+			eq(#w.popups, 0, "not the game's popup")
+			eq(f.TitleText:GetText(), ns.L.BUGASK_TITLE)
+			eq(f.message:GetText(), ns.L.BUGASK_TEXT:format(ns.DisplayName(AUTHOR_FULL)))
+			eq(f.view:IsShown(), false, "the text on a click")
+			eq(#w.whispered, 0, "nothing sent yet")
+			f.see:Click()
+			eq(f.view:IsShown(), true); eq(f.see:GetText(), ns.L.BUGASK_HIDE)
+			local shown = f.box:GetText()
+			eq(shown, f.text, "the text Send sends")
+			assert(shown:find("^```") and shown:find("Olympus v" .. ns.VERSION, 1, true), "the /oly bug text")
+			eq(W.Outgoing(shown), shown, "cut and escaped already, as it will arrive")
+			-- Read only: typing puts it back.
+			f.box:SetText("changed"); f.box:Fire("OnTextChanged", true)
+			eq(f.box:GetText(), shown)
+			f.send:Click()
+			eq(f:IsShown(), false)
+			eq(#w.whispered, 1); eq(w.whispered[1].to, AUTHOR_FULL); assert(w.whispered[1].msg:find("^V5~%d+~1~%d+~"), w.whispered[1].msg)
+			-- He gets it whole: the text the player saw.
+			local first = w.whispered[1].msg
+			ns.me = AUTHOR_FULL
+			W.HandleBug("WHISPER", "Ann-Realm", first)
+			ns.me = "Ann-Realm"
+			W.HandleAck("WHISPER", AUTHOR_FULL, w.whispered[#w.whispered].msg)
+			local pieces = {}
+			for i = 3, #w.whispered do pieces[#pieces + 1] = w.whispered[i].msg end
+			ns.me = AUTHOR_FULL
+			for _, m in ipairs(pieces) do W.HandleBug("WHISPER", "Ann-Realm", m) end
+			ns.me = "Ann-Realm"
+			eq(#W.Reports(), 1); eq(W.Reports()[1].text, shown, "what arrived is what was shown")
+			W.HandleAck("WHISPER", AUTHOR_FULL, w.whispered[#w.whispered].msg) -- (his "got it all")
+			eq(w.printed[#w.printed], ns.L.WORKSHOP_BUG_SENT:format(ns.DisplayName(AUTHOR_FULL)))
+			-- Another ask soon after: ignored (one a minute); later: Not now sends nothing.
+			W.HandleBugAsk("WHISPER", AUTHOR_FULL, "VR~6")
+			eq(f:IsShown(), false)
+			w.clock = w.clock + W.BUGASK_GAP
+			local n = #w.whispered
+			W.HandleBugAsk("WHISPER", AUTHOR_FULL, "VR~7")
+			eq(f:IsShown(), true)
+			f.later:Click()
+			eq(f:IsShown(), false); eq(#w.whispered, n, "Not now: nothing"); eq(W.BugAsk(), nil)
+			-- Its X, in combat too (the template's HideUIPanel would do nothing there): nothing either,
+			-- and the ask is gone.
+			w.clock = w.clock + W.BUGASK_GAP
+			W.HandleBugAsk("WHISPER", AUTHOR_FULL, "VR~8")
+			local savedCombat = rawget(_G, "InCombatLockdown")
+			InCombatLockdown = function() return true end
+			f.CloseButton:Click()
+			InCombatLockdown = savedCombat
+			eq(f:IsShown(), false)
+			eq(W.BugAsk(), nil); eq(#w.whispered, n)
+			-- Asked, the report goes even right after one the player sent himself (its 10 minutes).
+			w.clock = w.clock + W.BUGASK_GAP
+			W.HandleBugAsk("WHISPER", AUTHOR_FULL, "VR~9")
+			f.send:Click()
+			eq(#w.whispered, n + 1, "sent")
+			-- An ask left unanswered goes stale.
+			W.Reset()
+			W.HandleBugAsk("WHISPER", AUTHOR_FULL, "VR~10")
+			w.clock = w.clock + W.BUGASK_OPEN + 1
+			eq(W.BugAsk(), nil)
+		end)
+	end)
+
+	test("1.1.2 the author's bug report ask with the gamepad UI: Olympus's window, nothing on the escape list, no keyboard taken, no game popup", function()
+		BugAskWorld(function(w, W)
+			WithGamepadUI(true, function(game)
+				local took = 0
+				W.HandleBugAsk("WHISPER", AUTHOR_FULL, "VR~5")
+				local f = OlympusBugAsk
+				assert(f:IsShown())
+				f.box.SetFocus = function() took = took + 1 end
+				f.see:Click()
+				eq(took, 0); eq(#game.shown, 0); eq(#UISpecialFrames, 0, "nothing written to the escape list")
+				f.send:Click()
+				eq(#w.whispered, 1)
+			end)
+		end)
+	end)
+
+	test("1.1.2 the author: Ask for a bug report on a player who runs Olympus 1.1.2 (greyed before 1.1.2), one small whisper, once per player every 2 minutes; nobody else has it", function()
+		-- (Other tests load Workshop.lua and friends again into namespaces of their own, and each load
+		-- adds its lines, as a second load would in the game: the addon's own files' lines here.)
+		PM.Add("versions", function(target, menu) V.MenuLines(target, menu) end, 10)
+		PM.Add("bugreport", function(target, menu) W.MenuLines(target, menu) end, 50)
+		WithVersions(AUTHOR_FULL, function(w, W)
+			w.hellos = { Ann = ns.VERSION, Bob = "1.1.1" }
+			local root = MenuRoot()
+			PM.Build("FRIEND", root, { name = "Ann" })
+			local b = root.Find(L.WORKSHOP_BUGASK)
+			assert(b and b.enabled, root.Texts())
+			b.cb()
+			eq(#w.whispered, 1); eq(w.whispered[1].to, "Ann-Realm"); assert(w.whispered[1].msg:find("^VR~%d+$"), w.whispered[1].msg)
+			eq(w.whispered[1].key, "bugask:Ann-Realm"); eq(w.printed[#w.printed], L.WORKSHOP_BUGASK_SENT:format("Ann"))
+			eq(W.AskBug("Ann-Realm"), false, "again too soon"); eq(#w.whispered, 1)
+			w.clock = w.clock + W.BUGASK_EVERY
+			eq(W.AskBug("Ann-Realm"), true)
+			-- 1.1.1 can't answer it: greyed, its tooltip says why.
+			root = MenuRoot()
+			PM.Build("FRIEND", root, { name = "Bob" })
+			b = root.Find(L.WORKSHOP_BUGASK)
+			assert(b and not b.enabled, "greyed")
+			assert(TipOf(b):find(L.WORKSHOP_BUGASK_OLD:format("1.1.1"), 1, true))
+			-- Nothing known of them: no such line.
+			root = MenuRoot()
+			PM.Build("FRIEND", root, { name = "Eve" })
+			eq(root.Find(L.WORKSHOP_BUGASK), nil)
+		end)
+		WithVersions("Tester-Realm", function(w, W)
+			w.hellos = { Ann = ns.VERSION }
+			local root = MenuRoot()
+			PM.Build("FRIEND", root, { name = "Ann" })
+			eq(root.Find(L.WORKSHOP_BUGASK), nil, "not the author")
+			eq(W.AskBug("Ann-Realm"), false); eq(#w.whispered, 0)
+		end)
+	end)
+
+	test("1.1.2 the author's received bug report opens by itself in a copy window (sender and time, all selected, Select all); chat gets one short line; in an instance it waits; his Workshop row opens it again", function()
+		WithUI(function()
+			local UI = LoadUI()
+			WithWorkshop(AUTHOR_FULL, function(w, W)
+				local ok, err = pcall(function()
+					W.HandleBug("WHISPER", "Ann-Realm", "V5~11~1~1~line one !\\nline two")
+					local f = OlympusCopyFrameBug
+					assert(f and f:IsShown(), "the report's window")
+					eq(f.TitleText:GetText(), L.WORKSHOP_BUG_FROM_AT:format("Ann", date("%H:%M", w.clock), 1, 1))
+					eq(f.eb:GetText(), "line one !\nline two"); eq(f.text, f.eb:GetText())
+					eq(f.selectAll:GetText(), L.COPY_SELECT_ALL); eq(f:GetWidth(), 680)
+					eq(#w.printed, 1, "one short line in chat"); eq(w.printed[1], L.WORKSHOP_BUG_IN:format("Ann"))
+					eq(OlympusCopyFrame == nil or not OlympusCopyFrame:IsShown(), true, "its own window, not the help's")
+					-- Its X closes it, in combat too. In an instance: held, then shown once out.
+					local savedCombat = rawget(_G, "InCombatLockdown")
+					InCombatLockdown = function() return true end
+					f.CloseButton:Click()
+					InCombatLockdown = savedCombat
+					eq(f:IsShown(), false, "closed in combat")
+					local savedInstance = IsInInstance
+					IsInInstance = function() return true end
+					W.HandleBug("WHISPER", "Bob-Realm", "V5~12~1~1~bob's report")
+					eq(f:IsShown(), false, "held")
+					IsInInstance = savedInstance
+					ns.ReleaseHeld()
+					eq(f:IsShown(), true); eq(f.eb:GetText(), "bob's report")
+					eq(f.TitleText:GetText(), L.WORKSHOP_BUG_FROM_AT:format("Bob", date("%H:%M", w.clock), 2, 2))
+					-- The Workshop's list: a click opens Ann's again.
+					local row
+					for _, l in ipairs(W.Build()) do if l.onClick and (l.text or ""):find("^Ann") then row = l end end
+					assert(row, "Ann's row")
+					row.onClick()
+					eq(f.eb:GetText(), "line one !\nline two")
+				end)
+				ns.ResetHeld()
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+
+	test("1.1.2 /oly status: the author's in a copy window, everyone else's in chat as before", function()
+		WithUI(function()
+			local UI = LoadUI()
+			local savedMe, savedPrint = ns.me, print
+			local printed = {}
+			print = function(s) printed[#printed + 1] = s end
+			local ok, err = pcall(function()
+				ns.me = "Tester-Realm"
+				SlashCmdList.OLYMPUS("status")
+				assert(#printed > 5, "in chat"); eq(rawget(_G, "OlympusCopyFrameStatus"), nil)
+				printed = {}
+				ns.me = AUTHOR_FULL
+				SlashCmdList.OLYMPUS("status")
+				eq(#printed, 0, "no chat lines")
+				local f = OlympusCopyFrameStatus
+				assert(f and f:IsShown()); eq(f.TitleText:GetText(), "/oly status")
+				assert(f.text:find("Olympus v" .. ns.VERSION, 1, true)); assert(f.text:find("player menus:", 1, true))
+			end)
+			ns.me, print = savedMe, savedPrint
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.2 answer bank: Olympus/AnswerBank.lua is what scripts/answers.lua makes of docs/answers.json; every in-game line fits a chat line with no escape; a bad bank is refused", function()
+		local gen = dofile(ROOT .. "scripts/answers.lua")
+		eq(ReadFile(ROOT .. "Olympus/AnswerBank.lua"), gen.Expected(ROOT), "run luajit scripts/answers.lua")
+		local bank = gen.Decode(ReadFile(ROOT .. "docs/answers.json"))
+		eq(#ns.ANSWER_BANK.answers, #bank.answers); eq(#ns.ANSWER_BANK.topics, #bank.meta.topics)
+		local ids = {}
+		for i, a in ipairs(ns.ANSWER_BANK.answers) do
+			eq(a.id, bank.answers[i].id); eq(a.text, bank.answers[i].in_game); eq(a.long, bank.answers[i].answer)
+			assert(#a.text <= 200 and not a.text:find("[|\n]"), a.id)
+			ids[a.id] = true
+		end
+		for _, id in ipairs({ "count-not-a-bug", "count-differs-from-friend", "rc-see-version", "rc-bug-report-ask", "rc-tell-olympus", "feat-quick-answers", "feat-page-help" }) do
+			assert(ids[id], id)
+		end
+		-- The reader: escapes, and what the checks refuse.
+		eq(gen.Decode('{"a":["x\\u00e9\\n",1.5,true,null]}').a[1], "x\195\169\n")
+		local bad = gen.Decode(ReadFile(ROOT .. "docs/answers.json"))
+		bad.answers[1].in_game = "a | pipe"
+		eq(pcall(gen.Render, bad), false, "a '|' in a line")
+		bad.answers[1].in_game = ("x"):rep(201)
+		eq(pcall(gen.Render, bad), false, "too long for a chat line")
+		bad = gen.Decode(ReadFile(ROOT .. "docs/answers.json"))
+		bad.answers[2].id = bad.answers[1].id
+		eq(pcall(gen.Render, bad), false, "an id twice")
+		-- check.sh runs the same comparison.
+		local check = assert(ReadFile(ROOT .. "scripts/check.sh"))
+		assert(check:find("luajit scripts/answers.lua --check", 1, true), "check.sh")
+	end)
+
+	test("1.1.2 Answers: the author, the High Council and the Stewards alone; the list by topic with a search; a click fills the box (after what is typed), never sends and never takes the keyboard; Shift-click the longer answer to copy", function()
+		WithUI(function()
+			local UI = LoadUI()
+			local saved = { hc = ns.IsHighCouncillor, st = ns.IsSteward, shift = IsShiftKeyDown, me = ns.me }
+			local ok, err = pcall(function()
+				A.Reset()
+				ns.me = "Tester-Realm"
+				local box = CreateFrame("EditBox", "TestAnswersBox", UIParent)
+				box:SetText("")
+				local focused = 0
+				box.SetFocus = function() focused = focused + 1 end
+				eq(A.Allowed(), false); eq(A.Open(box), nil, "a soldier: no list")
+				ns.IsSteward = function(name) return name == ns.me end
+				eq(A.Allowed(), true, "a Steward")
+				ns.IsSteward = saved.st
+				ns.IsHighCouncillor = function(name) return name == ns.me end
+				eq(A.Allowed(), true, "a High Councillor")
+				local p = A.Open(box)
+				eq(p, OlympusAnswers); eq(p:IsShown(), true); eq(p.TitleText:GetText(), L.ANSWERS_TITLE)
+				-- Every line, under its topic's header.
+				local rows, headers = 0, 0
+				for _, r in ipairs(p.rows) do
+					if r:IsShown() then if r.entry then rows = rows + 1 else headers = headers + 1 end end
+				end
+				eq(rows, #ns.ANSWER_BANK.answers); eq(headers, #ns.ANSWER_BANK.topics)
+				-- The search: "layer" keeps the lines that say it.
+				p.search:SetText("LAYER"); p.search:Fire("OnTextChanged")
+				local kept = {}
+				for _, r in ipairs(p.rows) do if r:IsShown() and r.entry then kept[#kept + 1] = r.entry end end
+				assert(#kept > 0 and #kept < rows, #kept)
+				for _, e in ipairs(kept) do assert(ns.Holds("layer", e.text, e.long, e.id, unpack(e.q)), e.id) end
+				p.search:SetText("no such words at all"); p.search:Fire("OnTextChanged")
+				eq(p.empty:IsShown(), true)
+				p.search:SetText(""); p.search:Fire("OnTextChanged")
+				-- A click: into the box, the list closes; nothing sent, no keyboard.
+				local entry = A.Find("count-differs-from-friend")
+				local row
+				for _, r in ipairs(p.rows) do if r:IsShown() and r.entry == entry then row = r end end
+				assert(row, "its row")
+				row:Fire("OnEnter")
+				eq(GameTooltip.lines[2], entry.text); eq(GameTooltip.lines[4], entry.long)
+				IsShiftKeyDown = function() return false end
+				row:Click()
+				eq(box:GetText(), entry.text); eq(p:IsShown(), false); eq(focused, 0)
+				-- After what is typed.
+				box:SetText("@Ann ")
+				A.Open(box)
+				row:Click()
+				eq(box:GetText(), "@Ann " .. entry.text)
+				-- Shift-click: the longer answer, to copy.
+				A.Open(box)
+				IsShiftKeyDown = function() return true end
+				row:Click()
+				eq(OlympusCopyFrame:IsShown(), true); eq(OlympusCopyFrame.text, entry.long); eq(box:GetText(), "@Ann " .. entry.text)
+				-- The box's window closed meanwhile: said so, nothing written.
+				IsShiftKeyDown = function() return false end
+				box:Hide()
+				A.Open(box)
+				row:Click()
+				eq(box:GetText(), "@Ann " .. entry.text)
+			end)
+			ns.IsHighCouncillor, ns.IsSteward, IsShiftKeyDown, ns.me = saved.hc, saved.st, saved.shift, saved.me
+			A.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.2 whisper windows: the Answers button for the author, the High Council and the Stewards (Olympus's own window, both input modes), filling its box and keeping it open; anyone else's as before", function()
+		WithUI(function()
+			local UI = LoadUI()
+			local saved = { hc = ns.IsHighCouncillor, shift = IsShiftKeyDown }
+			local ok, err = pcall(function()
+				A.Reset()
+				IsShiftKeyDown = function() return false end
+				WithGamepadUI(false, function(game)
+					-- A soldier, mouse and keyboard: the game's popup, as before.
+					UI.WhisperWindow("Ann")
+					eq(#game.shown, 1); eq(game.shown[1].which, "OLYMPUS_WHISPER")
+					ns.IsHighCouncillor = function(name) return name == ns.me end
+					local d = UI.WhisperWindow("Ann")
+					eq(#game.shown, 1, "a councillor: Olympus's own window")
+					eq(ns.Dialog.Find("OLYMPUS_WHISPER"), d)
+					eq(d.extraButton:IsShown(), true); eq(d.extraButton:GetText(), L.ANSWERS_BTN)
+					d.extraButton:Click()
+					eq(d:IsShown(), true, "the whisper stays open")
+					local p = OlympusAnswers
+					eq(p:IsShown(), true); eq(A.Target(), d.editBox)
+					local entry = A.Find("count-not-a-bug")
+					for _, r in ipairs(p.rows) do if r:IsShown() and r.entry == entry then r:Click() end end
+					eq(d.editBox:GetText(), entry.text)
+					d.buttons[2]:Click()
+				end)
+				ns.IsHighCouncillor = saved.hc
+				WithGamepadUI(true, function(game)
+					local d = UI.WhisperWindow("Ann")
+					eq(d.extraButton:IsShown(), false, "a soldier with the gamepad UI: no Answers")
+					eq(#game.shown, 0)
+				end)
+			end)
+			ns.IsHighCouncillor, IsShiftKeyDown = saved.hc, saved.shift
+			A.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.2 explanations: every tab and page has its '?', from the answer bank; where it counts, why its numbers can differ; the window's '?' opens the page shown", function()
+		local pages = { "join", "census/", "realm/tree", "realm/board", "realm/loot", "realm/crafters", "realm/members:7", "realm/members:30",
+			"realm/members:recruits", "chat/", "decrees/", "heraldry/", "throne/home", "throne/hands", "vox/", "treasury/summary",
+			"treasury/book", "treasury/keepers", "treasury/dues", "workshop/" }
+		for _, t in ipairs(ns.UI and ns.UI.TABS or {}) do pages[#pages + 1] = t.key .. "/" end
+		for _, page in ipairs(pages) do
+			local def = A.PageOf(page)
+			assert(def and #def > 0, "an explanation for " .. page)
+			local text = A.ExplainText(page)
+			for _, id in ipairs(def) do
+				local e = A.Find(id)
+				assert(e, page .. ": " .. id .. " is in the bank")
+				assert(text:find(e.long, 1, true), page .. ": " .. id)
+			end
+			for _, id in ipairs(def.counts or {}) do assert(A.Find(id), id) end
+		end
+		eq(A.PageOf("realm/members:7"), A.PAGES["realm/members"]); eq(A.PageOf("realm/tree"), A.PAGES.realm)
+		for _, page in ipairs({ "census/", "realm/tree", "treasury/summary" }) do
+			assert(A.ExplainText(page):find(L.WHY_DIFFER, 1, true), page .. ": why its counts can differ")
+		end
+		assert(A.ExplainText("census/"):find(A.Find("count-not-a-bug").long, 1, true))
+		WithUI(function()
+			local UI = LoadUI()
+			for _, t in ipairs(UI.TABS) do assert(A.PageOf(t.key .. "/"), "tab " .. t.key) end
+			UI.Toggle()
+			local main = OlympusFrame
+			local help = main.pageHelp
+			assert(help and help:IsShown(), "the page's ?")
+			help:Fire("OnEnter")
+			eq(GameTooltip.lines[1], L.PAGE_HELP); eq(GameTooltip.lines[2], L.PAGE_HELP_TIP)
+			help:Click()
+			eq(OlympusCopyFrame:IsShown(), true); eq(OlympusCopyFrame.TitleText:GetText(), L.PAGE_HELP_TITLE:format(L.TAB_CENSUS))
+			eq(OlympusCopyFrame.text, (A.ExplainText("census/")))
+			UI.SelectTab("decrees")
+			help:Click()
+			eq(OlympusCopyFrame.TitleText:GetText(), L.PAGE_HELP_TITLE:format(L.TAB_DECREES))
+			assert(OlympusCopyFrame.text:find(A.Find("feat-acts-log").long, 1, true))
+			-- The census's header: why the list's columns don't add up to it.
+			UI.SelectTab("census")
+			main.headerHover:Fire("OnEnter")
+			eq(GameTooltip.lines[1], L.HEADER_TIP_TITLE); eq(GameTooltip.lines[2], L.HEADER_TIP)
+			local tip = table.concat(GameTooltip.lines, "\n")
+			assert(tip:find(L.WHY_DIFFER, 1, true) and tip:find(A.Find("count-columns-dont-add-up").text, 1, true), tip)
+		end)
+	end)
+
+	test("1.1.2 counts: a guild's row, a guild only /who saw, the Realm's online and Captains lines, and the Treasury's week each end their tooltip with why it can differ", function()
+		WithUI(function()
+			LoadUI()
+			local lines = ns.Views.Build("census")
+			local row, seen
+			for _, l in ipairs(lines) do
+				if l.cols and l.tooltip and not row and l.cols[2] ~= "|cff9d9d9d?|r" then row = l end
+			end
+			assert(row, "a guild's row")
+			local tt = Tooltip()
+			row.tooltip(tt)
+			assert(tt.Has(L.WHY_DIFFER), "why")
+			assert(tt.Has(A.Find("count-own-guild-live").text) or tt.Has(A.Find("count-grey-rows").text), "the bank's line")
+			-- WhyTip itself: nothing for an id the bank lacks.
+			local t2 = Tooltip()
+			eq(A.WhyTip(t2, "no-such-answer"), false); eq(#t2.lines, 0)
+			eq(A.WhyTip(t2, "count-layer-sample"), true); eq(t2.lines[2], L.WHY_DIFFER); eq(t2.lines[3], A.Find("count-layer-sample").text)
+			-- The Realm: our guild opened, its Captains and Online now.
+			ns.Views.ExpandAll(true)
+			local realm = ns.Views.Build("realm")
+			local caps, online
+			for _, l in ipairs(realm) do
+				local text = tostring(l.text or "")
+				if not caps and text:find((L.CAPTAINS:gsub("%(%%d%)", "")), 1, true) and l.tooltip then caps = l end
+				if not online and l.tooltip and (text:find((L.MEMBERS_ONLINE:gsub("%(%%d%)", "")), 1, true) or text:find((L.MEMBERS_SEEN:gsub("%(%%d%)", "")), 1, true)) then online = l end
+			end
+			ns.Views.ExpandAll(false)
+			assert(caps, "a Captains line with a tooltip")
+			tt = Tooltip(); caps.tooltip(tt); assert(tt.Has(L.WHY_DIFFER), "Captains: why")
+			if online then tt = Tooltip(); online.tooltip(tt); assert(tt.Has(L.WHY_DIFFER), "online: why") end
+		end)
+	end)
+
+	test("1.1.2: the strings in English and pt-BR, with the same format codes; the counts' help says what the code does", function()
+		local function LoadedL(code)
+			local lns, savedLocale = {}, GetLocale
+			GetLocale = function() return code end
+			local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", lns) end)
+			GetLocale = savedLocale
+			if not ok then error(err, 0) end
+			return lns.L
+		end
+		local en, pt = LoadedL("enUS"), LoadedL("ptBR")
+		local KEYS = { "PLAYERMENU_VERSION", "VERSION_LINE_CURRENT", "VERSION_LINE_NEWER", "VERSION_LINE_OUTDATED", "VERSION_LINE_OLYMPUS",
+			"VERSION_LINE_CHECKING", "VERSION_LINE_NONE", "VERSION_LINE_UNKNOWN", "VERSION_SOURCE_NONE", "VERSION_SOURCE_HELLO",
+			"VERSION_SOURCE_ROLL", "VERSION_SOURCE_CHECK", "VERSION_BEHIND_TIP", "VERSION_CHECK", "VERSION_CHECK_TIP", "VERSION_CHECK_WAIT",
+			"VERSION_CHECK_BUSY", "VERSION_RESULT_NONE", "VERSION_RESULTS_TITLE", "VERSION_RESULTS_HEAD", "VERSION_RESULTS_NONE",
+			"VERSION_ASK", "VERSION_ASK_TIP", "VERSION_ASK_AUTHOR_TIP", "VERSION_ASKED", "VERSION_ASK_WAIT_ONE", "VERSION_ASK_WAIT_HOUR",
+			"VERSION_NOTICE", "VERSION_SNOOZE", "VERSION_SNOOZED", "HELD_UPDATE_ASK", "VERSION_TELL", "VERSION_TELL_TIP", "VERSION_INVITE_TEXT",
+			"WORKSHOP_BUG_FROM_AT", "WORKSHOP_BUGASK", "WORKSHOP_BUGASK_TIP", "WORKSHOP_BUGASK_OLD", "WORKSHOP_BUGASK_SENT",
+			"WORKSHOP_BUGASK_WAIT", "BUGASK_TITLE", "BUGASK_TEXT", "BUGASK_SEE", "BUGASK_HIDE", "BUGASK_SEND", "BUGASK_LATER",
+			"BUGASK_HELD", "COPY_SELECT_ALL", "ANSWERS_BTN", "ANSWERS_BTN_TIP", "ANSWERS_TITLE", "ANSWERS_HINT", "ANSWERS_ROW_TIP",
+			"ANSWERS_COPY_TITLE", "ANSWERS_BOX_GONE", "PAGE_HELP", "PAGE_HELP_TIP", "PAGE_HELP_TITLE", "PAGE_HELP_MORE", "WHY_DIFFER",
+			"CAPTAINS_TIP", "CAPTAINS_OWN_TIP", "HEADER_TIP", "HEADER_TIP_DIFFER", "SEEN_TIP", "MEMBERS_SEEN_TIP", "THRONE_INSPECT_TIP" }
+		local function Codes(s) local out = {} for c in s:gmatch("%%%a") do out[#out + 1] = c end return table.concat(out) end
+		for _, k in ipairs(KEYS) do
+			assert(type(en[k]) == "string" and en[k] ~= "" and en[k] ~= k, k .. ": English")
+			assert(type(pt[k]) == "string" and pt[k] ~= "" and pt[k] ~= en[k], k .. ": pt-BR")
+			eq(Codes(pt[k]), Codes(en[k]), k .. ": format codes")
+		end
+		-- (Changed on purpose, 1.1.2: the census's help said every player reports and that everyone
+		-- converges within minutes; one elected member per guild reports (Comm.lua), and a size stays
+		-- counted a day on the clients that heard it (Data.TOTAL_KEEP).)
+		assert(not en.HEADER_TIP:find("Every player with the addon reports", 1, true))
+		assert(en.HEADER_TIP:find("elected", 1, true)); assert(en.HEADER_TIP_DIFFER:find("no central server", 1, true))
+		assert(not en.HEADER_TIP_DIFFER:find("converges", 1, true))
+		assert(en.THRONE_INSPECT_TIP:find("30 minutes", 1, true) and en.THRONE_INSPECT_TIP:find("said yes", 1, true))
+		eq(ns.King.INSPECT_GAP, 30 * 60, "what the tip says")
+		assert(#en.VERSION_INVITE_TEXT:format("https://www.curseforge.com/wow/addons/olympus-guild") <= 255)
+		assert(#pt.VERSION_INVITE_TEXT:format("https://www.curseforge.com/wow/addons/olympus-guild") <= 255)
+	end)
+
+	test("1.1.2: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
+		eq(ns.VERSION, "1.1.2")
+		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
+		assert(toc:find("## Version: 1.1.2", 1, true))
+		local at = {}
+		local n = 0
+		for line in toc:gmatch("[^\n]+") do n = n + 1; at[line:gsub("%s+$", "")] = n end
+		for _, f in ipairs({ "PlayerMenu.lua", "Versions.lua", "AnswerBank.lua", "Answers.lua" }) do assert(at[f], f) end
+		assert(at["Dialog.lua"] < at["PlayerMenu.lua"] and at["PlayerMenu.lua"] < at["Workshop.lua"], "the menus' list before the files adding to it")
+		assert(at["Workshop.lua"] < at["Versions.lua"], "Versions reads the Workshop's version helpers")
+		assert(at["AnswerBank.lua"] < at["Answers.lua"])
+		local comm = assert(ReadFile(ADDON_DIR .. "Comm.lua"))
+		assert(comm:find("Versions V7 V8 V9 | Workshop VR", 1, true))
+		-- A client updated without a restart: the new files' stand-ins.
+		for _, key in ipairs({ "PlayerMenu", "Versions", "Answers" }) do
+			local core = assert(ReadFile(ADDON_DIR .. "Core.lua"))
+			assert(core:find('StandIn("' .. key .. '"', 1, true), key)
+		end
+	end)
+
+	test("1.1.2: the README and the CurseForge page tell of the right-click menu, the author's bug report ask, the Answers and each page's ?, in the same words", function()
+		local PHRASES = {
+			"### Right-click a player (1.1.2)",
+			"**Check version**",
+			"**Ask to update**",
+			"**Tell them about Olympus**",
+			"**Ask for a bug report**",
+			"**See what is sent**",
+			"opens by itself in a window you can copy from",
+			"**Answers**",
+			"a **?** in its bottom box",
+			"Why can this differ?",
+		}
+		local sections = {}
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, phrase in ipairs(PHRASES) do assert(doc:find(phrase, 1, true), path .. ": " .. phrase) end
+			sections[#sections + 1] = doc:match("### Right%-click a player %(1%.1%.2%)(.-)###")
+		end
+		assert(sections[1] and sections[1] ~= "", "the section")
+		eq(sections[1], sections[2], "the same words on both pages")
+	end)
 end)()
 
 print(("\n%d passed, %d failed"):format(passed, failed))

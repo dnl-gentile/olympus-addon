@@ -211,6 +211,43 @@ Click any Lord, Captain, racer or inspected player. You get the same card the Gu
 shows: level, class, zone, rank and status, with **Whisper**, **Invite** and **Who** buttons.
 Any soldier can reach the Lord of another Olympus guild in two clicks.
 
+### Right-click a player (1.1.2)
+Right-click a player (the target frame, party and raid frames, a name in chat, the Who list, the
+friends list, the guild roster) and the game's menu gets an **Olympus** part at the bottom:
+- **Their version**: "Olympus 1.1.1 (out of date)", "up to date" or "not seen yet". Guildmates
+  show up by themselves (their addon says hello to your guild), and so do a known version on the
+  person card. Opening the menu sends nothing.
+- **Check version**: for anyone else, one tiny addon whisper that their addon answers with its
+  version and nothing else (a player once every 2 minutes, 6 a minute). No answer in 10 seconds
+  usually means no Olympus, or no Olympus guild: outside one the addon sends nothing.
+- **Ask to update**, when they are behind the newest version your addon knows: their addon shows a
+  small notice with both versions and where to update. One ask per player a day, 5 an hour; they
+  see one a day at most, **Don't remind me** hides them for 7 days, and a player they block
+  (`/oly block`) or ignore never gets through. The author's pick sends his usual update window.
+- **Tell them about Olympus**, when their addon did not answer: a whisper with a short invite and
+  the CurseForge link opens in Olympus's own window, for you to edit and send yourself. The click
+  sends nothing.
+- **Ask for a bug report** (the author alone, on a player running 1.1.2 or newer): their addon
+  opens a window of its own, never a game popup, saying the author asks for their Olympus bug
+  report, with **See what is sent** (the exact text, the same as `/oly bug`), **Send** and **Not
+  now**. Send goes to him alone, in game; Not now sends nothing; an ask from anyone else is
+  ignored. On his side the report opens by itself in a window you can copy from (the sender and
+  time on top, **Select all**), and stays in the Workshop's list; chat gets one short line. His
+  version checks and his `/oly status` open in copy windows too.
+- Not on yourself, enemies, offline names or Battle.net friends. It uses the game's own way for
+  addons to add to its menus (a client without it gets no lines); no Blizzard function is
+  replaced, and nothing opens the game's chat box.
+
+**Explanations and Answers.** Each page has a **?** in its bottom box (next to the gear on the
+Chat tab): what the page shows and, where it counts, why the numbers can differ between players.
+A count's tooltip (the header's totals, a guild's row, the Realm's online and Captains, a layer's
+~N, a zone, the Treasury's week and ranking) ends with **Why can this differ?** and a short
+answer. The author, the High Council and the Stewards also get an **Answers** button on the Chat
+tab and in Olympus's whisper window: ready answers by topic (the counts, each feature, installing
+and updating), with a search. A click puts one in the box to edit (Shift-click: the longer one, to
+copy for Discord); nothing is sent until you do. The answers live in `docs/answers.json`, and
+`luajit scripts/answers.lua` writes `Olympus/AnswerBank.lua` from it.
+
 ### Decrees
 | Decree | Who | What happens |
 |---|---|---|
@@ -1391,6 +1428,10 @@ message (the game adds it). What goes where:
 | The army's key (1.1, when the King or his Steward rotates it): the new key, the time it was made and the hashes of the keys it replaces | each Lord and Captain the census confirms online in the guilds the King picks whom his own /who saw in that guild (a whisper from the King each), then each one's guild over guild chat; never the Olympus channel. Each 1.1 addon that has it tells the King so (a whisper), and after login asks its guild whether a newer key exists | only when the King rotates it on the Throne; a guildmate's ask once a login |
 | Your alt links (1.1, only if you link your characters): each linked character's name and guild, and the names it confirmed (its main, or its alts) | everyone on the Olympus channel | from each character you linked yourself, confirmed on each: at login, when a link changes and every 30 minutes while you play |
 | Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
+| Check version (1.1.2): nothing but a number to match the answer | the player you right-clicked, alone (a whisper) | only when you pick **Check version** (a player once every 2 minutes, 6 a minute) |
+| The answer to a version check (1.1.2): your addon's version | the player whose addon asked, alone (a whisper) | when a player's addon asks: each once every 30 seconds at most, 20 a minute in all; never to a player you block or ignore |
+| Ask to update (1.1.2): the newest version your addon knows | the player you right-clicked, alone (a whisper) | only when you pick **Ask to update** (a player once a day, 5 an hour) |
+| Your bug report (the same text as `/oly bug`) | the author alone (whispers) | only when you press **Send to** him in Report a bug, or **Send** in the window his ask opens (1.1.2) |
 | The shared block terms (1.1): each word, whether it was added or removed, and when; for 15 minutes after an edit, the editor's own client adds his name to it (never to anyone else's) | everyone on the Olympus channel | only from the client of the King, his Steward, a Hand or a High Councillor: at once when they edit it, and every 10 minutes while they play (not when another client just sent the same list). Your own filter is never sent |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A Lord's mentor pair (1.1): the recruit's name to the Captain, the Captain's name to the recruit, as whispers in his words | those two players | only when the Lord clicks **Send both** |
@@ -1433,7 +1474,7 @@ calls, the Olympus chats, an officer's patrol findings to his guild's officers, 
 listing (and with it your addon's answers to who can make it) and Olympus Link (your **Accept**, or a confirmer's typing in the key the
 bot's keeper made them) wait for your yes. The rest of the table goes out while you are in an
 Olympus guild, with no question first: your guild's census (from the member it elects, with the
-names above), the hello, an officer's loot notes and points to his guild and your addon's ask for what its book lacks
+names above), the hello and your addon's answer to a version check (1.1.2), an officer's loot notes and points to his guild and your addon's ask for what its book lacks
 (when the page opens), and what other addons read through the bridge.
 
 **The first-open page (1.1).** It is the first question the addon asks. About 45 seconds after
@@ -1823,7 +1864,7 @@ Other limits:
 | `/oly sound <kind> on\|off` | one kind's sound (1.1): `arms`, `muster`, `royal`, `court`, `vox`, `agenda`, `throne`, `help`, `hop`, `treasury`, `patrol`, `update`; also a click on its line at the bottom of the Decrees tab |
 | `/oly bug` | copyable bug report (also: the help button left of the window's X, then **Report a bug**) |
 | `/oly log [n \| word \| copy \| clear]` | the acts this client saw (decrees, gates, pardons, visibility switches), each with the sender's name; kept on this computer, never sent (1.1) |
-| `/oly status` | diagnostics in chat (1.0.0: whom your addon knows as the King's Steward, and the lists of Hands it holds, whose each is) |
+| `/oly status` | diagnostics in chat (1.0.0: whom your addon knows as the King's Steward, and the lists of Hands it holds, whose each is; 1.1.2: the author's in a copy window) |
 
 ## Reporting a bug
 
@@ -1831,6 +1872,9 @@ While the addon's author is online, the **Report a bug** window also has a **Sen
 Faladoriel Skylance** button: your report goes to him in game, by addon whisper, and nowhere
 else (once every 10 minutes at most). It first checks he is really there: the rest follows
 only once he answers, and you are told when he got it.
+
+Since 1.1.2 the author can also ask you for it from the right-click menu: your addon shows you
+the exact text first, in a window of its own, and sends nothing without your **Send**.
 
 Type `/oly bug` (or press **Report a bug**), copy the text and open an issue. Errors are
 also saved in `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.
