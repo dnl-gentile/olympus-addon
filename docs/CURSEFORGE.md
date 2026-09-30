@@ -1455,8 +1455,6 @@ also saved in `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.
   shenanigans_ (the nameplate marks), Valdericht (`<OLYMPIAN>`), Pyralis Ashandar (taking
   donations) and Zeal (what the King hides stays off the channel).
 - **Art:** Max (the bronze elite borders of Raiders and Veterans, drawn over the game's own).
-- **Ranks:** Zeal (`<Olympus>`'s chain of command, whose Swarm and Hardshell get the Raiders'
-  and Veterans' borders) and Kyllavertin (its emblems).
 - **Reports from the field:** Riukensei and PartyRockAce (the gamepad UI), Ignitheus (whispers
   to Forever names), Pyralis Ashandar, the Treasurer (the treasury and the guild bank), and the
   player who told us WoW had handed him the channel.
