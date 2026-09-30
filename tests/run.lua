@@ -41560,6 +41560,286 @@ end
 		end
 	end)
 end)()
+---------------------------------------------------------------------------
+-- 1.1, the review of Konig's fixes (the dues): a Captain's and the King's dues pages go by the
+-- King's amount for the week as their own client holds it, never by the one the Treasurer's list
+-- came with (a list counted by another amount removes nobody, and the King's table shows its
+-- counts of who paid as not known); the Treasurer's copy for Discord ranks the donors as his
+-- client sends them, without what may be each giver's dues.
+---------------------------------------------------------------------------
+do
+	local D, T = ns.Dues, ns.Treasury
+	local WEEK = 7 * 86400
+	local rosterSize = 12
+	-- <Olympus II>'s roster as the server gives it (Cap's guild): Nm(1) its Lord, Nm(2) to Nm(6) its
+	-- officers, the others soldiers (names of letters alone, as the game's are).
+	local function Nm(i) return "Squire" .. string.char(96 + math.floor((i - 1) / 26) + 1) .. string.char(96 + (i - 1) % 26 + 1) end
+	-- Runs fn(w, K, removed) on the Throne's world with the dues fresh, that roster, a rank that may
+	-- remove members, and `removed` the names the game was asked to remove; all put back after.
+	local function WithLows(fn)
+		WithThrone(function(w, K)
+			local saved = { split = ns.splitNames, byName = ns.Roster.byName, members = GetNumGuildMembers, st = GetServerTime,
+				roster = GetGuildRosterInfo, can = CanGuildRemove, info = C_GuildInfo, uninvite = GuildUninvite, scan = ns.Roster.RequestScan,
+				shares = ns.db.keeperShares }
+			local removed = {}
+			local ok, err = pcall(function()
+				ns.splitNames = true
+				GetServerTime = nil -- (the server's clock is the test's: ns.Now)
+				D.Reset()
+				ns.Roster.byName = {}
+				GetNumGuildMembers = function() return rosterSize, 1 end
+				GetGuildRosterInfo = function(i)
+					if i > rosterSize then return nil end
+					local rank = i == 1 and 0 or (i <= 6 and 1 or 3)
+					return Nm(i) .. "-Realm", ({ [0] = "Lord", [1] = "Officer", [3] = "Soldier" })[rank], rank, 20
+				end
+				CanGuildRemove = function() return true end
+				C_GuildInfo = { Uninvite = function(name) removed[#removed + 1] = name end }
+				GuildUninvite = nil
+				ns.Roster.RequestScan = function() end
+				fn(w, K, removed)
+			end)
+			ns.splitNames, ns.Roster.byName, GetNumGuildMembers, GetServerTime = saved.split, saved.byName, saved.members, saved.st
+			GetGuildRosterInfo, CanGuildRemove, C_GuildInfo, GuildUninvite = saved.roster, saved.can, saved.info, saved.uninvite
+			ns.Roster.RequestScan, ns.db.keeperShares, ns.db.myCharacters = saved.scan, saved.shares, nil
+			D.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end
+	-- The King's and the Treasurer's names, as the addon pins them (the Treasurer's client after).
+	local function Names()
+		AsKing()
+		local king = ns.me
+		AsTreasurer()
+		return king, ns.me
+	end
+	-- The King's word as this client last heard it (every client of the test shares one saved
+	-- variables): `copper` from the weekly reset after `at`, `before` until then.
+	local function Word(king, copper, at, before)
+		ns.rdb.duesAmount = nil
+		eq(D.TakeAmount(copper, at, king, before), true)
+	end
+	-- A dues mail the Treasurer took, with the note for <Olympus II>.
+	local function Paid(i, copper) T.Record(Nm(i), copper, "mail", nil, { quiet = true, note = D.Note(D.Week(), "Olympus II") }) end
+	-- The dues page's text as one (colours taken out), and its lines.
+	local function Page()
+		local lines = D.Build()
+		local out = {}
+		for _, l in ipairs(lines) do out[#out + 1] = tostring(l.text or "") .. " " .. tostring(l.right or "") end
+		return (table.concat(out, " "):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("%s+", " ")), lines
+	end
+	local function Row(lines, text)
+		for _, l in ipairs(lines) do if tostring(l.text):find(text, 1, true) then return l end end
+	end
+	local function RemoveLines(lines)
+		local out = {}
+		for _, l in ipairs(lines) do if tostring(l.key):find("^dues remove ") then out[#out + 1] = l end end
+		return out
+	end
+	-- The asks for a list whispered to `to` since `from`.
+	local function Asks(w, from, to)
+		local n = 0
+		for i = from + 1, #w.whispered do if w.whispered[i].msg:find("^FQ~") and w.whispered[i].to == to then n = n + 1 end end
+		return n
+	end
+
+	test("1.1 dues, the review of Konig's fixes: the King lowers the dues and the Treasurer's addon still counts the old amount: a Captain's page goes by the King's, and that list removes nobody", function()
+		WithLows(function(w, K, removed)
+			local KING, TREASURER = Names()
+			-- The King lowered the dues from 10 gold to 5 from this week. The Treasurer's addon has met
+			-- neither him nor a Steward since the 10 gold: it counts this week by 10.
+			Word(KING, 100000, w.clock - 2 * WEEK, 10000)
+			eq(D.Amount(), 100000)
+			Paid(7, 50000)
+			Paid(8, 100000)
+			local stale = D.GuildMessages(D.Ledger(), "Olympus II")
+			-- The Captain's addon heard the King: 5 gold this week (10 the week before).
+			AsCaptain()
+			Word(KING, 50000, w.clock - WEEK, 100000)
+			eq(D.Amount(), 50000)
+			for _, m in ipairs(stale) do D.HandleGuild("WHISPER", TREASURER, m) end
+			D.Open()
+			local text, lines = Page()
+			local m7 = Row(lines, Nm(7) .. " ")
+			assert(m7 and m7.right:find(ns.L.DUES_ABOVE, 1, true), "paid the King's 5 gold: above, never below by the list's 10: " .. text)
+			assert(Row(lines, Nm(8) .. " ").right:find(ns.L.DUES_ABOVE, 1, true))
+			assert(text:find(ns.L.DUES_OWN_COUNT:format(2, rosterSize, T.Coins(50000)), 1, true), "counted by the King's amount: " .. text)
+			assert(text:find(ns.L.DUES_AMOUNT_DIFFERS:format(T.Coins(100000), T.Coins(50000)), 1, true), "the page says so: " .. text)
+			-- Nobody is removed by that list, a list of now: not Nm(7), who paid the King's amount, nor
+			-- Nm(9), who paid nothing; a removal confirmed anyway does nothing and asks again.
+			m7.onClick()
+			eq(#RemoveLines(select(2, Page())), 0, "paid: never removable")
+			eq(D.Remove({ key = Nm(7):lower(), name = Nm(7) }), false)
+			Row(select(2, Page()), Nm(9) .. " ").onClick()
+			text, lines = Page()
+			assert(Row(lines, Nm(9) .. " ").right:find(ns.L.DUES_NOT_IN_BOOK, 1, true), "nothing of his this week: " .. text)
+			eq(#RemoveLines(lines), 0, "a list counted by another amount removes nobody")
+			assert(Row(lines, ns.L.DUES_REMOVE_AMOUNT_WAIT), "said why, under him: " .. text)
+			local before = #w.whispered
+			eq(D.Remove({ key = Nm(9):lower(), name = Nm(9) }), false)
+			eq(#removed, 0, "nothing done")
+			assert(Printed(w, ns.L.DUES_REMOVE_AMOUNT:format(T.Coins(100000), T.Coins(50000), Nm(9))), "said why")
+			eq(Asks(w, before, TREASURER), 1, "asked again")
+			-- The Treasurer's addon hears the King: its list, counted by 5 gold, agrees, and the one
+			-- click removes Nm(9).
+			AsTreasurer()
+			Word(KING, 50000, w.clock - WEEK, 100000)
+			local agreed = D.GuildMessages(D.Ledger(), "Olympus II")
+			AsCaptain()
+			for _, m in ipairs(agreed) do D.HandleGuild("WHISPER", TREASURER, m) end
+			text, lines = Page()
+			assert(not text:find(ns.L.DUES_AMOUNT_DIFFERS:sub(1, 30), 1, true), "nothing to say now: " .. text)
+			eq(#RemoveLines(lines), 1, "Nm(9), picked, on a list counted by the King's amount")
+			eq(D.Remove({ key = Nm(9):lower(), name = Nm(9) }), true)
+			eq(#removed, 1); eq(removed[1], Nm(9) .. "-Realm")
+			-- The other way round (the Captain's addon has not heard the King's 5 gold yet): his page
+			-- goes by the 10 gold it holds, and the list counted by 5 removes nobody meanwhile.
+			Word(KING, 100000, w.clock - 2 * WEEK, 10000)
+			text, lines = Page()
+			assert(Row(lines, Nm(7) .. " ").right:find(ns.L.DUES_BELOW, 1, true), "by the 10 gold it holds: " .. text)
+			assert(text:find(ns.L.DUES_AMOUNT_DIFFERS:format(T.Coins(50000), T.Coins(100000)), 1, true), text)
+			Row(lines, Nm(7) .. " ").onClick()
+			eq(#RemoveLines(select(2, Page())), 0, "not removable by a list counted by another amount")
+			eq(D.Remove({ key = Nm(7):lower(), name = Nm(7) }), false)
+			eq(#removed, 1, "nobody more")
+		end)
+	end)
+
+	test("1.1 dues, the review of Konig's fixes: a Treasurer's addon that says another amount (a modified one, 1000 gold) puts nobody who paid the King's under it, and removes nobody", function()
+		WithLows(function(w, K, removed)
+			local KING, TREASURER = Names()
+			-- 10 gold this week, on every client.
+			Word(KING, 100000, w.clock - WEEK, 10000)
+			Paid(8, 100000)
+			local forged = {}
+			for i, m in ipairs((D.GuildMessages(D.Ledger(), "Olympus II"))) do
+				local head, rest = m:match("^(FA~%d+~%d+~)[0-9a-z]+(~.*)$")
+				assert(head, m)
+				forged[i] = head .. ns.Codec.Base36(D.MAX_AMOUNT) .. rest
+			end
+			AsCaptain()
+			for _, m in ipairs(forged) do D.HandleGuild("WHISPER", TREASURER, m) end
+			D.Open()
+			local text, lines = Page()
+			local m8 = Row(lines, Nm(8) .. " ")
+			assert(m8 and m8.right:find(ns.L.DUES_ABOVE, 1, true), "paid the King's 10 gold: above, whatever the list says: " .. text)
+			assert(text:find(ns.L.DUES_AMOUNT_DIFFERS:format(T.Coins(D.MAX_AMOUNT), T.Coins(100000)), 1, true), text)
+			m8.onClick()
+			eq(#RemoveLines(select(2, Page())), 0)
+			eq(D.Remove({ key = Nm(8):lower(), name = Nm(8) }), false)
+			-- Nm(10) paid nothing: under the King's amount, and still not removable by that list.
+			Row(select(2, Page()), Nm(10) .. " ").onClick()
+			eq(#RemoveLines(select(2, Page())), 0)
+			eq(D.Remove({ key = Nm(10):lower(), name = Nm(10) }), false)
+			eq(#removed, 0, "nobody removed by the list of an addon that set its own amount")
+			-- The King's own table the same: its counts of who paid, made by 1000 gold, are not known.
+			local fs = {}
+			AsTreasurer()
+			for i, m in ipairs((D.SummaryMessages(D.Ledger()))) do
+				local head, rest = m:match("^(FS~%d+~%d+~)[0-9a-z]+(~.*)$")
+				assert(head, m)
+				fs[i] = head .. ns.Codec.Base36(D.MAX_AMOUNT) .. rest
+			end
+			AsKing()
+			for _, m in ipairs(fs) do D.HandleSummary("WHISPER", TREASURER, m) end
+			D.Open()
+			eq(Row(select(2, Page()), "<Olympus II>").right, ns.L.DUES_GUILD_ROW:format("300", "?", T.GoldText(100000), "?"))
+		end)
+	end)
+
+	test("1.1 dues, the review of Konig's fixes: the King's table of every guild goes by his amount; the Treasurer's counts of who paid, made by another amount, show as not known until his addon counts by the King's", function()
+		WithLows(function(w)
+			local KING, TREASURER = Names()
+			Word(KING, 100000, w.clock - 2 * WEEK, 10000) -- (the Treasurer's addon: 10 gold this week)
+			Paid(7, 50000)
+			Paid(8, 100000)
+			local fs = D.SummaryMessages(D.Ledger())
+			AsKing()
+			Word(KING, 50000, w.clock - WEEK, 100000) -- (his own: 5 gold)
+			for _, m in ipairs(fs) do D.HandleSummary("WHISPER", TREASURER, m) end
+			D.Open()
+			local text, lines = Page()
+			local row = Row(lines, "<Olympus II>")
+			assert(row, text)
+			eq(row.right, ns.L.DUES_GUILD_ROW:format("300", "?", T.GoldText(150000), "?"), "paid and the percentage not known")
+			assert(text:find(ns.L.DUES_TABLE_DIFFERS:format(T.Coins(100000), T.Coins(50000)), 1, true), "the page says why: " .. text)
+			local tip = {}
+			row.tooltip({ AddLine = function(_, s) tip[#tip + 1] = s end })
+			eq(tip[2], ns.L.DUES_GUILD_TIP:format("300", "?", T.Coins(50000), T.Coins(150000), 2), "the King's amount in its tip")
+			-- His addon hears the King: both paid 5 gold or more.
+			AsTreasurer()
+			Word(KING, 50000, w.clock - WEEK, 100000)
+			fs = D.SummaryMessages(D.Ledger())
+			AsKing()
+			for _, m in ipairs(fs) do D.HandleSummary("WHISPER", TREASURER, m) end
+			text, lines = Page()
+			eq(Row(lines, "<Olympus II>").right, ns.L.DUES_GUILD_ROW:format("300", "2", T.GoldText(150000), "1%"))
+			assert(not text:find(ns.L.DUES_TABLE_DIFFERS:sub(1, 30), 1, true), text)
+		end)
+	end)
+
+	test("1.1 dues, the review of Konig's fixes: the Treasurer's copy for Discord ranks the donors as his addon sends them, without what may be each giver's dues; his screen stays whole", function()
+		WithLows(function()
+			AsTreasurer()
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			local function Give(name, copper, note) T.Record(name, copper, "mail", nil, { quiet = true, note = note }) end
+			Give("Payer", 10000)                                     -- (the 1 gold in force: dues, or not)
+			Give("Noted", 30000, D.Note(D.Week(), "Olympus II"))     -- (sent with the dues' note: all of it)
+			Give("Patron", 35000)                                    -- (1 gold of it may be dues)
+			local copy = T.DiscordText()
+			assert(copy:find("1. Patron - 2g 50s", 1, true), "what went over the amount: " .. copy)
+			assert(not copy:find("Payer", 1, true), "a payer of the amount is never in the copy: " .. copy)
+			assert(not copy:find("Noted", 1, true), "nor what went with the dues' note: " .. copy)
+			-- The ranking that leaves his client, place by place.
+			for i, g in ipairs(T.PublicRanking(T.Book())) do assert(copy:find(("%d. %s - "):format(i, g.name), 1, true), g.name .. ": " .. copy) end
+			-- His own screen: whole, as ever.
+			local mine = {}
+			for _, g in ipairs(T.Totals().ranking) do mine[g.name] = g.money end
+			eq(mine.Payer, 10000); eq(mine.Noted, 30000); eq(mine.Patron, 35000)
+			-- Another character of his account (his mail character) copies his book as it leaves too.
+			ns.db.myCharacters = { [TREASURER_KEY] = true, [ANDARAI_KEY] = true }
+			ns.me = ANDARAI
+			copy = T.DiscordText()
+			assert(copy:find("Patron - 2g 50s", 1, true), copy)
+			assert(not copy:find("Payer", 1, true) and not copy:find("Noted", 1, true), copy)
+		end)
+	end)
+
+	test("1.1 dues, the review of Konig's fixes: the new lines in English and pt-BR (the same values; es/fr/de show the English); the README and the CurseForge page say what the page goes by and what the Discord copy leaves out", function()
+		local pt = { L = setmetatable({}, { __index = ns.L }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		local function Slots(x) return (x:gsub("%%%%", ""):gsub("[^%%]", ""):len()) end
+		for _, key in ipairs({ "DUES_AMOUNT_DIFFERS", "DUES_TABLE_DIFFERS", "DUES_REMOVE_AMOUNT_WAIT", "DUES_REMOVE_AMOUNT" }) do
+			local en, p = rawget(ns.L, key), rawget(pt.L, key)
+			assert(en and p and p ~= en, key)
+			eq(Slots(p), Slots(en), key)
+			for _, bad in ipairs({ "owe", "debt", "lose" }) do assert(not en:lower():find(bad, 1, true), key .. ": " .. bad) end
+			for _, bad in ipairs({ "deve", "dívida", "perde" }) do assert(not p:lower():find(bad, 1, true), key .. ": " .. bad) end
+		end
+		-- A guild's "paid": a count, or "?", in both languages.
+		assert(ns.L.DUES_GUILD_ROW:format("300", "?", "1g", "?"):find("300 · ? · 1g · ?", 1, true))
+		assert(ns.L.DUES_GUILD_TIP:format("300", "?", "5g", "15g", 2):find("? paid 5g", 1, true))
+		assert(rawget(pt.L, "DUES_GUILD_TIP"):format("300", "?", "5g", "15g", 2):find("? pagaram 5g", 1, true))
+		for _, file in ipairs({ "esES", "frFR", "deDE" }) do
+			local s = assert(ReadFile(ADDON_DIR .. "Locales/" .. file .. ".lua"))
+			assert(not s:find("DUES_", 1, true), file .. ": the English dues lines show there")
+		end
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			for _, must in ipairs({ "never by the amount the Treasurer's list came with",
+				"the King's table shows its \"paid\" as \"?\", and that list removes nobody",
+				"counted by the King's amount; with an older one, or one counted by another amount",
+				"his screen alone is whole", "and in the Discord copy of the Treasury tab, his own too" }) do
+				assert(doc:find(must, 1, true), path .. ": " .. must)
+			end
+			assert(not doc:find("the Discord copy he makes there, are whole", 1, true), path .. ": the copy is no longer whole")
+		end
+	end)
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

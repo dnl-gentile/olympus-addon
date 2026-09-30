@@ -1425,8 +1425,8 @@ L.DUES_AMOUNT_SET = "The dues will be %s a week from the week of %s; this week's
 L.STEWARD_SET_DUES = "Your Steward %s set the dues to %s a week, from the week of %s."
 L.DUES_GUILDS = "Every guild this week"
 L.DUES_GUILDS_COLS = "members · paid · in · %"
-L.DUES_GUILD_ROW = "%s · %d · %s · %s"
-L.DUES_GUILD_TIP = "%s members (the census). %d paid %s or more this week; %s in from %d players. Click for its players."
+L.DUES_GUILD_ROW = "%s · %s · %s · %s"
+L.DUES_GUILD_TIP = "%s members (the census). %s paid %s or more this week; %s in from %d players. Click for its players."
 L.DUES_NO_GUILD = "Guild not known"
 L.DUES_NO_GUILD_ROW = "%d · %s"
 L.DUES_NO_GUILD_TIP = "Paid this week with no guild on it: a mail without the dues' note, from someone outside the Treasurer's guild. No guild's list names them: a guild's Captains ask the Treasurer's addon about their own members missing from their list, and hear back about those alone."
@@ -1484,6 +1484,12 @@ L.DUES_CODES_WAIT = "Some paid this week with no guild on their payment: the Tre
 L.DUES_BUSY = "The Treasurer's addon is busy answering others: this page asks again in a few minutes."
 L.DUES_REMOVE_WAIT = "Removing needs the Treasurer's list of the last 10 minutes: this page asks for a newer one while it stays open."
 L.DUES_REMOVE_STALE = "The Treasurer's list is more than 10 minutes old: asked again, nothing done to %s. Try once the newer list is here."
+-- 1.1 (the review of Konig's fixes): above and below by the King's amount as this addon holds it,
+-- never by the one the Treasurer's list came with; a list that differs removes nobody.
+L.DUES_AMOUNT_DIFFERS = "The Treasurer's list came counted by %s a week, but the King's word your addon holds says %s this week: above and below go by the King's, nobody is removed by this list, and the page asks for a newer one while it stays open."
+L.DUES_TABLE_DIFFERS = "The Treasurer's list came counted by %s a week, but the King's word your addon holds says %s this week: who paid that is not known here (?) until a list by the King's amount comes; the page asks for a newer one while it stays open."
+L.DUES_REMOVE_AMOUNT_WAIT = "Removing needs the Treasurer's list counted by the King's amount for this week: this page asks for a newer one while it stays open."
+L.DUES_REMOVE_AMOUNT = "The Treasurer's list came counted by %s, not the King's %s for this week: asked again, nothing done to %s. Try once a list by the King's amount is here."
 
 -- 1.1 (Fern's #28): the gear an officer's click keeps (Inspect.InspectGear).
 L.GEAR_BTN = "Inspect gear"
@@ -3391,7 +3397,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.STEWARD_SET_DUES = "Seu Senescal %s definiu a contribuição em %s por semana, a partir da semana de %s."
 	L.DUES_GUILDS = "Todas as guildas nesta semana"
 	L.DUES_GUILDS_COLS = "membros · pagaram · entrou · %"
-	L.DUES_GUILD_TIP = "%s membros (o censo). %d pagaram %s ou mais nesta semana; entrou %s de %d jogadores. Clique para ver os jogadores."
+	L.DUES_GUILD_TIP = "%s membros (o censo). %s pagaram %s ou mais nesta semana; entrou %s de %d jogadores. Clique para ver os jogadores."
 	L.DUES_NO_GUILD = "Guilda não conhecida"
 	L.DUES_NO_GUILD_TIP = "Pagou nesta semana sem guilda no pagamento: um correio sem a nota da contribuição, de alguém fora da guilda do Tesoureiro. Nenhuma lista de guilda traz esses nomes: os Capitães de uma guilda perguntam ao addon do Tesoureiro pelos próprios membros que faltam na lista deles, e só por esses têm resposta."
 	L.DUES_ALL_GUILDS = "Todas as guildas"
@@ -3658,6 +3664,12 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.DUES_BUSY = "O addon do Tesoureiro está ocupado respondendo a outros: esta página pede de novo em alguns minutos."
 	L.DUES_REMOVE_WAIT = "Remover exige a lista do Tesoureiro dos últimos 10 minutos: esta página pede uma mais nova enquanto fica aberta."
 	L.DUES_REMOVE_STALE = "A lista do Tesoureiro tem mais de 10 minutos: pedida de novo, nada feito com %s. Tente quando a lista nova chegar."
+	-- 1.1 (a revisão das correções do Konig): acima e abaixo pelo valor do Rei que este addon tem,
+	-- nunca pelo que veio na lista do Tesoureiro; uma lista que difere não remove ninguém.
+	L.DUES_AMOUNT_DIFFERS = "A lista do Tesoureiro veio contada por %s por semana, mas a palavra do Rei que o seu addon tem diz %s nesta semana: acima e abaixo seguem a do Rei, ninguém é removido por esta lista, e a página pede uma mais nova enquanto fica aberta."
+	L.DUES_TABLE_DIFFERS = "A lista do Tesoureiro veio contada por %s por semana, mas a palavra do Rei que o seu addon tem diz %s nesta semana: quem pagou esse valor não se sabe aqui (?) até chegar uma lista pelo valor do Rei; a página pede uma mais nova enquanto fica aberta."
+	L.DUES_REMOVE_AMOUNT_WAIT = "Remover exige a lista do Tesoureiro contada pelo valor do Rei para esta semana: esta página pede uma mais nova enquanto fica aberta."
+	L.DUES_REMOVE_AMOUNT = "A lista do Tesoureiro veio contada por %s, não pelos %s do Rei para esta semana: pedida de novo, nada feito com %s. Tente quando chegar uma lista pelo valor do Rei."
 	-- 1.1 (b2-moderation, correções da revisão): quem repassou uma palavra de net-off, a hierarquia
 	-- entre quem dá a palavra, quanto ela dura; as guildas que o Rei escolhe para uma chave nova.
 	L.NETOFF_VIA = "%s, repassado por %s"

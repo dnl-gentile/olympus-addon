@@ -51,6 +51,9 @@ local L = ns.L
 --   same list, the same id. <u>: a digest, with a secret of the Treasurer's session, of this week's
 --   payers with no guild on it ("0": none): when it changes, a Captain asks about his roster again.
 --   A code: five letters of a name's hash.)
+--   (FS's and FA's <copper>: the amount his list was counted by. Never the week's amount on the
+--   page, which is the King's word as the asker's client holds it; a list whose <copper> differs
+--   removes nobody, and its "paid" counts are not known there: the review of Konig's fixes, 1.1.)
 -- Versions before 1.1 have no handler for F? messages and drop them; a Steward's T1~Y is logged
 -- there as ignored.
 
@@ -901,7 +904,8 @@ function Dues.HandleSummary(dist, sender, text)
 	Heard(sender)
 	busy["*"] = nil
 	if not summary or summary.id ~= id or summary.week ~= week then
-		summary = { id = id, week = week, amount = amount, n = n, got = {}, count = 0, guilds = {}, t = ns.Now() }
+		-- (listAmount: the amount his list was counted by, never the week's amount here: TableLines.)
+		summary = { id = id, week = week, listAmount = amount, n = n, got = {}, count = 0, guilds = {}, t = ns.Now() }
 	end
 	summary.t = ns.Now()
 	if summary.got[i] or summary.n ~= n then return end
@@ -936,7 +940,8 @@ function Dues.HandleGuild(dist, sender, text)
 	if not a or a.id ~= id or a.week ~= week then
 		-- (What the Treasurer said about our roster's others stays, for this week.)
 		local cs = a and a.week == week and a.cs or nil
-		a = { id = id, week = week, amount = amount, since = since > 0 and since or nil, cut = cut == "1", n = n, got = {}, count = 0,
+		-- (listAmount: the amount his list was counted by, never the week's amount here: GuildData.)
+		a = { id = id, week = week, listAmount = amount, since = since > 0 and since or nil, cut = cut == "1", n = n, got = {}, count = 0,
 			rows = {}, guild = guild, cs = cs }
 		answers[key] = a
 	end
@@ -1014,9 +1019,12 @@ ns.Comm.Handle("FD", function(...) Dues.HandleCodes(...) end)
 
 -- A guild's list as this client has it, for this week: { rows = { [key] = { n, c, last } },
 -- codes (found by the Treasurer among our roster's others: [code] = { c, last }), coded (the
--- codes he answered about; nil when none need asking), amount, since, complete, cut, count, n,
--- t, mine, mailAt }, or nil. The Treasurer's own client from his books (every player, whatever
--- the guild); anyone else as the Treasurer sent it.
+-- codes he answered about; nil when none need asking), amount, listAmount, since, complete, cut,
+-- count, n, t, mine, mailAt }, or nil. The Treasurer's own client from his books (every player,
+-- whatever the guild); anyone else as the Treasurer sent it. Its amount, what above and below go
+-- by, is the week's by the King's word as this client holds it (Dues.AmountOf), never the one the
+-- Treasurer's list came with (listAmount): his client, which receives the dues, sets none of it,
+-- stale or modified (the review of Konig's fixes, 1.1).
 local function GuildData(guild)
 	if Dues.IsTreasurer() then
 		local led = Dues.Ledger()
@@ -1034,13 +1042,19 @@ local function GuildData(guild)
 	local cs, coded = a.cs, nil
 	local told = cs and cs.done and cs.u == a.u
 	if a.u ~= "0" then coded = told and cs.asked or {} end
-	return { rows = a.rows, codes = cs and cs.found or {}, coded = coded, codesPending = a.u ~= "0" and not told, amount = a.amount,
-		since = a.since, complete = a.count >= a.n, cut = a.cut, count = a.count, n = a.n, t = a.t, mailAt = a.mailAt }
+	return { rows = a.rows, codes = cs and cs.found or {}, coded = coded, codesPending = a.u ~= "0" and not told, amount = Dues.AmountOf(a.week),
+		listAmount = a.listAmount, since = a.since, complete = a.count >= a.n, cut = a.cut, count = a.count, n = a.n, t = a.t, mailAt = a.mailAt }
+end
+-- The Treasurer's list came counted by another amount than the week's here (the King's word as
+-- this client holds it): one of the two clients has not heard the King's latest, or his is not
+-- the addon it says. The page says so and goes by the King's.
+local function Differs(data)
+	return data ~= nil and data.listAmount ~= nil and data.listAmount ~= data.amount
 end
 -- A list recent enough to remove anyone by (#34): the Treasurer's own books, or his list of the
--- last REMOVE_FRESH.
+-- last REMOVE_FRESH, counted by the King's amount for the week (one that differs removes nobody).
 local function Fresh(data)
-	return data ~= nil and (data.mine or ns.Now() - (tonumber(data.t) or -math.huge) <= Dues.REMOVE_FRESH)
+	return data ~= nil and (data.mine or (ns.Now() - (tonumber(data.t) or -math.huge) <= Dues.REMOVE_FRESH and not Differs(data)))
 end
 
 -- A member's week: "above", "below" or "unknown" (the list not whole, or cut and he is not on
@@ -1084,6 +1098,7 @@ end
 local function Source(lines, data)
 	if not data then return end
 	if not data.mine then lines[#lines + 1] = { text = Grey(L.DUES_AS_OF:format(ns.Ago(data.t))) } end
+	if Differs(data) then Para(lines, L.DUES_AMOUNT_DIFFERS:format(Coins(data.listAmount), Coins(data.amount)), Gold) end
 	if data.since then Para(lines, L.DUES_SINCE:format(date and date("%Y-%m-%d", data.since) or tostring(data.since))) end
 	if data.cut then Para(lines, L.DUES_CUT) end
 	Para(lines, data.mailAt and L.DUES_MAIL_AS_OF:format(When(data.mailAt)) or L.DUES_MAIL_COUNTS)
@@ -1169,7 +1184,11 @@ function Dues.Remove(data)
 	local list = GuildData(guild)
 	if not Fresh(list) then
 		Dues.Ask(guild, true)
-		ns.Print(L.DUES_REMOVE_STALE:format(who))
+		if Differs(list) then
+			ns.Print(L.DUES_REMOVE_AMOUNT:format(Coins(list.listAmount), Coins(list.amount), who))
+		else
+			ns.Print(L.DUES_REMOVE_STALE:format(who))
+		end
 		return false
 	end
 	if Dues.Standing(list, m.key) ~= "below" then ns.Print(L.DUES_REMOVE_PAID:format(who)) return false end
@@ -1250,7 +1269,7 @@ local function OwnGuildLines(lines, q)
 		-- The picked member, when this click may remove him: the one Remove line, under him (with a
 		-- list of the last REMOVE_FRESH; an older one says it waits for a newer).
 		if picked and Removable(r.m, r.state) and not Fresh(data) then
-			lines[#lines + 1] = { indent = 2, text = Grey(L.DUES_REMOVE_WAIT) }
+			lines[#lines + 1] = { indent = 2, text = Grey(Differs(data) and L.DUES_REMOVE_AMOUNT_WAIT or L.DUES_REMOVE_WAIT) }
 		elseif picked and Removable(r.m, r.state) then
 			local m = r.m
 			lines[#lines + 1] = { indent = 2, key = "dues remove " .. tostring(m.key), text = Red(L.DUES_REMOVE:format(m.name)),
@@ -1313,6 +1332,12 @@ local function TableLines(lines, q)
 		return
 	end
 	if not complete then lines[#lines + 1] = { text = Grey(L.DUES_RECEIVING:format(led.count or 0, led.n or 0)) } end
+	-- The week's amount by the King's word as this client holds it, never the Treasurer's list's
+	-- (the review of Konig's fixes, 1.1). His "paid" counts go by his list's amount: when it is
+	-- another, they are not known here ("?"), and the page says why.
+	local amount = Dues.AmountOf(led.week)
+	local differs = led.listAmount ~= nil and led.listAmount ~= amount
+	if differs then Para(lines, L.DUES_TABLE_DIFFERS:format(Coins(led.listAmount), Coins(amount)), Gold) end
 	local rows, seen = {}, {}
 	for key, row in pairs(led.guilds) do
 		if key ~= "" then
@@ -1338,13 +1363,14 @@ local function TableLines(lines, q)
 	for _, r in ipairs(rows) do
 		if ns.Holds(q, r.name) then
 			shown = shown + 1
-			local pct = r.members and (math.floor(r.paid * 100 / r.members + 0.5) .. "%") or "?"
+			local paid = differs and "?" or tostring(r.paid)
+			local pct = r.members and not differs and (math.floor(r.paid * 100 / r.members + 0.5) .. "%") or "?"
 			lines[#lines + 1] = { indent = 1, key = "dues " .. r.name:lower(), text = "<" .. r.name .. ">",
-				right = L.DUES_GUILD_ROW:format(tostring(r.members or "?"), r.paid, GoldText(r.copper), pct),
+				right = L.DUES_GUILD_ROW:format(tostring(r.members or "?"), paid, GoldText(r.copper), pct),
 				onClick = function() Dues.Open(r.name) end,
 				tooltip = function(tt)
 					tt:AddLine("<" .. r.name .. ">", 1, 0.82, 0)
-					tt:AddLine(L.DUES_GUILD_TIP:format(tostring(r.members or "?"), r.paid, Coins(led.amount), Coins(r.copper), r.payers), 1, 1, 1, true)
+					tt:AddLine(L.DUES_GUILD_TIP:format(tostring(r.members or "?"), paid, Coins(amount), Coins(r.copper), r.payers), 1, 1, 1, true)
 				end }
 		end
 	end
