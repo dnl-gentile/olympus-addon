@@ -286,8 +286,10 @@ WoW channel number to join). Each channel is exclusive to a rank:
   A companion addon reading the chats (the bridge) still gets hidden lines, as with a muted
   channel. **The shared block terms**: a second list the King, his Steward, a Hand or a High
   Councillor of the author's signed list edits for everyone (`/oly filter shared add|remove
-  <word>`, 50 words at most), used on every client unless its player says `/oly filter shared
-  off`. Each word is its own entry with the server's time of its edit, so two editors never undo
+  <word>`, 50 words at most, each one word of 4 letters at least: a short common word such as
+  "the" or "de" would hide nearly every line), used on every client unless its player says
+  `/oly filter shared off`. The shared list never hides the King's writs (your own filter still
+  can). Each word is its own entry with the server's time of its edit, so two editors never undo
   each other's other words, and a removal is kept for 30 days. Clients take it from those
   characters alone (the server stamps the sender), and each edit this client heard from the
   editor's own client, within 15 minutes of it, goes into its log of acts with the editor's name
@@ -1414,6 +1416,8 @@ few characters working together can still reach is said plainly further down
   anyone off. The shared list is taken only from the King's, his Steward's, a Hand's or a signed
   High Councillor's character (the server stamps the sender), newest time first word by word, a
   time more than a minute ahead of the server's clock refused, and each player can ignore it.
+  Its words are 4 letters at least and it never hides the King's writs (1.1, Konig's review:
+  one editor adding "the" or "de" could hide nearly every decree and writ for everyone).
 
 ### What colluding characters can reach
 

@@ -162,9 +162,10 @@ local function OnWrit(sender, id, rest)
 	local list = Store("writs")
 	local w = { id = id, king = ns.FullName(sender), by = ns.KingName(sender), to = to, text = text, t = now }
 	-- 1.1 (#31): a writ the player's block terms hit stays folded: no parchment, no alert, and
-	-- the Decrees tab offers it to read with a click (Filter.lua).
+	-- the Decrees tab offers it to read with a click (Filter.lua). His own terms alone: the shared
+	-- list never hides the King's writs (1.1, Konig's review).
 	local F = ns.Filter
-	if F and not F.missing and F.Hides(text) then w.hidden = true end
+	if F and not F.missing and F.Hides(text, true) then w.hidden = true end
 	list[#list + 1] = w
 	while #list > Acts.WRITS_KEPT do table.remove(list, 1) end
 	if not w.hidden then

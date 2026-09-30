@@ -3641,9 +3641,11 @@ end
 
 ---------------------------------------------------------------------------
 -- 1.1 (Konig's review of 1.1, moderation): a net-off word from higher up holds a name
--- (Moderation.lua).
+-- (Moderation.lua); a shared block term's length (Filter.lua).
 ---------------------------------------------------------------------------
 L.NETOFF_HELD_HIGHER = "%s was hidden or shown again by a word from higher up than yours: only someone as high can change it."
+L.FILTER_SHARED_SHORT = "A shared block term is one word of %d letters at least: a short common word would hide nearly every line for everyone."
 if GetLocale and GetLocale() == "ptBR" then
 	L.NETOFF_HELD_HIGHER = "%s foi escondido ou mostrado de novo por uma palavra de mais alto que a sua: só alguém tão alto pode mudar isso."
+	L.FILTER_SHARED_SHORT = "Um termo bloqueado compartilhado é uma palavra de pelo menos %d letras: uma palavra curta e comum esconderia quase todas as linhas para todo mundo."
 end

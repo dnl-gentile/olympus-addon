@@ -37820,13 +37820,78 @@ end)
 		end)
 	end)
 
+	-- fn with empty block terms (the player's own and the shared list), the shared list used, the
+	-- server's clock the scene's; all put back after.
+	local function NoTerms(w, fn)
+		local F = ns.Filter
+		local saved = { mine = ns.db.filterWords, shared = ns.rdb.filterShared, off = ns.db.filterSharedOff, st = GetServerTime,
+			show = ns.Acts.ShowWrit, ui = ns.UI }
+		local ok, err = pcall(function()
+			ns.db.filterWords, ns.rdb.filterShared, ns.db.filterSharedOff = nil, nil, nil
+			ns.Chronicle.Clear()
+			F.Reset()
+			GetServerTime = function() return w.clock end
+			fn(F)
+		end)
+		ns.db.filterWords, ns.rdb.filterShared, ns.db.filterSharedOff, GetServerTime = saved.mine, saved.shared, saved.off, saved.st
+		ns.Acts.ShowWrit, ns.UI = saved.show, saved.ui
+		ns.Chronicle.Clear()
+		F.Reset()
+		if not ok then error(err, 0) end
+	end
+
+	test("1.1 Konig's review (item 2): a shared block term is 4 letters at least, and the shared list never hides the King's writs (a player's own filter still may)", function()
+		WithModeration(function(w, K)
+			NoTerms(w, function(F)
+				local now = w.clock
+				AsSoldier("Watcher")
+				-- An editor's list with short common words: only the long enough one is taken.
+				F.Receive("CHANNEL", HC, "BW~00000000~+the@" .. now .. ",+de@" .. now .. ",+que@" .. now .. ",+treason@" .. now)
+				eq(F.Hides("the King speaks"), false, "\"the\"")
+				eq(F.Hides("de nada"), false, "\"de\""); eq(F.Hides("o que foi"), false, "\"que\"")
+				eq(F.Hides("treason again"), true, "a word of 4 letters or more")
+				eq(#F.SharedTerms(), 1)
+				-- A short word kept from an earlier session goes at login.
+				ns.rdb.filterShared.the = { on = true, at = now, by = HC }
+				F.OnLogin()
+				eq(ns.rdb.filterShared.the, nil, "dropped at login")
+				-- The editor's own client refuses it, says why and sends nothing.
+				AsSoldier("Test Councillor")
+				local sent = #w.sent
+				eq(F.EditShared("the", true), nil)
+				assert(Printed(w, ns.L.FILTER_SHARED_SHORT:format(F.SHARED_TERM_MIN)), "said why")
+				eq(#w.sent, sent, "nothing sent")
+				eq(F.EditShared("vendo", true), true, "a longer word")
+				-- A player's own filter still takes short words: it hides lines on his screen alone.
+				AsSoldier("Watcher")
+				eq(F.Add("de"), true); eq(F.Hides("de nada"), true)
+				ns.db.filterWords = nil
+				-- The King's writ: the shared list never hides it.
+				local opened = {}
+				ns.Acts.ShowWrit = function(wr) opened[#opened + 1] = wr end
+				ns.UI = { Refresh = function() end, RefreshSoon = function() end, ShowCopy = function() end }
+				K.HandleCommand("CHANNEL", KING, "T1~W~77~Olympus~E~Treason is afoot in the south")
+				local writ = ns.rdb.writs[#ns.rdb.writs]
+				eq(writ.text, "Treason is afoot in the south"); eq(writ.hidden, nil, "not folded by the shared list")
+				assert(Printed(w, ns.L.WRIT_ARRIVED:format(ns.KingName(KING))), "its alert")
+				-- The player's own filter still folds one.
+				F.Add("treason")
+				w.clock = w.clock + 3600
+				K.HandleCommand("CHANNEL", KING, "T1~W~78~Olympus~E~Treason once more")
+				writ = ns.rdb.writs[#ns.rdb.writs]
+				eq(writ.text, "Treason once more"); eq(writ.hidden, true, "folded by the player's own filter")
+			end)
+		end)
+	end)
+
 	test("1.1 Konig's review: the README and the CurseForge page say what the net-off and the shared block terms do now", function()
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
 			for _, must in ipairs({ "And no word replaces one from higher up, whatever its date", "Among words of the same rank the newest wins",
 				"an issuer as high or higher (the King always) can put it back on",
 				"Each issuer's addon repeats his own words for late logins, every 5 minutes, and never anyone else's",
-				"then from the giver's own addon every few minutes for late logins", "no addon repeats it" }) do
+				"then from the giver's own addon every few minutes for late logins", "no addon repeats it",
+				"each one word of 4 letters at least", "The shared list never hides the King's writs (your own filter still can)" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
 			assert(not doc:find("The newest word wins, by the server's clock", 1, true), path .. ": the old claim")
@@ -37841,7 +37906,7 @@ end)
 		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
 		GetLocale = savedLocale
 		if not ok then error(err, 0) end
-		for _, key in ipairs({ "NETOFF_HELD_HIGHER" }) do
+		for _, key in ipairs({ "NETOFF_HELD_HIGHER", "FILTER_SHARED_SHORT" }) do
 			local en, br = rawget(ns.L, key), rawget(pt.L, key)
 			assert(type(en) == "string" and en ~= "", "English " .. key)
 			assert(type(br) == "string" and br ~= "" and br ~= en, "pt-BR " .. key)
