@@ -306,15 +306,19 @@ WoW channel number to join). Each channel is exclusive to a rank:
   each guildmate's addon reads his rank in its own guild roster, never in the census (which
   anyone on the Olympus channel can report to). (The officers of <Olympus> read [Lords] only on
   its own members' addons, so they pin for the army as the King's Hands.) `/oly pin <text>` pins
-  where your rank allows; `/oly pin off` (or a click on the line) takes it down: its setter, or a
-  higher rank (the King anyone's, his Stewards and Hands a guild master's), and one line in chat
-  says who took it down. It is lighter than a writ: no parchment, nothing to acknowledge, no
-  popup and no sound, one line in chat when it arrives. There is one line on each screen: a
-  newer pin replaces one of its own rank or lower, so the King's newer pin always wins, and his
-  Stewards' and Hands' outrank a guild master's. Its words are the setter's own, sent with the
-  logged API like a chat line (abuse can be reported), and its setter's addon repeats it for
-  late logins. Charters and dues stay in Discord, typed by a person. Addons before 1.1 don't
-  show it.
+  where your rank allows; `/oly pin off` (or a click on the line) takes it down: its setter, or
+  a higher rank (the King anyone's, his Stewards and Hands a guild master's), and one line in
+  chat says who took it down. A takedown sticks: every addon remembers the pins taken down for 2
+  hours (in its saved variables), so a repeat that comes late, or a setter's addon that missed
+  the takedown, never brings one back; the addon that took it down says so again when it hears
+  it repeated (once a minute at most), and the setter's addon lets it go. The setter's addon
+  keeps its own pin through a `/reload`, to repeat it and take it down. It is lighter than a
+  writ: no parchment, nothing to acknowledge, no popup and no sound, one line in chat when it
+  arrives. There is one line on each screen: a newer pin replaces one of its own rank or lower,
+  so the King's newer pin always wins, and his Stewards' and Hands' outrank a guild master's.
+  Its words are the setter's own, sent with the logged API like a chat line (abuse can be
+  reported), and its setter's addon repeats it for late logins. Charters and dues stay in
+  Discord, typed by a person. Addons before 1.1 don't show it.
 
 **Not encrypted, not private:** every client on the hidden Olympus channel receives the text of
 all three channels, and the addon only decides what to show. Anyone on that channel can read
@@ -1158,7 +1162,7 @@ message (the game adds it). What goes where:
 | A layer hop ask: the zone you are in and the layer you want | everyone on the Olympus channel | when you ask to hop |
 | An answer to an ask for your layer (it tells the asker you are on it) | the asker alone (a whisper) | only if you share your zone and layer and said yes to layer help (1.1: off until you answer, on the first-open page or with `/oly layerhelp on`; `/oly layerhelp off` stops it) |
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one, only while the Olympus chats are on (1.1: off until you say yes, on the first-open page or with `/oly chat on`) |
-| A pinned line (1.1): its words, your guild and, as on every message, your name | the King's, his Stewards' and Hands': everyone on the Olympus channel. A guild master's: his guild alone (over guild chat) | when you pin one, again every 5 minutes while it lasts (2 hours at most), and when you take it down |
+| A pinned line (1.1): its words, your guild and, as on every message, your name | the King's, his Stewards' and Hands': everyone on the Olympus channel. A guild master's: his guild alone (over guild chat) | when you pin one, again every 5 minutes while it lasts (2 hours at most, a `/reload` included), and when you take it down; a pin you took down (its number and your guild), again when its setter's addon repeats it, once a minute at most |
 | A flag on the Board (1.1): your guild, level and class, the flag (dungeon, raid, PvP or layer), your note (with the logged API), and your zone only while you share it | everyone on the Olympus channel, and whispered to a player whose Board asked for the flags up | when you raise it, then every 10 to 30 minutes for an hour at most, until you lower it |
 | The Board's ask (1.1): nothing but your name | everyone on the Olympus channel | once a session, the first time you open the Board |
 | A signup (1.1): the Agenda entry, the role you claim (or that you withdraw) and your guild | whoever set that entry (the King, his Steward or a Hand), alone (a whisper) | only when you click Sign up |

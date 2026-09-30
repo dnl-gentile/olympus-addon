@@ -37802,6 +37802,179 @@ test("1.1 pinned line (Konig's review): the guild master's lines in both languag
 	assert(ns.L.PIN_ONLY:find("guild", 1, true), "who pins for a guild")
 end)
 
+test("1.1 pinned line (Konig's review): a takedown sticks: a late repeat, or a setter's client that missed it, never brings the pin back, a /reload later too", function()
+	PinBench(function(w, K, sent, C)
+		K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~H~5~Olympus~Helper-Realm")
+		-- Zed, guild master of <Olympus Zeus>, pins for his guild.
+		AsLord()
+		eq(C.SetPin("Raid at nine in Ashenvale"), true)
+		local first = sent[#sent].msg
+		local id = first:match("^N1~(%d+)~")
+		-- A guildmate's client shows it; a Hand of that guild takes it down.
+		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+		ns.me = "Mate-Realm"
+		ns.Roster.byName = { ["Zed-Realm"] = 0, ["Mate-Realm"] = 3, ["Helper-Realm"] = 3 }
+		C.ResetPin()
+		eq(C.HandlePin("GUILD", "Zed-Realm", first), true)
+		w.clock = w.clock + 60
+		eq(select(2, C.HandlePin("CHANNEL", "Helper-Realm", ("N1~%s~Olympus~0~0~"):format(id))), "down")
+		eq(C.Pin(), nil)
+		-- Zed's client missed it and repeats his pin five minutes on: not taken again.
+		w.clock = w.clock + C.PIN_RESEND
+		local again = ("N1~%s~Olympus Zeus~%d~%d~Raid at nine in Ashenvale"):format(id, 7200 - C.PIN_RESEND - 60, C.PIN_RESEND + 60)
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", again)), "downed")
+		eq(C.Pin(), nil)
+		eq(FindLine(ns.Views.Build("realm"), "Raid at nine"), nil, "not back on the Realm")
+		-- After a /reload of the guildmate's client: still remembered.
+		C.ResetPin(true)
+		C.RestorePin()
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", again)), "downed")
+		eq(C.Pin(), nil)
+		-- A new pin of his (another id) is taken.
+		eq(C.HandlePin("GUILD", "Zed-Realm", "N1~777~Olympus Zeus~7200~0~Raid at ten instead"), true)
+		-- His own takedown, then a repeat of it that comes late: not taken again either.
+		w.clock = w.clock + 5
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~777~Olympus Zeus~0~0~")), "down")
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~777~Olympus Zeus~7195~5~Raid at ten instead")), "downed")
+		eq(C.Pin(), nil)
+		-- A takedown of a pin this client never held (it logged in between) is remembered too.
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~778~Olympus Zeus~0~0~")), "nothing")
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~778~Olympus Zeus~7000~200~An older line")), "downed")
+		-- Remembered for PIN_TIME: then a pin of that id is anyone's again.
+		w.clock = w.clock + C.PIN_TIME + 1
+		eq(C.HandlePin("GUILD", "Zed-Realm", "N1~778~Olympus Zeus~7200~0~A new line"), true)
+	end)
+end)
+
+test("1.1 pinned line (Konig's review): the client that took a pin down says so again when its setter's client repeats it, so the setter lets it go", function()
+	PinBench(function(w, K, sent, C)
+		K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~H~5~Olympus~Helper-Realm")
+		-- The Hand's client (a member of <Olympus Zeus>) takes Zed's pin down.
+		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+		ns.me = "Helper-Realm"
+		ns.Roster.byName = { ["Zed-Realm"] = 0, ["Helper-Realm"] = 3 }
+		eq(C.HandlePin("GUILD", "Zed-Realm", "N1~42~Olympus Zeus~7200~0~Raid at nine"), true)
+		eq(C.TakeDownPin(), true)
+		eq(#sent, 1); eq(sent[1].msg, "N1~42~Olympus~0~0~"); eq(sent[1].dist, "CHANNEL")
+		-- Zed's repeat, within the minute: not shown, and not answered yet (a takedown a minute at most).
+		w.clock = w.clock + 30
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~42~Olympus Zeus~7170~30~Raid at nine")), "downed")
+		eq(#sent, 1)
+		-- Later: answered once, named by its id, on the channel; not again within the minute.
+		w.clock = w.clock + C.PIN_RESEND
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~42~Olympus Zeus~6870~330~Raid at nine")), "downed")
+		eq(#sent, 2); eq(sent[2].msg, "N1~42~Olympus~0~0~"); eq(sent[2].dist, "CHANNEL"); eq(sent[2].logged, true)
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~42~Olympus Zeus~6869~331~Raid at nine")), "downed")
+		eq(#sent, 2)
+		eq(C.Pin(), nil)
+		-- Zed's own client, which had missed the first: the takedown said again reaches it, and it stops.
+		local down = sent[2].msg
+		AsLord()
+		C.ResetPin()
+		eq(C.SetPin("Raid at nine"), true)
+		local mine = C.Pin()
+		local id = sent[#sent].msg:match("^N1~(%d+)~")
+		down = down:gsub("^N1~%d+~", "N1~" .. id .. "~")
+		w.clock = w.clock + 60
+		eq(select(2, C.HandlePin("CHANNEL", "Helper-Realm", down)), "down")
+		eq(C.Pin(), nil)
+		eq(ns.rdb.pinMine, nil, "no longer kept for a /reload")
+		local before = #sent
+		w.clock = w.clock + C.PIN_RESEND
+		eq(C.RepeatPin(), false)
+		eq(#sent, before, "never repeated again")
+		eq(mine.text, "Raid at nine")
+	end)
+end)
+
+test("1.1 pinned line (Konig's review): the setter's pin survives his /reload, still his to repeat and take down", function()
+	PinBench(function(w, K, sent, C)
+		AsKing()
+		eq(C.SetPin("Muster at the gates at nine"), true)
+		local id = sent[1].msg:match("^N1~(%d+)~Olympus~")
+		assert(id, sent[1].msg)
+		-- A /reload: what Lua held is gone, what the SavedVariables hold stays.
+		w.clock = w.clock + 100
+		C.ResetPin(true)
+		eq(C.Pin(), nil)
+		eq(C.RestorePin(), true)
+		local p = C.Pin()
+		assert(p and p.mine, "ours again")
+		eq(tostring(p.id), id); eq(p.text, "Muster at the gates at nine"); eq(p.dist, "CHANNEL"); eq(p.rank, C.PIN_KING)
+		-- Repeated for late logins, as before the /reload: its time left and its age.
+		w.clock = w.clock + C.PIN_RESEND
+		eq(C.RepeatPin(), true)
+		eq(sent[#sent].msg, ("N1~%s~Olympus~%d~%d~Muster at the gates at nine"):format(id, 7200 - 100 - C.PIN_RESEND, 100 + C.PIN_RESEND))
+		-- And taken down by its setter: the same pin, for everyone.
+		eq(C.TakeDownPin(), true)
+		eq(sent[#sent].msg, ("N1~%s~Olympus~0~0~"):format(id))
+		eq(ns.rdb.pinMine, nil)
+		C.ResetPin(true)
+		eq(C.RestorePin(), false, "nothing left to restore")
+		-- Another character of the account (ns.rdb is the realm group's) never takes it as his.
+		eq(C.SetPin("Muster again"), true)
+		C.ResetPin(true)
+		AsLord()
+		eq(C.RestorePin(), false)
+		eq(C.Pin(), nil)
+		-- Saved variables edited, or its time over: not restored.
+		AsKing()
+		C.ResetPin(true)
+		ns.rdb.pinMine["Asmongold Asmongler-Realm"].text = "|~|"
+		eq(C.RestorePin(), false, "no words left once cleaned")
+		ns.rdb.pinMine = { ["Asmongold Asmongler-Realm"] = { id = 5, guild = "Olympus", text = "Old line", rank = 3, dist = "CHANNEL", setAt = w.clock - 7300, expires = w.clock - 100 } }
+		eq(C.RestorePin(), false, "over")
+		ns.rdb.pinMine = { ["Asmongold Asmongler-Realm"] = { id = 5, guild = "Olympus", text = "Old line", rank = 3, dist = "WHISPER", setAt = w.clock, expires = w.clock + 100 } }
+		eq(C.RestorePin(), false, "nowhere a pin goes")
+		ns.rdb.pinMine = { ["Asmongold Asmongler-Realm"] = { id = 5, guild = "Olympus", text = "Old line", rank = 3, dist = "CHANNEL", setAt = w.clock, expires = w.clock + 99999 } }
+		eq(C.RestorePin(), false, "longer than a pin lasts")
+		eq(C.Pin(), nil)
+		-- Whoever may no longer pin as he did repeats nothing (a Hand the King took off his list).
+		K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~H~5~Olympus~Helper-Realm")
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		ns.me = "Helper-Realm"
+		w.clock = w.clock + C.PIN_GAP
+		eq(C.SetPin("A Hand's line"), true)
+		local n = #sent
+		K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~H~6~Olympus~")
+		w.clock = w.clock + C.PIN_RESEND
+		eq(C.RepeatPin(), false)
+		eq(#sent, n)
+	end)
+end)
+
+test("1.1 pinned line (Konig's review): the pins taken down a client remembers are bounded, the lapsed ones dropped at login", function()
+	PinBench(function(w, K, sent, C)
+		local keep = C.PIN_DOWN_KEEP
+		local ok, err = pcall(function()
+			C.PIN_DOWN_KEEP = 3
+			GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+			ns.me = "Mate-Realm"
+			ns.Roster.byName = { ["Zed-Realm"] = 0, ["Mate-Realm"] = 3 }
+			for i = 1, 6 do
+				w.clock = w.clock + 1
+				C.HandlePin("GUILD", "Zed-Realm", ("N1~%d~Olympus Zeus~0~0~"):format(i))
+			end
+			local n = 0
+			for _ in pairs(ns.rdb.pinsDown) do n = n + 1 end
+			eq(n, 3)
+			eq(ns.rdb.pinsDown["zed-realm#6"] ~= nil, true, "the newest kept")
+			eq(ns.rdb.pinsDown["zed-realm#1"], nil, "the oldest gone")
+			-- Saved, then edited or lapsed: gone at login.
+			ns.rdb.pinsDown["x#1"] = "junk"
+			ns.rdb.pinsDown["x#2"] = { t = w.clock + 10 * C.PIN_TIME }
+			C.ResetPin(true)
+			w.clock = w.clock + C.PIN_TIME - 1
+			C.RestorePin()
+			eq(ns.rdb.pinsDown["x#1"], nil); eq(ns.rdb.pinsDown["x#2"], nil)
+			eq(ns.rdb.pinsDown["zed-realm#4"], nil, "lapsed"); eq(ns.rdb.pinsDown["zed-realm#5"], nil, "lapsed")
+			eq(ns.rdb.pinsDown["zed-realm#6"] ~= nil, true)
+		end)
+		C.PIN_DOWN_KEEP = keep
+		if not ok then error(err, 0) end
+	end)
+end)
+
 end -- (the pinned line's review)
 
 print(("\n%d passed, %d failed"):format(passed, failed))
