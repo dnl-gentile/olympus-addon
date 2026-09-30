@@ -4008,3 +4008,22 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.BUGASK_GONE = "Esse pedido acabou (passaram 10 minutos): nada foi enviado. O autor pode pedir de novo."
 	L.PAGE_HELP_ENGLISH = "(Esta explicação está em inglês.)"
 end
+
+---------------------------------------------------------------------------
+-- 1.1.2: Chattynator's tabs as the chat windows (Channels.lua; from hypertectonic's pull request
+-- #47, GitHub #46). Its menus in its own words (its Locales.lua: "Rename tab", "Tab Settings",
+-- "Addons", "All Addons"; in pt-BR "Renomear aba", "Configurações da aba", "Addons", "Todos os
+-- addons").
+---------------------------------------------------------------------------
+L.CHATTY_STEPS = "No Chattynator tab named Olympus yet. Make it in Chattynator: click the + after its tabs (unlock the chat first if it is locked), right-click the new tab, Rename tab, and name it Olympus; then right-click it, Tab Settings, and under Addons tick Olympus. The Olympus chats go there as soon as it exists (the main window until then)."
+L.CHATTY_FILTER = "Chattynator's tab %s shows the Olympus chats only if its filter lets Olympus in: right-click the tab, Tab Settings, and under Addons tick Olympus (or All Addons). Olympus cannot see that filter."
+L.CHATTY_NOT_FOUND = "No Chattynator tab %s. Its tabs: %s. Make one in Chattynator (the + after its tabs), then pick it here by its name."
+L.CHATTY_TAB_STEPS = "Waiting for your Olympus tab: in Chattynator, click the + after its tabs and name the new tab Olympus (right-click it, Rename tab)."
+L.CHATSET_WHERE_TIP_CHATTY = "The Chattynator tab its lines print in. A click moves them to its next tab, then back to the main window, as /oly chatwindow does; nothing of Chattynator's is changed. For a new tab: the + after its tabs; then, in its Tab Settings, tick Olympus under Addons."
+if GetLocale and GetLocale() == "ptBR" then
+	L.CHATTY_STEPS = "Ainda não há aba do Chattynator chamada Olympus. Crie no Chattynator: clique no + depois das abas dele (destrave o chat antes, se estiver travado), botão direito na aba nova, Renomear aba, e dê o nome Olympus; depois botão direito nela, Configurações da aba, e em Addons marque Olympus. Os chats Olympus vão para lá assim que ela existir (até lá, a janela principal)."
+	L.CHATTY_FILTER = "A aba %s do Chattynator só mostra os chats Olympus se o filtro dela deixar o Olympus entrar: botão direito na aba, Configurações da aba, e em Addons marque Olympus (ou Todos os addons). O Olympus não vê esse filtro."
+	L.CHATTY_NOT_FOUND = "Nenhuma aba do Chattynator chamada %s. Abas dele: %s. Crie uma no Chattynator (o + depois das abas dele) e escolha aqui pelo nome."
+	L.CHATTY_TAB_STEPS = "Esperando a sua aba Olympus: no Chattynator, clique no + depois das abas dele e dê o nome Olympus à aba nova (botão direito nela, Renomear aba)."
+	L.CHATSET_WHERE_TIP_CHATTY = "A aba do Chattynator onde as linhas dele aparecem. Um clique as leva para a próxima aba dele, e depois de volta à janela principal, como /oly chatwindow faz; nada do Chattynator é mudado. Para uma aba nova: o + depois das abas dele; depois, nas Configurações da aba, marque Olympus em Addons."
+end
