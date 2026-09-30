@@ -3,19 +3,26 @@ local L = ns.L
 
 -- The Olympus chats in the Olympus window (1.1.1): its Chat tab, right after the Realm (UI.lua's
 -- TABS). The three chats ([Olympus], [Captains], [Lords]) like the chat pane of the Guild &
--- Communities window: the tabs' search box where the other tabs show the army's counts, the
--- channels the player reads where they have their column titles, each line whole in a bubble that
--- wraps (nothing to hover to read it) over the list's and the detail box's room, the 100 lines
--- Channels keeps per channel to scroll back through, a box to write in across the bottom where
--- they have their buttons (no Send button: Enter sends), and Olympus's marks by each name (the
--- King's crown, the High Council's mark, the Lords' and Captains' elite marks, Raiders and
--- Veterans bronze, the members' star, the Treasurer's coin, Stewards and Hands).
+-- Communities window: the tabs' search box where the other tabs show the army's counts, and on
+-- that row, right of it, a small switch of the channels (only for a rank that reads more than
+-- one: most players read [Olympus] alone, and a row of its own for one lone channel took the
+-- lines' room) and the settings' gear; each line whole in a bubble that wraps (nothing to hover to
+-- read it) from under that row over the list's and the detail box's room, the 100 lines Channels
+-- keeps per channel to scroll back through, a box to write in across the bottom where they have
+-- their buttons (no Send button: Enter sends), and Olympus's marks by each name (the King's crown,
+-- the High Council's mark, the Lords' and Captains' elite marks, Raiders and Veterans bronze, the
+-- members' star, the Treasurer's coin, Stewards and Hands).
 --
 -- The first 1.1.1 build had it in a window of its own; the author wanted it inside the Olympus
 -- window. UI.lua hands this file the window in use and where each part goes in its look
 -- (ChatWindow.Attach), and the old window's calls stay as the ways to the tab: Open, Toggle and
 -- Close (/ol, /olc or /oll alone, /oly talk, the minimap button's Shift-click, the Realm tab's
--- chats page) open the Olympus window on its Chat tab, on the channel asked for, and close it.
+-- link) open the Olympus window on its Chat tab, on the channel asked for, and close it. The
+-- Realm tab's "Olympus chats" page it replaces is gone (the author's call): what that page offered
+-- and the tab did not (the Olympus tab's state, the chats on or off with what that means, the
+-- public channel's line, the pin for whoever may pin, the count of the lines the block terms hide)
+-- is here, the most of it in the settings the gear opens in place of the lines, with each
+-- channel's place in the game's chat (muted there or not, the chat window it goes to).
 --
 -- What it never does, whatever the input mode (mouse and keyboard, or Blizzard's gamepad UI):
 -- - It never touches the game's chat boxes or windows: no script of theirs replaced or hooked,
@@ -42,8 +49,12 @@ local ChatWindow = {}
 ns.ChatWindow = ChatWindow
 
 local TAB = "chat"                                    -- its tab in the Olympus window (UI.lua)
-local PILL_GAP = 4
-local SEARCH_H = 20
+local SEARCH_H = 20                                   -- the top row: the search, the channels' switch, the gear
+local TOP_GAP = 4                                     -- between the top row's parts
+local GEAR_W = 20
+local ARROW_W = 12                                    -- the switch's arrow
+local MENU_ROW, MENU_PAD = 20, 4                      -- the switch's list of channels
+local INDENT = 12                                     -- a setting under its heading
 local PAD = 8                                         -- inside a bubble
 local HEADER_H = 16
 local EDGE = 8                                        -- a bubble from the box's side
@@ -68,6 +79,9 @@ local WHY = { moved = "CHATWIN_WHY_MOVED", late = "CHATWIN_WHY_LATE", failed = "
 -- The pointer's arrow: the game's tutorial arrow (Blizzard_TutorialTemplates), else the chat
 -- frame's own scroll-down arrow (Blizzard_SharedXML's dropdown and store templates use it).
 local ARROW_ATLAS, ARROW_FILE = "NPE_ArrowDown", "Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up"
+-- The gear: the game's own settings icon (Forever's UIPanelIconDropdownButtonTemplate,
+-- SharedUIPanelTemplates.xml), else the gear icon every client carries.
+local GEAR_ATLAS, GEAR_FILE = "questlog-icon-setting", "Interface\\Icons\\INV_Misc_Gear_01"
 
 local panes = {}             -- Olympus window -> its Chat tab (each look's window has its own)
 local frame                  -- the Chat tab in use (a pane of `host`)
@@ -86,6 +100,7 @@ local acc, lookAcc = 0, 0
 local tipOwner
 local pointer                -- the Olympus tab awaited: Olympus's own pointer by the game's chat tab
 local watching = false       -- ... and the game's chat windows read until it is there
+local settings = false       -- the settings (the gear) shown in place of the lines
 
 local function Grey(s) return GREY .. s .. "|r" end
 local function Gold(s) return "|cffffd200" .. s .. "|r" end
@@ -160,8 +175,8 @@ local function Remember(t)
 	ns.db.chatWin = p
 end
 
--- The Olympus tab's line, put away for good by its x (the Realm tab's chats page and /oly
--- chatwindow tab still make the tab).
+-- The Olympus tab's line, put away for good by its x (the settings and /oly chatwindow tab still
+-- make the tab).
 local function TabLineOff()
 	local p = Saved()
 	return p ~= nil and p.noTabLine == true
@@ -428,8 +443,8 @@ local function NewBubble()
 	return b
 end
 
--- A grey row across the box: the kept note, a day, the empty channel, no match, a line that was
--- not sent.
+-- A grey row across the box: the kept note, the lines the block terms hide, a day, the empty
+-- channel, no match, a line that was not sent.
 local function NewRow()
 	local r = CreateFrame("Button", nil, Content())
 	r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -437,10 +452,12 @@ local function NewRow()
 	r.text:SetJustifyH("CENTER")
 	r.text:SetWordWrap(true)
 	r:SetScript("OnClick", function(self) if self.onClick then ns.SafeCall("chat tab row", self.onClick) end end)
+	r:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
+	r:SetScript("OnLeave", function(self) Untip(self) end)
 	return r
 end
 
-local function Row(i, text, y, width, onClick)
+local function Row(i, text, y, width, onClick, tip)
 	local rows = frame.rows
 	local r = rows[i] or NewRow()
 	rows[i] = r
@@ -451,8 +468,8 @@ local function Row(i, text, y, width, onClick)
 	r:SetSize(w, h)
 	r:ClearAllPoints()
 	r:SetPoint("TOPLEFT", frame.content, "TOPLEFT", EDGE, -y)
-	r.onClick = onClick
-	r:EnableMouse(onClick ~= nil)
+	r.onClick, r.tip = onClick, tip
+	r:EnableMouse(onClick ~= nil or tip ~= nil)
 	r:Show()
 	return h
 end
@@ -499,14 +516,17 @@ local function Bubble(i, e, start, y, maxInner, hides)
 	local b = bubbles[i] or NewBubble()
 	bubbles[i] = b
 	local mine = Own(e)
-	local hidden = not mine and not revealed[e] and hides ~= nil and hides(e.text or "") or false
+	-- A line the block terms hide: a grey bubble until a click, then its words marked (as the Realm
+	-- tab's chats page marked them) and its border still grey.
+	local veiled = not mine and hides ~= nil and hides(e.text or "") or false
+	local hidden = veiled and not revealed[e]
 	b.entry, b.hidden, b.mine, b.y = e, hidden, mine, y
 	local c = Colour(tier)
 	local r, g, bl, a = 0.09, 0.09, 0.11, 0.92
 	if mine then r, g, bl, a = c[1] * 0.28, c[2] * 0.28, c[3] * 0.28, 0.95 end
 	if b.SetBackdropColor then
 		b:SetBackdropColor(r, g, bl, a)
-		if hidden then b:SetBackdropBorderColor(0.5, 0.5, 0.5, 1) else b:SetBackdropBorderColor(c[1], c[2], c[3], 1) end
+		if veiled then b:SetBackdropBorderColor(0.5, 0.5, 0.5, 1) else b:SetBackdropBorderColor(c[1], c[2], c[3], 1) end
 	elseif b.bg then
 		b.bg:SetColorTexture(r, g, bl, a)
 	end
@@ -525,7 +545,8 @@ local function Bubble(i, e, start, y, maxInner, hides)
 		b.header.whisper, b.header.full = nil, nil
 		b.header:Hide()
 	end
-	b.body:SetText(hidden and Grey(L.CHATWIN_HIDDEN) or ns.Codec.SanitizeChat(e.text))
+	b.body:SetText(hidden and Grey(L.CHATWIN_HIDDEN)
+		or ((veiled and (Grey(L.FILTER_HIDDEN_MARK) .. " ") or "") .. ns.Codec.SanitizeChat(e.text)))
 	local inner = math.min(maxInner, math.max(math.ceil(TextWidth(b.body)), headerW, 1))
 	b.body:SetWidth(inner)
 	local bodyH = TextHeight(b.body, inner)
@@ -588,6 +609,25 @@ local function DrawLines()
 	local y = 6
 	nr = nr + 1
 	y = y + Row(nr, Grey(L.CHATWIN_KEPT:format(C.HISTORY or 100)), y, width) + 6
+	-- The lines the block terms hide in this channel, counted (as the Realm tab's chats page counted
+	-- them): a click shows them all, another hides them again (each hidden one is a grey bubble,
+	-- shown alone by its own click too).
+	local hidden = {}
+	for _, e in ipairs(hides and all or {}) do
+		if not Own(e) and hides(e.text or "") then hidden[#hidden + 1] = e end
+	end
+	if #hidden > 0 then
+		local shown = true
+		for _, e in ipairs(hidden) do shown = shown and revealed[e] == true end
+		nr = nr + 1
+		y = y + Row(nr, Grey((shown and L.FILTER_SHOWING_LINES or L.FILTER_HIDDEN_LINES):format(#hidden)), y, width, function()
+			for _, e in ipairs(hidden) do revealed[e] = not shown or nil end
+			Render()
+		end, function(tt)
+			tt:AddLine(L.FILTER_TIP_TITLE, 1, 0.82, 0)
+			tt:AddLine(L.FILTER_TIP, 1, 1, 1, true)
+		end) + 6
+	end
 	if #all == 0 then
 		nr = nr + 1
 		y = y + 8 + Row(nr, Grey(L.CHATWIN_EMPTY:format(Label(tier))), y + 8, width)
@@ -624,48 +664,130 @@ local function DrawLines()
 	end
 	y = y + 8
 	for i = nb + 1, #frame.bubbles do frame.bubbles[i]:Hide(); frame.bubbles[i].entry, frame.bubbles[i].y = nil, nil end
-	for i = nr + 1, #frame.rows do frame.rows[i]:Hide(); frame.rows[i].onClick = nil end
+	for i = nr + 1, #frame.rows do frame.rows[i]:Hide(); frame.rows[i].onClick, frame.rows[i].tip = nil, nil end
 	frame.content:SetHeight(math.max(1, y))
 end
 
 ---------------------------------------------------------------------------
--- The top: the search box, a pill per channel, the pinned line, the way to the Olympus tab.
+-- The top row: the search box, the channels' switch right of it (a rank that reads more than
+-- one channel), the gear at its end. The owner's ask: the row of pills under it (one lone
+-- underlined "Olympus" for most players) took the lines' room; there is no row of its own now.
+-- Then, over the lines, the pinned line and the way to the Olympus tab, each only while it shows.
 ---------------------------------------------------------------------------
 
-local function Paint(b)
-	local c = Colour(b.tier)
-	if b.selected then
-		b.text:SetTextColor(c[1], c[2], c[3])
-		b.line:SetColorTexture(c[1], c[2], c[3], 1)
-		b.line:Show()
+-- The lines that came in on the channels not shown (unread[t] counts only those, CHAT_LINE).
+local function OthersUnread()
+	local n = 0
+	for t, c in pairs(unread) do
+		if t ~= tier and ns.Channels.CanUse(t) then n = n + c end
+	end
+	return n
+end
+
+-- The switch: the channel shown, in its colour, then "+N" for the lines new in the others, and
+-- its arrow. As wide as that.
+local function PaintSwitch()
+	local b = frame.switch
+	local c = Colour(tier)
+	b.text:SetText(Label(tier))
+	b.text:SetTextColor(c[1], c[2], c[3])
+	local n = OthersUnread()
+	b.count:SetText(n > 0 and ("+" .. n) or "")
+	b.count:SetShown(n > 0)
+	local w = 8 + math.ceil(TextWidth(b.text)) + (n > 0 and (4 + math.ceil(TextWidth(b.count))) or 0) + 4 + ARROW_W + 4
+	b:SetSize(w, SEARCH_H)
+end
+
+-- A channel in the switch's list: its colour for the one shown, grey for the others (white under
+-- the mouse), and the lines new in it.
+local function PaintChoice(r)
+	local c = Colour(r.tier)
+	local n = unread[r.tier] or 0
+	r.text:SetText(Label(r.tier) .. (n > 0 and (" (" .. n .. ")") or ""))
+	if r.tier == tier then
+		r.text:SetTextColor(c[1], c[2], c[3])
+		r.mark:SetColorTexture(c[1], c[2], c[3], 1)
+		r.mark:Show()
 	else
-		local v = b.hover and 1 or 0.6
-		b.text:SetTextColor(v, v, v)
-		b.line:Hide()
+		local v = r.hover and 1 or 0.6
+		r.text:SetTextColor(v, v, v)
+		r.mark:Hide()
 	end
 end
 
--- The pills where the other tabs have their column titles.
-local function PaintPills()
+-- The switch's list, under it on its right: the channels this rank reads, in their order.
+local function PaintMenu()
+	local m = frame.menu
 	local C = ns.Channels
-	local at = frame.places.pills
-	local x = at.left + 4
+	local y, w = -MENU_PAD, 0
 	for _, t in ipairs(C.ORDER) do
-		local b = frame.pills[t]
+		local r = m.rows[t]
 		if C.CanUse(t) then
-			local n = unread[t] or 0
-			b.text:SetText(Label(t) .. (n > 0 and (" (" .. n .. ")") or ""))
-			b:SetSize(math.ceil(TextWidth(b.text)) + 16, at.h)
-			b:ClearAllPoints()
-			b:SetPoint("TOPLEFT", frame, "TOPLEFT", x, at.top)
-			x = x + b:GetWidth() + PILL_GAP
-			b.selected = t == tier
-			Paint(b)
-			b:Show()
+			PaintChoice(r)
+			r:ClearAllPoints()
+			r:SetPoint("TOPLEFT", m, "TOPLEFT", MENU_PAD, y)
+			r:SetPoint("TOPRIGHT", m, "TOPRIGHT", -MENU_PAD, y)
+			r:SetHeight(MENU_ROW)
+			y = y - MENU_ROW
+			w = math.max(w, math.ceil(TextWidth(r.text)))
+			r:Show()
 		else
-			b:Hide()
+			r:Hide()
 		end
 	end
+	m:SetSize(math.max(frame.switch:GetWidth(), w + 2 * MENU_PAD + 20), -y + MENU_PAD)
+	m:ClearAllPoints()
+	m:SetPoint("TOPRIGHT", frame.switch, "BOTTOMRIGHT", 0, -2)
+end
+
+local function CloseMenu()
+	if not frame then return end
+	frame.menu:Hide()
+	frame.catcher:Hide()
+end
+
+local function ToggleMenu()
+	if frame.menu:IsShown() then return CloseMenu() end
+	PaintMenu()
+	frame.catcher:Show()
+	frame.menu:Show()
+end
+
+-- The gear's look: lit while the settings show.
+local function PaintGear()
+	local g = frame.gear
+	if settings then g:LockHighlight() else g:UnlockHighlight() end
+end
+
+-- The row: the gear at its end; the switch left of it while the lines show and the rank reads more
+-- than one channel (never a row of its own; one channel, nothing); the search box in the rest.
+-- The settings: their title there instead.
+local function DrawTop(tiers, on)
+	local s = frame.places.search
+	local lines = on and not settings
+	frame.gear:ClearAllPoints()
+	frame.gear:SetPoint("TOPRIGHT", frame, "TOPRIGHT", s.right, s.top)
+	PaintGear()
+	local right = s.right - GEAR_W - TOP_GAP
+	local sw = frame.switch
+	if lines and #tiers > 1 then
+		PaintSwitch()
+		sw:ClearAllPoints()
+		sw:SetPoint("TOPRIGHT", frame, "TOPRIGHT", right, s.top)
+		sw:Show()
+		right = right - sw:GetWidth() - TOP_GAP
+		if frame.menu:IsShown() then PaintMenu() end
+	else
+		sw:Hide()
+		CloseMenu()
+	end
+	local lw = math.ceil(TextWidth(frame.searchLabel))
+	frame.search:ClearAllPoints()
+	frame.search:SetPoint("TOPLEFT", frame, "TOPLEFT", s.left + lw + 12, s.top)
+	frame.search:SetPoint("TOPRIGHT", frame, "TOPRIGHT", right, s.top)
+	frame.search:SetShown(lines)
+	frame.searchLabel:SetShown(lines)
+	frame.setTitle:SetShown(settings)
 end
 
 -- The room between the box's sides (a strip over it: the pinned line, the Olympus tab's line).
@@ -681,9 +803,9 @@ local function Strip(s, y)
 	s:SetPoint("TOPRIGHT", frame, "TOPRIGHT", box.right - 6, y - 3)
 end
 
--- The pinned line (Channels.Pin), as the Realm tab's chats page shows it (Views.PinLine): its
--- words veiled until a click when the block terms hide them; a click takes it down when allowed.
--- Under the pills, at `y`. Returns the room it takes.
+-- The pinned line (Channels.Pin), as the Realm tab shows it (Views.PinLine): its words veiled
+-- until a click when the block terms hide them; a click takes it down when allowed. Over the
+-- lines' top, at `y`. Returns the room it takes (none without a pin).
 local function DrawPin(y)
 	local C = ns.Channels
 	local pin = frame.pin
@@ -898,8 +1020,8 @@ local function GuideWanted()
 	return true
 end
 
--- The line under the pills while the Olympus tab is not there: a click adds it (above); awaited,
--- the steps; its x puts it away. Returns the room it takes.
+-- The line over the lines while the Olympus tab is not there: a click adds it (above); awaited,
+-- the steps; its x puts it away. Returns the room it takes (none while it does not show).
 local function DrawGuide(y)
 	local g = frame.guide
 	local C = ns.Channels
@@ -921,6 +1043,201 @@ local function DrawGuide(y)
 	Strip(g, y)
 	g:Show()
 	return h + 6
+end
+
+---------------------------------------------------------------------------
+-- The settings (the gear at the top row's end, in place of the lines; its click again, or the
+-- first line, goes back). What the Realm tab's "Olympus chats" page offered and the lines do not,
+-- the page gone (the author's call): the chats on or off on this client and what that means (the
+-- first-open page's choice, Consent.lua), whether the channel is public (Views.PublicLines), the
+-- Olympus tab of the game's chat (the guided way above), and the pinned line for whoever may pin;
+-- and each channel in the game's chat (muted there or not, /oly mute; and the chat window it goes
+-- to, as /oly chatwindow picks it). Every change goes through the code its command runs (and says
+-- so in chat as that command does): the game's chat windows are only read here, never made,
+-- named or set up. ChatWindow.SettingsLines gives the lines (text, onClick, tip, header, indent,
+-- gap), as the tests read them.
+---------------------------------------------------------------------------
+
+local function MutedInChat(t)
+	return ns.db ~= nil and type(ns.db.chatMute) == "table" and ns.db.chatMute[t] and true or false
+end
+
+-- The window of the game's chat a channel goes to, as /oly chatwindow and /oly status say it: the
+-- main one, else the window chosen, "(gone: ...)" while it is not open.
+local function WhereText(t)
+	local C = ns.Channels
+	local name = type(C.ChosenWindow) == "function" and C.ChosenWindow(t) or nil
+	if not name then return L.CHATWIN_MAIN_NAME end
+	local there
+	if type(C.IsTabName) == "function" and C.IsTabName(name) and type(C.FindTab) == "function" then there = C.FindTab() end
+	if not there and type(C.FindWindow) == "function" then there = C.FindWindow(name) end
+	return '"' .. ns.Codec.Plain(name) .. '"' .. (there and "" or " " .. L.CHATWIN_GONE_TAG)
+end
+
+-- A click on a channel's window: the next one open in the game's chat after the one it goes to
+-- (the main one, then the others in their order, then the main one again), through
+-- /oly chatwindow's own code (Channels.ChooseWindow, by the window's number).
+local function NextWindow(t)
+	local C = ns.Channels
+	if type(C.OpenWindows) ~= "function" or type(C.ChooseWindow) ~= "function" then return end
+	local list = C.OpenWindows()
+	local current = type(C.ChosenWindow) == "function" and C.ChosenWindow(t) or nil
+	local at = 0 -- (the main window)
+	if current then
+		local key = Trim(current):lower()
+		for i, w in ipairs(list) do
+			if Trim(w.name):lower() == key and at == 0 then at = i end
+		end
+	end
+	local word = C.TIERS[t].word
+	local nxt = list[at + 1]
+	if nxt then C.ChooseWindow(nxt.index .. " " .. word) else C.ChooseWindow("main " .. word) end
+end
+
+function ChatWindow.SettingsLines()
+	local C = ns.Channels
+	local out = {}
+	local function Add(l) out[#out + 1] = l end
+	local newWindow = GameWord(NEW_CHAT_WINDOW, L.CHATWIN_NEW)
+	Add({ text = Gold(L.CHATSET_BACK), onClick = function() ChatWindow.ShowSettings(false) end, gap = true })
+	-- The chats on this client, and what the choice means.
+	local on = C.ChatOn()
+	Add({ header = true, text = Gold(L.CONSENT_CHAT) })
+	Add({ indent = true, text = on and Green(L.CHATSET_CHATS_ON) or Grey(L.CHATSET_CHATS_OFF),
+		onClick = function() ns.Consent.Show() end,
+		tip = function(tt)
+			tt:AddLine(L.CONSENT_CHAT, 1, 0.82, 0)
+			tt:AddLine(L.CONSENT_CHAT_TEXT, 1, 1, 1, true)
+		end })
+	-- Who can read these lines: the channel public, as the Census and the Realm say it.
+	local V = ns.Views
+	if V and type(V.PublicLines) == "function" then
+		local public = {}
+		V.PublicLines(public)
+		for _, l in ipairs(public) do Add({ indent = true, text = l.text, tip = l.tooltip, onClick = l.onClick }) end
+	end
+	out[#out].gap = true
+	-- Each channel this rank reads, in the game's chat.
+	for _, t in ipairs(Readable()) do
+		local word = C.TIERS[t].word
+		Add({ header = true, text = "|c" .. Hex(Colour(t)) .. "[" .. Label(t) .. "]|r" })
+		if type(C.ToggleMute) == "function" then
+			Add({ indent = true, text = MutedInChat(t) and Grey(L.CHATSET_MUTED) or L.CHATSET_SHOWN,
+				onClick = function()
+					C.ToggleMute(word)
+					Render()
+				end,
+				tip = function(tt)
+					tt:AddLine("[" .. Label(t) .. "]", 1, 0.82, 0)
+					tt:AddLine(L.CHATSET_MUTE_TIP:format(word), 1, 1, 1, true)
+				end })
+		end
+		local choose = type(C.OpenWindows) == "function" and type(C.ChooseWindow) == "function"
+		Add({ indent = true, text = L.CHATSET_WHERE:format(WhereText(t)) .. (choose and (" " .. Grey(L.CHATSET_WHERE_NEXT)) or ""),
+			onClick = choose and function()
+				NextWindow(t)
+				Render()
+			end or nil,
+			tip = function(tt)
+				tt:AddLine("[" .. Label(t) .. "]", 1, 0.82, 0)
+				tt:AddLine(L.CHATSET_WHERE_TIP:format(newWindow), 1, 1, 1, true)
+			end })
+		out[#out].gap = true
+	end
+	-- The Olympus tab of the game's chat (the line over the lines, put away or not).
+	if TabReady() then
+		Add({ header = true, text = Gold(L.CHATSET_TAB) })
+		local state = C.TabState()
+		local function AddTip(tt)
+			tt:AddLine(L.CHATS_TAB_ADD, 1, 0.82, 0)
+			tt:AddLine(L.CHATS_TAB_ADD_TIP, 1, 1, 1, true)
+		end
+		if state == "open" then
+			-- (Open: a click sends all three channels there again, SetupTab saying so.)
+			Add({ indent = true, text = Grey(L.CHATS_TAB_ON), onClick = function()
+				C.SetupTab()
+				Render()
+			end, tip = function(tt)
+				tt:AddLine(L.CHATSET_TAB, 1, 0.82, 0)
+				tt:AddLine(L.CHATS_TAB_TIP, 1, 1, 1, true)
+			end })
+		elseif watching then
+			Add({ indent = true, text = Grey(L.CHATS_TAB_STEPS:format(MainTabWord(), newWindow)), onClick = function()
+				ShowPointer()
+				Render()
+			end, tip = AddTip })
+		else
+			Add({ indent = true, text = state == "waiting" and Grey(L.CHATS_TAB_WAITING) or Green("+ " .. L.CHATS_TAB_ADD),
+				onClick = function()
+					ChatWindow.AddTab()
+					Render()
+				end, tip = AddTip })
+		end
+		out[#out].gap = true
+	end
+	-- The pinned line, for whoever may pin (Channels.CanPin: the King, his Stewards and Hands for
+	-- the army, a guild master for his guild), typed in an Olympus dialog (ns.ShowDialog: the
+	-- gamepad UI's own window there). Only while the chats are on, where a pin can be set.
+	if on and type(C.CanPin) == "function" and C.CanPin() then
+		local guildOnly = type(C.PinScope) == "function" and C.PinScope() == "guild"
+		local label = guildOnly and L.PIN_ADD_GUILD or L.PIN_ADD
+		Add({ header = true, text = Gold(L.PIN_LABEL) })
+		Add({ indent = true, text = Green(label), onClick = function() ns.ShowDialog("OLYMPUS_PIN") end,
+			tip = function(tt)
+				tt:AddLine(label, 1, 0.82, 0)
+				tt:AddLine(guildOnly and L.PIN_ADD_GUILD_TIP or L.PIN_ADD_TIP, 1, 1, 1, true)
+			end, gap = true })
+	end
+	return out
+end
+
+-- A line of the settings, from a pool (made once, reused on every redraw).
+local function SettingRow(i)
+	local rows = frame.setRows
+	local r = rows[i]
+	if r then return r end
+	r = CreateFrame("Button", nil, frame.setContent)
+	r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	r.text:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 0)
+	r.text:SetJustifyH("LEFT")
+	r.text:SetWordWrap(true)
+	r:SetScript("OnClick", function(self) if self.onClick then ns.SafeCall("chat settings", self.onClick) end end)
+	r:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
+	r:SetScript("OnLeave", function(self) Untip(self) end)
+	rows[i] = r
+	return r
+end
+
+local function DrawSettings()
+	local s = frame.setScroll
+	local width = s:GetWidth()
+	if not Finite(width) or width <= 0 then width = (frame:GetWidth() or 338) - 20 - (frame.barRoom or 22) end
+	width = math.max(100, math.floor(width))
+	frame.setContent:SetWidth(width)
+	local y, n = 8, 0
+	for _, l in ipairs(ChatWindow.SettingsLines()) do
+		n = n + 1
+		local r = SettingRow(n)
+		local x = EDGE + (l.indent and INDENT or 0)
+		local w = math.max(40, width - x - EDGE)
+		if r.text.SetFontObject then r.text:SetFontObject(l.header and "GameFontNormal" or "GameFontHighlightSmall") end
+		r.text:SetText(l.text)
+		r.text:SetWidth(w)
+		local h = TextHeight(r.text, w)
+		r:SetSize(w, h)
+		r:ClearAllPoints()
+		r:SetPoint("TOPLEFT", frame.setContent, "TOPLEFT", x, -y)
+		r.onClick, r.tip, r.line = l.onClick, l.tip, l
+		r:EnableMouse(l.onClick ~= nil or l.tip ~= nil)
+		r:Show()
+		y = y + h + (l.gap and 12 or (l.header and 4 or 3))
+	end
+	for i = n + 1, #frame.setRows do
+		local r = frame.setRows[i]
+		r:Hide()
+		r.onClick, r.tip, r.line = nil, nil, nil
+	end
+	frame.setContent:SetHeight(math.max(1, y + 4))
 end
 
 ---------------------------------------------------------------------------
@@ -959,17 +1276,20 @@ local function DrawSearch()
 	sb.clear:SetShown(text ~= "")
 end
 
--- The chats on (lines, box, search) or off on this client (the choice, and a way to it).
-local function ShowParts(on)
-	frame.scroll:SetShown(on)
-	frame.off:SetShown(not on)
-	frame.input:SetShown(on)
-	frame.search:SetShown(on)
-	frame.searchLabel:SetShown(on)
-	if not on then
+-- What the box shows: "lines" (the chats on: the lines, and the box to write in), "off" (the chats
+-- off on this client: the choice, and a way to it) or "settings" (the gear's). The top row is
+-- DrawTop's.
+local function ShowParts(mode)
+	local lines = mode == "lines"
+	frame.scroll:SetShown(lines)
+	frame.input:SetShown(lines)
+	frame.off:SetShown(mode == "off")
+	frame.setScroll:SetShown(mode == "settings")
+	if not lines then
 		frame.newPill:Hide()
 		frame.guide:Hide()
 	end
+	if mode == "settings" then frame.pin:Hide() end
 end
 
 function ChatWindow.Render()
@@ -988,14 +1308,22 @@ function ChatWindow.Render()
 		tier = tiers[1]
 		Remember(tier)
 	end
-	PaintPills()
+	local on = C.ChatOn()
+	DrawTop(tiers, on)
 	local box = frame.places.box
 	local y = box.top
+	-- The settings: from the top row down, no strip over them.
+	if settings then
+		frame.box:SetPoint("TOPLEFT", frame, "TOPLEFT", box.left, y)
+		ShowParts("settings")
+		DrawSettings()
+		return
+	end
+	-- The strips over the lines, each taking room only while it shows.
 	y = y - DrawPin(y)
-	local on = C.ChatOn()
 	if on then y = y - DrawGuide(y) end
 	frame.box:SetPoint("TOPLEFT", frame, "TOPLEFT", box.left, y)
-	ShowParts(on)
+	ShowParts(on and "lines" or "off")
 	if not on then
 		-- As the Realm tab says it (its chats' line, CONSENT_CHAT_TEXT), with the choice a click away.
 		frame.off.text:SetText(L.CHATWIN_OFF .. "\n\n" .. L.CONSENT_CHAT_TEXT)
@@ -1016,6 +1344,21 @@ function ChatWindow.Render()
 	ShowNew()
 end
 
+-- The settings in place of the lines (the gear), or the lines again. Never takes the keyboard.
+function ChatWindow.ShowSettings(on)
+	settings = on and true or false
+	CloseMenu()
+	if not frame then return end
+	if settings then
+		frame.input:ClearFocus()
+		frame.search:ClearFocus()
+	else
+		stick, newCount, want = true, 0, nil
+	end
+	if Shown() then Render() end
+end
+function ChatWindow.SettingsShown() return settings end
+
 ---------------------------------------------------------------------------
 -- Writing: Olympus's own box, through Channels.Send (every check and refusal is Send's).
 ---------------------------------------------------------------------------
@@ -1031,6 +1374,8 @@ local function Select(t)
 	tier = t
 	unread[t] = nil
 	Remember(t)
+	CloseMenu()
+	settings = false -- (a channel picked: its lines, not the settings)
 	if Shown() then
 		stick, newCount = true, 0
 		Render()
@@ -1110,32 +1455,133 @@ local function OnUpdate(_, elapsed)
 	if dirty then ns.SafeCall("chat tab", Render) end
 end
 
-local function MakePill(f, t)
-	local b = CreateFrame("Button", nil, f)
-	b.tier = t
-	b.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	b.text:SetPoint("CENTER", b, "CENTER", 0, 1)
-	b.line = b:CreateTexture(nil, "ARTWORK")
-	b.line:SetHeight(2)
-	b.line:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 4, 1)
-	b.line:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -4, 1)
-	b:SetScript("OnClick", function(self) ns.SafeCall("chat tab channel", Select, self.tier) end)
+-- A texture from the game's atlas when this client has it, else a file every client carries.
+local function Icon(tex, atlas, file)
+	local info = C_Texture and C_Texture.GetAtlasInfo
+	local ok, found = false, nil
+	if type(info) == "function" and type(tex.SetAtlas) == "function" then ok, found = pcall(info, atlas) end
+	if ok and found ~= nil then
+		tex:SetAtlas(atlas)
+	else
+		tex:SetTexture(file)
+		if file == GEAR_FILE then tex:SetTexCoord(0.08, 0.92, 0.08, 0.92) end -- (an icon's border off)
+	end
+end
+
+-- A thin dark frame with the tooltip's border (the bubbles' look): the switch and its list.
+local function Framed(kind, parent)
+	local ok, f = pcall(CreateFrame, kind, nil, parent, "BackdropTemplate")
+	if not ok or not f then f = CreateFrame(kind, nil, parent) end
+	if f.SetBackdrop then
+		f:SetBackdrop({
+			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			tile = true, tileSize = 16, edgeSize = 12,
+			insets = { left = 3, right = 3, top = 3, bottom = 3 },
+		})
+		if f.SetBackdropColor then f:SetBackdropColor(0.06, 0.06, 0.07, 0.95) end
+		if f.SetBackdropBorderColor then f:SetBackdropBorderColor(0.5, 0.5, 0.5, 1) end
+	else
+		local bg = f:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints()
+		bg:SetColorTexture(0.06, 0.06, 0.07, 0.95)
+	end
+	return f
+end
+
+-- The channels' switch on the top row: the channel shown and its arrow; a click lists the channels
+-- the rank reads (its own list, Olympus's frames: no game dropdown), a click there picks one.
+local function MakeSwitch(p)
+	local b = Framed("Button", p)
+	b:SetHeight(SEARCH_H)
+	b.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	b.text:SetPoint("LEFT", b, "LEFT", 8, 0)
+	b.count = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	b.count:SetPoint("LEFT", b.text, "RIGHT", 4, 0)
+	b.count:SetTextColor(1, 0.82, 0)
+	b.arrow = b:CreateTexture(nil, "OVERLAY")
+	b.arrow:SetSize(ARROW_W, ARROW_W)
+	b.arrow:SetPoint("RIGHT", b, "RIGHT", -4, 0)
+	b.arrow:SetTexture(ARROW_FILE)
+	b:SetScript("OnClick", function() ns.SafeCall("chat tab channels", ToggleMenu) end)
 	b:SetScript("OnEnter", function(self)
-		self.hover = true
-		Paint(self)
 		Tip(self, function(tt)
-			tt:AddLine("[" .. Label(self.tier) .. "]", 1, 0.82, 0)
-			-- The tab shows a channel muted in chat (/oly mute is about the chat frame).
-			local muted = ns.db and type(ns.db.chatMute) == "table" and ns.db.chatMute[self.tier]
-			if muted then tt:AddLine(L.CHATWIN_MUTED_TIP, 0.7, 0.7, 0.7, true) end
+			tt:AddLine("[" .. Label(tier) .. "]", 1, 0.82, 0)
+			tt:AddLine(L.CHATSET_SWITCH_TIP, 1, 1, 1, true)
+			for _, t in ipairs(Readable()) do
+				local n = unread[t] or 0
+				if t ~= tier and n > 0 then tt:AddLine(L.CHATWIN_NEW_IN:format(Label(t), n), 0.7, 0.7, 0.7) end
+			end
 		end)
 	end)
-	b:SetScript("OnLeave", function(self)
-		self.hover = nil
-		Paint(self)
-		Untip(self)
+	b:SetScript("OnLeave", function(self) Untip(self) end)
+	b:Hide()
+	p.switch = b
+	-- Its list, over everything in the tab, and under it a catcher the size of the tab: a click
+	-- anywhere else closes the list.
+	local c = CreateFrame("Button", nil, p)
+	c:SetAllPoints(p)
+	c:SetFrameLevel((p:GetFrameLevel() or 1) + 30)
+	c:SetScript("OnClick", function() ns.SafeCall("chat tab channels", CloseMenu) end)
+	c:Hide()
+	p.catcher = c
+	local m = Framed("Frame", p)
+	m:SetFrameLevel((p:GetFrameLevel() or 1) + 40)
+	m:EnableMouse(true)
+	m.rows = {}
+	for _, t in ipairs(ns.Channels.ORDER) do
+		local r = CreateFrame("Button", nil, m)
+		r.tier = t
+		r.text = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		r.text:SetPoint("LEFT", r, "LEFT", 10, 0)
+		-- (The one shown: a bar in its colour at its left.)
+		r.mark = r:CreateTexture(nil, "ARTWORK")
+		r.mark:SetWidth(2)
+		r.mark:SetPoint("TOPLEFT", r, "TOPLEFT", 2, -4)
+		r.mark:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 2, 4)
+		r:SetScript("OnClick", function(self) ns.SafeCall("chat tab channel", Select, self.tier) end)
+		r:SetScript("OnEnter", function(self)
+			self.hover = true
+			PaintChoice(self)
+			Tip(self, function(tt)
+				tt:AddLine("[" .. Label(self.tier) .. "]", 1, 0.82, 0)
+				-- The tab shows a channel muted in chat (/oly mute is about the chat frame).
+				if MutedInChat(self.tier) then tt:AddLine(L.CHATWIN_MUTED_TIP, 0.7, 0.7, 0.7, true) end
+			end)
+		end)
+		r:SetScript("OnLeave", function(self)
+			self.hover = nil
+			PaintChoice(self)
+			Untip(self)
+		end)
+		m.rows[t] = r
+	end
+	m:Hide()
+	p.menu = m
+end
+
+-- The gear at the top row's end: the settings in place of the lines, and back.
+local function MakeGear(p)
+	local g = CreateFrame("Button", nil, p)
+	g:SetSize(GEAR_W, GEAR_W)
+	g.icon = g:CreateTexture(nil, "ARTWORK")
+	g.icon:SetSize(16, 16)
+	g.icon:SetPoint("CENTER", g, "CENTER", 0, 0)
+	Icon(g.icon, GEAR_ATLAS, GEAR_FILE)
+	g:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	g:SetScript("OnClick", function() ns.SafeCall("chat settings", ChatWindow.ShowSettings, not settings) end)
+	g:SetScript("OnEnter", function(self)
+		Tip(self, function(tt)
+			tt:AddLine(L.CHATSET_TITLE, 1, 0.82, 0)
+			tt:AddLine(L.CHATSET_TIP, 1, 1, 1, true)
+		end)
 	end)
-	return b
+	g:SetScript("OnLeave", function(self) Untip(self) end)
+	p.gear = g
+	-- The settings' title, where the search box is while they show.
+	p.setTitle = p:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	p.setTitle:SetText(L.CHATSET_TITLE)
+	p.setTitle:Hide()
 end
 
 local function Button(parent, text, width)
@@ -1195,7 +1641,7 @@ local function Build(h)
 	panes[h] = p
 	p.host = h
 	p:SetAllPoints(h)
-	p.bubbles, p.rows, p.pills = {}, {}, {}
+	p.bubbles, p.rows, p.setRows = {}, {}, {}
 
 	-- The search, where the other tabs show the army's counts.
 	p.searchLabel = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -1222,8 +1668,9 @@ local function Build(h)
 	sb:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	p.search = sb
 
-	-- The channels, where the other tabs have their column titles.
-	for _, t in ipairs(ns.Channels.ORDER) do p.pills[t] = MakePill(p, t) end
+	-- On the same row, right of the search: the channels' switch, and the gear at the row's end.
+	MakeSwitch(p)
+	MakeGear(p)
 
 	-- The pinned line.
 	p.pin = StripButton(p, PIN_LINES)
@@ -1243,7 +1690,7 @@ local function Build(h)
 	end
 	-- Its x: the line put away for good (the review of the Chat tab: a player who keeps his chats
 	-- in the main window had it there always); the pointer goes, and the game's chat windows are no
-	-- longer read. The Realm tab's chats page and /oly chatwindow tab still make the Olympus tab.
+	-- longer read. The settings (the gear) and /oly chatwindow tab still make the Olympus tab.
 	local away = CreateFrame("Button", nil, p.guide)
 	away:SetSize(16, 16)
 	away:SetPoint("TOPRIGHT", p.guide, "TOPRIGHT", 2, 2)
@@ -1276,18 +1723,24 @@ local function Build(h)
 		bg:SetColorTexture(0, 0, 0, 0.4)
 	end
 	p.box = box
-	local okScroll, scroll = pcall(CreateFrame, "ScrollFrame", base .. "Scroll", box, "ScrollFrameTemplate")
-	p.barRoom = 22 -- (the thin bar sits 6 past the frame's right edge)
-	if not okScroll or not scroll or not scroll.ScrollBar then
-		if okScroll and scroll then scroll:Hide() end
-		scroll = CreateFrame("ScrollFrame", base .. "ScrollOld", box, "UIPanelScrollFrameTemplate")
-		p.barRoom = 28
+	-- (Blizzard's thin scroll bar, else the older one where a client has no ScrollFrameTemplate.)
+	local function Scroll(name)
+		local okScroll, s = pcall(CreateFrame, "ScrollFrame", name, box, "ScrollFrameTemplate")
+		local room = 22 -- (the thin bar sits 6 past the frame's right edge)
+		if not okScroll or not s or not s.ScrollBar then
+			if okScroll and s then s:Hide() end
+			s = CreateFrame("ScrollFrame", name .. "Old", box, "UIPanelScrollFrameTemplate")
+			room = 28
+		end
+		s:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
+		s:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -room, 4)
+		local c = CreateFrame("Frame", nil, s)
+		c:SetSize(10, 10)
+		s:SetScrollChild(c)
+		return s, c, room
 	end
-	scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
-	scroll:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -p.barRoom, 4)
-	local content = CreateFrame("Frame", nil, scroll)
-	content:SetSize(10, 10)
-	scroll:SetScrollChild(content)
+	local scroll, content, room = Scroll(base .. "Scroll")
+	p.barRoom = room
 	p.scroll, p.content = scroll, content
 	scroll:HookScript("OnScrollRangeChanged", function() ns.SafeCall("chat tab place", Held) end)
 	scroll:HookScript("OnVerticalScroll", function() ns.SafeCall("chat tab scrolled", Scrolled) end)
@@ -1311,6 +1764,10 @@ local function Build(h)
 	p.off.button:SetPoint("TOP", p.off.text, "BOTTOM", 0, -14)
 	p.off.button:SetScript("OnClick", function() ns.SafeCall("chat tab choice", ns.Consent.Show) end)
 	p.off:Hide()
+
+	-- The settings (the gear), in the same box, scrolled on their own.
+	p.setScroll, p.setContent = Scroll(base .. "Settings")
+	p.setScroll:Hide()
 
 	-- The box to write in, across the bottom where the other tabs have their buttons: Olympus's
 	-- own, never focused but by the player's click, and no Send button (Enter sends).
@@ -1353,6 +1810,8 @@ local function Build(h)
 	p:HookScript("OnHide", function()
 		eb:ClearFocus()
 		sb:ClearFocus()
+		p.menu:Hide()
+		p.catcher:Hide()
 		Untip(tipOwner)
 	end)
 	-- The window resized (docked to a guild window that grew): the lines wrap again.
@@ -1363,19 +1822,18 @@ local function Build(h)
 end
 
 -- Where the tab's parts go in its window, from UI.lua (offsets from the window's corners, for
--- its look): places = { search = { left, right, top }, pills = { left, top, h },
--- box = { left, right, top, bottom }, input = { left, right, y, h } }. The box's top moves down
--- under the pinned line and the Olympus tab's line (Render).
+-- its look): places = { search = { left, right, top }, box = { left, right, top, bottom },
+-- input = { left, right, y, h } }. The search row holds the switch and the gear too (DrawTop:
+-- the search box ends where they begin); the box's top moves down under the pinned line and the
+-- Olympus tab's line while they show (Render).
 local function Place(p, places)
 	if p.places == places then return end
 	p.places = places
 	local s, box, input = places.search, places.box, places.input
 	p.searchLabel:ClearAllPoints()
 	p.searchLabel:SetPoint("TOPLEFT", p, "TOPLEFT", s.left, s.top - 4)
-	local lw = math.ceil(TextWidth(p.searchLabel))
-	p.search:ClearAllPoints()
-	p.search:SetPoint("TOPLEFT", p, "TOPLEFT", s.left + lw + 12, s.top)
-	p.search:SetPoint("TOPRIGHT", p, "TOPRIGHT", s.right, s.top)
+	p.setTitle:ClearAllPoints()
+	p.setTitle:SetPoint("TOPLEFT", p, "TOPLEFT", s.left, s.top - 3)
 	p.box:ClearAllPoints()
 	p.box:SetPoint("TOPLEFT", p, "TOPLEFT", box.left, box.top)
 	p.box:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", box.right, box.bottom)
@@ -1401,8 +1859,8 @@ local function Pick()
 end
 
 -- UI.lua, when window `h` shows its Chat tab (and on its redraws after): the tab in it, placed as
--- `places` says. Opening (it was not showing): the newest lines, unread counts from zero. Never
--- takes the keyboard.
+-- `places` says. Opening (it was not showing): the newest lines (not the settings), unread counts
+-- from zero. Never takes the keyboard.
 function ChatWindow.Attach(h, places)
 	if not h or type(places) ~= "table" then return nil end
 	local p = Build(h)
@@ -1412,6 +1870,7 @@ function ChatWindow.Attach(h, places)
 		tier = Pick()
 		if tier then Remember(tier) end
 		unread = {}
+		settings = false
 		stick, newCount, want, acc = true, 0, nil, 0
 		p:Show()
 		Render()
@@ -1491,6 +1950,7 @@ function ChatWindow.Reset()
 	unread, notes = {}, {}
 	revealed = setmetatable({}, { __mode = "k" })
 	stick, newCount, lastAt, quiet, acc, want = true, 0, 0, false, 0, nil
+	settings = false
 	StopWatching()
 	pointer = nil
 end

@@ -1107,30 +1107,24 @@ function Views.MembersOf(guild, g, swept)
 end
 
 ---------------------------------------------------------------------------
--- The Olympus chats, read in the Realm tab: the last lines of each channel our rank reads
--- (Channels.History), newest first, even what was said while the window was closed.
+-- The Realm tab's pages: in place of its tree, the Board and the pages modules list. (The Olympus
+-- chats had a page here too until 1.1.1: the Chat tab replaced it, ChatWindow.lua, and the tree's
+-- link to the chats opens that tab.)
 ---------------------------------------------------------------------------
 
-local chatTier -- the channel shown instead of the Realm tree, or nil
 local boardShown = false -- the Board (Board.lua, 1.1) shown instead of the Realm tree
 -- Pages of the Realm tab (1.1): a module lists one in ns.RealmPages (Loot.lua's loot notes,
 -- Crafters.lua's board): { key, Link = function() return its link line, or nil end,
 -- Lines = function(q) return its lines end, tip = what its search finds (L.SEARCH_TIP_...) }.
--- A link line under the chats' opens it in place of the tree, as the chats open.
+-- A link line under the chats' link opens it in place of the tree.
 local pageShown -- the page shown instead of the Realm tree, or nil
 
-function Views.ChatShown() return chatTier ~= nil end
-function Views.ChatTier() return chatTier end
 -- Another tab opened: the Realm opens on its tree again next time (our guild's members page, the
--- Board's and the other pages close too, 1.1).
+-- Board's and the other pages close, 1.1). (Named for the Olympus chats' page, which it closed too
+-- until 1.1.1.)
 function Views.CloseChat()
-	chatTier, boardShown, pageShown = nil, false, nil
+	boardShown, pageShown = false, nil
 	if ns.Members and ns.Members.Hide then ns.Members.Hide() end
-end
-function Views.ShowChat(tier)
-	chatTier, boardShown, pageShown = tier, false, nil
-	if tier and ns.Members and ns.Members.Hide then ns.Members.Hide() end
-	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
 end
 
 local function RealmPage(key)
@@ -1143,185 +1137,31 @@ function Views.PageShown() return pageShown end
 function Views.ShowPage(key)
 	pageShown = RealmPage(key) and key or nil
 	if pageShown then
-		chatTier, boardShown = nil, false
+		boardShown = false
 		if ns.Members and ns.Members.Hide then ns.Members.Hide() end
 	end
 	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
 end
--- 1.1 (#31): the lines the player's block terms hide show too, marked, after a click on the
--- count (this session: every login hides them again).
-local chatReveal = false
-function Views.ChatReveal() return chatReveal end
-function Views.SetChatReveal(on)
-	chatReveal = on and true or false
-	if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
-end
--- The Board (1.1): a page of the Realm tab, like the chats. Opened, it asks the channel once a
--- session for the flags up now (Board.Ask). `quiet`: no redraw (the tab is opened right after).
+-- The Board (1.1): a page of the Realm tab. Opened, it asks the channel once a session for the
+-- flags up now (Board.Ask). `quiet`: no redraw (the tab is opened right after).
 function Views.BoardShown() return boardShown end
 function Views.ShowBoard(on, quiet)
 	boardShown = on and true or false
 	if boardShown then
-		chatTier, pageShown = nil, nil
+		pageShown = nil
 		if ns.Members and ns.Members.Hide then ns.Members.Hide() end
 		if ns.Board and ns.Board.Ask then ns.SafeCall("board ask", ns.Board.Ask) end
 	end
 	if not quiet and ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
 end
 
+-- The channels our rank reads (the tree links the chats for them).
 local function ChatTiers()
 	local out = {}
 	for _, tier in ipairs(ns.Channels.ORDER or {}) do
 		if ns.Channels.CanUse(tier) then out[#out + 1] = tier end
 	end
 	return out
-end
-
--- Every line the history keeps (Channels.HISTORY): lines kept but never shown were lost all the same.
-Views.CHAT_SHOWN = ns.Channels and ns.Channels.HISTORY or 100
--- `q`, the Realm's search (Views.Query): the way back and the channels stay, and of the lines
--- only those whose writer, guild or words hold it.
-local function ChatLines(q)
-	local C = ns.Channels
-	local lines = { { text = Gold(L.CHATS_BACK), onClick = function() Views.ShowChat(nil) end, gapAfter = true } }
-	-- The pinned line, then whether the channel is public: who can read these lines (1.1).
-	if not q then
-		PinLine(lines)
-		PublicLines(lines)
-		-- 1.1.1: the chats in the Olympus window's Chat tab (ChatWindow.lua), every line whole, a box
-		-- to write in.
-		lines[#lines + 1] = {
-			text = Gold(L.CHATS_OPEN_WINDOW),
-			onClick = function() ns.ChatWindow.Open(chatTier) end,
-			tooltip = function(tt)
-				tt:AddLine(L.CHATS_OPEN_WINDOW, 1, 0.82, 0)
-				tt:AddLine(L.CHATS_OPEN_WINDOW_TIP, 1, 1, 1, true)
-			end,
-		}
-		-- The Olympus tab of the game's chat (Channels.lua, 1.1.1), by the player's click: where it
-		-- stands. Not open, a click takes the Chat tab's guided way (ChatWindow.AddTab, the review of
-		-- the Chat tab: one way for the one action): a window named Olympus already there is taken at
-		-- once; else Olympus's pointer shows where to make it (the steps as text with the gamepad UI)
-		-- on the Chat tab, opened for it, and the chats go there the moment it exists. Open, or on a
-		-- client without that way, the click sets it up as before (Channels.SetupTab says so).
-		if not C.missing and type(C.SetupTab) == "function" and type(C.TabState) == "function" then
-			local state = C.TabState()
-			local CW = ns.ChatWindow
-			local awaited = state ~= "open" and CW and type(CW.Watching) == "function" and CW.Watching()
-			local text = state == "open" and Grey(L.CHATS_TAB_ON)
-				or ((state == "waiting" or awaited) and Grey(L.CHATS_TAB_WAITING) or Green(L.CHATS_TAB_MAKE))
-			lines[#lines + 1] = {
-				text = text,
-				onClick = function()
-					local done
-					if C.TabState() ~= "open" and CW and type(CW.AddTab) == "function" then done = CW.AddTab() end
-					if done == nil then
-						C.SetupTab()
-					elseif done == false and type(CW.Open) == "function" then
-						CW.Open(chatTier) -- (the steps and the line are the Chat tab's)
-					end
-					if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
-				end,
-				tooltip = function(tt)
-					tt:AddLine(L.CHATS_TAB_MAKE, 1, 0.82, 0)
-					tt:AddLine(L.CHATS_TAB_TIP, 1, 1, 1, true)
-				end,
-			}
-		end
-		lines[#lines].gapAfter = true
-	end
-	local tiers = ChatTiers()
-	if not C.TIERS[chatTier] or not C.CanUse(chatTier) then chatTier = tiers[1] end
-	if not chatTier then
-		lines[#lines + 1] = { text = Grey(L.CHATS_EMPTY) }
-		return lines
-	end
-	-- One line per channel we read: the one shown is lit.
-	for _, tier in ipairs(tiers) do
-		local label = L[C.TIERS[tier].label]
-		local n = #C.History(tier)
-		lines[#lines + 1] = {
-			header = tier == chatTier,
-			text = (tier == chatTier and Gold("> [" .. label .. "]") or ("   [" .. label .. "]")),
-			right = Grey(tostring(n)),
-			onClick = tier ~= chatTier and function() Views.ShowChat(tier) end or nil,
-		}
-	end
-	lines[#lines].gapAfter = true
-	local tierDef = C.TIERS[chatTier]
-	if not q then
-		lines[#lines + 1] = {
-			text = Green(L.CHATS_WRITE:format(L[tierDef.label])),
-			-- 1.1.1: the Chat tab on this channel, its own box to write in, with mouse and keyboard
-			-- too. Never the game's chat box opened from here (ChatFrame_OpenChat writes the
-			-- chat's last active box from addon code: the game then blocks /cast and the like typed
-			-- there, and the gamepad UI froze on it in 0.8.5).
-			onClick = function() ns.ChatWindow.Open(chatTier) end,
-			gapAfter = true,
-		}
-		-- The King, his Stewards and Hands: one line pinned for the army (1.1); a guild master: one
-		-- for his own guild (Channels.PinScope). Typed in an Olympus dialog (ns.ShowDialog: the
-		-- gamepad UI's own window there).
-		if C.CanPin and C.CanPin() then
-			local guildOnly = C.PinScope and C.PinScope() == "guild"
-			local label = guildOnly and L.PIN_ADD_GUILD or L.PIN_ADD
-			lines[#lines].gapAfter = nil
-			lines[#lines + 1] = {
-				text = Green(label),
-				onClick = function() ns.ShowDialog("OLYMPUS_PIN") end,
-				tooltip = function(tt)
-					tt:AddLine(label, 1, 0.82, 0)
-					tt:AddLine(guildOnly and L.PIN_ADD_GUILD_TIP or L.PIN_ADD_TIP, 1, 1, 1, true)
-				end,
-				gapAfter = true,
-			}
-		end
-	end
-	local history = C.History(chatTier)
-	if #history == 0 and not q then lines[#lines + 1] = { text = Grey(L.CHATS_EMPTY) } end
-	-- 1.1 (#31): the lines the player's block terms hide, counted; a click shows them (marked).
-	local F = ns.Filter
-	local hidden, nHidden = {}, 0
-	if F and not F.missing then
-		for i = #history, math.max(1, #history - Views.CHAT_SHOWN + 1), -1 do
-			local e = history[i]
-			if not e.mine and F.Hides(e.text) then hidden[e], nHidden = true, nHidden + 1 end
-		end
-	end
-	if nHidden > 0 then
-		lines[#lines + 1] = {
-			text = Grey((chatReveal and L.FILTER_SHOWING_LINES or L.FILTER_HIDDEN_LINES):format(nHidden)),
-			onClick = function() Views.SetChatReveal(not chatReveal) end,
-			tooltip = function(tt)
-				tt:AddLine(L.FILTER_TIP_TITLE, 1, 0.82, 0)
-				tt:AddLine(L.FILTER_TIP, 1, 1, 1, true)
-			end,
-			gapAfter = true,
-		}
-	end
-	local found = 0
-	for i = #history, math.max(1, #history - Views.CHAT_SHOWN + 1), -1 do
-		local e = history[i]
-		local who = ns.DisplayName(e.sender) or "?"
-		if (chatReveal or not hidden[e]) and (not q or ns.Holds(q, who, Plain(e.guild or ""), ns.Codec.SanitizeChat(e.text))) then
-			found = found + 1
-			lines[#lines + 1] = {
-				text = (hidden[e] and (Grey(L.FILTER_HIDDEN_MARK) .. " ") or "") .. C.FormatLine(chatTier, e.sender, e.guild, e.class, e.text),
-				right = Grey(ns.Ago(e.t)),
-				onClick = not e.mine and function()
-					if ns.GamepadUI() then return ns.UI.WhisperWindow(ns.TellName(e.sender) or who) end
-					if ChatFrame_SendTell then ChatFrame_SendTell(ns.TellName(e.sender) or who) end
-				end or nil,
-				tooltip = function(tt)
-					tt:AddLine(who .. "  <" .. Plain(e.guild or "?") .. ">", 1, 0.82, 0)
-					tt:AddLine(ns.Codec.SanitizeChat(e.text), 1, 1, 1, true)
-					if not e.mine then tt:AddLine(L.CHATS_LINE_TIP:format(who), 0.6, 0.6, 0.6) end
-				end,
-			}
-		end
-	end
-	if q and found == 0 then lines[#lines + 1] = NoMatch() end
-	return lines
 end
 
 ---------------------------------------------------------------------------
@@ -1544,13 +1384,13 @@ end
 
 -- `q`, the search (Views.Query): the High Council's names (for whoever may see it), then each
 -- guild whose name holds it, whole, and each whose Lord, Captains or members seen do, opened on
--- those alone; "No match" for none. The chats' link stays (they are searched there). Nothing
+-- those alone; "No match" for none. The chats' link stays (the Chat tab it opens has a search of
+-- its own). Nothing
 -- else: the King's lines, the level race, recruiting and the layers show once it is emptied.
 local function RealmLines(s, q)
 	if boardShown and ns.Board and not ns.Board.missing and ns.Board.Lines then return ns.Board.Lines(q) end
 	local page = pageShown and RealmPage(pageShown)
 	if page then return page.Lines(q) end
-	if chatTier then return ChatLines(q) end
 	-- Our guild's members page (1.1, Members.lua).
 	if ns.Members and ns.Members.Shown and ns.Members.Shown() then return ns.Members.Lines(q) end
 	local lines = {}
@@ -1617,8 +1457,10 @@ local function RealmLines(s, q)
 		rebuilding = RebuildLines(lines)
 		if #lines > before and lines[before] then lines[before].gapAfter = true end
 	end
-	-- The Olympus chats, one click away (the channels our rank reads), above the guilds. Off on
-	-- this client (1.1): a line that says so, and a click to choose (the first-open page).
+	-- The Olympus chats, one click away (the channels our rank reads), above the guilds: the
+	-- Olympus window on its Chat tab (1.1.1, ChatWindow.lua; the page the Realm tab had for them is
+	-- gone, the author's call). Off on this client (1.1): a line that says so, and a click to choose
+	-- (the first-open page).
 	if #ChatTiers() > 0 and not ns.Channels.ChatOn() then
 		if lines[#lines] then lines[#lines].gapAfter = true end
 		lines[#lines + 1] = {
@@ -1633,10 +1475,11 @@ local function RealmLines(s, q)
 		if lines[#lines] then lines[#lines].gapAfter = true end
 		lines[#lines + 1] = {
 			text = "|TInterface\\ChatFrame\\UI-ChatIcon-Chat-Up:14:14|t " .. Gold(L.CHATS_LINK), gapAfter = true, pageLink = true,
-			onClick = function() Views.ShowChat(ChatTiers()[1]) end,
+			onClick = function() ns.ChatWindow.Open() end,
 			tooltip = function(tt)
 				tt:AddLine(L.CHATS_LINK, 1, 0.82, 0)
 				tt:AddLine(L.CHATS_TIP, 1, 1, 1, true)
+				tt:AddLine(L.CHATS_OPEN_WINDOW_TIP, 0.75, 0.75, 0.75, true)
 			end,
 		}
 	end
@@ -2359,10 +2202,10 @@ local BUILD = {
 	realm = function(s)
 		local title, text = RealmDetail(s)
 		local lines = RealmLines(s, Views.Query("realm"))
-		-- (One box for the tab: the chats' lines are searched with it while they show, a page's too.)
+		-- (One box for the tab: a page's lines are searched with it while it shows.)
 		local members = ns.Members and ns.Members.Shown and ns.Members.Shown()
 		local page = pageShown and RealmPage(pageShown)
-		return Searched(lines, "realm", boardShown and "BOARD" or (page and page.tip) or chatTier and "CHAT" or members and "MEMBERS" or "REALM"), title, text
+		return Searched(lines, "realm", boardShown and "BOARD" or (page and page.tip) or members and "MEMBERS" or "REALM"), title, text
 	end,
 	decrees = function()
 		local title, text = DecreeDetail()

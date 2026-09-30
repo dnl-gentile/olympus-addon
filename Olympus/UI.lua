@@ -13,8 +13,9 @@ local L = ns.L
 -- icon tabs on the right side, 20 px rows, Blizzard's column headers, buttons and member
 -- card. The old one is built exactly as it always was.
 -- The Chat tab (1.1.1) is drawn by ChatWindow.lua over the list's place: the search box where
--- the header's counts are, the channels where the column titles are, the lines over the list and
--- the detail box, and a box to write in across the buttons' row (UI.ChatPlaces).
+-- the header's counts are (the channels' switch and the settings' gear at that row's end), the
+-- lines over the list, its column titles' row and the detail box, and a box to write in across
+-- the buttons' row (UI.ChatPlaces).
 
 local UI = {}
 ns.UI = UI
@@ -557,9 +558,10 @@ local GEOMETRY = {
 
 ---------------------------------------------------------------------------
 -- The Chat tab (1.1.1): ChatWindow.lua draws it in the window, over the list's place. The author's
--- words: no soldiers' counts on top (the search box goes there), the channels where the column
--- titles are, no detail box (the lines take its room), and the box to write in where the buttons
--- are, with no Send button (Enter sends).
+-- words: no soldiers' counts on top (the search box goes there, the channels' switch and the
+-- settings' gear on its row), no column titles (a row of channel pills there took the lines' room:
+-- most players read one channel), no detail box (the lines take its room), and the box to write
+-- in where the buttons are, with no Send button (Enter sends).
 ---------------------------------------------------------------------------
 
 -- The tab shows for whoever reads an Olympus chat (every member, as the Realm tab's chats' line),
@@ -580,19 +582,19 @@ local function ChatPaneReady()
 end
 
 -- Where the Chat tab's parts go in window `f`, from its look's numbers (offsets from its corners):
--- the search box right of the portrait, where the counts are; the channels on the column titles'
--- row; the lines from under them down to the buttons' row; the box across that row, as wide as
--- its buttons together.
+-- the search box right of the portrait, where the counts are (the channels' switch and the gear
+-- at that row's end, ChatWindow.lua); the lines from where the list's box starts without column
+-- titles (the channel pills' row there is gone, the author's ask) down to the buttons' row; the
+-- box across that row, as wide as its buttons together.
 function UI.ChatPlaces(f)
 	f = f or main
 	if not f then return nil end
 	if f.chatPlaces then return f.chatPlaces end
 	local g = GEOMETRY[f.style]
-	local b, head = g.buttons, g.header
+	local b = g.buttons
 	f.chatPlaces = {
 		search = { left = f.headerX or 12, right = -HEADER_RIGHT, top = -30 },
-		pills = { left = head.left, top = head.y, h = head.h },
-		box = { left = g.box.left, right = g.box.right, top = head.y - head.h - 2, bottom = b.y + b.h + 4 },
+		box = { left = g.box.left, right = g.box.right, top = g.box.topNoCols or g.box.top, bottom = b.y + b.h + 4 },
 		input = { left = b.x, right = b.x - b.margin, y = b.y, h = b.h },
 	}
 	return f.chatPlaces
@@ -1403,7 +1405,7 @@ local function PageOf(tab, locked)
 	local sub
 	if tab == "realm" then
 		-- (1.1: our guild's members page, Members.lua, a page of its own.)
-		sub = (ns.Views.BoardShown and ns.Views.BoardShown() and "board") or (ns.Views.PageShown and ns.Views.PageShown()) or ns.Views.ChatTier and ns.Views.ChatTier() or ns.Members and ns.Members.PageId and ns.Members.PageId() or "tree"
+		sub = (ns.Views.BoardShown and ns.Views.BoardShown() and "board") or (ns.Views.PageShown and ns.Views.PageShown()) or ns.Members and ns.Members.PageId and ns.Members.PageId() or "tree"
 	elseif tab == "throne" then sub = ns.King and ns.King.mode
 	elseif tab == "treasury" then sub = ns.Treasury and ns.Treasury.mode end
 	return tab .. "/" .. tostring(sub or "")
@@ -1591,16 +1593,14 @@ end
 --            realm (the realm the name is short for: a guild report's, not always ours) }
 ---------------------------------------------------------------------------
 
--- With the gamepad UI a whisper, or a line for an Olympus chat, is written in an Olympus
--- window: the game's chat box, opened from Olympus, runs the game's gamepad code from ours
--- and the game blocks it (see Dialog.lua). With mouse and keyboard, the game's chat box.
+-- With the gamepad UI a whisper is written in an Olympus window: the game's chat box, opened from
+-- Olympus, runs the game's gamepad code from ours and the game blocks it (see Dialog.lua). With
+-- mouse and keyboard, the game's chat box. (A line for an Olympus chat is written in the Chat
+-- tab's own box, ChatWindow.lua: the Realm tab's chats page and its window for that are gone.)
 local function Trim(text) return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
 local function SendWhisper(name, text)
 	text = Trim(text)
 	if text ~= "" and name then SendChatMessage(text:sub(1, 255), "WHISPER", nil, name) end
-end
-local function SendToChat(tier, text)
-	if tier then ns.SafeCall("chat window", ns.Channels.Send, tier, Trim(text)) end
 end
 StaticPopupDialogs["OLYMPUS_WHISPER"] = {
 	text = L.WHISPER_TO,
@@ -1629,35 +1629,8 @@ StaticPopupDialogs["OLYMPUS_WHISPER"] = {
 	hideOnEscape = true,
 	preferredIndex = 3,
 }
-StaticPopupDialogs["OLYMPUS_CHAT_WRITE"] = {
-	text = L.CHATS_WRITE_TO,
-	button1 = SEND_LABEL or "Send",
-	button2 = CANCEL or "Cancel",
-	hasEditBox = true,
-	editBoxWidth = 320,
-	maxLetters = 255,
-	OnShow = function(self)
-		local eb = self.editBox or self.EditBox
-		if eb then eb:SetText("") eb:SetFocus() end
-	end,
-	OnAccept = function(self, tier)
-		local eb = self.editBox or self.EditBox
-		SendToChat(tier, eb and eb:GetText())
-	end,
-	EditBoxOnEnterPressed = function(self)
-		local parent = self:GetParent()
-		SendToChat(parent.data, self:GetText())
-		parent:Hide()
-	end,
-	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
-	timeout = 0,
-	whileDead = true,
-	hideOnEscape = true,
-	preferredIndex = 3,
-}
--- (name: the one the server finds; label: the chat's name, [Olympus].)
+-- (name: the one the server finds.)
 function UI.WhisperWindow(name) return ns.ShowDialog("OLYMPUS_WHISPER", name, nil, name) end
-function UI.ChatWindow(tier, label) return ns.ShowDialog("OLYMPUS_CHAT_WRITE", label, nil, tier) end
 
 -- Whisper, invite and /who take the name the server finds (ns.TellName).
 local function Whisper(name)
@@ -1986,7 +1959,6 @@ ns.On("TREASURY_CHANGED", function()
 end)
 -- The court's line tops the Census and the Realm for the players in its zone.
 ns.On("COURT_CHANGED", function() if main and (main.tab == "census" or main.tab == "realm") then UI.RefreshSoon() end end)
-ns.On("CHAT_CHANGED", function() if main and main.tab == "realm" and ns.Views.ChatShown() then UI.RefreshSoon() end end)
 -- A page of the Realm tab changed (1.1: the loot notes, the crafters' board): redrawn while it shows.
 ns.On("REALM_PAGE_CHANGED", function(key)
 	if main and main.tab == "realm" and ns.Views.PageShown and ns.Views.PageShown() == key then UI.RefreshSoon() end

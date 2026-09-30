@@ -57,7 +57,7 @@ end
 -- (Consent.lua) or /oly chat on|off. Off until they answer (ns.db.addonChat is nil until then,
 -- account-wide), and off after a No: this client neither sends nor shows [Olympus], [Captains]
 -- or [Lords]. A line that arrives is dropped before anything keeps it (no history, nothing to
--- the Realm tab or a companion through the bridge); the client still sits in the channel, for
+-- the Chat tab or a companion through the bridge); the client still sits in the channel, for
 -- the census.
 function Channels.ChatOn() return ns.db ~= nil and ns.db.addonChat == true end
 function Channels.ChatState()
@@ -390,7 +390,7 @@ local function Choices()
 	return list
 end
 
--- One click (the Realm tab's chats page, or /oly chatwindow tab): the three channels to the
+-- One click (the Chat tab's settings, or /oly chatwindow tab): the three channels to the
 -- Olympus tab, for this character, even a channel its rank does not read yet (a promotion keeps
 -- it there). The tab open: said in the main window, and in the tab (Intro). Not made yet: how to
 -- make it, with the game's own words for its menus; the lines stay in the main window meanwhile,
@@ -436,6 +436,18 @@ function Channels.ChosenWindow(tier)
 	local chosen = Chosen()
 	local name = chosen and chosen[tier]
 	return type(name) == "string" and name or nil
+end
+
+-- The chat windows open now but the main one and the combat log, { index, name } each in their
+-- order: the ones the Chat tab's settings offer a channel, picked by number as /oly chatwindow
+-- <number> picks them (read only, as WindowAt reads them).
+function Channels.OpenWindows()
+	local out = {}
+	for i = 1, MaxWindows() do
+		local f, name, open, combat = WindowAt(i)
+		if f and open and not combat and name and f ~= DEFAULT_CHAT_FRAME then out[#out + 1] = { index = i, name = name } end
+	end
+	return out
 end
 
 -- "[Olympus] main window, [Captains] "Olympus"" for /oly chatwindow and /oly status.
@@ -559,7 +571,7 @@ local function AddHistory(tier, e)
 end
 
 -- Every line kept goes through here, whether it is then shown, muted or held back by the flood
--- guard: into the history the Realm tab shows (CHAT_CHANGED) and, from someone else, already
+-- guard: into the history the Chat tab shows (CHAT_CHANGED) and, from someone else, already
 -- checked and sanitized, to a companion reading along (CHAT_LINE, for
 -- OlympusBridge.RegisterChatObserver). The mute and the flood guard only decide what this chat
 -- frame shows.
@@ -901,9 +913,9 @@ function Channels.Receive(dist, sender, text, now)
 		return false, reason
 	end
 	-- 1.1 (#31): a line the player's block terms hide (Filter.lua) stays off the chat frame. It is
-	-- kept, for the Realm tab's "N lines hidden" and its click to show them, and a companion reading
-	-- the chats still gets it: the filter only decides what this player sees. Nothing else happens
-	-- to its sender (no ignore, no block): their next line shows.
+	-- kept, for the Chat tab's grey bubble and its "N lines hidden" (a click shows them), and a
+	-- companion reading the chats still gets it: the filter only decides what this player sees.
+	-- Nothing else happens to its sender (no ignore, no block): their next line shows.
 	local F = ns.Filter
 	if F and not F.missing and F.Hides(m.text) then
 		stats.filtered = (stats.filtered or 0) + 1
@@ -911,7 +923,7 @@ function Channels.Receive(dist, sender, text, now)
 		return false, "filtered"
 	end
 	-- A muted channel only goes to history, so it takes nothing from the flood guard. A line
-	-- the guard keeps off the chat frame still goes to the history (the Realm tab's chats stay
+	-- the guard keeps off the chat frame still goes to the history (the Chat tab's lines stay
 	-- whole for everyone, and a companion hears it), and the player is told (Channels.FloodNotice).
 	if not Muted()[m.tier] and Flooded(m.tier, sender, now) then
 		stats.flood = stats.flood + 1
