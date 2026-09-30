@@ -217,7 +217,8 @@ local function CheckBook(b)
 			local item, count = e.item ~= nil and Num(e.item, 1, 2 ^ 31) or nil, e.count ~= nil and Num(e.count, 1, COUNT) or nil
 			if e.item == nil or (item and count) then
 				out.lines[#out.lines + 1] = { name = e.name, money = e.money, how = e.how, t = e.t, out = e.out == true or nil, excluded = e.excluded == true or nil,
-					kind = e.kind, item = item, count = item and count or nil, returned = e.returned == true or nil }
+					kind = e.kind, item = item, count = item and count or nil, returned = e.returned == true or nil,
+					noted = e.noted == true or nil } -- (sent with the dues' note: Dues.Stamp, Konig's review of 1.1)
 			end
 		end
 	end
@@ -243,6 +244,43 @@ local function CheckBook(b)
 				by[name] = c
 			end
 			sums.days[day] = { inn = x.inn, out = x.out, by = by }
+		end
+		-- (1.1: each giver's sum a week, the dues' weeks (Dues.WeekAdd), and what may be each giver's
+		-- dues in the weeks no longer kept (Dues.DuesPart): rebuilt from the lines instead, a restored
+		-- book's ranking would send again what they left out, Konig's review of 1.1.)
+		if good and type(s.weeks) == "table" then
+			sums.weeks = {}
+			for wk, list in pairs(s.weeks) do
+				if not Num(wk, -2 ^ 31, 2 ^ 31) or type(list) ~= "table" then good = false break end
+				local week = {}
+				for key, p in pairs(list) do
+					if type(key) ~= "string" or #key > 80 or key:find("[|%c]") or type(p) ~= "table" or type(p.n) ~= "string" or #p.n > 80
+						or p.n:find("[|%c]") or not Num(p.c, 1, MAX) or not Num(p.t, 0, 2 ^ 31) or (p.d ~= nil and not Num(p.d, 1, MAX))
+						or (p.g ~= nil and (type(p.g) ~= "string" or #p.g > 80 or p.g:find("[|%c]"))) then
+						good = false
+						break
+					end
+					week[key] = { n = p.n, c = p.c, t = p.t, d = p.d, g = p.g, gv = p.gv == true or nil }
+				end
+				if not good then break end
+				sums.weeks[wk] = week
+			end
+		end
+		if good and type(s.duesOut) == "table" then
+			sums.duesOut = {}
+			for key, c in pairs(s.duesOut) do
+				if type(key) ~= "string" or #key > 80 or key:find("[|%c]") or not Num(c, 1, MAX) then good = false break end
+				sums.duesOut[key] = c
+			end
+		end
+		-- (Each week's amount as the book kept it, Dues.WeekAmount: a restored book never works it out
+		-- again from a later word. Konig's review of 1.1.)
+		if good and type(s.amounts) == "table" then
+			sums.amounts = {}
+			for wk, c in pairs(s.amounts) do
+				if not Num(wk, -2 ^ 31, 2 ^ 31) or not Num(c, 1, ns.Dues.MAX_AMOUNT) then good = false break end
+				sums.amounts[wk] = c
+			end
 		end
 		if good then out.sums = sums end
 	end

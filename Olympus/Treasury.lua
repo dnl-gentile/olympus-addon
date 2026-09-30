@@ -21,10 +21,10 @@ local L = ns.L
 -- King sees all of it; what the rest of the army sees is the King's choice, three switches (the
 -- balance, the ranking, the book), and with any of them on the Treasury tab appears for every
 -- member with the addon. (The channel is readable by anyone on it: the switches choose what the
--- addon shows, they don't hide the numbers.) The King's word carries the time he gave it, and
--- the Treasurer's book repeats his switches: members who never meet the King online still get
--- them. His list of keepers comes from his client and his Stewards' alone (Konig's review of
--- 1.0.0: the Treasurer's book could name anyone a keeper).
+-- addon shows, they don't hide the numbers.) The King's word carries the time he gave it; his
+-- switches, like his list of keepers, count only from his client and his Stewards' (Konig's
+-- review of 1.0.0: the Treasurer's book could name anyone a keeper; of 1.1: it could set the
+-- switches too). The Treasurer's book still carries them, for 1.0's addons alone.
 -- 1.0's fresh start: the books of 0.9 are closed (kept in the saved variables, never shown or
 -- sent) and each keeper's book of 1.0 opens at his character's gold at his first login on 1.0
 -- (or when the King names him). The epoch travels in the message: 1.0 clients never read 0.9's
@@ -36,8 +36,8 @@ local L = ns.L
 --   (checked when it comes, and refused whole when it fails: ReadBook. The balance is the
 --   opening, plus all in, less all out, plus the transfers in, less the transfers out.)
 --   (the book's lines: i a donation, o a payment, r and s a transfer received and sent; items
---   with copper 0. The switches only count from the Treasurer; the keepers field is "-", and
---   read from nobody's book.)
+--   with copper 0. The switches: only in the Treasurer's, read by 1.0's addons alone (1.1: from
+--   nobody's book); the keepers field is "-", and read from nobody's book.)
 --   T8~<guild>~<balance>~<all in>~<all out>~<week in>~<donors this week>~<switches@time|->~<Name:copper,...>~<i|o:copper:Name:m|t:time,...>
 --     0.9's treasury: the Treasurer's client still sends it, the treasury of 1.0 in short, for
 --     0.9 clients; 1.0 clients never read it.
@@ -1047,6 +1047,34 @@ function Treasury.Totals(b)
 	return t
 end
 
+-- 1.1, Konig's review (the ranking): a ranked donor's total in the Treasurer's book grew by the
+-- dues' amount the week he paid it (one fixed amount), which told the channel who paid and so who
+-- did not (Fern's #36). The ranking (all time, which Fern kept public) that leaves the Treasurer's
+-- client (the channel's, the whole book whispered, 0.9's copy, his mail character's he passes on)
+-- leaves out, of each giver's gold to the Treasurer's characters, each week's up to that week's
+-- amount as the book kept it, and all he sent with the dues' note (Dues.DuesPart): what may be his
+-- dues, paid or not. A total grows only by what a week's gold went over the amount, so one that did
+-- not grow may be a payer's or not: it shows no payer of the amount the Treasurer's client knew that
+-- week (one who paid more by trade or plain mail while it knew less shows by the difference). It is
+-- that much lower than on the Treasurer's own screen. Another keeper's book, which is no dues: as it is.
+local function PublicRanking(b, t)
+	t = t or Treasury.Totals(b)
+	if not (b and TreasurerPin(b.name)) then return t.ranking end
+	local part, out = ns.Dues.DuesPart(Sums(b)), {}
+	for _, g in ipairs(t.ranking) do
+		local key = ns.Dues.Key(g.name)
+		local take = key and math.min(g.money, part[key] or 0) or 0
+		if key then part[key] = (part[key] or 0) - take end
+		if g.money - take >= 1 then out[#out + 1] = { name = g.name, money = g.money - take } end
+	end
+	table.sort(out, function(x, y)
+		if x.money ~= y.money then return x.money > y.money end
+		return x.name < y.name
+	end)
+	return out
+end
+Treasury.PublicRanking = PublicRanking
+
 ---------------------------------------------------------------------------
 -- Sharing: each keeper's book, and everyone's copy of them
 ---------------------------------------------------------------------------
@@ -1208,8 +1236,9 @@ end
 -- "ranking", the book's lines and the items donated with "book". Its keepers' field (read by
 -- nobody before 1.1) says which parts it holds: "<balance><ranking><book>@1", "110@1".
 -- A 1.0 client takes it as that keeper's whole book: its army shows what the King shows, as
--- before, and the King's switches still reach it from the Treasurer's copy (which also takes the
--- place of any whole book of 1.0 it kept). But a King's, Steward's or keeper's 1.0 addon, which
+-- before, and the King's switches still reach it from the Treasurer's copy, which 1.0 reads (and
+-- which also takes the place of any whole book of 1.0 it kept). But a King's, Steward's or
+-- keeper's 1.0 addon, which
 -- shows everything whatever the switches, shows a balance of zero there with the balance hidden
 -- (every switch off, as the King starts) or the sums of the lists shown, until it updates: 1.1
 -- whispers the whole book to 1.1 alone. A 1.1 insider's Treasury tab names them
@@ -1219,27 +1248,31 @@ function Treasury.Message(b, parts)
 	local t = Treasury.Totals(b)
 	local whole = parts == nil
 	local showBalance, showRanking, showBook = whole or parts.balance == true, whole or parts.ranking == true, whole or parts.book == true
-	-- The King's switches ride the Treasurer's book alone (only his is read; not a book of his
-	-- mail character's he passes on). His keepers never do: they are the King's and his
+	-- The King's switches ride the Treasurer's book alone (not a book of his mail character's he
+	-- passes on), for 1.0's addons, which read them there; 1.1 reads them from nobody's book
+	-- (Konig's review of 1.1: TakeFlags). His keepers never do: they are the King's and his
 	-- Stewards' to set, from their own clients (Konig's review of 1.0.0), and the field stays "-"
 	-- (1.1: on the channel, the parts the book holds).
 	local mine = ns.IsTreasurer(ns.me, GetGuildInfo("player") or "") and SameChar(b.name or ns.me, ns.me)
 	local flags = mine and FlagsWord() or "-"
 	local keepers = whole and "-" or ((showBalance and "1" or "0") .. (showRanking and "1" or "0") .. (showBook and "1" or "0") .. "@1")
 	local caps = { rank = Treasury.RANK_SENT, book = Treasury.BOOK_SENT, items = Treasury.ITEMS_SENT }
+	-- (1.1, Konig's review: never what may be someone's dues in the Treasurer's ranking.)
+	local ranking = PublicRanking(b, t)
 	local function Build()
 		-- 1.1 (Fern's #36): the week's donors go out as a count, never by name. With the dues (one
 		-- fixed amount a week, Dues.lua) their names on the channel would be a public list of who
 		-- paid this week, and so of who did not: every client on it receives the bytes, whatever the
-		-- King's switches show. The ranking (all time, which Fern kept) stays; so do the book's
-		-- latest lines, except the gold given to the Treasurer's characters: each of those is
-		-- someone's dues (a name and his last payment: DuesLine), and never goes out.
+		-- King's switches show. The ranking (all time, which Fern kept) stays, less what may be each
+		-- giver's dues in the Treasurer's (PublicRanking); so do the book's latest lines, except the
+		-- gold given to the Treasurer's characters: each of those is someone's dues (a name and his
+		-- last payment: DuesLine), and never goes out.
 		local week, rank, lines, items = {}, {}, {}, {}
 		local sums = { rank = 0, i = 0, o = 0, r = 0, s = 0 }
 		if showRanking then
-			for i = 1, math.min(caps.rank, #t.ranking) do
-				rank[i] = ("%s:%d"):format(Clean(t.ranking[i].name), U(t.ranking[i].money))
-				sums.rank = sums.rank + U(t.ranking[i].money)
+			for i = 1, math.min(caps.rank, #ranking) do
+				rank[i] = ("%s:%d"):format(Clean(ranking[i].name), U(ranking[i].money))
+				sums.rank = sums.rank + U(ranking[i].money)
 			end
 		end
 		for i = #b.lines, 1, -1 do
@@ -1538,9 +1571,10 @@ local function Keep(r)
 end
 
 -- A keeper's book (TB): from a keeper himself (his name, which the server sets), of this era.
--- The King's switches only from the Treasurer (as 0.9's T8 carried them). The King's keepers
--- never from a book: the Treasurer's could name anyone a keeper, or take the King's off, with a
--- fresh date (Konig's review of 1.0.0); only the King and his Stewards set them (T1~K).
+-- The King's keepers never from a book: the Treasurer's could name anyone a keeper, or take the
+-- King's off, with a fresh date (Konig's review of 1.0.0); only the King and his Stewards set them
+-- (T1~K). 1.1: nor his switches (Konig's review of 1.1: the same fresh date set them): the
+-- Treasurer's copy is only answered when older than ours (TakeFlags).
 -- 1.1: on the channel, or by whisper (put together from its pieces: Treasury.HandlePrivate),
 -- whole, to the King, a Steward or a keeper.
 function Treasury.HandleReport(dist, sender, text)
@@ -1560,7 +1594,8 @@ function Treasury.HandleReport(dist, sender, text)
 	Treasury.Heard(sender)
 	Treasury.Migrate()
 	Keep(r)
-	-- The Treasurer repeats the King's switches, if newer than ours.
+	-- The Treasurer's copy of the King's switches (for 1.0's addons): never taken, answered by the
+	-- King's or a Steward's client when older than theirs (TakeFlags, relayed).
 	if ns.IsTreasurer(sender, guild) then
 		local b, k, o, at = f[11]:match("^([01])([01])([01])@(%d+)$")
 		if b then Treasury.TakeFlags(b .. k .. o, tonumber(at), sender, true) end
@@ -1611,7 +1646,7 @@ ns.Comm.Handle("T8", function() end)
 -- one character at a time: theirs never reach it by the channel), and every other keeper's
 -- book as it last reached us. A keeper's book stays while he is one, however old (it says
 -- when it came); a character no longer on the King's list is no longer counted.
-local function LivePart(b, own)
+local function LivePart(b, own, shared)
 	local t = Treasury.Totals(b)
 	local names, lines = {}, {}
 	for i = 1, math.min(Treasury.WEEK_SENT, #t.givers) do names[i] = t.givers[i].name end
@@ -1622,7 +1657,7 @@ local function LivePart(b, own)
 	-- (Ours is as of now; another character's of this account, as of its latest change.)
 	local when = own and ns.Now() or BookTime(b)
 	return { name = b.name, opening = Treasury.Opening(b), balance = Treasury.Balance(b), allIn = t.allIn, allOut = t.allOut, week = t.weekIn,
-		donors = #t.givers, weekNames = names, rank = t.ranking, book = lines, items = t.items, t = when, own = own, b = b }
+		donors = #t.givers, weekNames = names, rank = shared and PublicRanking(b, t) or t.ranking, book = lines, items = t.items, t = when, own = own, b = b }
 end
 -- Another character of this account said yes to sharing its book (the Treasurer's 0.9.3 yes is his,
 -- while he has given no answer since: his no of 1.0 stays a no).
@@ -1639,13 +1674,13 @@ local function Parts(shared)
 	if not ns.rdb then return parts end
 	if Treasury.IsKeeper() then
 		local b = BookOf(ns.me, true)
-		parts[1], seen[OwnKey(ns.me)] = LivePart(b, true), true
+		parts[1], seen[OwnKey(ns.me)] = LivePart(b, true, shared), true
 	end
 	for key, b in pairs(Books()) do
 		if not seen[key] and type(b) == "table" and b.epoch == Treasury.EPOCH and type(b.lines) == "table" and Treasury.IsOwnCharacter(b.name)
 			and Treasury.KeeperByName(b.name) then
 			-- (Kept private: left out, and no copy of it either.)
-			if not shared or SharesBook(key, b.name) then parts[#parts + 1] = LivePart(b, false) end
+			if not shared or SharesBook(key, b.name) then parts[#parts + 1] = LivePart(b, false, shared) end
 			seen[key] = true
 		end
 	end
@@ -2082,7 +2117,8 @@ end)
 -- time it was given; the newest wins everywhere, and on the same second the King's own over his
 -- Steward's: the King's newer word always wins. The King's client and his Steward's take the
 -- newest word as theirs and repeat it, and answer an older one they hear with theirs (at most
--- once in WORD_ANSWER); the Treasurer's book repeats the switches too, never the keepers.
+-- once in WORD_ANSWER). The Treasurer's book carries the switches for 1.0's addons, never the
+-- keepers; 1.1 takes neither from it (Konig's review of 1.1).
 ---------------------------------------------------------------------------
 
 Treasury.WORD_ANSWER = 30
@@ -2103,7 +2139,7 @@ local function TellKing(sender, text)
 end
 
 -- The King's client and his Steward's repeat the word, with the time it was given (a client that
--- never heard it sends nothing: it takes the word as the Treasurer repeats it). 1.1 (#12): never
+-- never heard it sends nothing). 1.1 (#12): never
 -- another's word given less than WORD_FRESH ago: a word that new goes out from its giver's client
 -- alone, so the log of acts can name him (TakeFlags); after that it is repeated as before.
 function Treasury.SendFlags(force)
@@ -2151,16 +2187,21 @@ local function AnswerOlder(send)
 	send(true)
 end
 
--- The King's word ("101" and the time it was given), from him or his Steward, or repeated by
--- the Treasurer (`relayed`): taken when newer than the one kept (a time ahead of the server's
--- clock by King.DATE_AHEAD at most: a minute, so a modified client never keeps a word over the
--- King's newer one for longer).
+-- The King's word ("101" and the time it was given), from him or his Steward: taken when newer
+-- than the one kept (a time ahead of the server's clock by King.DATE_AHEAD at most: a minute, so a
+-- modified client never keeps a word over the King's newer one for longer).
+-- `relayed`: the Treasurer's copy in his book (1.0's addons read it there). Konig's review of 1.1:
+-- only the King and his Stewards set the switches, and a copy can't be told from a word the
+-- Treasurer's client made up or dated anew (no signature of the King's travels with it; taken, it
+-- was also repeated by the King's and his Stewards' clients as theirs), so it is never taken: an
+-- older one is only answered with ours, so that his client, and the 1.0 addons reading his book,
+-- catch up. Each client keeps the last word it heard from the King or a Steward themselves.
 function Treasury.TakeFlags(digits, at, sender, relayed)
 	local b, r, k = tostring(digits or ""):match("^([01])([01])([01])$")
 	at = tonumber(at)
 	if not b or not at or at > Clock() + ns.King.DATE_AHEAD then return end
 	local kept = ns.rdb.treasuryFlags
-	if not Replaces(kept, at, sender) then
+	if relayed or not Replaces(kept, at, sender) then
 		if type(kept) == "table" and at < (tonumber(kept.at) or 0) then AnswerOlder(Treasury.SendFlags) end
 		return
 	end
@@ -2169,10 +2210,9 @@ function Treasury.TakeFlags(digits, at, sender, relayed)
 	ns.rdb.treasuryFlags = f
 	-- 1.1 (#12): in this client's log of acts when what the army sees changes (the word is
 	-- repeated), with the name the server stamped, only when heard from whoever gave it: a word
-	-- given less than WORD_FRESH ago comes from his client alone (SendFlags). Never the
-	-- Treasurer's book (it repeats the word; he never gives it), nor a word caught up on later
-	-- (a later login, a repeat): those are only noted.
-	Treasury.LogFlags(sender, f, relayed or Clock() - at >= Treasury.WORD_FRESH)
+	-- given less than WORD_FRESH ago comes from his client alone (SendFlags). Never a word caught
+	-- up on later (a later login, a repeat): those are only noted.
+	Treasury.LogFlags(sender, f, Clock() - at >= Treasury.WORD_FRESH)
 	Treasury.Heard(sender)
 	if FlagDigits(f) ~= was then
 		TellKing(sender, L.STEWARD_SET_FLAGS)

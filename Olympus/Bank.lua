@@ -214,8 +214,11 @@ function Bank.HandleReport(dist, sender, text)
 	if #r.tabs == 0 then return end
 	local kept = ns.rdb.bankReport
 	if type(kept) == "table" and (tonumber(kept.t) or 0) > r.t and not (ns.Treasury.SameChar and ns.Treasury.SameChar(kept.by, r.by)) then return end
-	-- (1.1: the snapshot it replaces, of another visit, is what "gone since" compares with.)
-	if type(kept) == "table" and tonumber(kept.t) ~= r.t and kept.guild == r.guild then ns.rdb.bankReportPrev = kept end
+	-- (1.1: the snapshot it replaces, of another visit, is what "gone since" compares with: only the
+	-- same keeper's, Konig's review of 1.1. Another's stays where it was, for that keeper's next.)
+	if type(kept) == "table" and tonumber(kept.t) ~= r.t and kept.guild == r.guild and ns.Treasury.SameChar(kept.by, r.by) then
+		ns.rdb.bankReportPrev = kept
+	end
 	ns.rdb.bankReport = r
 	ns.Fire("TREASURY_CHANGED")
 	ns.Fire("DATA_CHANGED")
@@ -353,14 +356,19 @@ end)
 -- (who took what) is never read, and nothing in any bank is ever moved.
 ---------------------------------------------------------------------------
 
--- The snapshot before `cur` (the same guild's, older: of an earlier visit, ours or a keeper's),
--- which "gone since" compares with; nil when none.
+-- The snapshot before `cur` (the same guild's, older: of an earlier visit), which "gone since"
+-- compares with; nil when none. Konig's review of 1.1: of the same source alone, this client's own
+-- snapshots with each other, a keeper's with his own earlier one. Another keeper's snapshot (a
+-- modified client's, or one of fewer tabs) never marks anything gone: a snapshot is its sender's
+-- word, and "gone" reads as a theft.
 function Bank.Previous(cur)
 	if type(cur) ~= "table" or not ns.rdb then return nil end
+	local own = cur == ns.rdb.bank or cur == ns.rdb.bankPrev
 	local best
-	for _, key in ipairs({ "bankPrev", "bankReportPrev", "bank", "bankReport" }) do
+	for _, key in ipairs(own and { "bankPrev", "bank" } or { "bankReportPrev", "bankReport" }) do
 		local s = ns.rdb[key]
 		if type(s) == "table" and s ~= cur and s.guild == cur.guild and type(s.tabs) == "table" and (tonumber(s.t) or 0) < (tonumber(cur.t) or 0)
+			and (own or ns.Treasury.SameChar(s.by, cur.by))
 			and (not best or (tonumber(s.t) or 0) > (tonumber(best.t) or 0)) then
 			best = s
 		end
@@ -457,10 +465,19 @@ end
 --   "Tab 1", "Tab 2"); TS~<guild>~0~0~ withdraws it (his no)
 -- Taken only from a Lord or Captain of that guild as our roster or its census confirms (the
 -- census can be gamed: a snapshot is its sender's word, shown with his name), kept in memory
--- alone, SISTERS_MAX guilds at most.
+-- alone, SISTERS_MAX guilds at most. A no is taken from them too, and from whoever sent the
+-- snapshot held. Konig's review of 1.1: his no reaches every viewer holding his bank, at once
+-- those whose addon asked within ASK_EVERY and NO_MARGIN (before a /reload of ours too: the names
+-- and times are kept in ns.db.sisterHeard that long), the others (heard before that: we were
+-- offline) at their next ask, once a session, for as long as it stands: a character whose snapshot
+-- went out is remembered (ns.db.sisterBankSent). A viewer we never hear again keeps it until he
+-- logs out (his client keeps it in memory alone).
 Bank.SISTERS_MAX = 20
+Bank.NO_MARGIN = 180 -- a viewer heard within ASK_EVERY and this is told our no at once (his ask: on a minute's timer, queued)
+function Bank.NoWithin() return ns.Treasury.ASK_EVERY + Bank.NO_MARGIN end
 local sisters, sisterCount = {}, 0   -- [guild, lower case] = { guild, by, t, money, tabs, heard }
 local sisterHeard = {}               -- [Name-Realm] = when the King, a Steward or a Hand asked
+local sisterNoTold = {}              -- [Name-Realm] = true: he holds nothing of ours (told our no, or asked afresh)
 local sisterAsked = false
 
 -- The King, his Steward, his Hands: who may see them (their names, which the server stamps).
@@ -495,6 +512,34 @@ function Bank.SisterConsent()
 	return t[SisterKey()]
 end
 
+-- This character's snapshot went out (`guild`'s), or the guild it last went out of (nil: never).
+local function MarkSent(guild)
+	if not ns.db or type(guild) ~= "string" or guild == "" then return end
+	ns.db.sisterBankSent = type(ns.db.sisterBankSent) == "table" and ns.db.sisterBankSent or {}
+	ns.db.sisterBankSent[SisterKey()] = guild
+end
+local function SentGuild()
+	local t = ns.db and ns.db.sisterBankSent
+	local g = type(t) == "table" and t[SisterKey()]
+	return type(g) == "string" and g ~= "" and g or nil
+end
+-- The viewers heard asking, kept over a /reload of ours (ns.db.sisterHeard, by name: when) for as
+-- long as our no goes to them at once (NO_WITHIN), older ones dropped. Konig's review of 1.1.
+local function KeptHeard()
+	if not ns.db then return {} end
+	local t, now = type(ns.db.sisterHeard) == "table" and ns.db.sisterHeard or {}, ns.Now()
+	ns.db.sisterHeard = t
+	for name, at in pairs(t) do
+		if type(name) ~= "string" or type(at) ~= "number" or now - at > Bank.NoWithin() then t[name] = nil end
+	end
+	return t
+end
+-- Our no, whispered to one viewer.
+local function TellNo(name, guild)
+	sisterNoTold[ns.FullName(name)] = true
+	ns.Comm.Whisper(name, ("TS~%s~0~0~"):format(Clean(guild, 40)), "sisterbank " .. name)
+end
+
 -- Our own guild's snapshot as it is whispered (TS), with his yes; nil otherwise.
 function Bank.SisterMessage()
 	if not Bank.SisterTreasurer() or Bank.SisterConsent() ~= true then return nil end
@@ -512,30 +557,57 @@ function Bank.ShareSister()
 	for name, t in pairs(sisterHeard) do
 		if now - t <= ns.Treasury.AUDIENCE_FRESH and SisterViewer(name) and ns.Treasury.Private(name, "TS", msg) then n = n + 1 end
 	end
+	if n > 0 then MarkSent(GetGuildInfo("player")) end
 	return n
 end
 
 -- The King, a Steward or a Hand asked (TA): our guild's bank goes to him (fresh: he holds none).
+-- While our no stands, after our snapshot went out: the no, once a session (Konig's review of 1.1).
 function Bank.HeardAsk(sender, fresh)
 	if not SisterViewer(sender) then return end
-	sisterHeard[ns.FullName(sender)] = ns.Now()
+	local name = ns.FullName(sender)
+	sisterHeard[name] = ns.Now()
+	KeptHeard()[name] = sisterHeard[name]
 	if fresh then ns.Treasury.ForgetSent(sender, "TS") end
+	if Bank.SisterConsent() == false then
+		local guild = SentGuild()
+		if guild and not sisterNoTold[name] then
+			if fresh then sisterNoTold[name] = true else TellNo(sender, guild) end
+		end
+		return
+	end
 	local msg = Bank.SisterMessage()
-	if msg then ns.Treasury.Private(sender, "TS", msg) end
+	if msg and ns.Treasury.Private(sender, "TS", msg) then MarkSent(GetGuildInfo("player")) end
 end
-function Bank.NotFound(Is) for name in pairs(sisterHeard) do if Is(name) then sisterHeard[name] = nil end end end
+function Bank.NotFound(Is)
+	for name in pairs(sisterHeard) do if Is(name) then sisterHeard[name] = nil end end
+	local kept = KeptHeard()
+	for name in pairs(kept) do if Is(name) then kept[name] = nil end end
+end
 
 function Bank.SetSisterConsent(on)
 	if not Bank.SisterTreasurer() then return ns.Print(L.BANK_SISTER_ONLY) end
 	ns.db.sisterBankShares = type(ns.db.sisterBankShares) == "table" and ns.db.sisterBankShares or {}
 	ns.db.sisterBankShares[SisterKey()] = on and true or false
 	ns.Print(on and L.BANK_SISTER_ON or L.BANK_SISTER_OFF)
-	if on then return Bank.ShareSister() end
-	-- His no: taken back from the screens it reached (the ones his addon whispered).
-	local guild, now = GetGuildInfo("player"), ns.Now()
+	if on then
+		wipe(sisterNoTold) -- (a later no goes to every viewer again)
+		return Bank.ShareSister()
+	end
+	-- His no: taken back from the screens it reached, at once from every viewer whose addon asked
+	-- within NO_WITHIN (they ask every ASK_EVERY: Konig's review of 1.1; AUDIENCE_FRESH, shorter,
+	-- missed one who asked 12 minutes before), those heard before a /reload of ours too (KeptHeard);
+	-- from the others at their next ask (HeardAsk). Whole snapshots still go only to those heard
+	-- within AUDIENCE_FRESH (ShareSister).
+	local guild, now = SentGuild() or GetGuildInfo("player"), ns.Now()
+	local within = {}
+	for name, t in pairs(KeptHeard()) do within[name] = t end
 	for name, t in pairs(sisterHeard) do
-		if now - t <= ns.Treasury.AUDIENCE_FRESH then ns.Comm.Whisper(name, ("TS~%s~0~0~"):format(Clean(guild, 40)), "sisterbank " .. name) end
+		if t > (within[name] or -math.huge) then within[name] = t end
 		ns.Treasury.ForgetSent(name, "TS")
+	end
+	for name, t in pairs(within) do
+		if now - t <= Bank.NoWithin() then TellNo(name, guild) end
 	end
 end
 
@@ -568,9 +640,12 @@ function Bank.HandleSister(dist, sender, text)
 	if dist ~= "WHISPER" or type(text) ~= "string" or not Bank.SeesSisters() then return end
 	local guild, when, money, rest = text:match("^TS~([^~]*)~(%d+)~(%d+)~?(.*)$")
 	guild = guild and ns.King.CleanGuild(guild)
-	if not guild or ns.IsKingGuild(guild) or not Bank.LordOrCaptain(sender, guild) then return end
+	if not guild or ns.IsKingGuild(guild) then return end
 	local key, now = guild:lower(), ns.Now()
 	when = tonumber(when)
+	-- (A no from whoever sent the snapshot held counts, whatever the census says of him now.)
+	local own = when == 0 and sisters[key] and ns.Treasury.SameChar(sisters[key].by, ns.FullName(sender))
+	if not own and not Bank.LordOrCaptain(sender, guild) then return end
 	if when == 0 then
 		if sisters[key] then sisters[key], sisterCount = nil, sisterCount - 1 end
 		ns.Fire("TREASURY_CHANGED")
@@ -624,18 +699,31 @@ end
 --                                     goes with it), for everyone who sees the bank; none: not sent
 -- No text travels, only an item's number and a count; REQUEST_OPEN open per character at most, each
 -- for REQUEST_DAYS. Whom it comes from is checked as a sister guild's bank is (Bank.LordOrCaptain).
+-- Paced (Konig's review of 1.1: a request taken back and made again, or a modified client's new
+-- ids, had every keeper print a line, answer and put his list on the channel each time): REQUEST_NEW
+-- new requests a REQUEST_WINDOW per character (his own client says so; a keeper's takes no more from
+-- one player, and keeps REQUESTS_EACH of his at most), one answer to the same open request unchanged
+-- an ANSWER_GAP and none to a closed one he was told of (so REQUEST_OPEN of his a keeper answers
+-- again at most), and a keeper's list on the channel once a PUBLIC_GAP (a change inside it goes then).
 ---------------------------------------------------------------------------
 Bank.REQUEST_OPEN = 3
 Bank.REQUEST_DAYS = 3
 Bank.REQUEST_MAX_COUNT = 9999
 Bank.REQUEST_AGAIN = 900
 Bank.REQUESTS_KEPT = 60
+Bank.REQUEST_NEW = 6        -- new requests of one character a REQUEST_WINDOW, at most
+Bank.REQUEST_WINDOW = 3600
+Bank.REQUESTS_EACH = 10     -- requests of one player a keeper's client keeps (his oldest closed one goes)
+Bank.ANSWER_GAP = Bank.REQUEST_AGAIN / 2 -- an open request unchanged answered again this long after at the soonest
+                            -- (a closed one, its state told, never again: Konig's review of 1.1)
+Bank.PUBLIC_GAP = 60        -- a keeper's list goes on the channel this often at most
 Bank.PUBLIC_KEPT = 1800   -- a keeper's list on the channel not repeated this long is dropped
 Bank.PUBLIC_MSGS = 2      -- messages of it at most, each one of the channel's size
 
 local lastAsked = {}      -- ["Name-Realm#id"] = when our request was last whispered to him
 local publicLists = {}    -- [keeper's Name-Realm] = { t, list = { { id, item, n, from, guild } } }
 local lastPublic          -- what our client last put on the channel ("" once it said none)
+local lastPublicAt, publicPending = -math.huge, false
 local CODE = { open = "o", done = "d", declined = "x", cancelled = "c" }
 local STATE = { o = "open", d = "done", x = "declined", c = "cancelled" }
 
@@ -742,9 +830,19 @@ function Bank.Request(item, count)
 	if not Bank.MayRequest() then return ns.Print(L.BANK_REQUEST_ONLY) end
 	item, count = tonumber(item), math.floor(tonumber(count) or 0)
 	if not item or item <= 0 or item >= 2147483647 or count < 1 or count > Bank.REQUEST_MAX_COUNT then return ns.Print(L.BANK_REQUEST_WHAT) end
-	local list, open = Mine(), 0
-	for _, e in ipairs(list) do if Open(e.state) and not Expired(e) then open = open + 1 end end
+	local list, open, recent, first, now = Mine(), 0, 0, nil, ns.Now()
+	for _, e in ipairs(list) do
+		if Open(e.state) and not Expired(e) then open = open + 1 end
+		local t = tonumber(e.t) or 0
+		if now - t < Bank.REQUEST_WINDOW then
+			recent = recent + 1
+			if not first or t < first then first = t end
+		end
+	end
 	if open >= Bank.REQUEST_OPEN then return ns.Print(L.BANK_REQUEST_FULL:format(Bank.REQUEST_OPEN)) end
+	if recent >= Bank.REQUEST_NEW then
+		return ns.Print(L.BANK_REQUEST_PACED:format(recent, math.max(1, math.ceil((first + Bank.REQUEST_WINDOW - now) / 60))))
+	end
 	local e = { id = math.random(1, 99999), item = item, n = count, t = ns.Now(), state = "sent", seen = {} }
 	list[#list + 1] = e
 	while #list > 10 do table.remove(list, 1) end
@@ -797,19 +895,29 @@ function Bank.HandleRequest(dist, sender, text)
 	if count == 0 then
 		if e and Open(e.state) then e.state, e.at, e.by = "cancelled", now, nil end
 	elseif not e then
-		local open, n, closed, oldest = 0, 0, nil, nil
+		local open, n, closed, oldest, mine, recent, myClosed = 0, 0, nil, nil, 0, 0, nil
 		for k, x in pairs(held) do
 			n = n + 1
-			if x.from == sender and Open(x.state) and not Expired(x) then open = open + 1 end
+			if x.from == sender then
+				mine = mine + 1
+				if Open(x.state) and not Expired(x) then open = open + 1 end
+				if now - (tonumber(x.t) or 0) < Bank.REQUEST_WINDOW then recent = recent + 1 end
+				if not Open(x.state) and (not myClosed or (x.t or 0) < (held[myClosed].t or 0)) then myClosed = k end
+			end
 			if Open(x.state) then
 				if not oldest or (x.t or 0) < (held[oldest].t or 0) then oldest = k end
 			elseif not closed or (x.t or 0) < (held[closed].t or 0) then
 				closed = k
 			end
 		end
-		if open >= Bank.REQUEST_OPEN then return end
-		-- Full: the oldest closed one goes, else the oldest.
-		if n >= Bank.REQUESTS_KEPT then held[closed or oldest] = nil end
+		-- (Paced, Konig's review of 1.1: past REQUEST_NEW new ones in the window, nothing at all.)
+		if open >= Bank.REQUEST_OPEN or recent >= Bank.REQUEST_NEW then return end
+		-- His REQUESTS_EACH: his oldest closed one goes. Full: the oldest closed one goes, else the oldest.
+		if mine >= Bank.REQUESTS_EACH and myClosed then
+			held[myClosed] = nil
+		elseif n >= Bank.REQUESTS_KEPT then
+			held[closed or oldest] = nil
+		end
 		e = { from = sender, guild = guild, id = id, item = item, n = count, t = now, state = "open" }
 		held[key] = e
 		ns.Print(L.BANK_REQUEST_NEW:format(ns.DisplayName(sender), guild, Label(item, count)))
@@ -817,7 +925,15 @@ function Bank.HandleRequest(dist, sender, text)
 	end
 	if not e then return end
 	e.heard = now
-	ns.Comm.Whisper(sender, ("TO~%d~%s"):format(id, CODE[e.state] or "o"), "bankans " .. key)
+	-- (A change at once. Unchanged: an open request once an ANSWER_GAP at most, half its asker's
+	-- REQUEST_AGAIN, so each honest ask is answered; a closed one, its state told, never again.
+	-- Konig's review of 1.1: paced per request id alone, a requester's REQUESTS_EACH ids asked about
+	-- every minute drew as many whispers a minute from every keeper, the King and each Steward.)
+	local code = CODE[e.state] or "o"
+	if e.told ~= code or (Open(e.state) and now - (tonumber(e.toldAt) or 0) >= Bank.ANSWER_GAP) then
+		e.told, e.toldAt = code, now
+		ns.Comm.Whisper(sender, ("TO~%d~%s"):format(id, code), "bankans " .. key)
+	end
 	Fire()
 end
 ns.Comm.Handle("TN", function(...) Bank.HandleRequest(...) end)
@@ -826,8 +942,10 @@ ns.Comm.Handle("TN", function(...) Bank.HandleRequest(...) end)
 -- he was heard lately: otherwise his next ask gets it), and the others who hold it.
 function Bank.Answer(key, state)
 	local e = ns.Treasury.IsInsider() and ns.rdb and Held()[key]
-	if not e or not CODE[state] then return end
+	if not e or not CODE[state] or e.state == state then return end
 	e.state, e.by, e.at = state, ns.me, ns.Now()
+	-- (Not marked told: he may have logged off since he was heard, and a closed request he was told
+	-- of is never answered again, HandleRequest. The answer to his own next ask marks it.)
 	if ns.Now() - (e.heard or -math.huge) <= ns.Treasury.AUDIENCE_FRESH then
 		ns.Comm.Whisper(e.from, ("TO~%d~%s"):format(e.id, CODE[state]), "bankans " .. key)
 	end
@@ -886,9 +1004,20 @@ end
 
 -- While the King shows the army the book, a keeper's client puts the open requests it holds on the
 -- channel next to the bank (TL), when they change and with its book; a list it had put there and
--- that emptied, once more, empty.
+-- that emptied, once more, empty. Once a PUBLIC_GAP at most: a change inside it goes once it ends.
 function Bank.SharePublic(force)
 	if not CanSend() or not ns.Treasury.PublicShows("book") then return false end
+	local now = ns.Now()
+	if now - lastPublicAt < Bank.PUBLIC_GAP then
+		if not publicPending then
+			publicPending = true
+			ns.After(Bank.PUBLIC_GAP - (now - lastPublicAt) + 1, "bank list", function()
+				publicPending = false
+				Bank.SharePublic()
+			end)
+		end
+		return false
+	end
 	local guild = Clean(GetGuildInfo("player"), 40)
 	local entries = {}
 	for _, e in ipairs(Bank.Requests()) do
@@ -909,7 +1038,7 @@ function Bank.SharePublic(force)
 	-- (None, and none said: nothing. Unchanged: only with the book's repeat, force.)
 	if #entries == 0 and (lastPublic == nil or lastPublic == "") then return false end
 	if not force and all == lastPublic then return false end
-	lastPublic = #entries == 0 and "" or all
+	lastPublic, lastPublicAt = #entries == 0 and "" or all, now
 	for i, m in ipairs(msgs) do ns.Comm.Send("CHANNEL", m, "banklist" .. i) end
 	return true
 end
@@ -1057,10 +1186,11 @@ function Bank.Reset()
 	open, readPending, lastShare, lastSent = false, false, -math.huge, nil
 	firstChange, lastChange, sharePending, openedAt = 0, 0, false, -math.huge
 	wipe(queried)
-	wipe(sisters); wipe(sisterHeard)
+	wipe(sisters); wipe(sisterHeard); wipe(sisterNoTold)
+	if ns.db then ns.db.sisterHeard = nil end
 	sisterCount, sisterAsked = 0, false
 	wipe(lastAsked); wipe(publicLists)
-	lastPublic = nil
+	lastPublic, lastPublicAt, publicPending = nil, -math.huge, false
 	if ns.rdb then ns.rdb.bank, ns.rdb.bankReport, ns.rdb.bankPrev, ns.rdb.bankReportPrev = nil, nil, nil, nil end
 	if ns.rdb then ns.rdb.bankAsks, ns.rdb.bankRequests = nil, nil end
 end

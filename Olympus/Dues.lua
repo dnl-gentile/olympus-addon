@@ -11,8 +11,9 @@ local L = ns.L
 --   payer's own word: it only places the payer's own gold); otherwise "guild not known".
 -- - The King sets one fixed amount, once (1 gold until he does): his word, or his Steward's in
 --   his name, dated like the treasury's switches (the newest wins, the King's on the same
---   second). Their clients repeat it, and so does the Treasurer's, for members who never meet
---   them online. Never a share of anyone's gold or loot. A new amount starts at the next weekly
+--   second). Their clients repeat it, and only theirs: the Treasurer's, which receives the dues,
+--   never does (Konig's review of 1.1: his copy, with a date of his, set the amount and this
+--   week's). Never a share of anyone's gold or loot. A new amount starts at the next weekly
 --   reset: the week it is given keeps the amount it had (the word carries it), so nobody who paid
 --   that week's amount falls under it afterwards (Fern's "one fixed amount").
 -- - Who sees what: the King, his Steward and the Treasurer see every guild (its members in the
@@ -35,7 +36,7 @@ local L = ns.L
 --   access switch of the moderators' (1.1) may take anything from here.
 --   T1~Y~<id>~<guild>~<copper>~<time>~<before>   the King's amount (his, or his Steward's; King.lua),
 --                                                from the reset after <time>; <before> until then
---   FK~<guild>~<copper>~<time>~<before>          the Treasurer's client repeats it, with its time
+--   (FK, the Treasurer's client's copy of it, is gone: Konig's review of 1.1, Dues.TakeAmount)
 --   FQ~<week>~<Guild, or * for every guild>~<id> an ask to the Treasurer (a whisper), with the id
 --                                                of the list held whole (0: none)
 --   FS~<id>~<week>~<copper>~<i>~<n>~<Guild:paid:copper:payers;...>   his answer, every guild (whispers, the King's and his Steward's)
@@ -61,7 +62,7 @@ Dues.RESET_US = 486000       -- Tuesday 15:00 UTC (the US realms' reset) where t
 Dues.AMOUNT = 10000          -- 1 gold a week, until the King sets his amount
 Dues.MAX_AMOUNT = 10000000   -- 1000 gold at most
 Dues.WEEKS_KEPT = 5          -- weeks of each giver's sums a book keeps (this one and the 4 before)
-Dues.AMOUNT_EVERY = 300      -- the King's, his Steward's and the Treasurer's clients repeat the amount
+Dues.AMOUNT_EVERY = 300      -- the King's and his Steward's clients repeat the amount
 Dues.WORD_ANSWER = 30        -- an older amount heard: answered with the newer one this often at most
 Dues.ASK_EVERY = 300         -- a client asks the Treasurer for one list this often at most
 Dues.ANSWER_GAP = 300        -- the Treasurer's client answers one asker's list this often at most
@@ -81,8 +82,8 @@ Dues.shown = nil             -- the guild opened on the dues page (nil: the page
 
 local MAX_COPPER = 2147483647
 local anchor                 -- the week's start, seconds into a week of the server's clock
-local lastAmountSent, lastRepeat, lastOlder = -math.huge, -math.huge, -math.huge
-local heardAt, heardName = -math.huge, nil   -- the Treasurer's addon as last heard (FK, FS, FA)
+local lastAmountSent, lastOlder = -math.huge, -math.huge
+local heardAt, heardName = -math.huge, nil   -- the Treasurer's addon as last heard (FS, FA, FU, FB, FD)
 local asked = {}             -- [what] = when this client last asked for it
 local busy = {}              -- [what] = when the Treasurer's addon said it was too busy to answer (FB)
 local answered = {}          -- the Treasurer's client: [asker|what] = when it last answered
@@ -277,14 +278,19 @@ function Dues.SetAmount(input)
 		ns.Print(L.THRONE_PREVIEW_NOTE)
 	else
 		ns.rdb.duesAmount = w
+		Dues.KeepAmounts()
 		Dues.SendAmount(true)
 	end
 	ns.Fire("TREASURY_CHANGED")
 	return true
 end
 
--- His word (or his Steward's, or the Treasurer's copy of it): taken when newer than ours (a time
+-- His word (or his Steward's), by their own client alone: taken when newer than ours (a time
 -- ahead of the server's clock by King.DATE_AHEAD at most), the King's own on the same second.
+-- (Konig's review of 1.1: the Treasurer's client repeated it, FK, and a copy can't be told from an
+-- amount it made up or dated anew, which set the next weeks' amount and, by its <before>, this
+-- week's: he receives the dues. No client sends or reads FK now; each keeps the last word it
+-- heard from the King or a Steward themselves.)
 -- `before`, the amount of the week it was given in (a word without it: that week's as we had it).
 -- An older one heard on the King's or his Steward's client is answered with the newer one.
 function Dues.TakeAmount(copper, at, sender, before)
@@ -303,6 +309,7 @@ function Dues.TakeAmount(copper, at, sender, before)
 	before = Copper(before) or AmountIn(kept, week)
 	local was, wasBefore = type(kept) == "table" and tonumber(kept.copper) or nil, AmountIn(kept, week)
 	ns.rdb.duesAmount = { copper = copper, at = at, before = before, from = ns.FullName(sender), t = ns.Now() }
+	Dues.KeepAmounts() -- (the running week's amount as known now, into the ledger's books: Konig's review of 1.1)
 	if was ~= copper or wasBefore ~= before then
 		if ns.King.IsKing() and ns.King.IsStewardName(sender) then
 			ns.Print(L.STEWARD_SET_DUES:format(ns.King.StewardLabel(sender), Coins(copper), Dues.DateLabel(week + 1)))
@@ -324,29 +331,7 @@ end)
 
 local function Heard(sender) heardAt, heardName = ns.Now(), ns.FullName(sender) end
 
--- The Treasurer's client repeats the King's word, with its time (members who never meet the King
--- online get it too).
-function Dues.Repeat(force)
-	local w = ns.rdb and ns.rdb.duesAmount
-	if ns.faction == "Horde" or type(w) ~= "table" or not tonumber(w.at) or not Copper(w.copper) then return false end
-	if not (ns.IsMember() and ns.IsTreasurer(ns.me, GetGuildInfo("player"))) then return false end
-	local now = ns.Now()
-	if not force and now - lastRepeat < Dues.AMOUNT_EVERY then return false end
-	lastRepeat = now
-	ns.Comm.Send("CHANNEL", ("FK~%s~%d~%d~%d"):format(GetGuildInfo("player") or "", w.copper, w.at, AmountIn(w, Dues.WeekOf(w.at))), "duesrepeat")
-	return true
-end
-function Dues.HandleRepeat(dist, sender, text)
-	if dist ~= "CHANNEL" or type(text) ~= "string" or ns.faction == "Horde" then return end
-	local guild, rest = text:match("^FK~([^~]*)~(.*)$")
-	if not guild or not ns.IsTreasurer(sender, guild) then return end
-	Heard(sender)
-	local copper, at, before = ReadWord(rest)
-	if copper then Dues.TakeAmount(copper, at, sender, before) end
-end
-ns.Comm.Handle("FK", function(...) Dues.HandleRepeat(...) end)
-
--- The Treasurer's addon online: heard in the last HEARD_FOR (his amount, an answer, his book).
+-- The Treasurer's addon online: heard in the last HEARD_FOR (an answer, his book).
 -- Returns online, his name as the server wrote it, when he was last heard.
 function Dues.TreasurerOnline()
 	local last, name = heardAt, heardName
@@ -375,15 +360,69 @@ function Dues.Stamp(e, name, o)
 	e.wk = week
 	if e.out or e.item or e.kind == "transfer" or (tonumber(e.money) or 0) <= 0 then return end
 	local noted, claimed = Dues.ReadNote(o.note, week)
-	if noted then e.wk = noted end
+	-- (e.noted: sent with the dues' note, his dues all of it: Dues.DuesPart, Konig's review of 1.1.)
+	if noted then e.wk, e.noted = noted, true end
 	local guild, verified = ns.King.CleanGuild(o.guild), true
 	if not guild and ns.IsMember() and ns.Roster.RankOf(ns.FullName(ns.Normal(name))) then guild = GetGuildInfo("player") end
 	if not guild then guild, verified = claimed, false end
 	if guild then e.guild, e.gv = guild, verified or nil end
 end
 
+-- Konig's review of 1.1 (the ranking): of each giver's gold in a book, what may be his dues, each
+-- week's gold up to that week's amount (paid or not: nobody can tell which), and all of what he sent
+-- with the dues' note. The ranking that leaves the Treasurer's client leaves it out
+-- (Treasury.PublicRanking). A week dropped from the WEEKS_KEPT is folded into the book's sums first
+-- (s.duesOut, by giver), so no total grows back when it goes.
+-- A week's amount (Konig's review of 1.1, again), as the book keeps it next to that week's sums
+-- (s.amounts[week]): the amount this client knew while the week ran, raised when it hears a higher
+-- one, never lowered, and never worked out again once the week is gone (a word carries only the
+-- amount of the week it was given in, its <before>, and of the weeks after it: worked out from the
+-- latest word, a second change of the amount re-judged every week kept, and the ranking then showed
+-- an earlier week's payers). A week gone by that kept none (a book from before this, a gift noted
+-- for last week after the reset): the amount known now, kept from then on. (Next to s.weeks[week],
+-- not in it: its keys are the givers', and each reader takes every entry for one.)
+local function WeekAmount(s, wk)
+	if type(s) ~= "table" or type(wk) ~= "number" then return Dues.AMOUNT end
+	if type(s.amounts) ~= "table" then s.amounts = {} end
+	local kept = Copper(s.amounts[wk])
+	if kept and wk < Dues.Week() then return kept end
+	local known = Dues.AmountOf(wk)
+	if not kept or known > kept then s.amounts[wk], kept = known, known end
+	return kept
+end
+-- A giver's part of one week that may be his dues: his gold up to the week's amount, and all of
+-- what he sent with the dues' note (p.d, Dues.Stamp's e.noted: a payer of an amount this client
+-- had not heard yet stays out of the ranking all the same).
+local function DuesOf(p, amount)
+	return math.min(tonumber(p.c) or 0, math.max(amount, tonumber(p.d) or 0))
+end
+local function Fold(s, wk, list)
+	if type(wk) ~= "number" or type(list) ~= "table" then return end
+	local amount = WeekAmount(s, wk)
+	s.duesOut = type(s.duesOut) == "table" and s.duesOut or {}
+	for key, p in pairs(list) do
+		local c = type(p) == "table" and DuesOf(p, amount) or 0
+		if type(key) == "string" and c > 0 then s.duesOut[key] = math.min((tonumber(s.duesOut[key]) or 0) + c, MAX_COPPER) end
+	end
+end
+-- { [giver's key] = copper }: the weeks kept as they are now, and those folded.
+function Dues.DuesPart(s)
+	local out = {}
+	if type(s) ~= "table" then return out end
+	for key, c in pairs(type(s.duesOut) == "table" and s.duesOut or {}) do out[key] = tonumber(c) or 0 end
+	for wk, list in pairs(type(s.weeks) == "table" and s.weeks or {}) do
+		if type(wk) == "number" and type(list) == "table" then
+			local amount = WeekAmount(s, wk)
+			for key, p in pairs(list) do
+				if type(p) == "table" then out[key] = math.min((out[key] or 0) + DuesOf(p, amount), MAX_COPPER) end
+			end
+		end
+	end
+	return out
+end
+
 -- A counted gift into its giver's sum for its week (copper < 0: out of it), while the week is
--- one of the WEEKS_KEPT; older weeks are dropped.
+-- one of the WEEKS_KEPT; older weeks are dropped (folded first: Fold).
 function Dues.WeekAdd(s, e, copper)
 	if type(s) ~= "table" or type(e) ~= "table" or e.item or e.out or e.kind == "transfer" then return end
 	copper = math.floor(tonumber(copper) or 0)
@@ -392,8 +431,15 @@ function Dues.WeekAdd(s, e, copper)
 	local now = Dues.Week()
 	local wk = tonumber(e.wk) or Dues.WeekOf(e.t)
 	if type(s.weeks) ~= "table" then s.weeks = {} end
-	for w in pairs(s.weeks) do
-		if type(w) ~= "number" or w < now - (Dues.WEEKS_KEPT - 1) then s.weeks[w] = nil end
+	for w, list in pairs(s.weeks) do
+		if type(w) ~= "number" or w < now - (Dues.WEEKS_KEPT - 1) then
+			Fold(s, w, list)
+			s.weeks[w] = nil
+			if type(s.amounts) == "table" then s.amounts[w] = nil end
+		end
+	end
+	for w in pairs(type(s.amounts) == "table" and s.amounts or {}) do
+		if type(w) ~= "number" or (w < now - (Dues.WEEKS_KEPT - 1) and not s.weeks[w]) then s.amounts[w] = nil end
 	end
 	if wk < now - (Dues.WEEKS_KEPT - 1) or wk > now + 1 then return end
 	local week = s.weeks[wk]
@@ -409,9 +455,14 @@ function Dues.WeekAdd(s, e, copper)
 		week[key] = p
 	end
 	p.c = math.max(0, math.min(p.c + copper, MAX_COPPER))
+	if e.noted then
+		p.d = math.max(0, math.min((tonumber(p.d) or 0) + copper, MAX_COPPER))
+		if p.d <= 0 then p.d = nil end
+	end
 	if copper > 0 then
 		p.n = e.name
 		if (tonumber(e.t) or 0) > p.t then p.t = tonumber(e.t) end
+		WeekAmount(s, wk) -- (its amount kept as this client knows it now: Konig's review of 1.1)
 	end
 	if e.guild and (e.gv or not p.gv) then p.g, p.gv = e.guild, e.gv or nil end
 	if p.c <= 0 then week[key] = nil end
@@ -443,6 +494,12 @@ local function LedgerBooks()
 		end
 	end
 	return out
+end
+-- A word taken or given (Dues.TakeAmount, SetAmount): the running week's amount as this client
+-- knows it now, kept in each of the ledger's books (raised only: WeekAmount). Konig's review of 1.1.
+function Dues.KeepAmounts()
+	local week = Dues.Week()
+	for _, b in ipairs(LedgerBooks()) do WeekAmount(ns.Treasury.SumsOf(b), week) end
 end
 
 -- A guild for a player: the server's word over a note's, the latest week's otherwise.
@@ -1487,13 +1544,9 @@ StaticPopupDialogs["OLYMPUS_DUES_AMOUNT"] = {
 
 ns.On("LOGIN", function()
 	Dues.MarkMail()
-	ns.After(30, "dues amount", function()
-		Dues.SendAmount(true)
-		Dues.Repeat(true)
-	end)
+	ns.After(30, "dues amount", function() Dues.SendAmount(true) end)
 	ns.Every(60, "dues amount", function()
 		Dues.SendAmount()
-		Dues.Repeat()
 		Dues.MarkMail()
 	end)
 	ns.Every(Dues.PACE, "dues answers", Dues.Pump)
@@ -1502,7 +1555,7 @@ end)
 -- Tests start from a clean state.
 function Dues.Reset()
 	anchor = nil
-	lastAmountSent, lastRepeat, lastOlder = -math.huge, -math.huge, -math.huge
+	lastAmountSent, lastOlder = -math.huge, -math.huge
 	heardAt, heardName, summary, salt = -math.huge, nil, nil, nil
 	wipe(asked); wipe(busy); wipe(answered); wipe(outbox); wipe(codeAsks); wipe(answers)
 	Dues.shown, shownRows, Dues.filter, Dues.picked = nil, Dues.PAGE, nil, nil

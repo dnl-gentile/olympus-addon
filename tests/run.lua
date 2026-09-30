@@ -6343,7 +6343,9 @@ test("The Treasury: the Treasurer's book (not his gold), the King's three switch
 			-- whole book is what goes by whisper to the King, a Steward and the keepers.
 			eq(LastSent(w), "TB~1.0~Olympus~0~0~0~0~0~0~~-~000@1~~~~0:0", "the army's part: nothing")
 			local msg = T.Message() -- (Fern's #36: the week's donors as a count, 3, never by name)
-			assert(msg:find("^TB~1%.0~Olympus~1000000~1170456~175456~5000~175456~3~~%-~%-~Trader:123456,Giver:50000,Friend:2000~o:5000:Crafter:m:"), msg)
+			-- (Konig's review of 1.1: the ranking leaving the Treasurer's client leaves out each giver's
+			-- gold of the week up to its dues' amount, 1 gold here: Friend's 20 silver, all of it.)
+			assert(msg:find("^TB~1%.0~Olympus~1000000~1170456~175456~5000~175456~3~~%-~%-~Trader:113456,Giver:40000~o:5000:Crafter:m:"), msg)
 			assert(not msg:find("Linen", 1, true) and not msg:find(":40000:", 1, true), "sales and purchases are not sent")
 			-- 1.1 (Fern's #36): gold given to the Treasurer is someone's dues: its line (a name and his
 			-- last payment) never goes out, in TB or in 0.9's T8. His payment's line still does.
@@ -6354,7 +6356,7 @@ test("The Treasury: the Treasurer's book (not his gold), the King's three switch
 			-- channel too, so nothing the King hides; whole, what his client would send with all shown.
 			eq(w.sent[#w.sent - 1].msg, "T8~Olympus~0~0~0~0~0~-~~", "0.9's copy: nothing hidden either")
 			local legacy = T.LegacyMessage()
-			assert(legacy:find("^T8~Olympus~1170456~175456~5000~175456~3~%-~Trader:123456,Giver:50000,Friend:2000~o:5000:Crafter:m:%d+$"), legacy) -- (no dues line either, #36)
+			assert(legacy:find("^T8~Olympus~1170456~175456~5000~175456~3~%-~Trader:113456,Giver:40000~o:5000:Crafter:m:%d+$"), legacy) -- (no dues line either, #36; nor its part of the ranking, Konig's review)
 			-- The King's copy: from the Treasurer himself only (the King's own book is empty here).
 			AsKing()
 			local savedRank = ns.Roster.RankOf
@@ -6552,7 +6554,11 @@ test("Treasury review fixes: the week survives the update, the King's word reach
 			assert(report:find("~100@" .. at .. "~", 1, true), report)
 			AsSoldier(); ns.rdb.treasuryFlags = nil
 			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", report)
-			eq(T.Shows("balance"), true, "never met the King, has his word")
+			-- (Konig's review of 1.1: the Treasurer's copy is for 1.0's addons alone; 1.1 takes the King's
+			-- word from his and his Stewards' own clients, the only ones who give it.)
+			eq(T.Shows("balance"), false, "the Treasurer's copy is no word of the King's")
+			K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~T~4~Olympus~100~" .. at)
+			eq(T.Shows("balance"), true, "his own")
 			-- A newer word of his is not undone by the Treasurer repeating the older one.
 			K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~T~5~Olympus~000~" .. (at + 60))
 			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", report)
@@ -17968,7 +17974,9 @@ test("1.0 one treasury: every keeper's book together (the balance summed, one ra
 			-- 1.1 (Fern's #36): a book sends its week's donors as a count, never by name, so a donor who
 			-- gave to two keepers counts in each book that came by the channel (1.0 named them: 3).
 			eq(r.donors, 4, "Romani gave to both: counted by each keeper")
-			eq(#r.rank, 3, "one line each"); eq(r.rank[1].name, "Generous Donor"); eq(r.rank[1].money, 130000)
+			-- (Konig's review of 1.1: the Treasurer's copy leaves out each giver's gold of the week up to
+			-- the dues' amount, 1 gold here: 90000 of his 100000, and the King's 30000.)
+			eq(#r.rank, 3, "one line each"); eq(r.rank[1].name, "Generous Donor"); eq(r.rank[1].money, 120000)
 			eq(r.rank[2].name, "Fan"); eq(r.rank[3].name, "Other")
 			-- The book: every keeper's lines, newest first, each with who received it. (1.1, Fern's
 			-- #36: the gold given to the Treasurer is the dues, and never leaves his client: of his
@@ -17998,7 +18006,7 @@ test("1.0 one treasury: every keeper's book together (the balance summed, one ra
 			AsSoldier()
 			T.HandleReport("CHANNEL", "Asmongold Asmongler-Realm", kings)
 			r = T.Report()
-			eq(r.balance, 15165000); eq(r.rank[1].money, 130000); eq(r.donors, 4, "(1.1: counted by each keeper, #36)")
+			eq(r.balance, 15165000); eq(r.rank[1].money, 120000, "(the Treasurer's copy: Konig's review of 1.1)"); eq(r.donors, 4, "(1.1: counted by each keeper, #36)")
 			assert(T.RealmText():find(T.GoldText(15165000), 1, true), T.RealmText())
 			page = Texts((T.Build()))
 			assert(page:find("1. Generous Donor", 1, true) and page:find(ns.L.TREASURY_KEPT_BY:format("Asmon", "0s ago"), 1, true), page)
@@ -18014,7 +18022,7 @@ test("1.0 one treasury: every keeper's book together (the balance summed, one ra
 			local legacy = T.LegacyMessage()
 			local balance, rest = legacy:match("^T8~Olympus~(%-?%d+)~(.*)$")
 			eq(tonumber(balance), 15165000)
-			assert(rest:find("^185000~20000~%d+~%d+~[^~]*~Generous Donor:130000,"), legacy)
+			assert(rest:find("^185000~20000~%d+~%d+~[^~]*~Generous Donor:120000,"), legacy) -- (his own book's part: Konig's review of 1.1)
 		end)
 		ns.splitNames = savedSplit
 		if not ok then error(err, 0) end
@@ -32095,7 +32103,7 @@ do
 		end)
 	end)
 
-	test("1.1 dues (#37): the King sets one fixed amount (1 gold until then): his word or his Steward's, dated, the newest kept; the Treasurer's addon repeats it; nobody else's counts", function()
+	test("1.1 dues (#37): the King sets one fixed amount (1 gold until then): his word or his Steward's, dated, the newest kept; nobody else's counts, the Treasurer's neither (Konig's review of 1.1)", function()
 		WithDues(function(w, K, T)
 			-- (The amount of the King's newest word: in force from the weekly reset after it; this
 			-- week keeps its own, see the dues' review test below.)
@@ -32144,21 +32152,10 @@ do
 			AsKing()
 			K.HandleCommand("CHANNEL", "Test Steward-Realm", "T1~Y~10~Olympus II~60000~" .. (w.clock + 20))
 			assert(Printed(w, ns.L.STEWARD_SET_DUES:format(K.StewardLabel("Test Steward-Realm"), T.Coins(60000), D.DateLabel(D.Week() + 1))), "told")
-			-- The Treasurer's addon repeats it with its time; taken from him alone.
-			AsTreasurer()
-			eq(D.Repeat(true), true)
-			local rep = LastSent(w)
-			eq(rep, "FK~Olympus~60000~" .. (w.clock + 20) .. "~10000", "with this week's own amount")
-			ns.rdb.duesAmount = nil
-			AsSoldier()
-			D.HandleRepeat("CHANNEL", "Somebody-Realm", rep)
-			eq(Next(), 10000, "not from anyone")
-			D.HandleRepeat("CHANNEL", TREASURER, rep)
-			eq(Next(), 60000, "from the Treasurer")
-			eq((D.TreasurerOnline()), true, "his addon is heard")
+			-- (Konig's review of 1.1: the Treasurer's addon, which receives the dues, repeats it no
+			-- more, FK: its copy set the amount. The review's block near the end checks it.)
 			-- Nothing of it before the King (or his Steward) gives one: no word to repeat.
 			ns.rdb.duesAmount = nil
-			AsTreasurer(); eq(D.Repeat(true), false)
 			AsKing(); eq(D.SendAmount(true), false)
 		end)
 	end)
@@ -32411,9 +32408,9 @@ do
 			-- of the week's donors. Showing less sends less, 1.1's treasury part E.)
 			ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = w.clock, from = KING }
 			w.sent, w.whispered = {}, {}
-			-- Everything his client sends: his book and 0.9's short treasury, the amount, both lists.
+			-- Everything his client sends: his book and 0.9's short treasury, both lists (Konig's review
+			-- of 1.1: no copy of the amount, FK).
 			T.Share(true)
-			D.Repeat(true)
 			D.HandleAsk("WHISPER", KING, "FQ~" .. week .. "~*~0")
 			w.census()
 			D.HandleAsk("WHISPER", "Cap-Realm", "FQ~" .. week .. "~Olympus II~0")
@@ -32426,7 +32423,7 @@ do
 				assert(not x.msg:find("Olympus fund", 1, true) and not x.msg:find("Olympus II", 1, true), "a payer's note or guild: " .. x.msg)
 				if x.msg:find("^TB~") then tb = x.msg elseif x.msg:find("^T8~") then t8 = x.msg end
 			end
-			eq(kinds.TB, true); eq(kinds.T8, true); eq(kinds.FK, true)
+			eq(kinds.TB, true); eq(kinds.T8, true); eq(kinds.FK, nil)
 			-- His book in 1.0's shape: the week's donors a count (3), no names. Its lines: none of the
 			-- gold given to him (the dues' review: each such line is someone's dues, his name and his
 			-- last payment, and a listener on the channel would have the list of who paid; 1.1 before
@@ -32463,7 +32460,9 @@ do
 			for field in (tr:match("~(TB~.*)$") .. "~"):gmatch("([^~]*)~") do rf[#rf + 1] = field end
 			assert(not rf[14]:find(Nm(9), 1, true), "a dues line in the relay: " .. tr)
 			assert(rf[14]:find("^o:700:Paid Crafter:m:%d+$"), tr)
-			eq(rf[13], Nm(9) .. ":10000", "(the ranking, all time, stays: Fern's word)")
+			-- (The ranking, all time, stays: Fern's word. Less what may be each giver's dues, Konig's review
+			-- of 1.1: his 1 gold this week, the amount, is all of it, so he is not in it.)
+			eq(rf[13], "", "no part of anyone's dues in the ranking")
 			eq(D.Ledger().players[Nm(9):lower()].c, 10000, "counted in the dues all the same")
 			-- The same for any keeper who is not the Treasurer: his gifts are not the dues, and their
 			-- lines still go (the King's book, here).
@@ -35611,10 +35610,11 @@ test("1.1 Zeal's promise: what the King hides never goes on the channel; the Kin
 			ns.db.keeperShares = nil
 			Deliver("Pyralis Ashandar-Realm", whispers)
 			local r = T.Report()
-			eq(r.balance, 10000000 + 251000 - 50000, "the whole balance"); eq(r.rank[1].name, "Secret Donor"); eq(r.rank[1].money, 251000)
+			-- (His total less the week's gold up to the dues' amount, 1 gold: Konig's review of 1.1.)
+			eq(r.balance, 10000000 + 251000 - 50000, "the whole balance"); eq(r.rank[1].name, "Secret Donor"); eq(r.rank[1].money, 241000)
 			-- (Every line but Secret Donor's two: gold given to the Treasurer is someone's dues, and its
 			-- line never leaves his client in a book, by whisper either (1.1 part F, Fern's #36: the King
-			-- sees the dues on the dues page). His total still ranks.)
+			-- sees the dues on the dues page). His total still ranks, less what may be his dues.)
 			eq(#r.book, 2, "every line but the dues'"); eq(r.items[1].id, 2589)
 			eq(B.Report().money, 777777, "the bank"); eq(T.EarlySupporters().names[1], "Early Friend", "the early supporters")
 			-- A later copy for the army (the channel's) never replaces the whole one on his screen.
@@ -36812,15 +36812,16 @@ test("1.1 review (#11): for the Treasurer whose 0.9.3 yes stands, his line says 
 				ns.rdb.treasuryFlags = { balance = true, ranking = false, book = false, at = w.clock, from = KING }
 				local book = T.Message()
 				assert(book:find("~100@" .. w.clock .. "~", 1, true), "the King's word in his book")
-				-- A client that missed the King's own message takes it from the book: not the Treasurer's act.
+				-- A client that missed the King's own message: the book's copy is 1.0's addons' alone
+				-- (Konig's review of 1.1), neither taken nor the Treasurer's act.
 				AsSoldier("Late Login")
 				ns.rdb.treasuryFlags = nil
 				T.HandleReport("CHANNEL", TREASURER, book)
-				eq(T.Shows("balance"), true, "taken")
+				eq(T.Shows("balance"), false, "not taken")
 				eq(Switches(), "", "the Treasurer's book repeats the word; he never gives it")
-				-- Then the King's own fresh word: his, compared with what the book brought.
-				K.HandleCommand("CHANNEL", KING, ("T1~T~21~Olympus~000~%d"):format(w.clock + 1))
-				eq(Switches(), KING .. ": " .. ns.L.ACTS_TREASURY:format(ns.L.ACTS_TREASURY_NOTHING))
+				-- Then the King's own fresh word: his (compared with nothing shown: the book brought none).
+				K.HandleCommand("CHANNEL", KING, ("T1~T~21~Olympus~010~%d"):format(w.clock + 1))
+				eq(Switches(), KING .. ": " .. ns.L.ACTS_TREASURY:format(ns.L.ACTS_TREASURY_RANKING))
 				-- A word given long ago (a later login, the King's repeat): taken, not logged.
 				ns.Chronicle.Clear()
 				ns.rdb.treasuryFlags, ns.rdb.actsState = nil, nil
@@ -39618,6 +39619,882 @@ do
 			o.Lt.SetPoints("Cid 7")
 			eq(Points(m).v, 7); eq(Points(m).by, "Offi-Realm"); eq(Points(m).via, nil)
 			assert(o.Lt.Page(o.Lt.Book(), { p = { 0, g.clock + 1 } }):find("P~Cid-Realm~7~", 1, true))
+		end)
+	end)
+end
+---------------------------------------------------------------------------
+-- 1.1, Konig's review of #45 (the treasury): the King's word from the King and his Stewards alone,
+-- a sister bank's no to every viewer holding it, requests to the treasury paced, "gone since" from
+-- one source's own snapshots, and no dues in the ranking that leaves the Treasurer's client.
+---------------------------------------------------------------------------
+do
+	local KING, TREASURER, STEWARD = "Asmongold Asmongler-Realm", "Pyralis Ashandar-Realm", "Test Steward-Realm"
+	local function AsSteward() GetGuildInfo = function() return "Olympus II", "Member", 3 end; ns.me = STEWARD end
+	-- The Throne's world with a Steward the signed list names (STEWARD), put back after.
+	local function WithStewards(fn)
+		WithThrone(function(w, K)
+			local saved = { steward = ns.IsSteward, split = ns.splitNames, shares = ns.db.keeperShares }
+			local ok, err = pcall(function()
+				ns.IsSteward = function(n) return type(n) == "string" and ns.FullName(n) == STEWARD end
+				ns.splitNames = true
+				fn(w, K)
+			end)
+			ns.IsSteward, ns.splitNames, ns.db.keeperShares = saved.steward, saved.split, saved.shares
+			ns.rdb.duesAmount, ns.rdb.treasuryKeepers = nil, nil
+			if not ok then error(err, 0) end
+		end)
+	end
+	-- Dues.lua loaded again, on its own: the types it registers (handles), what it runs at login
+	-- and on its timers (on, timers); its dialogs put back as they were.
+	local function DuesAlone()
+		local got = { handles = {}, on = {}, timers = {} }
+		local fresh = setmetatable({
+			On = function(name, f) got.on[name] = f end,
+			RegisterEvent = function() end,
+			After = function(_, _, f) got.timers[#got.timers + 1] = f end,
+			Every = function(_, _, f) got.timers[#got.timers + 1] = f end,
+			Comm = setmetatable({ Handle = function(kind) got.handles[kind] = true end }, { __index = ns.Comm }),
+			King = setmetatable({ Register = function(kind) got.handles["T1 " .. kind] = true end }, { __index = ns.King }),
+		}, { __index = ns })
+		local dialogs = {}
+		for k, v in pairs(StaticPopupDialogs) do if k:find("^OLYMPUS_DUES") then dialogs[k] = v end end
+		assert(loadfile(ADDON_DIR .. "Dues.lua"))("Olympus", fresh)
+		for k in pairs(StaticPopupDialogs) do if k:find("^OLYMPUS_DUES") then StaticPopupDialogs[k] = dialogs[k] end end
+		return fresh.Dues, got
+	end
+
+	test("1.1 Konig's review: the Treasurer's book sets none of the King's switches, a word newer than any the King gave neither; 1.0's addons still read its copy", function()
+		WithStewards(function(w, K)
+			local T = ns.Treasury
+			-- The King shows the army the balance.
+			AsKing(); T.SetFlag("balance", true)
+			local given, word = w.clock, LastSent(w)
+			-- A Treasurer's client that makes a word up: every switch on, dated after the King's (inside
+			-- the minute a word may run ahead of the server's clock), in his book.
+			AsTreasurer()
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = given + 30, from = TREASURER }
+			local forged = T.Message()
+			assert(forged:find("~111@" .. (given + 30) .. "~", 1, true), forged)
+			-- A soldier who heard the King keeps his word; one who never did takes none from the book.
+			AsSoldier("Late Login"); ns.rdb.treasuryFlags = nil
+			K.HandleCommand("CHANNEL", KING, word)
+			T.HandleReport("CHANNEL", TREASURER, forged)
+			eq(T.Shows("balance"), true); eq(T.Shows("ranking"), false, "the Treasurer set no switch"); eq(T.Shows("book"), false)
+			ns.rdb.treasuryFlags = nil
+			T.HandleReport("CHANNEL", TREASURER, forged)
+			eq(T.AnyShown(), false, "never heard the King: nothing shown on the Treasurer's word")
+			eq(T.Visible(), false, "no tab for the army")
+			-- By whisper (the whole book, on a keeper's client): the same.
+			ns.rdb.treasuryKeepers = { at = 1, names = { "Late Login-Realm" } }
+			GetGuildInfo = function() return "Olympus", "Member", 3 end
+			T.HandleReport("WHISPER", TREASURER, forged)
+			eq(T.AnyShown(), false, "whispered: nothing either")
+			ns.rdb.treasuryKeepers = nil
+			-- The King's client: his word stays his, and it is his that he repeats (it never becomes
+			-- the Treasurer's, taken and repeated in the King's name).
+			AsKing(); ns.rdb.treasuryFlags = { balance = true, ranking = false, book = false, at = given, from = KING, t = given }
+			T.HandleReport("CHANNEL", TREASURER, forged)
+			eq(ns.rdb.treasuryFlags.at, given); eq(T.Shows("book"), false)
+			w.clock = w.clock + T.FLAGS_EVERY
+			T.SendFlags(true)
+			assert(LastSent(w):find("^T1~T~%d+~Olympus~100~" .. given .. "$"), LastSent(w))
+			-- A Steward's client neither.
+			AsSteward(); ns.rdb.treasuryFlags = { balance = true, ranking = false, book = false, at = given, from = KING, t = given }
+			T.HandleReport("CHANNEL", TREASURER, forged)
+			eq(ns.rdb.treasuryFlags.at, given); eq(T.Shows("ranking"), false)
+			-- The Treasurer's copy older than the King's word: the King's client answers with his, so the
+			-- Treasurer's client (and the 1.0 addons reading his book) catch up.
+			AsTreasurer(); ns.rdb.treasuryFlags = { balance = false, ranking = false, book = false, at = given - 600, from = KING }
+			local stale = T.Message()
+			AsKing(); ns.rdb.treasuryFlags = { balance = true, ranking = false, book = false, at = given, from = KING, t = given }
+			local before = #w.sent
+			T.HandleReport("CHANNEL", TREASURER, stale)
+			eq(#w.sent, before + 1, "answered"); assert(w.sent[#w.sent].msg:find("~100~" .. given .. "$"), w.sent[#w.sent].msg)
+			AsTreasurer(); ns.rdb.treasuryFlags = nil
+			K.HandleCommand("CHANNEL", KING, w.sent[#w.sent].msg)
+			eq(T.Shows("balance"), true, "the Treasurer's client takes the King's own word")
+			-- A 1.0 addon (1.0.0's Treasury.lua) still reads the switches from the Treasurer's book: his
+			-- 1.1 client repeats there the King's word it took from him.
+			local copy = T.Message()
+			assert(copy:find("~100@" .. given .. "~", 1, true), copy)
+			local Old, old = OldTreasury()
+			old.rdb.treasuryFlags = nil
+			Old.HandleReport("CHANNEL", TREASURER, copy)
+			eq(old.rdb.treasuryFlags and old.rdb.treasuryFlags.balance, true, "1.0 reads it there, as before")
+		end)
+	end)
+
+	test("1.1 Konig's review: the dues' amount comes from the King and his Stewards alone; the Treasurer's client repeats none (FK), and none is read", function()
+		WithStewards(function(w, K)
+			local D = ns.Dues
+			D.Reset()
+			local week = D.Week()
+			-- The King's amount, 2 gold from next week.
+			AsKing(); D.SetAmount("2g")
+			local word = LastSent(w)
+			eq(D.AmountOf(week + 1), 20000); eq(D.Amount(), 10000)
+			-- The Treasurer's client, logged in with the King's word: nothing of it goes out from him,
+			-- at login or on its timers.
+			AsTreasurer()
+			local Alone, got = DuesAlone()
+			eq(got.handles.FK, nil, "no copy of the amount is read")
+			eq(got.handles["T1 Y"], true, "the King's and his Stewards' word is")
+			w.sent = {}
+			got.on.LOGIN()
+			for _, f in ipairs(got.timers) do f() end
+			for _, x in ipairs(w.sent) do assert(not x.msg:find("^FK~"), "the Treasurer's copy of the amount: " .. x.msg) end
+			-- A word of the Treasurer's own (a newer amount, and this week's in its <before>), sent as
+			-- the King's is: not his to give.
+			AsSoldier(); ns.rdb.duesAmount = nil
+			K.HandleCommand("CHANNEL", KING, word)
+			K.HandleCommand("CHANNEL", TREASURER, ("T1~Y~5~Olympus~9990000~%d~9990000"):format(w.clock + 30))
+			eq(D.Amount(), 10000, "this week's stays"); eq(D.AmountOf(week + 1), 20000, "the King's")
+			-- His Steward's, in the King's name: taken.
+			K.HandleCommand("CHANNEL", STEWARD, ("T1~Y~6~Olympus II~30000~%d~10000"):format(w.clock + 1))
+			eq(D.AmountOf(week + 1), 30000)
+			-- Both pages say so, and no longer that the Treasurer's addon repeats the King's word.
+			for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+				local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+				assert(not doc:find("The Treasurer's addon repeats the King's latest word", 1, true), path)
+				assert(not doc:find("repeated by the Treasurer's", 1, true) and not doc:find("and so does the Treasurer's", 1, true), path)
+				assert(doc:find("so 1.1 takes none from it; 1.0's addons still read it there", 1, true), path)
+				assert(doc:find("the Treasurer, who receives the dues, sets none of it", 1, true), path)
+			end
+		end)
+	end)
+
+	test("1.1 Konig's review: a sister guild's no reaches every viewer holding its bank, one heard too long ago at his next ask, once, after a /reload of its sender too", function()
+		WithStewards(function(w, K)
+			local T, B = ns.Treasury, ns.Bank
+			local saved = { after = ns.After, shares = ns.db.sisterBankShares, sent = ns.db.sisterBankSent, zeus = ns.rdb.guilds["Olympus Zeus"] }
+			local ok, err = pcall(function()
+				local After, Run = Queued()
+				ns.After = After
+				ns.db.sisterBankShares, ns.db.sisterBankSent = nil, nil
+				-- The Lord of Olympus Zeus (the census confirms him) says yes; the King's addon asks after its login.
+				AsLord()
+				ns.rdb.bank = { t = w.clock, guild = "Olympus Zeus", by = ns.me, money = 424242,
+					tabs = { { i = 1, name = "Stash", items = { { id = 2589, n = 60, s = 1 } } } } }
+				B.SetSisterConsent(true)
+				w.whispered = {}
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~0"); Run()
+				local pieces = {}
+				for _, x in ipairs(w.whispered) do eq(x.to, KING); pieces[#pieces + 1] = x.msg end
+				assert(#pieces > 0, "whispered to the King")
+				local function Holds()
+					-- (The census as its reporters say it now: reports count 30 minutes.)
+					ns.rdb.guilds["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", realm = "Realm" }, "W3-Realm", "W4-Realm")
+					AsKing()
+					for _, m in ipairs(pieces) do T.HandlePrivate("WHISPER", "Zed-Realm", m) end
+					eq(#B.Sisters(), 1, "the King holds it")
+				end
+				Holds()
+				-- Longer than NO_WITHIN later (his addon asks every 15 minutes; the Lord's heard none of
+				-- them, offline meanwhile), the Lord says no: the King was heard too long ago for it to go
+				-- at once. (Konig's review of 1.1, again: 12 minutes later it went at his next ask alone;
+				-- within NO_WITHIN it now goes at once, tested with the review's second pass below.)
+				AsLord()
+				w.clock = w.clock + B.NoWithin() + 60
+				w.whispered = {}
+				B.SetSisterConsent(false)
+				eq(#w.whispered, 0, "not heard lately: nothing at once")
+				-- His next ask: the no, and the bank leaves his screen.
+				w.clock = w.clock + 60
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+				eq(#w.whispered, 1, "the no"); eq(w.whispered[1].to, KING); eq(w.whispered[1].msg, "TS~Olympus Zeus~0~0~")
+				AsKing(); B.HandleSister("WHISPER", "Zed-Realm", w.whispered[1].msg)
+				eq(#B.Sisters(), 0, "withdrawn")
+				-- Once a session: his asks after that cost nothing; a Hand's addon asking afresh (after its
+				-- login: it holds nothing) is not told either.
+				AsLord(); w.clock = w.clock + T.ASK_EVERY
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+				eq(#w.whispered, 1, "told once")
+				AsKing(); K.AddHand("Helper"); K.SendHands(true); local hands = LastSent(w)
+				AsLord(); K.HandleCommand("CHANNEL", KING, hands)
+				T.HandleAsk("CHANNEL", "Helper-Realm", "TA~Olympus II~0"); Run()
+				eq(#w.whispered, 1, "a fresh ask holds nothing")
+				-- The Lord's addon reloads (its session's memory gone) while the King still holds his bank
+				-- (sent before the no): remembered, the King's next ask gets the no.
+				B.Reset(); Holds()
+				AsLord(); w.whispered = {}
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+				eq(#w.whispered, 1, "told after the reload"); eq(w.whispered[1].msg, "TS~Olympus Zeus~0~0~")
+				-- The census no longer names him Lord (his guild's reports stopped): his no still counts, from
+				-- the one whose snapshot the King holds; nobody else's does.
+				ns.rdb.guilds["Olympus Zeus"] = nil
+				AsKing()
+				B.HandleSister("WHISPER", "Faker Guy-Realm", w.whispered[1].msg)
+				eq(#B.Sisters(), 1, "not from anyone")
+				B.HandleSister("WHISPER", "Zed-Realm", w.whispered[1].msg)
+				eq(#B.Sisters(), 0, "his own no")
+				-- An officer who said no and never shared: nothing whispered, ever.
+				B.Reset()
+				AsCaptain(); ns.db.sisterBankShares = { ["cap-realm"] = false }
+				w.whispered = {}
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+				eq(#w.whispered, 0, "never shared: nothing to take back")
+				-- Both pages say how the no travels.
+				for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+					local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+					assert(doc:find("from the others at their next ask", 1, true), path)
+				end
+			end)
+			ns.After, ns.db.sisterBankShares, ns.db.sisterBankSent, ns.rdb.guilds["Olympus Zeus"] = saved.after, saved.shares, saved.sent, saved.zeus
+			ns.Bank.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 Konig's review: requests to the treasury are paced, each requester's new ones, each keeper's answers and his list on the channel", function()
+		WithStewards(function(w, K)
+			local T, B = ns.Treasury, ns.Bank
+			local saved = { after = ns.After, zeus = ns.rdb.guilds["Olympus Zeus"], two = ns.rdb.guilds["Olympus II"] }
+			local ok, err = pcall(function()
+				local After, Run = Queued()
+				ns.After = After
+				-- The census as its reporters say it now (reports count 30 minutes): Zed the Lord of
+				-- Olympus Zeus, Cap a Captain of Olympus II.
+				local function Census()
+					ns.rdb.guilds["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", realm = "Realm" }, "W3-Realm", "W4-Realm")
+					ns.rdb.guilds["Olympus II"] = Vouched({ total = 300, online = 3, zones = {}, t = w.clock, leader = "Ceo", realm = "Realm",
+						officers = { { name = "Cap", online = true, days = 0 } } }, "W5-Realm", "W6-Realm")
+				end
+				local function Count(prefix, to)
+					local n = 0
+					for _, x in ipairs(w.whispered) do if x.msg:sub(1, #prefix) == prefix and (not to or x.to == to) then n = n + 1 end end
+					return n
+				end
+				local function NewLines()
+					local n = 0
+					for _, p in ipairs(w.printed) do if p:find(" <Olympus Zeus>", 1, true) and p:find("Zed", 1, true) then n = n + 1 end end
+					return n
+				end
+				Census()
+				-- The Lord's own client: a request taken back and made again, six in the hour; the
+				-- seventh waits, and he is told when it may go. No whisper for it.
+				AsLord()
+				T.Heard(TREASURER); T.MarkReader(TREASURER)
+				w.whispered = {}
+				for i = 1, B.REQUEST_NEW do
+					local e = B.Request(2589, i)
+					assert(e, "request " .. i)
+					B.Cancel(e.id)
+					w.clock = w.clock + 60
+				end
+				local sent = Count("TN~", TREASURER)
+				eq(sent, 2 * B.REQUEST_NEW, "each one and its taking back, to the keeper heard")
+				eq(B.Request(2589, 1), nil, "paced")
+				assert(Printed(w, ns.L.BANK_REQUEST_PACED:format(B.REQUEST_NEW, (B.REQUEST_WINDOW - B.REQUEST_NEW * 60) / 60)), "told when")
+				eq(Count("TN~", TREASURER), sent, "nothing sent for it")
+				-- An hour after the first: one more may go.
+				w.clock = w.clock - B.REQUEST_NEW * 60 + B.REQUEST_WINDOW
+				assert(B.Request(2589, 1), "the window moved on")
+				-- A keeper's client, a modified client's flood of new ids (each taken back at once): six
+				-- an hour taken, told in chat, answered; the rest nothing at all, and never on the channel.
+				B.Reset(); Census()
+				AsTreasurer()
+				ns.db.keeperShares = { [TREASURER_KEY] = true }
+				ns.rdb.treasuryFlags = { book = true, at = w.clock, from = KING }
+				w.whispered, w.printed, w.sent = {}, {}, {}
+				for id = 1, 40 do
+					B.HandleRequest("WHISPER", "Zed-Realm", ("TN~%d~2589~10~Olympus Zeus"):format(id))
+					B.HandleRequest("WHISPER", "Zed-Realm", ("TN~%d~2589~0~Olympus Zeus"):format(id))
+				end
+				eq(NewLines(), B.REQUEST_NEW, "six lines in his chat")
+				eq(Count("TO~", "Zed-Realm"), 2 * B.REQUEST_NEW, "each taken one answered, and its taking back")
+				local lists = 0
+				for _, s in ipairs(w.sent) do if s.msg:find("^TL~") then lists = lists + 1 end end
+				assert(lists <= 1, "his list on the channel once in the minute: " .. lists)
+				-- Hours of it: he keeps ten of that player's at most, and another player's request stays.
+				B.HandleRequest("WHISPER", "Cap-Realm", "TN~7~929~2~Olympus II")
+				B.Answer("Cap-Realm#7", "declined")
+				for hour = 1, 12 do
+					w.clock = w.clock + B.REQUEST_WINDOW
+					Census()
+					for id = 100 * hour, 100 * hour + 10 do
+						B.HandleRequest("WHISPER", "Zed-Realm", ("TN~%d~2589~10~Olympus Zeus"):format(id))
+						B.HandleRequest("WHISPER", "Zed-Realm", ("TN~%d~2589~0~Olympus Zeus"):format(id))
+					end
+				end
+				local his, other = 0, false
+				for key in pairs(ns.rdb.bankRequests) do
+					if key:find("^Zed%-Realm#") then his = his + 1 end
+					if key == "Cap-Realm#7" then other = true end
+				end
+				assert(his <= B.REQUESTS_EACH, "his, kept: " .. his)
+				eq(other, true, "another player's request is not pushed out by his")
+				-- One request asked about again and again: answered once an ANSWER_GAP while unchanged (7.5
+				-- minutes since the review's second pass), at once when it changes. (An hour later: his last
+				-- six are out of the window.)
+				w.clock = w.clock + B.REQUEST_WINDOW
+				Census()
+				B.HandleRequest("WHISPER", "Zed-Realm", "TN~5000~118~1~Olympus Zeus")
+				w.whispered = {}
+				for _ = 1, 10 do B.HandleRequest("WHISPER", "Zed-Realm", "TN~5000~118~1~Olympus Zeus") end
+				eq(Count("TO~", "Zed-Realm"), 0, "answered a moment ago")
+				w.clock = w.clock + B.ANSWER_GAP
+				for _ = 1, 10 do B.HandleRequest("WHISPER", "Zed-Realm", "TN~5000~118~1~Olympus Zeus") end
+				eq(Count("TO~", "Zed-Realm"), 1, "once an ANSWER_GAP")
+				B.Answer("Zed-Realm#5000", "done")
+				eq(Count("TO~5000~d", "Zed-Realm"), 1, "a change: at once")
+				B.Answer("Zed-Realm#5000", "done")
+				eq(Count("TO~5000~d", "Zed-Realm"), 1, "the same click again: nothing")
+				-- His list on the channel: once a minute, a change inside it once the minute is over.
+				w.clock = w.clock + B.PUBLIC_GAP
+				Run() -- (what waited goes)
+				w.clock = w.clock + B.PUBLIC_GAP
+				B.HandleRequest("WHISPER", "Cap-Realm", "TN~8~2770~3~Olympus II")
+				w.sent = {}
+				B.HandleRequest("WHISPER", "Cap-Realm", "TN~9~2771~3~Olympus II")
+				B.HandleRequest("WHISPER", "Cap-Realm", "TN~10~2772~3~Olympus II")
+				eq(#w.sent, 0, "inside the minute: held")
+				w.clock = w.clock + B.PUBLIC_GAP
+				Run()
+				eq(#w.sent, 1, "then once, as it is then")
+				assert(w.sent[1].msg:find("10:2772:3:Cap%-Realm", 1) and w.sent[1].msg:find("9:2771:3:Cap%-Realm", 1), w.sent[1].msg)
+				-- Both languages, the same format arguments; both pages say so.
+				local savedLocale, pt = GetLocale, {}
+				GetLocale = function() return "ptBR" end
+				local okL, errL = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+				GetLocale = savedLocale
+				if not okL then error(errL, 0) end
+				local key = "BANK_REQUEST_PACED"
+				assert(type(rawget(ns.L, key)) == "string", "English " .. key)
+				assert(type(rawget(pt.L, key)) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
+				eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)
+				for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+					local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+					assert(doc:find("6 new requests an hour per character", 1, true), path)
+				end
+			end)
+			ns.After, ns.rdb.guilds["Olympus Zeus"], ns.rdb.guilds["Olympus II"] = saved.after, saved.zeus, saved.two
+			ns.rdb.treasuryFlags = nil
+			ns.Bank.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 Konig's review: the bank's gone since the last snapshot compares one source's own snapshots; another keeper's never marks anything gone", function()
+		WithStewards(function(w, K)
+			local B = ns.Bank
+			local KEEPER = "Test Keeper-Realm"
+			local t = w.clock
+			-- (A snapshot taken at `when`, heard then: never dated after its arrival.)
+			local function T9(when, tabs)
+				w.clock = math.max(w.clock, when)
+				return ("T9~Olympus~%d~5000~%s"):format(when, tabs)
+			end
+			-- The King's client holds none of its own; the King named a keeper besides the Treasurer.
+			AsKing()
+			B.Reset()
+			ns.rdb.treasuryKeepers = { at = 1, names = { KEEPER } }
+			-- The other keeper's snapshot (his word: more than the bank holds, or tabs the Treasurer can't
+			-- see), then the Treasurer's, newer: nothing gone, they are two sources.
+			B.HandleReport("CHANNEL", KEEPER, T9(t - 100, "Mats;2589x200,2770x20"))
+			B.HandleReport("CHANNEL", TREASURER, T9(t, "Mats;2589x190"))
+			eq(B.Current().by, TREASURER)
+			eq(GoneList(B.Current()), "", "another keeper's snapshot marks nothing gone")
+			-- The Treasurer's next one: compared with his own before it.
+			B.HandleReport("CHANNEL", TREASURER, T9(t + 100, "Mats;2589x150"))
+			eq(GoneList(B.Current()), "2589 -40 (Mats)")
+			-- The other keeper's again (inflated), and the Treasurer's after it: each only with his own.
+			B.HandleReport("CHANNEL", KEEPER, T9(t + 150, "Mats;2589x999,2770x999"))
+			eq(B.Current().by, KEEPER)
+			eq(GoneList(B.Current()), "", "the Treasurer's snapshots are not his to compare with")
+			B.HandleReport("CHANNEL", TREASURER, T9(t + 200, "Mats;2589x140"))
+			local gone = GoneList(B.Current())
+			assert(not gone:find("999", 1, true) and not gone:find("2770", 1, true), "nothing of the other keeper's: " .. gone)
+			-- Our own snapshot (the King opens the bank), newer than the reports: compared with ours alone,
+			-- none before it; a keeper's newer one after it is never compared with ours.
+			ns.rdb.bank = { t = t + 250, guild = "Olympus", by = KING, money = 5000, tabs = { { i = 1, name = "Mats", items = { { id = 2589, n = 100, s = 1 } } } } }
+			eq(B.Current(), ns.rdb.bank)
+			eq(GoneList(B.Current()), "", "no snapshot of ours before it")
+			B.HandleReport("CHANNEL", KEEPER, T9(t + 300, "Mats;2589x10"))
+			eq(B.Current().by, KEEPER)
+			-- (His own earlier one went when the Treasurer's replaced it: nothing listed, rather than a
+			-- list made from ours or the Treasurer's.)
+			eq(GoneList(B.Current()), "", "never ours, never the Treasurer's")
+			-- The Treasurer's after it: his own earlier one, still kept.
+			B.HandleReport("CHANNEL", TREASURER, T9(t + 400, "Mats;2589x130"))
+			eq(GoneList(B.Current()), "2589 -60 (Mats)", "with his own of " .. (t))
+			-- Both pages say so.
+			for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+				local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+				assert(doc:find("never another keeper's", 1, true), path)
+			end
+			ns.rdb.treasuryKeepers = nil
+			B.Reset()
+		end)
+	end)
+
+	test("1.1 Konig's review: the ranking that leaves the Treasurer's client never tells who paid the dues; a total grows only by what a week's gold went over the amount", function()
+		WithStewards(function(w, K)
+			local T, D = ns.Treasury, ns.Dues
+			local saved = { chars = ns.db.myCharacters, gst = GetServerTime }
+			local ok, err = pcall(function()
+				D.Reset()
+				GetServerTime = nil -- (the server's clock is the test's)
+				AsTreasurer()
+				ns.db.keeperShares = { [TREASURER_KEY] = true }
+				ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = w.clock, from = KING }
+				-- The King's amount: 5 gold a week, for weeks already.
+				ns.rdb.duesAmount = { copper = 50000, at = w.clock - 60 * 86400, before = 50000, from = KING }
+				T.SetOpening("100")
+				local function Give(name, copper, book) T.Record(name, copper, "mail", nil, { quiet = true, book = book }) end
+				local function Field(msg, i)
+					local f = {}
+					for x in (msg .. "~"):gmatch("([^~]*)~") do f[#f + 1] = x end
+					return f[i]
+				end
+				local function Ranked(list)
+					local out = {}
+					for e in (list or ""):gmatch("[^,]+") do
+						local n, c = e:match("^(.-):(%d+)$")
+						out[n] = tonumber(c)
+					end
+					return out
+				end
+				-- The ranking on the channel (the army's part with the ranking shown).
+				local function Channel() return Ranked(Field(T.Message(nil, { ranking = true }), 13)) end
+				-- A patron's gift; then week after week Payer pays the amount, Tipper too and one week
+				-- 20 gold more; Skipper pays nothing.
+				Give("Patron", 5000000)
+				eq(Channel().Patron, 5000000 - 50000, "a donation ranks, less what may be his dues")
+				for week = 1, 7 do
+					Give("Payer", 50000)
+					Give("Tipper", 50000 + (week == 3 and 200000 or 0))
+					local now = Channel()
+					eq(now.Payer, nil, "week " .. week .. ": a payer, not told from Skipper")
+					eq(now.Skipper, nil)
+					eq(now.Tipper, week >= 3 and 200000 or nil, "week " .. week .. ": only what went over the amount")
+					eq(now.Patron, 4950000, "week " .. week .. ": no total grows back, weeks dropped too")
+					w.clock = w.clock + 7 * 86400
+				end
+				-- His own screen: all of it.
+				local mine = {}
+				for _, g in ipairs(T.Totals().ranking) do mine[g.name] = g.money end
+				eq(mine.Payer, 7 * 50000); eq(mine.Patron, 5000000)
+				-- The whole book (whispered to the King, a Steward, the keepers) and 0.9's copy: the same.
+				eq(Ranked(Field(T.Message(), 13)).Payer, nil, "whispered: nor there")
+				eq(Ranked(Field(T.Message(), 13)).Tipper, 200000)
+				eq(Ranked(Field(T.LegacyMessage(), 9)).Payer, nil, "0.9's copy: nor there")
+				-- His mail character's book, passed on by his client: the same.
+				ns.db.myCharacters = { [TREASURER_KEY] = true, [ANDARAI_KEY] = true }
+				ns.db.keeperShares = { [TREASURER_KEY] = true, [ANDARAI_KEY] = true }
+				local mailBook = T.BookOf(ANDARAI, true)
+				mailBook.opening = 0
+				Give("Mail Payer", 50000, mailBook)
+				Give("Mail Patron", 800000, mailBook)
+				w.sent = {}
+				T.Relay(true)
+				local tr
+				for _, x in ipairs(w.sent) do if x.msg:find("^TR~") then tr = x.msg end end
+				assert(tr, "relayed")
+				local relayed = Ranked(Field(tr:match("~(TB~.*)$"), 13))
+				eq(relayed["Mail Payer"], nil); eq(relayed["Mail Patron"], 750000)
+				-- Another keeper's book (the King's): no dues there, his donors as they gave.
+				AsKing()
+				Give("Payer", 50000)
+				eq(Ranked(Field(T.Message(), 13)).Payer, 50000, "gold to the King is no dues")
+				-- A backup of the Treasurer's book, restored after a wipe: the ranking as before (the weeks
+				-- dropped still left out).
+				AsTreasurer()
+				ns.db.myCharacters = { [TREASURER_KEY] = true }
+				local before = Field(T.Message(nil, { ranking = true }), 13)
+				local text = ns.Backup.Export()
+				ns.rdb.treasuryBooks = nil
+				local d = assert(ns.Backup.Read(text))
+				ns.Backup.Apply(d)
+				eq(Field(T.Message(nil, { ranking = true }), 13), before, "restored: the same ranking")
+				-- Both pages say so.
+				for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+					local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+					assert(doc:find("each week's gold up to that week's amount", 1, true), path)
+					assert(not doc:find("a ranked donor's total still grows on the channel when he gives", 1, true), path)
+				end
+			end)
+			ns.db.myCharacters, GetServerTime = saved.chars, saved.gst
+			D.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end)
+end
+
+
+---------------------------------------------------------------------------
+-- 1.1, Konig's review of #45, second pass (the treasury): each week's dues amount kept in the
+-- Treasurer's book as his client knew it, gold sent with the dues' note dues in full, a sister
+-- guild's no at once to each viewer whose addon asked within ASK_EVERY (before a /reload of its
+-- sender too), and a keeper's answers to one requester's requests paced.
+---------------------------------------------------------------------------
+do
+	local KING, STEWARD = "Asmongold Asmongler-Realm", "Test Steward-Realm"
+	local WEEK = 7 * 86400
+	-- The Throne's world with a Steward the signed list names (STEWARD), the server's clock the
+	-- test's, the dues as new; all put back after.
+	local function WithStewards(fn)
+		WithThrone(function(w, K)
+			local saved = { steward = ns.IsSteward, split = ns.splitNames, shares = ns.db.keeperShares, gst = GetServerTime, chars = ns.db.myCharacters }
+			local ok, err = pcall(function()
+				ns.IsSteward = function(n) return type(n) == "string" and ns.FullName(n) == STEWARD end
+				ns.splitNames = true
+				GetServerTime = nil
+				ns.Dues.Reset()
+				fn(w, K)
+			end)
+			ns.IsSteward, ns.splitNames, ns.db.keeperShares, GetServerTime = saved.steward, saved.split, saved.shares, saved.gst
+			ns.db.myCharacters = saved.chars
+			ns.rdb.duesAmount, ns.rdb.treasuryKeepers, ns.rdb.treasuryFlags = nil, nil, nil
+			ns.Dues.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end
+	-- The Treasurer, sharing his book, while the King shows the army the ranking.
+	local function SharingTreasurer(w)
+		AsTreasurer()
+		ns.db.keeperShares = { [TREASURER_KEY] = true }
+		ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = w.clock, from = KING }
+		ns.Treasury.SetOpening("100")
+	end
+	-- The ranking his client puts on the channel: { [name] = copper }.
+	local function Channel()
+		local f = {}
+		for x in (ns.Treasury.Message(nil, { ranking = true }) .. "~"):gmatch("([^~]*)~") do f[#f + 1] = x end
+		local out = {}
+		for e in (f[13] or ""):gmatch("[^,]+") do
+			local n, c = e:match("^(.-):(%d+)$")
+			out[n] = tonumber(c)
+		end
+		return out
+	end
+	local function Give(name, copper, note) return ns.Treasury.Record(name, copper, "mail", nil, { quiet = true, note = note }) end
+	local function Pages(fn)
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do fn(path, (assert(ReadFile(ROOT .. path)):gsub("%s+", " "))) end
+	end
+
+	test("1.1 Konig's review, second pass: each week's dues amount stays as the Treasurer's book kept it; a later word never re-judges a week kept, so its payers stay out of the ranking", function()
+		WithStewards(function(w)
+			local T, D = ns.Treasury, ns.Dues
+			SharingTreasurer(w)
+			-- The King's amount: 5 gold from next week. That week Payer pays it; Skipper pays nothing.
+			eq(D.TakeAmount(50000, w.clock, KING, 10000), true)
+			w.clock = w.clock + WEEK
+			local paid = D.Week()
+			Give("Payer", 50000)
+			eq(Channel().Payer, nil, "the week of 5 gold")
+			-- He lowers it to 2 gold from the week after; a week later he sets 3 gold. That word carries
+			-- 2 gold as the amount of its own week and of every week before it.
+			eq(D.TakeAmount(20000, w.clock, KING, 50000), true)
+			eq(Channel().Payer, nil, "after the lower amount")
+			w.clock = w.clock + WEEK
+			eq(D.TakeAmount(30000, w.clock, KING, 20000), true)
+			eq(D.AmountOf(paid), 20000, "(the latest word alone would judge Payer's week by 2 gold)")
+			eq(Channel().Payer, nil, "a payer of a week kept never shows on the channel")
+			local mine = {}
+			for _, g in ipairs(T.Totals().ranking) do mine[g.name] = g.money end
+			eq(mine.Payer, 50000, "his own screen: all of it")
+			-- Two words are enough when the first lowers the amount under the 1 gold it had: Early paid
+			-- 1 gold, then the King says 50 silver from next week, and next week 2 gold.
+			D.Reset(); ns.rdb.treasuryBooks = nil
+			SharingTreasurer(w)
+			Give("Early", 10000)
+			eq(D.TakeAmount(5000, w.clock, KING, 10000), true)
+			w.clock = w.clock + WEEK
+			eq(D.TakeAmount(20000, w.clock, KING, 5000), true)
+			eq(Channel().Early, nil, "a 1 gold payer of the week before both words")
+			-- Its week dropped from the weeks kept, folded with the amount it kept: still not there.
+			for _ = 1, D.WEEKS_KEPT do
+				w.clock = w.clock + WEEK
+				Give("Other", 30000)
+			end
+			eq(Channel().Early, nil, "nor once its week is folded")
+			-- This week's payer of 2 gold; three more words (3 gold, 1 gold, 4 gold: the last carries 1
+			-- gold for its own week and every week before it), then a backup restored after a wipe: each
+			-- week's amount comes back with the book, never worked out again from the latest word.
+			Give("Late", 20000)
+			eq(D.TakeAmount(30000, w.clock, KING, 20000), true)
+			w.clock = w.clock + WEEK
+			eq(D.TakeAmount(10000, w.clock, KING, 30000), true)
+			w.clock = w.clock + WEEK
+			eq(D.TakeAmount(40000, w.clock, KING, 10000), true)
+			eq(Channel().Late, nil, "three words later: his week keeps its 2 gold")
+			ns.db.myCharacters = { [TREASURER_KEY] = true }
+			local text = ns.Backup.Export()
+			ns.rdb.treasuryBooks = nil
+			ns.Backup.Apply(assert(ns.Backup.Read(text)))
+			local now = Channel()
+			eq(now.Late, nil, "restored: the same"); eq(now.Early, nil, "restored: the weeks folded too")
+			eq(now.Other, 5 * 10000, "(a gift over the amount still shows its excess: 1 gold a week)")
+			-- A payer's week while the Treasurer's book was not shared (nothing built the ranking then):
+			-- the week's amount is kept with the gift all the same, so a Steward's word the week after
+			-- (his client had not heard the King's: 1 gold for its own week and every week before)
+			-- changes nothing once the book is shared.
+			D.Reset(); ns.rdb.treasuryBooks = nil
+			eq(D.TakeAmount(50000, w.clock - WEEK, KING, 10000), true)
+			SharingTreasurer(w)
+			ns.db.keeperShares = nil
+			Give("Quiet Payer", 50000)
+			w.clock = w.clock + WEEK
+			eq(D.TakeAmount(20000, w.clock, STEWARD, 10000), true)
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			eq(Channel()["Quiet Payer"], nil, "the amount kept with his gift")
+		end)
+	end)
+
+	test("1.1 Konig's review, second pass: gold sent with the dues' note is dues in full, an amount the Treasurer's client never heard too; a week's amount only rises while it runs", function()
+		WithStewards(function(w)
+			local T, D = ns.Treasury, ns.Dues
+			SharingTreasurer(w)
+			-- The King set 5 gold from this week while the Treasurer was offline, and no King's or
+			-- Steward's addon met his since: his client still holds 1 gold. Members who heard the King
+			-- pay 5 gold, by the button (its mail's note) or by hand.
+			eq(D.Amount(), 10000)
+			local line = Give("Noted Payer", 50000, D.Note(D.Week(), "Olympus II"))
+			Give("Plain Payer", 50000)
+			local now = Channel()
+			eq(now["Noted Payer"], nil, "sent with the note: dues, all of it")
+			eq(now["Plain Payer"], 40000, "by hand, while his client knows 1 gold: the limit both pages state")
+			-- A tip on top of the note shows as any gift over the amount does; a line taken out of the
+			-- count and put back leaves it as it was.
+			Give("Noted Payer", 30000)
+			eq(Channel()["Noted Payer"], 30000, "the tip alone")
+			T.Toggle(line)
+			eq(Channel()["Noted Payer"], 20000, "the paid line not counted: his tip less the amount")
+			T.Toggle(line)
+			eq(Channel()["Noted Payer"], 30000, "counted again")
+			-- A backup restored after a wipe keeps what went with the note.
+			ns.db.myCharacters = { [TREASURER_KEY] = true }
+			local function Restore()
+				local text = ns.Backup.Export()
+				ns.rdb.treasuryBooks = nil
+				ns.Backup.Apply(assert(ns.Backup.Read(text)))
+			end
+			Restore()
+			now = Channel()
+			eq(now["Noted Payer"], 30000, "restored: the tip alone"); eq(now["Plain Payer"], 40000)
+			-- The King's word reaches the Treasurer's client in that week: the week's amount rises as it
+			-- is heard. A Steward's later word says 1 gold for this week (his client had not heard the
+			-- King's): the week's amount kept never goes down, so nobody who paid shows because of it.
+			eq(D.TakeAmount(50000, w.clock - WEEK, KING, 10000), true)
+			eq(D.TakeAmount(20000, w.clock, STEWARD, 10000), true)
+			eq(D.Amount(), 10000, "(the word says 1 gold for this week)")
+			now = Channel()
+			eq(now["Plain Payer"], nil, "the amount heard while the week ran, never lowered"); eq(now["Noted Payer"], 30000)
+			-- The week gone by (a new word carries 2 gold for every week before its own), then a backup
+			-- restored: the week keeps the 5 gold its book kept.
+			w.clock = w.clock + WEEK
+			eq(D.TakeAmount(30000, w.clock, KING, 20000), true)
+			eq(Channel()["Plain Payer"], nil, "the week gone by")
+			Restore()
+			now = Channel()
+			eq(now["Plain Payer"], nil, "restored"); eq(now["Noted Payer"], 30000, "restored: the tip alone")
+			-- Both pages say how it holds, and where it does not.
+			Pages(function(path, doc)
+				assert(doc:find("all he sent with the dues' note", 1, true), path)
+				assert(doc:find("never changed by a later word of the King's", 1, true), path)
+				assert(doc:find("grows by the difference, which can tell that he paid", 1, true), path)
+				assert(not doc:find("the ranking never shows who did not pay", 1, true), path)
+				assert(doc:find("less all you sent with the dues' note", 1, true), path)
+			end)
+		end)
+	end)
+
+	test("1.1 Konig's review, second pass: a sister guild's no goes at once to each viewer whose addon asked within ASK_EVERY, one heard before a /reload of its sender too", function()
+		WithStewards(function(w, K)
+			local T, B = ns.Treasury, ns.Bank
+			local saved = { after = ns.After, shares = ns.db.sisterBankShares, sent = ns.db.sisterBankSent, heard = ns.db.sisterHeard,
+				zeus = ns.rdb.guilds["Olympus Zeus"] }
+			local ok, err = pcall(function()
+				local After, Run = Queued()
+				ns.After = After
+				ns.db.sisterBankShares, ns.db.sisterBankSent, ns.db.sisterHeard = nil, nil, nil
+				-- The census as its reporters say it now (reports count 30 minutes): Zed the Lord of Olympus Zeus.
+				local function Census()
+					ns.rdb.guilds["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", realm = "Realm" }, "W3-Realm", "W4-Realm")
+				end
+				local pieces
+				local function Hold()
+					Census()
+					AsKing()
+					for _, m in ipairs(pieces) do T.HandlePrivate("WHISPER", "Zed-Realm", m) end
+					eq(#B.Sisters(), 1, "the King holds it")
+				end
+				-- The Lord says yes; the King's addon asks and holds his bank.
+				local function Share()
+					Census()
+					AsLord()
+					ns.rdb.bank = { t = w.clock, guild = "Olympus Zeus", by = ns.me, money = 424242,
+						tabs = { { i = 1, name = "Stash", items = { { id = 2589, n = 60, s = 1 } } } } }
+					w.whispered = {} -- (what it sends at once, to a viewer heard lately, and what the ask gets)
+					B.SetSisterConsent(true)
+					T.HandleAsk("CHANNEL", KING, "TA~Olympus~0"); Run()
+					pieces = {}
+					for _, x in ipairs(w.whispered) do pieces[#pieces + 1] = x.msg end
+					assert(#pieces > 0, "whispered to the King")
+					Hold()
+				end
+				-- A /reload of the Lord's addon: its session's memory gone, its saved variables kept (the
+				-- King's client, in the same test, holds the bank again as before).
+				local function Reload()
+					local kept = ns.db.sisterHeard
+					B.Reset()
+					ns.db.sisterHeard = kept
+					Hold()
+				end
+				-- The Lord says no: what reaches the King's screen at once.
+				local function No()
+					AsLord()
+					w.whispered = {}
+					B.SetSisterConsent(false)
+					local told = 0
+					AsKing()
+					for _, x in ipairs(w.whispered) do
+						if x.to == KING then
+							eq(x.msg, "TS~Olympus Zeus~0~0~")
+							told = told + 1
+							B.HandleSister("WHISPER", "Zed-Realm", x.msg)
+						end
+					end
+					return told
+				end
+				-- 12 minutes after the King's ask (his addon asks every 15), the Lord says no, and may log
+				-- off before the next: the no goes at once.
+				Share()
+				w.clock = w.clock + T.AUDIENCE_FRESH + 60
+				eq(No(), 1, "told at once")
+				eq(#B.Sisters(), 0, "withdrawn from the King's screen")
+				-- His next ask: nothing more (told once).
+				AsLord(); w.whispered = {}
+				w.clock = w.clock + (T.ASK_EVERY - T.AUDIENCE_FRESH)
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+				eq(#w.whispered, 0, "told once")
+				-- Heard before a /reload of the Lord's addon, 17 minutes before the no: at once too.
+				w.clock = w.clock + T.RESET_GAP
+				Share()
+				w.clock = w.clock + 5 * 60
+				Reload()
+				w.clock = w.clock + 12 * 60
+				eq(No(), 1, "told at once after the reload")
+				eq(#B.Sisters(), 0, "withdrawn")
+				-- Heard longer ago than that (the Lord's addon was offline meanwhile and heard none of his
+				-- asks): not at once (he may be offline), at his next ask while the Lord plays.
+				w.clock = w.clock + T.RESET_GAP
+				Share()
+				w.clock = w.clock + B.NoWithin() + 60
+				Reload()
+				eq(No(), 0, "heard too long ago: not at once")
+				eq(#B.Sisters(), 1, "the limit both pages state: until his next ask")
+				AsLord(); w.whispered = {}
+				T.HandleAsk("CHANNEL", KING, "TA~Olympus~1"); Run()
+				eq(#w.whispered, 1, "his next ask: the no")
+				AsKing(); B.HandleSister("WHISPER", "Zed-Realm", w.whispered[1].msg)
+				eq(#B.Sisters(), 0, "withdrawn")
+				-- The server says the King is offline: he is no longer one to tell at once.
+				AsLord()
+				ns.db.sisterHeard = { [KING] = w.clock }
+				local savedErr = ERR_CHAT_PLAYER_NOT_FOUND_S
+				ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
+				T.NotFound(ERR_CHAT_PLAYER_NOT_FOUND_S:format(ns.TellName(KING)))
+				ERR_CHAT_PLAYER_NOT_FOUND_S = savedErr
+				eq(ns.db.sisterHeard[KING], nil, "offline: forgotten")
+				eq(B.NoWithin(), 18 * 60, "(the pages' 18 minutes)")
+				Pages(function(path, doc)
+					assert(doc:find("from each one whose addon asked in the last 18 minutes", 1, true), path)
+					assert(doc:find("from the others at their next ask", 1, true), path)
+					assert(doc:find("keeps it on his screen until that player logs out", 1, true), path)
+					assert(doc:find("your no takes it back from their screens: at once from those whose addon asked in the last 18 minutes", 1, true), path)
+				end)
+			end)
+			ns.After, ns.db.sisterBankShares, ns.db.sisterBankSent, ns.db.sisterHeard = saved.after, saved.shares, saved.sent, saved.heard
+			ns.rdb.guilds["Olympus Zeus"] = saved.zeus
+			B.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 Konig's review, second pass: a keeper answers one requester paced: a closed request he was told of never again, an open one unchanged once an ANSWER_GAP, a change at once", function()
+		WithStewards(function(w)
+			local B = ns.Bank
+			local saved = { after = ns.After, zeus = ns.rdb.guilds["Olympus Zeus"] }
+			local ok, err = pcall(function()
+				ns.After = (Queued())
+				local function Census()
+					ns.rdb.guilds["Olympus Zeus"] = Vouched({ total = 100, online = 9, zones = {}, t = w.clock, leader = "Zed", realm = "Realm" }, "W3-Realm", "W4-Realm")
+				end
+				local function Ask(id, count) B.HandleRequest("WHISPER", "Zed-Realm", ("TN~%d~2589~%d~Olympus Zeus"):format(id, count)) end
+				local function Answers()
+					local n = 0
+					for _, x in ipairs(w.whispered) do if x.to == "Zed-Realm" and x.msg:find("^TO~") then n = n + 1 end end
+					return n
+				end
+				Census()
+				AsTreasurer()
+				ns.db.keeperShares = { [TREASURER_KEY] = true }
+				-- A modified client: six new ids in an hour and four in the next, each taken back at once
+				-- (a change each time, answered), ten held on the keeper's client.
+				w.whispered = {}
+				for id = 1, 6 do Ask(id, 10); Ask(id, 0) end
+				w.clock = w.clock + B.REQUEST_WINDOW; Census()
+				for id = 7, 10 do Ask(id, 10); Ask(id, 0) end
+				eq(Answers(), 20, "each new one and its taking back")
+				-- Then it asks about each of them every minute for an hour: closed, and he was told.
+				w.whispered = {}
+				for _ = 1, 60 do
+					w.clock = w.clock + 60; Census()
+					for id = 1, 10 do Ask(id, 10) end
+				end
+				eq(Answers(), 0, "closed and told: never again (600 whispers an hour before)")
+				-- Three open ones (his most), asked about every minute for an hour: each answered once an
+				-- ANSWER_GAP at most, twice what an honest client draws at the most (it asks about each every
+				-- REQUEST_AGAIN).
+				w.clock = w.clock + B.REQUEST_WINDOW; Census()
+				for id = 21, 23 do Ask(id, 10) end
+				w.whispered = {}
+				for _ = 1, 60 do
+					w.clock = w.clock + 60; Census()
+					for id = 21, 23 do Ask(id, 10) end
+				end
+				local n = Answers()
+				assert(n > 0 and n <= 2 * 3 * 3600 / B.REQUEST_AGAIN, "open ones, unchanged, an hour: " .. n)
+				-- An honest client asks every REQUEST_AGAIN: each ask answered.
+				w.whispered = {}
+				for _ = 1, 4 do
+					w.clock = w.clock + B.REQUEST_AGAIN; Census()
+					Ask(21, 10)
+				end
+				eq(Answers(), 4, "each honest ask answered")
+				-- A change goes at once; the keeper's click does not count as telling him (he may have
+				-- logged off since he was heard), so his next ask gets it once more; then that request,
+				-- closed and told, is never answered again.
+				w.whispered = {}
+				B.Answer("Zed-Realm#21", "done")
+				eq(Answers(), 1, "done: at once")
+				for _ = 1, 30 do
+					w.clock = w.clock + 60; Census()
+					Ask(21, 10)
+				end
+				eq(Answers(), 2, "once more at his next ask, then never again")
+				-- One who logged off just after his ask: the click's whisper never reaches him, and his
+				-- next ask, a day later, is answered (once).
+				Ask(23, 10)
+				w.clock = w.clock + 5 * 60
+				w.whispered = {}
+				B.Answer("Zed-Realm#23", "declined")
+				eq(Answers(), 1, "heard lately: whispered at the click")
+				w.clock = w.clock + 86400; Census()
+				w.whispered = {}
+				Ask(23, 10); Ask(23, 10)
+				eq(Answers(), 1, "his next ask: declined, once")
+				assert(w.whispered[#w.whispered].msg == "TO~23~x", w.whispered[#w.whispered].msg)
+				eq(B.ANSWER_GAP, 7.5 * 60, "(the pages' 7.5 minutes: half a requester's REQUEST_AGAIN)")
+				Pages(function(path, doc)
+					assert(doc:find("answers an open request once every 7.5 minutes at most while nothing changed, a closed one never again once its asker was told", 1, true), path)
+				end)
+			end)
+			ns.After, ns.rdb.guilds["Olympus Zeus"] = saved.after, saved.zeus
+			ns.Bank.Reset()
+			if not ok then error(err, 0) end
 		end)
 	end)
 end
