@@ -25109,7 +25109,7 @@ end)
 local function WithPin(fn)
 	WithThrone(function(w, K)
 		local C = ns.Channels
-		local saved = { ready = ns.Comm.ChannelReady, send = ns.Comm.Send, info = C_ChatInfo, delivered = ns.Comm.DeliveredLogged, flood = C.PIN_FLOOD }
+		local saved = { ready = ns.Comm.ChannelReady, send = ns.Comm.Send, info = C_ChatInfo, delivered = ns.Comm.DeliveredLogged, byName = ns.Roster.byName }
 		local sent = {}
 		local ok, err = pcall(function()
 			C.ResetPin()
@@ -25117,7 +25117,7 @@ local function WithPin(fn)
 			ns.Comm.Send = function(dist, msg, key, urgent, logged) sent[#sent + 1] = { dist = dist, msg = msg, key = key, logged = logged } end
 			fn(w, K, sent, C)
 		end)
-		ns.Comm.ChannelReady, ns.Comm.Send, C_ChatInfo, ns.Comm.DeliveredLogged, C.PIN_FLOOD = saved.ready, saved.send, saved.info, saved.delivered, saved.flood
+		ns.Comm.ChannelReady, ns.Comm.Send, C_ChatInfo, ns.Comm.DeliveredLogged, ns.Roster.byName = saved.ready, saved.send, saved.info, saved.delivered, saved.byName
 		C.ResetPin()
 		ns.Views.ShowChat(nil)
 		if not ok then error(err, 0) end
@@ -25128,7 +25128,7 @@ local function Find(lines, text)
 	return nil
 end
 
-test("1.1 pinned line: a Lord pins one short line with the logged API; it tops the Olympus chats and the Realm for every member, with no popup and no sound", function()
+test("1.1 pinned line: a Lord pins one short line for his guild with the logged API; it tops the Olympus chats and the Realm for its members, with no popup and no sound", function()
 	WithPin(function(w, K, sent, C)
 		local L = ns.L
 		local popups, sounds = 0, 0
@@ -25142,31 +25142,38 @@ test("1.1 pinned line: a Lord pins one short line with the logged API; it tops t
 		eq(#sent, 0)
 		ns.Views.ShowChat("A")
 		eq(Find(ns.Views.Build("realm"), L.PIN_ADD), nil, "no control for a soldier")
+		eq(Find(ns.Views.Build("realm"), L.PIN_ADD_GUILD), nil)
 		ns.Views.ShowChat(nil)
-		-- A Lord: plain text, 100 bytes at most, no escape code or separator.
+		-- A Lord: plain text, 100 bytes at most, no escape code or separator; for his guild alone
+		-- (Konig's review of 1.1: never for the army).
 		AsLord()
 		eq(C.CanPin(), true)
+		eq(C.PinScope(), "guild")
 		ns.Views.ShowChat("L")
-		assert(Find(ns.Views.Build("realm"), L.PIN_ADD), "the Lord's control on the chats")
+		assert(Find(ns.Views.Build("realm"), L.PIN_ADD_GUILD), "the Lord's control on the chats")
+		eq(Find(ns.Views.Build("realm"), L.PIN_ADD), nil, "none for the army")
 		ns.Views.ShowChat(nil)
 		local ok = C.SetPin("  Raid moves to |cffff0000Stranglethorn|r ~ at 9  " .. ("x"):rep(200))
 		eq(ok, true)
 		eq(#sent, 1)
-		eq(sent[1].dist, "CHANNEL"); eq(sent[1].logged, true, "the logged API: the server keeps the words")
+		eq(sent[1].dist, "GUILD", "his own guild alone"); eq(sent[1].logged, true, "the logged API: the server keeps the words")
 		local id, body = sent[1].msg:match("^N1~(%d+)~Olympus Zeus~7200~0~(.*)$")
 		assert(id, sent[1].msg)
 		eq(body:find("|", 1, true), nil, "no escape code"); eq(body:find("~", 1, true), nil)
 		assert(#body <= C.PIN_MAX, #body)
 		eq(body:sub(1, 40), "Raid moves to cffff0000Stranglethorn r a")
-		assert(Printed(w, L.PIN_DONE:format(body)), "told")
+		assert(Printed(w, L.PIN_DONE_GUILD:format(body)), "told")
 		-- Too soon for another; too short.
 		eq(C.SetPin("Another line"), false); assert(Printed(w, L.PIN_WAIT:format(C.PIN_GAP)))
-		-- A soldier's client hears it: on top of the chats and the Realm, a chat line, nothing else.
-		AsSoldier()
+		-- His guildmate's client hears it (his rank from its own roster): on top of the chats and
+		-- the Realm, a chat line, nothing else.
+		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+		ns.me = "Mate-Realm"
+		ns.Roster.byName = { ["Zed-Realm"] = 0, ["Mate-Realm"] = 3 }
 		C.ResetPin()
 		local savedShow = ns.ShowDialog
 		ns.ShowDialog = function() popups = popups + 1 end
-		eq(C.HandlePin("CHANNEL", "Zed-Realm", sent[1].msg), true)
+		eq(C.HandlePin("GUILD", "Zed-Realm", sent[1].msg), true)
 		ns.ShowDialog = savedShow
 		assert(Printed(w, L.PIN_NEW:format("Zed", "Olympus Zeus", body)), "one line in chat")
 		eq(popups, 0, "no popup"); eq(sounds, 0, "no sound")
@@ -25184,7 +25191,7 @@ test("1.1 pinned line: a Lord pins one short line with the logged API; it tops t
 		-- Said again (late logins): the same pin, its end never later.
 		local ends = C.Pin().expires
 		w.clock = w.clock + 300
-		eq(select(2, C.HandlePin("CHANNEL", "Zed-Realm", ("N1~%s~Olympus Zeus~7200~300~%s"):format(id, body))), "repeat")
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", ("N1~%s~Olympus Zeus~7200~300~%s"):format(id, body))), "repeat")
 		eq(C.Pin().expires, ends)
 		-- It ends after 2 hours.
 		w.clock = ends
@@ -25194,10 +25201,13 @@ test("1.1 pinned line: a Lord pins one short line with the logged API; it tops t
 	end)
 end)
 
-test("1.1 pinned line: who may pin (the King, his Stewards and Hands, the Lords), and the King's newer pin wins", function()
+test("1.1 pinned line: who may pin (the King, his Stewards and Hands for the army; a guild master for his guild), and the King's newer pin wins", function()
 	WithPin(function(w, K, sent, C)
 		local function Pin(sender, guild, text, id, age)
 			return C.HandlePin("CHANNEL", sender, ("N1~%d~%s~7200~%d~%s"):format(id or 1, guild, age or 0, text))
+		end
+		local function GuildPin(sender, guild, text, id, age)
+			return C.HandlePin("GUILD", sender, ("N1~%d~%s~7200~%d~%s"):format(id or 1, guild, age or 0, text))
 		end
 		-- A soldier of a guild of neither Lord (our own guild's ranks come from our roster).
 		GetGuildInfo = function() return "Olympus Other", "Member", 3 end
@@ -25208,53 +25218,57 @@ test("1.1 pinned line: who may pin (the King, his Stewards and Hands, the Lords)
 		ns.rdb.guilds["Olympus Zeus"].officers = { { name = "Cap2" } }
 		Vouched(ns.rdb.guilds["Olympus Zeus"], "W3-Realm", "W4-Realm")
 		eq(select(2, Pin("Cap2-Realm", "Olympus Zeus", "a Captain's")), "rank", "a Captain is no Lord")
+		-- A guild master the census vouches for pins for his guild alone (Konig's review of 1.1): on
+		-- the channel his pin is dropped, and over GUILD only his guild's own clients take it.
+		eq(select(2, Pin("Zed-Realm", "Olympus Zeus", "Lord Zed's line", 11)), "rank", "never on the channel")
+		eq(select(2, GuildPin("Zed-Realm", "Olympus Zeus", "Lord Zed's line", 11)), "rank", "not our guild")
 		eq(C.Pin(), nil)
-		-- A Lord's pin.
-		eq(Pin("Zed-Realm", "Olympus Zeus", "Lord Zed's line", 11), true)
+		-- His guildmate's client: his rank from its own roster, not an officer's, and only in our guild's name.
+		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+		ns.me = "Mate-Realm"
+		ns.Roster.byName = { ["Zed-Realm"] = 0, ["Mate-Realm"] = 3, ["Cap3-Realm"] = 1 }
+		eq(select(2, GuildPin("Cap3-Realm", "Olympus Zeus", "an officer's")), "rank", "an officer is no guild master")
+		eq(select(2, GuildPin("Zed-Realm", "Olympus II", "another guild's name")), "rank", "our own guild's name only")
+		eq(GuildPin("Zed-Realm", "Olympus Zeus", "Lord Zed's line", 11), true)
 		eq(C.Pin().rank, C.PIN_LORD)
 		-- The King's newer pin wins.
 		w.clock = w.clock + 60
 		eq(Pin("Asmongold Asmongler-Realm", "Olympus", "The King's line", 22), true)
 		eq(C.Pin().text, "The King's line"); eq(C.Pin().rank, C.PIN_KING)
-		-- A Lord's pin, newer, never replaces the King's; nor does a Hand's.
+		-- A guild master's pin, newer, never replaces the King's; nor does a Hand's.
 		w.clock = w.clock + 120
-		eq(select(2, Pin("Ceo-Realm", "Olympus II", "Lord Ceo's line", 33)), "older")
-		K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~H~5~Olympus~Helper-Realm")
+		eq(select(2, GuildPin("Zed-Realm", "Olympus Zeus", "Lord Zed's newer line", 33)), "older")
+		K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~H~5~Olympus~Helper-Realm,Aide-Realm")
 		eq(K.IsHandName("Helper-Realm"), true)
 		eq(select(2, Pin("Helper-Realm", "Olympus", "A Hand's line", 44)), "older")
 		eq(C.Pin().text, "The King's line")
-		-- A Lord can't take the King's pin down; the King can.
-		eq(select(2, C.HandlePin("CHANNEL", "Zed-Realm", "N1~11~Olympus Zeus~0~0~")), "nothing")
+		-- A guild master can't take the King's pin down; the King can.
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~11~Olympus Zeus~0~0~")), "nothing")
 		eq(C.Pin().text, "The King's line")
 		eq(select(2, C.HandlePin("CHANNEL", "Asmongold Asmongler-Realm", "N1~22~Olympus~0~0~")), "down")
 		eq(C.Pin(), nil)
-		-- A Hand's pin outranks the Lords'.
+		-- A Hand's pin outranks the guild master's.
 		w.clock = w.clock + 120
 		eq(Pin("Helper-Realm", "Olympus", "A Hand's line", 45), true)
 		eq(C.Pin().rank, C.PIN_CROWN)
 		w.clock = w.clock + 120
-		eq(select(2, Pin("Zed-Realm", "Olympus Zeus", "Lord Zed again", 12)), "older")
+		eq(select(2, GuildPin("Zed-Realm", "Olympus Zeus", "Lord Zed again", 12)), "older")
 		-- Of one rank, the one set last: a pin set earlier (said again for late logins) never wins.
 		C.ResetPin()
-		eq(Pin("Zed-Realm", "Olympus Zeus", "Zed's", 13, 0), true)
-		eq(select(2, Pin("Ceo-Realm", "Olympus II", "Ceo's, set 10 minutes ago", 34, 600)), "older")
+		eq(Pin("Helper-Realm", "Olympus", "Helper's", 46, 0), true)
+		eq(select(2, Pin("Aide-Realm", "Olympus", "Aide's, set 10 minutes ago", 34, 600)), "older")
 		w.clock = w.clock + 60
-		eq(Pin("Ceo-Realm", "Olympus II", "Ceo's, newer", 35, 0), true)
-		eq(C.Pin().text, "Ceo's, newer")
-		-- A sender's new pin once a minute at most; the Lords together PIN_FLOOD a minute.
-		eq(select(2, Pin("Ceo-Realm", "Olympus II", "Ceo's again", 36, 0)), "fast")
-		C.ResetPin()
-		C.PIN_FLOOD = 1
-		eq(Pin("Zed-Realm", "Olympus Zeus", "one", 14), true)
-		w.clock = w.clock + 1
-		eq(select(2, Pin("Ceo-Realm", "Olympus II", "two", 37)), "flood")
-		-- Ignored players are ignored here too; and words sent with the plain API are dropped.
+		eq(Pin("Aide-Realm", "Olympus", "Aide's, newer", 35, 0), true)
+		eq(C.Pin().text, "Aide's, newer")
+		-- A sender's new pin once a minute at most.
+		eq(select(2, Pin("Aide-Realm", "Olympus", "Aide's again", 36, 0)), "fast")
+		-- Words sent with the plain API are dropped, over GUILD too.
 		C.ResetPin()
 		C_ChatInfo = { SendAddonMessageLogged = function() end, IsIgnored = nil }
 		ns.Comm.DeliveredLogged = function() return false end
-		eq(select(2, Pin("Zed-Realm", "Olympus Zeus", "plain API", 15)), "unlogged")
+		eq(select(2, GuildPin("Zed-Realm", "Olympus Zeus", "plain API", 15)), "unlogged")
 		ns.Comm.DeliveredLogged = function() return true end
-		eq(Pin("Zed-Realm", "Olympus Zeus", "logged API", 16), true)
+		eq(GuildPin("Zed-Realm", "Olympus Zeus", "logged API", 16), true)
 	end)
 end)
 
@@ -25316,7 +25330,7 @@ test("1.1 pinned line: with the gamepad UI the line is typed in Olympus's own di
 			WithPin(function(w, K, sent, C)
 				AsLord()
 				ns.Views.ShowChat("L")
-				local add = Find(ns.Views.Build("realm"), ns.L.PIN_ADD)
+				local add = Find(ns.Views.Build("realm"), ns.L.PIN_ADD_GUILD)
 				assert(add and add.onClick, "the control")
 				add.onClick()
 				eq(#game.shown, 0, "never the game's popup")
@@ -25353,30 +25367,31 @@ test("1.1 pinned line: a client without N1 (1.0, 0.9.8) drops it unread", functi
 	if not ok then error(err, 0) end
 end)
 
-test("1.1 pinned line: a Lord of a guild whose name has accented letters (24 letters at most, more bytes) pins for every client, as his [Lords] lines reach them", function()
+test("1.1 pinned line: a guild master of a guild whose name has accented letters (24 letters at most, more bytes) pins for his guild, whose members' clients take it", function()
 	WithPin(function(w, K, sent, C)
 		local G = "Olympus Legião Coração" -- 22 letters, 25 bytes
 		eq(#G, 25)
-		ns.rdb.guilds[G] = Vouched({ total = 50, online = 5, zones = {}, t = w.clock, leader = "Luz", realm = "Realm" }, "W7-Realm", "W8-Realm")
-		-- Its guild master's client: pinned for the army.
+		-- Its guild master's client: pinned for his guild, over GUILD.
 		GetGuildInfo = function() return G, "Guild Master", 0 end
 		ns.me = "Luz-Realm"
 		eq(C.CanPin(), true)
 		eq(C.SetPin("Raid at nine in Ashenvale"), true)
-		assert(Printed(w, ns.L.PIN_DONE:format("Raid at nine in Ashenvale")), "told")
+		assert(Printed(w, ns.L.PIN_DONE_GUILD:format("Raid at nine in Ashenvale")), "told")
+		eq(sent[1].dist, "GUILD")
 		eq(sent[1].msg:match("^N1~%d+~(.-)~"), G)
-		-- Another guild's soldier: shown, as his [Lords] line from that guild would be.
-		AsSoldier()
+		-- His guildmate's client: shown (his rank from its own roster).
+		GetGuildInfo = function() return G, "Member", 4 end
+		ns.me = "Sol-Realm"
+		ns.Roster.byName = { ["Luz-Realm"] = 0, ["Sol-Realm"] = 4 }
 		C.ResetPin()
-		eq(Codec.DecodeChat(Codec.EncodeChat("L", G, 1, nil, "x")).guild, G, "his [Lords] line is read")
-		eq(C.PinRank("Luz-Realm", G), C.PIN_LORD)
-		eq(C.HandlePin("CHANNEL", "Luz-Realm", sent[1].msg), true)
+		eq(C.PinRank("Luz-Realm", G, "GUILD"), C.PIN_LORD)
+		eq(C.HandlePin("GUILD", "Luz-Realm", sent[1].msg), true)
 		eq(C.Pin().guild, G); eq(C.Pin().text, "Raid at nine in Ashenvale")
 		assert(Printed(w, ns.L.PIN_NEW:format("Luz", G, "Raid at nine in Ashenvale")), "one line in chat")
 		-- A name longer than any guild's (25 letters), or with a control byte: dropped unread.
 		C.ResetPin()
-		eq(select(2, C.HandlePin("CHANNEL", "Luz-Realm", "N1~5~Olympus Abcdefghijklmnopq~7200~0~too long")), "bad")
-		eq(select(2, C.HandlePin("CHANNEL", "Luz-Realm", "N1~5~Olympus\tLegion~7200~0~a control byte")), "bad")
+		eq(select(2, C.HandlePin("GUILD", "Luz-Realm", "N1~5~Olympus Abcdefghijklmnopq~7200~0~too long")), "bad")
+		eq(select(2, C.HandlePin("GUILD", "Luz-Realm", "N1~5~Olympus\tLegion~7200~0~a control byte")), "bad")
 		eq(C.Pin(), nil)
 	end)
 end)
@@ -25429,66 +25444,72 @@ test("1.1 pinned line: an officer of <Olympus> (a Lord on its own members' clien
 	end)
 end)
 
-test("1.1 pinned line: a Lord takes down no other Lord's pin; a higher rank's takedown names the pin, once a minute at most; every takedown says who in chat", function()
+test("1.1 pinned line: only its setter or a higher rank takes a pin down; a higher rank's takedown names the pin, once a minute at most; every takedown says who in chat", function()
 	WithPin(function(w, K, sent, C)
 		local L = ns.L
-		local function Pin(sender, guild, text, id)
-			return C.HandlePin("CHANNEL", sender, ("N1~%d~%s~7200~0~%s"):format(id, guild, text))
+		local function GuildPin(sender, text, id)
+			return C.HandlePin("GUILD", sender, ("N1~%d~Olympus Zeus~7200~0~%s"):format(id, text))
 		end
-		local function Down(sender, guild, id) return select(2, C.HandlePin("CHANNEL", sender, ("N1~%d~%s~0~0~"):format(id, guild))) end
-		-- A soldier of a third guild.
-		GetGuildInfo = function() return "Olympus Other", "Member", 3 end
-		ns.me = "Soldier-Realm"
-		eq(Pin("Zed-Realm", "Olympus Zeus", "Lord Zed's line", 5), true)
-		-- Another Lord (the same rank): nothing taken down, even naming its id.
+		local function Down(dist, sender, guild, id) return select(2, C.HandlePin(dist, sender, ("N1~%d~%s~0~0~"):format(id, guild))) end
+		-- A member of <Olympus Zeus>: its guild master's pin, his rank from our roster.
+		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+		ns.me = "Mate-Realm"
+		ns.Roster.byName = { ["Zed-Realm"] = 0, ["Mate-Realm"] = 3, ["Cap3-Realm"] = 1, ["Helper-Realm"] = 3 }
+		eq(GuildPin("Zed-Realm", "Lord Zed's line", 5), true)
+		-- Another guild's master, or one of ours who is not its master: nothing taken down, even naming its id.
 		w.printed = {}
-		for _ = 1, 3 do eq(Down("Ceo-Realm", "Olympus II", 5), "nothing") end
+		for _ = 1, 3 do
+			eq(Down("CHANNEL", "Ceo-Realm", "Olympus II", 5), "rank")
+			eq(Down("GUILD", "Cap3-Realm", "Olympus Zeus", 5), "rank")
+		end
 		eq(C.Pin().text, "Lord Zed's line")
 		eq(#w.printed, 0)
 		-- A Hand (a higher rank): the pin it names alone, and it is said who took it down.
 		K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~H~5~Olympus~Helper-Realm")
-		eq(Down("Helper-Realm", "Olympus", 99), "nothing", "another pin's id")
+		w.clock = w.clock + 50
+		eq(Down("CHANNEL", "Helper-Realm", "Olympus", 99), "nothing", "another pin's id")
 		eq(C.Pin().text, "Lord Zed's line")
-		eq(Down("Helper-Realm", "Olympus", 5), "down")
+		eq(Down("CHANNEL", "Helper-Realm", "Olympus", 5), "down")
 		eq(C.Pin(), nil)
 		assert(Printed(w, L.PIN_DOWN_BY:format("Helper", "Olympus", "Zed")), "who took it down, in chat")
 		-- Once a minute at most from each.
 		w.clock = w.clock + 5
-		eq(Pin("Ceo-Realm", "Olympus II", "Lord Ceo's line", 6), true)
+		eq(GuildPin("Zed-Realm", "Lord Zed's second", 6), true)
 		w.clock = w.clock + 5
-		eq(Down("Helper-Realm", "Olympus", 6), "fast")
-		eq(C.Pin().text, "Lord Ceo's line")
+		eq(Down("CHANNEL", "Helper-Realm", "Olympus", 6), "fast")
+		eq(C.Pin().text, "Lord Zed's second")
 		w.clock = w.clock + C.PIN_GAP
-		eq(Down("Helper-Realm", "Olympus", 6), "down")
+		eq(Down("CHANNEL", "Helper-Realm", "Olympus", 6), "down")
 		-- Its setter takes his own down: said too.
 		w.clock = w.clock + C.PIN_GAP
-		eq(Pin("Zed-Realm", "Olympus Zeus", "Lord Zed's third", 7), true)
+		eq(GuildPin("Zed-Realm", "Lord Zed's third", 7), true)
 		w.printed = {}
-		eq(Down("Zed-Realm", "Olympus Zeus", 7), "down")
+		eq(Down("GUILD", "Zed-Realm", "Olympus Zeus", 7), "down")
 		assert(Printed(w, L.PIN_DOWN_OWN:format("Zed", "Olympus Zeus")), "said")
-		-- The other Lord's own client: no click on Zed's line, and /oly pin off refused.
+		-- An officer's own client: no click on Zed's line, and /oly pin off refused.
 		w.clock = w.clock + C.PIN_GAP
-		eq(Pin("Zed-Realm", "Olympus Zeus", "Lord Zed's fourth", 8), true)
-		GetGuildInfo = function() return "Olympus II", "Lord", 0 end
-		ns.me = "Ceo-Realm"
+		eq(GuildPin("Zed-Realm", "Lord Zed's fourth", 8), true)
+		GetGuildInfo = function() return "Olympus Zeus", "Officer", 1 end
+		ns.me = "Cap3-Realm"
 		eq(C.CanTakeDown(), false)
 		local line = Find(ns.Views.Build("realm"), "Lord Zed's fourth")
 		assert(line, "shown"); eq(line.onClick, nil, "no click to take it down")
 		eq(select(2, C.TakeDownPin()), "rank")
 		assert(Printed(w, L.PIN_NOT_YOURS), "told")
 		eq(#sent, 0)
-		-- The Hand's own client: his takedown names the pin; another within the minute waits.
-		GetGuildInfo = function() return "Olympus Other", "Member", 3 end
+		-- The Hand's own client (a member of that guild): his takedown names the pin, on the
+		-- channel; another within the minute waits.
+		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
 		ns.me = "Helper-Realm"
 		eq(C.CanTakeDown(), true)
 		eq(C.TakeDownPin(), true)
-		eq(sent[1].msg, "N1~8~Olympus~0~0~")
-		w.clock = w.clock + 5
-		eq(Pin("Ceo-Realm", "Olympus II", "Lord Ceo's second", 9), true)
+		eq(sent[1].msg, "N1~8~Olympus~0~0~"); eq(sent[1].dist, "CHANNEL")
+		w.clock = w.clock + 50
+		eq(GuildPin("Zed-Realm", "Lord Zed's fifth", 9), true)
 		eq(select(2, C.TakeDownPin()), "fast")
-		assert(Printed(w, L.PIN_DOWN_WAIT:format(C.PIN_GAP - 5)), "told to wait")
+		assert(Printed(w, L.PIN_DOWN_WAIT:format(C.PIN_GAP - 50)), "told to wait")
 		eq(#sent, 1)
-		eq(C.Pin().text, "Lord Ceo's second")
+		eq(C.Pin().text, "Lord Zed's fifth")
 	end)
 end)
 
@@ -37658,6 +37679,130 @@ test("1.1 the bank's gone since the last snapshot: a tab that never loaded, with
 		if not ok then error(err, 0) end
 	end)
 end)
+
+---------------------------------------------------------------------------
+-- 1.1 (Konig's review of #45, item 1): the pinned line. The army's line only from the King, his
+-- Stewards and Hands; a guild master pins for his own guild over GUILD, his rank read in his
+-- guildmates' own rosters; takedowns stick; net-off, the chats' opt-in and block terms apply.
+---------------------------------------------------------------------------
+
+do
+-- Runs fn(w, K, sent, C) on the Throne's bench (WithThrone), as the pinned line's own tests do:
+-- sends recorded with their logged flag, the channel ready, the pin (and what it saved) forgotten
+-- before and after, our roster put back.
+local function PinBench(fn)
+	WithThrone(function(w, K)
+		local C = ns.Channels
+		local saved = { ready = ns.Comm.ChannelReady, send = ns.Comm.Send, info = C_ChatInfo, delivered = ns.Comm.DeliveredLogged,
+			byName = ns.Roster.byName, filter = ns.db.filterWords, netoff = ns.rdb.netoff, chat = ns.db.addonChat }
+		local sent = {}
+		local ok, err = pcall(function()
+			C.ResetPin()
+			ns.Comm.ChannelReady = function() return true end
+			ns.Comm.Send = function(dist, msg, key, urgent, logged) sent[#sent + 1] = { dist = dist, msg = msg, key = key, logged = logged } end
+			fn(w, K, sent, C)
+		end)
+		ns.Comm.ChannelReady, ns.Comm.Send, C_ChatInfo, ns.Comm.DeliveredLogged = saved.ready, saved.send, saved.info, saved.delivered
+		ns.Roster.byName, ns.db.filterWords, ns.rdb.netoff, ns.db.addonChat = saved.byName, saved.filter, saved.netoff, saved.chat
+		if ns.Moderation.Reset then ns.Moderation.Reset(); ns.Moderation.Load() end
+		C.ResetPin()
+		ns.Views.ShowChat(nil)
+		if not ok then error(err, 0) end
+	end)
+end
+local function FindLine(lines, text)
+	for i, l in ipairs(lines) do if type(l.text) == "string" and l.text:find(text, 1, true) then return l, i end end
+	return nil
+end
+
+test("1.1 pinned line (Konig's review): two characters reporting a made-up guild that names one of them its leader pin for nobody", function()
+	PinBench(function(w, K, sent, C)
+		local G = "Olympus Fakers"
+		-- The census as two alts can write it: each reports the made-up guild, naming the first its leader.
+		ns.rdb.guilds[G] = Vouched({ total = 12, online = 2, zones = {}, t = w.clock, leader = "Alt1", realm = "Realm" }, "Alt1-Realm", "Alt2-Realm")
+		AsSoldier()
+		local level, verified, rankIndex = C.VerifiedLevel("Alt1-Realm", G)
+		eq(level, 3, "the census makes him one of its Lords"); eq(verified, true); eq(rankIndex, 0)
+		-- His pin for the army: dropped on every client outside that guild, whatever the census says.
+		eq(select(2, C.HandlePin("CHANNEL", "Alt1-Realm", ("N1~7~%s~7200~0~Free gold at the bank, whisper me"):format(G))), "rank")
+		eq(C.Pin(), nil)
+		-- Over GUILD it reaches his own guild alone: nobody else's client takes it.
+		eq(select(2, C.HandlePin("GUILD", "Alt1-Realm", ("N1~8~%s~7200~0~Free gold"):format(G))), "rank")
+		eq(C.Pin(), nil)
+		eq(FindLine(ns.Views.Build("realm"), "Free gold"), nil, "nothing on the Realm")
+	end)
+end)
+
+test("1.1 pinned line (Konig's review): a guild master's pin is his guild's, read in its members' own rosters: demoted there, he pins for nobody", function()
+	PinBench(function(w, K, sent, C)
+		-- The census still names Zed the leader of <Olympus Zeus> (two reports vouch for it).
+		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+		ns.me = "Mate-Realm"
+		ns.Roster.byName = { ["Zed-Realm"] = 0, ["Mate-Realm"] = 3 }
+		eq(C.HandlePin("GUILD", "Zed-Realm", "N1~5~Olympus Zeus~7200~0~Raid at nine"), true)
+		eq(C.Pin().rank, C.PIN_LORD)
+		eq(C.Pin().dist, "GUILD")
+		-- The server's roster moves the guild to another master: Zed's next pin is dropped here.
+		C.ResetPin()
+		ns.Roster.byName = { ["Zed-Realm"] = 2, ["Nova-Realm"] = 0, ["Mate-Realm"] = 3 }
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~6~Olympus Zeus~7200~0~Raid at ten")), "rank")
+		eq(C.HandlePin("GUILD", "Nova-Realm", "N1~9~Olympus Zeus~7200~0~Raid at ten"), true)
+		-- Never the channel's: the guild master's line on the channel is nobody's (not even his own guild's).
+		C.ResetPin()
+		eq(select(2, C.HandlePin("CHANNEL", "Nova-Realm", "N1~9~Olympus Zeus~7200~0~Raid at ten")), "rank")
+		-- His own client: the pin goes over GUILD, its takedown too; the King's and his Crown's on the channel.
+		GetGuildInfo = function() return "Olympus Zeus", "Guild Master", 0 end
+		ns.me = "Nova-Realm"
+		eq(C.PinScope(), "guild")
+		eq(C.SetPin("Raid at ten"), true)
+		eq(sent[#sent].dist, "GUILD")
+		eq(C.TakeDownPin(), true)
+		eq(sent[#sent].dist, "GUILD"); assert(sent[#sent].msg:find("^N1~%d+~Olympus Zeus~0~0~$"), sent[#sent].msg)
+		AsKing()
+		eq(C.PinScope(), "army")
+		w.clock = w.clock + C.PIN_GAP
+		eq(C.SetPin("Muster at the gates"), true)
+		eq(sent[#sent].dist, "CHANNEL"); assert(sent[#sent].msg:find("^N1~%d+~Olympus~7200~0~Muster at the gates$"), sent[#sent].msg)
+	end)
+end)
+
+test("1.1 pinned line (Konig's review): a client without N1 (1.0, 0.9.8) drops a guild master's pin over GUILD unread", function()
+	local savedChannel = GetChannelName
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		for _, old in ipairs({ false, true }) do
+			local cns, Deliver = FreshComm(old)
+			cns.Comm.JoinChannel()
+			local captured
+			local savedCapture = ns.CaptureError
+			ns.CaptureError = function(where, e) captured = where .. ": " .. tostring(e) end
+			Deliver("GUILD", "Zed-Realm", "N1~5~Olympus Zeus~7200~0~Raid moves to Stranglethorn")
+			Deliver("GUILD", "Zed-Realm", "N1~5~Olympus Zeus~0~0~")
+			ns.CaptureError = savedCapture
+			eq(captured, nil, "no error")
+		end
+	end)
+	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+test("1.1 pinned line (Konig's review): the guild master's lines in both languages", function()
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	for _, k in ipairs({ "PIN_ADD_GUILD", "PIN_ADD_GUILD_TIP", "PIN_DONE_GUILD", "PIN_ONLY", "PIN_USAGE", "HELP_PIN", "PIN_ASK" }) do
+		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
+		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
+	end
+	eq(select(2, ns.L.PIN_DONE_GUILD:gsub("%%s", "")), 1)
+	eq(select(2, pt.L.PIN_DONE_GUILD:gsub("%%s", "")), 1)
+	assert(ns.L.PIN_ONLY:find("guild", 1, true), "who pins for a guild")
+end)
+
+end -- (the pinned line's review)
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

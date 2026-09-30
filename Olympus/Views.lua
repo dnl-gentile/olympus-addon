@@ -1209,16 +1209,19 @@ local function ChatLines(q)
 			end,
 			gapAfter = true,
 		}
-		-- The King, his Stewards and Hands, and the Lords: one line pinned for everyone (1.1),
-		-- typed in an Olympus dialog (ns.ShowDialog: the gamepad UI's own window there).
+		-- The King, his Stewards and Hands: one line pinned for the army (1.1); a guild master: one
+		-- for his own guild (Channels.PinScope). Typed in an Olympus dialog (ns.ShowDialog: the
+		-- gamepad UI's own window there).
 		if C.CanPin and C.CanPin() then
+			local guildOnly = C.PinScope and C.PinScope() == "guild"
+			local label = guildOnly and L.PIN_ADD_GUILD or L.PIN_ADD
 			lines[#lines].gapAfter = nil
 			lines[#lines + 1] = {
-				text = Green(L.PIN_ADD),
+				text = Green(label),
 				onClick = function() ns.ShowDialog("OLYMPUS_PIN") end,
 				tooltip = function(tt)
-					tt:AddLine(L.PIN_ADD, 1, 0.82, 0)
-					tt:AddLine(L.PIN_ADD_TIP, 1, 1, 1, true)
+					tt:AddLine(label, 1, 0.82, 0)
+					tt:AddLine(guildOnly and L.PIN_ADD_GUILD_TIP or L.PIN_ADD_TIP, 1, 1, 1, true)
 				end,
 				gapAfter = true,
 			}

@@ -720,45 +720,45 @@ ns.Comm.Handle("M1", function(dist, sender, text)
 end)
 
 ---------------------------------------------------------------------------
--- The pinned line (1.1): one short line on top of the Olympus chats and the Realm, for every
--- member, lighter than a writ (no parchment, nothing to acknowledge, no popup, no sound): a raid
--- move or a gates change that has to stay on screen. Not a second decree system: one line, the
--- setter's own words, typed by a person.
--- Who pins: the King (his pinned name), his Stewards and Hands (for his guild, on their word, as
--- their decrees), and the Lords every client can check alike: the guild masters of the Olympus
--- guilds (VerifiedLevel, as a [Lords] line's rank: our roster for our own guild, the census for
--- the others). The officers of <Olympus> are Lords on its own members' clients alone
--- (ns.IsCrownRank), and a pin is one line for the whole army: they pin as his Hands, never as
--- Lords, so no client shows a line the others drop.
--- One line for the whole channel. A newer pin takes the place of one of its own rank or lower:
--- the King's newer pin always wins, a Steward's or a Hand's never replaces the King's, a Lord's
--- never replaces theirs. It ends PIN_TIME after it was set, or when its setter or a higher rank
--- takes it down (the King anyone's, his Stewards and Hands a Lord's; a Lord only his own). A
+-- The pinned line (1.1): one short line on top of the Olympus chats and the Realm, lighter than a
+-- writ (no parchment, nothing to acknowledge, no popup, no sound): a raid move or a gates change
+-- that has to stay on screen. Not a second decree system: one line, the setter's own words,
+-- typed by a person.
+-- Who pins, and for whom (Konig's review of 1.1): the army's line comes from the King (his pinned
+-- name), his Stewards (the signed titles list) and his Hands (the King's list or a Steward's)
+-- alone, on the Olympus channel: every client knows them alike, and no census report makes
+-- anyone one of them. A guild master pins for his own guild only, over GUILD: his guildmates'
+-- clients read his rank in their own roster (the server's word), never in the census, which
+-- anyone on the channel writes to (two characters reporting a made-up guild that names one of
+-- them its leader would otherwise pin for the whole army). The officers of <Olympus>, Lords on
+-- its own members' clients alone (ns.IsCrownRank), pin for the army only as his Hands.
+-- One line on each client. A newer pin takes the place of one of its own rank or lower: the
+-- King's newer pin always wins, a Steward's or a Hand's never replaces the King's, a guild
+-- master's never replaces theirs. It ends PIN_TIME after it was set, or when its setter or a
+-- higher rank takes it down (the King anyone's, his Stewards and Hands a guild master's). A
 -- higher rank's takedown names the pin it takes down (its id), once a minute at most from each
 -- sender, and every takedown says in chat who took the line down. The setter's client repeats it
 -- every PIN_RESEND for late logins (a pin replaced there is no longer its to repeat), with how
 -- long it has left and how long ago it was set: a repeat never makes a pin newer. Its words go
 -- out with the logged API (the server keeps them, so abuse can be reported), plain text, PIN_MAX
--- bytes at most; a sender's new pin once a minute at most, and the Lords' together PIN_FLOOD a
--- minute on each client.
+-- bytes at most; a sender's new pin is taken once a minute at most.
 --   N1~<id>~<guild>~<seconds left>~<seconds since set>~<text>     a pin
 --   N1~<id>~<guild>~0~0~        taken down (<id>: the pin's; <guild>: the sender's own)
--- Clients before 1.1 know no N1 and drop it unread.
+-- On the Olympus channel from the King, his Stewards and Hands (<guild>: the King's); over GUILD
+-- from a guild master (<guild>: his own). Clients before 1.1 know no N1 and drop it unread.
 ---------------------------------------------------------------------------
 
 Channels.PIN_MAX = 100         -- bytes of a pinned line
 Channels.PIN_TIME = 2 * 3600   -- a pin ends this long after it was set
 Channels.PIN_RESEND = 300      -- the setter's client repeats it this often
 Channels.PIN_GAP = 60          -- a sender's new pin at most this often (taken a little sooner: queues)
-Channels.PIN_FLOOD = 3         -- the Lords' new pins taken a minute, whoever sends them
 Channels.PIN_KING, Channels.PIN_CROWN, Channels.PIN_LORD = 3, 2, 1
 
-local pin            -- the pinned line: { id, sender, guild, text, rank, setAt, expires, mine, sentAt }
+local pin            -- the pinned line: { id, sender, guild, text, rank, dist, setAt, expires, mine, sentAt }
 local lastPinSet = -math.huge
 local lastPinDown = -math.huge -- when we last took down someone else's pin
 local pinFrom = {}   -- [sender] = when a new pin of theirs was last taken
 local downFrom = {}  -- [sender] = when their takedown of someone else's pin was last taken
-local lordPins = {}  -- times of the Lords' new pins taken, the last minute
 
 -- Plain text: no escape code, separator or control byte; spaces tidied; PIN_MAX bytes at most.
 function Channels.CleanPin(text)
@@ -766,33 +766,44 @@ function Channels.CleanPin(text)
 	return (ns.Cut(text, Channels.PIN_MAX):gsub("%s+$", ""))
 end
 
--- The rank `sender` pins with for `guild`: PIN_KING, PIN_CROWN (a Steward or a Hand, for the
--- King's guild), PIN_LORD (its guild master), or nil for anyone else. Never the rank a message
--- claims. An officer of <Olympus> is no Lord here even on its own members' clients: the others'
--- drop his pin, and the army would not see one line.
-function Channels.PinRank(sender, guild)
+-- The rank `sender` pins with for `guild`, heard over `dist` (the channel when not given): on the
+-- channel PIN_KING (the King by his pinned name) or PIN_CROWN (a Steward or a Hand), for the
+-- King's guild; over GUILD PIN_LORD, our own guild's master as our roster has him; nil for anyone
+-- else. Never the rank a message claims, and never the census's word (Data.KnownRank): anyone on
+-- the channel reports to it. An officer of <Olympus> is no Lord here even on its own members'
+-- clients: he pins for the army as a Hand.
+function Channels.PinRank(sender, guild, dist)
 	if type(sender) ~= "string" or type(guild) ~= "string" or not ns.IsFederation(guild) then return nil end
-	local K = ns.King
-	if ns.IsKingGuild(guild) then
-		if ns.IsKingCharacter(sender) then return Channels.PIN_KING end
-		if K and ((K.IsStewardName and K.IsStewardName(sender)) or (K.IsHandName and K.IsHandName(sender))) then return Channels.PIN_CROWN end
+	if dist == "GUILD" then
+		if guild ~= GetGuildInfo("player") then return nil end
+		return ns.Roster.RankOf(sender) == 0 and Channels.PIN_LORD or nil
 	end
-	local level, verified, rankIndex = Channels.VerifiedLevel(sender, guild)
-	if verified and level >= TIERS.L.level and rankIndex == 0 then return Channels.PIN_LORD end
+	if (dist or "CHANNEL") ~= "CHANNEL" or not ns.IsKingGuild(guild) then return nil end
+	if ns.IsKingCharacter(sender) then return Channels.PIN_KING end
+	local K = ns.King
+	if K and ((K.IsStewardName and K.IsStewardName(sender)) or (K.IsHandName and K.IsHandName(sender))) then return Channels.PIN_CROWN end
 	return nil
 end
 
--- Our own rank, as the others' clients will see it (Channels.PinRank), and the guild our pin
--- names: a Steward or a Hand pins for the King's guild; a guild master by our own rank (the
--- server's), never the officers of <Olympus> (Lords on its own members' clients alone).
+-- Our own rank, as the others' clients will see it (Channels.PinRank), the guild our pin names and
+-- where it goes: the King, a Steward or a Hand for the army (the King's guild, on the channel); a
+-- guild master, by our own rank (the server's), for his own guild alone (GUILD). Never the
+-- officers of <Olympus> (Lords on its own members' clients alone).
 local function MyPin()
 	local K = ns.King
-	if K and K.IsKing and K.IsKing() and ns.IsKingCharacter(ns.me) then return Channels.PIN_KING, GetGuildInfo("player") end
-	if K and ((K.IsSteward and K.IsSteward()) or (K.IsHand and K.IsHand())) then return Channels.PIN_CROWN, ns.KingGuildName() end
-	if ns.IsMember() and ns.Roster.MyRank() == 0 and Channels.MyLevel() >= TIERS.L.level then return Channels.PIN_LORD, GetGuildInfo("player") end
+	if K and K.IsKing and K.IsKing() and ns.IsKingCharacter(ns.me) then return Channels.PIN_KING, GetGuildInfo("player"), "CHANNEL" end
+	if K and ((K.IsSteward and K.IsSteward()) or (K.IsHand and K.IsHand())) then return Channels.PIN_CROWN, ns.KingGuildName(), "CHANNEL" end
+	if ns.IsMember() and ns.Roster.MyRank() == 0 and Channels.MyLevel() >= TIERS.L.level then return Channels.PIN_LORD, GetGuildInfo("player"), "GUILD" end
 	return nil
 end
 function Channels.CanPin() return MyPin() ~= nil end
+-- "army" (the King, his Stewards and Hands: the channel) or "guild" (a guild master: his guild
+-- alone); nil for anyone else.
+function Channels.PinScope()
+	local rank, _, dist = MyPin()
+	if not rank then return nil end
+	return dist == "GUILD" and "guild" or "army"
+end
 
 local function PinChanged()
 	ns.Fire("PIN_CHANGED")
@@ -809,7 +820,9 @@ function Channels.Pin(now)
 	return pin
 end
 
-local function SendPin(p, now, down)
+-- Where a pin goes: the channel, or its guild (a guild master's). One of each waiting at most: a
+-- newer one takes its place in the queue (key). Logged: its words.
+local function SendPin(p, now, down, key)
 	local msg
 	if down then
 		msg = ("N1~%d~%s~0~0~"):format(p.id, p.guild)
@@ -818,14 +831,15 @@ local function SendPin(p, now, down)
 			math.max(0, math.floor(now - p.setAt)), p.text)
 	end
 	p.sentAt = now
-	-- (One waiting at most: a newer one takes its place in the queue. Logged: its words.)
-	ns.Comm.Send("CHANNEL", msg, "pin", nil, true)
+	local dist = p.dist == "GUILD" and "GUILD" or "CHANNEL"
+	ns.Comm.Send(dist, msg, key or ("pin:" .. dist), nil, true)
 end
 
--- /oly pin <text>, or the chat page's "Pin a line": up for PIN_TIME, for the whole channel.
+-- /oly pin <text>, or the chat page's "Pin a line": up for PIN_TIME, for the army (the King, his
+-- Stewards and Hands) or for his guild (a guild master).
 function Channels.SetPin(text, now)
 	now = now or ns.Now()
-	local rank, guild = MyPin()
+	local rank, guild, dist = MyPin()
 	if not rank then
 		ns.Print(L.PIN_ONLY)
 		return false, "rank"
@@ -839,7 +853,7 @@ function Channels.SetPin(text, now)
 		ns.Print(L.CHAN_LOCKDOWN)
 		return false, "lockdown"
 	end
-	if not ns.Comm.ChannelReady() then
+	if dist == "CHANNEL" and not ns.Comm.ChannelReady() then
 		ns.Print(L.CHAN_NOT_READY)
 		return false, "ready"
 	end
@@ -853,10 +867,10 @@ function Channels.SetPin(text, now)
 		return false, "outranked"
 	end
 	lastPinSet = now
-	pin = { id = math.random(1, 99999), sender = ns.me, guild = guild, text = text, rank = rank, setAt = now,
+	pin = { id = math.random(1, 99999), sender = ns.me, guild = guild, text = text, rank = rank, dist = dist, setAt = now,
 		expires = now + Channels.PIN_TIME, mine = true }
 	SendPin(pin, now)
-	ns.Print(L.PIN_DONE:format(text))
+	ns.Print((dist == "GUILD" and L.PIN_DONE_GUILD or L.PIN_DONE):format(text))
 	PinChanged()
 	return true, "ok"
 end
@@ -873,8 +887,9 @@ function Channels.CanTakeDown(now)
 	return rank ~= nil and rank > p.rank
 end
 
--- /oly pin off, or the pinned line's click: taken down for the whole channel. Someone else's:
--- named by its id, once a minute at most (as the others' clients take it, HandlePin).
+-- /oly pin off, or the pinned line's click: taken down for everyone it reached (ours: where it
+-- went). Someone else's: named by its id, once a minute at most (as the others' clients take
+-- it, HandlePin), where our own pin would go.
 function Channels.TakeDownPin(now)
 	now = now or ns.Now()
 	local p = Channels.Pin(now)
@@ -894,8 +909,12 @@ function Channels.TakeDownPin(now)
 		end
 		lastPinDown = now
 	end
-	local _, guild = MyPin()
-	SendPin({ id = p.id, guild = own and p.guild or guild }, now, true)
+	local _, guild, dist = MyPin()
+	if own then
+		SendPin({ id = p.id, guild = p.guild, dist = p.dist }, now, true)
+	else
+		SendPin({ id = p.id, guild = guild, dist = dist }, now, true, "pindown")
+	end
 	pin = nil
 	ns.Print(L.PIN_TAKEN_DOWN)
 	PinChanged()
@@ -909,9 +928,9 @@ function Channels.RepeatPin(now)
 	if p and p.mine and now - (p.sentAt or -math.huge) >= Channels.PIN_RESEND then SendPin(p, now) end
 end
 
--- Returns taken, reason.
+-- Returns taken, reason. The army's from the channel, a guild master's from our guild (GUILD).
 function Channels.HandlePin(dist, sender, text, now)
-	if dist ~= "CHANNEL" then return false, "dist" end
+	if dist ~= "CHANNEL" and dist ~= "GUILD" then return false, "dist" end
 	now = now or ns.Now()
 	sender = ns.FullName(sender)
 	local id, guild, left, age, body = tostring(text):match("^N1~(%d+)~([^~]*)~(%d+)~(%d+)~(.*)$")
@@ -924,9 +943,9 @@ function Channels.HandlePin(dist, sender, text, now)
 	if C_ChatInfo and C_ChatInfo.SendAddonMessageLogged and ns.Comm.DeliveredLogged and not ns.Comm.DeliveredLogged() then
 		return false, "unlogged"
 	end
-	local rank = Channels.PinRank(sender, guild)
+	local rank = Channels.PinRank(sender, guild, dist)
 	if not rank then
-		ns.Log("pin from %s <%s> ignored: not the King, his Stewards or Hands, or a Lord we can verify", sender, guild)
+		ns.Log("pin from %s <%s> (%s) ignored: not the King, his Stewards or Hands, nor our own guild master", sender, guild, dist)
 		return false, "rank"
 	end
 	local current = Channels.Pin(now)
@@ -959,13 +978,8 @@ function Channels.HandlePin(dist, sender, text, now)
 	-- A higher rank's stays; of the same rank, the one set last.
 	if current and (current.rank > rank or (current.rank == rank and current.setAt > setAt)) then return false, "older" end
 	if now - (pinFrom[sender] or -math.huge) < Channels.PIN_GAP * 0.75 then return false, "fast" end
-	if rank == Channels.PIN_LORD then
-		for i = #lordPins, 1, -1 do if now - lordPins[i] > 60 then table.remove(lordPins, i) end end
-		if #lordPins >= Channels.PIN_FLOOD then return false, "flood" end
-		lordPins[#lordPins + 1] = now
-	end
 	pinFrom[sender] = now
-	pin = { id = id, sender = sender, guild = guild, text = body, rank = rank, setAt = setAt, expires = now + left }
+	pin = { id = id, sender = sender, guild = guild, text = body, rank = rank, dist = dist, setAt = setAt, expires = now + left }
 	Say(DEFAULT_CHAT_FRAME, "|cffffd200" .. L.PIN_NEW:format(ns.DisplayName(sender) or "?", Codec.Plain(guild), body) .. "|r")
 	ns.Log("pin from %s <%s> (rank %d)", sender, guild, rank)
 	PinChanged()
@@ -982,7 +996,7 @@ function Channels.PinStatus(now)
 		p.mine and ", ours" or "", math.ceil((p.expires - (now or ns.Now())) / 60))
 end
 
-function Channels.ResetPin() pin, lastPinSet, lastPinDown = nil, -math.huge, -math.huge; wipe(pinFrom); wipe(downFrom); wipe(lordPins) end -- tests
+function Channels.ResetPin() pin, lastPinSet, lastPinDown = nil, -math.huge, -math.huge; wipe(pinFrom); wipe(downFrom) end -- tests
 
 StaticPopupDialogs["OLYMPUS_PIN"] = {
 	text = L.PIN_ASK,
