@@ -21,10 +21,10 @@ local L = ns.L
 -- King sees all of it; what the rest of the army sees is the King's choice, three switches (the
 -- balance, the ranking, the book), and with any of them on the Treasury tab appears for every
 -- member with the addon. (The channel is readable by anyone on it: the switches choose what the
--- addon shows, they don't hide the numbers.) The King's word carries the time he gave it, and
--- the Treasurer's book repeats his switches: members who never meet the King online still get
--- them. His list of keepers comes from his client and his Stewards' alone (Konig's review of
--- 1.0.0: the Treasurer's book could name anyone a keeper).
+-- addon shows, they don't hide the numbers.) The King's word carries the time he gave it; his
+-- switches, like his list of keepers, count only from his client and his Stewards' (Konig's
+-- review of 1.0.0: the Treasurer's book could name anyone a keeper; of 1.1: it could set the
+-- switches too). The Treasurer's book still carries them, for 1.0's addons alone.
 -- 1.0's fresh start: the books of 0.9 are closed (kept in the saved variables, never shown or
 -- sent) and each keeper's book of 1.0 opens at his character's gold at his first login on 1.0
 -- (or when the King names him). The epoch travels in the message: 1.0 clients never read 0.9's
@@ -36,8 +36,8 @@ local L = ns.L
 --   (checked when it comes, and refused whole when it fails: ReadBook. The balance is the
 --   opening, plus all in, less all out, plus the transfers in, less the transfers out.)
 --   (the book's lines: i a donation, o a payment, r and s a transfer received and sent; items
---   with copper 0. The switches only count from the Treasurer; the keepers field is "-", and
---   read from nobody's book.)
+--   with copper 0. The switches: only in the Treasurer's, read by 1.0's addons alone (1.1: from
+--   nobody's book); the keepers field is "-", and read from nobody's book.)
 --   T8~<guild>~<balance>~<all in>~<all out>~<week in>~<donors this week>~<switches@time|->~<Name:copper,...>~<i|o:copper:Name:m|t:time,...>
 --     0.9's treasury: the Treasurer's client still sends it, the treasury of 1.0 in short, for
 --     0.9 clients; 1.0 clients never read it.
@@ -1208,8 +1208,9 @@ end
 -- "ranking", the book's lines and the items donated with "book". Its keepers' field (read by
 -- nobody before 1.1) says which parts it holds: "<balance><ranking><book>@1", "110@1".
 -- A 1.0 client takes it as that keeper's whole book: its army shows what the King shows, as
--- before, and the King's switches still reach it from the Treasurer's copy (which also takes the
--- place of any whole book of 1.0 it kept). But a King's, Steward's or keeper's 1.0 addon, which
+-- before, and the King's switches still reach it from the Treasurer's copy, which 1.0 reads (and
+-- which also takes the place of any whole book of 1.0 it kept). But a King's, Steward's or
+-- keeper's 1.0 addon, which
 -- shows everything whatever the switches, shows a balance of zero there with the balance hidden
 -- (every switch off, as the King starts) or the sums of the lists shown, until it updates: 1.1
 -- whispers the whole book to 1.1 alone. A 1.1 insider's Treasury tab names them
@@ -1219,8 +1220,9 @@ function Treasury.Message(b, parts)
 	local t = Treasury.Totals(b)
 	local whole = parts == nil
 	local showBalance, showRanking, showBook = whole or parts.balance == true, whole or parts.ranking == true, whole or parts.book == true
-	-- The King's switches ride the Treasurer's book alone (only his is read; not a book of his
-	-- mail character's he passes on). His keepers never do: they are the King's and his
+	-- The King's switches ride the Treasurer's book alone (not a book of his mail character's he
+	-- passes on), for 1.0's addons, which read them there; 1.1 reads them from nobody's book
+	-- (Konig's review of 1.1: TakeFlags). His keepers never do: they are the King's and his
 	-- Stewards' to set, from their own clients (Konig's review of 1.0.0), and the field stays "-"
 	-- (1.1: on the channel, the parts the book holds).
 	local mine = ns.IsTreasurer(ns.me, GetGuildInfo("player") or "") and SameChar(b.name or ns.me, ns.me)
@@ -1538,9 +1540,10 @@ local function Keep(r)
 end
 
 -- A keeper's book (TB): from a keeper himself (his name, which the server sets), of this era.
--- The King's switches only from the Treasurer (as 0.9's T8 carried them). The King's keepers
--- never from a book: the Treasurer's could name anyone a keeper, or take the King's off, with a
--- fresh date (Konig's review of 1.0.0); only the King and his Stewards set them (T1~K).
+-- The King's keepers never from a book: the Treasurer's could name anyone a keeper, or take the
+-- King's off, with a fresh date (Konig's review of 1.0.0); only the King and his Stewards set them
+-- (T1~K). 1.1: nor his switches (Konig's review of 1.1: the same fresh date set them): the
+-- Treasurer's copy is only answered when older than ours (TakeFlags).
 -- 1.1: on the channel, or by whisper (put together from its pieces: Treasury.HandlePrivate),
 -- whole, to the King, a Steward or a keeper.
 function Treasury.HandleReport(dist, sender, text)
@@ -1560,7 +1563,8 @@ function Treasury.HandleReport(dist, sender, text)
 	Treasury.Heard(sender)
 	Treasury.Migrate()
 	Keep(r)
-	-- The Treasurer repeats the King's switches, if newer than ours.
+	-- The Treasurer's copy of the King's switches (for 1.0's addons): never taken, answered by the
+	-- King's or a Steward's client when older than theirs (TakeFlags, relayed).
 	if ns.IsTreasurer(sender, guild) then
 		local b, k, o, at = f[11]:match("^([01])([01])([01])@(%d+)$")
 		if b then Treasury.TakeFlags(b .. k .. o, tonumber(at), sender, true) end
@@ -2082,7 +2086,8 @@ end)
 -- time it was given; the newest wins everywhere, and on the same second the King's own over his
 -- Steward's: the King's newer word always wins. The King's client and his Steward's take the
 -- newest word as theirs and repeat it, and answer an older one they hear with theirs (at most
--- once in WORD_ANSWER); the Treasurer's book repeats the switches too, never the keepers.
+-- once in WORD_ANSWER). The Treasurer's book carries the switches for 1.0's addons, never the
+-- keepers; 1.1 takes neither from it (Konig's review of 1.1).
 ---------------------------------------------------------------------------
 
 Treasury.WORD_ANSWER = 30
@@ -2103,7 +2108,7 @@ local function TellKing(sender, text)
 end
 
 -- The King's client and his Steward's repeat the word, with the time it was given (a client that
--- never heard it sends nothing: it takes the word as the Treasurer repeats it). 1.1 (#12): never
+-- never heard it sends nothing). 1.1 (#12): never
 -- another's word given less than WORD_FRESH ago: a word that new goes out from its giver's client
 -- alone, so the log of acts can name him (TakeFlags); after that it is repeated as before.
 function Treasury.SendFlags(force)
@@ -2151,16 +2156,21 @@ local function AnswerOlder(send)
 	send(true)
 end
 
--- The King's word ("101" and the time it was given), from him or his Steward, or repeated by
--- the Treasurer (`relayed`): taken when newer than the one kept (a time ahead of the server's
--- clock by King.DATE_AHEAD at most: a minute, so a modified client never keeps a word over the
--- King's newer one for longer).
+-- The King's word ("101" and the time it was given), from him or his Steward: taken when newer
+-- than the one kept (a time ahead of the server's clock by King.DATE_AHEAD at most: a minute, so a
+-- modified client never keeps a word over the King's newer one for longer).
+-- `relayed`: the Treasurer's copy in his book (1.0's addons read it there). Konig's review of 1.1:
+-- only the King and his Stewards set the switches, and a copy can't be told from a word the
+-- Treasurer's client made up or dated anew (no signature of the King's travels with it; taken, it
+-- was also repeated by the King's and his Stewards' clients as theirs), so it is never taken: an
+-- older one is only answered with ours, so that his client, and the 1.0 addons reading his book,
+-- catch up. Each client keeps the last word it heard from the King or a Steward themselves.
 function Treasury.TakeFlags(digits, at, sender, relayed)
 	local b, r, k = tostring(digits or ""):match("^([01])([01])([01])$")
 	at = tonumber(at)
 	if not b or not at or at > Clock() + ns.King.DATE_AHEAD then return end
 	local kept = ns.rdb.treasuryFlags
-	if not Replaces(kept, at, sender) then
+	if relayed or not Replaces(kept, at, sender) then
 		if type(kept) == "table" and at < (tonumber(kept.at) or 0) then AnswerOlder(Treasury.SendFlags) end
 		return
 	end
@@ -2169,10 +2179,9 @@ function Treasury.TakeFlags(digits, at, sender, relayed)
 	ns.rdb.treasuryFlags = f
 	-- 1.1 (#12): in this client's log of acts when what the army sees changes (the word is
 	-- repeated), with the name the server stamped, only when heard from whoever gave it: a word
-	-- given less than WORD_FRESH ago comes from his client alone (SendFlags). Never the
-	-- Treasurer's book (it repeats the word; he never gives it), nor a word caught up on later
-	-- (a later login, a repeat): those are only noted.
-	Treasury.LogFlags(sender, f, relayed or Clock() - at >= Treasury.WORD_FRESH)
+	-- given less than WORD_FRESH ago comes from his client alone (SendFlags). Never a word caught
+	-- up on later (a later login, a repeat): those are only noted.
+	Treasury.LogFlags(sender, f, Clock() - at >= Treasury.WORD_FRESH)
 	Treasury.Heard(sender)
 	if FlagDigits(f) ~= was then
 		TellKing(sender, L.STEWARD_SET_FLAGS)

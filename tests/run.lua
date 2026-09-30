@@ -6550,7 +6550,11 @@ test("Treasury review fixes: the week survives the update, the King's word reach
 			assert(report:find("~100@" .. at .. "~", 1, true), report)
 			AsSoldier(); ns.rdb.treasuryFlags = nil
 			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", report)
-			eq(T.Shows("balance"), true, "never met the King, has his word")
+			-- (Konig's review of 1.1: the Treasurer's copy is for 1.0's addons alone; 1.1 takes the King's
+			-- word from his and his Stewards' own clients, the only ones who give it.)
+			eq(T.Shows("balance"), false, "the Treasurer's copy is no word of the King's")
+			K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~T~4~Olympus~100~" .. at)
+			eq(T.Shows("balance"), true, "his own")
 			-- A newer word of his is not undone by the Treasurer repeating the older one.
 			K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~T~5~Olympus~000~" .. (at + 60))
 			T.HandleReport("CHANNEL", "Pyralis Ashandar-Realm", report)
@@ -31993,7 +31997,7 @@ do
 		end)
 	end)
 
-	test("1.1 dues (#37): the King sets one fixed amount (1 gold until then): his word or his Steward's, dated, the newest kept; the Treasurer's addon repeats it; nobody else's counts", function()
+	test("1.1 dues (#37): the King sets one fixed amount (1 gold until then): his word or his Steward's, dated, the newest kept; nobody else's counts, the Treasurer's neither (Konig's review of 1.1)", function()
 		WithDues(function(w, K, T)
 			-- (The amount of the King's newest word: in force from the weekly reset after it; this
 			-- week keeps its own, see the dues' review test below.)
@@ -32042,21 +32046,10 @@ do
 			AsKing()
 			K.HandleCommand("CHANNEL", "Test Steward-Realm", "T1~Y~10~Olympus II~60000~" .. (w.clock + 20))
 			assert(Printed(w, ns.L.STEWARD_SET_DUES:format(K.StewardLabel("Test Steward-Realm"), T.Coins(60000), D.DateLabel(D.Week() + 1))), "told")
-			-- The Treasurer's addon repeats it with its time; taken from him alone.
-			AsTreasurer()
-			eq(D.Repeat(true), true)
-			local rep = LastSent(w)
-			eq(rep, "FK~Olympus~60000~" .. (w.clock + 20) .. "~10000", "with this week's own amount")
-			ns.rdb.duesAmount = nil
-			AsSoldier()
-			D.HandleRepeat("CHANNEL", "Somebody-Realm", rep)
-			eq(Next(), 10000, "not from anyone")
-			D.HandleRepeat("CHANNEL", TREASURER, rep)
-			eq(Next(), 60000, "from the Treasurer")
-			eq((D.TreasurerOnline()), true, "his addon is heard")
+			-- (Konig's review of 1.1: the Treasurer's addon, which receives the dues, repeats it no
+			-- more, FK: its copy set the amount. The review's block near the end checks it.)
 			-- Nothing of it before the King (or his Steward) gives one: no word to repeat.
 			ns.rdb.duesAmount = nil
-			AsTreasurer(); eq(D.Repeat(true), false)
 			AsKing(); eq(D.SendAmount(true), false)
 		end)
 	end)
@@ -32309,9 +32302,9 @@ do
 			-- of the week's donors. Showing less sends less, 1.1's treasury part E.)
 			ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = w.clock, from = KING }
 			w.sent, w.whispered = {}, {}
-			-- Everything his client sends: his book and 0.9's short treasury, the amount, both lists.
+			-- Everything his client sends: his book and 0.9's short treasury, both lists (Konig's review
+			-- of 1.1: no copy of the amount, FK).
 			T.Share(true)
-			D.Repeat(true)
 			D.HandleAsk("WHISPER", KING, "FQ~" .. week .. "~*~0")
 			w.census()
 			D.HandleAsk("WHISPER", "Cap-Realm", "FQ~" .. week .. "~Olympus II~0")
@@ -32324,7 +32317,7 @@ do
 				assert(not x.msg:find("Olympus fund", 1, true) and not x.msg:find("Olympus II", 1, true), "a payer's note or guild: " .. x.msg)
 				if x.msg:find("^TB~") then tb = x.msg elseif x.msg:find("^T8~") then t8 = x.msg end
 			end
-			eq(kinds.TB, true); eq(kinds.T8, true); eq(kinds.FK, true)
+			eq(kinds.TB, true); eq(kinds.T8, true); eq(kinds.FK, nil)
 			-- His book in 1.0's shape: the week's donors a count (3), no names. Its lines: none of the
 			-- gold given to him (the dues' review: each such line is someone's dues, his name and his
 			-- last payment, and a listener on the channel would have the list of who paid; 1.1 before
@@ -36705,15 +36698,16 @@ test("1.1 review (#11): for the Treasurer whose 0.9.3 yes stands, his line says 
 				ns.rdb.treasuryFlags = { balance = true, ranking = false, book = false, at = w.clock, from = KING }
 				local book = T.Message()
 				assert(book:find("~100@" .. w.clock .. "~", 1, true), "the King's word in his book")
-				-- A client that missed the King's own message takes it from the book: not the Treasurer's act.
+				-- A client that missed the King's own message: the book's copy is 1.0's addons' alone
+				-- (Konig's review of 1.1), neither taken nor the Treasurer's act.
 				AsSoldier("Late Login")
 				ns.rdb.treasuryFlags = nil
 				T.HandleReport("CHANNEL", TREASURER, book)
-				eq(T.Shows("balance"), true, "taken")
+				eq(T.Shows("balance"), false, "not taken")
 				eq(Switches(), "", "the Treasurer's book repeats the word; he never gives it")
-				-- Then the King's own fresh word: his, compared with what the book brought.
-				K.HandleCommand("CHANNEL", KING, ("T1~T~21~Olympus~000~%d"):format(w.clock + 1))
-				eq(Switches(), KING .. ": " .. ns.L.ACTS_TREASURY:format(ns.L.ACTS_TREASURY_NOTHING))
+				-- Then the King's own fresh word: his (compared with nothing shown: the book brought none).
+				K.HandleCommand("CHANNEL", KING, ("T1~T~21~Olympus~010~%d"):format(w.clock + 1))
+				eq(Switches(), KING .. ": " .. ns.L.ACTS_TREASURY:format(ns.L.ACTS_TREASURY_RANKING))
 				-- A word given long ago (a later login, the King's repeat): taken, not logged.
 				ns.Chronicle.Clear()
 				ns.rdb.treasuryFlags, ns.rdb.actsState = nil, nil
@@ -37658,6 +37652,149 @@ test("1.1 the bank's gone since the last snapshot: a tab that never loaded, with
 		if not ok then error(err, 0) end
 	end)
 end)
+
+---------------------------------------------------------------------------
+-- 1.1, Konig's review of #45 (the treasury): the King's word from the King and his Stewards alone,
+-- a sister bank's no to every viewer holding it, requests to the treasury paced, "gone since" from
+-- one source's own snapshots, and no dues in the ranking that leaves the Treasurer's client.
+---------------------------------------------------------------------------
+do
+	local KING, TREASURER, STEWARD = "Asmongold Asmongler-Realm", "Pyralis Ashandar-Realm", "Test Steward-Realm"
+	local function AsSteward() GetGuildInfo = function() return "Olympus II", "Member", 3 end; ns.me = STEWARD end
+	-- The Throne's world with a Steward the signed list names (STEWARD), put back after.
+	local function WithStewards(fn)
+		WithThrone(function(w, K)
+			local saved = { steward = ns.IsSteward, split = ns.splitNames, shares = ns.db.keeperShares }
+			local ok, err = pcall(function()
+				ns.IsSteward = function(n) return type(n) == "string" and ns.FullName(n) == STEWARD end
+				ns.splitNames = true
+				fn(w, K)
+			end)
+			ns.IsSteward, ns.splitNames, ns.db.keeperShares = saved.steward, saved.split, saved.shares
+			ns.rdb.duesAmount, ns.rdb.treasuryKeepers = nil, nil
+			if not ok then error(err, 0) end
+		end)
+	end
+	-- Dues.lua loaded again, on its own: the types it registers (handles), what it runs at login
+	-- and on its timers (on, timers); its dialogs put back as they were.
+	local function DuesAlone()
+		local got = { handles = {}, on = {}, timers = {} }
+		local fresh = setmetatable({
+			On = function(name, f) got.on[name] = f end,
+			RegisterEvent = function() end,
+			After = function(_, _, f) got.timers[#got.timers + 1] = f end,
+			Every = function(_, _, f) got.timers[#got.timers + 1] = f end,
+			Comm = setmetatable({ Handle = function(kind) got.handles[kind] = true end }, { __index = ns.Comm }),
+			King = setmetatable({ Register = function(kind) got.handles["T1 " .. kind] = true end }, { __index = ns.King }),
+		}, { __index = ns })
+		local dialogs = {}
+		for k, v in pairs(StaticPopupDialogs) do if k:find("^OLYMPUS_DUES") then dialogs[k] = v end end
+		assert(loadfile(ADDON_DIR .. "Dues.lua"))("Olympus", fresh)
+		for k in pairs(StaticPopupDialogs) do if k:find("^OLYMPUS_DUES") then StaticPopupDialogs[k] = dialogs[k] end end
+		return fresh.Dues, got
+	end
+
+	test("1.1 Konig's review: the Treasurer's book sets none of the King's switches, a word newer than any the King gave neither; 1.0's addons still read its copy", function()
+		WithStewards(function(w, K)
+			local T = ns.Treasury
+			-- The King shows the army the balance.
+			AsKing(); T.SetFlag("balance", true)
+			local given, word = w.clock, LastSent(w)
+			-- A Treasurer's client that makes a word up: every switch on, dated after the King's (inside
+			-- the minute a word may run ahead of the server's clock), in his book.
+			AsTreasurer()
+			ns.db.keeperShares = { [TREASURER_KEY] = true }
+			ns.rdb.treasuryFlags = { balance = true, ranking = true, book = true, at = given + 30, from = TREASURER }
+			local forged = T.Message()
+			assert(forged:find("~111@" .. (given + 30) .. "~", 1, true), forged)
+			-- A soldier who heard the King keeps his word; one who never did takes none from the book.
+			AsSoldier("Late Login"); ns.rdb.treasuryFlags = nil
+			K.HandleCommand("CHANNEL", KING, word)
+			T.HandleReport("CHANNEL", TREASURER, forged)
+			eq(T.Shows("balance"), true); eq(T.Shows("ranking"), false, "the Treasurer set no switch"); eq(T.Shows("book"), false)
+			ns.rdb.treasuryFlags = nil
+			T.HandleReport("CHANNEL", TREASURER, forged)
+			eq(T.AnyShown(), false, "never heard the King: nothing shown on the Treasurer's word")
+			eq(T.Visible(), false, "no tab for the army")
+			-- By whisper (the whole book, on a keeper's client): the same.
+			ns.rdb.treasuryKeepers = { at = 1, names = { "Late Login-Realm" } }
+			GetGuildInfo = function() return "Olympus", "Member", 3 end
+			T.HandleReport("WHISPER", TREASURER, forged)
+			eq(T.AnyShown(), false, "whispered: nothing either")
+			ns.rdb.treasuryKeepers = nil
+			-- The King's client: his word stays his, and it is his that he repeats (it never becomes
+			-- the Treasurer's, taken and repeated in the King's name).
+			AsKing(); ns.rdb.treasuryFlags = { balance = true, ranking = false, book = false, at = given, from = KING, t = given }
+			T.HandleReport("CHANNEL", TREASURER, forged)
+			eq(ns.rdb.treasuryFlags.at, given); eq(T.Shows("book"), false)
+			w.clock = w.clock + T.FLAGS_EVERY
+			T.SendFlags(true)
+			assert(LastSent(w):find("^T1~T~%d+~Olympus~100~" .. given .. "$"), LastSent(w))
+			-- A Steward's client neither.
+			AsSteward(); ns.rdb.treasuryFlags = { balance = true, ranking = false, book = false, at = given, from = KING, t = given }
+			T.HandleReport("CHANNEL", TREASURER, forged)
+			eq(ns.rdb.treasuryFlags.at, given); eq(T.Shows("ranking"), false)
+			-- The Treasurer's copy older than the King's word: the King's client answers with his, so the
+			-- Treasurer's client (and the 1.0 addons reading his book) catch up.
+			AsTreasurer(); ns.rdb.treasuryFlags = { balance = false, ranking = false, book = false, at = given - 600, from = KING }
+			local stale = T.Message()
+			AsKing(); ns.rdb.treasuryFlags = { balance = true, ranking = false, book = false, at = given, from = KING, t = given }
+			local before = #w.sent
+			T.HandleReport("CHANNEL", TREASURER, stale)
+			eq(#w.sent, before + 1, "answered"); assert(w.sent[#w.sent].msg:find("~100~" .. given .. "$"), w.sent[#w.sent].msg)
+			AsTreasurer(); ns.rdb.treasuryFlags = nil
+			K.HandleCommand("CHANNEL", KING, w.sent[#w.sent].msg)
+			eq(T.Shows("balance"), true, "the Treasurer's client takes the King's own word")
+			-- A 1.0 addon (1.0.0's Treasury.lua) still reads the switches from the Treasurer's book: his
+			-- 1.1 client repeats there the King's word it took from him.
+			local copy = T.Message()
+			assert(copy:find("~100@" .. given .. "~", 1, true), copy)
+			local Old, old = OldTreasury()
+			old.rdb.treasuryFlags = nil
+			Old.HandleReport("CHANNEL", TREASURER, copy)
+			eq(old.rdb.treasuryFlags and old.rdb.treasuryFlags.balance, true, "1.0 reads it there, as before")
+		end)
+	end)
+
+	test("1.1 Konig's review: the dues' amount comes from the King and his Stewards alone; the Treasurer's client repeats none (FK), and none is read", function()
+		WithStewards(function(w, K)
+			local D = ns.Dues
+			D.Reset()
+			local week = D.Week()
+			-- The King's amount, 2 gold from next week.
+			AsKing(); D.SetAmount("2g")
+			local word = LastSent(w)
+			eq(D.AmountOf(week + 1), 20000); eq(D.Amount(), 10000)
+			-- The Treasurer's client, logged in with the King's word: nothing of it goes out from him,
+			-- at login or on its timers.
+			AsTreasurer()
+			local Alone, got = DuesAlone()
+			eq(got.handles.FK, nil, "no copy of the amount is read")
+			eq(got.handles["T1 Y"], true, "the King's and his Stewards' word is")
+			w.sent = {}
+			got.on.LOGIN()
+			for _, f in ipairs(got.timers) do f() end
+			for _, x in ipairs(w.sent) do assert(not x.msg:find("^FK~"), "the Treasurer's copy of the amount: " .. x.msg) end
+			-- A word of the Treasurer's own (a newer amount, and this week's in its <before>), sent as
+			-- the King's is: not his to give.
+			AsSoldier(); ns.rdb.duesAmount = nil
+			K.HandleCommand("CHANNEL", KING, word)
+			K.HandleCommand("CHANNEL", TREASURER, ("T1~Y~5~Olympus~9990000~%d~9990000"):format(w.clock + 30))
+			eq(D.Amount(), 10000, "this week's stays"); eq(D.AmountOf(week + 1), 20000, "the King's")
+			-- His Steward's, in the King's name: taken.
+			K.HandleCommand("CHANNEL", STEWARD, ("T1~Y~6~Olympus II~30000~%d~10000"):format(w.clock + 1))
+			eq(D.AmountOf(week + 1), 30000)
+			-- Both pages say so, and no longer that the Treasurer's addon repeats the King's word.
+			for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+				local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+				assert(not doc:find("The Treasurer's addon repeats the King's latest word", 1, true), path)
+				assert(not doc:find("repeated by the Treasurer's", 1, true) and not doc:find("and so does the Treasurer's", 1, true), path)
+				assert(doc:find("so 1.1 takes none from it; 1.0's addons still read it there", 1, true), path)
+				assert(doc:find("the Treasurer, who receives the dues, sets none of it", 1, true), path)
+			end
+		end)
+	end)
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

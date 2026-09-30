@@ -11,8 +11,9 @@ local L = ns.L
 --   payer's own word: it only places the payer's own gold); otherwise "guild not known".
 -- - The King sets one fixed amount, once (1 gold until he does): his word, or his Steward's in
 --   his name, dated like the treasury's switches (the newest wins, the King's on the same
---   second). Their clients repeat it, and so does the Treasurer's, for members who never meet
---   them online. Never a share of anyone's gold or loot. A new amount starts at the next weekly
+--   second). Their clients repeat it, and only theirs: the Treasurer's, which receives the dues,
+--   never does (Konig's review of 1.1: his copy, with a date of his, set the amount and this
+--   week's). Never a share of anyone's gold or loot. A new amount starts at the next weekly
 --   reset: the week it is given keeps the amount it had (the word carries it), so nobody who paid
 --   that week's amount falls under it afterwards (Fern's "one fixed amount").
 -- - Who sees what: the King, his Steward and the Treasurer see every guild (its members in the
@@ -35,7 +36,7 @@ local L = ns.L
 --   access switch of the moderators' (1.1) may take anything from here.
 --   T1~Y~<id>~<guild>~<copper>~<time>~<before>   the King's amount (his, or his Steward's; King.lua),
 --                                                from the reset after <time>; <before> until then
---   FK~<guild>~<copper>~<time>~<before>          the Treasurer's client repeats it, with its time
+--   (FK, the Treasurer's client's copy of it, is gone: Konig's review of 1.1, Dues.TakeAmount)
 --   FQ~<week>~<Guild, or * for every guild>~<id> an ask to the Treasurer (a whisper), with the id
 --                                                of the list held whole (0: none)
 --   FS~<id>~<week>~<copper>~<i>~<n>~<Guild:paid:copper:payers;...>   his answer, every guild (whispers, the King's and his Steward's)
@@ -61,7 +62,7 @@ Dues.RESET_US = 486000       -- Tuesday 15:00 UTC (the US realms' reset) where t
 Dues.AMOUNT = 10000          -- 1 gold a week, until the King sets his amount
 Dues.MAX_AMOUNT = 10000000   -- 1000 gold at most
 Dues.WEEKS_KEPT = 5          -- weeks of each giver's sums a book keeps (this one and the 4 before)
-Dues.AMOUNT_EVERY = 300      -- the King's, his Steward's and the Treasurer's clients repeat the amount
+Dues.AMOUNT_EVERY = 300      -- the King's and his Steward's clients repeat the amount
 Dues.WORD_ANSWER = 30        -- an older amount heard: answered with the newer one this often at most
 Dues.ASK_EVERY = 300         -- a client asks the Treasurer for one list this often at most
 Dues.ANSWER_GAP = 300        -- the Treasurer's client answers one asker's list this often at most
@@ -81,8 +82,8 @@ Dues.shown = nil             -- the guild opened on the dues page (nil: the page
 
 local MAX_COPPER = 2147483647
 local anchor                 -- the week's start, seconds into a week of the server's clock
-local lastAmountSent, lastRepeat, lastOlder = -math.huge, -math.huge, -math.huge
-local heardAt, heardName = -math.huge, nil   -- the Treasurer's addon as last heard (FK, FS, FA)
+local lastAmountSent, lastOlder = -math.huge, -math.huge
+local heardAt, heardName = -math.huge, nil   -- the Treasurer's addon as last heard (FS, FA, FU, FB, FD)
 local asked = {}             -- [what] = when this client last asked for it
 local busy = {}              -- [what] = when the Treasurer's addon said it was too busy to answer (FB)
 local answered = {}          -- the Treasurer's client: [asker|what] = when it last answered
@@ -283,8 +284,12 @@ function Dues.SetAmount(input)
 	return true
 end
 
--- His word (or his Steward's, or the Treasurer's copy of it): taken when newer than ours (a time
+-- His word (or his Steward's), by their own client alone: taken when newer than ours (a time
 -- ahead of the server's clock by King.DATE_AHEAD at most), the King's own on the same second.
+-- (Konig's review of 1.1: the Treasurer's client repeated it, FK, and a copy can't be told from an
+-- amount it made up or dated anew, which set the next weeks' amount and, by its <before>, this
+-- week's: he receives the dues. No client sends or reads FK now; each keeps the last word it
+-- heard from the King or a Steward themselves.)
 -- `before`, the amount of the week it was given in (a word without it: that week's as we had it).
 -- An older one heard on the King's or his Steward's client is answered with the newer one.
 function Dues.TakeAmount(copper, at, sender, before)
@@ -324,29 +329,7 @@ end)
 
 local function Heard(sender) heardAt, heardName = ns.Now(), ns.FullName(sender) end
 
--- The Treasurer's client repeats the King's word, with its time (members who never meet the King
--- online get it too).
-function Dues.Repeat(force)
-	local w = ns.rdb and ns.rdb.duesAmount
-	if ns.faction == "Horde" or type(w) ~= "table" or not tonumber(w.at) or not Copper(w.copper) then return false end
-	if not (ns.IsMember() and ns.IsTreasurer(ns.me, GetGuildInfo("player"))) then return false end
-	local now = ns.Now()
-	if not force and now - lastRepeat < Dues.AMOUNT_EVERY then return false end
-	lastRepeat = now
-	ns.Comm.Send("CHANNEL", ("FK~%s~%d~%d~%d"):format(GetGuildInfo("player") or "", w.copper, w.at, AmountIn(w, Dues.WeekOf(w.at))), "duesrepeat")
-	return true
-end
-function Dues.HandleRepeat(dist, sender, text)
-	if dist ~= "CHANNEL" or type(text) ~= "string" or ns.faction == "Horde" then return end
-	local guild, rest = text:match("^FK~([^~]*)~(.*)$")
-	if not guild or not ns.IsTreasurer(sender, guild) then return end
-	Heard(sender)
-	local copper, at, before = ReadWord(rest)
-	if copper then Dues.TakeAmount(copper, at, sender, before) end
-end
-ns.Comm.Handle("FK", function(...) Dues.HandleRepeat(...) end)
-
--- The Treasurer's addon online: heard in the last HEARD_FOR (his amount, an answer, his book).
+-- The Treasurer's addon online: heard in the last HEARD_FOR (an answer, his book).
 -- Returns online, his name as the server wrote it, when he was last heard.
 function Dues.TreasurerOnline()
 	local last, name = heardAt, heardName
@@ -1487,13 +1470,9 @@ StaticPopupDialogs["OLYMPUS_DUES_AMOUNT"] = {
 
 ns.On("LOGIN", function()
 	Dues.MarkMail()
-	ns.After(30, "dues amount", function()
-		Dues.SendAmount(true)
-		Dues.Repeat(true)
-	end)
+	ns.After(30, "dues amount", function() Dues.SendAmount(true) end)
 	ns.Every(60, "dues amount", function()
 		Dues.SendAmount()
-		Dues.Repeat()
 		Dues.MarkMail()
 	end)
 	ns.Every(Dues.PACE, "dues answers", Dues.Pump)
@@ -1502,7 +1481,7 @@ end)
 -- Tests start from a clean state.
 function Dues.Reset()
 	anchor = nil
-	lastAmountSent, lastRepeat, lastOlder = -math.huge, -math.huge, -math.huge
+	lastAmountSent, lastOlder = -math.huge, -math.huge
 	heardAt, heardName, summary, salt = -math.huge, nil, nil, nil
 	wipe(asked); wipe(busy); wipe(answered); wipe(outbox); wipe(codeAsks); wipe(answers)
 	Dues.shown, shownRows, Dues.filter, Dues.picked = nil, Dues.PAGE, nil, nil

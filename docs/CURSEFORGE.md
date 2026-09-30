@@ -674,9 +674,12 @@ alone until then).
   see them (a keeper's tab says so, and so does the question each keeper answers before sharing).
   With any of them on, the Treasury tab appears for every member with the addon, showing only
   what he turned on (the book behind its own button), and the balance shows under the Treasurer
-  in the Realm. The Treasurer's addon repeats the King's latest word, so members who never meet
-  the King online get it too. The King and his Steward always see all of it, whatever the
-  switches, and the King the balance next to the soldiers on top of his window. **What he hides
+  in the Realm. Each client takes his word from the King's addon and his Steward's alone, which
+  repeat it every 5 minutes, and keeps the last one it heard: a member whose addon never met them
+  online shows what that word shows (nothing, before any). (1.1, Konig's review: the Treasurer's
+  book carried the word too, and a copy can't be told from one his addon made up or dated anew,
+  so 1.1 takes none from it; 1.0's addons still read it there.) The King and his Steward
+  always see all of it, whatever the switches, and the King the balance next to the soldiers on top of his window. **What he hides
   never goes on the channel from a keeper whose addon is 1.1**, which anyone on it can read: not
   in his book, not the guild bank, not the early supporters. His addon whispers it to the King,
   his Steward and the keepers alone (guild chat would reach every member of `<Olympus>`). What
@@ -691,9 +694,11 @@ alone until then).
 - **Dues (1.1)**: one fixed amount of gold a week that members send the Treasurer by trade or
   mail, the same for everyone (1 gold until the King sets his; never a share of anyone's gold
   or loot). The King sets it on the dues page of the Treasury tab (his Steward too, in his name:
-  dated, the newest wins, the King's on the same second); their addons repeat it, and so does
-  the Treasurer's. A new amount starts at the next weekly reset: the week it is set in keeps the
-  amount it started with (the word carries it), so nobody who paid that week's amount turns
+  dated, the newest wins, the King's on the same second); their addons repeat it, and only
+  theirs: the Treasurer, who receives the dues, sets none of it (1.1, Konig's review: his addon's
+  copy could set the amount, this week's too). A member's addon keeps the last amount it heard
+  from them (1 gold before any). A new amount starts at the next weekly reset: the week it is
+  set in keeps the amount it started with (the word carries it), so nobody who paid that week's amount turns
   under it afterwards, and each week is judged by its own. The dues page and the Send button's
   tip show the coming amount and the week it starts.
   - Every line of a keeper's book carries its week (from one weekly reset to the next), and
@@ -1064,7 +1069,7 @@ message (the game adds it). What goes where:
 | A request to the treasury, if you are a Lord or a Captain (1.1): the item's number, the count, your guild | the treasury's keepers, the King and his Steward heard online (their addon 1.1 or later), by whisper; while the King shows the army the book, the open ones also on the Olympus channel, from the keepers' addons | when you ask (a click on an item, or `/oly need`), then every 15 minutes while it is open |
 | Your guild bank's snapshot, if you are the guild master or an officer of an Olympus guild other than the King's (1.1): items and counts, its gold, when it was seen (not the tabs' names) | the King, his Steward and his Hands alone, by whisper, when their addon asks (never on the Olympus channel) | only after your yes (asked once when you open the bank; `/oly bank share on\|off`); your no takes it back from their screens |
 | Your character's name, if you gave to the treasury before 1.0 (the early supporters): names only, no amounts, in alphabetical order | with the King's ranking switch on: everyone on the Olympus channel, shown under the ranking. Otherwise (1.1): the keepers, the King and his Steward alone, by whisper | from the Treasurer's addon once he said yes to 1.0's question or to his line on the first-open page, both of which say their names go to everyone on the channel (his 0.9.3 yes is not enough), after his login and when a client asks: a donor is not asked |
-| The dues' amount (1.1): one amount a week, the same for everyone | everyone on the Olympus channel | from the King's and his Steward's addons when they set it and every 5 minutes, repeated by the Treasurer's |
+| The dues' amount (1.1): one amount a week, the same for everyone | everyone on the Olympus channel | from the King's and his Steward's addons alone, when they set it and every 5 minutes |
 | Your guild's dues list (1.1): each of its players who paid the Treasurer in the last 5 weeks with that guild on the payment (name, gold this week, hours since his last payment), how many hours ago the Treasurer's mail character last played, and a digest (with a secret of his session) that changes when this week's payers with no guild change | the King, his Steward, or a Captain or Lord of that guild who asked, alone (whispers from the Treasurer's addon); when nothing changed, one whisper saying so | when they open the dues page, once every 5 minutes per asker at most, while the Treasurer shares his book |
 | A Captain's ask about his roster (1.1): five letters of the hash of each name on his guild's roster missing from its dues list | the Treasurer alone (whispers) | from a Captain's or Lord's dues page while this week's list says some paid with no guild on it, when that changes or his roster does, once a minute at most |
 | Its answer (1.1): which of those codes paid the Treasurer this week with no guild on the payment, with the gold and the hours since | that Captain or Lord alone (whispers from the Treasurer's addon) | once per ask, as many codes as the guild has members at most |
