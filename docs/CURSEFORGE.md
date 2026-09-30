@@ -269,6 +269,7 @@ WoW channel number to join). Each channel is exclusive to a rank:
   nothing else: its sender is not ignored, blocked or cut off, and their next line shows. The
   Realm tab's chats say how many lines your filter hides, and a click shows them, marked; the
   Decrees tab offers a hidden writ, a decree's hidden words or a hidden Vox question with a click.
+  The pinned line's words hide the same way (1.1), and a click on the line shows them.
   A companion addon reading the chats (the bridge) still gets hidden lines, as with a muted
   channel. **The shared block terms**: a second list the King, his Steward, a Hand or a High
   Councillor of the author's signed list edits for everyone (`/oly filter shared add|remove
@@ -279,25 +280,42 @@ WoW channel number to join). Each channel is exclusive to a rank:
   editor's own client, within 15 minutes of it, goes into its log of acts with the editor's name
   (another editor's repeat of it does not: it is not his act). Clients before 1.1 ignore the list.
 - **Your choice (1.1).** The chats are off until you say yes on the first-open page (or
-  `/oly chat on`). Off, `/ol`, `/olc` and `/oll` say so and send nothing, and no line from anyone
-  shows or is kept on this client; the Realm tab says the chats are off, a click to choose.
+  `/oly chat on`). Off, `/ol`, `/olc`, `/oll` and `/oly pin` say so and send nothing, and no line
+  from anyone shows or is kept on this client, nor any pinned line; the Realm tab says the chats
+  are off, a click to choose.
 - The Realm tab links **the Olympus chats**: the last lines of each channel your rank reads,
   newest first, even what was said while the window was closed. A click whispers the player.
 - Ranks follow the rule of the decrees: whoever founds a guild with "Olympus" in its name is
   its Lord and gets [Lords], and its officers get [Captains].
-- **One pinned line** (1.1): the King, his Stewards and Hands, and the guild masters of the
-  Olympus guilds can pin one short line (100 characters) on top of the Olympus chats and the
-  Realm, for every member, for 2 hours: a raid move, a gates change. (The officers of <Olympus>
-  read [Lords] only on its own members' addons, so they pin as the King's Hands.) `/oly pin
-  <text>`, or **Pin a line for the army...** on the chats page; `/oly pin off` (or a click on the
-  line) takes it down: its setter, or a higher rank (the King anyone's, his Stewards and Hands a
-  guild master's), never another guild master, and one line in chat says who took it down. It is
-  lighter than a writ: no parchment, nothing to acknowledge, no popup and no sound, one line in
-  chat when it arrives. There is one line for everyone: a newer pin replaces one of its own rank
-  or lower, so the King's newer pin always wins, and his Stewards' and Hands' outrank the guild
-  masters'. Its words are the setter's own, sent with the logged API like a chat line (abuse can
-  be reported), and its setter's addon repeats it for late logins. Charters and dues stay in
-  Discord, typed by a person. Addons before 1.1 don't show it.
+- **One pinned line** (1.1): the King, his Stewards and Hands can pin one short line (100
+  characters) on top of the Olympus chats and the Realm, for every member, for 2 hours: a raid
+  move, a gates change (**Pin a line for the army...** on the chats page). A guild master pins
+  one for his own guild alone (**Pin a line for your guild...**): it goes over guild chat, and
+  each guildmate's addon reads his rank in its own guild roster, never in the census (which
+  anyone on the Olympus channel can report to). (The officers of <Olympus> read [Lords] only on
+  its own members' addons, so they pin for the army as the King's Hands.) `/oly pin <text>` pins
+  where your rank allows; `/oly pin off` (or a click on the line) takes it down: its setter, or
+  a higher rank (the King anyone's, his Stewards and Hands a guild master's, over guild chat like
+  the line itself, so it reaches his guildmates on every realm), and one line in chat says who
+  took it down. A takedown sticks: every addon remembers the pins taken down for 2
+  hours (in its saved variables), so a repeat that comes late, or a setter's addon that missed
+  the takedown, never brings one back; the addon that took it down says so again when it hears
+  it repeated (once a minute at most), and the setter's addon lets it go. The setter's addon
+  keeps its own pin through a `/reload`, to repeat it and take it down. On the Forever beta,
+  which forgets addon data at every login, a `/reload` forgets both: `/oly pin off` with nothing
+  pinned on your screen still takes your own line down wherever it shows (once a minute at most),
+  and an addon that reloaded no longer knows the lines taken down, so one whose setter's addon
+  missed the takedown can show there again until the addon that took it down hears it repeated
+  and says so again. A pin shows only where the Olympus chats are on, and you pin only while
+  yours are; none shows from a name or guild
+  the moderators took off (net-off), whose own addon pins nothing; your block terms hide its
+  words, as any addon text, until a click on the line shows them. It is lighter than a writ: no
+  parchment, nothing to acknowledge, no popup and no sound, one line in chat when it arrives.
+  There is one line on each screen: a newer pin replaces one of its own rank or lower, so the
+  King's newer pin always wins, and his Stewards' and Hands' outrank a guild master's. Its words
+  are the setter's own, sent with the logged API like a chat line (abuse can be reported), and
+  its setter's addon repeats it for late logins. Charters and dues stay in Discord, typed by a
+  person. Addons before 1.1 don't show it.
 
 **Not encrypted, not private:** every client on the hidden Olympus channel receives the text of
 all three channels, and the addon only decides what to show. Anyone on that channel can read
@@ -343,8 +361,9 @@ The King, his Steward, a Hand (the King's list or a Steward's) or a High Council
 author's signed list can hide one character for the whole army: **Hide a character** on the
 **Decrees** tab (the name or your target, then the reason), or `/oly netoff Name: reason`. Every
 addon then hides that character on every Olympus surface: their [Olympus], [Captains] and
-[Lords] lines (and the lines the Olympus chats kept), their decrees, their layer and hop offers,
-their Vox Populi votes and questions, and their requests at court. The names their player
+[Lords] lines (and the lines the Olympus chats kept), their pinned line, their decrees, their
+layer and hop offers, their Vox Populi votes and questions, and their requests at court. The
+names their player
 already linked as alts are hidden with them (alt links, below). The rest of their guild, and
 the census, are not touched: one name stops the spam.
 - The Decrees tab lists who is hidden, with the reason, who hid them and when (the server's
@@ -389,7 +408,8 @@ honest addons stop sending and showing that guild's census (its size leaves the 
 its zones on the map, its layers and hop, its decrees, its Vox Populi votes and its Olympus
 chats: its own members' addons send none of it and say why, and every other addon drops what
 still comes. Blizzard's guild chat and Guild window stay up, and so do the guild's own addon
-messages among its members. A spam guild, or one that is not really Olympus, is cut out of the
+messages among its members (its guild master's pinned line aside: hidden with its chats). A
+spam guild, or one that is not really Olympus, is cut out of the
 federation without touching anyone's rank. One guild per word and never the King's: there is
 no switch for the whole realm. Nothing about it is tied to the treasury or to any payment, and
 no treasury code can call it. Its members' hop asks and offers are known by the guild their own
@@ -1043,7 +1063,7 @@ message (the game adds it). What goes where:
 | A layer hop ask: the zone you are in and the layer you want | everyone on the Olympus channel | when you ask to hop |
 | An answer to an ask for your layer (it tells the asker you are on it) | the asker alone (a whisper) | only if you share your zone and layer and said yes to layer help (1.1: off until you answer, on the first-open page or with `/oly layerhelp on`; `/oly layerhelp off` stops it) |
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one, only while the Olympus chats are on (1.1: off until you say yes, on the first-open page or with `/oly chat on`) |
-| A pinned line (1.1): its words, your guild and, as on every message, your name | everyone on the Olympus channel | when you pin one (the King, his Stewards and Hands, the guild masters), again every 5 minutes while it lasts (2 hours at most), and when you take it down |
+| A pinned line (1.1): its words, your guild and, as on every message, your name | the King's, his Stewards' and Hands': everyone on the Olympus channel. A guild master's, and a higher rank's takedown of it: his guild alone (over guild chat) | when you pin one (only while your Olympus chats are on, never while the moderators have you off), again every 5 minutes while it lasts (2 hours at most, a `/reload` included), and when you take it down (`/oly pin off` with nothing pinned on your screen too, once a minute at most: a `/reload` on the Forever beta forgets your pin); a pin you took down (its number and your guild), again when its setter's addon repeats it, once a minute at most |
 | A flag on the Board (1.1): your guild, level and class, the flag (dungeon, raid, PvP or layer), your note (with the logged API), and your zone only while you share it | everyone on the Olympus channel, and whispered to a player whose Board asked for the flags up | when you raise it, then every 10 to 30 minutes for an hour at most, until you lower it |
 | The Board's ask (1.1): nothing but your name | everyone on the Olympus channel | once a session, the first time you open the Board |
 | A signup (1.1): the Agenda entry, the role you claim (or that you withdraw) and your guild | whoever set that entry (the King, his Steward or a Hand), alone (a whisper) | only when you click Sign up |
@@ -1390,7 +1410,7 @@ Other limits:
 | `/ol <text>` · `/olc <text>` · `/oll <text>` | write in [Olympus], [Captains] or [Lords] |
 | `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |
 | `/oly mute olympus` · `/oly mute captains` · `/oly mute lords` | hide or show a channel in chat |
-| `/oly pin <text>` · `/oly pin off` · `/oly pin` | the King, his Stewards and Hands, the guild masters: pin one line for everyone on top of the Olympus chats and the Realm (2 hours), take it down, or see what is pinned |
+| `/oly pin <text>` · `/oly pin off` · `/oly pin` | the King, his Stewards and Hands: pin one line for the army on top of the Olympus chats and the Realm (2 hours); a guild master: one for his own guild. Take it down, or see what is pinned |
 | `/oly chatwindow <number or name> [olympus\|captains\|lords]` · `/oly chatwindow main` | show the Olympus chats in another chat window, or back in the main one |
 | `/oly treasurer on\|off` | a keeper of the treasury (the Treasurer, the King, a character he named) shares his book and the guild bank, or keeps them private (1.1: what the King hides goes only to the King, his Steward and the keepers, by whisper) |
 | `/oly backup` · `/oly restore` | copy a backup of your treasury book, the channel key (officers) and your settings as text, or paste one back after a wipe (nothing is sent anywhere) (1.1) |

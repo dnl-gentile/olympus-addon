@@ -5,13 +5,15 @@ local L = ns.L
 -- Steward's) or a High Councillor of the author's signed list gives a word, with a reason and the
 -- time, on one of two things:
 --   a character (c): every honest client hides that character on every addon surface: the chats
---     (and their history), decrees, layers and hop offers, Vox Populi (questions and votes) and
---     the court's queue. The names that character's player linked as alts (Alts.lua, confirmed on
---     each character) are hidden with it. The rest of the guild, and the census, stay.
+--     (and their history), the pinned line (Channels.Pin), decrees, layers and hop offers, Vox
+--     Populi (questions and votes) and the court's queue. The names that character's player
+--     linked as alts (Alts.lua, confirmed on each character) are hidden with it. The rest of the
+--     guild, and the census, stay.
 --   a guild (g): while it is off, honest clients stop sending and showing that guild's census,
 --     map, hop, decrees, Vox and addon channels: its members' own clients send none of them, and
 --     every client drops what still comes. Blizzard's guild chat and Guild window stay up (the
---     guild's own addon messages over GUILD too). One guild at a time: there is no switch for the
+--     guild's own addon messages over GUILD too, but its master's pinned line, hidden with its
+--     chats: Channels.Pin). One guild at a time: there is no switch for the
 --     whole realm, and never the King's guild.
 -- The same people put either back on.
 --   O1~<c|g>~<1 off|0 on>~<server time>~<Name-Realm or Guild>~<by Name-Realm>~<reason>
