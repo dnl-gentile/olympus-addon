@@ -259,9 +259,10 @@ WoW channel number to join). Each channel is exclusive to a rank:
   an addon, taints the chat box, so `/cast`, `/target`, `/use` or `/click` typed there afterwards
   get blocked (with the gamepad UI, the game froze in 0.8.5). A new tab also shows Say, Guild,
   whispers and more: right-click it, Settings, and untick everything to have the Olympus chats
-  alone there (the addon says so when it sees the tab shows other chat). The main window keeps
-  Olympus's own notices and the pinned line's announcements. `/oly chatwindow main` brings the
-  channels back to the main window.
+  alone there (the tab's first line says so, after the legend, when the tab shows other chat;
+  `/oly chatwindow tab` says it again). The main window keeps Olympus's own notices and the
+  pinned line's announcements. `/oly chatwindow main` brings the channels back to the main
+  window.
 - `/oly chatwindow <number or name>` shows the three channels in another chat window of yours
   (make it in the game first: right-click a chat tab, Create New Window), by name or by number;
   `/oly chatwindow Officers captains` moves one channel only, and `/oly chatwindow main` brings
@@ -277,9 +278,12 @@ WoW channel number to join). Each channel is exclusive to a rank:
 - A line still waiting to leave when the Olympus channel changes (a new realm key, from
   `/oly key` or the King's rotation) is not sent, to either channel, and you are told: it was
   written for the old channel's audience. Send it again to write on the new one (1.1.1, GitHub
-  #34). The same holds for a line the privacy warning holds while the channel changes.
+  #34). The same holds for a line the privacy warning holds while the channel changes. Of a
+  long line whose first parts had already left, the notice says how many went out, on the old
+  channel.
 - Shift-click an item or spell into the line and it stays a link. Long lines are split into
-  up to 3 messages.
+  up to 3 messages; if the game refuses one of them, the rest of that line is not sent
+  either, and you are told (1.1.1).
 - The channels show only in the chat of players with the addon.
 - **Block terms (1.1).** `/oly filter add <word>` hides, on your screen, every line of addon
   text with that word: the Olympus chats, the King's writs, a decree's words and Vox Populi's
@@ -710,10 +714,11 @@ alone until then).
   donations on`: everyone with the addon sees a line on the Realm and Treasury tabs ("Pyralis
   Ashandar is taking donations in Stormwind City"), his zone only if he shares his location
   (`/oly location`; the King: his crown on the map), and one line in the [Olympus] chat when he
-  turns it on (not with that chat muted, nor for a late login). His addon repeats it every 2
-  minutes and when his zone changes; it is never saved, so it is off when he logs out (his addon
-  says so as it leaves; otherwise it drops off every screen 5 minutes after his last word), and
-  `/oly donations off` turns it off before.
+  turns it on (not with that chat muted or the Olympus chats off, nor for a late login; in the
+  Olympus tab without "[Olympus]"). His addon repeats it every 2 minutes and when his zone
+  changes; it is never saved, so it is off when he logs out (his addon says so as it leaves;
+  otherwise it drops off every screen 5 minutes after his last word), and `/oly donations off`
+  turns it off before.
 - **Requests to the treasury** (1.1): a Lord or a Captain of any Olympus guild asks the treasury
   for an item and a count ("need 10 Ironwood"): a click on the item in the bank's grid (when he
   sees the bank), `/oly need 10 <item>` (the item shift-clicked into the chat line, its name or its

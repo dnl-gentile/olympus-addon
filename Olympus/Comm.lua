@@ -261,15 +261,33 @@ end
 -- (true) or was dropped (false, why): "moved" the channel changed before it left (a new realm
 -- key), "late" it waited CHAT_TTL, "failed" the game refused it, "left" we are out of an Olympus
 -- guild. Each part carries the channel it was written for, and never goes out on another one
--- (GitHub #34: a line typed for one channel's audience is not sent to the next). Returns false
--- when the lane is full, or while we are on no channel.
-function Comm.SendChat(msg, done)
+-- (GitHub #34: a line typed for one channel's audience is not sent to the next). line (1.1.1):
+-- any value the parts of one line share, for Comm.DropLine. Returns false when the lane is full,
+-- or while we are on no channel.
+function Comm.SendChat(msg, done, line)
 	if not joinedName or #chatQueue >= CHAT_QUEUE or Held(msg) then return false end
-	chatQueue[#chatQueue + 1] = { msg = msg, done = done, t = GetTime(), channel = joinedName }
+	chatQueue[#chatQueue + 1] = { msg = msg, done = done, t = GetTime(), channel = joinedName, line = line }
 	return true
 end
 function Comm.ChatRoom()
 	return CHAT_QUEUE - #chatQueue
+end
+-- The parts of chat line `line` still in the lane leave it unsent, each done(false, why) (1.1.1:
+-- once one part of a line did not go out, Channels.Send drops the rest, so no one reads a line
+-- without its start). Returns how many.
+function Comm.DropLine(line, why)
+	if line == nil then return 0 end
+	local kept, dropped = {}, {}
+	for _, item in ipairs(chatQueue) do
+		if item.line == line then dropped[#dropped + 1] = item else kept[#kept + 1] = item end
+	end
+	if #dropped == 0 then return 0 end
+	wipe(chatQueue)
+	for i, item in ipairs(kept) do chatQueue[i] = item end
+	for _, item in ipairs(dropped) do
+		if item.done then ns.SafeCall("chat drop", item.done, false, why) end
+	end
+	return #dropped
 end
 
 local function IsSuccess(res)

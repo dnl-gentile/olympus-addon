@@ -3710,6 +3710,7 @@ end
 -- the game's named Olympus, its lines without the channel's name (Channels.SetupTab).
 ---------------------------------------------------------------------------
 L.CHAN_MOVED = "[%s]: the Olympus channel changed (a new channel key) before your line left. It was not sent to either channel: send it again to write on the new one."
+L.CHAN_MOVED_PART = "[%s]: the Olympus channel changed (a new channel key) while your line was leaving. Only its start went out, %d of %d parts, on the old channel; the rest was sent to neither channel."
 L.CHATTAB_STEPS = "No chat tab named Olympus yet. Make it in the game: right-click the %s tab, %s, and name it Olympus. The Olympus chats go there as soon as it exists (the main window until then). For them alone in it: right-click the new tab, %s, and untick everything."
 L.CHATTAB_SET = "%s: now in your Olympus tab, each line in its channel's colour, without the channel's name."
 L.CHATTAB_HERE = "The Olympus chats show in this tab, each line in its channel's colour: %s. /oly chatwindow main puts them back in the main window."
@@ -3719,6 +3720,7 @@ L.CHATTAB_SETTINGS = "Settings"
 L.CHATTAB_MAIN_TAB = "General"
 if GetLocale and GetLocale() == "ptBR" then
 	L.CHAN_MOVED = "[%s]: o canal Olympus mudou (uma chave de canal nova) antes de a sua linha sair. Ela não foi enviada a nenhum dos dois canais: envie de novo para escrever no novo."
+	L.CHAN_MOVED_PART = "[%s]: o canal Olympus mudou (uma chave de canal nova) enquanto a sua linha saía. Só o começo saiu, %d de %d partes, no canal antigo; o resto não foi enviado a nenhum dos dois canais."
 	L.CHATTAB_STEPS = "Ainda não há aba de chat chamada Olympus. Crie no jogo: botão direito na aba %s, %s, e dê o nome Olympus. Os chats Olympus vão para lá assim que ela existir (até lá, a janela principal). Para ter só eles nela: botão direito na aba nova, %s, e desmarque tudo."
 	L.CHATTAB_SET = "%s: agora na sua aba Olympus, cada linha na cor do seu canal, sem o nome do canal."
 	L.CHATTAB_HERE = "Os chats Olympus aparecem nesta aba, cada linha na cor do seu canal: %s. /oly chatwindow main devolve os chats à janela principal."

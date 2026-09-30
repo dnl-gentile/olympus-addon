@@ -657,19 +657,29 @@ function Channels.Send(tier, text, now)
 	end
 	lastSend = now
 	local failed, sentParts = false, 0
+	local line = {} -- (its parts in the lane, for Comm.DropLine)
 	for _, part in ipairs(parts) do
 		-- why (Comm.SendChat): "moved" the channel changed before it left (GitHub #34: it goes to
 		-- neither channel), "late", "failed" or "left". Told once per line, at its first part not
 		-- sent, and CHAT_SEND_FAILED(tier, why, text, sentParts) with the whole line, so a window
-		-- can offer it back (sentParts: its parts that had already left).
+		-- can offer it back (sentParts: its parts that had already left). The parts are sent in
+		-- order, and those after the first not sent are dropped from the lane then (1.1.1: the
+		-- others would read the line without its start, and sentParts would not be the count of
+		-- what left).
 		local function done(sent, why)
 			if not sent then
 				if failed then return end
 				failed = true
 				why = why or "failed"
+				ns.Comm.DropLine(line, why)
 				if why == "moved" then
 					stats.moved = stats.moved + 1
-					ns.Print(L.CHAN_MOVED:format(Label(tier)))
+					-- (A long line whose start had left: that part went out on the old channel.)
+					if sentParts > 0 then
+						ns.Print(L.CHAN_MOVED_PART:format(Label(tier), sentParts, #parts))
+					else
+						ns.Print(L.CHAN_MOVED:format(Label(tier)))
+					end
 				else
 					ns.Print(L.CHAN_SEND_FAILED:format(Label(tier)))
 				end
@@ -685,7 +695,10 @@ function Channels.Send(tier, text, now)
 		-- the server gave our name in (a line shown twice to its author otherwise).
 		mine[id .. "#" .. Codec.SanitizeChat(part)] = now
 		local msg = Codec.EncodeChat(tier, guild, id, class, part)
-		if not msg or ns.Comm.SendChat(msg, done) == false then done(false) end
+		if not msg or ns.Comm.SendChat(msg, done, line) == false then
+			done(false)
+			break -- (the parts before it left the lane with it)
+		end
 	end
 	return true, "ok"
 end
@@ -696,7 +709,8 @@ end
 -- The channel changed while the warning waited (a new realm key, GitHub #34): the line was
 -- written for the audience the warning named, so it is not sent, and the channel is not counted
 -- as warned (the new one's audience was never shown); the player is told, as for a line dropped
--- from the lane.
+-- from the lane. Out of an Olympus guild by then, or on no channel (1.1.1): no channel change,
+-- Channels.Send's own refusal says why, and nothing counts as warned.
 function Channels.Confirm(data, send)
 	if type(data) ~= "table" or not TIERS[data.tier] or data.answered then return end
 	data.answered = true
@@ -704,7 +718,9 @@ function Channels.Confirm(data, send)
 		ns.Print(L.CHAN_WARN_NOT_SENT)
 		return
 	end
-	if data.channel ~= ns.Comm.ChannelName() then
+	local channel = ns.Comm.ChannelName()
+	if not ns.IsMember() or channel == nil then return Channels.Send(data.tier, data.text) end
+	if data.channel ~= channel then
 		stats.moved = stats.moved + 1
 		ns.Print(L.CHAN_MOVED:format(Label(data.tier)))
 		ns.Fire("CHAT_SEND_FAILED", data.tier, "moved", data.text, 0)

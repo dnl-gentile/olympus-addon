@@ -42322,7 +42322,7 @@ end)()
 			Pumps(C)
 			eq(#Lines(w, 7), 0, "nothing on the new channel"); eq(#Lines(w), 1)
 			eq(#Chan.History("L"), 1, "the part that left is echoed")
-			eq(Said(w.printed, ns.L.CHAN_MOVED:format("Lords")), 1, "one notice")
+			eq(Said(w.printed, ns.L.CHAN_MOVED_PART:format("Lords", 1, 3)), 1, "one notice, of the part that left")
 			local f = Fired(w, "CHAT_SEND_FAILED")
 			eq(#f, 1, "once per line"); eq(f[1][3], "moved"); eq(f[1][4], Codec.SanitizeChat(text)); eq(f[1][5], 1, "one part had left")
 			eq(C.Stats().chatMoved, 2, "two parts dropped"); eq(Chan.Stats().moved, 1, "one line")
@@ -42674,7 +42674,7 @@ end)()
 		return lns.L
 	end
 	-- The strings of this part: their own in English and pt-BR, with the same format codes.
-	local KEYS = { "CHAN_MOVED", "CHATTAB_STEPS", "CHATTAB_SET", "CHATTAB_HERE", "CHATTAB_MIXED", "CHATTAB_WAITING",
+	local KEYS = { "CHAN_MOVED", "CHAN_MOVED_PART", "CHATTAB_STEPS", "CHATTAB_SET", "CHATTAB_HERE", "CHATTAB_MIXED", "CHATTAB_WAITING",
 		"CHATTAB_SETTINGS", "CHATTAB_MAIN_TAB", "HELP_CHATWIN", "CHATWIN_USAGE", "HELP_CHAN_ALL", "HELP_CHAN_CAPTAINS", "HELP_CHAN_LORDS" }
 	test("1.1.1: the strings of the Olympus tab and of #34 in English and pt-BR, with the same format codes", function()
 		local en, pt = LoadedL("enUS"), LoadedL("ptBR")
@@ -42718,6 +42718,193 @@ end)()
 		end
 		eq(pages[1], pages[2], "the Channels section is the same on both pages")
 	end)
+
+	---------------------------------------------------------------------------
+	-- 1.1.1, the review of the #34 and Olympus tab commits: a part the game refuses keeps the rest
+	-- of its line off the channel; after a move, the notice says which parts left; a privacy
+	-- warning answered out of Olympus gets the usual refusal; each #34 guard alone; the Treasury's
+	-- donation line in the Olympus tab. Each test fails on the code before its fix. A block of its
+	-- own, inside this function for its helpers (WithChat, WithTabs).
+	---------------------------------------------------------------------------
+	;(function()
+		-- Pumps until the lane's next chat part reached the game's send (the regular queue takes
+		-- every other slot while it has messages).
+		local function PumpChat(w, C)
+			local n = #Lines(w)
+			for _ = 1, 10 do
+				C.Pump()
+				if #Lines(w) > n then return end
+			end
+		end
+		local LONG = ("words that keep going "):rep(30) -- (three parts)
+
+		test("1.1.1 review: a part the game refuses keeps the rest of its line off the channel, and the event counts the parts that left", function()
+			WithChat(function(w, C, Chan)
+				-- The first part refused: nothing of the line leaves.
+				eq((Chan.Send("L", LONG)), true)
+				eq(C.Stats().chatQueue, 3)
+				w.refuse = true
+				PumpChat(w, C)
+				w.refuse = nil
+				Pumps(C)
+				eq(#Lines(w), 1, "parts sent after the refused one:")
+				eq(C.Stats().chatQueue, 0, "the rest left the lane:")
+				eq(#Chan.History("L"), 0, "echoed:"); eq(Chan.Stats().sent, 0)
+				local f = Fired(w, "CHAT_SEND_FAILED")
+				eq(#f, 1); eq(f[1][2], "L"); eq(f[1][3], "failed"); eq(f[1][4], Codec.SanitizeChat(LONG)); eq(f[1][5], 0, "no part left:")
+				eq(Said(w.printed, ns.L.CHAN_SEND_FAILED:format("Lords")), 1, "told once")
+				-- The second part refused: the first stays sent, the third does not leave.
+				w.clock = w.clock + 5
+				eq((Chan.Send("L", LONG)), true)
+				PumpChat(w, C)
+				eq(#Lines(w), 2, "the first part left")
+				w.refuse = true
+				PumpChat(w, C)
+				w.refuse = nil
+				Pumps(C)
+				eq(#Lines(w), 3, "the third part was sent:")
+				eq(C.Stats().chatQueue, 0)
+				eq(#Chan.History("L"), 1, "the part that left is echoed"); eq(Chan.Stats().sent, 1)
+				f = Fired(w, "CHAT_SEND_FAILED")
+				eq(#f, 2); eq(f[2][3], "failed"); eq(f[2][5], 1, "one part had left")
+				-- The next line goes out whole.
+				w.clock = w.clock + 5
+				eq((Chan.Send("L", "short and whole")), true)
+				Pumps(C)
+				eq(#Lines(w), 4); eq(#Chan.History("L"), 2); eq(#Fired(w, "CHAT_SEND_FAILED"), 2)
+			end)
+		end)
+
+		test("1.1.1 review: a line whose second part the lane does not take sends none of it", function()
+			WithChat(function(w, C, Chan)
+				local real, offered = C.SendChat, 0
+				C.SendChat = function(...)
+					offered = offered + 1
+					if offered == 2 then return false end
+					return real(...)
+				end
+				eq((Chan.Send("A", LONG)), true)
+				C.SendChat = real
+				eq(offered, 2, "the third part is not offered after a refusal")
+				Pumps(C)
+				eq(#Lines(w), 0, "the first part was sent:"); eq(C.Stats().chatQueue, 0); eq(#Chan.History("A"), 0)
+				local f = Fired(w, "CHAT_SEND_FAILED")
+				eq(#f, 1); eq(f[1][3], "failed"); eq(f[1][5], 0)
+			end)
+		end)
+
+		test("1.1.1 review (#34): after a move, the notice for a line whose first part had left says so, and not that nothing was sent", function()
+			WithChat(function(w, C, Chan)
+				eq((Chan.Send("L", LONG)), true)
+				PumpChat(w, C)
+				eq(#Lines(w, 6), 1, "the first part left")
+				NewKey(w, C, "key two", 7)
+				Pumps(C)
+				eq(#Lines(w), 1); eq(#Chan.History("L"), 1)
+				eq(Said(w.printed, ns.L.CHAN_MOVED_PART:format("Lords", 1, 3)), 1, "what left, on which channel")
+				eq(Said(w.printed, ns.L.CHAN_MOVED:format("Lords")), 0, "\"it was not sent to either channel\":")
+				eq(Fired(w, "CHAT_SEND_FAILED")[1][5], 1)
+				-- A line of which nothing had left: the plain notice, as before.
+				w.clock = w.clock + 5
+				eq((Chan.Send("L", "nothing of it left")), true)
+				NewKey(w, C, "key three", 8)
+				Pumps(C)
+				eq(Said(w.printed, ns.L.CHAN_MOVED:format("Lords")), 1)
+			end)
+		end)
+
+		test("1.1.1 review (#34): the privacy warning answered after leaving Olympus gets the usual refusal, not a channel change", function()
+			WithChat(function(w, C, Chan)
+				w.ns.db.chatWarned = {}
+				eq(select(2, Chan.Send("A", "held line")), "confirm")
+				local d = w.dialogs[1]
+				w.ns.IsMember = function() return false end
+				C.CheckMembership()
+				eq(C.ChannelName(), nil, "off the channel")
+				local ok, why = Chan.Confirm(d.data, true)
+				eq(ok, false); eq(why, "member")
+				eq(Said(w.printed, ns.L.MEMBERS_ONLY), 1, "the usual refusal")
+				eq(Said(w.printed, ns.L.CHAN_MOVED:format("Olympus")), 0, "a channel change was said:")
+				eq(#Fired(w, "CHAT_SEND_FAILED"), 0, "a channel change was fired:"); eq(Chan.Stats().moved, 0)
+				eq(w.ns.db.chatWarned.A, nil, "not counted as warned: nothing left")
+				Pumps(C)
+				eq(#Lines(w), 0)
+			end)
+		end)
+
+		test("1.1.1 review (#34): Pump alone drops a part written for another channel than the one joined, whatever changed it", function()
+			WithChat(function(w, C, Chan)
+				eq((Chan.Send("C", "written for the first channel")), true)
+				w.ids.other = 7
+				C.SetJoinedForTest("other") -- (the joined channel changed, by no JoinChannel)
+				Pumps(C)
+				eq(#Lines(w, 7), 0, "sent on the other channel (#7):"); eq(#Lines(w), 0)
+				eq(C.Stats().chatQueue, 0)
+				local f = Fired(w, "CHAT_SEND_FAILED")
+				eq(#f, 1); eq(f[1][3], "moved"); eq(C.Stats().chatMoved, 1)
+			end)
+		end)
+
+		test("1.1.1 review (#34): JoinChannel alone drops the lane when the channel changes, before any Pump", function()
+			WithChat(function(w, C, Chan)
+				eq((Chan.Send("A", "for the first channel")), true)
+				eq(C.Stats().chatQueue, 1)
+				NewKey(w, C, "key two", 7)
+				eq(C.Stats().chatQueue, 0, "still in the lane after the change:")
+				local f = Fired(w, "CHAT_SEND_FAILED")
+				eq(#f, 1, "its writer told at the change:"); eq(f[1][3], "moved"); eq(C.Stats().chatMoved, 1)
+				eq(#Lines(w), 0)
+			end)
+		end)
+
+		test("1.1.1 review: the Treasury's donation line in the Olympus tab comes without [Olympus]; with the chats off, nowhere, and the tab says nothing", function()
+			WithTabs(function(w, printed)
+				local T = ns.Treasury
+				local savedKeeper = T.IsKeeperName
+				local keepers = { "Keeper One-Realm", "Keeper Two-Realm", "Keeper Three-Realm" }
+				local ok, err = pcall(function()
+					T.IsKeeperName = function() return true end
+					local function On(name) T.HandleDonations("CHANNEL", name, ("TD~Olympus II~1~%d~"):format(ns.Now())) end
+					w[4].name, w[4].isDocked = "Olympus", true
+					ns.db.chatWindows = { ["Tester-Realm"] = { A = "Olympus", C = "Olympus", L = "Olympus" } }
+					-- The chats off: nothing in the tab, not even its intro, nor in the main window.
+					ns.db.addonChat = false
+					On(keepers[1])
+					eq(#w[4].lines, 0, "in the tab:"); eq(#w[1].lines, 0, "in the main window:")
+					eq(ns.db.chatTabIntro, nil, "the intro is kept for when the chats show there")
+					-- On: the intro, then the line without the channel's name, in [Olympus]'s colour.
+					ns.db.addonChat = true
+					On(keepers[2])
+					eq(#w[4].lines, 2)
+					eq(w[4].lines[1], Our(ns.L.CHATTAB_HERE:format(LEGEND)))
+					eq(w[4].lines[2], T.DonationText(keepers[2], nil), "no [Olympus] in the tab:")
+					eq(w[4].colors[2][1], 0.90); eq(w[4].colors[2][2], 0.77); eq(w[4].colors[2][3], 0.36)
+					-- Another window keeps the name, as the chat lines do.
+					ns.db.chatWindows["Tester-Realm"].A = "Officers"
+					On(keepers[3])
+					eq(w[5].lines[#w[5].lines], "[" .. ns.L.CHAN_ALL .. "] " .. T.DonationText(keepers[3], nil))
+					eq(#w[4].lines, 2); eq(#w[1].lines, 0)
+				end)
+				for _, name in ipairs(keepers) do T.HandleDonations("CHANNEL", name, "TD~Olympus II~0~0~") end
+				T.IsKeeperName = savedKeeper
+				if not ok then error(err, 0) end
+			end)
+		end)
+
+		test("1.1.1 review: the README and the CurseForge page tell of the refused part, the parts that left before a move, the tab's hint said once, and the donation line", function()
+			local PHRASES = {
+				"if the game refuses one of them, the rest of that line is not sent either, and you are told (1.1.1)",
+				"Of a long line whose first parts had already left, the notice says how many went out, on the old channel.",
+				"the tab's first line says so, after the legend, when the tab shows other chat; `/oly chatwindow tab` says it again",
+				"not with that chat muted or the Olympus chats off, nor for a late login; in the Olympus tab without \"[Olympus]\"",
+			}
+			for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+				local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+				for _, phrase in ipairs(PHRASES) do assert(doc:find(phrase, 1, true), path .. ": " .. phrase) end
+				assert(not doc:find("the addon says so when it sees the tab shows other chat", 1, true), path .. ": the hint as if said on and on")
+			end
+		end)
+	end)()
 end)()
 
 print(("\n%d passed, %d failed"):format(passed, failed))
