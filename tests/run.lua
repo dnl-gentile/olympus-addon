@@ -42175,5 +42175,228 @@ end
 	end)
 end)()
 
+-- 1.1.1: GitHub #34 (a queued chat line never follows a channel change), the Olympus tab (a chat
+-- tab of the game's named Olympus, its lines without the channel's name) and /ol alone. Comm.lua
+-- and Channels.lua loaded fresh into one namespace (FreshComm), on channels whose numbers the
+-- test sets. (A function of its own: the main chunk is near LuaJIT's 200 locals.)
+;(function()
+	local SEND_OK, SEND_REFUSED = 0, 9 -- (Enum.SendAddonMessageResult: 0 is success)
+	-- fn(w, C, Chan) as a Lord of Olympus II, every channel warned, on the channel of realm key "key
+	-- one" as #6. w.sent: what reached SendAddonMessageLogged ({ msg, dist, target }); w.printed:
+	-- ns.Print; w.fired: ns.Fire ({ name, ... }); w.dialogs: ns.ShowDialog; w.ids: channel name ->
+	-- number (GetChannelName); w.clock: GetTime; w.refuse: the game refuses the sends; w.main: the
+	-- main chat window's lines; w.ns: the namespace.
+	local function WithChat(fn)
+		local saved = { name = GetChannelName, leave = LeaveChannelByName, join = JoinChannelByName, guild = GetGuildInfo,
+			time = GetTime, info = C_ChatInfo, default = DEFAULT_CHAT_FRAME,
+			slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS },
+			dialogs = { StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN } }
+		local ok, err = pcall(function()
+			local cns = FreshComm()
+			local w = { sent = {}, printed = {}, fired = {}, dialogs = {}, ids = {}, clock = 100000, main = {}, ns = cns }
+			cns.db = { addonChat = true, chatWarned = { A = true, C = true, L = true }, blocked = {} }
+			cns.rdb = { guilds = {}, realmKey = "key one" }
+			cns.IsMember = function() return true end
+			cns.Print = function(msg) w.printed[#w.printed + 1] = tostring(msg) end
+			cns.Fire = function(name, ...) w.fired[#w.fired + 1] = { name, ... } end
+			cns.ShowDialog = function(which, a, b, data) w.dialogs[#w.dialogs + 1] = { which = which, a = a, b = b, data = data } end
+			cns.Data = setmetatable({ ForgetVotes = function() end }, { __index = ns.Data }) -- (the shared census stays as it is)
+			GetGuildInfo = function() return MY_GUILD, "Lord", 0 end
+			GetTime = function() return w.clock end
+			GetChannelName = function(name) return w.ids[name] or 0 end
+			LeaveChannelByName = function(name) w.ids[name] = nil end
+			JoinChannelByName = function() end
+			C_ChatInfo = {
+				RegisterAddonMessagePrefix = function() end,
+				SendAddonMessage = function() return SEND_OK end,
+				SendAddonMessageLogged = function(_, msg, dist, target)
+					w.sent[#w.sent + 1] = { msg = msg, dist = dist, target = target }
+					return w.refuse and SEND_REFUSED or SEND_OK
+				end,
+			}
+			DEFAULT_CHAT_FRAME = { AddMessage = function(_, text) w.main[#w.main + 1] = text end }
+			assert(loadfile(ADDON_DIR .. "Channels.lua"))("Olympus", cns)
+			local C = cns.Comm
+			w.ids[C.ChannelSpec()] = 6
+			C.JoinChannel()
+			eq(C.ChannelReady(), true, "on the channel")
+			fn(w, C, cns.Channels)
+		end)
+		GetChannelName, LeaveChannelByName, JoinChannelByName, GetGuildInfo = saved.name, saved.leave, saved.join, saved.guild
+		GetTime, C_ChatInfo, DEFAULT_CHAT_FRAME = saved.time, saved.info, saved.default
+		SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = saved.slash[1], saved.slash[2], saved.slash[3]
+		StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN = saved.dialogs[1], saved.dialogs[2]
+		StaticPopupDialogs.OLYMPUS_PIN_DOWN = saved.dialogs[3]
+		if not ok then error(err, 0) end
+	end
+	-- The realm key changes to `key` (an officer's /oly key, or the King's rotation): its channel is
+	-- #id, and the addon joins it.
+	local function NewKey(w, C, key, id)
+		w.ns.rdb.realmKey = key
+		w.ids[C.ChannelSpec()] = id
+		C.JoinChannel()
+	end
+	local function Pumps(C, n) for _ = 1, n or 10 do C.Pump() end end
+	-- The chat lines (M1) that reached the game's send, to channel #target (any when nil).
+	local function Lines(w, target)
+		local out = {}
+		for _, s in ipairs(w.sent) do
+			if s.msg:sub(1, 3) == "M1~" and (target == nil or s.target == target) then out[#out + 1] = s end
+		end
+		return out
+	end
+	local function Fired(w, name)
+		local out = {}
+		for _, f in ipairs(w.fired) do if f[1] == name then out[#out + 1] = f end end
+		return out
+	end
+	-- How many of `list` are exactly `text`.
+	local function Said(list, text)
+		local n = 0
+		for _, l in ipairs(list) do if tostring(l) == text then n = n + 1 end end
+		return n
+	end
+
+	-- GitHub #34, the reporter's regression adapted to 1.1.0's code (FreshComm, Channels.Send,
+	-- Comm.JoinChannel, Comm.Pump): on b05f15f the line went to #7 and was echoed as sent.
+	test("1.1.1 #34: a chat line queued for one Olympus channel is never sent on another after a realm-key change: dropped, and the player told once", function()
+		WithChat(function(w, C, Chan)
+			local text = "message composed for the first channel"
+			eq((Chan.Send("A", text)), true, "taken")
+			eq(#Lines(w), 0, "queued, not sent yet")
+			local first = C.ChannelName()
+			NewKey(w, C, "key two", 7)
+			assert(C.ChannelName() ~= first, "another channel")
+			Pumps(C)
+			eq(#Lines(w, 7), 0, "queued chat was sent to the replacement channel (#7):")
+			eq(#Lines(w), 0, "nor anywhere else:")
+			eq(Chan.Stats().sent, 0, "not counted as sent:")
+			eq(#Chan.History("A"), 0, "no echo:")
+			eq(#w.main, 0, "nothing in the chat:")
+			eq(Said(w.printed, ns.L.CHAN_MOVED:format("Olympus")), 1, "told once:")
+			eq(Said(w.printed, ns.L.CHAN_SEND_FAILED:format("Olympus")), 0, "not the plain failure:")
+			local f = Fired(w, "CHAT_SEND_FAILED")
+			eq(#f, 1, "one event:"); eq(f[1][2], "A"); eq(f[1][3], "moved"); eq(f[1][4], text); eq(f[1][5], 0, "no part had left:")
+			eq(C.Stats().chatMoved, 1); eq(Chan.Stats().moved, 1)
+			-- A line written now goes to the new channel, and shows.
+			w.clock = w.clock + 5
+			eq((Chan.Send("A", "for the new channel")), true)
+			Pumps(C)
+			eq(#Lines(w, 7), 1); assert(Lines(w, 7)[1].msg:find("~for the new channel$"), Lines(w, 7)[1].msg)
+			eq(#Chan.History("A"), 1); eq(Chan.Stats().sent, 1); eq(#Fired(w, "CHAT_SEND_FAILED"), 1)
+		end)
+	end)
+
+	test("1.1.1 #34: the same channel under a new number is no move: the queued line goes out there, and a later one too", function()
+		WithChat(function(w, C, Chan)
+			eq((Chan.Send("C", "same channel, new number")), true)
+			w.ids[C.ChannelName()] = 9 -- (the game numbered it anew: a channel before it was left)
+			Pumps(C)
+			eq(#Lines(w, 6), 0); eq(#Lines(w, 9), 1, "sent on its own channel, now #9")
+			eq(Chan.Stats().sent, 1); eq(#Chan.History("C"), 1, "echoed")
+			eq(#Fired(w, "CHAT_SEND_FAILED"), 0); eq(C.Stats().chatMoved, 0); eq(#w.printed, 0)
+			w.clock = w.clock + 5
+			eq((Chan.Send("C", "after the new number")), true)
+			Pumps(C)
+			eq(#Lines(w, 9), 2)
+		end)
+	end)
+
+	test("1.1.1 #34: a three-part line whose first part left before the key change: that part shows, the rest is dropped, one notice", function()
+		WithChat(function(w, C, Chan)
+			local text = ("words that keep going "):rep(30)
+			eq((Chan.Send("L", text)), true)
+			eq(C.Stats().chatQueue, 3, "three parts waiting")
+			C.Pump()
+			eq(#Lines(w, 6), 1, "the first part left")
+			NewKey(w, C, "key two", 7)
+			Pumps(C)
+			eq(#Lines(w, 7), 0, "nothing on the new channel"); eq(#Lines(w), 1)
+			eq(#Chan.History("L"), 1, "the part that left is echoed")
+			eq(Said(w.printed, ns.L.CHAN_MOVED:format("Lords")), 1, "one notice")
+			local f = Fired(w, "CHAT_SEND_FAILED")
+			eq(#f, 1, "once per line"); eq(f[1][3], "moved"); eq(f[1][4], Codec.SanitizeChat(text)); eq(f[1][5], 1, "one part had left")
+			eq(C.Stats().chatMoved, 2, "two parts dropped"); eq(Chan.Stats().moved, 1, "one line")
+		end)
+	end)
+
+	test("1.1.1 #34: a line the privacy warning holds is not sent if the channel changed before the OK, and that channel is not counted as warned", function()
+		WithChat(function(w, C, Chan)
+			w.ns.db.chatWarned = {}
+			eq(select(2, Chan.Send("A", "for the channel the warning named")), "confirm")
+			local d = w.dialogs[1]
+			eq(d.which, "OLYMPUS_CHAT_PRIVACY"); eq(d.data.channel, C.ChannelName(), "the warning holds its channel")
+			NewKey(w, C, "key two", 7)
+			Chan.Confirm(d.data, true)
+			Pumps(C)
+			eq(#Lines(w), 0, "sent nowhere")
+			eq(w.ns.db.chatWarned.A, nil, "the new channel's audience was not the one shown")
+			eq(Said(w.printed, ns.L.CHAN_MOVED:format("Olympus")), 1)
+			local f = Fired(w, "CHAT_SEND_FAILED")
+			eq(#f, 1); eq(f[1][2], "A"); eq(f[1][3], "moved"); eq(f[1][4], "for the channel the warning named"); eq(f[1][5], 0)
+			eq(Chan.Stats().moved, 1)
+			-- Asked again on the new channel: its OK sends there, as before.
+			w.clock = w.clock + 5
+			eq(select(2, Chan.Send("A", "asked again")), "confirm")
+			eq(w.dialogs[2].data.channel, C.ChannelName())
+			Chan.Confirm(w.dialogs[2].data, true)
+			Pumps(C)
+			eq(#Lines(w, 7), 1); eq(w.ns.db.chatWarned.A, true)
+		end)
+	end)
+
+	test("1.1.1 #34: too late, refused by the game or out of Olympus: still the plain notice, and the event says why", function()
+		WithChat(function(w, C, Chan)
+			eq((Chan.Send("A", "waits too long")), true)
+			w.clock = w.clock + 31
+			C.Pump()
+			eq(#Lines(w), 0)
+			eq(Said(w.printed, ns.L.CHAN_SEND_FAILED:format("Olympus")), 1)
+			eq(Fired(w, "CHAT_SEND_FAILED")[1][3], "late")
+			w.refuse = true
+			eq((Chan.Send("C", "refused")), true)
+			C.Pump()
+			eq(#Lines(w), 1, "tried"); eq(Fired(w, "CHAT_SEND_FAILED")[2][3], "failed")
+			eq(Said(w.printed, ns.L.CHAN_SEND_FAILED:format("Captains")), 1)
+			w.refuse = nil
+			w.clock = w.clock + 5
+			eq((Chan.Send("L", "left behind")), true)
+			w.ns.IsMember = function() return false end
+			C.CheckMembership()
+			eq(Fired(w, "CHAT_SEND_FAILED")[3][3], "left")
+			eq(Said(w.printed, ns.L.CHAN_SEND_FAILED:format("Lords")), 1)
+			eq(#Fired(w, "CHAT_SEND_FAILED"), 3)
+			eq(C.Stats().chatMoved, 0); eq(Chan.Stats().moved, 0); eq(Chan.Stats().sent, 0)
+		end)
+	end)
+
+	test("1.1.1 #34: /oly status counts the lines a channel change kept from leaving (moved=)", function()
+		assert(ns.StatusText():find("lane=%d+ moved=%d+ muted="), "moved= in /oly status")
+	end)
+
+	-- Locales.lua as the game in `code` loads it.
+	local function LoadedL(code)
+		local lns, savedLocale = {}, GetLocale
+		GetLocale = function() return code end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", lns) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		return lns.L
+	end
+	-- The strings of this part: their own in English and pt-BR, with the same format codes.
+	local KEYS = { "CHAN_MOVED" }
+	test("1.1.1: the strings of the Olympus tab and of #34 in English and pt-BR, with the same format codes", function()
+		local en, pt = LoadedL("enUS"), LoadedL("ptBR")
+		for _, k in ipairs(KEYS) do
+			assert(type(en[k]) == "string" and en[k] ~= "", k .. ": English")
+			assert(type(pt[k]) == "string" and pt[k] ~= "" and pt[k] ~= en[k], k .. ": pt-BR")
+			local function Codes(s) local out = {} for c in s:gmatch("%%%a") do out[#out + 1] = c end return table.concat(out) end
+			eq(Codes(pt[k]), Codes(en[k]), k .. ": format codes")
+		end
+		assert(en.CHAN_MOVED:find("It was not sent to either channel", 1, true), en.CHAN_MOVED)
+		assert(pt.CHAN_MOVED:find("não foi enviada a nenhum dos dois canais", 1, true), pt.CHAN_MOVED)
+	end)
+end)()
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

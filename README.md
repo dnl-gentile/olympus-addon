@@ -273,6 +273,10 @@ WoW channel number to join). Each channel is exclusive to a rank:
   while the channel is half full) the rest stay off the chat, and a notice says how many, at
   most once a minute. Those lines still go to the Realm tab's Olympus chats, which keep the
   last 100 lines of each channel.
+- A line still waiting to leave when the Olympus channel changes (a new realm key, from
+  `/oly key` or the King's rotation) is not sent, to either channel, and you are told: it was
+  written for the old channel's audience. Send it again to write on the new one (1.1.1, GitHub
+  #34). The same holds for a line the privacy warning holds while the channel changes.
 - Shift-click an item or spell into the line and it stays a link. Long lines are split into
   up to 3 messages.
 - The channels show only in the chat of players with the addon.

@@ -3703,3 +3703,12 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.NETOFF_HELD_HIGHER = "%s foi escondido ou mostrado de novo por uma palavra de mais alto que a sua: só alguém tão alto pode mudar isso."
 	L.FILTER_SHARED_SHORT = "Um termo bloqueado compartilhado é uma palavra de pelo menos %d letras: uma palavra curta e comum esconderia quase todas as linhas para todo mundo."
 end
+
+---------------------------------------------------------------------------
+-- 1.1.1: the Olympus chats. A line still waiting to leave when the Olympus channel changes (a new
+-- realm key) is sent to neither channel (GitHub #34, Comm.lua).
+---------------------------------------------------------------------------
+L.CHAN_MOVED = "[%s]: the Olympus channel changed (a new channel key) before your line left. It was not sent to either channel: send it again to write on the new one."
+if GetLocale and GetLocale() == "ptBR" then
+	L.CHAN_MOVED = "[%s]: o canal Olympus mudou (uma chave de canal nova) antes de a sua linha sair. Ela não foi enviada a nenhum dos dois canais: envie de novo para escrever no novo."
+end

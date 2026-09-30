@@ -33,7 +33,8 @@ local TIERS = {
 Channels.TIERS, Channels.ORDER = TIERS, { "A", "C", "L" }
 Channels.HISTORY = HISTORY
 
-local stats = { sent = 0, shown = 0, hidden = 0, bad = 0, dup = 0, rate = 0, flood = 0, forged = 0, unverified = 0, rank = 0, ignored = 0 }
+local stats = { sent = 0, shown = 0, hidden = 0, bad = 0, dup = 0, rate = 0, flood = 0, forged = 0, unverified = 0, rank = 0, ignored = 0,
+	moved = 0 }
 local seen = {}      -- "sender#id#text" -> time: every part is shown once
 local buckets = {}   -- sender -> { tokens, t }
 local recent = {}    -- tier -> { { t, sender } } of the lines shown in the last minute
@@ -461,9 +462,10 @@ function Channels.Send(tier, text, now)
 		return false, "ready"
 	end
 	-- The first line in each channel waits for the player's OK: nothing is private there, and
-	-- they are told so before anything leaves (Channels.Confirm sends it).
+	-- they are told so before anything leaves (Channels.Confirm sends it). The warning holds the
+	-- channel it named too (GitHub #34).
 	if not Warned()[tier] then
-		ns.ShowDialog("OLYMPUS_CHAT_PRIVACY", Label(tier), ns.Comm.Audience(), { tier = tier, text = text })
+		ns.ShowDialog("OLYMPUS_CHAT_PRIVACY", Label(tier), ns.Comm.Audience(), { tier = tier, text = text, channel = ns.Comm.ChannelName() })
 		return false, "confirm"
 	end
 	local guild = GetGuildInfo("player")
@@ -481,14 +483,27 @@ function Channels.Send(tier, text, now)
 		ns.Print(L.CHAN_UNMUTED:format(Label(tier)))
 	end
 	lastSend = now
-	local failed = false
+	local failed, sentParts = false, 0
 	for _, part in ipairs(parts) do
-		local function done(sent)
+		-- why (Comm.SendChat): "moved" the channel changed before it left (GitHub #34: it goes to
+		-- neither channel), "late", "failed" or "left". Told once per line, at its first part not
+		-- sent, and CHAT_SEND_FAILED(tier, why, text, sentParts) with the whole line, so a window
+		-- can offer it back (sentParts: its parts that had already left).
+		local function done(sent, why)
 			if not sent then
-				if not failed then ns.Print(L.CHAN_SEND_FAILED:format(Label(tier))) end
+				if failed then return end
 				failed = true
+				why = why or "failed"
+				if why == "moved" then
+					stats.moved = stats.moved + 1
+					ns.Print(L.CHAN_MOVED:format(Label(tier)))
+				else
+					ns.Print(L.CHAN_SEND_FAILED:format(Label(tier)))
+				end
+				ns.Fire("CHAT_SEND_FAILED", tier, why, text, sentParts)
 				return
 			end
+			sentParts = sentParts + 1
 			stats.sent = stats.sent + 1
 			Accept(tier, ns.me, guild, class ~= "" and class or nil, part, true) -- our echo: exactly what the others see
 		end
@@ -505,12 +520,22 @@ end
 -- The warning's answer, with the line it held (with the gamepad UI too: it rides in the
 -- window's data). Send: that channel counts as warned and the line goes through Channels.Send
 -- again, every check with it. Cancel, Escape or another window taking its place: not sent.
+-- The channel changed while the warning waited (a new realm key, GitHub #34): the line was
+-- written for the audience the warning named, so it is not sent, and the channel is not counted
+-- as warned (the new one's audience was never shown); the player is told, as for a line dropped
+-- from the lane.
 function Channels.Confirm(data, send)
 	if type(data) ~= "table" or not TIERS[data.tier] or data.answered then return end
 	data.answered = true
 	if not send then
 		ns.Print(L.CHAN_WARN_NOT_SENT)
 		return
+	end
+	if data.channel ~= ns.Comm.ChannelName() then
+		stats.moved = stats.moved + 1
+		ns.Print(L.CHAN_MOVED:format(Label(data.tier)))
+		ns.Fire("CHAT_SEND_FAILED", data.tier, "moved", data.text, 0)
+		return false, "moved"
 	end
 	Warned()[data.tier] = true
 	return Channels.Send(data.tier, data.text)
