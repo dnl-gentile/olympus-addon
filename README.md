@@ -520,9 +520,10 @@ tools lives where it belongs:
   confirms online and his own /who saw in that guild in the last 30 minutes (the server's word:
   two characters can also call themselves a real guild's Lord and Captain in the census, and a
   name the census alone gives gets nothing). His click on a guild, or on the Throne's /who line, searches /who
-  for the Lords and Captains picked it has not seen there yet, one search a click (with the
-  gamepad UI, the census's Refresh searches). What his /who saw is kept with the rotation,
-  through a /reload or relog too. Each hands it to his guild over guild chat, so
+  for the Lords and Captains picked it has not seen there yet, one search a click: every guild
+  picked first, then each of them by name, at most once in 30 minutes (with the gamepad UI, the
+  census's Refresh searches). What his /who saw is kept with the rotation, through a /reload or
+  relog too. Each hands it to his guild over guild chat, so
   nobody types `/oly key` by hand. It never travels on the Olympus channel. Whoever holds the
   old key outside the guilds he picks stays behind on the old channel; anyone in a guild that
   gets it has it too. For 10 minutes his addon keeps handing it to Lords and Captains who log in

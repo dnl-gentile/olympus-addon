@@ -37,8 +37,8 @@ local L = ns.L
 -- The King's client hands the key out a few whispers at a time, never more than the send queue
 -- has room for (its other messages keep their place), and counts a whisper as sent once it left.
 -- /who goes from a click alone: his click on a guild, or on the Throne's /who line, searches the
--- next one picked whose Lords and Captains it has not seen there yet (Keys.Confirm). What it saw
--- is kept with the rotation (rot.saw), through a /reload too.
+-- next one picked whose Lords and Captains it has not seen there yet, then each of them by name
+-- (Keys.Confirm). What it saw is kept with the rotation (rot.saw), through a /reload too.
 -- It keeps handing it to Lords and Captains who come online for GRACE, on the old channel (a
 -- little longer while some picked still wait for their whisper), then moves (with his guild);
 -- "Move now" sooner. Guilds with no officer online in that time stay on the old channel until one
@@ -446,11 +446,13 @@ end
 
 -- The King's click (the game takes /who from a click alone): his /who asks the server about the
 -- Lords and Captains picked it has not seen in their guild yet, one search a click at Who.lua's
--- pace (quiet): their guild's players (up to 50), then each one its answer did not list by name
--- (it was full, or he logged in since), a minute apart. `only`: that guild alone (the one he
--- clicked). With the gamepad UI no quiet search goes: the census's Refresh searches there (what
--- it lists counts too).
-local asked = {} -- [Name-Realm] = GetTime() of our search for him by name
+-- pace (quiet): first the players of every guild picked not searched yet (up to 50 each), then
+-- by name each one those answers did not list (full, or he logged in since), the one asked
+-- longest ago first and each at most once in WHO_FRESH: made-up names in one guild's census
+-- never keep the next guild from its search (Konig's review). `only`: that guild alone (the one
+-- he clicked). With the gamepad UI no quiet search goes: the census's Refresh searches there
+-- (what it lists counts too).
+local asked, askedFor = {}, nil -- [Name-Realm] = GetTime() of our search for him by name; the rotation's epoch
 function Keys.Confirm(only)
 	local rot, W = Rotation(), ns.Who
 	if not rot or rot.moved or not Keys.CanRotate() or not (W and W.SearchGuild and W.GuildSeen and W.Search) then return false end
@@ -458,20 +460,23 @@ function Keys.Confirm(only)
 		if not only then ns.Print(L.KEY_WHO_GAMEPAD) end
 		return false
 	end
-	local now = GetTime()
+	if askedFor ~= rot.at then wipe(asked); askedFor = rot.at end
+	local now, byName, byNameAt = GetTime(), nil, nil
 	for _, c in ipairs(Keys.Candidates()) do
 		if #c.waiting > 0 and (only == nil or c.guild == only) and Picked(rot, c) then
 			if not W.GuildSeen(c.guild) then
 				if W.SearchGuild(c.guild) then return true end
 			else
 				for _, name in ipairs(c.waiting) do
-					if now - (asked[name] or -math.huge) >= W.GUILD_AGAIN and W.Search(true, nil, name) then
-						asked[name] = now
-						return true
-					end
+					local at = asked[name] or -math.huge
+					if now - at >= Keys.WHO_FRESH and (byName == nil or at < byNameAt) then byName, byNameAt = name, at end
 				end
 			end
 		end
+	end
+	if byName and W.Search(true, nil, byName) then
+		asked[byName] = now
+		return true
 	end
 	return false
 end
@@ -726,4 +731,5 @@ function Keys.Reset()
 	lastAnswer = -math.huge
 	for k in pairs(stats) do stats[k] = 0 end
 	wipe(asked)
+	askedFor = nil
 end

@@ -37955,7 +37955,8 @@ end
 ---------------------------------------------------------------------------
 -- 1.1 (Konig's review of the key rotation's /who, #45): what the King's /who saw of the Lords and
 -- Captains is kept with the rotation (a /reload, a relog or Who.lua's forgetting past SEEN_MAX
--- names no longer undoes it).
+-- names no longer undoes it), and the Throne's /who line searches every guild picked before
+-- any name, each name at most once in WHO_FRESH.
 ---------------------------------------------------------------------------
 do
 	local KY = ns.Keys
@@ -38085,6 +38086,58 @@ do
 		end)
 	end)
 
+	test("1.1 key rotation, Konig's review: made-up Captains in a real guild's census don't keep the Throne's /who line from the next guild; each name is asked once", function()
+		WithKing(function(w, K, server)
+			-- <Olympus II>: a real guild (his /who saw it), its census the two leakers' alone: they name
+			-- 8 made-up Captains online, and a big total so it sorts first.
+			local offs = { { name = "Leaker Two", online = true, days = 0 } }
+			for i = 1, 8 do offs[#offs + 1] = { name = "Ghost" .. string.char(96 + i), online = true, days = 0 } end
+			ns.rdb.guilds["Olympus II"] = Vouched({ total = 900, online = 40, zones = {}, t = w.clock, leader = "Leaker One", leaderOnline = true, realm = "Realm",
+				officers = offs }, "Leaker One-Realm", "Leaker Two-Realm")
+			ns.rdb.seen["Olympus II"] = { online = 40, t = w.clock }
+			eq(KY.Rotate(), true)
+			eq(KY.Candidates()[1].guild, "Olympus II", "sorted first")
+			K.Show("home")
+			-- His click on the /who line each 11 seconds, each search answered as the server would.
+			local function Click()
+				server.clock, w.clock = server.clock + ns.Who.COOLDOWN + 1, w.clock + ns.Who.COOLDOWN + 1
+				Fresh(w)
+				local line = LineWith(K.Build(), ns.L.KEY_WHO_CONFIRM:sub(1, 12))
+				local before = #server.sent
+				if line then line.onClick() end
+				if #server.sent == before then return nil end
+				local q = server.sent[#server.sent]
+				if q == 'g-"Olympus Zeus"' then
+					server.Answer({ { "Zed", "Olympus Zeus", 60, "WARRIOR" }, { "Zeus Cap", "Olympus Zeus", 60, "MAGE" } })
+				elseif q == 'g-"Olympus II"' then
+					server.Answer({ { "Real Member", "Olympus II", 40, "PRIEST" } })
+				else
+					server.Answer({}) -- a made-up name: nobody
+				end
+				server.Run(ns.Who.SETTLE)
+				return q
+			end
+			eq(Click(), 'g-"Olympus II"')
+			eq(Click(), 'g-"Olympus Zeus"', "the next guild's search before any name")
+			eq(Targets(), "Zed-Realm,Zeus Cap-Realm")
+			-- Then Olympus II's ten by name, each once in 11 minutes of clicks.
+			local byName = {}
+			for _ = 1, 60 do
+				local q = Click()
+				if q then byName[#byName + 1] = q end
+			end
+			eq(table.concat(byName, " "), 'n-"Leaker One" n-"Leaker Two" n-"Ghosta" n-"Ghostb" n-"Ghostc" n-"Ghostd" n-"Ghoste" n-"Ghostf" n-"Ghostg" n-"Ghosth"')
+			-- His clicks on the guild row (unchecked, checked again) ask no name a second time either.
+			local sent = #server.sent
+			LineWith(K.Build(), "<Olympus II>").onClick()
+			server.clock = server.clock + ns.Who.COOLDOWN + 1
+			LineWith(K.Build(), "<Olympus II>").onClick()
+			eq(#server.sent, sent)
+			eq(KY.Start(), true)
+			eq(Whispered(w), "Zed-Realm,Zeus Cap-Realm")
+		end)
+	end)
+
 	test("1.1 key rotation, Konig's review, at the army's scale: his /who of 46 guilds of 50 players (more than Who.lua keeps) confirms every Lord and Captain with one search a guild, and the census's later searches don't undo it", function()
 		WithKing(function(w, K, server)
 			local function Tag(i) return string.char(65 + math.floor(i / 26)) .. string.char(97 + i % 26) end
@@ -38132,10 +38185,11 @@ do
 		end)
 	end)
 
-	test("1.1 key rotation, Konig's review: the README and the CurseForge page say that what the King's /who saw survives a /reload", function()
+	test("1.1 key rotation, Konig's review: the README and the CurseForge page say the /who line searches every guild first, each name once in 30 minutes, and that what his /who saw survives a /reload", function()
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
-			for _, must in ipairs({ "What his /who saw is kept with the rotation, through a /reload or relog too" }) do
+			for _, must in ipairs({ "every guild picked first, then each of them by name, at most once in 30 minutes",
+				"What his /who saw is kept with the rotation, through a /reload or relog too" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
 		end
