@@ -21,7 +21,8 @@ local L = ns.L
 --                      them (their officers) to their own guild; K1~<key> with it there, for
 --                      guildmates before 1.1. The hashes: the keys it replaces (at most 3).
 --   K4~<epoch>~<guild> a Lord's or Captain's addon tells the King it has it (a whisper); his
---                      Throne counts it only from a name his client whispered the key to.
+--                      Throne counts it only from a name his client whispered the key to, and
+--                      under the guild it whispered him for (its own record), never the one named.
 --   K5~<epoch held>    over GUILD, after login: a guildmate asks whether a newer key exists;
 --                      an officer holding one answers with K3.
 -- The epoch is the server's second the key was made (or an officer typed one, 1.1): every 1.1
@@ -143,7 +144,8 @@ end
 
 -- The King's rotation (ns.rdb.keyRotation): { at, key, retires, picking, picked = { [guild, lower
 -- case] = true | false }, till, acked = { [Name-Realm] = guild }, sent = { [Name-Realm] = t },
--- queued = { [Name-Realm] = t }, saw = { [Name-Realm] = { guild, at } } (WhoSaw), moved, movedAt }.
+-- sentFor = { [Name-Realm] = the guild he was whispered for }, queued = { [Name-Realm] = t },
+-- saw = { [Name-Realm] = { guild, at } } (WhoSaw), moved, movedAt }.
 local function Rotation()
 	local r = ns.rdb and ns.rdb.keyRotation
 	return type(r) == "table" and r or nil
@@ -241,7 +243,7 @@ function Keys.HandleAck(dist, sender, text)
 	if dist ~= "WHISPER" then return end
 	local rot = Rotation()
 	if not rot or not Keys.CanRotate() then return end
-	local at, guild = tostring(text):match("^K4~(%d+)~(.*)$")
+	local at = tostring(text):match("^K4~(%d+)~")
 	if tonumber(at) ~= rot.at then return end
 	sender = ns.FullName(sender)
 	-- Only from a name his client whispered the key to (counted once it left): anyone else's K4
@@ -251,7 +253,9 @@ function Keys.HandleAck(dist, sender, text)
 	end
 	rot.acked = type(rot.acked) == "table" and rot.acked or {}
 	if rot.acked[sender] then return end
-	rot.acked[sender] = ns.King.CleanGuild(guild) or "?"
+	-- Under the guild his client whispered him for, never the one the K4 names: a Lord whispered
+	-- could name any guild, and the Throne would count it as having the key (1.1 review).
+	rot.acked[sender] = type(rot.sentFor) == "table" and type(rot.sentFor[sender]) == "string" and rot.sentFor[sender] or ""
 	stats.acks = stats.acks + 1
 	ns.King.Changed()
 end
@@ -523,13 +527,14 @@ function Keys.Hand()
 	if not rot or rot.moved or rot.picking or not Keys.CanRotate() then return 0 end
 	rot.acked = type(rot.acked) == "table" and rot.acked or {}
 	rot.sent = type(rot.sent) == "table" and rot.sent or {}
+	rot.sentFor = type(rot.sentFor) == "table" and rot.sentFor or {}
 	rot.queued = type(rot.queued) == "table" and rot.queued or {}
 	local now, n = ns.Now(), 0
 	local room = Keys.MAX_WHISPERS
 	if ns.Comm.QueueRoom then room = math.min(room, ns.Comm.QueueRoom() - Keys.QUEUE_SPARE) end
 	for _, t in ipairs(Keys.Targets()) do
 		if n >= room then break end
-		local name = t.name
+		local name, guild = t.name, t.guild
 		local waiting = tonumber(rot.queued[name])
 		if not rot.acked[name] and not (waiting and now - waiting < Keys.QUEUE_WAIT)
 			and now - (tonumber(rot.sent[name]) or -math.huge) >= Keys.RESEND then
@@ -539,6 +544,7 @@ function Keys.Hand()
 				rot.queued[name] = nil
 				if sent then
 					rot.sent[name] = ns.Now()
+					rot.sentFor[name] = guild -- (his acknowledgement counts for this guild, HandleAck)
 					stats.whispered = stats.whispered + 1
 					ns.King.Changed()
 				end
@@ -558,7 +564,7 @@ function Keys.Rotate()
 	local was = Latest()
 	if was and at <= was then at = was + 1 end
 	local held = ns.rdb.realmKey
-	rot = { at = at, key = Keys.NewKey(), picking = true, picked = {}, acked = {}, sent = {}, queued = {} }
+	rot = { at = at, key = Keys.NewKey(), picking = true, picked = {}, acked = {}, sent = {}, sentFor = {}, queued = {} }
 	-- The keys it replaces: ours, and those ours replaced.
 	local list = Hashes(ns.rdb.keyEpoch and ns.rdb.keyEpoch.retires, ValidKey(held) and Hash(held) or nil, Hash(rot.key))
 	rot.retires = #list > 0 and table.concat(list, ".") or nil
@@ -620,7 +626,7 @@ local function Counts(rot)
 	local acked, guilds, sent = 0, {}, 0
 	for _, g in pairs(type(rot.acked) == "table" and rot.acked or {}) do
 		acked = acked + 1
-		guilds[g] = true
+		if g ~= "" then guilds[g] = true end -- (a whisper recorded before 1.1's review: no guild)
 	end
 	for _ in pairs(type(rot.sent) == "table" and rot.sent or {}) do sent = sent + 1 end
 	local n = 0

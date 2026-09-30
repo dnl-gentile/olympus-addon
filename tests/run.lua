@@ -41225,6 +41225,43 @@ do
 			end
 		end
 	end)
+
+	test("1.1 key rotation review: the Throne counts an acknowledgement (K4) under the guild the King's client whispered its sender for, never the guild the K4 names", function()
+		WithKing(function(w, K, server)
+			eq(ns.Who.Search(true), true)
+			server.Answer({ { "Zed", "Olympus Zeus", 60, "WARRIOR" }, { "Zeus Cap", "Olympus Zeus", 60, "MAGE" } })
+			server.Run(ns.Who.SETTLE)
+			eq(KY.Rotate(), true)
+			eq(KY.Start(), true)
+			eq(Whispered(w), "Zed-Realm,Zeus Cap-Realm", "Olympus Nyx picked, nobody of it whispered")
+			local rot = KY.Rotation()
+			K.Show("home")
+			-- Zed names Olympus Nyx (picked, never whispered), Zeus Cap a guild nobody heard of: both
+			-- have it, and one guild does, his.
+			KY.HandleAck("WHISPER", "Zed-Realm", ("K4~%d~Olympus Nyx"):format(rot.at))
+			KY.HandleAck("WHISPER", "Zeus Cap-Realm", ("K4~%d~Olympus Made Up"):format(rot.at))
+			eq(KY.Stats().acks, 2)
+			assert(Page((K.Build())):find(ns.L.KEY_ROTATING:format(2, 2, 1), 1, true), Page((K.Build())))
+			-- Nyx, whispered for Olympus Nyx once his /who saw him there, names no guild (he left it
+			-- since): counted under Olympus Nyx.
+			server.clock = server.clock + ns.Who.COOLDOWN + 1
+			eq(ns.Who.Search(true, nil, "Nyx"), true)
+			server.Answer({ { "Nyx", "Olympus Nyx", 60, "PALADIN" } })
+			server.Run(ns.Who.SETTLE)
+			w.clock = w.clock + 60
+			KY.Tick()
+			eq(Whispered(w), "Nyx-Realm,Zed-Realm,Zeus Cap-Realm")
+			KY.HandleAck("WHISPER", "Nyx-Realm", ("K4~%d~"):format(rot.at))
+			assert(Page((K.Build())):find(ns.L.KEY_ROTATING:format(3, 3, 2), 1, true), Page((K.Build())))
+			-- The record is the rotation's (saved): after he moves, the same count.
+			eq(KY.Move(), true)
+			assert(Page((K.Build())):find(ns.L.KEY_ROTATED_AGO:format(ns.Ago(rot.movedAt), 3, 2), 1, true), Page((K.Build())))
+		end)
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			assert(doc:find("and of how many guilds (each counted for the guild his addon whispered him for, never the one his answer names)", 1, true), path)
+		end
+	end)
 end
 
 print(("\n%d passed, %d failed"):format(passed, failed))

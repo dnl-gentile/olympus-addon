@@ -573,7 +573,8 @@ tools lives where it belongs:
   whispers at a time so his other messages keep their place (a little longer while some picked
   still wait for their whisper), then he and his guild move to it ("Move now" sooner); the
   Throne says how many of those he whispered have it (an answer from anyone else is not
-  counted). A guild with no officer online by then stays on the old channel
+  counted), and of how many guilds (each counted for the guild his addon whispered him for,
+  never the one his answer names). A guild with no officer online by then stays on the old channel
   until one of its officers types the key by hand. The King or his Steward: never a Hand.
   Each 1.1 addon keeps the newest key by the time it was made and remembers the keys a newer
   one replaced: an officer's plain `/oly key` from a version before 1.1 still moves his guild,
