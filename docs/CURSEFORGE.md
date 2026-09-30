@@ -348,8 +348,8 @@ author's signed list can hide one character for the whole army: **Hide a charact
 addon then hides that character on every Olympus surface: their [Olympus], [Captains] and
 [Lords] lines (and the lines the Olympus chats kept), their decrees, their layer and hop offers,
 their Vox Populi votes and questions, their requests at court, and (1.1, Konig's review) their
-signups to the King's week and their flags and camps on the Board (the camps' map badges too). The
-names their player
+signups to the King's week, their flags and camps on the Board (the camps' map badges too), and
+their listing, answers and recipe lists as a crafter. The names their player
 already linked as alts are hidden with them (alt links, below). The rest of their guild, and
 the census, are not touched: one name stops the spam.
 - The Decrees tab lists who is hidden, with the reason, who hid them and when (the server's

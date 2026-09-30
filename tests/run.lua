@@ -38038,6 +38038,94 @@ end)
 		end)
 	end)
 
+	-- The crafters' board as this client holds it: what goes out (w.sent: CHANNEL, w.whispers), the
+	-- answers' delay (w.later, w.run), the clock; no word yet.
+	local function WithCrafters(fn)
+		local Cr = ns.Crafters
+		local saved = { send = ns.Comm.Send, whisper = ns.Comm.Whisper, print = ns.Print, dialog = ns.ShowDialog, now = ns.Now,
+			after = Cr.after, random = Cr.random, choice = ns.db.crafterChoice, data = ns.db.crafterData, me = ns.me, guild = GetGuildInfo,
+			queue = ns.Comm.QueueSize, show = ns.Views.ShowPage }
+		local w = { sent = {}, whispers = {}, printed = {}, later = {}, clock = 5000000 }
+		local ok, err = pcall(function()
+			Cr.Reset()
+			ns.db.crafterChoice, ns.db.crafterData, ns.me = nil, nil, "Tester-Realm"
+			ns.Now = function() return w.clock end
+			ns.Comm.Send = function(dist, msg) w.sent[#w.sent + 1] = dist .. " " .. msg end
+			ns.Comm.Whisper = function(target, msg) w.whispers[#w.whispers + 1] = target .. " " .. msg end
+			ns.Comm.QueueSize = function() return 0 end
+			ns.Print = function(m) w.printed[#w.printed + 1] = tostring(m) end
+			ns.ShowDialog = function() end
+			ns.Views.ShowPage = function() end
+			Cr.after = function(_, _, f) w.later[#w.later + 1] = f end
+			Cr.random = function() return 0 end
+			GetGuildInfo = function(unit) if unit == nil or unit == "player" then return "Olympus II", "Member", 3 end return nil end
+			w.run = function() local l = w.later; w.later = {}; for _, f in ipairs(l) do f() end end
+			NoWords(function()
+				C_ChatInfo = nil
+				fn(w, Cr)
+			end)
+		end)
+		ns.Comm.Send, ns.Comm.Whisper, ns.Print, ns.ShowDialog, ns.Now = saved.send, saved.whisper, saved.print, saved.dialog, saved.now
+		Cr.after, Cr.random, ns.db.crafterChoice, ns.db.crafterData, ns.me = saved.after, saved.random, saved.choice, saved.data, saved.me
+		GetGuildInfo, ns.Comm.QueueSize, ns.Views.ShowPage = saved.guild, saved.queue, saved.show
+		Cr.Reset()
+		if not ok then error(err, 0) end
+	end
+
+	test("1.1 Konig's review (item 5): the crafters: a crafter the moderators took off (or his guild) is not listed, his answers and recipe lists are not taken, and his own client sends none", function()
+		WithCrafters(function(w, Cr)
+			do
+				local function Names()
+					local out = {}
+					for _, c in ipairs(Cr.Board()) do out[#out + 1] = c.name end
+					return table.concat(out, ",")
+				end
+				Cr.HandleListing("CHANNEL", "Spammer Guy-Realm", "W1~Olympus Zeus~197:Tailoring:250:300:12")
+				Cr.HandleListing("CHANNEL", "Gale Crafter-Realm", "W1~Olympus Gale~164:Blacksmithing:200:300:40")
+				Cr.HandleListing("CHANNEL", "Honest Crafter-Realm", "W1~Olympus Zeus~197:Tailoring:300:300:90")
+				eq(Names(), "Gale Crafter-Realm,Honest Crafter-Realm,Spammer Guy-Realm")
+				-- Our ask, answered by the spammer and an honest crafter before any word.
+				local ask = Cr.Ask("item:14342")
+				Cr.HandleAnswer("WHISPER", "Spammer Guy-Realm", ("WA~%s~Olympus Zeus~Tailoring~250~18560:14342"):format(ask.id))
+				Cr.HandleAnswer("WHISPER", "Honest Crafter-Realm", ("WA~%s~Olympus Zeus~Tailoring~300~18560:14342"):format(ask.id))
+				-- The King takes the spammer and a guild off.
+				Off("Spammer Guy-Realm"); GuildOff("Olympus Gale")
+				eq(Names(), "Honest Crafter-Realm", "off the board")
+				local page = {}
+				for _, l in ipairs(Cr.Lines()) do page[#page + 1] = tostring(l.text) end
+				page = table.concat(page, "\n")
+				assert(page:find("Honest Crafter", 1, true) and not page:find("Spammer Guy", 1, true) and not page:find("Gale Crafter", 1, true), page)
+				-- A new listing, answer or recipe list of his: not taken.
+				Cr.HandleListing("CHANNEL", "Spammer Guy-Realm", "W1~Olympus Zeus~197:Tailoring:251:300:12")
+				Cr.HandleListing("CHANNEL", "Other Gale-Realm", "W1~Olympus Gale~164:Blacksmithing:100:300:5")
+				eq(Names(), "Honest Crafter-Realm")
+				w.clock = w.clock + Cr.ASK_GAP + 1
+				ask = Cr.Ask("item:14342")
+				Cr.HandleAnswer("WHISPER", "Spammer Guy-Realm", ("WA~%s~Olympus Zeus~Tailoring~250~18560:14342"):format(ask.id))
+				eq(ask.answers["Spammer Guy-Realm"], nil, "his answer")
+				Cr.AskList("Spammer Guy-Realm", "197")
+				Cr.HandleList("WHISPER", "Spammer Guy-Realm", "WL~197~1/1~18560:14342")
+				eq(#(Cr.ListOf("Spammer Guy-Realm", "197") or {}), 0, "his recipe list")
+				-- His own client: nothing goes out, not his listing, an answer or a recipe list.
+				ns.me = "Spammer Guy-Realm"
+				Cr.Mine()["197"] = { key = "197", name = "Tailoring", rank = 245, max = 300, recipes = { { r = 18560, i = 14342, n = "Mooncloth" } } }
+				w.sent, w.whispers, w.later = {}, {}, {}
+				Cr.Choose("197", true)
+				eq(#w.sent, 0, "no listing"); assert(Printed(w, M.YouText(M.SelfOff())), "said why")
+				Cr.HandleAsk("CHANNEL", "Asker-Realm", "WQ~a1~i~14342")
+				Cr.HandleListAsk("WHISPER", "Asker-Realm", "WR~197")
+				w.run()
+				eq(#w.whispers, 0, "no answer, no recipe list")
+				eq(M.Blocks("W1~Olympus II~197:Tailoring:245:300:3"), true); eq(M.Blocks("WA~a1~Olympus II~Tailoring~245~18560:14342"), true)
+				eq(M.Blocks("WL~197~1/1~18560:14342"), true); eq(M.Blocks("W0~"), false, "unlisting still goes")
+				-- Put back on: his listing goes at the next tick.
+				Back("Spammer Guy-Realm")
+				Cr.Tick()
+				assert(table.concat(w.sent, "\n"):find("W1~Olympus II~197:Tailoring", 1, true), "listed again: " .. table.concat(w.sent, "\n"))
+			end
+		end)
+	end)
+
 	test("1.1 Konig's review: the README and the CurseForge page say what the net-off and the shared block terms do now", function()
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
@@ -38047,7 +38135,7 @@ end)
 				"then from the giver's own addon every few minutes for late logins", "no addon repeats it",
 				"each one word of 4 letters at least", "The shared list never hides the King's writs (your own filter still can)",
 				"the list keeps 100 entries at most, the oldest removals going first",
-				"their signups to the King's week and their flags and camps on the Board (the camps' map badges too)",
+				"their signups to the King's week, their flags and camps on the Board (the camps' map badges too), and their listing, answers and recipe lists as a crafter",
 				"their entries on the King's week (their cancels of anyone's too) and its signup sheets, show nowhere" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
