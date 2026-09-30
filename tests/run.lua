@@ -38200,8 +38200,9 @@ end)()
 ---------------------------------------------------------------------------
 -- 1.1 (Konig's review of the moderation fixes): no net-off word pushes one from higher up out of
 -- a full list; a word on another name of a player (a linked alt, or the same name on another
--- realm of the group) doesn't hide a name whose own word stands above it. Each test fails on the
--- code before its fix. One function (the file's top level is near Lua's 200 locals).
+-- realm of the group) doesn't hide a name whose own word stands above it; the shared block
+-- terms keep the same entries on every client, whatever order it heard them in. Each test fails
+-- on the code before its fix. One function (the file's top level is near Lua's 200 locals).
 ---------------------------------------------------------------------------
 ;(function()
 	local M = ns.Moderation
@@ -38328,11 +38329,74 @@ end)()
 		end)
 	end)
 
-	test("1.1 Konig's review (moderation fixes): the README and the CurseForge page say a full list never loses a word from higher up, and a player's other names don't undo his own name's word", function()
+	test("1.1 Konig's review (block terms): removals of the same second are pruned by the term, so two clients that heard them in another order keep the same list and digest, and an editor who hears his list repeated sends no more", function()
+		WithThrone(function(w, K)
+			local F = ns.Filter
+			local saved = { mine = ns.db.filterWords, shared = ns.rdb.filterShared, off = ns.db.filterSharedOff, st = GetServerTime,
+				council = ns.rdb.council, random = F.random }
+			local ok, err = pcall(function()
+				ns.rdb.council = { at = 1, names = { ["test councillor"] = "Test Councillor" } }
+				ns.db.filterWords, ns.db.filterSharedOff = nil, nil
+				GetServerTime = function() return w.clock end
+				F.random = function() return 0 end
+				local now = w.clock
+				-- Twenty-four messages of ten removals each, all of the same second, of words never on the list.
+				local pages, all = {}, {}
+				for page = 1, 24 do
+					local entries = {}
+					for i = 1, 10 do
+						local term = "goneq" .. Letters(page * 100 + i)
+						all[#all + 1] = term
+						entries[#entries + 1] = "-" .. term .. "@" .. now
+					end
+					pages[#pages + 1] = "BW~00000000~" .. table.concat(entries, ",")
+				end
+				local function Heard(order)
+					ns.rdb.filterShared = nil; F.Reset()
+					for _, i in ipairs(order) do F.Receive("CHANNEL", HC, pages[i]) end
+					local keys = {}
+					for term in pairs(ns.rdb.filterShared) do keys[#keys + 1] = term end
+					table.sort(keys)
+					return ns.rdb.filterShared, F.Digest(), table.concat(keys, ",")
+				end
+				local forward, backward = {}, {}
+				for i = 1, #pages do forward[i] = i; backward[i] = #pages + 1 - i end
+				AsSoldier("Watcher")
+				local A, digestA, keysA = Heard(forward)
+				local B, digestB, keysB = Heard(backward)
+				assert(keysB == keysA, "the same entries, whatever order they came in")
+				eq(digestB, digestA, "the same digest")
+				-- Which ones: the SHARED_KEEP last by the term (the same second throughout).
+				table.sort(all)
+				local expected = {}
+				for i = #all - F.SHARED_KEEP + 1, #all do expected[#expected + 1] = all[i] end
+				assert(keysA == table.concat(expected, ","), "the removals last in alphabetical order stay")
+				-- The King's client (it heard them in order) repeats its list; an editor's client that
+				-- heard them the other way round takes it as its own, and sends none of its ten pages.
+				AsKing()
+				ns.rdb.filterShared = A
+				local fromA = F.Pages()
+				AsSoldier("Test Councillor")
+				ns.rdb.filterShared = B; F.Reset()
+				for _, pg in ipairs(fromA) do F.Receive("CHANNEL", KING, pg) end
+				eq(F.Digest(), digestA, "still the same list")
+				local sent = #w.sent
+				eq(F.Tick(), false, "no repeat due")
+				eq(#w.sent, sent, "nothing sent")
+			end)
+			ns.db.filterWords, ns.rdb.filterShared, ns.db.filterSharedOff, GetServerTime = saved.mine, saved.shared, saved.off, saved.st
+			ns.rdb.council, F.random = saved.council, saved.random
+			F.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1 Konig's review (moderation fixes): the README and the CurseForge page say a full list never loses a word from higher up, a player's other names don't undo his own name's word, and which removals the block terms keep", function()
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
 			for _, must in ipairs({ "a new word waits for room, except the King's own, which always finds it, and no word ever makes room by pushing out one from higher up",
-				"a word on a name he linked as an alt, or (Forever) on the same name on another realm of the group, doesn't hide him when his own name's word comes from higher up, or from as high and is newer" }) do
+				"a word on a name he linked as an alt, or (Forever) on the same name on another realm of the group, doesn't hide him when his own name's word comes from higher up, or from as high and is newer",
+				"the oldest removals going first, those of the same second in alphabetical order" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
 		end

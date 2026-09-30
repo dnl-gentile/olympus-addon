@@ -196,8 +196,10 @@ local function Active()
 	return n
 end
 
--- Removals past SHARED_TOMB go, then the oldest removals while the list keeps too many; anything
--- a saved file holds that the list would never take goes too.
+-- Removals past SHARED_TOMB go, then the oldest removals while the list keeps too many (on the
+-- same second, by the term: every client keeps the same entries whatever order it heard them in,
+-- so the digests agree; 1.1, Konig's review); anything a saved file holds that the list would
+-- never take goes too.
 local function Prune()
 	local S, now = Shared(), Clock()
 	for term, e in pairs(S) do
@@ -209,7 +211,8 @@ local function Prune()
 	if #all <= Filter.SHARED_KEEP then return end
 	table.sort(all, function(a, b)
 		if (a.e.on == true) ~= (b.e.on == true) then return a.e.on ~= true end
-		return a.e.at < b.e.at
+		if a.e.at ~= b.e.at then return a.e.at < b.e.at end
+		return a.term < b.term
 	end)
 	for i = 1, #all - Filter.SHARED_KEEP do gone[#gone + 1] = all[i].term end
 	for _, term in ipairs(gone) do S[term] = nil end
