@@ -830,14 +830,14 @@ alone until then).
 - **Shared among officers** (1.1): what an officer's own inspections find (a player without the
   colors or with another tabard, and one caught before who wears ours again) goes to his guild's
   officers over guild addon messages, once a minute at most, and an officer's addon asks the others
-  for the day's findings after its login. Each officer's Tabards page shows them with his own, the
-  officer who found each in its tooltip, for a day (his own later inspection of that player
-  replaces it). Nothing is inspected more or sooner for it, nothing goes on the Olympus channel,
-  and only officers (the guild master and the rank right below, by each addon's own roster) send
-  or keep it. The King's untabarded list stays his: another officer's finding never joins it,
-  never rides in a Royal Inspection's report and never replaces what the King saw himself.
-  Off until you say yes (officers get its line on the first-open page, or `/oly patrolshare
-  on`); `/oly patrolshare off` stops it.
+  for the day's findings once a session: after its login, or at his yes if that came later. Each
+  officer's Tabards page shows them with his own, the officer who found each in its tooltip, for a
+  day (his own later inspection of that player replaces it). Nothing is inspected more or sooner for
+  it, nothing goes on the Olympus channel, and only officers (the guild master and the rank right
+  below, by each addon's own roster) send or keep it. The King's untabarded list stays his: another
+  officer's finding never joins it, never rides in a Royal Inspection's report and never replaces
+  what the King saw himself. Off until you say yes (officers get its line on the first-open page, or
+  `/oly patrolshare on`); `/oly patrolshare off` stops it.
 - Per guild: *"5 of 20 with problems"*.
 - **Untabarded** (the "Wall of Shame" before 0.9.2): the players the Royal Inspection found
   without the colors are on the King's list, which only he sees. He alone can let the army see
@@ -1193,7 +1193,7 @@ message (the game adds it). What goes where:
 | The dues' note (1.1): the fund, the week and your guild's name, in the subject of the mail the Send this week's dues button fills in | the Treasurer's mail character, in your mail | only when you click that button and then press Send yourself |
 | The King's crown on the map, and with it his zone and layer | everyone on the Olympus channel | only while the King turns it on (Throne tab), whatever he answered to the question |
 | A Royal Inspection's report (1.1: off until you say yes, on the first-open page or with `/oly inspection on`): when the King, his Steward or a Hand calls one and your addon is in the sample, it patrols for 2 minutes, inspecting the Olympus players of your faction around you, level 15 and up, with the game's own inspect, and records whether each wears the guild tabard, another one or none (kept in your saved variables); then it reports your guild, how many it found in each case (your own tabard counted) and up to 6 names, with their guild, of players caught without the colors | whoever called it, alone (a whisper); the King can show the names to the army on his untabarded list | each Royal Inspection you are sampled for (one every 30 minutes at most, for the whole realm), once you said yes and until `/oly inspection off`; you still get its raid warning either way |
-| An officer's patrol findings (1.1): the name and guild of each player your own inspections caught without the colors or with another tabard (or wearing ours again after that), and how long ago | your guild's officers (a guild addon message: every guildmate's client receives the bytes, and only officers' addons keep them), for their Tabards pages alone: never the King's untabarded list, nor a Royal Inspection's report | only while you are an officer (the guild master or the rank right below) and said yes (1.1: off until you answer, on the first-open page or with `/oly patrolshare on`): each new finding once, at most once a minute, and the day's findings when another officer's addon asks after its login; `/oly patrolshare off` stops it. Nothing more is inspected for it |
+| An officer's patrol findings (1.1): the name and guild of each player your own inspections caught without the colors or with another tabard (or wearing ours again after that), and how long ago | your guild's officers (a guild addon message: every guildmate's client receives the bytes, and only officers' addons keep them), for their Tabards pages alone: never the King's untabarded list, nor a Royal Inspection's report | only while you are an officer (the guild master or the rank right below) and said yes (1.1: off until you answer, on the first-open page or with `/oly patrolshare on`): each new finding once, at most once a minute, and the day's findings when another officer's addon asks (once a session: after its login, or at its officer's yes if later); `/oly patrolshare off` stops it. Nothing more is inspected for it |
 | A loot note (1.1): an officer's words, the item and whom it went to; a member's points set by hand; and your addon's ask for the book (the spans of change times it lacks) | your guild (guild addon messages): every guildmate's addon keeps the notes and points; the ask is answered by one officer's addon, with the changes in those spans | a note or points when an officer writes or removes them (only officers do); the ask when the Loot notes page opens (an officer's at login), again after each answer while the book lacks something (16 a session at most) |
 | Your crafter listing (1.1): your guild, and each profession you listed with its skill and how many recipes you know | everyone on the Olympus channel | only after your yes when you open that profession (asked once), once at login, then every 45 minutes while you play, and after a change: a profession listed or taken off (2 minutes after the last at the soonest), a skill up or a new recipe (10 minutes); `/oly crafter off` withdraws it at once |
 | An answer to "who can make it" (1.1): your guild, the profession, your skill and the recipe and item ids of up to 6 recipes that match | the asker alone (a whisper) | only while you are listed, to asks heard on the Olympus channel, by your addon by itself (10 a minute at most) |

@@ -33728,7 +33728,9 @@ test("1.1 patrol share (#29): only officers send it, and nothing with /oly patro
 		eq(I.AskShared(), false)
 		SlashCmdList.OLYMPUS("patrolshare on")
 		eq(w.printed[#w.printed], ns.L.PATROLSHARE_ON, "the guild master is an officer")
-		eq(I.AskShared(), true); eq(w.sent[1], "GUILD U0~")
+		-- (Konig's review of 1.1: his yes asks for the day's findings itself, once a session.)
+		eq(w.sent[1], "GUILD U0~"); eq(#w.sent, 1)
+		eq(I.AskShared(), false, "asked this session already"); eq(#w.sent, 1)
 	end)
 end)
 
@@ -37930,6 +37932,76 @@ do
 			assert(type(rawget(ns.L, key)) == "string", "English " .. key)
 			assert(type(rawget(pt.L, key)) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
 			eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- Konig's review of 1.1 (#45), guild tools, second round: the patrol share's ask and the loot
+-- notes' relays.
+---------------------------------------------------------------------------
+do
+	-- "Patrol share follow-up: off until answered": the login's ask (40 to 70 s in) went while he had
+	-- not answered, and his yes on the first-open page (45 s in) asked nothing: no findings of the day.
+	test("1.1 Konig's review: an officer who says yes after the login's ask asks for the day's findings then, once a session", function()
+		local I = ns.Inspect
+		local saved = { share = ns.db.patrolShare, send = ns.Comm.Send, guild = GetGuildInfo, byName = ns.Roster.byName, store = ns.rdb.inspect,
+			print = ns.Print, fire = ns.Fire }
+		local sent = {}
+		local function Asks()
+			local n = 0
+			for _, m in ipairs(sent) do if m == "GUILD U0~" then n = n + 1 end end
+			return n
+		end
+		local function Rank(rank)
+			GetGuildInfo = function(unit) if unit == nil or unit == "player" then return "Olympus II", "Titan", rank end return nil end
+		end
+		local ok, err = pcall(function()
+			ns.rdb.inspect = nil
+			I.ResetShare()
+			ns.Consent.Reset()
+			ns.db.patrolShare = nil -- (a login on the Forever beta: never answered)
+			ns.Comm.Send = function(dist, msg) sent[#sent + 1] = dist .. " " .. msg end
+			ns.Print = function() end
+			ns.Fire = function() end
+			Rank(1)
+			ns.Roster.byName = { ["Offi-Realm"] = 1 }
+			-- The login's timer first, before his answer: nothing asked.
+			eq(I.AskShared(), false); eq(Asks(), 0)
+			-- His yes on the first-open page: the day's findings asked for then.
+			eq(ns.Consent.Choose("patrolshare", true), true)
+			eq(Asks(), 1, "asked once he said yes")
+			-- A second yes, /oly patrolshare on, off and on again, a later timer: none more this session.
+			ns.Consent.Choose("patrolshare", true)
+			SlashCmdList.OLYMPUS("patrolshare on")
+			ns.Consent.Choose("patrolshare", false)
+			ns.Consent.Choose("patrolshare", true)
+			eq(I.AskShared(), false)
+			eq(Asks(), 1, "one a session")
+			-- The next session: the timer asks (he said yes before), and a yes after it asks nothing more.
+			I.ResetShare()
+			eq(I.AskShared(), true); eq(Asks(), 2)
+			SlashCmdList.OLYMPUS("patrolshare on")
+			eq(Asks(), 2)
+			-- Another session: /oly patrolshare alone (it only says which) and a member's yes ask nothing.
+			I.ResetShare()
+			SlashCmdList.OLYMPUS("patrolshare")
+			eq(Asks(), 2, "not turned on")
+			Rank(3)
+			SlashCmdList.OLYMPUS("patrolshare on")
+			eq(Asks(), 2, "not an officer")
+		end)
+		ns.db.patrolShare, ns.Comm.Send, GetGuildInfo, ns.Roster.byName, ns.rdb.inspect = saved.share, saved.send, saved.guild, saved.byName, saved.store
+		ns.Print, ns.Fire = saved.print, saved.fire
+		I.ResetShare()
+		ns.Consent.Reset()
+		if not ok then error(err, 0) end
+		for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local f = assert(io.open(ROOT .. file))
+			local doc = f:read("*a")
+			f:close()
+			assert(doc:find("for the day's findings once a session: after its login, or at his yes if that came later.", 1, true), file .. ": the patrol share")
+			assert(doc:find("when another officer's addon asks (once a session: after its login, or at its officer's yes if later)", 1, true), file .. ": the privacy table")
 		end
 	end)
 end
