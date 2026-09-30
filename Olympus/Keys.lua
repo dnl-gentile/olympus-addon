@@ -373,7 +373,9 @@ end
 
 -- Does this guild get the new key? The King's click, else whether his /who saw it.
 local function Picked(rot, c)
-	local v = type(rot.picked) == "table" and rot.picked[c.guild:lower()] or nil
+	-- (Never `t[k] or nil`: an unchecked guild's false would read as no click at all.)
+	local v
+	if type(rot.picked) == "table" then v = rot.picked[c.guild:lower()] end
 	if v == nil then return c.seen end
 	return v == true
 end

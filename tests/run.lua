@@ -37858,6 +37858,28 @@ do
 		end)
 	end)
 
+	test("1.1 key rotation: a guild the King's /who saw (checked for him) that he unchecks gets nothing, and is checked again with his next click", function()
+		WithRotation(function(w, K, server)
+			AsKing()
+			eq(ns.Who.Search(true), true)
+			server.Answer({ { "Zed", "Olympus Zeus", 60, "WARRIOR" }, { "Zeus Cap", "Olympus Zeus", 60, "MAGE" } })
+			server.Run(ns.Who.SETTLE)
+			eq(KY.Rotate(), true)
+			K.Show("home")
+			LineWith(K.Build(), "<Olympus Zeus>").onClick()
+			local row = LineWith(K.Build(), "<Olympus Zeus>")
+			assert(tostring(row.text):find("ReadyCheck-NotReady", 1, true), tostring(row.text))
+			eq(#KY.Targets(), 0, "unchecked: nobody of it")
+			eq(KY.Start(), true)
+			eq(Whispered(w), "", "nothing for the guild he unchecked")
+			-- His next click checks it again: from the next round.
+			LineWith(K.Build(), "<Olympus Zeus>").onClick()
+			w.clock = w.clock + 60
+			KY.Tick()
+			eq(Whispered(w), "Zed-Realm,Zeus Cap-Realm")
+		end)
+	end)
+
 	test("1.1 key rotation, Konig's review: the Throne's new words in English and pt-BR; the README and the CurseForge page say only whom the King's /who saw in their guild get the key", function()
 		local pt = { L = setmetatable({}, { __index = ns.L }) }
 		local savedLocale = GetLocale
