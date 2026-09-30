@@ -26369,6 +26369,29 @@ test("1.1 held alerts: a layer hop request while Busy opens no window and plays 
 	end)
 end)
 
+test("1.1 a round map icon cuts its coords before its mask, once: Forever refuses new coords on a masked texture (an error seen in game)", function()
+	local calls = {}
+	local function Tex()
+		local t = { masked = false }
+		function t:SetMask() self.masked = true end
+		function t:SetTexCoord(...) if self.masked then error("Cannot set tex coords when texture has mask.") end calls[#calls + 1] = { ... } end
+		return t
+	end
+	local tex = Tex()
+	ns.Map.RoundIcon(tex, "Interface\\Icons\\Spell_Fire_Fire")
+	eq(tex.masked, true); eq(tex.olympusRound, true); eq(#calls, 1); eq(calls[1][1], 0.08)
+	-- Updated again (a badge's next layout, a new picture): no call on the masked texture.
+	ns.Map.RoundIcon(tex, "Interface\\Icons\\INV_Misc_Note_01")
+	eq(#calls, 1)
+	-- A client without masks: the whole picture, drawn round by the game's portrait maker.
+	local plain = { SetTexCoord = function(self, ...) calls[#calls + 1] = { ... } end }
+	local savedPortrait, made = SetPortraitToTexture, 0
+	SetPortraitToTexture = function() made = made + 1 end
+	ns.Map.RoundIcon(plain, "Interface\\Icons\\Spell_Fire_Fire")
+	SetPortraitToTexture = savedPortrait
+	eq(plain.olympusRound, false); eq(calls[#calls][1], 0); eq(made, 1)
+end)
+
 test("1.1 languages: a translation whose later format code differs from English (a %s turned %d) is refused", function()
 	eq(ns.LocaleCodes("%s joined %s ago"), "%s %s")
 	eq(ns.LocaleCodes("%s entrou há %d"), "%s %d")

@@ -400,16 +400,19 @@ end
 
 -- A square icon made round: the portrait mask (Texture:SetMask, on Forever, Era and
 -- Anniversary), or the game's portrait maker on a client without it.
+-- Its coords are cut once, before the mask: a texture that has one refuses new coords (Forever
+-- 1.60: "Cannot set tex coords when texture has mask"), and a new picture keeps them.
 local function RoundIcon(tex, texture)
 	if tex.olympusRound == nil then
-		tex.olympusRound = tex.SetMask ~= nil and pcall(tex.SetMask, tex, Map.MASK) or false
-	end
-	if tex.olympusRound then
 		tex:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- (the icon's own border cut off)
-	elseif SetPortraitToTexture then
+		tex.olympusRound = tex.SetMask ~= nil and pcall(tex.SetMask, tex, Map.MASK) or false
+		if not tex.olympusRound then tex:SetTexCoord(0, 1, 0, 1) end
+	end
+	if not tex.olympusRound and SetPortraitToTexture then
 		pcall(SetPortraitToTexture, tex, texture)
 	end
 end
+Map.RoundIcon = RoundIcon -- (tests)
 
 -- A badge of `size`: the anchor the pin library places (nothing of it shows or takes the
 -- mouse) and anchor.badge, what shows (tooltips go on it). `round`: an icon in a coloured disc,

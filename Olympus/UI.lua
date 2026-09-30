@@ -729,7 +729,8 @@ local function CreateMain(style)
 		local portrait = f.portrait or f.Portrait or (f.PortraitContainer and f.PortraitContainer.portrait)
 		if portrait then
 			portrait:SetTexture(ns.LOGO)
-			portrait:SetTexCoord(0, 1, 0, 1)
+			-- (Its coords before its mask, once: a masked texture refuses new ones, Forever 1.60.)
+			if not portrait.olympusMasked then portrait:SetTexCoord(0, 1, 0, 1) end
 			if portrait.SetMask and not portrait.olympusMasked then
 				portrait.olympusMasked = pcall(portrait.SetMask, portrait, "Interface\\CharacterFrame\\TempPortraitAlphaMask")
 			end
