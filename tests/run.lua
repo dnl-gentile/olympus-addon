@@ -38199,8 +38199,9 @@ end)()
 
 ---------------------------------------------------------------------------
 -- 1.1 (Konig's review of the moderation fixes): no net-off word pushes one from higher up out of
--- a full list. Each test fails on the code before its fix. One function (the file's top level is
--- near Lua's 200 locals).
+-- a full list; a word on another name of a player (a linked alt, or the same name on another
+-- realm of the group) doesn't hide a name whose own word stands above it. Each test fails on the
+-- code before its fix. One function (the file's top level is near Lua's 200 locals).
 ---------------------------------------------------------------------------
 ;(function()
 	local M = ns.Moderation
@@ -38287,10 +38288,51 @@ end)()
 		end)
 	end)
 
-	test("1.1 Konig's review (moderation fixes): the README and the CurseForge page say a full list never loses a word from higher up", function()
+	test("1.1 Konig's review (net-off, other names of a player): a Hand's word on the victim's linked alt, or on his name on another realm of the group, doesn't hide one the King showed again; the King's newer word there still does", function()
+		WithModeration(function(w, K)
+			AsSoldier("Watcher")
+			K.HandleCommand("CHANNEL", KING, "T1~H~1~Olympus~Rogue Hand-Realm")
+			local t = w.clock
+			-- A linked alt (Alts.lua: both characters confirmed it).
+			ns.Alts = { Linked = function(name)
+				local key = tostring(name):lower()
+				if key == "victim guy-realm" then return { "Victim Alt-Realm" } end
+				if key == "victim alt-realm" then return { "Victim Guy-Realm" } end
+				return {}
+			end }
+			M.Handle("CHANNEL", ROGUE, O1("c", true, t, "Victim Guy-Realm", ROGUE, "rogue"))
+			M.Handle("CHANNEL", KING, O1("c", false, t + 1, "Victim Guy-Realm", KING, ""))
+			eq(M.Hidden("Victim Guy-Realm"), nil, "the King's undo")
+			M.Handle("CHANNEL", ROGUE, O1("c", true, t + 2, "Victim Alt-Realm", ROGUE, "edit war via the alt"))
+			eq(M.Hidden("Victim Guy-Realm"), nil, "the King's word on his own name holds against a Hand's word on his alt")
+			eq(M.Hides("Victim Guy-Realm"), nil, "his lines show")
+			-- The King's own newer word on the alt still reaches him.
+			M.Handle("CHANNEL", KING, O1("c", true, t + 3, "Victim Alt-Realm", KING, "the King's word"))
+			local e, on = M.Hidden("Victim Guy-Realm")
+			assert(e and e.by == KING, "the King's newer word on his alt hides him"); eq(on, "Victim Alt-Realm")
+			-- Forever: the same name on another realm of the group is the same player.
+			M.Reset(); ns.rdb.netoff = nil
+			ns.Alts = { Linked = function() return {} end }
+			ns.splitNames = true
+			M.Handle("CHANNEL", ROGUE, O1("c", true, t, "Victim Guy-ClassicBetaPvP", ROGUE, "rogue"))
+			assert(M.Hidden("Victim Guy-ClassicBetaPvP"), "a Hand's word")
+			M.Handle("CHANNEL", KING, O1("c", false, t + 1, "Victim Guy-ClassicBetaPvP", KING, ""))
+			eq(M.Hidden("Victim Guy-ClassicBetaPvP"), nil, "the King's undo")
+			M.Handle("CHANNEL", ROGUE, O1("c", true, t + 2, "Victim Guy-ClassicBetaPvP2", ROGUE, "edit war, the group's other realm"))
+			eq(M.Hidden("Victim Guy-ClassicBetaPvP"), nil, "the King's word holds whatever realm of the group the rogue names")
+			eq(M.Character("Victim Guy-ClassicBetaPvP"), nil)
+			-- The King's own newer word there still reaches him.
+			M.Handle("CHANNEL", KING, O1("c", true, t + 3, "Victim Guy-ClassicBetaPvP2", KING, "the King's word"))
+			e = M.Hidden("Victim Guy-ClassicBetaPvP")
+			assert(e and e.by == KING, "the King's newer word on the group's other realm hides him")
+		end)
+	end)
+
+	test("1.1 Konig's review (moderation fixes): the README and the CurseForge page say a full list never loses a word from higher up, and a player's other names don't undo his own name's word", function()
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
-			for _, must in ipairs({ "a new word waits for room, except the King's own, which always finds it, and no word ever makes room by pushing out one from higher up" }) do
+			for _, must in ipairs({ "a new word waits for room, except the King's own, which always finds it, and no word ever makes room by pushing out one from higher up",
+				"a word on a name he linked as an alt, or (Forever) on the same name on another realm of the group, doesn't hide him when his own name's word comes from higher up, or from as high and is newer" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
 		end

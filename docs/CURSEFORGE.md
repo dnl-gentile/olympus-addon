@@ -364,7 +364,10 @@ the census, are not touched: one name stops the spam.
   hides the rogue, and the rogue's words then fade. And no word replaces one from higher up,
   whatever its date: a Hand or a councillor never shows again one the King or the Steward hid,
   nor hides again one they showed again, and the Steward never undoes the King's word (1.1,
-  Konig's review: the King's undo no longer loses an edit war to a newer word).
+  Konig's review: the King's undo no longer loses an edit war to a newer word). Nor through
+  another name of that player: a word on a name he linked as an alt, or (Forever) on the same
+  name on another realm of the group, doesn't hide him when his own name's word comes from
+  higher up, or from as high and is newer.
 - It never aims at the King (his name in any case), nor at the characters he linked as his
   alts. It uninvites nobody, demotes nobody and writes nothing to Blizzard's ignore list, and
   `/oly block` stays one client's and one player's. No treasury code can call it.

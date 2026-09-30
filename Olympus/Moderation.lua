@@ -42,7 +42,9 @@ local L = ns.L
 -- Steward, another Hand or another councillor. And no word replaces one from higher up (Take):
 -- a Hand or a councillor never puts back one the King or a Steward hid, nor hides again one the
 -- King showed again; nor does a Steward undo the King's word. Nor does a word push one from
--- higher up out of a full list (MakeRoom): 1.1, Konig's review.
+-- higher up out of a full list (MakeRoom), nor hide a name through another name of its player
+-- (a linked alt, or the same name on another realm of the group) when the name's own word
+-- weighs more, or as much and is newer (Hidden, Character): 1.1, Konig's review.
 -- What it is not: /oly block stays one client's and one player's, and nothing here uninvites,
 -- demotes, or writes Blizzard's ignore list. It never aims at the pinned King (his name in any
 -- case) or his guild. It knows nothing of the treasury or of payments, and no treasury code
@@ -214,8 +216,23 @@ local function Index()
 end
 local function Dirty() index = nil end
 
+-- A name's own word, "on" words included (the index holds "off" words alone), or nil.
+local function OwnWord(full) return Store().c[Key("c", full)] end
+
+-- Does a name's own word stand above a word found on another name of its player (the same name
+-- on another realm of the group, or a name its player linked)? It does when it weighs more, or
+-- as much and is newer: then that word doesn't hide it (1.1, Konig's review: a rogue Hand's word
+-- on the victim's alt, or on his name on the group's other realm, hid again one the King had
+-- shown again).
+local function Overrides(own, e)
+	if type(own) ~= "table" or own == e then return false end
+	local a, b = Weight(own), Weight(e)
+	return a > b or (a == b and own.at > e.at)
+end
+
 -- The word taking this character itself off, or nil. On WoW: Forever a name is one across its
--- realm group (ns.splitNames): the same name on another realm of the group is the same player.
+-- realm group (ns.splitNames): the same name on another realm of the group is the same player,
+-- unless the name's own word stands above that one (Overrides).
 function Moderation.Character(name)
 	if type(name) ~= "string" or name == "" or IsKing(name) then return nil end
 	local x = Index()
@@ -224,8 +241,9 @@ function Moderation.Character(name)
 	local e = x.c[Key("c", full)]
 	if e or not ns.splitNames then return e end
 	local group = ns.GroupOf(ns.RealmOf(full) or ns.realm or "")
+	local own = OwnWord(full)
 	for _, y in ipairs(x.short[ns.ShortName(full):lower()] or {}) do
-		if ns.GroupOf(ns.RealmOf(y.name) or ns.realm or "") == group then return y end
+		if ns.GroupOf(ns.RealmOf(y.name) or ns.realm or "") == group and not Overrides(own, y) then return y end
 	end
 	return nil
 end
@@ -241,6 +259,8 @@ end
 -- The word hiding this name: its own, or one on a name its player linked (Alts.lua), and the
 -- name it is on; nil for anyone else, and always for the pinned King. One who gives words is
 -- hidden only by a word from higher up (a councillor's word on a Steward's alt hides no Steward).
+-- A word on a linked name doesn't hide one whose own word stands above it (Overrides: the King
+-- showed him again, and a Hand's word on his alt doesn't hide him again).
 function Moderation.Hidden(name)
 	if type(name) ~= "string" or name == "" or IsKing(name) then return nil end
 	if Index().n.c == 0 then return nil end
@@ -253,9 +273,13 @@ function Moderation.Hidden(name)
 	local e = Moderation.Character(name)
 	if Counts(e) then return e, e.name end
 	local linked = ns.Alts and ns.Alts.Linked and ns.Alts.Linked(name)
+	local own
 	for _, other in ipairs(type(linked) == "table" and linked or {}) do
 		e = Moderation.Character(other)
-		if Counts(e) then return e, other end
+		if Counts(e) then
+			if own == nil then own = OwnWord(ns.FullName(ns.Normal(name))) or false end
+			if not Overrides(own, e) then return e, other end
+		end
 	end
 	return nil
 end
