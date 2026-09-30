@@ -37884,6 +37884,45 @@ end)
 		end)
 	end)
 
+	-- A made-up word of lower-case letters only: "goneqab".
+	local function Word(i)
+		local s = ""
+		repeat
+			s = string.char(97 + i % 26) .. s
+			i = math.floor(i / 26)
+		until i == 0
+		return "goneq" .. s
+	end
+
+	test("1.1 Konig's review (item 2): the shared block terms keep SHARED_KEEP entries at most, however many removals of words they never held an editor sends", function()
+		WithModeration(function(w, K)
+			NoTerms(w, function(F)
+				AsSoldier("Watcher")
+				local now = w.clock
+				F.Receive("CHANNEL", HC, "BW~00000000~+treason@" .. now)
+				-- Twenty-four messages of ten removals each, of words never on the list.
+				for page = 1, 24 do
+					local entries = {}
+					for i = 1, 10 do entries[#entries + 1] = "-" .. Word(page * 100 + i) .. "@" .. now end
+					local msg = "BW~00000000~" .. table.concat(entries, ",")
+					assert(#msg <= 255, "one message: " .. #msg)
+					F.Receive("CHANNEL", HC, msg)
+				end
+				local n = 0
+				for _ in pairs(ns.rdb.filterShared) do n = n + 1 end
+				assert(n <= F.SHARED_KEEP, "entries kept: " .. n)
+				eq(F.Hides("treason again"), true, "the words it hides stay")
+				-- The newest removal is kept (the oldest go first) and still stands against an older add.
+				F.Receive("CHANNEL", HC, "BW~00000000~-" .. Word(9999) .. "@" .. (now + 1))
+				F.Receive("CHANNEL", HC, "BW~00000000~+" .. Word(9999) .. "@" .. now)
+				eq(F.Hides(Word(9999)), false, "the newest removal still stands")
+				n = 0
+				for _ in pairs(ns.rdb.filterShared) do n = n + 1 end
+				assert(n <= F.SHARED_KEEP, "entries kept: " .. n)
+			end)
+		end)
+	end)
+
 	test("1.1 Konig's review: the README and the CurseForge page say what the net-off and the shared block terms do now", function()
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
@@ -37891,7 +37930,8 @@ end)
 				"an issuer as high or higher (the King always) can put it back on",
 				"Each issuer's addon repeats his own words for late logins, every 5 minutes, and never anyone else's",
 				"then from the giver's own addon every few minutes for late logins", "no addon repeats it",
-				"each one word of 4 letters at least", "The shared list never hides the King's writs (your own filter still can)" }) do
+				"each one word of 4 letters at least", "The shared list never hides the King's writs (your own filter still can)",
+				"the list keeps 100 entries at most, the oldest removals going first" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
 			assert(not doc:find("The newest word wins, by the server's clock", 1, true), path .. ": the old claim")

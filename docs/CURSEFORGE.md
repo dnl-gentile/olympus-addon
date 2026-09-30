@@ -276,7 +276,8 @@ WoW channel number to join). Each channel is exclusive to a rank:
   "the" or "de" would hide nearly every line), used on every client unless its player says
   `/oly filter shared off`. The shared list never hides the King's writs (your own filter still
   can). Each word is its own entry with the server's time of its edit, so two editors never undo
-  each other's other words, and a removal is kept for 30 days. Clients take it from those
+  each other's other words, and a removal is kept for 30 days (the list keeps 100 entries at
+  most, the oldest removals going first). Clients take it from those
   characters alone (the server stamps the sender), and each edit this client heard from the
   editor's own client, within 15 minutes of it, goes into its log of acts with the editor's name
   (another editor's repeat of it does not: it is not his act). Clients before 1.1 ignore the list.

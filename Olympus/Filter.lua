@@ -328,7 +328,7 @@ function Filter.Receive(dist, sender, text)
 		return
 	end
 	local S, now = Shared(), Clock()
-	local added, removed, changed, n = {}, {}, false, 0
+	local added, removed, changed, stored, n = {}, {}, false, false, 0
 	for piece in body:gmatch("[^,]+") do
 		n = n + 1
 		if n > Filter.ENTRIES_PER_MESSAGE then break end
@@ -344,6 +344,7 @@ function Filter.Receive(dist, sender, text)
 			local stale = not on and now - at > Filter.SHARED_TOMB
 			if newer and not stale and not (on and not was and Active() >= Filter.SHARED_MAX) then
 				S[term] = { on = on, at = at, by = sender }
+				stored = true
 				if was ~= on then
 					changed = true
 					-- Heard from whoever made it (its entry names the sender, as the server stamped
@@ -356,7 +357,9 @@ function Filter.Receive(dist, sender, text)
 			end
 		end
 	end
-	if changed then Prune() end
+	-- Whatever was stored, the list kept within SHARED_KEEP (1.1, Konig's review: the removal of a
+	-- word the list never held changes nothing shown, and the list grew with each one, without end).
+	if stored then Prune() end
 	if digest == Filter.Digest() then heardSame = ns.Now() end
 	if #added + #removed > 0 then
 		ns.Chronicle.Add("terms", sender, L.ACTS_TERMS:format(#added, #removed), { words = Words(added, removed) })
