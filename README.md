@@ -1291,7 +1291,8 @@ newer than that build; addons before 1.1 read none of it. The addon's error catc
 `/oly bug`), never another addon's. For the store's screenshots he has a photo mode (`/oly
 photo`, his character only): on his own screen it fades everything but Olympus and the world
 map to invisible, and gives every frame its look back on the second `/oly photo` or a
-`/reload`. Never in combat, not with the gamepad UI, and nothing is sent to anyone.
+`/reload`. Never in combat, not with the gamepad UI, not on a screen of more than 1000 frames
+(it says so and leaves them as they are), and nothing is sent to anyone.
 To check the elite borders his own rank doesn't carry, `/oly borders test <tier>` (his
 character only) shows one of the six round his own portrait, and on his target frame when he
 targets himself, and its nameplate mark after his own name on his player frame and on every

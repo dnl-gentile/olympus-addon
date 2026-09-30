@@ -16795,7 +16795,8 @@ test("1.0.0 photo mode: the author's /oly photo hides all but Olympus and the wo
 		local forbidden = PhotoFrame(nil, 1, { IsForbidden = function() return true end })
 		local window, card, pin = PhotoFrame("OlympusFrameHD", 1), PhotoFrame("OlympusPersonFrameHD", 0.9), PhotoFrame(nil, 1, { olympus = true })
 		local children = { chat, bars, faded, gone, map, tip, forbidden, window, card, pin }
-		UIParent = { GetChildren = function() return unpack(children) end }
+		-- (GetNumChildren: the client's Frame method, counted first since Konig's review of 1.1.)
+		UIParent = { GetChildren = function() return unpack(children) end, GetNumChildren = function() return #children end }
 		WorldMapFrame, GameTooltip = map, tip
 		InCombatLockdown = function() return false end
 		ns.devThrone, ns.devWorkshop = nil, nil
@@ -16846,7 +16847,8 @@ test("1.0.0 photo mode: the author's /oly photo hides all but Olympus and the wo
 end)
 
 -- Konig's review of 1.0.0 (H-1, the author's client only): /oly photo walked every child of
--- UIParent, however many a screen holds. Now PHOTO_MAX at most; the rest are left as they are.
+-- UIParent, however many a screen holds. Now PHOTO_MAX at most (since Konig's review of 1.1 a screen
+-- with more is not walked at all: the test for it is with that review's, near the end).
 test("1.0.0 photo mode walks PHOTO_MAX children of UIParent at most, and gives back what it changed", function()
 	local UI = LoadUI()
 	local saved = { UIParent = UIParent, combat = InCombatLockdown, print = ns.Print, me = ns.me, devThrone = ns.devThrone, UI = ns.UI }
@@ -16856,15 +16858,14 @@ test("1.0.0 photo mode walks PHOTO_MAX children of UIParent at most, and gives b
 		InCombatLockdown = function() return false end
 		local cap = UI.PHOTO_MAX or 1000 -- (1000 before it was a setting: the walk had no cap)
 		local children = {}
-		for i = 1, cap + 5 do children[i] = PhotoFrame("Frame" .. i, 1) end
-		UIParent = { GetChildren = function() return unpack(children) end }
+		for i = 1, cap do children[i] = PhotoFrame("Frame" .. i, 1) end
+		UIParent = { GetChildren = function() return unpack(children) end, GetNumChildren = function() return #children end }
 		ns.me, ns.devThrone = "Tester-Realm", { Tester = true } -- (the author's test build)
 		SlashCmdList.OLYMPUS("photo")
 		eq(UI.PhotoMode(), true)
 		local hidden = 0
 		for _, f in ipairs(children) do if f.alpha == 0 then hidden = hidden + 1 end end
 		eq(hidden, cap, "PHOTO_MAX walked")
-		for i = cap + 1, #children do eq(children[i].sets, 0, "left as it is: " .. i) end
 		SlashCmdList.OLYMPUS("photo")
 		eq(UI.PhotoMode(), false)
 		for i, f in ipairs(children) do eq(f.alpha, 1, "given back: " .. i) end
@@ -37888,6 +37889,47 @@ do
 			local doc = f:read("*a")
 			f:close()
 			assert(doc:find("A note is its writer's: nobody changes its words afterwards", 1, true), file .. ": the loot notes")
+		end
+	end)
+
+	-- Follow-up: "/oly photo H-1 still there": GetChildren listed every child before the cap applied.
+	test("1.1 Konig's review: /oly photo on a screen of more than PHOTO_MAX children never lists them, changes nothing, and says why", function()
+		local UI = LoadUI()
+		local saved = { UIParent = UIParent, combat = InCombatLockdown, print = ns.Print, me = ns.me, devThrone = ns.devThrone, UI = ns.UI }
+		local printed = {}
+		local ok, err = pcall(function()
+			ns.UI = UI
+			ns.Print = function(m) printed[#printed + 1] = m end
+			InCombatLockdown = function() return false end
+			local children, listed = {}, 0
+			for i = 1, UI.PHOTO_MAX + 5 do children[i] = PhotoFrame("Frame" .. i, 1) end
+			UIParent = { GetNumChildren = function() return #children end,
+				GetChildren = function() listed = listed + 1 return unpack(children) end }
+			ns.me, ns.devThrone = "Tester-Realm", { Tester = true } -- (the author's test build)
+			SlashCmdList.OLYMPUS("photo")
+			eq(UI.PhotoMode(), false); eq(listed, 0, "never listed")
+			eq(printed[#printed], ns.L.PHOTO_TOO_MANY:format(UI.PHOTO_MAX))
+			for i, f in ipairs(children) do eq(f.sets, 0, "left as it is: " .. i) end
+			-- No count to go by: not listed either.
+			UIParent = { GetChildren = function() listed = listed + 1 return unpack(children) end }
+			SlashCmdList.OLYMPUS("photo")
+			eq(UI.PhotoMode(), false); eq(listed, 0)
+		end)
+		UIParent, InCombatLockdown, ns.Print, ns.me, ns.devThrone, ns.UI = saved.UIParent, saved.combat, saved.print, saved.me, saved.devThrone, saved.UI
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.1 Konig's review (guild tools): the new lines in English and pt-BR, with the same format arguments", function()
+		local savedLocale, pt = GetLocale, {}
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		for _, key in ipairs({ "BACKUP_KEY", "BACKUP_KEY_RETIRED", "BACKUP_BLOCKED", "BACKUP_BLOCKED_MORE", "HELP_BACKUP", "JOIN_REQUESTS_TIP",
+			"CONSENT_PATROLSHARE", "CONSENT_PATROLSHARE_TEXT", "PATROLSHARE_OFF", "PHOTO_TOO_MANY" }) do
+			assert(type(rawget(ns.L, key)) == "string", "English " .. key)
+			assert(type(rawget(pt.L, key)) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
+			eq(select(2, pt.L[key]:gsub("%%[ds]", "")), select(2, ns.L[key]:gsub("%%[ds]", "")), key)
 		end
 	end)
 end
