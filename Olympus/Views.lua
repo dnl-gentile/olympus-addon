@@ -684,22 +684,31 @@ end
 Views.PublicLines = PublicLines
 
 -- The pinned line (1.1, Channels.Pin): on top of the Olympus chats and the Realm, for everyone.
--- Its setter, or a higher rank, takes it down with a click (after a question).
+-- Its setter, or a higher rank, takes it down with a click (after a question). Words the
+-- player's block terms hide (Channels.PinWords) show after a first click, as a decree's.
 local function PinLine(lines)
 	local C = ns.Channels
 	local p = C and C.Pin and C.Pin()
 	if not p then return false end
 	local who = ns.DisplayName(p.sender) or "?"
 	local mayTakeDown = C.CanTakeDown and C.CanTakeDown()
+	local words, veiled = C.PinWords(p)
+	local onClick = mayTakeDown and function() ns.ShowDialog("OLYMPUS_PIN_DOWN") end or nil
+	if veiled then
+		onClick = function()
+			p.revealed = true
+			if ns.UI and ns.UI.Refresh then ns.UI.Refresh() end
+		end
+	end
 	lines[#lines + 1] = {
-		text = Gold(L.PIN_LABEL .. ": ") .. "|cffffffff" .. p.text .. "|r",
+		text = Gold(L.PIN_LABEL .. ": ") .. (veiled and Grey(L.FILTER_WORDS_HIDDEN) or ("|cffffffff" .. words .. "|r")),
 		right = Grey(who),
-		onClick = mayTakeDown and function() ns.ShowDialog("OLYMPUS_PIN_DOWN") end or nil,
+		onClick = onClick,
 		tooltip = function(tt)
 			tt:AddLine(L.PIN_LABEL, 1, 0.82, 0)
-			tt:AddLine(p.text, 1, 1, 1, true)
+			tt:AddLine(words, 1, 1, 1, true)
 			tt:AddLine(L.PIN_TIP:format(who, Plain(p.guild), ns.Ago(p.setAt), math.max(1, math.ceil((p.expires - ns.Now()) / 60))), 0.7, 0.7, 0.7, true)
-			if mayTakeDown then tt:AddLine(L.PIN_DOWN_TIP, 0.25, 1, 0.25, true) end
+			if mayTakeDown and not veiled then tt:AddLine(L.PIN_DOWN_TIP, 0.25, 1, 0.25, true) end
 		end,
 		gapAfter = true,
 	}

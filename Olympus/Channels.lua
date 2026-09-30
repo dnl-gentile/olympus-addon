@@ -747,6 +747,10 @@ end)
 -- (ns.rdb.pinMine), to repeat it and take it down. Its words go out with the logged API (the
 -- server keeps them, so abuse can be reported), plain text, PIN_MAX bytes at most; a sender's
 -- new pin is taken once a minute at most.
+-- What a client shows (Channels.Pin): no pin while its Olympus chats are off (the player's
+-- choice, Consent.lua: none sent either), none from a name or guild the moderators took off
+-- (net-off, Moderation.lua: their own client sends none, their takedown of their own pin
+-- aside), and the player's block terms hide its words (Filter.lua) until a click shows them.
 --   N1~<id>~<guild>~<seconds left>~<seconds since set>~<text>     a pin
 --   N1~<id>~<guild>~0~0~        taken down (<id>: the pin's; <guild>: the sender's own)
 -- On the Olympus channel from the King, his Stewards and Hands (<guild>: the King's); over GUILD
@@ -861,14 +865,35 @@ local function WasDown(sender, id, now)
 	return e
 end
 
--- The pinned line while it lasts, else nil.
-function Channels.Pin(now)
+-- The line this client holds while it lasts, shown here or not, else nil.
+local function Current(now)
 	now = now or ns.Now()
 	if pin and now >= pin.expires then
 		Hold(nil)
 		PinChanged()
 	end
 	return pin
+end
+
+-- The pinned line as this client shows it, else nil (Konig's review): none while the Olympus chats
+-- are off here (the player's choice, Consent.lua), none from a name or guild the moderators took
+-- off (net-off, Moderation.lua). It is kept meanwhile: the chats back on, or its setter back, it
+-- shows again while it lasts.
+function Channels.Pin(now)
+	local p = Current(now)
+	if not p or not Channels.ChatOn() then return nil end
+	local M = ns.Moderation
+	if M and M.Hides and M.Hides(p.sender, p.guild) then return nil end
+	return p
+end
+
+-- A pin's words as this client shows them, and whether they are veiled: the player's block terms
+-- (Filter.lua) hide someone else's, as any other addon text, until a click on the line shows them.
+function Channels.PinWords(p)
+	if not p then return "", false end
+	local F = ns.Filter
+	if not p.mine and not p.revealed and F and not F.missing and F.Hides(p.text) then return L.FILTER_WORDS_HIDDEN_SHORT, true end
+	return p.text, false
 end
 
 -- Where a pin goes: the channel, or its guild (a guild master's). One of each waiting at most: a
@@ -894,6 +919,23 @@ function Channels.SetPin(text, now)
 	if not rank then
 		ns.Print(L.PIN_ONLY)
 		return false, "rank"
+	end
+	-- The chats off on this client (the player's choice): no pin leaves, as no line does. Never
+	-- answered: the page asks.
+	if not Channels.ChatOn() then
+		if ns.db.addonChat == nil then
+			ns.Print(L.CHAT_OFF_UNANSWERED)
+			if ns.Consent and ns.Consent.Ask then ns.Consent.Ask("chat") end
+		else
+			ns.Print(L.CHAT_OFF)
+		end
+		return false, "off"
+	end
+	-- The moderators took this character (or its guild) off: nobody would show it.
+	local off = ns.Moderation.SelfOff and ns.Moderation.SelfOff()
+	if off then
+		ns.Print(ns.Moderation.YouText(off))
+		return false, "netoff"
 	end
 	text = Channels.CleanPin(text)
 	if #text < 3 then
@@ -929,11 +971,13 @@ end
 -- Ours: set here, or one of ours this client heard (our name, as the server stamped it).
 local function Ours(p) return p.mine or Channels.IsMe(p.sender) end
 
--- Can we take the pinned line down: ours, or of a lower rank than ours.
+-- Can we take the pinned line down: ours (shown here or not: our chats off, or the moderators
+-- hiding us), or one shown here of a lower rank than ours.
 function Channels.CanTakeDown(now)
-	local p = Channels.Pin(now)
+	local p = Current(now)
 	if not p then return false end
 	if Ours(p) then return true end
+	if Channels.Pin(now) ~= p then return false end
 	local rank = MyPin()
 	return rank ~= nil and rank > p.rank
 end
@@ -943,7 +987,8 @@ end
 -- it, HandlePin), where our own pin would go.
 function Channels.TakeDownPin(now)
 	now = now or ns.Now()
-	local p = Channels.Pin(now)
+	local p = Current(now)
+	if p and not Ours(p) and Channels.Pin(now) ~= p then p = nil end
 	if not p then
 		ns.Print(L.PIN_NONE)
 		return false, "none"
@@ -975,13 +1020,15 @@ function Channels.TakeDownPin(now)
 end
 
 -- Every minute: our own pin again for late logins, every PIN_RESEND while it lasts, while we may
--- still pin as we did (a /reload keeps it: RestorePin).
+-- still pin as we did (a /reload keeps it: RestorePin). Not while our chats are off, nor while
+-- the moderators have us off (net-off): its takedown still goes.
 function Channels.RepeatPin(now)
 	now = now or ns.Now()
-	local p = Channels.Pin(now)
+	local p = Current(now)
 	if not (p and p.mine) or now - (p.sentAt or -math.huge) < Channels.PIN_RESEND then return false end
 	local rank, _, dist = MyPin()
-	if rank ~= p.rank or dist ~= p.dist then return false end
+	if rank ~= p.rank or dist ~= p.dist or not Channels.ChatOn() then return false end
+	if ns.Moderation.SelfOff and ns.Moderation.SelfOff() then return false end
 	SendPin(p, now)
 	return true
 end
@@ -1017,11 +1064,15 @@ function Channels.HandlePin(dist, sender, text, now)
 		ns.Log("pin from %s <%s> (%s) ignored: not the King, his Stewards or Hands, nor our own guild master", sender, guild, dist)
 		return false, "rank"
 	end
-	local current = Channels.Pin(now)
+	local current = Current(now)
+	-- A name or guild the moderators took off (net-off, Konig's review): no pin of theirs.
+	local M = ns.Moderation
+	local hidden = M and M.Hides and M.Hides(sender, guild)
 	body = Channels.CleanPin(body)
 	if body == "" or left == 0 then
 		-- Its setter's takes his line down (whichever of his we show); a higher rank's, the pin it
-		-- names, once a minute at most from each. A guild master takes down no one else's.
+		-- names, once a minute at most from each. A guild master takes down no one else's. Taken
+		-- whether or not our chats are on: a takedown only ever removes.
 		local own = current ~= nil and current.sender == sender
 		if not own and not (current and current.id == id and rank > current.rank) then
 			-- Nothing we hold: its sender's own pin of that id is remembered all the same (we may
@@ -1030,6 +1081,7 @@ function Channels.HandlePin(dist, sender, text, now)
 			return false, "nothing"
 		end
 		if not own then
+			if hidden then return false, "netoff" end -- (taken off, he takes no one else's down)
 			if now - (downFrom[sender] or -math.huge) < Channels.PIN_GAP * 0.75 then return false, "fast" end
 			downFrom[sender] = now
 		elseif current.id ~= id then
@@ -1038,14 +1090,24 @@ function Channels.HandlePin(dist, sender, text, now)
 		-- Taken down for good here: its setter's repeat, late or from a client that missed this, is
 		-- not taken again (a new pin of his is).
 		Remember(current.sender, current.id, now)
+		local shown = Channels.Pin(now) == current
 		Hold(nil)
-		local who = ns.DisplayName(sender) or "?"
-		Say(DEFAULT_CHAT_FRAME, "|cffffd200" .. (own and L.PIN_DOWN_OWN:format(who, Codec.Plain(guild))
-			or L.PIN_DOWN_BY:format(who, Codec.Plain(guild), ns.DisplayName(current.sender) or "?")) .. "|r")
+		-- Said in chat where it showed.
+		if shown then
+			local who = ns.DisplayName(sender) or "?"
+			Say(DEFAULT_CHAT_FRAME, "|cffffd200" .. (own and L.PIN_DOWN_OWN:format(who, Codec.Plain(guild))
+				or L.PIN_DOWN_BY:format(who, Codec.Plain(guild), ns.DisplayName(current.sender) or "?")) .. "|r")
+		end
 		ns.Log("pin of %s <%s> taken down by %s <%s> (rank %d)", current.sender, current.guild, sender, guild, rank)
 		PinChanged()
 		return true, "down"
 	end
+	if hidden then
+		ns.Log("pin from %s <%s> ignored: net-off", sender, guild)
+		return false, "netoff"
+	end
+	-- The chats off on this client (the player's choice, Consent.lua): no pin taken, none shown.
+	if not Channels.ChatOn() then return false, "off" end
 	left, age = math.min(left, Channels.PIN_TIME), math.min(age, Channels.PIN_TIME)
 	-- Taken down here before: never again. Ours to take down: said again (ResendDown), so its
 	-- setter's client lets it go.
@@ -1060,12 +1122,16 @@ function Channels.HandlePin(dist, sender, text, now)
 		return true, "repeat"
 	end
 	local setAt = now - age
-	-- A higher rank's stays; of the same rank, the one set last.
-	if current and (current.rank > rank or (current.rank == rank and current.setAt > setAt)) then return false, "older" end
+	-- A higher rank's stays (one this client shows: not its setter's while the moderators hide
+	-- him); of the same rank, the one set last.
+	local shown = Channels.Pin(now)
+	if shown and (shown.rank > rank or (shown.rank == rank and shown.setAt > setAt)) then return false, "older" end
 	if now - (pinFrom[sender] or -math.huge) < Channels.PIN_GAP * 0.75 then return false, "fast" end
 	pinFrom[sender] = now
 	Hold({ id = id, sender = sender, guild = guild, text = body, rank = rank, dist = dist, setAt = setAt, expires = now + left })
-	Say(DEFAULT_CHAT_FRAME, "|cffffd200" .. L.PIN_NEW:format(ns.DisplayName(sender) or "?", Codec.Plain(guild), body) .. "|r")
+	-- Its words veiled where the player's block terms hide them (Filter.lua).
+	local words = Channels.PinWords(pin)
+	Say(DEFAULT_CHAT_FRAME, "|cffffd200" .. L.PIN_NEW:format(ns.DisplayName(sender) or "?", Codec.Plain(guild), words) .. "|r")
 	ns.Log("pin from %s <%s> (rank %d)", sender, guild, rank)
 	PinChanged()
 	return true, "ok"
@@ -1074,11 +1140,12 @@ ns.Comm.Handle("N1", function(dist, sender, text) Channels.HandlePin(dist, sende
 
 -- For /oly status.
 function Channels.PinStatus(now)
-	local p = Channels.Pin(now)
+	local p = Current(now)
 	if not p then return "none" end
 	local ranks = { [3] = "the King", [2] = "Steward or Hand", [1] = "Lord" }
-	return ("by %s <%s> (%s)%s, ends in %dm"):format(ns.DisplayName(p.sender) or "?", Codec.Plain(p.guild), ranks[p.rank] or "?",
-		p.mine and ", ours" or "", math.ceil((p.expires - (now or ns.Now())) / 60))
+	return ("by %s <%s> (%s)%s%s, ends in %dm"):format(ns.DisplayName(p.sender) or "?", Codec.Plain(p.guild), ranks[p.rank] or "?",
+		p.mine and ", ours" or "", Channels.Pin(now) ~= p and ", not shown here (chats off or net-off)" or "",
+		math.ceil((p.expires - (now or ns.Now())) / 60))
 end
 
 -- After a /reload, or a login within its time: our own pin as we left it, ours to repeat and take
@@ -1163,7 +1230,7 @@ function Channels.PinCommand(rest)
 	if rest == "" then
 		local p = Channels.Pin()
 		if p then
-			ns.Print(L.PIN_NOW:format(ns.DisplayName(p.sender) or "?", Codec.Plain(p.guild), math.ceil((p.expires - ns.Now()) / 60), p.text))
+			ns.Print(L.PIN_NOW:format(ns.DisplayName(p.sender) or "?", Codec.Plain(p.guild), math.ceil((p.expires - ns.Now()) / 60), (Channels.PinWords(p))))
 		else
 			ns.Print(L.PIN_NONE)
 		end

@@ -8,9 +8,10 @@ local L = ns.L
 -- (/oly filter shared off; used by default).
 -- Whole words only, any case and accent the search folds (ns.Fold), read as the line shows
 -- (Codec.SanitizeChat, then ns.Searchable: a link's text counts, its data doesn't). Only on addon
--- text: the [Olympus], [Captains] and [Lords] lines (Channels.lua), the King's writs (Acts.lua), a
--- decree's words (Decree.lua) and Vox Populi's question and answers (Vox.lua). Never a name, a
--- guild, a census row, the treasury, or the game's own chat (Say, Trade, General: never read).
+-- text: the [Olympus], [Captains] and [Lords] lines and the pinned line's words (Channels.lua), the
+-- King's writs (Acts.lua), a decree's words (Decree.lua) and Vox Populi's question and answers
+-- (Vox.lua). Never a name, a guild, a census row, the treasury, or the game's own chat (Say,
+-- Trade, General: never read).
 -- A hit hides the line on this screen, nothing more: no kick, no net-off, no ignore, nothing sent
 -- about it, and the same player's next line shows. A hidden line stays one click away (the Realm
 -- tab's chats: "N lines hidden by your filter"; the Decrees tab for a writ, a decree's words or a

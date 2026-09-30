@@ -37694,7 +37694,7 @@ local function PinBench(fn)
 	WithThrone(function(w, K)
 		local C = ns.Channels
 		local saved = { ready = ns.Comm.ChannelReady, send = ns.Comm.Send, info = C_ChatInfo, delivered = ns.Comm.DeliveredLogged,
-			byName = ns.Roster.byName, filter = ns.db.filterWords, netoff = ns.rdb.netoff, chat = ns.db.addonChat }
+			byName = ns.Roster.byName, filter = ns.db.filterWords, shared = ns.rdb.filterShared, netoff = ns.rdb.netoff, chat = ns.db.addonChat }
 		local sent = {}
 		local ok, err = pcall(function()
 			C.ResetPin()
@@ -37703,7 +37703,7 @@ local function PinBench(fn)
 			fn(w, K, sent, C)
 		end)
 		ns.Comm.ChannelReady, ns.Comm.Send, C_ChatInfo, ns.Comm.DeliveredLogged = saved.ready, saved.send, saved.info, saved.delivered
-		ns.Roster.byName, ns.db.filterWords, ns.rdb.netoff, ns.db.addonChat = saved.byName, saved.filter, saved.netoff, saved.chat
+		ns.Roster.byName, ns.db.filterWords, ns.rdb.filterShared, ns.rdb.netoff, ns.db.addonChat = saved.byName, saved.filter, saved.shared, saved.netoff, saved.chat
 		if ns.Moderation.Reset then ns.Moderation.Reset(); ns.Moderation.Load() end
 		C.ResetPin()
 		ns.Views.ShowChat(nil)
@@ -37972,6 +37972,192 @@ test("1.1 pinned line (Konig's review): the pins taken down a client remembers a
 		end)
 		C.PIN_DOWN_KEEP = keep
 		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 pinned line (Konig's review): net-off hides a pin and stops its setter: none shown from a name or guild the moderators took off, none sent by one", function()
+	PinBench(function(w, K, sent, C)
+		local M, L = ns.Moderation, ns.L
+		local KING = "Asmongold Asmongler-Realm"
+		local function Word(kind, off, name)
+			w.clock = w.clock + 10
+			M.Handle("CHANNEL", KING, ("O1~%s~%s~%d~%s~%s~%s"):format(kind, off and "1" or "0", w.clock, name, KING, off and "spam" or ""))
+		end
+		C_ChatInfo = nil
+		ns.rdb.netoff = nil
+		M.Reset()
+		K.HandleCommand("CHANNEL", KING, "T1~H~5~Olympus~Helper-Realm")
+		-- A Hand pins for the army.
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		ns.me = "Helper-Realm"
+		eq(C.SetPin("Gold for sale, whisper me"), true)
+		local msg = sent[#sent].msg
+		-- A soldier's client shows it; then the King takes the Hand off: the line leaves at once.
+		AsSoldier()
+		C.ResetPin()
+		eq(C.HandlePin("CHANNEL", "Helper-Realm", msg), true)
+		assert(FindLine(ns.Views.Build("realm"), "Gold for sale"), "shown")
+		Word("c", true, "Helper-Realm")
+		assert(M.Hidden("Helper-Realm"), "hidden")
+		eq(C.Pin(), nil)
+		eq(FindLine(ns.Views.Build("realm"), "Gold for sale"), nil, "gone from the Realm")
+		ns.Views.ShowChat("A")
+		eq(FindLine(ns.Views.Build("realm"), "Gold for sale"), nil, "and from the chats")
+		ns.Views.ShowChat(nil)
+		w.printed = {}
+		SlashCmdList.OLYMPUS("pin")
+		eq(Printed(w, "Gold for sale"), false, "/oly pin shows nothing of it")
+		assert(C.PinStatus():find("not shown here", 1, true), C.PinStatus())
+		-- Nothing new of his is taken.
+		w.clock = w.clock + 60
+		eq(select(2, C.HandlePin("CHANNEL", "Helper-Realm", "N1~12~Olympus~7200~0~More gold")), "netoff")
+		eq(C.Pin(), nil)
+		-- On a guild's client that held it: its guild master's pin (a lower rank) takes the hidden
+		-- line's place; the hidden Hand takes nobody's pin down.
+		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+		ns.me = "Mate-Realm"
+		ns.Roster.byName = { ["Zed-Realm"] = 0, ["Mate-Realm"] = 3 }
+		eq(C.HandlePin("GUILD", "Zed-Realm", "N1~21~Olympus Zeus~7200~0~Raid at nine"), true)
+		eq(C.Pin().text, "Raid at nine")
+		eq(select(2, C.HandlePin("CHANNEL", "Helper-Realm", "N1~21~Olympus~0~0~")), "netoff", "no takedown from him")
+		eq(C.Pin().text, "Raid at nine")
+		-- The Hand's own client: back on, he pins; off again, no pin leaves, his own is not
+		-- repeated, and he can still take it down.
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		ns.me = "Helper-Realm"
+		C.ResetPin()
+		Word("c", false, "Helper-Realm")
+		eq(M.SelfOff(), nil)
+		eq(C.SetPin("Muster at the gates"), true)
+		Word("c", true, "Helper-Realm")
+		local off = M.SelfOff()
+		assert(off, "he is off")
+		local before = #sent
+		w.clock = w.clock + C.PIN_GAP
+		w.printed = {}
+		eq(select(2, C.SetPin("Muster again")), "netoff")
+		assert(Printed(w, M.YouText(off)), "told why")
+		w.clock = w.clock + C.PIN_RESEND
+		eq(C.RepeatPin(), false)
+		eq(#sent, before, "nothing sent")
+		eq(C.TakeDownPin(), true, "his own, taken down all the same")
+		eq(#sent, before + 1); assert(sent[#sent].msg:find("^N1~%d+~Olympus~0~0~$"), sent[#sent].msg)
+		-- A guild the moderators took off: its master's pin hidden on his guildmates' clients, and none
+		-- leaves his own.
+		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+		ns.me = "Mate-Realm"
+		C.ResetPin()
+		eq(C.HandlePin("GUILD", "Zed-Realm", "N1~22~Olympus Zeus~7200~0~Raid at ten"), true)
+		Word("g", true, "Olympus Zeus")
+		eq(C.Pin(), nil, "hidden with his guild")
+		w.clock = w.clock + 60
+		eq(select(2, C.HandlePin("GUILD", "Zed-Realm", "N1~23~Olympus Zeus~7200~0~Raid at eleven")), "netoff")
+		AsLord()
+		C.ResetPin()
+		assert(M.SelfOff(), "his guild is off")
+		eq(select(2, C.SetPin("Raid at eleven")), "netoff")
+		-- Back on: his pins show again.
+		Word("g", false, "Olympus Zeus")
+		GetGuildInfo = function() return "Olympus Zeus", "Member", 3 end
+		ns.me = "Mate-Realm"
+		w.clock = w.clock + 60
+		eq(C.HandlePin("GUILD", "Zed-Realm", "N1~24~Olympus Zeus~7200~0~Raid at midnight"), true)
+		eq(C.Pin().text, "Raid at midnight")
+	end)
+end)
+
+test("1.1 pinned line (Konig's review): a client whose Olympus chats are off shows no pin and sends none; its setter's takedown still goes", function()
+	PinBench(function(w, K, sent, C)
+		local L = ns.L
+		local asked
+		local savedAsk = ns.Consent.Ask
+		local ok, err = pcall(function()
+			ns.Consent.Ask = function(what) asked = what end
+			-- A soldier who said no: the King's pin is not taken, not shown, not said in chat.
+			AsSoldier()
+			ns.db.addonChat = false
+			w.printed = {}
+			eq(select(2, C.HandlePin("CHANNEL", "Asmongold Asmongler-Realm", "N1~5~Olympus~7200~0~Muster at the gates")), "off")
+			eq(C.Pin(), nil)
+			eq(FindLine(ns.Views.Build("realm"), "Muster at the gates"), nil)
+			eq(Printed(w, "Muster at the gates"), false, "no chat line")
+			-- Said yes: shown. Turned off later: gone from the screen; on again: back while it lasts.
+			ns.db.addonChat = true
+			eq(C.HandlePin("CHANNEL", "Asmongold Asmongler-Realm", "N1~5~Olympus~7200~0~Muster at the gates"), true)
+			assert(FindLine(ns.Views.Build("realm"), "Muster at the gates"))
+			ns.db.addonChat = false
+			eq(C.Pin(), nil)
+			eq(FindLine(ns.Views.Build("realm"), "Muster at the gates"), nil)
+			ns.db.addonChat = true
+			assert(C.Pin(), "back")
+			-- A takedown while the chats are off: taken (a takedown only removes), without a line in chat.
+			ns.db.addonChat = false
+			w.printed = {}
+			eq(select(2, C.HandlePin("CHANNEL", "Asmongold Asmongler-Realm", "N1~5~Olympus~0~0~")), "down")
+			eq(#w.printed, 0)
+			ns.db.addonChat = true
+			eq(C.Pin(), nil)
+			-- The King with his chats off: no pin leaves; never answered, the first-open page asks.
+			AsKing()
+			C.ResetPin()
+			ns.db.addonChat = false
+			w.printed = {}
+			eq(select(2, C.SetPin("Muster at the gates")), "off")
+			assert(Printed(w, L.CHAT_OFF), "told")
+			ns.db.addonChat = nil
+			eq(select(2, C.SetPin("Muster at the gates")), "off")
+			assert(Printed(w, L.CHAT_OFF_UNANSWERED), "told"); eq(asked, "chat")
+			eq(#sent, 0, "nothing sent")
+			-- Pinned while on, then the chats turned off: not repeated, but its setter still takes it down.
+			ns.db.addonChat = true
+			eq(C.SetPin("Muster at the gates"), true)
+			ns.db.addonChat = false
+			w.clock = w.clock + C.PIN_RESEND
+			eq(C.RepeatPin(), false)
+			eq(#sent, 1)
+			eq(C.CanTakeDown(), true)
+			eq(C.TakeDownPin(), true)
+			eq(#sent, 2); assert(sent[2].msg:find("^N1~%d+~Olympus~0~0~$"), sent[2].msg)
+		end)
+		ns.Consent.Ask = savedAsk
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("1.1 pinned line (Konig's review): the player's block terms hide a pin's words like other addon text, until a click shows them", function()
+	PinBench(function(w, K, sent, C)
+		local L = ns.L
+		ns.db.filterWords, ns.rdb.filterShared = { gold = true }, nil
+		K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", "T1~H~5~Olympus~Helper-Realm")
+		AsSoldier()
+		w.printed = {}
+		eq(C.HandlePin("CHANNEL", "Helper-Realm", "N1~5~Olympus~7200~0~Cheap gold, whisper me"), true)
+		-- Its chat line: who pinned it, not the words.
+		assert(Printed(w, L.PIN_NEW:format("Helper", "Olympus", L.FILTER_WORDS_HIDDEN_SHORT)), "the chat line, veiled")
+		eq(Printed(w, "Cheap gold"), false)
+		-- On the Realm: veiled, and its tooltip too; a click shows the words.
+		local line = FindLine(ns.Views.Build("realm"), L.PIN_LABEL)
+		assert(line, "the line is there")
+		eq(line.text:find("Cheap gold", 1, true), nil)
+		assert(line.text:find(L.FILTER_WORDS_HIDDEN, 1, true), line.text)
+		local tips = {}
+		line.tooltip({ AddLine = function(_, t) tips[#tips + 1] = t end })
+		eq(table.concat(tips, "\n"):find("Cheap gold", 1, true), nil, "the tooltip keeps them hidden")
+		-- /oly pin: veiled too.
+		w.printed = {}
+		SlashCmdList.OLYMPUS("pin")
+		eq(Printed(w, "Cheap gold"), false)
+		assert(Printed(w, L.FILTER_WORDS_HIDDEN_SHORT))
+		assert(line.onClick, "a click shows them")
+		line.onClick()
+		line = FindLine(ns.Views.Build("realm"), "Cheap gold, whisper me")
+		assert(line, "shown after the click")
+		-- A pin without the word shows as ever; the setter's own is never veiled on his screen.
+		ns.db.filterWords = { raid = true }
+		AsKing()
+		C.ResetPin()
+		eq(C.SetPin("Raid at nine at the gates"), true)
+		assert(FindLine(ns.Views.Build("realm"), "Raid at nine at the gates"), "his own words")
 	end)
 end)
 
