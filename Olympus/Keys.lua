@@ -38,7 +38,8 @@ local L = ns.L
 -- has room for (its other messages keep their place), and counts a whisper as sent once it left.
 -- /who goes from a click alone: his click on a guild, or on the Throne's /who line, searches the
 -- next one picked whose Lords and Captains it has not seen there yet, then each of them by name
--- (Keys.Confirm). What it saw is kept with the rotation (rot.saw), through a /reload too.
+-- (Keys.Confirm); with the gamepad UI his click on the /who line searches a guild picked plainly,
+-- never a name. What it saw is kept with the rotation (rot.saw), through a /reload too.
 -- It keeps handing it to Lords and Captains who come online for GRACE, on the old channel (a
 -- little longer while some picked still wait for their whisper), then moves (with his guild);
 -- "Move now" sooner. Guilds with no officer online in that time stay on the old channel until one
@@ -450,17 +451,40 @@ end
 -- by name each one those answers did not list (full, or he logged in since), the one asked
 -- longest ago first and each at most once in WHO_FRESH: made-up names in one guild's census
 -- never keep the next guild from its search (Konig's review). `only`: that guild alone (the one
--- he clicked). With the gamepad UI no quiet search goes: the census's Refresh searches there
--- (what it lists counts too).
+-- he clicked).
+-- With the gamepad UI no quiet search goes, and none by name (1.1 review): his click on the
+-- /who line searches one guild picked plainly, as the census's Refresh does there (the answer in
+-- the game's Who list, nothing silenced; Who.OnSaw reads it), the one searched longest ago
+-- first, each again a minute after its last (Who.GUILD_AGAIN: a Lord who logged in since). A
+-- click on a guild's row only checks it there (the game's list opening would take the gamepad's
+-- focus). What the census's Refresh lists counts too.
 local asked, askedFor = {}, nil -- [Name-Realm] = GetTime() of our search for him by name; the rotation's epoch
+local askedGuild = {} -- [guild] = GetTime() of our plain search of it (the gamepad UI)
+local function ConfirmPlain(rot, W, only)
+	if only then return false end
+	local now, pick, pickAt, waiting = GetTime(), nil, nil, false
+	for _, c in ipairs(Keys.Candidates()) do
+		if #c.waiting > 0 and Picked(rot, c) then
+			waiting = true
+			local at = askedGuild[c.guild] or -math.huge
+			if now - at >= (W.GUILD_AGAIN or 60) and (pick == nil or at < pickAt) then pick, pickAt = c.guild, at end
+		end
+	end
+	if pick then
+		if W.SearchGuild(pick, true) then
+			askedGuild[pick] = now
+			return true
+		end
+		return false
+	end
+	if waiting then ns.Print(L.KEY_WHO_GAMEPAD) end
+	return false
+end
 function Keys.Confirm(only)
 	local rot, W = Rotation(), ns.Who
 	if not rot or rot.moved or not Keys.CanRotate() or not (W and W.SearchGuild and W.GuildSeen and W.Search) then return false end
-	if ns.GamepadUI() then
-		if not only then ns.Print(L.KEY_WHO_GAMEPAD) end
-		return false
-	end
-	if askedFor ~= rot.at then wipe(asked); askedFor = rot.at end
+	if askedFor ~= rot.at then wipe(asked); wipe(askedGuild); askedFor = rot.at end
+	if ns.GamepadUI() then return ConfirmPlain(rot, W, only) end
 	local now, byName, byNameAt = GetTime(), nil, nil
 	for _, c in ipairs(Keys.Candidates()) do
 		if #c.waiting > 0 and (only == nil or c.guild == only) and Picked(rot, c) then
@@ -731,5 +755,6 @@ function Keys.Reset()
 	lastAnswer = -math.huge
 	for k in pairs(stats) do stats[k] = 0 end
 	wipe(asked)
+	wipe(askedGuild)
 	askedFor = nil
 end

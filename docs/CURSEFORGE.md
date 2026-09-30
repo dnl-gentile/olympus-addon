@@ -511,8 +511,10 @@ tools lives where it belongs:
   two characters can also call themselves a real guild's Lord and Captain in the census, and a
   name the census alone gives gets nothing). His click on a guild, or on the Throne's /who line, searches /who
   for the Lords and Captains picked it has not seen there yet, one search a click: every guild
-  picked first, then each of them by name, at most once in 30 minutes (with the gamepad UI, the
-  census's Refresh searches). What his /who saw is kept with the rotation, through a /reload or
+  picked first, then each of them by name, at most once in 30 minutes (with the gamepad UI his
+  click on the /who line searches each guild picked plainly, its answer in the game's Who list,
+  never a name, and a guild again a minute after its last search; a click on a guild only checks
+  it there, and the census's Refresh searches too). What his /who saw is kept with the rotation, through a /reload or
   relog too. Each hands it to his guild over guild chat, so
   nobody types `/oly key` by hand. It never travels on the Olympus channel. Whoever holds the
   old key outside the guilds he picks stays behind on the old channel; anyone in a guild that
@@ -1034,7 +1036,8 @@ account, `/oly discord forget` drops this character's request and proof.
   windows of its own instead of the game's popups, which Blizzard's gamepad code blocks (and
   freezes) when an addon opens one. With mouse and keyboard, the game's popups as always.
   Since 0.9.8 it also leaves the game's own frames alone there: no quiet `/who` on its own
-  (**Refresh** and **Find Olympus online** still search, and the answer shows in the game's
+  (**Refresh** and **Find Olympus online** still search, and so does the King's click on his
+  Throne's /who line for his key rotation, 1.1: the answer shows in the game's
   Who list), and the Issue Reporter is the game's to show. Since 0.9.9 it leaves the world map
   alone there too: no zone counts, decrees, crown or guildmate dots on it (the minimap keeps
   the crown and the dots, the Azeroth map its continent totals), because each of those went
