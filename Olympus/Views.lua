@@ -1771,6 +1771,16 @@ local function RealmLines(s, q)
 	local mapID = ns.Layers.CurrentMap()
 	local zone = mapID and ns.Zones.NameForKey("m" .. mapID) or "?"
 	lines[#lines + 1] = { header = true, text = L.LAYERS_IN:format(zone) }
+	local hop = ns.Hop.State()
+	if hop and hop.phase ~= "done" then
+		lines[#lines + 1] = { text = ns.Hop.ProgressText(), right = L.HOP_CANCEL_BUTTON,
+			onClick = function() ns.Hop.Cancel() end,
+			tooltip = function(tt) tt:AddLine(L.HOP_CANCEL_TIP, 1, 1, 1, true) end }
+	else
+		lines[#lines + 1] = { text = Gold(L.HOP_ANY_BUTTON),
+			onClick = function() ns.Hop.Command("any") end,
+			tooltip = function(tt) tt:AddLine(L.HOP_ANY_TIP, 1, 1, 1, true) end }
+	end
 	local layers = mapID and ns.Layers.ForMap(mapID) or {}
 	if #layers == 0 then lines[#lines + 1] = { text = Grey(L.LAYERS_HINT) } end
 	for _, layer in ipairs(layers) do
@@ -1784,6 +1794,7 @@ local function RealmLines(s, q)
 				tt:AddLine(ns.Layers.Name(layer), 1, 0.82, 0)
 				if head then tt:AddLine(("%s <%s>"):format(head.name, head.guild or "?"), 1, 1, 1) end
 				if layer.mine then tt:AddLine(L.LAYER_YOU, 0.25, 1, 0.25) else tt:AddLine(L.HOP_ROW_TIP, 0.25, 1, 0.25, true) end
+				if layer.lastSeen then tt:AddLine(L.HOP_REPORT_AGE:format(ns.Ago(layer.lastSeen)), 0.6, 0.6, 0.6, true) end
 				tt:AddLine(L.LAYER_EXPERIMENTAL, 0.6, 0.6, 0.6, true)
 				-- (1.1.2: "~N with Olympus" is a sample: Layers.lua.)
 				Why(tt, "count-layer-sample")

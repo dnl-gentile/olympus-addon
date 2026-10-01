@@ -5052,6 +5052,8 @@ local function WithHop(fn)
 	if not ok then error(err, 0) end
 end
 
+assert(loadfile(ROOT .. "tests/hop-regressions.lua"))(ns, test, eq, WithHop)
+
 test("layer hop, helper side: only players on the layer who can invite offer, then invite on request", function()
 	WithHop(function(w, H)
 		w.see(7)
@@ -7925,6 +7927,10 @@ test("0.9.1 layer hop: an ask that finds nobody waits longer each time (20, 60, 
 			w.clock = w.clock + H.WINDOW
 			H.Tick()
 			H.HandleNo("WHISPER", "Aaa-Realm", "LN~1")
+			-- Keep collecting until the original deadline in case a slower helper answers.
+			eq(H.State().phase, "asking")
+			w.clock = H.State().t + H.NOBODY
+			H.Tick()
 			eq(H.State().phase, "done"); eq(printed[#printed], ns.L.HOP_GAVE_UP_WAIT:format(20))
 			-- The next ask gets us in a group: the count starts over.
 			w.clock = w.clock + 20
