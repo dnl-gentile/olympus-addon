@@ -3,6 +3,7 @@ local L = ns.L
 
 ns.NAME = "Olympus"
 ns.VERSION = "1.1.2"
+ns.LOCAL_BUILD = "layerfix.1" -- local fork; retain the upstream version on its existing wire protocol
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -2005,7 +2006,7 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "layer" then
 			ns.PrintLayer()
 		elseif cmd == "hop" then
-			ns.Hop.AskKing()
+			ns.Hop.Command(rest)
 		elseif cmd == "layerhelp" or cmd == "layerauto" then
 			local on = rest:lower()
 			if on ~= "on" and on ~= "off" then
