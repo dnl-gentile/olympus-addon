@@ -304,6 +304,7 @@ local function Finish(message, fromPopup)
 	if not ask then return end
 	if not fromPopup and ask.leaveShown then ns.HideDialog("OLYMPUS_HOP_LEAVE", ask) end
 	ask.phase = "done"
+	ns.Comm.Cancel(ask)
 	if message then ns.Print(message) end
 	Changed()
 end
@@ -368,15 +369,36 @@ function Hop.Pick(offers, tried)
 	return pool[#pool].o
 end
 
+-- A queued request belongs to one guild and one zone. The game may change either while
+-- the transport is busy; sharing the old request then cannot start a useful hop.
+local function Current(a)
+	return ask == a and ns.IsMember() and GetGuildInfo("player") == a.guild
+		and ns.Layers.CurrentMap() == a.mapID
+		and not (ns.Moderation.SelfOff and ns.Moderation.SelfOff())
+end
+
+local function CanSend(a)
+	return Current(a) and not (IsInGroup and IsInGroup())
+end
+
 function Hop.Next()
-	if not ask or ask.phase == "done" then return end
-	local o = ask.tries < Hop.TRIES and Hop.Pick(ask.offers, ask.tried)
-	if not o then return Failed(ask.tries == 0) end
-	ask.tried[o.name] = true
-	ask.tries = ask.tries + 1
-	ask.helper, ask.phase, ask.asked = o.name, "requested", ns.Now()
-	ns.Comm.Whisper(o.name, ("LR~%d"):format(ask.id), nil, true)
-	ns.Print(L.HOP_REQUESTED:format(ns.DisplayName(o.name)))
+	if not ask or (ask.phase ~= "asking" and ask.phase ~= "requested" and ask.phase ~= "accepted") then return end
+	local a = ask
+	local o = a.tries < Hop.TRIES and Hop.Pick(a.offers, a.tried)
+	if not o then return Failed(a.tries == 0) end
+	a.helper, a.phase, a.asked = o.name, "requesting", nil
+	ns.Comm.Whisper(o.name, ("LR~%d"):format(a.id), nil, true, nil, function(sent)
+		if ask ~= a or a.phase ~= "requesting" or a.helper ~= o.name then return end
+		if not sent then
+			Hop.OnRoster() -- a previous helper may have just brought us into their group
+			if a.phase == "requesting" then Finish(L.HOP_GAVE_UP) end
+			return
+		end
+		a.tried[o.name], a.tries = true, a.tries + 1
+		a.phase, a.asked = "requested", ns.Now()
+		ns.Print(L.HOP_REQUESTED:format(ns.DisplayName(o.name)))
+		Changed()
+	end, { owner = a, guard = function() return a.phase == "requesting" and a.helper == o.name and CanSend(a) end })
 	Changed()
 end
 
@@ -400,7 +422,7 @@ function Hop.Ask(mapID, zoneUID, label)
 	lastAsk = now
 	ask = {
 		id = Hop.random(1, 99999), mapID = mapID, zoneUID = zoneUID, label = label or L.LAYER_UNKNOWN,
-		t = now, phase = "asking", offers = {}, count = 0, tried = {}, tries = 0,
+		guild = GetGuildInfo("player"), phase = "queued", sendAt = now, offers = {}, count = 0, tried = {}, tries = 0,
 		from = mine and { mapID = mine.mapID, zoneUID = mine.zoneUID },
 	}
 	stats.asks = stats.asks + 1
@@ -415,19 +437,25 @@ function Hop.Ask(mapID, zoneUID, label)
 end
 
 function Hop.SendAsk()
-	if not ask then return end
-	local now = ns.Now()
-	lastAsk, ask.t, ask.phase = now, now, "asking"
-	-- Ahead of the census traffic: someone waits for an invite (Comm.Send urgent).
-	ns.Comm.Send("CHANNEL", ("LQ~%d~%d~%d"):format(ask.id, ask.mapID, ask.zoneUID), nil, true)
+	if not ask or ask.phase ~= "queued" then return end
+	local a = ask
+	if not CanSend(a) then return Finish() end
+	a.phase = "sending"
 	-- Keeping zone and layer private (Layers.Sharing): the ask still names this zone and the
 	-- layer wanted, and layers are only known from the members who share theirs. Once a session.
 	if not ns.Layers.Sharing() and not privateHinted then
 		privateHinted = true
 		ns.Print(L.HOP_PRIVATE_HINT)
 	end
-	ns.Print(L.HOP_ASKING:format(ask.label))
-	ns.Log("hop: ask %d for map %d zoneUID %d", ask.id, ask.mapID, ask.zoneUID)
+	-- Ahead of the census traffic; the response window begins when this actually leaves.
+	ns.Comm.Send("CHANNEL", ("LQ~%d~%d~%d"):format(a.id, a.mapID, a.zoneUID), nil, true, nil, function(sent)
+		if ask ~= a or a.phase ~= "sending" then return end
+		if not sent then return Finish(L.HOP_GAVE_UP) end
+		lastAsk, a.t, a.phase = ns.Now(), ns.Now(), "asking"
+		ns.Print(L.HOP_ASKING:format(a.label))
+		ns.Log("hop: ask %d for map %d zoneUID %d", a.id, a.mapID, a.zoneUID)
+		Changed()
+	end, { owner = a, guard = function() return a.phase == "sending" and CanSend(a) end })
 	Changed()
 end
 
@@ -453,7 +481,7 @@ function Hop.Trusted(name)
 end
 
 function Hop.HandleOffer(dist, sender, text)
-	if dist ~= "WHISPER" or not ask or ask.phase == "done" or ask.phase == "joined" then return end
+	if dist ~= "WHISPER" or not ask or not ask.t or ask.phase == "done" or ask.phase == "joined" then return end
 	local id, group, load = text:match("^LO~(%d+)~(%d+)~(%d+)$")
 	if tonumber(id) ~= ask.id then return end
 	sender = ns.FullName(sender)
@@ -483,7 +511,7 @@ local function AskedHelper(name)
 end
 
 function Hop.OnInvite(name)
-	if not ask or (ask.phase ~= "requested" and ask.phase ~= "accepted") then return end
+	if not ask or (ask.phase ~= "requesting" and ask.phase ~= "requested" and ask.phase ~= "accepted") then return end
 	local helper = AskedHelper(name)
 	if not helper then return end
 	-- Not one the addon can vouch for (Hop.Trusted): the game's own window, the player's click.
@@ -495,6 +523,7 @@ function Hop.OnInvite(name)
 		-- join counts as this helper's (OnRoster) even before the game names its members.
 		ask.helper, ask.invitedBy, ask.asked = helper, helper, ns.Now()
 		if ask.phase ~= "requested" then ask.phase = "requested" end
+		ns.Comm.Cancel(ask)
 		if ask.hinted ~= helper then
 			ask.hinted = helper
 			ns.PlayAlert("soft", "hop")
@@ -508,6 +537,7 @@ function Hop.OnInvite(name)
 	if AcceptGroup then AcceptGroup() end
 	if StaticPopup_Hide then StaticPopup_Hide("PARTY_INVITE") end
 	ask.helper, ask.phase, ask.accepted = helper, "accepted", ns.Now()
+	ns.Comm.Cancel(ask)
 	ns.Log("hop: accepted the invite from %s", tostring(name))
 	Changed()
 end
@@ -575,6 +605,7 @@ function Hop.OnRoster()
 	if not helper and not named and (ask.phase == "accepted" or ask.invitedBy) then helper = ask.invitedBy or ask.helper end
 	if not helper then return Finish() end
 	ask.helper, ask.phase, ask.joined = helper, "joined", ns.Now()
+	ns.Comm.Cancel(ask)
 	fails = 0 -- someone could help: the usual wait again
 	stats.joins = stats.joins + 1
 	ns.Print(L.HOP_JOINED:format(ns.DisplayName(helper)))
@@ -637,6 +668,11 @@ function Hop.Tick()
 		if not next(askers) then heard[key] = nil end
 	end
 	if not ask or ask.phase == "done" then return end
+	if ask.phase ~= "joined" then
+		if not Current(ask) then return Finish() end
+		if IsInGroup and IsInGroup() then Hop.OnRoster() end
+		if ask.phase == "done" then return end
+	end
 	if ask.phase == "queued" then
 		if now >= ask.sendAt then Hop.SendAsk() end
 	elseif ask.phase == "asking" then
@@ -966,7 +1002,9 @@ end
 
 -- Tests start from a clean state.
 function Hop.Reset()
+	local previous = ask
 	ask, pending, lastAsk = nil, nil, -math.huge
+	if previous then ns.Comm.Cancel(previous) end
 	fails, failedAt = 0, -math.huge
 	wipe(heard)
 	kingMode, promptShown, lastPromptCheck, privateHinted = nil, false, -math.huge, false
