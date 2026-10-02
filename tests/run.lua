@@ -47202,6 +47202,42 @@ end)()
 		end)
 	end)
 
+	test("player menus: gamepad mode never hooks or builds Blizzard player menus", function()
+		local savedMenu, savedMenuUtil, savedGamepad = rawget(_G, "Menu"), rawget(_G, "MenuUtil"), ns.GamepadUI
+		local hooks, registrations, contextMenus = {}, 0, 0
+		local gamepad = true
+		local ok, err = pcall(function()
+			ns.GamepadUI = function() return gamepad end
+			Menu = { ModifyMenu = function(tag, cb)
+				registrations = registrations + 1
+				hooks[tag] = cb
+			end }
+			MenuUtil = { CreateContextMenu = function() contextMenus = contextMenus + 1 end }
+			PM.Reset()
+
+			eq(PM.Hook(), false, "logging in with the gamepad UI registers no Blizzard menu callback")
+			eq(registrations, 0)
+			assert(PM.StatusLine():find("disabled with the gamepad UI", 1, true), PM.StatusLine())
+
+			-- Returning to mouse mode installs the supported callbacks once.
+			gamepad = false
+			eq(PM.Hook(), true)
+			eq(registrations, #PM.WHICH)
+			local cb = assert(hooks.MENU_UNIT_PLAYER)
+
+			-- Menu.ModifyMenu has no unregister operation. A later switch back to the gamepad
+			-- must therefore make the already registered callback a strict no-op.
+			gamepad = true
+			local root = MenuRoot()
+			cb(nil, root, { name = "Ann", unit = "target" })
+			eq(#root.items, 0)
+			eq(PM.Build("PLAYER", root, { name = "Ann", unit = "target" }), 0)
+		end)
+		Menu, MenuUtil, ns.GamepadUI = savedMenu, savedMenuUtil, savedGamepad
+		PM.Reset()
+		if not ok then error(err, 0) end
+	end)
+
 	test("1.1.2 versions: a guildmate's hello names it (by the short name too); up to date, out of date, newer, unreadable; the author's released version is the newest known", function()
 		local cns, Deliver = FreshComm()
 		Deliver("GUILD", "Ann", "H1~" .. ns.VERSION .. "~Realm~p")
