@@ -799,16 +799,46 @@ end
 -- Wiring
 ---------------------------------------------------------------------------
 
-local function OnTooltipUnit(tooltip)
-	if tooltip ~= GameTooltip then return end
-	local _, unit = tooltip:GetUnit()
-	if not unit or not UnitIsPlayer(unit) then return end
-	local name = ns.UnitFullName(unit)
+local function SecretTooltipValue(...)
+	if type(issecretvalue) ~= "function" then return false end
+	for i = 1, select("#", ...) do
+		if issecretvalue((select(i, ...))) then return true end
+	end
+	return false
+end
+
+-- The same name ns.UnitFullName would produce, but every value returned by the restricted tooltip
+-- path is checked before a comparison or string operation. On Forever, a world-cursor tooltip can
+-- expose a secret unit token even though GetUnit returned a Lua string.
+local function TooltipUnitName(unit)
+	if SecretTooltipValue(unit) or type(unit) ~= "string" or unit == "" then return nil end
+	local name, realm
+	if UnitFullName then name, realm = UnitFullName(unit) end
+	if SecretTooltipValue(name, realm) then return nil end
+	if not name or name == "" then
+		local raw = GetUnitName and GetUnitName(unit, true)
+		if SecretTooltipValue(raw) or type(raw) ~= "string" or raw == "" then return nil end
+		return ns.FullName(ns.Normal(raw))
+	end
+	if realm and realm ~= "" and ns.splitNames and not ns.IsRealmName(realm) then name, realm = name .. " " .. realm, nil end
+	return ns.FullName(name, (realm and realm ~= "") and realm or nil)
+end
+
+function Inspect.TooltipUnit(tooltip)
+	if tooltip ~= GameTooltip or type(tooltip.GetUnit) ~= "function" then return false end
+	local label, unit = tooltip:GetUnit()
+	if SecretTooltipValue(label, unit) or type(unit) ~= "string" or unit == "" then return false end
+	local isPlayer = type(UnitIsPlayer) == "function" and UnitIsPlayer(unit)
+	if SecretTooltipValue(isPlayer) or not isPlayer then return false end
+	local name = TooltipUnitName(unit)
+	if not name then return false end
 	local line = Inspect.TooltipLine(name)
 	if line then tooltip:AddLine(line) end
 	-- The Treasurer of Olympus: his name and the game's own word on his guild.
-	if ns.IsTreasurer(name, GetGuildInfo(unit)) then tooltip:AddLine(ns.COIN .. L.TREASURER_TITLE, 1, 0.82, 0) end
+	local guild = GetGuildInfo and GetGuildInfo(unit)
+	if not SecretTooltipValue(guild) and ns.IsTreasurer(name, guild) then tooltip:AddLine(ns.COIN .. L.TREASURER_TITLE, 1, 0.82, 0) end
 	if patrol then Enqueue(unit) end
+	return true
 end
 
 ns.On("INIT", function() Inspect.Prune(); Inspect.PruneGear() end) -- (Prune makes the store too)
@@ -822,12 +852,12 @@ ns.On("LOGIN", function()
 	local hooked = false
 	if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
 		hooked = pcall(TooltipDataProcessor.AddTooltipPostCall, Enum.TooltipDataType.Unit, function(tt)
-			ns.SafeCall("tooltip", OnTooltipUnit, tt)
+			ns.SafeCall("tooltip", Inspect.TooltipUnit, tt)
 		end)
 	end
 	if not hooked then
 		pcall(GameTooltip.HookScript, GameTooltip, "OnTooltipSetUnit", function(tt)
-			ns.SafeCall("tooltip", OnTooltipUnit, tt)
+			ns.SafeCall("tooltip", Inspect.TooltipUnit, tt)
 		end)
 	end
 	ns.Log("tooltip hook: %s", hooked and "TooltipDataProcessor" or "OnTooltipSetUnit")

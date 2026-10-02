@@ -2073,8 +2073,14 @@ ns.Comm.Handle("TA", function(...) Treasury.HandleAsk(...) end)
 -- The server says a player we whisper is not online: what waits for him is dropped (one line of
 -- the game's in the chat, not one a piece), and he is no longer counted online.
 local notFound
+local function SecretValue(value)
+	return type(issecretvalue) == "function" and issecretvalue(value) == true
+end
 function Treasury.NotFound(text)
-	if type(text) ~= "string" then return end
+	-- Instance and restricted UI events can hand addons a secret string. Its Lua type is still
+	-- "string", but even :match raises while our execution is tainted. It cannot identify a queued
+	-- recipient safely, so ignore it before the first string operation.
+	if type(text) ~= "string" or SecretValue(text) then return end
 	if not notFound then
 		local f = type(ERR_CHAT_PLAYER_NOT_FOUND_S) == "string" and ERR_CHAT_PLAYER_NOT_FOUND_S or nil
 		if not f then return end

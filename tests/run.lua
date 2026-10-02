@@ -610,6 +610,22 @@ test("inspection summary, marks and discord text", function()
 	assert(I.TooltipLine("Naked-Realm"):find("NO TABARD"))
 end)
 
+test("treasury private: secret system messages are ignored before string operations", function()
+	local T, savedSecret, savedNotFound = ns.Treasury, rawget(_G, "issecretvalue"), ERR_CHAT_PLAYER_NOT_FOUND_S
+	local checked = false
+	local ok, err = pcall(function()
+		ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
+		issecretvalue = function(value)
+			if value == "restricted system line" then checked = true return true end
+			return false
+		end
+		T.NotFound("restricted system line")
+		assert(checked, "the system line is checked for secrecy before :match")
+	end)
+	issecretvalue, ERR_CHAT_PLAYER_NOT_FOUND_S = savedSecret, savedNotFound
+	if not ok then error(err, 0) end
+end)
+
 test("roster reads ranks, officers, inactivity and top levels", function()
 	ns.db.officerRank = 1
 	local r = ns.Roster.Scan()
@@ -33932,7 +33948,7 @@ do
 -- (w.rank: 1 an officer). The inspections kept start empty.
 local GEAR_GLOBALS = { "UnitExists", "UnitIsPlayer", "UnitIsUnit", "UnitGUID", "GetGuildInfo", "UnitFactionGroup", "UnitLevel", "UnitClass",
 	"CanInspect", "CheckInteractDistance", "NotifyInspect", "GetInventoryItemID", "GetInventoryItemLink", "InCombatLockdown",
-	"InspectFrame", "ClearInspectPlayer", "UnitFullName", "GetTime", "GetItemInfo" }
+	"InspectFrame", "ClearInspectPlayer", "UnitFullName", "GetTime", "GetItemInfo", "GameTooltip", "issecretvalue" }
 local GEAR_BOB = {
 	[1] = { id = 16866, link = "|cffa335ee|Hitem:16866:0:0:0:0:0:0:0:60|h[Helm of Might]|h|r" },
 	[5] = { id = 16865 }, -- (no link from the client yet: its id alone)
@@ -34023,6 +34039,38 @@ test("1.1 gear (#28): an officer's click on a player in range inspects him once 
 		I.OnInspectReady(ann.guid)
 		eq(I.Players()["Ann"].gear, nil)
 		eq(w.printed[#w.printed], ns.L.GEAR_NOT_LOADED:format("Ann"))
+	end)
+end)
+
+test("tooltip inspection ignores secret unit data before restricted unit APIs", function()
+	WithGear(function(w, I)
+		local secret, playerCalls, nameCalls = {}, 0, 0
+		issecretvalue = function(value) return rawequal(value, secret) end
+		GameTooltip = {
+			GetUnit = function() return secret, secret end,
+			AddLine = function() error("a restricted tooltip must add no line") end,
+		}
+		UnitIsPlayer = function(unit)
+			playerCalls = playerCalls + 1
+			if rawequal(unit, secret) then error("secret unit reached UnitIsPlayer") end
+			return true
+		end
+		UnitFullName = function()
+			nameCalls = nameCalls + 1
+			return "Bob", "Realm"
+		end
+		eq(I.TooltipUnit(GameTooltip), false)
+		eq(playerCalls, 0); eq(nameCalls, 0)
+
+		-- A plain token may still produce secret results. Stop before consuming either one.
+		GameTooltip.GetUnit = function() return "Hidden", "target" end
+		UnitIsPlayer = function() playerCalls = playerCalls + 1 return secret end
+		eq(I.TooltipUnit(GameTooltip), false)
+		eq(nameCalls, 0)
+		UnitIsPlayer = function() playerCalls = playerCalls + 1 return true end
+		UnitFullName = function() nameCalls = nameCalls + 1 return secret, secret end
+		eq(I.TooltipUnit(GameTooltip), false)
+		eq(nameCalls, 1)
 	end)
 end)
 
