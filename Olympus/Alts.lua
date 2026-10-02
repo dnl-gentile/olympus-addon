@@ -63,7 +63,7 @@ end
 -- This account's links (ns.db.alts: every character of the account shares it)
 --   links[alt key]  = { name = alt, main = main, at }   confirmed on the alt
 --   offers[alt key] = { name = alt, main = main, t, faction, group }   named on the main, waiting
---   guilds[key]     = the guild that character was in at its last login
+--   guilds[key]     = the last guild observed for that character
 --   told[key]       = the account's change that character's client last announced
 ---------------------------------------------------------------------------
 
@@ -274,10 +274,25 @@ local function Wire(at, role, guild, names)
 	return head .. table.concat(parts, ",")
 end
 
+-- Guild membership is part of a claim, so it changes the same revision as the links.
+-- Observe it at login, on the guild event and just before sending; every receiver (including
+-- older versions) can then reject an older claim without keeping a previous guild forever.
+local function GuildChanged()
+	if not ns.me then return false end
+	local a, key = Account(), Key(ns.me)
+	local guild = GetGuildInfo("player")
+	if a.guilds[key] == guild then return false end
+	a.guilds[key] = guild
+	Changed()
+	return true
+end
+
 -- Sends this character's claim: at the login's first round, after a change, every EVERY. A
 -- character never linked sends nothing; one whose links were all removed says so once.
 function Alts.Send(force)
+	local changed = GuildChanged()
 	if not ns.me or not ns.IsMember() then return false end
+	force = force or changed
 	local a = Account()
 	local key = Key(ns.me)
 	local role, names = Alts.Claim()
@@ -529,16 +544,14 @@ function Alts.StatusLine()
 end
 function Alts.Stats() return stats end
 
+ns.RegisterEvent("PLAYER_GUILD_UPDATE", function(unit)
+	if unit and unit ~= "player" then return end
+	ns.After(2, "alt guild", function() Alts.Send(false) end)
+end)
+
 ns.On("LOGIN", function()
-	-- This character's guild, for the census's count once the account's links are counted.
-	ns.After(10, "alt guild", function()
-		local key = ns.me and Key(ns.me)
-		local guild = GetGuildInfo and GetGuildInfo("player")
-		if key and Account().guilds[key] ~= guild then
-			Account().guilds[key] = guild
-			Bump()
-		end
-	end)
+	-- Record the guild with a fresh revision before the login's first claim.
+	ns.After(10, "alt guild", GuildChanged)
 	ns.After(Alts.ASK_AFTER, "alt confirm", Alts.AskConfirm)
 	ns.After(Alts.LOGIN_AFTER, "alt claim", function() Alts.Send(true) end)
 	ns.Every(60, "alt links", function()

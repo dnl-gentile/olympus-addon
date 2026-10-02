@@ -1106,6 +1106,19 @@ end
 -- Only a real keeper's client sends (never the author's view), and only with his yes.
 local function CanSend() return RealKeeper() and Treasury.Consent() == true end
 Treasury.CanSend = CanSend
+local shareOwner = {}
+
+-- Revocation ends the lifetime of queued bytes too. A later yes starts a new lifetime;
+-- it must never revive a snapshot that was waiting when the keeper said no.
+function Treasury.CancelShares()
+	local owner = shareOwner
+	shareOwner = {}
+	ns.Comm.Cancel(owner)
+	earlySending = nil
+	Treasury.CancelPrivate(function(o) return o.kind ~= "TS" end)
+	Treasury.ForgetBooks()
+	if ns.Dues and ns.Dues.CancelAnswers then ns.Dues.CancelAnswers() end
+end
 
 function Treasury.SetConsent(on)
 	if not RealKeeper() then return ns.Print(L.TREASURER_ONLY) end
@@ -1117,6 +1130,7 @@ function Treasury.SetConsent(on)
 		Treasury.Share(true)
 		if ns.Bank and ns.Bank.Share then ns.Bank.Share(true) end
 	else
+		Treasury.CancelShares()
 		Treasury.Withdraw(true)
 	end
 	ns.Fire("TREASURY_CHANGED")
@@ -1340,10 +1354,18 @@ function Treasury.LegacyMessage(parts)
 		b and U(r.week) or 0, b and math.min(r.donors, 9999) or 0, FlagsWord(), table.concat(rank, ","), table.concat(lines, ","))
 end
 
-local function Send(msg, key)
+local function Send(msg, key, valid)
 	if not msg then return end
-	if #msg <= 250 then ns.Comm.Send("CHANNEL", msg, key) else ns.Comm.SendChunked(msg) end
+	local owner, guild, me = shareOwner, GetGuildInfo("player"), ns.me
+	local flags = FlagDigits(ns.rdb and ns.rdb.treasuryFlags or {})
+	local options = { owner = owner, guard = function()
+		return owner == shareOwner and me == ns.me and guild == GetGuildInfo("player") and CanSend()
+			and flags == FlagDigits(ns.rdb and ns.rdb.treasuryFlags or {}) and (not valid or valid())
+	end }
+	if #msg <= 250 then return ns.Comm.Send("CHANNEL", msg, key, nil, nil, nil, options) end
+	return ns.Comm.SendChunked(msg, nil, "CHANNEL", nil, options)
 end
+Treasury.SendPublic = Send
 
 function Treasury.Share(force)
 	if not CanSend() then
@@ -1418,7 +1440,9 @@ function Treasury.Relay(force)
 			-- Its book with his yes too (his client sends it); its no with or without his. On the
 			-- channel the army's part alone (1.1), the whole of it by whisper (SendPrivate).
 			if shares[key] == true and CanSend() then
-				Send(Treasury.RelayMessage(b, not all and parts or nil))
+				Send(Treasury.RelayMessage(b, not all and parts or nil), nil, function()
+					return ns.db.keeperShares and ns.db.keeperShares[key] == true
+				end)
 			elseif shares[key] == false then
 				ns.Comm.Send("CHANNEL", ("TX~%s~%s"):format(Clean(GetGuildInfo("player")), Clean(b.name)), "treasuryx " .. key)
 			end
@@ -1806,21 +1830,20 @@ end
 -- 1.0 clients leave TA and TW unread: a 1.0 army shows what the King shows, as before. Only a
 -- client heard asking (TA: 1.1 or later) is whispered to, so a 1.0 King, Steward or keeper gets
 -- nothing by whisper (what he reads from the channel: Treasury.Message's note).
--- The keeper's message budget: the whispers share the addon's one queue (Comm: a message each
--- 1.2 s, 60 waiting at most, the oldest dropped when it is full) with his census, his book on the
--- channel and everything else. So a piece is queued only while that queue is nearly empty
--- (PRIVATE_ROOM), and a changed message goes to the same player PRIVATE_GAP after the last one at
--- the soonest (the latest then: FlushPrivate, every minute); the channel's own messages are never
--- pushed out by ours.
+-- The keeper's message budget: whispers share Comm's one-message-per-1.2-second budget.
+-- A whole transfer starts only while its queue is nearly empty (PRIVATE_ROOM); Comm reserves
+-- all its pieces together and gives an active transfer bounded progress without evicting the
+-- census. A changed message goes to the same player PRIVATE_GAP after the last completion at
+-- the soonest (the latest then: FlushPrivate, every minute).
 ---------------------------------------------------------------------------
 
 Treasury.AUDIENCE_FRESH = 11 * 60  -- the King, a Steward or a keeper heard this recently is online
 Treasury.ASK_AFTER = 40            -- seconds after login such a client asks for what is its to see...
 Treasury.ASK_EVERY = 15 * 60       -- ...and again this often (what changed)
 Treasury.RESET_GAP = 300           -- one player's "I hold nothing" is taken this often at most
-Treasury.PRIVATE_PACE = 1.5        -- seconds between two whispered pieces at the least...
-Treasury.PRIVATE_ROOM = 3          -- ...each one queued only while the addon's queue holds this many at most...
-Treasury.PRIVATE_WAIT = 120        -- ...or once it waited this many turns (never held forever)
+Treasury.PRIVATE_PACE = 1.5        -- seconds between admission attempts / completed transfers
+Treasury.PRIVATE_ROOM = 3          -- start a transfer while the queue holds this many messages at most...
+Treasury.PRIVATE_WAIT = 120        -- abandon this attempt after this many turns; the share tick retries
 Treasury.PRIVATE_GAP = 180         -- a changed message to the same player this long after the last one at the soonest
 Treasury.PRIVATE_QUEUE = 100       -- whole messages waiting to be whispered, at most
 Treasury.READERS_FOR = 30 * 86400  -- a client heard asking (TA) is remembered as reading whispers this long
@@ -1830,7 +1853,7 @@ Treasury.PRIVATE_REPEAT = 1800     -- the same one whispered again to the same p
 local heard = {}         -- [Name-Realm] = when the King, a Steward or a keeper was last heard
 local firstHeard = {}    -- [Name-Realm] = when he was first heard this session
 local outbox = {}        -- whispers waiting: { to, kind, key, msg, pieces }
-local sending            -- the one going out now (its pieces, PRIVATE_PACE apart)
+local sending            -- the transfer owned by Comm now, or waiting for admission
 local sentTo = {}        -- [Name-Realm] = { [key] = { msg, at }: the message last whispered whole to him, when }
 local resetAt = {}       -- [Name-Realm] = when his "I hold nothing" was last taken
 local pieceId = 0
@@ -1913,41 +1936,79 @@ function Treasury.Online()
 	return out
 end
 
--- The next whisper waiting goes out, a piece every PRIVATE_PACE at the most, each one only
--- while the addon's queue is nearly empty (PRIVATE_ROOM).
+-- A queued transfer keeps its original sender/guild. Its kind owns the current permission
+-- check; Comm runs it again for every actual send, including pieces already queued there.
+local function PrivateValid(o)
+	local def = privateKinds[o.kind]
+	return not o.cancelled and o.me == ns.me and o.guild == GetGuildInfo("player")
+		and def and def.send and def.send(o.to, o.msg) == true
+end
+
+-- Only the start waits for a quiet queue. Comm then schedules the whole Codec message
+-- inside the receiver's existing 60-second lifetime. TE has its own protocol (up to 100
+-- independent pieces): consecutive bounded batches keep that wire format unchanged.
 local function PumpPrivate()
-	-- (One whose timer never came back, an error on the way: not waited for forever.)
-	if sending and ns.Now() - (sending.touched or 0) > 300 then sending = nil end
 	if sending then return end
 	local o = table.remove(outbox, 1)
 	if not o then return end
-	o.touched = ns.Now()
+	sending = o
 	if not o.pieces then
 		pieceId = pieceId % 999 + 1
 		o.pieces = {}
 		for i, c in ipairs(ns.Codec.Chunk(o.msg, "w" .. pieceId)) do o.pieces[i] = "TW~" .. o.kind .. "~" .. c end
 	end
 	o.i = 0
-	sending = o
 	local waited = 0
+	local function Finish(ok)
+		if sending ~= o then return end
+		if ok then
+			sentTo[o.to] = sentTo[o.to] or {}
+			sentTo[o.to][o.key] = { msg = o.msg, at = ns.Now(), kind = o.kind }
+		elseif PrivateValid(o) then
+			held = true -- the normal share tick can retry; failed bytes were never delivered whole
+		end
+		sending = nil
+		if outbox[1] then ns.After(Treasury.PRIVATE_PACE, "treasury private", PumpPrivate) end
+	end
 	local function Next()
 		if sending ~= o then return end
-		o.touched = ns.Now()
-		local size = ns.Comm.QueueSize and ns.Comm.QueueSize() or 0
-		if size > Treasury.PRIVATE_ROOM and waited < Treasury.PRIVATE_WAIT then
+		if not PrivateValid(o) then return Finish(false) end
+		if ns.Comm.QueueSize() > Treasury.PRIVATE_ROOM then
+			if waited >= Treasury.PRIVATE_WAIT then return Finish(false) end
 			waited = waited + 1
 			return ns.After(Treasury.PRIVATE_PACE, "treasury private", Next)
 		end
 		waited = 0
-		o.i = o.i + 1
-		ns.Comm.Whisper(o.to, o.pieces[o.i])
-		if o.i < #o.pieces then return ns.After(Treasury.PRIVATE_PACE, "treasury private", Next) end
-		sentTo[o.to] = sentTo[o.to] or {}
-		sentTo[o.to][o.key] = { msg = o.msg, at = ns.Now() }
-		sending = nil
-		if outbox[1] then ns.After(Treasury.PRIVATE_PACE, "treasury private", PumpPrivate) end
+		local pieces = {}
+		local last = o.kind == "TE" and math.min(o.i + 30, #o.pieces) or #o.pieces
+		for i = o.i + 1, last do pieces[#pieces + 1] = o.pieces[i] end
+		ns.Comm.SendBatch("WHISPER", pieces, nil, o.to, nil, function(ok)
+			if sending ~= o then return end
+			if not ok then return Finish(false) end
+			o.i = last
+			if o.i < #o.pieces then return ns.After(Treasury.PRIVATE_PACE, "treasury private", Next) end
+			Finish(true)
+		end, { owner = o, guard = function() return PrivateValid(o) end })
 	end
 	Next()
+end
+
+-- Cancel matching transfers at both queue owners. Mark first: completion callbacks and
+-- already scheduled timers cannot restart a cancelled transfer.
+function Treasury.CancelPrivate(matches)
+	for i = #outbox, 1, -1 do
+		local o = outbox[i]
+		if not matches or matches(o) then o.cancelled = true; table.remove(outbox, i) end
+	end
+	local o = sending
+	if o and (not matches or matches(o)) then
+		o.cancelled, sending = true, nil
+		ns.Comm.Cancel(o)
+		if outbox[1] then ns.After(Treasury.PRIVATE_PACE, "treasury private", PumpPrivate) end
+	end
+end
+function Treasury.PrunePrivate()
+	Treasury.CancelPrivate(function(o) return not PrivateValid(o) end)
 end
 
 -- A whole message (`kind`: its type) for one player alone, by whisper, in pieces; `pieces`: its
@@ -1958,13 +2019,15 @@ function Treasury.Private(to, kind, msg, key, pieces)
 	if type(to) ~= "string" or to == "" or type(msg) ~= "string" or msg == "" then return false end
 	to = ns.FullName(to)
 	if SameChar(to, ns.me) then return false end
+	local def = privateKinds[kind]
+	if not def or not def.send or def.send(to, msg) ~= true then return false end
 	key = key or kind
 	local last = sentTo[to] and sentTo[to][key]
 	if last and last.msg == msg and ns.Now() - last.at < Treasury.PRIVATE_REPEAT then return false end
 	if sending and sending.to == to and sending.key == key and sending.msg == msg then return false end
 	for _, o in ipairs(outbox) do
 		if o.to == to and o.key == key then
-			o.msg, o.pieces = msg, pieces
+			o.msg, o.pieces, o.kind, o.me, o.guild = msg, pieces, kind, ns.me, GetGuildInfo("player")
 			return true
 		end
 	end
@@ -1975,7 +2038,7 @@ function Treasury.Private(to, kind, msg, key, pieces)
 		return false
 	end
 	if #outbox >= Treasury.PRIVATE_QUEUE then table.remove(outbox, 1) end
-	outbox[#outbox + 1] = { to = to, kind = kind, key = key, msg = msg, pieces = pieces }
+	outbox[#outbox + 1] = { to = to, kind = kind, key = key, msg = msg, pieces = pieces, me = ns.me, guild = GetGuildInfo("player") }
 	PumpPrivate()
 	return true
 end
@@ -1994,6 +2057,14 @@ end
 function Treasury.ForgetSent(to, key)
 	local t = type(to) == "string" and sentTo[ns.FullName(to)]
 	if t then t[key] = nil end
+end
+
+-- TX removes the receiver's books. A later yes must send even an unchanged book again;
+-- the sister bank has a separate consent and keeps its own delivery cache.
+function Treasury.ForgetBooks()
+	for _, messages in pairs(sentTo) do
+		for key, last in pairs(messages) do if last.kind ~= "TS" then messages[key] = nil end end
+	end
 end
 
 -- What a keeper's client whispers to one of them (`to`), or to each one heard: his whole book
@@ -2027,15 +2098,21 @@ function Treasury.HandlePrivate(dist, sender, text)
 	if dist ~= "WHISPER" or type(text) ~= "string" then return end
 	local kind, piece = text:match("^TW~(%w%w)~(C.+)$")
 	local def = kind and privateKinds[kind]
-	if not def or not def.to() or not def.from(sender) then return end
+	if not def or not def.to or not def.from or not def.to() or not def.from(sender) then return end
 	local whole = ns.Codec.Feed(privAsm, sender, piece, ns.Now())
 	if not whole or whole:sub(1, 3) ~= kind .. "~" then return end
 	def.handle("WHISPER", sender, whole)
 end
 ns.Comm.Handle("TW", function(...) Treasury.HandlePrivate(...) end)
 Treasury.OnPrivate("TB", { from = function(s) return Treasury.KeeperByName(s) end, to = function() return Treasury.IsInsider() end,
+	send = function(to) return CanSend() and Insider(to) end,
 	handle = function(...) Treasury.HandleReport(...) end })
 Treasury.OnPrivate("TR", { from = function(s) return TreasurerPin(s) == 1 end, to = function() return Treasury.IsInsider() end,
+	send = function(to, msg)
+		local name = msg:match("^TR~([^~]+)~")
+		return CanSend() and ns.IsTreasurer(ns.me, GetGuildInfo("player")) and Insider(to) and name ~= nil and Treasury.IsOwnCharacter(name)
+			and ns.db.keeperShares and ns.db.keeperShares[OwnKey(name)] == true
+	end,
 	handle = function(...) Treasury.HandleRelay(...) end })
 
 -- This client asks for what is its to see (TA): the King's, a Steward's or a keeper's (a Hand's,
@@ -2084,19 +2161,16 @@ function Treasury.NotFound(text)
 	if not who then return end
 	who = who:lower()
 	local function Is(name) return (ns.TellName(name) or ""):lower() == who or (ns.DisplayName(name) or ""):lower() == who end
-	for i = #outbox, 1, -1 do if Is(outbox[i].to) then table.remove(outbox, i) end end
+	Treasury.CancelPrivate(function(o) return Is(o.to) end)
 	for name in pairs(heard) do if Is(name) then heard[name] = nil end end
 	if ns.Bank and ns.Bank.NotFound then ns.Bank.NotFound(Is) end
 	for name in pairs(firstHeard) do if Is(name) then firstHeard[name] = nil end end
-	if sending and Is(sending.to) then
-		sending = nil
-		PumpPrivate()
-	end
 end
 
 -- For tests: what waits, and what goes.
 function Treasury.PrivateState() return { outbox = outbox, sending = sending, sentTo = sentTo, heard = heard, held = held } end
 function Treasury.ResetPrivate()
+	Treasury.CancelPrivate()
 	wipe(heard); wipe(firstHeard); wipe(outbox); wipe(sentTo); wipe(resetAt)
 	sending, lastAsk, notFound, held = nil, -math.huge, nil, false
 	if ns.rdb then ns.rdb.treasuryReaders = nil end
@@ -2290,6 +2364,7 @@ local function SetKeepers(names)
 		ns.Print(L.THRONE_PREVIEW_NOTE)
 	else
 		ns.rdb.treasuryKeepers = k
+		Treasury.PrunePrivate()
 		Treasury.SendKeepers(true)
 	end
 	Treasury.mode = "keepers"
@@ -2347,6 +2422,7 @@ function Treasury.TakeKeepers(at, text, sender)
 	end
 	local was = RealKeeper()
 	ns.rdb.treasuryKeepers = { at = at, names = names, t = ns.Now(), from = ns.FullName(sender) }
+	Treasury.PrunePrivate()
 	Treasury.Heard(sender)
 	if table.concat(names, ",") ~= table.concat(before, ",") then TellKing(sender, L.STEWARD_SET_KEEPERS) end
 	-- Books of characters no longer keepers: no longer kept.
@@ -2363,6 +2439,7 @@ function Treasury.TakeKeepers(at, text, sender)
 		-- (1.1: the other keepers' whole books come to a keeper by whisper: asked for now.)
 		Treasury.Ask(true)
 	elseif was and not now then
+		Treasury.CancelShares()
 		ns.Print(L.TREASURY_KEEPER_UNNAMED)
 	end
 	ns.Fire("TREASURY_CHANGED")
@@ -2544,8 +2621,8 @@ function Treasury.SendEarly(force)
 	local pieces, token = EarlyPieces(list, guild), {}
 	earlySending = token
 	local function Piece(i)
-		if earlySending ~= token or not MaySendEarly() then return end
-		ns.Comm.Send("CHANNEL", ("TE~%s~%d~%d~%d~%s"):format(guild, list.at, i, #pieces, pieces[i]), "treasuryearly" .. i)
+		if earlySending ~= token or not MaySendEarly() or not Treasury.PublicShows("ranking") then return end
+		Send(("TE~%s~%d~%d~%d~%s"):format(guild, list.at, i, #pieces, pieces[i]), "treasuryearly" .. i, MaySendEarly)
 		if i < #pieces then
 			ns.After(Treasury.EARLY_PACE, "treasury early", function() Piece(i + 1) end)
 		else
@@ -2568,6 +2645,8 @@ function Treasury.SendEarlyTo(name)
 	if #msgs == 0 then return false end
 	return Treasury.Private(name, "TE", table.concat(msgs, "\n"), "TE", msgs)
 end
+
+Treasury.OnPrivate("TE", { send = function(to) return MaySendEarly() and Insider(to) end })
 
 -- A piece of the list: from one of the Treasurer's pinned characters (his name, set by the
 -- server). A list as new as ours changes nothing; a newer one replaces ours once all its
@@ -3649,6 +3728,7 @@ Treasury.FlagDigits = FlagDigits
 
 -- Tests start from a clean state.
 function Treasury.Reset()
+	Treasury.CancelShares()
 	trade, mailOut, lastShare, sharePending, lastFlagsSent, lastKeepersSent = nil, nil, -math.huge, false, -math.huge, -math.huge
 	lastWithdraw = -math.huge
 	asked, lastWordAnswer = false, -math.huge

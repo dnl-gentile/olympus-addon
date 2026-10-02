@@ -171,7 +171,7 @@ function Bank.Share(force)
 		return false
 	end
 	lastShare, lastSent = now, msg
-	if #msg <= 250 then ns.Comm.Send("CHANNEL", msg, "bank") else ns.Comm.SendChunked(msg) end
+	ns.Treasury.SendPublic(msg, "bank", function() return ns.Treasury.PublicShows("book") end)
 	return true
 end
 
@@ -225,6 +225,7 @@ function Bank.HandleReport(dist, sender, text)
 end
 ns.Comm.Handle("T9", function(...) Bank.HandleReport(...) end)
 ns.Treasury.OnPrivate("T9", { from = function(s) return ns.Treasury.KeeperByName(s) end, to = function() return ns.Treasury.IsInsider() end,
+	send = function(to) return CanSend() and ns.Treasury.InsiderName(to) end,
 	handle = function(...) Bank.HandleReport(...) end })
 
 -- A tab asked for whose slots never arrived reads empty, just like a tab that is: an empty
@@ -594,6 +595,7 @@ function Bank.SetSisterConsent(on)
 		wipe(sisterNoTold) -- (a later no goes to every viewer again)
 		return Bank.ShareSister()
 	end
+	ns.Treasury.CancelPrivate(function(o) return o.kind == "TS" end)
 	-- His no: taken back from the screens it reached, at once from every viewer whose addon asked
 	-- within NO_WITHIN (they ask every ASK_EVERY: Konig's review of 1.1; AUDIENCE_FRESH, shorter,
 	-- missed one who asked 12 minutes before), those heard before a /reload of ours too (KeptHeard);
@@ -670,6 +672,7 @@ function Bank.HandleSister(dist, sender, text)
 end
 ns.Comm.Handle("TS", function(...) Bank.HandleSister(...) end)
 ns.Treasury.OnPrivate("TS", { from = function() return true end, to = function() return Bank.SeesSisters() end,
+	send = function(to) return Bank.SisterTreasurer() and Bank.SisterConsent() == true and SisterViewer(to) end,
 	handle = function(...) Bank.HandleSister(...) end })
 
 -- The sister guilds' banks this client holds, by guild name (the King's, a Steward's, a Hand's).
@@ -1039,7 +1042,9 @@ function Bank.SharePublic(force)
 	if #entries == 0 and (lastPublic == nil or lastPublic == "") then return false end
 	if not force and all == lastPublic then return false end
 	lastPublic, lastPublicAt = #entries == 0 and "" or all, now
-	for i, m in ipairs(msgs) do ns.Comm.Send("CHANNEL", m, "banklist" .. i) end
+	for i, m in ipairs(msgs) do
+		ns.Treasury.SendPublic(m, "banklist" .. i, function() return ns.Treasury.PublicShows("book") end)
+	end
 	return true
 end
 

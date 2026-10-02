@@ -920,8 +920,10 @@ alone until then).
   pieces, to the King, his Steward and the keepers whose addon was heard in the last few minutes
   and reads it (1.1 or later: it asks for it after login, then every 15 minutes; a 1.0 addon is
   never whispered). A changed book goes to each of them 3 minutes after the last one at the
-  soonest, the latest then, and each piece only while the addon's own queue is nearly empty, so
-  the whispers never push the keeper's census or his book on the channel out of it. Every client checks it comes from a keeper himself, and that it holds together (its
+  soonest, the latest then. A whole transfer starts while the addon's queue is nearly empty;
+  once started, its pieces keep a paced turn alongside chat and urgent requests, finishing their
+  sends within older clients' existing one-minute assembly window under normal timer scheduling. A
+  busy queue defers the transfer to the next sharing pass instead of forcing its pieces in. Every client checks it comes from a keeper himself, and that it holds together (its
   shape and sizes, a balance its totals add up to, no list longer than a book sends, no date
   before 2026 or more than a day ahead of the server's clock): one that doesn't is refused whole,
   and the copy it had of that keeper's book stays. A keeper's own addon never sends such a date,

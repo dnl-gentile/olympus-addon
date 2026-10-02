@@ -352,8 +352,9 @@ test("decoder rejects garbage and clamps numbers", function()
 	eq(Codec.DecodeReport(("R1~%s~1~1~~0~0~~~"):format(("x"):rep(30))), nil, "long guild name")
 	eq(Codec.DecodeReport("R1~Olympus~99999999~5~Boss~1~2~m1453=99999999~~1,2"), nil, "a guild bigger than the game allows: forged")
 	eq(Codec.DecodeReport("R1~Olympus~1001~5~Boss~1~2~~~1,2"), nil)
-	local d = Codec.DecodeReport("R1~Olympus~1000~5000~Boss~1~2~m1453=99999999~~1,2")
-	eq(d.total, 1000); eq(d.online, 1000, "online no more than the members"); eq(d.zones.m1453, 10000); eq(d.levels[3], 0)
+	eq(Codec.DecodeReport("R1~Olympus~1000~5000~Boss~1~2~m1453=99999999~~1,2"), nil, "zone totals cannot exceed the online population")
+	local d = Codec.DecodeReport("R1~Olympus~1000~5000~Boss~1~2~m1453=1000~~1,2")
+	eq(d.total, 1000); eq(d.online, 1000, "online no more than the members"); eq(d.zones.m1453, 1000); eq(d.levels[3], 0)
 end)
 
 test("one reporter per guild, same answer for everyone", function()
@@ -811,7 +812,10 @@ test("worst case report still fits the message limits", function()
 	local chunks = C.Chunk(payload, "999")
 	assert(#chunks <= C.MAX_CHUNKS, "too many chunks: " .. #chunks)
 	for _, c in ipairs(chunks) do assert(#c <= 255) end
-	local d = C.DecodeReport(payload)
+	eq(C.DecodeReport(payload), nil, "the size fixture's impossible populations are not a valid report")
+	for zone in pairs(r.zones) do r.zones[zone] = 8 end
+	for class in pairs(r.classes) do r.classes[class] = 100 end
+	local d = assert(C.DecodeReport(C.EncodeReport(r)))
 	eq(#d.officers, 30); eq(#d.ranks, 10)
 	eq(d.from, r.from, "the longest realm fits"); eq(d.home, r.home)
 end)
@@ -5004,8 +5008,15 @@ local function WithHop(fn)
 		ns.db.layerHelp, ns.db.layerAutoInvite = true, nil -- (1.1: layer help is a yes of its own, #11)
 		ns.Now = function() return w.clock end
 		ns.Comm.ChannelReady = function() return true end
-		ns.Comm.Send = function(dist, msg) w.sent[#w.sent + 1] = dist .. " " .. msg end
-		ns.Comm.Whisper = function(to, msg) w.whispered[#w.whispered + 1] = to .. " " .. msg end
+		-- These tests model immediate successful transport; queued transmission is covered in hop.lua.
+		ns.Comm.Send = function(dist, msg, _, _, _, done)
+			w.sent[#w.sent + 1] = dist .. " " .. msg
+			if done then done(true) end
+		end
+		ns.Comm.Whisper = function(to, msg, _, _, _, done)
+			w.whispered[#w.whispered + 1] = to .. " " .. msg
+			if done then done(true) end
+		end
 		H.after = function(_, _, f) f() end
 		H.random = function(a) return a or 0 end -- ids come out as 1, draws as 0 (always answer, first in line)
 		H.OFFER_GAP = 0 -- one offer every 10 s: the tests that look at it set it back
@@ -6117,6 +6128,7 @@ end)
 local function WithThrone(fn)
 	local K = ns.King
 	local saved = { me = ns.me, Now = ns.Now, Send = ns.Comm.Send, Whisper = ns.Comm.Whisper, Show = StaticPopup_Show,
+		Batch = ns.Comm.SendBatch, Cancel = ns.Comm.Cancel,
 		Guild = GetGuildInfo, Print = ns.Print, guilds = ns.rdb.guilds, after = ns.Vox.after, voxOff = ns.db.voxOff,
 		Notice = RaidNotice_AddMessage, Zone = GetRealZoneText, Map = C_Map.GetBestMapForUnit, Info = C_Map.GetMapInfo,
 		dev = ns.devThrone, chat = ns.rdb.chat, shame = ns.Inspect.shame }
@@ -6135,6 +6147,34 @@ local function WithThrone(fn)
 		ns.Now = function() return w.clock end
 		ns.Comm.Send = function(dist, msg, key, urgent) w.sent[#w.sent + 1] = { dist = dist, msg = msg, key = key, urgent = urgent } end
 		ns.Comm.Whisper = function(to, msg, key, urgent) w.whispered[#w.whispered + 1] = { to = to, msg = msg, key = key, urgent = urgent } end
+		-- The transport owns a whole transfer now. This fixture records its actual pieces
+		-- on the test clock and completes only after the last; privacy.lua uses real Comm.
+		local batches = {}
+		ns.Comm.SendBatch = function(dist, pieces, key, to, urgent, done, options)
+			local job = { i = 0, options = options or {}, done = done }
+			batches[job] = true
+			local function Finish(ok)
+				if not batches[job] then return end
+				batches[job] = nil
+				if done then done(ok) end
+			end
+			local function Next()
+				if not batches[job] then return end
+				if job.options.guard and not job.options.guard() then return Finish(false) end
+				job.i = job.i + 1
+				if dist == "WHISPER" then ns.Comm.Whisper(to, pieces[job.i], key, urgent)
+				else ns.Comm.Send(dist, pieces[job.i], key, urgent) end
+				if job.i == #pieces then Finish(true) else ns.After(1.2, "test batch", Next) end
+			end
+			Next()
+			return true
+		end
+		ns.Comm.Cancel = function(owner)
+			local gone = {}
+			for job in pairs(batches) do if job.options.owner == owner then gone[#gone + 1] = job end end
+			for _, job in ipairs(gone) do batches[job] = nil; if job.done then job.done(false) end end
+			return #gone + saved.Cancel(owner)
+		end
 		StaticPopup_Show = function(name, a, b, data) w.popups[#w.popups + 1] = { name = name, a = a, b = b, data = data } end
 		ns.Print = function(m) w.printed[#w.printed + 1] = tostring(m) end
 		ns.Vox.after = function(seconds, _, f) w.timers[#w.timers + 1] = { at = w.clock + seconds, fn = f } end
@@ -6147,6 +6187,7 @@ local function WithThrone(fn)
 		fn(w, K)
 	end)
 	ns.me, ns.Now, ns.Comm.Send, ns.Comm.Whisper, StaticPopup_Show = saved.me, saved.Now, saved.Send, saved.Whisper, saved.Show
+	ns.Comm.SendBatch, ns.Comm.Cancel = saved.Batch, saved.Cancel
 	GetGuildInfo, ns.Print, ns.rdb.guilds, ns.Vox.after, ns.db.voxOff = saved.Guild, saved.Print, saved.guilds, saved.after, saved.voxOff
 	RaidNotice_AddMessage, GetRealZoneText, C_Map.GetBestMapForUnit, C_Map.GetMapInfo = saved.Notice, saved.Zone, saved.Map, saved.Info
 	ns.devThrone, ns.rdb.chat, ns.Inspect.shame = saved.dev, saved.chat, saved.shame
@@ -36139,16 +36180,11 @@ test("1.1 Zeal's promise: what the King hides never goes on the channel; the Kin
 			eq(#w.whispered, 1, "nothing more to him"); eq(#T.Online(), 0, "the King no longer counted online")
 			ns.After = After
 			Run()
-			-- A whisper whose timer never comes back (an error on the way) holds the others 5 minutes at most.
-			ns.After = function() end
+			-- Private admission uses the same named-recipient contract as final transmission.
+			-- The old per-piece-timer recovery test is obsolete: Comm owns complete batches.
 			w.whispered = {}
-			T.Private("Test Keeper-Realm", "TB", ("x"):rep(600))
-			eq(#w.whispered, 1, "its first piece; the rest waits for a timer that never comes")
-			T.Private("Other Keeper-Realm", "TB", "TB~short")
-			eq(#w.whispered, 1, "held behind it")
-			w.clock = w.clock + 301
-			T.Private("Third Keeper-Realm", "TB", "TB~short too")
-			eq(w.whispered[2].to, "Other Keeper-Realm", "no longer held")
+			eq(T.Private("Unknown Keeper-Realm", "TB", "TB~private"), false, "not a named recipient")
+			eq(#w.whispered, 0, "no private bytes admitted")
 			ns.After = After
 			-- A 1.0 client's addon hears an ask and a whisper piece: left unread, nothing counted bad.
 			AsKing()
@@ -37913,7 +37949,7 @@ local function TreasurySim(opts)
 	WithThrone(function(w, K)
 		local T = ns.Treasury
 		local saved = { split = ns.splitNames, after = ns.After, time = GetTime, cci = C_ChatInfo, chan = GetChannelName, now = ns.Now,
-			chunked = ns.Comm.SendChunked, size = ns.Comm.QueueSize }
+			chunked = ns.Comm.SendChunked, size = ns.Comm.QueueSize, batch = ns.Comm.SendBatch, cancel = ns.Comm.Cancel }
 		local ok, err = pcall(function()
 			ns.splitNames = true
 			GetChannelName = function() return 5 end
@@ -37928,9 +37964,9 @@ local function TreasurySim(opts)
 			cns.Comm.JoinChannel()
 			-- Everything the treasury sends goes through that queue; its size after each send.
 			local maxQ = 0
-			local function Measured(fn) return function(...) fn(...); maxQ = math.max(maxQ, cns.Comm.QueueSize()) end end
+			local function Measured(fn) return function(...) local accepted = fn(...); maxQ = math.max(maxQ, cns.Comm.QueueSize()); return accepted end end
 			ns.Comm.Send, ns.Comm.Whisper, ns.Comm.SendChunked = Measured(cns.Comm.Send), Measured(cns.Comm.Whisper), Measured(cns.Comm.SendChunked)
-			ns.Comm.QueueSize = cns.Comm.QueueSize
+			ns.Comm.QueueSize, ns.Comm.Cancel, ns.Comm.SendBatch = cns.Comm.QueueSize, cns.Comm.Cancel, Measured(cns.Comm.SendBatch)
 			local KING = "Asmongold Asmongler-Realm"
 			AsTreasurer()
 			ns.db.keeperShares = { [TREASURER_KEY] = true }
@@ -37994,7 +38030,7 @@ local function TreasurySim(opts)
 				readers = readers, gifts = gifts }
 		end)
 		ns.splitNames, ns.After, GetTime, C_ChatInfo, GetChannelName, ns.Now = saved.split, saved.after, saved.time, saved.cci, saved.chan, saved.now
-		ns.Comm.SendChunked, ns.Comm.QueueSize = saved.chunked, saved.size
+		ns.Comm.SendChunked, ns.Comm.QueueSize, ns.Comm.SendBatch, ns.Comm.Cancel = saved.chunked, saved.size, saved.batch, saved.cancel
 		ns.rdb.treasuryKeepers, ns.db.keeperShares = nil, nil
 		if not ok then error(err, 0) end
 	end)
@@ -48422,6 +48458,10 @@ end)()
 		eq(sections[1], sections[2], "the same words on both pages")
 	end)
 end)()
+
+for _, name in ipairs({ "census", "hop", "privacy", "transport", "admission" }) do
+	assert(loadfile(ROOT .. "tests/" .. name .. ".lua"))(ns, test, eq)
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
