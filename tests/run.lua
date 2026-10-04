@@ -34074,6 +34074,79 @@ test("tooltip inspection ignores secret unit data before restricted unit APIs", 
 	end)
 end)
 
+test("1.1.5 a High Councillor's tooltip: the mark and own icon after the name, then High Councillor, the department and the title; for whoever may see the council, never on the King's stream; the name's line left alone when secret or with the gamepad UI", function()
+	WithGear(function(w, I)
+		local saved = { council = ns.rdb.council, titles = ns.rdb.councilTitles, icons = ns.rdb.councilIcons, masked = ns.CouncilMasked,
+			gamepad = ns.GamepadUI, left = rawget(_G, "GameTooltipTextLeft1") }
+		local ok, err = pcall(function()
+			local lines, first = {}, "Sage Owl"
+			GameTooltipTextLeft1 = { GetText = function() return first end, SetText = function(_, t) first = t end }
+			GameTooltip = {
+				GetUnit = function() return "Sage Owl", "target" end,
+				GetName = function() return "GameTooltip" end,
+				AddLine = function(_, text, r, g, b) lines[#lines + 1] = { text = text, r = r } end,
+			}
+			ns.GamepadUI = function() return false end
+			w.target("Sage Owl")
+			-- (made-up names only)
+			ns.rdb.council = { names = { ["sage owl"] = true, ["other mod"] = true } }
+			ns.rdb.councilIcons = { ["Sage Owl-Realm"] = { icon = 134400, t = ns.Now() } }
+			ns.rdb.councilTitles = { at = 1, public = true, depts = {
+				{ name = "Department of War", members = { { name = "Sage Owl", title = "Master of Intelligence" } } },
+			} }
+			local MARK = ns.HIGH_COUNCIL_MARK .. "|T134400:0|t"
+			eq(I.TooltipUnit(GameTooltip), true)
+			eq(first, "Sage Owl " .. MARK, "the mark and his icon after the name")
+			eq(lines[1].text, ns.L.COUNCIL_PERSON); eq(lines[2].text, "Department of War"); eq(lines[3].text, "Master of Intelligence")
+			eq(#lines, 3)
+			-- The tooltip shown again with the same first line: the mark once.
+			lines = {}
+			I.TooltipUnit(GameTooltip)
+			eq(first, "Sage Owl " .. MARK)
+			-- A councillor with no department or title: High Councillor alone.
+			first, lines = "Other Mod", {}
+			GameTooltip.GetUnit = function() return "Other Mod", "target" end
+			w.target("Other Mod")
+			I.TooltipUnit(GameTooltip)
+			eq(first, "Other Mod " .. ns.HIGH_COUNCIL_MARK); eq(#lines, 1); eq(lines[1].text, ns.L.COUNCIL_PERSON)
+			-- Anyone else: nothing.
+			first, lines = "Plain Guy", {}
+			GameTooltip.GetUnit = function() return "Plain Guy", "target" end
+			w.target("Plain Guy")
+			I.TooltipUnit(GameTooltip)
+			eq(first, "Plain Guy"); eq(#lines, 0)
+			-- The King's screen while the council's names are hidden: nothing.
+			GameTooltip.GetUnit = function() return "Sage Owl", "target" end
+			w.target("Sage Owl")
+			first, lines = "Sage Owl", {}
+			ns.CouncilMasked = function() return true end
+			I.TooltipUnit(GameTooltip)
+			eq(first, "Sage Owl"); eq(#lines, 0)
+			ns.CouncilMasked = saved.masked
+			-- A council not made public, seen by an ordinary member: nothing, as on his person card.
+			ns.rdb.councilTitles.public = false
+			I.TooltipUnit(GameTooltip)
+			eq(first, "Sage Owl"); eq(#lines, 0)
+			ns.rdb.councilTitles.public = true
+			-- The gamepad UI: the game's first line untouched, the lines below still added.
+			ns.GamepadUI = function() return true end
+			I.TooltipUnit(GameTooltip)
+			eq(first, "Sage Owl"); eq(lines[1].text, ns.L.COUNCIL_PERSON)
+			ns.GamepadUI = function() return false end
+			-- A secret first line: left alone.
+			local secret = {}
+			issecretvalue = function(v) return rawequal(v, secret) end
+			first, lines = secret, {}
+			GameTooltipTextLeft1.GetText = function() return first end
+			I.TooltipUnit(GameTooltip)
+			assert(rawequal(first, secret), "untouched"); eq(lines[1].text, ns.L.COUNCIL_PERSON)
+		end)
+		ns.rdb.council, ns.rdb.councilTitles, ns.rdb.councilIcons = saved.council, saved.titles, saved.icons
+		ns.CouncilMasked, ns.GamepadUI, GameTooltipTextLeft1 = saved.masked, saved.gamepad, saved.left
+		if not ok then error(err, 0) end
+	end)
+end)
+
 test("1.1 gear (#28): only an officer, only a player in range; a patrol's or a plain inspection keeps no gear", function()
 	WithGear(function(w, I)
 		local bob = w.target("Bob", { items = GEAR_BOB })
@@ -43105,6 +43178,111 @@ do
 		end)
 	end)
 
+	test("1.1.5 the game's own chat: a High Councillor's mark and own icon before their name, through the game's sender-name filter; nobody else's, no other event, never with the gamepad UI, on the King's stream, off, or for a secret name", function()
+		local saved = { cfu = rawget(_G, "ChatFrameUtil"), gamepad = ns.GamepadUI, masked = ns.CouncilMasked, secret = rawget(_G, "issecretvalue"),
+			council = ns.rdb.council, icons = ns.rdb.councilIcons, chatMarks = ns.db.chatMarks, print = ns.Print, workshop = ns.Workshop }
+		local ok, err = pcall(function()
+			local filters, printed, gamepad = {}, {}, true
+			ChatFrameUtil = { AddSenderNameFilter = function(cb) filters[#filters + 1] = cb end }
+			ns.GamepadUI = function() return gamepad end
+			ns.Print = function(m) printed[#printed + 1] = m end
+			ns.db.chatMarks = nil
+			ns.rdb.council = { names = { ["sage owl"] = true } } -- (made-up names only)
+			ns.rdb.councilIcons = { ["Sage Owl-Realm"] = { icon = 134400, t = ns.Now() } }
+			local bns = setmetatable({ On = function() end, RegisterEvent = function() end, Every = function() end }, { __index = ns })
+			assert(loadfile(ADDON_DIR .. "Borders.lua"))("Olympus", bns)
+			local B = bns.Borders
+			-- Logged in with the gamepad UI: nothing registered in the game's chat.
+			eq(B.ChatRefresh(), false); eq(#filters, 0)
+			assert(B.ChatStatusLine():find("gamepad", 1, true), B.ChatStatusLine())
+			-- Mouse and keyboard: registered once, and a councillor's line carries his mark, then his icon.
+			gamepad = false
+			eq(B.ChatRefresh(), true); eq(#filters, 1)
+			local cb = filters[1]
+			local name = "|cffc79c6eSage Owl|r"
+			local MARK = ns.HIGH_COUNCIL_MARK .. "|T134400:0|t"
+			for _, event in ipairs({ "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER", "CHAT_MSG_SAY", "CHAT_MSG_PARTY", "CHAT_MSG_RAID", "CHAT_MSG_CHANNEL", "CHAT_MSG_WHISPER", "CHAT_MSG_WHISPER_INFORM" }) do
+				eq(cb(event, name, "hello", "Sage Owl-Realm"), MARK .. name, event)
+			end
+			eq(cb("CHAT_MSG_SAY", "Sage Owl", "hi", "Sage Owl"), MARK .. "Sage Owl", "a sender the server writes without his realm")
+			-- Nobody else, and no line outside the list (an emote's name is a gsub replacement; Battle.net lines carry |K names).
+			eq(cb("CHAT_MSG_GUILD", "Plain Guy", "hi", "Plain Guy-Realm"), nil)
+			for _, event in ipairs({ "CHAT_MSG_TEXT_EMOTE", "CHAT_MSG_BN_WHISPER", "CHAT_MSG_MONSTER_SAY", "CHAT_MSG_GUILD_ITEM_LOOTED" }) do
+				eq(cb(event, name, "hello", "Sage Owl-Realm"), nil, event)
+			end
+			-- The council's mark alone for a councillor with no icon of his own.
+			ns.rdb.council.names["other mod"] = true
+			eq(cb("CHAT_MSG_GUILD", "Other Mod", "hi", "Other Mod-Realm"), ns.HIGH_COUNCIL_MARK .. "Other Mod")
+			-- A new icon heard: within a minute (the table emptied), never a stale one for long.
+			ns.rdb.councilIcons["Sage Owl-Realm"].icon = 134401
+			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), MARK .. name, "kept until the table empties")
+			B.ChatForget()
+			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), ns.HIGH_COUNCIL_MARK .. "|T134401:0|t" .. name)
+			-- A secret name or sender (instances, encounters): the name as it was.
+			local secret = {}
+			issecretvalue = function(v) return rawequal(v, secret) end
+			eq(cb("CHAT_MSG_SAY", secret, "hi", "Sage Owl-Realm"), nil)
+			eq(cb("CHAT_MSG_SAY", name, "hi", secret), nil)
+			issecretvalue = saved.secret
+			-- The King's screen while the council's names are hidden.
+			ns.CouncilMasked = function() return true end
+			B.ChatForget()
+			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), nil)
+			ns.CouncilMasked = saved.masked
+			B.ChatForget()
+			-- /oly chatmarks off: nothing, until on again; registered once all along.
+			B.ChatSlash("off")
+			eq(ns.db.chatMarks, false); eq(printed[#printed], ns.L.CHATMARKS_OFF)
+			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), nil)
+			B.ChatSlash("on")
+			eq(printed[#printed], ns.L.CHATMARKS_ON)
+			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), ns.HIGH_COUNCIL_MARK .. "|T134401:0|t" .. name)
+			eq(#filters, 1)
+			-- Switched to the gamepad UI later: the callback returns at once.
+			gamepad = true
+			B.ChatRefresh()
+			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), nil)
+			gamepad = false
+			B.ChatRefresh()
+			-- The author's preview: his own lines get the mark (he is on no council); anyone else's test does nothing.
+			bns.Workshop = { Visible = function() return false end }
+			B.ChatSlash("test")
+			eq(cb("CHAT_MSG_SAY", "Tester", "hi", ns.me), nil)
+			bns.Workshop = { Visible = function() return true end }
+			B.ChatSlash("test")
+			eq(printed[#printed], ns.L.CHATMARKS_TEST_ON)
+			eq(cb("CHAT_MSG_SAY", "Tester", "hi", ns.me), ns.HIGH_COUNCIL_MARK .. "Tester")
+			B.ChatSlash("test")
+			eq(cb("CHAT_MSG_SAY", "Tester", "hi", ns.me), nil)
+			-- A client without the game's filter: no marks there, and it says so.
+			ChatFrameUtil = nil
+			local bare = setmetatable({ On = function() end, RegisterEvent = function() end, Every = function() end }, { __index = ns })
+			assert(loadfile(ADDON_DIR .. "Borders.lua"))("Olympus", bare)
+			eq(bare.Borders.ChatRefresh(), false)
+			assert(bare.Borders.ChatStatusLine():find("AddSenderNameFilter", 1, true))
+			bare.Borders.ChatReport()
+			eq(printed[#printed], ns.L.CHATMARKS_NO_API)
+		end)
+		ChatFrameUtil, ns.GamepadUI, ns.CouncilMasked, issecretvalue = saved.cfu, saved.gamepad, saved.masked, saved.secret
+		ns.rdb.council, ns.rdb.councilIcons, ns.db.chatMarks, ns.Print, ns.Workshop = saved.council, saved.icons, saved.chatMarks, saved.print, saved.workshop
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.1.5 the game's own chat: /oly chatmarks, its help line and its words in both languages; the council icon's words name the game's chat", function()
+		local core = assert(ReadFile(ADDON_DIR .. "Core.lua"))
+		assert(core:find('cmd == "chatmarks"', 1, true) and core:find("print(L.HELP_CHATMARKS)", 1, true))
+		local diag = assert(ReadFile(ADDON_DIR .. "Diagnostics.lua"))
+		assert(diag:find("chat marks: %s", 1, true))
+		local src = assert(ReadFile(ADDON_DIR .. "Locales.lua"))
+		local pt = src:match('GetLocale%(%) == "ptBR" then(.-)$')
+		assert(pt, "the pt-BR block")
+		for _, key in ipairs({ "HELP_CHATMARKS", "CHATMARKS_ON", "CHATMARKS_OFF", "CHATMARKS_GAMEPAD", "CHATMARKS_NO_API", "CHATMARKS_TEST_ON", "CHATMARKS_TEST_OFF" }) do
+			assert(type(ns.L[key]) == "string" and ns.L[key] ~= "", key)
+			assert(pt:find("L." .. key .. " = ", 1, true), key .. " in pt-BR")
+		end
+		assert(ns.L.COUNCIL_ICON_SET:find("game's chat", 1, true) and ns.L.COUNCIL_ICON_HINT:find("game's chat", 1, true))
+	end)
+
 	-- (Changed on purpose, the owner's ask after trying the tab: "Enter and keep typing, Enter and keep
 	-- typing, without going back to the game's controls". With mouse and keyboard a line sent, a
 	-- refused one and a command kept leave the cursor in the box; an empty Enter, Escape and the
@@ -47429,13 +47607,13 @@ end)()
 	test("1.1.2 Ask to update: only for a player behind; one ask per player a day, five an hour; the author's is his usual update window (V3)", function()
 		WithVersions("Tester-Realm", function(w, W)
 			-- (Changed on purpose, 1.1.2's review: a player's ask, V9, goes to 1.1.2 and newer alone,
-			-- the first that show it: here the author's presence named 1.1.4 as out.)
-			W.HeardVersion("1.1.4")
-			w.hellos = { Ann = "1.1.4", Bob = "1.1.3", P1 = "1.1.3", P2 = "1.1.3", P3 = "1.1.3", P4 = "1.1.3", P5 = "1.1.3" }
+			-- the first that show it: here the author's presence named 1.1.5 as out.)
+			W.HeardVersion("1.1.5")
+			w.hellos = { Ann = "1.1.5", Bob = "1.1.4", P1 = "1.1.4", P2 = "1.1.4", P3 = "1.1.4", P4 = "1.1.4", P5 = "1.1.4" }
 			eq(V.AskUpdate("Ann-Realm"), false, "up to date"); eq(#w.whispered, 0)
 			eq(V.AskUpdate("Eve-Realm"), false, "nothing known"); eq(#w.whispered, 0)
 			eq(V.AskUpdate("Bob-Realm"), true)
-			eq(w.whispered[1].to, "Bob-Realm"); eq(w.whispered[1].msg, "V9~1.1.4"); eq(w.whispered[1].key, "vask:bob")
+			eq(w.whispered[1].to, "Bob-Realm"); eq(w.whispered[1].msg, "V9~1.1.5"); eq(w.whispered[1].key, "vask:bob")
 			eq(w.printed[#w.printed], L.VERSION_ASKED:format("Bob"))
 			eq(V.AskUpdate("Bob"), false, "once a day"); eq(w.printed[#w.printed], L.VERSION_ASK_WAIT_ONE:format("Bob"))
 			for i = 1, 5 do V.AskUpdate("P" .. i .. "-Realm") end
@@ -47449,7 +47627,7 @@ end)()
 			-- The menu offers it for Bob, not for Ann.
 			local root = MenuRoot()
 			V.MenuLines({ name = "Ann-Realm" }, { Line = function(t) root:CreateTitle(t) end, Button = function(t) root:CreateButton(t) end })
-			eq(root.Texts(), "title:" .. L.VERSION_LINE_CURRENT:format("1.1.4") .. " | title:|cff9d9d9d" .. L.VERSION_DETAIL_HELLO:format(ns.Ago(w.clock)) .. "|r")
+			eq(root.Texts(), "title:" .. L.VERSION_LINE_CURRENT:format("1.1.5") .. " | title:|cff9d9d9d" .. L.VERSION_DETAIL_HELLO:format(ns.Ago(w.clock)) .. "|r")
 		end)
 		WithVersions(AUTHOR_FULL, function(w, W)
 			w.hellos = { Bob = "1.0.0" }
@@ -48044,11 +48222,11 @@ end)()
 			eq((V.Status("Bob")), "unknown"); eq(w.printed[#w.printed], L.VERSION_NOT_SENT:format("Bob"))
 			eq(V.Check("Bob-Realm"), true, "checked again at once")
 			-- An ask to update dropped: the day's and the hour's slots come back.
-			W.HeardVersion("1.1.4")
-			w.hellos = { Cid = "1.1.3" }
+			W.HeardVersion("1.1.5")
+			w.hellos = { Cid = "1.1.4" }
 			eq(V.AskUpdate("Cid-Realm"), true)
 			local e = w.whispered[#w.whispered]
-			eq(e.msg, "V9~1.1.4")
+			eq(e.msg, "V9~1.1.5")
 			e.done(false)
 			eq(ns.db.updateAsked.cid, nil); eq(#ns.db.updateAskTimes, 0); eq(w.printed[#w.printed], L.VERSION_NOT_SENT:format("Cid"))
 			w.holdSends = false
@@ -48498,10 +48676,10 @@ end)()
 		assert(#pt.VERSION_INVITE_TEXT:format("https://www.curseforge.com/wow/addons/olympus-guild") <= 255)
 	end)
 
-	test("1.1.4: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.1.4")
+	test("1.1.5: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
+		eq(ns.VERSION, "1.1.5")
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.1.4", 1, true))
+		assert(toc:find("## Version: 1.1.5", 1, true))
 		local at = {}
 		local n = 0
 		for line in toc:gmatch("[^\n]+") do n = n + 1; at[line:gsub("%s+$", "")] = n end

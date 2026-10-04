@@ -620,9 +620,137 @@ function Borders.StatusLine()
 end
 
 ---------------------------------------------------------------------------
+-- The game's own chat (1.1.5, the High Council's ask: their mark and own icon showed on Olympus
+-- lines only, not in guild chat, say or a whisper)
+---------------------------------------------------------------------------
+-- A High Councillor's mark, then the icon he picked (ns.CouncilMark: the same as on Olympus lines),
+-- before his name in the game's chat. The councillors only: no star or rank mark on every member's
+-- line in Trade. The game's hook for it, ChatFrameUtil.AddSenderNameFilter (Forever 1.60.1,
+-- Blizzard_ChatFrameBase/Shared/ChatFrameFilters.lua): Blizzard calls it through securecallfunction
+-- with the line's event, the name it decorated (class colour and all) and the line's arguments, and
+-- shows what it returns inside the player link only; the link's data, the click, the right-click
+-- menu, /r and the whisper window keep the real name. Nothing of Blizzard's is replaced, and a
+-- client without it has no marks there (Olympus lines keep theirs, Channels.FormatLine).
+-- Off with the gamepad UI, as the borders: logged in with it, nothing is registered until a switch
+-- to mouse and keyboard; switched to it later, the callback returns at once. Also none: the King's
+-- screen while the council's names are hidden (ns.CouncilMasked), a councillor the moderators took
+-- off (net-off), a secret name or sender, and `/oly chatmarks off` (ns.db.chatMarks false).
+-- Blizzard runs the callback for every line on every chat window: it reads a boolean, the event
+-- list and one table entry; a sender not seen yet is worked out once (ChatName), and the table is
+-- emptied every CHAT_FORGET seconds and whenever the council's names are hidden or shown, so a new
+-- list or icon shows within a minute.
+
+Borders.CHAT_EVENTS = {
+	CHAT_MSG_GUILD = true, CHAT_MSG_OFFICER = true,
+	CHAT_MSG_SAY = true, CHAT_MSG_YELL = true, CHAT_MSG_EMOTE = true,
+	CHAT_MSG_PARTY = true, CHAT_MSG_PARTY_LEADER = true,
+	CHAT_MSG_RAID = true, CHAT_MSG_RAID_LEADER = true, CHAT_MSG_RAID_WARNING = true,
+	CHAT_MSG_INSTANCE_CHAT = true, CHAT_MSG_INSTANCE_CHAT_LEADER = true,
+	CHAT_MSG_CHANNEL = true,
+	CHAT_MSG_WHISPER = true, CHAT_MSG_WHISPER_INFORM = true, -- (INFORM's sender is whom we wrote to)
+}
+local CHAT_EVENTS = Borders.CHAT_EVENTS
+Borders.CHAT_FORGET = 60
+Borders.CHAT_MAX = 500 -- senders kept between two emptyings (then it starts again)
+local chatMarks, chatKept = {}, 0 -- sender, as the line gives him -> his mark, or false for none
+local chatOn, chatHooked, chatPreview = false, false, false
+
+-- A mark as it may go before a name: |T...|t textures and nothing else (no "%": two of Blizzard's
+-- lines use the name as a gsub replacement; no bracket or link), else nil.
+local function ChatClean(s)
+	if type(s) ~= "string" or s == "" or #s > 200 then return nil end
+	for _, bad in ipairs({ "%", "[", "]", "|H", "|h" }) do
+		if s:find(bad, 1, true) then return nil end
+	end
+	if s:gsub("|T[^|]*|t", "") ~= "" then return nil end
+	return s
+end
+
+-- The mark before a sender's name in the game's chat, or false for none.
+function Borders.ChatName(sender)
+	local who = ns.FullName(ns.Normal(sender))
+	if type(who) ~= "string" or who == "" then return false end
+	if chatPreview and who == ns.me then return ChatClean(ns.HIGH_COUNCIL_MARK .. ns.CouncilIcon(who)) or false end
+	if ns.CouncilMasked() or not ns.IsHighCouncillor(who) or NetOff(who) then return false end
+	return ChatClean(ns.CouncilMark(who)) or false
+end
+
+local function ChatMarkOf(name, sender)
+	if Secret(name, sender) or type(name) ~= "string" or type(sender) ~= "string" or sender == "" then return nil end
+	local mark = chatMarks[sender]
+	if mark == nil then
+		if chatKept >= Borders.CHAT_MAX then chatMarks, chatKept = {}, 0 end
+		mark = Borders.ChatName(sender)
+		chatMarks[sender], chatKept = mark, chatKept + 1
+	end
+	if not mark then return nil end
+	return mark .. name
+end
+
+-- Blizzard's callback: the name to show, or nil for the name as it was (an error is nil too).
+function Borders.ChatFilter(event, name, text, sender)
+	if not chatOn or not CHAT_EVENTS[event] then return nil end
+	local ok, out = pcall(ChatMarkOf, name, sender)
+	if ok then return out end
+	return nil
+end
+
+function Borders.ChatForget() chatMarks, chatKept = {}, 0 end
+
+function Borders.ChatEnabled() return not (ns.db and ns.db.chatMarks == false) end
+
+-- Whether the game's chat shows them now, and registering the callback the first time it may
+-- (once a session: it is never removed, turning them off clears chatOn).
+function Borders.ChatRefresh()
+	Borders.ChatForget()
+	local CFU = rawget(_G, "ChatFrameUtil")
+	local api = type(CFU) == "table" and type(CFU.AddSenderNameFilter) == "function"
+	if not chatHooked and api and Borders.ChatEnabled() and not ns.GamepadUI() then
+		chatHooked = pcall(CFU.AddSenderNameFilter, Borders.ChatFilter) == true
+	end
+	chatOn = chatHooked and Borders.ChatEnabled() and not ns.GamepadUI()
+	return chatOn
+end
+function Borders.ChatShown() return chatOn end
+
+function Borders.ChatReport()
+	local CFU = rawget(_G, "ChatFrameUtil")
+	if not (type(CFU) == "table" and type(CFU.AddSenderNameFilter) == "function") then return ns.Print(L.CHATMARKS_NO_API) end
+	ns.Print(Borders.ChatEnabled() and L.CHATMARKS_ON or L.CHATMARKS_OFF)
+	if Borders.ChatEnabled() and ns.GamepadUI() then ns.Print(L.CHATMARKS_GAMEPAD) end
+end
+
+-- `/oly chatmarks on|off|test` (nothing: whether they show). test: the author's own lines get the
+-- council's mark for this session (his character is on no council); anyone else gets the report.
+function Borders.ChatSlash(word)
+	word = type(word) == "string" and word:lower() or ""
+	if word == "on" or word == "off" then
+		ns.db.chatMarks = word == "on"
+		Borders.ChatRefresh()
+	elseif word == "test" and Borders.PreviewAllowed() then
+		chatPreview = not chatPreview
+		Borders.ChatRefresh()
+		return ns.Print(chatPreview and L.CHATMARKS_TEST_ON or L.CHATMARKS_TEST_OFF)
+	end
+	Borders.ChatReport()
+end
+
+function Borders.ChatStatusLine()
+	local CFU = rawget(_G, "ChatFrameUtil")
+	if not (type(CFU) == "table" and type(CFU.AddSenderNameFilter) == "function") then return "none (no ChatFrameUtil.AddSenderNameFilter)" end
+	local state = chatOn and "on" or (not Borders.ChatEnabled() and "off (/oly chatmarks on)" or (ns.GamepadUI() and "hidden with the gamepad UI" or "not registered yet"))
+	return ("%s  |  %d senders worked out%s"):format(state, chatKept, chatPreview and "  |  preview" or "")
+end
+
+---------------------------------------------------------------------------
 -- Events
 ---------------------------------------------------------------------------
 
+ns.On("LOGIN", function()
+	Borders.ChatRefresh()
+	ns.Every(Borders.CHAT_FORGET, "chat marks", Borders.ChatForget)
+end)
+ns.On("COUNCIL_MASK_CHANGED", function() Borders.ChatForget() end)
 ns.On("LOGIN", function() Borders.RefreshAll(true) end)
 ns.On("DATA_CHANGED", function() Borders.CensusChanged() end)
 -- The King shows or hides the council's names (the eye in the Realm, ns.SetCouncilNamesShown).
@@ -643,4 +771,6 @@ pcall(ns.RegisterEvent, "INPUT_DEVICE_INTERFACE_TRANSITION", function(newMode)
 	local gamepad = Enum and Enum.InputDeviceInterfaceType and Enum.InputDeviceInterfaceType.Gamepad
 	if gamepad ~= nil and newMode == gamepad then HideAll() end
 	ns.After(0.2, "borders style", function() Borders.RefreshAll(true) end)
+	-- The game's chat marks follow at once (and are registered on the first switch to mouse and keyboard).
+	ns.After(0, "chat marks style", function() Borders.ChatRefresh() end)
 end)

@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "1.1.4"
+ns.VERSION = "1.1.5"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -1752,6 +1752,7 @@ local function Help()
 	print(L.HELP_INSPECTION)
 	print(L.HELP_BORDERS)
 	print(L.HELP_NAMEPLATES)
+	print(L.HELP_CHATMARKS)
 	print(L.HELP_ISSUE)
 	print(L.HELP_COUNCIL)
 	print(L.HELP_DISCORD)
@@ -1903,6 +1904,10 @@ SlashCmdList.OLYMPUS = function(input)
 			-- (1.1: never answered is off, and says so.)
 			local v = ns.db.royalInspection
 			ns.Print(v == true and L.INSPECTION_OPT_ON or (v == false and L.INSPECTION_OPT_OFF or L.INSPECTION_OPT_UNANSWERED))
+		elseif cmd == "chatmarks" then
+			-- 1.1.5: the High Council's marks before their names in the game's own chat (Borders.lua):
+			-- on or off; test, the author's own lines for this session.
+			ns.Borders.ChatSlash(rest)
 		elseif cmd == "nameplates" then
 			-- The marks left of the names on friendly players' nameplates (Nameplates.lua), alone: on or off.
 			local on = rest:lower()

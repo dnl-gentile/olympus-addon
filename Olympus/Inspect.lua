@@ -824,6 +824,28 @@ local function TooltipUnitName(unit)
 	return ns.FullName(name, (realm and realm ~= "") and realm or nil)
 end
 
+-- 1.1.5 (the High Council's ask): a High Councillor's tooltip says so, as their person card does
+-- (UI.lua): their mark and own icon after the name on the tooltip's first line, then High
+-- Councillor, the department and the title the signed titles list gives them. For whoever may see
+-- the council there (ns.CouncilVisible: the list made public, a councillor, the King, the author),
+-- never on the King's screen while the names are hidden. The first line is the game's: left as it
+-- is when the client hides its text (a secret value) or with the gamepad UI, where Olympus writes
+-- nothing into the game's frames; the lines below are added as the Treasurer's is.
+function Inspect.CouncilTooltip(tooltip, name)
+	if not (ns.CouncilVisible() and not ns.CouncilMasked() and ns.IsHighCouncillor(name)) then return false end
+	local mark = ns.CouncilMark(name)
+	local left = not ns.GamepadUI() and type(tooltip.GetName) == "function" and _G[(tooltip:GetName() or "") .. "TextLeft1"]
+	local text = left and type(left.GetText) == "function" and left:GetText()
+	if type(text) == "string" and not SecretTooltipValue(text) and text ~= "" and not text:find(mark, 1, true) then
+		left:SetText(text .. " " .. mark)
+	end
+	local t = ns.CouncilTitle(name) or {}
+	tooltip:AddLine(L.COUNCIL_PERSON, 0.69, 0.28, 0.97) -- (ns.HIGH_COUNCIL_COLOR)
+	if t.dept then tooltip:AddLine(ns.Codec.Plain(t.dept), 1, 0.82, 0) end
+	if t.title then tooltip:AddLine(ns.Codec.Plain(t.title), 1, 1, 1) end
+	return true
+end
+
 function Inspect.TooltipUnit(tooltip)
 	if tooltip ~= GameTooltip or type(tooltip.GetUnit) ~= "function" then return false end
 	local label, unit = tooltip:GetUnit()
@@ -837,6 +859,7 @@ function Inspect.TooltipUnit(tooltip)
 	-- The Treasurer of Olympus: his name and the game's own word on his guild.
 	local guild = GetGuildInfo and GetGuildInfo(unit)
 	if not SecretTooltipValue(guild) and ns.IsTreasurer(name, guild) then tooltip:AddLine(ns.COIN .. L.TREASURER_TITLE, 1, 0.82, 0) end
+	Inspect.CouncilTooltip(tooltip, name)
 	if patrol then Enqueue(unit) end
 	return true
 end
