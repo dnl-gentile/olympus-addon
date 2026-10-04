@@ -2,19 +2,22 @@
 -- PUT /_api/projects/description/<id>, a JSON body {"description": <the page as HTML>,
 -- "descriptionType": 1}, and the server refuses a body above about 100 KiB (413, "request entity
 -- too large": measured 2026-09-30, 102,382 bytes passed and 102,421 were refused). This script
--- renders docs/CURSEFORGE.md to HTML the way the editor does (Markdown with GitHub's tables,
--- headings with ids like <h1 id="olympus">, the characters & < > " ' as entities), wraps it as
--- that body and prints its size in bytes.
---   luajit scripts/curseforge-size.lua                 the size of docs/CURSEFORGE.md's body
---   luajit scripts/curseforge-size.lua --check         the same; exit 1 above the budget
+-- renders a page to HTML the way the editor does (Markdown with GitHub's tables, headings with
+-- ids like <h1 id="olympus">, the characters & < > " ' as entities), wraps it as that body and
+-- prints its size in bytes. The page pasted there is docs/CURSEFORGE-STORE.md (1.1.5: what
+-- scripts/curseforge-page.lua makes of docs/CURSEFORGE.md, the whole page, nearly twice the limit).
+--   luajit scripts/curseforge-size.lua                 the size of docs/CURSEFORGE-STORE.md's body
+--   luajit scripts/curseforge-size.lua --check [FILE]  the same (or FILE's); exit 1 above the budget
+--   luajit scripts/curseforge-size.lua FILE            the size of FILE's body (docs/CURSEFORGE.md...)
 --   luajit scripts/curseforge-size.lua --html FILE     print the HTML it measured (FILE: any page)
--- From the repository root. tests/run.lua loads it as a module (M.Render, M.Body, M.Slug) and
--- checks its HTML. Calibrated on 2026-09-30: the 1.1.2 page (165,850 bytes of Markdown), whose
--- body CurseForge's editor sent as 172,342 bytes, measures 172,229 here (0.07% under).
+-- From the repository root. scripts/check.sh runs --check; tests/run.lua loads it as a module
+-- (M.Render, M.Body, M.Slug), checks its HTML and the store page's body against M.BUDGET.
+-- Calibrated on 2026-09-30: the 1.1.2 page (165,850 bytes of Markdown), whose body CurseForge's
+-- editor sent as 172,342 bytes, measures 172,229 here (0.07% under).
 
 local M = {}
 
-M.SOURCE = "docs/CURSEFORGE.md"
+M.SOURCE = "docs/CURSEFORGE-STORE.md"
 M.LIMIT = 102400 -- where CurseForge's server starts refusing (about 100 KiB)
 M.BUDGET = 92000 -- ours: room to spare under the limit, for the estimate's error and a later edit
 
@@ -526,7 +529,7 @@ function M.Main(args)
 	print(("%s: %d bytes of Markdown, a body of %d bytes (budget %d, CurseForge refuses above about %d)")
 		:format(path, #markdown, size, M.BUDGET, M.LIMIT))
 	if args[1] == "--check" and size > M.BUDGET then
-		io.stderr:write(("%s: %d bytes over the budget: summarise, and link to the README for the details\n")
+		io.stderr:write(("%s: %d bytes over the budget: cut more of it in scripts/curseforge-page.lua (CUTS, COMMANDS), linking to the README\n")
 			:format(path, size - M.BUDGET))
 		os.exit(1)
 	end

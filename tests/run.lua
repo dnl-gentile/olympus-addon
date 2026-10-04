@@ -48881,6 +48881,87 @@ end)()
 		assert(ReadFile(ROOT .. "README.md"):find("(#net-off-11-the-moderators-hide-a-character-or-take-a-guild-off-the-network)", 1, true))
 		assert(size.BUDGET < size.LIMIT and size.LIMIT <= 102400)
 	end)
+
+	-- (1.1.5: the store page CurseForge gets, docs/CURSEFORGE-STORE.md, made by
+	-- scripts/curseforge-page.lua from the whole page; scripts/check.sh checks both.)
+	test("1.1.5 CurseForge store page: what scripts/curseforge-page.lua makes of docs/CURSEFORGE.md, under the budget; the TOC's version first in its recent versions; every heading kept; each cut section ends with a link to the README's", function()
+		local size = dofile(ROOT .. "scripts/curseforge-size.lua")
+		local gen = dofile(ROOT .. "scripts/curseforge-page.lua")
+		local store = gen.Expected(ROOT)
+		eq(ReadFile(ROOT .. "docs/CURSEFORGE-STORE.md"), store, "run luajit scripts/curseforge-page.lua")
+		eq(size.SOURCE, "docs/CURSEFORGE-STORE.md", "the page measured by default is the one pasted")
+		local body = #size.Body(store)
+		assert(body <= size.BUDGET, ("a body of %d bytes, over the budget of %d"):format(body, size.BUDGET))
+		local full = assert(ReadFile(ROOT .. "docs/CURSEFORGE.md"))
+		local readme = assert(ReadFile(ROOT .. "README.md"))
+		-- Every heading of the whole page, in its order (the page's own links land), and one more.
+		local function Headings(text)
+			local out = {}
+			for h in ("\n" .. text):gmatch("\n(#+ [^\n]+)") do out[#out + 1] = h end
+			return out
+		end
+		local fullHeads, storeHeads = Headings(full), Headings(store)
+		eq(#storeHeads, #fullHeads + 1)
+		local j = 1
+		for _, h in ipairs(storeHeads) do if h == fullHeads[j] then j = j + 1 end end
+		eq(j, #fullHeads + 1, "every heading of docs/CURSEFORGE.md, in order")
+		-- The recent versions: the TOC's (this release) first, then the ones before it, newest
+		-- first, each a version ROADMAP.md's Done list names.
+		local recent = store:match("\n## Recent versions\n\n(.-)\n\n")
+		assert(recent, "Recent versions")
+		local versions = {}
+		for v in ("\n" .. recent):gmatch("\n%- %*%*([%d.]+)%*%*: ") do versions[#versions + 1] = v end
+		eq(#versions, gen.RECENT); eq(versions[1], ns.VERSION)
+		local roadmap = assert(ReadFile(ROOT .. "ROADMAP.md"))
+		local function Num(v) local a, b, c = v:match("^(%d+)%.(%d+)%.(%d+)$"); return a * 1e6 + b * 1e3 + c end
+		for i, v in ipairs(versions) do
+			assert(roadmap:find("\n- v" .. v .. " ", 1, true), v)
+			if i > 1 then assert(Num(versions[i - 1]) > Num(v), v) end
+		end
+		assert(store:find("[#56](https://github.com/dnl-gentile/olympus-addon/issues/56)", 1, true), "an issue's number links to it")
+		-- Each cut section: its opening, word for word, then the link to the same section of the README.
+		for _, cut in ipairs(gen.CUTS) do
+			local function Section(text)
+				local s = ("\n" .. text .. "\n#"):match("\n#+ " .. cut.title:gsub("%p", "%%%0") .. "\n(.-)\n#")
+				return assert(s, cut.title)
+			end
+			local short, long = Section(store), Section(full)
+			local opening, link = short:match("^(.-)\n\n%*Continued in the README: %[[^]]+%]%(([^)]+)%)%.%*\n*$")
+			assert(opening, cut.title .. ": its link")
+			eq(long:sub(1, #opening), opening, cut.title .. ": its opening")
+			assert(#short < #long, cut.title)
+			local id = link:match("^https://github%.com/dnl%-gentile/olympus%-addon#(.+)$")
+			eq(id, size.Slug(size.Plain(cut.title)), cut.title)
+			assert(("\n" .. readme):find("\n#+ " .. cut.title:gsub("%p", "%%%0") .. "\n"), "README.md: " .. cut.title)
+		end
+		-- The commands: rows of the whole table, unchanged, the 1.1.5 one among them.
+		local rows = 0
+		for row in store:match("\n## Commands\n(.-)\n## "):gmatch("\n(| `[^\n]+)") do
+			assert(full:find("\n" .. row .. "\n", 1, true), row)
+			rows = rows + 1
+		end
+		eq(rows, #gen.COMMANDS)
+		assert(store:find("\n| `/oly chatmarks on` · `/oly chatmarks off` |", 1, true))
+		assert(store:find("*Every command in the README: [Commands](https://github.com/dnl-gentile/olympus-addon#commands).*", 1, true))
+		-- What it refuses: a section it cuts that the README lacks, a command row that is gone, a
+		-- TOC version ROADMAP.md does not name, and a link to a heading the page lacks.
+		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
+		local version = gen.Version(toc)
+		eq(version, ns.VERSION)
+		local function Refused(f, r, m, v, want)
+			local ok, err = pcall(gen.Build, f, r, m, v, size)
+			assert(not ok, want); assert(tostring(err):find(want, 1, true), tostring(err))
+		end
+		Refused(full, (readme:gsub("\n### Channels\n", "\n### Chat channels\n")), roadmap, version, 'README.md has no heading "Channels"')
+		Refused((full:gsub("\n| `/oly bug` |[^\n]*", "")), readme, roadmap, version, "no command row starts with /oly bug")
+		Refused(full, readme, roadmap, "9.9.9", "ROADMAP.md has no Done line for v9.9.9")
+		Refused((full:gsub("\n## Install\n", "\n## Install\n[here](#nowhere)\n")), readme, roadmap, version, "links to #nowhere")
+		Refused((full:gsub("\n## Privacy\n", "\n## Your privacy\n")), readme, roadmap, version, 'docs/CURSEFORGE.md has no heading "Privacy"')
+		-- scripts/check.sh runs both checks.
+		local check = assert(ReadFile(ROOT .. "scripts/check.sh"))
+		assert(check:find("luajit scripts/curseforge-page.lua --check", 1, true), "check.sh")
+		assert(check:find("luajit scripts/curseforge-size.lua --check docs/CURSEFORGE-STORE.md", 1, true), "check.sh")
+	end)
 end)()
 
 print(("\n%d passed, %d failed"):format(passed, failed))

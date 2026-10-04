@@ -1946,6 +1946,12 @@ The offline suite checks the border textures in `Olympus/media/borders/` (32-bit
 alpha, 256 x 256, and the member's 32 x 32 star for the nameplate marks); with Pillow installed,
 `scripts/check.sh` also checks they are what `scripts/make-borders.py` builds from Max's PNGs in
 `media/borders/src/` (the star it draws itself: no game file is copied).
+The CurseForge description is `docs/CURSEFORGE-STORE.md` (1.1.5): CurseForge's editor refuses a
+page above about 100 KiB, so `scripts/curseforge-page.lua` makes it from `docs/CURSEFORGE.md`
+(the whole page), with the last versions from this repository's `ROADMAP.md` and the longest
+sections cut to their opening and a link to the same section here. `scripts/check.sh` checks it
+is what the script makes, and that `scripts/curseforge-size.lua` measures its body under the
+budget (92,000 bytes).
 
 ```bash
 bash scripts/check.sh                    # full repository checks used by CI
@@ -1956,6 +1962,8 @@ bash tests/sign-roundtrip.sh              # the High Council signing script end 
 python3 tests/fixtures/make-link-vectors.py --check  # Olympus Link's shared vectors, sample, draw and inbox (needs "cryptography")
 node --test web/test/*.test.mjs          # Olympus Link's page, core, Worker and tools (Node 22.13 or newer; also run in CI)
 python3 scripts/make-borders.py [--check] # the border textures from media/borders/src (needs Pillow)
+luajit scripts/curseforge-page.lua [--check]  # docs/CURSEFORGE-STORE.md, the CurseForge description, from docs/CURSEFORGE.md
+luajit scripts/curseforge-size.lua [--check] [page]  # that page's body as CurseForge's editor sends it (or another page's)
 python3 scripts/link-keys.py ca           # the author, once: Olympus Link's council authority (see below)
 python3 scripts/council-sign.py sign "First Surname,..." [realm group]  # the author: sign the High Council list
 python3 scripts/council-sign.py council [council.json]  # the author: sign the names, departments and titles (see the script)

@@ -72,6 +72,39 @@ cp "$repo_root/docs/answers.json" "$case_root/docs/"
 printf 'return {}\n' > "$case_root/Olympus/AnswerBank.lua"
 expect_failure 'answer bank out of date with docs/answers.json' 'Olympus/AnswerBank.lua is not what docs/answers.json makes'
 
+# The CurseForge store page and what it is made from (the TOC's version, for its recent versions).
+store_fixture() {
+	fixture "$1"
+	mkdir -p "$case_root/docs"
+	cp "$repo_root/scripts/curseforge-page.lua" "$repo_root/scripts/curseforge-size.lua" "$case_root/scripts/"
+	cp "$repo_root/docs/CURSEFORGE.md" "$case_root/docs/"
+	cp "$repo_root/README.md" "$repo_root/ROADMAP.md" "$case_root/"
+	grep '^## Version:' "$repo_root/Olympus/Olympus.toc" >> "$case_root/Olympus/Olympus.toc"
+}
+
+store_fixture 'store page up to date'
+(cd "$case_root" && luajit scripts/curseforge-page.lua > /dev/null)
+"$bash_bin" "$case_root/scripts/check.sh" > "$case_root/result.txt" 2>&1
+grep -Fq 'docs/CURSEFORGE-STORE.md matches docs/CURSEFORGE.md' "$case_root/result.txt"
+grep -Fq 'All repository checks passed.' "$case_root/result.txt"
+printf 'ok: store page made from docs/CURSEFORGE.md, within the budget\n'
+
+store_fixture 'stale store page'
+printf 'stale\n' > "$case_root/docs/CURSEFORGE-STORE.md"
+expect_failure 'store page out of date with docs/CURSEFORGE.md' 'docs/CURSEFORGE-STORE.md is not what docs/CURSEFORGE.md makes'
+
+store_fixture 'store page over budget'
+# A section the page keeps whole, grown past the budget; the page then made from it, as it should be.
+awk '{ print } /^## Who can use it$/ { for (i = 0; i < 1200; i++) print "A line of the fixture, long enough to fill the page past its budget." }' \
+	"$repo_root/docs/CURSEFORGE.md" > "$case_root/docs/CURSEFORGE.md"
+(cd "$case_root" && luajit scripts/curseforge-page.lua > /dev/null)
+expect_failure 'store page over the CurseForge budget' 'docs/CURSEFORGE-STORE.md: '
+if ! grep -Fq 'bytes over the budget' "$case_root/result.txt"; then
+	printf 'FAIL: the store page over its budget failed for an unexpected reason\n' >&2
+	cat "$case_root/result.txt" >&2
+	exit 1
+fi
+
 fixture 'signing round trip failure'
 printf 'echo "fixture round trip failed" >&2\nexit 1\n' > "$case_root/tests/sign-roundtrip.sh"
 expect_failure 'signing round trip failure' 'fixture round trip failed'

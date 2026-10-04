@@ -58,6 +58,14 @@ if [ -f scripts/answers.lua ]; then
 	luajit scripts/answers.lua --check
 fi
 
+# 1.1.5: the CurseForge store page is what scripts/curseforge-page.lua makes of docs/CURSEFORGE.md,
+# and its body fits CurseForge's editor (scripts/curseforge-size.lua's budget). Both change nothing.
+if [ -f scripts/curseforge-page.lua ]; then
+	printf 'Checking the CurseForge store page...\n'
+	luajit scripts/curseforge-page.lua --check
+	luajit scripts/curseforge-size.lua --check docs/CURSEFORGE-STORE.md
+fi
+
 printf 'Checking local/global name collisions...\n'
 bash scripts/lint-globals.sh
 
