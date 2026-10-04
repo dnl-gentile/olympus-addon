@@ -48855,5 +48855,33 @@ end)()
 	end)
 end)()
 
+---------------------------------------------------------------------------
+-- 1.1.5: the CurseForge page's size. scripts/curseforge-size.lua renders a page as CurseForge's
+-- editor does and measures the body its save sends (the server refuses one above about 100 KiB).
+---------------------------------------------------------------------------
+;(function()
+	test("1.1.5 curseforge-size.lua: the HTML CurseForge's editor makes: headings' ids as GitHub's anchors (a repeated one -1), & < > \" ' as entities, GitHub's tables, a JSON body with UTF-8 kept", function()
+		local size = dofile(ROOT .. "scripts/curseforge-size.lua")
+		local md = "# Olympus\n\n### Net-off (1.1): the x\n\n### Channels\n\n### Channels\n\n"
+			.. "A & B say \"hi\" (it's **bold**, *em*, `a<b>`, [link](https://x.y/#a)).\n\n"
+			.. "| Channel | Who |\n|---|---|\n| **[Olympus]** | every `/ol` |\n\n- one\n- two\n\n> **Status:** beta\n"
+		eq(size.Render(md), '<h1 id="olympus">Olympus</h1>\n'
+			.. '<h3 id="net-off-11-the-x">Net-off (1.1): the x</h3>\n'
+			.. '<h3 id="channels">Channels</h3>\n<h3 id="channels-1">Channels</h3>\n'
+			.. '<p>A &amp; B say &quot;hi&quot; (it&#39;s <strong>bold</strong>, <em>em</em>, <code>a&lt;b&gt;</code>, <a href="https://x.y/#a">link</a>).</p>\n'
+			.. '<table>\n<thead>\n<tr>\n<th>Channel</th>\n<th>Who</th>\n</tr>\n</thead>\n'
+			.. '<tbody><tr>\n<td><strong>[Olympus]</strong></td>\n<td>every <code>/ol</code></td>\n</tr>\n</tbody></table>\n'
+			.. '<ul>\n<li>one</li>\n<li>two</li>\n</ul>\n'
+			.. '<blockquote>\n<p><strong>Status:</strong> beta</p>\n</blockquote>\n')
+		eq(size.Body("Caf\195\169\n"), '{"description":"<p>Caf\195\169</p>\\n","descriptionType":1}')
+		eq(size.Slug(size.Plain("The King's Steward (1.0.0)")), "the-kings-steward-100")
+		-- The README's own link to one of its sections is that section's id.
+		eq(size.Slug(size.Plain("Net-off (1.1): the moderators hide a character or take a guild off the network")),
+			"net-off-11-the-moderators-hide-a-character-or-take-a-guild-off-the-network")
+		assert(ReadFile(ROOT .. "README.md"):find("(#net-off-11-the-moderators-hide-a-character-or-take-a-guild-off-the-network)", 1, true))
+		assert(size.BUDGET < size.LIMIT and size.LIMIT <= 102400)
+	end)
+end)()
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
