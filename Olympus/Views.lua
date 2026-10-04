@@ -2086,11 +2086,13 @@ local function ApprovedHint(lines)
 	local guild = IsInGuild() and GetGuildInfo("player")
 	if type(guild) ~= "string" or guild == "" then return lines end
 	if lines[#lines] then lines[#lines].gapAfter = true end
+	-- (1.1.5: a guild the High Council removed is told so, and how to appeal.)
+	local hint = ns.IsRemovedGuild(guild) and L.REMOVED_GUILD or L.APPROVED_JOIN_HINT
 	lines[#lines + 1] = {
-		text = Grey(L.APPROVED_JOIN_HINT:format(Plain(guild))),
+		text = Grey(hint:format(Plain(guild))),
 		onClick = function() ns.ShowDialog("OLYMPUS_APPROVED_PASTE") end,
 		tooltip = function(tt)
-			tt:AddLine(L.APPROVED_JOIN_HINT:format(Plain(guild)), 1, 0.82, 0, true)
+			tt:AddLine(hint:format(Plain(guild)), 1, 0.82, 0, true)
 			tt:AddLine(L.APPROVED_PASTE_PROMPT, 1, 1, 1, true)
 		end,
 	}

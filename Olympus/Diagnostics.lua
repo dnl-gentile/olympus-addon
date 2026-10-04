@@ -419,7 +419,7 @@ function ns.StatusText()
 	if ns.ApprovedGuilds then
 		local list, guild = ns.ApprovedGuilds(), GetGuildInfo("player")
 		add("approved guilds: %s%s", #list > 0 and table.concat(list, ", ") or "none", (guild and ns.IsApprovedGuild(guild))
-			and (ns.NamedOlympus(guild) and "  |  ours is on it" or "  |  ours is Olympus by the list alone") or "")
+			and ((ns.NamedOlympus(guild) and not ns.IsRemovedGuild(guild)) and "  |  ours is on it" or "  |  ours is Olympus by the list alone") or "")
 	end
 	add("borders: %s", ns.Borders and ns.Borders.StatusLine and ns.Borders.StatusLine() or "not loaded")
 	add("nameplates: %s", ns.Nameplates and ns.Nameplates.StatusLine and ns.Nameplates.StatusLine() or "not loaded")

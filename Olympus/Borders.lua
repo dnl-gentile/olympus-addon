@@ -632,9 +632,12 @@ end
 -- menu, /r and the whisper window keep the real name. Nothing of Blizzard's is replaced, and a
 -- client without it has no marks there (Olympus lines keep theirs, Channels.FormatLine).
 -- Off with the gamepad UI, as the borders: logged in with it, nothing is registered until a switch
--- to mouse and keyboard; switched to it later, the callback returns at once. Also none: the King's
--- screen while the council's names are hidden (ns.CouncilMasked), a councillor the moderators took
--- off (net-off), a secret name or sender, and `/oly chatmarks off` (ns.db.chatMarks false).
+-- to mouse and keyboard; switched to it later, the callback returns at once. Also none: outside an
+-- Olympus guild (ns.IsMember, as the borders: a list kept from before says nothing there), the
+-- King's screen while the council's names are hidden (ns.CouncilMasked: asked again on every
+-- marked line, so a first login whose guild was not known yet, or any other flip, never leaves a
+-- mark on his stream), a councillor the moderators took off (net-off), a secret name or sender,
+-- and `/oly chatmarks off` (ns.db.chatMarks false).
 -- Blizzard runs the callback for every line on every chat window: it reads a boolean, the event
 -- list and one table entry; a sender not seen yet is worked out once (ChatName), and the table is
 -- emptied every CHAT_FORGET seconds and whenever the council's names are hidden or shown, so a new
@@ -671,7 +674,7 @@ function Borders.ChatName(sender)
 	local who = ns.FullName(ns.Normal(sender))
 	if type(who) ~= "string" or who == "" then return false end
 	if chatPreview and who == ns.me then return ChatClean(ns.HIGH_COUNCIL_MARK .. ns.CouncilIcon(who)) or false end
-	if ns.CouncilMasked() or not ns.IsHighCouncillor(who) or NetOff(who) then return false end
+	if ns.IsMember() ~= true or ns.CouncilMasked() or not ns.IsHighCouncillor(who) or NetOff(who) then return false end
 	return ChatClean(ns.CouncilMark(who)) or false
 end
 
@@ -684,6 +687,8 @@ local function ChatMarkOf(name, sender)
 		chatMarks[sender], chatKept = mark, chatKept + 1
 	end
 	if not mark then return nil end
+	-- A marked line (a councillor's: few) asks again what may change between two emptyings.
+	if not chatPreview and (ns.CouncilMasked() or ns.IsMember() ~= true) then return nil end
 	return mark .. name
 end
 
@@ -751,6 +756,8 @@ ns.On("LOGIN", function()
 	ns.Every(Borders.CHAT_FORGET, "chat marks", Borders.ChatForget)
 end)
 ns.On("COUNCIL_MASK_CHANGED", function() Borders.ChatForget() end)
+-- The census, the council's lists or our guild changing: worked out again.
+ns.On("DATA_CHANGED", function() Borders.ChatForget() end)
 ns.On("LOGIN", function() Borders.RefreshAll(true) end)
 ns.On("DATA_CHANGED", function() Borders.CensusChanged() end)
 -- The King shows or hides the council's names (the eye in the Realm, ns.SetCouncilNamesShown).
@@ -759,6 +766,7 @@ ns.RegisterEvent("PLAYER_TARGET_CHANGED", function() Borders.Refresh("target") e
 ns.RegisterEvent("UNIT_NAME_UPDATE", function(unit) if TRACKED[unit] then Borders.Refresh(unit, true) end end)
 -- A unit's guild reaching the client (or ours changing: every border again).
 ns.RegisterEvent("PLAYER_GUILD_UPDATE", function(unit)
+	if unit == nil or unit == "player" then Borders.ChatForget() end
 	if unit == nil or unit == "player" then Borders.RefreshAll(true)
 	elseif TRACKED[unit] then Borders.Refresh(unit, true) end
 end)

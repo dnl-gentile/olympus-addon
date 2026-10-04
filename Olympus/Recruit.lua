@@ -649,6 +649,10 @@ end
 -- A whisper came in. Outside Olympus: a member we asked answered. In it: kept a moment for the
 -- join request (J3) that follows a recruit's whisper, shown with it.
 function Recruit.OnWhisper(text, sender)
+	-- 1.1.5: CHAT_MSG_WHISPER is SecretInChatMessagingLockdown on Forever: in a dungeon, a raid or
+	-- an encounter its text and sender can be secret, and even a comparison raises in our code.
+	-- Nothing can be read from such a whisper: left alone before any string or table operation.
+	if type(issecretvalue) == "function" and (issecretvalue(text) or issecretvalue(sender)) then return end
 	if ns.IsMember() then
 		local now = ns.Now()
 		local key = Key(sender)

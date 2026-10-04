@@ -626,6 +626,22 @@ test("treasury private: secret system messages are ignored before string operati
 	if not ok then error(err, 0) end
 end)
 
+test("1.1.5 a secret whisper (a dungeon, a raid or an encounter on Forever) is left alone before any string or table operation, member or not", function()
+	local savedSecret, savedMember = rawget(_G, "issecretvalue"), ns.IsMember
+	local secret, checked = setmetatable({}, { __index = function() error("a secret value was read") end }), 0
+	local ok, err = pcall(function()
+		issecretvalue = function(value) if rawequal(value, secret) then checked = checked + 1 return true end return false end
+		for _, member in ipairs({ true, false }) do
+			ns.IsMember = function() return member end
+			ns.Recruit.OnWhisper("hello", secret)
+			ns.Recruit.OnWhisper(secret, "Bob-Realm")
+		end
+		assert(checked >= 4, "each whisper checked for secrecy first: " .. checked)
+	end)
+	issecretvalue, ns.IsMember = savedSecret, savedMember
+	if not ok then error(err, 0) end
+end)
+
 test("roster reads ranks, officers, inactivity and top levels", function()
 	ns.db.officerRank = 1
 	local r = ns.Roster.Scan()
@@ -34077,7 +34093,8 @@ end)
 test("1.1.5 a High Councillor's tooltip: the mark and own icon after the name, then High Councillor, the department and the title; for whoever may see the council, never on the King's stream; the name's line left alone when secret or with the gamepad UI", function()
 	WithGear(function(w, I)
 		local saved = { council = ns.rdb.council, titles = ns.rdb.councilTitles, icons = ns.rdb.councilIcons, masked = ns.CouncilMasked,
-			gamepad = ns.GamepadUI, left = rawget(_G, "GameTooltipTextLeft1") }
+			gamepad = ns.GamepadUI, left = rawget(_G, "GameTooltipTextLeft1"), member = ns.IsMember, moderation = ns.Moderation,
+			secret = rawget(_G, "issecretvalue") }
 		local ok, err = pcall(function()
 			local lines, first = {}, "Sage Owl"
 			GameTooltipTextLeft1 = { GetText = function() return first end, SetText = function(_, t) first = t end }
@@ -34092,12 +34109,12 @@ test("1.1.5 a High Councillor's tooltip: the mark and own icon after the name, t
 			ns.rdb.council = { names = { ["sage owl"] = true, ["other mod"] = true } }
 			ns.rdb.councilIcons = { ["Sage Owl-Realm"] = { icon = 134400, t = ns.Now() } }
 			ns.rdb.councilTitles = { at = 1, public = true, depts = {
-				{ name = "Department of War", members = { { name = "Sage Owl", title = "Master of Intelligence" } } },
+				{ name = "Department of War", members = { { name = "Sage Owl", title = "Keeper of Maps" } } },
 			} }
 			local MARK = ns.HIGH_COUNCIL_MARK .. "|T134400:0|t"
 			eq(I.TooltipUnit(GameTooltip), true)
 			eq(first, "Sage Owl " .. MARK, "the mark and his icon after the name")
-			eq(lines[1].text, ns.L.COUNCIL_PERSON); eq(lines[2].text, "Department of War"); eq(lines[3].text, "Master of Intelligence")
+			eq(lines[1].text, ns.L.COUNCIL_PERSON); eq(lines[2].text, "Department of War"); eq(lines[3].text, "Keeper of Maps")
 			eq(#lines, 3)
 			-- The tooltip shown again with the same first line: the mark once.
 			lines = {}
@@ -34133,6 +34150,18 @@ test("1.1.5 a High Councillor's tooltip: the mark and own icon after the name, t
 			I.TooltipUnit(GameTooltip)
 			eq(first, "Sage Owl"); eq(lines[1].text, ns.L.COUNCIL_PERSON)
 			ns.GamepadUI = function() return false end
+			-- Outside an Olympus guild (a list kept from before): nothing.
+			local savedMember, savedMod = ns.IsMember, ns.Moderation
+			first, lines = "Sage Owl", {}
+			ns.IsMember = function() return false end
+			I.TooltipUnit(GameTooltip)
+			eq(first, "Sage Owl"); eq(#lines, 0)
+			ns.IsMember = savedMember
+			-- A councillor the moderators took off: nothing, as his chat mark.
+			ns.Moderation = setmetatable({ Hides = function(who) return who == "Sage Owl-Realm" and {} or nil end }, { __index = savedMod })
+			I.TooltipUnit(GameTooltip)
+			eq(first, "Sage Owl"); eq(#lines, 0)
+			ns.Moderation = savedMod
 			-- A secret first line: left alone.
 			local secret = {}
 			issecretvalue = function(v) return rawequal(v, secret) end
@@ -34143,6 +34172,7 @@ test("1.1.5 a High Councillor's tooltip: the mark and own icon after the name, t
 		end)
 		ns.rdb.council, ns.rdb.councilTitles, ns.rdb.councilIcons = saved.council, saved.titles, saved.icons
 		ns.CouncilMasked, ns.GamepadUI, GameTooltipTextLeft1 = saved.masked, saved.gamepad, saved.left
+		ns.IsMember, ns.Moderation, issecretvalue = saved.member, saved.moderation, saved.secret
 		if not ok then error(err, 0) end
 	end)
 end)
@@ -34713,13 +34743,20 @@ end)
 
 test("1.1.5 removed guilds: a guild the High Council removed is no Olympus guild whatever its name (any case, stray spaces), its members see the Join screen; the author's approved list lets it back; never the King's guild; the other faction's namesake untouched", function()
 	local saved = { faction = ns.faction, titles = ns.rdb.councilTitles, inGuild = IsInGuild, guild = GetGuildInfo,
-		removed = ns.REMOVED_BUILTIN, approved = ns.IsApprovedGuild }
+		removed = ns.REMOVED_BUILTIN, approved = ns.IsApprovedGuild, realm = ns.realm, group = ns.group, print = ns.Print }
 	local ok, err = pcall(function()
 		ns.faction, ns.rdb.councilTitles = "Alliance", nil
-		-- What ships: the council's call, read through the list itself.
+		-- What ships: the council's call, on the King's realm group alone, read through the list itself.
 		local shipped = assert(saved.removed.Alliance and saved.removed.Alliance[1], "the shipped list")
+		local home = saved.removed.Alliance.realm
+		eq(home, "ClassicBetaPvP", "the King's realm group (ns.KING_REALM as shipped)")
+		ns.realm, ns.group = home, home
 		eq(ns.NamedOlympus(shipped), true, "its name alone would make it one")
 		eq(ns.IsFederation(shipped), false, "removed")
+		-- Another realm group's guild of that name is another guild.
+		ns.realm, ns.group = "Elsewhere", "Elsewhere"
+		eq(ns.IsFederation(shipped), true, "a namesake on another realm group")
+		ns.realm, ns.group = saved.realm, saved.group
 		-- (made-up names below)
 		ns.REMOVED_BUILTIN = { Alliance = { "Olympus Rogue Squad" } }
 		eq(ns.IsFederation("Olympus Rogue Squad"), false)
@@ -34730,9 +34767,21 @@ test("1.1.5 removed guilds: a guild the High Council removed is no Olympus guild
 		-- Its members' addon: no Olympus member (the Join screen).
 		IsInGuild, GetGuildInfo = function() return true end, function() return "Olympus Rogue Squad", "Member", 3 end
 		eq(ns.IsMember(), false)
-		-- The appeal: once the author's signed list approves it, it counts again (no new version).
+		-- Its members are told so, and how to appeal (the status line, /oly approved, the Join screen).
+		eq(ns.UI.StatusLine(), ns.L.STATUS_REMOVED:format("Olympus Rogue Squad"))
+		local printed, savedPrint = {}, ns.Print
+		ns.Print = function(m) printed[#printed + 1] = m end
+		ns.Workshop.Approved()
+		ns.Print = savedPrint
+		eq(printed[#printed], ns.L.REMOVED_GUILD:format("Olympus Rogue Squad"))
+		-- The council's net-off word on it is still given and kept for the older addons.
+		eq(ns.Moderation.GuildName("<Olympus Rogue Squad>"), "Olympus Rogue Squad")
+		eq(ns.Moderation.GuildName("Olympus Nowhere Squad"), "Olympus Nowhere Squad", "an Olympus guild, as before")
+		-- The appeal: once the author's signed list approves it, it counts again (no new version), and
+		-- by the list alone, so its members pass the list to each other over their guild.
 		ns.IsApprovedGuild = function(g) return g == "Olympus Rogue Squad" end
 		eq(ns.IsFederation("Olympus Rogue Squad"), true); eq(ns.IsMember(), true)
+		eq(ns.ApprovedOnly(), true, "by the list alone: relayed over its guild")
 		ns.IsApprovedGuild = saved.approved
 		-- Never the King's guild.
 		local king = ns.KING_GUILD.Alliance
@@ -34744,7 +34793,8 @@ test("1.1.5 removed guilds: a guild the High Council removed is no Olympus guild
 		eq(ns.IsRemovedGuild("Olympus Rogue Squad"), false); eq(ns.IsFederation("Olympus Rogue Squad"), true)
 	end)
 	ns.faction, ns.rdb.councilTitles, IsInGuild, GetGuildInfo = saved.faction, saved.titles, saved.inGuild, saved.guild
-	ns.REMOVED_BUILTIN, ns.IsApprovedGuild = saved.removed, saved.approved
+	ns.REMOVED_BUILTIN, ns.IsApprovedGuild, ns.realm, ns.group = saved.removed, saved.approved, saved.realm, saved.group
+	ns.Print = saved.print
 	if not ok then error(err, 0) end
 end)
 
@@ -43217,7 +43267,8 @@ do
 
 	test("1.1.5 the game's own chat: a High Councillor's mark and own icon before their name, through the game's sender-name filter; nobody else's, no other event, never with the gamepad UI, on the King's stream, off, or for a secret name", function()
 		local saved = { cfu = rawget(_G, "ChatFrameUtil"), gamepad = ns.GamepadUI, masked = ns.CouncilMasked, secret = rawget(_G, "issecretvalue"),
-			council = ns.rdb.council, icons = ns.rdb.councilIcons, chatMarks = ns.db.chatMarks, print = ns.Print, workshop = ns.Workshop }
+			council = ns.rdb.council, icons = ns.rdb.councilIcons, chatMarks = ns.db.chatMarks, print = ns.Print, workshop = ns.Workshop,
+			member = ns.IsMember }
 		local ok, err = pcall(function()
 			local filters, printed, gamepad = {}, {}, true
 			ChatFrameUtil = { AddSenderNameFilter = function(cb) filters[#filters + 1] = cb end }
@@ -43226,15 +43277,33 @@ do
 			ns.db.chatMarks = nil
 			ns.rdb.council = { names = { ["sage owl"] = true } } -- (made-up names only)
 			ns.rdb.councilIcons = { ["Sage Owl-Realm"] = { icon = 134400, t = ns.Now() } }
-			local bns = setmetatable({ On = function() end, RegisterEvent = function() end, Every = function() end }, { __index = ns })
+			-- Borders.lua's own handlers, recorded so the test drives them as the game would.
+			local on, events, every, after = {}, {}, {}, {}
+			local bns = setmetatable({
+				On = function(n, f) on[n] = on[n] or {}; table.insert(on[n], f) end,
+				RegisterEvent = function(e, f) events[e] = events[e] or {}; table.insert(events[e], f) end,
+				Every = function(sec, what, f) every[#every + 1] = { sec = sec, f = f } end,
+				After = function(sec, what, f) after[#after + 1] = { what = what, f = f } end,
+			}, { __index = ns })
+			local function Fire(t, n, ...) for _, f in ipairs(t[n] or {}) do f(...) end end
+			local function RunAfter(what)
+				for i = #after, 1, -1 do if after[i].what == what then local f = table.remove(after, i).f f() end end
+			end
 			assert(loadfile(ADDON_DIR .. "Borders.lua"))("Olympus", bns)
 			local B = bns.Borders
-			-- Logged in with the gamepad UI: nothing registered in the game's chat.
-			eq(B.ChatRefresh(), false); eq(#filters, 0)
+			-- Logged in with the gamepad UI: nothing registered in the game's chat; the minute's emptying set.
+			Fire(on, "LOGIN")
+			eq(#filters, 0); eq(B.ChatShown(), false)
 			assert(B.ChatStatusLine():find("gamepad", 1, true), B.ChatStatusLine())
-			-- Mouse and keyboard: registered once, and a councillor's line carries his mark, then his icon.
+			local ticker
+			for _, e in ipairs(every) do if e.f == B.ChatForget then ticker = e end end
+			assert(ticker and ticker.sec == B.CHAT_FORGET, "the chat marks' minute")
+			-- A switch to mouse and keyboard (the game's event): registered once, and a councillor's line
+			-- carries his mark, then his icon.
 			gamepad = false
-			eq(B.ChatRefresh(), true); eq(#filters, 1)
+			Fire(events, "INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
+			RunAfter("chat marks style")
+			eq(B.ChatShown(), true); eq(#filters, 1)
 			local cb = filters[1]
 			local name = "|cffc79c6eSage Owl|r"
 			local MARK = ns.HIGH_COUNCIL_MARK .. "|T134400:0|t"
@@ -43250,22 +43319,39 @@ do
 			-- The council's mark alone for a councillor with no icon of his own.
 			ns.rdb.council.names["other mod"] = true
 			eq(cb("CHAT_MSG_GUILD", "Other Mod", "hi", "Other Mod-Realm"), ns.HIGH_COUNCIL_MARK .. "Other Mod")
-			-- A new icon heard: within a minute (the table emptied), never a stale one for long.
+			-- A new icon heard: at the minute's emptying, or at once when the census or the lists change.
 			ns.rdb.councilIcons["Sage Owl-Realm"].icon = 134401
 			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), MARK .. name, "kept until the table empties")
-			B.ChatForget()
+			ticker.f()
 			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), ns.HIGH_COUNCIL_MARK .. "|T134401:0|t" .. name)
+			ns.rdb.councilIcons["Sage Owl-Realm"].icon = 134402
+			Fire(on, "DATA_CHANGED")
+			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), ns.HIGH_COUNCIL_MARK .. "|T134402:0|t" .. name)
+			ns.rdb.councilIcons["Sage Owl-Realm"].icon = 134401
+			Fire(on, "DATA_CHANGED")
 			-- A secret name or sender (instances, encounters): the name as it was.
 			local secret = {}
 			issecretvalue = function(v) return rawequal(v, secret) end
 			eq(cb("CHAT_MSG_SAY", secret, "hi", "Sage Owl-Realm"), nil)
 			eq(cb("CHAT_MSG_SAY", name, "hi", secret), nil)
 			issecretvalue = saved.secret
-			-- The King's screen while the council's names are hidden.
+			-- The King's screen while the council's names are hidden: asked again on every marked line, so
+			-- a mark worked out before (a first login whose guild was not known yet) never shows there.
+			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), ns.HIGH_COUNCIL_MARK .. "|T134401:0|t" .. name, "kept")
 			ns.CouncilMasked = function() return true end
-			B.ChatForget()
+			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), nil, "masked at once, the table not emptied")
+			Fire(on, "COUNCIL_MASK_CHANGED")
 			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), nil)
 			ns.CouncilMasked = saved.masked
+			Fire(on, "COUNCIL_MASK_CHANGED")
+			-- Outside an Olympus guild (a list kept from before, a removed guild): no mark, kept or new.
+			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), ns.HIGH_COUNCIL_MARK .. "|T134401:0|t" .. name)
+			local savedMember = ns.IsMember
+			ns.IsMember = function() return false end
+			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), nil, "kept mark")
+			eq(cb("CHAT_MSG_GUILD", "Other Mod", "hi", "Other Mod-Realm"), nil, "new sender")
+			eq(B.ChatName("Sage Owl-Realm"), false)
+			ns.IsMember = savedMember
 			B.ChatForget()
 			-- /oly chatmarks off: nothing, until on again; registered once all along.
 			B.ChatSlash("off")
@@ -43302,6 +43388,7 @@ do
 		end)
 		ChatFrameUtil, ns.GamepadUI, ns.CouncilMasked, issecretvalue = saved.cfu, saved.gamepad, saved.masked, saved.secret
 		ns.rdb.council, ns.rdb.councilIcons, ns.db.chatMarks, ns.Print, ns.Workshop = saved.council, saved.icons, saved.chatMarks, saved.print, saved.workshop
+		ns.IsMember = saved.member
 		if not ok then error(err, 0) end
 	end)
 
@@ -47466,6 +47553,7 @@ end)()
 	end)
 
 	test("player menus: gamepad mode never hooks or builds Blizzard player menus", function()
+		WithVersions("Tester-Realm", function()
 		local savedMenu, savedMenuUtil, savedGamepad = rawget(_G, "Menu"), rawget(_G, "MenuUtil"), ns.GamepadUI
 		local hooks, registrations, contextMenus = {}, 0, 0
 		local gamepad = true
@@ -47486,19 +47574,24 @@ end)()
 			gamepad = false
 			eq(PM.Hook(), true)
 			eq(registrations, #PM.WHICH)
-			local cb = assert(hooks.MENU_UNIT_PLAYER)
+			local cb = assert(hooks.MENU_UNIT_FRIEND)
+			-- With mouse and keyboard the same callback adds Olympus's lines for a player we can reach.
+			local shown = MenuRoot()
+			cb(nil, shown, { name = "Ann", which = "FRIEND" })
+			assert(#shown.items > 0, "mouse and keyboard: Olympus's lines")
 
 			-- Menu.ModifyMenu has no unregister operation. A later switch back to the gamepad
 			-- must therefore make the already registered callback a strict no-op.
 			gamepad = true
 			local root = MenuRoot()
-			cb(nil, root, { name = "Ann", unit = "target" })
+			cb(nil, root, { name = "Ann", which = "FRIEND" })
 			eq(#root.items, 0)
-			eq(PM.Build("PLAYER", root, { name = "Ann", unit = "target" }), 0)
+			eq(PM.Build("FRIEND", root, { name = "Ann", which = "FRIEND" }), 0)
 		end)
 		Menu, MenuUtil, ns.GamepadUI = savedMenu, savedMenuUtil, savedGamepad
 		PM.Reset()
 		if not ok then error(err, 0) end
+		end)
 	end)
 
 	test("1.1.2 versions: a guildmate's hello names it (by the short name too); up to date, out of date, newer, unreadable; the author's released version is the newest known", function()

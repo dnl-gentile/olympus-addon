@@ -1979,7 +1979,7 @@ function Workshop.Approved(word)
 	if type(guild) == "string" and ns.IsApprovedGuild(guild) then
 		ns.Print(L.APPROVED_MINE:format(guild))
 	elseif type(guild) == "string" and not ns.IsFederation(guild) then
-		ns.Print(L.APPROVED_NOT_MINE:format(guild))
+		ns.Print((ns.IsRemovedGuild(guild) and L.REMOVED_GUILD or L.APPROVED_NOT_MINE):format(guild))
 	end
 end
 

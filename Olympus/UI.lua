@@ -1997,7 +1997,8 @@ function UI.WindowStyle() return main and main.style end
 function UI.StatusLine()
 	local guild = GetGuildInfo("player")
 	if not guild then return L.STATUS_NOGUILD end
-	if not ns.IsFederation(guild) then return L.STATUS_NOTFED:format(guild) end
+	-- (1.1.5: a guild the High Council removed says so, and how to appeal.)
+	if not ns.IsFederation(guild) then return (ns.IsRemovedGuild(guild) and L.STATUS_REMOVED or L.STATUS_NOTFED):format(guild) end
 	local c = ns.Comm
 	local users = c.PeerCount() + 1
 	if c.isReporter or not c.reporterName then return L.STATUS_REPORTER:format(guild, users) end

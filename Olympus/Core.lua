@@ -1054,20 +1054,24 @@ ns.APPROVED_BUILTIN = { Alliance = { "OLYMPIAN" } }
 -- Olympus chats, no marks, and their own members' addon shows the Join Olympus screen. Their way
 -- back is an appeal to the council: the author's signed approved list (ns.IsApprovedGuild) lets
 -- one in again without a new version. Never the King's guild. On every 1.1 addon meanwhile, and on
--- older versions than this one, the council's own word does it live: /oly netoff guild.
-ns.REMOVED_BUILTIN = { Alliance = { "Olympus Defense Force" } }
+-- older versions than this one, the council's own word does it live: /oly netoff guild (a 1.1.5
+-- moderator still gives and repeats it for them, Moderation.GuildName).
+-- One faction's list, on its realm group alone (realm: a realm of it; none: anywhere), like the
+-- King: a guild of that name on another realm group is another guild.
+ns.REMOVED_BUILTIN = { Alliance = { realm = ns.KING_REALM, "Olympus Defense Force" } }
 -- Asked with every IsFederation, like the approved list: each name's answer is kept while the
--- faction's list is the same table (a faction with none answers at once).
+-- faction's list, our realm group and our realm are the same (a faction with none answers at once).
 local removedMemo
 function ns.IsRemovedGuild(guild)
 	if type(guild) ~= "string" or guild == "" then return false end
 	local list = type(ns.REMOVED_BUILTIN) == "table" and ns.REMOVED_BUILTIN[ns.faction or "Alliance"]
 	if type(list) ~= "table" or #list == 0 then return false end
 	local m = removedMemo
-	if not m or m.list ~= list then
+	if not m or m.list ~= list or m.group ~= ns.group or m.realm ~= ns.realm then
 		local set = {}
 		for _, name in ipairs(list) do set[ns.Fold(name)] = true end
-		m = { list = list, set = set, seen = {}, n = 0 }
+		local here = list.realm == nil or (ns.realm ~= nil and ns.InGroup(list.realm))
+		m = { list = list, group = ns.group, realm = ns.realm, set = here and set or {}, seen = {}, n = 0 }
 		removedMemo = m
 	end
 	local known = m.seen[guild]
@@ -1159,7 +1163,9 @@ end
 -- members may not hold the list yet, and hear it only over GUILD (Comm.lua, Workshop.RelayGuild).
 function ns.ApprovedOnly()
 	local guild = IsInGuild and IsInGuild() and GetGuildInfo("player")
-	return type(guild) == "string" and ns.IsApprovedGuild(guild) and not ns.IsKingGuild(guild) and not ns.NamedOlympus(guild)
+	-- (1.1.5: a removed guild the list lets back in counts by the list alone, whatever its name.)
+	return type(guild) == "string" and ns.IsApprovedGuild(guild) and not ns.IsKingGuild(guild)
+		and (not ns.NamedOlympus(guild) or ns.IsRemovedGuild(guild))
 end
 
 -- Is this character (a sender's name, which the server sets) a Steward of our King?
