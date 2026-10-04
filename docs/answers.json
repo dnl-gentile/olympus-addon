@@ -17,7 +17,7 @@
       {
         "id": "features",
         "title": "2. Features: what it is and how to use it",
-        "count": 74
+        "count": 75
       },
       {
         "id": "install-update-bugs",
@@ -30,7 +30,7 @@
         "count": 8
       }
     ],
-    "count": 114,
+    "count": 115,
     "regenerate": "luajit scripts/answers.lua writes Olympus/AnswerBank.lua from this file; --check only compares"
   },
   "answers": [
@@ -833,6 +833,24 @@
         "README.md:263-285,1713",
         "Channels.lua:236-240,357-378",
         "ChatWindow.lua:918-930"
+      ]
+    },
+    {
+      "id": "feat-chattynator",
+      "topic": "features",
+      "status": "current (1.1.2)",
+      "questions": [
+        "I use Chattynator, how do I get the Olympus chats in a tab?",
+        "My Chattynator tab doesn't show the Olympus chats",
+        "Does Olympus work with Chattynator?"
+      ],
+      "answer": "Type /oly chatwindow tab: it says how to make a Chattynator tab named Olympus (the + after its tabs, then Rename tab), and the channels go there once it exists. Tick Olympus under Addons in that tab's Tab Settings, or it stays empty. /oly chatwindow <name> picks another tab.",
+      "in_game": "With Chattynator: type /oly chatwindow tab, make a tab named Olympus (the + after its tabs), then tick Olympus under Addons in its Tab Settings.",
+      "notes": "Olympus only reads Chattynator's tab names and prints through its public API (GetWindowsAndTabs, AddMessageToWindowAndTab): it never makes, renames or sets up a tab, and it cannot see a tab's Addons filter, so the main window says how each time a Chattynator tab is chosen. Tabs are picked by name, not by number. Without Chattynator nothing changes.",
+      "sources": [
+        "Channels.lua:227-244",
+        "Locales.lua:4042-4046 (CHATTY_STEPS, CHATTY_FILTER)",
+        "README.md:353-369,521-525"
       ]
     },
     {

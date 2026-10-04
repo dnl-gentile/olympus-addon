@@ -48544,9 +48544,14 @@ end)()
 			assert(#a.text <= 200 and not a.text:find("[|\n]"), a.id)
 			ids[a.id] = true
 		end
-		for _, id in ipairs({ "count-not-a-bug", "count-differs-from-friend", "rc-see-version", "rc-bug-report-ask", "rc-tell-olympus", "feat-quick-answers", "feat-page-help" }) do
+		for _, id in ipairs({ "count-not-a-bug", "count-differs-from-friend", "rc-see-version", "rc-bug-report-ask", "rc-tell-olympus", "feat-quick-answers", "feat-page-help", "feat-chattynator" }) do
 			assert(ids[id], id)
 		end
+		-- (1.1.5: the Chattynator answer gives the command that sends the chats to its tab, and the
+		-- filter step Olympus cannot see, Channels.lua's Chattynator part.)
+		local chatty = A.Find("feat-chattynator")
+		assert(chatty.text:find("/oly chatwindow tab", 1, true) and chatty.text:find("under Addons", 1, true), chatty.text)
+		assert(chatty.long:find("/oly chatwindow tab", 1, true) and chatty.long:find("under Addons", 1, true), chatty.long)
 		-- The reader: escapes, and what the checks refuse.
 		eq(gen.Decode('{"a":["x\\u00e9\\n",1.5,true,null]}').a[1], "x\195\169\n")
 		local bad = gen.Decode(ReadFile(ROOT .. "docs/answers.json"))
