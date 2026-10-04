@@ -5,7 +5,8 @@
 --   - the same text, with the last versions' lines from ROADMAP.md (the TOC's version and the
 --     ones before it, newest first) under "Recent versions", before the first "##" section;
 --   - the longest sections (CUTS) cut to their opening, each with a link to the same section in
---     the README; every heading stays, so the page's own links still land (checked);
+--     the README (an opening that leads into the part cut, "What goes where:", says that part is
+--     there); every heading stays, so the page's own links still land (checked);
 --   - the commands table cut to the most used (COMMANDS), with a link to the README's.
 -- Nothing else is written by hand: a change goes in docs/CURSEFORGE.md (or ROADMAP.md), then here.
 --   luajit scripts/curseforge-page.lua           write docs/CURSEFORGE-STORE.md
@@ -140,10 +141,22 @@ local function Parts(body)
 end
 M.Parts = Parts
 
-local function MoreLine(what, title, anchors)
+-- The line that links a cut to the same section of the README: its words, then the link.
+local function MoreLine(words, title, anchors)
 	local id = anchors[title]
 	if not id then error(("%s has no heading %q for the store page's link"):format(M.README, title), 0) end
-	return ("*%s in the README: [%s](%s#%s).*"):format(what, title, M.REPO, id)
+	return ("*%s [%s](%s#%s).*"):format(words, title, M.REPO, id)
+end
+
+-- An opening that leads into the part the cut takes away: it ends on a colon ("What goes
+-- where:") or its last sentence names "the following". Its link then says that part is in the
+-- README, so the page never reads as broken off mid-sentence.
+local LEADS_TO = { list = "The list is", table = "The table is", quote = "The quote is" }
+local function Leads(part)
+	local text = table.concat(part, " "):gsub("%s+$", "")
+	if text:find(":$") then return true end
+	local last = text:match(".*[.!?]%s+(%u.*)$") or text
+	return last:find("the following", 1, true) ~= nil
 end
 
 local function Cut(section, keep, readme)
@@ -156,7 +169,11 @@ local function Cut(section, keep, readme)
 		for _, l in ipairs(parts[i]) do body[#body + 1] = l end
 	end
 	body[#body + 1] = ""
-	body[#body + 1] = MoreLine("Continued", section.title, readme)
+	local words = "Continued in the README:"
+	if Leads(parts[keep]) then
+		words = (LEADS_TO[parts[keep + 1].kind] or "What follows is") .. " in the README, with the rest of this section:"
+	end
+	body[#body + 1] = MoreLine(words, section.title, readme)
 	body[#body + 1] = ""
 	section.body = body
 end
@@ -180,7 +197,7 @@ local function Commands(section, readme)
 	local last = 0
 	for i, l in ipairs(body) do if l:find("^|") then last = i end end
 	table.insert(body, last + 1, "")
-	table.insert(body, last + 2, MoreLine("Every command", section.title, readme))
+	table.insert(body, last + 2, MoreLine("Every command in the README:", section.title, readme))
 	section.body = body
 end
 

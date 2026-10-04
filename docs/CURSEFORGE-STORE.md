@@ -481,7 +481,7 @@ addon knows him by name, like the Treasurer. It opens on **the Throne Room** (th
 his court while it is open, and the Treasury), and holding court takes him there. Each of his
 tools lives where it belongs:
 
-*Continued in the README: [The Throne (the King and his Hands)](https://github.com/dnl-gentile/olympus-addon#the-throne-the-king-and-his-hands).*
+*The list is in the README, with the rest of this section: [The Throne (the King and his Hands)](https://github.com/dnl-gentile/olympus-addon#the-throne-the-king-and-his-hands).*
 
 ### The King's Steward (1.0.0)
 The King's right hand, so that he needn't set everything up himself: a character the author
@@ -801,7 +801,7 @@ minutes and signs other players' requests by itself, and their character's name 
 reach the bot in those players' proofs, until `/oly discord key off`. Your name is on every
 message (the game adds it). What goes where:
 
-*Continued in the README: [Privacy](https://github.com/dnl-gentile/olympus-addon#privacy).*
+*The table is in the README, with the rest of this section: [Privacy](https://github.com/dnl-gentile/olympus-addon#privacy).*
 
 ## Security and trust
 
@@ -841,7 +841,7 @@ copy. No addon can prevent that. What this one does is check what every copy sen
 few characters working together can still reach is said plainly further down
 ([What colluding characters can reach](#what-colluding-characters-can-reach)):
 
-*Continued in the README: [Security and trust](https://github.com/dnl-gentile/olympus-addon#security-and-trust).*
+*The list is in the README, with the rest of this section: [Security and trust](https://github.com/dnl-gentile/olympus-addon#security-and-trust).*
 
 ### What colluding characters can reach
 
@@ -850,7 +850,7 @@ sender belongs to: a census report is its sender's word. So a few characters wor
 can still reach the following today (1.0.0); each outcome was checked against this version's
 code.
 
-*Continued in the README: [What colluding characters can reach](https://github.com/dnl-gentile/olympus-addon#what-colluding-characters-can-reach).*
+*The list is in the README, with the rest of this section: [What colluding characters can reach](https://github.com/dnl-gentile/olympus-addon#what-colluding-characters-can-reach).*
 
 ## Built for a crowd of thousands
 

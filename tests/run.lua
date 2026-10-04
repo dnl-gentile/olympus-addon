@@ -23139,7 +23139,9 @@ end)
 -- 1.0.0, Konig's review: what the README and the CurseForge page (docs/CURSEFORGE.md) tell players
 -- about what leaves their game must be what the addon does. Both are checked here against the
 -- code: the addon itself talks only in game; Olympus Link, when a player chooses to link a
--- character, uses a website (GitHub Pages) and the Olympus bot on Discord.
+-- character, uses a website (GitHub Pages) and the Olympus bot on Discord. (1.1.5: CurseForge
+-- gets the store page made from docs/CURSEFORGE.md, docs/CURSEFORGE-STORE.md; the last test here
+-- holds it to the privacy section's first words and to the table, whole or one link away.)
 do
 	local DOCS = { "README.md", "docs/CURSEFORGE.md" }
 	local function Doc(path) return assert(ReadFile(ROOT .. path), "missing " .. path) end
@@ -23374,6 +23376,37 @@ do
 		-- the README's, word for word.
 		Has(Flat(Doc("README.md")), ("`ns.LINK_COUNCIL_AUTHORITY = %s`"):format(tostring(shipped)), "README.md: the author's switch")
 		eq(linkRows["docs/CURSEFORGE.md"], linkRows["README.md"], "the CurseForge page's Olympus Link rows are the README's")
+	end)
+
+	-- (1.1.5: what CurseForge gets is docs/CURSEFORGE-STORE.md, which scripts/curseforge-page.lua
+	-- makes from docs/CURSEFORGE.md with Privacy, Security and trust and the colluding characters
+	-- cut to their opening, so it fits CurseForge's editor. The tests above hold the whole page and
+	-- the README; this one holds the store page itself: the same first words above the table, then
+	-- either the whole table or a link that says the table is in the README's Privacy, the section
+	-- those tests check; and Security and trust and the colluding characters link to theirs.)
+	test("1.1.5 docs (review): the CurseForge store page keeps the privacy section's first words (addon messages, Olympus Link, GitHub Pages, Discord), then the whole table or a link saying it is in the README's Privacy; Security and trust and the colluding characters link to the README's", function()
+		local store = Doc("docs/CURSEFORGE-STORE.md")
+		local privacy = assert(Section(store, "Privacy"), "the store page: a Privacy section")
+		local head = privacy:match("^(.-)\n[|*]") or privacy
+		local intro = Flat(head)
+		for _, must in ipairs({ "addon messages", "Olympus Link", "GitHub Pages", "Discord" }) do Has(intro, must, "the store page: the privacy section's first words") end
+		eq(head, Section(Doc("docs/CURSEFORGE.md"), "Privacy"):sub(1, #head), "the store page: the whole page's first words")
+		local rows = {}
+		for line in privacy:gmatch("[^\n]+") do
+			if line:sub(1, 2) == "| " and not line:find("^| What |") then rows[#rows + 1] = line end
+		end
+		local readme = PrivacyRows("README.md")
+		assert(#readme > 30, "the README's Privacy has the whole table")
+		if #rows > 0 then
+			eq(table.concat(rows, "\n"), table.concat(readme, "\n"), "a privacy table on the store page is the README's, whole")
+		else
+			Has(privacy, "\n*The table is in the README, with the rest of this section: [Privacy](https://github.com/dnl-gentile/olympus-addon#privacy).*\n",
+				"the store page, with no table: where the table is")
+		end
+		local security = assert(Section(store, "Security and trust"), "the store page: a Security and trust section")
+		for _, id in ipairs({ "security-and-trust", "what-colluding-characters-can-reach" }) do
+			Has(security, "](https://github.com/dnl-gentile/olympus-addon#" .. id .. ").*\n", "the store page: the README's section")
+		end
 	end)
 end
 ---------------------------------------------------------------------------
@@ -48884,7 +48917,7 @@ end)()
 
 	-- (1.1.5: the store page CurseForge gets, docs/CURSEFORGE-STORE.md, made by
 	-- scripts/curseforge-page.lua from the whole page; scripts/check.sh checks both.)
-	test("1.1.5 CurseForge store page: what scripts/curseforge-page.lua makes of docs/CURSEFORGE.md, under the budget; the TOC's version first in its recent versions; every heading kept; each cut section ends with a link to the README's", function()
+	test("1.1.5 CurseForge store page: what scripts/curseforge-page.lua makes of docs/CURSEFORGE.md, under the budget; the TOC's version first in its recent versions; every heading kept; each cut section ends with a link to the README's, which says what an opening that leads into the part cut leads to", function()
 		local size = dofile(ROOT .. "scripts/curseforge-size.lua")
 		local gen = dofile(ROOT .. "scripts/curseforge-page.lua")
 		local store = gen.Expected(ROOT)
@@ -48919,16 +48952,27 @@ end)()
 			if i > 1 then assert(Num(versions[i - 1]) > Num(v), v) end
 		end
 		assert(store:find("[#56](https://github.com/dnl-gentile/olympus-addon/issues/56)", 1, true), "an issue's number links to it")
-		-- Each cut section: its opening, word for word, then the link to the same section of the README.
+		-- Each cut section: its opening, word for word, then the link to the same section of the
+		-- README. An opening that leads into the part cut (it ends on a colon, or names "the
+		-- following") says that part is in the README, where "Continued" read as broken off
+		-- mid-sentence: "What goes where:", then nothing but a link.
+		local LEADS = {
+			["The Throne (the King and his Hands)"] = "The list is", -- "Each of his tools lives where it belongs:"
+			["Privacy"] = "The table is", -- "What goes where:"
+			["Security and trust"] = "The list is", -- "... said plainly further down (...):"
+			["What colluding characters can reach"] = "The list is", -- "can still reach the following"
+		}
 		for _, cut in ipairs(gen.CUTS) do
 			local function Section(text)
 				local s = ("\n" .. text .. "\n#"):match("\n#+ " .. cut.title:gsub("%p", "%%%0") .. "\n(.-)\n#")
 				return assert(s, cut.title)
 			end
 			local short, long = Section(store), Section(full)
-			local opening, link = short:match("^(.-)\n\n%*Continued in the README: %[[^]]+%]%(([^)]+)%)%.%*\n*$")
+			local opening, words, link = short:match("^(.-)\n\n%*([^%[\n]+) %[[^]]+%]%(([^)]+)%)%.%*\n*$")
 			assert(opening, cut.title .. ": its link")
 			eq(long:sub(1, #opening), opening, cut.title .. ": its opening")
+			eq(words, LEADS[cut.title] and LEADS[cut.title] .. " in the README, with the rest of this section:" or "Continued in the README:", cut.title .. ": its link's words")
+			assert(not (opening:find(":%s*$") and words:find("^Continued")), cut.title .. ": an opening that ends on a colon, then only a link")
 			assert(#short < #long, cut.title)
 			local id = link:match("^https://github%.com/dnl%-gentile/olympus%-addon#(.+)$")
 			eq(id, size.Slug(size.Plain(cut.title)), cut.title)
@@ -48957,6 +49001,11 @@ end)()
 		Refused(full, readme, roadmap, "9.9.9", "ROADMAP.md has no Done line for v9.9.9")
 		Refused((full:gsub("\n## Install\n", "\n## Install\n[here](#nowhere)\n")), readme, roadmap, version, "links to #nowhere")
 		Refused((full:gsub("\n## Privacy\n", "\n## Your privacy\n")), readme, roadmap, version, 'docs/CURSEFORGE.md has no heading "Privacy"')
+		-- Any cut whose opening comes to lead into the part cut gets the same: the Treasury's, ended
+		-- on a colon here.
+		local led = gen.Build((full:gsub("\nalone until then%)%.\n", "\nalone until then). What it holds:\n", 1)), readme, roadmap, version, size)
+		assert(led:find("What it holds:\n\n*The list is in the README, with the rest of this section: [The Treasury (its keepers, the King, and the army when the King says so)](", 1, true),
+			"the Treasury's opening, led into its list")
 		-- scripts/check.sh runs both checks.
 		local check = assert(ReadFile(ROOT .. "scripts/check.sh"))
 		assert(check:find("luajit scripts/curseforge-page.lua --check", 1, true), "check.sh")
