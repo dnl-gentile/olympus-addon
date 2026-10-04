@@ -1049,6 +1049,35 @@ ns.APPROVED_MAX = 20
 -- can hand the signed text counts as soon as its members update, with nothing to paste. Each
 -- faction's, any case; the signed list adds to them, and only a new release takes one off.
 ns.APPROVED_BUILTIN = { Alliance = { "OLYMPIAN" } }
+-- 1.1.5 (the High Council's call): guilds the council removed from Olympus outright, whatever
+-- their name says, per faction. On 1.1.5 and newer they are no Olympus guild: no census, no
+-- Olympus chats, no marks, and their own members' addon shows the Join Olympus screen. Their way
+-- back is an appeal to the council: the author's signed approved list (ns.IsApprovedGuild) lets
+-- one in again without a new version. Never the King's guild. On every 1.1 addon meanwhile, and on
+-- older versions than this one, the council's own word does it live: /oly netoff guild.
+ns.REMOVED_BUILTIN = { Alliance = { "Olympus Defense Force" } }
+-- Asked with every IsFederation, like the approved list: each name's answer is kept while the
+-- faction's list is the same table (a faction with none answers at once).
+local removedMemo
+function ns.IsRemovedGuild(guild)
+	if type(guild) ~= "string" or guild == "" then return false end
+	local list = type(ns.REMOVED_BUILTIN) == "table" and ns.REMOVED_BUILTIN[ns.faction or "Alliance"]
+	if type(list) ~= "table" or #list == 0 then return false end
+	local m = removedMemo
+	if not m or m.list ~= list then
+		local set = {}
+		for _, name in ipairs(list) do set[ns.Fold(name)] = true end
+		m = { list = list, set = set, seen = {}, n = 0 }
+		removedMemo = m
+	end
+	local known = m.seen[guild]
+	if known == nil then
+		known = m.set[ns.Fold((guild:gsub("^%s+", ""):gsub("%s+$", "")))] == true and not ns.IsKingGuild(guild)
+		if m.n >= 2000 then m.seen, m.n = {}, 0 end
+		m.seen[guild], m.n = known, m.n + 1
+	end
+	return known
+end
 local function ApprovedName(s)
 	s = tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", "")
 	if s == "" or #s > 72 or select(2, s:gsub("[^\128-\191]", "")) > 24 then return nil end
@@ -1385,6 +1414,8 @@ function ns.IsFederation(guild)
 	if ns.IsKingGuild(guild) then return true end
 	-- A guild the author's signed list approves (1.1), whatever its name.
 	if ns.IsApprovedGuild(guild) then return true end
+	-- A guild the High Council removed (1.1.5), whatever its name.
+	if ns.IsRemovedGuild(guild) then return false end
 	local known = federation[guild]
 	if known == nil then
 		known = Federation(guild)

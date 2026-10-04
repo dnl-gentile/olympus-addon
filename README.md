@@ -61,6 +61,13 @@ or a High Councillor hands out the signed text; it is checked like any list, so 
 or changed), and his addon passes it to his guild every 5 minutes. `/oly approved` lists the
 approved guilds of your faction. A newer signed list without a guild ends it on every client.
 
+**Removed guilds (1.1.5).** A guild the High Council removed from Olympus is no Olympus guild,
+whatever its name: its census, chats and marks are gone and its members' addon shows the Join
+Olympus screen. Its way back is an appeal to the council: once the author names it in his signed
+approved list, it counts again, with no new version. Until a player updates, the council's
+[net-off](#net-off-11-the-moderators-hide-a-character-or-take-a-guild-off-the-network) word takes
+such a guild off the network live.
+
 ### Not in Olympus yet?
 First it asks the obvious question: *"<Your Guild>? Disband immediately. What are you
 doing?"* Then it helps you get in. The **Join Olympus** screen uses the game's own `/who` to

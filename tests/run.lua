@@ -34711,6 +34711,43 @@ test("1.1 approved guilds: <OLYMPIAN> ships with the addon (Alliance): an Olympu
 	if not ok then error(err, 0) end
 end)
 
+test("1.1.5 removed guilds: a guild the High Council removed is no Olympus guild whatever its name (any case, stray spaces), its members see the Join screen; the author's approved list lets it back; never the King's guild; the other faction's namesake untouched", function()
+	local saved = { faction = ns.faction, titles = ns.rdb.councilTitles, inGuild = IsInGuild, guild = GetGuildInfo,
+		removed = ns.REMOVED_BUILTIN, approved = ns.IsApprovedGuild }
+	local ok, err = pcall(function()
+		ns.faction, ns.rdb.councilTitles = "Alliance", nil
+		-- What ships: the council's call, read through the list itself.
+		local shipped = assert(saved.removed.Alliance and saved.removed.Alliance[1], "the shipped list")
+		eq(ns.NamedOlympus(shipped), true, "its name alone would make it one")
+		eq(ns.IsFederation(shipped), false, "removed")
+		-- (made-up names below)
+		ns.REMOVED_BUILTIN = { Alliance = { "Olympus Rogue Squad" } }
+		eq(ns.IsFederation("Olympus Rogue Squad"), false)
+		eq(ns.IsFederation("OLYMPUS ROGUE SQUAD"), false, "any case")
+		eq(ns.IsFederation(" Olympus Rogue Squad "), false, "stray spaces")
+		eq(ns.IsRemovedGuild("Olympus Rogue Squad"), true)
+		eq(ns.IsFederation("Olympus Rogue"), true, "another guild"); eq(ns.IsFederation("Olympus II"), true)
+		-- Its members' addon: no Olympus member (the Join screen).
+		IsInGuild, GetGuildInfo = function() return true end, function() return "Olympus Rogue Squad", "Member", 3 end
+		eq(ns.IsMember(), false)
+		-- The appeal: once the author's signed list approves it, it counts again (no new version).
+		ns.IsApprovedGuild = function(g) return g == "Olympus Rogue Squad" end
+		eq(ns.IsFederation("Olympus Rogue Squad"), true); eq(ns.IsMember(), true)
+		ns.IsApprovedGuild = saved.approved
+		-- Never the King's guild.
+		local king = ns.KING_GUILD.Alliance
+		ns.REMOVED_BUILTIN = { Alliance = { king } }
+		eq(ns.IsRemovedGuild(king), false); eq(ns.IsFederation(king), true)
+		-- The Horde's guild of that name is not the Alliance's.
+		ns.REMOVED_BUILTIN = { Alliance = { "Olympus Rogue Squad" } }
+		ns.faction = "Horde"
+		eq(ns.IsRemovedGuild("Olympus Rogue Squad"), false); eq(ns.IsFederation("Olympus Rogue Squad"), true)
+	end)
+	ns.faction, ns.rdb.councilTitles, IsInGuild, GetGuildInfo = saved.faction, saved.titles, saved.inGuild, saved.guild
+	ns.REMOVED_BUILTIN, ns.IsApprovedGuild = saved.removed, saved.approved
+	if not ok then error(err, 0) end
+end)
+
 test("1.1 approved guilds: a guild the author's signed list names is an Olympus guild, on the list's realm group and faction; a newer list without it ends it", function()
 	WithApproved(function(w, W)
 		eq(ns.IsFederation("Sentinels of Zeus"), false, "not by its name"); eq(ns.IsMember(), false)
