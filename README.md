@@ -1056,11 +1056,22 @@ alone until then).
     reaches it, and his guild's table counts him once there (one payer, the gold in once). It is
     never another guild's: an alt's payment with another guild on it, or with none ("guild not
     known"), counts for the alt alone, and the alt's own line keeps its own gold, never its
-    main's. Only a link both characters confirmed counts: an offer not answered, or a name one
-    character claims alone, adds nothing, and a link taken apart stops counting at once (the books
-    keep each character's own weeks; the link is looked up each time a list is drawn). The table
-    goes by the links the Treasurer's addon heard, a guild's page by the viewer's own addon: one
-    that has not heard the link yet shows each character's own gold, as before.
+    main's. An alt counts only while it and its main are of that guild now, by the best word the
+    viewer's addon has: on a guild's own page, its roster (the server's word); on the Treasurer's,
+    his roster for his own guild and, for another, the guild each one's own payments of this week
+    carry. Never an earlier week's, even where the ledger still puts their gold in that guild by
+    it, and never the guild a link's claim names (it goes out again only when the links change).
+    The King's and his Steward's page of a guild not theirs has no such word, so there each
+    character shows its own gold, as before; their table counts the player once by the Treasurer's
+    ledger.
+    A guild's own page counts each player once among those at the amount, as the table does (a
+    linked alt of a main on that roster goes with him; the count's tooltip says how many), and on
+    a list too long to send whole, a main whose linked alt of the roster is not on it shows as not
+    known, never below. Only a link both characters confirmed counts: an offer not answered, or a
+    name one character claims alone, adds nothing, and a link taken apart stops counting at once
+    (the books keep each character's own weeks; the link is looked up each time a list is drawn).
+    The table goes by the links the Treasurer's addon heard, a guild's page by the viewer's own
+    addon: one that has not heard the link yet shows each character's own gold, as before.
   - **Clearing a seat (a guild's Captains and Lord)**: on their own guild's list, one click
     filters the roster to whoever is under the amount this week (never someone the Treasurer's
     list can't tell yet: a list still coming, or cut). A click picks one name; under it,
