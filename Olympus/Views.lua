@@ -781,6 +781,9 @@ local function SortedGuilds(list)
 	local guilds = {}
 	for i, e in ipairs(list) do guilds[i] = e end
 	table.sort(guilds, function(a, b)
+		-- The default Census order is the Realm's order exactly. Explicit column choices keep
+		-- behaving as labelled by their header, including an ascending Members click.
+		if Views.sort.key == "members" and Views.sort.desc then return ns.Data.GuildDefaultLess(a, b) end
 		if a.fresh ~= b.fresh then return a.fresh end
 		local va, vb = get(a), get(b)
 		if va == vb then return a.name < b.name end

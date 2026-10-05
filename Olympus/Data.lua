@@ -448,6 +448,36 @@ function Data.KnownRank(sender, guild, soft)
 	return rank, named
 end
 
+-- The shared default order of guilds in the Census and the Realm. A current report stays
+-- ahead of an old one; the army's largest guild comes first. If two guilds are the same size,
+-- the exact <OLYMPUS> is the standard-bearer, then the higher average level breaks the next
+-- tie. Names make the final order deterministic when a report has no average level yet.
+-- (Each name is folded once, not at every comparison of every sort: the Realm's search keeps
+-- its folds to the text typed.)
+local guildSortNames, guildSortNamesCount = {}, 0
+local function GuildSortName(name)
+	local folded = guildSortNames[name]
+	if not folded then
+		if guildSortNamesCount >= 2048 then wipe(guildSortNames); guildSortNamesCount = 0 end
+		folded = ns.Fold(name)
+		guildSortNames[name] = folded
+		guildSortNamesCount = guildSortNamesCount + 1
+	end
+	return folded
+end
+function Data.GuildDefaultLess(a, b)
+	if a.fresh ~= b.fresh then return a.fresh end
+	local totalA, totalB = a.g.total or 0, b.g.total or 0
+	if totalA ~= totalB then return totalA > totalB end
+	local nameA, nameB = GuildSortName(a.name), GuildSortName(b.name)
+	local olympusA, olympusB = nameA == "olympus", nameB == "olympus"
+	if olympusA ~= olympusB then return olympusA end
+	local levelA, levelB = tonumber(a.g.avgLevel) or 0, tonumber(b.g.avgLevel) or 0
+	if levelA ~= levelB then return levelA > levelB end
+	if nameA ~= nameB then return nameA < nameB end
+	return a.name < b.name
+end
+
 function Data.Summary()
 	local now = ns.Now()
 	local s = { total = 0, online = 0, fresh = 0, newest = 0, guilds = {}, zones = {}, zoneGuilds = {}, zoneList = {} }
@@ -474,11 +504,7 @@ function Data.Summary()
 			end
 		end
 	end
-	table.sort(s.guilds, function(a, b)
-		if a.fresh ~= b.fresh then return a.fresh end
-		if (a.g.total or 0) ~= (b.g.total or 0) then return (a.g.total or 0) > (b.g.total or 0) end
-		return a.name < b.name
-	end)
+	table.sort(s.guilds, Data.GuildDefaultLess)
 	-- 1.1: a count of people. The characters their players linked as alts (Alts.lua: confirmed on
 	-- each character) count once in the army's total, whatever guilds they are in; each guild's own
 	-- size stays its roster's. s.characters: the total before.

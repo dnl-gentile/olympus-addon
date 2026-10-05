@@ -386,6 +386,65 @@ test("summary keeps a stale guild's size, counts online and zones only while fre
 	assert(ns.Data.DiscordText():find("2,300 soldiers"), "discord text")
 end)
 
+test("1.1.5 Census and Realm default guild order puts OLYMPUS first on a size tie, then average level, then name", function()
+	local savedGuilds, savedSeen, savedSort, savedUI, savedKey = ns.rdb.guilds, ns.rdb.seen, ns.Views.sort, ns.UI, ns.rdb.realmKey
+	local now = os.time()
+	ns.rdb.guilds = {
+		["Knights of Olympus"] = { total = 500, online = 1, avgLevel = 60, zones = {}, t = now, mine = true },
+		["OLYMPUS"] = { total = 500, online = 1, avgLevel = 1, zones = {}, t = now, mine = true },
+		["Olympus II"] = { total = 500, online = 1, avgLevel = 20, zones = {}, t = now, mine = true },
+		["Olympus III"] = { total = 500, online = 1, avgLevel = 40, zones = {}, t = now, mine = true },
+		["Alpha Olympus"] = { total = 400, online = 1, zones = {}, t = now, mine = true },
+		["Beta Olympus"] = { total = 400, online = 1, zones = {}, t = now, mine = true },
+		["Olympus Old"] = { total = 999, online = 1, avgLevel = 60, zones = {}, t = now - ns.Data.FRESH - 1, mine = true },
+	}
+	ns.rdb.seen, ns.rdb.realmKey = {}, "sealed"
+	ns.Views.sort = { key = "members", desc = true }
+	ns.UI = { StatusLine = function() return "status" end }
+	local ok, err = pcall(function()
+		local summary = ns.Data.Summary()
+		eq(summary.guilds[1].name, "OLYMPUS", "the exact guild wins the equal-size tie")
+		eq(summary.guilds[2].name, "Knights of Olympus", "average level is the next tie-breaker")
+		eq(summary.guilds[3].name, "Olympus III")
+		eq(summary.guilds[4].name, "Olympus II")
+		eq(summary.guilds[5].name, "Alpha Olympus", "unknown and equal averages fall back to normalized name")
+		eq(summary.guilds[6].name, "Beta Olympus")
+		eq(summary.guilds[7].name, "Olympus Old", "fresh reports still precede stale ones")
+
+		local census, guildRows = ns.Views.Build("census"), {}
+		for _, line in ipairs(census) do
+			if line.cols then guildRows[#guildRows + 1] = line.cols[1] end
+		end
+		eq(guildRows[1], "OLYMPUS", "the Census uses the same default order")
+		eq(guildRows[2], "Knights of Olympus")
+		eq(guildRows[3], "Olympus III")
+		eq(guildRows[4], "Olympus II")
+		eq(guildRows[5], "Alpha Olympus")
+		eq(guildRows[6], "Beta Olympus")
+		eq(guildRows[7], "Olympus Old")
+
+		-- The Realm lists its guilds in that order too.
+		local realmRows = {}
+		for _, line in ipairs(ns.Views.Build("realm")) do
+			local name = type(line.id) == "string" and line.id:match("^guild:(.+)$")
+			if name then realmRows[#realmRows + 1] = name end
+		end
+		eq(table.concat(realmRows, ","), "OLYMPUS,Knights of Olympus,Olympus III,Olympus II,Alpha Olympus,Beta Olympus,Olympus Old",
+			"the Realm uses the same default order")
+
+		-- A Members click the other way is the plain column: smallest first, a tie by name.
+		ns.Views.SortBy("members")
+		guildRows = {}
+		for _, line in ipairs(ns.Views.Build("census")) do
+			if line.cols then guildRows[#guildRows + 1] = line.cols[1] end
+		end
+		eq(table.concat(guildRows, ","), "Alpha Olympus,Beta Olympus,Knights of Olympus,OLYMPUS,Olympus II,Olympus III,Olympus Old",
+			"an ascending Members sort keeps its header's meaning")
+	end)
+	ns.rdb.guilds, ns.rdb.seen, ns.Views.sort, ns.UI, ns.rdb.realmKey = savedGuilds, savedSeen, savedSort, savedUI, savedKey
+	if not ok then error(err, 0) end
+end)
+
 test("receive refuses reports about our own guild", function()
 	ns.rdb.guilds = {}
 	eq(ns.Data.Receive({ guild = MY_GUILD, total = 1, online = 1, zones = {} }, "Liar-Realm"), false)

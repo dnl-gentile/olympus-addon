@@ -96,7 +96,9 @@ versions before 1.1 just get the whisper, as before.
 
 ### Census: the army at a glance
 - Every Olympus guild in one list: **Guild · Members · Online · Lord**. Columns sort by
-  clicking, like the Guild window.
+  clicking, like the Guild window. By default, fresh reports and larger guilds come first;
+  at the same size the exact `<OLYMPUS>` comes first, then the higher average level, then the
+  name (1.1.5). The Realm lists its guilds in the same order.
 - **Total soldiers** and **online now** across the whole realm.
 - **Where the army stands**: top zones ("Stormwind City 742") and totals per continent
   (Eastern Kingdoms, Kalimdor), counted by the guilds whose census comes from a member who
