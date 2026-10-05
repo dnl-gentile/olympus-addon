@@ -853,21 +853,18 @@ local function PromptButton(f, label, choice, look)
 	return b
 end
 
--- A window like the game's own dialogs, with three answers and "Don't ask me again".
+-- A window like the game's own dialogs, with three answers and "Don't ask me again". 1.1.5: in the
+-- Olympus window's metal without its portrait (ns.Window, Dialog.lua), "Olympus" in its title bar,
+-- no X (its answers close it; Escape too, with mouse and keyboard).
+Hop.PROMPT_TOP = -34 -- its text, under the title bar
 local function MakePrompt()
-	local f = CreateFrame("Frame", "OlympusKingLayerPrompt", UIParent)
+	local f = ns.Window("OlympusKingLayerPrompt", UIParent, { title = L.TITLE, close = false })
 	f:SetFrameStrata("DIALOG")
 	f:SetToplevel(true)
 	f:EnableMouse(true)
 	f:SetPoint("CENTER", UIParent, "CENTER", 0, 80) -- clear of the game's popups at the top
-	local okBorder, border = pcall(CreateFrame, "Frame", nil, f, "DialogBorderTemplate")
-	if not okBorder or not border then
-		border = f:CreateTexture(nil, "BACKGROUND")
-		border:SetColorTexture(0, 0, 0, 0.85)
-	end
-	border:SetAllPoints()
 	f.text = f:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-	f.text:SetPoint("TOP", 0, -20)
+	f.text:SetPoint("TOP", 0, Hop.PROMPT_TOP)
 	f.text:SetJustifyH("CENTER")
 	-- Left to right: the way out (grey), inviting by hand, and "For Olympus!" (lit, white).
 	f.buttons = {
@@ -884,7 +881,6 @@ local function MakePrompt()
 	f:SetScript("OnHide", function(self)
 		if not self.answered then kingMode = kingMode or "manual" end
 	end)
-	ns.EscapeCloses("OlympusKingLayerPrompt")
 	return f
 end
 
@@ -908,7 +904,7 @@ function Hop.ShowKingPrompt()
 	f.check:SetPoint("BOTTOMLEFT", f.buttons[1], "TOPLEFT", -4, 6)
 	f.check:SetChecked(false)
 	local textH = f.text.GetStringHeight and f.text:GetStringHeight() or f.text:GetHeight()
-	f:SetHeight(20 + math.max(40, textH or 0) + 12 + 24 + 6 + 22 + 18)
+	f:SetHeight(-Hop.PROMPT_TOP + math.max(40, textH or 0) + 12 + 24 + 6 + 22 + 18)
 	f.answered = false
 	f:Show()
 end

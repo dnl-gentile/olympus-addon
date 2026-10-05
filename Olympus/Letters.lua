@@ -3,8 +3,8 @@ local L = ns.L
 
 -- The version letters (1.1.5, the author's call): after the addon updates to a new version, once a
 -- version, a short letter about what changed in it, in the King's voice, on a pop-up of Olympus's
--- own shaped like the Olympus window: the game's portrait frame with the Olympus logo (UI.lua's
--- CreateMain makes the window the same way) and a parchment compartment (the Royal Writs' paper,
+-- own in the Olympus window's bronze metal, without its portrait and logo (only the Olympus window
+-- has them: ns.Window, Dialog.lua), and a parchment compartment (the Royal Writs' paper,
 -- UI.PARCHMENTS). The Olympus window's help button (its "i", UI.ShowHelp) keeps them all: the help
 -- page's Version letters button lists every letter, newest first, and a click opens that
 -- version's letter; `/oly letters` opens the list too, `/oly letters <version>` that letter.
@@ -99,21 +99,13 @@ local function Button(parent, label, width)
 	return b
 end
 
-local function SetTitle(f, text)
-	if f.SetTitle then f:SetTitle(text)
-	elseif f.TitleText then f.TitleText:SetText(text)
-	elseif f.TitleContainer and f.TitleContainer.TitleText then f.TitleContainer.TitleText:SetText(text) end
-	f.titleText = text
-end
+local function SetTitle(f, text) ns.SetWindowTitle(f, text) end
 
+-- The metal without the portrait (ns.Window): no inset box of its own, the letter brings its
+-- compartment. Escape closes it with mouse and keyboard (checked each time it shows); with the
+-- gamepad UI its X and Close do, in combat too.
 local function Make()
-	local ok, f = pcall(CreateFrame, "Frame", "OlympusLetterFrame", UIParent, "PortraitFrameTemplate")
-	if ok and f and f.CloseButton then
-		f.hasPortrait = true
-	else
-		if ok and f then f:Hide() end
-		f = CreateFrame("Frame", "OlympusLetterFrameBasic", UIParent, "BasicFrameTemplateWithInset")
-	end
+	local f = ns.Window("OlympusLetterFrame", UIParent, { inset = false })
 	f:SetSize(Letters.WIDTH, Letters.HEIGHT)
 	f:SetPoint("CENTER", 0, 40)
 	f:SetFrameStrata("DIALOG")
@@ -125,35 +117,16 @@ local function Make()
 	f:SetScript("OnDragStart", f.StartMoving)
 	f:SetScript("OnDragStop", f.StopMovingOrSizing)
 	f:Hide()
-	-- Escape closes it with mouse and keyboard; with the gamepad UI its X and Close do.
-	ns.EscapeCloses(f:GetName())
-	f:HookScript("OnShow", function(self) ns.EscapeCloses(self:GetName()) end)
-	f.onCloseCallback = function()
-		f:Hide()
-		return false
-	end
-	if f.hasPortrait then
-		local portrait = f.portrait or f.Portrait or (f.PortraitContainer and f.PortraitContainer.portrait)
-		if portrait then
-			portrait:SetTexture(ns.LOGO)
-			-- (Its coords before its mask: a masked texture refuses new ones, Forever 1.60; UI.lua's.)
-			portrait:SetTexCoord(0, 1, 0, 1)
-			if portrait.SetMask then pcall(portrait.SetMask, portrait, "Interface\\CharacterFrame\\TempPortraitAlphaMask") end
-		elseif f.SetPortraitToAsset then
-			pcall(f.SetPortraitToAsset, f, ns.LOGO)
-		end
-	end
-	-- The header, where the Olympus window has its army's count.
-	local hx = f.hasPortrait and 62 or 14
+	-- The header, under the title bar (where the Olympus window has its army's count).
 	f.head = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	f.head:SetPoint("TOPLEFT", hx, -30)
+	f.head:SetPoint("TOPLEFT", 14, -30)
 	f.head:SetPoint("RIGHT", -14, 0)
 	f.head:SetJustifyH("LEFT")
 	if f.head.SetWordWrap then f.head:SetWordWrap(false) end
 	-- The compartment: the game's inset box, the parchment inside it.
 	local okBox, box = pcall(CreateFrame, "Frame", nil, f, "InsetFrameTemplate")
 	if not okBox or not box then box = CreateFrame("Frame", nil, f) end
-	box:SetPoint("TOPLEFT", 10, -64)
+	box:SetPoint("TOPLEFT", 10, -54)
 	box:SetPoint("BOTTOMRIGHT", -10, 38)
 	f.box = box
 	local paper = box:CreateTexture(nil, "BACKGROUND", nil, 1)

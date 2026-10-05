@@ -349,8 +349,11 @@ local function MakeRow(f, i)
 	return r
 end
 
+-- (1.1.5) The Olympus window's metal without its portrait (ns.Window, Dialog.lua): who asks in its
+-- title bar (f.title is the bar's text), the question under it; its X hides it, in combat too.
+Vox.QUESTION_TOP = -32
 local function MakeFrame()
-	local f = CreateFrame("Frame", "OlympusVoxFrame", UIParent)
+	local f = ns.Window("OlympusVoxFrame", UIParent, { title = L.VOX_TITLE })
 	f:SetFrameStrata("DIALOG")
 	f:SetToplevel(true)
 	f:EnableMouse(true)
@@ -360,16 +363,9 @@ local function MakeFrame()
 	f:SetScript("OnDragStop", f.StopMovingOrSizing)
 	f:SetPoint("TOP", UIParent, "TOP", 0, -150)
 	f:SetSize(WIDTH, 220)
-	local okBorder, border = pcall(CreateFrame, "Frame", nil, f, "DialogBorderTemplate")
-	if not okBorder or not border then
-		border = f:CreateTexture(nil, "BACKGROUND")
-		border:SetColorTexture(0, 0, 0, 0.85)
-	end
-	border:SetAllPoints()
-	f.title = f:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-	f.title:SetPoint("TOP", 0, -18)
+	f.title = f.TitleText
 	f.question = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
-	f.question:SetPoint("TOP", f.title, "BOTTOM", 0, -8)
+	f.question:SetPoint("TOP", f, "TOP", 0, Vox.QUESTION_TOP)
 	f.question:SetWidth(WIDTH - 40)
 	f.question:SetJustifyH("CENTER")
 	f.kind = f:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
@@ -387,9 +383,7 @@ local function MakeFrame()
 	f.status = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 	f.status:SetPoint("BOTTOM", 0, 16)
 	f.status:SetWidth(WIDTH - 40)
-	f.close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-	f.close:SetPoint("TOPRIGHT", -4, -4)
-	f.close:SetScript("OnClick", function() f:Hide() end)
+	f.close = f.CloseButton
 	local elapsed = 0
 	f:SetScript("OnUpdate", function(_, dt)
 		elapsed = elapsed + dt
@@ -397,7 +391,6 @@ local function MakeFrame()
 		elapsed = 0
 		ns.SafeCall("vox tick", Vox.Refresh)
 	end)
-	ns.EscapeCloses("OlympusVoxFrame")
 	return f
 end
 
@@ -714,21 +707,14 @@ local function TimeLabel(sec)
 	return ("%dm"):format(sec / 60)
 end
 
--- (1.1.5, the author's ask) The Olympus window's own frame, its bronze metal and the logo in the
--- portrait (UI.lua's CreateMain, Letters.lua), not the plain silver one: a header by the portrait
--- and the boxes in a compartment below it, as theirs. Else the plain frame (its own inset), else a
--- bare one.
+-- (1.1.5, the author's asks) The Olympus window's bronze metal, not the plain silver frame, and
+-- without its portrait and logo (only the Olympus window has them): ns.Window (Dialog.lua), its
+-- inset box under the title bar as the plain frame's, the boxes where they always were. Its X hides
+-- it itself, in combat too. Escape closes it with mouse and keyboard; with the gamepad UI its X and
+-- Cancel do (checked each time it shows: a switch to the gamepad UI since takes it off the list).
 local function MakeComposer()
-	local ok, f = pcall(CreateFrame, "Frame", "OlympusVoxAskFrame", UIParent, "PortraitFrameTemplate")
-	if ok and f and f.CloseButton then
-		f.hasPortrait = true
-	else
-		if ok and f then f:Hide() end
-		ok, f = pcall(CreateFrame, "Frame", "OlympusVoxAskFrameBasic", UIParent, "BasicFrameTemplateWithInset")
-		if not ok or not f then f = CreateFrame("Frame", "OlympusVoxAskFrameBasic", UIParent) end
-	end
-	local dy = f.hasPortrait and -30 or 0
-	f:SetSize(420, f.hasPortrait and 340 or 330)
+	local f = ns.Window("OlympusVoxAskFrame", UIParent, { title = L.VOX_ASK_TITLE })
+	f:SetSize(420, 330)
 	f:SetPoint("CENTER", 0, 40)
 	f:SetFrameStrata("DIALOG")
 	f:SetToplevel(true)
@@ -737,62 +723,17 @@ local function MakeComposer()
 	f:RegisterForDrag("LeftButton")
 	f:SetScript("OnDragStart", f.StartMoving)
 	f:SetScript("OnDragStop", f.StopMovingOrSizing)
-	-- Its X hides it itself, in combat too (the Olympus window's: the template's HideUIPanel does
-	-- nothing there for a call that is not secure).
-	f.onCloseCallback = function()
-		f:Hide()
-		return false
-	end
-	if f.SetTitle then
-		f:SetTitle(L.VOX_ASK_TITLE)
-	elseif f.TitleText then
-		f.TitleText:SetText(L.VOX_ASK_TITLE)
-	elseif f.TitleContainer and f.TitleContainer.TitleText then
-		f.TitleContainer.TitleText:SetText(L.VOX_ASK_TITLE)
-	else
-		local t = Label(f, L.VOX_ASK_TITLE, "GameFontNormal")
-		t:SetPoint("TOP", 0, -6)
-	end
-	f.titleText = L.VOX_ASK_TITLE
-	if f.hasPortrait then
-		local portrait = f.portrait or f.Portrait or (f.PortraitContainer and f.PortraitContainer.portrait)
-		if portrait then
-			portrait:SetTexture(ns.LOGO)
-			-- (Its coords before its mask: a masked texture refuses new ones, Forever 1.60; UI.lua's.)
-			portrait:SetTexCoord(0, 1, 0, 1)
-			if portrait.SetMask then pcall(portrait.SetMask, portrait, "Interface\\CharacterFrame\\TempPortraitAlphaMask") end
-		elseif f.SetPortraitToAsset then
-			pcall(f.SetPortraitToAsset, f, ns.LOGO)
-		end
-		-- The header, where the Olympus window has its army's count (Letters.lua's).
-		f.head = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-		f.head:SetPoint("TOPLEFT", 62, -30)
-		f.head:SetPoint("RIGHT", -14, 0)
-		f.head:SetJustifyH("LEFT")
-		if f.head.SetWordWrap then f.head:SetWordWrap(false) end
-		f.head:SetText(L.VOX_TITLE)
-		-- The compartment: the game's inset box, as the Olympus window's list and the letter's (the
-		-- portrait frame has none: without it every box sits on the bare rock). From below the
-		-- portrait to above the buttons; it draws at the frame's own level, its art under the
-		-- labels and the boxes.
-		local okBox, box = pcall(CreateFrame, "Frame", nil, f, "InsetFrameTemplate")
-		if okBox and box then
-			box:SetPoint("TOPLEFT", 6, -56)
-			box:SetPoint("BOTTOMRIGHT", -6, 46)
-			f.box = box
-		end
-	end
 	local q = Label(f, L.VOX_ASK_QUESTION)
-	q:SetPoint("TOPLEFT", 18, -34 + dy)
+	q:SetPoint("TOPLEFT", 18, -34)
 	f.q = Box(f, 380, Vox.MAX_Q)
-	f.q:SetPoint("TOPLEFT", 22, -48 + dy)
+	f.q:SetPoint("TOPLEFT", 22, -48)
 	local a = Label(f, L.VOX_ASK_ANSWERS)
-	a:SetPoint("TOPLEFT", 18, -76 + dy)
+	a:SetPoint("TOPLEFT", 18, -76)
 	f.a = {}
 	for i = 1, Vox.MAX_ANSWERS do
 		local eb = Box(f, 180, Vox.MAX_A)
 		local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
-		eb:SetPoint("TOPLEFT", 22 + col * 196, -90 - row * 26 + dy)
+		eb:SetPoint("TOPLEFT", 22 + col * 196, -90 - row * 26)
 		f.a[i] = eb
 	end
 	-- Tab and Enter walk through the boxes; Enter on the last one asks.
@@ -807,13 +748,13 @@ local function MakeComposer()
 		eb:SetScript("OnEscapePressed", function() f:Hide() end)
 	end
 	local k = Label(f, L.VOX_ASK_KIND)
-	k:SetPoint("TOPLEFT", 18, -174 + dy)
+	k:SetPoint("TOPLEFT", 18, -174)
 	f.kinds = {}
 	for i, multi in ipairs({ false, true }) do
 		local okc, c = pcall(CreateFrame, "CheckButton", nil, f, "UICheckButtonTemplate")
 		if not okc or not c then c = CreateFrame("CheckButton", nil, f) end
 		c:SetSize(22, 22)
-		c:SetPoint("TOPLEFT", 18 + (i - 1) * 190, -188 + dy)
+		c:SetPoint("TOPLEFT", 18 + (i - 1) * 190, -188)
 		c.multi = multi
 		c:SetScript("OnClick", function() f.multi = multi; ns.SafeCall("vox composer", Vox.RefreshComposer) end)
 		c.label = Label(f, multi and L.VOX_PICK_MANY or L.VOX_PICK_ONE, "GameFontHighlightSmall")
@@ -821,12 +762,12 @@ local function MakeComposer()
 		f.kinds[i] = c
 	end
 	local tl = Label(f, L.VOX_ASK_TIME)
-	tl:SetPoint("TOPLEFT", 18, -218 + dy)
+	tl:SetPoint("TOPLEFT", 18, -218)
 	f.times = {}
 	for i, sec in ipairs(Vox.TIMES) do
 		local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 		b:SetSize(64, 22)
-		b:SetPoint("TOPLEFT", 18 + (i - 1) * 76, -234 + dy)
+		b:SetPoint("TOPLEFT", 18 + (i - 1) * 76, -234)
 		b:SetText(TimeLabel(sec))
 		b:SetScript("OnClick", function() f.seconds = sec; ns.SafeCall("vox composer", Vox.RefreshComposer) end)
 		b.seconds = sec
@@ -842,11 +783,6 @@ local function MakeComposer()
 	f.cancel:SetPoint("RIGHT", f.ask, "LEFT", -8, 0)
 	f.cancel:SetText(CANCEL or "Cancel")
 	f.cancel:SetScript("OnClick", function() f:Hide() end)
-	-- Escape closes it with mouse and keyboard; with the gamepad UI its X and Cancel do. Checked
-	-- each time it shows, as the Olympus window and the letter are: a switch to the gamepad UI
-	-- since takes it off the list (ns.EscapeCloses).
-	ns.EscapeCloses(f:GetName())
-	f:HookScript("OnShow", function(self) ns.EscapeCloses(self:GetName()) end)
 	return f
 end
 
