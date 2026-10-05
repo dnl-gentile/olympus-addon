@@ -167,7 +167,7 @@ end
 -- which may still come. Until it does (OnAnswer), or LATE seconds, results keep going to the
 -- UI: there the event only updates the lists of the Classic clients' Social window, where
 -- Blizzard's default for a long answer opens its Who tab (ShowWhoPanel).
-local function Release(why, late)
+local function Release(why, late) -- gp:who-quiet!undo
 	local p = pending
 	if not p then return end
 	pending = nil
@@ -580,8 +580,10 @@ ns.RegisterEvent(EVENT, OnAnswer)
 -- A /reload while our search waited leaves the client's who flag on (it outlives the UI):
 -- the player's own /who would then open the list instead of answering in chat. Reset it once
 -- at login, unless one of the player's who windows is open (it manages the flag itself).
+-- (1.1.5, the gamepad gate: not at a login with the gamepad UI, where Olympus searches nothing
+-- quietly and leaves the game's flag as it is.)
 ns.On("LOGIN", function()
-	if not Who.WindowOpen() then pcall(SetWhoToUi, false) end
+	if ns.Gate.Allowed("who-quiet") and not Who.WindowOpen() then pcall(SetWhoToUi, false) end -- gp:who-quiet
 end)
 
 function Who.Searched() return Who.lastSend > 0 end

@@ -89,5 +89,5 @@ function ns.ErrorHandlerOurs() return ours ~= nil and geterrorhandler() == ours 
 
 if not WorldMapFrame then
 	local load = (C_AddOns and C_AddOns.LoadAddOn) or LoadAddOn -- gp:load-worldmap
-	if load then pcall(load, "Blizzard_WorldMap") end
+	if load then pcall(load, "Blizzard_WorldMap") end -- gp:load-worldmap
 end

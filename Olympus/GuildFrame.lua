@@ -148,7 +148,7 @@ local function Place(button, host)
 	button:SetFrameLevel(level)
 end
 
-local function Attach(frame, kind)
+local function Attach(frame, kind) -- gp:communities-button
 	if not ns.Gate.Allowed(GATE) then return false end
 	local def = KINDS[kind]
 	local social = _G.FriendsFrame

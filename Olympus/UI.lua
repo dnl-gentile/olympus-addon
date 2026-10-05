@@ -369,7 +369,7 @@ local function CanTouch(r)
 end
 function UI.IssueReporterHidden() return ns.db and ns.db.hideIssueReporter == true end
 
-function UI.ApplyIssueReporter()
+function UI.ApplyIssueReporter() -- gp:issue-reporter
 	-- Blizzard's gamepad UI (0.9.8): the game hides the Issue Reporter there itself and shows it
 	-- only with its gamepad menu, centred, with bindings of its own (see
 	-- Blizzard_PTRFeedback_Gamepad.lua), so it never covers our window. Hidden from our code, its

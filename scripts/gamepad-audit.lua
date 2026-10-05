@@ -30,6 +30,9 @@
 -- function's first line covers that function's own body (not the functions written inside it).
 -- "<id>!hook": the site runs only from the gate's install or park for that id (Gate.Hooks), which
 -- the gate runs only when allowed; its own gate check is waived (the gamepad pass is the proof).
+-- "<id>!undo": the site gives back what that id took from the game (an event, a flag), in both
+-- modes, the gate's park among its callers; its gate check is waived too (the pass proves that
+-- with the gamepad UI on it runs only in the gate's own work at a switch).
 --
 -- Checks (each failure names the file, the line and what to do):
 --   a reach with no tag; a tag whose id the registry lacks; a foreign global write; a "gate" entry's
@@ -441,9 +444,9 @@ local function Tags(source)
 		local t = { ids = {}, hook = {} }
 		for item in spec:gmatch("[^,]+") do
 			local id, suffix = item:match("^([%w%-]+)(!?%w*)$")
-			if id then
+			if id and (suffix == "" or suffix == "!hook" or suffix == "!undo") then
 				t.ids[#t.ids + 1] = id
-				if suffix == "!hook" then t.hook[id] = true end
+				if suffix ~= "" then t.hook[id] = true end
 			else
 				t.bad = item
 			end
@@ -678,7 +681,7 @@ function A.Audit(root)
 			-- Every tag names a listed id.
 			for line, t in pairs(scan.tags) do
 				if t.from == line then
-					if t.bad then Fail("%s:%d: the tag \"gp:%s\" is not an id (letters, digits, dashes; \"!hook\" after one).", rel, line, t.bad) end
+					if t.bad then Fail("%s:%d: the tag \"gp:%s\" is not an id (letters, digits, dashes; \"!hook\" or \"!undo\" after one).", rel, line, t.bad) end
 					for _, id in ipairs(t.ids) do
 						if not byId[id] then
 							Fail("%s:%d: the tag gp:%s names no entry of Olympus/GamepadRegistry.lua. Add the entry, or fix the id.", rel, line, id)

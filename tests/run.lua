@@ -177,12 +177,43 @@ function ns.Fire() end
 -- Core.lua's "slash"); the tests call them directly. Nothing else of the login runs here.
 ns.Gate.Install("slash")
 
+-- 1.1.5, the gamepad pass's first rule (tests/gamepad.lua): a test turns Blizzard's gamepad UI on or
+-- off the way the game does, through the input style the addon asks (C_InputInterfaceStyle, the
+-- game's Enum.InputDeviceInterfaceType: Mkb 0, Gamepad 1), never by replacing ns.GamepadUI or
+-- ns.Gate. GamepadStyle(true|false), or a function asked each time; GamepadStyle(nil): as the
+-- harness had it, and a complaint when ns.GamepadUI or ns.Gate was replaced (each test ends with it).
+-- (A global of the harness's: this file's main chunk has no local to spare.)
+GamepadStyle = (function()
+	local saved
+	local original = { ns.GamepadUI, ns.Gate }
+	return function(on)
+		if on == nil then
+			if saved then C_InputInterfaceStyle, Enum.InputDeviceInterfaceType = saved[1], saved[2] end
+			saved = nil
+			if ns.GamepadUI ~= original[1] or ns.Gate ~= original[2] then
+				ns.GamepadUI, ns.Gate = original[1], original[2] -- (the guard's own restore)
+				return "it replaced ns.GamepadUI or ns.Gate: switch the input style instead (GamepadStyle, WithGamepadUI)"
+			end
+			return nil
+		end
+		if not saved then saved = { C_InputInterfaceStyle, Enum.InputDeviceInterfaceType } end
+		Enum.InputDeviceInterfaceType = { Mkb = 0, Gamepad = 1 }
+		C_InputInterfaceStyle = { GetCurrentStyle = function()
+			local v = on
+			if type(v) == "function" then v = v() end
+			return v and 1 or 0
+		end }
+	end
+end)()
+
 ---------------------------------------------------------------------------
 local passed, failed = 0, 0
 local function test(name, fn)
 	local before = #Y51.violations
 	local ok, err = pcall(fn)
 	if ok and #Y51.violations > before then ok, err = false, Y51.violations[#Y51.violations] end
+	local replaced = GamepadStyle(nil)
+	if replaced and ok then ok, err = false, replaced end
 	if ok then passed = passed + 1; print("  ok   " .. name)
 	else failed = failed + 1; print("  FAIL " .. name .. "\n       " .. tostring(err)) end
 end
@@ -10184,16 +10215,16 @@ test("0.9.6 gamepad UI: our windows are not on the escape list Blizzard's gamepa
 	local saved, gp = UISpecialFrames, ns.GamepadUI
 	local ok, err = pcall(function()
 		UISpecialFrames = {}
-		ns.GamepadUI = function() return false end
+		GamepadStyle(false)
 		ns.EscapeCloses("OlympusTestFrame"); ns.EscapeCloses("OlympusTestFrame")
 		eq(#UISpecialFrames, 1, "mouse and keyboard: Escape closes it, listed once")
-		ns.GamepadUI = function() return true end
+		GamepadStyle(true)
 		ns.EscapeCloses("OlympusTestFrame")
 		eq(#UISpecialFrames, 0, "gamepad UI: taken off")
 		ns.EscapeCloses("OlympusOther")
 		eq(#UISpecialFrames, 0, "and never added")
 	end)
-	UISpecialFrames, ns.GamepadUI = saved, gp
+	UISpecialFrames = saved; GamepadStyle(nil)
 	if not ok then error(err, 0) end
 end)
 
@@ -10589,7 +10620,7 @@ do
 			local ok, err = pcall(function()
 				-- The gamepad UI: Forever's who list keeps its event, is not even asked about it,
 				-- and Blizzard's SendWho is not hooked.
-				ns.GamepadUI = function() return true end
+				GamepadStyle(true)
 				LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
 				local asked, isRegistered = 0, LFGWhoListFrame.IsEventRegistered
 				function LFGWhoListFrame:IsEventRegistered(event) asked = asked + 1 return isRegistered(self, event) end
@@ -10610,7 +10641,7 @@ do
 				eq(C_FriendList.SendWho, sendWho, "Blizzard's SendWho left as it is")
 				assert(table.concat(server.printed, "\n"):find(ns.L.WHO_GAMEPAD, 1, true), "the player is told where the answer shows")
 				-- Mouse and keyboard: silenced for our search and given the event back, as always.
-				ns.GamepadUI = function() return false end
+				GamepadStyle(false)
 				ns.Who.Reset()
 				LFGWhoListFrame = ListenerFrame("LFGWhoListFrame", true)
 				eq(server.Click(), true)
@@ -10621,7 +10652,7 @@ do
 				server.clock = server.clock + ns.Who.COOLDOWN + 1
 				eq(ns.Who.Auto(), true, "and quiet searches from clicks")
 			end)
-			ns.GamepadUI = saved
+			GamepadStyle(nil)
 			if not ok then error(err, 0) end
 		end)
 	end)
@@ -10631,12 +10662,12 @@ do
 		local ok, err = pcall(function()
 			-- Put there with mouse and keyboard, other names after it (Blizzard's, other addons').
 			UISpecialFrames = { "StaticPopup1" }
-			ns.GamepadUI = function() return false end
+			GamepadStyle(false)
 			ns.EscapeCloses("OlympusTestFrame")
 			UISpecialFrames[3] = "InspectFrame"
 			eq(table.concat(UISpecialFrames, " "), "StaticPopup1 OlympusTestFrame InspectFrame")
 			-- The gamepad UI: nothing moves down a place (each name moved would be one Olympus wrote).
-			ns.GamepadUI = function() return true end
+			GamepadStyle(true)
 			ns.EscapeCloses("OlympusTestFrame")
 			eq(table.concat(UISpecialFrames, " "), "StaticPopup1 OlympusTestFrame InspectFrame", "left as it was")
 			-- Ours is the last name: it goes, nothing after it moves.
@@ -10646,7 +10677,7 @@ do
 			ns.EscapeCloses("OlympusTestFrame")
 			eq(table.concat(UISpecialFrames, " "), "StaticPopup1", "and never added back")
 		end)
-		UISpecialFrames, ns.GamepadUI = saved, gp
+		UISpecialFrames = saved; GamepadStyle(nil)
 		if not ok then error(err, 0) end
 	end)
 
@@ -10672,7 +10703,7 @@ do
 				ns.Print = function(m) printed[#printed + 1] = m end
 				UI.ResetIssueReporter()
 				ns.db.hideIssueReporter = true
-				ns.GamepadUI = function() return true end
+				GamepadStyle(true)
 				eq(UI.ApplyIssueReporter(), false, "left alone")
 				eq(#r.hooks, 0, "not hooked"); eq(children, 0, "no button of ours on it")
 				eq(r.shown, true, "never hidden by us")
@@ -10680,15 +10711,15 @@ do
 				eq(r.shown, true); eq(#r.hooks, 0)
 				assert(table.concat(printed, "\n"):find(ns.L.ISSUE_GAMEPAD, 1, true), "the player is told why")
 				-- Hooked with mouse and keyboard, then switched to the gamepad UI: the hook does nothing.
-				ns.GamepadUI = function() return false end
+				GamepadStyle(false)
 				eq(UI.ApplyIssueReporter(), true)
 				eq(r.shown, false, "mouse and keyboard: hidden as chosen")
 				eq(#r.hooks, 1); eq(children, 1, "its Hide button")
-				ns.GamepadUI = function() return true end
+				GamepadStyle(true)
 				r:Show()
 				eq(r.shown, true, "the game's gamepad menu shows it: our hook leaves it shown")
 			end)
-			PTR_IssueReporter, ns.db.hideIssueReporter, ns.GamepadUI, ns.Print, CreateFrame = saved.r, saved.hide, saved.gp, saved.print, saved.create
+			PTR_IssueReporter, ns.db.hideIssueReporter, ns.Print, CreateFrame = saved.r, saved.hide, saved.print, saved.create; GamepadStyle(nil)
 			UI.ResetIssueReporter()
 			if not ok then error(err, 0) end
 		end)
@@ -10712,11 +10743,11 @@ do
 			end
 			local function Fire(...) for _, f in ipairs(EVENT_SCRIPTS) do f(nil, ...) end end
 			-- Mouse and keyboard: kept, nothing said in chat.
-			ns.GamepadUI = function() return false end
+			GamepadStyle(false)
 			Fire("ADDON_ACTION_BLOCKED", "Olympus", "FocusUnit()")
 			eq(#printed, 0, "mouse and keyboard: no chat line")
 			-- The gamepad UI: kept once per call and counted; one line in chat, once a session.
-			ns.GamepadUI = function() return true end
+			GamepadStyle(true)
 			Fire("ADDON_ACTION_FORBIDDEN", "Olympus", "SetPreferredGamepadInteractTarget()")
 			Fire("ADDON_ACTION_FORBIDDEN", "Olympus", "SetPreferredGamepadInteractTarget()")
 			Fire("ADDON_ACTION_FORBIDDEN", "OtherAddon", "SetPreferredGamepadInteractTarget()")
@@ -10745,7 +10776,7 @@ do
 			eq(list[2].gamepad, true, "seen with the gamepad UI this time")
 			assert(list[2].stack:find("ParseText", 1, true), "this session's stack")
 		end)
-		ns.GamepadUI, ns.Print, debugstack, issecurevariable, ns.db.actionsBlocked = saved.gp, saved.print, saved.stack, saved.secure, saved.list
+		ns.Print, debugstack, issecurevariable, ns.db.actionsBlocked = saved.print, saved.stack, saved.secure, saved.list; GamepadStyle(nil)
 		GamepadSharedUtility, UISpecialFrames, ns.db.sessions = saved.gsu, saved.specials, saved.sessions
 		ns.ResetBlocked()
 		if not ok then error(err, 0) end
@@ -10796,7 +10827,7 @@ local function WithCouncil(fn)
 		fn()
 	end)
 	ns.rdb.council, ns.rdb.councilIcons, ns.db.councilIcons, ns.me = saved.council, saved.heard, saved.mine, saved.me
-	ns.Comm.Send, ns.Print, ns.Now, ns.GamepadUI = saved.send, saved.print, saved.now, saved.gp
+	ns.Comm.Send, ns.Print, ns.Now = saved.send, saved.print, saved.now; GamepadStyle(nil)
 	if ns.Workshop.ResetIcons then ns.Workshop.ResetIcons() end
 	if not ok then error(err, 0) end
 end
@@ -10916,7 +10947,7 @@ test("0.9.8 the council icon picker: a councillor's alone, filled from the game'
 				local SILVER = "|A:nameplates-icon-elite-silver:14:14|a"
 				local sent = {}
 				ns.Comm.Send = function(_, msg) sent[#sent + 1] = msg end
-				ns.GamepadUI = function() return false end
+				GamepadStyle(false)
 				-- The client's lists: file numbers and names, with repeats and junk; one list this
 				-- client lacks, one that fails.
 				GetLooseMacroIcons = nil
@@ -10970,7 +11001,7 @@ test("0.9.8 the council icon picker: a councillor's alone, filled from the game'
 				f.cells[3]:Click(); f.cancel:Click()
 				eq(f:IsShown(), false); eq(ns.db.councilIcons[ns.me], "Spell_Holy_SealOfMight"); eq(#sent, 1)
 				-- The gamepad UI: never on the escape list its menus sweep; the X closes it.
-				ns.GamepadUI = function() return true end
+				GamepadStyle(true)
 				W.ShowIconPicker()
 				for _, name in ipairs(UISpecialFrames) do assert(name ~= "OlympusCouncilIconFrame", "on the escape list") end
 				f.cells[4]:Click(); f.close:Click()
@@ -34340,13 +34371,13 @@ do
 				eq(#g.calls, 0, "opening them fills nothing")
 				-- The gamepad UI: the game's windows are left alone; the line says what to send.
 				local savedPad = ns.GamepadUI
-				ns.GamepadUI = function() return true end
+				GamepadStyle(true)
 				local ok, err = pcall(function()
 					SendRow(T).onClick()
 					eq(#g.calls, 0, "nothing touched with the gamepad UI")
 					assert(Printed(w, ns.L.DUES_SEND_GAMEPAD:format(T.Coins(10000), "Pyralis Andarai", D.Note(D.Week(), "Olympus II"))))
 				end)
-				ns.GamepadUI = savedPad
+				GamepadStyle(nil)
 				if not ok then error(err, 0) end
 				-- A keeper (the Treasurer, the King): no button (gold between keepers is a transfer).
 				AsTreasurer(); eq(SendRow(T), nil); eq(D.Pays(), false)
@@ -34523,7 +34554,7 @@ do
 				Row(lines, Nm(9) .. " ").onClick()
 				local savedPad, savedShow = ns.GamepadUI, ns.Dialog.Show
 				local shown = {}
-				ns.GamepadUI = function() return true end
+				GamepadStyle(true)
 				ns.Dialog.Show = function(which, a, b, data) shown[#shown + 1] = { which = which, data = data } end
 				local popups = #w.popups
 				local ok, err = pcall(function()
@@ -34533,7 +34564,7 @@ do
 					StaticPopupDialogs.OLYMPUS_DUES_REMOVE.OnAccept(nil, shown[1].data)
 					eq(#removed, 1, table.concat(w.printed, " | ") .. " " .. tostring(ns.db.errors[#ns.db.errors] and ns.db.errors[#ns.db.errors].msg))
 				end)
-				ns.GamepadUI, ns.Dialog.Show = savedPad, savedShow
+				ns.Dialog.Show = savedShow; GamepadStyle(nil)
 				if not ok then error(err, 0) end
 			end)
 		end)
@@ -35275,7 +35306,7 @@ test("1.1.5 a High Councillor's tooltip: the mark and own icon after the name, t
 				GetName = function() return "GameTooltip" end,
 				AddLine = function(_, text, r, g, b) lines[#lines + 1] = { text = text, r = r } end,
 			}
-			ns.GamepadUI = function() return false end
+			GamepadStyle(false)
 			w.target("Sage Owl")
 			-- (made-up names only)
 			ns.rdb.council = { names = { ["sage owl"] = true, ["other mod"] = true } }
@@ -35321,11 +35352,11 @@ test("1.1.5 a High Councillor's tooltip: the mark and own icon after the name, t
 			-- purpose, 1.1.5's gamepad gate: until then the lines below were still added there; with the
 			-- gamepad UI Olympus writes nothing in the game's frames, and its soft target shows the tooltip
 			-- again and again.)
-			ns.GamepadUI = function() return true end
+			GamepadStyle(true)
 			lines = {}
 			eq(I.TooltipUnit(GameTooltip), false)
 			eq(first, "Sage Owl"); eq(#lines, 0, "no line with the gamepad UI")
-			ns.GamepadUI = function() return false end
+			GamepadStyle(false)
 			-- Outside an Olympus guild (a list kept from before): nothing.
 			local savedMember, savedMod = ns.IsMember, ns.Moderation
 			first, lines = "Sage Owl", {}
@@ -35347,7 +35378,7 @@ test("1.1.5 a High Councillor's tooltip: the mark and own icon after the name, t
 			assert(rawequal(first, secret), "untouched"); eq(lines[1].text, ns.L.COUNCIL_PERSON)
 		end)
 		ns.rdb.council, ns.rdb.councilTitles, ns.rdb.councilIcons = saved.council, saved.titles, saved.icons
-		ns.CouncilMasked, ns.GamepadUI, GameTooltipTextLeft1 = saved.masked, saved.gamepad, saved.left
+		ns.CouncilMasked, GameTooltipTextLeft1 = saved.masked, saved.left; GamepadStyle(nil)
 		ns.IsMember, ns.Moderation, issecretvalue = saved.member, saved.moderation, saved.secret
 		if not ok then error(err, 0) end
 	end)
@@ -36818,7 +36849,7 @@ local function WithCraft(fn)
 	ns.Comm.QueueSize = function() return w.queue or 0 end
 	ns.UI = { WhisperWindow = function(name) w.windows[#w.windows + 1] = name end,
 		SelectTab = function(tab) w.tabs[#w.tabs + 1] = tab end }
-	ns.GamepadUI = function() return w.gamepad == true end
+	GamepadStyle(function() return w.gamepad == true end)
 	GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Member", 3 end return nil end
 	GetItemInfo = function(id) id = tonumber(type(id) == "string" and id:match("item:(%d+)") or id) if id == 14342 then return "Mooncloth", MOONCLOTH, 2 end end
 	ChatFrame_OpenChat = function(text) w.chat[#w.chat + 1] = text end
@@ -36866,7 +36897,7 @@ local function WithCraft(fn)
 	w.run = function() local l = w.later; w.later = {}; for _, f in ipairs(l) do f() end end
 	local ok, err = pcall(fn, w, Cr)
 	ns.Comm.Send, ns.Comm.Whisper, ns.Print, ns.Fire, ns.ShowDialog, ns.Now = saved.send, saved.whisper, saved.print, saved.fire, saved.dialog, saved.now
-	Cr.after, Cr.random, ns.UI, ns.GamepadUI = saved.after, saved.random, saved.ui, saved.pad
+	Cr.after, Cr.random, ns.UI = saved.after, saved.random, saved.ui; GamepadStyle(nil)
 	ns.db.crafterChoice, ns.db.crafterData, ns.me, ns.Comm.QueueSize = saved.choice, saved.data, saved.me, saved.queue
 	for _, k in ipairs(CRAFT_GLOBALS) do _G[k] = saved[k] end
 	Cr.Reset()
@@ -44465,7 +44496,7 @@ do
 		local ok, err = pcall(function()
 			local filters, printed, gamepad = {}, {}, true
 			ChatFrameUtil = { AddSenderNameFilter = function(cb) filters[#filters + 1] = cb end }
-			ns.GamepadUI = function() return gamepad end
+			GamepadStyle(function() return gamepad end)
 			ns.Print = function(m) printed[#printed + 1] = m end
 			ns.db.chatMarks = nil
 			C_Texture = nil
@@ -44693,7 +44724,7 @@ do
 			bare.Borders.ChatReport()
 			eq(printed[#printed], ns.L.CHATMARKS_NO_API)
 		end)
-		ChatFrameUtil, ns.GamepadUI, ns.CouncilMasked, issecretvalue = saved.cfu, saved.gamepad, saved.masked, saved.secret
+		ChatFrameUtil, ns.CouncilMasked, issecretvalue = saved.cfu, saved.masked, saved.secret; GamepadStyle(nil)
 		ns.rdb.council, ns.rdb.councilIcons, ns.db.chatMarks, ns.Print, ns.Workshop = saved.council, saved.icons, saved.chatMarks, saved.print, saved.workshop
 		ns.IsMember, ns.Roster.byName, ns.rdb.guilds, ns.Comm.loginAt = saved.member, saved.byName, saved.guilds, saved.loginAt
 		ns.King.IsStewardName, ns.King.IsHandName, ns.Moderation.Hides, C_Texture = saved.steward, saved.hand, saved.hides, saved.tex
@@ -48925,7 +48956,7 @@ end)()
 		local hooks, registrations, contextMenus = {}, 0, 0
 		local gamepad = true
 		local ok, err = pcall(function()
-			ns.GamepadUI = function() return gamepad end
+			GamepadStyle(function() return gamepad end)
 			Menu = { ModifyMenu = function(tag, cb)
 				registrations = registrations + 1
 				hooks[tag] = cb
@@ -48955,7 +48986,7 @@ end)()
 			eq(#root.items, 0)
 			eq(PM.Build("FRIEND", root, { name = "Ann", which = "FRIEND" }), 0)
 		end)
-		Menu, MenuUtil, ns.GamepadUI = savedMenu, savedMenuUtil, savedGamepad
+		Menu, MenuUtil = savedMenu, savedMenuUtil; GamepadStyle(nil)
 		PM.Reset()
 		if not ok then error(err, 0) end
 		end)
@@ -50392,7 +50423,7 @@ end)()
 			end)
 			TEMPLATES.PortraitFrameTemplate = saved.template
 			ns.Letters, ns.db.lettersRead, ns.db.sessions = saved.letters, saved.read, saved.sessions
-			InCombatLockdown, IsInInstance, ns.GamepadUI, ns.IsMember = saved.combat, saved.instance, saved.gamepad, saved.member
+			InCombatLockdown, IsInInstance, ns.IsMember = saved.combat, saved.instance, saved.member; GamepadStyle(nil)
 			ns.Log, ns.Print, ns.db.addonChat = saved.log, saved.print, saved.chat
 			if not ok then error(err, 0) end
 		end)
@@ -50549,7 +50580,7 @@ end)()
 		end)
 		-- The gamepad UI: never on the escape list its menus sweep; the X closes it.
 		WithLetters(function(w)
-			ns.GamepadUI = function() return true end
+			GamepadStyle(true)
 			local f = w.Letters.ShowHistory()
 			for _, name in ipairs(UISpecialFrames) do assert(name ~= "OlympusLetterFrame", "on the escape list") end
 			f.CloseButton:Click()
@@ -50693,6 +50724,13 @@ end)()
 		end
 	end)
 end)()
+
+-- 1.1.5: the gamepad pass (tests/gamepad.lua): whole sessions with Blizzard's gamepad UI simulated, in
+-- a model of Forever's client of their own, from a gamepad login and across switches both ways.
+do
+	print("tests/gamepad.lua")
+	assert(loadfile(ROOT .. "tests/gamepad.lua"))({ test = test, eq = eq, ADDON_DIR = ADDON_DIR, ROOT = ROOT })
+end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

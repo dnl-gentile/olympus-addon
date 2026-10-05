@@ -832,7 +832,7 @@ end
 -- moderators took off (net-off), as their chat mark. The first line is the game's: left as it
 -- is when the client hides its text (a secret value) or with the gamepad UI, where Olympus writes
 -- nothing into the game's frames; the lines below are added as the Treasurer's is.
-function Inspect.CouncilTooltip(tooltip, name, guild)
+function Inspect.CouncilTooltip(tooltip, name, guild) -- gp:tooltip-unit
 	if not (ns.IsMember() == true and ns.CouncilVisible() and not ns.CouncilMasked() and ns.IsHighCouncillor(name)) then return false end
 	local M = ns.Moderation
 	if name ~= ns.me and type(M) == "table" and type(M.Hides) == "function" and M.Hides(name, guild) ~= nil then return false end
@@ -852,7 +852,7 @@ end
 -- 1.1.5, the gamepad gate (GamepadRegistry.lua's "tooltip-unit"): nothing with the gamepad UI on, from
 -- the first line (the game's soft target shows the tooltip again and again there, and Olympus writes
 -- nothing in the game's frames there): no line, no patrol. Not registered at a login with it.
-function Inspect.TooltipUnit(tooltip)
+function Inspect.TooltipUnit(tooltip) -- gp:tooltip-unit
 	if not ns.Gate.Allowed("tooltip-unit") then return false end
 	if tooltip ~= GameTooltip or type(tooltip.GetUnit) ~= "function" then return false end
 	local label, unit = tooltip:GetUnit()

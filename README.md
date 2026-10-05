@@ -1980,6 +1980,11 @@ running it and reads its bytecode: every place the addon reaches into the game's
 registered in `Olympus/GamepadRegistry.lua`, tagged `-- gp:<id>` and behind the gate, and no
 global that is not Olympus's may be written; Olympus's own tooltips and chat lines are counted
 per file against `scripts/gamepad-baseline.txt`. AGENTS.md says how to register one.
+The gamepad pass (`tests/gamepad.lua`, run by the offline suite) plays whole sessions with the
+gamepad UI simulated, from a gamepad login and across switches both ways, in a model of Forever's
+client that offers only what `tests/fixtures/forever-api.lua` lists (made from the client's own UI
+source by `scripts/forever-api.lua`); it fails when anything of Olympus's reaches the game's UI
+where the registry doesn't allow it.
 The offline suite checks the border textures in `Olympus/media/borders/` (32-bit TGAs with
 alpha, 256 x 256, and the member's 32 x 32 star for the nameplate marks); with Pillow installed,
 `scripts/check.sh` also checks they are what `scripts/make-borders.py` builds from Max's PNGs in
@@ -1996,6 +2001,9 @@ bash scripts/check.sh                    # full repository checks used by CI
 luajit tests/run.lua                      # offline tests: codec, roster, hierarchy, security, layers, decrees, channels
 scripts/lint-globals.sh                   # catches locals used before they are declared
 luajit scripts/gamepad-audit.lua [--list]  # the gamepad gate: every reach into the game's UI registered (--list: each one)
+luajit tests/gamepad.lua                   # the gamepad pass alone (the offline suite runs it too)
+luajit scripts/forever-api.lua <Interface> [--check]  # the client model's fixture, from Forever's extracted UI source (local)
+luajit scripts/forever-pins.lua <Interface>  # the registry's source pins against that source (local)
 bash tests/check-scripts.sh               # verify check-script failure handling (also run in CI)
 bash tests/sign-roundtrip.sh              # the High Council signing script end to end (needs python3)
 python3 tests/fixtures/make-link-vectors.py --check  # Olympus Link's shared vectors, sample, draw and inbox (needs "cryptography")
