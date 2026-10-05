@@ -6252,10 +6252,13 @@ local function WithWorkshop(me, fn)
 	local W = ns.Workshop
 	local saved = { me = ns.me, Send = ns.Comm.Send, Whisper = ns.Comm.Whisper, Now = ns.Now, after = W.after, random = W.random,
 		Show = StaticPopup_Show, Guild = GetGuildInfo, Build = GetBuildInfo, Level = UnitLevel, Class = UnitClass, Ready = ns.Comm.ChannelReady,
-		errors = ns.allErrors, guilds = ns.rdb.guilds, Print = ns.Print }
+		errors = ns.allErrors, guilds = ns.rdb.guilds, Print = ns.Print, bugReports = ns.db.bugReports }
 	local w = { sent = {}, whispered = {}, popups = {}, clock = 5000000, printed = {} }
 	local ok, err = pcall(function()
 		W.Reset()
+		-- (1.1.5: the author's received reports are kept in the saved variables now: each run starts
+		-- with none kept, and leaves the suite's as they were.)
+		ns.db.bugReports = nil
 		ns.me = me
 		ns.Now = function() return w.clock end
 		ns.Comm.Send = function(dist, msg, key) w.sent[#w.sent + 1] = { dist = dist, msg = msg, key = key } end
@@ -6282,6 +6285,7 @@ local function WithWorkshop(me, fn)
 	ns.me, ns.Comm.Send, ns.Comm.Whisper, ns.Now, W.after, W.random = saved.me, saved.Send, saved.Whisper, saved.Now, saved.after, saved.random
 	StaticPopup_Show, GetGuildInfo, GetBuildInfo, UnitLevel, UnitClass = saved.Show, saved.Guild, saved.Build, saved.Level, saved.Class
 	ns.Comm.ChannelReady, ns.allErrors, ns.rdb.guilds, ns.Print = saved.Ready, saved.errors, saved.guilds, saved.Print
+	ns.db.bugReports = saved.bugReports
 	W.Reset()
 	if not ok then error(err, 0) end
 end
@@ -50961,6 +50965,144 @@ end)()
 				end
 			end)
 		end)
+	end)
+
+	-- 1.1.5: the reports the author received were a session's alone (lost at his logout or a
+	-- /reload); now his addon keeps the last 30 in its saved variables.
+	test("1.1.5 the author's received bug reports survive a logout: the last 30 in his saved variables, back in the Workshop's list and the copy window at his next login (the date on top); checked again when read; nobody else's addon keeps any", function()
+		WithUI(function()
+			LoadUI()
+			WithWorkshop(AUTHOR_FULL, function(w, W)
+				W.HandleBug("WHISPER", "Ann-Realm", "V5~41~1~1~ann's crash !\\nstack line")
+				W.HandleBug("WHISPER", "Bob-Realm", "V5~42~1~2~bob's ")
+				W.HandleBug("WHISPER", "Bob-Realm", "V5~42~2~2~report")
+				local kept = ns.db.bugReports and ns.db.bugReports[AUTHOR_FULL]
+				assert(type(kept) == "table", "kept in his saved variables")
+				eq(#kept, 2, "each whole report once")
+				eq(kept[1].from, "Ann-Realm"); eq(kept[1].text, "ann's crash !\nstack line"); eq(kept[1].t, w.clock)
+				eq(kept[2].from, "Bob-Realm"); eq(kept[2].text, "bob's report")
+				-- He logs out; the next day he logs in: the session's list is gone, his saved variables stay.
+				local at = w.clock
+				W.Reset()
+				w.clock = w.clock + 24 * 3600
+				eq(#W.Reports(), 0, "a new session")
+				W.LoadReports() -- (his login)
+				eq(#W.Reports(), 2, "both back")
+				eq(W.Reports()[1].text, "ann's crash !\nstack line"); eq(W.Reports()[2].from, "Bob-Realm")
+				-- The Workshop's list names them; a click opens one in the copy window, its date and time on top.
+				W.Reset()
+				local header, row
+				for _, l in ipairs(W.Build()) do
+					if l.header and l.text == L.WORKSHOP_BUGS:format(2) then header = l end
+					if l.onClick and (l.text or ""):find("^Ann") then row = l end
+				end
+				assert(header, "the tab reads them back by itself"); assert(row, "Ann's row")
+				row.onClick()
+				local f = OlympusCopyFrameBug
+				assert(f and f:IsShown(), "the copy window")
+				eq(f.eb:GetText(), "ann's crash !\nstack line"); eq(f.text, f.eb:GetText())
+				eq(f.TitleText:GetText(), L.WORKSHOP_BUG_FROM_AT:format("Ann", date("%Y-%m-%d %H:%M", at), 1, 2))
+				f.CloseButton:Click()
+				-- New ones go after them, never more than 30 kept: the oldest go first.
+				for k = 1, 35 do W.HandleBug("WHISPER", ("P%d-Realm"):format(k), ("V5~%d~1~1~report %d"):format(100 + k, k)) end
+				kept = ns.db.bugReports[AUTHOR_FULL]
+				eq(#kept, W.MAX_REPORTS); eq(#W.Reports(), W.MAX_REPORTS)
+				eq(kept[1].text, "report 6"); eq(kept[30].text, "report 35")
+				W.Reset()
+				eq(#W.LoadReports(), 30)
+				eq(W.Reports()[30].text, "report 35")
+				-- His saved variables edited by hand: each report checked again when read.
+				ns.db.bugReports[AUTHOR_FULL] = {
+					"not a report",
+					{ from = "Cid-Realm", t = at },
+					{ from = "", t = at, text = "nobody" },
+					{ from = "Dee-Realm", t = "soon", text = "no time" },
+					{ from = "Dee-Realm", t = math.huge, text = "never" },
+					{ from = "|cffff0000Eve|r-Realm", t = at, text = "|Hitem:1|h[evil]|h " .. ("x"):rep(9000) },
+					{ from = "Fay-Realm", t = at, text = "fine" },
+				}
+				W.Reset()
+				local back = W.LoadReports()
+				eq(#back, 2, "the two with a sender, a time and a text")
+				assert(not back[1].from:find("|", 1, true) and not back[1].text:find("|", 1, true), "no escape codes")
+				eq(#back[1].text, W.MAX_PIECES * W.PIECE, "no longer than a report can be")
+				eq(back[2].from, "Fay-Realm"); eq(back[2].text, "fine")
+				local many = {}
+				for k = 1, 40 do many[k] = { from = "Gil-Realm", t = at + k, text = "old " .. k } end
+				ns.db.bugReports[AUTHOR_FULL] = many
+				W.Reset()
+				back = W.LoadReports()
+				eq(#back, 30, "30 at most"); eq(back[1].text, "old 11"); eq(back[30].text, "old 40")
+				ns.db.bugReports = "junk"
+				W.Reset()
+				eq(#W.LoadReports(), 0); eq(ns.db.bugReports, nil)
+				W.HandleBug("WHISPER", "Hal-Realm", "V5~51~1~1~after the junk")
+				eq(ns.db.bugReports[AUTHOR_FULL][1].text, "after the junk")
+			end)
+			-- Anyone else: nothing taken in, nothing kept; a list kept for him (an edited file) goes at his login.
+			WithWorkshop("Tester-Realm", function(w, W)
+				W.HandleBug("WHISPER", "Ann-Realm", "V5~1~1~1~hello")
+				eq(ns.db.bugReports, nil, "anyone else's addon keeps none")
+				ns.db.bugReports = { ["Tester-Realm"] = { { from = "Ann-Realm", t = w.clock, text = "hello" } },
+					[AUTHOR_FULL] = { { from = "Bob-Realm", t = w.clock, text = "his" } } }
+				W.LoadReports()
+				eq(ns.db.bugReports["Tester-Realm"], nil, "this character's list goes"); eq(#W.Reports(), 0)
+				eq(ns.db.bugReports[AUTHOR_FULL][1].text, "his", "the author's own (his account's) stays")
+				ns.db.bugReports = { ["Tester-Realm"] = { { from = "Ann-Realm", t = w.clock, text = "hello" } } }
+				W.LoadReports()
+				eq(ns.db.bugReports, nil, "none left: no table either")
+			end)
+			-- His test characters (Dev.lua): each its own list, never his.
+			WithWorkshop("Peepyn-Realm", function(w, W)
+				local savedDev, savedName = ns.devWorkshop, UnitName
+				UnitName = function() return "Peepyn" end
+				ns.devWorkshop = { Peepyn = true }
+				local ok, err = pcall(function()
+					W.HandleBug("WHISPER", "Ann-Realm", "V5~2~1~1~test bench")
+					eq(ns.db.bugReports["Peepyn-Realm"][1].text, "test bench")
+					eq(ns.db.bugReports[AUTHOR_FULL], nil, "not in the author's list")
+				end)
+				ns.devWorkshop, UnitName = savedDev, savedName
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+
+	-- The review of the above. (1) The Workshop's Copy (Workshop.ReportText, for Discord) listed each
+	-- bug report's sender and its first line: reports the players sent the author alone, up to 30 of
+	-- them now, from earlier sessions too. It gives their count alone. (2) The pages promised that a
+	-- logout or a /reload loses none, but the Forever beta, the author's realm group today, never
+	-- loads the saved variables back (README, "Other limits"); the offline suite keeps ns.db between
+	-- its "sessions", so only the pages' words can be checked here.
+	test("1.1.5 review: the Workshop's copy for Discord gives the bug reports' count alone, never who sent one or its words; the pages keep the beta's limit", function()
+		WithWorkshop(AUTHOR_FULL, function(w, W)
+			W.HandleBug("WHISPER", "Quillon-Realm", "V5~61~1~1~quillon's crash\\nstack line")
+			W.Reset() -- (a new session: Quillon's report is the one kept from it)
+			W.HandleBug("WHISPER", "Rosamund-Realm", "V5~62~1~1~rosamund's freeze")
+			eq(#W.Reports(), 2)
+			-- The tab lists both, each opening its report.
+			local rows = {}
+			for _, l in ipairs(W.Build()) do
+				local name = (l.text or ""):match("^(%a+)  ")
+				if name and l.onClick then rows[#rows + 1] = name end
+			end
+			eq(table.concat(rows, ","), "Rosamund,Quillon", "the tab's rows, newest first")
+			-- The copy: how many, never who or what.
+			local report = W.ReportText()
+			assert(report:find(L.WORKSHOP_BUGS:format(2), 1, true), report)
+			for _, word in ipairs({ "Quillon", "Rosamund", "crash", "freeze" }) do
+				eq(report:find(word, 1, true), nil, word .. " in the copy for Discord: " .. report)
+			end
+		end)
+		for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local f = assert(io.open(ROOT .. file))
+			local doc = f:read("*a"):gsub("%s+", " ")
+			f:close()
+			assert(doc:find("Since 1.1.5 his addon keeps the last 30 reports in its saved variables: where the game loads those back, a logout or a `/reload` loses none", 1, true), file)
+			assert(doc:find("The Forever beta, which forgets addon data at every login, still loses them at each logout or `/reload`.", 1, true), file)
+			assert(doc:find("the Workshop's copy for Discord says only how many came, never who sent them or what they say", 1, true), file)
+			eq(doc:find("so a logout or a `/reload` loses none", 1, true), nil, file .. ": more than the beta holds")
+		end
 	end)
 
 	test("1.1.2 review: the author's version results and ask-one answers open with no keyboard taken, and after a fight", function()

@@ -241,7 +241,12 @@ friends list, the guild roster) and the game's menu gets an **Olympus** part at 
   now**. Send goes to him alone, in game; Not now sends nothing; an ask from anyone else is
   ignored. On his side the report he asked for opens by itself in a window you can copy from (the
   sender and time on top, **Select all**), and stays in the Workshop's list; chat gets one short
-  line. A report nobody asked for gets its line and the list only. His version checks and his
+  line. A report nobody asked for gets its line and the list only. Since 1.1.5 his addon keeps the
+  last 30 reports in its saved variables: where the game loads those back, a logout or a `/reload`
+  loses none, and his list opens them in the same window, the date on top for one from an earlier
+  day. The Forever beta, which forgets addon data at every login, still loses them at each logout
+  or `/reload`. No other player's addon keeps any, and the Workshop's copy for Discord says only
+  how many came, never who sent them or what they say. His version checks and his
   `/oly status` open in copy windows too. A window that opens by itself takes no keyboard, waits
   until a fight is over, and never covers a report he is reading.
 - In a dungeon, a raid or a match the game holds addon messages: the lines that send show greyed
@@ -1391,7 +1396,7 @@ message (the game adds it). What goes where:
 | Check version (1.1.2): nothing but a number to match the answer | the player you right-clicked, alone (a whisper) | only when you pick **Check version** (a player once every 2 minutes, 6 a minute) |
 | The answer to a version check (1.1.2): your addon's version | the player whose addon asked, alone (a whisper) | when a player's addon asks: each once every 30 seconds at most, 20 a minute in all; never to a player you block or ignore, and to the author only after your yes to his roll calls (his checks are roll calls) |
 | Ask to update (1.1.2): the newest version your addon knows | the player you right-clicked, alone (a whisper) | only when you pick **Ask to update** for a player on 1.1.2 or newer (a player once a day, 5 an hour); for an older one it only opens a whisper you send yourself |
-| Your bug report (the same text as `/oly bug`) | the author alone (whispers) | only when you press **Send to** him in Report a bug, or **Send** in the window his ask opens (1.1.2) |
+| Your bug report (the same text as `/oly bug`) | the author alone (whispers); since 1.1.5 his addon keeps the last 30 it got in his saved variables | only when you press **Send to** him in Report a bug, or **Send** in the window his ask opens (1.1.2) |
 | The shared block terms (1.1): each word, whether it was added or removed, and when; for 15 minutes after an edit, the editor's own client adds his name to it (never to anyone else's) | everyone on the Olympus channel | only from the client of the King, his Steward, a Hand or a High Councillor: at once when they edit it, and every 10 minutes while they play (not when another client just sent the same list). Your own filter is never sent |
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A Lord's mentor pair (1.1): the recruit's name to the Captain, the Captain's name to the recruit, as whispers in his words | those two players | only when the Lord clicks **Send both** |
