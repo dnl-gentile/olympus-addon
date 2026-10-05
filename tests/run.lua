@@ -1427,7 +1427,7 @@ local POINT_X = { TOPLEFT = 0, LEFT = 0, BOTTOMLEFT = 0, TOP = 0.5, CENTER = 0.5
 local POINT_Y = { BOTTOMLEFT = 0, BOTTOM = 0, BOTTOMRIGHT = 0, LEFT = 0.5, CENTER = 0.5, RIGHT = 0.5, TOPLEFT = 1, TOP = 1, TOPRIGHT = 1 }
 local CHAR_W = { GameFontNormalLarge = 9, GameFontNormal = 7, GameFontHighlight = 7, GameFontWhiteTiny = 5 } -- small fonts: 6
 -- The client's font objects UI.lua fits text with (FitText skips the ones a client lacks).
-local FONT_GLOBALS = { "GameFontNormalLarge", "GameFontNormal", "GameFontHighlightSmall", "GameFontWhiteTiny" }
+local FONT_GLOBALS = { "GameFontNormalLarge", "GameFontNormal", "GameFontNormalSmall", "GameFontHighlightSmall", "GameFontWhiteTiny" }
 
 local Widget = {}
 local NOOP_VERBS = { "^Set", "^Enable", "^Disable", "^Register", "^Unregister", "^Lock", "^Unlock", "^Raise", "^Lower", "^Highlight", "^Play", "^ClearFocus$" }
@@ -1587,7 +1587,13 @@ function Widget:GetStringWidth()
 	local full = self:GetUnboundedStringWidth()
 	return (self.w or 0) > 0 and math.min(full, self.w) or full
 end
-function Widget:IsTruncated() return self.wrap == false and (self.w or 0) > 0 and self:GetUnboundedStringWidth() > self.w end
+-- Its width: the one it was given, else the one its anchors make (a title across its title bar).
+function Widget:IsTruncated()
+	if self.wrap ~= false then return false end
+	local room = self.w
+	if (room or 0) <= 0 then room = select(3, self:GetRect()) end
+	return (room or 0) > 0 and self:GetUnboundedStringWidth() > room
+end
 function Widget:Click() self:Fire("OnClick") end
 -- A ScrollFrame, as far as the list's place goes (1.0.0): the offset it is given, within 0 and
 -- its range. The range (how far the scroll child reaches past the frame) is the one the client
@@ -1652,13 +1658,21 @@ local TEMPLATES = {
 	-- layoutType, NineSlicePanelMixin:OnLoad) is ButtonFrameTemplateNoPortrait, the plain corner;
 	-- the rock ground; the title in its TitleContainer at 510 (DefaultPanelMixin:SetTitle sets
 	-- TitleContainer.TitleText). No portrait, no X: a window adds its own (the Help window's).
+	-- Its title as the client anchors it: the container 20 tall, from x 30 to x -24 of the window,
+	-- the text across it, one line (wordwrap false: a text too wide for it is cut).
 	DefaultPanelTemplate = function(w)
 		w.layoutType = "ButtonFrameTemplateNoPortrait"
 		w.NineSlice = NewWidget("Frame", nil, w)
 		w.NineSlice.level, w.NineSlice.layoutType = 500, w.layoutType
 		w.TitleContainer = NewWidget("Frame", nil, w)
-		w.TitleContainer.level = 510
+		w.TitleContainer.level, w.TitleContainer.h = 510, 20
+		w.TitleContainer:SetPoint("TOPLEFT", 30, -1)
+		w.TitleContainer:SetPoint("TOPRIGHT", -24, -1)
 		w.TitleContainer.TitleText = w.TitleContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		w.TitleContainer.TitleText:SetPoint("TOP", 0, -5)
+		w.TitleContainer.TitleText:SetPoint("LEFT")
+		w.TitleContainer.TitleText:SetPoint("RIGHT")
+		w.TitleContainer.TitleText.wrap = false
 		w.Bg = w:CreateTexture(nil, "BACKGROUND")
 		w.Bg.texture = "Interface\\FrameGeneral\\UI-Background-Rock"
 		w.SetTitle = function(self, text) self.TitleContainer.TitleText:SetText(text) end
@@ -51175,12 +51189,76 @@ end)()
 		assert(loadfile(ADDON_DIR .. file))("Olympus", fns)
 		return fns
 	end
-	-- The names a file's code quotes (outside comments), counted: the templates it gives CreateFrame.
-	local function Literals(src)
+	-- A file's code, its comments out (from a "--" outside a string to the line's end).
+	local function Code(src)
 		local out = {}
 		for line in (src .. "\n"):gmatch("([^\n]*)\n") do
-			local code = line:gsub("%-%-.*$", "")
-			for name in code:gmatch('"([%w_]+)"') do out[name] = (out[name] or 0) + 1 end
+			if line:find("--", 1, true) then
+				local quote, i = nil, 1
+				while i <= #line do
+					local c = line:sub(i, i)
+					if quote then
+						if c == "\\" then i = i + 1 elseif c == quote then quote = nil end
+					elseif c == '"' or c == "'" then
+						quote = c
+					elseif line:sub(i, i + 1) == "--" then
+						line = line:sub(1, i - 1)
+						break
+					end
+					i = i + 1
+				end
+			end
+			out[#out + 1] = line
+		end
+		return table.concat(out, "\n")
+	end
+	-- The names a file's code quotes, counted: the templates it gives CreateFrame.
+	local function Literals(code)
+		local out = {}
+		for _, pattern in ipairs({ '"([%w_]+)"', "'([%w_]+)'" }) do
+			for name in code:gmatch(pattern) do out[name] = (out[name] or 0) + 1 end
+		end
+		return out
+	end
+	-- A call's arguments (the text in its brackets), split at its own commas.
+	local function Args(inner)
+		local args, depth, quote, start, i = {}, 0, nil, 1, 1
+		while i <= #inner do
+			local c = inner:sub(i, i)
+			if quote then
+				if c == "\\" then i = i + 1 elseif c == quote then quote = nil end
+			elseif c == '"' or c == "'" then
+				quote = c
+			elseif c == "(" or c == "{" or c == "[" then
+				depth = depth + 1
+			elseif c == ")" or c == "}" or c == "]" then
+				depth = depth - 1
+			elseif c == "," and depth == 0 then
+				args[#args + 1] = inner:sub(start, i - 1):match("^%s*(.-)%s*$")
+				start = i + 1
+			end
+			i = i + 1
+		end
+		args[#args + 1] = inner:sub(start):match("^%s*(.-)%s*$")
+		return args
+	end
+	-- The template each CreateFrame call of the code gives (its fourth argument, "" for none), the
+	-- direct calls and pcall(CreateFrame, ...) ones; false for a CreateFrame handed on (an alias, a
+	-- wrapper of one's own), whose templates the guard cannot see.
+	local function Templates(code)
+		local out = {}
+		for pos in code:gmatch("()%f[%w_]CreateFrame%f[^%w_]") do
+			local after = pos + #"CreateFrame"
+			local call = code:match("^%s*(%b())", after)
+			local open = not call and code:match("^%s*,", after) and code:sub(1, pos - 1):match("pcall%s*()%(%s*$")
+			local args
+			if call then
+				args = Args(call:sub(2, -2))
+			elseif open then
+				args = Args(code:match("^%b()", open):sub(2, -2))
+				table.remove(args, 1)
+			end
+			out[#out + 1] = args and (args[4] or "") or false
 		end
 		return out
 	end
@@ -51190,20 +51268,71 @@ end)()
 		return name:find("Portrait", 1, true) or name:find("^ButtonFrameTemplate") or name:find("BasicFrame", 1, true)
 			or name:find("^DialogBorder") or name:find("^DefaultPanel") or name:find("^DefaultDialogPanel")
 	end
-	-- What the guard says of a file: each window frame it makes beyond what GUARD_ALLOWED lets it.
+	-- The templates Olympus's code gives CreateFrame anywhere: none of them a window's frame, the
+	-- parts inside one (buttons, boxes, scrolls, tabs, column titles, the inset box, the X). Any other
+	-- template (the game's gear-manager dialog, its simple or translucent panels, a new one) fails
+	-- the guard until it is named here as a part, or in GUARD_ALLOWED where it may be: a window of
+	-- ours is ns.Window's.
+	local GUARD_PARTS = {}
+	for _, name in ipairs({ "UIPanelButtonTemplate", "UIPanelScrollFrameTemplate", "ScrollFrameTemplate", "InputBoxTemplate",
+		"InsetFrameTemplate", "UICheckButtonTemplate", "ItemButtonTemplate", "TabButtonTemplate", "PanelTabButtonTemplate",
+		"CharacterFrameTabButtonTemplate", "RightSideTabTemplate", "WhoFrameColumnHeaderTemplate", "GuildFrameColumnHeaderTemplate",
+		"ColumnDisplayButtonNoScriptsTemplate", "UIPanelCloseButton", "UIPanelCloseButtonDefaultAnchors" }) do
+		GUARD_PARTS[name] = true
+	end
+	-- A border drawn by hand (a backdrop's edge, the tooltip's or the dialog box's border art, the
+	-- metal's atlases, a NineSlice layout put on a frame): counted, none but GUARD_ALLOWED's.
+	local GUARD_ART = { "edgeFile", "UI-Tooltip-Border", "UI-DialogBox", "UI-Frame-", "NineSliceUtil", "ApplyLayout", "BackdropTemplateMixin" }
+	-- What a file may have of the above, exactly so many times.
 	local GUARD_ALLOWED = {
 		-- The Olympus window (CreateMain) and its fallback on a client without the portrait frame.
 		["UI.lua"] = { PortraitFrameTemplate = 1, BasicFrameTemplateWithInset = 1 },
 		-- ns.Window: Dialog.METAL and its fallback, Dialog.PLAIN.
 		["Dialog.lua"] = { DefaultPanelTemplate = 1, BasicFrameTemplateWithInset = 1 },
+		-- No window among them: the chat's bubbles, the switch and its list (the tooltip's border,
+		-- a dropdown's look), and the pointer onto the game's chat tab (the game's own help tips'
+		-- look, HelpTipTemplate: a dark box with a gold edge, its arrow and its X).
+		["ChatWindow.lua"] = { BackdropTemplate = 3, edgeFile = 3, ["UI-Tooltip-Border"] = 3 },
+		-- The world map button's menu (a dropdown's look).
+		["Map.lua"] = { BackdropTemplate = 1, edgeFile = 1, ["UI-Tooltip-Border"] = 1 },
 	}
+	-- The templates a file gives CreateFrame through a variable, so many times: the column titles' and
+	-- the tabs' (UI.lua, each from a list of parts' names), Made's (Dialog.lua: ns.Window's own).
+	local GUARD_VARIABLES = { ["UI.lua"] = { template = 3 }, ["Dialog.lua"] = { template = 1 } }
+	-- What the guard says of a file: each window frame it makes beyond what GUARD_ALLOWED lets it.
 	local function Refused(file, src)
 		local bad = {}
-		local names = Literals(src)
-		for name, n in pairs(names) do
-			if Forbidden(name) and n ~= (GUARD_ALLOWED[file] and GUARD_ALLOWED[file][name] or 0) then bad[name] = true end
+		local code = Code(src)
+		local names = Literals(code)
+		for _, word in ipairs(GUARD_ART) do
+			local n = select(2, code:gsub(word:gsub("%p", "%%%0"), ""))
+			if n > 0 then names[word] = n end
 		end
-		for name, n in pairs(GUARD_ALLOWED[file] or {}) do if names[name] ~= n then bad[name] = true end end
+		local allowed = GUARD_ALLOWED[file] or {}
+		for name, n in pairs(names) do
+			local frame = name:find("Template", 1, true) or Forbidden(name) or allowed[name]
+			for _, word in ipairs(GUARD_ART) do if name == word then frame = true end end
+			if frame and not GUARD_PARTS[name] and n ~= (allowed[name] or 0) then bad[name] = true end
+		end
+		for name, n in pairs(allowed) do if names[name] ~= n then bad[name] = true end end
+		-- Each call's template: a part's, an allowed one, or through an allowed variable.
+		local variables, known = {}, GUARD_VARIABLES[file] or {}
+		for _, template in ipairs(Templates(code)) do
+			if template == false then
+				bad.CreateFrame = true
+			elseif template ~= "" and template ~= "nil" then
+				local name = template:match('^"([%w_]+)"$') or template:match("^'([%w_]+)'$")
+				if name then
+					if not GUARD_PARTS[name] and not allowed[name] then bad[name] = true end
+				else
+					variables[template] = (variables[template] or 0) + 1
+				end
+			end
+		end
+		for template, n in pairs(variables) do
+			if known[template] ~= n then bad["template:" .. template] = true end
+		end
+		for template in pairs(known) do if not variables[template] then bad["template:" .. template] = true end end
 		-- The portrait's code and the logo: the Olympus window's (and the minimap button's).
 		for _, word in ipairs({ "PortraitContainer", "SetPortraitToAsset", "ButtonFrameTemplate_ShowPortrait" }) do
 			if file ~= "UI.lua" and src:find(word, 1, true) then bad[word] = true end
@@ -51215,7 +51344,7 @@ end)()
 		return table.concat(out, " ")
 	end
 
-	test("1.1.5 guard: only the Olympus window has a portrait frame (and the logo in it); every other window is ns.Window's metal, the plain silver frame only as its fallback; a new silver, ringed or dialog-box window fails here", function()
+	test("1.1.5 guard: only the Olympus window has a portrait frame (and the logo in it); every other window is ns.Window's metal, the plain silver frame only as its fallback; a window in any other template, a template in a variable, or a border of its own fails here", function()
 		local toc, at = {}, {}
 		for line in io.lines(ADDON_DIR .. "Olympus.toc") do
 			local entry = line:match("^%s*(.-)%s*$")
@@ -51253,6 +51382,37 @@ end)()
 		eq(Refused("New.lua", "f.PortraitContainer.portrait:SetTexture(ns.LOGO)"), "PortraitContainer ns.LOGO")
 		eq(Refused("UI.lua", ui .. NewWindow("PortraitFrameTemplate")), "PortraitFrameTemplate", "a second portrait frame in UI.lua")
 		eq(Refused("New.lua", 'local f = ns.Window("OlympusNew", UIParent, { title = "A" }) -- not "BasicFrameTemplate"'), "", "ns.Window's, a comment")
+		-- (The 1.1.5 review: the guard knew only those looks.) The game's other window frames: its
+		-- gear-manager dialog (the silver UIPanelDialogTemplate), its simple and translucent panels.
+		eq(Refused("New.lua", NewWindow("UIPanelDialogTemplate")), "UIPanelDialogTemplate")
+		eq(Refused("New.lua", NewWindow("SimplePanelTemplate")), "SimplePanelTemplate")
+		eq(Refused("New.lua", NewWindow("TranslucentFrameTemplate")), "TranslucentFrameTemplate")
+		-- A border of its own: a backdrop's, the tooltip's or the dialog box's art, the metal's atlases,
+		-- a NineSlice layout.
+		eq(Refused("New.lua", 'local f = CreateFrame("Frame", "OlympusNew", UIParent, "BackdropTemplate")\n'
+			.. 'f:SetBackdrop({ bgFile = "Interface\\\\Tooltips\\\\UI-Tooltip-Background", edgeFile = "Interface\\\\Tooltips\\\\UI-Tooltip-Border", edgeSize = 12 })\n'),
+			"BackdropTemplate UI-Tooltip-Border edgeFile")
+		eq(Refused("New.lua", 'local f = CreateFrame("Frame", "OlympusNew", UIParent)\nMixin(f, BackdropTemplateMixin)\n'), "BackdropTemplateMixin")
+		eq(Refused("New.lua", 'local t = f:CreateTexture(nil, "BORDER")\nt:SetTexture("Interface\\\\DialogFrame\\\\UI-DialogBox-Border")\n'), "UI-DialogBox")
+		eq(Refused("New.lua", 'local t = f:CreateTexture(nil, "OVERLAY")\nt:SetAtlas("UI-Frame-Metal-CornerTopLeft")\n'), "UI-Frame-")
+		eq(Refused("New.lua", 'NineSliceUtil.ApplyLayoutByName(f.NineSlice, "ButtonFrameTemplateNoPortrait")\n'), "ApplyLayout ButtonFrameTemplateNoPortrait NineSliceUtil")
+		-- The backdrops there are (none a window: the chat's bubbles, its switch and list, the chat tab's
+		-- pointer, the map button's menu), and not one more.
+		local chat = assert(ReadFile(ADDON_DIR .. "ChatWindow.lua"))
+		eq(Refused("ChatWindow.lua", chat), "")
+		eq(Refused("ChatWindow.lua", chat .. 'local ok, b = pcall(CreateFrame, "Frame", "OlympusNew", UIParent, "BackdropTemplate")\n'), "BackdropTemplate")
+		-- A template the code hands over in a variable, ns.Window's own included; CreateFrame handed on.
+		eq(Refused("New.lua", 'local f = CreateFrame("Frame", "OlympusNew", UIParent, ns.Dialog.PLAIN)\n'), "template:ns.Dialog.PLAIN")
+		eq(Refused("New.lua", 'local f = CreateFrame("Frame",\n\t"OlympusNew", UIParent,\n\tns.Dialog.METAL)\n'), "template:ns.Dialog.METAL", "over three lines")
+		eq(Refused("New.lua", 'local T = "UIPanelDialogTemplate"\nlocal ok, f = pcall(CreateFrame, "Frame", "OlympusNew", UIParent, T)\n'), "UIPanelDialogTemplate template:T")
+		eq(Refused("UI.lua", ui .. 'local f = CreateFrame("Frame", "OlympusNew", UIParent, template)\n'), "template:template", "a fourth in UI.lua")
+		eq(Refused("New.lua", 'local New = CreateFrame\nlocal f = New("Frame", "OlympusNew", UIParent, "UIPanelButtonTemplate")\n'), "CreateFrame")
+		-- A part inside a window passes; a template not named yet does not, a part's or not.
+		eq(Refused("New.lua", 'local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")\nlocal ok, e = pcall(CreateFrame, "EditBox", nil, f, "InputBoxTemplate")\n'
+			.. 'local x = CreateFrame("Button", nil, f, "UIPanelCloseButtonDefaultAnchors")\nlocal plain = CreateFrame("Frame", nil, f)\n'), "", "parts")
+		eq(Refused("New.lua", 'local s = CreateFrame("EditBox", nil, f, "SearchBoxTemplate")\n'), "SearchBoxTemplate", "not named yet")
+		eq(Refused("New.lua", "local s = CreateFrame('Frame', nil, f, 'UIPanelDialogTemplate')\n"), "UIPanelDialogTemplate", "in single quotes")
+		eq(Refused("New.lua", 'ns.Log("-- %s --", "UIPanelDialogTemplate")\n'), "UIPanelDialogTemplate", "a dash in a string is no comment")
 	end)
 
 	test("1.1.5 every Olympus window but the Olympus window: its bronze metal without the round portrait or the logo, its title in the title bar, its content under it and working, its X (where it has one) closing it in combat too; the Olympus window keeps its portrait and logo", function()
@@ -51396,6 +51556,61 @@ end)()
 				eq(b:IsShown(), false, "its X, in combat too")
 			end)
 			TEMPLATES.DefaultPanelTemplate, TEMPLATES.BasicFrameTemplateWithInset, InCombatLockdown = saved.metal, saved.plain, saved.combat
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	-- (The 1.1.5 review: the HD card's "<guild>" left its own line, 188 wide, for the metal's title bar,
+	-- 160 there, where a long guild name was cut.) The game's longest guild name, 24 letters: 26 with
+	-- its brackets, 182 wide in the title's normal font, 156 in the small one.
+	local LONG_GUILD = "Wardens of the Amber Fen"
+	test("1.1.5 person cards: '<guild>' in the metal's title bar is fitted as the name is: a guild name of the game's longest in the small font, never cut; a short one, or none, in the normal font", function()
+		eq(#LONG_GUILD, 24)
+		WithUI(function()
+			local w, UI = ForeverWorld(true)
+			CommunitiesFrame:Show(); w.buttons[1]:Click()
+			eq(OlympusFrameHD:IsShown(), true)
+			UI.ShowPerson({ name = "Testpal", guild = LONG_GUILD, level = 60, online = true })
+			local card = OlympusPersonFrameHD
+			eq(card:IsShown(), true)
+			Win.Metal(card, "<" .. LONG_GUILD .. ">", "the HD card")
+			local title = card.TitleContainer.TitleText
+			eq(ns.WindowTitleRoom(card), 214 - 30 - 24, "its title bar's room")
+			eq(title:IsTruncated(), false, "the whole guild name in its title bar")
+			eq(title.font, "GameFontNormalSmall", "in the small font")
+			UI.ShowPerson({ name = "Testpal", guild = "Amber Fen", level = 60, online = true })
+			eq(title:GetText(), "<Amber Fen>"); eq(title.font, "GameFontNormal", "a short one: the normal font again")
+			eq(title:IsTruncated(), false)
+			UI.ShowPerson({ name = "Testpal", level = 60 })
+			eq(title:GetText(), ns.L.TITLE); eq(title.font, "GameFontNormal", "no guild: the addon's name")
+		end)
+		-- The old window's card: its title bar is 176, the long name does not fit the normal font there either.
+		WithUI(function()
+			local UI = LoadUI()
+			UI.Toggle()
+			UI.ShowPerson({ name = "Testpal", guild = LONG_GUILD, level = 60, online = true })
+			local card = OlympusPersonFrame
+			Win.Metal(card, "<" .. LONG_GUILD .. ">", "the old card")
+			local title = card.TitleContainer.TitleText
+			eq(ns.WindowTitleRoom(card), 230 - 30 - 24)
+			eq(title:IsTruncated(), false, "the whole guild name in its title bar"); eq(title.font, "GameFontNormalSmall")
+			UI.ShowPerson({ name = "Testpal", guild = "Amber Fen", level = 60, online = true })
+			eq(title.font, "GameFontNormal"); eq(title:IsTruncated(), false)
+		end)
+		-- Without the metal: the plain silver card's title, kept clear of its X on both sides, fitted too.
+		WithUI(function()
+			local saved = TEMPLATES.DefaultPanelTemplate
+			TEMPLATES.DefaultPanelTemplate = nil
+			local ok, err = pcall(function()
+				local UI = LoadUI()
+				UI.Toggle()
+				UI.ShowPerson({ name = "Testpal", guild = LONG_GUILD, level = 60, online = true })
+				local card = OlympusPersonFrameBasic
+				eq(card.windowLook, "plain")
+				eq(card.TitleText:GetText(), "<" .. LONG_GUILD .. ">"); eq(card.TitleText.w, 230 - 64)
+				eq(card.TitleText:IsTruncated(), false); eq(card.TitleText.font, "GameFontNormalSmall")
+			end)
+			TEMPLATES.DefaultPanelTemplate = saved
 			if not ok then error(err, 0) end
 		end)
 	end)
