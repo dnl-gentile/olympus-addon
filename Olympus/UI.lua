@@ -2031,10 +2031,14 @@ ns.On("LAYERS_CHANGED", function()
 end)
 ns.On("HOP_CHANGED", function() if main and (main.tab == "census" or main.tab == "realm") then UI.RefreshSoon() end end)
 ns.On("DECREES_CHANGED", function() UI.RefreshSoon() end)
--- The King's calls show on the Throne, the roll call in the Realm, the inspection in the Tabards.
+-- The King's calls show on the Throne, the roll call in the Realm, the inspection in the Tabards;
+-- since 1.1.5 the Agenda's current event shows in the King's week on top of the Decrees tab.
 ns.On("THRONE_CHANGED", function()
-	if main and (main.tab == "throne" or main.tab == "realm" or main.tab == "heraldry") then UI.RefreshSoon() end
+	if main and (main.tab == "throne" or main.tab == "realm" or main.tab == "heraldry" or main.tab == "decrees") then UI.RefreshSoon() end
 end)
+-- 1.1.5: the King's week (Week.lua, whose changes fire the Board's event) tops the Decrees tab too:
+-- an entry heard or taken off, a sheet's counts, our own signup. The Board redraws itself (Board.lua).
+ns.On("BOARD_CHANGED", function() if main and main.tab == "decrees" then UI.RefreshSoon() end end)
 ns.On("VOX_CHANGED", function() if main and main.tab == "vox" then UI.RefreshSoon() end end)
 -- The Treasurer's book and report: his tab, the King's Throne, the Realm's line under him.
 ns.On("TREASURY_CHANGED", function()

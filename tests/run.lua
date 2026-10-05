@@ -31267,6 +31267,66 @@ test("1.1.5 the army agenda (the King's week) is the first Decrees section and r
 	end)
 end)
 
+test("1.1.5 the King's week on the Decrees tab redraws there as it changes: a role picked, an entry heard, the Agenda's event; the Census stays", function()
+	WithUI(function()
+		WithWeek(function(w, W, K)
+			AsSoldier()
+			-- The real window, its listeners heard here (LoadUI keeps none): what the addon fires
+			-- reaches them, and a redraw waiting for its gap (UI.RefreshSoon) or the Throne's second
+			-- (King.lua) comes at once.
+			local heard = {}
+			local uns = setmetatable({}, { __index = ns })
+			uns.On = function(name, fn) heard[name] = heard[name] or {}; table.insert(heard[name], fn) end
+			assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+			local UI = uns.UI
+			ns.UI = UI
+			local saved = { fire = ns.Fire, after = ns.After }
+			ns.Fire = function(name, ...) for _, fn in ipairs(heard[name] or {}) do fn(...) end end
+			ns.After = function(s, where, fn)
+				if where == "ui redraw" or where == "throne refresh" then return fn() end
+				return saved.after(s, where, fn)
+			end
+			local ok, err = pcall(function()
+				local L = ns.L
+				local KING = ns.KingCharacter() .. "-Realm"
+				K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400 + 90 * 60 - 15) .. "~1~~Raid night")
+				K.HandleCommand("CHANNEL", KING, "T1~R~12~Olympus~501:1:2:3:0")
+				UI.Toggle(); UI.SelectTab("decrees")
+				local main = OlympusFrame
+				eq(main.tab, "decrees")
+				assert(ListRow(main, "Raid night"), "the week on top of the tab")
+				-- Sign up opens the role rows (that row redraws itself); a role picked closes them,
+				-- and the sheet says ours, with nothing else redrawing the tab.
+				ListRow(main, "[+] " .. L.SIGN_UP):Click()
+				local tank = ListRow(main, "> " .. L.SIGN_ROLE_T)
+				assert(tank, "the role rows")
+				local whispers = #w.whispered
+				tank:Click()
+				eq(W.MySignup(501), "T")
+				eq(#w.whispered, whispers + 1, "one signup whispered to the setter")
+				assert(not ListRow(main, "> " .. L.SIGN_ROLE_T), "the role rows closed on the tab")
+				assert(ListRow(main, L.SIGN_YOU:format(L.SIGN_ROLE_T)), "ours on the sheet's line")
+				assert(ListRow(main, "[+] " .. L.SIGN_CHANGE), "the row offers a change now")
+				-- An entry the King sets while the tab is open shows on it.
+				K.HandleCommand("CHANNEL", KING, "T1~D~502~Olympus~" .. (4 * 86400 + 60 * 60 - 15) .. "~1~~Court")
+				assert(ListRow(main, "Court"), "the new entry on the tab")
+				-- And the Agenda's current event (the Throne's change), among the week's.
+				K.HandleCommand("CHANNEL", KING, "T1~A~77~Olympus~1800~Orgrimmar~Raid on the Crossroads")
+				assert(ListRow(main, "Raid on the Crossroads"), "the Agenda's event on the tab")
+				-- Another tab: the week's changes leave it alone.
+				UI.SelectTab("census")
+				local drawn, refresh = 0, UI.Refresh
+				UI.Refresh = function(...) drawn = drawn + 1; return refresh(...) end
+				K.HandleCommand("CHANNEL", KING, "T1~D~503~Olympus~" .. (5 * 86400) .. "~1~~Duel night")
+				UI.Refresh = refresh
+				eq(drawn, 0, "the Census is not redrawn for the week")
+			end)
+			ns.Fire, ns.After = saved.fire, saved.after
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
+
 test("1.1 the King's week: an officer's click opens the game's calendar and names the day (mouse and keyboard, out of combat); otherwise how to open it", function()
 	WithWeek(function(w, W, K, B)
 		AsCaptain()
