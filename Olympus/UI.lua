@@ -209,10 +209,10 @@ local DETAIL_BUTTONS = {
 				tt:AddLine(ns.Workshop.FullRunning() and L.WORKSHOP_FULL_STOP or L.WORKSHOP_FULL_BTN, 1, 0.82, 0)
 				tt:AddLine(L.WORKSHOP_FULL_BTN_TIP, 1, 1, 1, true)
 			end },
-		{ "DEV_KING_VIEW", function() ns.King.SetDevView(not ns.King.Preview()) end, refresh = true,
-			label = function() return ns.King.Preview() and L.DEV_KING_VIEW_OFF or L.DEV_KING_VIEW_ON end },
-		{ "DEV_TREASURER_VIEW", function() ns.Treasury.SetDevView(not ns.Treasury.DevView()) end, refresh = true,
-			label = function() return ns.Treasury.DevView() and L.DEV_TREASURER_VIEW_OFF or L.DEV_TREASURER_VIEW_ON end },
+		-- (1.1.5, the author's ask) View as: one button for the previews (Asmon's, the Treasurer's,
+		-- the guild master's), its menu (ViewAs.lua) picking one at a time.
+		{ "VIEW_AS_TITLE", function() ns.ViewAs.ToggleMenu() end, refresh = true,
+			label = function() return ns.ViewAs.Previewing() and L.VIEW_AS_PREVIEW_BTN:format(ns.ViewAs.Label()) or L.VIEW_AS_TITLE end },
 	},
 	heraldry = {
 		{ "HERALDRY_BTN", DecreeAction("HERALDRY") },
@@ -762,26 +762,6 @@ local function HelpButton(f) -- gp:lookups
 	return b
 end
 
--- 1.1.5: View as (ViewAs.lua), the author's alone, left of the help button: which preview the window
--- shows (in orange), its menu under it. A plain button of ours, as the help button.
-local function ViewAsButton(f)
-	local b = CreateFrame("Button", nil, f)
-	b:SetSize(104, 18)
-	b:SetPoint("RIGHT", f.helpButton, "LEFT", -4, 0)
-	b:SetFrameLevel(f.helpButton:GetFrameLevel())
-	b.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	b.text:SetAllPoints()
-	b.text:SetJustifyH("RIGHT")
-	if b.text.SetWordWrap then b.text:SetWordWrap(false) end
-	-- (No highlight texture: the quest title's glow sat badly on the title bar. On hover the words
-	-- go white, as the game's title bar links do.)
-	b:SetScript("OnEnter", function(self) self.text:SetTextColor(1, 1, 1) end)
-	b:SetScript("OnLeave", function(self) self.text:SetTextColor(1, 0.82, 0) end)
-	b:SetScript("OnClick", function(self) ns.SafeCall("view as", ns.ViewAs.ToggleMenu, self) end)
-	b:Hide()
-	return b
-end
-
 local function CreateMain(style)
 	local g = GEOMETRY[style]
 	local hd = style == "hd"
@@ -844,7 +824,6 @@ local function CreateMain(style)
 		end
 	end
 	f.helpButton = HelpButton(f)
-	f.viewAs = ViewAsButton(f)
 
 	-- One dark panel over the whole interior, like the Guild window (its inside is near
 	-- black, not the lighter marble of the plain portrait frame).
@@ -1548,12 +1527,6 @@ function UI.Refresh()
 	if not main or not main:IsShown() then return end
 	UI.lastRedraw = GetTime()
 	ns.SafeCall("ui refresh", function()
-		local V = ns.ViewAs
-		if main.viewAs then
-			local on = V ~= nil and V.Available()
-			main.viewAs:SetShown(on)
-			if on then main.viewAs.text:SetText(V.Previewing() and ("|cffff9933" .. L.VIEW_AS_PREVIEW_BTN:format(V.Label()) .. "|r") or L.VIEW_AS_TITLE) end
-		end
 		local s = ns.Data.Summary()
 		local F = ns.FormatNumber
 		main.total:SetText(L.ARMY_TOTAL:format(F(s.total)))

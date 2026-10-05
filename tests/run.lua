@@ -14548,7 +14548,7 @@ do
 				eq(W.FullRunning(), true); eq(b:GetText(), ns.L.WORKSHOP_FULL_STOP)
 				b:Click()
 				eq(W.FullRunning(), false); eq(b:GetText(), ns.L.WORKSHOP_FULL_BTN)
-				eq(main.detailButtons[2]:GetText(), ns.L.DEV_KING_VIEW_ON, "the author's views after it")
+				eq(main.detailButtons[2]:GetText(), ns.L.VIEW_AS_TITLE, "the author's View as after it (1.1.5: one button for the previews)")
 				-- Another tab: its own box (1.0.0: the Census has a search of its own), empty, and
 				-- what was typed here stays in the Workshop's.
 				UI.SelectTab("census")
@@ -23293,6 +23293,9 @@ do
 			byName = ns.Roster.byName, rguild = ns.Roster.guild, stats = ns.Roster.lastStats, loginAt = ns.Comm.loginAt,
 			isPlayer = UnitIsPlayer, unitFull = UnitFullName }
 		local w = { sent = {}, printed = {}, popups = {}, logged = {}, timers = {}, clock = 1800000000, changed = 0 }
+		-- (The departments as the tests' made-up council titles name them; the shipped six are the author's.)
+		local savedDepts = N.DEPARTMENTS
+		N.DEPARTMENTS = { "Events", "Lore", "Trade", "War", "Craft", "Watch" }
 		local ok, err = pcall(function()
 			N.Reset()
 			ns.rdb.nominees = nil
@@ -23324,6 +23327,7 @@ do
 			end
 			fn(w)
 		end)
+		N.DEPARTMENTS = savedDepts
 		ns.me, ns.Now, ns.Comm.Send, GetGuildInfo, ns.Print, ns.After, ns.Log = saved.me, saved.Now, saved.Send, saved.Guild, saved.Print, saved.After, saved.Log
 		ns.Fire, StaticPopup_Show, ns.rdb.guilds, ns.rdb.nominees, ns.rdb.councilTitles = saved.Fire, saved.Show, saved.guilds, saved.nominees, saved.titles
 		ns.Roster.byName, ns.Roster.guild, ns.Roster.lastStats, ns.Comm.loginAt = saved.byName, saved.rguild, saved.stats, saved.loginAt
@@ -23396,6 +23400,15 @@ do
 		WithNominees(function(w)
 			local savedVisible, savedView = ns.Workshop.Visible, ns.db.devGMView
 			local ok, err = pcall(function()
+				-- (The author's calls:) the King's own guild has no centurions or correspondents, and the
+				-- departments are the six he named.
+				local savedKG = ns.IsKingGuild
+				ns.IsKingGuild = function(g) return g == OURS end
+				w.as(MASTER, 0)
+				eq((N.IsMaster()), false, "the King's guild: no section")
+				ns.IsKingGuild = savedKG
+				eq((N.IsMaster()), true, "another guild's master: his section")
+				eq(#N.SHIPPED_DEPARTMENTS, 6, "the six departments"); eq(N.SHIPPED_DEPARTMENTS[6], "The Missionary Church of Olympus")
 				w.as("Writer", 3)
 				eq((N.IsMaster()), false, "no guild master")
 				ns.db.devGMView = true

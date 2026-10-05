@@ -123,17 +123,15 @@ local function DeptName(s)
 	return s
 end
 
--- The High Council's named departments, as the signed titles list gives them (ns.CouncilTitles),
--- in its order, MAX_DEPTS at most: the correspondents' roles. None without that list.
+-- The High Council's six departments (the author's names, 1.1.5): the correspondents' roles, one
+-- each per guild. (The signed titles list names only the departments that have councillors.)
+Nominees.DEPARTMENTS = { "Federal Treasury", "Department of War", "Council of Justice", "Association of Citizenry",
+	"Department of Heritage", "The Missionary Church of Olympus" }
+Nominees.SHIPPED_DEPARTMENTS = Nominees.DEPARTMENTS
 function Nominees.Departments()
-	local out, seen = {}, {}
-	local t = ns.CouncilTitles and ns.CouncilTitles()
-	for _, d in ipairs(t and type(t.depts) == "table" and t.depts or {}) do
-		local name = type(d) == "table" and DeptName(d.name)
-		if name and not seen[name:lower()] and #out < Nominees.MAX_DEPTS then
-			seen[name:lower()] = true
-			out[#out + 1] = name
-		end
+	local out = {}
+	for i, name in ipairs(Nominees.DEPARTMENTS) do
+		if i <= Nominees.MAX_DEPTS then out[#out + 1] = name end
 	end
 	return out
 end
@@ -159,6 +157,8 @@ end
 local function RealMaster()
 	if ns.IsMember() ~= true then return false end
 	local guild, _, rank = GetGuildInfo("player")
+	-- (The King's own guild has no centurions or correspondents: the author's call.)
+	if type(guild) == "string" and ns.IsKingGuild and ns.IsKingGuild(guild) then return false end
 	return rank == 0 and type(guild) == "string", guild
 end
 
