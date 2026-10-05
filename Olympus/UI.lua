@@ -2390,11 +2390,18 @@ local function CreateMinimapButton()
 	return b
 end
 
+-- (1.1.5, the gamepad gate: with the gamepad UI no command is typed, GamepadRegistry.lua's "slash",
+-- so there the button shows even when /oly minimap hid it: it is how a gamepad player opens Olympus,
+-- and the command that brings it back can't be typed there. Back to mouse and keyboard, hidden again.)
 function UI.UpdateMinimapButton()
 	minimapButton = minimapButton or CreateMinimapButton()
 	PositionMinimapButton()
-	minimapButton:SetShown(not ns.db.hideMinimap)
+	minimapButton:SetShown(not ns.db.hideMinimap or not ns.Gate.Allowed("slash"))
 end
+ns.Gate.Hooks("minimap", {
+	park = function() if minimapButton then UI.UpdateMinimapButton() end end,
+	install = function() if minimapButton then UI.UpdateMinimapButton() end end,
+})
 
 ns.On("LOGIN", function()
 	UI.UpdateMinimapButton()

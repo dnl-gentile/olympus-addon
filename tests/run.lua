@@ -24672,6 +24672,43 @@ do
 		end)
 	end)
 
+	-- With no typed command, the minimap button is the gamepad player's way in: /oly minimap can hide
+	-- it, and the command that brings it back can't be typed there.
+	test("1.1.5 the gamepad gate, the minimap button: hidden with /oly minimap, it shows all the same with the gamepad UI (at a login with it and at a switch to it), hidden again back with mouse and keyboard", function()
+		WithUI(function()
+			local UI = LoadUI()
+			local saved = ns.db.hideMinimap
+			local ok, err = pcall(function()
+				Minimap = NewWidget("Frame", "Minimap", UIParent)
+				Minimap.w, Minimap.h = 140, 140
+				ns.db.hideMinimap = true
+				WithGamepadUI(false, function() UI.UpdateMinimapButton() end)
+				local b = OlympusMinimapButton
+				eq(b.shown, false, "hidden, as chosen, with mouse and keyboard")
+				WithGamepadUI(true, function()
+					UI.UpdateMinimapButton()
+					eq(b.shown, true, "a login with the gamepad UI: shown")
+					ns.Gate.Park("minimap")
+					eq(b.shown, true)
+				end)
+				WithGamepadUI(false, function()
+					ns.Gate.Install("minimap")
+					eq(b.shown, false, "back to mouse and keyboard: hidden again")
+				end)
+				WithGamepadUI(true, function()
+					ns.Gate.Park("minimap")
+					eq(b.shown, true, "a switch to the gamepad UI: shown")
+				end)
+				ns.db.hideMinimap = false
+				WithGamepadUI(false, function() UI.UpdateMinimapButton() end)
+				eq(b.shown, true, "not hidden: shown in both modes")
+			end)
+			ns.db.hideMinimap = saved
+			Minimap = nil
+			if not ok then error(err, 0) end
+		end)
+	end)
+
 	-- (The audit of the gate's design found two globals of the game's written by Crafters.lua: `_`
 	-- in the Classic craft window's read, and lastListingKeys, declared after the unlisting wrote it.)
 	test("1.1.5 the gamepad gate: Crafters.lua writes no global of the game's (`_` reading a Classic craft window, lastListingKeys unlisting the last profession)", function()
