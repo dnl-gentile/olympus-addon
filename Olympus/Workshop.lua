@@ -779,11 +779,14 @@ function Workshop.HandleAck(dist, sender, text)
 	end
 end
 
--- 1.1.5: the reports he received survive a logout or a /reload. His addon keeps the last
--- MAX_REPORTS in its saved variables (OlympusDB.bugReports[his Name-Realm]); the Workshop's list
--- and the copy window open them as before (a chat line can't be copied). Only a client that
--- shows the Workshop (his character; his test characters, Dev.lua, each its own list) takes any
--- in (HandleBug), so only his keeps any: a list kept for any other character goes at its login.
+-- 1.1.5: the reports he received survive a logout or a /reload wherever the game loads the saved
+-- variables back. His addon keeps the last MAX_REPORTS in them (OlympusDB.bugReports[his
+-- Name-Realm]); the Workshop's list and the copy window open them as before (a chat line can't be
+-- copied). Not on the Forever beta, his realm group today (ns.AUTHOR_REALM): its client writes
+-- them but never loads them back (README, "Other limits"), so there a logout or a /reload still
+-- loses them, as before 1.1.5. Only a client that shows the Workshop (his character; his test
+-- characters, Dev.lua, each its own list) takes any in (HandleBug), so only his keeps any: a list
+-- kept for any other character goes at its login.
 -- Read back once a session, the first time they are needed (the login, his tab, a new report),
 -- each checked again (the SavedVariables can be edited): a sender and a text, cut to what a
 -- report can carry, with no escape codes.
@@ -1497,6 +1500,8 @@ StaticPopupDialogs["OLYMPUS_WORKSHOP_ASK"] = {
 	preferredIndex = 3,
 }
 
+-- The reports received. The copy for Discord (Workshop.ReportText) gets their count alone: who sent
+-- one, and its words, went to the author alone (1.1.5: up to 30 of them, from earlier sessions too).
 local function BugLines(lines)
 	Workshop.LoadReports() -- (1.1.5: the ones kept from earlier sessions too)
 	lines[#lines + 1] = { header = true, text = L.WORKSHOP_BUGS:format(#reports) }
@@ -1506,7 +1511,7 @@ local function BugLines(lines)
 		local first = r.text:match("[^\n`]+") or ""
 		lines[#lines + 1] = {
 			indent = 1, text = ns.DisplayName(r.from) .. "  " .. Grey(first:sub(1, 60)),
-			right = Grey(ns.Ago(r.t)),
+			right = Grey(ns.Ago(r.t)), noReport = true,
 			onClick = function() Workshop.ShowReport(r) end,
 		}
 	end

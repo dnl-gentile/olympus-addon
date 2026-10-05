@@ -237,9 +237,11 @@ friends list, the guild roster) and the game's menu gets an **Olympus** part at 
   ignored. On his side the report he asked for opens by itself in a window you can copy from (the
   sender and time on top, **Select all**), and stays in the Workshop's list; chat gets one short
   line. A report nobody asked for gets its line and the list only. Since 1.1.5 his addon keeps the
-  last 30 reports in its saved variables, so a logout or a `/reload` loses none: his list opens
-  them in the same window, the date on top for one from an earlier day. No other player's addon
-  keeps any. His version checks and his
+  last 30 reports in its saved variables: where the game loads those back, a logout or a `/reload`
+  loses none, and his list opens them in the same window, the date on top for one from an earlier
+  day. The Forever beta, which forgets addon data at every login, still loses them at each logout
+  or `/reload`. No other player's addon keeps any, and the Workshop's copy for Discord says only
+  how many came, never who sent them or what they say. His version checks and his
   `/oly status` open in copy windows too. A window that opens by itself takes no keyboard, waits
   until a fight is over, and never covers a report he is reading.
 - In a dungeon, a raid or a match the game holds addon messages: the lines that send show greyed

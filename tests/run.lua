@@ -50062,6 +50062,43 @@ end)()
 		end)
 	end)
 
+	-- The review of the above. (1) The Workshop's Copy (Workshop.ReportText, for Discord) listed each
+	-- bug report's sender and its first line: reports the players sent the author alone, up to 30 of
+	-- them now, from earlier sessions too. It gives their count alone. (2) The pages promised that a
+	-- logout or a /reload loses none, but the Forever beta, the author's realm group today, never
+	-- loads the saved variables back (README, "Other limits"); the offline suite keeps ns.db between
+	-- its "sessions", so only the pages' words can be checked here.
+	test("1.1.5 review: the Workshop's copy for Discord gives the bug reports' count alone, never who sent one or its words; the pages keep the beta's limit", function()
+		WithWorkshop(AUTHOR_FULL, function(w, W)
+			W.HandleBug("WHISPER", "Quillon-Realm", "V5~61~1~1~quillon's crash\\nstack line")
+			W.Reset() -- (a new session: Quillon's report is the one kept from it)
+			W.HandleBug("WHISPER", "Rosamund-Realm", "V5~62~1~1~rosamund's freeze")
+			eq(#W.Reports(), 2)
+			-- The tab lists both, each opening its report.
+			local rows = {}
+			for _, l in ipairs(W.Build()) do
+				local name = (l.text or ""):match("^(%a+)  ")
+				if name and l.onClick then rows[#rows + 1] = name end
+			end
+			eq(table.concat(rows, ","), "Rosamund,Quillon", "the tab's rows, newest first")
+			-- The copy: how many, never who or what.
+			local report = W.ReportText()
+			assert(report:find(L.WORKSHOP_BUGS:format(2), 1, true), report)
+			for _, word in ipairs({ "Quillon", "Rosamund", "crash", "freeze" }) do
+				eq(report:find(word, 1, true), nil, word .. " in the copy for Discord: " .. report)
+			end
+		end)
+		for _, file in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local f = assert(io.open(ROOT .. file))
+			local doc = f:read("*a"):gsub("%s+", " ")
+			f:close()
+			assert(doc:find("Since 1.1.5 his addon keeps the last 30 reports in its saved variables: where the game loads those back, a logout or a `/reload` loses none", 1, true), file)
+			assert(doc:find("The Forever beta, which forgets addon data at every login, still loses them at each logout or `/reload`.", 1, true), file)
+			assert(doc:find("the Workshop's copy for Discord says only how many came, never who sent them or what they say", 1, true), file)
+			eq(doc:find("so a logout or a `/reload` loses none", 1, true), nil, file .. ": more than the beta holds")
+		end
+	end)
+
 	test("1.1.2 review: the author's version results and ask-one answers open with no keyboard taken, and after a fight", function()
 		WithUI(function()
 			local UI = LoadUI()
