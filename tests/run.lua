@@ -21121,11 +21121,22 @@ end
 -- - hooksecurefunc: the hook runs after the original with the same arguments, the original's
 --   returns kept.
 -- - The unit functions for the units a test sets (w.units), InCombatLockdown (w.combat),
---   C_Texture.GetAtlasInfo (an atlas missing when w.noAtlas names it), issecretvalue (w.secret is
---   the secret value) and the interface style (w.style: 0 mouse and keyboard, 1 the gamepad UI).
+--   C_Texture.GetAtlasInfo (an atlas missing when w.noAtlas names it; its size w.atlasSize's, 1 x 1
+--   where that names none), issecretvalue (w.secret is the secret value) and the interface style
+--   (w.style: 0 mouse and keyboard, 1 the gamepad UI).
+-- - 1.1.5, PartyFrame (w.party(), none until then): Forever's (Shared/PartyFrame.lua), its four
+--   PartyMemberFrameTemplate buttons from a pool (PartyMemberFramePool). The game's
+--   InitializePartyMemberFrames (its OnShow, at the interface's load and whenever it is shown
+--   again) releases them and takes them back in the order the pool gives (w.partyOrder: which
+--   member frame, by the order it was made, gets places 1 to 4; 1 2 3 4 unless set), each given its
+--   layoutIndex and the key MemberFrame<i> on PartyFrame. A member frame keeps its own label
+--   (PartyMember#k) whatever place it shows; its CreateTexture makes textures as a container's.
+--   Its own regions, as Mainline/PartyFrameTemplates.xml lays them out (w.partyRegions): the
+--   Portrait (BACKGROUND, 37 x 37 at 7, -6), its ring Texture and the member's Name (both ARTWORK,
+--   sublevel 0; the Name 57 x 12 at 46, -6, UpdateNameTextAnchors), as plain data.
 local BORDER_GLOBALS = { "TargetFrame", "FocusFrame", "PlayerFrame", "hooksecurefunc", "UnitExists", "UnitIsPlayer", "UnitGUID",
 	"UnitFactionGroup", "UnitFullName", "GetUnitName", "GetGuildInfo", "IsInGuild", "InCombatLockdown", "issecretvalue", "C_Texture",
-	"C_InputInterfaceStyle" }
+	"C_InputInterfaceStyle", "PartyFrame" }
 local CONTAINER_OF = { target = "TargetFrame.TargetFrameContainer", focus = "FocusFrame.TargetFrameContainer", player = "PlayerFrame.PlayerFrameContainer" }
 
 -- A player as the unit functions give it; its GUID one of its own (the same character: the same GUID).
@@ -21146,7 +21157,7 @@ local function WithBorders(fn, setup)
 		view = ns.db.devKingView, loginAt = ns.Comm.loginAt }
 	for _, name in ipairs(BORDER_GLOBALS) do saved[name] = _G[name] end
 	local w = { log = {}, seq = {}, units = { player = BORDER_ME }, hooks = {}, textures = {}, events = {}, on = {}, printed = {},
-		noAtlas = {}, noFile = {}, style = 0, combat = false }
+		noAtlas = {}, noFile = {}, atlasSize = {}, style = 0, combat = false }
 	-- (Any capitalised key is a method, as on the game's objects; any other key a missing field.)
 	local function Logged(label, t)
 		return setmetatable(t or {}, { __index = function(_, key)
@@ -21165,9 +21176,12 @@ local function WithBorders(fn, setup)
 			self.file = file
 			return true
 		end
-		function tex:SetSize(width, height) Rec("SetSize"); self.size = width .. " " .. height end
+		function tex:SetSize(width, height) Rec("SetSize"); self.size = width .. " " .. height; self.dims = { width, height } end
 		function tex:SetTexCoord(...) Rec("SetTexCoord"); self.coord = table.concat({ ... }, " ") end
-		function tex:SetPoint(p, rel, rp, x, y) Rec("SetPoint"); self.point = ("%s %s %s %s %s"):format(p, rel and rel.label or "?", rp, x, y) end
+		function tex:SetPoint(p, rel, rp, x, y)
+			Rec("SetPoint"); self.point = ("%s %s %s %s %s"):format(p, rel and rel.label or "?", rp, x, y)
+			self.at = { p = p, rel = rel, rp = rp, x = x, y = y }
+		end
 		function tex:SetDesaturated(on) Rec("SetDesaturated"); self.desaturated = on end
 		function tex:SetVertexColor(r, g, b) Rec("SetVertexColor"); self.color = ("%s %s %s"):format(r, g, b) end
 		function tex:Show() Rec("Show"); self.shown = true end
@@ -21203,6 +21217,51 @@ local function WithBorders(fn, setup)
 		TargetFrame = UnitFrameStandIn("TargetFrame", "TargetFrameContainer", true)
 		FocusFrame = UnitFrameStandIn("FocusFrame", "TargetFrameContainer", true)
 		PlayerFrame = UnitFrameStandIn("PlayerFrame", "PlayerFrameContainer", false)
+		PartyFrame = nil
+		w.partyRegions = {
+			Portrait = { layer = "BACKGROUND", sub = 0, x = 7, y = -6, width = 37, height = 37 },
+			Texture = { layer = "ARTWORK", sub = 0, x = 1, y = -2 },
+			Name = { layer = "ARTWORK", sub = 0, x = 46, y = -6, width = 57, height = 12, fontString = true },
+		}
+		-- (shown false: PartyFrame not shown yet, so no member frame handed out.)
+		w.party = function(shown)
+			local p = Logged("PartyFrame", { label = "PartyFrame" })
+			rawset(p, "PartyMemberFramePool", {})
+			w.partyFrames = {}
+			for k = 1, 4 do
+				local label = "PartyMember#" .. k
+				local f = Logged(label, { label = label })
+				for key, region in pairs(w.partyRegions) do
+					local copy = {}
+					for field, v in pairs(region) do copy[field] = v end
+					rawset(f, key, copy)
+				end
+				rawset(f, "CreateTexture", function(_, _, layer, _, sub)
+					w.log[#w.log + 1] = label .. ":CreateTexture"
+					return NewTexture(label, layer, sub)
+				end)
+				w.partyFrames[k] = f
+			end
+			rawset(p, "InitializePartyMemberFrames", function(self)
+				w.seq[#w.seq + 1] = "PartyFrame:InitializePartyMemberFrames (the game's)"
+				for _, f in ipairs(w.partyFrames) do rawset(f, "layoutIndex", nil) end
+				for i, k in ipairs(w.partyOrder or { 1, 2, 3, 4 }) do
+					rawset(w.partyFrames[k], "layoutIndex", i)
+					rawset(self, "MemberFrame" .. i, w.partyFrames[k])
+				end
+			end)
+			PartyFrame = p
+			if shown ~= false then p:InitializePartyMemberFrames() end
+			return p
+		end
+		-- The member frame showing party<i> now (of layoutIndex i), nil for none.
+		w.partyFrame = function(unit)
+			local i = tonumber(tostring(unit):match("^party(%d)$"))
+			for _, f in ipairs(w.partyFrames or {}) do
+				if i and rawget(f, "layoutIndex") == i then return f end
+			end
+			return nil
+		end
 		hooksecurefunc = function(t, key, post)
 			local original = t[key]
 			assert(type(original) == "function", "hooksecurefunc on a function")
@@ -21223,7 +21282,7 @@ local function WithBorders(fn, setup)
 		IsInGuild = function() return w.units.player.guild ~= nil end
 		InCombatLockdown = function() return w.combat end
 		issecretvalue = function(v) return w.secret ~= nil and rawequal(v, w.secret) end
-		C_Texture = { GetAtlasInfo = function(a) if w.noAtlas[a] then return nil end return { width = 1, height = 1 } end }
+		C_Texture = { GetAtlasInfo = function(a) if w.noAtlas[a] then return nil end return w.atlasSize[a] or { width = 1, height = 1 } end }
 		C_InputInterfaceStyle = { GetCurrentStyle = function() return w.style end }
 		Enum.InputDeviceInterfaceType = { Mkb = 0, Gamepad = 1 }
 		ns.faction, ns.splitNames = "Alliance", nil
@@ -21276,16 +21335,30 @@ local function WithBorders(fn, setup)
 			end
 			return "?"
 		end
-		-- The texture shown on a unit's frame, nil for none; never two at once.
-		w.shownTexture = function(unit)
+		-- The texture shown on a frame (its label), nil for none; never two at once.
+		w.shownTextureOn = function(owner)
 			local found
 			for _, tex in ipairs(w.textures) do
-				if tex.owner == CONTAINER_OF[unit] and tex.shown then
-					assert(not found, "two borders at once on " .. unit)
+				if owner ~= nil and tex.owner == owner and tex.shown then
+					assert(not found, "two borders at once on " .. owner)
 					found = tex
 				end
 			end
 			return found
+		end
+		w.shownOn = function(owner)
+			local found = w.shownTextureOn(owner)
+			return found and w.tierOf(found) or nil
+		end
+		-- The texture shown on a unit's frame (a party member's: the member frame showing him now),
+		-- nil for none; never two at once.
+		w.shownTexture = function(unit)
+			local owner = CONTAINER_OF[unit]
+			if not owner then
+				local f = w.partyFrame(unit)
+				owner = f and f.label
+			end
+			return w.shownTextureOn(owner)
 		end
 		-- The border shown on a unit's frame (its tier's name), nil for none.
 		w.shown = function(unit)
@@ -22243,6 +22316,543 @@ do
 			assert(L.BORDERS_PREVIEW_HELP:find("/oly borders test", 1, true))
 			assert(L.BORDERS_PREVIEW_WHEN_OFF:find("/oly borders on", 1, true))
 		end
+	end)
+end
+
+-- 1.1.5: the borders on the party's frames, the portraits under your own in a group (the author's
+-- ask: they had none). Forever's PartyFrame (w.party()) as WithBorders stands it in. Made-up names,
+-- but the King's character (BORDER_KING above), the one the King's tier is for.
+do
+	local PARTY_KING = BORDER_KING
+	local PARTY_COUNCILLOR = BorderUnit("Sage Owl", "Wanderers", "Member", 3) -- (on the High Council's list)
+	local PARTY_MASTER = BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0) -- (<Olympus Zeus>'s master, as its census names him)
+	local PARTY_PLAIN = BorderUnit("Plain Pip", "Olympus Zeus", "Member", 5) -- (a member of an Olympus guild, nothing more)
+	local GOLD_WINGED = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged"
+	local SILVER_WINGED = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged"
+	local MEDIA = "Interface\\AddOns\\Olympus\\media\\borders\\"
+
+	local function Party(w, a, b, c, d) w.units.party1, w.units.party2, w.units.party3, w.units.party4 = a, b, c, d end
+	-- The border on each party place's frame, "-" for none: "gold-elite - bronze-elite -".
+	local function PartyLine(w)
+		local out = {}
+		for i = 1, 4 do out[i] = w.shown("party" .. i) or "-" end
+		return table.concat(out, " ")
+	end
+	local function Near(got, want, what)
+		assert(type(got) == "number" and math.abs(got - want) < 0.005, ("%s: %s, not %s"):format(what, tostring(got), tostring(want)))
+	end
+	local function OnlyCreateTexture(w)
+		for _, entry in ipairs(w.log) do assert(entry:find(":CreateTexture$"), "only CreateTexture on the game's objects: " .. entry) end
+	end
+	-- Where a region draws among its frame's own: its layer first, then its sublevel (a region
+	-- drawn later is over one drawn earlier; the same layer and sublevel: no order the client keeps).
+	local LAYER_ORDER = { BACKGROUND = 1, BORDER = 2, ARTWORK = 3, OVERLAY = 4, HIGHLIGHT = 5 }
+	local function DrawOrder(region)
+		assert(LAYER_ORDER[region.layer], "a draw layer: " .. tostring(region.layer))
+		return LAYER_ORDER[region.layer] * 100 + (region.sub or 0)
+	end
+
+	-- 1.1.5 (review): the border on a member frame drew over the start of the member's name: it sat
+	-- at ARTWORK sublevel 3, over the frame's ring art as on the target frame, but the Name is on the
+	-- member frame itself (ARTWORK 0, from 46 px in), where the target's is on a frame of its own,
+	-- and the wings' tip reaches past 46 px at the name's height. The test now asks where it draws
+	-- among the frame's own regions (w.partyRegions, from the template) instead of sublevel 3.
+	test("1.1.5 party borders: a party of four (the King, a High Councillor, a guild master, a plain member): the gold, silver and bronze wings round their portraits under your own, none for the plain member; the target's art and offsets at the party portrait's size, turned round, on each member frame itself, over its portrait and under its ring and the member's name", function()
+		WithBorders(function(w)
+			-- (The client's sizes of the game's atlases: the gold wings' 110 x 90, the size Max drew his
+			-- bronze over at twice; the silver wings' a stand-in, whatever the client gives is used.)
+			w.atlasSize[GOLD_WINGED], w.atlasSize[SILVER_WINGED] = { width = 110, height = 90 }, { width = 100, height = 80 }
+			w.party()
+			Party(w, PARTY_KING, PARTY_COUNCILLOR, PARTY_MASTER, PARTY_PLAIN)
+			w.internal("LOGIN")
+			eq(PartyLine(w), "gold-elite silver-elite bronze-elite -")
+			eq(w.shown("party1"), "gold-elite", "the King")
+			eq(w.shown("party2"), "silver-elite", "a High Councillor")
+			eq(w.shown("party3"), "bronze-elite", "the guild master of an Olympus guild")
+			eq(w.shown("party4"), nil, "a plain member: none, as on the target frame")
+			-- The target frame and your own frame as ever.
+			w.target(PARTY_MASTER)
+			eq(w.shown("target"), "bronze-elite"); eq(w.shown("player"), nil)
+			-- Three textures on each member frame itself (it has no container), as on the target's.
+			eq(#w.textures, 21, "three borders on the target, the focus, your own and the four party frames")
+			local seen = {}
+			local regions = w.partyRegions
+			for _, tex in ipairs(w.textures) do
+				if tex.owner:find("^PartyMember#") then
+					assert(DrawOrder(tex) > DrawOrder(regions.Portrait), tex.owner .. ": over the portrait")
+					assert(DrawOrder(tex) < DrawOrder(regions.Name), tex.owner .. ": under the member's name, not over its first letters")
+					assert(DrawOrder(tex) < DrawOrder(regions.Texture), tex.owner .. ": so under the frame's ring too (the name's layer and sublevel)")
+					eq(tex.color, nil, "no tint"); eq(tex.desaturated, nil, "no desaturation")
+					local key = tex.owner .. " " .. w.tierOf(tex)
+					assert(not seen[key], "one texture per border and frame: " .. key)
+					seen[key] = tex
+				end
+			end
+			-- 37/58 of the target's (its portrait 58 x 58, a party member's 37 x 37), from the member
+			-- frame's top left: the gold wings' 110 x 90 is 70.17 x 57.41 there. The target's offsets (11,
+			-- -4 from its container's top right, its portrait 26 and 19 px in) put the art 37 px right of
+			-- and 15 px above its portrait's top right corner; turned round and at 37/58, 23.60 px left of
+			-- and 9.57 px above the party portrait's top left (7, -6): -16.60, 3.57. The silver's (8, -7):
+			-- 21.69 and 7.66 px, so -14.69, 1.66. Max's file at its tier's 110 x 90, at 37/58.
+			local want = {
+				-- tier, art, width, height, x, y, texture coordinates
+				{ "gold-elite", "atlas " .. GOLD_WINGED, 70.172, 57.414, -16.603, 3.569, "1 0 0 1" },
+				{ "silver-elite", "atlas " .. SILVER_WINGED, 63.793, 51.034, -14.690, 1.655, "1 0 0 1" },
+				{ "bronze-elite", "file " .. MEDIA .. "bronze-winged", 70.172, 57.414, -16.603, 3.569, "0.859375 0 0 0.703125" },
+			}
+			for k = 1, 4 do
+				local label = "PartyMember#" .. k
+				for _, row in ipairs(want) do
+					local name, art, width, height, x, y, coord = unpack(row, 1, 7)
+					local tex = seen[label .. " " .. name]
+					assert(tex, name .. " on " .. label)
+					eq(tex.file and ("file " .. tex.file) or ("atlas " .. tostring(tex.atlas)), art, name .. " on " .. label)
+					if tex.atlas then eq(tex.useSize, false, name .. ": not the atlas's own (the target's) size"); eq(tex.reset, true) end
+					Near(tex.dims[1], width, name .. ": its width"); Near(tex.dims[2], height, name .. ": its height")
+					eq(tex.at.p, "TOPLEFT"); eq(tex.at.rp, "TOPLEFT")
+					assert(rawequal(tex.at.rel, w.partyFrames[k]), name .. ": anchored to its own member frame")
+					Near(tex.at.x, x, name .. ": from the frame's left"); Near(tex.at.y, y, name .. ": from its top")
+					eq(tex.coord, coord, name .. ": turned round (the portrait on the left)")
+					-- (Why it must draw under the name: its box reaches over the name's left edge, at the
+					-- name's height.)
+					local box = regions.Name
+					assert(tex.at.x < box.x + box.width and tex.at.x + tex.dims[1] > box.x
+						and tex.at.y > box.y - box.height and tex.at.y - tex.dims[2] < box.y, name .. " reaches the name's box")
+				end
+			end
+			-- The game's frames: CreateTexture alone, three on each member frame; one hook more, on PartyFrame.
+			local made = {}
+			for _, entry in ipairs(w.log) do made[entry] = (made[entry] or 0) + 1 end
+			OnlyCreateTexture(w)
+			for k = 1, 4 do eq(made["PartyMember#" .. k .. ":CreateTexture"], 3) end
+			eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification PartyFrame.InitializePartyMemberFrames")
+			assert(w.B.StatusLine():find("player -, party1 gold-elite, party2 silver-elite, party3 bronze-elite, party4 -", 1, true), w.B.StatusLine())
+		end)
+	end)
+
+	test("1.1.5 party borders: joining, leaving and swapping places: each border on its member's frame; worked out only for a member new to his place, from lookups; an empty place never", function()
+		WithBorders(function(w)
+			-- Every guild lookup recorded; a walk over the guilds would find none (the table is a stand-in).
+			local reports, looked = ns.rdb.guilds, {}
+			ns.rdb.guilds = setmetatable({}, { __index = function(_, k) looked[#looked + 1] = k return reports[k] end })
+			w.party()
+			w.internal("LOGIN")
+			eq(PartyLine(w), "- - - -", "no party")
+			local base = w.computed()
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(w.computed(), base, "four empty places: nothing worked out")
+			-- Joining, one after another: the newcomer alone worked out.
+			Party(w, PARTY_MASTER)
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(PartyLine(w), "bronze-elite - - -"); eq(w.computed(), base + 1)
+			Party(w, PARTY_MASTER, PARTY_COUNCILLOR)
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(PartyLine(w), "bronze-elite silver-elite - -"); eq(w.computed(), base + 2, "the newcomer alone")
+			Party(w, PARTY_MASTER, PARTY_COUNCILLOR, PARTY_PLAIN, PARTY_KING)
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(PartyLine(w), "bronze-elite silver-elite - gold-elite"); eq(w.computed(), base + 4)
+			-- The roster again with nobody moved (the game sends it for much else): nothing worked out.
+			w.fire("GROUP_ROSTER_UPDATE"); w.fire("GROUP_ROSTER_UPDATE")
+			eq(w.computed(), base + 4, "nobody new to his place")
+			-- Swapping places: each border follows its member.
+			Party(w, PARTY_KING, PARTY_COUNCILLOR, PARTY_PLAIN, PARTY_MASTER)
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(PartyLine(w), "gold-elite silver-elite - bronze-elite"); eq(w.computed(), base + 6, "the two who swapped")
+			-- Leaving: the councillor goes and those below him move up; the last frame, nobody's now, none.
+			Party(w, PARTY_KING, PARTY_PLAIN, PARTY_MASTER, nil)
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(PartyLine(w), "gold-elite - bronze-elite -")
+			eq(w.shownOn("PartyMember#4"), nil, "the frame of the empty place")
+			-- Someone new in the empty place.
+			Party(w, PARTY_KING, PARTY_PLAIN, PARTY_MASTER, PARTY_COUNCILLOR)
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(PartyLine(w), "gold-elite - bronze-elite silver-elite")
+			-- The party breaks up: none anywhere.
+			Party(w, nil, nil, nil, nil)
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(PartyLine(w), "- - - -")
+			for k = 1, 4 do eq(w.shownOn("PartyMember#" .. k), nil, "PartyMember#" .. k) end
+			local n = w.computed()
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(w.computed(), n, "empty places again: nothing worked out")
+			eq(#w.textures, 21, "nothing made after the first: three on each frame")
+			-- Only the guilds of the members looked at were ever looked up.
+			local theirs = { ["Olympus Zeus"] = true, ["OLYMPUS"] = true, ["Olympus II"] = true }
+			for _, k in ipairs(looked) do assert(theirs[k], "looked up " .. tostring(k)) end
+			assert(#looked > 0)
+			OnlyCreateTexture(w)
+		end)
+	end)
+
+	test("1.1.5 party borders: PartyFrame handing out its member frames anew in another order (shown again: Alt+Z, a cinematic): after the game's own, each border goes to the frame now showing its member; nobody worked out again", function()
+		WithBorders(function(w)
+			w.party()
+			Party(w, PARTY_KING, PARTY_COUNCILLOR, PARTY_MASTER, PARTY_PLAIN)
+			w.internal("LOGIN")
+			eq(w.shownOn("PartyMember#1"), "gold-elite"); eq(w.shownOn("PartyMember#3"), "bronze-elite")
+			local n = w.computed()
+			w.seq = {}
+			w.partyOrder = { 3, 1, 4, 2 }
+			PartyFrame:InitializePartyMemberFrames()
+			eq(w.seq[1], "PartyFrame:InitializePartyMemberFrames (the game's)", "the game's own first")
+			assert(rawequal(w.partyFrame("party1"), w.partyFrames[3]), "frame 3 shows party1 now")
+			-- Frame by frame: #3 shows the King now (where the guild master was), #1 the councillor, #4 the
+			-- guild master, #2 the plain member.
+			eq(w.shownOn("PartyMember#3"), "gold-elite", "the frame now showing the King")
+			eq(w.shownOn("PartyMember#1"), "silver-elite", "now the councillor's")
+			eq(w.shownOn("PartyMember#4"), "bronze-elite", "now the guild master's")
+			eq(w.shownOn("PartyMember#2"), nil, "now the plain member's")
+			eq(PartyLine(w), "gold-elite silver-elite bronze-elite -")
+			eq(w.computed(), n, "nobody worked out again: the same members in the same places")
+			eq(#w.textures, 21, "no texture more")
+			-- Another order, then the first again.
+			w.partyOrder = { 2, 4, 1, 3 }
+			PartyFrame:InitializePartyMemberFrames()
+			eq(w.shownOn("PartyMember#2"), "gold-elite"); eq(w.shownOn("PartyMember#4"), "silver-elite")
+			eq(w.shownOn("PartyMember#1"), "bronze-elite"); eq(w.shownOn("PartyMember#3"), nil)
+			w.partyOrder = nil
+			PartyFrame:InitializePartyMemberFrames()
+			eq(w.shownOn("PartyMember#1"), "gold-elite"); eq(w.shownOn("PartyMember#2"), "silver-elite")
+			eq(w.shownOn("PartyMember#3"), "bronze-elite"); eq(w.shownOn("PartyMember#4"), nil)
+			eq(w.computed(), n)
+			OnlyCreateTexture(w)
+		end)
+	end)
+
+	-- 1.1.5 (review): while the borders were off, PartyFrame's hook returned without noting which
+	-- frame showed whom, so a border brought back by anything but the roster or PartyFrame (the
+	-- census on DATA_CHANGED, a name's update in the 0.2 s before a switch's own look) went on the
+	-- frame its member had shown before.
+	test("1.1.5 party borders: PartyFrame handing out its frames anew while the borders are off (our guild out of the Olympus guilds for a while, the gamepad UI): when they come back, each border on the frame showing its member now, whatever brings it back", function()
+		-- Our guild out of the Olympus guilds (a list changed, no PLAYER_GUILD_UPDATE), then back in
+		-- on a DATA_CHANGED that brings a new High Council list too (every border worked out again).
+		WithBorders(function(w)
+			w.party()
+			Party(w, PARTY_KING, PARTY_PLAIN)
+			w.internal("LOGIN")
+			eq(w.shownOn("PartyMember#1"), "gold-elite"); eq(w.shownOn("PartyMember#2"), nil)
+			local savedRemoved = ns.REMOVED_BUILTIN
+			local ok, err = pcall(function()
+				ns.REMOVED_BUILTIN = { Alliance = { "Olympus II" } }
+				eq(ns.IsMember(), false, "our guild out")
+				w.fire("GROUP_ROSTER_UPDATE")
+				eq(PartyLine(w), "- - - -", "out: none")
+				-- PartyFrame shown again meanwhile (Alt+Z twice): frame #2 shows party1 now, frame #1 party2.
+				w.partyOrder = { 2, 1, 3, 4 }
+				PartyFrame:InitializePartyMemberFrames()
+				eq(PartyLine(w), "- - - -")
+				ns.REMOVED_BUILTIN = savedRemoved
+				eq(ns.IsMember(), true, "back in")
+				ns.rdb.council = { names = { ["sage owl"] = true } }
+				w.internal("DATA_CHANGED")
+			end)
+			ns.REMOVED_BUILTIN = savedRemoved
+			if not ok then error(err, 0) end
+			eq(w.shownOn("PartyMember#2"), "gold-elite", "the King's on the frame showing him now")
+			eq(w.shownOn("PartyMember#1"), nil, "none on the plain member's")
+			eq(PartyLine(w), "gold-elite - - -")
+			OnlyCreateTexture(w)
+		end)
+		-- The gamepad UI, PartyFrame shown again meanwhile, then mouse and keyboard: a name's update
+		-- before the switch's own look again (0.2 s after it in the game).
+		WithBorders(function(w)
+			w.party()
+			Party(w, PARTY_KING, PARTY_PLAIN)
+			w.internal("LOGIN")
+			w.style = 1
+			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
+			w.partyOrder = { 2, 1, 3, 4 }
+			PartyFrame:InitializePartyMemberFrames()
+			eq(PartyLine(w), "- - - -", "the gamepad UI: none")
+			w.style = 0
+			w.fire("UNIT_NAME_UPDATE", "party1")
+			eq(w.shownOn("PartyMember#2"), "gold-elite", "on the frame showing him now")
+			eq(w.shownOn("PartyMember#1"), nil, "not the one he showed on before")
+			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
+			eq(PartyLine(w), "gold-elite - - -")
+			eq(#w.textures, 21, "nothing made again")
+		end)
+	end)
+
+	test("1.1.5 party borders: a member's name or guild reaching the client after he joined: his border then (UNIT_NAME_UPDATE, PLAYER_GUILD_UPDATE), worked out for him alone", function()
+		WithBorders(function(w)
+			w.party()
+			w.internal("LOGIN")
+			-- Two join before the client knows the one's name and the other's guild: no border yet.
+			Party(w, BorderUnit(nil, "Olympus Zeus", "Zeus", 0, { guid = "Player-late-1" }),
+				BorderUnit("Mate", nil, nil, nil, { guid = "Player-late-2" }), PARTY_PLAIN)
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(PartyLine(w), "- - - -", "nothing known of them yet")
+			-- The guild master's name arrives; the roster alone says nothing new (the same member there).
+			w.units.party1 = BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0, { guid = "Player-late-1" })
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(w.shown("party1"), nil)
+			local n = w.computed()
+			w.fire("UNIT_NAME_UPDATE", "party1")
+			eq(w.shown("party1"), "bronze-elite", "his name: his border"); eq(w.computed(), n + 1, "him alone")
+			-- Our own guild's master, her guild arriving.
+			w.units.party2 = BorderUnit("Mate", "Olympus II", "Zeus", 0, { guid = "Player-late-2" })
+			w.fire("PLAYER_GUILD_UPDATE", "party2")
+			eq(w.shown("party2"), "bronze-elite", "her guild: our guild master's bronze"); eq(w.computed(), n + 2, "her alone")
+			-- A plain member's name: worked out, still none; another unit's: nothing for the party.
+			w.fire("UNIT_NAME_UPDATE", "party3")
+			eq(w.shown("party3"), nil); eq(w.computed(), n + 3)
+			w.fire("UNIT_NAME_UPDATE", "raid7"); w.fire("PLAYER_GUILD_UPDATE", "nameplate2")
+			eq(w.computed(), n + 3)
+			eq(PartyLine(w), "bronze-elite bronze-elite - -")
+		end)
+	end)
+
+	test("1.1.5 party borders: made only out of combat (a login in combat, or a PartyFrame first shown in combat: once it ends); in combat only Show and Hide on them (joining, leaving, swapping, PartyFrame anew, names, the census, /oly borders off and on)", function()
+		WithBorders(function(w)
+			ns.Borders = w.B -- (the slash command's: the stand-in otherwise)
+			w.party()
+			Party(w, PARTY_MASTER, PARTY_PLAIN)
+			w.internal("LOGIN")
+			w.combat = true
+			for _, tex in ipairs(w.textures) do tex.calls = {} end
+			Party(w, PARTY_MASTER, PARTY_PLAIN, PARTY_KING)
+			w.fire("GROUP_ROSTER_UPDATE")
+			Party(w, PARTY_KING, PARTY_COUNCILLOR, PARTY_MASTER)
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(PartyLine(w), "gold-elite silver-elite bronze-elite -", "in combat")
+			w.partyOrder = { 4, 3, 2, 1 }
+			PartyFrame:InitializePartyMemberFrames()
+			eq(w.shownOn("PartyMember#4"), "gold-elite", "in combat")
+			w.fire("UNIT_NAME_UPDATE", "party2"); w.fire("PLAYER_GUILD_UPDATE", "party3")
+			-- A new High Council list: the guild master is on it now.
+			ns.rdb.council = { names = { ["sage owl"] = true, ["zeusy"] = true } }
+			w.internal("DATA_CHANGED")
+			eq(PartyLine(w), "gold-elite silver-elite silver-elite -", "a new list, in combat")
+			SlashCmdList.OLYMPUS("borders off")
+			eq(PartyLine(w), "- - - -")
+			SlashCmdList.OLYMPUS("borders on")
+			eq(PartyLine(w), "gold-elite silver-elite silver-elite -")
+			Party(w, PARTY_KING)
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(PartyLine(w), "gold-elite - - -")
+			local calls = 0
+			for _, tex in ipairs(w.textures) do
+				if tex.owner:find("^PartyMember#") then
+					for _, m in ipairs(tex.calls) do
+						calls = calls + 1
+						assert(m == "Show" or m == "Hide", "in combat: " .. m)
+					end
+				end
+			end
+			assert(calls >= 10, "shown and hidden in combat: " .. calls)
+			eq(#w.textures, 21, "nothing made in combat")
+			OnlyCreateTexture(w)
+		end)
+		-- Logged in (or reloaded) in combat, in a party: nothing made, no hook, until it ends.
+		WithBorders(function(w)
+			w.party()
+			Party(w, PARTY_KING, PARTY_COUNCILLOR)
+			w.combat = true
+			w.internal("LOGIN")
+			w.fire("GROUP_ROSTER_UPDATE")
+			PartyFrame:InitializePartyMemberFrames()
+			eq(#w.log, 0, "nothing made in combat"); eq(#w.hooks, 0); eq(#w.textures, 0)
+			w.combat = false
+			w.fire("PLAYER_REGEN_ENABLED")
+			eq(#w.textures, 21); eq(PartyLine(w), "gold-elite silver-elite - -", "made once combat ended, and shown")
+		end)
+		-- PartyFrame not shown yet at login (no member frame handed out), then first shown in combat.
+		WithBorders(function(w)
+			w.party(false)
+			Party(w, PARTY_MASTER)
+			w.internal("LOGIN")
+			eq(#w.textures, 9, "the target's, the focus's and yours: no member frame yet")
+			eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification PartyFrame.InitializePartyMemberFrames",
+				"PartyFrame's hook, to see them come")
+			w.combat = true
+			PartyFrame:InitializePartyMemberFrames()
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(#w.textures, 9, "none made in combat"); eq(w.shown("party1"), nil)
+			w.fire("PLAYER_REGEN_ENABLED")
+			eq(#w.textures, 9, "still in combat")
+			w.combat = false
+			w.fire("PLAYER_REGEN_ENABLED")
+			eq(#w.textures, 21); eq(w.shown("party1"), "bronze-elite", "made once combat ended, and shown")
+			-- Nothing waits any more: the next fight's end works nothing out again.
+			local n = w.computed()
+			w.combat = true; w.combat = false
+			w.fire("PLAYER_REGEN_ENABLED")
+			eq(w.computed(), n, "nothing waiting")
+			OnlyCreateTexture(w)
+		end)
+	end)
+
+	test("1.1.5 party borders: off with the gamepad UI as the other borders (no texture, no hook, nothing worked out at a login with it), hidden at a switch to it with nothing called after, back with mouse and keyboard", function()
+		WithBorders(function(w)
+			w.style = 1
+			w.party()
+			Party(w, PARTY_KING, PARTY_COUNCILLOR, PARTY_MASTER, PARTY_PLAIN)
+			w.internal("LOGIN")
+			w.fire("GROUP_ROSTER_UPDATE"); PartyFrame:InitializePartyMemberFrames(); w.fire("UNIT_NAME_UPDATE", "party1")
+			eq(#w.log, 0, "nothing made on the game's frames"); eq(#w.hooks, 0, "no hook"); eq(#w.textures, 0)
+			eq(w.computed(), 0, "nothing worked out")
+			-- To mouse and keyboard: made and shown.
+			w.style = 0
+			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
+			eq(#w.textures, 21); eq(#w.hooks, 3); eq(PartyLine(w), "gold-elite silver-elite bronze-elite -")
+			-- Back to the gamepad UI: hidden at once; the roster, PartyFrame's hook, names and the census
+			-- call nothing on them and work nothing out.
+			w.style = 1
+			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
+			eq(PartyLine(w), "- - - -", "hidden at the switch")
+			for k = 1, 4 do eq(w.shownOn("PartyMember#" .. k), nil) end
+			for _, tex in ipairs(w.textures) do tex.calls = {} end
+			local n = w.computed()
+			Party(w, PARTY_PLAIN, PARTY_MASTER, PARTY_KING)
+			w.fire("GROUP_ROSTER_UPDATE")
+			w.partyOrder = { 2, 1, 4, 3 }
+			PartyFrame:InitializePartyMemberFrames()
+			w.fire("UNIT_NAME_UPDATE", "party2"); w.fire("PLAYER_GUILD_UPDATE", "party3"); w.internal("DATA_CHANGED")
+			for k = 1, 4 do eq(w.shownOn("PartyMember#" .. k), nil) end
+			eq(w.computed(), n, "nothing worked out")
+			for _, tex in ipairs(w.textures) do eq(#tex.calls, 0, "no call on our textures") end
+			-- Mouse and keyboard again: the members as they are now, on the frames showing them now.
+			w.style = 0
+			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
+			eq(PartyLine(w), "- bronze-elite gold-elite -")
+			eq(w.shownOn("PartyMember#1"), "bronze-elite", "frame 1 shows party2 now")
+			eq(w.shownOn("PartyMember#4"), "gold-elite", "frame 4 shows party3 now")
+			-- A switch the event missed: PartyFrame's hook hides them all the same.
+			w.style = 1
+			PartyFrame:InitializePartyMemberFrames()
+			eq(PartyLine(w), "- - - -", "the hook hides them")
+			OnlyCreateTexture(w)
+		end)
+	end)
+
+	-- (1.1.5 review: this test's stand-in for Moderation.Hides hid the King too and its King check
+	-- ran after the real one was back, so "never the King" proved nothing. Here the stand-in hides
+	-- the guild master alone, and the King's border is checked while it does: a word on one member
+	-- touches no other's. The King's own exemption is Moderation.Hides', tested with the real
+	-- Moderation.lua and real words in "1.1.5 party borders and the real net-off" below.)
+	test("1.1.5 party borders: /oly borders off hides them with the others (nothing worked out while off), on brings them back as the party is then; /oly status lists them; a member the moderators took off (net-off) none, the others' kept, back on as before", function()
+		WithBorders(function(w)
+			ns.Borders = w.B -- (the slash command's: the stand-in otherwise)
+			w.party()
+			Party(w, PARTY_KING, PARTY_COUNCILLOR, PARTY_MASTER, PARTY_PLAIN)
+			w.internal("LOGIN")
+			local status = ns.StatusText()
+			assert(status:find("player -, party1 gold-elite, party2 silver-elite, party3 bronze-elite, party4 -", 1, true), status)
+			SlashCmdList.OLYMPUS("borders off")
+			eq(PartyLine(w), "- - - -", "hidden at once")
+			for k = 1, 4 do eq(w.shownOn("PartyMember#" .. k), nil) end
+			local n = w.computed()
+			Party(w, PARTY_MASTER, PARTY_KING)
+			w.fire("GROUP_ROSTER_UPDATE"); PartyFrame:InitializePartyMemberFrames(); w.fire("UNIT_NAME_UPDATE", "party1")
+			eq(PartyLine(w), "- - - -", "off: nothing shown"); eq(w.computed(), n, "nor worked out")
+			SlashCmdList.OLYMPUS("borders on")
+			eq(PartyLine(w), "bronze-elite gold-elite - -", "back at once, as the party is now")
+			-- The moderators take the guild master off: his border goes, the King's beside him stays.
+			local savedHides = ns.Moderation.Hides
+			local ok, err = pcall(function()
+				ns.Moderation.Hides = function(who) if who == "Zeusy-Realm" then return { kind = "c" } end end
+				w.internal("DATA_CHANGED")
+				eq(w.shown("party1"), nil, "taken off: no border")
+				eq(w.shown("party2"), "gold-elite", "the King beside him: his own")
+				-- Seen anew (left and joined again): none either.
+				Party(w, nil, PARTY_KING); w.fire("GROUP_ROSTER_UPDATE")
+				Party(w, PARTY_MASTER, PARTY_KING); w.fire("GROUP_ROSTER_UPDATE")
+				eq(w.shown("party1"), nil, "joined again: none")
+				eq(w.shown("party2"), "gold-elite")
+				ns.Moderation.Hides = savedHides
+				w.internal("DATA_CHANGED")
+				eq(w.shown("party1"), "bronze-elite", "back on: as before")
+			end)
+			ns.Moderation.Hides = savedHides
+			if not ok then error(err, 0) end
+			eq(w.shown("party2"), "gold-elite")
+		end)
+	end)
+
+	test("1.1.5 party borders: the author's /oly borders test stays round his own portrait (and his target or focus while that is himself); his party's frames keep their members' own borders; an empty place's frame (Edit Mode shows him there) none", function()
+		local savedDev = ns.devWorkshop
+		local ok, err = pcall(WithBorders, function(w)
+			ns.Borders = w.B
+			w.party()
+			Party(w, PARTY_COUNCILLOR, PARTY_PLAIN, PARTY_MASTER)
+			w.internal("LOGIN")
+			SlashCmdList.OLYMPUS("borders test gold-elite")
+			eq(w.B.Preview(), "gold-elite"); eq(w.shown("player"), "gold-elite", "round his own portrait")
+			eq(PartyLine(w), "silver-elite - bronze-elite -", "his party: their own")
+			-- The fourth place is empty: Edit Mode's party frames, shown, put his own portrait there
+			-- (Mainline/PartyMemberFrame.lua, UpdateMember). No border on it, the preview neither: on
+			-- purpose (Borders.lua's top), a layout stand-in.
+			eq(w.shownOn(w.partyFrame("party4").label), nil, "an empty place: none")
+			w.fire("GROUP_ROSTER_UPDATE"); PartyFrame:InitializePartyMemberFrames()
+			eq(PartyLine(w), "silver-elite - bronze-elite -")
+			SlashCmdList.OLYMPUS("borders test off")
+			eq(w.shown("player"), nil); eq(PartyLine(w), "silver-elite - bronze-elite -")
+		end, function(w)
+			-- (His test build, as the preview's tests have it, under a made-up name.)
+			w.units.player = BorderUnit("Quillpen", "Olympus II", "Member", 3); ns.me = "Quillpen-Realm"; ns.devWorkshop = { Quillpen = true }
+		end)
+		ns.devWorkshop = savedDev
+		if not ok then error(err, 0) end
+	end)
+
+	-- 1.1.5 (review): the pooled PartyFrame alone let the party's borders in, where the game's
+	-- shared Blizzard_UnitFrame loads it for every game type (Shared/PartyFrame.lua in its TOC, with
+	-- each family's own templates). A client without Forever's unit frames (Classic Era,
+	-- Anniversary: no target container) got party textures at Forever's sizes and PartyFrame's hook.
+	test("1.1.5 party borders: none on a client whose party frames are not Forever's (no pool), nor where the unit frames are not Forever's (Classic Era, Anniversary) even with a pooled PartyFrame; a tier whose atlas size the client does not give left out there alone; Max's file not loaded: the gold wings without colour at the party's size", function()
+		-- Not Forever's PartyFrame: no party texture, no party hook; the other borders as ever.
+		WithBorders(function(w)
+			w.party()
+			rawset(PartyFrame, "PartyMemberFramePool", nil)
+			Party(w, PARTY_MASTER)
+			w.internal("LOGIN")
+			w.fire("GROUP_ROSTER_UPDATE")
+			eq(#w.textures, 9); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
+			eq(w.shown("party1"), nil)
+			assert(w.B.StatusLine():find("target -, focus -, player -  |", 1, true), w.B.StatusLine())
+			OnlyCreateTexture(w)
+		end)
+		-- Classic Era's and Anniversary's unit frames (no TargetFrameContainer, no PlayerFrameContainer,
+		-- as the 1.0.1 test above stands them in) beside a pooled PartyFrame: nothing on any frame, no
+		-- hook, whatever the party does.
+		WithBorders(function(w)
+			TargetFrame = setmetatable({ label = "TargetFrame" }, { __index = function(_, k) return function() w.log[#w.log + 1] = "TargetFrame:" .. k end end })
+			FocusFrame, PlayerFrame = nil, setmetatable({ label = "PlayerFrame" }, getmetatable(TargetFrame))
+			w.party()
+			Party(w, PARTY_KING, PARTY_COUNCILLOR, PARTY_MASTER, PARTY_PLAIN)
+			w.internal("LOGIN")
+			w.fire("GROUP_ROSTER_UPDATE"); PartyFrame:InitializePartyMemberFrames(); w.fire("UNIT_NAME_UPDATE", "party1")
+			w.internal("DATA_CHANGED")
+			eq(#w.log, 0, "no call on the game's frames"); eq(#w.hooks, 0, "no hook, PartyFrame's neither"); eq(#w.textures, 0)
+			eq(PartyLine(w), "- - - -")
+			assert(w.B.StatusLine():find("none (not Forever's unit frames)", 1, true), w.B.StatusLine())
+		end)
+		-- An atlas the client gives no size of: that border left out on the party's frames (rather than
+		-- at the target's size there), the target's kept.
+		WithBorders(function(w)
+			w.atlasSize[SILVER_WINGED] = {}
+			w.party()
+			Party(w, PARTY_COUNCILLOR, PARTY_MASTER)
+			w.internal("LOGIN")
+			eq(w.shown("party1"), nil, "no silver wings on a party frame"); eq(w.shown("party2"), "bronze-elite")
+			w.target(PARTY_COUNCILLOR)
+			eq(w.shown("target"), "silver-elite", "the target's as ever")
+		end)
+		-- Max's bronze wings' file not loaded: the gold wings he drew over, without colour, at the party's size.
+		WithBorders(function(w)
+			w.atlasSize[GOLD_WINGED] = { width = 110, height = 90 }
+			w.noFile[MEDIA .. "bronze-winged"] = true
+			w.party()
+			Party(w, PARTY_MASTER, PARTY_KING)
+			w.internal("LOGIN")
+			eq(w.shown("party1"), "bronze-elite", "a guild master keeps a border")
+			local tex = w.shownTexture("party1")
+			eq(tex.atlas, GOLD_WINGED); eq(tex.desaturated, true, "without colour"); eq(tex.useSize, false)
+			Near(tex.dims[1], 70.172, "its width"); Near(tex.dims[2], 57.414, "its height")
+			Near(tex.at.x, -16.603, "from the left"); Near(tex.at.y, 3.569, "from the top"); eq(tex.coord, "1 0 0 1", "turned round")
+			eq(w.shown("party2"), "gold-elite"); eq(w.shownTexture("party2").desaturated, nil, "the King's in colour")
+		end)
 	end)
 end
 
@@ -31051,6 +31661,48 @@ end)
 			eq(M.Hidden("Blocked Guy-Realm"), nil, "a block is not a net-off")
 			ns.db.blocked["blocked guy-realm"] = nil
 		end)
+	end)
+
+	-- 1.1.5 (review): the party's borders (Borders.lua) with this Moderation.lua and real words, where
+	-- the party tests stand in for Moderation.Hides: the King's exemption is Moderation's, so it is
+	-- asked of the real one here, for a party member's frame, by the name Borders gives it.
+	test("1.1.5 party borders and the real net-off: a word on a party guild master takes his bronze off and putting him back on returns it; a word aimed at the King, refused when loaded or in the list unchecked, never takes his gold", function()
+		local savedNetoff = ns.rdb.netoff
+		local ok, err = pcall(WithBorders, function(w)
+			M.Reset()
+			local t = math.floor(ns.Data.ServerTime() or ns.Now()) - 5
+			ns.rdb.netoff = { c = { ["zeusy-realm"] = { name = "Zeusy-Realm", off = true, at = t, by = KING, reason = "spam" } }, g = {} }
+			M.Load()
+			assert(M.Hidden("Zeusy-Realm"), "the King's word on him, kept")
+			w.party()
+			w.units.party1 = BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0) -- (<Olympus Zeus>'s master, as its census names him)
+			w.units.party2 = BORDER_KING
+			w.internal("LOGIN")
+			eq(w.shown("party1"), nil, "taken off: no border")
+			eq(w.shown("party2"), "gold-elite", "the King")
+			-- A word aimed at the King in the saved list: dropped when loaded.
+			ns.rdb.netoff.c["asmongold asmongler-realm"] = { name = KING, off = true, at = t, by = HC, reason = "edited" }
+			M.Reset(); M.Load()
+			eq(ns.rdb.netoff.c["asmongold asmongler-realm"], nil, "dropped")
+			-- One in the list as it is read, never checked (the index built from it): still never him,
+			-- worked out afresh (his name's update) and on the census's next change.
+			ns.rdb.netoff.c["asmongold asmongler-realm"] = { kind = "c", name = KING, off = true, at = t, by = KING, reason = "edited" }
+			M.Reset()
+			w.fire("UNIT_NAME_UPDATE", "party2")
+			eq(w.shown("party2"), "gold-elite", "never the King")
+			w.internal("DATA_CHANGED")
+			eq(w.shown("party2"), "gold-elite")
+			ns.rdb.netoff.c["asmongold asmongler-realm"] = nil
+			-- The guild master put back on (his word gone): his bronze again on the census's next change.
+			ns.rdb.netoff.c["zeusy-realm"] = nil
+			M.Reset()
+			w.internal("DATA_CHANGED")
+			eq(w.shown("party1"), "bronze-elite", "back on")
+			eq(w.shown("party2"), "gold-elite")
+		end)
+		ns.rdb.netoff = savedNetoff
+		M.Reset()
+		if not ok then error(err, 0) end
 	end)
 
 	test("1.1 net-off (#32): the character is hidden on every addon surface, and the names already linked as its alts too", function()
