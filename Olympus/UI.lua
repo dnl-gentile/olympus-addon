@@ -358,6 +358,7 @@ end
 local ISSUE_GAP = 4
 
 local reporterHooked, hiddenByUs = false, false
+local reporterButton -- our Hide button on it (1.1.5: hidden at a switch to the gamepad UI, the gate's park)
 local function Reporter()
 	local r = _G.PTR_IssueReporter
 	if type(r) == "table" and r.Hide and r.Show and r.IsShown then return r end
@@ -374,20 +375,23 @@ function UI.ApplyIssueReporter()
 	-- Blizzard_PTRFeedback_Gamepad.lua), so it never covers our window. Hidden from our code, its
 	-- hide would run that gamepad code from ours: Olympus leaves it alone there (no hook, no
 	-- button, never hidden or shown).
-	if ns.GamepadUI() then return false end
+	-- (1.1.5: the gamepad gate's "issue-reporter"; its button hidden at a switch to it, see below.)
+	if not ns.Gate.Allowed("issue-reporter") then return false end
 	local r = Reporter()
 	if not r then return false end
 	if not reporterHooked and r.HookScript then
 		reporterHooked = true
 		-- Hooked, not replaced: Blizzard's own OnShow runs as always, then it goes away.
 		r:HookScript("OnShow", function(self)
-			if UI.IssueReporterHidden() and CanTouch(self) and not ns.GamepadUI() then
+			if not ns.Gate.Allowed("issue-reporter") then return end
+			if UI.IssueReporterHidden() and CanTouch(self) then
 				self:Hide()
 				hiddenByUs = true
 			end
 		end)
 		local ok, b = pcall(CreateFrame, "Button", nil, r, "UIPanelButtonTemplate")
 		if ok and b then
+			reporterButton = b
 			b:SetSize(48, 18)
 			b:SetText(L.ISSUE_HIDE)
 			b:SetPoint("BOTTOMRIGHT", r, "TOPRIGHT", 0, 2)
@@ -419,7 +423,16 @@ function UI.SetIssueReporterHidden(on)
 	if ns.GamepadUI() then ns.Print(L.ISSUE_GAMEPAD) end
 	UI.ApplyIssueReporter()
 end
-function UI.ResetIssueReporter() reporterHooked, hiddenByUs = false, false end -- tests
+function UI.ResetIssueReporter() reporterHooked, hiddenByUs, reporterButton = false, false, nil end -- tests
+-- A switch to the gamepad UI: our Hide button off the game's box (it would be a gamepad target
+-- there); back to mouse and keyboard, shown, and the player's choice applied again.
+ns.Gate.Hooks("issue-reporter", {
+	park = function() if reporterButton then reporterButton:Hide() end end,
+	install = function()
+		if reporterButton then reporterButton:Show() end
+		UI.ApplyIssueReporter()
+	end,
+})
 
 ns.On("LOGIN", function()
 	ns.After(2, "issue reporter", function() ns.SafeCall("issue reporter", UI.ApplyIssueReporter) end)
@@ -1746,7 +1759,8 @@ end
 -- Whisper, invite and /who take the name the server finds (ns.TellName).
 local function Whisper(name)
 	name = ns.TellName(name)
-	if ns.GamepadUI() then return UI.WhisperWindow(name) end
+	if not ns.Gate.Allowed("chat-box") then return UI.WhisperWindow(name) end
+	ns.Gate.Used("chat-box") -- (1.1.5, the gamepad gate: told at a switch to the gamepad UI)
 	if ChatFrame_SendTell then ChatFrame_SendTell(name) else ChatFrame_OpenChat("/w " .. name .. " ") end
 end
 

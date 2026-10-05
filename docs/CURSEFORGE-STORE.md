@@ -599,8 +599,8 @@ whisper to a named crafter (`/oly craft`).
   nothing is whispered for you: the whisper is yours to write. Old clients ignore the board.
 
 ### World map
-- Soldiers per zone on zone and continent maps, and per continent on the world map (with
-  Blizzard's gamepad mode, only per continent: see below).
+- Soldiers per zone on zone and continent maps, and per continent on the world map (none with
+  Blizzard's gamepad mode since 1.1.5: see below).
 - Decrees are round icons (the horn, the war cry...) where they were called, and the King's
   crown where he stands; the Board's camps (1.1) one fire badge per zone, with how many. Over a
   zone's circle they move just outside its edge, top right first, so its number stays readable;
@@ -717,8 +717,9 @@ account, `/oly discord forget` drops this character's request and proof.
   Throne's /who line for his key rotation, 1.1: the answer shows in the game's
   Who list), and the Issue Reporter is the game's to show. Since 0.9.9 it leaves the world map
   alone there too: no zone counts, decrees, crown or guildmate dots on it (the minimap keeps
-  the crown and the dots, the Azeroth map its continent totals), because each of those went
-  through the map library into the gamepad map's own state. If the game still says it blocked
+  the crown and the dots), because each of those went through the map library into the gamepad
+  map's own state; since 1.1.5 its continent totals and Olympus button go too, the gamepad map
+  being the game's alone. If the game still says it blocked
   Olympus, a `/reload` clears it; to tell us what it was, open the Olympus window, press its
   help button (left of the X), then **Report a bug**.
   **The gamepad gate (1.1.5).** Every way Olympus reaches into the game's own windows is listed in

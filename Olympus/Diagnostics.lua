@@ -14,6 +14,10 @@ local function ClientInfo()
 	return ("%s (%s) toc %s, locale %s"):format(tostring(version), tostring(build), tostring(toc), tostring(GetLocale()))
 end
 
+-- 1.1.5, the gamepad gate: Bootstrap.lua's error handler (that file loads before any gate) gives the
+-- game's back at a switch to the gamepad UI (GamepadRegistry.lua's "error-handler").
+if ns.Gate and ns.ParkErrorHandler then ns.Gate.Hooks("error-handler", { park = ns.ParkErrorHandler }) end
+
 function ns.CaptureError(where, err)
 	local db = ns.db
 	local msg = tostring(err)

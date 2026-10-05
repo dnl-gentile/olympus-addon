@@ -194,7 +194,11 @@ local function CanvasScale()
 	return (scale and scale > 0) and scale or 1
 end
 
+-- (1.1.5, the gamepad gate's "map-overlay", the author's call: none of it with the gamepad UI on, the
+-- continent totals neither: the gamepad map is the game's alone. Nothing laid out there; at a switch
+-- to it, the totals, the Olympus button and its menu hide; back, laid out again.)
 function Map.LayoutOverlay()
+	if not ns.Gate.Allowed("map-overlay") then return end
 	for _, f in ipairs(overlay) do f:Hide() end
 	local canvas = Canvas()
 	if not canvas or not WorldMapFrame:IsShown() or not ns.db.showMap or not ns.IsMember() then return end
@@ -540,6 +544,7 @@ local hooked = false
 local function HookWorldMap()
 	if hooked or not WorldMapFrame then return end
 	hooked = true
+	-- (Each does nothing with the gamepad UI on: LayoutOverlay's first line.)
 	local function relayout() ns.SafeCall("map overlay", Map.LayoutOverlay) end
 	if WorldMapFrame.OnMapChanged then pcall(hooksecurefunc, WorldMapFrame, "OnMapChanged", relayout) end
 	WorldMapFrame:HookScript("OnShow", relayout)
@@ -583,7 +588,6 @@ end
 
 ns.On("LOGIN", function()
 	ns.SafeCall("map provider", Map.QuietPinsProvider)
-	ns.SafeCall("map hooks", HookWorldMap)
 	if not Pins then
 		local raw = LibStub and LibStub("HereBeDragons-Pins-2.0", true)
 		-- A half-loaded library can still run its per-frame update and raise an error on
@@ -605,11 +609,28 @@ ns.On("LOGIN", function()
 			tostring(CreateUnsecuredRegionPoolInstance ~= nil), tostring(CreateFramePool ~= nil),
 			tostring(MapCanvasPinMixin ~= nil), tostring(Minimap ~= nil))
 	end
-	CreateMapToggle()
+	ns.Gate.Install("map-overlay")
 	if not toggle then
 		ns.RegisterEvent("ADDON_LOADED", function(name)
-			if name == "Blizzard_WorldMap" then CreateMapToggle(); ns.SafeCall("map hooks", HookWorldMap) end
+			if name == "Blizzard_WorldMap" then ns.Gate.Install("map-overlay") end
 		end)
 	end
 	QueueRefresh()
 end)
+
+-- The world map's own parts of Olympus (the gate's "map-overlay"): its hooks and the Olympus button,
+-- at a login with mouse and keyboard or the first switch to it; at a switch to the gamepad UI the
+-- button, its menu and the continent totals hide.
+ns.Gate.Hooks("map-overlay", {
+	install = function()
+		ns.SafeCall("map hooks", HookWorldMap)
+		CreateMapToggle()
+		if toggle then toggle:Show() end
+		Map.LayoutOverlay()
+	end,
+	park = function()
+		if menu then menu:Hide() end
+		if toggle then toggle:Hide() end
+		for _, f in ipairs(overlay) do f:Hide() end
+	end,
+})

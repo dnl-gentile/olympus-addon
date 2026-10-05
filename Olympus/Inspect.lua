@@ -849,7 +849,11 @@ function Inspect.CouncilTooltip(tooltip, name, guild)
 	return true
 end
 
+-- 1.1.5, the gamepad gate (GamepadRegistry.lua's "tooltip-unit"): nothing with the gamepad UI on, from
+-- the first line (the game's soft target shows the tooltip again and again there, and Olympus writes
+-- nothing in the game's frames there): no line, no patrol. Not registered at a login with it.
 function Inspect.TooltipUnit(tooltip)
+	if not ns.Gate.Allowed("tooltip-unit") then return false end
 	if tooltip ~= GameTooltip or type(tooltip.GetUnit) ~= "function" then return false end
 	local label, unit = tooltip:GetUnit()
 	if SecretTooltipValue(label, unit) or type(unit) ~= "string" or unit == "" then return false end
@@ -875,17 +879,28 @@ ns.On("LOGIN", function()
 	-- 1.1: an officer's findings to his guild's officers, and the day's asked for once our roster is in.
 	ns.Every(15, "tabard share", Inspect.FlushShare)
 	ns.After(40 + Inspect.random() * 30, "tabard share ask", Inspect.AskShared)
+	ns.Gate.Install("tooltip-unit")
+end)
+
+-- The players' tooltips (the gate's "tooltip-unit"): registered at a login with mouse and keyboard,
+-- or at the first switch to it after a gamepad login; once a session (the game keeps a post-call).
+local tooltipHooked = false
+ns.Gate.Hooks("tooltip-unit", { install = function()
+	if tooltipHooked then return end
+	tooltipHooked = true
 	local hooked = false
 	if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
 		hooked = pcall(TooltipDataProcessor.AddTooltipPostCall, Enum.TooltipDataType.Unit, function(tt)
+			if not ns.Gate.Allowed("tooltip-unit") then return end
 			ns.SafeCall("tooltip", Inspect.TooltipUnit, tt)
 		end)
 	end
-	if not hooked then
+	if not hooked and GameTooltip then
 		pcall(GameTooltip.HookScript, GameTooltip, "OnTooltipSetUnit", function(tt)
+			if not ns.Gate.Allowed("tooltip-unit") then return end
 			ns.SafeCall("tooltip", Inspect.TooltipUnit, tt)
 		end)
 	end
 	ns.Log("tooltip hook: %s", hooked and "TooltipDataProcessor" or "OnTooltipSetUnit")
-end)
+end })
 

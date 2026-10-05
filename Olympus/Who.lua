@@ -191,7 +191,7 @@ local function HookSendWho()
 	if hookedOn == C_FriendList or not (hooksecurefunc and C_FriendList and C_FriendList.SendWho) then return end
 	hookedOn = C_FriendList
 	hooksecurefunc(C_FriendList, "SendWho", function()
-		if sending then return end
+		if sending or not ns.Gate.Allowed("who-quiet") then return end
 		if pending then
 			ns.SafeCall("who: another search", Release, "another search sent", true)
 		elseif owed then
@@ -199,6 +199,17 @@ local function HookSendWho()
 		end
 	end)
 end
+
+-- 1.1.5, the gamepad gate ("who-quiet"): a switch to the gamepad UI gives the who lists their event
+-- back at once from a quiet search still waiting (or still owed its late answer), on the gate's next
+-- frame, instead of from its timer 6 to 30 seconds later, under the gamepad UI.
+ns.Gate.Hooks("who-quiet", { park = function()
+	if pending and #pending.frames > 0 then
+		Release("switched to the gamepad UI")
+	elseif owed then
+		ToChat()
+	end
+end })
 
 -- Level ranges covering 1 to maxLevel, cut where the levels seen in the capped answer split
 -- evenly (each range about the same share of the players), so a young realm (everyone

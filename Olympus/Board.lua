@@ -633,10 +633,12 @@ function Board.ZoneText(zone)
 	return Grey(L.BOARD_ZONE_HIDDEN)
 end
 
--- The whisper is the player's own (the game's chat box; Olympus's window with the gamepad UI).
+-- The whisper is the player's own (the game's chat box; Olympus's window with the gamepad UI: the
+-- gate's "chat-box", whose use with mouse and keyboard a switch to the gamepad UI tells of).
 function Board.Whisper(name)
 	local tell = ns.TellName(name) or name
-	if ns.GamepadUI() then return ns.UI.WhisperWindow(tell) end
+	if not ns.Gate.Allowed("chat-box") then return ns.UI.WhisperWindow(tell) end
+	ns.Gate.Used("chat-box")
 	if ChatFrame_SendTell then ChatFrame_SendTell(tell) end
 end
 

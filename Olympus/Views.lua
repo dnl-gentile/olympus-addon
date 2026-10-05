@@ -191,10 +191,13 @@ local function ItemButton(r, k)
 		end
 		-- Shift-click: the link into the chat box, as in a bag (not with the gamepad UI: its
 		-- chat box would be blocked, see Dialog.lua).
-		if not it or not IsShiftKeyDown or not IsShiftKeyDown() or ns.GamepadUI() or not ChatEdit_InsertLink then return end
+		if not it or not IsShiftKeyDown or not IsShiftKeyDown() or not ns.Gate.Allowed("chat-box") or not ChatEdit_InsertLink then return end
 		local link = it.link
 		if not link and GetItemInfo then local okInfo, _, l = pcall(GetItemInfo, it.id); if okInfo then link = l end end
-		if link then pcall(ChatEdit_InsertLink, link) end
+		if link then
+			ns.Gate.Used("chat-box") -- (the gate's: told at a switch to the gamepad UI)
+			pcall(ChatEdit_InsertLink, link)
+		end
 	end)
 	b:SetScript("OnEnter", function(self)
 		local it = self.item
