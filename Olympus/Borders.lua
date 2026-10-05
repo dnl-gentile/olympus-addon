@@ -561,10 +561,11 @@ end
 -- The author's preview on Edit Mode's party stand-ins (see the top of the file): the previewed tier
 -- while Edit Mode forces the party frames shown, else nil. Read only, Edit Mode's own getter.
 function Borders.EditModeStandIn()
+	if not ns.Gate.Allowed("borders") then return nil end
 	if not preview or preview == Borders.MEMBER then return nil end
 	local em = rawget(_G, "EditModeManagerFrame") -- gp:borders
 	if type(em) ~= "table" or type(em.ArePartyFramesForcedShown) ~= "function" then return nil end
-	local ok, on = pcall(em.ArePartyFramesForcedShown, em)
+	local ok, on = pcall(em.ArePartyFramesForcedShown, em) -- gp:borders
 	return ok and on == true and preview or nil
 end
 
