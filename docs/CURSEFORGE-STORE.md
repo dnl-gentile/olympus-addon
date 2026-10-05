@@ -29,10 +29,11 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
 
 ## Recent versions
 
-- **1.1.5**: The High Council's mark and icon in the game's own chat (`/oly chatmarks`) and on councillors'
+- **1.1.5**: Three elite borders (the King gold, the High Council silver, guild masters bronze) and
+  their marks in the game's own chat (`/oly chatmarks`), none on Olympus lines; councillors'
   tooltips; a guild the High Council removed is no Olympus guild, with an appeal through the signed
-  approved list; Blizzard's player menus untouched in gamepad mode ([#56](https://github.com/dnl-gentile/olympus-addon/issues/56)); restricted secret values
-  ignored safely
+  approved list; `<OLYMPIANS>` approved; the version letters (`/oly letters`); Blizzard's player
+  menus untouched in gamepad mode ([#56](https://github.com/dnl-gentile/olympus-addon/issues/56)); restricted secret values ignored safely
 - **1.1.4**: Crafters as its own tab; the side tabs keep one order when they run out of room
 - **1.1.3**: Ordinary clicks never start a restricted `/who`: census and player searches only from their own
   controls
@@ -656,6 +657,13 @@ account, `/oly discord forget` drops this character's request and proof.
 
 ### Everywhere
 - **Copy**: every tab produces a ready-to-paste text for Discord.
+- **Version letters** (1.1.5): after the addon updates, once a version, a short letter on
+  parchment, in a window like the Olympus window's, says what changed in that version, in the
+  King's voice. It waits until the privacy page is closed, and never opens in combat, in a
+  dungeon or outside an Olympus guild; a new install shows none. The Olympus window's help button
+  (the **i** left of the X) keeps every letter: **Version letters** on its page lists them,
+  newest first, and a click opens one; `/oly letters` (or `/oly letters 1.1.4`) does too. Nothing
+  is sent: which letters you saw is kept on your computer, for your account.
 - **What this client saw** (1.1, the Decrees tab and `/oly log`): a log of the acts your addon
   took while you were online (decrees, the gates opening and closing, pardons, the King's
   visibility switches for the treasury and the untabarded list, and the shared block terms'

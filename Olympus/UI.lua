@@ -2100,7 +2100,8 @@ UI.LINKS = {
 
 -- The help button's page: the version, the tabs in a line each, then the lines /oly help prints
 -- for the privacy switches and the chats (the same strings, so they never disagree), and the
--- links. In the copy box, so a link can be copied; its button is Report a bug.
+-- links. In the copy box, so a link can be copied; its buttons are Report a bug and (1.1.5) the
+-- version letters, every one (Letters.lua): the Olympus window's "i" keeps them.
 function UI.ShowHelp()
 	local lines = {
 		L.TITLE .. " " .. tostring(ns.VERSION),
@@ -2137,7 +2138,8 @@ function UI.ShowHelp()
 		"  " .. L.HELP_ISSUES .. ": " .. UI.LINKS.issues,
 		"  CurseForge: " .. UI.LINKS.curseforge,
 	}
-	UI.ShowCopy(L.HELP_TITLE, table.concat(lines, "\n"), { label = L.REPORT_BUG, fn = function() UI.ShowBugReport() end })
+	UI.ShowCopy(L.HELP_TITLE, table.concat(lines, "\n"), { label = L.REPORT_BUG, fn = function() UI.ShowBugReport() end },
+		{ second = { label = L.LETTERS_BTN, fn = function() ns.Letters.ShowHistory() end } })
 end
 
 -- action: an optional { label, fn } button at the bottom (fn returns true once done).
@@ -2146,7 +2148,8 @@ end
 -- opts (1.1.2): { key = a window of its own (the author's bug reports "bug", his version checks
 -- "versions", his /oly status "status"; the help and every Copy share "copy"), big = larger, with
 -- a Select all button (the reports: long, and read before copied), auto = opened by itself (no
--- keyboard: see the end) }. Each key's window keeps its place and text while another one shows.
+-- keyboard: see the end), second = (1.1.5) a { label, fn } button after the first (the help's
+-- version letters) }. Each key's window keeps its place and text while another one shows.
 local copyFrames = {}
 local COPY_PLACES = { bug = { 0, 30 }, versions = { 60, -30 }, status = { -60, 30 } }
 
@@ -2248,6 +2251,35 @@ function UI.ShowCopy(title, text, action, opts)
 	if copyFrame.selectAll then
 		copyFrame.selectAll:ClearAllPoints()
 		if action then copyFrame.selectAll:SetPoint("LEFT", button, "RIGHT", 6, 0) else copyFrame.selectAll:SetPoint("BOTTOMLEFT", 10, 6) end
+	end
+	-- (1.1.5) A second button after the first (and Select all), made the first time one is asked for.
+	local second = type(opts.second) == "table" and type(opts.second.fn) == "function" and opts.second or nil
+	if second and not copyFrame.second then
+		local b = CreateFrame("Button", nil, copyFrame, "UIPanelButtonTemplate")
+		b:SetSize(140, 20)
+		b:SetScript("OnClick", function(self) ns.SafeCall("copy second", function() if self.fn then self.fn() end end) end)
+		copyFrame.second = b
+	end
+	if copyFrame.second then
+		local b = copyFrame.second
+		b.fn = second and second.fn or nil
+		b:SetShown(second ~= nil)
+		if second then
+			b:SetText(second.label)
+			local fs = b:GetFontString()
+			local textW = fs and (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()) or 120
+			b:SetWidth(math.max(110, math.ceil(textW) + 24))
+			b:ClearAllPoints()
+			local after = copyFrame.selectAll or (action and button) or nil
+			if after then b:SetPoint("LEFT", after, "RIGHT", 6, 0) else b:SetPoint("BOTTOMLEFT", 10, 6) end
+			-- The hint takes the room right of the buttons, wrapped there if it must (a longer
+			-- language's), never under them.
+			copyFrame.hint:ClearAllPoints()
+			copyFrame.hint:SetPoint("BOTTOMLEFT", b, "BOTTOMRIGHT", 8, 0)
+			copyFrame.hint:SetPoint("BOTTOMRIGHT", copyFrame, "BOTTOMRIGHT", -12, 6)
+			copyFrame.hint:SetJustifyH("RIGHT")
+			if copyFrame.hint.SetWordWrap then copyFrame.hint:SetWordWrap(true) end
+		end
 	end
 	if copyFrame.TitleText then copyFrame.TitleText:SetText(title) end
 	copyFrame.text = text

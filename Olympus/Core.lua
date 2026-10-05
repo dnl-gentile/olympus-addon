@@ -1594,6 +1594,7 @@ StandIn("Borders", { "SetEnabled", "Report" })
 StandIn("Nameplates", { "SetEnabled", "Report" })
 StandIn("Members", { "Show", "SetWarnDays" }) -- (1.1)
 StandIn("Consent", { "Show" }) -- 1.1: the first-open page (Consent.lua)
+StandIn("Letters", { "Slash", "ShowHistory", "Show" }) -- 1.1.5: the version letters (Letters.lua)
 StandIn("Chronicle", { "Slash" }) -- 1.1: the log of acts this client saw (Chronicle.lua)
 StandIn("Filter", { "Slash" }) -- 1.1: block terms (Filter.lua)
 StandIn("Board", { "Slash" }) -- (1.1: the Board)
@@ -1792,6 +1793,7 @@ local function Help()
 	print(L.HELP_BORDERS)
 	print(L.HELP_NAMEPLATES)
 	print(L.HELP_CHATMARKS)
+	print(L.HELP_LETTERS)
 	print(L.HELP_ISSUE)
 	print(L.HELP_COUNCIL)
 	print(L.HELP_DISCORD)
@@ -1995,6 +1997,9 @@ SlashCmdList.OLYMPUS = function(input)
 		elseif cmd == "privacy" or cmd == "privacidade" then
 			-- 1.1 (Fern's #11): the page of what this addon shares, each answer to change (Consent.lua).
 			ns.Consent.Show()
+		elseif cmd == "letters" or cmd == "letter" or cmd == "cartas" then
+			-- 1.1.5: the version letters (Letters.lua): every one, or one version's.
+			ns.Letters.Slash(rest)
 		elseif cmd == "chat" then
 			-- 1.1: the Olympus chats on this client (Channels.ChatOn); alone, says which.
 			local on = rest:lower()

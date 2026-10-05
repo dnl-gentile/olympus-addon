@@ -20,10 +20,11 @@
 - v1.1.3 Ordinary clicks never start a restricted `/who`: census and player searches only from their own
   controls
 - v1.1.4 Crafters as its own tab; the side tabs keep one order when they run out of room
-- v1.1.5 The High Council's mark and icon in the game's own chat (`/oly chatmarks`) and on councillors'
+- v1.1.5 Three elite borders (the King gold, the High Council silver, guild masters bronze) and
+  their marks in the game's own chat (`/oly chatmarks`), none on Olympus lines; councillors'
   tooltips; a guild the High Council removed is no Olympus guild, with an appeal through the signed
-  approved list; Blizzard's player menus untouched in gamepad mode (#56); restricted secret values
-  ignored safely
+  approved list; `<OLYMPIANS>` approved; the version letters (`/oly letters`); Blizzard's player
+  menus untouched in gamepad mode (#56); restricted secret values ignored safely
 
 ## Next (after the base is proven in game)
 - ~~Guild leader offline for X days~~ (v0.3)

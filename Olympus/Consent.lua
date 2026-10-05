@@ -120,6 +120,17 @@ function Consent.Ask(reason)
 	return true
 end
 
+-- Whether the page still has a line it would ask this session by itself (Consent.Ask would show
+-- it, out of combat): the version letter waits for it (1.1.5, Letters.lua). Outside an Olympus
+-- guild it asks nothing.
+function Consent.Waiting()
+	if not ns.IsMember() then return false end
+	for _, item in ipairs(Consent.Pending()) do
+		if not asked[item.key] then return true end
+	end
+	return false
+end
+
 -- The player's answer: the item's own switch (which says so in chat), then the page again.
 function Consent.Choose(key, on)
 	local item = byKey[key]

@@ -66,6 +66,7 @@ Views.lua
 Members.lua
 UI.lua
 Consent.lua
+Letters.lua
 GuildFrame.lua
 Borders.lua
 Nameplates.lua

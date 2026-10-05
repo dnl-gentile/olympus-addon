@@ -49126,5 +49126,295 @@ end)()
 	end)
 end)()
 
+---------------------------------------------------------------------------
+-- 1.1.5: the version letters (Letters.lua, the author's call): after an update, once a version, a
+-- letter about what changed, in a window like the Olympus window's; its help button keeps them all.
+---------------------------------------------------------------------------
+;(function()
+	local L = ns.L
+	-- Letters.lua loaded fresh on the widget toolkit (with UI.lua, whose parchment and help page it
+	-- uses), its LOGIN handler and its timers recorded: w.login(), w.run() the delayed call, w.tick()
+	-- the minute's. The account has played before (an update) unless a test says otherwise. The
+	-- portrait frame as the client's, with its portrait texture.
+	local function WithLetters(fn)
+		WithUI(function()
+			local saved = { letters = ns.Letters, read = ns.db.lettersRead, sessions = ns.db.sessions, combat = rawget(_G, "InCombatLockdown"),
+				instance = IsInInstance, gamepad = ns.GamepadUI, member = ns.IsMember, log = ns.Log, print = ns.Print, chat = ns.db.addonChat,
+				template = TEMPLATES.PortraitFrameTemplate }
+			local w = { on = {}, after = {}, every = {}, printed = {} }
+			local ok, err = pcall(function()
+				TEMPLATES.PortraitFrameTemplate = function(f)
+					saved.template(f)
+					f.portrait = NewWidget("Texture", nil, f)
+				end
+				ns.db.lettersRead, ns.db.sessions = nil, 5
+				ns.Log = function() end
+				ns.Print = function(m) w.printed[#w.printed + 1] = tostring(m) end
+				w.UI = LoadUI()
+				local lns = setmetatable({
+					On = function(n, f) w.on[n] = w.on[n] or {}; table.insert(w.on[n], f) end,
+					After = function(sec, what, f) w.after[#w.after + 1] = { sec = sec, what = what, f = f } end,
+					Every = function(sec, what, f)
+						local t = { sec = sec, what = what, f = f }
+						function t:Cancel() self.cancelled = true end
+						w.every[#w.every + 1] = t
+						return t
+					end,
+				}, { __index = ns })
+				assert(loadfile(ADDON_DIR .. "Letters.lua"))("Olympus", lns)
+				w.Letters = lns.Letters
+				ns.Letters = lns.Letters
+				w.login = function() for _, f in ipairs(w.on.LOGIN or {}) do f() end end
+				w.run = function() local a = table.remove(w.after, 1) if a then a.f() end return a end
+				w.tick = function() for _, t in ipairs(w.every) do if not t.cancelled then t.f() end end end
+				fn(w, saved)
+			end)
+			TEMPLATES.PortraitFrameTemplate = saved.template
+			ns.Letters, ns.db.lettersRead, ns.db.sessions = saved.letters, saved.read, saved.sessions
+			InCombatLockdown, IsInInstance, ns.GamepadUI, ns.IsMember = saved.combat, saved.instance, saved.gamepad, saved.member
+			ns.Log, ns.Print, ns.db.addonChat = saved.log, saved.print, saved.chat
+			if not ok then error(err, 0) end
+		end)
+	end
+	local function EditBoxes()
+		local n = 0
+		for _, x in ipairs(createdWidgets) do if x.kind == "EditBox" then n = n + 1 end end
+		return n
+	end
+
+	test("1.1.5 version letters: after an update the running version's letter shows once, after the privacy page's wait, in a window like the Olympus window's (its frame, the logo, a parchment compartment), signed, no keyboard taken; kept per account, never again", function()
+		WithLetters(function(w)
+			local Lt = w.Letters
+			eq(Lt.LIST[1], ns.VERSION, "the running version's letter first")
+			w.login()
+			eq(rawget(_G, "OlympusLetterFrame"), nil, "nothing at login itself")
+			local a = w.after[1]
+			assert(a and a.sec == Lt.LOGIN_WAIT, "after login")
+			assert(Lt.LOGIN_WAIT > ns.Consent.LOGIN_WAIT, "after the privacy page's own wait")
+			-- (The privacy page asked first, 45 s after login, and was closed: here a line of it, the
+			-- zone and layer's, was never answered.)
+			ns.Consent.Show():Hide()
+			local boxes = EditBoxes()
+			w.run()
+			local f = OlympusLetterFrame
+			assert(f and f:IsShown(), "shown")
+			eq(f.template, "PortraitFrameTemplate", "the Olympus window's frame")
+			eq(f.portrait.texture, ns.LOGO, "its logo")
+			eq(f.titleText, L.LETTER_TITLE:format(ns.VERSION))
+			eq(f.head:GetText(), L.LETTERS_TITLE)
+			local title, body = Lt.Text(ns.VERSION)
+			eq(f.title:GetText(), title); eq(f.body:GetText(), body); eq(f.sign:GetText(), L.LETTER_SIGNED)
+			eq(f.box.template, "InsetFrameTemplate", "a compartment as the window's own")
+			eq(f.paper.texture, ns.UI.FirstTexture(ns.UI.PARCHMENTS), "parchment in it"); eq(f.paper:GetParent(), f.box)
+			eq(f.body:GetParent(), f.page); eq(f.scroll:GetScrollChild(), f.page, "a long letter scrolls")
+			assert(f.page:GetHeight() > 100, "the page as tall as the letter: " .. tostring(f.page:GetHeight()))
+			eq(EditBoxes(), boxes, "no edit box: nothing takes the keyboard")
+			eq(f.strata, "DIALOG")
+			eq(UISpecialFrames[#UISpecialFrames], "OlympusLetterFrame", "Escape closes it with mouse and keyboard")
+			eq(ns.db.lettersRead[ns.VERSION], true, "kept, for the account")
+			assert(Lt.StatusLine():find("this version's shown", 1, true), Lt.StatusLine())
+			-- Closed: the minute's try shows nothing again, and stops.
+			f.done:Click()
+			eq(f:IsShown(), false, "Close")
+			w.tick()
+			eq(f:IsShown(), false, "once a version")
+			eq(w.every[1].cancelled, true, "the minute's try stopped")
+		end)
+		-- The next session (a /reload or another character of the account): nothing waits.
+		WithLetters(function(w)
+			ns.db.lettersRead = { [ns.VERSION] = true }
+			w.login()
+			eq(#w.after, 0); eq(#w.every, 0)
+			eq(w.Letters.Ask("test"), false)
+			eq(rawget(_G, "OlympusLetterFrame"), nil)
+		end)
+	end)
+
+	test("1.1.5 version letters: a new install shows none and keeps the version as read; a version with no letter shows none", function()
+		WithLetters(function(w)
+			ns.db.sessions = 1 -- (Core.lua counts the account's sessions: the first one)
+			w.login()
+			eq(ns.db.lettersRead[ns.VERSION], true, "no update to tell of")
+			eq(#w.after, 0); eq(w.Letters.Ask("test"), false); eq(rawget(_G, "OlympusLetterFrame"), nil)
+		end)
+		WithLetters(function(w)
+			local savedVersion = ns.VERSION
+			ns.VERSION = "9.9.9"
+			local ok, err = pcall(function()
+				w.login()
+				eq(#w.after, 0); eq(w.Letters.Ask("test"), false); eq(rawget(_G, "OlympusLetterFrame"), nil)
+				eq(w.Letters.Has("9.9.9"), false)
+			end)
+			ns.VERSION = savedVersion
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.5 version letters: never in combat, an instance or outside an Olympus guild, nor while the privacy page shows or still has a line to ask; then the minute's try shows it", function()
+		WithLetters(function(w, saved)
+			local Lt = w.Letters
+			w.login()
+			InCombatLockdown = function() return true end
+			w.run()
+			eq(Lt.Frame(), nil, "never in combat"); eq(Lt.IsRead(ns.VERSION), false, "still to show")
+			InCombatLockdown = function() return false end
+			IsInInstance = function() return true end
+			w.tick(); eq(Lt.Frame(), nil, "nor in an instance")
+			IsInInstance = function() return false end
+			ns.IsMember = function() return false end
+			w.tick(); eq(Lt.Frame(), nil, "nor outside an Olympus guild")
+			ns.IsMember = saved.member
+			-- The privacy page first: while it shows, then while a line of it is still to ask.
+			local page = ns.Consent.Show()
+			w.tick(); eq(Lt.Frame(), nil, "the privacy page shows")
+			page:Hide()
+			ns.db.addonChat = nil
+			ns.Consent.Reset()
+			eq(ns.Consent.Waiting(), true, "(a line never answered, not asked this session)")
+			w.tick(); eq(Lt.Frame(), nil, "the privacy page still to ask")
+			ns.Consent.Show():Hide() -- (asked, and closed with the line left unanswered)
+			eq(ns.Consent.Waiting(), false)
+			w.tick()
+			assert(Lt.Frame() and Lt.Frame():IsShown(), "then the letter")
+			eq(Lt.IsRead(ns.VERSION), true)
+		end)
+	end)
+
+	test("1.1.5 version letters: the list, newest first, a click opens that version's letter, All letters goes back; its X and Close hide it in combat too; with the gamepad UI it stays off the escape list", function()
+		WithLetters(function(w)
+			local Lt = w.Letters
+			ns.db.lettersRead = { [ns.VERSION] = true }
+			local f = Lt.ShowHistory()
+			eq(f:IsShown(), true); eq(f.titleText, L.LETTERS_TITLE); eq(f.head:GetText(), L.LETTERS_INTRO)
+			eq(f.title:IsShown(), false); eq(f.body:IsShown(), false); eq(f.all:IsShown(), false)
+			local versions = Lt.Versions()
+			eq(#versions, #Lt.LIST, "a letter for every version listed")
+			eq(table.concat(versions, " "), "1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
+			for i, v in ipairs(versions) do
+				local r = f.rows[i]
+				eq(r:IsShown(), true); eq(r.version, v)
+				assert(r.text:GetText():find(L.LETTERS_ROW:format(v, (Lt.Text(v))), 1, true), r.text:GetText())
+				eq(r.text:GetText():find(L.LETTERS_CURRENT, 1, true) ~= nil, v == ns.VERSION, v .. ": this version marked")
+			end
+			-- A click: that version's letter, read; All letters: the list again.
+			f.rows[4]:Click()
+			eq(f.mode, "letter"); eq(f.version, "1.1.2"); eq(f.titleText, L.LETTER_TITLE:format("1.1.2"))
+			eq(f.body:GetText(), select(2, Lt.Text("1.1.2"))); eq(f.all:IsShown(), true)
+			eq(Lt.IsRead("1.1.2"), true)
+			for _, r in ipairs(f.rows) do eq(r:IsShown(), false, "no row over the letter") end
+			f.all:Click()
+			eq(f.mode, "list"); eq(f.rows[4]:IsShown(), true); eq(f.body:IsShown(), false)
+			-- Its X in combat: hidden all the same (HideUIPanel would do nothing there).
+			InCombatLockdown = function() return true end
+			f.CloseButton:Click()
+			eq(f:IsShown(), false, "the X, in combat")
+			InCombatLockdown = function() return false end
+			Lt.Show("1.1.0")
+			f.done:Click()
+			eq(f:IsShown(), false, "Close")
+			eq(Lt.Show("0.1.0"), false, "no letter of that version")
+		end)
+		-- The gamepad UI: never on the escape list its menus sweep; the X closes it.
+		WithLetters(function(w)
+			ns.GamepadUI = function() return true end
+			local f = w.Letters.ShowHistory()
+			for _, name in ipairs(UISpecialFrames) do assert(name ~= "OlympusLetterFrame", "on the escape list") end
+			f.CloseButton:Click()
+			eq(f:IsShown(), false)
+		end)
+	end)
+
+	test("1.1.5 version letters: the Olympus window's help (its i) has a Version letters button that opens the list; /oly letters [version]; /oly help and /oly status say them; a client without the file is told to restart", function()
+		WithLetters(function(w)
+			w.UI.ShowHelp()
+			local box = OlympusCopyFrame
+			eq(box.TitleText:GetText(), L.HELP_TITLE)
+			eq(box.action:GetText(), L.REPORT_BUG, "Report a bug, as before")
+			assert(box.second and box.second:IsShown(), "the second button")
+			eq(box.second:GetText(), L.LETTERS_BTN)
+			eq(box.second:Anchor("LEFT")[2], box.action, "after Report a bug")
+			eq(box.hint:Anchor("BOTTOMLEFT")[2], box.second, "the hint after the buttons, never under them")
+			box.second:Click()
+			local f = OlympusLetterFrame
+			assert(f and f:IsShown()); eq(f.mode, "list")
+			assert(L.HELP_BTN_TIP:find("version letters", 1, true), L.HELP_BTN_TIP)
+			-- Any other copy box: no second button.
+			w.UI.ShowCopy("x", "y")
+			eq(box.second:IsShown(), false)
+			-- The command.
+			f:Hide()
+			SlashCmdList.OLYMPUS("letters")
+			eq(f:IsShown(), true); eq(f.mode, "list")
+			SlashCmdList.OLYMPUS("letters 1.1.3")
+			eq(f.mode, "letter"); eq(f.version, "1.1.3")
+			SlashCmdList.OLYMPUS("letters 9.9.9")
+			eq(f.mode, "list", "no letter of that version: the list")
+			assert(ns.StatusText():find("\nletters: ", 1, true), "in /oly status")
+			local savedPrint, lines = print, {}
+			print = function(m) lines[#lines + 1] = tostring(m) end
+			local ok, err = pcall(SlashCmdList.OLYMPUS, "help")
+			print = savedPrint
+			if not ok then error(err, 0) end
+			local listed = false
+			for _, l in ipairs(lines) do if l == L.HELP_LETTERS then listed = true end end
+			assert(listed, "in /oly help")
+		end)
+		-- Updated without a restart (Letters.lua not loaded yet): Core.lua's stand-in says so.
+		local savedPrint, said = ns.Print, nil
+		ns.Print = function(m) said = m end
+		local ok, err = pcall(SlashCmdList.OLYMPUS, "letters")
+		ns.Print = savedPrint
+		if not ok then error(err, 0) end
+		eq(ns.Letters.missing, true); eq(said, L.RESTART_NEEDED)
+		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
+		local at, n = {}, 0
+		for line in toc:gmatch("[^\n]+") do n = n + 1; at[line:gsub("%s+$", "")] = n end
+		assert(at["Letters.lua"] and at["UI.lua"] < at["Letters.lua"] and at["Consent.lua"] < at["Letters.lua"], "Letters.lua after UI.lua and Consent.lua")
+		assert(assert(ReadFile(ADDON_DIR .. "Core.lua")):find('StandIn("Letters"', 1, true))
+	end)
+
+	test("1.1.5 version letters: every letter in English and pt-BR, plain text; 1.1.5's tells of the borders (the King, the High Council, guild masters; new ones coming, one everybody has worth nothing) and the marks in the game's chat; the README and CurseForge say it", function()
+		local pt = { L = setmetatable({}, { __index = ns.L }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local okPt, errPt = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not okPt then error(errPt, 0) end
+		local keys = { "HELP_LETTERS", "LETTERS_TITLE", "LETTERS_INTRO", "LETTERS_BTN", "LETTERS_ALL", "LETTERS_CLOSE", "LETTERS_CURRENT", "LETTER_SIGNED" }
+		local lns = setmetatable({ On = function() end }, { __index = ns })
+		assert(loadfile(ADDON_DIR .. "Letters.lua"))("Olympus", lns)
+		for _, v in ipairs(lns.Letters.LIST) do
+			local k = "LETTER_" .. v:gsub("%.", "_")
+			keys[#keys + 1] = k .. "_TITLE"; keys[#keys + 1] = k
+		end
+		for _, k in ipairs(keys) do
+			local en, br = rawget(ns.L, k), rawget(pt.L, k)
+			assert(type(en) == "string" and en ~= "", "English " .. k)
+			assert(type(br) == "string" and br ~= "" and br ~= en, "pt-BR " .. k)
+			if k:find("^LETTER_%d") then
+				for _, s in ipairs({ en, br }) do
+					assert(not s:find("|", 1, true) and not s:find("%", 1, true), k .. ": plain text, no escape or format code")
+				end
+			end
+		end
+		for _, k in ipairs({ "LETTER_TITLE", "LETTERS_ROW" }) do eq(ns.LocaleCodes(rawget(pt.L, k)), ns.LocaleCodes(ns.L[k]), k) end
+		local en, br = ns.L.LETTER_1_1_5, rawget(pt.L, "LETTER_1_1_5")
+		for _, words in ipairs({ "The rank borders are gone", "arena", "A border everybody has is worth nothing", "The King: gold wings",
+			"The High Council: silver wings", "Guild masters: bronze wings", "the game's own chat", "Not in guild chat", "OLYMPIANS", "The \"i\" on the Olympus window" }) do
+			assert(en:find(words, 1, true), "1.1.5's letter: " .. words)
+		end
+		for _, words in ipairs({ "As bordas de cargo acabaram", "arena", "Borda que todo mundo tem não vale nada", "O Rei: asas douradas",
+			"O High Council: asas prateadas", "Mestres de guilda: asas de bronze", "chat do próprio jogo", "OLYMPIANS" }) do
+			assert(br:find(words, 1, true), "1.1.5's letter in pt-BR: " .. words)
+		end
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			assert(doc:find("**Version letters** (1.1.5)", 1, true), path .. ": the letters")
+			assert(doc:find("| `/oly letters [version]` |", 1, true), path .. ": the command")
+			assert(doc:find("**Marks in the game's own chat (1.1.5).**", 1, true), path .. ": the marks")
+		end
+	end)
+end)()
+
 print(("\n%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

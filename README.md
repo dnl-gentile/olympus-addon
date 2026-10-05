@@ -1320,6 +1320,13 @@ the game is removed at login, with one line saying so.
 
 ### Everywhere
 - **Copy**: every tab produces a ready-to-paste text for Discord.
+- **Version letters** (1.1.5): after the addon updates, once a version, a short letter on
+  parchment, in a window like the Olympus window's, says what changed in that version, in the
+  King's voice. It waits until the privacy page is closed, and never opens in combat, in a
+  dungeon or outside an Olympus guild; a new install shows none. The Olympus window's help button
+  (the **i** left of the X) keeps every letter: **Version letters** on its page lists them,
+  newest first, and a click opens one; `/oly letters` (or `/oly letters 1.1.4`) does too. Nothing
+  is sent: which letters you saw is kept on your computer, for your account.
 - **What this client saw** (1.1, the Decrees tab and `/oly log`): a log of the acts your addon
   took while you were online (decrees, the gates opening and closing, pardons, the King's
   visibility switches for the treasury and the untabarded list, and the shared block terms'
@@ -1882,6 +1889,7 @@ Other limits:
 | `/oly bank share on\|off` | the guild master or an officer of an Olympus guild other than the King's shows his guild bank's snapshot to the King, his Steward and his Hands (by whisper, never on the channel), or not (1.1) |
 | `/oly rollcall on\|off` | answer the author's roll calls (version, client, channel state) or not (1.1: not until you say yes) |
 | `/oly privacy` | the first-open page again: what the addon shares, and your Yes or No to each (1.1) |
+| `/oly letters [version]` | the version letters (1.1.5): every one, newest first, a click opens one; with a version, that letter |
 | `/oly chat on\|off` | the Olympus chats on this client; off, nothing is sent or shown (1.1: off until you say yes) |
 | `/oly talk [olympus\|captains\|lords]` | open or close the Olympus window on its Chat tab, on that channel; also `/ol`, `/olc` or `/oll` with nothing after it, or Shift-click the minimap button (1.1.1) |
 | `/oly inspection on\|off` | take part in the King's Royal Inspection when sampled (a 2-minute patrol reported to him), or not (1.1: not until you say yes) |
