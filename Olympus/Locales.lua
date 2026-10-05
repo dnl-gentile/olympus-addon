@@ -1477,6 +1477,9 @@ L.DUES_AS_OF = "The Treasurer's list, %s."
 L.DUES_SINCE = "His book counts from %s: payments before that are not in it."
 L.DUES_CUT = "The list was too long to send whole: members not on it show as not known."
 L.DUES_DAYS_AGO = "%dd ago"
+-- 1.1.5 (Fern's #21): a payment made from a confirmed alt counts for its main (Dues.lua).
+L.DUES_WITH_ALTS = "with %s"
+L.DUES_ALTS_TIP = "With what his linked alts paid this week with this guild on it: %s. A payment with another guild on it, or with none, counts for the character who made it alone."
 -- 1.1: the payer's own click that fills in his mail or trade (Fern's #35).
 L.DUES_SEND = "Send this week's dues: %s"
 L.DUES_SEND_TIP = "One click fills in a mail to %s, the Treasurer's mail character (or your trade, if you are trading with the Treasurer): %s, and the note \"%s\". You still press Send or Trade yourself, and closing the window sends nothing: Olympus never moves gold."
@@ -3492,6 +3495,9 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.DUES_SINCE = "O livro dele conta desde %s: pagamentos antes disso não estão nele."
 	L.DUES_CUT = "A lista era longa demais para ir inteira: membros fora dela aparecem como não se sabe."
 	L.DUES_DAYS_AGO = "há %dd"
+	-- 1.1.5 (pedido #21 do Fern): um pagamento feito de um alt confirmado conta para o main dele (Dues.lua).
+	L.DUES_WITH_ALTS = "com %s"
+	L.DUES_ALTS_TIP = "Com o que os alts ligados dele pagaram nesta semana com esta guilda no pagamento: %s. Um pagamento com outra guilda, ou sem guilda, conta só para o personagem que pagou."
 	-- 1.1: o clique do próprio pagador que preenche o correio ou a troca (pedido #35 do Fern).
 	L.DUES_SEND = "Enviar a contribuição desta semana: %s"
 	L.DUES_SEND_TIP = "Um clique preenche um correio para %s, o personagem de correio do Tesoureiro (ou a sua troca, se você estiver trocando com o Tesoureiro): %s, e a nota \"%s\". Você ainda aperta Enviar ou o botão da troca, e fechar a janela não envia nada: o Olympus nunca move ouro."
