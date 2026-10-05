@@ -163,6 +163,19 @@ versions before 1.1 just get the whisper, as before.
   online, then one of his Captains, and says yes: **one whisper to each** from that click, the
   Captain told who to look after, the recruit told who to ask. The pair shows on his list (his
   client's alone); nothing goes on the channel.
+- **Centurions and correspondents** (1.1.5): a guild master of an Olympus guild opens **Your
+  centurions and correspondents** on that page (or `/oly nominees`), laid out as the King's Hands:
+  **+ Name a centurion** (his target, or a name he types), his list (a click takes a title back,
+  asked first), and a line per High Council department to name its correspondent. Up to 10
+  centurions and one correspondent per department (6 at most), members of his own guild only: the
+  addon refuses an 11th centurion, a second correspondent for a department, one name twice and
+  anyone outside his roster, and says why. Each wears Max's bronze border without wings, and the
+  bronze mark on nameplates and in the game's chat, only while the server gives them that guild.
+  His own client sends the list on the Olympus channel; every addon takes it from that guild's
+  master alone (proven as for his bronze wings: your roster for your own guild, two census senders
+  for another), keeps it 6 hours after he stops repeating it, and drops it at once when he is no
+  longer guild master. `/oly nominees centurion <name>`, `/oly nominees correspondent <department
+  number> <name>` and `/oly nominees remove <name>` do the same from the chat.
 - **Level race**: the highest level players of the realm.
 - **Recruiting**: the guilds that still have free slots, so new players go where there is room
   (the five with the most, then every one on a click, 1.1).
@@ -847,7 +860,7 @@ map to invisible, and gives every frame its look back on the second `/oly photo`
 `/reload`. Never in combat, not with the gamepad UI, not on a screen of more than 1000 frames
 (it says so and leaves them as they are), and nothing is sent to anyone.
 To check the elite borders his own rank doesn't carry, `/oly borders test <tier>` (his
-character only) shows one of the three round his own portrait, and on his target frame when he
+character only) shows one of the borders round his own portrait, and on his target frame when he
 targets himself, and its nameplate mark after his own name on his player frame and on every
 friendly player's nameplate (`/oly borders test member`: the member's star alone), on his screen
 alone until `/oly borders test off` or a `/reload`. It follows the borders' and the marks' own
@@ -905,9 +918,9 @@ code.
 | `/oly lfg` · `/oly lfg dungeon\|raid\|pvp\|layer [note]` · `/oly lfg off` | the Board (1.1): who is looking for a group; raise your flag (a box with your note first) or lower it |
 | `/oly week` | the King's week on the Board (1.1): his Agenda for 7 days with your guild's calendar events; the King and his Hands add entries with the Agenda button ("Sat 20:00 Raid night") |
 | `/oly location on` · `/oly location off` | share (or not) your zone and layer on the Olympus channel |
-| `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus, party members and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council, and Max's bronze wings for the guild masters of Olympus guilds (none for a character or a guild the moderators took off, net-off). Since 1.1.5 these three alone: the rank borders (gold for Lords, silver for Captains, bronze for Raiders and Veterans) are gone, and any other member has the nameplate star alone. On by default, hidden with the gamepad UI. Off, the nameplate marks go too |
-| `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, bronze for guild masters, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
-| `/oly chatmarks on` · `/oly chatmarks off` | 1.1.5: the mark of a player's border tier before their name in the game's own chat (channels, say, yell, emote, party, raid, instance and whispers; guild and officer chat the dragons alone, never the star): the King's gold dragon, a High Councillor's silver then their icon, a guild master's bronze, the star for any other member your addon can check. Olympus's own lines carry none. Through the game's own name filter, so the name's link, right-click and /r stay the game's; on by default, hidden with the gamepad UI, and a councillor's on the King's screen while the council's names are hidden |
+| `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus, party members and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council, Max's bronze wings for the guild masters of Olympus guilds, and his bronze without wings for the centurions and correspondents a guild master names, while they are in his guild (none for a character or a guild the moderators took off, net-off). Since 1.1.5 the rank borders (gold for Lords, silver for Captains, bronze for Raiders and Veterans) are gone, and any other member has the nameplate star alone. On by default, hidden with the gamepad UI. Off, the nameplate marks go too |
+| `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, bronze for guild masters and the people they name, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
+| `/oly chatmarks on` · `/oly chatmarks off` | 1.1.5: the mark of a player's border tier before their name in the game's own chat (channels, say, yell, emote, party, raid, instance and whispers; guild and officer chat the dragons alone, never the star): the King's gold dragon, a High Councillor's silver then their icon, the bronze of a guild master and the people he names, the star for any other member your addon can check. Olympus's own lines carry none. Through the game's own name filter, so the name's link, right-click and /r stay the game's; on by default, hidden with the gamepad UI, and a councillor's on the King's screen while the council's names are hidden |
 | `/oly block <name>` | ignore a player |
 | `/oly filter add\|remove <word>` · `/oly filter` | block terms: hide, on your screen, lines of addon text (Olympus chats, writs, decrees, Vox) with a word; the list (1.1) |
 | `/oly alt add Name` · `/oly alt remove Name` · `/oly alt` | link a character of this account as your alt (log it and say yes there), take a link apart, or see your links: the census and the treasury count you once (1.1) |
@@ -941,7 +954,7 @@ also saved in `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.
 - **Feature requests:** Fernmelder, whose 39 posts became 1.1 (the Fernmelder release);
   shenanigans_ (the nameplate marks), Valdericht (`<OLYMPIAN>`), Pyralis Ashandar (taking
   donations) and Zeal (what the King hides stays off the channel).
-- **Art:** Max (the bronze elite borders, drawn over the game's own: the winged one is the guild masters' since 1.1.5).
+- **Art:** Max (the bronze elite borders, drawn over the game's own: the winged one is the guild masters' since 1.1.5, the plain one their centurions' and correspondents').
 - **Reports from the field:** Riukensei and PartyRockAce (the gamepad UI), Ignitheus (whispers
   to Forever names), Pyralis Ashandar, the Treasurer (the treasury and the guild bank), and the
   player who told us WoW had handed him the channel.
