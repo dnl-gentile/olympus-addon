@@ -1439,14 +1439,6 @@ local function WithSlashKey(said, line)
 	return said .. " " .. line:format(key)
 end
 
--- The gamepad UI on: at a switch, the style it switches to (the event's newMode, as Borders.lua
--- reads it); else the game's current one.
-local function GamepadStyle(newMode)
-	local gamepad = Enum and Enum.InputDeviceInterfaceType and Enum.InputDeviceInterfaceType.Gamepad
-	if newMode ~= nil and gamepad ~= nil then return newMode == gamepad end
-	return ns.GamepadUI()
-end
-
 -- The tab in sight (UIParent hidden with Alt-Z: not), the chats on, mouse and keyboard.
 local function KeysWanted(gamepad)
 	if gamepad == nil then gamepad = ns.GamepadUI() end
@@ -2309,9 +2301,8 @@ end)
 -- The switch between mouse and keyboard and the gamepad UI (Blizzard_SharedXML/InputUtil.lua's
 -- event, as Borders.lua reads it; not on every client): to the gamepad UI the key goes back to the
 -- game at the switch, the one binding change made there; back, bound at once while the tab shows.
-pcall(ns.RegisterEvent, "INPUT_DEVICE_INTERFACE_TRANSITION", function(newMode)
-	SyncKeys(true, GamepadStyle(newMode))
-end)
+-- (1.1.5: through the gamepad gate, Gamepad.lua, the one step it takes in the switch's own event.)
+ns.Gate.Hooks("chat-key", { now = true, park = function() SyncKeys(true, true) end, install = function() SyncKeys(true, false) end })
 
 -- The channel last shown, kept only as a channel's letter, and the Olympus tab's line put away,
 -- only as true (the first 1.1.1 build's window place and size go).

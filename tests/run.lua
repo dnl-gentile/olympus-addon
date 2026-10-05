@@ -21110,6 +21110,10 @@ local function WithBorders(fn, setup)
 		bns.After = function(_, _, f) f() end
 		bns.Print = function(m) w.printed[#w.printed + 1] = m end
 		bns.Log = function() end
+		-- (1.1.5) The gamepad gate of its own, as the addon loads it after Core.lua: the switches reach
+		-- the borders (and the nameplates) through it; its next frame, as every timer here, at once.
+		assert(loadfile(ADDON_DIR .. "GamepadRegistry.lua"))("Olympus", bns)
+		assert(loadfile(ADDON_DIR .. "Gamepad.lua"))("Olympus", bns)
 		assert(loadfile(ADDON_DIR .. "Borders.lua"))("Olympus", bns)
 		w.ns, w.B = bns, bns.Borders
 		w.fire = function(event, ...) for _, f in ipairs(w.events[event] or {}) do f(...) end end
@@ -23888,6 +23892,11 @@ do
 		gns.RegisterEvent = function(event, f) w.events[event] = w.events[event] or {}; table.insert(w.events[event], f) end
 		gns.After = function(sec, where, f) w.timers[#w.timers + 1] = { sec = sec, where = where, f = f } end
 		gns.CaptureError = function(where, err) w.errors[#w.errors + 1] = where .. ": " .. tostring(err) end
+		gns.SafeCall = function(where, f, ...)
+			local ok, err = pcall(f, ...)
+			if not ok then w.errors[#w.errors + 1] = where .. ": " .. tostring(err) end
+			return ok
+		end
 		gns.Print = function(m) w.printed[#w.printed + 1] = m end
 		gns.Log = function() end
 		gns.Dialog = { Show = function(which) w.shown[#w.shown + 1] = which return true end }
@@ -24305,6 +24314,55 @@ do
 				eq(main:IsShown(), true); eq(UI.DockedTo(), nil, "never docked with the gamepad UI")
 				eq(Anchor(main), "CENTER UIParent CENTER 0 40")
 			end)
+		end)
+	end)
+
+	-- The gate keeps the only handler of the game's switch: the borders, the nameplates, the player
+	-- menus and the Chat tab's key (their own handlers until 1.1.5) are its hooks now.
+	test("1.1.5 the gamepad gate keeps the only switch handler; the player menus through it: none registered at a gamepad login, registered once at a switch to mouse and keyboard, inert after one back", function()
+		local handlers = {}
+		for line in assert(ReadFile(ADDON_DIR .. "Olympus.toc")):gmatch("[^\r\n]+") do
+			local file = line:match("^%s*([^#%s][^%s]*%.lua)%s*$")
+			if file and not file:find("libs[\\/]") then
+				local n = 0
+				for code in assert(ReadFile(ADDON_DIR .. file:gsub("\\", "/"))):gmatch("[^\n]+") do
+					if not code:match("^%s*%-%-") and code:find("RegisterEvent", 1, true) and code:find("INPUT_DEVICE_INTERFACE_TRANSITION", 1, true) then n = n + 1 end
+				end
+				if n > 0 then handlers[#handlers + 1] = file .. "=" .. n end
+			end
+		end
+		eq(table.concat(handlers, " "), "Core.lua=1 Gamepad.lua=1", "the gate's alone (and Core.lua's stand-in, for a client without Gamepad.lua)")
+		WithStyle(function(style)
+			local savedMenu = rawget(_G, "Menu")
+			local ok, err = pcall(function()
+				local registered = {}
+				Menu = { ModifyMenu = function(tag, cb) registered[#registered + 1] = { tag = tag, cb = cb } end }
+				local login = {}
+				local w = NewGate(function(_, gns) gns.On = function(name, f) if name == "LOGIN" then login[#login + 1] = f end end end, style)
+				assert(loadfile(ADDON_DIR .. "PlayerMenu.lua"))("Olympus", w.ns)
+				local PM = w.ns.PlayerMenu
+				style.now = 1
+				for _, f in ipairs(login) do f() end
+				eq(#registered, 0, "a gamepad login: no menu callback")
+				w.switch(false)
+				eq(#registered, 0, "nothing in the switch's own event")
+				w.frame()
+				eq(#registered, #PM.WHICH, "one callback a menu, on the next frame")
+				local cb = registered[1].cb
+				w.switch(true); w.frame()
+				local built = 0
+				PM.Add("test-gate", function() built = built + 1 end, 1)
+				local savedMember = ns.IsMember
+				ns.IsMember = function() return true end
+				cb(nil, { CreateButton = function() end, CreateDivider = function() end, CreateTitle = function() end }, { unit = "target", name = "Ann" })
+				ns.IsMember = savedMember
+				eq(built, 0, "inert with the gamepad UI")
+				w.switch(false); w.frame(); w.switch(true); w.frame(); w.switch(false); w.frame()
+				eq(#registered, #PM.WHICH, "registered once however many switches")
+				eq(#w.errors, 0, table.concat(w.errors, "; "))
+			end)
+			Menu = savedMenu
+			if not ok then error(err, 0) end
 		end)
 	end)
 end
@@ -43576,6 +43634,9 @@ do
 				local cns = setmetatable({}, { __index = ns })
 				cns.On = function(name, f) w.on[name] = w.on[name] or {}; table.insert(w.on[name], f) end
 				cns.RegisterEvent = function(name, f) w.events[name] = w.events[name] or {}; table.insert(w.events[name], f) end
+				-- (1.1.5) The gamepad gate of its own: the switch reaches the Chat tab's key through it.
+				assert(loadfile(ADDON_DIR .. "GamepadRegistry.lua"))("Olympus", cns)
+				assert(loadfile(ADDON_DIR .. "Gamepad.lua"))("Olympus", cns)
 				assert(loadfile(ADDON_DIR .. "ChatWindow.lua"))("Olympus", cns)
 				w.CW = cns.ChatWindow
 				ns.ChatWindow = w.CW
@@ -44042,6 +44103,10 @@ do
 			local function RunAfter(what)
 				for i = #after, 1, -1 do if after[i].what == what then local f = table.remove(after, i).f f() end end
 			end
+			-- (1.1.5) The gamepad gate of its own, as the addon loads it: the switch reaches the chat
+			-- marks through it, on the next frame ("gamepad gate").
+			assert(loadfile(ADDON_DIR .. "GamepadRegistry.lua"))("Olympus", bns)
+			assert(loadfile(ADDON_DIR .. "Gamepad.lua"))("Olympus", bns)
 			assert(loadfile(ADDON_DIR .. "Borders.lua"))("Olympus", bns)
 			local B = bns.Borders
 			-- Logged in with the gamepad UI: nothing registered in the game's chat; the minute's emptying set.
@@ -44054,7 +44119,7 @@ do
 			-- A switch to mouse and keyboard (the game's event): registered once.
 			gamepad = false
 			Fire(events, "INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-			RunAfter("chat marks style")
+			RunAfter("gamepad gate") -- (1.1.5: the gate's next frame; "chat marks style" until then)
 			eq(B.ChatShown(), true); eq(#filters, 1)
 			local cb = filters[1]
 			-- Each tier's mark, before the name the game decorated (class colour and all).

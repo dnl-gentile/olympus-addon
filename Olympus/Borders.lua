@@ -815,12 +815,9 @@ end)
 ns.RegisterEvent("PLAYER_REGEN_ENABLED", function() if waiting then Borders.RefreshAll(true) end end)
 -- Not on every client: registered where the game has them.
 pcall(ns.RegisterEvent, "PLAYER_FOCUS_CHANGED", function() Borders.Refresh("focus") end)
--- A switch between mouse and keyboard and the gamepad UI (Blizzard_SharedXML/InputUtil.lua's):
--- to the gamepad UI, every border hides at once; either way they are looked at again just after.
-pcall(ns.RegisterEvent, "INPUT_DEVICE_INTERFACE_TRANSITION", function(newMode)
-	local gamepad = Enum and Enum.InputDeviceInterfaceType and Enum.InputDeviceInterfaceType.Gamepad
-	if gamepad ~= nil and newMode == gamepad then HideAll() end
-	ns.After(0.2, "borders style", function() Borders.RefreshAll(true) end)
-	-- The game's chat marks follow at once (and are registered on the first switch to mouse and keyboard).
-	ns.After(0, "chat marks style", function() Borders.ChatRefresh() end)
-end)
+-- A switch between mouse and keyboard and the gamepad UI (1.1.5: the gamepad gate, Gamepad.lua, on
+-- the next frame): to the gamepad UI every border hides, and the game's chat marks stop; back, the
+-- borders are looked at again and the chat marks come back (registered on the first switch to mouse
+-- and keyboard after a gamepad login).
+ns.Gate.Hooks("borders", { park = function() HideAll() end, install = function() Borders.RefreshAll(true) end })
+ns.Gate.Hooks("chat-marks", { park = function() Borders.ChatRefresh() end, install = function() Borders.ChatRefresh() end })

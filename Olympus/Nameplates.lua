@@ -645,15 +645,12 @@ ns.RegisterEvent("PLAYER_REGEN_ENABLED", function()
 	waiting = false
 	Nameplates.RefreshAll()
 end)
--- A switch between mouse and keyboard and the gamepad UI (as the borders): to the gamepad UI,
--- every mark hides at once; either way they are looked at again just after.
-pcall(ns.RegisterEvent, "INPUT_DEVICE_INTERFACE_TRANSITION", function(newMode)
-	local gamepad = Enum and Enum.InputDeviceInterfaceType and Enum.InputDeviceInterfaceType.Gamepad
-	if gamepad ~= nil and newMode == gamepad then
+-- A switch between mouse and keyboard and the gamepad UI (1.1.5: the gamepad gate, Gamepad.lua, on
+-- the next frame, as the borders): to the gamepad UI every mark hides; back, every plate again.
+ns.Gate.Hooks("nameplates", {
+	park = function()
 		active = false
 		HideAll()
-	else
-		active = nil
-	end
-	ns.After(0.2, "nameplates style", function() Nameplates.RefreshAll(true) end)
-end)
+	end,
+	install = function() Nameplates.RefreshAll(true) end,
+})

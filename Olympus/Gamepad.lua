@@ -85,10 +85,9 @@ end
 local function Run(s, field)
 	local fn = s.t[field]
 	if type(fn) ~= "function" then return nil end
-	local ok, res = pcall(fn)
-	if ok then return res end
-	if ns.CaptureError then ns.CaptureError("gamepad gate " .. field .. " " .. s.id, res) end
-	return nil
+	local res
+	local ok = ns.SafeCall("gamepad gate " .. field .. " " .. s.id, function() res = fn() end)
+	return ok and res or nil
 end
 
 -- (`later`, for Install and Park: not the sets the switch's own event ran already, `now`.)
