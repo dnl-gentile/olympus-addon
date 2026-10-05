@@ -504,7 +504,7 @@ end
 
 -- The Social window's size, which is the old Guild window's (the Guild tab fills it).
 local function SocialSize()
-	if FriendsFrame and FriendsFrame.GetWidth then
+	if FriendsFrame and FriendsFrame.GetWidth and ns.Gate.Allowed("communities-button") then
 		local w, h = FriendsFrame:GetWidth(), FriendsFrame:GetHeight()
 		if w and w > 200 and h and h > 200 then return w, h end
 	end
@@ -527,7 +527,7 @@ end
 -- which), else the Social window's (the HD one with the Communities window's height).
 local function HostSize(style)
 	local hook = ns.GuildFrameHook
-	local host = hook and hook.ActiveHost and hook.ActiveHost()
+	local host = hook and hook.ActiveHost and ns.Gate.Allowed("communities-button") and hook.ActiveHost()
 	if host and host.dock and host.dock.GetWidth then
 		return UI.DockSize(host.dock:GetWidth(), host.dock:GetHeight(), host.heightOnly, SocialSize())
 	end
@@ -1589,7 +1589,9 @@ end
 -- Open glued to the right of a Blizzard window (the guild window the button was clicked
 -- in), in `style` (its look, see UI.Style), sized by UI.DockSize, and close together with
 -- it (GuildFrame.lua hooks that).
+-- (1.1.5, the gamepad gate: with the gamepad UI on, never by the game's guild windows: on its own.)
 function UI.OpenDocked(host, tab, heightOnly, style)
+	if not ns.Gate.Allowed("communities-button") then return UI.SelectTab(tab or "census") end
 	UseStyle(style or UI.Style())
 	main.host, main.heightOnly = host, heightOnly
 	main:SetSize(UI.DockSize(host:GetWidth(), host:GetHeight(), heightOnly, SocialSize()))
@@ -1603,6 +1605,7 @@ end
 -- minimized and maximized): take its new height. The HD window also keeps clear of the
 -- host's side tabs, which come and go (GuildFrame.lua calls this then too).
 function UI.FollowHost(host)
+	if not ns.Gate.Allowed("communities-button") then return end
 	if main and main.docked and main.host == host then
 		main:SetSize(UI.DockSize(host:GetWidth(), host:GetHeight(), main.heightOnly, SocialSize()))
 		if main.style == "hd" then DockTo(host) end
@@ -1612,6 +1615,16 @@ end
 -- Closes the window if it is docked: to `host` when given, to anything otherwise.
 function UI.CloseIfDocked(host)
 	if main and main.docked and main:IsShown() and (host == nil or main.host == host) then main:Hide() end
+end
+
+-- 1.1.5 (the gamepad gate, GuildFrame.lua's park): a switch to the gamepad UI takes the window off
+-- the guild window it was docked to, to its own place, open or not. True when it was docked.
+function UI.Undock()
+	if not (main and main.docked) then return false end
+	main.docked, main.host = false, nil
+	main:ClearAllPoints()
+	main:SetPoint("CENTER", 0, 40)
+	return true
 end
 
 ---------------------------------------------------------------------------

@@ -1083,17 +1083,25 @@ end
 -- are fired by hand; the Olympus window is a stand-in that remembers where it is docked,
 -- or with realUI the real UI.lua (which needs the widget toolkit further below).
 local function LoadGuildFrame(realUI)
-	local world = { events = {}, login = {}, buttons = {}, dock = { shown = false } }
+	local world = { events = {}, login = {}, buttons = {}, dock = { shown = false }, timers = {} }
 	local dock = world.dock
 	local gns = setmetatable({}, { __index = ns })
 	world.ns = gns
 	gns.RegisterEvent = function(event, fn) world.events[event] = world.events[event] or {}; table.insert(world.events[event], fn) end
+	-- (1.1.5) The gamepad gate of its own, as the addon loads it after Core.lua; what waits for the
+	-- client's next frame waits for world.Frame().
+	gns.After = function(_, _, fn) world.timers[#world.timers + 1] = fn end
+	assert(loadfile(ADDON_DIR .. "GamepadRegistry.lua"))("Olympus", gns)
+	assert(loadfile(ADDON_DIR .. "Gamepad.lua"))("Olympus", gns)
 	gns.On = function() end -- UI.lua's own callbacks (minimap button at LOGIN, refreshes) stay out
 	if realUI then assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", gns) end
 	gns.On = function(name, fn) if name == "LOGIN" then table.insert(world.login, fn) end end
 	gns.MakeRoundButton = function(name, parent, size)
-		local b = setmetatable({ name = name, parent = parent, size = size, scripts = {} }, { __index = function() return function() end end })
+		local b = setmetatable({ name = name, parent = parent, size = size, scripts = {}, shown = true }, { __index = function() return function() end end })
 		function b:SetScript(kind, fn) self.scripts[kind] = fn end
+		function b:Show() self.shown = true end
+		function b:Hide() self.shown = false end
+		function b:IsShown() return self.shown end
 		function b:SetPoint(...) self.point = { ... } end
 		function b:SetFrameLevel(level) self.level = level end
 		function b:Click() self.scripts.OnClick(self) end
@@ -1108,11 +1116,17 @@ local function LoadGuildFrame(realUI)
 		end,
 		CloseIfDocked = function(host) if dock.shown and (host == nil or dock.host == host) then dock.shown = false end end,
 		FollowHost = function(host) dock.followed = host end,
+		Undock = function() dock.undocked = (dock.undocked or 0) + 1 end, -- (1.1.5: GuildFrame.lua's park)
 	}
 	assert(loadfile(ADDON_DIR .. "GuildFrame.lua"))("Olympus", gns)
 	world.hook = gns.GuildFrameHook
 	function world.Fire(event, ...) for _, fn in ipairs(world.events[event] or {}) do fn(...) end end
 	function world.Login() for _, fn in ipairs(world.login) do fn() end end
+	function world.Frame()
+		local t = world.timers
+		world.timers = {}
+		for _, fn in ipairs(t) do fn() end
+	end
 	return world
 end
 
@@ -24194,6 +24208,104 @@ do
 		end
 		local flat = readme:gsub("%s+", " ")
 		assert(flat:find("With the gamepad UI on, Olympus registers no typed command", 1, true), "the README says why")
+	end)
+
+	-- The guild windows' Olympus button (GuildFrame.lua): a Button inside frames the gamepad's Smart
+	-- Navigation searches (Blizzard_GamepadSmartNavigation/Utility.lua's FindButtons takes every
+	-- visible one), the second path to the refused call in a session played with the gamepad alone.
+	test("1.1.5 the gamepad gate, the guild windows' Olympus button: a login with the gamepad UI makes none and hooks nothing in the Guild & Communities, Social and Guild windows; a switch to it hides every button, takes the window off the guild window and leaves the hooks doing nothing; back to mouse and keyboard, shown again, nothing hooked twice", function()
+		WithStyle(function(style)
+			WithGuildWindows(function()
+				FriendsFrame = FakeFrame("FriendsFrame", UIParent, 338, 424)
+				GuildFrame = FakeFrame("GuildFrame", FriendsFrame, 338, 424)
+				CommunitiesFrame = FakeFrame("CommunitiesFrame", UIParent, 814, 426)
+				CommunitiesFrame.ChatTab = FakeFrame("CommunitiesFrame.ChatTab", CommunitiesFrame, 32, 32)
+				local FRAMES = { FriendsFrame, GuildFrame, CommunitiesFrame, CommunitiesFrame.ChatTab }
+				local function Hooks()
+					local n = {}
+					for _, f in ipairs(FRAMES) do
+						local c = 0
+						for _, list in pairs(f.hooks) do c = c + #list end
+						n[#n + 1] = f.name .. "=" .. c
+					end
+					return table.concat(n, " ")
+				end
+				-- Logged in with the gamepad UI: no button, no hook, nor when a guild window loads.
+				style.now = 1
+				local w = LoadGuildFrame()
+				w.Login()
+				eq(#w.buttons, 0, "no button"); eq(#w.hook.Hosts(), 0, "no guild window hooked")
+				eq(Hooks(), "FriendsFrame=0 GuildFrame=0 CommunitiesFrame=0 CommunitiesFrame.ChatTab=0", "no hook on the game's windows")
+				w.Fire("ADDON_LOADED", "Blizzard_Communities")
+				eq(#w.buttons, 0, "nor when a guild window loads"); eq(w.hook.Scan(), 0)
+				local function Switch(pad)
+					style.now = pad and 1 or 0
+					w.Fire("INPUT_DEVICE_INTERFACE_TRANSITION", style.now, 1 - style.now)
+					w.Frame()
+				end
+				-- Switched to mouse and keyboard: a button in each, the windows hooked.
+				Switch(false)
+				eq(#w.buttons, 2); eq(#w.hook.Hosts(), 2)
+				local old, new = w.buttons[1], w.buttons[2]
+				eq(old.shown, true); eq(new.shown, true)
+				local hooked = Hooks()
+				assert(hooked ~= "FriendsFrame=0 GuildFrame=0 CommunitiesFrame=0 CommunitiesFrame.ChatTab=0", hooked)
+				CommunitiesFrame:Show(); new:Click()
+				eq(w.dock.host, CommunitiesFrame, "docked, with mouse and keyboard")
+				-- Switched to the gamepad UI: every button hidden, the window off the guild window.
+				Switch(true)
+				eq(old.shown, false); eq(new.shown, false); eq(w.dock.undocked, 1, "off the guild window")
+				-- The hooks and the buttons do nothing there.
+				w.dock.followed = nil
+				CommunitiesFrame:Run("OnSizeChanged"); CommunitiesFrame.ChatTab:Run("OnShow")
+				eq(w.dock.followed, nil, "no following the guild window")
+				CommunitiesFrame:Hide()
+				eq(w.dock.shown, true, "closing the guild window closes nothing of ours")
+				CommunitiesFrame:Show(); FriendsFrame:Show(); GuildFrame:Show()
+				GuildFrame:Hide(); FriendsFrame:Hide(); CommunitiesFrame:Hide()
+				eq(w.hook.ActiveHost(), w.hook.Hosts()[2], "the guild window shown is not noted (the last one from before)")
+				CommunitiesFrame:Show()
+				new:Click(); old:Click()
+				eq(w.dock.host, CommunitiesFrame, "a click on a hidden button does nothing")
+				w.Fire("ADDON_LOADED", "Blizzard_Communities")
+				eq(#w.buttons, 2, "no new button"); eq(Hooks(), hooked, "nothing hooked")
+				-- Back to mouse and keyboard: shown again, nothing hooked twice, however many switches.
+				Switch(false)
+				eq(old.shown, true); eq(new.shown, true); eq(#w.buttons, 2); eq(Hooks(), hooked)
+				Switch(true); Switch(false); Switch(true); Switch(false)
+				eq(#w.buttons, 2); eq(Hooks(), hooked, "each window hooked once"); eq(new.shown, true)
+				FriendsFrame:Hide(); FriendsFrame:Show()
+				eq(#w.buttons, 2)
+				CommunitiesFrame:Hide(); CommunitiesFrame:Show(); new:Click()
+				eq(w.dock.host, CommunitiesFrame); eq(w.dock.shown, true, "docks again")
+			end)
+		end)
+	end)
+
+	test("1.1.5 the gamepad gate, the guild windows with the real window: docked by the Communities window, a switch to the gamepad UI puts it at its own place; opened from a guild window's button with the gamepad UI, on its own, never docked", function()
+		WithStyle(function(style)
+			WithUI(function()
+				local w, UI = ForeverWorld(true)
+				CommunitiesFrame:Show(); w.buttons[1]:Click()
+				local main = OlympusFrameHD
+				eq(UI.DockedTo(), CommunitiesFrame)
+				eq(Anchor(main), "TOPLEFT CommunitiesFrame TOPRIGHT 64 0")
+				style.now = 1
+				w.Fire("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
+				eq(UI.DockedTo(), CommunitiesFrame, "nothing in the switch's own event")
+				w.Frame()
+				eq(UI.DockedTo(), nil, "undocked"); eq(main:IsShown(), true, "still open")
+				eq(Anchor(main), "CENTER UIParent CENTER 0 40", "at its own place")
+				CommunitiesFrame.w = 322
+				CommunitiesFrame:Run("OnSizeChanged")
+				eq(Anchor(main), "CENTER UIParent CENTER 0 40", "no longer following the guild window")
+				-- A docked open asked with the gamepad UI on (a button left from before): on its own.
+				main:Hide()
+				UI.OpenDocked(CommunitiesFrame, "census", true, "hd")
+				eq(main:IsShown(), true); eq(UI.DockedTo(), nil, "never docked with the gamepad UI")
+				eq(Anchor(main), "CENTER UIParent CENTER 0 40")
+			end)
+		end)
 	end)
 end
 
