@@ -1259,18 +1259,19 @@
     {
       "id": "feat-borders-nameplates",
       "topic": "features",
-      "status": "current (1.1.1)",
+      "status": "current (1.1.5)",
       "questions": [
         "What are the gold wings on portraits?",
         "What's the star on nameplates?",
         "How do I turn them off?"
       ],
-      "answer": "Elite borders show Olympus rank on your target and focus portraits: gold wings for the King, silver for the High Council, gold for Lords, silver for Captains. Nameplates get small marks (a star for members). /oly borders off or /oly nameplates off hides them.",
-      "in_game": "Portrait borders and nameplate marks show Olympus ranks. /oly borders off or /oly nameplates off hides them.",
-      "notes": "No README feature section; only the Commands table (README.md:1810-1811).",
+      "answer": "Elite borders on your target, focus and own portrait: gold wings for the King, silver for the High Council, bronze for guild masters (1.1.5: no rank borders). Nameplates and the game's chat show the same marks, a star for other members. /oly borders, nameplates or chatmarks off hides them.",
+      "in_game": "Borders and marks: the King gold, the High Council silver, guild masters bronze, other members a star. /oly borders off, /oly nameplates off or /oly chatmarks off hides them.",
+      "notes": "The README's Commands table, and the Channels section's Marks in the game's own chat (1.1.5).",
       "sources": [
         "L.HELP_BORDERS",
-        "L.HELP_NAMEPLATES"
+        "L.HELP_NAMEPLATES",
+        "L.HELP_CHATMARKS"
       ]
     },
     {
