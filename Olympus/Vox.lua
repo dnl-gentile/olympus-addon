@@ -715,8 +715,9 @@ local function TimeLabel(sec)
 end
 
 -- (1.1.5, the author's ask) The Olympus window's own frame, its bronze metal and the logo in the
--- portrait (UI.lua's CreateMain, Letters.lua), not the plain silver one: the boxes start below
--- the portrait. Else the plain frame, else a bare one.
+-- portrait (UI.lua's CreateMain, Letters.lua), not the plain silver one: a header by the portrait
+-- and the boxes in a compartment below it, as theirs. Else the plain frame (its own inset), else a
+-- bare one.
 local function MakeComposer()
 	local ok, f = pcall(CreateFrame, "Frame", "OlympusVoxAskFrame", UIParent, "PortraitFrameTemplate")
 	if ok and f and f.CloseButton then
@@ -727,7 +728,7 @@ local function MakeComposer()
 		if not ok or not f then f = CreateFrame("Frame", "OlympusVoxAskFrameBasic", UIParent) end
 	end
 	local dy = f.hasPortrait and -30 or 0
-	f:SetSize(420, 330 - dy)
+	f:SetSize(420, f.hasPortrait and 340 or 330)
 	f:SetPoint("CENTER", 0, 40)
 	f:SetFrameStrata("DIALOG")
 	f:SetToplevel(true)
@@ -762,6 +763,23 @@ local function MakeComposer()
 			if portrait.SetMask then pcall(portrait.SetMask, portrait, "Interface\\CharacterFrame\\TempPortraitAlphaMask") end
 		elseif f.SetPortraitToAsset then
 			pcall(f.SetPortraitToAsset, f, ns.LOGO)
+		end
+		-- The header, where the Olympus window has its army's count (Letters.lua's).
+		f.head = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+		f.head:SetPoint("TOPLEFT", 62, -30)
+		f.head:SetPoint("RIGHT", -14, 0)
+		f.head:SetJustifyH("LEFT")
+		if f.head.SetWordWrap then f.head:SetWordWrap(false) end
+		f.head:SetText(L.VOX_TITLE)
+		-- The compartment: the game's inset box, as the Olympus window's list and the letter's (the
+		-- portrait frame has none: without it every box sits on the bare rock). From below the
+		-- portrait to above the buttons; it draws at the frame's own level, its art under the
+		-- labels and the boxes.
+		local okBox, box = pcall(CreateFrame, "Frame", nil, f, "InsetFrameTemplate")
+		if okBox and box then
+			box:SetPoint("TOPLEFT", 6, -56)
+			box:SetPoint("BOTTOMRIGHT", -6, 46)
+			f.box = box
 		end
 	end
 	local q = Label(f, L.VOX_ASK_QUESTION)
@@ -824,7 +842,11 @@ local function MakeComposer()
 	f.cancel:SetPoint("RIGHT", f.ask, "LEFT", -8, 0)
 	f.cancel:SetText(CANCEL or "Cancel")
 	f.cancel:SetScript("OnClick", function() f:Hide() end)
+	-- Escape closes it with mouse and keyboard; with the gamepad UI its X and Cancel do. Checked
+	-- each time it shows, as the Olympus window and the letter are: a switch to the gamepad UI
+	-- since takes it off the list (ns.EscapeCloses).
 	ns.EscapeCloses(f:GetName())
+	f:HookScript("OnShow", function(self) ns.EscapeCloses(self:GetName()) end)
 	return f
 end
 
