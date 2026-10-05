@@ -28,9 +28,13 @@ local L = ns.L
 -- The party's frames (1.1.5, the author's ask: in a group the portraits under your own had none):
 -- Forever's PartyFrame (Blizzard_UnitFrame's Shared/PartyFrame.lua and Mainline/
 -- PartyFrameTemplates.xml; Camelot overrides neither) takes its four PartyMemberFrameTemplate
--- buttons from a frame pool. Each has a 37 x 37 portrait 7 px from its left and 6 px from its
--- top, under its own ring art (its Texture, ARTWORK) and no container: Olympus's textures go on
--- the member frame itself, as that ring does, at ARTWORK sublevel 3 as everywhere. A border is the
+-- buttons from a frame pool. Each has a 37 x 37 portrait (BACKGROUND) 7 px from its left and 6 px
+-- from its top, and no container: Olympus's textures go on the member frame itself. Not over its
+-- own art as on the target: the member's name is on that same frame, in the layer and sublevel of
+-- its ring (both ARTWORK 0, its Name from 46 px in), where the target's is on a frame of its own
+-- far from the art, and the art's top tip (the dragon's head) reaches some 5 px into the name. So
+-- at ARTWORK sublevel -1: over the portrait, under the frame's ring, its name and the rest of its
+-- art (the game's ring then over the border's inner edge). A border is the
 -- target's art and offsets scaled by 37/58 (the target's portrait is 58 x 58, 26 px from its
 -- container's right and 19 px from its top, Mainline/TargetFrame.xml) about the portrait's top
 -- corner, and turned round as on your own frame (the portrait on the left): an atlas at the
@@ -42,10 +46,16 @@ local L = ns.L
 -- place is not worked out. One hook, hooksecurefunc on PartyFrame's InitializePartyMemberFrames as
 -- on the target frame's CheckClassification, because no event says it: each time PartyFrame is
 -- shown (the interface hidden and shown again: Alt+Z, a cinematic) it releases its four frames to
--- the pool and takes them back in no fixed order (the pool's pairs()), so a frame may then show
--- another member; after it each border goes to the frame now showing its member. A frame's
+-- the pool and takes them back in no fixed order (CreateFramePool is the secure pool,
+-- Blizzard_SharedXMLBase/Pools.lua:857: its ReleaseAll walks its frames in next()'s order, :235,
+-- onto a stack its Acquire pops last in first out, :219), so a frame may then show another
+-- member; after it each border goes to the frame now showing its member. While the borders are
+-- off it forgets which frame shows whom, and works it out again when they are back. A frame's
 -- textures are made once, out of combat (in combat: once it ends). The raid's frames have no
--- portrait: none there.
+-- portrait: none there. Only with Forever's unit frames (a target, focus or player container
+-- found): a client without them (Classic Era, Anniversary) may load the same pooled PartyFrame
+-- (the shared Blizzard_UnitFrame TOC lists it for every game) with its own family's party art,
+-- at other sizes; no border there.
 --
 -- The gamepad UI (Forever's controller mode): off there. Olympus leaves the game's frames alone with
 -- the gamepad UI (0.9.8), and nothing offline can show that a hook in the target frame's update is
@@ -66,8 +76,11 @@ local L = ns.L
 -- The author's preview (1.0.0): his character holds no Olympus rank, so his own portrait shows
 -- none of the borders he ships. `/oly borders test <tier>` (a tier's name, as /oly status prints
 -- it) shows that border round his own portrait, turned round as a holder sees his own, and on his
--- target or focus frame while that is himself (never on a party frame: those show the others, his
--- party members their own borders); `/oly borders test off` ends it. His alone
+-- target or focus frame while that is himself; never on a party frame (his party members' frames
+-- show their own borders). Edit Mode's party frames shown with nobody in their place show him
+-- (Mainline/PartyMemberFrame.lua, UpdateMember): an empty place gets no border, his own or the
+-- preview, on purpose: they are layout stand-ins, and following Edit Mode would take another hook
+-- into Blizzard's code. `/oly borders test off` ends it. His alone
 -- (Workshop.Visible: his character, or his test build, as Asmon's and the Treasurer's views):
 -- anyone else's command gets what /oly borders prints, and changes nothing. His screen alone:
 -- nothing is sent, nothing is saved (a /reload forgets it), nobody else's border changes. It goes
@@ -135,15 +148,18 @@ local RIGS = {
 }
 -- The party's places (see the top of the file), and where its portraits sit against the target's.
 local PARTY = { "party1", "party2", "party3", "party4" }
+local IN_PARTY = { party1 = true, party2 = true, party3 = true, party4 = true }
 local TARGET_PORTRAIT, TARGET_RIGHT, TARGET_TOP = 58, 26, 19 -- (from its container's top right)
 local PARTY_PORTRAIT, PARTY_LEFT, PARTY_TOP = 37, 7, 6       -- (from its frame's top left)
 local PARTY_SCALE = PARTY_PORTRAIT / TARGET_PORTRAIT
+local PARTY_SUBLEVEL = -1 -- (ARTWORK: under the member frame's ring and name, ARTWORK 0)
 local TRACKED = { target = true, focus = true, player = true, party1 = true, party2 = true, party3 = true, party4 = true }
 
 local rigs = {}  -- [unit] = { tex = { [tier name] = texture }, shown = tier name or nil }
 local partyRigs = {} -- [a party member frame of the game's] = its rig, made once (rigs[party<i>]: the one showing party<i>)
 local known = {} -- [unit] = { guid, tier, guild, report, rt, council }: the last worked out
 local installed, waiting = false, false
+local forever = false -- Forever's unit frames found at Install (the party's borders only then)
 local preview    -- the author's preview: a tier's name while on (this session only, never saved)
 Borders.stats = { computed = 0 } -- (tests, /oly status)
 
@@ -396,14 +412,15 @@ local function Show(rig, name)
 	end
 end
 
--- A frame's textures, one per tier the client has the art of, each hidden and placed by Place.
-local function MakeRig(owner, mirror, scale, Place)
+-- A frame's textures, one per tier the client has the art of, each hidden and placed by Place:
+-- ARTWORK, at sublevel 3 (one over the game's elite art, ARTWORK 2) unless one is given.
+local function MakeRig(owner, mirror, scale, Place, sublevel)
 	local rig = { tex = {} }
 	for _, t in ipairs(Borders.TIERS) do
 		-- (A missing atlas: no texture. A file's is made to try it: one the client can't
 		-- load, with no atlas to fall back to, stays hidden and unused.)
 		if t.file or AtlasExists(t.atlas) then
-			local tex = owner:CreateTexture(nil, "ARTWORK", nil, 3)
+			local tex = owner:CreateTexture(nil, "ARTWORK", nil, sublevel or 3)
 			tex:Hide()
 			if Dress(tex, t, mirror, scale) then
 				Place(tex, t)
@@ -415,16 +432,17 @@ local function MakeRig(owner, mirror, scale, Place)
 end
 
 -- A party member frame's textures: the target's art and offsets scaled to its portrait about the
--- portrait's top corner, turned round (from the frame's top left).
+-- portrait's top corner, turned round (from the frame's top left); under its ring and name.
 local function PartyRig(frame)
 	local s = PARTY_SCALE
 	return MakeRig(frame, true, s, function(tex, t)
 		tex:SetPoint("TOPLEFT", frame, "TOPLEFT", PARTY_LEFT - (t.x + TARGET_RIGHT) * s, (t.y + TARGET_TOP) * s - PARTY_TOP)
-	end)
+	end, PARTY_SUBLEVEL)
 end
 
--- Forever's PartyFrame (its member frames from a pool), or nil.
+-- Forever's PartyFrame (its member frames from a pool) beside Forever's unit frames, or nil.
 local function PartyFrameOf()
+	if not forever then return nil end
 	local party = _G.PartyFrame
 	if type(party) == "table" and type(party.PartyMemberFramePool) == "table" then return party end
 	return nil
@@ -486,9 +504,11 @@ function Borders.Install()
 				local unit, where = spec.unit, "borders " .. spec.unit
 				hooksecurefunc(frame, spec.hook, function() ns.SafeCall(where, Borders.Refresh, unit) end)
 			end
+			forever = true
 		end
 	end
-	-- The party's frames there now, and the hook that follows PartyFrame handing them out anew.
+	-- The party's frames there now, and the hook that follows PartyFrame handing them out anew
+	-- (none without Forever's unit frames: PartyFrameOf).
 	MapParty()
 	local party = PartyFrameOf()
 	if party and type(party.InitializePartyMemberFrames) == "function" and type(hooksecurefunc) == "function" then
@@ -523,6 +543,11 @@ function Borders.Refresh(unit, fresh)
 	end
 	if not installed and not Borders.Install() then return end
 	local rig = rigs[unit]
+	-- (A party place's frame forgotten while the borders were off: which frame shows it now.)
+	if not rig and IN_PARTY[unit] then
+		MapParty()
+		rig = rigs[unit]
+	end
 	if not rig then return end
 	local guid = UnitGUID and UnitGUID(unit)
 	if Secret(guid) then guid = nil end
@@ -533,9 +558,12 @@ end
 
 -- The party's frames again: which shows whom (MapParty), and each member's border, worked out
 -- afresh (fresh) or when he is new to his place (by GUID). An empty place: nothing worked out.
+-- While the borders are off, none shown and which frame shows whom forgotten (PartyFrame may hand
+-- its frames out anew meanwhile): Refresh works it out again for a member when they are back.
 function Borders.RefreshParty(fresh)
 	if not Active() then
 		for _, rig in pairs(partyRigs) do Show(rig, nil) end
+		for _, unit in ipairs(PARTY) do rigs[unit] = nil end
 		return
 	end
 	if not installed and not Borders.Install() then return end
