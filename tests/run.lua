@@ -49468,14 +49468,25 @@ end)()
 		for _, k in ipairs({ "LETTER_TITLE", "LETTERS_ROW" }) do eq(ns.LocaleCodes(rawget(pt.L, k)), ns.LocaleCodes(ns.L[k]), k) end
 		local en, br = ns.L.LETTER_1_1_5, rawget(pt.L, "LETTER_1_1_5")
 		for _, words in ipairs({ "The rank borders are gone", "arena", "A border everybody has is worth nothing", "The King: gold wings",
-			"The High Council: silver wings", "Guild masters: bronze wings", "the game's own chat", "Not in guild chat", "OLYMPIANS", "The \"i\" on the Olympus window",
+			"The High Council: silver wings", "Guild masters: bronze wings", "the game's own chat", "Not in guild chat", "The \"i\" on the Olympus window",
 			"tooltips say who they are, for those who may see the council" }) do
 			assert(en:find(words, 1, true), "1.1.5's letter: " .. words)
 		end
 		for _, words in ipairs({ "As bordas de cargo acabaram", "arena", "Borda que todo mundo tem não vale nada", "O Rei: asas douradas",
-			"O High Council: asas prateadas", "Mestres de guilda: asas de bronze", "chat do próprio jogo", "OLYMPIANS",
+			"O High Council: asas prateadas", "Mestres de guilda: asas de bronze", "chat do próprio jogo",
 			"para quem pode ver o conselho" }) do
 			assert(br:find(words, 1, true), "1.1.5's letter in pt-BR: " .. words)
+		end
+		-- (The owner's call: no letter names a guild let in or taken out.)
+		for k, v in pairs(ns.L) do
+			if type(k) == "string" and k:find("^LETTER_%d") then
+				for _, s in ipairs({ v, rawget(pt.L, k) or "" }) do
+					local low = s:lower()
+					for _, word in ipairs({ "olympian", "removed", "removeu", "approved", "aprovad" }) do
+						assert(not low:find(word, 1, true), k .. " names no guild let in or taken out: " .. word)
+					end
+				end
+			end
 		end
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
