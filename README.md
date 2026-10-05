@@ -1195,6 +1195,9 @@ whisper to a named crafter (`/oly craft`).
   who can, with their skill and the item, and a click whispers one of them.
 - A crafter's row opens a whisper to him and, on a click, the recipes he listed (hover one for the
   item). Search the board by crafter, guild or profession.
+- Each profession is one group under its English name, whatever language its crafters' clients
+  list it in (1.1.5): Cooking, Cocina and Culinária are all Cooking. A search finds a crafter by
+  either name.
 - It stays light on the Olympus channel and on your own messages: your listing goes once at login,
   every 45 minutes, and after a change (a profession listed or taken off 2 minutes after the last
   at the soonest, a skill up 10 minutes), so about 1.3 an hour while you play and 6 at most while

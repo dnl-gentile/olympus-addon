@@ -36779,6 +36779,48 @@ test("1.1 crafters (#24): the board takes listings from the channel alone, Olymp
 	end)
 end)
 
+test("1.1.5 crafters: localized profession names and legacy name keys share one canonical group, labelled in English", function()
+	WithCraft(function(w, Cr)
+		Cr.HandleListing("CHANNEL", "Cooken-Realm", "W1~Olympus Zeus~185:Cooking:300:300:90")
+		Cr.HandleListing("CHANNEL", "Cookes-Realm", "W1~Olympus Hera~185:Cocina:275:300:80")
+		Cr.HandleListing("CHANNEL", "Cookfr-Realm", "W1~Olympus VII~Cuisine:Cuisine:250:300:70")
+		Cr.HandleListing("CHANNEL", "Smithen-Realm", "W1~Olympus VIII~164:Blacksmithing:220:300:30")
+		Cr.HandleListing("CHANNEL", "Smithes-Realm", "W1~Olympus IX~Herrería:Herrería:210:300:25")
+		local lines = Cr.Lines()
+		local headers, cooks, smiths = {}, 0, 0
+		for _, line in ipairs(lines) do
+			if line.header then headers[line.text] = (headers[line.text] or 0) + 1 end
+			if line.key and line.key:find("^Cook") then cooks = cooks + 1 end
+			if line.key and line.key:find("^Smith") then smiths = smiths + 1 end
+		end
+		eq(headers.Cooking, 1, "Cooking, Cocina and Cuisine are one profession")
+		eq(headers.Cocina, nil); eq(headers.Cuisine, nil)
+		eq(cooks, 3, "every localized cooking listing remains in the shared group")
+		eq(headers.Blacksmithing, 1, "numeric and localized legacy keys also merge for other professions")
+		eq(headers["Herrería"], nil); eq(smiths, 2)
+		eq(Cr.CanonicalProfessionKey("Culinária", "Culinária"), "185")
+		eq(Cr.CanonicalProfessionKey("197", "Sastrería"), "197")
+		-- A search for the group's English name keeps every crafter under it; the name each listed
+		-- still finds his row alone.
+		local function Rows(q)
+			local out, under = {}, {}
+			for _, line in ipairs(Cr.Lines(q)) do
+				if line.header then under = line.text end
+				if line.key then out[#out + 1] = under .. " " .. line.key end
+			end
+			return table.concat(out, ",")
+		end
+		eq(Rows("cooking"), "Cooking Cooken-Realm,Cooking Cookes-Realm,Cooking Cookfr-Realm")
+		eq(Rows("cocina"), "Cooking Cookes-Realm")
+		-- A crafter's recipes are asked for under the key he listed, not the group's.
+		for _, line in ipairs(Cr.Lines()) do if line.key == "Cookfr-Realm" then line.onClick() end end
+		for _, line in ipairs(Cr.Lines()) do
+			if line.text == "|cffffd200" .. ns.L.CRAFTER_SHOW_RECIPES .. "|r" then line.onClick() end
+		end
+		eq(w.whispers[#w.whispers], "Cookfr-Realm WR~Cuisine")
+	end)
+end)
+
 test("1.1 crafters (#24): who can make it: the ask (an item or words) on the channel, the listed crafters' answers by whisper, taken for a while", function()
 	WithCraft(function(w, Cr)
 		-- We are listed Tailoring.
