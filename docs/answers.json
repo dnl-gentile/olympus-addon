@@ -360,15 +360,15 @@
     {
       "id": "feat-who-can-use",
       "topic": "features",
-      "status": "current (1.1.1)",
+      "status": "current (1.1.5)",
       "questions": [
         "Who can use Olympus?",
         "Why does it say my guild isn't an Olympus guild?",
         "Does it work outside Olympus?"
       ],
-      "answer": "Guilds with Olympus in the name (misspellings count, anti-Olympus names don't), plus guilds on the author's approved list, like <OLYMPIAN> on the Alliance. /oly approved shows the list. Anyone else gets the Join Olympus screen.",
-      "in_game": "Guilds with Olympus in the name, plus approved ones like <OLYMPIAN> (/oly approved). Anyone else gets the Join Olympus screen.",
-      "notes": "Olympian, Olympia and Olympic are left out by the name rule on purpose; <OLYMPIAN> works from 1.1 only.",
+      "answer": "Guilds with Olympus in the name (misspellings count, anti-Olympus names don't), plus guilds on the author's approved list, like <OLYMPIAN> and <OLYMPIANS> on the Alliance. /oly approved shows the list. Anyone else gets the Join Olympus screen.",
+      "in_game": "Guilds with Olympus in the name, plus approved ones like <OLYMPIAN> and <OLYMPIANS> (/oly approved). Anyone else gets the Join Olympus screen.",
+      "notes": "Olympian, Olympia and Olympic are left out by the name rule on purpose; <OLYMPIAN> works from 1.1 only, <OLYMPIANS> from 1.1.5.",
       "sources": [
         "README.md:41-62"
       ]

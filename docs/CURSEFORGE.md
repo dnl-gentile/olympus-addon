@@ -42,7 +42,7 @@ Olympian and Olympia out on purpose) counts as an Olympus guild once the author 
 signed list: the same list, signed with the same key on his own computer, that names the High
 Council and the King's Steward, for one faction and realm group. No census vote counts, and nobody
 else can add one. A few ship with the addon itself, so their members have nothing to paste: since
-1.1, the Alliance's `<OLYMPIAN>` (only a new version takes one of those off). Its members' addons, no Olympus members
+1.1, the Alliance's `<OLYMPIAN>`, and since 1.1.5 its `<OLYMPIANS>` too (only a new version takes one of those off). Its members' addons, no Olympus members
 until they hold that list, take it over their own guild alone (the list only: nothing else is
 read, and they send nothing). The first of them pastes it with `/oly approved paste`, or a click
 on the Join Olympus screen's last line (the author

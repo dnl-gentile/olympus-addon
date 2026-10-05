@@ -1048,7 +1048,8 @@ ns.APPROVED_MAX = 20
 -- ...and the ones the addon ships with (1.1, the author's too): a guild whose first member nobody
 -- can hand the signed text counts as soon as its members update, with nothing to paste. Each
 -- faction's, any case; the signed list adds to them, and only a new release takes one off.
-ns.APPROVED_BUILTIN = { Alliance = { "OLYMPIAN" } }
+-- <OLYMPIANS> beside <OLYMPIAN> since 1.1.5 (the author's call: both are Asmon's Olympus).
+ns.APPROVED_BUILTIN = { Alliance = { "OLYMPIAN", "OLYMPIANS" } }
 -- 1.1.5 (the High Council's call): guilds the council removed from Olympus outright, whatever
 -- their name says, per faction. On 1.1.5 and newer they are no Olympus guild: no census, no
 -- Olympus chats, no marks, and their own members' addon shows the Join Olympus screen. Their way

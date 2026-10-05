@@ -214,8 +214,9 @@ test("federation filter against 250 misspellings and 400 look-alike guild names 
 		return out
 	end
 	-- Known and accepted: a P for the O plus another slip; Olympe is French for Olympus;
-	-- Oympia is Olympia misspelled.
-	local expected = { ["Plympys III"] = false, ["Olympe"] = true, ["Oympia"] = true }
+	-- Oympia is Olympia misspelled. Olympians: not by the name rule, but <OLYMPIANS> ships approved
+	-- with the addon on the Alliance since 1.1.5 (the author's call; its own test below).
+	local expected = { ["Plympys III"] = false, ["Olympe"] = true, ["Oympia"] = true, ["Olympians"] = true }
 	local wrong = {}
 	for _, name in ipairs(Read("olympus-yes.txt")) do
 		local want = expected[name]
@@ -274,10 +275,13 @@ test("federation filter: Olympus however it was spelled, but not other words", f
 		"Olypmvs", "Olmypus", "Oympus", "Olumpus", "Olympe", "Oylmpus", "Olyompus" }) do
 		eq(ns.IsFederation(name), true, name)
 	end
-	for _, name in ipairs({ "Olympia", "Olympic Heroes", "Olympians", "Olympiad", "Olimpia", "Olimpico", "Polymath",
+	for _, name in ipairs({ "Olympia", "Olympic Heroes", "Olympiad", "Olimpia", "Olimpico", "Polymath",
 		"Holy Light", "Oly", "Olmo", "The Pumpkins", "Glyphs R Us", "Lumps", "Oblivion", "Polymer", "Lymph" }) do
 		eq(ns.IsFederation(name), false, name)
 	end
+	-- (1.1.5, the author's call: <OLYMPIANS> ships approved with the addon on the Alliance, as
+	-- <OLYMPIAN> does since 1.1, so it left the list above; the name rule still leaves it out.)
+	eq(ns.NamedOlympus("Olympians"), false, "Olympians: not by the name rule")
 	-- Guilds against Olympus are not Olympus.
 	for _, name in ipairs({ "ANTI OLYMPUS", "Anti-Olympus", "AntiOlympus", "Anti Olimpvs", "Against Olympus", "No Olympus",
 		"Down with Olympus", "Death to Olympus", "Olympus Haters", "Olympus Sucks", "Kill Olympus",
@@ -34752,22 +34756,27 @@ test("1.1 approved guilds: the titles list's entry per faction, as the addon kee
 	eq(#ns.ReadStewards("^guilds^Alliance^Sentinels of Zeus;^steward^Alliance^Some One-Realm").Alliance, 1)
 end)
 
-test("1.1 approved guilds: <OLYMPIAN> ships with the addon (Alliance): an Olympus guild with no signed list to paste, any case; nothing else Olympian, never the Horde's", function()
+test("1.1 approved guilds: <OLYMPIAN> (and since 1.1.5 <OLYMPIANS>) ship with the addon (Alliance): Olympus guilds with no signed list to paste, any case; nothing else Olympian, never the Horde's", function()
 	local saved = { faction = ns.faction, titles = ns.rdb.councilTitles, inGuild = IsInGuild, guild = GetGuildInfo }
 	local ok, err = pcall(function()
 		ns.faction, ns.rdb.councilTitles = "Alliance", nil
 		eq(ns.NamedOlympus("OLYMPIAN"), false, "not by its name")
 		eq(ns.IsFederation("OLYMPIAN"), true, "no list held: shipped with the addon")
 		eq(ns.IsFederation("Olympian"), true, "any case")
-		eq(ns.IsFederation("Olympians"), false); eq(ns.IsFederation("Olympian Guard"), false); eq(ns.IsFederation("Olympia"), false)
-		eq(table.concat(ns.ApprovedGuilds(), ","), "OLYMPIAN")
+		-- (1.1.5, the author's call: <OLYMPIANS> as well. It was "Olympians: not one" until 1.1.5.)
+		eq(ns.NamedOlympus("OLYMPIANS"), false, "not by its name either")
+		eq(ns.IsFederation("OLYMPIANS"), true, "shipped with the addon since 1.1.5"); eq(ns.IsFederation("Olympians"), true, "any case")
+		eq(ns.IsFederation("Olympian Guard"), false); eq(ns.IsFederation("Olympia"), false); eq(ns.IsFederation("Olympianss"), false)
+		eq(table.concat(ns.ApprovedGuilds(), ","), "OLYMPIAN,OLYMPIANS")
 		-- Its members' addons are Olympus members at once: nothing to paste.
 		IsInGuild, GetGuildInfo = function() return true end, function() return "OLYMPIAN", "Member", 3 end
 		eq(ns.IsMember(), true)
 		eq(ns.ApprovedOnly(), true, "by the approved list alone (its name would not make it one)")
+		GetGuildInfo = function() return "OLYMPIANS", "Member", 3 end
+		eq(ns.IsMember(), true, "<OLYMPIANS>' members too"); eq(ns.ApprovedOnly(), true)
 		-- The Horde's census: not theirs.
 		ns.faction = "Horde"
-		eq(ns.IsFederation("OLYMPIAN"), false, "the Alliance's guild alone")
+		eq(ns.IsFederation("OLYMPIAN"), false, "the Alliance's guild alone"); eq(ns.IsFederation("OLYMPIANS"), false)
 		eq(ns.IsMember(), false)
 	end)
 	ns.faction, ns.rdb.councilTitles, IsInGuild, GetGuildInfo = saved.faction, saved.titles, saved.inGuild, saved.guild
@@ -34854,7 +34863,7 @@ test("1.1 approved guilds: a guild the author's signed list names is an Olympus 
 		ns.me = "Tester-Realm"
 		-- A list taken by 1.0.0 (no guilds kept): read again from its signed text.
 		ns.rdb.councilTitles.guilds = nil
-		eq(table.concat(ns.ApprovedGuilds(), ","), "OLYMPIAN,Sentinels of Zeus", "(the one the addon ships with first)")
+		eq(table.concat(ns.ApprovedGuilds(), ","), "OLYMPIAN,OLYMPIANS,Sentinels of Zeus", "(the ones the addon ships with first)")
 		eq(ns.IsApprovedGuild("Sentinels of Zeus"), true)
 		-- The census takes its reports now.
 		local savedGuilds = ns.rdb.guilds
@@ -34935,13 +34944,13 @@ test("1.1 approved guilds: its members holding the list pass it over their guild
 		-- /oly approved: the list, and whether ours is on it.
 		w.guild = "Sentinels of Zeus"
 		SlashCmdList.OLYMPUS("approved")
-		eq(w.printed[#w.printed - 1], ns.L.APPROVED_LIST:format("OLYMPIAN, Sentinels of Zeus"), "the shipped ones first, then the signed list's")
+		eq(w.printed[#w.printed - 1], ns.L.APPROVED_LIST:format("OLYMPIAN, OLYMPIANS, Sentinels of Zeus"), "the shipped ones first, then the signed list's")
 		eq(w.printed[#w.printed], ns.L.APPROVED_MINE:format("Sentinels of Zeus"))
 		w.guild = "Stormwind Traders"
 		SlashCmdList.OLYMPUS("approved")
 		eq(w.printed[#w.printed], ns.L.APPROVED_NOT_MINE:format("Stormwind Traders"))
 		w.guild = "Sentinels of Zeus"
-		assert(ns.StatusText():find("approved guilds: OLYMPIAN, Sentinels of Zeus  |  ours is Olympus by the list alone", 1, true))
+		assert(ns.StatusText():find("approved guilds: OLYMPIAN, OLYMPIANS, Sentinels of Zeus  |  ours is Olympus by the list alone", 1, true))
 		-- The Join screen (a guild not Olympus by its name, before the list): a click opens the paste box.
 		local savedDialog = ns.ShowDialog
 		local shown
