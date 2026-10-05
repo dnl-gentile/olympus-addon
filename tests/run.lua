@@ -23127,7 +23127,7 @@ do
 		end)
 	end)
 
-	test("1.1.5 party borders: the author's /oly borders test stays round his own portrait (and his target or focus while that is himself); his party's frames keep their members' own borders; an empty place's frame (Edit Mode shows him there) none", function()
+	test("1.1.5 party borders: the author's /oly borders test stays round his own portrait (and his target or focus while that is himself); his party's frames keep their members' own borders; an empty place's frame none, but Edit Mode's stand-ins show the preview", function()
 		local savedDev = ns.devWorkshop
 		local ok, err = pcall(WithBorders, function(w)
 			ns.Borders = w.B
@@ -23140,9 +23140,29 @@ do
 			-- The fourth place is empty: Edit Mode's party frames, shown, put his own portrait there
 			-- (Mainline/PartyMemberFrame.lua, UpdateMember). No border on it, the preview neither: on
 			-- purpose (Borders.lua's top), a layout stand-in.
-			eq(w.shownOn(w.partyFrame("party4").label), nil, "an empty place: none")
+			eq(w.shownOn(w.partyFrame("party4").label), nil, "an empty place, outside Edit Mode: none")
 			w.fire("GROUP_ROSTER_UPDATE"); PartyFrame:InitializePartyMemberFrames()
 			eq(PartyLine(w), "silver-elite - bronze-elite -")
+			-- (1.1.5, the author's ask: he can't get a party to look at them.) Edit Mode forcing the
+			-- party frames shown: its stand-ins show the previewed border; real members keep theirs.
+			local savedEM = rawget(_G, "EditModeManagerFrame")
+			local forced = true
+			EditModeManagerFrame = { ArePartyFramesForcedShown = function() return forced end }
+			local okEM, errEM = pcall(function()
+				PartyFrame:InitializePartyMemberFrames() -- (Edit Mode shows PartyFrame: the game hands its frames out)
+				eq(w.shownOn(w.partyFrame("party4").label), "gold-elite", "Edit Mode's stand-in: the preview")
+				eq(PartyLine(w), "silver-elite - bronze-elite gold-elite", "the members their own")
+				SlashCmdList.OLYMPUS("borders test silver-elite")
+				eq(w.shownOn(w.partyFrame("party4").label), "silver-elite", "another tier at once")
+				forced = false
+				PartyFrame:InitializePartyMemberFrames()
+				eq(w.shownOn(w.partyFrame("party4").label), nil, "out of Edit Mode: none")
+				forced = true
+				SlashCmdList.OLYMPUS("borders test member")
+				eq(w.shownOn(w.partyFrame("party4").label), nil, "the star has no border")
+			end)
+			EditModeManagerFrame = savedEM
+			if not okEM then error(errEM, 0) end
 			SlashCmdList.OLYMPUS("borders test off")
 			eq(w.shown("player"), nil); eq(PartyLine(w), "silver-elite - bronze-elite -")
 		end, function(w)

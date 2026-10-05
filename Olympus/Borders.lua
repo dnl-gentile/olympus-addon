@@ -76,11 +76,13 @@ local L = ns.L
 -- The author's preview (1.0.0): his character holds no Olympus rank, so his own portrait shows
 -- none of the borders he ships. `/oly borders test <tier>` (a tier's name, as /oly status prints
 -- it) shows that border round his own portrait, turned round as a holder sees his own, and on his
--- target or focus frame while that is himself; never on a party frame (his party members' frames
--- show their own borders). Edit Mode's party frames shown with nobody in their place show him
--- (Mainline/PartyMemberFrame.lua, UpdateMember): an empty place gets no border, his own or the
--- preview, on purpose: they are layout stand-ins, and following Edit Mode would take another hook
--- into Blizzard's code. `/oly borders test off` ends it. His alone
+-- target or focus frame while that is himself; never on a real party member's frame (they show
+-- their own borders). Edit Mode's party frames (Esc > Edit Mode > Party Frames, shown with nobody
+-- in their place: Mainline/PartyMemberFrame.lua, UpdateMember) are the one way he can see the party
+-- borders without a party (1.1.5, the author's ask): while Edit Mode forces them shown, each empty
+-- place shows the previewed border. Edit Mode is only read (its own getter, when the preview or the
+-- party is worked out: the command, PartyFrame shown again), never hooked. `/oly borders test off`
+-- ends it. His alone
 -- (Workshop.Visible: his character, or his test build, as Asmon's and the Treasurer's views):
 -- anyone else's command gets what /oly borders prints, and changes nothing. His screen alone:
 -- nothing is sent, nothing is saved (a /reload forgets it), nobody else's border changes. It goes
@@ -556,6 +558,16 @@ function Borders.Refresh(unit, fresh)
 	Show(rig, preview and UnitExists(unit) and IsMe(unit, guid) and preview or k.tier)
 end
 
+-- The author's preview on Edit Mode's party stand-ins (see the top of the file): the previewed tier
+-- while Edit Mode forces the party frames shown, else nil. Read only, Edit Mode's own getter.
+function Borders.EditModeStandIn()
+	if not preview or preview == Borders.MEMBER then return nil end
+	local em = rawget(_G, "EditModeManagerFrame") -- gp:borders
+	if type(em) ~= "table" or type(em.ArePartyFramesForcedShown) ~= "function" then return nil end
+	local ok, on = pcall(em.ArePartyFramesForcedShown, em)
+	return ok and on == true and preview or nil
+end
+
 -- The party's frames again: which shows whom (MapParty), and each member's border, worked out
 -- afresh (fresh) or when he is new to his place (by GUID). An empty place: nothing worked out.
 -- While the borders are off, none shown and which frame shows whom forgotten (PartyFrame may hand
@@ -568,12 +580,13 @@ function Borders.RefreshParty(fresh)
 	end
 	if not installed and not Borders.Install() then return end
 	MapParty()
+	local standIn = Borders.EditModeStandIn()
 	for _, unit in ipairs(PARTY) do
 		if UnitExists(unit) then
 			Borders.Refresh(unit, fresh)
 		else
 			known[unit] = nil
-			if rigs[unit] then Show(rigs[unit], nil) end
+			if rigs[unit] then Show(rigs[unit], standIn) end
 		end
 	end
 end
