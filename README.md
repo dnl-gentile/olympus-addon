@@ -389,12 +389,14 @@ WoW channel number to join). Each channel is exclusive to a rank:
   picked), the bronze for a guild master of an Olympus guild, and Olympus's star for any other
   member your addon can check: your guild's roster, or for another guild its census, naming them
   in the guild their own Olympus messages speak for (someone else's report alone proves nothing,
-  and a plain member of another guild is in no census, so gets none). Never in guild or officer
-  chat, where everyone is of your guild, and never on Olympus's own lines ([Olympus], [Captains],
-  [Lords] and the Chat tab), which show the name in its colour alone. Through the game's own
-  name filter, so the name's link, right-click and /r stay the game's. On by default
-  (`/oly chatmarks off` hides them), hidden with the gamepad UI, and a High Councillor's on the
-  King's screen while the council's names are hidden.
+  and a plain member of another guild is in no census, so gets none). Guild and officer chat show
+  the dragons alone (the King's gold, a High Councillor's silver, a guild master's bronze), never
+  the star: everyone there is of your guild, and you know who they are. Never on Olympus's own
+  lines ([Olympus], [Captains], [Lords] and the Chat tab), which show the name in its colour alone.
+  Through the game's own name filter, so the name's link, right-click and /r stay the game's. On
+  by default (`/oly chatmarks off` hides them), hidden with the gamepad UI, and a High
+  Councillor's on the King's screen while the council's names are hidden. The 1.1.5 letter
+  (`/oly letters 1.1.5`) draws each mark with who it is.
 - **Block terms (1.1).** `/oly filter add <word>` hides, on your screen, every line of addon
   text with that word: the Olympus chats, the King's writs, a decree's words and Vox Populi's
   question and answers. Whole words only, any case or accent, one word of 2 to 24 letters or
@@ -1916,7 +1918,7 @@ Other limits:
 | `/oly location on` · `/oly location off` | share (or not) your zone and layer on the Olympus channel |
 | `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council, and Max's bronze wings for the guild masters of Olympus guilds (none for a character or a guild the moderators took off, net-off). Since 1.1.5 these three alone: the rank borders (gold for Lords, silver for Captains, bronze for Raiders and Veterans) are gone, and any other member has the nameplate star alone. On by default, hidden with the gamepad UI. Off, the nameplate marks go too |
 | `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, bronze for guild masters, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
-| `/oly chatmarks on` · `/oly chatmarks off` | 1.1.5: the mark of a player's border tier before their name in the game's own chat (channels, say, yell, emote, party, raid, instance and whispers; never guild or officer chat): the King's gold dragon, a High Councillor's silver then their icon, a guild master's bronze, the star for any other member your addon can check. Olympus's own lines carry none. Through the game's own name filter, so the name's link, right-click and /r stay the game's; on by default, hidden with the gamepad UI, and a councillor's on the King's screen while the council's names are hidden |
+| `/oly chatmarks on` · `/oly chatmarks off` | 1.1.5: the mark of a player's border tier before their name in the game's own chat (channels, say, yell, emote, party, raid, instance and whispers; guild and officer chat the dragons alone, never the star): the King's gold dragon, a High Councillor's silver then their icon, a guild master's bronze, the star for any other member your addon can check. Olympus's own lines carry none. Through the game's own name filter, so the name's link, right-click and /r stay the game's; on by default, hidden with the gamepad UI, and a councillor's on the King's screen while the council's names are hidden |
 | `/oly key <secret>` | officers: seal the Olympus channel |
 | `/oly key rotate` | the King or his Steward: a new key for the whole army, by whisper to the Lords and Captains his /who saw in the guilds he picks and over guild chat, never on the Olympus channel (also on the Throne) (1.1) |
 | `/oly block <name>` | ignore a player |

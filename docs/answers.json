@@ -1265,8 +1265,8 @@
         "What's the star on nameplates?",
         "How do I turn them off?"
       ],
-      "answer": "Elite borders on your target, focus and own portrait: gold wings for the King, silver for the High Council, bronze for guild masters (1.1.5: no rank borders). Nameplates and the game's chat show the same marks, a star for other members. /oly borders, nameplates or chatmarks off hides them.",
-      "in_game": "Borders and marks: the King gold, the High Council silver, guild masters bronze, other members a star. /oly borders off, /oly nameplates off or /oly chatmarks off hides them.",
+      "answer": "Elite borders on your target, focus and own portrait: gold wings for the King, silver for the High Council, bronze for guild masters (1.1.5: no rank borders). Nameplates and the game's chat show the same marks, a star for other members (guild chat: dragons only). /oly borders, nameplates or chatmarks off hides them.",
+      "in_game": "Borders and marks: the King gold, the High Council silver, guild masters bronze, other members a star (not in guild chat). /oly borders off, /oly nameplates off or /oly chatmarks off hides them.",
       "notes": "The README's Commands table, and the Channels section's Marks in the game's own chat (1.1.5).",
       "sources": [
         "L.HELP_BORDERS",

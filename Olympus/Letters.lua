@@ -23,7 +23,11 @@ local L = ns.L
 -- its X and Close hide it in either mode, in combat too (onCloseCallback, as the Olympus window).
 -- The letters themselves are strings (Locales.lua: L.LETTER_<version>_TITLE and L.LETTER_<version>,
 -- the version's dots as underscores), English and pt-BR; a version listed here without its
--- strings is left out.
+-- strings is left out. Plain text, but for the marks of the game's chat a letter may draw (1.1.5's
+-- legend of who is who): {star}, {gold}, {silver} and {bronze} become, as the page shows the
+-- letter, the very art the chat puts before names (Borders.ChatLegendText, at MARK_SIZE); a mark
+-- this client has no art for (or Borders.lua not loaded yet, its stand-in) is its name in words
+-- (L.LETTER_MARK_<MARK>), never a broken code. Any other {word} stays as written.
 
 local Letters = {}
 ns.Letters = Letters
@@ -37,14 +41,41 @@ local frame, ticker
 
 local function Key(version) return "LETTER_" .. tostring(version):gsub("%.", "_") end
 
--- A version's letter: its title and its text, or nil when it has none.
-function Letters.Text(version)
+-- The marks a letter may draw: its word in the text -> Borders' mark.
+Letters.MARKS = { star = "member", gold = "gold", silver = "silver", bronze = "bronze" }
+Letters.MARK_SIZE = 16 -- (the chat's are 14 px, beside a smaller font)
+local MARK_WORDS = { star = "Star:", gold = "Gold dragon:", silver = "Silver dragon:", bronze = "Bronze dragon:" }
+
+-- A letter's text with its marks drawn (see the top of the file).
+function Letters.DrawMarks(text)
+	if type(text) ~= "string" then return text end
+	return (text:gsub("{(%a+)}", function(word)
+		local mark = Letters.MARKS[word]
+		if not mark then return nil end
+		local B = ns.Borders
+		local ok, art = false, nil
+		if type(B) == "table" and type(B.ChatLegendText) == "function" then ok, art = pcall(B.ChatLegendText, mark, Letters.MARK_SIZE) end
+		if ok and type(art) == "string" and art ~= "" then return art end
+		local said = rawget(L, "LETTER_MARK_" .. word:upper())
+		return type(said) == "string" and said ~= "" and said or MARK_WORDS[word]
+	end))
+end
+
+local function Strings(version)
 	local key = Key(version)
 	local title, body = rawget(L, key .. "_TITLE"), rawget(L, key)
 	if type(title) ~= "string" or type(body) ~= "string" or title == "" or body == "" then return nil end
 	return title, body
 end
-function Letters.Has(version) return Letters.Text(version) ~= nil end
+
+-- A version's letter: its title and its text as the page shows them (its marks drawn), or nil when
+-- it has none.
+function Letters.Text(version)
+	local title, body = Strings(version)
+	if not title then return nil end
+	return Letters.DrawMarks(title), Letters.DrawMarks(body)
+end
+function Letters.Has(version) return Strings(version) ~= nil end
 
 -- The versions with a letter, newest first.
 function Letters.Versions()

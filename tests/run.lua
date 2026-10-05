@@ -43430,8 +43430,11 @@ do
 	-- And since the 1.1.5 review: another guild's census proves a sender only in the guild his own
 	-- messages claim, as the 1.1.1 Chat tab asked of the guild his line named. Two characters' census
 	-- reports for a made-up "Olympus" guild put the bronze on anybody's name, and every sender cost a
-	-- walk over every guild's report; a lookup also noted the guild it tried as his, for the net-off.)
-	test("1.1.5 the game's own chat: the borders' tiers before a sender's name (the King gold, a High Councillor silver then his icon, a guild master bronze, a member we can prove the star) in channels, say, party, raid and whispers, never guild or officer chat; never with the gamepad UI, a council mark never on the King's stream, off, net-off or for a secret name", function()
+	-- walk over every guild's report; a lookup also noted the guild it tried as his, for the net-off.
+	-- And the author's call with the 1.1.5 letter's legend of the marks: guild and officer chat show
+	-- the dragons, the King's gold, a councillor's silver and a guild master's bronze, never the star
+	-- (a guildmate knows his guild's members); this test asked no mark at all there.)
+	test("1.1.5 the game's own chat: the borders' tiers before a sender's name (the King gold, a High Councillor silver then his icon, a guild master bronze, a member we can prove the star) in channels, say, party, raid and whispers; guild and officer chat the dragons alone, never the star; never with the gamepad UI, a council mark never on the King's stream, off, net-off or for a secret name", function()
 		local saved = { cfu = rawget(_G, "ChatFrameUtil"), gamepad = ns.GamepadUI, masked = ns.CouncilMasked, secret = rawget(_G, "issecretvalue"),
 			council = ns.rdb.council, icons = ns.rdb.councilIcons, chatMarks = ns.db.chatMarks, print = ns.Print, workshop = ns.Workshop,
 			member = ns.IsMember, byName = ns.Roster.byName, guilds = ns.rdb.guilds, loginAt = ns.Comm.loginAt, steward = ns.King.IsStewardName,
@@ -43492,19 +43495,20 @@ do
 			RunAfter("chat marks style")
 			eq(B.ChatShown(), true); eq(#filters, 1)
 			local cb = filters[1]
-			-- Each tier's mark, before the name the game decorated (class colour and all).
+			-- Each tier's mark, before the name the game decorated (class colour and all); then guild and
+			-- officer chat's: the dragons, never the star.
 			local cases = {
-				{ "Asmongold Asmongler-Realm", GOLD, "the King (his pinned name)" },
-				{ "Sage Owl-Realm", SILVER .. "|T134400:0|t", "a High Councillor, then his icon" },
-				{ "Zeta Prime-Realm", BRONZE, "another Olympus guild's master, as its census names him" },
-				{ "Guild Boss-Realm", BRONZE, "our own guild master, by our roster" },
-				{ "Capt Prime-Realm", STAR, "an officer the census names: a member" },
-				{ "Plain Guy-Realm", STAR, "a member of our guild" },
-				{ "Stew Ard-Realm", STAR, "the King's Steward: a member of his guild" },
-				{ "Far Guy-Realm", nil, "a member of another guild nothing proves (in no census)" },
-				{ "Troll Guy-Realm", nil, "a guild master only other people's reports name: he never claimed that guild" },
-				{ "Two Face-Realm", nil, "an officer only of a guild he does not speak for" },
-				{ "Stranger-Realm", nil, "anyone else" },
+				{ "Asmongold Asmongler-Realm", GOLD, "the King (his pinned name)", GOLD },
+				{ "Sage Owl-Realm", SILVER .. "|T134400:0|t", "a High Councillor, then his icon", SILVER .. "|T134400:0|t" },
+				{ "Zeta Prime-Realm", BRONZE, "another Olympus guild's master, as its census names him", BRONZE },
+				{ "Guild Boss-Realm", BRONZE, "our own guild master, by our roster", BRONZE },
+				{ "Capt Prime-Realm", STAR, "an officer the census names: a member", nil },
+				{ "Plain Guy-Realm", STAR, "a member of our guild", nil },
+				{ "Stew Ard-Realm", STAR, "the King's Steward: a member of his guild", nil },
+				{ "Far Guy-Realm", nil, "a member of another guild nothing proves (in no census)", nil },
+				{ "Troll Guy-Realm", nil, "a guild master only other people's reports name: he never claimed that guild", nil },
+				{ "Two Face-Realm", nil, "an officer only of a guild he does not speak for", nil },
+				{ "Stranger-Realm", nil, "anyone else", nil },
 			}
 			local EVENTS = { "CHAT_MSG_CHANNEL", "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE", "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER",
 				"CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_RAID_WARNING", "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER",
@@ -43514,13 +43518,23 @@ do
 				for _, event in ipairs(EVENTS) do
 					eq(cb(event, name, "hello", c[1]), c[2] and (c[2] .. name) or nil, c[3] .. ", " .. event)
 				end
-				-- Never guild or officer chat (everyone there is of our guild), nor a line outside the list.
-				for _, event in ipairs({ "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER", "CHAT_MSG_TEXT_EMOTE", "CHAT_MSG_BN_WHISPER", "CHAT_MSG_MONSTER_SAY",
-					"CHAT_MSG_GUILD_ITEM_LOOTED" }) do
+				-- Guild and officer chat: the dragons alone (the star would tell a guildmate nothing).
+				for _, event in ipairs({ "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER" }) do
+					eq(cb(event, name, "hello", c[1]), c[4] and (c[4] .. name) or nil, c[3] .. ", " .. event)
+				end
+				-- Never a line outside the list.
+				for _, event in ipairs({ "CHAT_MSG_TEXT_EMOTE", "CHAT_MSG_BN_WHISPER", "CHAT_MSG_MONSTER_SAY", "CHAT_MSG_GUILD_ITEM_LOOTED",
+					"CHAT_MSG_GUILD_ACHIEVEMENT", "CHAT_MSG_SYSTEM" }) do
 					eq(cb(event, name, "hello", c[1]), nil, c[3] .. ", " .. event)
 				end
 			end
-			eq(B.CHAT_EVENTS.CHAT_MSG_GUILD, nil); eq(B.CHAT_EVENTS.CHAT_MSG_OFFICER, nil)
+			-- A star member's line in guild chat first: none there, and the star all the same on his next
+			-- line in Trade (one worked-out mark for both).
+			B.ChatForget()
+			eq(cb("CHAT_MSG_GUILD", "Plain Guy", "hi", "Plain Guy-Realm"), nil)
+			eq(cb("CHAT_MSG_CHANNEL", "Plain Guy", "hi", "Plain Guy-Realm"), STAR .. "Plain Guy")
+			eq(cb("CHAT_MSG_OFFICER", "Plain Guy", "hi", "Plain Guy-Realm"), nil)
+			eq(cb("CHAT_MSG_OFFICER", "Guild Boss", "hi", "Guild Boss-Realm"), BRONZE .. "Guild Boss", "the guild master in officer chat")
 			eq(cb("CHAT_MSG_SAY", "Asmongold Asmongler", "hi", "Asmongold Asmongler"), GOLD .. "Asmongold Asmongler", "a sender the server writes without his realm")
 			-- A councillor with no icon of his own: the silver alone; one who is a guild master: the silver.
 			ns.rdb.council.names["other mod"], ns.rdb.council.names["guild boss"] = true, true
@@ -43547,10 +43561,12 @@ do
 			eq(cb("CHAT_MSG_CHANNEL", "Newboss", "hi", "Newboss-Realm"), nil, "kept until the table empties")
 			Fire(on, "DATA_CHANGED")
 			eq(cb("CHAT_MSG_CHANNEL", "Newboss", "hi", "Newboss-Realm"), BRONZE .. "Newboss", "its census names him its master")
-			-- An atlas the client does not know: the star.
+			-- An atlas the client does not know: the star; in guild chat, where the star never shows, none.
 			C_Texture = { GetAtlasInfo = function() return nil end }
 			B.ChatForget()
 			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), STAR .. "Zeta Prime")
+			eq(cb("CHAT_MSG_GUILD", "Guild Boss", "hi", "Guild Boss-Realm"), nil, "a dragon drawn as the star: none in guild chat")
+			eq(cb("CHAT_MSG_SAY", "Guild Boss", "hi", "Guild Boss-Realm"), STAR .. "Guild Boss")
 			C_Texture = nil
 			B.ChatForget()
 			-- A secret name or sender (instances, encounters): the name as it was.
@@ -43564,10 +43580,18 @@ do
 			-- there; a councillor who is a guild master gets his guild master's bronze there instead.
 			eq(cb("CHAT_MSG_SAY", name, "hi", "Sage Owl-Realm"), SILVER .. "|T134401:0|t" .. name, "kept")
 			eq(cb("CHAT_MSG_SAY", "Guild Boss", "hi", "Guild Boss-Realm"), SILVER .. "Guild Boss", "kept")
+			-- (A councillor who is a plain member of our guild: the silver in guild chat; the star, then, on
+			-- the King's screen elsewhere, and nothing in guild chat.)
+			ns.rdb.council.names["plain guy"] = true
+			eq(cb("CHAT_MSG_GUILD", "Plain Guy", "hi", "Plain Guy-Realm"), SILVER .. "Plain Guy", "a councillor in guild chat")
 			ns.CouncilMasked = function() return true end
 			eq(cb("CHAT_MSG_SAY", name, "hi", "Sage Owl-Realm"), nil, "masked at once, the table not emptied")
 			eq(cb("CHAT_MSG_SAY", "Guild Boss", "hi", "Guild Boss-Realm"), BRONZE .. "Guild Boss", "his guild master's bronze")
+			eq(cb("CHAT_MSG_GUILD", "Guild Boss", "hi", "Guild Boss-Realm"), BRONZE .. "Guild Boss", "his bronze in guild chat too")
 			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), BRONZE .. "Zeta Prime", "the other marks as ever")
+			eq(cb("CHAT_MSG_SAY", "Plain Guy", "hi", "Plain Guy-Realm"), STAR .. "Plain Guy", "masked: a member's star")
+			eq(cb("CHAT_MSG_GUILD", "Plain Guy", "hi", "Plain Guy-Realm"), nil, "masked: no star in guild chat")
+			ns.rdb.council.names["plain guy"] = nil
 			Fire(on, "COUNCIL_MASK_CHANGED")
 			eq(cb("CHAT_MSG_SAY", name, "hi", "Sage Owl-Realm"), nil)
 			eq(cb("CHAT_MSG_SAY", "Guild Boss", "hi", "Guild Boss-Realm"), BRONZE .. "Guild Boss")
@@ -43578,6 +43602,7 @@ do
 			ns.Moderation.Hides = function(who) if who == "Zeta Prime-Realm" then return { kind = "c" } end end
 			B.ChatForget()
 			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), nil, "net-off")
+			eq(cb("CHAT_MSG_GUILD", "Zeta Prime", "hi", "Zeta Prime-Realm"), nil, "net-off, guild chat")
 			ns.Moderation.Hides = saved.hides
 			-- A lookup notes nothing for the net-off (Moderation.GuildOf: the guild his own messages named,
 			-- which the hop's whispers are checked against): neither a guild only someone else's census
@@ -43609,6 +43634,7 @@ do
 			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), BRONZE .. "Zeta Prime")
 			ns.IsMember = function() return false end
 			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), nil, "kept mark")
+			eq(cb("CHAT_MSG_GUILD", "Zeta Prime", "hi", "Zeta Prime-Realm"), nil, "kept mark, guild chat")
 			eq(cb("CHAT_MSG_SAY", "Capt", "hi", "Capt Prime-Realm"), nil, "new sender")
 			eq(B.ChatName("Sage Owl-Realm"), false)
 			ns.IsMember = saved.member
@@ -43617,6 +43643,7 @@ do
 			B.ChatSlash("off")
 			eq(ns.db.chatMarks, false); eq(printed[#printed], ns.L.CHATMARKS_OFF)
 			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), nil)
+			eq(cb("CHAT_MSG_GUILD", "Guild Boss", "hi", "Guild Boss-Realm"), nil, "off: guild chat too")
 			B.ChatSlash("on")
 			eq(printed[#printed], ns.L.CHATMARKS_ON)
 			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), BRONZE .. "Zeta Prime")
@@ -43625,6 +43652,7 @@ do
 			gamepad = true
 			B.ChatRefresh()
 			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), nil)
+			eq(cb("CHAT_MSG_GUILD", "Guild Boss", "hi", "Guild Boss-Realm"), nil, "the gamepad UI: guild chat too")
 			gamepad = false
 			B.ChatRefresh()
 			-- The author's preview: his own lines get a mark (his character holds none); test alone the
@@ -43638,11 +43666,13 @@ do
 			B.ChatSlash("test")
 			eq(printed[#printed], ns.L.CHATMARKS_TEST_ON:format("silver"))
 			eq(cb("CHAT_MSG_SAY", "Tester", "hi", ns.me), SILVER .. "Tester")
+			eq(cb("CHAT_MSG_GUILD", "Tester", "hi", ns.me), SILVER .. "Tester", "silver: guild chat too")
 			for mark, text in pairs({ gold = GOLD, bronze = BRONZE, member = STAR }) do
 				B.ChatSlash("test " .. mark)
 				eq(printed[#printed], ns.L.CHATMARKS_TEST_ON:format(mark))
 				eq(cb("CHAT_MSG_WHISPER_INFORM", "Tester", "hi", ns.me), text .. "Tester", mark)
-				eq(cb("CHAT_MSG_GUILD", "Tester", "hi", ns.me), nil, mark .. ": never guild chat")
+				-- (As everyone else's: guild chat the dragons alone.)
+				eq(cb("CHAT_MSG_GUILD", "Tester", "hi", ns.me), mark ~= "member" and (text .. "Tester") or nil, mark .. ": guild chat")
 				assert(B.ChatStatusLine():find("preview " .. mark, 1, true), B.ChatStatusLine())
 			end
 			B.ChatSlash("test platinum")
@@ -43684,6 +43714,11 @@ do
 			assert(pt:find("L." .. key .. " = ", 1, true), key .. " in pt-BR")
 		end
 		assert(ns.L.COUNCIL_ICON_SET:find("game's chat", 1, true) and ns.L.COUNCIL_ICON_HINT:find("game's chat", 1, true))
+		-- Guild and officer chat: the dragons alone (the author's call), in both languages.
+		assert(ns.L.CHATMARKS_ON:find("Guild and officer chat show the dragons alone, never the star", 1, true), ns.L.CHATMARKS_ON)
+		assert(pt:find("O chat da guilda e o dos oficiais mostram só os dragões, nunca a estrela", 1, true), "pt-BR CHATMARKS_ON")
+		assert(ns.L.HELP_CHATMARKS:find("guild chat the dragons alone", 1, true) and pt:find("no chat da guilda só os dragões", 1, true))
+		for _, text in ipairs({ ns.L.CHATMARKS_ON, ns.L.HELP_CHATMARKS }) do eq(text:find("never in guild", 1, true), nil, text) end
 	end)
 
 	-- (Changed on purpose, the owner's ask after trying the tab: "Enter and keep typing, Enter and keep
@@ -49591,6 +49626,78 @@ end)()
 		assert(assert(ReadFile(ADDON_DIR .. "Core.lua")):find('StandIn("Letters"', 1, true))
 	end)
 
+	-- 1.1.5 (the author's call): the letter's part on the game's chat marks is a legend of who is who,
+	-- each mark drawn as the chat draws it; the locale strings stay plain text ({star} and the rest).
+	test("1.1.5 version letters: the legend of the game's chat marks draws the chat's own star and dragons in place of {star} {gold} {silver} {bronze}, in English and pt-BR; a dragon this client has no atlas for, or Borders.lua not loaded yet, is its name in words", function()
+		local STAR = "|TInterface\\AddOns\\Olympus\\media\\borders\\star:16:16|t"
+		local GOLD = "|A:nameplates-icon-elite-gold:16:16|a"
+		local SILVER = "|A:nameplates-icon-elite-silver:16:16|a"
+		local BRONZE = "|A:nameplates-icon-elite-gold:16:16:0:0:158:118:86|a"
+		local saved = { borders = ns.Borders, tex = rawget(_G, "C_Texture"), locale = GetLocale }
+		local ok, err = pcall(function()
+			-- Borders.lua as the game loads it (the harness's own list leaves it out: its stand-in), on a
+			-- client that has the dragons' atlases.
+			local bns = setmetatable({ On = function() end, RegisterEvent = function() end, Every = function() end, After = function() end },
+				{ __index = ns })
+			assert(loadfile(ADDON_DIR .. "Borders.lua"))("Olympus", bns)
+			ns.Borders = bns.Borders
+			local atlases = { ["nameplates-icon-elite-gold"] = true, ["nameplates-icon-elite-silver"] = true }
+			C_Texture = { GetAtlasInfo = function(a) return atlases[a] and { width = 16, height = 16 } or nil end }
+			local pt = { L = setmetatable({}, { __index = ns.L }) }
+			GetLocale = function() return "ptBR" end
+			assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt)
+			GetLocale = saved.locale
+			local ptns = setmetatable({ L = pt.L, On = function() end }, { __index = ns })
+			assert(loadfile(ADDON_DIR .. "Letters.lua"))("Olympus", ptns)
+			local function Lines(text, lines, what)
+				for _, line in ipairs(lines) do assert(text:find(line, 1, true), what .. ": " .. line .. "\nin: " .. text) end
+				eq(text:find("{", 1, true), nil, what .. ": no placeholder left")
+			end
+			WithLetters(function(w)
+				eq(w.Letters.Show("1.1.5"), true)
+				local f = w.Letters.Frame()
+				-- English, on the page: the marks the chat puts before names, each with who it is.
+				Lines(f.body:GetText(), { "\n\nWho is who in the game's chat\n",
+					"\n- " .. STAR .. " an Olympus member. Shows in Trade, General, say, party, raid and whispers. Not in guild chat: your guild already knows who you are.\n",
+					"\n- " .. GOLD .. " the King.\n", "\n- " .. SILVER .. " the High Council.\n", "\n- " .. BRONZE .. " guild masters.\n",
+					"\n- The dragons show in guild chat too. Olympus lines carry no mark.\n\nAlso\n" }, "English")
+				-- The rest as written: bullet points, from the dev.
+				assert(f.body:GetText():find("\n- For now three stay: the King, gold wings.", 1, true))
+				eq(f.sign:GetText(), L.LETTER_SIGNED)
+				-- pt-BR.
+				local _, br = ptns.Letters.Text("1.1.5")
+				Lines(br, { "\n\nQuem é quem no chat do jogo\n",
+					"\n- " .. STAR .. " um membro do Olympus. Aparece no Comércio, Geral, dizer, grupo, raide e sussurros. Não no chat da guilda: sua guilda já sabe quem você é.\n",
+					"\n- " .. GOLD .. " o Rei.\n", "\n- " .. SILVER .. " o High Council.\n", "\n- " .. BRONZE .. " mestres de guilda.\n",
+					"\n- Os dragões aparecem no chat da guilda também. Linhas do Olympus não levam marca.\n\nE mais\n" }, "pt-BR")
+				-- A letter without marks: as written.
+				eq(select(2, w.Letters.Text("1.1.4")), L.LETTER_1_1_4)
+				-- A client without a dragon's atlas: that dragon in words, never the star in its place.
+				atlases["nameplates-icon-elite-silver"] = nil
+				w.Letters.Show("1.1.5")
+				Lines(f.body:GetText(), { "\n- " .. STAR .. " an Olympus member.", "\n- " .. GOLD .. " the King.\n",
+					"\n- Silver dragon: the High Council.\n", "\n- " .. BRONZE .. " guild masters.\n" }, "no silver atlas")
+				atlases["nameplates-icon-elite-gold"] = nil
+				w.Letters.Show("1.1.5")
+				Lines(f.body:GetText(), { "\n- " .. STAR .. " an Olympus member.", "\n- Gold dragon: the King.\n",
+					"\n- Silver dragon: the High Council.\n", "\n- Bronze dragon: guild masters.\n" }, "no dragon atlas")
+				eq(f.body:GetText():find("|A:", 1, true), nil, "no atlas code left")
+				Lines(select(2, ptns.Letters.Text("1.1.5")), { "\n- " .. STAR .. " um membro do Olympus.", "\n- Dragão dourado: o Rei.\n",
+					"\n- Dragão prateado: o High Council.\n", "\n- Dragão de bronze: mestres de guilda.\n" }, "pt-BR, no dragon atlas")
+				-- Updated without a restart (Borders.lua's stand-in, as Core.lua makes it): every mark in words.
+				atlases["nameplates-icon-elite-gold"], atlases["nameplates-icon-elite-silver"] = true, true
+				ns.Borders = setmetatable({ missing = true }, { __index = function() return function() end end })
+				w.Letters.Show("1.1.5")
+				Lines(f.body:GetText(), { "\n- Star: an Olympus member.", "\n- Gold dragon: the King.\n", "\n- Silver dragon: the High Council.\n",
+					"\n- Bronze dragon: guild masters.\n" }, "Borders.lua not loaded")
+				eq(f.body:GetText():find("|", 1, true), nil, "plain text: no code at all")
+				Lines(select(2, ptns.Letters.Text("1.1.5")), { "\n- Estrela: um membro do Olympus." }, "pt-BR, Borders.lua not loaded")
+			end)
+		end)
+		ns.Borders, C_Texture, GetLocale = saved.borders, saved.tex, saved.locale
+		if not ok then error(err, 0) end
+	end)
+
 	test("1.1.5 version letters: every letter in English and pt-BR, plain text; 1.1.5's tells of the borders (the King, the High Council, guild masters; new ones coming, one everybody has worth nothing) and the marks in the game's chat; the README and CurseForge say it", function()
 		local pt = { L = setmetatable({}, { __index = ns.L }) }
 		local savedLocale = GetLocale
@@ -49598,7 +49705,8 @@ end)()
 		local okPt, errPt = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
 		GetLocale = savedLocale
 		if not okPt then error(errPt, 0) end
-		local keys = { "HELP_LETTERS", "LETTERS_TITLE", "LETTERS_INTRO", "LETTERS_BTN", "LETTERS_ALL", "LETTERS_CLOSE", "LETTERS_CURRENT", "LETTER_SIGNED" }
+		local keys = { "HELP_LETTERS", "LETTERS_TITLE", "LETTERS_INTRO", "LETTERS_BTN", "LETTERS_ALL", "LETTERS_CLOSE", "LETTERS_CURRENT", "LETTER_SIGNED",
+			"LETTER_MARK_STAR", "LETTER_MARK_GOLD", "LETTER_MARK_SILVER", "LETTER_MARK_BRONZE" }
 		local lns = setmetatable({ On = function() end }, { __index = ns })
 		assert(loadfile(ADDON_DIR .. "Letters.lua"))("Olympus", lns)
 		for _, v in ipairs(lns.Letters.LIST) do
@@ -49609,7 +49717,7 @@ end)()
 			local en, br = rawget(ns.L, k), rawget(pt.L, k)
 			assert(type(en) == "string" and en ~= "", "English " .. k)
 			assert(type(br) == "string" and br ~= "" and br ~= en, "pt-BR " .. k)
-			if k:find("^LETTER_%d") then
+			if k:find("^LETTER_%d") or k:find("^LETTER_MARK_") then
 				for _, s in ipairs({ en, br }) do
 					assert(not s:find("|", 1, true) and not s:find("%", 1, true), k .. ": plain text, no escape or format code")
 				end
@@ -49618,13 +49726,17 @@ end)()
 		for _, k in ipairs({ "LETTER_TITLE", "LETTERS_ROW" }) do eq(ns.LocaleCodes(rawget(pt.L, k)), ns.LocaleCodes(ns.L[k]), k) end
 		local en, br = ns.L.LETTER_1_1_5, rawget(pt.L, "LETTER_1_1_5")
 		-- (The owner's calls since: bullet points, easier to read; nothing about the councillors'
-		-- tooltips; from the dev, no name, no Throne.)
+		-- tooltips; from the dev, no name, no Throne. Changed on purpose, his call after that: the chat
+		-- marks' part is a legend, each mark by its placeholder and who it is, the star not in guild chat
+		-- and the dragons there too; it said no mark showed in guild chat.)
 		for _, words in ipairs({ "The old rank borders are gone", "arena", "A border everybody has is worth nothing", "the King, gold wings",
-			"The High Council, silver wings", "Guild masters, bronze wings", "Trade, General", "Not in guild chat", "The \"i\" on the Olympus window" }) do
+			"The High Council, silver wings", "Guild masters, bronze wings", "Trade, General", "{star} an Olympus member", "Not in guild chat",
+			"{gold} the King", "{silver} the High Council", "{bronze} guild masters", "The dragons show in guild chat too", "The \"i\" on the Olympus window" }) do
 			assert(en:find(words, 1, true), "1.1.5's letter: " .. words)
 		end
 		for _, words in ipairs({ "As bordas de cargo antigas acabaram", "arena", "Borda que todo mundo tem não vale nada", "o Rei, asas douradas",
-			"O High Council, asas prateadas", "Mestres de guilda, asas de bronze", "Comércio, Geral" }) do
+			"O High Council, asas prateadas", "Mestres de guilda, asas de bronze", "Comércio, Geral", "{star} um membro do Olympus", "Não no chat da guilda",
+			"{gold} o Rei", "{silver} o High Council", "{bronze} mestres de guilda", "Os dragões aparecem no chat da guilda também" }) do
 			assert(br:find(words, 1, true), "1.1.5's letter in pt-BR: " .. words)
 		end
 		eq(en:find("tooltip", 1, true), nil, "nothing about the councillors' tooltips")
@@ -49660,6 +49772,10 @@ end)()
 			assert(doc:find("| `/oly letters [version]` |", 1, true), path .. ": the command")
 			assert(doc:find("**Marks in the game's own chat (1.1.5).**", 1, true), path .. ": the marks")
 			assert(doc:find("in the guild their own Olympus messages speak for (someone else's report alone proves nothing", 1, true), path .. ": what proves a mark")
+			assert(doc:find("Guild and officer chat show the dragons alone (the King's gold, a High Councillor's silver, a guild master's bronze), never the star", 1, true),
+				path .. ": the dragons in guild chat")
+			assert(doc:find("guild and officer chat the dragons alone, never the star", 1, true), path .. ": the command's row")
+			eq(doc:find("never guild or officer chat", 1, true), nil, path .. ": nothing says no mark there")
 		end
 	end)
 end)()
