@@ -764,7 +764,7 @@ L.INSPECTION_OPT_ON = "You take part in the King's Royal Inspection when your ad
 L.INSPECTION_OPT_OFF = "You don't take part in Royal Inspections: you still hear the King's call, and nothing is inspected or reported. /oly inspection on takes part again."
 L.HELP_INSPECTION = "  /oly inspection on|off - take part in the King's Royal Inspection, or not"
 -- 1.0.1: the elite borders (Borders.lua)
-L.HELP_BORDERS = "  /oly borders on | off - elite borders on your target, focus and your own portrait (the King, the High Council and guild masters) and the marks on friendly players' nameplates, or none"
+L.HELP_BORDERS = "  /oly borders on | off - elite borders on your target, focus, party and your own portrait (the King, the High Council and guild masters) and the marks on friendly players' nameplates, or none"
 L.BORDERS_ON = "Elite borders on, on your target, your focus and your own portrait: gold wings for the King, silver wings for the High Council and bronze wings for the guild masters of Olympus guilds. With them, a mark left of the name on friendly players' nameplates (/oly nameplates). /oly borders off hides both."
 L.BORDERS_OFF = "Elite borders off: none on your target, your focus or your own portrait, and no marks on nameplates. /oly borders on shows them again."
 L.BORDERS_GAMEPAD = "With the gamepad UI they stay hidden: Olympus leaves the game's unit frames alone there. They come back with mouse and keyboard."
@@ -2519,7 +2519,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.INSPECTION_OPT_ON = "Você participa da Inspeção Real do Rei quando seu addon cai na amostra: uma patrulha de 2 minutos nos jogadores ao seu redor, reportada a ele. /oly inspection off recusa."
 	L.INSPECTION_OPT_OFF = "Você não participa das Inspeções Reais: ainda ouve o chamado do Rei, e nada é inspecionado nem reportado. /oly inspection on volta a participar."
 	L.HELP_INSPECTION = "  /oly inspection on|off - participar ou não da Inspeção Real do Rei"
-	L.HELP_BORDERS = "  /oly borders on | off - bordas de elite no seu alvo, no seu foco e no seu próprio retrato (o Rei, o High Council e os mestres de guilda) e as marcas nas placas de identificação dos jogadores aliados, ou nenhuma"
+	L.HELP_BORDERS = "  /oly borders on | off - bordas de elite no seu alvo, no seu foco, no seu grupo e no seu próprio retrato (o Rei, o High Council e os mestres de guilda) e as marcas nas placas de identificação dos jogadores aliados, ou nenhuma"
 	L.BORDERS_ON = "Bordas de elite ligadas no seu alvo, no seu foco e no seu próprio retrato: dourada com asas para o Rei, prateada com asas para o High Council e bronze com asas para os mestres das guildas Olympus. Com elas, uma marca à esquerda do nome nas placas de identificação dos jogadores aliados (/oly nameplates). /oly borders off esconde as duas."
 	L.BORDERS_OFF = "Bordas de elite desligadas: nenhuma no seu alvo, no seu foco ou no seu próprio retrato, e nenhuma marca nas placas de identificação. /oly borders on mostra de novo."
 	L.BORDERS_GAMEPAD = "Com a interface de gamepad elas ficam escondidas: lá o Olympus deixa em paz os quadros de unidade do jogo. Elas voltam com mouse e teclado."
