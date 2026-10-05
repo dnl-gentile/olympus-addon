@@ -1326,7 +1326,7 @@ the game is removed at login, with one line saying so.
 - **Copy**: every tab produces a ready-to-paste text for Discord.
 - **Version letters** (1.1.5): after the addon updates, once a version, a short letter on
   parchment, in a window like the Olympus window's, says what changed in that version, in the
-  King's voice. It waits until the privacy page is closed, and never opens in combat, in a
+  dev's own words. It waits until the privacy page is closed, and never opens in combat, in a
   dungeon or outside an Olympus guild. On the Forever beta, whose saved variables never load, it
   shows again every session, as the privacy page asks again. The Olympus window's help button
   (the **i** left of the X) keeps every letter: **Version letters** on its page lists them,

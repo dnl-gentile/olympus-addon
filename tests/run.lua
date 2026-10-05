@@ -49628,7 +49628,7 @@ end)()
 
 	-- 1.1.5 (the author's call): the letter's part on the game's chat marks is a legend of who is who,
 	-- each mark drawn as the chat draws it; the locale strings stay plain text ({star} and the rest).
-	test("1.1.5 version letters: the legend of the game's chat marks draws the chat's own star and dragons in place of {star} {gold} {silver} {bronze}, in English and pt-BR; a dragon this client has no atlas for, or Borders.lua not loaded yet, is its name in words", function()
+	test("1.1.5 version letters: the legend of the game's chat marks draws the chat's own star and dragons in place of {star} {gold} {silver} {bronze}, in English and pt-BR; a dragon this client has no atlas for, or Borders.lua stopped by an error at load, is its name in words", function()
 		local STAR = "|TInterface\\AddOns\\Olympus\\media\\borders\\star:16:16|t"
 		local GOLD = "|A:nameplates-icon-elite-gold:16:16|a"
 		local SILVER = "|A:nameplates-icon-elite-silver:16:16|a"
@@ -49684,14 +49684,21 @@ end)()
 				eq(f.body:GetText():find("|A:", 1, true), nil, "no atlas code left")
 				Lines(select(2, ptns.Letters.Text("1.1.5")), { "\n- " .. STAR .. " um membro do Olympus.", "\n- Dragão dourado: o Rei.\n",
 					"\n- Dragão prateado: o High Council.\n", "\n- Dragão de bronze: mestres de guilda.\n" }, "pt-BR, no dragon atlas")
-				-- Updated without a restart (Borders.lua's stand-in, as Core.lua makes it): every mark in words.
+				-- Borders.lua stopped by an error at load, every mark in words: before it set its table, Core.lua's
+				-- stand-in stays (as Core.lua makes it); after, its table has no legend. (Not an update without
+				-- a restart, as this test once named the stand-in: Borders.lua is in 1.1.4's file list too, so
+				-- /reload loads its new self, and Letters.lua is the new file whose stand-in, the test above,
+				-- says to restart before any letter shows.)
 				atlases["nameplates-icon-elite-gold"], atlases["nameplates-icon-elite-silver"] = true, true
-				ns.Borders = setmetatable({ missing = true }, { __index = function() return function() end end })
-				w.Letters.Show("1.1.5")
-				Lines(f.body:GetText(), { "\n- Star: an Olympus member.", "\n- Gold dragon: the King.\n", "\n- Silver dragon: the High Council.\n",
-					"\n- Bronze dragon: guild masters.\n" }, "Borders.lua not loaded")
-				eq(f.body:GetText():find("|", 1, true), nil, "plain text: no code at all")
-				Lines(select(2, ptns.Letters.Text("1.1.5")), { "\n- Estrela: um membro do Olympus." }, "pt-BR, Borders.lua not loaded")
+				for what, B in pairs({ ["Core.lua's stand-in"] = setmetatable({ missing = true }, { __index = function() return function() end end }),
+					["a table without its legend"] = { ChatMarkText = function() return GOLD end } }) do
+					ns.Borders = B
+					w.Letters.Show("1.1.5")
+					Lines(f.body:GetText(), { "\n- Star: an Olympus member.", "\n- Gold dragon: the King.\n", "\n- Silver dragon: the High Council.\n",
+						"\n- Bronze dragon: guild masters.\n" }, "Borders.lua stopped at load, " .. what)
+					eq(f.body:GetText():find("|", 1, true), nil, "plain text: no code at all, " .. what)
+					Lines(select(2, ptns.Letters.Text("1.1.5")), { "\n- Estrela: um membro do Olympus." }, "pt-BR, Borders.lua stopped at load, " .. what)
+				end
 			end)
 		end)
 		ns.Borders, C_Texture, GetLocale = saved.borders, saved.tex, saved.locale
@@ -49776,6 +49783,13 @@ end)()
 				path .. ": the dragons in guild chat")
 			assert(doc:find("guild and officer chat the dragons alone, never the star", 1, true), path .. ": the command's row")
 			eq(doc:find("never guild or officer chat", 1, true), nil, path .. ": nothing says no mark there")
+		end
+		-- The letters are from the dev (L.LETTER_SIGNED), and the pages players read say so: the King's
+		-- voice they once had stayed in the README and the CurseForge page after the letters changed.
+		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md", "docs/CURSEFORGE-STORE.md" }) do
+			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
+			assert(doc:find("says what changed in that version, in the dev's own words.", 1, true), path .. ": the letters from the dev")
+			eq(doc:find("King's voice", 1, true), nil, path .. ": no letter in the King's voice")
 		end
 	end)
 end)()

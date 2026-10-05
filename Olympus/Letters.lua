@@ -26,8 +26,11 @@ local L = ns.L
 -- strings is left out. Plain text, but for the marks of the game's chat a letter may draw (1.1.5's
 -- legend of who is who): {star}, {gold}, {silver} and {bronze} become, as the page shows the
 -- letter, the very art the chat puts before names (Borders.ChatLegendText, at MARK_SIZE); a mark
--- this client has no art for (or Borders.lua not loaded yet, its stand-in) is its name in words
--- (L.LETTER_MARK_<MARK>), never a broken code. Any other {word} stays as written.
+-- this client has no art for (a dragon's atlas it lacks, or Borders.lua stopped by an error at
+-- load, its legend missing) is its name in words (L.LETTER_MARK_<MARK>), never a broken code. Any
+-- other {word} stays as written. (Not an update without a restart: Borders.lua is in the file list
+-- since 1.0.0, so /reload loads its new self; Letters.lua is the new file there, and its stand-in,
+-- Core.lua's, says to restart before any letter shows.)
 
 local Letters = {}
 ns.Letters = Letters
