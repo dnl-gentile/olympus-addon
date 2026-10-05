@@ -118,7 +118,7 @@ ns.GAMEPAD = {
 		why = "Olympus's lines in the game's right-click player menus (Menu.ModifyMenu): the gamepad's player menu runs its interact target state while the menu is built; not registered at a gamepad login, and a callback registered before does nothing." },
 	{ id = "borders", kind = "unit-frame-art", files = { "Borders.lua" },
 		guard = "gate", toPad = "park", toMouse = "install", safe = "off",
-		why = "Olympus's border textures and hooks on the target, focus and player frames." },
+		why = "Olympus's border textures and hooks on the target, focus, player and party frames (CheckClassification on TargetFrame/FocusFrame; InitializePartyMemberFrames on PartyFrame, whose member frames get textures)." },
 	{ id = "chat-marks", kind = "chat-filter", files = { "Borders.lua" },
 		guard = "gate", toPad = "inert", toMouse = "install", safe = "off",
 		why = "Olympus's marks before names in the game's chat, through its sender name filter (called isolated); off from its first line under the gamepad UI." },

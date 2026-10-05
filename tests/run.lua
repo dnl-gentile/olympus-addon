@@ -53231,7 +53231,7 @@ end)()
 				Lines(f.body:GetText(), { "\n\nWho is who in the game's chat\n",
 					"\n- " .. STAR .. " an Olympus member. Shows in Trade, General, say, party, raid and whispers. Not in guild chat: your guild already knows who you are.\n",
 					"\n- " .. GOLD .. " the King.\n", "\n- " .. SILVER .. " the High Council.\n", "\n- " .. BRONZE .. " guild masters.\n",
-					"\n- The dragons show in guild chat too. Olympus lines carry no mark.\n\nAlso\n" }, "English")
+					"\n- The dragons show in guild chat too. Olympus lines carry no mark.\n\nGamepad\n" }, "English")
 				-- The rest as written: bullet points, from the dev.
 				assert(f.body:GetText():find("\n- For now three stay: the King, gold wings.", 1, true))
 				eq(f.sign:GetText(), L.LETTER_SIGNED)
@@ -53240,7 +53240,7 @@ end)()
 				Lines(br, { "\n\nQuem é quem no chat do jogo\n",
 					"\n- " .. STAR .. " um membro do Olympus. Aparece no Comércio, Geral, dizer, grupo, raide e sussurros. Não no chat da guilda: sua guilda já sabe quem você é.\n",
 					"\n- " .. GOLD .. " o Rei.\n", "\n- " .. SILVER .. " o High Council.\n", "\n- " .. BRONZE .. " mestres de guilda.\n",
-					"\n- Os dragões aparecem no chat da guilda também. Linhas do Olympus não levam marca.\n\nE mais\n" }, "pt-BR")
+					"\n- Os dragões aparecem no chat da guilda também. Linhas do Olympus não levam marca.\n\nGamepad\n" }, "pt-BR")
 				-- A letter without marks: as written.
 				eq(select(2, w.Letters.Text("1.1.4")), L.LETTER_1_1_4)
 				-- A client without a dragon's atlas: that dragon in words, never the star in its place.

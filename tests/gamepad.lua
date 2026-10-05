@@ -1369,6 +1369,17 @@ local function World(C, opts)
 	rawset(E.TargetFrame, "CheckClassification", function() end)
 	rawset(E.FocusFrame, "CheckClassification", function() end)
 	rawset(E.PlayerFrame, "name", rawget(E.PlayerFrame, "name") or C.NewWidget("FontString", nil, E.PlayerFrame, nil, true))
+	-- Forever's PartyFrame (Blizzard_UnitFrame/Shared/PartyFrame.lua): its four member frames from a
+	-- pool, MemberFrame<i> of layoutIndex i, put out again in InitializePartyMemberFrames (Borders.lua's
+	-- party rigs read these fields and post-hook that method).
+	E.PartyFrame = Blizz("PartyFrame", "Frame")
+	rawset(E.PartyFrame, "PartyMemberFramePool", rawget(E.PartyFrame, "PartyMemberFramePool") or {})
+	for i = 1, 4 do
+		local m = rawget(E.PartyFrame, "MemberFrame" .. i) or C.NewWidget("Button", nil, E.PartyFrame, nil, true)
+		rawset(m, "layoutIndex", i)
+		rawset(E.PartyFrame, "MemberFrame" .. i, m)
+	end
+	rawset(E.PartyFrame, "InitializePartyMemberFrames", function() end)
 
 	-- Nameplates (Blizzard_NamePlates): none in sight.
 	E.C_NamePlate = Namespace("C_NamePlate", { GetNamePlates = function() return {} end, GetNamePlateForUnit = function() return nil end })
@@ -1898,7 +1909,8 @@ local function PersonFlow(C)
 	local ns = C.ns
 	ns.UI.ShowPerson({ name = "Someone", realm = "Realm", guild = "Olympus II", class = "WARRIOR", level = 60 })
 	local card
-	for _, n in ipairs({ "OlympusPersonFrameHD", "OlympusPersonFrame" }) do
+	-- (1.1.5's windows: ns.Window gives the metal frame its own name, the plain fallback "<name>Basic".)
+	for _, n in ipairs({ "OlympusPersonFrameHD", "OlympusPersonFrame", "OlympusPersonFrameHDBasic", "OlympusPersonFrameBasic" }) do
 		local f = rawget(C.env, n)
 		if f and f:IsShown() then card = f end
 	end

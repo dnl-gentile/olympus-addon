@@ -444,7 +444,7 @@ end
 local function PartyFrameOf()
 	if not forever then return nil end
 	local party = _G.PartyFrame
-	if type(party) == "table" and type(party.PartyMemberFramePool) == "table" then return party end
+	if type(party) == "table" and type(party.PartyMemberFramePool) == "table" then return party end -- gp:borders
 	return nil
 end
 
