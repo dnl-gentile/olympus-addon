@@ -714,10 +714,20 @@ local function TimeLabel(sec)
 	return ("%dm"):format(sec / 60)
 end
 
+-- (1.1.5, the author's ask) The Olympus window's own frame, its bronze metal and the logo in the
+-- portrait (UI.lua's CreateMain, Letters.lua), not the plain silver one: the boxes start below
+-- the portrait. Else the plain frame, else a bare one.
 local function MakeComposer()
-	local ok, f = pcall(CreateFrame, "Frame", "OlympusVoxAskFrame", UIParent, "BasicFrameTemplateWithInset")
-	if not ok or not f then f = CreateFrame("Frame", "OlympusVoxAskFrame", UIParent) end
-	f:SetSize(420, 330)
+	local ok, f = pcall(CreateFrame, "Frame", "OlympusVoxAskFrame", UIParent, "PortraitFrameTemplate")
+	if ok and f and f.CloseButton then
+		f.hasPortrait = true
+	else
+		if ok and f then f:Hide() end
+		ok, f = pcall(CreateFrame, "Frame", "OlympusVoxAskFrameBasic", UIParent, "BasicFrameTemplateWithInset")
+		if not ok or not f then f = CreateFrame("Frame", "OlympusVoxAskFrameBasic", UIParent) end
+	end
+	local dy = f.hasPortrait and -30 or 0
+	f:SetSize(420, 330 - dy)
 	f:SetPoint("CENTER", 0, 40)
 	f:SetFrameStrata("DIALOG")
 	f:SetToplevel(true)
@@ -726,23 +736,45 @@ local function MakeComposer()
 	f:RegisterForDrag("LeftButton")
 	f:SetScript("OnDragStart", f.StartMoving)
 	f:SetScript("OnDragStop", f.StopMovingOrSizing)
-	if f.TitleText then
+	-- Its X hides it itself, in combat too (the Olympus window's: the template's HideUIPanel does
+	-- nothing there for a call that is not secure).
+	f.onCloseCallback = function()
+		f:Hide()
+		return false
+	end
+	if f.SetTitle then
+		f:SetTitle(L.VOX_ASK_TITLE)
+	elseif f.TitleText then
 		f.TitleText:SetText(L.VOX_ASK_TITLE)
+	elseif f.TitleContainer and f.TitleContainer.TitleText then
+		f.TitleContainer.TitleText:SetText(L.VOX_ASK_TITLE)
 	else
 		local t = Label(f, L.VOX_ASK_TITLE, "GameFontNormal")
 		t:SetPoint("TOP", 0, -6)
 	end
+	f.titleText = L.VOX_ASK_TITLE
+	if f.hasPortrait then
+		local portrait = f.portrait or f.Portrait or (f.PortraitContainer and f.PortraitContainer.portrait)
+		if portrait then
+			portrait:SetTexture(ns.LOGO)
+			-- (Its coords before its mask: a masked texture refuses new ones, Forever 1.60; UI.lua's.)
+			portrait:SetTexCoord(0, 1, 0, 1)
+			if portrait.SetMask then pcall(portrait.SetMask, portrait, "Interface\\CharacterFrame\\TempPortraitAlphaMask") end
+		elseif f.SetPortraitToAsset then
+			pcall(f.SetPortraitToAsset, f, ns.LOGO)
+		end
+	end
 	local q = Label(f, L.VOX_ASK_QUESTION)
-	q:SetPoint("TOPLEFT", 18, -34)
+	q:SetPoint("TOPLEFT", 18, -34 + dy)
 	f.q = Box(f, 380, Vox.MAX_Q)
-	f.q:SetPoint("TOPLEFT", 22, -48)
+	f.q:SetPoint("TOPLEFT", 22, -48 + dy)
 	local a = Label(f, L.VOX_ASK_ANSWERS)
-	a:SetPoint("TOPLEFT", 18, -76)
+	a:SetPoint("TOPLEFT", 18, -76 + dy)
 	f.a = {}
 	for i = 1, Vox.MAX_ANSWERS do
 		local eb = Box(f, 180, Vox.MAX_A)
 		local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
-		eb:SetPoint("TOPLEFT", 22 + col * 196, -90 - row * 26)
+		eb:SetPoint("TOPLEFT", 22 + col * 196, -90 - row * 26 + dy)
 		f.a[i] = eb
 	end
 	-- Tab and Enter walk through the boxes; Enter on the last one asks.
@@ -757,13 +789,13 @@ local function MakeComposer()
 		eb:SetScript("OnEscapePressed", function() f:Hide() end)
 	end
 	local k = Label(f, L.VOX_ASK_KIND)
-	k:SetPoint("TOPLEFT", 18, -174)
+	k:SetPoint("TOPLEFT", 18, -174 + dy)
 	f.kinds = {}
 	for i, multi in ipairs({ false, true }) do
 		local okc, c = pcall(CreateFrame, "CheckButton", nil, f, "UICheckButtonTemplate")
 		if not okc or not c then c = CreateFrame("CheckButton", nil, f) end
 		c:SetSize(22, 22)
-		c:SetPoint("TOPLEFT", 18 + (i - 1) * 190, -188)
+		c:SetPoint("TOPLEFT", 18 + (i - 1) * 190, -188 + dy)
 		c.multi = multi
 		c:SetScript("OnClick", function() f.multi = multi; ns.SafeCall("vox composer", Vox.RefreshComposer) end)
 		c.label = Label(f, multi and L.VOX_PICK_MANY or L.VOX_PICK_ONE, "GameFontHighlightSmall")
@@ -771,12 +803,12 @@ local function MakeComposer()
 		f.kinds[i] = c
 	end
 	local tl = Label(f, L.VOX_ASK_TIME)
-	tl:SetPoint("TOPLEFT", 18, -218)
+	tl:SetPoint("TOPLEFT", 18, -218 + dy)
 	f.times = {}
 	for i, sec in ipairs(Vox.TIMES) do
 		local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 		b:SetSize(64, 22)
-		b:SetPoint("TOPLEFT", 18 + (i - 1) * 76, -234)
+		b:SetPoint("TOPLEFT", 18 + (i - 1) * 76, -234 + dy)
 		b:SetText(TimeLabel(sec))
 		b:SetScript("OnClick", function() f.seconds = sec; ns.SafeCall("vox composer", Vox.RefreshComposer) end)
 		b.seconds = sec
@@ -792,7 +824,7 @@ local function MakeComposer()
 	f.cancel:SetPoint("RIGHT", f.ask, "LEFT", -8, 0)
 	f.cancel:SetText(CANCEL or "Cancel")
 	f.cancel:SetScript("OnClick", function() f:Hide() end)
-	ns.EscapeCloses("OlympusVoxAskFrame")
+	ns.EscapeCloses(f:GetName())
 	return f
 end
 

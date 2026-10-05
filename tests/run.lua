@@ -6418,6 +6418,50 @@ test("Vox Populi: pick one or several, a chart of the results, the winner worked
 	end)
 end)
 
+-- 1.1.5 (the author's ask): the "new question" window was the plain silver frame while the
+-- Olympus window is bronze metal with the logo. Vox.lua loaded fresh (its own composer), its
+-- handlers kept away from the real ones; the portrait frame as the client's, with its portrait.
+test("1.1.5 Vox Populi: the new question window has the Olympus window's frame (its bronze metal, the logo), the boxes below the portrait, and its X closes it in combat too", function()
+	WithUI(function()
+		local saved = { template = TEMPLATES.PortraitFrameTemplate, combat = rawget(_G, "InCombatLockdown") }
+		local ok, err = pcall(function()
+			TEMPLATES.PortraitFrameTemplate = function(f)
+				saved.template(f)
+				f.portrait = NewWidget("Texture", nil, f)
+			end
+			local vns = setmetatable({
+				Comm = setmetatable({ Handle = function() end }, { __index = ns.Comm }),
+				King = setmetatable({ Register = function() end, CanCommand = function() return true end }, { __index = ns.King }),
+			}, { __index = ns })
+			assert(loadfile(ADDON_DIR .. "Vox.lua"))("Olympus", vns)
+			local V = vns.Vox
+			V.Prompt()
+			local c = V.Composer()
+			assert(c and c:IsShown(), "the composer")
+			eq(c.template, "PortraitFrameTemplate", "the Olympus window's frame, not the plain one")
+			eq(c.portrait.texture, ns.LOGO, "its logo")
+			eq(c.titleText, ns.L.VOX_ASK_TITLE)
+			local _, _, _, _, y = c.q:GetPoint(1)
+			assert(y <= -64, "the question's box below the portrait: " .. tostring(y))
+			InCombatLockdown = function() return true end
+			c.CloseButton:Click()
+			assert(not c:IsShown(), "its X hides it, in combat too")
+			-- A client without the portrait frame: the plain one, as before.
+			TEMPLATES.PortraitFrameTemplate = function() end
+			local bns = setmetatable({ Comm = vns.Comm, King = vns.King }, { __index = ns })
+			assert(loadfile(ADDON_DIR .. "Vox.lua"))("Olympus", bns)
+			bns.Vox.Prompt()
+			local b = bns.Vox.Composer()
+			eq(b.template, "BasicFrameTemplateWithInset", "the plain frame where the portrait one is missing")
+			eq(b.titleText, ns.L.VOX_ASK_TITLE)
+			local _, _, _, _, by = b.q:GetPoint(1)
+			eq(by, -48, "no portrait: the boxes where they were")
+		end)
+		TEMPLATES.PortraitFrameTemplate, InCombatLockdown = saved.template, saved.combat
+		if not ok then error(err, 0) end
+	end)
+end)
+
 test("Hold Court: the King opens it, players in his zone ask, he calls them one by one", function()
 	WithThrone(function(w, K)
 		local C = ns.Court
