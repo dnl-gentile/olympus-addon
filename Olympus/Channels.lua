@@ -1907,8 +1907,10 @@ end)
 -- window on its Chat tab, on that channel (ChatWindow.lua, or Core.lua's stand-in on a client
 -- updated without a restart), else, where this client has no such tab, what to type (Channels.Send
 -- says it).
+-- (1.1.5: registered with /oly at login, with mouse and keyboard only: Core.lua's "slash".)
 local function Slash(tier, where)
 	return function(msg)
+		if not ns.Gate.Allowed("slash") then return end
 		local W = ns.ChatWindow
 		if tostring(msg or ""):match("^%s*$") and W and type(W.Toggle) == "function" then
 			ns.SafeCall(where, W.Toggle, tier)
@@ -1917,7 +1919,12 @@ local function Slash(tier, where)
 		ns.SafeCall(where, Channels.Send, tier, msg)
 	end
 end
-SLASH_OLYMPUSALL1, SLASH_OLYMPUSCAPTAINS1, SLASH_OLYMPUSLORDS1 = "/ol", "/olc", "/oll"
-SlashCmdList.OLYMPUSALL = Slash("A", "slash /ol")
-SlashCmdList.OLYMPUSCAPTAINS = Slash("C", "slash /olc")
-SlashCmdList.OLYMPUSLORDS = Slash("L", "slash /oll")
+local slashDone = false
+ns.Gate.Hooks("slash", { key = "channels", leftover = function() return slashDone end, install = function()
+	if slashDone then return end
+	slashDone = true
+	SLASH_OLYMPUSALL1, SLASH_OLYMPUSCAPTAINS1, SLASH_OLYMPUSLORDS1 = "/ol", "/olc", "/oll"
+	SlashCmdList.OLYMPUSALL = Slash("A", "slash /ol")
+	SlashCmdList.OLYMPUSCAPTAINS = Slash("C", "slash /olc")
+	SlashCmdList.OLYMPUSLORDS = Slash("L", "slash /oll")
+end })

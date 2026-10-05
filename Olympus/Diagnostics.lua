@@ -429,6 +429,8 @@ function ns.StatusText()
 	local refused = type(ns.db.actionsBlocked) == "table" and ns.db.actionsBlocked or {}
 	add("gamepad UI: %s  |  blocked this session: %d  |  blocked calls kept: %d%s", ns.GamepadUI() and "on" or "off", blocked, #refused,
 		#refused > 0 and (" (last: %s)"):format(tostring(refused[#refused].func)) or "")
+	-- (1.1.5) The gamepad gate (Gamepad.lua): the switches this session and what stays until a /reload.
+	add("gamepad gate: %s", ns.Gate and type(ns.Gate.StatusLine) == "function" and ns.Gate.StatusLine() or "not loaded until the game restarts")
 	if ns.GamepadUI() or blocked > 0 then
 		local ok, line = pcall(ns.TaintProbe)
 		add("%s", ok and line or ("taint: probe failed: " .. tostring(line)))

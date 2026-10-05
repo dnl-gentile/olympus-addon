@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Board", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "Crafters", "Chronicle", "Workshop", "Versions", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "AnswerBank", "Answers", "Views", "Consent", "Members", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Board", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "Crafters", "Chronicle", "Workshop", "Versions", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "AnswerBank", "Answers", "Views", "Consent", "Members", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -173,6 +173,9 @@ ns.KING_REALM, ns.TREASURER_REALM = "Realm", "Realm"
 ns.rdb = { guilds = {} }
 local CoreFire = ns.Fire -- the real one, for the tests that need INIT
 function ns.Fire() end
+-- (1.1.5) The slash commands, as the login installs them with mouse and keyboard (the gamepad gate:
+-- Core.lua's "slash"); the tests call them directly. Nothing else of the login runs here.
+ns.Gate.Install("slash")
 
 ---------------------------------------------------------------------------
 local passed, failed = 0, 0
@@ -17462,14 +17465,18 @@ test("1.0.0 photo mode: the author's /oly photo hides all but Olympus and the wo
 		for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "PLAYER_LOGOUT") end
 		eq(UI.PhotoMode(), false); eq(bars.alpha, 1); eq(chat.alpha, 1); eq(faded.alpha, 0.4)
 		-- The gamepad UI: not there (said so), nothing touched; turned off there, it still comes back.
+		-- (1.1.5, the gamepad gate: with the gamepad UI no typed command does anything, the game's chat box itself would taint the call; what the command runs with mouse and keyboard is called here.)
 		WithGamepadUI(true, function()
+			local before = #printed
 			SlashCmdList.OLYMPUS("photo")
+			eq(#printed, before, "/oly photo does nothing with the gamepad UI"); eq(UI.PhotoMode(), false)
+			UI.TogglePhoto()
 			eq(UI.PhotoMode(), false); eq(printed[#printed], ns.L.PHOTO_GAMEPAD); eq(chat.alpha, 1)
 		end)
 		SlashCmdList.OLYMPUS("photo")
 		eq(UI.PhotoMode(), true)
 		WithGamepadUI(true, function()
-			SlashCmdList.OLYMPUS("photo")
+			UI.TogglePhoto()
 			eq(UI.PhotoMode(), false); eq(chat.alpha, 1); eq(bars.alpha, 1)
 		end)
 	end)
@@ -21513,7 +21520,11 @@ test("1.0.1 borders: off with the gamepad UI (no hook, no texture), hidden at a 
 		eq(#w.log, 0, "nothing made on the game's frames"); eq(#w.hooks, 0, "no hook"); eq(#w.textures, 0)
 		eq(w.computed(), 0, "nothing worked out")
 		assert(w.B.StatusLine():find("on, hidden with the gamepad UI  |  not set up yet", 1, true), w.B.StatusLine())
+		-- (1.1.5, the gamepad gate: with the gamepad UI no typed command does anything, the game's chat box itself would taint the call; what the command runs with mouse and keyboard is called here.)
+		local before = #w.printed
 		SlashCmdList.OLYMPUS("borders")
+		eq(#w.printed, before, "/oly borders does nothing with the gamepad UI")
+		w.B.Report()
 		eq(w.printed[#w.printed - 1], ns.L.BORDERS_ON); eq(w.printed[#w.printed], ns.L.BORDERS_GAMEPAD)
 		-- To mouse and keyboard: made and shown.
 		w.style = 0
@@ -21955,7 +21966,10 @@ do
 			ns.Borders = w.B
 			w.style = 1
 			w.internal("LOGIN")
+			-- (1.1.5, the gamepad gate: with the gamepad UI no typed command does anything, the game's chat box itself would taint the call; what the command runs with mouse and keyboard is called here.)
 			SlashCmdList.OLYMPUS("borders test gold-elite")
+			eq(w.B.Preview(), nil, "/oly borders test does nothing with the gamepad UI")
+			w.B.SetPreview("gold-elite")
 			eq(w.printed[#w.printed], ns.L.BORDERS_GAMEPAD, "says why")
 			eq(w.B.Preview(), "gold-elite")
 			w.target(w.units.player)
@@ -21969,7 +21983,7 @@ do
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
 			eq(w.shown("player"), nil); eq(w.shown("target"), nil)
 			for _, tex in ipairs(w.textures) do tex.calls = {} end
-			SlashCmdList.OLYMPUS("borders test silver-elite")
+			w.B.SetPreview("silver-elite")
 			eq(w.printed[#w.printed], ns.L.BORDERS_GAMEPAD)
 			TargetFrame:CheckClassification()
 			w.fire("PLAYER_TARGET_CHANGED"); w.fire("PLAYER_GUILD_UPDATE", "player")
@@ -22938,7 +22952,11 @@ test("1.0.0 nameplates: off with the gamepad UI (no hook, no texture, nothing ca
 		eq(#w.log, 0, "nothing called on the game's frames"); eq(#w.hooks, 0, "no hook"); eq(#w.plateTex, 0, "no texture")
 		eq(w.computedMarks(), 0, "nothing worked out")
 		assert(w.N.StatusLine():find("on, hidden with the gamepad UI", 1, true), w.N.StatusLine())
+		-- (1.1.5, the gamepad gate: with the gamepad UI no typed command does anything, the game's chat box itself would taint the call; what the command runs with mouse and keyboard is called here.)
+		local before = #w.printed
 		SlashCmdList.OLYMPUS("nameplates")
+		eq(#w.printed, before, "/oly nameplates does nothing with the gamepad UI")
+		w.N.Report()
 		eq(w.printed[#w.printed - 1], ns.L.NAMEPLATES_ON); eq(w.printed[#w.printed], ns.L.NAMEPLATES_GAMEPAD)
 		-- To mouse and keyboard: made and shown.
 		w.style = 0
@@ -23828,6 +23846,356 @@ test("1.0.0 treasury: the reminder a sharing keeper gets says where what he shar
 	assert(rawget(pt.L, "TREASURY_YOU_AND_KING_BUT"):find("todo cliente nele recebe", 1, true))
 	assert(rawget(pt.L, "TREASURY_YOU_AND_KING_BUT"):find("sussurra", 1, true))
 end)
+
+---------------------------------------------------------------------------
+-- 1.1.5: the gamepad gate (Gamepad.lua, GamepadRegistry.lua). The author can't play every build
+-- with a controller, and each version had broken something for players who do: every way Olympus
+-- reaches the game's UI is listed, asked of one gate, and its switches tested here.
+---------------------------------------------------------------------------
+do
+	-- The interface style as the game switches it: C_InputInterfaceStyle's current style (0 mouse
+	-- and keyboard, 1 the gamepad UI: InputConstantsDocumentation.lua), set before its event.
+	local function WithStyle(fn)
+		local saved, savedType = C_InputInterfaceStyle, Enum.InputDeviceInterfaceType
+		local style = { now = 0 }
+		Enum.InputDeviceInterfaceType = { Mkb = 0, Gamepad = 1 }
+		C_InputInterfaceStyle = { GetCurrentStyle = function() return style.now end }
+		local ok, err = pcall(fn, style)
+		C_InputInterfaceStyle, Enum.InputDeviceInterfaceType = saved, savedType
+		if not ok then error(err, 0) end
+	end
+
+	-- A gate of its own: GamepadRegistry.lua and Gamepad.lua loaded into a namespace of their own,
+	-- its events, next-frame timers, errors, prints and Olympus dialogs recorded. w.frame() is the
+	-- client's next frame; w.switch(pad) the game's switch (the style first, then its event).
+	local function NewGate(setup, style)
+		local w = { events = {}, timers = {}, errors = {}, printed = {}, shown = {} }
+		local gns = setmetatable({}, { __index = ns })
+		gns.RegisterEvent = function(event, f) w.events[event] = w.events[event] or {}; table.insert(w.events[event], f) end
+		gns.After = function(sec, where, f) w.timers[#w.timers + 1] = { sec = sec, where = where, f = f } end
+		gns.CaptureError = function(where, err) w.errors[#w.errors + 1] = where .. ": " .. tostring(err) end
+		gns.Print = function(m) w.printed[#w.printed + 1] = m end
+		gns.Log = function() end
+		gns.Dialog = { Show = function(which) w.shown[#w.shown + 1] = which return true end }
+		if setup then setup(w, gns) end
+		assert(loadfile(ADDON_DIR .. "GamepadRegistry.lua"))("Olympus", gns)
+		assert(loadfile(ADDON_DIR .. "Gamepad.lua"))("Olympus", gns)
+		w.ns, w.G = gns, gns.Gate
+		w.fire = function(event, ...) for _, f in ipairs(w.events[event] or {}) do f(...) end end
+		w.frame = function()
+			local t = w.timers
+			w.timers = {}
+			for _, x in ipairs(t) do x.f() end
+		end
+		w.switch = function(pad)
+			style.now = pad and 1 or 0
+			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", style.now, 1 - style.now)
+		end
+		return w
+	end
+
+	test("1.1.5 the gamepad gate: every integration listed with its rule; Allowed refuses a gate entry while the gamepad UI is on, asked again each time, and an unlisted one in both modes (reported once)", function()
+		-- The list: each id once, its kind, its files (they exist), its guard and what each switch does
+		-- with it, why; an exception only with the author's yes and a date.
+		local reg = {}
+		assert(loadfile(ADDON_DIR .. "GamepadRegistry.lua"))("Olympus", reg)
+		assert(type(reg.GAMEPAD) == "table" and #reg.GAMEPAD >= 20, "the list")
+		eq(reg.GAMEPAD_CHECKED_BUILD, 70205, "Forever 1.60.1's build, the pins were checked on")
+		local GUARDS = { gate = true, own = true, click = true, exempt = true }
+		local PAD = { park = true, inert = true, reload = true, stays = true }
+		local MOUSE = { install = true, on = true, nothing = true }
+		local seen = {}
+		for _, e in ipairs(reg.GAMEPAD) do
+			assert(type(e.id) == "string" and e.id ~= "" and not seen[e.id], "an id once: " .. tostring(e.id))
+			seen[e.id] = e
+			assert(type(e.kind) == "string" and type(e.why) == "string" and #e.why > 30, e.id .. ": its kind and why")
+			assert(GUARDS[e.guard] and PAD[e.toPad] and MOUSE[e.toMouse] and (e.safe == "off" or e.safe == "keep"), e.id .. ": its rule")
+			if e.guard == "exempt" then
+				assert(type(e.approved) == "string" and e.approved:find("%d%d%d%d%-%d%d%-%d%d"), e.id .. ": approved, with a date")
+			end
+			assert(type(e.files) == "table" and #e.files > 0, e.id .. ": its files")
+			for _, f in ipairs(e.files) do assert(ReadFile(ADDON_DIR .. f), e.id .. ": " .. f .. " exists") end
+		end
+		for _, id in ipairs({ "slash", "communities-button", "tooltip-unit", "error-handler", "escape-list", "worldmap-icons", "map-overlay",
+			"dialogs", "chat-box", "issue-reporter", "who-quiet", "who", "chat-key", "player-menu", "borders", "chat-marks", "nameplates", "minimap" }) do
+			assert(seen[id], "listed: " .. id)
+		end
+		eq(seen.slash.guard, "gate"); eq(seen.slash.toPad, "reload"); eq(seen["communities-button"].guard, "gate")
+		eq(seen.minimap.guard, "exempt", "the minimap button: how gamepad players open Olympus")
+		-- Loaded right after Core.lua (the list first), before every file that asks it.
+		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
+		assert(toc:find("\nCore%.lua\r?\nGamepadRegistry%.lua\r?\nGamepad%.lua\r?\nDiagnostics%.lua"), "the toc's order")
+		WithStyle(function(style)
+			local w = NewGate(nil, style)
+			local G = w.G
+			eq(ns.Gate ~= G, true, "(a gate of its own)")
+			eq(G.Allowed("slash"), true, "mouse and keyboard")
+			style.now = 1
+			eq(G.Allowed("slash"), false, "the gamepad UI: asked again each time, never kept")
+			eq(G.Allowed("minimap"), true, "an approved exception"); eq(G.Allowed("who"), true, "a click's")
+			eq(G.Allowed("popup-focus"), true, "Olympus's own")
+			eq(G.Use("slash", function() return "ran" end), nil, "Use: not with the gamepad UI")
+			style.now = 0
+			eq(G.Use("slash", function(a) return a end, "ran"), "ran")
+			eq(G.Allowed("no-such-thing"), false, "unlisted: refused with mouse and keyboard too")
+			eq(G.Allowed("no-such-thing"), false)
+			eq(#w.errors, 1, "reported once"); assert(w.errors[1]:find("no-such-thing", 1, true), w.errors[1])
+			assert(G.StatusLine():find("not listed: no-such-thing", 1, true), G.StatusLine())
+			assert(G.StatusLine():find("integrations listed (checked on build 70205)", 1, true), G.StatusLine())
+		end)
+		-- In /oly status (the gate of the addon's own).
+		assert(ns.StatusText():find("gamepad gate: %d+ integrations listed"), ns.StatusText())
+	end)
+
+	test("1.1.5 the gamepad gate: a switch to the gamepad UI parks on the next frame (only the Chat tab's key in the event) and tells once, in Olympus's window, what stays until a /reload; back to mouse and keyboard installs, out of combat; two switches in a frame settle once", function()
+		WithStyle(function(style)
+			local savedCombat, savedReload = InCombatLockdown, ReloadUI
+			local combat = false
+			InCombatLockdown = function() return combat end
+			local ok, err = pcall(function()
+				local w = NewGate(nil, style)
+				local G, log = w.G, {}
+				local function Said() local s = table.concat(log, ", ") log = {} return s end
+				local stays = false
+				G.Hooks("borders", { park = function() log[#log + 1] = "park borders" end, install = function() log[#log + 1] = "install borders" end })
+				G.Hooks("slash", { key = "a", leftover = function() return stays end, install = function() log[#log + 1] = "install slash a" end })
+				G.Hooks("slash", { key = "b", install = function() log[#log + 1] = "install slash b" end })
+				G.Hooks("chat-key", { now = true, park = function() log[#log + 1] = "park key" end, install = function() log[#log + 1] = "install key" end })
+				-- A feature's login: its own id's installs, where allowed.
+				eq(G.Install("slash"), true); eq(Said(), "install slash a, install slash b")
+				-- To the gamepad UI: the Chat tab's key in the event itself; the rest on the next frame.
+				w.switch(true)
+				eq(Said(), "park key", "in the event: the key alone")
+				eq(#w.timers, 1); eq(w.timers[1].sec, 0, "the next frame")
+				w.frame()
+				eq(Said(), "park borders")
+				eq(#w.shown, 0, "nothing stays: nothing told"); eq(#G.leftovers, 0)
+				-- A login's install with the gamepad UI: nothing.
+				eq(G.Install("slash"), false); eq(Said(), "")
+				-- Back: the key in the event, the rest on the next frame and out of combat.
+				w.switch(false)
+				eq(Said(), "install key")
+				combat = true
+				w.frame()
+				eq(Said(), "", "in combat: after the fight")
+				combat = false
+				ns.RunAfterCombat()
+				eq(Said(), "install borders, install slash a, install slash b")
+				-- Something left on the game's side (slash's leftover): told once a session, in Olympus's
+				-- own dialog window (never the game's popup).
+				stays = true
+				w.switch(true); w.frame(); Said()
+				eq(#w.shown, 1); eq(w.shown[1], "OLYMPUS_GAMEPAD_RELOAD")
+				eq(table.concat(G.leftovers, ","), "slash")
+				assert(G.StatusLine():find("until a /reload: slash", 1, true), G.StatusLine())
+				w.switch(false); w.frame()
+				eq(#G.leftovers, 0, "nothing stays in the way with mouse and keyboard")
+				w.switch(true); w.frame()
+				eq(#w.shown, 1, "once a session"); eq(table.concat(G.leftovers, ","), "slash")
+				-- A use only a /reload undoes (the game's chat box opened from Olympus), listed with them.
+				G.Used("chat-box")
+				w.switch(false); w.frame(); w.switch(true); w.frame()
+				eq(table.concat(G.leftovers, ","), "chat-box,slash")
+				Said()
+				-- In combat a park runs all the same (Olympus's own objects alone).
+				w.switch(false); w.frame(); Said()
+				combat = true
+				w.switch(true); w.frame()
+				eq(Said(), "park key, park borders", "in combat too")
+				combat = false
+				ns.RunAfterCombat()
+				-- Two switches in one frame: one settle, for the style it ends on.
+				w.switch(false); w.switch(true)
+				eq(#w.timers, 1, "one settle")
+				w.frame()
+				eq(Said(), "install key, park key, park borders")
+				-- The notice's own definition: its words, its buttons; Reload the player's click.
+				local def = StaticPopupDialogs.OLYMPUS_GAMEPAD_RELOAD
+				eq(def.text, ns.L.GATE_NOTICE); eq(def.button1, ns.L.GATE_RELOAD); eq(def.button2, ns.L.GATE_CLOSE)
+				local reloaded = 0
+				ReloadUI = function() reloaded = reloaded + 1 end
+				def.OnAccept()
+				eq(reloaded, 1)
+				eq(#w.errors, 0, table.concat(w.errors, "; "))
+				-- Without Olympus's dialog window (a client updated without a restart): a chat line.
+				local w2 = NewGate(function(_, gns) gns.Dialog = { missing = true } end, style)
+				w2.G.Hooks("slash", { leftover = function() return true end })
+				w2.switch(false); w2.switch(true); w2.frame()
+				eq(w2.printed[1], ns.L.GATE_NOTICE)
+			end)
+			InCombatLockdown, ReloadUI = savedCombat, savedReload
+			ns.ResetAfterCombat()
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.5 the gamepad gate: what Core.lua registers before Gamepad.lua loads is taken over; without Gamepad.lua (an update without a restart) Core.lua's stand-in keeps the rule as before and says to restart", function()
+		WithStyle(function(style)
+			local ran = 0
+			local w = NewGate(function(_, gns)
+				gns.Gate = { missing = true, order = { "slash\0core" }, sets = { ["slash\0core"] = { id = "slash", t = { install = function() ran = ran + 1 end } } } }
+			end, style)
+			eq(w.G.missing, nil); eq(w.G.Install("slash"), true); eq(ran, 1, "Core.lua's own, taken over")
+		end)
+		-- The addon's own: Core.lua's /oly and Channels.lua's /ol registered with it (taken over).
+		eq(ns.Gate.missing, nil, "the harness loads Gamepad.lua")
+		local fresh = {}
+		local savedEvents, savedPrint, savedSlash, savedNames = #EVENT_SCRIPTS, print, SlashCmdList.OLYMPUS, { SLASH_OLYMPUS1, SLASH_OLYMPUS2 }
+		local printed = {}
+		local ok, err = pcall(function()
+			for _, file in ipairs({ "Bootstrap", "Locales", "Core" }) do assert(loadfile(ADDON_DIR .. file .. ".lua"))("Olympus", fresh) end
+			local G = fresh.Gate
+			eq(G.missing, true, "Core.lua's stand-in")
+			WithGamepadUI(false, function() eq(G.Allowed("anything"), true) end)
+			WithGamepadUI(true, function() eq(G.Allowed("anything"), false, "the rule as before the list") end)
+			local n = 0
+			G.Hooks("borders", { install = function() n = n + 1 end })
+			WithGamepadUI(true, function() eq(G.Install("borders"), false) end)
+			eq(n, 0)
+			WithGamepadUI(false, function() eq(G.Install("borders"), true) end)
+			eq(n, 1)
+			-- Its login says to restart the game (Gamepad.lua among the files not loaded), and registers
+			-- the commands with mouse and keyboard, as the gate would.
+			print = function(m) printed[#printed + 1] = tostring(m) end
+			EVENT_SCRIPTS[savedEvents + 1](nil, "PLAYER_LOGIN")
+			print = savedPrint
+			local said = table.concat(printed, "\n")
+			assert(said:find(ns.L.RESTART_NEEDED, 1, true), said)
+			assert(SlashCmdList.OLYMPUS ~= savedSlash and type(SlashCmdList.OLYMPUS) == "function", "its /oly")
+		end)
+		print = savedPrint
+		SlashCmdList.OLYMPUS, SLASH_OLYMPUS1, SLASH_OLYMPUS2 = savedSlash, savedNames[1], savedNames[2]
+		for i = #EVENT_SCRIPTS, savedEvents + 1, -1 do EVENT_SCRIPTS[i] = nil end
+		if not ok then error(err, 0) end
+	end)
+
+	-- The decision for typed commands (the chat box taints the call itself, ChatFrameEditBox.lua:
+	-- ParseText calls hash_SlashCmdList[command] directly, then ClearChat hides the box, its focus
+	-- lost runs ClearGamepadFocus): none registered with the gamepad UI. Core.lua and the gate as the
+	-- game loads them, in a namespace of their own, its login and switches through its own events.
+	test("1.1.5 the gamepad gate, typed commands: a login with the gamepad UI registers no /olympus, /oly, /ol, /olc or /oll; mouse and keyboard does, once a session however many switches; after a switch to the gamepad UI they do nothing, and the player is told a /reload completes it", function()
+		local NAMES = { "OLYMPUS", "OLYMPUSALL", "OLYMPUSCAPTAINS", "OLYMPUSLORDS" }
+		local GLOBALS = { "SLASH_OLYMPUS1", "SLASH_OLYMPUS2", "SLASH_OLYMPUSALL1", "SLASH_OLYMPUSCAPTAINS1", "SLASH_OLYMPUSLORDS1" }
+		local saved = { list = {}, globals = {}, events = #EVENT_SCRIPTS, after = C_Timer.After, print = print, debug = ns.db.debug,
+			dialogs = { StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN },
+			chatInfo = C_ChatInfo }
+		for _, k in ipairs(NAMES) do saved.list[k] = SlashCmdList[k] end
+		for _, k in ipairs(GLOBALS) do saved.globals[k] = _G[k] end
+		local timers, printed = {}, {}
+		local function Clear()
+			for _, k in ipairs(NAMES) do SlashCmdList[k] = nil end
+			for _, k in ipairs(GLOBALS) do _G[k] = nil end
+		end
+		local function Frame()
+			local t = timers
+			timers = {}
+			for _, f in ipairs(t) do f() end
+		end
+		local ok, err = pcall(WithStyle, function(style)
+			C_Timer.After = function(_, f) timers[#timers + 1] = f end
+			print = function(m) printed[#printed + 1] = tostring(m) end
+			-- Core.lua (its own events: the game's), the list and the gate.
+			local function Load()
+				Clear()
+				local sns = setmetatable({}, { __index = ns })
+				local before = #EVENT_SCRIPTS
+				for _, file in ipairs({ "Core", "GamepadRegistry", "Gamepad" }) do assert(loadfile(ADDON_DIR .. file .. ".lua"))("Olympus", sns) end
+				local dispatch = EVENT_SCRIPTS[before + 1]
+				return sns, function(event, ...) dispatch(nil, event, ...) end
+			end
+			local function Switch(event, pad)
+				style.now = pad and 1 or 0
+				event("INPUT_DEVICE_INTERFACE_TRANSITION", style.now, 1 - style.now)
+				Frame()
+			end
+			-- Logged in with the gamepad UI: nothing registered.
+			style.now = 1
+			local sns, event = Load()
+			sns.Fire("LOGIN")
+			eq(SlashCmdList.OLYMPUS, nil, "no /oly with the gamepad UI"); eq(SLASH_OLYMPUS1, nil); eq(SLASH_OLYMPUS2, nil)
+			eq(#sns.Gate.leftovers, 0)
+			-- Switched to mouse and keyboard: registered, and they work.
+			Switch(event, false)
+			local oly = SlashCmdList.OLYMPUS
+			eq(type(oly), "function", "registered at the switch"); eq(SLASH_OLYMPUS1, "/olympus"); eq(SLASH_OLYMPUS2, "/oly")
+			ns.db.debug = false
+			oly("debug")
+			eq(ns.db.debug, true, "/oly debug works")
+			-- To the gamepad UI: they stay in the game's list (it can't take them out), do nothing, and
+			-- the player is told once, a /reload completes the switch (no Olympus dialog window here: a
+			-- client updated without a restart, Dialog.lua's stand-in: the chat line).
+			printed = {}
+			Switch(event, true)
+			eq(table.concat(sns.Gate.leftovers, ","), "slash")
+			local said = table.concat(printed, "\n")
+			assert(said:find(ns.L.GATE_NOTICE, 1, true), said)
+			printed = {}
+			oly("debug"); oly("")
+			eq(ns.db.debug, true, "nothing done with the gamepad UI"); eq(#printed, 0, "nothing said")
+			-- Back and forth: the same commands, registered once; told once a session.
+			Switch(event, false)
+			eq(SlashCmdList.OLYMPUS, oly, "the same function: registered once")
+			oly("debug")
+			eq(ns.db.debug, false, "works again")
+			Switch(event, true); Switch(event, false); Switch(event, true)
+			eq(SlashCmdList.OLYMPUS, oly)
+			local told = 0
+			for _, line in ipairs(printed) do if line:find(ns.L.GATE_NOTICE, 1, true) then told = told + 1 end end
+			eq(told, 0, "told once a session (already told above)")
+			-- Logged in with mouse and keyboard: registered at login.
+			style.now = 0
+			sns = Load()
+			eq(SlashCmdList.OLYMPUS, nil, "not before the login")
+			sns.Fire("LOGIN")
+			eq(type(SlashCmdList.OLYMPUS), "function"); eq(SLASH_OLYMPUS2, "/oly")
+			-- Channels.lua's /ol, /olc and /oll: the same rule (Comm.lua and Channels.lua with a gate of
+			-- their own, as the chat line tests load them).
+			Clear()
+			local cns = setmetatable({}, { __index = ns })
+			cns.RegisterEvent, cns.On, cns.After, cns.Every = function() end, function() end, function() end, function() end
+			C_ChatInfo = { RegisterAddonMessagePrefix = function() end }
+			for _, file in ipairs({ "GamepadRegistry", "Gamepad", "Comm", "Channels" }) do assert(loadfile(ADDON_DIR .. file .. ".lua"))("Olympus", cns) end
+			local sent = {}
+			cns.Channels.Send = function(tier, msg) sent[#sent + 1] = tier .. " " .. tostring(msg) end
+			style.now = 1
+			eq(cns.Gate.Install("slash"), false)
+			eq(SlashCmdList.OLYMPUSALL, nil, "no /ol with the gamepad UI"); eq(SLASH_OLYMPUSALL1, nil); eq(SlashCmdList.OLYMPUSLORDS, nil)
+			style.now = 0
+			eq(cns.Gate.Install("slash"), true)
+			eq(SLASH_OLYMPUSALL1, "/ol"); eq(SLASH_OLYMPUSCAPTAINS1, "/olc"); eq(SLASH_OLYMPUSLORDS1, "/oll")
+			local all = SlashCmdList.OLYMPUSALL
+			all("hi")
+			eq(table.concat(sent, ","), "A hi")
+			style.now = 1
+			all("hi again")
+			eq(#sent, 1, "nothing sent from a command typed with the gamepad UI")
+			style.now = 0
+			cns.Gate.Install("slash")
+			eq(SlashCmdList.OLYMPUSALL, all, "registered once")
+		end)
+		C_Timer.After, print, ns.db.debug, C_ChatInfo = saved.after, saved.print, saved.debug, saved.chatInfo
+		StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN = saved.dialogs[1], saved.dialogs[2], saved.dialogs[3]
+		for _, k in ipairs(NAMES) do SlashCmdList[k] = saved.list[k] end
+		for _, k in ipairs(GLOBALS) do _G[k] = saved.globals[k] end
+		for i = #EVENT_SCRIPTS, saved.events + 1, -1 do EVENT_SCRIPTS[i] = nil end
+		if not ok then error(err, 0) end
+	end)
+
+	-- README: gamepad players are never told to type a command.
+	test("1.1.5 the gamepad gate, typed commands: the README tells gamepad players the minimap button and the window's help, never a command to type", function()
+		local readme = assert(ReadFile(ROOT .. "README.md"))
+		for para in (readme .. "\n\n"):gmatch("(.-)\n%s*\n") do
+			local flat = para:gsub("%s+", " ")
+			if flat:find("gamepad mode", 1, true) or flat:find("controller interface", 1, true) then
+				for _, cmd in ipairs({ "`/oly talk`", "or `/ol`", "with `/ol`" }) do
+					assert(not flat:find(cmd, 1, true), "a command for gamepad players: " .. cmd .. " in: " .. flat:sub(1, 200))
+				end
+			end
+		end
+		local flat = readme:gsub("%s+", " ")
+		assert(flat:find("With the gamepad UI on, Olympus registers no typed command", 1, true), "the README says why")
+	end)
+end
 
 ---------------------------------------------------------------------------
 -- 1.0.0: decrees against colluding characters. A decree's sender needed only a census rank, and
