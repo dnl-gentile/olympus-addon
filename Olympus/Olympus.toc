@@ -67,6 +67,7 @@ Answers.lua
 Views.lua
 Members.lua
 Nominees.lua
+ViewAs.lua
 UI.lua
 Consent.lua
 Letters.lua

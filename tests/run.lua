@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Board", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "Crafters", "Chronicle", "Workshop", "Versions", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "AnswerBank", "Answers", "Views", "Consent", "Members", "Nominees", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Board", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "Crafters", "Chronicle", "Workshop", "Versions", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "AnswerBank", "Answers", "Views", "Consent", "Members", "Nominees", "ViewAs", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -23415,6 +23415,30 @@ do
 				eq(N.DevView(), false, "again: off")
 			end)
 			ns.Workshop.Visible, ns.db.devGMView = savedVisible, savedView
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	-- (1.1.5, the author's ask: the 1.2 dropdown now.) View as: one preview at a time, from Olympus's
+	-- own menu; the author's alone.
+	test("1.1.5 View as: the author's menu switches Asmon's, the Treasurer's and the guild master's views, one at a time; My view turns them off; nobody else has it", function()
+		WithNominees(function(w)
+			local V = ns.ViewAs
+			local saved = { vis = ns.Workshop.Visible, gm = ns.db.devGMView }
+			local ok, err = pcall(function()
+				w.as("Writer", 3)
+				ns.Workshop.Visible = function() return false end
+				eq(V.Available(), false, "not the author: no menu")
+				eq(V.Set("gm"), false)
+				ns.Workshop.Visible = function() return true end
+				eq(V.Set("gm"), true); eq(V.Role(), "gm"); eq((N.IsMaster()), true, "the guild master's view")
+				eq(V.Set("treasurer"), true); eq(V.Role(), "treasurer"); eq(N.DevView(), false, "one at a time")
+				eq(V.Set("my"), true); eq(V.Role(), "my"); eq(V.Previewing(), false)
+				eq(V.Set("nobody"), false, "an unknown role")
+			end)
+			ns.Workshop.Visible, ns.db.devGMView = saved.vis, saved.gm
+			if ns.Treasury.DevView() then ns.Treasury.SetDevView(false) end
+			if ns.King.Preview() then ns.King.SetDevView(false) end
 			if not ok then error(err, 0) end
 		end)
 	end)
