@@ -1003,8 +1003,11 @@ local function BugAskExpand(f, on)
 	end
 end
 
+-- (1.1.5) In the Olympus window's metal without its portrait (ns.Window, Dialog.lua). Its X hides it
+-- itself (as the Olympus window's, 1.1.1): the template's would call HideUIPanel, which does
+-- nothing in combat for a call that is not secure.
 local function BuildBugAsk()
-	local f = CreateFrame("Frame", "OlympusBugAsk", UIParent, "BasicFrameTemplateWithInset")
+	local f = ns.Window("OlympusBugAsk", UIParent, { title = L.BUGASK_TITLE })
 	f:SetSize(BUGASK_W, BUGASK_H)
 	f:SetPoint("CENTER", 0, 120)
 	f:SetFrameStrata("DIALOG")
@@ -1016,13 +1019,6 @@ local function BuildBugAsk()
 	f:SetScript("OnDragStart", f.StartMoving)
 	f:SetScript("OnDragStop", f.StopMovingOrSizing)
 	f:Hide()
-	-- Its X hides it itself (as the Olympus window's, 1.1.1): the template's would call HideUIPanel,
-	-- which does nothing in combat for a call that is not secure.
-	f.onCloseCallback = function()
-		f:Hide()
-		return false
-	end
-	if f.TitleText then f.TitleText:SetText(L.BUGASK_TITLE) end
 	f.message = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	f.message:SetPoint("TOPLEFT", 16, -34)
 	f.message:SetPoint("TOPRIGHT", -16, -34)
@@ -2541,13 +2537,14 @@ end
 
 -- Our own window on UIParent: movable, closed by its X (and by Escape with mouse and keyboard,
 -- ns.EscapeCloses), no Blizzard frame touched. Its filter box never takes the keyboard by
--- itself: the player clicks into it (the gamepad UI's rule, ns.Focus).
+-- itself: the player clicks into it (the gamepad UI's rule, ns.Focus). 1.1.5: in the Olympus
+-- window's metal without its portrait (ns.Window, Dialog.lua), its title in the title bar.
 local function MakePicker()
 	local cols, rows = Workshop.ICON_COLS, Workshop.ICON_ROWS
 	local gridW = cols * ICON_CELL + (cols - 1) * ICON_GAP
 	local gridTop = -150
 	local gridBottom = gridTop - (rows * ICON_CELL + (rows - 1) * ICON_GAP)
-	local f = CreateFrame("Frame", "OlympusCouncilIconFrame", UIParent)
+	local f = ns.Window("OlympusCouncilIconFrame", UIParent, { title = L.COUNCIL_ICON_TITLE })
 	f:SetSize(gridW + 56, -gridBottom + 96)
 	f:SetPoint("CENTER", 0, 40)
 	f:SetFrameStrata("DIALOG")
@@ -2559,18 +2556,7 @@ local function MakePicker()
 	f:SetScript("OnDragStart", f.StartMoving)
 	f:SetScript("OnDragStop", f.StopMovingOrSizing)
 	f:Hide()
-	local okBorder, border = pcall(CreateFrame, "Frame", nil, f, "DialogBorderTemplate")
-	if not okBorder or not border then
-		border = f:CreateTexture(nil, "BACKGROUND")
-		border:SetColorTexture(0, 0, 0, 0.85)
-	end
-	border:SetAllPoints()
-	f.title = f:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-	f.title:SetPoint("TOP", 0, -18)
-	f.title:SetText(L.COUNCIL_ICON_TITLE)
-	f.close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-	f.close:SetPoint("TOPRIGHT", -4, -4)
-	f.close:SetScript("OnClick", function() f:Hide() end)
+	f.close = f.CloseButton
 	-- The preview, and the hint.
 	f.preview = f:CreateTexture(nil, "ARTWORK")
 	f.preview:SetSize(40, 40)

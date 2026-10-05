@@ -1760,8 +1760,10 @@ local function PersonButtonScripts(f)
 	end)
 end
 
+-- (1.1.5) Both cards in the Olympus window's metal without its portrait (ns.Window, Dialog.lua),
+-- "<guild name>" in the title bar; their X hides them, in combat too.
 local function CreatePersonFrame()
-	local f = CreateFrame("Frame", "OlympusPersonFrame", UIParent, "BasicFrameTemplateWithInset")
+	local f = ns.Window("OlympusPersonFrame", UIParent, {})
 	f:SetSize(230, 210)
 	f:SetFrameStrata("MEDIUM")
 	f:SetToplevel(true)
@@ -1770,14 +1772,14 @@ local function CreatePersonFrame()
 	f:SetClampedToScreen(true)
 	f:EnableMouse(true)
 	f:Hide()
-	ns.EscapeCloses("OlympusPersonFrame")
 	f.name = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 	f.name:SetPoint("TOPLEFT", 14, -32)
 	f.name:SetPoint("TOPRIGHT", -14, -32)
 	f.name:SetJustifyH("LEFT")
 	f.name:SetWordWrap(false) -- a long Name-Realm is fitted (UI.ShowPerson), not wrapped over the lines below
-	if f.TitleText then
-		-- "<guild name>", centred: kept clear of the close button on both sides.
+	if not f.metal and f.TitleText then
+		-- "<guild name>", centred: kept clear of the close button on both sides (the metal's title
+		-- bar keeps it clear itself).
 		f.TitleText:SetWidth(f:GetWidth() - 64)
 		f.TitleText:SetWordWrap(false)
 	end
@@ -1814,58 +1816,40 @@ local function ClearHDSelection()
 end
 
 -- The HD window's panel: the Guild & Communities window's member card
--- (CommunitiesGuildMemberDetailFrameTemplate, GuildRoster.xml): a dark dialog box hanging
--- off the window's right side under its first tab (the left side where the screen ends,
--- see UI.ShowPerson), the name on top, small buttons at the
--- bottom, above everything of the window (Blizzard's is at level 1000). A child of the HD
--- window, as Blizzard's is of theirs. Its box is a child too, like Blizzard's Border: the
--- dialog border template takes its parent's level, so the panel keeps its own. nil when
--- the client lacks that template (the old panel is used then).
+-- (CommunitiesGuildMemberDetailFrameTemplate, GuildRoster.xml) hanging off the window's right
+-- side under its first tab (the left side where the screen ends, see UI.ShowPerson), the name
+-- on top, small buttons at the bottom, above everything of the window (Blizzard's is at level
+-- 1000). A child of the HD window, as Blizzard's is of theirs. 1.1.5: in the Olympus window's
+-- metal (ns.Window; its border, title bar and X raised with it, ns.SetWindowLevel), "<guild>" in
+-- its title bar as on the old panel. nil when the client lacks the metal (the old panel is used
+-- then).
 local function CreatePersonFrameHD()
 	local parent = frames.hd
 	if not parent then return nil end
-	local f = CreateFrame("Frame", "OlympusPersonFrameHD", parent)
-	local okBorder, border = pcall(CreateFrame, "Frame", nil, f, "DialogBorderDarkTemplate")
-	if not (okBorder and border and border.Bg) then
-		if okBorder and border then border:Hide() end
+	local f = ns.Window("OlympusPersonFrameHD", parent, {})
+	if not f.metal then
 		f:Hide()
-		ns.Log("DialogBorderDarkTemplate unavailable, using the old person panel")
+		ns.Log("the metal frame unavailable, using the old person panel")
 		return nil
 	end
-	border:SetAllPoints()
-	f.Border = border
 	f.hd = true
 	f:SetSize(214, 226)
 	f:SetToplevel(true)
 	f:EnableMouse(true)
 	f:SetClampedToScreen(true)
-	f:SetFrameLevel(parent:GetFrameLevel() + 1000)
+	ns.SetWindowLevel(f, parent:GetFrameLevel() + 1000)
 	f:Hide()
-	ns.EscapeCloses("OlympusPersonFrameHD")
-	local okClose, close = pcall(CreateFrame, "Button", nil, f, "UIPanelCloseButton")
-	if okClose and close then
-		close:ClearAllPoints()
-		close:SetPoint("TOPRIGHT", -3, -4)
-		close:SetFrameLevel(f:GetFrameLevel() + 2)
-		close:SetScript("OnClick", function() f:Hide() end)
-		f.CloseButton = close
-	end
-	-- Name, then "<guild>" under it where the old panel has it in its title bar.
+	-- The name under the title bar.
 	f.name = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	f.name:SetPoint("TOPLEFT", 13, -18)
-	f.name:SetPoint("TOPRIGHT", -30, -18)
+	f.name:SetPoint("TOPLEFT", 13, -30)
+	f.name:SetPoint("TOPRIGHT", -13, -30)
 	f.name:SetJustifyH("LEFT")
 	f.name:SetWordWrap(false)
-	f.nameRoom, f.nameFonts = 214 - 13 - 30, { "GameFontNormal", "GameFontNormalSmall" }
-	f.guild = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	f.guild:SetPoint("TOPLEFT", f.name, "BOTTOMLEFT", 0, -2)
-	f.guild:SetPoint("RIGHT", -13, 0)
-	f.guild:SetJustifyH("LEFT")
-	f.guild:SetWordWrap(false)
+	f.nameRoom, f.nameFonts = 214 - 26, { "GameFontNormal", "GameFontNormalSmall" }
 	f.lines = {}
 	for i = 1, 6 do
 		local fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		fs:SetPoint("TOPLEFT", 13, -52 - (i - 1) * 15)
+		fs:SetPoint("TOPLEFT", 13, -50 - (i - 1) * 15)
 		fs:SetPoint("RIGHT", -13, 0)
 		fs:SetJustifyH("LEFT")
 		fs:SetWordWrap(false)
@@ -1926,11 +1910,7 @@ function UI.ShowPerson(p)
 	local councillor = ns.CouncilVisible() and not ns.CouncilMasked() and ns.IsHighCouncillor(full)
 	f.name:SetText((color and ("|c%s%s|r"):format(color.colorStr, name) or name) .. (councillor and (" " .. ns.CouncilMark(full)) or ""))
 	FitText(f.name, f.nameRoom or (f:GetWidth() - 28), f.nameFonts or { "GameFontNormalLarge", "GameFontNormal" })
-	if f.guild then
-		f.guild:SetText(guild and ("<" .. guild .. ">") or "")
-	elseif f.TitleText then
-		f.TitleText:SetText(guild and ("<" .. guild .. ">") or L.TITLE)
-	end
+	ns.SetWindowTitle(f, guild and ("<" .. guild .. ">") or L.TITLE)
 	local className = (file and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[file]) or ""
 	local rows = {}
 	if p.level or className ~= "" then rows[#rows + 1] = (p.level and (L.LEVEL_N:format(p.level) .. " ") or "") .. className end
@@ -2157,7 +2137,10 @@ local function CopyFrame(key, big)
 	if copyFrames[key] then return copyFrames[key] end
 	local name = key == "copy" and "OlympusCopyFrame" or ("OlympusCopyFrame" .. key:sub(1, 1):upper() .. key:sub(2))
 	local w, h = big and 680 or 520, big and 460 or 340
-	local f = CreateFrame("Frame", name, UIParent, "BasicFrameTemplateWithInset")
+	-- (1.1.5, the author's ask: the help's window was the plain silver frame) The Olympus window's
+	-- metal without its portrait, as every other window of ours (ns.Window, Dialog.lua). Its X hides it
+	-- itself, in combat too (1.1.2: the author's report may open in the middle of a fight).
+	local f = ns.Window(name, UIParent, {})
 	f:SetSize(w, h)
 	local place = COPY_PLACES[key] or { 30, -30 }
 	if key == "copy" then f:SetPoint("CENTER") else f:SetPoint("CENTER", place[1], place[2]) end
@@ -2170,13 +2153,6 @@ local function CopyFrame(key, big)
 		self:StopMovingOrSizing()
 		self.movedByPlayer = true -- where the player puts it, it stays
 	end)
-	ns.EscapeCloses(name)
-	-- (1.1.2) Its X hides it itself, in combat too (the template's HideUIPanel does nothing there
-	-- for a call that is not secure: the author's report may open in the middle of a fight).
-	f.onCloseCallback = function()
-		f:Hide()
-		return false
-	end
 	local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	hint:SetPoint("BOTTOM", 0, 10)
 	hint:SetText(L.COPY_HINT)
@@ -2281,7 +2257,7 @@ function UI.ShowCopy(title, text, action, opts)
 			if copyFrame.hint.SetWordWrap then copyFrame.hint:SetWordWrap(true) end
 		end
 	end
-	if copyFrame.TitleText then copyFrame.TitleText:SetText(title) end
+	ns.SetWindowTitle(copyFrame, title)
 	copyFrame.text = text
 	copyFrame.eb:SetText(text)
 	copyFrame:Show()

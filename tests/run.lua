@@ -1646,6 +1646,35 @@ local TEMPLATES = {
 		w.CloseButton.scripts.OnClick = TemplateCloseClick
 		w.TitleText = w:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	end,
+	-- 1.1.5: Forever's DefaultPanelTemplate (Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml),
+	-- every Olympus window's but the Olympus window's own (ns.Window, Dialog.lua): the same bronze
+	-- metal as PortraitFrameTemplate's, a NineSlice at level 500 whose layout (the parent's
+	-- layoutType, NineSlicePanelMixin:OnLoad) is ButtonFrameTemplateNoPortrait, the plain corner;
+	-- the rock ground; the title in its TitleContainer at 510 (DefaultPanelMixin:SetTitle sets
+	-- TitleContainer.TitleText). No portrait, no X: a window adds its own (the Help window's).
+	DefaultPanelTemplate = function(w)
+		w.layoutType = "ButtonFrameTemplateNoPortrait"
+		w.NineSlice = NewWidget("Frame", nil, w)
+		w.NineSlice.level, w.NineSlice.layoutType = 500, w.layoutType
+		w.TitleContainer = NewWidget("Frame", nil, w)
+		w.TitleContainer.level = 510
+		w.TitleContainer.TitleText = w.TitleContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		w.Bg = w:CreateTexture(nil, "BACKGROUND")
+		w.Bg.texture = "Interface\\FrameGeneral\\UI-Background-Rock"
+		w.SetTitle = function(self, text) self.TitleContainer.TitleText:SetText(text) end
+		w.w, w.h = 338, 424
+	end,
+	-- The red X (UIPanelCloseButtonNoScripts at level 510, OnClick UIPanelCloseButton_OnClick), and
+	-- the one with its default anchors (Forever's Camelot mixin: TOPRIGHT -2, 1).
+	UIPanelCloseButton = function(w)
+		w.scripts.OnClick = TemplateCloseClick
+		w.w, w.h, w.level = 24, 24, 510
+	end,
+	UIPanelCloseButtonDefaultAnchors = function(w)
+		w.scripts.OnClick = TemplateCloseClick
+		w.w, w.h, w.level = 24, 24, 510
+		w:SetPoint("TOPRIGHT", w.parent, "TOPRIGHT", -2, 1)
+	end,
 	-- The same atlas template on every client (see UI.TabStyle); the Lua sizing it differs.
 	PanelTabButtonTemplate = function(w)
 		w.h = 32
@@ -1689,6 +1718,64 @@ local function FakeCreateFrame(kind, name, parent, template)
 	if TEMPLATES[template] then TEMPLATES[template](w) end
 	createdWidgets[#createdWidgets + 1] = w
 	return w
+end
+
+-- 1.1.5 (the author's asks: every window in the Olympus window's frame colour, and no other window
+-- with the round portrait and the logo in its top left corner): a window of ours made by ns.Window
+-- (Dialog.lua). The metal template with its plain corner; no portrait, no portrait template and no
+-- logo anywhere in it; `title` in its title bar (the metal's TitleContainer). (One table: the
+-- main chunk is near Lua's 200 locals.)
+local Win = {}
+function Win.Inside(w, f)
+	while w do
+		if w == f then return true end
+		w = w.parent
+	end
+	return false
+end
+function Win.Metal(f, title, why)
+	why = why or tostring(f and f:GetName())
+	assert(f, why .. ": the window")
+	eq(f.template, "DefaultPanelTemplate", why .. ": the Olympus window's metal, not the plain silver frame")
+	eq(f.metal, true, why)
+	eq(f.NineSlice and f.NineSlice.layoutType, "ButtonFrameTemplateNoPortrait", why .. ": the metal's plain corner, no ring")
+	eq(f.PortraitContainer, nil, why .. ": no portrait"); eq(f.portrait, nil, why .. ": no portrait")
+	for _, w in ipairs(createdWidgets) do
+		if Win.Inside(w, f) then
+			local t = tostring(w.template or "")
+			assert(not t:find("Portrait", 1, true) and not t:find("BasicFrame", 1, true) and not t:find("DialogBorder", 1, true),
+				why .. ": no other frame in it: " .. t)
+			for _, tex in ipairs(w.textures or {}) do assert(tex.texture ~= ns.LOGO, why .. ": no logo in it") end
+		end
+	end
+	if title ~= nil then eq(f.TitleContainer.TitleText:GetText(), title, why .. ": its title in the title bar") end
+end
+-- Its X (UIPanelCloseButtonDefaultAnchors, over the metal border) hides it, in combat too: the
+-- template's HideUIPanel does nothing there for an addon's call (onCloseCallback goes first).
+function Win.XInCombat(f, why)
+	why = why or tostring(f:GetName())
+	local x = f.CloseButton
+	assert(x, why .. ": its X")
+	eq(x.template, "UIPanelCloseButtonDefaultAnchors", why .. ": the Help window's X")
+	eq(x:GetParent(), f, why)
+	assert(x:GetFrameLevel() > f.NineSlice:GetFrameLevel(), why .. ": its X over the border")
+	if not f:IsShown() then f:Show() end
+	local saved = rawget(_G, "InCombatLockdown")
+	InCombatLockdown = function() return true end
+	local ok, err = pcall(x.Click, x)
+	InCombatLockdown = saved
+	assert(ok, err)
+	eq(f:IsShown(), false, why .. ": its X hides it, in combat too")
+end
+-- Each of `parts` (name -> region) starts under the title bar (ns.Dialog.BAR from the window's top).
+function Win.UnderBar(f, parts, why)
+	why = why or tostring(f:GetName())
+	local top = f:GetTop()
+	assert(top, why .. ": placed")
+	for name, part in pairs(parts) do
+		local t = part:GetTop()
+		assert(t and top - t >= ns.Dialog.BAR - 1e-6, why .. ": " .. name .. " under the title bar: " .. tostring(t and (top - t)))
+	end
 end
 
 -- Blizzard's tab code, as far as it matters here (Blizzard_SharedXML, see UI.TabStyle):
@@ -2255,9 +2342,16 @@ test("HD person panel: the roster's member card, hanging off the HD window", fun
 		-- run past the edge onto our list: it hangs off the window's left side instead.
 		eq(Anchor(person), "TOPRIGHT OlympusFrameHD TOPLEFT 4 -76")
 		eq(person.w .. "x" .. person.h, "214x226")
-		eq(person.Border.template, "DialogBorderDarkTemplate")
+		-- (1.1.5: it was the game's dark dialog box; now the Olympus window's metal without its
+		-- portrait, "<guild>" in its title bar as on the old panel, its border, title and X raised
+		-- with it, the name and lines under the title bar.)
+		Win.Metal(person, "<Olympus>", "the HD card")
+		eq(person.Inset and person.Inset.template, "InsetFrameTemplate", "its dark inside, the inset box")
 		assert(person.level >= main:GetFrameLevel() + 1000, "over the window and its tabs")
-		eq(person.name.font, "GameFontNormal"); eq(person.guild:GetText(), "<Olympus>")
+		eq(person.NineSlice.level, person.level + 500, "its border above it"); eq(person.TitleContainer.level, person.level + 510)
+		eq(person.CloseButton.level, person.level + 510, "its X over the border")
+		Win.UnderBar(person, { name = person.name, line = person.lines[1] }, "the HD card")
+		eq(person.name.font, "GameFontNormal")
 		eq(person.whisper.w .. "x" .. person.whisper.h, "96x22"); eq(person.whisper.small, true)
 		-- (its `name` is the name line, as on the old panel: anchors are read by hand)
 		local p = person.whisper.points[1]
@@ -2275,9 +2369,9 @@ test("HD person panel: the roster's member card, hanging off the HD window", fun
 		eq(person.mark:IsShown(), false, "no Mark outside the Heraldry tab")
 		person:Hide()
 		eq(row.locked, false, "closing the card lets the line go")
-		-- Its close button and Escape close it too.
+		-- Its close button and Escape close it too (1.1.5: the metal's X, in a fight too).
 		row:Click()
-		person.CloseButton:Click()
+		Win.XInCombat(person, "the HD card")
 		eq(person:IsShown(), false, "closed by its button"); eq(row.locked, false)
 		local escape
 		for _, name in ipairs(UISpecialFrames) do if name == "OlympusPersonFrameHD" then escape = true end end
@@ -2421,7 +2515,8 @@ test("HD window: side tabs preserve canonical order from the right column into t
 end)
 
 test("HD window on a client without Blizzard's new parts: built from what is there", function()
-	local missing, saved = { "RightSideTabTemplate", "ColumnDisplayButtonNoScriptsTemplate", "ScrollFrameTemplate", "DialogBorderDarkTemplate" }, {}
+	-- (1.1.5: the HD card is the metal frame, DefaultPanelTemplate, where it was DialogBorderDarkTemplate.)
+	local missing, saved = { "RightSideTabTemplate", "ColumnDisplayButtonNoScriptsTemplate", "ScrollFrameTemplate", "DefaultPanelTemplate" }, {}
 	for _, name in ipairs(missing) do saved[name], TEMPLATES[name] = TEMPLATES[name], nil end
 	local ok, err = pcall(WithUI, function()
 		local w, UI = ForeverWorld(true)
@@ -2453,14 +2548,18 @@ test("HD window on a client without Blizzard's new parts: built from what is the
 		end
 		assert(row, "the Lord's line")
 		row:Click()
-		eq(OlympusPersonFrame:IsShown(), true); eq(OlympusPersonFrameHD:IsShown(), false)
-		eq(Anchor(OlympusPersonFrame), "TOPLEFT OlympusFrameHD TOPRIGHT -2 -28")
+		-- (1.1.5: the old panel is the plain silver frame there too, under its own name: the metal one
+		-- the client could not make keeps the panel's, ns.Window.)
+		local old = OlympusPersonFrameBasic
+		eq(old.template, "BasicFrameTemplateWithInset"); eq(old.TitleText:GetText(), "<Olympus>")
+		eq(old:IsShown(), true); eq(OlympusPersonFrame:IsShown(), false); eq(OlympusPersonFrameHD:IsShown(), false)
+		eq(Anchor(old), "TOPLEFT OlympusFrameHD TOPRIGHT -2 -28")
 		eq(row.locked, true)
-		OlympusPersonFrame:Hide()
+		old:Hide()
 		eq(row.locked, false, "let go"); UI.Refresh(); eq(row.locked, false, "and stays so")
 		row:Click()
 		main:Hide()
-		eq(OlympusPersonFrame:IsShown(), false, "closed with the window"); eq(row.locked, false)
+		eq(old:IsShown(), false, "closed with the window"); eq(row.locked, false)
 		ns.Views.ExpandAll(false)
 	end)
 	for _, name in ipairs(missing) do TEMPLATES[name] = saved[name] end
@@ -6356,6 +6455,12 @@ test("Vox Populi: pick one or several, a chart of the results, the winner worked
 			local f = V.Frame()
 			assert(f and f:IsShown(), "the window")
 			eq(f.title:GetText(), ns.L.VOX_ASKS:format("Asmon"))
+			-- (1.1.5: the Olympus window's metal without its portrait, where it was the game's dialog
+			-- box: who asks in its title bar, the question under it.)
+			Win.Metal(f, ns.L.VOX_ASKS:format("Asmon"), "the vote window")
+			eq(f.title, f.TitleContainer.TitleText, "who asks: the title bar's text")
+			Win.UnderBar(f, { question = f.question, kind = f.kind, answer = f.rows[1] }, "the vote window")
+			eq(f.close, f.CloseButton)
 			eq(f.kind:GetText(), ns.L.VOX_PICK_MANY)
 			eq(f.rows[3]:IsShown(), true); eq(f.rows[4]:IsShown(), false)
 			eq(f.vote:IsShown(), true)
@@ -6414,14 +6519,20 @@ test("Vox Populi: pick one or several, a chart of the results, the winner worked
 			V.Reset(); ns.db.voxOff = true
 			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~V~89~Olympus II~30~1~Tacos?~Yes~No")
 			eq(f:IsShown(), false); assert(Printed(w, "Tacos?"), "in chat")
+			-- (1.1.5) Its X, the metal's, in a fight too.
+			V.Reset(); ns.db.voxOff = nil
+			K.HandleCommand("CHANNEL", "Helper-Realm", "T1~V~90~Olympus II~30~1~Pie?~Yes~No")
+			eq(f:IsShown(), true)
+			Win.XInCombat(f, "the vote window")
 		end)
 	end)
 end)
 
--- 1.1.5 (the author's ask): the "new question" window was the plain silver frame while the
--- Olympus window is bronze metal with the logo. Vox.lua loaded fresh (its own composer), its
--- handlers kept away from the real ones; the portrait frame as the client's, with its portrait.
-local function FreshVox()
+-- 1.1.5 (the author's asks): the "new question" window was the plain silver frame while the Olympus
+-- window is bronze metal; then (8025e04) it took the Olympus window's portrait frame, logo and all,
+-- and the author did not want the round portrait with the logo on it nor on any window but the
+-- Olympus window. Vox.lua loaded fresh (its own composer), its handlers kept away from the real ones.
+function Win.FreshVox() -- (Win: the main chunk is at its 200 locals)
 	local vns = setmetatable({
 		Comm = setmetatable({ Handle = function() end }, { __index = ns.Comm }),
 		King = setmetatable({ Register = function() end, CanCommand = function() return true end }, { __index = ns.King }),
@@ -6429,55 +6540,50 @@ local function FreshVox()
 	assert(loadfile(ADDON_DIR .. "Vox.lua"))("Olympus", vns)
 	return vns.Vox, vns
 end
--- (Review of the frame: the portrait frame has no inset of its own, so the composer gets the
--- compartment the Olympus window's list and the letter have; before, every box sat on the rock.)
-test("1.1.5 Vox Populi: the new question window has the Olympus window's frame (its bronze metal, the logo, a header, the boxes in a compartment below the portrait), and its X closes it in combat too", function()
+-- (The assertions of 8025e04/f9d5168 asked for the portrait frame, its logo, a header by the
+-- portrait and the boxes pushed below it: the author's later word takes the portrait off, so they
+-- ask for the metal without it now, the boxes back where they were under the title bar.)
+test("1.1.5 Vox Populi: the new question window in the Olympus window's bronze metal without its portrait or logo, the boxes under the title bar in its inset box as before, and its X closes it in combat too", function()
 	WithUI(function()
-		local saved = { template = TEMPLATES.PortraitFrameTemplate, combat = rawget(_G, "InCombatLockdown") }
+		local V, vns = Win.FreshVox()
+		V.Prompt()
+		local c = V.Composer()
+		assert(c and c:IsShown(), "the composer")
+		Win.Metal(c, ns.L.VOX_ASK_TITLE, "the composer")
+		eq(c.titleText, ns.L.VOX_ASK_TITLE)
+		eq(c.head, nil, "no header: the boxes start under the title bar")
+		local _, _, _, _, y = c.q:GetPoint(1)
+		eq(y, -48, "the question's box where it always was")
+		Win.UnderBar(c, { question = c.q, answer = c.a[1] }, "the composer")
+		-- Its inside: the game's inset box under the title bar, as the plain frame had its own.
+		local box = c.Inset
+		eq(box and box.template, "InsetFrameTemplate"); eq(box:GetParent(), c)
+		eq(table.concat({ box:Anchor("TOPLEFT")[4], box:Anchor("TOPLEFT")[5], box:Anchor("BOTTOMRIGHT")[4], box:Anchor("BOTTOMRIGHT")[5] }, " "),
+			table.concat(ns.Dialog.INNER.metal, " "), "over the inside, inside the metal")
+		-- Still the composer, filled as before (its Ask: "Vox Populi: pick one or several", above).
+		eq(c.a[1]:GetText(), ns.L.VOX_YES); eq(c.a[2]:GetText(), ns.L.VOX_NO); eq(c.ask:GetText(), ns.L.VOX_ASK_SEND)
+		eq(c.w .. "x" .. c.h, "420x330", "its size as before")
+		Win.XInCombat(c, "the composer")
+		-- A client without the metal frame: the plain one, as before 1.1.5.
+		local saved = TEMPLATES.DefaultPanelTemplate
+		TEMPLATES.DefaultPanelTemplate = nil
 		local ok, err = pcall(function()
-			TEMPLATES.PortraitFrameTemplate = function(f)
-				saved.template(f)
-				f.portrait = NewWidget("Texture", nil, f)
-			end
-			local V, vns = FreshVox()
-			V.Prompt()
-			local c = V.Composer()
-			assert(c and c:IsShown(), "the composer")
-			eq(c.template, "PortraitFrameTemplate", "the Olympus window's frame, not the plain one")
-			eq(c.portrait.texture, ns.LOGO, "its logo")
-			eq(c.titleText, ns.L.VOX_ASK_TITLE)
-			eq(c.head and c.head:GetText(), ns.L.VOX_TITLE, "a header by the portrait, as the window's and the letter's")
-			local _, _, _, _, y = c.q:GetPoint(1)
-			assert(y <= -64, "the question's box below the portrait: " .. tostring(y))
-			-- The compartment: the game's inset box, from below the portrait to above the buttons.
-			local box = c.box
-			eq(box and box.template, "InsetFrameTemplate", "a compartment as the Olympus window's own")
-			eq(box:GetParent(), c)
-			local top, bottom = box:Anchor("TOPLEFT"), box:Anchor("BOTTOMRIGHT")
-			eq(top[5], -56, "it starts below the portrait, as the Olympus window's list box")
-			assert(y < top[5], "the question's box in it")
-			local last = c.times[#c.times]
-			local _, _, _, _, ty = last:GetPoint(1)
-			local boxBottom = -(c:GetHeight() - bottom[5]) -- (from the frame's top)
-			assert(ty - last:GetHeight() >= boxBottom, "the last row of buttons in it: " .. tostring(ty - last:GetHeight()) .. " / " .. tostring(boxBottom))
-			local ask = c.ask:Anchor("BOTTOMRIGHT")
-			assert(ask[5] + c.ask:GetHeight() <= bottom[5], "Ask and Cancel below it, as the letter's Close")
-			InCombatLockdown = function() return true end
-			c.CloseButton:Click()
-			assert(not c:IsShown(), "its X hides it, in combat too")
-			-- A client without the portrait frame: the plain one, as before.
-			TEMPLATES.PortraitFrameTemplate = function() end
 			local bns = setmetatable({ Comm = vns.Comm, King = vns.King }, { __index = ns })
 			assert(loadfile(ADDON_DIR .. "Vox.lua"))("Olympus", bns)
 			bns.Vox.Prompt()
 			local b = bns.Vox.Composer()
-			eq(b.template, "BasicFrameTemplateWithInset", "the plain frame where the portrait one is missing")
-			eq(b.titleText, ns.L.VOX_ASK_TITLE)
+			eq(b.template, "BasicFrameTemplateWithInset", "the plain frame where the metal one is missing")
+			eq(b.TitleText:GetText(), ns.L.VOX_ASK_TITLE)
 			local _, _, _, _, by = b.q:GetPoint(1)
-			eq(by, -48, "no portrait: the boxes where they were")
-			eq(b.box, nil, "no second compartment: the plain frame has its own inset"); eq(b.head, nil)
+			eq(by, -48, "the boxes where they were")
+			eq(b.Inset, nil, "no second inset: the plain frame has its own")
+			local savedCombat = rawget(_G, "InCombatLockdown")
+			InCombatLockdown = function() return true end
+			b.CloseButton:Click()
+			InCombatLockdown = savedCombat
+			eq(b:IsShown(), false, "its X there too, in combat")
 		end)
-		TEMPLATES.PortraitFrameTemplate, InCombatLockdown = saved.template, saved.combat
+		TEMPLATES.DefaultPanelTemplate = saved
 		if not ok then error(err, 0) end
 	end)
 end)
@@ -7069,7 +7175,7 @@ end)
 -- they show.)
 test("1.1.5 Vox Populi: the new question window leaves the escape list after a switch to the gamepad UI, checked each time it shows (the Olympus window's way); its X closes it there", function()
 	WithUI(function()
-		local V = FreshVox()
+		local V = Win.FreshVox()
 		local function Listed()
 			for _, n in ipairs(UISpecialFrames) do if n == "OlympusVoxAskFrame" then return true end end
 			return false
@@ -7424,6 +7530,16 @@ test("Royal Writs: the King writes to his Lords, each can acknowledge, nobody el
 			eq(#ns.rdb.writs, 1)
 			local f = OlympusWritFrame
 			assert(f:IsShown(), "the writ")
+			-- (1.1.5: the Olympus window's metal without its portrait, where it was the game's dialog
+			-- box; "Olympus" in its title bar, the parchment over its inside, the writ on it.)
+			Win.Metal(f, ns.L.TITLE, "the writ")
+			eq(f.Inset, nil, "no inset box: the parchment is its ground")
+			eq(f.paper.texture, ns.UI.FirstTexture(ns.UI.PARCHMENTS)); eq(f.paper:GetParent(), f)
+			eq(table.concat({ f.paper:Anchor("TOPLEFT")[4], f.paper:Anchor("TOPLEFT")[5], f.paper:Anchor("BOTTOMRIGHT")[4], f.paper:Anchor("BOTTOMRIGHT")[5] }, " "),
+				table.concat(ns.Dialog.INNER.metal, " "), "over the inside, under the title bar")
+			eq(f.title:GetText(), ns.L.WRIT_TITLE, "the writ's own heading on the parchment")
+			Win.UnderBar(f, { title = f.title, body = f.body }, "the writ")
+			eq(f.close, f.CloseButton)
 			eq(f.body:GetText(), "Muster at dawn cffff0000 in Goldshire")
 			eq(f.sign:GetText(), ns.L.WRIT_SIGNED:format("Asmon"))
 			f.ack:Click()
@@ -10933,6 +11049,11 @@ test("0.9.8 the council icon picker: a councillor's alone, filled from the game'
 				eq(W.ShowIconPicker(), true)
 				local f = OlympusCouncilIconFrame
 				eq(f:IsShown(), true); eq(f.parent, UIParent)
+				-- (1.1.5: the Olympus window's metal without its portrait, where it was the game's dialog
+				-- box; its title in the title bar, the preview and the grid under it.)
+				Win.Metal(f, ns.L.COUNCIL_ICON_TITLE, "the icon picker")
+				Win.UnderBar(f, { preview = f.preview, hint = f.hint, cell = f.cells[1] }, "the icon picker")
+				eq(f.close, f.CloseButton)
 				eq(f.preview.texture, ns.HIGH_COUNCIL_SKULL)
 				eq(f.chosenName:GetText(), ns.L.COUNCIL_ICON_MARK_ONLY)
 				-- (1.1.5: our name as the game's chat shows it, the silver dragon before it; it was an Olympus
@@ -10970,6 +11091,10 @@ test("0.9.8 the council icon picker: a councillor's alone, filled from the game'
 				for _, name in ipairs(UISpecialFrames) do assert(name ~= "OlympusCouncilIconFrame", "on the escape list") end
 				f.cells[4]:Click(); f.close:Click()
 				eq(f:IsShown(), false); eq(ns.db.councilIcons[ns.me], "Spell_Holy_SealOfMight")
+				-- (1.1.5) Its X, the metal's, in a fight too: nothing chosen.
+				W.ShowIconPicker(); f.cells[4]:Click()
+				Win.XInCombat(f, "the icon picker")
+				eq(ns.db.councilIcons[ns.me], "Spell_Holy_SealOfMight")
 				-- A client with none of the lists: an empty window that says so, no error.
 				GetMacroIcons, GetMacroItemIcons, GetLooseMacroItemIcons = nil, nil, nil
 				W.ShowIconPicker()
@@ -11730,6 +11855,9 @@ local HELP_LINKS = {
 local function CheckHelpBox(box)
 	eq(box:IsShown(), true, "the copy box")
 	eq(box.TitleText:GetText(), ns.L.HELP_TITLE)
+	-- (1.1.5, the author's ask: the help's window was the plain silver frame; the Olympus window's
+	-- metal now, without its portrait.)
+	Win.Metal(box, ns.L.HELP_TITLE, "the help")
 	for _, link in ipairs(HELP_LINKS) do assert(box.text:find(link, 1, true), "link " .. link) end
 	for _, command in ipairs({ "/oly help", "/oly location", "/oly rollcall", "/oly inspection", "/ol ", "/oly chatwindow" }) do
 		assert(box.text:find(command, 1, true), "mentions " .. command)
@@ -14780,6 +14908,13 @@ test("Olympus Link: a councillor confirms with its certified key, the requester 
 			RunFrames(w)
 			local f = Link.Window()
 			assert(f and f:IsShown(), "the window opens")
+			-- (1.1.5: the Olympus window's metal without its portrait, where it was the game's dialog
+			-- box; its title in the title bar, the name and the code under it.)
+			Win.Metal(f, ns.L.LINK_TITLE, "the Link window")
+			Win.UnderBar(f, { name = f.name, code = f.canvas }, "the Link window")
+			eq(f.close, f.CloseButton)
+			Win.XInCombat(f, "the Link window")
+			f:Show()
 			local url = f.copy:GetText()
 			eq(url, ns.LINK_SITE .. "#b=" .. Link.EncodeURI(rec.bundle))
 			eq(DecodeURI(url:match("#b=(.*)$")), rec.bundle, "the page reads the bundle back")
@@ -37935,23 +38070,33 @@ do
 		return table.concat(out, "|")
 	end
 
-	test("1.1 the first-open page stands on an opaque ground: the client's opaque dialog, else its dark one, else a near-black texture", function()
-	local saved = TEMPLATES.DialogBorderOpaqueTemplate
+	-- (1.1.5: the page was the game's opaque dialog box, the "gold" dialog family; now the Olympus
+	-- window's metal without its portrait, whose rock ground and inset box are opaque as well, and the
+	-- plain frame's marble inset on a client without the metal.)
+	test("1.1 the first-open page stands on an opaque ground: the Olympus window's metal (its rock and inset box), else the plain frame's; its title in the title bar, the page under it, its X closes it in combat too", function()
+	local saved = TEMPLATES.DefaultPanelTemplate
 	local ok, err = pcall(function()
 		WithUI(function()
 			local page = ns.Consent.Show()
-			eq(page.border.template, "DialogBorderOpaqueTemplate", "the client's opaque dialog")
-			page:Hide()
+			Win.Metal(page, ns.L.CONSENT_TITLE, "the privacy page")
+			eq(page.Bg.texture, "Interface\\FrameGeneral\\UI-Background-Rock", "the metal's own rock ground")
+			eq(page.Inset and page.Inset.template, "InsetFrameTemplate", "the inset box over the inside")
+			eq(page.title, nil, "no title of its own in the page: it is in the title bar")
+			Win.UnderBar(page, { intro = page.intro }, "the privacy page")
+			assert(page.rows[1] and page.rows[1].yes:IsShown(), "its lines, each with its Yes and No")
+			eq(page.close, page.CloseButton)
+			Win.XInCombat(page, "the privacy page")
 		end)
-		-- A client without it: the dark one.
-		TEMPLATES.DialogBorderOpaqueTemplate = nil
+		-- A client without it: the plain frame, its own marble inset.
+		TEMPLATES.DefaultPanelTemplate = nil
 		WithUI(function()
 			local page = ns.Consent.Show()
-			eq(page.border.template, "DialogBorderDarkTemplate")
+			eq(page.template, "BasicFrameTemplateWithInset")
+			eq(page.TitleText:GetText(), ns.L.CONSENT_TITLE)
 			page:Hide()
 		end)
 	end)
-	TEMPLATES.DialogBorderOpaqueTemplate = saved
+	TEMPLATES.DefaultPanelTemplate = saved
 	if not ok then error(err, 0) end
 end)
 
@@ -48924,6 +49069,10 @@ end)()
 			assert(f and f:IsShown(), "the window")
 			eq(#w.popups, 0, "not the game's popup")
 			eq(f.TitleText:GetText(), ns.L.BUGASK_TITLE)
+			-- (1.1.5: the Olympus window's metal without its portrait, where it was the plain silver
+			-- frame; its X, in combat too, below.)
+			Win.Metal(f, ns.L.BUGASK_TITLE, "the bug ask")
+			Win.UnderBar(f, { message = f.message, view = f.view }, "the bug ask")
 			eq(f.message:GetText(), ns.L.BUGASK_TEXT:format(ns.DisplayName(AUTHOR_FULL)))
 			eq(f.view:IsShown(), false, "the text on a click")
 			eq(#w.whispered, 0, "nothing sent yet")
@@ -49506,6 +49655,13 @@ end)()
 				eq(A.Allowed(), true, "a High Councillor")
 				local p = A.Open(box)
 				eq(p, OlympusAnswers); eq(p:IsShown(), true); eq(p.TitleText:GetText(), L.ANSWERS_TITLE)
+				-- (1.1.5: the Olympus window's metal without its portrait, where it was the plain silver
+				-- frame; its search and list under the title bar, in its inset box; its X closes it in a fight.)
+				Win.Metal(p, L.ANSWERS_TITLE, "the Answers list")
+				eq(p.Inset and p.Inset.template, "InsetFrameTemplate")
+				Win.UnderBar(p, { label = p.label, search = p.search, list = p.scroll }, "the Answers list")
+				Win.XInCombat(p, "the Answers list")
+				eq(A.Open(box), p, "opened again")
 				-- Every line, under its topic's header.
 				local rows, headers = 0, 0
 				for _, r in ipairs(p.rows) do
@@ -49909,7 +50065,8 @@ end)()
 	-- Letters.lua loaded fresh on the widget toolkit (with UI.lua, whose parchment and help page it
 	-- uses), its LOGIN handler and its timers recorded: w.login(), w.run() the delayed call, w.tick()
 	-- the minute's. The account has played before (an update) unless a test says otherwise. The
-	-- portrait frame as the client's, with its portrait texture.
+	-- portrait frame as the client's, with its portrait texture (1.1.5: the letter's window must not
+	-- be one, Win.Metal).
 	local function WithLetters(fn)
 		WithUI(function()
 			local saved = { letters = ns.Letters, read = ns.db.lettersRead, sessions = ns.db.sessions, combat = rawget(_G, "InCombatLockdown"),
@@ -49956,7 +50113,11 @@ end)()
 		return n
 	end
 
-	test("1.1.5 version letters: after an update the running version's letter shows once, after the privacy page's wait, in a window like the Olympus window's (its frame, the logo, a parchment compartment), signed, no keyboard taken; kept per account, never again", function()
+	-- (1.1.5, the author's later word: no round portrait with the logo on any window but the Olympus
+	-- window. The letter's window had the portrait frame and the logo: these lines asked for them;
+	-- they ask for the metal without the portrait now, the header and the compartment under the
+	-- title bar.)
+	test("1.1.5 version letters: after an update the running version's letter shows once, after the privacy page's wait, in a window like the Olympus window's (its bronze metal without the portrait or logo, a parchment compartment), signed, no keyboard taken; kept per account, never again", function()
 		WithLetters(function(w)
 			local Lt = w.Letters
 			eq(Lt.LIST[1], ns.VERSION, "the running version's letter first")
@@ -49972,8 +50133,9 @@ end)()
 			w.run()
 			local f = OlympusLetterFrame
 			assert(f and f:IsShown(), "shown")
-			eq(f.template, "PortraitFrameTemplate", "the Olympus window's frame")
-			eq(f.portrait.texture, ns.LOGO, "its logo")
+			Win.Metal(f, L.LETTER_TITLE:format(ns.VERSION), "the letter")
+			eq(f.Inset, nil, "no inset box of the window's: the letter's compartment is its inside")
+			Win.UnderBar(f, { head = f.head, box = f.box }, "the letter")
 			eq(f.titleText, L.LETTER_TITLE:format(ns.VERSION))
 			eq(f.head:GetText(), L.LETTERS_TITLE)
 			local title, body = Lt.Text(ns.VERSION)
@@ -50339,6 +50501,251 @@ end)()
 			assert(doc:find("says what changed in that version, in the dev's own words.", 1, true), path .. ": the letters from the dev")
 			eq(doc:find("King's voice", 1, true), nil, path .. ": no letter in the King's voice")
 		end
+	end)
+end)()
+
+---------------------------------------------------------------------------
+-- 1.1.5: Olympus's windows in the Olympus window's frame (the author's asks: "every window in the
+-- main window's frame colour", the help's silver one first; then no window but the Olympus window
+-- with the round portrait and the logo in its top left corner). Every one is made by ns.Window
+-- (Dialog.lua): Forever's DefaultPanelTemplate, the bronze metal of the Olympus window's
+-- PortraitFrameTemplate with a plain corner; the plain silver frame only on a client without it.
+---------------------------------------------------------------------------
+;(function()
+	-- An addon file loaded fresh in a namespace of its own (its frames made again on this toolkit),
+	-- its listeners and handlers kept away from the real ones.
+	local function Fresh(file)
+		local fns = setmetatable({
+			On = function() end, RegisterEvent = function() end,
+			Comm = setmetatable({ Handle = function() end }, { __index = ns.Comm }),
+			King = setmetatable({ Register = function() end }, { __index = ns.King }),
+		}, { __index = ns })
+		assert(loadfile(ADDON_DIR .. file))("Olympus", fns)
+		return fns
+	end
+	-- The names a file's code quotes (outside comments), counted: the templates it gives CreateFrame.
+	local function Literals(src)
+		local out = {}
+		for line in (src .. "\n"):gmatch("([^\n]*)\n") do
+			local code = line:gsub("%-%-.*$", "")
+			for name in code:gmatch('"([%w_]+)"') do out[name] = (out[name] or 0) + 1 end
+		end
+		return out
+	end
+	-- A window's frame that is not ns.Window's metal: the portrait ones, the plain silver ones, the
+	-- game's dialog boxes, and the metal itself made outside ns.Window.
+	local function Forbidden(name)
+		return name:find("Portrait", 1, true) or name:find("^ButtonFrameTemplate") or name:find("BasicFrame", 1, true)
+			or name:find("^DialogBorder") or name:find("^DefaultPanel") or name:find("^DefaultDialogPanel")
+	end
+	-- What the guard says of a file: each window frame it makes beyond what GUARD_ALLOWED lets it.
+	local GUARD_ALLOWED = {
+		-- The Olympus window (CreateMain) and its fallback on a client without the portrait frame.
+		["UI.lua"] = { PortraitFrameTemplate = 1, BasicFrameTemplateWithInset = 1 },
+		-- ns.Window: Dialog.METAL and its fallback, Dialog.PLAIN.
+		["Dialog.lua"] = { DefaultPanelTemplate = 1, BasicFrameTemplateWithInset = 1 },
+	}
+	local function Refused(file, src)
+		local bad = {}
+		local names = Literals(src)
+		for name, n in pairs(names) do
+			if Forbidden(name) and n ~= (GUARD_ALLOWED[file] and GUARD_ALLOWED[file][name] or 0) then bad[name] = true end
+		end
+		for name, n in pairs(GUARD_ALLOWED[file] or {}) do if names[name] ~= n then bad[name] = true end end
+		-- The portrait's code and the logo: the Olympus window's (and the minimap button's).
+		for _, word in ipairs({ "PortraitContainer", "SetPortraitToAsset", "ButtonFrameTemplate_ShowPortrait" }) do
+			if file ~= "UI.lua" and src:find(word, 1, true) then bad[word] = true end
+		end
+		if file ~= "UI.lua" and file ~= "Core.lua" and src:find("ns.LOGO", 1, true) then bad["ns.LOGO"] = true end
+		local out = {}
+		for name in pairs(bad) do out[#out + 1] = name end
+		table.sort(out)
+		return table.concat(out, " ")
+	end
+
+	test("1.1.5 guard: only the Olympus window has a portrait frame (and the logo in it); every other window is ns.Window's metal, the plain silver frame only as its fallback; a new silver, ringed or dialog-box window fails here", function()
+		local toc, at = {}, {}
+		for line in io.lines(ADDON_DIR .. "Olympus.toc") do
+			local entry = line:match("^%s*(.-)%s*$")
+			if entry ~= "" and entry:sub(1, 1) ~= "#" then toc[#toc + 1] = entry; at[entry] = #toc end
+		end
+		local p = io.popen('ls "' .. ADDON_DIR .. '"')
+		local files, users = 0, 0
+		for file in p:lines() do
+			if file:match("%.lua$") then
+				files = files + 1
+				local src = assert(ReadFile(ADDON_DIR .. file))
+				eq(Refused(file, src), "", file .. ": a window outside ns.Window's metal")
+				-- ns.Window is there before any file that makes a window with it loads.
+				if src:find("ns.Window(", 1, true) and file ~= "Dialog.lua" then
+					users = users + 1
+					assert(at[file] and at[file] > at["Dialog.lua"], file .. " loads after Dialog.lua")
+				end
+			end
+		end
+		p:close()
+		assert(files > 40, "every file read: " .. files)
+		assert(users >= 10, "the files whose windows ns.Window makes: " .. users)
+		-- The portrait frame is CreateMain's alone.
+		local ui = assert(ReadFile(ADDON_DIR .. "UI.lua"))
+		local line = ui:match('[^\n]*"PortraitFrameTemplate"[^\n]*')
+		assert(line and line:find('hd and "OlympusFrameHD" or "OlympusFrame"', 1, true), "CreateMain's: " .. tostring(line))
+		-- What it refuses: a new window in the plain silver frame, in the portrait frame, in the game's
+		-- dialog box, or in the metal made by hand; the logo or a portrait set outside the Olympus window.
+		local function NewWindow(template) return ('local f = CreateFrame("Frame", "OlympusNew", UIParent, "%s")\n'):format(template) end
+		eq(Refused("New.lua", NewWindow("BasicFrameTemplateWithInset")), "BasicFrameTemplateWithInset")
+		eq(Refused("New.lua", NewWindow("PortraitFrameTemplate")), "PortraitFrameTemplate")
+		eq(Refused("New.lua", NewWindow("ButtonFrameTemplate")), "ButtonFrameTemplate")
+		eq(Refused("New.lua", 'local b = pcall(CreateFrame, "Frame", nil, f, "DialogBorderDarkTemplate")'), "DialogBorderDarkTemplate")
+		eq(Refused("New.lua", NewWindow("DefaultPanelTemplate")), "DefaultPanelTemplate")
+		eq(Refused("New.lua", "f.PortraitContainer.portrait:SetTexture(ns.LOGO)"), "PortraitContainer ns.LOGO")
+		eq(Refused("UI.lua", ui .. NewWindow("PortraitFrameTemplate")), "PortraitFrameTemplate", "a second portrait frame in UI.lua")
+		eq(Refused("New.lua", 'local f = ns.Window("OlympusNew", UIParent, { title = "A" }) -- not "BasicFrameTemplate"'), "", "ns.Window's, a comment")
+	end)
+
+	test("1.1.5 every Olympus window but the Olympus window: its bronze metal without the round portrait or the logo, its title in the title bar, its content under it and working, its X (where it has one) closing it in combat too; the Olympus window keeps its portrait and logo", function()
+		WithUI(function()
+			local saved = { template = TEMPLATES.PortraitFrameTemplate, dialog = StaticPopupDialogs.OLYMPUS_TEST_METAL }
+			local ok, err = pcall(function()
+				-- The portrait frame as the client's, its portrait texture in it: no window but the
+				-- Olympus window may come out of it.
+				TEMPLATES.PortraitFrameTemplate = function(f)
+					saved.template(f)
+					f.portrait = NewWidget("Texture", nil, f)
+				end
+				local UI = LoadUI()
+				UI.Toggle()
+				local main = OlympusFrame
+				eq(main.template, "PortraitFrameTemplate", "the Olympus window: as it was")
+				eq(main.portrait.texture, ns.LOGO, "its logo in its portrait"); eq(main.metal, nil)
+				-- The help (its "i") and every copy window: one function makes them all.
+				UI.ShowHelp()
+				local help = OlympusCopyFrame
+				Win.Metal(help, ns.L.HELP_TITLE, "the help")
+				eq(help.Inset and help.Inset.template, "InsetFrameTemplate", "its inside: the inset box, as the plain frame's")
+				Win.UnderBar(help, { text = help.eb:GetParent() }, "the help")
+				eq(help.eb:GetText(), help.text); eq(help.action:GetText(), ns.L.REPORT_BUG); eq(help.second:GetText(), ns.L.LETTERS_BTN)
+				Win.XInCombat(help, "the help")
+				for _, key in ipairs({ "bug", "versions", "status" }) do
+					local box = UI.ShowCopy("Testing " .. key, "Some text", nil, { key = key, big = key == "bug" })
+					Win.Metal(box, "Testing " .. key, "the " .. key .. " copy window")
+					eq(box.eb:GetText(), "Some text")
+					Win.XInCombat(box, "the " .. key .. " copy window")
+				end
+				-- The person card (the old window's: no X of its own before, nothing closed it in a fight).
+				UI.ShowPerson({ name = "Testpal", guild = "Testguild", level = 60, online = true })
+				local card = OlympusPersonFrame
+				eq(card:IsShown(), true)
+				Win.Metal(card, "<Testguild>", "the person card")
+				Win.UnderBar(card, { name = card.name, line = card.lines[1] }, "the person card")
+				eq(card.whisper:IsShown(), true); eq(card.whisper:GetText(), ns.L.WHISPER)
+				Win.XInCombat(card, "the person card")
+				-- The backup's paste box (no X of its own before either).
+				local B = Fresh("Backup.lua").Backup
+				local paste = B.ShowRestore()
+				Win.Metal(paste, ns.L.BACKUP_RESTORE_TITLE, "the paste box")
+				eq(paste.eb.olympusBox, true); eq(paste.status:GetText(), "")
+				Win.XInCombat(paste, "the paste box")
+				-- Olympus's own dialog (the gamepad UI's): "Olympus" in its title bar, no X, answered by
+				-- its buttons alone, never on the escape list.
+				local accepted
+				StaticPopupDialogs.OLYMPUS_TEST_METAL = { text = "A question for %s", button1 = "Yes", button2 = "No",
+					OnAccept = function(_, data) accepted = data end }
+				local D = Fresh("Dialog.lua").Dialog
+				local d = D.Show("OLYMPUS_TEST_METAL", "Testpal", nil, "the data")
+				Win.Metal(d, ns.L.TITLE, "the dialog")
+				eq(d.CloseButton, nil, "no X: answered by a click on its buttons")
+				Win.UnderBar(d, { text = d.text, button = d.buttons[1] }, "the dialog")
+				eq(d.text:GetText(), "A question for Testpal")
+				for _, n in ipairs(UISpecialFrames) do assert(n ~= d:GetName(), "never on the escape list") end
+				d.buttons[1]:Click()
+				eq(accepted, "the data"); eq(d:IsShown(), false)
+				-- The privacy page.
+				local page = ns.Consent.Show()
+				Win.Metal(page, ns.L.CONSENT_TITLE, "the privacy page")
+				Win.XInCombat(page, "the privacy page")
+				-- A Royal Writ.
+				ns.Acts.Reset()
+				ns.Acts.ShowWrit({ id = 7, to = "L", text = "Hold the bridge", by = "Testking", mine = true })
+				local writ = OlympusWritFrame
+				Win.Metal(writ, ns.L.TITLE, "the writ")
+				eq(writ.body:GetText(), "Hold the bridge"); eq(writ.sign:GetText(), ns.L.WRIT_SIGNED:format("Testking"))
+				Win.XInCombat(writ, "the writ")
+				-- The King's layer window: no X, its three answers.
+				local H = Fresh("Hop.lua").Hop
+				H.ShowKingPrompt()
+				local prompt = OlympusKingLayerPrompt
+				Win.Metal(prompt, ns.L.TITLE, "the King's layer window")
+				eq(prompt.CloseButton, nil, "no X: its answers close it")
+				Win.UnderBar(prompt, { text = prompt.text, check = prompt.check }, "the King's layer window")
+				eq(#prompt.buttons, 3); eq(prompt.buttons[1]:GetText(), ns.L.HOP_KING_PROMPT_NO)
+				local textTop = prompt.text:GetTop()
+				assert(prompt:GetBottom() < prompt.check:GetBottom() and textTop > prompt.check:GetTop(), "its text, then the box, then the answers, inside it")
+				prompt.buttons[1]:Click()
+				eq(prompt:IsShown(), false, "an answer closes it")
+				-- Not one frame of these windows is a portrait, plain or dialog frame (Win.Metal looked in
+				-- each); and none but the Olympus window came out of the portrait template.
+				for _, w in ipairs(createdWidgets) do
+					if w.template == "PortraitFrameTemplate" then
+						assert(w == main or w == OlympusFrameHD, "a portrait frame: " .. tostring(w:GetName()))
+					end
+					assert(w.template ~= "BasicFrameTemplateWithInset", "a plain silver frame: " .. tostring(w:GetName()))
+					assert(not tostring(w.template or ""):find("^DialogBorder"), "a dialog box: " .. tostring(w:GetName()))
+				end
+			end)
+			TEMPLATES.PortraitFrameTemplate, StaticPopupDialogs.OLYMPUS_TEST_METAL = saved.template, saved.dialog
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.5 ns.Window: the metal's options (no X, no inset box, off the escape list), raised with its border; a client without the metal gets the plain silver frame, one without that a bare dark one, each with its title and an X that closes it in combat too", function()
+		WithUI(function()
+			local saved = { metal = TEMPLATES.DefaultPanelTemplate, plain = TEMPLATES.BasicFrameTemplateWithInset, combat = rawget(_G, "InCombatLockdown") }
+			local ok, err = pcall(function()
+				local f = ns.Window("OlympusTestWindow", UIParent, { title = "Testing" })
+				Win.Metal(f, "Testing", "a window")
+				eq(f.windowLook, "metal"); eq(f.TitleText, f.TitleContainer.TitleText, "its title's font string, on every look")
+				eq(f.CloseButton:GetName(), "OlympusTestWindowCloseButton"); eq(f.Inset.template, "InsetFrameTemplate")
+				eq(UISpecialFrames[#UISpecialFrames], "OlympusTestWindow", "Escape closes it with mouse and keyboard")
+				ns.SetWindowTitle(f, "Again"); eq(f.TitleContainer.TitleText:GetText(), "Again"); eq(f.titleText, "Again")
+				ns.SetWindowLevel(f, 40)
+				eq(f.level .. " " .. f.NineSlice.level .. " " .. f.TitleContainer.level .. " " .. f.CloseButton.level, "40 540 550 550", "Blizzard's steps")
+				f:SetPoint("CENTER")
+				Win.XInCombat(f, "a window")
+				local q = ns.Window("OlympusTestQuestion", UIParent, { close = false, inset = false, escape = false })
+				eq(q.CloseButton, nil); eq(q.Inset, nil); eq(q.TitleContainer.TitleText:GetText(), "")
+				for _, n in ipairs(UISpecialFrames) do assert(n ~= "OlympusTestQuestion", "off the escape list") end
+				-- With the gamepad UI: never on the escape list, checked each time it shows.
+				WithGamepadUI(true, function()
+					local g = ns.Window("OlympusTestPad", UIParent, {})
+					g:Hide(); g:Show()
+					for _, n in ipairs(UISpecialFrames) do assert(n ~= "OlympusTestPad", "gamepad UI: off the escape list") end
+				end)
+				-- No metal: the plain silver frame, under a name of its own (the failed one keeps the window's).
+				TEMPLATES.DefaultPanelTemplate = nil
+				local p = ns.Window("OlympusTestPlain", UIParent, { title = "Plain" })
+				eq(p.template, "BasicFrameTemplateWithInset"); eq(p.windowLook, "plain"); eq(p.metal, false)
+				eq(p:GetName(), "OlympusTestPlainBasic"); eq(OlympusTestPlain:IsShown(), false, "the failed one hidden")
+				eq(p.TitleText:GetText(), "Plain"); eq(p.Inset, nil, "its own inset"); eq(p.inner, ns.Dialog.INNER.plain)
+				eq(UISpecialFrames[#UISpecialFrames], "OlympusTestPlainBasic")
+				p:Show()
+				InCombatLockdown = function() return true end
+				p.CloseButton:Click()
+				eq(p:IsShown(), false, "its X, in combat too")
+				local pq = ns.Window("OlympusTestPlainQuestion", UIParent, { close = false })
+				eq(pq.CloseButton:IsShown(), false, "no X wanted: the template's hidden")
+				-- No plain frame either: a bare dark one, its own title and X.
+				TEMPLATES.BasicFrameTemplateWithInset = nil
+				local b = ns.Window("OlympusTestBare", UIParent, { title = "Bare" })
+				eq(b.windowLook, "bare"); eq(b.TitleText:GetText(), "Bare")
+				eq(b.textures[1].layer, "BACKGROUND", "a dark ground")
+				eq(b.CloseButton.template, "UIPanelCloseButton")
+				b:Show(); b.CloseButton:Click()
+				eq(b:IsShown(), false, "its X, in combat too")
+			end)
+			TEMPLATES.DefaultPanelTemplate, TEMPLATES.BasicFrameTemplateWithInset, InCombatLockdown = saved.metal, saved.plain, saved.combat
+			if not ok then error(err, 0) end
+		end)
 	end)
 end)()
 
