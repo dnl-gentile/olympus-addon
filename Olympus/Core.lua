@@ -1662,6 +1662,8 @@ StandIn("ChatWindow", { "Open", "Toggle" }) -- 1.1.1: the Chat tab of the Olympu
 StandIn("PlayerMenu", {})
 StandIn("Versions", { "Check", "AskUpdate", "Tell" })
 StandIn("Answers", { "Open" })
+-- 1.1.5: the guild masters' centurions and correspondents (Nominees.lua).
+StandIn("Nominees", { "Slash", "Prompt" })
 
 -- Blizzard's gamepad UI (WoW: Forever's controller mode) is on.
 function ns.GamepadUI()
@@ -1795,7 +1797,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Dues", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Backup", "Loot", "Crafters", "Board", "Week", "Consent", "Chronicle", "Filter", "Members", "Moderation", "Alts", "Keys", "ChatWindow", "PlayerMenu", "Versions", "Answers", "Letters" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Dues", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Backup", "Loot", "Crafters", "Board", "Week", "Consent", "Chronicle", "Filter", "Members", "Moderation", "Alts", "Keys", "ChatWindow", "PlayerMenu", "Versions", "Answers", "Letters", "Nominees" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if ns.Gate.missing then missing[#missing + 1] = "Gamepad.lua" end -- (1.1.5, the gamepad gate)
@@ -1873,6 +1875,7 @@ local function Help()
 	print(L.HELP_INACTIVE)
 	print(L.HELP_WARNDAYS)
 	print(L.HELP_MENTORS)
+	print(L.HELP_NOMINEES)
 	print(L.HELP_NOCONTACT)
 	print(L.HELP_HOP)
 	print(L.HELP_LAYERHELP)
@@ -2003,6 +2006,9 @@ local function Slash(input)
 			ns.UI.SelectTab("realm")
 		elseif cmd == "warndays" then
 			ns.Members.SetWarnDays(rest)
+		elseif cmd == "nominees" or cmd == "nominee" or cmd == "centurions" then
+			-- 1.1.5: our guild's centurions and correspondents; the guild master names and removes them (Nominees.lua).
+			ns.Nominees.Slash(rest)
 		elseif cmd == "nocontact" then
 			-- (1.1: recruits' Join screens skip us, Recruit.lua.)
 			local word = rest:lower()

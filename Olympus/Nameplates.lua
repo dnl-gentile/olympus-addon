@@ -97,7 +97,9 @@ Nameplates.MARKS = {
 }
 Nameplates.ORDER = { "gold", "silver", "bronze", "member" }
 -- The author's preview: each border tier's mark (Borders.MARK_OF), and the star.
-Nameplates.PREVIEW = { ["gold-elite"] = "gold", ["silver-elite"] = "silver", ["bronze-elite"] = "bronze", member = "member" }
+-- (1.1.5: the plain bronze of the people a guild master names has the bronze mark too; the dev's
+-- plain silver none.)
+Nameplates.PREVIEW = { ["gold-elite"] = "gold", ["silver-elite"] = "silver", ["bronze-elite"] = "bronze", bronze = "bronze", member = "member" }
 
 local rigs = {}   -- [a plate's unit frame] = { tex, frame, name, unit, friend, shown, dressed, point, x, size }
 local byUnit = {} -- [nameplate unit] = the rig of the plate showing it

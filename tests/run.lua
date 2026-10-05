@@ -156,7 +156,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Board", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "Crafters", "Chronicle", "Workshop", "Versions", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "AnswerBank", "Answers", "Views", "Consent", "Members", "Bridge" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Core", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "Vox", "Court", "Board", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "Crafters", "Chronicle", "Workshop", "Versions", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "AnswerBank", "Answers", "Views", "Consent", "Members", "Nominees", "Bridge" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -21917,8 +21917,10 @@ test("1.0.1 borders: each tier's art (the game's atlases, Max's files) at its si
 			assert(not seen[key], "one texture per border and frame: " .. key)
 			seen[key] = tex
 		end
-		-- (1.1.5: three borders, the three plain ones kept for later and made for nobody: no texture.)
-		eq(#w.textures, 9, "three borders on three frames")
+		-- (1.1.5: three borders, the three plain ones kept for later and made for nobody: no texture.
+		-- Then the plain silver (the dev's) and Max's plain bronze (the people a guild master names)
+		-- came back as tiers: five borders; the plain gold alone is kept for later.)
+		eq(#w.textures, 15, "five borders on three frames")
 		for _, t in ipairs(w.B.RESERVED) do
 			for _, tex in ipairs(w.textures) do
 				assert((t.atlas == nil or tex.atlas ~= t.atlas) and (t.file == nil or tex.file ~= t.file), t.name .. ": kept for later, no texture")
@@ -21934,7 +21936,11 @@ test("1.0.1 borders: each tier's art (the game's atlases, Max's files) at its si
 			{ "gold-elite", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged", nil, nil, "11 -4", "1 0 0 1", "-13 -4" },
 			{ "silver-elite", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged", nil, nil, "8 -7", "1 0 0 1", "-10 -7" },
 			{ "bronze-elite", "file " .. MEDIA .. "bronze-winged", "110 90", "0 0.859375 0 0.703125", "11 -4", "0.859375 0 0 0.703125", "-13 -4" },
+			-- (1.1.5, without wings: the plain gold's size and offsets, as 1.0.0's Captains and Veterans had them.)
+			{ "silver", "atlas ui-hud-unitframe-target-portraiton-boss-rare-silver", nil, nil, "0 1", "1 0 0 1", "-2 1" },
+			{ "bronze", "file " .. MEDIA .. "bronze-plain", "100 100", "0 0.78125 0 0.78125", "0 1", "0.78125 0 0 0.78125", "-2 1" },
 		}
+		eq(#want, #w.B.TIERS, "every tier")
 		for _, row in ipairs(want) do
 			local name, art, size, targetCoord, targetAt, mineCoord, mineAt = unpack(row, 1, 7)
 			for _, unit in ipairs({ "target", "focus", "player" }) do
@@ -21984,8 +21990,9 @@ test("1.0.1 borders: applied through the hooked CheckClassification after the ga
 			assert(entry:find(":CreateTexture$"), "only CreateTexture on the game's objects: " .. entry)
 			made[entry] = (made[entry] or 0) + 1
 		end
-		eq(made["TargetFrame.TargetFrameContainer:CreateTexture"], 3); eq(made["FocusFrame.TargetFrameContainer:CreateTexture"], 3)
-		eq(made["PlayerFrame.PlayerFrameContainer:CreateTexture"], 3)
+		-- (1.1.5: one per tier, five with the two without wings.)
+		eq(made["TargetFrame.TargetFrameContainer:CreateTexture"], 5); eq(made["FocusFrame.TargetFrameContainer:CreateTexture"], 5)
+		eq(made["PlayerFrame.PlayerFrameContainer:CreateTexture"], 5)
 		eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
 		-- The game updates the target frame (no event of ours): its CheckClassification first, then the
 		-- King's border, shown from the hook; the game's return value kept.
@@ -22036,7 +22043,7 @@ test("1.0.1 borders: applied through the hooked CheckClassification after the ga
 		eq(#w.log, 0, "still in combat")
 		w.combat = false
 		w.fire("PLAYER_REGEN_ENABLED")
-		eq(#w.textures, 9); eq(w.shown("target"), "gold-elite", "made, and the target's border shown")
+		eq(#w.textures, 15); eq(w.shown("target"), "gold-elite", "made, and the target's border shown")
 	end)
 end)
 
@@ -22105,7 +22112,7 @@ test("1.0.1 borders: off with the gamepad UI (no hook, no texture), hidden at a 
 		-- To mouse and keyboard: made and shown.
 		w.style = 0
 		w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-		eq(#w.textures, 9); eq(#w.hooks, 2); eq(w.shown("target"), "gold-elite")
+		eq(#w.textures, 15); eq(#w.hooks, 2); eq(w.shown("target"), "gold-elite")
 		-- Back to the gamepad UI: hidden at once; the hook and the events show nothing and call nothing.
 		w.style = 1
 		w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
@@ -22148,7 +22155,7 @@ test("1.0.1 borders: nothing outside an Olympus guild, on clients without Foreve
 	WithBorders(function(w)
 		w.noAtlas["UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged"] = true
 		w.internal("LOGIN")
-		eq(#w.textures, 6, "two borders on three frames")
+		eq(#w.textures, 12, "four borders on three frames (1.1.5: five tiers)")
 		w.target(BorderUnit("Sage Owl", "Wanderers", "Member", 3))
 		eq(w.shown("target"), nil, "no silver wings for a High Councillor")
 		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
@@ -22164,7 +22171,7 @@ test("1.0.1 borders: nothing outside an Olympus guild, on clients without Foreve
 		WithBorders(function(w)
 			w.noFile[MEDIA .. "bronze-winged"] = how
 			w.internal("LOGIN")
-			eq(#w.textures, 9)
+			eq(#w.textures, 15)
 			w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
 			eq(w.shown("target"), "bronze-elite", "a guild master keeps a border")
 			local tex = w.shownTexture("target")
@@ -22312,7 +22319,7 @@ do
 	local AUTHOR_UNIT = BorderUnit("Faladoriel Skylance", "Olympus II", "Member", 3, { realm = "ClassicBetaPvP" })
 	local function AsAuthor(w) w.units.player = AUTHOR_UNIT; ns.me = "Faladoriel Skylance-ClassicBetaPvP" end
 	local MEDIA = "Interface\\AddOns\\Olympus\\media\\borders\\"
-	local TIER_LIST = "gold-elite, silver-elite, bronze-elite"
+	local TIER_LIST = "gold-elite, silver-elite, silver, bronze-elite, bronze"
 
 	-- Everything the addon could send while fn runs (an addon message by either API, a chat line,
 	-- Comm's own queues), recorded in `sent`.
@@ -22332,14 +22339,17 @@ do
 		WithBorders(function(w)
 			ns.Borders = w.B -- (the slash command's: the stand-in otherwise)
 			w.internal("LOGIN")
-			eq(w.shown("player"), nil, "his own rank: no border")
+			-- (1.1.5: no rank border, but the dev's own plain silver, his character's alone.)
+			eq(w.shown("player"), "silver", "his own: the dev's plain silver")
 			-- As the tier test above has them: the art, its size (nil: the atlas's own), on his own
 			-- frame its texture coordinates turned round and its point from the left; on the target
 			-- its point from the right.
 			local want = {
 				{ "gold-elite", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged", nil, "1 0 0 1", "-13 -4", "11 -4" },
 				{ "silver-elite", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged", nil, "1 0 0 1", "-10 -7", "8 -7" },
+				{ "silver", "atlas ui-hud-unitframe-target-portraiton-boss-rare-silver", nil, "1 0 0 1", "-2 1", "0 1" },
 				{ "bronze-elite", "file " .. MEDIA .. "bronze-winged", "110 90", "0.859375 0 0 0.703125", "-13 -4", "11 -4" },
+				{ "bronze", "file " .. MEDIA .. "bronze-plain", "100 100", "0.78125 0 0 0.78125", "-2 1", "0 1" },
 			}
 			for _, row in ipairs(want) do
 				local name, art, size, coord, mineAt, targetAt = unpack(row, 1, 6)
@@ -22371,38 +22381,39 @@ do
 			-- His focus on himself; any case; a new tier replaces the last.
 			w.units.focus = w.units.player
 			w.fire("PLAYER_FOCUS_CHANGED")
-			eq(w.shown("focus"), "bronze-elite", "his focus on himself")
+			eq(w.shown("focus"), "bronze", "his focus on himself")
 			SlashCmdList.OLYMPUS("borders test GOLD-Elite")
 			eq(w.B.Preview(), "gold-elite", "any case")
 			eq(w.shown("player"), "gold-elite"); eq(w.shown("focus"), "gold-elite")
 			-- A word that is no tier, or none: which tiers there are, nothing changed. (1.1.5: the plain
-			-- gold, silver and bronze are kept for later, no tiers.)
-			for _, cmd in ipairs({ "borders test platinum", "borders test", "borders test  ", "borders test gold", "borders test bronze" }) do
+			-- gold is kept for later, no tier; the plain silver and bronze are tiers again.)
+			for _, cmd in ipairs({ "borders test platinum", "borders test", "borders test  ", "borders test gold" }) do
 				SlashCmdList.OLYMPUS(cmd)
 				eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_HELP:format(TIER_LIST), cmd)
 				eq(w.B.Preview(), "gold-elite", cmd); eq(w.shown("player"), "gold-elite", cmd)
 			end
-			-- Off: his own rank's border (none) again, everywhere.
+			-- Off: his own border (the dev's silver, 1.1.5) again, everywhere.
 			SlashCmdList.OLYMPUS("borders test off")
 			eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_OFF)
-			eq(w.B.Preview(), nil); eq(w.shown("player"), nil); eq(w.shown("focus"), nil)
+			eq(w.B.Preview(), nil); eq(w.shown("player"), "silver"); eq(w.shown("focus"), "silver")
 			w.target(w.units.player)
-			eq(w.shown("target"), nil, "targeting himself: none again")
+			eq(w.shown("target"), "silver", "targeting himself: his own again")
 			assert(not ns.StatusText():find("preview", 1, true), "gone from /oly status")
 			-- The borders' own machinery unchanged: the same textures, the same hooks.
-			eq(#w.textures, 9); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
+			eq(#w.textures, 15); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
 			for _, entry in ipairs(w.log) do assert(entry:find(":CreateTexture$"), entry) end
 		end, AsAuthor)
 		-- An author who does hold a rank: the preview in its place while on, his own again after.
-		-- (1.1.5: a guild master's bronze wings, where an officer's silver was.)
+		-- (1.1.5: a guild master's bronze wings, where an officer's silver was; then the dev's plain
+		-- silver, which comes before a guild master's.)
 		WithBorders(function(w)
 			ns.Borders = w.B
 			w.internal("LOGIN")
-			eq(w.shown("player"), "bronze-elite", "his guild master rank")
+			eq(w.shown("player"), "silver", "the dev's silver, before his guild master rank")
 			SlashCmdList.OLYMPUS("borders test silver-elite")
 			eq(w.shown("player"), "silver-elite")
 			SlashCmdList.OLYMPUS("borders test off")
-			eq(w.shown("player"), "bronze-elite", "his own again")
+			eq(w.shown("player"), "silver", "his own again")
 		end, function(w)
 			AsAuthor(w)
 			w.units.player = BorderUnit("Faladoriel Skylance", "Olympus II", "Zeus", 0, { realm = "ClassicBetaPvP" })
@@ -22424,39 +22435,39 @@ do
 			local head, rows = Section()
 			-- (1.0.0, the nameplate marks: a row for the marks' own member star, after the borders; it was
 			-- one row per border tier. 1.1.5: three tiers, so four rows, where 1.0.0's six made seven.)
-			eq(#rows, 4, "one row per tier and the member star, the last of the tab")
+			eq(#rows, 6, "one row per tier and the member star, the last of the tab") -- (1.1.5: five tiers again, the two without wings)
 			assert(head.right:find(ns.L.BORDERS_PREVIEW_NONE, 1, true), "off")
 			for i, t in ipairs(w.B.TIERS) do
 				assert(rows[i].text:find(t.name, 1, true), t.name)
 				assert(rows[i].text:find(ns.L["BORDERS_WHO_" .. t.name:upper():gsub("%-", "_")], 1, true), t.name .. ": who holds it")
 				eq(type(rows[i].onClick), "function"); eq(type(rows[i].tooltip), "function"); eq(rows[i].right, nil)
 			end
-			assert(rows[4].text:find("member", 1, true) and rows[4].text:find(ns.L.BORDERS_WHO_MEMBER, 1, true), rows[4].text)
+			assert(rows[6].text:find("member", 1, true) and rows[6].text:find(ns.L.BORDERS_WHO_MEMBER, 1, true), rows[6].text)
 			local tip = {}
-			rows[4].tooltip({ AddLine = function(_, text) tip[#tip + 1] = text end })
+			rows[6].tooltip({ AddLine = function(_, text) tip[#tip + 1] = text end })
 			eq(tip[2], ns.L.BORDERS_PREVIEW_TIP_MEMBER, "the star's own tooltip")
-			rows[4].onClick()
+			rows[6].onClick()
 			eq(w.B.Preview(), "member"); eq(w.shown("player"), nil, "the star: no border round his portrait")
 			eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON_MEMBER)
-			rows[4].onClick()
+			rows[6].onClick()
 			eq(w.B.Preview(), "member", "the lines were built before the click: a fresh click shows it again")
 			head, rows = Section()
-			assert(rows[4].right and rows[4].right:find(ns.L.BORDERS_PREVIEW_SHOWN, 1, true), "marked shown")
-			rows[4].onClick()
+			assert(rows[6].right and rows[6].right:find(ns.L.BORDERS_PREVIEW_SHOWN, 1, true), "marked shown")
+			rows[6].onClick()
 			eq(w.B.Preview(), nil, "clicked again: off")
 			head, rows = Section()
-			rows[3].onClick()
+			rows[4].onClick()
 			eq(w.B.Preview(), "bronze-elite"); eq(w.shown("player"), "bronze-elite", "clicked: shown")
 			eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON:format("bronze-elite"))
 			head, rows = Section()
 			assert(head.right:find(ns.L.BORDERS_PREVIEW_NOW:format("bronze-elite"), 1, true), head.right)
-			assert(rows[3].right and rows[3].right:find(ns.L.BORDERS_PREVIEW_SHOWN, 1, true), "marked shown")
+			assert(rows[4].right and rows[4].right:find(ns.L.BORDERS_PREVIEW_SHOWN, 1, true), "marked shown")
 			eq(rows[1].right, nil)
 			rows[1].onClick()
 			eq(w.shown("player"), "gold-elite", "another tier")
 			head, rows = Section()
 			rows[1].onClick()
-			eq(w.B.Preview(), nil, "clicked again: off"); eq(w.shown("player"), nil)
+			eq(w.B.Preview(), nil, "clicked again: off"); eq(w.shown("player"), "silver", "his own: the dev's silver")
 			rows[2].onClick()
 			assert(not ns.Workshop.ReportText():find(ns.L.BORDERS_PREVIEW_TITLE, 1, true), "not in the copy for Discord")
 			SlashCmdList.OLYMPUS("borders test off")
@@ -22528,9 +22539,9 @@ do
 				ns.Borders = w.B
 				w.internal("LOGIN")
 				eq(w.B.Preview(), nil, "forgotten")
-				eq(w.shown("player"), nil)
+				eq(w.shown("player"), "silver", "his own (1.1.5: the dev's silver)")
 				w.target(w.units.player)
-				eq(w.shown("target"), nil)
+				eq(w.shown("target"), "silver")
 				assert(not ns.StatusText():find("preview", 1, true))
 			end, AsAuthor)
 			eq(#sent, 0, "nothing sent: " .. table.concat(sent, ", "))
@@ -22553,7 +22564,7 @@ do
 			-- To mouse and keyboard: made, and shown.
 			w.style = 0
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-			eq(#w.textures, 9); eq(w.shown("player"), "gold-elite"); eq(w.shown("target"), "gold-elite")
+			eq(#w.textures, 15); eq(w.shown("player"), "gold-elite"); eq(w.shown("target"), "gold-elite")
 			-- Back to the gamepad UI: hidden at once; a new tier, the hook and the events call nothing.
 			w.style = 1
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
@@ -22595,7 +22606,7 @@ do
 			eq(#w.textures, 0, "still in combat")
 			w.combat = false
 			w.fire("PLAYER_REGEN_ENABLED")
-			eq(#w.textures, 9); eq(#w.hooks, 2)
+			eq(#w.textures, 15); eq(#w.hooks, 2)
 			eq(w.shown("player"), "bronze-elite", "made once combat ended, and shown"); eq(w.shown("target"), "bronze-elite")
 			-- In combat again: tier after tier, only Show and Hide on our own textures.
 			w.combat = true
@@ -22607,7 +22618,7 @@ do
 				eq(w.shown("target"), t.name, "in combat")
 			end
 			SlashCmdList.OLYMPUS("borders test off")
-			eq(w.shown("player"), nil); eq(w.shown("target"), nil)
+			eq(w.shown("player"), "silver"); eq(w.shown("target"), "silver") -- (1.1.5: his own, the dev's silver)
 			local calls = 0
 			for _, tex in ipairs(w.textures) do
 				for _, m in ipairs(tex.calls) do
@@ -22615,8 +22626,8 @@ do
 					assert(m == "Show" or m == "Hide", "in combat: " .. m)
 				end
 			end
-			assert(calls >= 12, "shown and hidden in combat: " .. calls) -- (1.1.5: three tiers, 20 of six)
-			eq(#w.textures, 9, "nothing more made")
+			assert(calls >= 12, "shown and hidden in combat: " .. calls) -- (1.1.5: three tiers, 20 of six; then five)
+			eq(#w.textures, 15, "nothing more made")
 			for _, entry in ipairs(w.log) do assert(entry:find(":CreateTexture$"), entry) end
 		end, AsAuthor)
 	end)
@@ -22661,7 +22672,7 @@ do
 			"BORDERS_PREVIEW_NOT_MEMBER", "BORDERS_PREVIEW_COMBAT", "BORDERS_PREVIEW_MISSING", "BORDERS_PREVIEW_TITLE",
 			"BORDERS_PREVIEW_NONE", "BORDERS_PREVIEW_NOW", "BORDERS_PREVIEW_SHOWN", "BORDERS_PREVIEW_TIP" }
 		for name in TIER_LIST:gmatch("[^, ]+") do keys[#keys + 1] = "BORDERS_WHO_" .. name:upper():gsub("%-", "_") end
-		eq(#keys, 15, "the three tiers' too (1.1.5: six until then)")
+		eq(#keys, 17, "the five tiers' too (1.1.5: six until then, three, then the two without wings)")
 		for _, key in ipairs(keys) do
 			assert(type(ns.L[key]) == "string" and ns.L[key] ~= key, "English " .. key)
 			assert(type(pt.L[key]) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
@@ -22686,6 +22697,7 @@ do
 	local PARTY_PLAIN = BorderUnit("Plain Pip", "Olympus Zeus", "Member", 5) -- (a member of an Olympus guild, nothing more)
 	local GOLD_WINGED = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged"
 	local SILVER_WINGED = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged"
+	local SILVER_PLAIN = "ui-hud-unitframe-target-portraiton-boss-rare-silver"
 	local MEDIA = "Interface\\AddOns\\Olympus\\media\\borders\\"
 
 	local function Party(w, a, b, c, d) w.units.party1, w.units.party2, w.units.party3, w.units.party4 = a, b, c, d end
@@ -22719,6 +22731,7 @@ do
 			-- (The client's sizes of the game's atlases: the gold wings' 110 x 90, the size Max drew his
 			-- bronze over at twice; the silver wings' a stand-in, whatever the client gives is used.)
 			w.atlasSize[GOLD_WINGED], w.atlasSize[SILVER_WINGED] = { width = 110, height = 90 }, { width = 100, height = 80 }
+			w.atlasSize[SILVER_PLAIN] = { width = 100, height = 100 }
 			w.party()
 			Party(w, PARTY_KING, PARTY_COUNCILLOR, PARTY_MASTER, PARTY_PLAIN)
 			w.internal("LOGIN")
@@ -22730,8 +22743,9 @@ do
 			-- The target frame and your own frame as ever.
 			w.target(PARTY_MASTER)
 			eq(w.shown("target"), "bronze-elite"); eq(w.shown("player"), nil)
-			-- Three textures on each member frame itself (it has no container), as on the target's.
-			eq(#w.textures, 21, "three borders on the target, the focus, your own and the four party frames")
+			-- Five textures on each member frame itself (it has no container), as on the target's (1.1.5:
+			-- three, then the two without wings).
+			eq(#w.textures, 35, "five borders (1.1.5: three, then the two without wings) on the target, the focus, your own and the four party frames")
 			local seen = {}
 			local regions = w.partyRegions
 			for _, tex in ipairs(w.textures) do
@@ -22756,6 +22770,11 @@ do
 				{ "gold-elite", "atlas " .. GOLD_WINGED, 70.172, 57.414, -16.603, 3.569, "1 0 0 1" },
 				{ "silver-elite", "atlas " .. SILVER_WINGED, 63.793, 51.034, -14.690, 1.655, "1 0 0 1" },
 				{ "bronze-elite", "file " .. MEDIA .. "bronze-winged", 70.172, 57.414, -16.603, 3.569, "0.859375 0 0 0.703125" },
+				-- (1.1.5, without wings: the target's (0, 1) puts the art 26 px right of and 20 px above its
+				-- portrait's top right, so 16.59 and 12.76 px at 37/58: -9.59, 6.76. The silver at the size the
+				-- client gives it (a stand-in here), Max's plain bronze at its tier's 100 x 100.)
+				{ "silver", "atlas " .. SILVER_PLAIN, 63.793, 63.793, -9.586, 6.759, "1 0 0 1" },
+				{ "bronze", "file " .. MEDIA .. "bronze-plain", 63.793, 63.793, -9.586, 6.759, "0.78125 0 0 0.78125" },
 			}
 			for k = 1, 4 do
 				local label = "PartyMember#" .. k
@@ -22777,11 +22796,11 @@ do
 						and tex.at.y > box.y - box.height and tex.at.y - tex.dims[2] < box.y, name .. " reaches the name's box")
 				end
 			end
-			-- The game's frames: CreateTexture alone, three on each member frame; one hook more, on PartyFrame.
+			-- The game's frames: CreateTexture alone, five on each member frame; one hook more, on PartyFrame.
 			local made = {}
 			for _, entry in ipairs(w.log) do made[entry] = (made[entry] or 0) + 1 end
 			OnlyCreateTexture(w)
-			for k = 1, 4 do eq(made["PartyMember#" .. k .. ":CreateTexture"], 3) end
+			for k = 1, 4 do eq(made["PartyMember#" .. k .. ":CreateTexture"], 5) end
 			eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification PartyFrame.InitializePartyMemberFrames")
 			assert(w.B.StatusLine():find("player -, party1 gold-elite, party2 silver-elite, party3 bronze-elite, party4 -", 1, true), w.B.StatusLine())
 		end)
@@ -22832,7 +22851,7 @@ do
 			local n = w.computed()
 			w.fire("GROUP_ROSTER_UPDATE")
 			eq(w.computed(), n, "empty places again: nothing worked out")
-			eq(#w.textures, 21, "nothing made after the first: three on each frame")
+			eq(#w.textures, 35, "nothing made after the first: five on each frame")
 			-- Only the guilds of the members looked at were ever looked up.
 			local theirs = { ["Olympus Zeus"] = true, ["OLYMPUS"] = true, ["Olympus II"] = true }
 			for _, k in ipairs(looked) do assert(theirs[k], "looked up " .. tostring(k)) end
@@ -22861,7 +22880,7 @@ do
 			eq(w.shownOn("PartyMember#2"), nil, "now the plain member's")
 			eq(PartyLine(w), "gold-elite silver-elite bronze-elite -")
 			eq(w.computed(), n, "nobody worked out again: the same members in the same places")
-			eq(#w.textures, 21, "no texture more")
+			eq(#w.textures, 35, "no texture more")
 			-- Another order, then the first again.
 			w.partyOrder = { 2, 4, 1, 3 }
 			PartyFrame:InitializePartyMemberFrames()
@@ -22927,7 +22946,7 @@ do
 			eq(w.shownOn("PartyMember#1"), nil, "not the one he showed on before")
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
 			eq(PartyLine(w), "gold-elite - - -")
-			eq(#w.textures, 21, "nothing made again")
+			eq(#w.textures, 35, "nothing made again")
 		end)
 	end)
 
@@ -22998,7 +23017,7 @@ do
 				end
 			end
 			assert(calls >= 10, "shown and hidden in combat: " .. calls)
-			eq(#w.textures, 21, "nothing made in combat")
+			eq(#w.textures, 35, "nothing made in combat")
 			OnlyCreateTexture(w)
 		end)
 		-- Logged in (or reloaded) in combat, in a party: nothing made, no hook, until it ends.
@@ -23012,25 +23031,25 @@ do
 			eq(#w.log, 0, "nothing made in combat"); eq(#w.hooks, 0); eq(#w.textures, 0)
 			w.combat = false
 			w.fire("PLAYER_REGEN_ENABLED")
-			eq(#w.textures, 21); eq(PartyLine(w), "gold-elite silver-elite - -", "made once combat ended, and shown")
+			eq(#w.textures, 35); eq(PartyLine(w), "gold-elite silver-elite - -", "made once combat ended, and shown")
 		end)
 		-- PartyFrame not shown yet at login (no member frame handed out), then first shown in combat.
 		WithBorders(function(w)
 			w.party(false)
 			Party(w, PARTY_MASTER)
 			w.internal("LOGIN")
-			eq(#w.textures, 9, "the target's, the focus's and yours: no member frame yet")
+			eq(#w.textures, 15, "the target's, the focus's and yours: no member frame yet")
 			eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification PartyFrame.InitializePartyMemberFrames",
 				"PartyFrame's hook, to see them come")
 			w.combat = true
 			PartyFrame:InitializePartyMemberFrames()
 			w.fire("GROUP_ROSTER_UPDATE")
-			eq(#w.textures, 9, "none made in combat"); eq(w.shown("party1"), nil)
+			eq(#w.textures, 15, "none made in combat"); eq(w.shown("party1"), nil)
 			w.fire("PLAYER_REGEN_ENABLED")
-			eq(#w.textures, 9, "still in combat")
+			eq(#w.textures, 15, "still in combat")
 			w.combat = false
 			w.fire("PLAYER_REGEN_ENABLED")
-			eq(#w.textures, 21); eq(w.shown("party1"), "bronze-elite", "made once combat ended, and shown")
+			eq(#w.textures, 35); eq(w.shown("party1"), "bronze-elite", "made once combat ended, and shown")
 			-- Nothing waits any more: the next fight's end works nothing out again.
 			local n = w.computed()
 			w.combat = true; w.combat = false
@@ -23052,7 +23071,7 @@ do
 			-- To mouse and keyboard: made and shown.
 			w.style = 0
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-			eq(#w.textures, 21); eq(#w.hooks, 3); eq(PartyLine(w), "gold-elite silver-elite bronze-elite -")
+			eq(#w.textures, 35); eq(#w.hooks, 3); eq(PartyLine(w), "gold-elite silver-elite bronze-elite -")
 			-- Back to the gamepad UI: hidden at once; the roster, PartyFrame's hook, names and the census
 			-- call nothing on them and work nothing out.
 			w.style = 1
@@ -23185,7 +23204,7 @@ do
 			Party(w, PARTY_MASTER)
 			w.internal("LOGIN")
 			w.fire("GROUP_ROSTER_UPDATE")
-			eq(#w.textures, 9); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
+			eq(#w.textures, 15); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
 			eq(w.shown("party1"), nil)
 			assert(w.B.StatusLine():find("target -, focus -, player -  |", 1, true), w.B.StatusLine())
 			OnlyCreateTexture(w)
@@ -23244,6 +23263,583 @@ local function ReadFile(path)
 	local data = f:read("*a")
 	f:close()
 	return data
+end
+
+---------------------------------------------------------------------------
+-- 1.1.5 (the author's asks, after the High Council's yes): the guild masters' nominees
+-- (Nominees.lua). The guild master of an Olympus guild names up to 10 centurions and one
+-- correspondent per High Council department, members of his own guild, as the King names his
+-- Hands (his client sends the list, every client takes it from that guild's master alone, kept
+-- while fresh); each wears Max's bronze without wings while the server gives him that guild. And
+-- the dev's own plain silver (ns.AUTHOR on his realm group). Made-up names, but ns.AUTHOR, the
+-- character the dev's silver is for (by the constant, never written out here).
+---------------------------------------------------------------------------
+do
+	local N = ns.Nominees
+	local OURS, THEIRS = "Olympus II", "Olympus Zeus"
+	local MASTER = "Boss Hammer-Realm" -- our guild's master, as our roster gives him
+	local CENTURIONS = { "Ada", "Bea", "Cid", "Dax", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jon", "Kit" } -- (eleven)
+	local OTHERS = { "Lux", "Mia", "Ned", "Ora", "Pam", "Nemo" } -- (more members of our guild)
+	local MEDIA = "Interface\\AddOns\\Olympus\\media\\borders\\"
+	-- The High Council's signed titles list: its unnamed part, then seven named departments (one more
+	-- than the six the correspondents take).
+	local DEPTS = {}
+	for _, d in ipairs({ "", "Events", "Lore", "Trade", "War", "Craft", "Watch", "Seventh" }) do DEPTS[#DEPTS + 1] = { name = d, members = {} } end
+	local function Msg(guild, rev, body, i, n) return ("NM~1~%s~%d~%d~%d~%s"):format(guild, rev, i or 1, n or 1, body) end
+
+	local function WithNominees(fn)
+		local saved = { me = ns.me, Now = ns.Now, Send = ns.Comm.Send, Guild = GetGuildInfo, Print = ns.Print, After = ns.After, Log = ns.Log,
+			Fire = ns.Fire, Show = StaticPopup_Show, guilds = ns.rdb.guilds, nominees = ns.rdb.nominees, titles = ns.rdb.councilTitles,
+			byName = ns.Roster.byName, rguild = ns.Roster.guild, stats = ns.Roster.lastStats, loginAt = ns.Comm.loginAt,
+			isPlayer = UnitIsPlayer, unitFull = UnitFullName }
+		local w = { sent = {}, printed = {}, popups = {}, logged = {}, timers = {}, clock = 1800000000, changed = 0 }
+		local ok, err = pcall(function()
+			N.Reset()
+			ns.rdb.nominees = nil
+			ns.Now = function() return w.clock end
+			ns.Comm.Send = function(dist, msg, key) w.sent[#w.sent + 1] = { dist = dist, msg = msg, key = key } end
+			ns.Print = function(m) w.printed[#w.printed + 1] = tostring(m) end
+			ns.Log = function(fmt, ...) w.logged[#w.logged + 1] = select("#", ...) > 0 and fmt:format(...) or fmt end
+			ns.After = function(_, _, f) w.timers[#w.timers + 1] = f end
+			ns.Fire = function(e) if e == "DATA_CHANGED" then w.changed = w.changed + 1 end end
+			StaticPopup_Show = function(name, a, b, data) w.popups[#w.popups + 1] = { name = name, a = a, b = b, data = data } end
+			UnitIsPlayer = function(u) return u == "target" and w.target ~= nil end
+			UnitFullName = function(u) if u == "target" and w.target then return w.target, "Realm" end return "Tester", "Realm" end
+			ns.rdb.councilTitles = { depts = DEPTS }
+			-- Another Olympus guild's census: <Olympus Zeus>'s master Zeusy, two senders naming him.
+			ns.rdb.guilds = { [THEIRS] = Vouched({ guild = THEIRS, leader = "Zeusy", officers = { { name = "Capt" } }, realm = "Realm", t = w.clock },
+				"W1-Realm", "W2-Realm") }
+			ns.Comm.loginAt = w.clock - ns.Data.CROWN_AFTER - 1
+			-- Our roster (the server's word): the guild master, an officer, the members.
+			local byName = { [MASTER] = 0, ["Pip Officer-Realm"] = 1 }
+			for _, n in ipairs(CENTURIONS) do byName[n .. "-Realm"] = 3 end
+			for _, n in ipairs(OTHERS) do byName[n .. "-Realm"] = 3 end
+			ns.Roster.byName, ns.Roster.guild, ns.Roster.lastStats = byName, OURS, { leader = "Boss Hammer" }
+			w.as = function(me, rank) ns.me = me; GetGuildInfo = function() return OURS, rank == 0 and "Zeus" or "Member", rank end end
+			w.flush = function() local due = w.timers; w.timers = {}; for _, f in ipairs(due) do f() end end
+			w.parts = function()
+				local out = {}
+				for _, s in ipairs(w.sent) do if s.msg:find("^NM~") then out[#out + 1] = s.msg end end
+				return out
+			end
+			fn(w)
+		end)
+		ns.me, ns.Now, ns.Comm.Send, GetGuildInfo, ns.Print, ns.After, ns.Log = saved.me, saved.Now, saved.Send, saved.Guild, saved.Print, saved.After, saved.Log
+		ns.Fire, StaticPopup_Show, ns.rdb.guilds, ns.rdb.nominees, ns.rdb.councilTitles = saved.Fire, saved.Show, saved.guilds, saved.nominees, saved.titles
+		ns.Roster.byName, ns.Roster.guild, ns.Roster.lastStats, ns.Comm.loginAt = saved.byName, saved.rguild, saved.stats, saved.loginAt
+		UnitIsPlayer, UnitFullName = saved.isPlayer, saved.unitFull
+		N.Reset()
+		if not ok then error(err, 0) end
+	end
+
+	test("1.1.5 nominees: a guild master names up to 10 centurions and one correspondent per High Council department (6 at most), members of his own guild alone; the 11th centurion, a second correspondent for a department, one name twice, himself and anyone outside his roster refused, each with its reason", function()
+		WithNominees(function(w)
+			local L = ns.L
+			w.as(MASTER, 0)
+			eq(N.IsMaster(), true)
+			eq(N.MAX_CENTURIONS, 10); eq(N.MAX_DEPTS, 6); eq(N.MAX, 16)
+			-- The correspondents' departments: the signed list's named ones, in its order, six at most.
+			eq(table.concat(N.Departments(), ","), "Events,Lore,Trade,War,Craft,Watch")
+			for i = 1, 10 do eq(N.Name("centurion", CENTURIONS[i]), true, CENTURIONS[i]) end
+			eq(w.printed[#w.printed], L.NOMINEES_ADDED:format("Jon", L.NOMINEE_ROLE_CENTURION))
+			-- The 11th: refused, saying why; nothing kept.
+			eq(N.Name("centurion", "Kit"), false, "an 11th centurion")
+			eq(w.printed[#w.printed], L.NOMINEES_FULL:format(10))
+			eq(N.RoleOf("Kit-Realm", OURS), nil)
+			-- Anyone outside his roster, himself, someone named already (whatever the case), a name that
+			-- can't be a character's: refused.
+			eq(N.Name("correspondent", "Stranger", "Events"), false, "not of his guild")
+			eq(w.printed[#w.printed], L.NOMINEES_NOT_MEMBER:format("Stranger"))
+			eq(N.Name("centurion", "Boss Hammer"), false); eq(w.printed[#w.printed], L.NOMINEES_SELF)
+			eq(N.Name("correspondent", "ada", "Events"), false, "one title each")
+			eq(w.printed[#w.printed], L.NOMINEES_ALREADY:format("Ada", L.NOMINEE_ROLE_CENTURION))
+			eq(N.Name("centurion", "Bad|cffff0000Name"), false, "no free text for a name"); eq(w.printed[#w.printed], L.NOMINEES_WHO)
+			-- One correspondent per department (its name whatever the case); none past the six.
+			eq(N.Name("correspondent", "Kit", "events"), true)
+			local role, dept = N.RoleOf("Kit-Realm", OURS)
+			eq(role, "correspondent"); eq(dept, "Events")
+			eq(w.printed[#w.printed], L.NOMINEES_ADDED:format("Kit", L.NOMINEE_ROLE_CORRESPONDENT:format("Events")))
+			eq(N.Name("correspondent", "Nemo", "Events"), false, "a second for a department")
+			eq(w.printed[#w.printed], L.NOMINEES_DEPT_TAKEN:format("Events", "Kit"))
+			eq(N.Name("correspondent", "Nemo", "Seventh"), false, "a seventh department")
+			eq(w.printed[#w.printed], L.NOMINEES_NO_DEPT:format("Seventh"))
+			local depts = N.Departments()
+			for i = 2, 6 do eq(N.Name("correspondent", OTHERS[i - 1], depts[i]), true, depts[i]) end
+			eq(N.Count(), 16, "16 at most: 10 and 6")
+			-- Kept across sessions, under his character, for the guild he leads.
+			eq(ns.rdb.nominees[MASTER].guild, OURS); eq(#ns.rdb.nominees[MASTER].list, 16)
+			-- He takes a title back (by name, any case): the 11th fits then.
+			eq(N.Remove("ada"), true)
+			eq(w.printed[#w.printed], L.NOMINEES_REMOVED:format("Ada", L.NOMINEE_ROLE_CENTURION))
+			eq(N.RoleOf("Ada-Realm", OURS), nil)
+			eq(N.Name("centurion", "Nemo"), true, "room again")
+			eq(N.Remove("Nobody"), false); eq(w.printed[#w.printed], L.NOMINEES_NOT_NAMED:format("Nobody"))
+			-- No name typed: his target.
+			N.Remove("Nemo")
+			w.target = "Ada"
+			eq(N.Name("centurion", ""), true, "his target"); eq(N.RoleOf("Ada-Realm", OURS), "centurion")
+			w.target = nil
+			-- Anyone but a guild master: nothing named or taken back; no section.
+			w.as("Nemo-Realm", 3)
+			eq(N.IsMaster(), false)
+			eq(N.Name("centurion", "Bea"), false); eq(w.printed[#w.printed], L.NOMINEES_ONLY_MASTER)
+			eq(N.Remove("Bea"), false); eq(w.printed[#w.printed], L.NOMINEES_ONLY_MASTER)
+			eq(N.Ours(), nil); eq(N.Count(), 0)
+			w.as("Pip Officer-Realm", 1)
+			eq(N.Name("centurion", "Bea"), false, "an officer neither")
+		end)
+	end)
+
+	test("1.1.5 nominees: /oly nominees opens the guild master's section; centurion <name>, correspondent <department number> <name> and remove <name> from the chat; anyone else is told it is the guild master's; in /oly help", function()
+		WithNominees(function(w)
+			local L = ns.L
+			w.as(MASTER, 0)
+			SlashCmdList.OLYMPUS("nominees")
+			eq(ns.Members.Filter(), "nominees", "his section")
+			SlashCmdList.OLYMPUS("nominees centurion Ada")
+			eq(N.RoleOf("Ada-Realm", OURS), "centurion")
+			SlashCmdList.OLYMPUS("nominees correspondent 2 Bea")
+			eq(select(2, N.RoleOf("Bea-Realm", OURS)), "Lore", "the second department")
+			SlashCmdList.OLYMPUS("nominees correspondent 9 Cid")
+			eq(w.printed[#w.printed], L.NOMINEES_DEPTS:format("1 Events, 2 Lore, 3 Trade, 4 War, 5 Craft, 6 Watch"), "which numbers")
+			eq(N.RoleOf("Cid-Realm", OURS), nil)
+			SlashCmdList.OLYMPUS("nominees remove Bea")
+			eq(N.RoleOf("Bea-Realm", OURS), nil)
+			SlashCmdList.OLYMPUS("nominees what")
+			eq(w.printed[#w.printed], L.NOMINEES_USAGE)
+			ns.Members.Close()
+			w.as("Nemo-Realm", 3)
+			SlashCmdList.OLYMPUS("nominees")
+			eq(w.printed[#w.printed], L.NOMINEES_ONLY_MASTER); eq(ns.Members.Filter(), nil, "no section for him")
+			SlashCmdList.OLYMPUS("nominees centurion Cid")
+			eq(w.printed[#w.printed], L.NOMINEES_ONLY_MASTER)
+			local savedPrint, lines = print, {}
+			print = function(m) lines[#lines + 1] = tostring(m) end
+			local ok, err = pcall(SlashCmdList.OLYMPUS, "help")
+			print = savedPrint
+			if not ok then error(err, 0) end
+			local listed = false
+			for _, l in ipairs(lines) do if l == L.HELP_NOMINEES then listed = true end end
+			assert(listed, "in /oly help")
+		end)
+	end)
+
+	test("1.1.5 nominees: his client alone sends his list (a few seconds after a change, then every 5 minutes), versioned, each part one addon message; every client takes it from that guild's master alone (our roster, or the census's two senders): a list from anyone else is refused and never replaces his", function()
+		WithNominees(function(w)
+			local L = ns.L
+			w.as(MASTER, 0)
+			eq(N.Send(true), false, "nobody named yet: nothing sent")
+			N.Name("centurion", "Ada"); N.Name("centurion", "Bea"); N.Name("correspondent", "Cid", "Lore")
+			eq(#w.parts(), 0, "not at once"); eq(#w.timers, 1, "several changes in a row: one list")
+			w.flush()
+			local rev = ns.rdb.nominees[MASTER].rev
+			local parts = w.parts()
+			eq(#parts, 1); eq(parts[1], Msg(OURS, rev, "c=Ada;c=Bea;d=Lore=Cid"))
+			eq(w.sent[#w.sent].dist, "CHANNEL")
+			-- Again for late logins: every EVERY seconds, not sooner.
+			eq(N.Send(), false, "not again so soon")
+			w.clock = w.clock + N.EVERY
+			eq(N.Send(), true); eq(#w.parts(), 2)
+			-- A member of our guild: our roster names the sender our guild master: taken; told he is named.
+			w.as("Ada-Realm", 3)
+			N.Handle("CHANNEL", MASTER, parts[1])
+			eq(N.RoleOf("Bea-Realm", OURS), "centurion"); eq(N.RoleOf("Cid", OURS), "correspondent")
+			eq(w.printed[#w.printed], L.NOMINEES_YOU:format("Boss Hammer", L.NOMINEE_ROLE_CENTURION, OURS))
+			local told = #w.printed
+			N.Handle("CHANNEL", MASTER, parts[1])
+			eq(#w.printed, told, "a repeat: nothing to tell")
+			-- Forged: from anyone else of our guild (an officer too), our master's name on another realm,
+			-- or our guild spelled another way: nothing taken, his list kept.
+			for _, forged in ipairs({ { "Nemo-Realm", OURS }, { "Pip Officer-Realm", OURS }, { "Boss Hammer-Other", OURS }, { MASTER, "OLYMPUS II" } }) do
+				N.Handle("CHANNEL", forged[1], Msg(forged[2], rev + 5, "c=Nemo;c=Mallory"))
+				eq(N.RoleOf("Nemo-Realm", forged[2]), nil, forged[1] .. " for <" .. forged[2] .. ">")
+				eq(N.RoleOf("Bea-Realm", OURS), "centurion", "the real list kept")
+			end
+			-- Another guild's: its master as its census proves him (two senders naming him), a long list in parts.
+			local long = {}
+			for i = 1, 10 do long[i] = { role = "centurion", name = "Farcenturion" .. ("abcdefghij"):sub(i, i) .. " Longsurnamehere-Farawayrealm" } end
+			for i, d in ipairs(N.Departments()) do long[#long + 1] = { role = "correspondent", dept = d, name = "Farwriter" .. ("abcdef"):sub(i, i) .. " Longsurnamehere-Farawayrealm" } end
+			local many = N.Parts(THEIRS, w.clock, long)
+			assert(#many > 1, "in parts")
+			for _, p in ipairs(many) do assert(#p <= N.PART, "one addon message: " .. #p) end
+			for i = 1, #many - 1 do N.Handle("CHANNEL", "Zeusy-Realm", many[i]) end
+			eq(N.ListOf(THEIRS), nil, "not before its last part")
+			N.Handle("CHANNEL", "Zeusy-Realm", many[#many])
+			eq(#N.ListOf(THEIRS).entries, 16, "read back whole")
+			eq(N.RoleOf("Farcenturionj Longsurnamehere-Farawayrealm", THEIRS), "centurion")
+			eq(select(2, N.RoleOf("Farwriterf Longsurnamehere-Farawayrealm", THEIRS)), "Watch")
+			eq(N.RoleOf("Farcenturionj Longsurnamehere-Farawayrealm", OURS), nil, "in that guild alone")
+			-- /oly status: the lists held, each with its master.
+			local status = N.StatusLine()
+			assert(status:find("^<Olympus II> 3 by Boss Hammer %(heard ") and status:find(", <Olympus Zeus> 16 by Zeusy (heard ", 1, true), status)
+			-- Its officer, or a guild master one report alone names (his own): refused.
+			N.Handle("CHANNEL", "Capt-Realm", Msg(THEIRS, w.clock + 1, "c=Capt"))
+			eq(N.RoleOf("Capt-Realm", THEIRS), nil, "its officer")
+			ns.rdb.guilds["Olympus Three"] = Vouched({ guild = "Olympus Three", leader = "Selfmade", officers = {}, realm = "Realm", t = w.clock }, "Selfmade-Realm")
+			N.Handle("CHANNEL", "Selfmade-Realm", Msg("Olympus Three", w.clock, "c=Pal"))
+			eq(N.RoleOf("Pal-Realm", "Olympus Three"), nil, "his own report alone")
+			-- What can't be a list: another version's (a later one may change it), a guild that is not
+			-- Olympus, more parts than a list has, a part past its count, more than one message.
+			N.Handle("CHANNEL", MASTER, ("NM~2~%s~%d~1~1~c=Nemo"):format(OURS, rev + 9))
+			N.Handle("CHANNEL", MASTER, Msg("Stormwind Traders", rev + 9, "c=Nemo"))
+			N.Handle("CHANNEL", MASTER, Msg(OURS, rev + 9, "c=Nemo", 1, 17))
+			N.Handle("CHANNEL", MASTER, Msg(OURS, rev + 9, "c=Nemo", 2, 1))
+			N.Handle("CHANNEL", MASTER, Msg(OURS, rev + 9, "c=Nemo;" .. ("c=Ned;"):rep(50)))
+			N.Handle("GUILD", MASTER, Msg(OURS, rev + 9, "c=Nemo"))
+			eq(N.RoleOf("Nemo-Realm", OURS), nil, "none of those taken")
+			eq(N.RoleOf("Bea-Realm", OURS), "centurion")
+			-- What a proven list may name: 10 centurions and 6 departments at most (the first ones), each
+			-- name once, an older list never over a newer one.
+			local c, d = {}, {}
+			for i = 1, 11 do c[i] = "c=" .. CENTURIONS[i] end
+			c[#c + 1] = "c=Ada"
+			for i = 1, 7 do d[i] = ("d=Dept%s=%s"):format(("abcdefg"):sub(i, i), OTHERS[i] or "Zed") end
+			N.Handle("CHANNEL", MASTER, Msg(OURS, rev + 10, table.concat(c, ";"), 1, 2))
+			N.Handle("CHANNEL", MASTER, Msg(OURS, rev + 10, table.concat(d, ";"), 2, 2))
+			local l = N.ListOf(OURS)
+			eq(#l.entries, 16, "10 and 6")
+			eq(N.RoleOf("Kit-Realm", OURS), nil, "the 11th centurion left out")
+			eq(N.RoleOf("Zed-Realm", OURS), nil, "the 7th department left out")
+			N.Handle("CHANNEL", MASTER, parts[1])
+			eq(#N.ListOf(OURS).entries, 16, "his older list, late: not taken")
+		end)
+	end)
+
+	test("1.1.5 nominees: a list ends when its sender is no longer that guild's master (our roster; another guild's census proving another), when he stops repeating it, or when it names nobody; the new guild master's is taken", function()
+		WithNominees(function(w)
+			local L = ns.L
+			w.as("Ada-Realm", 3)
+			N.Handle("CHANNEL", MASTER, Msg(OURS, w.clock, "c=Ada;c=Bea"))
+			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, w.clock, "c=Zed"))
+			eq(N.RoleOf("Bea-Realm", OURS), "centurion"); eq(N.RoleOf("Zed-Realm", THEIRS), "centurion")
+			eq(N.Prune(), false, "nothing changed: both kept")
+			-- Our roster: he hands the guild over (an officer now, Nemo its master). (A new table, as
+			-- Roster.Scan makes one at each scan.)
+			local scan = {}
+			for k, v in pairs(ns.Roster.byName) do scan[k] = v end
+			scan[MASTER], scan["Nemo-Realm"] = 1, 0
+			ns.Roster.byName = scan
+			eq(N.Prune(), true)
+			eq(N.RoleOf("Bea-Realm", OURS), nil, "his list ends with him")
+			N.Handle("CHANNEL", MASTER, Msg(OURS, w.clock + 1, "c=Bea"))
+			eq(N.RoleOf("Bea-Realm", OURS), nil, "and he can't send it again")
+			N.Handle("CHANNEL", "Nemo-Realm", Msg(OURS, w.clock + 1, "c=Bea"))
+			eq(N.RoleOf("Bea-Realm", OURS), "centurion", "the new guild master's")
+			-- Another guild: its census now proves another master.
+			ns.rdb.guilds[THEIRS] = Vouched({ guild = THEIRS, leader = "Newboss", officers = { { name = "Zeusy" } }, realm = "Realm", t = w.clock },
+				"W1-Realm", "W2-Realm")
+			eq(N.Prune(), true)
+			eq(N.RoleOf("Zed-Realm", THEIRS), nil, "dropped")
+			-- He stopped repeating it (logged off): it lasts FRESH, then ends.
+			w.clock = w.clock + N.FRESH
+			eq(N.RoleOf("Bea-Realm", OURS), "centurion", "still fresh")
+			w.clock = w.clock + 1
+			eq(N.RoleOf("Bea-Realm", OURS), nil, "gone quiet")
+			-- A new list naming nobody: dropped at once; the one no longer named is told.
+			N.Handle("CHANNEL", "Nemo-Realm", Msg(OURS, w.clock, "c=Ada"))
+			eq(w.printed[#w.printed], L.NOMINEES_YOU:format("Nemo", L.NOMINEE_ROLE_CENTURION, OURS))
+			N.Handle("CHANNEL", "Nemo-Realm", Msg(OURS, w.clock + 1, ""))
+			eq(N.ListOf(OURS), nil)
+			eq(w.printed[#w.printed], L.NOMINEES_NO_LONGER:format(L.NOMINEE_ROLE_CENTURION, OURS))
+			-- His own client: named, then all taken back, the empty list goes out (everyone drops his).
+			w.as(MASTER, 0)
+			ns.Roster.byName[MASTER], ns.Roster.byName["Nemo-Realm"] = 0, 3
+			N.Name("centurion", "Ada"); w.flush()
+			N.Remove("Ada"); w.flush()
+			eq(w.parts()[#w.parts()], Msg(OURS, ns.rdb.nominees[MASTER].rev, ""), "the empty list")
+		end)
+	end)
+
+	test("1.1.5 nominees: clients before 1.1.5 leave NM unread (no handler: nothing counted bad, nothing logged); NM is Nominees.lua's alone", function()
+		local ci = C_ChatInfo
+		local ok, err = pcall(function()
+			for _, old in ipairs({ false, true }) do
+				local cns, Deliver = FreshComm(old)
+				local logs = {}
+				cns.Log = function(fmt, ...) logs[#logs + 1] = fmt:format(...) end
+				Deliver("CHANNEL", MASTER, Msg(OURS, 1800000000, "c=Ada;d=Lore=Bea"))
+				local st = cns.Comm.Stats()
+				eq(st.recv, 1, "heard"); eq(st.bad, 0, "not a broken census report"); eq(st.partial, 0)
+				eq(#logs, 0, "nothing logged")
+			end
+		end)
+		C_ChatInfo = ci
+		if not ok then error(err, 0) end
+		local comm = assert(ReadFile(ADDON_DIR .. "Comm.lua"))
+		assert(comm:find("Nominees NM", 1, true), "in Comm.lua's list")
+	end)
+
+	test("1.1.5 nominees' border: Max's bronze without wings round a nominee's portrait (target, focus, the party, your own) while the server gives him the guild whose master named him; the bronze mark on his nameplate and in the game's chat; nobody can borrow it; gone with his title", function()
+		local savedRoster = ns.Roster.byName
+		N.Reset()
+		local ok, err = pcall(WithBorders, function(w)
+			-- Our own guild's master (our roster), and Zeusy, <Olympus Zeus>'s (its census).
+			ns.Roster.byName = { [MASTER] = 0, ["Tester-Realm"] = 2, ["Ada-Realm"] = 3 }
+			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now(), "c=Ada;d=Lore=Bea"))
+			N.Handle("CHANNEL", MASTER, Msg(OURS, ns.Now(), "c=Tester;c=Ada"))
+			w.party()
+			w.units.party1 = BorderUnit("Ada", THEIRS, "Member", 4)
+			w.internal("LOGIN")
+			eq(w.shown("party1"), "bronze", "a centurion in the party")
+			eq(w.shown("player"), "bronze", "your own: your guild master named you")
+			w.target(BorderUnit("Bea", THEIRS, "Member", 4))
+			eq(w.shown("target"), "bronze", "a correspondent")
+			local tex = w.shownTexture("target")
+			eq(tex.file, MEDIA .. "bronze-plain", "Max's plain bronze"); eq(tex.size, "100 100")
+			eq(tex.point, "TOPRIGHT TargetFrame.TargetFrameContainer TOPRIGHT 0 1")
+			w.units.focus = BorderUnit("Bea", THEIRS, "Member", 4)
+			w.fire("PLAYER_FOCUS_CHANGED")
+			eq(w.shown("focus"), "bronze")
+			eq(w.B.MarkOf("target"), "bronze", "the nameplate's bronze, a guild master's mark")
+			eq(w.B.MarkOfName("Bea-Realm", THEIRS), "bronze", "the game's chat: the bronze")
+			eq(w.B.MarkOfName("Ada-Realm", OURS), "bronze", "named in our guild, in our roster")
+			-- Nobody can borrow it: the same name in another guild, guildless, on another realm.
+			w.target(BorderUnit("Bea", OURS, "Member", 4))
+			eq(w.shown("target"), nil, "in another guild"); eq(w.B.MarkOf("target"), "member", "the star")
+			w.target(BorderUnit("Bea", nil, nil, nil))
+			eq(w.shown("target"), nil, "guildless"); eq(w.B.MarkOf("target"), nil)
+			w.target(BorderUnit("Bea", THEIRS, "Member", 4, { realm = "Other" }))
+			eq(w.shown("target"), nil, "a namesake on another realm")
+			eq(w.B.MarkOfName("Bea-Realm", OURS), nil, "not in our roster: no mark")
+			-- A list from its officer: nothing.
+			N.Handle("CHANNEL", "Capt-Realm", Msg(THEIRS, ns.Now() + 1, "c=Capt;c=Bea"))
+			w.target(BorderUnit("Capt", THEIRS, "Titan", 1))
+			eq(w.shown("target"), nil, "named by its officer: none")
+			-- The plain bronze's file the client can't load: the plain gold under it, without colour.
+			-- (Below, with the file's own WithBorders.)
+			-- Taken back (his master's new list without him): gone at the next refresh.
+			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now() + 1, "d=Lore=Bea"))
+			w.internal("DATA_CHANGED")
+			eq(w.shown("party1"), nil, "no longer named")
+			eq(w.shown("focus"), "bronze", "Bea still is")
+			-- Her guild master no longer its master (the census proves another): her border goes too.
+			ns.rdb.guilds[THEIRS] = Vouched({ guild = THEIRS, leader = "Newboss", officers = { { name = "Zeusy" } }, realm = "Realm", t = ns.Now() },
+				"W1-Realm", "W2-Realm")
+			N.Prune()
+			w.internal("DATA_CHANGED")
+			eq(w.shown("focus"), nil, "her master's list ended")
+			eq(w.shown("player"), "bronze", "ours still")
+			local status = ns.StatusText()
+			assert(status:find("\nnominees: <Olympus II> 2 by Boss Hammer (heard ", 1, true), status)
+		end)
+		ns.Roster.byName = savedRoster
+		N.Reset()
+		if not ok then error(err, 0) end
+		-- Max's plain bronze not loaded: the game's plain gold it was drawn over, without colour.
+		ok, err = pcall(WithBorders, function(w)
+			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now(), "c=Ada"))
+			w.noFile[MEDIA .. "bronze-plain"] = true
+			w.internal("LOGIN")
+			w.target(BorderUnit("Ada", THEIRS, "Member", 4))
+			eq(w.shown("target"), "bronze")
+			local tex = w.shownTexture("target")
+			eq(tex.atlas, "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold"); eq(tex.desaturated, true)
+		end)
+		N.Reset()
+		if not ok then error(err, 0) end
+		-- The gamepad UI: none, as every border.
+		ok, err = pcall(WithBorders, function(w)
+			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now(), "c=Ada"))
+			w.style = 1
+			w.internal("LOGIN")
+			w.target(BorderUnit("Ada", THEIRS, "Member", 4))
+			eq(w.shown("target"), nil); eq(#w.textures, 0, "nothing made"); eq(#w.hooks, 0)
+			w.style = 0
+			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
+			eq(w.shown("target"), "bronze", "back with mouse and keyboard")
+		end)
+		N.Reset()
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.1.5 borders, who wins when several hold: the King, the High Council, the dev's silver, a guild master, a nominee, then the star; the dev's plain silver (ns.AUTHOR on his realm group) on unit frames alone: no nameplate or chat mark of its own", function()
+		local savedRoster = ns.Roster.byName
+		N.Reset()
+		local ok, err = pcall(WithBorders, function(w)
+			local AUTHOR_REALM = ns.AUTHOR_REALM
+			local dev = ns.AUTHOR .. "-" .. AUTHOR_REALM
+			ns.Roster.byName = { [MASTER] = 0, ["Tester-Realm"] = 2 }
+			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now(), "c=Ada;c=Zeusy;c=" .. dev))
+			w.internal("LOGIN")
+			local function Tier(unit) w.target(nil); w.target(unit) return w.shown("target"), w.B.MarkOf("target") end
+			local ada = BorderUnit("Ada", THEIRS, "Member", 4)
+			eq(Tier(ada), "bronze", "a nominee")
+			-- A guild master before a nominee (named in a list of his own guild's).
+			local border, mark = Tier(BorderUnit("Zeusy", THEIRS, "Zeus", 0))
+			eq(border, "bronze-elite"); eq(mark, "bronze")
+			-- The High Council before a nominee.
+			ns.rdb.council.names["ada"] = true
+			border, mark = Tier(ada)
+			eq(border, "silver-elite"); eq(mark, "silver")
+			ns.rdb.council.names["ada"] = nil
+			-- The dev: his plain silver, in any guild or none, before a guild master and a nominee; his
+			-- nameplate and chat mark what they would be without it.
+			border, mark = Tier(BorderUnit(ns.AUTHOR, "Stormwind Traders", "Member", 3, { realm = AUTHOR_REALM }))
+			eq(border, "silver", "the dev, in no Olympus guild"); eq(mark, nil, "no mark of its own")
+			border, mark = Tier(BorderUnit(ns.AUTHOR, OURS, "Member", 3, { realm = AUTHOR_REALM }))
+			eq(border, "silver"); eq(mark, "member", "an Olympus member's star, as without it")
+			border, mark = Tier(BorderUnit(ns.AUTHOR, THEIRS, "Member", 3, { realm = AUTHOR_REALM }))
+			eq(border, "silver", "before a nominee's bronze"); eq(mark, "bronze", "a nominee's mark")
+			border, mark = Tier(BorderUnit(ns.AUTHOR, OURS, "Zeus", 0, { realm = AUTHOR_REALM }))
+			eq(border, "silver", "before a guild master's wings"); eq(mark, "bronze", "a guild master's mark")
+			eq(w.B.MarkOfName(dev, nil), nil, "the game's chat: no mark of its own")
+			-- The High Council and the King before the dev.
+			ns.rdb.council.names[ns.AUTHOR:lower()] = true
+			eq(Tier(BorderUnit(ns.AUTHOR, OURS, "Member", 3, { realm = AUTHOR_REALM })), "silver-elite")
+			ns.rdb.council.names[ns.AUTHOR:lower()] = nil
+			ns.rdb.council.names["asmongold asmongler"] = true
+			eq(Tier(BORDER_KING), "gold-elite", "the King above all")
+			ns.rdb.council.names["asmongold asmongler"] = nil
+			-- His name on another realm group: nobody's silver.
+			border, mark = Tier(BorderUnit(ns.AUTHOR, OURS, "Member", 3, { realm = "Elsewhere" }))
+			eq(border, nil); eq(mark, "member")
+			-- A plain member: the star alone.
+			border, mark = Tier(BorderUnit("Plain Pip", THEIRS, "Member", 5))
+			eq(border, nil); eq(mark, "member")
+		end)
+		ns.Roster.byName = savedRoster
+		N.Reset()
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.1.5 nominees: the guild master's section, as the King's Hands page (a title, a one-line hint, + Name a centurion (your target, or type a name), his list with a click that takes the title back, a line per department to name its correspondent, the note on how the army learns his list); his alone", function()
+		WithNominees(function(w)
+			local L, M, V = ns.L, ns.Members, ns.Views
+			local savedMembers = ns.Roster.members
+			ns.Roster.members = { { name = "Ada", raw = "Ada-Realm", rankIndex = 3, rank = "Member", days = 0, online = true, level = 60 } }
+			local ok, err = pcall(function()
+				local function Find(lines, text)
+					for i, l in ipairs(lines) do if tostring(l.text):find(text, 1, true) then return l, i end end
+				end
+				-- A member: no such filter, and its page falls back to the first.
+				w.as("Nemo-Realm", 3)
+				M.Show(7)
+				eq(Find(M.Lines(), L.NOMINEES_FILTER), nil, "a member: no section")
+				M.Show("nominees")
+				eq(Find(M.Lines(), L.NOMINEES_TITLE), nil); eq(M.Filter(), 7)
+				-- The guild master: his filter, then his section.
+				w.as(MASTER, 0)
+				M.Show(7)
+				local f = Find(M.Lines(), L.NOMINEES_FILTER)
+				assert(f and f.onClick, "his filter"); eq(f.right, V.Grey("0/16"))
+				f.onClick()
+				eq(M.Filter(), "nominees")
+				local lines = M.Lines()
+				local title, at = Find(lines, L.NOMINEES_TITLE)
+				eq(title.header, true, "the title")
+				eq(lines[at + 1].text, V.Grey(L.NOMINEES_HINT), "a one-line hint"); eq(lines[at + 1].gapAfter, true)
+				local add = lines[at + 2]
+				eq(add.text, V.Gold("+ " .. L.NOMINEES_ADD_CENTURION)); eq(add.right, V.Grey("0/10"))
+				eq(lines[at + 3].text, V.Grey(L.NOMINEES_NONE))
+				eq(L.NOMINEES_ADD_CENTURION, "Name a centurion (your target, or type a name)")
+				for _, d in ipairs(N.Departments()) do
+					local row = Find(lines, d .. ": ")
+					assert(row and row.onClick, d .. ": its line")
+					eq(row.text, d .. ": " .. V.Gold(L.NOMINEES_ADD_CORRESPONDENT))
+				end
+				eq(Find(lines, "Seventh: "), nil, "six departments")
+				-- The note last, as the Hands page's.
+				local note = L.NOMINEES_NOTE:format(N.FRESH / 3600)
+				eq(lines[#lines].text, V.Grey(note:sub(-#(lines[#lines].text) + #V.Grey(""))), "the note last")
+				assert(note:find("6 hours", 1, true), note)
+				-- Naming: + asks for a name (his target in the box), the box names.
+				add.onClick()
+				local p = w.popups[#w.popups]
+				eq(p.name, "OLYMPUS_NOMINEE"); eq(p.a, L.NOMINEE_ROLE_CENTURION); eq(p.b, OURS); eq(p.data.role, "centurion")
+				StaticPopupDialogs.OLYMPUS_NOMINEE.OnAccept({ editBox = { GetText = function() return "Ada" end } }, p.data)
+				eq(N.RoleOf("Ada-Realm", OURS), "centurion")
+				-- A department's line: its correspondent (Enter in the box).
+				Find(M.Lines(), "Lore: ").onClick()
+				p = w.popups[#w.popups]
+				eq(p.a, L.NOMINEE_ROLE_CORRESPONDENT:format("Lore")); eq(p.data.dept, "Lore")
+				local hidden = false
+				local parent = { data = p.data, Hide = function() hidden = true end }
+				StaticPopupDialogs.OLYMPUS_NOMINEE.EditBoxOnEnterPressed({ GetText = function() return "Bea" end, GetParent = function() return parent end })
+				eq(select(2, N.RoleOf("Bea-Realm", OURS)), "Lore"); eq(hidden, true)
+				lines = M.Lines()
+				eq(Find(lines, L.NOMINEES_FILTER).right, V.Grey("2/16"))
+				local row = Find(lines, "Lore: Bea")
+				assert(row, "her department's line names her")
+				local ada
+				for _, l in ipairs(lines) do if l.key == "Ada" then ada = l end end
+				assert(ada and ada.indent == 1, "his centurion under the + line")
+				eq(ada.right, nil, "in his roster")
+				-- A click takes the title back, asked first.
+				ada.onClick()
+				p = w.popups[#w.popups]
+				eq(p.name, "OLYMPUS_NOMINEE_REMOVE"); eq(p.a, "Ada"); eq(p.b, L.NOMINEE_ROLE_CENTURION); eq(p.data, "Ada-Realm")
+				StaticPopupDialogs.OLYMPUS_NOMINEE_REMOVE.OnAccept(nil, p.data)
+				eq(N.RoleOf("Ada-Realm", OURS), nil)
+				-- Full: the + line greyed, its click says why, no box. (Bea, a correspondent, refused: ten.)
+				for _, name in ipairs(CENTURIONS) do N.Name("centurion", name) end
+				lines = M.Lines()
+				add = Find(lines, L.NOMINEES_ADD_CENTURION)
+				eq(add.text, V.Grey("+ " .. L.NOMINEES_ADD_CENTURION)); eq(add.right, V.Grey("10/10"))
+				local n = #w.popups
+				add.onClick()
+				eq(#w.popups, n, "no box"); eq(w.printed[#w.printed], L.NOMINEES_FULL:format(10))
+				-- Someone who left the guild since: said so on his line.
+				ns.Roster.byName["Jon-Realm"] = nil
+				for _, l in ipairs(M.Lines()) do if l.key == "Jon" then eq(l.right, V.Grey(L.NOMINEES_NOT_IN_ROSTER)) end end
+				-- Demoted (an officer now): the section goes.
+				w.as(MASTER, 1)
+				eq(Find(M.Lines(), L.NOMINEES_TITLE), nil); eq(M.Filter(), 7)
+			end)
+			M.Close()
+			ns.Roster.members = savedMembers
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.5 nominees: with the gamepad UI the name box is Olympus's own dialog, never the game's popup", function()
+		WithUI(function()
+			LoadUI()
+			WithGamepadUI(true, function(game)
+				WithNominees(function(w)
+					w.as(MASTER, 0)
+					N.Prompt("centurion")
+					eq(#game.shown, 0, "never the game's popup"); eq(#w.popups, 0)
+					local f = ns.Dialog.Find("OLYMPUS_NOMINEE")
+					assert(f and f:IsShown() and f.editBox:IsShown(), "our dialog, with its box")
+					f.editBox:SetText("Ada")
+					f.buttons[1]:Click()
+					eq(N.RoleOf("Ada-Realm", OURS), "centurion"); eq(f:IsShown(), false)
+					N.AskRemove({ role = "centurion", name = "Ada-Realm" })
+					f = ns.Dialog.Find("OLYMPUS_NOMINEE_REMOVE")
+					assert(f and f:IsShown(), "our dialog")
+					f.buttons[1]:Click()
+					eq(N.RoleOf("Ada-Realm", OURS), nil); eq(#game.shown, 0)
+				end)
+			end)
+		end)
+	end)
+
+	test("1.1.5 nominees: their lines in English and pt-BR, with the same format codes; the letter's bronze line tells of them, the dev's silver nowhere", function()
+		local pt = { L = setmetatable({}, { __index = ns.L }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		local n = 0
+		for key, en in pairs(ns.L) do
+			if type(key) == "string" and (key:find("^NOMINEE") or key == "HELP_NOMINEES") then
+				n = n + 1
+				local br = rawget(pt.L, key)
+				assert(type(br) == "string" and br ~= en, "pt-BR: " .. key)
+				local function Codes(s) local out = {} for c in s:gmatch("%%[sd]") do out[#out + 1] = c end return table.concat(out) end
+				eq(Codes(br), Codes(en), key .. ": the same format codes")
+			end
+		end
+		assert(n >= 30, "the nominees' lines: " .. n)
+		assert(ns.L.LETTER_1_1_5:find("{bronze} guild masters and the people they name.", 1, true))
+		assert(pt.L.LETTER_1_1_5:find("{bronze} mestres de guilda e quem eles indicam.", 1, true))
+		for _, L in ipairs({ ns.L, pt.L }) do
+			for _, key in ipairs({ "LETTER_1_1_5", "BORDERS_ON", "HELP_BORDERS", "CHATMARKS_ON", "HELP_CHATMARKS", "HELP_NOMINEES" }) do
+				assert(not L[key]:lower():find("dev", 1, true) and not L[key]:find(ns.AUTHOR, 1, true), key .. ": no word of the dev's silver")
+			end
+		end
+	end)
 end
 
 test("1.0.1 borders: Max's frames ship as 256 x 256 32-bit TGAs with alpha, the art within each tier's texture coordinates; his PNGs kept, README credits him", function()
@@ -53219,6 +53815,8 @@ end)()
 
 	-- 1.1.5 (the author's call): the letter's part on the game's chat marks is a legend of who is who,
 	-- each mark drawn as the chat draws it; the locale strings stay plain text ({star} and the rest).
+	-- (1.1.5, the guild masters' nominees: the people a guild master names wear his bronze mark, so the
+	-- bronze's line became "guild masters and the people they name"; it said "guild masters".)
 	test("1.1.5 version letters: the legend of the game's chat marks draws the chat's own star and dragons in place of {star} {gold} {silver} {bronze}, in English and pt-BR; a dragon this client has no atlas for, or Borders.lua stopped by an error at load, is its name in words", function()
 		local STAR = "|TInterface\\AddOns\\Olympus\\media\\borders\\star:16:16|t"
 		local GOLD = "|A:nameplates-icon-elite-gold:16:16|a"
@@ -53250,7 +53848,7 @@ end)()
 				-- English, on the page: the marks the chat puts before names, each with who it is.
 				Lines(f.body:GetText(), { "\n\nWho is who in the game's chat\n",
 					"\n- " .. STAR .. " an Olympus member. Shows in Trade, General, say, party, raid and whispers. Not in guild chat: your guild already knows who you are.\n",
-					"\n- " .. GOLD .. " the King.\n", "\n- " .. SILVER .. " the High Council.\n", "\n- " .. BRONZE .. " guild masters.\n",
+					"\n- " .. GOLD .. " the King.\n", "\n- " .. SILVER .. " the High Council.\n", "\n- " .. BRONZE .. " guild masters and the people they name.\n",
 					"\n- The dragons show in guild chat too. Olympus lines carry no mark.\n\nGamepad\n" }, "English")
 				-- The rest as written: bullet points, from the dev.
 				assert(f.body:GetText():find("\n- For now three stay: the King, gold wings.", 1, true))
@@ -53259,7 +53857,7 @@ end)()
 				local _, br = ptns.Letters.Text("1.1.5")
 				Lines(br, { "\n\nQuem é quem no chat do jogo\n",
 					"\n- " .. STAR .. " um membro do Olympus. Aparece no Comércio, Geral, dizer, grupo, raide e sussurros. Não no chat da guilda: sua guilda já sabe quem você é.\n",
-					"\n- " .. GOLD .. " o Rei.\n", "\n- " .. SILVER .. " o High Council.\n", "\n- " .. BRONZE .. " mestres de guilda.\n",
+					"\n- " .. GOLD .. " o Rei.\n", "\n- " .. SILVER .. " o High Council.\n", "\n- " .. BRONZE .. " mestres de guilda e quem eles indicam.\n",
 					"\n- Os dragões aparecem no chat da guilda também. Linhas do Olympus não levam marca.\n\nGamepad\n" }, "pt-BR")
 				-- A letter without marks: as written.
 				eq(select(2, w.Letters.Text("1.1.4")), L.LETTER_1_1_4)
@@ -53267,14 +53865,14 @@ end)()
 				atlases["nameplates-icon-elite-silver"] = nil
 				w.Letters.Show("1.1.5")
 				Lines(f.body:GetText(), { "\n- " .. STAR .. " an Olympus member.", "\n- " .. GOLD .. " the King.\n",
-					"\n- Silver dragon: the High Council.\n", "\n- " .. BRONZE .. " guild masters.\n" }, "no silver atlas")
+					"\n- Silver dragon: the High Council.\n", "\n- " .. BRONZE .. " guild masters and the people they name.\n" }, "no silver atlas")
 				atlases["nameplates-icon-elite-gold"] = nil
 				w.Letters.Show("1.1.5")
 				Lines(f.body:GetText(), { "\n- " .. STAR .. " an Olympus member.", "\n- Gold dragon: the King.\n",
-					"\n- Silver dragon: the High Council.\n", "\n- Bronze dragon: guild masters.\n" }, "no dragon atlas")
+					"\n- Silver dragon: the High Council.\n", "\n- Bronze dragon: guild masters and the people they name.\n" }, "no dragon atlas")
 				eq(f.body:GetText():find("|A:", 1, true), nil, "no atlas code left")
 				Lines(select(2, ptns.Letters.Text("1.1.5")), { "\n- " .. STAR .. " um membro do Olympus.", "\n- Dragão dourado: o Rei.\n",
-					"\n- Dragão prateado: o High Council.\n", "\n- Dragão de bronze: mestres de guilda.\n" }, "pt-BR, no dragon atlas")
+					"\n- Dragão prateado: o High Council.\n", "\n- Dragão de bronze: mestres de guilda e quem eles indicam.\n" }, "pt-BR, no dragon atlas")
 				-- Borders.lua stopped by an error at load, every mark in words: before it set its table, Core.lua's
 				-- stand-in stays (as Core.lua makes it); after, its table has no legend. (Not an update without
 				-- a restart, as this test once named the stand-in: Borders.lua is in 1.1.4's file list too, so
@@ -53286,7 +53884,7 @@ end)()
 					ns.Borders = B
 					w.Letters.Show("1.1.5")
 					Lines(f.body:GetText(), { "\n- Star: an Olympus member.", "\n- Gold dragon: the King.\n", "\n- Silver dragon: the High Council.\n",
-						"\n- Bronze dragon: guild masters.\n" }, "Borders.lua stopped at load, " .. what)
+						"\n- Bronze dragon: guild masters and the people they name.\n" }, "Borders.lua stopped at load, " .. what)
 					eq(f.body:GetText():find("|", 1, true), nil, "plain text: no code at all, " .. what)
 					Lines(select(2, ptns.Letters.Text("1.1.5")), { "\n- Estrela: um membro do Olympus." }, "pt-BR, Borders.lua stopped at load, " .. what)
 				end
@@ -53370,7 +53968,8 @@ end)()
 			assert(doc:find("| `/oly letters [version]` |", 1, true), path .. ": the command")
 			assert(doc:find("**Marks in the game's own chat (1.1.5).**", 1, true), path .. ": the marks")
 			assert(doc:find("in the guild their own Olympus messages speak for (someone else's report alone proves nothing", 1, true), path .. ": what proves a mark")
-			assert(doc:find("Guild and officer chat show the dragons alone (the King's gold, a High Councillor's silver, a guild master's bronze), never the star", 1, true),
+			-- (1.1.5, the guild masters' nominees: the bronze there is also the people a guild master names.)
+			assert(doc:find("Guild and officer chat show the dragons alone (the King's gold, a High Councillor's silver, the bronze of a guild master and the people he names), never the star", 1, true),
 				path .. ": the dragons in guild chat")
 			assert(doc:find("guild and officer chat the dragons alone, never the star", 1, true), path .. ": the command's row")
 			eq(doc:find("never guild or officer chat", 1, true), nil, path .. ": nothing says no mark there")

@@ -9,6 +9,11 @@ local L = ns.L
 -- guild master of an Olympus guild Max's bronze. The rank tiers of 1.0.1 (Lords gold, Captains
 -- silver, Raiders bronze wings, Veterans bronze) are gone: new borders are to come, and one that
 -- nearly everybody has is worth nothing. Any other member: the nameplate star alone, no border.
+-- Then two without wings (1.1.5, the author's asks after the High Council's yes): Max's plain
+-- bronze for the people a guild master names (Nominees.lua: up to 10 centurions and a
+-- correspondent per council department, while they are of his guild), with a guild master's bronze
+-- mark on nameplates and in the game's chat; and the game's plain silver for the dev's own
+-- character (ns.AUTHOR on his realm group), on the unit frames alone: no mark of its own.
 --
 -- How, on Forever's unit frames (Blizzard_UnitFrame, the "Camelot" family: TargetFrameTemplate
 -- and PlayerFrame): the game draws an elite or rare creature's border with BossPortraitFrameTexture,
@@ -111,9 +116,16 @@ ns.Borders = Borders
 --            (ns.IsKingGuild); where no character is pinned, that guild's guild master
 --   council  the High Council (the signed list, ns.IsHighCouncillor), except on the King's screen
 --            while he streams
+--   dev      the dev's own character (Workshop.IsAuthorName: ns.AUTHOR on his realm group)
 --   leader   the guild master of an Olympus guild, as its census names him (Data.KnownRank, as
 --            the Crown asks it: two senders naming him, one of them someone else; our own
 --            guild's: the rank the server gives, or our roster's)
+--   nominee  a centurion or correspondent his guild master named (Nominees.RoleOf: the list his
+--            master's client sends, taken only from that guild's master as Facts proves a guild
+--            master, and dropped when he stops being it), while the server gives the unit that
+--            very guild (GetGuildInfo): nobody outside it can borrow it
+-- In that order when several hold: the King, the High Council, the dev, a guild master, a nominee
+-- (then, on nameplates and in the game's chat, the star).
 -- (1.0.1's Max's second option, ns.BORDERS_COUNCIL_GOLD, the High Council in the King's gold
 -- wings, is gone with 1.1.5: the gold is the King's alone, on the borders, the nameplates and in
 -- the game's chat, and the council's tier is the silver.)
@@ -122,22 +134,24 @@ local PLAIN = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold"
 -- Max's bronze frames, drawn over the winged and the plain gold at twice their size: 256 x 256
 -- TGAs, the art at the top left (scripts/make-borders.py makes them from media/borders/src).
 local MEDIA = "Interface\\AddOns\\Olympus\\media\\borders\\"
+-- The plain silver is the game's, by the name Forever's client knows it (its Mainline
+-- TargetFrameUtils.lua gives it to a rare elite): the plain gold's size and shape, so at its
+-- offsets (1.0.0's Captains had it). Max's plain bronze (media/borders/bronze-plain), drawn over the
+-- plain gold, at its size and offsets (1.0.0's Veterans had it).
 Borders.TIERS = {
 	{ name = "gold-elite", atlas = WINGED, x = 11, y = -4, king = true },
 	{ name = "silver-elite", atlas = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged", x = 8, y = -7,
 		council = true },
+	{ name = "silver", atlas = "ui-hud-unitframe-target-portraiton-boss-rare-silver", x = 0, y = 1, dev = true },
 	{ name = "bronze-elite", file = MEDIA .. "bronze-winged", coords = { 0, 220 / 256, 0, 180 / 256 }, width = 110, height = 90,
 		x = 11, y = -4, fallback = WINGED, leader = true },
+	{ name = "bronze", file = MEDIA .. "bronze-plain", coords = { 0, 200 / 256, 0, 200 / 256 }, width = 100, height = 100,
+		x = 0, y = 1, fallback = PLAIN, nominee = true },
 }
--- Kept for borders to come, given to nobody (1.1.5): no texture is made for them, no unit matches
--- them and the preview leaves them out. The plain gold, the plain silver (the game's, by the name
--- Forever's client knows it: its Mainline TargetFrameUtils.lua gives it to a rare elite; the plain
--- gold's size and shape, so at its offsets) and Max's plain bronze (media/borders/bronze-plain).
+-- Kept for borders to come, given to nobody (1.1.5): no texture is made for it, no unit matches it
+-- and the preview leaves it out. The plain gold.
 Borders.RESERVED = {
 	{ name = "gold", atlas = PLAIN, x = 0, y = 1 },
-	{ name = "silver", atlas = "ui-hud-unitframe-target-portraiton-boss-rare-silver", x = 0, y = 1 },
-	{ name = "bronze", file = MEDIA .. "bronze-plain", coords = { 0, 200 / 256, 0, 200 / 256 }, width = 100, height = 100,
-		x = 0, y = 1, fallback = PLAIN },
 }
 
 -- Where they go: the frame (a global of the game's), its container, and the hook that follows the
@@ -185,6 +199,18 @@ local function NetOff(who, guild, look)
 	return M.Hides(who, guild, look) ~= nil
 end
 
+-- The dev's own character (1.1.5): ns.AUTHOR on his realm group (Workshop.IsAuthorName).
+local function IsDev(who)
+	local W = ns.Workshop
+	return type(W) == "table" and type(W.IsAuthorName) == "function" and W.IsAuthorName(who) == true
+end
+
+-- Named by that guild's master (1.1.5, Nominees.lua): a centurion or a correspondent.
+local function Nominee(who, guild)
+	local N = ns.Nominees
+	return type(N) == "table" and type(N.RoleOf) == "function" and N.RoleOf(who, guild) ~= nil
+end
+
 -- What decides a unit's border, or nil for anyone no border is for: not a player, of the other
 -- faction (the census is per faction, and so is the King), or a value the client hides.
 local function Facts(unit)
@@ -200,8 +226,11 @@ local function Facts(unit)
 	f.off = NetOff(who, f.guild)
 	f.councillor = ns.IsHighCouncillor(who) == true
 	f.council = f.councillor and not ns.CouncilMasked()
+	f.dev = IsDev(who)
 	if not f.guild or not ns.IsFederation(f.guild) then return f end
 	f.olympus = true
+	-- A nominee: named by the master of the guild the server gives him (Nominees.RoleOf).
+	f.nominee = Nominee(who, f.guild)
 	f.king = ns.IsKingGuild(f.guild) and (ns.IsKingCharacter(who) or (ns.KingCharacter() == nil and rankIndex == 0))
 	local guilds = ns.rdb and ns.rdb.guilds
 	local report = type(guilds) == "table" and guilds[f.guild] or nil
@@ -226,16 +255,21 @@ local function Facts(unit)
 	return f
 end
 
-local function Match(f)
+-- marked: the tiers with a mark of their own alone (Borders.MARK_OF: the dev's silver has none,
+-- so his nameplate and his lines show what they would without it).
+local function Match(f, marked)
 	if not f or f.off then return nil end
 	for _, t in ipairs(Borders.TIERS) do
-		if (t.king and f.king) or (t.council and f.council) or (t.leader and f.leader) then return t end
+		if ((t.king and f.king) or (t.council and f.council) or (t.dev and f.dev) or (t.leader and f.leader)
+			or (t.nominee and f.nominee)) and not (marked and not Borders.MARK_OF[t.name]) then
+			return t
+		end
 	end
 	return nil
 end
 
--- The border a unit gets now (a tier's name: "gold-elite", "silver-elite", "bronze-elite"; nil
--- for none), worked out afresh.
+-- The border a unit gets now (a tier's name: "gold-elite", "silver-elite", "silver",
+-- "bronze-elite", "bronze"; nil for none), worked out afresh.
 function Borders.TierOf(unit)
 	local t = Match(Facts(unit))
 	return t and t.name or nil
@@ -247,7 +281,12 @@ end
 -- the High Council's list, our roster when his rank came from it (our own guild's, the server
 -- giving none; Roster.lua makes a new table at each scan), and for a High Councillor whether the
 -- council's names were hidden (the King's screen while he streams, ns.CouncilMasked: the eye in
--- the Realm, Asmon's view, becoming the King); and (1.1) his name, and whether a net-off word hid him.
+-- the Realm, Asmon's view, becoming the King); and (1.1) his name, and whether a net-off word hid him;
+-- and (1.1.5) the guild masters' lists of nominees as they stood (Nominees.Version).
+local function NomineesVersion()
+	local N = ns.Nominees
+	return type(N) == "table" and type(N.Version) == "function" and N.Version() or nil
+end
 local function Inputs(f)
 	local report = f and f.report
 	local row = type(report) == "table"
@@ -255,7 +294,7 @@ local function Inputs(f)
 	if f and f.councillor then masked = ns.CouncilMasked() == true end
 	return { guild = f and f.guild, report = report, rt = row and report.t or nil, vouch = row and report.vouch or nil,
 		council = ns.rdb and ns.rdb.council, roster = f and f.fromRoster and (ns.Roster and ns.Roster.byName or false) or nil,
-		masked = masked, who = f and f.who, off = f and f.off }
+		masked = masked, who = f and f.who, off = f and f.off, nominees = NomineesVersion() }
 end
 
 -- Has anything a unit's border or mark was worked out from (Inputs) changed since? Lookups only:
@@ -268,6 +307,7 @@ function Borders.Changed(k)
 		or (rdb and rdb.council) ~= k.council or (k.roster ~= nil and k.roster ~= (ns.Roster and ns.Roster.byName or false))
 		or (k.masked ~= nil and k.masked ~= (ns.CouncilMasked() == true))
 		or (k.who ~= nil and NetOff(k.who, k.guild) ~= k.off)
+		or k.nominees ~= NomineesVersion()
 end
 
 local function Compute(unit, guid)
@@ -282,18 +322,19 @@ end
 
 -- The nameplate mark (Nameplates.lua), and the mark in the game's chat, of each border: the
 -- King's the game's gold elite mark (his alone), the High Council's its silver, a guild master's
--- the bronze.
-Borders.MARK_OF = { ["gold-elite"] = "gold", ["silver-elite"] = "silver", ["bronze-elite"] = "bronze" }
+-- the bronze, and the people a guild master names the same bronze (1.1.5). The dev's silver has
+-- none: his plate and his lines show what they would without it.
+Borders.MARK_OF = { ["gold-elite"] = "gold", ["silver-elite"] = "silver", ["bronze-elite"] = "bronze", bronze = "bronze" }
 
 -- The mark a unit gets next to its name on a nameplate, from the same facts and trust rules as
--- its border: "gold" (the King), "silver" (the High Council), "bronze" (a guild master), "member"
--- (any other member of an Olympus guild of our faction: the star), nil for anyone else; and what
--- it was worked out from (Inputs).
+-- its border: "gold" (the King), "silver" (the High Council), "bronze" (a guild master, or one he
+-- named), "member" (any other member of an Olympus guild of our faction: the star), nil for anyone
+-- else; and what it was worked out from (Inputs).
 function Borders.MarkOf(unit)
 	local f = Facts(unit)
 	local mark
 	if f and not f.off then -- (1.1: none for net-off)
-		local t = Match(f)
+		local t = Match(f, true)
 		mark = t and Borders.MARK_OF[t.name] or (f.olympus and "member" or nil)
 	end
 	return mark, Inputs(f)
@@ -314,8 +355,9 @@ end
 -- nameplates: the chat's marks have their own switch (/oly chatmarks). Since 1.1.5 the marks of the
 -- game's own chat (Borders.ChatName below) ask it, and Olympus's own lines carry none. A lookup: its
 -- net-off check notes no guild for him (Moderation.Hides' look), since the guild it is asked with
--- may be one we only try for him (the King's for a Hand by his name). Returns the mark ("gold",
--- "silver", "bronze", "member" or nil) and the facts (f.proven: the claim backed).
+-- may be one we only try for him (the King's for a Hand by his name). 1.1.5: one a guild master
+-- names (Nominees.lua) the bronze, in that guild alone. Returns the mark ("gold", "silver",
+-- "bronze", "member" or nil) and the facts (f.proven: the claim backed).
 function Borders.MarkOfName(who, guild)
 	if type(who) ~= "string" or who == "" then return nil end
 	who = ns.FullName(who)
@@ -332,18 +374,21 @@ function Borders.MarkOfName(who, guild)
 		if mine and guild == mine then
 			rank = ns.Roster and ns.Roster.RankOf(who)
 			f.proven = type(rank) == "number"
+			f.nominee = f.proven and Nominee(who, guild) -- (1.1.5: in our roster, and our master's list names him)
 		elseif not (mine and guild:lower() == mine:lower()) and not (ns.Roster and ns.Roster.RankOf(who)) then
 			local known, named = ns.Data.KnownRank(who, guild)
 			if (named or 0) >= 2 then rank = known end
 			local K = ns.King
-			f.proven = known ~= nil or (ns.IsKingGuild(guild) and (ns.IsKingCharacter(who) or (type(K) == "table"
+			-- (1.1.5: or that guild's master names him, in the list only he sends: Nominees.lua.)
+			f.nominee = Nominee(who, guild)
+			f.proven = known ~= nil or f.nominee or (ns.IsKingGuild(guild) and (ns.IsKingCharacter(who) or (type(K) == "table"
 				and ((type(K.IsStewardName) == "function" and K.IsStewardName(who)) or (type(K.IsHandName) == "function" and K.IsHandName(who))))))
 				and true or false
 		end
 		f.king = ns.IsKingGuild(guild) and (ns.IsKingCharacter(who) or (ns.KingCharacter() == nil and rank == 0))
 		f.leader = rank == 0
 	end
-	local t = Match(f)
+	local t = Match(f, true)
 	return t and Borders.MARK_OF[t.name] or (f.olympus and f.proven and "member" or nil), f
 end
 
@@ -759,9 +804,9 @@ end
 -- tier (Borders.MARK_OF, by Borders.MarkOfName's facts and trust rules): the King the game's gold
 -- elite dragon (nameplates-icon-elite-gold), a High Councillor its silver one
 -- (nameplates-icon-elite-silver) then the icon he picked (ns.CouncilIcon), a guild master of an
--- Olympus guild the bronze (the gold tinted as Nameplates.BRONZE), any other member of an Olympus
--- guild we can prove the star; nothing for anyone else. 14 px, as the Chat tab showed them; an
--- atlas the client lacks: the star.
+-- Olympus guild and the people he names (1.1.5) the bronze (the gold tinted as Nameplates.BRONZE),
+-- any other member of an Olympus guild we can prove the star; nothing for anyone else. 14 px, as
+-- the Chat tab showed them; an atlas the client lacks: the star.
 -- Guild and officer chat (CHAT_GUILD_EVENTS, the author's call): the dragons alone, never the star.
 -- Everyone there is of our guild, so a star would tell a guildmate nothing he does not know; the
 -- King's gold, a councillor's silver and the guild master's bronze still tell who is who. (A
