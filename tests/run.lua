@@ -49617,15 +49617,30 @@ end)()
 		end
 		for _, k in ipairs({ "LETTER_TITLE", "LETTERS_ROW" }) do eq(ns.LocaleCodes(rawget(pt.L, k)), ns.LocaleCodes(ns.L[k]), k) end
 		local en, br = ns.L.LETTER_1_1_5, rawget(pt.L, "LETTER_1_1_5")
-		for _, words in ipairs({ "The rank borders are gone", "arena", "A border everybody has is worth nothing", "The King: gold wings",
-			"The High Council: silver wings", "Guild masters: bronze wings", "the game's own chat", "Not in guild chat", "The \"i\" on the Olympus window",
-			"tooltips say who they are, for those who may see the council" }) do
+		-- (The owner's calls since: bullet points, easier to read; nothing about the councillors'
+		-- tooltips; from the dev, no name, no Throne.)
+		for _, words in ipairs({ "The old rank borders are gone", "arena", "A border everybody has is worth nothing", "the King, gold wings",
+			"The High Council, silver wings", "Guild masters, bronze wings", "Trade, General", "Not in guild chat", "The \"i\" on the Olympus window" }) do
 			assert(en:find(words, 1, true), "1.1.5's letter: " .. words)
 		end
-		for _, words in ipairs({ "As bordas de cargo acabaram", "arena", "Borda que todo mundo tem não vale nada", "O Rei: asas douradas",
-			"O High Council: asas prateadas", "Mestres de guilda: asas de bronze", "chat do próprio jogo",
-			"para quem pode ver o conselho" }) do
+		for _, words in ipairs({ "As bordas de cargo antigas acabaram", "arena", "Borda que todo mundo tem não vale nada", "o Rei, asas douradas",
+			"O High Council, asas prateadas", "Mestres de guilda, asas de bronze", "Comércio, Geral" }) do
 			assert(br:find(words, 1, true), "1.1.5's letter in pt-BR: " .. words)
+		end
+		eq(en:find("tooltip", 1, true), nil, "nothing about the councillors' tooltips")
+		eq(br:find("dicas", 1, true), nil, "nada sobre as dicas dos conselheiros")
+		for _, v in ipairs(lns.Letters.LIST) do
+			local k = "LETTER_" .. v:gsub("%.", "_")
+			for _, text in ipairs({ ns.L[k], rawget(pt.L, k) }) do
+				local _, bullets = ("\n" .. text):gsub("\n%- ", "")
+				assert(bullets >= 2, k .. ": its news as bullet points, " .. bullets)
+			end
+		end
+		for _, text in ipairs({ ns.L.LETTERS_TITLE, ns.L.LETTER_SIGNED, rawget(pt.L, "LETTERS_TITLE"), rawget(pt.L, "LETTER_SIGNED") }) do
+			assert(text:find("dev", 1, true), "from the dev: " .. text)
+			for _, word in ipairs({ "Skylance", "Faladoriel", "Throne", "Trono" }) do
+				eq(text:find(word, 1, true), nil, "no name, no Throne: " .. text)
+			end
 		end
 		-- (The owner's call: no letter names a guild let in or taken out.)
 		for k, v in pairs(ns.L) do
