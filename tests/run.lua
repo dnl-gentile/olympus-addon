@@ -356,8 +356,86 @@ test("decoder rejects garbage and clamps numbers", function()
 	eq(Codec.DecodeReport(("R1~%s~1~1~~0~0~~~"):format(("x"):rep(30))), nil, "long guild name")
 	eq(Codec.DecodeReport("R1~Olympus~99999999~5~Boss~1~2~m1453=99999999~~1,2"), nil, "a guild bigger than the game allows: forged")
 	eq(Codec.DecodeReport("R1~Olympus~1001~5~Boss~1~2~~~1,2"), nil)
-	local d = Codec.DecodeReport("R1~Olympus~1000~5000~Boss~1~2~m1453=99999999~~1,2")
-	eq(d.total, 1000); eq(d.online, 1000, "online no more than the members"); eq(d.zones.m1453, 10000); eq(d.levels[3], 0)
+	eq(Codec.DecodeReport("R1~Olympus~1000~5000~Boss~1~2~m1453=99999999~~1,2"), nil, "zone totals cannot exceed the online population")
+	local d = Codec.DecodeReport("R1~Olympus~1000~5000~Boss~1~2~m1453=1000~~1,2")
+	eq(d.total, 1000); eq(d.online, 1000, "online no more than the members"); eq(d.zones.m1453, 1000); eq(d.levels[3], 0)
+end)
+
+-- 1.1.5 (PR #52, Rick-laboratory): a zone, class or level breakdown counts each online member
+-- once at most, so its sum is never more than the online count. Such a report is forged or
+-- broken: rejected whole (it counts as a bad report), not trimmed into a distribution nobody sent.
+test("1.1.5 census: a zone, class or level breakdown that sums to more than the online count is rejected", function()
+	local function Decode(fields)
+		fields.guild = fields.guild or "Olympus Test"
+		return Codec.DecodeReport(Codec.EncodeReport(fields))
+	end
+	for _, field in ipairs({ "zones", "classes", "levels" }) do
+		local counts = field == "levels" and { 3, 3 } or { a = 3, b = 3 }
+		eq(Decode({ total = 10, online = 5, [field] = counts }), nil, field .. ": each count possible, their sum not")
+		local exact = assert(Decode({ total = 10, online = 6, [field] = counts }), field .. ": a sum equal to the online count is fine")
+		eq(exact.online, 6)
+	end
+	eq(Decode({ total = 1000, online = 5000, zones = { m1453 = 10000 } }), nil, "checked against online after its clamp to the members")
+	-- A guild of no members has nobody online, so nobody in any zone either.
+	local empty = assert(Decode({ total = 0, online = 10000 }))
+	eq(empty.online, 0, "no members, nobody online")
+	eq(Decode({ total = 0, online = 10000, zones = { m1453 = 10000 } }), nil)
+	-- Fewer entries than online is the ordinary case: hidden zones (Codec.Shareable), members whose
+	-- zone or class the client could not name, a roster still loading. Those still decode as sent.
+	local partial = assert(Decode({ total = 100, online = 20, zones = { m1453 = 3 }, classes = { WA = 2 }, levels = { 1, 1 } }))
+	eq(partial.online, 20); eq(partial.zones.m1453, 3); eq(partial.classes.WA, 2); eq(partial.levels[1], 1)
+	local hidden = assert(Decode(Codec.Shareable(partial, false, nil)))
+	eq(next(hidden.zones), nil); eq(hidden.online, 20)
+	local old = assert(Codec.DecodeReport("R1~Olympus~10~2~Boss~1~2~m1453=2~WA=2~0,2,0,0,0,0,0"), "an old R1 report")
+	eq(old.online, 2); eq(old.zones.m1453, 2); eq(old.classes.WA, 2); eq(old.levels[2], 2)
+	eq(assert(Decode({ total = 10, online = 20 })).online, 10, "online still clamped to the members")
+end)
+
+-- What a 1.1.4 client sends (Roster.Scan, unchanged since then, through Comm.Broadcast's
+-- Codec.Shareable) counts only online rows, each once: never more than its online count, so the
+-- check above never turns an honest report away.
+test("1.1.5 census: an honest report from Roster.Scan always decodes, whatever its roster", function()
+	local saved = { count = GetNumGuildMembers, info = GetGuildRosterInfo }
+	local ok, err = pcall(function()
+		local function Sent(r, sharing)
+			r.users = 2
+			return Codec.DecodeReport(Codec.EncodeReport(Codec.Shareable(r, sharing, sharing and function() return true end or nil)))
+		end
+		-- Every member online, in one zone, of one class and one level band: each sum is the online count.
+		GetNumGuildMembers = function() return 1000, 1000 end
+		GetGuildRosterInfo = function(i)
+			return "Member" .. i .. "-Realm", "rank", i == 1 and 0 or 3, 60, "class", "Stormwind City", "", "", true, 0, "WARRIOR"
+		end
+		for _, sharing in ipairs({ true, false }) do
+			local d = assert(Sent(ns.Roster.Scan(), sharing), "a full guild, all online")
+			eq(d.online, 1000); eq(d.classes.WA, 1000); eq(d.levels[7], 1000)
+			eq(d.zones.m1453, sharing and 1000 or nil)
+		end
+		-- The server's online count above the rows it sent online (a roster still loading), a hidden
+		-- zone and a class the client could not name: fewer entries than online, never more.
+		GetNumGuildMembers = function() return 40, 25 end
+		GetGuildRosterInfo = function(i)
+			local online = i <= 12
+			local zone, class = nil, nil
+			if online and i % 3 ~= 0 then zone = "The Stockade" end
+			if i % 4 ~= 0 then class = "MAGE" end
+			return "Member" .. i .. "-Realm", "rank", i == 1 and 0 or 3, i, "class", zone, "", "", online, 0, class
+		end
+		local r = ns.Roster.Scan()
+		eq(r.online, 25, "the server's count")
+		local d = assert(Sent(r, true), "a partial roster")
+		eq(d.online, 25); eq(d.zones["tThe Stockade"], 8); eq(d.classes.MA, 9)
+		local levels = 0
+		for _, n in ipairs(d.levels) do levels = levels + n end
+		eq(levels, 12, "only the online rows, each once")
+		-- The harness's 1000 members (300 online, four zones and classes).
+		GetNumGuildMembers, GetGuildRosterInfo = saved.count, saved.info
+		d = assert(Sent(ns.Roster.Scan(), true))
+		eq(d.online, 300); eq(d.zones.m1453, 75)
+	end)
+	GetNumGuildMembers, GetGuildRosterInfo = saved.count, saved.info
+	ns.Roster.Scan() -- (the harness's roster again, for the tests after this one)
+	if not ok then error(err, 0) end
 end)
 
 test("one reporter per guild, same answer for everyone", function()
@@ -906,7 +984,10 @@ test("worst case report still fits the message limits", function()
 	local chunks = C.Chunk(payload, "999")
 	assert(#chunks <= C.MAX_CHUNKS, "too many chunks: " .. #chunks)
 	for _, c in ipairs(chunks) do assert(#c <= 255) end
-	local d = C.DecodeReport(payload)
+	eq(C.DecodeReport(payload), nil, "the size fixture's impossible populations are not a valid report")
+	for zone in pairs(r.zones) do r.zones[zone] = 8 end
+	for class in pairs(r.classes) do r.classes[class] = 100 end
+	local d = assert(C.DecodeReport(C.EncodeReport(r)))
 	eq(#d.officers, 30); eq(#d.ranks, 10)
 	eq(d.from, r.from, "the longest realm fits"); eq(d.home, r.home)
 end)
@@ -4744,6 +4825,32 @@ test("runner-up: only a 0.7.11+ peer on the reporter's channel", function()
 		eq(C.isRunnerUp, false, "a 0.7.11 peer on the same channel comes first")
 	end)
 	GetChannelName, C_ChatInfo = savedChannel, nil
+	if not ok then error(err, 0) end
+end)
+
+-- 1.1.5 (PR #52): on the channel, a report whose breakdown sums past its online count never
+-- reaches the census and counts as a bad report (/oly status); an honest one still goes in.
+test("1.1.5 census: an impossible breakdown off the channel is a bad report, never the census's", function()
+	local saved = { channel = GetChannelName, receive = ns.Data.Receive }
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		local cns, _, Report = FreshComm()
+		local C = cns.Comm
+		C.JoinChannel()
+		local received = {}
+		ns.Data.Receive = function(r, sender) received[#received + 1] = { r = r, sender = sender }; return true end
+		Report("Forger-Realm", { guild = "Olympus Forged", total = 50, online = 5, zones = { m1453 = 50 }, levels = { 5 } })
+		Report("Forger-Realm", { guild = "Olympus Forged", total = 50, online = 5, classes = { WA = 4, MA = 4 } })
+		Report("Forger-Realm", { guild = "Olympus Forged", total = 50, online = 5, levels = { 2, 2, 2 } })
+		local st = C.Stats()
+		eq(st.bad, 3, "each counted bad"); eq(st.reports, 0)
+		eq(#received, 0, "none handed to the census")
+		Report("Honest-Realm", { guild = "Olympus Honest", total = 50, online = 5, zones = { m1453 = 3 }, classes = { WA = 5 }, levels = { 0, 5 } })
+		st = C.Stats()
+		eq(st.bad, 3); eq(st.reports, 1)
+		eq(#received, 1); eq(received[1].sender, "Honest-Realm"); eq(received[1].r.zones.m1453, 3); eq(received[1].r.classes.WA, 5)
+	end)
+	GetChannelName, ns.Data.Receive, C_ChatInfo = saved.channel, saved.receive, nil
 	if not ok then error(err, 0) end
 end)
 
