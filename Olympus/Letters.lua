@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 -- The version letters (1.1.5, the author's call): after the addon updates to a new version, once a
--- version, a short letter about what changed in it, in the King's voice, on a pop-up of Olympus's
+-- version, a short letter about what changed in it, from the dev (no name), on a pop-up of Olympus's
 -- own shaped like the Olympus window: the game's portrait frame with the Olympus logo (UI.lua's
 -- CreateMain makes the window the same way) and a parchment compartment (the Royal Writs' paper,
 -- UI.PARCHMENTS). The Olympus window's help button (its "i", UI.ShowHelp) keeps them all: the help
