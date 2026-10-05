@@ -161,6 +161,8 @@ local function Settle()
 		if #left > 0 and not noticed then ns.OutOfCombat("gamepad gate notice", Notice) end
 	else
 		Gate.leftovers = {}
+		-- (Switched before the login: each feature's own login installs what the gate allows then.)
+		if type(IsLoggedIn) == "function" and not IsLoggedIn() then return end
 		ns.OutOfCombat("gamepad gate install", function()
 			if not ns.GamepadUI() then Gate.Install(nil, true) end
 		end)

@@ -34,7 +34,10 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
   tooltips; a guild the High Council removed is no Olympus guild, with an appeal through the signed
   approved list; `<OLYMPIANS>` approved; the version letters (`/oly letters`); Blizzard's player
   menus untouched in gamepad mode ([#56](https://github.com/dnl-gentile/olympus-addon/issues/56)); restricted secret values ignored safely; the Chat tab's
-  second help "i" gone (the window's own, left of the X, is the one there)
+  second help "i" gone (the window's own, left of the X, is the one there); the gamepad gate (every
+  way into the game's own UI listed and asked of one gate: with the gamepad UI no typed command, no
+  button in the guild windows, nothing on the world map; a switch steps back and says what a
+  `/reload` completes); the nameplate marks no longer hook a plate's own layout (Lua errors)
 - **1.1.4**: Crafters as its own tab; the side tabs keep one order when they run out of room
 - **1.1.3**: Ordinary clicks never start a restricted `/who`: census and player searches only from their own
   controls

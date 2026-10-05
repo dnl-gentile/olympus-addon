@@ -23947,6 +23947,26 @@ do
 		end
 		eq(seen.slash.guard, "gate"); eq(seen.slash.toPad, "reload"); eq(seen["communities-button"].guard, "gate")
 		eq(seen.minimap.guard, "exempt", "the minimap button: how gamepad players open Olympus")
+		-- Every id the addon's files ask the gate about is listed (an unlisted one is refused in both
+		-- modes: a typo would switch a feature off for everyone).
+		local asked = {}
+		for line in assert(ReadFile(ADDON_DIR .. "Olympus.toc")):gmatch("[^\r\n]+") do
+			local file = line:match("^%s*([^#%s][^%s]*%.lua)%s*$")
+			if file and not file:find("libs[\\/]") then
+				local src = assert(ReadFile(ADDON_DIR .. file:gsub("\\", "/")))
+				for id in src:gmatch("Gate%.%a+%(%s*\"([%w%-]+)\"") do asked[id] = file end
+				for const, id in src:gmatch("local (%u+) = \"([%w%-]+)\"") do
+					if src:find("Gate%.%a+%(%s*" .. const .. "[%s,%)]") then asked[id] = file end
+				end
+			end
+		end
+		local n = 0
+		for id, file in pairs(asked) do
+			n = n + 1
+			assert(seen[id], file .. " asks the gate about an unlisted id: " .. id)
+		end
+		assert(n >= 15, "the ids asked: " .. n)
+		assert(asked["communities-button"], "GuildFrame.lua's, through its GATE constant")
 		-- Loaded right after Core.lua (the list first), before every file that asks it.
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
 		assert(toc:find("\nCore%.lua\r?\nGamepadRegistry%.lua\r?\nGamepad%.lua\r?\nDiagnostics%.lua"), "the toc's order")
@@ -24034,6 +24054,15 @@ do
 				eq(#w.timers, 1, "one settle")
 				w.frame()
 				eq(Said(), "install key, park key, park borders")
+				-- Switched before the login (the game's IsLoggedIn): the features' own logins install.
+				local savedLogged = rawget(_G, "IsLoggedIn")
+				IsLoggedIn = function() return false end
+				w.switch(false); w.frame()
+				eq(Said(), "install key", "nothing installed before the login")
+				IsLoggedIn = function() return true end
+				w.switch(true); w.frame(); w.switch(false); w.frame()
+				IsLoggedIn = savedLogged
+				eq(Said(), "park key, park borders, install key, install borders, install slash a, install slash b")
 				-- The notice's own definition: its words, its buttons; Reload the player's click.
 				local def = StaticPopupDialogs.OLYMPUS_GAMEPAD_RELOAD
 				eq(def.text, ns.L.GATE_NOTICE); eq(def.button1, ns.L.GATE_RELOAD); eq(def.button2, ns.L.GATE_CLOSE)
