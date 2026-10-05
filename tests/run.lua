@@ -23390,6 +23390,29 @@ do
 		end)
 	end)
 
+	-- (1.1.5, the author's ask: his character is no guild master.) The Workshop's guild master's view
+	-- shows him the section as a guild master's; what he names there is never sent.
+	test("1.1.5 nominees: the author's guild master's view shows the section without his rank, sends nothing; off, or for anyone else, nothing", function()
+		WithNominees(function(w)
+			local savedVisible, savedView = ns.Workshop.Visible, ns.db.devGMView
+			local ok, err = pcall(function()
+				w.as("Writer", 3)
+				eq((N.IsMaster()), false, "no guild master")
+				ns.db.devGMView = true
+				ns.Workshop.Visible = function() return false end
+				eq((N.IsMaster()), false, "the view is the author's alone")
+				ns.Workshop.Visible = function() return true end
+				eq((N.IsMaster()), true, "the author's view: the section")
+				assert(N.Ours(), "his section's list")
+				eq(N.Send(true), false, "nothing sent from the view")
+				N.SetDevView(false)
+				eq((N.IsMaster()), false, "off")
+			end)
+			ns.Workshop.Visible, ns.db.devGMView = savedVisible, savedView
+			if not ok then error(err, 0) end
+		end)
+	end)
+
 	test("1.1.5 nominees: /oly nominees opens the guild master's section; centurion <name>, correspondent <department number> <name> and remove <name> from the chat; anyone else is told it is the guild master's; in /oly help", function()
 		WithNominees(function(w)
 			local L = ns.L

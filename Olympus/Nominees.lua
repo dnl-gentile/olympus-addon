@@ -156,10 +156,30 @@ end
 ---------------------------------------------------------------------------
 
 -- This character is the guild master of an Olympus guild (the server's rank), and that guild.
-function Nominees.IsMaster()
+local function RealMaster()
 	if ns.IsMember() ~= true then return false end
 	local guild, _, rank = GetGuildInfo("player")
 	return rank == 0 and type(guild) == "string", guild
+end
+
+-- The author's "guild master's view" (1.1.5, his ask: his character is no guild master): from the
+-- Workshop, his section shows as a guild master's would, to see and try it. Nothing it does is
+-- sent (Nominees.Send refuses it): what he names stays on his screen.
+function Nominees.DevView()
+	return ns.db ~= nil and ns.db.devGMView == true and ns.Workshop ~= nil and ns.Workshop.Visible ~= nil
+		and ns.Workshop.Visible() == true and not RealMaster()
+end
+function Nominees.SetDevView(on)
+	ns.db.devGMView = on and true or false
+	ns.Print(on and ns.L.DEV_GM_VIEW_NOW_ON or ns.L.DEV_GM_VIEW_NOW_OFF)
+	ns.Fire("DATA_CHANGED")
+end
+
+function Nominees.IsMaster()
+	local real, guild = RealMaster()
+	if real then return real, guild end
+	if Nominees.DevView() then return true, GetGuildInfo("player") or "Olympus" end
+	return false
 end
 
 -- `sender` is `guild`'s master as Borders proves the bronze: our own guild's from our roster (the
@@ -292,6 +312,7 @@ end
 -- His list goes out (force: now; else once EVERY), from the guild master's client alone. Nobody
 -- named yet, nothing sent; named and then all removed, the empty list (everyone drops it).
 function Nominees.Send(force)
+	if not RealMaster() then return false end -- (the author's view sends nothing)
 	local s = Saved(false)
 	if not s then return false end
 	local now = ns.Now()
