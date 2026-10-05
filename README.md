@@ -306,7 +306,7 @@ sound changes: the chat line, the raid warning and the Olympus window stay, and 
 
 **In an instance or Busy (1.1).** In a dungeon, raid, battleground or arena, or while you are
 Busy (`/dnd`), Olympus's alerts wait: no raid warning, no sound and no popup from the addon. Each
-one still prints its chat line and waits on top of the Decrees tab, where a click shows it now.
+one still prints its chat line and waits on the Decrees tab (under the King's week since 1.1.5), where a click shows it now.
 Once you are out and not Busy, one line (and one raid warning and one sound) says what waited and
 is still current, and only what is still open pops up: a Vox question still open, the King's call
 to his audience within its two minutes, the Agenda still to come, a roll call within its minute,
@@ -561,7 +561,7 @@ bottom-to-top always gives the same tab order; changing role or debug view never
 The Realm tab links **the Board** (or `/oly lfg`): who in Olympus wants a group right now, from
 what each player chose to share, and the King's week.
 
-- **The King's week** (1.1, on top of the Board, `/oly week`): the King's Agenda for the next 7
+- **The King's week** (1.1, on top of the Board and, since 1.1.5, of the Decrees tab, `/oly week`): the King's Agenda for the next 7
   days, by day, at the realm's hour, with your own guild's events from the game's calendar
   (green) among them, read on your computer and sent nowhere (on the King's screen, his stream,
   they read "Guild event"). Raid night, PvP night and court on one page, so nobody books the
@@ -1367,7 +1367,7 @@ the game is removed at login, with one line saying so.
 - **Search**: a box on top of the Census (guilds, Lords, Captains, players, zones, recruiting),
   the Realm (guilds, Lords, Captains, members seen online), Crafters (crafter, guild or profession), the
   Tabards (inspected and untabarded players, by name or guild), the Treasury (donors in the
-  ranking and the book, and since 1.1 the bank's items), the Decrees (since 1.1: the log of what this client saw) and the Chat tab (since 1.1.1: a name, a guild or words of a line). Any case, accents too; only what matches shows, under the headers it belongs to (a Captain under his guild, opened
+  ranking and the book, and since 1.1 the bank's items), the Decrees (since 1.1: the log of what this client saw; since 1.1.5 the King's week too) and the Chat tab (since 1.1.1: a name, a guild or words of a line). Any case, accents too; only what matches shows, under the headers it belongs to (a Captain under his guild, opened
   for you, a page of guilds at a time), with an **x** to empty it. Each tab keeps its text until
   you log out or `/reload`; a guild clicked in the Census opens in the Realm with its box emptied.
   It only changes what the list shows: **Copy** still gives everything, and nothing is sent.

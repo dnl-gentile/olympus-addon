@@ -3177,7 +3177,7 @@ L.ACTS_TREASURY_BALANCE = "the balance"
 L.ACTS_TREASURY_RANKING = "the ranking"
 L.ACTS_TREASURY_BOOK = "the book"
 L.ACTS_TREASURY_NOTHING = "nothing"
-L.SEARCH_TIP_LOG = "Words of the log (who, what, when), any case: only its entries that match show. The decrees above stay."
+L.SEARCH_TIP_LOG = "Words of the King's week (what, where, the day) and of the log (who, what, when), any case: only their entries that match show. The decrees stay."
 L.HELP_LOG = "  /oly log [n | word | copy | clear] - the acts this client saw (decrees, gates, pardons, switches), with the sender's name"
 if GetLocale and GetLocale() == "ptBR" then
 	L.ACTS_TITLE = "O que este cliente viu"
@@ -3204,7 +3204,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.ACTS_TREASURY_RANKING = "o ranking"
 	L.ACTS_TREASURY_BOOK = "o livro"
 	L.ACTS_TREASURY_NOTHING = "nada"
-	L.SEARCH_TIP_LOG = "Palavras do registro (quem, o quê, quando), maiúsculas ou não: só as entradas que batem aparecem. Os decretos acima ficam."
+	L.SEARCH_TIP_LOG = "Palavras da semana do Rei (o quê, onde, o dia) e do registro (quem, o quê, quando), maiúsculas ou não: só as entradas que batem aparecem. Os decretos ficam."
 	L.HELP_LOG = "  /oly log [n | palavra | copy | clear] - os atos que este cliente viu (decretos, portões, perdões, chaves), com o nome do remetente"
 end
 

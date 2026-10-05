@@ -31227,6 +31227,46 @@ test("1.1 the King's week: on the Board by day with the guild's own calendar eve
 	end)
 end)
 
+test("1.1.5 the army agenda (the King's week) is the first Decrees section and reuses the Board's event, signup and search model", function()
+	WithWeek(function(w, W, K, B)
+		AsSoldier()
+		local KING = ns.KingCharacter() .. "-Realm"
+		K.HandleCommand("CHANNEL", KING, "T1~A~77~Olympus~1800~Orgrimmar~Raid on the Crossroads")
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400 + 90 * 60 - 15) .. "~1~~Raid night")
+		K.HandleCommand("CHANNEL", KING, "T1~D~502~Olympus~" .. (4 * 86400 + 60 * 60 - 15) .. "~1~~Court")
+		K.HandleCommand("CHANNEL", KING, "T1~R~12~Olympus~77:0:0:5:0,501:1:2:3:0")
+		local sent = #w.sent
+		local lines = ns.Views.Build("decrees")
+		local agendaAt, decreesAt
+		for i, line in ipairs(lines) do
+			if line.header and line.text == ns.L.WEEK_TITLE then agendaAt = i end
+			if line.header and line.text == ns.L.DECREES then decreesAt = i end
+		end
+		assert(agendaAt and decreesAt and agendaAt < decreesAt, "the agenda precedes every existing Decrees section")
+		eq(agendaAt, 2, "the tab opens with it, right under its search box")
+		local text = Texts(lines)
+		for _, expected in ipairs({ "Raid on the Crossroads", "Raid night", "Court", ns.L.SIGN_COUNTS:format(1, 2, 3, 0) }) do
+			assert(text:find(expected, 1, true), expected .. " in:\n" .. text)
+		end
+		assert(Texts(B.Lines()):find("Raid night", 1, true), "both entrances read the same Week state")
+		eq(#w.sent, sent, "opening either view publishes no event or signup")
+
+		-- The tab's search box filters the week's entries; the decrees stay.
+		ns.Views.SetFilter("decrees", "raid night")
+		lines = ns.Views.Build("decrees")
+		text = Texts(lines)
+		assert(text:find("Raid night", 1, true) and not text:find("Court", 1, true), text)
+		eq(lines[2].text, ns.L.WEEK_TITLE)
+		assert(Find(lines, ns.L.DECREES), "the decrees' header still shows")
+		ns.Views.SetFilter("decrees", "zzz")
+		lines = ns.Views.Build("decrees")
+		eq(lines[3].text, "|cff9d9d9d" .. ns.L.SEARCH_NO_MATCH .. "|r", "nothing of the week matches")
+		assert(not Texts(lines):find("Raid night", 1, true))
+		eq(#w.sent, sent, "a search sends nothing either")
+		ns.Views.ClearFilters()
+	end)
+end)
+
 test("1.1 the King's week: an officer's click opens the game's calendar and names the day (mouse and keyboard, out of combat); otherwise how to open it", function()
 	WithWeek(function(w, W, K, B)
 		AsCaptain()

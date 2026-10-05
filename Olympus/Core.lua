@@ -670,7 +670,8 @@ function ns.Held()
 	return out
 end
 
--- On top of the Decrees tab while alerts wait: a click shows one now (its popup or window).
+-- On the Decrees tab while alerts wait, under the King's week (1.1.5): a click shows one now (its
+-- popup or window).
 function ns.HeldLines()
 	local list = ns.Held()
 	if #list == 0 then return {} end
