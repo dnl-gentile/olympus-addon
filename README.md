@@ -259,8 +259,9 @@ friends list, the guild roster) and the game's menu gets an **Olympus** part at 
   without it gets no lines); no Blizzard function is replaced, and nothing opens the game's chat
   box.
 
-**Explanations and Answers.** Each page has a **?** in its bottom box (next to the gear on the
-Chat tab): what the page shows and, where it counts, why the numbers can differ between players.
+**Explanations and Answers.** Each page has a **?** in its bottom box: what the page shows and,
+where it counts, why the numbers can differ between players. The Chat tab has no bottom box and,
+since 1.1.5, no **?** of its own: the help button left of the window's X is the one there.
 A count's tooltip (the header's totals, a guild's row, the Realm's online, Captains and
 Recruiting, a layer's ~N, a zone and a map pin, the Treasury's week and ranking, the dues' guilds,
 the Throne's roll call) ends with **Why can this differ?** and a short answer. The author, the

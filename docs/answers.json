@@ -1443,16 +1443,18 @@
     {
       "id": "feat-page-help",
       "topic": "features",
-      "status": "1.1.2",
+      "status": "current (1.1.5)",
       "questions": [
         "What does the ? on a page do?",
         "Where's the explanation of this page?"
       ],
-      "answer": "Each page has a ? in its bottom box (next to the gear on the Chat tab): it explains that page and, where it shows counts, why they can differ between players. The help button left of the X is the general help.",
-      "in_game": "The ? in each page's bottom box (by the gear on the Chat tab) explains that page and why its counts can differ.",
+      "answer": "Each page has a ? in its bottom box: it explains that page and, where it shows counts, why they can differ between players. The Chat tab has no bottom box, so no ? of its own. The help button left of the X is the general help.",
+      "in_game": "The ? in each page's bottom box explains that page and why its counts can differ. The Chat tab has none: the help button left of the X covers it.",
+      "notes": "1.1.5: the Chat tab's own ? by the gear is gone (it doubled the window's help button).",
       "sources": [
         "Answers.lua",
-        "UI.lua"
+        "UI.lua",
+        "ChatWindow.lua"
       ]
     },
     {

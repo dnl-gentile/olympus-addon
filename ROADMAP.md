@@ -24,7 +24,8 @@
   their marks in the game's own chat (`/oly chatmarks`), none on Olympus lines; councillors'
   tooltips; a guild the High Council removed is no Olympus guild, with an appeal through the signed
   approved list; `<OLYMPIANS>` approved; the version letters (`/oly letters`); Blizzard's player
-  menus untouched in gamepad mode (#56); restricted secret values ignored safely
+  menus untouched in gamepad mode (#56); restricted secret values ignored safely; the Chat tab's
+  second help "i" gone (the window's own, left of the X, is the one there)
 
 ## Next (after the base is proven in game)
 - ~~Guild leader offline for X days~~ (v0.3)

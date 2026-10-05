@@ -769,13 +769,10 @@ local function DrawTop(tiers, on)
 	frame.gear:SetPoint("TOPRIGHT", frame, "TOPRIGHT", s.right, s.top)
 	PaintGear()
 	local right = s.right - GEAR_W - TOP_GAP
-	-- 1.1.2: the page's "?" left of the gear (Answers.lua: the tab's explanation, the detail box's
-	-- "?" of the other tabs being under this one). The Answers of the author, the High Council and
-	-- the Stewards: at the end of the box they fill, while the lines and that box show (PlaceInput).
-	frame.help:ClearAllPoints()
-	frame.help:SetPoint("TOPRIGHT", frame, "TOPRIGHT", right, s.top)
-	frame.help:Show()
-	right = right - GEAR_W - TOP_GAP
+	-- 1.1.5: no "?" of the tab's own on this row (1.1.2 had one left of the gear, the owner's ask: it
+	-- doubled the window's help "i" just above it, left of the X). The Answers of the author, the
+	-- High Council and the Stewards: at the end of the box they fill, while the lines and that box
+	-- show (PlaceInput).
 	local A = ns.Answers
 	frame.answers:SetShown(lines and A ~= nil and type(A.Allowed) == "function" and A.Allowed() == true)
 	PlaceInput(frame)
@@ -1864,28 +1861,11 @@ local function Button(parent, text, width)
 	return b
 end
 
--- 1.1.2: the tab's "?" (its explanation, Answers.lua), on the top row, and the Answers button (the
--- author, the High Council and the Stewards: a ready answer into this box, Answers.lua), at the
--- box's end (PlaceInput).
-local function MakeHelp(p)
-	local h = CreateFrame("Button", nil, p)
-	h:SetSize(GEAR_W, GEAR_W)
-	h.icon = h:CreateTexture(nil, "ARTWORK")
-	h.icon:SetSize(18, 18)
-	h.icon:SetPoint("CENTER", h, "CENTER", 0, 0)
-	h.icon:SetTexture("Interface\\Common\\help-i")
-	h:SetHighlightTexture("Interface\\Common\\help-i", "ADD")
-	h:SetScript("OnClick", function()
-		ns.SafeCall("chat help", function() if ns.Answers and ns.Answers.ExplainPage then ns.Answers.ExplainPage("chat/") end end)
-	end)
-	h:SetScript("OnEnter", function(self)
-		Tip(self, function(tt)
-			tt:AddLine(L.PAGE_HELP, 1, 0.82, 0)
-			tt:AddLine(L.PAGE_HELP_TIP, 1, 1, 1, true)
-		end)
-	end)
-	h:SetScript("OnLeave", function(self) Untip(self) end)
-	p.help = h
+-- 1.1.2: the Answers button (the author, the High Council and the Stewards: a ready answer into
+-- this box, Answers.lua), at the box's end (PlaceInput). (1.1.5: the tab's own "?" that went with
+-- it on the top row is gone, the owner's ask: the window's help button left of the X is the one
+-- "i" over the tab.)
+local function MakeAnswers(p)
 	local a = Button(p, L.ANSWERS_BTN, 70)
 	a:SetHeight(SEARCH_H)
 	a:SetScript("OnClick", function()
@@ -1979,7 +1959,7 @@ local function Build(h)
 	-- On the same row, right of the search: the channels' switch, and the gear at the row's end.
 	MakeSwitch(p)
 	MakeGear(p)
-	MakeHelp(p)
+	MakeAnswers(p)
 
 	-- The pinned line.
 	p.pin = StripButton(p, PIN_LINES)

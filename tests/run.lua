@@ -44766,10 +44766,11 @@ do
 				local s = f.search:Anchor("TOPLEFT")
 				eq(s[2], f); eq(s[5], -30); assert(s[4] > main.headerX, "right of the portrait")
 				eq(f.gear:Anchor("TOPRIGHT")[4], -26); eq(f.gear:Anchor("TOPRIGHT")[5], -30); eq(f.gear:IsShown(), true)
-				-- (Changed on purpose, 1.1.2: the tab's "?" sits left of the gear, 20 wide and 4 apart,
-				-- its explanation, Answers.lua; the search box ends where the "?" begins, 24 further left.)
-				eq(f.help:Anchor("TOPRIGHT")[4], -50); eq(f.help:Anchor("TOPRIGHT")[5], -30); eq(f.help:IsShown(), true)
-				eq(f.search:Anchor("TOPRIGHT")[4], -74, "the search ends where the tab's ? begins"); eq(f.search:Anchor("TOPRIGHT")[5], -30)
+				-- (Changed on purpose, 1.1.5, the owner's ask: the tab's own "?" that 1.1.2 put left of the
+				-- gear doubled the window's help "i" left of the X, and is gone; the search box ends where
+				-- the gear begins again, 20 wide and 4 apart, as in 1.1.1.)
+				eq(f.help, nil, "no '?' of the tab's own")
+				eq(f.search:Anchor("TOPRIGHT")[4], -50, "the search ends where the gear begins"); eq(f.search:Anchor("TOPRIGHT")[5], -30)
 				eq(f.searchLabel:GetText(), L.SEARCH); eq(f.searchLabel:Anchor("TOPLEFT")[4], main.headerX)
 				eq(f.pills, nil, "no row of pills"); eq(f.switch:IsShown(), false, "one channel: no switch")
 				eq(f.box:Anchor("TOPLEFT")[4], 6); eq(f.box:Anchor("TOPLEFT")[5], -56, "the lines take the pills' row")
@@ -44790,9 +44791,9 @@ do
 				-- shorter; still no row of its own.
 				AsCaptain()
 				w.CW.Render()
-				eq(f.switch:IsShown(), true); eq(f.switch:Anchor("TOPRIGHT")[4], -74, "left of the tab's ? (1.1.2)"); eq(f.switch:Anchor("TOPRIGHT")[5], -30)
+				eq(f.switch:IsShown(), true); eq(f.switch:Anchor("TOPRIGHT")[4], -50, "left of the gear (1.1.5: no '?' between)"); eq(f.switch:Anchor("TOPRIGHT")[5], -30)
 				eq(f.switch:GetHeight(), 20, "the search box's height")
-				eq(f.search:Anchor("TOPRIGHT")[4], -74 - f.switch:GetWidth() - 4, "the search ends where the switch begins")
+				eq(f.search:Anchor("TOPRIGHT")[4], -50 - f.switch:GetWidth() - 4, "the search ends where the switch begins")
 				eq(f.box:Anchor("TOPLEFT")[5], -56, "no row of its own")
 				AsSoldier()
 				w.CW.Render()
@@ -45907,10 +45908,62 @@ do
 		end)
 		end)()
 	end
-	-- 1.1.2: the Chat tab's "?" (its explanation, Answers.lua) and the Answers button of the author,
-	-- the High Council and the Stewards.
+	-- 1.1.5, the owner's ask after 1.1.2 ("the Chat tab's second i, the one doubled by the search
+	-- bar, is still there"): the tab's own "?" on its top row, Blizzard's help art like the window's
+	-- help button just above it (left of the X), read as a second help "i". Every help "i" shown: a
+	-- visible texture of that art, on whatever the toolkit made.
+	local function HelpIs()
+		local out = {}
+		for _, x in ipairs(createdWidgets) do
+			for _, t in ipairs(x.textures or {}) do
+				if t.texture == "Interface\\Common\\help-i" and t:IsVisible() then out[#out + 1] = x end
+			end
+		end
+		return out
+	end
 	do
-		test("1.1.2 Chat tab: its '?' explains the tab from the answer bank; the Answers button for the High Council (and the author, the Stewards) alone fills the tab's box, never sends, never takes the keyboard", function()
+		test("1.1.5 Chat tab: one help 'i' over it, the window's own left of the X, none by the search box, in both looks; the other tabs keep their page's '?'", function()
+			WithWindow(function(w)
+				ns.Channels.TabState = function() return "open" end
+				ns.Channels.Pin = function() return nil end
+				local f = w.CW.Open()
+				local main = OlympusFrame
+				eq(main.tab, "chat"); eq(f:IsShown(), true)
+				local shown = HelpIs()
+				eq(#shown, 1, "one help 'i' on the Chat tab")
+				eq(shown[1], main.helpButton, "the window's own, left of the X")
+				eq(f.help, nil, "none of the tab's own")
+				-- A Captain (the channels' switch on the top row) and the settings (the gear): still one.
+				AsCaptain()
+				w.CW.Render()
+				eq(f.switch:IsShown(), true); eq(#HelpIs(), 1, "a Captain's top row")
+				f.gear:Click()
+				eq(#HelpIs(), 1, "the settings")
+				f.gear:Click()
+				AsSoldier()
+				w.CW.Render()
+				-- The Census: the window's "i" and its page's "?" in the bottom box, as since 1.1.2.
+				w.UI.SelectTab("census")
+				shown = HelpIs()
+				eq(#shown, 2, "the Census: the window's and the page's")
+				eq(shown[1] == main.helpButton or shown[2] == main.helpButton, true)
+				eq(shown[1] == main.pageHelp or shown[2] == main.pageHelp, true)
+				main:Hide()
+				-- The HD look (next to Forever's Guild & Communities window): the same.
+				local world = ForeverWorld(true)
+				CommunitiesFrame:Show(); world.buttons[1]:Click()
+				local hd = OlympusFrameHD
+				local g = w.CW.Open("A")
+				eq(w.CW.Window(), hd); eq(hd.tab, "chat"); eq(g:IsShown(), true)
+				shown = HelpIs()
+				eq(#shown, 1, "HD: one help 'i' on the Chat tab"); eq(shown[1], hd.helpButton, "HD: the window's own")
+			end)
+		end)
+	end
+	-- 1.1.2: the Answers button of the author, the High Council and the Stewards. (Changed on purpose,
+	-- 1.1.5: the tab's own "?" that this test clicked is gone, the test above.)
+	do
+		test("1.1.2 Chat tab: the Answers button for the High Council (and the author, the Stewards) alone fills the tab's box, never sends, never takes the keyboard", function()
 			WithWindow(function(w)
 				ns.Channels.TabState = function() return "open" end
 				ns.Channels.Pin = function() return nil end
@@ -45920,12 +45973,8 @@ do
 					ns.Channels.Send = function(t, text) sent[#sent + 1] = text return true end
 					IsShiftKeyDown = function() return false end
 					local f = w.CW.Open()
-					-- A soldier: the "?", no Answers.
-					eq(f.help:IsShown(), true); eq(f.answers:IsShown(), false)
-					f.help:Click()
-					local box = OlympusCopyFrame
-					eq(box:IsShown(), true); eq(box.TitleText:GetText(), L.PAGE_HELP_TITLE:format(L.TAB_CHAT))
-					assert(box.text:find(ns.Answers.Find("feat-chat-tab").long, 1, true), box.text)
+					-- A soldier: no Answers.
+					eq(f.answers:IsShown(), false)
 					-- A High Councillor: the Answers button at the end of the box it fills, the box ending
 					-- before it. (Changed on purpose, 1.1.2's review: on the top row, left of the "?", it
 					-- left a Lord of the High Council a search box of 6 px in the default window.)
@@ -45935,7 +45984,7 @@ do
 					local a = f.answers:Anchor("BOTTOMRIGHT")
 					eq(a[4], -8, "the row's end, where the box's art ends"); eq(a[5], 9, "centred on the box")
 					eq(f.input:Anchor("BOTTOMRIGHT")[4], -18 - f.answers:GetWidth() - 4, "the box ends before it")
-					eq(f.search:Anchor("TOPRIGHT")[4], -74, "the search box as a soldier's")
+					eq(f.search:Anchor("TOPRIGHT")[4], -50, "the search box as a soldier's (1.1.5: to the gear)")
 					-- A Lord of the High Council (three channels: the switch on the top row too): the search
 					-- box as long as a Lord's who is not on it.
 					AsLord()
