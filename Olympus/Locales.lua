@@ -1650,6 +1650,20 @@ L.BANK_SISTER_ON = "Your guild bank's snapshot goes to the King, his Steward and
 L.BANK_SISTER_OFF = "Your guild bank stays with your guild (taken back from the King's screen). /oly bank share on shows it."
 L.BANK_SISTER_ONLY = "Only a guild master or an officer of an Olympus guild other than the King's shows his guild bank to the King."
 L.HELP_BANK = "  /oly bank share on|off - a guild master or officer of an Olympus guild shows his guild bank to the King, his Steward and his Hands (by whisper), or not"
+-- 1.1.5 (the Treasury tab in 1.2's order): the bank's totals, the authorized guild treasuries
+-- (a page each), the early supporters' list folded.
+L.TREASURY_GUILDS = "Guild treasuries"
+L.TREASURY_GUILDS_TIP = "Only bank snapshots already shared with and authorized for this character appear here. Opening one asks for nothing and sends nothing."
+L.TREASURY_GUILDS_NONE = "No authorized guild snapshot is available yet."
+L.TREASURY_GUILDS_APPROVAL = "Cross-guild treasury access is not authorized for this role. It remains unavailable until its policy is approved."
+L.TREASURY_GUILD_TITLE = "The treasury of <%s>"
+L.TREASURY_GUILD_ITEMS = "%d items in %d stacks"
+L.TREASURY_GUILD_SHARED_BY = "Snapshot shared by %s, %s"
+L.TREASURY_GUILD_SHARED_SHORT = "shared by %s"
+L.TREASURY_GUILD_VALUE_UNAVAILABLE = "No verified gold valuation exists for these items; Olympus does not estimate one."
+L.TREASURY_GUILD_BOOK_UNAVAILABLE = "This guild's Book is not shared by the current authorization. It remains unavailable until its policy is approved."
+L.TREASURY_GUILD_SNAPSHOT_GONE = "This authorized guild snapshot is no longer available. Return to the Treasury list."
+L.TREASURY_EARLY_COLLAPSE_TIP = "Click to show or hide the list."
 -- 1.1 (the treasury): requests to the treasury from Lords and Captains.
 L.BANK_REQUESTS = "Requests to the treasury"
 L.BANK_REQUESTS_TIP = "Lords and Captains ask the treasury for an item and a count (a click on it in the bank, or /oly need 10 <item>). It goes by whisper to the keepers, the King and his Steward, and on the Olympus channel only while the King shows the army the bank. Handing it over stays a normal trade or mail: the request closes by itself when the keeper's book records that item given."
@@ -3630,6 +3644,20 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.BANK_SISTER_OFF = "O banco da sua guilda fica com a sua guilda (retirado da tela do Rei). /oly bank share on mostra."
 	L.BANK_SISTER_ONLY = "Só o mestre ou um oficial de uma guilda Olympus que não seja a do Rei mostra o banco da guilda ao Rei."
 	L.HELP_BANK = "  /oly bank share on|off - o mestre ou um oficial de uma guilda Olympus mostra ou não o banco da guilda ao Rei, ao Senescal e às Mãos dele (por sussurro)"
+	-- 1.1.5 (a aba do Tesouro na ordem da 1.2): os totais do banco, os tesouros das guildas
+	-- autorizados (uma página cada), a lista dos primeiros apoiadores recolhida.
+	L.TREASURY_GUILDS = "Tesouros das guildas"
+	L.TREASURY_GUILDS_TIP = "Só aparecem aqui fotos do banco já compartilhadas e autorizadas para este personagem. Abrir uma não pede nem envia nada."
+	L.TREASURY_GUILDS_NONE = "Ainda não há foto autorizada de nenhuma guilda."
+	L.TREASURY_GUILDS_APPROVAL = "O acesso a tesouros de outras guildas não está autorizado para este cargo. Ele fica indisponível até a política ser aprovada."
+	L.TREASURY_GUILD_TITLE = "O tesouro de <%s>"
+	L.TREASURY_GUILD_ITEMS = "%d itens em %d pilhas"
+	L.TREASURY_GUILD_SHARED_BY = "Foto compartilhada por %s, %s"
+	L.TREASURY_GUILD_SHARED_SHORT = "compartilhada por %s"
+	L.TREASURY_GUILD_VALUE_UNAVAILABLE = "Não existe avaliação em ouro verificada para estes itens; o Olympus não estima uma."
+	L.TREASURY_GUILD_BOOK_UNAVAILABLE = "O Livro desta guilda não é compartilhado pela autorização atual. Ele fica indisponível até a política ser aprovada."
+	L.TREASURY_GUILD_SNAPSHOT_GONE = "Esta foto autorizada da guilda não está mais disponível. Volte à lista do Tesouro."
+	L.TREASURY_EARLY_COLLAPSE_TIP = "Clique para mostrar ou esconder a lista."
 	-- 1.1 (o tesouro): pedidos ao tesouro de Lordes e Capitães.
 	L.BANK_REQUESTS = "Pedidos ao tesouro"
 	L.BANK_REQUESTS_TIP = "Lordes e Capitães pedem ao tesouro um item e uma quantidade (um clique nele no banco, ou /oly need 10 <item>). Vai por sussurro aos guardiões, ao Rei e ao Senescal dele, e no canal Olympus só enquanto o Rei mostra o banco ao exército. A entrega continua uma troca ou um correio normal: o pedido fecha sozinho quando o livro do guardião registra aquele item dado."

@@ -6698,8 +6698,20 @@ test("Treasury review fixes: the week survives the update, the King's word reach
 			assert(not T.GoldText(-5000):find("0g", 1, true), T.GoldText(-5000)); eq(T.GoldText(123450000), "12,345g")
 			-- The Treasurer is told who sees his treasury: he and the King, until the King shows it.
 			AsTreasurer()
-			local page = Texts((T.Build()))
-			assert(page:find(ns.L.TREASURY_YOU_AND_KING:sub(1, 30), 1, true), page)
+			-- (1.1.5, the Treasury tab in 1.2's order: the explanation moved from two paragraphs
+			-- under the title into the title's tooltip; changed on purpose, still asserted there.)
+			local first = T.Build()
+			local page = Texts(first)
+			assert(not page:find(ns.L.TREASURY_YOU_AND_KING:sub(1, 30), 1, true), "the long explanation is no longer inline: " .. page)
+			assert(page:find(ns.L.TREASURY_GUILDS_APPROVAL:sub(1, 35), 1, true), "cross-guild policy stays approval-gated: " .. page)
+			local title, tip = first[1], { lines = {} }
+			function tip:AddLine(s) self.lines[#self.lines + 1] = s end
+			assert(title.tooltip, "the Treasury title has its explanation")
+			title.tooltip(tip)
+			local tips = table.concat(tip.lines, "\n")
+			assert(tips:find(ns.L.TREASURY_YOU_AND_KING:sub(1, 30), 1, true), tips)
+			assert(tips:find(ns.L.TREASURY_HOW:sub(1, 30), 1, true), tips)
+			assert(tips:find(ns.L.TREASURY_BOOK_HOW, 1, true), tips)
 			eq(T.WhoSees(), ns.L.TREASURY_YOU_AND_KING)
 			-- Sums of another shape (0.8.3's had no donors, no version): rebuilt from the book, this
 			-- week's days too.
@@ -19340,8 +19352,15 @@ test("1.0 the early supporters: everyone who gave before 1.0, names only, alphab
 			-- On his screen: their names alone, in alphabetical order (whatever the case), each once.
 			eq(Early(), "alice Early,Bob Early,Carl Early,Zed Donor")
 			T.Show("summary")
-			local page = Texts((T.Build()))
+			-- (1.1.5: the list is a folded header, the summary's last section; a click opens it.
+			-- Changed on purpose from the always-open list under the ranking.)
+			local lines = T.Build()
+			local page = Texts(lines)
 			assert(page:find(ns.L.TREASURY_EARLY, 1, true), page)
+			eq(lines[#lines].key, "early-supporters", "the collapsed list is the final section")
+			assert(not page:find("alice Early", 1, true), "collapsed first: " .. page)
+			lines[#lines].onClick()
+			lines = T.Build(); page = Texts(lines)
 			assert(page:find(ns.L.TREASURY_EARLY_HINT:format(4):sub(1, 30), 1, true), page)
 			assert(page:find("alice Early, Bob Early, Carl Early, Zed Donor", 1, true), page)
 			assert(not page:find("Paid Crafter", 1, true) and not page:find("Buyer Guy", 1, true), "a payment, a sale: no gift")
@@ -19371,8 +19390,12 @@ test("1.0 the early supporters: everyone who gave before 1.0, names only, alphab
 			eq(Early(), "alice Early,Bob Early,Carl Early,Zed Donor")
 			-- The ranking's switch: the army sees the list only with the ranking.
 			ns.rdb.treasuryFlags = { balance = true, ranking = true, at = w.clock }
+			T.Show("summary")
+			lines = T.Build(); page = Texts(lines)
+			assert(page:find(ns.L.TREASURY_EARLY, 1, true) and not page:find("alice Early", 1, true), page)
+			for _, line in ipairs(lines) do if line.key == "early-supporters" then line.onClick() end end
 			page = Texts((T.Build()))
-			assert(page:find(ns.L.TREASURY_EARLY, 1, true) and page:find("alice Early, Bob Early", 1, true), page)
+			assert(page:find("alice Early, Bob Early", 1, true), page)
 			ns.rdb.treasuryFlags = { balance = true, book = true, at = w.clock + 1 }
 			page = Texts((T.Build()))
 			assert(not page:find(ns.L.TREASURY_EARLY, 1, true) and not page:find("alice Early", 1, true), page)
@@ -19432,6 +19455,8 @@ test("1.0 the early supporters: everyone who gave before 1.0, names only, alphab
 			for i = #te, 1, -1 do T.HandleEarly("CHANNEL", "Pyralis Ashandar-Realm", te[i]) end
 			eq(Early(), table.concat(names, ","), "every name, in order, whatever order the pieces came in")
 			T.Show("summary")
+			local many = T.Build()
+			for _, line in ipairs(many) do if line.key == "early-supporters" then line.onClick() end end
 			page = Texts((T.Build()))
 			assert(page:find(ns.L.SHOW_MORE:format(T.EARLY_SHOWN, T.EARLY_SHOWN, 150), 1, true), "60 at first, then 60 more a click")
 			-- A 0.9 client drops a piece and an ask unread (types it has no handler for, in one
@@ -36563,9 +36588,25 @@ test("1.1 the bank (Fern): the tab's search finds its items, and what left it si
 			eq(gone[2].tabs[1], "Mats")
 			eq(#ghosts[1], 1, "one slot emptied"); eq(ghosts[1][1].id, 2770); eq(ghosts[1][1].s, 2); eq(ghosts[1][1].gone, true)
 			-- On the tab: the lines, and the slot faded in the grid.
+			T.Record("Layout Donor", 100, "mail", nil, { quiet = true })
 			T.bankTab = 1
 			local lines = T.Build()
 			local page = Texts(lines)
+			-- (1.1.5: the summary in 1.2's order: the balance, then the bank's portrait, before the
+			-- treasury's controls; the bank's items and stacks counted under its gold.)
+			local function At(text)
+				for i, line in ipairs(lines) do if tostring(line.text):find(text, 1, true) then return i end end
+			end
+			local balanceAt, inOutAt = At(ns.L.TREASURY_BALANCE), At(ns.L.TREASURY_IN_OUT)
+			local bankAt, goldAt = At(ns.L.TREASURY_BANK), At(ns.L.TREASURY_BANK_GOLD)
+			local itemsAt, controlsAt = At(ns.L.TREASURY_GUILD_ITEMS:format(160, 3)), At(ns.L.DONATIONS_SWITCH)
+			assert(balanceAt and inOutAt and bankAt and goldAt and itemsAt and controlsAt, "all compact summary rows: " .. page)
+			assert(balanceAt < inOutAt and inOutAt < bankAt and bankAt < goldAt, "balance, in/out, then bank")
+			assert(goldAt < itemsAt, "bank gold then real item totals")
+			assert(goldAt < controlsAt, "bank before treasury controls")
+			-- (The stacks gone now follow the tabs and the grid: gold, totals and tabs stay together.)
+			local tabAt, goneAt = At("[-] Mats"), At(ns.L.BANK_GONE:format(ns.Ago(first.t)))
+			assert(tabAt and goneAt and itemsAt < tabAt and tabAt < goneAt, "the gone audit after the tabs: " .. page)
 			assert(page:find(ns.L.BANK_GONE:format(ns.Ago(first.t)), 1, true), page)
 			assert(page:find("Linen Cloth", 1, true) and page:find("-50x", 1, true) and page:find("-20x", 1, true), page)
 			local grid = Grid(lines)
@@ -36688,6 +36729,11 @@ test("1.1 sister guilds' banks (Fern): their treasurer's yes, whispered to the K
 			-- The King's client: taken from the Lord, the tabs as "Tab 1", in the Treasury tab and its search.
 			local function Deliver(from) for _, m in ipairs(toKing) do T.HandlePrivate("WHISPER", from, m) end end
 			AsKing()
+			-- (1.1.5, in 1.2's order: "Guild treasuries" lists each authorized guild, a page of its
+			-- own a click away, instead of the inline "Sister guilds' banks"; changed on purpose.)
+			T.Show("summary")
+			local empty = Texts((T.Build()))
+			assert(empty:find(ns.L.TREASURY_GUILDS_NONE, 1, true), "authorized viewer, no snapshot: " .. empty)
 			Deliver("Faker Guy-Realm")
 			eq(#B.Sisters(), 0, "not a Lord or Captain of that guild")
 			Deliver("Zed-Realm")
@@ -36696,11 +36742,22 @@ test("1.1 sister guilds' banks (Fern): their treasurer's yes, whispered to the K
 			T.Show("summary")
 			local lines = T.Build()
 			local page = Texts(lines)
-			assert(page:find(ns.L.BANK_SISTERS, 1, true) and page:find("<Olympus Zeus>", 1, true), page)
+			assert(page:find(ns.L.TREASURY_GUILDS, 1, true) and page:find("<Olympus Zeus>", 1, true), page)
+			assert(page:find(ns.L.TREASURY_GUILD_ITEMS:format(60, 1), 1, true), "real snapshot counts: " .. page)
 			for _, l in ipairs(lines) do if l.key == "sister:Olympus Zeus" then l.onClick() end end
 			lines = T.Build()
-			assert(Texts(lines):find("Tab 1", 1, true), Texts(lines))
+			page = Texts(lines)
+			assert(page:find(ns.L.TREASURY_GUILD_TITLE:format("Olympus Zeus"), 1, true) and page:find("Tab 1", 1, true), page)
+			assert(page:find(ns.L.TREASURY_GUILD_BOOK_UNAVAILABLE:sub(1, 35), 1, true), "approval-gated Book: " .. page)
 			eq(Grid(lines)[3].id, 2589, "its grid, where the stack sits")
+			B.Reset()
+			page = Texts((T.Build()))
+			assert(page:find(ns.L.TREASURY_GUILD_SNAPSHOT_GONE:sub(1, 35), 1, true) and not page:find("Linen Cloth", 1, true), "no stale snapshot after revocation: " .. page)
+			Deliver("Zed-Realm")
+			lines = T.Build()
+			assert(lines[1].onClick, "the guild treasury has a way back")
+			lines[1].onClick()
+			eq(T.mode, "summary")
 			page = Texts((T.Build("linen")))
 			assert(page:find(ns.L.BANK_SISTER_OF:format("Olympus Zeus"), 1, true) and page:find("60x", 1, true), page)
 			-- A Hand's client: the tab appears for it; a soldier's takes nothing.
@@ -36714,6 +36771,9 @@ test("1.1 sister guilds' banks (Fern): their treasurer's yes, whispered to the K
 			AsSoldier()
 			Deliver("Zed-Realm")
 			eq(#B.Sisters(), 0, "a soldier: nothing")
+			eq(T.ShowGuild("Olympus Zeus"), false, "an unauthorized name cannot open or reveal a guild page")
+			eq(T.mode, "summary")
+			assert(not Texts((T.Build())):find("Olympus Zeus", 1, true), "no guild leaked into an unauthorized view")
 			eq(T.Ask(true), false, "and a soldier's client never asks")
 			-- His no takes it back from the King's screen.
 			AsLord(); ns.db.sisterBankShares = { ["zed-realm"] = true }
@@ -37267,6 +37327,366 @@ test("1.1 Backup.lua added by an update and not loaded yet: /oly backup says to 
 	if not ok then error(err, 0) end
 end)
 
+---------------------------------------------------------------------------
+-- 1.1.5: the Treasury tab in 1.2's order (1.1.5 came from 1.1.4's line and had drawn the old one).
+-- Each role's summary, as the tab draws it, named a section at a time: the balance and the bank's
+-- portrait first, then the week's detail, the dues, the controls, the lists, the guild treasuries,
+-- and the early supporters folded, always the last.
+---------------------------------------------------------------------------
+do
+	local TREASURER, KING = "Pyralis Ashandar-Realm", "Asmongold Asmongler-Realm"
+	local function Plain(s) return (tostring(s or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+	-- A row read against one of the tab's strings, its %d and %s any number and any text.
+	local function Fits(text, fmt)
+		local pat = fmt:gsub("[%^%$%(%)%.%[%]%*%+%-%?%%]", "%%%0"):gsub("%%%%d", "%%d+"):gsub("%%%%s", ".-")
+		return text:find("^" .. pat .. "$") ~= nil
+	end
+	-- A paragraph's first row (Para cuts it in rows): it opens with the paragraph's first words.
+	local function Opens(text, para) return #text >= 20 and text:sub(1, 20) == para:sub(1, 20) end
+	-- Each row's section (nil: a row of the section above, a ranking's donor, a paragraph's next row).
+	local function Tag(l, i)
+		local L, t, key = ns.L, Plain(l.text), tostring(l.key or "")
+		if i == 1 and l.header and t == L.TREASURY_TITLE then return "title" end
+		if t == L.TREASURY_BALANCE then return "balance" end
+		if t == L.TREASURY_IN_OUT then return "in/out" end
+		if l.header and t == L.TREASURY_BANK then return "bank" end
+		if l.items or key:find("^banktab") or t == L.TREASURY_BANK_GOLD or Fits(t, L.TREASURY_BANK_AS_OF)
+			or (not l.indent and Fits(t, L.TREASURY_GUILD_ITEMS)) then return "bank" end
+		if Fits(t, L.BANK_GONE) then return "gone" end
+		if Fits(t, L.TREASURY_WEEK) then return "week" end
+		if Fits(t, L.TREASURY_OPENING) then return "opening" end
+		if l.indent and Fits(t, L.TREASURY_KEPT_BY) then return "kept by" end
+		if Fits(t, L.DUES_SEND) then return "dues button" end
+		if Fits(t, "> " .. L.DUES_LINK) then return "dues link" end
+		if key == "donations" or tostring(l.text):find(ns.COIN, 1, true) == 1 then return "donations" end
+		if t == "> " .. L.BACKUP_LINK or t == "> " .. L.BACKUP_RESTORE_LINK then return "backup" end
+		if l.header and t == L.TREASURY_RANKING then return "ranking" end
+		if l.header and t == L.TREASURY_ITEMS then return "items" end
+		if t == "> " .. L.TREASURY_BOOK then return "book link" end
+		if Fits(t, "> " .. L.TREASURY_KEEPERS_LINK) then return "keepers link" end
+		if l.header and t == L.BANK_REQUESTS then return "requests" end
+		if (l.header and t == L.BANK_MY_REQUESTS) or t == "+ " .. L.BANK_REQUEST_NEW_LINE then return "my requests" end
+		if Fits(t, L.TREASURY_ARMY_SEES) or t == L.TREASURY_ARMY_SEES_NOTHING then return "army sees" end
+		if (l.header and t == L.TREASURY_GUILDS) or key:find("^sister:") then return "guilds" end
+		if key == "early-supporters" then return "early" end
+		if l.header then return "?" .. t end
+		if Opens(t, L.TREASURY_WAIT) then return "wait" end
+		if Opens(t, L.TREASURY_PART_WAIT) then return "part wait" end
+		if Opens(t, ns.Treasury.WhoSees()) or Opens(t, L.TREASURY_HOW) then return "explanation" end
+		return nil
+	end
+	local function Sections(lines)
+		local out = {}
+		for i, l in ipairs(lines) do
+			local tag = Tag(l, i)
+			if tag and out[#out] ~= tag then out[#out + 1] = tag end
+		end
+		return table.concat(out, ", ")
+	end
+	local function Summary()
+		ns.Treasury.Show("summary")
+		return (ns.Treasury.Build())
+	end
+	local function GridLine(lines)
+		for _, l in ipairs(lines) do if l.items then return l end end
+	end
+	local function Find(lines, key)
+		for _, l in ipairs(lines) do if l.key == key then return l end end
+	end
+	local function Tip(line)
+		local tip = { lines = {} }
+		function tip:AddLine(s) self.lines[#self.lines + 1] = tostring(s) end
+		if line and line.tooltip then line.tooltip(tip) end
+		return table.concat(tip.lines, "\n"), #tip.lines
+	end
+	-- The world every role's summary is drawn in: the dues (Forever's realm), item names, the
+	-- King's Steward named (ns.IsSteward stood in for), and every stand-in put back.
+	local function WithLayout(fn)
+		WithThrone(function(w, K)
+			local saved = { split = ns.splitNames, steward = ns.IsSteward, item = C_Item, visible = ns.Workshop.Visible,
+				kview = ns.db.devKingView, tview = ns.db.devTreasurerView, pflags = ns.db.previewTreasuryFlags }
+			local ok, err = pcall(function()
+				ns.splitNames = true
+				ns.Dues.Reset()
+				ns.IsSteward = function(n) return type(n) == "string" and ns.FullName(n) == "Layout Steward-Realm" end
+				C_Item = { GetItemNameByID = function(id) return ({ [2589] = "Linen Cloth", [2770] = "Copper Ore" })[id] end }
+				fn(w, K, ns.Treasury, ns.Bank)
+			end)
+			ns.splitNames, ns.IsSteward, C_Item, ns.Workshop.Visible = saved.split, saved.steward, saved.item, saved.visible
+			ns.db.devKingView, ns.db.devTreasurerView, ns.db.previewTreasuryFlags = saved.kview, saved.tview, saved.pflags
+			ns.rdb.bank, ns.rdb.bankPrev, ns.rdb.bankRequests, ns.rdb.treasuryEarly, ns.rdb.treasuryKeepers = nil, nil, nil, nil, nil
+			ns.Dues.Reset()
+			if not ok then error(err, 0) end
+		end)
+	end
+	local ALL = { balance = true, ranking = true, book = true }
+	local function Flags(w, f)
+		w.clock = w.clock + 1
+		ns.rdb.treasuryFlags = { balance = f.balance, ranking = f.ranking, book = f.book, at = w.clock }
+	end
+
+	test("1.1.5 the Treasury tab in 1.2's order: each role's summary draws its sections as 1.2's does (the balance, the bank, the week, the dues, the controls, the lists, the guild treasuries; the early supporters folded, last)", function()
+		WithLayout(function(w, K, T, B)
+			-- <Olympus>'s bank as last seen, the early supporters' list, a Captain's request held.
+			ns.rdb.bank = { t = w.clock, guild = "Olympus", by = TREASURER, money = 5000,
+				tabs = { { i = 1, name = "Mats", items = { { id = 2589, n = 20, s = 1 }, { id = 2770, n = 5, s = 2 } } }, { i = 2, name = "Spare", items = {} } } }
+			ns.rdb.treasuryEarly = { at = w.clock - 100, names = { "Early One", "Early Two" } }
+			ns.rdb.bankRequests = { ["cap-realm#1"] = { from = "Cap-Realm", guild = "Olympus II", id = 1, item = 2770, n = 5, t = w.clock, state = "open" } }
+			Flags(w, ALL)
+			-- Nothing from the keepers yet: the bank above the wait; the early supporters, last,
+			-- with the ranking's switch (a member), never without it.
+			AsSoldier()
+			eq(T.Report(), nil)
+			eq(Sections(Summary()), "title, bank, dues button, wait, early")
+			Flags(w, { balance = true, book = true })
+			eq(Sections(Summary()), "title, bank, dues button, wait", "no ranking shown: no early supporters")
+			Flags(w, ALL)
+			AsSoldier("Layout Steward")
+			eq(T.Role(), "king"); eq(T.Report(), nil)
+			eq(Sections(Summary()), "title, bank, dues button, dues link, wait, ranking, keepers link, requests, army sees, guilds, early")
+			-- The Treasurer's book (gold and an item given), heard by the other clients as the channel's
+			-- copy (the parts the King shows: the insiders wait for the whole one, PART_WAIT).
+			AsTreasurer()
+			T.Record("Layout Donor", 100000, "mail", nil, { quiet = true })
+			T.Record("Layout Donor", 0, "mail", nil, { quiet = true, item = 2589, count = 20 })
+			local his = T.Message(nil, ALL)
+			-- (The Treasurer plays on another account: his own book is his client's alone.)
+			local hisBooks, hisCharacters = ns.rdb.treasuryBooks, ns.db.myCharacters
+			ns.rdb.treasuryBooks, ns.db.myCharacters = nil, nil
+			AsSoldier(); T.HandleReport("CHANNEL", TREASURER, his)
+			assert(T.Report(), "the soldier holds the Treasurer's report")
+			-- A sister guild's snapshot, on the King's client (and his Hand's).
+			AsKing(); K.AddHand("Layout Hand"); K.SendHands(true); local hands = LastSent(w)
+			B.HandleSister("WHISPER", "Zed-Realm", ("TS~Olympus Zeus~%d~424242~;.2,2589x60~;"):format(w.clock))
+			eq(#B.Sisters(), 1)
+
+			-- A member, the King showing nothing: the title and his dues alone (as 1.1.4).
+			Flags(w, {})
+			AsSoldier()
+			eq(Sections(Summary()), "title, dues button")
+			-- A Lord the same: his dues' button and his guild's dues, nothing more.
+			AsLord()
+			eq(Sections(Summary()), "title, dues button, dues link")
+			-- The army with the King's three switches: each block in 1.2's place.
+			Flags(w, ALL)
+			AsSoldier()
+			eq(T.Role(), "member")
+			local lines = Summary()
+			eq(Sections(lines), "title, balance, in/out, bank, week, kept by, dues button, ranking, items, book link, early")
+			local _, n = Tip(lines[1])
+			eq(n, 1, "a member's title tooltip: the title alone")
+			-- Each switch off drops its blocks, the order of the others kept.
+			Flags(w, { balance = true })
+			eq(Sections(Summary()), "title, balance, in/out, week, kept by, dues button")
+			Flags(w, { book = true })
+			eq(Sections(Summary()), "title, bank, dues button, items, book link")
+			Flags(w, { ranking = true })
+			eq(Sections(Summary()), "title, dues button, ranking, early")
+			Flags(w, ALL)
+			-- A Lord: his guild's dues, his own requests and the line to ask, the bank's grid his to
+			-- click (an item asked for).
+			AsLord()
+			lines = Summary()
+			eq(Sections(lines), "title, balance, in/out, bank, week, kept by, dues button, dues link, ranking, items, book link, my requests, early")
+			assert(GridLine(lines) and GridLine(lines).onItem, "the Lord's grid asks for an item")
+			-- A keeper on the King's list: no inline paragraphs any more (the title's tooltip has them).
+			ns.rdb.treasuryKeepers = { at = w.clock, names = { "Layout Keeper-Realm" } }
+			AsSoldier("Layout Keeper")
+			eq(T.Role(), "keeper"); eq(T.RealKeeper(), true)
+			lines = Summary()
+			eq(Sections(lines), "title, balance, in/out, bank, week, opening, kept by, donations, backup, part wait, ranking, items, book link, keepers link, requests, early")
+			local tip = Tip(lines[1])
+			assert(tip:find(T.WhoSees(), 1, true) and tip:find(ns.L.TREASURY_HOW, 1, true) and tip:find(ns.L.TREASURY_BOOK_HOW, 1, true), tip)
+			-- The Treasurer: every guild's dues, and why no other guild's treasury is his to see.
+			AsTreasurer()
+			ns.rdb.treasuryBooks, ns.db.myCharacters = hisBooks, hisCharacters
+			eq(Sections(Summary()), "title, balance, in/out, bank, week, opening, kept by, dues link, donations, backup, ranking, items, book link, keepers link, requests, guilds, early")
+			-- The King: what the army sees, a gap after it, then the guild treasuries, then the early supporters.
+			ns.rdb.treasuryBooks, ns.db.myCharacters = nil, nil
+			AsKing()
+			lines = Summary()
+			eq(Sections(lines), "title, balance, in/out, bank, week, opening, kept by, dues link, donations, backup, part wait, ranking, items, book link, keepers link, requests, army sees, guilds, early")
+			for _, l in ipairs(lines) do if Fits(Plain(l.text), ns.L.TREASURY_ARMY_SEES) then eq(l.gapAfter, true, "a gap after the army's line") end end
+			-- His Steward: the King's view without a keeper's book (no opening, no switch, no backup).
+			AsSoldier("Layout Steward")
+			eq(T.Role(), "king"); eq(T.IsKeeper(), false)
+			lines = Summary()
+			eq(Sections(lines), "title, balance, in/out, bank, week, kept by, dues button, dues link, part wait, ranking, items, book link, keepers link, requests, army sees, guilds, early")
+			tip = Tip(lines[1])
+			assert(tip:find(ns.L.TREASURY_HOW, 1, true), "the Steward's title explains the treasury too: " .. tip)
+			-- A Hand holding the sister guild's snapshot: the army's layout, the guild treasuries before the early supporters.
+			AsSoldier("Layout Hand"); K.HandleCommand("CHANNEL", KING, hands)
+			eq(K.IsHand(), true); eq(T.Role(), "member")
+			eq(Sections(Summary()), "title, balance, in/out, bank, week, kept by, dues button, ranking, items, book link, guilds, early")
+			-- The author's Asmon's view: the King's layout, the public requests only, no guild treasuries.
+			ns.Workshop.Visible = function() return true end
+			ns.db.devKingView, ns.db.previewTreasuryFlags = true, { balance = true, ranking = true, book = true, at = w.clock }
+			AsSoldier("Dev Viewer")
+			eq(K.Preview(), true); eq(T.Role(), "king"); eq(T.IsInsider(), false)
+			eq(Sections(Summary()), "title, balance, in/out, bank, week, kept by, dues button, dues link, part wait, ranking, items, book link, keepers link, army sees, early")
+			-- The author's Treasurer's view: a keeper's layout without his switch or backup, the approval note.
+			ns.db.devKingView, ns.db.devTreasurerView = nil, true
+			eq(T.Role(), "keeper"); eq(T.RealKeeper(), false)
+			eq(Sections(Summary()), "title, balance, in/out, bank, week, opening, kept by, dues link, part wait, ranking, items, book link, keepers link, guilds, early")
+		end)
+	end)
+
+	-- A bank's portrait, row by row, from its header to its last row (the gap after it): who saw
+	-- it, its gold, its items and stacks, each tab (the open one's grid under it), the stacks gone.
+	local function Portrait(lines, header)
+		local L, out, on = ns.L, {}, false
+		for _, l in ipairs(lines) do
+			local t = Plain(l.text)
+			if l.header then on = t == header
+			elseif on then
+				local tag
+				if Fits(t, L.TREASURY_BANK_AS_OF) or Fits(t, L.TREASURY_GUILD_SHARED_BY) then tag = "by"
+				elseif t == L.TREASURY_BANK_GOLD then tag = "gold"
+				elseif Fits(t, L.TREASURY_GUILD_ITEMS) then tag = "totals"
+				elseif l.items then tag = "grid"
+				elseif tostring(l.key or ""):find("tab%d+$") then tag = t:sub(1, 4) == "[-] " and "open tab" or "tab"
+				elseif Fits(t, L.BANK_GONE) or l.indent then tag = "gone"
+				else tag = "?" .. t end
+				if out[#out] ~= tag then out[#out + 1] = tag end
+				if l.gapAfter then on = false end
+			end
+		end
+		return table.concat(out, ", ")
+	end
+
+	test("1.1.5 one bank portrait for both banks: <Olympus>'s and an authorized guild's draw who saw it, its gold, its items and stacks, its tabs and the open one's grid in that order (ours then the stacks gone); the guild's is a page of its own, the way back first", function()
+		WithLayout(function(w, K, T, B)
+			local L = ns.L
+			-- <Olympus>'s bank, and the visit before it (7 Copper Ore gone since).
+			ns.rdb.bankPrev = { t = w.clock - 3600, guild = "Olympus", by = TREASURER, money = 6000,
+				tabs = { { i = 1, name = "Mats", items = { { id = 2589, n = 20, s = 1 }, { id = 2770, n = 5, s = 2 }, { id = 2770, n = 7, s = 3 } } }, { i = 2, name = "Spare", items = {} } } }
+			ns.rdb.bank = { t = w.clock, guild = "Olympus", by = TREASURER, money = 5000,
+				tabs = { { i = 1, name = "Mats", items = { { id = 2589, n = 20, s = 1 }, { id = 2770, n = 5, s = 2 } } }, { i = 2, name = "Spare", items = {} } } }
+			ns.rdb.treasuryEarly = { at = w.clock - 100, names = { "Early One", "Early Two" } }
+			Flags(w, ALL)
+			AsKing()
+			B.HandleSister("WHISPER", "Zed-Realm", ("TS~Olympus Zeus~%d~424242~;.2,2589x60~;"):format(w.clock))
+			local lines = Summary()
+			eq(Portrait(lines, L.TREASURY_BANK), "by, gold, totals, open tab, grid, tab, gone")
+			local own = Find(lines, "banktab1")
+			assert(own and Find(lines, "banktab2"), "our tabs, each its own key (the gamepad's focus)")
+			for _, l in ipairs(lines) do
+				if Plain(l.text) == L.TREASURY_GUILD_ITEMS:format(25, 2) then eq(l.tooltip, nil, "our bank's totals: no valuation note") end
+			end
+			-- The guild treasuries: a row per authorized guild, its gold, its counts and who shared it.
+			local row = Find(lines, "sister:Olympus Zeus")
+			assert(row and row.onClick, Texts(lines))
+			eq(Plain(row.text), "> <Olympus Zeus>"); eq(row.right, T.Coins(424242))
+			local tip = Tip(row)
+			assert(tip:find(L.TREASURY_GUILD_VALUE_UNAVAILABLE, 1, true) and tip:find("Zed", 1, true), tip)
+			local under
+			for i, l in ipairs(lines) do if l == row then under = lines[i + 1] end end
+			eq(under.indent, 1); eq(Plain(under.text), L.TREASURY_GUILD_ITEMS:format(60, 1)); eq(Plain(under.right), L.TREASURY_GUILD_SHARED_SHORT:format("Zed"))
+			-- Its page: the way back, its title, the same portrait (no stacks gone, nothing to ask for), its Book not shared.
+			row.onClick()
+			eq(T.mode, "guild")
+			local page, tab, detail = T.Build()
+			eq(tab, L.TAB_TREASURY); eq(detail, L.TREASURY_GUILD_TITLE:format("Olympus Zeus"))
+			eq(T.Searchable(), false, "no search box on a guild's page")
+			eq(Plain(page[1].text), "< " .. L.TREASURY_TITLE); assert(page[1].onClick, "the way back")
+			eq(Portrait(page, L.TREASURY_GUILD_TITLE:format("Olympus Zeus")), "by, gold, totals, open tab, grid, tab")
+			for _, l in ipairs(page) do
+				if Plain(l.text) == L.TREASURY_BANK_GOLD then eq(l.right, T.Coins(424242)) end
+				if Plain(l.text) == L.TREASURY_GUILD_ITEMS:format(60, 1) then
+					assert(Tip(l):find(L.TREASURY_GUILD_VALUE_UNAVAILABLE, 1, true), "no gold estimate, said so")
+				end
+				if l.items then eq(l.onItem, nil, "nothing to ask for from another guild's bank") end
+			end
+			eq(GridLine(page).items[1].id, 2589, "its grid, its stack")
+			local text = Texts(page)
+			assert(text:find(L.TREASURY_BOOK, 1, true) and text:find(L.TREASURY_GUILD_BOOK_UNAVAILABLE:sub(1, 30), 1, true), text)
+			assert(not text:find(L.TREASURY_RANKING, 1, true) and not text:find(L.TREASURY_EARLY, 1, true), "the guild's page alone: " .. text)
+			-- Its tabs are its own (keys sistertab<i>): opening its second leaves ours as it was.
+			assert(Find(page, "sistertab1") and Find(page, "sistertab2"), text)
+			Find(page, "sistertab2").onClick()
+			page = T.Build()
+			eq(Portrait(page, L.TREASURY_GUILD_TITLE:format("Olympus Zeus")), "by, gold, totals, tab, open tab, grid")
+			eq(T.bankTab, nil, "our bank's open tab untouched")
+			-- The way back: the summary, the guild forgotten; a guild page without one shows no guild.
+			page[1].onClick()
+			eq(T.mode, "summary")
+			T.Show("guild")
+			text = Texts((T.Build()))
+			assert(text:find(L.TREASURY_GUILD_SNAPSHOT_GONE:sub(1, 30), 1, true) and not text:find("Olympus Zeus", 1, true), text)
+			eq(T.ShowGuild("Olympus Nobody"), false, "a guild with no snapshot here")
+			eq(T.mode, "guild", "(where it was)")
+			T.Show("summary")
+			-- A Lord's own bank (his to ask from): the same portrait, its grid's items clickable.
+			AsLord()
+			lines = Summary()
+			eq(Portrait(lines, L.TREASURY_BANK), "by, gold, totals, open tab, grid, tab, gone")
+			assert(GridLine(lines).onItem and GridLine(lines).itemHint == L.BANK_REQUEST_CLICK, "a Lord's click on an item asks for it")
+			eq(Find(lines, "sister:Olympus Zeus"), nil, "no guild treasuries for a Lord")
+		end)
+	end)
+
+	test("1.1.5 the Treasury's explanations in tooltips: the title's (who sees it, how it is kept, the book) for all but the army, the book's for a keeper; the early supporters folded, their count on the right, a click opens and the summary folds them again", function()
+		WithLayout(function(w, K, T, B)
+			local L = ns.L
+			ns.rdb.treasuryEarly = { at = w.clock - 100, names = { "Early One", "Early Two" } }
+			Flags(w, ALL)
+			AsTreasurer()
+			T.Record("Layout Donor", 100000, "mail", nil, { quiet = true })
+			-- The title: the Treasurer's explanation there, none of it inline.
+			local lines = Summary()
+			local tip, n = Tip(lines[1])
+			eq(n, 4, "the title, who sees it, how it is kept, the book")
+			assert(tip:find(T.WhoSees(), 1, true) and tip:find(L.TREASURY_HOW, 1, true) and tip:find(L.TREASURY_BOOK_HOW, 1, true), tip)
+			for _, l in ipairs(lines) do
+				local t = Plain(l.text)
+				assert(not Opens(t, T.WhoSees()) and not Opens(t, L.TREASURY_HOW), "no paragraph of it under the title: " .. t)
+			end
+			-- The early supporters: folded, their count, the last section; a click opens them.
+			local early = lines[#lines]
+			eq(early.key, "early-supporters"); eq(early.header, true)
+			eq(Plain(early.text), "[+] " .. L.TREASURY_EARLY); eq(Plain(early.right), "2")
+			tip = Tip(early)
+			assert(tip:find(L.TREASURY_EARLY_TIP, 1, true) and tip:find(L.TREASURY_EARLY_COLLAPSE_TIP, 1, true), tip)
+			assert(not Texts(lines):find("Early One", 1, true), "folded")
+			early.onClick()
+			lines = T.Build()
+			early = Find(lines, "early-supporters")
+			eq(Plain(early.text), "[-] " .. L.TREASURY_EARLY)
+			assert(Texts(lines):find("Early One, Early Two", 1, true), Texts(lines))
+			eq(Sections(lines):match("([^,]+)$"), " early", "still the last section")
+			-- Back on the summary from another page: folded again.
+			T.Show("book")
+			local book = T.Build()
+			eq(Plain(book[2].text), L.TREASURY_BOOK); eq(book[2].header, true)
+			tip = Tip(book[2])
+			assert(tip:find(L.TREASURY_BOOK_HOW, 1, true), "a keeper's book: how it is kept, in the header's tooltip: " .. tip)
+			for _, l in ipairs(book) do assert(not Opens(Plain(l.text), L.TREASURY_BOOK_HOW), "not inline: " .. Plain(l.text)) end
+			lines = Summary()
+			eq(Plain(lines[#lines].text), "[+] " .. L.TREASURY_EARLY, "folded again")
+			-- The army: the title's tooltip is the title alone; the book's header has none.
+			local his = T.Message(nil, ALL)
+			ns.rdb.treasuryBooks, ns.db.myCharacters = nil, nil
+			AsSoldier(); T.HandleReport("CHANNEL", TREASURER, his)
+			lines = Summary()
+			tip, n = Tip(lines[1])
+			eq(n, 1, "the army's title: " .. tip)
+			T.Show("book")
+			book = T.Build()
+			eq(Plain(book[2].text), L.TREASURY_BOOK); eq(book[2].tooltip, nil)
+			-- Reset folds them too.
+			AsTreasurer()
+			Find(Summary(), "early-supporters").onClick()
+			T.Reset()
+			ns.rdb.treasuryEarly = { at = w.clock - 100, names = { "Early One", "Early Two" } }
+			Flags(w, ALL)
+			T.Record("Layout Donor", 100000, "mail", nil, { quiet = true })
+			eq(T.mode, "summary")
+			lines = T.Build()
+			eq(Plain(Find(lines, "early-supporters").text), "[+] " .. L.TREASURY_EARLY, "after Reset")
+		end)
+	end)
+end
+
 test("1.1 the treasury's new lines (bank, sister guilds, requests, donations, backup) are in both languages, with the same format arguments", function()
 	local savedLocale, pt = GetLocale, {}
 	GetLocale = function() return "ptBR" end
@@ -37275,7 +37695,10 @@ test("1.1 the treasury's new lines (bank, sister guilds, requests, donations, ba
 	if not ok then error(err, 0) end
 	for _, key in ipairs({ "TREASURY_PART_WAIT", "BANK_GONE", "BANK_GONE_TITLE", "BANK_GONE_TIP", "BANK_GONE_SLOT", "BANK_FOUND_TIP", "BANK_SISTERS",
 		"BANK_SISTERS_TIP", "BANK_SISTER_OF", "BANK_SISTER_TAB", "BANK_SISTER_ASK", "BANK_SISTER_YES", "BANK_SISTER_NO", "BANK_SISTER_ON",
-		"BANK_SISTER_OFF", "BANK_SISTER_ONLY", "HELP_BANK",
+		"BANK_SISTER_OFF", "BANK_SISTER_ONLY", "HELP_BANK", "TREASURY_GUILDS", "TREASURY_GUILDS_TIP", "TREASURY_GUILDS_NONE",
+		"TREASURY_GUILDS_APPROVAL", "TREASURY_GUILD_TITLE", "TREASURY_GUILD_ITEMS", "TREASURY_GUILD_SHARED_BY",
+		"TREASURY_GUILD_SHARED_SHORT", "TREASURY_GUILD_VALUE_UNAVAILABLE", "TREASURY_GUILD_BOOK_UNAVAILABLE",
+		"TREASURY_GUILD_SNAPSHOT_GONE", "TREASURY_EARLY_COLLAPSE_TIP",
 		"BANK_REQUESTS", "BANK_REQUESTS_TIP", "BANK_MY_REQUESTS", "BANK_REQUEST_HOLDS", "BANK_REQUEST_CLICK", "BANK_REQUEST_CLICK_ANSWER",
 		"BANK_REQUEST_NEW_LINE", "BANK_REQUEST_PROMPT", "BANK_REQUEST_ANY_PROMPT", "BANK_REQUEST_ASK", "BANK_REQUEST_ANSWER", "BANK_REQUEST_MARK_DONE",
 		"BANK_REQUEST_MARK_DECLINED", "BANK_REQUEST_CANCEL_ASK", "BANK_REQUEST_ONLY", "BANK_REQUEST_WHAT", "BANK_REQUEST_FULL", "BANK_REQUEST_SENT",
