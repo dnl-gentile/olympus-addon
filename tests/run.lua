@@ -22207,6 +22207,20 @@ local function WithNameplates(fn, setup)
 	for _, name in ipairs(PLATE_GLOBALS) do saved[name] = _G[name] end
 	local savedMod, savedSetting, savedRoster = ns.Nameplates, ns.db.nameplates, ns.Roster.byName
 	local ok, err = pcall(WithBorders, function(w)
+		-- (1.1.5) The client's next frame: what Nameplates.lua leaves for it (C_Timer.After 0, its
+		-- "nameplates layout") waits until w.nextFrame, after every handler of the event that queued
+		-- it, the game's own among them; the rest runs at once, as WithBorders has it.
+		local after = w.ns.After
+		w.frameQueue = {}
+		w.ns.After = function(sec, where, f)
+			if where == "nameplates layout" then w.frameQueue[#w.frameQueue + 1] = f return end
+			return after(sec, where, f)
+		end
+		w.nextFrame = function()
+			local queue = w.frameQueue
+			w.frameQueue = {}
+			for _, f in ipairs(queue) do f() end
+		end
 		assert(loadfile(ADDON_DIR .. "Nameplates.lua"))("Olympus", w.ns)
 		w.N = w.ns.Nameplates
 		-- A border shown on a frame: the borders' own textures alone (the ARTWORK layer), not the
@@ -22224,7 +22238,7 @@ local function WithNameplates(fn, setup)
 		fn(w)
 	end, function(w)
 		ns.db.nameplates = nil
-		w.plates, w.order, w.pool, w.forbiddenPool, w.frames, w.plateTex = {}, {}, {}, {}, {}, {}
+		w.plates, w.order, w.pool, w.forbiddenPool, w.frames, w.plateTex, w.gameLayout = {}, {}, {}, {}, {}, {}, {}
 		w.layout, w.protected, w.scale, w.nameHidden = "names", false, 1, {}
 		local function Log(entry) w.log[#w.log + 1] = entry end
 		local function Methods(label, t)
@@ -22280,6 +22294,7 @@ local function WithNameplates(fn, setup)
 				self = Game(self)
 				self.name.justify = w.layout == "inside" and "LEFT" or "CENTER"
 			end
+			w.gameLayout[label] = f.UpdateAnchors -- (1.1.5: never wrapped by Olympus)
 			Methods(label, f)
 			local seen = f
 			if forbidden then
@@ -22397,6 +22412,18 @@ local function WithNameplates(fn, setup)
 			if not oursFirst then w.fire("UNIT_FACTION", token) end
 		end
 		w.frameOf = function(token) local p = w.plates[token] return p and rawget(p, "frame") end
+		-- (1.1.5) The game lays a plate out again, as Forever does it (Blizzard_NamePlateUnitFrame.lua's
+		-- UpdateAnchors) for an event Olympus also hears: the plates' options (CVAR_UPDATE, by default:
+		-- NamePlateDriverMixin:UpdateNamePlateOptions and the CVar callbacks), the screen
+		-- (DISPLAY_SIZE_CHANGED) or a friend looked at again (UNIT_FACTION, its unit). Ours first where
+		-- oursFirst says; then a frame goes by (w.nextFrame).
+		w.relayout = function(f, event, oursFirst, ...)
+			event = event or "CVAR_UPDATE"
+			if oursFirst then w.fire(event, ...) end
+			Game(f):UpdateAnchors()
+			if not oursFirst then w.fire(event, ...) end
+			w.nextFrame()
+		end
 		-- Our texture on a unit frame (never two), and the mark it draws by its art.
 		w.texOf = function(frame)
 			local found
@@ -22511,14 +22538,13 @@ test("1.1.5 nameplates: a mark left of the name of each friendly player of an Ol
 				eq(tex.point, MarkPoint(f, #(c[1].name)), c[3] .. ": left of the name")
 			end
 		end
-		-- The game's frames: a texture made on each unit frame, nothing else called; the hooks on the
-		-- game's name updates and on each unit frame's layout.
+		-- The game's frames: a texture made on each unit frame, nothing else called; of the plates', one
+		-- hook, on the game's name updates (the others are the borders' unit frames). (Changed on purpose
+		-- in 1.1.5: until then each plate's unit frame's own UpdateAnchors was hooked too, and players saw
+		-- Lua errors through that hook; the layout is followed from the game's events now, see the
+		-- UpdateAnchors test below.)
 		OnlyOurTextures(w)
-		local layoutHooks = 0
-		for _, h in ipairs(w.hooks) do
-			if h:find("^UnitFrame%d+%.UpdateAnchors$") then layoutHooks = layoutHooks + 1 end
-		end
-		eq(layoutHooks, #w.frames, "one layout hook per unit frame")
+		for _, h in ipairs(w.hooks) do assert(not h:find("UnitFrame%d") and not h:find("UpdateAnchors", 1, true), "a hook on a plate: " .. h) end
 		local names = 0
 		for _, h in ipairs(w.hooks) do if h == "CompactUnitFrame_UpdateName" then names = names + 1 end end
 		eq(names, 1, "one hook on the game's name updates")
@@ -22569,13 +22595,14 @@ test("1.0.0 nameplates: the mark sits 2 px left of the name's first letter in ev
 		capt.display = "Capt-Faraway"
 		CompactUnitFrame_UpdateName(f)
 		eq(tex.point, "RIGHT UnitFrame1.name CENTER -38 0", "a longer name"); eq(w.mark("nameplate1"), "member")
-		-- The plate laid out again: inside the bar the name is written from the left.
+		-- The plate laid out again: inside the bar the name is written from the left. (1.1.5: followed
+		-- from the game's events, on the next frame, never from a hook on the plate's UpdateAnchors.)
 		w.layout = "inside"
-		f:UpdateAnchors()
+		w.relayout(f)
 		eq(tex.point, "RIGHT UnitFrame1.name LEFT -2 0", "inside the bar: at the name's left edge")
 		w.layout = "above"
-		f:UpdateAnchors()
-		eq(tex.point, "RIGHT UnitFrame1.name CENTER -38 0", "above the bar: centred again")
+		w.relayout(f, "CVAR_UPDATE", true)
+		eq(tex.point, "RIGHT UnitFrame1.name CENTER -38 0", "above the bar: centred again (our handler first)")
 		-- A name longer than the plate is cut short by the game: the mark at the plate's left.
 		capt.display = ("W"):rep(40)
 		CompactUnitFrame_UpdateName(f)
@@ -22584,14 +22611,14 @@ test("1.0.0 nameplates: the mark sits 2 px left of the name's first letter in ev
 		CompactUnitFrame_UpdateName(f)
 		-- Larger plates: the game's classification mark grows, the name too, and so does ours.
 		w.scale = 1.25
-		f:UpdateAnchors()
+		w.relayout(f, "DISPLAY_SIZE_CHANGED")
 		eq(tex.size, "20 20", "at the plates' classification scale")
 		w.scale = 1
-		f:UpdateAnchors()
+		w.relayout(f)
 		eq(tex.size, "16 16")
 		-- The same place again: not set again.
 		tex.calls = {}
-		CompactUnitFrame_UpdateName(f); f:UpdateAnchors()
+		CompactUnitFrame_UpdateName(f); w.relayout(f)
 		for _, m in ipairs(tex.calls) do assert(m ~= "SetPoint" and m ~= "SetSize", "set again: " .. m) end
 		-- Hidden with the name (a simplified plate, the names off), back with it.
 		w.nameHidden.nameplate1 = true
@@ -22612,6 +22639,64 @@ test("1.0.0 nameplates: the mark sits 2 px left of the name's first letter in ev
 		w.seq = {}
 		f:UpdateAnchors()
 		eq(w.seq[1], "UnitFrame1:UpdateAnchors (the game's)")
+		OnlyOurTextures(w)
+	end)
+end)
+
+-- 1.1.5 (the author's report: "continuam aparecendo varios lua errors", their stacks through "[C]
+-- UpdateAnchors"): until then Olympus hooked each nameplate unit frame's own UpdateAnchors
+-- (hooksecurefunc on the frame), which puts the client's wrapper in that frame's field, and the game
+-- reads that field and passes it on (Blizzard_NamePlateUnitFrame.lua: OnUnitSet registers
+-- self.UpdateAnchors as a CVar callback). Now nothing of a plate is wrapped: the mark follows the
+-- game's layout from the events the game lays plates out on.
+test("1.1.5 nameplates: the game's own UpdateAnchors is never hooked or written on any unit frame, and the mark still follows each new layout, our handler of its event before or after the game's", function()
+	WithNameplates(function(w)
+		w.internal("LOGIN")
+		w.add("nameplate1", BorderUnit("Capt", "Olympus Zeus", "Titan", 1))
+		w.add("nameplate2", BORDER_KING)
+		w.add("nameplate3", BorderUnit("Hogger", nil, nil, nil, { npc = true }))
+		w.remove("nameplate1")
+		local axe = BorderUnit("Axe", "Olympus Zeus", "Raider", 4)
+		local f = w.add("nameplate4", axe) -- (nameplate1's unit frame, back from the pool)
+		eq(f.label, "UnitFrame1")
+		eq(w.mark("nameplate4"), "member"); eq(w.mark("nameplate2"), "gold"); eq(w.mark("nameplate3"), nil)
+		assert(#w.frames >= 3, "three unit frames made")
+		for _, frame in ipairs(w.frames) do
+			eq(rawget(w.game(frame), "UpdateAnchors"), w.gameLayout[frame.label], frame.label .. ": the game's own UpdateAnchors, not wrapped")
+		end
+		for _, h in ipairs(w.hooks) do assert(not h:find("UpdateAnchors", 1, true), "a hook on a plate's own layout: " .. h) end
+		-- Every event the game lays plates out on: the mark where the name starts once a frame went by,
+		-- whichever handler ran first.
+		local tex = w.texOf(f)
+		local INSIDE, CENTRED = "RIGHT UnitFrame1.name LEFT -2 0", MarkPoint(f, #axe.name)
+		eq(tex.point, CENTRED)
+		local cases = { { "CVAR_UPDATE", false, "nameplateStyle" }, { "CVAR_UPDATE", true, "nameplateStyle" },
+			{ "DISPLAY_SIZE_CHANGED", false }, { "DISPLAY_SIZE_CHANGED", true }, { "UNIT_FACTION", false, "nameplate4" },
+			{ "UNIT_FACTION", true, "nameplate4" } }
+		for i, c in ipairs(cases) do
+			w.layout = (i % 2 == 1) and "inside" or "names"
+			w.relayout(f, c[1], c[2], c[3])
+			eq(tex.point, w.layout == "inside" and INSIDE or CENTRED, c[1] .. (c[2] and ", ours first" or ", the game's first"))
+			eq(w.mark("nameplate4"), "member", c[1])
+		end
+		-- Ours first, the game's layout after: the mark waits for the next frame, then follows.
+		w.layout = "inside"
+		w.fire("CVAR_UPDATE", "nameplateStyle")
+		w.game(f):UpdateAnchors()
+		eq(tex.point, CENTRED, "not yet: the game laid the plate out after our handler")
+		w.nextFrame()
+		eq(tex.point, INSIDE, "the next frame: followed")
+		-- Several such events in one frame: one look for them all; nothing left for a frame after it.
+		w.fire("CVAR_UPDATE", "a"); w.fire("DISPLAY_SIZE_CHANGED"); w.fire("CVAR_UPDATE", "b")
+		eq(#w.frameQueue, 1, "one look")
+		w.nextFrame()
+		eq(#w.frameQueue, 0)
+		-- The marks off: nothing to follow, nothing queued.
+		ns.db.nameplates = false
+		w.N.RefreshAll(true)
+		w.fire("CVAR_UPDATE", "nameplateStyle")
+		eq(#w.frameQueue, 0, "nothing queued with the marks off")
+		ns.db.nameplates = nil
 		OnlyOurTextures(w)
 	end)
 end)
