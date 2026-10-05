@@ -7,11 +7,13 @@ local L = ns.L
 -- pinned, the High Council signed and hidden on the King's stream, other guilds' ranks as their
 -- census trusts them, our own guild's from the server or our roster, our faction only):
 --   the King                         the game's gold elite mark (nameplates-icon-elite-gold)
---   High Council, Lords, Captains    the game's silver one (nameplates-icon-elite-silver)
---   Raiders and Veterans             the gold without colour, tinted the bronze of Max's frames
---                                    here (no copy of the game's art is shipped)
+--   the High Council                 the game's silver one (nameplates-icon-elite-silver)
+--   a guild master of an Olympus     the gold without colour, tinted the bronze of Max's frames
+--   guild                            here (no copy of the game's art is shipped)
 --   any other member of an Olympus   a plain four-point star, Olympus's own art
 --   guild of our faction             (media/borders/star.tga, drawn by scripts/make-borders.py)
+-- (1.1.5, the author's call: the borders' three tiers. Until then Lords and Captains had the
+-- silver, Raiders and Veterans the bronze.)
 -- Nobody else: hostile players, creatures, the other faction, anyone outside an Olympus guild,
 -- and (1.1, Konig's review) a character or a guild the moderators took off (net-off, Borders.MarkOf).
 --
@@ -87,9 +89,8 @@ Nameplates.MARKS = {
 	member = { file = MEDIA .. "star" },
 }
 Nameplates.ORDER = { "gold", "silver", "bronze", "member" }
--- The author's preview: each border tier's mark (the King's gold wings: his gold), and the star.
-Nameplates.PREVIEW = { ["gold-elite"] = "gold", ["silver-elite"] = "silver", gold = "silver", silver = "silver",
-	["bronze-elite"] = "bronze", bronze = "bronze", member = "member" }
+-- The author's preview: each border tier's mark (Borders.MARK_OF), and the star.
+Nameplates.PREVIEW = { ["gold-elite"] = "gold", ["silver-elite"] = "silver", ["bronze-elite"] = "bronze", member = "member" }
 
 local rigs = {}   -- [a plate's unit frame] = { tex, frame, name, unit, friend, shown, dressed, point, x, size }
 local byUnit = {} -- [nameplate unit] = the rig of the plate showing it

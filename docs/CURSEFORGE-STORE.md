@@ -353,8 +353,7 @@ bottom-to-top always gives the same tab order; changing role or debug view never
 - By each name, Olympus's marks, by the rules of the borders and the nameplate marks (but not
   switched off with them), and only where the guild a line names is proven: a nameplate reads the
   guild from the game, a chat line only claims it. The King's crown, the High Council's mark and
-  colour, the game's silver elite mark for Lords and Captains, bronze for Raiders and Veterans of
-  your own guild (the census does not carry other guilds' rank names), a star for any other member
+  colour, bronze for guild masters (1.1.5: the borders' tiers), a star for any other member
   of your guild's roster or anyone the census names in theirs (and the King's Stewards and Hands),
   the Treasurer's coin, and **Steward** or **Hand** after the King's. A name whose Olympus guild
   cannot be checked (a plain member of another guild, or anyone claiming a guild's name) gets no
@@ -830,7 +829,7 @@ map to invisible, and gives every frame its look back on the second `/oly photo`
 `/reload`. Never in combat, not with the gamepad UI, not on a screen of more than 1000 frames
 (it says so and leaves them as they are), and nothing is sent to anyone.
 To check the elite borders his own rank doesn't carry, `/oly borders test <tier>` (his
-character only) shows one of the six round his own portrait, and on his target frame when he
+character only) shows one of the three round his own portrait, and on his target frame when he
 targets himself, and its nameplate mark after his own name on his player frame and on every
 friendly player's nameplate (`/oly borders test member`: the member's star alone), on his screen
 alone until `/oly borders test off` or a `/reload`. It follows the borders' and the marks' own
@@ -888,8 +887,8 @@ code.
 | `/oly lfg` · `/oly lfg dungeon\|raid\|pvp\|layer [note]` · `/oly lfg off` | the Board (1.1): who is looking for a group; raise your flag (a box with your note first) or lower it |
 | `/oly week` | the King's week on the Board (1.1): his Agenda for 7 days with your guild's calendar events; the King and his Hands add entries with the Agenda button ("Sat 20:00 Raid night") |
 | `/oly location on` · `/oly location off` | share (or not) your zone and layer on the Olympus channel |
-| `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council, gold for Lords and silver for Captains, and Max's bronze wings for Raiders and bronze for Veterans of Olympus guilds (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI. Off, the nameplate marks go too |
-| `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, Lords and Captains, bronze for Raiders and Veterans, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
+| `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council, and Max's bronze wings for the guild masters of Olympus guilds (none for a character or a guild the moderators took off, net-off). Since 1.1.5 these three alone: the rank borders (gold for Lords, silver for Captains, bronze for Raiders and Veterans) are gone, and any other member has the nameplate star alone. On by default, hidden with the gamepad UI. Off, the nameplate marks go too |
+| `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, bronze for guild masters, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
 | `/oly chatmarks on` · `/oly chatmarks off` | 1.1.5: a High Councillor's mark, then the icon they picked, before their name in the game's own chat too (guild, officer, say, yell, emote, party, raid, instance, channels and whispers), as on Olympus lines. Through the game's own name filter, so the name's link, right-click and /r stay the game's; only the councillors' names change; on by default, hidden with the gamepad UI and on the King's screen while the council's names are hidden |
 | `/oly block <name>` | ignore a player |
 | `/oly filter add\|remove <word>` · `/oly filter` | block terms: hide, on your screen, lines of addon text (Olympus chats, writs, decrees, Vox) with a word; the list (1.1) |
@@ -924,7 +923,7 @@ also saved in `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.
 - **Feature requests:** Fernmelder, whose 39 posts became 1.1 (the Fernmelder release);
   shenanigans_ (the nameplate marks), Valdericht (`<OLYMPIAN>`), Pyralis Ashandar (taking
   donations) and Zeal (what the King hides stays off the channel).
-- **Art:** Max (the bronze elite borders of Raiders and Veterans, drawn over the game's own).
+- **Art:** Max (the bronze elite borders, drawn over the game's own: the winged one is the guild masters' since 1.1.5).
 - **Reports from the field:** Riukensei and PartyRockAce (the gamepad UI), Ignitheus (whispers
   to Forever names), Pyralis Ashandar, the Treasurer (the treasury and the guild bank), and the
   player who told us WoW had handed him the channel.

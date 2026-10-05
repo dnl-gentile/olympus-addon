@@ -21026,8 +21026,13 @@ end
 
 -- 1.0.0, Max's final list: six tiers, highest first, each with its own art. Before it the King was
 -- gold, the High Council, Lords and Captains all silver, Veterans and Raiders a grey (the plain
--- gold desaturated and darkened); the tests below were those tiers' and now expect Max's.
-test("1.0.1 borders: Max's six tiers: the King gold wings, the High Council silver wings (gold behind the flag), Lords gold, Captains silver, Raiders bronze wings, Veterans bronze, nobody else", function()
+-- gold desaturated and darkened). 1.1.5 (the author's call): three tiers, all winged: the King
+-- gold, the High Council silver, the guild master of an Olympus guild Max's bronze. Lords gold,
+-- Captains silver, Raiders bronze wings and Veterans bronze are gone (new borders are to come, and
+-- one nearly everybody has is worth nothing), and so is ns.BORDERS_COUNCIL_GOLD (the council in the
+-- King's gold): this test was Max's six tiers' and now expects the three, and no border for an
+-- officer, a Raider or a Veteran.
+test("1.1.5 borders: three tiers: the King gold wings, the High Council silver wings, a guild master of an Olympus guild bronze wings; officers, Raiders, Veterans and anyone else none", function()
 	WithBorders(function(w)
 		w.internal("LOGIN")
 		local function Tier(unit) w.target(unit) return w.shown("target") end
@@ -21036,43 +21041,39 @@ test("1.0.1 borders: Max's six tiers: the King gold wings, the High Council silv
 		-- His name in another guild, or on another realm group, is not him.
 		eq(Tier(BorderUnit("Asmongold Asmongler", "Olympus II", "Member", 3)), nil, "his name in another guild")
 		eq(Tier(BorderUnit("Asmongold Asmongler", "OLYMPUS", "Guild Master", 0, { realm = "Elsewhere" })), nil, "a namesake on another realm group")
-		-- The High Council (the signed list), in any guild: silver wings, or gold wings behind the flag.
+		-- The High Council (the signed list), in any guild: silver wings. The flag that gave it the
+		-- King's gold is gone: set, it changes nothing.
 		local sage = BorderUnit("Sage Owl", "Wanderers", "Member", 3)
 		eq(Tier(sage), "silver-elite", "a High Councillor")
+		eq(w.ns.BORDERS_COUNCIL_GOLD, nil, "no such flag any more")
 		w.ns.BORDERS_COUNCIL_GOLD = true
-		w.target(nil) -- (a new target: the flag is read when a border is worked out)
-		eq(Tier(sage), "gold-elite", "gold wings with the flag")
-		w.ns.BORDERS_COUNCIL_GOLD = false
-		-- Lords (gold) and Captains (silver) of another Olympus guild, as its census report names them.
-		eq(Tier(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0)), "gold", "a guild master, from the report")
-		eq(Tier(BorderUnit("Capt", "Olympus Zeus", "Titan", 1)), "silver", "an officer, from the report")
-		eq(Tier(BorderUnit("Far Away", "Olympus Zeus", "Titan", 1, { realm = "Other" })), "silver", "an officer on another realm, as the report names him")
+		w.target(nil) -- (a new target: worked out again)
+		eq(Tier(sage), "silver-elite", "the gold is the King's alone")
+		w.ns.BORDERS_COUNCIL_GOLD = nil
+		-- Another Olympus guild's guild master, as its census report names him: bronze wings.
+		eq(Tier(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0)), "bronze-elite", "a guild master, from the report")
 		eq(Tier(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0, { realm = "Other" })), nil, "a namesake of the guild master on another realm")
-		eq(Tier(BorderUnit("Unlisted", "Olympus Zeus", "Titan", 1)), nil, "not in the report: nothing from its rank alone")
-		-- Our own guild: the rank the server gives, an officer rank as Roster.lua decides.
-		eq(Tier(BorderUnit("Mate", "Olympus II", "Zeus", 0)), "gold", "our guild master")
-		eq(Tier(BorderUnit("Mate", "Olympus II", "Titan", 1)), "silver", "our officer")
+		eq(Tier(BorderUnit("Unlisted", "Olympus Zeus", "Zeus", 0)), nil, "not in the report: nothing from the rank the server gives another guild's")
+		-- Its officers: none (a Captain's silver until 1.1.5).
+		eq(Tier(BorderUnit("Capt", "Olympus Zeus", "Titan", 1)), nil, "an officer, from the report")
+		eq(Tier(BorderUnit("Far Away", "Olympus Zeus", "Titan", 1, { realm = "Other" })), nil, "an officer on another realm")
+		-- Our own guild: the rank the server gives (our roster's when it gives none).
+		eq(Tier(BorderUnit("Mate", "Olympus II", "Zeus", 0)), "bronze-elite", "our guild master")
+		eq(Tier(BorderUnit("Mate", "Olympus II", "Titan", 1)), nil, "our officer: none")
 		eq(Tier(BorderUnit("Mate", "Olympus II", "Hero", 2)), nil, "below the officers")
 		local savedByName = ns.Roster.byName
+		ns.Roster.byName = { ["Mate-Realm"] = 0 }
+		eq(Tier(BorderUnit("Mate", "Olympus II", nil, nil)), "bronze-elite", "no rank from the server: our roster's")
 		ns.Roster.byName = { ["Mate-Realm"] = 1 }
-		eq(Tier(BorderUnit("Mate", "Olympus II", nil, nil)), "silver", "no rank from the server: our roster's")
+		w.target(nil)
+		eq(Tier(BorderUnit("Mate", "Olympus II", nil, nil)), nil, "our roster's officer: none")
 		ns.Roster.byName = savedByName
-		-- Raiders and Veterans of any Olympus guild, by the rank name the game shows: whole words, any
-		-- case. A rank name with both words is a Raider's.
-		for _, rank in ipairs({ "Raider", "RAIDER", "Elite Raider", "Raider (core)", "Veteran-Raider", "raider veterano" }) do
-			eq(Tier(BorderUnit("Vet", "Olympus Zeus", rank, 4)), "bronze-elite", rank)
-		end
-		for _, rank in ipairs({ "Veteran", "VETERAN", "Veterano", "veterana", "Veteran (old guard)" }) do
-			eq(Tier(BorderUnit("Vet", "Olympus Zeus", rank, 4)), "bronze", rank)
-		end
-		for _, rank in ipairs({ "Veterans", "Raiderz", "Raiders", "Member", "Officer", "" }) do
+		-- Raiders and Veterans of any Olympus guild: no border any more, whatever the rank name says.
+		for _, rank in ipairs({ "Raider", "RAIDER", "Elite Raider", "Veteran-Raider", "Veteran", "Veterano", "veterana" }) do
 			eq(Tier(BorderUnit("Vet", "Olympus Zeus", rank, 4)), nil, rank)
+			eq(Tier(BorderUnit("Axe", "Olympus II", rank, 3)), nil, rank .. ", of our own guild")
 		end
-		eq(Tier(BorderUnit("Vet", "Olympus II", "Veteran", 3)), "bronze", "of our own guild too")
-		eq(Tier(BorderUnit("Axe", "Olympus II", "Raider", 3)), "bronze-elite", "of our own guild too")
-		-- Nobody else: another guild's Veteran, Raider or guild master, the guildless, a creature.
-		eq(Tier(BorderUnit("Trader", "Stormwind Traders", "Veteran", 3)), nil, "a Veteran of another guild")
-		eq(Tier(BorderUnit("Trader", "Stormwind Traders", "Raider", 3)), nil, "a Raider of another guild")
+		-- Nobody else: another guild's master, the guildless, a creature.
 		eq(Tier(BorderUnit("Boss", "Stormwind Traders", "Guild Master", 0)), nil, "another guild's master")
 		eq(Tier(BorderUnit("Loner", nil, nil, nil)), nil, "no guild")
 		eq(Tier(BorderUnit("Hogger", nil, nil, nil, { npc = true })), nil, "a creature")
@@ -21080,27 +21081,17 @@ test("1.0.1 borders: Max's six tiers: the King gold wings, the High Council silv
 		ns.rdb.council.names["asmongold asmongler"] = true
 		eq(Tier(BORDER_KING), "gold-elite")
 		ns.rdb.council.names["asmongold asmongler"] = nil
-		-- A High Councillor who is a Lord, a Captain or a Raider: silver wings (gold wings with the flag).
-		ns.rdb.council.names["zeusy"], ns.rdb.council.names["capt"] = true, true
-		eq(Tier(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0)), "silver-elite", "a High Councillor who is a Lord")
-		eq(Tier(BorderUnit("Capt", "Olympus Zeus", "Titan", 1)), "silver-elite", "a High Councillor who is a Captain")
-		eq(Tier(BorderUnit("Sage Owl", "Olympus Zeus", "Raider", 4)), "silver-elite", "a High Councillor who is a Raider")
-		w.ns.BORDERS_COUNCIL_GOLD = true
-		w.target(nil)
-		eq(Tier(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0)), "gold-elite", "with the flag")
-		w.ns.BORDERS_COUNCIL_GOLD = false
-		ns.rdb.council.names["zeusy"], ns.rdb.council.names["capt"] = nil, nil
-		-- A Lord above a Captain, a Raider or a Veteran; a Captain above a Raider or a Veteran.
-		eq(Tier(BorderUnit("Zeusy", "Olympus Zeus", "Raider", 0)), "gold", "a Lord whose rank name says Raider")
-		eq(Tier(BorderUnit("Capt", "Olympus Zeus", "Veteran-Raider", 1)), "silver", "a Captain whose rank name says Veteran-Raider")
-		eq(Tier(BorderUnit("Mate", "Olympus II", "Veteran", 1)), "silver", "our officer whose rank name says Veteran")
+		-- A High Councillor who is a guild master: silver wings.
+		ns.rdb.council.names["zeusy"] = true
+		eq(Tier(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0)), "silver-elite", "a High Councillor who is a guild master")
+		ns.rdb.council.names["zeusy"] = nil
 		-- The focus frame the same way.
+		w.units.focus = BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0)
+		w.fire("PLAYER_FOCUS_CHANGED")
+		eq(w.shown("focus"), "bronze-elite", "a guild master on the focus")
 		w.units.focus = BorderUnit("Capt", "Olympus Zeus", "Titan", 1)
 		w.fire("PLAYER_FOCUS_CHANGED")
-		eq(w.shown("focus"), "silver", "the focus")
-		w.units.focus = BorderUnit("Axe", "Olympus Zeus", "Raider", 4)
-		w.fire("PLAYER_FOCUS_CHANGED")
-		eq(w.shown("focus"), "bronze-elite", "a Raider on the focus")
+		eq(w.shown("focus"), nil, "an officer on the focus")
 		w.units.focus = nil
 		w.fire("PLAYER_FOCUS_CHANGED")
 		eq(w.shown("focus"), nil)
@@ -21115,10 +21106,14 @@ test("1.0.1 borders: the King's own screen (his stream) shows no High Council bo
 		w.target(BorderUnit("Sage Owl", "Wanderers", "Member", 3))
 		eq(w.shown("target"), nil, "no council border on his screen")
 		eq(w.shown("player"), "gold-elite", "his own: gold wings")
-		w.target(BorderUnit("Capt", "Olympus Zeus", "Titan", 1))
-		eq(w.shown("target"), "silver", "Captains still silver")
 		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
-		eq(w.shown("target"), "gold", "Lords still gold")
+		eq(w.shown("target"), "bronze-elite", "guild masters still bronze (1.1.5: Lords gold until then)")
+		-- (1.1.5) A councillor who is a guild master: his guild master's bronze there.
+		ns.rdb.council.names["zeusy"] = true
+		w.target(nil)
+		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
+		eq(w.shown("target"), "bronze-elite", "the guild master's, not the council's")
+		ns.rdb.council.names["zeusy"] = nil
 	end, function(w) w.units.player = BORDER_KING end)
 end)
 
@@ -21143,11 +21138,10 @@ test("1.0.1 borders: each faction's own King and census, nothing across factions
 		w.target(BORDER_KING)
 		eq(w.shown("target"), nil, "the Alliance's King")
 		w.target(BorderUnit("Grunt", "Olympus Horde", "Chief", 0, { faction = "Horde" }))
-		eq(w.shown("target"), "gold", "a Horde Lord")
+		eq(w.shown("target"), "bronze-elite", "a Horde guild master (1.1.5: a Lord's gold until then)")
+		-- (1.1.5: Raiders and Veterans have no border any more.)
 		w.target(BorderUnit("Axe", "Olympus Horde", "Raider", 4, { faction = "Horde" }))
-		eq(w.shown("target"), "bronze-elite", "a Horde Raider")
-		w.target(BorderUnit("Vet", "Olympus Horde", "Veterano", 4, { faction = "Horde" }))
-		eq(w.shown("target"), "bronze", "a Horde Veteran")
+		eq(w.shown("target"), nil, "a Horde Raider")
 		eq(w.shown("player"), nil, "our own frame: a member")
 	end, function(w)
 		ns.faction = "Horde"
@@ -21166,25 +21160,26 @@ test("1.0.1 borders: cleared on a new target, worked out once per target from lo
 		eq(w.shown("target"), "gold-elite"); eq(w.computed(), base + 1, "once, though the hook and the event both came")
 		w.target(BorderUnit("Stranger", "Stormwind Traders", "Veteran", 3))
 		eq(w.shown("target"), nil, "cleared for a stranger"); eq(w.computed(), base + 2)
-		w.target(BorderUnit("Capt", "Olympus Zeus", "Titan", 1), true)
-		eq(w.shown("target"), "silver", "our event first, then the game's"); eq(w.computed(), base + 3)
+		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0), true)
+		eq(w.shown("target"), "bronze-elite", "our event first, then the game's"); eq(w.computed(), base + 3)
 		w.target(BorderUnit("Hogger", nil, nil, nil, { npc = true }))
 		eq(w.shown("target"), nil, "cleared for a creature")
 		w.target(BORDER_KING)
 		w.target(nil)
 		eq(w.shown("target"), nil, "cleared without a target")
-		-- The census: a report of another guild changes nothing; the target's own does.
-		w.target(BorderUnit("Capt", "Olympus Zeus", "Titan", 1))
+		-- The census: a report of another guild changes nothing; the target's own does. (1.1.5: its
+		-- guild master, a Captain before.)
+		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
 		local n = w.computed()
 		reports["Olympus Other"] = { guild = "Olympus Other", leader = "X", t = 200 }
 		w.internal("DATA_CHANGED")
 		eq(w.computed(), n, "another guild's report")
-		reports["Olympus Zeus"] = { guild = "Olympus Zeus", leader = "Zeusy", officers = {}, realm = "Realm", t = 300 }
+		reports["Olympus Zeus"] = { guild = "Olympus Zeus", leader = "Zeusier", officers = {}, realm = "Realm", t = 300 }
 		w.internal("DATA_CHANGED")
-		eq(w.computed(), n + 1, "its guild's new report"); eq(w.shown("target"), nil, "no longer a Captain")
+		eq(w.computed(), n + 1, "its guild's new report"); eq(w.shown("target"), nil, "no longer its guild master")
 		w.internal("DATA_CHANGED")
 		eq(w.computed(), n + 1, "the same report again: nothing")
-		ns.rdb.council = { names = { ["capt"] = true } }
+		ns.rdb.council = { names = { ["zeusy"] = true } }
 		w.internal("DATA_CHANGED")
 		eq(w.shown("target"), "silver-elite", "a new High Council list")
 		eq(w.computed(), n + 4, "the target, the focus and our own frame again")
@@ -21199,9 +21194,9 @@ test("1.0.1 borders: cleared on a new target, worked out once per target from lo
 		assert(#looked > 0)
 		-- A value the client hides: no border, no error.
 		w.secret = {}
-		w.target(BorderUnit("Capt", "Olympus Zeus", "Titan", 1, { name = w.secret }))
+		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0, { name = w.secret }))
 		eq(w.shown("target"), nil, "a secret name")
-		w.target(BorderUnit("Capt", "Olympus Zeus", "Titan", 1, { guid = w.secret }))
+		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0, { guid = w.secret }))
 		eq(w.shown("target"), "silver-elite", "a secret GUID: worked out all the same")
 	end)
 end)
@@ -21209,7 +21204,7 @@ end)
 test("1.0.1 borders: each tier's art (the game's atlases, Max's files) at its size, texture coordinates and offsets, on the target and mirrored round your own portrait", function()
 	WithBorders(function(w)
 		w.internal("LOGIN")
-		eq(w.shown("player"), "silver", "our officer rank")
+		eq(w.shown("player"), "bronze-elite", "our guild master rank")
 		-- Where each border is: its art, size, texture coordinates and point, set once when made; no
 		-- tint and no desaturation on any.
 		local seen = {}
@@ -21220,22 +21215,23 @@ test("1.0.1 borders: each tier's art (the game's atlases, Max's files) at its si
 			assert(not seen[key], "one texture per border and frame: " .. key)
 			seen[key] = tex
 		end
-		eq(#w.textures, 18, "six borders on three frames")
-		-- The game's frames as Camelot/TargetFrameUtils.lua anchors them (the plain silver, which it
-		-- never shows, like the plain gold: the same size and shape); Max's at the size and offsets of
-		-- the game's frame each was drawn over (Forever 1.60.1's 1x sizes: winged 110 x 90, plain
-		-- 100 x 100), their art's area of the 256 x 256 file (220 x 180 and 200 x 200, twice the size).
-		-- Your own frame: the art turned round (texture coordinates right before left), 2 px further
-		-- out, from the left.
+		-- (1.1.5: three borders, the three plain ones kept for later and made for nobody: no texture.)
+		eq(#w.textures, 9, "three borders on three frames")
+		for _, t in ipairs(w.B.RESERVED) do
+			for _, tex in ipairs(w.textures) do
+				assert((t.atlas == nil or tex.atlas ~= t.atlas) and (t.file == nil or tex.file ~= t.file), t.name .. ": kept for later, no texture")
+			end
+		end
+		-- The game's frames as Camelot/TargetFrameUtils.lua anchors them; Max's at the size and offsets
+		-- of the game's frame it was drawn over (Forever 1.60.1's 1x size: winged 110 x 90), its art's
+		-- area of the 256 x 256 file (220 x 180, twice the size). Your own frame: the art turned round
+		-- (texture coordinates right before left), 2 px further out, from the left.
 		local MEDIA = "Interface\\AddOns\\Olympus\\media\\borders\\"
 		local want = {
 			-- tier, art, size (nil: the atlas's own), target: coords, x y; your own: coords, x y
 			{ "gold-elite", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged", nil, nil, "11 -4", "1 0 0 1", "-13 -4" },
 			{ "silver-elite", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged", nil, nil, "8 -7", "1 0 0 1", "-10 -7" },
-			{ "gold", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold", nil, nil, "0 1", "1 0 0 1", "-2 1" },
-			{ "silver", "atlas ui-hud-unitframe-target-portraiton-boss-rare-silver", nil, nil, "0 1", "1 0 0 1", "-2 1" },
 			{ "bronze-elite", "file " .. MEDIA .. "bronze-winged", "110 90", "0 0.859375 0 0.703125", "11 -4", "0.859375 0 0 0.703125", "-13 -4" },
-			{ "bronze", "file " .. MEDIA .. "bronze-plain", "100 100", "0 0.78125 0 0.78125", "0 1", "0.78125 0 0 0.78125", "-2 1" },
 		}
 		for _, row in ipairs(want) do
 			local name, art, size, targetCoord, targetAt, mineCoord, mineAt = unpack(row, 1, 7)
@@ -21253,9 +21249,10 @@ test("1.0.1 borders: each tier's art (the game's atlases, Max's files) at its si
 			eq(p.point, "TOPLEFT PlayerFrame.PlayerFrameContainer TOPLEFT " .. mineAt, name .. " round your own portrait")
 		end
 		-- Each tier on your own frame, for your own rank, and on the target frame when you target yourself.
+		-- (1.1.5: an officer, a Raider and a Veteran none; until then silver, bronze wings, bronze.)
 		local mine = {
-			{ "silver", "Titan", 1 }, { "gold", "Zeus", 0 }, { "bronze-elite", "Raider", 3 }, { "bronze", "Veteran", 3 },
-			{ "bronze-elite", "Veteran-Raider", 3 }, { nil, "Hero", 2 },
+			{ nil, "Titan", 1 }, { "bronze-elite", "Zeus", 0 }, { nil, "Raider", 3 }, { nil, "Veteran", 3 },
+			{ nil, "Veteran-Raider", 3 }, { nil, "Hero", 2 },
 		}
 		for _, r in ipairs(mine) do
 			w.units.player = BorderUnit("Tester", "Olympus II", r[2], r[3])
@@ -21265,18 +21262,14 @@ test("1.0.1 borders: each tier's art (the game's atlases, Max's files) at its si
 			eq(w.shown("target"), r[1], r[2] .. " targeting yourself")
 			w.target(nil)
 		end
-		-- On the High Council: silver wings, gold wings with the flag.
+		-- On the High Council: silver wings (the flag for the King's gold is gone since 1.1.5).
 		ns.rdb.council.names["tester"] = true
 		w.fire("PLAYER_GUILD_UPDATE")
 		eq(w.shown("player"), "silver-elite", "a High Councillor's own frame")
-		w.ns.BORDERS_COUNCIL_GOLD = true
-		w.fire("PLAYER_GUILD_UPDATE")
-		eq(w.shown("player"), "gold-elite", "with the flag")
-		w.ns.BORDERS_COUNCIL_GOLD = false
 		ns.rdb.council.names["tester"] = nil
 		w.fire("PLAYER_GUILD_UPDATE")
 		eq(w.shown("player"), nil, "a plain rank again")
-	end, function(w) w.units.player = BorderUnit("Tester", "Olympus II", "Titan", 1) end)
+	end, function(w) w.units.player = BorderUnit("Tester", "Olympus II", "Zeus", 0) end)
 end)
 
 test("1.0.1 borders: applied through the hooked CheckClassification after the game's own; no call on the game's frames but CreateTexture; in combat only Show and Hide", function()
@@ -21289,8 +21282,8 @@ test("1.0.1 borders: applied through the hooked CheckClassification after the ga
 			assert(entry:find(":CreateTexture$"), "only CreateTexture on the game's objects: " .. entry)
 			made[entry] = (made[entry] or 0) + 1
 		end
-		eq(made["TargetFrame.TargetFrameContainer:CreateTexture"], 6); eq(made["FocusFrame.TargetFrameContainer:CreateTexture"], 6)
-		eq(made["PlayerFrame.PlayerFrameContainer:CreateTexture"], 6)
+		eq(made["TargetFrame.TargetFrameContainer:CreateTexture"], 3); eq(made["FocusFrame.TargetFrameContainer:CreateTexture"], 3)
+		eq(made["PlayerFrame.PlayerFrameContainer:CreateTexture"], 3)
 		eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
 		-- The game updates the target frame (no event of ours): its CheckClassification first, then the
 		-- King's border, shown from the hook; the game's return value kept.
@@ -21307,9 +21300,9 @@ test("1.0.1 borders: applied through the hooked CheckClassification after the ga
 		-- In combat: target after target, only Show and Hide on our own textures.
 		w.combat = true
 		for _, tex in ipairs(w.textures) do tex.calls = {} end
-		w.target(BorderUnit("Capt", "Olympus Zeus", "Titan", 1))
+		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
 		w.target(BorderUnit("Vet", "Olympus Zeus", "Veteran", 4))
-		w.target(BorderUnit("Axe", "Olympus Zeus", "Raider", 4))
+		w.target(BorderUnit("Sage Owl", "Wanderers", "Member", 3))
 		w.target(nil)
 		w.target(BORDER_KING)
 		w.units.focus = BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0)
@@ -21327,7 +21320,7 @@ test("1.0.1 borders: applied through the hooked CheckClassification after the ga
 			end
 		end
 		assert(calls >= 6, "shown and hidden in combat: " .. calls)
-		eq(w.shown("target"), "gold-elite"); eq(w.shown("focus"), "gold")
+		eq(w.shown("target"), "gold-elite"); eq(w.shown("focus"), "bronze-elite")
 		for _, entry in ipairs(w.log) do assert(entry:find(":CreateTexture$"), entry) end
 	end)
 	-- Logged in (or reloaded) in combat: nothing made until combat ends.
@@ -21341,7 +21334,7 @@ test("1.0.1 borders: applied through the hooked CheckClassification after the ga
 		eq(#w.log, 0, "still in combat")
 		w.combat = false
 		w.fire("PLAYER_REGEN_ENABLED")
-		eq(#w.textures, 18); eq(w.shown("target"), "gold-elite", "made, and the target's border shown")
+		eq(#w.textures, 9); eq(w.shown("target"), "gold-elite", "made, and the target's border shown")
 	end)
 end)
 
@@ -21357,17 +21350,18 @@ test("1.0.1 borders: /oly borders on|off (on by default), in the help and /oly s
 		eq(ns.db.borders, false); eq(w.printed[#w.printed], ns.L.BORDERS_OFF)
 		eq(w.shown("target"), nil, "hidden at once")
 		local n = w.computed()
-		w.target(BorderUnit("Capt", "Olympus Zeus", "Titan", 1))
+		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
 		eq(w.shown("target"), nil, "off: nothing shown"); eq(w.computed(), n, "nor worked out")
 		assert(ns.StatusText():find("borders: off (/oly borders on)", 1, true))
 		SlashCmdList.OLYMPUS("borders")
 		eq(w.printed[#w.printed], ns.L.BORDERS_OFF, "says which")
 		SlashCmdList.OLYMPUS("borders ON")
 		eq(ns.db.borders, true); eq(w.printed[#w.printed], ns.L.BORDERS_ON)
-		eq(w.shown("target"), "silver", "back at once")
-		w.ns.BORDERS_COUNCIL_GOLD = true
-		SlashCmdList.OLYMPUS("borders")
-		eq(w.printed[#w.printed], ns.L.BORDERS_ON_COUNCIL_GOLD, "the flag says so")
+		eq(w.shown("target"), "bronze-elite", "back at once")
+		-- (1.1.5: the council's gold flag and its line are gone; the line says the three tiers.)
+		eq(rawget(ns.L, "BORDERS_ON_COUNCIL_GOLD"), nil)
+		assert(ns.L.BORDERS_ON:find("guild masters", 1, true) and not ns.L.BORDERS_ON:find("Veteran", 1, true), ns.L.BORDERS_ON)
+		assert(not w.B.StatusLine():find("council gold", 1, true), w.B.StatusLine())
 		-- The help.
 		local savedPrint, lines = print, {}
 		print = function(m) lines[#lines + 1] = tostring(m) end
@@ -21384,7 +21378,7 @@ test("1.0.1 borders: /oly borders on|off (on by default), in the help and /oly s
 	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
 	GetLocale = savedLocale
 	if not ok then error(err, 0) end
-	for _, key in ipairs({ "HELP_BORDERS", "BORDERS_ON", "BORDERS_ON_COUNCIL_GOLD", "BORDERS_OFF", "BORDERS_GAMEPAD" }) do
+	for _, key in ipairs({ "HELP_BORDERS", "BORDERS_ON", "BORDERS_OFF", "BORDERS_GAMEPAD" }) do
 		assert(type(ns.L[key]) == "string" and ns.L[key] ~= key, "English " .. key)
 		assert(type(pt.L[key]) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
 	end
@@ -21405,7 +21399,7 @@ test("1.0.1 borders: off with the gamepad UI (no hook, no texture), hidden at a 
 		-- To mouse and keyboard: made and shown.
 		w.style = 0
 		w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-		eq(#w.textures, 18); eq(#w.hooks, 2); eq(w.shown("target"), "gold-elite")
+		eq(#w.textures, 9); eq(#w.hooks, 2); eq(w.shown("target"), "gold-elite")
 		-- Back to the gamepad UI: hidden at once; the hook and the events show nothing and call nothing.
 		w.style = 1
 		w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
@@ -21413,14 +21407,14 @@ test("1.0.1 borders: off with the gamepad UI (no hook, no texture), hidden at a 
 		for _, tex in ipairs(w.textures) do tex.calls = {} end
 		local n = w.computed()
 		TargetFrame:CheckClassification()
-		w.target(BorderUnit("Capt", "Olympus Zeus", "Titan", 1))
+		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
 		w.fire("UNIT_NAME_UPDATE", "target"); w.internal("DATA_CHANGED")
 		eq(w.shown("target"), nil); eq(w.computed(), n, "nothing worked out")
 		for _, tex in ipairs(w.textures) do eq(#tex.calls, 0, "no call on our textures") end
 		-- A switch the event missed: the next update hides them all the same.
 		w.style = 0
 		w.fire("PLAYER_TARGET_CHANGED")
-		eq(w.shown("target"), "silver")
+		eq(w.shown("target"), "bronze-elite")
 		w.style = 1
 		TargetFrame:CheckClassification()
 		eq(w.shown("target"), nil, "the hook hides it")
@@ -21443,16 +21437,16 @@ test("1.0.1 borders: nothing outside an Olympus guild, on clients without Foreve
 		eq(#w.log, 0); eq(#w.hooks, 0); eq(#w.textures, 0)
 		assert(w.B.StatusLine():find("none (not Forever's unit frames)", 1, true), w.B.StatusLine())
 	end)
-	-- An atlas the client lacks: that border is left out (no texture made), the others are there,
-	-- Max's plain bronze too (drawn over that atlas, but a file of its own).
+	-- An atlas the client lacks: that border is left out (no texture made), the others are there.
+	-- (1.1.5: the silver wings, where the plain gold of the Lords' tier was missing until then.)
 	WithBorders(function(w)
-		w.noAtlas["UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold"] = true
+		w.noAtlas["UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged"] = true
 		w.internal("LOGIN")
-		eq(#w.textures, 15, "five borders on three frames")
+		eq(#w.textures, 6, "two borders on three frames")
+		w.target(BorderUnit("Sage Owl", "Wanderers", "Member", 3))
+		eq(w.shown("target"), nil, "no silver wings for a High Councillor")
 		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
-		eq(w.shown("target"), nil, "no plain gold for a Lord")
-		w.target(BorderUnit("Vet", "Olympus Zeus", "Veteran", 4))
-		eq(w.shown("target"), "bronze", "Max's plain bronze all the same")
+		eq(w.shown("target"), "bronze-elite", "Max's bronze wings all the same")
 		w.target(BORDER_KING)
 		eq(w.shown("target"), "gold-elite")
 	end)
@@ -21464,9 +21458,9 @@ test("1.0.1 borders: nothing outside an Olympus guild, on clients without Foreve
 		WithBorders(function(w)
 			w.noFile[MEDIA .. "bronze-winged"] = how
 			w.internal("LOGIN")
-			eq(#w.textures, 18)
-			w.target(BorderUnit("Axe", "Olympus Zeus", "Raider", 4))
-			eq(w.shown("target"), "bronze-elite", "a Raider keeps a border")
+			eq(#w.textures, 9)
+			w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
+			eq(w.shown("target"), "bronze-elite", "a guild master keeps a border")
 			local tex = w.shownTexture("target")
 			eq(tex.atlas, "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged", "the gold wings Max drew over")
 			eq(tex.desaturated, true, "without colour"); eq(tex.color, nil, "no tint")
@@ -21476,29 +21470,27 @@ test("1.0.1 borders: nothing outside an Olympus guild, on clients without Foreve
 			local mine = w.shownTexture("player")
 			eq(mine.atlas, "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged"); eq(mine.desaturated, true)
 			eq(mine.coord, "1 0 0 1", "turned round"); eq(mine.point, "TOPLEFT PlayerFrame.PlayerFrameContainer TOPLEFT -13 -4")
-			-- The plain bronze loaded: Max's, in colour; the gold wings the King's, in colour.
-			w.target(BorderUnit("Vet", "Olympus Zeus", "Veteran", 4))
-			eq(w.shown("target"), "bronze"); eq(w.shownTexture("target").file, MEDIA .. "bronze-plain")
-			eq(w.shownTexture("target").desaturated, nil)
+			-- The gold wings the King's, in colour.
 			w.target(BORDER_KING)
 			eq(w.shown("target"), "gold-elite"); eq(w.shownTexture("target").desaturated, nil)
-		end, function(w) w.units.player = BorderUnit("Tester", "Olympus II", "Raider", 3) end)
+		end, function(w) w.units.player = BorderUnit("Tester", "Olympus II", "Zeus", 0) end)
 	end
-	-- The plain bronze's file and the plain gold both missing: no Veteran's border, no Lord's, and
-	-- the texture made to try the file stays hidden; the rest as ever.
+	-- The bronze wings' file and the gold wings both missing: no guild master's border, no King's,
+	-- and the texture made to try the file stays hidden; the rest as ever. (1.1.5: the plain
+	-- bronze's file and the plain gold, the Veterans' and the Lords' tiers, until then.)
 	WithBorders(function(w)
-		w.noFile[MEDIA .. "bronze-plain"] = true
-		w.noAtlas["UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold"] = true
+		w.noFile[MEDIA .. "bronze-winged"] = true
+		w.noAtlas["UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged"] = true
 		w.internal("LOGIN")
-		w.target(BorderUnit("Vet", "Olympus Zeus", "Veteran", 4))
-		eq(w.shown("target"), nil, "no Veteran's border")
+		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
+		eq(w.shown("target"), nil, "no guild master's border")
 		eq(w.shown("player"), nil, "nor on your own frame")
-		w.target(BorderUnit("Axe", "Olympus Zeus", "Raider", 4))
-		eq(w.shown("target"), "bronze-elite", "Max's bronze wings")
-		w.target(BorderUnit("Capt", "Olympus Zeus", "Titan", 1))
-		eq(w.shown("target"), "silver")
-		assert(w.B.StatusLine():find("target silver, focus -, player -", 1, true), w.B.StatusLine())
-	end, function(w) w.units.player = BorderUnit("Tester", "Olympus II", "Veteran", 3) end)
+		w.target(BORDER_KING)
+		eq(w.shown("target"), nil, "no King's")
+		w.target(BorderUnit("Sage Owl", "Wanderers", "Member", 3))
+		eq(w.shown("target"), "silver-elite")
+		assert(w.B.StatusLine():find("target silver-elite, focus -, player -", 1, true), w.B.StatusLine())
+	end, function(w) w.units.player = BorderUnit("Tester", "Olympus II", "Zeus", 0) end)
 	-- Forever's unit functions give the surname where the realm goes.
 	WithBorders(function(w)
 		ns.splitNames = true
@@ -21521,7 +21513,8 @@ end)
 -- it stood, so one report naming its own sender an officer (or the guild master) made him silver
 -- for everyone. Now the rank the census's other checks trust (Data.KnownRank, soft as for the
 -- King's line): named by another sender of the picture most senders give, never by his own.
--- (1.0.0, Max's tiers: a Lord's border is gold, a Captain's silver.)
+-- (1.0.0, Max's tiers: a Lord's border is gold, a Captain's silver. 1.1.5: a guild master's is the
+-- bronze wings, and an officer has none: the forged report below claims the guild instead.)
 test("1.0.1 borders: a census report never gives its own sender a Lord's or a Captain's border (Data.KnownRank), alone, in the King's guild or once the honest row is old", function()
 	WithBorders(function(w)
 		local D, LEVELS = ns.Data, "~0,0,0,0,0,0,0~~"
@@ -21547,26 +21540,26 @@ test("1.0.1 borders: a census report never gives its own sender a Lord's or a Ca
 		eq(Tier(tongs), nil, "his own report alone: not yet")
 		eq(Report("Olympus Tongs2", "Tongsboss", "", "Tongsrunner-Realm"), true)
 		w.internal("DATA_CHANGED")
-		eq(w.shown("target"), "gold", "named by his runner-up too")
+		eq(w.shown("target"), "bronze-elite", "named by his runner-up too")
 		-- Two honest senders' row (the fixture's): a forged report is outvoted while it is fresh, and
 		-- taken as the row once it is 16 minutes old, but is still one sender's word on himself.
 		local savedNow, clock = ns.Now, ns.Now()
 		ns.Now = function() return clock end
 		local ok, err = pcall(function()
-			local forged = "Capt:1:0,Far Away-Other:1:0,Zatk:1:0"
-			eq(Tier(BorderUnit("Capt", "Olympus Zeus", "Titan", 1)), "silver")
+			local forged = "Capt:1:0,Far Away-Other:1:0"
+			eq(Tier(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0)), "bronze-elite")
 			local n = w.computed()
-			eq(Report("Olympus Zeus", "Zeusy", forged, "Zatk-Realm"), false, "outvoted")
+			eq(Report("Olympus Zeus", "Zatk", forged, "Zatk-Realm"), false, "outvoted")
 			w.internal("DATA_CHANGED")
 			eq(w.computed(), n + 1, "its votes changed, not its row: the target's border worked out again (Data.KnownRank reads the votes)")
 			w.internal("DATA_CHANGED")
 			eq(w.computed(), n + 1, "nothing changed: not again")
 			eq(Tier(BorderUnit("Zatk", "Olympus Zeus", "Peasant", 6)), nil)
 			clock = clock + 16 * 60
-			eq(Report("Olympus Zeus", "Zeusy", forged, "Zatk-Realm"), true, "the row now")
+			eq(Report("Olympus Zeus", "Zatk", forged, "Zatk-Realm"), true, "the row now")
 			eq(D.KnownRank("Zatk-Realm", "Olympus Zeus", true), nil)
 			eq(Tier(BorderUnit("Zatk", "Olympus Zeus", "Peasant", 6)), nil, "still his own word")
-			eq(Tier(BorderUnit("Capt", "Olympus Zeus", "Titan", 1)), "silver", "the officer the honest senders name")
+			eq(Tier(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0)), "bronze-elite", "the guild master the honest senders name")
 		end)
 		ns.Now = savedNow
 		if not ok then error(err, 0) end
@@ -21576,8 +21569,9 @@ end)
 -- Konig's review of 1.0.0: the borders read the census softly (Data.KnownRank, soft), so one other
 -- character's report naming a player an officer (or the guild master) of a guild nobody else
 -- reports gave him a Captain's silver (or a Lord's gold) on every screen. Now, as the Crown asks
--- it: two senders naming him, for a guild master and for a Captain alike.
-test("1.0.0 borders: one other character's report never gives a Captain's silver or a Lord's gold: two senders must name him", function()
+-- it: two senders naming him, for a guild master and for a Captain alike. (1.1.5: a guild master's
+-- border is the bronze wings, and an officer has none, two senders or not.)
+test("1.0.0 borders: one other character's report never gives a guild master's border: two senders must name him", function()
 	WithBorders(function(w)
 		local D, LEVELS = ns.Data, "~0,0,0,0,0,0,0~~"
 		local function Report(guild, leader, officers, sender)
@@ -21589,30 +21583,30 @@ test("1.0.0 borders: one other character's report never gives a Captain's silver
 		local victim = BorderUnit("Victim", "Olympus Quill", "Peasant", 6)
 		local boss = BorderUnit("Quillboss", "Olympus Quill", "Guild Master", 0)
 		eq(Report("Olympus Quill", "Quillboss", "Victim:1:0", "Stranger-Realm"), true, "taken: nobody else reports it")
-		eq(Tier(victim), nil, "one other character's report: no Captain's silver")
-		eq(Tier(boss), nil, "nor a Lord's gold")
-		-- A second sender names them the same: the borders show.
+		eq(Tier(victim), nil, "one other character's report: no border")
+		eq(Tier(boss), nil, "nor a guild master's bronze wings")
+		-- A second sender names them the same: the guild master's border shows.
 		eq(Report("Olympus Quill", "Quillboss", "Victim:1:0", "Second-Realm"), true)
 		w.target(nil)
-		eq(Tier(victim), "silver", "two senders name him an officer")
-		eq(Tier(boss), "gold", "and him its master")
-		-- An officer on his own report and one other's: two senders, as the Crown counts them.
-		eq(Report("Olympus Quill2", "Quillboss2", "Quillcapt:1:0", "Quillcapt-Realm"), true)
-		eq(Tier(BorderUnit("Quillcapt", "Olympus Quill2", "Titan", 1)), nil, "his own word alone")
-		eq(Report("Olympus Quill2", "Quillboss2", "Quillcapt:1:0", "Quillrunner-Realm"), true)
+		eq(Tier(victim), nil, "two senders name him an officer: an officer has no border")
+		eq(Tier(boss), "bronze-elite", "and him its master")
+		-- A guild master on his own report and one other's: two senders, as the Crown counts them.
+		eq(Report("Olympus Quill2", "Quillboss2", "", "Quillboss2-Realm"), true)
+		eq(Tier(BorderUnit("Quillboss2", "Olympus Quill2", "Guild Master", 0)), nil, "his own word alone")
+		eq(Report("Olympus Quill2", "Quillboss2", "", "Quillrunner-Realm"), true)
 		w.internal("DATA_CHANGED")
-		eq(w.shown("target"), "silver", "named by his runner-up too")
+		eq(w.shown("target"), "bronze-elite", "named by his runner-up too")
 	end)
 end)
 
 -- 1.0.0: the author's preview (/oly borders test <tier>|off, Borders.SetPreview). His character
 -- holds no Olympus rank (a Member of <Olympus II> here), so his own portrait showed none of the
--- six borders and he could not check them in game.
+-- six borders and he could not check them in game. (1.1.5: the three borders left.)
 do
 	local AUTHOR_UNIT = BorderUnit("Faladoriel Skylance", "Olympus II", "Member", 3, { realm = "ClassicBetaPvP" })
 	local function AsAuthor(w) w.units.player = AUTHOR_UNIT; ns.me = "Faladoriel Skylance-ClassicBetaPvP" end
 	local MEDIA = "Interface\\AddOns\\Olympus\\media\\borders\\"
-	local TIER_LIST = "gold-elite, silver-elite, gold, silver, bronze-elite, bronze"
+	local TIER_LIST = "gold-elite, silver-elite, bronze-elite"
 
 	-- Everything the addon could send while fn runs (an addon message by either API, a chat line,
 	-- Comm's own queues), recorded in `sent`.
@@ -21639,10 +21633,7 @@ do
 			local want = {
 				{ "gold-elite", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged", nil, "1 0 0 1", "-13 -4", "11 -4" },
 				{ "silver-elite", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged", nil, "1 0 0 1", "-10 -7", "8 -7" },
-				{ "gold", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold", nil, "1 0 0 1", "-2 1", "0 1" },
-				{ "silver", "atlas ui-hud-unitframe-target-portraiton-boss-rare-silver", nil, "1 0 0 1", "-2 1", "0 1" },
 				{ "bronze-elite", "file " .. MEDIA .. "bronze-winged", "110 90", "0.859375 0 0 0.703125", "-13 -4", "11 -4" },
-				{ "bronze", "file " .. MEDIA .. "bronze-plain", "100 100", "0.78125 0 0 0.78125", "-2 1", "0 1" },
 			}
 			for _, row in ipairs(want) do
 				local name, art, size, coord, mineAt, targetAt = unpack(row, 1, 6)
@@ -21666,7 +21657,7 @@ do
 				eq(t.point, "TOPRIGHT TargetFrame.TargetFrameContainer TOPRIGHT " .. targetAt, name .. " on the target: where")
 				-- Anyone else: their own border, as ever.
 				w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
-				eq(w.shown("target"), "gold", "a Lord as ever")
+				eq(w.shown("target"), "bronze-elite", "a guild master as ever")
 				w.target(BorderUnit("Stranger", "Stormwind Traders", "Member", 3))
 				eq(w.shown("target"), nil, "a stranger: none")
 				w.target(nil)
@@ -21674,12 +21665,13 @@ do
 			-- His focus on himself; any case; a new tier replaces the last.
 			w.units.focus = w.units.player
 			w.fire("PLAYER_FOCUS_CHANGED")
-			eq(w.shown("focus"), "bronze", "his focus on himself")
+			eq(w.shown("focus"), "bronze-elite", "his focus on himself")
 			SlashCmdList.OLYMPUS("borders test GOLD-Elite")
 			eq(w.B.Preview(), "gold-elite", "any case")
 			eq(w.shown("player"), "gold-elite"); eq(w.shown("focus"), "gold-elite")
-			-- A word that is no tier, or none: which tiers there are, nothing changed.
-			for _, cmd in ipairs({ "borders test platinum", "borders test", "borders test  " }) do
+			-- A word that is no tier, or none: which tiers there are, nothing changed. (1.1.5: the plain
+			-- gold, silver and bronze are kept for later, no tiers.)
+			for _, cmd in ipairs({ "borders test platinum", "borders test", "borders test  ", "borders test gold", "borders test bronze" }) do
 				SlashCmdList.OLYMPUS(cmd)
 				eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_HELP:format(TIER_LIST), cmd)
 				eq(w.B.Preview(), "gold-elite", cmd); eq(w.shown("player"), "gold-elite", cmd)
@@ -21692,25 +21684,26 @@ do
 			eq(w.shown("target"), nil, "targeting himself: none again")
 			assert(not ns.StatusText():find("preview", 1, true), "gone from /oly status")
 			-- The borders' own machinery unchanged: the same textures, the same hooks.
-			eq(#w.textures, 18); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
+			eq(#w.textures, 9); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
 			for _, entry in ipairs(w.log) do assert(entry:find(":CreateTexture$"), entry) end
 		end, AsAuthor)
 		-- An author who does hold a rank: the preview in its place while on, his own again after.
+		-- (1.1.5: a guild master's bronze wings, where an officer's silver was.)
 		WithBorders(function(w)
 			ns.Borders = w.B
 			w.internal("LOGIN")
-			eq(w.shown("player"), "silver", "his officer rank")
-			SlashCmdList.OLYMPUS("borders test bronze")
-			eq(w.shown("player"), "bronze")
+			eq(w.shown("player"), "bronze-elite", "his guild master rank")
+			SlashCmdList.OLYMPUS("borders test silver-elite")
+			eq(w.shown("player"), "silver-elite")
 			SlashCmdList.OLYMPUS("borders test off")
-			eq(w.shown("player"), "silver", "his own again")
+			eq(w.shown("player"), "bronze-elite", "his own again")
 		end, function(w)
 			AsAuthor(w)
-			w.units.player = BorderUnit("Faladoriel Skylance", "Olympus II", "Titan", 1, { realm = "ClassicBetaPvP" })
+			w.units.player = BorderUnit("Faladoriel Skylance", "Olympus II", "Zeus", 0, { realm = "ClassicBetaPvP" })
 		end)
 	end)
 
-	test("1.0.0 borders preview: the Workshop lists the six tiers for the author; a click shows one, a click on it again ends it; not in the copy for Discord", function()
+	test("1.0.0 borders preview: the Workshop lists the tiers for the author; a click shows one, a click on it again ends it; not in the copy for Discord", function()
 		WithBorders(function(w)
 			ns.Borders = w.B
 			w.internal("LOGIN")
@@ -21723,35 +21716,35 @@ do
 				return lines[at], rows
 			end
 			local head, rows = Section()
-			-- (1.0.0, the nameplate marks: a seventh row, the marks' own member star, after the six
-			-- borders; it was six rows, one per border tier.)
-			eq(#rows, 7, "one row per tier and the member star, the last of the tab")
+			-- (1.0.0, the nameplate marks: a row for the marks' own member star, after the borders; it was
+			-- one row per border tier. 1.1.5: three tiers, so four rows, where 1.0.0's six made seven.)
+			eq(#rows, 4, "one row per tier and the member star, the last of the tab")
 			assert(head.right:find(ns.L.BORDERS_PREVIEW_NONE, 1, true), "off")
 			for i, t in ipairs(w.B.TIERS) do
 				assert(rows[i].text:find(t.name, 1, true), t.name)
 				assert(rows[i].text:find(ns.L["BORDERS_WHO_" .. t.name:upper():gsub("%-", "_")], 1, true), t.name .. ": who holds it")
 				eq(type(rows[i].onClick), "function"); eq(type(rows[i].tooltip), "function"); eq(rows[i].right, nil)
 			end
-			assert(rows[7].text:find("member", 1, true) and rows[7].text:find(ns.L.BORDERS_WHO_MEMBER, 1, true), rows[7].text)
+			assert(rows[4].text:find("member", 1, true) and rows[4].text:find(ns.L.BORDERS_WHO_MEMBER, 1, true), rows[4].text)
 			local tip = {}
-			rows[7].tooltip({ AddLine = function(_, text) tip[#tip + 1] = text end })
+			rows[4].tooltip({ AddLine = function(_, text) tip[#tip + 1] = text end })
 			eq(tip[2], ns.L.BORDERS_PREVIEW_TIP_MEMBER, "the star's own tooltip")
-			rows[7].onClick()
+			rows[4].onClick()
 			eq(w.B.Preview(), "member"); eq(w.shown("player"), nil, "the star: no border round his portrait")
 			eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON_MEMBER)
-			rows[7].onClick()
+			rows[4].onClick()
 			eq(w.B.Preview(), "member", "the lines were built before the click: a fresh click shows it again")
 			head, rows = Section()
-			assert(rows[7].right and rows[7].right:find(ns.L.BORDERS_PREVIEW_SHOWN, 1, true), "marked shown")
-			rows[7].onClick()
+			assert(rows[4].right and rows[4].right:find(ns.L.BORDERS_PREVIEW_SHOWN, 1, true), "marked shown")
+			rows[4].onClick()
 			eq(w.B.Preview(), nil, "clicked again: off")
 			head, rows = Section()
-			rows[5].onClick()
+			rows[3].onClick()
 			eq(w.B.Preview(), "bronze-elite"); eq(w.shown("player"), "bronze-elite", "clicked: shown")
 			eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON:format("bronze-elite"))
 			head, rows = Section()
 			assert(head.right:find(ns.L.BORDERS_PREVIEW_NOW:format("bronze-elite"), 1, true), head.right)
-			assert(rows[5].right and rows[5].right:find(ns.L.BORDERS_PREVIEW_SHOWN, 1, true), "marked shown")
+			assert(rows[3].right and rows[3].right:find(ns.L.BORDERS_PREVIEW_SHOWN, 1, true), "marked shown")
 			eq(rows[1].right, nil)
 			rows[1].onClick()
 			eq(w.shown("player"), "gold-elite", "another tier")
@@ -21796,8 +21789,8 @@ do
 		local ok, err = pcall(WithBorders, function(w)
 			ns.Borders = w.B
 			w.internal("LOGIN")
-			SlashCmdList.OLYMPUS("borders test silver")
-			eq(w.shown("player"), "silver", "his test character")
+			SlashCmdList.OLYMPUS("borders test silver-elite")
+			eq(w.shown("player"), "silver-elite", "his test character")
 		end, function(w) w.units.player = BorderUnit("Peepyn", "Olympus II", "Member", 3); ns.me = "Peepyn-Realm"; ns.devWorkshop = { Peepyn = true } end)
 		ns.devWorkshop = savedDev
 		if not ok then error(err, 0) end
@@ -21851,13 +21844,13 @@ do
 			-- To mouse and keyboard: made, and shown.
 			w.style = 0
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-			eq(#w.textures, 18); eq(w.shown("player"), "gold-elite"); eq(w.shown("target"), "gold-elite")
+			eq(#w.textures, 9); eq(w.shown("player"), "gold-elite"); eq(w.shown("target"), "gold-elite")
 			-- Back to the gamepad UI: hidden at once; a new tier, the hook and the events call nothing.
 			w.style = 1
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
 			eq(w.shown("player"), nil); eq(w.shown("target"), nil)
 			for _, tex in ipairs(w.textures) do tex.calls = {} end
-			SlashCmdList.OLYMPUS("borders test silver")
+			SlashCmdList.OLYMPUS("borders test silver-elite")
 			eq(w.printed[#w.printed], ns.L.BORDERS_GAMEPAD)
 			TargetFrame:CheckClassification()
 			w.fire("PLAYER_TARGET_CHANGED"); w.fire("PLAYER_GUILD_UPDATE", "player")
@@ -21867,14 +21860,14 @@ do
 			-- Mouse and keyboard again, then the borders off: none, the preview's neither.
 			w.style = 0
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-			eq(w.shown("player"), "silver")
+			eq(w.shown("player"), "silver-elite")
 			SlashCmdList.OLYMPUS("borders off")
 			eq(w.shown("player"), nil, "off: no preview either"); eq(w.shown("target"), nil)
-			SlashCmdList.OLYMPUS("borders test gold")
+			SlashCmdList.OLYMPUS("borders test bronze-elite")
 			eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_WHEN_OFF, "says why")
 			eq(w.shown("player"), nil)
 			SlashCmdList.OLYMPUS("borders on")
-			eq(w.shown("player"), "gold", "back with the borders")
+			eq(w.shown("player"), "bronze-elite", "back with the borders")
 		end, AsAuthor)
 	end)
 
@@ -21893,7 +21886,7 @@ do
 			eq(#w.textures, 0, "still in combat")
 			w.combat = false
 			w.fire("PLAYER_REGEN_ENABLED")
-			eq(#w.textures, 18); eq(#w.hooks, 2)
+			eq(#w.textures, 9); eq(#w.hooks, 2)
 			eq(w.shown("player"), "bronze-elite", "made once combat ended, and shown"); eq(w.shown("target"), "bronze-elite")
 			-- In combat again: tier after tier, only Show and Hide on our own textures.
 			w.combat = true
@@ -21913,8 +21906,8 @@ do
 					assert(m == "Show" or m == "Hide", "in combat: " .. m)
 				end
 			end
-			assert(calls >= 20, "shown and hidden in combat: " .. calls)
-			eq(#w.textures, 18, "nothing more made")
+			assert(calls >= 12, "shown and hidden in combat: " .. calls) -- (1.1.5: three tiers, 20 of six)
+			eq(#w.textures, 9, "nothing more made")
 			for _, entry in ipairs(w.log) do assert(entry:find(":CreateTexture$"), entry) end
 		end, AsAuthor)
 	end)
@@ -21923,7 +21916,7 @@ do
 		WithBorders(function(w)
 			ns.Borders = w.B
 			w.internal("LOGIN")
-			SlashCmdList.OLYMPUS("borders test gold")
+			SlashCmdList.OLYMPUS("borders test gold-elite")
 			eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_NOT_MEMBER)
 			eq(w.shown("player"), nil); eq(#w.textures, 0, "nothing made")
 		end, function(w) AsAuthor(w); w.units.player = BorderUnit("Faladoriel Skylance", "Stormwind Traders", "Member", 3, { realm = "ClassicBetaPvP" }) end)
@@ -21933,19 +21926,19 @@ do
 			TargetFrame = setmetatable({ label = "TargetFrame" }, { __index = function(_, k) return function() w.log[#w.log + 1] = "TargetFrame:" .. k end end })
 			FocusFrame, PlayerFrame = nil, setmetatable({ label = "PlayerFrame" }, getmetatable(TargetFrame))
 			w.internal("LOGIN")
-			SlashCmdList.OLYMPUS("borders test gold")
+			SlashCmdList.OLYMPUS("borders test gold-elite")
 			eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_MISSING)
 			eq(#w.log, 0); eq(#w.textures, 0)
 		end, AsAuthor)
 		-- An atlas the client lacks: that tier alone.
 		WithBorders(function(w)
 			ns.Borders = w.B
-			w.noAtlas["UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold"] = true
+			w.noAtlas["UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged"] = true
 			w.internal("LOGIN")
-			SlashCmdList.OLYMPUS("borders test gold")
+			SlashCmdList.OLYMPUS("borders test silver-elite")
 			eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_MISSING); eq(w.shown("player"), nil)
-			SlashCmdList.OLYMPUS("borders test bronze")
-			eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON:format("bronze")); eq(w.shown("player"), "bronze")
+			SlashCmdList.OLYMPUS("borders test bronze-elite")
+			eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON:format("bronze-elite")); eq(w.shown("player"), "bronze-elite")
 		end, AsAuthor)
 	end)
 
@@ -21959,7 +21952,7 @@ do
 			"BORDERS_PREVIEW_NOT_MEMBER", "BORDERS_PREVIEW_COMBAT", "BORDERS_PREVIEW_MISSING", "BORDERS_PREVIEW_TITLE",
 			"BORDERS_PREVIEW_NONE", "BORDERS_PREVIEW_NOW", "BORDERS_PREVIEW_SHOWN", "BORDERS_PREVIEW_TIP" }
 		for name in TIER_LIST:gmatch("[^, ]+") do keys[#keys + 1] = "BORDERS_WHO_" .. name:upper():gsub("%-", "_") end
-		eq(#keys, 18, "the six tiers' too")
+		eq(#keys, 15, "the three tiers' too (1.1.5: six until then)")
 		for _, key in ipairs(keys) do
 			assert(type(ns.L[key]) == "string" and ns.L[key] ~= key, "English " .. key)
 			assert(type(pt.L[key]) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
@@ -21990,7 +21983,11 @@ end
 test("1.0.1 borders: Max's frames ship as 256 x 256 32-bit TGAs with alpha, the art within each tier's texture coordinates; his PNGs kept, README credits him", function()
 	WithBorders(function(w)
 		local files = 0
-		for _, t in ipairs(w.B.TIERS) do
+		-- (1.1.5: his plain bronze is kept for later, on no tier: Borders.RESERVED, its art shipped.)
+		local all = {}
+		for _, t in ipairs(w.B.TIERS) do all[#all + 1] = t end
+		for _, t in ipairs(w.B.RESERVED) do all[#all + 1] = t end
+		for _, t in ipairs(all) do
 			if t.file then
 				files = files + 1
 				local rel = t.file:match("^Interface\\AddOns\\Olympus\\(.+)$")
@@ -22346,17 +22343,20 @@ local function OnlyOurTextures(w)
 	end
 end
 
-test("1.0.0 nameplates: a mark left of the name of each friendly player of an Olympus guild, from the borders' tiers: the King gold, the High Council, Lords and Captains silver, Raiders and Veterans bronze, any other member the star; nobody else", function()
+-- (1.1.5, the author's call: the borders' three tiers. Lords, Captains and our officers had the
+-- silver, Raiders and Veterans the bronze, until then: now a guild master the bronze, the others the
+-- star of any member.)
+test("1.1.5 nameplates: a mark left of the name of each friendly player of an Olympus guild, from the borders' tiers: the King gold, the High Council silver, guild masters bronze, any other member the star; nobody else", function()
 	WithNameplates(function(w)
 		w.internal("LOGIN")
 		local cases = {
 			{ BORDER_KING, "gold", "the King" },
 			{ BorderUnit("Sage Owl", "Wanderers", "Member", 3), "silver", "a High Councillor, in any guild" },
-			{ BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0), "silver", "a Lord, as his guild's census names him" },
-			{ BorderUnit("Capt", "Olympus Zeus", "Titan", 1), "silver", "a Captain, from the census" },
-			{ BorderUnit("Mate", "Olympus II", "Titan", 1), "silver", "our own guild's officer" },
-			{ BorderUnit("Axe", "Olympus Zeus", "Raider", 4), "bronze", "a Raider" },
-			{ BorderUnit("Vet", "Olympus II", "Veterano", 3), "bronze", "a Veteran of our own guild" },
+			{ BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0), "bronze", "a guild master, as his guild's census names him" },
+			{ BorderUnit("Capt", "Olympus Zeus", "Titan", 1), "member", "a Captain, from the census: the star" },
+			{ BorderUnit("Mate", "Olympus II", "Zeus", 0), "bronze", "our own guild master" },
+			{ BorderUnit("Axe", "Olympus Zeus", "Raider", 4), "member", "a Raider: the star" },
+			{ BorderUnit("Vet", "Olympus II", "Veterano", 3), "member", "a Veteran of our own guild: the star" },
 			{ BorderUnit("Pleb", "Olympus Zeus", "Peasant", 6), "member", "any other member of an Olympus guild" },
 			{ BorderUnit("Unlisted", "Olympus Zeus", "Titan", 1), "member", "an officer rank the census doesn't name: a member" },
 			{ BorderUnit("Asmongold Asmongler", "Olympus II", "Member", 3), "member", "the King's name in another guild" },
@@ -22392,12 +22392,6 @@ test("1.0.0 nameplates: a mark left of the name of each friendly player of an Ol
 				eq(tex.point, MarkPoint(f, #(c[1].name)), c[3] .. ": left of the name")
 			end
 		end
-		-- The High Council's gold behind the borders' flag: silver on the plates all the same (the
-		-- King's gold is his alone).
-		w.ns.BORDERS_COUNCIL_GOLD = true
-		w.remove("nameplate2"); w.add("nameplate2", cases[2][1])
-		eq(w.mark("nameplate2"), "silver")
-		w.ns.BORDERS_COUNCIL_GOLD = false
 		-- The game's frames: a texture made on each unit frame, nothing else called; the hooks on the
 		-- game's name updates and on each unit frame's layout.
 		OnlyOurTextures(w)
@@ -22435,9 +22429,9 @@ test("1.0.0 nameplates: a mark left of the name of each friendly player of an Ol
 		w.internal("LOGIN")
 		w.add("nameplate1", BorderUnit("Duskmonkey Boneback", "Mudhutters", "Chief", 0, { faction = "Horde" }))
 		w.add("nameplate2", BORDER_KING)
-		w.add("nameplate3", BorderUnit("Axe", "Olympus Horde", "Raider", 4, { faction = "Horde" }))
+		w.add("nameplate3", BorderUnit("Grunt", "Olympus Horde", "Chief", 0, { faction = "Horde" }))
 		eq(w.mark("nameplate1"), "gold", "the Horde's King"); eq(w.mark("nameplate2"), nil, "the Alliance's")
-		eq(w.mark("nameplate3"), "bronze")
+		eq(w.mark("nameplate3"), "bronze", "a Horde guild master")
 	end, function(w)
 		ns.faction = "Horde"
 		w.units.player = BorderUnit("Hordie", "Olympus Horde", "Member", 4, { faction = "Horde" })
@@ -22450,12 +22444,12 @@ test("1.0.0 nameplates: the mark sits 2 px left of the name's first letter in ev
 		local capt = BorderUnit("Capt", "Olympus Zeus", "Titan", 1)
 		local f = w.add("nameplate1", capt)
 		local kind, tex = w.mark("nameplate1")
-		eq(kind, "silver")
+		eq(kind, "member") -- (1.1.5: a Captain's mark is the star; silver until then)
 		eq(tex.point, "RIGHT UnitFrame1.name CENTER -14 0", "names only: half of \"Capt\" (24 px) and 2 px left of the centre")
 		-- The game writes the name again (its realm shown, say): the mark follows, set in place again.
 		capt.display = "Capt-Faraway"
 		CompactUnitFrame_UpdateName(f)
-		eq(tex.point, "RIGHT UnitFrame1.name CENTER -38 0", "a longer name"); eq(w.mark("nameplate1"), "silver")
+		eq(tex.point, "RIGHT UnitFrame1.name CENTER -38 0", "a longer name"); eq(w.mark("nameplate1"), "member")
 		-- The plate laid out again: inside the bar the name is written from the left.
 		w.layout = "inside"
 		f:UpdateAnchors()
@@ -22486,7 +22480,7 @@ test("1.0.0 nameplates: the mark sits 2 px left of the name's first letter in ev
 		eq(w.mark("nameplate1"), nil, "no name: no mark")
 		w.nameHidden.nameplate1 = nil
 		CompactUnitFrame_UpdateName(f)
-		eq(w.mark("nameplate1"), "silver", "back with the name")
+		eq(w.mark("nameplate1"), "member", "back with the name")
 		-- A width the client hides: no mark, no error.
 		w.secret, w.secretWidth = {}, true
 		capt.display = "Capt-Hidden"
@@ -22494,7 +22488,7 @@ test("1.0.0 nameplates: the mark sits 2 px left of the name's first letter in ev
 		eq(w.mark("nameplate1"), nil, "a secret width")
 		w.secretWidth, capt.display = nil, nil
 		CompactUnitFrame_UpdateName(f)
-		eq(w.mark("nameplate1"), "silver")
+		eq(w.mark("nameplate1"), "member")
 		-- Its layout and name followed by the game's own calls alone: after them, not before.
 		w.seq = {}
 		f:UpdateAnchors()
@@ -22509,37 +22503,37 @@ test("1.0.0 nameplates: hostile players, creatures, our own plate and forbidden 
 		-- Our own plate (the personal resource display): not ours to mark.
 		w.add("nameplate1", w.units.player)
 		eq(w.mark("nameplate1"), nil, "our own plate")
-		-- A duel: a Raider hostile, then friendly again when it ends (UNIT_FACTION: the game writes
+		-- A duel: a Raider (the star since 1.1.5, the bronze until then) hostile, then friendly again when it ends (UNIT_FACTION: the game writes
 		-- the name again, and we hear it), whichever of the two runs first.
 		local duel = BorderUnit("Duelist", "Olympus Zeus", "Raider", 4, { hostile = true })
 		w.add("nameplate2", duel)
 		eq(w.mark("nameplate2"), nil, "hostile")
 		duel.hostile = nil
 		w.faction("nameplate2")
-		eq(w.mark("nameplate2"), "bronze", "friendly again")
+		eq(w.mark("nameplate2"), "member", "friendly again")
 		duel.hostile = true
 		w.faction("nameplate2", true)
 		eq(w.mark("nameplate2"), nil, "hostile again")
 		duel.hostile = nil
 		w.faction("nameplate2", true)
-		eq(w.mark("nameplate2"), "bronze", "friendly again, ours first")
+		eq(w.mark("nameplate2"), "member", "friendly again, ours first")
 		-- A player mind-controlled (his flags): hostile, then ours again.
 		duel.hostile = true
 		w.fire("UNIT_FLAGS", "nameplate2")
 		eq(w.mark("nameplate2"), nil, "UNIT_FLAGS: hostile")
 		duel.hostile = nil
 		w.fire("UNIT_FLAGS", "nameplate2")
-		eq(w.mark("nameplate2"), "bronze", "UNIT_FLAGS: friendly")
+		eq(w.mark("nameplate2"), "member", "UNIT_FLAGS: friendly")
 		-- Our own faction changing: every plate looked at again.
 		local other = BorderUnit("Capt", "Olympus Zeus", "Titan", 1)
 		w.add("nameplate6", other)
-		eq(w.mark("nameplate6"), "silver")
+		eq(w.mark("nameplate6"), "member")
 		duel.hostile, other.hostile = true, true
 		w.fire("UNIT_FACTION", "player")
 		eq(w.mark("nameplate2"), nil, "ours: every plate"); eq(w.mark("nameplate6"), nil, "ours: every plate")
 		duel.hostile, other.hostile = nil, nil
 		w.fire("UNIT_FACTION", "player")
-		eq(w.mark("nameplate2"), "bronze"); eq(w.mark("nameplate6"), "silver")
+		eq(w.mark("nameplate2"), "member"); eq(w.mark("nameplate6"), "member")
 		w.remove("nameplate6")
 		duel.hostile = true
 		w.faction("nameplate2")
@@ -22589,7 +22583,7 @@ test("1.0.0 nameplates: a plate the game recycles (removed, then added for anoth
 		w.remove("nameplate1", { oursFirst = true })
 		eq(w.texOf(f1).shown, false)
 		w.add("nameplate3", BorderUnit("Capt", "Olympus Zeus", "Titan", 1), { oursFirst = true })
-		eq(w.mark("nameplate3"), "silver", "ours first")
+		eq(w.mark("nameplate3"), "member", "ours first")
 		w.remove("nameplate3", { oursFirst = true })
 		-- The same unit token for another player: his own mark, worked out afresh.
 		w.add("nameplate3", BORDER_KING)
@@ -22601,10 +22595,10 @@ test("1.0.0 nameplates: a plate the game recycles (removed, then added for anoth
 		local c = w.add("nameplate6", BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
 		local d = w.add("nameplate7", BorderUnit("Axe", "Olympus Zeus", "Raider", 4))
 		eq(c, b); eq(d, a)
-		eq(w.mark("nameplate6"), "silver"); eq(w.mark("nameplate7"), "bronze")
+		eq(w.mark("nameplate6"), "bronze"); eq(w.mark("nameplate7"), "member") -- (1.1.5: a guild master bronze, a Raider the star)
 		eq(w.mark("nameplate3"), "gold", "the others as they were")
 		-- Each visible plate once in /oly status.
-		assert(w.N.StatusLine():find("3 plates, marks: gold 1, silver 1, bronze 1", 1, true), w.N.StatusLine())
+		assert(w.N.StatusLine():find("3 plates, marks: gold 1, bronze 1, member 1", 1, true), w.N.StatusLine())
 		OnlyOurTextures(w)
 	end)
 end)
@@ -22614,12 +22608,14 @@ test("1.0.0 nameplates: census, High Council and roster changes work out again o
 		local reports = ns.rdb.guilds
 		ns.Roster.byName = {}
 		w.internal("LOGIN")
-		local capt = BorderUnit("Capt", "Olympus Zeus", "Titan", 1)
+		-- (1.1.5: the guild master's bronze and our roster's guild master, where a Captain's and an
+		-- officer's silver were.)
+		local capt = BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0)
 		local mate = BorderUnit("Mate", "Olympus II", nil, nil) -- (our own guild, no rank from the server)
 		w.add("nameplate1", capt)
 		w.add("nameplate2", mate)
 		w.add("nameplate3", BorderUnit("Trader", "Stormwind Traders", "Veteran", 3))
-		eq(w.mark("nameplate1"), "silver"); eq(w.mark("nameplate2"), "member"); eq(w.mark("nameplate3"), nil)
+		eq(w.mark("nameplate1"), "bronze"); eq(w.mark("nameplate2"), "member"); eq(w.mark("nameplate3"), nil)
 		local n = w.computedMarks()
 		-- Another guild's report: nothing.
 		reports["Olympus Other"] = { guild = "Olympus Other", leader = "X", t = 200 }
@@ -22628,17 +22624,17 @@ test("1.0.0 nameplates: census, High Council and roster changes work out again o
 		-- His guild's new report: his plate alone.
 		reports["Olympus Zeus"] = { guild = "Olympus Zeus", leader = "Zeusy", officers = {}, realm = "Realm", t = 300 }
 		w.internal("DATA_CHANGED")
-		eq(w.computedMarks(), n + 1, "his guild's report"); eq(w.mark("nameplate1"), "member", "no longer a Captain")
+		eq(w.computedMarks(), n + 1, "his guild's report"); eq(w.mark("nameplate1"), "member", "no longer its guild master by the census")
 		w.internal("DATA_CHANGED")
 		eq(w.computedMarks(), n + 1, "the same report again: nothing")
 		-- Our roster (a new table at each scan): the plate whose rank came from it, alone.
-		ns.Roster.byName = { ["Mate-Realm"] = 1 }
+		ns.Roster.byName = { ["Mate-Realm"] = 0 }
 		w.internal("DATA_CHANGED")
 		eq(w.computedMarks(), n + 2, "our roster: the guildmate the server gave no rank")
-		eq(w.mark("nameplate2"), "silver", "an officer in our roster")
+		eq(w.mark("nameplate2"), "bronze", "the guild master in our roster")
 		-- The borders the same way: his border on the target follows our roster.
 		w.target(mate)
-		eq(w.shown("target"), "silver")
+		eq(w.shown("target"), "bronze-elite")
 		ns.Roster.byName = { ["Mate-Realm"] = 3 }
 		w.internal("DATA_CHANGED")
 		eq(w.shown("target"), nil, "the borders follow our roster too"); eq(w.mark("nameplate2"), "member")
@@ -22669,14 +22665,14 @@ test("1.0.0 nameplates: /oly nameplates on|off (on by default) for the marks alo
 		ns.Borders, ns.Nameplates = w.B, w.N -- (the slash command's: the stand-ins otherwise)
 		w.internal("LOGIN")
 		eq(w.N.Enabled(), true, "on by default")
-		local capt = BorderUnit("Capt", "Olympus Zeus", "Titan", 1)
+		local capt = BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0) -- (1.1.5: a guild master, where a Captain was)
 		w.add("nameplate1", capt)
 		w.target(capt)
-		eq(w.mark("nameplate1"), "silver"); eq(w.shown("target"), "silver")
-		assert(ns.StatusText():find("nameplates: on  |  1 plates, marks: silver 1  |  worked out 1 times", 1, true), ns.StatusText())
+		eq(w.mark("nameplate1"), "bronze"); eq(w.shown("target"), "bronze-elite")
+		assert(ns.StatusText():find("nameplates: on  |  1 plates, marks: bronze 1  |  worked out 1 times", 1, true), ns.StatusText())
 		SlashCmdList.OLYMPUS("nameplates off")
 		eq(ns.db.nameplates, false); eq(w.printed[#w.printed], ns.L.NAMEPLATES_OFF)
-		eq(w.mark("nameplate1"), nil, "hidden at once"); eq(w.shown("target"), "silver", "the borders stay")
+		eq(w.mark("nameplate1"), nil, "hidden at once"); eq(w.shown("target"), "bronze-elite", "the borders stay")
 		local n = w.computedMarks()
 		w.add("nameplate2", BORDER_KING)
 		eq(w.mark("nameplate2"), nil, "off: nothing shown"); eq(w.computedMarks(), n, "nor worked out")
@@ -22685,7 +22681,7 @@ test("1.0.0 nameplates: /oly nameplates on|off (on by default) for the marks alo
 		eq(w.printed[#w.printed], ns.L.NAMEPLATES_OFF, "says which")
 		SlashCmdList.OLYMPUS("nameplates ON")
 		eq(ns.db.nameplates, true); eq(w.printed[#w.printed], ns.L.NAMEPLATES_ON)
-		eq(w.mark("nameplate1"), "silver", "back at once"); eq(w.mark("nameplate2"), "gold")
+		eq(w.mark("nameplate1"), "bronze", "back at once"); eq(w.mark("nameplate2"), "gold")
 		-- The borders' switch: both.
 		SlashCmdList.OLYMPUS("borders off")
 		eq(w.printed[#w.printed], ns.L.BORDERS_OFF)
@@ -22696,7 +22692,7 @@ test("1.0.0 nameplates: /oly nameplates on|off (on by default) for the marks alo
 		eq(w.printed[#w.printed], ns.L.NAMEPLATES_BORDERS_OFF, "says why")
 		assert(ns.StatusText():find("nameplates: off with the borders (/oly borders on)", 1, true))
 		SlashCmdList.OLYMPUS("borders on")
-		eq(w.mark("nameplate1"), "silver"); eq(w.mark("nameplate3"), "bronze"); eq(w.shown("target"), "silver")
+		eq(w.mark("nameplate1"), "bronze"); eq(w.mark("nameplate3"), "member"); eq(w.shown("target"), "bronze-elite")
 		-- The help: after the borders' line.
 		local savedPrint, lines = print, {}
 		print = function(m) lines[#lines + 1] = tostring(m) end
@@ -22743,7 +22739,7 @@ test("1.0.0 nameplates: off with the gamepad UI (no hook, no texture, nothing ca
 		-- To mouse and keyboard: made and shown.
 		w.style = 0
 		w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-		eq(w.mark("nameplate1"), "gold"); eq(w.mark("nameplate2"), "bronze")
+		eq(w.mark("nameplate1"), "gold"); eq(w.mark("nameplate2"), "member") -- (1.1.5: a Raider's star, the bronze until then)
 		-- Back to the gamepad UI: hidden at once; the hooks and the events call nothing.
 		w.style = 1
 		w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
@@ -22760,7 +22756,7 @@ test("1.0.0 nameplates: off with the gamepad UI (no hook, no texture, nothing ca
 		-- Mouse and keyboard again.
 		w.style = 0
 		w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-		eq(w.mark("nameplate1"), "gold"); eq(w.mark("nameplate3"), "silver")
+		eq(w.mark("nameplate1"), "gold"); eq(w.mark("nameplate3"), "member")
 		OnlyOurTextures(w)
 	end)
 end)
@@ -22771,7 +22767,7 @@ test("1.0.0 nameplates: in combat a nameplate's mark is made, placed and shown (
 		w.combat = true
 		-- Unprotected, as Forever's nameplates are: made and placed in combat.
 		local f = w.add("nameplate1", BorderUnit("Capt", "Olympus Zeus", "Titan", 1))
-		eq(w.mark("nameplate1"), "silver", "made in combat")
+		eq(w.mark("nameplate1"), "member", "made in combat") -- (1.1.5: a Captain's star, his silver until then)
 		local tex = w.texOf(f)
 		eq(tex.point, MarkPoint(f, 4))
 		w.remove("nameplate1")
@@ -22794,7 +22790,7 @@ test("1.0.0 nameplates: in combat a nameplate's mark is made, placed and shown (
 		eq(w.mark("nameplate3"), nil, "still in combat")
 		w.combat = false
 		w.fire("PLAYER_REGEN_ENABLED")
-		eq(w.mark("nameplate3"), "bronze", "made and shown once the fight is over")
+		eq(w.mark("nameplate3"), "member", "made and shown once the fight is over")
 		eq(w.mark("nameplate4"), "member", "placed and shown once the fight is over")
 		eq(w.texOf(f).point, MarkPoint(f, 4))
 		-- In combat again, protected: the same place (a player of the same name's length) is shown
@@ -22803,7 +22799,7 @@ test("1.0.0 nameplates: in combat a nameplate's mark is made, placed and shown (
 		w.remove("nameplate4")
 		tex.calls = {}
 		eq(w.add("nameplate5", BorderUnit("Zatk", "Olympus Zeus", "Raider", 4)), f)
-		eq(w.mark("nameplate5"), "bronze")
+		eq(w.mark("nameplate5"), "member")
 		for _, m in ipairs(tex.calls) do
 			assert(m ~= "SetPoint" and m ~= "SetSize" and m ~= "ClearAllPoints", "moved in combat: " .. m)
 		end
@@ -22821,9 +22817,9 @@ test("1.0.0 nameplates preview: the author's /oly borders test <tier> shows that
 		w.add("nameplate4", BorderUnit("Hogger", nil, nil, nil, { npc = true }))
 		eq(w.mark("nameplate1"), nil); eq(w.mark("nameplate2"), "gold"); eq(w.myMark(), nil, "no mark of his own")
 		eq(#w.myMarks(), 0, "nothing made on his frame before a preview")
-		local tiers = { ["gold-elite"] = "gold", ["silver-elite"] = "silver", gold = "silver", silver = "silver",
-			["bronze-elite"] = "bronze", bronze = "bronze", member = "member" }
-		for _, name in ipairs({ "gold-elite", "silver-elite", "gold", "silver", "bronze-elite", "bronze", "member" }) do
+		-- (1.1.5: the three tiers' marks and the star; the plain gold, silver and bronze tiers are gone.)
+		local tiers = { ["gold-elite"] = "gold", ["silver-elite"] = "silver", ["bronze-elite"] = "bronze", member = "member" }
+		for _, name in ipairs({ "gold-elite", "silver-elite", "bronze-elite", "member" }) do
 			SlashCmdList.OLYMPUS("borders test " .. name)
 			local want = tiers[name]
 			eq(w.printed[#w.printed], name == "member" and ns.L.BORDERS_PREVIEW_ON_MEMBER or ns.L.BORDERS_PREVIEW_ON:format(name))
@@ -22839,7 +22835,7 @@ test("1.0.0 nameplates preview: the author's /oly borders test <tier> shows that
 			eq(w.shown("player"), name ~= "member" and name or nil, "his border as the preview's (none for the star)")
 		end
 		-- The art left of his name, as on the plates.
-		SlashCmdList.OLYMPUS("borders test bronze")
+		SlashCmdList.OLYMPUS("borders test bronze-elite")
 		local _, mine = w.myMark()
 		eq(mine.atlas, MARK_GOLD); eq(mine.desaturated, true)
 		eq(mine.color, ("%s %s %s"):format(158 / 255, 118 / 255, 86 / 255), "Max's bronze")
@@ -22891,7 +22887,7 @@ test("1.0.0 nameplates preview: the author's /oly borders test <tier> shows that
 		eq(w.myMark(), "gold", "made and shown once the fight is over")
 		w.combat = true
 		for _, tex in ipairs(w.myMarks()) do tex.calls = {} end
-		for _, name in ipairs({ "silver", "bronze", "member", "gold-elite" }) do
+		for _, name in ipairs({ "silver-elite", "bronze-elite", "member", "gold-elite" }) do
 			SlashCmdList.OLYMPUS("borders test " .. name)
 		end
 		SlashCmdList.OLYMPUS("borders test off")
@@ -22912,7 +22908,7 @@ test("1.0.0 nameplates preview: the author's /oly borders test <tier> shows that
 		w.style = 1
 		w.internal("LOGIN")
 		w.add("nameplate1", BorderUnit("Trader", "Stormwind Traders", "Veteran", 3))
-		SlashCmdList.OLYMPUS("borders test silver")
+		SlashCmdList.OLYMPUS("borders test silver-elite")
 		eq(w.myMark(), nil); eq(#w.myMarks(), 0); eq(w.mark("nameplate1"), nil); eq(#w.log, 0)
 	end, function(w) w.units.player = MARK_AUTHOR; ns.me = "Faladoriel Skylance-ClassicBetaPvP" end)
 end)
@@ -22981,7 +22977,7 @@ test("1.0.0 nameplates: the game's name updates (every health change, mouseover 
 		local enemy = w.add("nameplate41", BorderUnit("Duelist", "Olympus Zeus", "Raider", 4, { hostile = true }))
 		local stranger = w.add("nameplate42", BorderUnit("Trader", "Stormwind Traders", "Veteran", 3))
 		frames[#frames + 1], frames[#frames + 2] = enemy, stranger
-		eq(w.mark("nameplate1"), nil); eq(w.mark("nameplate21"), "bronze"); eq(w.mark("nameplate41"), nil); eq(w.mark("nameplate42"), nil)
+		eq(w.mark("nameplate1"), nil); eq(w.mark("nameplate21"), "member"); eq(w.mark("nameplate41"), nil); eq(w.mark("nameplate42"), nil)
 		-- A raid frame (Blizzard's CompactRaidFrame: a compact unit frame, not a plate's) the same
 		-- hook sees.
 		local raid = { label = "CompactRaidFrame1", unit = "raid1", name = { text = "", shown = true } }
@@ -23006,7 +23002,7 @@ test("1.0.0 nameplates: the game's name updates (every health change, mouseover 
 		assert(n <= 20 * 8, "a mouseover over 42 plates: the 20 marked plates' names alone, " .. n .. " calls")
 		eq(logged, 1)
 		-- And the marks as they were, following their names all the same.
-		eq(w.mark("nameplate21"), "bronze"); eq(w.mark("nameplate1"), nil); eq(w.mark("nameplate41"), nil)
+		eq(w.mark("nameplate21"), "member"); eq(w.mark("nameplate1"), nil); eq(w.mark("nameplate41"), nil)
 		local u = w.units.nameplate21
 		u.display = u.name .. "-Faraway"
 		CompactUnitFrame_UpdateName(members[1])
@@ -23030,7 +23026,7 @@ test("1.0.0 nameplates: leaving an Olympus guild hides every mark at once and th
 		eq(w.mark("nameplate2"), nil)
 		w.units.player = me
 		w.fire("PLAYER_GUILD_UPDATE", "player")
-		eq(w.mark("nameplate1"), "gold"); eq(w.mark("nameplate2"), "bronze")
+		eq(w.mark("nameplate1"), "gold"); eq(w.mark("nameplate2"), "member")
 	end)
 	-- Logged in before the client knows our guild: none; the census coming in once it does (before
 	-- PLAYER_GUILD_UPDATE): every plate.
@@ -23060,13 +23056,13 @@ test("1.0.0 nameplates: the King showing or hiding the council's names (the eye,
 			w.add("nameplate3", BorderUnit("Axe", "Olympus Zeus", "Raider", 4))
 			w.target(sage)
 			eq(ns.CouncilMasked(), true, "hidden by default on his screen")
-			eq(w.mark("nameplate1"), nil); eq(w.mark("nameplate2"), "member"); eq(w.mark("nameplate3"), "bronze")
+			eq(w.mark("nameplate1"), nil); eq(w.mark("nameplate2"), "member"); eq(w.mark("nameplate3"), "member")
 			eq(w.shown("target"), nil)
 			local n = w.computedMarks()
 			ns.SetCouncilNamesShown(true)
 			eq(fired, 1)
 			eq(w.mark("nameplate1"), "silver", "names shown: the plate up already follows"); eq(w.mark("nameplate2"), "silver")
-			eq(w.mark("nameplate3"), "bronze"); eq(w.shown("target"), "silver-elite")
+			eq(w.mark("nameplate3"), "member"); eq(w.shown("target"), "silver-elite")
 			eq(w.computedMarks(), n + 2, "the councillors' plates alone")
 			ns.SetCouncilNamesShown(false)
 			eq(fired, 2)
@@ -33884,12 +33880,13 @@ test("1.1 nameplates preview: what the census says while the preview shows is ea
 		local reports = ns.rdb.guilds
 		ns.Roster.byName = {}
 		w.internal("LOGIN")
-		w.add("nameplate1", BorderUnit("Capt", "Olympus Zeus", "Titan", 1))
+		-- (1.1.5: its guild master's bronze, where a Captain's silver was.)
+		w.add("nameplate1", BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
 		w.add("nameplate2", BorderUnit("Trader", "Stormwind Traders", "Veteran", 3))
-		eq(w.mark("nameplate1"), "silver", "a Captain"); eq(w.mark("nameplate2"), nil)
+		eq(w.mark("nameplate1"), "bronze", "a guild master"); eq(w.mark("nameplate2"), nil)
 		SlashCmdList.OLYMPUS("borders test gold-elite")
 		eq(w.mark("nameplate1"), "gold"); eq(w.mark("nameplate2"), "gold", "the preview on every friendly plate")
-		-- His guild's report comes while the preview shows: he is no longer its Captain.
+		-- His guild's report comes while the preview shows: nobody vouches for him as its master now.
 		reports["Olympus Zeus"] = { guild = "Olympus Zeus", leader = "Zeusy", officers = {}, realm = "Realm", t = 300 }
 		w.internal("DATA_CHANGED")
 		eq(w.mark("nameplate1"), "gold", "still the preview")
@@ -33897,7 +33894,7 @@ test("1.1 nameplates preview: what the census says while the preview shows is ea
 		ns.rdb.council = { names = { ["trader"] = true } }
 		w.internal("DATA_CHANGED")
 		SlashCmdList.OLYMPUS("borders test off")
-		eq(w.mark("nameplate1"), "member", "no longer a Captain: the census's word, not the silver from before the preview")
+		eq(w.mark("nameplate1"), "member", "no longer its guild master: the census's word, not the bronze from before the preview")
 		eq(w.mark("nameplate2"), "silver", "the new councillor's mark")
 		-- The game writing the names again (a mouseover, a health change) keeps them.
 		CompactUnitFrame_UpdateName(w.frameOf("nameplate1")); CompactUnitFrame_UpdateName(w.frameOf("nameplate2"))
@@ -33912,13 +33909,13 @@ test("1.1 nameplates preview: with /oly nameplates off the preview's messages an
 		w.add("nameplate1", BorderUnit("Trader", "Stormwind Traders", "Veteran", 3))
 		SlashCmdList.OLYMPUS("nameplates off")
 		local from = #w.printed
-		SlashCmdList.OLYMPUS("borders test silver")
-		eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON_NO_MARK:format("silver"))
+		SlashCmdList.OLYMPUS("borders test silver-elite")
+		eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON_NO_MARK:format("silver-elite"))
 		for i = from + 1, #w.printed do
-			assert(w.printed[i] ~= ns.L.BORDERS_PREVIEW_ON:format("silver"), "never 'its mark after your name' with the marks off")
+			assert(w.printed[i] ~= ns.L.BORDERS_PREVIEW_ON:format("silver-elite"), "never 'its mark after your name' with the marks off")
 		end
 		eq(w.myMark(), nil, "no mark by his name"); eq(w.mark("nameplate1"), nil, "none on the plates")
-		eq(w.shown("player"), "silver", "the border itself shows")
+		eq(w.shown("player"), "silver-elite", "the border itself shows")
 		-- The star alone: it only waits, and says so; nothing says it shows.
 		from = #w.printed
 		SlashCmdList.OLYMPUS("borders test member")
@@ -33932,8 +33929,8 @@ test("1.1 nameplates preview: with /oly nameplates off the preview's messages an
 		eq(tips[#tips], ns.L.NAMEPLATES_PREVIEW_WHEN_OFF, "the tip says the marks are off")
 		-- With the marks on, as in 1.0.
 		SlashCmdList.OLYMPUS("nameplates on")
-		SlashCmdList.OLYMPUS("borders test silver")
-		eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON:format("silver"))
+		SlashCmdList.OLYMPUS("borders test silver-elite")
+		eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON:format("silver-elite"))
 		eq(w.myMark(), "silver"); eq(w.mark("nameplate1"), "silver")
 		tips = {}
 		lines = {}
@@ -33963,7 +33960,7 @@ test("1.1 nameplates preview: the mark by his own name sits after it, never left
 	WithNameplates(function(w)
 		ns.Borders, ns.Nameplates = w.B, w.N
 		w.internal("LOGIN")
-		SlashCmdList.OLYMPUS("borders test bronze")
+		SlashCmdList.OLYMPUS("borders test bronze-elite")
 		local _, mine = w.myMark()
 		eq(mine.point, "LEFT PlayerName LEFT 98 0", "a name past the box: at the box's end, 2 px off")
 		SlashCmdList.OLYMPUS("borders test off")
@@ -39591,14 +39588,16 @@ end -- (the pinned line's review)
 			NoWords(function()
 				C_ChatInfo = nil
 				w.internal("LOGIN")
-				local capt = BorderUnit("Capt", "Olympus Zeus", "Titan", 1)
+				-- (1.1.5: a guild master's bronze and a Raider's star, where a Captain's silver and a Raider's
+				-- bronze were.)
+				local capt = BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0)
 				local axe = BorderUnit("Axe", "Olympus Gale", "Raider", 4)
 				w.add("nameplate1", capt); w.add("nameplate2", axe); w.add("nameplate3", BORDER_KING)
-				eq(w.mark("nameplate1"), "silver"); eq(w.mark("nameplate2"), "bronze"); eq(w.mark("nameplate3"), "gold")
+				eq(w.mark("nameplate1"), "bronze"); eq(w.mark("nameplate2"), "member"); eq(w.mark("nameplate3"), "gold")
 				w.target(capt)
-				eq(w.shown("target"), "silver")
-				-- The King takes the Captain and a guild off (the word fires DATA_CHANGED on every client).
-				Off("Capt-Realm"); GuildOff("Olympus Gale")
+				eq(w.shown("target"), "bronze-elite")
+				-- The King takes the guild master and a guild off (the word fires DATA_CHANGED on every client).
+				Off("Zeusy-Realm"); GuildOff("Olympus Gale")
 				w.internal("DATA_CHANGED")
 				eq(w.mark("nameplate1"), nil, "no mark"); eq(w.mark("nameplate2"), nil, "his guild off: no mark")
 				eq(w.mark("nameplate3"), "gold", "the King's stays")
@@ -39609,9 +39608,9 @@ end -- (the pinned line's review)
 				w.remove("nameplate2"); w.add("nameplate2", axe)
 				eq(w.mark("nameplate2"), nil)
 				-- Back on: as before.
-				Back("Capt-Realm")
+				Back("Zeusy-Realm")
 				w.internal("DATA_CHANGED")
-				eq(w.mark("nameplate1"), "silver"); eq(w.shown("target"), "silver")
+				eq(w.mark("nameplate1"), "bronze"); eq(w.shown("target"), "bronze-elite")
 				-- Never the King, whatever a word says.
 				Off("Asmongold Asmongler-Realm")
 				w.internal("DATA_CHANGED")
@@ -42971,7 +42970,9 @@ do
 		if not ok then error(err, 0) end
 	end
 
-	test("1.1.1 marks by a name (Borders.MarkOfName): the King gold; the High Council, Lords and Captains silver; Raiders and Veterans of our guild bronze; members the star; nobody for net-off or outside Olympus", function()
+	-- (1.1.5, the author's call: the borders' three tiers. Lords and Captains were silver, Raiders and
+	-- Veterans of our guild bronze until then; now a guild master is bronze, and they the star.)
+	test("1.1.5 marks by a name (Borders.MarkOfName): the King gold; the High Council silver; guild masters bronze; any other member the star; nobody for net-off or outside Olympus", function()
 		WithBorders(function(w)
 			local B = w.B
 			local saved = { byName = ns.Roster.byName, rankName = GuildControlGetRankName, hides = ns.Moderation.Hides }
@@ -42986,15 +42987,15 @@ do
 				eq(B.MarkOfName("Asmongold Asmongler-Realm", "Olympus II"), nil, "his name in another guild is not him, nor proven one of ours")
 				local mark, facts = B.MarkOfName("Sage Owl", "Olympus II")
 				eq(mark, "silver", "a High Councillor"); eq(facts.council, true); eq(facts.who, "Sage Owl-Realm", "the name made whole")
-				eq(B.MarkOfName("Guildie Master-Realm", "Olympus II"), "silver", "our guild master")
-				eq(B.MarkOfName("Guildie Officer-Realm", "Olympus II"), "silver", "our officer")
-				eq(B.MarkOfName("Raider Guy-Realm", "Olympus II"), "bronze", "our Raider")
-				eq(B.MarkOfName("Vet Guy-Realm", "Olympus II"), "bronze", "our Veteran")
+				eq(B.MarkOfName("Guildie Master-Realm", "Olympus II"), "bronze", "our guild master")
+				eq(B.MarkOfName("Guildie Officer-Realm", "Olympus II"), "member", "our officer")
+				eq(B.MarkOfName("Raider Guy-Realm", "Olympus II"), "member", "our Raider")
+				eq(B.MarkOfName("Vet Guy-Realm", "Olympus II"), "member", "our Veteran")
 				eq(B.MarkOfName("Plain Guy-Realm", "Olympus II"), "member", "our Member")
 				eq(B.MarkOfName("Stranger-Realm", "Olympus II"), nil, "not in our roster: nothing proves him one of ours (it was the star before the review)")
 				-- Another guild: the census, two senders naming him.
-				eq(B.MarkOfName("Zeusy-Realm", "Olympus Zeus"), "silver", "another guild's Lord, two senders")
-				eq(B.MarkOfName("Capt-Realm", "Olympus Zeus"), "silver", "another guild's Captain, two senders")
+				eq(B.MarkOfName("Zeusy-Realm", "Olympus Zeus"), "bronze", "another guild's master, two senders")
+				eq(B.MarkOfName("Capt-Realm", "Olympus Zeus"), "member", "another guild's Captain, two senders")
 				ns.rdb.guilds["Olympus Lone"] = Vouched({ guild = "Olympus Lone", leader = "Loner", officers = { { name = "Lone Capt" } }, realm = "Realm",
 					t = ns.Now() }, "W1-Realm")
 				-- (Review of 1.1.1: it was the star before. A guild master one sender names has no rank from
@@ -43002,7 +43003,7 @@ do
 				eq(ns.Data.KnownRank("Loner-Realm", "Olympus Lone"), nil, "(the census gives the master one sender names no rank)")
 				eq(B.MarkOfName("Loner-Realm", "Olympus Lone"), nil, "one sender names him master: not proven, no mark")
 				eq(ns.Data.KnownRank("Lone Capt-Realm", "Olympus Lone"), 1, "(the census's rank for a Captain one sender names)")
-				eq(B.MarkOfName("Lone Capt-Realm", "Olympus Lone"), "member", "a Captain one sender names: a member, as the borders ask two")
+				eq(B.MarkOfName("Lone Capt-Realm", "Olympus Lone"), "member", "a Captain one sender names: a member")
 				-- Nobody outside Olympus; nobody the moderators took off.
 				eq(B.MarkOfName("Joe-Realm", "Wanderers"), nil)
 				eq(B.MarkOfName("Joe-Realm", nil), nil)
@@ -43012,9 +43013,9 @@ do
 				ns.Moderation.Hides = saved.hides
 				-- Independent of /oly borders off (the chat's marks are the chat's).
 				ns.db.borders = false
-				eq(B.MarkOfName("Raider Guy-Realm", "Olympus II"), "bronze")
+				eq(B.MarkOfName("Guildie Master-Realm", "Olympus II"), "bronze")
 				-- MarkOf and the borders unchanged: the unit functions still decide theirs.
-				w.target(BorderUnit("Raider Guy", "Olympus II", "Raider", 2))
+				w.target(BorderUnit("Guildie Master", "Olympus II", "Master", 0))
 				eq(B.MarkOf("target"), "bronze")
 			end)
 			ns.Roster.byName, GuildControlGetRankName, ns.Moderation.Hides = saved.byName, saved.rankName, saved.hides
@@ -43213,9 +43214,10 @@ do
 				h = Header("a councillor speaks")
 				assert(h:find(ns.HIGH_COUNCIL_MARK, 1, true) and h:find("|c" .. ns.HIGH_COUNCIL_COLOR .. "Sage Owl|r", 1, true), h)
 				assert(not h:find(SILVER, 1, true), "the skull, not the silver mark")
-				assert(Header("a lord speaks"):find(SILVER, 1, true), "a Lord: silver")
-				assert(Header("a raider speaks"):find(BRONZE, 1, true), "a Raider: bronze")
-				assert(Header("a veteran speaks"):find(BRONZE, 1, true), "a Veteran: bronze")
+				-- (1.1.5: the borders' three tiers: a guild master bronze, a Raider and a Veteran the star.)
+				assert(Header("a lord speaks"):find(BRONZE, 1, true), "a guild master: bronze")
+				assert(Header("a raider speaks"):find(STAR, 1, true), "a Raider: the star")
+				assert(Header("a veteran speaks"):find(STAR, 1, true), "a Veteran: the star")
 				assert(Header("a member speaks"):find(STAR, 1, true), "a member: the star")
 				assert(Header("the treasurer speaks"):find("UI-GoldIcon:0|t", 1, true), "the Treasurer's coin")
 				assert(Header("a steward speaks"):find("|cffffd200" .. L.CHATWIN_TAG_STEWARD .. "|r", 1, true), "Steward")
@@ -43228,7 +43230,7 @@ do
 				assert(h:find(STAR, 1, true) and not h:find(SILVER, 1, true), h)
 				C_Texture = { GetAtlasInfo = function() return { width = 14, height = 14 } end }
 				w.CW.Render()
-				assert(Header("a lord speaks"):find(SILVER, 1, true))
+				assert(Header("a lord speaks"):find(BRONZE, 1, true))
 				-- The King's screen while the councillors' names are hidden (his stream): no skull.
 				ns.CouncilMasked = function() return true end
 				w.fire("COUNCIL_MASK_CHANGED"); w.CW.Render()
@@ -43270,9 +43272,10 @@ do
 				local cases = {
 					{ "Asmongold Asmongler-Realm", "Olympus", CROWN, "the King's crown" },
 					{ "Sage Owl-Realm", "Olympus II", ns.HIGH_COUNCIL_MARK, "the High Council's mark" },
-					{ "Zeusy-Realm", "Olympus Zeus", SILVER, "a Lord: silver" },
-					{ "Raider Guy-Realm", "Olympus II", BRONZE, "a Raider: bronze" },
-					{ "Vet Guy-Realm", "Olympus II", BRONZE, "a Veteran: bronze" },
+					-- (1.1.5: the borders' three tiers: a guild master bronze, a Raider and a Veteran the star.)
+					{ "Zeusy-Realm", "Olympus Zeus", BRONZE, "a guild master: bronze" },
+					{ "Raider Guy-Realm", "Olympus II", STAR, "a Raider: the star" },
+					{ "Vet Guy-Realm", "Olympus II", STAR, "a Veteran: the star" },
 					{ "Plain Guy-Realm", "Olympus II", STAR, "a member: the star" },
 				}
 				for _, c in ipairs(cases) do
