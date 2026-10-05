@@ -3637,27 +3637,7 @@ function Treasury.DiscordText()
 	return table.concat(out, "\n")
 end
 
--- The King's Throne Room: the treasury as its keepers last sent it, a click from its tab.
-function Treasury.ThroneLines()
-	local Line, INK, TITLE = ns.King.Line, ns.King.INK, ns.King.TITLE
-	local lines = { Line(L.TREASURY_TITLE, TITLE) }
-	local open = function() if ns.UI and ns.UI.SelectTab then ns.UI.SelectTab("treasury") end end
-	local r = Treasury.Report()
-	if r then
-		lines[#lines + 1] = Line(L.TREASURY_BALANCE .. ": " .. Treasury.Coins(r.balance), INK)
-		lines[#lines + 1] = Line(L.TREASURY_WEEK:format(r.donors) .. ": +" .. Treasury.Coins(r.week), INK)
-		for _, k in ipairs(r.keepers) do
-			lines[#lines + 1] = Line(L.TREASURY_KEPT_BY:format(KeeperLabel(k.name), k.own and L.TREASURY_KEPT_NOW or ns.Ago(k.t)), INK)
-		end
-	else
-		ns.King.Para(lines, L.TREASURY_WAIT, INK)
-	end
-	lines[#lines].gapAfter = true
-	lines[#lines + 1] = Line("> " .. L.TREASURY_OPEN, INK, { onClick = open })
-	return lines
-end
-
--- Next to the soldiers on top of the window (the Throne and the Treasury tabs): the treasury's
+-- Next to the soldiers on top of the window (the Treasury tab; 1.1.5: no longer the Throne's): the treasury's
 -- balance, for the keepers, the King, and the army when the King shows it.
 function Treasury.HeaderText()
 	if not (Treasury.IsKeeper() or IsKingView() or Treasury.Shows("balance")) then return nil end

@@ -11,8 +11,8 @@ local L = ns.L
 --   gap between two removals. Nothing picks several at once: there is no kick-all.
 -- #19: the Lord attaches one of his Captains to a recruit as their mentor; each gets one whisper
 --   from him, naming the other, both sent by that one click of his (see Mentors, below).
--- 1.1.5: the guild master's centurions and correspondents (Nominees.lua), a section of his alone,
---   where he names and removes them.
+-- (1.1.5: the guild master's centurions and correspondents were a section here before 1.1.5 shipped;
+--   they are his Guild tab's now, the tab in the Throne's place: Nominees.lua.)
 -- Nothing goes on the channel, and nothing but the Lord's own mentor pairs is kept.
 
 local Members = {}
@@ -360,23 +360,11 @@ function Members.Lines(q)
 	elseif page.filter == "recruits" then
 		page.filter = Members.FILTERS[1]
 	end
-	-- 1.1.5: the guild master's section, his alone (Nominees.lua): he names and removes his
-	-- centurions and correspondents there.
-	local N = ns.Nominees
-	local nominees = type(N) == "table" and not N.missing and type(N.PageLines) == "function" and N.IsMaster() == true
-	if nominees then
-		local on = page.filter == "nominees"
-		lines[#lines + 1] = {
-			text = on and V.Gold("> " .. L.NOMINEES_FILTER) or ("   " .. L.NOMINEES_FILTER),
-			right = V.Grey(("%d/%d"):format(N.Count(), N.MAX)),
-			onClick = not on and function() Members.Show("nominees") end or nil,
-		}
-	elseif page.filter == "nominees" then
-		page.filter = Members.FILTERS[1]
-	end
+	-- (1.1.5: the guild master's centurions and correspondents left this page for his Guild tab, the
+	-- tab in the Throne's place: Nominees.lua, King.lua.)
+	if type(page.filter) ~= "number" and page.filter ~= "recruits" then page.filter = Members.FILTERS[1] end
 	lines[#lines].gapAfter = true
 	if page.filter == "recruits" then return MentorLines(lines, q) end
-	if page.filter == "nominees" then return N.PageLines(lines, q) end
 	local canRemove = Members.CanRemove()
 	lines[#lines + 1] = { text = V.Grey(canRemove and L.MEMBERS_REMOVE_HINT or L.MEMBERS_VIEW_HINT) }
 	-- The game lists only who is online (its "Show offline members" unticked): say so.

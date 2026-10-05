@@ -166,10 +166,11 @@ versions before 1.1 just get the whisper, as before.
   online, then one of his Captains, and says yes: **one whisper to each** from that click, the
   Captain told who to look after, the recruit told who to ask. The pair shows on his list (his
   client's alone); nothing goes on the channel.
-- **Centurions and correspondents** (1.1.5): a guild master of an Olympus guild opens **Your
-  centurions and correspondents** on that page (or `/oly nominees`), laid out as the King's Hands:
-  **+ Name a centurion** (his target, or a name he types), his list (a click takes a title back,
-  asked first), and a line per High Council department to name its correspondent. Up to 10
+- **Centurions and correspondents** (1.1.5): a guild master of an Olympus guild (not the King's)
+  has a tab of his own in the Throne's place, **Guild** (or `/oly nominees`), laid out as the
+  King's Hands page: **+ Name a centurion** (his target, or a name he types), his list (a click
+  takes a title back, asked first), and a line per High Council department to name its
+  correspondent. Up to 10
   centurions and one correspondent per department (6 at most), members of his own guild only: the
   addon refuses an 11th centurion, a second correspondent for a department, one name twice and
   anyone outside his roster, and says why. Each wears Max's bronze border without wings, and the
@@ -504,8 +505,11 @@ alts and the census counts people:
 A tab with a crown that only the King sees: the guild master of the guild named exactly
 "Olympus" (of his faction), and on the Alliance that very character, Asmongold Asmongler: the
 addon knows him by name, like the Treasurer. It opens on **the Throne Room** (the queue of
-his court while it is open, and the Treasury), and holding court takes him there. Each of his
-tools lives where it belongs:
+his court while it is open, and the army's key), and holding court takes him there. Since 1.1.5
+the Treasury has its own tab alone, and under the Throne Room are **the centurions of the King's
+guild** (up to 10, bronze without wings), named by the King or a High Councillor, who has the
+Throne for them; his Steward and Hands read the list (department heads come in 1.1.6). Each of
+his tools lives where it belongs:
 
 *The list is in the README, with the rest of this section: [The Throne (the King and his Hands)](https://github.com/dnl-gentile/olympus-addon#the-throne-the-king-and-his-hands).*
 

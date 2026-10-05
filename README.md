@@ -165,10 +165,11 @@ versions before 1.1 just get the whisper, as before.
   online, then one of his Captains, and says yes: **one whisper to each** from that click, the
   Captain told who to look after, the recruit told who to ask. The pair shows on his list (his
   client's alone); nothing goes on the channel.
-- **Centurions and correspondents** (1.1.5): a guild master of an Olympus guild opens **Your
-  centurions and correspondents** on that page (or `/oly nominees`), laid out as the King's Hands:
-  **+ Name a centurion** (his target, or a name he types), his list (a click takes a title back,
-  asked first), and a line per High Council department to name its correspondent. Up to 10
+- **Centurions and correspondents** (1.1.5): a guild master of an Olympus guild (not the King's)
+  has a tab of his own in the Throne's place, **Guild** (or `/oly nominees`), laid out as the
+  King's Hands page: **+ Name a centurion** (his target, or a name he types), his list (a click
+  takes a title back, asked first), and a line per High Council department to name its
+  correspondent. Up to 10
   centurions and one correspondent per department (6 at most), members of his own guild only: the
   addon refuses an 11th centurion, a second correspondent for a department, one name twice and
   anyone outside his roster, and says why. Each wears Max's bronze border without wings, and the
@@ -753,8 +754,11 @@ alts and the census counts people:
 A tab with a crown that only the King sees: the guild master of the guild named exactly
 "Olympus" (of his faction), and on the Alliance that very character, Asmongold Asmongler: the
 addon knows him by name, like the Treasurer. It opens on **the Throne Room** (the queue of
-his court while it is open, and the Treasury), and holding court takes him there. Each of his
-tools lives where it belongs:
+his court while it is open, and the army's key), and holding court takes him there. Since 1.1.5
+the Treasury has its own tab alone, and under the Throne Room are **the centurions of the King's
+guild** (up to 10, bronze without wings), named by the King or a High Councillor, who has the
+Throne for them; his Steward and Hands read the list (department heads come in 1.1.6). Each of
+his tools lives where it belongs:
 - **The King's Agenda** (a button on the Throne): minutes and an event ("30 Raid on
   Crossroads"). The whole army gets a popup with the appointment (what, in how long, where)
   and sees it on the Census, with reminders 10 minutes and 1 minute before. Since 1.1 it also
@@ -1569,6 +1573,7 @@ message (the game adds it). What goes where:
 | Your position as a dot on the map | your guild | only with `/oly share` (off by default) |
 | A Lord's mentor pair (1.1): the recruit's name to the Captain, the Captain's name to the recruit, as whispers in his words | those two players | only when the Lord clicks **Send both** |
 | A guild master's centurions and correspondents (1.1.5): their names, and each correspondent's department | everyone on the Olympus channel | only from that guild master's client: a few seconds after he names someone or takes a title back, and every 5 minutes while he plays |
+| The centurions of the King's guild (1.1.5): their names | everyone on the Olympus channel | only from the King's or a High Councillor's client: a few seconds after one of them names someone or takes a title back, and every 5 minutes from one of them while they play |
 | Join Olympus (1.1, outside an Olympus guild): "which guild should I ask?" (J1), and your request (J3: the guild you ask, your level and class) | the one member the screen asks: one found with `/who` at a search, and the one you are about to whisper | J1 at a search (one member every 15 seconds at most, none while a recent answer is known; while only one answer names the gates, one more member at once, three in 10 minutes at most) and just before a whisper (again if that member never answered); J3 with each whisper you send |
 | The answer (J2): whether you take recruit whispers, the King's gates, and up to 8 guilds with room the census confirms, each with its free slots and up to 2 of its Lords and Captains online that two reports name (never the King) | the recruit who asked, alone | when a recruit's addon asks you, once a minute per recruit and 10 a minute at most (with do not contact on, a bare "no" to the rest) |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | the parts the King shows the army (his switches): everyone on the Olympus channel. The rest (1.1): the King, his Steward and the keepers alone, by whisper, never on the channel (from a keeper whose addon is 1.1: one still on 1.0 sends his whole book on the channel, as 1.0 did) | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
@@ -1743,6 +1748,10 @@ few characters working together can still reach is said plainly further down
     Steward's own list names (their word, never a vote; the King can't take back a Steward's
     Hand: that Steward does, or the author by removing him): everywhere else they count as
     Captains, so outsiders' reports can't add one to the Crown.
+  - **The centurions of the King's guild** (1.1.5) count only from the King's character or a
+    councillor on the signed list (the sender the server stamps), the newest list heard, and end
+    when its sender is neither any more; their border shows only on a player the server puts in
+    the King's guild.
   - **A guild master's centurions and correspondents** (1.1.5) count only from the list his own
     client sends (the sender the server stamps), and only while the census or your roster proves
     him that guild's master as for his bronze wings; a list from anyone else is refused and never
@@ -1945,7 +1954,7 @@ Other limits:
 | `/oly inactive [7\|14\|30]` | your guild's members offline that long, by name (a rank that may remove members removes one per click, asked first) |
 | `/oly warndays <days>` | when a Lord or Captain counts as away: red in the Realm, and one line when a Lord crosses it |
 | `/oly recruits` | Lords: your recruits, and a Captain as each one's mentor (one whisper to each, from your click) |
-| `/oly nominees [centurion <name> \| correspondent <n> <name> \| remove <name>]` | guild masters (1.1.5): up to 10 centurions and one correspondent per High Council department, members of your guild, who wear bronze without wings while in it; alone, your section on the members page |
+| `/oly nominees [centurion <name> \| correspondent <n> <name> \| remove <name>]` | guild masters (1.1.5): up to 10 centurions and one correspondent per High Council department, members of your guild, who wear bronze without wings while in it; the King and the High Council, the King's guild's 10 centurions; alone, your Guild tab (the Throne for the King's people) |
 | `/oly nocontact on\|off` | do not contact: recruits' Join screens skip you (on), or may ask you (off) |
 | `/oly patrol` | start or stop the tabard patrol |
 | `/oly mark [note]` | mark your target |

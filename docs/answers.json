@@ -652,8 +652,8 @@
         "How do I name a centurion?",
         "Why does someone have a bronze border without wings?"
       ],
-      "answer": "Guild masters name up to 10 centurions and one correspondent per High Council department, members of their guild, on the members page or with /oly nominees. They wear bronze without wings while in that guild.",
-      "in_game": "Guild masters: /oly nominees, or your guild's members page. Up to 10 centurions and one correspondent per council department, from your guild.",
+      "answer": "Guild masters name up to 10 centurions and one correspondent per High Council department, members of their guild, in their Guild tab or with /oly nominees; the King and the High Council name the King's guild's 10 centurions on the Throne. They wear bronze without wings while in that guild.",
+      "in_game": "Guild masters: /oly nominees, or your Guild tab. Up to 10 centurions and one correspondent per council department, from your guild.",
       "sources": [
         "L.HELP_NOMINEES",
         "L.NOMINEES_NOTE",

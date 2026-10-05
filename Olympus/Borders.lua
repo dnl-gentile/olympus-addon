@@ -123,7 +123,8 @@ ns.Borders = Borders
 --   nominee  a centurion or correspondent his guild master named (Nominees.RoleOf: the list his
 --            master's client sends, taken only from that guild's master as Facts proves a guild
 --            master, and dropped when he stops being it), while the server gives the unit that
---            very guild (GetGuildInfo): nobody outside it can borrow it
+--            very guild (GetGuildInfo): nobody outside it can borrow it; in the King's guild (1.1.5),
+--            a centurion the King or a High Councillor named (the list taken from them alone)
 -- In that order when several hold: the King, the High Council, the dev, a guild master, a nominee
 -- (then, on nameplates and in the game's chat, the star).
 -- (1.0.1's Max's second option, ns.BORDERS_COUNCIL_GOLD, the High Council in the King's gold

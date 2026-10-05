@@ -23291,14 +23291,19 @@ do
 		local saved = { me = ns.me, Now = ns.Now, Send = ns.Comm.Send, Guild = GetGuildInfo, Print = ns.Print, After = ns.After, Log = ns.Log,
 			Fire = ns.Fire, Show = StaticPopup_Show, guilds = ns.rdb.guilds, nominees = ns.rdb.nominees, titles = ns.rdb.councilTitles,
 			byName = ns.Roster.byName, rguild = ns.Roster.guild, stats = ns.Roster.lastStats, loginAt = ns.Comm.loginAt,
-			isPlayer = UnitIsPlayer, unitFull = UnitFullName }
+			isPlayer = UnitIsPlayer, unitFull = UnitFullName, main = ns.rdb.mainNominees, previewMain = ns.db.previewMainNominees,
+			council = ns.rdb.council, UI = ns.UI, kingView = ns.db.devKingView, gmView = ns.db.devGMView }
 		local w = { sent = {}, printed = {}, popups = {}, logged = {}, timers = {}, clock = 1800000000, changed = 0 }
 		-- (The departments as the tests' made-up council titles name them; the shipped six are the author's.)
 		local savedDepts = N.DEPARTMENTS
 		N.DEPARTMENTS = { "Events", "Lore", "Trade", "War", "Craft", "Watch" }
 		local ok, err = pcall(function()
 			N.Reset()
-			ns.rdb.nominees = nil
+			ns.rdb.nominees, ns.rdb.mainNominees, ns.db.previewMainNominees = nil, nil, nil
+			ns.db.devKingView, ns.db.devGMView = nil, nil
+			-- (1.1.5: the High Council's signed names, made up; the tab the window opens.)
+			ns.rdb.council = { names = { ["vera councillor"] = true } }
+			ns.UI = setmetatable({ SelectTab = function(key) w.tab = key end, Refresh = function() end }, { __index = saved.UI })
 			ns.Now = function() return w.clock end
 			ns.Comm.Send = function(dist, msg, key) w.sent[#w.sent + 1] = { dist = dist, msg = msg, key = key } end
 			ns.Print = function(m) w.printed[#w.printed + 1] = tostring(m) end
@@ -23319,6 +23324,9 @@ do
 			for _, n in ipairs(OTHERS) do byName[n .. "-Realm"] = 3 end
 			ns.Roster.byName, ns.Roster.guild, ns.Roster.lastStats = byName, OURS, { leader = "Boss Hammer" }
 			w.as = function(me, rank) ns.me = me; GetGuildInfo = function() return OURS, rank == 0 and "Zeus" or "Member", rank end end
+			-- (1.1.5) The King, on his own guild; anyone in a guild of the test's choosing (a High Councillor, a member of the King's guild).
+			w.asKing = function() ns.me = "Asmongold Asmongler-Realm"; GetGuildInfo = function() return "Olympus", "King", 0 end end
+			w.asIn = function(me, guild, rank) ns.me = me; GetGuildInfo = function() return guild, rank == 0 and "Zeus" or "Member", rank end end
 			w.flush = function() local due = w.timers; w.timers = {}; for _, f in ipairs(due) do f() end end
 			w.parts = function()
 				local out = {}
@@ -23332,6 +23340,8 @@ do
 		ns.Fire, StaticPopup_Show, ns.rdb.guilds, ns.rdb.nominees, ns.rdb.councilTitles = saved.Fire, saved.Show, saved.guilds, saved.nominees, saved.titles
 		ns.Roster.byName, ns.Roster.guild, ns.Roster.lastStats, ns.Comm.loginAt = saved.byName, saved.rguild, saved.stats, saved.loginAt
 		UnitIsPlayer, UnitFullName = saved.isPlayer, saved.unitFull
+		ns.rdb.mainNominees, ns.db.previewMainNominees, ns.rdb.council, ns.UI = saved.main, saved.previewMain, saved.council, saved.UI
+		ns.db.devKingView, ns.db.devGMView = saved.kingView, saved.gmView
 		N.Reset()
 		if not ok then error(err, 0) end
 	end
@@ -23420,10 +23430,11 @@ do
 				eq(N.Send(true), false, "nothing sent from the view")
 				N.SetDevView(false)
 				eq((N.IsMaster()), false, "off")
-				-- /oly nominees view turns it on (and opens the section), again off.
+				-- /oly nominees view turns it on (and opens his Guild tab: 1.1.5, the tab in the Throne's place,
+				-- no longer a section of the members page), again off.
 				SlashCmdList.OLYMPUS("nominees view")
 				eq(N.DevView(), true, "/oly nominees view: on")
-				eq(ns.Members.Filter(), "nominees", "the section opened")
+				eq(w.tab, "throne", "the tab opened"); eq(ns.King.TabLabel(), "TAB_GUILD", "his Guild tab")
 				SlashCmdList.OLYMPUS("nominees view")
 				eq(N.DevView(), false, "again: off")
 			end)
@@ -23456,12 +23467,14 @@ do
 		end)
 	end)
 
-	test("1.1.5 nominees: /oly nominees opens the guild master's section; centurion <name>, correspondent <department number> <name> and remove <name> from the chat; anyone else is told it is the guild master's; in /oly help", function()
+	-- (1.1.5, the author's call: the section moved from the members page to his Guild tab, the tab in the
+	-- Throne's place: /oly nominees opens that tab now.)
+	test("1.1.5 nominees: /oly nominees opens the guild master's Guild tab; centurion <name>, correspondent <department number> <name> and remove <name> from the chat; anyone else is told it is the guild master's; in /oly help", function()
 		WithNominees(function(w)
 			local L = ns.L
 			w.as(MASTER, 0)
 			SlashCmdList.OLYMPUS("nominees")
-			eq(ns.Members.Filter(), "nominees", "his section")
+			eq(w.tab, "throne", "his Guild tab"); eq(ns.King.TabLabel(), "TAB_GUILD")
 			SlashCmdList.OLYMPUS("nominees centurion Ada")
 			eq(N.RoleOf("Ada-Realm", OURS), "centurion")
 			SlashCmdList.OLYMPUS("nominees correspondent 2 Bea")
@@ -23473,10 +23486,10 @@ do
 			eq(N.RoleOf("Bea-Realm", OURS), nil)
 			SlashCmdList.OLYMPUS("nominees what")
 			eq(w.printed[#w.printed], L.NOMINEES_USAGE)
-			ns.Members.Close()
+			w.tab = nil
 			w.as("Nemo-Realm", 3)
 			SlashCmdList.OLYMPUS("nominees")
-			eq(w.printed[#w.printed], L.NOMINEES_ONLY_MASTER); eq(ns.Members.Filter(), nil, "no section for him")
+			eq(w.printed[#w.printed], L.NOMINEES_ONLY_MASTER); eq(w.tab, nil, "no tab for him")
 			SlashCmdList.OLYMPUS("nominees centurion Cid")
 			eq(w.printed[#w.printed], L.NOMINEES_ONLY_MASTER)
 			local savedPrint, lines = print, {}
@@ -23718,6 +23731,29 @@ do
 		if not ok then error(err, 0) end
 	end)
 
+	test("1.1.5 the King's guild's centurions' border: Max's bronze without wings while the server gives them the King's guild, from the King's or a councillor's list alone", function()
+		N.Reset()
+		local ok, err = pcall(WithBorders, function(w)
+			ns.rdb.council.names["vera councillor"] = true
+			-- A list from someone who is neither: nothing.
+			N.Handle("CHANNEL", "Nemo-Realm", Msg("Olympus", ns.Now(), "c=Ada"))
+			w.internal("LOGIN")
+			w.target(BorderUnit("Ada", "Olympus", "Member", 4))
+			eq(w.shown("target"), nil, "not from him")
+			-- A signed councillor's: the bronze, in the King's guild alone.
+			N.Handle("CHANNEL", "Vera Councillor-Realm", Msg("Olympus", ns.Now(), "c=Ada"))
+			w.internal("DATA_CHANGED")
+			w.target(nil); w.target(BorderUnit("Ada", "Olympus", "Member", 4))
+			eq(w.shown("target"), "bronze", "a centurion of the King's guild")
+			eq(w.B.MarkOfName("Ada-Realm", "Olympus"), "bronze", "the game's chat: the bronze")
+			w.target(BorderUnit("Ada", THEIRS, "Member", 4))
+			eq(w.shown("target"), nil, "in another guild: none")
+			ns.rdb.council.names["vera councillor"] = nil
+		end)
+		N.Reset()
+		if not ok then error(err, 0) end
+	end)
+
 	test("1.1.5 borders, who wins when several hold: the King, the High Council, the dev's silver, a guild master, a nominee, then the star; the dev's plain silver (ns.AUTHOR on his realm group) on unit frames alone: no nameplate or chat mark of its own", function()
 		local savedRoster = ns.Roster.byName
 		N.Reset()
@@ -23768,46 +23804,50 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	test("1.1.5 nominees: the guild master's section, as the King's Hands page (a title, a one-line hint, + Name a centurion (your target, or type a name), his list with a click that takes the title back, a line per department to name its correspondent, the note on how the army learns his list); his alone", function()
+	-- (1.1.5, the author's call on seeing it: the section left the members page for a tab of its own,
+	-- the guild master's Guild tab in the Throne's place, on the Throne's parchment and ink (King.Line, as
+	-- the Hands page's): the same lines, its colours now the ink's. The old place is gone.)
+	test("1.1.5 nominees: the guild master's Guild tab, the tab in the Throne's place, as the King's Hands page (a title, a one-line hint, + Name a centurion (your target, or type a name), his list with a click that takes the title back, a line per department to name its correspondent, the note on how the army learns his list); his alone; the members page has none of it", function()
 		WithNominees(function(w)
-			local L, M, V = ns.L, ns.Members, ns.Views
+			local L, M, K = ns.L, ns.Members, ns.King
 			local savedMembers = ns.Roster.members
 			ns.Roster.members = { { name = "Ada", raw = "Ada-Realm", rankIndex = 3, rank = "Member", days = 0, online = true, level = 60 } }
 			local ok, err = pcall(function()
 				local function Find(lines, text)
 					for i, l in ipairs(lines) do if tostring(l.text):find(text, 1, true) then return l, i end end
 				end
-				-- A member: no such filter, and its page falls back to the first.
+				-- A member, an officer: no tab.
 				w.as("Nemo-Realm", 3)
-				M.Show(7)
-				eq(Find(M.Lines(), L.NOMINEES_FILTER), nil, "a member: no section")
-				M.Show("nominees")
-				eq(Find(M.Lines(), L.NOMINEES_TITLE), nil); eq(M.Filter(), 7)
-				-- The guild master: his filter, then his section.
+				eq(K.TabVisible(), false, "a member"); eq(K.GuildShown(), false)
+				w.as("Pip Officer-Realm", 1)
+				eq(K.TabVisible(), false, "an officer")
+				-- The guild master: his Guild tab, titled with his guild, in the Throne's ink.
 				w.as(MASTER, 0)
-				M.Show(7)
-				local f = Find(M.Lines(), L.NOMINEES_FILTER)
-				assert(f and f.onClick, "his filter"); eq(f.right, V.Grey("0/16"))
-				f.onClick()
-				eq(M.Filter(), "nominees")
-				local lines = M.Lines()
-				local title, at = Find(lines, L.NOMINEES_TITLE)
-				eq(title.header, true, "the title")
-				eq(lines[at + 1].text, V.Grey(L.NOMINEES_HINT), "a one-line hint"); eq(lines[at + 1].gapAfter, true)
+				eq(K.TabVisible(), true); eq(K.ThroneShown(), false); eq(K.TabLabel(), "TAB_GUILD")
+				local lines, title, detail = K.Build()
+				eq(title, L.TAB_GUILD); eq(detail, L.GUILD_TAB_DETAIL:format(OURS))
+				eq(lines[1].text, L.GUILD_TAB_TITLE:format(OURS)); eq(lines[1].font, K.TITLE)
+				local head, at = Find(lines, L.NOMINEES_TITLE)
+				eq(head.font, K.TITLE, "the title")
+				-- (One row of the parchment's, King.WRAP letters: shortened to stay one line there.)
+				assert(#L.NOMINEES_HINT <= K.WRAP, "one row")
+				eq(lines[at + 1].text, L.NOMINEES_HINT, "a one-line hint"); eq(lines[at + 1].font, K.INK); eq(lines[at + 1].gapAfter, true)
 				local add = lines[at + 2]
-				eq(add.text, V.Gold("+ " .. L.NOMINEES_ADD_CENTURION)); eq(add.right, V.Grey("0/10"))
-				eq(lines[at + 3].text, V.Grey(L.NOMINEES_NONE))
+				eq(add.text, "+ " .. L.NOMINEES_ADD_CENTURION); eq(add.right, "0/10")
+				eq(lines[at + 3].text, L.NOMINEES_NONE)
 				eq(L.NOMINEES_ADD_CENTURION, "Name a centurion (your target, or type a name)")
 				for _, d in ipairs(N.Departments()) do
 					local row = Find(lines, d .. ": ")
 					assert(row and row.onClick, d .. ": its line")
-					eq(row.text, d .. ": " .. V.Gold(L.NOMINEES_ADD_CORRESPONDENT))
+					eq(row.text, d .. ": " .. L.NOMINEES_ADD_CORRESPONDENT)
 				end
 				eq(Find(lines, "Seventh: "), nil, "six departments")
 				-- The note last, as the Hands page's.
 				local note = L.NOMINEES_NOTE:format(N.FRESH / 3600)
-				eq(lines[#lines].text, V.Grey(note:sub(-#(lines[#lines].text) + #V.Grey(""))), "the note last")
+				eq(lines[#lines].text, note:sub(-#(lines[#lines].text)), "the note last")
 				assert(note:find("6 hours", 1, true), note)
+				-- None of the Throne's: no Throne Room, no King's guild's centurions.
+				eq(Find(lines, L.THRONE_ROOM), nil); eq(Find(lines, L.NOMINEES_MAIN_TITLE:format("Olympus")), nil)
 				-- Naming: + asks for a name (his target in the box), the box names.
 				add.onClick()
 				local p = w.popups[#w.popups]
@@ -23815,20 +23855,19 @@ do
 				StaticPopupDialogs.OLYMPUS_NOMINEE.OnAccept({ editBox = { GetText = function() return "Ada" end } }, p.data)
 				eq(N.RoleOf("Ada-Realm", OURS), "centurion")
 				-- A department's line: its correspondent (Enter in the box).
-				Find(M.Lines(), "Lore: ").onClick()
+				Find(K.Build(), "Lore: ").onClick()
 				p = w.popups[#w.popups]
 				eq(p.a, L.NOMINEE_ROLE_CORRESPONDENT:format("Lore")); eq(p.data.dept, "Lore")
 				local hidden = false
 				local parent = { data = p.data, Hide = function() hidden = true end }
 				StaticPopupDialogs.OLYMPUS_NOMINEE.EditBoxOnEnterPressed({ GetText = function() return "Bea" end, GetParent = function() return parent end })
 				eq(select(2, N.RoleOf("Bea-Realm", OURS)), "Lore"); eq(hidden, true)
-				lines = M.Lines()
-				eq(Find(lines, L.NOMINEES_FILTER).right, V.Grey("2/16"))
-				local row = Find(lines, "Lore: Bea")
-				assert(row, "her department's line names her")
+				lines = K.Build()
+				eq(Find(lines, L.NOMINEES_CORRESPONDENTS).right, "1/6")
+				assert(Find(lines, "Lore: Bea"), "her department's line names her")
 				local ada
 				for _, l in ipairs(lines) do if l.key == "Ada" then ada = l end end
-				assert(ada and ada.indent == 1, "his centurion under the + line")
+				assert(ada and ada.indent == 1 and ada.font == K.INK, "his centurion under the + line")
 				eq(ada.right, nil, "in his roster")
 				-- A click takes the title back, asked first.
 				ada.onClick()
@@ -23838,21 +23877,330 @@ do
 				eq(N.RoleOf("Ada-Realm", OURS), nil)
 				-- Full: the + line greyed, its click says why, no box. (Bea, a correspondent, refused: ten.)
 				for _, name in ipairs(CENTURIONS) do N.Name("centurion", name) end
-				lines = M.Lines()
+				lines = K.Build()
 				add = Find(lines, L.NOMINEES_ADD_CENTURION)
-				eq(add.text, V.Grey("+ " .. L.NOMINEES_ADD_CENTURION)); eq(add.right, V.Grey("10/10"))
+				eq(add.text, ns.Views.Grey("+ " .. L.NOMINEES_ADD_CENTURION)); eq(add.right, "10/10")
 				local n = #w.popups
 				add.onClick()
 				eq(#w.popups, n, "no box"); eq(w.printed[#w.printed], L.NOMINEES_FULL:format(10))
 				-- Someone who left the guild since: said so on his line.
 				ns.Roster.byName["Jon-Realm"] = nil
-				for _, l in ipairs(M.Lines()) do if l.key == "Jon" then eq(l.right, V.Grey(L.NOMINEES_NOT_IN_ROSTER)) end end
-				-- Demoted (an officer now): the section goes.
+				for _, l in ipairs(K.Build()) do if l.key == "Jon" then eq(l.right, ns.Views.Grey(L.NOMINEES_NOT_IN_ROSTER)) end end
+				-- The members page: none of it any more (a filter of its own there before 1.1.5 shipped).
+				M.Show(7)
+				eq(Find(M.Lines(), L.NOMINEES_TITLE), nil, "not on the members page")
+				M.Show("nominees")
+				eq(Find(M.Lines(), L.NOMINEES_TITLE), nil); eq(M.Filter(), 7, "back to the first filter")
+				-- Demoted (an officer now): the Guild tab goes with the tab.
 				w.as(MASTER, 1)
-				eq(Find(M.Lines(), L.NOMINEES_TITLE), nil); eq(M.Filter(), 7)
+				eq(K.TabVisible(), false); eq(#K.Build(), 0)
 			end)
 			M.Close()
 			ns.Roster.members = savedMembers
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	-- (1.1.5, the author's calls: the Throne for the King and the councillors is almost the guild
+	-- master's page, the King's guild's centurions, with the Throne's Hands, crown on the map, agenda,
+	-- court and army key; the treasury out, it has its own tab.)
+	test("1.1.5 the tab in the Throne's place: the King, his Hands and the High Council have the Throne with the King's guild's centurions (no treasury); a guild master of another Olympus guild his Guild tab; one who is both, both; the King's guild has no guild master's Guild tab; a member none", function()
+		WithNominees(function(w)
+			local L, K = ns.L, ns.King
+			local savedHands = ns.rdb.kingHands
+			local ok, err = pcall(function()
+				local function Has(lines, text)
+					for _, l in ipairs(lines) do if tostring(l.text):find(text, 1, true) then return l end end
+				end
+				local MAIN = L.NOMINEES_MAIN_TITLE:format("Olympus")
+				-- The King: the Throne Room, his army's key, then his guild's centurions, his to name.
+				w.asKing()
+				eq(K.TabVisible(), true); eq(K.ThroneShown(), true); eq(K.TabLabel(), "TAB_THRONE")
+				eq((N.IsMaster()), false, "the King's guild: no guild master's Guild tab")
+				local lines, title, detail = K.Build()
+				eq(title, L.TAB_THRONE); eq(detail, L.THRONE_YOU_ARE_KING)
+				eq(lines[1].text, L.THRONE_ROOM)
+				assert(Has(lines, MAIN) and Has(lines, L.NOMINEES_MAIN_HINT:sub(1, 20)), "his guild's centurions")
+				assert(Has(lines, "+ " .. L.NOMINEES_ADD_CENTURION).onClick, "his to name")
+				eq(Has(lines, L.TREASURY_TITLE), nil, "no treasury on the Throne")
+				eq(Has(lines, L.NOMINEES_CORRESPONDENTS), nil, "no correspondents for the King's guild (1.1.6: its department heads)")
+				eq(Has(lines, L.NOMINEES_TITLE), nil, "no guild master's section")
+				-- Another guild master of the King's guild (not the King's character): neither Throne nor Guild tab.
+				w.asIn("Other Boss-Realm", "Olympus", 0)
+				eq(K.GuildShown(), false, "no guild master's Guild tab in the King's guild")
+				eq(K.TabVisible(), false, "and no Throne (the King is his character alone)")
+				-- A High Councillor, a member of another guild: the Throne for the King's guild's centurions.
+				w.asIn("Vera Councillor-Realm", OURS, 3)
+				eq(K.TabVisible(), true); eq(K.ThroneShown(), true); eq(K.TabLabel(), "TAB_THRONE")
+				lines, title, detail = K.Build()
+				eq(lines[1].text, L.THRONE_ROOM_COUNCIL); eq(detail, L.THRONE_YOU_ARE_COUNCILLOR)
+				assert(Has(lines, L.THRONE_COUNCIL_HINT:sub(1, 20)), "what is hers here")
+				assert(Has(lines, MAIN) and Has(lines, "+ " .. L.NOMINEES_ADD_CENTURION), "hers to name, with the King")
+				eq(Has(lines, L.TREASURY_TITLE), nil)
+				-- A councillor who leads another Olympus guild: the Throne, his Guild tab's section after it.
+				w.asIn("Vera Councillor-Realm", OURS, 0)
+				eq(K.TabLabel(), "TAB_THRONE"); eq(K.GuildShown(), true)
+				lines = K.Build()
+				assert(Has(lines, MAIN) and Has(lines, L.NOMINEES_TITLE) and Has(lines, L.NOMINEES_CORRESPONDENTS), "both")
+				-- A Hand of the King (no councillor): the Throne, the King's guild's centurions to read.
+				w.asKing(); K.AddHand("Helper"); K.SendHands(true)
+				local hands = w.sent[#w.sent].msg
+				N.NameMain("Ada")
+				w.asIn("Helper-Realm", OURS, 3)
+				K.HandleCommand("CHANNEL", "Asmongold Asmongler-Realm", hands)
+				eq(K.IsHand(), true); eq(K.ThroneShown(), true)
+				local part = Msg("Olympus", w.clock, "c=Ada")
+				N.Handle("CHANNEL", "Asmongold Asmongler-Realm", part)
+				lines, _, detail = K.Build()
+				eq(lines[1].text, L.THRONE_ROOM_HAND:format("Asmon")); eq(detail, L.THRONE_YOU_ARE_HAND:format("Asmon"))
+				assert(Has(lines, MAIN), "the King's guild's centurions")
+				local ada = Has(lines, "Ada")
+				assert(ada and ada.onClick == nil, "to read: no click")
+				eq(Has(lines, "+ " .. L.NOMINEES_ADD_CENTURION), nil, "not his to name")
+				-- A member of another guild, of the King's guild: none.
+				w.asIn("Plain Pip-Realm", OURS, 3)
+				eq(K.TabVisible(), false)
+				w.asIn("Plain Pip-Realm", "Olympus", 3)
+				eq(K.TabVisible(), false)
+			end)
+			K.Reset(); ns.rdb.kingHands = savedHands
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.5 the King's guild's centurions: the King or a High Councillor names up to 10 (twice, himself, past the cap, outside the King's guild's roster where it is ours: refused); every client takes the list from the King's character or a signed councillor alone, the newest one; their clients take it as theirs and repeat it in turn; it ends with its sender's seat", function()
+		WithNominees(function(w)
+			local L = ns.L
+			local savedHands = ns.rdb.kingHands
+			local ok, err = pcall(function()
+				local KING = "Asmongold Asmongler-Realm"
+				-- The King's client: his roster is the King's guild's.
+				w.asKing()
+				ns.Roster.guild = "Olympus"
+				eq(N.MainEditor(), true)
+				for i = 1, 10 do eq(N.NameMain(CENTURIONS[i]), true, CENTURIONS[i]) end
+				eq(w.printed[#w.printed], L.NOMINEES_MAIN_ADDED:format("Jon", "Olympus"))
+				eq(N.NameMain("Kit"), false, "an 11th"); eq(w.printed[#w.printed], L.NOMINEES_MAIN_FULL:format("Olympus", 10))
+				N.RemoveMain("Jon")
+				eq(w.printed[#w.printed], L.NOMINEES_MAIN_REMOVED:format("Jon", "Olympus"))
+				eq(N.NameMain("ada"), false, "twice"); eq(w.printed[#w.printed], L.NOMINEES_MAIN_ALREADY:format("Ada", "Olympus"))
+				eq(N.NameMain("Stranger"), false, "outside the King's guild's roster")
+				eq(w.printed[#w.printed], L.NOMINEES_MAIN_NOT_MEMBER:format("Stranger", "Olympus"))
+				ns.Roster.byName[KING] = 0
+				eq(N.NameMain("Asmongold Asmongler"), false, "himself"); eq(w.printed[#w.printed], L.NOMINEES_MAIN_SELF)
+				eq(N.RemoveMain("Nobody"), false); eq(w.printed[#w.printed], L.NOMINEES_MAIN_NOT_NAMED:format("Nobody", "Olympus"))
+				-- His client sends it: once, a few seconds after the changes; centurions alone.
+				eq(#w.parts(), 0, "not at once")
+				w.flush()
+				local rev = ns.rdb.mainNominees.rev
+				local parts = w.parts()
+				eq(#parts, 1); eq(parts[1], Msg("Olympus", rev, "c=Ada;c=Bea;c=Cid;c=Dax;c=Eve;c=Fay;c=Gus;c=Hal;c=Ivy"))
+				eq(N.SendMain(), false, "not again so soon")
+				-- Anyone but the King or a councillor: refused, his guild's guild master too.
+				w.asIn("Ada-Realm", "Olympus", 3)
+				eq(N.MainEditor(), false)
+				eq(N.NameMain("Bea"), false); eq(w.printed[#w.printed], L.NOMINEES_ONLY_MAIN)
+				N.Handle("CHANNEL", KING, parts[1])
+				eq(N.RoleOf("Bea-Realm", "Olympus"), "centurion")
+				eq(w.printed[#w.printed], L.NOMINEES_YOU:format(ns.DisplayName(KING), L.NOMINEE_ROLE_CENTURION, "Olympus"))
+				for _, forged in ipairs({ "Nemo-Realm", "Pip Officer-Realm", MASTER }) do
+					N.Handle("CHANNEL", forged, Msg("Olympus", rev + 5, "c=Nemo"))
+					eq(N.RoleOf("Nemo-Realm", "Olympus"), nil, forged)
+					eq(N.RoleOf("Bea-Realm", "Olympus"), "centurion", "the real list kept")
+				end
+				-- A signed councillor's newer list: taken (no correspondents in it, 10 at most); Ada told.
+				local c = {}
+				for i = 2, 11 do c[#c + 1] = "c=" .. CENTURIONS[i] end
+				c[#c + 1] = "c=Nemo"
+				N.Handle("CHANNEL", "Vera Councillor-Realm", Msg("Olympus", rev + 10, table.concat(c, ";") .. ";d=Lore=Pam"))
+				eq(#N.ListOf("Olympus").entries, 10, "10 at most")
+				eq(N.RoleOf("Nemo-Realm", "Olympus"), nil, "the 11th left out"); eq(N.RoleOf("Pam-Realm", "Olympus"), nil, "no correspondent")
+				eq(N.RoleOf("Kit-Realm", "Olympus"), "centurion")
+				eq(w.printed[#w.printed], L.NOMINEES_NO_LONGER:format(L.NOMINEE_ROLE_CENTURION, "Olympus"))
+				-- The King's older list, late: never over the newer one.
+				N.Handle("CHANNEL", KING, parts[1])
+				eq(N.RoleOf("Ada-Realm", "Olympus"), nil, "the older one: not taken")
+				-- Another guild's list is no business of it, and the King's guild's isn't another's.
+				eq(N.RoleOf("Kit-Realm", OURS), nil)
+				-- A councillor's client: takes the newest as hers, names on from it (her roster is another
+				-- guild's: the name as typed), and repeats it in turn.
+				w.asIn("Vera Councillor-Realm", OURS, 3)
+				ns.Roster.guild = OURS
+				eq(N.MainEditor(), true)
+				N.Handle("CHANNEL", KING, Msg("Olympus", rev + 20, "c=Ada;c=Bea"))
+				eq(ns.rdb.mainNominees.rev, rev + 20, "hers now"); eq(#N.ListOf("Olympus").entries, 2)
+				eq(N.NameMain("Zed"), true, "a name as typed")
+				w.flush()
+				local mine = ns.rdb.mainNominees.rev
+				eq(w.parts()[#w.parts()], Msg("Olympus", mine, "c=Ada;c=Bea;c=Zed"))
+				local sent = #w.parts()
+				-- The King repeats the same list: her turn waits; nobody repeats it: she does.
+				w.clock = w.clock + N.EVERY
+				N.Handle("CHANNEL", KING, Msg("Olympus", mine, "c=Ada;c=Bea;c=Zed"))
+				eq(N.SendMain(), false, "another repeated it"); eq(#w.parts(), sent)
+				w.clock = w.clock + N.EVERY
+				eq(N.SendMain(), true, "her turn"); eq(#w.parts(), sent + 1)
+				-- An older list reaches her: hers goes out again soon.
+				N.Handle("CHANNEL", KING, Msg("Olympus", rev + 20, "c=Ada"))
+				eq(#N.ListOf("Olympus").entries, 3, "hers kept"); eq(#w.timers, 1, "sent again soon")
+				w.flush()
+				-- Emptied: the empty list goes out (and ends it everywhere).
+				N.RemoveMain("Ada"); N.RemoveMain("Bea"); N.RemoveMain("Zed")
+				w.flush()
+				eq(w.parts()[#w.parts()], Msg("Olympus", ns.rdb.mainNominees.rev, ""))
+				-- A member's client: a councillor no longer on the signed list, her list ends.
+				w.asIn("Ada-Realm", "Olympus", 3)
+				N.Handle("CHANNEL", "Vera Councillor-Realm", Msg("Olympus", w.clock + 100, "c=Ada"))
+				eq(N.RoleOf("Ada-Realm", "Olympus"), "centurion")
+				ns.rdb.council = { names = {} }
+				eq(N.Prune(), true)
+				eq(N.RoleOf("Ada-Realm", "Olympus"), nil, "her seat gone, her list with it")
+				-- /oly status: the list held.
+				N.Handle("CHANNEL", KING, Msg("Olympus", w.clock + 200, "c=Ada"))
+				assert(N.StatusLine():find("<Olympus> 1 by Asmon", 1, true), N.StatusLine())
+			end)
+			ns.King.Reset(); ns.rdb.kingHands = savedHands
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.5 the King's guild's centurions: the King or a councillor names them from the Throne's page (+ asks for a name, a click takes a title back, asked first); /oly nominees opens the Throne for them; with the gamepad UI, Olympus's own dialogs", function()
+		WithNominees(function(w)
+			local L, K = ns.L, ns.King
+			w.asIn("Vera Councillor-Realm", OURS, 3)
+			local function Find(lines, text)
+				for _, l in ipairs(lines) do if tostring(l.text):find(text, 1, true) then return l end end
+			end
+			Find(K.Build(), "+ " .. L.NOMINEES_ADD_CENTURION).onClick()
+			local p = w.popups[#w.popups]
+			eq(p.name, "OLYMPUS_NOMINEE"); eq(p.a, L.NOMINEE_ROLE_CENTURION); eq(p.b, "Olympus"); eq(p.data.main, true)
+			StaticPopupDialogs.OLYMPUS_NOMINEE.OnAccept({ editBox = { GetText = function() return "Ada" end } }, p.data)
+			eq(N.RoleOf("Ada-Realm", "Olympus"), "centurion")
+			local row
+			for _, l in ipairs(K.Build()) do if l.key == "Ada" then row = l end end
+			assert(row and row.onClick, "her line")
+			row.onClick()
+			p = w.popups[#w.popups]
+			eq(p.name, "OLYMPUS_NOMINEE_REMOVE"); eq(p.a, "Ada"); eq(p.b, L.NOMINEES_MAIN_ROLE:format("Olympus"))
+			StaticPopupDialogs.OLYMPUS_NOMINEE_REMOVE.OnAccept(nil, p.data)
+			eq(N.RoleOf("Ada-Realm", "Olympus"), nil)
+			-- From the chat: /oly nominees opens the Throne; centurion and remove name in the King's guild.
+			SlashCmdList.OLYMPUS("nominees")
+			eq(w.tab, "throne"); eq(K.TabLabel(), "TAB_THRONE")
+			SlashCmdList.OLYMPUS("nominees centurion Bea")
+			eq(N.RoleOf("Bea-Realm", "Olympus"), "centurion")
+			SlashCmdList.OLYMPUS("nominees remove Bea")
+			eq(N.RoleOf("Bea-Realm", "Olympus"), nil)
+		end)
+		WithUI(function()
+			LoadUI()
+			WithGamepadUI(true, function(game)
+				WithNominees(function(w)
+					w.asIn("Vera Councillor-Realm", OURS, 3)
+					N.Prompt("centurion", nil, true)
+					eq(#game.shown, 0, "never the game's popup"); eq(#w.popups, 0)
+					local f = ns.Dialog.Find("OLYMPUS_NOMINEE")
+					assert(f and f:IsShown() and f.editBox:IsShown(), "our dialog, with its box")
+					f.editBox:SetText("Ada")
+					f.buttons[1]:Click()
+					eq(N.RoleOf("Ada-Realm", "Olympus"), "centurion")
+					N.AskRemove({ role = "centurion", name = "Ada-Realm" }, true)
+					f = ns.Dialog.Find("OLYMPUS_NOMINEE_REMOVE")
+					assert(f and f:IsShown(), "our dialog")
+					f.buttons[1]:Click()
+					eq(N.RoleOf("Ada-Realm", "Olympus"), nil); eq(#game.shown, 0)
+				end)
+			end)
+		end)
+	end)
+
+	test("1.1.5 View as: Guild Master shows the guild master's Guild tab (even to a councillor author), King the Throne with the King's guild's centurions; what either names stays on the author's screen, nothing sent, gone with the view", function()
+		WithNominees(function(w)
+			local L, K, V = ns.L, ns.King, ns.ViewAs
+			local saved = { vis = ns.Workshop.Visible }
+			local ok, err = pcall(function()
+				ns.Workshop.Visible = function() return true end
+				w.as("Writer", 3)
+				eq(K.TabVisible(), false, "the author as himself: no tab")
+				eq(V.Set("gm"), true)
+				eq(K.TabVisible(), true); eq(K.TabLabel(), "TAB_GUILD")
+				local lines, title = K.Build()
+				eq(title, L.TAB_GUILD); eq(lines[1].text, L.GUILD_TAB_TITLE:format(OURS))
+				eq(V.Set("king"), true)
+				eq(K.ThroneShown(), true); eq(K.TabLabel(), "TAB_THRONE")
+				lines = K.Build()
+				local has = false
+				for _, l in ipairs(lines) do if l.text == L.NOMINEES_MAIN_TITLE:format("Olympus") then has = true end end
+				assert(has, "the King's guild's centurions")
+				eq(N.MainEditor(), false); eq(N.MainNames(), true, "his preview's to name")
+				eq(N.NameMain("Ada"), true)
+				eq(N.RoleOf("Ada-Realm", "Olympus"), "centurion", "on his screen")
+				w.flush()
+				eq(#w.parts(), 0, "nothing sent"); eq(N.SendMain(true), false)
+				eq(ns.rdb.mainNominees, nil, "not the real list")
+				eq(V.Set("my"), true)
+				eq(ns.db.previewMainNominees, nil, "gone with the view"); eq(N.RoleOf("Ada-Realm", "Olympus"), nil)
+				-- An author who is a High Councillor: his Guild Master view is a guild master's Guild tab alone.
+				w.as("Vera Councillor-Realm", 3)
+				eq(K.TabLabel(), "TAB_THRONE", "his own seat")
+				V.Set("gm")
+				eq(K.ThroneShown(), false); eq(K.TabLabel(), "TAB_GUILD")
+				V.Set("my")
+			end)
+			ns.Workshop.Visible = saved.vis
+			if ns.Treasury.DevView() then ns.Treasury.SetDevView(false) end
+			if K.Preview() then K.SetDevView(false) end
+			if N.DevView() then N.SetDevView(false) end
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.1.5 the tab in the Throne's place, in the window: 'Guild' with its own icon for a guild master, none of the Throne's buttons; 'Throne' with the crown for the King, its buttons (Hands, the crown on the map, the agenda, the court)", function()
+		WithUI(function()
+			local savedGuild, savedMe = GetGuildInfo, ns.me
+			local ok, err = pcall(function()
+				GetGuildInfo = function() return "Olympus II", "Zeus", 0 end
+				local w, UI = ForeverWorld(true)
+				CommunitiesFrame:Show(); w.buttons[1]:Click()
+				local main, L = OlympusFrameHD, w.ns.L
+				local throne
+				for _, tab in ipairs(main.tabs) do if tab.key == "throne" then throne = tab end end
+				local function Buttons()
+					local out = {}
+					for _, set in ipairs({ main.buttons or {}, main.detailButtons or {} }) do
+						for _, b in ipairs(set) do if b:IsShown() then out[#out + 1] = b:GetText() end end
+					end
+					return table.concat(out, " | ")
+				end
+				UI.Refresh()
+				eq(throne:IsShown(), true, "his Guild tab"); eq(throne.tooltip, L.TAB_GUILD)
+				eq(throne.Icon.texture, UI.FirstTexture(UI.GUILD_ICONS)); eq(UI.GUILD_ICONS[1], "Interface\\Icons\\INV_Guild_Standard_Alliance_A")
+				assert(throne.Icon.texture ~= UI.FirstTexture(UI.CROWNS), "not the Throne's crown")
+				-- A client without the guild standard's file: the guild tabard the Tabards tab wears.
+				local savedFile = GetFileIDFromPath
+				GetFileIDFromPath = function(path) return path:find("GuildTabard", 1, true) and 1 or nil end
+				eq(UI.FirstTexture(UI.GUILD_ICONS), "Interface\\Icons\\INV_Shirt_GuildTabard_01")
+				GetFileIDFromPath = savedFile
+				UI.SelectTab("throne")
+				eq(main.detailTitle:GetText(), L.TAB_GUILD)
+				local shown = Buttons()
+				for _, label in ipairs({ L.THRONE_AGENDA, L.HANDS_BTN, L.COURT_BTN_OPEN, L.THRONE_LOCATION_ON }) do
+					eq(shown:find(label, 1, true), nil, "none of the Throne's: " .. shown)
+				end
+				-- The King: the Throne again, its crown and its buttons.
+				GetGuildInfo = function() return "Olympus", "King", 0 end
+				ns.me = "Asmongold Asmongler-Realm" -- (the addon's own namespace: UI.lua's reads through to it)
+				UI.Refresh()
+				eq(ns.King.IsKing(), true, "the King")
+				do
+					eq(throne.tooltip, L.TAB_THRONE); eq(throne.Icon.texture, UI.FirstTexture(UI.CROWNS))
+					shown = Buttons()
+					for _, label in ipairs({ L.THRONE_AGENDA, L.HANDS_BTN, L.COURT_BTN_OPEN, L.THRONE_LOCATION_ON }) do
+						assert(shown:find(label, 1, true), label .. ": " .. shown)
+					end
+				end
+			end)
+			GetGuildInfo, ns.me = savedGuild, savedMe
 			if not ok then error(err, 0) end
 		end)
 	end)
@@ -27089,7 +27437,10 @@ do
 					local lines, _, detail = K.Build()
 					eq(lines[1].text, "|T" .. ns.CROWN_ICON .. ":0|t " .. L.STEWARD_ACTING, "acting for the King, on top")
 					eq(detail, L.THRONE_YOU_ARE_STEWARD:format("Asmon"))
-					assert(Texts(lines):find(L.THRONE_ROOM, 1, true) and Texts(lines):find(L.TREASURY_TITLE, 1, true), Texts(lines))
+					-- (1.1.5, the author's call: no treasury on the Throne any more, its own tab has it all; under
+					-- the Throne Room, the King's guild's centurions, his to read: he is no councillor here.)
+					assert(Texts(lines):find(L.THRONE_ROOM, 1, true) and not Texts(lines):find(L.TREASURY_TITLE, 1, true), Texts(lines))
+					assert(Texts(lines):find(L.NOMINEES_MAIN_TITLE:format("Olympus"), 1, true), Texts(lines))
 					assert(Texts(lines):find(L.THRONE_STEWARD_HINT:sub(1, 20), 1, true), "what is his to do")
 					eq(K.StewardStatusLine():find("you, acting for the King", 1, true) ~= nil, true, K.StewardStatusLine())
 					assert(ns.StatusText():find("steward: you, acting for the King", 1, true), "in /oly status")

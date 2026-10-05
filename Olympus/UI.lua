@@ -50,8 +50,15 @@ local TABS = {
 	{ key = "crafters", label = "TAB_CRAFTERS", icon = "Interface\\Icons\\Trade_BlackSmithing" },
 	-- The Treasury precedes the King's remaining tabs in the canonical visual order.
 	{ key = "treasury", label = "TAB_TREASURY", icon = "Interface\\Icons\\INV_Misc_Coin_02" },
-	-- The King's alone (King.lua): hidden for everyone else, see UI.Refresh.
-	{ key = "throne", label = "TAB_THRONE", icon = function() return UI.FirstTexture(UI.CROWNS) end },
+	-- The King's alone (King.lua): hidden for everyone else, see UI.Refresh. 1.1.5: in its place, a
+	-- guild master's Guild tab (King.TabLabel): its label and icon follow whose tab it is (UI.RelabelTabs).
+	{ key = "throne", label = "TAB_THRONE", icon = function() return UI.FirstTexture(UI.CROWNS) end,
+		labelOf = function() return ns.King and ns.King.TabLabel and ns.King.TabLabel() or "TAB_THRONE" end,
+		iconOf = function(label)
+			if label ~= "TAB_GUILD" then return UI.FirstTexture(UI.CROWNS) end
+			local faction = ns.faction or (UnitFactionGroup and UnitFactionGroup("player"))
+			return UI.FirstTexture(faction == "Horde" and UI.GUILD_ICONS_HORDE or UI.GUILD_ICONS)
+		end },
 	-- The King's and his Hands' questions to the army (Vox.lua), the same way.
 	{ key = "vox", label = "TAB_VOX", icon = function() return UI.FirstTexture(UI.HORNS) end },
 	-- The addon author's alone (Workshop.lua), the same way.
@@ -66,6 +73,11 @@ function UI.FirstTexture(paths)
 	return paths[#paths]
 end
 UI.CROWNS = { "Interface\\Icons\\INV_Crown_01", "Interface\\Icons\\INV_Crown_02", "Interface\\Icons\\INV_Misc_Head_Dragon_01" }
+-- (1.1.5) A guild master's Guild tab: his faction's guild standard (FileDataIDs 461816 and 461819,
+-- in the game's data since Cataclysm, as the guild perk icon the Census tab wears), else the
+-- guild tabard the Tabards tab wears (UI.FirstTexture asks the client for each file first).
+UI.GUILD_ICONS = { "Interface\\Icons\\INV_Guild_Standard_Alliance_A", "Interface\\Icons\\INV_Shirt_GuildTabard_01" }
+UI.GUILD_ICONS_HORDE = { "Interface\\Icons\\INV_Guild_Standard_Horde_A", "Interface\\Icons\\INV_Shirt_GuildTabard_01" }
 UI.HORNS = { "Interface\\Icons\\Ability_Warrior_BattleShout", "Interface\\Icons\\INV_Misc_Horn_01" }
 UI.CHAT_ICONS = { "Interface\\Icons\\UI_Chat", "Interface\\Icons\\INV_Misc_Note_01" }
 UI.PARCHMENTS = { "Interface\\QuestFrame\\QuestBG", "Interface\\Stationery\\StationeryTest1" }
@@ -115,8 +127,10 @@ local BUTTONS = {
 	},
 	-- The Throne: the agenda (the King and his Hands), the court (the King's).
 	-- The roll call lives in the Realm, the inspection in the Tabards (King.RollCallLines...).
+	-- (1.1.5: each the Throne's people's alone: a guild master's Guild tab, or a councillor who is no
+	-- Hand, has none of them.)
 	throne = {
-		{ "THRONE_AGENDA", function() ns.King.AgendaPrompt() end },
+		{ "THRONE_AGENDA", function() ns.King.AgendaPrompt() end, shown = function() return ns.King.ThroneShown() and ns.King.CanCall() end },
 		{ "COURT_BTN", function() ns.Court.Toggle() end, refresh = true, shown = function() return ns.King.IsKing() or ns.King.Preview() end,
 			label = function() return ns.Court.Holding() and L.COURT_BTN_CLOSE or L.COURT_BTN_OPEN end,
 			tooltip = function(tt)
@@ -197,7 +211,8 @@ local DETAIL_BUTTONS = {
 					tt:AddLine(L.THRONE_LOCATION_NOW_OFF, 0.6, 0.6, 0.6, true)
 				end
 			end },
-		{ "THRONE_CANCEL_AGENDA", function() ns.King.CancelAgendaButton() end, shown = function() return ns.King.Agenda() ~= nil end },
+		{ "THRONE_CANCEL_AGENDA", function() ns.King.CancelAgendaButton() end,
+			shown = function() return ns.King.Agenda() ~= nil and ns.King.ThroneShown() and ns.King.CanCall() end },
 	},
 	-- The full roll call (0.9.9), right above Roll call: rounds on its own until nearly every addon
 	-- user answered; the same button stops it. Then the author's views, to see and try what only
@@ -1400,6 +1415,29 @@ end
 function UI.Clicked()
 end
 
+-- The tabs whose name follows the player (TABS' labelOf, 1.1.5: the Throne or a guild master's
+-- Guild tab): their text (the side tabs: tooltip and icon) set again when it changed.
+function UI.RelabelTabs()
+	if not main then return end
+	for i, tab in ipairs(main.tabs) do
+		local t = TABS[i]
+		if t and t.labelOf then
+			local key = t.labelOf()
+			if tab.labelKey ~= key then
+				tab.labelKey = key
+				local text = rawget(L, key) or L[t.label]
+				if main.tabStyle == "side" then
+					tab.tooltip = text
+					if t.iconOf and tab.Icon then tab.Icon:SetTexture(t.iconOf(key)) end
+				else
+					tab:SetText(text)
+					if PanelTemplates_TabResize then pcall(PanelTemplates_TabResize, tab, 0) end
+				end
+			end
+		end
+	end
+end
+
 -- Opening the window picks its look again, from the guild window in use (UI.Style).
 -- Called from clicks and slash commands. `focus`: see ShowTab.
 function UI.SelectTab(key, focus)
@@ -1435,7 +1473,9 @@ local function PageOf(tab, locked)
 	if tab == "realm" then
 		-- (1.1: our guild's members page, Members.lua, a page of its own.)
 		sub = (ns.Views.BoardShown and ns.Views.BoardShown() and "board") or (ns.Views.PageShown and ns.Views.PageShown()) or ns.Members and ns.Members.PageId and ns.Members.PageId() or "tree"
-	elseif tab == "throne" then sub = ns.King and ns.King.mode
+	elseif tab == "throne" then
+		-- (1.1.5: a guild master's Guild tab, in the Throne's place.)
+		sub = ns.King and ns.King.ThroneShown and not ns.King.ThroneShown() and "guild" or ns.King and ns.King.mode
 	elseif tab == "treasury" then sub = ns.Treasury and ns.Treasury.mode end
 	return tab .. "/" .. tostring(sub or "")
 end
@@ -1548,9 +1588,9 @@ function UI.Refresh()
 			main.sub:SetText(sub)
 		else
 			lines, title, text = ns.Views.Build(main.tab)
-			-- The treasury next to the soldiers, on the Throne and the Treasury tabs (the King's
-			-- and the Treasurer's screens: Treasury.HeaderText).
-			if main.tab == "throne" or main.tab == "treasury" then
+			-- The treasury next to the soldiers, on the Treasury tab (Treasury.HeaderText; 1.1.5, the
+			-- author's call: no longer on the Throne, the treasury has its own tab).
+			if main.tab == "treasury" then
 				local gold = ns.Treasury and ns.Treasury.HeaderText and ns.Treasury.HeaderText()
 				if type(gold) == "string" then main.total:SetText(L.ARMY_TOTAL:format(F(s.total)) .. "   " .. gold) end
 			end
@@ -1570,13 +1610,14 @@ function UI.Refresh()
 		-- test builds, King.Preview and Workshop.Preview).
 		local only = {
 			chat = ChatTabVisible(), -- (1.1.1)
-			throne = ns.King and ns.King.Visible and ns.King.Visible() or false,
+			throne = ns.King and ns.King.TabVisible and ns.King.TabVisible() or false, -- (1.1.5: or a guild master's Guild tab)
 			vox = ns.Vox and ns.Vox.Visible and ns.Vox.Visible() or false,
 			treasury = ns.Treasury and ns.Treasury.TabVisible and ns.Treasury.TabVisible() or false, -- (1.1: the dues' button too)
 			workshop = ns.Workshop and ns.Workshop.Visible and ns.Workshop.Visible() or false,
 		}
 		if only[main.tab] == false then return ShowTab("census") end
 		for _, tab in ipairs(main.tabs) do tab:SetShown(not locked and only[tab.key] ~= false) end
+		UI.RelabelTabs()
 		UI.LayoutTabs()
 		-- The Chat tab (ChatWindow.lua) over the list's place while it is the one shown.
 		ChatPane(not locked and main.tab == "chat")
