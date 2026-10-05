@@ -37,6 +37,10 @@
 --   9. The map library is the real one (Olympus/libs), on a model of the world map.
 -- A mock that differs from Forever's code is a bug in the model, not a reason to change an
 -- assertion.
+--
+-- Alone: luajit tests/gamepad.lua. For work on the model: "--names" lists what it offers (read by
+-- scripts/forever-api.lua), "--discover [gamepad]" logs in and lists what it lacks instead of
+-- failing, "--debug" returns its parts to a script.
 
 local H = ...
 local MODE = type(H) == "string" and H or nil
