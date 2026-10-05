@@ -127,10 +127,12 @@ end
 -- 1.1 (Konig's review): a character the moderators took off (net-off, Moderation.lua), or one of a
 -- guild they took off the network, shows as no Olympus player on this client: no border, no
 -- nameplate mark (never the King: nobody takes him off). Our own portrait keeps ours.
-local function NetOff(who, guild)
+-- look (1.1.5): the guild is one we try for him, not one the server or his own message gave
+-- (Borders.MarkOfName): Moderation notes nothing from it.
+local function NetOff(who, guild, look)
 	local M = ns.Moderation
 	if type(M) ~= "table" or type(M.Hides) ~= "function" or who == ns.me then return false end
-	return M.Hides(who, guild) ~= nil
+	return M.Hides(who, guild, look) ~= nil
 end
 
 -- What decides a unit's border, or nil for anyone no border is for: not a player, of the other
@@ -260,14 +262,16 @@ end
 -- census). Not Channels.VerifiedLevel itself: its Data.ClaimGuild records the claim, and a redraw
 -- must not. The King, a High Councillor and net-off as MarkOf. Not tied to /oly borders or /oly
 -- nameplates: the chat's marks have their own switch (/oly chatmarks). Since 1.1.5 the marks of the
--- game's own chat (Borders.ChatName below) ask it, and Olympus's own lines carry none. Returns the
--- mark ("gold", "silver", "bronze", "member" or nil) and the facts (f.proven: the claim backed).
+-- game's own chat (Borders.ChatName below) ask it, and Olympus's own lines carry none. A lookup: its
+-- net-off check notes no guild for him (Moderation.Hides' look), since the guild it is asked with
+-- may be one we only try for him (the King's for a Hand by his name). Returns the mark ("gold",
+-- "silver", "bronze", "member" or nil) and the facts (f.proven: the claim backed).
 function Borders.MarkOfName(who, guild)
 	if type(who) ~= "string" or who == "" then return nil end
 	who = ns.FullName(who)
 	guild = type(guild) == "string" and guild ~= "" and guild or nil
 	local f = { guild = guild, who = who }
-	f.off = NetOff(who, guild)
+	f.off = NetOff(who, guild, true)
 	f.councillor = ns.IsHighCouncillor(who) == true
 	f.council = f.councillor and not ns.CouncilMasked()
 	if f.off then return nil, f end
@@ -587,9 +591,14 @@ end
 -- name in its colour.)
 -- No line of the game names its sender's guild, so his is a guild MarkOfName's rules can prove
 -- (ChatGuilds): ours when our roster has him; the King's for the King, his Stewards and Hands by
--- their names; each guild whose census report names him (its guild master or an officer: a plain
--- member of another guild is in no census, so he gets no star here). A High Councillor's silver
--- needs no guild: the signed list.
+-- their names; the one his own Olympus messages speak for (Data.ClaimedGuild: his lines on the
+-- Olympus channel, his census reports, his board posts...), as the 1.1.1 Chat tab took the guild
+-- his line named, and only when that guild's census names him (its guild master or an officer: a
+-- plain member of another guild is in no census, so he gets no star here). Never a guild only
+-- someone else's report names him in: any character can send a census report for any guild
+-- named Olympus, so two of them could otherwise put the bronze on anybody's name in Trade (a
+-- border or a nameplate mark needs the guild the server gives the unit). A High Councillor's
+-- silver needs no guild: the signed list.
 -- The game's hook for it, ChatFrameUtil.AddSenderNameFilter (Forever 1.60.1,
 -- Blizzard_ChatFrameBase/Shared/ChatFrameFilters.lua): Blizzard calls it through securecallfunction
 -- with the line's event, the name it decorated (class colour and all) and the line's arguments, and
@@ -605,8 +614,8 @@ end
 -- master's bronze or the star there instead, if any), a character or a guild the moderators took
 -- off (net-off), a secret name or sender, and `/oly chatmarks off` (ns.db.chatMarks false).
 -- Blizzard runs the callback for every line on every chat window: it reads a boolean, the event
--- list and one table entry; a sender not seen yet is worked out once (ChatName: lookups, and the
--- census reports read once into an index of the names they hold), and the table is emptied every
+-- list and one table entry; a sender not seen yet is worked out once (ChatName: lookups only, at
+-- most two guilds' census rows, never a walk over every guild), and the table is emptied every
 -- CHAT_FORGET seconds and whenever the census, the council's lists, our guild or the council's
 -- names hidden or shown change, so a new list or icon shows within a minute.
 
@@ -622,7 +631,6 @@ local CHAT_EVENTS = Borders.CHAT_EVENTS
 Borders.CHAT_FORGET = 60
 Borders.CHAT_MAX = 500 -- senders kept between two emptyings (then it starts again)
 local chatMarks, chatKept = {}, 0 -- sender, as the line gives him -> { text, council } or false for none
-local chatIndex -- [full name] = { guild, ... }: the guilds whose census report names him (once per emptying)
 local chatOn, chatHooked, chatPreview = false, false, false -- chatPreview: the author's mark ("gold"...) or false
 
 Borders.CHAT_STAR = "|TInterface\\AddOns\\Olympus\\media\\borders\\star:14:14|t"
@@ -656,40 +664,8 @@ local function ChatClean(s)
 	return s
 end
 
--- Who the census reports name (their guild masters and officers, as the reports and their votes
--- hold them), by name: read once after each emptying, when a sender first needs it.
-local function CensusIndex()
-	if chatIndex then return chatIndex end
-	local index, guilds = {}, ns.rdb and ns.rdb.guilds
-	local fresh, now = ns.Data and ns.Data.FRESH or 900, ns.Now()
-	if type(guilds) == "table" then
-		for key, g in pairs(guilds) do
-			if type(key) == "string" and type(g) == "table" and now - (tonumber(g.t) or 0) <= fresh then
-				local home, seen = g.realm or ns.realm, {}
-				local function Add(name)
-					if type(name) ~= "string" or name == "" then return end
-					local full = ns.FullName(name, home)
-					if seen[full] then return end
-					seen[full] = true
-					local list = index[full] or {}
-					list[#list + 1] = key
-					index[full] = list
-				end
-				Add(g.leader)
-				for _, o in ipairs(type(g.officers) == "table" and g.officers or {}) do Add(type(o) == "table" and o.name or nil) end
-				for _, v in pairs(type(g.vouch) == "table" and g.vouch or {}) do
-					if type(v) == "table" and type(v.ranks) == "table" then
-						for name in pairs(v.ranks) do Add(name) end
-					end
-				end
-			end
-		end
-	end
-	chatIndex = index
-	return index
-end
-
--- The guilds a sender of the game's chat may be proven in (see above): ours alone for a guildmate.
+-- The guilds a sender of the game's chat may be proven in (see above): ours alone for a guildmate;
+-- the King's for his Crown by name; the one his own messages claim.
 local function ChatGuilds(who)
 	local mine = GetGuildInfo("player")
 	if Secret(mine) then mine = nil end
@@ -701,7 +677,8 @@ local function ChatGuilds(who)
 		local king = ns.KING_GUILD[ns.faction or "Alliance"]
 		if king then out[#out + 1] = ns.Data.GuildKey(king) or king end
 	end
-	for _, guild in ipairs(CensusIndex()[who] or {}) do out[#out + 1] = guild end
+	local claimed = type(ns.Data.ClaimedGuild) == "function" and ns.Data.ClaimedGuild(who) or nil
+	if claimed and claimed ~= out[1] then out[#out + 1] = claimed end
 	return out
 end
 
@@ -755,7 +732,7 @@ function Borders.ChatFilter(event, name, text, sender)
 	return nil
 end
 
-function Borders.ChatForget() chatMarks, chatKept, chatIndex = {}, 0, nil end
+function Borders.ChatForget() chatMarks, chatKept = {}, 0 end
 
 function Borders.ChatEnabled() return not (ns.db and ns.db.chatMarks == false) end
 

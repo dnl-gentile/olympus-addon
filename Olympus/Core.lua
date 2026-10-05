@@ -1697,7 +1697,7 @@ end
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
 	local missing = {}
-	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Dues", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Backup", "Loot", "Crafters", "Board", "Week", "Consent", "Chronicle", "Filter", "Members", "Moderation", "Alts", "Keys", "ChatWindow", "PlayerMenu", "Versions", "Answers" }) do
+	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Dues", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Backup", "Loot", "Crafters", "Board", "Week", "Consent", "Chronicle", "Filter", "Members", "Moderation", "Alts", "Keys", "ChatWindow", "PlayerMenu", "Versions", "Answers", "Letters" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
 	if #missing > 0 then

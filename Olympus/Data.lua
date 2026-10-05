@@ -158,6 +158,15 @@ function Data.ClaimGuild(sender, guild)
 	return true
 end
 
+-- The guild a sender's own messages speak for (Data.ClaimGuild: his chat lines, census reports,
+-- board posts, decrees, crafters' listings), nil when none was heard this session. A lookup:
+-- nothing is claimed (1.1.5, the game's chat marks, Borders.lua).
+function Data.ClaimedGuild(sender)
+	if type(sender) ~= "string" or sender == "" then return nil end
+	local c = senderGuild[ns.FullName(sender)]
+	return c and c.guild or nil
+end
+
 -- Every rank a report names, as "Name-Realm" -> 0 (leader) or 1 (officer). Names without a
 -- realm belong to the reporter's realm, so a same-named player from another realm never matches.
 local function Ranks(g)

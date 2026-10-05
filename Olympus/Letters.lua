@@ -12,10 +12,12 @@ local L = ns.L
 -- member of an Olympus guild (outside one the addon offers nothing but the Join Olympus screen),
 -- never in combat or an instance, and only while no first-open page shows or waits: the privacy
 -- page (Consent.lua) is asked first, and the letter waits until it is closed. Once a version,
--- saved per account (ns.db.lettersRead[version]). A first session (a new install: the account's
--- saved variables just made, Core.lua counting db.sessions) shows none and keeps the version as
--- read: there was no update, and the next one's letter is the first it shows. Only the running
--- version's letter shows by itself (the letters of versions a player skipped wait in the list).
+-- saved per account (ns.db.lettersRead[version]). A first session shows it too: WoW: Forever's
+-- beta client saves addon data but never loads it back, so there every session is a first one
+-- (Core.lua's db.sessions is 1 each time), and taking that for a new install kept the letter from
+-- ever showing by itself. There it shows again every session, as the privacy page asks again; a
+-- real new install sees the running version's letter once. Only the running version's letter
+-- shows by itself (the letters of versions a player skipped wait in the list).
 -- The gamepad UI: Olympus's own frame, never the game's popup; nothing in it takes the keyboard
 -- (no edit box); it goes on the escape list only with mouse and keyboard (ns.EscapeCloses), and
 -- its X and Close hide it in either mode, in combat too (onCloseCallback, as the Olympus window).
@@ -300,9 +302,9 @@ function Letters.Ask(reason)
 	return Letters.Show(v)
 end
 
--- A first session (a new install) keeps the running version as read: no update to tell of.
+-- The running version's letter, if it was never shown on this account (a first session too: see
+-- the top of the file), from LOGIN_WAIT after login, then on the minute until it could.
 function Letters.OnLogin()
-	if ns.db and (tonumber(ns.db.sessions) or 0) <= 1 then Letters.MarkRead(ns.VERSION) end
 	if not Letters.Has(ns.VERSION) or Letters.IsRead(ns.VERSION) then return end
 	ns.After(Letters.LOGIN_WAIT, "version letter", function() Letters.Ask("login") end)
 	ticker = ns.Every(60, "version letter", function()

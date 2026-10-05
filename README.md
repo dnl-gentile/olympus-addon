@@ -386,13 +386,14 @@ WoW channel number to join). Each channel is exclusive to a rank:
   party, raid, instance chat and whispers both ways: the mark of their border's tier, the game's
   gold elite dragon for the King, its silver one for a High Councillor (then the icon they
   picked), the bronze for a guild master of an Olympus guild, and Olympus's star for any other
-  member your addon can check (your guild's roster, or a census that names them: a plain member
-  of another guild is in no census, so gets none). Never in guild or officer chat, where everyone
-  is of your guild, and never on Olympus's own lines ([Olympus], [Captains], [Lords] and the Chat
-  tab), which show the name in its colour alone. Through the game's own name filter, so the
-  name's link, right-click and /r stay the game's. On by default (`/oly chatmarks off` hides
-  them), hidden with the gamepad UI, and a High Councillor's on the King's screen while the
-  council's names are hidden.
+  member your addon can check: your guild's roster, or for another guild its census, naming them
+  in the guild their own Olympus messages speak for (someone else's report alone proves nothing,
+  and a plain member of another guild is in no census, so gets none). Never in guild or officer
+  chat, where everyone is of your guild, and never on Olympus's own lines ([Olympus], [Captains],
+  [Lords] and the Chat tab), which show the name in its colour alone. Through the game's own
+  name filter, so the name's link, right-click and /r stay the game's. On by default
+  (`/oly chatmarks off` hides them), hidden with the gamepad UI, and a High Councillor's on the
+  King's screen while the council's names are hidden.
 - **Block terms (1.1).** `/oly filter add <word>` hides, on your screen, every line of addon
   text with that word: the Olympus chats, the King's writs, a decree's words and Vox Populi's
   question and answers. Whole words only, any case or accent, one word of 2 to 24 letters or
@@ -1323,7 +1324,8 @@ the game is removed at login, with one line saying so.
 - **Version letters** (1.1.5): after the addon updates, once a version, a short letter on
   parchment, in a window like the Olympus window's, says what changed in that version, in the
   King's voice. It waits until the privacy page is closed, and never opens in combat, in a
-  dungeon or outside an Olympus guild; a new install shows none. The Olympus window's help button
+  dungeon or outside an Olympus guild. On the Forever beta, whose saved variables never load, it
+  shows again every session, as the privacy page asks again. The Olympus window's help button
   (the **i** left of the X) keeps every letter: **Version letters** on its page lists them,
   newest first, and a click opens one; `/oly letters` (or `/oly letters 1.1.4`) does too. Nothing
   is sent: which letters you saw is kept on your computer, for your account.

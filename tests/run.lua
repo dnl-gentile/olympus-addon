@@ -43325,12 +43325,16 @@ do
 	-- 1.1.5 (the High Council's ask, then the author's call): Olympus's marks before a sender's name in
 	-- the game's own chat, by his border tier, where players outside Olympus can be. (Changed on
 	-- purpose: the first 1.1.5 build marked the High Council alone, with its skull and icon, in guild
-	-- and officer chat too, and this test asked that; Olympus's own lines carried every mark then.)
+	-- and officer chat too, and this test asked that; Olympus's own lines carried every mark then.
+	-- And since the 1.1.5 review: another guild's census proves a sender only in the guild his own
+	-- messages claim, as the 1.1.1 Chat tab asked of the guild his line named. Two characters' census
+	-- reports for a made-up "Olympus" guild put the bronze on anybody's name, and every sender cost a
+	-- walk over every guild's report; a lookup also noted the guild it tried as his, for the net-off.)
 	test("1.1.5 the game's own chat: the borders' tiers before a sender's name (the King gold, a High Councillor silver then his icon, a guild master bronze, a member we can prove the star) in channels, say, party, raid and whispers, never guild or officer chat; never with the gamepad UI, a council mark never on the King's stream, off, net-off or for a secret name", function()
 		local saved = { cfu = rawget(_G, "ChatFrameUtil"), gamepad = ns.GamepadUI, masked = ns.CouncilMasked, secret = rawget(_G, "issecretvalue"),
 			council = ns.rdb.council, icons = ns.rdb.councilIcons, chatMarks = ns.db.chatMarks, print = ns.Print, workshop = ns.Workshop,
 			member = ns.IsMember, byName = ns.Roster.byName, guilds = ns.rdb.guilds, loginAt = ns.Comm.loginAt, steward = ns.King.IsStewardName,
-			hand = ns.King.IsHandName, hides = ns.Moderation.Hides, tex = C_Texture }
+			hand = ns.King.IsHandName, hides = ns.Moderation.Hides, tex = C_Texture, known = ns.Data.KnownRank }
 		local ok, err = pcall(function()
 			local filters, printed, gamepad = {}, {}, true
 			ChatFrameUtil = { AddSenderNameFilter = function(cb) filters[#filters + 1] = cb end }
@@ -43340,13 +43344,20 @@ do
 			C_Texture = nil
 			-- Made-up names only. The High Council's list and an icon heard; our guild's roster (Olympus
 			-- II: its guild master and a member); another Olympus guild's census (its master and an
-			-- officer, two senders); the King's Steward by the signed titles.
+			-- officer, two senders), whose master and officer spoke for it on the Olympus channel (their
+			-- own claim, Data.ClaimGuild, as Channels.VerifiedLevel makes it); a made-up guild's census, two
+			-- other senders naming a player its master who never claimed it; the King's Steward by the
+			-- signed titles.
 			ns.rdb.council = { names = { ["sage owl"] = true } }
 			ns.rdb.councilIcons = { ["Sage Owl-Realm"] = { icon = 134400, t = ns.Now() } }
 			ns.Roster.byName = { ["Guild Boss-Realm"] = 0, ["Plain Guy-Realm"] = 4 }
 			ns.Comm.loginAt = ns.Now() - ns.Data.CROWN_AFTER - 1
 			ns.rdb.guilds = { ["Olympus Zeus"] = Vouched({ guild = "Olympus Zeus", leader = "Zeusy", officers = { { name = "Capt" } }, realm = "Realm",
-				t = ns.Now() }, "W1-Realm", "W2-Realm") }
+				t = ns.Now() }, "W1-Realm", "W2-Realm"),
+				["Olympus Fakeguild"] = Vouched({ guild = "Olympus Fakeguild", leader = "Troll Guy", officers = { { name = "Two Face" } }, realm = "Realm",
+					t = ns.Now() }, "Grief One-Realm", "Grief Two-Realm") }
+			eq(ns.Data.ClaimGuild("Zeusy-Realm", "Olympus Zeus"), true); eq(ns.Data.ClaimGuild("Capt-Realm", "olympus zeus"), true)
+			eq(ns.Data.ClaimGuild("Two Face-Realm", "Olympus Elsewhere"), true)
 			ns.King.IsStewardName = function(n) return n == "Stew Ard-Realm" end
 			ns.King.IsHandName = function() return false end
 			local GOLD = "|A:nameplates-icon-elite-gold:14:14|a"
@@ -43390,6 +43401,8 @@ do
 				{ "Plain Guy-Realm", STAR, "a member of our guild" },
 				{ "Stew Ard-Realm", STAR, "the King's Steward: a member of his guild" },
 				{ "Far Guy-Realm", nil, "a member of another guild nothing proves (in no census)" },
+				{ "Troll Guy-Realm", nil, "a guild master only other people's reports name: he never claimed that guild" },
+				{ "Two Face-Realm", nil, "an officer only of a guild he does not speak for" },
 				{ "Stranger-Realm", nil, "anyone else" },
 			}
 			local EVENTS = { "CHAT_MSG_CHANNEL", "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE", "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER",
@@ -43425,7 +43438,9 @@ do
 			eq(cb("CHAT_MSG_SAY", name, "hi", "Sage Owl-Realm"), SILVER .. "|T134402:0|t" .. name)
 			ns.rdb.councilIcons["Sage Owl-Realm"].icon = 134401
 			Fire(on, "DATA_CHANGED")
-			-- A census report heard meanwhile: its master marked once the table empties (DATA_CHANGED).
+			-- A census report heard meanwhile: its master (who speaks for his guild) marked once the table
+			-- empties (DATA_CHANGED).
+			eq(ns.Data.ClaimGuild("Newboss-Realm", "Olympus Gale"), true)
 			eq(cb("CHAT_MSG_CHANNEL", "Newboss", "hi", "Newboss-Realm"), nil, "in no census yet")
 			ns.rdb.guilds["Olympus Gale"] = Vouched({ guild = "Olympus Gale", leader = "Newboss", officers = {}, realm = "Realm", t = ns.Now() }, "W3-Realm", "W4-Realm")
 			eq(cb("CHAT_MSG_CHANNEL", "Newboss", "hi", "Newboss-Realm"), nil, "kept until the table empties")
@@ -43463,6 +43478,31 @@ do
 			B.ChatForget()
 			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), nil, "net-off")
 			ns.Moderation.Hides = saved.hides
+			-- A lookup notes nothing for the net-off (Moderation.GuildOf: the guild his own messages named,
+			-- which the hop's whispers are checked against): neither a guild only someone else's census
+			-- names him in, nor the King's tried for a Hand by his name. And only those guilds' rows are
+			-- read: the census is never walked for a sender.
+			ns.Moderation.NoteGuild("Bob Victim-Realm", "Olympus Home")
+			eq(ns.Data.ClaimGuild("Bob Victim-Realm", "Olympus Home"), true)
+			ns.rdb.guilds["Olympus Yonder"] = Vouched({ guild = "Olympus Yonder", leader = "Yon Boss", officers = { { name = "Bob Victim" } }, realm = "Realm",
+				t = ns.Now() }, "W5-Realm", "W6-Realm")
+			local asked = {}
+			ns.Data.KnownRank = function(who, guild, ...)
+				asked[#asked + 1] = guild
+				return saved.known(who, guild, ...)
+			end
+			B.ChatForget()
+			eq(cb("CHAT_MSG_CHANNEL", "Bob Victim", "WTS", "Bob Victim-Realm"), nil, "a plain member of the guild he speaks for: in no census there")
+			eq(table.concat(asked, ","), "Olympus Home", "the row of the guild he claims, alone")
+			eq(ns.Moderation.GuildOf("Bob Victim-Realm"), "Olympus Home", "his guild as his own messages named it")
+			-- (A Hand whose layer line named his guild: Layers notes it, and claims nothing.)
+			ns.Moderation.NoteGuild("Hal Hand-Realm", "Olympus Home")
+			ns.King.IsHandName = function(n) return n == "Hal Hand-Realm" end
+			B.ChatForget()
+			eq(cb("CHAT_MSG_CHANNEL", "Hal Hand", "WTS", "Hal Hand-Realm"), STAR .. "Hal Hand", "a Hand of the King, by his name")
+			eq(ns.Moderation.GuildOf("Hal Hand-Realm"), "Olympus Home", "not the King's guild, tried for him")
+			ns.King.IsHandName = function() return false end
+			ns.Data.KnownRank = saved.known
 			B.ChatForget()
 			-- Outside an Olympus guild (a list kept from before, a removed guild): no mark, kept or new.
 			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), BRONZE .. "Zeusy")
@@ -43526,6 +43566,7 @@ do
 		ns.rdb.council, ns.rdb.councilIcons, ns.db.chatMarks, ns.Print, ns.Workshop = saved.council, saved.icons, saved.chatMarks, saved.print, saved.workshop
 		ns.IsMember, ns.Roster.byName, ns.rdb.guilds, ns.Comm.loginAt = saved.member, saved.byName, saved.guilds, saved.loginAt
 		ns.King.IsStewardName, ns.King.IsHandName, ns.Moderation.Hides, C_Texture = saved.steward, saved.hand, saved.hides, saved.tex
+		ns.Data.KnownRank = saved.known
 		if not ok then error(err, 0) end
 	end)
 
@@ -49230,13 +49271,25 @@ end)()
 		end)
 	end)
 
-	test("1.1.5 version letters: a new install shows none and keeps the version as read; a version with no letter shows none", function()
-		WithLetters(function(w)
-			ns.db.sessions = 1 -- (Core.lua counts the account's sessions: the first one)
-			w.login()
-			eq(ns.db.lettersRead[ns.VERSION], true, "no update to tell of")
-			eq(#w.after, 0); eq(w.Letters.Ask("test"), false); eq(rawget(_G, "OlympusLetterFrame"), nil)
-		end)
+	-- (Changed on purpose, the 1.1.5 review: a first session showed none, taken for a new install. On
+	-- WoW: Forever's beta, which never loads the saved variables back, every session is a first one,
+	-- so the letter never showed by itself there; it now shows as after an update.)
+	test("1.1.5 version letters: a first session shows it too (the Forever beta, whose saved variables never load, has nothing else); a version with no letter shows none", function()
+		for _, sessions in ipairs({ 1, 0 }) do
+			WithLetters(function(w)
+				ns.db.sessions = sessions -- (Core.lua counts the account's sessions: 1 at every login on the beta)
+				local Lt = w.Letters
+				w.login()
+				eq(Lt.IsRead(ns.VERSION), false, "still to show")
+				local a = w.after[1]
+				assert(a and a.sec == Lt.LOGIN_WAIT, "after login, as after an update")
+				ns.Consent.Show():Hide() -- (the privacy page asked first, and closed)
+				w.run()
+				assert(Lt.Frame() and Lt.Frame():IsShown(), "shown")
+				eq(Lt.Frame().version, ns.VERSION)
+				eq(ns.db.lettersRead[ns.VERSION], true, "then read for the session's account")
+			end)
+		end
 		WithLetters(function(w)
 			local savedVersion = ns.VERSION
 			ns.VERSION = "9.9.9"
@@ -49366,6 +49419,21 @@ end)()
 		ns.Print = savedPrint
 		if not ok then error(err, 0) end
 		eq(ns.Letters.missing, true); eq(said, L.RESTART_NEEDED)
+		-- And the login names the file, as every other new file's (a /reload alone keeps the old list).
+		local logged, printed = {}, {}
+		local savedLog, savedFaction, savedMe = ns.Log, ns.CheckFaction, ns.me
+		local okLogin, errLogin = pcall(function()
+			ns.Print = function(m) printed[#printed + 1] = tostring(m) end
+			ns.Log = function(fmt, ...) logged[#logged + 1] = select("#", ...) > 0 and fmt:format(...) or fmt end
+			ns.CheckFaction = function() end
+			for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "PLAYER_LOGIN") end
+		end)
+		ns.Print, ns.Log, ns.CheckFaction, ns.me = savedPrint, savedLog, savedFaction, savedMe
+		if not okLogin then error(errLogin, 0) end
+		local found
+		for _, l in ipairs(logged) do if l:find("not loaded until the game restarts", 1, true) and l:find("Letters.lua", 1, true) then found = l end end
+		assert(found, "the login's list: " .. table.concat(logged, " / "))
+		eq(printed[1], L.RESTART_NEEDED, "said at login")
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
 		local at, n = {}, 0
 		for line in toc:gmatch("[^\n]+") do n = n + 1; at[line:gsub("%s+$", "")] = n end
@@ -49400,18 +49468,22 @@ end)()
 		for _, k in ipairs({ "LETTER_TITLE", "LETTERS_ROW" }) do eq(ns.LocaleCodes(rawget(pt.L, k)), ns.LocaleCodes(ns.L[k]), k) end
 		local en, br = ns.L.LETTER_1_1_5, rawget(pt.L, "LETTER_1_1_5")
 		for _, words in ipairs({ "The rank borders are gone", "arena", "A border everybody has is worth nothing", "The King: gold wings",
-			"The High Council: silver wings", "Guild masters: bronze wings", "the game's own chat", "Not in guild chat", "OLYMPIANS", "The \"i\" on the Olympus window" }) do
+			"The High Council: silver wings", "Guild masters: bronze wings", "the game's own chat", "Not in guild chat", "OLYMPIANS", "The \"i\" on the Olympus window",
+			"tooltips say who they are, for those who may see the council" }) do
 			assert(en:find(words, 1, true), "1.1.5's letter: " .. words)
 		end
 		for _, words in ipairs({ "As bordas de cargo acabaram", "arena", "Borda que todo mundo tem não vale nada", "O Rei: asas douradas",
-			"O High Council: asas prateadas", "Mestres de guilda: asas de bronze", "chat do próprio jogo", "OLYMPIANS" }) do
+			"O High Council: asas prateadas", "Mestres de guilda: asas de bronze", "chat do próprio jogo", "OLYMPIANS",
+			"para quem pode ver o conselho" }) do
 			assert(br:find(words, 1, true), "1.1.5's letter in pt-BR: " .. words)
 		end
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
 			assert(doc:find("**Version letters** (1.1.5)", 1, true), path .. ": the letters")
+			assert(doc:find("On the Forever beta, whose saved variables never load, it shows again every session", 1, true), path .. ": the letters on the beta")
 			assert(doc:find("| `/oly letters [version]` |", 1, true), path .. ": the command")
 			assert(doc:find("**Marks in the game's own chat (1.1.5).**", 1, true), path .. ": the marks")
+			assert(doc:find("in the guild their own Olympus messages speak for (someone else's report alone proves nothing", 1, true), path .. ": what proves a mark")
 		end
 	end)
 end)()
