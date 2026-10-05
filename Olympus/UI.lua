@@ -773,7 +773,10 @@ local function ViewAsButton(f)
 	b.text:SetAllPoints()
 	b.text:SetJustifyH("RIGHT")
 	if b.text.SetWordWrap then b.text:SetWordWrap(false) end
-	b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+	-- (No highlight texture: the quest title's glow sat badly on the title bar. On hover the words
+	-- go white, as the game's title bar links do.)
+	b:SetScript("OnEnter", function(self) self.text:SetTextColor(1, 1, 1) end)
+	b:SetScript("OnLeave", function(self) self.text:SetTextColor(1, 0.82, 0) end)
 	b:SetScript("OnClick", function(self) ns.SafeCall("view as", ns.ViewAs.ToggleMenu, self) end)
 	b:Hide()
 	return b
