@@ -976,7 +976,7 @@ alone until then).
   his Hands when their addon asks, never on the Olympus channel. Their addon takes it only from
   a Lord or Captain of that guild as the census confirms (a snapshot is its sender's word), keeps
   it until logout, and shows it on the Treasury tab under **Guild treasuries**, each guild a page of
-  its own (a Hand's tab appears for it), its items in the search too. His no takes it back from their screens: at once
+  its own (a Hand's tab appears for it and shows it, even while the King shows the army nothing), its items in the search too. His no takes it back from their screens: at once
   from each one whose addon asked in the last 18 minutes (their addon asks every 15; his keeps who
   asked, and when, through a `/reload`), from the others at their next ask, once each, even after
   a `/reload` of his, for as long as his no stands (Konig's review: one who asked before could

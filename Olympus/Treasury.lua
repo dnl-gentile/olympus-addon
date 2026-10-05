@@ -3240,6 +3240,8 @@ local function BankLines(lines, role)
 	if not b then
 		-- A client without the guild bank's functions can't take a snapshot: said, not left blank.
 		Para(lines, (ns.Bank and ns.Bank.HasAPI and not ns.Bank.HasAPI()) and L.TREASURY_BANK_NO_API or L.TREASURY_BANK_NONE)
+		-- (The week's rows or the dues follow it now, not a header: a gap keeps them apart.)
+		lines[#lines].gapAfter = true
 		return
 	end
 	SnapshotLines(lines, b, { byLine = L.TREASURY_BANK_AS_OF:format(ns.DisplayName(b.by) or "?", ns.Ago(b.t)),
@@ -3323,7 +3325,8 @@ local function SisterLines(lines)
 	local B = ns.Bank
 	local allowed = B and B.SeesSisters and B.SeesSisters() and B.Sisters
 	if not allowed then
-		-- The designated Treasurer can see why the global list is absent, without learning a guild.
+		-- The designated Treasurer can see why the global list is absent, without learning a guild:
+		-- whose screens another guild's bank goes to (1.1.5 has no other rule to wait for).
 		if Treasury.IsTreasurer() then
 			lines[#lines + 1] = { header = true, text = L.TREASURY_GUILDS }
 			Para(lines, L.TREASURY_GUILDS_APPROVAL)
@@ -3335,6 +3338,9 @@ local function SisterLines(lines)
 	lines[#lines + 1] = { header = true, text = L.TREASURY_GUILDS, tooltip = function(tt)
 		tt:AddLine(L.TREASURY_GUILDS, 1, 0.82, 0)
 		tt:AddLine(L.TREASURY_GUILDS_TIP, 1, 1, 1, true)
+		-- (Konig's review, as 1.1.4's "Sister guilds' banks" said: who chose to show it, to whom,
+		-- and that a snapshot is its sender's word.)
+		tt:AddLine(L.BANK_SISTERS_TIP, 1, 1, 1, true)
 	end }
 	if #list == 0 then
 		Para(lines, L.TREASURY_GUILDS_NONE)
@@ -3358,17 +3364,19 @@ local function SisterLines(lines)
 	return true
 end
 
+-- The page and its title (the tab's detail): the guild's name only while its snapshot resolves.
 local function GuildLines()
 	local lines = { { text = Gold("< " .. L.TREASURY_TITLE), onClick = function() Treasury.Show("summary") end, gapAfter = true } }
 	local s = GuildSnapshot(guildShown)
 	if not s then
 		lines[#lines + 1] = { header = true, text = L.TREASURY_GUILDS }
 		Para(lines, L.TREASURY_GUILD_SNAPSHOT_GONE)
-		return lines
+		return lines, L.TREASURY_GUILDS
 	end
 	lines[#lines + 1] = { header = true, text = L.TREASURY_GUILD_TITLE:format(s.guild), tooltip = function(tt)
 		tt:AddLine(L.TREASURY_GUILD_TITLE:format(s.guild), 1, 0.82, 0)
 		tt:AddLine(L.TREASURY_GUILDS_TIP, 1, 1, 1, true)
+		tt:AddLine(L.BANK_SISTERS_TIP, 1, 1, 1, true)
 	end }
 	SnapshotLines(lines, s, { byLine = L.TREASURY_GUILD_SHARED_BY:format(ns.DisplayName(s.by) or "?", ns.Ago(s.t)),
 		open = Treasury.sisterTab, setOpen = function(i) Treasury.sisterTab = i end,
@@ -3376,7 +3384,7 @@ local function GuildLines()
 	lines[#lines].gapAfter = true
 	lines[#lines + 1] = { header = true, text = L.TREASURY_BOOK }
 	Para(lines, L.TREASURY_GUILD_BOOK_UNAVAILABLE)
-	return lines
+	return lines, L.TREASURY_GUILD_TITLE:format(s.guild)
 end
 
 -- 1.1: the stacks of a bank whose item holds the search `q` (Bank.Find): each item once, how many
@@ -3434,10 +3442,13 @@ local function SummarySearch(role, q)
 end
 
 local function TreasuryTitle(role)
+	-- How a book is kept speaks to a keeper ("your book", "your own lines"): the King's Steward and
+	-- the author's Asmon's view keep none, so they read who sees it alone (as the book's header).
+	local keeper = Treasury.IsKeeper()
 	return { header = true, text = L.TREASURY_TITLE, tooltip = function(tt)
 		tt:AddLine(L.TREASURY_TITLE, 1, 0.82, 0)
-		if role ~= "member" then
-			tt:AddLine(Treasury.WhoSees(), 1, 1, 1, true)
+		if role ~= "member" then tt:AddLine(Treasury.WhoSees(), 1, 1, 1, true) end
+		if keeper then
 			tt:AddLine(L.TREASURY_HOW, 1, 1, 1, true)
 			tt:AddLine(L.TREASURY_BOOK_HOW, 1, 1, 1, true)
 		end
@@ -3475,9 +3486,12 @@ end
 local function SummaryLines(role, q)
 	if q then return SummarySearch(role, q) end
 	local lines = { TreasuryTitle(role) }
-	-- A member the King shows nothing sees the title and his dues alone, as before.
+	-- A member the King shows nothing sees the title and his dues, and what else gives him the tab
+	-- (Visible): his own open requests to the treasury, a Hand's guild treasuries; in this order.
 	if role == "member" and not Treasury.AnyShown() then
 		ns.Dues.SummaryLines(lines, role)
+		if ns.Bank and ns.Bank.MyRequests and #ns.Bank.MyRequests() > 0 then RequestLines(lines, role) end
+		SisterLines(lines)
 		return lines
 	end
 	local keeper = Treasury.IsKeeper()
@@ -3576,8 +3590,10 @@ end
 function Treasury.Build(q)
 	local role = Treasury.Role()
 	-- An authorized guild's treasury, opened from the summary (ShowGuild): a page of its own.
-	if Treasury.mode == "guild" then return GuildLines(), L.TAB_TREASURY,
-		guildShown and L.TREASURY_GUILD_TITLE:format(guildShown) or L.TREASURY_GUILDS end
+	if Treasury.mode == "guild" then
+		local lines, title = GuildLines()
+		return lines, L.TAB_TREASURY, title
+	end
 	if Treasury.mode == "book" and not Treasury.MaySee("book") then Treasury.mode = "summary" end
 	if Treasury.mode == "keepers" and role == "member" then Treasury.mode = "summary" end
 	-- 1.1: the week's dues (Dues.lua), for whoever may see them.

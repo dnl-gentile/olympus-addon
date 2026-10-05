@@ -6703,7 +6703,7 @@ test("Treasury review fixes: the week survives the update, the King's word reach
 			local first = T.Build()
 			local page = Texts(first)
 			assert(not page:find(ns.L.TREASURY_YOU_AND_KING:sub(1, 30), 1, true), "the long explanation is no longer inline: " .. page)
-			assert(page:find(ns.L.TREASURY_GUILDS_APPROVAL:sub(1, 35), 1, true), "cross-guild policy stays approval-gated: " .. page)
+			assert(page:find(ns.L.TREASURY_GUILDS_APPROVAL:sub(1, 35), 1, true), "the Treasurer told whose screens another guild's bank goes to: " .. page)
 			local title, tip = first[1], { lines = {} }
 			function tip:AddLine(s) self.lines[#self.lines + 1] = s end
 			assert(title.tooltip, "the Treasury title has its explanation")
@@ -36748,7 +36748,7 @@ test("1.1 sister guilds' banks (Fern): their treasurer's yes, whispered to the K
 			lines = T.Build()
 			page = Texts(lines)
 			assert(page:find(ns.L.TREASURY_GUILD_TITLE:format("Olympus Zeus"), 1, true) and page:find("Tab 1", 1, true), page)
-			assert(page:find(ns.L.TREASURY_GUILD_BOOK_UNAVAILABLE:sub(1, 35), 1, true), "approval-gated Book: " .. page)
+			assert(page:find(ns.L.TREASURY_GUILD_BOOK_UNAVAILABLE:sub(1, 35), 1, true), "no book comes with its snapshot: " .. page)
 			eq(Grid(lines)[3].id, 2589, "its grid, where the stack sits")
 			B.Reset()
 			page = Texts((T.Build()))
@@ -37512,8 +37512,10 @@ do
 			eq(T.Role(), "king"); eq(T.IsKeeper(), false)
 			lines = Summary()
 			eq(Sections(lines), "title, balance, in/out, bank, week, kept by, dues button, dues link, part wait, ranking, items, book link, keepers link, requests, army sees, guilds, early")
+			-- (1.1.5 review, changed on purpose: who sees the treasury, not how "your book" is kept,
+			-- since the Steward keeps none; the next test's rows say it whole.)
 			tip = Tip(lines[1])
-			assert(tip:find(ns.L.TREASURY_HOW, 1, true), "the Steward's title explains the treasury too: " .. tip)
+			assert(tip:find(T.WhoSees(), 1, true) and not tip:find(ns.L.TREASURY_HOW, 1, true), "the Steward's title says who sees it: " .. tip)
 			-- A Hand holding the sister guild's snapshot: the army's layout, the guild treasuries before the early supporters.
 			AsSoldier("Layout Hand"); K.HandleCommand("CHANNEL", KING, hands)
 			eq(K.IsHand(), true); eq(T.Role(), "member")
@@ -37524,7 +37526,8 @@ do
 			AsSoldier("Dev Viewer")
 			eq(K.Preview(), true); eq(T.Role(), "king"); eq(T.IsInsider(), false)
 			eq(Sections(Summary()), "title, balance, in/out, bank, week, kept by, dues button, dues link, part wait, ranking, items, book link, keepers link, army sees, early")
-			-- The author's Treasurer's view: a keeper's layout without his switch or backup, the approval note.
+			-- The author's Treasurer's view: a keeper's layout without his switch or backup, the note on
+			-- whose screens another guild's bank goes to.
 			ns.db.devKingView, ns.db.devTreasurerView = nil, true
 			eq(T.Role(), "keeper"); eq(T.RealKeeper(), false)
 			eq(Sections(Summary()), "title, balance, in/out, bank, week, opening, kept by, dues link, part wait, ranking, items, book link, keepers link, guilds, early")
@@ -37685,6 +37688,128 @@ do
 			eq(Plain(Find(lines, "early-supporters").text), "[+] " .. L.TREASURY_EARLY, "after Reset")
 		end)
 	end)
+
+	-- (The review of the port to 1.1.5: each of these failed on its first commit.)
+	test("1.1.5 Treasury order review: no note promises 1.2's approval policy, how a book is kept is told to a keeper alone, a guild's snapshot is still its sender's word, a guild page gone names no guild in its title either", function()
+		WithLayout(function(w, K, T, B)
+			local L = ns.L
+			-- 1.1.5 has no policy to approve: the Treasurer's note and a guild page's book say its
+			-- own rule (whose screens another guild's bank goes to, no book with it), in both languages.
+			local savedLocale, pt = GetLocale, {}
+			GetLocale = function() return "ptBR" end
+			local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+			GetLocale = savedLocale
+			if not ok then error(err, 0) end
+			for _, key in ipairs({ "TREASURY_GUILDS_APPROVAL", "TREASURY_GUILD_BOOK_UNAVAILABLE" }) do
+				for _, text in ipairs({ L[key], pt.L[key] }) do
+					local low = text:lower()
+					for _, word in ipairs({ "polic", "polít", "approv", "aprova", "authoriz", "autoriz" }) do
+						assert(not low:find(word, 1, true), key .. " promises what 1.1.5 lacks: " .. text)
+					end
+				end
+			end
+			Flags(w, ALL)
+			AsTreasurer()
+			T.Record("Layout Donor", 100000, "mail", nil, { quiet = true })
+			local text = Texts(Summary())
+			assert(text:find(L.TREASURY_GUILDS_APPROVAL:sub(1, 30), 1, true), "the Treasurer's note: " .. text)
+			assert(not text:lower():find("polic", 1, true), text)
+			-- The title: how a book is kept for whoever keeps one (the King does), who sees it for
+			-- every insider; the Steward and the author's Asmon's view keep none.
+			AsKing(); eq(T.IsKeeper(), true)
+			local tip = Tip(Summary()[1])
+			assert(tip:find(T.WhoSees(), 1, true) and tip:find(L.TREASURY_HOW, 1, true) and tip:find(L.TREASURY_BOOK_HOW, 1, true), tip)
+			AsSoldier("Layout Steward"); eq(T.Role(), "king"); eq(T.IsKeeper(), false)
+			tip = Tip(Summary()[1])
+			assert(tip:find(T.WhoSees(), 1, true), "who sees it: " .. tip)
+			assert(not tip:find(L.TREASURY_HOW, 1, true) and not tip:find(L.TREASURY_BOOK_HOW, 1, true), "no \"your book\" for one who keeps none: " .. tip)
+			ns.Workshop.Visible = function() return true end
+			ns.db.devKingView, ns.db.previewTreasuryFlags = true, { balance = true, ranking = true, book = true, at = w.clock }
+			AsSoldier("Dev Viewer"); eq(K.Preview(), true); eq(T.IsKeeper(), false)
+			tip = Tip(Summary()[1])
+			assert(tip:find(T.WhoSees(), 1, true) and not tip:find(L.TREASURY_HOW, 1, true), "Asmon's view: " .. tip)
+			ns.db.devKingView, ns.db.previewTreasuryFlags = nil, nil
+			-- The guild treasuries, the King's list and a guild's page: a snapshot is its sender's
+			-- word (Konig's review, as 1.1.4's "Sister guilds' banks" said).
+			AsKing()
+			B.HandleSister("WHISPER", "Zed-Realm", ("TS~Olympus Zeus~%d~424242~;.2,2589x60~;"):format(w.clock))
+			eq(#B.Sisters(), 1)
+			local header
+			for _, l in ipairs(Summary()) do if l.header and Plain(l.text) == L.TREASURY_GUILDS then header = l end end
+			assert(header, "the guild treasuries' header")
+			tip = Tip(header)
+			assert(tip:find(L.TREASURY_GUILDS_TIP, 1, true) and tip:find(L.BANK_SISTERS_TIP, 1, true), "its sender's word: " .. tip)
+			eq(T.ShowGuild("Olympus Zeus"), true)
+			local page, _, detail = T.Build()
+			eq(detail, L.TREASURY_GUILD_TITLE:format("Olympus Zeus"))
+			eq(page[2].header, true)
+			tip = Tip(page[2])
+			assert(tip:find(L.BANK_SISTERS_TIP, 1, true), "the guild's page says it too: " .. tip)
+			text = Texts(page)
+			assert(text:find(L.TREASURY_GUILD_BOOK_UNAVAILABLE:sub(1, 30), 1, true) and not text:lower():find("polic", 1, true), text)
+			-- The Lord's no (his snapshot gone): neither the page nor its title names the guild.
+			B.Reset()
+			page, _, detail = T.Build()
+			eq(T.mode, "guild")
+			eq(detail, L.TREASURY_GUILDS, "the detail names no guild")
+			assert(not Texts(page):find("Olympus Zeus", 1, true), Texts(page))
+			T.Show("summary")
+		end)
+	end)
+
+	test("1.1.5 Treasury order review: the King showing nothing, what gives a member the tab is drawn on it (a Hand's guild treasuries, a Lord's own requests); the bank's \"nothing yet\" keeps a gap before the week", function()
+		WithLayout(function(w, K, T, B)
+			local L = ns.L
+			Flags(w, {})
+			-- A Hand holding <Olympus Zeus>'s snapshot: the tab appears for it, and shows it.
+			AsKing(); K.AddHand("Layout Hand"); K.SendHands(true); local hands = LastSent(w)
+			B.HandleSister("WHISPER", "Zed-Realm", ("TS~Olympus Zeus~%d~424242~;.2,2589x60~;"):format(w.clock))
+			AsSoldier("Layout Hand"); K.HandleCommand("CHANNEL", KING, hands)
+			eq(K.IsHand(), true); eq(T.Role(), "member"); eq(T.AnyShown(), false)
+			eq(#B.Sisters(), 1); eq(T.Visible(), true)
+			local lines = Summary()
+			eq(Sections(lines), "title, dues button, guilds")
+			local row = Find(lines, "sister:Olympus Zeus")
+			assert(row and row.onClick, Texts(lines))
+			row.onClick()
+			eq(T.mode, "guild")
+			assert(Texts((T.Build())):find(L.TREASURY_GUILD_TITLE:format("Olympus Zeus"), 1, true), "its page, a click away")
+			T.Show("summary")
+			B.Reset()
+			eq(Sections(Summary()), "title, dues button, guilds", "(none held now: said so)")
+			-- A soldier who is no Hand: his dues alone, as before.
+			AsSoldier()
+			eq(Sections(Summary()), "title, dues button")
+			-- A Lord: his dues alone until he asks the treasury; then the tab is there for it, and
+			-- his request in it (a click takes it back).
+			AsLord()
+			eq(Sections(Summary()), "title, dues button, dues link")
+			assert(B.Request(2589, 10), "his request")
+			eq(T.Visible(), true)
+			lines = Summary()
+			eq(Sections(lines), "title, dues button, dues link, my requests")
+			local mine
+			for _, l in ipairs(lines) do if Plain(l.text):find("Linen Cloth", 1, true) then mine = l end end
+			assert(mine and mine.onClick, "his request, a click to take it back: " .. Texts(lines))
+			-- A keeper with a report and no bank seen yet: the bank's paragraph, a gap, then the week.
+			Flags(w, ALL)
+			AsTreasurer()
+			T.Record("Layout Donor", 100000, "mail", nil, { quiet = true })
+			eq(B.Current(), nil)
+			lines = Summary()
+			local bank, week
+			for i, l in ipairs(lines) do
+				if l.header and Plain(l.text) == L.TREASURY_BANK then bank = i end
+				if Fits(Plain(l.text), L.TREASURY_WEEK) then week = i end
+			end
+			assert(bank and week and bank < week, Texts(lines))
+			-- (This harness has no guild bank functions: the client's "none to show" is that paragraph.)
+			local para = Plain(lines[bank + 1].text)
+			assert(Opens(para, L.TREASURY_BANK_NONE) or Opens(para, L.TREASURY_BANK_NO_API), "the bank's paragraph under its header: " .. Texts(lines))
+			for i = bank + 1, week - 2 do eq(lines[i].gapAfter, nil, "one paragraph: " .. Plain(lines[i].text)) end
+			eq(lines[week - 1].gapAfter, true, "a gap under the bank's paragraph: " .. Plain(lines[week - 1].text))
+		end)
+	end)
 end
 
 test("1.1 the treasury's new lines (bank, sister guilds, requests, donations, backup) are in both languages, with the same format arguments", function()
@@ -37693,7 +37818,7 @@ test("1.1 the treasury's new lines (bank, sister guilds, requests, donations, ba
 	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
 	GetLocale = savedLocale
 	if not ok then error(err, 0) end
-	for _, key in ipairs({ "TREASURY_PART_WAIT", "BANK_GONE", "BANK_GONE_TITLE", "BANK_GONE_TIP", "BANK_GONE_SLOT", "BANK_FOUND_TIP", "BANK_SISTERS",
+	for _, key in ipairs({ "TREASURY_PART_WAIT", "BANK_GONE", "BANK_GONE_TITLE", "BANK_GONE_TIP", "BANK_GONE_SLOT", "BANK_FOUND_TIP",
 		"BANK_SISTERS_TIP", "BANK_SISTER_OF", "BANK_SISTER_TAB", "BANK_SISTER_ASK", "BANK_SISTER_YES", "BANK_SISTER_NO", "BANK_SISTER_ON",
 		"BANK_SISTER_OFF", "BANK_SISTER_ONLY", "HELP_BANK", "TREASURY_GUILDS", "TREASURY_GUILDS_TIP", "TREASURY_GUILDS_NONE",
 		"TREASURY_GUILDS_APPROVAL", "TREASURY_GUILD_TITLE", "TREASURY_GUILD_ITEMS", "TREASURY_GUILD_SHARED_BY",
