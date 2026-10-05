@@ -86,6 +86,7 @@ local PROBE_GLOBALS = {
 }
 -- label, the object (nil when this client has none), its fields, and the field that is a list
 -- whose slots are read one by one.
+-- gp:diagnostics
 local PROBE_OBJECTS = {
 	{ "binding stack", function() return type(GamepadSharedUtility) == "table" and GamepadSharedUtility.InputBindingManager end,
 		{ "bindingSetStack", "currentCoreBindingActive", "assumeCoreBindingsUsable", "coreSet", "coreBindingListenerFunctions" }, "bindingSetStack" },
@@ -99,7 +100,7 @@ local PROBE_OBJECTS = {
 local PROBE_SLOTS = 20 -- slots of a list read at most (one past its end too: a slot emptied)
 
 -- One line: the values above an addon wrote, and whose, or that none was.
-function ns.TaintProbe()
+function ns.TaintProbe() -- gp:diagnostics
 	if type(issecurevariable) ~= "function" then return "taint: not checked (no issecurevariable)" end
 	local found, checked = {}, 0
 	local function Check(label, t, key)

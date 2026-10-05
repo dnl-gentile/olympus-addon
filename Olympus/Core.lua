@@ -64,7 +64,7 @@ end
 
 function ns.Now() return time() end
 
-function ns.Print(msg)
+function ns.Print(msg) -- gp:chat-output
 	print("|c" .. ns.COLOR .. "Olympus:|r " .. tostring(msg))
 end
 
@@ -467,7 +467,7 @@ end
 -- told).
 local worldMapIconsOf = {} -- [ref] = true: may have icons on the world map
 local worldMapTouched = false -- icons of ours went on the world map this session
-function ns.WorldMapIcons(pins, ref)
+function ns.WorldMapIcons(pins, ref) -- gp:worldmap-icons
 	if ns.Gate.Allowed("worldmap-icons") then
 		worldMapIconsOf[ref] = true
 		worldMapTouched = true
@@ -684,7 +684,7 @@ end
 -- a.what, its words in the summary and on the Decrees tab (a.text by default); a.open(), still
 -- current (none: as long as the player is away); a.key, the same alert repeated (the Agenda and
 -- its reminders): one line. True when it showed now.
-function ns.Alert(kind, tone, a)
+function ns.Alert(kind, tone, a) -- gp:raid-notice
 	a = a or {}
 	if not a.own and ns.Quiet() then
 		held[#held + 1] = { kind = kind, tone = tone, what = a.what or a.text or kind, key = a.key, t = ns.Now(), open = a.open, show = a.show }
@@ -749,7 +749,7 @@ end
 -- warning and the loudest sound its switches allow), then the popups and windows still open.
 -- What is over by then stays in its list: a grey line says how many.
 ns.HELD_WORDS = 5 -- alerts named in that line; the rest counted
-function ns.ReleaseHeld()
+function ns.ReleaseHeld() -- gp:raid-notice
 	if (#held == 0 and goneN == 0 and not next(goneKeys)) or ns.Quiet() then return false end
 	local list = ns.Held()
 	-- The ones over, each counted once (an Agenda and its reminders are one), with those over
@@ -1697,9 +1697,9 @@ end
 -- end of the list goes at once (from the end: nothing moves); one before another addon's stays, and
 -- the player is told a /reload clears it.
 local escapeNames = {} -- the names of ours on the list this session
-function ns.EscapeCloses(name)
-	if type(name) ~= "string" or not UISpecialFrames then return end
+function ns.EscapeCloses(name) -- gp:escape-list
 	local gamepad = not ns.Gate.Allowed("escape-list")
+	if type(name) ~= "string" or not UISpecialFrames then return end
 	for i, n in ipairs(UISpecialFrames) do
 		if n == name then
 			escapeNames[name] = true
@@ -1713,6 +1713,7 @@ function ns.EscapeCloses(name)
 		escapeNames[name] = true
 	end
 end
+-- gp:escape-list
 ns.Gate.Hooks("escape-list", {
 	park = function()
 		local list = UISpecialFrames
@@ -1730,7 +1731,7 @@ ns.Gate.Hooks("escape-list", {
 -- (1.1.5, the gamepad gate's "dialogs": a game popup of ours still up at a switch to the gamepad UI
 -- leaves the popups' shared state behind in Olympus's taint until a /reload; the player is told.)
 local gamePopups = {} -- [which] = true: shown as the game's popup this session
-function ns.ShowDialog(which, a, b, data)
+function ns.ShowDialog(which, a, b, data) -- gp:dialogs
 	local own = not ns.Gate.Allowed("dialogs")
 	ns.Log("dialog %s (%s)", tostring(which), own and "olympus window, gamepad UI" or "game popup")
 	if own then
@@ -1742,11 +1743,11 @@ function ns.ShowDialog(which, a, b, data)
 	if type(which) == "string" then gamePopups[which] = true end
 	return StaticPopup_Show(which, a, b, data)
 end
-function ns.HideDialog(which, data)
+function ns.HideDialog(which, data) -- gp:dialogs
 	if not ns.Dialog.missing then ns.Dialog.Hide(which, data) end
 	if ns.Gate.Allowed("dialogs") and StaticPopup_Hide then StaticPopup_Hide(which, data) end
 end
-ns.Gate.Hooks("dialogs", { leftover = function()
+ns.Gate.Hooks("dialogs", { leftover = function() -- gp:dialogs
 	-- (StaticPopup_Visible: the game's own lookup, run securely by the game itself.)
 	if type(StaticPopup_Visible) ~= "function" then return false end
 	for which in pairs(gamePopups) do
@@ -1766,7 +1767,7 @@ end
 -- The keyboard to one of our edit boxes (setFocus: its own SetFocus). With the gamepad UI,
 -- not while another box has it (the chat's): its focus change would run the game's gamepad
 -- code from ours, and the game blocks it (see Dialog.lua); the player clicks into ours.
-function ns.Focus(eb, setFocus)
+function ns.Focus(eb, setFocus) -- gp:popup-focus
 	setFocus = setFocus or eb.SetFocus
 	if ns.GamepadUI() and GetCurrentKeyBoardFocus then
 		local current = GetCurrentKeyBoardFocus()
@@ -2231,7 +2232,7 @@ local function Slash(input)
 end
 
 local slashDone = false
-ns.Gate.Hooks("slash", { key = "core", leftover = function() return slashDone end, install = function()
+ns.Gate.Hooks("slash", { key = "core", leftover = function() return slashDone end, install = function() -- gp:slash
 	if slashDone then return end
 	slashDone = true
 	SLASH_OLYMPUS1, SLASH_OLYMPUS2 = "/olympus", "/oly"

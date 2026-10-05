@@ -100,7 +100,7 @@ local function RefreshNow()
 	if not Pins then return end
 	-- With the gamepad UI no zone circles (they are the pin library's, ns.WorldMapIcons); the
 	-- continent totals below are drawn by us, never through the library, and stay.
-	local world = ns.WorldMapIcons(Pins, Map)
+	local world = ns.WorldMapIcons(Pins, Map) -- gp:worldmap-icons
 	if world then Pins:RemoveAllWorldMapIcons(Map) end
 	for i = #active, 1, -1 do
 		active[i]:Hide()
@@ -476,7 +476,7 @@ local OPTIONS = {
 	{ key = "showCamps", label = "MAPOPT_CAMPS", apply = function() if ns.Board and ns.Board.RefreshCamps then ns.Board.RefreshCamps() end end },
 }
 
-local function CreateMapToggle()
+local function CreateMapToggle() -- gp:map-overlay
 	if toggle or not WorldMapFrame then return end
 	local anchor = WorldMapFrame.ScrollContainer or WorldMapFrame
 	-- Round, bottom left corner of the map (Questie uses the top right; Forever's map has its
@@ -541,7 +541,7 @@ end
 ns.On("DATA_CHANGED", QueueRefresh)
 
 local hooked = false
-local function HookWorldMap()
+local function HookWorldMap() -- gp:map-overlay
 	if hooked or not WorldMapFrame then return end
 	hooked = true
 	-- (Each does nothing with the gamepad UI on: LayoutOverlay's first line.)
@@ -567,7 +567,7 @@ end
 -- change), wrapped once at login, before the map is first opened; the provider and its pool
 -- stay, other addons may use this copy too.
 local providerQuiet = false
-function Map.QuietPinsProvider()
+function Map.QuietPinsProvider() -- gp:map-library
 	if providerQuiet then return true end
 	local lib = LibStub and LibStub("HereBeDragons-Pins-2.0", true)
 	local provider = type(lib) == "table" and lib.worldmapProvider
@@ -592,7 +592,7 @@ ns.On("LOGIN", function()
 		local raw = LibStub and LibStub("HereBeDragons-Pins-2.0", true)
 		-- A half-loaded library can still run its per-frame update and raise an error on
 		-- every frame. Stop it: no map features is fine, a flood of errors is not.
-		if raw and raw.updateFrame then
+		if raw and raw.updateFrame then -- gp:lib-partial
 			raw.updateFrame:SetScript("OnUpdate", nil)
 			raw.updateFrame:SetScript("OnEvent", nil)
 			raw.updateFrame:UnregisterAllEvents()

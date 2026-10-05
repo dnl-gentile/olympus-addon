@@ -3,6 +3,14 @@
 Read [AGENTS.md](AGENTS.md) first: it says how changes are tested and checked. Every change runs
 `bash scripts/check.sh` from the repository root (LuaJIT and Bash).
 
+## Touching the game's own windows
+
+Anything that reaches into the game's UI (its frames, popups, menus, tooltips, chat box, bindings,
+tables or globals) goes through the gamepad gate: an entry in `Olympus/GamepadRegistry.lua`, a
+`-- gp:<id>` tag on each site and `ns.Gate.Allowed("<id>")` before it. The steps are in
+[AGENTS.md](AGENTS.md) ("Registering a gamepad integration"); `bash scripts/check.sh` runs
+`scripts/gamepad-audit.lua`, which names the file and line of anything left out.
+
 ## Adding or finishing a language
 
 Olympus shows its text in the game's language when it has lines for it. English

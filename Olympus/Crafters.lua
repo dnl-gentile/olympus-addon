@@ -599,7 +599,7 @@ end
 ---------------------------------------------------------------------------
 
 -- A whisper to a crafter, the player's own (the game's box; Olympus's with the gamepad UI).
-local function Whisper(name)
+local function Whisper(name) -- gp:chat-box
 	local tell = ns.TellName(name)
 	if not ns.Gate.Allowed("chat-box") then return ns.UI.WhisperWindow(tell) end
 	ns.Gate.Used("chat-box") -- (the gate's: told at a switch to the gamepad UI)
@@ -609,7 +609,7 @@ Crafters.Whisper = Whisper
 
 -- The ask's box: with mouse and keyboard the chat's, "/oly craft " in it, where a shift-click
 -- puts an item's link; with the gamepad UI Olympus's own window (words only there).
-function Crafters.AskPrompt()
+function Crafters.AskPrompt() -- gp:chat-box
 	if ns.Gate.Allowed("chat-box") and ChatFrame_OpenChat then
 		ns.Gate.Used("chat-box")
 		return ChatFrame_OpenChat("/oly craft ")

@@ -167,7 +167,7 @@ function PlayerMenu.Build(which, root, ctx)
 end
 
 -- Every menu above, once (at login: Blizzard_Menu loads before any addon).
-function PlayerMenu.Hook()
+function PlayerMenu.Hook() -- gp:player-menu
 	if hooked then return true end
 	-- Do not register an addon callback in Blizzard's protected gamepad player-menu path. If the
 	-- player later returns to mouse and keyboard, the input-style event below installs it then.

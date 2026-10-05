@@ -27,6 +27,7 @@ local ADDON, ns = ...
 --           "click": the game's restricted calls, only from the player's click on an Olympus
 --             button (allowed; the click is the caller's to check).
 --           "exempt": allowed in both modes, for the reason in `why`, with `approved`.
+--           "isolated": allowed, the game calling it isolated (securecall), cited in `pins`.
 --   toPad   a switch to the gamepad UI: "park" (Olympus's objects on the game's frames hidden,
 --           what can be undone undone, next frame), "inert" (registered with the game, cannot
 --           be removed, does nothing from its first line), "reload" (stays on the game's side
@@ -38,11 +39,19 @@ local ADDON, ns = ...
 --   why     the reason, in a sentence.
 --   pins    (optional) the lines of Forever's own UI source the reason rests on, to check them
 --           again when the client's build changes.
---   globals (optional) the game's global names it may write (the slash commands').
+--   globals (optional) the global names it may write, in its own files (the slash commands', a
+--           vendored library's own).
+--   vendor  (optional) vendored library files (under Olympus/) whose reaches are all this entry's,
+--           so the library's code carries no tags.
 --
--- To add an integration: an entry here; ns.Gate.Allowed("<id>") before the first touch of the
--- game's UI and as the first line of every function handed to the game; Gate.Hooks("<id>", ...)
--- when it leaves something on the game's side; a test with the gamepad UI on and across switches.
+-- Every site in the code is tagged "-- gp:<id>", and scripts/gamepad-audit.lua (in
+-- scripts/check.sh) fails on a reach of the game's UI with no tag, a tag with no entry here, an
+-- entry tagged nowhere or no test covers, and a global write that is not Olympus's.
+--
+-- To add an integration: an entry here; "-- gp:<id>" on each site; ns.Gate.Allowed("<id>") before
+-- the first touch of the game's UI and as the first line of every function handed to the game;
+-- Gate.Hooks("<id>", ...) when it leaves something on the game's side; GP.Covers("<id>") in the
+-- gamepad pass (tests/gamepad.lua), with the gamepad UI on and across switches (AGENTS.md).
 
 -- The Forever client build the pins were last checked against (1.60.1).
 ns.GAMEPAD_CHECKED_BUILD = 70205
@@ -67,7 +76,7 @@ ns.GAMEPAD = {
 	{ id = "tooltip-unit", kind = "tooltip-postcall", files = { "Inspect.lua" },
 		guard = "gate", toPad = "inert", toMouse = "install", safe = "off",
 		why = "Olympus's lines on a player's tooltip: the gamepad's soft target shows that tooltip again and again, and Olympus writes nothing in the game's frames there." },
-	{ id = "error-handler", kind = "global-handler", files = { "Bootstrap.lua" },
+	{ id = "error-handler", kind = "global-handler", files = { "Bootstrap.lua", "Diagnostics.lua" },
 		guard = "gate", toPad = "park", toMouse = "nothing", safe = "off",
 		why = "Every error would pass through Olympus's handler, which opens the game's error window in Olympus's taint; at a switch to the gamepad UI the game's own handler is put back, and never replaced again that session." },
 	{ id = "escape-list", kind = "table-write", files = { "Core.lua" },
@@ -95,6 +104,8 @@ ns.GAMEPAD = {
 		guard = "click", toPad = "stays", toMouse = "nothing", safe = "off",
 		why = "A plain /who, only from the player's click on an Olympus button: its answer shows in the game's own who list." },
 	{ id = "map-library", kind = "data-provider", files = { "Map.lua" },
+		vendor = { "libs/HereBeDragons/HereBeDragons-Pins-2.0.lua" },
+		globals = { "HBD_PINS_WORLDMAP_SHOW_PARENT", "HBD_PINS_WORLDMAP_SHOW_CONTINENT", "HBD_PINS_WORLDMAP_SHOW_WORLD" },
 		guard = "exempt", toPad = "stays", toMouse = "nothing", safe = "keep", approved = APPROVED,
 		why = "HereBeDragons-Pins' world map provider is registered when the library loads, in both modes; Olympus's copy returns at once with no pin to clear under the gamepad UI (Map.QuietPinsProvider)." },
 	{ id = "chat-key", kind = "binding", files = { "ChatWindow.lua" },
@@ -132,7 +143,7 @@ ns.GAMEPAD = {
 	{ id = "mail-trade-fill", kind = "frame-fill", files = { "Dues.lua" },
 		guard = "gate", toPad = "stays", toMouse = "on", safe = "off",
 		why = "Filling the game's mail and trade windows for the dues: with the gamepad UI a line saying what to send instead." },
-	{ id = "roster-actions", kind = "restricted", files = { "Members.lua", "Dues.lua", "Recruit.lua", "UI.lua", "Hop.lua" },
+	{ id = "roster-actions", kind = "restricted", files = { "Members.lua", "Dues.lua", "Recruit.lua", "UI.lua" },
 		guard = "click", toPad = "stays", toMouse = "nothing", safe = "off",
 		why = "Invites, whispers sent and guild actions: only from the player's click on an Olympus button." },
 	{ id = "inspect-patrol", kind = "inspect", files = { "Inspect.lua" },
@@ -159,4 +170,21 @@ ns.GAMEPAD = {
 	{ id = "diagnostics", kind = "reads", files = { "Diagnostics.lua", "Gamepad.lua" },
 		guard = "own", toPad = "stays", toMouse = "nothing", safe = "keep",
 		why = "Reads only (taint probe, stacks), and the notices in Olympus's own windows." },
+
+	-- Found by the audit (scripts/gamepad-audit.lua), registered with it.
+	{ id = "lookups", kind = "reads", files = { "Borders.lua", "Channels.lua", "ChatWindow.lua", "Dialog.lua", "GuildFrame.lua", "Treasury.lua", "UI.lua", "Views.lua", "Who.lua", "Workshop.lua" },
+		guard = "own", toPad = "stays", toMouse = "nothing", safe = "keep",
+		why = "Looked up by name and only read: Olympus's own frames' parts, the game's fonts and strings, where the game's popups and main chat tab are (Olympus's own windows go under or point at them), whether the who windows are open, the client's icon lists." },
+	{ id = "own-templates", kind = "frame-helper", files = { "UI.lua" },
+		guard = "own", toPad = "stays", toMouse = "nothing", safe = "keep",
+		why = "The who list's column helper (WhoFrameColumn_SetWidth) sizing Olympus's own column headers, made from the game's template in the old guild window's look: nothing of the game's own frames." },
+	{ id = "reload-button", kind = "restricted", files = { "Gamepad.lua" },
+		guard = "click", toPad = "stays", toMouse = "nothing", safe = "keep",
+		why = "ReloadUI, from the Reload button of Olympus's own gamepad notice: the player's click." },
+	{ id = "hop-group", kind = "restricted", files = { "Hop.lua" },
+		guard = "exempt", toPad = "stays", toMouse = "nothing", safe = "off", approved = APPROVED,
+		why = "The layer hop's group: the helper's addon invites a vouched guest (InviteUnit) and either side leaves after the hop (LeaveParty), from Olympus's own messages and timers; neither is protected, and the game's group frames follow from its own events." },
+	{ id = "lib-stub", kind = "library", files = {}, vendor = { "libs/LibStub/LibStub.lua" }, globals = { "LibStub" },
+		guard = "own", toPad = "stays", toMouse = "nothing", safe = "keep",
+		why = "LibStub, the libraries' shared registry: it keeps itself in its own global, as in every addon that carries it." },
 }

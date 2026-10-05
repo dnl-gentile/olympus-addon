@@ -535,12 +535,12 @@ end
 function Week.OpenCalendar(e)
 	if not e then return false end
 	local when = Week.DayLabel(e.at) .. " " .. Week.TimeLabel(e.at)
-	if ns.GamepadUI() or (InCombatLockdown and InCombatLockdown()) or type(ToggleCalendar) ~= "function" then
+	if ns.GamepadUI() or (InCombatLockdown and InCombatLockdown()) or type(ToggleCalendar) ~= "function" then -- gp:calendar
 		ns.Print(L.WEEK_CAL_HINT:format(when, e.title))
 		return false
 	end
 	if not (CalendarFrame and CalendarFrame.IsShown and CalendarFrame:IsShown()) then
-		local ok = pcall(ToggleCalendar)
+		local ok = pcall(ToggleCalendar) -- gp:calendar
 		if not ok then
 			ns.Print(L.WEEK_CAL_HINT:format(when, e.title))
 			return false

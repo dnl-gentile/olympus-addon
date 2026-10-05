@@ -214,7 +214,7 @@ function Hop.HandleAsk(dist, sender, text)
 end
 
 -- release: the addon lets the guest go after GUEST_TIME (the helper chose that).
-local function Invite(name, id, release)
+local function Invite(name, id, release) -- gp:hop-group
 	local target = ns.TellName(name)
 	if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(target) elseif InviteUnit then InviteUnit(target) end
 	guests[ns.ShortName(name)] = { name = name, id = id or 0, t = ns.Now(), release = release and true or false }
@@ -482,7 +482,7 @@ local function AskedHelper(name)
 	return nil
 end
 
-function Hop.OnInvite(name)
+function Hop.OnInvite(name) -- gp:party-invite
 	if not ask or (ask.phase ~= "requested" and ask.phase ~= "accepted") then return end
 	local helper = AskedHelper(name)
 	if not helper then return end
@@ -512,7 +512,7 @@ function Hop.OnInvite(name)
 	Changed()
 end
 
-local function LeaveGroup()
+local function LeaveGroup() -- gp:hop-group
 	if C_PartyInfo and C_PartyInfo.LeaveParty then C_PartyInfo.LeaveParty() elseif LeaveParty then LeaveParty() end
 end
 

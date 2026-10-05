@@ -926,7 +926,7 @@ end
 
 -- The game's main chat tab (its frame's name and "Tab": ChatFrame1Tab, FloatingChatFrame.xml),
 -- when it shows. Read only.
-local function MainChatTab()
+local function MainChatTab() -- gp:lookups
 	local f = DEFAULT_CHAT_FRAME
 	local name = type(f) == "table" and type(f.GetName) == "function" and f:GetName() or nil
 	local tab = type(name) == "string" and _G[name .. "Tab"] or nil
@@ -1500,9 +1500,9 @@ SyncKeys = function(due, gamepad)
 		keysLater = true
 		return
 	end
-	if type(SetOverrideBindingClick) ~= "function" or type(ClearOverrideBindings) ~= "function" then return end
+	if type(SetOverrideBindingClick) ~= "function" or type(ClearOverrideBindings) ~= "function" then return end -- gp:chat-key
 	syncing = true
-	local ok, err = pcall(function()
+	local ok, err = pcall(function() -- gp:chat-key
 		local b = KeyButton()
 		boundKeys = #keys > 0 and keys or nil
 		ClearOverrideBindings(b)

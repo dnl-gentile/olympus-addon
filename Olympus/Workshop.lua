@@ -2449,7 +2449,7 @@ ns.Comm.Handle("HI", function(...) Workshop.HandleIcon(...) end)
 -- Repeats, and anything ns.CouncilIconValue refuses, are left out. Also: whether any is a name
 -- (only names can be filtered; file numbers say nothing).
 local ICON_LISTS = { "GetLooseMacroIcons", "GetLooseMacroItemIcons", "GetMacroIcons", "GetMacroItemIcons" }
-function Workshop.GameIcons()
+function Workshop.GameIcons() -- gp:lookups
 	local out, seen, names = {}, {}, false
 	for _, api in ipairs(ICON_LISTS) do
 		local fill = _G[api]

@@ -191,12 +191,12 @@ local function ItemButton(r, k)
 		end
 		-- Shift-click: the link into the chat box, as in a bag (not with the gamepad UI: its
 		-- chat box would be blocked, see Dialog.lua).
-		if not it or not IsShiftKeyDown or not IsShiftKeyDown() or not ns.Gate.Allowed("chat-box") or not ChatEdit_InsertLink then return end
+		if not it or not IsShiftKeyDown or not IsShiftKeyDown() or not ns.Gate.Allowed("chat-box") or not ChatEdit_InsertLink then return end -- gp:chat-box
 		local link = it.link
 		if not link and GetItemInfo then local okInfo, _, l = pcall(GetItemInfo, it.id); if okInfo then link = l end end
 		if link then
 			ns.Gate.Used("chat-box") -- (the gate's: told at a switch to the gamepad UI)
-			pcall(ChatEdit_InsertLink, link)
+			pcall(ChatEdit_InsertLink, link) -- gp:chat-box
 		end
 	end)
 	b:SetScript("OnEnter", function(self)
@@ -414,7 +414,7 @@ function Views.Render(content, lines, layout)
 			r.left:Show()
 			r.right:Show()
 			-- line.font: a font object by name (the Throne's dark ink on parchment), if the client has it.
-			local font = line.font and _G[line.font] and line.font or nil
+			local font = line.font and _G[line.font] and line.font or nil -- gp:lookups
 			r.left:SetFontObject(font or (line.header and "GameFontNormal" or (line.color or "GameFontHighlightSmall")))
 			r.right:SetFontObject(font or "GameFontHighlightSmall")
 			r.left:ClearAllPoints()

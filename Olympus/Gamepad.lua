@@ -142,11 +142,11 @@ local NOTICE = "OLYMPUS_GAMEPAD_RELOAD"
 if type(StaticPopupDialogs) == "table" then
 	StaticPopupDialogs[NOTICE] = {
 		text = L.GATE_NOTICE, button1 = L.GATE_RELOAD, button2 = L.GATE_CLOSE,
-		OnAccept = function() if type(ReloadUI) == "function" then ReloadUI() end end,
+		OnAccept = function() if type(ReloadUI) == "function" then ReloadUI() end end, -- gp:reload-button
 		timeout = 0, whileDead = true,
 	}
 end
-local function Notice()
+local function Notice() -- gp:diagnostics
 	if noticed or not ns.GamepadUI() then return end
 	noticed = true
 	local D = ns.Dialog

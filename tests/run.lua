@@ -23926,7 +23926,7 @@ do
 		assert(loadfile(ADDON_DIR .. "GamepadRegistry.lua"))("Olympus", reg)
 		assert(type(reg.GAMEPAD) == "table" and #reg.GAMEPAD >= 20, "the list")
 		eq(reg.GAMEPAD_CHECKED_BUILD, 70205, "Forever 1.60.1's build, the pins were checked on")
-		local GUARDS = { gate = true, own = true, click = true, exempt = true }
+		local GUARDS = { gate = true, own = true, click = true, exempt = true, isolated = true }
 		local PAD = { park = true, inert = true, reload = true, stays = true }
 		local MOUSE = { install = true, on = true, nothing = true }
 		local seen = {}
@@ -23938,8 +23938,13 @@ do
 			if e.guard == "exempt" then
 				assert(type(e.approved) == "string" and e.approved:find("%d%d%d%d%-%d%d%-%d%d"), e.id .. ": approved, with a date")
 			end
-			assert(type(e.files) == "table" and #e.files > 0, e.id .. ": its files")
+			-- (A vendored library's own entry names its files under `vendor`: the gamepad audit reads
+			-- their reaches as that entry's, with no tags in the library's code.)
+			local vendor = type(e.vendor) == "table" and e.vendor or {}
+			assert(type(e.files) == "table" and (#e.files > 0 or #vendor > 0), e.id .. ": its files")
 			for _, f in ipairs(e.files) do assert(ReadFile(ADDON_DIR .. f), e.id .. ": " .. f .. " exists") end
+			for _, f in ipairs(vendor) do assert(ReadFile(ADDON_DIR .. f), e.id .. ": " .. f .. " exists") end
+			if e.guard == "isolated" then assert(type(e.pins) == "table" and #e.pins > 0, e.id .. ": the game's lines that isolate it") end
 		end
 		for _, id in ipairs({ "slash", "communities-button", "tooltip-unit", "error-handler", "escape-list", "worldmap-icons", "map-overlay",
 			"dialogs", "chat-box", "issue-reporter", "who-quiet", "who", "chat-key", "player-menu", "borders", "chat-marks", "nameplates", "minimap" }) do

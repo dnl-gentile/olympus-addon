@@ -72,7 +72,7 @@ local ours = previous and function(err, ...)
 	end)
 	return previous(err, ...)
 end
-if ours then seterrorhandler(ours) end
+if ours then seterrorhandler(ours) end -- gp:error-handler
 
 -- 1.1.5, the gamepad gate ("error-handler", registered in Diagnostics.lua, this file loading before
 -- any gate): at a switch to the gamepad UI the game's handler goes back, if ours is still the one in
@@ -81,13 +81,13 @@ if ours then seterrorhandler(ours) end
 -- when it went back.
 function ns.ParkErrorHandler()
 	if not (ours and previous) or geterrorhandler() ~= ours then return false end
-	seterrorhandler(previous)
+	seterrorhandler(previous) -- gp:error-handler!hook
 	ours = nil
 	return true
 end
 function ns.ErrorHandlerOurs() return ours ~= nil and geterrorhandler() == ours end -- (tests, status)
 
 if not WorldMapFrame then
-	local load = (C_AddOns and C_AddOns.LoadAddOn) or LoadAddOn
+	local load = (C_AddOns and C_AddOns.LoadAddOn) or LoadAddOn -- gp:load-worldmap
 	if load then pcall(load, "Blizzard_WorldMap") end
 end

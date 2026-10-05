@@ -1975,6 +1975,11 @@ Council signing round trip: a throwaway key in a temporary folder, lists signed 
 `scripts/council-sign.py` and checked by `Olympus/Sign.lua` (never the author's key). This
 is the same command CI uses; it stops with a nonzero exit status on failure.
 The TOC file check also catches filename case mismatches on CI's Linux filesystem.
+The gamepad gate's audit (1.1.5, `scripts/gamepad-audit.lua`) compiles every addon file without
+running it and reads its bytecode: every place the addon reaches into the game's own UI must be
+registered in `Olympus/GamepadRegistry.lua`, tagged `-- gp:<id>` and behind the gate, and no
+global that is not Olympus's may be written; Olympus's own tooltips and chat lines are counted
+per file against `scripts/gamepad-baseline.txt`. AGENTS.md says how to register one.
 The offline suite checks the border textures in `Olympus/media/borders/` (32-bit TGAs with
 alpha, 256 x 256, and the member's 32 x 32 star for the nameplate marks); with Pillow installed,
 `scripts/check.sh` also checks they are what `scripts/make-borders.py` builds from Max's PNGs in
@@ -1990,6 +1995,7 @@ budget (92,000 bytes).
 bash scripts/check.sh                    # full repository checks used by CI
 luajit tests/run.lua                      # offline tests: codec, roster, hierarchy, security, layers, decrees, channels
 scripts/lint-globals.sh                   # catches locals used before they are declared
+luajit scripts/gamepad-audit.lua [--list]  # the gamepad gate: every reach into the game's UI registered (--list: each one)
 bash tests/check-scripts.sh               # verify check-script failure handling (also run in CI)
 bash tests/sign-roundtrip.sh              # the High Council signing script end to end (needs python3)
 python3 tests/fixtures/make-link-vectors.py --check  # Olympus Link's shared vectors, sample, draw and inbox (needs "cryptography")

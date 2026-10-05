@@ -220,7 +220,7 @@ local function Pump()
 			pending = { guid = item.guid, unit = unit, at = GetTime(), gear = item.gear }
 			lastRequest = GetTime()
 			Inspect.stats.requests = Inspect.stats.requests + 1
-			NotifyInspect(unit)
+			NotifyInspect(unit) -- gp:inspect-patrol
 			return
 		end
 	end
@@ -287,7 +287,7 @@ local function OnInspectReady(guid)
 	elseif gear then
 		ns.Print(L.GEAR_GONE)
 	end
-	if not (InspectFrame and InspectFrame:IsShown()) and ClearInspectPlayer then ClearInspectPlayer() end
+	if not (InspectFrame and InspectFrame:IsShown()) and ClearInspectPlayer then ClearInspectPlayer() end -- gp:inspect-patrol
 end
 Inspect.OnInspectReady = OnInspectReady -- (tests)
 
@@ -837,7 +837,7 @@ function Inspect.CouncilTooltip(tooltip, name, guild)
 	local M = ns.Moderation
 	if name ~= ns.me and type(M) == "table" and type(M.Hides) == "function" and M.Hides(name, guild) ~= nil then return false end
 	local mark = ns.CouncilMark(name)
-	local left = not ns.GamepadUI() and type(tooltip.GetName) == "function" and _G[(tooltip:GetName() or "") .. "TextLeft1"]
+	local left = not ns.GamepadUI() and type(tooltip.GetName) == "function" and _G[(tooltip:GetName() or "") .. "TextLeft1"] -- gp:tooltip-unit
 	local text = left and type(left.GetText) == "function" and left:GetText()
 	if type(text) == "string" and not SecretTooltipValue(text) and text ~= "" and not text:find(mark, 1, true) then
 		left:SetText(text .. " " .. mark)
@@ -885,7 +885,7 @@ end)
 -- The players' tooltips (the gate's "tooltip-unit"): registered at a login with mouse and keyboard,
 -- or at the first switch to it after a gamepad login; once a session (the game keeps a post-call).
 local tooltipHooked = false
-ns.Gate.Hooks("tooltip-unit", { install = function()
+ns.Gate.Hooks("tooltip-unit", { install = function() -- gp:tooltip-unit
 	if tooltipHooked then return end
 	tooltipHooked = true
 	local hooked = false

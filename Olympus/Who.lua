@@ -60,8 +60,8 @@ Who.lastPlain = 0  -- GetTime() of the last SendPlain, 0 = none yet
 -- The frames that open a who list on WHO_LIST_UPDATE, looked up when we search (Blizzard's
 -- group finder loads on demand). ClassicUI Forever's is its list's `driver` frame.
 local LISTENERS = {
-	{ "FriendsFrame", function() return _G.FriendsFrame end },
-	{ "LFGWhoListFrame", function() return _G.LFGWhoListFrame end },
+	{ "FriendsFrame", function() return _G.FriendsFrame end }, -- gp:lookups
+	{ "LFGWhoListFrame", function() return _G.LFGWhoListFrame end }, -- gp:lookups
 	{ "ClassicUIForeverWhoPanel.driver", function()
 		local panel = _G.ClassicUIForeverWhoPanel
 		return type(panel) == "table" and panel.driver or nil
@@ -94,12 +94,12 @@ local listeners = {}
 -- ({ name, guild, level, class, zone }), missing = more may be online.
 function Who.Listen(fn) listeners[#listeners + 1] = fn end
 
-local function SetWhoToUi(on)
+local function SetWhoToUi(on) -- gp:who
 	if C_FriendList and C_FriendList.SetWhoToUi then C_FriendList.SetWhoToUi(on)
 	elseif SetWhoToUI then SetWhoToUI(on and 1 or 0) end
 end
 
-local function Send(query)
+local function Send(query) -- gp:who
 	if C_FriendList and C_FriendList.SendWho then C_FriendList.SendWho(query) else SendWho(query) end
 end
 
@@ -134,7 +134,7 @@ local function MaxLevel()
 	return (max and max >= 1) and math.floor(max) or 60
 end
 
-function Who.WindowOpen()
+function Who.WindowOpen() -- gp:lookups
 	for _, name in ipairs(WINDOWS) do
 		local f = _G[name]
 		if type(f) == "table" and f.IsVisible and f:IsVisible() then return true end
@@ -143,7 +143,7 @@ function Who.WindowOpen()
 end
 
 -- Every listener that is registered stops listening; the ones that did are returned.
-local function Quiet()
+local function Quiet() -- gp:who-quiet
 	local frames, names = {}, {}
 	for _, entry in ipairs(LISTENERS) do
 		local f = entry[2]()
@@ -187,7 +187,7 @@ end
 -- that comes may be theirs, so the who windows get their event back at once and ours is
 -- given up (the next click repeats it). Once ours was given up, theirs gets Blizzard's
 -- default: an answer of ours that late is not coming.
-local function HookSendWho()
+local function HookSendWho() -- gp:who-quiet
 	if hookedOn == C_FriendList or not (hooksecurefunc and C_FriendList and C_FriendList.SendWho) then return end
 	hookedOn = C_FriendList
 	hooksecurefunc(C_FriendList, "SendWho", function()
@@ -345,7 +345,7 @@ function Who.SearchGuild(guild, own)
 	if type(guild) ~= "string" or guild == "" or guild:find('"', 1, true) then return false end
 	local plain = ns.GamepadUI()
 	if plain and not own then return false end -- quiet: not with the gamepad UI (see the top)
-	if not ((C_FriendList and C_FriendList.SendWho) or SendWho) then return false end
+	if not ((C_FriendList and C_FriendList.SendWho) or SendWho) then return false end -- gp:who,who-quiet
 	local now = GetTime()
 	if now - (guildSearched[guild] or -math.huge) < Who.GUILD_AGAIN then return false end
 	if plain then
@@ -381,8 +381,8 @@ end
 function Who.WantedNames() return wantedNames end
 
 function Who.Auto()
-	if not ((C_FriendList and C_FriendList.SendWho) or SendWho) then return false end
 	if ns.GamepadUI() then return false end -- quiet: not with the gamepad UI (see the top)
+	if not ((C_FriendList and C_FriendList.SendWho) or SendWho) then return false end -- gp:who-quiet
 	local now = GetTime()
 	if pending or Wait(now, math.max(Who.lastSend, Who.lastPlain)) > 0 or Who.WindowOpen() then return false end
 	-- A guild opened in the Realm tab while a search could not go comes first.

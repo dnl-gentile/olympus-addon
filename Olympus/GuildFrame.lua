@@ -74,7 +74,7 @@ end
 -- Every guild window that exists right now, as { frame, kind }. The name GuildFrame is
 -- used by the old tab and by the standalone window alike, so where it lives decides; the
 -- same goes for ClassicUI Forever's panel.
-function GuildFrameHook.Candidates()
+function GuildFrameHook.Candidates() -- gp:lookups
 	local out = {}
 	local social = _G.FriendsFrame
 	local guild = _G.GuildFrame
@@ -93,7 +93,7 @@ end
 
 -- Forever's Mainline UI: its only Blizzard guild window is the new one. Classic Era and
 -- Anniversary keep their old Guild tab (hidden or not): their Communities window stays "old".
-function GuildFrameHook.IsHDClient()
+function GuildFrameHook.IsHDClient() -- gp:lookups
 	local guild, social = _G.GuildFrame, _G.FriendsFrame
 	if guild and social and Inside(guild, social) then return false end
 	return _G.PanelTemplates_AnchorTabs ~= nil
@@ -135,7 +135,7 @@ local function Place(button, host)
 	-- calendar), so the button sits in the title bar, left of minimize and close.
 	local frame = host.frame
 	local name = frame.GetName and frame:GetName()
-	local anchor = frame.MaximizeMinimizeFrame or frame.CloseButton or (name and _G[name .. "CloseButton"])
+	local anchor = frame.MaximizeMinimizeFrame or frame.CloseButton or (name and _G[name .. "CloseButton"]) -- gp:lookups
 	if anchor then
 		button:SetPoint("RIGHT", anchor, "LEFT", 0, 0)
 	else
@@ -185,7 +185,7 @@ local function Attach(frame, kind)
 	if def.social then
 		if not socialHooked then
 			socialHooked = true
-			social:HookScript("OnHide", function()
+			social:HookScript("OnHide", function() -- gp:communities-button
 				if not ns.Gate.Allowed(GATE) then return end
 				ns.SafeCall("social window hide", ns.UI.CloseIfDocked, social)
 			end)
@@ -270,7 +270,7 @@ local function Install()
 	if not scanHooked and social and social.HookScript then
 		scanHooked = true
 		-- ClassicUI Forever builds its Guild tab late: look again whenever the Social window opens.
-		social:HookScript("OnShow", function()
+		social:HookScript("OnShow", function() -- gp:communities-button
 			if not ns.Gate.Allowed(GATE) then return end
 			ns.SafeCall("guild window scan", GuildFrameHook.Scan)
 		end)

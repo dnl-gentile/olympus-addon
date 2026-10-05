@@ -340,7 +340,7 @@ end
 -- Once, with mouse and keyboard and out of combat (a texture of the game's frames may count as
 -- theirs, whose points and size are not ours to set in combat): the textures, then the hooks.
 -- A client without Forever's unit frames (Classic Era, Anniversary) gets none.
-function Borders.Install()
+function Borders.Install() -- gp:borders
 	if installed then return true end
 	if ns.GamepadUI() then return false end
 	if InCombatLockdown and InCombatLockdown() then
@@ -738,20 +738,21 @@ function Borders.ChatEnabled() return not (ns.db and ns.db.chatMarks == false) e
 
 -- Whether the game's chat shows them now, and registering the callback the first time it may
 -- (once a session: it is never removed, turning them off clears chatOn).
-function Borders.ChatRefresh()
+function Borders.ChatRefresh() -- gp:chat-marks
 	Borders.ChatForget()
+	local pad = not ns.Gate.Allowed("chat-marks")
 	local CFU = rawget(_G, "ChatFrameUtil")
 	local api = type(CFU) == "table" and type(CFU.AddSenderNameFilter) == "function"
-	if not chatHooked and api and Borders.ChatEnabled() and not ns.GamepadUI() then
+	if not chatHooked and api and Borders.ChatEnabled() and not pad then
 		chatHooked = pcall(CFU.AddSenderNameFilter, Borders.ChatFilter) == true
 	end
-	chatOn = chatHooked and Borders.ChatEnabled() and not ns.GamepadUI()
+	chatOn = chatHooked and Borders.ChatEnabled() and not pad
 	return chatOn
 end
 function Borders.ChatShown() return chatOn end
 
 function Borders.ChatReport()
-	local CFU = rawget(_G, "ChatFrameUtil")
+	local CFU = rawget(_G, "ChatFrameUtil") -- gp:lookups
 	if not (type(CFU) == "table" and type(CFU.AddSenderNameFilter) == "function") then return ns.Print(L.CHATMARKS_NO_API) end
 	ns.Print(Borders.ChatEnabled() and L.CHATMARKS_ON or L.CHATMARKS_OFF)
 	if Borders.ChatEnabled() and ns.GamepadUI() then ns.Print(L.CHATMARKS_GAMEPAD) end
@@ -783,7 +784,7 @@ function Borders.ChatSlash(rest)
 end
 
 function Borders.ChatStatusLine()
-	local CFU = rawget(_G, "ChatFrameUtil")
+	local CFU = rawget(_G, "ChatFrameUtil") -- gp:lookups
 	if not (type(CFU) == "table" and type(CFU.AddSenderNameFilter) == "function") then return "none (no ChatFrameUtil.AddSenderNameFilter)" end
 	local state = chatOn and "on" or (not Borders.ChatEnabled() and "off (/oly chatmarks on)" or (ns.GamepadUI() and "hidden with the gamepad UI" or "not registered yet"))
 	return ("%s  |  %d senders worked out%s"):format(state, chatKept, chatPreview and ("  |  preview " .. chatPreview) or "")

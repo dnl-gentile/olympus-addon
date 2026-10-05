@@ -334,7 +334,7 @@ end
 
 -- Once, with mouse and keyboard: the hook on the game's name updates (it runs for every compact
 -- unit frame, raid frames too: those leave after IsForbidden).
-local function Install()
+local function Install() -- gp:nameplates
 	if hooked or ns.GamepadUI() then return end
 	hooked = true
 	if type(hooksecurefunc) == "function" and type(CompactUnitFrame_UpdateName) == "function" then
@@ -400,7 +400,7 @@ end
 
 -- His own name's marks (the preview): made once out of combat on the player frame's container,
 -- anchored after his name. A client without Forever's player frame gets none.
-local function InstallMine()
+local function InstallMine() -- gp:nameplates
 	local frame = PlayerFrame
 	local container = type(frame) == "table" and rawget(frame, "PlayerFrameContainer") or nil
 	local name = type(frame) == "table" and rawget(frame, "name") or nil

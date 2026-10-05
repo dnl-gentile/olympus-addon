@@ -336,7 +336,7 @@ function Recruit.Ask(contact, message)
 	Recruit.lastContact = contact
 	Recruit.pending = nil
 	local to = ns.TellName(contact.name)
-	SendChatMessage(message:sub(1, 250), "WHISPER", nil, to)
+	SendChatMessage(message:sub(1, 250), "WHISPER", nil, to) -- gp:roster-actions
 	local _, classFile = UnitClass("player")
 	ns.Comm.WhisperOutside(to, ("J3~%s~%d~%s"):format(Field(contact.guild), tonumber(UnitLevel("player")) or 0, Field(classFile)))
 	ns.Log("recruit: asked %s <%s>", contact.name, contact.guild)
@@ -544,7 +544,7 @@ Recruit.CanInvite = CanInvite
 -- An officer's yes: the game's own guild invite, from the click.
 function Recruit.Accept(req)
 	if not CanInvite() or type(req) ~= "table" then return false end
-	local invite = (C_GuildInfo and C_GuildInfo.Invite) or GuildInvite
+	local invite = (C_GuildInfo and C_GuildInfo.Invite) or GuildInvite -- gp:roster-actions
 	if type(invite) ~= "function" then return false end
 	invite(ns.TellName(req.name))
 	ns.Print(L.JOIN_INVITED:format(ns.DisplayName(req.name) or req.name, req.guild))
@@ -567,7 +567,7 @@ end
 -- An officer's no: one whisper, from the click, pointing where there is room.
 function Recruit.Decline(req)
 	if not CanInvite() or type(req) ~= "table" then return false end
-	SendChatMessage(Recruit.DeclineText(req), "WHISPER", nil, ns.TellName(req.name))
+	SendChatMessage(Recruit.DeclineText(req), "WHISPER", nil, ns.TellName(req.name)) -- gp:roster-actions
 	Drop(req)
 	return true
 end
@@ -582,7 +582,7 @@ end
 function Recruit.Point(req)
 	local officer = Recruit.Officer()
 	if not officer or type(req) ~= "table" then return false end
-	SendChatMessage(L.JOIN_POINT_TEXT:format(officer), "WHISPER", nil, ns.TellName(req.name))
+	SendChatMessage(L.JOIN_POINT_TEXT:format(officer), "WHISPER", nil, ns.TellName(req.name)) -- gp:roster-actions
 	Drop(req)
 	return true
 end

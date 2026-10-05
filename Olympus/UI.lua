@@ -280,7 +280,7 @@ end
 -- The same for a one-line font string: the first of `fonts` the text fits `room` in, else
 -- the last one, cut with "...". Fonts the client does not have are skipped. The string must
 -- be left-justified and not wrap.
-local function FitText(fs, room, fonts)
+local function FitText(fs, room, fonts) -- gp:lookups
 	fs:SetWidth(0)
 	for _, font in ipairs(fonts) do
 		if _G[font] then
@@ -359,7 +359,7 @@ local ISSUE_GAP = 4
 
 local reporterHooked, hiddenByUs = false, false
 local reporterButton -- our Hide button on it (1.1.5: hidden at a switch to the gamepad UI, the gate's park)
-local function Reporter()
+local function Reporter() -- gp:issue-reporter
 	local r = _G.PTR_IssueReporter
 	if type(r) == "table" and r.Hide and r.Show and r.IsShown then return r end
 end
@@ -469,7 +469,7 @@ function UI.ClearUp(win, obstacle, screenTop, gap)
 end
 
 -- The Issue Reporter's screen rect with its border, bug button and info button, if shown.
-local function IssueReporterRect()
+local function IssueReporterRect() -- gp:lookups
 	local r = _G.PTR_IssueReporter
 	if type(r) ~= "table" or not r.IsVisible or not r:IsVisible() then return nil end
 	local rect
@@ -517,7 +517,7 @@ end
 
 -- The Social window's size, which is the old Guild window's (the Guild tab fills it).
 local function SocialSize()
-	if FriendsFrame and FriendsFrame.GetWidth and ns.Gate.Allowed("communities-button") then
+	if FriendsFrame and FriendsFrame.GetWidth and ns.Gate.Allowed("communities-button") then -- gp:communities-button
 		local w, h = FriendsFrame:GetWidth(), FriendsFrame:GetHeight()
 		if w and w > 200 and h and h > 200 then return w, h end
 	end
@@ -724,7 +724,7 @@ UI.HELP_ICON = "Interface\\Common\\help-i"
 -- The help button in the title bar, just left of the close button, where Blizzard puts a
 -- window's minimize button (0.9.9, asked for by Max of Asmongold's moderators). A plain button:
 -- a click opens the copy box (UI.ShowHelp), which already keeps to the gamepad UI's rules.
-local function HelpButton(f)
+local function HelpButton(f) -- gp:lookups
 	local close = f.CloseButton or _G[f:GetName() .. "CloseButton"]
 	local b = CreateFrame("Button", nil, f)
 	-- As big as the close button's art: Forever's is 24 and fills it, Classic's red disc is
@@ -1021,7 +1021,7 @@ local function CreateMain(style)
 			for n, template in ipairs(templates) do
 				local name = f:GetName() .. "Tab" .. n .. "_" .. i
 				local okTab, res = pcall(CreateFrame, "Button", name, f, template)
-				if okTab and res and (res.Left or res.LeftActive or _G[name .. "Left"] or _G[name .. "LeftDisabled"]) then
+				if okTab and res and (res.Left or res.LeftActive or _G[name .. "Left"] or _G[name .. "LeftDisabled"]) then -- gp:lookups
 					tab = res
 					UI.tabTemplate = template
 					break
@@ -1247,7 +1247,7 @@ function UI.Layout()
 				b:ClearAllPoints()
 				b:SetPoint("TOPLEFT", main.colHeader, "TOPLEFT", x, 0)
 				-- The old headers' middle part is sized by Blizzard's code; the HD ones stretch.
-				if (main.style == "old" or b.whoTemplate) and WhoFrameColumn_SetWidth then pcall(WhoFrameColumn_SetWidth, b, width) else b:SetWidth(width) end
+				if (main.style == "old" or b.whoTemplate) and WhoFrameColumn_SetWidth then pcall(WhoFrameColumn_SetWidth, b, width) else b:SetWidth(width) end -- gp:own-templates
 				b:SetWidth(width)
 				b:SetText(L[col.key])
 				b.sortKey = col.sort
@@ -1662,7 +1662,7 @@ local function SendWhisper(name, text)
 		ns.Print(L.WHISPER_LOCKDOWN)
 		return false
 	end
-	SendChatMessage(text:sub(1, 255), "WHISPER", nil, name)
+	SendChatMessage(text:sub(1, 255), "WHISPER", nil, name) -- gp:roster-actions
 	return true
 end
 -- A whisper window closed: the Answers list it opened lets go of its box (Answers.lua), which the
@@ -1761,17 +1761,17 @@ local function Whisper(name)
 	name = ns.TellName(name)
 	if not ns.Gate.Allowed("chat-box") then return UI.WhisperWindow(name) end
 	ns.Gate.Used("chat-box") -- (1.1.5, the gamepad gate: told at a switch to the gamepad UI)
-	if ChatFrame_SendTell then ChatFrame_SendTell(name) else ChatFrame_OpenChat("/w " .. name .. " ") end
+	if ChatFrame_SendTell then ChatFrame_SendTell(name) else ChatFrame_OpenChat("/w " .. name .. " ") end -- gp:chat-box
 end
 
 local function Invite(name)
 	name = ns.TellName(name)
-	if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(name) elseif InviteUnit then InviteUnit(name) end
+	if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(name) elseif InviteUnit then InviteUnit(name) end -- gp:roster-actions
 end
 
 -- Through Who.lua, which keeps it apart from our quiet /who searches (see SendPlain).
 local function Who(name)
-	ns.Who.SendPlain(('n-"%s"'):format(ns.TellName(name)))
+	ns.Who.SendPlain(('n-"%s"'):format(ns.TellName(name))) -- gp:who
 end
 
 local function PersonButtonScripts(f)
@@ -2334,7 +2334,7 @@ function UI.CopyFrame(key) return copyFrames[key or "copy"] end
 
 local minimapButton
 
-local function PositionMinimapButton()
+local function PositionMinimapButton() -- gp:minimap
 	local angle = math.rad(ns.db.minimapAngle or 200)
 	-- On the ring, like Blizzard's own minimap buttons (and LibDBIcon): 5 past the map's edge.
 	local radius = (Minimap:GetWidth() / 2) + 5
@@ -2342,7 +2342,7 @@ local function PositionMinimapButton()
 	minimapButton:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * radius, math.sin(angle) * radius)
 end
 
-local function CreateMinimapButton()
+local function CreateMinimapButton() -- gp:minimap
 	local b = ns.MakeRoundButton("OlympusMinimapButton", Minimap, 31)
 	b:SetFrameStrata("MEDIUM")
 	b:SetFrameLevel(8)
@@ -2442,7 +2442,7 @@ local function PhotoOff()
 	for f, alpha in pairs(was or {}) do pcall(f.SetAlpha, f, alpha) end
 end
 
-function UI.TogglePhoto()
+function UI.TogglePhoto() -- gp:photo
 	if not UI.PhotoAllowed() then return ns.Print(L.PHOTO_ONLY_AUTHOR) end
 	if InCombatLockdown and InCombatLockdown() then return ns.Print(L.PHOTO_COMBAT) end
 	if photo then

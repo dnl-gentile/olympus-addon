@@ -1193,10 +1193,10 @@ function Dues.Remove(data)
 	end
 	if Dues.Standing(list, m.key) ~= "below" then ns.Print(L.DUES_REMOVE_PAID:format(who)) return false end
 	local ok = false
-	if C_GuildInfo and type(C_GuildInfo.Uninvite) == "function" then
-		ok = pcall(C_GuildInfo.Uninvite, m.raw)
-	elseif type(GuildUninvite) == "function" then
-		ok = pcall(GuildUninvite, m.raw)
+	if C_GuildInfo and type(C_GuildInfo.Uninvite) == "function" then -- gp:roster-actions
+		ok = pcall(C_GuildInfo.Uninvite, m.raw) -- gp:roster-actions
+	elseif type(GuildUninvite) == "function" then -- gp:roster-actions
+		ok = pcall(GuildUninvite, m.raw) -- gp:roster-actions
 	end
 	ns.Log("dues: remove %s %s", tostring(m.raw), ok and "asked" or "failed")
 	ns.Print(ok and L.DUES_REMOVED:format(m.name) or L.DUES_REMOVE_FAILED:format(m.name))
@@ -1450,7 +1450,7 @@ local function Shown(frame) return type(frame) == "table" and frame.IsShown and 
 
 -- The mail being written: the recipient, the note and the gold, sent as money (never cash on
 -- delivery). Nothing is sent: the player presses Send.
-local function FillMail(to, amount, note)
+local function FillMail(to, amount, note) -- gp:mail-trade-fill
 	SendMailNameEditBox:SetText(ns.TellName(to))
 	if SendMailSubjectEditBox then SendMailSubjectEditBox:SetText(note) end
 	if SendMailRadioButton_OnClick then
@@ -1467,7 +1467,7 @@ end
 -- The trade with the Treasurer: its gold, the game's own call (the trade window follows it).
 -- Nothing is given: the player presses Trade. Where the game refuses the addon that call, it is
 -- said once (ADDON_ACTION_BLOCKED, below) and from then on the amount is only told.
-local function FillTrade(amount, name)
+local function FillTrade(amount, name) -- gp:mail-trade-fill
 	local set = C_TradeInfo and C_TradeInfo.SetTradeMoney or SetTradeMoney
 	if not set or (ns.db and ns.db.duesTradeBlocked) then
 		ns.Print(L.DUES_SEND_TRADE_TYPE:format(Coins(amount), ns.DisplayName(name)))
@@ -1488,7 +1488,7 @@ end
 -- mailbox's or the trade's opening fills nothing, and nothing is ever sent or given by the
 -- addon. With the gamepad UI nothing of the game's windows is touched (its code there is the
 -- game's own, see Dialog.lua): the line says what to send.
-function Dues.SendDues()
+function Dues.SendDues() -- gp:mail-trade-fill
 	if not Dues.Pays() then return false end
 	local amount, to = Dues.Amount(), Dues.MailTo()
 	local note = Dues.Note(Dues.Week(), GetGuildInfo("player"))
