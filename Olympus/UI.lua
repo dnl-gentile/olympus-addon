@@ -213,8 +213,6 @@ local DETAIL_BUTTONS = {
 			label = function() return ns.King.Preview() and L.DEV_KING_VIEW_OFF or L.DEV_KING_VIEW_ON end },
 		{ "DEV_TREASURER_VIEW", function() ns.Treasury.SetDevView(not ns.Treasury.DevView()) end, refresh = true,
 			label = function() return ns.Treasury.DevView() and L.DEV_TREASURER_VIEW_OFF or L.DEV_TREASURER_VIEW_ON end },
-		{ "DEV_GM_VIEW", function() ns.Nominees.SetDevView(not ns.Nominees.DevView()) end, refresh = true,
-			label = function() return ns.Nominees.DevView() and L.DEV_GM_VIEW_OFF or L.DEV_GM_VIEW_ON end },
 	},
 	heraldry = {
 		{ "HERALDRY_BTN", DecreeAction("HERALDRY") },

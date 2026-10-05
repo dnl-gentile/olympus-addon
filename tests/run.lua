@@ -23407,6 +23407,12 @@ do
 				eq(N.Send(true), false, "nothing sent from the view")
 				N.SetDevView(false)
 				eq((N.IsMaster()), false, "off")
+				-- /oly nominees view turns it on (and opens the section), again off.
+				SlashCmdList.OLYMPUS("nominees view")
+				eq(N.DevView(), true, "/oly nominees view: on")
+				eq(ns.Members.Filter(), "nominees", "the section opened")
+				SlashCmdList.OLYMPUS("nominees view")
+				eq(N.DevView(), false, "again: off")
 			end)
 			ns.Workshop.Visible, ns.db.devGMView = savedVisible, savedView
 			if not ok then error(err, 0) end

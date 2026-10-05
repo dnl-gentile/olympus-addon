@@ -713,6 +713,11 @@ function Nominees.Slash(rest)
 	rest = Trim(rest)
 	local verb, arg = rest:match("^(%S*)%s*(.-)$")
 	verb = (verb or ""):lower()
+	-- The author's guild master's view (his alone: anyone else gets the usual answer below).
+	if verb == "view" and ns.Workshop and ns.Workshop.Visible and ns.Workshop.Visible() then
+		Nominees.SetDevView(not Nominees.DevView())
+		if Nominees.DevView() then verb = "" else return end
+	end
 	if verb == "" then
 		if not Nominees.IsMaster() then return ns.Print(L.NOMINEES_ONLY_MASTER) end
 		if ns.Members and ns.Members.Show then ns.Members.Show("nominees") end
