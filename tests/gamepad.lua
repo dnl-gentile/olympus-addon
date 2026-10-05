@@ -747,14 +747,17 @@ local function NewClient(opts)
 	E.GetCursorPosition = function() return 0, 0 end
 	E.GetLocale = function() return "enUS" end
 	E.GetBuildInfo = function() return "1.60.1", tostring(FIX.build), "Oct 1 2026", 16001 end
-	E.GetRealmName = function() return "Realm" end
-	E.GetNormalizedRealmName = function() return "Realm" end
+	-- (The realm: "Realm", or one a session sets, C.realmName.)
+	C.realmName = "Realm"
+	E.GetRealmName = function() return C.realmName end
+	E.GetNormalizedRealmName = function() return (C.realmName:gsub("[%s%-]", "")) end
 	E.GetRealmID = function() return 1 end
 	-- Units: the player, and whoever a flow puts under the cursor or targets (C.units).
-	C.units = { player = { name = "Tester", realm = "Realm", guid = "Player-1-00000001", guild = "Olympus II", rank = "Hero", rankIndex = 2 } }
+	-- (opts.surname: a Forever player, whose name has a surname where a realm would be.)
+	C.units = { player = { name = "Tester", realm = opts.surname or "Realm", guid = "Player-1-00000001", guild = "Olympus II", rank = "Hero", rankIndex = 2 } }
 	local function U(unit) return C.units[unit] end
 	E.UnitFullName = function(unit) local u = U(unit); if u then return u.name, u.realm end end
-	E.UnitName = function(unit) local u = U(unit); if u then return u.name, u.realm ~= "Realm" and u.realm or nil end end
+	E.UnitName = function(unit) local u = U(unit); if u then return u.name, u.realm ~= C.realmName and u.realm or nil end end
 	E.UnitGUID = function(unit) local u = U(unit); return u and u.guid end
 	E.UnitFactionGroup = function(unit) if U(unit) then return "Alliance", "Alliance" end end
 	E.UnitExists = function(unit) return U(unit) ~= nil end
@@ -769,7 +772,7 @@ local function NewClient(opts)
 	E.GetNumGroupMembers = function() return 0 end
 	E.PlaySound = function() end
 	E.GetMaxPlayerLevel = function() return 60 end
-	E.GetMoney = function() return 0 end
+	E.GetMoney = function() return C.money or 0 end
 
 	-- The input style (fidelity rule 1): values from the documentation.
 	local ENUM = {}
@@ -1561,6 +1564,8 @@ local function Boot(opts)
 		local ok, err = pcall(chunk, "Olympus", ns)
 		if not ok then C.loadErrors[#C.loadErrors + 1] = file .. ": " .. tostring(err); pcall(C.handler, err) end
 	end
+	-- (opts.realmFrom(ns): a realm named by the addon itself, the Treasurer's group's for the dues.)
+	if opts.realmFrom then C.realmName = opts.realmFrom(ns) end
 	C.Fire("ADDON_LOADED", "Olympus")
 	return C, ns
 end
@@ -1711,19 +1716,43 @@ local function WindowFlow(C)
 	return #tabs
 end
 
--- Every one of Olympus's dialogs, shown the addon's way (ns.ShowDialog), then its second button.
+-- Every one of Olympus's dialogs, shown the addon's way (ns.ShowDialog). In Olympus's own window
+-- (the gamepad UI's), each of its buttons clicked by the player, the dialog shown again for each;
+-- the game's popup (mouse and keyboard) hidden again.
 local function DialogsFlow(C)
-	local ns, n = C.ns, 0
+	local ns, n, clicks = C.ns, 0, 0
 	local keys = {}
 	for k in pairs(C.env.StaticPopupDialogs) do if tostring(k):find("^OLYMPUS_") then keys[#keys + 1] = k end end
 	table.sort(keys)
 	for _, which in ipairs(keys) do
-		local shown = ns.ShowDialog(which, "Someone", "Something", { name = "Someone-Realm" })
-		if shown then n = n + 1 end
-		ns.HideDialog(which)
-		C.Advance(0.1)
+		for b = 1, 3 do
+			local shown = ns.ShowDialog(which, "Someone", "Something", { name = "Someone-Realm" })
+			if shown and b == 1 then n = n + 1 end
+			local own = type(shown) == "table" and rawget(shown, "olympus") and rawget(shown, "buttons")
+			local button = own and own[b]
+			if button and button:IsVisible() then
+				C.Click(button)
+				clicks = clicks + 1
+			end
+			ns.HideDialog(which)
+			C.Advance(0.1)
+			if not own then break end
+		end
 	end
-	return n, #keys
+	return n, #keys, clicks
+end
+
+-- The author's King's view (King.SetDevView, a test character's: ns.devWorkshop): the window with
+-- the King's tabs too (Throne, Vox) and the Workshop, each clicked.
+local function KingViewFlow(C)
+	local ns = C.ns
+	ns.devWorkshop = true
+	ns.King.SetDevView(true)
+	assert(ns.King.Preview(), "the King's view")
+	local tabs = WindowFlow(C)
+	ns.King.SetDevView(false)
+	ns.devWorkshop = nil
+	return tabs
 end
 
 -- The game shows its guild windows, then hides them (their OnShow and OnHide, and Olympus's hooks).
@@ -2025,7 +2054,10 @@ test("gamepad pass 1: a whole session with the gamepad UI on from the login reac
 	GP.Covers("chat-channels")
 	local mark = C.Mark()
 	WindowFlow(C)
-	DialogsFlow(C)
+	local dialogs, all, clicks = DialogsFlow(C)
+	eq(dialogs, all, "every dialog shown, in Olympus's own window")
+	assert(clicks >= all, "their buttons clicked: " .. clicks)
+	KingViewFlow(C)
 	GuildWindowsFlow(C)
 	MapFlow(C)
 	TooltipFlow(C)
@@ -2053,6 +2085,7 @@ test("gamepad pass 2: mouse and keyboard, then a switch to the gamepad UI: the g
 	-- Mouse and keyboard: everything installs, every flow works the game's way.
 	local mark = C.Mark()
 	WindowFlow(C)
+	KingViewFlow(C)
 	PersonFlow(C)
 	QuietWhoFlow(C)
 	ChatTabFlow(C)
@@ -2337,13 +2370,25 @@ test("gamepad pass 5: the rest of the list with the gamepad UI on: the Issue Rep
 	eq(F.ns.UI.PhotoMode(), false, "no photo mode with the gamepad UI")
 	F.ns.devWorkshop = nil
 	GP.Covers("photo")
-	-- The dues: with the gamepad UI, nothing of the trade or mail window filled, a line instead.
-	F.env.TradeFrame:Show()
-	local ok, res = pcall(F.ns.Dues.SendDues)
-	assert(ok, tostring(res))
-	eq(F.tradeMoney, nil, "no gold put in the trade window")
+	Check(F.ledger, "photo")
+	-- The dues of a Forever player on the Treasurer's realm group: with mouse and keyboard his click
+	-- fills the game's mail window (the name, the note, the gold: nothing sent); after a switch to
+	-- the gamepad UI nothing of the game's windows is filled, a line says what to send instead.
+	local M = Session(false, { surname = "Ironsurname", realmFrom = function(ns) return ns.TREASURER_REALM end })
+	M.env.MailFrame:Show(); M.env.SendMailFrame:Show()
+	M.money = 1000000 -- (100 gold)
+	local filled
+	InClick(M, function() filled = M.ns.Dues.SendDues() end)
+	eq(filled, "mail", "the mail filled, with mouse and keyboard")
+	assert(Ids(M.ledger)["mail-trade-fill"], "the fill, in the ledger")
+	M.Switch(true); M.Advance(1)
+	local after = M.Mark()
+	InClick(M, function() filled = M.ns.Dues.SendDues() end)
+	eq(filled, "gamepad", "with the gamepad UI: only what to send")
+	eq(#M.Since(after), 0, "nothing of the game's mail or trade window")
 	GP.Covers("mail-trade-fill")
-	Check(F.ledger, "photo and dues")
+	Check(M.ledger, "the dues")
+	NoErrors(M, "the dues")
 end)
 
 ---------------------------------------------------------------------------
