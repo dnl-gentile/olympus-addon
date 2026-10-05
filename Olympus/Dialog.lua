@@ -60,6 +60,15 @@ function ns.SetWindowTitle(f, text)
 	if f.TitleText then f.TitleText:SetText(text or "") end
 end
 
+-- The title bar's room for its text, for a title that may be long (a guild's name on a person card,
+-- fitted there: UI.ShowPerson). The metal's title spans its TitleContainer, the window less 30 on the
+-- left and 24 on the right (DefaultPanelBaseTemplate); the plain frame's, centred, keeps clear of its
+-- X on both sides.
+Dialog.TITLE_SIDES = { metal = 30 + 24, plain = 64 }
+function ns.WindowTitleRoom(f)
+	return f:GetWidth() - Dialog.TITLE_SIDES[f.metal and "metal" or "plain"]
+end
+
 -- A window raised (the HD window's person card, over the window and its tabs): its metal border,
 -- title and X kept above it, at Blizzard's own steps (PortraitFrameMixin:SetFrameLevelsFromBaseLevel).
 function ns.SetWindowLevel(f, level)

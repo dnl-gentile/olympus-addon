@@ -1780,7 +1780,7 @@ local function CreatePersonFrame()
 	if not f.metal and f.TitleText then
 		-- "<guild name>", centred: kept clear of the close button on both sides (the metal's title
 		-- bar keeps it clear itself).
-		f.TitleText:SetWidth(f:GetWidth() - 64)
+		f.TitleText:SetWidth(ns.WindowTitleRoom(f))
 		f.TitleText:SetWordWrap(false)
 	end
 	f.lines = {}
@@ -1910,7 +1910,10 @@ function UI.ShowPerson(p)
 	local councillor = ns.CouncilVisible() and not ns.CouncilMasked() and ns.IsHighCouncillor(full)
 	f.name:SetText((color and ("|c%s%s|r"):format(color.colorStr, name) or name) .. (councillor and (" " .. ns.CouncilMark(full)) or ""))
 	FitText(f.name, f.nameRoom or (f:GetWidth() - 28), f.nameFonts or { "GameFontNormalLarge", "GameFontNormal" })
+	-- "<guild>" in the title bar, fitted as the name is (1.1.5: the HD card had it on a line of its
+	-- own, 188 wide; its title bar is 160, where a long guild name did not fit in the normal font).
 	ns.SetWindowTitle(f, guild and ("<" .. guild .. ">") or L.TITLE)
+	if f.TitleText then FitText(f.TitleText, ns.WindowTitleRoom(f), { "GameFontNormal", "GameFontNormalSmall" }) end
 	local className = (file and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[file]) or ""
 	local rows = {}
 	if p.level or className ~= "" then rows[#rows + 1] = (p.level and (L.LEVEL_N:format(p.level) .. " ") or "") .. className end
