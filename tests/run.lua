@@ -27448,7 +27448,7 @@ test("1.1 held alerts: in an instance a Call to Arms and a Muster leave their ch
 			b.clock = b.clock + 20
 			Decree("Member3-Realm", "MUSTER", "at the bridge")
 			eq(#b.warnings, 0); eq(#b.played, 0)
-			-- On top of the Decrees tab while they wait, besides the decrees' own list.
+			-- On the Decrees tab while they wait (under the King's week since 1.1.5), besides the decrees' own list.
 			local tab = Texts(ns.Views.Build("decrees"))
 			assert(tab:find(L.HELD_TITLE, 1, true), tab)
 			assert(tab:find(L.HELP_ARMS_NAME .. " (Stormwind City)", 1, true), tab)
@@ -27871,6 +27871,35 @@ test("1.1 held alerts: their words in both languages, the same %s in each; /oly 
 	assert(Said(printed, "/oly alerts"), "in the help")
 	assert(Said(printed, "/oly sound <kind>"), "in the help")
 	assert(ns.AlertStatus():find("in an instance or Busy: held", 1, true), ns.AlertStatus())
+end)
+
+test("1.1.5 held alerts: the alerts line's tip says they wait on the Decrees tab under the King's week, where they are now (English and pt-BR)", function()
+	HoldBench(function(b)
+		b.inside = true
+		eq(ns.Alert("muster", "soft", { text = "Muster at the bridge", what = "Muster at the bridge" }), false, "held")
+		local lines = ns.Views.Build("decrees")
+		local weekAt, heldAt, alerts
+		for i, l in ipairs(lines) do
+			if l.header and l.text == ns.L.WEEK_TITLE then weekAt = weekAt or i end
+			if l.header and l.text == ns.L.HELD_TITLE then heldAt = heldAt or i end
+			if l.alerts then alerts = l end
+		end
+		assert(weekAt and heldAt and weekAt < heldAt, "the held alerts come after the King's week")
+		local tip = {}
+		alerts.tooltip({ AddLine = function(_, s) tip[#tip + 1] = s end })
+		tip = table.concat(tip, " ")
+		eq(tip:find("on top of this tab", 1, true), nil, tip)
+		assert(tip:lower():find(ns.L.WEEK_TITLE:lower(), 1, true), "under the King's week: " .. tip)
+		-- In Portuguese too.
+		local pt = { L = setmetatable({}, { __index = ns.L }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		eq(pt.L.ALERTS_TIP:find("topo desta aba", 1, true), nil, pt.L.ALERTS_TIP)
+		assert(pt.L.ALERTS_TIP:lower():find(pt.L.WEEK_TITLE:lower(), 1, true), "sob a semana do Rei: " .. pt.L.ALERTS_TIP)
+	end)
 end)
 ---------------------------------------------------------------------------
 -- 1.1: Fern's census and recruiting requests (Views.lua, Data.lua, Members.lua, Recruit.lua).
