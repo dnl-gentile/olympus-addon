@@ -43352,11 +43352,11 @@ do
 			ns.rdb.councilIcons = { ["Sage Owl-Realm"] = { icon = 134400, t = ns.Now() } }
 			ns.Roster.byName = { ["Guild Boss-Realm"] = 0, ["Plain Guy-Realm"] = 4 }
 			ns.Comm.loginAt = ns.Now() - ns.Data.CROWN_AFTER - 1
-			ns.rdb.guilds = { ["Olympus Zeus"] = Vouched({ guild = "Olympus Zeus", leader = "Zeusy", officers = { { name = "Capt" } }, realm = "Realm",
+			ns.rdb.guilds = { ["Olympus Zeus"] = Vouched({ guild = "Olympus Zeus", leader = "Zeta Prime", officers = { { name = "Capt Prime" } }, realm = "Realm",
 				t = ns.Now() }, "W1-Realm", "W2-Realm"),
 				["Olympus Fakeguild"] = Vouched({ guild = "Olympus Fakeguild", leader = "Troll Guy", officers = { { name = "Two Face" } }, realm = "Realm",
 					t = ns.Now() }, "Grief One-Realm", "Grief Two-Realm") }
-			eq(ns.Data.ClaimGuild("Zeusy-Realm", "Olympus Zeus"), true); eq(ns.Data.ClaimGuild("Capt-Realm", "olympus zeus"), true)
+			eq(ns.Data.ClaimGuild("Zeta Prime-Realm", "Olympus Zeus"), true); eq(ns.Data.ClaimGuild("Capt Prime-Realm", "olympus zeus"), true)
 			eq(ns.Data.ClaimGuild("Two Face-Realm", "Olympus Elsewhere"), true)
 			ns.King.IsStewardName = function(n) return n == "Stew Ard-Realm" end
 			ns.King.IsHandName = function() return false end
@@ -43395,9 +43395,9 @@ do
 			local cases = {
 				{ "Asmongold Asmongler-Realm", GOLD, "the King (his pinned name)" },
 				{ "Sage Owl-Realm", SILVER .. "|T134400:0|t", "a High Councillor, then his icon" },
-				{ "Zeusy-Realm", BRONZE, "another Olympus guild's master, as its census names him" },
+				{ "Zeta Prime-Realm", BRONZE, "another Olympus guild's master, as its census names him" },
 				{ "Guild Boss-Realm", BRONZE, "our own guild master, by our roster" },
-				{ "Capt-Realm", STAR, "an officer the census names: a member" },
+				{ "Capt Prime-Realm", STAR, "an officer the census names: a member" },
 				{ "Plain Guy-Realm", STAR, "a member of our guild" },
 				{ "Stew Ard-Realm", STAR, "the King's Steward: a member of his guild" },
 				{ "Far Guy-Realm", nil, "a member of another guild nothing proves (in no census)" },
@@ -43449,7 +43449,7 @@ do
 			-- An atlas the client does not know: the star.
 			C_Texture = { GetAtlasInfo = function() return nil end }
 			B.ChatForget()
-			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), STAR .. "Zeusy")
+			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), STAR .. "Zeta Prime")
 			C_Texture = nil
 			B.ChatForget()
 			-- A secret name or sender (instances, encounters): the name as it was.
@@ -43466,7 +43466,7 @@ do
 			ns.CouncilMasked = function() return true end
 			eq(cb("CHAT_MSG_SAY", name, "hi", "Sage Owl-Realm"), nil, "masked at once, the table not emptied")
 			eq(cb("CHAT_MSG_SAY", "Guild Boss", "hi", "Guild Boss-Realm"), BRONZE .. "Guild Boss", "his guild master's bronze")
-			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), BRONZE .. "Zeusy", "the other marks as ever")
+			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), BRONZE .. "Zeta Prime", "the other marks as ever")
 			Fire(on, "COUNCIL_MASK_CHANGED")
 			eq(cb("CHAT_MSG_SAY", name, "hi", "Sage Owl-Realm"), nil)
 			eq(cb("CHAT_MSG_SAY", "Guild Boss", "hi", "Guild Boss-Realm"), BRONZE .. "Guild Boss")
@@ -43474,9 +43474,9 @@ do
 			Fire(on, "COUNCIL_MASK_CHANGED")
 			ns.rdb.council.names["guild boss"] = nil
 			-- A character the moderators took off (net-off): none.
-			ns.Moderation.Hides = function(who) if who == "Zeusy-Realm" then return { kind = "c" } end end
+			ns.Moderation.Hides = function(who) if who == "Zeta Prime-Realm" then return { kind = "c" } end end
 			B.ChatForget()
-			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), nil, "net-off")
+			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), nil, "net-off")
 			ns.Moderation.Hides = saved.hides
 			-- A lookup notes nothing for the net-off (Moderation.GuildOf: the guild his own messages named,
 			-- which the hop's whispers are checked against): neither a guild only someone else's census
@@ -43505,25 +43505,25 @@ do
 			ns.Data.KnownRank = saved.known
 			B.ChatForget()
 			-- Outside an Olympus guild (a list kept from before, a removed guild): no mark, kept or new.
-			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), BRONZE .. "Zeusy")
+			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), BRONZE .. "Zeta Prime")
 			ns.IsMember = function() return false end
-			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), nil, "kept mark")
-			eq(cb("CHAT_MSG_SAY", "Capt", "hi", "Capt-Realm"), nil, "new sender")
+			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), nil, "kept mark")
+			eq(cb("CHAT_MSG_SAY", "Capt", "hi", "Capt Prime-Realm"), nil, "new sender")
 			eq(B.ChatName("Sage Owl-Realm"), false)
 			ns.IsMember = saved.member
 			B.ChatForget()
 			-- /oly chatmarks off: nothing, until on again; registered once all along.
 			B.ChatSlash("off")
 			eq(ns.db.chatMarks, false); eq(printed[#printed], ns.L.CHATMARKS_OFF)
-			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), nil)
+			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), nil)
 			B.ChatSlash("on")
 			eq(printed[#printed], ns.L.CHATMARKS_ON)
-			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), BRONZE .. "Zeusy")
+			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), BRONZE .. "Zeta Prime")
 			eq(#filters, 1)
 			-- Switched to the gamepad UI later: the callback returns at once.
 			gamepad = true
 			B.ChatRefresh()
-			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), nil)
+			eq(cb("CHAT_MSG_SAY", "Zeta Prime", "hi", "Zeta Prime-Realm"), nil)
 			gamepad = false
 			B.ChatRefresh()
 			-- The author's preview: his own lines get a mark (his character holds none); test alone the
