@@ -25,24 +25,49 @@ local L = ns.L
 -- themselves: the mixin's functions were copied into them when they were made) Olympus shows the
 -- border of the unit again, so it follows every update the game makes.
 --
+-- The party's frames (1.1.5, the author's ask: in a group the portraits under your own had none):
+-- Forever's PartyFrame (Blizzard_UnitFrame's Shared/PartyFrame.lua and Mainline/
+-- PartyFrameTemplates.xml; Camelot overrides neither) takes its four PartyMemberFrameTemplate
+-- buttons from a frame pool. Each has a 37 x 37 portrait 7 px from its left and 6 px from its
+-- top, under its own ring art (its Texture, ARTWORK) and no container: Olympus's textures go on
+-- the member frame itself, as that ring does, at ARTWORK sublevel 3 as everywhere. A border is the
+-- target's art and offsets scaled by 37/58 (the target's portrait is 58 x 58, 26 px from its
+-- container's right and 19 px from its top, Mainline/TargetFrame.xml) about the portrait's top
+-- corner, and turned round as on your own frame (the portrait on the left): an atlas at the
+-- client's own size of it (C_Texture.GetAtlasInfo) times 37/58, Max's file at its tier's size
+-- times 37/58. The unit of PartyFrame.MemberFrame<i> (the key Blizzard gives the frame of
+-- layoutIndex i) is party<i>. A member's border is worked out on GROUP_ROSTER_UPDATE when he is
+-- new to his place (joining, leaving, places swapped: by GUID, so one who stays is not worked out
+-- again), on his name or guild reaching the client, and on the census changes below; an empty
+-- place is not worked out. One hook, hooksecurefunc on PartyFrame's InitializePartyMemberFrames as
+-- on the target frame's CheckClassification, because no event says it: each time PartyFrame is
+-- shown (the interface hidden and shown again: Alt+Z, a cinematic) it releases its four frames to
+-- the pool and takes them back in no fixed order (the pool's pairs()), so a frame may then show
+-- another member; after it each border goes to the frame now showing its member. A frame's
+-- textures are made once, out of combat (in combat: once it ends). The raid's frames have no
+-- portrait: none there.
+--
 -- The gamepad UI (Forever's controller mode): off there. Olympus leaves the game's frames alone with
 -- the gamepad UI (0.9.8), and nothing offline can show that a hook in the target frame's update is
 -- harmless to it (0.9.9: the world map looked harmless too). Logged in with the gamepad UI, Olympus
--- neither hooks nor makes textures; switched to it later, its textures hide at once and the hook
--- returns without a call; back to mouse and keyboard, the borders come back.
+-- neither hooks nor makes textures; switched to it later, its textures hide at once and the hooks
+-- (the target's and focus's, the party's) return without a call; back to mouse and keyboard, the
+-- borders come back.
 --
--- Cheap: a unit's border is worked out only when the target or focus changes, when its name or
--- guild reaches the client (UNIT_NAME_UPDATE, PLAYER_GUILD_UPDATE), or when the census report of
--- its guild (or the High Council's list, or for a councillor the council's names shown or hidden
--- on the King's screen, or whether a net-off word hides him: 1.1) changes, and only from lookups:
--- its guild's report by name, never a walk over every guild.
+-- Cheap: a unit's border is worked out only when the target or focus changes (or who is in a
+-- party member's place, GROUP_ROSTER_UPDATE), when its name or guild reaches the client
+-- (UNIT_NAME_UPDATE, PLAYER_GUILD_UPDATE), or when the census report of its guild (or the High
+-- Council's list, or for a councillor the council's names shown or hidden on the King's screen, or
+-- whether a net-off word hides him: 1.1) changes, and only from lookups: its guild's report by
+-- name, never a walk over every guild.
 -- A character or a guild the moderators took off (net-off, Moderation.lua; 1.1, Konig's review)
 -- gets no border and no nameplate mark: an Olympus player to nobody's eye.
 --
 -- The author's preview (1.0.0): his character holds no Olympus rank, so his own portrait shows
 -- none of the borders he ships. `/oly borders test <tier>` (a tier's name, as /oly status prints
 -- it) shows that border round his own portrait, turned round as a holder sees his own, and on his
--- target or focus frame while that is himself; `/oly borders test off` ends it. His alone
+-- target or focus frame while that is himself (never on a party frame: those show the others, his
+-- party members their own borders); `/oly borders test off` ends it. His alone
 -- (Workshop.Visible: his character, or his test build, as Asmon's and the Treasurer's views):
 -- anyone else's command gets what /oly borders prints, and changes nothing. His screen alone:
 -- nothing is sent, nothing is saved (a /reload forgets it), nobody else's border changes. It goes
@@ -101,15 +126,22 @@ Borders.RESERVED = {
 }
 
 -- Where they go: the frame (a global of the game's), its container, and the hook that follows the
--- game's updates. Your own portrait sits on the left, so there the art is mirrored.
+-- game's updates. Your own portrait sits on the left, so there the art is mirrored. (The party's
+-- frames come from a pool, not globals: MapParty and PartyRig below.)
 local RIGS = {
 	{ unit = "target", frame = "TargetFrame", container = "TargetFrameContainer", hook = "CheckClassification" },
 	{ unit = "focus", frame = "FocusFrame", container = "TargetFrameContainer", hook = "CheckClassification" },
 	{ unit = "player", frame = "PlayerFrame", container = "PlayerFrameContainer", mirror = true },
 }
-local TRACKED = { target = true, focus = true, player = true }
+-- The party's places (see the top of the file), and where its portraits sit against the target's.
+local PARTY = { "party1", "party2", "party3", "party4" }
+local TARGET_PORTRAIT, TARGET_RIGHT, TARGET_TOP = 58, 26, 19 -- (from its container's top right)
+local PARTY_PORTRAIT, PARTY_LEFT, PARTY_TOP = 37, 7, 6       -- (from its frame's top left)
+local PARTY_SCALE = PARTY_PORTRAIT / TARGET_PORTRAIT
+local TRACKED = { target = true, focus = true, player = true, party1 = true, party2 = true, party3 = true, party4 = true }
 
 local rigs = {}  -- [unit] = { tex = { [tier name] = texture }, shown = tier name or nil }
+local partyRigs = {} -- [a party member frame of the game's] = its rig, made once (rigs[party<i>]: the one showing party<i>)
 local known = {} -- [unit] = { guid, tier, guild, report, rt, council }: the last worked out
 local installed, waiting = false, false
 local preview    -- the author's preview: a tier's name while on (this session only, never saved)
@@ -312,29 +344,119 @@ local function AtlasExists(atlas)
 	return ok and v ~= nil
 end
 
+-- An atlas's size as the client gives it (its AtlasInfo's width and height), or nil.
+local function AtlasSize(atlas)
+	local info = C_Texture and C_Texture.GetAtlasInfo
+	if type(info) ~= "function" then return nil end
+	local ok, v = pcall(info, atlas)
+	if ok and type(v) == "table" and type(v.width) == "number" and type(v.height) == "number" then return v.width, v.height end
+	return nil
+end
+
 -- A tier's art on a new texture (mirror: turned round, for your own portrait), or false when the
 -- client has none of it. An atlas at its own size; a file at the tier's size, its art's area only.
 -- A file SetTexture fails or says false for: the game's frame it was drawn over, without colour.
 -- The game's way to turn art round is its texture coordinates the other way, right before left
 -- (Blizzard_OrderHallTalents.lua, for an atlas).
-local function Dress(tex, t, mirror)
+-- scale (a party member's frame, PARTY_SCALE: 37/58): each at that share of that size, an atlas's
+-- from the client's own size of it (none known: false, rather than the target's size there).
+local function Dress(tex, t, mirror, scale)
 	local left, right, top, bottom = 0, 1, 0, 1
 	local ok, loaded = false, false
 	if t.file then ok, loaded = pcall(tex.SetTexture, tex, t.file) end
 	if ok and loaded ~= false then
-		tex:SetSize(t.width, t.height)
+		tex:SetSize(t.width * (scale or 1), t.height * (scale or 1))
 		left, right, top, bottom = unpack(t.coords)
 		if not mirror then tex:SetTexCoord(left, right, top, bottom) end
-	elseif t.file then
-		if not (t.fallback and AtlasExists(t.fallback)) then return false end
-		ns.Log("borders: %s not loaded, the game's %s without colour instead", t.file, t.fallback)
-		tex:SetAtlas(t.fallback, true, nil, true)
-		tex:SetDesaturated(true)
 	else
-		tex:SetAtlas(t.atlas, true, nil, true)
+		local atlas = t.file and t.fallback or t.atlas
+		if t.file and not (atlas and AtlasExists(atlas)) then return false end
+		local width, height
+		if scale then
+			width, height = AtlasSize(atlas)
+			if not width then return false end
+		end
+		if t.file then ns.Log("borders: %s not loaded, the game's %s without colour instead", t.file, t.fallback) end
+		tex:SetAtlas(atlas, not scale, nil, true)
+		if scale then tex:SetSize(width * scale, height * scale) end
+		if t.file then tex:SetDesaturated(true) end
 	end
 	if mirror then tex:SetTexCoord(right, left, top, bottom) end
 	return true
+end
+
+-- A rig shows one border (a tier's name) or none (nil): Show and Hide alone, fine in combat.
+local function Show(rig, name)
+	if rig.shown == name then return end
+	if rig.shown and rig.tex[rig.shown] then rig.tex[rig.shown]:Hide() end
+	rig.shown = nil
+	if name and rig.tex[name] then
+		rig.tex[name]:Show()
+		rig.shown = name
+	end
+end
+
+-- A frame's textures, one per tier the client has the art of, each hidden and placed by Place.
+local function MakeRig(owner, mirror, scale, Place)
+	local rig = { tex = {} }
+	for _, t in ipairs(Borders.TIERS) do
+		-- (A missing atlas: no texture. A file's is made to try it: one the client can't
+		-- load, with no atlas to fall back to, stays hidden and unused.)
+		if t.file or AtlasExists(t.atlas) then
+			local tex = owner:CreateTexture(nil, "ARTWORK", nil, 3)
+			tex:Hide()
+			if Dress(tex, t, mirror, scale) then
+				Place(tex, t)
+				rig.tex[t.name] = tex
+			end
+		end
+	end
+	return rig
+end
+
+-- A party member frame's textures: the target's art and offsets scaled to its portrait about the
+-- portrait's top corner, turned round (from the frame's top left).
+local function PartyRig(frame)
+	local s = PARTY_SCALE
+	return MakeRig(frame, true, s, function(tex, t)
+		tex:SetPoint("TOPLEFT", frame, "TOPLEFT", PARTY_LEFT - (t.x + TARGET_RIGHT) * s, (t.y + TARGET_TOP) * s - PARTY_TOP)
+	end)
+end
+
+-- Forever's PartyFrame (its member frames from a pool), or nil.
+local function PartyFrameOf()
+	local party = _G.PartyFrame
+	if type(party) == "table" and type(party.PartyMemberFramePool) == "table" then return party end
+	return nil
+end
+
+-- Which frame shows which party member now (PartyFrame.MemberFrame<i>, of layoutIndex i: party<i>),
+-- a frame's textures made the first time it is seen out of combat (in combat: once it ends); a
+-- frame not showing a place now shows no border. Field reads alone on the game's frames.
+local function MapParty()
+	local party = PartyFrameOf()
+	if not party then return end
+	local combat = InCombatLockdown and InCombatLockdown()
+	if not combat then waiting = false end
+	local mapped = {}
+	for i, unit in ipairs(PARTY) do
+		local frame = party["MemberFrame" .. i]
+		local rig
+		if type(frame) == "table" and frame.layoutIndex == i and type(frame.CreateTexture) == "function" then
+			rig = partyRigs[frame]
+			if not rig and combat then
+				waiting = true
+			elseif not rig then
+				rig = PartyRig(frame)
+				partyRigs[frame] = rig
+			end
+		end
+		rigs[unit] = rig
+		if rig then mapped[rig] = true end
+	end
+	for _, rig in pairs(partyRigs) do
+		if not mapped[rig] then Show(rig, nil) end
+	end
 end
 
 -- Once, with mouse and keyboard and out of combat (a texture of the game's frames may count as
@@ -352,47 +474,32 @@ function Borders.Install()
 		local frame = _G[spec.frame]
 		local container = type(frame) == "table" and frame[spec.container] or nil
 		if type(container) == "table" and type(container.CreateTexture) == "function" then
-			local rig = { tex = {} }
-			for _, t in ipairs(Borders.TIERS) do
-				-- (A missing atlas: no texture. A file's is made to try it: one the client can't
-				-- load, with no atlas to fall back to, stays hidden and unused.)
-				if t.file or AtlasExists(t.atlas) then
-					local tex = container:CreateTexture(nil, "ARTWORK", nil, 3)
-					tex:Hide()
-					if Dress(tex, t, spec.mirror) then
-						if spec.mirror then
-							-- The target's portrait sits 26 px from its frame's right edge, yours 24 px from its left.
-							tex:SetPoint("TOPLEFT", container, "TOPLEFT", -(t.x + 2), t.y)
-						else
-							tex:SetPoint("TOPRIGHT", container, "TOPRIGHT", t.x, t.y)
-						end
-						rig.tex[t.name] = tex
-					end
+			rigs[spec.unit] = MakeRig(container, spec.mirror, nil, function(tex, t)
+				if spec.mirror then
+					-- The target's portrait sits 26 px from its frame's right edge, yours 24 px from its left.
+					tex:SetPoint("TOPLEFT", container, "TOPLEFT", -(t.x + 2), t.y)
+				else
+					tex:SetPoint("TOPRIGHT", container, "TOPRIGHT", t.x, t.y)
 				end
-			end
-			rigs[spec.unit] = rig
+			end)
 			if spec.hook and type(frame[spec.hook]) == "function" and type(hooksecurefunc) == "function" then
 				local unit, where = spec.unit, "borders " .. spec.unit
 				hooksecurefunc(frame, spec.hook, function() ns.SafeCall(where, Borders.Refresh, unit) end)
 			end
 		end
 	end
+	-- The party's frames there now, and the hook that follows PartyFrame handing them out anew.
+	MapParty()
+	local party = PartyFrameOf()
+	if party and type(party.InitializePartyMemberFrames) == "function" and type(hooksecurefunc) == "function" then
+		hooksecurefunc(party, "InitializePartyMemberFrames", function() ns.SafeCall("borders party", Borders.RefreshParty) end)
+	end
 	ns.Log("borders: set up on %s", Borders.Frames())
 	return true
 end
 
-local function Show(rig, name)
-	if rig.shown == name then return end
-	if rig.shown and rig.tex[rig.shown] then rig.tex[rig.shown]:Hide() end
-	rig.shown = nil
-	if name and rig.tex[name] then
-		rig.tex[name]:Show()
-		rig.shown = name
-	end
-end
-
 local function HideAll()
-	for _, rig in pairs(rigs) do Show(rig, nil) end
+	for _, rig in pairs(rigs) do Show(rig, nil) end -- (a party frame showing nobody is hidden already: MapParty)
 end
 
 -- The unit is us: our own frame, or the target or focus while it is us (by GUID; by UnitIsUnit
@@ -424,8 +531,28 @@ function Borders.Refresh(unit, fresh)
 	Show(rig, preview and UnitExists(unit) and IsMe(unit, guid) and preview or k.tier)
 end
 
+-- The party's frames again: which shows whom (MapParty), and each member's border, worked out
+-- afresh (fresh) or when he is new to his place (by GUID). An empty place: nothing worked out.
+function Borders.RefreshParty(fresh)
+	if not Active() then
+		for _, rig in pairs(partyRigs) do Show(rig, nil) end
+		return
+	end
+	if not installed and not Borders.Install() then return end
+	MapParty()
+	for _, unit in ipairs(PARTY) do
+		if UnitExists(unit) then
+			Borders.Refresh(unit, fresh)
+		else
+			known[unit] = nil
+			if rigs[unit] then Show(rigs[unit], nil) end
+		end
+	end
+end
+
 function Borders.RefreshAll(fresh)
 	for _, spec in ipairs(RIGS) do Borders.Refresh(spec.unit, fresh) end
+	Borders.RefreshParty(fresh)
 end
 
 -- The census, the High Council's list, our roster or the council's names hidden or shown on the
@@ -553,6 +680,9 @@ function Borders.Frames()
 	for _, spec in ipairs(RIGS) do
 		if rigs[spec.unit] then out[#out + 1] = spec.unit end
 	end
+	for _, unit in ipairs(PARTY) do
+		if rigs[unit] then out[#out + 1] = unit end
+	end
 	return #out > 0 and table.concat(out, ", ") or "none (not Forever's unit frames)"
 end
 
@@ -565,6 +695,10 @@ function Borders.StatusLine()
 		for _, spec in ipairs(RIGS) do
 			local rig = rigs[spec.unit]
 			if rig then shown[#shown + 1] = spec.unit .. " " .. (rig.shown or "-") end
+		end
+		for _, unit in ipairs(PARTY) do
+			local rig = rigs[unit]
+			if rig then shown[#shown + 1] = unit .. " " .. (rig.shown or "-") end
 		end
 		where = #shown > 0 and table.concat(shown, ", ") or Borders.Frames()
 	else
@@ -805,6 +939,8 @@ ns.On("DATA_CHANGED", function() Borders.CensusChanged() end)
 -- The King shows or hides the council's names (the eye in the Realm, ns.SetCouncilNamesShown).
 ns.On("COUNCIL_MASK_CHANGED", function() Borders.CensusChanged() end)
 ns.RegisterEvent("PLAYER_TARGET_CHANGED", function() Borders.Refresh("target") end)
+-- Joining, leaving, places swapped: a member new to his place worked out (the frames are the game's to update).
+ns.RegisterEvent("GROUP_ROSTER_UPDATE", function() Borders.RefreshParty() end)
 ns.RegisterEvent("UNIT_NAME_UPDATE", function(unit) if TRACKED[unit] then Borders.Refresh(unit, true) end end)
 -- A unit's guild reaching the client (or ours changing: every border again).
 ns.RegisterEvent("PLAYER_GUILD_UPDATE", function(unit)
