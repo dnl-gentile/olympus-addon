@@ -717,7 +717,8 @@ alts and the census counts people:
 - The army's total then counts each player once, whatever guilds their characters are in (each
   guild's own size stays its roster's; the header's tooltip says how many were counted once).
   The treasury's ranking and its week's donors put a player's characters on one line, under the
-  main's name. Vox Populi takes one vote per player.
+  main's name, and a dues payment made from an alt counts for its main (1.1.5, see the dues
+  below). Vox Populi takes one vote per player.
 - Each linked character's addon says so on the Olympus channel (its name, its guild and the
   names it confirmed), and a link counts on a client only when both characters said it: a name
   someone claims alone links nothing.
@@ -1056,6 +1057,28 @@ alone until then).
     King's latest, or the Treasurer's is not the addon it says), the page says so and asks for a
     newer list, the King's table shows its "paid" as "?", and that list removes nobody. The
     army's Treasury tab keeps the King's three switches, and nothing of this.
+  - **A payment made from a confirmed alt counts for its main (1.1.5)**, the one gap Fern's #21
+    had (see Alt links above): on a guild's dues page the main's line adds what his alts paid that
+    week with that guild on it and names them, so he is above the amount once their gold together
+    reaches it, and his guild's table counts him once there (one payer, the gold in once). It is
+    never another guild's: an alt's payment with another guild on it, or with none ("guild not
+    known"), counts for the alt alone, and the alt's own line keeps its own gold, never its
+    main's. An alt counts only while it and its main are of that guild now, by the best word the
+    viewer's addon has: on a guild's own page, its roster (the server's word); on the Treasurer's,
+    his roster for his own guild and, for another, the guild each one's own payments of this week
+    carry. Never an earlier week's, even where the ledger still puts their gold in that guild by
+    it, and never the guild a link's claim names (it goes out again only when the links change).
+    The King's and his Steward's page of a guild not theirs has no such word, so there each
+    character shows its own gold, as before; their table counts the player once by the Treasurer's
+    ledger.
+    A guild's own page counts each player once among those at the amount, as the table does (a
+    linked alt of a main on that roster goes with him; the count's tooltip says how many), and on
+    a list too long to send whole, a main whose linked alt of the roster is not on it shows as not
+    known, never below. Only a link both characters confirmed counts: an offer not answered, or a
+    name one character claims alone, adds nothing, and a link taken apart stops counting at once
+    (the books keep each character's own weeks; the link is looked up each time a list is drawn).
+    The table goes by the links the Treasurer's addon heard, a guild's page by the viewer's own
+    addon: one that has not heard the link yet shows each character's own gold, as before.
   - **Clearing a seat (a guild's Captains and Lord)**: on their own guild's list, one click
     filters the roster to whoever is under the amount this week (never someone the Treasurer's
     list can't tell yet: a list still coming, or cut). A click picks one name; under it,

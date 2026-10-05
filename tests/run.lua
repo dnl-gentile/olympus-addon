@@ -35211,6 +35211,553 @@ do
 			if not ok then error(err, 0) end
 		end)
 	end)
+
+	-- 1.1.5 (Fern's #21, the one gap the dues had): a payment made from a confirmed alt counts for
+	-- its main. The links as each character's own client says them on the channel (Alts.lua, loaded
+	-- above), with every claim heard and this account's links cleared first and put back after.
+	local AL = ns.Alts
+	local function Claim(who, at, role, guild, names)
+		AL.Handle("CHANNEL", who .. "-Realm", ("AL~%d~%s~%s~%s"):format(at, role, guild or "", names or ""))
+	end
+	local function Link(main, alt, at, mainGuild, altGuild)
+		Claim(main, at, "M", mainGuild or "Olympus II", alt)
+		Claim(alt, at, "A", altGuild or "Olympus II", main)
+	end
+	-- Forever's names (a first name and a surname) for the members linked here: Member7 of
+	-- <Olympus II>'s roster a main, Member11 and Member12 his alts; Member3 a main of the
+	-- Treasurer's own guild (the roster is both guilds' in these tests, as WithDues has it).
+	local LINKED = { [3] = "Ward Homely", [7] = "Brand Mainly", [11] = "Brand Altly", [12] = "Brand Thirdly" }
+	local function Who(i) return LINKED[i] or Nm(i) end
+	local function WithLinks(fn)
+		local saved = { alts = ns.db.alts, claims = ns.rdb.altClaims, roster = GetGuildRosterInfo }
+		ns.db.alts, ns.rdb.altClaims = nil, nil
+		AL.Reset()
+		GetGuildRosterInfo = function(i)
+			local name, rankName, rank, level = saved.roster(i)
+			if name and LINKED[i] then name = LINKED[i] .. "-Realm" end
+			return name, rankName, rank, level
+		end
+		local ok, err = pcall(fn)
+		ns.db.alts, ns.rdb.altClaims, GetGuildRosterInfo = saved.alts, saved.claims, saved.roster
+		AL.Reset()
+		if not ok then error(err, 0) end
+	end
+	-- The Captain of <Olympus II>'s page, from the list the Treasurer's addon whispers him now.
+	local function CaptainPage(w, T)
+		AsTreasurer()
+		w.census()
+		local msgs = D.GuildMessages(D.Ledger(), "Olympus II")
+		AsCaptain()
+		for _, m in ipairs(msgs) do D.HandleGuild("WHISPER", TREASURER, m) end
+		D.Open()
+		return Page(T)
+	end
+	local function TipOf(line)
+		local out = {}
+		line.tooltip({ AddLine = function(_, s) out[#out + 1] = tostring(s) end })
+		return table.concat(out, " ")
+	end
+
+	test("1.1.5 dues (Fern's #21): a payment made from a confirmed alt counts for its main: his line on the Captain's, the Treasurer's and the King's page, one payer in his guild's count; the alt's own line stays its own", function()
+		WithDues(function(w, K, T, mail)
+			WithLinks(function()
+				AsTreasurer()
+				local week = D.Week()
+				local main, alt = Who(7), Who(11)
+				-- Half the amount from each of one player's characters, both of <Olympus II>.
+				Mail(mail, alt, 5000, D.Note(week, "Olympus II"))
+				w.clock = w.clock + 3600
+				Mail(mail, main, 5000, D.Note(week, "Olympus II"))
+				-- Not linked: two payers, neither at the amount (as before 1.1.5).
+				local g = D.Ledger().guilds["olympus ii"]
+				eq(g.payers, 2); eq(g.paid, 0); eq(g.copper, 10000)
+				local text, lines = CaptainPage(w, T)
+				assert(Row(lines, main .. " ").right:find(ns.L.DUES_BELOW, 1, true), text)
+				-- Linked, each saying so from its own client: one player, who paid the amount.
+				Link(main, alt, w.clock)
+				AsTreasurer()
+				g = D.Ledger().guilds["olympus ii"]
+				eq(g.payers, 1, "one player"); eq(g.paid, 1, "his characters' gold together"); eq(g.copper, 10000, "the gold in once")
+				-- The Captain's page: the main above with his alt's gold, the alt named; the alt's line its own.
+				text, lines = CaptainPage(w, T)
+				local m, a = Row(lines, main .. " "), Row(lines, alt .. " ")
+				assert(m and a, text)
+				assert(m.right:find(ns.L.DUES_ABOVE, 1, true) and m.right:find(T.Coins(10000), 1, true), m.right)
+				assert(m.text:find(ns.L.DUES_WITH_ALTS:format(alt), 1, true), m.text)
+				assert(TipOf(m):find(ns.L.DUES_ALTS_TIP:format(alt), 1, true), TipOf(m))
+				assert(a.right:find(ns.L.DUES_BELOW, 1, true) and a.right:find(T.Coins(5000), 1, true), "the alt takes nothing of its main's: " .. a.right)
+				assert(not a.text:find(main, 1, true), a.text)
+				assert(text:find(ns.L.DUES_OWN_COUNT:format(1, 12, T.Coins(10000)), 1, true), text)
+				-- Paid from his alt: no Remove line for him, and a removal asked anyway removes nobody.
+				local saved = { can = CanGuildRemove, info = C_GuildInfo }
+				local removed = {}
+				CanGuildRemove = function() return true end
+				C_GuildInfo = { Uninvite = function(n) removed[#removed + 1] = n end }
+				local ok, err = pcall(function()
+					m.onClick()
+					eq(#RemoveLines(select(2, Page(T))), 0, "no Remove line")
+					eq(D.Remove({ key = D.Key(main), name = main }), false)
+					eq(#removed, 0)
+					assert(Printed(w, ns.L.DUES_REMOVE_PAID:format(main)))
+				end)
+				CanGuildRemove, C_GuildInfo = saved.can, saved.info
+				D.picked = nil
+				if not ok then error(err, 0) end
+				-- The Treasurer's own page of <Olympus II>, from his books: the same.
+				AsTreasurer()
+				D.Open("Olympus II")
+				text, lines = Page(T)
+				m = Row(lines, main .. " ")
+				assert(m and m.right:find(ns.L.DUES_ABOVE, 1, true) and m.text:find(ns.L.DUES_WITH_ALTS:format(alt), 1, true), text)
+				assert(Row(lines, alt .. " ").right:find(T.Coins(5000), 1, true), text)
+				-- The King's table of every guild: one paid of its 300, 1 gold in.
+				local fs = D.SummaryMessages(D.Ledger())
+				AsKing()
+				for _, x in ipairs(fs) do D.HandleSummary("WHISPER", TREASURER, x) end
+				D.Open()
+				text, lines = Page(T)
+				local row = Row(lines, "<Olympus II>")
+				assert(row, text)
+				eq(row.right, ns.L.DUES_GUILD_ROW:format("300", 1, T.GoldText(10000), "0%"))
+			end)
+		end)
+	end)
+
+	test("1.1.5 dues (Fern's #21): an alt's payment never counts for its main across guilds: one with another guild on it, or with none, stays its own, on the Treasurer's own guild's page too", function()
+		WithDues(function(w, K, T, mail, trade)
+			WithLinks(function()
+				AsTreasurer()
+				local week = D.Week()
+				-- The main in <Olympus II> (his Captain's roster); his alt trades the Treasurer from
+				-- <Olympus Zeus> (the game's word on the other side of the trade).
+				local main, alt, alt2 = Who(7), "Far Cousin", "Near Cousin"
+				Claim(main, w.clock, "M", "Olympus II", alt .. "," .. alt2)
+				Claim(alt, w.clock, "A", "Olympus Zeus", main)
+				Claim(alt2, w.clock, "A", "Olympus Zeus", main)
+				TradeIn("Olympus Zeus", { "Olympus", "Treasurer", 1 })
+				trade.Trade(alt, 10000, 0)
+				trade.Trade(alt2, 5000, 0)
+				AsTreasurer()
+				Mail(mail, main, 5000, D.Note(week, "Olympus II"))
+				local led = D.Ledger()
+				-- Each alt its own in <Olympus Zeus>, where their main is not: their gold is not put
+				-- together there for him (two payers, one at the amount).
+				eq(led.guilds["olympus zeus"].payers, 2); eq(led.guilds["olympus zeus"].paid, 1, "the alts' own, in their own guild")
+				eq(led.guilds["olympus ii"].payers, 1); eq(led.guilds["olympus ii"].paid, 0, "nothing of it in his main's guild")
+				eq(led.guilds["olympus ii"].copper, 5000)
+				local text, lines = CaptainPage(w, T)
+				local m = Row(lines, main .. " ")
+				assert(m.right:find(ns.L.DUES_BELOW, 1, true) and m.right:find(T.Coins(5000), 1, true), m.right)
+				assert(not text:find(alt, 1, true), "another guild's player: " .. text)
+				-- The Treasurer's own guild: his page lists every player of his books (his roster finds
+				-- them, whatever their gift carries), yet only gold with his guild on it counts for a main.
+				AsTreasurer()
+				local own, zeusAlt, looseAlt, homeAlt = Who(3), "Zeus Cousin", "Loose Cousin", "Home Cousin"
+				ns.Roster.byName = { [own .. "-Realm"] = 1, [homeAlt .. "-Realm"] = 3 }
+				Claim(own, w.clock, "M", "Olympus", zeusAlt .. "," .. looseAlt .. "," .. homeAlt)
+				Claim(zeusAlt, w.clock, "A", "Olympus Zeus", own)
+				Claim(looseAlt, w.clock, "A", "Olympus", own)
+				Claim(homeAlt, w.clock, "A", "Olympus", own)
+				eq(#AL.Linked(own .. "-Realm"), 3, "all three confirmed")
+				TradeIn("Olympus Zeus", { "Olympus", "Treasurer", 1 })
+				trade.Trade(zeusAlt, 10000, 0)
+				AsTreasurer()
+				Mail(mail, looseAlt, 10000, "for the fund") -- (no note, not on his roster: guild not known)
+				D.Open("Olympus")
+				text, lines = Page(T)
+				local o = Row(lines, own .. " ")
+				assert(o, text)
+				assert(o.right:find(ns.L.DUES_NOT_IN_BOOK, 1, true), "nothing with another guild on it, nor with none: " .. o.right)
+				assert(not o.text:find(zeusAlt, 1, true) and not o.text:find(looseAlt, 1, true), o.text)
+				-- His alt of his own guild (by his roster): that one counts.
+				Mail(mail, homeAlt, 10000, "for the fund")
+				text, lines = Page(T)
+				o = Row(lines, own .. " ")
+				assert(o.right:find(ns.L.DUES_ABOVE, 1, true) and o.right:find(T.Coins(10000), 1, true), o.right)
+				assert(o.text:find(ns.L.DUES_WITH_ALTS:format(homeAlt), 1, true), o.text)
+				-- And each guild counts its own: the alt with no guild on it among those, alone.
+				led = D.Ledger()
+				eq(led.guilds[""].payers, 1); eq(led.guilds["olympus zeus"].payers, 3); eq(led.guilds["olympus zeus"].paid, 2)
+				eq(led.guilds["olympus"].payers, 1); eq(led.guilds["olympus"].paid, 1)
+			end)
+		end)
+	end)
+
+	test("1.1.5 dues (Fern's #21): only a link both characters confirmed counts: one character's claim alone adds nothing, and a link taken apart stops counting at once", function()
+		WithDues(function(w, K, T, mail)
+			WithLinks(function()
+				AsTreasurer()
+				local week = D.Week()
+				local main, alt = Who(7), Who(11)
+				Mail(mail, alt, 5000, D.Note(week, "Olympus II"))
+				Mail(mail, main, 5000, D.Note(week, "Olympus II"))
+				-- His line on the Captain's page, and his guild's payers and paid, as they are now.
+				local function Now()
+					local _, lines = CaptainPage(w, T)
+					AsTreasurer()
+					local g = D.Ledger().guilds["olympus ii"]
+					local right = Row(lines, main .. " ").right
+					return (right:find(ns.L.DUES_ABOVE, 1, true) and "above" or "below") .. " " .. g.payers .. " " .. g.paid
+				end
+				eq(Now(), "below 2 0")
+				-- The main names the alt alone (it never confirmed): nothing.
+				Claim(main, w.clock, "M", "Olympus II", alt)
+				eq(Now(), "below 2 0", "the main's claim alone")
+				-- The alt names the main alone (its main never named it): nothing.
+				ns.rdb.altClaims = nil
+				AL.Reset()
+				Claim(alt, w.clock, "A", "Olympus II", main)
+				eq(Now(), "below 2 0", "the alt's claim alone")
+				-- Both said it: it counts.
+				Claim(main, w.clock, "M", "Olympus II", alt)
+				eq(Now(), "above 1 1")
+				-- The alt takes it apart (a newer claim without its main): nothing again, at once.
+				w.clock = w.clock + 60
+				Claim(alt, w.clock, "-", "Olympus II", "")
+				eq(AL.Group(alt .. "-Realm"), nil)
+				eq(Now(), "below 2 0", "taken apart by the alt")
+				-- Linked again, then the main takes it apart: the same.
+				w.clock = w.clock + 60
+				Claim(alt, w.clock, "A", "Olympus II", main)
+				eq(Now(), "above 1 1")
+				w.clock = w.clock + 60
+				Claim(main, w.clock, "-", "Olympus II", "")
+				eq(Now(), "below 2 0", "taken apart by the main")
+				-- Nothing of a link was kept in the books: each character's weeks are its own.
+				for _, list in pairs(T.Book().sums.weeks) do
+					for key, p in pairs(list) do eq(p.c, 5000, key) end
+				end
+			end)
+		end)
+	end)
+
+	test("1.1.5 dues (Fern's #21): a payment counts once: the gold in once, one payer per player in a guild, each alt's gold once on its main's line (two alts, a page drawn again, a line taken out), never on another alt's", function()
+		WithDues(function(w, K, T, mail)
+			WithLinks(function()
+				AsTreasurer()
+				local week = D.Week()
+				local main, alt1, alt2 = Who(7), Who(11), Who(12)
+				Claim(main, w.clock, "M", "Olympus II", alt1 .. "," .. alt2)
+				Claim(alt1, w.clock, "A", "Olympus II", main)
+				Claim(alt2, w.clock, "A", "Olympus II", main)
+				Mail(mail, alt1, 4000, D.Note(week, "Olympus II"))
+				Mail(mail, alt2, 3000, D.Note(week, "Olympus II"))
+				Mail(mail, main, 2000, D.Note(week, "Olympus II"))
+				Mail(mail, alt1, 1000, D.Note(week, "Olympus II")) -- (a second payment of one alt's)
+				local g = D.Ledger().guilds["olympus ii"]
+				eq(g.copper, 10000, "the gold in once"); eq(g.payers, 1, "one player"); eq(g.paid, 1)
+				-- The page drawn twice: the main's line holds each alt's gold once; each alt's its own.
+				for i = 1, 2 do
+					local text, lines = CaptainPage(w, T)
+					local m = Row(lines, main .. " ")
+					assert(m.right:find(T.Coins(10000), 1, true) and m.right:find(ns.L.DUES_ABOVE, 1, true), i .. ": " .. m.right)
+					assert(m.text:find(ns.L.DUES_WITH_ALTS:format(alt1 .. ", " .. alt2), 1, true), m.text)
+					assert(Row(lines, alt1 .. " ").right:find(T.Coins(5000), 1, true), "its own, once")
+					assert(Row(lines, alt2 .. " ").right:find(T.Coins(3000), 1, true), "never its brother alt's")
+					assert(text:find(ns.L.DUES_OWN_COUNT:format(1, 12, T.Coins(10000)), 1, true), text)
+				end
+				-- A line the Treasurer stops counting leaves the main's line too: no copy of it was kept.
+				AsTreasurer()
+				for _, e in ipairs(T.Lines()) do
+					if e.name == alt1 and e.money == 4000 then T.Toggle(e) end
+				end
+				g = D.Ledger().guilds["olympus ii"]
+				eq(g.copper, 6000); eq(g.payers, 1); eq(g.paid, 0)
+				local _, lines = CaptainPage(w, T)
+				local m = Row(lines, main .. " ")
+				assert(m.right:find(T.Coins(6000), 1, true) and m.right:find(ns.L.DUES_BELOW, 1, true), m.right)
+			end)
+		end)
+	end)
+
+	-- A removal asked from the Captain's page, the game's removal stood in for: fn(removed).
+	local function WithRemoval(fn)
+		local saved = { can = CanGuildRemove, info = C_GuildInfo }
+		local removed = {}
+		CanGuildRemove = function() return true end
+		C_GuildInfo = { Uninvite = function(n) removed[#removed + 1] = n end }
+		local ok, err = pcall(fn, removed)
+		CanGuildRemove, C_GuildInfo = saved.can, saved.info
+		D.picked = nil
+		if not ok then error(err, 0) end
+	end
+
+	test("1.1.5 dues review (Fern's #21): an alt's gold counts for its main only while the alt is of his guild now: never by a guild an earlier week's payment gave it (the ledger's place for its gold), nor by its claim's", function()
+		WithDues(function(w, K, T, mail, trade)
+			WithLinks(function()
+				AsTreasurer()
+				-- Brand Mainly of <Olympus II> and his alt, linked while both were of it: the alt's claim still says
+				-- <Olympus II> (a claim's guild goes out again only with a change of its links).
+				local main, alt = Who(7), "Brand Leftly"
+				Link(main, alt, w.clock)
+				-- Two weeks ago the alt traded the Treasurer from <Olympus II> (the game's word, then).
+				TradeIn("Olympus II", { "Olympus", "Treasurer", 1 })
+				trade.Trade(alt, 2000, 0)
+				AsTreasurer()
+				-- This week, of <Olympus Zeus> now (off <Olympus II>'s roster), it mails half the amount with
+				-- <Olympus Zeus>'s note; the main mails the other half with his own guild's.
+				w.clock = w.clock + 14 * 86400
+				local week = D.Week()
+				Mail(mail, alt, 5000, D.Note(week, "Olympus Zeus"))
+				Mail(mail, main, 5000, D.Note(week, "Olympus II"))
+				-- (The ledger still places the alt's gold in <Olympus II>, by the game's older word, as before 1.1.5.)
+				local led = D.Ledger()
+				eq(led.players[D.Key(alt)].g, "Olympus II")
+				local g = led.guilds["olympus ii"]
+				eq(g.copper, 10000); eq(g.payers, 2, "two payers: the alt's gold is not its main's there"); eq(g.paid, 0)
+				-- The Captain's page: the main under the amount with his own gold, nobody named with him, removable.
+				local text, lines = CaptainPage(w, T)
+				local m = Row(lines, main .. " ")
+				assert(m and m.right:find(ns.L.DUES_BELOW, 1, true) and m.right:find(T.Coins(5000), 1, true), text)
+				assert(not m.text:find(alt, 1, true), m.text)
+				WithRemoval(function(removed)
+					m.onClick()
+					eq(#RemoveLines(select(2, Page(T))), 1, "a Remove line for him")
+				end)
+				-- The Treasurer's page of <Olympus II>, from his books: the same.
+				AsTreasurer()
+				D.Open("Olympus II")
+				text, lines = Page(T)
+				m = Row(lines, main .. " ")
+				assert(m and m.right:find(ns.L.DUES_BELOW, 1, true) and not m.text:find(alt, 1, true), text)
+				-- Back in <Olympus II> (on its roster again) and paying for it this week by trade: it counts.
+				local third = LINKED[12]
+				LINKED[12] = alt
+				local ok, err = pcall(function()
+					TradeIn("Olympus II", { "Olympus", "Treasurer", 1 })
+					trade.Trade(alt, 1000, 0)
+					AsTreasurer()
+					g = D.Ledger().guilds["olympus ii"]
+					eq(g.payers, 1, "one player"); eq(g.paid, 1)
+					text, lines = CaptainPage(w, T)
+					m = Row(lines, main .. " ")
+					assert(m.right:find(ns.L.DUES_ABOVE, 1, true) and m.text:find(ns.L.DUES_WITH_ALTS:format(alt), 1, true), text)
+					AsTreasurer()
+					D.Open("Olympus II")
+					text, lines = Page(T)
+					m = Row(lines, main .. " ")
+					assert(m.right:find(ns.L.DUES_ABOVE, 1, true) and m.text:find(ns.L.DUES_WITH_ALTS:format(alt), 1, true), text)
+				end)
+				LINKED[12] = third
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+
+	test("1.1.5 dues review (Fern's #21): nor for a main of another guild now: his own payments of this week say where he is, not the guild an earlier week's gave his gold", function()
+		WithDues(function(w, K, T, mail, trade)
+			WithLinks(function()
+				AsTreasurer()
+				-- Brand Gone traded the Treasurer from <Olympus II> two weeks ago; he is of <Olympus Zeus> now (off
+				-- <Olympus II>'s roster). His alt Brand Altly is still of <Olympus II> (on its roster).
+				local main, alt = "Brand Gone", Who(11)
+				Link(main, alt, w.clock)
+				TradeIn("Olympus II", { "Olympus", "Treasurer", 1 })
+				trade.Trade(main, 2000, 0)
+				AsTreasurer()
+				w.clock = w.clock + 14 * 86400
+				local week = D.Week()
+				-- This week: half the amount from him with <Olympus Zeus>'s note, half from his alt by trade from <Olympus II>.
+				Mail(mail, main, 5000, D.Note(week, "Olympus Zeus"))
+				TradeIn("Olympus II", { "Olympus", "Treasurer", 1 })
+				trade.Trade(alt, 5000, 0)
+				AsTreasurer()
+				local led = D.Ledger()
+				eq(led.players[D.Key(main)].g, "Olympus II", "(the ledger still places his gold by the game's older word)")
+				local g = led.guilds["olympus ii"]
+				eq(g.copper, 10000); eq(g.payers, 2, "two payers: his alt's gold is not his there"); eq(g.paid, 0)
+				-- The Treasurer's page of <Olympus II>: his line his own gold alone; the Captain's has no line of his.
+				D.Open("Olympus II")
+				local text, lines = Page(T)
+				local m = Row(lines, main .. " ")
+				assert(m and m.right:find(ns.L.DUES_BELOW, 1, true) and not m.text:find(alt, 1, true), text)
+				text, lines = CaptainPage(w, T)
+				assert(not Row(lines, main .. " "), text)
+				assert(Row(lines, alt .. " ").right:find(T.Coins(5000), 1, true), text)
+				assert(Row(lines, "<Olympus II>").right:find(ns.L.DUES_OWN_COUNT:format(0, 12, T.Coins(10000)), 1, true), text)
+			end)
+		end)
+	end)
+
+	test("1.1.5 dues review (Fern's #21): in the Treasurer's own guild an alt counts for its main by his roster alone: a note naming his guild from a character his roster does not list counts for nobody's main", function()
+		WithDues(function(w, K, T, mail)
+			WithLinks(function()
+				AsTreasurer()
+				local week = D.Week()
+				local main, alt = Who(3), "Stray Cousin"
+				ns.Roster.byName = { [main .. "-Realm"] = 1 }
+				Link(main, alt, w.clock, "Olympus", "Olympus")
+				Mail(mail, alt, 5000, D.Note(week, "Olympus"))
+				Mail(mail, main, 5000, D.Note(week, "Olympus"))
+				local led = D.Ledger()
+				eq(led.players[D.Key(alt)].g, "Olympus", "(its note places its own gold, as before 1.1.5)")
+				eq(led.guilds["olympus"].payers, 2, "not of his roster: its own payer"); eq(led.guilds["olympus"].paid, 0)
+				D.Open("Olympus")
+				local text, lines = Page(T)
+				local m = Row(lines, main .. " ")
+				assert(m and m.right:find(ns.L.DUES_BELOW, 1, true) and not m.text:find(alt, 1, true), text)
+				-- On his roster (the server's word): it counts.
+				ns.Roster.byName[alt .. "-Realm"] = 3
+				led = D.Ledger()
+				eq(led.guilds["olympus"].payers, 1); eq(led.guilds["olympus"].paid, 1)
+				text, lines = Page(T)
+				m = Row(lines, main .. " ")
+				assert(m.right:find(ns.L.DUES_ABOVE, 1, true) and m.text:find(ns.L.DUES_WITH_ALTS:format(alt), 1, true), text)
+				-- The other way round: an alt of his roster and a main it does not list (his note naming the guild).
+				local main2, alt2 = "Wander Afar", "Home Cousin"
+				ns.Roster.byName[alt2 .. "-Realm"] = 3
+				Link(main2, alt2, w.clock, "Olympus", "Olympus")
+				Mail(mail, main2, 5000, D.Note(week, "Olympus"))
+				Mail(mail, alt2, 5000, "for the fund")
+				led = D.Ledger()
+				eq(led.players[D.Key(main2)].g, "Olympus", "(his note places his own gold, as before 1.1.5)")
+				eq(led.guilds["olympus"].payers, 3, "the main not of his roster: his alt its own payer"); eq(led.guilds["olympus"].paid, 1)
+			end)
+		end)
+	end)
+
+	test("1.1.5 dues review (Fern's #21): the King's and his Steward's page of a guild not theirs adds no alt's gold to its main's line: their addon has no word on where the alt is now", function()
+		WithDues(function(w, K, T, mail)
+			WithLinks(function()
+				AsTreasurer()
+				local week = D.Week()
+				local main, alt = Who(7), Who(11)
+				Link(main, alt, w.clock)
+				Mail(mail, alt, 5000, D.Note(week, "Olympus II"))
+				Mail(mail, main, 5000, D.Note(week, "Olympus II"))
+				local msgs = D.GuildMessages(D.Ledger(), "Olympus II")
+				AsKing()
+				for _, x in ipairs(msgs) do D.HandleGuild("WHISPER", TREASURER, x) end
+				D.Open("Olympus II")
+				local text, lines = Page(T)
+				local m = Row(lines, main .. " ")
+				assert(m and m.right:find(ns.L.DUES_BELOW, 1, true) and m.right:find(T.Coins(5000), 1, true), text)
+				assert(not m.text:find(alt, 1, true), m.text)
+			end)
+		end)
+	end)
+
+	test("1.1.5 dues review (Fern's #21): a payment counts once on the Captain's count too: an alt that paid the amount alone keeps its own line and clears its main's, and the count says one player at the amount, as the King's table does", function()
+		WithDues(function(w, K, T, mail)
+			WithLinks(function()
+				AsTreasurer()
+				local week = D.Week()
+				local main, alt = Who(7), Who(11)
+				Link(main, alt, w.clock)
+				Mail(mail, alt, 10000, D.Note(week, "Olympus II"))
+				local g = D.Ledger().guilds["olympus ii"]
+				eq(g.payers, 1); eq(g.paid, 1)
+				local text, lines = CaptainPage(w, T)
+				assert(Row(lines, main .. " ").right:find(ns.L.DUES_ABOVE, 1, true), "with his alt's gold: " .. text)
+				assert(Row(lines, alt .. " ").right:find(ns.L.DUES_ABOVE, 1, true), "its own gold: " .. text)
+				local head = Row(lines, "<Olympus II>")
+				assert(head.right:find(ns.L.DUES_OWN_COUNT:format(1, 12, T.Coins(10000)), 1, true), "one player at the amount: " .. head.right)
+				assert(TipOf(head):find(ns.L.DUES_OWN_ONCE:format(1), 1, true), TipOf(head))
+				-- His main paying the amount too, and another member: two players.
+				AsTreasurer()
+				Mail(mail, main, 10000, D.Note(week, "Olympus II"))
+				Mail(mail, Nm(8), 10000, D.Note(week, "Olympus II"))
+				g = D.Ledger().guilds["olympus ii"]
+				eq(g.payers, 2); eq(g.paid, 2)
+				text, lines = CaptainPage(w, T)
+				assert(Row(lines, "<Olympus II>").right:find(ns.L.DUES_OWN_COUNT:format(2, 12, T.Coins(10000)), 1, true), text)
+				-- The link taken apart: each character its own again (three at the amount, nobody counted with another).
+				w.clock = w.clock + 60
+				Claim(alt, w.clock, "-", "Olympus II", "")
+				text, lines = CaptainPage(w, T)
+				head = Row(lines, "<Olympus II>")
+				assert(head.right:find(ns.L.DUES_OWN_COUNT:format(3, 12, T.Coins(10000)), 1, true), head.right)
+				eq(head.tooltip, nil, "nobody counted with another")
+			end)
+		end)
+	end)
+
+	test("1.1.5 dues review (Fern's #21): on a list too long to send whole, a main whose alt of his roster is missing from it is not known yet, never under the amount: the alt's gold may be in the part left out", function()
+		WithDues(function(w, K, T, mail)
+			WithLinks(function()
+				AsTreasurer()
+				rosterSize = 50
+				local week = D.Week()
+				local main, alt = Who(7), Who(11)
+				Link(main, alt, w.clock)
+				local savedMax = D.MAX_PIECES
+				local ok, err = pcall(function()
+					-- The alt paid most of it first, thirty others since, the main a little last: the list goes those
+					-- who paid latest first, so the main's row is on it and the alt's is past the cut.
+					Mail(mail, alt, 8000, D.Note(week, "Olympus II"))
+					for i = 13, 42 do
+						w.clock = w.clock + 60
+						Mail(mail, Nm(i), 10000, D.Note(week, "Olympus II"))
+					end
+					w.clock = w.clock + 60
+					Mail(mail, main, 2000, D.Note(week, "Olympus II"))
+					D.MAX_PIECES = 2
+					local msgs = D.GuildMessages(D.Ledger(), "Olympus II")
+					D.MAX_PIECES = savedMax
+					local body = table.concat(msgs, "\n")
+					assert(body:find(main .. ":", 1, true) and not body:find(alt .. ":", 1, true), "the main's row on it, the alt's left out")
+					AsCaptain()
+					for _, x in ipairs(msgs) do D.HandleGuild("WHISPER", TREASURER, x) end
+					D.Open()
+					local text, lines = Page(T, "brand")
+					assert(text:find(ns.L.DUES_CUT, 1, true), text)
+					local m = Row(lines, main .. " ")
+					assert(m and m.right:find(ns.L.DUES_UNKNOWN, 1, true), "not known, never below: " .. text)
+					-- No Remove line for him, and a removal asked anyway removes nobody.
+					WithRemoval(function(removed)
+						m.onClick()
+						eq(#RemoveLines(select(2, Page(T, "brand"))), 0, "no Remove line")
+						eq(D.Remove({ key = D.Key(main), name = main }), false)
+						eq(#removed, 0)
+					end)
+					-- Unlinked: his own row alone, exact again (he is under the amount).
+					w.clock = w.clock + 60
+					Claim(alt, w.clock, "-", "Olympus II", "")
+					text, lines = Page(T, "brand")
+					assert(Row(lines, main .. " ").right:find(ns.L.DUES_BELOW, 1, true), "unlinked: his own row, exact: " .. text)
+					-- The whole list, linked again: above with his alt's gold.
+					w.clock = w.clock + 60
+					Claim(alt, w.clock, "A", "Olympus II", main)
+					AsTreasurer()
+					local full = D.GuildMessages(D.Ledger(), "Olympus II")
+					AsCaptain()
+					for _, x in ipairs(full) do D.HandleGuild("WHISPER", TREASURER, x) end
+					text, lines = Page(T, "brand")
+					assert(not text:find(ns.L.DUES_CUT, 1, true), text)
+					m = Row(lines, main .. " ")
+					assert(m.right:find(ns.L.DUES_ABOVE, 1, true) and m.text:find(ns.L.DUES_WITH_ALTS:format(alt), 1, true), text)
+				end)
+				D.MAX_PIECES = savedMax
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+
+	test("1.1.5 dues (Fern's #21): its lines in English and pt-BR (the same values, never 'owe' nor 'lose'); the README says it", function()
+		local pt = { L = setmetatable({}, { __index = ns.L }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		local function Slots(x) return (x:gsub("%%%%", ""):gsub("[^%%]", ""):len()) end
+		for _, key in ipairs({ "DUES_WITH_ALTS", "DUES_ALTS_TIP", "DUES_OWN_ONCE", "DUES_CUT" }) do
+			local en, p = rawget(ns.L, key), rawget(pt.L, key)
+			assert(en and p and p ~= en, key)
+			eq(Slots(p), Slots(en), key)
+			for _, bad in ipairs({ "owe", "debt", "lose" }) do assert(not en:lower():find(bad, 1, true), key .. ": " .. bad) end
+			for _, bad in ipairs({ "deve", "dívida", "perde" }) do assert(not p:lower():find(bad, 1, true), key .. ": " .. bad) end
+		end
+		local doc = assert(ReadFile(ROOT .. "README.md")):gsub("%s+", " ")
+		for _, must in ipairs({ "A payment made from a confirmed alt counts for its main (1.1.5)",
+			"never another guild's: an alt's payment with another guild on it, or with none",
+			"An alt counts only while it and its main are of that guild now", "the guild each one's own payments of this week carry",
+			"A guild's own page counts each player once among those at the amount",
+			"a main whose linked alt of the roster is not on it shows as not known, never below",
+			"a link taken apart stops counting at once" }) do
+			assert(doc:find(must, 1, true), "README.md: " .. must)
+		end
+	end)
 end -- 1.1 dues
 ---------------------------------------------------------------------------
 -- 1.1: the author's preview of the borders and nameplate marks (the 1.0 review's lows)
