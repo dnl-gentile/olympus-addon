@@ -167,7 +167,12 @@ Layer"** with his crown. One click (or `/oly hop`) and the addon does the asking
   askers is spread over many players instead of flooding one.
 - It picks one of them, favouring players outside a group and with fewer recent invites. They
   get **"X wants to join your layer"** with **Invite**, **Not now** and **Always invite**. No
-  answer or a no, and the next one is asked.
+  answer or a no, and the next one is asked. **Always invite** invites the next ones without
+  the window while that player is alone or with only the addon's hop guests; clicked while they
+  lead a party or raid of their own, it also covers that group until it ends (1.1.5, GitHub
+  issue #50: the window came back with every request there). That group's permission is never
+  saved: a later group asks first again, after a `/reload` the window asks once more, and
+  `/oly layerauto off` ends it at once.
 - The invite is accepted for you when that player is one the addon can vouch for (a member of
   your own guild, or a Lord or Captain the census confirms); anyone else's, and every invite
   while Blizzard's gamepad UI is on, waits for your click in the game's own invite window. The

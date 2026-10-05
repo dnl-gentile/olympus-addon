@@ -5406,6 +5406,114 @@ test("layer hop, helper side: only players on the layer who can invite offer, th
 	end)
 end)
 
+-- GitHub issue #50: a player leading a raid of their own clicked "Always invite" on every
+-- request, and the window came back with the next one. The kept setting invites on its own
+-- only alone or with hop guests; the click now also covers the group led when it is made, for
+-- that group alone and this session alone (never written to the saved variables).
+test("layer hop: Always invite covers the party or raid we lead now, never a later group (GitHub issue #50)", function()
+	WithHop(function(w, H)
+		local said = {}
+		local savedPrint = ns.Print
+		ns.Print = function(m) said[#said + 1] = tostring(m) end
+		local function Said(text)
+			for _, m in ipairs(said) do if m == text then return true end end
+			return false
+		end
+		local n = 70
+		local function Request(name)
+			n = n + 1
+			w.clock = w.clock + 11 -- (the layer we see stays fresh: Hop.LAYER_FRESH)
+			H.HandleAsk("CHANNEL", name .. "-Realm", ("LQ~%d~1453~7"):format(n))
+			H.HandleRequest("WHISPER", name .. "-Realm", ("LR~%d"):format(n))
+		end
+		local ok, err = pcall(function()
+			w.see(7)
+			-- Leading a raid of our own players, none of them a hop guest.
+			w.group, w.lead = 6, true
+			for i = 1, 6 do w.party["raid" .. i] = "Raidmate" .. i end
+			H.OnRoster()
+			Request("First")
+			eq(#w.popups, 1, "a raid of our own: the window")
+			local kept = {}
+			for k, v in pairs(ns.db) do kept[k] = v end
+			StaticPopupDialogs.OLYMPUS_HOP_REQUEST.OnAlt(nil, w.popups[1].data)
+			eq(w.invited[1], "First"); eq(ns.db.layerAutoInvite, true)
+			-- The next request in the same raid: invited, no window again (#50: it asked every time).
+			Request("Second")
+			eq(w.invited[2], "Second", "the next request in this raid is invited without the window")
+			eq(#w.popups, 1)
+			assert(Said(ns.L.HOP_AUTO_GROUP_ON) and not Said(ns.L.HOP_AUTO_ON), "the message names this party or raid")
+			assert(H.StatusLine():find("auto=true group-auto=true", 1, true), H.StatusLine())
+			for k, v in pairs(ns.db) do
+				if k ~= "layerAutoInvite" and k ~= "log" then eq(v, kept[k], "this group's permission is never saved: " .. tostring(k)) end
+			end
+			-- Players come and go: still the same raid, still covered.
+			w.party.raid6 = "Newcomer"
+			H.OnRoster()
+			Request("Third")
+			eq(w.invited[3], "Third", "the same raid with a new member"); eq(#w.popups, 1)
+			-- The raid ends, and its permission with it; a later party of our own gets the window
+			-- again, the old raid's click covers nothing.
+			w.group, w.party = 0, {}
+			H.OnRoster()
+			w.group, w.lead, w.party = 3, true, { party1 = "Friend1", party2 = "Friend2" }
+			H.OnRoster()
+			Request("Fourth")
+			eq(#w.invited, 3, "the old raid's click never authorizes a later group"); eq(#w.popups, 2)
+			assert(H.StatusLine():find("auto=true group-auto=false", 1, true), H.StatusLine())
+			StaticPopupDialogs.OLYMPUS_HOP_REQUEST.OnCancel(nil, w.popups[2].data, "clicked")
+			-- Alone, the kept "Always invite" invites on its own, as before.
+			w.group, w.party = 0, {}
+			H.OnRoster()
+			Request("Fifth")
+			eq(w.invited[4], "Fifth", "alone: the kept setting"); eq(#w.popups, 2)
+			-- Clicked alone, the message is the one for everywhere, and no group is covered.
+			said = {}
+			ns.db.layerAutoInvite = nil
+			Request("Sixth")
+			StaticPopupDialogs.OLYMPUS_HOP_REQUEST.OnAlt(nil, w.popups[3].data)
+			assert(Said(ns.L.HOP_AUTO_ON) and not Said(ns.L.HOP_AUTO_GROUP_ON), "alone: the usual message")
+			assert(H.StatusLine():find("group-auto=false", 1, true), H.StatusLine())
+			-- A party of our own again, its click, then /oly layerauto off: the window at once.
+			w.group, w.party = 3, { party1 = "Friend1", party2 = "Friend2" }
+			H.OnRoster()
+			Request("Seventh")
+			eq(#w.popups, 4)
+			StaticPopupDialogs.OLYMPUS_HOP_REQUEST.OnAlt(nil, w.popups[4].data)
+			Request("Eighth")
+			eq(w.invited[7], "Eighth", "this party is covered"); eq(#w.popups, 4)
+			SlashCmdList.OLYMPUS("layerauto off")
+			assert(H.StatusLine():find("auto=false group-auto=false", 1, true), H.StatusLine())
+			Request("Ninth")
+			eq(#w.invited, 7, "/oly layerauto off ends this group's permission too"); eq(#w.popups, 5)
+			StaticPopupDialogs.OLYMPUS_HOP_REQUEST.OnAlt(nil, w.popups[5].data)
+			-- /oly layerhelp off ends it as well (on again, the window asks first).
+			SlashCmdList.OLYMPUS("layerhelp off")
+			SlashCmdList.OLYMPUS("layerhelp on")
+			assert(H.StatusLine():find("group-auto=false", 1, true), H.StatusLine())
+			-- The start of a session (Hop.Reset, the state after a /reload): no group is covered,
+			-- the one we lead included. That is the known limit: after a /reload it asks once more.
+			Request("Tenth")
+			eq(#w.popups, 6)
+			StaticPopupDialogs.OLYMPUS_HOP_REQUEST.OnAlt(nil, w.popups[6].data)
+			assert(H.StatusLine():find("group-auto=true", 1, true), H.StatusLine())
+			H.Reset()
+			assert(H.StatusLine():find("group-auto=false", 1, true), H.StatusLine())
+		end)
+		ns.Print = savedPrint
+		if not ok then error(err, 0) end
+	end)
+	-- Both languages.
+	local pt = { L = setmetatable({}, { __index = ns.L }) }
+	local savedLocale = GetLocale
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+	GetLocale = savedLocale
+	if not ok then error(err, 0) end
+	assert(rawget(ns.L, "HOP_AUTO_GROUP_ON"), "English: HOP_AUTO_GROUP_ON")
+	assert(rawget(pt.L, "HOP_AUTO_GROUP_ON") and rawget(pt.L, "HOP_AUTO_GROUP_ON") ~= ns.L.HOP_AUTO_GROUP_ON, "pt-BR: HOP_AUTO_GROUP_ON")
+end)
+
 test("layer hop, asker side: draw an offer, move on after a no, accept only that invite, leave after the move", function()
 	WithHop(function(w, H)
 		w.see(7)
