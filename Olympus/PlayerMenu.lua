@@ -167,7 +167,7 @@ function PlayerMenu.Build(which, root, ctx)
 end
 
 -- Every menu above, once (at login: Blizzard_Menu loads before any addon).
-function PlayerMenu.Hook()
+function PlayerMenu.Hook() -- gp:player-menu
 	if hooked then return true end
 	-- Do not register an addon callback in Blizzard's protected gamepad player-menu path. If the
 	-- player later returns to mouse and keyboard, the input-style event below installs it then.
@@ -205,10 +205,6 @@ function PlayerMenu.Reset() hooked = false end -- (tests: the entries stay, each
 
 ns.On("LOGIN", function() PlayerMenu.Hook() end)
 -- A player who logged in with the gamepad UI has no Blizzard-menu callbacks from Olympus. Install
--- them only after a later switch to mouse and keyboard; switching back is covered by the no-op
--- guard in the already registered callbacks.
-pcall(ns.RegisterEvent, "INPUT_DEVICE_INTERFACE_TRANSITION", function(newMode)
-	local gamepad = Enum and Enum.InputDeviceInterfaceType and Enum.InputDeviceInterfaceType.Gamepad
-	if gamepad ~= nil and newMode == gamepad then return end
-	ns.After(0, "player menus style", function() PlayerMenu.Hook() end)
-end)
+-- them only after a later switch to mouse and keyboard (1.1.5: the gamepad gate, Gamepad.lua, on the
+-- next frame); switching back is covered by the no-op guard in the already registered callbacks.
+ns.Gate.Hooks("player-menu", { install = function() PlayerMenu.Hook() end })

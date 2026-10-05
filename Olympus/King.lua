@@ -1053,7 +1053,7 @@ end
 -- mouse and keyboard (ns.WorldMapIcons); drawn again when that changes, even where he stands still.
 function King.RefreshCrown()
 	if not Pins then return end
-	local world = ns.WorldMapIcons(Pins, King)
+	local world = ns.WorldMapIcons(Pins, King) -- gp:worldmap-icons
 	if kingAt and ns.Now() - kingAt.t > King.LOCATION_EXPIRE then kingAt = nil end
 	if not kingAt then
 		if crowns and crownAt then
@@ -1074,7 +1074,7 @@ function King.RefreshCrown()
 	end
 	crownAt = { mapID = kingAt.mapID, x = kingAt.x, y = kingAt.y, world = world }
 	if world then Pins:AddWorldMapIconMap(King, crowns.world, kingAt.mapID, kingAt.x, kingAt.y, SHOW_FLAG) end
-	Pins:AddMinimapIconMap(King, crowns.mini, kingAt.mapID, kingAt.x, kingAt.y, true, true)
+	Pins:AddMinimapIconMap(King, crowns.mini, kingAt.mapID, kingAt.x, kingAt.y, true, true) -- gp:minimap
 end
 
 local function OnLocation(king, rest)

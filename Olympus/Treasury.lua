@@ -785,7 +785,7 @@ end
 local SYSTEM_SUBJECTS = { "AUCTION_OUTBID_MAIL_SUBJECT", "AUCTION_SOLD_MAIL_SUBJECT", "AUCTION_WON_MAIL_SUBJECT",
 	"AUCTION_REMOVED_MAIL_SUBJECT", "AUCTION_EXPIRED_MAIL_SUBJECT", "COD_PAYMENT" }
 local systemPatterns
-local function SystemMail(subject)
+local function SystemMail(subject) -- gp:lookups
 	if type(subject) ~= "string" then return false end
 	if not systemPatterns or #systemPatterns == 0 then
 		systemPatterns = {}
@@ -2690,12 +2690,12 @@ ns.On("LOGIN", function()
 		local closing = trade
 		ns.After(2, "treasury trade", function() if trade == closing then trade = nil end end)
 	end)
-	if hooksecurefunc then
-		if SendMail then hooksecurefunc("SendMail", function(to) ns.SafeCall("treasury mail", Treasury.MailSending, to) end) end
-		if TakeInboxMoney then hooksecurefunc("TakeInboxMoney", function(i) ns.SafeCall("treasury mail", Treasury.MailTaking, i) end) end
-		if TakeInboxItem then hooksecurefunc("TakeInboxItem", function(i, a) ns.SafeCall("treasury mail", Treasury.MailItemTaking, i, a) end) end
-		if AutoLootMailItem then
-			hooksecurefunc("AutoLootMailItem", function(i)
+	if hooksecurefunc then -- gp:mail-hooks
+		if SendMail then hooksecurefunc("SendMail", function(to) ns.SafeCall("treasury mail", Treasury.MailSending, to) end) end -- gp:mail-hooks
+		if TakeInboxMoney then hooksecurefunc("TakeInboxMoney", function(i) ns.SafeCall("treasury mail", Treasury.MailTaking, i) end) end -- gp:mail-hooks
+		if TakeInboxItem then hooksecurefunc("TakeInboxItem", function(i, a) ns.SafeCall("treasury mail", Treasury.MailItemTaking, i, a) end) end -- gp:mail-hooks
+		if AutoLootMailItem then -- gp:mail-hooks
+			hooksecurefunc("AutoLootMailItem", function(i) -- gp:mail-hooks
 				ns.SafeCall("treasury mail", Treasury.MailTaking, i)
 				ns.SafeCall("treasury mail", Treasury.MailItemTaking, i)
 			end)
@@ -2842,7 +2842,7 @@ function Treasury.HandleDonations(dist, sender, text)
 		if f and f.AddMessage then
 			local c = chat.TIERS and chat.TIERS.A and chat.TIERS.A.color or { 1, 0.82, 0 }
 			local bare = f ~= DEFAULT_CHAT_FRAME and chat.IsTabName and chat.IsTabName(wname)
-			f:AddMessage((bare and "" or "[" .. L.CHAN_ALL .. "] ") .. Treasury.DonationText(sender, donors[sender]), c[1], c[2], c[3])
+			f:AddMessage((bare and "" or "[" .. L.CHAN_ALL .. "] ") .. Treasury.DonationText(sender, donors[sender]), c[1], c[2], c[3]) -- gp:chat-output
 		end
 	end
 	ns.Fire("TREASURY_CHANGED")

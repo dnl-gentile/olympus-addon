@@ -280,7 +280,7 @@ end
 -- The same for a one-line font string: the first of `fonts` the text fits `room` in, else
 -- the last one, cut with "...". Fonts the client does not have are skipped. The string must
 -- be left-justified and not wrap.
-local function FitText(fs, room, fonts)
+local function FitText(fs, room, fonts) -- gp:lookups
 	fs:SetWidth(0)
 	for _, font in ipairs(fonts) do
 		if _G[font] then
@@ -358,7 +358,8 @@ end
 local ISSUE_GAP = 4
 
 local reporterHooked, hiddenByUs = false, false
-local function Reporter()
+local reporterButton -- our Hide button on it (1.1.5: hidden at a switch to the gamepad UI, the gate's park)
+local function Reporter() -- gp:issue-reporter
 	local r = _G.PTR_IssueReporter
 	if type(r) == "table" and r.Hide and r.Show and r.IsShown then return r end
 end
@@ -368,26 +369,29 @@ local function CanTouch(r)
 end
 function UI.IssueReporterHidden() return ns.db and ns.db.hideIssueReporter == true end
 
-function UI.ApplyIssueReporter()
+function UI.ApplyIssueReporter() -- gp:issue-reporter
 	-- Blizzard's gamepad UI (0.9.8): the game hides the Issue Reporter there itself and shows it
 	-- only with its gamepad menu, centred, with bindings of its own (see
 	-- Blizzard_PTRFeedback_Gamepad.lua), so it never covers our window. Hidden from our code, its
 	-- hide would run that gamepad code from ours: Olympus leaves it alone there (no hook, no
 	-- button, never hidden or shown).
-	if ns.GamepadUI() then return false end
+	-- (1.1.5: the gamepad gate's "issue-reporter"; its button hidden at a switch to it, see below.)
+	if not ns.Gate.Allowed("issue-reporter") then return false end
 	local r = Reporter()
 	if not r then return false end
 	if not reporterHooked and r.HookScript then
 		reporterHooked = true
 		-- Hooked, not replaced: Blizzard's own OnShow runs as always, then it goes away.
 		r:HookScript("OnShow", function(self)
-			if UI.IssueReporterHidden() and CanTouch(self) and not ns.GamepadUI() then
+			if not ns.Gate.Allowed("issue-reporter") then return end
+			if UI.IssueReporterHidden() and CanTouch(self) then
 				self:Hide()
 				hiddenByUs = true
 			end
 		end)
 		local ok, b = pcall(CreateFrame, "Button", nil, r, "UIPanelButtonTemplate")
 		if ok and b then
+			reporterButton = b
 			b:SetSize(48, 18)
 			b:SetText(L.ISSUE_HIDE)
 			b:SetPoint("BOTTOMRIGHT", r, "TOPRIGHT", 0, 2)
@@ -419,7 +423,16 @@ function UI.SetIssueReporterHidden(on)
 	if ns.GamepadUI() then ns.Print(L.ISSUE_GAMEPAD) end
 	UI.ApplyIssueReporter()
 end
-function UI.ResetIssueReporter() reporterHooked, hiddenByUs = false, false end -- tests
+function UI.ResetIssueReporter() reporterHooked, hiddenByUs, reporterButton = false, false, nil end -- tests
+-- A switch to the gamepad UI: our Hide button off the game's box (it would be a gamepad target
+-- there); back to mouse and keyboard, shown, and the player's choice applied again.
+ns.Gate.Hooks("issue-reporter", {
+	park = function() if reporterButton then reporterButton:Hide() end end,
+	install = function()
+		if reporterButton then reporterButton:Show() end
+		UI.ApplyIssueReporter()
+	end,
+})
 
 ns.On("LOGIN", function()
 	ns.After(2, "issue reporter", function() ns.SafeCall("issue reporter", UI.ApplyIssueReporter) end)
@@ -456,7 +469,7 @@ function UI.ClearUp(win, obstacle, screenTop, gap)
 end
 
 -- The Issue Reporter's screen rect with its border, bug button and info button, if shown.
-local function IssueReporterRect()
+local function IssueReporterRect() -- gp:lookups
 	local r = _G.PTR_IssueReporter
 	if type(r) ~= "table" or not r.IsVisible or not r:IsVisible() then return nil end
 	local rect
@@ -504,7 +517,7 @@ end
 
 -- The Social window's size, which is the old Guild window's (the Guild tab fills it).
 local function SocialSize()
-	if FriendsFrame and FriendsFrame.GetWidth then
+	if FriendsFrame and FriendsFrame.GetWidth and ns.Gate.Allowed("communities-button") then -- gp:communities-button
 		local w, h = FriendsFrame:GetWidth(), FriendsFrame:GetHeight()
 		if w and w > 200 and h and h > 200 then return w, h end
 	end
@@ -527,7 +540,7 @@ end
 -- which), else the Social window's (the HD one with the Communities window's height).
 local function HostSize(style)
 	local hook = ns.GuildFrameHook
-	local host = hook and hook.ActiveHost and hook.ActiveHost()
+	local host = hook and hook.ActiveHost and ns.Gate.Allowed("communities-button") and hook.ActiveHost()
 	if host and host.dock and host.dock.GetWidth then
 		return UI.DockSize(host.dock:GetWidth(), host.dock:GetHeight(), host.heightOnly, SocialSize())
 	end
@@ -711,7 +724,7 @@ UI.HELP_ICON = "Interface\\Common\\help-i"
 -- The help button in the title bar, just left of the close button, where Blizzard puts a
 -- window's minimize button (0.9.9, asked for by Max of Asmongold's moderators). A plain button:
 -- a click opens the copy box (UI.ShowHelp), which already keeps to the gamepad UI's rules.
-local function HelpButton(f)
+local function HelpButton(f) -- gp:lookups
 	local close = f.CloseButton or _G[f:GetName() .. "CloseButton"]
 	local b = CreateFrame("Button", nil, f)
 	-- As big as the close button's art: Forever's is 24 and fills it, Classic's red disc is
@@ -1008,7 +1021,7 @@ local function CreateMain(style)
 			for n, template in ipairs(templates) do
 				local name = f:GetName() .. "Tab" .. n .. "_" .. i
 				local okTab, res = pcall(CreateFrame, "Button", name, f, template)
-				if okTab and res and (res.Left or res.LeftActive or _G[name .. "Left"] or _G[name .. "LeftDisabled"]) then
+				if okTab and res and (res.Left or res.LeftActive or _G[name .. "Left"] or _G[name .. "LeftDisabled"]) then -- gp:lookups
 					tab = res
 					UI.tabTemplate = template
 					break
@@ -1234,7 +1247,7 @@ function UI.Layout()
 				b:ClearAllPoints()
 				b:SetPoint("TOPLEFT", main.colHeader, "TOPLEFT", x, 0)
 				-- The old headers' middle part is sized by Blizzard's code; the HD ones stretch.
-				if (main.style == "old" or b.whoTemplate) and WhoFrameColumn_SetWidth then pcall(WhoFrameColumn_SetWidth, b, width) else b:SetWidth(width) end
+				if (main.style == "old" or b.whoTemplate) and WhoFrameColumn_SetWidth then pcall(WhoFrameColumn_SetWidth, b, width) else b:SetWidth(width) end -- gp:own-templates
 				b:SetWidth(width)
 				b:SetText(L[col.key])
 				b.sortKey = col.sort
@@ -1589,7 +1602,9 @@ end
 -- Open glued to the right of a Blizzard window (the guild window the button was clicked
 -- in), in `style` (its look, see UI.Style), sized by UI.DockSize, and close together with
 -- it (GuildFrame.lua hooks that).
+-- (1.1.5, the gamepad gate: with the gamepad UI on, never by the game's guild windows: on its own.)
 function UI.OpenDocked(host, tab, heightOnly, style)
+	if not ns.Gate.Allowed("communities-button") then return UI.SelectTab(tab or "census") end
 	UseStyle(style or UI.Style())
 	main.host, main.heightOnly = host, heightOnly
 	main:SetSize(UI.DockSize(host:GetWidth(), host:GetHeight(), heightOnly, SocialSize()))
@@ -1603,6 +1618,7 @@ end
 -- minimized and maximized): take its new height. The HD window also keeps clear of the
 -- host's side tabs, which come and go (GuildFrame.lua calls this then too).
 function UI.FollowHost(host)
+	if not ns.Gate.Allowed("communities-button") then return end
 	if main and main.docked and main.host == host then
 		main:SetSize(UI.DockSize(host:GetWidth(), host:GetHeight(), main.heightOnly, SocialSize()))
 		if main.style == "hd" then DockTo(host) end
@@ -1612,6 +1628,16 @@ end
 -- Closes the window if it is docked: to `host` when given, to anything otherwise.
 function UI.CloseIfDocked(host)
 	if main and main.docked and main:IsShown() and (host == nil or main.host == host) then main:Hide() end
+end
+
+-- 1.1.5 (the gamepad gate, GuildFrame.lua's park): a switch to the gamepad UI takes the window off
+-- the guild window it was docked to, to its own place, open or not. True when it was docked.
+function UI.Undock()
+	if not (main and main.docked) then return false end
+	main.docked, main.host = false, nil
+	main:ClearAllPoints()
+	main:SetPoint("CENTER", 0, 40)
+	return true
 end
 
 ---------------------------------------------------------------------------
@@ -1636,7 +1662,7 @@ local function SendWhisper(name, text)
 		ns.Print(L.WHISPER_LOCKDOWN)
 		return false
 	end
-	SendChatMessage(text:sub(1, 255), "WHISPER", nil, name)
+	SendChatMessage(text:sub(1, 255), "WHISPER", nil, name) -- gp:roster-actions
 	return true
 end
 -- A whisper window closed: the Answers list it opened lets go of its box (Answers.lua), which the
@@ -1733,18 +1759,19 @@ end
 -- Whisper, invite and /who take the name the server finds (ns.TellName).
 local function Whisper(name)
 	name = ns.TellName(name)
-	if ns.GamepadUI() then return UI.WhisperWindow(name) end
-	if ChatFrame_SendTell then ChatFrame_SendTell(name) else ChatFrame_OpenChat("/w " .. name .. " ") end
+	if not ns.Gate.Allowed("chat-box") then return UI.WhisperWindow(name) end
+	ns.Gate.Used("chat-box") -- (1.1.5, the gamepad gate: told at a switch to the gamepad UI)
+	if ChatFrame_SendTell then ChatFrame_SendTell(name) else ChatFrame_OpenChat("/w " .. name .. " ") end -- gp:chat-box
 end
 
 local function Invite(name)
 	name = ns.TellName(name)
-	if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(name) elseif InviteUnit then InviteUnit(name) end
+	if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(name) elseif InviteUnit then InviteUnit(name) end -- gp:roster-actions
 end
 
 -- Through Who.lua, which keeps it apart from our quiet /who searches (see SendPlain).
 local function Who(name)
-	ns.Who.SendPlain(('n-"%s"'):format(ns.TellName(name)))
+	ns.Who.SendPlain(('n-"%s"'):format(ns.TellName(name))) -- gp:who
 end
 
 local function PersonButtonScripts(f)
@@ -2290,7 +2317,7 @@ function UI.CopyFrame(key) return copyFrames[key or "copy"] end
 
 local minimapButton
 
-local function PositionMinimapButton()
+local function PositionMinimapButton() -- gp:minimap
 	local angle = math.rad(ns.db.minimapAngle or 200)
 	-- On the ring, like Blizzard's own minimap buttons (and LibDBIcon): 5 past the map's edge.
 	local radius = (Minimap:GetWidth() / 2) + 5
@@ -2298,7 +2325,7 @@ local function PositionMinimapButton()
 	minimapButton:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * radius, math.sin(angle) * radius)
 end
 
-local function CreateMinimapButton()
+local function CreateMinimapButton() -- gp:minimap
 	local b = ns.MakeRoundButton("OlympusMinimapButton", Minimap, 31)
 	b:SetFrameStrata("MEDIUM")
 	b:SetFrameLevel(8)
@@ -2346,11 +2373,18 @@ local function CreateMinimapButton()
 	return b
 end
 
+-- (1.1.5, the gamepad gate: with the gamepad UI no command is typed, GamepadRegistry.lua's "slash",
+-- so there the button shows even when /oly minimap hid it: it is how a gamepad player opens Olympus,
+-- and the command that brings it back can't be typed there. Back to mouse and keyboard, hidden again.)
 function UI.UpdateMinimapButton()
 	minimapButton = minimapButton or CreateMinimapButton()
 	PositionMinimapButton()
-	minimapButton:SetShown(not ns.db.hideMinimap)
+	minimapButton:SetShown(not ns.db.hideMinimap or not ns.Gate.Allowed("slash"))
 end
+ns.Gate.Hooks("minimap", {
+	park = function() if minimapButton then UI.UpdateMinimapButton() end end,
+	install = function() if minimapButton then UI.UpdateMinimapButton() end end,
+})
 
 ns.On("LOGIN", function()
 	UI.UpdateMinimapButton()
@@ -2391,7 +2425,7 @@ local function PhotoOff()
 	for f, alpha in pairs(was or {}) do pcall(f.SetAlpha, f, alpha) end
 end
 
-function UI.TogglePhoto()
+function UI.TogglePhoto() -- gp:photo
 	if not UI.PhotoAllowed() then return ns.Print(L.PHOTO_ONLY_AUTHOR) end
 	if InCombatLockdown and InCombatLockdown() then return ns.Print(L.PHOTO_COMBAT) end
 	if photo then

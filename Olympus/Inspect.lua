@@ -220,7 +220,7 @@ local function Pump()
 			pending = { guid = item.guid, unit = unit, at = GetTime(), gear = item.gear }
 			lastRequest = GetTime()
 			Inspect.stats.requests = Inspect.stats.requests + 1
-			NotifyInspect(unit)
+			NotifyInspect(unit) -- gp:inspect-patrol
 			return
 		end
 	end
@@ -287,7 +287,7 @@ local function OnInspectReady(guid)
 	elseif gear then
 		ns.Print(L.GEAR_GONE)
 	end
-	if not (InspectFrame and InspectFrame:IsShown()) and ClearInspectPlayer then ClearInspectPlayer() end
+	if not (InspectFrame and InspectFrame:IsShown()) and ClearInspectPlayer then ClearInspectPlayer() end -- gp:inspect-patrol
 end
 Inspect.OnInspectReady = OnInspectReady -- (tests)
 
@@ -832,12 +832,12 @@ end
 -- moderators took off (net-off), as their chat mark. The first line is the game's: left as it
 -- is when the client hides its text (a secret value) or with the gamepad UI, where Olympus writes
 -- nothing into the game's frames; the lines below are added as the Treasurer's is.
-function Inspect.CouncilTooltip(tooltip, name, guild)
+function Inspect.CouncilTooltip(tooltip, name, guild) -- gp:tooltip-unit
 	if not (ns.IsMember() == true and ns.CouncilVisible() and not ns.CouncilMasked() and ns.IsHighCouncillor(name)) then return false end
 	local M = ns.Moderation
 	if name ~= ns.me and type(M) == "table" and type(M.Hides) == "function" and M.Hides(name, guild) ~= nil then return false end
 	local mark = ns.CouncilMark(name)
-	local left = not ns.GamepadUI() and type(tooltip.GetName) == "function" and _G[(tooltip:GetName() or "") .. "TextLeft1"]
+	local left = not ns.GamepadUI() and type(tooltip.GetName) == "function" and _G[(tooltip:GetName() or "") .. "TextLeft1"] -- gp:tooltip-unit
 	local text = left and type(left.GetText) == "function" and left:GetText()
 	if type(text) == "string" and not SecretTooltipValue(text) and text ~= "" and not text:find(mark, 1, true) then
 		left:SetText(text .. " " .. mark)
@@ -849,7 +849,11 @@ function Inspect.CouncilTooltip(tooltip, name, guild)
 	return true
 end
 
-function Inspect.TooltipUnit(tooltip)
+-- 1.1.5, the gamepad gate (GamepadRegistry.lua's "tooltip-unit"): nothing with the gamepad UI on, from
+-- the first line (the game's soft target shows the tooltip again and again there, and Olympus writes
+-- nothing in the game's frames there): no line, no patrol. Not registered at a login with it.
+function Inspect.TooltipUnit(tooltip) -- gp:tooltip-unit
+	if not ns.Gate.Allowed("tooltip-unit") then return false end
 	if tooltip ~= GameTooltip or type(tooltip.GetUnit) ~= "function" then return false end
 	local label, unit = tooltip:GetUnit()
 	if SecretTooltipValue(label, unit) or type(unit) ~= "string" or unit == "" then return false end
@@ -875,17 +879,28 @@ ns.On("LOGIN", function()
 	-- 1.1: an officer's findings to his guild's officers, and the day's asked for once our roster is in.
 	ns.Every(15, "tabard share", Inspect.FlushShare)
 	ns.After(40 + Inspect.random() * 30, "tabard share ask", Inspect.AskShared)
+	ns.Gate.Install("tooltip-unit")
+end)
+
+-- The players' tooltips (the gate's "tooltip-unit"): registered at a login with mouse and keyboard,
+-- or at the first switch to it after a gamepad login; once a session (the game keeps a post-call).
+local tooltipHooked = false
+ns.Gate.Hooks("tooltip-unit", { install = function() -- gp:tooltip-unit
+	if tooltipHooked then return end
+	tooltipHooked = true
 	local hooked = false
 	if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
 		hooked = pcall(TooltipDataProcessor.AddTooltipPostCall, Enum.TooltipDataType.Unit, function(tt)
+			if not ns.Gate.Allowed("tooltip-unit") then return end
 			ns.SafeCall("tooltip", Inspect.TooltipUnit, tt)
 		end)
 	end
-	if not hooked then
+	if not hooked and GameTooltip then
 		pcall(GameTooltip.HookScript, GameTooltip, "OnTooltipSetUnit", function(tt)
+			if not ns.Gate.Allowed("tooltip-unit") then return end
 			ns.SafeCall("tooltip", Inspect.TooltipUnit, tt)
 		end)
 	end
 	ns.Log("tooltip hook: %s", hooked and "TooltipDataProcessor" or "OnTooltipSetUnit")
-end)
+end })
 

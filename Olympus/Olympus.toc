@@ -20,6 +20,8 @@ Locales\deDE.lua
 Locales\esES.lua
 Locales\frFR.lua
 Core.lua
+GamepadRegistry.lua
+Gamepad.lua
 Diagnostics.lua
 Dialog.lua
 PlayerMenu.lua

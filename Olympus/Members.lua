@@ -82,7 +82,7 @@ function Members.Remove(m)
 		ns.Print(L.MEMBERS_REMOVE_WAIT)
 		return false
 	end
-	local uninvite = (C_GuildInfo and C_GuildInfo.Uninvite) or GuildUninvite
+	local uninvite = (C_GuildInfo and C_GuildInfo.Uninvite) or GuildUninvite -- gp:roster-actions
 	if type(uninvite) ~= "function" then return false end
 	lastRemove = now
 	uninvite(m.raw)
@@ -208,8 +208,8 @@ function Members.AssignMentor(recruit, captain)
 	end
 	lastMentor = now
 	local guild = GetGuildInfo("player") or "?"
-	SendChatMessage(L.MENTOR_TO_CAPTAIN:format(Plain(recruit.name), guild), "WHISPER", nil, ns.TellName(captain.raw))
-	SendChatMessage(L.MENTOR_TO_RECRUIT:format(guild, Plain(captain.name)), "WHISPER", nil, ns.TellName(recruit.raw))
+	SendChatMessage(L.MENTOR_TO_CAPTAIN:format(Plain(recruit.name), guild), "WHISPER", nil, ns.TellName(captain.raw)) -- gp:roster-actions
+	SendChatMessage(L.MENTOR_TO_RECRUIT:format(guild, Plain(captain.name)), "WHISPER", nil, ns.TellName(recruit.raw)) -- gp:roster-actions
 	Mentors(guild)[recruit.raw] = { mentor = captain.raw, t = ns.Now() }
 	ns.Log("members: %s mentors %s", tostring(captain.raw), tostring(recruit.raw))
 	ns.Print(L.MENTOR_DONE:format(Plain(captain.name), Plain(recruit.name)))

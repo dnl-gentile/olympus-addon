@@ -24,13 +24,47 @@ local DEFAULTS = {
 	showCamps = true,      -- camps on the world map (1.1, Board.lua)
 }
 
+-- 1.1.5: the gamepad gate (Gamepad.lua, the list of integrations in GamepadRegistry.lua): whether
+-- Olympus may touch the game's UI now, ns.Gate.Allowed(id). This stand-in holds what is registered
+-- before Gamepad.lua loads (Gamepad.lua takes it over), and keeps its place on a client updated
+-- without a restart (files an update adds load only then, see StandIn): there the rule is as it was
+-- before the list (nothing of the game's with the gamepad UI on; ns.GamepadUI, below), and the
+-- switches still run each feature's park and install (further below, once events can be heard).
+do
+	local G = { missing = true, order = {}, sets = {}, leftovers = {} }
+	ns.Gate = G
+	function G.Allowed() return not ns.GamepadUI() end
+	function G.Use(id, fn, ...) if G.Allowed(id) then return fn(...) end end
+	function G.Used() end
+	function G.Hooks(id, t)
+		if type(id) ~= "string" or type(t) ~= "table" then return end
+		local key = id .. "\0" .. tostring(t.key or "")
+		if not G.sets[key] then G.order[#G.order + 1] = key end
+		G.sets[key] = { id = id, t = t }
+	end
+	-- Each set's `field` (id's alone when given; `now`: only those, or only the others).
+	function G.Run(field, id, now)
+		for _, key in ipairs(G.order) do
+			local s = G.sets[key]
+			if (id == nil or s.id == id) and (now == nil or (s.t.now == true) == now) and type(s.t[field]) == "function" then
+				ns.SafeCall("gamepad gate " .. field .. " " .. s.id, s.t[field])
+			end
+		end
+	end
+	function G.Install(id)
+		if not G.Allowed(id) then return false end
+		G.Run("install", id)
+		return true
+	end
+end
+
 ---------------------------------------------------------------------------
 -- Helpers
 ---------------------------------------------------------------------------
 
 function ns.Now() return time() end
 
-function ns.Print(msg)
+function ns.Print(msg) -- gp:chat-output
 	print("|c" .. ns.COLOR .. "Olympus:|r " .. tostring(msg))
 end
 
@@ -427,10 +461,16 @@ end
 -- blocks it until a /reload. There no icon of ours goes on the world map; the minimap is not the
 -- gamepad UI's, its icons stay. Icons `ref` put on the world map before a switch to the gamepad
 -- UI (without a /reload) are taken off, once. With mouse and keyboard: true, as always.
+-- 1.1.5, the gamepad gate ("worldmap-icons"): at a switch to the gamepad UI every ref's icons go at
+-- once, on the gate's next frame (not on each ref's next refresh, from 1 to 30 s later), and the map's
+-- canvas, touched from Olympus's code this session, is among what a /reload clears (the player is
+-- told).
 local worldMapIconsOf = {} -- [ref] = true: may have icons on the world map
-function ns.WorldMapIcons(pins, ref)
-	if not ns.GamepadUI() then
+local worldMapTouched = false -- icons of ours went on the world map this session
+function ns.WorldMapIcons(pins, ref) -- gp:worldmap-icons
+	if ns.Gate.Allowed("worldmap-icons") then
 		worldMapIconsOf[ref] = true
+		worldMapTouched = true
 		return true
 	end
 	if worldMapIconsOf[ref] then
@@ -439,6 +479,16 @@ function ns.WorldMapIcons(pins, ref)
 	end
 	return false
 end
+ns.Gate.Hooks("worldmap-icons", {
+	park = function()
+		local pins = ns.Pins()
+		for ref in pairs(worldMapIconsOf) do
+			worldMapIconsOf[ref] = nil
+			if pins then pins:RemoveAllWorldMapIcons(ref) end
+		end
+	end,
+	leftover = function() return worldMapTouched end,
+})
 
 -- Round logo button with the exact geometry of minimap buttons (LibDBIcon layout at 31px,
 -- scaled to the requested size): gold tracking ring, dark disc, round logo.
@@ -634,7 +684,7 @@ end
 -- a.what, its words in the summary and on the Decrees tab (a.text by default); a.open(), still
 -- current (none: as long as the player is away); a.key, the same alert repeated (the Agenda and
 -- its reminders): one line. True when it showed now.
-function ns.Alert(kind, tone, a)
+function ns.Alert(kind, tone, a) -- gp:raid-notice
 	a = a or {}
 	if not a.own and ns.Quiet() then
 		held[#held + 1] = { kind = kind, tone = tone, what = a.what or a.text or kind, key = a.key, t = ns.Now(), open = a.open, show = a.show }
@@ -700,7 +750,7 @@ end
 -- warning and the loudest sound its switches allow), then the popups and windows still open.
 -- What is over by then stays in its list: a grey line says how many.
 ns.HELD_WORDS = 5 -- alerts named in that line; the rest counted
-function ns.ReleaseHeld()
+function ns.ReleaseHeld() -- gp:raid-notice
 	if (#held == 0 and goneN == 0 and not next(goneKeys)) or ns.Quiet() then return false end
 	local list = ns.Held()
 	-- The ones over, each counted once (an Agenda and its reminders are one), with those over
@@ -1622,6 +1672,18 @@ function ns.GamepadUI()
 	return ok and style == gamepad
 end
 
+-- (The gamepad gate's stand-in, defined at the top of this file, follows the switches from here on:
+-- see there.)
+do
+	local G = ns.Gate
+	pcall(ns.RegisterEvent, "INPUT_DEVICE_INTERFACE_TRANSITION", function(newMode)
+		if ns.Gate ~= G then return end -- (Gamepad.lua's own handler)
+		local gamepad = Enum and Enum.InputDeviceInterfaceType and Enum.InputDeviceInterfaceType.Gamepad
+		G.Run((gamepad ~= nil and newMode == gamepad) and "park" or "install", nil, true)
+		ns.After(0, "gamepad gate", function() G.Run(ns.GamepadUI() and "park" or "install", nil, false) end)
+	end)
+end
+
 -- The addon's popups (its StaticPopupDialogs entries): with mouse and keyboard the game's own,
 -- as always; with the gamepad UI Olympus's (Dialog.lua), because there the game's popups
 -- break when an addon opens one (the "blocked" loop that freezes the game).
@@ -1632,33 +1694,68 @@ end
 -- protection (CloseSpecialWindows, from its menus and when the player loses control), and a
 -- name table.remove moves down a place is one Olympus wrote from then on. A name of ours put
 -- there before a switch to the gamepad UI leaves only when it is the last one: nothing moves.
-function ns.EscapeCloses(name)
+-- 1.1.5, the gamepad gate ("escape-list"): at a switch to the gamepad UI, every name of ours at the
+-- end of the list goes at once (from the end: nothing moves); one before another addon's stays, and
+-- the player is told a /reload clears it.
+local escapeNames = {} -- the names of ours on the list this session
+function ns.EscapeCloses(name) -- gp:escape-list
+	local gamepad = not ns.Gate.Allowed("escape-list")
 	if type(name) ~= "string" or not UISpecialFrames then return end
-	local gamepad = ns.GamepadUI()
 	for i, n in ipairs(UISpecialFrames) do
 		if n == name then
+			escapeNames[name] = true
 			-- Switched to the gamepad UI since: off the list (checked each time it shows).
 			if gamepad and i == #UISpecialFrames then UISpecialFrames[i] = nil end
 			return
 		end
 	end
-	if not gamepad then table.insert(UISpecialFrames, name) end
+	if not gamepad then
+		table.insert(UISpecialFrames, name)
+		escapeNames[name] = true
+	end
 end
+-- gp:escape-list
+ns.Gate.Hooks("escape-list", {
+	park = function()
+		local list = UISpecialFrames
+		if type(list) ~= "table" then return end
+		while #list > 0 and escapeNames[list[#list]] do list[#list] = nil end
+	end,
+	leftover = function()
+		local list = UISpecialFrames
+		if type(list) ~= "table" then return false end
+		for _, n in ipairs(list) do if escapeNames[n] then return true end end
+		return false
+	end,
+})
 
-function ns.ShowDialog(which, a, b, data)
-	ns.Log("dialog %s (%s)", tostring(which), ns.GamepadUI() and "olympus window, gamepad UI" or "game popup")
-	if ns.GamepadUI() then
+-- (1.1.5, the gamepad gate's "dialogs": a game popup of ours still up at a switch to the gamepad UI
+-- leaves the popups' shared state behind in Olympus's taint until a /reload; the player is told.)
+local gamePopups = {} -- [which] = true: shown as the game's popup this session
+function ns.ShowDialog(which, a, b, data) -- gp:dialogs
+	local own = not ns.Gate.Allowed("dialogs")
+	ns.Log("dialog %s (%s)", tostring(which), own and "olympus window, gamepad UI" or "game popup")
+	if own then
 		-- Updated without restarting the game (Dialog.lua not loaded yet): never the game's
 		-- popup there, the player is told to restart.
 		if ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return nil end
 		return ns.Dialog.Show(which, a, b, data)
 	end
+	if type(which) == "string" then gamePopups[which] = true end
 	return StaticPopup_Show(which, a, b, data)
 end
-function ns.HideDialog(which, data)
+function ns.HideDialog(which, data) -- gp:dialogs
 	if not ns.Dialog.missing then ns.Dialog.Hide(which, data) end
-	if not ns.GamepadUI() and StaticPopup_Hide then StaticPopup_Hide(which, data) end
+	if ns.Gate.Allowed("dialogs") and StaticPopup_Hide then StaticPopup_Hide(which, data) end
 end
+ns.Gate.Hooks("dialogs", { leftover = function() -- gp:dialogs
+	-- (StaticPopup_Visible: the game's own lookup, run securely by the game itself.)
+	if type(StaticPopup_Visible) ~= "function" then return false end
+	for which in pairs(gamePopups) do
+		if StaticPopup_Visible(which) then return true end
+	end
+	return false
+end })
 
 -- 1.1.2: the game holds addon messages and chat from addons now (C_ChatInfo.InChatMessagingLockdown:
 -- a dungeon or raid map, an encounter, a challenge, a PvP match). A send then fails (the addon
@@ -1671,7 +1768,7 @@ end
 -- The keyboard to one of our edit boxes (setFocus: its own SetFocus). With the gamepad UI,
 -- not while another box has it (the chat's): its focus change would run the game's gamepad
 -- code from ours, and the game blocks it (see Dialog.lua); the player clicks into ours.
-function ns.Focus(eb, setFocus)
+function ns.Focus(eb, setFocus) -- gp:popup-focus
 	setFocus = setFocus or eb.SetFocus
 	if ns.GamepadUI() and GetCurrentKeyBoardFocus then
 		local current = GetCurrentKeyBoardFocus()
@@ -1701,6 +1798,7 @@ ns.RegisterEvent("PLAYER_LOGIN", function()
 	for _, key in ipairs({ "Who", "Channels", "King", "Hop", "Workshop", "Vox", "Court", "Treasury", "Dues", "Acts", "Dialog", "Bank", "Link", "Borders", "Nameplates", "Backup", "Loot", "Crafters", "Board", "Week", "Consent", "Chronicle", "Filter", "Members", "Moderation", "Alts", "Keys", "ChatWindow", "PlayerMenu", "Versions", "Answers", "Letters" }) do
 		if ns[key].missing then missing[#missing + 1] = key .. ".lua" end
 	end
+	if ns.Gate.missing then missing[#missing + 1] = "Gamepad.lua" end -- (1.1.5, the gamepad gate)
 	if #missing > 0 then
 		ns.Log("not loaded until the game restarts: %s", table.concat(missing, ", "))
 		ns.Print(L.RESTART_NEEDED)
@@ -1826,8 +1924,6 @@ local function Help()
 	print(L.HELP_CMD_RESET)
 end
 
-SLASH_OLYMPUS1 = "/olympus"
-SLASH_OLYMPUS2 = "/oly"
 -- What an error report names as the command: the command itself, with what followed it for
 -- all but /oly discord (0.9.10: a Discord code, a confirmer's key: never in a report or the log).
 local function SlashWhere(input)
@@ -1838,7 +1934,16 @@ local function SlashWhere(input)
 end
 ns.SlashWhere = SlashWhere -- tests
 
-SlashCmdList.OLYMPUS = function(input)
+-- /olympus and /oly. 1.1.5 (the gamepad gate, GamepadRegistry.lua's "slash"): registered at login,
+-- and only with mouse and keyboard. The game's chat box calls a command's function directly and then
+-- closes itself in that function's taint (ChatFrameEditBox.lua: ParseText, ClearChat, the focus
+-- lost, ClearGamepadFocus), which with the gamepad UI is the refused call that loops until a
+-- /reload; nothing the function does can prevent it. So with the gamepad UI nothing is typed:
+-- gamepad players have the minimap button and the window (its help: Report a bug). Registered with
+-- mouse and keyboard, the commands stay in the game's list after a switch to the gamepad UI (it can't
+-- take them out): there they do nothing, and the player is told a /reload completes the switch.
+local function Slash(input)
+	if not ns.Gate.Allowed("slash") then return end
 	ns.SafeCall(SlashWhere(input), function()
 		local cmd, rest = (input or ""):match("^%s*(%S*)%s*(.-)%s*$")
 		cmd = (cmd or ""):lower()
@@ -2126,3 +2231,13 @@ SlashCmdList.OLYMPUS = function(input)
 		end
 	end)
 end
+
+local slashDone = false
+ns.Gate.Hooks("slash", { key = "core", leftover = function() return slashDone end, install = function() -- gp:slash
+	if slashDone then return end
+	slashDone = true
+	SLASH_OLYMPUS1, SLASH_OLYMPUS2 = "/olympus", "/oly"
+	SlashCmdList.OLYMPUS = Slash
+end })
+-- (Channels.lua's /ol, /olc and /oll with them: the same id.)
+ns.On("LOGIN", function() ns.Gate.Install("slash") end)

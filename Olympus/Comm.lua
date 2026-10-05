@@ -461,7 +461,7 @@ function Comm.ChannelSpec()
 	return horde and ns.CHANNEL_HORDE or ns.CHANNEL, nil
 end
 
-local function HideChannelFromChat(name)
+local function HideChannelFromChat(name) -- gp:chat-channels
 	for i = 1, (NUM_CHAT_WINDOWS or 10) do
 		local cf = _G["ChatFrame" .. i]
 		if cf and ChatFrame_RemoveChannel then pcall(ChatFrame_RemoveChannel, cf, name) end
@@ -794,7 +794,7 @@ function Comm.JoinChannel()
 		ns.After(10, "census request", Comm.AskCensus)
 	end
 	if joinedName and joinedName ~= name and GetChannelName(joinedName) > 0 then
-		LeaveChannelByName(joinedName) -- the key changed: leave the old channel
+		LeaveChannelByName(joinedName) -- the key changed: leave the old channel -- gp:chat-channels
 		channelIndex = 0
 	end
 	if joinedName ~= name then watch = nil end -- another channel: the election guard starts again
@@ -812,7 +812,7 @@ function Comm.JoinChannel()
 	joinTries = joinTries + 1
 	ns.Log("joining channel %s%s", name, password and " (sealed)" or "")
 	watch = nil -- time off this channel says nothing about what we hear on it (election guard)
-	JoinChannelByName(name, password)
+	JoinChannelByName(name, password) -- gp:chat-channels
 	ns.After(3, "channel check", function()
 		channelIndex = GetChannelName(name) or 0
 		if channelIndex > 0 and guard.name == name then Unlocked(guard) end
@@ -1180,7 +1180,7 @@ function Comm.SetJoinedForTest(name) joinedName = name end
 -- theirs.
 function Comm.KeepLast()
 	if not joinedName or not GetChannelList then return end
-	local swap = C_ChatInfo and C_ChatInfo.SwapChatChannelsByChannelIndex
+	local swap = C_ChatInfo and C_ChatInfo.SwapChatChannelsByChannelIndex -- gp:chat-channels
 	local infoOf = C_ChatInfo and C_ChatInfo.GetChannelInfoFromIdentifier
 	if not swap or not infoOf then return end
 	local ours = GetChannelName(joinedName) or 0
@@ -1469,7 +1469,7 @@ function Comm.CheckMembership()
 		return
 	end
 	if joinedName and GetChannelName(joinedName) > 0 then
-		LeaveChannelByName(joinedName)
+		LeaveChannelByName(joinedName) -- gp:chat-channels
 		ns.Log("left channel %s: not in an Olympus guild", joinedName)
 		joinedName, channelIndex = nil, 0
 		wipe(queue)

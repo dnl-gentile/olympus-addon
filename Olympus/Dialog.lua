@@ -167,7 +167,7 @@ local function Call(f, where, fn, ...)
 end
 
 -- Stacked from the top, under the game's own popups when some are up.
-local function Layout()
+local function Layout() -- gp:lookups
 	local anchor, point, y = UIParent, "TOP", Dialog.TOP
 	for i = 1, 4 do
 		local p = _G["StaticPopup" .. i]
@@ -184,7 +184,7 @@ local function Layout()
 end
 
 -- The game's popups, as last seen: when one comes or goes, ours move under it.
-local function GamePopups()
+local function GamePopups() -- gp:lookups
 	local n = 0
 	for i = 1, 4 do
 		local p = _G["StaticPopup" .. i]
@@ -237,7 +237,7 @@ local function Build(i)
 	eb.olympusBox = true
 	-- The definitions' OnShow focus the box (eb:SetFocus()): not away from the chat.
 	local setFocus = eb.SetFocus
-	eb.SetFocus = function(self) ns.Focus(self, setFocus) end
+	eb.SetFocus = function(self) ns.Focus(self, setFocus) end -- gp:popup-focus
 	eb:SetAutoFocus(false)
 	-- Like the game's popup box: no select-all on focus (InputBoxTemplate's), or the first key
 	-- would replace what the dialog put in it (a recruit message, a Board note).

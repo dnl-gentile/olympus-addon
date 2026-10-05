@@ -27,10 +27,17 @@ local L = ns.L
 -- plate), sized like the game's classification mark (16 px, times the plate size's classification
 -- scale), its right edge 2 px left of the name's first letter: half the text's width left of the
 -- name's centre, or at its left edge. The game's frames get no call from Olympus but that
--- CreateTexture (and IsForbidden and IsProtected, which only answer), and nothing written in them
--- but hooksecurefunc's hooks: after the game's CompactUnitFrame_UpdateName (the name written,
--- shown or hidden) and the unit frame's UpdateAnchors (its layout), the mark is put back left of
--- the name, so it follows every change the game makes, and hides with the name.
+-- CreateTexture (and IsForbidden and IsProtected, which only answer), and nothing written in them.
+-- After the game's CompactUnitFrame_UpdateName (a global function, hooked with hooksecurefunc: the
+-- name written, shown or hidden) the mark is put back left of the name, and it hides with the name.
+-- The plate's own layout, the unit frame's UpdateAnchors method, is never hooked (1.1.5): a hook
+-- there put a wrapper of the client's in a field of every unit frame of the game's pool, which the
+-- game reads and passes on (OnUnitSet hands self.UpdateAnchors to its CVar callbacks), and players
+-- saw Lua errors with that wrapper ("[C] UpdateAnchors") in their stacks. The game lays a plate out
+-- again when a unit comes to it, when it looks again at whether its unit is a friend (UNIT_FACTION)
+-- and when the plates' options or the screen change (CVAR_UPDATE, DISPLAY_SIZE_CHANGED): after those
+-- events the marks shown look at their names again on the next frame, once the game's own handlers
+-- (which may run after ours) are done (Nameplates.FollowSoon). Every name update looks again too.
 --
 -- Combat and taint, as the borders: a forbidden plate (friendly plates in instances) is never
 -- touched, nothing called on it but IsForbidden. A texture is made, and a mark's point and size
@@ -327,7 +334,7 @@ end
 
 -- Once, with mouse and keyboard: the hook on the game's name updates (it runs for every compact
 -- unit frame, raid frames too: those leave after IsForbidden).
-local function Install()
+local function Install() -- gp:nameplates
 	if hooked or ns.GamepadUI() then return end
 	hooked = true
 	if type(hooksecurefunc) == "function" and type(CompactUnitFrame_UpdateName) == "function" then
@@ -349,10 +356,7 @@ local function RigOf(frame, name)
 	tex:Hide()
 	rig = { tex = tex, frame = frame, name = name }
 	rigs[frame] = rig
-	-- The game lays the plate out again (another style, names only or not): the mark follows.
-	if type(frame.UpdateAnchors) == "function" and type(hooksecurefunc) == "function" then
-		hooksecurefunc(frame, "UpdateAnchors", function(self) ns.SafeCall("nameplates layout", Nameplates.Follow, self) end)
-	end
+	-- (No hook on the frame's own UpdateAnchors: its layout is followed by Nameplates.FollowSoon.)
 	return rig
 end
 
@@ -396,7 +400,7 @@ end
 
 -- His own name's marks (the preview): made once out of combat on the player frame's container,
 -- anchored after his name. A client without Forever's player frame gets none.
-local function InstallMine()
+local function InstallMine() -- gp:nameplates
 	local frame = PlayerFrame
 	local container = type(frame) == "table" and rawget(frame, "PlayerFrameContainer") or nil
 	local name = type(frame) == "table" and rawget(frame, "name") or nil
@@ -481,6 +485,8 @@ function Nameplates.Added(unit, again)
 	end
 	local rig = Attach(unit, frame, name)
 	if rig then Refresh(rig) end
+	-- (The game laid the plate out for its unit: Nameplates.FollowSoon, in case that came after.)
+	Nameplates.FollowSoon()
 end
 
 -- NAME_PLATE_UNIT_REMOVED: its mark goes (its unit frame goes back to the game's pool).
@@ -518,12 +524,27 @@ function Nameplates.NameUpdated(frame)
 	if rig then Refresh(rig) end
 end
 
--- After the game's UpdateAnchors on a plate's unit frame: the name may have moved.
+-- The game may have laid a plate out again: its name may have moved (another justification, names
+-- only or not, another size). The mark shown goes where the name now starts.
 function Nameplates.Follow(frame)
 	local rig = rigs[frame]
 	if not rig or not rig.shown then return end
 	if not IsActive() then return Hide(rig) end
 	Show(rig, rig.shown)
+end
+
+-- After an event on which the game lays plates out again (see the top): every mark shown follows
+-- its name on the next frame (C_Timer.After 0), once the game's handlers of that event, ours run
+-- before or after them, have run. One look however many events came in that frame.
+local followQueued = false
+function Nameplates.FollowAll()
+	followQueued = false
+	for _, rig in pairs(byUnit) do Nameplates.Follow(rig.frame) end
+end
+function Nameplates.FollowSoon()
+	if followQueued or next(byUnit) == nil or not IsActive() then return end
+	followQueued = true
+	ns.After(0, "nameplates layout", Nameplates.FollowAll)
 end
 
 -- The census, the High Council's list, our roster or the council's names hidden or shown on the
@@ -549,12 +570,14 @@ function Nameplates.FactionChanged(unit, all)
 			rig.friend = nil
 			Refresh(rig)
 		end
-		return
+		return Nameplates.FollowSoon()
 	end
 	local rig = byUnit[unit]
 	if not rig then return end
 	rig.friend = nil
 	Refresh(rig)
+	-- (A friend now, or no longer: the game may show his plate with its name alone, laid out again.)
+	Nameplates.FollowSoon()
 end
 
 function Nameplates.Report()
@@ -613,20 +636,21 @@ ns.RegisterEvent("PLAYER_GUILD_UPDATE", function(unit)
 end)
 pcall(ns.RegisterEvent, "UNIT_FACTION", function(unit) Nameplates.FactionChanged(unit, unit == "player") end)
 pcall(ns.RegisterEvent, "UNIT_FLAGS", function(unit) if unit ~= "player" then Nameplates.FactionChanged(unit) end end)
+-- The plates' options (their style, size, names only for friends...) and the screen: the game
+-- lays every plate out again (NamePlateDriverMixin:UpdateNamePlateOptions, the CVar callbacks).
+pcall(ns.RegisterEvent, "CVAR_UPDATE", function() Nameplates.FollowSoon() end)
+pcall(ns.RegisterEvent, "DISPLAY_SIZE_CHANGED", function() Nameplates.FollowSoon() end)
 ns.RegisterEvent("PLAYER_REGEN_ENABLED", function()
 	if not waiting then return end
 	waiting = false
 	Nameplates.RefreshAll()
 end)
--- A switch between mouse and keyboard and the gamepad UI (as the borders): to the gamepad UI,
--- every mark hides at once; either way they are looked at again just after.
-pcall(ns.RegisterEvent, "INPUT_DEVICE_INTERFACE_TRANSITION", function(newMode)
-	local gamepad = Enum and Enum.InputDeviceInterfaceType and Enum.InputDeviceInterfaceType.Gamepad
-	if gamepad ~= nil and newMode == gamepad then
+-- A switch between mouse and keyboard and the gamepad UI (1.1.5: the gamepad gate, Gamepad.lua, on
+-- the next frame, as the borders): to the gamepad UI every mark hides; back, every plate again.
+ns.Gate.Hooks("nameplates", {
+	park = function()
 		active = false
 		HideAll()
-	else
-		active = nil
-	end
-	ns.After(0.2, "nameplates style", function() Nameplates.RefreshAll(true) end)
-end)
+	end,
+	install = function() Nameplates.RefreshAll(true) end,
+})

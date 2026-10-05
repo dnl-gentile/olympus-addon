@@ -480,7 +480,7 @@ end
 -- Once, with mouse and keyboard and out of combat (a texture of the game's frames may count as
 -- theirs, whose points and size are not ours to set in combat): the textures, then the hooks.
 -- A client without Forever's unit frames (Classic Era, Anniversary) gets none.
-function Borders.Install()
+function Borders.Install() -- gp:borders
 	if installed then return true end
 	if ns.GamepadUI() then return false end
 	if InCombatLockdown and InCombatLockdown() then
@@ -938,20 +938,21 @@ function Borders.ChatEnabled() return not (ns.db and ns.db.chatMarks == false) e
 
 -- Whether the game's chat shows them now, and registering the callback the first time it may
 -- (once a session: it is never removed, turning them off clears chatOn).
-function Borders.ChatRefresh()
+function Borders.ChatRefresh() -- gp:chat-marks
 	Borders.ChatForget()
+	local pad = not ns.Gate.Allowed("chat-marks")
 	local CFU = rawget(_G, "ChatFrameUtil")
 	local api = type(CFU) == "table" and type(CFU.AddSenderNameFilter) == "function"
-	if not chatHooked and api and Borders.ChatEnabled() and not ns.GamepadUI() then
+	if not chatHooked and api and Borders.ChatEnabled() and not pad then
 		chatHooked = pcall(CFU.AddSenderNameFilter, Borders.ChatFilter) == true
 	end
-	chatOn = chatHooked and Borders.ChatEnabled() and not ns.GamepadUI()
+	chatOn = chatHooked and Borders.ChatEnabled() and not pad
 	return chatOn
 end
 function Borders.ChatShown() return chatOn end
 
 function Borders.ChatReport()
-	local CFU = rawget(_G, "ChatFrameUtil")
+	local CFU = rawget(_G, "ChatFrameUtil") -- gp:lookups
 	if not (type(CFU) == "table" and type(CFU.AddSenderNameFilter) == "function") then return ns.Print(L.CHATMARKS_NO_API) end
 	ns.Print(Borders.ChatEnabled() and L.CHATMARKS_ON or L.CHATMARKS_OFF)
 	if Borders.ChatEnabled() and ns.GamepadUI() then ns.Print(L.CHATMARKS_GAMEPAD) end
@@ -983,7 +984,7 @@ function Borders.ChatSlash(rest)
 end
 
 function Borders.ChatStatusLine()
-	local CFU = rawget(_G, "ChatFrameUtil")
+	local CFU = rawget(_G, "ChatFrameUtil") -- gp:lookups
 	if not (type(CFU) == "table" and type(CFU.AddSenderNameFilter) == "function") then return "none (no ChatFrameUtil.AddSenderNameFilter)" end
 	local state = chatOn and "on" or (not Borders.ChatEnabled() and "off (/oly chatmarks on)" or (ns.GamepadUI() and "hidden with the gamepad UI" or "not registered yet"))
 	return ("%s  |  %d senders worked out%s"):format(state, chatKept, chatPreview and ("  |  preview " .. chatPreview) or "")
@@ -1017,12 +1018,9 @@ end)
 ns.RegisterEvent("PLAYER_REGEN_ENABLED", function() if waiting then Borders.RefreshAll(true) end end)
 -- Not on every client: registered where the game has them.
 pcall(ns.RegisterEvent, "PLAYER_FOCUS_CHANGED", function() Borders.Refresh("focus") end)
--- A switch between mouse and keyboard and the gamepad UI (Blizzard_SharedXML/InputUtil.lua's):
--- to the gamepad UI, every border hides at once; either way they are looked at again just after.
-pcall(ns.RegisterEvent, "INPUT_DEVICE_INTERFACE_TRANSITION", function(newMode)
-	local gamepad = Enum and Enum.InputDeviceInterfaceType and Enum.InputDeviceInterfaceType.Gamepad
-	if gamepad ~= nil and newMode == gamepad then HideAll() end
-	ns.After(0.2, "borders style", function() Borders.RefreshAll(true) end)
-	-- The game's chat marks follow at once (and are registered on the first switch to mouse and keyboard).
-	ns.After(0, "chat marks style", function() Borders.ChatRefresh() end)
-end)
+-- A switch between mouse and keyboard and the gamepad UI (1.1.5: the gamepad gate, Gamepad.lua, on
+-- the next frame): to the gamepad UI every border hides, and the game's chat marks stop; back, the
+-- borders are looked at again and the chat marks come back (registered on the first switch to mouse
+-- and keyboard after a gamepad login).
+ns.Gate.Hooks("borders", { park = function() HideAll() end, install = function() Borders.RefreshAll(true) end })
+ns.Gate.Hooks("chat-marks", { park = function() Borders.ChatRefresh() end, install = function() Borders.ChatRefresh() end })

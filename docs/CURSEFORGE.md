@@ -546,8 +546,9 @@ bottom-to-top always gives the same tab order; changing role or debug view never
 - The tab has no place or size of its own: it is the Olympus window's, docked by your guild
   window or wherever you put it. Escape or the window's X closes it; it never opens by itself.
   With the chats off on this client it says so, what the choice means, and offers it.
-- **Blizzard's gamepad mode**: the same tab, opened directly or with `/oly talk` or `/ol`; click
-  into the box with the gamepad cursor to write. The Olympus window stays off the
+- **Blizzard's gamepad mode**: the same tab, opened from the Olympus window (the minimap button
+  opens it; no command is typed with the gamepad UI, see below); click into the box with the
+  gamepad cursor to write. The Olympus window stays off the
   Escape list there (its X closes it), and the tab opens no game popup: the whisper, a pinned
   line's takedown and the settings' pin use Olympus's own windows.
 
@@ -1164,8 +1165,8 @@ whisper to a named crafter (`/oly craft`).
   nothing is whispered for you: the whisper is yours to write. Old clients ignore the board.
 
 ### World map
-- Soldiers per zone on zone and continent maps, and per continent on the world map (with
-  Blizzard's gamepad mode, only per continent: see below).
+- Soldiers per zone on zone and continent maps, and per continent on the world map (none with
+  Blizzard's gamepad mode since 1.1.5: see below).
 - Decrees are round icons (the horn, the war cry...) where they were called, and the King's
   crown where he stands; the Board's camps (1.1) one fire badge per zone, with how many. Over a
   zone's circle they move just outside its edge, top right first, so its number stays readable;
@@ -1282,11 +1283,24 @@ account, `/oly discord forget` drops this character's request and proof.
   Throne's /who line for his key rotation, 1.1: the answer shows in the game's
   Who list), and the Issue Reporter is the game's to show. Since 0.9.9 it leaves the world map
   alone there too: no zone counts, decrees, crown or guildmate dots on it (the minimap keeps
-  the crown and the dots, the Azeroth map its continent totals), because each of those went
-  through the map library into the gamepad map's own state. If the game still says it blocked
+  the crown and the dots), because each of those went through the map library into the gamepad
+  map's own state; since 1.1.5 its continent totals and Olympus button go too, the gamepad map
+  being the game's alone. If the game still says it blocked
   Olympus, a `/reload` clears it; to tell us what it was, open the Olympus window, press its
-  help button (left of the X), then **Report a bug**. Don't type `/oly bug` with the gamepad: a
-  command typed in the chat there can set the block off again.
+  help button (left of the X), then **Report a bug**.
+  **The gamepad gate (1.1.5).** Every way Olympus reaches into the game's own windows is listed in
+  one place and asks one gate before it acts, so a new feature can't reach them with the gamepad
+  UI on by accident. With the gamepad UI on, Olympus registers no typed command (`/oly`,
+  `/olympus`, `/ol`, `/olc`, `/oll`): the game's chat box runs a command's function and then
+  closes itself in that function's name, which is the very call the gamepad UI refuses. Nor does
+  it put its round button in the game's guild windows, where the gamepad cursor would select it.
+  Open Olympus with the minimap button (it shows there even when `/oly minimap` hid it), and use
+  its window (its help button: **Report a bug**). Switched to the gamepad UI in the middle of a
+  session (Options, Gamepad), Olympus steps back from the game's windows on the next frame: its
+  marks, borders and buttons there hide, its tooltip lines and menu lines stop, and what the game
+  keeps until a `/reload` (the commands typed with mouse and keyboard among it) is told once, in
+  Olympus's own window, with a **Reload** button. Back to mouse and keyboard, it all comes back
+  without a `/reload`.
 - English and Portuguese in full, and since 1.1 Spanish, French and German for the main
   screens, the alerts and decrees, the Join screen and its whisper, the chats and the privacy
   questions (the rest in English; the pages' **?** explanations and the Answers of 1.1.2 are in

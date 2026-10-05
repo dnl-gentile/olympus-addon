@@ -69,6 +69,14 @@ fi
 printf 'Checking local/global name collisions...\n'
 bash scripts/lint-globals.sh
 
+# 1.1.5: the gamepad gate's static audit. Every place the addon reaches into the game's own UI is
+# registered in Olympus/GamepadRegistry.lua, tagged in the code and behind the gate; it compiles
+# the addon's files to read them and runs none of them.
+if [ -f scripts/gamepad-audit.lua ]; then
+	printf 'Checking the gamepad gate...\n'
+	luajit scripts/gamepad-audit.lua
+fi
+
 printf 'Running offline tests...\n'
 luajit tests/run.lua
 

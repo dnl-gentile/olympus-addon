@@ -14,6 +14,10 @@ local function ClientInfo()
 	return ("%s (%s) toc %s, locale %s"):format(tostring(version), tostring(build), tostring(toc), tostring(GetLocale()))
 end
 
+-- 1.1.5, the gamepad gate: Bootstrap.lua's error handler (that file loads before any gate) gives the
+-- game's back at a switch to the gamepad UI (GamepadRegistry.lua's "error-handler").
+if ns.Gate and ns.ParkErrorHandler then ns.Gate.Hooks("error-handler", { park = ns.ParkErrorHandler }) end
+
 function ns.CaptureError(where, err)
 	local db = ns.db
 	local msg = tostring(err)
@@ -82,6 +86,7 @@ local PROBE_GLOBALS = {
 }
 -- label, the object (nil when this client has none), its fields, and the field that is a list
 -- whose slots are read one by one.
+-- gp:diagnostics
 local PROBE_OBJECTS = {
 	{ "binding stack", function() return type(GamepadSharedUtility) == "table" and GamepadSharedUtility.InputBindingManager end,
 		{ "bindingSetStack", "currentCoreBindingActive", "assumeCoreBindingsUsable", "coreSet", "coreBindingListenerFunctions" }, "bindingSetStack" },
@@ -95,7 +100,7 @@ local PROBE_OBJECTS = {
 local PROBE_SLOTS = 20 -- slots of a list read at most (one past its end too: a slot emptied)
 
 -- One line: the values above an addon wrote, and whose, or that none was.
-function ns.TaintProbe()
+function ns.TaintProbe() -- gp:diagnostics
 	if type(issecurevariable) ~= "function" then return "taint: not checked (no issecurevariable)" end
 	local found, checked = {}, 0
 	local function Check(label, t, key)
@@ -429,6 +434,8 @@ function ns.StatusText()
 	local refused = type(ns.db.actionsBlocked) == "table" and ns.db.actionsBlocked or {}
 	add("gamepad UI: %s  |  blocked this session: %d  |  blocked calls kept: %d%s", ns.GamepadUI() and "on" or "off", blocked, #refused,
 		#refused > 0 and (" (last: %s)"):format(tostring(refused[#refused].func)) or "")
+	-- (1.1.5) The gamepad gate (Gamepad.lua): the switches this session and what stays until a /reload.
+	add("gamepad gate: %s", ns.Gate and type(ns.Gate.StatusLine) == "function" and ns.Gate.StatusLine() or "not loaded until the game restarts")
 	if ns.GamepadUI() or blocked > 0 then
 		local ok, line = pcall(ns.TaintProbe)
 		add("%s", ok and line or ("taint: probe failed: " .. tostring(line)))

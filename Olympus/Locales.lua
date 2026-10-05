@@ -4118,6 +4118,19 @@ if GetLocale and GetLocale() == "ptBR" then
 end
 
 ---------------------------------------------------------------------------
+-- 1.1.5: the gamepad gate (Gamepad.lua): a switch to the gamepad UI in the middle of a session,
+-- told once, in Olympus's own window.
+---------------------------------------------------------------------------
+L.GATE_NOTICE = "You switched to the gamepad UI: Olympus has stepped back from the game's own windows. A part of what it set up there with mouse and keyboard (its typed commands among it) stays until a /reload, which completes the switch. Olympus's own windows work as before: the minimap button opens them."
+L.GATE_RELOAD = "Reload"
+L.GATE_CLOSE = "Close"
+if GetLocale and GetLocale() == "ptBR" then
+	L.GATE_NOTICE = "Você mudou para a interface de controle: o Olympus saiu das janelas do próprio jogo. Parte do que ele montou ali com mouse e teclado (os comandos digitados, entre outras coisas) fica até um /reload, que completa a troca. As janelas do Olympus funcionam como antes: o botão do minimapa abre."
+	L.GATE_RELOAD = "Recarregar"
+	L.GATE_CLOSE = "Fechar"
+end
+
+---------------------------------------------------------------------------
 -- 1.1.2: Chattynator's tabs as the chat windows (Channels.lua; from hypertectonic's pull request
 -- #47, GitHub #46). Its menus in its own words (its Locales.lua: "Rename tab", "Tab Settings",
 -- "Addons", "All Addons"; in pt-BR "Renomear aba", "Configurações da aba", "Addons", "Todos os

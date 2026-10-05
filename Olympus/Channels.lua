@@ -201,7 +201,7 @@ end
 -- Chat window i: its frame, its name, whether it is open (shown, or docked behind another tab:
 -- the game counts a docked tab not selected as not shown) and whether it is the combat log,
 -- which clears and refills itself (a line of ours there would vanish).
-local function WindowAt(i)
+local function WindowAt(i) -- gp:chat-output
 	local f = _G["ChatFrame" .. i]
 	if type(f) ~= "table" or type(f.AddMessage) ~= "function" then return nil end
 	local info = GetChatWindowInfo or FCF_GetChatWindowInfo
@@ -245,7 +245,7 @@ local CHATTY_COMBAT = "COMBAT_LOG"
 
 -- A tab's name as Chattynator shows it: a name that is one of the game's strings shows as that
 -- string (its GetTabNameFromName: its first tab, "GENERAL", shows "General", or "Geral" in pt-BR).
-local function ChattyLabel(raw)
+local function ChattyLabel(raw) -- gp:lookups
 	local shown = _G[raw]
 	if type(shown) == "string" and Trim(shown) ~= "" then return shown end
 	return raw
@@ -406,7 +406,7 @@ end
 -- (Read only, for the Chat tab's guided way to the Olympus tab, ChatWindow.lua.)
 Channels.FindTab = FindTab
 
-local function IndexOf(f)
+local function IndexOf(f) -- gp:chat-output
 	for i = 1, MaxWindows() do
 		if _G["ChatFrame" .. i] == f then return i end
 	end
@@ -496,7 +496,7 @@ end
 -- and never seen this session (the one click made the choice before the player made the tab), the
 -- main window says once that the chats wait for it, not that it is gone; the first time it takes
 -- the lines for this character, it says so first.
-function Channels.Frame(tier)
+function Channels.Frame(tier) -- gp:chat-output
 	local chosen = Chosen()
 	local name = chosen and chosen[tier]
 	if type(name) == "string" then
@@ -1907,8 +1907,10 @@ end)
 -- window on its Chat tab, on that channel (ChatWindow.lua, or Core.lua's stand-in on a client
 -- updated without a restart), else, where this client has no such tab, what to type (Channels.Send
 -- says it).
+-- (1.1.5: registered with /oly at login, with mouse and keyboard only: Core.lua's "slash".)
 local function Slash(tier, where)
 	return function(msg)
+		if not ns.Gate.Allowed("slash") then return end
 		local W = ns.ChatWindow
 		if tostring(msg or ""):match("^%s*$") and W and type(W.Toggle) == "function" then
 			ns.SafeCall(where, W.Toggle, tier)
@@ -1917,7 +1919,12 @@ local function Slash(tier, where)
 		ns.SafeCall(where, Channels.Send, tier, msg)
 	end
 end
-SLASH_OLYMPUSALL1, SLASH_OLYMPUSCAPTAINS1, SLASH_OLYMPUSLORDS1 = "/ol", "/olc", "/oll"
-SlashCmdList.OLYMPUSALL = Slash("A", "slash /ol")
-SlashCmdList.OLYMPUSCAPTAINS = Slash("C", "slash /olc")
-SlashCmdList.OLYMPUSLORDS = Slash("L", "slash /oll")
+local slashDone = false
+ns.Gate.Hooks("slash", { key = "channels", leftover = function() return slashDone end, install = function() -- gp:slash
+	if slashDone then return end
+	slashDone = true
+	SLASH_OLYMPUSALL1, SLASH_OLYMPUSCAPTAINS1, SLASH_OLYMPUSLORDS1 = "/ol", "/olc", "/oll"
+	SlashCmdList.OLYMPUSALL = Slash("A", "slash /ol")
+	SlashCmdList.OLYMPUSCAPTAINS = Slash("C", "slash /olc")
+	SlashCmdList.OLYMPUSLORDS = Slash("L", "slash /oll")
+end })

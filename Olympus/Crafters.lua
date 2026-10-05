@@ -73,6 +73,9 @@ local busyTimes = {}    -- our "busy" answers' times (the last minute)
 local lists = {}        -- [crafter .. "~" .. key] = { parts = {}, n, t, recipes }: lists asked for
 local asked = {}        -- [crafter .. "~" .. key] = when we asked
 local lastListing, lastListingText = -math.huge, nil
+-- The professions of the listing sent last. (1.1.5: declared here, before Choose writes it; declared
+-- further down, Choose's unlisting wrote a global of that name and left this one as it was.)
+local lastListingKeys
 local open = {}         -- [crafter] = true: shown opened on the page
 local pendingRead       -- a profession read waiting for its data
 local questioned = {}   -- [key] = true: asked this session (once, until answered: a closed window is no answer)
@@ -228,7 +231,7 @@ local function ReadClassic(craft)
 	local recipeLink = craft and GetCraftRecipeLink or GetTradeSkillRecipeLink
 	local recipes = {}
 	for i = 1, (type(count) == "function" and count() or 0) do
-		local rname, kind
+		local rname, kind, _ -- (1.1.5: `_` our own; it was written as a global)
 		if craft then rname, _, kind = info(i) else rname, kind = info(i) end
 		if rname and kind ~= "header" and kind ~= "subheader" then
 			local link = type(itemLink) == "function" and itemLink(i) or nil
@@ -316,7 +319,6 @@ end
 -- LIST_EVERY (the repeat). A change too soon waits for the board's ticker.
 Crafters.CHANGED_GAP = 120
 local changedWaiting = false
-local lastListingKeys  -- the professions of the listing sent last
 local loginWait = false -- after login, our first listing waits for its own draw (Crafters.OnLogin)
 function Crafters.SendListing(force)
 	-- (1.1, Konig's review: while the moderators have us off, nothing: the next tick sends it once
@@ -636,17 +638,21 @@ end
 ---------------------------------------------------------------------------
 
 -- A whisper to a crafter, the player's own (the game's box; Olympus's with the gamepad UI).
-local function Whisper(name)
+local function Whisper(name) -- gp:chat-box
 	local tell = ns.TellName(name)
-	if ns.GamepadUI() then return ns.UI.WhisperWindow(tell) end
+	if not ns.Gate.Allowed("chat-box") then return ns.UI.WhisperWindow(tell) end
+	ns.Gate.Used("chat-box") -- (the gate's: told at a switch to the gamepad UI)
 	if ChatFrame_SendTell then ChatFrame_SendTell(tell) end
 end
 Crafters.Whisper = Whisper
 
 -- The ask's box: with mouse and keyboard the chat's, "/oly craft " in it, where a shift-click
 -- puts an item's link; with the gamepad UI Olympus's own window (words only there).
-function Crafters.AskPrompt()
-	if not ns.GamepadUI() and ChatFrame_OpenChat then return ChatFrame_OpenChat("/oly craft ") end
+function Crafters.AskPrompt() -- gp:chat-box
+	if ns.Gate.Allowed("chat-box") and ChatFrame_OpenChat then
+		ns.Gate.Used("chat-box")
+		return ChatFrame_OpenChat("/oly craft ")
+	end
 	ns.ShowDialog("OLYMPUS_CRAFT_ASK")
 end
 
