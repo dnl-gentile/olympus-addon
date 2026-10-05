@@ -23987,6 +23987,15 @@ do
 			eq(#w.errors, 1, "reported once"); assert(w.errors[1]:find("no-such-thing", 1, true), w.errors[1])
 			assert(G.StatusLine():find("not listed: no-such-thing", 1, true), G.StatusLine())
 			assert(G.StatusLine():find("integrations listed (checked on build 70205)", 1, true), G.StatusLine())
+			-- Asked while the files load, before the error capture exists: reported the next time.
+			local early = {}
+			local w2 = NewGate(function(_, gns) gns.CaptureError = false end, style)
+			w2.G.Hooks("not-listed-early", { park = function() end })
+			eq(w2.G.Allowed("not-listed-early"), false)
+			w2.ns.CaptureError = function(where, e) early[#early + 1] = where .. ": " .. tostring(e) end
+			eq(w2.G.Allowed("not-listed-early"), false)
+			eq(#early, 1, "reported once the capture exists"); assert(early[1]:find("not-listed-early", 1, true), early[1])
+			assert(w2.G.StatusLine():find("not listed: not-listed-early", 1, true), w2.G.StatusLine())
 		end)
 		-- In /oly status (the gate of the addon's own).
 		assert(ns.StatusText():find("gamepad gate: %d+ integrations listed"), ns.StatusText())

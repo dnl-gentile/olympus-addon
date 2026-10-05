@@ -44,20 +44,24 @@ end
 Gate.REGISTRY = REGISTRY
 
 local sets, order = {}, {} -- [id .. "\0" .. key] = { id, t }, in the order registered
-local told = {}            -- ids not in the list, reported this session
+local unlisted = {}        -- ids asked that are not in the list
+local told = {}            -- of those, the ones reported this session
 local used = {}            -- [id] = true: a use this session only a /reload undoes
 local switches = {}        -- this session's switches (the last 20): { t, to = "gamepad" | "mouse" }
 local queued = false       -- the next frame's work after a switch, waiting
 local noticed = false      -- the player told this session
 Gate.leftovers = {}        -- at the last switch to the gamepad UI: what stays until a /reload
 
+-- (An unlisted id asked while the files load, before Diagnostics.lua's capture exists, is reported
+-- the next time it is asked.)
 local function Entry(id)
 	local e = REGISTRY[id]
 	if e then return e end
-	if not told[id] then
+	unlisted[tostring(id)] = true
+	if not told[id] and ns.CaptureError then
 		told[id] = true
 		ns.Log("gamepad gate: %s is not in GamepadRegistry.lua, refused", tostring(id))
-		if ns.CaptureError then ns.CaptureError("gamepad gate", "unlisted integration " .. tostring(id)) end
+		ns.CaptureError("gamepad gate", "unlisted integration " .. tostring(id))
 	end
 	return nil
 end
@@ -196,18 +200,18 @@ pcall(ns.RegisterEvent, "INPUT_DEVICE_INTERFACE_TRANSITION", function(newMode) G
 function Gate.StatusLine()
 	local n = 0
 	for _ in pairs(REGISTRY) do n = n + 1 end
-	local unlisted = {}
-	for id in pairs(told) do unlisted[#unlisted + 1] = tostring(id) end
-	table.sort(unlisted)
+	local asked = {}
+	for id in pairs(unlisted) do asked[#asked + 1] = id end
+	table.sort(asked)
 	local last = switches[#switches]
 	return ("%d integrations listed (checked on build %s)  |  switches this session: %d%s  |  until a /reload: %s%s"):format(n,
 		tostring(ns.GAMEPAD_CHECKED_BUILD), #switches, last and (", last to " .. last.to) or "",
 		#Gate.leftovers > 0 and table.concat(Gate.leftovers, ", ") or "nothing",
-		#unlisted > 0 and ("  |  not listed: " .. table.concat(unlisted, ", ")) or "")
+		#asked > 0 and ("  |  not listed: " .. table.concat(asked, ", ")) or "")
 end
 
 function Gate.Reset() -- (tests: this session's state; the hooks stay, each file's own)
-	told, used, switches, queued, noticed = {}, {}, {}, false, false
+	unlisted, told, used, switches, queued, noticed = {}, {}, {}, {}, false, false
 	Gate.leftovers = {}
 end
 
