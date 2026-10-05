@@ -2341,7 +2341,8 @@ StaticPopupDialogs["OLYMPUS_COUNCIL_ASK"] = {
 
 ---------------------------------------------------------------------------
 -- The councillors' own icons (0.9.8, the High Council's wish): each councillor picks an icon
--- for their name in the Olympus chats from the game's icons, as the macro window does (in a
+-- for their name (in the Olympus chats until 1.1.5; since, the game's own chat after the council's
+-- silver dragon, Borders.lua, and their tooltip) from the game's icons, as the macro window does (in a
 -- window of ours: Blizzard's macro icon window, opened from addon code, would run tainted). Their
 -- client says which on the channel when it changes, then about every ICON_EVERY. Every client
 -- keeps it for councillors only (ns.IsHighCouncillor of the sender the server stamped), and only
@@ -2493,12 +2494,15 @@ function Workshop.RefreshIconPicker()
 	picker.prev:SetEnabled(iconPage > 1)
 	picker.next:SetEnabled(iconPage < pages)
 	picker.empty:SetShown(#list == 0)
-	-- The preview: the icon large (the mark when none is picked), and our name as the chats will
-	-- show it: the mark always, the icon after it (0.9.9).
+	-- The preview: the icon large (the mark when none is picked), and our name as the game's chat
+	-- will show it: the mark always, the icon after it (0.9.9). Since 1.1.5 the mark there is the
+	-- High Council's silver dragon (Borders.ChatMarkText), and Olympus's own lines carry none; a
+	-- client updated without a restart (Borders.lua's stand-in) shows the council's skull.
 	local texture = ns.CouncilIconTexture(iconChoice)
 	picker.preview:SetTexture(texture or ns.HIGH_COUNCIL_SKULL)
-	picker.sample:SetText("[" .. L.CHAN_ALL .. "] [" .. ns.HIGH_COUNCIL_MARK .. (texture and ("|T" .. texture .. ":0|t") or "")
-		.. "|c" .. ns.HIGH_COUNCIL_COLOR .. (ns.DisplayName(ns.me) or "?") .. "|r]")
+	local B = ns.Borders
+	local mark = type(B) == "table" and type(B.ChatMarkText) == "function" and B.ChatMarkText("silver") or ns.HIGH_COUNCIL_MARK
+	picker.sample:SetText("[" .. mark .. (texture and ("|T" .. texture .. ":0|t") or "") .. (ns.DisplayName(ns.me) or "?") .. "]")
 	picker.chosenName:SetText(iconChoice and IconLabel(iconChoice) or L.COUNCIL_ICON_MARK_ONLY)
 end
 

@@ -171,14 +171,12 @@ function Channels.FormatLine(tier, sender, guild, class, text, bare)
 		local color = file and RAID_CLASS_COLORS and RAID_CLASS_COLORS[file]
 		if color and color.colorStr then name = "|c" .. color.colorStr .. name .. "|r" end
 	end
-	-- The mark before the name, as the Chat tab shows it (1.1.2, Borders.ChatMark): the King's crown,
-	-- the High Council's mark and icon (0.9.9), silver, bronze, the star. Without Borders.lua (a
-	-- client updated without a restart), the High Council's alone, as before 1.1.2.
-	local B = ns.Borders
-	local mark = B and type(B.ChatMark) == "function" and B.ChatMark(sender, guild) or (council and ns.CouncilMark(sender)) or ""
-	-- The Treasurer: the gold coin he carries in tooltips and the census (0.9.9), first.
-	if ns.IsTreasurer(sender, guild) then mark = (ns.COIN:gsub(" $", "")) .. mark end
-	name = mark .. name
+	-- No mark before the name since 1.1.5 (the author's call): Olympus's marks (the King's, the High
+	-- Council's and its icon, the guild masters', the star) are where players outside Olympus are,
+	-- the game's own chat (Borders.ChatName). It was the Chat tab's mark (1.1.2), and the High
+	-- Council's mark and icon from 0.9.9. The Treasurer keeps the gold coin he carries in tooltips
+	-- and the census (0.9.9).
+	if ns.IsTreasurer(sender, guild) then name = (ns.COIN:gsub(" $", "")) .. name end
 	return (bare and "" or "[" .. Label(tier) .. "] ") .. "|Hplayer:" .. (ns.TellName(sender) or "?") .. "|h[" .. name .. "]|h <"
 		.. tostring(guild or "?"):gsub("|", "||") .. ">: " .. Codec.SanitizeChat(text)
 end

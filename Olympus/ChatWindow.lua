@@ -308,22 +308,18 @@ local function BackInView(was)
 end
 
 ---------------------------------------------------------------------------
--- A name's header: one mark, the name, a tag, the guild (Borders.ChatMark over Borders.MarkOfName:
--- the elite borders' and nameplate marks' rules, and a mark only where the guild the line names is
--- proven).
+-- A name's header: the name, a tag, the guild. No mark before the name since 1.1.5 (the author's
+-- call: Olympus's marks are where players outside Olympus are, the game's own chat,
+-- Borders.ChatName); the High Council's colour and the Treasurer's coin stay.
 ---------------------------------------------------------------------------
 
 local function NameText(e)
 	local who = ns.FullName(e.sender)
 	local guild = e.guild
-	local B = ns.Borders
 	local council = ns.IsHighCouncillor(who) and not ns.CouncilMasked()
 	local name = ns.Codec.Plain(ns.DisplayName(e.sender) or "?")
-	-- (Borders.ChatMark, shared with the game's chat windows since 1.1.2; without Borders.lua, a
-	-- client updated without a restart, the High Council's mark alone.)
-	local lead = B and type(B.ChatMark) == "function" and B.ChatMark(who, guild) or (council and ns.CouncilMark(who)) or ""
-	if lead ~= "" then lead = lead .. " " end
-	if ns.IsTreasurer(who, guild) then lead = lead .. (ns.COIN:gsub(" $", "")) end
+	local lead = ""
+	if ns.IsTreasurer(who, guild) then lead = (ns.COIN:gsub(" $", "")) end
 	if council then
 		name = "|c" .. ns.HIGH_COUNCIL_COLOR .. name .. "|r"
 	else

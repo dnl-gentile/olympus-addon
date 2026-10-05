@@ -381,6 +381,18 @@ WoW channel number to join). Each channel is exclusive to a rank:
   up to 3 messages; if the game refuses one of them, the rest of that line is not sent
   either, and you are told (1.1.1).
 - The channels show only in the chat of players with the addon.
+- **Marks in the game's own chat (1.1.5).** Before the name of an Olympus player in the game's
+  channels (General, Trade, LocalDefense, LookingForGroup and any other), say, yell, emote,
+  party, raid, instance chat and whispers both ways: the mark of their border's tier, the game's
+  gold elite dragon for the King, its silver one for a High Councillor (then the icon they
+  picked), the bronze for a guild master of an Olympus guild, and Olympus's star for any other
+  member your addon can check (your guild's roster, or a census that names them: a plain member
+  of another guild is in no census, so gets none). Never in guild or officer chat, where everyone
+  is of your guild, and never on Olympus's own lines ([Olympus], [Captains], [Lords] and the Chat
+  tab), which show the name in its colour alone. Through the game's own name filter, so the
+  name's link, right-click and /r stay the game's. On by default (`/oly chatmarks off` hides
+  them), hidden with the gamepad UI, and a High Councillor's on the King's screen while the
+  council's names are hidden.
 - **Block terms (1.1).** `/oly filter add <word>` hides, on your screen, every line of addon
   text with that word: the Olympus chats, the King's writs, a decree's words and Vox Populi's
   question and answers. Whole words only, any case or accent, one word of 2 to 24 letters or
@@ -484,14 +496,11 @@ bottom-to-top always gives the same tab order; changing role or debug view never
   are kept, from every session, and scroll back. The tab follows the newest line until you scroll
   up; then the line you are reading stays in its place while new lines come in and the oldest go,
   and **N new** at the bottom takes you down to them.
-- By each name, Olympus's marks, by the rules of the borders and the nameplate marks (but not
-  switched off with them), and only where the guild a line names is proven: a nameplate reads the
-  guild from the game, a chat line only claims it. The King's crown, the High Council's mark and
-  colour, bronze for guild masters (1.1.5: the borders' tiers), a star for any other member
-  of your guild's roster or anyone the census names in theirs (and the King's Stewards and Hands),
-  the Treasurer's coin, and **Steward** or **Hand** after the King's. A name whose Olympus guild
-  cannot be checked (a plain member of another guild, or anyone claiming a guild's name) gets no
-  mark. A click on a name whispers that player, in Olympus's whisper window.
+- By each name, the name in its colour (the High Council's for a councillor, the writer's class
+  for anyone else), the Treasurer's coin, and **Steward** or **Hand** after the King's. No mark
+  before a name since 1.1.5: Olympus's marks show in the game's own chat instead, where players
+  outside Olympus are ([Channels](#channels), `/oly chatmarks`). A click on a name whispers that
+  player, in Olympus's whisper window.
 - A line your block terms hide shows as a grey bubble, and a click shows it, marked. Over the
   lines, like the pinned line, how many your filter hides in the channel (no room while it hides
   none), and a click there shows them all (another hides them again). A link shows its tooltip
@@ -1879,7 +1888,7 @@ Other limits:
 | `/oly issuereporter hide\|show` | hide Blizzard's Issue Reporter box (beta clients) at every login, or show it again (also a "Hide" button on it) |
 | `/oly helpme [text]` (or **Ask a High Councillor** on the Realm tab) | ask the High Council (the moderators) for help: it goes by whisper to up to three of them online who take requests |
 | `/oly council list` · `/oly council help on\|off` | the High Council as your addon knows it; moderators: take help requests or not. The list is signed by the author on his own computer and checked by every client: no name is written in the addon's code, and nobody can forge or change it. An addon without the list (`High Council: -`) asks the channel for it a minute or so after login, and again until it has it (two and a half minutes later when nobody answered, up to 3 times). Since 1.0.0 the list also crosses realms through guild chat: guildmates on another realm answer the ask and pass the list on, and it goes on to your realm's channel |
-| `/oly council icon` (or **My council icon** on the Realm tab, councillors only) | moderators: a councillor's name in the Olympus chats (and since 1.1.5 the game's own chat, `/oly chatmarks`) always carries the High Council's mark (the game's target-frame skull), which nobody can change. An icon of your own after it is optional: pick it from the game's icons, like a macro's. Your addon announces it on the channel (at once, then every 20 minutes), and other clients take it only from a councillor and only as a game icon |
+| `/oly council icon` (or **My council icon** on the Realm tab, councillors only) | moderators: a councillor's name always carries the High Council's mark, which nobody can change: in the game's own chat (1.1.5, `/oly chatmarks`) the game's silver elite dragon, on their tooltip and in the census the game's target-frame skull. An icon of your own after it is optional: pick it from the game's icons, like a macro's. Your addon announces it on the channel (at once, then every 20 minutes), and other clients take it only from a councillor and only as a game icon |
 | `/oly discord <code>` · `/oly discord` | Olympus Link: link this character to your Discord account with the bot's code (or paste it in a box) |
 | `/oly discord show` · `status` · `forget` | the Olympus Link window (QR code and link) again; every character's request or proof; drop this character's |
 | `/oly discord key <id> <key>` · `key` · `key new` · `key off` | confirmers (High Councillors too): keep the key the bot's keeper gave you for this character (once the bot's key is in the addon), show its id and public half, say where a new one comes from (the keeper; a key made in game only with the council authority on, off as it ships), remove it (and its certificate) and print the old key's id, which counts at the bot until its keeper revokes it |
@@ -1896,7 +1905,7 @@ Other limits:
 | `/oly location on` · `/oly location off` | share (or not) your zone and layer on the Olympus channel |
 | `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council, and Max's bronze wings for the guild masters of Olympus guilds (none for a character or a guild the moderators took off, net-off). Since 1.1.5 these three alone: the rank borders (gold for Lords, silver for Captains, bronze for Raiders and Veterans) are gone, and any other member has the nameplate star alone. On by default, hidden with the gamepad UI. Off, the nameplate marks go too |
 | `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, bronze for guild masters, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
-| `/oly chatmarks on` · `/oly chatmarks off` | 1.1.5: a High Councillor's mark, then the icon they picked, before their name in the game's own chat too (guild, officer, say, yell, emote, party, raid, instance, channels and whispers), as on Olympus lines. Through the game's own name filter, so the name's link, right-click and /r stay the game's; only the councillors' names change; on by default, hidden with the gamepad UI and on the King's screen while the council's names are hidden |
+| `/oly chatmarks on` · `/oly chatmarks off` | 1.1.5: the mark of a player's border tier before their name in the game's own chat (channels, say, yell, emote, party, raid, instance and whispers; never guild or officer chat): the King's gold dragon, a High Councillor's silver then their icon, a guild master's bronze, the star for any other member your addon can check. Olympus's own lines carry none. Through the game's own name filter, so the name's link, right-click and /r stay the game's; on by default, hidden with the gamepad UI, and a councillor's on the King's screen while the council's names are hidden |
 | `/oly key <secret>` | officers: seal the Olympus channel |
 | `/oly key rotate` | the King or his Steward: a new key for the whole army, by whisper to the Lords and Captains his /who saw in the guilds he picks and over guild chat, never on the Olympus channel (also on the Throne) (1.1) |
 | `/oly block <name>` | ignore a player |

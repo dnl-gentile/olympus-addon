@@ -350,14 +350,11 @@ bottom-to-top always gives the same tab order; changing role or debug view never
   are kept, from every session, and scroll back. The tab follows the newest line until you scroll
   up; then the line you are reading stays in its place while new lines come in and the oldest go,
   and **N new** at the bottom takes you down to them.
-- By each name, Olympus's marks, by the rules of the borders and the nameplate marks (but not
-  switched off with them), and only where the guild a line names is proven: a nameplate reads the
-  guild from the game, a chat line only claims it. The King's crown, the High Council's mark and
-  colour, bronze for guild masters (1.1.5: the borders' tiers), a star for any other member
-  of your guild's roster or anyone the census names in theirs (and the King's Stewards and Hands),
-  the Treasurer's coin, and **Steward** or **Hand** after the King's. A name whose Olympus guild
-  cannot be checked (a plain member of another guild, or anyone claiming a guild's name) gets no
-  mark. A click on a name whispers that player, in Olympus's whisper window.
+- By each name, the name in its colour (the High Council's for a councillor, the writer's class
+  for anyone else), the Treasurer's coin, and **Steward** or **Hand** after the King's. No mark
+  before a name since 1.1.5: Olympus's marks show in the game's own chat instead, where players
+  outside Olympus are ([Channels](#channels), `/oly chatmarks`). A click on a name whispers that
+  player, in Olympus's whisper window.
 - A line your block terms hide shows as a grey bubble, and a click shows it, marked. Over the
   lines, like the pinned line, how many your filter hides in the channel (no room while it hides
   none), and a click there shows them all (another hides them again). A link shows its tooltip
@@ -889,7 +886,7 @@ code.
 | `/oly location on` · `/oly location off` | share (or not) your zone and layer on the Olympus channel |
 | `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council, and Max's bronze wings for the guild masters of Olympus guilds (none for a character or a guild the moderators took off, net-off). Since 1.1.5 these three alone: the rank borders (gold for Lords, silver for Captains, bronze for Raiders and Veterans) are gone, and any other member has the nameplate star alone. On by default, hidden with the gamepad UI. Off, the nameplate marks go too |
 | `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, bronze for guild masters, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
-| `/oly chatmarks on` · `/oly chatmarks off` | 1.1.5: a High Councillor's mark, then the icon they picked, before their name in the game's own chat too (guild, officer, say, yell, emote, party, raid, instance, channels and whispers), as on Olympus lines. Through the game's own name filter, so the name's link, right-click and /r stay the game's; only the councillors' names change; on by default, hidden with the gamepad UI and on the King's screen while the council's names are hidden |
+| `/oly chatmarks on` · `/oly chatmarks off` | 1.1.5: the mark of a player's border tier before their name in the game's own chat (channels, say, yell, emote, party, raid, instance and whispers; never guild or officer chat): the King's gold dragon, a High Councillor's silver then their icon, a guild master's bronze, the star for any other member your addon can check. Olympus's own lines carry none. Through the game's own name filter, so the name's link, right-click and /r stay the game's; on by default, hidden with the gamepad UI, and a councillor's on the King's screen while the council's names are hidden |
 | `/oly block <name>` | ignore a player |
 | `/oly filter add\|remove <word>` · `/oly filter` | block terms: hide, on your screen, lines of addon text (Olympus chats, writs, decrees, Vox) with a word; the list (1.1) |
 | `/oly alt add Name` · `/oly alt remove Name` · `/oly alt` | link a character of this account as your alt (log it and say yes there), take a link apart, or see your links: the census and the treasury count you once (1.1) |

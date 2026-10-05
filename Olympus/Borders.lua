@@ -308,31 +308,6 @@ local function AtlasExists(atlas)
 	return ok and v ~= nil
 end
 
--- The mark before a name on an Olympus line, the same in the Chat tab and in the game's own chat
--- windows (1.1.2: the game's windows showed the High Council's alone): the King's crown, a High
--- Councillor's mark and icon, silver, bronze (the gold atlas in Nameplates.BRONZE), the star; ""
--- for none. 14 px, as the Chat tab has shown them; an atlas the client lacks: the star.
-Borders.CHAT_STAR = "|TInterface\\AddOns\\Olympus\\media\\borders\\star:14:14|t"
-local CHAT_SILVER = "nameplates-icon-elite-silver"
-local CHAT_BRONZE, CHAT_BRONZE_TINT = "nameplates-icon-elite-gold", ":0:0:158:118:86" -- (Nameplates.BRONZE x 255)
-
-local function ChatAtlas(atlas, tint)
-	if not AtlasExists(atlas) then return Borders.CHAT_STAR end
-	return "|A:" .. atlas .. ":14:14" .. (tint or "") .. "|a"
-end
-
-function Borders.ChatMark(who, guild)
-	if type(who) ~= "string" or who == "" then return "" end
-	who = ns.FullName(who)
-	local mark = Borders.MarkOfName(who, guild)
-	if mark == "gold" then return "|T" .. ns.CROWN_ICON .. ":14:14|t" end -- (the King's mark in chat is his crown)
-	if ns.IsHighCouncillor(who) and not ns.CouncilMasked() then return ns.CouncilMark(who) end
-	if mark == "silver" then return ChatAtlas(CHAT_SILVER) end
-	if mark == "bronze" then return ChatAtlas(CHAT_BRONZE, CHAT_BRONZE_TINT) end
-	if mark == "member" then return Borders.CHAT_STAR end
-	return ""
-end
-
 -- A tier's art on a new texture (mirror: turned round, for your own portrait), or false when the
 -- client has none of it. An atlas at its own size; a file at the tier's size, its art's area only.
 -- A file SetTexture fails or says false for: the game's frame it was drawn over, without colour.
@@ -596,76 +571,180 @@ function Borders.StatusLine()
 end
 
 ---------------------------------------------------------------------------
--- The game's own chat (1.1.5, the High Council's ask: their mark and own icon showed on Olympus
--- lines only, not in guild chat, say or a whisper)
+-- The game's own chat (1.1.5: the High Council's ask, then the author's call)
 ---------------------------------------------------------------------------
--- A High Councillor's mark, then the icon he picked (ns.CouncilMark: the same as on Olympus lines),
--- before his name in the game's chat. The councillors only: no star or rank mark on every member's
--- line in Trade. The game's hook for it, ChatFrameUtil.AddSenderNameFilter (Forever 1.60.1,
+-- A mark before a sender's name in the game's chat, where players outside Olympus can be: the
+-- channels (General, Trade, LocalDefense, LookingForGroup and any other CHAT_MSG_CHANNEL), say,
+-- yell, emote, party, raid, instance and whispers both ways. Never guild or officer chat: everyone
+-- there is of our guild. The mark follows the sender's border tier (Borders.MARK_OF, by
+-- Borders.MarkOfName's facts and trust rules): the King the game's gold elite dragon
+-- (nameplates-icon-elite-gold), a High Councillor its silver one (nameplates-icon-elite-silver)
+-- then the icon he picked (ns.CouncilIcon), a guild master of an Olympus guild the bronze (the gold
+-- tinted as Nameplates.BRONZE), any other member of an Olympus guild we can prove the star; nothing
+-- for anyone else. 14 px, as the Chat tab showed them; an atlas the client lacks: the star.
+-- (It began with the councillors' marks alone, in guild chat too, while Olympus's own lines carried
+-- every mark. Olympus's own lines, Channels.FormatLine and the Chat tab, carry none since: the
+-- name in its colour.)
+-- No line of the game names its sender's guild, so his is a guild MarkOfName's rules can prove
+-- (ChatGuilds): ours when our roster has him; the King's for the King, his Stewards and Hands by
+-- their names; each guild whose census report names him (its guild master or an officer: a plain
+-- member of another guild is in no census, so he gets no star here). A High Councillor's silver
+-- needs no guild: the signed list.
+-- The game's hook for it, ChatFrameUtil.AddSenderNameFilter (Forever 1.60.1,
 -- Blizzard_ChatFrameBase/Shared/ChatFrameFilters.lua): Blizzard calls it through securecallfunction
 -- with the line's event, the name it decorated (class colour and all) and the line's arguments, and
 -- shows what it returns inside the player link only; the link's data, the click, the right-click
 -- menu, /r and the whisper window keep the real name. Nothing of Blizzard's is replaced, and a
--- client without it has no marks there (Olympus lines keep theirs, Channels.FormatLine).
+-- client without it has no marks.
 -- Off with the gamepad UI, as the borders: logged in with it, nothing is registered until a switch
 -- to mouse and keyboard; switched to it later, the callback returns at once. Also none: outside an
--- Olympus guild (ns.IsMember, as the borders: a list kept from before says nothing there), the
--- King's screen while the council's names are hidden (ns.CouncilMasked: asked again on every
--- marked line, so a first login whose guild was not known yet, or any other flip, never leaves a
--- mark on his stream), a councillor the moderators took off (net-off), a secret name or sender,
--- and `/oly chatmarks off` (ns.db.chatMarks false).
+-- Olympus guild (ns.IsMember, as the borders: a list kept from before says nothing there; asked
+-- again on every marked line), a High Councillor's on the King's screen while the council's names
+-- are hidden (ns.CouncilMasked: asked again on every line with a council mark, so a first login
+-- whose guild was not known yet, or any other flip, never leaves one on his stream; his guild
+-- master's bronze or the star there instead, if any), a character or a guild the moderators took
+-- off (net-off), a secret name or sender, and `/oly chatmarks off` (ns.db.chatMarks false).
 -- Blizzard runs the callback for every line on every chat window: it reads a boolean, the event
--- list and one table entry; a sender not seen yet is worked out once (ChatName), and the table is
--- emptied every CHAT_FORGET seconds and whenever the council's names are hidden or shown, so a new
--- list or icon shows within a minute.
+-- list and one table entry; a sender not seen yet is worked out once (ChatName: lookups, and the
+-- census reports read once into an index of the names they hold), and the table is emptied every
+-- CHAT_FORGET seconds and whenever the census, the council's lists, our guild or the council's
+-- names hidden or shown change, so a new list or icon shows within a minute.
 
 Borders.CHAT_EVENTS = {
-	CHAT_MSG_GUILD = true, CHAT_MSG_OFFICER = true,
 	CHAT_MSG_SAY = true, CHAT_MSG_YELL = true, CHAT_MSG_EMOTE = true,
 	CHAT_MSG_PARTY = true, CHAT_MSG_PARTY_LEADER = true,
 	CHAT_MSG_RAID = true, CHAT_MSG_RAID_LEADER = true, CHAT_MSG_RAID_WARNING = true,
 	CHAT_MSG_INSTANCE_CHAT = true, CHAT_MSG_INSTANCE_CHAT_LEADER = true,
-	CHAT_MSG_CHANNEL = true,
+	CHAT_MSG_CHANNEL = true, -- (General, Trade, LocalDefense, LookingForGroup, any other channel)
 	CHAT_MSG_WHISPER = true, CHAT_MSG_WHISPER_INFORM = true, -- (INFORM's sender is whom we wrote to)
 }
 local CHAT_EVENTS = Borders.CHAT_EVENTS
 Borders.CHAT_FORGET = 60
 Borders.CHAT_MAX = 500 -- senders kept between two emptyings (then it starts again)
-local chatMarks, chatKept = {}, 0 -- sender, as the line gives him -> his mark, or false for none
-local chatOn, chatHooked, chatPreview = false, false, false
+local chatMarks, chatKept = {}, 0 -- sender, as the line gives him -> { text, council } or false for none
+local chatIndex -- [full name] = { guild, ... }: the guilds whose census report names him (once per emptying)
+local chatOn, chatHooked, chatPreview = false, false, false -- chatPreview: the author's mark ("gold"...) or false
 
--- A mark as it may go before a name: |T...|t textures and nothing else (no "%": two of Blizzard's
--- lines use the name as a gsub replacement; no bracket or link), else nil.
+Borders.CHAT_STAR = "|TInterface\\AddOns\\Olympus\\media\\borders\\star:14:14|t"
+local CHAT_ATLAS = { gold = "nameplates-icon-elite-gold", silver = "nameplates-icon-elite-silver", bronze = "nameplates-icon-elite-gold" }
+local CHAT_BRONZE_TINT = ":0:0:158:118:86" -- (Nameplates.BRONZE x 255)
+local CHAT_RANK = { gold = 4, silver = 3, bronze = 2, member = 1 }
+Borders.CHAT_PREVIEWS = { gold = true, silver = true, bronze = true, member = true }
+
+-- A mark's text before a name: "gold", "silver" (then his own icon, when `who` is given), "bronze",
+-- "member"; nil else. (Workshop.lua's council icon picker shows the silver with the icon it picks.)
+local function ChatText(mark, who)
+	if mark == "member" then return Borders.CHAT_STAR end
+	local atlas = CHAT_ATLAS[mark]
+	if not atlas then return nil end
+	if not AtlasExists(atlas) then return Borders.CHAT_STAR end
+	local text = "|A:" .. atlas .. ":14:14" .. (mark == "bronze" and CHAT_BRONZE_TINT or "") .. "|a"
+	if mark == "silver" and who then text = text .. ns.CouncilIcon(who) end
+	return text
+end
+
+-- A mark as it may go before a name: |T...|t textures and |A...|a atlases and nothing else (no
+-- "%": two of Blizzard's lines use the name as a gsub replacement; no bracket or link), else nil.
+function Borders.ChatMarkText(mark) return ChatText(mark, nil) end
+
 local function ChatClean(s)
 	if type(s) ~= "string" or s == "" or #s > 200 then return nil end
 	for _, bad in ipairs({ "%", "[", "]", "|H", "|h" }) do
 		if s:find(bad, 1, true) then return nil end
 	end
-	if s:gsub("|T[^|]*|t", "") ~= "" then return nil end
+	if s:gsub("|T[^|]*|t", ""):gsub("|A[^|]*|a", "") ~= "" then return nil end
 	return s
 end
 
--- The mark before a sender's name in the game's chat, or false for none.
+-- Who the census reports name (their guild masters and officers, as the reports and their votes
+-- hold them), by name: read once after each emptying, when a sender first needs it.
+local function CensusIndex()
+	if chatIndex then return chatIndex end
+	local index, guilds = {}, ns.rdb and ns.rdb.guilds
+	local fresh, now = ns.Data and ns.Data.FRESH or 900, ns.Now()
+	if type(guilds) == "table" then
+		for key, g in pairs(guilds) do
+			if type(key) == "string" and type(g) == "table" and now - (tonumber(g.t) or 0) <= fresh then
+				local home, seen = g.realm or ns.realm, {}
+				local function Add(name)
+					if type(name) ~= "string" or name == "" then return end
+					local full = ns.FullName(name, home)
+					if seen[full] then return end
+					seen[full] = true
+					local list = index[full] or {}
+					list[#list + 1] = key
+					index[full] = list
+				end
+				Add(g.leader)
+				for _, o in ipairs(type(g.officers) == "table" and g.officers or {}) do Add(type(o) == "table" and o.name or nil) end
+				for _, v in pairs(type(g.vouch) == "table" and g.vouch or {}) do
+					if type(v) == "table" and type(v.ranks) == "table" then
+						for name in pairs(v.ranks) do Add(name) end
+					end
+				end
+			end
+		end
+	end
+	chatIndex = index
+	return index
+end
+
+-- The guilds a sender of the game's chat may be proven in (see above): ours alone for a guildmate.
+local function ChatGuilds(who)
+	local mine = GetGuildInfo("player")
+	if Secret(mine) then mine = nil end
+	if mine and ns.Roster and ns.Roster.RankOf(who) then return { mine } end
+	local out = {}
+	local K = ns.King
+	if ns.IsKingCharacter(who) or (type(K) == "table" and ((type(K.IsStewardName) == "function" and K.IsStewardName(who))
+		or (type(K.IsHandName) == "function" and K.IsHandName(who)))) then
+		local king = ns.KING_GUILD[ns.faction or "Alliance"]
+		if king then out[#out + 1] = ns.Data.GuildKey(king) or king end
+	end
+	for _, guild in ipairs(CensusIndex()[who] or {}) do out[#out + 1] = guild end
+	return out
+end
+
+-- The mark before a sender's name in the game's chat, or false for none; and whether it is a High
+-- Councillor's (the King's stream hides those).
 function Borders.ChatName(sender)
 	local who = ns.FullName(ns.Normal(sender))
 	if type(who) ~= "string" or who == "" then return false end
-	if chatPreview and who == ns.me then return ChatClean(ns.HIGH_COUNCIL_MARK .. ns.CouncilIcon(who)) or false end
-	if ns.IsMember() ~= true or ns.CouncilMasked() or not ns.IsHighCouncillor(who) or NetOff(who) then return false end
-	return ChatClean(ns.CouncilMark(who)) or false
+	if chatPreview and who == ns.me then return ChatClean(ChatText(chatPreview, who)) or false, false end
+	if ns.IsMember() ~= true then return false end
+	local best = Borders.MarkOfName(who, nil) -- (a High Councillor's: no guild needed)
+	for _, guild in ipairs(ChatGuilds(who)) do
+		local mark = Borders.MarkOfName(who, guild)
+		if mark and (not best or CHAT_RANK[mark] > CHAT_RANK[best]) then best = mark end
+	end
+	if not best then return false end
+	return ChatClean(ChatText(best, who)) or false, best == "silver"
 end
+
+local function IsMine(sender) return ns.FullName(ns.Normal(sender)) == ns.me end
 
 local function ChatMarkOf(name, sender)
 	if Secret(name, sender) or type(name) ~= "string" or type(sender) ~= "string" or sender == "" then return nil end
-	local mark = chatMarks[sender]
-	if mark == nil then
+	local e = chatMarks[sender]
+	if e == nil then
 		if chatKept >= Borders.CHAT_MAX then chatMarks, chatKept = {}, 0 end
-		mark = Borders.ChatName(sender)
-		chatMarks[sender], chatKept = mark, chatKept + 1
+		local text, council = Borders.ChatName(sender)
+		e = text and { text = text, council = council } or false
+		chatMarks[sender], chatKept = e, chatKept + 1
 	end
-	if not mark then return nil end
-	-- A marked line (a councillor's: few) asks again what may change between two emptyings.
-	if not chatPreview and (ns.CouncilMasked() or ns.IsMember() ~= true) then return nil end
-	return mark .. name
+	if not e then return nil end
+	local text = e.text
+	-- A marked line asks again what may change between two emptyings (but the author's preview on
+	-- his own lines): that we are in an Olympus guild, and for a council mark whether the King's
+	-- screen hides the council now (worked out again as the mask says, never kept).
+	if not (chatPreview and IsMine(sender)) then
+		if ns.IsMember() ~= true then return nil end
+		if e.council and ns.CouncilMasked() then
+			text = Borders.ChatName(sender)
+			if not text then return nil end
+		end
+	end
+	return text .. name
 end
 
 -- Blizzard's callback: the name to show, or nil for the name as it was (an error is nil too).
@@ -676,7 +755,7 @@ function Borders.ChatFilter(event, name, text, sender)
 	return nil
 end
 
-function Borders.ChatForget() chatMarks, chatKept = {}, 0 end
+function Borders.ChatForget() chatMarks, chatKept, chatIndex = {}, 0, nil end
 
 function Borders.ChatEnabled() return not (ns.db and ns.db.chatMarks == false) end
 
@@ -701,17 +780,27 @@ function Borders.ChatReport()
 	if Borders.ChatEnabled() and ns.GamepadUI() then ns.Print(L.CHATMARKS_GAMEPAD) end
 end
 
--- `/oly chatmarks on|off|test` (nothing: whether they show). test: the author's own lines get the
--- council's mark for this session (his character is on no council); anyone else gets the report.
-function Borders.ChatSlash(word)
-	word = type(word) == "string" and word:lower() or ""
+-- `/oly chatmarks on|off|test [gold|silver|bronze|member|off]` (nothing: whether they show). test:
+-- the author's own lines get that mark for this session (his character holds none of them; test
+-- alone: the High Council's silver, or off again); anyone else gets the report.
+function Borders.ChatSlash(rest)
+	rest = type(rest) == "string" and rest:lower() or ""
+	local word, arg = rest:match("^%s*(%S*)%s*(%S*)")
 	if word == "on" or word == "off" then
 		ns.db.chatMarks = word == "on"
 		Borders.ChatRefresh()
 	elseif word == "test" and Borders.PreviewAllowed() then
-		chatPreview = not chatPreview
+		if arg == "off" or (arg == "" and chatPreview) then
+			chatPreview = false
+		elseif Borders.CHAT_PREVIEWS[arg] then
+			chatPreview = arg
+		elseif arg == "" then
+			chatPreview = "silver"
+		else
+			return ns.Print(L.CHATMARKS_TEST_HELP)
+		end
 		Borders.ChatRefresh()
-		return ns.Print(chatPreview and L.CHATMARKS_TEST_ON or L.CHATMARKS_TEST_OFF)
+		return ns.Print(chatPreview and L.CHATMARKS_TEST_ON:format(chatPreview) or L.CHATMARKS_TEST_OFF)
 	end
 	Borders.ChatReport()
 end
@@ -720,7 +809,7 @@ function Borders.ChatStatusLine()
 	local CFU = rawget(_G, "ChatFrameUtil")
 	if not (type(CFU) == "table" and type(CFU.AddSenderNameFilter) == "function") then return "none (no ChatFrameUtil.AddSenderNameFilter)" end
 	local state = chatOn and "on" or (not Borders.ChatEnabled() and "off (/oly chatmarks on)" or (ns.GamepadUI() and "hidden with the gamepad UI" or "not registered yet"))
-	return ("%s  |  %d senders worked out%s"):format(state, chatKept, chatPreview and "  |  preview" or "")
+	return ("%s  |  %d senders worked out%s"):format(state, chatKept, chatPreview and ("  |  preview " .. chatPreview) or "")
 end
 
 ---------------------------------------------------------------------------

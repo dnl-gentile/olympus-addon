@@ -231,8 +231,8 @@ DETAIL_BUTTONS.realm = DETAIL_BUTTONS.realm or {}
 table.insert(DETAIL_BUTTONS.realm, { "COUNCIL_ASK_BTN", function() ns.ShowDialog("OLYMPUS_COUNCIL_ASK") end,
 	-- Only where a council exists (a signed list reached us).
 	shown = function() local c = ns.rdb and ns.rdb.council return type(c) == "table" and next(c.names or {}) ~= nil end })
--- A councillor's own icon before their name in the Olympus chats (0.9.8, Workshop.lua): shown
--- to councillors alone.
+-- A councillor's own icon with their name (0.9.8, Workshop.lua; since 1.1.5 in the game's own
+-- chat, Borders.lua): the button shown to councillors alone.
 table.insert(DETAIL_BUTTONS.realm, { "COUNCIL_ICON_BTN", function() ns.Workshop.ShowIconPicker() end,
 	shown = function() return ns.IsHighCouncillor(ns.me) end })
 -- 1.1 (Fern's #28): an officer keeps the gear of the player he targets, in range (Inspect.lua).

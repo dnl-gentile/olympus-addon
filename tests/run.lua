@@ -10139,8 +10139,11 @@ test("0.9.7 the High Council: a list the author signs on his computer, checked b
 		eq(ns.IsHighCouncillor("Test Councillor-Realm"), true); eq(ns.IsHighCouncillor("other mod"), true, "any case")
 		eq(ns.IsHighCouncillor("Test Councillor-OtherRealm"), false, "its realm group only")
 		local line = ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus", nil, "hello")
-		-- (0.9.9: the fixed council mark, where 0.9.8 had a default icon.)
-		assert(line:find(ns.HIGH_COUNCIL_MARK, 1, true) and line:find(ns.HIGH_COUNCIL_COLOR, 1, true), line)
+		-- (0.9.9: the fixed council mark, where 0.9.8 had a default icon. 1.1.5, the author's call:
+		-- Olympus's own lines carry no mark, the colour alone; the mark goes with the name elsewhere,
+		-- ns.CouncilMark, and in the game's chat.)
+		assert(line:find(ns.HIGH_COUNCIL_COLOR, 1, true) and not line:find(ns.HIGH_COUNCIL_MARK, 1, true), line)
+		eq(ns.CouncilMark("Test Councillor-Realm"), ns.HIGH_COUNCIL_MARK)
 		-- A newer signed list replaces it; an older one never comes back.
 		W.HandleCouncil("CHANNEL", "Any Player-Realm", LIST2)
 		eq(ns.IsHighCouncillor("Other Mod-Realm"), false, "removed")
@@ -10683,49 +10686,48 @@ end
 test("0.9.8 council icons: only a councillor's own announcement counts, and only a file number or a plain icon name", function()
 	WithCouncil(function()
 		local W = ns.Workshop
-		local function Line(sender) return ns.Channels.FormatLine("A", sender, "Olympus", nil, "hello") end
+		-- What goes with a councillor's name (ns.CouncilMark: his tooltip, the census, the game's chat
+		-- after its silver dragon). (1.1.5, the author's call: Olympus's own lines carry no mark any
+		-- more, so this test, which read them, reads the mark itself; it was the line's.)
+		local function Line(sender) return ns.CouncilMark(sender) end
+		assert(not ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus", nil, "hello"):find(ns.HIGH_COUNCIL_MARK, 1, true),
+			"no mark on Olympus's own lines")
 		-- 0.9.9: the default skull icon became the fixed council mark (the target-frame skull), and a
-		-- councillor's own icon comes after it. "The mark alone" (no icon of their own) is the mark
-		-- right before their colour, where 0.9.8 checked for its default skull.
-		local ALONE = ns.HIGH_COUNCIL_MARK .. "|c" .. ns.HIGH_COUNCIL_COLOR
-		-- Nobody announced: the mark alone, then their colour.
-		local line = Line("Test Councillor-Realm")
-		assert(line:find("|TInterface\\TargetingFrame\\UI-TargetingFrame-Skull:0|t|c" .. ns.HIGH_COUNCIL_COLOR .. "Test Councillor|r", 1, true), line)
+		-- councillor's own icon comes after it. "The mark alone": no icon of their own, where 0.9.8
+		-- checked for its default skull.
+		local ALONE = ns.HIGH_COUNCIL_MARK
+		-- Nobody announced: the mark alone.
+		eq(Line("Test Councillor-Realm"), "|TInterface\\TargetingFrame\\UI-TargetingFrame-Skull:0|t")
 		-- Someone not on the council: refused, and still refused once they are on it.
 		W.HandleIcon("CHANNEL", "Random Guy-Realm", "HI~134400")
 		ns.rdb.council.names["random guy"] = "Random Guy"
-		line = Line("Random Guy-Realm")
-		assert(line:find(ALONE, 1, true) and not line:find("134400", 1, true), line)
+		eq(Line("Random Guy-Realm"), ALONE)
 		-- A councillor anywhere but the channel: refused.
 		W.HandleIcon("WHISPER", "Test Councillor-Realm", "HI~134400")
 		W.HandleIcon("GUILD", "Test Councillor-Realm", "HI~134400")
-		assert(Line("Test Councillor-Realm"):find(ALONE, 1, true))
+		eq(Line("Test Councillor-Realm"), ALONE)
 		-- Anything but a file number or a plain name: refused, the mark stays alone.
 		for _, bad in ipairs({ "HI~134400:64:64|t|cffff0000Fake", "HI~134400:64:64tcffff0000Fake", "HI~Interface\\Icons\\X",
 			"HI~..\\..\\X", "HI~12345678901", "HI~2147483648", "HI~-5", "HI~1.5", "HI~ab cd", "HI~" .. string.rep("a", 65),
 			"HI~", "HI~00", "HI~134400~x" }) do
 			W.HandleIcon("CHANNEL", "Test Councillor-Realm", bad)
-			line = Line("Test Councillor-Realm")
-			assert(line:find(ALONE, 1, true), bad .. " -> " .. line)
+			eq(Line("Test Councillor-Realm"), ALONE, bad)
 		end
 		eq(next(ns.rdb.councilIcons or {}), nil, "nothing kept")
-		-- A file number, then a plain icon name: theirs after the mark, before their name, the
-		-- colour stays (0.9.9: the mark first, where 0.9.8 had their icon alone).
+		-- A file number, then a plain icon name: theirs after the mark (0.9.9: the mark first, where
+		-- 0.9.8 had their icon alone).
 		W.HandleIcon("CHANNEL", "Test Councillor-Realm", "HI~134400")
-		line = Line("Test Councillor-Realm")
-		assert(line:find("[" .. ns.HIGH_COUNCIL_MARK .. "|T134400:0|t|c" .. ns.HIGH_COUNCIL_COLOR .. "Test Councillor|r]", 1, true), line)
-		assert(not line:find(ALONE, 1, true), "not the mark alone")
-		assert(Line("Other Mod-Realm"):find(ALONE, 1, true), "the others keep the mark alone")
+		eq(Line("Test Councillor-Realm"), ns.HIGH_COUNCIL_MARK .. "|T134400:0|t")
+		eq(Line("Other Mod-Realm"), ALONE, "the others keep the mark alone")
 		W.HandleIcon("CHANNEL", "Test Councillor-Realm", "HI~Spell_Holy_SealOfMight")
-		line = Line("Test Councillor-Realm")
-		assert(line:find("|TInterface\\Icons\\Spell_Holy_SealOfMight:0|t|c", 1, true), line)
+		eq(Line("Test Councillor-Realm"), ns.HIGH_COUNCIL_MARK .. "|TInterface\\Icons\\Spell_Holy_SealOfMight:0|t")
 		-- What the SavedVariables hold is checked again when shown.
 		ns.rdb.councilIcons["Test Councillor-Realm"].icon = "x:64|t|cffff0000"
-		assert(Line("Test Councillor-Realm"):find(ALONE, 1, true), "a changed file shows the mark alone")
+		eq(Line("Test Councillor-Realm"), ALONE, "a changed file shows the mark alone")
 		-- "0": no icon, the mark alone.
 		W.HandleIcon("CHANNEL", "Test Councillor-Realm", "HI~134400")
 		W.HandleIcon("CHANNEL", "Test Councillor-Realm", "HI~0")
-		assert(Line("Test Councillor-Realm"):find(ALONE, 1, true))
+		eq(Line("Test Councillor-Realm"), ALONE)
 		eq(ns.rdb.councilIcons["Test Councillor-Realm"], nil)
 		-- Kept for COUNCIL_MAX councillors at most (the ones heard longest ago go), and only while
 		-- they are on the list.
@@ -10739,7 +10741,7 @@ test("0.9.8 council icons: only a councillor's own announcement counts, and only
 		local n = 0
 		for _ in pairs(ns.rdb.councilIcons) do n = n + 1 end
 		eq(n, W.COUNCIL_MAX)
-		assert(Line("Mod 40-Realm"):find("|T1040:0|t", 1, true)); assert(Line("Mod 1-Realm"):find(ALONE, 1, true))
+		assert(Line("Mod 40-Realm"):find("|T1040:0|t", 1, true)); eq(Line("Mod 1-Realm"), ALONE)
 		ns.rdb.council.names["mod 40"] = nil
 		W.HandleIcon("CHANNEL", "Mod 39-Realm", "HI~5")
 		eq(ns.rdb.councilIcons["Mod 40-Realm"], nil, "off the list: forgotten")
@@ -10760,11 +10762,12 @@ test("0.9.8 a councillor's own icon: kept on the character, on their own lines, 
 		-- A councillor who picked none says nothing (the ticker asks each minute).
 		ns.me = "Test Councillor-Realm"
 		eq(W.SayIcon(), false); eq(#sent, 0)
-		-- Picked: kept on this character, said at once, and on our own lines.
+		-- Picked: kept on this character, said at once, and with our own name (1.1.5: the mark, which
+		-- Olympus's own lines no longer carry; it was our own lines').
 		eq(W.SetCouncilIcon(134400), true)
 		eq(ns.db.councilIcons["Test Councillor-Realm"], 134400)
 		eq(sent[#sent], "CHANNEL HI~134400")
-		assert(ns.Channels.FormatLine("A", ns.me, "Olympus", nil, "hi"):find("|T134400:0|t", 1, true))
+		eq(ns.CouncilMark(ns.me), ns.HIGH_COUNCIL_MARK .. "|T134400:0|t")
 		-- Then about every 20 minutes.
 		clock = clock + 60
 		eq(W.SayIcon(), false)
@@ -10776,7 +10779,7 @@ test("0.9.8 a councillor's own icon: kept on the character, on their own lines, 
 		-- mark alone on our lines, where 0.9.8 put its default skull back).
 		eq(W.SetCouncilIcon(nil), true)
 		eq(sent[#sent], "CHANNEL HI~0")
-		assert(ns.Channels.FormatLine("A", ns.me, "Olympus", nil, "hi"):find(ns.HIGH_COUNCIL_MARK .. "|c" .. ns.HIGH_COUNCIL_COLOR, 1, true))
+		eq(ns.CouncilMark(ns.me), ns.HIGH_COUNCIL_MARK)
 		clock = clock + W.ICON_EVERY
 		eq(W.SayIcon(), true); eq(sent[#sent], "CHANNEL HI~0")
 	end)
@@ -10786,8 +10789,13 @@ test("0.9.8 the council icon picker: a councillor's alone, filled from the game'
 	WithUI(function()
 		WithCouncil(function()
 			local W = ns.Workshop
-			local saved = { GetLooseMacroIcons, GetLooseMacroItemIcons, GetMacroIcons, GetMacroItemIcons }
+			local saved = { GetLooseMacroIcons, GetLooseMacroItemIcons, GetMacroIcons, GetMacroItemIcons, ns.Borders, C_Texture }
 			local ok, err = pcall(function()
+				-- (1.1.5: the sample is the game's chat's, the High Council's silver dragon from Borders.lua.)
+				local bns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
+				assert(loadfile(ADDON_DIR .. "Borders.lua"))("Olympus", bns)
+				ns.Borders, C_Texture = bns.Borders, nil
+				local SILVER = "|A:nameplates-icon-elite-silver:14:14|a"
 				local sent = {}
 				ns.Comm.Send = function(_, msg) sent[#sent + 1] = msg end
 				ns.GamepadUI = function() return false end
@@ -10814,7 +10822,9 @@ test("0.9.8 the council icon picker: a councillor's alone, filled from the game'
 				eq(f:IsShown(), true); eq(f.parent, UIParent)
 				eq(f.preview.texture, ns.HIGH_COUNCIL_SKULL)
 				eq(f.chosenName:GetText(), ns.L.COUNCIL_ICON_MARK_ONLY)
-				assert(f.sample:GetText():find("[" .. ns.HIGH_COUNCIL_MARK .. "|c" .. ns.HIGH_COUNCIL_COLOR, 1, true), f.sample:GetText())
+				-- (1.1.5: our name as the game's chat shows it, the silver dragon before it; it was an Olympus
+				-- line's, the skull and the council's colour.)
+				eq(f.sample:GetText(), "[" .. SILVER .. "Test Councillor]")
 				eq(f.default:GetText(), ns.L.COUNCIL_ICON_DEFAULT)
 				local shown = 0
 				for _, b in ipairs(f.cells) do if b:IsShown() then shown = shown + 1 end end
@@ -10831,7 +10841,7 @@ test("0.9.8 the council icon picker: a councillor's alone, filled from the game'
 				-- A click shows it in the preview; only OK keeps it and says it.
 				f.cells[1]:Click()
 				eq(f.preview.texture, "Interface\\Icons\\Spell_Holy_SealOfMight")
-				assert(f.sample:GetText():find(ns.HIGH_COUNCIL_MARK .. "|TInterface\\Icons\\Spell_Holy_SealOfMight:0|t|c", 1, true), "after the mark")
+				eq(f.sample:GetText(), "[" .. SILVER .. "|TInterface\\Icons\\Spell_Holy_SealOfMight:0|tTest Councillor]", "after the mark")
 				eq(#sent, 0, "nothing said before OK")
 				f.ok:Click()
 				eq(f:IsShown(), false)
@@ -10853,6 +10863,7 @@ test("0.9.8 the council icon picker: a councillor's alone, filled from the game'
 				eq(f.empty:IsShown(), true); eq(f.cells[1]:IsShown(), false); eq(f.filter:IsShown(), false)
 			end)
 			GetLooseMacroIcons, GetLooseMacroItemIcons, GetMacroIcons, GetMacroItemIcons = saved[1], saved[2], saved[3], saved[4]
+			ns.Borders, C_Texture = saved[5], saved[6]
 			if not ok then error(err, 0) end
 		end)
 	end)
@@ -11371,7 +11382,10 @@ test("0.9.9 the High Council's titles cross the channel under their own type", f
 	end)
 end)
 
-test("0.9.9 the council mark in the Olympus chats: the mark, then the councillor's own icon; the Treasurer's coin first", function()
+-- (1.1.5, the author's call: Olympus's own lines carry no mark, the council's colour alone; the mark
+-- and the councillor's icon go with his name elsewhere (ns.CouncilMark) and, after the silver dragon,
+-- in the game's chat. This test asked the mark and the icon on the lines until then.)
+test("0.9.9 the council mark: the mark, then the councillor's own icon; on the Olympus chats' lines the colour alone (1.1.5), the Treasurer's coin first", function()
 	WithTestCouncil(function()
 		ns.rdb.council = { at = 1, names = { ["test councillor"] = "Test Councillor", ["pyralis ashandar"] = "Pyralis Ashandar" } }
 		local MARK, COLOR, coin = ns.HIGH_COUNCIL_MARK, "|c" .. ns.HIGH_COUNCIL_COLOR, ns.COIN:gsub(" $", "")
@@ -11379,12 +11393,14 @@ test("0.9.9 the council mark in the Olympus chats: the mark, then the councillor
 		local function Line(sender, guild) return ns.Channels.FormatLine("A", sender, guild or "Olympus II", nil, "hello") end
 		-- No icon picked: the mark alone (no default icon since 0.9.9).
 		eq(ns.CouncilIcon("Test Councillor-Realm"), "")
+		eq(ns.CouncilMark("Test Councillor-Realm"), MARK)
 		local line = Line("Test Councillor-Realm")
-		assert(line:find("[" .. MARK .. COLOR .. "Test Councillor|r]", 1, true), line)
-		-- Their own icon: after the mark.
+		assert(line:find("[" .. COLOR .. "Test Councillor|r]", 1, true), line)
+		-- Their own icon: after the mark; the line still the colour alone.
 		ns.Workshop.HandleIcon("CHANNEL", "Test Councillor-Realm", "HI~134400")
+		eq(ns.CouncilMark("Test Councillor-Realm"), MARK .. "|T134400:0|t")
 		line = Line("Test Councillor-Realm")
-		assert(line:find("[" .. MARK .. "|T134400:0|t" .. COLOR .. "Test Councillor|r]", 1, true), line)
+		assert(line:find("[" .. COLOR .. "Test Councillor|r]", 1, true) and not line:find("134400", 1, true), line)
 		-- Named without the realm (the titles list), or heard from another realm of the group:
 		-- the icon heard from them all the same.
 		eq(ns.CouncilMark("Test Councillor"), MARK .. "|T134400:0|t")
@@ -11392,12 +11408,12 @@ test("0.9.9 the council mark in the Olympus chats: the mark, then the councillor
 		ns.Workshop.HandleIcon("CHANNEL", "Other Mod-Realm2", "HI~5")
 		eq(ns.CouncilMark("Other Mod"), MARK .. "|T5:0|t")
 		eq(ns.CouncilMark("Random Guy-Realm"), "", "not a councillor")
-		-- A councillor who is the Treasurer: his coin first, then the mark.
+		-- A councillor who is the Treasurer: his coin first, then his name in the council's colour.
 		line = Line("Pyralis Ashandar-Realm", "Olympus")
-		assert(line:find("[" .. coin .. MARK .. COLOR .. "Pyralis Ashandar|r]", 1, true), line)
-		-- Everyone sees the mark in the chats, whoever reads (not only the council, 0.9.8's rule).
+		assert(line:find("[" .. coin .. COLOR .. "Pyralis Ashandar|r]", 1, true), line)
+		-- Whoever reads, the same line (0.9.8's rule had the mark for the council's eyes alone).
 		eq(ns.CouncilVisible(), false)
-		assert(Line("Test Councillor-Realm"):find(MARK, 1, true))
+		assert(not Line("Test Councillor-Realm"):find(MARK, 1, true))
 	end)
 end)
 
@@ -12443,13 +12459,14 @@ test("0.9.9 the King's stream: the eye shows every name and mark until clicked a
 		rows[6].onClick()
 		eq(opened.name, "Other Mod"); eq(opened.guild, "Olympus II")
 		eq(rows[6].key, "Other Mod")
-		-- The marks in the census rows and the chats come back with them.
+		-- The marks in the census rows and the council's colour in the chats come back with them (1.1.5:
+		-- the colour alone there, the chats' lines carrying no mark since; the mark and icon until then).
 		local lord
 		for _, l in ipairs(lines) do if l.key == "Other Mod" and l.indent == 1 then lord = l end end
 		local nameAt, markAt = lord.text:find("Other Mod", 1, true), lord.text:find(" " .. ns.HIGH_COUNCIL_MARK, 1, true)
 		assert(nameAt and markAt and markAt > nameAt, lord.text)
 		local line = ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus II", nil, "hello")
-		assert(line:find("[" .. ns.HIGH_COUNCIL_MARK .. "|T134400:0|t|c" .. ns.HIGH_COUNCIL_COLOR .. "Test Councillor|r]", 1, true), line)
+		assert(line:find("[|c" .. ns.HIGH_COUNCIL_COLOR .. "Test Councillor|r]", 1, true), line)
 		-- Clicked again: hidden again, and a councillor's card left open is closed.
 		rows[1].onClick()
 		eq(ns.CouncilNamesShown(), false); eq(ns.CouncilMasked(), true); eq(refreshed, 2); eq(closed, 1)
@@ -12458,7 +12475,7 @@ test("0.9.9 the King's stream: the eye shows every name and mark until clicked a
 		assert(rows[1].text:find(L.COUNCIL_NAMES_SHOW, 1, true), rows[1].text)
 		assert(rows[2].text:find("Test****", 1, true) and not rows[2].text:find("|T134400", 1, true), rows[2].text)
 		NoMarkedName(lines, "hidden again")
-		assert(not ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus II", nil, "hello"):find(ns.HIGH_COUNCIL_MARK, 1, true))
+		assert(not ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus II", nil, "hello"):find(ns.HIGH_COUNCIL_COLOR, 1, true))
 		-- Closed, the header alone: no eye either.
 		ns.Views.ExpandAll(false)
 		lines = ns.Views.RealmLines()
@@ -12554,7 +12571,8 @@ test("0.9.9 the King's stream: councillors and the author see the whole names as
 		rows, lines = Rows()
 		assert(rows[1].text:find("Test Councillor|r", 1, true), rows[1].text)
 		eq(Find(lines, L.COUNCIL_NAMES_SHOW), nil, "no eye")
-		assert(ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus II", nil, "hi"):find(ns.HIGH_COUNCIL_MARK, 1, true))
+		-- (1.1.5: the chats' lines carry the council's colour alone, no mark: the colour says it here.)
+		assert(ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus II", nil, "hi"):find(ns.HIGH_COUNCIL_COLOR, 1, true))
 		-- Asmon's view (the author's preview of the King's screen): hidden, with the eye.
 		ns.devThrone = true
 		eq(ns.King.Preview(), true)
@@ -12563,12 +12581,12 @@ test("0.9.9 the King's stream: councillors and the author see the whole names as
 		assert(rows[1].text:find(L.COUNCIL_NAMES_SHOW, 1, true), rows[1].text)
 		assert(rows[2].text:find("Test****", 1, true), rows[2].text)
 		NoMarkedName(lines, "Asmon's view")
-		assert(not ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus II", nil, "hi"):find(ns.HIGH_COUNCIL_MARK, 1, true))
+		assert(not ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus II", nil, "hi"):find(ns.HIGH_COUNCIL_COLOR, 1, true))
 		ns.devThrone, ns.COUNCIL_SIGNED = nil, nil
 		-- A soldier: still no section before launch, and the chats' mark as in 0.9.8.
 		eq(ns.CouncilVisible(), false)
 		eq(Find(ns.Views.RealmLines(), L.COUNCIL_CENSUS:format(#KINGS_COUNCIL)), nil)
-		assert(ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus II", nil, "hi"):find(ns.HIGH_COUNCIL_MARK, 1, true))
+		assert(ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus II", nil, "hi"):find(ns.HIGH_COUNCIL_COLOR, 1, true))
 		-- Launch (the public flag): the soldier sees the whole names, still no eye.
 		W.TakeTitles(COUNCIL_TEST_PUBLIC)
 		rows, lines = Rows()
@@ -23580,7 +23598,7 @@ test("1.0.0 OfficerSpy's bridge: on the King's screen, while the councillors' na
 		K.Preview = function() return true end
 		eq(ns.CouncilMasked(), true)
 		local line = ns.Channels.FormatLine("A", "Test Councillor-Realm", "Olympus II", nil, "hi")
-		assert(not line:find(ns.HIGH_COUNCIL_MARK, 1, true), "no mark in the chats: " .. line)
+		assert(not line:find(ns.HIGH_COUNCIL_COLOR, 1, true), "no council colour in the chats: " .. line)
 		eq(B.IsHighCouncillor("Test Councillor-Realm"), false, "no councillor, as no mark")
 		local names, realm = B.GetCouncil()
 		eq(#names, 0, "nobody named"); eq(realm, nil)
@@ -43172,7 +43190,11 @@ do
 		end)
 	end)
 
-	test("1.1.1 Chat tab: the marks in a header: the King's crown, the High Council's mark and colour, silver, bronze, the star, the Treasurer's coin, Steward and Hand", function()
+	-- (Changed on purpose, 1.1.5, the author's call: no mark before a name in a header, where the
+	-- King's crown, the High Council's mark, silver, bronze and the star were. Olympus's marks are in
+	-- the game's own chat now, where players outside Olympus are; the name's colour, the Treasurer's
+	-- coin and the King's tags stay.)
+	test("1.1.1 Chat tab: a header: no mark before the name (1.1.5); the High Council's colour, the class's, the Treasurer's coin, Steward and Hand", function()
 		WithWindow(function(w)
 			local saved = { byName = ns.Roster.byName, rankName = GuildControlGetRankName, loginAt = ns.Comm.loginAt, steward = ns.King.IsStewardName,
 				hand = ns.King.IsHandName, tex = C_Texture, masked = ns.CouncilMasked }
@@ -43194,7 +43216,7 @@ do
 					Line(T0 + 2000, "Zeusy-Realm", "a lord speaks", { guild = "Olympus Zeus" }),
 					Line(T0 + 3000, "Raider Guy-Realm", "a raider speaks"),
 					Line(T0 + 4000, "Vet Guy-Realm", "a veteran speaks"),
-					Line(T0 + 5000, "Plain Guy-Realm", "a member speaks"),
+					Line(T0 + 5000, "Plain Guy-Realm", "a member speaks", { class = "PA" }),
 					Line(T0 + 6000, "Pyralis Ashandar-Realm", "the treasurer speaks", { guild = "Olympus" }),
 					Line(T0 + 7000, "Stew Ard-Realm", "a steward speaks", { guild = "Olympus" }),
 					Line(T0 + 8000, "Hand Some-Realm", "a hand speaks", { guild = "Olympus" }),
@@ -43206,38 +43228,34 @@ do
 					assert(b, text)
 					return b.who:GetText()
 				end
-				local SILVER = "|A:nameplates-icon-elite-silver:14:14|a"
-				local BRONZE = "|A:nameplates-icon-elite-gold:14:14:0:0:158:118:86|a"
 				local STAR = "|TInterface\\AddOns\\Olympus\\media\\borders\\star:14:14|t"
-				local h = Header("the king speaks")
-				eq(h:sub(1, #("|T" .. ns.CROWN_ICON .. ":14:14|t")), "|T" .. ns.CROWN_ICON .. ":14:14|t", "the King's crown first: " .. h)
-				h = Header("a councillor speaks")
-				assert(h:find(ns.HIGH_COUNCIL_MARK, 1, true) and h:find("|c" .. ns.HIGH_COUNCIL_COLOR .. "Sage Owl|r", 1, true), h)
-				assert(not h:find(SILVER, 1, true), "the skull, not the silver mark")
-				-- (1.1.5: the borders' three tiers: a guild master bronze, a Raider and a Veteran the star.)
-				assert(Header("a lord speaks"):find(BRONZE, 1, true), "a guild master: bronze")
-				assert(Header("a raider speaks"):find(STAR, 1, true), "a Raider: the star")
-				assert(Header("a veteran speaks"):find(STAR, 1, true), "a Veteran: the star")
-				assert(Header("a member speaks"):find(STAR, 1, true), "a member: the star")
+				local function NoMark(h, what)
+					assert(not h:find(ns.CROWN_ICON, 1, true) and not h:find(ns.HIGH_COUNCIL_MARK, 1, true) and not h:find("|A:", 1, true)
+						and not h:find(STAR, 1, true), what .. ": no mark before the name: " .. h)
+				end
+				for _, text in ipairs({ "the king speaks", "a councillor speaks", "a lord speaks", "a raider speaks", "a veteran speaks",
+					"a member speaks", "the treasurer speaks", "a steward speaks", "a hand speaks" }) do
+					NoMark(Header(text), text)
+				end
+				eq(Header("the king speaks"):sub(1, #"Asmongold Asmongler"), "Asmongold Asmongler", "the King's name first")
+				local h = Header("a councillor speaks")
+				eq(h:sub(1, #("|c" .. ns.HIGH_COUNCIL_COLOR .. "Sage Owl|r")), "|c" .. ns.HIGH_COUNCIL_COLOR .. "Sage Owl|r", "the council's colour, first: " .. h)
+				RAID_CLASS_COLORS = { PALADIN = { colorStr = "fff58cba" } }
+				w.CW.Render()
+				assert(Header("a member speaks"):find("|cfff58cbaPlain Guy|r", 1, true), "the class's colour")
+				RAID_CLASS_COLORS = nil
+				w.CW.Render()
 				assert(Header("the treasurer speaks"):find("UI-GoldIcon:0|t", 1, true), "the Treasurer's coin")
 				assert(Header("a steward speaks"):find("|cffffd200" .. L.CHATWIN_TAG_STEWARD .. "|r", 1, true), "Steward")
 				assert(Header("a hand speaks"):find("|cffffd200" .. L.CHATWIN_TAG_HAND .. "|r", 1, true), "Hand")
 				assert(not Header("not his guild's rule"):find(L.CHATWIN_TAG_STEWARD, 1, true), "the tags by the King's guild's rule only")
-				-- An atlas the client does not know: the star.
-				C_Texture = { GetAtlasInfo = function() return nil end }
-				w.CW.Render()
-				h = Header("a lord speaks")
-				assert(h:find(STAR, 1, true) and not h:find(SILVER, 1, true), h)
-				C_Texture = { GetAtlasInfo = function() return { width = 14, height = 14 } end }
-				w.CW.Render()
-				assert(Header("a lord speaks"):find(BRONZE, 1, true))
-				-- The King's screen while the councillors' names are hidden (his stream): no skull.
+				-- The King's screen while the councillors' names are hidden (his stream): no council colour.
 				ns.CouncilMasked = function() return true end
 				w.fire("COUNCIL_MASK_CHANGED"); w.CW.Render()
 				h = Header("a councillor speaks")
 				ns.CouncilMasked = saved.masked
 				assert(not h:find(ns.HIGH_COUNCIL_MARK, 1, true) and not h:find(ns.HIGH_COUNCIL_COLOR, 1, true), h)
-				-- Without Borders.lua (a client updated without a restart): no mark, the rest as ever.
+				-- Without Borders.lua (a client updated without a restart): the same.
 				ns.Borders = setmetatable({ missing = true }, { __index = function() return function() end end })
 				w.CW.Render()
 				h = Header("a lord speaks")
@@ -43250,8 +43268,11 @@ do
 	end)
 
 	-- 1.1.2 (the owner, from a screenshot: the silver mark in the Chat tab, none on the same line in the
-	-- game's Olympus chat tab): the game's chat windows show the Chat tab's marks.
-	test("1.1.2 the game's chat windows: each Olympus line carries the mark its Chat tab header shows (crown, High Council, silver, bronze, star, none)", function()
+	-- game's Olympus chat tab): the game's chat windows showed the Chat tab's marks. (Changed on
+	-- purpose, 1.1.5, the author's call: neither shows a mark before the name now, where this test
+	-- asked the crown, the High Council's mark, silver, bronze and the star on every line. Olympus's
+	-- marks are in the game's own chat, on the lines of the game's channels, say, party, whispers.)
+	test("1.1.2 the game's chat windows: an Olympus line carries no mark before the name (1.1.5), as its Chat tab header; the council's colour and the Treasurer's coin stay", function()
 		WithWindow(function(w)
 			local saved = { byName = ns.Roster.byName, rankName = GuildControlGetRankName, loginAt = ns.Comm.loginAt, tex = C_Texture,
 				masked = ns.CouncilMasked, borders = ns.Borders }
@@ -43265,63 +43286,73 @@ do
 				ns.Comm.loginAt = ns.Now() - ns.Data.CROWN_AFTER - 1
 				ns.rdb.guilds["Olympus Zeus"] = Vouched({ guild = "Olympus Zeus", leader = "Zeusy", officers = {}, realm = "Realm", t = ns.Now() }, "W1-Realm", "W2-Realm")
 				C_Texture = nil
-				local CROWN = "|T" .. ns.CROWN_ICON .. ":14:14|t"
-				local SILVER = "|A:nameplates-icon-elite-silver:14:14|a"
-				local BRONZE = "|A:nameplates-icon-elite-gold:14:14:0:0:158:118:86|a"
-				local STAR = "|TInterface\\AddOns\\Olympus\\media\\borders\\star:14:14|t"
+				RAID_CLASS_COLORS = { PALADIN = { colorStr = "fff58cba" } }
 				local cases = {
-					{ "Asmongold Asmongler-Realm", "Olympus", CROWN, "the King's crown" },
-					{ "Sage Owl-Realm", "Olympus II", ns.HIGH_COUNCIL_MARK, "the High Council's mark" },
-					-- (1.1.5: the borders' three tiers: a guild master bronze, a Raider and a Veteran the star.)
-					{ "Zeusy-Realm", "Olympus Zeus", BRONZE, "a guild master: bronze" },
-					{ "Raider Guy-Realm", "Olympus II", STAR, "a Raider: the star" },
-					{ "Vet Guy-Realm", "Olympus II", STAR, "a Veteran: the star" },
-					{ "Plain Guy-Realm", "Olympus II", STAR, "a member: the star" },
+					{ "Asmongold Asmongler-Realm", "Olympus", "the King" },
+					{ "Zeusy-Realm", "Olympus Zeus", "a guild master" },
+					{ "Raider Guy-Realm", "Olympus II", "a Raider" },
+					{ "Plain Guy-Realm", "Olympus II", "a member" },
+					{ "Stranger-Realm", "Olympus II", "nobody our roster names" },
 				}
 				for _, c in ipairs(cases) do
-					local who, guild, mark, what = c[1], c[2], c[3], c[4]
-					local line = ns.Channels.FormatLine("A", who, guild, "PA", "hello")
-					local bare = ns.Channels.FormatLine("A", who, guild, "PA", "hello", true)
-					assert(line:find("|h[" .. mark, 1, true), what .. ", right before the name: " .. line)
-					assert(bare:find("|h[" .. mark, 1, true), what .. " in the Olympus tab: " .. bare)
-					eq(ns.Borders.ChatMark(who, guild), line:match("|h%[(.-)|c") or line:match("|h%[(.-)" .. ns.DisplayName(who)), what .. ": the Chat tab's mark")
+					local who, guild, what = c[1], c[2], c[3]
+					for _, line in ipairs({ ns.Channels.FormatLine("A", who, guild, "PA", "hello"), ns.Channels.FormatLine("A", who, guild, "PA", "hello", true) }) do
+						assert(line:find("|h[|cfff58cba" .. ns.DisplayName(who) .. "|r]|h", 1, true), what .. ": the name in its class colour, nothing before it: " .. line)
+					end
 				end
-				assert(not ns.Channels.FormatLine("A", "Sage Owl-Realm", "Olympus II", nil, "hi"):find(SILVER, 1, true), "the council's mark, not silver")
-				-- Nobody our roster or a census proves: no mark, as in the Chat tab.
-				local line = ns.Channels.FormatLine("A", "Stranger-Realm", "Olympus II", "PA", "hello")
-				assert(not line:find("|A:", 1, true) and not line:find(STAR, 1, true) and not line:find(ns.CROWN_ICON, 1, true), "no mark: " .. line)
-				-- An atlas the client does not know: the star, as the Chat tab.
-				C_Texture = { GetAtlasInfo = function() return nil end }
-				assert(ns.Channels.FormatLine("A", "Zeusy-Realm", "Olympus Zeus", nil, "x"):find("|h[" .. STAR, 1, true))
-				C_Texture = nil
-				-- The King's screen while the councillors' names are hidden: no council mark or colour.
+				-- A High Councillor: his name in the council's colour, nothing before it.
+				local line = ns.Channels.FormatLine("A", "Sage Owl-Realm", "Olympus II", nil, "hi")
+				assert(line:find("|h[|c" .. ns.HIGH_COUNCIL_COLOR .. "Sage Owl|r]|h", 1, true), line)
+				-- The Treasurer: the gold coin before his name, as ever.
+				line = ns.Channels.FormatLine("A", "Pyralis Ashandar-Realm", "Olympus", nil, "hi")
+				assert(line:find("|h[" .. ns.COIN:gsub(" $", "") .. "Pyralis Ashandar]|h", 1, true), line)
+				-- The King's screen while the councillors' names are hidden: no council colour.
 				ns.CouncilMasked = function() return true end
 				line = ns.Channels.FormatLine("A", "Sage Owl-Realm", "Olympus II", nil, "hi")
 				assert(not line:find(ns.HIGH_COUNCIL_MARK, 1, true) and not line:find(ns.HIGH_COUNCIL_COLOR, 1, true), line)
 				ns.CouncilMasked = saved.masked
-				-- Without Borders.lua (a client updated without a restart): the council's mark alone, as before.
+				-- Without Borders.lua (a client updated without a restart): the same.
 				ns.Borders = nil
-				assert(ns.Channels.FormatLine("A", "Sage Owl-Realm", "Olympus II", nil, "hi"):find("|h[" .. ns.HIGH_COUNCIL_MARK .. "|c", 1, true))
-				assert(not ns.Channels.FormatLine("A", "Zeusy-Realm", "Olympus Zeus", nil, "x"):find("|A:", 1, true))
+				assert(ns.Channels.FormatLine("A", "Sage Owl-Realm", "Olympus II", nil, "hi"):find("|h[|c" .. ns.HIGH_COUNCIL_COLOR, 1, true))
 			end)
+			RAID_CLASS_COLORS = nil
 			ns.Roster.byName, GuildControlGetRankName, ns.Comm.loginAt, C_Texture = saved.byName, saved.rankName, saved.loginAt, saved.tex
 			ns.CouncilMasked, ns.Borders = saved.masked, saved.borders
 			if not ok then error(err, 0) end
 		end)
 	end)
 
-	test("1.1.5 the game's own chat: a High Councillor's mark and own icon before their name, through the game's sender-name filter; nobody else's, no other event, never with the gamepad UI, on the King's stream, off, or for a secret name", function()
+	-- 1.1.5 (the High Council's ask, then the author's call): Olympus's marks before a sender's name in
+	-- the game's own chat, by his border tier, where players outside Olympus can be. (Changed on
+	-- purpose: the first 1.1.5 build marked the High Council alone, with its skull and icon, in guild
+	-- and officer chat too, and this test asked that; Olympus's own lines carried every mark then.)
+	test("1.1.5 the game's own chat: the borders' tiers before a sender's name (the King gold, a High Councillor silver then his icon, a guild master bronze, a member we can prove the star) in channels, say, party, raid and whispers, never guild or officer chat; never with the gamepad UI, a council mark never on the King's stream, off, net-off or for a secret name", function()
 		local saved = { cfu = rawget(_G, "ChatFrameUtil"), gamepad = ns.GamepadUI, masked = ns.CouncilMasked, secret = rawget(_G, "issecretvalue"),
 			council = ns.rdb.council, icons = ns.rdb.councilIcons, chatMarks = ns.db.chatMarks, print = ns.Print, workshop = ns.Workshop,
-			member = ns.IsMember }
+			member = ns.IsMember, byName = ns.Roster.byName, guilds = ns.rdb.guilds, loginAt = ns.Comm.loginAt, steward = ns.King.IsStewardName,
+			hand = ns.King.IsHandName, hides = ns.Moderation.Hides, tex = C_Texture }
 		local ok, err = pcall(function()
 			local filters, printed, gamepad = {}, {}, true
 			ChatFrameUtil = { AddSenderNameFilter = function(cb) filters[#filters + 1] = cb end }
 			ns.GamepadUI = function() return gamepad end
 			ns.Print = function(m) printed[#printed + 1] = m end
 			ns.db.chatMarks = nil
-			ns.rdb.council = { names = { ["sage owl"] = true } } -- (made-up names only)
+			C_Texture = nil
+			-- Made-up names only. The High Council's list and an icon heard; our guild's roster (Olympus
+			-- II: its guild master and a member); another Olympus guild's census (its master and an
+			-- officer, two senders); the King's Steward by the signed titles.
+			ns.rdb.council = { names = { ["sage owl"] = true } }
 			ns.rdb.councilIcons = { ["Sage Owl-Realm"] = { icon = 134400, t = ns.Now() } }
+			ns.Roster.byName = { ["Guild Boss-Realm"] = 0, ["Plain Guy-Realm"] = 4 }
+			ns.Comm.loginAt = ns.Now() - ns.Data.CROWN_AFTER - 1
+			ns.rdb.guilds = { ["Olympus Zeus"] = Vouched({ guild = "Olympus Zeus", leader = "Zeusy", officers = { { name = "Capt" } }, realm = "Realm",
+				t = ns.Now() }, "W1-Realm", "W2-Realm") }
+			ns.King.IsStewardName = function(n) return n == "Stew Ard-Realm" end
+			ns.King.IsHandName = function() return false end
+			local GOLD = "|A:nameplates-icon-elite-gold:14:14|a"
+			local SILVER = "|A:nameplates-icon-elite-silver:14:14|a"
+			local BRONZE = "|A:nameplates-icon-elite-gold:14:14:0:0:158:118:86|a"
+			local STAR = "|TInterface\\AddOns\\Olympus\\media\\borders\\star:14:14|t"
 			-- Borders.lua's own handlers, recorded so the test drives them as the game would.
 			local on, events, every, after = {}, {}, {}, {}
 			local bns = setmetatable({
@@ -43343,85 +43374,145 @@ do
 			local ticker
 			for _, e in ipairs(every) do if e.f == B.ChatForget then ticker = e end end
 			assert(ticker and ticker.sec == B.CHAT_FORGET, "the chat marks' minute")
-			-- A switch to mouse and keyboard (the game's event): registered once, and a councillor's line
-			-- carries his mark, then his icon.
+			-- A switch to mouse and keyboard (the game's event): registered once.
 			gamepad = false
 			Fire(events, "INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
 			RunAfter("chat marks style")
 			eq(B.ChatShown(), true); eq(#filters, 1)
 			local cb = filters[1]
-			local name = "|cffc79c6eSage Owl|r"
-			local MARK = ns.HIGH_COUNCIL_MARK .. "|T134400:0|t"
-			for _, event in ipairs({ "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER", "CHAT_MSG_SAY", "CHAT_MSG_PARTY", "CHAT_MSG_RAID", "CHAT_MSG_CHANNEL", "CHAT_MSG_WHISPER", "CHAT_MSG_WHISPER_INFORM" }) do
-				eq(cb(event, name, "hello", "Sage Owl-Realm"), MARK .. name, event)
+			-- Each tier's mark, before the name the game decorated (class colour and all).
+			local cases = {
+				{ "Asmongold Asmongler-Realm", GOLD, "the King (his pinned name)" },
+				{ "Sage Owl-Realm", SILVER .. "|T134400:0|t", "a High Councillor, then his icon" },
+				{ "Zeusy-Realm", BRONZE, "another Olympus guild's master, as its census names him" },
+				{ "Guild Boss-Realm", BRONZE, "our own guild master, by our roster" },
+				{ "Capt-Realm", STAR, "an officer the census names: a member" },
+				{ "Plain Guy-Realm", STAR, "a member of our guild" },
+				{ "Stew Ard-Realm", STAR, "the King's Steward: a member of his guild" },
+				{ "Far Guy-Realm", nil, "a member of another guild nothing proves (in no census)" },
+				{ "Stranger-Realm", nil, "anyone else" },
+			}
+			local EVENTS = { "CHAT_MSG_CHANNEL", "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE", "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER",
+				"CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_RAID_WARNING", "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER",
+				"CHAT_MSG_WHISPER", "CHAT_MSG_WHISPER_INFORM" }
+			for _, c in ipairs(cases) do
+				local name = "|cffc79c6e" .. ns.ShortName(c[1]) .. "|r"
+				for _, event in ipairs(EVENTS) do
+					eq(cb(event, name, "hello", c[1]), c[2] and (c[2] .. name) or nil, c[3] .. ", " .. event)
+				end
+				-- Never guild or officer chat (everyone there is of our guild), nor a line outside the list.
+				for _, event in ipairs({ "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER", "CHAT_MSG_TEXT_EMOTE", "CHAT_MSG_BN_WHISPER", "CHAT_MSG_MONSTER_SAY",
+					"CHAT_MSG_GUILD_ITEM_LOOTED" }) do
+					eq(cb(event, name, "hello", c[1]), nil, c[3] .. ", " .. event)
+				end
 			end
-			eq(cb("CHAT_MSG_SAY", "Sage Owl", "hi", "Sage Owl"), MARK .. "Sage Owl", "a sender the server writes without his realm")
-			-- Nobody else, and no line outside the list (an emote's name is a gsub replacement; Battle.net lines carry |K names).
-			eq(cb("CHAT_MSG_GUILD", "Plain Guy", "hi", "Plain Guy-Realm"), nil)
-			for _, event in ipairs({ "CHAT_MSG_TEXT_EMOTE", "CHAT_MSG_BN_WHISPER", "CHAT_MSG_MONSTER_SAY", "CHAT_MSG_GUILD_ITEM_LOOTED" }) do
-				eq(cb(event, name, "hello", "Sage Owl-Realm"), nil, event)
-			end
-			-- The council's mark alone for a councillor with no icon of his own.
-			ns.rdb.council.names["other mod"] = true
-			eq(cb("CHAT_MSG_GUILD", "Other Mod", "hi", "Other Mod-Realm"), ns.HIGH_COUNCIL_MARK .. "Other Mod")
+			eq(B.CHAT_EVENTS.CHAT_MSG_GUILD, nil); eq(B.CHAT_EVENTS.CHAT_MSG_OFFICER, nil)
+			eq(cb("CHAT_MSG_SAY", "Asmongold Asmongler", "hi", "Asmongold Asmongler"), GOLD .. "Asmongold Asmongler", "a sender the server writes without his realm")
+			-- A councillor with no icon of his own: the silver alone; one who is a guild master: the silver.
+			ns.rdb.council.names["other mod"], ns.rdb.council.names["guild boss"] = true, true
+			B.ChatForget()
+			eq(cb("CHAT_MSG_SAY", "Other Mod", "hi", "Other Mod-Realm"), SILVER .. "Other Mod")
+			eq(cb("CHAT_MSG_SAY", "Guild Boss", "hi", "Guild Boss-Realm"), SILVER .. "Guild Boss", "the council above his guild master's bronze")
 			-- A new icon heard: at the minute's emptying, or at once when the census or the lists change.
+			local name = "|cffc79c6eSage Owl|r"
+			eq(cb("CHAT_MSG_SAY", name, "hi", "Sage Owl-Realm"), SILVER .. "|T134400:0|t" .. name)
 			ns.rdb.councilIcons["Sage Owl-Realm"].icon = 134401
-			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), MARK .. name, "kept until the table empties")
+			eq(cb("CHAT_MSG_SAY", name, "hi", "Sage Owl-Realm"), SILVER .. "|T134400:0|t" .. name, "kept until the table empties")
 			ticker.f()
-			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), ns.HIGH_COUNCIL_MARK .. "|T134401:0|t" .. name)
+			eq(cb("CHAT_MSG_SAY", name, "hi", "Sage Owl-Realm"), SILVER .. "|T134401:0|t" .. name)
 			ns.rdb.councilIcons["Sage Owl-Realm"].icon = 134402
 			Fire(on, "DATA_CHANGED")
-			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), ns.HIGH_COUNCIL_MARK .. "|T134402:0|t" .. name)
+			eq(cb("CHAT_MSG_SAY", name, "hi", "Sage Owl-Realm"), SILVER .. "|T134402:0|t" .. name)
 			ns.rdb.councilIcons["Sage Owl-Realm"].icon = 134401
 			Fire(on, "DATA_CHANGED")
+			-- A census report heard meanwhile: its master marked once the table empties (DATA_CHANGED).
+			eq(cb("CHAT_MSG_CHANNEL", "Newboss", "hi", "Newboss-Realm"), nil, "in no census yet")
+			ns.rdb.guilds["Olympus Gale"] = Vouched({ guild = "Olympus Gale", leader = "Newboss", officers = {}, realm = "Realm", t = ns.Now() }, "W3-Realm", "W4-Realm")
+			eq(cb("CHAT_MSG_CHANNEL", "Newboss", "hi", "Newboss-Realm"), nil, "kept until the table empties")
+			Fire(on, "DATA_CHANGED")
+			eq(cb("CHAT_MSG_CHANNEL", "Newboss", "hi", "Newboss-Realm"), BRONZE .. "Newboss", "its census names him its master")
+			-- An atlas the client does not know: the star.
+			C_Texture = { GetAtlasInfo = function() return nil end }
+			B.ChatForget()
+			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), STAR .. "Zeusy")
+			C_Texture = nil
+			B.ChatForget()
 			-- A secret name or sender (instances, encounters): the name as it was.
 			local secret = {}
 			issecretvalue = function(v) return rawequal(v, secret) end
 			eq(cb("CHAT_MSG_SAY", secret, "hi", "Sage Owl-Realm"), nil)
 			eq(cb("CHAT_MSG_SAY", name, "hi", secret), nil)
 			issecretvalue = saved.secret
-			-- The King's screen while the council's names are hidden: asked again on every marked line, so
-			-- a mark worked out before (a first login whose guild was not known yet) never shows there.
-			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), ns.HIGH_COUNCIL_MARK .. "|T134401:0|t" .. name, "kept")
+			-- The King's screen while the council's names are hidden: a council mark asked again on every
+			-- line, so one worked out before (a first login whose guild was not known yet) never shows
+			-- there; a councillor who is a guild master gets his guild master's bronze there instead.
+			eq(cb("CHAT_MSG_SAY", name, "hi", "Sage Owl-Realm"), SILVER .. "|T134401:0|t" .. name, "kept")
+			eq(cb("CHAT_MSG_SAY", "Guild Boss", "hi", "Guild Boss-Realm"), SILVER .. "Guild Boss", "kept")
 			ns.CouncilMasked = function() return true end
-			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), nil, "masked at once, the table not emptied")
+			eq(cb("CHAT_MSG_SAY", name, "hi", "Sage Owl-Realm"), nil, "masked at once, the table not emptied")
+			eq(cb("CHAT_MSG_SAY", "Guild Boss", "hi", "Guild Boss-Realm"), BRONZE .. "Guild Boss", "his guild master's bronze")
+			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), BRONZE .. "Zeusy", "the other marks as ever")
 			Fire(on, "COUNCIL_MASK_CHANGED")
-			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), nil)
+			eq(cb("CHAT_MSG_SAY", name, "hi", "Sage Owl-Realm"), nil)
+			eq(cb("CHAT_MSG_SAY", "Guild Boss", "hi", "Guild Boss-Realm"), BRONZE .. "Guild Boss")
 			ns.CouncilMasked = saved.masked
 			Fire(on, "COUNCIL_MASK_CHANGED")
+			ns.rdb.council.names["guild boss"] = nil
+			-- A character the moderators took off (net-off): none.
+			ns.Moderation.Hides = function(who) if who == "Zeusy-Realm" then return { kind = "c" } end end
+			B.ChatForget()
+			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), nil, "net-off")
+			ns.Moderation.Hides = saved.hides
+			B.ChatForget()
 			-- Outside an Olympus guild (a list kept from before, a removed guild): no mark, kept or new.
-			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), ns.HIGH_COUNCIL_MARK .. "|T134401:0|t" .. name)
-			local savedMember = ns.IsMember
+			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), BRONZE .. "Zeusy")
 			ns.IsMember = function() return false end
-			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), nil, "kept mark")
-			eq(cb("CHAT_MSG_GUILD", "Other Mod", "hi", "Other Mod-Realm"), nil, "new sender")
+			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), nil, "kept mark")
+			eq(cb("CHAT_MSG_SAY", "Capt", "hi", "Capt-Realm"), nil, "new sender")
 			eq(B.ChatName("Sage Owl-Realm"), false)
-			ns.IsMember = savedMember
+			ns.IsMember = saved.member
 			B.ChatForget()
 			-- /oly chatmarks off: nothing, until on again; registered once all along.
 			B.ChatSlash("off")
 			eq(ns.db.chatMarks, false); eq(printed[#printed], ns.L.CHATMARKS_OFF)
-			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), nil)
+			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), nil)
 			B.ChatSlash("on")
 			eq(printed[#printed], ns.L.CHATMARKS_ON)
-			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), ns.HIGH_COUNCIL_MARK .. "|T134401:0|t" .. name)
+			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), BRONZE .. "Zeusy")
 			eq(#filters, 1)
 			-- Switched to the gamepad UI later: the callback returns at once.
 			gamepad = true
 			B.ChatRefresh()
-			eq(cb("CHAT_MSG_GUILD", name, "hi", "Sage Owl-Realm"), nil)
+			eq(cb("CHAT_MSG_SAY", "Zeusy", "hi", "Zeusy-Realm"), nil)
 			gamepad = false
 			B.ChatRefresh()
-			-- The author's preview: his own lines get the mark (he is on no council); anyone else's test does nothing.
+			-- The author's preview: his own lines get a mark (his character holds none); test alone the
+			-- High Council's silver, as before, or off again; anyone else's test does nothing.
 			bns.Workshop = { Visible = function() return false end }
 			B.ChatSlash("test")
 			eq(cb("CHAT_MSG_SAY", "Tester", "hi", ns.me), nil)
+			B.ChatSlash("test gold")
+			eq(cb("CHAT_MSG_SAY", "Tester", "hi", ns.me), nil, "not the author: nothing")
 			bns.Workshop = { Visible = function() return true end }
 			B.ChatSlash("test")
-			eq(printed[#printed], ns.L.CHATMARKS_TEST_ON)
-			eq(cb("CHAT_MSG_SAY", "Tester", "hi", ns.me), ns.HIGH_COUNCIL_MARK .. "Tester")
-			B.ChatSlash("test")
+			eq(printed[#printed], ns.L.CHATMARKS_TEST_ON:format("silver"))
+			eq(cb("CHAT_MSG_SAY", "Tester", "hi", ns.me), SILVER .. "Tester")
+			for mark, text in pairs({ gold = GOLD, bronze = BRONZE, member = STAR }) do
+				B.ChatSlash("test " .. mark)
+				eq(printed[#printed], ns.L.CHATMARKS_TEST_ON:format(mark))
+				eq(cb("CHAT_MSG_WHISPER_INFORM", "Tester", "hi", ns.me), text .. "Tester", mark)
+				eq(cb("CHAT_MSG_GUILD", "Tester", "hi", ns.me), nil, mark .. ": never guild chat")
+				assert(B.ChatStatusLine():find("preview " .. mark, 1, true), B.ChatStatusLine())
+			end
+			B.ChatSlash("test platinum")
+			eq(printed[#printed], ns.L.CHATMARKS_TEST_HELP)
+			B.ChatSlash("test off")
+			eq(printed[#printed], ns.L.CHATMARKS_TEST_OFF)
 			eq(cb("CHAT_MSG_SAY", "Tester", "hi", ns.me), nil)
+			B.ChatSlash("test")
+			B.ChatSlash("test")
+			eq(cb("CHAT_MSG_SAY", "Tester", "hi", ns.me), nil, "test again: off")
+			eq(#filters, 1)
 			-- A client without the game's filter: no marks there, and it says so.
 			ChatFrameUtil = nil
 			local bare = setmetatable({ On = function() end, RegisterEvent = function() end, Every = function() end }, { __index = ns })
@@ -43433,7 +43524,8 @@ do
 		end)
 		ChatFrameUtil, ns.GamepadUI, ns.CouncilMasked, issecretvalue = saved.cfu, saved.gamepad, saved.masked, saved.secret
 		ns.rdb.council, ns.rdb.councilIcons, ns.db.chatMarks, ns.Print, ns.Workshop = saved.council, saved.icons, saved.chatMarks, saved.print, saved.workshop
-		ns.IsMember = saved.member
+		ns.IsMember, ns.Roster.byName, ns.rdb.guilds, ns.Comm.loginAt = saved.member, saved.byName, saved.guilds, saved.loginAt
+		ns.King.IsStewardName, ns.King.IsHandName, ns.Moderation.Hides, C_Texture = saved.steward, saved.hand, saved.hides, saved.tex
 		if not ok then error(err, 0) end
 	end)
 
@@ -43445,7 +43537,7 @@ do
 		local src = assert(ReadFile(ADDON_DIR .. "Locales.lua"))
 		local pt = src:match('GetLocale%(%) == "ptBR" then(.-)$')
 		assert(pt, "the pt-BR block")
-		for _, key in ipairs({ "HELP_CHATMARKS", "CHATMARKS_ON", "CHATMARKS_OFF", "CHATMARKS_GAMEPAD", "CHATMARKS_NO_API", "CHATMARKS_TEST_ON", "CHATMARKS_TEST_OFF" }) do
+		for _, key in ipairs({ "HELP_CHATMARKS", "CHATMARKS_ON", "CHATMARKS_OFF", "CHATMARKS_GAMEPAD", "CHATMARKS_NO_API", "CHATMARKS_TEST_ON", "CHATMARKS_TEST_OFF", "CHATMARKS_TEST_HELP" }) do
 			assert(type(ns.L[key]) == "string" and ns.L[key] ~= "", key)
 			assert(pt:find("L." .. key .. " = ", 1, true), key .. " in pt-BR")
 		end
@@ -44417,11 +44509,18 @@ do
 					local h = Header("hello from outside")
 					assert(not h:find(STAR, 1, true) and not h:find("|A:", 1, true), "no mark: " .. h)
 					assert(h:find("Outsider", 1, true) and h:find("<Olympus Nowhere>", 1, true), "his name and the guild his line names still show: " .. h)
+					eq(ns.Borders.MarkOfName("Outsider-Realm", "Olympus Nowhere"), nil, "a guild his line only claims: no mark")
 					h = Header("a stranger in our guild's name")
 					assert(not h:find(STAR, 1, true), "our guild's name, not in our roster: " .. h)
-					assert(Header("a guildmate speaks"):find(STAR, 1, true), "in our roster: the star")
-					assert(Header("a captain his census names"):find(STAR, 1, true), "named in his guild's census: the star")
-					assert(Header("the king's steward"):find(STAR, 1, true), "the King's Steward, by the name Channels verifies him by: the star")
+					eq(ns.Borders.MarkOfName("Stranger-Realm", "Olympus II"), nil)
+					-- (1.1.5, the author's call: the Chat tab's headers show no mark at all; the rule's star is
+					-- MarkOfName's, which the game's own chat asks. The headers had it until then.)
+					for _, text in ipairs({ "a guildmate speaks", "a captain his census names", "the king's steward" }) do
+						assert(not Header(text):find(STAR, 1, true), text .. ": no mark in the Chat tab")
+					end
+					eq(ns.Borders.MarkOfName("Plain Guy-Realm", "Olympus II"), "member", "in our roster: the star")
+					eq(ns.Borders.MarkOfName("Lone Capt-Realm", "Olympus Lone"), "member", "named in his guild's census: the star")
+					eq(ns.Borders.MarkOfName("Stew Ard-Realm", "Olympus"), "member", "the King's Steward, by the name Channels verifies him by: the star")
 					-- Our guild's name spelled another way, by a name our census names but our roster lacks:
 					-- not one of ours (Channels says 0), no mark from the census either.
 					ns.rdb.guilds["Olympus II"] = Vouched({ guild = "Olympus II", leader = "Old Boss", officers = {}, realm = "Realm", t = ns.Now() },
@@ -44580,8 +44679,10 @@ do
 				local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
 				assert(doc:find("a line you write here keeps it muted in chat", 1, true), path .. ": the mute")
 				assert(doc:find("the line you are reading stays in its place while new lines come in and the oldest go", 1, true), path .. ": the scroll")
-				assert(doc:find("and only where the guild a line names is proven", 1, true), path .. ": the marks")
-				assert(doc:find("A name whose Olympus guild cannot be checked", 1, true), path .. ": no mark then")
+				-- (1.1.5, the author's call: the Chat tab shows no mark; the rule of a proven guild is the game's
+				-- own chat's now. These asked the Chat tab's marks until then.)
+				assert(doc:find("No mark before a name since 1.1.5", 1, true), path .. ": no mark in the Chat tab")
+				assert(doc:find("a plain member of another guild is in no census, so gets none", 1, true), path .. ": no mark where the guild can't be checked")
 				assert(not doc:find("from the same facts as the borders and the nameplate marks", 1, true), path .. ": no longer the same facts")
 				assert(doc:find("a click puts it back in the box when the box is empty", 1, true), path .. ": the note")
 				assert(doc:find("a line another of your characters wrote shows under that character's name, on the left", 1, true), path .. ": an alt's line")

@@ -1205,7 +1205,8 @@ end
 -- Who sees the High Council in the census, its marks there and its titles (0.9.9, the author's
 -- call): until launch the councillors themselves, the author's own client (the one holding the
 -- signed lists, CouncilList.lua) and the King's (names hidden, below); everyone once the signed
--- titles list says it is public. The Olympus chats show the mark to everyone, as in 0.9.8.
+-- titles list says it is public. The game's own chat shows the mark to everyone (1.1.5,
+-- Borders.lua; the Olympus chats did from 0.9.8 to 1.1.5).
 function ns.CouncilVisible()
 	if ns.COUNCIL_SIGNED ~= nil or ns.COUNCIL_TITLES ~= nil or ns.IsHighCouncillor(ns.me) or ns.KingsScreen() then return true end
 	local t = ns.CouncilTitles()
@@ -1214,7 +1215,7 @@ end
 
 -- The King streams: on his screen the councillors' names stay hidden (0.9.9). The High Council
 -- in the Realm shows each name cut short (ns.MaskName), and no council mark, icon or title goes
--- with a name anywhere else (census rows, person card, Olympus chats), until he clicks the eye
+-- with a name anywhere else (census rows, person card, the chats), until he clicks the eye
 -- under the council's header. Never saved: every login and /reload starts hidden again.
 -- The council's borders and nameplate marks follow at once (Borders.lua, Nameplates.lua: they
 -- listen for COUNCIL_MASK_CHANGED, fired only when it flips).
@@ -1943,8 +1944,8 @@ SlashCmdList.OLYMPUS = function(input)
 			local v = ns.db.royalInspection
 			ns.Print(v == true and L.INSPECTION_OPT_ON or (v == false and L.INSPECTION_OPT_OFF or L.INSPECTION_OPT_UNANSWERED))
 		elseif cmd == "chatmarks" then
-			-- 1.1.5: the High Council's marks before their names in the game's own chat (Borders.lua):
-			-- on or off; test, the author's own lines for this session.
+			-- 1.1.5: Olympus's marks before names in the game's own chat (Borders.lua): on or off;
+			-- test [mark|off], the author's own lines for this session.
 			ns.Borders.ChatSlash(rest)
 		elseif cmd == "nameplates" then
 			-- The marks left of the names on friendly players' nameplates (Nameplates.lua), alone: on or off.
