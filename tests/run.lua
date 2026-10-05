@@ -386,6 +386,65 @@ test("summary keeps a stale guild's size, counts online and zones only while fre
 	assert(ns.Data.DiscordText():find("2,300 soldiers"), "discord text")
 end)
 
+test("1.1.5 Census and Realm default guild order puts OLYMPUS first on a size tie, then average level, then name", function()
+	local savedGuilds, savedSeen, savedSort, savedUI, savedKey = ns.rdb.guilds, ns.rdb.seen, ns.Views.sort, ns.UI, ns.rdb.realmKey
+	local now = os.time()
+	ns.rdb.guilds = {
+		["Knights of Olympus"] = { total = 500, online = 1, avgLevel = 60, zones = {}, t = now, mine = true },
+		["OLYMPUS"] = { total = 500, online = 1, avgLevel = 1, zones = {}, t = now, mine = true },
+		["Olympus II"] = { total = 500, online = 1, avgLevel = 20, zones = {}, t = now, mine = true },
+		["Olympus III"] = { total = 500, online = 1, avgLevel = 40, zones = {}, t = now, mine = true },
+		["Alpha Olympus"] = { total = 400, online = 1, zones = {}, t = now, mine = true },
+		["Beta Olympus"] = { total = 400, online = 1, zones = {}, t = now, mine = true },
+		["Olympus Old"] = { total = 999, online = 1, avgLevel = 60, zones = {}, t = now - ns.Data.FRESH - 1, mine = true },
+	}
+	ns.rdb.seen, ns.rdb.realmKey = {}, "sealed"
+	ns.Views.sort = { key = "members", desc = true }
+	ns.UI = { StatusLine = function() return "status" end }
+	local ok, err = pcall(function()
+		local summary = ns.Data.Summary()
+		eq(summary.guilds[1].name, "OLYMPUS", "the exact guild wins the equal-size tie")
+		eq(summary.guilds[2].name, "Knights of Olympus", "average level is the next tie-breaker")
+		eq(summary.guilds[3].name, "Olympus III")
+		eq(summary.guilds[4].name, "Olympus II")
+		eq(summary.guilds[5].name, "Alpha Olympus", "unknown and equal averages fall back to normalized name")
+		eq(summary.guilds[6].name, "Beta Olympus")
+		eq(summary.guilds[7].name, "Olympus Old", "fresh reports still precede stale ones")
+
+		local census, guildRows = ns.Views.Build("census"), {}
+		for _, line in ipairs(census) do
+			if line.cols then guildRows[#guildRows + 1] = line.cols[1] end
+		end
+		eq(guildRows[1], "OLYMPUS", "the Census uses the same default order")
+		eq(guildRows[2], "Knights of Olympus")
+		eq(guildRows[3], "Olympus III")
+		eq(guildRows[4], "Olympus II")
+		eq(guildRows[5], "Alpha Olympus")
+		eq(guildRows[6], "Beta Olympus")
+		eq(guildRows[7], "Olympus Old")
+
+		-- The Realm lists its guilds in that order too.
+		local realmRows = {}
+		for _, line in ipairs(ns.Views.Build("realm")) do
+			local name = type(line.id) == "string" and line.id:match("^guild:(.+)$")
+			if name then realmRows[#realmRows + 1] = name end
+		end
+		eq(table.concat(realmRows, ","), "OLYMPUS,Knights of Olympus,Olympus III,Olympus II,Alpha Olympus,Beta Olympus,Olympus Old",
+			"the Realm uses the same default order")
+
+		-- A Members click the other way is the plain column: smallest first, a tie by name.
+		ns.Views.SortBy("members")
+		guildRows = {}
+		for _, line in ipairs(ns.Views.Build("census")) do
+			if line.cols then guildRows[#guildRows + 1] = line.cols[1] end
+		end
+		eq(table.concat(guildRows, ","), "Alpha Olympus,Beta Olympus,Knights of Olympus,OLYMPUS,Olympus II,Olympus III,Olympus Old",
+			"an ascending Members sort keeps its header's meaning")
+	end)
+	ns.rdb.guilds, ns.rdb.seen, ns.Views.sort, ns.UI, ns.rdb.realmKey = savedGuilds, savedSeen, savedSort, savedUI, savedKey
+	if not ok then error(err, 0) end
+end)
+
 test("receive refuses reports about our own guild", function()
 	ns.rdb.guilds = {}
 	eq(ns.Data.Receive({ guild = MY_GUILD, total = 1, online = 1, zones = {} }, "Liar-Realm"), false)
@@ -27403,7 +27462,7 @@ test("1.1 held alerts: in an instance a Call to Arms and a Muster leave their ch
 			b.clock = b.clock + 20
 			Decree("Member3-Realm", "MUSTER", "at the bridge")
 			eq(#b.warnings, 0); eq(#b.played, 0)
-			-- On top of the Decrees tab while they wait, besides the decrees' own list.
+			-- On the Decrees tab while they wait (under the King's week since 1.1.5), besides the decrees' own list.
 			local tab = Texts(ns.Views.Build("decrees"))
 			assert(tab:find(L.HELD_TITLE, 1, true), tab)
 			assert(tab:find(L.HELP_ARMS_NAME .. " (Stormwind City)", 1, true), tab)
@@ -27826,6 +27885,35 @@ test("1.1 held alerts: their words in both languages, the same %s in each; /oly 
 	assert(Said(printed, "/oly alerts"), "in the help")
 	assert(Said(printed, "/oly sound <kind>"), "in the help")
 	assert(ns.AlertStatus():find("in an instance or Busy: held", 1, true), ns.AlertStatus())
+end)
+
+test("1.1.5 held alerts: the alerts line's tip says they wait on the Decrees tab under the King's week, where they are now (English and pt-BR)", function()
+	HoldBench(function(b)
+		b.inside = true
+		eq(ns.Alert("muster", "soft", { text = "Muster at the bridge", what = "Muster at the bridge" }), false, "held")
+		local lines = ns.Views.Build("decrees")
+		local weekAt, heldAt, alerts
+		for i, l in ipairs(lines) do
+			if l.header and l.text == ns.L.WEEK_TITLE then weekAt = weekAt or i end
+			if l.header and l.text == ns.L.HELD_TITLE then heldAt = heldAt or i end
+			if l.alerts then alerts = l end
+		end
+		assert(weekAt and heldAt and weekAt < heldAt, "the held alerts come after the King's week")
+		local tip = {}
+		alerts.tooltip({ AddLine = function(_, s) tip[#tip + 1] = s end })
+		tip = table.concat(tip, " ")
+		eq(tip:find("on top of this tab", 1, true), nil, tip)
+		assert(tip:lower():find(ns.L.WEEK_TITLE:lower(), 1, true), "under the King's week: " .. tip)
+		-- In Portuguese too.
+		local pt = { L = setmetatable({}, { __index = ns.L }) }
+		local savedLocale = GetLocale
+		GetLocale = function() return "ptBR" end
+		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
+		GetLocale = savedLocale
+		if not ok then error(err, 0) end
+		eq(pt.L.ALERTS_TIP:find("topo desta aba", 1, true), nil, pt.L.ALERTS_TIP)
+		assert(pt.L.ALERTS_TIP:lower():find(pt.L.WEEK_TITLE:lower(), 1, true), "sob a semana do Rei: " .. pt.L.ALERTS_TIP)
+	end)
 end)
 ---------------------------------------------------------------------------
 -- 1.1: Fern's census and recruiting requests (Views.lua, Data.lua, Members.lua, Recruit.lua).
@@ -31179,6 +31267,106 @@ test("1.1 the King's week: on the Board by day with the guild's own calendar eve
 		assert(text:find(ns.L.WEEK_EMPTY, 1, true) and not text:find(ns.L.WEEK_HOW, 1, true), text)
 		AsKing()
 		assert(Texts(B.Lines()):find(ns.L.WEEK_HOW, 1, true))
+	end)
+end)
+
+test("1.1.5 the army agenda (the King's week) is the first Decrees section and reuses the Board's event, signup and search model", function()
+	WithWeek(function(w, W, K, B)
+		AsSoldier()
+		local KING = ns.KingCharacter() .. "-Realm"
+		K.HandleCommand("CHANNEL", KING, "T1~A~77~Olympus~1800~Orgrimmar~Raid on the Crossroads")
+		K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400 + 90 * 60 - 15) .. "~1~~Raid night")
+		K.HandleCommand("CHANNEL", KING, "T1~D~502~Olympus~" .. (4 * 86400 + 60 * 60 - 15) .. "~1~~Court")
+		K.HandleCommand("CHANNEL", KING, "T1~R~12~Olympus~77:0:0:5:0,501:1:2:3:0")
+		local sent = #w.sent
+		local lines = ns.Views.Build("decrees")
+		local agendaAt, decreesAt
+		for i, line in ipairs(lines) do
+			if line.header and line.text == ns.L.WEEK_TITLE then agendaAt = i end
+			if line.header and line.text == ns.L.DECREES then decreesAt = i end
+		end
+		assert(agendaAt and decreesAt and agendaAt < decreesAt, "the agenda precedes every existing Decrees section")
+		eq(agendaAt, 2, "the tab opens with it, right under its search box")
+		local text = Texts(lines)
+		for _, expected in ipairs({ "Raid on the Crossroads", "Raid night", "Court", ns.L.SIGN_COUNTS:format(1, 2, 3, 0) }) do
+			assert(text:find(expected, 1, true), expected .. " in:\n" .. text)
+		end
+		assert(Texts(B.Lines()):find("Raid night", 1, true), "both entrances read the same Week state")
+		eq(#w.sent, sent, "opening either view publishes no event or signup")
+
+		-- The tab's search box filters the week's entries; the decrees stay.
+		ns.Views.SetFilter("decrees", "raid night")
+		lines = ns.Views.Build("decrees")
+		text = Texts(lines)
+		assert(text:find("Raid night", 1, true) and not text:find("Court", 1, true), text)
+		eq(lines[2].text, ns.L.WEEK_TITLE)
+		assert(Find(lines, ns.L.DECREES), "the decrees' header still shows")
+		ns.Views.SetFilter("decrees", "zzz")
+		lines = ns.Views.Build("decrees")
+		eq(lines[3].text, "|cff9d9d9d" .. ns.L.SEARCH_NO_MATCH .. "|r", "nothing of the week matches")
+		assert(not Texts(lines):find("Raid night", 1, true))
+		eq(#w.sent, sent, "a search sends nothing either")
+		ns.Views.ClearFilters()
+	end)
+end)
+
+test("1.1.5 the King's week on the Decrees tab redraws there as it changes: a role picked, an entry heard, the Agenda's event; the Census stays", function()
+	WithUI(function()
+		WithWeek(function(w, W, K)
+			AsSoldier()
+			-- The real window, its listeners heard here (LoadUI keeps none): what the addon fires
+			-- reaches them, and a redraw waiting for its gap (UI.RefreshSoon) or the Throne's second
+			-- (King.lua) comes at once.
+			local heard = {}
+			local uns = setmetatable({}, { __index = ns })
+			uns.On = function(name, fn) heard[name] = heard[name] or {}; table.insert(heard[name], fn) end
+			assert(loadfile(ADDON_DIR .. "UI.lua"))("Olympus", uns)
+			local UI = uns.UI
+			ns.UI = UI
+			local saved = { fire = ns.Fire, after = ns.After }
+			ns.Fire = function(name, ...) for _, fn in ipairs(heard[name] or {}) do fn(...) end end
+			ns.After = function(s, where, fn)
+				if where == "ui redraw" or where == "throne refresh" then return fn() end
+				return saved.after(s, where, fn)
+			end
+			local ok, err = pcall(function()
+				local L = ns.L
+				local KING = ns.KingCharacter() .. "-Realm"
+				K.HandleCommand("CHANNEL", KING, "T1~D~501~Olympus~" .. (4 * 86400 + 90 * 60 - 15) .. "~1~~Raid night")
+				K.HandleCommand("CHANNEL", KING, "T1~R~12~Olympus~501:1:2:3:0")
+				UI.Toggle(); UI.SelectTab("decrees")
+				local main = OlympusFrame
+				eq(main.tab, "decrees")
+				assert(ListRow(main, "Raid night"), "the week on top of the tab")
+				-- Sign up opens the role rows (that row redraws itself); a role picked closes them,
+				-- and the sheet says ours, with nothing else redrawing the tab.
+				ListRow(main, "[+] " .. L.SIGN_UP):Click()
+				local tank = ListRow(main, "> " .. L.SIGN_ROLE_T)
+				assert(tank, "the role rows")
+				local whispers = #w.whispered
+				tank:Click()
+				eq(W.MySignup(501), "T")
+				eq(#w.whispered, whispers + 1, "one signup whispered to the setter")
+				assert(not ListRow(main, "> " .. L.SIGN_ROLE_T), "the role rows closed on the tab")
+				assert(ListRow(main, L.SIGN_YOU:format(L.SIGN_ROLE_T)), "ours on the sheet's line")
+				assert(ListRow(main, "[+] " .. L.SIGN_CHANGE), "the row offers a change now")
+				-- An entry the King sets while the tab is open shows on it.
+				K.HandleCommand("CHANNEL", KING, "T1~D~502~Olympus~" .. (4 * 86400 + 60 * 60 - 15) .. "~1~~Court")
+				assert(ListRow(main, "Court"), "the new entry on the tab")
+				-- And the Agenda's current event (the Throne's change), among the week's.
+				K.HandleCommand("CHANNEL", KING, "T1~A~77~Olympus~1800~Orgrimmar~Raid on the Crossroads")
+				assert(ListRow(main, "Raid on the Crossroads"), "the Agenda's event on the tab")
+				-- Another tab: the week's changes leave it alone.
+				UI.SelectTab("census")
+				local drawn, refresh = 0, UI.Refresh
+				UI.Refresh = function(...) drawn = drawn + 1; return refresh(...) end
+				K.HandleCommand("CHANNEL", KING, "T1~D~503~Olympus~" .. (5 * 86400) .. "~1~~Duel night")
+				UI.Refresh = refresh
+				eq(drawn, 0, "the Census is not redrawn for the week")
+			end)
+			ns.Fire, ns.After = saved.fire, saved.after
+			if not ok then error(err, 0) end
+		end)
 	end)
 end)
 
@@ -36790,6 +36978,48 @@ test("1.1 crafters (#24): the board takes listings from the channel alone, Olymp
 		Cr.HandleListing("CHANNEL", "Smith-Realm", "W1~Olympus Zeus~164:Blacksmithing:150:300:12")
 		w.clock = w.clock + Cr.LIST_KEEP + 1
 		eq(#Cr.Board(), 0, "quiet too long")
+	end)
+end)
+
+test("1.1.5 crafters: localized profession names and legacy name keys share one canonical group, labelled in English", function()
+	WithCraft(function(w, Cr)
+		Cr.HandleListing("CHANNEL", "Cooken-Realm", "W1~Olympus Zeus~185:Cooking:300:300:90")
+		Cr.HandleListing("CHANNEL", "Cookes-Realm", "W1~Olympus Hera~185:Cocina:275:300:80")
+		Cr.HandleListing("CHANNEL", "Cookfr-Realm", "W1~Olympus VII~Cuisine:Cuisine:250:300:70")
+		Cr.HandleListing("CHANNEL", "Smithen-Realm", "W1~Olympus VIII~164:Blacksmithing:220:300:30")
+		Cr.HandleListing("CHANNEL", "Smithes-Realm", "W1~Olympus IX~Herrería:Herrería:210:300:25")
+		local lines = Cr.Lines()
+		local headers, cooks, smiths = {}, 0, 0
+		for _, line in ipairs(lines) do
+			if line.header then headers[line.text] = (headers[line.text] or 0) + 1 end
+			if line.key and line.key:find("^Cook") then cooks = cooks + 1 end
+			if line.key and line.key:find("^Smith") then smiths = smiths + 1 end
+		end
+		eq(headers.Cooking, 1, "Cooking, Cocina and Cuisine are one profession")
+		eq(headers.Cocina, nil); eq(headers.Cuisine, nil)
+		eq(cooks, 3, "every localized cooking listing remains in the shared group")
+		eq(headers.Blacksmithing, 1, "numeric and localized legacy keys also merge for other professions")
+		eq(headers["Herrería"], nil); eq(smiths, 2)
+		eq(Cr.CanonicalProfessionKey("Culinária", "Culinária"), "185")
+		eq(Cr.CanonicalProfessionKey("197", "Sastrería"), "197")
+		-- A search for the group's English name keeps every crafter under it; the name each listed
+		-- still finds his row alone.
+		local function Rows(q)
+			local out, under = {}, {}
+			for _, line in ipairs(Cr.Lines(q)) do
+				if line.header then under = line.text end
+				if line.key then out[#out + 1] = under .. " " .. line.key end
+			end
+			return table.concat(out, ",")
+		end
+		eq(Rows("cooking"), "Cooking Cooken-Realm,Cooking Cookes-Realm,Cooking Cookfr-Realm")
+		eq(Rows("cocina"), "Cooking Cookes-Realm")
+		-- A crafter's recipes are asked for under the key he listed, not the group's.
+		for _, line in ipairs(Cr.Lines()) do if line.key == "Cookfr-Realm" then line.onClick() end end
+		for _, line in ipairs(Cr.Lines()) do
+			if line.text == "|cffffd200" .. ns.L.CRAFTER_SHOW_RECIPES .. "|r" then line.onClick() end
+		end
+		eq(w.whispers[#w.whispers], "Cookfr-Realm WR~Cuisine")
 	end)
 end)
 

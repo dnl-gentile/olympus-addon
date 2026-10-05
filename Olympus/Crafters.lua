@@ -89,6 +89,45 @@ local function Num(s, max)
 	return n
 end
 
+-- Modern clients publish Blizzard's stable base-profession id. Classic Era's older trade-skill
+-- window exposes only a localized name, and early Olympus listings therefore used names as keys.
+-- Collapse both forms before grouping: a Spanish `Cocina`, an English `Cooking`, and id 185 are
+-- one profession. Keep the received key on each row because recipe-list whispers must use exactly
+-- the key that crafter advertised.
+local PROFESSION_NAMES = {
+	["129"] = { "First Aid", "Primeiros Socorros", "Primeros auxilios", "Secourisme", "Erste Hilfe" },
+	["164"] = { "Blacksmithing", "Ferraria", "Herrería", "Forge", "Schmiedekunst" },
+	["165"] = { "Leatherworking", "Couraria", "Peletería", "Travail du cuir", "Lederverarbeitung" },
+	["171"] = { "Alchemy", "Alquimia", "Alchimie", "Alchemie" },
+	["182"] = { "Herbalism", "Herborismo", "Herboristería", "Herboristerie", "Kräuterkunde" },
+	["185"] = { "Cooking", "Culinária", "Cocina", "Cuisine", "Kochkunst" },
+	["186"] = { "Mining", "Mineração", "Minería", "Minage", "Bergbau" },
+	["197"] = { "Tailoring", "Alfaiataria", "Sastrería", "Couture", "Schneiderei" },
+	["202"] = { "Engineering", "Engenharia", "Ingeniería", "Ingénierie", "Ingenieurskunst" },
+	["333"] = { "Enchanting", "Encantamento", "Encantamiento", "Enchantement", "Verzauberkunst" },
+	["356"] = { "Fishing", "Pesca", "Pêche", "Angeln" },
+	["393"] = { "Skinning", "Esfolamento", "Desuello", "Dépeçage", "Kürschnerei" },
+	["755"] = { "Jewelcrafting", "Joalheria", "Joyería", "Joaillerie", "Juwelenschleifen" },
+	["773"] = { "Inscription", "Escrivania", "Inscripción", "Calligraphie", "Inschriftenkunde" },
+	["794"] = { "Archaeology", "Arqueologia", "Arqueología", "Archéologie", "Archäologie" },
+}
+local professionByName, professionEnglish = {}, {}
+for id, names in pairs(PROFESSION_NAMES) do
+	professionEnglish[id] = names[1]
+	for _, name in ipairs(names) do professionByName[ns.Fold(name)] = id end
+end
+
+function Crafters.CanonicalProfessionKey(key, name)
+	key, name = Clean(key, 24), Clean(name, 24)
+	local number = tonumber(key)
+	if number and number == math.floor(number) and number > 0 then return tostring(number) end
+	return professionByName[ns.Fold(key)] or professionByName[ns.Fold(name)] or ("name:" .. ns.Fold(name ~= "" and name or key))
+end
+
+function Crafters.ProfessionLabel(key, fallback)
+	return professionEnglish[tostring(key or "")] or fallback
+end
+
 local function Changed() ns.Fire("REALM_PAGE_CHANGED", "crafters") end
 
 -- A name the moderators took off (net-off, Moderation.lua), in the name of `guild` when known.
@@ -683,14 +722,16 @@ function Crafters.Lines(q)
 			lines[#lines].gapAfter = true
 		end
 	end
-	-- The board: by profession, the highest skill first.
+	-- The board: by profession, the highest skill first. One group per profession, whatever
+	-- language it was listed in, under its English name; a search finds a row by either name.
 	local byProf, profs = {}, {}
 	for _, c in ipairs(Crafters.Board()) do
 		for _, p in ipairs(c.profs) do
-			if not q or ns.Holds(q, ns.DisplayName(c.name), c.guild, p.name) then
-				local k = ns.Fold(p.name)
+			local k = Crafters.CanonicalProfessionKey(p.key, p.name)
+			local label = Crafters.ProfessionLabel(k, p.name)
+			if not q or ns.Holds(q, ns.DisplayName(c.name), c.guild, p.name, label) then
 				if not byProf[k] then
-					byProf[k] = { name = p.name, list = {} }
+					byProf[k] = { name = label, list = {} }
 					profs[#profs + 1] = byProf[k]
 				end
 				table.insert(byProf[k].list, { c = c, p = p })
