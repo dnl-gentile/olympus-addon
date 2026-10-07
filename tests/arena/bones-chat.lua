@@ -52,7 +52,7 @@ local function Native(w, c)
 	c.realComm = true
 end
 
-local function Live()
+local function Live(native)
 	local w = FW.New()
 	local king = w:Role("king", { companion = { state = "missing" } })
 	local a, b, s = w:Player(N.fighterA), w:Player(N.fighterB), w:Player(N.bettor1)
@@ -64,7 +64,7 @@ local function Live()
 	w:QueueRoll(a.name, 90); w:QueueRoll(b.name, 10)
 	w:As(a, a.ns.FarkleTable.Roll, id); w:As(b, b.ns.FarkleTable.Roll, id); w:Run(0)
 	assert(w:As(s, s.ns.FarkleTable.Watch, id)); w:Run(0)
-	for _, c in ipairs({ a, b, s }) do Roster(w, c); Native(w, c) end
+	for _, c in ipairs({ a, b, s }) do Roster(w, c); if native ~= false then Native(w, c) end end
 	local rooms = assert(w:As(a, a.ns.ArenaChat.TableRooms, id))
 	for _, c in ipairs({ a, b, s }) do assert(w:As(c, c.ns.ArenaChat.Open, rooms.everyone)) end
 	w.sent = {}
@@ -103,6 +103,19 @@ test("Bones chat core: real two-player Players whispers and verified ordinary-me
 		eq(w:As(c, c.ns.ArenaChat.Lines, rooms.everyone)[1].chat, rooms.everyone)
 	end
 	eq(Count(w, "EC"), 1); eq(w.sent[1].dist, "CHANNEL"); eq(w.sent[1].logged, true)
+end)
+
+test("Bones chat core: actual Concede sends the final existing state to its watcher before stopping relay", function()
+	local w, a, b, s, id, rooms = Live(false)
+	eq(w:As(s, s.ns.FarkleTable.ChatSpec, id).live, true)
+	assert(w:As(a, a.ns.FarkleTable.Concede, id)); w:Run(3)
+	eq(Count(w, "KN") >= 1, true, "closing existing notice")
+	eq(Count(w, "KS") >= 1, true, "final existing watcher state")
+	for _, c in ipairs({ a, b, s }) do
+		eq(w:As(c, c.ns.ArenaChat.TableRooms, id), nil, c.name)
+		eq(w:As(c, c.ns.ArenaChat.MayRead, rooms.everyone), false)
+		eq(#w:As(c, c.ns.ArenaChat.Lines, rooms.everyone), 0)
+	end
 end)
 
 test("Bones chat core: unknown, private spectator injection, unverified census and wrong public lanes never allocate", function()

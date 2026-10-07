@@ -874,7 +874,7 @@ local function NewGame(t)
 	return g
 end
 
-local Progress, Finished, SendState -- (below)
+local Progress, Finished, SendState, SendNotice -- (below)
 
 -- The events one Apply wrote (a decision can take the lines held behind it, a turn's end the next
 -- player's lines ahead of it), each as the board animates it: its code, seat, dice (a roll), the
@@ -1356,6 +1356,12 @@ Finished = function(t)
 		Changed(t, "end")
 		return
 	end
+	-- Progress returns here before its ordinary SendState. Tell existing watchers and the
+	-- notice lane the game is over before settlement stops the relay's involvement.
+	if t.state == "end" and g and g.over then
+		if SendState then SendState(t) end
+		if SendNotice then SendNotice(t) end
+	end
 	if t.state == "end" and not t.sentKE and g then
 		t.sentKE = true
 		local body = KEBody(t)
@@ -1809,8 +1815,6 @@ local function InviteTick(t)
 	end
 	return false
 end
-
-local SendNotice -- (below)
 
 Tick = function()
 	local now = Clock()
