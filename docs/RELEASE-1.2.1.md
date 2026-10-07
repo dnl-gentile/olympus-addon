@@ -9,7 +9,9 @@ are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
   is for players and spectators when the table permits watching. It reuses the main chat's
   bubbles, name marks, textured Search box, conversation inset, input border and tab style, with
   separate drafts and searches. Collapsing it restores the table's original width, without an
-  empty side strip. Innkeeper practice does not pretend to have a multiplayer room.
+  empty side strip. A red square with a yellow arrow sits just right of **Sit Down**, shifted
+  slightly left while chat is available. The native chat background also fills the join between
+  chat and table. Innkeeper practice does not pretend to have a multiplayer room.
   Authors and test builds can inspect that layout locally with `/oly arena sim boneschat`, then
   leave with `/oly arena sim off`. The preview has empty chat tabs and sends no invitations or
   messages; it is not a multiplayer test.
@@ -23,11 +25,10 @@ are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
   pinned its original issuer. Relay never supplies that initial trust or silently rotates a key.
 - Wanted evidence requires verified membership and positive identity for the sender's own kill
   or death. A claimed guild or an unknown GUID is not enough. Evidence still needs human review.
-- The Board offers a public weekly summary of facts this client knows. A personal five-line
-  brief appears once per character/reset after privacy notices and the update letter, never in
-  combat, an instance or Busy mode. Unknown coverage and receipts are shown honestly; opening
-  the brief does not turn on sharing. Players who already have access to the Throne can reopen
-  their personal brief as an organized parchment page; this does not grant new Throne powers.
+- The Board offers a public weekly summary of facts this client knows. **Your week, in five
+  lines** is a separate personal parchment page in the main window's Realm tab, available to
+  every member, not a Throne page. The old automatic personal popup is removed. Unknown
+  coverage and receipts are shown honestly; opening either brief does not turn on sharing.
 - The King may leave a short message with an audience. The recipient retains it in their local
   Chronicle with its sender; this does not create a jury or another punishment system.
 - Invitations through the addon warn about a character blocked from the network, with a reason

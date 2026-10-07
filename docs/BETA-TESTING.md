@@ -94,6 +94,11 @@ For the 1.2.1 candidate, include these focused live checks:
   Private messages must never reach the spectator. Collapse/reopen the side panel; keep an
   unfinished draft in each tab; repeat with gamepad mode. Disable spectators during a queued
   public message: it must not be delivered. The innkeeper's practice has no multiplayer chat.
+  In `/oly arena sim boneschat`, check the red square/yellow arrow to the right of Sit Down,
+  including while the setup covers the table. It must remain clickable above the table's
+  surfaces; collapse restores the original width without an extra bar. Expanded chat must have
+  no world-visible seam between it and the table. Exit with `/oly arena sim off`; this empty
+  layout preview is not proof of multiplayer routing.
 - Chat: hide guild names through the gear. Normal, deleted and Bones table headers must follow
   the choice without losing the draft. Tooltips and guild searches must still identify the guild.
   Reload to check persistence, then show the names again. New native chat lines follow the
@@ -105,9 +110,11 @@ For the 1.2.1 candidate, include these focused live checks:
   identity is not accepted on a claimed guild alone. Publish the reviewed rankings; a trusted
   relay should recover the unchanged signed word for a recipient that already pinned that
   issuer independently. A new recipient without the pin cannot bootstrap from the relay.
-- Weekly brief: after the privacy page and update letter, check the five personal lines, close,
-  reload, and ensure it stays closed until next reset. No popup in combat, an instance or Busy;
-  no sharing setting changes. Public Board summary must not reveal private dues or poll data.
+- Weekly brief: as an ordinary member, open Realm > Your week, in five lines in the main
+  window. Check five readable sections on parchment, Back, switching tabs, and reopening;
+  repeat in gamepad mode. The personal brief must not appear in the Throne or as an automatic
+  popup after login/reload. No sharing setting changes; the separate public Board summary
+  must not reveal private dues or poll data.
 - Lottery: draw Mechanostrider and check its full label above, not across, the result numbers at
   the normal and smaller UI scales. Keep the five-place animation and free tickets.
 
