@@ -845,15 +845,20 @@ right-clicks it; on a case's page in The Watch the same choices are lines of the
 - **Timeout**: 5 minutes, 30 minutes, the ladder's 1 hour, 24 hours or 7 days, or **until lifted**
   (at most 30 days: a hold while his case is decided). Every 1.1.6 client drops his new lines in
   Olympus's chats, rooms and fight rooms; his own client refuses to send and tells him in an Olympus
-  pop-up by whom (the role only: "a moderator of your guild", "a High Councillor", "the King",
-  "the addon's author"; never the name), until when and why. A strip over the Chat tab says the
+  pop-up that "a moderator" applied it, until when and why. The player's notices and own record
+  omit both the character name and a uniquely identifying role; staff retain the actor in their
+  internal audit. This is display privacy, not anonymous transport. A strip over the Chat tab says the
   same while it lasts. **Lift his timeout** ends it early; a lift from lower down never ends one
   given from higher up. Of two timeouts the longer binds, and he is told its end. The giver's
   client repeats a timeout for late logins; while he is away another moderator passes it on, but
   only a word no higher than his own (a moderator never carries the King's), and it keeps its
   giver's weight on every client however it came. The King is never given a timeout (the author
   may delete his lines). He may **appeal** to the High Council from his pop-up or his record: the
-  appeal goes on the Olympus channel, and the councillor who answers keeps or lifts it. A lift on
+  appeal goes on the Olympus channel, and the councillor who answers keeps or lifts it. Newly
+  submitted unanswered appeals are kept on the player's own record (three pending at most):
+  one is retried every five minutes, with its original identity and date, for up to 30 days.
+  A refused queue admission does not mark it sent. An authenticated answer stops retries. Old
+  records without a saved appeal text cannot recover that appeal automatically. A lift on
   appeal goes out even when the councillor's client never held the timeout (a Watcher's reaches
   only that guild), and ends whatever his rank reaches. He is told in a pop-up what is so: lifted,
   kept, still timed out from higher up, or, for a deleted line, found for him (the words do not
@@ -883,7 +888,9 @@ right-clicks it; on a case's page in The Watch the same choices are lines of the
   name the server stamps on it, never by anything the message says. Other guilds learn of a
   Watcher's deletion or timeout from the punished player's own client, which withdraws his own
   line on the channel (only a line's author can withdraw it there); that word names the Watcher
-  and the end, never the reason. A named Watcher lapses on another client 3 days after it last
+  and the end, never the reason. An active guild timeout on that player is reported again every
+  five minutes for late reviewers; this remains the player's testimony, not a verified act of
+  the named Watcher, and unverified foreign membership is refused. A named Watcher lapses on another client 3 days after it last
   heard the guild master's list (his client repeats it while he plays), so a removal a client
   missed counts no longer than that.
 - **The audit.** Every deletion and timeout goes into The Watch's audit (who, whom, what, why,
@@ -892,7 +899,8 @@ right-clicks it; on a case's page in The Watch the same choices are lines of the
   guild's Watchers, and for the High Council, the King and the author their Olympus moderators,
   the appeals, every Olympus-wide action and the guild actions a player's own client reported (as
   his word). The punished player sees his
-  own record, roles only, in the Chat tab's settings (the gear). A short reason is optional. Lines
+  own record, without the actor's name or identifying role, in the Chat tab's settings (the gear).
+  A short reason is optional. Lines
   a client did not show are counted per sender and why for 7 days, never their words.
 - **Limits, plainly.** Clients before 1.1.6 still show a deleted line and a timed-out player's
   lines. The game's own chat windows keep what they already showed under the gamepad UI, with
