@@ -1417,7 +1417,20 @@ local function TakeSelf(dist, sender, f)
 	if not seq or not at or not actor or actor ~= f[8] or CleanReason(reason) ~= reason then return Refuse("shape", sender) end
 	local guild = f[7] ~= "-" and f[7] or nil
 	local C = ns.Channels
-	if not guild or not ns.IsFederation(guild) or not (C and C.VerifiedLevel and C.VerifiedLevel(sender, guild) >= 1) then
+	local member = false
+	if guild and ns.IsFederation(guild) then
+		if guild == OwnGuild() then
+			local W = TheWatch()
+			member = W and W.FreshRoster and W.FreshRoster() and W.RosterRank and W.RosterRank(sender) ~= nil
+		elseif C and C.VerifiedLevel then
+			local level, verified = C.VerifiedLevel(sender, guild)
+			local D = ns.Data
+			local source
+			if D and D.AuthorizedRank then source = select(2, D.AuthorizedRank(sender, guild)) end
+			member = type(level) == "number" and level >= 1 and verified == true and source ~= "census"
+		end
+	end
+	if not member then
 		return Refuse("guild", sender)
 	end
 	if not Budget(rateSelf, WC.RATE_SELF_ALL) then return false, "rate" end

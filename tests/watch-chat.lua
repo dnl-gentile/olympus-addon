@@ -43,7 +43,7 @@ local function World(fn)
 	for k, v in pairs(StaticPopupDialogs) do dialogs[k] = v end
 	for k, v in pairs(SlashCmdList) do slash[k] = v end
 	local w = { epoch = 1800000000, clients = {}, wire = {}, sent = {}, guilds = {}, council = {}, stewards = {}, hands = {},
-		off = {}, links = {}, logged = true }
+		off = {}, links = {}, logged = true, census = {} }
 	local ok, err = pcall(function()
 		GetGuildInfo = function(unit)
 			local c = w.current
@@ -93,9 +93,14 @@ local function World(fn)
 			c.db = { addonChat = true, chatRooms = true, chatWarned = { A = true, C = true, L = true }, blocked = {} }
 			c.rdb = { guilds = {} }
 			c.Now = function() return w.epoch end
-			-- (The census: each guild's ranks as its reports name them.)
+			-- The scene's known guild identities: its own server roster, or signed identities of
+			-- the other guilds. Adversarial cases explicitly label a rank as census-only.
 			c.Data = { ServerTime = function() return w.epoch end, ClaimGuild = function() return true end,
-				AuthorizedRank = function(n, g) local list = g and w.guilds[g] return list and list[c.FullName(n)] or nil end, FRESH = 900 }
+				AuthorizedRank = function(n, g)
+					local list = g and w.guilds[g]
+					local rank = list and list[c.FullName(n)]
+					return rank, rank ~= nil and (g == cl.guild and "roster" or (w.census[g] and "census" or "signed")) or nil
+				end, FRESH = 900 }
 			c.FullName = function(n, realm)
 				n = tostring(n or ""):gsub("^%s+", ""):gsub("%s+$", "")
 				if n == "" or n:find("-", 1, true) then return n end
@@ -1259,6 +1264,29 @@ test("watch: chat moderation: appeals: three open from one player at most; one a
 		local n = 0
 		for _ in pairs(s.appeals) do n = n + 1 end
 		eq(n, Co.WC.APPEALS_MAX)
+	end)
+end)
+
+test("watch: chat moderation: S testimony needs verified membership and a fresh own roster before shared admission", function()
+	World(function(w)
+		local G, A, B, D = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		local function Word(seq, guild) return ("MD~1~S~T~%d~%d~%s~%s~%d~-~"):format(seq, w.epoch, guild, A.name, w.epoch + 600) end
+		-- Channels.lua really returns 1,false for a new claim with no verified identity.
+		for i = 1, Co.WC.RATE_SELF_ALL + 5 do
+			eq(select(2, w.Inject("CHANNEL", "Claim" .. i .. "-Realm", Co, Word(i, "Olympus Ghosts"))), "guild")
+		end
+		eq(#Co.WC.Store().audit, 0, "unknown claims do not frame the named Watcher")
+		w.census[X] = true
+		eq(select(2, w.Inject("CHANNEL", B.name, Co, Word(100, X))), "guild", "a census rank grants no admission")
+		w.census[X] = nil
+		eq(w.Inject("CHANNEL", B.name, Co, Word(101, X)), true, "a verified member still reports testimony after the hostile flood")
+		local fresh = D.W.FreshRoster
+		D.W.FreshRoster = function() return false end
+		eq(select(2, w.Inject("CHANNEL", B.name, D, Word(102, X))), "guild", "the old own roster grants nothing")
+		D.W.FreshRoster = fresh
+		eq(w.Inject("CHANNEL", B.name, D, Word(103, X)), true, "fresh own-roster membership works")
 	end)
 end)
 
