@@ -243,6 +243,12 @@ test("Weekly public brief: malformed saved snapshots and result records stay unk
 	eq(Value(lines, c.L.BRIEF_PREVIOUS), c.L.BRIEF_UNKNOWN)
 	eq(Value(lines, c.L.BRIEF_VOX), c.L.BRIEF_UNKNOWN)
 	eq(next(c.rdb.weeklyBrief.weeks), nil); eq(c.rdb.weeklyBrief.vox, nil)
+	c.rdb.weeklyBrief.weeks[100] = { known = 1, coverage = "same", at = w.clock }
+	eq(Value(w:As(c.WeeklyBrief.Lines), c.L.BRIEF_ARMY), c.L.BRIEF_UNKNOWN, "missing counts are not usable snapshots")
+	c.rdb.weeklyBrief.weeks[100] = { total = 22.5, known = 1, coverage = "same", at = w.clock }
+	c.rdb.weeklyBrief.weeks[99.5] = { total = 1, known = 1, coverage = "same", at = w.clock }
+	eq(Value(w:As(c.WeeklyBrief.Lines), c.L.BRIEF_ARMY), c.L.BRIEF_UNKNOWN, "fractional count is not silently rounded into a fact")
+	eq(next(c.rdb.weeklyBrief.weeks), nil, "fractional week keys cannot grow an unbounded history between the two resets")
 end)
 
 test("Weekly public brief: spending requires current public permission and public book provenance, never private donor data", function()

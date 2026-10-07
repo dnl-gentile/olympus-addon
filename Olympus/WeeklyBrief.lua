@@ -18,7 +18,8 @@ local function Store()
 	local s = ns.rdb.weeklyBrief
 	if type(s.weeks) ~= "table" then s.weeks = {} end
 	for key, row in pairs(s.weeks) do
-		if type(row) ~= "table" or not Number(row.total) or not Number(row.known) or row.known < 1
+		if type(row) ~= "table" or not Number(row.total) or Number(row.total) ~= row.total
+			or not Number(row.known) or Number(row.known) ~= row.known or row.known < 1
 			or row.total > row.known * ns.Codec.GUILD_CAP or not Number(row.at)
 			or type(row.coverage) ~= "string" or row.coverage == "" or #row.coverage > 16000 then s.weeks[key] = nil end
 	end
@@ -70,9 +71,9 @@ end
 function Brief.Capture()
 	if not ns.IsMember() then return nil end
 	local week, s = Week(), Store()
-	if type(week) ~= "number" or not s then return nil end
+	if not Number(week) or Number(week) ~= week or not s then return nil end
 	for key in pairs(s.weeks) do
-		if type(key) ~= "number" or key < week - 1 or key > week then s.weeks[key] = nil end
+		if key ~= week and key ~= week - 1 then s.weeks[key] = nil end
 	end
 	local c = Census()
 	if c then s.weeks[week] = { total = c.total, known = c.known, coverage = c.coverage, at = c.at } end
