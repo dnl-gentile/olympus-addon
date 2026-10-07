@@ -291,14 +291,46 @@ local function PeekHeavy(mode)
 	local m = type(h) == "table" and type(h.farkle) == "table" and h.farkle[Key()]
 	return type(m) == "table" and type(m.hist) == "table" and m or nil
 end
+-- A peer game can finish before the load-on-demand companion's saved data is attached.
+-- Its compact own ledger survives in the core; recover only its recorded facts for this read,
+-- never manufacture a transcript or write back into either saved store.
+local function HistoryRecord(r)
+	if type(r) ~= "table" or r.g ~= "b" or (r.mode ~= "L" and r.mode ~= "T")
+		or type(r.id) ~= "string" or r.id == "" or type(r.p1) ~= "string" or type(r.p2) ~= "string"
+		or type(r.t) ~= "number" or type(r.s1) ~= "number" or type(r.s2) ~= "number"
+		or (r.w ~= "1" and r.w ~= "2" and r.w ~= "v") then return nil end
+	local seat = Same(r.p1, Me()) and 1 or (Same(r.p2, Me()) and 2 or nil)
+	if not seat and not Same(r.arb, Me()) then return nil end
+	local kind, stake, target, hash
+	if type(r.x) == "string" then kind, stake, target, hash = r.x:match("^([ad])%.([0-9a-z]+)%.(%d+)%.[0-9a-z]+%.([0-9a-f]+)$") end
+	local entry = { id = r.id, t = r.t, host = r.p1, guest = r.p2, arb = r.arb,
+		seat = seat, opp = seat and (seat == 1 and r.p2 or r.p1) or nil,
+		res = r.w == "v" and "V" or (not seat and "D" or (r.w == tostring(seat) and "W" or "L")),
+		s1 = r.s1, s2 = r.s2, why = r.how, reh = r.mode == "T" or nil }
+	if kind then
+		entry.mode, entry.stake, entry.target, entry.hash8 = kind, N36(stake, 0), R().TARGET_BY_CODE[tonumber(target)], hash
+	end
+	return entry
+end
 -- This character's games of both modes, newest first (the screens' "Your games"): the live realm's
 -- and the rehearsals', where every game goes while the King's live switch is off (1.1.6's case).
 function FT.MyGames()
-	local all = {}
+	local all, seen = {}, {}
 	for _, mode in ipairs({ "L", "T" }) do
 		local m = PeekHeavy(mode)
 		for i, e in ipairs(m and m.hist or {}) do
-			if type(e) == "table" then all[#all + 1] = { e = e, t = tonumber(e.t) or 0, i = i, mode = mode } end
+			if type(e) == "table" then
+				all[#all + 1] = { e = e, t = tonumber(e.t) or 0, i = i, mode = mode }
+				if type(e.id) == "string" then seen[mode .. ":" .. e.id] = true end
+			end
+		end
+	end
+	local ledger = Call("ArenaLedger", "MyGames")
+	for i, r in ipairs(type(ledger) == "table" and ledger or {}) do
+		local e = HistoryRecord(r)
+		if e and not seen[r.mode .. ":" .. e.id] then
+			seen[r.mode .. ":" .. e.id] = true
+			all[#all + 1] = { e = e, t = e.t, i = FT.HIST_MAX + i, mode = r.mode }
 		end
 	end
 	-- (each list is newest first: within one second, its own order)
@@ -307,8 +339,12 @@ function FT.MyGames()
 		if a.mode ~= b.mode then return a.mode < b.mode end
 		return a.i < b.i
 	end)
-	local out = {}
-	for i, x in ipairs(all) do out[i] = x.e end
+	local out, count = {}, { L = 0, T = 0 }
+	for _, x in ipairs(all) do
+		if count[x.mode] < FT.HIST_MAX then
+			out[#out + 1] = x.e; count[x.mode] = count[x.mode] + 1
+		end
+	end
 	return out
 end
 

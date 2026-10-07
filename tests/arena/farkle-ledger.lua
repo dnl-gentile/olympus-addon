@@ -13,6 +13,7 @@ local H = ...
 local test, eq = H.test, H.eq
 local World = H.World
 local FW = assert(loadfile(H.ROOT .. "tests/arena/lib/farkle-world.lua"))(H)
+local BoardUI = assert(loadfile(H.ROOT .. "tests/arena/lib/board-ui.lua"))(H)
 local N = World.NAMES
 
 local function NoErrors(w)
@@ -52,8 +53,8 @@ end
 local function Ledger116(o)
 	o = o or {}
 	local w = FW.New({ compliance = not o.open and "shipped" or nil, arenaFiles = Files116() })
-	local a = w:Player(N.fighterA)
-	local b = w:Player(N.fighterB)
+	local a = w:Player(N.fighterA, o.nativeUI and { companion = { state = o.coreOnly and "disabled" or nil } } or nil)
+	local b = w:Player(N.fighterB, o.nativeUI and { companion = { state = o.coreOnly and "disabled" or nil } } or nil)
 	local king = w:Role("king", { companion = { state = "missing" } })
 	local councillor = w:Role("councillor", { companion = { state = "missing" } })
 	local author = w:Role("author", { companion = { state = "missing" } })
@@ -62,7 +63,14 @@ local function Ledger116(o)
 	local players = { a, b, arb }
 	for _, c in ipairs(players) do
 		c.heavyDB = {}
-		w:As(c, function() c.ns.Arena.AttachHeavy(c.heavyDB) c.ns.Arena.SetRules(true) end)
+		if o.nativeUI then
+			c.K = BoardUI.New(function() return w.clock end)
+			c.K.Install(c.globals)
+		end
+		w:As(c, function()
+			if not o.coreOnly then c.ns.Arena.AttachHeavy(c.heavyDB) end
+			c.ns.Arena.SetRules(true)
+		end)
 	end
 	w:Group(players)
 	w:AtInn(a.name, b.name, arb and arb.name or nil)
@@ -73,7 +81,7 @@ end
 
 -- A game without a stake (judged by arb when given): the opening (the host first), the host banks
 -- 150, the guest concedes. Returns the table's id.
-local function Play(w, a, b, arb)
+local function Play(w, a, b, arb, natural)
 	local FTa, FTb = M(w, a, "FarkleTable"), M(w, b, "FarkleTable")
 	local id = assert(FTa.Create({ guest = b.name, target = 2000, mode = arb and "a" or "d", arbiter = arb and arb.name or nil }))
 	w:Run(0)
@@ -87,12 +95,17 @@ local function Play(w, a, b, arb)
 	FTa.Roll(id); FTb.Roll(id)
 	w:Run(0)
 	eq(a.ns.FarkleTable.Get(id).state, "play")
-	w:QueueRoll(a.name, Roll(a, ONE_FIVE))
+	w:QueueRoll(a.name, Roll(a, natural and { 1, 1, 1, 1, 1, 1 } or ONE_FIVE))
 	FTa.Roll(id)
 	w:Run(0)
-	assert(FTa.Keep({ 1, 2 }, "b", id))
+	assert(FTa.Keep(natural and { 1, 2, 3, 4, 5, 6 } or { 1, 2 }, "b", id))
 	w:Run(0)
-	assert(FTb.Concede(id))
+	if natural then
+		if not b.ns.FarkleTable.Get(id).game.over then
+			w:QueueRoll(b.name, Roll(b, { 2, 3, 4, 6, 2, 3 }))
+			assert(FTb.Roll(id))
+		end
+	else assert(FTb.Concede(id)) end
 	w:Run(10)
 	return id
 end
@@ -180,6 +193,90 @@ test("1.1.6 Bones ledger: on the 1.1.6 package, a game for fun between two playe
 		eq(Find(lines, UI.Kit.Name(a.name)), nil, "no game of others")
 		assert(Find(lines, L.ARENA_GAMES_NONE_MINE), "his own, none")
 	end)
+	NoErrors(w)
+end)
+
+for _, mode in ipairs({ "T", "L" }) do
+test("Bones history persistence: actual " .. mode .. " peer target completion before the companion loads remains in both players' own history", function()
+	local w, c = Ledger116({ coreOnly = true, nativeUI = true })
+	if mode == "L" then assert(c.king.Roles.SetSettings({ live = 1 })); w:Run(0) end
+	local id = Play(w, c.a, c.b, nil, true)
+	for _, p in ipairs({ c.a, c.b }) do
+		local t = p.ns.FarkleTable.Get(id)
+		eq(t.game.over, true); eq(t.game.reason, "target"); eq(t.mode, mode); eq(t.stake, 0)
+		eq(#M(w, p, "ArenaLedger").MyGames(), 1, "the core has this participant's actual completed game")
+		eq(p.companion.loaded, nil, "the optional companion was unavailable during play, not replaced by a history mock")
+		p.companion.state = "ok"
+		assert(w:As(p, p.ns.Arena.LoadUI), "load the actual companion and its saved-data handoff after completion")
+		local stored = M(w, p, "FarkleTable").History(mode)
+		eq(#stored, 0, "companion initialization has no transcript/history of the earlier completed game")
+		local history = M(w, p, "FarkleTable").MyGames()
+		eq(#history, 1, "late companion loading cannot hide a saved peer result from Bones history")
+		eq(history[1].id, id); eq(history[1].opp, p == c.a and c.b.name or c.a.name)
+		eq(history[1].res, p == c.a and "W" or "L")
+		eq(history[1].target, 2000); eq(history[1].stake, 0); eq(history[1].hash8, p.ns.FarkleRules.Hash(t.game))
+		eq(#M(w, p, "FarkleTable").MyGames(), 1, "repeated reads do not duplicate the entry")
+		w:As(p, function()
+			local UI, L = p.ns.Arena.ui, p.ns.L
+			eq(p.ns.FarkleTable.History(mode), stored); eq(#stored, 0, "recovery does not write a new saved history/transcript")
+			local row = assert(Find(UI.Pane("bone.history").lines({ key = "bone.history" }), UI.Kit.Name(history[1].opp)))
+			assert(row.text:find(L[p == c.a and "ARENA_WON" or "ARENA_LOST"], 1, true))
+			local canvas = CreateFrame("Frame")
+			UI.Pane("bone.history").detail(canvas, { key = "bone.history", sel = id })
+			assert(canvas.gamesText:GetText():find(UI.Kit.Name(history[1].opp), 1, true), "detail uses the actual core record's participants")
+			assert(canvas.gamesText:GetText():find(L.ARENA_GAMES_ENDED:format(UI.GameHow(M(w, p, "ArenaLedger").MyGames()[1])), 1, true), "detail retains the recorded end reason")
+		end)
+	end
+	NoErrors(w)
+end)
+
+test("Bones history persistence: already loaded " .. mode .. " peer histories retain saved detail without ledger or practice duplicates", function()
+	local w, c = Ledger116({ nativeUI = true })
+	if mode == "L" then assert(c.king.Roles.SetSettings({ live = 1 })); w:Run(0) end
+	for _, p in ipairs({ c.a, c.b }) do assert(w:As(p, p.ns.Arena.LoadUI)) end
+	local id = Play(w, c.a, c.b, nil, true)
+	for _, p in ipairs({ c.a, c.b }) do
+		local saved = M(w, p, "FarkleTable").History(mode)
+		eq(#saved, 1); eq(saved[1].id, id)
+		local history = M(w, p, "FarkleTable").MyGames()
+		eq(#history, 1); eq(history[1], saved[1], "the richer actual heavy record wins over its compact duplicate")
+		eq(saved[1].hash8, p.ns.FarkleRules.Hash(p.ns.FarkleTable.Get(id).game))
+	end
+	local practice = assert(M(w, c.a, "FarkleTable").Practice({ target = 2000, first = 1 }))
+	assert(M(w, c.a, "FarkleTable").Concede(practice)); w:Run(10)
+	local before = M(w, c.a, "FarkleTable").History(mode)
+	eq(#M(w, c.a, "FarkleTable").MyGames(), 2, "one peer game and one House game, no compact practice duplicate")
+	eq(#M(w, c.king, "ArenaLedger").AllGames(), 2, "the auditor holds their actual records")
+	eq(#M(w, c.king, "FarkleTable").MyGames(), 0, "audited games of others never enter the auditor's own Bones history")
+	-- The game's actual logout/login saved-data path, not a fabricated history row.
+	w:Logout(c.a); w:Login(c.a)
+	assert(w:As(c.a, c.a.ns.Arena.LoadUI))
+	local saved = M(w, c.a, "FarkleTable").History(mode)
+	eq(#saved, #before)
+	local history = M(w, c.a, "FarkleTable").MyGames()
+		eq(#history, 2)
+		eq(history[1], M(w, c.a, "FarkleTable").History("T")[1], "House practice is always T, even beside a live peer game")
+		eq(history[2], saved[mode == "L" and 1 or 2])
+	eq(history[1].id, practice); eq(history[2].id, id, "older saved peer facts are retained on reload")
+	NoErrors(w)
+end)
+end
+
+test("Bones history persistence: compact recovery keeps the existing per-mode history cap", function()
+	local w, c = Ledger116({ nativeUI = true })
+	for _, p in ipairs({ c.a, c.b }) do
+		assert(w:As(p, p.ns.Arena.LoadUI))
+		p.ns.FarkleTable.HIST_MAX = 2 -- smaller real cap exercises pruning with three actual completions
+	end
+	local first = Play(w, c.a, c.b, nil, true)
+	w:Run(31)
+	local second = Play(w, c.a, c.b)
+	local practice = assert(M(w, c.a, "FarkleTable").Practice({ target = 2000, first = 1 }))
+	assert(M(w, c.a, "FarkleTable").Concede(practice)); w:Run(0)
+	local history = M(w, c.a, "FarkleTable").MyGames()
+	eq(#M(w, c.a, "ArenaLedger").MyGames(), 3, "all three compact records still exist")
+	eq(#history, 2); eq(history[1].id, practice); eq(history[2].id, second)
+	for _, h in ipairs(history) do assert(h.id ~= first, "recovery cannot resurrect the oldest game past the Bones cap") end
 	NoErrors(w)
 end)
 
