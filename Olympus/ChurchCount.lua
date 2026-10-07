@@ -1023,6 +1023,40 @@ local function CloseCheck(c)
 end
 Count.CloseCheck = CloseCheck
 
+-- A channel check is public, but its id grants no right to fill the desk's answer slots. Keep
+-- the ordinary members our fresh roster names and the authenticated keepers/council already
+-- heard when it goes out. Signed keepers of other guilds may relay their own roster facts.
+local function CheckRecipients()
+	local out = {}
+	local R = ns.Roster
+	if R and R.Fresh and R.Fresh() then
+		for _, row in ipairs(R.members or {}) do
+			local k = Key(row.full or row.name)
+			if k then out[k] = "roster" end
+		end
+	end
+	for _, h in pairs(Church.Heard()) do
+		local k = Key(h.name)
+		if k then
+			if Church.IsKeeper(h.name) then out[k] = "keeper"
+			elseif Church.IsKing(h.name) then out[k] = "king"
+			elseif ns.IsHighCouncillor(ns.FullName(h.name)) then out[k] = "council" end
+		end
+	end
+	return out
+end
+
+local function ExpectedAnswer(c, sender)
+	local kind = c.expected and c.expected[Key(sender)]
+	if kind == "roster" then
+		local R = ns.Roster
+		return R and R.Fresh and R.Fresh() and R.RankOf(ns.FullName(sender)) ~= nil
+	elseif kind == "keeper" then return Church.IsKeeper(sender)
+	elseif kind == "king" then return Church.IsKing(sender)
+	elseif kind == "council" then return ns.IsHighCouncillor(ns.FullName(sender)) == true end
+	return false
+end
+
 -- The desk's work each tick: due checks out within CHECKS_HOUR, open ones closed after CHECK_TTL.
 function Count.DeskTick(now)
 	local t = ns.Now()
@@ -1040,7 +1074,7 @@ function Count.DeskTick(now)
 			openSet[q.id .. ":" .. q.why] = true
 			nextCheck = (nextCheck + 1) % 1679616
 			local cid = B36(nextCheck)
-			checks[cid] = { cid = cid, rid = q.id, why = q.why, sent = t, answers = {}, from = {} }
+			checks[cid] = { cid = cid, rid = q.id, why = q.why, sent = t, answers = {}, from = {}, expected = CheckRecipients() }
 			checkTimes[#checkTimes + 1] = t
 			stats.checks = stats.checks + 1
 			ns.Comm.Send("CHANNEL", ("NS~1~q~%s~%s~%s"):format(cid, r.n, q.why), nil, false, false)
@@ -1086,6 +1120,9 @@ function Count.TakeAnswer(sender, text)
 	local c = checks[cid]
 	if not c then return Drop("no check") end
 	if not ns.IsFederation(guild) then return Drop("guild") end
+	local M = ns.Moderation
+	if M and M.Hides and M.Hides(sender, nil) then return Drop("netoff") end
+	if not ExpectedAnswer(c, sender) then return Drop("unasked") end
 	local k = Key(sender)
 	if c.from[k] then return Drop("twice") end
 	if #c.answers >= Count.CHECK_ANSWERS then return Drop("enough") end
