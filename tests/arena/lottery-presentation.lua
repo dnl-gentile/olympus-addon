@@ -43,6 +43,34 @@ local function RollingDigits(fn)
 	assert(ok, err)
 end
 
+test("Lottery presentation: Mechanostrider and longer animal names cannot wrap over the result numbers", function()
+	local w, c, UI, f = Client()
+	-- The real result frame uses the client's FontString measurement. The fixture's font estimate
+	-- is not a claim about Morpheus metrics; use a deliberately wider measured label to exercise
+	-- both the shrink and the next draw's normal-size restoration, while keeping the actual name.
+	local row, head = f.prizes[1], f.head
+	local label = "01 " .. c.ns.L.LOTTERY_BEAST_MECHANOSTRIDER
+	for _, name in ipairs({ row.name, head.name }) do
+		local measure = name.GetStringWidth
+		name.GetStringWidth = function(self)
+			return measure(self) * (self:GetText() == label and 1.15 or 1)
+		end
+	end
+	Draw(w, c, UI, f, { 1, 5, 9, 13, 17 }); w:Run(10)
+	eq(row.name:GetText(), label)
+	for _, name in ipairs({ row.name, head.name }) do
+		eq(name.wrap, false, "one line, never across the numbers")
+		assert(name:GetStringWidth() <= name:GetWidth(), "full animal name fits")
+	end
+	assert(row.name.size < 16, "wide name shrinks rather than wrapping")
+	assert(row.name:GetStringHeight() <= 20, "above the row's number range")
+	assert(head.name:GetStringHeight() <= 34, "above the head icon and number")
+	Draw(w, c, UI, f, prizes); w:Run(10)
+	eq(row.name.size, 16, "normal size restored for Sheep")
+	eq(head.name.size, 26, "normal head size restored")
+	Errors(c)
+end)
+
 test("Lottery presentation: original rolling tiles land sequentially before the free result", function()
 	local w, c, UI, f = Client()
 	eq(UI.IsShown(), false, "direct entry, not history/profile")
