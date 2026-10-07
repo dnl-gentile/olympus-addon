@@ -34,6 +34,8 @@
   Guild treasuries in one list with one search; Bones between players for points, at a tavern or at a
   camp; no arbiters without bets (duels and Bones between their two players); duel points that
   consider levels; Find a player by level, distance and game
+- v1.2.1 Candidate (not published): Bones table chat; Watch and Wanted relay fixes; weekly briefs;
+  local chat label options
 
 ## Next (after the base is proven in game)
 - ~~Guild leader offline for X days~~ (v0.3)

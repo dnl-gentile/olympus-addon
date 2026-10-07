@@ -29,6 +29,8 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
 
 ## Recent versions
 
+- **1.2.1**: Candidate (not published): Bones table chat; Watch and Wanted relay fixes; weekly briefs;
+  local chat label options
 - **1.2.0**: The Watch (each guild's moderation desk, the Tabards in it); crafting requests on the Crafters
   tab; the King's arrow on the minimap; Vox Populi's history and a guild master's own questions; the
   Guild treasuries in one list with one search; Bones between players for points, at a tavern or at a
@@ -43,7 +45,6 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
   way into the game's own UI listed and asked of one gate: with the gamepad UI no typed command, no
   button in the guild windows, nothing on the world map; a switch steps back and says what a
   `/reload` completes); the nameplate marks no longer hook a plate's own layout (Lua errors)
-- **1.1.4**: Crafters as its own tab; the side tabs keep one order when they run out of room
 
 Every version's notes are in the [GitHub releases](https://github.com/dnl-gentile/olympus-addon/releases). This page is the short one for CurseForge: the [README](https://github.com/dnl-gentile/olympus-addon#olympus) has every section in full.
 
