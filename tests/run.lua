@@ -59778,7 +59778,7 @@ end)()
 	-- be one, Harness.Win.Metal).
 	local function WithLetters(fn)
 		WithUI(function()
-			local saved = { letters = ns.Letters, read = ns.db.lettersRead, sessions = ns.db.sessions, combat = rawget(_G, "InCombatLockdown"),
+			local saved = { letters = ns.Letters, read = ns.db.lettersRead, baseline = ns.db.lettersAutoVersion, sessions = ns.db.sessions, combat = rawget(_G, "InCombatLockdown"),
 				instance = IsInInstance, gamepad = ns.GamepadUI, member = ns.IsMember, log = ns.Log, print = ns.Print, chat = ns.db.addonChat,
 				template = TEMPLATES.PortraitFrameTemplate }
 			local w = { on = {}, after = {}, every = {}, printed = {} }
@@ -59787,7 +59787,7 @@ end)()
 					saved.template(f)
 					f.portrait = NewWidget("Texture", nil, f)
 				end
-				ns.db.lettersRead, ns.db.sessions = nil, 5
+				ns.db.lettersRead, ns.db.lettersAutoVersion, ns.db.sessions = nil, nil, 5
 				ns.Log = function() end
 				ns.Print = function(m) w.printed[#w.printed + 1] = tostring(m) end
 				w.UI = LoadUI()
@@ -59811,6 +59811,7 @@ end)()
 			end)
 			TEMPLATES.PortraitFrameTemplate = saved.template
 			ns.Letters, ns.db.lettersRead, ns.db.sessions = saved.letters, saved.read, saved.sessions
+			ns.db.lettersAutoVersion = saved.baseline
 			InCombatLockdown, IsInInstance, ns.IsMember = saved.combat, saved.instance, saved.member; GamepadStyle(nil)
 			ns.Log, ns.Print, ns.db.addonChat = saved.log, saved.print, saved.chat
 			if not ok then error(err, 0) end
@@ -59971,23 +59972,20 @@ end)()
 		end)
 	end)
 
-	-- (Changed on purpose, the 1.1.5 review: a first session showed none, taken for a new install. On
-	-- WoW: Forever's beta, which never loads the saved variables back, every session is a first one,
-	-- so the letter never showed by itself there; it now shows as after an update.)
-	test("1.1.5 version letters: a first session shows it too (the Forever beta, whose saved variables never load, has nothing else); a version with no letter shows none", function()
+	-- Deliberate UX change: a lost account database is indistinguishable from a fresh install.
+	-- Neither justifies claiming an upgrade or reading a letter the player never saw. Silence
+	-- the automatic notice, retain a separate version baseline, and keep manual history available.
+	test("1.2.1 version letters: a first or unknown session stays quiet without marking the letter read; a version with no letter shows none", function()
 		for _, sessions in ipairs({ 1, 0 }) do
 			WithLetters(function(w)
 				ns.db.sessions = sessions -- (Core.lua counts the account's sessions: 1 at every login on the beta)
 				local Lt = w.Letters
 				w.login()
-				eq(Lt.IsRead(ns.VERSION), false, "still to show")
-				local a = w.after[1]
-				assert(a and a.sec == Lt.LOGIN_WAIT, "after login, as after an update")
-				ns.Consent.Show():Hide() -- (the privacy page asked first, and closed)
-				w.run()
-				assert(Lt.Frame() and Lt.Frame():IsShown(), "shown")
-				eq(Lt.Frame().version, ns.VERSION)
-				eq(ns.db.lettersRead[ns.VERSION], true, "then read for the session's account")
+				eq(Lt.IsRead(ns.VERSION), false, "not falsely marked read")
+				eq(ns.db.lettersAutoVersion, ns.VERSION, "separate automatic baseline")
+				eq(#w.after, 0); eq(#w.every, 0, "no idle retry timer")
+				w.tick(); eq(Lt.Ask("login"), false)
+				eq(Lt.Frame(), nil, "no automatic popup")
 			end)
 		end
 		WithLetters(function(w)
@@ -60001,6 +59999,101 @@ end)()
 			ns.VERSION = savedVersion
 			if not ok then error(err, 0) end
 		end)
+	end)
+
+	test("1.2.1 version letters: two empty-database logins stay quiet, but manual history and gamepad reading remain available", function()
+		for login = 1, 2 do
+			WithLetters(function(w)
+				ns.db.sessions = 1 -- a fresh real module and forgotten saved state on each login
+				GamepadStyle(true)
+				w.login(); w.run(); w.tick()
+				eq(#w.after, 0); eq(#w.every, 0); eq(w.Letters.Frame(), nil)
+				eq(w.Letters.IsRead(ns.VERSION), false)
+				if login == 2 then
+					local f = w.Letters.ShowHistory()
+					eq(f:IsShown(), true); eq(w.Letters.IsRead(ns.VERSION), false, "history list is not reading")
+					eq(w.Letters.Show(ns.VERSION), true)
+					eq(w.Letters.IsRead(ns.VERSION), true, "only the actual letter marks read")
+					eq(f.version, ns.VERSION)
+					for _, name in ipairs(UISpecialFrames) do assert(name ~= "OlympusLetterFrame", "gamepad owns its escape path") end
+					f.done:Click(); eq(f:IsShown(), false)
+				end
+			end)
+		end
+	end)
+
+	test("1.2.1 version letters: retained baseline survives actual module reload without consuming unread history or replaying test builds", function()
+		local baseline, read
+		WithLetters(function(w)
+			ns.db.sessions = 1; w.login()
+			baseline, read = ns.db.lettersAutoVersion, ns.db.lettersRead
+			eq(baseline, ns.VERSION); eq(w.Letters.IsRead(ns.VERSION), false)
+		end)
+		WithLetters(function(w)
+			ns.db.sessions, ns.db.lettersAutoVersion, ns.db.lettersRead = 2, baseline, read
+			local savedBuild = ns.TEST_BUILD
+			local ok, err = pcall(function()
+				for _, n in ipairs({ 1, 2 }) do
+					ns.TEST_BUILD = { n = n, base = ns.VERSION }
+					w.login(); w.tick()
+					eq(#w.after, 0); eq(#w.every, 0)
+					eq(w.Letters.IsRead(ns.VERSION), false, "same release, different test build is not an update")
+					eq(w.Letters.Frame(), nil)
+				end
+				eq(w.Letters.Show("1.1.5"), true)
+				eq(ns.db.lettersAutoVersion, baseline, "reading an older letter does not reset the baseline")
+				eq(w.Letters.IsRead(ns.VERSION), false)
+			end)
+			ns.TEST_BUILD = savedBuild
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.2.1 version letters: a genuine retained version upgrade shows once after privacy, then stays quiet across actual module reload", function()
+		local savedVersion, baseline, read = ns.VERSION
+		local ok, err = pcall(function()
+			ns.VERSION = "1.2.0"
+			WithLetters(function(w)
+				ns.db.sessions = 1; w.login()
+				baseline, read = ns.db.lettersAutoVersion, ns.db.lettersRead
+				eq(baseline, "1.2.0"); eq(w.Letters.IsRead("1.2.0"), false)
+			end)
+			ns.VERSION = savedVersion
+			WithLetters(function(w)
+				ns.db.sessions, ns.db.lettersAutoVersion, ns.db.lettersRead = 2, baseline, read
+				w.login(); eq(w.after[1].sec, w.Letters.LOGIN_WAIT); eq(#w.every, 1)
+				ns.Consent.Show():Hide(); w.run()
+				eq(w.Letters.Frame():IsShown(), true); eq(w.Letters.Frame().version, savedVersion)
+				eq(w.Letters.IsRead("1.2.0"), true, "unread previous letter included before current release")
+				eq(w.Letters.IsRead(savedVersion), true)
+				baseline, read = ns.db.lettersAutoVersion, ns.db.lettersRead
+				w.Letters.Hide(); w.tick(); eq(w.every[1].cancelled, true)
+			end)
+			WithLetters(function(w)
+				ns.db.sessions, ns.db.lettersAutoVersion, ns.db.lettersRead = 3, baseline, read
+				w.login(); eq(#w.after, 0); eq(#w.every, 0); eq(w.Letters.Frame(), nil)
+			end)
+		end)
+		ns.VERSION = savedVersion
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.2.1 version letters: a downgrade is not an update; malformed legacy baseline cannot break unread notification", function()
+		WithLetters(function(w)
+			ns.db.lettersAutoVersion = "1.2.2"
+			w.login(); eq(#w.after, 0); eq(#w.every, 0)
+			eq(w.Letters.IsRead(ns.VERSION), false)
+			eq(w.Letters.Show(ns.VERSION), true, "manual current letter stays available")
+		end)
+		for _, baseline in ipairs({ {}, true, "broken", string.rep("1", 100) }) do
+			WithLetters(function(w)
+				ns.db.lettersAutoVersion = baseline
+				w.login(); eq(#w.after, 1); eq(#w.every, 1, "healthy legacy account keeps its unread notice")
+				ns.Consent.Show():Hide(); w.run()
+				eq(w.Letters.Frame():IsShown(), true)
+				eq(ns.db.lettersAutoVersion, ns.VERSION, "actual showing repairs the baseline")
+			end)
+		end
 	end)
 
 	test("1.1.5 version letters: never in combat, an instance or outside an Olympus guild, nor while the privacy page shows or still has a line to ask; then the minute's try shows it", function()
@@ -60295,7 +60388,8 @@ end)()
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
 			assert(doc:find("**Version letters** (1.1.5)", 1, true), path .. ": the letters")
-			assert(doc:find("On the Forever beta, whose saved variables never load, it shows again every session", 1, true), path .. ": the letters on the beta")
+			assert(doc:find("Without saved history the letter stays quiet and unread", 1, true), path .. ": unknown history is not an update or a read")
+			assert(doc:find("it cannot detect updates; manual history stays available without repeat login popups", 1, true), path .. ": the beta persistence limitation")
 			assert(doc:find("| `/oly letters [version]` |", 1, true), path .. ": the command")
 			assert(doc:find("**Marks in the game's own chat (1.1.5).**", 1, true), path .. ": the marks")
 			assert(doc:find("in the guild their own Olympus messages speak for (someone else's report alone proves nothing", 1, true), path .. ": what proves a mark")

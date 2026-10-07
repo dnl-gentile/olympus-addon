@@ -12,11 +12,13 @@ local L = ns.L
 -- member of an Olympus guild (outside one the addon offers nothing but the Join Olympus screen),
 -- never in combat or an instance, and only while no first-open page shows or waits: the privacy
 -- page (Consent.lua) is asked first, and the letter waits until it is closed. Once a version,
--- saved per account (ns.db.lettersRead[version]). A first session shows it too: WoW: Forever's
--- beta client saves addon data but never loads it back, so there every session is a first one
--- (Core.lua's db.sessions is 1 each time), and taking that for a new install kept the letter from
--- ever showing by itself. There it shows again every session, as the privacy page asks again; a
--- real new install sees the running version's letter once. Only the running version's letter
+-- saved per account (ns.db.lettersRead[version]). A first/unknown session stays quiet: its
+-- installed version is an automatic baseline, not a claim that the letter was read. WoW:
+-- Forever's beta can write saved data without loading it, making every login look new. Without
+-- retained state an upgrade cannot be distinguished from that login, so the history remains
+-- available manually rather than opening the same letter every session. With retained state,
+-- a newer version can show once; a healthy legacy install still shows its unread update.
+-- Only the running version's letter
 -- shows by itself, except 1.2.1 also includes 1.2.0 first when that letter is unread. Older
 -- letters otherwise wait in the list. The history still opens each letter individually.
 -- The gamepad UI: Olympus's own frame, never the game's popup; nothing in it takes the keyboard
@@ -142,7 +144,31 @@ local function Read()
 	return db.lettersRead
 end
 function Letters.IsRead(version) return Read()[version] == true end
-function Letters.MarkRead(version) if version then Read()[version] = true end end
+function Letters.MarkRead(version)
+	if version then
+		Read()[version] = true
+		if version == ns.VERSION and type(ns.db) == "table" then ns.db.lettersAutoVersion = version end
+	end
+end
+
+local function AutoEligible()
+	local db = ns.db
+	if type(db) ~= "table" then return false end
+	-- Core increments this account's counter when saved variables load. Unknown history must
+	-- not impersonate an update, nor mark an unseen letter read to suppress the nuisance.
+	if type(db.sessions) ~= "number" or not (db.sessions > 1) then
+		db.lettersAutoVersion = ns.VERSION
+		return false
+	end
+	local baseline = db.lettersAutoVersion
+	if type(baseline) == "string" and #baseline <= 12 and baseline:match("^%d+%.%d+%.%d+$") then
+		local W = ns.Workshop
+		return W and not W.missing and type(W.Newer) == "function" and W.Newer(ns.VERSION, baseline) == true or false
+	end
+	-- Existing accounts predate the separate baseline. Their unread current letter retains
+	-- the established upgrade notice, until an actual show records it below.
+	return true
+end
 
 local function Busy()
 	return (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance()) and true or false
@@ -347,21 +373,21 @@ function Letters.Hide() if frame then frame:Hide() end end
 -- By itself, once a version
 ---------------------------------------------------------------------------
 
--- The running version's letter, if it has one and it was never shown, when nothing keeps it
--- back (see the top of the file). True when it showed.
+-- A retained upgrade's running letter, if unread, when nothing keeps it back (see above).
+-- True when it showed. The manual history does not use this automatic eligibility check.
 function Letters.Ask(reason)
 	local v = ns.VERSION
-	if not Letters.Has(v) or Letters.IsRead(v) then return false end
+	if not Letters.Has(v) or Letters.IsRead(v) or not AutoEligible() then return false end
 	if ns.IsMember() ~= true or Busy() or PageFirst() then return false end
 	if frame and frame:IsShown() then return false end
 	ns.Log("version letter %s shown (%s)", tostring(v), tostring(reason or "?"))
 	return Letters.Show(v, true)
 end
 
--- The running version's letter, if it was never shown on this account (a first session too: see
--- the top of the file), from LOGIN_WAIT after login, then on the minute until it could.
+-- A retained upgrade's unread letter, from LOGIN_WAIT after login, then on the minute until
+-- it could. A first/unknown login creates no deferred callbacks or polling timer.
 function Letters.OnLogin()
-	if not Letters.Has(ns.VERSION) or Letters.IsRead(ns.VERSION) then return end
+	if not Letters.Has(ns.VERSION) or Letters.IsRead(ns.VERSION) or not AutoEligible() then return end
 	ns.After(Letters.LOGIN_WAIT, "version letter", function() Letters.Ask("login") end)
 	ticker = ns.Every(60, "version letter", function()
 		if Letters.IsRead(ns.VERSION) then

@@ -1687,8 +1687,9 @@ the game is removed at login, with one line saying so.
 - **Version letters** (1.1.5): after the addon updates, once a version, a short letter on
   parchment, in a window like the Olympus window's, says what changed in that version, in the
   dev's own words. It waits until the privacy page is closed, and never opens in combat, in a
-  dungeon or outside an Olympus guild. On the Forever beta, whose saved variables never load, it
-  shows again every session, as the privacy page asks again. The Olympus window's help button
+  dungeon or outside an Olympus guild. Without saved history the letter stays quiet and unread.
+  If the beta forgets saved data, it cannot detect updates; manual history stays available
+  without repeat login popups. With retained data, updates can show once. The Olympus window's help button
   (the **i** left of the X) keeps every letter: **Version letters** on its page lists them,
   newest first, and a click opens one; `/oly letters` (or `/oly letters 1.1.4`) does too. Nothing
   is sent: which letters you saw is kept on your computer, for your account.
