@@ -1,7 +1,7 @@
 local _, own = ...; local ns = own.host; if not ns then return end
 local UI, L = own.ArenaUI, ns.L
 local Chat = {}; UI.BonesChat = Chat
-local panel, board, id, selected
+local panel, candidate, board, id, selected
 local states = {} -- table -> independent session-only tab drafts and collapsed state
 local used = 0
 local function State() return id and states[id] end
@@ -31,21 +31,28 @@ function Chat.Select(tab)
 	return true
 end
 local function Build(parent)
-	panel = CreateFrame("Frame", "OlympusArenaBonesChat", parent)
-	panel:SetPoint("TOPLEFT", parent, "TOPRIGHT", 8, 0); panel:SetHeight(400)
-	panel.toggle = CreateFrame("Button", nil, panel)
-	panel.toggle:SetSize(90, 24); panel.toggle:SetPoint("TOPLEFT")
-	panel.toggle.text = panel.toggle:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	panel.toggle.text:SetAllPoints()
-	panel.toggle:SetScript("OnClick", function()
-		local s = State(); if not s then return end
-		s.collapsed = not s.collapsed; Chat.Refresh(true)
-	end)
-	panel.strip = CreateFrame("Frame", nil, panel)
-	panel.strip:SetPoint("TOPLEFT", 0, -24); panel.strip:SetHeight(24)
-	local wash = panel.strip:CreateTexture(nil, "BACKGROUND")
-	wash:SetAllPoints(); wash:SetColorTexture(0.35, 0.35, 0.37, 1)
-	panel.conversation = ns.ChatWindow.CreateEmbedded(panel, {
+	-- Keep a failed optional construction hidden and unpublished. A later real module load
+	-- retries with the same candidate; board callbacks never see a half-built conversation.
+	local p = candidate
+	if not p then
+		p = CreateFrame("Frame", "OlympusArenaBonesChat", parent)
+		p:Hide()
+		p:SetPoint("TOPLEFT", parent, "TOPRIGHT", 8, 0); p:SetHeight(400)
+		p.toggle = CreateFrame("Button", nil, p)
+		p.toggle:SetSize(90, 24); p.toggle:SetPoint("TOPLEFT")
+		p.toggle.text = p.toggle:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		p.toggle.text:SetAllPoints()
+		p.toggle:SetScript("OnClick", function()
+			local s = State(); if not s then return end
+			s.collapsed = not s.collapsed; Chat.Refresh(true)
+		end)
+		p.strip = CreateFrame("Frame", nil, p)
+		p.strip:SetPoint("TOPLEFT", 0, -24); p.strip:SetHeight(24)
+		local wash = p.strip:CreateTexture(nil, "BACKGROUND")
+		wash:SetAllPoints(); wash:SetColorTexture(0.35, 0.35, 0.37, 1)
+		candidate = p
+	end
+	local conversation = ns.ChatWindow.CreateEmbedded(p, {
 		maxBytes = ns.ArenaChat.TEXT_MAX,
 		room = Room, maySend = Writable,
 		label = function() return selected == "players" and L.BONES_CHAT_PLAYERS or L.BONES_CHAT_EVERYONE end,
@@ -54,9 +61,12 @@ local function Build(parent)
 		changed = function(text) local s = State(); if s and selected then s.drafts[selected] = text end end,
 		nextTab = function() Chat.Select(selected == "players" and "everyone" or "players") end,
 	})
-	panel.conversation:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -48)
-	panel.conversation:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
-	panel:Hide()
+	if not conversation then return false end
+	conversation:SetPoint("TOPLEFT", p, "TOPLEFT", 0, -48)
+	conversation:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", 0, 0)
+	p.conversation = conversation
+	panel, candidate = p, nil
+	return true
 end
 function Chat.Refresh(force)
 	if not panel then return end
@@ -96,13 +106,23 @@ function Chat.Refresh(force)
 	panel:Show(); if Chat.layout then Chat.layout(panel:GetWidth() + 8) end
 end
 function Chat.Attach(parent, tableId, live, layout)
-	if not ns.ChatWindow or not ns.ChatWindow.CreateEmbedded or not ns.Views or not ns.Views.DrawNav then return end
 	board, Chat.layout = parent, layout
+	local C, V = ns.ChatWindow, ns.Views
+	-- Core's restart stand-ins have callable no-op methods, but cannot create a conversation.
+	if type(C) ~= "table" or C.missing == true or type(C.CreateEmbedded) ~= "function"
+		or type(V) ~= "table" or V.missing == true or type(V.DrawNav) ~= "function" then
+		id = nil
+		if panel then Chat.Hide() elseif Chat.layout then Chat.layout(0) end
+		return
+	end
 	local A = ns.ArenaChat
 	if not live or type(tableId) ~= "string" or not A or not A.TableRooms or not A.TableRooms(tableId) then
 		id = nil; if panel then Chat.Refresh() end return
 	end
-	if not panel then Build(parent) end
+	if not panel and not Build(parent) then
+		id = nil; if Chat.layout then Chat.layout(0) end
+		return
+	end
 	if id ~= tableId then
 		id = tableId; states[id] = states[id] or { drafts = {}, collapsed = false }
 		used = used + 1; states[id].used = used

@@ -4,7 +4,7 @@ local test, eq = H.test, H.eq
 local FW = assert(loadfile(H.ROOT .. "tests/arena/lib/farkle-world.lua"))(H)
 local BoardUI = assert(loadfile(H.ROOT .. "tests/arena/lib/board-ui.lua"))(H)
 local N = H.World.NAMES
-local function Setup(w, c, screen)
+local function Setup(w, c, screen, renderer)
 	c.K = BoardUI.New(function() return w.clock end, { screen = screen })
 	c.K.Install(c.globals)
 	local function Members()
@@ -20,12 +20,20 @@ local function Setup(w, c, screen)
 		assert(loadfile(H.ADDON_DIR .. "Roster.lua"))("Olympus", c.ns)
 		assert(loadfile(H.ADDON_DIR .. "Filter.lua"))("Olympus", c.ns)
 		assert(loadfile(H.ADDON_DIR .. "Views.lua"))("Olympus", c.ns)
-		assert(loadfile(H.ADDON_DIR .. "ChatWindow.lua"))("Olympus", c.ns)
+		if renderer ~= "missing" then
+			assert(loadfile(H.ADDON_DIR .. "ChatWindow.lua"))("Olympus", c.ns)
+			if renderer == "nil" then
+				-- A failed optional factory must not publish a partly built panel. Authority and all
+				-- game/transport functions remain real; restore this actual factory for the retry.
+				c.embeddedFactory = c.ns.ChatWindow.CreateEmbedded
+				c.ns.ChatWindow.CreateEmbedded = function() return nil end
+			end
+		end
 	end)
 	return c
 end
-local function Seat(w, name, screen, guild) return Setup(w, w:Player(name, { guild = guild, companion = {} }), screen) end
-local function Live(screen, guild)
+local function Seat(w, name, screen, guild, renderer) return Setup(w, w:Player(name, { guild = guild, companion = {} }), screen, renderer) end
+local function Live(screen, guild, renderer)
 	local files = {}
 	for _, file in ipairs(H.World.ARENA_FILES) do
 		if file == "ArenaChat" then files[#files + 1] = "WatchChat" end
@@ -33,7 +41,7 @@ local function Live(screen, guild)
 	end
 	local w = FW.New({ arenaFiles = files })
 	local king = Setup(w, w:Player(N.king, { guild = H.World.KING_GUILD, rank = 0, companion = {} }), screen)
-	local a, b, s = Seat(w, N.fighterA, screen, guild), Seat(w, N.fighterB, screen, guild), Seat(w, N.bettor1, screen, guild)
+	local a, b, s = Seat(w, N.fighterA, screen, guild, renderer), Seat(w, N.fighterB, screen, guild), Seat(w, N.bettor1, screen, guild)
 	for _, c in ipairs({ king, a, b, s }) do assert(w:As(c, c.ns.Roster.Scan)) end
 	assert(king.Roles.SetSettings({ live = 1 })); w:Run(0)
 	a.Arena.SetRules(true); b.Arena.SetRules(true); s.Arena.SetRules(true)
@@ -65,6 +73,42 @@ local function Clean(w)
 		if c.K then eq(#c.K.errors, 0, table.concat(c.K.errors, "\n")) end
 	end
 end
+
+test("Bones table chat: Core's actual missing-module stand-in leaves the game usable and retries when the real chat loads", function()
+	local w, a, b, _, id = Live(nil, nil, "missing")
+	eq(a.ns.ChatWindow.missing, true, "the real Core stand-in, not a replacement authorization mock")
+	eq(type(a.ns.ChatWindow.CreateEmbedded), "function", "the stand-in's metatable supplies callable no-ops")
+	eq(UI(a).Frame(), nil, "no incomplete conversation is exposed")
+	eq(a.ns.Arena.ui.FarkleBoard._.parts().win:IsShown(), true, "the actual game board still renders")
+	eq(w:As(a, a.ns.FarkleTable.View, id).state, "play")
+	w:Run(2); Clean(w)
+	w:As(a, function() assert(loadfile(H.ADDON_DIR .. "ChatWindow.lua"))("Olympus", a.ns) end)
+	assert(w:As(a, a.ns.FarkleTable.ShowUI, "board", id))
+	eq(Frame(a):IsShown(), true)
+	Send(w, a, "The real chat is ready")
+	eq(Frame(b).conversation.bubbles[1].body:GetText(), "The real chat is ready")
+	Clean(w)
+end)
+
+test("Bones table chat: a nil optional factory stays hidden and bounded, then recovers without a poisoned panel", function()
+	local w, a, b, _, id = Live(nil, nil, "nil")
+	local board = a.ns.Arena.ui.FarkleBoard
+	eq(UI(a).Frame(), nil)
+	for _ = 1, 3 do assert(w:As(a, a.ns.FarkleTable.ShowUI, "board", id)) end
+	local count = 0
+	for _, frame in ipairs(a.K.frames) do
+		if frame:GetName() == "OlympusArenaBonesChat" then count = count + 1; eq(frame:IsShown(), false) end
+	end
+	eq(count, 1, "retry reuses one hidden candidate instead of accumulating named frames")
+	eq(board._.parts().win:IsShown(), true)
+	w:Run(2); Clean(w)
+	a.ns.ChatWindow.CreateEmbedded = a.embeddedFactory
+	assert(w:As(a, a.ns.FarkleTable.ShowUI, "board", id))
+	eq(Frame(a):IsShown(), true)
+	Send(w, a, "The retried conversation works")
+	eq(Frame(b).conversation.bubbles[1].body:GetText(), "The retried conversation works")
+	Clean(w)
+end)
 
 test("Bones table chat: two real players exchange private and Everyone lines, a spectator has no Players tab or cached access", function()
 	local w, a, b, s, id = Live()
