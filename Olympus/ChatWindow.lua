@@ -2730,7 +2730,7 @@ end
 
 -- The "x" at the end of the search box, as every tab's (Views.lua): empties it and lets go of the
 -- keyboard. A button of its own, never a focus change.
-local function ClearButton(sb)
+local function ClearButton(sb, changed)
 	local x = CreateFrame("Button", nil, sb)
 	x:SetSize(16, 16)
 	x:SetPoint("RIGHT", sb, "RIGHT", -2, 0)
@@ -2740,7 +2740,7 @@ local function ClearButton(sb)
 	x:SetScript("OnClick", function()
 		sb:SetText("")
 		sb:ClearFocus()
-		ns.SafeCall("chat tab search", SearchChanged, sb)
+		ns.SafeCall("chat tab search", changed or SearchChanged, sb)
 	end)
 	x:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -2752,22 +2752,65 @@ local function ClearButton(sb)
 	return x
 end
 
+-- Native components shared by the main tab and embedded conversations, without shared state.
+function ChatWindow.MakeSearch(p, changed)
+	p.topRow = CreateFrame("Frame", nil, p); p.topRow:SetAllPoints(p)
+	p.searchLabel = p.topRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	p.searchLabel:SetText(L.SEARCH)
+	local ok, sb = pcall(CreateFrame, "EditBox", nil, p.topRow, "InputBoxTemplate")
+	if not ok or not sb then sb = CreateFrame("EditBox", nil, p.topRow) end
+	sb:SetAutoFocus(false); sb.olympusBox = true; sb:SetHeight(SEARCH_H)
+	sb:SetMaxLetters(40); sb:SetFontObject("ChatFontNormal"); sb:SetTextInsets(0, 18, 0, 0)
+	sb.clear = ClearButton(sb, changed)
+	sb:SetScript("OnTextChanged", function(self) ns.SafeCall("chat tab search", changed or SearchChanged, self) end)
+	sb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+	sb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+	sb:SetScript("OnHide", function(self) self:ClearFocus() end)
+	sb:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:AddLine(L.SEARCH, 1, 0.82, 0)
+		GameTooltip:AddLine(L.SEARCH_TIP_CHAT, 1, 1, 1, true); GameTooltip:Show()
+	end)
+	sb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	p.search = sb
+end
+function ChatWindow.BodyInset(box)
+	local ok, inset = pcall(CreateFrame, "Frame", nil, box, "InsetFrameTemplate")
+	if not ok or not inset then
+		inset = CreateFrame("Frame", nil, box)
+		local bg = inset:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(0, 0, 0, 0.4)
+	end
+	return inset
+end
+
 -- A conversation inside another Olympus window. All state belongs to this pane: rendering never
 -- selects the main Chat tab, changes its draft, or borrows its scroll position or key bindings.
 function ChatWindow.CreateEmbedded(parent, opts)
 	local p = CreateFrame("Frame", nil, parent)
 	p.embedded, p.bubbles, p.colour = true, {}, ROOM_COLOUR
-	local bg = p:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints(); bg:SetColorTexture(0.12, 0.12, 0.14, 1)
-	local ok, scroll = pcall(CreateFrame, "ScrollFrame", nil, p, "ScrollFrameTemplate")
+	ChatWindow.MakeSearch(p, function(sb)
+		local text = Trim(sb:GetText() or "")
+		p.query = text ~= "" and ns.Fold(text) or nil
+		if opts.searchChanged then opts.searchChanged(sb:GetText() or "") end
+		sb.clear:SetShown(text ~= ""); p:Render(true)
+	end)
+	p.searchLabel:SetPoint("TOPLEFT", p, "TOPLEFT", 4, -8)
+	p.search:SetPoint("TOPLEFT", p.searchLabel, "TOPRIGHT", 8, 4)
+	p.search:SetPoint("TOPRIGHT", p, "TOPRIGHT", -40, -4) -- clear of the table window's existing X
+	local box = CreateFrame("Frame", nil, p)
+	box:SetPoint("TOPLEFT", p, "TOPLEFT", 0, -54); box:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", 0, 36)
+	p.box, p.bodyInset = box, ChatWindow.BodyInset(box); p.bodyInset:SetAllPoints(box)
+	p.topRow:SetFrameLevel(p.bodyInset:GetFrameLevel() + 2)
+	p.search:SetFrameLevel(p.topRow:GetFrameLevel() + 1)
+	local ok, scroll = pcall(CreateFrame, "ScrollFrame", nil, box, "ScrollFrameTemplate")
 	local barRoom = 22
 	if not ok or not scroll or not scroll.ScrollBar then
 		if ok and scroll then scroll:Hide() end
-		scroll = CreateFrame("ScrollFrame", nil, p, "UIPanelScrollFrameTemplate")
+		scroll = CreateFrame("ScrollFrame", nil, box, "UIPanelScrollFrameTemplate")
 		barRoom = 28
 	end
-	scroll:SetPoint("TOPLEFT", p, "TOPLEFT", 4, -4)
-	scroll:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -barRoom, 38)
+	scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
+	scroll:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -barRoom, 4)
 	p.scroll = scroll
 	p.content = CreateFrame("Frame", nil, scroll)
 	p.content:SetSize(10, 10); scroll:SetScrollChild(p.content)
@@ -2778,7 +2821,14 @@ function ChatWindow.CreateEmbedded(parent, opts)
 	if eb.SetAltArrowKeyMode then eb:SetAltArrowKeyMode(false) end
 	eb:SetHeight(24); eb:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", 14, 7); eb:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -14, 7)
 	ChatWindow.InputBorder(eb)
-	eb:SetScript("OnTextChanged", function(self) if opts.changed then opts.changed(self:GetText() or "") end end)
+	eb.label = eb:CreateFontString(nil, "OVERLAY", "ChatFontNormal"); eb.label:SetPoint("LEFT", eb, "LEFT", 0, 0)
+	eb.hint = eb:CreateFontString(nil, "OVERLAY", "ChatFontNormal")
+	eb.hint:SetTextColor(0.5, 0.5, 0.5); eb.hint:SetJustifyH("LEFT"); eb.hint:SetWordWrap(false)
+	local function InputHint()
+		eb.hint:SetShown((eb:GetText() or "") == "" and not eb:HasFocus())
+	end
+	eb:SetScript("OnTextChanged", function(self) if opts.changed then opts.changed(self:GetText() or "") end InputHint() end)
+	eb:SetScript("OnEditFocusGained", InputHint); eb:SetScript("OnEditFocusLost", InputHint)
 	eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 	eb:SetScript("OnHide", function(self) self:ClearFocus() end)
 	eb:SetScript("OnTabPressed", function() if opts.nextTab then opts.nextTab() end end)
@@ -2821,21 +2871,28 @@ function ChatWindow.CreateEmbedded(parent, opts)
 		local at, following = scroll:GetVerticalScroll(), scroll:GetVerticalScroll() >= scroll:GetVerticalScrollRange() - 2
 		self.content:SetWidth(width)
 		local y, prev = 6
-		local all = opts.lines()
+		local hides = Hides()
+		local all = Searched(opts.lines(), self.query, hides)
 		for i, e in ipairs(all) do
 			local start = not prev or ns.FullName(prev.sender) ~= ns.FullName(e.sender) or Own(prev) ~= Own(e) or (e.t or 0) - (prev.t or 0) > GROUP_TIME
 			if prev then y = y + (start and GAP_OUT or GAP_IN) end
-			y = y + Bubble(i, e, start, y, math.max(40, math.min(width * SHARE, width - EDGE * 2) - PAD * 2), Hides(), self, opts.room())
+			y = y + Bubble(i, e, start, y, math.max(40, math.min(width * SHARE, width - EDGE * 2) - PAD * 2), hides, self, opts.room())
 			prev = e
 		end
 		for i = #all + 1, #self.bubbles do self.bubbles[i]:Hide(); self.bubbles[i].entry = nil end
 		if self.modMenu and ChatWindow.ModEntry(self.modBubble) ~= self.modTarget then self.modMenu:Hide() end
 		self.content:SetHeight(math.max(1, y + 8))
 		self.input:SetShown(opts.maySend() == true)
+		local label = opts.label and opts.label() or "Bones"
+		eb.label:SetText("|c" .. Hex(self.colour) .. "[" .. label .. "]:|r")
+		local lw = math.ceil(TextWidth(eb.label)); eb:SetTextInsets(lw + 6, 6, 0, 0)
+		eb.hint:SetText(L.CHATWIN_PLACEHOLDER:format(label))
+		eb.hint:ClearAllPoints(); eb.hint:SetPoint("LEFT", eb, "LEFT", lw + 6, 0); eb.hint:SetPoint("RIGHT", eb, "RIGHT", -6, 0)
+		InputHint()
 		scroll:SetVerticalScroll((bottom or following) and scroll:GetVerticalScrollRange() or math.min(at, scroll:GetVerticalScrollRange()))
 	end
 	p.render = function() p:Render() end
-	p:HookScript("OnHide", function() eb:ClearFocus(); if p.modMenu then p.modMenu:Hide() end end)
+	p:HookScript("OnHide", function() eb:ClearFocus(); p.search:ClearFocus(); if p.modMenu then p.modMenu:Hide() end end)
 	return p
 end
 
@@ -2860,31 +2917,8 @@ local function Build(h)
 	p.bubbles, p.rows, p.setRows = {}, {}, {}
 
 	-- The search, where the other tabs show the army's counts.
-	p.topRow = CreateFrame("Frame", nil, p)
-	p.topRow:SetAllPoints(p)
-	p.searchLabel = p.topRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	p.searchLabel:SetText(L.SEARCH)
-	local okSearch, sb = pcall(CreateFrame, "EditBox", nil, p.topRow, "InputBoxTemplate")
-	if not okSearch or not sb then sb = CreateFrame("EditBox", nil, p.topRow) end
-	sb:SetAutoFocus(false)
-	sb.olympusBox = true
-	sb:SetHeight(SEARCH_H)
-	sb:SetMaxLetters(40)
-	sb:SetFontObject("ChatFontNormal")
-	sb:SetTextInsets(0, 18, 0, 0) -- (the typing stops short of the "x")
-	sb.clear = ClearButton(sb)
-	sb:SetScript("OnTextChanged", function(self) ns.SafeCall("chat tab search", SearchChanged, self) end)
-	sb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-	sb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-	sb:SetScript("OnHide", function(self) self:ClearFocus() end)
-	sb:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:AddLine(L.SEARCH, 1, 0.82, 0)
-		GameTooltip:AddLine(L.SEARCH_TIP_CHAT, 1, 1, 1, true)
-		GameTooltip:Show()
-	end)
-	sb:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	p.search = sb
+	ChatWindow.MakeSearch(p)
+	local sb = p.search
 
 	-- On the same row, right of the search: the channels' switch, and the gear at the row's end.
 	MakeSwitch(p)
@@ -2952,13 +2986,7 @@ local function Build(h)
 	-- The box of lines (the Communities chat pane's inset), its scroll frame and its lines: over
 	-- the list's and the detail box's room.
 	local box = CreateFrame("Frame", nil, p)
-	local okInset, inset = pcall(CreateFrame, "Frame", nil, box, "InsetFrameTemplate")
-	if not okInset or not inset then
-		inset = CreateFrame("Frame", nil, box)
-		local bg = inset:CreateTexture(nil, "BACKGROUND")
-		bg:SetAllPoints()
-		bg:SetColorTexture(0, 0, 0, 0.4)
-	end
+	local inset = ChatWindow.BodyInset(box)
 	inset:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", 0, 0)
 	p.bodyInset = inset
 	p.box = box

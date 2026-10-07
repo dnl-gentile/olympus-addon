@@ -33,13 +33,13 @@ local function Setup(w, c, screen, renderer)
 	return c
 end
 local function Seat(w, name, screen, guild, renderer) return Setup(w, w:Player(name, { guild = guild, companion = {} }), screen, renderer) end
-local function Live(screen, guild, renderer)
+local function Live(screen, guild, renderer, compliance)
 	local files = {}
 	for _, file in ipairs(H.World.ARENA_FILES) do
 		if file == "ArenaChat" then files[#files + 1] = "WatchChat" end
 		files[#files + 1] = file
 	end
-	local w = FW.New({ arenaFiles = files })
+	local w = FW.New({ arenaFiles = files, compliance = compliance })
 	local king = Setup(w, w:Player(N.king, { guild = H.World.KING_GUILD, rank = 0, companion = {} }), screen)
 	local a, b, s = Seat(w, N.fighterA, screen, guild, renderer), Seat(w, N.fighterB, screen, guild), Seat(w, N.bettor1, screen, guild)
 	for _, c in ipairs({ king, a, b, s }) do assert(w:As(c, c.ns.Roster.Scan)) end
@@ -228,6 +228,81 @@ test("Bones table chat: collapse and tab drafts stay independent of the main cha
 	Clean(w)
 end)
 
+test("Bones table chat: collapse removes the whole side extension rather than retaining a 98px bar", function()
+	local w, a = Live({ 1024, 768 }, nil, nil, "shipped")
+	local board = a.ns.Arena.ui.FarkleBoard.Window()
+	Click(w, a, Frame(a).toggle)
+	local normal = board:GetWidth() * board:GetScale() + 24
+	assert(math.abs(board:GetParent():GetWidth() - normal) < 1e-8, "collapsed shell must have the original no-chat table width")
+	Clean(w)
+end)
+
+test("Bones table chat: native chat components fill the table height and collapsing restores the exact normal table width", function()
+	local function Run()
+	local w, a = Live({ 1024, 768 }, nil, nil, "shipped")
+	local board = a.ns.Arena.ui.FarkleBoard.Window()
+	local shell, p = board:GetParent(), Frame(a)
+	local chat = p.conversation
+	assert(type(chat.search) == "table", "the actual embedded chat has the main ChatWindow search")
+	eq(chat.search.template, "InputBoxTemplate", "Search uses the existing textured native template")
+	eq(chat.searchLabel:GetText(), a.ns.L.SEARCH)
+	eq(chat.bodyInset.template, "InsetFrameTemplate", "conversation uses the same native inset as main chat")
+	eq(p.ground.template, "InsetFrameTemplate", "header and footer have native backing, never transparent world")
+	assert(chat.search:GetFrameLevel() > chat.bodyInset:GetFrameLevel(), "Search is above the inset, never painted over")
+	eq(chat:GetHeight(), board:GetHeight(), "chat includes the full footer, no transparent dead gap")
+	local sx, sy, sw, sh = a.K.Within(chat.search, board)
+	local cx, cy, cw, ch = a.K.Within(board.close, board)
+	assert(sx + sw <= cx or cx + cw <= sx or sy + sh <= cy or cy + ch <= sy, "Search stays clear of the original window X")
+	local _, navY = a.K.Within(p.strip, board)
+	assert(sy + sh <= navY, "Search remains above Players/Everyone")
+	assert(type(chat.input.label) == "table" and type(chat.input.hint) == "table", "the shared chat input label and placeholder are present")
+	eq(#p.strip.nav, 2); eq(p.strip.nav[1].label:GetText(), "Players"); eq(p.strip.nav[2].label:GetText(), "Everyone")
+	local normalWidth = board:GetWidth() * board:GetScale() + 24
+	w:As(a, chat.search.SetFocus, chat.search)
+	Click(w, a, p.toggle)
+	eq(chat.search:HasFocus(), false, "collapse releases the embedded Search focus")
+	assert(math.abs(shell:GetWidth() - normalWidth) < 1e-8, "no 98px collapsed side bar remains (native UI units)")
+	local x, y, width, height = a.K.Within(p.toggle, board)
+	assert(x >= 0 and x + width <= board:GetWidth() and y >= 0 and y + height <= board:GetHeight(), "Show chat stays inside the normal table")
+	assert(p.toggle:IsVisible(), "the original table can reopen its chat")
+	for _, button in ipairs({ board.helpButton, a.ns.Arena.ui.FarkleBoard._.parts().extra,
+		a.ns.Arena.ui.FarkleBoard._.parts().bank, a.ns.Arena.ui.FarkleBoard._.parts().primary }) do
+		if button:IsVisible() then
+			local bx, by, bw, bh = a.K.Within(button, board)
+			assert(x + width <= bx or bx + bw <= x or y + height <= by or by + bh <= y,
+				("Show chat cannot cover %s: toggle %.1f/%.1f/%.1f/%.1f action %.1f/%.1f/%.1f/%.1f"):format(button:GetText(), x, y, width, height, bx, by, bw, bh))
+		end
+	end
+	Click(w, a, p.toggle); assert(chat:IsVisible())
+	Clean(w)
+	end
+	H.WithGamepadUI(false, Run); H.WithGamepadUI(true, Run)
+end)
+
+test("Bones table chat: actual pane search filters its own bubbles without changing main chat or leaking hidden words", function()
+	local w, a, b = Live()
+	Send(w, a, "One ordinary line"); w:Run(2); Send(w, a, "Another matching line")
+	local pane = Frame(b).conversation
+	assert(type(pane.search) == "table", "embedded Search exists")
+	local before = b.ns.Views.Filter("chat")
+	w:As(b, function() pane.search:SetText("MATCHING") end)
+	w:As(b, UI(b).Select, "everyone"); eq(pane.search:GetText(), "", "tabs have independent search")
+	w:As(b, function() pane.search:SetText("Public search") end)
+	w:As(b, UI(b).Select, "players"); eq(pane.search:GetText(), "MATCHING", "Players search restores")
+	eq(pane.bubbles[1].body:GetText(), "Another matching line", table.concat(b.errors, "; "))
+	eq(pane.bubbles[2]:IsShown(), false)
+	eq(b.ns.Views.Filter("chat"), before, "embedded search is independent of the main chat filter")
+	w:As(b, b.ns.Filter.Add, "veiled")
+	w:Run(2)
+	Send(w, a, "A veiled secret")
+	w:As(b, function() pane.search:SetText("secret") end)
+	for _, bubble in ipairs(pane.bubbles) do eq(bubble:IsShown(), false, "hidden words cannot be found through Search") end
+	Click(w, b, pane.search.clear)
+	eq(pane.search:GetText(), ""); eq(pane.search:HasFocus(), false)
+	eq(pane.bubbles[1]:IsShown(), true)
+	Clean(w)
+end)
+
 test("Bones table chat: gamepad login and both switches use only the actual own input and Enter relinquishes focus", function()
 	H.WithGamepadUI(true, function()
 		local w, a = Live()
@@ -281,13 +356,18 @@ test("Bones table chat: actual successive tables keep only the bounded most rece
 		return id
 	end
 	w:As(s, function() Frame(s).conversation.input:SetText("First table draft") end)
+	w:As(s, function() Frame(s).conversation.search:SetText("First table search") end)
 	local second = NewTable("Jora Pine", "Daren Slate")
 	eq(Frame(s).conversation.input:GetText(), "")
+	eq(Frame(s).conversation.search:GetText(), "", "a new table never inherits the previous table's search")
 	w:As(s, function() Frame(s).conversation.input:SetText("Second table draft") end)
+	w:As(s, function() Frame(s).conversation.search:SetText("Second table search") end)
 	w:As(s, s.ns.FarkleTable.ShowUI, "board", first)
 	eq(Frame(s).conversation.input:GetText(), "First table draft", "returning loads this table's actual draft")
+	eq(Frame(s).conversation.search:GetText(), "First table search")
 	w:As(s, s.ns.FarkleTable.ShowUI, "board", second)
 	eq(Frame(s).conversation.input:GetText(), "Second table draft")
+	eq(Frame(s).conversation.search:GetText(), "Second table search")
 	local third = NewTable("Elin Vale", "Orrin Brook")
 	eq(Frame(s).conversation.input:GetText(), "")
 	w:As(s, function() Frame(s).conversation.input:SetText("Current table draft") end)

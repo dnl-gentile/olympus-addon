@@ -27,6 +27,8 @@ function Chat.Select(tab)
 	selected, s.tab = tab, tab
 	panel.conversation.input:ClearFocus()
 	panel.conversation.input:SetText(s.drafts[tab] or "")
+	panel.conversation.search:ClearFocus()
+	panel.conversation.search:SetText(s.searches[tab] or "")
 	Chat.Refresh(true); panel.conversation:Render(true)
 	return true
 end
@@ -37,19 +39,19 @@ local function Build(parent)
 	if not p then
 		p = CreateFrame("Frame", "OlympusArenaBonesChat", parent)
 		p:Hide()
-		p:SetPoint("TOPLEFT", parent, "TOPRIGHT", 8, 0); p:SetHeight(400)
-		p.toggle = CreateFrame("Button", nil, p)
-		p.toggle:SetSize(90, 24); p.toggle:SetPoint("TOPLEFT")
-		p.toggle.text = p.toggle:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		p.toggle.text:SetAllPoints()
-		p.toggle:SetScript("OnClick", function()
+		p:SetPoint("TOPLEFT", parent, "TOPRIGHT", 8, 0); p:SetPoint("BOTTOMLEFT", parent, "BOTTOMRIGHT", 8, 0)
+		p.ground = ns.ChatWindow.BodyInset(p) -- native chat ground under Search, tabs and footer, never the world
+		p.ground:SetAllPoints(p); p.ground:SetFrameLevel(p:GetFrameLevel())
+		p.ground:Hide()
+		-- The table's existing footer gap: no extra side bar is needed to keep Show chat accessible.
+		p.toggle = UI.Kit.Button(parent, 110, 24, "", function()
 			local s = State(); if not s then return end
 			s.collapsed = not s.collapsed; Chat.Refresh(true)
 		end)
+		p.toggle:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 146, 16)
+		p.toggle:Hide()
 		p.strip = CreateFrame("Frame", nil, p)
-		p.strip:SetPoint("TOPLEFT", 0, -24); p.strip:SetHeight(24)
-		local wash = p.strip:CreateTexture(nil, "BACKGROUND")
-		wash:SetAllPoints(); wash:SetColorTexture(0.35, 0.35, 0.37, 1)
+		p.strip:SetPoint("TOPLEFT", 0, -28); p.strip:SetHeight(24)
 		candidate = p
 	end
 	local conversation = ns.ChatWindow.CreateEmbedded(p, {
@@ -59,21 +61,24 @@ local function Build(parent)
 		lines = function() local room = Room(); return Readable(room) and ns.ArenaChat.Lines(room) or {} end,
 		send = function(text) if not Writable() then return false, "room" end return ns.ArenaChat.Send(Room(), text) end,
 		changed = function(text) local s = State(); if s and selected then s.drafts[selected] = text end end,
+		searchChanged = function(text) local s = State(); if s and selected then s.searches[selected] = text end end,
 		nextTab = function() Chat.Select(selected == "players" and "everyone" or "players") end,
 	})
 	if not conversation then return false end
-	conversation:SetPoint("TOPLEFT", p, "TOPLEFT", 0, -48)
-	conversation:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", 0, 0)
+	conversation:SetAllPoints(p)
+	p.strip:SetFrameLevel(conversation.bodyInset:GetFrameLevel() + 2)
 	p.conversation = conversation
 	-- Revalidate the room while its panel is visible (including its collapsed toggle), never
 	-- wake an idle companion. Parent hides also run OnHide and cancel this own ticker.
 	p:SetScript("OnShow", function(self)
+		self.toggle:Show()
 		if self.refreshTicker then return end
 		self.refreshTicker = C_Timer.NewTicker(1, function()
 			ns.SafeCall("bones chat", Chat.Refresh)
 		end)
 	end)
 	p:SetScript("OnHide", function(self)
+		self.toggle:Hide()
 		if self.refreshTicker then self.refreshTicker:Cancel(); self.refreshTicker = nil end
 		self.conversation.input:ClearFocus()
 	end)
@@ -85,22 +90,24 @@ function Chat.Refresh(force)
 	local rooms, s = Rooms(), State()
 	local available = rooms and (Readable(rooms.players) or Readable(rooms.everyone))
 	if not available or not board:IsShown() then
-		panel:Hide(); if Chat.layout then Chat.layout(0) end
+		panel:Hide(); panel.toggle:Hide(); if Chat.layout then Chat.layout(0) end
 		return
 	end
 	if not Readable(rooms[selected]) then
 		selected = Readable(rooms.players) and "players" or "everyone"
 		s.tab = selected; panel.conversation.input:ClearFocus(); panel.conversation.input:SetText(s.drafts[selected] or "")
+		panel.conversation.search:ClearFocus(); panel.conversation.search:SetText(s.searches[selected] or "")
 	end
 	local A, room = ns.ArenaChat, Room()
 	if room and not A.IsOpen(room) then A.Open(room) end
 	-- This child inherits the table's actual scale. The combined standalone window is fitted by
 	-- the board; width stays bounded, not a chat window covering the player's dice.
 	local width = 280
-	panel:SetWidth(s.collapsed and 90 or width)
+	panel:SetWidth(s.collapsed and 0 or width)
 	panel.strip:SetWidth(width)
-	panel.toggle.text:SetText(s.collapsed and L.BONES_CHAT_EXPAND or L.BONES_CHAT_COLLAPSE)
+	panel.toggle:SetText(s.collapsed and L.BONES_CHAT_EXPAND or L.BONES_CHAT_COLLAPSE)
 	panel.strip:SetShown(not s.collapsed); panel.conversation:SetShown(not s.collapsed)
+	panel.ground:SetShown(not s.collapsed)
 	if not s.collapsed then
 		local tabs = {}
 		for _, tab in ipairs({ "players", "everyone" }) do
@@ -115,7 +122,7 @@ function Chat.Refresh(force)
 		if force or panel.lastRoom ~= room or panel.lastWrite ~= write then panel.conversation:Render() end
 		panel.lastRoom, panel.lastWrite = room, write
 	else panel.conversation.input:ClearFocus() end
-	panel:Show(); if Chat.layout then Chat.layout(panel:GetWidth() + 8) end
+	panel:Show(); panel.toggle:Show(); if Chat.layout then Chat.layout(s.collapsed and 0 or width + 8) end
 end
 function Chat.Attach(parent, tableId, live, layout)
 	board, Chat.layout = parent, layout
@@ -136,7 +143,7 @@ function Chat.Attach(parent, tableId, live, layout)
 		return
 	end
 	if id ~= tableId then
-		id = tableId; states[id] = states[id] or { drafts = {}, collapsed = false }
+		id = tableId; states[id] = states[id] or { drafts = {}, searches = {}, collapsed = false }
 		used = used + 1; states[id].used = used
 		local count, oldest, stamp = 0
 		for key, s in pairs(states) do
@@ -147,10 +154,12 @@ function Chat.Attach(parent, tableId, live, layout)
 		selected = states[id].tab
 		panel.conversation.input:ClearFocus()
 		panel.conversation.input:SetText(selected and states[id].drafts[selected] or "")
+		panel.conversation.search:ClearFocus()
+		panel.conversation.search:SetText(selected and states[id].searches[selected] or "")
 		Chat.Refresh()
 	else Chat.Refresh() end
 end
-function Chat.Hide() if panel then panel:Hide(); panel.conversation.input:ClearFocus(); if Chat.layout then Chat.layout(0) end end end
+function Chat.Hide() if panel then panel:Hide(); panel.toggle:Hide(); panel.conversation.input:ClearFocus(); if Chat.layout then Chat.layout(0) end end end
 function Chat.Frame() return panel end
 ns.On("ARENA_CHAT", function(room) if panel and panel:IsShown() and room == Room() then Chat.Refresh(true) end end)
 ns.On("WATCHCHAT_CHANGED", function() if panel and panel:IsShown() then Chat.Refresh(true) end end)
@@ -159,5 +168,5 @@ ns.On("CHAT_SETTINGS_CHANGED", function() if panel and panel:IsShown() then Chat
 -- The existing input-style event is optional on older clients. Both switches relinquish only
 -- this own box's keyboard focus; no binding, game chat box or shared focus global is touched.
 pcall(ns.RegisterEvent, "INPUT_DEVICE_INTERFACE_TRANSITION", function()
-	if panel then panel.conversation.input:ClearFocus() end
+	if panel then panel.conversation.input:ClearFocus(); panel.conversation.search:ClearFocus() end
 end)

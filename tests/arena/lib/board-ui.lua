@@ -282,6 +282,9 @@ function UI.New(now, opts)
 	function EB:SetAutoFocus(on) self.autoFocus = on end
 	function EB:SetFontObject(font) self.font = font end
 	function EB:SetMaxBytes(n) self.maxBytes = n end
+	-- EditBox.SetMaxLetters is in Forever's native API fixture, used by main ChatWindow's Search.
+	function EB:SetMaxLetters(n) self.maxLetters = n end
+	function EB:SetTextInsets(left, right, top, bottom) self.textInsets = { left, right, top, bottom } end
 	function EB:SetAltArrowKeyMode(on) self.altArrow = on end
 	function EB:GetText() return self.text or "" end
 	function EB:SetText(text)
