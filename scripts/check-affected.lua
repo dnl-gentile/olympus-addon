@@ -2,7 +2,7 @@
 local M = {}
 local groups = {
 	bones = { "ArenaFarkle.lua", "bones-board-layout.lua", "bones-find-compact.lua", "bones-find-level.lua",
-		"bones-first-lesson-gates.lua", "bones-guide-routing.lua", "bones-hic-reuse.lua", "bones-innkeeper.lua",
+		"bones-chat.lua", "bones-first-lesson-gates.lua", "bones-guide-routing.lua", "bones-hic-reuse.lua", "bones-innkeeper.lua",
 		"bones-invalid-actions.lua", "bones-lesson.lua", "bones-lobby.lua", "bones-practice-again.lua",
 		"bones-result-card.lua", "bones-start-consent.lua", "bones-table-chat.lua", "bones-training.lua",
 		"bones-venue.lua", "compliance.lua", "farkle-board.lua",
