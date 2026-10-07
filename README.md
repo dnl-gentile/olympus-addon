@@ -2408,6 +2408,11 @@ builds both packages in a temporary copy: the release zip holds both folders and
 `Core.lua` in its own copy of `Olympus.toc` alone, the companion keeping the base version. The
 arena's tests live in `tests/arena/` (one file per part, run by `tests/run.lua`), on the test world
 of `tests/arena/lib/world.lua`.
+Remote rehearsal enrollment requires `/oly arena rehearsals on`; the default refuses it without
+creating a rehearsal store. `off` leaves a current rehearsal locally (a director closes their
+own rehearsal). A director's explicit Start remains available. Copper rehearsals are refused
+while the shipped financial gate is closed, including from received director words.
+
 Bets are not part of releases. `Olympus/Compliance.lua` refuses every wager in the shipped
 configuration (`ns.Compliance.Allows(kind, game)`). Every shared betting path asks it; the arena's
 wire neither sends nor takes a type that only carries a wager; the games play without stakes.

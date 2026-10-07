@@ -1,0 +1,60 @@
+local H = ...
+local test, eq, World = H.test, H.eq, H.World
+
+local function Errors(w)
+	for _, c in ipairs(w.clients) do for _, e in ipairs(c.errors) do error(c.name .. ": " .. e) end end
+end
+
+test("Rehearsal consent: remote director cannot enroll a default client or allocate its store; explicit on allows the next word", function()
+	local w = World.New({ compliance = "shipped" })
+	local king, reader = w:Role("king"), w:Client("Lida Fenn")
+	assert(king.ns.ArenaTest.Start("army"))
+	w:Run(0)
+	eq(reader.ns.ArenaTest.Running(), nil)
+	eq(reader.ns.rdb.arenaTest, nil, "a refused ER does not allocate saved state")
+	reader.Arena.RunSlash("rehearsals on")
+	assert(king.ns.ArenaTest.Start("army"))
+	w:Run(0)
+	assert(reader.ns.ArenaTest.Running(), "local opt-in permits authenticated director")
+	Errors(w)
+end)
+
+test("Rehearsal consent: off leaves current rehearsal locally without stopping its director, repeat words cannot enroll again", function()
+	local w = World.New({ compliance = "shipped" })
+	local king, reader = w:Role("king"), w:Client("Lida Fenn")
+	reader.Arena.RunSlash("rehearsals on")
+	assert(king.ns.ArenaTest.Start("army")); w:Run(0)
+	assert(reader.ns.ArenaTest.Running())
+	reader.Arena.RunSlash("rehearsals off")
+	eq(reader.ns.ArenaTest.Running(), nil)
+	assert(king.ns.ArenaTest.Running(), "leaving does not impersonate the director")
+	w:Run(130)
+	eq(reader.ns.ArenaTest.Running(), nil)
+	assert(reader.ns.rdb.arenaTest.closedAt)
+	Errors(w)
+end)
+
+test("Rehearsal consent: director's explicit start works without remote opt-in and director off closes the rehearsal", function()
+	local w = World.New({ compliance = "shipped" })
+	local king = w:Role("king")
+	eq(king.ns.ArenaTest.AcceptsRehearsals(), false)
+	assert(king.ns.ArenaTest.Start("army"))
+	assert(king.ns.ArenaTest.Running())
+	king.Arena.RunSlash("rehearsals off")
+	eq(king.ns.ArenaTest.Running(), nil)
+	Errors(w)
+end)
+
+test("Rehearsal consent: shipped gate refuses copper locally and remotely even after opt-in; absent gate also fails closed", function()
+	local w = World.New({ compliance = "shipped" })
+	local king, reader = w:Role("king"), w:Client("Lida Fenn")
+	eq(select(2, king.ns.ArenaTest.Start("army", "copper")), "compliance")
+	eq(king.ns.ArenaTest.Running(), nil)
+	reader.Arena.RunSlash("rehearsals on")
+	local body = "1~" .. reader.Arena.B36(w.clock) .. "~a~p~1000~1/1~"
+	eq(select(2, w:As(reader, reader.ns.ArenaTest.OnWord, "CHANNEL", king.name, "T", body)), "compliance")
+	eq(reader.ns.rdb.arenaTest, nil)
+	reader.ns.Compliance = nil
+	eq(select(2, w:As(reader, reader.ns.ArenaTest.OnWord, "CHANNEL", king.name, "T", body)), "compliance")
+	Errors(w)
+end)

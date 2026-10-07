@@ -91,6 +91,11 @@ function ArenaTest.Director()
 	local s = Word()
 	return s and s.director or nil
 end
+-- Showing rehearsal screens is not consent to remote enrollment. A local director's explicit
+-- Start click is its own consent; every other client must enable rehearsals before taking ER.
+function ArenaTest.AcceptsRehearsals()
+	return type(ns.db) == "table" and type(ns.db.arenaUI) == "table" and ns.db.arenaUI.rehearsals == true
+end
 function ArenaTest.IsDirector(name)
 	local s = Word()
 	name = name or ns.me
@@ -245,6 +250,7 @@ function ArenaTest.Start(lane, money, chips, roles)
 	end
 	local A = ns.Arena
 	if A.Sim() then return false, "sim" end
+	if money == "p" and not (ns.Compliance and ns.Compliance.Wallet and ns.Compliance.Wallet()) then return false, "compliance" end
 	if A.TestBuild() and lane == "a" then
 		ns.Print(L.ARENA_TEST_GROUP_ONLY)
 		return false, "lane"
@@ -401,9 +407,7 @@ local function OnWord(dist, sender, mode, body)
 	if not rid or not time then return false, "shape" end
 	local K = ns.King
 	if time > Now() + (K and K.DATE_AHEAD or 60) then return false, "ahead" end
-	local s = Store()
-	if type(s) ~= "table" then return false, "store" end
-	local held = Word()
+	local s, held = Peek(), Word()
 	if rest == "0" then
 		-- The close: from the director of that rehearsal (or a co-director of it).
 		if not held or held.rid ~= rid then return false, "unknown" end
@@ -414,8 +418,10 @@ local function OnWord(dist, sender, mode, body)
 		ns.Print(L.ARENA_TEST_STOPPED)
 		return true
 	end
+	if not ArenaTest.AcceptsRehearsals() and not (held and Same(held.director, ns.me)) then return false, "opt-in" end
 	local lane, money, chips, part, roles = ns.Arena.Fields(rest, 5)
 	if (lane ~= "g" and lane ~= "a") or (money ~= "c" and money ~= "p") then return false, "shape" end
+	if money == "p" and not (ns.Compliance and ns.Compliance.Wallet and ns.Compliance.Wallet()) then return false, "compliance" end
 	chips = ns.Arena.N(chips, 1, ArenaTest.CHIPS_MAX)
 	local i, n = tostring(part or ""):match("^(%d)/(%d)$")
 	i, n = tonumber(i), tonumber(n)
@@ -437,6 +443,8 @@ local function OnWord(dist, sender, mode, body)
 	for k, v in pairs(list) do merged[k] = v end
 	local ok, why = ns.Arena.MayDirect(sender, { lane = lane, money = money, roles = merged }, held)
 	if not ok then return false, why end
+	s = Store()
+	if type(s) ~= "table" then return false, "store" end
 	if not same then
 		-- Another rehearsal replaces the store: never while copper lines of the last one are open
 		-- (the list is printed; the tester joins once his gold came back).
@@ -877,6 +885,12 @@ ns.Arena.Slash("rehearsals", function(args)
 	if on ~= "on" and on ~= "off" then ns.Print(L.ARENA_HELP_REHEARSALS) return end
 	ns.db.arenaUI = type(ns.db.arenaUI) == "table" and ns.db.arenaUI or {}
 	ns.db.arenaUI.rehearsals = on == "on" or nil
+	if on == "off" then
+		local s = Word()
+		if s then
+			if ArenaTest.IsDirector(ns.me) then ArenaTest.Stop() else Closed(s, "opt-out") end
+		end
+	end
 	ns.Print(on == "on" and L.ARENA_REHEARSALS_ON or L.ARENA_REHEARSALS_OFF)
 	ns.Arena.Changed()
 end, L.ARENA_HELP_REHEARSALS)

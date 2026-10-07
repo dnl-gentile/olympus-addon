@@ -376,7 +376,10 @@ test("1.1.6 games ledger: a rehearsal never empties it: a group rehearsal's word
 	eq(#M(w, a, "ArenaLedger").MyGames(), 1); eq(#Rows(w, king), 1)
 	eq(type(king.rdb.arenaGames) == "table" and type(king.rdb.arenaGames.gamesLedger), "table", "the games' own store")
 	eq(king.rdb.arenaTest and king.rdb.arenaTest.gamesLedger, nil, "not the rehearsal store")
-	-- The signed arbiter starts a rehearsal in the fighters' group: their clients join it.
+	-- The signed arbiter starts a rehearsal in the fighters' group: only clients whose players
+	-- explicitly opted in may join it; preserving the actual ledger assertions below.
+	a.Arena.RunSlash("rehearsals on")
+	b.Arena.RunSlash("rehearsals on")
 	assert(w:As(c.arb, c.arb.ns.ArenaTest.Start, "group"))
 	w:Run(1)
 	assert(w:As(a, a.ns.ArenaTest.Running), "the fighter joined the rehearsal")
