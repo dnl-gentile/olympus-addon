@@ -59491,11 +59491,13 @@ end)
 assert(loadfile(ROOT .. "tests/hop-regressions.lua"))(ns, test, eq, WithHop)
 local focused = Harness.watchOnly and { "watch", "watch-chat", "watch-council-view" }
 		or { "hop", "hop-sightings", "transport", "admission", "privacy", "census", "authority", "chat-rooms", "war", "watch", "watch-chat", "wanted", "wanted-sightings", "map-wanted", "king-arrow",
-		"church", "church-count", "church-view", "church-head", "department-access", "watch-council-view", "innkeeper-arrow", "squads" }
+		"church", "church-count", "church-view", "church-head", "department-access", "watch-council-view", "innkeeper-arrow", "squads", "court-calls" }
 for _, name in ipairs(focused) do
 	print("tests/" .. name .. ".lua")
 	-- (1.1.6: the Church's files get the harness's UI helpers.)
-	local extra = name:match("^church") and { WithGamepadUI = WithGamepadUI, WithUI = WithUI } or (name == "hop-sightings" and WithHop or nil)
+	local extra = name:match("^church") and { WithGamepadUI = WithGamepadUI, WithUI = WithUI }
+		or (name == "court-calls" and { WithThrone = WithThrone, AsKing = AsKing, AsSoldier = AsSoldier,
+			WithGamepadUI = WithGamepadUI, WithUI = WithUI }) or (name == "hop-sightings" and WithHop or nil)
 	assert(loadfile(ROOT .. "tests/" .. name .. ".lua"))(ns, test, eq, extra)
 end
 
