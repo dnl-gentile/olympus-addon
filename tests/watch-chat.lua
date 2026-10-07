@@ -365,7 +365,7 @@ test("watch: chat moderation: one line is deleted on every client: the Chat tab'
 		shown, why = w.Inject("CHANNEL", B.name, Y1, late)
 		eq(why, "deleted", "abroad too")
 		-- B was told, by role, never the officer's name.
-		local told = w.Printed(B, ns.L.WATCHCHAT_ROLE_G)
+		local told = w.Printed(B, ns.L.WATCHCHAT_ROLE_ANY)
 		assert(told and not told:find("Officer", 1, true), tostring(told))
 	end)
 end)
@@ -531,7 +531,7 @@ test("watch: chat moderation: a timeout drops his lines on every client; his own
 		-- B's own client: the pop-up names the role, never the officer.
 		local d = w.Dialog(B, "OLYMPUS_WATCHCHAT_TIMED_OUT")
 		assert(d, "told in an Olympus pop-up")
-		assert(d.a:find(ns.L.WATCHCHAT_ROLE_G, 1, true), d.a)
+		assert(d.a:find(ns.L.WATCHCHAT_ROLE_ANY, 1, true), d.a)
 		assert(d.a:find("spam", 1, true) and d.a:find(date("%H:%M", w.epoch + 1800), 1, true), d.a)
 		assert(not d.a:find("Officer", 1, true), "never the name")
 		-- He cannot send: Channels and the rooms refuse, nothing is queued.
@@ -601,7 +601,7 @@ test("watch: chat moderation: expiry and early lift; a Watcher's lift never lift
 		w.Run()
 		eq(w.As(B, B.WC.SelfTimeout), nil, "lifted")
 		eq(w.As(D, D.WC.Silenced, B.name), false)
-		assert(w.Printed(B, ns.L.WATCHCHAT_LIFTED_YOU:format(ns.L.WATCHCHAT_ROLE_G)))
+		assert(w.Printed(B, ns.L.WATCHCHAT_LIFTED_YOU:format(ns.L.WATCHCHAT_ROLE_ANY)))
 		-- A late repeat of the lifted one does not bring it back.
 		w.Inject("GUILD", A.name, D, T2)
 		eq(w.As(D, D.WC.Silenced, B.name), false, "a late repeat stays lifted")
@@ -724,7 +724,7 @@ test("watch: chat moderation: the council, the King and the author anywhere; nev
 		w.Run()
 		for _, cl in ipairs({ G, A, D, Y1 }) do eq(w.As(cl, cl.WC.Silenced, B.name), true, "on " .. cl.short) end
 		local d = w.Dialog(B, "OLYMPUS_WATCHCHAT_TIMED_OUT")
-		assert(d.a:find(ns.L.WATCHCHAT_ROLE_4, 1, true), d.a)
+		assert(d.a:find(ns.L.WATCHCHAT_ROLE_ANY, 1, true), d.a)
 	end)
 end)
 
@@ -899,7 +899,7 @@ test("watch: chat moderation: the audit's audience: the guild's Watch (with the 
 		local lines = w.As(B, B.WC.RecordLines)
 		local text = ""
 		for _, l in ipairs(lines) do text = text .. l.text .. "\n" end
-		assert(text:find(ns.L.WATCHCHAT_ROLE_G, 1, true) and not text:find("Officer", 1, true), text)
+		assert(text:find(ns.L.WATCHCHAT_ROLE_ANY, 1, true) and not text:find("Officer", 1, true), text)
 		-- Y1 (another guild, no council) keeps no reason.
 		eq(#Y1.WC.Store().audit, 0)
 		-- On the King's stream (masked) the page hides reasons and words.
@@ -914,6 +914,64 @@ test("watch: chat moderation: the audit's audience: the guild's Watch (with the 
 				assert(not all:find("insult", 1, true) and not all:find("the rude words", 1, true), all)
 			end
 		end
+	end)
+end)
+
+test("watch: chat moderation: public stream masks timeout targets and moderator names even without the Watch display helper", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Streamreviewer-Realm")] = true
+		local Co = w.Client("Streamreviewer", Y, 3)
+		assert(w.As(Co, Co.WC.Timeout, B.name, 300, "private reason")); w.Run()
+		local function Render()
+			local text = ""
+			for _, row in ipairs(w.As(Co, Co.WC.PageLines)) do
+				text = text .. (row.text or "") .. "\n"
+				if row.tooltip then
+					local tt = { AddLine = function(_, line) text = text .. tostring(line) .. "\n" end }
+					w.As(Co, row.tooltip, tt)
+				end
+			end
+			return text
+		end
+		local internal = Render()
+		assert(internal:find(Co.short, 1, true) and internal:find(B.short, 1, true), "staff retains provenance")
+		Co.masked = true
+		local masked = Render()
+		assert(not masked:find(B.short, 1, true), "timeout target must be masked on stream: " .. masked)
+		Co.W.ShownBy = nil -- partial module/display helper unavailable
+		masked = Render()
+		assert(not masked:find(Co.short, 1, true) and not masked:find(B.short, 1, true), "fallback must retain masking: " .. masked)
+		assert(not masked:find("private reason", 1, true), masked)
+	end)
+end)
+
+test("watch: chat moderation: affected-player notices use only a generic moderator while staff keeps the actor", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.author = "Author-Realm"
+		local Au = w.Client("Author", Y, 3)
+		assert(w.As(Au, Au.WC.Timeout, B.name, 300, "please pause")); w.Run()
+		local timeout = w.Dialog(B, "OLYMPUS_WATCHCHAT_TIMED_OUT")
+		assert(timeout.a:find(ns.L.WATCHCHAT_ROLE_ANY, 1, true), timeout.a)
+		assert(not timeout.a:find(ns.L.WATCHCHAT_ROLE_7, 1, true) and not timeout.a:find("Author", 1, true), timeout.a)
+		for _, row in ipairs(w.As(B, B.WC.RecordLines)) do
+			assert(not row.text:find(ns.L.WATCHCHAT_ROLE_7, 1, true), row.text)
+			if row.tooltip then
+				local tt = { AddLine = function(_, line)
+					assert(not tostring(line):find("Author", 1, true) and not tostring(line):find(ns.L.WATCHCHAT_ROLE_7, 1, true), line)
+				end }
+				w.As(B, row.tooltip, tt)
+			end
+		end
+		local record = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, record.by, record.seq, "please review")); w.Run()
+		local key = next(Au.WC.Store().appeals)
+		assert(key and w.As(Au, Au.WC.Answer, key, "K", "reviewed")); w.Run()
+		local decision = w.Dialog(B, "OLYMPUS_WATCHCHAT_DECISION")
+		assert(decision.a:find(ns.L.WATCHCHAT_ROLE_ANY, 1, true) and not decision.a:find(ns.L.WATCHCHAT_ROLE_7, 1, true), decision.a)
+		eq(Au.WC.Store().audit[1].by, Au.name, "staff audit keeps real actor")
+		eq(record.by, Au.name, "appeal linkage retains actor privately")
 	end)
 end)
 
@@ -948,7 +1006,7 @@ test("watch: chat moderation: an appeal goes to the High Council; its answer lif
 		w.Run()
 		eq(w.As(B, B.WC.SelfTimeout), nil, "lifted on appeal")
 		local d = w.Dialog(B, "OLYMPUS_WATCHCHAT_DECISION")
-		assert(d and d.a:find(ns.L.WATCHCHAT_ROLE_4, 1, true), d and d.a)
+		assert(d and d.a:find(ns.L.WATCHCHAT_ROLE_ANY, 1, true), d and d.a)
 	end)
 end)
 
@@ -1125,7 +1183,7 @@ test("watch: chat moderation: an appeal's lift reaches a timeout the councillor'
 		eq(w.As(B, B.WC.SelfTimeout), nil, "lifted on the player's own client")
 		eq(w.As(D, D.WC.Silenced, B.name), false, "and on his guildmates'")
 		eq(w.Dialog(B, "OLYMPUS_WATCHCHAT_DECISION").a,
-			ns.L.WATCHCHAT_APPEAL_LIFTED_YOU:format(ns.L.WATCHCHAT_ROLE_4, ns.L.WATCHCHAT_REASON_PART:format("fair")))
+			ns.L.WATCHCHAT_APPEAL_LIFTED_YOU:format(ns.L.WATCHCHAT_ROLE_ANY, ns.L.WATCHCHAT_REASON_PART:format("fair")))
 		-- One from higher up (the King's, which the councillor's client never heard): his lift
 		-- does not reach it, and the player is told so.
 		w.king = "Kingly-Realm"
@@ -1147,7 +1205,7 @@ test("watch: chat moderation: an appeal's lift reaches a timeout the councillor'
 		local still = w.As(B, B.WC.SelfTimeout)
 		assert(still and still.by == K.name, "still timed out by the King")
 		eq(w.Dialog(B, "OLYMPUS_WATCHCHAT_DECISION").a,
-			ns.L.WATCHCHAT_APPEAL_LIFTED_STILL:format(ns.L.WATCHCHAT_ROLE_4, "", w.As(B, B.WC.TimeoutText, still)))
+			ns.L.WATCHCHAT_APPEAL_LIFTED_STILL:format(ns.L.WATCHCHAT_ROLE_ANY, "", w.As(B, B.WC.TimeoutText, still)))
 		-- An appeal on a deleted line: "found for him", never a lift of anything.
 		assert(w.As(K, K.WC.Lift, B.name, ""))
 		w.Run()
@@ -1165,7 +1223,7 @@ test("watch: chat moderation: an appeal's lift reaches a timeout the councillor'
 		assert(w.As(Co, Co.WC.Answer, key3, "L", ""))
 		w.Run()
 		eq(#w.Sent("MD~1~U~"), n, "no lift for a deleted line")
-		eq(w.Dialog(B, "OLYMPUS_WATCHCHAT_DECISION").a, ns.L.WATCHCHAT_APPEAL_GRANTED_YOU:format(ns.L.WATCHCHAT_ROLE_4, ""))
+		eq(w.Dialog(B, "OLYMPUS_WATCHCHAT_DECISION").a, ns.L.WATCHCHAT_APPEAL_GRANTED_YOU:format(ns.L.WATCHCHAT_ROLE_ANY, ""))
 	end)
 end)
 

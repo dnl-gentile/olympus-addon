@@ -951,8 +951,10 @@ local function RoleOf(scope, weight)
 	return tostring(weight or 0)
 end
 
--- The role as the punished player (or anyone) is told it: never the name.
+-- The punished player is told only "a moderator": even a unique role can identify its holder.
+-- Staff retain the actor and the role in their internal records.
 function WC.RoleText(role, mine)
+	if mine then return L.WATCHCHAT_ROLE_ANY end
 	if role == "G" then return mine and L.WATCHCHAT_ROLE_G or L.WATCHCHAT_ROLE_G_OTHER end
 	local text = L["WATCHCHAT_ROLE_" .. tostring(role)]
 	if type(text) == "string" and text ~= "WATCHCHAT_ROLE_" .. tostring(role) then return text end
@@ -2378,7 +2380,10 @@ end
 
 local function ShownBy(name)
 	local W = TheWatch()
-	return W and W.ShownBy and W.ShownBy(name) or (ns.DisplayName(name) or "?")
+	if W and W.ShownBy then return W.ShownBy(name) end
+	local shown = ns.DisplayName(name) or "?"
+	if ns.CouncilMasked and ns.CouncilMasked() and not IsKing(name) then return ns.MaskName(shown) end
+	return shown
 end
 local function Masked() return ns.CouncilMasked and ns.CouncilMasked() == true end
 
@@ -2410,7 +2415,7 @@ local function TimeoutRows(lines)
 	if #rows == 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.WATCHCHAT_TIMEOUTS_EMPTY) } end
 	for i = 1, math.min(20, #rows) do
 		local e = rows[i]
-		local who = ns.DisplayName(e.name) or e.name
+		local who = ShownBy(e.name)
 		local mayLift = WC.CanModerate(e.name) ~= nil
 		lines[#lines + 1] = { indent = 1,
 			text = Red(who) .. "  " .. Grey((tonumber(e.untilAt) or 0) == 0 and L.WATCHCHAT_D_HOLD or L.WATCHCHAT_UNTIL:format(Stamp(e.untilAt))),
