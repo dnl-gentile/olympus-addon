@@ -110,6 +110,27 @@ test("Bones chat core: real WatchChat deletion keeps the registered surface's na
 	eq(#b.ns.ArenaChat.Room(rooms.players).lines, 1, "no second stored replay")
 end)
 
+test("Bones chat core: actual WatchChat sanction bars a canonical host's EM before admission, after queue admission and on native intake", function()
+	for _, phase in ipairs({ "before", "queued", "native" }) do
+		local w, a, b, s, _, rooms = Live()
+		b.rank = 0
+		for _, c in ipairs({ a, b }) do Roster(w, c); Watch(w, c, rooms) end
+		if phase == "queued" then eq(w:As(a, a.ns.ArenaChat.Mute, rooms.players, b.name, true), true) end
+		local timed, why = w:As(b, b.ns.WatchChat.Timeout, a.name, 300, "actual guild-master sanction")
+		eq(timed, true, why)
+		if phase == "native" then
+			eq(w:As(b, b.ns.WatchChat.PowersBarred, a.name) ~= nil, true)
+			w:As(a, a.globals.C_ChatInfo.SendAddonMessageLogged, a.ns.PREFIX, "EM~L1~" .. rooms.players .. "~" .. s.name .. "~1", "WHISPER", b.short)
+			eq(b.ns.ArenaChat.Room(rooms.players).muted[s.name:lower()], nil, "host identity cannot override a known sanction")
+		else
+			Drain(w, b)
+			eq(w:As(a, a.ns.WatchChat.PowersBarred, a.name) ~= nil, true)
+			if phase == "before" then eq(w:As(a, a.ns.ArenaChat.Mute, rooms.players, b.name, true), false)
+			else Drain(w, a); eq(Count(w, "EM"), 0, "sanction arrived while the accepted host mute waited") end
+		end
+	end
+end)
+
 test("Bones chat core: even a known legacy arbiter table's Players audience is exactly the two players", function()
 	local w, a, b, _, id, rooms = Live()
 	local king = w:Find(N.king)

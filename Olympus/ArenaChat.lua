@@ -543,6 +543,12 @@ end
 ---------------------------------------------------------------------------
 
 local function MayMute(ev, name)
+	if type(ev) == "table" and ev.kind == "farkle" then
+		local WC, M = ns.WatchChat, ns.Moderation
+		if (WC and WC.PowersBarred and WC.PowersBarred(name))
+			or (M and M.Hides and M.Hides(name, M.GuildOf and M.GuildOf(name)))
+			or (Same(name, ns.me) and M and M.SelfOff and M.SelfOff()) then return false end
+	end
 	return type(ev) == "table" and (Same(ev.opener, name) or Same(ev.arbiter, name) or Same(ev.promoter, name))
 end
 function ArenaChat.MayMute(room, name) return MayMute(Event(room), name or ns.me) end
