@@ -1,9 +1,14 @@
 -- The real audience queue and local Chronicle, including a reload between call and replay.
 local ns, test, eq, H = ...
-local KING = "Asmongold Asmongler-Realm"
+local KING = "Aldo Crown-Realm"
+local function AsKing() H.AsKing(); ns.me = KING end
 local function Bench(fn)
-	local saved = { acts = ns.rdb.acts, states = ns.rdb.actsState }
+	local saved = { acts = ns.rdb.acts, states = ns.rdb.actsState, pins = ns.KING_CHARACTER, kingName = ns.KING_NAME }
 	local ok, err = pcall(function()
+		-- The isolated scene pins an invented character; real King authorization still checks
+		-- that exact character and realm group, never an always-true role mock.
+		ns.KING_CHARACTER = { Alliance = "Aldo Crown", Horde = "Marek Crown" }
+		ns.KING_NAME = "King Aldo"
 		ns.Chronicle.Clear()
 		H.WithThrone(function(w, K)
 			C_Map.GetBestMapForUnit = function() return 1453 end
@@ -13,6 +18,7 @@ local function Bench(fn)
 		end)
 	end)
 	ns.rdb.acts, ns.rdb.actsState = saved.acts, saved.states
+	ns.KING_CHARACTER, ns.KING_NAME = saved.pins, saved.kingName
 	if not ok then error(err, 0) end
 end
 local function Open(K, id)
@@ -22,7 +28,7 @@ end
 
 test("Court call message: optional text stays with its recipient and authenticated King in the Chronicle after reload", function()
 	Bench(function(w, K, C, Ch)
-		H.AsKing(); C.Toggle()
+		AsKing(); C.Toggle()
 		local id = C.Holding().id
 		C.Request("Visitor-Realm", id, "Olympus II")
 		C.Call("Visitor-Realm", "  Meet\nby~the |gate.  ")
@@ -76,7 +82,7 @@ end)
 
 test("Court call message: optional UI prompt rechecks its audience and authority; blank/direct calls and dismissal stay unchanged", function()
 	Bench(function(w, K, C, Ch)
-		H.AsKing(); C.Toggle()
+		AsKing(); C.Toggle()
 		C.Request("Visitor-Realm", C.Holding().id, "Olympus II")
 		local option
 		for _, row in ipairs(C.HomeLines()) do if row.text == ns.L.COURT_NOTE_CALL then option = row end end
@@ -87,7 +93,7 @@ test("Court call message: optional UI prompt rechecks its audience and authority
 		local data = popup.data
 		H.AsSoldier("Visitor"); C.Confirm(data, "Not royal")
 		eq(#w.whispered, 0, "authority is rechecked on accept")
-		H.AsKing(); C.Prompt("Visitor-Realm")
+		AsKing(); C.Prompt("Visitor-Realm")
 		data = w.popups[#w.popups].data
 		C.Toggle(); C.Toggle(); C.Request("Visitor-Realm", C.Holding().id, "Olympus II")
 		C.Confirm(data, "An old prompt")
@@ -127,7 +133,7 @@ test("Court call message: gamepad uses Olympus's own optional text window and it
 	H.WithUI(function()
 		H.WithGamepadUI(true, function(game)
 			Bench(function(w, K, C)
-				H.AsKing(); C.Toggle(); C.Request("Visitor-Realm", C.Holding().id, "Olympus II")
+				AsKing(); C.Toggle(); C.Request("Visitor-Realm", C.Holding().id, "Olympus II")
 				C.Prompt("Visitor-Realm")
 				local f = assert(ns.Dialog.Find("OLYMPUS_COURT_NOTE"))
 				f.editBox:SetText("Come to the fountain.")
