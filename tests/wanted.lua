@@ -1807,6 +1807,52 @@ test("wanted own-proof recovery: refused unknown evidence remains local and can 
 	end)
 end)
 
+local function WithChatSanctions(world, clients, fn)
+	local dialogs = {}
+	for key, value in pairs(StaticPopupDialogs) do dialogs[key] = value end
+	local ok, err = pcall(function()
+		for _, cl in ipairs(clients) do
+			-- The Wanted world owns role facts; reuse the real existing name parser, not a
+			-- permissive sanction stub or a fabricated PowersBarred result.
+			cl.ns.Moderation.CharName = ns.Moderation.CharName
+			world:As(cl, function() assert(loadfile(ROOT .. "Olympus/WatchChat.lua"))("Olympus", cl.ns) end)
+		end
+		fn()
+	end)
+	for key in pairs(StaticPopupDialogs) do if dialogs[key] == nil then StaticPopupDialogs[key] = nil end end
+	for key, value in pairs(dialogs) do StaticPopupDialogs[key] = value end
+	if not ok then error(err, 0) end
+end
+
+test("wanted sanction through real Comm: actual timeout and hold remove councillor publication, review, relay and queued delivery", function()
+	for _, seconds in ipairs({ 300, 0 }) do
+		WithWorld(function(world)
+			local author = world:Client("Merrin-Realm", "Player-1-0A000001", "author", true)
+			local council = world:Client("Council-Realm", "Player-1-0A000002", "council", true)
+			local peer = world:Client("Late-Realm", "Player-1-0A000003", nil, true)
+			WithChatSanctions(world, { author, council, peer }, function()
+				eq(world:As(council, council.W.CanPublish, council.name), true)
+				assert(world:As(council, council.W.PublishGlobal))
+				local accepted, why = world:As(author, author.ns.WatchChat.Timeout, council.name, seconds, "real author sanction")
+				eq(accepted, true, why)
+				-- The sanction arrives before the council's admitted native publication starts.
+				world.epoch = world.epoch + 2
+				world:As(author, author.ns.Comm.Pump); world:Deliver()
+				eq(world:As(council, council.ns.WatchChat.PowersBarred, council.name) ~= nil, true)
+				eq(world:As(council, council.W.CanPublish, council.name), false)
+				eq(world:As(council, council.W.PublishGlobal), false)
+					local reviewed, reason = world:As(council, council.W.Review, "invented", true)
+					eq(reviewed, false); eq(reason, "access", "sanction denies the authority check, not just an unknown row")
+				eq(world:As(council, council.W.AnswerGlobal, "CHANNEL", peer.name, "W4~1"), false)
+				world:PumpComm()
+				local native = 0
+				for _, msg in ipairs(world.log) do if msg.from == council and msg.raw then native = native + 1 end end
+				eq(native, 0, "real guarded queue cancels every sanctioned publisher chunk")
+			end)
+		end)
+	end
+end)
+
 test("wanted relay: a late independently anchored peer recovers an unchanged word with its publisher offline", function()
 	WithWorld(function(world)
 		local king = world:Client("Varrick-Realm", "Player-1-0A000001", "king")

@@ -966,6 +966,8 @@ end
 function Wanted.CanPublish(name)
 	name = CleanName(name)
 	if not name or not ns.IsMember or ns.IsMember() ~= true then return false end
+	local WC = ns.WatchChat
+	if WC and WC.PowersBarred and WC.PowersBarred(name) then return false end
 	local W = ns.Workshop
 	if W and W.IsAuthorName and W.IsAuthorName(name) == true then return true end
 	if ns.IsKingCharacter and ns.IsKingCharacter(name) == true then return true end
