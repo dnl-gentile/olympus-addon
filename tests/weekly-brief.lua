@@ -8,6 +8,10 @@ local function Client(saved)
 	w.c = c
 	c.Now = function() return w.clock end
 	c.IsMember = function() return true end
+	-- This world's pinned Treasurer is invented; only this exact character and guild qualify.
+	c.TREASURER, c.TREASURER_REALM, c.TREASURER_CHARACTERS = "Tamsin Ledger", "Realm", { "Tamsin Ledger" }
+	c.IsTreasurer = function(name, guild) return ns.FullName(name) == "Tamsin Ledger-Realm" and guild == "Olympus" end
+	c.IsTreasurerMail = function() return false end
 	c.On = function(event, fn) w.listeners[event] = fn end
 	c.Fire, c.After, c.Every, c.RegisterEvent = function() end, function() end, function() end, function() end
 	c.Comm = setmetatable({ loginAt = w.clock - 500, Handle = function() end,
@@ -138,7 +142,7 @@ end)
 test("Weekly public brief: spending requires current public permission and public book provenance, never private donor data", function()
 	local w, c = Client()
 	c.rdb.treasuryFlags = { balance = true }
-	local from = "Pyralis Ashandar-Realm"
+	local from = "Tamsin Ledger-Realm"
 	c.rdb.treasuryReports = { [from] = { epoch = c.Treasury.EPOCH, guild = "Olympus", allOut = 500,
 		rank = { { name = "Private payer", money = 900000 } } } }
 	eq(w:As(c.Treasury.PublicSpending), nil, "a private/full report does not establish public provenance")
@@ -160,7 +164,7 @@ end)
 
 test("Weekly public brief: an own keeper book contributes only while its real sharing consent remains on", function()
 	local w, c = Client()
-	w.guild, c.me = "Olympus", "Pyralis Ashandar-Realm"
+	w.guild, c.me = "Olympus", "Tamsin Ledger-Realm"
 	c.rdb.treasuryFlags = { balance = true }
 	local b = w:As(c.Treasury.BookOf, c.me, true)
 	b.sums = { version = 3, allIn = 0, allOut = 345, transIn = 0, transOut = 0,
