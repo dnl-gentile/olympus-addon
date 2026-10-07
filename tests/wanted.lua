@@ -1853,6 +1853,40 @@ test("wanted sanction through real Comm: actual timeout and hold remove councill
 	end
 end)
 
+for _, repeatWord in ipairs({ false, true }) do
+	test("wanted publication lease through real Comm: queued " .. (repeatWord and "repeat" or "initial") .. " word rechecks replacement, issuer, scope and signed expiry", function()
+		for _, change in ipairs({ "replace", "issuer", "scope", "expiry" }) do
+			WithWorld(function(world)
+				local council = world:Client("Council-Realm", "Player-1-0A000001", "council", true)
+				world:Client("OtherCouncil-Realm", "Player-1-0A000002", "council", true)
+				assert(world:As(council, council.W.PublishGlobal))
+				if repeatWord then world:PumpComm(); world.log = {}; assert(world:As(council, council.W.RepeatGlobal)) end
+				local original = council.db.wantedPublisher.last.body
+				if change == "replace" then assert(world:As(council, council.W.PublishGlobal))
+				elseif change == "issuer" then council.ns.me = "OtherCouncil-Realm"
+				elseif change == "scope" then council.ns.group = "OtherRealmGroup"
+				else
+					-- A server-clock change expires the signed word without expiring the separate
+					-- monotonic Comm queue. Otherwise its generic queue TTL would mask the bug.
+					council.ns.Data.ServerTime = function() return world.epoch + council.W.GLOBAL_LIFE + 1 end
+				end
+				world:PumpComm()
+				local asm, originalParts, completed = ns.Codec.NewAssembler(), 0, {}
+				for _, msg in ipairs(world.log) do
+					if msg.from == council and msg.raw then
+						local whole = ns.Codec.Feed(asm, council.name, msg.text, world.epoch)
+						if whole then completed[#completed + 1] = whole end
+						originalParts = originalParts + 1
+					end
+				end
+				for _, whole in ipairs(completed) do eq(whole == original, false, change .. "/" .. tostring(repeatWord)) end
+				if change == "replace" then eq(#completed, 1, "only the replacement reaches the real native wire")
+				else eq(originalParts, 0, change .. "/" .. tostring(repeatWord) .. " cancels every chunk") end
+			end)
+		end
+	end)
+end
+
 test("wanted relay: a late independently anchored peer recovers an unchanged word with its publisher offline", function()
 	WithWorld(function(world)
 		local king = world:Client("Varrick-Realm", "Player-1-0A000001", "king")

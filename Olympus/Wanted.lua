@@ -1826,6 +1826,23 @@ function Wanted.ScheduleGlobalCatchUp(generation, attempt)
 	end)
 end
 
+-- A publication's lease is its captured signed word, actor and realm/faction audience. Every
+-- native chunk rechecks this same lease; queue admission never lets a replaced word escape.
+function Wanted.PublicationGuard(p)
+	local body, expires, issuer, scope = p.body, p.expires, p.issuer, p.scope
+	local mine = BodyOrder(body)
+	local signedScope, signedIssuer, signedExpires
+	if type(body) == "string" then signedScope, signedIssuer, signedExpires = body:match("^WY~1~(%x+)~([^~]+)~%d+~%d+~%d+~(%d+)~") end
+	local fresh = mine and { issued = mine[1], epoch = mine[4], expires = expires }
+	return function()
+		return mine ~= nil and publishedGlobal == p and not p.replaced and p.body == body
+			and p.expires == expires and p.issuer == issuer and p.scope == scope and scope == Scope()
+			and signedScope == scope and signedIssuer == issuer and tonumber(signedExpires) == expires
+			and SameName(issuer, ns.me) and Wanted.CanPublish(ns.me) and Wanted.CanPublish(issuer)
+			and Fresh(fresh) and not (globalFloor and CompareOrder(globalFloor, mine) > 0)
+	end
+end
+
 local function PublishRows(rows)
 	if not Wanted.CanPublish(ns.me) then return false, "access" end
 	rows = CanonicalRows(rows)
@@ -1859,9 +1876,7 @@ local function PublishRows(rows)
 	ns.db.wantedPublisher = p
 	local body = table.concat({ "WY", 1, scope, issuer, epoch, seq, now, expires, rowsText, pk64, D.B64(sig) }, "~")
 	publishedGlobal = { body = body, expires = expires, issuer = issuer, scope = scope }
-	local sent, why = C.SendChunked(body, true, nil, nil, { owner = Wanted, guardKey = "wanted-global", guard = function()
-		return Wanted.CanPublish(ns.me) and ns.IsMember and ns.IsMember() == true
-	end })
+	local sent, why = C.SendChunked(body, true, nil, nil, { owner = Wanted, guardKey = "wanted-global", guard = Wanted.PublicationGuard(publishedGlobal) })
 	if sent then
 		-- Kept, so that after his next login the publisher repeats this same word (Wanted.Load).
 		p.last = { body = body, expires = expires, issuer = issuer, scope = scope }
@@ -1908,9 +1923,7 @@ function Wanted.RepeatGlobal()
 	if not mine or p.expires < math.floor(Clock()) or not SameName(p.issuer, ns.me) or not Wanted.CanPublish(ns.me)
 		or (p.scope and p.scope ~= Scope()) or not C or not C.SendChunked then return false, "stale" end
 	if p.replaced or globalFloor and CompareOrder(globalFloor, mine) > 0 then return false, "replaced" end
-	local sent, why = C.SendChunked(p.body, false, nil, nil, { owner = Wanted, guardKey = "wanted-global-repeat", guard = function()
-		return publishedGlobal == p and not p.replaced and p.expires >= math.floor(Clock()) and Wanted.CanPublish(ns.me)
-	end })
+	local sent, why = C.SendChunked(p.body, false, nil, nil, { owner = Wanted, guardKey = "wanted-global-repeat", guard = Wanted.PublicationGuard(p) })
 	-- Heard from ourselves again where this client does not hold it (its check was busy when he
 	-- published, say), as PublishRows does.
 	if sent and not restoring and not (authenticatedGlobal and authenticatedGlobal.text == p.body) then
