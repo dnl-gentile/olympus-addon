@@ -254,7 +254,7 @@ function ArenaChat.Lines(room)
 	local out = {}
 	for _, e in ipairs(r.lines) do
 		local hidden = r.muted[Lower(e.sender)] or (M and M.Hides and M.Hides(e.sender, e.guild))
-		if not hidden and not e.del then out[#out + 1] = e end
+		if not hidden and not e.del and not e.sendFailed then out[#out + 1] = e end
 	end
 	return out
 end
@@ -362,7 +362,7 @@ end
 
 -- Table chat alone uses Comm's runtime guard seam. ArenaNet's ordinary event queue does not
 -- carry a room audience guard; a queued Players line must never outlive its private audience.
-local function TableSend(kind, room, ev, body, target)
+local function TableSend(kind, room, ev, body, target, done)
 	local A, C = ns.Arena, ns.Comm
 	local mode, dist = A.Mode(ev), target and "WHISPER" or A.Lane(A.Mode(ev), true)
 	if not dist then return false, "group" end
@@ -382,9 +382,9 @@ local function TableSend(kind, room, ev, body, target)
 		return ArenaChat.MayRead(room) == true and ArenaChat.MayMute(room) == true
 	end
 	local guardOpts = { owner = ArenaChat, guard = Guard }
-	if target then return C.Whisper(target, wire, nil, false, true, nil, guardOpts) end
-	if dist == "CHANNEL" then return C.SendChat(wire, nil, {}, Guard) end
-	return C.Send(dist, wire, nil, false, true, nil, guardOpts)
+	if target then return C.Whisper(target, wire, nil, false, true, done, guardOpts) end
+	if dist == "CHANNEL" then return C.SendChat(wire, done, {}, Guard) end
+	return C.Send(dist, wire, nil, false, true, done, guardOpts)
 end
 
 -- Says a line in a room (the panel's box, /ola). Returns true, or false and why (said to the player).
@@ -427,14 +427,42 @@ function ArenaChat.Send(room, text)
 	local class = ClassCode()
 	local body = ("%s~%d~%s~%s~%s"):format(room, nextLine, class, GuildWord(guild), text)
 	local sent
+	local e, attempts = nil, {}
+	local function Completed(quiet)
+		if not e then return end -- immediate refusal before any own line was retained
+		local waiting, delivered = false, false
+		for _, attempt in ipairs(attempts) do
+			if attempt.accepted then
+				if not attempt.done then waiting = true elseif attempt.ok then delivered = true end
+			end
+		end
+		e.sendPending = waiting and true or nil
+		-- A successful native API call is not an acknowledgement from another client. Retain
+		-- partially delivered lines; only a wholly failed admission warns and leaves the view.
+		if not waiting and not delivered and not e.sendFailed then
+			e.sendFailed = true
+			ns.Print(L.ARENA_CHAT_NOT_SENT)
+		end
+		if not quiet then ns.Fire("ARENA_CHAT", room) end
+	end
+	local function QueueTable(target)
+		local attempt = {}
+		attempts[#attempts + 1] = attempt
+		local one, reason = TableSend("EC", room, ev, body, target, function(ok)
+			attempt.done, attempt.ok = true, ok == true
+			Completed()
+		end)
+		attempt.accepted = one == true
+		return one, reason
+	end
 	if ev.public == true then
-		if ev.kind == "farkle" then sent, why = TableSend("EC", room, ev, body)
+		if ev.kind == "farkle" then sent, why = QueueTable()
 		else sent, why = A.Send("EC", mode, body, { chat = true, logged = true }) end
 	else
 		for _, name in ipairs(Party(ev)) do
 			if not Same(name, ns.me) then
 				local one, w
-				if ev.kind == "farkle" then one, w = TableSend("EC", room, ev, body, name)
+				if ev.kind == "farkle" then one, w = QueueTable(name)
 				else one, w = A.Send("EC", mode, body, { to = name, logged = true }) end
 				sent = sent or one
 				why = why or w
@@ -449,8 +477,9 @@ function ArenaChat.Send(room, text)
 	r.sent[#r.sent + 1] = now
 	r.heard[Lower(ns.me)] = now
 	r.mine[nextLine .. "#" .. text] = now
-	local e = { chat = room, t = ns.Now(), sender = ns.me, guild = guild, class = class ~= "" and class or nil, text = text, id = nextLine, mine = true }
+	e = { chat = room, t = ns.Now(), sender = ns.me, guild = guild, class = class ~= "" and class or nil, text = text, id = nextLine, mine = true }
 	Keep(r, e)
+	if ev.kind == "farkle" then Completed(true) end
 	AlsoInChat(room, e)
 	ns.Fire("ARENA_CHAT", room)
 	return true

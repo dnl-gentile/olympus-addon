@@ -110,6 +110,25 @@ test("Bones chat core: real WatchChat deletion keeps the registered surface's na
 	eq(#b.ns.ArenaChat.Room(rooms.players).lines, 1, "no second stored replay")
 end)
 
+test("Bones chat core: accepted queue failure warns locally and hides the unsent own line without resending", function()
+	for _, failure in ipairs({ "guard", "native" }) do
+		local w, a, _, _, _, rooms = Live()
+		eq(w:As(a, a.ns.ArenaChat.Send, rooms.players, "admitted but not delivered"), true)
+		eq(#w:As(a, a.ns.ArenaChat.Lines, rooms.players), 1, "queue admission, not a remote receipt")
+		if failure == "guard" then a.Arena.SetRules(false)
+		else a.globals.C_ChatInfo.SendAddonMessageLogged = function() return 2 end end
+		Drain(w, a)
+		eq(Count(w, "EC"), 0)
+		eq(#w:As(a, a.ns.ArenaChat.Lines, rooms.players), 0, failure)
+		local raw = a.ns.ArenaChat.Room(rooms.players).lines[1]
+		eq(raw.sendFailed, true); eq(raw.text, "admitted but not delivered", "recoverable own text")
+		local notices = 0
+		for _, text in ipairs(a.printed) do if text == a.ns.L.ARENA_CHAT_NOT_SENT then notices = notices + 1 end end
+		eq(notices, 1, "one local failure notice, no automatic retry")
+		Drain(w, a); eq(Count(w, "EC"), 0)
+	end
+end)
+
 test("Bones chat core: actual WatchChat sanction bars a canonical host's EM before admission, after queue admission and on native intake", function()
 	for _, phase in ipairs({ "before", "queued", "native" }) do
 		local w, a, b, s, _, rooms = Live()
