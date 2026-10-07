@@ -355,9 +355,9 @@ ArenaUI.RegisterPane("arena.events", { section = "arena", label = L.ARENA_PANE_E
 -- companion has it.
 function ArenaUI.FindOpponent(game)
 	game = game == "b" and "b" or "d"
-	if game == "b" and ns.FarkleTable then
-		if not ns.FarkleTable.CanPlayPlayers() then ArenaUI.Say(L.FARKLE_LOBBY_FIRST); return false, "training" end
-		if not ns.FarkleTable.CanOpen() then ArenaUI.Say(L.FARKLE_LOG_TAVERN_REST); return false, "tavern-rest" end
+	if game == "b" then
+		local ready, text, reason = ArenaUI.BoneFindReady()
+		if not ready then ArenaUI.Say(reason == "training" and L.FARKLE_LOBBY_FIRST or text); return false, reason end
 	end
 	local ok, why = ns.Arena.Do("match.open", game)
 	if not ok then
@@ -1132,6 +1132,16 @@ function ArenaUI.BonePlayReady()
 	if not ns.FarkleTable.CanOpen() then return false, L.FARKLE_LOG_TAVERN_REST end
 	return true
 end
+-- Looking for a player is not starting a table: venue checks belong to the table itself.
+function ArenaUI.BoneFindReady()
+	if not ArenaUI.BoneAvailable() or not ns.FarkleTable then return false, Kit.Why("missing"), "missing" end
+	if not ns.FarkleTable.CanPlayPlayers() then return false, L.FARKLE_LOBBY_TRAINING_REQUIRED, "training" end
+	if ns.Arena.Blocked() then return false, Kit.Why("blocked"), "blocked" end
+	if InCombatLockdown and InCombatLockdown() then return false, Kit.Why("combat"), "combat" end
+	local ok, why = ns.Arena.Can("match.open", "b")
+	if not ok then return false, Kit.Why(why), why end
+	return true
+end
 function ArenaUI.BoneFindInnkeeper()
 	local arrow = ns.InnkeeperArrow
 	local function Notice(text, ok, reason)
@@ -1180,8 +1190,9 @@ local function BonePlayLines(st)
 	lines[#lines + 1] = { text = C(board and "gold" or "grey", L.FARKLE_B_HOW), indent = 1, onClick = board and function() ArenaUI.BoneBoard("guide") end or nil }
 	lines[#lines + 1] = { text = C("gold", KeeperButtonText()), indent = 1, onClick = ArenaUI.BoneFindInnkeeper }
 	if ArenaUI.boneKeeperNotice then lines[#lines + 1] = { text = ArenaUI.boneKeeperNotice, indent = 1 } end
-	lines[#lines + 1] = { text = C(ready and "gold" or "grey", L.ARENA_FIND_PLAYER), indent = 1, onClick = ready and function() ArenaUI.FindOpponent("b") end or nil,
-		tooltip = function(tt) tt:AddLine(L.ARENA_FIND_PLAYER, 1, 0.82, 0) tt:AddLine(why or L.ARENA_FIND_PLAYER_TIP, 1, 1, 1, true) end }
+	local findReady, findWhy = ArenaUI.BoneFindReady()
+	lines[#lines + 1] = { text = C(findReady and "gold" or "grey", L.ARENA_FIND_PLAYER), indent = 1, onClick = findReady and function() ArenaUI.FindOpponent("b") end or nil,
+		tooltip = function(tt) tt:AddLine(L.ARENA_FIND_PLAYER, 1, 0.82, 0) tt:AddLine(findWhy or L.ARENA_FIND_PLAYER_TIP, 1, 1, 1, true) end }
 	lines[#lines + 1] = { text = C(ready and "gold" or "grey", L.ARENA_BONE_NEW), indent = 1, onClick = ready and function() ArenaUI.BoneInvite({}) end or nil,
 		tooltip = why and function(tt) tt:AddLine(L.ARENA_BONE_NEW, 1, 0.82, 0) tt:AddLine(why, 1, 1, 1, true) end or nil }
 	lines[#lines + 1] = { text = C("gold", L.ARENA_PANE_BONE_HISTORY), indent = 1, onClick = function() ArenaUI.ShowPane("bone.history") end }
@@ -1223,6 +1234,7 @@ local function BonePlayDetail(canvas)
 	local mt = Data.MyTable()
 	canvas.letterTitle:SetText(L.FARKLE_INTRO_TITLE)
 	local ready, why = ArenaUI.BonePlayReady()
+	if not mt then ready, why = ArenaUI.BoneFindReady() end
 	canvas.letterBody:SetText(L.FARKLE_INTRO_TEXT .. "\n\n" .. (ns.FarkleTable and ns.FarkleTable.CanPlayPlayers() and L.FARKLE_LOBBY_RETURN or L.FARKLE_LOBBY_FIRST)
 		.. (mt and ("\n\n" .. MyTableLine(mt) .. "\n" .. L.ARENA_BONE_OPEN_HINT) or ""))
 	Kit.SetButton(canvas.find, mt and L.ARENA_BONE_OPEN or L.ARENA_FIND_PLAYER, ready, why)
@@ -1239,8 +1251,9 @@ ArenaUI.RegisterPane("bone.play", { section = "farkle", label = L.ARENA_PANE_BON
 	buttons = function()
 		local mt = Data.MyTable()
 		local ready, why = ArenaUI.BonePlayReady()
+		local findReady, findWhy = ArenaUI.BoneFindReady()
 		return {
-			mt and { L.ARENA_BONE_OPEN, function() ArenaUI.BoneBoard("board", mt.id) end, enabled = ready, why = why } or { L.ARENA_FIND_PLAYER, function() ArenaUI.FindOpponent("b") end, enabled = ready, why = why },
+			mt and { L.ARENA_BONE_OPEN, function() ArenaUI.BoneBoard("board", mt.id) end, enabled = ready, why = why } or { L.ARENA_FIND_PLAYER, function() ArenaUI.FindOpponent("b") end, enabled = findReady, why = findWhy },
 			{ L.ARENA_BONE_NEW, function() ArenaUI.BoneInvite({}) end, enabled = ready, why = why },
 			-- (1.2.0, the owner's call: no Practice button; practice is the innkeeper's, and the page's
 			-- words above say so.)

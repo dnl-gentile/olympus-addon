@@ -855,9 +855,9 @@ function ArenaUI.FindRefresh()
 	local ok = AM ~= nil and (can.ok ~= false or (notSharing and o.share)) and not busy and (not staked or stakedOk or o.kind == "e")
 	Kit.SetButton(f.go, L.ARENA_FIND_SEARCH, ok, can.text or stakedWhy or (AM and nil or L.ARENA_FIND_MISSING))
 	f.go:SetScript("OnClick", function()
-		if f.opts.game == "b" and ns.FarkleTable then
-			if not ns.FarkleTable.CanPlayPlayers() then f.line:SetText(L.FARKLE_LOBBY_FIRST); return false end
-			if not ns.FarkleTable.CanOpen() then f.line:SetText(L.FARKLE_LOG_TAVERN_REST); return false end
+		if f.opts.game == "b" then
+			local ready, text, reason = ArenaUI.BoneFindReady()
+			if not ready then f.line:SetText(reason == "training" and L.FARKLE_LOBBY_FIRST or text); return false end
 		end
 		f.searchSheet = not rawget(f, "host") or nil
 		local okStart, why = AM.Start(ArenaUI.FindOpts())
@@ -884,9 +884,9 @@ end
 -- host: the window to show it in (the Bones window's Start Playing passes its own); none: the
 -- Bones window while it is open, for a Bones search (ArenaUI.BonesHost), else its own place.
 function ArenaUI.OpenFind(game, host)
-	if game == "b" and ns.FarkleTable then
-		if not ns.FarkleTable.CanPlayPlayers() then ArenaUI.Say(L.FARKLE_LOBBY_FIRST); return false, "training" end
-		if not ns.FarkleTable.CanOpen() then ArenaUI.Say(L.FARKLE_LOG_TAVERN_REST); return false, "tavern-rest" end
+	if game == "b" then
+		local ready, text, reason = ArenaUI.BoneFindReady()
+		if not ready then ArenaUI.Say(reason == "training" and L.FARKLE_LOBBY_FIRST or text); return false, reason end
 	end
 	find = find or MakeFind()
 	local f = find

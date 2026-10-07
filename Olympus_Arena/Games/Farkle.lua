@@ -1866,7 +1866,6 @@ local function StartPlaying()
 	local UI = own.ArenaUI
 	local FT = host.FarkleTable
 	if FT and not FT.CanPlayPlayers() then Say(L.FARKLE_LOBBY_FIRST); return false, "training" end
-	if FT and not FT.CanOpen() then Say(L.FARKLE_LOG_TAVERN_REST); return false, "tavern-rest" end
 	if type(UI) ~= "table" then
 		Say(L.FARKLE_INTRO_UNAVAILABLE or "opponent search is not available in this build.")
 		return false, "missing"
