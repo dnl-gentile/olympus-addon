@@ -9,7 +9,7 @@
 local ns, test, eq = ...
 local ROOT = (debug.getinfo(1, "S").source:sub(2):match("^(.*)tests[/\\]watch%-chat%.lua$")) or "./"
 
-local GLOBALS = { "GetGuildInfo", "IsInGuild", "UnitIsPlayer", "C_ChatInfo", "GetTime", "DEFAULT_CHAT_FRAME", "IsCombatLog",
+local GLOBALS = { "GetGuildInfo", "IsInGuild", "UnitIsPlayer", "C_ChatInfo", "GetTime", "GetChannelName", "DEFAULT_CHAT_FRAME", "IsCombatLog",
 	"issecretvalue", "UnitClass", "C_FriendList", "SLASH_OLYMPUSALL1", "SLASH_OLYMPUSCAPTAINS1", "SLASH_OLYMPUSLORDS1" }
 
 local function Fold(s) return ns.Fold(tostring(s or "")) end
@@ -1165,6 +1165,63 @@ test("watch: chat moderation: current own guild timeout testimony repeats for a 
 		w.epoch = w.epoch + 300; w.As(B, B.WC.Tick)
 		for _, job in ipairs(w.wire) do assert(not job.msg:find("MD~1~S~T~", 1, true), "lifted timeout is not reannounced") end
 	end)
+end)
+
+test("watch: chat moderation: real paced Comm drops queued own timeout testimony after lift, expiry, replacement, guild or character change", function()
+	for _, change in ipairs({ "current", "lift", "expiry", "replacement", "guild", "character" }) do
+		World(function(w)
+			local _, A, B = Standard(w)
+			assert(w.As(A, A.WC.Timeout, B.name, 600, "private guild reason")); w.Run()
+			local timeout = w.As(B, B.WC.SelfTimeout)
+			local prefix = ("MD~1~S~T~%d~%d~"):format(timeout.seq, timeout.at)
+			local native, events, login = {}, {}, nil
+			GetChannelName = function() return 7, "OlympusChannel" end
+			C_ChatInfo = { RegisterAddonMessagePrefix = function() return true end,
+				SendAddonMessageLogged = function(_, msg, dist)
+					native[#native + 1] = { msg = msg, dist = dist }
+					return 0
+				end }
+			w.As(B, function()
+				local on, after, register = B.ns.On, B.ns.After, B.ns.RegisterEvent
+				B.ns.On = function(event, fn) if event == "LOGIN" then login = fn end end
+				B.ns.RegisterEvent = function(event, fn) events[event] = fn end
+				B.ns.Moderation.Blocks = function() return false end
+				assert(loadfile(ROOT .. "Olympus/Comm.lua"))("Olympus", B.ns)
+				for kind, handler in pairs(B.handlers) do B.ns.Comm.Handle(kind, handler) end
+				B.ns.On, B.ns.After = on, function() end
+				assert(login); login(); B.ns.Comm.JoinChannel()
+				B.ns.After, B.ns.RegisterEvent = after, register
+				-- A later real guild action must arrive through Comm's logged event, not through
+				-- the world's old stub flag: the actual receiver owns its logged delivery context.
+				B.handlers.MD = function(dist, sender, msg)
+					return events.CHAT_MSG_ADDON_LOGGED(B.ns.PREFIX, msg, dist, sender)
+				end
+			end)
+			w.As(B, B.WC.Tick)
+			assert(B.ns.Comm.QueueSize() > 0, "actual paced queue admitted the current testimony")
+			eq(#native, 0, "not yet a native send")
+			if change == "lift" then assert(w.As(A, A.WC.Lift, B.name, "")); w.Run()
+			elseif change == "expiry" then w.epoch = w.epoch + 601
+			elseif change == "replacement" then
+				w.epoch = w.epoch + 1
+				assert(w.As(A, A.WC.Timeout, B.name, 900, "new private reason")); w.Run()
+			elseif change == "guild" then w.SetRank(B.name, Y, 3)
+			elseif change == "character" then B.ns.me = "Anothermember-Realm" end
+			for _ = 1, 20 do
+				if B.ns.Comm.QueueSize() == 0 then break end
+				w.epoch = w.epoch + 2; w.As(B, B.ns.Comm.Pump)
+			end
+			eq(B.ns.Comm.QueueSize(), 0)
+			local sent = 0
+			for _, message in ipairs(native) do
+				if message.msg:sub(1, #prefix) == prefix then
+					sent = sent + 1; eq(message.dist, "CHANNEL")
+					assert(not message.msg:find("private guild reason", 1, true), "no private reason in self testimony")
+				end
+			end
+			eq(sent, change == "current" and 1 or 0, change .. ": only the still-current timeout may leave")
+		end)
+	end
 end)
 
 test("watch: chat moderation: the King's word on a case reaches its player in a pop-up, over his guild, once", function()

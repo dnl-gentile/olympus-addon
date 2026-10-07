@@ -1132,6 +1132,22 @@ local function ActionPermit(a, msg, scope, dist)
 	end
 end
 
+-- This character's testimony about his current guild timeout is not an actor's action. Bind
+-- the queued word to that same character, guild and exact timeout; a lift, replacement or
+-- expiry before the paced native send must not reannounce the old restriction to late peers.
+local function SelfTimeoutPermit(e, msg)
+	local character, guild = ns.me, OwnGuild()
+	return function(owner, _, dist, _, payload)
+		if owner ~= WC or dist ~= "CHANNEL" or payload ~= msg then return false, "guard" end
+		local current = WC.SelfTimeout()
+		if not Same(ns.me, character) or not ns.IsMember() or OwnGuild() ~= guild or current ~= e
+			or current.scope ~= "G" or current.guild ~= guild or WC.EndOf(current) <= Clock() then return false, "revoked" end
+		local word = SelfWire({ op = "T", seq = current.seq, at = current.at, guild = current.guild,
+			by = current.by, untilAt = current.untilAt })
+		return word == msg, "revoked"
+	end
+end
+
 -- An action this client applies: its own (given here) or one it took.
 local function Apply(a)
 	local s = Store()
@@ -2149,7 +2165,7 @@ function WC.Tick()
 			if now - last.at < WC.SELF_REPEAT then return end
 		end
 		local msg = SelfWire({ op = "T", seq = e.seq, at = e.at, guild = e.guild, by = e.by, untilAt = e.untilAt, reason = e.reason })
-		if msg and Send("CHANNEL", msg, "mdst") then
+		if msg and Send("CHANNEL", msg, "mdst", SelfTimeoutPermit(e, msg)) then
 			s.ownTimeoutSent = { name = ns.me, by = e.by, seq = e.seq, at = now }
 		end
 	end
