@@ -113,7 +113,7 @@ function Brief.Lines(q)
 	if #entries == 0 then lines[#lines + 1] = { text = L.BRIEF_NO_WEEK } end
 	local s, F = Store(), ns.Filter
 	local v = s and type(s.vox) == "table" and s.vox or nil
-	local result = v and Plain(v.q) .. " — " .. Plain(v.verdict) or L.BRIEF_UNKNOWN
+	local result = v and Plain(v.q) .. " - " .. Plain(v.verdict) or L.BRIEF_UNKNOWN
 	if v and F and F.Hides and (F.Hides(v.q) or F.Hides(v.verdict)) then result = L.FILTER_WORDS_HIDDEN_SHORT end
 	Row(L.BRIEF_VOX, result)
 	local T = ns.Treasury
@@ -150,7 +150,7 @@ function Brief.PersonalLines()
 	if nextEntry then
 		local role = ns.Week.MySignup and ns.Week.MySignup(nextEntry.id)
 		local signup = role and L.BRIEF_SIGNED:format(Plain(L["SIGN_ROLE_" .. role] or role, 40)) or L.BRIEF_UNSIGNED
-		nextText = Plain(nextEntry.title, 60) .. " — " .. ns.Week.DayLabel(nextEntry.at) .. " " .. ns.Week.TimeLabel(nextEntry.at) .. "; " .. signup
+		nextText = Plain(nextEntry.title, 60) .. " - " .. ns.Week.DayLabel(nextEntry.at) .. " " .. ns.Week.TimeLabel(nextEntry.at) .. "; " .. signup
 	end
 	local open = {}
 	local C = ns.Court
