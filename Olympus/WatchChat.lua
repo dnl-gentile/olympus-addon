@@ -84,6 +84,7 @@ WC.RECORD_MAX = 20
 WC.APPEALS_MAX = 50
 WC.APPEALS_EACH = 3         -- appeals kept from one player at most
 WC.APPEAL_REPEAT = 300      -- at most one own pending appeal replay in five minutes
+WC.SELF_REPEAT = 300        -- current own guild timeout testimony, never the guild's reason
 WC.SELF_AUDIT_MAX = 5       -- a player's own words (S) in the council's audit at most
 WC.ACTIONS_MAX = 50           -- the actor's own actions it repeats
 WC.APPLIED_MAX = 1000
@@ -132,7 +133,7 @@ local purgeGrace = {}              -- [sender key] = Now() until which his lines
 local held = {}                    -- guild actions waiting for a fresh roster
 local pages = {}                   -- lists coming in pages: [key] = { n, got, parts, t }
 local printed, printedOrder = {}, {} -- lines printed in the game's chat windows this session
-local lastPopup, toldLogin = -math.huge, false
+local lastPopup = -math.huge
 local surfaces = {}
 local jitter
 
@@ -2136,12 +2137,21 @@ function WC.Tick()
 	for key, d in pairs(s.decisions) do
 		if not Same(d.target, ns.me) and mono - (tonumber(d.sent) or -math.huge) >= WC.DECISION_EVERY then WC.SendDecision(key) end
 	end
-	-- A guild timeout on this character: said again on the channel once a session (others abroad).
+	-- This character's current guild timeout, as his own client says it: repeated for late
+	-- reviewers, without the guild reason. It remains S testimony, never proof of its actor.
 	local e = WC.SelfTimeout()
-	if e and e.scope == "G" and not toldLogin then
-		toldLogin = true
+	if budget > 0 and e and e.scope == "G" and type(e.by) == "string" and CharName(e.by) == e.by
+		and Int(e.seq, 1, WC.MAX_SEQ) and Int(e.at, 1, WC.MAX_SEQ) and e.at <= Clock() + WC.DATE_AHEAD then
+		local now, last = math.floor(Clock()), s.ownTimeoutSent
+		if type(last) == "table" and Same(last.name, ns.me) and Same(last.by, e.by) and last.seq == e.seq
+			and Int(last.at, 1, WC.MAX_SEQ) then
+			if last.at > now then last.at = now return end
+			if now - last.at < WC.SELF_REPEAT then return end
+		end
 		local msg = SelfWire({ op = "T", seq = e.seq, at = e.at, guild = e.guild, by = e.by, untilAt = e.untilAt, reason = e.reason })
-		if msg then Send("CHANNEL", msg, "mdst") end
+		if msg and Send("CHANNEL", msg, "mdst") then
+			s.ownTimeoutSent = { name = ns.me, by = e.by, seq = e.seq, at = now }
+		end
 	end
 end
 
@@ -2735,7 +2745,7 @@ function WC.Stats() return stats end
 
 function WC.ResetForTests()
 	wipe(rates); wipe(rateAll); wipe(rateSelf); wipe(purgeGrace); wipe(held); wipe(pages); wipe(printed); wipe(printedOrder)
-	lastPopup, toldLogin, listsPending, jitter = -math.huge, false, false, nil
+	lastPopup, listsPending, jitter = -math.huge, false, nil
 	for k in pairs(stats) do stats[k] = 0 end
 end
 

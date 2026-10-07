@@ -1127,6 +1127,46 @@ test("watch: chat moderation: own pending appeals cap at three and replay one pe
 	end)
 end)
 
+test("watch: chat moderation: current own guild timeout testimony repeats for a late council client without its reason, survives reload and retries queue refusal", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "private guild reason")); w.Run()
+		w.As(B, B.WC.Tick); w.Run() -- the old once-session announcement already left
+		w.council[Fold("Latecouncil-Realm")] = true
+		local Co = w.Client("Latecouncil", Y, 3)
+		local timeout = w.As(B, B.WC.SelfTimeout)
+		w.epoch = w.epoch + 299; w.As(B, B.WC.Tick); w.Run()
+		eq(#Co.WC.Store().audit, 0, "no repeat before five minutes")
+		local send = B.ns.Comm.Send
+		B.ns.Comm.Send = function(dist, msg, ...) if msg:find("MD~1~S~", 1, true) == 1 then return false end return send(dist, msg, ...) end
+		w.epoch = w.epoch + 1; w.As(B, B.WC.Tick); w.Run()
+		eq(#Co.WC.Store().audit, 0, "rejected queue did not reach the late reviewer")
+		B.ns.Comm.Send = send
+		w.As(B, B.WC.Tick)
+		local repeated
+		for _, job in ipairs(w.wire) do if job.msg:find("MD~1~S~", 1, true) then repeated = job.msg end end
+		assert(repeated, "a queue refusal keeps the current timeout announcement retryable")
+		assert(not repeated:find("private guild reason", 1, true), "no guild reason on the public lane")
+		assert(repeated:find(("MD~1~S~T~%d~%d~"):format(timeout.seq, timeout.at), 1, true), "original sanction identity and date")
+		w.Run()
+		eq(#Co.WC.Store().audit, 1); eq(Co.WC.Store().audit[1].scope, "S")
+		eq(#w.As(Co, Co.W.Audit), 0, "no authenticated Watcher audit is invented")
+		w.As(B, function() assert(loadfile(ROOT .. "Olympus/WatchChat.lua"))("Olympus", B.ns) end)
+		B.WC = B.ns.WatchChat
+		w.As(B, B.WC.Tick)
+		for _, job in ipairs(w.wire) do assert(not job.msg:find("MD~1~S~", 1, true), "persisted interval survives reload") end
+		-- A second reviewer still rejects unknown/census identity rather than granting it.
+		w.council[Fold("Unprovedreviewer-Realm")] = true
+		local Un = w.Client("Unprovedreviewer", Y, 3)
+		Un.C.VerifiedLevel = function() return 1, false end
+		w.epoch = w.epoch + 300; w.As(B, B.WC.Tick); w.Run()
+		eq(#Un.WC.Store().audit, 0, "replay does not bypass membership admission")
+		assert(w.As(A, A.WC.Lift, B.name, "")); w.Run()
+		w.epoch = w.epoch + 300; w.As(B, B.WC.Tick)
+		for _, job in ipairs(w.wire) do assert(not job.msg:find("MD~1~S~T~", 1, true), "lifted timeout is not reannounced") end
+	end)
+end)
+
 test("watch: chat moderation: the King's word on a case reaches its player in a pop-up, over his guild, once", function()
 	World(function(w)
 		local G, A, B, D, Y1 = Standard(w)
