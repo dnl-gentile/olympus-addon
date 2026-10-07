@@ -97,8 +97,16 @@ For the 1.2.1 candidate, include these focused live checks:
   In `/oly arena sim boneschat`, check the red square/yellow arrow to the right of Sit Down,
   including while the setup covers the table. It must remain clickable above the table's
   surfaces; collapse restores the original width without an extra bar. Expanded chat must have
-  no world-visible seam between it and the table. Exit with `/oly arena sim off`; this empty
-  layout preview is not proof of multiplayer routing.
+  no world-visible seam between it and the table. Close the preview, then check that normal
+  pages show real records or honest empty lists, not sample opponents or results. Repeat with
+  `/oly arena sim off`; this empty layout preview is not proof of multiplayer routing.
+  After completing the innkeeper lesson, find an opponent outside an inn/camp: Find opens and
+  can search, but New Table remains blocked. Meet in the same mapped inn or register a camp
+  on the Board (`/oly camp`, requiring the player's explicit location-sharing consent);
+  a normal world cooking fire alone is not recognized. In a party and close together, start
+  and finish a free game. Both players must see their result exactly once in Your Games,
+  including after a reload. Check an older retained ledger result whose detailed companion
+  history is missing; show only the details actually retained, without inventing a replay.
 - Chat: hide guild names through the gear. Normal, deleted and Bones table headers must follow
   the choice without losing the draft. Tooltips and guild searches must still identify the guild.
   Reload to check persistence, then show the names again. New native chat lines follow the

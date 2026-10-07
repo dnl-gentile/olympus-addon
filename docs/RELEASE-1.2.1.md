@@ -13,8 +13,9 @@ are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
   slightly left while chat is available. The native chat background also fills the join between
   chat and table. Innkeeper practice does not pretend to have a multiplayer room.
   Authors and test builds can inspect that layout locally with `/oly arena sim boneschat`, then
-  leave with `/oly arena sim off`. The preview has empty chat tabs and sends no invitations or
-  messages; it is not a multiplayer test.
+  leave by closing the preview or with `/oly arena sim off`. The preview has empty chat tabs
+  and sends no invitations or messages; it is not a multiplayer test. Ordinary test-build pages
+  no longer fill empty real lists with invented showcase records.
 - The Chat gear can hide guild labels beside sender names locally. Guild identity remains in
   tooltips, searches and message evidence; permissions and transport are unchanged.
 - The Watch's notices identify **a moderator**, not their name. Authorized staff keep the actor
@@ -37,7 +38,9 @@ are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
   the drawn numbers, with the original five-place animation kept.
 - Finding a Bones opponent updates the existing Find window while searching and reviewing
   offers, rather than opening a second, smaller search window. Accepted matches retain their
-  dedicated meeting view, with the Find window closed first.
+  dedicated meeting view, with the Find window closed first. After the first innkeeper lesson,
+  Find works from any location; creating or starting the table still requires an inn or an
+  Olympus camp. A normal world campfire is not a registered camp.
 - The detailed update parchment uses the existing game icons. For someone who has not seen the
   1.2.0 letter, that release's news comes before 1.2.1. The history keeps each letter separately.
   An empty first-session save no longer causes the letter to reopen on every login. With saved
@@ -49,6 +52,9 @@ are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
 - Bones resync cannot invent the local player's decisions; reload retains locally witnessed
   retry proof. An opponent's instant departure claim is not accepted without local observation
   of the full grace period.
+- Your Bones games also read retained own-game ledger records when the companion did not have
+  its detailed history loaded at completion. Existing detailed entries win and duplicate
+  results are not displayed twice. This does not invent missing rolls or reset saved history.
 - Crafting accepts a sequence only after validating the actual payload and state. Arena profile
   history has a real bound. Church appointment and seen-check authority no longer comes from
   a claimed census rank alone.

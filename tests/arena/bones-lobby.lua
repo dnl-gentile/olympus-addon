@@ -46,6 +46,8 @@ test("Bones lobby: the real Play parchment explains the first lesson in steps, t
 		w:Stand(a.name, FW.INN, true); UI.Refresh()
 		local returning = canvas.letterBody:GetText()
 		assert(returning:find(L.FARKLE_LOBBY_RETURN, 1, true))
+		assert(returning:find("Find a Player from anywhere", 1, true), "the visible instructions separate search from the table's venue")
+		assert(returning:find("registered Olympus camp", 1, true), "a normal world fire is not advertised as a recognized table venue")
 		assert(not returning:find(L.FARKLE_LOBBY_FIRST, 1, true), "a completed lesson no longer asks for the first game")
 		eq(canvas.find:IsEnabled(), true); eq(FT.Live(), nil, "explaining the next step starts no game")
 	end)

@@ -2473,8 +2473,8 @@ same fights gets the same ratings (`tests/arena/ArenaRating.lua`). A fight is ra
 arbiter judges it, and 1.1.6 has no arbiters: rating the game's own duels between their two
 fighters is the next step for the rankings to move.
 **Find a player** (`Olympus/ArenaMatch.lua`, the Find in the Arena and in the Bones window): each
-game has its own Find, a duel's or a Bones game's, so the game is the one it was opened from; it
-filters by level (Any, within 5 or within 10 of the player's own) and by distance (Nearby: the
+game has its own Find, a duel's or a Bones game's, so the game is the one it was opened from; a
+duel filters by level (Any, within 5 or within 10 of the player's own); both filter by distance (Nearby: the
 same zone; or This continent), and a findable player answers only a search his level and place
 fit, for the games he lets himself be found for (`Let others find me`: Duels, Bones). The answers
 are ranked by distance band first, then players searching too, the same layer and the smaller
@@ -2491,9 +2491,9 @@ walks off pauses it, and one gone a minute forfeits. Leaving either place during
 shows a centered warning with the seconds remaining, even with the Bones board closed.
 Acknowledging the warning only closes it: the deadline continues until the player returns;
 returning clears the warning, and a later departure starts a new warning and grace period.
-Practice against the House, the lesson
-and rehearsals are played anywhere. The screens say so where a game starts or is looked for (the
-create panel, the Find button, the Bones page and its explanation).
+The first innkeeper lesson is required before playing with other players. After that lesson,
+Bones' Find works anywhere; creating or starting a peer table still follows the inn/camp rule.
+Innkeeper practice takes place at an inn. No search silently enables location sharing.
 Meanwhile every game plays for points (practice and games for fun never say a bet or a stake) and
 goes into the games' ledger (`Olympus/ArenaLedger.lua`,
 type `AY`): Bones between players, against the House and the lesson (Learn the rules: the rules'
