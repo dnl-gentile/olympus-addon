@@ -368,6 +368,38 @@ test("chat rooms: receivers throttle marked or known outsider requests until tim
 	end)
 end)
 
+test("chat rooms: a verified topic mismatch stays a request and unknown replies cannot unlock it", function()
+	WithRooms(function(w, R, c)
+		assert(R.Select("class:MA"))
+		c.Roster.members = { { full = "Visitor-Realm", class = "WA" }, { full = "Mage-Realm", class = "MA" } }
+		local function Receive(sender, line, class)
+			return R.Receive("CHANNEL", sender, RoomMessage("class:MA", line, "hello", "1", nil, class), w.mono)
+		end
+		assert(Receive("Visitor-Realm", 1, ""))
+		eq(R.History("class:MA")[1].request, true)
+		w.advance(2)
+		eq(Receive("Visitor-Realm", 2, ""), false, "a known outsider must not bypass the request cooldown")
+		assert(Receive("Unknown-Realm", 3, ""), "legacy lines with unknown class are still readable")
+		w.advance(R.REQUEST_WAIT)
+		eq(Receive("Visitor-Realm", 4, ""), false, "an unknown class is not proof of a member reply")
+		assert(Receive("Mage-Realm", 5, ""))
+		assert(Receive("Visitor-Realm", 6, ""))
+		w.council["visitor-realm"] = true
+		w.advance(2)
+		assert(Receive("Visitor-Realm", 7, ""), "signed councillors keep their exception")
+		eq(R.History("class:MA")[#R.History("class:MA")].request, nil)
+		assert(R.Select("race:95"))
+		C_CreatureInfo = { GetRaceInfo = function() return { raceName = "High Order Skyborn" } end }
+		c.Roster.members = { { full = "Skyborn-Realm", race = "High Order Skyborn" }, { full = "Human-Realm", race = 1 } }
+		assert(R.Receive("CHANNEL", "Human-Realm", RoomMessage("race:95", 8, "hello"), w.mono))
+		eq(R.History("race:95")[1].request, true)
+		assert(R.Receive("CHANNEL", "Skyborn-Realm", RoomMessage("race:95", 9, "reply"), w.mono))
+		w.advance(R.REQUEST_WAIT)
+		assert(R.Receive("CHANNEL", "Human-Realm", RoomMessage("race:95", 10, "thanks"), w.mono),
+			"the native full Skyborn name still proves a member reply")
+	end)
+end)
+
 test("chat rooms: restricted tabs and recipients come only from current shared authority", function()
 	WithRooms(function(w, R, c)
 		eq(#R.Tabs(), 3, "ordinary members get no restricted destination")

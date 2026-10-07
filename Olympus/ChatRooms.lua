@@ -481,11 +481,14 @@ local function LocalTopicMember(info)
 	return tonumber(race) == info.race
 end
 
-local function RequestExempt()
-	if ns.IsKingCharacter and ns.IsKingCharacter(ns.me) == true then return true end
-	if ns.IsHighCouncillor and ns.IsHighCouncillor(ns.me) == true then return true end
+local function RequestExempt(name)
+	name = name or ns.me
+	if ns.IsKingCharacter and ns.IsKingCharacter(name) == true then return true end
+	if ns.IsHighCouncillor and ns.IsHighCouncillor(name) == true then return true end
 	local W = ns.Workshop
-	return type(W) == "table" and type(W.IsAuthor) == "function" and W.IsAuthor() == true or false
+	if type(W) ~= "table" then return false end
+	if type(W.IsAuthorName) == "function" then return W.IsAuthorName(name) == true end
+	return IsMe(name) and type(W.IsAuthor) == "function" and W.IsAuthor() == true or false
 end
 
 local function RequestRecords()
@@ -968,7 +971,7 @@ local function RemoteRequestAllowed(id, sender, now)
 end
 
 local function MarkMemberReply(id, sender, member, request, now)
-	if request or member == false or IsMe(sender) then return end
+	if request or member ~= true or IsMe(sender) then return end
 	local changed = false
 	local records = RequestRecords()
 	local own = records and records[RequestKey(id)]
@@ -1013,8 +1016,9 @@ function Rooms.Receive(dist, sender, text, now)
 	end
 	if C_ChatInfo and C_ChatInfo.SendAddonMessageLogged and ns.Comm.DeliveredLogged and not ns.Comm.DeliveredLogged() then return Drop("unlogged") end
 	now = now or Now()
-	local member = info.scope == "topic" and KnownTopicMember(info, sender, guild, class) or true
-	local request = info.scope == "topic" and (markedRequest or member == false) or false
+	local member = true
+	if info.scope == "topic" then member = KnownTopicMember(info, sender, guild, class) end
+	local request = info.scope == "topic" and not RequestExempt(sender) and (markedRequest or member == false) or false
 	if request and not RemoteRequestAllowed(id, sender, now) then return Drop("request") end
 	local admitted, why = ns.Channels.Admit(sender, guild, words, now, {
 		id = id .. ":" .. lineId, chat = id, line = lineId, level = info.scope == "guild" and 0 or 1,
