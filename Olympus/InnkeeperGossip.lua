@@ -117,6 +117,7 @@ local function Build(f, panel, scroll) -- gp:innkeeper-gossip
 	if not nextDialog.cancel then return false end
 	nextDialog.cancel:SetPoint("TOPLEFT", nextDialog.confirm, "BOTTOMLEFT", 0, 0)
 	-- Native choices register with the host's quest contrast theme before it colors them.
+	ns.Gate.Used(GATE)
 	f:RegisterFontStrings(nextRow.label, nextDialog.text, nextDialog.confirm.label, nextDialog.cancel.label)
 	f:UpdateFontStrings()
 	host, row, dialog = f, nextRow, nextDialog

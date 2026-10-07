@@ -188,6 +188,31 @@ test("Innkeeper gossip: local dialogue follows the native quest contrast theme",
 	end)
 end)
 
+test("Innkeeper gossip: real input switches retain reload notice after native geometry is parked", function()
+	WithGossip(function(g, t)
+		local style, notices = 0, 0
+		C_InputInterfaceStyle = { GetCurrentStyle = function() return style end }
+		Enum = { InputDeviceInterfaceType = { KeyboardAndMouse = 0, Gamepad = 1 } }
+		t.a.globals.C_InputInterfaceStyle, t.a.globals.Enum = C_InputInterfaceStyle, Enum
+		assert(loadfile(H.ADDON_DIR .. "GamepadRegistry.lua"))("Olympus", t.a.ns)
+		assert(loadfile(H.ADDON_DIR .. "Gamepad.lua"))("Olympus", t.a.ns)
+		t.a.ns.Dialog = { Show = function() notices = notices + 1; return true end }
+		local gate = t.a.ns.Gate
+		eq(g.ShowRow(), true); g.Open(); g.Park()
+		eq(g.State().saved, nil, "borrowed geometry has already been restored")
+		style = 1
+		t.w:Fire(t.a, "INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
+		t.pending[#t.pending]()
+		assert(table.concat(gate.leftovers, ","):find("innkeeper-gossip", 1, true), "font registration remains until reload")
+		eq(notices, 1); eq(g.State().mode, "inactive")
+		style = 0
+		t.w:Fire(t.a, "INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1); t.pending[#t.pending]()
+		style = 1
+		t.w:Fire(t.a, "INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0); t.pending[#t.pending]()
+		eq(notices, 1, "notice is once per session")
+	end)
+end)
+
 test("Innkeeper gossip: missing native template or unreadable content extent leaves no visible partial choice", function()
 	WithGossip(function(g, t)
 		local scroll, extent = t.panel.ScrollBox, t.panel.ScrollBox.GetDerivedExtent

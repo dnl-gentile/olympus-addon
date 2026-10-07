@@ -63,8 +63,8 @@ local APPROVED = "the author, 2026-10-04"
 
 ns.GAMEPAD = {
 	{ id = "innkeeper-gossip", kind = "frame-child", files = { "InnkeeperGossip.lua" },
-		guard = "gate", toPad = "park", toMouse = "install", safe = "off",
-		why = "An opt-in Bones row and local dialogue inside a capability-checked unprotected NPC panel; mouse only, restored and hidden on a gamepad switch. Missing native capabilities retain the Olympus dialogue." },
+		guard = "gate", toPad = "reload", toMouse = "install", safe = "off",
+		why = "An opt-in Bones row and local dialogue inside a capability-checked unprotected NPC panel; mouse only. A switch restores geometry and hides the addon choices, but native font registration and ScrollBox calls retain taint until reload. Missing native capabilities retain the Olympus dialogue." },
 	-- P0: confirmed in Forever's source to reach the refused call in a session played with the gamepad alone.
 	{ id = "slash", kind = "slash", files = { "Core.lua", "Channels.lua" },
 		globals = { "SLASH_OLYMPUS1", "SLASH_OLYMPUS2", "SLASH_OLYMPUSARENA1", "SLASH_OLYMPUSALL1", "SLASH_OLYMPUSCAPTAINS1", "SLASH_OLYMPUSLORDS1" },
