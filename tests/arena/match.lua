@@ -467,12 +467,16 @@ test("1.2 P1.8: Arena and Bones open separate compact fixed-game Find entries; o
 	eq(duel.title:GetText(), L.MATCH_FIND_DUEL_TITLE)
 	local d = w:As(a, UI.FindOpts)
 	eq(d.game, "d"); eq(d.kind, "c"); eq(d.level, 5); eq(d.reach, "z")
-	-- Find cannot enter a Bones game from the road, even though duel Find may open there.
-	local blocked, why = w:As(a, UI.OpenFind, "b")
-	eq(blocked, false); eq(why, "tavern-rest"); eq(duel.opts.game, "d")
+	-- Search is allowed on the road after training; opening a table remains venue-gated.
+	local roadBone = w:As(a, UI.OpenFind, "b")
+	eq(roadBone, duel); eq(roadBone.opts.game, "b")
+	eq(w:As(a, UI.FindOpts).level, 0, "road searches do not restore a duel level filter")
+	w:As(a, UI.OpenFind, "d")
 	local FW = assert(loadfile(H.ROOT .. "tests/arena/lib/farkle-world.lua"))(H)
-	a.pos, a.resting = FW.INN, true -- an actual mapped inn, not a mocked CanOpen result
 	w:As(a, function() a.ns.FarkleTable.Opts().innkeeperLearned = false end)
+	local blocked, why = w:As(a, UI.OpenFind, "b")
+	eq(blocked, false); eq(why, "training"); eq(duel.opts.game, "d")
+	a.pos, a.resting = FW.INN, true -- a real mapped inn cannot bypass the lesson either
 	blocked, why = w:As(a, UI.OpenFind, "b")
 	eq(blocked, false); eq(why, "training"); eq(duel.opts.game, "d")
 	w:As(a, function() a.ns.FarkleTable.Opts().innkeeperLearned = true end)
