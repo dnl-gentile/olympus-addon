@@ -982,6 +982,20 @@ local function Witness(t, seat, value, lo, hi)
 	else
 		return
 	end
+	-- A smaller roll after our bank can reach the witness before the bank (W4).
+	-- Remember only our actual server lines, so a relay cannot invent that exception.
+	if seat == t.seat and ev.t == "R" and ev.k < R().DICE and g.current ~= seat then
+		local ordinal, last = 0, nil
+		for _, code in ipairs(g.events) do
+			local choice = R().Event(code)
+			if choice and choice.t == "K" and choice.p == seat then ordinal, last = ordinal + 1, choice end
+		end
+		if last and last.act == "b" then
+			t.bankRolls = t.bankRolls or {}
+			t.bankRolls[ordinal] = R().Code(ev)
+			for index in pairs(t.bankRolls) do if index <= ordinal - 32 then t.bankRolls[index] = nil end end
+		end
+	end
 	local since = t.lastDecisionAt and (Clock() - t.lastDecisionAt) or nil
 	local ok, note = Apply(t, ev, "seen")
 	FT.Note("%s %s %d-%d %d: %s%s", t.id, t.players[seat] or "?", lo, hi, value, ok and (note or "ok") or ("refused " .. tostring(note)),
@@ -2881,11 +2895,48 @@ local function OnReplay(dist, sender, mode, body)
 	if not step then return end
 	local codes = {}
 	for code in (f[3] or ""):gmatch("[^,]+") do codes[#codes + 1] = code end
+	if #codes > FT.KR_CODES or table.concat(codes, ",") ~= (f[3] or "") then return end
 	-- Replay also reads saved historical penalties. A live relay must never introduce one,
 	-- even through a divergent record: reject the whole batch before applying any prefix.
-	for _, code in ipairs(codes) do
+	local senderSeat = SeatOf(t, sender)
+	local fromArbiter = t.arbiter and Same(sender, t.arbiter)
+	local choices, seenChoices = { {}, {} }, { 0, 0 }
+	for i, own in ipairs(t.game.events) do
+		local ev = R().Event(own)
+		if ev and ev.t == "K" then
+			local list = choices[ev.p]
+			list[#list + 1] = own
+			if i <= step then seenChoices[ev.p] = seenChoices[ev.p] + 1 end
+		end
+	end
+	for i, code in ipairs(codes) do
 		local ev = R().Event(code)
-		if ev and (ev.t == "F" or (ev.t == "H" and t.game.hiccupRule == "bones2")) then return end
+		if not ev or ev.t == "F" or (ev.t == "H" and t.game.hiccupRule == "bones2") then return end
+		-- A peer may witness our server rolls, but cannot choose our dice or bank for us.
+		-- Previously recorded decisions can travel in an honest prefix; new or changed
+		-- decisions belong to the sending seat (or the table's arbiter).
+		local own = t.game.events[step + i]
+		local matches = own and own:gsub("%*$", "") == code:gsub("%*$", "")
+		if ev.t == "K" then
+			seenChoices[ev.p] = seenChoices[ev.p] + 1
+			local choice = choices[ev.p][seenChoices[ev.p]]
+			-- Witnessed server rolls can shift event indexes (W4). Compare each seat's
+			-- decisions in their own order, rather than at the same transcript step.
+			local following = R().Event(codes[i + 1] or "")
+			local bankRoll = ev.p == t.seat and t.bankRolls and t.bankRolls[seenChoices[ev.p]]
+			-- At a packet boundary the next part carries the roll; our local server
+			-- observation already proves the bank must read as rolling on.
+			local witnessed = choice and choice:gsub(":b", ":r", 1) == code and bankRoll
+				and (not following or (following.t == "R" and following.p == ev.p
+					and bankRoll == R().Code({ t = "R", p = following.p, k = following.k, value = following.value })))
+			if choice ~= code and not witnessed and (ev.p == t.seat or (not fromArbiter and ev.p ~= senderSeat)) then return end
+		end
+		-- A concession is the named player's decision too. The only other way to
+		-- concede our seat is an observed departure after the same local grace as KT.
+		if ev.t == "C" and ev.p == t.seat and not matches then
+			local since = t.away and t.away[ev.p]
+			if not since or not Away(t, ev.p) or Clock() - since < FT.TAVERN_GRACE then return end
+		end
 	end
 	FT.Note("%s resync: KR from %s, %d events from step %d", t.id, tostring(sender), #codes, step)
 	TakeRelay(t, sender, step, codes)

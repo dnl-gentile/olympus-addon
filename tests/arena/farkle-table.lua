@@ -387,33 +387,64 @@ test("1.2 the Bone Throw tables: every table message goes by whisper to each oth
 end)
 
 test("1.2 the Bone Throw tables: a client that lost its place (a /reload) finds its table in its saved data and asks the others (KQ): the rolls it missed come marked relayed", function()
-	local w, a, b, id = Table()
-	w:QueueRoll(a.name, Roll(a, ONE_FIVE))
-	FT(w, a).Roll(id)
-	w:Run(0)
-	w:Logout(b)
-	assert(FT(w, a).Keep({ 1, 2 }, "r", id))
-	w:QueueRoll(a.name, Roll(a, { 5, 3, 3, 2 }))
-	FT(w, a).Roll(id)
-	w:Run(0)
-	w:Login(b)
-	w:Group({ a, b })
-	w:Run(0)
-	local tb = Get(b, id)
-	assert(tb, "the table found again")
-	eq(tb.reloaded, true)
-	eq(#w:Sent({ from = b, type = "KQ" }), 1)
-	eq(#w:Sent({ from = a, type = "KR" }) >= 1, true)
-	eq(tb.game.chain, Get(a, id).game.chain)
-	local last = tb.game.events[tb.game.step]
-	assert(last:find("%*$"), "the roll it didn't see is marked relayed: " .. last)
-	NoErrors(w)
+	for _, arbitrated in ipairs({ false, true }) do
+		local w, a, b, id, arb = Table({ arbiter = arbitrated })
+		w:QueueRoll(a.name, Roll(a, ONE_FIVE))
+		FT(w, a).Roll(id)
+		w:Run(0)
+		w:Logout(b)
+		assert(FT(w, a).Keep({ 1, 2 }, "r", id))
+		w:QueueRoll(a.name, Roll(a, { 5, 3, 3, 2 }))
+		FT(w, a).Roll(id)
+		w:Run(0)
+		w:Login(b)
+		w:Group({ a, b, arb })
+		w:Run(0)
+		local tb = Get(b, id)
+		assert(tb, "the table found again")
+		eq(tb.reloaded, true)
+		eq(#w:Sent({ from = b, type = "KQ" }), 1)
+		eq(#w:Sent({ from = arb or a, type = "KR" }) >= 1, true)
+		eq(tb.game.chain, Get(a, id).game.chain)
+		local last = tb.game.events[tb.game.step]
+		assert(last:find("%*$"), "the roll it didn't see is marked relayed: " .. last)
+		NoErrors(w)
+	end
+end)
+
+test("1.2 the Bone Throw tables: a relay cannot invent or replace this player's own decision", function()
+	for _, attack in ipairs({ { false, "K1:1:r" }, { true, "K1:1:r" }, { false, "C1" }, { true, "C1" },
+		{ true, "K1:12:r,R1:4:865" } }) do
+		local replacement, forged = attack[1], attack[2]
+		local w, a, b, id = Table()
+		w:QueueRoll(a.name, Roll(a, ONE_FIVE))
+		assert(FT(w, a).Roll(id)); w:Run(0)
+		if replacement then assert(FT(w, a).Keep({ 1, 2 }, "b", id)); w:Run(0) end
+		local ta = Get(a, id)
+		local step = ta.game.step
+		-- A wrong-chain KK asks the peer for history through the actual resync path.
+		Forge(w, b, a, "KK", ("%s~%s~12~b~00000000"):format(id, a.ns.Arena.B36(step)))
+		assert(#w:Sent({ from = a, type = "KQ", to = b.name }) > 0)
+		local before = a.ns.FarkleRules.Transcript(ta.game)
+		local own = a.ns.FarkleRules.Transcript(ta.own)
+		local disputes = 0
+		a.ns.Debts.Disputed = function() disputes = disputes + 1 end
+		local from = replacement and step - 1 or step
+		Forge(w, b, a, "KR", ("%s~%s~%s"):format(id, a.ns.Arena.B36(from), forged))
+		eq(a.ns.FarkleRules.Transcript(ta.game), before, "the peer cannot choose our dice or bank")
+		eq(a.ns.FarkleRules.Transcript(ta.own), own, "our witnessed record stays intact")
+		eq(disputes, 0, "reject before dispute side effects")
+		NoErrors(w)
+	end
 end)
 
 test("1.2 the Bone Throw tables: direct mode: a roll the actor made before his bank reached the other (W4) splits the records; the other player's witnessing decides, the dispute is recorded against the actor (the design)", function()
 	local w, a, b, id = Table({ secs = 30 })
 	local disputes = {}
 	for _, c in ipairs({ a, b }) do
+		-- Force a packet boundary between the corrected bank and its witnessed roll.
+		-- The normal twenty-code path is also exercised by the reload recovery test.
+		c.ns.FarkleTable.KR_CODES = 1
 		c.ns.Debts.Disputed = function(ref, e) disputes[#disputes + 1] = { by = c.name, ref = ref, against = e.against } end
 	end
 	w:QueueRoll(a.name, Roll(a, ONE_FIVE))
