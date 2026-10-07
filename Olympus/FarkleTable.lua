@@ -3368,6 +3368,33 @@ for _, fill in ipairs({ "Pay", "PayFee", "PayStake", "Payout", "Refund", "Change
 	A0.Action("farkle." .. fill:lower(), nil, function(id) return FT[fill](id) end)
 end
 
+-- Chat derives its audience from this live table model, never from an EC's claimed public flag
+-- or a kept historical market notice. No new wire fields or spectator permission are granted.
+function FT.ChatSpec(id)
+	if not ValidId(id) then return nil end
+	local t, n = tables[id], notices[id]
+	if t and (t.role == "practice" or t.role == "bank") then return nil end
+	if not t and not n then return nil end
+	local watch = not t or t.role == "watch"
+	local live, spectators, host, guest, arbiter, mode
+	if watch then
+		if not n or n.at < Now() - 3 * FT.NOTICE_EVERY or n.state ~= "o" then return nil end
+		if n.official and not ns.ArenaRoles.IsPublicArbiter(n.arbiter, n.mode) then return nil end
+		if not n.official and not (Same(n.by, n.p1) or Same(n.by, n.p2)) then return nil end
+		host, guest, arbiter, mode = n.p1, n.p2, n.arbiter, n.mode
+		live = not (t and t.snap and t.snap.phase == "over")
+		spectators = live
+	else
+		host, guest, arbiter, mode = t.host, t.guest, t.arbiter, t.mode
+		live = PLAYING[t.state] == true and not t.closed and not (t.game and t.game.over)
+		spectators = live and t.noWatch ~= true
+	end
+	if not host or not guest or Same(host, guest) then return nil end
+	if arbiter and not ns.ArenaRoles.IsArbiter(arbiter, mode) then arbiter = nil end
+	return { id = id, host = host, guest = guest, arbiter = arbiter, mode = mode,
+		live = live == true, spectators = spectators == true, model = t or n }
+end
+
 A0.Events.Register("K", function(eid)
 	local t = tables[eid]
 	if not t then

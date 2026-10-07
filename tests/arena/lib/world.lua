@@ -298,15 +298,22 @@ local function FakeComm(w, c)
 		local M = rawget(c.ns, "Moderation")
 		return M ~= nil and not M.missing and M.Blocks and M.Blocks(msg) == true
 	end
-	local function Refused(done, why) if done then done(false, why) end end
-	local function Enqueue(dist, msg, key, target, urgent, logged, done, chunked)
+	local function Refused(done, why) if done then done(false, why) end return false end
+	local function ValidGuard(guard)
+		if guard == nil then return true end
+		if type(guard) ~= "function" then return false end
+		local ok, valid = pcall(guard)
+		return ok and valid == true
+	end
+	local function Enqueue(dist, msg, key, target, urgent, logged, done, chunked, guard)
 		local q = comm.queue
 		if key then
 			for _, item in ipairs(q) do
 				if item.key == key then
 					item.msg, item.target, item.logged = msg, target, logged
+					item.guard = guard
 					if done then item.done = done end
-					return
+					return true
 				end
 			end
 		end
@@ -316,7 +323,7 @@ local function FakeComm(w, c)
 			local gone = table.remove(q, drop)
 			if gone.done then w:As(c, gone.done, false, "dropped") end
 		end
-		local item = { dist = dist, msg = msg, key = key, target = target, urgent = urgent and true or nil, logged = logged, done = done, chunked = chunked }
+		local item = { dist = dist, msg = msg, key = key, target = target, urgent = urgent and true or nil, logged = logged, done = done, chunked = chunked, guard = guard }
 		if urgent then
 			local at = 1
 			while q[at] and q[at].urgent do at = at + 1 end
@@ -324,26 +331,31 @@ local function FakeComm(w, c)
 		else
 			q[#q + 1] = item
 		end
+		return true
 	end
 	function C.Handle(kind, fn) comm.handlers[kind] = fn end
-	function C.Send(dist, msg, key, urgent, logged, done)
+	function C.Send(dist, msg, key, urgent, logged, done, options)
+		local guard = options and options.guard
+		if not ValidGuard(guard) then return Refused(done, "guard") end
 		if dist == "GUILD" and not c.guild then return Refused(done, "guild") end
 		if Held(msg) then return Refused(done, "held") end
-		Enqueue(dist, msg, key, nil, urgent, logged, done)
+		return Enqueue(dist, msg, key, nil, urgent, logged, done, nil, guard)
 	end
-	function C.Whisper(target, msg, key, urgent, logged, done)
+	function C.Whisper(target, msg, key, urgent, logged, done, options)
+		local guard = options and options.guard
+		if not ValidGuard(guard) then return Refused(done, "guard") end
 		if type(target) ~= "string" or target == "" then return Refused(done, "target") end
 		if Held(msg) then return Refused(done, "held") end
-		Enqueue("WHISPER", msg, key, target, urgent, logged, done)
+		return Enqueue("WHISPER", msg, key, target, urgent, logged, done, nil, guard)
 	end
 	-- (Comm.lua cuts a long payload in its own pieces and puts them together again: here it goes
 	-- whole, as its receivers' handlers get it.)
 	function C.SendChunked(payload, urgent, dist)
 		Enqueue(dist == "GUILD" and "GUILD" or "CHANNEL", payload, nil, nil, urgent, nil, nil, true)
 	end
-	function C.SendChat(msg, done)
-		if #comm.chatq >= World.CHAT_QUEUE or Held(msg) then return false end
-		comm.chatq[#comm.chatq + 1] = { dist = "CHANNEL", msg = msg, logged = true, done = done, chat = true, t = w.clock }
+	function C.SendChat(msg, done, line, guard)
+		if #comm.chatq >= World.CHAT_QUEUE or Held(msg) or not ValidGuard(guard) then return false end
+		comm.chatq[#comm.chatq + 1] = { dist = "CHANNEL", msg = msg, logged = true, done = done, chat = true, t = w.clock, line = line, guard = guard }
 		return true
 	end
 	function C.QueueSize() return #comm.queue end
@@ -383,6 +395,13 @@ end
 
 -- One message of that client's queue leaves: the result the test chose, else delivered.
 function World:SendNow(c, item)
+	if item.guard then
+		local ok, valid = pcall(self.As, self, c, item.guard)
+		if not ok or valid ~= true then
+			if item.done then self:As(c, item.done, false, "guard") end
+			return false
+		end
+	end
 	local res = table.remove(c.comm.results, 1) or 0
 	if res == 0 and #item.msg > World.MAX_MESSAGE and not item.chunked then res = 2 end
 	local recipients = self:Recipients(c, item.dist, item.target)
