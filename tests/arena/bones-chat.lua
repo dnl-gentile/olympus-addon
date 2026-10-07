@@ -5,10 +5,12 @@ local FW = assert(loadfile(H.ROOT .. "tests/arena/lib/farkle-world.lua"))(H)
 local N = H.World.NAMES
 
 local function Roster(w, c)
-	c.globals.GetNumGuildMembers = function() return #w.clients, #w.clients end
+	local members = {}
+	for _, p in ipairs(w.clients) do if p.guild == c.guild then members[#members + 1] = p end end
+	c.globals.GetNumGuildMembers = function() return #members, #members end
 	c.globals.GetGuildRosterInfo = function(i)
-		local p = w.clients[i]
-		if p then return p.name, "Member", 3, 60, "Mage", "Elwynn Forest", "", "", true, "", "MAGE" end
+		local p = members[i]
+		if p then return p.name, p.rankName, p.rank, 60, "Mage", "Elwynn Forest", "", "", true, "", "MAGE" end
 	end
 	w:As(c, function()
 		assert(loadfile(H.ADDON_DIR .. "Roster.lua"))("Olympus", c.ns)
@@ -83,6 +85,31 @@ local function Count(w, kind)
 	return n
 end
 
+local function Watch(w, c, rooms)
+	w:As(c, function()
+		assert(loadfile(H.ADDON_DIR .. "Watch.lua"))("Olympus", c.ns)
+		assert(loadfile(H.ADDON_DIR .. "WatchChat.lua"))("Olympus", c.ns)
+		assert(loadfile(H.ADDON_DIR .. "ArenaChat.lua"))("Olympus", c.ns)
+		assert(c.ns.ArenaChat.Open(rooms.players)); assert(c.ns.ArenaChat.Open(rooms.everyone))
+	end)
+end
+
+test("Bones chat core: real WatchChat deletion keeps the registered surface's native replay hidden after dedupe expires", function()
+	local w, a, b, _, _, rooms = Live()
+	b.rank = 0; Roster(w, b); Watch(w, b, rooms)
+	eq(w:As(b, b.ns.WatchChat.HoldsChat, rooms.players), true)
+	eq(w:As(a, a.ns.ArenaChat.Send, rooms.players, "deleted actual words"), true); Drain(w, a)
+	local e = w:As(b, b.ns.ArenaChat.Lines, rooms.players)[1]
+	local id, text = e.id, e.text
+	local deleted, why = w:As(b, b.ns.WatchChat.Delete, rooms.players, e, "actual guild moderation")
+	eq(deleted, true, why); eq(e.del, true)
+	eq(w:As(b, b.ns.WatchChat.Tombstoned, rooms.players, a.name, id, text), true)
+	w.clock = w.clock + 121
+	w:As(a, a.globals.C_ChatInfo.SendAddonMessageLogged, a.ns.PREFIX, "EC~L1~" .. rooms.players .. "~" .. id .. "~MA~" .. a.guild .. "~" .. text, "WHISPER", b.short)
+	eq(#w:As(b, b.ns.ArenaChat.Lines, rooms.players), 0, "retained day-long real tombstone, not old 120s dedupe")
+	eq(#b.ns.ArenaChat.Room(rooms.players).lines, 1, "no second stored replay")
+end)
+
 test("Bones chat core: real two-player Players whispers and verified ordinary-member Everyone on the public logged lane", function()
 	local w, a, b, s, id, rooms = Live()
 	eq(#id <= 16, true); eq(#rooms.everyone <= 20, true)
@@ -103,6 +130,43 @@ test("Bones chat core: real two-player Players whispers and verified ordinary-me
 		eq(w:As(c, c.ns.ArenaChat.Lines, rooms.everyone)[1].chat, rooms.everyone)
 	end
 	eq(Count(w, "EC"), 1); eq(w.sent[1].dist, "CHANNEL"); eq(w.sent[1].logged, true)
+end)
+
+test("Bones chat core: rejected hostile EC keeps bounded room metadata without resetting rate or dedupe", function()
+	local w, a, b, _, _, rooms = Live()
+	local function NativeLine(kind, body)
+		w:As(a, a.globals.C_ChatInfo.SendAddonMessageLogged, a.ns.PREFIX, kind .. "~L1~" .. body, "WHISPER", b.short)
+	end
+	local function Size(map) local n = 0 for _ in pairs(map) do n = n + 1 end return n end
+	for i = 1, 1100 do NativeLine("EC", rooms.players .. "~" .. i .. "~MA~" .. a.guild .. "~hostile " .. i) end
+	local r = b.ns.ArenaChat.Room(rooms.players)
+	eq(#r.lines, 6, "actual Admit sender token bucket, not replacement test logic")
+	eq(Size(r.seen) <= 512, true, "rejected unique messages are bounded")
+	eq(r.buckets[a.name].tokens, 0)
+	local first = a.name .. "#1#hostile 1"
+	eq(r.seen[first], w.clock, "no clearing a live dedupe window to admit another sender")
+	NativeLine("EC", rooms.players .. "~1~MA~" .. a.guild .. "~hostile 1")
+	eq(#r.lines, 6); eq(r.buckets[a.name].tokens, 0)
+	-- Expiry frees only old cache entries. A fully replenished legitimate author may speak again.
+	w.clock = w.clock + 121
+	NativeLine("EC", rooms.players .. "~1~MA~" .. a.guild .. "~hostile 1")
+	eq(#r.lines, 7); eq(Size(r.seen), 1); eq(r.buckets[a.name].tokens, 5)
+end)
+
+test("Bones chat core: arbitrary canonical-host EM subjects are capped without expiring or evicting current mutes", function()
+	local w, a, b, _, _, rooms = Live()
+	for i = 1, 240 do
+		-- Refill the real transport bucket rather than bypass its admission check.
+		w.clock = w.clock + 0.5
+		local who = "Guest" .. string.char(65 + math.floor(i / 26)) .. string.char(65 + i % 26) .. "-" .. a.realm
+		w:As(a, a.globals.C_ChatInfo.SendAddonMessageLogged, a.ns.PREFIX, "EM~L1~" .. rooms.players .. "~" .. who .. "~1", "WHISPER", b.short)
+	end
+	local r, count = b.ns.ArenaChat.Room(rooms.players), 0
+	for _ in pairs(r.muted) do count = count + 1 end
+	eq(count, 100, "bounded mute identities, no eviction lets a muted author return")
+	eq(r.muted[("GuestAB-" .. a.realm):lower()], true)
+	w:As(a, a.globals.C_ChatInfo.SendAddonMessageLogged, a.ns.PREFIX, "EM~L1~" .. rooms.players .. "~GuestAB-" .. a.realm .. "~0", "WHISPER", b.short)
+	eq(r.muted[("GuestAB-" .. a.realm):lower()], nil, "authorized lift still works at cap")
 end)
 
 test("Bones chat core: actual Concede sends the final existing state to its watcher before stopping relay", function()

@@ -45,6 +45,9 @@ ArenaChat.GAP_PER_WRITER = 1  -- ...and one per writer heard in the room in the 
 ArenaChat.PER_MINUTE = 6      -- our lines a minute in one room, at most
 ArenaChat.FLOOD = 60          -- lines a minute a room shows, at most (the rest: a notice)
 ArenaChat.WRITER_WINDOW = 60
+ArenaChat.SEEN_MAX = 512
+ArenaChat.SENDERS_MAX = 256
+ArenaChat.MUTES_MAX = 100
 
 local rooms = {}   -- [room] = the room (below)
 local current      -- the room /ola speaks in (the last one opened)
@@ -138,10 +141,22 @@ end
 -- Rooms (memory only)
 ---------------------------------------------------------------------------
 
+local function Count(map) local n = 0 for _ in pairs(map) do n = n + 1 end return n end
+local function Housekeep(r, now)
+	-- Same expiry windows as Channels.Admit. Never evict a live rate bucket/dedupe entry to
+	-- admit a new one: a hostile stream cannot reset its burst or cause a late duplicate.
+	for _, map in ipairs({ r.seen, r.mine }) do
+		for key, at in pairs(map) do if now - at > 120 then map[key] = nil end end
+	end
+	for key, bucket in pairs(r.buckets) do if now - bucket.t > 60 then r.buckets[key] = nil end end
+	for key, at in pairs(r.heard) do if now - at > ArenaChat.WRITER_WINDOW then r.heard[key] = nil end end
+end
+
 local function Prune()
 	local now = Now()
 	local list = {}
 	for id, r in pairs(rooms) do
+		Housekeep(r, now)
 		local ev = Event(id)
 		if not ev then
 			r.endedAt = r.endedAt or now
@@ -170,7 +185,8 @@ ArenaChat.Prune = Prune
 
 local function Room(id, make)
 	local r = rooms[id]
-	if r or not make then return r end
+	if r then Housekeep(r, Now()); return r end
+	if not make then return nil end
 	r = { id = id, lines = {}, muted = {}, buckets = {}, seen = {}, mine = {}, heard = {}, sent = {}, stats = {}, used = Now() }
 	rooms[id] = r
 	Prune()
@@ -472,14 +488,21 @@ local function OnChat(dist, sender, mode, body)
 	local r = Room(room, true)
 	local level = ev.public == true and (ev.kind ~= "farkle" and Live(room, ev) and 2 or 1) or 0
 	local now = Now()
+	local seenKey = sender .. "#" .. id .. "#" .. text
+	if (not r.seen[seenKey] and Count(r.seen) >= ArenaChat.SEEN_MAX)
+		or (not r.buckets[sender] and Count(r.buckets) >= ArenaChat.SENDERS_MAX) then return Drop("cache") end
 	local admitted, reason = ns.Channels.Admit(sender, guild, text, now,
-		{ id = id, level = level, buckets = r.buckets, seen = r.seen, mine = r.mine, stats = r.stats, where = room })
+		{ id = id, chat = room, line = id, level = level, buckets = r.buckets, seen = r.seen, mine = r.mine, stats = r.stats, where = room })
 	if not admitted then
 		-- (A line the player's block terms hide is kept, marked, as the Chat tab keeps it.)
-		if reason == "filtered" then Keep(r, { chat = room, t = ns.Now(), sender = sender, guild = guild, class = class ~= "" and class or nil, text = text, id = id, hidden = true }) end
+		if reason == "filtered" then
+			Keep(r, { chat = room, t = ns.Now(), sender = sender, guild = guild, class = class ~= "" and class or nil, text = text, id = id, hidden = true })
+			ns.Fire("ARENA_CHAT", room)
+		end
 		return Drop(reason)
 	end
-	r.heard[Lower(sender)] = now
+	local writer = Lower(sender)
+	if r.heard[writer] or Count(r.heard) < ArenaChat.SENDERS_MAX then r.heard[writer] = now end
 	-- The room's flood guard: 60 lines a minute shown; past it the lines wait for the notice.
 	local shown = 0
 	r.times = r.times or {}
@@ -528,6 +551,7 @@ function ArenaChat.Mute(room, name, on)
 	name = ns.Arena.Name(name)
 	if not name then return false, "name" end
 	local r = Room(room, true)
+	if on and not r.muted[Lower(name)] and Count(r.muted) >= ArenaChat.MUTES_MAX then return false, "cap" end
 	local body = ("%s~%s~%s"):format(room, name, on and "1" or "0")
 	local A = ns.Arena
 	local mode = A.Mode(ev)
@@ -565,6 +589,7 @@ local function OnMute(dist, sender, mode, body)
 	name = ns.Arena.Name(name)
 	if not name then return Drop("name") end
 	local r = Room(room, true)
+	if flag == "1" and not r.muted[Lower(name)] and Count(r.muted) >= ArenaChat.MUTES_MAX then return Drop("cap") end
 	r.muted[Lower(name)] = flag == "1" or nil
 	ns.Fire("ARENA_CHAT", room)
 	return true
