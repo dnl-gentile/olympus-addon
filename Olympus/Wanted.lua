@@ -2570,10 +2570,16 @@ local function SightPermit(job)
 	local ok, why = Collects()
 	if not ok then return false, why end
 	if Sight.CrownHidden() then return false, "crown" end
+	if not Sight.Sharing() then return false, "private" end
 	local now = math.floor(Clock())
 	if now - job.at > Wanted.SIGHT_QUEUE_TTL then return false, "stale" end
 	if not LeaseLive(reviewers[job.toKey], now) then return false, "reviewer" end
 	return true
+end
+
+function Sight.Sharing()
+	local Ly = ns.Layers
+	return type(Ly) == "table" and type(Ly.Sharing) == "function" and Ly.Sharing() == true
 end
 
 -- The server's "No player named <reviewer> is currently playing" that answers a whisper this
@@ -2641,8 +2647,7 @@ local function SendSighting(e)
 	if Sight.CrownHidden() then return 0, "crown" end
 	-- (1.2.0: a sighting carries where this player stands and his layer: none goes while he keeps
 	-- his zone and layer private.)
-	local Ly = ns.Layers
-	if not (type(Ly) == "table" and type(Ly.Sharing) == "function" and Ly.Sharing() == true) then return 0, "private" end
+	if not Sight.Sharing() then return 0, "private" end
 	local guild = Sight.OwnGuild()
 	if not guild then return 0, "guild" end
 	local now = math.floor(Clock())
@@ -3295,6 +3300,12 @@ end)
 ns.On("KING_LOCATION_CHANGED", function()
 	if Sight.CrownHidden() and (sightJobCount > 0 or next(told.by) ~= nil) then
 		CancelSightings("crown")
+		Sight.Withdraw()
+	end
+end)
+ns.On("LAYER_SHARING_CHANGED", function(on)
+	if on ~= true and (sightJobCount > 0 or next(told.by) ~= nil) then
+		CancelSightings("private")
 		Sight.Withdraw()
 	end
 end)
