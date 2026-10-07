@@ -75,6 +75,23 @@ local function Text(lines)
 	return table.concat(out, "\n")
 end
 
+test("Weekly personal brief: Close uses Olympus's localized label without requiring a native global", function()
+	local w, c = Client()
+	c.L = setmetatable({ LETTERS_CLOSE = "Fechar" }, { __index = c.L })
+	local constructor = assert(loadfile(ROOT .. "Olympus/WeeklyBrief.lua"))
+	setfenv(constructor, setmetatable({}, { __index = function(_, key)
+		assert(key ~= "CLOSE", "the brief must not require an unverified native CLOSE global")
+		return _G[key]
+	end }))
+	local previous = StaticPopupDialogs.OLYMPUS_WEEKLY_BRIEF
+	local ok, err = pcall(constructor, "Olympus", c)
+	local definition = StaticPopupDialogs.OLYMPUS_WEEKLY_BRIEF
+	StaticPopupDialogs.OLYMPUS_WEEKLY_BRIEF = previous
+	assert(ok, err)
+	eq(definition.button1, "Fechar", "the player's locale, not a hard-coded English fallback")
+	eq(w.sent, 0)
+end)
+
 test("Weekly public brief: actual census snapshots survive reload, compare one reset only, and never invent absent zeroes", function()
 	local w, c = Client()
 	local lines = w:As(c.WeeklyBrief.Lines)

@@ -198,7 +198,7 @@ function Brief.TryPersonal()
 end
 
 StaticPopupDialogs["OLYMPUS_WEEKLY_BRIEF"] = {
-	text = L.BRIEF_PERSONAL_POPUP, button1 = CLOSE or "Close", timeout = 0,
+	text = L.BRIEF_PERSONAL_POPUP, button1 = L.LETTERS_CLOSE, timeout = 0,
 	whileDead = true, hideOnEscape = true, preferredIndex = 3,
 	OnShow = function(self, data)
 		data = data or self.data
