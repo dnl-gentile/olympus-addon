@@ -34,7 +34,7 @@ in game, stay in their test group, and are not release files.
 ## 2. One Windows client (observed)
 
 1. Quit World of Warcraft. Back up both addon folders and
-   `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.
+   `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`. Keep the backup outside `Interface/AddOns`.
 2. Verify the downloaded zip in PowerShell. The printed hash must equal the first field of the
    supplied `.sha256` file:
 
@@ -63,11 +63,12 @@ version loads without errors.
 
 ## 3. Mixed-version and multi-account session (observed)
 
-Use the same zip and SHA-256 on every tester. Start with practice currency and a party or raid;
-move to any real-value rehearsal only after the practice ledger reconciles.
+Use the same zip and SHA-256 on every tester. Use free games and a party or raid. Bets, gold
+stakes, entry-fee pots and paid Lottery tickets are not part of a beta or release. Do not bypass
+the gate to test dormant financial code on somebody's real character.
 
-The minimum useful session has two participants, the people responsible for directing and
-settling the session, a spectator, and one client on the previous public release. Also keep one
+The minimum useful session has two participants, an organizer, a spectator, and one client on
+the previous public release. Also keep one
 non-participant outside the group. Record each character, version, role, client flavor, gamepad
 state and join/leave time.
 
@@ -76,15 +77,35 @@ buttons and functions players really use:
 
 - a late join, leave and rejoin; `/reload` and a client disconnect during an open session;
 - an older client in the group and an older client outside it;
-- an unauthorized action, a repeated click, duplicate result and attempted double settlement;
+- an unauthorized action, a repeated click, duplicate result and attempted double recording;
 - a stale or delayed action, actions arriving in a different order, and a session closed early;
-- insufficient balance, an unavailable responsible player, cancellation, refund and recovery;
+- an unavailable participant, cancellation, disconnect and recovery;
 - gamepad and keyboard users together, combat/instance transitions, ignore/block and rate limits;
 - a ten-minute burst/soak with several simultaneous users, watching queues, memory and errors.
 
-After each money-moving scenario, reconcile the opening balance, accepted inputs, refunds, fees,
-payouts and closing balance independently on both sides. An unexplained difference is a failed
-gate, even when the UI looked correct.
+After each game, compare the players' results and history, then compare any permitted public
+summary on the spectator. An unexplained difference is a failed gate, even when the UI looked
+correct. Treasury contributions use their separate, normal manual mail/trade checks; they are
+not game stakes or prizes.
+
+For the 1.2.1 candidate, include these focused live checks:
+
+- Bones: two players exchange Players messages, then switch to Everyone with a spectator.
+  Private messages must never reach the spectator. Collapse/reopen the side panel; keep an
+  unfinished draft in each tab; repeat with gamepad mode. Disable spectators during a queued
+  public message: it must not be delivered. The innkeeper's practice has no multiplayer chat.
+- The Watch: create a timeout, appeal while a councillor is offline, then overlap online later.
+  The subject sees only "a moderator"; authorized staff retain the actor. A preview role grants
+  no permissions. Compare current timeout, appeal and decision once, without duplicate rows.
+- Wanted: each participant sends their own observed kill/death evidence to a reviewer. Unknown
+  identity is not accepted on a claimed guild alone. Publish the reviewed rankings; a trusted
+  relay should recover the unchanged signed word for a recipient that already pinned that
+  issuer independently. A new recipient without the pin cannot bootstrap from the relay.
+- Weekly brief: after the privacy page and update letter, check the five personal lines, close,
+  reload, and ensure it stays closed until next reset. No popup in combat, an instance or Busy;
+  no sharing setting changes. Public Board summary must not reveal private dues or poll data.
+- Lottery: draw Mechanostrider and check its full label above, not across, the result numbers at
+  the normal and smaller UI scales. Keep the five-place animation and free tickets.
 
 The in-addon Director checklist is the session record. Mark each item Pass, Fail or Skip with a
 short observation, then copy its test report. A skip is not a pass.
