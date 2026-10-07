@@ -125,6 +125,80 @@ end)
 
 print("ArenaProfile: the person card, the profile's word")
 
+local function ProfileStore()
+	local w = World.New()
+	local viewer = w:Client("Lida Fenn")
+	eq(W3.Companion(w, viewer), true)
+	return w, viewer, viewer.ns.ArenaProfile, viewer.ns.Arena.Heavy("L")
+end
+local function ProfileCount(profiles)
+	local n = 0
+	for _ in pairs(profiles) do n = n + 1 end
+	return n
+end
+local function ProfileBody(w, viewer, gk)
+	return table.concat({ gk or "-", "WA", "1", "2", "60", "0.0", "-", "0", "-", "-", viewer.ns.Arena.B36(w.clock) }, "~")
+end
+
+test("1.2.0 profile store cap: new senders retain the current and own profiles, evict the oldest others and leave lightweight picks available", function()
+	local w, viewer, P, heavy = ProfileStore()
+	eq(P.PROFILES_MAX, 3000)
+	P.PROFILES_MAX = 4 -- exercise eviction with a small independent client's store
+	eq(w:As(viewer, P.Take, viewer.name, ProfileBody(w, viewer)), true)
+	local ownKey = viewer.name:lower()
+	for i = 1, 6 do
+		w.clock = w.clock + 1
+		eq(w:As(viewer, P.Take, "New Fighter " .. i .. "-Emberfall", ProfileBody(w, viewer)), true)
+	end
+	eq(ProfileCount(heavy.profiles), P.PROFILES_MAX)
+	eq(heavy.profiles[ownKey].name, viewer.name, "the player's own old profile survives the flood")
+	eq(heavy.profiles["new fighter 3-emberfall"], nil, "oldest others leave first")
+	for i = 4, 6 do eq(heavy.profiles["new fighter " .. i .. "-emberfall"].name, "New Fighter " .. i .. "-Emberfall") end
+	eq(w:As(viewer, P.Of, "New Fighter 1-Emberfall").name, "New Fighter 1-Emberfall", "an evicted heavy row still has its lightweight pick")
+	W3.NoErrors(w)
+end)
+
+test("1.2.0 profile store cap: an oversized saved table is trimmed on first read, keeping own and recent rows with deterministic ties", function()
+	local w, viewer, P, heavy = ProfileStore()
+	P.PROFILES_MAX = 3
+	local ownKey = viewer.name:lower()
+	heavy.profiles = {
+		[ownKey] = { name = viewer.name, heard = w.clock - 1000 },
+		["old fighter-emberfall"] = { name = "Old Fighter-Emberfall", heard = w.clock - 100 },
+		["alpha fighter-emberfall"] = { name = "Alpha Fighter-Emberfall", heard = w.clock - 10 },
+		["beta fighter-emberfall"] = { name = "Beta Fighter-Emberfall", heard = w.clock - 10 },
+		["recent fighter-emberfall"] = { name = "Recent Fighter-Emberfall", heard = w.clock },
+	}
+	eq(w:As(viewer, P.Of, "Recent Fighter-Emberfall").name, "Recent Fighter-Emberfall")
+	eq(ProfileCount(heavy.profiles), P.PROFILES_MAX)
+	eq(heavy.profiles[ownKey].name, viewer.name)
+	eq(heavy.profiles["old fighter-emberfall"], nil)
+	eq(heavy.profiles["alpha fighter-emberfall"], nil, "equal ages evict by stable key")
+	eq(heavy.profiles["beta fighter-emberfall"].name, "Beta Fighter-Emberfall")
+	W3.NoErrors(w)
+end)
+
+test("1.2.0 profile store cap: repeated verified renames update one GUID row, bound former names, and retain the current row during a same-second flood", function()
+	local w, viewer, P, heavy = ProfileStore()
+	P.PROFILES_MAX = 3
+	local guid, short = "Player-4395-00AA11BB", nil
+	local gk = viewer.ns.Arena.GK(guid)
+	viewer.globals.UnitTokenFromGUID = function() return nil end
+	viewer.globals.GetPlayerInfoByGUID = function() return "Warrior", "WARRIOR", "Human", "Human", 2, short, "Emberfall" end
+	for i = 1, 8 do
+		short = "Renamed Fighter " .. i
+		eq(w:As(viewer, P.Take, short .. "-Emberfall", ProfileBody(w, viewer, gk)), true)
+	end
+	eq(ProfileCount(heavy.profiles), 1, "a rename replaces the GUID row")
+	local p = w:As(viewer, P.Of, gk)
+	eq(p.name, "Renamed Fighter 8-Emberfall"); eq(#p.formerly, P.FORMERLY)
+	eq(table.concat(p.formerly, ","), "Renamed Fighter 7-Emberfall,Renamed Fighter 6-Emberfall,Renamed Fighter 5-Emberfall")
+	for i = 4, 1, -1 do eq(w:As(viewer, P.Take, "Alpha Fighter " .. i .. "-Emberfall", ProfileBody(w, viewer)), true) end
+	eq(ProfileCount(heavy.profiles), P.PROFILES_MAX)
+	eq(heavy.profiles["alpha fighter 1-emberfall"].name, "Alpha Fighter 1-Emberfall", "the accepted row survives even when its key sorts first at equal age")
+	W3.NoErrors(w)
+end)
+
 test("1.2 the fights part: the person card's rows (UI.personRows): 'Rank · Title' when a verified title shows; the arena's line when the ledger knows him; nothing for an unheld title", function()
 	local w, cast = W3.New()
 	local viewer = cast.spectator
