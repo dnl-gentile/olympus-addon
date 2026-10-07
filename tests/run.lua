@@ -4,6 +4,10 @@
 -- Focus one security-sensitive matrix without allocating the Arena suite:
 --   OLYMPUS_TEST_AUTHORITY_ONLY=1 luajit tests/run.lua
 --   OLYMPUS_TEST_WATCH_ONLY=1 luajit tests/run.lua
+-- Diagnose an expensive case (flushed BEGIN/END, CPU/wall time and Lua heap):
+--   OLYMPUS_TEST_PROFILE=1 luajit tests/run.lua
+-- Override the default 128-MiB between-case collection high-water mark (0 disables it):
+--   OLYMPUS_TEST_GC_MB=128 luajit tests/run.lua
 
 local ROOT = (arg and arg[0] or ""):match("^(.*)tests[/\\]run%.lua$") or "./"
 local ADDON_DIR = ROOT .. "Olympus/"
@@ -214,6 +218,10 @@ local passed, failed = 0, 0
 Harness.authorityOnly = os.getenv("OLYMPUS_TEST_AUTHORITY_ONLY") == "1"
 Harness.watchOnly = os.getenv("OLYMPUS_TEST_WATCH_ONLY") == "1"
 Harness.testFilter = os.getenv("OLYMPUS_TEST_FILTER")
+Harness.performance = assert(loadfile(ROOT .. "tests/performance.lua"))().New({
+	profile = os.getenv("OLYMPUS_TEST_PROFILE") == "1",
+	gcMB = tonumber(os.getenv("OLYMPUS_TEST_GC_MB")) or 128,
+})
 if os.getenv("OLYMPUS_TEST_ARENA_MODULES") then
 	assert(not Harness.watchOnly and not Harness.authorityOnly and not Harness.testFilter and not (arg and arg[1]),
 		"affected module selection cannot be combined with a test-name filter")
@@ -223,15 +231,18 @@ local function test(name, fn)
 	if Harness.watchOnly and name:sub(1, 6) ~= "watch:" then return end
 	if Harness.testFilter and Harness.testFilter ~= "" and not name:find(Harness.testFilter, 1, true) then return end
 	if arg and arg[1] and not name:lower():find(arg[1]:lower(), 1, true) then return end
+	local measurement = Harness.performance:Start(name)
 	local before = #Harness.violations
 	local ok, err = pcall(fn)
 	if ok and #Harness.violations > before then ok, err = false, Harness.violations[#Harness.violations] end
 	local replaced = GamepadStyle(nil)
 	if replaced and ok then ok, err = false, replaced end
+	Harness.performance:Finish(measurement)
 	if ok then passed = passed + 1; print("  ok   " .. name)
 	else failed = failed + 1; print("  FAIL " .. name .. "\n       " .. tostring(err)) end
 end
 local function eq(a, b, msg) if a ~= b then error((msg or "") .. " expected " .. tostring(b) .. ", got " .. tostring(a), 2) end end
+assert(loadfile(ROOT .. "tests/test-performance.lua"))(test, eq, ROOT)
 
 -- A stored report as if `...` (other senders) had each just reported the same ranks: ranks
 -- from other guilds count only when someone else's recent report names them (Data.KnownRank).
@@ -59494,11 +59505,11 @@ end)
 assert(loadfile(ROOT .. "tests/hop-regressions.lua"))(ns, test, eq, WithHop)
 local focused = Harness.watchOnly and { "watch", "watch-chat", "watch-council-view" }
 		or { "hop", "hop-sightings", "transport", "admission", "privacy", "census", "authority", "chat-rooms", "war", "watch", "watch-chat", "wanted", "wanted-sightings", "map-wanted", "king-arrow",
-		"church", "church-count", "church-view", "church-head", "department-access", "watch-council-view", "innkeeper-arrow", "squads", "court-calls" }
+		"church", "church-count", "church-view", "church-head", "department-access", "watch-council-view", "innkeeper-arrow", "squads", "court-calls", "weekly-brief" }
 for _, name in ipairs(focused) do
 	print("tests/" .. name .. ".lua")
 	-- (1.1.6: the Church's files get the harness's UI helpers.)
-	local extra = name:match("^church") and { WithGamepadUI = WithGamepadUI, WithUI = WithUI }
+	local extra = (name:match("^church") or name == "weekly-brief") and { WithGamepadUI = WithGamepadUI, WithUI = WithUI }
 		or (name == "court-calls" and { WithThrone = WithThrone, AsKing = AsKing, AsSoldier = AsSoldier,
 			WithGamepadUI = WithGamepadUI, WithUI = WithUI }) or (name == "hop-sightings" and WithHop or nil)
 	assert(loadfile(ROOT .. "tests/" .. name .. ".lua"))(ns, test, eq, extra)

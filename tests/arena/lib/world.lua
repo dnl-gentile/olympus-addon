@@ -151,6 +151,12 @@ function World:As(c, fn, ...)
 	local g = c.globals
 	local saved = {}
 	for k in pairs(g) do saved[k] = rawget(_G, k) end
+	-- After the initial loader snapshot, registrations belong to this client, including
+	-- a companion loaded lazily. Sharing the host table chains old worlds through callbacks.
+	local savedPopups, savedSlashes = rawget(_G, "StaticPopupDialogs"), rawget(_G, "SlashCmdList")
+	local ownPopups, ownSlashes = c.popups, c.slashes
+	if ownPopups then rawset(_G, "StaticPopupDialogs", ownPopups) end
+	if ownSlashes then rawset(_G, "SlashCmdList", ownSlashes) end
 	-- The companion's saved variables are a global the client's own code writes: set, then taken back.
 	local savedDB, startDB = rawget(_G, "OlympusArenaDB"), g.OlympusArenaDB
 	for k, v in pairs(g) do rawset(_G, k, v) end
@@ -160,9 +166,13 @@ function World:As(c, fn, ...)
 	local res = { pcall(fn, ...) }
 	local nowDB = rawget(_G, "OlympusArenaDB")
 	if nowDB ~= startDB then g.OlympusArenaDB = nowDB end
+	if ownPopups then c.popups = rawget(_G, "StaticPopupDialogs") end
+	if ownSlashes then c.slashes = rawget(_G, "SlashCmdList") end
 	self.current = was
 	for k in pairs(g) do if k ~= "OlympusArenaDB" then rawset(_G, k, saved[k]) end end
 	rawset(_G, "OlympusArenaDB", savedDB)
+	rawset(_G, "StaticPopupDialogs", savedPopups)
+	rawset(_G, "SlashCmdList", savedSlashes)
 	if not res[1] then error(res[2], 0) end
 	return unpack(res, 2, table.maxn(res))
 end
