@@ -954,6 +954,36 @@ end)
 
 print("FarkleTable: the tavern rule (the design)")
 
+test("1.2 the Bone Throw tables: a forged departure cannot concede a present player or skip the local grace", function()
+	for _, arbitrated in ipairs({ false, true }) do
+		local w, a, b, id, arb = Table({ arbiter = arbitrated, secs = 120 })
+		local ta = Get(a, id)
+		assert(ta.inn, "the local table has an inn")
+		local sender = arb or b
+		local function Gone()
+			local g = ta.game
+			Forge(w, sender, a, "KT", ("%s~%s~g~1~%s~0"):format(id, a.ns.Arena.B36(g.step), g.chain))
+		end
+		local transcript = a.ns.FarkleRules.Transcript(ta.game)
+		Gone()
+		eq(ta.game.over, false, "a claim alone never proves departure")
+		eq(a.ns.FarkleRules.Transcript(ta.game), transcript)
+		w:Stand(a.name, FW.ROAD, false)
+		w:Run(2)
+		Gone()
+		eq(ta.game.over, false, "observed departure still gets the full grace")
+		w:AtInn(a.name, b.name)
+		w:Run(62)
+		eq(ta.game.reason == "concede", false, "a pending claim cannot concede someone who returned")
+		w:Stand(a.name, FW.ROAD, false)
+		w:Run(62)
+		eq(ta.game.over, true, "an actual continuous departure still ends the game")
+		eq(ta.game.winner, 2); eq(Get(b, id).game.winner, 2)
+		if arb then eq(Get(arb, id).game.winner, 2) end
+		NoErrors(w)
+	end
+end)
+
 test("1.2 the Bone Throw tables: a game for gold starts only in one party, both resting at the same inn, within about 10 yards", function()
 	local w, a, b = Live()
 	local function Can() return w:As(a, a.ns.FarkleTable.CanCreate, { guest = b.name, stake = 10000, mode = "d", src = "o", target = 2000 }) end

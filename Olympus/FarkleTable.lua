@@ -1587,6 +1587,10 @@ end
 
 ApplyItem = function(t, item)
 	local g = t.game
+	if item.awaySeat then
+		local since = t.away and t.away[item.awaySeat]
+		if not since or not Away(t, item.awaySeat) or Clock() - since < FT.TAVERN_GRACE then return end
+	end
 	if item.kind == "KL" then
 		local ok, why = R().Floor(g, item.seat, item.turn, item.lvl)
 		if t.own ~= g and t.own then R().Floor(t.own, item.seat, item.turn, item.lvl) end
@@ -2740,9 +2744,17 @@ local function OnClaim(dist, sender, mode, body)
 		-- the judge: the arbiter, else the waiting player (never about himself)
 		if t.arbiter then if not fromArbiter then return end elseif senderSeat ~= 3 - seat then return end
 		ev = kind == "g" and { t = "C", p = seat } or { t = kind == "a" and "A" or "T", p = seat }
-		-- accepted only once this client's own clock agrees (a timeout after secs - 5; gone
-		-- after the grace less the claim's margin)
-		if kind ~= "g" then
+		-- A departure needs this client's own observation for the full grace, including
+		-- when an early claim waits or the player returns before it can be applied.
+		if kind == "g" then
+			local since = t.away and t.away[seat]
+			if not since or not Away(t, seat) then return end
+			local left = FT.TAVERN_GRACE - (Clock() - since)
+			if left > 0 then
+				return Pend(t, { kind = "KT", from = sender, step = step, chain = chain, ev = ev,
+					awaySeat = seat, notBefore = Clock() + left })
+			end
+		else
 			ResetClock(t)
 			local click = Limits(t)
 			if t.clock and t.clock.seat == seat and Used(t) < click then
@@ -2758,7 +2770,7 @@ local function OnClaim(dist, sender, mode, body)
 	else
 		return
 	end
-	Offer(t, { kind = "KT", from = sender, step = step, chain = chain, ev = ev })
+	Offer(t, { kind = "KT", from = sender, step = step, chain = chain, ev = ev, awaySeat = kind == "g" and seat or nil })
 end
 ns.Comm.Handle("KT", ns.Arena.Handle("KT", OnClaim))
 
