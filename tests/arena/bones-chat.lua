@@ -110,6 +110,21 @@ test("Bones chat core: real WatchChat deletion keeps the registered surface's na
 	eq(#b.ns.ArenaChat.Room(rooms.players).lines, 1, "no second stored replay")
 end)
 
+test("Bones chat core: even a known legacy arbiter table's Players audience is exactly the two players", function()
+	local w, a, b, _, id, rooms = Live()
+	local king = w:Find(N.king)
+	eq(w:As(a, a.ns.ArenaRoles.IsArbiter, king.name, "L"), true, "real pinned King's existing arbiter role")
+	-- A legacy known table model can carry an arbiter although current free-table creation
+	-- needs none. The field cannot extend the requested two-player conversation audience.
+	a.ns.FarkleTable.Get(id).arbiter = king.name
+	b.ns.FarkleTable.Get(id).arbiter = king.name
+	eq(#w:As(a, a.ns.ArenaChat.Party, w:As(a, a.ns.ArenaChat.Event, rooms.players)), 2)
+	eq(w:As(a, a.ns.ArenaChat.MayRead, rooms.players, king.name), false)
+	eq(w:As(a, a.ns.ArenaChat.MayRead, rooms.everyone, king.name), true)
+	eq(w:As(a, a.ns.ArenaChat.Send, rooms.players, "two players only"), true); Drain(w, a)
+	eq(Count(w, "EC"), 1); eq(w.sent[1].target, b.short)
+end)
+
 test("Bones chat core: real two-player Players whispers and verified ordinary-member Everyone on the public logged lane", function()
 	local w, a, b, s, id, rooms = Live()
 	eq(#id <= 16, true); eq(#rooms.everyone <= 20, true)

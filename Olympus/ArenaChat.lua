@@ -17,7 +17,8 @@ local L = ns.L
 -- for the Olympus chats (Channels.lua). What this client does with them:
 -- - Who may write, checked by every receiver against the name the server stamps: a public room,
 --   any verified member of an Olympus guild (level 2 or more while a bout of it is live); a 1v1
---   room (a private or direct fight, a Farkle table), its two players and its arbiter only. The
+--   fight room, its two players and its arbiter only. A table's Players is its two humans alone;
+--   its Everyone allows independently verified members when its real model permits spectators. The
 --   sender's own client refuses before the rules' yes, while net-off, and while the room is not
 --   open there (the player opened it, or takes part in the event).
 -- - A line shows only in a room open on this client, through Channels.Admit (the Olympus chats'
@@ -98,7 +99,7 @@ local OVER = { F = true, V = true, N = true, W = true, over = true, done = true 
 local function Over(room, ev) return (type(ev) == "table" and ev.over == true) or OVER[State(room, ev) or ""] == true end
 local function Live(room, ev) return (type(ev) == "table" and ev.live == true) or State(room, ev) == "L" end
 
--- The people of a 1v1 room: its two players and its arbiter (the opener, or ev.arbiter).
+-- The people of a fight's 1v1 room: two players and arbiter; of Bones Players: the two players.
 local function Party(ev)
 	local out = {}
 	if type(ev) ~= "table" then return out end
@@ -108,6 +109,9 @@ local function Party(ev)
 		local name = type(p) == "table" and p.name or p
 		if type(name) == "string" and name ~= "" then out[#out + 1] = ns.FullName(name) end
 	end
+	-- Players is the two humans' conversation even on a legacy arbiter-owned table.
+	-- Its arbiter has Everyone, never the private bytes or an implicit third seat here.
+	if ev.kind == "farkle" then return out end
 	for _, who in ipairs({ ev.arbiter, ev.opener }) do
 		if type(who) == "string" and who ~= "" then
 			local dup = false
