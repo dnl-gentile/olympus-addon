@@ -13,8 +13,10 @@ local L = ns.L
 -- does not start over after a reload. The receivers keep the last word they accepted live, and
 -- after a reload check it again (its signature, the key pinned for its issuer, its expiry, and
 -- that its issuer still holds the role) before it shows any frame. A saved word is only ever
--- used by the client that heard it: words are taken from other players live, from their
--- issuer, never relayed. Editing a saved word's rows breaks its signature, and a word under
+-- used by the client that heard it. W4 asks for catch-up; a real reviewer may relay an unchanged
+-- signed word in W5. A receiver must already have independently pinned that issuer's key from a
+-- verified direct word: a relay never supplies a first-use key or key rotation. Editing a word's
+-- rows breaks its signature, and a word under
 -- another key than the one pinned for its issuer is refused; whoever rewrites both in his own
 -- saved data changes only what his own client shows, as editing the addon itself would.
 --
@@ -52,6 +54,8 @@ Wanted.GLOBAL_BURST = 6
 Wanted.GLOBAL_BURST_GAP = 5 * 60
 Wanted.GLOBAL_REPEAT_EVERY = 30 * 60
 Wanted.GLOBAL_LOGIN_REPEAT = 90
+Wanted.GLOBAL_ASK_FIRST, Wanted.GLOBAL_ASK_GAP, Wanted.GLOBAL_ASK_TRIES = 45, 300, 3
+Wanted.GLOBAL_DIRECT_PINS_MAX = 64
 -- One death has one killer: rows naming the same victim this close together describe one death.
 Wanted.DEATH_WINDOW = 5
 Wanted.EVIDENCE_AGE = 31 * 86400 -- a reviewer refuses evidence older than this
@@ -113,6 +117,7 @@ local restoring, restoreChecked = nil, {}
 local reviewInbox, reviewOrder = {}, {}
 local reviewRate = {}
 local publishedGlobal
+Wanted.globalCatch = { asked = -math.huge, replied = -math.huge, generation = 0 }
 -- [reviewer] = { [evidence id] = true }: sent this session. Only this session's: after a reload
 -- the rows can go again, and the reviewer drops the ones he holds without counting them.
 local sentTo = {}
@@ -1061,7 +1066,7 @@ end
 local function SaveGlobal(snapshot)
 	local s = Store(true)
 	if not s then return end
-	s.global = { text = snapshot.text, issuer = snapshot.issuer, at = math.floor(Clock()) }
+	s.global = { text = snapshot.text, issuer = snapshot.issuer, at = math.floor(Clock()), relay = snapshot.relay }
 	local heads = {}
 	for who, h in pairs(publisherHeads) do heads[who] = { epoch = h.epoch, seq = h.seq, pk64 = h.pk64 } end
 	s.globalHeads = heads
@@ -1560,7 +1565,7 @@ function Wanted.ReviewedRankings(month)
 	return CanonicalRows(rows) or {}
 end
 
-local function ParseSnapshot(sender, text)
+local function ParseSnapshot(sender, text, relay)
 	if type(text) ~= "string" or #text > 1200 then return nil, "size" end
 	local version, scope, issuer, epoch, seq, issued, expires, rowsText, pk64, sig64 =
 		text:match("^WY~(%d+)~(%x+)~([^~]+)~(%d+)~(%d+)~(%d+)~(%d+)~([^~]+)~([^~]+)~([^~]+)$")
@@ -1569,7 +1574,7 @@ local function ParseSnapshot(sender, text)
 	if version ~= "1" or not issuer or not Whole(epoch, 1, Wanted.GLOBAL_MAX_EPOCH) or not Whole(seq, 1, Wanted.GLOBAL_MAX_SEQ)
 		or not Whole(issued, 0, 4294967295) or not Whole(expires, 0, 4294967295) then return nil, "shape" end
 	if scope ~= Scope() then return nil, "scope" end
-	if not SameName(sender, issuer) or not Wanted.CanPublish(sender) then return nil, "authority" end
+	if not Wanted.CanPublish(issuer) or not Wanted.CanPublish(sender) or (not relay and not SameName(sender, issuer)) then return nil, "authority" end
 	local rows, why = ReadRows(rowsText)
 	if not rows then return nil, why end
 	local D, Ed = ns.Debts, ns.Ed25519
@@ -1578,7 +1583,33 @@ local function ParseSnapshot(sender, text)
 	if not pk or #pk ~= 32 or not sig or #sig ~= 64 or not Ed or not Ed.ValidPublicKey or not Ed.ValidPublicKey(pk) then return nil, "signature" end
 	local signed = table.concat({ "OLYW1", scope, issuer, epoch, seq, issued, expires, rowsText }, "|")
 	return { scope = scope, issuer = issuer, epoch = epoch, seq = seq, issued = issued, expires = expires,
-		rows = rows, rowsText = rowsText, pk = pk, pk64 = pk64, sig = sig, signed = signed, text = text }
+		rows = rows, rowsText = rowsText, pk = pk, pk64 = pk64, sig = sig, signed = signed, text = text, relay = relay and CleanName(sender) or nil }
+end
+
+-- These anchors are learned only after a direct issuer word's signature was verified. Neither
+-- another reviewer's role nor a relay's globalHeads can introduce or rotate an issuer key.
+function Wanted.IndependentlyPinned(snapshot)
+	local s = Store(false)
+	local pin = s and type(s.globalDirectPins) == "table" and s.globalDirectPins[ns.Fold(snapshot.issuer)]
+	return type(pin) == "table" and Whole(pin.epoch, 1, Wanted.GLOBAL_MAX_EPOCH) == snapshot.epoch and pin.pk64 == snapshot.pk64
+end
+
+function Wanted.PinDirectGlobal(snapshot)
+	if snapshot.relay then return false end
+	local s = Store(true)
+	if not s then return false end
+	if type(s.globalDirectPins) ~= "table" then s.globalDirectPins = {} end
+	local pins, key = s.globalDirectPins, ns.Fold(snapshot.issuer)
+	if not pins[key] and Count(pins) >= Wanted.GLOBAL_DIRECT_PINS_MAX then
+		local oldest, at
+		for k, p in pairs(pins) do
+			local t = type(p) == "table" and tonumber(p.at) or 0
+			if not at or (t or 0) < at then oldest, at = k, t or 0 end
+		end
+		if oldest then pins[oldest] = nil end
+	end
+	pins[key] = { epoch = snapshot.epoch, pk64 = snapshot.pk64, at = math.floor(Clock()) }
+	return true
 end
 
 local function NewerSnapshot(snapshot)
@@ -1631,10 +1662,12 @@ local function AcceptSnapshot(snapshot)
 	-- Recheck every mutable trust input after the asynchronous Ed25519 job. In particular, a
 	-- realm/faction transition while verification yielded must never install the old scope.
 	if snapshot.scope ~= Scope() or not Fresh(snapshot) or not Wanted.CanPublish(snapshot.issuer) then return false, "stale" end
+	if snapshot.relay and (not Wanted.CanPublish(snapshot.relay) or not Wanted.IndependentlyPinned(snapshot)) then return false, "unanchored" end
 	local ok, why = NewerSnapshot(snapshot)
 	if not ok then return false, why end
 	publisherHeads[ns.Fold(snapshot.issuer)] = { epoch = snapshot.epoch, seq = snapshot.seq, pk64 = snapshot.pk64 }
 	stats.globalAccepted = stats.globalAccepted + 1
+	Wanted.PinDirectGlobal(snapshot)
 	Install(snapshot)
 	SaveGlobal(snapshot)
 	return true
@@ -1657,6 +1690,10 @@ local function RestoreGlobal()
 		return false, why
 	end
 	if not Fresh(snapshot) then ForgetGlobal() return false, "stale" end
+	-- A legacy saved word came directly from its issuer (the old protocol admitted no relays).
+	-- Retain provenance for new relayed copies so restoration cannot turn them into direct pins.
+	snapshot.relay = type(saved.relay) == "string" and saved.relay or nil
+	if snapshot.relay and not Wanted.IndependentlyPinned(snapshot) then return false, "unanchored" end
 	local pins = {}
 	for who, h in pairs(type(s.globalHeads) == "table" and s.globalHeads or {}) do
 		local epoch = type(h) == "table" and Whole(h.epoch, 1, Wanted.GLOBAL_MAX_EPOCH)
@@ -1675,8 +1712,10 @@ local function RestoreGlobal()
 		restoring = nil
 		restoreChecked[snapshot.text] = valid
 		local current = not authenticatedGlobal and globalFloor == floor
-		if valid and current and snapshot.scope == Scope() and Fresh(snapshot) and Wanted.CanPublish(snapshot.issuer) then
+		if valid and current and snapshot.scope == Scope() and Fresh(snapshot) and Wanted.CanPublish(snapshot.issuer)
+			and (not snapshot.relay or Wanted.IndependentlyPinned(snapshot)) then
 			stats.globalRestored = stats.globalRestored + 1
+			Wanted.PinDirectGlobal(snapshot)
 			return Install(snapshot)
 		end
 		if not valid then ForgetGlobal(snapshot.text) stats.globalRefused = stats.globalRefused + 1 end
@@ -1696,11 +1735,12 @@ local function RestoreGlobal()
 end
 Wanted.RestoreGlobal = RestoreGlobal
 
-function Wanted.HandleGlobalSnapshot(dist, sender, text)
+function Wanted.HandleGlobalSnapshot(dist, sender, text, relay)
 	if dist ~= "CHANNEL" then stats.globalRefused = stats.globalRefused + 1 return false, "lane" end
 	CurrentGlobal() -- expiry/revocation must release its ordering floor before a replacement arrives
-	local snapshot, why = ParseSnapshot(sender, text)
+	local snapshot, why = ParseSnapshot(sender, text, relay)
 	if not snapshot or not Fresh(snapshot) then stats.globalRefused = stats.globalRefused + 1 return false, why or "stale" end
+	if relay and not Wanted.IndependentlyPinned(snapshot) then stats.globalRefused = stats.globalRefused + 1 return false, "unanchored" end
 	local ok
 	ok, why = NewerSnapshot(snapshot)
 	if not ok then
@@ -1725,6 +1765,49 @@ function Wanted.HandleGlobalSnapshot(dist, sender, text)
 	end)
 	if not started then pendingGlobal[digest], pendingGlobalCount = nil, math.max(0, pendingGlobalCount - 1) return false, "busy" end
 	return true, "pending"
+end
+
+function Wanted.HandleGlobalRelay(dist, sender, text)
+	if type(text) ~= "string" or text:sub(1, 5) ~= "W5~1~" then return false, "shape" end
+	return Wanted.HandleGlobalSnapshot(dist, sender, text:sub(6), true)
+end
+
+-- Public, unchanged signed rankings only. A reply does not publish this client's observations
+-- or ledger; it repeats precisely its already-verified current word, subject to all live roles.
+function Wanted.AnswerGlobal(dist, sender, text)
+	if dist ~= "CHANNEL" or text ~= "W4~1" then return false, "shape" end
+	if SameName(sender, ns.me) then return false, "own" end
+	if not Wanted.CanPublish(ns.me) then return false, "authority" end
+	local held, C, now = CurrentGlobal(), ns.Comm, ns.Now()
+	if not held then return false, "none" end
+	if now - Wanted.globalCatch.replied < Wanted.GLOBAL_ASK_GAP then return false, "rate" end
+	if not C or not C.SendChunked then return false, "transport" end
+	local body = SameName(held.issuer, ns.me) and held.text or ("W5~1~" .. held.text)
+	local sent, why = C.SendChunked(body, false, nil, nil, { owner = Wanted, guardKey = "wanted-global-relay", guard = function()
+		return Wanted.CanPublish(ns.me) and Wanted.CanPublish(held.issuer) and CurrentGlobal() == held and held.scope == Scope() and Fresh(held)
+	end })
+	if sent then Wanted.globalCatch.replied = now end
+	return sent, why
+end
+
+function Wanted.AskGlobal()
+	local C, now, scope = ns.Comm, ns.Now(), Scope()
+	if not ns.IsMember or not ns.IsMember() then return false, "member" end
+	if now - Wanted.globalCatch.asked < Wanted.GLOBAL_ASK_GAP then return false, "rate" end
+	if not C or not C.Send then return false, "transport" end
+	local sent, why = C.Send("CHANNEL", "W4~1", "wanted-global-ask", false, false, nil,
+		{ owner = Wanted, guardKey = "wanted-global-ask", guard = function() return ns.IsMember() == true and Scope() == scope end })
+	if sent then Wanted.globalCatch.asked = now end
+	return sent, why
+end
+
+function Wanted.ScheduleGlobalCatchUp(generation, attempt)
+	if not ns.After or generation ~= Wanted.globalCatch.generation or attempt > Wanted.GLOBAL_ASK_TRIES then return end
+	ns.After(attempt == 1 and Wanted.GLOBAL_ASK_FIRST or Wanted.GLOBAL_ASK_GAP, "wanted global catch-up", function()
+		if generation ~= Wanted.globalCatch.generation then return end
+		Wanted.AskGlobal()
+		Wanted.ScheduleGlobalCatchUp(generation, attempt + 1)
+	end)
 end
 
 local function PublishRows(rows)
@@ -3232,6 +3315,8 @@ function Wanted.Load()
 	end
 	-- Once the publisher's own word is known: a newer saved word, checked again, replaces it.
 	RestoreGlobal()
+	Wanted.globalCatch.generation = Wanted.globalCatch.generation + 1
+	Wanted.ScheduleGlobalCatchUp(Wanted.globalCatch.generation, 1)
 	-- Sightings: a reviewer's lease REVIEWER_FIRST after login (his name is known now), then on
 	-- its beat; the pins expire on theirs.
 	leaseGen = leaseGen + 1
@@ -3252,6 +3337,8 @@ function Wanted.ResetForTests()
 	pendingGlobal, pendingGlobalCount, reviewInbox, reviewOrder = {}, 0, {}, {}
 	reviewRate = {}
 	publishedGlobal = nil
+	Wanted.globalCatch.asked, Wanted.globalCatch.replied = -math.huge, -math.huge
+	Wanted.globalCatch.generation = Wanted.globalCatch.generation + 1
 	restoring, restoreChecked, sentTo, batches = nil, {}, {}, {}
 	pins, pinFrames, spareFrames = {}, {}, {}
 	sightSeen, sightSeenOrder, ownSeen, ownSeenCount, sightSends = {}, {}, {}, 0, {}
@@ -3321,5 +3408,7 @@ if ns.Comm and ns.Comm.Handle then
 		if dist == "WHISPER" and type(text) == "string" then ReviewEvidence(sender, text) end
 	end)
 	ns.Comm.Handle("WY", function(...) Wanted.HandleGlobalSnapshot(...) end)
+	ns.Comm.Handle("W4", function(...) Wanted.AnswerGlobal(...) end)
+	ns.Comm.Handle("W5", function(...) Wanted.HandleGlobalRelay(...) end)
 	ns.Comm.Handle("WS", function(...) Wanted.HandleSighting(...) end)
 end

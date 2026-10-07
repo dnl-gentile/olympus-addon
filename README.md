@@ -1928,12 +1928,24 @@ message (the game adds it). What goes where:
 | The Church's seen-check (a name) and its answer (the guild your roster saw him in, the first and last day, whether he is in it now) | the check: everyone on the Olympus channel, from the desk (a keeper). The answer: that keeper alone (a whisper) | the desk asks about each new recruit, a registered one on its days and 7 days after a join; about two clients of each guild that knew the name answer |
 | The Church's numbers (rankings, a person's detail) and the keepers' ledger | the Church's audience who asked (the Church, the High Council, the King, the author), alone; the ledger between keepers alone | when a member of that audience opens the tab or refreshes; never on the channel, except, while the author's switch is open, the rows of the people who chose to show theirs and the top 3 of each ranking (names only) |
 | Most Wanted evidence (WX): a kill of a listed Horde player by you, or your own death to one: both GUIDs, the time and month, bounty or claim | the one reviewer you choose (the King, a High Councillor or the author), alone (a whisper) | only when you send it (**Send evidence**); a reviewer keeps it only from a member, about the sender's own kill or death, and nothing counts until he accepts it by hand |
-| The Most Wanted list (WY): the reviewed targets' names, GUIDs, kills and bounty | everyone on the Olympus channel | from the King's, a High Councillor's or the author's client, after a review |
+| The reviewed Slayers top three (WY): GUIDs, scores, claims and tie times, with the issuer, signature and expiry | everyone on the Olympus channel | from the King's, a High Councillor's or the author's client, after a review; an unchanged verified word may also be relayed by one of these roles (W5) |
+| Slayers catch-up (W4): a request for the current signed ranking | everyone on the Olympus channel | up to three login attempts, starting after 45 seconds and then 5 minutes apart; a role holder answers at most once every 5 minutes |
 | A Most Wanted sighting (WS, 1.2.0): a listed Horde player's name and GUID, your map position (rounded) and layer, the time, your name and guild | the one reviewer you send your evidence to, alone (whispers), three a minute at most | only after your own Yes on its privacy line (**Accept all** does not turn it on), only while you share your zone and layer, only for players on your Most Wanted list, never in an instance; `/oly sightings off` stops it |
 | A reviewer's word that he takes sightings (WS) | everyone on the Olympus channel | from a reviewer who said Yes to sightings: 45 seconds after login and every 5 minutes, and off at once on his No |
 
 Decrees and the King's calls go out when someone sends one (a decree carries its sender's
 position on the map).
+
+Slayers catch-up preserves the original publisher's signature, issuer, sequence and expiry;
+it never turns the relay's observations or census into a ranking. Both the original issuer
+and the relay must hold their real authority when the word is admitted, and queued replies
+check those roles again before each send. A relayed key is accepted only if this client
+independently pinned that same issuer key and epoch from an earlier directly verified WY;
+a relay cannot introduce or rotate it. An already anchored late client can therefore recover
+from a trusted peer while the original publisher is offline. A brand-new client without that
+anchor still needs a direct publisher word; this is not guaranteed offline bootstrapping.
+WY, W4 and W5 use the Olympus channel's public or sealed audience described below, not a
+private staff lane. Older clients ignore W4/W5 and still accept original direct WY words.
 
 **What waits for your yes.** Your zone and layer (below), layer help, your dot on your guild's
 map, a treasury keeper's book, a sister guild's bank (1.1), a Royal Inspection's report, your answers to the author's roll

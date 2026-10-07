@@ -54,6 +54,7 @@ local function WithWanted(fn)
 		}
 		c.Comm = {
 			Handle = function(kind, call) w.commHandlers[kind] = call end,
+			Send = function(dist, text) w.sent[#w.sent + 1] = { dist = dist, text = text }; return true end,
 			Whisper = function(to, text) w.sent[#w.sent + 1] = { dist = "WHISPER", to = to, text = text }; return true end,
 			SendChunked = function(text) w.sent[#w.sent + 1] = { dist = "CHANNEL", text = text }; return true end,
 		}
@@ -1505,7 +1506,8 @@ end)
 
 local function WithWorld(fn)
 	local globals = { "UnitGUID", "UnitIsPlayer", "UnitFactionGroup", "GetGuildInfo", "GetRealZoneText",
-		"UnitIsDeadOrGhost", "C_DateAndTime", "C_DeathInfo", "C_DeathRecap", "GetFileIDFromPath" }
+		"UnitIsDeadOrGhost", "C_DateAndTime", "C_DeathInfo", "C_DeathRecap", "GetFileIDFromPath",
+		"C_ChatInfo", "GetTime", "GetChannelName" }
 	local saved = {}
 	for _, name in ipairs(globals) do saved[name] = _G[name] end
 	local dialogs = {}
@@ -1525,6 +1527,13 @@ local function WithWorld(fn)
 		C_DateAndTime = { GetCurrentCalendarTime = function() return { year = world.year, month = world.month } end }
 		C_DeathInfo, C_DeathRecap = nil, nil
 		GetFileIDFromPath = function() return nil end
+		GetTime = function() return world.epoch end
+		GetChannelName = function() return 7, "OlympusNet" end
+		C_ChatInfo = { RegisterAddonMessagePrefix = function() end,
+			SendAddonMessage = function(_, text, dist, target)
+				world.queue[#world.queue + 1] = { from = current, text = text, dist = dist, to = target, raw = true }
+				return true
+			end }
 		local function Fold(name) return ns.Fold(ns.FullName(name)) end
 
 		function world:As(cl, f, ...)
@@ -1542,7 +1551,7 @@ local function WithWorld(fn)
 			c.Now = function() return world.epoch end
 			c.Data = { ServerTime = function() return world.epoch end }
 			c.IsMember = function() return cl.member end
-			c.Moderation = { CanIssue = function() return cl.manager == true end }
+			c.Moderation = { CanIssue = function() return cl.manager == true end, Blocks = function() return false end }
 			local function Role(name) return (cl.authorities or world.authorities)[Fold(name)] end
 			c.Workshop = { IsAuthor = function() return false end, IsAuthorName = function(name) return Role(name) == "author" end }
 			c.IsKingCharacter = function(name) return Role(name) == "king" end
@@ -1555,30 +1564,52 @@ local function WithWorld(fn)
 				InfoName = function(guid) for _, o in ipairs(world.clients) do if o.guid == guid then return o.name end end return nil end }
 			c.Comm = { Handle = function(kind, call) cl.handlers[kind] = call end,
 				Whisper = function(to, text) world.queue[#world.queue + 1] = { from = cl, to = to, dist = "WHISPER", text = text } return true end,
-				SendChunked = function(text) world.queue[#world.queue + 1] = { from = cl, dist = "CHANNEL", text = text } return true end }
+				Send = function(dist, text, _, _, _, done, options)
+					world.queue[#world.queue + 1] = { from = cl, dist = dist, text = text, done = done, options = options } return true
+				end,
+				SendChunked = function(text, _, _, done, options)
+					world.queue[#world.queue + 1] = { from = cl, dist = "CHANNEL", text = text, done = done, options = options } return true
+				end }
 			c.UnitFullName = function(unit) return U(unit) and U(unit).name end
 			c.Roster = { RankOf = function(name) return world.olympians[Fold(name)] and 3 or nil end }
-			c.RegisterEvent, c.Fire = function() end, function() end
+			c.RegisterEvent = function(name, call) cl.events[name] = call end
+			c.Fire = function() end
 			c.On = function(name, call) cl.listeners[name] = call end
 			c.Print = function(message) cl.prints[#cl.prints + 1] = tostring(message) end
 			c.Ago = function(at) return tostring(world.epoch - (tonumber(at) or 0)) .. "s" end
 			c.ShowDialog = function() return true end
 			c.After = function(seconds, _, f) world.timers[#world.timers + 1] = { at = world.epoch + seconds, cl = cl, owner = c, fn = f } end
+			c.Every, c.Log = function() end, function() end
+			c.SafeCall = function(_, fn, ...) return fn(...) end
 			c.UI = { Refresh = function() end, RefreshSoon = function() end }
-			cl.handlers, cl.listeners, cl.ns, cl.online = {}, {}, c, true
+			cl.handlers, cl.listeners, cl.events, cl.ns, cl.online = {}, {}, {}, c, true
+			local commLogin
+			if cl.realComm then
+				c.db.blocked = {}
+				world:As(cl, function() assert(loadfile(ROOT .. "Olympus/Comm.lua"))("Olympus", c) end)
+				commLogin = cl.listeners.LOGIN
+			end
 			world:As(cl, function() assert(loadfile(ROOT .. "Olympus/Wanted.lua"))("Olympus", c) end)
 			cl.W = c.Wanted
 			-- As the game loads an addon: INIT (ADDON_LOADED) before the client knows the character's
 			-- name, LOGIN (PLAYER_LOGIN) once it does (Core.lua sets ns.me there).
 			if cl.listeners.INIT then world:As(cl, cl.listeners.INIT) end
 			c.me = cl.name
+			if commLogin then
+				-- Only Wanted's recovery timers are part of this focused wire scene.
+				local after = c.After
+				c.After = function() end
+				world:As(cl, commLogin)
+				c.After = after
+				world:As(cl, c.Comm.JoinChannel)
+			end
 			if cl.listeners.LOGIN then world:As(cl, cl.listeners.LOGIN) end
 			return cl
 		end
-		function world:Client(name, guid, role)
+		function world:Client(name, guid, role, realComm)
 			name = ns.FullName(name)
 			local seed = ns.Sign.SHA256("test seed " .. name)
-			local cl = { name = name, guid = guid, member = true, db = {}, rdb = {}, prints = {}, seed = seed,
+			local cl = { name = name, guid = guid, member = true, db = {}, rdb = {}, prints = {}, seed = seed, realComm = realComm,
 				pk = realEd.PublicKey(seed), units = { player = { name = name, guid = guid, faction = "Alliance", guild = "Olympus II" } } }
 			world.olympians[Fold(name)] = true
 			if role then world.authorities[Fold(name)] = role end
@@ -1597,15 +1628,24 @@ local function WithWorld(fn)
 				assert(guard < 5000, "the world settles")
 				local m = table.remove(world.queue, 1)
 				if m then
+					local permitted = not m.options or not m.options.guard or world:As(m.from, m.options.guard)
+					if permitted then
 					world.log[#world.log + 1] = m
+					if m.done then world:As(m.from, m.done, true) end
 					if m.dist == "WHISPER" then
 						local to = world:Find(m.to)
 						if to and to.online then world:As(to, to.handlers.WX, "WHISPER", m.from.name, m.text) end
-					else
-						for _, o in ipairs(world.clients) do
-							if o ~= m.from and o.online then world:As(o, o.handlers.WY, "CHANNEL", m.from.name, m.text) end
+						else
+							for _, o in ipairs(world.clients) do
+								local handler = o.handlers[m.text:sub(1, 2)]
+								if o ~= m.from and o.online then
+									if m.raw and o.realComm then
+										world:As(o, o.events.CHAT_MSG_ADDON, o.ns.PREFIX, m.text, m.dist, m.from.name, m.to, nil, 7, o.ns.Comm.ChannelName())
+									elseif handler then world:As(o, handler, "CHANNEL", m.from.name, m.text) end
+								end
 						end
 					end
+					elseif m.done then world:As(m.from, m.done, false, "guard") end
 				else
 					local j = table.remove(world.jobs, 1)
 					if j.cl.online and j.cl.ns == j.owner then
@@ -1629,6 +1669,20 @@ local function WithWorld(fn)
 			world.epoch = stop
 		end
 		function world:Offline(cl) cl.online = false end
+		function world:PumpComm()
+			for _ = 1, 100 do
+				local busy = false
+				world.epoch = world.epoch + 1.2
+				for _, cl in ipairs(world.clients) do
+					if cl.online and cl.realComm and cl.ns.Comm.QueueSize() > 0 then
+						busy = true; world:As(cl, cl.ns.Comm.Pump)
+					end
+				end
+				world:Deliver()
+				if not busy then return end
+			end
+			error("actual Comm queues settle")
+		end
 		function world:Border(cl, guid) return world:As(cl, cl.W.GlobalBorder, nil, guid) end
 		-- observer lists the target, sees it kill victim, then slayer kill it; sends both rows to the
 		-- reviewer, who accepts every pending row.
@@ -1658,6 +1712,153 @@ local function WithWorld(fn)
 	for _, which in ipairs(DIALOGS) do StaticPopupDialogs[which] = dialogs[which] end
 	if not ok then error(err, 0) end
 end
+
+test("wanted relay: a late independently anchored peer recovers an unchanged word with its publisher offline", function()
+	WithWorld(function(world)
+		local king = world:Client("Varrick-Realm", "Player-1-0A000001", "king")
+		local council = world:Client("Council-Realm", "Player-1-0A000002", "council")
+		local late = world:Client("Late-Realm", "Player-1-0A000003")
+		assert(world:As(king, king.W.PublishGlobal)); world:Deliver()
+		local old = world:As(late, late.W.GlobalSnapshot)
+		world:Offline(late)
+		world.epoch = world.epoch + 10
+		assert(world:As(king, king.W.PublishGlobal)); world:Deliver()
+		local held = council.rdb.wanted.global.text
+		world:Offline(king)
+		world:Load(late); world:Deliver()
+		eq(world:As(late, late.W.GlobalSnapshot).seq, old.seq)
+		world:Run(45)
+		eq(late.rdb.wanted.global.text, held, "original signature, issuer, timestamps and sequence are unchanged")
+		eq(late.rdb.wanted.global.relay, council.name)
+		eq(world:As(late, late.W.GlobalSnapshot).seq, old.seq + 1)
+		local accepted, why = world:As(late, late.W.HandleGlobalRelay, "CHANNEL", council.name, "W5~1~" .. held)
+		eq(accepted, false); eq(why, "replay")
+		local fresh = world:Client("Fresh-Realm", "Player-1-0A000004")
+		accepted, why = world:As(fresh, fresh.W.HandleGlobalRelay, "CHANNEL", council.name, "W5~1~" .. held)
+		eq(accepted, false); eq(why, "unanchored", "a relay cannot introduce the original key")
+		eq(fresh.rdb.wanted and fresh.rdb.wanted.globalDirectPins, nil)
+		world:Load(late); world:Deliver()
+		eq(late.rdb.wanted.global.text, held, "persisted relayed word verifies again after reload")
+		eq(late.rdb.wanted.global.relay, council.name)
+		late.rdb.wanted.globalDirectPins = nil
+		world:Load(late); world:Deliver()
+		eq(world:As(late, late.W.GlobalSnapshot), nil, "a relayed saved word cannot reconstruct a missing independent pin")
+	end)
+end)
+
+test("wanted relay: authority, expiry, pin rotation and mixed versions fail closed before and after queued verification", function()
+	WithWorld(function(world)
+		local king = world:Client("Varrick-Realm", "Player-1-0A000001", "king")
+		local council = world:Client("Council-Realm", "Player-1-0A000002", "council")
+		local late = world:Client("Late-Realm", "Player-1-0A000003")
+		assert(world:As(king, king.W.PublishGlobal)); world:Deliver()
+		world:Offline(late); world.epoch = world.epoch + 10
+		assert(world:As(king, king.W.PublishGlobal)); world:Deliver()
+		local held = council.rdb.wanted.global.text
+		world:Offline(king); world:Load(late); world:Deliver()
+		local before = world:As(late, late.W.GlobalSnapshot).seq
+		local function Receive(sender, text)
+			return world:As(late, late.W.HandleGlobalRelay, "CHANNEL", sender, text or ("W5~1~" .. held))
+		end
+		local accepted, why = Receive("Ordinary-Realm")
+		eq(accepted, false); eq(why, "authority")
+		accepted, why = Receive(council.name, "W5~2~" .. held)
+		eq(accepted, false); eq(why, "shape")
+		accepted, why = world:As(late, late.W.HandleGlobalSnapshot, "CHANNEL", council.name, held)
+		eq(accepted, false); eq(why, "authority", "old WY does not permit forwarded sender identity")
+		assert(Receive(council.name))
+		world.authorities[ns.Fold(council.name)] = nil
+		world:Deliver()
+		eq(world:As(late, late.W.GlobalSnapshot).seq, before, "revocation while Ed25519 yields cancels admission")
+		world.authorities[ns.Fold(council.name)] = "council"
+		assert(world:As(council, council.W.AnswerGlobal, "CHANNEL", late.name, "W4~1"))
+		world.authorities[ns.Fold(council.name)] = nil
+		world:Deliver()
+		eq(world:As(late, late.W.GlobalSnapshot).seq, before, "delayed send checks the relay's real authority")
+		world.authorities[ns.Fold(council.name)] = "council"
+		world.authorities[ns.Fold(king.name)] = nil
+		accepted, why = Receive(council.name); eq(accepted, false); eq(why, "authority")
+		world.authorities[ns.Fold(king.name)] = "king"
+		king.online = true
+		king.seed = ns.Sign.SHA256("rotated issuer seed")
+		king.pk = ns.Ed25519.PublicKey(king.seed)
+		world:Offline(late)
+		world.epoch = world.epoch + 10
+		assert(world:As(king, king.W.PublishGlobal)); world:Deliver()
+		held = council.rdb.wanted.global.text
+		world:Load(late); world:Deliver()
+		accepted, why = Receive(council.name); eq(accepted, false); eq(why, "unanchored", "relay cannot rotate a directly anchored key")
+		assert(world:As(king, king.W.RepeatGlobal)); world:Deliver()
+		-- The direct word reaches this peer, so it can now accept a later relay under the new key.
+		world:Offline(late); world.epoch = world.epoch + 10
+		assert(world:As(king, king.W.PublishGlobal)); world:Deliver()
+		held = council.rdb.wanted.global.text
+		world:Offline(king); world:Load(late); world:Deliver()
+		assert(Receive(council.name)); world:Deliver()
+		eq(late.rdb.wanted.global.text, held)
+		world.epoch = world.epoch + late.W.GLOBAL_LIFE + 1
+		accepted, why = Receive(council.name); eq(accepted, false); eq(why, "stale")
+	end)
+end)
+
+test("wanted relay through real Comm: late recovery reassembles sender-bound chunks and rechecks authority on their unsent tail", function()
+	WithWorld(function(world)
+		local king = world:Client("Varrick-Realm", "Player-1-0A000001", "king")
+		local council = world:Client("Council-Realm", "Player-1-0A000002", "council", true)
+		local late = world:Client("Late-Realm", "Player-1-0A000003", nil, true)
+		-- Populate the real reviewed ledger before switching its publisher to the native wire.
+		for i = 1, 3 do
+			local slayer = world:Client("Slayer" .. i .. "-Realm", "Player-1-0A00001" .. i)
+			world:Hunt(slayer, king, "Hordeling" .. i .. "-Realm", "Player-1-0B00001" .. i, late, slayer)
+		end
+		king.realComm = true; world:Load(king); world:Deliver()
+		assert(world:As(king, king.W.PublishGlobal)); world:PumpComm()
+		local initial = world:As(late, late.W.GlobalSnapshot)
+		assert(initial, "direct original native messages anchor the publisher key")
+		world:Offline(late); world.epoch = world.epoch + 10
+		assert(world:As(king, king.W.PublishGlobal)); world:PumpComm()
+		local body = council.rdb.wanted.global.text
+		world:Offline(king); world:Load(late); world:Deliver()
+		assert(world:As(council, council.W.AnswerGlobal, "CHANNEL", late.name, "W4~1"))
+		assert(council.ns.Comm.QueueSize() > 1, "an actual native-size chunk transfer")
+		world.epoch = world.epoch + 2
+		world:As(council, council.ns.Comm.Pump); world:Deliver()
+		world.authorities[ns.Fold(council.name)] = nil
+		world:PumpComm()
+		eq(world:As(late, late.W.GlobalSnapshot).seq, initial.seq, "one authenticated sender's partial word cannot install")
+		world.authorities[ns.Fold(council.name)] = "council"
+		world.epoch = world.epoch + 300
+		-- Use the recipient's real CHANNEL request, not a direct handler shortcut.
+		assert(world:As(late, late.W.AskGlobal)); world:PumpComm()
+		eq(late.rdb.wanted.global.text, body)
+		eq(late.rdb.wanted.global.relay, council.name)
+		eq(world:As(late, late.W.GlobalSnapshot).seq, initial.seq + 1)
+		local replies = 0
+		for _, m in ipairs(world.log) do if m.from == council and m.raw then replies = replies + 1 end end
+		assert(replies >= 3, "actual game API emitted the canceled prefix plus the complete retry")
+	end)
+end)
+
+test("wanted relay: queue refusal remains retryable and login requests stop at their bounded budget", function()
+	WithWorld(function(world)
+		local peer = world:Client("Peer-Realm", "Player-1-0A000003")
+		local send = peer.ns.Comm.Send
+		peer.ns.Comm.Send = function() return false, "full" end
+		local accepted, why = world:As(peer, peer.W.AskGlobal)
+		eq(accepted, false); eq(why, "full")
+		peer.ns.Comm.Send = send
+		assert(world:As(peer, peer.W.AskGlobal)); world:Deliver()
+		accepted, why = world:As(peer, peer.W.AskGlobal)
+		eq(accepted, false); eq(why, "rate")
+		world:Run(1000)
+		local count = 0
+		for _, m in ipairs(world.log) do if m.from == peer and m.text == "W4~1" then count = count + 1 end end
+		eq(count, 3, "one manual ask and only the two subsequent eligible login attempts")
+		peer.member = false; world.epoch = world.epoch + 300
+		accepted, why = world:As(peer, peer.W.AskGlobal)
+		eq(accepted, false); eq(why, "member")
+	end)
+end)
 
 test("wanted world: a reviewed, published top three reaches every client, outlives the old 30-minute word and survives their reloads", function()
 	WithWorld(function(world)
@@ -1927,6 +2128,7 @@ test("wanted world: a word replaced by a newer one is not repeated by its publis
 		world:Hunt(alpha, king, "Hordeling-Realm", "Player-1-0B000061", beta, alpha)
 		assert(world:As(king, king.W.PublishGlobal))
 		world:Deliver()
+		local replacedWord = king.db.wantedPublisher.last.body
 		world:Run(60)
 		world:Hunt(beta, council, "Raider-Realm", "Player-1-0B000062", alpha, beta)
 		assert(world:As(council, council.W.PublishGlobal))
@@ -1936,7 +2138,10 @@ test("wanted world: a word replaced by a newer one is not repeated by its publis
 
 		local function KingSent(from)
 			for i = from, #world.log do
-				if world.log[i].from == king and world.log[i].dist == "CHANNEL" then return true end
+				local m = world.log[i]
+				-- A catch-up request or an unchanged relay of the newer word is not a repeat
+				-- of the old publisher's replaced word.
+				if m.from == king and m.dist == "CHANNEL" and (m.text == replacedWord or m.text == "W5~1~" .. replacedWord) then return true end
 			end
 			return false
 		end

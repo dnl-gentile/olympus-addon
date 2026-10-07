@@ -1022,7 +1022,11 @@ test("wanted sightings: a reviewer says he takes them 45 seconds after login and
 		local ok, e = world:See(o, "nameplate3", Horde("Rexxar-Realm", REXXAR))
 		assert(ok, e); eq(e.sent, 0, "nobody to send it to: it stays on this map")
 		eq(#world:Pins(o), 3)
-		for _, m in ipairs(world.delivered) do assert(not (m.from == plain and m.msg ~= "WS~R~1"), "nothing else from a plain member") end
+		for _, m in ipairs(world.delivered) do
+			-- Plain members can ask publicly for the signed Slayers word, but still cannot
+			-- announce a reviewer's sightings lease or send sightings from this scene.
+			if m.from == plain then assert(m.msg == "WS~R~1" or m.msg == "W4~1", "no unauthorized sightings message from a plain member") end
+		end
 	end)
 end)
 
