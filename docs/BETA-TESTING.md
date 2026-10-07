@@ -94,6 +94,10 @@ For the 1.2.1 candidate, include these focused live checks:
   Private messages must never reach the spectator. Collapse/reopen the side panel; keep an
   unfinished draft in each tab; repeat with gamepad mode. Disable spectators during a queued
   public message: it must not be delivered. The innkeeper's practice has no multiplayer chat.
+- Chat: hide guild names through the gear. Normal, deleted and Bones table headers must follow
+  the choice without losing the draft. Tooltips and guild searches must still identify the guild.
+  Reload to check persistence, then show the names again. New native chat lines follow the
+  choice; previously printed native lines are unchanged. Other players see their own choice.
 - The Watch: create a timeout, appeal while a councillor is offline, then overlap online later.
   The subject sees only "a moderator"; authorized staff retain the actor. A preview role grants
   no permissions. Compare current timeout, appeal and decision once, without duplicate rows.

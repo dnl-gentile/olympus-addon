@@ -51873,6 +51873,7 @@ do
 	assert(loadfile(ROOT .. "tests/chat-role-window.lua"))(ns, test, eq, WithWindow)
 	assert(loadfile(ROOT .. "tests/chat-picker-anchor.lua"))(ns, test, eq, WithWindow, ForeverWorld)
 	assert(loadfile(ROOT .. "tests/chat-role-badges.lua"))(ns, test, eq, WithWindow)
+	assert(loadfile(ROOT .. "tests/chat-guild-labels.lua"))(ns, test, eq, WithWindow)
 	assert(loadfile(ROOT .. "tests/player-profile-fight-history.lua"))(ns, test, eq, WithWindow)
 
 	local function Line(t, sender, text, extra)
@@ -54315,7 +54316,8 @@ test("watch: chat moderation: the Chat tab: a deleted line keeps its greyed name
 			"CHATS_TAB_WAITING", "CHATS_TAB_ON", "CHATS_TAB_TIP", "HELP_TALK", "MINIMAP_SHIFT", "HELP_TAB_CHAT", "CHATS_TAB_ADD",
 			"CHATS_TAB_ADD_TIP", "CHATS_TAB_STEPS", "CHATTAB_POINTER_TITLE", "CHATTAB_POINTER", "CHATS_TAB_AWAY", "CHATS_TAB_AWAY_TIP",
 			"CHATWIN_NEW_IN", "CHATSET_TITLE", "CHATSET_TIP", "CHATSET_SWITCH_TIP", "CHATSET_BACK", "CHATSET_CHATS_ON", "CHATSET_CHATS_OFF",
-			"CHATSET_SHOWN", "CHATSET_MUTED", "CHATSET_MUTE_TIP", "CHATSET_WHERE", "CHATSET_WHERE_NEXT", "CHATSET_WHERE_TIP", "CHATSET_TAB" }) do
+			"CHATSET_SHOWN", "CHATSET_MUTED", "CHATSET_MUTE_TIP", "CHATSET_WHERE", "CHATSET_WHERE_NEXT", "CHATSET_WHERE_TIP", "CHATSET_TAB",
+			"CHATSET_GUILDS_SHOWN", "CHATSET_GUILDS_HIDDEN", "CHATSET_GUILDS_TIP" }) do
 			assert(type(rawget(ns.L, k)) == "string" and rawget(ns.L, k) ~= "", "English: " .. k)
 			assert(type(rawget(pt.L, k)) == "string" and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
 			eq(Codes(rawget(pt.L, k)), Codes(rawget(ns.L, k)), "codes: " .. k)

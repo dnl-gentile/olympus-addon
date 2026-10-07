@@ -9,6 +9,8 @@ are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
   is for players and spectators when the table permits watching. It reuses the main chat's
   bubbles, name marks, input border and tab style, with separate drafts. Innkeeper practice does
   not pretend to have a multiplayer room.
+- The Chat gear can hide guild labels beside sender names locally. Guild identity remains in
+  tooltips, searches and message evidence; permissions and transport are unchanged.
 - The Watch's notices identify **a moderator**, not their name. Authorized staff keep the actor
   in their audit. Retained unresolved appeals can retry when council members come online later;
   a failed queue submission no longer permanently marks an appeal as sent.

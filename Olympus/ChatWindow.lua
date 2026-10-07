@@ -435,7 +435,8 @@ local function NameText(e)
 			tag = " " .. Gold(L.CHATWIN_TAG_HAND)
 		end
 	end
-	return lead .. name .. tag .. " " .. Grey("<" .. ns.Codec.Plain(guild or "?") .. ">")
+	local guildLabel = ns.Channels.ShowGuildNames() and (" " .. Grey("<" .. ns.Codec.Plain(guild or "?") .. ">")) or ""
+	return lead .. name .. tag .. guildLabel
 end
 
 ---------------------------------------------------------------------------
@@ -656,7 +657,8 @@ local function Bubble(i, e, start, y, maxInner, hides, pane, room)
 	-- The header, at a group's start.
 	local headerW, timeW = 0, 0
 	if start then
-		b.who:SetText(mine and L.CHATWIN_YOU or deleted and Grey(ns.Codec.Plain(ns.DisplayName(e.sender) or "?") .. " <" .. ns.Codec.Plain(e.guild or "?") .. ">")
+		local deletedGuild = ns.Channels.ShowGuildNames() and (" <" .. ns.Codec.Plain(e.guild or "?") .. ">") or ""
+		b.who:SetText(mine and L.CHATWIN_YOU or deleted and Grey(ns.Codec.Plain(ns.DisplayName(e.sender) or "?") .. deletedGuild)
 			or NameText(e))
 		b.time:SetText(Grey(date("%H:%M", tonumber(e.t) or 0)))
 		timeW = math.ceil(TextWidth(b.time))
@@ -1713,6 +1715,12 @@ function ChatWindow.SettingsLines()
 			tt:AddLine(L.CONSENT_CHAT, 1, 0.82, 0)
 			tt:AddLine(L.CONSENT_CHAT_TEXT, 1, 1, 1, true)
 		end })
+	Add({ indent = true, text = C.ShowGuildNames() and L.CHATSET_GUILDS_SHOWN or Grey(L.CHATSET_GUILDS_HIDDEN),
+		onClick = function()
+			C.SetGuildNamesShown(not C.ShowGuildNames())
+			Render()
+		end,
+		tip = function(tt) tt:AddLine(L.CHATSET_GUILDS_TIP, 1, 1, 1, true) end })
 	-- Who can read these lines: the channel public, as the Census and the Realm say it.
 	local V = ns.Views
 	if V and type(V.PublicLines) == "function" then

@@ -539,6 +539,9 @@ bottom-to-top always gives the same tab order; changing role or debug view never
   before a name since 1.1.5: Olympus's marks show in the game's own chat instead, where players
   outside Olympus are ([Channels](#channels), `/oly chatmarks`). A click on a name whispers that
   player, in Olympus's whisper window.
+- The gear can hide the adjacent guild label on this client (shown by default), including in
+  the Bones table panel. Tooltips and guild search retain the guild; message identity and
+  permissions do not change. Already printed lines in the game's chat are not rewritten.
 - A line your block terms hide shows as a grey bubble, and a click shows it, marked. Over the
   lines, like the pinned line, how many your filter hides in the channel (no room while it hides
   none), and a click there shows them all (another hides them again). A link shows its tooltip
