@@ -251,9 +251,19 @@ function Hop.HandleAsk(dist, sender, text)
 	Hop.after(0.2 + Hop.random() * 2.3, "hop offer", function()
 		-- We may have moved, entered combat or stopped sharing during that pause.
 		if offered[key] ~= offer then return end
-		if not Hop.CanHelp(mapID, zoneUID) then offered[key] = nil; return end
+		local function Allowed()
+			return offered[key] == offer and Member(sender)
+				and not (ns.Moderation.Hides and ns.Moderation.Hides(sender))
+				and Hop.CanHelp(mapID, zoneUID)
+		end
+		if not Allowed() then offered[key] = nil; return end
 		local group, load = Hop.GroupState(), Load()
-		ns.Comm.Whisper(sender, ("LO~%d~%d~%d"):format(id, group, load), nil, true)
+		local body = ("LO~%d~%d~%d"):format(id, group, load)
+		ns.Comm.Whisper(sender, body, nil, true, false, function(sent)
+			if not sent and offered[key] == offer then offered[key] = nil end
+		end, { owner = Hop, key = "hop-offer:" .. key, permit = function(_, _, dist, target, msg)
+			return dist == "WHISPER" and target == sender and msg == body and Allowed()
+		end })
 		stats.offers = stats.offers + 1
 	end)
 end
@@ -311,7 +321,9 @@ local function Answer(data, invite, always)
 	if not data or pending ~= data then return end
 	pending = nil
 	-- A button can be clicked long after its offer. Recheck every eligibility gate.
-	if invite and (ns.Now() - data.t > Hop.WAIT or not Hop.CanHelp(data.mapID, data.zoneUID)) then
+	if invite and (ns.Now() - data.t > Hop.WAIT or not Member(data.from)
+		or (ns.Moderation.Hides and ns.Moderation.Hides(data.from))
+		or not Hop.CanHelp(data.mapID, data.zoneUID)) then
 		SayNo(data.from, data.id)
 		return Changed()
 	end

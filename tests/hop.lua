@@ -4,12 +4,12 @@ local ROOT = (debug.getinfo(1, "S").source:sub(2):match("^(.*)tests[/\\]hop%.lua
 
 local function WithHop(fn)
 	local names = { "GetTime", "GetChannelName", "GetGuildInfo", "IsInGroup", "IsInRaid", "UnitFullName", "UnitName",
-		"GetNumGroupMembers", "GetServerTime", "C_ChatInfo", "AcceptGroup", "StaticPopup_Hide", "StaticPopup_FindVisible" }
+		"GetNumGroupMembers", "GetServerTime", "C_ChatInfo", "C_PartyInfo", "AcceptGroup", "StaticPopup_Hide", "StaticPopup_FindVisible" }
 	local saved, dialogs = {}, {}
 	for _, key in ipairs(names) do saved[key] = _G[key] end
 	for key, value in pairs(StaticPopupDialogs) do dialogs[key] = value end
 	local w = { clock = 1800000000, mono = 1000, guild = "Olympus II", map = 1453, group = 0,
-		party = {}, sent = {}, errors = {}, accepted = 0, id = 0 }
+		party = {}, sent = {}, errors = {}, accepted = 0, id = 0, ranks = {}, hidden = {}, invited = {}, popups = {} }
 	local ok, err = pcall(function()
 		GetTime = function() return w.mono end
 		GetServerTime = function() return w.clock end
@@ -21,6 +21,7 @@ local function WithHop(fn)
 		UnitFullName = function(unit) if unit == "player" then return "Tester", "Realm" end return w.party[unit] end
 		UnitName = function(unit) return w.party[unit] end
 		AcceptGroup = function() w.accepted = w.accepted + 1 end
+		C_PartyInfo = { InviteUnit = function(name) w.invited[#w.invited + 1] = name end }
 		StaticPopup_Hide, StaticPopup_FindVisible = function() end, function() end
 		C_ChatInfo = { RegisterAddonMessagePrefix = function() end, SendAddonMessage = function(_, msg, dist, target)
 			w.sent[#w.sent + 1] = { msg = msg, dist = dist, target = target, at = w.clock }
@@ -37,8 +38,12 @@ local function WithHop(fn)
 		c.Data = {} -- this scene does not share or mutate the outer harness census
 		c.GamepadUI = function() return w.manual end
 		c.PlayAlert = function() end
-		c.Moderation = { Blocks = function() return false end, Hides = function() return false end, SelfOff = function() return w.off end }
-		c.Layers = { CurrentMap = function() return w.map end, Sharing = function() return true end,
+		c.Moderation = { Blocks = function() return false end, Hides = function(name) return w.hidden[name] end, SelfOff = function() return w.off end }
+		c.Roster = { RankOf = function(name) return w.ranks[name] end }
+		c.IsMember = function() return true end
+		c.Alert = function(_, _, alert) if alert.open() then alert.show() end end
+		c.ShowDialog = function(_, _, _, data) w.popups[#w.popups + 1] = data end
+		c.Layers = { CurrentMap = function() return w.map end, Sharing = function() return true end, ForMap = function() return {} end,
 			Mine = function() return { mapID = w.map, zoneUID = 7, t = w.clock } end }
 		assert(loadfile(ROOT .. "Olympus/Comm.lua"))("Olympus", c)
 		assert(loadfile(ROOT .. "Olympus/Hop.lua"))("Olympus", c)
@@ -77,6 +82,46 @@ local function WithHop(fn)
 	for key in pairs(StaticPopupDialogs) do StaticPopupDialogs[key] = dialogs[key] end
 	if not ok then error(err, 0) end
 end
+
+test("hop: a delayed offer and queued whisper recheck requester membership and moderation", function()
+	for _, change in ipairs({ "membership", "moderation" }) do
+		for _, queued in ipairs({ false, true }) do
+			WithHop(function(w, H, C)
+				w.ranks["Asker-Realm"] = 3
+				-- Helping is opt-in; unlike the asker's tests above this client is a helper.
+				H.SetHelp(true)
+				local later
+				H.after = function(_, _, fn) later = fn end
+				H.HandleAsk("CHANNEL", "Asker-Realm", "LQ~42~1453~7")
+				assert(later, "a valid member schedules an offer")
+				if queued then later(); eq(C.QueueSize(), 1) end
+				if change == "membership" then w.ranks["Asker-Realm"] = nil else w.hidden["Asker-Realm"] = true end
+				if not queued then later() end
+				w.step()
+				eq(w.count("LO~"), 0, change .. (queued and " in the transport queue" or " during the delay"))
+				H.HandleRequest("WHISPER", "Asker-Realm", "LR~42")
+				eq(#w.invited, 0); eq(#w.popups, 0)
+			end)
+		end
+	end
+end)
+
+test("hop: an Invite button rechecks requester membership and moderation while a valid member still joins", function()
+	for _, change in ipairs({ "membership", "moderation", "valid" }) do
+		WithHop(function(w, H)
+			w.ranks["Asker-Realm"] = 3; H.SetHelp(true)
+			H.after = function(_, _, fn) fn() end
+			H.HandleAsk("CHANNEL", "Asker-Realm", "LQ~42~1453~7")
+			w.step(); eq(w.count("LO~"), 1)
+			H.HandleRequest("WHISPER", "Asker-Realm", "LR~42")
+			eq(#w.popups, 1)
+			if change == "membership" then w.ranks["Asker-Realm"] = nil
+			elseif change == "moderation" then w.hidden["Asker-Realm"] = true end
+			H.Answer(w.popups[1], true)
+			eq(#w.invited, change == "valid" and 1 or 0, change)
+		end)
+	end
+end)
 
 test("hop: twenty urgent messages cannot consume the ask's fifteen-second response window", function()
 	WithHop(function(w, H)
