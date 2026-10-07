@@ -22,13 +22,17 @@ are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
 - The Board offers a public weekly summary of facts this client knows. A personal five-line
   brief appears once per character/reset after privacy notices and the update letter, never in
   combat, an instance or Busy mode. Unknown coverage and receipts are shown honestly; opening
-  the brief does not turn on sharing.
+  the brief does not turn on sharing. Players who already have access to the Throne can reopen
+  their personal brief as an organized parchment page; this does not grant new Throne powers.
 - The King may leave a short message with an audience. The recipient retains it in their local
   Chronicle with its sender; this does not create a jury or another punishment system.
 - Invitations through the addon warn about a character blocked from the network, with a reason
   and date. The officer still chooses; native guild invitations are not silently declined.
 - The race chat's short label is **Skyborn**. Long Lottery animal names stay on one line above
   the drawn numbers, with the original five-place animation kept.
+- Finding a Bones opponent updates the existing Find window while searching and reviewing
+  offers, rather than opening a second, smaller search window. Accepted matches retain their
+  dedicated meeting view, with the Find window closed first.
 - The detailed update parchment uses the existing game icons. For someone who has not seen the
   1.2.0 letter, that release's news comes before 1.2.1. The history keeps each letter separately.
 
