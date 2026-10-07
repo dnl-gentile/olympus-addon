@@ -1479,7 +1479,7 @@ local boardShown = false -- the Board (Board.lua, 1.1) shown instead of the Real
 -- Pages of the Realm tab (1.1): a module lists one in ns.RealmPages (Loot.lua's loot notes):
 -- { key, Link = function() return its link line, or nil end,
 -- Lines = function(q) return its lines end, tip = what its search finds (L.SEARCH_TIP_...) }.
--- A link line opens it in place of the tree.
+-- A link line opens it in place of the tree; beforeBoard places that link ahead of the Board.
 local pageShown -- the page shown instead of the Realm tree, or nil
 
 -- Another tab opened: the Realm opens on its tree again next time (our guild's members page, the
@@ -1828,15 +1828,19 @@ local function RealmLines(s, q)
 		rebuilding = RebuildLines(lines)
 		if #lines > before and lines[before] then lines[before].gapAfter = true end
 	end
-	-- The Board (1.1, Board.lua) and the Realm's other pages (1.1, ns.RealmPages), one link each,
+	-- The member's week, the Board and the Realm's other pages, one link each,
 	-- close together with one gap after the last so the guilds stay in sight on the short list.
-	local links = {}
-	local board = not q and ns.Board and ns.Board.LinkLine and ns.Board.LinkLine()
-	if board then links[#links + 1] = board end
+	local links, trailing = {}, {}
 	for _, p in ipairs(not q and ns.RealmPages or {}) do
 		local link = p.Link and p.Link()
-		if link then links[#links + 1] = link end
+		if link then
+			local group = p.beforeBoard and links or trailing
+			group[#group + 1] = link
+		end
 	end
+	local board = not q and ns.Board and ns.Board.LinkLine and ns.Board.LinkLine()
+	if board then links[#links + 1] = board end
+	for _, link in ipairs(trailing) do links[#links + 1] = link end
 	if #links > 0 then
 		local prev = lines[#lines]
 		if prev then prev.gapAfter = not prev.pageLink end

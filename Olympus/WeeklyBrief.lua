@@ -190,7 +190,7 @@ local function Paragraph(lines, text, font, extra)
 end
 function Brief.PersonalLink()
 	if not ns.IsMember() then return nil end
-	return { text = "|cffffd200> " .. L.BRIEF_PERSONAL_TITLE .. "|r", gapAfter = true,
+	return { text = "|TInterface\\Icons\\INV_Scroll_04:14:14|t |cffffd200" .. L.BRIEF_PERSONAL_TITLE .. "|r", gapAfter = true,
 		onClick = function() ns.Views.ShowPage("personalbrief") end }
 end
 
@@ -216,7 +216,7 @@ end
 ns.RealmPages = ns.RealmPages or {}
 table.insert(ns.RealmPages, { key = "weeklybrief", Lines = Brief.Lines, tip = "BRIEF_NOTE" })
 table.insert(ns.RealmPages, { key = "personalbrief", Link = Brief.PersonalLink, Lines = Brief.PersonalPage,
-	tip = "BRIEF_PERSONAL_NOTE", parchment = true })
+	tip = "BRIEF_PERSONAL_NOTE", parchment = true, beforeBoard = true })
 ns.On("LOGIN", function()
 	ns.After(210, "weekly brief snapshot", Brief.Capture) -- after the ordinary census rebuild
 	ns.Every(60, "weekly brief snapshot", Brief.Capture)

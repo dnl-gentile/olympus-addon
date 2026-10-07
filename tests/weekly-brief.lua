@@ -75,6 +75,16 @@ local function Text(lines)
 	return table.concat(out, "\n")
 end
 
+test("Weekly personal brief: member navigation uses the existing scroll icon and keeps its localized title", function()
+	local w, c = Client()
+	local link = assert(c.WeeklyBrief.PersonalLink())
+	eq(link.text, "|TInterface\\Icons\\INV_Scroll_04:14:14|t |cffffd200" .. c.L.BRIEF_PERSONAL_TITLE .. "|r")
+	link.onClick(); eq(w.page, "personalbrief")
+	eq(w.sent, 0, "an icon does not add requests or sharing")
+	c.IsMember = function() return false end
+	eq(c.WeeklyBrief.PersonalLink(), nil, "the icon does not widen membership")
+end)
+
 test("Weekly personal brief: member page uses existing fonts without a King dependency, popup or native Close global", function()
 	local w, c = Client()
 	c.King = false
@@ -193,11 +203,23 @@ test("Weekly personal brief: ordinary members open and reopen the main Realm par
 			c.UI, uns.Views, uns.Data, uns.King = ui, c.Views, c.Data, K
 			local capture, captured = c.WeeklyBrief.Capture, 0
 			c.WeeklyBrief.Capture = function(...) captured = captured + 1; return capture(...) end
+			-- A later module's link stays after the Board; only the member brief moves ahead.
+			c.RealmPages[#c.RealmPages + 1] = { key = "later-brief-fixture", Link = function()
+				return { text = "Another Realm page" }
+			end }
 			local function Link()
+				local links, personal, board, later = {}, nil, nil, nil
 				for _, row in ipairs(c.Views.Build("realm")) do
-					if row.text and row.text:find(c.L.BRIEF_PERSONAL_TITLE, 1, true) then return row end
+					if row.pageLink then links[#links + 1] = row end
+					if row.text and row.text:find(c.L.BRIEF_PERSONAL_TITLE, 1, true) then personal = row end
+					if row.text and row.text:find(c.L.BOARD_LINK, 1, true) then board = row end
+					if row.text == "Another Realm page" then later = row end
 				end
-				return assert(nil, "personal page link on the real Realm home")
+				eq(#links, 3, "each Realm page link appears exactly once")
+				eq(links[1], assert(personal), "Your week is immediately above The Board")
+				eq(links[2], assert(board)); eq(links[3], assert(later), "other modules retain their order after Board")
+				eq(personal.gapAfter, false); eq(board.gapAfter, false); eq(later.gapAfter, true, "one gap after the link group")
+				return personal
 			end
 			for _, gamepad in ipairs({ false, true }) do
 				H.WithGamepadUI(gamepad, function(game)
