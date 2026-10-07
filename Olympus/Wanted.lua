@@ -1760,7 +1760,7 @@ local function PublishRows(rows)
 	ns.db.wantedPublisher = p
 	local body = table.concat({ "WY", 1, scope, issuer, epoch, seq, now, expires, rowsText, pk64, D.B64(sig) }, "~")
 	publishedGlobal = { body = body, expires = expires, issuer = issuer, scope = scope }
-	local sent, why = C.SendChunked(body, true, nil, nil, { owner = Wanted, key = "wanted-global", guard = function()
+	local sent, why = C.SendChunked(body, true, nil, nil, { owner = Wanted, guardKey = "wanted-global", guard = function()
 		return Wanted.CanPublish(ns.me) and ns.IsMember and ns.IsMember() == true
 	end })
 	if sent then
@@ -1809,7 +1809,7 @@ function Wanted.RepeatGlobal()
 	if not mine or p.expires < math.floor(Clock()) or not SameName(p.issuer, ns.me) or not Wanted.CanPublish(ns.me)
 		or (p.scope and p.scope ~= Scope()) or not C or not C.SendChunked then return false, "stale" end
 	if p.replaced or globalFloor and CompareOrder(globalFloor, mine) > 0 then return false, "replaced" end
-	local sent, why = C.SendChunked(p.body, false, nil, nil, { owner = Wanted, key = "wanted-global-repeat", guard = function()
+	local sent, why = C.SendChunked(p.body, false, nil, nil, { owner = Wanted, guardKey = "wanted-global-repeat", guard = function()
 		return publishedGlobal == p and not p.replaced and p.expires >= math.floor(Clock()) and Wanted.CanPublish(ns.me)
 	end })
 	-- Heard from ourselves again where this client does not hold it (its check was busy when he

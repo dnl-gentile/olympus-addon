@@ -365,6 +365,57 @@ test("wanted: server-month rollover, deterministic ties and current all-time top
 	end)
 end)
 
+test("wanted publication through real Comm: publish and repeat enter the guarded queue and revoked publishers send nothing", function()
+	WithWanted(function(w, W, c)
+		local names = { "C_ChatInfo", "GetTime", "GetChannelName" }
+		local saved = {}
+		for _, name in ipairs(names) do saved[name] = _G[name] end
+		local ok, err = pcall(function()
+			local sent = {}
+			C_ChatInfo = { RegisterAddonMessagePrefix = function() end,
+				SendAddonMessage = function(_, text, dist) sent[#sent + 1] = { text = text, dist = dist }; return true end }
+			GetTime = function() return w.epoch end
+			GetChannelName = function() return 7, c.CHANNEL end
+			c.db.blocked = {}
+			c.Moderation.Blocks = function() return false end
+			c.Log, c.Every, c.After = function() end, function() end, function() end
+			c.SafeCall = function(_, fn, ...) return fn(...) end
+			assert(loadfile(ROOT .. "Olympus/Comm.lua"))("Olympus", c)
+			w.listeners.LOGIN()
+			c.Comm.JoinChannel()
+			w.authority(c.me, "king")
+			local published, why = W.PublishGlobal()
+			assert(published, "actual queue rejected publication: " .. tostring(why))
+			assert(c.Comm.QueueSize() > 0)
+			local function Drain()
+				for _ = 1, 20 do
+					if c.Comm.QueueSize() == 0 then break end
+					w.advance(2); c.Comm.Pump()
+				end
+				eq(c.Comm.QueueSize(), 0)
+			end
+			Drain()
+			local asm, full = c.Codec.NewAssembler()
+			for _, message in ipairs(sent) do
+				eq(message.dist, "CHANNEL")
+				full = c.Codec.Feed(asm, c.me, message.text, w.epoch) or full
+			end
+			eq(full, c.db.wantedPublisher.last.body)
+			assert(W.RepeatGlobal()); Drain()
+			local before = #sent
+			assert(W.RepeatGlobal())
+			w.authorities[c.Fold(c.me)] = nil
+			Drain(); eq(#sent, before, "revocation after admission blocks every delayed repeat part")
+			w.authority(c.me, "king")
+			assert(W.PublishGlobal())
+			w.authorities[c.Fold(c.me)] = nil
+			Drain(); eq(#sent, before, "revocation after admission blocks publication too")
+		end)
+		for _, name in ipairs(names) do _G[name] = saved[name] end
+		if not ok then error(err, 0) end
+	end)
+end)
+
 test("wanted global: only a fresh directly signed authority snapshot awards GUID-bound top-three borders", function()
 	WithWanted(function(w, W, c)
 		local council = w.authority("Council-Realm", "council")
