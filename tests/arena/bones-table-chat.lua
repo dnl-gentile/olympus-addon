@@ -325,6 +325,46 @@ test("Bones table chat: gamepad login and both switches use only the actual own 
 	end)
 end)
 
+test("Bones table chat: gated empty local preview uses real controls without invoking real room methods or sending", function()
+	local w = FW.New({ compliance = "shipped" })
+	local a = Setup(w, w:Player(N.fighterA, { testBuild = { n = 3, base = "1.2.1", built = w.clock, expires = w.clock + 86400 }, companion = {} }), { 1024, 768 })
+	local chat, board
+	w:As(a, function()
+		assert(a.ns.FarkleTable.ShowUI("practice"))
+		chat, board = UI(a), a.ns.Arena.ui.FarkleBoard
+		eq(chat.Preview(board.Window(), board.ChatLayout), false, "test build alone is not an active simulation")
+		assert(a.ns.Arena.SetSim(true))
+		local methods, originals = { "TableRooms", "MayRead", "MaySend", "Open", "IsOpen", "Lines", "Send" }, {}
+		for _, key in ipairs(methods) do
+			originals[key] = a.ns.ArenaChat[key]
+			a.ns.ArenaChat[key] = function() error("preview invoked real ArenaChat." .. key) end
+		end
+		local ok, why = pcall(function()
+			assert(chat.Preview(board.Window(), board.ChatLayout))
+			local p = Frame(a); eq(p:IsShown(), true); eq(#p.conversation.bubbles, 0)
+			eq(#p.strip.nav, 2); assert(p.conversation.input:IsShown())
+			p.conversation.input:SetText("Local preview draft")
+			p.conversation.input:GetScript("OnEnterPressed")(p.conversation.input)
+			eq(p.conversation.input:GetText(), "Local preview draft", "Enter never sends or erases the local draft")
+			p.conversation.search:SetText("Private filter")
+			assert(chat.Select("everyone")); eq(p.conversation.input:GetText(), ""); eq(p.conversation.search:GetText(), "")
+			p.conversation.input:SetText("Everyone draft")
+			assert(chat.Select("players")); eq(p.conversation.input:GetText(), "Local preview draft"); eq(p.conversation.search:GetText(), "Private filter")
+			chat.Attach(board.Window(), nil, false, board.ChatLayout)
+			assert(p:IsShown(), "normal simulation practice refresh does not erase the preview")
+			Click(w, a, p.toggle); eq(p.conversation:IsShown(), false)
+			Click(w, a, p.toggle); eq(p.conversation:IsShown(), true)
+			chat.Hide(); eq(p:IsShown(), false); eq(p.refreshTicker, nil)
+			eq(chat.HidePreview(), false, "Hide already cleared the local provider")
+		end)
+		for _, key in ipairs(methods) do a.ns.ArenaChat[key] = originals[key] end
+		assert(ok, why)
+		a.ns.Arena.SetSim(false)
+	end)
+	eq(#w:Sent{ from = a, type = "EC" }, 0, "empty preview emits no chat word")
+	Clean(w)
+end)
+
 test("Bones table chat: ending the actual table hides both panels and retained lines cannot become a History chat", function()
 	local w, a, b, s, id = Live()
 	local rooms = w:As(a, a.ns.ArenaChat.TableRooms, id)

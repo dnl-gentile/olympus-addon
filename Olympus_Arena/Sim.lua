@@ -620,6 +620,8 @@ end
 
 -- The windows a scene may have opened: closed before the next one.
 local function CloseAll()
+	local chat = ArenaUI.BonesChat
+	if type(chat) == "table" and type(chat.HidePreview) == "function" then chat.HidePreview() end
 	local fns = {}
 	for _, get in ipairs({ ArenaUI.SlipFrame, ArenaUI.WalletFrame, ArenaUI.ChallengeFrame, ArenaUI.FindFrame, ArenaUI.RulesFrame, ArenaUI.HelpFrame,
 		Home.CallFrame, Home.ChallengeFrame, Home.LetterFrame }) do
@@ -707,7 +709,7 @@ function Sim.Photos()
 	return true
 end
 
--- Starts (or moves) the sim: /oly arena sim [scene|next|prev|speed n|photos]; the Workshop's button.
+-- Starts (or moves) the sim: /oly arena sim [scene|next|prev|speed n|photos|boneschat]; the Workshop's button.
 -- ArenaNet switched the sim on before (Arena.SetSim), and refuses anyone the sim is not for.
 function ArenaUI.Sim(args)
 	if not ns.Arena.Sim() then return false end
@@ -719,6 +721,19 @@ function ArenaUI.Sim(args)
 	if word == "prev" then return Sim.Go((Sim.scene or 2) - 1) end
 	if word == "speed" then Sim.Speed(rest) return true end
 	StartCrowd()
+	if word == "boneschat" then
+		-- Reuse the existing solo table scene: this is a local view, never a fabricated live
+		-- opponent or a transport room. Scene numbers can shift in free-games packages.
+		local scene
+		for i, entry in ipairs(Sim.SCENES) do if entry[1] == "BONE" then scene = i break end end
+		local chat, board = ArenaUI.BonesChat, ArenaUI.FarkleBoard
+		if not scene or type(chat) ~= "table" or type(chat.Preview) ~= "function"
+			or type(board) ~= "table" or type(board.Window) ~= "function" or type(board.ChatLayout) ~= "function" then return false end
+		if not Sim.Go(scene) then return false end
+		local parent = board.Window()
+		if not parent then return false end
+		return chat.Preview(parent, board.ChatLayout)
+	end
 	return Sim.Go(tonumber(word) or Sim.scene or 1)
 end
 -- Leaves the sim: its data and windows go; the stores and settings were never the player's.

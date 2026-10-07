@@ -2,10 +2,12 @@ local _, own = ...; local ns = own.host; if not ns then return end
 local UI, L = own.ArenaUI, ns.L
 local Chat = {}; UI.BonesChat = Chat
 local panel, candidate, board, id, selected
+local preview -- UI-only provider: no real room, participant, history or send authority
 local states = {} -- table -> independent session-only tab drafts and collapsed state
 local used = 0
-local function State() return id and states[id] end
+local function State() return preview and preview.state or id and states[id] end
 local function Rooms()
+	if preview then return preview.rooms end
 	local A = ns.ArenaChat
 	return id and A and A.TableRooms and A.TableRooms(id) or nil
 end
@@ -14,10 +16,12 @@ local function Room()
 	return rooms and rooms[selected] or nil
 end
 local function Readable(room)
+	if preview then return room == preview.rooms.players or room == preview.rooms.everyone end
 	local A = ns.ArenaChat
 	return room and A and A.MayRead and A.MayRead(room) == true or false
 end
 local function Writable()
+	if preview then return true end -- show the real composer; its Enter handler below never sends
 	local A, room = ns.ArenaChat, Room()
 	return Readable(room) and A.MaySend(room) == true
 end
@@ -58,8 +62,8 @@ local function Build(parent)
 		maxBytes = ns.ArenaChat.TEXT_MAX,
 		room = Room, maySend = Writable,
 		label = function() return selected == "players" and L.BONES_CHAT_PLAYERS or L.BONES_CHAT_EVERYONE end,
-		lines = function() local room = Room(); return Readable(room) and ns.ArenaChat.Lines(room) or {} end,
-		send = function(text) if not Writable() then return false, "room" end return ns.ArenaChat.Send(Room(), text) end,
+		lines = function() if preview then return {} end local room = Room(); return Readable(room) and ns.ArenaChat.Lines(room) or {} end,
+		send = function(text) if preview then return false, "preview" end if not Writable() then return false, "room" end return ns.ArenaChat.Send(Room(), text) end,
 		changed = function(text) local s = State(); if s and selected then s.drafts[selected] = text end end,
 		searchChanged = function(text) local s = State(); if s and selected then s.searches[selected] = text end end,
 		nextTab = function() Chat.Select(selected == "players" and "everyone" or "players") end,
@@ -81,12 +85,14 @@ local function Build(parent)
 		self.toggle:Hide()
 		if self.refreshTicker then self.refreshTicker:Cancel(); self.refreshTicker = nil end
 		self.conversation.input:ClearFocus()
+		if preview then Chat.HidePreview() end
 	end)
 	panel, candidate = p, nil
 	return true
 end
 function Chat.Refresh(force)
 	if not panel then return end
+	if preview and not (ns.Arena.Sim() and ns.Arena.MaySim()) then Chat.HidePreview(); return end
 	local rooms, s = Rooms(), State()
 	local available = rooms and (Readable(rooms.players) or Readable(rooms.everyone))
 	if not available or not board:IsShown() then
@@ -99,7 +105,7 @@ function Chat.Refresh(force)
 		panel.conversation.search:ClearFocus(); panel.conversation.search:SetText(s.searches[selected] or "")
 	end
 	local A, room = ns.ArenaChat, Room()
-	if room and not A.IsOpen(room) then A.Open(room) end
+	if not preview and room and not A.IsOpen(room) then A.Open(room) end
 	-- This child inherits the table's actual scale. The combined standalone window is fitted by
 	-- the board; width stays bounded, not a chat window covering the player's dice.
 	local width = 280
@@ -125,6 +131,12 @@ function Chat.Refresh(force)
 	panel:Show(); panel.toggle:Show(); if Chat.layout then Chat.layout(s.collapsed and 0 or width + 8) end
 end
 function Chat.Attach(parent, tableId, live, layout)
+	if preview then
+		-- The simulation's real practice board keeps its normal refresh path. It has no real
+		-- table to attach; a real live table or a different/ended simulation clears the preview.
+		if not live and parent == preview.parent and ns.Arena.Sim() and ns.Arena.MaySim() then Chat.Refresh(); return end
+		Chat.HidePreview()
+	end
 	board, Chat.layout = parent, layout
 	local C, V = ns.ChatWindow, ns.Views
 	-- Core's restart stand-ins have callable no-op methods, but cannot create a conversation.
@@ -159,7 +171,37 @@ function Chat.Attach(parent, tableId, live, layout)
 		Chat.Refresh()
 	else Chat.Refresh() end
 end
-function Chat.Hide() if panel then panel:Hide(); panel.toggle:Hide(); panel.conversation.input:ClearFocus(); if Chat.layout then Chat.layout(0) end end end
+function Chat.HidePreview()
+	if not preview then return false end
+	preview, id, selected = nil, nil, nil
+	if panel then
+		panel.conversation.input:SetText(""); panel.conversation.search:SetText("")
+		panel:Hide(); panel.toggle:Hide()
+	end
+	if Chat.layout then Chat.layout(0) end
+	return true
+end
+function Chat.Preview(parent, layout)
+	if not (ns.Arena.Sim() and ns.Arena.MaySim()) then return false, "who" end
+	local C, V = ns.ChatWindow, ns.Views
+	if type(C) ~= "table" or C.missing == true or type(C.CreateEmbedded) ~= "function"
+		or type(V) ~= "table" or V.missing == true or type(V.DrawNav) ~= "function" then return false, "missing" end
+	if type(parent) ~= "table" or type(parent.IsShown) ~= "function" or not parent:IsShown() then return false, "window" end
+	Chat.HidePreview()
+	board, Chat.layout = parent, layout
+	if not panel and not Build(parent) then return false, "missing" end
+	preview = { parent = parent, rooms = { players = {}, everyone = {} },
+		state = { drafts = {}, searches = {}, tab = "players", collapsed = false } }
+	id, selected = nil, "players"
+	panel.conversation.input:ClearFocus(); panel.conversation.search:ClearFocus()
+	panel.conversation.input:SetText(""); panel.conversation.search:SetText("")
+	Chat.Refresh(true)
+	return true
+end
+function Chat.Hide()
+	if Chat.HidePreview() then return end
+	if panel then panel:Hide(); panel.toggle:Hide(); panel.conversation.input:ClearFocus(); if Chat.layout then Chat.layout(0) end end
+end
 function Chat.Frame() return panel end
 ns.On("ARENA_CHAT", function(room) if panel and panel:IsShown() and room == Room() then Chat.Refresh(true) end end)
 ns.On("WATCHCHAT_CHANGED", function() if panel and panel:IsShown() then Chat.Refresh(true) end end)
