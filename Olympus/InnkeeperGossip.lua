@@ -223,7 +223,13 @@ function G.Confirm() -- gp:innkeeper-gossip
 end
 
 function G.OnShow() -- gp:innkeeper-gossip
-	if not ns.Gate.Allowed(GATE) then return end
+	if not ns.Gate.Allowed(GATE) then
+		-- The existing Olympus dialogue has no child in Blizzard's NPC panel and
+		-- remains available with a controller, without registering native fonts.
+		local name = Context()
+		if name then ns.FarkleTable.ShowUI("innkeeper", nil, name) end
+		return
+	end
 	G.Park()
 	if not ns.After then return end
 	local current = generation

@@ -1953,6 +1953,33 @@ for _, initialPad in ipairs({ false, true }) do
 	end)
 end
 
+test("gamepad innkeeper offer: an actual NPC keeps the addon-only lesson offer across input switches", function()
+	local C, ns = Session(true)
+	local inn
+	for _, place in ipairs(ns.Places.list) do if place.id == "inn_goldshire" then inn = place end end
+	assert(inn)
+	C.position = { cont = inn.cont, wx = inn.wx, wy = inn.wy }
+	C.resting = true
+	C.units.npc = { name = "Localized Innkeeper", realm = C.realmName, guid = "Creature-0-1-0-1-" .. inn.npc .. "-00001" }
+	local shown = 0
+	ns.FarkleTable.ShowUI = function(what, id, name)
+		eq(what, "innkeeper"); eq(id, nil); eq(name, "Localized Innkeeper")
+		shown = shown + 1; return true
+	end
+	for _, pad in ipairs({ true, false, true }) do
+		C.Switch(pad); C.Advance(1)
+		local before = shown
+		ns.InnkeeperGossip.OnShow(); C.Advance(1)
+		eq(shown, before + 1, "the existing addon dialogue remains available")
+		eq(ns.InnkeeperGossip.State().row, nil, "no native gossip child is needed")
+	end
+	C.units.npc = nil
+	ns.InnkeeperGossip.OnShow(); C.Advance(1)
+	eq(shown, 3, "an inn alone never impersonates the NPC")
+	GP.Covers("innkeeper-gossip")
+	Check(C.ledger, "addon-only innkeeper offer"); NoErrors(C, "innkeeper offer")
+end)
+
 for _, initialPad in ipairs({ false, true }) do
 	test("gamepad native Guild chat: " .. (initialPad and "gamepad" or "mouse") .. " login, user send, server echo and input switches", function()
 		local C, ns = Session(initialPad)
