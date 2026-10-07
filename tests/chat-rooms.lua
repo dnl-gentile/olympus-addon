@@ -187,6 +187,31 @@ test("chat rooms: race and class are explicit open-topic choices with independen
 	end)
 end)
 
+test("chat rooms: Skyborn stays compact when the client returns its full race name", function()
+	WithRooms(function(w, R, c)
+		C_CreatureInfo = { GetRaceInfo = function(id)
+			return { raceName = id == 95 and "High Order Skyborn" or "Localized Human" }
+		end }
+		eq(R.Info("race:95").label, "Skyborn")
+		eq(R.Options("race")[5].label, "Skyborn")
+		eq(R.Info("race:1").label, "Localized Human", "other races keep the client's translation")
+		assert(R.Select("race:95"))
+		for _, tab in ipairs(R.Tabs()) do
+			if tab.kind == "race" then eq(tab.label, "Skyborn", "selected tab uses the short name too") end
+		end
+		c.Roster.members = {
+			{ full = "Fullname-Realm", race = "High Order Skyborn" },
+			{ full = "Shortname-Realm", race = "Skyborn" },
+			{ full = "Numeric-Realm", race = 95 },
+		}
+		for i, row in ipairs(c.Roster.members) do
+			assert(R.Receive("CHANNEL", row.full, RoomMessage("race:95", i, "hello"), 1000 + i))
+			eq(R.History("race:95")[i].request, nil,
+				"compact display must not change membership recognition")
+		end
+	end)
+end)
+
 test("chat rooms: the new audiences have separate consent and old or malformed wires fail closed", function()
 	WithRooms(function(w, R, c)
 		c.db.chatRooms = nil

@@ -108,7 +108,11 @@ end
 
 local function Topic(id)
 	for _, e in ipairs(RACES) do
-		if e.id == id then return { id = id, kind = "race", label = RaceLabel(e), scope = "topic", race = e.race, raceName = e.label } end
+		if e.id == id then
+			local clientName = RaceLabel(e)
+			return { id = id, kind = "race", label = e.race == 95 and e.label or clientName,
+				scope = "topic", race = e.race, raceName = e.label, clientRaceName = clientName }
+		end
 	end
 	for _, e in ipairs(CLASSES) do
 		if e.id == id then return { id = id, kind = "class", label = ClassLabel(e), scope = "topic", class = id:sub(7), classFile = e.file } end
@@ -919,7 +923,7 @@ end
 local function RaceMatches(info, value)
 	if tonumber(value) ~= nil then return tonumber(value) == info.race end
 	local key = Lower(value)
-	return key ~= "" and (key == Lower(info.raceName) or key == Lower(info.label))
+	return key ~= "" and (key == Lower(info.raceName) or key == Lower(info.clientRaceName) or key == Lower(info.label))
 end
 
 -- Server-provided roster and /who rows can corroborate a sender's membership without adding any
