@@ -214,6 +214,26 @@ package_checksum_matches() {
 	fi
 	[ "$expected" = "$actual" ] || package_fail "$(basename "$checksum") does not match its zip"
 }
+package_has_no_wager_modules() {
+	local zip=$1 path left_out=0 folder entry listing="$pkg/wager-files.txt"
+	unzip -Z1 "$zip" > "$listing"
+	while IFS= read -r path; do
+		case "$path" in ''|'#'*) continue ;; esac
+		left_out=$((left_out + 1))
+		grep -qxF "$path" "$listing" && package_fail "$(basename "$zip") carries $path"
+		entry=${path#*/}
+		entry=${entry//\//\\}
+		unzip -p "$zip" "${path%%/*}/${path%%/*}.toc" | tr -d '\r' | grep -qxF "$entry" && package_fail "$(basename "$zip") TOC lists $entry"
+		[ -f "$pkg/$path" ] || package_fail "the repository copy lost $path"
+	done < "$repo_root/scripts/bets-only.txt"
+	[ "$left_out" -ge 1 ] || package_fail 'bets-only.txt names no file'
+	for folder in Olympus Olympus_Arena; do
+		unzip -p "$zip" "$folder/$folder.toc" | tr -d '\r' | while IFS= read -r entry; do
+			case "$entry" in ''|'#'*) continue ;; esac
+			grep -qxF "$folder/${entry//\\//}" "$listing" || { printf 'FAIL: package.sh: %s.toc lists %s, not in %s\n' "$folder" "$entry" "$zip" >&2; exit 1; }
+		done || exit 1
+	done
+}
 have_sha=false
 for sha_tool in sha256sum shasum openssl; do
 	if command -v "$sha_tool" >/dev/null 2>&1; then have_sha=true; break; fi
@@ -238,12 +258,13 @@ if command -v git >/dev/null 2>&1 && command -v zip >/dev/null 2>&1 && command -
 	[ -f "$release" ] || package_fail "no $release"
 	package_manifest_matches "$release"
 	package_checksum_matches "$release"
+	package_has_no_wager_modules "$release"
 	unzip -l "$release" > "$pkg/list.txt"
 	grep -q ' Olympus/Olympus.toc$' "$pkg/list.txt" || package_fail 'the release lacks Olympus'
 	grep -q ' Olympus_Arena/Olympus_Arena.toc$' "$pkg/list.txt" || package_fail 'the release lacks Olympus_Arena'
 	grep -q 'TestBuild.lua' "$pkg/list.txt" && package_fail 'the release carries a test build'
 	unzip -p "$release" Olympus/Olympus.toc | tr -d '\r' | grep -q "^## Version: $version$" || package_fail 'the release version'
-	printf 'ok: package.sh: the release zip holds both folders and no test build; manifest and checksum match\n'
+	printf 'ok: package.sh: the release zip holds both folders, no test build and no wager-only modules; manifest and checksum match\n'
 
 	(cd "$pkg" && bash scripts/package.sh --test 3 > out.txt) || package_fail 'the test build did not build'
 	testzip="$pkg/dist/Olympus-$version-test3.zip"
@@ -251,6 +272,7 @@ if command -v git >/dev/null 2>&1 && command -v zip >/dev/null 2>&1 && command -
 	[ -f "$pkg/dist/Olympus-$version-test3.txt" ] || package_fail 'no install steps'
 	package_manifest_matches "$testzip"
 	package_checksum_matches "$testzip"
+	package_has_no_wager_modules "$testzip"
 	grep -qx 'Olympus/TestBuild.lua' "${testzip%.zip}.files.txt" || package_fail 'the test manifest lacks TestBuild.lua'
 	unzip -l "$testzip" > "$pkg/list.txt"
 	grep -q ' Olympus_Arena/Olympus_Arena.toc$' "$pkg/list.txt" || package_fail 'the test build lacks Olympus_Arena'
@@ -283,7 +305,7 @@ assert(loadfile(dir .. "/Olympus_Arena/Handoff.lua"))("Olympus_Arena", own)
 assert(OlympusArenaHandoff == nil, "the handoff is taken")
 assert(ns.Arena.companionReady == true and own.host == ns, "the handoff refused the test build's companion")
 LUA
-	printf 'ok: package.sh --test 3: both folders, TestBuild.lua after Core.lua, manifest and checksum match, the handoff takes it\n'
+	printf 'ok: package.sh --test 3: both folders, no wager-only modules, TestBuild.lua after Core.lua, manifest and checksum match, the handoff takes it\n'
 
 	# 1.1.6: --release116 leaves out the files only the bets need (scripts/bets-only.txt) and their
 	# TOC lines; both folders, the compliance gate and every other file the TOCs list ship.
@@ -292,32 +314,22 @@ LUA
 	[ -f "$cut" ] || package_fail "no $cut"
 	package_manifest_matches "$cut"
 	package_checksum_matches "$cut"
+	package_has_no_wager_modules "$cut"
 	unzip -Z1 "$cut" > "$pkg/list.txt"
-	left_out=0
-	while IFS= read -r path; do
-		case "$path" in ''|'#'*) continue ;; esac
-		left_out=$((left_out + 1))
-		grep -qxF "$path" "$pkg/list.txt" && package_fail "the 1.1.6 package carries $path"
-		unzip -p "$cut" "${path%%/*}/${path%%/*}.toc" | tr -d '\r' | grep -qxF "${path#*/}" && package_fail "the 1.1.6 TOC lists ${path#*/}"
-		[ -f "$pkg/$path" ] || package_fail "the repository copy lost $path"
-	done < "$repo_root/scripts/bets-only.txt"
-	[ "$left_out" -ge 1 ] || package_fail 'bets-only.txt names no file'
 	for need in Olympus/Olympus.toc Olympus/Compliance.lua Olympus/Locales/ComplianceText.lua Olympus/Lottery.lua Olympus/Stakes.lua Olympus_Arena/Olympus_Arena.toc; do
 		grep -qxF "$need" "$pkg/list.txt" || package_fail "the 1.1.6 package lacks $need"
 	done
 	grep -q TestBuild.lua "$pkg/list.txt" && package_fail 'the 1.1.6 package carries a test build'
-	for folder in Olympus Olympus_Arena; do
-		unzip -p "$cut" "$folder/$folder.toc" | tr -d '\r' | while IFS= read -r entry; do
-			case "$entry" in ''|'#'*) continue ;; esac
-			grep -qxF "$folder/${entry//\\//}" "$pkg/list.txt" || { printf 'FAIL: package.sh: the 1.1.6 %s.toc lists %s, not in the zip\n' "$folder" "$entry" >&2; exit 1; }
-		done || exit 1
-	done
 	cmp -s "$repo_root/Olympus/Olympus.toc" "$pkg/Olympus/Olympus.toc" || package_fail 'the 1.1.6 package changed the repository copy'
 	cp "$pkg/scripts/bets-only.txt" "$pkg/bets-only.saved"
 	printf 'Olympus/NotThere.lua\n' >> "$pkg/scripts/bets-only.txt"
 	git -C "$pkg" commit -qam "a leave-out line naming no file"
 	if (cd "$pkg" && bash scripts/package.sh --release116 > out.txt 2>&1); then package_fail 'a leave-out line naming no file built'; fi
 	grep -Fq 'which HEAD does not have' "$pkg/out.txt" || package_fail 'the leave-out refusal says why'
+	if (cd "$pkg" && bash scripts/package.sh > out.txt 2>&1); then package_fail 'the default package ignored an invalid leave-out line'; fi
+	grep -Fq 'which HEAD does not have' "$pkg/out.txt" || package_fail 'the default leave-out refusal says why'
+	if (cd "$pkg" && bash scripts/package.sh --test 4 > out.txt 2>&1); then package_fail 'a test package ignored an invalid leave-out line'; fi
+	grep -Fq 'which HEAD does not have' "$pkg/out.txt" || package_fail 'the test leave-out refusal says why'
 	cp "$pkg/bets-only.saved" "$pkg/scripts/bets-only.txt"
 	rm -f "$pkg/bets-only.saved"
 	git -C "$pkg" commit -qam "the leave-out list back"

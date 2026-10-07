@@ -2408,13 +2408,13 @@ builds both packages in a temporary copy: the release zip holds both folders and
 `Core.lua` in its own copy of `Olympus.toc` alone, the companion keeping the base version. The
 arena's tests live in `tests/arena/` (one file per part, run by `tests/run.lua`), on the test world
 of `tests/arena/lib/world.lua`.
-Bets wait for a legal compliance review, region by region (1.1.6): `Olympus/Compliance.lua` is the
-only place that decides whether a wager may happen (`ns.Compliance.Allows(kind, game)`), and as it
-ships it allows none. Every betting path asks it; the arena's wire neither sends nor takes a type
-that only carries a wager; the screens grey every betting control with its line; the games play
-without stakes. `scripts/package.sh --release116` builds the package without the files only the
-bets need (`scripts/bets-only.txt`: their TOC lines go too, and every line left must name a file of
-the package); everything else ships, its bets behind the gate. The test world runs the betting
+Bets are not part of releases. `Olympus/Compliance.lua` refuses every wager in the shipped
+configuration (`ns.Compliance.Allows(kind, game)`). Every shared betting path asks it; the arena's
+wire neither sends nor takes a type that only carries a wager; the games play without stakes.
+Every packaging mode, including tester builds, excludes wager-only modules (`scripts/bets-only.txt`):
+their TOC lines go too, and every line left must name a file in the package. Source files remain
+untouched; there is no packaging option that enables bets. `--release116` is only a legacy output
+path for the same no-wager package. The test world runs the betting
 paths' scenarios with a test row that allows every kind (`World.New{ compliance = "shipped" }` keeps
 the gate as it ships), and `tests/arena/compliance.lua` holds the gate's own tests, the 1.1.6
 package's TOC among them (its clients log in and play on it).
@@ -2425,7 +2425,8 @@ fighters, even one asked "with an arbiter"), a Bone Throw table is its two playe
 to judge a fight or to hold a table is not taken, the arbiter's own actions (his duty, a new fight,
 judging, naming one for a card's or a tournament's bout) are refused in the gate's words, and the
 screens show no Arbiter page, no arbiters' list or arbiter's lines in the Games tab, no arbiter in
-the challenge and no Arbiter's preview in View as. The arbiter code stays for 2.0, behind the gate.
+the challenge and no Arbiter's preview in View as. Dormant arbiter paths remain behind the gate;
+this is not a promise of a later betting release.
 **Duel points consider the levels** (1.1.6, `Olympus/ArenaRating.lua`'s level factor): the duel
 rating is Elo with the levels in the expected score. Each level of difference counts as 50 rating
 points (`LEVEL_POINTS`) on top of the ratings' own gap, the two capped together at 800, so beating

@@ -6,16 +6,15 @@
 #   scripts/package.sh --test N   arena test build N (1-999) of the TOC's version, into dist/testN/
 #                                 and dist/Olympus-<version>-testN.zip; the repository is not touched
 #   scripts/package.sh --release116
-#                                 1.1.6: the release without the files only the bets need
-#                                 (scripts/bets-only.txt, as HEAD has it), into
-#                                 dist/release116/Olympus-<version>.zip; refused like the release
+#                                 legacy output path, dist/release116/Olympus-<version>.zip
+#                                 (the same no-wager policy as every other package)
 # A test build: dist/testN/Olympus/TestBuild.lua (ns.TEST_BUILD: its number, the base version, the
 # build time, an expiry 21 days later, the short commit), and only that copy of Olympus.toc edited
 # (its Version and Title, TestBuild.lua after Core.lua). The companion's Version stays the base
 # version, ns.VERSION, which its handoff compares (Olympus_Arena/Handoff.lua).
-# The 1.1.6 profile: each file bets-only.txt names is left out of the stage and its line out of its
+# Every package: each file bets-only.txt names is left out of the stage and its line out of its
 # folder's TOC (the repository is not touched); every line left in each TOC must name a file of
-# the stage. Everything else ships, the bets refused by the compliance gate (Olympus/Compliance.lua).
+# the stage. Shared paths remain refused by the compliance gate (Olympus/Compliance.lua).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -96,6 +95,40 @@ stage_source() {
 	find "$out" -name '.DS_Store' -delete
 }
 
+# Wager-only modules are local source, never part of a release or a tester's install. There is
+# deliberately no packaging switch that enables them. Keep the legacy profile as an output alias.
+leave_out_bets() {
+	local stage=$1 list path folder file toc entry kept
+	list=$(git show HEAD:scripts/bets-only.txt 2>/dev/null) || fail "package.sh needs scripts/bets-only.txt in HEAD"
+	while IFS= read -r path; do
+		path=${path%$'\r'}
+		case "$path" in ''|'#'*) continue ;; esac
+		case "$path" in
+			Olympus/*.lua|Olympus_Arena/*.lua) ;;
+			*) fail "bets-only.txt: $path is not a Lua file of Olympus or Olympus_Arena" ;;
+		esac
+		folder=${path%%/*}
+		file=${path#*/}
+		[ -f "$stage/$path" ] || fail "bets-only.txt names $path, which HEAD does not have"
+		toc="$stage/$folder/$folder.toc"
+		entry=${file//\//\\}
+		grep -qxF "$entry" <(tr -d '\r' < "$toc") || fail "bets-only.txt names $path, which $folder.toc does not list"
+		rm -f "$stage/$path"
+		kept="$toc.kept"
+		LEAVE_OUT="$entry" awk '{ line = $0; sub(/\r$/, "", line); if (line == ENVIRON["LEAVE_OUT"]) next; print }' "$toc" > "$kept"
+		mv "$kept" "$toc"
+	done <<< "$list"
+	for folder in "${FOLDERS[@]}"; do
+		toc="$stage/$folder/$folder.toc"
+		while IFS= read -r entry; do
+			entry=${entry%$'\r'}
+			entry=$(printf '%s' "$entry" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+			case "$entry" in ''|'#'*) continue ;; esac
+			[ -f "$stage/$folder/${entry//\\//}" ] || fail "package.sh: $folder.toc lists $entry, which is not in the package"
+		done < "$toc"
+	done
+}
+
 write_package() {
 	local tree=$1 zip=$2 stem manifest checksum zip_abs manifest_abs hash
 	stem=${zip%.zip}
@@ -118,6 +151,7 @@ if [ "$MODE" = test ]; then
 	rm -rf "$OUT"
 	mkdir -p "$OUT"
 	stage_source "$OUT"
+	leave_out_bets "$OUT"
 	BUILT=$(date +%s)
 	EXPIRES=$((BUILT + 21 * 86400))
 	COMMIT=$(git rev-parse --short HEAD)
@@ -132,7 +166,8 @@ LUA
 		line ~ /^## Title:/ { print "## Title: |cffe6c35cOlympus|r |cffff4040(arena test " n ")|r"; next }
 		{ print }
 		line == "Core.lua" { print "TestBuild.lua" }
-	' Olympus/Olympus.toc > "$OUT/Olympus/Olympus.toc"
+	' "$OUT/Olympus/Olympus.toc" > "$OUT/Olympus/Olympus.toc.test"
+	mv "$OUT/Olympus/Olympus.toc.test" "$OUT/Olympus/Olympus.toc"
 	ZIP="dist/Olympus-$VERSION-test$N.zip"
 	write_package "$OUT" "$ZIP"
 	cat > "dist/Olympus-$VERSION-test$N.txt" <<TXT
@@ -157,44 +192,9 @@ RELEASE_STAGE=$(mktemp -d "${TMPDIR:-/tmp}/olympus-package.XXXXXX")
 cleanup() { if [ -n "${RELEASE_STAGE:-}" ] && [ -d "$RELEASE_STAGE" ]; then rm -rf "$RELEASE_STAGE"; fi; }
 trap cleanup EXIT
 stage_source "$RELEASE_STAGE"
-
-# 1.1.6: the files only the bets need, out of the stage and out of their folder's TOC.
-leave_out_bets() {
-	local stage=$1 list path folder file toc entry kept
-	list=$(git show HEAD:scripts/bets-only.txt 2>/dev/null) || fail "--release116 needs scripts/bets-only.txt in HEAD"
-	while IFS= read -r path; do
-		path=${path%$'\r'}
-		case "$path" in ''|'#'*) continue ;; esac
-		case "$path" in
-			Olympus/*.lua|Olympus_Arena/*.lua) ;;
-			*) fail "bets-only.txt: $path is not a Lua file of Olympus or Olympus_Arena" ;;
-		esac
-		folder=${path%%/*}
-		file=${path#*/}
-		[ -f "$stage/$path" ] || fail "bets-only.txt names $path, which HEAD does not have"
-		toc="$stage/$folder/$folder.toc"
-		entry=${file//\//\\}
-		grep -qxF "$entry" <(tr -d '\r' < "$toc") || fail "bets-only.txt names $path, which $folder.toc does not list"
-		rm -f "$stage/$path"
-		kept="$toc.kept"
-		# (The entry through the environment: awk -v would read a backslash in it as an escape.)
-		LEAVE_OUT="$entry" awk '{ line = $0; sub(/\r$/, "", line); if (line == ENVIRON["LEAVE_OUT"]) next; print }' "$toc" > "$kept"
-		mv "$kept" "$toc"
-	done <<< "$list"
-	# Every line left in each TOC names a file of the stage.
-	for folder in "${FOLDERS[@]}"; do
-		toc="$stage/$folder/$folder.toc"
-		while IFS= read -r entry; do
-			entry=${entry%$'\r'}
-			entry=$(printf '%s' "$entry" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-			case "$entry" in ''|'#'*) continue ;; esac
-			[ -f "$stage/$folder/${entry//\\//}" ] || fail "--release116: $folder.toc lists $entry, which is not in the package"
-		done < "$toc"
-	done
-}
+leave_out_bets "$RELEASE_STAGE"
 
 if [ "$MODE" = release116 ]; then
-	leave_out_bets "$RELEASE_STAGE"
 	mkdir -p dist/release116
 	ZIP="dist/release116/Olympus-$VERSION.zip"
 	write_package "$RELEASE_STAGE" "$ZIP"
