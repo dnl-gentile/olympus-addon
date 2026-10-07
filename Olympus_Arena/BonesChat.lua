@@ -65,6 +65,18 @@ local function Build(parent)
 	conversation:SetPoint("TOPLEFT", p, "TOPLEFT", 0, -48)
 	conversation:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", 0, 0)
 	p.conversation = conversation
+	-- Revalidate the room while its panel is visible (including its collapsed toggle), never
+	-- wake an idle companion. Parent hides also run OnHide and cancel this own ticker.
+	p:SetScript("OnShow", function(self)
+		if self.refreshTicker then return end
+		self.refreshTicker = C_Timer.NewTicker(1, function()
+			ns.SafeCall("bones chat", Chat.Refresh)
+		end)
+	end)
+	p:SetScript("OnHide", function(self)
+		if self.refreshTicker then self.refreshTicker:Cancel(); self.refreshTicker = nil end
+		self.conversation.input:ClearFocus()
+	end)
 	panel, candidate = p, nil
 	return true
 end
@@ -144,7 +156,6 @@ ns.On("ARENA_CHAT", function(room) if panel and panel:IsShown() and room == Room
 ns.On("WATCHCHAT_CHANGED", function() if panel and panel:IsShown() then Chat.Refresh(true) end end)
 ns.On("FILTER_CHANGED", function() if panel and panel:IsShown() then Chat.Refresh(true) end end)
 ns.On("CHAT_SETTINGS_CHANGED", function() if panel and panel:IsShown() then Chat.Refresh(true) end end)
-ns.Every(1, "bones chat", function() if panel and board:IsShown() then Chat.Refresh() end end)
 -- The existing input-style event is optional on older clients. Both switches relinquish only
 -- this own box's keyboard focus; no binding, game chat box or shared focus global is touched.
 pcall(ns.RegisterEvent, "INPUT_DEVICE_INTERFACE_TRANSITION", function()

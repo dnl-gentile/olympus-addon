@@ -74,6 +74,48 @@ local function Clean(w)
 	end
 end
 
+test("Bones table chat: idle companion has no polling timer; visible, collapsed, hidden and reopened panels follow their own lifecycle", function()
+	local function ChatTimers(w, c)
+		local n = 0
+		for _, timer in ipairs(w:Timers(c, true)) do
+			if timer.where == "bones chat" or debug.getinfo(timer.fn, "S").source:find("BonesChat.lua", 1, true) then n = n + 1 end
+		end
+		return n
+	end
+	local idle = H.World.New()
+	local quiet = idle:Client("Tamsin Ledger", { companion = {} })
+	assert(idle:As(quiet, quiet.Arena.LoadUI))
+	idle:Run(5)
+	eq(UI(quiet).Frame(), nil, "idle loading constructs no chat panel")
+	-- This module's cost at a first load. The unchanged net.lua foundation case also checks
+	-- total companion cost is zero after reload, independently of other modules' startup jobs.
+	eq(ChatTimers(idle, quiet), 0, "idle companion starts no chat polling timer")
+	Clean(idle)
+	local w, a, _, _, id = Live()
+	local chat, refresh, polls = UI(a), UI(a).Refresh, 0
+	chat.Refresh = function(...)
+		polls = polls + 1
+		return refresh(...)
+	end
+	eq(ChatTimers(w, a), 1, "one visible panel owns one refresh timer")
+	w:Run(1); eq(polls > 0, true, "actual Refresh still polls permissions while visible")
+	Click(w, a, Frame(a).toggle)
+	eq(Frame(a).conversation:IsShown(), false)
+	local before = polls
+	w:Run(1); eq(polls > before, true, "collapsed toggle still revalidates the actual room")
+	w:As(a, a.ns.Arena.ui.FarkleBoard.Close)
+	eq(Frame(a):IsShown(), false)
+	eq(ChatTimers(w, a), 0, "hiding cancels polling immediately")
+	before = polls; w:Run(2); eq(polls, before, "hidden panel is dormant")
+	w:As(a, a.ns.FarkleTable.ShowUI, "board", id)
+	eq(Frame(a):IsShown(), true)
+	eq(ChatTimers(w, a), 1, "reopening restarts exactly one timer")
+	w:As(a, chat.Refresh); w:As(a, chat.Refresh)
+	eq(ChatTimers(w, a), 1, "repeated render does not accumulate timers")
+	w:As(a, chat.Hide); eq(ChatTimers(w, a), 0)
+	Clean(w)
+end)
+
 test("Bones table chat: Core's actual missing-module stand-in leaves the game usable and retries when the real chat loads", function()
 	local w, a, b, _, id = Live(nil, nil, "missing")
 	eq(a.ns.ChatWindow.missing, true, "the real Core stand-in, not a replacement authorization mock")
@@ -215,6 +257,7 @@ test("Bones table chat: ending the actual table hides both panels and retained l
 	assert(w:As(a, a.ns.FarkleTable.Concede, id)); w:Run(3)
 	for _, c in ipairs({ a, b, s }) do
 		eq(Frame(c):IsShown(), false, c.name)
+		eq(Frame(c).refreshTicker, nil, "ended table releases its panel's polling timer")
 		eq(#w:As(c, c.ns.ArenaChat.Lines, rooms.players), 0)
 		eq(#w:As(c, c.ns.ArenaChat.Lines, rooms.everyone), 0)
 		eq(w:As(c, c.ns.ArenaChat.TableRooms, id), nil)
