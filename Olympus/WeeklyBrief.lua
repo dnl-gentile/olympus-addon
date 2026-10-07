@@ -141,7 +141,7 @@ local function Companion()
 	return L.BRIEF_UNKNOWN -- not an assertion that no sister guild member is there
 end
 
-function Brief.PersonalLines()
+local function PersonalValues()
 	local now, nextEntry = ns.Now()
 	for _, e in ipairs(ns.Week and ns.Week.Entries and ns.Week.Entries() or {}) do
 		if e.at >= now and (not nextEntry or e.at < nextEntry.at) then nextEntry = e end
@@ -162,8 +162,28 @@ function Brief.PersonalLines()
 	end
 	local R = ns.Roster and ns.Roster.Fresh and ns.Roster.Fresh()
 	local online = R and type(R.online) == "table" and tostring(#R.online) or L.BRIEF_UNKNOWN
-	return { L.BRIEF_NEXT:format(nextText), L.BRIEF_OPEN:format(#open > 0 and table.concat(open, ", ") or L.BRIEF_NONE),
-		L.BRIEF_ONLINE:format(online), L.BRIEF_COMPANION:format(Companion()), L.BRIEF_PAYMENT }
+	return { nextText, #open > 0 and table.concat(open, ", ") or L.BRIEF_NONE, online, Companion(), L.BRIEF_PAYMENT_UNKNOWN }
+end
+
+function Brief.PersonalLines()
+	local values = PersonalValues()
+	return { L.BRIEF_NEXT:format(values[1]), L.BRIEF_OPEN:format(values[2]), L.BRIEF_ONLINE:format(values[3]),
+		L.BRIEF_COMPANION:format(values[4]), L.BRIEF_PAYMENT }
+end
+
+-- A reopenable read-only Throne page. The weekly notice keeps its existing five-line form;
+-- this page gives those same held facts room to wrap in the Throne's dark parchment ink.
+function Brief.PersonalPage()
+	local K = ns.King
+	if not K or K.missing or type(K.Line) ~= "function" or type(K.Para) ~= "function" then return {} end
+	local lines = { K.Line(L.BRIEF_PERSONAL_TITLE, K.TITLE, { gapAfter = true }) }
+	K.Para(lines, L.BRIEF_PERSONAL_NOTE, K.INK, { gapAfter = true })
+	local titles = { L.BRIEF_NEXT_TITLE, L.BRIEF_OPEN_TITLE, L.BRIEF_ONLINE_TITLE, L.BRIEF_COMPANION_TITLE, L.BRIEF_PAYMENT_TITLE }
+	for index, value in ipairs(PersonalValues()) do
+		K.Para(lines, tostring(index) .. ". " .. titles[index], K.TITLE)
+		K.Para(lines, value, K.INK, { gapAfter = true })
+	end
+	return lines
 end
 
 local function PersonalStore()

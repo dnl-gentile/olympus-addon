@@ -139,6 +139,115 @@ test("Weekly personal brief: five read-only lines use held sources, sharing stay
 	eq(w.sent, 0)
 end)
 
+test("Weekly personal brief: the parchment page wraps five labeled sections without sending or exposing private sources", function()
+	local w, c = Client()
+	local title = "An exceptionally long gathering title that must remain readable across several rows of the parchment"
+	w.entries = { { id = 17, title = title, at = w.clock + 60 } }
+	c.Court = { Current = function() return { words = "Private audience note" } end }
+	w.shown = { q = "Private question", to = "H", at = w.clock + 60 }
+	c.rdb.privateLedger = { donor = "Private donor", amount = 900000 }
+	local page = assert(c.WeeklyBrief.PersonalPage, "actual personal parchment builder")
+	local rows = w:As(page)
+	eq(rows[1].text, c.L.BRIEF_PERSONAL_TITLE); eq(rows[1].font, c.King.TITLE)
+	local headings = { c.L.BRIEF_NEXT_TITLE, c.L.BRIEF_OPEN_TITLE, c.L.BRIEF_ONLINE_TITLE, c.L.BRIEF_COMPANION_TITLE, c.L.BRIEF_PAYMENT_TITLE }
+	local sections, bodies = {}, {}
+	for _, row in ipairs(rows) do
+		eq(row.right, nil, "long values never compete for a narrow right column")
+		eq(#row.text <= c.King.WRAP, true, "paragraph fits the existing Throne wrapping limit")
+		if row.font == c.King.TITLE and row.text:match("^%d%.") then sections[#sections + 1] = row.text end
+		if row.font == c.King.INK and row.gapAfter then bodies[#bodies + 1] = row.text end
+	end
+	eq(#sections, 5); eq(#bodies, 6, "intro plus five spaced section bodies")
+	for index, heading in ipairs(headings) do
+		eq(sections[index], tostring(index) .. ". " .. heading)
+	end
+	local text = Text(rows):gsub("%s+", " ")
+	assert(text:find(c.Cut(title, 60), 1, true), "the same held title as the weekly notice survives paragraph wrapping")
+	assert(text:find(c.L.BRIEF_LOCATION_PRIVATE, 1, true))
+	assert(text:find(c.L.BRIEF_PAYMENT_UNKNOWN, 1, true))
+	assert(not text:find("Private", 1, true), "private questions, audience words and donor records are not copied")
+	eq(w.sent, 0); eq(c.db.location, false); eq(c.db.layerHelp, false)
+	eq(c.db.weeklyBriefShown, nil, "manual reading does not consume the automatic notice")
+	eq(c.rdb.weeklyBrief, nil, "personal reading does not capture or mutate public snapshots")
+end)
+
+test("Weekly personal brief: actual Throne home opens and reopens its personal parchment while Board and access rules stay separate", function()
+	assert(H.WithThrone and H.AsKing and H.WithUI, "real Throne navigation fixture wired")
+	H.WithUI(function()
+		H.WithThrone(function(royal, K)
+			H.AsKing()
+			local w, c = Client()
+			c.King = K
+			local held, mode = ns.WeeklyBrief, K.mode
+			ns.WeeklyBrief = c.WeeklyBrief
+			local ok, err = pcall(function()
+				K.Show("home")
+				local function Link()
+					for _, row in ipairs(K.Build()) do if row.text == "> " .. c.L.BRIEF_PERSONAL_TITLE then return row end end
+					return assert(nil, "personal page link on the real eligible Throne home")
+				end
+				Link().onClick(); eq(K.mode, "personalbrief")
+				local rows, tab = K.Build()
+				eq(tab, c.L.TAB_THRONE); eq(rows[1].text, "< " .. c.L.THRONE_ROOM)
+				eq(rows[2].text, c.L.BRIEF_PERSONAL_TITLE)
+				local ui = assert(H.LoadUI, "actual isolated UI loader")()
+				for _, gamepad in ipairs({ false, true }) do
+					H.WithGamepadUI(gamepad, function()
+						ui.SelectTab("throne")
+						eq(ui.PageId(), "throne/personalbrief")
+						local frame = OlympusFrame or OlympusFrameHD or OlympusFrameBasic or OlympusFrameHDBasic
+						eq(frame.parchment:IsShown(), true, "the existing Throne parchment in both input modes")
+					end)
+				end
+				rows[1].onClick(); eq(K.mode, "home")
+				Link().onClick(); eq(K.Build()[2].text, c.L.BRIEF_PERSONAL_TITLE, "reopenable within the same reset")
+				c.WeeklyBrief.Link().onClick(); eq(w.page, "weeklybrief", "public summary remains on Realm/Board")
+				eq(K.mode, "personalbrief", "public navigation does not rename the personal subpage")
+				eq(w.sent, 0); eq(#royal.sent, 0); eq(#royal.whispered, 0)
+				eq(c.db.location, false); eq(c.db.layerHelp, false)
+				local me = ns.me
+				local memberOK, memberErr = pcall(function()
+					ns.me = c.me
+					w:As(function()
+						eq(K.TabVisible(), false, "ordinary member gains no Throne access")
+						local denied, guildTab = K.Build()
+						eq(#denied, 0); eq(guildTab, c.L.TAB_GUILD, "existing Guild routing still wins before personal submode")
+					end)
+				end)
+				ns.me = me
+				if not memberOK then error(memberErr, 0) end
+			end)
+			ns.WeeklyBrief, K.mode = held, mode
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
+
+test("Weekly personal brief: the actual Portuguese parchment keeps five readable localized sections and the existing notice", function()
+	local w, c = Client()
+	c.L = setmetatable({}, { __index = c.L }) -- this fictional client's locale, not the harness's shared strings
+	local locale, definition = GetLocale, StaticPopupDialogs.OLYMPUS_WEEKLY_BRIEF
+	GetLocale = function() return "ptBR" end
+	local ok, err = pcall(function()
+		assert(loadfile(ROOT .. "Olympus/Locales/WeeklyBriefText.lua"))("Olympus", c)
+		assert(loadfile(ROOT .. "Olympus/WeeklyBrief.lua"))("Olympus", c)
+		local rows, sections = w:As(c.WeeklyBrief.PersonalPage), 0
+		eq(rows[1].text, "Sua semana, em cinco linhas")
+		for _, row in ipairs(rows) do
+			eq(row.right, nil); eq(#row.text <= c.King.WRAP, true)
+			if row.font == c.King.TITLE and row.text:match("^%d%.") then sections = sections + 1 end
+		end
+		eq(sections, 5)
+		local text = Text(rows):gsub("%s+", " ")
+		assert(text:find("Sua contribuição", 1, true))
+		assert(text:find(c.L.BRIEF_PAYMENT_UNKNOWN, 1, true))
+		eq(#w:As(c.WeeklyBrief.PersonalLines), 5, "notice retains its existing five-line format")
+		eq(w.sent, 0); eq(c.db.location, false)
+	end)
+	GetLocale, StaticPopupDialogs.OLYMPUS_WEEKLY_BRIEF = locale, definition
+	if not ok then error(err, 0) end
+end)
+
 test("Weekly personal brief: privacy, combat, instance and Busy precede a once-per-reset persistent dismissal", function()
 	local w, c = Client()
 	for _, key in ipairs({ "waiting", "notice", "privacy", "combat", "instance", "busy" }) do

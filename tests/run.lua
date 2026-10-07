@@ -59512,7 +59512,9 @@ local focused = Harness.watchOnly and { "watch", "watch-chat", "watch-council-vi
 for _, name in ipairs(focused) do
 	print("tests/" .. name .. ".lua")
 	-- (1.1.6: the Church's files get the harness's UI helpers.)
-	local extra = (name:match("^church") or name == "weekly-brief") and { WithGamepadUI = WithGamepadUI, WithUI = WithUI }
+	local extra = name == "weekly-brief" and { WithThrone = WithThrone, AsKing = AsKing, LoadUI = LoadUI,
+			WithGamepadUI = WithGamepadUI, WithUI = WithUI }
+		or name:match("^church") and { WithGamepadUI = WithGamepadUI, WithUI = WithUI }
 		or (name == "court-calls" and { WithThrone = WithThrone, AsKing = AsKing, AsSoldier = AsSoldier,
 			WithGamepadUI = WithGamepadUI, WithUI = WithUI }) or (name == "hop-sightings" and WithHop or nil)
 	assert(loadfile(ROOT .. "tests/" .. name .. ".lua"))(ns, test, eq, extra)
