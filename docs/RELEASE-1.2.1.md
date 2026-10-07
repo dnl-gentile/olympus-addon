@@ -7,8 +7,12 @@ are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
 
 - Bones has a collapsible chat beside the table. **Players** is for the two players; **Everyone**
   is for players and spectators when the table permits watching. It reuses the main chat's
-  bubbles, name marks, input border and tab style, with separate drafts. Innkeeper practice does
-  not pretend to have a multiplayer room.
+  bubbles, name marks, textured Search box, conversation inset, input border and tab style, with
+  separate drafts and searches. Collapsing it restores the table's original width, without an
+  empty side strip. Innkeeper practice does not pretend to have a multiplayer room.
+  Authors and test builds can inspect that layout locally with `/oly arena sim boneschat`, then
+  leave with `/oly arena sim off`. The preview has empty chat tabs and sends no invitations or
+  messages; it is not a multiplayer test.
 - The Chat gear can hide guild labels beside sender names locally. Guild identity remains in
   tooltips, searches and message evidence; permissions and transport are unchanged.
 - The Watch's notices identify **a moderator**, not their name. Authorized staff keep the actor
@@ -35,6 +39,9 @@ are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
   dedicated meeting view, with the Find window closed first.
 - The detailed update parchment uses the existing game icons. For someone who has not seen the
   1.2.0 letter, that release's news comes before 1.2.1. The history keeps each letter separately.
+  An empty first-session save no longer causes the letter to reopen on every login. With saved
+  history available, a new version can still open its letter once; the help button and
+  `/oly letters` always keep the history accessible.
 
 ## Reliability and review work
 
@@ -74,6 +81,10 @@ receipt or guaranteed same-session automatic retry.
 This candidate does not claim that every longer-term governance, recruitment, identity-backend
 or contribution proposal is implemented. It must still be checked in the actual supported client
 and across real players before publication.
+
+If the beta client fails to restore SavedVariables, the addon cannot distinguish another login
+from a new installation or recognize a later upgrade reliably. The automatic letter stays quiet
+in that unknown state rather than repeating; this is not a fix for the client's save loading.
 
 ## Private test installation
 
