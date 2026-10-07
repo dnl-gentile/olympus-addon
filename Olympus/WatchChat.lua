@@ -1859,8 +1859,8 @@ function WC.Appeal(by, seq, text)
 	if found.appealed then return false, "already" end
 	local msg = ("MD~1~A~%d~%s~%d~%s~%s"):format(math.floor(Clock()), by, seq, found.op, text)
 	if #msg > WC.MESSAGE_MAX then return false, "size" end
+	if not Send("CHANNEL", msg, "mda:" .. seq) then return false, "queue" end
 	found.appealed = math.floor(Clock())
-	Send("CHANNEL", msg, "mda:" .. seq)
 	ns.Fire("WATCH_CHANGED")
 	return true
 end

@@ -1010,6 +1010,48 @@ test("watch: chat moderation: an appeal goes to the High Council; its answer lif
 	end)
 end)
 
+test("watch: chat moderation: a refused appeal queue admission keeps the player's retry available", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.author = "Author-Realm"
+		local Au = w.Client("Author", Y, 3)
+		assert(w.As(A, A.WC.Timeout, B.name, 300, "")); w.Run()
+		local record = B.WC.Store().record[1]
+		local send = B.ns.Comm.Send
+		B.ns.Comm.Send = function() return false end
+		local ok, why = w.As(B, B.WC.Appeal, record.by, record.seq, "please review")
+		eq(ok, false, "a rejected queue is not reported as sent"); eq(why, "queue")
+		eq(record.appealed, nil, "a rejected queue does not lock the appeal")
+		eq(next(Au.WC.Store().appeals), nil)
+		B.ns.Comm.Send = send
+		assert(w.As(B, B.WC.Appeal, record.by, record.seq, "please review")); w.Run()
+		assert(record.appealed and next(Au.WC.Store().appeals), "retry reaches the real author without ViewAs")
+		eq(select(2, w.As(B, B.WC.Appeal, record.by, record.seq, "again")), "already", "an admitted appeal remains single-send")
+	end)
+end)
+
+test("watch: chat moderation: a real late author gets current target testimony but no replay of a missed appeal", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		assert(w.As(A, A.WC.Timeout, B.name, 300, "")); w.Run()
+		local record = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, record.by, record.seq, "please review")); w.Run()
+		w.author = "Lateauthor-Realm"
+		local Au = w.Client("Lateauthor", Y, 3)
+		eq(w.As(Au, Au.WC.NamerLevel, Au.name), 7)
+		eq(w.As(Au, Au.WC.CouncilSide), true, "real author entitlement does not depend on ViewAs")
+		eq(#Au.WC.Store().audit, 0); eq(next(Au.WC.Store().appeals), nil)
+		Au.ns.ViewAs = { Available = function() return true end, Role = function() return "king" end,
+			Allows = function() return true end, Inert = function(rows) return rows end }
+		w.As(Au, Au.WC.PageLines)
+		eq(next(Au.WC.Store().appeals), nil, "preview cannot invent a missed appeal")
+		w.As(B, B.WC.Tick); w.Run()
+		eq(#Au.WC.Store().audit, 1); eq(Au.WC.Store().audit[1].scope, "S", "target's session announcement reaches late author")
+		eq(#w.As(Au, Au.W.Audit), 0, "self testimony is not an authenticated guild Watch audit")
+		eq(next(Au.WC.Store().appeals), nil, "there is no appeal catch-up in the current protocol")
+	end)
+end)
+
 test("watch: chat moderation: the King's word on a case reaches its player in a pop-up, over his guild, once", function()
 	World(function(w)
 		local G, A, B, D, Y1 = Standard(w)
