@@ -25,6 +25,25 @@ local function Writable()
 	local A, room = ns.ArenaChat, Room()
 	return Readable(room) and A.MaySend(room) == true
 end
+local function TableControls(p, shown)
+	local sit = board and board.sit
+	if not sit then return end
+	if shown then
+		if not p.sitPoints then
+			p.sitPoints = {}
+			for i = 1, sit:GetNumPoints() do p.sitPoints[i] = { sit:GetPoint(i) } end
+		end
+		-- Reserve the square inside the original table width, also when chat is collapsed.
+		sit:ClearAllPoints(); sit:SetPoint("TOPRIGHT", board, "TOPRIGHT", -40, -12)
+		p.toggle:ClearAllPoints(); p.toggle:SetPoint("LEFT", sit, "RIGHT", 8, 0)
+		-- The setup pane is +13; this own control must remain above it when Sit Down is hidden.
+		p.toggle:SetFrameLevel(board:GetFrameLevel() + 20)
+	elseif p.sitPoints then
+		sit:ClearAllPoints()
+		for _, point in ipairs(p.sitPoints) do sit:SetPoint(unpack(point)) end
+		p.sitPoints = nil
+	end
+end
 function Chat.Select(tab)
 	local rooms, s = Rooms(), State()
 	if not s or not rooms or not Readable(rooms[tab]) then return false end
@@ -45,14 +64,16 @@ local function Build(parent)
 		p:Hide()
 		p:SetPoint("TOPLEFT", parent, "TOPRIGHT", 8, 0); p:SetPoint("BOTTOMLEFT", parent, "BOTTOMRIGHT", 8, 0)
 		p.ground = ns.ChatWindow.BodyInset(p) -- native chat ground under Search, tabs and footer, never the world
-		p.ground:SetAllPoints(p); p.ground:SetFrameLevel(p:GetFrameLevel())
+		-- Extend the same native inset across the joining gap; do not copy the table's wood.
+		p.ground:SetPoint("TOPLEFT", p, "TOPLEFT", -8, 0); p.ground:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", 0, 0)
+		p.ground:SetFrameLevel(p:GetFrameLevel())
 		p.ground:Hide()
-		-- The table's existing footer gap: no extra side bar is needed to keep Show chat accessible.
-		p.toggle = UI.Kit.Button(parent, 110, 24, "", function()
+		p.toggle = UI.Kit.Button(parent, 24, 24, "", function()
 			local s = State(); if not s then return end
 			s.collapsed = not s.collapsed; Chat.Refresh(true)
-		end)
-		p.toggle:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 146, 16)
+		end, function() local s = State(); return s and s.collapsed and L.BONES_CHAT_EXPAND or L.BONES_CHAT_COLLAPSE end)
+		local label = p.toggle.GetFontString and p.toggle:GetFontString()
+		if label then label:SetTextColor(1, 0.82, 0) end
 		p.toggle:Hide()
 		p.strip = CreateFrame("Frame", nil, p)
 		p.strip:SetPoint("TOPLEFT", 0, -28); p.strip:SetHeight(24)
@@ -83,6 +104,7 @@ local function Build(parent)
 	end)
 	p:SetScript("OnHide", function(self)
 		self.toggle:Hide()
+		TableControls(self, false)
 		if self.refreshTicker then self.refreshTicker:Cancel(); self.refreshTicker = nil end
 		self.conversation.input:ClearFocus()
 		if preview then Chat.HidePreview() end
@@ -111,7 +133,8 @@ function Chat.Refresh(force)
 	local width = 280
 	panel:SetWidth(s.collapsed and 0 or width)
 	panel.strip:SetWidth(width)
-	panel.toggle:SetText(s.collapsed and L.BONES_CHAT_EXPAND or L.BONES_CHAT_COLLAPSE)
+	TableControls(panel, true)
+	panel.toggle:SetText(s.collapsed and ">" or "<")
 	panel.strip:SetShown(not s.collapsed); panel.conversation:SetShown(not s.collapsed)
 	panel.ground:SetShown(not s.collapsed)
 	if not s.collapsed then

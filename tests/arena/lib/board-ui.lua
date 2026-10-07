@@ -60,6 +60,11 @@ function UI.New(now, opts)
 		self:SetPoint("BOTTOMRIGHT", rel, "BOTTOMRIGHT", 0, 0)
 	end
 	function R:GetNumPoints() return #self.points end
+	-- Native Region:GetPoint (Forever client widget inventory, forever-api.lua:781).
+	function R:GetPoint(index)
+		local p = self.points[index or 1]
+		if p then return p.point, p.rel, p.relPoint, p.x, p.y end
+	end
 	function R:SetSize(w, h) assert(type(w) == "number" and type(h) == "number", "SetSize"); self.w, self.h = w, h end
 	function R:SetWidth(w) assert(type(w) == "number", "SetWidth"); self.w = w end
 	function R:SetHeight(h) assert(type(h) == "number", "SetHeight"); self.h = h end

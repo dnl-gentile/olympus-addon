@@ -237,6 +237,62 @@ test("Bones table chat: collapse removes the whole side extension rather than re
 	Clean(w)
 end)
 
+test("Bones table chat: the native backing fills the real seam between table and conversation", function()
+	local w, a = Live({ 1024, 768 }, nil, nil, "shipped")
+	local board, p = a.ns.Arena.ui.FarkleBoard.Window(), Frame(a)
+	local x, y, width, height = a.K.Within(p.ground, board)
+	local px, _, pw = a.K.Within(p, board)
+	eq(x, board:GetWidth(), "the chat's existing native backing starts at the table edge, not beyond a world-visible gap")
+	eq(y, 0); eq(height, board:GetHeight())
+	eq(x + width, px + pw, "one native backing covers the seam and the whole pane")
+	eq(p.ground.template, "InsetFrameTemplate")
+	Clean(w)
+end)
+
+test("Bones table chat: the yellow square arrow stays right of Sit Down above setup and restores the original anchor on hide", function()
+	local function Run()
+	local w = FW.New({ compliance = "shipped" })
+	local a = Setup(w, w:Player(N.fighterA, { testBuild = { n = 3, base = "1.2.1", built = w.clock, expires = w.clock + 86400 }, companion = {} }), { 1024, 768 })
+	w:As(a, function()
+		assert(a.ns.FarkleTable.ShowUI("practice")); assert(a.ns.Arena.SetSim(true))
+		local B, chat = a.ns.Arena.ui.FarkleBoard, UI(a)
+		local board = B.Window()
+		local original = { board.sit:GetPoint(1) }
+		assert(chat.Preview(board, B.ChatLayout))
+		local p, setup = Frame(a), B._.parts().setup
+		assert(setup:IsVisible(), "the screenshot's actual practice setup surface is present")
+		for _, collapsed in ipairs({ false, true, false }) do
+			eq(p.conversation:IsShown(), not collapsed)
+			eq(p.toggle.template, "UIPanelButtonTemplate", "same native red button as the table")
+			eq(p.toggle:GetWidth(), 24); eq(p.toggle:GetHeight(), 24)
+			eq(p.toggle:GetText(), collapsed and ">" or "<", "arrow opens right or collapses left")
+			eq(p.toggle:GetFontString().textColor[1], 1); eq(p.toggle:GetFontString().textColor[2], 0.82); eq(p.toggle:GetFontString().textColor[3], 0)
+			eq(p.toggle.tip(), collapsed and a.ns.L.BONES_CHAT_EXPAND or a.ns.L.BONES_CHAT_COLLAPSE)
+			assert(p.toggle:IsVisible() and p.toggle:GetFrameLevel() > setup:GetFrameLevel(), "the square remains above setup even when Sit Down is hidden")
+			local x, y, width, height = a.K.Within(p.toggle, board)
+			local sx, sy, sw, sh = a.K.Within(board.sit, board)
+			eq(x, sx + sw + 8); eq(y + height / 2, sy + sh / 2, "centered next to Sit Down")
+			assert(x + width <= board:GetWidth() and y >= 0, "arrow fits the original normal table, without a side bar")
+			local cx, cy, cw, ch = a.K.Within(board.close, board)
+			assert(x + width <= cx or cx + cw <= x or y + height <= cy or cy + ch <= y,
+				("arrow stays clear of the window X: arrow %.1f/%.1f/%.1f/%.1f close %.1f/%.1f/%.1f/%.1f"):format(x, y, width, height, cx, cy, cw, ch))
+			if collapsed then
+				assert(math.abs(board:GetParent():GetWidth() - (board:GetWidth() * board:GetScale() + 24)) < 1e-8)
+			end
+			Click(w, a, p.toggle)
+		end
+		chat.HidePreview()
+		local restored = { board.sit:GetPoint(1) }
+		eq(board.sit:GetNumPoints(), 1)
+		for i = 1, 5 do eq(restored[i], original[i], "no-chat Sit Down keeps its original anchor") end
+		eq(p.toggle:IsShown(), false); eq(p.refreshTicker, nil)
+		a.ns.Arena.SetSim(false)
+	end)
+	Clean(w)
+	end
+	H.WithGamepadUI(false, Run); H.WithGamepadUI(true, Run)
+end)
+
 test("Bones table chat: native chat components fill the table height and collapsing restores the exact normal table width", function()
 	local function Run()
 	local w, a = Live({ 1024, 768 }, nil, nil, "shipped")
