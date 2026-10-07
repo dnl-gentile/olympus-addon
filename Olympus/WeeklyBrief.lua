@@ -17,6 +17,11 @@ local function Store()
 	if type(ns.rdb.weeklyBrief) ~= "table" then ns.rdb.weeklyBrief = {} end
 	local s = ns.rdb.weeklyBrief
 	if type(s.weeks) ~= "table" then s.weeks = {} end
+	for key, row in pairs(s.weeks) do
+		if type(row) ~= "table" or not Number(row.total) or not Number(row.known) or row.known < 1
+			or row.total > row.known * ns.Codec.GUILD_CAP or not Number(row.at)
+			or type(row.coverage) ~= "string" or row.coverage == "" or #row.coverage > 16000 then s.weeks[key] = nil end
+	end
 	if type(s.vox) ~= "table" or type(s.vox.q) ~= "string" or type(s.vox.verdict) ~= "string" or not Number(s.vox.at) then s.vox = nil end
 	return s
 end

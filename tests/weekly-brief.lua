@@ -111,9 +111,28 @@ test("Weekly public brief: only public Vox results persist, restricted questions
 	assert(Value(w:As(c.WeeklyBrief.Lines), c.L.BRIEF_VOX):find("Public raid vote", 1, true))
 	w.shown = nil; w.history = {}
 	assert(Value(w:As(c.WeeklyBrief.Lines), c.L.BRIEF_VOX):find("Public raid vote", 1, true), "last public result survives the next question")
+	for _, audience in ipairs({ "H", "M", "G" }) do
+		w.shown = { q = "Private replacement", to = audience, answers = { "Yes", "No" }, counts = { 1, 0 }, voters = 1, resultsAt = w.clock + 1 }
+		assert(not Value(w:As(c.WeeklyBrief.Lines), c.L.BRIEF_VOX):find("Private replacement", 1, true))
+		eq(c.rdb.weeklyBrief.vox.q, "Public raid vote", "audience downgrade cannot replace the cache with private words")
+	end
 	c.Filter = { Hides = function() return true end }
 	eq(Value(w:As(c.WeeklyBrief.Lines), c.L.BRIEF_VOX), c.L.FILTER_WORDS_HIDDEN_SHORT)
 	assert(not Text(w:As(c.WeeklyBrief.Lines)):find("Private", 1, true))
+end)
+
+test("Weekly public brief: malformed saved snapshots and result records stay unknown rather than becoming facts", function()
+	local w, c = Client()
+	c.rdb.weeklyBrief = { weeks = {
+		[100] = { total = 22, known = -1, coverage = "same", at = w.clock },
+		[99] = { total = math.huge, known = 2, coverage = "same", at = w.clock },
+		["hostile"] = true,
+	}, vox = true }
+	local lines = w:As(c.WeeklyBrief.Lines)
+	eq(Value(lines, c.L.BRIEF_ARMY), c.L.BRIEF_UNKNOWN)
+	eq(Value(lines, c.L.BRIEF_PREVIOUS), c.L.BRIEF_UNKNOWN)
+	eq(Value(lines, c.L.BRIEF_VOX), c.L.BRIEF_UNKNOWN)
+	eq(next(c.rdb.weeklyBrief.weeks), nil); eq(c.rdb.weeklyBrief.vox, nil)
 end)
 
 test("Weekly public brief: spending requires current public permission and public book provenance, never private donor data", function()
