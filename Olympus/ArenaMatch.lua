@@ -1050,6 +1050,8 @@ StopSearch = function(why)
 	local s = search
 	if not s then return end
 	search = nil
+	local ui = Arena.ui
+	if type(ui) == "table" and type(ui.FindSearchEnded) == "function" then ui.FindSearchEnded(s, why == "matched") end
 	if s.current and why ~= "matched" then SendTo(s.current.name, "C~" .. s.current.mid .. "~c") end
 	if s.shared then
 		ns.Layers.SetSharing(false)
@@ -2689,9 +2691,19 @@ RefreshCard = function()
 end
 
 ShowCard = function()
+	-- A standalone Find sheet already owns this search. Keep its progress, offers and Cancel
+	-- there instead of opening a second, smaller window. Incoming requests keep their popup.
+	local ui = Arena.ui
+	if search and not match and not popup and type(ui) == "table" and type(ui.ShowFindSearch) == "function"
+		and ui.ShowFindSearch(search.opts.game, search) then
+		if card then card:Hide() end
+		return true
+	end
+	if type(ui) == "table" and type(ui.HideFindSearch) == "function" then ui.HideFindSearch() end
 	card = card or MakeCard()
 	RefreshCard()
 	if Model() then card:Show() end
+	return card:IsShown()
 end
 function ArenaMatch.Card() return card end
 -- The card to its place again now (a window that may hold it opened, closed, or covered it).
@@ -2701,8 +2713,7 @@ function ArenaMatch.PlaceCard() if card then PlaceCard() end end
 -- it shows.
 function ArenaMatch.ShowCard()
 	if not Model() then return false end
-	ShowCard()
-	return card ~= nil and card:IsShown()
+	return ShowCard()
 end
 
 ---------------------------------------------------------------------------

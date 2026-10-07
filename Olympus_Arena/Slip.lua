@@ -600,7 +600,7 @@ local function MakeFind()
 		y = y - 30
 		return row
 	end
-	f.opts = {}
+	f.opts, f.offers = {}, {}
 	f.kind = Row(L.ARENA_FIND_KIND, { { "c", L.ARENA_KIND_CASUAL }, { "s", L.ARENA_KIND_STAKED }, { "e", L.ARENA_FIND_EITHER } }, 100, "kind")
 	f.lo = Kit.Stepper(f, { width = 200, min = 0, max = 0, box = false, steps = { 1000, 10000, 100000 } })
 	f.lo:SetPoint("TOPLEFT", f, "TOPLEFT", 10, y - 2)
@@ -808,20 +808,43 @@ function ArenaUI.FindRefresh()
 	end
 	local lines = {}
 	if view.firstTime and view.firstLine then lines[#lines + 1] = ns.Codec.Plain(view.firstLine) end
-	if view.rehearsal then lines[#lines + 1] = ns.Codec.Plain(view.rehearsal) end
+	if stakes and view.rehearsal then lines[#lines + 1] = ns.Codec.Plain(view.rehearsal) end
 	if staked and not stakedOk and stakedWhy then lines[#lines + 1] = Kit.C("red", ns.Codec.Plain(stakedWhy)) end
-	if view.line then lines[#lines + 1] = Kit.C("blue", ns.Codec.Plain(view.line)) end
+	local searchModel = not rawget(f, "host") and view.state == "search" and type(view.search) == "table"
+		and view.search.game == o.game and AM and AM.CardModel and AM.CardModel() or nil
+	if searchModel then
+		for _, text in ipairs(searchModel.lines) do lines[#lines + 1] = Kit.C("blue", ns.Codec.Plain(text)) end
+	elseif view.line then lines[#lines + 1] = Kit.C("blue", ns.Codec.Plain(view.line)) end
 	if not AM then lines[#lines + 1] = Kit.C("red", L.ARENA_FIND_MISSING) end
 	local can = type(view.can) == "table" and view.can or {}
 	if can.ok == false and can.text then lines[#lines + 1] = Kit.C("red", ns.Codec.Plain(can.text)) end
 	f.line:SetText(table.concat(lines, "\n"))
+	-- The King's actual ranked offers, if any, use the same Pick action as the search card.
+	-- Keep them beneath its status words, above the original footer, in this same sheet.
+	local offerY = f.lineAt[2] + levelUp - (tonumber(f.line:GetStringHeight()) or 0) - 8
+	local offerRows = searchModel and searchModel.rows or {}
+	for i, row in ipairs(offerRows) do
+		local button = f.offers[i]
+		if not button then
+			button = Kit.Button(f, FIND_W - 52, 24, "", function(self)
+				if self.pick then AM.Pick(self.pick) end
+			end)
+			f.offers[i] = button
+		end
+		button.pick = row.pick
+		button:ClearAllPoints()
+		button:SetPoint("TOPLEFT", f.below, "TOPLEFT", 26, offerY - (i - 1) * 28)
+		button:SetText(row.text)
+		button:Show()
+	end
+	for i = #offerRows + 1, #f.offers do f.offers[i].pick = nil f.offers[i]:Hide() end
 	local notSharing = view.sharing == false
 	f.share:SetShown(notSharing and not o.share)
 	f.sharing:SetShown(notSharing)
 	if not staked then
 		local rowsBottom = -(f.belowY + up) + 88 - levelUp + 22
 		local wordsTop = f.wordsBeside and -WORDS_TOP or -(f.belowY + up + f.lineAt[2] + levelUp)
-		local wordsHeight = tonumber(f.line:GetStringHeight()) or 0
+		local wordsHeight = (tonumber(f.line:GetStringHeight()) or 0) + (#offerRows > 0 and 8 + #offerRows * 28 or 0)
 		-- One row of actions, plus the optional sharing row. Wrapped privacy/reason text
 		-- decides the height; the old 476 px was mostly empty when filters were hidden.
 		f:SetHeight(math.ceil(math.max(rowsBottom, wordsTop + wordsHeight) + (notSharing and 86 or 54)))
@@ -836,8 +859,10 @@ function ArenaUI.FindRefresh()
 			if not ns.FarkleTable.CanPlayPlayers() then f.line:SetText(L.FARKLE_LOBBY_FIRST); return false end
 			if not ns.FarkleTable.CanOpen() then f.line:SetText(L.FARKLE_LOG_TAVERN_REST); return false end
 		end
+		f.searchSheet = not rawget(f, "host") or nil
 		local okStart, why = AM.Start(ArenaUI.FindOpts())
 		if not okStart and why then
+			f.searchSheet = nil
 			local text = AM.WhyText and AM.WhyText(why) or Kit.Why(why)
 			f.line:SetText(Kit.C("red", ns.Codec.Plain(tostring(text))))
 		elseif okStart and rawget(f, "host") then
@@ -885,6 +910,28 @@ function ArenaUI.OpenFind(game, host)
 end
 ArenaUI.Find = ArenaUI.OpenFind
 function ArenaUI.FindFrame() return find end
+-- Only a search started in this standalone Find belongs here. Other callers and the Bones
+-- window's existing component/card lifecycle are unchanged. X/Escape hide, Open brings it back.
+function ArenaUI.ShowFindSearch(game, session)
+	local f = find
+	if not (f and rawget(f, "searchSheet") and not rawget(f, "host") and f.opts.game == game) then return false end
+	if f.searchSheet ~= true and f.searchSheet ~= session then return false end
+	f.searchSheet = session
+	f:Show()
+	ArenaUI.FindRefresh()
+	return true
+end
+-- Any accepted game's card replaces the standalone sheet, including an incoming different game.
+function ArenaUI.HideFindSearch()
+	local f = find
+	if f and not rawget(f, "host") then f.searchSheet = nil f:Hide() end
+end
+function ArenaUI.FindSearchEnded(session, matched)
+	local f = find
+	if not (f and rawget(f, "searchSheet") == session) then return end
+	f.searchSheet = nil
+	if matched then f:Hide() end
+end
 ns.On("ARENA_CHANGED", function() if find and find:IsShown() then ns.SafeCall("arena find", ArenaUI.FindRefresh) end end)
 -- The match it found, on its own tab in the Olympus window brought to the front
 -- (ChatRooms.OpenMatter, the owner's pattern for every pending conversation): the sheet of its own
