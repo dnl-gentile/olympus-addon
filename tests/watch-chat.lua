@@ -1030,10 +1030,10 @@ test("watch: chat moderation: a refused appeal queue admission keeps the player'
 	end)
 end)
 
-test("watch: chat moderation: a real late author gets current target testimony but no replay of a missed appeal", function()
+test("watch: chat moderation: a real late author gets current target testimony and the player's bounded appeal retry", function()
 	World(function(w)
 		local G, A, B = Standard(w)
-		assert(w.As(A, A.WC.Timeout, B.name, 300, "")); w.Run()
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "")); w.Run()
 		local record = B.WC.Store().record[1]
 		assert(w.As(B, B.WC.Appeal, record.by, record.seq, "please review")); w.Run()
 		w.author = "Lateauthor-Realm"
@@ -1048,7 +1048,82 @@ test("watch: chat moderation: a real late author gets current target testimony b
 		w.As(B, B.WC.Tick); w.Run()
 		eq(#Au.WC.Store().audit, 1); eq(Au.WC.Store().audit[1].scope, "S", "target's session announcement reaches late author")
 		eq(#w.As(Au, Au.W.Audit), 0, "self testimony is not an authenticated guild Watch audit")
-		eq(next(Au.WC.Store().appeals), nil, "there is no appeal catch-up in the current protocol")
+		eq(next(Au.WC.Store().appeals), nil, "no retry before the interval")
+		w.epoch = w.epoch + 300
+		w.As(B, B.WC.Tick); w.Run()
+		assert(next(Au.WC.Store().appeals), "own pending appeal reaches a reviewer who logged in later")
+	end)
+end)
+
+test("watch: chat moderation: pending appeal retry survives reload, keeps its original timestamp and stops on the authenticated answer", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "")); w.Run()
+		local record = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, record.by, record.seq, "please review")); w.Run()
+		local at = record.appealed
+		w.author = "Lateauthor-Realm"
+		local Au = w.Client("Lateauthor", Y, 3)
+		w.As(B, function() assert(loadfile(ROOT .. "Olympus/WatchChat.lua"))("Olympus", B.ns) end)
+		B.WC = B.ns.WatchChat
+		local send = B.ns.Comm.Send
+		B.ns.Comm.Send = function(dist, msg, ...) if msg:find("MD~1~A~", 1, true) == 1 then return false end return send(dist, msg, ...) end
+		w.epoch = w.epoch + 300
+		w.As(B, B.WC.Tick); w.Run()
+		eq(next(Au.WC.Store().appeals), nil, "queue rejection did not consume the retry")
+		B.ns.Comm.Send = send
+		w.As(B, B.WC.Tick); w.Run()
+		local key, appeal = next(Au.WC.Store().appeals)
+		assert(key, "accepted retry reaches the late author after reload")
+		eq(appeal.at, at); eq(appeal.seq, record.seq); eq(appeal.actor, record.by); eq(appeal.text, "please review")
+		w.As(B, B.WC.Tick); w.Run()
+		local pending = record.pendingAppeal
+		assert(pending, "still unanswered")
+		eq(select(2, w.Inject("CHANNEL", A.name, B, ("MD~1~R~%d~%s~%s~%d~K~forged"):format(w.epoch, B.name, record.by, record.seq))), "namer")
+		eq(record.pendingAppeal, pending, "an unauthorized answer cannot cancel the retry")
+		assert(w.As(Au, Au.WC.Answer, key, "K", "reviewed")); w.Run()
+		eq(record.pendingAppeal, nil, "authenticated answer clears persisted retry")
+		local sent = #w.sent
+		w.epoch = w.epoch + 300; w.As(B, B.WC.Tick); w.Run()
+		for i = sent + 1, #w.sent do assert(not w.sent[i].msg:find("MD~1~A~", 1, true), "answered appeal never repeated") end
+	end)
+end)
+
+test("watch: chat moderation: own pending appeals cap at three and replay one per five minutes, never malformed or another character's saved entry", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		for i = 1, 4 do
+			w.Say(B, "A", "line" .. i)
+			assert(w.As(A, A.WC.Delete, "A", w.Line(A, "A", B.name, "line" .. i), "")); w.Run()
+		end
+		local s = B.WC.Store()
+		for i = 1, 3 do assert(w.As(B, B.WC.Appeal, s.record[i].by, s.record[i].seq, "review " .. i)) end
+		eq(select(2, w.As(B, B.WC.Appeal, s.record[4].by, s.record[4].seq, "review 4")), "full")
+		w.Run()
+		w.epoch = w.epoch + 300
+		w.As(B, B.WC.Tick)
+		local n = 0
+		for _, job in ipairs(w.wire) do if job.msg:find("MD~1~A~", 1, true) then n = n + 1 end end
+		eq(n, 1, "one retry, not the whole inbox")
+		w.As(B, B.WC.Tick)
+		local nextN = 0
+		for _, job in ipairs(w.wire) do if job.msg:find("MD~1~A~", 1, true) then nextN = nextN + 1 end end
+		eq(nextN, n, "global five-minute retry limit")
+		w.Run()
+		w.epoch = w.epoch + 300
+		w.As(B, B.WC.Tick)
+		local replay
+		for _, job in ipairs(w.wire) do if job.msg:find("MD~1~A~", 1, true) then replay = job.msg end end
+		assert(replay and replay:find("~" .. s.record[2].seq .. "~D~review 2", 1, true), "the next pending appeal gets its turn")
+		w.Run()
+		s.record[1].pendingAppeal.name = A.name
+		s.record[2].pendingAppeal.text = "bad~wire"
+		s.record[3].pendingAppeal.at = w.epoch + B.WC.DATE_AHEAD + 1
+		w.epoch = w.epoch + 300
+		-- Keep the persisted malformed future value ahead even after the time step.
+		s.record[3].pendingAppeal.at = w.epoch + B.WC.DATE_AHEAD + 1
+		w.As(B, B.WC.Tick)
+		for _, job in ipairs(w.wire) do assert(not job.msg:find("MD~1~A~", 1, true), "invalid saved retry must not leave") end
 	end)
 end)
 

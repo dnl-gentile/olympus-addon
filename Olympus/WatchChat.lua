@@ -83,6 +83,7 @@ WC.AUDIT_MAX = 300
 WC.RECORD_MAX = 20
 WC.APPEALS_MAX = 50
 WC.APPEALS_EACH = 3         -- appeals kept from one player at most
+WC.APPEAL_REPEAT = 300      -- at most one own pending appeal replay in five minutes
 WC.SELF_AUDIT_MAX = 5       -- a player's own words (S) in the council's audit at most
 WC.ACTIONS_MAX = 50           -- the actor's own actions it repeats
 WC.APPLIED_MAX = 1000
@@ -990,7 +991,7 @@ local function Record(a, words)
 	end
 	-- The punished player: his own record, roles only.
 	if ns.me and Same(a.target, ns.me) and a.scope ~= "S" then
-		s.record[#s.record + 1] = { op = op, role = a.role, at = a.at, untilAt = a.untilAt or 0, reason = a.reason or "",
+		s.record[#s.record + 1] = { name = a.target, op = op, role = a.role, at = a.at, untilAt = a.untilAt or 0, reason = a.reason or "",
 			words = words and words[1] or nil, by = a.by, seq = a.seq }
 		Trim(s.record, WC.RECORD_MAX)
 	end
@@ -1611,7 +1612,11 @@ local function TakeAnswer(dist, sender, f)
 	if appeal then appeal.answer, appeal.answeredBy, appeal.answeredAt = verdict, sender, at end
 	if ns.me and Same(target, ns.me) then
 		local mine, op = s.record, nil
-		for _, r in ipairs(mine) do if Same(r.by, actor) and r.seq == seq then r.appeal, op = verdict, r.op end end
+		for _, r in ipairs(mine) do
+			if (not r.name or Same(r.name, ns.me)) and Same(r.by, actor) and r.seq == seq then
+				r.appeal, r.pendingAppeal, op = verdict, nil, r.op
+			end
+		end
 		local role = WC.RoleText(RoleOf("O", NamerLevel(sender)), true)
 		-- Told what is so on this client: a lift that did not reach his timeout (one from higher
 		-- up, or his lift not here yet) is never told as lifted; a deleted line does not come back.
@@ -1853,15 +1858,50 @@ function WC.Appeal(by, seq, text)
 	text = CleanReason(text, WC.APPEAL_MAX)
 	if not by or not seq or text == "" then return false, "text" end
 	local found
-	for _, r in ipairs(s.record) do if Same(r.by, by) and r.seq == seq then found = r end end
+	for _, r in ipairs(s.record) do if (not r.name or Same(r.name, ns.me)) and Same(r.by, by) and r.seq == seq then found = r end end
 	if not found then return false, "record" end
 	if found.op ~= "T" and found.op ~= "D" and found.op ~= "P" then return false, "record" end
 	if found.appealed then return false, "already" end
-	local msg = ("MD~1~A~%d~%s~%d~%s~%s"):format(math.floor(Clock()), by, seq, found.op, text)
+	local pending = 0
+	for _, r in ipairs(s.record) do
+		if (not r.name or Same(r.name, ns.me)) and r.appealed and not r.appeal then pending = pending + 1 end
+	end
+	if pending >= WC.APPEALS_EACH then return false, "full" end
+	local at = math.floor(Clock())
+	local msg = ("MD~1~A~%d~%s~%d~%s~%s"):format(at, by, seq, found.op, text)
 	if #msg > WC.MESSAGE_MAX then return false, "size" end
 	if not Send("CHANNEL", msg, "mda:" .. seq) then return false, "queue" end
-	found.appealed = math.floor(Clock())
+	found.appealed = at
+	found.pendingAppeal = { name = ns.me, at = at, text = text, sent = at }
+	s.appealRepeatAt = at
 	ns.Fire("WATCH_CHANGED")
+	return true
+end
+
+-- Only this character's own pending record is replayed. Persisted fields are validated before
+-- building the old wire message; no other client's appeal or private Watch record is forwarded.
+function WC.RepeatOwnAppeal(s)
+	local now = math.floor(Clock())
+	local last = Int(s.appealRepeatAt, 1, WC.MAX_SEQ)
+	if last and last > now then s.appealRepeatAt = now return false end
+	if last and now - last < WC.APPEAL_REPEAT then return false end
+	local chosen, pending, count = nil, nil, 0
+	for _, r in ipairs(s.record) do
+		local p = type(r) == "table" and r.pendingAppeal
+		if type(p) == "table" and Same(p.name, ns.me) and (not r.name or Same(r.name, ns.me)) and not r.appeal
+			and (r.op == "T" or r.op == "D" or r.op == "P") and type(r.by) == "string" and CharName(r.by) == r.by and Int(r.seq, 1, WC.MAX_SEQ)
+			and Int(p.at, 1, WC.MAX_SEQ) and p.at == r.appealed and p.at <= now + WC.DATE_AHEAD and now - p.at <= WC.KEEP
+			and Int(r.at, 1, WC.MAX_SEQ) and r.at <= p.at + WC.DATE_AHEAD
+			and type(p.text) == "string" and p.text ~= "" and CleanReason(p.text, WC.APPEAL_MAX) == p.text
+			and Int(p.sent, 1, WC.MAX_SEQ) and p.sent <= now then
+			count = count + 1
+			if count <= WC.APPEALS_EACH and (not pending or p.sent < pending.sent) then chosen, pending = r, p end
+		end
+	end
+	if not chosen then return false end
+	local msg = ("MD~1~A~%d~%s~%d~%s~%s"):format(pending.at, chosen.by, chosen.seq, chosen.op, pending.text)
+	if #msg > WC.MESSAGE_MAX or not Send("CHANNEL", msg, "mda:" .. chosen.seq) then return false end
+	pending.sent, s.appealRepeatAt = now, now
 	return true
 end
 
@@ -2076,6 +2116,7 @@ function WC.Tick()
 	if not s or not ns.me or not ns.IsMember() then return end
 	jitter = jitter or (WC.random(0, WC.JITTER))
 	local budget, mono = WC.PER_TICK, Now()
+	if budget > 0 and WC.RepeatOwnAppeal(s) then budget = budget - 1 end
 	for _, a in ipairs(s.actions) do
 		if budget <= 0 then break end
 		local every = (a.op == "D" or a.op == "P") and WC.DELETE_REPEAT_EVERY or (WC.REPEAT + jitter)
