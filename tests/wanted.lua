@@ -9,7 +9,7 @@ local function WithWanted(fn)
 	local globals = { "UnitGUID", "UnitIsPlayer", "UnitFactionGroup", "GetGuildInfo", "GetRealZoneText",
 		"UnitCanAttack", "UnitIsPVP", "issecretvalue",
 		"UnitIsDeadOrGhost", "C_DateAndTime", "C_DeathInfo", "C_DeathRecap", "CombatLogGetCurrentEventInfo", "GetGameTime", "GetFileIDFromPath",
-		"ERR_CHAT_PLAYER_NOT_FOUND_S" }
+		"ERR_CHAT_PLAYER_NOT_FOUND_S", "GetPlayerInfoByGUID", "UnitTokenFromGUID" }
 	local saved = {}
 	for _, name in ipairs(globals) do saved[name] = _G[name] end
 	local dialogs = {}
@@ -17,7 +17,7 @@ local function WithWanted(fn)
 
 	local w = { epoch = 1800000000, year = 2026, month = 10, member = true, manager = true, units = {},
 		olympians = {}, authorities = {}, handlers = {}, commHandlers = {}, listeners = {}, events = {}, dialogs = {},
-		prints = {}, assets = {}, sent = {}, publicKey = string.rep("K", 32), refreshed = 0 }
+		prints = {}, assets = {}, sent = {}, identities = {}, publicKey = string.rep("K", 32), refreshed = 0 }
 	local ok, err = pcall(function()
 		w.units.player = { name = "Olympian-Realm", guid = "Player-1-AA000001", faction = "Alliance", guild = "Olympus II" }
 		UnitGUID = function(unit) return w.units[unit] and w.units[unit].guid end
@@ -28,6 +28,11 @@ local function WithWanted(fn)
 		GetRealZoneText = function() return "Warsong Gulch" end
 		C_DateAndTime = { GetCurrentCalendarTime = function() return { year = w.year, month = w.month } end }
 		GetFileIDFromPath = function(path) return w.assets[path] and 1 or nil end
+		UnitTokenFromGUID = nil
+		GetPlayerInfoByGUID = function(guid)
+			local name = w.identities[guid]
+			if name then return "Warrior", "WARRIOR", "Human", "Human", 2, ns.ShortName(name), "Realm" end
+		end
 
 		local c = setmetatable({ L = ns.L, db = {}, rdb = {}, me = w.units.player.name, realm = "Realm",
 			group = "RealmGroup", faction = "Alliance" }, { __index = ns })
@@ -59,7 +64,8 @@ local function WithWanted(fn)
 			SendChunked = function(text) w.sent[#w.sent + 1] = { dist = "CHANNEL", text = text }; return true end,
 		}
 		c.UnitFullName = function(unit) return w.units[unit] and w.units[unit].name end
-		c.Roster = { RankOf = function(name) return w.olympians[c.Fold(c.FullName(name))] and 3 or nil end }
+		c.Roster = { Fresh = function() return w.rosterStale ~= true end,
+			RankOf = function(name) return w.olympians[c.Fold(c.FullName(name))] and 3 or nil end }
 		-- (1.2.0: evidence comes only from members: whoever whispers here claims a federation guild
 		-- the channel takes, unless named in w.strangers.)
 		w.strangers = {}
@@ -91,6 +97,11 @@ local function WithWanted(fn)
 		function w.olympian(name)
 			name = c.FullName(name)
 			w.olympians[c.Fold(name)] = true
+			return name
+		end
+		function w.participant(name, guid)
+			name = w.olympian(name)
+			w.identities[guid] = name
 			return name
 		end
 		function w.advance(seconds) w.epoch = w.epoch + (seconds or 6) end
@@ -580,16 +591,17 @@ end)
 
 test("wanted review: private bounded provenance stays pending until a human accepts and semantic duplicates score once", function()
 	WithWanted(function(w, W, c)
-		local submitter, reviewer = c.me, w.authority("Reviewer-Realm", "council")
+		local reviewer = w.authority("Reviewer-Realm", "council")
+		local submitter = w.participant("ReviewSlayer-Realm", "Player-1-EE000011")
+		c.me, w.units.player.name, w.units.player.guid = submitter, submitter, "Player-1-EE000011"
 		local target, targetGuid = "ReviewTarget-Realm", "Player-1-CC000011"
 		assert(w.add(target, targetGuid))
-		local victim = w.olympian("ReviewVictim-Realm")
-		local ok, bounty = w.kill(701, target, targetGuid, victim, "Player-1-DD000011")
+		local ok, bounty = W.CaptureSelfDeathRecap({ fatal = true, id = "death-701", killerName = target,
+			killerGUID = targetGuid, victimName = submitter, victimGUID = w.units.player.guid })
 		assert(ok)
 		w.advance()
-		local slayer = w.olympian("ReviewSlayer-Realm")
 		local claim
-		ok, claim = w.kill(702, slayer, "Player-1-EE000011", target, targetGuid)
+		ok, claim = w.kill(702, submitter, w.units.player.guid, target, targetGuid)
 		assert(ok)
 		assert(W.SubmitEvidence(reviewer, bounty.id)); local bountyWire = w.sent[#w.sent].text
 		assert(W.SubmitEvidence(reviewer, claim.id)); local claimWire = w.sent[#w.sent].text
@@ -611,14 +623,14 @@ test("wanted review: private bounded provenance stays pending until a human acce
 		assert(publication:find("1.ee000011", 1, true) and not publication:find("1.ffffffff", 1, true),
 			"the public API publishes the reviewed ranking, never caller-supplied rows")
 
-		w.commHandlers.WX("WHISPER", "SecondObserver-Realm", bountyWire)
+		w.commHandlers.WX("WHISPER", submitter, bountyWire:gsub("WX~1~%x+~", "WX~1~ffffffffffffff00~", 1))
 		-- (The two accepted rows are in the ledger now, out of the inbox: the copy waits alone.)
 		local third = W.ReviewInbox(); eq(#third, 1); assert(W.Review(third[1].key, true))
 		ranked = W.ReviewedRankings()
-		eq(ranked[1].points, 1, "independent duplicate observations remain provenance, not extra points")
+		eq(ranked[1].points, 1, "a participant's duplicate account remains provenance, not extra points")
 		W.REVIEW_MAX = 3
 		for _, digest in ipairs({ "ffffffffffffff01", "ffffffffffffff02", "ffffffffffffff03", "ffffffffffffff04" }) do
-			w.commHandlers.WX("WHISPER", "ThirdObserver-Realm", (bountyWire:gsub("(%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x)", digest, 1)))
+			w.commHandlers.WX("WHISPER", submitter, (bountyWire:gsub("(%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x)", digest, 1)))
 		end
 		eq(#W.ReviewInbox(), 3, "the review inbox (what waits) is bounded")
 	end)
@@ -629,10 +641,13 @@ test("wanted monthly review: bounty pays in the claim month and month totals sur
 		c.me = w.authority("MonthlyReviewer-Realm", "council")
 		W.LEDGER_MAX = 2
 		local firstMonth = W.MonthNow()
+		local victim1 = w.participant("MonthlyVictim1-Realm", "Player-1-DD000001")
+		local victim2 = w.participant("MonthlyVictim2-Realm", "Player-1-DD000002")
+		local slayer = w.participant("MonthlySlayer-Realm", "Player-1-EE000001")
 		local function Accept(digest, action, killer, victim, month)
 			w.advance(10)
-			local wire = ("WX~1~%016x~%d~%d~P~%s~%s~%s"):format(digest, w.epoch, month, action, killer, victim)
-			w.commHandlers.WX("WHISPER", "MonthlyObserver-Realm", wire)
+			local wire = ("WX~1~%016x~%d~%d~%s~%s~%s~%s"):format(digest, w.epoch, month, action == "B" and "S" or "P", action, killer, victim)
+			w.commHandlers.WX("WHISPER", action == "C" and slayer or (victim == "1.dd000001" and victim1 or victim2), wire)
 			local inbox = W.ReviewInbox()
 			assert(#inbox == 1, "one authenticated-sender evidence row awaits review")
 			assert(W.Review(inbox[1].key, true))
@@ -658,12 +673,14 @@ test("wanted monthly review: bounty pays in the claim month and month totals sur
 	end)
 end)
 
-test("wanted review: per-sender flood limits and rejection preserve room for another observer", function()
+test("wanted review: per-sender flood limits and rejection preserve room for another participant", function()
 	WithWanted(function(w, W, c)
 		local reviewer = w.authority("Reviewer-Realm", "council")
 		c.me = reviewer
 		W.REVIEW_MAX, W.REVIEW_PER_SENDER, W.REVIEW_RATE_MAX = 2, 2, 2
-		local base = ("WX~1~0000000000000001~%d~24000~P~B~1.aa000011~1.bb000011"):format(w.epoch)
+		local flood = w.participant("Flood-Realm", "Player-1-BB000011")
+		local other = w.participant("OtherVictim-Realm", "Player-1-BB000012")
+		local base = ("WX~1~0000000000000001~%d~24000~S~B~1.aa000011~1.bb000011"):format(w.epoch)
 		local second = base:gsub("0000000000000001", "0000000000000002", 1)
 		local third = base:gsub("0000000000000001", "0000000000000003", 1)
 		w.commHandlers.WX("WHISPER", "Flood-Realm", base)
@@ -673,8 +690,8 @@ test("wanted review: per-sender flood limits and rejection preserve room for ano
 		local rejected = W.ReviewInbox()[1]
 		assert(W.Review(rejected.key, false))
 		eq(#W.ReviewInbox(), 1, "rejecting untrusted evidence frees its slot")
-		w.commHandlers.WX("WHISPER", "OtherObserver-Realm", third)
-		eq(#W.ReviewInbox(), 2, "another observer can still reach the reviewer")
+		w.commHandlers.WX("WHISPER", other, third:gsub("1.bb000011", "1.bb000012", 1))
+		eq(#W.ReviewInbox(), 2, "another participant can still reach the reviewer")
 	end)
 end)
 
@@ -986,6 +1003,7 @@ end)
 test("wanted review adversarial: a modified client's WX (future, stale, malformed, another version, or to a non-reviewer) is kept nowhere", function()
 	WithWanted(function(w, W, c)
 		local reviewer = w.authority("Reviewer-Realm", "council")
+		w.participant("Modded-Realm", "Player-1-DD000011")
 		c.me = reviewer
 		local H = w.commHandlers.WX
 		local good = "WX~1~00000000000000a1~%d~24000~P~C~1.dd000011~1.cc000011"
@@ -1009,18 +1027,20 @@ test("wanted review adversarial: a modified client's WX (future, stale, malforme
 	end)
 end)
 
-test("wanted review: two observers' copies of one death a second apart, across a 3-second bucket, pay one bounty point", function()
+test("wanted review: a victim's copies of one death a second apart, across a 3-second bucket, pay one bounty point", function()
 	WithWanted(function(w, W, c)
 		c.me = w.authority("Reviewer-Realm", "council")
 		local at = 1800000302
 		eq(math.floor(at / 3) ~= math.floor((at + 1) / 3), true, "the copies straddle a bucket edge")
 		w.epoch = at + 10
+		local victimName = w.participant("Victim-Realm", "Player-1-CD000101")
+		local slayerName = w.participant("Slayer-Realm", "Player-1-EF000101")
 		local function Wire(digest, t, action, killer, victim)
-			return ("WX~1~%s~%d~24000~P~%s~%s~%s"):format(digest, t, action, killer, victim)
+			return ("WX~1~%s~%d~24000~%s~%s~%s~%s"):format(digest, t, action == "B" and "S" or "P", action, killer, victim)
 		end
-		w.commHandlers.WX("WHISPER", "FirstEye-Realm", Wire("00000000000000f1", at, "B", "1.ab000101", "1.cd000101"))
-		w.commHandlers.WX("WHISPER", "SecondEye-Realm", Wire("00000000000000f2", at + 1, "B", "1.ab000101", "1.cd000101"))
-		w.commHandlers.WX("WHISPER", "FirstEye-Realm", Wire("00000000000000f3", at + 8, "C", "1.ef000101", "1.ab000101"))
+		w.commHandlers.WX("WHISPER", victimName, Wire("00000000000000f1", at, "B", "1.ab000101", "1.cd000101"))
+		w.commHandlers.WX("WHISPER", victimName, Wire("00000000000000f2", at + 1, "B", "1.ab000101", "1.cd000101"))
+		w.commHandlers.WX("WHISPER", slayerName, Wire("00000000000000f3", at + 8, "C", "1.ef000101", "1.ab000101"))
 		for _, e in ipairs(W.ReviewInbox()) do assert(W.Review(e.key, true)) end
 		local rows = W.ReviewedRankings()
 		eq(#rows, 1); eq(rows[1].guid, "Player-1-EF000101"); eq(rows[1].points, 1, "one death, one bounty point")
@@ -1059,15 +1079,20 @@ test("wanted ledger: accepted rows survive a reload, fold past the bound without
 		local reviewer = w.authority("Reviewer-Realm", "council")
 		c.me = reviewer
 		local function Wire(digest, at, action, killer, victim)
-			return ("WX~1~%s~%d~24000~P~%s~%s~%s"):format(digest, at, action, killer, victim)
+			return ("WX~1~%s~%d~24000~%s~%s~%s~%s"):format(digest, at, action == "B" and "S" or "P", action, killer, victim)
 		end
 		local T, S = "1.ab000001", "1.ef000001"
+		local victim1 = w.participant("LedgerVictim1-Realm", "Player-1-CD000001")
+		local victim2 = w.participant("LedgerVictim2-Realm", "Player-1-CD000002")
+		local victim3 = w.participant("LedgerVictim3-Realm", "Player-1-CD000003")
+		local slayer = w.participant("LedgerSlayer-Realm", "Player-1-EF000001")
+		local senders = { victim1, victim2, slayer }
 		local rowsSent = {
 			Wire("00000000000000b1", w.epoch - 60, "B", T, "1.cd000001"),
 			Wire("00000000000000b2", w.epoch - 50, "B", T, "1.cd000002"),
 			Wire("00000000000000c1", w.epoch - 40, "C", S, T),
 		}
-		for _, wire in ipairs(rowsSent) do w.commHandlers.WX("WHISPER", "Observer-Realm", wire) end
+		for i, wire in ipairs(rowsSent) do w.commHandlers.WX("WHISPER", senders[i], wire) end
 		for _, e in ipairs(W.ReviewInbox()) do assert(W.Review(e.key, true)) end
 		local before = W.ReviewedRankings()
 		eq(#before, 1); eq(before[1].guid, "Player-1-EF000001"); eq(before[1].points, 2); eq(before[1].claims, 1)
@@ -1079,18 +1104,18 @@ test("wanted ledger: accepted rows survive a reload, fold past the bound without
 		eq(#W.ReviewInbox(), 0, "the session inbox starts empty")
 		local after = W.ReviewedRankings()
 		eq(after[1].points, 2, "the all-time top three did not start over")
-		w.commHandlers.WX("WHISPER", "Observer-Realm", rowsSent[3])
+		w.commHandlers.WX("WHISPER", slayer, rowsSent[3])
 		eq(#W.ReviewInbox(), 0, "a row accepted before the reload is not taken again")
 
 		W.LEDGER_MAX = 2
-		w.commHandlers.WX("WHISPER", "Observer-Realm", Wire("00000000000000b3", w.epoch - 30, "B", T, "1.cd000003"))
+		w.commHandlers.WX("WHISPER", victim3, Wire("00000000000000b3", w.epoch - 30, "B", T, "1.cd000003"))
 		assert(W.Review(W.ReviewInbox()[1].key, true))
 		local rows, folded = W.Ledger()
 		eq(#rows, 2); eq(folded, 2, "the two oldest folded into the base")
 		eq(W.ReviewedRankings()[1].points, 2, "folding changes no total")
-		-- Another observer's copy of the folded claim (the same death, two seconds apart):
+		-- The slayer's second account of the folded claim (same death, two seconds apart):
 		-- provenance, never a second payout.
-		w.commHandlers.WX("WHISPER", "SecondObserver-Realm", Wire("00000000000000d1", w.epoch - 38, "C", S, T))
+		w.commHandlers.WX("WHISPER", slayer, Wire("00000000000000d1", w.epoch - 38, "C", S, T))
 		local copy = W.ReviewInbox()
 		assert(W.Review(copy[#copy].key, true))
 		eq(W.ReviewedRankings()[1].points, 2)
@@ -1109,16 +1134,18 @@ end)
 
 test("wanted controls: Send evidence, Review (accept, reject, withdraw), Publish, Revoke and Void are buttons and dialogs over the real paths", function()
 	WithWanted(function(w, W, c)
-		local observer = c.me
+		local observer = w.participant("ControlsSlayer-Realm", "Player-1-CF000003")
+		local slayer = observer
+		c.me, w.units.player.name, w.units.player.guid = observer, observer, "Player-1-CF000003"
 		local reviewer = w.authority("Reviewer-Realm", "council")
 		local target, targetGuid = "Controls-Realm", "Player-1-CF000001"
 		assert(w.add(target, targetGuid))
 		w.manager = false
 		eq(Shown(W), "", "nothing to send yet; not a reviewer, not a moderator")
-		assert(w.kill(951, target, targetGuid, w.olympian("ControlsVictim-Realm"), "Player-1-CF000002"))
+		assert(W.CaptureSelfDeathRecap({ fatal = true, id = "death-951", killerName = target,
+			killerGUID = targetGuid, victimName = observer, victimGUID = w.units.player.guid }))
 		w.advance()
-		local slayer = w.olympian("ControlsSlayer-Realm")
-		assert(w.kill(952, slayer, "Player-1-CF000003", target, targetGuid))
+		assert(w.kill(952, observer, w.units.player.guid, target, targetGuid))
 		eq(Shown(W), "WANTED_SEND_BTN")
 
 		Press(W, "WANTED_SEND_BTN")
@@ -1147,6 +1174,7 @@ test("wanted controls: Send evidence, Review (accept, reject, withdraw), Publish
 
 		c.me = reviewer
 		for _, wire in ipairs(wires) do w.commHandlers.WX("WHISPER", observer, wire) end
+		w.participant("Doubtful-Realm", "Player-1-CF000009")
 		w.commHandlers.WX("WHISPER", "Doubtful-Realm", ("WX~1~00000000000000e1~%d~24000~P~C~1.cf000009~1.cf000001"):format(w.epoch))
 		eq(Shown(W), "WANTED_REVIEW_BTN,WANTED_SEND_BTN", "this test's reviewer also holds the observer's rows")
 		for _, def in ipairs(W.buttons) do
@@ -1237,9 +1265,9 @@ test("wanted controls: Send evidence, Review (accept, reject, withdraw), Publish
 		eq(W.Target(target).current, 1, "its bounty is open again")
 		eq(#W.Rankings().all, 0)
 		local victimLine
-		for _, line in ipairs(lines) do if line.text == c.DisplayName("ControlsVictim-Realm") then victimLine = line end end
+		for _, line in ipairs(lines) do if line.text == c.DisplayName(observer) then victimLine = line end end
 		assert(victimLine and not victimLine.onClick, "the reopened cycle's victim: read only for a member")
-		for _, line in ipairs(lines) do assert(not (line.text == c.DisplayName("ControlsVictim-Realm") and line.onClick), "a member only reads") end
+		for _, line in ipairs(lines) do assert(not (line.text == c.DisplayName(observer) and line.onClick), "a member only reads") end
 	end)
 end)
 
@@ -1339,7 +1367,8 @@ test("wanted send: one batch per reviewer window, so his side drops none; rows t
 		w.manager = false
 		local function Kill(n)
 			w.advance(6)
-			assert(w.kill(1000 + n, target, targetGuid, w.olympian(("BatchVictim%02d-Realm"):format(n)), ("Player-1-AF0001%02d"):format(n)))
+			assert(W.CaptureSelfDeathRecap({ fatal = true, id = "death-" .. (1000 + n), killerName = target,
+				killerGUID = targetGuid, victimName = observer, victimGUID = w.units.player.guid }))
 		end
 		Kill(0) -- by the time it could go, the reviewer would refuse it as too old
 		w.advance(W.EVIDENCE_AGE)
@@ -1348,6 +1377,7 @@ test("wanted send: one batch per reviewer window, so his side drops none; rows t
 		-- The reviewer's client hears the whispers sent since `from`, as the server delivers them.
 		local function Deliver(from)
 			c.me = reviewer
+			w.participant(observer, w.units.player.guid)
 			for i = from, #w.sent do if w.sent[i].dist == "WHISPER" then w.commHandlers.WX("WHISPER", observer, w.sent[i].text) end end
 			c.me = observer
 		end
@@ -1418,8 +1448,9 @@ test("wanted review: rows a reviewer holds already cost the sender's rate nothin
 	WithWanted(function(w, W, c)
 		c.me = w.authority("Reviewer-Realm", "council")
 		local H = w.commHandlers.WX
+		w.participant("Steady-Realm", "Player-1-CD000201")
 		local function Wire(i)
-			return ("WX~1~%016x~%d~24000~P~B~1.ab0002%02d~1.cd0002%02d"):format(i, w.epoch - 200 + i, i, i)
+			return ("WX~1~%016x~%d~24000~S~B~1.ab0002%02d~1.cd000201"):format(i, w.epoch - 200 + i * 6, i)
 		end
 		local function Pending()
 			local n = 0
@@ -1452,9 +1483,14 @@ test("wanted ledger: past its bound, a row about a death the base already holds 
 		W.LEDGER_MAX = 2
 		local H = w.commHandlers.WX
 		local function Wire(digest, at, action, killer, victim)
-			return ("WX~1~%s~%d~24000~P~%s~%s~%s"):format(digest, at, action, killer, victim)
+			return ("WX~1~%s~%d~24000~%s~%s~%s~%s"):format(digest, at, action == "B" and "S" or "P", action, killer, victim)
 		end
 		local T, S, S2, V = "1.ab000301", "1.ef000301", "1.ef000302", "1.cd000301"
+		local victims = {}
+		for i = 1, 6 do victims[i] = w.participant("FolderVictim" .. i .. "-Realm", "Player-1-CD00030" .. i) end
+		local slayer1 = w.participant("FolderSlayer1-Realm", "Player-1-EF000301")
+		local slayer2 = w.participant("FolderSlayer2-Realm", "Player-1-EF000302")
+		local senders = { victims[1], victims[1], slayer1, victims[2], victims[3], slayer2 }
 		-- The target kills V twice, a minute apart; S claims him; he kills twice more; S2 claims him.
 		local rows = {
 			Wire("00000000000003a1", w.epoch - 300, "B", T, V),
@@ -1464,9 +1500,9 @@ test("wanted ledger: past its bound, a row about a death the base already holds 
 			Wire("00000000000003a5", w.epoch - 60, "B", T, "1.cd000303"),
 			Wire("00000000000003a6", w.epoch - 30, "C", S2, T),
 		}
-		for _, wire in ipairs(rows) do H("WHISPER", "Folder-Realm", wire) end
+		for i, wire in ipairs(rows) do H("WHISPER", senders[i], wire) end
 		-- An account of a death in the first cycle, still waiting when the ledger folds past it.
-		H("WHISPER", "Slow-Realm", Wire("00000000000003c1", w.epoch - 200, "B", T, "1.cd000304"))
+		H("WHISPER", victims[4], Wire("00000000000003c1", w.epoch - 200, "B", T, "1.cd000304"))
 		local slow
 		for _, e in ipairs(W.ReviewInbox()) do
 			if e.digest == "00000000000003c1" then slow = e.key else assert(W.Review(e.key, true)) end
@@ -1483,14 +1519,14 @@ test("wanted ledger: past its bound, a row about a death the base already holds 
 		local ok, why = W.Review(slow, true)
 		eq(ok, false); eq(why, "late", "it can no longer take its place among the deaths")
 		-- The first death, sent again (the sender reloaded), and another observer's late account.
-		H("WHISPER", "Folder-Realm", rows[1])
-		H("WHISPER", "Late-Realm", Wire("00000000000003b1", w.epoch - 270, "B", T, "1.cd000305"))
+		H("WHISPER", victims[1], rows[1])
+		H("WHISPER", victims[5], Wire("00000000000003b1", w.epoch - 270, "B", T, "1.cd000305"))
 		local waiting = 0
 		for _, e in ipairs(W.ReviewInbox()) do if e.key ~= slow then waiting = waiting + 1 W.Review(e.key, true) end end
 		eq(waiting, 0, "neither is taken")
 		eq(Points(), "Player-1-EF000301=2,Player-1-EF000302=2", "one death never pays twice, nor in another cycle")
 		-- Rows after the base still come in as before.
-		H("WHISPER", "Folder-Realm", Wire("00000000000003a7", w.epoch - 10, "B", T, "1.cd000306"))
+		H("WHISPER", victims[6], Wire("00000000000003a7", w.epoch - 10, "B", T, "1.cd000306"))
 		eq(#W.ReviewInbox(), 2)
 	end)
 end)
@@ -1507,7 +1543,7 @@ end)
 local function WithWorld(fn)
 	local globals = { "UnitGUID", "UnitIsPlayer", "UnitFactionGroup", "GetGuildInfo", "GetRealZoneText",
 		"UnitIsDeadOrGhost", "C_DateAndTime", "C_DeathInfo", "C_DeathRecap", "GetFileIDFromPath",
-		"C_ChatInfo", "GetTime", "GetChannelName" }
+		"C_ChatInfo", "GetTime", "GetChannelName", "GetPlayerInfoByGUID", "UnitTokenFromGUID" }
 	local saved = {}
 	for _, name in ipairs(globals) do saved[name] = _G[name] end
 	local dialogs = {}
@@ -1521,11 +1557,17 @@ local function WithWorld(fn)
 		UnitGUID = function(unit) return U(unit) and U(unit).guid end
 		UnitIsPlayer = function(unit) return U(unit) ~= nil end
 		UnitFactionGroup = function(unit) return U(unit) and U(unit).faction end
-		UnitIsDeadOrGhost = function() return false end
+		UnitIsDeadOrGhost = function() return current and current.dead == true end
 		GetGuildInfo = function(unit) return U(unit or "player") and U(unit or "player").guild end
 		GetRealZoneText = function() return "Arathi Highlands" end
 		C_DateAndTime = { GetCurrentCalendarTime = function() return { year = world.year, month = world.month } end }
 		C_DeathInfo, C_DeathRecap = nil, nil
+		UnitTokenFromGUID = nil
+		GetPlayerInfoByGUID = function(guid)
+			for _, cl in ipairs(world.clients) do
+				if cl.guid == guid then return "Warrior", "WARRIOR", "Human", "Human", 2, ns.ShortName(cl.name), "Realm" end
+			end
+		end
 		GetFileIDFromPath = function() return nil end
 		GetTime = function() return world.epoch end
 		GetChannelName = function() return 7, "OlympusNet" end
@@ -1571,7 +1613,8 @@ local function WithWorld(fn)
 					world.queue[#world.queue + 1] = { from = cl, dist = "CHANNEL", text = text, done = done, options = options } return true
 				end }
 			c.UnitFullName = function(unit) return U(unit) and U(unit).name end
-			c.Roster = { RankOf = function(name) return world.olympians[Fold(name)] and 3 or nil end }
+			c.Roster = { Fresh = function() return true end,
+				RankOf = function(name) return world.olympians[Fold(name)] and 3 or nil end }
 			c.RegisterEvent = function(name, call) cl.events[name] = call end
 			c.Fire = function() end
 			c.On = function(name, call) cl.listeners[name] = call end
@@ -1634,7 +1677,11 @@ local function WithWorld(fn)
 					if m.done then world:As(m.from, m.done, true) end
 					if m.dist == "WHISPER" then
 						local to = world:Find(m.to)
-						if to and to.online then world:As(to, to.handlers.WX, "WHISPER", m.from.name, m.text) end
+						if to and to.online then
+							if m.raw and to.realComm then
+								world:As(to, to.events.CHAT_MSG_ADDON, to.ns.PREFIX, m.text, "WHISPER", m.from.name, m.to)
+							else world:As(to, to.handlers.WX, "WHISPER", m.from.name, m.text) end
+						end
 						else
 							for _, o in ipairs(world.clients) do
 								local handler = o.handlers[m.text:sub(1, 2)]
@@ -1684,24 +1731,40 @@ local function WithWorld(fn)
 			error("actual Comm queues settle")
 		end
 		function world:Border(cl, guid) return world:As(cl, cl.W.GlobalBorder, nil, guid) end
-		-- observer lists the target, sees it kill victim, then slayer kill it; sends both rows to the
-		-- reviewer, who accepts every pending row.
+		-- The victim reports its own death; the slayer reports its own party kill. The observer's
+		-- third-party observations remain local and never stand in for either participant.
 		function world:Hunt(observer, reviewer, targetName, targetGuid, victim, slayer)
 			world.serial = world.serial + 1
 			local id = world.serial * 10
+			local death, claim
 			observer.manager = true
 			world:As(observer, function()
 				local W = observer.W
 				W.AddTarget(targetName, targetGuid)
 				assert(W.CaptureCombatLog(id, "PARTY_KILL", false, targetGuid, targetName, 0, 0, victim.guid, victim.name))
 			end)
+			victim.manager = true
+			victim.dead = true
+			world:As(victim, function()
+				victim.W.AddTarget(targetName, targetGuid)
+				local good
+				good, death = victim.W.CaptureSelfDeathRecap({ fatal = true, id = "death-" .. id, killerName = targetName,
+					killerGUID = targetGuid, victimName = victim.name, victimGUID = victim.guid })
+				assert(good, death)
+			end)
+			victim.dead = false
 			world.epoch = world.epoch + 6
-			world:As(observer, function()
-				assert(observer.W.CaptureCombatLog(id + 1, "PARTY_KILL", false, slayer.guid, slayer.name, 0, 0, targetGuid, targetName))
+			slayer.manager = true
+			world:As(slayer, function()
+				slayer.W.AddTarget(targetName, targetGuid)
+				local good
+				good, claim = slayer.W.CaptureCombatLog(id + 1, "PARTY_KILL", false, slayer.guid, slayer.name, 0, 0, targetGuid, targetName)
+				assert(good, claim)
 			end)
 			world.epoch = world.epoch + 6
-			assert(world:As(observer, observer.W.SendEvidence, reviewer.name))
-			world:Deliver()
+			assert(world:As(victim, victim.W.SubmitEvidence, reviewer.name, death.id))
+			assert(world:As(slayer, slayer.W.SubmitEvidence, reviewer.name, claim.id))
+			if victim.realComm or slayer.realComm then world:PumpComm() else world:Deliver() end
 			for _, e in ipairs(world:As(reviewer, reviewer.W.ReviewInbox)) do
 				if e.state == "pending" then assert(world:As(reviewer, reviewer.W.Review, e.key, true)) end
 			end
@@ -1712,6 +1775,37 @@ local function WithWorld(fn)
 	for _, which in ipairs(DIALOGS) do StaticPopupDialogs[which] = dialogs[which] end
 	if not ok then error(err, 0) end
 end
+
+test("wanted own-proof recovery: refused unknown evidence remains local and can reach review unchanged after resolution and sender reload", function()
+	WithWorld(function(world)
+		local king = world:Client("Varrick-Realm", "Player-1-0A000001", "king")
+		local victim = world:Client("Victim-Realm", "Player-1-0A000002")
+		victim.manager, victim.dead = true, true
+		local death
+		world:As(victim, function()
+			assert(victim.W.AddTarget("Hordeling-Realm", "Player-1-0B000001"))
+			local good
+			good, death = victim.W.CaptureSelfDeathRecap({ fatal = true, id = "unknown-own-death", killerName = "Hordeling-Realm",
+				killerGUID = "Player-1-0B000001", victimName = victim.name, victimGUID = victim.guid })
+			assert(good, death)
+		end)
+		local serverLookup = GetPlayerInfoByGUID
+		king.ns.Debts.InfoName, GetPlayerInfoByGUID = nil, nil
+		assert(world:As(victim, victim.W.SendEvidence, king.name)); world:Deliver()
+		eq(#world:As(king, king.W.ReviewInbox), 0, "unknown own-side identity waits nowhere on the reviewer")
+		eq(#victim.rdb.wanted.evidence, 1, "its original local record is retained")
+		eq(select(2, world:As(victim, victim.W.SendEvidence, king.name)), "sent", "queue success is not a remote acceptance acknowledgement")
+		GetPlayerInfoByGUID = serverLookup
+		world.epoch = world.epoch + victim.W.SEND_WAIT
+		world:Load(victim)
+		assert(world:As(victim, victim.W.SendEvidence, king.name)); world:Deliver()
+		local inbox = world:As(king, king.W.ReviewInbox)
+		eq(#inbox, 1); eq(inbox[1].at, death.at); eq(inbox[1].victimGuid, victim.guid)
+		eq(inbox[1].kind, "SELF_DEATH"); eq(inbox[1].state, "pending")
+		assert(world:As(king, king.W.Review, inbox[1].key, true))
+		eq(#world:As(king, king.W.Ledger), 1)
+	end)
+end)
 
 test("wanted relay: a late independently anchored peer recovers an unchanged word with its publisher offline", function()
 	WithWorld(function(world)
@@ -1998,7 +2092,7 @@ test("wanted world: a saved word shows again only while it holds: edited rows, a
 	end)
 end)
 
-test("wanted world: observers who disagree about one death: the reviewer sees the conflict and can keep only one killer", function()
+test("wanted world: own-claim submitters who disagree about one death: the reviewer sees the conflict and can keep only one killer", function()
 	WithWorld(function(world)
 		local king = world:Client("Varrick-Realm", "Player-1-0A000031", "king")
 		local alpha = world:Client("Alpha-Realm", "Player-1-0A000032")
@@ -2012,6 +2106,13 @@ test("wanted world: observers who disagree about one death: the reviewer sees th
 				assert(cl.W.CaptureCombatLog(500 + i, "PARTY_KILL", false, targetGuid, targetName, 0, 0, gamma.guid, gamma.name))
 			end)
 		end
+		gamma.manager, gamma.dead = true, true
+		world:As(gamma, function()
+			assert(gamma.W.AddTarget(targetName, targetGuid))
+			assert(gamma.W.CaptureSelfDeathRecap({ fatal = true, id = "contested-death", killerName = targetName,
+				killerGUID = targetGuid, victimName = gamma.name, victimGUID = gamma.guid }))
+		end)
+		gamma.dead = false
 		world.epoch = world.epoch + 6
 		-- The same death of the target, each client naming its own player as the killer.
 		for i, cl in ipairs({ alpha, beta }) do
@@ -2022,20 +2123,21 @@ test("wanted world: observers who disagree about one death: the reviewer sees th
 		world.epoch = world.epoch + 6
 		eq(world:As(alpha, alpha.W.SendEvidence, king.name), 2)
 		eq(world:As(beta, beta.W.SendEvidence, king.name), 2)
+		eq(world:As(gamma, gamma.W.SendEvidence, king.name), 1)
 		world:Deliver()
 		local inbox = world:As(king, king.W.ReviewInbox)
-		eq(#inbox, 4)
+		eq(#inbox, 3, "only the actual victim and the two own-claim submitters reach review")
 		local claims, bounties = {}, {}
 		for _, e in ipairs(inbox) do
 			if e.action == "claim" then claims[#claims + 1] = e else bounties[#bounties + 1] = e end
 		end
 		eq(claims[1].conflict, false); eq(claims[2].conflict, true, "the second account is flagged on arrival")
-		for _, e in ipairs(bounties) do assert(world:As(king, king.W.Review, e.key, true), "two copies of one death: provenance") end
+		for _, e in ipairs(bounties) do assert(world:As(king, king.W.Review, e.key, true), "the victim's own death") end
 		assert(world:As(king, king.W.Review, claims[1].key, true))
 		local ok, why = world:As(king, king.W.Review, claims[2].key, true)
 		eq(ok, false); eq(why, "conflict")
 		local rows = world:As(king, king.W.ReviewedRankings)
-		eq(#rows, 1); eq(rows[1].guid, claims[1].killerGuid); eq(rows[1].points, 1, "two copies of the bounty paid one point")
+		eq(#rows, 1); eq(rows[1].guid, claims[1].killerGuid); eq(rows[1].points, 1, "the victim's death paid one point")
 
 		assert(world:As(king, king.W.Withdraw, claims[1].key))
 		assert(world:As(king, king.W.Review, claims[2].key, true), "the reviewer keeps the other killer instead")
@@ -2196,10 +2298,45 @@ test("Most Wanted: no Olympus file registers a restricted combat log event (Fore
 	eq(#found, 0, table.concat(found, "\n"))
 end)
 
+test("wanted own-proof: claimed or revoked membership and unknown identity cannot consume review; real self and server-named members still work", function()
+	WithWanted(function(w, W, c)
+		local reviewer = w.authority("OwnReviewer-Realm", "council")
+		c.me = reviewer
+		local sender = w.participant("ForeignVictim-Realm", "Player-1-CC000031")
+		local H = w.commHandlers.WX
+		local function Wire(digest, victim)
+			return ("WX~1~%016x~%d~24000~S~B~1.dd000031~%s"):format(digest, w.epoch, victim or "1.cc000031")
+		end
+		w.rosterStale = true
+		H("WHISPER", sender, Wire(1))
+		eq(#W.ReviewInbox(), 0, "a stale own roster and numeric-only guild claim grant no review authority")
+		c.Channels.VerifiedLevel = function() return 1, true end
+		local admitted, why = H("WHISPER", sender, Wire(2, "1.cc000032"))
+		eq(admitted, false); eq(why, "identity")
+		eq(#W.ReviewInbox(), 0, "verified membership cannot invent an unknown own GUID")
+		assert(H("WHISPER", sender, Wire(3)), "independently verified membership plus server GUID proof")
+		c.Channels.VerifiedLevel = function() return 0, false end
+		admitted, why = H("WHISPER", sender, Wire(4))
+		eq(admitted, false); eq(why, "olympus", "revoked source cannot submit more rows")
+		eq(#W.ReviewInbox(), 1)
+		w.rosterStale = false
+		assert(H("WHISPER", sender, Wire(5)), "fresh own roster remains a legitimate fallback")
+		w.units.player.name = reviewer
+		w.olympian(reviewer)
+		GetPlayerInfoByGUID = nil
+		assert(H("WHISPER", reviewer, Wire(6, "1.aa000001")), "real own player GUID/name works without a GUID cache API")
+		admitted, why = H("WHISPER", sender, Wire(7, "1.aa000001"))
+		eq(admitted, false); eq(why, "not-own", "another name cannot appropriate the known self GUID")
+		eq(#W.ReviewInbox(), 3)
+		eq(#W.Ledger(), 0, "positive identity is still testimony until a human accepts")
+	end)
+end)
+
 test("wanted review adversarial (1.2.0): WX only from a member, about his own kill or death: a stranger's row, or a member's row whose Olympian side names someone else, waits nowhere", function()
 	WithWanted(function(w, W, c)
 		c.me = w.authority("OwnReviewer-Realm", "council")
 		local H = w.commHandlers.WX
+		w.participant("Ownvictim-Realm", "Player-1-CC000022")
 		w.strangers[c.Fold("Outsider-Realm")] = true
 		H("WHISPER", "Outsider-Realm", ("WX~1~00000000000000b1~%d~24000~S~B~1.dd000021~1.cc000021"):format(w.epoch))
 		eq(#W.ReviewInbox(), 0, "a stranger's evidence")

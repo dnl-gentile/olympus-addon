@@ -1274,28 +1274,41 @@ local function ConflictOf(e, acceptedOnly)
 	return nil
 end
 
--- 1.2.0: an Olympus member (our roster, or a federation guild's claim the channel takes).
+-- A fresh own-guild roster, or independently verified federation membership; a guild claim
+-- alone (VerifiedLevel's numeric fallback) is not evidence authority.
 local function EvidenceMember(sender)
 	local R = ns.Roster
-	if R and R.RankOf and R.RankOf(sender) ~= nil then return true end
+	if R and type(R.Fresh) == "function" and type(R.RankOf) == "function" then
+		local ok, fresh = pcall(R.Fresh)
+		if ok and fresh and R.RankOf(sender) ~= nil then return true end
+	end
 	local C, M = ns.Channels, ns.Moderation
-	if type(C) ~= "table" or type(C.VerifiedLevel) ~= "function" then return false end
+	if type(C) ~= "table" or C.missing or type(C.VerifiedLevel) ~= "function" then return false end
 	local guild = M and M.GuildOf and M.GuildOf(sender)
 	if type(guild) ~= "string" or guild == "" or not (ns.IsFederation and ns.IsFederation(guild)) then return false end
-	local ok, level = pcall(C.VerifiedLevel, sender, guild)
-	return ok and type(level) == "number" and level >= 1
+	local ok, level, verified = pcall(C.VerifiedLevel, sender, guild)
+	return ok and type(level) == "number" and level >= 1 and verified == true
 end
 
 -- Whether a player GUID is the sender's character: true or false when this client can name it
 -- (a unit, or the game's cache of seen players), nil when it cannot.
 local function GuidIsSender(guid, sender)
 	local who = ns.Fold(ns.FullName(sender))
+	local self = UnitIdentity("player")
+	if self and self.guid == guid then return ns.Fold(ns.FullName(self.name)) == who end
 	if type(UnitTokenFromGUID) == "function" then
 		local ok, token = pcall(UnitTokenFromGUID, guid)
 		if ok and type(token) == "string" and not Secret(token) then
-			local name = ns.UnitFullName(token)
-			if type(name) == "string" and not Secret(name) then return ns.Fold(ns.FullName(name)) == who end
+			local unit = UnitIdentity(token)
+			if unit and unit.guid == guid then return ns.Fold(ns.FullName(unit.name)) == who end
 		end
+	end
+	-- Debts.InfoName is the existing guarded server GUID lookup (including clients that split
+	-- character surnames into the realm field); it does not accept a packet's asserted name.
+	local D = ns.Debts
+	if D and type(D.InfoName) == "function" then
+		local ok, name = pcall(D.InfoName, guid)
+		if ok and type(name) == "string" and name ~= "" and not Secret(name) then return ns.Fold(ns.FullName(name)) == who end
 	end
 	if type(GetPlayerInfoByGUID) == "function" then
 		local ok, _, _, _, _, _, name, realm = pcall(GetPlayerInfoByGUID, guid)
@@ -1313,16 +1326,17 @@ local function ReviewEvidence(sender, body)
 	at, month = tonumber(at), tonumber(month)
 	local killer, victim = GameGuid(killerWire), GameGuid(victimWire)
 	if version ~= "1" or not digest or #digest ~= 16 or not at or not Whole(month, 0, 120000)
-		or not killer or not victim then return false, "shape" end
+		or not killer or not victim or (kind == "S") ~= (action == "B") then return false, "shape" end
 	local now = math.floor(Clock())
 	if at > now + Wanted.GLOBAL_SKEW or now - at > Wanted.EVIDENCE_AGE then return false, "stale" end
 	sender = CleanName(sender)
 	if not sender then return false, "sender" end
-	-- 1.2.0: a member's own evidence only: the Olympian side of the row (the killer of a party
-	-- kill, the victim of a death) is the sender whenever this client can name that GUID.
+	-- Only the sender's own kill or death: a positive server identity proof is required.
+	-- Unknown GUIDs cannot become fabricated Slayers after a manual review.
 	if ns.Moderation and ns.Moderation.Hides and ns.Moderation.Hides(sender) then return false, "olympus" end
 	if not EvidenceMember(sender) then return false, "olympus" end
-	if GuidIsSender(kind == "S" and victim or killer, sender) == false then return false, "not-own" end
+	local own = GuidIsSender(kind == "S" and victim or killer, sender)
+	if own ~= true then return false, own == false and "not-own" or "identity" end
 	local key = ns.Fold(sender) .. "#" .. digest
 	-- A row held already costs the sender's rate nothing: after his reload his client may send
 	-- again what it sent before. Pending here, or accepted (in this session or an earlier one:
@@ -3405,7 +3419,7 @@ ns.RegisterEvent("PLAYER_ENTERING_WORLD", function() Wanted.RefreshPins() end)
 ns.RegisterEvent("ZONE_CHANGED_NEW_AREA", function() Wanted.RefreshPins() end)
 if ns.Comm and ns.Comm.Handle then
 	ns.Comm.Handle("WX", function(dist, sender, text)
-		if dist == "WHISPER" and type(text) == "string" then ReviewEvidence(sender, text) end
+		if dist == "WHISPER" and type(text) == "string" then return ReviewEvidence(sender, text) end
 	end)
 	ns.Comm.Handle("WY", function(...) Wanted.HandleGlobalSnapshot(...) end)
 	ns.Comm.Handle("W4", function(...) Wanted.AnswerGlobal(...) end)

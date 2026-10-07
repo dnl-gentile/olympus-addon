@@ -1927,7 +1927,7 @@ message (the game adds it). What goes where:
 | The Church: what your addon read in your guild's log (an invite by a Church person and the join after it: both names, your guild, the hours), a registration (the name), your public-row choice | the Church's keepers online (the Head, the Apostles, the author), alone (whispers); kept on your client up to 7 days while none is online | a Church person's own addon every 5 minutes; any other member's only where a Church person was heard in the guild lately, drawn so that about two of each guild read; your own invite count and your guild's joins and leaves are never sent |
 | The Church's seen-check (a name) and its answer (the guild your roster saw him in, the first and last day, whether he is in it now) | the check: everyone on the Olympus channel, from the desk (a keeper). The answer: that keeper alone (a whisper) | the desk asks about each new recruit, a registered one on its days and 7 days after a join; about two clients of each guild that knew the name answer |
 | The Church's numbers (rankings, a person's detail) and the keepers' ledger | the Church's audience who asked (the Church, the High Council, the King, the author), alone; the ledger between keepers alone | when a member of that audience opens the tab or refreshes; never on the channel, except, while the author's switch is open, the rows of the people who chose to show theirs and the top 3 of each ranking (names only) |
-| Most Wanted evidence (WX): a kill of a listed Horde player by you, or your own death to one: both GUIDs, the time and month, bounty or claim | the one reviewer you choose (the King, a High Councillor or the author), alone (a whisper) | only when you send it (**Send evidence**); a reviewer keeps it only from a member, about the sender's own kill or death, and nothing counts until he accepts it by hand |
+| Most Wanted evidence (WX): a kill of a listed Horde player by you, or your own death to one: both GUIDs, the time and month, bounty or claim | the one reviewer you choose (the King, a High Councillor or the author), alone (a whisper) | only when you send it (**Send evidence**); a reviewer keeps it only from a verified member whose own kill/death identity he can resolve, and nothing counts until he accepts it by hand |
 | The reviewed Slayers top three (WY): GUIDs, scores, claims and tie times, with the issuer, signature and expiry | everyone on the Olympus channel | from the King's, a High Councillor's or the author's client, after a review; an unchanged verified word may also be relayed by one of these roles (W5) |
 | Slayers catch-up (W4): a request for the current signed ranking | everyone on the Olympus channel | up to three login attempts, starting after 45 seconds and then 5 minutes apart; a role holder answers at most once every 5 minutes |
 | A Most Wanted sighting (WS, 1.2.0): a listed Horde player's name and GUID, your map position (rounded) and layer, the time, your name and guild | the one reviewer you send your evidence to, alone (whispers), three a minute at most | only after your own Yes on its privacy line (**Accept all** does not turn it on), only while you share your zone and layer, only for players on your Most Wanted list, never in an instance; `/oly sightings off` stops it |
@@ -1946,6 +1946,19 @@ from a trusted peer while the original publisher is offline. A brand-new client 
 anchor still needs a direct publisher word; this is not guaranteed offline bootstrapping.
 WY, W4 and W5 use the Olympus channel's public or sealed audience described below, not a
 private staff lane. Older clients ignore W4/W5 and still accept original direct WY words.
+
+WX membership needs a fresh roster of the reviewer's own guild or independently verified
+federation membership; a claimed guild or a census row alone is insufficient. A death must be
+the sender's own (S/B), a claim the sender's own party kill (P/C), with a positive server
+GUID/name lookup or matching real player unit. Unknown or mismatched identities do not enter
+the review inbox, and this identity check still does not authenticate the claimed event:
+the reviewer must accept it by hand. Local observations are not removed by intake refusal.
+Cross-guild sources whose GUID the reviewer cannot resolve may therefore be refused. Sending
+is not a remote acceptance acknowledgement, and there is no separate unknown-evidence inbox
+or automatic proof-recovery retry. After the sender reloads, **Send evidence** can retry the
+same saved eligible record (up to 31 days old, with a clock margin), subject to its send wait;
+the sender may also choose another reviewer. This does not guarantee every death is recorded
+or every report reaches an offline reviewer.
 
 **What waits for your yes.** Your zone and layer (below), layer help, your dot on your guild's
 map, a treasury keeper's book, a sister guild's bank (1.1), a Royal Inspection's report, your answers to the author's roll
