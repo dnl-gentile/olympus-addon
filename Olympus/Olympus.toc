@@ -29,6 +29,7 @@ Locales\ArenaLotteryText.lua
 Locales\ArenaMatchText.lua
 Locales\ComplianceText.lua
 Locales\ChurchText.lua
+Locales\WeeklyBriefText.lua
 Core.lua
 GamepadRegistry.lua
 Gamepad.lua
@@ -85,6 +86,7 @@ Watch.lua
 Judgment.lua
 KingArrow.lua
 Consent.lua
+WeeklyBrief.lua
 ChatRooms.lua
 WarSquads.lua
 CraftRequests.lua
