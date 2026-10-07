@@ -3204,9 +3204,9 @@ test("1.2 P1.8 Bones entry: the full table is an in-world introduction with one 
 end)
 
 -- /oly games photos (the owner's slides): a test build's tour of the games' screens, its rolls
--- scripted (RandomRoll handed straight to the game's reader, never to chat), put back at the end;
+-- scripted through the companion's local roll function, never replacing the game's RandomRoll;
 -- refused on a player's client.
-test("1.2 /oly games photos: a test build's tour, its rolls scripted and RandomRoll put back; a player's client refuses", function()
+test("1.2 /oly games photos: a test build's tour scripts only local rolls; a player's client refuses", function()
 	local w = World.New()
 	local t = w:Client("Wenna Crale", { testBuild = TestBuild(w) })
 	local p = w:Client("Lida Fenn")
@@ -3218,20 +3218,83 @@ test("1.2 /oly games photos: a test build's tour, its rolls scripted and RandomR
 	eq(Printed(p, p.companion.own.ArenaUI and p.ns.L.ARENA_GAMES_PHOTOS_REFUSED or "?") > 0 or p.companion.loaded ~= true, true, "refused")
 	-- (the Olympus window itself is not built in the test world: its tab choice is a no-op here; a
 	-- step that fails ends the tour, so the rest runs only when every step works)
+	t.ns.UI = t.ns.UI or {}
 	t.ns.UI.SelectTab = function() end
 	w:As(t, function() t.slashes.OLYMPUS("games photos") end)
+	local duringTour = RandomRoll
 	eq(t.companion.own.ArenaUI.Kit.PhotoStaged(), true, "the windows on black while it runs")
 	local shots = 0
 	local wasShot = rawget(_G, "Screenshot")
 	Screenshot = function() shots = shots + 1 end
 	w:Run(200)
 	Screenshot = wasShot
-	eq(RandomRoll, mine, "RandomRoll put back")
+	eq(RandomRoll, mine, "the game's RandomRoll remains unchanged afterward")
+	eq(duringTour, mine, "the game's RandomRoll is not replaced even while the tour runs")
 	eq(t.companion.own.ArenaUI.Kit.PhotoStaged(), false, "the black stage taken away at the end")
+	eq(t.companion.own.Roll, nil, "the local roll delegate cleared at the end")
 	eq(rolled, 0, "nothing rolled for real")
 	assert(shots >= 17, "a shot a step: " .. shots .. " " .. tostring(t.companion.own.ArenaUI.lastPhotosError))
 	eq(Printed(t, t.ns.L.ARENA_GAMES_PHOTOS_DONE:format(shots)), 1, "done said")
 	RandomRoll = was
+end)
+
+test("1.2 /oly games photos: Escape and a failed step restore the local roll delegate", function()
+	for _, stop in ipairs({ "escape", "error" }) do
+		local w = World.New()
+		local t = w:Client("Wenna Crale", { testBuild = TestBuild(w) })
+		local own = w:As(t, function() return H.LoadCompanion(t.ns) end)
+		local previous = function() end
+		own.Roll = previous
+		t.ns.UI = { SelectTab = function() if stop == "error" then error("photo step failure") end end }
+		w:As(t, function()
+			eq(own.ArenaUI.GamesPhotos(), true, "tour accepted")
+			if stop == "escape" then
+				assert(own.Roll ~= previous, "the tour holds its own roll delegate")
+				local stage
+				for _, part in ipairs(t.frames) do
+					if part.frame:GetName() == "OlympusPhotoBackdrop" then stage = part.frame break end
+				end
+				assert(stage, "the backdrop Escape closes")
+				stage:Hide()
+				-- This world's Hide does not dispatch scripts: simulate the game's OnHide event.
+				stage:GetScript("OnHide")(stage)
+			end
+		end)
+		eq(own.Roll, previous, stop .. " restores the previous local delegate")
+		eq(own.ArenaUI.Kit.PhotoStaged(), false, stop .. " removes the stage")
+		w:Run(200)
+		eq(own.Roll, previous, "queued tour steps cannot change the restored delegate")
+		if stop == "error" then assert(tostring(own.ArenaUI.lastPhotosError):find("photo step failure", 1, true)) end
+	end
+end)
+
+test("1.2 /oly games photos: practice games use the companion's delegate or the native roll", function()
+	for _, scripted in ipairs({ true, false }) do
+		local w = FW.New()
+		local t = w:Player("Wenna Crale", { testBuild = TestBuild(w) })
+		local own = w:As(t, function() return H.LoadCompanion(t.ns) end)
+		local native, localRolls = {}, {}
+		t.globals.RandomRoll = function(low, high) native[#native + 1] = { low, high } end
+		if scripted then own.Roll = function(low, high) localRolls[#localRolls + 1] = { low, high } end end
+		w:As(t, function()
+			own.Farkle._.S.rulesSeen = true
+			own.Farkle.Open("practice")
+			local parts = own.Farkle._.parts()
+			parts.win:GetScript("OnShow")(parts.win)
+			parts.primary:GetScript("OnClick")(parts.primary, "LeftButton") -- Start
+			parts.primary:GetScript("OnClick")(parts.primary, "LeftButton") -- Roll
+			own.Bicho._.S.letterSeen = true
+			own.Bicho.Open()
+			own.Bicho.Draw()
+		end)
+		w:Run(0.7) -- The Lottery asks for its first prize after the draw's opening animation.
+		local calls = scripted and localRolls or native
+		eq(#calls, 2, "both practice games use the selected roll function")
+		eq(calls[1][1], 1); eq(calls[1][2], 46656, "Bones' six-die range")
+		eq(calls[2][1], 1); eq(calls[2][2], 10000, "the Lottery's prize range")
+		eq(#(scripted and native or localRolls), 0, "only the selected roll function runs")
+		NoErrors(w)
+	end
 end)
 
 -- (The 1.1.6 base: the gamepad gate's "photo" covers the companion's tours too, now that the audit

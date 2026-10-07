@@ -793,7 +793,7 @@ local function AskRoll(n)
 	S.pending, S.hint = p, nil
 	Fresh(1)
 	Shake(1)
-	local ok = pcall(RandomRoll, 1, FR.RANGES[n]) -- gp:arena-clicks
+	local ok = pcall(ns.Roll or RandomRoll, 1, FR.RANGES[n]) -- gp:arena-clicks
 	if not ok then S.hint = ("The game refused the roll: type /roll %d."):format(FR.RANGES[n]) end
 	C_Timer.After(6, function()
 		if S.pending ~= p then return end
