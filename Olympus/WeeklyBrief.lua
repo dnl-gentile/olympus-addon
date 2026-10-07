@@ -124,10 +124,96 @@ function Brief.Lines(q)
 	return lines
 end
 
+local function Companion()
+	local layers = ns.Layers
+	if not layers or not layers.Sharing or not layers.Sharing() then return L.BRIEF_LOCATION_PRIVATE end
+	local mine = layers.Mine and layers.Mine()
+	local map = layers.CurrentMap and layers.CurrentMap()
+	if not mine or mine.mapID ~= map or not layers.ForMap then return L.BRIEF_UNKNOWN end
+	local guild = GetGuildInfo("player")
+	for _, layer in ipairs(layers.ForMap(map)) do
+		local h = layer.head
+		if h and h.guild ~= guild and ns.IsFederation(h.guild) then
+			return Plain(h.name, 64) .. " <" .. Plain(h.guild, 40) .. ">"
+		end
+	end
+	return L.BRIEF_UNKNOWN -- not an assertion that no sister guild member is there
+end
+
+function Brief.PersonalLines()
+	local now, nextEntry = ns.Now()
+	for _, e in ipairs(ns.Week and ns.Week.Entries and ns.Week.Entries() or {}) do
+		if e.at >= now and (not nextEntry or e.at < nextEntry.at) then nextEntry = e end
+	end
+	local nextText = L.BRIEF_NONE
+	if nextEntry then
+		local role = ns.Week.MySignup and ns.Week.MySignup(nextEntry.id)
+		local signup = role and L.BRIEF_SIGNED:format(Plain(L["SIGN_ROLE_" .. role] or role, 40)) or L.BRIEF_UNSIGNED
+		nextText = Plain(nextEntry.title, 60) .. " — " .. ns.Week.DayLabel(nextEntry.at) .. " " .. ns.Week.TimeLabel(nextEntry.at) .. "; " .. signup
+	end
+	local open = {}
+	local C = ns.Court
+	if C and ((C.Current and C.Current()) or (C.Holding and C.Holding())) then open[#open + 1] = L.BRIEF_COURT_OPEN end
+	if ns.Vox and ns.Vox.State then
+		local poll, _, shown = ns.Vox.State()
+		if (poll and not poll.closed and not poll.preview and poll.at >= now)
+			or (shown and not shown.counts and shown.at >= now) then open[#open + 1] = L.BRIEF_VOX_OPEN end
+	end
+	local R = ns.Roster and ns.Roster.Fresh and ns.Roster.Fresh()
+	local online = R and type(R.online) == "table" and tostring(#R.online) or L.BRIEF_UNKNOWN
+	return { L.BRIEF_NEXT:format(nextText), L.BRIEF_OPEN:format(#open > 0 and table.concat(open, ", ") or L.BRIEF_NONE),
+		L.BRIEF_ONLINE:format(online), L.BRIEF_COMPANION:format(Companion()), L.BRIEF_PAYMENT }
+end
+
+local function PersonalStore()
+	if not ns.db then return nil end
+	if type(ns.db.weeklyBriefShown) ~= "table" then ns.db.weeklyBriefShown = {} end
+	return ns.db.weeklyBriefShown
+end
+
+-- These are the same guarded client APIs Core's alerts and Letters use. Unlike /oly alerts
+-- always, the weekly panel never overrides Busy or an instance, and unknown Busy stays closed.
+local function PersonalBusy()
+	if (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance()) then return true end
+	if type(UnitIsDND) ~= "function" then return true end
+	local ok, dnd = pcall(UnitIsDND, "player")
+	if not ok or (issecretvalue and issecretvalue(dnd)) then return true end
+	return dnd and true or false
+end
+
+function Brief.TryPersonal()
+	if not ns.IsMember() or PersonalBusy() then return false end
+	local consent = ns.Consent
+	if not consent or consent.missing or not consent.Waiting or consent.Waiting()
+		or (consent.NoticeDue and consent.NoticeDue()) then return false end
+	local f = consent.Frame and consent.Frame()
+	if f and f:IsShown() then return false end
+	local letter = ns.Letters and ns.Letters.Frame and ns.Letters.Frame()
+	if letter and letter:IsShown() then return false end
+	local week, shown = Week(), PersonalStore()
+	if type(week) ~= "number" or not shown or shown[ns.me] == week then return false end
+	local data = { week = week, character = ns.me }
+	return ns.ShowDialog("OLYMPUS_WEEKLY_BRIEF", table.concat(Brief.PersonalLines(), "\n"), nil, data) ~= nil
+end
+
+StaticPopupDialogs["OLYMPUS_WEEKLY_BRIEF"] = {
+	text = L.BRIEF_PERSONAL_POPUP, button1 = CLOSE or "Close", timeout = 0,
+	whileDead = true, hideOnEscape = true, preferredIndex = 3,
+	OnShow = function(self, data)
+		data = data or self.data
+		if type(data) == "table" and data.character == ns.me and data.week == Week() then
+			local shown = PersonalStore()
+			if shown then shown[ns.me] = data.week end
+		end
+	end,
+}
+
 -- No new outer tab or automatic navigation: the existing Board offers this Realm page.
 ns.RealmPages = ns.RealmPages or {}
 table.insert(ns.RealmPages, { key = "weeklybrief", Lines = Brief.Lines, tip = "BRIEF_NOTE" })
 ns.On("LOGIN", function()
 	ns.After(210, "weekly brief snapshot", Brief.Capture) -- after the ordinary census rebuild
 	ns.Every(60, "weekly brief snapshot", Brief.Capture)
+	ns.After(75, "personal weekly brief", Brief.TryPersonal)
+	ns.Every(60, "personal weekly brief", Brief.TryPersonal)
 end)
