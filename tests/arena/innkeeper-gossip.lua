@@ -39,7 +39,7 @@ local function Frame(parent)
 	return f
 end
 
-local function WithGossip(fn)
+local function WithGossip(fn, clientGlobals)
 	local w = FW.New({ seed = 7, compliance = "shipped" })
 	local a = w:Player(H.World.NAMES.fighterA, { bonesTrained = false })
 	w:Stand(a.name, FW.INN, true)
@@ -95,6 +95,8 @@ local function WithGossip(fn)
 		eq(f.shown, false, "native conversation closed before training launch")
 		starts[#starts + 1] = { what = what, id = id, extra = extra }; return true
 	end
+	-- Install optional native globals before As snapshots the host for restoration.
+	for key, value in pairs(clientGlobals or {}) do a.globals[key] = value end
 	w:As(a, function()
 		assert(loadfile(H.ADDON_DIR .. "InnkeeperGossip.lua"))("Olympus", a.ns)
 		local g = a.ns.InnkeeperGossip
@@ -189,11 +191,9 @@ test("Innkeeper gossip: local dialogue follows the native quest contrast theme",
 end)
 
 test("Innkeeper gossip: real input switches retain reload notice after native geometry is parked", function()
+	local hostEnum, hostStyle = Enum, C_InputInterfaceStyle
+	local style, notices = 0, 0
 	WithGossip(function(g, t)
-		local style, notices = 0, 0
-		C_InputInterfaceStyle = { GetCurrentStyle = function() return style end }
-		Enum = { InputDeviceInterfaceType = { KeyboardAndMouse = 0, Gamepad = 1 } }
-		t.a.globals.C_InputInterfaceStyle, t.a.globals.Enum = C_InputInterfaceStyle, Enum
 		assert(loadfile(H.ADDON_DIR .. "GamepadRegistry.lua"))("Olympus", t.a.ns)
 		assert(loadfile(H.ADDON_DIR .. "Gamepad.lua"))("Olympus", t.a.ns)
 		t.a.ns.Dialog = { Show = function() notices = notices + 1; return true end }
@@ -210,7 +210,12 @@ test("Innkeeper gossip: real input switches retain reload notice after native ge
 		style = 1
 		t.w:Fire(t.a, "INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0); t.pending[#t.pending]()
 		eq(notices, 1, "notice is once per session")
-	end)
+	end, {
+		C_InputInterfaceStyle = { GetCurrentStyle = function() return style end },
+		Enum = { InputDeviceInterfaceType = { KeyboardAndMouse = 0, Gamepad = 1 } },
+	})
+	eq(Enum, hostEnum, "the input-switch fixture leaves the host Enum intact")
+	eq(C_InputInterfaceStyle, hostStyle, "the input-switch fixture leaves the host input style intact")
 end)
 
 test("Innkeeper gossip: missing native template or unreadable content extent leaves no visible partial choice", function()

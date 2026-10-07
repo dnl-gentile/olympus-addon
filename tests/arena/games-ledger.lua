@@ -202,8 +202,9 @@ test("1.1.6 games ledger: the Lottery's practice: a free practice ticket (no sta
 	local UI, L, Lt = own.ArenaUI, a.ns.L, a.ns.Lottery
 	local m = w:As(a, UI.LotteryPracticeModel)
 	eq(m.free, true); eq(m.stake, nil, "no stake")
-	eq(m.compliance, L.COMPLIANCE_LOTTERY_PRACTICE, "the line about the review, country by country")
-	assert(L.COMPLIANCE_LOTTERY_PRACTICE:find("country by country", 1, true))
+	eq(m.compliance, L.COMPLIANCE_LOTTERY_PRACTICE, "the shipped free-practice policy")
+	assert(m.compliance:find("Free practice", 1, true) and m.compliance:find("cost nothing", 1, true)
+		and m.compliance:find("no gold moves", 1, true), "practice states that tickets are free and no gold moves")
 	eq(select(2, w:As(a, UI.LotteryPracticeDraw, { 1, 5, 9, 13, 17 })), "pick", "a beast first")
 	assert(w:As(a, UI.LotteryPracticePick, 2))
 	local result = w:As(a, UI.LotteryPracticeDraw, { 1, 5, 9, 13, 17 })

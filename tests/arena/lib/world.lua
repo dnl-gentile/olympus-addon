@@ -708,7 +708,7 @@ end
 local function Load(w, c)
 	local cns = setmetatable({}, { __index = H.ns })
 	c.ns = cns
-	local saved, slash, popups = {}, {}, {}
+	local saved, slash, popups, loadedSlash, loadedPopups = {}, {}, {}, {}, {}
 	for _, k in ipairs(SAVED_GLOBALS) do saved[k] = rawget(_G, k) end
 	for k, v in pairs(SlashCmdList) do slash[k] = v end
 	for k, v in pairs(StaticPopupDialogs) do popups[k] = v end
@@ -758,17 +758,17 @@ local function Load(w, c)
 			cns.Compliance.REGIONS = { TEST = World.COMPLIANCE_TEST_ROW }
 			cns.Compliance.Declared = function() return "TEST", 30 end
 		end
+		-- Capture registrations before As restores the host. On a reload, the files write
+		-- into this client's existing tables, not the host's initial loader tables.
+		cns.Gate.Install("slash")
+		for k, v in pairs(SlashCmdList) do loadedSlash[k] = v end
+		for k, v in pairs(StaticPopupDialogs) do loadedPopups[k] = v end
 	end)
-	-- (1.1.5: the slash commands are registered at login with mouse and keyboard, through the
-	-- gate: the client's own, as its login would.)
-	w:As(c, function() cns.Gate.Install("slash") end)
 	for _, k in ipairs(SAVED_GLOBALS) do rawset(_G, k, saved[k]) end
-	c.slashes = {}
-	for k, v in pairs(SlashCmdList) do c.slashes[k] = v end
+	c.slashes = loadedSlash
 	wipe(SlashCmdList)
 	for k, v in pairs(slash) do SlashCmdList[k] = v end
-	c.popups = {}
-	for k, v in pairs(StaticPopupDialogs) do c.popups[k] = v end
+	c.popups = loadedPopups
 	wipe(StaticPopupDialogs)
 	for k, v in pairs(popups) do StaticPopupDialogs[k] = v end
 	-- The modules, as the client's: c.Arena.Send(...) runs as c.
