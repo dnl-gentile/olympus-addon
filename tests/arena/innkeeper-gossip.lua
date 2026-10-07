@@ -86,7 +86,7 @@ local function WithGossip(fn)
 	end
 	a.globals.UnitGUID = function(unit) if unit == "npc" then return "Creature-0-1-0-1-295-00001" end end
 	a.globals.UnitName = function(unit) if unit == "npc" then return "Localized Innkeeper" end end
-	a.globals.C_GossipInfo = { CloseGossip = function() closed = closed + 1; f:Hide() end }
+	a.globals.C_GossipInfo = { CloseGossip = function() closed = closed + 1; f:Hide(); w:Fire(a, "GOSSIP_CLOSED") end }
 	a.globals.InCombatLockdown = function() return w.combat == true end
 	local after = a.ns.After
 	a.ns.After = function(_, _, call) pending[#pending + 1] = call end
@@ -343,11 +343,30 @@ test("Innkeeper gossip: missing native capability retains the existing Olympus o
 	end)
 end)
 
-test("Innkeeper gossip: a delayed native close event still hides the conversation before training", function()
+test("Innkeeper gossip: a delayed native close event owns closing the conversation before training", function()
 	WithGossip(function(g, t)
 		C_GossipInfo.CloseGossip = function() end
 		eq(g.ShowRow(), true); eq(g.Open(), true); eq(g.Confirm(), true)
-		eq(t.f.shown, false); eq(#t.starts, 1)
+		eq(t.f.shown, true, "addon never hides the native panel directly"); eq(#t.starts, 0)
+		eq(g.Confirm(), false, "confirmation cannot queue twice")
+		t.f:Hide(); t.w:Fire(t.a, "GOSSIP_CLOSED")
+		eq(#t.starts, 1); eq(t.starts[1].extra.learn, true)
+		t.w:Fire(t.a, "GOSSIP_CLOSED"); eq(#t.starts, 1, "close is idempotent")
+	end)
+end)
+
+test("Innkeeper gossip: native close handler order and cancelled training remain safe", function()
+	WithGossip(function(g, t)
+		C_GossipInfo.CloseGossip = function() end
+		eq(g.ShowRow(), true); eq(g.Open(), true); eq(g.Confirm(), true)
+		t.w:Fire(t.a, "GOSSIP_CLOSED")
+		eq(#t.starts, 0, "our event may run before Blizzard hides its panel")
+		t.f:Hide(); t.pending[#t.pending]()
+		eq(#t.starts, 1)
+		t.f:Show(); eq(g.ShowRow(), true); eq(g.Open(), true); eq(g.Confirm(), true)
+		t.w:Fire(t.a, "PLAYER_REGEN_DISABLED")
+		t.f:Hide(); t.w:Fire(t.a, "GOSSIP_CLOSED")
+		eq(#t.starts, 1, "combat cancels a queued close before training")
 	end)
 end)
 
