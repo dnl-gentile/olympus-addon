@@ -3055,9 +3055,8 @@ test("1.1.6 free play guides: permitted fixture retains the arena's four pages a
 	for k = 1, 4 do assert(#w:As(a, function() return UI.HowToParas(k) end) >= 3, "page " .. k) end
 end)
 
--- The owner, "the mock data is missing": on a test build the screens read the sim's sample data
--- where the real modules have nothing (the showcase), without the sim; a player's client does not.
-test("1.2 the showcase: a test build's screens show the sample data where nothing real is there; a player's show nothing", function()
+-- Release-test metadata permits explicit simulation, never unsolicited invented results.
+test("1.2 the showcase: a test build's empty real screens stay empty outside explicit simulation", function()
 	local w = World.New()
 	local t = w:Client("Wenna Crale", { testBuild = TestBuild(w) })
 	local p = w:Client("Lida Fenn")
@@ -3065,8 +3064,9 @@ test("1.2 the showcase: a test build's screens show the sample data where nothin
 	w:As(p, function() p.slashes.OLYMPUS("arena") end)
 	eq(t.Arena.Sim(), false, "not the sim")
 	local tr = w:As(t, function() return t.ns.ArenaHome.Data.Rankings("all", "A", 1) end)
-	assert(tr and #(tr.rows or {}) > 0, "the test build: sample rankings")
-	assert(#(w:As(t, function() return t.ns.ArenaHome.Data.Events() end) or {}) > 0, "and sample events")
+	eq(#((tr or {}).rows or {}), 0, "test metadata does not invent rankings")
+	eq(#(w:As(t, function() return t.ns.ArenaHome.Data.Events() end) or {}), 0, "or events")
+	eq(t.ns.ArenaHome.ShowcaseOn(), false)
 	local pr = w:As(p, function() return p.ns.ArenaHome.Data.Rankings("all", "A", 1) end)
 	eq(#((pr or {}).rows or {}), 0, "a player's client: nothing made up")
 	NoErrors(w)
@@ -3113,20 +3113,14 @@ test("1.2 the overflow audit: Kit.FitHeight sizes a pop-up from its text; a butt
 	eq(b.w, 200, "never shrunk here")
 end)
 
--- The owner: his own profile and History look lived in on a test build (the showcase): his own
--- sample fights, stakes and stats; never on a player's client.
-test("1.2 the showcase: the player's own profile and history have sample data on a test build", function()
+test("1.2 the showcase: a test build's own history and Bones history never acquire sample records on companion load", function()
 	local w = World.New()
 	local t = w:Client("Wenna Crale", { testBuild = TestBuild(w) })
 	w:As(t, function() t.slashes.OLYMPUS("arena") end)
-	local UI = t.companion.own.ArenaUI
-	local m = w:As(t, function() return UI.ProfileModel(nil) end)
-	assert(m and m.record and type(m.stats) == "table" and m.stats.bones, "his own record and stats")
 	local hist = w:As(t, function() return t.ns.ArenaHome.Data.History({ mine = true }) end)
-	assert(#hist >= 8 and #hist <= 12, "8 to 12 fights of his: " .. #hist)
-	local staked = 0
-	for _, h in ipairs(hist) do if h.stake then staked = staked + 1 end end
-	assert(staked > 0, "some staked")
+	eq(#hist, 0, "no invented fights or stakes")
+	eq(#w:As(t, function() return t.ns.ArenaHome.Data.BoneHistory() end), 0, "no invented Bones games")
+	eq(t.ns.ArenaHome.Source(), nil)
 	NoErrors(w)
 end)
 

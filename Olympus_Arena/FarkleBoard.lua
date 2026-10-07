@@ -3167,6 +3167,8 @@ local function Build()
 	end)
 	win:SetScript("OnHide", function()
 		if ArenaUI.BonesChat then ArenaUI.BonesChat.Hide() end
+		local sim = ArenaUI.SimModule
+		if type(sim) == "table" and type(sim.BonesChatHidden) == "function" then sim.BonesChatHidden(win) end
 		if not held then shell:Hide() end
 		if help then help:Hide() end
 		EscSync()

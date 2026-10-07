@@ -21,6 +21,7 @@ local Home = ns.ArenaHome
 -- crash drill (the design, through Wallet.Drill where the bank is on duty, else its sample).
 local Sim = {}
 ArenaUI.SimModule = Sim
+local bonesChatOwner -- the exact preview board/world/store, never another simulator scene
 
 -- About forty invented names (never the census, the roster or any real player): Sim.NAMES.
 Sim.NAMES = {
@@ -620,6 +621,7 @@ end
 
 -- The windows a scene may have opened: closed before the next one.
 local function CloseAll()
+	bonesChatOwner = nil -- scene changes and explicit exit relinquish the old preview first
 	local chat = ArenaUI.BonesChat
 	if type(chat) == "table" and type(chat.HidePreview) == "function" then chat.HidePreview() end
 	local fns = {}
@@ -732,7 +734,9 @@ function ArenaUI.Sim(args)
 		if not Sim.Go(scene) then return false end
 		local parent = board.Window()
 		if not parent then return false end
-		return chat.Preview(parent, board.ChatLayout)
+		local ok = chat.Preview(parent, board.ChatLayout)
+		if ok then bonesChatOwner = { parent = parent, world = W, store = ns.Arena.Store("L") } end
+		return ok
 	end
 	return Sim.Go(tonumber(word) or Sim.scene or 1)
 end
@@ -753,6 +757,17 @@ function Sim.Stop()
 	if ArenaUI.IsShown and ArenaUI.IsShown() then ArenaUI.Hide() end
 	return true
 end
+-- Closing this preview's real table returns to real reads. A scene change or replacement of
+-- the simulator's memory store cannot give an old board ownership of the new session.
+function Sim.BonesChatHidden(parent)
+	local owner = bonesChatOwner
+	if not owner or owner.parent ~= parent then return false end
+	bonesChatOwner = nil
+	if ns.Arena.Sim() and Home.Source() == source and owner.world == W and owner.store == ns.Arena.Store("L") then
+		return Sim.Stop()
+	end
+	return false
+end
 -- /oly arena sim off (ArenaNet turns it off): the screens follow.
 ns.On("ARENA_CHANGED", function()
 	if not ns.Arena.Sim() and Home.Source() == source then ns.SafeCall("arena sim stop", Sim.Stop) end
@@ -769,4 +784,5 @@ function Sim.Showcase()
 	Home.SetShowcase(source)
 	return true
 end
-ns.SafeCall("arena showcase", Sim.Showcase)
+-- Release-test metadata authorizes an explicit simulator; companion load never substitutes
+-- invented records for empty real history, profiles or rankings.
