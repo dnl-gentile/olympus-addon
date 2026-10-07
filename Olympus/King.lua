@@ -1513,11 +1513,6 @@ local function HomeLines()
 	elseif not mine then
 		Para(lines, L.THRONE_COUNCIL_HINT, INK, { gapAfter = true })
 	end
-	local B = ns.WeeklyBrief
-	if B and not B.missing and type(B.PersonalPage) == "function" then
-		lines[#lines].gapAfter = true
-		lines[#lines + 1] = Line("> " .. L.BRIEF_PERSONAL_TITLE, TITLE, { onClick = Go("personalbrief"), gapAfter = true })
-	end
 	-- (1.2: the court's queue is in The Watch, with Judgment.)
 	if mine or steward then
 		-- 1.1: the army's key, the King's to rotate, or his Steward's for him (Keys.lua).
@@ -1558,9 +1553,7 @@ function King.Build(s)
 	if not King.mode then King.mode = "home" end
 	local mode = King.mode
 	if King.KING_PAGES[mode] and not (King.SetsLists() or King.Preview()) then mode = "home" end
-	if mode == "personalbrief" and ns.WeeklyBrief and not ns.WeeklyBrief.missing and type(ns.WeeklyBrief.PersonalPage) == "function" then
-		lines = ns.WeeklyBrief.PersonalPage()
-	elseif mode == "hands" then lines = HandsLines()
+	if mode == "hands" then lines = HandsLines()
 	else lines, home = HomeLines(), true end
 	-- Every other page leads back to the Throne Room.
 	if not home then table.insert(lines, 1, Line("< " .. L.THRONE_ROOM, INK, { onClick = Go("home"), gapAfter = true })) end

@@ -171,70 +171,53 @@ function Brief.PersonalLines()
 		L.BRIEF_COMPANION:format(values[4]), L.BRIEF_PAYMENT }
 end
 
--- A reopenable read-only Throne page. The weekly notice keeps its existing five-line form;
--- this page gives those same held facts room to wrap in the Throne's dark parchment ink.
-function Brief.PersonalPage()
-	local K = ns.King
-	if not K or K.missing or type(K.Line) ~= "function" or type(K.Para) ~= "function" then return {} end
-	local lines = { K.Line(L.BRIEF_PERSONAL_TITLE, K.TITLE, { gapAfter = true }) }
-	K.Para(lines, L.BRIEF_PERSONAL_NOTE, K.INK, { gapAfter = true })
+local INK, TITLE = "QuestFont", "QuestTitleFont"
+Brief.PAPER_WRAP = 44
+local function PaperLine(text, font, extra)
+	local line = { text = text, font = font or INK }
+	for key, value in pairs(extra or {}) do line[key] = value end
+	return line
+end
+local function Paragraph(lines, text, font, extra)
+	local row = ""
+	for word in tostring(text or ""):gmatch("%S+") do
+		if row ~= "" and #row + 1 + #word > Brief.PAPER_WRAP then
+			lines[#lines + 1] = PaperLine(row, font)
+			row = word
+		else row = row == "" and word or row .. " " .. word end
+	end
+	if row ~= "" then lines[#lines + 1] = PaperLine(row, font, extra) end
+end
+function Brief.PersonalLink()
+	if not ns.IsMember() then return nil end
+	return { text = "|cffffd200> " .. L.BRIEF_PERSONAL_TITLE .. "|r", gapAfter = true,
+		onClick = function() ns.Views.ShowPage("personalbrief") end }
+end
+
+-- A member's reopenable Realm page in the main window, not a royal tool or a popup.
+-- The same five held facts use the existing parchment fonts, without depending on the King.
+function Brief.PersonalPage(q)
+	if not ns.IsMember() then return {} end
+	local lines = { PaperLine(L.BRIEF_PERSONAL_BACK, INK, { gapAfter = true,
+		onClick = function() ns.Views.ShowPage(nil) end }),
+		PaperLine(L.BRIEF_PERSONAL_TITLE, TITLE, { gapAfter = true }) }
+	Paragraph(lines, L.BRIEF_PERSONAL_NOTE, INK, { gapAfter = true })
 	local titles = { L.BRIEF_NEXT_TITLE, L.BRIEF_OPEN_TITLE, L.BRIEF_ONLINE_TITLE, L.BRIEF_COMPANION_TITLE, L.BRIEF_PAYMENT_TITLE }
 	for index, value in ipairs(PersonalValues()) do
-		K.Para(lines, tostring(index) .. ". " .. titles[index], K.TITLE)
-		K.Para(lines, value, K.INK, { gapAfter = true })
+		if not q or ns.Holds(q, titles[index], value) then
+			Paragraph(lines, tostring(index) .. ". " .. titles[index], TITLE)
+			Paragraph(lines, value, INK, { gapAfter = true })
+		end
 	end
 	return lines
 end
 
-local function PersonalStore()
-	if not ns.db then return nil end
-	if type(ns.db.weeklyBriefShown) ~= "table" then ns.db.weeklyBriefShown = {} end
-	return ns.db.weeklyBriefShown
-end
-
--- These are the same guarded client APIs Core's alerts and Letters use. Unlike /oly alerts
--- always, the weekly panel never overrides Busy or an instance, and unknown Busy stays closed.
-local function PersonalBusy()
-	if (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance()) then return true end
-	if type(UnitIsDND) ~= "function" then return true end
-	local ok, dnd = pcall(UnitIsDND, "player")
-	if not ok or (issecretvalue and issecretvalue(dnd)) then return true end
-	return dnd and true or false
-end
-
-function Brief.TryPersonal()
-	if not ns.IsMember() or PersonalBusy() then return false end
-	local consent = ns.Consent
-	if not consent or consent.missing or not consent.Waiting or consent.Waiting()
-		or (consent.NoticeDue and consent.NoticeDue()) then return false end
-	local f = consent.Frame and consent.Frame()
-	if f and f:IsShown() then return false end
-	local letter = ns.Letters and ns.Letters.Frame and ns.Letters.Frame()
-	if letter and letter:IsShown() then return false end
-	local week, shown = Week(), PersonalStore()
-	if type(week) ~= "number" or not shown or shown[ns.me] == week then return false end
-	local data = { week = week, character = ns.me }
-	return ns.ShowDialog("OLYMPUS_WEEKLY_BRIEF", table.concat(Brief.PersonalLines(), "\n"), nil, data) ~= nil
-end
-
-StaticPopupDialogs["OLYMPUS_WEEKLY_BRIEF"] = {
-	text = L.BRIEF_PERSONAL_POPUP, button1 = L.LETTERS_CLOSE, timeout = 0,
-	whileDead = true, hideOnEscape = true, preferredIndex = 3,
-	OnShow = function(self, data)
-		data = data or self.data
-		if type(data) == "table" and data.character == ns.me and data.week == Week() then
-			local shown = PersonalStore()
-			if shown then shown[ns.me] = data.week end
-		end
-	end,
-}
-
 -- No new outer tab or automatic navigation: the existing Board offers this Realm page.
 ns.RealmPages = ns.RealmPages or {}
 table.insert(ns.RealmPages, { key = "weeklybrief", Lines = Brief.Lines, tip = "BRIEF_NOTE" })
+table.insert(ns.RealmPages, { key = "personalbrief", Link = Brief.PersonalLink, Lines = Brief.PersonalPage,
+	tip = "BRIEF_PERSONAL_NOTE", parchment = true })
 ns.On("LOGIN", function()
 	ns.After(210, "weekly brief snapshot", Brief.Capture) -- after the ordinary census rebuild
 	ns.Every(60, "weekly brief snapshot", Brief.Capture)
-	ns.After(75, "personal weekly brief", Brief.TryPersonal)
-	ns.Every(60, "personal weekly brief", Brief.TryPersonal)
 end)

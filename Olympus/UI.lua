@@ -1538,18 +1538,10 @@ local function SetButtons(list, defs)
 	if list == main.detailButtons then LayoutDetailButtons() end
 end
 
--- Shows tab `key` in the window in use, and the window if it is closed. `focus`: the id of the
--- row it opens on (Views.lua: a guild clicked in the Census), in sight (UI.KeepPlace).
-local function ShowTab(key, focus)
-	if key ~= "realm" and ns.Views.CloseChat then ns.Views.CloseChat() end
-	main.tab = key
-	for k, v in pairs(main.views) do v:SetShown(k == key) end
-	main.scroll:SetScrollChild(main.views[key])
-	main.scroll:SetVerticalScroll(0)
-	-- A tab opened: its list starts at the top, or at the row it opens on (UI.KeepPlace).
-	main.page, main.wantScroll, main.focus = nil, nil, focus
-	-- The Throne is a page of parchment with dark ink (the rows use line.font).
-	if key == "throne" and not main.parchment then
+-- The Throne and explicitly registered Realm parchment pages share this existing surface.
+-- Refresh owns its visibility: in-page navigation need not select an outer tab again.
+local function SetParchment(on)
+	if on and not main.parchment then
 		local p = main.scroll:CreateTexture(nil, "BACKGROUND")
 		p:SetAllPoints(main.scroll)
 		local file = UI.FirstTexture(UI.PARCHMENTS)
@@ -1562,7 +1554,19 @@ local function ShowTab(key, focus)
 		end
 		main.parchment = p
 	end
-	if main.parchment then main.parchment:SetShown(key == "throne") end
+	if main.parchment then main.parchment:SetShown(on) end
+end
+
+-- Shows tab `key` in the window in use, and the window if it is closed. `focus`: the id of the
+-- row it opens on (Views.lua: a guild clicked in the Census), in sight (UI.KeepPlace).
+local function ShowTab(key, focus)
+	if key ~= "realm" and ns.Views.CloseChat then ns.Views.CloseChat() end
+	main.tab = key
+	for k, v in pairs(main.views) do v:SetShown(k == key) end
+	main.scroll:SetScrollChild(main.views[key])
+	main.scroll:SetVerticalScroll(0)
+	-- A tab opened: its list starts at the top, or at the row it opens on (UI.KeepPlace).
+	main.page, main.wantScroll, main.focus = nil, nil, focus
 	for i, tab in ipairs(main.tabs) do
 		if main.tabStyle == "side" then
 			-- The HD window's icon tabs: the selected one stays checked.
@@ -1880,6 +1884,8 @@ function UI.Refresh()
 			end
 		end
 		-- 1.2: the author's View as says in the header that what shows is a role's preview.
+		SetParchment(not locked and not playerProfile and (main.tab == "throne"
+			or main.tab == "realm" and ns.Views.PageParchment and ns.Views.PageParchment() == true))
 		if previewing then main.sub:SetText("|cffff9933" .. L.VIEW_AS_PREVIEWING:format(views.Label()) .. "|r") end
 		FitHeader()
 		if main.viewAs then

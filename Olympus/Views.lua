@@ -1510,6 +1510,10 @@ local function RealmPage(key)
 	return nil
 end
 function Views.PageShown() return pageShown end
+function Views.PageParchment()
+	local page = realmMode == "guilds" and not boardShown and pageShown and RealmPage(pageShown)
+	return type(page) == "table" and page.parchment == true
+end
 function Views.ShowPage(key)
 	pageShown = RealmPage(key) and key or nil
 	if pageShown then

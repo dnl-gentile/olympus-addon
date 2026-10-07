@@ -75,9 +75,9 @@ local function Text(lines)
 	return table.concat(out, "\n")
 end
 
-test("Weekly personal brief: Close uses Olympus's localized label without requiring a native global", function()
+test("Weekly personal brief: member page uses existing fonts without a King dependency, popup or native Close global", function()
 	local w, c = Client()
-	c.L = setmetatable({ LETTERS_CLOSE = "Fechar" }, { __index = c.L })
+	c.King = false
 	local constructor = assert(loadfile(ROOT .. "Olympus/WeeklyBrief.lua"))
 	setfenv(constructor, setmetatable({}, { __index = function(_, key)
 		assert(key ~= "CLOSE", "the brief must not require an unverified native CLOSE global")
@@ -88,7 +88,12 @@ test("Weekly personal brief: Close uses Olympus's localized label without requir
 	local definition = StaticPopupDialogs.OLYMPUS_WEEKLY_BRIEF
 	StaticPopupDialogs.OLYMPUS_WEEKLY_BRIEF = previous
 	assert(ok, err)
-	eq(definition.button1, "Fechar", "the player's locale, not a hard-coded English fallback")
+	eq(definition, nil, "no automatic or standalone personal popup is registered")
+	local page = c.RealmPages[#c.RealmPages]
+	eq(page.key, "personalbrief"); eq(page.parchment, true)
+	eq(w:As(page.Lines)[2].font, "QuestTitleFont", "same existing parchment typography, no royal builder")
+	c.IsMember = function() return false end
+	eq(page.Link(), nil); eq(#page.Lines(), 0, "the page does not widen addon membership")
 	eq(w.sent, 0)
 end)
 
@@ -148,82 +153,107 @@ test("Weekly personal brief: the parchment page wraps five labeled sections with
 	c.rdb.privateLedger = { donor = "Private donor", amount = 900000 }
 	local page = assert(c.WeeklyBrief.PersonalPage, "actual personal parchment builder")
 	local rows = w:As(page)
-	eq(rows[1].text, c.L.BRIEF_PERSONAL_TITLE); eq(rows[1].font, c.King.TITLE)
+	eq(rows[1].text, c.L.BRIEF_PERSONAL_BACK)
+	eq(rows[2].text, c.L.BRIEF_PERSONAL_TITLE); eq(rows[2].font, "QuestTitleFont")
 	local headings = { c.L.BRIEF_NEXT_TITLE, c.L.BRIEF_OPEN_TITLE, c.L.BRIEF_ONLINE_TITLE, c.L.BRIEF_COMPANION_TITLE, c.L.BRIEF_PAYMENT_TITLE }
 	local sections, bodies = {}, {}
 	for _, row in ipairs(rows) do
 		eq(row.right, nil, "long values never compete for a narrow right column")
-		eq(#row.text <= c.King.WRAP, true, "paragraph fits the existing Throne wrapping limit")
-		if row.font == c.King.TITLE and row.text:match("^%d%.") then sections[#sections + 1] = row.text end
-		if row.font == c.King.INK and row.gapAfter then bodies[#bodies + 1] = row.text end
+		eq(#row.text <= c.WeeklyBrief.PAPER_WRAP, true, "paragraph fits the main parchment wrapping limit")
+		if row.font == "QuestTitleFont" and row.text:match("^%d%.") then sections[#sections + 1] = row.text end
+		if row.font == "QuestFont" and row.gapAfter and not row.onClick then bodies[#bodies + 1] = row.text end
 	end
 	eq(#sections, 5); eq(#bodies, 6, "intro plus five spaced section bodies")
 	for index, heading in ipairs(headings) do
 		eq(sections[index], tostring(index) .. ". " .. heading)
 	end
 	local text = Text(rows):gsub("%s+", " ")
-	assert(text:find(c.Cut(title, 60), 1, true), "the same held title as the weekly notice survives paragraph wrapping")
+	assert(text:find(c.Cut(title, 60), 1, true), "the same held title as the five-line facts survives paragraph wrapping")
 	assert(text:find(c.L.BRIEF_LOCATION_PRIVATE, 1, true))
 	assert(text:find(c.L.BRIEF_PAYMENT_UNKNOWN, 1, true))
 	assert(not text:find("Private", 1, true), "private questions, audience words and donor records are not copied")
 	eq(w.sent, 0); eq(c.db.location, false); eq(c.db.layerHelp, false)
-	eq(c.db.weeklyBriefShown, nil, "manual reading does not consume the automatic notice")
+	eq(c.db.weeklyBriefShown, nil, "manual reading needs no automatic dismissal state")
 	eq(c.rdb.weeklyBrief, nil, "personal reading does not capture or mutate public snapshots")
 end)
 
-test("Weekly personal brief: actual Throne home opens and reopens its personal parchment while Board and access rules stay separate", function()
-	assert(H.WithThrone and H.AsKing and H.WithUI, "real Throne navigation fixture wired")
+test("Weekly personal brief: ordinary members open and reopen the main Realm parchment with mouse or gamepad, independently of public Board and Throne", function()
+	assert(H.WithThrone and H.AsSoldier and H.WithUI, "real ordinary-member navigation fixture wired")
 	H.WithUI(function()
 		H.WithThrone(function(royal, K)
-			H.AsKing()
+			H.AsSoldier("Brief Reader")
 			local w, c = Client()
-			c.King = K
-			local held, mode = ns.WeeklyBrief, K.mode
-			ns.WeeklyBrief = c.WeeklyBrief
-			local ok, err = pcall(function()
-				K.Show("home")
-				local function Link()
-					for _, row in ipairs(K.Build()) do if row.text == "> " .. c.L.BRIEF_PERSONAL_TITLE then return row end end
-					return assert(nil, "personal page link on the real eligible Throne home")
+			w.guild = "Olympus II"
+			c.IsMember = ns.IsMember -- the real member rule, not a new authorization mock
+			-- The full Realm home needs the real Layers read methods as well as this client's
+			-- sharing choice; the previous personal-builder-only fixture did not render a home.
+			c.Layers = setmetatable(c.Layers, { __index = ns.Layers })
+			assert(loadfile(ROOT .. "Olympus/Views.lua"))("Olympus", c)
+			local ui, uns = H.LoadUI()
+			c.UI, uns.Views, uns.Data, uns.King = ui, c.Views, c.Data, K
+			local capture, captured = c.WeeklyBrief.Capture, 0
+			c.WeeklyBrief.Capture = function(...) captured = captured + 1; return capture(...) end
+			local function Link()
+				for _, row in ipairs(c.Views.Build("realm")) do
+					if row.text and row.text:find(c.L.BRIEF_PERSONAL_TITLE, 1, true) then return row end
 				end
-				Link().onClick(); eq(K.mode, "personalbrief")
-				local rows, tab = K.Build()
-				eq(tab, c.L.TAB_THRONE); eq(rows[1].text, "< " .. c.L.THRONE_ROOM)
-				eq(rows[2].text, c.L.BRIEF_PERSONAL_TITLE)
-				local ui = assert(H.LoadUI, "actual isolated UI loader")()
-				for _, gamepad in ipairs({ false, true }) do
-					H.WithGamepadUI(gamepad, function()
-						ui.SelectTab("throne")
-						eq(ui.PageId(), "throne/personalbrief")
-						local frame = OlympusFrame or OlympusFrameHD or OlympusFrameBasic or OlympusFrameHDBasic
-						eq(frame.parchment:IsShown(), true, "the existing Throne parchment in both input modes")
-					end)
-				end
-				rows[1].onClick(); eq(K.mode, "home")
-				Link().onClick(); eq(K.Build()[2].text, c.L.BRIEF_PERSONAL_TITLE, "reopenable within the same reset")
-				c.WeeklyBrief.Link().onClick(); eq(w.page, "weeklybrief", "public summary remains on Realm/Board")
-				eq(K.mode, "personalbrief", "public navigation does not rename the personal subpage")
-				eq(w.sent, 0); eq(#royal.sent, 0); eq(#royal.whispered, 0)
-				eq(c.db.location, false); eq(c.db.layerHelp, false)
-				local me = ns.me
-				local memberOK, memberErr = pcall(function()
-					ns.me = c.me
+				return assert(nil, "personal page link on the real Realm home")
+			end
+			for _, gamepad in ipairs({ false, true }) do
+				H.WithGamepadUI(gamepad, function(game)
 					w:As(function()
-						eq(K.TabVisible(), false, "ordinary member gains no Throne access")
-						local denied, guildTab = K.Build()
-						eq(#denied, 0); eq(guildTab, c.L.TAB_GUILD, "existing Guild routing still wins before personal submode")
+						local before = captured
+						eq(ns.IsMember(), true); eq(K.TabVisible(), false, "no royal or Guild entitlement added")
+						ui.SelectTab("realm")
+						Link().onClick(); eq(ui.PageId(), "realm/personalbrief")
+						local frame = OlympusFrame or OlympusFrameHD or OlympusFrameBasic or OlympusFrameHDBasic
+						eq(frame:IsShown(), true); eq(frame.parchment:IsShown(), true, "main window's actual parchment")
+						local sections = 0
+						for _, row in ipairs(frame.views.realm.rows) do
+							if row.line and row.line.text and row.line.font == "QuestTitleFont" and row.line.text:match("^%d%.") then sections = sections + 1 end
+						end
+						eq(sections, 5, "five sections are rendered, not just returned by a builder")
+						c.WeeklyBrief.PersonalPage()[1].onClick()
+						eq(ui.PageId(), "realm/guilds"); eq(frame.parchment:IsShown(), false)
+						Link().onClick(); eq(ui.PageId(), "realm/personalbrief", "same reset is reopenable")
+						eq(w.sent, 0); eq(c.db.weeklyBriefShown, nil)
+						eq(captured, before, "personal navigation never captures or mutates public snapshots")
+						c.WeeklyBrief.Link().onClick(); eq(ui.PageId(), "realm/weeklybrief", "public summary is a different page")
+						eq(frame.parchment:IsShown(), false, "public summary keeps its existing presentation")
+						ui.SelectTab("census"); ui.SelectTab("realm")
+						eq(ui.PageId(), "realm/guilds"); Link().onClick()
+						c.Views.SetRealmMode("classes")
+						eq(frame.parchment:IsShown(), false, "a different projection removes the parchment")
+						c.Views.SetRealmMode("guilds")
 					end)
+					eq(#w.popups, 0); eq(#game.shown, 0, "no standalone or native popup in either input style")
 				end)
-				ns.me = me
-				if not memberOK then error(memberErr, 0) end
-			end)
-			ns.WeeklyBrief, K.mode = held, mode
-			if not ok then error(err, 0) end
+			end
+			eq(#royal.sent, 0); eq(#royal.whispered, 0)
+			eq(c.db.location, false); eq(c.db.layerHelp, false)
 		end)
 	end)
 end)
 
-test("Weekly personal brief: the actual Portuguese parchment keeps five readable localized sections and the existing notice", function()
+test("Weekly personal brief: actual Throne home and an old personal mode have no personal brief link or page", function()
+	H.WithThrone(function(_, K)
+		H.AsKing()
+		local w, c = Client()
+		local held, mode = ns.WeeklyBrief, K.mode
+		ns.WeeklyBrief = c.WeeklyBrief
+		local ok, err = pcall(function()
+			for _, key in ipairs({ "home", "personalbrief" }) do
+				K.Show(key)
+				assert(not Text(K.Build()):find(c.L.BRIEF_PERSONAL_TITLE, 1, true), "personal facts no longer belong to the Throne")
+			end
+			eq(w.sent, 0)
+		end)
+		ns.WeeklyBrief, K.mode = held, mode
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("Weekly personal brief: the actual Portuguese member parchment keeps five readable localized sections and Back to Realm", function()
 	local w, c = Client()
 	c.L = setmetatable({}, { __index = c.L }) -- this fictional client's locale, not the harness's shared strings
 	local locale, definition = GetLocale, StaticPopupDialogs.OLYMPUS_WEEKLY_BRIEF
@@ -232,77 +262,46 @@ test("Weekly personal brief: the actual Portuguese parchment keeps five readable
 		assert(loadfile(ROOT .. "Olympus/Locales/WeeklyBriefText.lua"))("Olympus", c)
 		assert(loadfile(ROOT .. "Olympus/WeeklyBrief.lua"))("Olympus", c)
 		local rows, sections = w:As(c.WeeklyBrief.PersonalPage), 0
-		eq(rows[1].text, "Sua semana, em cinco linhas")
+		eq(rows[1].text, "< Voltar ao Reino"); eq(rows[2].text, "Sua semana, em cinco linhas")
 		for _, row in ipairs(rows) do
-			eq(row.right, nil); eq(#row.text <= c.King.WRAP, true)
-			if row.font == c.King.TITLE and row.text:match("^%d%.") then sections = sections + 1 end
+			eq(row.right, nil); eq(#row.text <= c.WeeklyBrief.PAPER_WRAP, true)
+			if row.font == "QuestTitleFont" and row.text:match("^%d%.") then sections = sections + 1 end
 		end
 		eq(sections, 5)
 		local text = Text(rows):gsub("%s+", " ")
 		assert(text:find("Sua contribuição", 1, true))
 		assert(text:find(c.L.BRIEF_PAYMENT_UNKNOWN, 1, true))
-		eq(#w:As(c.WeeklyBrief.PersonalLines), 5, "notice retains its existing five-line format")
+		eq(#w:As(c.WeeklyBrief.PersonalLines), 5, "the same five read-only facts")
 		eq(w.sent, 0); eq(c.db.location, false)
 	end)
 	GetLocale, StaticPopupDialogs.OLYMPUS_WEEKLY_BRIEF = locale, definition
 	if not ok then error(err, 0) end
 end)
 
-test("Weekly personal brief: privacy, combat, instance and Busy precede a once-per-reset persistent dismissal", function()
-	local w, c = Client()
-	for _, key in ipairs({ "waiting", "notice", "privacy", "combat", "instance", "busy" }) do
-		w[key] = true
-		eq(w:As(c.WeeklyBrief.TryPersonal), false, key)
-		w[key] = false
-	end
-	c.db.alertsAlways = true; w.busy = true
-	eq(w:As(c.WeeklyBrief.TryPersonal), false, "alerts always does not override Busy for the weekly panel")
-	w.busy = false; w.secretDND = {}
-	eq(w:As(c.WeeklyBrief.TryPersonal), false, "secret Busy is never tested as a public boolean")
-	w.secretDND = nil; w.blockedDialog = true
-	eq(w:As(c.WeeklyBrief.TryPersonal), false, "a dialog that never showed is not marked read")
-	eq(c.db.weeklyBriefShown[c.me], nil)
-	w.blockedDialog = false
-	eq(w:As(c.WeeklyBrief.TryPersonal), true); eq(#w.popups, 1)
-	w.popups[1]:Hide()
-	eq(w:As(c.WeeklyBrief.TryPersonal), false, "closing stays closed this reset")
-	local saved, db = c.rdb, c.db
-	w, c = Client(saved, db)
-	eq(w:As(c.WeeklyBrief.TryPersonal), false, "actual module reload retains the per-character shown reset")
-	w.week = 101
-	eq(w:As(c.WeeklyBrief.TryPersonal), true); eq(#w.popups, 1)
-	c.me = "Another Reader-Realm"
-	eq(w:As(c.WeeklyBrief.TryPersonal), true, "another character has its own local weekly view")
-	eq(w.sent, 0); eq(c.db.location, false); eq(c.db.layerHelp, false)
-end)
-
-test("Weekly personal brief: gamepad uses the real Olympus dialog and Close preserves the shown reset", function()
-	assert(H and H.WithUI and H.WithGamepadUI, "weekly brief UI helpers wired")
-	H.WithUI(function()
-		H.WithGamepadUI(true, function(game)
-			local w, c = Client()
-			c.ShowDialog = ns.ShowDialog
-			eq(w:As(c.WeeklyBrief.TryPersonal), true)
-			local f = assert(ns.Dialog.Find("OLYMPUS_WEEKLY_BRIEF"))
-			eq(f.editBox:IsShown(), false, "no edit box takes the keyboard")
-			f.buttons[1]:Click(); eq(f:IsShown(), false)
-			eq(w:As(c.WeeklyBrief.TryPersonal), false)
-			eq(#game.shown, 0, "never the native game popup with Blizzard's gamepad UI")
+-- The user removed the automatic weekly notice entirely. These replace its former positive
+-- popup/dismissal cases: time, a reset or a reload must never open a personal page or dialog.
+test("Weekly personal brief: actual login and reset callbacks schedule only existing public snapshots, never a personal timer or popup", function()
+	for _, gamepad in ipairs({ false, true }) do
+		H.WithUI(function()
+			H.WithGamepadUI(gamepad, function(game)
+				local saved = { location = false, layerHelp = false, weeklyBriefShown = { ["Brief Reader-Realm"] = 99 } }
+				for _ = 1, 2 do
+					local w, c = Client(nil, saved)
+					eq(c.WeeklyBrief.TryPersonal, nil, "the automatic path is removed, not deferred")
+					eq(w.panelDefinition, nil)
+					w:As(w.listeners.LOGIN)
+					for key, timer in pairs(w.timers) do
+						eq(key, "weekly brief snapshot", "only the unchanged public snapshot job remains")
+						for _ = 1, 3 do w:As(timer.fn); w.week = w.week + 1; w.clock = w.clock + 7 * 86400 end
+					end
+					eq(w.timers["personal weekly brief"], nil)
+					eq(#w.popups, 0); eq(w.page, nil); eq(w.sent, 0)
+					eq(saved.weeklyBriefShown["Brief Reader-Realm"], 99, "obsolete stored dismissal state is neither needed nor rewritten")
+				end
+				eq(#game.shown, 0, "no native popup in either input style")
+			end)
 		end)
-	end)
-end)
-
-test("Weekly personal brief: actual login callback schedules the privacy-first weekly panel, not a raid warning", function()
-	local w, c = Client()
-	w:As(w.listeners.LOGIN)
-	local timer = assert(w.timers["personal weekly brief"], "weekly panel is scheduled by the actual login callback")
-	eq(timer.seconds, 60); eq(timer.repeating, true)
-	w.waiting = true
-	w:As(timer.fn); eq(#w.popups, 0)
-	w.waiting = false
-	w:As(timer.fn); eq(#w.popups, 1)
-	w:As(timer.fn); eq(#w.popups, 1, "the next tick is silent in the same reset")
-	eq(w.sent, 0)
+	end
 end)
 
 test("Weekly public brief: rebuilding, stale own guild, ties and changed report coverage remain explicit", function()

@@ -66,5 +66,9 @@ test("Version letter content: the actual letters limit level bands to duels and 
 		assert(before:find(locale == "enUS" and "duels only" or "somente para duelos", 1, true), locale .. ": the original Bones level-filter claim is corrected")
 		assert(now:find(locale == "enUS" and "The recipient keeps the note in their local Chronicle with the King's authorship"
 			or "Quem recebe guarda a nota em seu Chronicle local, com a autoria do Rei", 1, true), locale .. ": recipient-local record, not a persistent King's ledger")
+		assert(now:find(locale == "enUS" and "main window's Realm tab, available to every member"
+			or "aba The Realm da janela principal, disponível para todos os membros", 1, true), locale .. ": personal brief belongs to the ordinary member's main window")
+		assert(now:find(locale == "enUS" and "no longer opens as a surprise popup"
+			or "sem mais aparecer como popup inesperado", 1, true), locale .. ": no obsolete automatic-popup claim")
 	end
 end)
