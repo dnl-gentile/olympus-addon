@@ -91,6 +91,12 @@ fi
 printf 'Running offline tests...\n'
 luajit tests/run.lua
 
+# The affected-run policy must cover the actual regression inventory, not only a stale list.
+if [ -f tests/check-affected-selector.lua ]; then
+	printf 'Checking affected-test dependency selection...\n'
+	luajit tests/check-affected-selector.lua
+fi
+
 printf 'Running the signing round trip...\n'
 bash tests/sign-roundtrip.sh
 
