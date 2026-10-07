@@ -39104,6 +39104,9 @@ end)
 	assert(loadfile(ROOT .. "tests/exile.lua"))(ns, test, eq, { WithNetoff = WithNetoff, KING = KING, HC = HC, AsSoldier = AsSoldier,
 		AsKing = AsKing, Printed = Printed, PtBR = PtBR, Source = Source, FreshComm = FreshComm, WithUI = WithUI, LoadUI = LoadUI,
 		WithGamepadUI = WithGamepadUI })
+	print("tests/recruit-netoff.lua")
+	assert(loadfile(ROOT .. "tests/recruit-netoff.lua"))(ns, test, eq, { WithNetoff = WithNetoff, KING = KING, HC = HC,
+		AsSoldier = AsSoldier, AsKing = AsKing, WithUI = WithUI, WithGamepadUI = WithGamepadUI, PtBR = PtBR })
 
 end)()
 ---------------------------------------------------------------------------

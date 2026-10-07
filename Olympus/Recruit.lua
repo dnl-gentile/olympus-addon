@@ -545,16 +545,62 @@ ns.Comm.Handle("J3", Recruit.OnJoinRequest)
 local function CanInvite() return type(CanGuildInvite) == "function" and CanGuildInvite() and true or false end
 Recruit.CanInvite = CanInvite
 
--- An officer's yes: the game's own guild invite, from the click.
-function Recruit.Accept(req)
-	if not CanInvite() or type(req) ~= "table" then return false end
+-- A warning may wait while ranks, guild membership or the request change. Only a current
+-- request for this guild can reach the native invitation, and only from the officer's click.
+local function CurrentRequest(req)
+	if type(req) ~= "table" or type(req.name) ~= "string" or req.name == "" or not CanInvite() or not ns.IsMember() then return false end
+	if req.guild ~= GetGuildInfo("player") or ns.Roster.RankOf(req.name) ~= nil then return false end
+	Prune(ns.Now())
+	for _, pending in ipairs(Recruit.requests) do if pending == req then return true end end
+	return false
+end
+
+local function SameWarning(data, req, word)
+	return type(data) == "table" and data.req == req and data.name == req.name and data.guild == req.guild
+		and data.on == word.name and data.at == word.at and data.by == word.by and data.reason == word.reason
+end
+
+local function AcceptRequest(req, confirmed)
+	if not CurrentRequest(req) then return false end
+	if confirmed and (confirmed.name ~= req.name or confirmed.guild ~= req.guild) then return false end
 	local invite = (C_GuildInfo and C_GuildInfo.Invite) or GuildInvite -- gp:roster-actions
 	if type(invite) ~= "function" then return false end
+	local M = ns.Moderation
+	local word = M and M.Hidden and M.Hidden(req.name)
+	if word and not SameWarning(confirmed, req, word) then
+		if not ns.Dialog or ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return false end
+		local data = { req = req, name = req.name, guild = req.guild,
+			on = word.name, at = word.at, by = word.by, reason = word.reason }
+		-- Keep this contextual choice in Olympus's own window in either input mode. The existing
+		-- moderation formatter also preserves the King's stream privacy for free-text reasons.
+		ns.Dialog.Show("OLYMPUS_RECRUIT_NETOFF", L.JOIN_NETOFF_PROMPT:format(ns.DisplayName(req.name) or req.name,
+			M.When(word), M.ReasonShown(word)), nil, data)
+		return "warning"
+	end
 	invite(ns.TellName(req.name))
 	ns.Print(L.JOIN_INVITED:format(ns.DisplayName(req.name) or req.name, req.guild))
 	Drop(req)
 	return true
 end
+
+-- An officer's yes: a current individual net-off word first asks for an explicit choice. It
+-- never declines a guild request, changes a block/ignore list or takes a native invite back.
+function Recruit.Accept(req) return AcceptRequest(req) == true end
+
+StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
+	text = "%s",
+	button1 = L.JOIN_NETOFF_INVITE,
+	button2 = L.JOIN_NETOFF_CANCEL,
+	OnAccept = function(_, data)
+		if type(data) ~= "table" then return end
+		-- A changed word presents its new context and keeps the question open for another click.
+		return AcceptRequest(data.req, data) == "warning"
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
 
 -- Where to send one we can't take: the gates' guild while the King's gates are open, else only
 -- ours (the Join screen shows who has room). Never a guild named for its free slots (Konig's

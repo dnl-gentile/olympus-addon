@@ -1519,6 +1519,9 @@ L.JOIN_POINT_TEXT = "Thanks! I can't invite, but %s can: whisper them."
 L.JOIN_DISMISS = "Dismiss"
 L.JOIN_MORE = "... and %d more"
 L.JOIN_INVITED = "%s was invited to <%s>."
+L.JOIN_NETOFF_PROMPT = "%s was taken off the Olympus network on %s.\nReason: %s\n\nReview the record before inviting. Cancel keeps the request; no guild action happens automatically. This warning is advisory: a modified client can bypass it."
+L.JOIN_NETOFF_INVITE = "Invite anyway"
+L.JOIN_NETOFF_CANCEL = "Keep request"
 -- 1.1: the Board (Board.lua, Fern's): who is looking for a group, and where.
 L.BOARD_FLAG_D = "Dungeon"
 L.BOARD_FLAG_R = "Raid"
@@ -3711,6 +3714,9 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.JOIN_DISMISS = "Dispensar"
 	L.JOIN_MORE = "... e mais %d"
 	L.JOIN_INVITED = "%s foi convidado para a <%s>."
+	L.JOIN_NETOFF_PROMPT = "%s foi retirado da rede Olympus em %s.\nMotivo: %s\n\nConfira o registro antes de convidar. Cancelar mantém o pedido; nenhuma ação na guilda acontece automaticamente. Este aviso é apenas informativo: um cliente modificado pode ignorá-lo."
+	L.JOIN_NETOFF_INVITE = "Convidar mesmo assim"
+	L.JOIN_NETOFF_CANCEL = "Manter pedido"
 end -- (the Portuguese lines)
 
 ---------------------------------------------------------------------------
