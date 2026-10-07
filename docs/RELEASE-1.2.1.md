@@ -23,12 +23,14 @@ are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
   brief appears once per character/reset after privacy notices and the update letter, never in
   combat, an instance or Busy mode. Unknown coverage and receipts are shown honestly; opening
   the brief does not turn on sharing.
-- The King may leave a short message with an audience. The player and royal record retain it
-  with its sender; this does not create a jury or another punishment system.
+- The King may leave a short message with an audience. The recipient retains it in their local
+  Chronicle with its sender; this does not create a jury or another punishment system.
 - Invitations through the addon warn about a character blocked from the network, with a reason
   and date. The officer still chooses; native guild invitations are not silently declined.
 - The race chat's short label is **Skyborn**. Long Lottery animal names stay on one line above
   the drawn numbers, with the original five-place animation kept.
+- The detailed update parchment uses the existing game icons. For someone who has not seen the
+  1.2.0 letter, that release's news comes before 1.2.1. The history keeps each letter separately.
 
 ## Reliability and review work
 
@@ -68,3 +70,12 @@ receipt or guaranteed same-session automatic retry.
 This candidate does not claim that every longer-term governance, recruitment, identity-backend
 or contribution proposal is implemented. It must still be checked in the actual supported client
 and across real players before publication.
+
+## Private test installation
+
+Use the filtered test package, not the raw source tree. Close the client and keep a recoverable
+backup of both addon folders and SavedVariables **outside AddOns**. A private installation may
+contain CouncilList.lua, LinkCA.lua and DevPerf.lua: preserve those files and restore only their
+needed entries into the new TOC. Do not restore the old TOC wholesale. The generic deploy script
+replaces both folders and does not perform this private-file preservation; do not use it for
+this installation.

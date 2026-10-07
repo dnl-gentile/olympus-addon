@@ -51874,6 +51874,7 @@ do
 	assert(loadfile(ROOT .. "tests/chat-picker-anchor.lua"))(ns, test, eq, WithWindow, ForeverWorld)
 	assert(loadfile(ROOT .. "tests/chat-role-badges.lua"))(ns, test, eq, WithWindow)
 	assert(loadfile(ROOT .. "tests/chat-guild-labels.lua"))(ns, test, eq, WithWindow)
+	assert(loadfile(ROOT .. "tests/letter-content.lua"))(ns, test, eq)
 	assert(loadfile(ROOT .. "tests/player-profile-fight-history.lua"))(ns, test, eq, WithWindow)
 
 	local function Line(t, sender, text, extra)
@@ -59839,7 +59840,7 @@ end)()
 				eq(lns.Letters.Versions()[1], ns.VERSION, code .. ": current letter first")
 				assert(lns.Letters.Has("1.1.5"), code .. ": published letter retained")
 				assert(lns.Letters.Has("1.2.0"), code .. ": previous release letter retained")
-				assert(body:find(code == "ptBR" and "sem apostas" or "no bets", 1, true), code .. ": free-game policy")
+				assert(body:lower():find(code == "ptBR" and "sem apostas" or "no bets", 1, true), code .. ": free-game policy")
 			end)
 			GetLocale = savedLocale
 			if not ok then error(err, 0) end
@@ -59851,6 +59852,66 @@ end)()
 			eq(w.Letters.Frame().version, "1.2.1")
 			eq(ns.db.lettersRead["1.2.1"], true)
 			eq(w.Letters.Ask("update"), false, "shown once per release")
+		end)
+	end)
+
+	test("1.2.1 version letters: unread 1.2.0 comes before 1.2.1 on the update parchment, both are marked shown, but history remains individual", function()
+		WithLetters(function(w)
+			local Lt = w.Letters
+			local _, oldBody = Lt.Text("1.2.0")
+			local _, newBody = Lt.Text("1.2.1")
+			local _, catchup = Lt.Text("1.2.1", true)
+			local oldAt, newAt = catchup:find(oldBody, 1, true), catchup:find(newBody, 1, true)
+			assert(oldAt and newAt and oldAt < newAt, "previous release before the current release")
+			eq(Lt.IsRead("1.2.0"), false, "reading text alone does not mark it shown")
+			InCombatLockdown = function() return true end
+			eq(Lt.Ask("update"), false)
+			eq(Lt.IsRead("1.2.0"), false, "a blocked popup does not consume the old letter")
+			InCombatLockdown = function() return false end
+			ns.Consent.Show():Hide()
+			eq(Lt.Ask("update"), true)
+			eq(Lt.Frame().body:GetText(), catchup)
+			eq(Lt.IsRead("1.2.0"), true); eq(Lt.IsRead("1.2.1"), true)
+			Lt.Hide()
+			eq(Lt.Ask("update"), false, "no repeated catch-up popup")
+			eq(Lt.Show("1.2.1"), true)
+			eq(Lt.Frame().body:GetText(), newBody, "history opens only the requested release")
+			eq(Lt.Show("1.2.0"), true)
+			eq(Lt.Frame().body:GetText(), oldBody)
+		end)
+		WithLetters(function(w)
+			local Lt = w.Letters
+			ns.db.lettersRead = { ["1.2.0"] = true }
+			ns.Consent.Show():Hide()
+			eq(Lt.Ask("update"), true)
+			eq(Lt.Frame().body:GetText(), select(2, Lt.Text("1.2.1")), "read old release is not repeated")
+		end)
+	end)
+
+	test("1.2.1 version letters: feature markers draw existing game art, missing art becomes words, unknown markers stay literal", function()
+		WithLetters(function(w)
+			local Lt = w.Letters
+			local U, savedFirst, savedFileID = ns.UI, ns.UI.FirstTexture, GetFileIDFromPath
+			local ok, err = pcall(function()
+				GetFileIDFromPath = function() return nil end
+				eq(Lt.DrawMarks("{dice}"), rawget(L, "LETTER_MARK_DICE") or "Bones:", "real resolver's unavailable last fallback is text")
+				GetFileIDFromPath = function() return 301 end
+				U.FirstTexture = function(paths) return paths[1] end
+				local dice = "|TInterface\\Buttons\\UI-GroupLoot-Dice-Up:16:16|t"
+				eq(Lt.DrawMarks("- {dice} Learn with the innkeeper"), "- " .. dice .. " Learn with the innkeeper")
+				for _, marker in ipairs({ "team", "guild", "church", "craft", "crown", "watch", "wanted", "news" }) do
+					local drawn = Lt.DrawMarks("{" .. marker .. "}")
+					assert(drawn:find("|TInterface\\", 1, true), marker .. ": uses game art")
+				end
+				eq(Lt.DrawMarks("{unrecognized}"), "{unrecognized}")
+				U.FirstTexture = function() return nil end
+				eq(Lt.DrawMarks("{dice}"), rawget(L, "LETTER_MARK_DICE") or "Bones:", "unavailable file becomes text")
+				U.FirstTexture = function() error("asset lookup unavailable") end
+				eq(Lt.DrawMarks("{team}"), rawget(L, "LETTER_MARK_TEAM") or "Chat:", "failed asset lookup becomes text")
+			end)
+			U.FirstTexture = savedFirst
+			GetFileIDFromPath = savedFileID
+			if not ok then error(err, 0) end
 		end)
 	end)
 
@@ -59871,6 +59932,8 @@ end)()
 			-- zone and layer's, was never answered.)
 			ns.Consent.Show():Hide()
 			local boxes = EditBoxes()
+			-- Capture the unread catch-up before showing it marks both versions as read.
+			local title, body = Lt.Text(ns.VERSION, true)
 			w.run()
 			local f = OlympusLetterFrame
 			assert(f and f:IsShown(), "shown")
@@ -59879,7 +59942,6 @@ end)()
 			Harness.Win.UnderBar(f, { head = f.head, box = f.box }, "the letter")
 			eq(f.titleText, L.LETTER_TITLE:format(ns.VERSION))
 			eq(f.head:GetText(), L.LETTERS_TITLE)
-			local title, body = Lt.Text(ns.VERSION)
 			eq(f.title:GetText(), title); eq(f.body:GetText(), body); eq(f.sign:GetText(), L.LETTER_SIGNED)
 			eq(f.box.template, "InsetFrameTemplate", "a compartment as the window's own")
 			eq(f.paper.texture, ns.UI.FirstTexture(ns.UI.PARCHMENTS), "parchment in it"); eq(f.paper:GetParent(), f.box)
