@@ -831,7 +831,7 @@ end
 ---------------------------------------------------------------------------
 
 local RECORD = { "id", "mode", "role", "host", "guest", "arbiter", "kind", "stake", "cur", "target", "secs", "hic", "hiccupRule", "salt",
-	"state", "created", "inn", "camp", "spot", "first", "crowd", "crowdOpen", "crowdLock", "noWatch" }
+	"state", "created", "inn", "camp", "spot", "first", "crowd", "crowdOpen", "crowdLock", "noWatch", "bankRolls" }
 local function Save(t)
 	if t.role == "watch" or t.role == "practice" then return end
 	local m = Mine(t.mode)
@@ -994,6 +994,7 @@ local function Witness(t, seat, value, lo, hi)
 			t.bankRolls = t.bankRolls or {}
 			t.bankRolls[ordinal] = R().Code(ev)
 			for index in pairs(t.bankRolls) do if index <= ordinal - 32 then t.bankRolls[index] = nil end end
+			Save(t) -- the rejected server line still proves W4 after a reload
 		end
 	end
 	local since = t.lastDecisionAt and (Clock() - t.lastDecisionAt) or nil

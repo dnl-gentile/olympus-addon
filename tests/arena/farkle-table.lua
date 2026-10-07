@@ -457,6 +457,11 @@ test("1.2 the Bone Throw tables: direct mode: a roll the actor made before his b
 	local ta, tb = Get(a, id), Get(b, id)
 	assert(ta.game.chain ~= tb.game.chain, "the records split")
 	eq(ta.game.current, 2); eq(tb.game.current, 1)
+	-- The actor reloads before reconciliation; local server proof must survive with the table.
+	w:Logout(a); w:Login(a); w:Group({ a, b })
+	a.ns.Debts.Disputed = function(ref, e) disputes[#disputes + 1] = { by = a.name, ref = ref, against = e.against } end
+	w:Run(0)
+	ta = Get(a, id)
 	-- each waits for the other; the clocks run out, the claims cross, the records are compared
 	w:Run(80)
 	eq(ta.game.chain, tb.game.chain)
