@@ -2483,10 +2483,13 @@ In 1.1.6 every search is casual (a stake waits for the gate). It has no spectato
 has no spectators setting of its own (a Bones table's is chosen when the table is made).
 **Bones can be played at a tavern or at a camp** (1.1.6, `Olympus/FarkleTable.lua`'s place rule,
 for every game between players that counts, staked or not): the two in one party, within about
-10 yards of each other, and either both resting at the same inn, or by a camp one of the two
-dropped (the Board's camp, `/oly camp`, which needs `/oly location on`) in the zone they are in,
-outside any instance. The client reads no campfire in the world, so a camp is the one Olympus
-already knows (`Board.CampOf`). It is checked at the start and all through the game: a player who
+10 yards of each other, and either both resting at the same inn, both near a real Forever
+campfire (each client independently reads its own **Campfire Nearby**, spell 1283391), or by a
+camp one of the two explicitly posted on the Board (`/oly camp`, which needs location consent)
+in their zone, outside any instance. Recognizing a physical campfire needs no Board post or
+location sharing. It reads no other player's aura and never guesses the fire's coordinates.
+Unknown or restricted aura data cannot grant a new venue or establish a departure. The place
+is checked at the start and all through the game: a player who
 walks off pauses it, and one gone a minute forfeits. Leaving either place during an active game
 shows a centered warning with the seconds remaining, even with the Bones board closed.
 Acknowledging the warning only closes it: the deadline continues until the player returns;

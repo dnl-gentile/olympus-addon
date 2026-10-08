@@ -40,7 +40,9 @@ are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
   offers, rather than opening a second, smaller search window. Accepted matches retain their
   dedicated meeting view, with the Find window closed first. After the first innkeeper lesson,
   Find works from any location; creating or starting the table still requires an inn or an
-  Olympus camp. A normal world campfire is not a registered camp.
+  camp. Forever's **Campfire Nearby** effect now qualifies a physical campfire without posting
+  a Board camp or enabling location sharing. Each player validates their own effect; the party,
+  proximity and first-lesson checks remain. The New Table button updates as the effect changes.
 - The detailed update parchment uses the existing game icons. For someone who has not seen the
   1.2.0 letter, that release's news comes before 1.2.1. The history keeps each letter separately.
   An empty first-session save no longer causes the letter to reopen on every login. With saved

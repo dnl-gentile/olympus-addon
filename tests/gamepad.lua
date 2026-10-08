@@ -1102,6 +1102,14 @@ local function World(C, opts)
 	end
 	assert(FIX.globals.IsResting == "api", "IsResting must be verified in the client fixture")
 	E.IsResting = function() return C.resting == true end
+	-- Forever 70205, UnitAuraDocumentation.lua:395-409: own AuraData (or nil), read-only.
+	assert(FIX.members["C_UnitAuras.GetPlayerAuraBySpellID"] == "api")
+	assert(FIX.events.UNIT_AURA == true, "the fixture must include the companion's native aura event")
+	E.C_UnitAuras = Namespace("C_UnitAuras", {
+		GetPlayerAuraBySpellID = function(spellID)
+			if C.campAura and C.campAura.spellId == spellID then return C.campAura end
+		end,
+	})
 	E.GetPlayerFacing = function() return C.facing end
 	E.GetUnitName = function(unit) return E.UnitName(unit) end
 	E.RegionalUniqueNamesEnabled = function() return false end
@@ -2622,17 +2630,26 @@ test("gamepad pass 6: the Arena's integrations: restricted calls from a click al
 	-- A Farkle table's rolls hidden from the chat: no filter with the gamepad UI; registered once
 	-- back with mouse and keyboard; doing nothing from its first line after a switch back.
 	local FT = ns.FarkleTable
+	local auraMark = A.Mark()
+	eq(FT.CanOpen(), false, "no inn or camp read on a fresh gamepad client")
+	A.campAura = { spellId = 1283391 }
+	eq(FT.CanOpen(), true, "own campfire aura is readable at a gamepad login")
+	eq(#A.Since(auraMark), 0, "a venue check writes nothing to the game's UI")
 	local was = FT.Opts().chatRolls
 	FT.Opts().chatRolls = false
 	before = A.Mark()
 	FT.ChatFilter()
 	eq(#A.Since(before), 0, "no chat filter with the gamepad UI")
 	A.Switch(false); A.Advance(1)
+	eq(FT.CanOpen(), true, "the same local camp is valid after switching to mouse")
 	FT.ChatFilter(); FT.ChatFilter()
 	local filters = {}
 	for _, cb in ipairs(A.callbacks) do if cb.kind == "AddMessageEventFilter" then filters[#filters + 1] = cb end end
 	eq(#filters, 1, "registered once, with mouse and keyboard"); eq(filters[1].key, "CHAT_MSG_SYSTEM")
 	A.Switch(true); A.Advance(1)
+	eq(FT.CanOpen(), true, "switching back keeps the read-only camp check")
+	A.campAura = nil
+	eq(FT.CanOpen(), false, "losing the local effect removes the camp venue")
 	eq(filters[1].fn(nil, "CHAT_MSG_SYSTEM", "Someone rolls 3 (1-6)"), false, "inert with the gamepad UI")
 	FT.Opts().chatRolls = was
 	GP.Covers("system-filters")

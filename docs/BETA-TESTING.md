@@ -101,9 +101,13 @@ For the 1.2.1 candidate, include these focused live checks:
   pages show real records or honest empty lists, not sample opponents or results. Repeat with
   `/oly arena sim off`; this empty layout preview is not proof of multiplayer routing.
   After completing the innkeeper lesson, find an opponent outside an inn/camp: Find opens and
-  can search, but New Table remains blocked. Meet in the same mapped inn or register a camp
-  on the Board (`/oly camp`, requiring the player's explicit location-sharing consent);
-  a normal world cooking fire alone is not recognized. In a party and close together, start
+  can search, but New Table remains blocked. Meet in the same mapped inn, at a real Forever
+  campfire with **Campfire Nearby** on each player, or at an explicitly registered Board camp
+  (`/oly camp`, requiring location consent). For a physical fire, keep location sharing off:
+  the open Play page must enable New Table when the effect appears and disable it when the
+  effect disappears, without reopening. No camp post or consent change should occur. A retained
+  camping benefit or a classic cooking fire alone is not enough. The first lesson still requires
+  the innkeeper. In a party and within ten yards, start
   and finish a free game. Both players must see their result exactly once in Your Games,
   including after a reload. Check an older retained ledger result whose detailed companion
   history is missing; show only the details actually retained, without inventing a replay.

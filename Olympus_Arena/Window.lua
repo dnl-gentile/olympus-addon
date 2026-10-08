@@ -446,6 +446,14 @@ local function Build()
 		if ArenaUI.StillLive() then f:Show() Refresh() end
 	end)
 	ns.On("ARENA_CHANGED", function() if f and f:IsShown() then ns.SafeCall("arena window", Refresh) end end)
+	-- A real campfire aura can change while the Play page stays open. Refresh only our
+	-- visible Bones window, never Blizzard's buff frames and never other players' auras.
+	ns.RegisterEvent("UNIT_AURA", function(unit)
+		if issecretvalue and issecretvalue(unit) then return end
+		if unit == "player" and f and f:IsShown() and state.section == "farkle" then
+			ns.Arena.Changed()
+		end
+	end)
 	local function DisplayChanged() if f then ArenaUI.ApplyWindowScale() end end
 	for _, event in ipairs({ "DISPLAY_SIZE_CHANGED", "UI_SCALE_CHANGED" }) do
 		pcall(ns.RegisterEvent, event, DisplayChanged)

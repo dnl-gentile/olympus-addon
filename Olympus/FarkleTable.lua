@@ -16,8 +16,8 @@ local L = ns.L
 --     documented interfaces of Stakes, Wallet, Markets, Debts and ArenaMoney;
 --   - the tavern rule (the design; 1.1.6: a tavern or a camp, for every game that counts, staked or
 --     not): played in one party, within about 10 yd, both at one inn (IsResting and Places.InnAt by
---     position) or by a camp one of the two dropped (the Board's, Board.CampOf, in the zone they are
---     in); checked at the start and all through the game: someone walks off, the game pauses; gone
+--     position), at a Forever campfire each player can read locally, or by a Board camp one of
+--     the two dropped in their zone; checked throughout: someone walks off, the game pauses; gone
 --     past TAVERN_GRACE, he forfeits. Practice against the House and rehearsals play anywhere;
 --   - spectators (the design): a player who allows them announces the table (KN) and relays its state
 --     (KS) to the watchers; watching never feeds settlement. Allowed unless a player says no (the
@@ -491,9 +491,21 @@ function FT.InnkeeperVoice()
 	return race
 end
 
--- A camp either player has up (the Board's camp, dropped where he stood: its zone and nothing
--- finer) in the zone this client is in now, or nil. The client reads no campfire in the world, so
--- the camp is the one Olympus already knows: the Board's (Board.CampOf).
+-- Forever's own Campfire Nearby aura, not the old Cooking Fire spell or a retained camp benefit.
+-- Build 70205: Blizzard_APIDocumentationGenerated/UnitAuraDocumentation.lua:395-409.
+-- Read only this player's aura: another player's word never grants a venue, and nothing here
+-- posts a Board camp or changes location consent. Unknown/restricted reads are not absences.
+function FT.CampfireNearby()
+	local C = C_UnitAuras
+	if type(C) ~= "table" or type(C.GetPlayerAuraBySpellID) ~= "function" then return nil end
+	local ok, aura = pcall(C.GetPlayerAuraBySpellID, 1283391)
+	if not ok or Secret(aura) then return nil end
+	if aura == nil then return false end
+	if type(aura) ~= "table" or Secret(aura.spellId) or type(aura.spellId) ~= "number" then return nil end
+	return aura.spellId == 1283391
+end
+
+-- A camp either player explicitly posted on the Board, in this client's current zone.
 local function CampFor(a, b)
 	local Bd = ns.Board
 	if type(Bd) ~= "table" or not Bd.CampOf then return nil end
@@ -508,10 +520,17 @@ local function CampFor(a, b)
 end
 FT.CampFor = CampFor
 
+local function TableCamp(a, b)
+	if A().InInstance() then return nil end
+	if FT.CampfireNearby() == true then return { campfire = true } end
+	return CampFor(a, b)
+end
+
 function FT.CanOpen()
 	if A().Sim() then return true end
 	if A().Blocked() then return false end
 	if Resting() == true and InnAt(Position("player")) then return true end
+	if FT.CampfireNearby() == true then return true end
 	if CampFor(Me(), Me()) then return true end
 	local n = GetNumGroupMembers and GetNumGroupMembers() or 0
 	local raid = IsInRaid and IsInRaid()
@@ -524,15 +543,16 @@ end
 
 -- The place rule (the design's tavern rule, 1.1.6 with camps): a game between players that counts
 -- is played at a tavern or at a camp. Both in one party, within about 10 yd of each other, and
--- either both resting at the same inn, or by a camp one of the two dropped (the Board) in the zone
--- they are in. Returns ok, why, the inn (nil at a camp), the spot (the middle of the two) and the
+-- either both resting at the same inn, near a real Forever campfire (checked independently by
+-- each participant at opening), or by a Board camp in their zone. Returns ok, why, the inn
+-- (nil at a camp), the spot (the middle of the two) and the
 -- camp. why: "group", "rest" (neither at an inn nor by a camp), "inn" (at an inn, not the same
 -- one, no camp), "far", "unknown".
 function FT.TavernStart(other)
 	local unit = UnitOf(other)
 	if not unit or unit == "player" then return false, "group" end
 	local resting = Resting() == true
-	local camp = CampFor(Me(), other)
+	local camp = TableCamp(Me(), other)
 	if not resting and not camp then return false, "rest" end
 	local me, them = Position("player"), Position(unit)
 	if not me or not them then return false, "unknown" end
@@ -558,6 +578,7 @@ local function SetPlace(t, other)
 	local ok, _, inn, spot, camp = FT.TavernStart(other)
 	if not ok then return end
 	t.inn, t.camp, t.spot = inn and inn.id or nil, (not inn and camp) and true or nil, spot
+	t.campfire = not inn and camp and camp.campfire or nil
 end
 
 -- A seat is away when this client can see it is: its position off the table's inn or its spot,
@@ -568,6 +589,7 @@ local function Away(t, seat)
 	local unit = UnitOf(name)
 	if not unit then return true end -- (left the group: gone from the table)
 	if t.inn and unit == "player" and Resting() == false then return true end
+	if t.campfire and unit == "player" and FT.CampfireNearby() == false then return true end
 	-- (by position only: CheckInteractDistance, the start's check, says two players are apart,
 	-- never which of them walked off)
 	local pos = Position(unit)
@@ -867,7 +889,7 @@ end
 ---------------------------------------------------------------------------
 
 local RECORD = { "id", "mode", "role", "host", "guest", "arbiter", "kind", "stake", "cur", "target", "secs", "hic", "hiccupRule", "salt",
-	"state", "created", "inn", "camp", "spot", "first", "crowd", "crowdOpen", "crowdLock", "noWatch", "bankRolls" }
+	"state", "created", "inn", "camp", "campfire", "spot", "first", "crowd", "crowdOpen", "crowdLock", "noWatch", "bankRolls" }
 local function Save(t)
 	if t.role == "watch" or t.role == "practice" then return end
 	local m = Mine(t.mode)
@@ -2729,7 +2751,10 @@ local function OnGo(dist, sender, mode, body)
 		if a and b then
 			local spot = { cont = a.cont, wx = (a.wx + b.wx) / 2, wy = (a.wy + b.wy) / 2 }
 			if inn then t.inn, t.spot = inn.id, spot
-			elseif CampFor(t.host, t.guest) then t.camp, t.spot = true, spot end
+			else
+				local camp = TableCamp(t.host, t.guest)
+				if camp then t.camp, t.campfire, t.spot = true, camp.campfire, spot end
+			end
 		end
 	end
 	FT.Begin(t)

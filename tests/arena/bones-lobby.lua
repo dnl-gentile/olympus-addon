@@ -6,7 +6,7 @@ local function Near(actual, expected)
 	assert(math.abs(actual - expected) < 0.000001, "resolved coordinate expected " .. expected .. ", got " .. actual)
 end
 
-local function Client(trained, fn)
+local function Client(trained, fn, setup)
 	local w = FW.New({ compliance = "shipped" })
 	local a = w:Player(World.NAMES.fighterA, { bonesTrained = trained, companion = { state = "ok" } })
 	a.K = BoardUI.New(function() return w.clock end)
@@ -14,6 +14,7 @@ local function Client(trained, fn)
 	-- Declare this client API before World:As snapshots globals, so the arrow case restores it.
 	a.globals.Minimap = a.globals.CreateFrame("Frame", nil, a.globals.UIParent)
 	w:Stand(a.name, FW.ROAD, false)
+	if setup then setup(w, a) end
 	w:As(a, function()
 		-- Use the actual lazy-loader registration too: FindOpponent calls match.open, which
 		-- must reuse this companion instead of constructing a second untracked copy.
@@ -47,9 +48,36 @@ test("Bones lobby: the real Play parchment explains the first lesson in steps, t
 		local returning = canvas.letterBody:GetText()
 		assert(returning:find(L.FARKLE_LOBBY_RETURN, 1, true))
 		assert(returning:find("Find a Player from anywhere", 1, true), "the visible instructions separate search from the table's venue")
-		assert(returning:find("registered Olympus camp", 1, true), "a normal world fire is not advertised as a recognized table venue")
+		assert(returning:find("Forever campfire", 1, true), "the real native campfire is a table venue without a Board post")
+		assert(returning:find("registered Olympus camp", 1, true), "explicit Board camps remain supported too")
 		assert(not returning:find(L.FARKLE_LOBBY_FIRST, 1, true), "a completed lesson no longer asks for the first game")
 		eq(canvas.find:IsEnabled(), true); eq(FT.Live(), nil, "explaining the next step starts no game")
+	end)
+end)
+
+test("Bones lobby: New Table refreshes on own campfire aura changes without reopening or starting a game", function()
+	local present = false
+	Client(true, function(w, a, UI)
+		UI.Open("bone")
+		local newTable = UI.Frame().buttons[2]
+		eq(newTable:IsEnabled(), false)
+		local sent = #w:Sent({ from = a })
+		present = true
+		w:Fire(a, "UNIT_AURA", "player"); w:Run(2)
+		eq(newTable:IsEnabled(), true, "the grey button enables on entry into the campfire's range")
+		eq(UI.BoneFindReady(), true)
+		present = false
+		w:Fire(a, "UNIT_AURA", "party1"); w:Run(2)
+		eq(newTable:IsEnabled(), true, "another player's aura never triggers our venue refresh")
+		w:Fire(a, "UNIT_AURA", "player"); w:Run(2)
+		eq(newTable:IsEnabled(), false, "the same button disables on departure")
+		eq(UI.BoneFindReady(), true, "Find remains usable anywhere after training")
+		eq(a.ns.FarkleTable.Live(), nil); eq(#w:Sent({ from = a }), sent)
+	end, function(_, a)
+		a.globals.C_UnitAuras = { GetPlayerAuraBySpellID = function(spell)
+			eq(spell, 1283391)
+			return present and { spellId = spell } or nil
+		end }
 	end)
 end)
 
