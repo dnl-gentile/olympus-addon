@@ -388,6 +388,13 @@ local asked = {} -- [fid] = time: our own AQ~F (its AE by whisper is taken)
 -- arbiter, nobody else (e.auth). Not held here: an arbiter who made its id (Arena.NewId's mark: a
 -- challenge's private fight) or a public arbiter (a card's or a tournament's bout, whose id is its
 -- promoter's); never one whose gkArb the game gives another character.
+local function MatchesGk(name, gk)
+	local P = ns.ArenaProfile
+	if not gk or not P then return true end
+	if P.VerifyGk and P.VerifyGk(name, gk) == false then return false end
+	local known = P.Of and P.Of(name)
+	return not (known and known.verified and known.gk and known.gk ~= gk)
+end
 local function OnEntry(dist, sender, mode, body)
 	local e, why = Decode(body, sender)
 	if not e then return Count(why) end
@@ -402,8 +409,7 @@ local function OnEntry(dist, sender, mode, body)
 	elseif not (F().MadeBy(e.fid, sender) or R.IsPublicArbiter(sender, mode)) then
 		return Count("not-arbiter")
 	end
-	local P = ns.ArenaProfile
-	if e.gkArb and P and P.VerifyGk and P.VerifyGk(sender, e.gkArb) == false then return Count("gk") end
+	if not MatchesGk(sender, e.gkArb) then return Count("gk") end
 	e.arbName = ns.FullName(sender)
 	-- A title fight moves a belt only from a public arbiter.
 	if Has(e.fl, "b") and not R.IsPublicArbiter(sender, mode) then e.fl = e.fl:gsub("b", "") end
@@ -418,6 +424,10 @@ local function ArbiterName(e, named)
 	if e.arbName then return e.arbName end
 	if not e.gkArb then return nil end
 	if named[e.gkArb] then return named[e.gkArb] end
+	local P = ns.ArenaProfile
+	local profile = P and P.Of and P.Of(e.gkArb)
+	if profile and profile.verified and profile.name then return profile.name end
+	if P and P.MyGk and P.MyGk() == e.gkArb then return ns.me end
 	local guid = Arena.GuidOf(e.gkArb)
 	if guid and type(GetPlayerInfoByGUID) == "function" then
 		local ok, _, _, _, _, _, name, realm = pcall(GetPlayerInfoByGUID, guid)
@@ -922,10 +932,21 @@ local function OnBook(dist, sender, mode, body)
 		local season, week, i, of, entries = Arena.Fields(rest, 5)
 		if not entries then return Count("shape") end
 		season = N(season, 1, 999)
+		local book = season and Book(mode, season)
+		local named = Memo(book and book.list or {}).named
 		for text in (entries .. ";"):gmatch("([^;]*);") do
 			if text ~= "" then
 				local e, why = Decode(B36(season or 0) .. "~" .. text, sender)
-				if e then Keep(e, mode, "clerk") else Count(why) end
+				if e then
+					local f = F().Find("fights", e.fid)
+					local name = ArbiterName(e, named)
+					-- A trusted clerk may relay a late, unknown arbiter; known contradictions
+					-- must be refused before allocating either the book or a title record.
+					if f and (not f.arb or Has(f.fl, "d") or not MatchesGk(f.arb, e.gkArb)
+						or (name and not Same(name, f.arb))) then Count("not-arbiter")
+					elseif name and not R.IsArbiter(name, mode) then Count("arbiter")
+					else Keep(e, mode, "clerk") end
+				else Count(why) end
 			end
 		end
 	elseif kind == "H" then
