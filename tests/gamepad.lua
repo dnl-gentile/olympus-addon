@@ -1102,6 +1102,14 @@ local function World(C, opts)
 	end
 	assert(FIX.globals.IsResting == "api", "IsResting must be verified in the client fixture")
 	E.IsResting = function() return C.resting == true end
+	-- Forever 70205, UnitAuraDocumentation.lua:395-409: own AuraData (or nil), read-only.
+	assert(FIX.members["C_UnitAuras.GetPlayerAuraBySpellID"] == "api")
+	assert(FIX.events.UNIT_AURA == true, "the fixture must include the companion's native aura event")
+	E.C_UnitAuras = Namespace("C_UnitAuras", {
+		GetPlayerAuraBySpellID = function(spellID)
+			if C.campAura and C.campAura.spellId == spellID then return C.campAura end
+		end,
+	})
 	E.GetPlayerFacing = function() return C.facing end
 	E.GetUnitName = function(unit) return E.UnitName(unit) end
 	E.RegionalUniqueNamesEnabled = function() return false end
@@ -1159,8 +1167,19 @@ local function World(C, opts)
 	-- (The game's default key for "Open chat", Enter: Bindings.xml's OPENCHAT.)
 	E.GetBindingKey = function(action) if action == "OPENCHAT" then return "ENTER" end return nil end
 	E.GetBindingText = function(k) return k end
-	E.SetOverrideBindingClick = Fn("SetOverrideBindingClick", function(owner, prio, key, button) C.bindings = C.bindings or {}; C.bindings[key] = button end)
-	E.ClearOverrideBindings = Fn("ClearOverrideBindings", function() C.bindings = {} end)
+	-- Blizzard_Keybindings.lua reads base actions separately from overrides; each override
+	-- belongs to its frame, so clearing the Chat owner must not clear the main window's Y.
+	C.baseBindings, C.bindingOwners = opts.bindings or {}, {}
+	E.GetBindingAction = function(key, overrides)
+		return overrides and C.bindings and C.bindings[key] and ("CLICK " .. C.bindings[key] .. ":LeftButton") or C.baseBindings[key] or ""
+	end
+	E.SetOverrideBindingClick = Fn("SetOverrideBindingClick", function(owner, prio, key, button)
+		C.bindings = C.bindings or {}; C.bindings[key], C.bindingOwners[key] = button, owner
+	end)
+	E.ClearOverrideBindings = Fn("ClearOverrideBindings", function(owner)
+		C.bindings = C.bindings or {}
+		for key, who in pairs(C.bindingOwners) do if who == owner then C.bindings[key], C.bindingOwners[key] = nil, nil end end
+	end)
 	E.ReloadUI = Fn("ReloadUI", function() C.reloaded = true end)
 
 	-- The world map (Blizzard_MapCanvas, the gamepad map's own: a canvas in a scroll container,
@@ -1953,6 +1972,33 @@ for _, initialPad in ipairs({ false, true }) do
 	end)
 end
 
+test("gamepad innkeeper offer: an actual NPC keeps the addon-only lesson offer across input switches", function()
+	local C, ns = Session(true)
+	local inn
+	for _, place in ipairs(ns.Places.list) do if place.id == "inn_goldshire" then inn = place end end
+	assert(inn)
+	C.position = { cont = inn.cont, wx = inn.wx, wy = inn.wy }
+	C.resting = true
+	C.units.npc = { name = "Localized Innkeeper", realm = C.realmName, guid = "Creature-0-1-0-1-" .. inn.npc .. "-00001" }
+	local shown = 0
+	ns.FarkleTable.ShowUI = function(what, id, name)
+		eq(what, "innkeeper"); eq(id, nil); eq(name, "Localized Innkeeper")
+		shown = shown + 1; return true
+	end
+	for _, pad in ipairs({ true, false, true }) do
+		C.Switch(pad); C.Advance(1)
+		local before = shown
+		ns.InnkeeperGossip.OnShow(); C.Advance(1)
+		eq(shown, before + 1, "the existing addon dialogue remains available")
+		eq(ns.InnkeeperGossip.State().row, nil, "no native gossip child is needed")
+	end
+	C.units.npc = nil
+	ns.InnkeeperGossip.OnShow(); C.Advance(1)
+	eq(shown, 3, "an inn alone never impersonates the NPC")
+	GP.Covers("innkeeper-gossip")
+	Check(C.ledger, "addon-only innkeeper offer"); NoErrors(C, "innkeeper offer")
+end)
+
 for _, initialPad in ipairs({ false, true }) do
 	test("gamepad native Guild chat: " .. (initialPad and "gamepad" or "mouse") .. " login, user send, server echo and input switches", function()
 		local C, ns = Session(initialPad)
@@ -2304,12 +2350,13 @@ test("gamepad pass 2: mouse and keyboard, then a switch to the gamepad UI: the g
 	local escapeBefore = table.concat(E.UISpecialFrames, ",")
 
 	C.Switch(true)
-	-- In the switch's own event: nothing but the Chat tab's key given back.
+	-- In the switch's own event: only Olympus's borrowed keys given back.
 	for _, r in ipairs(C.switchLedger) do
-		assert(r.ids and r.ids[1] == "chat-key", "in the switch's event: " .. Describe(r))
+		assert(r.ids and (r.ids[1] == "chat-key" or r.ids[1] == "main-key"), "in the switch's event: " .. Describe(r))
 	end
 	eq(next(C.bindings), nil, "the Chat tab's key back to the game at once")
 	GP.Covers("chat-key")
+	GP.Covers("main-key")
 	C.Advance(1)
 	-- The next frame: each park.
 	eq(#NavigableOlympus(C, true), 0, "no Olympus button where the gamepad cursor goes")
@@ -2595,17 +2642,26 @@ test("gamepad pass 6: the Arena's integrations: restricted calls from a click al
 	-- A Farkle table's rolls hidden from the chat: no filter with the gamepad UI; registered once
 	-- back with mouse and keyboard; doing nothing from its first line after a switch back.
 	local FT = ns.FarkleTable
+	local auraMark = A.Mark()
+	eq(FT.CanOpen(), false, "no inn or camp read on a fresh gamepad client")
+	A.campAura = { spellId = 1283391 }
+	eq(FT.CanOpen(), true, "own campfire aura is readable at a gamepad login")
+	eq(#A.Since(auraMark), 0, "a venue check writes nothing to the game's UI")
 	local was = FT.Opts().chatRolls
 	FT.Opts().chatRolls = false
 	before = A.Mark()
 	FT.ChatFilter()
 	eq(#A.Since(before), 0, "no chat filter with the gamepad UI")
 	A.Switch(false); A.Advance(1)
+	eq(FT.CanOpen(), true, "the same local camp is valid after switching to mouse")
 	FT.ChatFilter(); FT.ChatFilter()
 	local filters = {}
 	for _, cb in ipairs(A.callbacks) do if cb.kind == "AddMessageEventFilter" then filters[#filters + 1] = cb end end
 	eq(#filters, 1, "registered once, with mouse and keyboard"); eq(filters[1].key, "CHAT_MSG_SYSTEM")
 	A.Switch(true); A.Advance(1)
+	eq(FT.CanOpen(), true, "switching back keeps the read-only camp check")
+	A.campAura = nil
+	eq(FT.CanOpen(), false, "losing the local effect removes the camp venue")
 	eq(filters[1].fn(nil, "CHAT_MSG_SYSTEM", "Someone rolls 3 (1-6)"), false, "inert with the gamepad UI")
 	FT.Opts().chatRolls = was
 	GP.Covers("system-filters")
@@ -2618,6 +2674,28 @@ test("gamepad pass 6: the Arena's integrations: restricted calls from a click al
 	eq(A.loadedAddOns.Olympus_Arena, true)
 	GP.Covers("load-companion")
 	Check(A.ledger, "the Arena")
+end)
+
+test("gamepad main Y shortcut: no binding at gamepad login, both input-style switches and saved binding changes preserve the native owner", function()
+	local P, pad = Session(true)
+	eq(pad.MainKey.Held(), false); eq(P.env.OlympusMainKey, nil, "no key button at a gamepad login")
+	P.Switch(false); P.Advance(1); eq(pad.MainKey.Held(), true)
+	P.Switch(true); eq(pad.MainKey.Held(), false, "release in the switch before native rebinding")
+	P.Advance(1); Check(P.ledger, "main key switches")
+	local C, ns = Session(false)
+	eq(ns.MainKey.Held(), true); eq(C.bindings.Y, "OlympusMainKey")
+	if ns.UI.IsShown() then ns.UI.Toggle() end
+	eq(ns.UI.IsShown() == true, false, "start with the main window closed")
+	C.Click(C.env.OlympusMainKey); eq(ns.UI.IsShown(), true)
+	C.Click(C.env.OlympusMainKey); eq(ns.UI.IsShown(), false)
+	C.baseBindings.Y = "TOGGLEQUESTLOG"; C.Fire("UPDATE_BINDINGS")
+	eq(ns.MainKey.Held(), false); eq(C.bindings.Y, nil); eq(C.baseBindings.Y, "TOGGLEQUESTLOG")
+	C.Click(C.env.OlympusMainKey); eq(ns.UI.IsShown(), false, "a stale callback cannot steal the player's key")
+	C.baseBindings.Y = nil; C.Fire("UPDATE_BINDINGS"); eq(ns.MainKey.Held(), true)
+	C.Switch(true); eq(ns.MainKey.Held(), false); C.Advance(1)
+	C.Switch(false); C.Advance(1); eq(ns.MainKey.Held(), true)
+	Check(C.ledger, "main key and native bindings")
+	GP.Covers("main-key")
 end)
 
 if MODE == "--discover" then

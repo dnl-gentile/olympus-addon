@@ -1162,7 +1162,7 @@ end
 local function TakeClaim(r, sender, seq, f)
 	local key = Lower(sender)
 	local rev, nonce, guild = Clamp(f[6], 0, 2147483647), f[7], Clean(f[8], Requests.GUILD_MAX)
-	if not Same(r.requester, ns.me) or type(nonce) ~= "string" or #nonce > 16 or not nonce:match("^[0-9a-z]+$")
+	if not rev or not Same(r.requester, ns.me) or type(nonce) ~= "string" or #nonce > 16 or not nonce:match("^[0-9a-z]+$")
 		or guild == "" or not ns.IsFederation(guild) or not ns.Data.ClaimGuild(sender, guild) then return false, "claim" end
 	r.seenActions[key] = seq
 	if r.state ~= "open" or rev ~= r.rev or Requests.PrivilegeStatus(sender).canAccept == false then
@@ -1177,16 +1177,19 @@ end
 local function TakeAnswer(r, sender, seq, verb, f)
 	local nonce = verb == "accepted" and f[7] or f[6]
 	if not Same(sender, r.requester) or type(r.claimNonces) ~= "table" or type(nonce) ~= "string" or not r.claimNonces[nonce] then return false, "authority" end
-	r.seenActions[Lower(sender)] = seq
 	if verb == "taken" then
+		r.seenActions[Lower(sender)] = seq
 		r.claimPending, r.claimLost = nil, Now()
 		Audit(r, "claim-lost", sender)
 		Changed()
 		return true
 	end
 	if (r.crafter and not Same(r.crafter, ns.me)) or (r.state ~= "open" and r.state ~= "accepted") then return false, "state" end
+	local rev = Clamp(f[6], 0, 2147483647)
+	if not rev then return false, "answer" end
+	r.seenActions[Lower(sender)] = seq
 	r.crafter, r.claimNonce, r.claimPending, r.state = ns.me, nonce, nil, "accepted"
-	r.rev, r.updated = math.max(r.rev or 0, Clamp(f[6], 0, 2147483647) or 0), Now()
+	r.rev, r.updated = math.max(r.rev or 0, rev), Now()
 	Suggested(r); AddContext(r); InstallMoneyWatch(r); Audit(r, "accepted", ns.me)
 	Changed()
 	ns.SafeCall("craft request room", Requests.OpenChat, r.id, true)
@@ -1281,7 +1284,6 @@ function Requests.ReceiveAction(dist, sender, text)
 	if verb == "claim" then return TakeClaim(r, sender, seq, f) end
 	if verb == "accepted" or verb == "taken" then return TakeAnswer(r, sender, seq, verb, f) end
 	if not ActionAllowed(r, sender, verb) then return false, "authority" end
-	r.seenActions[Lower(sender)] = seq
 	local s = r.settlement
 	if verb == "offer" then
 		local ok, why = ApplyOffer(r, sender, f)
@@ -1308,6 +1310,7 @@ function Requests.ReceiveAction(dist, sender, text)
 		local d = r.delivery
 		if not d or qty ~= d.quantity or price ~= d.price then return false, "figures" end
 		if r.state == "completed" then
+			r.seenActions[Lower(sender)] = seq
 			SendPrivate(r, "completeok", d.price)
 			Changed(); return true
 		end
@@ -1366,6 +1369,8 @@ function Requests.ReceiveAction(dist, sender, text)
 			ForgetMoneyWatch(r)
 		end
 	end
+	-- Invalid payloads consume the sender's rate budget, not the deal's replay window.
+	r.seenActions[Lower(sender)] = seq
 	Changed()
 	return true
 end

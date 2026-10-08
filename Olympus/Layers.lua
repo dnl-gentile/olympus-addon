@@ -346,6 +346,30 @@ function Layers.ForMap(mapID)
 	return out
 end
 
+-- A zone-only observation count for officer musters, not a census or a list of names. ForMap
+-- intentionally shows our own layer even while private; that local exception is never counted
+-- here without sharing consent. Remote records are only the existing opt-in L1 observations.
+function Layers.CountSharedInZone(mapID)
+	local now, count, counted = ns.Now(), 0, {}
+	local ownKey = ns.Fold(ns.FullName(ns.me) or "")
+	local group = ns.group or ns.GroupOf(ns.realm)
+	for _, members in pairs(seen[mapID] or {}) do
+		for name, m in pairs(members) do
+			local key = ns.Fold(name)
+			if key ~= ownKey and not counted[key] and now >= m.t and now - m.t <= EXPIRE
+				and ns.GroupOf(ns.RealmOf(name) or ns.realm) == group
+				and not (ns.Moderation.Hides and ns.Moderation.Hides(name, m.guild)) then
+				counted[key], count = true, count + 1
+			end
+		end
+	end
+	if Layers.Sharing() and mine and mine.mapID == mapID and now >= mine.t and now - mine.t <= EXPIRE
+		and ns.GroupOf(ns.RealmOf(ns.me) or ns.realm) == group then
+		count = count + 1
+	end
+	return count
+end
+
 function Layers.Name(layer)
 	if not layer or not layer.head then return L.LAYER_UNKNOWN end
 	return L.LAYER_OF:format(layer.head.name)

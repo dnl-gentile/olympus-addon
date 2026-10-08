@@ -433,7 +433,9 @@ local function WalkAddon(proto)
 		pc = pc + 1
 	end
 end
-for _, path in ipairs(List('cd "' .. ROOT .. '" && find Olympus -name "*.lua"')) do
+-- The companion uses the same native client: include its API/event reads, even while it is
+-- unloaded during the pass's --names inventory (for example Bones' UNIT_AURA refresh).
+for _, path in ipairs(List('cd "' .. ROOT .. '" && find Olympus Olympus_Arena -name "*.lua" 2>/dev/null')) do
 	local chunk = loadfile(ROOT .. "/" .. path)
 	if chunk then WalkAddon(chunk) end
 end

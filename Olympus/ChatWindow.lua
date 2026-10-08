@@ -435,7 +435,8 @@ local function NameText(e)
 			tag = " " .. Gold(L.CHATWIN_TAG_HAND)
 		end
 	end
-	return lead .. name .. tag .. " " .. Grey("<" .. ns.Codec.Plain(guild or "?") .. ">")
+	local guildLabel = ns.Channels.ShowGuildNames() and (" " .. Grey("<" .. ns.Codec.Plain(guild or "?") .. ">")) or ""
+	return lead .. name .. tag .. guildLabel
 end
 
 ---------------------------------------------------------------------------
@@ -465,8 +466,8 @@ local function LinkTip(owner, link)
 	end
 end
 
-local function NewBubble()
-	local content = Content()
+local function NewBubble(pane)
+	local content = pane and pane.content or Content()
 	local ok, b = pcall(CreateFrame, "Frame", nil, content, "BackdropTemplate")
 	if not ok or not b then b = CreateFrame("Frame", nil, content) end
 	if b.SetBackdrop then
@@ -519,7 +520,9 @@ local function NewBubble()
 	b:SetScript("OnHyperlinkEnter", function(self, link) ns.SafeCall("chat tab link", LinkTip, self, link) end)
 	b:SetScript("OnHyperlinkLeave", function(self) Untip(self) end)
 	b:SetScript("OnHyperlinkClick", function(_, _, text)
-		if IsShiftKeyDown and IsShiftKeyDown() then ns.SafeCall("chat tab link", InsertLink, text) end
+		if IsShiftKeyDown and IsShiftKeyDown() then
+			if pane and pane.input then pane.input:Insert(text) else ns.SafeCall("chat tab link", InsertLink, text) end
+		end
 	end)
 	-- A line the block terms hide: a click shows it (this session). 1.1.6: a right-click opens a
 	-- moderator's choices on a line he may act on (ChatWindow.ModerateLine, WatchChat.lua).
@@ -530,7 +533,7 @@ local function NewBubble()
 		end
 		if self.hidden and self.entry then
 			revealed[self.entry] = true
-			ns.SafeCall("chat tab", Render)
+			ns.SafeCall("chat tab", pane and pane.render or Render)
 		end
 	end)
 	-- 1.1.6: the moderator's button (WatchChat.lua), Olympus's own and a child of this bubble (the
@@ -626,9 +629,10 @@ local function Own(e)
 end
 
 -- One line of the history in its bubble. Returns its height.
-local function Bubble(i, e, start, y, maxInner, hides)
-	local bubbles = frame.bubbles
-	local b = bubbles[i] or NewBubble()
+local function Bubble(i, e, start, y, maxInner, hides, pane, room)
+	pane = pane or frame
+	local bubbles = pane.bubbles
+	local b = bubbles[i] or NewBubble(pane.embedded and pane or nil)
 	bubbles[i] = b
 	local mine = Own(e)
 	-- A line the block terms hide: a grey bubble until a click, then its words marked (as the Realm
@@ -638,10 +642,10 @@ local function Bubble(i, e, start, y, maxInner, hides)
 	b.entry, b.hidden, b.mine, b.y = e, hidden, mine, y
 	-- 1.1.6: a line a moderator deleted (WatchChat.lua): the name stays, greyed; its words are gone.
 	local deleted = e.del == true and ns.WatchChat ~= nil and not ns.WatchChat.missing
-	b.chat = tier
+	b.chat, b.embedded = room or tier, pane.embedded and pane or nil
 	if b.mod then b.mod:Hide() end
-	local modRoom = not mine and not deleted and ChatWindow.modRoom == true
-	local c = Colour(tier)
+	local modRoom = not mine and not deleted and (pane.embedded and ChatWindow.ModRoom() or ChatWindow.modRoom) == true
+	local c = pane.colour or Colour(tier)
 	local r, g, bl, a = 0.09, 0.09, 0.11, 0.92
 	if mine then r, g, bl, a = c[1] * 0.28, c[2] * 0.28, c[3] * 0.28, 0.95 end
 	if b.SetBackdropColor then
@@ -653,7 +657,8 @@ local function Bubble(i, e, start, y, maxInner, hides)
 	-- The header, at a group's start.
 	local headerW, timeW = 0, 0
 	if start then
-		b.who:SetText(mine and L.CHATWIN_YOU or deleted and Grey(ns.Codec.Plain(ns.DisplayName(e.sender) or "?") .. " <" .. ns.Codec.Plain(e.guild or "?") .. ">")
+		local deletedGuild = ns.Channels.ShowGuildNames() and (" <" .. ns.Codec.Plain(e.guild or "?") .. ">") or ""
+		b.who:SetText(mine and L.CHATWIN_YOU or deleted and Grey(ns.Codec.Plain(ns.DisplayName(e.sender) or "?") .. deletedGuild)
 			or NameText(e))
 		b.time:SetText(Grey(date("%H:%M", tonumber(e.t) or 0)))
 		timeW = math.ceil(TextWidth(b.time))
@@ -688,9 +693,9 @@ local function Bubble(i, e, start, y, maxInner, hides)
 	b:SetSize(inner + 2 * PAD, h)
 	b:ClearAllPoints()
 	if mine then
-		b:SetPoint("TOPRIGHT", frame.content, "TOPRIGHT", -EDGE, -y)
+		b:SetPoint("TOPRIGHT", pane.content, "TOPRIGHT", -EDGE, -y)
 	else
-		b:SetPoint("TOPLEFT", frame.content, "TOPLEFT", EDGE, -y)
+		b:SetPoint("TOPLEFT", pane.content, "TOPLEFT", EDGE, -y)
 	end
 	b:Show()
 	return h
@@ -719,7 +724,7 @@ end
 -- a fight room's: the seam), another player's, not deleted.
 function ChatWindow.ModEntry(b)
 	local WC = ChatWindow.Mod()
-	if not WC or not b or b.mine or type(b.entry) ~= "table" or b.entry.del or Dynamic(b.chat) then return nil end
+	if not WC or not b or b.mine or type(b.entry) ~= "table" or b.entry.del or (not b.embedded and Dynamic(b.chat)) then return nil end
 	if type(WC.CanModerateEntry) ~= "function" or not WC.CanModerateEntry(b.entry, b.chat) then return nil end
 	return b.entry, WC
 end
@@ -728,6 +733,7 @@ function ChatWindow.ModerateLine(b)
 	if b and b.mod then b.mod:Hide() end
 	local e, WC = ChatWindow.ModEntry(b)
 	if not e then return false end
+	if b.embedded then return b.embedded.moderate(b) end
 	ChatWindow.OpenSubMenu({ kind = "moderation", bubble = b, target = e, chat = b.chat }, b)
 	return true
 end
@@ -1709,6 +1715,12 @@ function ChatWindow.SettingsLines()
 			tt:AddLine(L.CONSENT_CHAT, 1, 0.82, 0)
 			tt:AddLine(L.CONSENT_CHAT_TEXT, 1, 1, 1, true)
 		end })
+	Add({ indent = true, text = C.ShowGuildNames() and L.CHATSET_GUILDS_SHOWN or Grey(L.CHATSET_GUILDS_HIDDEN),
+		onClick = function()
+			C.SetGuildNamesShown(not C.ShowGuildNames())
+			Render()
+		end,
+		tip = function(tt) tt:AddLine(L.CHATSET_GUILDS_TIP, 1, 1, 1, true) end })
 	-- Who can read these lines: the channel public, as the Census and the Realm say it.
 	local V = ns.Views
 	if V and type(V.PublicLines) == "function" then
@@ -2718,7 +2730,7 @@ end
 
 -- The "x" at the end of the search box, as every tab's (Views.lua): empties it and lets go of the
 -- keyboard. A button of its own, never a focus change.
-local function ClearButton(sb)
+local function ClearButton(sb, changed)
 	local x = CreateFrame("Button", nil, sb)
 	x:SetSize(16, 16)
 	x:SetPoint("RIGHT", sb, "RIGHT", -2, 0)
@@ -2728,7 +2740,7 @@ local function ClearButton(sb)
 	x:SetScript("OnClick", function()
 		sb:SetText("")
 		sb:ClearFocus()
-		ns.SafeCall("chat tab search", SearchChanged, sb)
+		ns.SafeCall("chat tab search", changed or SearchChanged, sb)
 	end)
 	x:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -2738,6 +2750,160 @@ local function ClearButton(sb)
 	x:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	x:Hide()
 	return x
+end
+
+-- Native components shared by the main tab and embedded conversations, without shared state.
+function ChatWindow.MakeSearch(p, changed)
+	p.topRow = CreateFrame("Frame", nil, p); p.topRow:SetAllPoints(p)
+	p.searchLabel = p.topRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	p.searchLabel:SetText(L.SEARCH)
+	local ok, sb = pcall(CreateFrame, "EditBox", nil, p.topRow, "InputBoxTemplate")
+	if not ok or not sb then sb = CreateFrame("EditBox", nil, p.topRow) end
+	sb:SetAutoFocus(false); sb.olympusBox = true; sb:SetHeight(SEARCH_H)
+	sb:SetMaxLetters(40); sb:SetFontObject("ChatFontNormal"); sb:SetTextInsets(0, 18, 0, 0)
+	sb.clear = ClearButton(sb, changed)
+	sb:SetScript("OnTextChanged", function(self) ns.SafeCall("chat tab search", changed or SearchChanged, self) end)
+	sb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+	sb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+	sb:SetScript("OnHide", function(self) self:ClearFocus() end)
+	sb:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:AddLine(L.SEARCH, 1, 0.82, 0)
+		GameTooltip:AddLine(L.SEARCH_TIP_CHAT, 1, 1, 1, true); GameTooltip:Show()
+	end)
+	sb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	p.search = sb
+end
+function ChatWindow.BodyInset(box)
+	local ok, inset = pcall(CreateFrame, "Frame", nil, box, "InsetFrameTemplate")
+	if not ok or not inset then
+		inset = CreateFrame("Frame", nil, box)
+		local bg = inset:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(0, 0, 0, 0.4)
+	end
+	return inset
+end
+
+-- A conversation inside another Olympus window. All state belongs to this pane: rendering never
+-- selects the main Chat tab, changes its draft, or borrows its scroll position or key bindings.
+function ChatWindow.CreateEmbedded(parent, opts)
+	local p = CreateFrame("Frame", nil, parent)
+	p.embedded, p.bubbles, p.colour = true, {}, ROOM_COLOUR
+	ChatWindow.MakeSearch(p, function(sb)
+		local text = Trim(sb:GetText() or "")
+		p.query = text ~= "" and ns.Fold(text) or nil
+		if opts.searchChanged then opts.searchChanged(sb:GetText() or "") end
+		sb.clear:SetShown(text ~= ""); p:Render(true)
+	end)
+	p.searchLabel:SetPoint("TOPLEFT", p, "TOPLEFT", 4, -8)
+	p.search:SetPoint("TOPLEFT", p.searchLabel, "TOPRIGHT", 8, 4)
+	p.search:SetPoint("TOPRIGHT", p, "TOPRIGHT", -40, -4) -- clear of the table window's existing X
+	local box = CreateFrame("Frame", nil, p)
+	box:SetPoint("TOPLEFT", p, "TOPLEFT", 0, -54); box:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", 0, 36)
+	p.box, p.bodyInset = box, ChatWindow.BodyInset(box); p.bodyInset:SetAllPoints(box)
+	p.topRow:SetFrameLevel(p.bodyInset:GetFrameLevel() + 2)
+	p.search:SetFrameLevel(p.topRow:GetFrameLevel() + 1)
+	local ok, scroll = pcall(CreateFrame, "ScrollFrame", nil, box, "ScrollFrameTemplate")
+	local barRoom = 22
+	if not ok or not scroll or not scroll.ScrollBar then
+		if ok and scroll then scroll:Hide() end
+		scroll = CreateFrame("ScrollFrame", nil, box, "UIPanelScrollFrameTemplate")
+		barRoom = 28
+	end
+	scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
+	scroll:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -barRoom, 4)
+	p.scroll = scroll
+	p.content = CreateFrame("Frame", nil, scroll)
+	p.content:SetSize(10, 10); scroll:SetScrollChild(p.content)
+	local eb = CreateFrame("EditBox", nil, p)
+	p.input = eb
+	eb.olympusBox = true; eb:SetAutoFocus(false); eb:SetFontObject("ChatFontNormal")
+	eb:SetMaxBytes(opts.maxBytes or ns.Codec.CHAT_PARTS * 210 + 1)
+	if eb.SetAltArrowKeyMode then eb:SetAltArrowKeyMode(false) end
+	eb:SetHeight(24); eb:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", 14, 7); eb:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -14, 7)
+	ChatWindow.InputBorder(eb)
+	eb.label = eb:CreateFontString(nil, "OVERLAY", "ChatFontNormal"); eb.label:SetPoint("LEFT", eb, "LEFT", 0, 0)
+	eb.hint = eb:CreateFontString(nil, "OVERLAY", "ChatFontNormal")
+	eb.hint:SetTextColor(0.5, 0.5, 0.5); eb.hint:SetJustifyH("LEFT"); eb.hint:SetWordWrap(false)
+	local function InputHint()
+		eb.hint:SetShown((eb:GetText() or "") == "" and not eb:HasFocus())
+	end
+	eb:SetScript("OnTextChanged", function(self) if opts.changed then opts.changed(self:GetText() or "") end InputHint() end)
+	eb:SetScript("OnEditFocusGained", InputHint); eb:SetScript("OnEditFocusLost", InputHint)
+	eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+	eb:SetScript("OnHide", function(self) self:ClearFocus() end)
+	eb:SetScript("OnTabPressed", function() if opts.nextTab then opts.nextTab() end end)
+	eb:SetScript("OnEnterPressed", function(self)
+		local text, keep = Trim(self:GetText()), not ns.GamepadUI()
+		if text == "" then self:SetText(""); keep = false
+		elseif text:sub(1, 1) == "/" then ns.Print(L.CHATWIN_NO_SLASH:format(opts.label and opts.label() or "Bones"))
+		elseif opts.maySend() then
+			local sent, why = opts.send(text)
+			if sent or why == "confirm" then self:SetText(""); p:Render(true) end
+			if why == "confirm" then keep = false end
+		end
+		if not keep then self:ClearFocus() end
+	end)
+	function p.moderate(b)
+		local e = ChatWindow.ModEntry(b)
+		if not e then return false end
+		local options = ChatWindow.ModerationOptions({ bubble = b, target = e, chat = b.chat })
+		if #options == 0 then return false end
+		local menu = p.modMenu
+		if not menu then
+			menu = CreateFrame("Frame", nil, p); menu.rows = {}; p.modMenu = menu
+			local wash = menu:CreateTexture(nil, "BACKGROUND"); wash:SetAllPoints(); wash:SetColorTexture(0.08, 0.08, 0.1, 1)
+			menu:SetFrameLevel(p:GetFrameLevel() + 30)
+		end
+		menu:ClearAllPoints(); menu:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", 4, 36); menu:SetSize(math.max(160, p:GetWidth() - 8), #options * 22 + 8)
+		p.modBubble, p.modTarget = b, e
+		for i, option in ipairs(options) do
+			local row = menu.rows[i] or CreateFrame("Button", nil, menu)
+			menu.rows[i] = row; row:SetPoint("TOPLEFT", 4, -4 - (i - 1) * 22); row:SetSize(menu:GetWidth() - 8, 22)
+			row.text = row.text or row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			row.text:SetAllPoints(); row.text:SetText(option.label)
+			row:SetScript("OnClick", function() menu:Hide(); option.onClick() end); row:Show()
+		end
+		for i = #options + 1, #menu.rows do menu.rows[i]:Hide() end
+		menu:Show(); return true
+	end
+	function p:Render(bottom)
+		local width = math.max(100, self:GetWidth() - barRoom - 8)
+		local at, following = scroll:GetVerticalScroll(), scroll:GetVerticalScroll() >= scroll:GetVerticalScrollRange() - 2
+		self.content:SetWidth(width)
+		local y, prev = 6
+		local hides = Hides()
+		local all = Searched(opts.lines(), self.query, hides)
+		for i, e in ipairs(all) do
+			local start = not prev or ns.FullName(prev.sender) ~= ns.FullName(e.sender) or Own(prev) ~= Own(e) or (e.t or 0) - (prev.t or 0) > GROUP_TIME
+			if prev then y = y + (start and GAP_OUT or GAP_IN) end
+			y = y + Bubble(i, e, start, y, math.max(40, math.min(width * SHARE, width - EDGE * 2) - PAD * 2), hides, self, opts.room())
+			prev = e
+		end
+		for i = #all + 1, #self.bubbles do self.bubbles[i]:Hide(); self.bubbles[i].entry = nil end
+		if self.modMenu and ChatWindow.ModEntry(self.modBubble) ~= self.modTarget then self.modMenu:Hide() end
+		self.content:SetHeight(math.max(1, y + 8))
+		self.input:SetShown(opts.maySend() == true)
+		local label = opts.label and opts.label() or "Bones"
+		eb.label:SetText("|c" .. Hex(self.colour) .. "[" .. label .. "]:|r")
+		local lw = math.ceil(TextWidth(eb.label)); eb:SetTextInsets(lw + 6, 6, 0, 0)
+		eb.hint:SetText(L.CHATWIN_PLACEHOLDER:format(label))
+		eb.hint:ClearAllPoints(); eb.hint:SetPoint("LEFT", eb, "LEFT", lw + 6, 0); eb.hint:SetPoint("RIGHT", eb, "RIGHT", -6, 0)
+		InputHint()
+		scroll:SetVerticalScroll((bottom or following) and scroll:GetVerticalScrollRange() or math.min(at, scroll:GetVerticalScrollRange()))
+	end
+	p.render = function() p:Render() end
+	p:HookScript("OnHide", function() eb:ClearFocus(); p.search:ClearFocus(); if p.modMenu then p.modMenu:Hide() end end)
+	return p
+end
+
+function ChatWindow.InputBorder(eb)
+	local left = eb:CreateTexture(nil, "BACKGROUND")
+	left:SetTexture("Interface\\ChatFrame\\UI-ChatInputBorder-Left2"); left:SetSize(32, 32); left:SetPoint("LEFT", eb, "LEFT", -10, 0)
+	local right = eb:CreateTexture(nil, "BACKGROUND")
+	right:SetTexture("Interface\\ChatFrame\\UI-ChatInputBorder-Right2"); right:SetSize(32, 32); right:SetPoint("RIGHT", eb, "RIGHT", 10, 0)
+	local mid = eb:CreateTexture(nil, "BACKGROUND")
+	mid:SetTexture("Interface\\ChatFrame\\UI-ChatInputBorder-Mid2"); if mid.SetHorizTile then mid:SetHorizTile(true) end
+	mid:SetHeight(32); mid:SetPoint("TOPLEFT", left, "TOPRIGHT", 0, 0); mid:SetPoint("TOPRIGHT", right, "TOPLEFT", 0, 0)
 end
 
 local function Build(h)
@@ -2751,31 +2917,8 @@ local function Build(h)
 	p.bubbles, p.rows, p.setRows = {}, {}, {}
 
 	-- The search, where the other tabs show the army's counts.
-	p.topRow = CreateFrame("Frame", nil, p)
-	p.topRow:SetAllPoints(p)
-	p.searchLabel = p.topRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	p.searchLabel:SetText(L.SEARCH)
-	local okSearch, sb = pcall(CreateFrame, "EditBox", nil, p.topRow, "InputBoxTemplate")
-	if not okSearch or not sb then sb = CreateFrame("EditBox", nil, p.topRow) end
-	sb:SetAutoFocus(false)
-	sb.olympusBox = true
-	sb:SetHeight(SEARCH_H)
-	sb:SetMaxLetters(40)
-	sb:SetFontObject("ChatFontNormal")
-	sb:SetTextInsets(0, 18, 0, 0) -- (the typing stops short of the "x")
-	sb.clear = ClearButton(sb)
-	sb:SetScript("OnTextChanged", function(self) ns.SafeCall("chat tab search", SearchChanged, self) end)
-	sb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-	sb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-	sb:SetScript("OnHide", function(self) self:ClearFocus() end)
-	sb:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:AddLine(L.SEARCH, 1, 0.82, 0)
-		GameTooltip:AddLine(L.SEARCH_TIP_CHAT, 1, 1, 1, true)
-		GameTooltip:Show()
-	end)
-	sb:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	p.search = sb
+	ChatWindow.MakeSearch(p)
+	local sb = p.search
 
 	-- On the same row, right of the search: the channels' switch, and the gear at the row's end.
 	MakeSwitch(p)
@@ -2843,13 +2986,7 @@ local function Build(h)
 	-- The box of lines (the Communities chat pane's inset), its scroll frame and its lines: over
 	-- the list's and the detail box's room.
 	local box = CreateFrame("Frame", nil, p)
-	local okInset, inset = pcall(CreateFrame, "Frame", nil, box, "InsetFrameTemplate")
-	if not okInset or not inset then
-		inset = CreateFrame("Frame", nil, box)
-		local bg = inset:CreateTexture(nil, "BACKGROUND")
-		bg:SetAllPoints()
-		bg:SetColorTexture(0, 0, 0, 0.4)
-	end
+	local inset = ChatWindow.BodyInset(box)
 	inset:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", 0, 0)
 	p.bodyInset = inset
 	p.box = box
@@ -2920,20 +3057,7 @@ local function Build(h)
 	eb:SetMaxBytes(ns.Codec.CHAT_PARTS * 210 + 1) -- (three parts; Channels.Send splits the line and says when it cuts)
 	if eb.SetAltArrowKeyMode then eb:SetAltArrowKeyMode(false) end
 	-- The Communities box's border art (CommunitiesChatEditBoxTemplate).
-	local left = eb:CreateTexture(nil, "BACKGROUND")
-	left:SetTexture("Interface\\ChatFrame\\UI-ChatInputBorder-Left2")
-	left:SetSize(32, 32)
-	left:SetPoint("LEFT", eb, "LEFT", -10, 0)
-	local right = eb:CreateTexture(nil, "BACKGROUND")
-	right:SetTexture("Interface\\ChatFrame\\UI-ChatInputBorder-Right2")
-	right:SetSize(32, 32)
-	right:SetPoint("RIGHT", eb, "RIGHT", 10, 0)
-	local mid = eb:CreateTexture(nil, "BACKGROUND")
-	mid:SetTexture("Interface\\ChatFrame\\UI-ChatInputBorder-Mid2")
-	if mid.SetHorizTile then mid:SetHorizTile(true) end
-	mid:SetHeight(32)
-	mid:SetPoint("TOPLEFT", left, "TOPRIGHT", 0, 0)
-	mid:SetPoint("TOPRIGHT", right, "TOPLEFT", 0, 0)
+	ChatWindow.InputBorder(eb)
 	eb.label = eb:CreateFontString(nil, "OVERLAY", "ChatFontNormal")
 	eb.label:SetPoint("LEFT", eb, "LEFT", 0, 0)
 	eb.hint = eb:CreateFontString(nil, "OVERLAY", "ChatFontNormal")

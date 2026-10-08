@@ -1022,7 +1022,11 @@ test("wanted sightings: a reviewer says he takes them 45 seconds after login and
 		local ok, e = world:See(o, "nameplate3", Horde("Rexxar-Realm", REXXAR))
 		assert(ok, e); eq(e.sent, 0, "nobody to send it to: it stays on this map")
 		eq(#world:Pins(o), 3)
-		for _, m in ipairs(world.delivered) do assert(not (m.from == plain and m.msg ~= "WS~R~1"), "nothing else from a plain member") end
+		for _, m in ipairs(world.delivered) do
+			-- Plain members can ask publicly for the signed Slayers word, but still cannot
+			-- announce a reviewer's sightings lease or send sightings from this scene.
+			if m.from == plain then assert(m.msg == "WS~R~1" or m.msg == "W4~1", "no unauthorized sightings message from a plain member") end
+		end
 	end)
 end)
 
@@ -1226,5 +1230,53 @@ test("wanted sightings (1.2.0): a member who keeps his zone and layer private se
 		world:Advance(o.W.SIGHT_GAP + 1)
 		ok, e = world:See(o, "nameplate2", Horde("Thrall-Realm", THRALL))
 		assert(ok, e); eq(e.sent, 1, "sharing again: it goes")
+	end)
+end)
+
+test("wanted sightings: location withdrawal stops a queued sighting and takes back delivered pins", function()
+	WithSightings(function(world)
+		local o = world:Client("Aldric-Realm", "Player-1-AB000001")
+		local king = world:Client("Kingly-Realm", "Player-1-AB0000F1", { role = "king", manager = true })
+		world:Lease(king); world:Choose(o, king)
+		local ok, e = world:See(o, "nameplate1", Horde("Grom-Realm", GROM))
+		assert(ok, e); eq(e.sent, 1)
+		o.private = true -- no event first: the transport's final permit must still refuse it
+		world:Pump()
+		eq(Dropped(world, "private"), 1); eq(#world:Pins(king), 0)
+		o.private = nil
+		assert(world:See(o, "nameplate2", Horde("Thrall-Realm", THRALL)))
+		world:Pump(); eq(#world:Pins(king), 1, "sharing again permits a valid sighting")
+		assert(world:See(o, "nameplate3", Horde("Rexxar-Realm", REXXAR)))
+		eq(#world:Waiting(o), 1)
+		o.private = true
+		world:As(o, assert(o.listeners.LAYER_SHARING_CHANGED), false)
+		eq(#world:Waiting(o), 0, "the location switch cancels waiting sightings immediately")
+		world:Pump(); eq(#world:Pins(king), 0, "already delivered pins are taken back")
+		eq(#world:Pins(o), 3, "local pins remain local")
+		eq(o.db.wantedSightings, true, "location withdrawal does not change sightings consent")
+	end)
+end)
+
+test("wanted sightings: the real transport rechecks location sharing before a queued whisper leaves", function()
+	WithSightings(function(world)
+		local o = world:Client("Aldric-Realm", "Player-1-AB000001", { realComm = true })
+		local king = world:Client("Kingly-Realm", "Player-1-AB0000F1", { role = "king" })
+		local C = o.ns.Comm
+		assert(world:As(o, o.W.HandleSighting, "CHANNEL", king.name, "WS~R~1"))
+		world:Choose(o, king)
+		local function Pump() for _ = 1, 3 do world:Advance(2); world:As(o, C.Pump) end end
+		local ok, e = world:See(o, "nameplate1", Horde("Grom-Realm", GROM))
+		assert(ok, e); eq(e.sent, 1); eq(C.QueueSize(), 1)
+		o.private = true; Pump()
+		eq(#world.wire, 0, "the final permit observes the location answer without an event")
+		eq(C.QueueSize(), 0)
+		o.private = nil
+		assert(world:See(o, "nameplate2", Horde("Thrall-Realm", THRALL)))
+		Pump(); eq(#world.wire, 1, "valid sharing still sends")
+		assert(world:See(o, "nameplate3", Horde("Rexxar-Realm", REXXAR)))
+		eq(C.QueueSize(), 1)
+		o.private = true; world:As(o, assert(o.listeners.LAYER_SHARING_CHANGED), false)
+		Pump(); eq(#world.wire, 2)
+		eq(world.wire[2].msg, "WS~X~1", "only withdrawal leaves after the location switch")
 	end)
 end)

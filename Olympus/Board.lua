@@ -757,6 +757,7 @@ Board.Hit = Hit
 -- camps (Board.CampLines). `q`: the Realm tab's search, over the cards.
 function Board.Lines(q)
 	local lines = { { text = Gold(L.BOARD_BACK), onClick = function() ns.Views.ShowBoard(false) end, gapAfter = true } }
+	if not q and ns.WeeklyBrief and ns.WeeklyBrief.Link then lines[#lines + 1] = ns.WeeklyBrief.Link() end
 	-- The King's week first (Week.lua, 1.1): what the army has on, by day.
 	if ns.Week and ns.Week.Section then ns.Week.Section(lines, q) end
 	if not q then

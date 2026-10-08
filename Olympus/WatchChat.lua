@@ -82,10 +82,14 @@ WC.MAX_PER_TARGET = 6
 WC.AUDIT_MAX = 300
 WC.RECORD_MAX = 20
 WC.APPEALS_MAX = 50
-WC.APPEALS_EACH = 3         -- appeals kept from one player at most
+WC.APPEALS_EACH = 3         -- unresolved appeals kept from one player at most
+WC.APPEAL_ANSWERS_MAX = 1000 -- live answer floors: never evicted to admit another answer
+WC.APPEAL_REPEAT = 300      -- at most one own pending appeal replay in five minutes
+WC.SELF_REPEAT = 300        -- current own guild timeout testimony, never the guild's reason
 WC.SELF_AUDIT_MAX = 5       -- a player's own words (S) in the council's audit at most
 WC.ACTIONS_MAX = 50           -- the actor's own actions it repeats
 WC.APPLIED_MAX = 1000
+WC.SELF_APPLIED_MAX = 1000
 WC.LISTS_MAX = 40             -- namers' lists kept
 WC.LIST_EVERY = 300           -- a list is repeated this often (King.HANDS_EVERY)...
 WC.LIST_FRESH = 20 * 60       -- ...and an Olympus moderators' list lapses this long after its last (King.HANDS_FRESH)
@@ -131,7 +135,7 @@ local purgeGrace = {}              -- [sender key] = Now() until which his lines
 local held = {}                    -- guild actions waiting for a fresh roster
 local pages = {}                   -- lists coming in pages: [key] = { n, got, parts, t }
 local printed, printedOrder = {}, {} -- lines printed in the game's chat windows this session
-local lastPopup, toldLogin = -math.huge, false
+local lastPopup = -math.huge
 local surfaces = {}
 local jitter
 
@@ -235,8 +239,8 @@ WC.Hash = Hash
 -- What this client keeps (ns.rdb.chatMod: per realm group and faction, like the net-off words)
 ---------------------------------------------------------------------------
 
-local FIELDS = { "timeouts", "lifts", "tombs", "applied", "guildLists", "modLists", "myMods", "myWatchers",
-	"actions", "audit", "record", "appeals", "decisions", "toldJ", "blocked", "sentS", "verdicts" }
+local FIELDS = { "timeouts", "lifts", "tombs", "applied", "selfApplied", "guildLists", "modLists", "myMods", "myWatchers",
+	"actions", "audit", "record", "appeals", "appealAnswers", "decisions", "toldJ", "blocked", "sentS", "verdicts" }
 
 local function Store()
 	local rdb = ns.rdb
@@ -247,6 +251,18 @@ local function Store()
 		rdb.chatMod = s
 	end
 	for _, f in ipairs(FIELDS) do if type(s[f]) ~= "table" then s[f] = {} end end
+	if s.replaySplit ~= 1 then
+		-- Older saves mixed a player's self testimony with moderator action floors. Separate
+		-- them once without discarding live history, even if an old save already exceeds a cap.
+		for id, at in pairs(s.applied) do
+			if type(id) == "string" and id:sub(1, 2) == "S#" then
+				local old = s.selfApplied[id]
+				if type(at) == "number" and (type(old) ~= "number" or at > old) then s.selfApplied[id] = at end
+				s.applied[id] = nil
+			end
+		end
+		s.replaySplit = 1
+	end
 	s.seq = math.max(0, math.floor(tonumber(s.seq) or 0))
 	return s
 end
@@ -256,6 +272,17 @@ local function Count(t)
 	local n = 0
 	for _ in pairs(t or {}) do n = n + 1 end
 	return n
+end
+
+local function PruneReplayFloors(t)
+	local now = Clock()
+	for id, at in pairs(t) do
+		if type(at) ~= "number" or not Int(at, 1, WC.MAX_SEQ) or now - at > WC.KEEP then t[id] = nil end
+	end
+end
+local function ReplayRoom(t, id, max)
+	PruneReplayFloors(t)
+	return t[id] ~= nil or Count(t) < max
 end
 
 local function Trim(list, max) while #list > max do table.remove(list, 1) end end
@@ -951,8 +978,10 @@ local function RoleOf(scope, weight)
 	return tostring(weight or 0)
 end
 
--- The role as the punished player (or anyone) is told it: never the name.
+-- The punished player is told only "a moderator": even a unique role can identify its holder.
+-- Staff retain the actor and the role in their internal records.
 function WC.RoleText(role, mine)
+	if mine then return L.WATCHCHAT_ROLE_ANY end
 	if role == "G" then return mine and L.WATCHCHAT_ROLE_G or L.WATCHCHAT_ROLE_G_OTHER end
 	local text = L["WATCHCHAT_ROLE_" .. tostring(role)]
 	if type(text) == "string" and text ~= "WATCHCHAT_ROLE_" .. tostring(role) then return text end
@@ -988,7 +1017,7 @@ local function Record(a, words)
 	end
 	-- The punished player: his own record, roles only.
 	if ns.me and Same(a.target, ns.me) and a.scope ~= "S" then
-		s.record[#s.record + 1] = { op = op, role = a.role, at = a.at, untilAt = a.untilAt or 0, reason = a.reason or "",
+		s.record[#s.record + 1] = { name = a.target, op = op, role = a.role, at = a.at, untilAt = a.untilAt or 0, reason = a.reason or "",
 			words = words and words[1] or nil, by = a.by, seq = a.seq }
 		Trim(s.record, WC.RECORD_MAX)
 	end
@@ -1128,6 +1157,22 @@ local function ActionPermit(a, msg, scope, dist)
 	end
 end
 
+-- This character's testimony about his current guild timeout is not an actor's action. Bind
+-- the queued word to that same character, guild and exact timeout; a lift, replacement or
+-- expiry before the paced native send must not reannounce the old restriction to late peers.
+local function SelfTimeoutPermit(e, msg)
+	local character, guild = ns.me, OwnGuild()
+	return function(owner, _, dist, _, payload)
+		if owner ~= WC or dist ~= "CHANNEL" or payload ~= msg then return false, "guard" end
+		local current = WC.SelfTimeout()
+		if not Same(ns.me, character) or not ns.IsMember() or OwnGuild() ~= guild or current ~= e
+			or current.scope ~= "G" or current.guild ~= guild or WC.EndOf(current) <= Clock() then return false, "revoked" end
+		local word = SelfWire({ op = "T", seq = current.seq, at = current.at, guild = current.guild,
+			by = current.by, untilAt = current.untilAt })
+		return word == msg, "revoked"
+	end
+end
+
 -- An action this client applies: its own (given here) or one it took.
 local function Apply(a)
 	local s = Store()
@@ -1135,6 +1180,7 @@ local function Apply(a)
 	local id = Key(a.by) .. "#" .. tostring(a.seq)
 	local seen = s.applied[id]
 	if seen and (a.op == "D" or a.op == "P") then return true, "repeat" end
+	if not ReplayRoom(s.applied, id, WC.APPLIED_MAX) then return false, "full" end
 	local n, words
 	if a.op == "D" then
 		n, words = ApplyDelete(a.target, a.refs, a.at, a.role)
@@ -1158,11 +1204,6 @@ local function Apply(a)
 		end
 	end
 	s.applied[id] = a.at
-	if Count(s.applied) > WC.APPLIED_MAX then
-		local oldest, at
-		for k, t in pairs(s.applied) do if not at or t < at then oldest, at = k, t end end
-		if oldest then s.applied[oldest] = nil end
-	end
 	Record(a, words)
 	-- The punished player's own client: told; and, of a guild action, his own word on the channel.
 	if ns.me and Same(a.target, ns.me) and a.scope ~= "S" then
@@ -1260,7 +1301,8 @@ function WC.Act(op, target, opts)
 	local msg = ActionWire(a)
 	if not msg then return false, "size" end
 	local dist = scope == "G" and "GUILD" or "CHANNEL"
-	Apply(a)
+	local applied, why = Apply(a)
+	if not applied then return false, why end
 	Send(dist, msg, "md:" .. seq, ActionPermit(a, msg, scope, dist))
 	Remember(a)
 	return true, scope
@@ -1417,7 +1459,20 @@ local function TakeSelf(dist, sender, f)
 	if not seq or not at or not actor or actor ~= f[8] or CleanReason(reason) ~= reason then return Refuse("shape", sender) end
 	local guild = f[7] ~= "-" and f[7] or nil
 	local C = ns.Channels
-	if not guild or not ns.IsFederation(guild) or not (C and C.VerifiedLevel and C.VerifiedLevel(sender, guild) >= 1) then
+	local member = false
+	if guild and ns.IsFederation(guild) then
+		if guild == OwnGuild() then
+			local W = TheWatch()
+			member = W and W.FreshRoster and W.FreshRoster() and W.RosterRank and W.RosterRank(sender) ~= nil
+		elseif C and C.VerifiedLevel then
+			local level, verified = C.VerifiedLevel(sender, guild)
+			local D = ns.Data
+			local source
+			if D and D.AuthorizedRank then source = select(2, D.AuthorizedRank(sender, guild)) end
+			member = type(level) == "number" and level >= 1 and verified == true and source ~= "census"
+		end
+	end
+	if not member then
 		return Refuse("guild", sender)
 	end
 	if not Budget(rateSelf, WC.RATE_SELF_ALL) then return false, "rate" end
@@ -1441,7 +1496,8 @@ local function TakeSelf(dist, sender, f)
 	-- (His guild's own clients have the guild action already; the S entry under it is harmless.)
 	local s = Store()
 	local id = "S#" .. Key(sender) .. "#" .. Key(actor) .. "#" .. seq
-	if s.applied[id] then return true, "repeat" end
+	if s.selfApplied[id] then return true, "repeat" end
+	if not ReplayRoom(s.selfApplied, id, WC.SELF_APPLIED_MAX) then return false, "full" end
 	if op == "D" then ApplyDelete(sender, a.refs, at, "S")
 	elseif op == "P" then ApplyPurge(sender, a.window, at, "S")
 	elseif op == "T" then
@@ -1452,7 +1508,7 @@ local function TakeSelf(dist, sender, f)
 		a.by = sender
 		KeepLift(a)
 	end
-	s.applied[id] = at
+	s.selfApplied[id] = at
 	a.by = actor
 	Record(a)
 	ns.Fire("WATCHCHAT_CHANGED", op, sender)
@@ -1546,6 +1602,27 @@ local function TakeMods(dist, sender, f)
 	return true
 end
 
+-- Answer timestamps outlive the small appeal queue. A floor lapses only when every older wire
+-- answer and request has lapsed too; a full map refuses a new answer, never forgets a live one.
+local function PruneAppealAnswers(s)
+	local now = Clock()
+	for key, at in pairs(s.appealAnswers) do
+		if type(at) ~= "number" or not Int(at, 1, WC.MAX_SEQ) or now - at > WC.KEEP then s.appealAnswers[key] = nil end
+	end
+end
+
+local function AppealAnswerAt(s, key, appeal, record)
+	local at = Int(s.appealAnswers[key], 1, WC.MAX_SEQ) or 0
+	if appeal and appeal.answer then at = math.max(at, Int(appeal.answeredAt, 1, WC.MAX_SEQ) or 0, Int(appeal.at, 1, WC.MAX_SEQ) or 0) end
+	if record and record.appeal then at = math.max(at, Int(record.appealAnsweredAt, 1, WC.MAX_SEQ) or 0, Int(record.appealed, 1, WC.MAX_SEQ) or 0) end
+	return at > 0 and at or nil
+end
+
+local function AppealAnswerRoom(s, key)
+	PruneAppealAnswers(s)
+	return s.appealAnswers[key] ~= nil or Count(s.appealAnswers) < WC.APPEAL_ANSWERS_MAX
+end
+
 local function TakeAppeal(dist, sender, f)
 	if dist ~= "CHANNEL" or #f ~= 8 then return Refuse("shape", sender) end
 	if not CouncilSide() then return false, "audience" end
@@ -1553,28 +1630,35 @@ local function TakeAppeal(dist, sender, f)
 	if not at or not seq or not actor or actor ~= f[5] or (op ~= "T" and op ~= "D" and op ~= "P")
 		or CleanReason(text, WC.APPEAL_MAX) ~= text then return Refuse("shape", sender) end
 	if at > Clock() + WC.DATE_AHEAD or Clock() - at > WC.KEEP then return Refuse("time", sender) end
-	if not Rate(sender .. "#A", 2) then return false, "rate" end
 	local s = Store()
 	local key = Key(sender) .. "#" .. Key(actor) .. "#" .. seq
+	PruneAppealAnswers(s)
+	if s.appealAnswers[key] then return true, "answered" end
 	if s.appeals[key] then return true, "repeat" end
+	if not Rate(sender .. "#A", 2) then return false, "rate" end
 	-- (1.2.0: a few of his own at most; and an appeal about a sanction this client holds against
 	-- him, by that actor and sequence, is never pushed out by one about nothing it holds. A
 	-- councillor who logged in later still takes one about a sanction he never heard.)
 	local mine = 0
-	for _, e in pairs(s.appeals) do if Same(e.name, sender) then mine = mine + 1 end end
+	for _, e in pairs(s.appeals) do if not e.answer and Same(e.name, sender) then mine = mine + 1 end end
 	if mine >= WC.APPEALS_EACH then return false, "full" end
 	local held = false
 	for _, e in ipairs(s.audit) do
-		if e.op ~= "L" and e.seq == seq and Same(e.name, sender) and Same(e.by, actor) then held = true break end
+		if e.op == op and e.seq == seq and Same(e.name, sender) and Same(e.by, actor) then held = true break end
 	end
 	if Count(s.appeals) >= WC.APPEALS_MAX then
 		local function Oldest(ok)
 			local k0, t
-			for k, e in pairs(s.appeals) do if ok(e) and (not t or e.at < t) then k0, t = k, e.at end end
+			for k, e in pairs(s.appeals) do if ok(e, k) and (not t or e.at < t or (e.at == t and k < k0)) then k0, t = k, e.at end end
 			return k0
 		end
-		local oldest = Oldest(function(e) return e.answer ~= nil end) or Oldest(function(e) return not e.held end)
-			or (held and Oldest(function() return true end)) or nil
+		local oldest = Oldest(function(e, k)
+			local answeredAt = e.answer and AppealAnswerAt(s, k, e)
+			if not answeredAt or not AppealAnswerRoom(s, k) then return false end
+			-- Preserve an older saved answered row's floor before making room for a new appeal.
+			s.appealAnswers[k] = answeredAt
+			return true
+		end) or (held and Oldest(function(e) return not e.answer and not e.held end)) or nil
 		if not oldest then return false, "full" end
 		s.appeals[oldest] = nil
 	end
@@ -1587,23 +1671,40 @@ end
 local function TakeAnswer(dist, sender, f)
 	if dist ~= "CHANNEL" or #f ~= 9 then return Refuse("shape", sender) end
 	if NamerLevel(sender) < LEVEL.council or WC.Barred("powers", sender) then return Refuse("namer", sender) end
-	if not Shared() then return false, "rate" end
 	local at, target, actor, seq, verdict, reason = Int(f[4], 1, WC.MAX_SEQ), CharName(f[5]), CharName(f[6]), Int(f[7], 1, WC.MAX_SEQ), f[8], f[9]
-	if not at or not target or not actor or not seq or (verdict ~= "K" and verdict ~= "L") or CleanReason(reason) ~= reason then return Refuse("shape", sender) end
+	if not at or not target or target ~= f[5] or not actor or actor ~= f[6] or not seq
+		or (verdict ~= "K" and verdict ~= "L") or CleanReason(reason) ~= reason then return Refuse("shape", sender) end
+	local now = Clock()
+	if at > now + WC.DATE_AHEAD or now - at > WC.KEEP then return Refuse("time", sender) end
 	local s = Store()
 	local key = Key(target) .. "#" .. Key(actor) .. "#" .. seq
 	local appeal = s.appeals[key]
-	if appeal then appeal.answer, appeal.answeredBy, appeal.answeredAt = verdict, sender, at end
+	local mine
 	if ns.me and Same(target, ns.me) then
-		local mine, op = s.record, nil
-		for _, r in ipairs(mine) do if Same(r.by, actor) and r.seq == seq then r.appeal, op = verdict, r.op end end
+		for _, r in ipairs(s.record) do
+			if (not r.name or Same(r.name, ns.me)) and Same(r.by, actor) and r.seq == seq and Int(r.appealed, 1, WC.MAX_SEQ)
+				and (r.op == "T" or r.op == "D" or r.op == "P") then mine = r end
+		end
+	end
+	PruneAppealAnswers(s)
+	local answeredAt = AppealAnswerAt(s, key, appeal, mine)
+	if answeredAt and at <= answeredAt then return at == answeredAt, at == answeredAt and "repeat" or "older" end
+	local requestedAt = math.max(appeal and Int(appeal.at, 1, WC.MAX_SEQ) or 0, mine and Int(mine.appealed, 1, WC.MAX_SEQ) or 0)
+	if requestedAt == 0 or requestedAt > now + WC.DATE_AHEAD or now - requestedAt > WC.KEEP then return Refuse("appeal", sender) end
+	if at < requestedAt then return Refuse("older", sender) end
+	if not AppealAnswerRoom(s, key) then return false, "full" end
+	if not Shared() then return false, "rate" end
+	s.appealAnswers[key] = at
+	if appeal then appeal.answer, appeal.answeredBy, appeal.answeredAt = verdict, sender, at end
+	if mine then
+		mine.appeal, mine.pendingAppeal, mine.appealAnsweredAt = verdict, nil, at
 		local role = WC.RoleText(RoleOf("O", NamerLevel(sender)), true)
 		-- Told what is so on this client: a lift that did not reach his timeout (one from higher
 		-- up, or his lift not here yet) is never told as lifted; a deleted line does not come back.
 		local still = WC.SelfTimeout()
 		local text
 		if verdict ~= "L" then text = L.WATCHCHAT_APPEAL_KEPT_YOU:format(role, ReasonPart(reason))
-		elseif op == "D" or op == "P" then text = L.WATCHCHAT_APPEAL_GRANTED_YOU:format(role, ReasonPart(reason))
+		elseif mine.op == "D" or mine.op == "P" then text = L.WATCHCHAT_APPEAL_GRANTED_YOU:format(role, ReasonPart(reason))
 		elseif still then text = L.WATCHCHAT_APPEAL_LIFTED_STILL:format(role, ReasonPart(reason), WC.TimeoutText(still))
 		else text = L.WATCHCHAT_APPEAL_LIFTED_YOU:format(role, ReasonPart(reason)) end
 		WC.TellDecision(text)
@@ -1838,15 +1939,50 @@ function WC.Appeal(by, seq, text)
 	text = CleanReason(text, WC.APPEAL_MAX)
 	if not by or not seq or text == "" then return false, "text" end
 	local found
-	for _, r in ipairs(s.record) do if Same(r.by, by) and r.seq == seq then found = r end end
+	for _, r in ipairs(s.record) do if (not r.name or Same(r.name, ns.me)) and Same(r.by, by) and r.seq == seq then found = r end end
 	if not found then return false, "record" end
 	if found.op ~= "T" and found.op ~= "D" and found.op ~= "P" then return false, "record" end
 	if found.appealed then return false, "already" end
-	local msg = ("MD~1~A~%d~%s~%d~%s~%s"):format(math.floor(Clock()), by, seq, found.op, text)
+	local pending = 0
+	for _, r in ipairs(s.record) do
+		if (not r.name or Same(r.name, ns.me)) and r.appealed and not r.appeal then pending = pending + 1 end
+	end
+	if pending >= WC.APPEALS_EACH then return false, "full" end
+	local at = math.floor(Clock())
+	local msg = ("MD~1~A~%d~%s~%d~%s~%s"):format(at, by, seq, found.op, text)
 	if #msg > WC.MESSAGE_MAX then return false, "size" end
-	found.appealed = math.floor(Clock())
-	Send("CHANNEL", msg, "mda:" .. seq)
+	if not Send("CHANNEL", msg, "mda:" .. seq) then return false, "queue" end
+	found.appealed = at
+	found.pendingAppeal = { name = ns.me, at = at, text = text, sent = at }
+	s.appealRepeatAt = at
 	ns.Fire("WATCH_CHANGED")
+	return true
+end
+
+-- Only this character's own pending record is replayed. Persisted fields are validated before
+-- building the old wire message; no other client's appeal or private Watch record is forwarded.
+function WC.RepeatOwnAppeal(s)
+	local now = math.floor(Clock())
+	local last = Int(s.appealRepeatAt, 1, WC.MAX_SEQ)
+	if last and last > now then s.appealRepeatAt = now return false end
+	if last and now - last < WC.APPEAL_REPEAT then return false end
+	local chosen, pending, count = nil, nil, 0
+	for _, r in ipairs(s.record) do
+		local p = type(r) == "table" and r.pendingAppeal
+		if type(p) == "table" and Same(p.name, ns.me) and (not r.name or Same(r.name, ns.me)) and not r.appeal
+			and (r.op == "T" or r.op == "D" or r.op == "P") and type(r.by) == "string" and CharName(r.by) == r.by and Int(r.seq, 1, WC.MAX_SEQ)
+			and Int(p.at, 1, WC.MAX_SEQ) and p.at == r.appealed and p.at <= now + WC.DATE_AHEAD and now - p.at <= WC.KEEP
+			and Int(r.at, 1, WC.MAX_SEQ) and r.at <= p.at + WC.DATE_AHEAD
+			and type(p.text) == "string" and p.text ~= "" and CleanReason(p.text, WC.APPEAL_MAX) == p.text
+			and Int(p.sent, 1, WC.MAX_SEQ) and p.sent <= now then
+			count = count + 1
+			if count <= WC.APPEALS_EACH and (not pending or p.sent < pending.sent) then chosen, pending = r, p end
+		end
+	end
+	if not chosen then return false end
+	local msg = ("MD~1~A~%d~%s~%d~%s~%s"):format(pending.at, chosen.by, chosen.seq, chosen.op, pending.text)
+	if #msg > WC.MESSAGE_MAX or not Send("CHANNEL", msg, "mda:" .. chosen.seq) then return false end
+	pending.sent, s.appealRepeatAt = now, now
 	return true
 end
 
@@ -1861,15 +1997,22 @@ function WC.Answer(key, verdict, reason)
 	if not appeal or not CouncilSide() then return false, "appeal" end
 	if WC.Barred("powers") then return false, "sanction" end
 	if verdict ~= "K" and verdict ~= "L" then return false, "verdict" end
+	local now = math.floor(Clock())
+	local requestedAt = Int(appeal.at, 1, WC.MAX_SEQ)
+	if not requestedAt or requestedAt > now + WC.DATE_AHEAD or now - requestedAt > WC.KEEP then return false, "time" end
+	if not AppealAnswerRoom(s, key) then return false, "full" end
+	local at = math.max(now, requestedAt, (AppealAnswerAt(s, key, appeal) or 0) + 1)
+	if at > now + WC.DATE_AHEAD then return false, "time" end
+	reason = CleanReason(reason)
+	local msg = ("MD~1~R~%d~%s~%s~%d~%s~%s"):format(at, appeal.name, appeal.actor, appeal.seq, verdict, reason)
+	if #msg > WC.MESSAGE_MAX then return false, "size" end
 	if verdict == "L" and (appeal.op or "T") == "T" then
 		local ok, why = WC.Act("U", appeal.name, { reason = reason, blind = true })
 		if not ok then return false, why end
 	end
-	reason = CleanReason(reason)
-	local msg = ("MD~1~R~%d~%s~%s~%d~%s~%s"):format(math.floor(Clock()), appeal.name, appeal.actor, appeal.seq, verdict, reason)
-	if #msg > WC.MESSAGE_MAX then return false, "size" end
-	appeal.answer, appeal.answeredBy, appeal.answeredAt = verdict, ns.me, math.floor(Clock())
-	Send("CHANNEL", msg, "mdr:" .. key)
+	if not Send("CHANNEL", msg, "mdr:" .. key) then return false, "queue" end
+	s.appealAnswers[key] = at
+	appeal.answer, appeal.answeredBy, appeal.answeredAt = verdict, ns.me, at
 	ns.Fire("WATCH_CHANGED")
 	return true
 end
@@ -1997,10 +2140,12 @@ function WC.Prune()
 		local t = s.tombs[i]
 		if type(t) ~= "table" or mono - (tonumber(t.t) or 0) > WC.TOMB_KEEP then table.remove(s.tombs, i) end
 	end
-	for k, at in pairs(s.applied) do if type(at) ~= "number" or now - at > WC.KEEP then s.applied[k] = nil end end
+	PruneReplayFloors(s.applied)
+	PruneReplayFloors(s.selfApplied)
 	for k, at in pairs(s.sentS) do if type(at) ~= "number" or now - at > WC.KEEP then s.sentS[k] = nil end end
 	for k, at in pairs(s.toldJ) do if type(at) ~= "number" or now - at > WC.KEEP then s.toldJ[k] = nil end end
 	for k, e in pairs(s.appeals) do if type(e) ~= "table" or now - (tonumber(e.at) or 0) > WC.KEEP then s.appeals[k] = nil end end
+	PruneAppealAnswers(s)
 	for k, d in pairs(s.decisions) do if type(d) ~= "table" or now - (tonumber(d.at) or 0) > WC.DECISION_FOR then s.decisions[k] = nil end end
 	for k, v in pairs(s.verdicts) do if type(v) ~= "table" or now - (tonumber(v.at) or 0) > WC.KEEP then s.verdicts[k] = nil end end
 	for k, list in pairs(rates) do
@@ -2061,6 +2206,7 @@ function WC.Tick()
 	if not s or not ns.me or not ns.IsMember() then return end
 	jitter = jitter or (WC.random(0, WC.JITTER))
 	local budget, mono = WC.PER_TICK, Now()
+	if budget > 0 and WC.RepeatOwnAppeal(s) then budget = budget - 1 end
 	for _, a in ipairs(s.actions) do
 		if budget <= 0 then break end
 		local every = (a.op == "D" or a.op == "P") and WC.DELETE_REPEAT_EVERY or (WC.REPEAT + jitter)
@@ -2080,12 +2226,21 @@ function WC.Tick()
 	for key, d in pairs(s.decisions) do
 		if not Same(d.target, ns.me) and mono - (tonumber(d.sent) or -math.huge) >= WC.DECISION_EVERY then WC.SendDecision(key) end
 	end
-	-- A guild timeout on this character: said again on the channel once a session (others abroad).
+	-- This character's current guild timeout, as his own client says it: repeated for late
+	-- reviewers, without the guild reason. It remains S testimony, never proof of its actor.
 	local e = WC.SelfTimeout()
-	if e and e.scope == "G" and not toldLogin then
-		toldLogin = true
+	if budget > 0 and e and e.scope == "G" and type(e.by) == "string" and CharName(e.by) == e.by
+		and Int(e.seq, 1, WC.MAX_SEQ) and Int(e.at, 1, WC.MAX_SEQ) and e.at <= Clock() + WC.DATE_AHEAD then
+		local now, last = math.floor(Clock()), s.ownTimeoutSent
+		if type(last) == "table" and Same(last.name, ns.me) and Same(last.by, e.by) and last.seq == e.seq
+			and Int(last.at, 1, WC.MAX_SEQ) then
+			if last.at > now then last.at = now return end
+			if now - last.at < WC.SELF_REPEAT then return end
+		end
 		local msg = SelfWire({ op = "T", seq = e.seq, at = e.at, guild = e.guild, by = e.by, untilAt = e.untilAt, reason = e.reason })
-		if msg then Send("CHANNEL", msg, "mdst") end
+		if msg and Send("CHANNEL", msg, "mdst", SelfTimeoutPermit(e, msg)) then
+			s.ownTimeoutSent = { name = ns.me, by = e.by, seq = e.seq, at = now }
+		end
 	end
 end
 
@@ -2365,7 +2520,10 @@ end
 
 local function ShownBy(name)
 	local W = TheWatch()
-	return W and W.ShownBy and W.ShownBy(name) or (ns.DisplayName(name) or "?")
+	if W and W.ShownBy then return W.ShownBy(name) end
+	local shown = ns.DisplayName(name) or "?"
+	if ns.CouncilMasked and ns.CouncilMasked() and not IsKing(name) then return ns.MaskName(shown) end
+	return shown
 end
 local function Masked() return ns.CouncilMasked and ns.CouncilMasked() == true end
 
@@ -2397,7 +2555,7 @@ local function TimeoutRows(lines)
 	if #rows == 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.WATCHCHAT_TIMEOUTS_EMPTY) } end
 	for i = 1, math.min(20, #rows) do
 		local e = rows[i]
-		local who = ns.DisplayName(e.name) or e.name
+		local who = ShownBy(e.name)
 		local mayLift = WC.CanModerate(e.name) ~= nil
 		lines[#lines + 1] = { indent = 1,
 			text = Red(who) .. "  " .. Grey((tonumber(e.untilAt) or 0) == 0 and L.WATCHCHAT_D_HOLD or L.WATCHCHAT_UNTIL:format(Stamp(e.untilAt))),
@@ -2676,7 +2834,7 @@ function WC.Stats() return stats end
 
 function WC.ResetForTests()
 	wipe(rates); wipe(rateAll); wipe(rateSelf); wipe(purgeGrace); wipe(held); wipe(pages); wipe(printed); wipe(printedOrder)
-	lastPopup, toldLogin, listsPending, jitter = -math.huge, false, false, nil
+	lastPopup, listsPending, jitter = -math.huge, false, nil
 	for k in pairs(stats) do stats[k] = 0 end
 end
 

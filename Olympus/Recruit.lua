@@ -136,6 +136,7 @@ local function AskRoute(name, check, confirm)
 	if not check and not confirm and now - lastRoute < Recruit.ROUTE_GAP then return false end
 	if not ns.Comm.WhisperOutside(ns.TellName(name), "J1~1") then return false end
 	routeAsked[key] = now
+	if ns.GuildCharter then ns.GuildCharter.Ask(name) end
 	if not check then lastRoute = now end
 	return true
 end
@@ -190,6 +191,7 @@ end
 
 -- A member's answer, heard outside an Olympus guild (Comm.HandleOutside): only from one we asked.
 function Recruit.OnRoute(sender, text)
+	if text:sub(1, 3) == "QD~" and ns.GuildCharter then return ns.GuildCharter.OnReported(sender, text) end
 	local key, now = Key(sender), ns.Now()
 	if not routeAsked[key] or now - routeAsked[key] > Recruit.ROUTE_WAIT then return false end
 	local route = Recruit.ParseRoute(text)
@@ -223,6 +225,13 @@ function Recruit.OnRoute(sender, text)
 end
 ns.Comm.HandleOutside(Recruit.OnRoute)
 
+-- The first reported card needs an independent source. This is another bounded route ask,
+-- not a chat whisper or a contact chosen by the card.
+function Recruit.ConfirmCharters()
+	if ns.IsMember() or AskedLately(ns.Now()) >= Recruit.ROUTE_ASKS then return false end
+	return AskAnother(true)
+end
+
 -- Whom this round of /who found in `guild` by that name, or nil: the server's word that he is
 -- there. A name without its realm (a member names those of his own realm so) matches by name.
 local function FoundIn(name, guild)
@@ -242,20 +251,34 @@ local function Found(guild)
 	return false
 end
 
--- The route's guilds in its order: the gates' first (two answers agree on them), then the most
--- free slots, each once /who found one of its members (none: nobody there to ask).
+-- Confirmed gates first, then corroborated charter affinity, room and /who presence.
+-- A public card never supplies a new contact or invitation authority.
+local function GuildLess(a, b)
+	if a.gates ~= b.gates then return a.gates end
+	local aa, ba = a.affinity or {}, b.affinity or {}
+	for i = 1, 3 do if (aa[i] or 0) ~= (ba[i] or 0) then return (aa[i] or 0) > (ba[i] or 0) end end
+	local fa, fb = a.free or -1, b.free or -1
+	if fa ~= fb then return fa > fb end
+	if #(a.members or {}) ~= #(b.members or {}) then return #(a.members or {}) > #(b.members or {}) end
+	return a.name < b.name
+end
 local function RouteOrder(route)
-	local out = {}
-	if route.gates then out[1] = route.gates end
-	for _, e in ipairs(route.list) do
-		if e.name ~= route.gates and Found(e.name) then out[#out + 1] = e.name end
+	local out, rows, by = {}, {}, {}
+	for _, g in ipairs(Recruit.Guilds()) do by[g.name] = g end
+	if route.gates then
+		local g = by[route.gates] or { name = route.gates, gates = true }
+		rows[#rows + 1] = g
 	end
+	for _, e in ipairs(route.list) do
+		if e.name ~= route.gates and Found(e.name) then rows[#rows + 1] = by[e.name] end
+	end
+	table.sort(rows, GuildLess)
+	for _, g in ipairs(rows) do out[#out + 1] = g.name end
 	return out
 end
 Recruit.RouteOrder = RouteOrder
 
--- Guilds seen online, the gates' guild first, then the most free slots (a route known), then
--- the most seen: { name, online = n, members = {...}, free }
+-- Guilds seen online in the same order as the clickable route, with optional local affinity.
 function Recruit.Guilds()
 	local by, out = {}, {}
 	for _, p in ipairs(Recruit.found) do
@@ -272,14 +295,9 @@ function Recruit.Guilds()
 		local e = route and route.byName[g.name]
 		g.free = e and e.free or nil
 		g.gates = route and route.gates == g.name or false
+		if ns.GuildCharter then g.affinity, g.charter = ns.GuildCharter.Affinity(g.name, Recruit.found) end
 	end
-	table.sort(out, function(a, b)
-		if a.gates ~= b.gates then return a.gates end
-		local fa, fb = a.free or -1, b.free or -1
-		if fa ~= fb then return fa > fb end
-		if #a.members ~= #b.members then return #a.members > #b.members end
-		return a.name < b.name
-	end)
+	table.sort(out, GuildLess)
 	return out
 end
 
@@ -287,8 +305,8 @@ local function Asked(name) return Recruit.asked[name] or askedKey[Key(name)] end
 
 -- The next member of that guild we have not asked yet (any guild if nil): its officers the
 -- route named first, once /who found them in it (whispered by the server's name), then anyone
--- /who found; never one who asked not to be contacted. No guild: the gates' guild first, then
--- the most room, then anyone found.
+-- /who found; never one who asked not to be contacted. No guild: the visible route's order,
+-- then anyone found.
 function Recruit.NextContact(guild)
 	local route = Recruit.Route()
 	if guild then
@@ -545,16 +563,62 @@ ns.Comm.Handle("J3", Recruit.OnJoinRequest)
 local function CanInvite() return type(CanGuildInvite) == "function" and CanGuildInvite() and true or false end
 Recruit.CanInvite = CanInvite
 
--- An officer's yes: the game's own guild invite, from the click.
-function Recruit.Accept(req)
-	if not CanInvite() or type(req) ~= "table" then return false end
+-- A warning may wait while ranks, guild membership or the request change. Only a current
+-- request for this guild can reach the native invitation, and only from the officer's click.
+local function CurrentRequest(req)
+	if type(req) ~= "table" or type(req.name) ~= "string" or req.name == "" or not CanInvite() or not ns.IsMember() then return false end
+	if req.guild ~= GetGuildInfo("player") or ns.Roster.RankOf(req.name) ~= nil then return false end
+	Prune(ns.Now())
+	for _, pending in ipairs(Recruit.requests) do if pending == req then return true end end
+	return false
+end
+
+local function SameWarning(data, req, word)
+	return type(data) == "table" and data.req == req and data.name == req.name and data.guild == req.guild
+		and data.on == word.name and data.at == word.at and data.by == word.by and data.reason == word.reason
+end
+
+local function AcceptRequest(req, confirmed)
+	if not CurrentRequest(req) then return false end
+	if confirmed and (confirmed.name ~= req.name or confirmed.guild ~= req.guild) then return false end
 	local invite = (C_GuildInfo and C_GuildInfo.Invite) or GuildInvite -- gp:roster-actions
 	if type(invite) ~= "function" then return false end
+	local M = ns.Moderation
+	local word = M and M.Hidden and M.Hidden(req.name)
+	if word and not SameWarning(confirmed, req, word) then
+		if not ns.Dialog or ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return false end
+		local data = { req = req, name = req.name, guild = req.guild,
+			on = word.name, at = word.at, by = word.by, reason = word.reason }
+		-- Keep this contextual choice in Olympus's own window in either input mode. The existing
+		-- moderation formatter also preserves the King's stream privacy for free-text reasons.
+		ns.Dialog.Show("OLYMPUS_RECRUIT_NETOFF", L.JOIN_NETOFF_PROMPT:format(ns.DisplayName(req.name) or req.name,
+			M.When(word), M.ReasonShown(word)), nil, data)
+		return "warning"
+	end
 	invite(ns.TellName(req.name))
 	ns.Print(L.JOIN_INVITED:format(ns.DisplayName(req.name) or req.name, req.guild))
 	Drop(req)
 	return true
 end
+
+-- An officer's yes: a current individual net-off word first asks for an explicit choice. It
+-- never declines a guild request, changes a block/ignore list or takes a native invite back.
+function Recruit.Accept(req) return AcceptRequest(req) == true end
+
+StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
+	text = "%s",
+	button1 = L.JOIN_NETOFF_INVITE,
+	button2 = L.JOIN_NETOFF_CANCEL,
+	OnAccept = function(_, data)
+		if type(data) ~= "table" then return end
+		-- A changed word presents its new context and keeps the question open for another click.
+		return AcceptRequest(data.req, data) == "warning"
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
 
 -- Where to send one we can't take: the gates' guild while the King's gates are open, else only
 -- ours (the Join screen shows who has room). Never a guild named for its free slots (Konig's
@@ -648,6 +712,7 @@ function Recruit.ResetForTests()
 	lastRoute = -math.huge
 	Recruit.route, Recruit.pending, Recruit.lastAsk, Recruit.lastContact = nil, nil, 0, nil
 	Recruit.found, Recruit.asked, Recruit.replied, Recruit.requests = {}, {}, {}, {}
+	if ns.GuildCharter then ns.GuildCharter.ResetForTests() end
 end
 
 -- A whisper came in. Outside Olympus: a member we asked answered. In it: kept a moment for the

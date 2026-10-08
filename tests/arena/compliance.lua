@@ -80,9 +80,14 @@ test("1.1.6 compliance: as it ships, the gate allows no wager of any kind, on an
 		local en, p = rawget(L, key), rawget(pt, key)
 		assert(type(en) == "string" and en ~= "" and type(p) == "string" and p ~= "" and p ~= en, key)
 	end
-	assert(L.COMPLIANCE_WAIT:find("region by region", 1, true))
-	assert(pt.COMPLIANCE_WAIT:find("região por região", 1, true))
-	assert(L.COMPLIANCE_LOTTERY_PRACTICE:find("country by country", 1, true))
+	-- The release policy no longer promises wagers after a regional review. Keep the gate tests
+	-- above unchanged; these assertions cover only the intended player-facing explanation.
+	assert(L.COMPLIANCE_WAIT:find("no bets or gold stakes", 1, true))
+	assert(pt.COMPLIANCE_WAIT:find("não têm apostas", 1, true))
+	assert(L.COMPLIANCE_LOTTERY_PRACTICE:find("no gold moves", 1, true))
+	for _, words in ipairs({ L.COMPLIANCE_WAIT, L.COMPLIANCE_WAIT_SHORT, L.COMPLIANCE_LOTTERY_PRACTICE }) do
+		assert(not words:find("review", 1, true) and not words:find("2.0", 1, true), "no future wager promise")
+	end
 	for _, key in ipairs({ "ARENA_REFUSE_COMPLIANCE", "FARKLE_WHY_COMPLIANCE", "LOTTERY_WHY_COMPLIANCE", "MATCH_WHY_COMPLIANCE", "ARENA_WHY_COMPLIANCE" }) do
 		eq(rawget(L, key), L.COMPLIANCE_WAIT, key); eq(rawget(pt, key), pt.COMPLIANCE_WAIT, key)
 	end
@@ -270,7 +275,7 @@ test("1.1.6 compliance: Bone Throw: a stake or the crowd's bets are refused, a m
 	NoErrors(w)
 end)
 
-test("1.1.6 compliance: the Lottery: no ticket, no day opened, no draw paid; the board and its practice table say a compliance review is under way, practice first, and the practice draw plays", function()
+test("1.1.6 compliance: the Lottery: no ticket, no day opened, no draw paid; the board explains free practice, practice opens first, and the practice draw plays", function()
 	local w = World.New({ compliance = "shipped" })
 	local king = w:Role("king")
 	local a = w:Client(N.bettor1)

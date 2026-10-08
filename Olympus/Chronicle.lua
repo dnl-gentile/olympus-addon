@@ -23,6 +23,8 @@ local L = ns.L
 --           With a key, an act repeated as it is (the gates, a switch, every few minutes) is
 --           written once: only when `value` differs from the last one written under `key`
 --           (or from `default` when none was). `words` show under the block-term filter.
+--           `id` deduplicates a received act while its row is retained, including after reload;
+--           `to` records its recipient, when the act was a private message.
 --
 -- Only acts heard from whoever did them: a repeat or a relay of someone else's act (the Treasurer's
 -- book carrying the King's switches, an editor's list carrying another's block term) is no act
@@ -49,7 +51,7 @@ Chronicle.TEXT_MAX = 160 -- bytes of what was done, and of a player's words
 
 local KINDS = {
 	decree = "ACTS_KIND_DECREE", gates = "ACTS_KIND_GATES", pardon = "ACTS_KIND_PARDON", switch = "ACTS_KIND_SWITCH",
-	netoff = "ACTS_KIND_NETOFF", guildnetoff = "ACTS_KIND_GUILDNETOFF", terms = "ACTS_KIND_TERMS",
+	netoff = "ACTS_KIND_NETOFF", guildnetoff = "ACTS_KIND_GUILDNETOFF", terms = "ACTS_KIND_TERMS", court = "ACTS_KIND_COURT",
 }
 
 local function Clean(s, n)
@@ -74,6 +76,10 @@ function Chronicle.Add(kind, by, what, opts)
 	local list = Store()
 	if not list or type(kind) ~= "string" or kind == "" then return false end
 	opts = type(opts) == "table" and opts or {}
+	local id = opts.id and Clean(opts.id) or nil
+	if id then
+		for _, e in ipairs(list) do if e.kind == kind and e.id == id then return false end end
+	end
 	if opts.key ~= nil then
 		local states, key, value = States(), tostring(opts.key), tostring(opts.value)
 		local last = states[key]
@@ -85,7 +91,8 @@ function Chronicle.Add(kind, by, what, opts)
 	list[#list + 1] = {
 		t = ns.Now(), st = ServerNow(), kind = Clean(kind, 16),
 		by = Clean(by ~= nil and ns.FullName(tostring(by)) or "?", 64),
-		what = Clean(what), words = words ~= "" and words or nil,
+		what = Clean(what), words = words ~= "" and words or nil, id = id,
+		to = opts.to and Clean(ns.FullName(tostring(opts.to)), 64) or nil,
 	}
 	while #list > Chronicle.MAX do table.remove(list, 1) end
 	ns.Fire("ACTS_CHANGED")

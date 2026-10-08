@@ -397,14 +397,6 @@ local function Derive()
 			S.invalid[#S.invalid + 1] = { key = info.key, n = info.n, role = "M", why = info.why }
 		end
 	end
-	-- Correspondents: one per Olympus guild.
-	for gkey, c in pairs(b.c) do
-		if type(c.g) == "string" and ns.IsFederation(c.g) then
-			S.corr[gkey] = c
-			local k = Key(c.n)
-			if k then S.corrOf[k] = S.corrOf[k] or gkey end
-		end
-	end
 	return S
 end
 
@@ -414,6 +406,17 @@ function Church.State()
 	if not derived or derived.rev ~= rev or derived.listAt ~= listAt or derived.blob ~= (signedMemo and signedMemo.blob) then
 		derived = Derive()
 		derived.blob = signedMemo and signedMemo.blob
+	end
+	-- Correspondents grant a private room and counting duties. Recheck their original issuer,
+	-- even when the book is cached: a roster demotion or expired signed role ends that authority.
+	derived.corr, derived.corrOf = {}, {}
+	for gkey, c in pairs((Book() or { c = {} }).c) do
+		if type(c.g) == "string" and ns.IsFederation(c.g)
+			and (Church.RootCode(c.ac) or Church.IsGuildMaster(c.ac, c.g) == true) then
+			derived.corr[gkey] = c
+			local k = Key(c.n)
+			if k then derived.corrOf[k] = derived.corrOf[k] or gkey end
+		end
 	end
 	return derived
 end
@@ -482,7 +485,7 @@ function Church.Children(key)
 end
 
 -- The guild master of `guild`: true, false, or nil while this client can't tell (another guild's
--- census not fresh yet). Our own guild from the server's roster; another from Data.AuthorizedRank.
+-- signed authority not held yet). Our own guild from the server's roster; another from Authority.
 function Church.IsGuildMaster(name, guild)
 	if type(name) ~= "string" or type(guild) ~= "string" then return false end
 	local mine = OwnGuild()
@@ -497,9 +500,9 @@ function Church.IsGuildMaster(name, guild)
 		local rank = R.RankOf(ns.FullName(name))
 		return rank == 0
 	end
-	local D = ns.Data
-	if not (D and D.AuthorizedRank) then return nil end
-	local rank = D.AuthorizedRank(ns.FullName(name), guild)
+	local A = ns.Authority
+	if not (A and A.Rank) then return nil end
+	local rank = A.Rank(ns.FullName(name), guild)
 	if rank == nil then return nil end
 	return rank == 0
 end
@@ -806,7 +809,7 @@ function Church.TakeAct(sender, text, quiet, maxAge)
 end
 
 -- The acts this client could not check when they came (an actor's place not heard yet, another
--- guild's census not fresh): tried again after each change, oldest first.
+-- guild's signed authority not held): tried again after each change, oldest first.
 function Church.RetryPending()
 	if #pending == 0 then return end
 	table.sort(pending, function(a, b) return a.at < b.at end)
@@ -1123,6 +1126,7 @@ function Church.TakeEntry(sender, text)
 	end
 	if onApostle and root ~= "W" and root ~= "H" then return Drop("apostle page") end
 	if kind == "C" and not ns.IsFederation(e.g) then return Drop("guild") end
+	if kind == "C" and not (Church.RootCode(e.ac) or Church.IsGuildMaster(e.ac, e.g) == true) then return Drop("issuer") end
 	e.via = Key(sender) ~= Key(e.ac) and ns.FullName(sender) or nil
 	local before, wasAudience = Church.Role(ns.me), Church.InAudience(ns.me)
 	if not Put(kind, slot, e) then return false, "same" end

@@ -1573,7 +1573,7 @@ function NextPrize()
 	S.spinFrom = GetTime()
 	Spin(k)
 	S.reqs[#S.reqs + 1] = { prize = k, at = GetTime() }
-	if not pcall(RandomRoll, LOW, HIGH) then -- gp:arena-clicks
+	if not pcall(ns.Roll or RandomRoll, LOW, HIGH) then -- gp:arena-clicks
 		S.reqs[#S.reqs] = nil
 		S.hint = "The game refused the roll: type /roll 10000."
 	end

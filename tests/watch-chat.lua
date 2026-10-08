@@ -9,7 +9,7 @@
 local ns, test, eq = ...
 local ROOT = (debug.getinfo(1, "S").source:sub(2):match("^(.*)tests[/\\]watch%-chat%.lua$")) or "./"
 
-local GLOBALS = { "GetGuildInfo", "IsInGuild", "UnitIsPlayer", "C_ChatInfo", "GetTime", "DEFAULT_CHAT_FRAME", "IsCombatLog",
+local GLOBALS = { "GetGuildInfo", "IsInGuild", "UnitIsPlayer", "C_ChatInfo", "GetTime", "GetChannelName", "DEFAULT_CHAT_FRAME", "IsCombatLog",
 	"issecretvalue", "UnitClass", "C_FriendList", "SLASH_OLYMPUSALL1", "SLASH_OLYMPUSCAPTAINS1", "SLASH_OLYMPUSLORDS1" }
 
 local function Fold(s) return ns.Fold(tostring(s or "")) end
@@ -43,7 +43,7 @@ local function World(fn)
 	for k, v in pairs(StaticPopupDialogs) do dialogs[k] = v end
 	for k, v in pairs(SlashCmdList) do slash[k] = v end
 	local w = { epoch = 1800000000, clients = {}, wire = {}, sent = {}, guilds = {}, council = {}, stewards = {}, hands = {},
-		off = {}, links = {}, logged = true }
+		off = {}, links = {}, logged = true, census = {} }
 	local ok, err = pcall(function()
 		GetGuildInfo = function(unit)
 			local c = w.current
@@ -93,9 +93,14 @@ local function World(fn)
 			c.db = { addonChat = true, chatRooms = true, chatWarned = { A = true, C = true, L = true }, blocked = {} }
 			c.rdb = { guilds = {} }
 			c.Now = function() return w.epoch end
-			-- (The census: each guild's ranks as its reports name them.)
+			-- The scene's known guild identities: its own server roster, or signed identities of
+			-- the other guilds. Adversarial cases explicitly label a rank as census-only.
 			c.Data = { ServerTime = function() return w.epoch end, ClaimGuild = function() return true end,
-				AuthorizedRank = function(n, g) local list = g and w.guilds[g] return list and list[c.FullName(n)] or nil end, FRESH = 900 }
+				AuthorizedRank = function(n, g)
+					local list = g and w.guilds[g]
+					local rank = list and list[c.FullName(n)]
+					return rank, rank ~= nil and (g == cl.guild and "roster" or (w.census[g] and "census" or "signed")) or nil
+				end, FRESH = 900 }
 			c.FullName = function(n, realm)
 				n = tostring(n or ""):gsub("^%s+", ""):gsub("%s+$", "")
 				if n == "" or n:find("-", 1, true) then return n end
@@ -360,7 +365,7 @@ test("watch: chat moderation: one line is deleted on every client: the Chat tab'
 		shown, why = w.Inject("CHANNEL", B.name, Y1, late)
 		eq(why, "deleted", "abroad too")
 		-- B was told, by role, never the officer's name.
-		local told = w.Printed(B, ns.L.WATCHCHAT_ROLE_G)
+		local told = w.Printed(B, ns.L.WATCHCHAT_ROLE_ANY)
 		assert(told and not told:find("Officer", 1, true), tostring(told))
 	end)
 end)
@@ -526,7 +531,7 @@ test("watch: chat moderation: a timeout drops his lines on every client; his own
 		-- B's own client: the pop-up names the role, never the officer.
 		local d = w.Dialog(B, "OLYMPUS_WATCHCHAT_TIMED_OUT")
 		assert(d, "told in an Olympus pop-up")
-		assert(d.a:find(ns.L.WATCHCHAT_ROLE_G, 1, true), d.a)
+		assert(d.a:find(ns.L.WATCHCHAT_ROLE_ANY, 1, true), d.a)
 		assert(d.a:find("spam", 1, true) and d.a:find(date("%H:%M", w.epoch + 1800), 1, true), d.a)
 		assert(not d.a:find("Officer", 1, true), "never the name")
 		-- He cannot send: Channels and the rooms refuse, nothing is queued.
@@ -596,7 +601,7 @@ test("watch: chat moderation: expiry and early lift; a Watcher's lift never lift
 		w.Run()
 		eq(w.As(B, B.WC.SelfTimeout), nil, "lifted")
 		eq(w.As(D, D.WC.Silenced, B.name), false)
-		assert(w.Printed(B, ns.L.WATCHCHAT_LIFTED_YOU:format(ns.L.WATCHCHAT_ROLE_G)))
+		assert(w.Printed(B, ns.L.WATCHCHAT_LIFTED_YOU:format(ns.L.WATCHCHAT_ROLE_ANY)))
 		-- A late repeat of the lifted one does not bring it back.
 		w.Inject("GUILD", A.name, D, T2)
 		eq(w.As(D, D.WC.Silenced, B.name), false, "a late repeat stays lifted")
@@ -719,7 +724,7 @@ test("watch: chat moderation: the council, the King and the author anywhere; nev
 		w.Run()
 		for _, cl in ipairs({ G, A, D, Y1 }) do eq(w.As(cl, cl.WC.Silenced, B.name), true, "on " .. cl.short) end
 		local d = w.Dialog(B, "OLYMPUS_WATCHCHAT_TIMED_OUT")
-		assert(d.a:find(ns.L.WATCHCHAT_ROLE_4, 1, true), d.a)
+		assert(d.a:find(ns.L.WATCHCHAT_ROLE_ANY, 1, true), d.a)
 	end)
 end)
 
@@ -780,6 +785,90 @@ end)
 ---------------------------------------------------------------------------
 -- Watchers and Olympus moderators
 ---------------------------------------------------------------------------
+
+test("watch: chat moderation: full action replay history refuses overflow without losing live floors or sending rejected local actions", function()
+	World(function(w)
+		local G, A, B, D = Standard(w)
+		A.WC.APPLIED_MAX = 2
+		assert(w.As(A, A.WC.Purge, B.name, "first")); w.Run()
+		w.epoch = w.epoch + 61
+		assert(w.As(A, A.WC.Purge, B.name, "second")); w.Run()
+		local s, retained, n = A.WC.Store(), {}, 0
+		for key, at in pairs(s.applied) do retained[key] = at; n = n + 1 end
+		eq(n, 2)
+		local sent, audit = #w.sent, #s.audit
+		w.epoch = w.epoch + 61
+		local ok, why = w.As(A, A.WC.Purge, B.name, "overflow")
+		eq(ok, false); eq(why, "full"); w.Run()
+		eq(#w.sent, sent, "a rejected local action sends nothing"); eq(#s.audit, audit)
+		for key, at in pairs(retained) do eq(s.applied[key], at, "live replay floors are not evicted") end
+		D.WC.APPLIED_MAX = 1
+		local function Wire(seq)
+			return ("MD~1~P~G~%d~%d~%s~%s~60~-~-~"):format(seq, w.epoch, X, B.name)
+		end
+		w.epoch = w.epoch + 61
+		-- D already received the two old actions. Lowering the cap is a legacy oversize store,
+		-- which must stop growing without forgetting valid entries.
+		local before = #D.WC.Store().audit
+		eq(select(2, w.Inject("GUILD", A.name, D, Wire(900))), "full")
+		eq(#D.WC.Store().audit, before)
+	end)
+end)
+
+test("watch: chat moderation: self testimony has a separate bounded replay history and cannot crowd moderator actions", function()
+	World(function(w)
+		local G, A, B, D = Standard(w)
+		D.WC.SELF_APPLIED_MAX, D.WC.APPLIED_MAX = 2, 1
+		local function Word(seq)
+			return ("MD~1~S~U~%d~%d~%s~%s~-~-~"):format(seq, w.epoch, X, A.name)
+		end
+		local first = Word(901)
+		eq(w.Inject("CHANNEL", B.name, D, first), true)
+		w.epoch = w.epoch + 61
+		eq(w.Inject("CHANNEL", B.name, D, Word(902)), true)
+		w.epoch = w.epoch + 61
+		local before = #D.WC.Store().audit
+		eq(select(2, w.Inject("CHANNEL", B.name, D, Word(903))), "full")
+		eq(#D.WC.Store().audit, before)
+		w.epoch = w.epoch + 61
+		eq(select(2, w.Inject("CHANNEL", B.name, D, first)), "repeat")
+		local timeout = ("MD~1~T~G~%d~%d~%s~%s~%d~-~-~"):format(904, w.epoch, X, B.name, w.epoch + 300)
+		eq(w.Inject("GUILD", A.name, D, timeout), true, "self messages did not consume the moderator's room")
+		eq(w.As(D, D.WC.Silenced, B.name), true)
+		local n = 0; for _ in pairs(D.WC.Store().selfApplied) do n = n + 1 end
+		eq(n, 2)
+		w.epoch = w.epoch + D.WC.KEEP + 1
+		w.As(D, D.WC.Prune)
+		eq(next(D.WC.Store().selfApplied), nil); eq(next(D.WC.Store().applied), nil)
+		eq(select(2, w.Inject("CHANNEL", B.name, D, first)), "time", "expired packets cannot reuse released space")
+		w.epoch = w.epoch + 61
+		eq(w.Inject("CHANNEL", B.name, D, Word(905)), true)
+	end)
+end)
+
+test("watch: chat moderation: legacy mixed replay history migrates without forgetting self floors, including an already oversized saved map", function()
+	World(function(w)
+		local G, A, B, D = Standard(w)
+		local s = D.WC.Store()
+		local key1 = "S#" .. Fold(B.name) .. "#" .. Fold(A.name) .. "#906"
+		local key2 = "S#" .. Fold(B.name) .. "#" .. Fold(A.name) .. "#907"
+		s.applied, s.selfApplied, s.replaySplit = { [key1] = w.epoch, [key2] = w.epoch, ["moderator#1"] = w.epoch }, nil, nil
+		w.As(D, function() assert(loadfile(ROOT .. "Olympus/WatchChat.lua"))("Olympus", D.ns) end)
+		D.WC = D.ns.WatchChat
+		D.WC.SELF_APPLIED_MAX = 1
+		s = D.WC.Store()
+		eq(s.applied[key1], nil); eq(s.applied["moderator#1"], w.epoch)
+		eq(s.selfApplied[key1], w.epoch); eq(s.selfApplied[key2], w.epoch, "live legacy floors are retained, not truncated")
+		local function Word(seq)
+			return ("MD~1~S~U~%d~%d~%s~%s~-~-~"):format(seq, w.epoch, X, A.name)
+		end
+		eq(select(2, w.Inject("CHANNEL", B.name, D, Word(906))), "repeat")
+		w.epoch = w.epoch + 61
+		eq(select(2, w.Inject("CHANNEL", B.name, D, Word(908))), "full")
+		D.ns.rdb = { guilds = {} }
+		eq(w.Inject("CHANNEL", B.name, D, Word(908)), true, "a different realm's store initializes its own migration")
+	end)
+end)
 
 test("watch: chat moderation: the guild master names and removes Watchers; only his list counts, while he is the guild master", function()
 	World(function(w)
@@ -894,7 +983,7 @@ test("watch: chat moderation: the audit's audience: the guild's Watch (with the 
 		local lines = w.As(B, B.WC.RecordLines)
 		local text = ""
 		for _, l in ipairs(lines) do text = text .. l.text .. "\n" end
-		assert(text:find(ns.L.WATCHCHAT_ROLE_G, 1, true) and not text:find("Officer", 1, true), text)
+		assert(text:find(ns.L.WATCHCHAT_ROLE_ANY, 1, true) and not text:find("Officer", 1, true), text)
 		-- Y1 (another guild, no council) keeps no reason.
 		eq(#Y1.WC.Store().audit, 0)
 		-- On the King's stream (masked) the page hides reasons and words.
@@ -909,6 +998,64 @@ test("watch: chat moderation: the audit's audience: the guild's Watch (with the 
 				assert(not all:find("insult", 1, true) and not all:find("the rude words", 1, true), all)
 			end
 		end
+	end)
+end)
+
+test("watch: chat moderation: public stream masks timeout targets and moderator names even without the Watch display helper", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Streamreviewer-Realm")] = true
+		local Co = w.Client("Streamreviewer", Y, 3)
+		assert(w.As(Co, Co.WC.Timeout, B.name, 300, "private reason")); w.Run()
+		local function Render()
+			local text = ""
+			for _, row in ipairs(w.As(Co, Co.WC.PageLines)) do
+				text = text .. (row.text or "") .. "\n"
+				if row.tooltip then
+					local tt = { AddLine = function(_, line) text = text .. tostring(line) .. "\n" end }
+					w.As(Co, row.tooltip, tt)
+				end
+			end
+			return text
+		end
+		local internal = Render()
+		assert(internal:find(Co.short, 1, true) and internal:find(B.short, 1, true), "staff retains provenance")
+		Co.masked = true
+		local masked = Render()
+		assert(not masked:find(B.short, 1, true), "timeout target must be masked on stream: " .. masked)
+		Co.W.ShownBy = nil -- partial module/display helper unavailable
+		masked = Render()
+		assert(not masked:find(Co.short, 1, true) and not masked:find(B.short, 1, true), "fallback must retain masking: " .. masked)
+		assert(not masked:find("private reason", 1, true), masked)
+	end)
+end)
+
+test("watch: chat moderation: affected-player notices use only a generic moderator while staff keeps the actor", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.author = "Author-Realm"
+		local Au = w.Client("Author", Y, 3)
+		assert(w.As(Au, Au.WC.Timeout, B.name, 300, "please pause")); w.Run()
+		local timeout = w.Dialog(B, "OLYMPUS_WATCHCHAT_TIMED_OUT")
+		assert(timeout.a:find(ns.L.WATCHCHAT_ROLE_ANY, 1, true), timeout.a)
+		assert(not timeout.a:find(ns.L.WATCHCHAT_ROLE_7, 1, true) and not timeout.a:find("Author", 1, true), timeout.a)
+		for _, row in ipairs(w.As(B, B.WC.RecordLines)) do
+			assert(not row.text:find(ns.L.WATCHCHAT_ROLE_7, 1, true), row.text)
+			if row.tooltip then
+				local tt = { AddLine = function(_, line)
+					assert(not tostring(line):find("Author", 1, true) and not tostring(line):find(ns.L.WATCHCHAT_ROLE_7, 1, true), line)
+				end }
+				w.As(B, row.tooltip, tt)
+			end
+		end
+		local record = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, record.by, record.seq, "please review")); w.Run()
+		local key = next(Au.WC.Store().appeals)
+		assert(key and w.As(Au, Au.WC.Answer, key, "K", "reviewed")); w.Run()
+		local decision = w.Dialog(B, "OLYMPUS_WATCHCHAT_DECISION")
+		assert(decision.a:find(ns.L.WATCHCHAT_ROLE_ANY, 1, true) and not decision.a:find(ns.L.WATCHCHAT_ROLE_7, 1, true), decision.a)
+		eq(Au.WC.Store().audit[1].by, Au.name, "staff audit keeps real actor")
+		eq(record.by, Au.name, "appeal linkage retains actor privately")
 	end)
 end)
 
@@ -943,8 +1090,222 @@ test("watch: chat moderation: an appeal goes to the High Council; its answer lif
 		w.Run()
 		eq(w.As(B, B.WC.SelfTimeout), nil, "lifted on appeal")
 		local d = w.Dialog(B, "OLYMPUS_WATCHCHAT_DECISION")
-		assert(d and d.a:find(ns.L.WATCHCHAT_ROLE_4, 1, true), d and d.a)
+		assert(d and d.a:find(ns.L.WATCHCHAT_ROLE_ANY, 1, true), d and d.a)
 	end)
+end)
+
+test("watch: chat moderation: a refused appeal queue admission keeps the player's retry available", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.author = "Author-Realm"
+		local Au = w.Client("Author", Y, 3)
+		assert(w.As(A, A.WC.Timeout, B.name, 300, "")); w.Run()
+		local record = B.WC.Store().record[1]
+		local send = B.ns.Comm.Send
+		B.ns.Comm.Send = function() return false end
+		local ok, why = w.As(B, B.WC.Appeal, record.by, record.seq, "please review")
+		eq(ok, false, "a rejected queue is not reported as sent"); eq(why, "queue")
+		eq(record.appealed, nil, "a rejected queue does not lock the appeal")
+		eq(next(Au.WC.Store().appeals), nil)
+		B.ns.Comm.Send = send
+		assert(w.As(B, B.WC.Appeal, record.by, record.seq, "please review")); w.Run()
+		assert(record.appealed and next(Au.WC.Store().appeals), "retry reaches the real author without ViewAs")
+		eq(select(2, w.As(B, B.WC.Appeal, record.by, record.seq, "again")), "already", "an admitted appeal remains single-send")
+	end)
+end)
+
+test("watch: chat moderation: a real late author gets current target testimony and the player's bounded appeal retry", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "")); w.Run()
+		local record = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, record.by, record.seq, "please review")); w.Run()
+		w.author = "Lateauthor-Realm"
+		local Au = w.Client("Lateauthor", Y, 3)
+		eq(w.As(Au, Au.WC.NamerLevel, Au.name), 7)
+		eq(w.As(Au, Au.WC.CouncilSide), true, "real author entitlement does not depend on ViewAs")
+		eq(#Au.WC.Store().audit, 0); eq(next(Au.WC.Store().appeals), nil)
+		Au.ns.ViewAs = { Available = function() return true end, Role = function() return "king" end,
+			Allows = function() return true end, Inert = function(rows) return rows end }
+		w.As(Au, Au.WC.PageLines)
+		eq(next(Au.WC.Store().appeals), nil, "preview cannot invent a missed appeal")
+		w.As(B, B.WC.Tick); w.Run()
+		eq(#Au.WC.Store().audit, 1); eq(Au.WC.Store().audit[1].scope, "S", "target's session announcement reaches late author")
+		eq(#w.As(Au, Au.W.Audit), 0, "self testimony is not an authenticated guild Watch audit")
+		eq(next(Au.WC.Store().appeals), nil, "no retry before the interval")
+		w.epoch = w.epoch + 300
+		w.As(B, B.WC.Tick); w.Run()
+		assert(next(Au.WC.Store().appeals), "own pending appeal reaches a reviewer who logged in later")
+	end)
+end)
+
+test("watch: chat moderation: pending appeal retry survives reload, keeps its original timestamp and stops on the authenticated answer", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "")); w.Run()
+		local record = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, record.by, record.seq, "please review")); w.Run()
+		local at = record.appealed
+		w.author = "Lateauthor-Realm"
+		local Au = w.Client("Lateauthor", Y, 3)
+		w.As(B, function() assert(loadfile(ROOT .. "Olympus/WatchChat.lua"))("Olympus", B.ns) end)
+		B.WC = B.ns.WatchChat
+		local send = B.ns.Comm.Send
+		B.ns.Comm.Send = function(dist, msg, ...) if msg:find("MD~1~A~", 1, true) == 1 then return false end return send(dist, msg, ...) end
+		w.epoch = w.epoch + 300
+		w.As(B, B.WC.Tick); w.Run()
+		eq(next(Au.WC.Store().appeals), nil, "queue rejection did not consume the retry")
+		B.ns.Comm.Send = send
+		w.As(B, B.WC.Tick); w.Run()
+		local key, appeal = next(Au.WC.Store().appeals)
+		assert(key, "accepted retry reaches the late author after reload")
+		eq(appeal.at, at); eq(appeal.seq, record.seq); eq(appeal.actor, record.by); eq(appeal.text, "please review")
+		w.As(B, B.WC.Tick); w.Run()
+		local pending = record.pendingAppeal
+		assert(pending, "still unanswered")
+		eq(select(2, w.Inject("CHANNEL", A.name, B, ("MD~1~R~%d~%s~%s~%d~K~forged"):format(w.epoch, B.name, record.by, record.seq))), "namer")
+		eq(record.pendingAppeal, pending, "an unauthorized answer cannot cancel the retry")
+		assert(w.As(Au, Au.WC.Answer, key, "K", "reviewed")); w.Run()
+		eq(record.pendingAppeal, nil, "authenticated answer clears persisted retry")
+		local sent = #w.sent
+		w.epoch = w.epoch + 300; w.As(B, B.WC.Tick); w.Run()
+		for i = sent + 1, #w.sent do assert(not w.sent[i].msg:find("MD~1~A~", 1, true), "answered appeal never repeated") end
+	end)
+end)
+
+test("watch: chat moderation: own pending appeals cap at three and replay one per five minutes, never malformed or another character's saved entry", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		for i = 1, 4 do
+			w.Say(B, "A", "line" .. i)
+			assert(w.As(A, A.WC.Delete, "A", w.Line(A, "A", B.name, "line" .. i), "")); w.Run()
+		end
+		local s = B.WC.Store()
+		for i = 1, 3 do assert(w.As(B, B.WC.Appeal, s.record[i].by, s.record[i].seq, "review " .. i)) end
+		eq(select(2, w.As(B, B.WC.Appeal, s.record[4].by, s.record[4].seq, "review 4")), "full")
+		w.Run()
+		w.epoch = w.epoch + 300
+		w.As(B, B.WC.Tick)
+		local n = 0
+		for _, job in ipairs(w.wire) do if job.msg:find("MD~1~A~", 1, true) then n = n + 1 end end
+		eq(n, 1, "one retry, not the whole inbox")
+		w.As(B, B.WC.Tick)
+		local nextN = 0
+		for _, job in ipairs(w.wire) do if job.msg:find("MD~1~A~", 1, true) then nextN = nextN + 1 end end
+		eq(nextN, n, "global five-minute retry limit")
+		w.Run()
+		w.epoch = w.epoch + 300
+		w.As(B, B.WC.Tick)
+		local replay
+		for _, job in ipairs(w.wire) do if job.msg:find("MD~1~A~", 1, true) then replay = job.msg end end
+		assert(replay and replay:find("~" .. s.record[2].seq .. "~D~review 2", 1, true), "the next pending appeal gets its turn")
+		w.Run()
+		s.record[1].pendingAppeal.name = A.name
+		s.record[2].pendingAppeal.text = "bad~wire"
+		s.record[3].pendingAppeal.at = w.epoch + B.WC.DATE_AHEAD + 1
+		w.epoch = w.epoch + 300
+		-- Keep the persisted malformed future value ahead even after the time step.
+		s.record[3].pendingAppeal.at = w.epoch + B.WC.DATE_AHEAD + 1
+		w.As(B, B.WC.Tick)
+		for _, job in ipairs(w.wire) do assert(not job.msg:find("MD~1~A~", 1, true), "invalid saved retry must not leave") end
+	end)
+end)
+
+test("watch: chat moderation: current own guild timeout testimony repeats for a late council client without its reason, survives reload and retries queue refusal", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "private guild reason")); w.Run()
+		w.As(B, B.WC.Tick); w.Run() -- the old once-session announcement already left
+		w.council[Fold("Latecouncil-Realm")] = true
+		local Co = w.Client("Latecouncil", Y, 3)
+		local timeout = w.As(B, B.WC.SelfTimeout)
+		w.epoch = w.epoch + 299; w.As(B, B.WC.Tick); w.Run()
+		eq(#Co.WC.Store().audit, 0, "no repeat before five minutes")
+		local send = B.ns.Comm.Send
+		B.ns.Comm.Send = function(dist, msg, ...) if msg:find("MD~1~S~", 1, true) == 1 then return false end return send(dist, msg, ...) end
+		w.epoch = w.epoch + 1; w.As(B, B.WC.Tick); w.Run()
+		eq(#Co.WC.Store().audit, 0, "rejected queue did not reach the late reviewer")
+		B.ns.Comm.Send = send
+		w.As(B, B.WC.Tick)
+		local repeated
+		for _, job in ipairs(w.wire) do if job.msg:find("MD~1~S~", 1, true) then repeated = job.msg end end
+		assert(repeated, "a queue refusal keeps the current timeout announcement retryable")
+		assert(not repeated:find("private guild reason", 1, true), "no guild reason on the public lane")
+		assert(repeated:find(("MD~1~S~T~%d~%d~"):format(timeout.seq, timeout.at), 1, true), "original sanction identity and date")
+		w.Run()
+		eq(#Co.WC.Store().audit, 1); eq(Co.WC.Store().audit[1].scope, "S")
+		eq(#w.As(Co, Co.W.Audit), 0, "no authenticated Watcher audit is invented")
+		w.As(B, function() assert(loadfile(ROOT .. "Olympus/WatchChat.lua"))("Olympus", B.ns) end)
+		B.WC = B.ns.WatchChat
+		w.As(B, B.WC.Tick)
+		for _, job in ipairs(w.wire) do assert(not job.msg:find("MD~1~S~", 1, true), "persisted interval survives reload") end
+		-- A second reviewer still rejects unknown/census identity rather than granting it.
+		w.council[Fold("Unprovedreviewer-Realm")] = true
+		local Un = w.Client("Unprovedreviewer", Y, 3)
+		Un.C.VerifiedLevel = function() return 1, false end
+		w.epoch = w.epoch + 300; w.As(B, B.WC.Tick); w.Run()
+		eq(#Un.WC.Store().audit, 0, "replay does not bypass membership admission")
+		assert(w.As(A, A.WC.Lift, B.name, "")); w.Run()
+		w.epoch = w.epoch + 300; w.As(B, B.WC.Tick)
+		for _, job in ipairs(w.wire) do assert(not job.msg:find("MD~1~S~T~", 1, true), "lifted timeout is not reannounced") end
+	end)
+end)
+
+test("watch: chat moderation: real paced Comm drops queued own timeout testimony after lift, expiry, replacement, guild or character change", function()
+	for _, change in ipairs({ "current", "lift", "expiry", "replacement", "guild", "character" }) do
+		World(function(w)
+			local _, A, B = Standard(w)
+			assert(w.As(A, A.WC.Timeout, B.name, 600, "private guild reason")); w.Run()
+			local timeout = w.As(B, B.WC.SelfTimeout)
+			local prefix = ("MD~1~S~T~%d~%d~"):format(timeout.seq, timeout.at)
+			local native, events, login = {}, {}, nil
+			GetChannelName = function() return 7, "OlympusChannel" end
+			C_ChatInfo = { RegisterAddonMessagePrefix = function() return true end,
+				SendAddonMessageLogged = function(_, msg, dist)
+					native[#native + 1] = { msg = msg, dist = dist }
+					return 0
+				end }
+			w.As(B, function()
+				local on, after, register = B.ns.On, B.ns.After, B.ns.RegisterEvent
+				B.ns.On = function(event, fn) if event == "LOGIN" then login = fn end end
+				B.ns.RegisterEvent = function(event, fn) events[event] = fn end
+				B.ns.Moderation.Blocks = function() return false end
+				assert(loadfile(ROOT .. "Olympus/Comm.lua"))("Olympus", B.ns)
+				for kind, handler in pairs(B.handlers) do B.ns.Comm.Handle(kind, handler) end
+				B.ns.On, B.ns.After = on, function() end
+				assert(login); login(); B.ns.Comm.JoinChannel()
+				B.ns.After, B.ns.RegisterEvent = after, register
+				-- A later real guild action must arrive through Comm's logged event, not through
+				-- the world's old stub flag: the actual receiver owns its logged delivery context.
+				B.handlers.MD = function(dist, sender, msg)
+					return events.CHAT_MSG_ADDON_LOGGED(B.ns.PREFIX, msg, dist, sender)
+				end
+			end)
+			w.As(B, B.WC.Tick)
+			assert(B.ns.Comm.QueueSize() > 0, "actual paced queue admitted the current testimony")
+			eq(#native, 0, "not yet a native send")
+			if change == "lift" then assert(w.As(A, A.WC.Lift, B.name, "")); w.Run()
+			elseif change == "expiry" then w.epoch = w.epoch + 601
+			elseif change == "replacement" then
+				w.epoch = w.epoch + 1
+				assert(w.As(A, A.WC.Timeout, B.name, 900, "new private reason")); w.Run()
+			elseif change == "guild" then w.SetRank(B.name, Y, 3)
+			elseif change == "character" then B.ns.me = "Anothermember-Realm" end
+			for _ = 1, 20 do
+				if B.ns.Comm.QueueSize() == 0 then break end
+				w.epoch = w.epoch + 2; w.As(B, B.ns.Comm.Pump)
+			end
+			eq(B.ns.Comm.QueueSize(), 0)
+			local sent = 0
+			for _, message in ipairs(native) do
+				if message.msg:sub(1, #prefix) == prefix then
+					sent = sent + 1; eq(message.dist, "CHANNEL")
+					assert(not message.msg:find("private guild reason", 1, true), "no private reason in self testimony")
+				end
+			end
+			eq(sent, change == "current" and 1 or 0, change .. ": only the still-current timeout may leave")
+		end)
+	end
 end)
 
 test("watch: chat moderation: the King's word on a case reaches its player in a pop-up, over his guild, once", function()
@@ -1120,7 +1481,7 @@ test("watch: chat moderation: an appeal's lift reaches a timeout the councillor'
 		eq(w.As(B, B.WC.SelfTimeout), nil, "lifted on the player's own client")
 		eq(w.As(D, D.WC.Silenced, B.name), false, "and on his guildmates'")
 		eq(w.Dialog(B, "OLYMPUS_WATCHCHAT_DECISION").a,
-			ns.L.WATCHCHAT_APPEAL_LIFTED_YOU:format(ns.L.WATCHCHAT_ROLE_4, ns.L.WATCHCHAT_REASON_PART:format("fair")))
+			ns.L.WATCHCHAT_APPEAL_LIFTED_YOU:format(ns.L.WATCHCHAT_ROLE_ANY, ns.L.WATCHCHAT_REASON_PART:format("fair")))
 		-- One from higher up (the King's, which the councillor's client never heard): his lift
 		-- does not reach it, and the player is told so.
 		w.king = "Kingly-Realm"
@@ -1142,7 +1503,7 @@ test("watch: chat moderation: an appeal's lift reaches a timeout the councillor'
 		local still = w.As(B, B.WC.SelfTimeout)
 		assert(still and still.by == K.name, "still timed out by the King")
 		eq(w.Dialog(B, "OLYMPUS_WATCHCHAT_DECISION").a,
-			ns.L.WATCHCHAT_APPEAL_LIFTED_STILL:format(ns.L.WATCHCHAT_ROLE_4, "", w.As(B, B.WC.TimeoutText, still)))
+			ns.L.WATCHCHAT_APPEAL_LIFTED_STILL:format(ns.L.WATCHCHAT_ROLE_ANY, "", w.As(B, B.WC.TimeoutText, still)))
 		-- An appeal on a deleted line: "found for him", never a lift of anything.
 		assert(w.As(K, K.WC.Lift, B.name, ""))
 		w.Run()
@@ -1160,7 +1521,7 @@ test("watch: chat moderation: an appeal's lift reaches a timeout the councillor'
 		assert(w.As(Co, Co.WC.Answer, key3, "L", ""))
 		w.Run()
 		eq(#w.Sent("MD~1~U~"), n, "no lift for a deleted line")
-		eq(w.Dialog(B, "OLYMPUS_WATCHCHAT_DECISION").a, ns.L.WATCHCHAT_APPEAL_GRANTED_YOU:format(ns.L.WATCHCHAT_ROLE_4, ""))
+		eq(w.Dialog(B, "OLYMPUS_WATCHCHAT_DECISION").a, ns.L.WATCHCHAT_APPEAL_GRANTED_YOU:format(ns.L.WATCHCHAT_ROLE_ANY, ""))
 	end)
 end)
 
@@ -1259,6 +1620,210 @@ test("watch: chat moderation: appeals: three open from one player at most; one a
 		local n = 0
 		for _ in pairs(s.appeals) do n = n + 1 end
 		eq(n, Co.WC.APPEALS_MAX)
+	end)
+end)
+
+test("watch: chat moderation: appeal admission counts only unresolved requests against a player's quota", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		for i = 1, Co.WC.APPEALS_EACH do
+			w.epoch = w.epoch + 61
+			assert(w.Inject("CHANNEL", B.name, Co, ("MD~1~A~%d~%s~%d~D~review"):format(w.epoch, A.name, i)))
+			local key = B.name:lower() .. "#" .. A.name:lower() .. "#" .. i
+			assert(w.As(Co, Co.WC.Answer, key, "K", "reviewed")); w.Run()
+		end
+		w.epoch = w.epoch + 61
+		eq(w.Inject("CHANNEL", B.name, Co, ("MD~1~A~%d~%s~%d~D~another"):format(w.epoch, A.name, 99)), true,
+			"answered requests do not block a new unresolved appeal")
+	end)
+end)
+
+test("watch: chat moderation: appeal admission never evicts another unresolved held appeal or churns unverified requests", function()
+	for _, held in ipairs({ false, true }) do World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		local s = Co.WC.Store()
+		for i = 1, Co.WC.APPEALS_MAX do
+			s.appeals["retained" .. i] = { name = "Filer" .. i .. "-Realm", actor = A.name, seq = i, op = "T", at = w.epoch - i,
+				text = "review", held = held or nil }
+		end
+		if held then s.audit[1] = { name = B.name, by = A.name, seq = 999, op = "T" } end
+		local ok, why = w.Inject("CHANNEL", B.name, Co, ("MD~1~A~%d~%s~999~T~review"):format(w.epoch, A.name))
+		eq(ok, false); eq(why, "full", "a full unresolved queue stays retryable")
+		assert(s.appeals["retained" .. Co.WC.APPEALS_MAX], "the oldest unresolved request survives")
+	end) end
+end)
+
+test("watch: chat moderation: appeal answers validate time and correlation before the shared quota", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "")); w.Run()
+		local r = B.WC.Store().record[1]
+		local unsolicited = ("MD~1~R~%d~%s~%s~%d~K~reviewed"):format(w.epoch, B.name, A.name, r.seq)
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, unsolicited)), "appeal", "a matching sanction alone is not a pending appeal")
+		eq(r.appeal, nil)
+		assert(w.As(B, B.WC.Appeal, r.by, r.seq, "review")); w.Run()
+		local function Word(at, seq) return ("MD~1~R~%s~%s~%s~%d~K~reviewed"):format(at, B.name, A.name, seq or r.seq) end
+		for _, at in ipairs({ w.epoch + B.WC.DATE_AHEAD + 1, w.epoch - B.WC.KEEP - 1 }) do
+			eq(select(2, w.Inject("CHANNEL", Co.name, B, Word(at))), "time")
+		end
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, Word(w.epoch, r.seq + 99))), "appeal", "an unrelated decision is not a popup")
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, Word(r.appealed - 1))), "older", "a decision cannot precede its request")
+		for i = 1, 6 do
+			local from = "Reviewer" .. i .. "-Realm"
+			w.council[Fold(from)] = true
+			for _ = 1, B.WC.RATE do eq(select(2, w.Inject("CHANNEL", from, B, Word("bad"))), "shape") end
+		end
+		eq(w.Inject("CHANNEL", Co.name, B, Word(w.epoch)), true, "malformed authorized words did not exhaust the shared budget")
+		eq(r.appeal, "K")
+	end)
+end)
+
+test("watch: chat moderation: appeal admission may replace an unverified request only with a held matching sanction", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		local s = Co.WC.Store()
+		for i = 1, Co.WC.APPEALS_MAX do
+			s.appeals["retained" .. i] = { name = "Filer" .. i .. "-Realm", actor = A.name, seq = i, op = "T", at = w.epoch - i, text = "review" }
+		end
+		s.audit[1] = { name = B.name, by = A.name, seq = 999, op = "D" }
+		local function Request() return w.Inject("CHANNEL", B.name, Co, ("MD~1~A~%d~%s~999~T~review"):format(w.epoch, A.name)) end
+		eq(select(2, Request()), "full", "a different kind of sanction grants no queue priority")
+		w.epoch = w.epoch + 61
+		s.audit[1].op = "T"
+		eq(Request(), true, "a held matching sanction may replace the oldest unverified request")
+		eq(s.appeals["retained" .. Co.WC.APPEALS_MAX], nil)
+		local key = B.name:lower() .. "#" .. A.name:lower() .. "#999"
+		eq(s.appeals[key].held, true)
+	end)
+end)
+
+test("watch: chat moderation: appeal answers refuse overflow without forgetting live replay floors and reclaim only expired history", function()
+	World(function(w)
+		local G, A, B, D, Stranger = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "")); w.Run()
+		local r = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, r.by, r.seq, "review")); w.Run()
+		local key = next(Co.WC.Store().appeals)
+		local targetStore, councilStore = B.WC.Store(), Co.WC.Store()
+		local max = B.WC.APPEAL_ANSWERS_MAX or 1000
+		-- Seed full persisted histories, then exercise admission through the actual receiver and sender.
+		for _, s in ipairs({ targetStore, councilStore }) do
+			s.appealAnswers = {}
+			for i = 1, max do s.appealAnswers["retained" .. i] = w.epoch end
+		end
+		local response = ("MD~1~R~%d~%s~%s~%d~K~reviewed"):format(w.epoch, B.name, A.name, r.seq)
+		eq(select(2, w.Inject("CHANNEL", Stranger.name, B, response)), "namer", "a stranger cannot consume answer history")
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, response)), "full")
+		eq(r.appeal, nil); assert(r.pendingAppeal, "refused decisions leave the pending request retryable")
+		eq(select(2, w.As(Co, Co.WC.Answer, key, "K", "reviewed")), "full")
+		eq(councilStore.appeals[key].answer, nil)
+		for _, s in ipairs({ targetStore, councilStore }) do
+			local count = 0
+			for _ in pairs(s.appealAnswers) do count = count + 1 end
+			eq(count, max); assert(s.appealAnswers.retained1, "a live floor is never evicted")
+		end
+		w.epoch = w.epoch + B.WC.KEEP + 1
+		w.As(B, B.WC.Prune); w.As(Co, Co.WC.Prune)
+		eq(next(targetStore.appealAnswers), nil); eq(next(councilStore.appealAnswers), nil)
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, response)), "time", "an expired payload cannot become valid when its floor expires")
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "new")); w.Run()
+		local latest = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, latest.by, latest.seq, "another")); w.Run()
+		assert(w.As(Co, Co.WC.Answer, next(councilStore.appeals), "K", "reviewed")); w.Run()
+		eq(latest.appeal, "K", "expired floors free room for a fresh correlated decision")
+	end)
+end)
+
+test("watch: chat moderation: appeal answers retain replay floors after reload and allow a newer staff correction", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "")); w.Run()
+		local r = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, r.by, r.seq, "review")); w.Run()
+		local key = next(Co.WC.Store().appeals)
+		assert(w.As(Co, Co.WC.Answer, key, "K", "first")); w.Run()
+		local first = w.Sent("MD~1~R~")[1].msg
+		local function Decisions()
+			local n = 0
+			for _, d in ipairs(B.dialogs) do if d.which == "OLYMPUS_WATCHCHAT_DECISION" then n = n + 1 end end
+			return n
+		end
+		local n = Decisions()
+		w.As(B, function() assert(loadfile(ROOT .. "Olympus/WatchChat.lua"))("Olympus", B.ns); B.WC = B.ns.WatchChat end)
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, first)), "repeat")
+		eq(Decisions(), n, "the persisted answer does not show again after reload")
+		for i = 1, 6 do
+			local from = "Reviewer" .. i .. "-Realm"
+			w.council[Fold(from)] = true
+			for _ = 1, B.WC.RATE do eq(select(2, w.Inject("CHANNEL", from, B, first)), "repeat") end
+		end
+		assert(w.As(Co, Co.WC.Answer, key, "L", "corrected")); w.Run()
+		eq(r.appeal, "L", "replayed answers spend no shared budget; a newer authenticated staff decision may correct the first")
+		eq(Decisions(), n + 1)
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, first)), "older")
+		eq(r.appeal, "L", "an old keep cannot reverse the newer lift")
+		eq(Decisions(), n + 1)
+	end)
+end)
+
+test("watch: chat moderation: appeal answers survive answered-row eviction and refused sends remain answerable", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "")); w.Run()
+		local r = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, r.by, r.seq, "review")); w.Run()
+		local request = w.Sent("MD~1~A~")[1].msg
+		local s, key = Co.WC.Store(), next(Co.WC.Store().appeals)
+		local send = Co.ns.Comm.Send
+		Co.ns.Comm.Send = function() return false end
+		local ok, why = w.As(Co, Co.WC.Answer, key, "K", "reviewed")
+		eq(ok, false); eq(why, "queue"); eq(s.appeals[key].answer, nil)
+		Co.ns.Comm.Send = send
+		assert(w.As(Co, Co.WC.Answer, key, "K", "reviewed")); w.Run()
+		for i = 1, Co.WC.APPEALS_MAX do
+			w.epoch = w.epoch + 1
+			assert(w.Inject("CHANNEL", "Filer" .. i .. "-Realm", Co, ("MD~1~A~%d~%s~1~D~review"):format(w.epoch, A.name)))
+		end
+		eq(s.appeals[key], nil, "answered rows can make room")
+		eq(select(2, w.Inject("CHANNEL", B.name, Co, request)), "answered")
+		eq(s.appeals[key], nil, "an old request cannot reopen its evicted answered row")
+	end)
+end)
+
+test("watch: chat moderation: S testimony needs verified membership and a fresh own roster before shared admission", function()
+	World(function(w)
+		local G, A, B, D = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		local function Word(seq, guild) return ("MD~1~S~T~%d~%d~%s~%s~%d~-~"):format(seq, w.epoch, guild, A.name, w.epoch + 600) end
+		-- Channels.lua really returns 1,false for a new claim with no verified identity.
+		for i = 1, Co.WC.RATE_SELF_ALL + 5 do
+			eq(select(2, w.Inject("CHANNEL", "Claim" .. i .. "-Realm", Co, Word(i, "Olympus Ghosts"))), "guild")
+		end
+		eq(#Co.WC.Store().audit, 0, "unknown claims do not frame the named Watcher")
+		w.census[X] = true
+		eq(select(2, w.Inject("CHANNEL", B.name, Co, Word(100, X))), "guild", "a census rank grants no admission")
+		w.census[X] = nil
+		eq(w.Inject("CHANNEL", B.name, Co, Word(101, X)), true, "a verified member still reports testimony after the hostile flood")
+		local fresh = D.W.FreshRoster
+		D.W.FreshRoster = function() return false end
+		eq(select(2, w.Inject("CHANNEL", B.name, D, Word(102, X))), "guild", "the old own roster grants nothing")
+		D.W.FreshRoster = fresh
+		eq(w.Inject("CHANNEL", B.name, D, Word(103, X)), true, "fresh own-roster membership works")
 	end)
 end)
 

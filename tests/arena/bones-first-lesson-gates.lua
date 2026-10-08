@@ -47,9 +47,11 @@ test("Bones first lesson gates: both Find buttons and New Table explain the prer
 			eq(button:IsEnabled(), true); eq(button.why, nil, "completion clears the training block")
 		end
 		w:Stand(a.name, FW.ROAD, false); UI.Refresh()
-		for _, button in ipairs({ parchment.find, footer[1], footer[2] }) do
-			eq(button:IsEnabled(), false); eq(button.why, L.FARKLE_LOG_TAVERN_REST)
+		-- Finding is now available outside a venue; only opening a new table stays venue-bound.
+		for _, button in ipairs({ parchment.find, footer[1] }) do
+			eq(button:IsEnabled(), true); eq(button.why, nil)
 		end
+		eq(footer[2]:IsEnabled(), false); eq(footer[2].why, L.FARKLE_LOG_TAVERN_REST)
 	end)
 	eq(#a.errors, 0, table.concat(a.errors, "; "))
 	eq(#a.K.errors, 0, table.concat(a.K.errors, "; "))

@@ -21,6 +21,7 @@ local Home = ns.ArenaHome
 -- crash drill (the design, through Wallet.Drill where the bank is on duty, else its sample).
 local Sim = {}
 ArenaUI.SimModule = Sim
+local bonesChatOwner -- the exact preview board/world/store, never another simulator scene
 
 -- About forty invented names (never the census, the roster or any real player): Sim.NAMES.
 Sim.NAMES = {
@@ -620,6 +621,9 @@ end
 
 -- The windows a scene may have opened: closed before the next one.
 local function CloseAll()
+	bonesChatOwner = nil -- scene changes and explicit exit relinquish the old preview first
+	local chat = ArenaUI.BonesChat
+	if type(chat) == "table" and type(chat.HidePreview) == "function" then chat.HidePreview() end
 	local fns = {}
 	for _, get in ipairs({ ArenaUI.SlipFrame, ArenaUI.WalletFrame, ArenaUI.ChallengeFrame, ArenaUI.FindFrame, ArenaUI.RulesFrame, ArenaUI.HelpFrame,
 		Home.CallFrame, Home.ChallengeFrame, Home.LetterFrame }) do
@@ -707,7 +711,7 @@ function Sim.Photos()
 	return true
 end
 
--- Starts (or moves) the sim: /oly arena sim [scene|next|prev|speed n|photos]; the Workshop's button.
+-- Starts (or moves) the sim: /oly arena sim [scene|next|prev|speed n|photos|boneschat]; the Workshop's button.
 -- ArenaNet switched the sim on before (Arena.SetSim), and refuses anyone the sim is not for.
 function ArenaUI.Sim(args)
 	if not ns.Arena.Sim() then return false end
@@ -719,6 +723,21 @@ function ArenaUI.Sim(args)
 	if word == "prev" then return Sim.Go((Sim.scene or 2) - 1) end
 	if word == "speed" then Sim.Speed(rest) return true end
 	StartCrowd()
+	if word == "boneschat" then
+		-- Reuse the existing solo table scene: this is a local view, never a fabricated live
+		-- opponent or a transport room. Scene numbers can shift in free-games packages.
+		local scene
+		for i, entry in ipairs(Sim.SCENES) do if entry[1] == "BONE" then scene = i break end end
+		local chat, board = ArenaUI.BonesChat, ArenaUI.FarkleBoard
+		if not scene or type(chat) ~= "table" or type(chat.Preview) ~= "function"
+			or type(board) ~= "table" or type(board.Window) ~= "function" or type(board.ChatLayout) ~= "function" then return false end
+		if not Sim.Go(scene) then return false end
+		local parent = board.Window()
+		if not parent then return false end
+		local ok = chat.Preview(parent, board.ChatLayout)
+		if ok then bonesChatOwner = { parent = parent, world = W, store = ns.Arena.Store("L") } end
+		return ok
+	end
 	return Sim.Go(tonumber(word) or Sim.scene or 1)
 end
 -- Leaves the sim: its data and windows go; the stores and settings were never the player's.
@@ -738,6 +757,17 @@ function Sim.Stop()
 	if ArenaUI.IsShown and ArenaUI.IsShown() then ArenaUI.Hide() end
 	return true
 end
+-- Closing this preview's real table returns to real reads. A scene change or replacement of
+-- the simulator's memory store cannot give an old board ownership of the new session.
+function Sim.BonesChatHidden(parent)
+	local owner = bonesChatOwner
+	if not owner or owner.parent ~= parent then return false end
+	bonesChatOwner = nil
+	if ns.Arena.Sim() and Home.Source() == source and owner.world == W and owner.store == ns.Arena.Store("L") then
+		return Sim.Stop()
+	end
+	return false
+end
 -- /oly arena sim off (ArenaNet turns it off): the screens follow.
 ns.On("ARENA_CHANGED", function()
 	if not ns.Arena.Sim() and Home.Source() == source then ns.SafeCall("arena sim stop", Sim.Stop) end
@@ -754,4 +784,5 @@ function Sim.Showcase()
 	Home.SetShowcase(source)
 	return true
 end
-ns.SafeCall("arena showcase", Sim.Showcase)
+-- Release-test metadata authorizes an explicit simulator; companion load never substitutes
+-- invented records for empty real history, profiles or rankings.

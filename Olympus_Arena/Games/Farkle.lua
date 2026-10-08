@@ -793,7 +793,7 @@ local function AskRoll(n)
 	S.pending, S.hint = p, nil
 	Fresh(1)
 	Shake(1)
-	local ok = pcall(RandomRoll, 1, FR.RANGES[n]) -- gp:arena-clicks
+	local ok = pcall(ns.Roll or RandomRoll, 1, FR.RANGES[n]) -- gp:arena-clicks
 	if not ok then S.hint = ("The game refused the roll: type /roll %d."):format(FR.RANGES[n]) end
 	C_Timer.After(6, function()
 		if S.pending ~= p then return end
@@ -1866,7 +1866,6 @@ local function StartPlaying()
 	local UI = own.ArenaUI
 	local FT = host.FarkleTable
 	if FT and not FT.CanPlayPlayers() then Say(L.FARKLE_LOBBY_FIRST); return false, "training" end
-	if FT and not FT.CanOpen() then Say(L.FARKLE_LOG_TAVERN_REST); return false, "tavern-rest" end
 	if type(UI) ~= "table" then
 		Say(L.FARKLE_INTRO_UNAVAILABLE or "opponent search is not available in this build.")
 		return false, "missing"

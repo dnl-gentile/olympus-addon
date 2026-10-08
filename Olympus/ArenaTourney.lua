@@ -106,14 +106,28 @@ local function Put(t)
 	local core, heavy = Core(mode, true), Heavy(mode)
 	local home = (Me(t.promoter) or Me(t.drawer) or Entered(t)) and core or heavy or mem[mode]
 	local places = { core, heavy, mem[mode] }
+	local fresh = home[t.tid] == nil
+	local n, list = 0, {}
+	for id, x in pairs(home) do
+		n = n + 1
+		if id ~= t.tid and (x.st == "F" or x.st == "X") then list[#list + 1] = { id = id, t = x.heardAt or 0 } end
+	end
+	local keep = 10 - (fresh and 1 or 0)
+	if n > keep then
+		table.sort(list, function(a, b) return a.t < b.t or (a.t == b.t and a.id < b.id) end)
+		local remove = math.min(#list, n - keep)
+		for i = 1, remove do home[list[i].id] = nil end
+		n = n - remove
+	end
+	if fresh and n >= 10 then
+		local previous
+		for i = 1, 3 do if places[i] and places[i][t.tid] then previous = places[i]; break end end
+		if not previous then return false, "capacity" end
+		home = previous
+	end
 	for i = 1, 3 do if places[i] and places[i] ~= home then places[i][t.tid] = nil end end
 	home[t.tid] = t
-	local n, list = 0, {}
-	for id, x in pairs(home) do n = n + 1 if x.st == "F" or x.st == "X" then list[#list + 1] = { id = id, t = x.heardAt or 0 } end end
-	if n > 10 then
-		table.sort(list, function(a, b) return a.t < b.t end)
-		for i = 1, math.min(#list, n - 10) do home[list[i].id] = nil end
-	end
+	return true
 end
 
 ---------------------------------------------------------------------------
@@ -191,7 +205,7 @@ local function OnTourney(dist, sender, mode, body)
 	end
 	t.heardAt = Now()
 	if ENDED[st] then t.endedAt = t.endedAt or t.heardAt else t.endedAt = nil end
-	Put(t)
+	if not Put(t) then return Count("capacity") end
 	if was ~= st then ns.Fire("ARENA_TOURNEY", tid, st) end
 	Arena.Changed()
 end
@@ -237,7 +251,7 @@ function T.New(opts)
 		tCheck = tStart - T.CHECK_BEFORE, tStart = tStart, bo = bo, third = opts.third and true or false, entrants = {}, seeds = {}, bouts = {},
 		title = tostring(opts.title or ""):gsub("[%c|~]", ""):sub(1, T.TITLE_MAX), promoter = ns.me, drawer = opts.drawer, heardAt = now,
 		marketSpecs = opts.markets == false and false or opts.markets, marketDefault = opts.markets == nil, arbiters = arbiters, arbs = {} }
-	Put(t)
+	if not Put(t) then return nil, "capacity" end
 	Send(t, true)
 	ns.Fire("ARENA_TOURNEY", tid, "R")
 	T.Watch()

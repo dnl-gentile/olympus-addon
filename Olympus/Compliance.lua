@@ -9,8 +9,8 @@ local L = ns.L
 --
 -- 1.1.6 ships the games without bets: duels, ratings, belts, tournaments, Bones against
 -- another player or the House and the Lottery's practice table all play; no wager does, anywhere,
--- for anyone. Bets wait for 2.0, after a legal compliance review of each region (every US state,
--- Europe, Brazil, Latin America, the rest of the world), released region by region.
+-- for anyone. Wagers are excluded from releases; dormant implementation is kept locally in case
+-- that decision changes. Keeping the old region seam below does not schedule or enable a release.
 --
 -- Who asks it:
 --   - every betting path, before it acts: placing or accepting a bet or a stake, opening a market,
@@ -24,8 +24,8 @@ local L = ns.L
 --     rule, so every screen greys it with Compliance.Line() as its reason.
 -- Refunds are not wagers: gold going back to whoever gave it is never refused here.
 --
--- The seam for 2.0 (not built in 1.1.6). Compliance.REGIONS will be the per-region table the legal
--- review writes: REGIONS[region] = { minAge = n, [kind] = true | { [game] = true, ... } }, where
+-- The dormant region seam (not enabled in a release). Its table shape is:
+-- REGIONS[region] = { minAge = n, [kind] = true | { [game] = true, ... } }, where
 -- region is the code the player declared (a US state "US-WA", a country "BR", "DE", ...), kind one
 -- of Compliance.KINDS and game one of Compliance.GAMES (true: every game of that kind). The player
 -- declares his region and age once (Compliance.Declared reads them; a player who never declared
@@ -50,7 +50,7 @@ Compliance.KINDS = {
 -- The games a row may name for a kind.
 Compliance.GAMES = { fight = true, bones = true, lottery = true }
 
--- 2.0: the legal review's table (above). 1.1.6: no region allows anything.
+-- Dormant local seam: no region allows anything in the release.
 Compliance.REGIONS = {}
 
 -- The arena types that carry nothing but a wager (ArenaNet.lua): refused out, dropped in.
@@ -78,7 +78,7 @@ Compliance.ACTIONS = {
 Compliance.ARBITER_ACTIONS = { ["arbiter.duty"] = true, ["fights.new"] = true, ["fights.judge"] = true,
 	["card.arbiter"] = true, ["tourney.arbiter"] = true }
 
--- The region and age this player declared (2.0). Not built in 1.1.6: nothing.
+-- The dormant region and age seam. A release reads neither: nothing.
 function Compliance.Declared() return nil, nil end
 
 -- Whether a wager of this kind (on this game; nil: on any game the row names) may happen on this
@@ -132,7 +132,7 @@ end
 -- judges. While no stake and no bet may happen here, nothing asks for one, shows one or waits on
 -- one: a challenge and a Bones table are between their two players, an ask to judge or to
 -- hold a table is not taken, and the screens have no arbiter page, list or line. The arbiter code
--- stays for 2.0, behind this.
+-- stays dormant locally, behind this.
 function Compliance.Arbiters() return Compliance.Allows("stake") == true or Compliance.Allows("bet") == true end
 
 -- The short line every betting control shows while it waits (Short: where a row has little room).

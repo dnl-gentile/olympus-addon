@@ -63,8 +63,8 @@ local APPROVED = "the author, 2026-10-04"
 
 ns.GAMEPAD = {
 	{ id = "innkeeper-gossip", kind = "frame-child", files = { "InnkeeperGossip.lua" },
-		guard = "gate", toPad = "park", toMouse = "install", safe = "off",
-		why = "An opt-in Bones row and local dialogue inside a capability-checked unprotected NPC panel; mouse only, restored and hidden on a gamepad switch. Missing native capabilities retain the Olympus dialogue." },
+		guard = "gate", toPad = "reload", toMouse = "install", safe = "off",
+		why = "An opt-in Bones row and local dialogue inside a capability-checked unprotected NPC panel; mouse only. A switch restores geometry and hides the addon choices, but native font registration and ScrollBox calls retain taint until reload. Missing native capabilities retain the Olympus dialogue." },
 	-- P0: confirmed in Forever's source to reach the refused call in a session played with the gamepad alone.
 	{ id = "slash", kind = "slash", files = { "Core.lua", "Channels.lua" },
 		globals = { "SLASH_OLYMPUS1", "SLASH_OLYMPUS2", "SLASH_OLYMPUSARENA1", "SLASH_OLYMPUSALL1", "SLASH_OLYMPUSCAPTAINS1", "SLASH_OLYMPUSLORDS1" },
@@ -117,6 +117,9 @@ ns.GAMEPAD = {
 	{ id = "chat-key", kind = "binding", files = { "ChatWindow.lua" },
 		guard = "gate", toPad = "park", toMouse = "install", safe = "off",
 		why = "The Chat tab's override of the Open chat key: never set with the gamepad UI, and the one Olympus holds goes back to the game in the switch itself (the only step taken in the switch's own event), so the gamepad UI rebinds on a clean key." },
+	{ id = "main-key", kind = "binding", files = { "MainKey.lua" },
+		guard = "gate", toPad = "park", toMouse = "install", safe = "off",
+		why = "The main window's session-only Y shortcut borrows an otherwise empty binding, never changes saved keys, returns its own override in the input-style switch or after combat, and is inert with the gamepad UI." },
 
 	-- P3: already through the gate, or allowed for the reason given.
 	{ id = "player-menu", kind = "menu", files = { "PlayerMenu.lua", "ArenaHome.lua", "Olympus_Arena/Window.lua" },
@@ -165,9 +168,8 @@ ns.GAMEPAD = {
 		guard = "gate", toPad = "stays", toMouse = "on", safe = "off",
 		why = "Opening the game's calendar for the King's week: with the gamepad UI it only says how to open it." },
 	{ id = "photo", kind = "frame-write", files = { "UI.lua", "Olympus_Arena/Games/Hookup.lua", "Olympus_Arena/Sim.lua" },
-		globals = { "RandomRoll" },
 		guard = "gate", toPad = "stays", toMouse = "on", safe = "off",
-		why = "The author's photo mode hides the game's frames; the companion's photo tours (the games' and the sim's) take the game's Screenshot() of each step, and the games' tour puts scripted rolls in RandomRoll's place until it ends: each refused with the gamepad UI, and a tour running at a switch takes no more shots." },
+		why = "The author's photo mode hides the game's frames; the companion's photo tours (the games' and the sim's) take the game's Screenshot() of each step. The games' tour scripts only the companion's own roll delegate and leaves RandomRoll untouched: each tour refused with the gamepad UI, and a tour running at a switch takes no more shots." },
 	{ id = "lib-partial", kind = "library", files = { "Map.lua" },
 		guard = "own", toPad = "stays", toMouse = "nothing", safe = "keep",
 		why = "A half-loaded map library's own update frame stopped: the library's, not the game's." },

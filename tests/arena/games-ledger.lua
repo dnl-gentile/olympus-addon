@@ -202,8 +202,9 @@ test("1.1.6 games ledger: the Lottery's practice: a free practice ticket (no sta
 	local UI, L, Lt = own.ArenaUI, a.ns.L, a.ns.Lottery
 	local m = w:As(a, UI.LotteryPracticeModel)
 	eq(m.free, true); eq(m.stake, nil, "no stake")
-	eq(m.compliance, L.COMPLIANCE_LOTTERY_PRACTICE, "the line about the review, country by country")
-	assert(L.COMPLIANCE_LOTTERY_PRACTICE:find("country by country", 1, true))
+	eq(m.compliance, L.COMPLIANCE_LOTTERY_PRACTICE, "the shipped free-practice policy")
+	assert(m.compliance:find("Free practice", 1, true) and m.compliance:find("cost nothing", 1, true)
+		and m.compliance:find("no gold moves", 1, true), "practice states that tickets are free and no gold moves")
 	eq(select(2, w:As(a, UI.LotteryPracticeDraw, { 1, 5, 9, 13, 17 })), "pick", "a beast first")
 	assert(w:As(a, UI.LotteryPracticePick, 2))
 	local result = w:As(a, UI.LotteryPracticeDraw, { 1, 5, 9, 13, 17 })
@@ -376,7 +377,10 @@ test("1.1.6 games ledger: a rehearsal never empties it: a group rehearsal's word
 	eq(#M(w, a, "ArenaLedger").MyGames(), 1); eq(#Rows(w, king), 1)
 	eq(type(king.rdb.arenaGames) == "table" and type(king.rdb.arenaGames.gamesLedger), "table", "the games' own store")
 	eq(king.rdb.arenaTest and king.rdb.arenaTest.gamesLedger, nil, "not the rehearsal store")
-	-- The signed arbiter starts a rehearsal in the fighters' group: their clients join it.
+	-- The signed arbiter starts a rehearsal in the fighters' group: only clients whose players
+	-- explicitly opted in may join it; preserving the actual ledger assertions below.
+	a.Arena.RunSlash("rehearsals on")
+	b.Arena.RunSlash("rehearsals on")
 	assert(w:As(c.arb, c.arb.ns.ArenaTest.Start, "group"))
 	w:Run(1)
 	assert(w:As(a, a.ns.ArenaTest.Running), "the fighter joined the rehearsal")

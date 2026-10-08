@@ -13,8 +13,10 @@ local L = ns.L
 -- does not start over after a reload. The receivers keep the last word they accepted live, and
 -- after a reload check it again (its signature, the key pinned for its issuer, its expiry, and
 -- that its issuer still holds the role) before it shows any frame. A saved word is only ever
--- used by the client that heard it: words are taken from other players live, from their
--- issuer, never relayed. Editing a saved word's rows breaks its signature, and a word under
+-- used by the client that heard it. W4 asks for catch-up; a real reviewer may relay an unchanged
+-- signed word in W5. A receiver must already have independently pinned that issuer's key from a
+-- verified direct word: a relay never supplies a first-use key or key rotation. Editing a word's
+-- rows breaks its signature, and a word under
 -- another key than the one pinned for its issuer is refused; whoever rewrites both in his own
 -- saved data changes only what his own client shows, as editing the addon itself would.
 --
@@ -52,6 +54,8 @@ Wanted.GLOBAL_BURST = 6
 Wanted.GLOBAL_BURST_GAP = 5 * 60
 Wanted.GLOBAL_REPEAT_EVERY = 30 * 60
 Wanted.GLOBAL_LOGIN_REPEAT = 90
+Wanted.GLOBAL_ASK_FIRST, Wanted.GLOBAL_ASK_GAP, Wanted.GLOBAL_ASK_TRIES = 45, 300, 3
+Wanted.GLOBAL_DIRECT_PINS_MAX = 64
 -- One death has one killer: rows naming the same victim this close together describe one death.
 Wanted.DEATH_WINDOW = 5
 Wanted.EVIDENCE_AGE = 31 * 86400 -- a reviewer refuses evidence older than this
@@ -113,6 +117,7 @@ local restoring, restoreChecked = nil, {}
 local reviewInbox, reviewOrder = {}, {}
 local reviewRate = {}
 local publishedGlobal
+Wanted.globalCatch = { asked = -math.huge, replied = -math.huge, generation = 0 }
 -- [reviewer] = { [evidence id] = true }: sent this session. Only this session's: after a reload
 -- the rows can go again, and the reviewer drops the ones he holds without counting them.
 local sentTo = {}
@@ -845,10 +850,15 @@ local function ReadSelfDeathRecap()
 						local kind = row.event
 						local killer = Identity(row.sourceName, row.sourceGUID)
 						local target = killer and s and ResolveTarget(s, killer, false)
-						local known = killer and not target and KnownHorde(killer)
+						-- A manual name-only listing is not yet a verified GUID. Its own fatal
+						-- recap may learn one only from a locally observed Horde unit, just as
+						-- an unlisted killer does. Never replace an already pinned namesake.
+						local known = killer and (not target or not target.guid) and KnownHorde(killer)
+						local named = known and s and ResolveTarget(s, Identity(known.name), false)
+						if named and named.guid and named.guid ~= known.guid then known = nil end
 						if at and flags and overkill and type(kind) == "string" and kind:match("_DAMAGE$")
 							and bit.band(flags, 0x440) == 0x440 and (target and target.guid == killer.guid or known) then
-							return RecordKill("SELF_DEATH", "native:" .. tostring(at), target and Identity(target) or known, mine,
+							return RecordKill("SELF_DEATH", "native:" .. tostring(at), known or target and Identity(target), mine,
 								{ zone = Zone(), precision = "approximate", autoHorde = known ~= nil })
 						end
 					end
@@ -961,6 +971,8 @@ end
 function Wanted.CanPublish(name)
 	name = CleanName(name)
 	if not name or not ns.IsMember or ns.IsMember() ~= true then return false end
+	local WC = ns.WatchChat
+	if WC and WC.PowersBarred and WC.PowersBarred(name) then return false end
 	local W = ns.Workshop
 	if W and W.IsAuthorName and W.IsAuthorName(name) == true then return true end
 	if ns.IsKingCharacter and ns.IsKingCharacter(name) == true then return true end
@@ -1061,7 +1073,7 @@ end
 local function SaveGlobal(snapshot)
 	local s = Store(true)
 	if not s then return end
-	s.global = { text = snapshot.text, issuer = snapshot.issuer, at = math.floor(Clock()) }
+	s.global = { text = snapshot.text, issuer = snapshot.issuer, at = math.floor(Clock()), relay = snapshot.relay }
 	local heads = {}
 	for who, h in pairs(publisherHeads) do heads[who] = { epoch = h.epoch, seq = h.seq, pk64 = h.pk64 } end
 	s.globalHeads = heads
@@ -1269,28 +1281,41 @@ local function ConflictOf(e, acceptedOnly)
 	return nil
 end
 
--- 1.2.0: an Olympus member (our roster, or a federation guild's claim the channel takes).
+-- A fresh own-guild roster, or independently verified federation membership; a guild claim
+-- alone (VerifiedLevel's numeric fallback) is not evidence authority.
 local function EvidenceMember(sender)
 	local R = ns.Roster
-	if R and R.RankOf and R.RankOf(sender) ~= nil then return true end
+	if R and type(R.Fresh) == "function" and type(R.RankOf) == "function" then
+		local ok, fresh = pcall(R.Fresh)
+		if ok and fresh and R.RankOf(sender) ~= nil then return true end
+	end
 	local C, M = ns.Channels, ns.Moderation
-	if type(C) ~= "table" or type(C.VerifiedLevel) ~= "function" then return false end
+	if type(C) ~= "table" or C.missing or type(C.VerifiedLevel) ~= "function" then return false end
 	local guild = M and M.GuildOf and M.GuildOf(sender)
 	if type(guild) ~= "string" or guild == "" or not (ns.IsFederation and ns.IsFederation(guild)) then return false end
-	local ok, level = pcall(C.VerifiedLevel, sender, guild)
-	return ok and type(level) == "number" and level >= 1
+	local ok, level, verified = pcall(C.VerifiedLevel, sender, guild)
+	return ok and type(level) == "number" and level >= 1 and verified == true
 end
 
 -- Whether a player GUID is the sender's character: true or false when this client can name it
 -- (a unit, or the game's cache of seen players), nil when it cannot.
 local function GuidIsSender(guid, sender)
 	local who = ns.Fold(ns.FullName(sender))
+	local self = UnitIdentity("player")
+	if self and self.guid == guid then return ns.Fold(ns.FullName(self.name)) == who end
 	if type(UnitTokenFromGUID) == "function" then
 		local ok, token = pcall(UnitTokenFromGUID, guid)
 		if ok and type(token) == "string" and not Secret(token) then
-			local name = ns.UnitFullName(token)
-			if type(name) == "string" and not Secret(name) then return ns.Fold(ns.FullName(name)) == who end
+			local unit = UnitIdentity(token)
+			if unit and unit.guid == guid then return ns.Fold(ns.FullName(unit.name)) == who end
 		end
+	end
+	-- Debts.InfoName is the existing guarded server GUID lookup (including clients that split
+	-- character surnames into the realm field); it does not accept a packet's asserted name.
+	local D = ns.Debts
+	if D and type(D.InfoName) == "function" then
+		local ok, name = pcall(D.InfoName, guid)
+		if ok and type(name) == "string" and name ~= "" and not Secret(name) then return ns.Fold(ns.FullName(name)) == who end
 	end
 	if type(GetPlayerInfoByGUID) == "function" then
 		local ok, _, _, _, _, _, name, realm = pcall(GetPlayerInfoByGUID, guid)
@@ -1308,16 +1333,17 @@ local function ReviewEvidence(sender, body)
 	at, month = tonumber(at), tonumber(month)
 	local killer, victim = GameGuid(killerWire), GameGuid(victimWire)
 	if version ~= "1" or not digest or #digest ~= 16 or not at or not Whole(month, 0, 120000)
-		or not killer or not victim then return false, "shape" end
+		or not killer or not victim or (kind == "S") ~= (action == "B") then return false, "shape" end
 	local now = math.floor(Clock())
 	if at > now + Wanted.GLOBAL_SKEW or now - at > Wanted.EVIDENCE_AGE then return false, "stale" end
 	sender = CleanName(sender)
 	if not sender then return false, "sender" end
-	-- 1.2.0: a member's own evidence only: the Olympian side of the row (the killer of a party
-	-- kill, the victim of a death) is the sender whenever this client can name that GUID.
+	-- Only the sender's own kill or death: a positive server identity proof is required.
+	-- Unknown GUIDs cannot become fabricated Slayers after a manual review.
 	if ns.Moderation and ns.Moderation.Hides and ns.Moderation.Hides(sender) then return false, "olympus" end
 	if not EvidenceMember(sender) then return false, "olympus" end
-	if GuidIsSender(kind == "S" and victim or killer, sender) == false then return false, "not-own" end
+	local own = GuidIsSender(kind == "S" and victim or killer, sender)
+	if own ~= true then return false, own == false and "not-own" or "identity" end
 	local key = ns.Fold(sender) .. "#" .. digest
 	-- A row held already costs the sender's rate nothing: after his reload his client may send
 	-- again what it sent before. Pending here, or accepted (in this session or an earlier one:
@@ -1560,7 +1586,7 @@ function Wanted.ReviewedRankings(month)
 	return CanonicalRows(rows) or {}
 end
 
-local function ParseSnapshot(sender, text)
+local function ParseSnapshot(sender, text, relay)
 	if type(text) ~= "string" or #text > 1200 then return nil, "size" end
 	local version, scope, issuer, epoch, seq, issued, expires, rowsText, pk64, sig64 =
 		text:match("^WY~(%d+)~(%x+)~([^~]+)~(%d+)~(%d+)~(%d+)~(%d+)~([^~]+)~([^~]+)~([^~]+)$")
@@ -1569,7 +1595,7 @@ local function ParseSnapshot(sender, text)
 	if version ~= "1" or not issuer or not Whole(epoch, 1, Wanted.GLOBAL_MAX_EPOCH) or not Whole(seq, 1, Wanted.GLOBAL_MAX_SEQ)
 		or not Whole(issued, 0, 4294967295) or not Whole(expires, 0, 4294967295) then return nil, "shape" end
 	if scope ~= Scope() then return nil, "scope" end
-	if not SameName(sender, issuer) or not Wanted.CanPublish(sender) then return nil, "authority" end
+	if not Wanted.CanPublish(issuer) or not Wanted.CanPublish(sender) or (not relay and not SameName(sender, issuer)) then return nil, "authority" end
 	local rows, why = ReadRows(rowsText)
 	if not rows then return nil, why end
 	local D, Ed = ns.Debts, ns.Ed25519
@@ -1578,7 +1604,33 @@ local function ParseSnapshot(sender, text)
 	if not pk or #pk ~= 32 or not sig or #sig ~= 64 or not Ed or not Ed.ValidPublicKey or not Ed.ValidPublicKey(pk) then return nil, "signature" end
 	local signed = table.concat({ "OLYW1", scope, issuer, epoch, seq, issued, expires, rowsText }, "|")
 	return { scope = scope, issuer = issuer, epoch = epoch, seq = seq, issued = issued, expires = expires,
-		rows = rows, rowsText = rowsText, pk = pk, pk64 = pk64, sig = sig, signed = signed, text = text }
+		rows = rows, rowsText = rowsText, pk = pk, pk64 = pk64, sig = sig, signed = signed, text = text, relay = relay and CleanName(sender) or nil }
+end
+
+-- These anchors are learned only after a direct issuer word's signature was verified. Neither
+-- another reviewer's role nor a relay's globalHeads can introduce or rotate an issuer key.
+function Wanted.IndependentlyPinned(snapshot)
+	local s = Store(false)
+	local pin = s and type(s.globalDirectPins) == "table" and s.globalDirectPins[ns.Fold(snapshot.issuer)]
+	return type(pin) == "table" and Whole(pin.epoch, 1, Wanted.GLOBAL_MAX_EPOCH) == snapshot.epoch and pin.pk64 == snapshot.pk64
+end
+
+function Wanted.PinDirectGlobal(snapshot)
+	if snapshot.relay then return false end
+	local s = Store(true)
+	if not s then return false end
+	if type(s.globalDirectPins) ~= "table" then s.globalDirectPins = {} end
+	local pins, key = s.globalDirectPins, ns.Fold(snapshot.issuer)
+	if not pins[key] and Count(pins) >= Wanted.GLOBAL_DIRECT_PINS_MAX then
+		local oldest, at
+		for k, p in pairs(pins) do
+			local t = type(p) == "table" and tonumber(p.at) or 0
+			if not at or (t or 0) < at then oldest, at = k, t or 0 end
+		end
+		if oldest then pins[oldest] = nil end
+	end
+	pins[key] = { epoch = snapshot.epoch, pk64 = snapshot.pk64, at = math.floor(Clock()) }
+	return true
 end
 
 local function NewerSnapshot(snapshot)
@@ -1631,10 +1683,12 @@ local function AcceptSnapshot(snapshot)
 	-- Recheck every mutable trust input after the asynchronous Ed25519 job. In particular, a
 	-- realm/faction transition while verification yielded must never install the old scope.
 	if snapshot.scope ~= Scope() or not Fresh(snapshot) or not Wanted.CanPublish(snapshot.issuer) then return false, "stale" end
+	if snapshot.relay and (not Wanted.CanPublish(snapshot.relay) or not Wanted.IndependentlyPinned(snapshot)) then return false, "unanchored" end
 	local ok, why = NewerSnapshot(snapshot)
 	if not ok then return false, why end
 	publisherHeads[ns.Fold(snapshot.issuer)] = { epoch = snapshot.epoch, seq = snapshot.seq, pk64 = snapshot.pk64 }
 	stats.globalAccepted = stats.globalAccepted + 1
+	Wanted.PinDirectGlobal(snapshot)
 	Install(snapshot)
 	SaveGlobal(snapshot)
 	return true
@@ -1657,6 +1711,10 @@ local function RestoreGlobal()
 		return false, why
 	end
 	if not Fresh(snapshot) then ForgetGlobal() return false, "stale" end
+	-- A legacy saved word came directly from its issuer (the old protocol admitted no relays).
+	-- Retain provenance for new relayed copies so restoration cannot turn them into direct pins.
+	snapshot.relay = type(saved.relay) == "string" and saved.relay or nil
+	if snapshot.relay and not Wanted.IndependentlyPinned(snapshot) then return false, "unanchored" end
 	local pins = {}
 	for who, h in pairs(type(s.globalHeads) == "table" and s.globalHeads or {}) do
 		local epoch = type(h) == "table" and Whole(h.epoch, 1, Wanted.GLOBAL_MAX_EPOCH)
@@ -1675,8 +1733,10 @@ local function RestoreGlobal()
 		restoring = nil
 		restoreChecked[snapshot.text] = valid
 		local current = not authenticatedGlobal and globalFloor == floor
-		if valid and current and snapshot.scope == Scope() and Fresh(snapshot) and Wanted.CanPublish(snapshot.issuer) then
+		if valid and current and snapshot.scope == Scope() and Fresh(snapshot) and Wanted.CanPublish(snapshot.issuer)
+			and (not snapshot.relay or Wanted.IndependentlyPinned(snapshot)) then
 			stats.globalRestored = stats.globalRestored + 1
+			Wanted.PinDirectGlobal(snapshot)
 			return Install(snapshot)
 		end
 		if not valid then ForgetGlobal(snapshot.text) stats.globalRefused = stats.globalRefused + 1 end
@@ -1696,11 +1756,12 @@ local function RestoreGlobal()
 end
 Wanted.RestoreGlobal = RestoreGlobal
 
-function Wanted.HandleGlobalSnapshot(dist, sender, text)
+function Wanted.HandleGlobalSnapshot(dist, sender, text, relay)
 	if dist ~= "CHANNEL" then stats.globalRefused = stats.globalRefused + 1 return false, "lane" end
 	CurrentGlobal() -- expiry/revocation must release its ordering floor before a replacement arrives
-	local snapshot, why = ParseSnapshot(sender, text)
+	local snapshot, why = ParseSnapshot(sender, text, relay)
 	if not snapshot or not Fresh(snapshot) then stats.globalRefused = stats.globalRefused + 1 return false, why or "stale" end
+	if relay and not Wanted.IndependentlyPinned(snapshot) then stats.globalRefused = stats.globalRefused + 1 return false, "unanchored" end
 	local ok
 	ok, why = NewerSnapshot(snapshot)
 	if not ok then
@@ -1725,6 +1786,66 @@ function Wanted.HandleGlobalSnapshot(dist, sender, text)
 	end)
 	if not started then pendingGlobal[digest], pendingGlobalCount = nil, math.max(0, pendingGlobalCount - 1) return false, "busy" end
 	return true, "pending"
+end
+
+function Wanted.HandleGlobalRelay(dist, sender, text)
+	if type(text) ~= "string" or text:sub(1, 5) ~= "W5~1~" then return false, "shape" end
+	return Wanted.HandleGlobalSnapshot(dist, sender, text:sub(6), true)
+end
+
+-- Public, unchanged signed rankings only. A reply does not publish this client's observations
+-- or ledger; it repeats precisely its already-verified current word, subject to all live roles.
+function Wanted.AnswerGlobal(dist, sender, text)
+	if dist ~= "CHANNEL" or text ~= "W4~1" then return false, "shape" end
+	if SameName(sender, ns.me) then return false, "own" end
+	if not Wanted.CanPublish(ns.me) then return false, "authority" end
+	local held, C, now = CurrentGlobal(), ns.Comm, ns.Now()
+	if not held then return false, "none" end
+	if now - Wanted.globalCatch.replied < Wanted.GLOBAL_ASK_GAP then return false, "rate" end
+	if not C or not C.SendChunked then return false, "transport" end
+	local body = SameName(held.issuer, ns.me) and held.text or ("W5~1~" .. held.text)
+	local sent, why = C.SendChunked(body, false, nil, nil, { owner = Wanted, guardKey = "wanted-global-relay", guard = function()
+		return Wanted.CanPublish(ns.me) and Wanted.CanPublish(held.issuer) and CurrentGlobal() == held and held.scope == Scope() and Fresh(held)
+	end })
+	if sent then Wanted.globalCatch.replied = now end
+	return sent, why
+end
+
+function Wanted.AskGlobal()
+	local C, now, scope = ns.Comm, ns.Now(), Scope()
+	if not ns.IsMember or not ns.IsMember() then return false, "member" end
+	if now - Wanted.globalCatch.asked < Wanted.GLOBAL_ASK_GAP then return false, "rate" end
+	if not C or not C.Send then return false, "transport" end
+	local sent, why = C.Send("CHANNEL", "W4~1", "wanted-global-ask", false, false, nil,
+		{ owner = Wanted, guardKey = "wanted-global-ask", guard = function() return ns.IsMember() == true and Scope() == scope end })
+	if sent then Wanted.globalCatch.asked = now end
+	return sent, why
+end
+
+function Wanted.ScheduleGlobalCatchUp(generation, attempt)
+	if not ns.After or generation ~= Wanted.globalCatch.generation or attempt > Wanted.GLOBAL_ASK_TRIES then return end
+	ns.After(attempt == 1 and Wanted.GLOBAL_ASK_FIRST or Wanted.GLOBAL_ASK_GAP, "wanted global catch-up", function()
+		if generation ~= Wanted.globalCatch.generation then return end
+		Wanted.AskGlobal()
+		Wanted.ScheduleGlobalCatchUp(generation, attempt + 1)
+	end)
+end
+
+-- A publication's lease is its captured signed word, actor and realm/faction audience. Every
+-- native chunk rechecks this same lease; queue admission never lets a replaced word escape.
+function Wanted.PublicationGuard(p)
+	local body, expires, issuer, scope = p.body, p.expires, p.issuer, p.scope
+	local mine = BodyOrder(body)
+	local signedScope, signedIssuer, signedExpires
+	if type(body) == "string" then signedScope, signedIssuer, signedExpires = body:match("^WY~1~(%x+)~([^~]+)~%d+~%d+~%d+~(%d+)~") end
+	local fresh = mine and { issued = mine[1], epoch = mine[4], expires = expires }
+	return function()
+		return mine ~= nil and publishedGlobal == p and not p.replaced and p.body == body
+			and p.expires == expires and p.issuer == issuer and p.scope == scope and scope == Scope()
+			and signedScope == scope and signedIssuer == issuer and tonumber(signedExpires) == expires
+			and SameName(issuer, ns.me) and Wanted.CanPublish(ns.me) and Wanted.CanPublish(issuer)
+			and Fresh(fresh) and not (globalFloor and CompareOrder(globalFloor, mine) > 0)
+	end
 end
 
 local function PublishRows(rows)
@@ -1760,9 +1881,7 @@ local function PublishRows(rows)
 	ns.db.wantedPublisher = p
 	local body = table.concat({ "WY", 1, scope, issuer, epoch, seq, now, expires, rowsText, pk64, D.B64(sig) }, "~")
 	publishedGlobal = { body = body, expires = expires, issuer = issuer, scope = scope }
-	local sent, why = C.SendChunked(body, true, nil, nil, { owner = Wanted, key = "wanted-global", guard = function()
-		return Wanted.CanPublish(ns.me) and ns.IsMember and ns.IsMember() == true
-	end })
+	local sent, why = C.SendChunked(body, true, nil, nil, { owner = Wanted, guardKey = "wanted-global", guard = Wanted.PublicationGuard(publishedGlobal) })
 	if sent then
 		-- Kept, so that after his next login the publisher repeats this same word (Wanted.Load).
 		p.last = { body = body, expires = expires, issuer = issuer, scope = scope }
@@ -1809,9 +1928,7 @@ function Wanted.RepeatGlobal()
 	if not mine or p.expires < math.floor(Clock()) or not SameName(p.issuer, ns.me) or not Wanted.CanPublish(ns.me)
 		or (p.scope and p.scope ~= Scope()) or not C or not C.SendChunked then return false, "stale" end
 	if p.replaced or globalFloor and CompareOrder(globalFloor, mine) > 0 then return false, "replaced" end
-	local sent, why = C.SendChunked(p.body, false, nil, nil, { owner = Wanted, key = "wanted-global-repeat", guard = function()
-		return publishedGlobal == p and not p.replaced and p.expires >= math.floor(Clock()) and Wanted.CanPublish(ns.me)
-	end })
+	local sent, why = C.SendChunked(p.body, false, nil, nil, { owner = Wanted, guardKey = "wanted-global-repeat", guard = Wanted.PublicationGuard(p) })
 	-- Heard from ourselves again where this client does not hold it (its check was busy when he
 	-- published, say), as PublishRows does.
 	if sent and not restoring and not (authenticatedGlobal and authenticatedGlobal.text == p.body) then
@@ -2570,10 +2687,16 @@ local function SightPermit(job)
 	local ok, why = Collects()
 	if not ok then return false, why end
 	if Sight.CrownHidden() then return false, "crown" end
+	if not Sight.Sharing() then return false, "private" end
 	local now = math.floor(Clock())
 	if now - job.at > Wanted.SIGHT_QUEUE_TTL then return false, "stale" end
 	if not LeaseLive(reviewers[job.toKey], now) then return false, "reviewer" end
 	return true
+end
+
+function Sight.Sharing()
+	local Ly = ns.Layers
+	return type(Ly) == "table" and type(Ly.Sharing) == "function" and Ly.Sharing() == true
 end
 
 -- The server's "No player named <reviewer> is currently playing" that answers a whisper this
@@ -2641,8 +2764,7 @@ local function SendSighting(e)
 	if Sight.CrownHidden() then return 0, "crown" end
 	-- (1.2.0: a sighting carries where this player stands and his layer: none goes while he keeps
 	-- his zone and layer private.)
-	local Ly = ns.Layers
-	if not (type(Ly) == "table" and type(Ly.Sharing) == "function" and Ly.Sharing() == true) then return 0, "private" end
+	if not Sight.Sharing() then return 0, "private" end
 	local guild = Sight.OwnGuild()
 	if not guild then return 0, "guild" end
 	local now = math.floor(Clock())
@@ -3227,6 +3349,8 @@ function Wanted.Load()
 	end
 	-- Once the publisher's own word is known: a newer saved word, checked again, replaces it.
 	RestoreGlobal()
+	Wanted.globalCatch.generation = Wanted.globalCatch.generation + 1
+	Wanted.ScheduleGlobalCatchUp(Wanted.globalCatch.generation, 1)
 	-- Sightings: a reviewer's lease REVIEWER_FIRST after login (his name is known now), then on
 	-- its beat; the pins expire on theirs.
 	leaseGen = leaseGen + 1
@@ -3247,6 +3371,8 @@ function Wanted.ResetForTests()
 	pendingGlobal, pendingGlobalCount, reviewInbox, reviewOrder = {}, 0, {}, {}
 	reviewRate = {}
 	publishedGlobal = nil
+	Wanted.globalCatch.asked, Wanted.globalCatch.replied = -math.huge, -math.huge
+	Wanted.globalCatch.generation = Wanted.globalCatch.generation + 1
 	restoring, restoreChecked, sentTo, batches = nil, {}, {}, {}
 	pins, pinFrames, spareFrames = {}, {}, {}
 	sightSeen, sightSeenOrder, ownSeen, ownSeenCount, sightSends = {}, {}, {}, 0, {}
@@ -3298,6 +3424,12 @@ ns.On("KING_LOCATION_CHANGED", function()
 		Sight.Withdraw()
 	end
 end)
+ns.On("LAYER_SHARING_CHANGED", function(on)
+	if on ~= true and (sightJobCount > 0 or next(told.by) ~= nil) then
+		CancelSightings("private")
+		Sight.Withdraw()
+	end
+end)
 -- What this client sees: the nameplates, its target, the unit under the mouse (sightings); the
 -- pins follow it in and out of instances.
 ns.RegisterEvent("NAME_PLATE_UNIT_ADDED", function(unit) Wanted.ObserveUnit(unit) end)
@@ -3307,8 +3439,10 @@ ns.RegisterEvent("PLAYER_ENTERING_WORLD", function() Wanted.RefreshPins() end)
 ns.RegisterEvent("ZONE_CHANGED_NEW_AREA", function() Wanted.RefreshPins() end)
 if ns.Comm and ns.Comm.Handle then
 	ns.Comm.Handle("WX", function(dist, sender, text)
-		if dist == "WHISPER" and type(text) == "string" then ReviewEvidence(sender, text) end
+		if dist == "WHISPER" and type(text) == "string" then return ReviewEvidence(sender, text) end
 	end)
 	ns.Comm.Handle("WY", function(...) Wanted.HandleGlobalSnapshot(...) end)
+	ns.Comm.Handle("W4", function(...) Wanted.AnswerGlobal(...) end)
+	ns.Comm.Handle("W5", function(...) Wanted.HandleGlobalRelay(...) end)
 	ns.Comm.Handle("WS", function(...) Wanted.HandleSighting(...) end)
 end

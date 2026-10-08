@@ -100,6 +100,22 @@ local function Text(parent, size, color, font, justify, layer)
 	if justify then fs:SetJustifyH(justify) end
 	return fs
 end
+-- A result's animal has one line; its four numbers own the line below. Fit the original name
+-- rather than allowing a long localized label to wrap over those numbers. Restore the normal
+-- size on each reveal, so a short name after a long one is not left unnecessarily small.
+local function PracticeName(fs, label, size, smallest)
+	fs:SetWordWrap(false)
+	fs:SetText(label)
+	SetFont(fs, MORPHEUS, size)
+	local ok, room = pcall(fs.GetWidth, fs)
+	if not ok or (issecretvalue and issecretvalue(room)) or type(room) ~= "number" or room <= 0 then return end
+	while size > smallest do
+		local measured, width = pcall(fs.GetStringWidth, fs)
+		if not measured or (issecretvalue and issecretvalue(width)) or type(width) ~= "number" or width <= room then break end
+		size = size - 1
+		SetFont(fs, MORPHEUS, size)
+	end
+end
 local function Edge(f, c, a, size, layer)
 	local out = {}
 	for _, p in ipairs({ { "TOPLEFT", "TOPRIGHT", 0, size }, { "BOTTOMLEFT", "BOTTOMRIGHT", 0, size }, { "TOPLEFT", "BOTTOMLEFT", size, 0 },
@@ -1776,7 +1792,7 @@ RefreshPracticeWindow = function()
 				r.flash[d]:Hide()
 			end
 			r.art:SetTexture(PracticeArt(row.beast)); r.art:Show(); r.rim:Show()
-			r.name:SetText(row.label)
+			PracticeName(r.name, row.label, 16, 12)
 			r.group:SetText(Lot().DezenasText(row.beast))
 			r.band:SetShown(i == 1); r.mark:SetShown(i == 1)
 		elseif i ~= practice.active then
@@ -1790,7 +1806,7 @@ RefreshPracticeWindow = function()
 	head.content:SetShown(headShown)
 	if headShown then
 		local row = m.rows[1]
-		head.art:SetTexture(PracticeArt(row.beast)); head.name:SetText(row.label)
+		head.art:SetTexture(PracticeArt(row.beast)); PracticeName(head.name, row.label, 26, 18)
 		head.num:SetText(("%02d"):format(row.beast)); head.number:SetText(row.number)
 		head.group:SetText(Lot().DezenasText(row.beast))
 	end
@@ -1957,7 +1973,7 @@ function ArenaUI.LotteryPracticeWindow(show)
 				if scale then scale:SetScaleFrom(1.35, 1.35); scale:SetScaleTo(1, 1); scale:SetDuration(0.28); scale:SetSmoothing("OUT") end
 				if alpha then alpha:SetFromAlpha(0.2); alpha:SetToAlpha(1); alpha:SetDuration(0.28) end
 			end
-			r.name = Text(r, 16, INK, MORPHEUS, "LEFT"); r.name:SetPoint("TOPLEFT", PIX + PICON + 10, -7); r.name:SetWidth(PRW - PIX - PICON - 14)
+			r.name = Text(r, 16, INK, MORPHEUS, "LEFT"); r.name:SetPoint("TOPLEFT", PIX + PICON + 10, -7); r.name:SetSize(PRW - PIX - PICON - 14, 20); r.name:SetWordWrap(false)
 			r.group = Text(r, 13, SOFT, STANDARD_TEXT_FONT, "LEFT"); r.group:SetPoint("TOPLEFT", PIX + PICON + 10, -31); r.group:SetWidth(PRW - PIX - PICON - 14)
 			f.prizes[i] = r
 		end
@@ -1968,7 +1984,7 @@ function ArenaUI.LotteryPracticeWindow(show)
 		PracticeResultEdge(head)
 		head.content = CreateFrame("Frame", nil, head); head.content:SetAllPoints(head)
 		head.num = Text(head.content, 22, INK, STANDARD_TEXT_FONT, "LEFT"); head.num:SetPoint("TOPLEFT", 16, -14)
-		head.name = Text(head.content, 26, INK, MORPHEUS, "LEFT"); head.name:SetPoint("TOPLEFT", 56, -12); head.name:SetWidth(PHW - 72)
+		head.name = Text(head.content, 26, INK, MORPHEUS, "LEFT"); head.name:SetPoint("TOPLEFT", 56, -12); head.name:SetSize(PHW - 72, 34); head.name:SetWordWrap(false)
 		head.art = head.content:CreateTexture(nil, "ARTWORK"); head.art:SetSize(104, 104); head.art:SetPoint("TOPLEFT", 18, -54); head.art:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 		local rim = head.content:CreateTexture(nil, "ARTWORK", nil, 2); rim:SetAllPoints(head.art); rim:SetTexture("Interface\\Common\\WhiteIconFrame"); rim:SetVertexColor(unpack(BRONZE))
 		local slot = head.content:CreateTexture(nil, "BORDER"); slot:SetTexture("Interface\\Buttons\\UI-Quickslot2"); slot:SetSize(104 * 64 / 39, 104 * 64 / 39); slot:SetPoint("CENTER", head.art, "CENTER", 0, 0)

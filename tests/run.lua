@@ -4,6 +4,10 @@
 -- Focus one security-sensitive matrix without allocating the Arena suite:
 --   OLYMPUS_TEST_AUTHORITY_ONLY=1 luajit tests/run.lua
 --   OLYMPUS_TEST_WATCH_ONLY=1 luajit tests/run.lua
+-- Diagnose an expensive case (flushed BEGIN/END, CPU/wall time and Lua heap):
+--   OLYMPUS_TEST_PROFILE=1 luajit tests/run.lua
+-- Override the default 128-MiB between-case collection high-water mark (0 disables it):
+--   OLYMPUS_TEST_GC_MB=128 luajit tests/run.lua
 
 local ROOT = (arg and arg[0] or ""):match("^(.*)tests[/\\]run%.lua$") or "./"
 local ADDON_DIR = ROOT .. "Olympus/"
@@ -214,6 +218,10 @@ local passed, failed = 0, 0
 Harness.authorityOnly = os.getenv("OLYMPUS_TEST_AUTHORITY_ONLY") == "1"
 Harness.watchOnly = os.getenv("OLYMPUS_TEST_WATCH_ONLY") == "1"
 Harness.testFilter = os.getenv("OLYMPUS_TEST_FILTER")
+Harness.performance = assert(loadfile(ROOT .. "tests/performance.lua"))().New({
+	profile = os.getenv("OLYMPUS_TEST_PROFILE") == "1",
+	gcMB = tonumber(os.getenv("OLYMPUS_TEST_GC_MB")) or 128,
+})
 if os.getenv("OLYMPUS_TEST_ARENA_MODULES") then
 	assert(not Harness.watchOnly and not Harness.authorityOnly and not Harness.testFilter and not (arg and arg[1]),
 		"affected module selection cannot be combined with a test-name filter")
@@ -223,15 +231,18 @@ local function test(name, fn)
 	if Harness.watchOnly and name:sub(1, 6) ~= "watch:" then return end
 	if Harness.testFilter and Harness.testFilter ~= "" and not name:find(Harness.testFilter, 1, true) then return end
 	if arg and arg[1] and not name:lower():find(arg[1]:lower(), 1, true) then return end
+	local measurement = Harness.performance:Start(name)
 	local before = #Harness.violations
 	local ok, err = pcall(fn)
 	if ok and #Harness.violations > before then ok, err = false, Harness.violations[#Harness.violations] end
 	local replaced = GamepadStyle(nil)
 	if replaced and ok then ok, err = false, replaced end
+	Harness.performance:Finish(measurement)
 	if ok then passed = passed + 1; print("  ok   " .. name)
 	else failed = failed + 1; print("  FAIL " .. name .. "\n       " .. tostring(err)) end
 end
 local function eq(a, b, msg) if a ~= b then error((msg or "") .. " expected " .. tostring(b) .. ", got " .. tostring(a), 2) end end
+assert(loadfile(ROOT .. "tests/test-performance.lua"))(test, eq, ROOT)
 
 -- A stored report as if `...` (other senders) had each just reported the same ranks: ranks
 -- from other guilds count only when someone else's recent report names them (Data.KnownRank).
@@ -34276,13 +34287,16 @@ end)
 
 test("1.1 join routing (Fern #20): with the gamepad UI the request opens in Olympus's own window, and a do-not-contact answer closes it", function()
 	local R = ns.Recruit
-	local saved = { guild = GetGuildInfo, inGuild = IsInGuild, outside = ns.Comm.WhisperOutside }
+	local saved = { guild = GetGuildInfo, inGuild = IsInGuild, outside = ns.Comm.WhisperOutside, level = UnitLevel, class = UnitClass }
 	local ok, err = pcall(function()
 		WithUI(function()
 			WithGamepadUI(true, function(game)
 				R.ResetForTests()
 				GetGuildInfo = function() return nil end
 				IsInGuild = function() return false end
+				-- Native player facts must belong to this fixture, not a preceding test's globals.
+				UnitLevel = function() return 12 end
+				UnitClass = function() return "Warrior", "WARRIOR", 1 end
 				ns.Comm.WhisperOutside = function() return true end
 				R.found = { { name = "Aaa-Realm", guild = "Olympus II" } }
 				R.Prompt(R.found[1])
@@ -34294,7 +34308,7 @@ test("1.1 join routing (Fern #20): with the gamepad UI the request opens in Olym
 			end)
 		end)
 	end)
-	GetGuildInfo, IsInGuild, ns.Comm.WhisperOutside = saved.guild, saved.inGuild, saved.outside
+	GetGuildInfo, IsInGuild, ns.Comm.WhisperOutside, UnitLevel, UnitClass = saved.guild, saved.inGuild, saved.outside, saved.level, saved.class
 	R.ResetForTests()
 	if not ok then error(err, 0) end
 end)
@@ -39104,6 +39118,9 @@ end)
 	assert(loadfile(ROOT .. "tests/exile.lua"))(ns, test, eq, { WithNetoff = WithNetoff, KING = KING, HC = HC, AsSoldier = AsSoldier,
 		AsKing = AsKing, Printed = Printed, PtBR = PtBR, Source = Source, FreshComm = FreshComm, WithUI = WithUI, LoadUI = LoadUI,
 		WithGamepadUI = WithGamepadUI })
+	print("tests/recruit-netoff.lua")
+	assert(loadfile(ROOT .. "tests/recruit-netoff.lua"))(ns, test, eq, { WithNetoff = WithNetoff, KING = KING, HC = HC,
+		AsSoldier = AsSoldier, AsKing = AsKing, WithUI = WithUI, WithGamepadUI = WithGamepadUI, PtBR = PtBR })
 
 end)()
 ---------------------------------------------------------------------------
@@ -45521,6 +45538,7 @@ end)
 
 test("1.1 the clipboard backup's windows: the copy box out; a paste box in, read as the paste types it, confirmed in Olympus's own dialog with the gamepad UI", function()
 	WithUI(function()
+		LoadUI() -- the window under test is created by this fixture, not an earlier UI case
 		local Bk = ns.Backup
 		local saved = { show = ns.UI.ShowCopy, focus = GetCurrentKeyBoardFocus, time = GetTime, me = ns.me, guild = GetGuildInfo }
 		local ok, err = pcall(function()
@@ -51859,6 +51877,8 @@ do
 	assert(loadfile(ROOT .. "tests/chat-role-window.lua"))(ns, test, eq, WithWindow)
 	assert(loadfile(ROOT .. "tests/chat-picker-anchor.lua"))(ns, test, eq, WithWindow, ForeverWorld)
 	assert(loadfile(ROOT .. "tests/chat-role-badges.lua"))(ns, test, eq, WithWindow)
+	assert(loadfile(ROOT .. "tests/chat-guild-labels.lua"))(ns, test, eq, WithWindow)
+	assert(loadfile(ROOT .. "tests/letter-content.lua"))(ns, test, eq)
 	assert(loadfile(ROOT .. "tests/player-profile-fight-history.lua"))(ns, test, eq, WithWindow)
 
 	local function Line(t, sender, text, extra)
@@ -54301,7 +54321,8 @@ test("watch: chat moderation: the Chat tab: a deleted line keeps its greyed name
 			"CHATS_TAB_WAITING", "CHATS_TAB_ON", "CHATS_TAB_TIP", "HELP_TALK", "MINIMAP_SHIFT", "HELP_TAB_CHAT", "CHATS_TAB_ADD",
 			"CHATS_TAB_ADD_TIP", "CHATS_TAB_STEPS", "CHATTAB_POINTER_TITLE", "CHATTAB_POINTER", "CHATS_TAB_AWAY", "CHATS_TAB_AWAY_TIP",
 			"CHATWIN_NEW_IN", "CHATSET_TITLE", "CHATSET_TIP", "CHATSET_SWITCH_TIP", "CHATSET_BACK", "CHATSET_CHATS_ON", "CHATSET_CHATS_OFF",
-			"CHATSET_SHOWN", "CHATSET_MUTED", "CHATSET_MUTE_TIP", "CHATSET_WHERE", "CHATSET_WHERE_NEXT", "CHATSET_WHERE_TIP", "CHATSET_TAB" }) do
+			"CHATSET_SHOWN", "CHATSET_MUTED", "CHATSET_MUTE_TIP", "CHATSET_WHERE", "CHATSET_WHERE_NEXT", "CHATSET_WHERE_TIP", "CHATSET_TAB",
+			"CHATSET_GUILDS_SHOWN", "CHATSET_GUILDS_HIDDEN", "CHATSET_GUILDS_TIP" }) do
 			assert(type(rawget(ns.L, k)) == "string" and rawget(ns.L, k) ~= "", "English: " .. k)
 			assert(type(rawget(pt.L, k)) == "string" and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
 			eq(Codes(rawget(pt.L, k)), Codes(rawget(ns.L, k)), "codes: " .. k)
@@ -58029,17 +58050,17 @@ end)()
 	test("1.1.2 Ask to update: confirmation sends nothing until accepted; one ask per player a day, five an hour; the author's is his usual update window (V3)", function()
 		WithVersions("Tester-Realm", function(w, W)
 			-- (Changed on purpose, 1.1.2's review: a player's ask, V9, goes to 1.1.2 and newer alone,
-			-- the first that show it: here the author's presence named 1.2.0 as out.)
-			W.HeardVersion("1.2.0")
-			w.hellos = { Ann = "1.2.0", Bob = "1.1.5", P1 = "1.1.5", P2 = "1.1.5", P3 = "1.1.5", P4 = "1.1.5", P5 = "1.1.5" }
+			-- the first that show it: here the author's presence named the current build as out.)
+			W.HeardVersion(ns.VERSION)
+			w.hellos = { Ann = ns.VERSION, Bob = "1.1.5", P1 = "1.1.5", P2 = "1.1.5", P3 = "1.1.5", P4 = "1.1.5", P5 = "1.1.5" }
 			eq(V.AskUpdate("Ann-Realm"), false, "up to date"); eq(#w.whispered, 0)
 			eq(V.AskUpdate("Eve-Realm"), false, "nothing known"); eq(#w.whispered, 0)
 			eq(V.AskUpdate("Bob-Realm"), true)
 			eq(#w.whispered, 0, "opening the confirmation sends nothing")
 			eq(w.popups[#w.popups].name, "OLYMPUS_UPDATE_CONFIRM")
-			eq(w.popups[#w.popups].a, "Bob"); eq(w.popups[#w.popups].b, "1.2.0")
+			eq(w.popups[#w.popups].a, "Bob"); eq(w.popups[#w.popups].b, ns.VERSION)
 			StaticPopupDialogs.OLYMPUS_UPDATE_CONFIRM.OnAccept(nil, w.popups[#w.popups].data)
-			eq(w.whispered[1].to, "Bob-Realm"); eq(w.whispered[1].msg, "V9~1.2.0"); eq(w.whispered[1].key, "vask:bob")
+			eq(w.whispered[1].to, "Bob-Realm"); eq(w.whispered[1].msg, "V9~" .. ns.VERSION); eq(w.whispered[1].key, "vask:bob")
 			eq(w.printed[#w.printed], L.VERSION_ASKED:format("Bob"))
 			eq(V.AskUpdate("Bob"), false, "once a day"); eq(w.printed[#w.printed], L.VERSION_ASK_WAIT_ONE:format("Bob"))
 			for i = 1, 5 do AskAndConfirm(w, "P" .. i .. "-Realm") end
@@ -58054,7 +58075,7 @@ end)()
 			local root = MenuRoot()
 			V.MenuLines({ name = "Ann-Realm" }, { Line = function(t) root:CreateTitle(t) end, Button = function(t) root:CreateButton(t) end })
 			-- (both lines there, Ask to update greyed for a player on the latest: the owner's call, 2026-09-30)
-			eq(root.Texts(), "title:" .. L.VERSION_LINE_CURRENT:format("1.2.0") .. " | title:|cff9d9d9d" .. L.VERSION_DETAIL_HELLO:format(ns.Ago(w.clock)) .. "|r"
+			eq(root.Texts(), "title:" .. L.VERSION_LINE_CURRENT:format(ns.VERSION) .. " | title:|cff9d9d9d" .. L.VERSION_DETAIL_HELLO:format(ns.Ago(w.clock)) .. "|r"
 				.. " | button:" .. L.VERSION_ASK .. " | button:" .. L.VERSION_CHECK)
 		end)
 		WithVersions(AUTHOR_FULL, function(w, W)
@@ -58076,7 +58097,7 @@ end)()
 		WithUI(function()
 			WithGamepadUI(true, function(game)
 				WithVersions("Tester-Realm", function(w, W)
-					W.HeardVersion("1.2.0")
+					W.HeardVersion(ns.VERSION)
 					w.hellos = { Bob = "1.1.5" }
 					eq(V.AskUpdate("Bob-Realm"), true)
 					eq(#w.whispered, 0); eq(#game.shown, 0, "never Blizzard's popup under gamepad")
@@ -58089,7 +58110,7 @@ end)()
 					eq(V.AskUpdate("Bob-Realm"), true)
 					d = ns.Dialog.Find("OLYMPUS_UPDATE_CONFIRM")
 					d.buttons[1]:Click()
-					eq(#w.whispered, 1); eq(w.whispered[1].msg, "V9~1.2.0")
+					eq(#w.whispered, 1); eq(w.whispered[1].msg, "V9~" .. ns.VERSION)
 				end)
 			end)
 		end)
@@ -58908,11 +58929,11 @@ end)()
 			eq((V.Status("Bob")), "unknown"); eq(w.printed[#w.printed], L.VERSION_NOT_SENT:format("Bob"))
 			eq(V.Check("Bob-Realm"), true, "checked again at once")
 			-- An ask to update dropped: the day's and the hour's slots come back.
-			W.HeardVersion("1.2.0")
+			W.HeardVersion(ns.VERSION)
 			w.hellos = { Cid = "1.1.5" }
 			eq(AskAndConfirm(w, "Cid-Realm"), true)
 			local e = w.whispered[#w.whispered]
-			eq(e.msg, "V9~1.2.0")
+			eq(e.msg, "V9~" .. ns.VERSION)
 			e.done(false)
 			eq(ns.db.updateAsked.cid, nil); eq(#ns.db.updateAskTimes, 0); eq(w.printed[#w.printed], L.VERSION_NOT_SENT:format("Cid"))
 			w.holdSends = false
@@ -59426,10 +59447,10 @@ end)()
 		assert(#pt.VERSION_INVITE_TEXT:format("https://www.curseforge.com/wow/addons/olympus-guild") <= 255)
 	end)
 
-	test("1.2.0: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.2.0")
+	test("1.2.1: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
+		eq(ns.VERSION, "1.2.1")
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.2.0", 1, true))
+		assert(toc:find("## Version: 1.2.1", 1, true))
 		local at = {}
 		local n = 0
 		for line in toc:gmatch("[^\n]+") do n = n + 1; at[line:gsub("%s+$", "")] = n end
@@ -59491,11 +59512,18 @@ end)
 assert(loadfile(ROOT .. "tests/hop-regressions.lua"))(ns, test, eq, WithHop)
 local focused = Harness.watchOnly and { "watch", "watch-chat", "watch-council-view" }
 		or { "hop", "hop-sightings", "transport", "admission", "privacy", "census", "authority", "chat-rooms", "war", "watch", "watch-chat", "wanted", "wanted-sightings", "map-wanted", "king-arrow",
-		"church", "church-count", "church-view", "church-head", "department-access", "watch-council-view", "innkeeper-arrow", "squads" }
+		"church", "church-count", "church-view", "church-head", "department-access", "watch-council-view", "innkeeper-arrow", "squads", "court-calls", "weekly-brief", "main-key", "guild-charter", "officer-muster", "dues-history" }
 for _, name in ipairs(focused) do
 	print("tests/" .. name .. ".lua")
 	-- (1.1.6: the Church's files get the harness's UI helpers.)
-	local extra = name:match("^church") and { WithGamepadUI = WithGamepadUI, WithUI = WithUI } or (name == "hop-sightings" and WithHop or nil)
+	local extra = name == "weekly-brief" and { WithThrone = WithThrone, AsKing = AsKing, AsSoldier = AsSoldier, LoadUI = LoadUI,
+			WithGamepadUI = WithGamepadUI, WithUI = WithUI }
+		or name == "guild-charter" and { WithGamepadUI = WithGamepadUI, WithUI = WithUI, FreshComm = FreshComm }
+		or name == "officer-muster" and { WithUI = WithUI, WithGamepadUI = WithGamepadUI }
+		or name == "dues-history" and { FreshComm = FreshComm, WithUI = WithUI, WithGamepadUI = WithGamepadUI }
+		or name:match("^church") and { WithGamepadUI = WithGamepadUI, WithUI = WithUI }
+		or (name == "court-calls" and { WithThrone = WithThrone, AsKing = AsKing, AsSoldier = AsSoldier,
+			WithGamepadUI = WithGamepadUI, WithUI = WithUI }) or (name == "hop-sightings" and WithHop or nil)
 	assert(loadfile(ROOT .. "tests/" .. name .. ".lua"))(ns, test, eq, extra)
 end
 
@@ -59757,7 +59785,7 @@ end)()
 	-- be one, Harness.Win.Metal).
 	local function WithLetters(fn)
 		WithUI(function()
-			local saved = { letters = ns.Letters, read = ns.db.lettersRead, sessions = ns.db.sessions, combat = rawget(_G, "InCombatLockdown"),
+			local saved = { letters = ns.Letters, read = ns.db.lettersRead, baseline = ns.db.lettersAutoVersion, sessions = ns.db.sessions, combat = rawget(_G, "InCombatLockdown"),
 				instance = IsInInstance, gamepad = ns.GamepadUI, member = ns.IsMember, log = ns.Log, print = ns.Print, chat = ns.db.addonChat,
 				template = TEMPLATES.PortraitFrameTemplate }
 			local w = { on = {}, after = {}, every = {}, printed = {} }
@@ -59766,7 +59794,7 @@ end)()
 					saved.template(f)
 					f.portrait = NewWidget("Texture", nil, f)
 				end
-				ns.db.lettersRead, ns.db.sessions = nil, 5
+				ns.db.lettersRead, ns.db.lettersAutoVersion, ns.db.sessions = nil, nil, 5
 				ns.Log = function() end
 				ns.Print = function(m) w.printed[#w.printed + 1] = tostring(m) end
 				w.UI = LoadUI()
@@ -59790,6 +59818,7 @@ end)()
 			end)
 			TEMPLATES.PortraitFrameTemplate = saved.template
 			ns.Letters, ns.db.lettersRead, ns.db.sessions = saved.letters, saved.read, saved.sessions
+			ns.db.lettersAutoVersion = saved.baseline
 			InCombatLockdown, IsInInstance, ns.IsMember = saved.combat, saved.instance, saved.member; GamepadStyle(nil)
 			ns.Log, ns.Print, ns.db.addonChat = saved.log, saved.print, saved.chat
 			if not ok then error(err, 0) end
@@ -59801,8 +59830,8 @@ end)()
 		return n
 	end
 
-	test("1.2.0 version letters: release identity agrees across both TOCs and localized letters; reading the old test build does not hide the new letter", function()
-		eq(ns.VERSION, "1.2.0")
+	test("1.2.1 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
+		eq(ns.VERSION, "1.2.1")
 		for _, path in ipairs({ "Olympus/Olympus.toc", "Olympus_Arena/Olympus_Arena.toc" }) do
 			local toc = assert(ReadFile(ROOT .. path))
 			eq(toc:match("## Version:%s*(%S+)"), ns.VERSION, path)
@@ -59816,21 +59845,83 @@ end)()
 				assert(loadfile(ADDON_DIR .. "Letters.lua"))("Olympus", lns)
 				local title, body = lns.Letters.Text(ns.VERSION)
 				assert(type(title) == "string" and title ~= "", code .. ": current letter title")
-				assert(type(body) == "string" and body:find("1.2.0", 1, true), code .. ": current letter version")
+				assert(type(body) == "string" and body:find("1.2.1", 1, true), code .. ": current letter version")
 				eq(body:find("1.1.6", 1, true), nil, code .. ": no old build label")
 				eq(lns.Letters.Versions()[1], ns.VERSION, code .. ": current letter first")
 				assert(lns.Letters.Has("1.1.5"), code .. ": published letter retained")
+				assert(lns.Letters.Has("1.2.0"), code .. ": previous release letter retained")
+				assert(body:lower():find(code == "ptBR" and "sem apostas" or "no bets", 1, true), code .. ": free-game policy")
 			end)
 			GetLocale = savedLocale
 			if not ok then error(err, 0) end
 		end
 		WithLetters(function(w)
-			ns.db.lettersRead = { ["1.1.6"] = true }
+			ns.db.lettersRead = { ["1.1.6"] = true, ["1.2.0"] = true }
 			ns.Consent.Show():Hide()
 			eq(w.Letters.Ask("update"), true)
-			eq(w.Letters.Frame().version, "1.2.0")
-			eq(ns.db.lettersRead["1.2.0"], true)
+			eq(w.Letters.Frame().version, "1.2.1")
+			eq(ns.db.lettersRead["1.2.1"], true)
 			eq(w.Letters.Ask("update"), false, "shown once per release")
+		end)
+	end)
+
+	test("1.2.1 version letters: unread 1.2.0 comes before 1.2.1 on the update parchment, both are marked shown, but history remains individual", function()
+		WithLetters(function(w)
+			local Lt = w.Letters
+			local _, oldBody = Lt.Text("1.2.0")
+			local _, newBody = Lt.Text("1.2.1")
+			local _, catchup = Lt.Text("1.2.1", true)
+			local oldAt, newAt = catchup:find(oldBody, 1, true), catchup:find(newBody, 1, true)
+			assert(oldAt and newAt and oldAt < newAt, "previous release before the current release")
+			eq(Lt.IsRead("1.2.0"), false, "reading text alone does not mark it shown")
+			InCombatLockdown = function() return true end
+			eq(Lt.Ask("update"), false)
+			eq(Lt.IsRead("1.2.0"), false, "a blocked popup does not consume the old letter")
+			InCombatLockdown = function() return false end
+			ns.Consent.Show():Hide()
+			eq(Lt.Ask("update"), true)
+			eq(Lt.Frame().body:GetText(), catchup)
+			eq(Lt.IsRead("1.2.0"), true); eq(Lt.IsRead("1.2.1"), true)
+			Lt.Hide()
+			eq(Lt.Ask("update"), false, "no repeated catch-up popup")
+			eq(Lt.Show("1.2.1"), true)
+			eq(Lt.Frame().body:GetText(), newBody, "history opens only the requested release")
+			eq(Lt.Show("1.2.0"), true)
+			eq(Lt.Frame().body:GetText(), oldBody)
+		end)
+		WithLetters(function(w)
+			local Lt = w.Letters
+			ns.db.lettersRead = { ["1.2.0"] = true }
+			ns.Consent.Show():Hide()
+			eq(Lt.Ask("update"), true)
+			eq(Lt.Frame().body:GetText(), select(2, Lt.Text("1.2.1")), "read old release is not repeated")
+		end)
+	end)
+
+	test("1.2.1 version letters: feature markers draw existing game art, missing art becomes words, unknown markers stay literal", function()
+		WithLetters(function(w)
+			local Lt = w.Letters
+			local U, savedFirst, savedFileID = ns.UI, ns.UI.FirstTexture, GetFileIDFromPath
+			local ok, err = pcall(function()
+				GetFileIDFromPath = function() return nil end
+				eq(Lt.DrawMarks("{dice}"), rawget(L, "LETTER_MARK_DICE") or "Bones:", "real resolver's unavailable last fallback is text")
+				GetFileIDFromPath = function() return 301 end
+				U.FirstTexture = function(paths) return paths[1] end
+				local dice = "|TInterface\\Buttons\\UI-GroupLoot-Dice-Up:16:16|t"
+				eq(Lt.DrawMarks("- {dice} Learn with the innkeeper"), "- " .. dice .. " Learn with the innkeeper")
+				for _, marker in ipairs({ "team", "guild", "church", "craft", "crown", "watch", "wanted", "news" }) do
+					local drawn = Lt.DrawMarks("{" .. marker .. "}")
+					assert(drawn:find("|TInterface\\", 1, true), marker .. ": uses game art")
+				end
+				eq(Lt.DrawMarks("{unrecognized}"), "{unrecognized}")
+				U.FirstTexture = function() return nil end
+				eq(Lt.DrawMarks("{dice}"), rawget(L, "LETTER_MARK_DICE") or "Bones:", "unavailable file becomes text")
+				U.FirstTexture = function() error("asset lookup unavailable") end
+				eq(Lt.DrawMarks("{team}"), rawget(L, "LETTER_MARK_TEAM") or "Chat:", "failed asset lookup becomes text")
+			end)
+			U.FirstTexture = savedFirst
+			GetFileIDFromPath = savedFileID
+			if not ok then error(err, 0) end
 		end)
 	end)
 
@@ -59851,6 +59942,8 @@ end)()
 			-- zone and layer's, was never answered.)
 			ns.Consent.Show():Hide()
 			local boxes = EditBoxes()
+			-- Capture the unread catch-up before showing it marks both versions as read.
+			local title, body = Lt.Text(ns.VERSION, true)
 			w.run()
 			local f = OlympusLetterFrame
 			assert(f and f:IsShown(), "shown")
@@ -59859,7 +59952,6 @@ end)()
 			Harness.Win.UnderBar(f, { head = f.head, box = f.box }, "the letter")
 			eq(f.titleText, L.LETTER_TITLE:format(ns.VERSION))
 			eq(f.head:GetText(), L.LETTERS_TITLE)
-			local title, body = Lt.Text(ns.VERSION)
 			eq(f.title:GetText(), title); eq(f.body:GetText(), body); eq(f.sign:GetText(), L.LETTER_SIGNED)
 			eq(f.box.template, "InsetFrameTemplate", "a compartment as the window's own")
 			eq(f.paper.texture, ns.UI.FirstTexture(ns.UI.PARCHMENTS), "parchment in it"); eq(f.paper:GetParent(), f.box)
@@ -59887,23 +59979,20 @@ end)()
 		end)
 	end)
 
-	-- (Changed on purpose, the 1.1.5 review: a first session showed none, taken for a new install. On
-	-- WoW: Forever's beta, which never loads the saved variables back, every session is a first one,
-	-- so the letter never showed by itself there; it now shows as after an update.)
-	test("1.1.5 version letters: a first session shows it too (the Forever beta, whose saved variables never load, has nothing else); a version with no letter shows none", function()
+	-- Deliberate UX change: a lost account database is indistinguishable from a fresh install.
+	-- Neither justifies claiming an upgrade or reading a letter the player never saw. Silence
+	-- the automatic notice, retain a separate version baseline, and keep manual history available.
+	test("1.2.1 version letters: a first or unknown session stays quiet without marking the letter read; a version with no letter shows none", function()
 		for _, sessions in ipairs({ 1, 0 }) do
 			WithLetters(function(w)
 				ns.db.sessions = sessions -- (Core.lua counts the account's sessions: 1 at every login on the beta)
 				local Lt = w.Letters
 				w.login()
-				eq(Lt.IsRead(ns.VERSION), false, "still to show")
-				local a = w.after[1]
-				assert(a and a.sec == Lt.LOGIN_WAIT, "after login, as after an update")
-				ns.Consent.Show():Hide() -- (the privacy page asked first, and closed)
-				w.run()
-				assert(Lt.Frame() and Lt.Frame():IsShown(), "shown")
-				eq(Lt.Frame().version, ns.VERSION)
-				eq(ns.db.lettersRead[ns.VERSION], true, "then read for the session's account")
+				eq(Lt.IsRead(ns.VERSION), false, "not falsely marked read")
+				eq(ns.db.lettersAutoVersion, ns.VERSION, "separate automatic baseline")
+				eq(#w.after, 0); eq(#w.every, 0, "no idle retry timer")
+				w.tick(); eq(Lt.Ask("login"), false)
+				eq(Lt.Frame(), nil, "no automatic popup")
 			end)
 		end
 		WithLetters(function(w)
@@ -59917,6 +60006,101 @@ end)()
 			ns.VERSION = savedVersion
 			if not ok then error(err, 0) end
 		end)
+	end)
+
+	test("1.2.1 version letters: two empty-database logins stay quiet, but manual history and gamepad reading remain available", function()
+		for login = 1, 2 do
+			WithLetters(function(w)
+				ns.db.sessions = 1 -- a fresh real module and forgotten saved state on each login
+				GamepadStyle(true)
+				w.login(); w.run(); w.tick()
+				eq(#w.after, 0); eq(#w.every, 0); eq(w.Letters.Frame(), nil)
+				eq(w.Letters.IsRead(ns.VERSION), false)
+				if login == 2 then
+					local f = w.Letters.ShowHistory()
+					eq(f:IsShown(), true); eq(w.Letters.IsRead(ns.VERSION), false, "history list is not reading")
+					eq(w.Letters.Show(ns.VERSION), true)
+					eq(w.Letters.IsRead(ns.VERSION), true, "only the actual letter marks read")
+					eq(f.version, ns.VERSION)
+					for _, name in ipairs(UISpecialFrames) do assert(name ~= "OlympusLetterFrame", "gamepad owns its escape path") end
+					f.done:Click(); eq(f:IsShown(), false)
+				end
+			end)
+		end
+	end)
+
+	test("1.2.1 version letters: retained baseline survives actual module reload without consuming unread history or replaying test builds", function()
+		local baseline, read
+		WithLetters(function(w)
+			ns.db.sessions = 1; w.login()
+			baseline, read = ns.db.lettersAutoVersion, ns.db.lettersRead
+			eq(baseline, ns.VERSION); eq(w.Letters.IsRead(ns.VERSION), false)
+		end)
+		WithLetters(function(w)
+			ns.db.sessions, ns.db.lettersAutoVersion, ns.db.lettersRead = 2, baseline, read
+			local savedBuild = ns.TEST_BUILD
+			local ok, err = pcall(function()
+				for _, n in ipairs({ 1, 2 }) do
+					ns.TEST_BUILD = { n = n, base = ns.VERSION }
+					w.login(); w.tick()
+					eq(#w.after, 0); eq(#w.every, 0)
+					eq(w.Letters.IsRead(ns.VERSION), false, "same release, different test build is not an update")
+					eq(w.Letters.Frame(), nil)
+				end
+				eq(w.Letters.Show("1.1.5"), true)
+				eq(ns.db.lettersAutoVersion, baseline, "reading an older letter does not reset the baseline")
+				eq(w.Letters.IsRead(ns.VERSION), false)
+			end)
+			ns.TEST_BUILD = savedBuild
+			if not ok then error(err, 0) end
+		end)
+	end)
+
+	test("1.2.1 version letters: a genuine retained version upgrade shows once after privacy, then stays quiet across actual module reload", function()
+		local savedVersion, baseline, read = ns.VERSION
+		local ok, err = pcall(function()
+			ns.VERSION = "1.2.0"
+			WithLetters(function(w)
+				ns.db.sessions = 1; w.login()
+				baseline, read = ns.db.lettersAutoVersion, ns.db.lettersRead
+				eq(baseline, "1.2.0"); eq(w.Letters.IsRead("1.2.0"), false)
+			end)
+			ns.VERSION = savedVersion
+			WithLetters(function(w)
+				ns.db.sessions, ns.db.lettersAutoVersion, ns.db.lettersRead = 2, baseline, read
+				w.login(); eq(w.after[1].sec, w.Letters.LOGIN_WAIT); eq(#w.every, 1)
+				ns.Consent.Show():Hide(); w.run()
+				eq(w.Letters.Frame():IsShown(), true); eq(w.Letters.Frame().version, savedVersion)
+				eq(w.Letters.IsRead("1.2.0"), true, "unread previous letter included before current release")
+				eq(w.Letters.IsRead(savedVersion), true)
+				baseline, read = ns.db.lettersAutoVersion, ns.db.lettersRead
+				w.Letters.Hide(); w.tick(); eq(w.every[1].cancelled, true)
+			end)
+			WithLetters(function(w)
+				ns.db.sessions, ns.db.lettersAutoVersion, ns.db.lettersRead = 3, baseline, read
+				w.login(); eq(#w.after, 0); eq(#w.every, 0); eq(w.Letters.Frame(), nil)
+			end)
+		end)
+		ns.VERSION = savedVersion
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.2.1 version letters: a downgrade is not an update; malformed legacy baseline cannot break unread notification", function()
+		WithLetters(function(w)
+			ns.db.lettersAutoVersion = "1.2.2"
+			w.login(); eq(#w.after, 0); eq(#w.every, 0)
+			eq(w.Letters.IsRead(ns.VERSION), false)
+			eq(w.Letters.Show(ns.VERSION), true, "manual current letter stays available")
+		end)
+		for _, baseline in ipairs({ {}, true, "broken", string.rep("1", 100) }) do
+			WithLetters(function(w)
+				ns.db.lettersAutoVersion = baseline
+				w.login(); eq(#w.after, 1); eq(#w.every, 1, "healthy legacy account keeps its unread notice")
+				ns.Consent.Show():Hide(); w.run()
+				eq(w.Letters.Frame():IsShown(), true)
+				eq(ns.db.lettersAutoVersion, ns.VERSION, "actual showing repairs the baseline")
+			end)
+		end
 	end)
 
 	test("1.1.5 version letters: never in combat, an instance or outside an Olympus guild, nor while the privacy page shows or still has a line to ask; then the minute's try shows it", function()
@@ -59958,7 +60142,7 @@ end)()
 			eq(f.title:IsShown(), false); eq(f.body:IsShown(), false); eq(f.all:IsShown(), false)
 			local versions = Lt.Versions()
 			eq(#versions, #Lt.LIST, "a letter for every version listed")
-			eq(table.concat(versions, " "), "1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
+			eq(table.concat(versions, " "), "1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
 			for i, v in ipairs(versions) do
 				local r = f.rows[i]
 				eq(r:IsShown(), true); eq(r.version, v)
@@ -59966,13 +60150,16 @@ end)()
 				eq(r.text:GetText():find(L.LETTERS_CURRENT, 1, true) ~= nil, v == ns.VERSION, v .. ": this version marked")
 			end
 			-- A click: that version's letter, read; All letters: the list again.
-			f.rows[5]:Click() -- (1.1.2's, fifth since 1.1.6's letter)
+			local oldRow
+			for _, r in ipairs(f.rows) do if r.version == "1.1.2" then oldRow = r break end end
+			assert(oldRow, "the 1.1.2 history row")
+			oldRow:Click()
 			eq(f.mode, "letter"); eq(f.version, "1.1.2"); eq(f.titleText, L.LETTER_TITLE:format("1.1.2"))
 			eq(f.body:GetText(), select(2, Lt.Text("1.1.2"))); eq(f.all:IsShown(), true)
 			eq(Lt.IsRead("1.1.2"), true)
 			for _, r in ipairs(f.rows) do eq(r:IsShown(), false, "no row over the letter") end
 			f.all:Click()
-			eq(f.mode, "list"); eq(f.rows[5]:IsShown(), true); eq(f.body:IsShown(), false)
+			eq(f.mode, "list"); eq(oldRow:IsShown(), true); eq(f.body:IsShown(), false)
 			-- Its X in combat: hidden all the same (HideUIPanel would do nothing there).
 			InCombatLockdown = function() return true end
 			f.CloseButton:Click()
@@ -60208,7 +60395,8 @@ end)()
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
 			assert(doc:find("**Version letters** (1.1.5)", 1, true), path .. ": the letters")
-			assert(doc:find("On the Forever beta, whose saved variables never load, it shows again every session", 1, true), path .. ": the letters on the beta")
+			assert(doc:find("Without saved history the letter stays quiet and unread", 1, true), path .. ": unknown history is not an update or a read")
+			assert(doc:find("it cannot detect updates; manual history stays available without repeat login popups", 1, true), path .. ": the beta persistence limitation")
 			assert(doc:find("| `/oly letters [version]` |", 1, true), path .. ": the command")
 			assert(doc:find("**Marks in the game's own chat (1.1.5).**", 1, true), path .. ": the marks")
 			assert(doc:find("in the guild their own Olympus messages speak for (someone else's report alone proves nothing", 1, true), path .. ": what proves a mark")
@@ -60708,4 +60896,8 @@ do
 end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
+if passed + failed == 0 then
+	io.stderr:write("No tests matched or were selected. Check the test filter or selection.\n")
+	os.exit(1)
+end
 os.exit(failed == 0 and 0 or 1)

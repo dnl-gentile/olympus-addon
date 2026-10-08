@@ -60,6 +60,11 @@ function UI.New(now, opts)
 		self:SetPoint("BOTTOMRIGHT", rel, "BOTTOMRIGHT", 0, 0)
 	end
 	function R:GetNumPoints() return #self.points end
+	-- Native Region:GetPoint (Forever client widget inventory, forever-api.lua:781).
+	function R:GetPoint(index)
+		local p = self.points[index or 1]
+		if p then return p.point, p.rel, p.relPoint, p.x, p.y end
+	end
 	function R:SetSize(w, h) assert(type(w) == "number" and type(h) == "number", "SetSize"); self.w, self.h = w, h end
 	function R:SetWidth(w) assert(type(w) == "number", "SetWidth"); self.w = w end
 	function R:SetHeight(h) assert(type(h) == "number", "SetHeight"); self.h = h end
@@ -276,7 +281,26 @@ function UI.New(now, opts)
 		return math.max(0, (self.scrollChild and self.scrollChild:GetHeight() or 0) - self:GetHeight())
 	end
 
-	local KINDS = { Frame = F, Button = B, CheckButton = CB, Cooldown = CD, GameTooltip = F, ScrollFrame = S }
+	-- Olympus's own chat input uses these standard EditBox methods (the exact existing main
+	-- ChatWindow.lua box, and Forever's SimpleEditBoxAPI in fixtures/forever-api.lua).
+	local EB = setmetatable({}, { __index = F })
+	function EB:SetAutoFocus(on) self.autoFocus = on end
+	function EB:SetFontObject(font) self.font = font end
+	function EB:SetMaxBytes(n) self.maxBytes = n end
+	-- EditBox.SetMaxLetters is in Forever's native API fixture, used by main ChatWindow's Search.
+	function EB:SetMaxLetters(n) self.maxLetters = n end
+	function EB:SetTextInsets(left, right, top, bottom) self.textInsets = { left, right, top, bottom } end
+	function EB:SetAltArrowKeyMode(on) self.altArrow = on end
+	function EB:GetText() return self.text or "" end
+	function EB:SetText(text)
+		self.text = text
+		local fn = self:GetScript("OnTextChanged"); if fn then fn(self, false) end
+	end
+	function EB:Insert(text) self:SetText(self:GetText() .. text) end
+	function EB:HasFocus() return self.focus == true end
+	function EB:SetFocus() self.focus = true; local fn = self:GetScript("OnEditFocusGained"); if fn then fn(self) end end
+	function EB:ClearFocus() self.focus = false; local fn = self:GetScript("OnEditFocusLost"); if fn then fn(self) end end
+	local KINDS = { Frame = F, Button = B, CheckButton = CB, Cooldown = CD, GameTooltip = F, ScrollFrame = S, EditBox = EB }
 	function K.CreateFrame(kind, name, parent, template)
 		local cls = KINDS[kind]
 		if not cls then error("CreateFrame: no stand-in for " .. tostring(kind)) end

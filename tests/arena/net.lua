@@ -3055,9 +3055,8 @@ test("1.1.6 free play guides: permitted fixture retains the arena's four pages a
 	for k = 1, 4 do assert(#w:As(a, function() return UI.HowToParas(k) end) >= 3, "page " .. k) end
 end)
 
--- The owner, "the mock data is missing": on a test build the screens read the sim's sample data
--- where the real modules have nothing (the showcase), without the sim; a player's client does not.
-test("1.2 the showcase: a test build's screens show the sample data where nothing real is there; a player's show nothing", function()
+-- Release-test metadata permits explicit simulation, never unsolicited invented results.
+test("1.2 the showcase: a test build's empty real screens stay empty outside explicit simulation", function()
 	local w = World.New()
 	local t = w:Client("Wenna Crale", { testBuild = TestBuild(w) })
 	local p = w:Client("Lida Fenn")
@@ -3065,8 +3064,9 @@ test("1.2 the showcase: a test build's screens show the sample data where nothin
 	w:As(p, function() p.slashes.OLYMPUS("arena") end)
 	eq(t.Arena.Sim(), false, "not the sim")
 	local tr = w:As(t, function() return t.ns.ArenaHome.Data.Rankings("all", "A", 1) end)
-	assert(tr and #(tr.rows or {}) > 0, "the test build: sample rankings")
-	assert(#(w:As(t, function() return t.ns.ArenaHome.Data.Events() end) or {}) > 0, "and sample events")
+	eq(#((tr or {}).rows or {}), 0, "test metadata does not invent rankings")
+	eq(#(w:As(t, function() return t.ns.ArenaHome.Data.Events() end) or {}), 0, "or events")
+	eq(t.ns.ArenaHome.ShowcaseOn(), false)
 	local pr = w:As(p, function() return p.ns.ArenaHome.Data.Rankings("all", "A", 1) end)
 	eq(#((pr or {}).rows or {}), 0, "a player's client: nothing made up")
 	NoErrors(w)
@@ -3113,20 +3113,14 @@ test("1.2 the overflow audit: Kit.FitHeight sizes a pop-up from its text; a butt
 	eq(b.w, 200, "never shrunk here")
 end)
 
--- The owner: his own profile and History look lived in on a test build (the showcase): his own
--- sample fights, stakes and stats; never on a player's client.
-test("1.2 the showcase: the player's own profile and history have sample data on a test build", function()
+test("1.2 the showcase: a test build's own history and Bones history never acquire sample records on companion load", function()
 	local w = World.New()
 	local t = w:Client("Wenna Crale", { testBuild = TestBuild(w) })
 	w:As(t, function() t.slashes.OLYMPUS("arena") end)
-	local UI = t.companion.own.ArenaUI
-	local m = w:As(t, function() return UI.ProfileModel(nil) end)
-	assert(m and m.record and type(m.stats) == "table" and m.stats.bones, "his own record and stats")
 	local hist = w:As(t, function() return t.ns.ArenaHome.Data.History({ mine = true }) end)
-	assert(#hist >= 8 and #hist <= 12, "8 to 12 fights of his: " .. #hist)
-	local staked = 0
-	for _, h in ipairs(hist) do if h.stake then staked = staked + 1 end end
-	assert(staked > 0, "some staked")
+	eq(#hist, 0, "no invented fights or stakes")
+	eq(#w:As(t, function() return t.ns.ArenaHome.Data.BoneHistory() end), 0, "no invented Bones games")
+	eq(t.ns.ArenaHome.Source(), nil)
 	NoErrors(w)
 end)
 
@@ -3204,9 +3198,9 @@ test("1.2 P1.8 Bones entry: the full table is an in-world introduction with one 
 end)
 
 -- /oly games photos (the owner's slides): a test build's tour of the games' screens, its rolls
--- scripted (RandomRoll handed straight to the game's reader, never to chat), put back at the end;
+-- scripted through the companion's local roll function, never replacing the game's RandomRoll;
 -- refused on a player's client.
-test("1.2 /oly games photos: a test build's tour, its rolls scripted and RandomRoll put back; a player's client refuses", function()
+test("1.2 /oly games photos: a test build's tour scripts only local rolls; a player's client refuses", function()
 	local w = World.New()
 	local t = w:Client("Wenna Crale", { testBuild = TestBuild(w) })
 	local p = w:Client("Lida Fenn")
@@ -3218,20 +3212,83 @@ test("1.2 /oly games photos: a test build's tour, its rolls scripted and RandomR
 	eq(Printed(p, p.companion.own.ArenaUI and p.ns.L.ARENA_GAMES_PHOTOS_REFUSED or "?") > 0 or p.companion.loaded ~= true, true, "refused")
 	-- (the Olympus window itself is not built in the test world: its tab choice is a no-op here; a
 	-- step that fails ends the tour, so the rest runs only when every step works)
+	t.ns.UI = t.ns.UI or {}
 	t.ns.UI.SelectTab = function() end
 	w:As(t, function() t.slashes.OLYMPUS("games photos") end)
+	local duringTour = RandomRoll
 	eq(t.companion.own.ArenaUI.Kit.PhotoStaged(), true, "the windows on black while it runs")
 	local shots = 0
 	local wasShot = rawget(_G, "Screenshot")
 	Screenshot = function() shots = shots + 1 end
 	w:Run(200)
 	Screenshot = wasShot
-	eq(RandomRoll, mine, "RandomRoll put back")
+	eq(RandomRoll, mine, "the game's RandomRoll remains unchanged afterward")
+	eq(duringTour, mine, "the game's RandomRoll is not replaced even while the tour runs")
 	eq(t.companion.own.ArenaUI.Kit.PhotoStaged(), false, "the black stage taken away at the end")
+	eq(t.companion.own.Roll, nil, "the local roll delegate cleared at the end")
 	eq(rolled, 0, "nothing rolled for real")
 	assert(shots >= 17, "a shot a step: " .. shots .. " " .. tostring(t.companion.own.ArenaUI.lastPhotosError))
 	eq(Printed(t, t.ns.L.ARENA_GAMES_PHOTOS_DONE:format(shots)), 1, "done said")
 	RandomRoll = was
+end)
+
+test("1.2 /oly games photos: Escape and a failed step restore the local roll delegate", function()
+	for _, stop in ipairs({ "escape", "error" }) do
+		local w = World.New()
+		local t = w:Client("Wenna Crale", { testBuild = TestBuild(w) })
+		local own = w:As(t, function() return H.LoadCompanion(t.ns) end)
+		local previous = function() end
+		own.Roll = previous
+		t.ns.UI = { SelectTab = function() if stop == "error" then error("photo step failure") end end }
+		w:As(t, function()
+			eq(own.ArenaUI.GamesPhotos(), true, "tour accepted")
+			if stop == "escape" then
+				assert(own.Roll ~= previous, "the tour holds its own roll delegate")
+				local stage
+				for _, part in ipairs(t.frames) do
+					if part.frame:GetName() == "OlympusPhotoBackdrop" then stage = part.frame break end
+				end
+				assert(stage, "the backdrop Escape closes")
+				stage:Hide()
+				-- This world's Hide does not dispatch scripts: simulate the game's OnHide event.
+				stage:GetScript("OnHide")(stage)
+			end
+		end)
+		eq(own.Roll, previous, stop .. " restores the previous local delegate")
+		eq(own.ArenaUI.Kit.PhotoStaged(), false, stop .. " removes the stage")
+		w:Run(200)
+		eq(own.Roll, previous, "queued tour steps cannot change the restored delegate")
+		if stop == "error" then assert(tostring(own.ArenaUI.lastPhotosError):find("photo step failure", 1, true)) end
+	end
+end)
+
+test("1.2 /oly games photos: practice games use the companion's delegate or the native roll", function()
+	for _, scripted in ipairs({ true, false }) do
+		local w = FW.New()
+		local t = w:Player("Wenna Crale", { testBuild = TestBuild(w) })
+		local own = w:As(t, function() return H.LoadCompanion(t.ns) end)
+		local native, localRolls = {}, {}
+		t.globals.RandomRoll = function(low, high) native[#native + 1] = { low, high } end
+		if scripted then own.Roll = function(low, high) localRolls[#localRolls + 1] = { low, high } end end
+		w:As(t, function()
+			own.Farkle._.S.rulesSeen = true
+			own.Farkle.Open("practice")
+			local parts = own.Farkle._.parts()
+			parts.win:GetScript("OnShow")(parts.win)
+			parts.primary:GetScript("OnClick")(parts.primary, "LeftButton") -- Start
+			parts.primary:GetScript("OnClick")(parts.primary, "LeftButton") -- Roll
+			own.Bicho._.S.letterSeen = true
+			own.Bicho.Open()
+			own.Bicho.Draw()
+		end)
+		w:Run(0.7) -- The Lottery asks for its first prize after the draw's opening animation.
+		local calls = scripted and localRolls or native
+		eq(#calls, 2, "both practice games use the selected roll function")
+		eq(calls[1][1], 1); eq(calls[1][2], 46656, "Bones' six-die range")
+		eq(calls[2][1], 1); eq(calls[2][2], 10000, "the Lottery's prize range")
+		eq(#(scripted and native or localRolls), 0, "only the selected roll function runs")
+		NoErrors(w)
+	end
 end)
 
 -- (The 1.1.6 base: the gamepad gate's "photo" covers the companion's tours too, now that the audit

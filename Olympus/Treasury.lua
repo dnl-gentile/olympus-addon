@@ -2076,6 +2076,29 @@ function Treasury.PublicParts()
 end
 function Treasury.PublicShows(what) return (Treasury.PublicParts())[what] == true end
 
+-- Only provenance known public: an explicitly public balance part already received, or this
+-- character's own book with its actual sharing consent. A private/full copy is not proof that
+-- its spending was disclosed. Unknown stays nil; this never reads donor or dues fields.
+function Treasury.PublicSpending()
+	if not Treasury.PublicShows("balance") then return nil end
+	local amount, count, seen = 0, 0, {}
+	if CanSend() then
+		local b = BookOf(ns.me)
+		if b then amount, count, seen[OwnKey(ns.me)] = Treasury.Totals(b).allOut, 1, true end
+	end
+	for from, r in pairs(ns.rdb and ns.rdb.treasuryReports or {}) do
+		if type(r) == "table" and r.epoch == Treasury.EPOCH and type(r.part) == "table" and r.part.balance == true
+			and Treasury.IsKeeperName(from, r.guild) and not seen[OwnKey(from)] then
+			local n = tonumber(r.allOut)
+			if n and n == n and n >= 0 and n <= Treasury.MAX_COPPER then
+				amount, count = amount + math.floor(n), count + 1
+				seen[OwnKey(from)] = true
+			end
+		end
+	end
+	if count > 0 then return amount, count end
+end
+
 -- The King, a Steward, a keeper: who may hold the whole treasury (by the name the server stamps).
 local function Insider(name)
 	if type(name) ~= "string" or name == "" or ns.faction == "Horde" then return false end
@@ -2313,6 +2336,7 @@ function Treasury.HandlePrivate(dist, sender, text)
 	local kind, piece = text:match("^TW~(%w%w)~(C.+)$")
 	local def = kind and privateKinds[kind]
 	if not def or not def.to or not def.from or not def.to() or not def.from(sender) then return end
+	if def.piece and def.piece(piece) ~= true then return end
 	local whole = ns.Codec.Feed(privAsm, sender, piece, ns.Now())
 	if not whole or whole:sub(1, 3) ~= kind .. "~" then return end
 	def.handle("WHISPER", sender, whole)

@@ -45,6 +45,68 @@ local function DirectDeal(w, a, b, quantity, unit)
 	return r
 end
 
+test("1.2 craft requests: rejected private payloads cannot consume the deal sequence", function()
+	local w = World.New({ compliance = "shipped" })
+	local a, b = Cast(w)
+	local r = K.Request(w, a, ITEM, "Mooncloth", 2)
+	assert(b.Craft.Accept(r.id)); w:Run(0)
+	local who = b.name:lower()
+	local seen = r.seenActions[who]
+	b.Comm.Whisper(a.name, ("CR~1~%s~%d~offer~invalid"):format(r.id, seen + 999), nil, true, true); w:Run(0)
+	eq(r.terms, nil)
+	eq(r.seenActions[who], seen, "an invalid offer must not burn the replay window")
+	assert(b.Craft.ProposeTerms(r.id, "finished", 10000, 0, { source = "manual" }, { rail = "direct", payment = "trade" }))
+	w:Run(0); assert(r.terms, "the honest next offer still arrives")
+	seen = r.seenActions[who]
+	b.Comm.Whisper(a.name, ("CR~1~%s~%d~termok~999"):format(r.id, seen + 999), nil, true, true); w:Run(0)
+	eq(r.seenActions[who], seen)
+	assert(a.Craft.ConfirmTerms(r.id)); assert(b.Craft.ConfirmTerms(r.id)); w:Run(0)
+	assert(b.Craft.Start(r.id)); w:Run(0)
+	seen = r.seenActions[who]
+	b.Comm.Whisper(a.name, ("CR~1~%s~%d~deliver~2~10000~invalid"):format(r.id, seen + 999), nil, true, true); w:Run(0)
+	eq(r.delivery, nil); eq(r.seenActions[who], seen)
+	assert(b.Craft.Deliver(r.id, 2, 10000, "trade")); w:Run(0)
+	eq(r.state, "delivered")
+	local rb = K.Rec(w, b, r.id)
+	seen = rb.seenActions[a.name:lower()]
+	a.Comm.Whisper(b.name, ("CR~1~%s~%d~complete~2~9999"):format(r.id, seen + 999), nil, true, true); w:Run(0)
+	eq(rb.state, "delivered"); eq(rb.seenActions[a.name:lower()], seen)
+	assert(a.Craft.ConfirmDelivery(r.id)); w:Run(0)
+	eq(r.state, "completed"); eq(rb.state, "completed")
+	seen = r.seenActions[who]
+	local audits = #r.audit
+	b.Comm.Whisper(a.name, ("CR~1~%s~%d~cancel~replay"):format(r.id, seen), nil, true, true); w:Run(0)
+	eq(#r.audit, audits, "successful actions still advance the replay floor")
+	eq(r.state, "completed")
+	NoErrors(w)
+end)
+
+test("1.2 craft requests: malformed claim revisions leave the honest claim usable", function()
+	local w = World.New({ compliance = "shipped" })
+	local a, b = Cast(w)
+	local r = K.Request(w, a, ITEM, "Mooncloth", 2)
+	b.Comm.Whisper(a.name, ("CR~1~%s~999~claim~invalid~abcdef~%s"):format(r.id, b.guild), nil, true, true); w:Run(0)
+	eq(r.seenActions[b.name:lower()], nil)
+	assert(b.Craft.Accept(r.id)); w:Run(0)
+	eq(r.crafter, b.name, "a malformed revision cannot block the real winning claim")
+	NoErrors(w)
+end)
+
+test("1.2 craft requests: malformed accepted revisions leave the requester sequence usable", function()
+	local w = World.New({ compliance = "shipped" })
+	local a, b = Cast(w)
+	local r = K.Request(w, a, ITEM, "Mooncloth", 2)
+	assert(b.Craft.Accept(r.id)); w:Run(0)
+	local rb = K.Rec(w, b, r.id)
+	local who, seen = a.name:lower(), rb.seenActions[a.name:lower()]
+	a.Comm.Whisper(b.name, ("CR~1~%s~%d~accepted~invalid~%s"):format(r.id, seen + 999, rb.claimNonce), nil, true, true)
+	w:Run(0); eq(rb.seenActions[who], seen)
+	assert(b.Craft.ProposeTerms(r.id, "finished", 10000, 0, { source = "manual" }, { rail = "direct", payment = "trade" }))
+	w:Run(0); assert(a.Craft.ConfirmTerms(r.id)); assert(b.Craft.ConfirmTerms(r.id)); w:Run(0)
+	eq(rb.state, "terms", "the requester's next honest action still arrives")
+	NoErrors(w)
+end)
+
 print("CraftRequests: the board, the claim, the direct rail")
 
 test("1.2 craft requests: one logged card, one winning claim answered in private, an offer not lost as a replay, a direct sale completed on the crafter's recorded figures with 6%", function()

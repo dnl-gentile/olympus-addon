@@ -17,7 +17,8 @@ local L = ns.L
 -- for the Olympus chats (Channels.lua). What this client does with them:
 -- - Who may write, checked by every receiver against the name the server stamps: a public room,
 --   any verified member of an Olympus guild (level 2 or more while a bout of it is live); a 1v1
---   room (a private or direct fight, a Farkle table), its two players and its arbiter only. The
+--   fight room, its two players and its arbiter only. A table's Players is its two humans alone;
+--   its Everyone allows independently verified members when its real model permits spectators. The
 --   sender's own client refuses before the rules' yes, while net-off, and while the room is not
 --   open there (the player opened it, or takes part in the event).
 -- - A line shows only in a room open on this client, through Channels.Admit (the Olympus chats'
@@ -45,6 +46,9 @@ ArenaChat.GAP_PER_WRITER = 1  -- ...and one per writer heard in the room in the 
 ArenaChat.PER_MINUTE = 6      -- our lines a minute in one room, at most
 ArenaChat.FLOOD = 60          -- lines a minute a room shows, at most (the rest: a notice)
 ArenaChat.WRITER_WINDOW = 60
+ArenaChat.SEEN_MAX = 512
+ArenaChat.SENDERS_MAX = 256
+ArenaChat.MUTES_MAX = 100
 
 local rooms = {}   -- [room] = the room (below)
 local current      -- the room /ola speaks in (the last one opened)
@@ -57,10 +61,29 @@ local function Same(a, b) return type(a) == "string" and type(b) == "string" and
 -- The event behind a room (Arena.EventOf: a fight, a card, a tournament, a Farkle table), or nil.
 local function Event(room)
 	local A = ns.Arena
-	if type(room) ~= "string" or not A or not A.EventOf then return nil end
+	if type(room) ~= "string" or #room > 24 or not A or not A.EventOf then return nil end
+	local tableId = room:match("^(K[0-9a-z]+):all$") or room:match("^(K[0-9a-z]+)$")
+	if tableId then
+		local FT = ns.FarkleTable
+		local spec = FT and FT.ChatSpec and FT.ChatSpec(tableId)
+		if not spec then return nil end
+		local everyone = room ~= tableId
+		if everyone and not spec.spectators then return nil end
+		return { kind = "farkle", tableId = tableId, everyone = everyone, chatSpec = spec, public = everyone,
+			fighters = { A = spec.host, B = spec.guest }, arbiter = spec.arbiter, opener = spec.arbiter or spec.host,
+			mode = spec.mode, live = spec.live, over = not spec.live, state = spec.live and "L" or "done" }
+	end
 	return A.EventOf(room)
 end
 ArenaChat.Event = Event
+
+-- Stable room IDs: the legacy table id is always Players (private logged whispers), ':all'
+-- is Everyone on the table's existing public lane. 16-byte FT IDs + 4-byte suffix fit MD refs.
+function ArenaChat.TableRooms(id)
+	local ev = Event(id)
+	if not ev or ev.kind ~= "farkle" or not ev.live then return nil end
+	return { players = id, everyone = ev.chatSpec.spectators and id .. ":all" or nil }
+end
 
 -- Its state letter where the event's owner gives one (ev.state, or the fight's own st).
 local function State(room, ev)
@@ -76,7 +99,7 @@ local OVER = { F = true, V = true, N = true, W = true, over = true, done = true 
 local function Over(room, ev) return (type(ev) == "table" and ev.over == true) or OVER[State(room, ev) or ""] == true end
 local function Live(room, ev) return (type(ev) == "table" and ev.live == true) or State(room, ev) == "L" end
 
--- The people of a 1v1 room: its two players and its arbiter (the opener, or ev.arbiter).
+-- The people of a fight's 1v1 room: two players and arbiter; of Bones Players: the two players.
 local function Party(ev)
 	local out = {}
 	if type(ev) ~= "table" then return out end
@@ -86,6 +109,9 @@ local function Party(ev)
 		local name = type(p) == "table" and p.name or p
 		if type(name) == "string" and name ~= "" then out[#out + 1] = ns.FullName(name) end
 	end
+	-- Players is the two humans' conversation even on a legacy arbiter-owned table.
+	-- Its arbiter has Everyone, never the private bytes or an implicit third seat here.
+	if ev.kind == "farkle" then return out end
 	for _, who in ipairs({ ev.arbiter, ev.opener }) do
 		if type(who) == "string" and who ~= "" then
 			local dup = false
@@ -100,6 +126,15 @@ local function InParty(ev, name)
 	for _, n in ipairs(Party(ev)) do if Same(n, name) then return true end end
 	return false
 end
+
+function ArenaChat.MayRead(room, name)
+	local ev = Event(room)
+	if not ev then return false, "room" end
+	if not ns.IsMember() then return false, "member" end
+	if ev.kind == "farkle" and not ev.live then return false, "ended" end
+	if ev.public or InParty(ev, name or ns.me) then return true end
+	return false, "party"
+end
 -- Whether this client takes part in the event (a player of it, or its arbiter).
 function ArenaChat.TakesPart(room)
 	local ev = Event(room)
@@ -110,10 +145,22 @@ end
 -- Rooms (memory only)
 ---------------------------------------------------------------------------
 
+local function Count(map) local n = 0 for _ in pairs(map) do n = n + 1 end return n end
+local function Housekeep(r, now)
+	-- Same expiry windows as Channels.Admit. Never evict a live rate bucket/dedupe entry to
+	-- admit a new one: a hostile stream cannot reset its burst or cause a late duplicate.
+	for _, map in ipairs({ r.seen, r.mine }) do
+		for key, at in pairs(map) do if now - at > 120 then map[key] = nil end end
+	end
+	for key, bucket in pairs(r.buckets) do if now - bucket.t > 60 then r.buckets[key] = nil end end
+	for key, at in pairs(r.heard) do if now - at > ArenaChat.WRITER_WINDOW then r.heard[key] = nil end end
+end
+
 local function Prune()
 	local now = Now()
 	local list = {}
 	for id, r in pairs(rooms) do
+		Housekeep(r, now)
 		local ev = Event(id)
 		if not ev then
 			r.endedAt = r.endedAt or now
@@ -142,7 +189,8 @@ ArenaChat.Prune = Prune
 
 local function Room(id, make)
 	local r = rooms[id]
-	if r or not make then return r end
+	if r then Housekeep(r, Now()); return r end
+	if not make then return nil end
 	r = { id = id, lines = {}, muted = {}, buckets = {}, seen = {}, mine = {}, heard = {}, sent = {}, stats = {}, used = Now() }
 	rooms[id] = r
 	Prune()
@@ -152,6 +200,7 @@ ArenaChat.Room = function(id) return rooms[id] end
 
 -- Whether a room shows here: the player opened it, or takes part in its event.
 function ArenaChat.IsOpen(room)
+	if not ArenaChat.MayRead(room) then return false end
 	local r = rooms[room]
 	if r and r.open then return true end
 	return ArenaChat.TakesPart(room)
@@ -160,7 +209,7 @@ end
 -- Opens a room on this client (the Fight chat button): its lines are taken and shown from now on,
 -- and /ola speaks in it. Returns the room, or nil for an event this client does not know.
 function ArenaChat.Open(room)
-	if not Event(room) then return nil end
+	if not ArenaChat.MayRead(room) then return nil end
 	local r = Room(room, true)
 	if not r then return nil end
 	r.open, r.used = true, Now()
@@ -198,13 +247,14 @@ end
 
 -- The lines of a room as they show now: a muted name's and a net-off name's leave the view.
 function ArenaChat.Lines(room)
+	if not ArenaChat.MayRead(room) then return {} end
 	local r = rooms[room]
 	if not r then return {} end
 	local M = ns.Moderation
 	local out = {}
 	for _, e in ipairs(r.lines) do
 		local hidden = r.muted[Lower(e.sender)] or (M and M.Hides and M.Hides(e.sender, e.guild))
-		if not hidden then out[#out + 1] = e end
+		if not hidden and not e.del and not e.sendFailed then out[#out + 1] = e end
 	end
 	return out
 end
@@ -216,11 +266,27 @@ end
 -- Whether `name` may write in `room` (every receiver asks it of the sender the server stamps):
 -- public rooms, any member (Channels.Admit checks his verified rank on arrival); 1v1 rooms, the
 -- two players and the arbiter. Never a name the room's arbiter muted. Returns ok, why.
-function ArenaChat.MayWrite(room, name)
+local function VerifiedMember(name, guild)
+	local own = GetGuildInfo and GetGuildInfo("player")
+	guild = guild or (Same(name, ns.me) and own)
+	if not guild or not ns.IsFederation(guild) then return false end
+	local R = ns.Roster
+	if guild == own and R and R.Fresh and R.RankOf then
+		return R.Fresh() ~= nil and R.RankOf(name) ~= nil
+	end
+	local C, D = ns.Channels, ns.Data
+	local level, verified
+	if C and C.VerifiedLevel then level, verified = C.VerifiedLevel(name, guild) end
+	local source = D and D.AuthorizedRank and select(2, D.AuthorizedRank(name, guild))
+	return type(level) == "number" and level >= 1 and verified == true and source ~= "census"
+end
+function ArenaChat.MayWrite(room, name, guild)
 	local ev = Event(room)
 	if not ev then return false, "room" end
+	if ev.kind == "farkle" and not ev.live then return false, "ended" end
 	local r = rooms[room]
 	if r and r.muted[Lower(name)] then return false, "muted" end
+	if ev.kind == "farkle" and ev.everyone and not VerifiedMember(name, guild) then return false, "member" end
 	if ev.public == true then return true end
 	if InParty(ev, name) then return true end
 	return false, "party"
@@ -243,7 +309,7 @@ local function MaySend(room)
 	local ok, why = ArenaChat.MayWrite(room, ns.me)
 	if not ok then return false, why end
 	-- A live bout of a public event: members of level 2 and more only.
-	if ev.public == true and Live(room, ev) and ns.Channels and ns.Channels.MyLevel and ns.Channels.MyLevel() < 2 then return false, "level" end
+	if ev.kind ~= "farkle" and ev.public == true and Live(room, ev) and ns.Channels and ns.Channels.MyLevel and ns.Channels.MyLevel() < 2 then return false, "level" end
 	if A and A.Blocked and A.Blocked() then return false, "blocked" end
 	return true
 end
@@ -294,6 +360,33 @@ local function AlsoInChat(room, e)
 	pcall(DEFAULT_CHAT_FRAME.AddMessage, DEFAULT_CHAT_FRAME, L.ARENA_CHAT_LINE:format(room, ns.DisplayName(e.sender) or "?", e.text), 0.95, 0.55, 0.45)
 end
 
+-- Table chat alone uses Comm's runtime guard seam. ArenaNet's ordinary event queue does not
+-- carry a room audience guard; a queued Players line must never outlive its private audience.
+local function TableSend(kind, room, ev, body, target, done)
+	local A, C = ns.Arena, ns.Comm
+	local mode, dist = A.Mode(ev), target and "WHISPER" or A.Lane(A.Mode(ev), true)
+	if not dist then return false, "group" end
+	local opts = { dist = dist, to = target }
+	local why = A.Refusal(kind, mode, opts)
+	if why then return false, why end
+	local wire = ("%s~%s%d~%s"):format(kind, mode, A.PROTO, body)
+	if #room > 24 or #wire > 255 then return false, "long" end
+	local model, audience = ev.chatSpec.model, table.concat(Party(ev), "~"):lower()
+	local function Guard()
+		local live = Event(room)
+		if not live or not live.live or live.chatSpec.model ~= model or live.public ~= ev.public
+			or A.Mode(live) ~= mode or table.concat(Party(live), "~"):lower() ~= audience
+			or (target and not InParty(live, target)) or (not target and A.Lane(mode, true) ~= dist)
+			or A.Refusal(kind, mode, opts) then return false end
+		if kind == "EC" then return MaySend(room) == true end
+		return ArenaChat.MayRead(room) == true and ArenaChat.MayMute(room) == true
+	end
+	local guardOpts = { owner = ArenaChat, guard = Guard }
+	if target then return C.Whisper(target, wire, nil, false, true, done, guardOpts) end
+	if dist == "CHANNEL" then return C.SendChat(wire, done, {}, Guard) end
+	return C.Send(dist, wire, nil, false, true, done, guardOpts)
+end
+
 -- Says a line in a room (the panel's box, /ola). Returns true, or false and why (said to the player).
 function ArenaChat.Send(room, text)
 	room = room or current
@@ -334,12 +427,43 @@ function ArenaChat.Send(room, text)
 	local class = ClassCode()
 	local body = ("%s~%d~%s~%s~%s"):format(room, nextLine, class, GuildWord(guild), text)
 	local sent
+	local e, attempts = nil, {}
+	local function Completed(quiet)
+		if not e then return end -- immediate refusal before any own line was retained
+		local waiting, delivered = false, false
+		for _, attempt in ipairs(attempts) do
+			if attempt.accepted then
+				if not attempt.done then waiting = true elseif attempt.ok then delivered = true end
+			end
+		end
+		e.sendPending = waiting and true or nil
+		-- A successful native API call is not an acknowledgement from another client. Retain
+		-- partially delivered lines; only a wholly failed admission warns and leaves the view.
+		if not waiting and not delivered and not e.sendFailed then
+			e.sendFailed = true
+			ns.Print(L.ARENA_CHAT_NOT_SENT)
+		end
+		if not quiet then ns.Fire("ARENA_CHAT", room) end
+	end
+	local function QueueTable(target)
+		local attempt = {}
+		attempts[#attempts + 1] = attempt
+		local one, reason = TableSend("EC", room, ev, body, target, function(ok)
+			attempt.done, attempt.ok = true, ok == true
+			Completed()
+		end)
+		attempt.accepted = one == true
+		return one, reason
+	end
 	if ev.public == true then
-		sent, why = A.Send("EC", mode, body, { chat = true, logged = true })
+		if ev.kind == "farkle" then sent, why = QueueTable()
+		else sent, why = A.Send("EC", mode, body, { chat = true, logged = true }) end
 	else
 		for _, name in ipairs(Party(ev)) do
 			if not Same(name, ns.me) then
-				local one, w = A.Send("EC", mode, body, { to = name, logged = true })
+				local one, w
+				if ev.kind == "farkle" then one, w = QueueTable(name)
+				else one, w = A.Send("EC", mode, body, { to = name, logged = true }) end
 				sent = sent or one
 				why = why or w
 			end
@@ -353,8 +477,9 @@ function ArenaChat.Send(room, text)
 	r.sent[#r.sent + 1] = now
 	r.heard[Lower(ns.me)] = now
 	r.mine[nextLine .. "#" .. text] = now
-	local e = { t = ns.Now(), sender = ns.me, guild = guild, class = class ~= "" and class or nil, text = text, id = nextLine, mine = true }
+	e = { chat = room, t = ns.Now(), sender = ns.me, guild = guild, class = class ~= "" and class or nil, text = text, id = nextLine, mine = true }
 	Keep(r, e)
+	if ev.kind == "farkle" then Completed(true) end
 	AlsoInChat(room, e)
 	ns.Fire("ARENA_CHAT", room)
 	return true
@@ -386,23 +511,31 @@ local function OnChat(dist, sender, mode, body)
 	if C_ChatInfo and C_ChatInfo.SendAddonMessageLogged and C.DeliveredLogged and not C.DeliveredLogged() then return Drop("unlogged") end
 	-- 1v1 rooms by whisper, public ones on their public lane.
 	if ev.public == true and dist == "WHISPER" then return Drop("lane") end
+	if ev.kind == "farkle" and ev.public and dist ~= ns.Arena.Lane(mode, true) then return Drop("lane") end
 	if ev.public ~= true and dist ~= "WHISPER" then return Drop("lane") end
 	if not ArenaChat.IsOpen(room) then return Drop("closed") end
-	local ok, why = ArenaChat.MayWrite(room, sender)
+	local ok, why = ArenaChat.MayWrite(room, sender, guild)
 	if not ok then return Drop(why) end
 	text = ArenaChat.Clean(text)
 	if text == "" then return Drop("empty") end
 	local r = Room(room, true)
-	local level = ev.public == true and (Live(room, ev) and 2 or 1) or 0
+	local level = ev.public == true and (ev.kind ~= "farkle" and Live(room, ev) and 2 or 1) or 0
 	local now = Now()
+	local seenKey = sender .. "#" .. id .. "#" .. text
+	if (not r.seen[seenKey] and Count(r.seen) >= ArenaChat.SEEN_MAX)
+		or (not r.buckets[sender] and Count(r.buckets) >= ArenaChat.SENDERS_MAX) then return Drop("cache") end
 	local admitted, reason = ns.Channels.Admit(sender, guild, text, now,
-		{ id = id, level = level, buckets = r.buckets, seen = r.seen, mine = r.mine, stats = r.stats, where = room })
+		{ id = id, chat = room, line = id, level = level, buckets = r.buckets, seen = r.seen, mine = r.mine, stats = r.stats, where = room })
 	if not admitted then
 		-- (A line the player's block terms hide is kept, marked, as the Chat tab keeps it.)
-		if reason == "filtered" then Keep(r, { t = ns.Now(), sender = sender, guild = guild, class = class ~= "" and class or nil, text = text, id = id, hidden = true }) end
+		if reason == "filtered" then
+			Keep(r, { chat = room, t = ns.Now(), sender = sender, guild = guild, class = class ~= "" and class or nil, text = text, id = id, hidden = true })
+			ns.Fire("ARENA_CHAT", room)
+		end
 		return Drop(reason)
 	end
-	r.heard[Lower(sender)] = now
+	local writer = Lower(sender)
+	if r.heard[writer] or Count(r.heard) < ArenaChat.SENDERS_MAX then r.heard[writer] = now end
 	-- The room's flood guard: 60 lines a minute shown; past it the lines wait for the notice.
 	local shown = 0
 	r.times = r.times or {}
@@ -416,7 +549,7 @@ local function OnChat(dist, sender, mode, body)
 		return Drop("flood")
 	end
 	r.times[#r.times + 1] = now
-	local e = { t = ns.Now(), sender = sender, guild = guild, class = class ~= "" and class or nil, text = text, id = id }
+	local e = { chat = room, t = ns.Now(), sender = sender, guild = guild, class = class ~= "" and class or nil, text = text, id = id }
 	Keep(r, e)
 	stats.shown = stats.shown + 1
 	AlsoInChat(room, e)
@@ -439,6 +572,12 @@ end
 ---------------------------------------------------------------------------
 
 local function MayMute(ev, name)
+	if type(ev) == "table" and ev.kind == "farkle" then
+		local WC, M = ns.WatchChat, ns.Moderation
+		if (WC and WC.PowersBarred and WC.PowersBarred(name))
+			or (M and M.Hides and M.Hides(name, M.GuildOf and M.GuildOf(name)))
+			or (Same(name, ns.me) and M and M.SelfOff and M.SelfOff()) then return false end
+	end
 	return type(ev) == "table" and (Same(ev.opener, name) or Same(ev.arbiter, name) or Same(ev.promoter, name))
 end
 function ArenaChat.MayMute(room, name) return MayMute(Event(room), name or ns.me) end
@@ -446,21 +585,32 @@ function ArenaChat.MayMute(room, name) return MayMute(Event(room), name or ns.me
 function ArenaChat.Mute(room, name, on)
 	local ev = Event(room)
 	if not ev then return false, "room" end
+	if ev.kind == "farkle" and not ArenaChat.MayRead(room) then return false, "room" end
 	if not MayMute(ev, ns.me) then return false, "who" end
 	name = ns.Arena.Name(name)
 	if not name then return false, "name" end
 	local r = Room(room, true)
-	r.muted[Lower(name)] = on and true or nil
+	if on and not r.muted[Lower(name)] and Count(r.muted) >= ArenaChat.MUTES_MAX then return false, "cap" end
 	local body = ("%s~%s~%s"):format(room, name, on and "1" or "0")
 	local A = ns.Arena
 	local mode = A.Mode(ev)
-	if ev.public == true then
+	local sent
+	if ev.kind == "farkle" then
+		if ev.public then sent = TableSend("EM", room, ev, body)
+		else
+			for _, who in ipairs(Party(ev)) do
+				if not Same(who, ns.me) then sent = TableSend("EM", room, ev, body, who) or sent end
+			end
+		end
+		if not sent then return false, "send" end
+	elseif ev.public == true then
 		A.Send("EM", mode, body, {})
 	else
 		for _, who in ipairs(Party(ev)) do
 			if not Same(who, ns.me) then A.Send("EM", mode, body, { to = who }) end
 		end
 	end
+	r.muted[Lower(name)] = on and true or nil
 	ns.Fire("ARENA_CHAT", room)
 	return true
 end
@@ -470,10 +620,15 @@ local function OnMute(dist, sender, mode, body)
 	if not room or (flag ~= "1" and flag ~= "0") then return Drop("shape") end
 	local ev = Event(room)
 	if not ev or ns.Arena.Mode(ev) ~= mode then return Drop("room") end
+	if ev.kind == "farkle" then
+		if not ArenaChat.IsOpen(room) then return Drop("closed") end
+		if dist ~= (ev.public and ns.Arena.Lane(mode, true) or "WHISPER") then return Drop("lane") end
+	end
 	if not MayMute(ev, sender) then return Drop("who") end
 	name = ns.Arena.Name(name)
 	if not name then return Drop("name") end
 	local r = Room(room, true)
+	if flag == "1" and not r.muted[Lower(name)] and Count(r.muted) >= ArenaChat.MUTES_MAX then return Drop("cap") end
 	r.muted[Lower(name)] = flag == "1" or nil
 	ns.Fire("ARENA_CHAT", room)
 	return true
@@ -507,3 +662,17 @@ ns.Arena.Slash("chat", function(args)
 end, L.ARENA_HELP_CHAT)
 
 function ArenaChat.Reset() rooms, current = {}, nil end -- (tests)
+
+local WC = rawget(ns, "WatchChat")
+if WC and WC.RegisterSurface then
+	WC.RegisterSurface({ key = "bones", Chats = function()
+		local out = {}
+		for id in pairs(rooms) do
+			local ev = Event(id)
+			if ev and ev.kind == "farkle" and ArenaChat.MayRead(id) then out[#out + 1] = id end
+		end
+		return out
+	end, Lines = function(id)
+		return ArenaChat.MayRead(id) and rooms[id] and rooms[id].lines or {}
+	end, Changed = function(id) ns.Fire("ARENA_CHAT", id) end })
+end

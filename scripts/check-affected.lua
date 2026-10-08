@@ -1,10 +1,13 @@
 -- Conservative file dependencies. Whole monolithic setup/tests and gamepad always stay enabled.
 local M = {}
 local groups = {
-	bones = { "ArenaFarkle.lua", "bones-guide-routing.lua", "bones-hic-reuse.lua", "bones-innkeeper.lua", "bones-invalid-actions.lua", "bones-lesson.lua", "bones-lobby.lua", "bones-start-consent.lua",
-		"bones-result-card.lua", "bones-training.lua", "bones-venue.lua", "compliance.lua", "farkle-board.lua",
+	bones = { "ArenaFarkle.lua", "bones-board-layout.lua", "bones-campfire.lua", "bones-find-compact.lua", "bones-find-level.lua",
+		"bones-chat.lua", "bones-first-lesson-gates.lua", "bones-guide-routing.lua", "bones-hic-reuse.lua", "bones-innkeeper.lua",
+		"bones-invalid-actions.lua", "bones-lesson.lua", "bones-lobby.lua", "bones-practice-again.lua",
+		"bones-result-card.lua", "bones-start-consent.lua", "bones-table-chat.lua", "bones-training.lua",
+		"bones-venue.lua", "compliance.lua", "farkle-board.lua",
 		"farkle-ledger.lua", "farkle-table.lua", "games-ledger.lua", "house-move-regression.lua",
-		"match.lua", "net.lua", "places.lua", "player-ui-polish.lua", "ui-look-wave1.lua" },
+		"match.lua", "net.lua", "places.lua", "player-ui-polish.lua", "rehearsal-consent.lua", "ui-look-wave1.lua" },
 	watch = { "compliance.lua", "craft-requests.lua", "markets.lua", "net.lua", "role-chat-audiences.lua",
 		"tabards-v2.lua", "ui-look-wave1.lua", "wallet-release.lua" },
 }

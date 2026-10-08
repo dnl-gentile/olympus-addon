@@ -34,7 +34,7 @@ in game, stay in their test group, and are not release files.
 ## 2. One Windows client (observed)
 
 1. Quit World of Warcraft. Back up both addon folders and
-   `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.
+   `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`. Keep the backup outside `Interface/AddOns`.
 2. Verify the downloaded zip in PowerShell. The printed hash must equal the first field of the
    supplied `.sha256` file:
 
@@ -63,11 +63,12 @@ version loads without errors.
 
 ## 3. Mixed-version and multi-account session (observed)
 
-Use the same zip and SHA-256 on every tester. Start with practice currency and a party or raid;
-move to any real-value rehearsal only after the practice ledger reconciles.
+Use the same zip and SHA-256 on every tester. Use free games and a party or raid. Bets, gold
+stakes, entry-fee pots and paid Lottery tickets are not part of a beta or release. Do not bypass
+the gate to test dormant financial code on somebody's real character.
 
-The minimum useful session has two participants, the people responsible for directing and
-settling the session, a spectator, and one client on the previous public release. Also keep one
+The minimum useful session has two participants, an organizer, a spectator, and one client on
+the previous public release. Also keep one
 non-participant outside the group. Record each character, version, role, client flavor, gamepad
 state and join/leave time.
 
@@ -76,15 +77,64 @@ buttons and functions players really use:
 
 - a late join, leave and rejoin; `/reload` and a client disconnect during an open session;
 - an older client in the group and an older client outside it;
-- an unauthorized action, a repeated click, duplicate result and attempted double settlement;
+- an unauthorized action, a repeated click, duplicate result and attempted double recording;
 - a stale or delayed action, actions arriving in a different order, and a session closed early;
-- insufficient balance, an unavailable responsible player, cancellation, refund and recovery;
+- an unavailable participant, cancellation, disconnect and recovery;
 - gamepad and keyboard users together, combat/instance transitions, ignore/block and rate limits;
 - a ten-minute burst/soak with several simultaneous users, watching queues, memory and errors.
 
-After each money-moving scenario, reconcile the opening balance, accepted inputs, refunds, fees,
-payouts and closing balance independently on both sides. An unexplained difference is a failed
-gate, even when the UI looked correct.
+After each game, compare the players' results and history, then compare any permitted public
+summary on the spectator. An unexplained difference is a failed gate, even when the UI looked
+correct. Treasury contributions use their separate, normal manual mail/trade checks; they are
+not game stakes or prizes.
+
+For the 1.2.1 candidate, include these focused live checks:
+
+- Bones: two players exchange Players messages, then switch to Everyone with a spectator.
+  Private messages must never reach the spectator. Collapse/reopen the side panel; keep an
+  unfinished draft in each tab; repeat with gamepad mode. Disable spectators during a queued
+  public message: it must not be delivered. The innkeeper's practice has no multiplayer chat.
+  In `/oly arena sim boneschat`, check the red square/yellow arrow to the right of Sit Down,
+  including while the setup covers the table. It must remain clickable above the table's
+  surfaces; collapse restores the original width without an extra bar. Expanded chat must have
+  no world-visible seam between it and the table. Close the preview, then check that normal
+  pages show real records or honest empty lists, not sample opponents or results. Repeat with
+  `/oly arena sim off`; this empty layout preview is not proof of multiplayer routing.
+  After completing the innkeeper lesson, find an opponent outside an inn/camp: Find opens and
+  can search, but New Table remains blocked. Meet in the same mapped inn, at a real Forever
+  campfire with **Campfire Nearby** on each player, or at an explicitly registered Board camp
+  (`/oly camp`, requiring location consent). For a physical fire, keep location sharing off:
+  the open Play page must enable New Table when the effect appears and disable it when the
+  effect disappears, without reopening. No camp post or consent change should occur. A retained
+  camping benefit or a classic cooking fire alone is not enough. The first lesson still requires
+  the innkeeper. In a party and within ten yards, start
+  and finish a free game. Both players must see their result exactly once in Your Games,
+  including after a reload. Check an older retained ledger result whose detailed companion
+  history is missing; show only the details actually retained, without inventing a replay.
+- Chat: hide guild names through the gear. Normal, deleted and Bones table headers must follow
+  the choice without losing the draft. Tooltips and guild searches must still identify the guild.
+  Reload to check persistence, then show the names again. New native chat lines follow the
+  choice; previously printed native lines are unchanged. Other players see their own choice.
+- The Watch: create a timeout, appeal while a councillor is offline, then overlap online later.
+  The subject sees only "a moderator"; authorized staff retain the actor. A preview role grants
+  no permissions. Compare current timeout, appeal and decision once, without duplicate rows.
+- Wanted: each participant sends their own observed kill/death evidence to a reviewer. Unknown
+  identity is not accepted on a claimed guild alone. Publish the reviewed rankings; a trusted
+  relay should recover the unchanged signed word for a recipient that already pinned that
+  issuer independently. A new recipient without the pin cannot bootstrap from the relay.
+  Separately check local capture: with a moderator's name-only listing, a locally observed
+  Horde player's recent fatal killing blow against you should learn their GUID and add one
+  bounty, not two after retries. Nonfatal damage, animals, stale recaps and conflicting pinned
+  GUIDs must not count. Repeat without a prior listing to check automatic own-death discovery.
+  The Horde target list is local; another client's observation or Slayers publication does not
+  synchronize that list. A missing local recap is not proof that no PvP death occurred.
+- Weekly brief: as an ordinary member, open Realm > Your week, in five lines in the main
+  window. Check five readable sections on parchment, Back, switching tabs, and reopening;
+  repeat in gamepad mode. The personal brief must not appear in the Throne or as an automatic
+  popup after login/reload. No sharing setting changes; the separate public Board summary
+  must not reveal private dues or poll data.
+- Lottery: draw Mechanostrider and check its full label above, not across, the result numbers at
+  the normal and smaller UI scales. Keep the five-place animation and free tickets.
 
 The in-addon Director checklist is the session record. Mark each item Pass, Fail or Skip with a
 short observation, then copy its test report. A skip is not a pass.

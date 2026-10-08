@@ -59,8 +59,9 @@ end
 -- a game with a scripted throw (1 5 3 3 6 2, the 1 and the 5 picked) and its four How to play
 -- pages; the Lottery's grid with a beast picked and a stake, its three How to play pages and a
 -- practice draw's result (the odometer done); the arena's four How to play pages. The rolls are
--- scripted: while the tour runs RandomRoll hands its line straight to the game's own reader, so
--- nothing is rolled in chat; nothing is sent or saved. Each window closes after its shots.
+-- scripted through the companion's own roll delegate, which hands its line to the practice
+-- game's reader. RandomRoll stays the game's; nothing is rolled in chat, sent or saved.
+-- Each window closes after its shots.
 ---------------------------------------------------------------------------
 local BONES_THROW = 14785 -- /roll 1-46656 read as 1 5 3 3 6 2 (FarkleRules.Decode)
 local LOTTERY_ROLLS = { 4827, 1203, 7777, 350, 9061 }
@@ -78,7 +79,7 @@ local function ScriptedRoll(low, high)
 	C_Timer.After(0.4, function() if feed then ns.SafeCall("games photos roll", feed, line) end end)
 end
 local function Restore()
-	if realRoll then RandomRoll = realRoll; realRoll = nil end
+	own.Roll, realRoll = realRoll, nil
 	feed, rolls = nil, nil
 end
 local function Shot()
@@ -204,8 +205,8 @@ function ArenaUI.GamesPhotos()
 	-- (the gamepad gate's "photo": the author's photo modes are refused with the gamepad UI)
 	if not ns.Gate.Allowed("photo") then ns.Print(L.PHOTO_GAMEPAD) return false end
 	if tour or not (own.Farkle and own.Bicho) then return false end
-	realRoll = RandomRoll -- gp:photo
-	RandomRoll = ScriptedRoll
+	realRoll = own.Roll
+	own.Roll = ScriptedRoll
 	tour = { steps = Steps() }
 	-- (only the windows, on black: the stage; Escape ends the tour)
 	ArenaUI.Kit.PhotoStage(true, function() tour = nil Restore() CloseAll() end)

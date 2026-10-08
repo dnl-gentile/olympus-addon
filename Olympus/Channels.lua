@@ -203,6 +203,17 @@ end
 -- click opens the usual whisper and menu (to the name the server finds, ns.TellName). The
 -- text is sanitized again here: history comes from the SavedVariables too. bare (1.1.1, the
 -- Olympus tab): without "[Captains] ", the rest byte for byte the same.
+function Channels.ShowGuildNames()
+	return not (ns.db and ns.db.chatHideGuildNames == true)
+end
+
+function Channels.SetGuildNamesShown(shown)
+	if not ns.db then return false end
+	ns.db.chatHideGuildNames = shown == false or nil
+	ns.Fire("CHAT_SETTINGS_CHANGED")
+	return true
+end
+
 function Channels.FormatLine(tier, sender, guild, class, text, bare)
 	local name = ns.DisplayName(sender) or "?"
 	-- The High Council (the moderators, Core.lua): their colour. For everyone, as in 0.9.8, but the
@@ -225,8 +236,9 @@ function Channels.FormatLine(tier, sender, guild, class, text, bare)
 	-- 1.2: the marks other files put before the name (Channels.nameDecorators: the honour's chat
 	-- mark, ChatMarks.lua), inside the link's brackets like the Treasurer's coin.
 	name = Channels.Decorations(sender) .. name
-	return (bare and "" or "[" .. Label(tier) .. "] ") .. "|Hplayer:" .. (ns.TellName(sender) or "?") .. "|h[" .. name .. "]|h <"
-		.. tostring(guild or "?"):gsub("|", "||") .. ">: " .. Codec.SanitizeChat(text)
+	local guildLabel = Channels.ShowGuildNames() and (" <" .. tostring(guild or "?"):gsub("|", "||") .. ">") or ""
+	return (bare and "" or "[" .. Label(tier) .. "] ") .. "|Hplayer:" .. (ns.TellName(sender) or "?") .. "|h[" .. name .. "]|h"
+		.. guildLabel .. ": " .. Codec.SanitizeChat(text)
 end
 
 ---------------------------------------------------------------------------

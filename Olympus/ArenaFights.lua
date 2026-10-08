@@ -85,6 +85,8 @@ F.CODES = { dc = true, off = true, help = true, char = true, flee = true, late =
 local STATES = { A = true, O = true, S = true, C = true, Y = true, Z = true, L = true, B = true, R = true, F = true,
 	V = true, N = true, W = true }
 local ENDED = { F = true, V = true, N = true, W = true }
+local CARD_STATES = { P = true, L = true, D = true, X = true }
+local CARD_ENDED = { D = true, X = true }
 local LIVE = { C = true, Y = true, Z = true, L = true, B = true }
 local METHODS = { K = true, R = true, D = true, W = true, N = true, V = true }
 
@@ -267,15 +269,17 @@ end
 F.Involved = Involved
 
 -- Kept where it belongs (core while involved, else heavy or memory), in one place only.
-local function Prune(t, keep)
+local function Prune(t, keep, ended, protected)
 	local n, list = 0, {}
 	for id, r in pairs(t) do
 		n = n + 1
-		if type(r) == "table" and ENDED[r.st] then list[#list + 1] = { id = id, t = r.heardAt or 0 } end
+		if id ~= protected and type(r) == "table" and ended[r.st] then list[#list + 1] = { id = id, t = r.heardAt or 0 } end
 	end
-	if n <= keep then return end
-	table.sort(list, function(a, b) return a.t < b.t end)
-	for i = 1, math.min(#list, n - keep) do t[list[i].id] = nil end
+	if n <= keep then return n end
+	table.sort(list, function(a, b) return a.t < b.t or (a.t == b.t and a.id < b.id) end)
+	local remove = math.min(#list, n - keep)
+	for i = 1, remove do t[list[i].id] = nil end
+	return n - remove
 end
 local function Put(kind, r)
 	local mode = r.mode == "T" and "T" or "L"
@@ -290,11 +294,21 @@ local function Put(kind, r)
 	else home = memory; keep = kind == "cards" and F.CARDS_KEEP or F.MEM_KEEP end
 	home = home or memory
 	local places = { core, heavy, memory }
+	local fresh = home[id] == nil
+	local n = Prune(home, keep - (fresh and 1 or 0), kind == "cards" and CARD_ENDED or ENDED, id)
+	if fresh and n >= keep then
+		-- A known record may have changed involvement or loaded its companion. If its new home
+		-- is full, update its existing copy in place; never lose an active fight during migration.
+		local previous
+		for i = 1, 3 do if places[i] and places[i][id] then previous = places[i]; break end end
+		if not previous then return false, "capacity" end
+		home = previous
+	end
 	for i = 1, 3 do
 		if places[i] and places[i] ~= home then places[i][id] = nil end
 	end
 	home[id] = r
-	Prune(home, keep)
+	return true
 end
 F.Put = Put
 
@@ -515,7 +529,7 @@ function F.Take(dist, sender, mode, body)
 	local takeover = arb and Me(arb) and not direct and not Me(f.writer)
 	if arb and Me(arb) and not direct then f.writer = ns.me end
 	if takeover and f.marketSpecs == nil then f.marketSpecs = MarketSpecs(Has(fl, "p") and not Has(fl, "x"), nil) end
-	Put("fights", f)
+	if not Put("fights", f) then return Refuse("capacity") end
 	if takeover and f.st ~= "D" then
 		SendAF(f, true)
 		if f.B and f.marketSpecs and not Has(f.fl, "m") and OpenMarkets(f) then SendAF(f, true) end
@@ -550,7 +564,7 @@ function F.TakeDirect(f, sender, mode, fid, st, fl, bo, cat, A, B, w)
 		else
 			return Refuse("direct-state")
 		end
-		Put("fights", f)
+		if not Put("fights", f) then return Refuse("capacity") end
 		Changed(f, was)
 		return true
 	end
@@ -571,8 +585,8 @@ function F.TakeDirect(f, sender, mode, fid, st, fl, bo, cat, A, B, w)
 			if ok and type(gk) == "string" then f.A.gk = gk end
 		end
 	end
+	if not Put("fights", f) then return Refuse("capacity") end
 	c.state, c.fid = "set", fid
-	Put("fights", f)
 	Changed(f, nil)
 	return true
 end
@@ -904,7 +918,7 @@ function F.New(opts)
 		marketSpecs = marketSpecs, marketList = type(opts.markets) == "table" or nil }
 	if Me(A) then f.A.gk = f.A.gk or MyGk() end
 	if B and Me(B) then f.B.gk = f.B.gk or MyGk() end
-	Put("fights", f)
+	if not Put("fights", f) then return nil, "capacity" end
 	return fid
 end
 
@@ -2595,8 +2609,6 @@ end
 
 local Card = {}
 F.Card = Card
-local CARD_STATES = { P = true, L = true, D = true, X = true }
-local CARD_ENDED = { D = true, X = true }
 
 local function CleanTitle(s)
 	s = tostring(s or ""):gsub("[%c|~,]", ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -2625,10 +2637,11 @@ function Card.New(title, t0, opts)
 	local cid = Arena.NewId("N", function(id) return Find("cards", id) ~= nil end)
 	if not cid then return nil, "id" end
 	local store = Arena.Store(mode)
-	store.cardNo = (tonumber(store.cardNo) or 0) + 1
-	local c = { cid = cid, mode = mode, st = "P", fl = "", no = store.cardNo, t0 = tonumber(t0) or Now(), mapID = tonumber(opts.mapID) or 0,
+	local no = (tonumber(store.cardNo) or 0) + 1
+	local c = { cid = cid, mode = mode, st = "P", fl = "", no = no, t0 = tonumber(t0) or Now(), mapID = tonumber(opts.mapID) or 0,
 		zone = opts.zone, fids = {}, awards = {}, title = CleanTitle(title), promoter = ns.me, heardAt = Now() }
-	Put("cards", c)
+	if not Put("cards", c) then return nil, "capacity" end
+	store.cardNo = no
 	SendAN(c, true)
 	Watch()
 	return cid
@@ -2789,7 +2802,7 @@ local function OnCard(dist, sender, mode, body)
 	c.title = title ~= "-" and CleanTitle(title) or ""
 	c.heardAt = Now()
 	if CARD_ENDED[st] then c.endedAt = c.endedAt or c.heardAt else c.endedAt = nil end
-	Put("cards", c)
+	if not Put("cards", c) then return Refuse("capacity") end
 	if was ~= st then ns.Fire("ARENA_CARD", cid, st) end
 	Arena.Changed()
 end

@@ -539,6 +539,9 @@ bottom-to-top always gives the same tab order; changing role or debug view never
   before a name since 1.1.5: Olympus's marks show in the game's own chat instead, where players
   outside Olympus are ([Channels](#channels), `/oly chatmarks`). A click on a name whispers that
   player, in Olympus's whisper window.
+- The gear can hide the adjacent guild label on this client (shown by default), including in
+  the Bones table panel. Tooltips and guild search retain the guild; message identity and
+  permissions do not change. Already printed lines in the game's chat are not rewritten.
 - A line your block terms hide shows as a grey bubble, and a click shows it, marked. Over the
   lines, like the pinned line, how many your filter hides in the channel (no room while it hides
   none), and a click there shows them all (another hides them again). A link shows its tooltip
@@ -1362,8 +1365,9 @@ account, `/oly discord forget` drops this character's request and proof.
 - **Version letters** (1.1.5): after the addon updates, once a version, a short letter on
   parchment, in a window like the Olympus window's, says what changed in that version, in the
   dev's own words. It waits until the privacy page is closed, and never opens in combat, in a
-  dungeon or outside an Olympus guild. On the Forever beta, whose saved variables never load, it
-  shows again every session, as the privacy page asks again. The Olympus window's help button
+  dungeon or outside an Olympus guild. Without saved history the letter stays quiet and unread.
+  If the beta forgets saved data, it cannot detect updates; manual history stays available
+  without repeat login popups. With retained data, updates can show once. The Olympus window's help button
   (the **i** left of the X) keeps every letter: **Version letters** on its page lists them,
   newest first, and a click opens one; `/oly letters` (or `/oly letters 1.1.4`) does too. Nothing
   is sent: which letters you saw is kept on your computer, for your account.

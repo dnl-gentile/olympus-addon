@@ -1479,7 +1479,7 @@ local boardShown = false -- the Board (Board.lua, 1.1) shown instead of the Real
 -- Pages of the Realm tab (1.1): a module lists one in ns.RealmPages (Loot.lua's loot notes):
 -- { key, Link = function() return its link line, or nil end,
 -- Lines = function(q) return its lines end, tip = what its search finds (L.SEARCH_TIP_...) }.
--- A link line opens it in place of the tree.
+-- A link line opens it in place of the tree; beforeBoard places that link ahead of the Board.
 local pageShown -- the page shown instead of the Realm tree, or nil
 
 -- Another tab opened: the Realm opens on its tree again next time (our guild's members page, the
@@ -1510,6 +1510,10 @@ local function RealmPage(key)
 	return nil
 end
 function Views.PageShown() return pageShown end
+function Views.PageParchment()
+	local page = realmMode == "guilds" and not boardShown and pageShown and RealmPage(pageShown)
+	return type(page) == "table" and page.parchment == true
+end
 function Views.ShowPage(key)
 	pageShown = RealmPage(key) and key or nil
 	if pageShown then
@@ -1824,15 +1828,19 @@ local function RealmLines(s, q)
 		rebuilding = RebuildLines(lines)
 		if #lines > before and lines[before] then lines[before].gapAfter = true end
 	end
-	-- The Board (1.1, Board.lua) and the Realm's other pages (1.1, ns.RealmPages), one link each,
+	-- The member's week, the Board and the Realm's other pages, one link each,
 	-- close together with one gap after the last so the guilds stay in sight on the short list.
-	local links = {}
-	local board = not q and ns.Board and ns.Board.LinkLine and ns.Board.LinkLine()
-	if board then links[#links + 1] = board end
+	local links, trailing = {}, {}
 	for _, p in ipairs(not q and ns.RealmPages or {}) do
 		local link = p.Link and p.Link()
-		if link then links[#links + 1] = link end
+		if link then
+			local group = p.beforeBoard and links or trailing
+			group[#group + 1] = link
+		end
 	end
+	local board = not q and ns.Board and ns.Board.LinkLine and ns.Board.LinkLine()
+	if board then links[#links + 1] = board end
+	for _, link in ipairs(trailing) do links[#links + 1] = link end
 	if #links > 0 then
 		local prev = lines[#lines]
 		if prev then prev.gapAfter = not prev.pageLink end
@@ -2751,9 +2759,13 @@ function Views.RecruitLines()
 	-- "Showing 50 of 312 online", and which levels the next click searches.
 	WhoStatus(lines)
 	if #lines > 1 then lines[#lines].gapAfter = true end
-	-- Where to go (1.1, Fern's #20): what a member's census said (Recruit.Route), the King's gates
-	-- first (two answers agree on them), then the most free slots of the guilds /who found; a
-	-- click asks one of that guild's officers /who found online.
+	-- Where to go: confirmed gates, optional corroborated affinity, then room. The player
+	-- still chooses a click and the contact must have been found by this client's /who.
+	if ns.GuildCharter then
+		lines[#lines + 1] = { text = L.CHARTER_ORDER, gapAfter = true }
+		lines[#lines + 1] = { text = L.CHARTER_FRIEND_CHOOSE,
+			onClick = function() ns.GuildCharter.Prompt("friend") end, gapAfter = true }
+	end
 	local route = R.Route()
 	if route and #R.RouteOrder(route) > 0 then
 		lines[#lines + 1] = {
@@ -2790,6 +2802,9 @@ function Views.RecruitLines()
 				tt:AddLine(L.RECRUIT_ASK_TIP, 1, 1, 1, true)
 			end,
 		}
+		if ns.GuildCharter then
+			for _, row in ipairs(ns.GuildCharter.CardLines(g.name, true)) do lines[#lines + 1] = row end
+		end
 		for _, p in ipairs(g.members) do
 			local state = ""
 			local closed = R.NoContact(p.name)

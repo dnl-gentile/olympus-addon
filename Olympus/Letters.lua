@@ -12,12 +12,15 @@ local L = ns.L
 -- member of an Olympus guild (outside one the addon offers nothing but the Join Olympus screen),
 -- never in combat or an instance, and only while no first-open page shows or waits: the privacy
 -- page (Consent.lua) is asked first, and the letter waits until it is closed. Once a version,
--- saved per account (ns.db.lettersRead[version]). A first session shows it too: WoW: Forever's
--- beta client saves addon data but never loads it back, so there every session is a first one
--- (Core.lua's db.sessions is 1 each time), and taking that for a new install kept the letter from
--- ever showing by itself. There it shows again every session, as the privacy page asks again; a
--- real new install sees the running version's letter once. Only the running version's letter
--- shows by itself (the letters of versions a player skipped wait in the list).
+-- saved per account (ns.db.lettersRead[version]). A first/unknown session stays quiet: its
+-- installed version is an automatic baseline, not a claim that the letter was read. WoW:
+-- Forever's beta can write saved data without loading it, making every login look new. Without
+-- retained state an upgrade cannot be distinguished from that login, so the history remains
+-- available manually rather than opening the same letter every session. With retained state,
+-- a newer version can show once; a healthy legacy install still shows its unread update.
+-- Only the running version's letter
+-- shows by itself, except 1.2.1 also includes 1.2.0 first when that letter is unread. Older
+-- letters otherwise wait in the list. The history still opens each letter individually.
 -- The gamepad UI: Olympus's own frame, never the game's popup; nothing in it takes the keyboard
 -- (no edit box); it goes on the escape list only with mouse and keyboard (ns.EscapeCloses), and
 -- its X and Close hide it in either mode, in combat too (onCloseCallback, as the Olympus window).
@@ -36,7 +39,7 @@ local Letters = {}
 ns.Letters = Letters
 
 -- Every version with a letter, newest first.
-Letters.LIST = { "1.2.0", "1.1.5", "1.1.4", "1.1.3", "1.1.2", "1.1.1", "1.1.0" }
+Letters.LIST = { "1.2.1", "1.2.0", "1.1.5", "1.1.4", "1.1.3", "1.1.2", "1.1.1", "1.1.0" }
 Letters.LOGIN_WAIT = 60 -- after login (the privacy page asks at 45 s: Consent.LOGIN_WAIT)
 Letters.WIDTH, Letters.HEIGHT = 440, 470
 
@@ -48,11 +51,50 @@ local function Key(version) return "LETTER_" .. tostring(version):gsub("%.", "_"
 Letters.MARKS = { star = "member", gold = "gold", silver = "silver", bronze = "bronze" }
 Letters.MARK_SIZE = 16 -- (the chat's are 14 px, beside a smaller font)
 local MARK_WORDS = { star = "Star:", gold = "Gold dragon:", silver = "Silver dragon:", bronze = "Bronze dragon:" }
+-- The same game art already used by the innkeeper, chat and navigation; no new native UI calls.
+local ICON_PATHS = {
+	dice = { "Interface\\Buttons\\UI-GroupLoot-Dice-Up" },
+	team = { "Interface\\Icons\\UI_Chat", "Interface\\Icons\\INV_Misc_Note_01" },
+	guild = { "Interface\\Icons\\INV_Shirt_GuildTabard_01" },
+	church = { "Interface\\Icons\\Spell_Holy_PrayerOfFortitude", "Interface\\Icons\\INV_Misc_Book_09" },
+	craft = { "Interface\\Icons\\Trade_BlackSmithing" },
+	crown = { "Interface\\Icons\\INV_Crown_01", "Interface\\Icons\\INV_Crown_02" },
+	watch = { "Interface\\Icons\\INV_Misc_Eye_01" },
+	wanted = { "Interface\\Icons\\INV_BannerPVP_01" },
+	news = { "Interface\\Icons\\INV_Scroll_04" },
+}
+local ICON_WORDS = { dice = "Bones:", team = "Chat:", guild = "Guild:", church = "Church:",
+	craft = "Crafting:", crown = "Crown:", watch = "Watch:", wanted = "Wanted:", news = "News:" }
+
+local function IconMark(word)
+	local paths = ICON_PATHS[word]
+	if not paths then return nil end
+	if word == "wanted" and type(ns.Wanted) == "table" and type(ns.Wanted.Icon) == "function" then
+		local found, chosen = pcall(ns.Wanted.Icon)
+		if found and type(chosen) == "string" and chosen ~= "" then paths = { chosen } end
+	end
+	local U = ns.UI
+	local ok, path = false, nil
+	if type(U) == "table" and type(U.FirstTexture) == "function" then ok, path = pcall(U.FirstTexture, paths) end
+	-- FirstTexture returns its last fallback even when the lookup finds none. In a letter that
+	-- last missing file must become its localized word rather than an invisible texture.
+	if ok and type(path) == "string" and type(GetFileIDFromPath) == "function" then
+		local found, file = pcall(GetFileIDFromPath, path)
+		if not found or not file then ok = false end
+	end
+	if ok and type(path) == "string" and path ~= "" then
+		return ("|T%s:%d:%d|t"):format(path, Letters.MARK_SIZE, Letters.MARK_SIZE)
+	end
+	local said = rawget(L, "LETTER_MARK_" .. word:upper())
+	return type(said) == "string" and said ~= "" and said or ICON_WORDS[word]
+end
 
 -- A letter's text with its marks drawn (see the top of the file).
 function Letters.DrawMarks(text)
 	if type(text) ~= "string" then return text end
 	return (text:gsub("{(%a+)}", function(word)
+		local icon = IconMark(word)
+		if icon then return icon end
 		local mark = Letters.MARKS[word]
 		if not mark then return nil end
 		local B = ns.Borders
@@ -73,10 +115,18 @@ end
 
 -- A version's letter: its title and its text as the page shows them (its marks drawn), or nil when
 -- it has none.
-function Letters.Text(version)
+function Letters.Text(version, includePrevious)
 	local title, body = Strings(version)
 	if not title then return nil end
-	return Letters.DrawMarks(title), Letters.DrawMarks(body)
+	local previous
+	if includePrevious and version == "1.2.1" and not Letters.IsRead("1.2.0") then
+		local oldTitle, oldBody = Strings("1.2.0")
+		if oldTitle then
+			previous = "1.2.0"
+			body = table.concat({ oldTitle, oldBody, title, body }, "\n\n")
+		end
+	end
+	return Letters.DrawMarks(title), Letters.DrawMarks(body), previous
 end
 function Letters.Has(version) return Strings(version) ~= nil end
 
@@ -94,7 +144,31 @@ local function Read()
 	return db.lettersRead
 end
 function Letters.IsRead(version) return Read()[version] == true end
-function Letters.MarkRead(version) if version then Read()[version] = true end end
+function Letters.MarkRead(version)
+	if version then
+		Read()[version] = true
+		if version == ns.VERSION and type(ns.db) == "table" then ns.db.lettersAutoVersion = version end
+	end
+end
+
+local function AutoEligible()
+	local db = ns.db
+	if type(db) ~= "table" then return false end
+	-- Core increments this account's counter when saved variables load. Unknown history must
+	-- not impersonate an update, nor mark an unseen letter read to suppress the nuisance.
+	if type(db.sessions) ~= "number" or not (db.sessions > 1) then
+		db.lettersAutoVersion = ns.VERSION
+		return false
+	end
+	local baseline = db.lettersAutoVersion
+	if type(baseline) == "string" and #baseline <= 12 and baseline:match("^%d+%.%d+%.%d+$") then
+		local W = ns.Workshop
+		return W and not W.missing and type(W.Newer) == "function" and W.Newer(ns.VERSION, baseline) == true or false
+	end
+	-- Existing accounts predate the separate baseline. Their unread current letter retains
+	-- the established upgrade notice, until an actual show records it below.
+	return true
+end
 
 local function Busy()
 	return (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance()) and true or false
@@ -213,8 +287,8 @@ local function HideRows(f)
 end
 
 -- A version's letter on the page; true when it has one.
-function Letters.Show(version)
-	local title, body = Letters.Text(version)
+function Letters.Show(version, includePrevious)
+	local title, body, previous = Letters.Text(version, includePrevious)
 	if not title then return false end
 	local f = Frame()
 	HideRows(f)
@@ -242,6 +316,7 @@ function Letters.Show(version)
 	if f.scroll.SetVerticalScroll then f.scroll:SetVerticalScroll(0) end
 	f.all:Show()
 	Letters.MarkRead(version)
+	if previous then Letters.MarkRead(previous) end
 	f:Show()
 	return true
 end
@@ -298,21 +373,21 @@ function Letters.Hide() if frame then frame:Hide() end end
 -- By itself, once a version
 ---------------------------------------------------------------------------
 
--- The running version's letter, if it has one and it was never shown, when nothing keeps it
--- back (see the top of the file). True when it showed.
+-- A retained upgrade's running letter, if unread, when nothing keeps it back (see above).
+-- True when it showed. The manual history does not use this automatic eligibility check.
 function Letters.Ask(reason)
 	local v = ns.VERSION
-	if not Letters.Has(v) or Letters.IsRead(v) then return false end
+	if not Letters.Has(v) or Letters.IsRead(v) or not AutoEligible() then return false end
 	if ns.IsMember() ~= true or Busy() or PageFirst() then return false end
 	if frame and frame:IsShown() then return false end
 	ns.Log("version letter %s shown (%s)", tostring(v), tostring(reason or "?"))
-	return Letters.Show(v)
+	return Letters.Show(v, true)
 end
 
--- The running version's letter, if it was never shown on this account (a first session too: see
--- the top of the file), from LOGIN_WAIT after login, then on the minute until it could.
+-- A retained upgrade's unread letter, from LOGIN_WAIT after login, then on the minute until
+-- it could. A first/unknown login creates no deferred callbacks or polling timer.
 function Letters.OnLogin()
-	if not Letters.Has(ns.VERSION) or Letters.IsRead(ns.VERSION) then return end
+	if not Letters.Has(ns.VERSION) or Letters.IsRead(ns.VERSION) or not AutoEligible() then return end
 	ns.After(Letters.LOGIN_WAIT, "version letter", function() Letters.Ask("login") end)
 	ticker = ns.Every(60, "version letter", function()
 		if Letters.IsRead(ns.VERSION) then

@@ -2,7 +2,7 @@
 ## Title: |cffe6c35cOlympus|r
 ## Notes: Live census of every Olympus guild: army size, leaders and where everyone is on the map.
 ## Author: Olympus addon contributors
-## Version: 1.2.0
+## Version: 1.2.1
 ## SavedVariables: OlympusDB
 ## IconTexture: Interface\AddOns\Olympus\media\logo64
 ## X-License: MIT
@@ -29,6 +29,11 @@ Locales\ArenaLotteryText.lua
 Locales\ArenaMatchText.lua
 Locales\ComplianceText.lua
 Locales\ChurchText.lua
+Locales\WeeklyBriefText.lua
+Locales\GuildCharterText.lua
+Locales\MainKeyText.lua
+Locales\OfficerMusterText.lua
+Locales\DuesHistoryText.lua
 Core.lua
 GamepadRegistry.lua
 Gamepad.lua
@@ -59,6 +64,7 @@ Board.lua
 Week.lua
 Treasury.lua
 Dues.lua
+DuesHistory.lua
 Bank.lua
 Backup.lua
 Acts.lua
@@ -74,6 +80,7 @@ Versions.lua
 Ed25519.lua
 libs\QREncode\qrencode.lua
 Link.lua
+GuildCharter.lua
 Recruit.lua
 AnswerBank.lua
 Answers.lua
@@ -81,10 +88,12 @@ Views.lua
 Members.lua
 Nominees.lua
 UI.lua
+MainKey.lua
 Watch.lua
 Judgment.lua
 KingArrow.lua
 Consent.lua
+WeeklyBrief.lua
 ChatRooms.lua
 WarSquads.lua
 CraftRequests.lua
@@ -99,6 +108,7 @@ Borders.lua
 Nameplates.lua
 ChatWindow.lua
 WatchChat.lua
+OfficerMuster.lua
 Bridge.lua
 Wanted.lua
 ArenaMath.lua

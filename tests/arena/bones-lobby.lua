@@ -6,16 +6,20 @@ local function Near(actual, expected)
 	assert(math.abs(actual - expected) < 0.000001, "resolved coordinate expected " .. expected .. ", got " .. actual)
 end
 
-local function Client(trained, fn)
+local function Client(trained, fn, setup)
 	local w = FW.New({ compliance = "shipped" })
-	local a = w:Player(World.NAMES.fighterA, { bonesTrained = trained })
+	local a = w:Player(World.NAMES.fighterA, { bonesTrained = trained, companion = { state = "ok" } })
 	a.K = BoardUI.New(function() return w.clock end)
 	a.K.Install(a.globals)
 	-- Declare this client API before World:As snapshots globals, so the arrow case restores it.
 	a.globals.Minimap = a.globals.CreateFrame("Frame", nil, a.globals.UIParent)
 	w:Stand(a.name, FW.ROAD, false)
+	if setup then setup(w, a) end
 	w:As(a, function()
-		local own = H.LoadCompanion(a.ns)
+		-- Use the actual lazy-loader registration too: FindOpponent calls match.open, which
+		-- must reuse this companion instead of constructing a second untracked copy.
+		assert(a.ns.Arena.LoadUI())
+		local own = assert(a.companion.own)
 		local calls = 0
 		-- Observe this endpoint, not the training/venue checks themselves.
 		own.ArenaUI.Innkeeper = function() calls = calls + 1 end
@@ -43,8 +47,37 @@ test("Bones lobby: the real Play parchment explains the first lesson in steps, t
 		w:Stand(a.name, FW.INN, true); UI.Refresh()
 		local returning = canvas.letterBody:GetText()
 		assert(returning:find(L.FARKLE_LOBBY_RETURN, 1, true))
+		assert(returning:find("Find a Player from anywhere", 1, true), "the visible instructions separate search from the table's venue")
+		assert(returning:find("Forever campfire", 1, true), "the real native campfire is a table venue without a Board post")
+		assert(returning:find("registered Olympus camp", 1, true), "explicit Board camps remain supported too")
 		assert(not returning:find(L.FARKLE_LOBBY_FIRST, 1, true), "a completed lesson no longer asks for the first game")
 		eq(canvas.find:IsEnabled(), true); eq(FT.Live(), nil, "explaining the next step starts no game")
+	end)
+end)
+
+test("Bones lobby: New Table refreshes on own campfire aura changes without reopening or starting a game", function()
+	local present = false
+	Client(true, function(w, a, UI)
+		UI.Open("bone")
+		local newTable = UI.Frame().buttons[2]
+		eq(newTable:IsEnabled(), false)
+		local sent = #w:Sent({ from = a })
+		present = true
+		w:Fire(a, "UNIT_AURA", "player"); w:Run(2)
+		eq(newTable:IsEnabled(), true, "the grey button enables on entry into the campfire's range")
+		eq(UI.BoneFindReady(), true)
+		present = false
+		w:Fire(a, "UNIT_AURA", "party1"); w:Run(2)
+		eq(newTable:IsEnabled(), true, "another player's aura never triggers our venue refresh")
+		w:Fire(a, "UNIT_AURA", "player"); w:Run(2)
+		eq(newTable:IsEnabled(), false, "the same button disables on departure")
+		eq(UI.BoneFindReady(), true, "Find remains usable anywhere after training")
+		eq(a.ns.FarkleTable.Live(), nil); eq(#w:Sent({ from = a }), sent)
+	end, function(_, a)
+		a.globals.C_UnitAuras = { GetPlayerAuraBySpellID = function(spell)
+			eq(spell, 1283391)
+			return present and { spellId = spell } or nil
+		end }
 	end)
 end)
 
@@ -92,13 +125,25 @@ test("Bones lobby: a new table remains disabled at the inn until the real saved 
 	end)
 end)
 
-test("Bones lobby: returning players can browse anywhere, but an old Find callback rechecks the inn", function()
+test("Bones lobby: returning players can Find on the road, but New Table still needs a venue", function()
 	Client(true, function(w, a, UI, npcCalls)
 		UI.Open("bone")
 		local ok, why = UI.BonePlayReady(); eq(ok, false); eq(why, a.ns.L.FARKLE_LOG_TAVERN_REST)
-		ok, why = UI.FindOpponent("b"); eq(ok, false); eq(why, "tavern-rest")
-		ok, why = UI.OpenFind("b"); eq(ok, false); eq(why, "tavern-rest")
-		local buttons = UI.Pane("bone.play").buttons({ key = "bone.play" }); eq(buttons[2].enabled, false)
+		local buttons = UI.Pane("bone.play").buttons({ key = "bone.play" })
+		eq(buttons[1].enabled, true); eq(buttons[2].enabled, false)
+		eq(buttons[2].why, a.ns.L.FARKLE_LOG_TAVERN_REST)
+		local sent = #w:Sent({ from = a })
+		assert(a.K.UserClick(UI.Canvas("bone.play").find), "the actual parchment Find opens on the road")
+		assert(UI.FindFrame():IsShown()); UI.FindFrame():Hide()
+		assert(a.K.UserClick(UI.Frame().buttons[1]), "the actual footer Find opens on the road")
+		assert(UI.FindFrame():IsShown()); UI.FindFrame():Hide()
+		for _, row in ipairs(UI.Pane("bone.play").lines({})) do
+			if row.text:find(a.ns.L.ARENA_FIND_PLAYER, 1, true) then assert(row.onClick); row.onClick(); assert(UI.FindFrame():IsShown()) end
+			if row.text:find(a.ns.L.ARENA_BONE_NEW, 1, true) then eq(row.onClick, nil) end
+		end
+		eq(#w:Sent({ from = a }), sent, "opening Find itself sends nothing")
+		ok, why = a.ns.FarkleTable.CanCreate({ guest = World.NAMES.fighterB })
+		eq(ok, false); eq(why, "tavern-rest"); eq(a.ns.FarkleTable.Live(), nil)
 		w:Stand(a.name, FW.INN, true); UI.Refresh(); eq(UI.BonePlayReady(), true)
 		local find = assert(UI.OpenFind("b"))
 		-- Explicit search consent, as the sheet's share checkbox supplies it; no eligibility mock.
@@ -107,15 +152,52 @@ test("Bones lobby: returning players can browse anywhere, but an old Find callba
 		assert(can, "the cached search must really be eligible before departure: " .. tostring(reason))
 		eq(find.go:IsEnabled(), true)
 		local stale = assert(find.go:GetScript("OnClick"))
-		local sent = #w:Sent({ from = a })
 		w:Stand(a.name, FW.ROAD, false)
 		stale(find.go)
-		eq(select(1, a.ns.ArenaMatch.View()).state, "idle", "leaving cannot start the cached search action")
-		eq(find.line:GetText(), a.ns.L.FARKLE_LOG_TAVERN_REST)
-		w:Stand(a.name, FW.INN, true); a.ns.FarkleTable.Opts().innkeeperLearned = nil
+		eq(a.ns.ArenaMatch.View().state, "search", "the actual cached search works after leaving the inn")
+		w:Run(0)
+		assert(#w:Sent({ from = a }) > sent, "the actual matcher sends its search")
+		a.ns.ArenaMatch.Stop()
+		sent = #w:Sent({ from = a })
+		a.ns.FarkleTable.Opts().innkeeperLearned = nil
 		stale(find.go)
 		eq(a.ns.ArenaMatch.View().state, "idle"); eq(find.line:GetText(), a.ns.L.FARKLE_LOBBY_FIRST)
 		eq(#w:Sent({ from = a }), sent); eq(npcCalls(), 0)
+	end)
+end)
+
+test("Bones lobby: Find on the road still rechecks lockdown, instances, combat and the kill switch", function()
+	Client(true, function(w, a, UI)
+		local find = assert(UI.OpenFind("b"))
+		find.opts.share = true; UI.FindRefresh()
+		local stale = assert(find.go:GetScript("OnClick"))
+		local sent = #w:Sent({ from = a })
+		local function Refused(reason)
+			local ok, _, why = UI.BoneFindReady(); eq(ok, false); eq(why, reason)
+			ok, why = UI.FindOpponent("b"); eq(ok, false); eq(why, reason)
+			ok, why = UI.OpenFind("b"); eq(ok, false); eq(why, reason)
+			stale(find.go); eq(a.ns.ArenaMatch.View().state, "idle")
+			UI.Refresh(); eq(UI.Canvas("bone.play").find:IsEnabled(), false)
+			eq(#w:Sent({ from = a }), sent)
+		end
+		UI.Open("bone")
+		a.lockdown = true; Refused("blocked"); a.lockdown = nil
+		a.instance = true; Refused("blocked"); a.instance = nil
+		a.combat = true; Refused("combat"); a.combat = nil
+		a.ns.Arena.SetOff(true); Refused("off"); a.ns.Arena.SetOff(false)
+		UI.Refresh(); eq(UI.Canvas("bone.play").find:IsEnabled(), true)
+	end)
+end)
+
+test("Bones lobby: the legacy Start Playing button opens Find away from an inn without a table", function()
+	Client(true, function(w, a, UI)
+		local lab = a.companion.own.Farkle
+		lab.Open(); assert(lab.IsOpen())
+		local sent = #w:Sent({ from = a })
+		assert(a.K.UserClick(lab._.parts().intro.start))
+		assert(UI.FindFrame() and UI.FindFrame():IsShown(), "Start Playing opens the actual Find sheet on the road")
+		eq(a.ns.FarkleTable.Live(), nil)
+		eq(a.ns.ArenaMatch.View().state, "idle"); eq(#w:Sent({ from = a }), sent)
 	end)
 end)
 

@@ -190,14 +190,65 @@ test("1.1.6 Church: a seen-check only from a keeper, answered only with a fact, 
 	eq(select(2, w:As(c.wes, c.wes.Count.TakeCheck, A1, "NS~1~q~1~Never Seen~j")), "unknown")
 	-- Unknown check ids, a second answer from one client, more than eight: dropped.
 	eq(select(2, w:As(c.a1, c.a1.Count.TakeAnswer, "Wes Brook-Realm", "NS~1~a~zz~Olympus Ember~1~1~1")), "no check")
+	local expected = { [Key(c.wes.name)] = "roster" }
+	local responders = {}
+	for i = 2, 8 do
+		responders[i] = w:Client("Answer Er" .. ("x"):rep(i))
+		expected[responders[i].key] = "roster"
+	end
 	local checks = w:As(c.a1, c.a1.Count.OpenChecks)
-	checks.q1 = { cid = "q1", rid = "x:y", why = "j", sent = w.clock, answers = {}, from = {} }
+	checks.q1 = { cid = "q1", rid = "x:y", why = "j", sent = w.clock, answers = {}, from = {}, expected = expected }
 	eq(w:As(c.a1, c.a1.Count.TakeAnswer, "Wes Brook-Realm", "NS~1~a~q1~Olympus Ember~1~1~1"), true)
 	eq(select(2, w:As(c.a1, c.a1.Count.TakeAnswer, "Wes Brook-Realm", "NS~1~a~q1~Olympus Ember~1~1~1")), "twice")
-	for i = 2, 8 do w:As(c.a1, c.a1.Count.TakeAnswer, "Answer Er" .. ("x"):rep(i) .. "-Realm", "NS~1~a~q1~Olympus Ember~1~1~1") end
+	for i = 2, 8 do w:As(c.a1, c.a1.Count.TakeAnswer, responders[i].name, "NS~1~a~q1~Olympus Ember~1~1~1") end
 	eq(checks.q1, nil, "closed at eight answers")
 	-- The King's client answers no check.
 	eq(select(2, w:As(c.king, c.king.Count.TakeCheck, A1, "NS~1~q~2~Known Guy~j")), "king")
+end)
+
+local function SeenCheck(w, c)
+	local id = Key("Checked Recruit") .. ":" .. Key("Mira Wells")
+	w:As(c.a1, c.a1.Count.MergeIn, id, { n = "Checked Recruit", bn = "Mira Wells", kind = "g", tc = w.clock }, false)
+	w:As(c.a1, c.a1.Count.QueueCheck, id, "r")
+	w:As(c.a1, c.a1.Count.DeskTick, w.clock)
+	local checks = w:As(c.a1, c.a1.Count.OpenChecks)
+	local cid, check = next(checks)
+	assert(cid and check, "the real desk opened a check")
+	local day = ns.Codec.Base36(math.floor(w.clock / DAY))
+	return ("NS~1~a~%s~%s~%s~%s~1"):format(cid, World.GUILD2, day, day), check
+end
+
+test("Church seen-check recipients: an outsider knowing the broadcast id cannot consume answers, and a member arriving after the query was not asked", function()
+	local w, c = Cast()
+	local outsider = w:Client("Uninvited Sender", { guild = false })
+	local text, check = SeenCheck(w, c)
+	eq(w:As(c.a1, c.a1.Count.Receive, "NS", "WHISPER", outsider.name, text), false, "an open id grants no reply authority")
+	eq(#check.answers, 0); eq(check.from[outsider.key], nil)
+	local late = w:Client("Late Responder")
+	eq(w:As(c.a1, c.a1.Count.TakeAnswer, late.name, text), false, "new membership does not add someone to an outstanding query")
+	eq(#check.answers, 0)
+	eq(w:As(c.a1, c.a1.Count.TakeAnswer, c.wes.name, text), true, "an expected ordinary roster member may answer")
+	eq(w:As(c.a1, c.a1.Count.TakeAnswer, c.a2.name, text), true, "the known signed keeper of another guild may relay its roster facts")
+	eq(#check.answers, 2)
+end)
+
+test("Church seen-check recipients: roster membership and signed keeper or council authority are rechecked when the answer arrives", function()
+	local w, c = Cast()
+	local council = w:Client(World.COUNCILLOR)
+	w:Presence()
+	local text, check = SeenCheck(w, c)
+	c.wes.guild = nil
+	w:RefreshRosters()
+	eq(w:As(c.a1, c.a1.Count.TakeAnswer, c.wes.name, text), false, "a departed guildmate loses its expected reply authority")
+	w:SignedList({ A1 }, false, w.clock + 1)
+	eq(w:As(c.a1, c.a1.Count.TakeAnswer, c.a2.name, text), false, "a revoked keeper of another guild cannot use an old query")
+	eq(#check.answers, 0)
+	eq(w:As(c.a1, c.a1.Count.TakeAnswer, council.name, text), true, "a known signed councillor remains an expected source")
+	w.council[council.key] = nil
+	w:As(c.a1, c.a1.Count.CloseCheck, check)
+	local another, nextCheck = SeenCheck(w, c)
+	eq(w:As(c.a1, c.a1.Count.TakeAnswer, council.name, another), true, "after losing council rank, an actual roster member may still answer a new query")
+	eq(#nextCheck.answers, 1)
 end)
 
 test("1.1.6 Church: registrations: counted when the player arrives in an Olympus guild within 14 days; not for one already in Olympus; expired after", function()

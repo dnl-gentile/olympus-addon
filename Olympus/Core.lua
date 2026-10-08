@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "1.2.0"
+ns.VERSION = "1.2.1"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -2030,6 +2030,7 @@ local function Help()
 	print(L.HELP_CMD_BUG)
 	print(L.HELP_CMD_STATUS)
 	print(L.HELP_CMD_KEY)
+	print(L.HELP_MAINKEY)
 	if ns.Keys.CanRotate and ns.Keys.CanRotate() then print(L.HELP_KEY_ROTATE) end -- (1.1: the King's alone)
 	print(L.HELP_CMD_BLOCK)
 	print(L.HELP_NETOFF)
@@ -2284,6 +2285,8 @@ local function Slash(input)
 			else
 				ns.Comm.SetRealmKey(rest)
 			end
+		elseif cmd == "hotkey" then
+			if ns.MainKey then ns.MainKey.Slash(rest) else ns.Print(L.RESTART_NEEDED) end
 		elseif cmd == "block" then
 			if rest ~= "" then
 				-- Stored as the sender reaches Comm (ns.FullName(ns.Normal(name)), the realm's
