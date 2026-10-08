@@ -2336,6 +2336,7 @@ function Treasury.HandlePrivate(dist, sender, text)
 	local kind, piece = text:match("^TW~(%w%w)~(C.+)$")
 	local def = kind and privateKinds[kind]
 	if not def or not def.to or not def.from or not def.to() or not def.from(sender) then return end
+	if def.piece and def.piece(piece) ~= true then return end
 	local whole = ns.Codec.Feed(privAsm, sender, piece, ns.Now())
 	if not whole or whole:sub(1, 3) ~= kind .. "~" then return end
 	def.handle("WHISPER", sender, whole)

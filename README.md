@@ -1388,6 +1388,18 @@ alone until then).
     Olympus depends on paying. With the gamepad interface it fills in nothing (the game's
     windows are its own there) and says what to send instead; where the game refuses the
     addon a trade's gold, it says so once and from then on tells you the amount to type.
+  - **Five-week contribution history**: the actual King and the pinned Treasurer, not a role
+    preview or Steward, can open a separate private aggregate page from the dues list. It shows
+    recorded guild members, counted payers, collected gold and gold per member for this week and
+    the preceding four. A member denominator exists only when the Treasurer's client actually
+    observes the weekly reset continuously, with a fresh own roster or two fresh, matching,
+    undisputed sister-guild reports. An offline reset or missing snapshot stays **?**; today's
+    census never fills an old week. Closed paid counts keep the amount and confirmed character
+    grouping known just before that reset. Later receipts or changed books make that closed count
+    unknown rather than rejudging it. Only available collected receipts count, and incomplete
+    books do not establish nonpayment. The King asks the pinned Treasurer by bounded private
+    whispers; the answer has aggregate guild rows, no payer names, and expires after ten minutes.
+    Nothing goes on OlympusNet, changes the weekly amount, charges gold or restricts a feature.
   - **Never a switch**: nothing about the dues can turn anyone off. A guild that pays nothing,
     and its players under the amount, keep the census, the chats, the decrees and every Olympus
     feature (a test runs weeks of dues at 0% and checks it); nothing in Olympus is locked behind

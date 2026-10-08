@@ -33,6 +33,7 @@ Locales\WeeklyBriefText.lua
 Locales\GuildCharterText.lua
 Locales\MainKeyText.lua
 Locales\OfficerMusterText.lua
+Locales\DuesHistoryText.lua
 Core.lua
 GamepadRegistry.lua
 Gamepad.lua
@@ -63,6 +64,7 @@ Board.lua
 Week.lua
 Treasury.lua
 Dues.lua
+DuesHistory.lua
 Bank.lua
 Backup.lua
 Acts.lua

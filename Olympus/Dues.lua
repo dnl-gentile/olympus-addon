@@ -1588,6 +1588,7 @@ end
 
 -- The dues page (Treasury.Build, mode "dues"): lines, title, detail. `q`, the tab's search.
 function Dues.Build(q)
+	if ns.DuesHistory and ns.DuesHistory.shown then return ns.DuesHistory.Build(q) end
 	local lines = { { text = Gold("< " .. (Dues.shown and SeesAll() and L.DUES_ALL_GUILDS or L.TREASURY_TITLE)), onClick = function() Dues.Back() end, gapAfter = true } }
 	local amount = Dues.Amount()
 	lines[#lines + 1] = { header = true, text = L.DUES_TITLE:format(Dues.DateLabel(Dues.Week())), right = L.DUES_A_WEEK:format(Coins(amount)) }
@@ -1596,6 +1597,8 @@ function Dues.Build(q)
 	if pending then Para(lines, L.DUES_PENDING:format(Coins(pending), Dues.DateLabel(from)), Gold) end
 	Para(lines, L.DUES_PRIVATE)
 	lines[#lines].gapAfter = true
+	local history = ns.DuesHistory and ns.DuesHistory.Link()
+	if history then lines[#lines + 1] = history end
 	if KingView() then
 		lines[#lines + 1] = { text = Gold("> " .. L.DUES_SET_AMOUNT:format(Coins(amount))), gapAfter = true,
 			onClick = function() ns.ShowDialog("OLYMPUS_DUES_AMOUNT") end,
@@ -1731,11 +1734,13 @@ end
 
 -- The page (a guild's players: that guild).
 function Dues.Open(guild)
+	if ns.DuesHistory then ns.DuesHistory.shown = nil end
 	Dues.shown = guild
 	shownRows = Dues.PAGE
 	ns.Treasury.Show("dues")
 end
 function Dues.Back()
+	if ns.DuesHistory and ns.DuesHistory.shown then ns.DuesHistory.shown = nil; return Dues.Open() end
 	if Dues.shown and SeesAll() then return Dues.Open(nil) end
 	Dues.shown = nil
 	ns.Treasury.Show("summary")
