@@ -1539,6 +1539,187 @@ test("watch: chat moderation: appeals: three open from one player at most; one a
 	end)
 end)
 
+test("watch: chat moderation: appeal admission counts only unresolved requests against a player's quota", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		for i = 1, Co.WC.APPEALS_EACH do
+			w.epoch = w.epoch + 61
+			assert(w.Inject("CHANNEL", B.name, Co, ("MD~1~A~%d~%s~%d~D~review"):format(w.epoch, A.name, i)))
+			local key = B.name:lower() .. "#" .. A.name:lower() .. "#" .. i
+			assert(w.As(Co, Co.WC.Answer, key, "K", "reviewed")); w.Run()
+		end
+		w.epoch = w.epoch + 61
+		eq(w.Inject("CHANNEL", B.name, Co, ("MD~1~A~%d~%s~%d~D~another"):format(w.epoch, A.name, 99)), true,
+			"answered requests do not block a new unresolved appeal")
+	end)
+end)
+
+test("watch: chat moderation: appeal admission never evicts another unresolved held appeal or churns unverified requests", function()
+	for _, held in ipairs({ false, true }) do World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		local s = Co.WC.Store()
+		for i = 1, Co.WC.APPEALS_MAX do
+			s.appeals["retained" .. i] = { name = "Filer" .. i .. "-Realm", actor = A.name, seq = i, op = "T", at = w.epoch - i,
+				text = "review", held = held or nil }
+		end
+		if held then s.audit[1] = { name = B.name, by = A.name, seq = 999, op = "T" } end
+		local ok, why = w.Inject("CHANNEL", B.name, Co, ("MD~1~A~%d~%s~999~T~review"):format(w.epoch, A.name))
+		eq(ok, false); eq(why, "full", "a full unresolved queue stays retryable")
+		assert(s.appeals["retained" .. Co.WC.APPEALS_MAX], "the oldest unresolved request survives")
+	end) end
+end)
+
+test("watch: chat moderation: appeal answers validate time and correlation before the shared quota", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "")); w.Run()
+		local r = B.WC.Store().record[1]
+		local unsolicited = ("MD~1~R~%d~%s~%s~%d~K~reviewed"):format(w.epoch, B.name, A.name, r.seq)
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, unsolicited)), "appeal", "a matching sanction alone is not a pending appeal")
+		eq(r.appeal, nil)
+		assert(w.As(B, B.WC.Appeal, r.by, r.seq, "review")); w.Run()
+		local function Word(at, seq) return ("MD~1~R~%s~%s~%s~%d~K~reviewed"):format(at, B.name, A.name, seq or r.seq) end
+		for _, at in ipairs({ w.epoch + B.WC.DATE_AHEAD + 1, w.epoch - B.WC.KEEP - 1 }) do
+			eq(select(2, w.Inject("CHANNEL", Co.name, B, Word(at))), "time")
+		end
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, Word(w.epoch, r.seq + 99))), "appeal", "an unrelated decision is not a popup")
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, Word(r.appealed - 1))), "older", "a decision cannot precede its request")
+		for i = 1, 6 do
+			local from = "Reviewer" .. i .. "-Realm"
+			w.council[Fold(from)] = true
+			for _ = 1, B.WC.RATE do eq(select(2, w.Inject("CHANNEL", from, B, Word("bad"))), "shape") end
+		end
+		eq(w.Inject("CHANNEL", Co.name, B, Word(w.epoch)), true, "malformed authorized words did not exhaust the shared budget")
+		eq(r.appeal, "K")
+	end)
+end)
+
+test("watch: chat moderation: appeal admission may replace an unverified request only with a held matching sanction", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		local s = Co.WC.Store()
+		for i = 1, Co.WC.APPEALS_MAX do
+			s.appeals["retained" .. i] = { name = "Filer" .. i .. "-Realm", actor = A.name, seq = i, op = "T", at = w.epoch - i, text = "review" }
+		end
+		s.audit[1] = { name = B.name, by = A.name, seq = 999, op = "D" }
+		local function Request() return w.Inject("CHANNEL", B.name, Co, ("MD~1~A~%d~%s~999~T~review"):format(w.epoch, A.name)) end
+		eq(select(2, Request()), "full", "a different kind of sanction grants no queue priority")
+		w.epoch = w.epoch + 61
+		s.audit[1].op = "T"
+		eq(Request(), true, "a held matching sanction may replace the oldest unverified request")
+		eq(s.appeals["retained" .. Co.WC.APPEALS_MAX], nil)
+		local key = B.name:lower() .. "#" .. A.name:lower() .. "#999"
+		eq(s.appeals[key].held, true)
+	end)
+end)
+
+test("watch: chat moderation: appeal answers refuse overflow without forgetting live replay floors and reclaim only expired history", function()
+	World(function(w)
+		local G, A, B, D, Stranger = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "")); w.Run()
+		local r = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, r.by, r.seq, "review")); w.Run()
+		local key = next(Co.WC.Store().appeals)
+		local targetStore, councilStore = B.WC.Store(), Co.WC.Store()
+		local max = B.WC.APPEAL_ANSWERS_MAX or 1000
+		-- Seed full persisted histories, then exercise admission through the actual receiver and sender.
+		for _, s in ipairs({ targetStore, councilStore }) do
+			s.appealAnswers = {}
+			for i = 1, max do s.appealAnswers["retained" .. i] = w.epoch end
+		end
+		local response = ("MD~1~R~%d~%s~%s~%d~K~reviewed"):format(w.epoch, B.name, A.name, r.seq)
+		eq(select(2, w.Inject("CHANNEL", Stranger.name, B, response)), "namer", "a stranger cannot consume answer history")
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, response)), "full")
+		eq(r.appeal, nil); assert(r.pendingAppeal, "refused decisions leave the pending request retryable")
+		eq(select(2, w.As(Co, Co.WC.Answer, key, "K", "reviewed")), "full")
+		eq(councilStore.appeals[key].answer, nil)
+		for _, s in ipairs({ targetStore, councilStore }) do
+			local count = 0
+			for _ in pairs(s.appealAnswers) do count = count + 1 end
+			eq(count, max); assert(s.appealAnswers.retained1, "a live floor is never evicted")
+		end
+		w.epoch = w.epoch + B.WC.KEEP + 1
+		w.As(B, B.WC.Prune); w.As(Co, Co.WC.Prune)
+		eq(next(targetStore.appealAnswers), nil); eq(next(councilStore.appealAnswers), nil)
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, response)), "time", "an expired payload cannot become valid when its floor expires")
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "new")); w.Run()
+		local latest = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, latest.by, latest.seq, "another")); w.Run()
+		assert(w.As(Co, Co.WC.Answer, next(councilStore.appeals), "K", "reviewed")); w.Run()
+		eq(latest.appeal, "K", "expired floors free room for a fresh correlated decision")
+	end)
+end)
+
+test("watch: chat moderation: appeal answers retain replay floors after reload and allow a newer staff correction", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "")); w.Run()
+		local r = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, r.by, r.seq, "review")); w.Run()
+		local key = next(Co.WC.Store().appeals)
+		assert(w.As(Co, Co.WC.Answer, key, "K", "first")); w.Run()
+		local first = w.Sent("MD~1~R~")[1].msg
+		local function Decisions()
+			local n = 0
+			for _, d in ipairs(B.dialogs) do if d.which == "OLYMPUS_WATCHCHAT_DECISION" then n = n + 1 end end
+			return n
+		end
+		local n = Decisions()
+		w.As(B, function() assert(loadfile(ROOT .. "Olympus/WatchChat.lua"))("Olympus", B.ns); B.WC = B.ns.WatchChat end)
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, first)), "repeat")
+		eq(Decisions(), n, "the persisted answer does not show again after reload")
+		for i = 1, 6 do
+			local from = "Reviewer" .. i .. "-Realm"
+			w.council[Fold(from)] = true
+			for _ = 1, B.WC.RATE do eq(select(2, w.Inject("CHANNEL", from, B, first)), "repeat") end
+		end
+		assert(w.As(Co, Co.WC.Answer, key, "L", "corrected")); w.Run()
+		eq(r.appeal, "L", "replayed answers spend no shared budget; a newer authenticated staff decision may correct the first")
+		eq(Decisions(), n + 1)
+		eq(select(2, w.Inject("CHANNEL", Co.name, B, first)), "older")
+		eq(r.appeal, "L", "an old keep cannot reverse the newer lift")
+		eq(Decisions(), n + 1)
+	end)
+end)
+
+test("watch: chat moderation: appeal answers survive answered-row eviction and refused sends remain answerable", function()
+	World(function(w)
+		local G, A, B = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		assert(w.As(A, A.WC.Timeout, B.name, 86400, "")); w.Run()
+		local r = B.WC.Store().record[1]
+		assert(w.As(B, B.WC.Appeal, r.by, r.seq, "review")); w.Run()
+		local request = w.Sent("MD~1~A~")[1].msg
+		local s, key = Co.WC.Store(), next(Co.WC.Store().appeals)
+		local send = Co.ns.Comm.Send
+		Co.ns.Comm.Send = function() return false end
+		local ok, why = w.As(Co, Co.WC.Answer, key, "K", "reviewed")
+		eq(ok, false); eq(why, "queue"); eq(s.appeals[key].answer, nil)
+		Co.ns.Comm.Send = send
+		assert(w.As(Co, Co.WC.Answer, key, "K", "reviewed")); w.Run()
+		for i = 1, Co.WC.APPEALS_MAX do
+			w.epoch = w.epoch + 1
+			assert(w.Inject("CHANNEL", "Filer" .. i .. "-Realm", Co, ("MD~1~A~%d~%s~1~D~review"):format(w.epoch, A.name)))
+		end
+		eq(s.appeals[key], nil, "answered rows can make room")
+		eq(select(2, w.Inject("CHANNEL", B.name, Co, request)), "answered")
+		eq(s.appeals[key], nil, "an old request cannot reopen its evicted answered row")
+	end)
+end)
+
 test("watch: chat moderation: S testimony needs verified membership and a fresh own roster before shared admission", function()
 	World(function(w)
 		local G, A, B, D = Standard(w)
