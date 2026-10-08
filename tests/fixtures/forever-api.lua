@@ -215,6 +215,7 @@ return {
 		["GamepadSharedUtility"] = "table",
 		["GenerateClosure"] = "function",
 		["GetAddOnMemoryUsage"] = "api",
+		["GetBindingAction"] = "used",
 		["GetBindingKey"] = "used",
 		["GetBindingText"] = "used",
 		["GetBuildInfo"] = "api",

@@ -13,7 +13,7 @@ local L = ns.L
 --                    again, safe to run twice; what cannot be undone is registered once a
 --                    session), t.park (Olympus's own objects on the game's frames hidden, what can
 --                    be undone undone), t.leftover (true while something stays until a /reload),
---                    t.now (the Chat tab's key alone: both in the switch's own event), t.key (one
+--                    t.now (borrowed keys: both in the switch's own event), t.key (one
 --                    set per file when several files share an id; the same key again replaces it).
 -- Gate.Install(id)   id's installs (every id's when nil) where allowed now: each feature's login
 --                    calls it, so at a login with the gamepad UI nothing is registered at all.
@@ -23,7 +23,7 @@ local L = ns.L
 -- A switch (INPUT_DEVICE_INTERFACE_TRANSITION: the game sets the new style first, then sends the
 -- event at once, inside its own rebinding; its payload newMode, oldMode, InputDocumentation.lua):
 -- the handler notes it and leaves the work for the next frame, so nothing of Olympus's runs in the
--- middle of the game's transition, but the Chat tab's key, which goes back to the game in the event
+-- middle of the game's transition, but borrowed keys, which go back to the game in the event
 -- itself so the gamepad UI binds on a clean key. Then:
 -- - to the gamepad UI: every park (in combat too: they touch only Olympus's objects), then what
 --   stays on the game's side until a /reload; if anything does, the player is told once a session,

@@ -117,6 +117,9 @@ ns.GAMEPAD = {
 	{ id = "chat-key", kind = "binding", files = { "ChatWindow.lua" },
 		guard = "gate", toPad = "park", toMouse = "install", safe = "off",
 		why = "The Chat tab's override of the Open chat key: never set with the gamepad UI, and the one Olympus holds goes back to the game in the switch itself (the only step taken in the switch's own event), so the gamepad UI rebinds on a clean key." },
+	{ id = "main-key", kind = "binding", files = { "MainKey.lua" },
+		guard = "gate", toPad = "park", toMouse = "install", safe = "off",
+		why = "The main window's session-only Y shortcut borrows an otherwise empty binding, never changes saved keys, returns its own override in the input-style switch or after combat, and is inert with the gamepad UI." },
 
 	-- P3: already through the gate, or allowed for the reason given.
 	{ id = "player-menu", kind = "menu", files = { "PlayerMenu.lua", "ArenaHome.lua", "Olympus_Arena/Window.lua" },

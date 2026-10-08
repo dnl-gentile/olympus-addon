@@ -30,6 +30,7 @@ Locales\ArenaMatchText.lua
 Locales\ComplianceText.lua
 Locales\ChurchText.lua
 Locales\WeeklyBriefText.lua
+Locales\MainKeyText.lua
 Core.lua
 GamepadRegistry.lua
 Gamepad.lua
@@ -82,6 +83,7 @@ Views.lua
 Members.lua
 Nominees.lua
 UI.lua
+MainKey.lua
 Watch.lua
 Judgment.lua
 KingArrow.lua

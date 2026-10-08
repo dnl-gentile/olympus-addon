@@ -2340,6 +2340,7 @@ Other limits:
 | Command | |
 |---|---|
 | `/oly` | open or close the window |
+| `/oly hotkey on\|off` | enable/disable the session-only Y shortcut (on by default for members, mouse and keyboard). It borrows only an unbound Y, preserves saved bindings and other addons' overrides, and releases its own binding when switching to the gamepad UI; combat defers binding changes. |
 | `/oly realm` · `/oly decrees` | open a tab |
 | `/oly tabard` (also `/oly inspect`, `/oly heraldry`) | open The Watch's Tabards (1.2: no tab of their own) |
 | `/oly inactive [7\|14\|30]` | your guild's members offline that long, by name (a rank that may remove members removes one per click, asked first) |
