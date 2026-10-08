@@ -34287,13 +34287,16 @@ end)
 
 test("1.1 join routing (Fern #20): with the gamepad UI the request opens in Olympus's own window, and a do-not-contact answer closes it", function()
 	local R = ns.Recruit
-	local saved = { guild = GetGuildInfo, inGuild = IsInGuild, outside = ns.Comm.WhisperOutside }
+	local saved = { guild = GetGuildInfo, inGuild = IsInGuild, outside = ns.Comm.WhisperOutside, level = UnitLevel, class = UnitClass }
 	local ok, err = pcall(function()
 		WithUI(function()
 			WithGamepadUI(true, function(game)
 				R.ResetForTests()
 				GetGuildInfo = function() return nil end
 				IsInGuild = function() return false end
+				-- Native player facts must belong to this fixture, not a preceding test's globals.
+				UnitLevel = function() return 12 end
+				UnitClass = function() return "Warrior", "WARRIOR", 1 end
 				ns.Comm.WhisperOutside = function() return true end
 				R.found = { { name = "Aaa-Realm", guild = "Olympus II" } }
 				R.Prompt(R.found[1])
@@ -34305,7 +34308,7 @@ test("1.1 join routing (Fern #20): with the gamepad UI the request opens in Olym
 			end)
 		end)
 	end)
-	GetGuildInfo, IsInGuild, ns.Comm.WhisperOutside = saved.guild, saved.inGuild, saved.outside
+	GetGuildInfo, IsInGuild, ns.Comm.WhisperOutside, UnitLevel, UnitClass = saved.guild, saved.inGuild, saved.outside, saved.level, saved.class
 	R.ResetForTests()
 	if not ok then error(err, 0) end
 end)
@@ -45535,6 +45538,7 @@ end)
 
 test("1.1 the clipboard backup's windows: the copy box out; a paste box in, read as the paste types it, confirmed in Olympus's own dialog with the gamepad UI", function()
 	WithUI(function()
+		LoadUI() -- the window under test is created by this fixture, not an earlier UI case
 		local Bk = ns.Backup
 		local saved = { show = ns.UI.ShowCopy, focus = GetCurrentKeyBoardFocus, time = GetTime, me = ns.me, guild = GetGuildInfo }
 		local ok, err = pcall(function()
