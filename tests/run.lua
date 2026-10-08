@@ -60891,4 +60891,8 @@ do
 end
 
 print(("\n%d passed, %d failed"):format(passed, failed))
+if passed + failed == 0 then
+	io.stderr:write("No tests matched or were selected. Check the test filter or selection.\n")
+	os.exit(1)
+end
 os.exit(failed == 0 and 0 or 1)

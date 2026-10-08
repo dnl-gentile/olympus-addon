@@ -97,6 +97,11 @@ if [ -f tests/check-affected-selector.lua ]; then
 	luajit tests/check-affected-selector.lua
 fi
 
+if [ -f tests/check-test-selection.sh ]; then
+	printf 'Checking empty test selection rejection...\n'
+	bash tests/check-test-selection.sh
+fi
+
 printf 'Running the signing round trip...\n'
 bash tests/sign-roundtrip.sh
 
