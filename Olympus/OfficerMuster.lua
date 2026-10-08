@@ -246,7 +246,7 @@ function Muster.Lines(q)
 		local zone, who = ZoneName(row.zone), ns.DisplayName(row.by)
 		if not q or ns.Holds(q, title, zone, who) then
 			shown = shown + 1
-			lines[#lines + 1] = { text = "|cffffd200" .. title .. "|r  —  " .. zone,
+			lines[#lines + 1] = { text = "|cffffd200" .. title .. "|r  -  " .. zone,
 				right = L.OFFICER_MUSTER_OBSERVED:format(Headcount(row), math.max(0, math.ceil((row.at + Muster.LIFE - Clock()) / 60))) }
 			lines[#lines + 1] = { indent = 1, text = L.OFFICER_MUSTER_BY:format(who) }
 			if row.by == ns.me then lines[#lines + 1] = { indent = 1, text = L.OFFICER_MUSTER_END, onClick = Muster.Withdraw } end
