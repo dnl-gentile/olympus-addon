@@ -354,6 +354,7 @@ end
 --   Bank T9 | Vox Y1 Y3 | Loot X1 XQ XB | Crafters W0 W1 WA WL WQ WR
 --   Workshop HA HI HK HQ HR HS HT V1 V2 V3 V4 V5 V6 | Link DA DB DC DE DK DR DV DW
 --   Authority H2 H3
+--   GuildCharter GC (master's public card), QC (outsider's bounded ask), QD (corroborated Join card)
 --   Other 1.1 work: Recruit J1 J3 | Alts AL | Filter BW | Dues FA FB FC FD FQ FS FU
 --   Board G0 G1 GQ | Keys K3 K4 K5 | Channels N1 | Moderation O1 | The Watch MW | Treasury TA TD TW
 --   Bank TL TN TO TS | Week Y2 | Wanted WS WX WY W4 W5. Reserved: J2 (#20's route answer),
@@ -547,17 +548,17 @@ end
 
 -- The Join screen's own addon whispers (1.1, Fern's #20, Recruit.lua): outside an Olympus guild
 -- the addon sends nothing else, and these only: J1 (which guild should I ask? to a member /who
--- found) and J3 (my request, with the whisper the player sends himself), one per click or
--- search, straight to that one player, never through the queue (Pump sends nothing for a
+-- found), J3 (my request, with the whisper the player sends himself), and QC (a bounded
+-- charter request to that same queried member), straight to that one player, never through the queue (Pump sends nothing for a
 -- non-member). A member of an Olympus guild sends neither.
-local OUTSIDE_TYPES = { J1 = true, J3 = true }
+local OUTSIDE_TYPES = { J1 = true, J3 = true, QC = true }
 function Comm.WhisperOutside(target, msg)
 	if ns.IsMember() or type(target) ~= "string" or target == "" or type(msg) ~= "string" then return false end
 	if not OUTSIDE_TYPES[msg:sub(1, 2)] or msg:sub(3, 3) ~= "~" or #msg > 255 then return false end
 	return SendNow("WHISPER", msg, false, target)
 end
--- ...and the one message it hears there: J2, a member's answer to its J1 (Recruit.lua checks it
--- asked that member).
+-- It hears J2 route answers and QD charter cards there, only by whisper. Recruit and
+-- GuildCharter each check the queried sender and their bounded response window.
 local outsideHandler
 function Comm.HandleOutside(fn) outsideHandler = fn end
 
@@ -1681,10 +1682,11 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 	end
 	if not ns.IsMember() then
 		-- Outside an Olympus guild the addon hears nothing of the army, but for two things (1.1): the
-		-- Join screen's answer, J2, whispered by a member it asked (Comm.WhisperOutside), and the
+		-- Join screen's route/card answers, J2 and QD, whispered by a member it asked, and the
 		-- author's signed titles list over its own guild, which may make that guild an Olympus guild
 		-- (Comm.Outsider).
-		if dist == "WHISPER" and text:sub(1, 3) == "J2~" and outsideHandler and not ns.db.blocked[sender:lower()]
+		local outsideType = text:sub(1, 3)
+		if dist == "WHISPER" and (outsideType == "J2~" or outsideType == "QD~") and outsideHandler and not ns.db.blocked[sender:lower()]
 			and Comm.Admit(sender, GetTime()) then
 			ns.SafeCall("join route", outsideHandler, sender, text)
 		end

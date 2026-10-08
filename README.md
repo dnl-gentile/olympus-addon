@@ -92,6 +92,28 @@ own words (no dues line), 20 seconds apart. With it goes your request to the sam
 officer's addon shows it with **Invite** and **Decline** instead of a raw whisper. Members on
 versions before 1.1 just get the whisper, as before.
 
+**A guild's public charter.** On the Realm, **Your guild's public charter** lets its current
+guild master publish a short purpose (48 bytes), client language, raid nights (24 bytes), and
+wanted classes. Each edit renews the card for seven days; withdrawing it publishes an empty
+card. Receiving members accept it only from the current guild master under the same roster or
+census/signed-authority checks as other guild-master powers. Losing that authority or letting
+the card expire removes it. Public words use the game's logged addon messages.
+The same Realm page lists known sister-guild cards. **Write to this guild's Lord...** opens
+an editable letter for the member to send; a transfer remains a conversation and the destination
+officer's manual invitation, with no automatic removal from the member's current guild.
+
+The Join screen can request at most three cards from each queried member, with at most three
+queried members. Two distinct queried members must report the exact same author, revision and
+card before it helps routing; a conflicting or missing card gives no affinity. This is a
+corroborated report, not proof of unique people or a new authority to invite. The King's
+confirmed open gates still come first; next come matching client language, a wanted class,
+and an optional friend found by this client's `/who`, in that order, then free slots. The
+friend's name is a local preference chosen on the Join screen and is never sent. The route
+still contacts only a member this client's `/who` found, one manual whisper per click, and
+officers still use the game's manual invitation. Older addons ignore the versioned charter
+messages and keep their ordinary Join routing. The two factions use separate cards and
+channels; the same charter and Join controls work for each side.
+
 ## What it does
 
 ### Census: the army at a glance

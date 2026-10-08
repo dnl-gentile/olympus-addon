@@ -30,6 +30,7 @@ Locales\ArenaMatchText.lua
 Locales\ComplianceText.lua
 Locales\ChurchText.lua
 Locales\WeeklyBriefText.lua
+Locales\GuildCharterText.lua
 Locales\MainKeyText.lua
 Core.lua
 GamepadRegistry.lua
@@ -76,6 +77,7 @@ Versions.lua
 Ed25519.lua
 libs\QREncode\qrencode.lua
 Link.lua
+GuildCharter.lua
 Recruit.lua
 AnswerBank.lua
 Answers.lua

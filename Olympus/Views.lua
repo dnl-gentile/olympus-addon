@@ -2759,9 +2759,13 @@ function Views.RecruitLines()
 	-- "Showing 50 of 312 online", and which levels the next click searches.
 	WhoStatus(lines)
 	if #lines > 1 then lines[#lines].gapAfter = true end
-	-- Where to go (1.1, Fern's #20): what a member's census said (Recruit.Route), the King's gates
-	-- first (two answers agree on them), then the most free slots of the guilds /who found; a
-	-- click asks one of that guild's officers /who found online.
+	-- Where to go: confirmed gates, optional corroborated affinity, then room. The player
+	-- still chooses a click and the contact must have been found by this client's /who.
+	if ns.GuildCharter then
+		lines[#lines + 1] = { text = L.CHARTER_ORDER, gapAfter = true }
+		lines[#lines + 1] = { text = L.CHARTER_FRIEND_CHOOSE,
+			onClick = function() ns.GuildCharter.Prompt("friend") end, gapAfter = true }
+	end
 	local route = R.Route()
 	if route and #R.RouteOrder(route) > 0 then
 		lines[#lines + 1] = {
@@ -2798,6 +2802,9 @@ function Views.RecruitLines()
 				tt:AddLine(L.RECRUIT_ASK_TIP, 1, 1, 1, true)
 			end,
 		}
+		if ns.GuildCharter then
+			for _, row in ipairs(ns.GuildCharter.CardLines(g.name, true)) do lines[#lines + 1] = row end
+		end
 		for _, p in ipairs(g.members) do
 			local state = ""
 			local closed = R.NoContact(p.name)
