@@ -962,6 +962,99 @@ test("wanted native recap: a fresh explicit player killing blow counts once; dam
 	end)
 end)
 
+test("wanted native named listing: a locally verified Horde fatal own death learns its GUID and counts once", function()
+	WithWanted(function(w, W)
+		local name, guid = "Named Horde-Realm", "Player-1-EF000091"
+		assert(w.add(name))
+		w.manager = false
+		w.units.target = { name = name, guid = guid, faction = "Horde" }
+		local row = { sourceGUID = guid, sourceName = name, sourceFlags = 0x440,
+			event = "SPELL_DAMAGE", overkill = -1, timestamp = w.epoch }
+		C_DeathInfo = nil
+		C_DeathRecap = { HasRecapEvents = function() return true end, GetRecapEvents = function() return { row } end }
+		w.dead = true
+		w.handlers.PLAYER_DEAD()
+		eq(W.Target(name).guid, nil, "nonfatal damage never pins a name-only listing")
+		eq(W.Target(name).current, 0)
+		row.overkill, row.timestamp = 0, w.epoch - W.DEATH_WINDOW - 1
+		w.handlers.PLAYER_DEAD()
+		eq(W.Target(name).guid, nil, "a stale fatal recap never pins a name-only listing")
+		row.timestamp = w.epoch
+		w.handlers.PLAYER_DEAD()
+		local target = W.Target(name)
+		eq(target.current, 1, "a prior name-only listing must not suppress a verified own death")
+		eq(target.guid, guid, "only the actual locally observed Horde GUID is learned")
+		eq(#W.Targets(), 1, "the existing listing is upgraded, never duplicated")
+		eq(#w.ns.rdb.wanted.evidence, 1)
+		w.handlers.PLAYER_DEAD()
+		eq(W.Target(nil, guid).current, 1, "reading the same native death again never counts twice")
+		w.advance(W.DEATH_WINDOW + 1)
+		w.handlers.PLAYER_DEAD()
+		eq(W.Target(nil, guid).current, 1, "last death's stale recap is not a new death")
+		row.timestamp, row.overkill = w.epoch, -1
+		w.handlers.PLAYER_DEAD()
+		eq(W.Target(nil, guid).current, 1, "fresh nonfatal damage still cannot add a bounty")
+		eq(#w.sent, 0, "learning an observed identity publishes nothing automatically")
+	end)
+end)
+
+test("wanted native named listing: an unobserved recap identity cannot teach the listing a Horde GUID", function()
+	WithWanted(function(w, W)
+		local name, guid = "Unobserved Horde-Realm", "Player-1-EF000092"
+		assert(w.add(name))
+		local row = { sourceGUID = guid, sourceName = name, sourceFlags = 0x440,
+			event = "SPELL_DAMAGE", overkill = 0, timestamp = w.epoch }
+		C_DeathInfo = nil
+		C_DeathRecap = { HasRecapEvents = function() return true end, GetRecapEvents = function() return { row } end }
+		w.dead = true; w.handlers.PLAYER_DEAD()
+		eq(W.Target(name).guid, nil, "the recap's hostile flag alone is not Horde faction proof")
+		eq(W.Target(name).current, 0)
+		eq(W.Target(nil, guid), nil)
+		eq(#W.Targets(), 1)
+		eq(#w.ns.rdb.wanted.evidence, 0)
+	end)
+end)
+
+test("wanted native named listing: a conflicting pinned GUID cannot be replaced by a different observed killer", function()
+	WithWanted(function(w, W)
+		local name = "Pinned Horde-Realm"
+		local pinned, other = "Player-1-EF000093", "Player-1-EF000094"
+		assert(w.add(name, pinned))
+		w.units.target = { name = name, guid = other, faction = "Horde" }
+		local row = { sourceGUID = other, sourceName = name, sourceFlags = 0x440,
+			event = "SPELL_DAMAGE", overkill = 0, timestamp = w.epoch }
+		C_DeathInfo = nil
+		C_DeathRecap = { HasRecapEvents = function() return true end, GetRecapEvents = function() return { row } end }
+		w.dead = true; w.handlers.PLAYER_DEAD()
+		eq(W.Target(name).guid, pinned, "a matching name cannot replace its pinned identity")
+		eq(W.Target(nil, pinned).current, 0)
+		eq(W.Target(nil, other), nil, "the conflict cannot create a second listing with the same name")
+		eq(#W.Targets(), 1)
+		eq(#w.ns.rdb.wanted.evidence, 0)
+	end)
+end)
+
+test("wanted native named listing: a current contradictory faction overrides earlier Horde knowledge", function()
+	WithWanted(function(w, W)
+		local name, guid = "Contradictory Horde-Realm", "Player-1-EF000095"
+		UnitCanAttack, UnitIsPVP = function() return true end, function() return true end
+		w.units.target = { name = name, guid = guid, faction = "Horde" }
+		W.ObserveUnit("target")
+		assert(w.add(name))
+		w.units.target.faction = "Alliance"
+		local row = { sourceGUID = guid, sourceName = name, sourceFlags = 0x440,
+			event = "SPELL_DAMAGE", overkill = 0, timestamp = w.epoch }
+		C_DeathInfo = nil
+		C_DeathRecap = { HasRecapEvents = function() return true end, GetRecapEvents = function() return { row } end }
+		w.dead = true; w.handlers.PLAYER_DEAD()
+		eq(W.Target(name).guid, nil, "current Alliance identity cannot become a Horde listing's GUID")
+		eq(W.Target(name).current, 0)
+		eq(W.Target(nil, guid), nil)
+		eq(#W.Targets(), 1)
+		eq(#w.ns.rdb.wanted.evidence, 0)
+	end)
+end)
+
 test("wanted PLAYER_DEAD: Forever's C_DeathInfo has no recap reader, so a death records nothing; a failing reader is contained", function()
 	WithWanted(function(w, W, c)
 		local targetGuid = "Player-1-EF000001"

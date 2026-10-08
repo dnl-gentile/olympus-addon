@@ -850,10 +850,15 @@ local function ReadSelfDeathRecap()
 						local kind = row.event
 						local killer = Identity(row.sourceName, row.sourceGUID)
 						local target = killer and s and ResolveTarget(s, killer, false)
-						local known = killer and not target and KnownHorde(killer)
+						-- A manual name-only listing is not yet a verified GUID. Its own fatal
+						-- recap may learn one only from a locally observed Horde unit, just as
+						-- an unlisted killer does. Never replace an already pinned namesake.
+						local known = killer and (not target or not target.guid) and KnownHorde(killer)
+						local named = known and s and ResolveTarget(s, Identity(known.name), false)
+						if named and named.guid and named.guid ~= known.guid then known = nil end
 						if at and flags and overkill and type(kind) == "string" and kind:match("_DAMAGE$")
 							and bit.band(flags, 0x440) == 0x440 and (target and target.guid == killer.guid or known) then
-							return RecordKill("SELF_DEATH", "native:" .. tostring(at), target and Identity(target) or known, mine,
+							return RecordKill("SELF_DEATH", "native:" .. tostring(at), known or target and Identity(target), mine,
 								{ zone = Zone(), precision = "approximate", autoHorde = known ~= nil })
 						end
 					end

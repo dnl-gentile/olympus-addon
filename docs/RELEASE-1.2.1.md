@@ -26,6 +26,9 @@ are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
   pinned its original issuer. Relay never supplies that initial trust or silently rotates a key.
 - Wanted evidence requires verified membership and positive identity for the sender's own kill
   or death. A claimed guild or an unknown GUID is not enough. Evidence still needs human review.
+  A name-only manual listing no longer prevents a locally verified fatal own-death recap from
+  learning that Horde player's GUID and counting once. A same-name different GUID cannot
+  replace a pinned identity. These observations stay local; this is not a shared Horde list.
 - The Board offers a public weekly summary of facts this client knows. **Your week, in five
   lines** is a separate personal parchment page in the main window's Realm tab, available to
   every member, not a Throne page. The old automatic personal popup is removed. Unknown
@@ -83,6 +86,9 @@ retained text cannot be reconstructed, and target self-testimony is not independ
 moderator's action.
 
 A new Wanted recipient without an independently pinned issuer cannot bootstrap from relay.
+The Horde target list remains local to each client. The distributed signed word contains the
+reviewed Slayers top three, not Horde targets: simply seeing Horde or waiting for another
+player's observations does not populate the target list.
 An unknown evidence identity is refused rather than placed in an unverified reviewer inbox;
 the sender's original local observation stays saved. There is not yet a reviewer acceptance
 receipt or guaranteed same-session automatic retry.

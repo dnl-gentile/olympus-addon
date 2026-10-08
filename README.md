@@ -1564,6 +1564,23 @@ master (or the Head, the King or the author), who keeps that guild full and answ
   there only if you choose to show it (off by default). The author's Member preview shows the same
   pages a member sees and sends no Church actions.
 
+### Wanted and Slayers
+
+**Wanted is this client's Horde target list**, not a live list of every Horde player encountered
+by Olympus. A moderator can add a target by name or from a targeted Horde player. Your own recent
+fatal death recap can also discover an unlisted killer, but only with a locally observed Horde
+player identity and a verified own victim. A name-only listing learns its GUID through that same
+local proof; an already pinned identity is never replaced by a same-name different GUID. Ordinary
+damage, animals, pets, stale or restricted recap data do not create a bounty. The native kill
+event counts your own killing blow only against an already listed active player GUID.
+
+These observations stay on your client. **Send evidence** sends your retained kill/death rows
+privately to the King, a High Councillor or the author for manual review. Their signed publication
+shares the **Slayers top three**, not the Horde target list. A trusted peer can relay that unchanged
+ranking only to a recipient who already independently pinned its original publisher's key.
+Waiting online or simply seeing Horde therefore does not populate your Wanted targets from other
+clients. See [Privacy](#privacy) for sightings' separate explicit consent and recipient limits.
+
 ### World map
 - Soldiers per zone on zone and continent maps, and per continent on the world map (none with
   Blizzard's gamepad mode since 1.1.5: see below).

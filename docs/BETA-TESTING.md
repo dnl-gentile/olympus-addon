@@ -122,6 +122,12 @@ For the 1.2.1 candidate, include these focused live checks:
   identity is not accepted on a claimed guild alone. Publish the reviewed rankings; a trusted
   relay should recover the unchanged signed word for a recipient that already pinned that
   issuer independently. A new recipient without the pin cannot bootstrap from the relay.
+  Separately check local capture: with a moderator's name-only listing, a locally observed
+  Horde player's recent fatal killing blow against you should learn their GUID and add one
+  bounty, not two after retries. Nonfatal damage, animals, stale recaps and conflicting pinned
+  GUIDs must not count. Repeat without a prior listing to check automatic own-death discovery.
+  The Horde target list is local; another client's observation or Slayers publication does not
+  synchronize that list. A missing local recap is not proof that no PvP death occurred.
 - Weekly brief: as an ordinary member, open Realm > Your week, in five lines in the main
   window. Check five readable sections on parchment, Back, switching tabs, and reopening;
   repeat in gamepad mode. The personal brief must not appear in the Throne or as an automatic
