@@ -89,6 +89,7 @@ WC.SELF_REPEAT = 300        -- current own guild timeout testimony, never the gu
 WC.SELF_AUDIT_MAX = 5       -- a player's own words (S) in the council's audit at most
 WC.ACTIONS_MAX = 50           -- the actor's own actions it repeats
 WC.APPLIED_MAX = 1000
+WC.SELF_APPLIED_MAX = 1000
 WC.LISTS_MAX = 40             -- namers' lists kept
 WC.LIST_EVERY = 300           -- a list is repeated this often (King.HANDS_EVERY)...
 WC.LIST_FRESH = 20 * 60       -- ...and an Olympus moderators' list lapses this long after its last (King.HANDS_FRESH)
@@ -238,7 +239,7 @@ WC.Hash = Hash
 -- What this client keeps (ns.rdb.chatMod: per realm group and faction, like the net-off words)
 ---------------------------------------------------------------------------
 
-local FIELDS = { "timeouts", "lifts", "tombs", "applied", "guildLists", "modLists", "myMods", "myWatchers",
+local FIELDS = { "timeouts", "lifts", "tombs", "applied", "selfApplied", "guildLists", "modLists", "myMods", "myWatchers",
 	"actions", "audit", "record", "appeals", "appealAnswers", "decisions", "toldJ", "blocked", "sentS", "verdicts" }
 
 local function Store()
@@ -250,6 +251,18 @@ local function Store()
 		rdb.chatMod = s
 	end
 	for _, f in ipairs(FIELDS) do if type(s[f]) ~= "table" then s[f] = {} end end
+	if s.replaySplit ~= 1 then
+		-- Older saves mixed a player's self testimony with moderator action floors. Separate
+		-- them once without discarding live history, even if an old save already exceeds a cap.
+		for id, at in pairs(s.applied) do
+			if type(id) == "string" and id:sub(1, 2) == "S#" then
+				local old = s.selfApplied[id]
+				if type(at) == "number" and (type(old) ~= "number" or at > old) then s.selfApplied[id] = at end
+				s.applied[id] = nil
+			end
+		end
+		s.replaySplit = 1
+	end
 	s.seq = math.max(0, math.floor(tonumber(s.seq) or 0))
 	return s
 end
@@ -259,6 +272,17 @@ local function Count(t)
 	local n = 0
 	for _ in pairs(t or {}) do n = n + 1 end
 	return n
+end
+
+local function PruneReplayFloors(t)
+	local now = Clock()
+	for id, at in pairs(t) do
+		if type(at) ~= "number" or not Int(at, 1, WC.MAX_SEQ) or now - at > WC.KEEP then t[id] = nil end
+	end
+end
+local function ReplayRoom(t, id, max)
+	PruneReplayFloors(t)
+	return t[id] ~= nil or Count(t) < max
 end
 
 local function Trim(list, max) while #list > max do table.remove(list, 1) end end
@@ -1156,6 +1180,7 @@ local function Apply(a)
 	local id = Key(a.by) .. "#" .. tostring(a.seq)
 	local seen = s.applied[id]
 	if seen and (a.op == "D" or a.op == "P") then return true, "repeat" end
+	if not ReplayRoom(s.applied, id, WC.APPLIED_MAX) then return false, "full" end
 	local n, words
 	if a.op == "D" then
 		n, words = ApplyDelete(a.target, a.refs, a.at, a.role)
@@ -1179,11 +1204,6 @@ local function Apply(a)
 		end
 	end
 	s.applied[id] = a.at
-	if Count(s.applied) > WC.APPLIED_MAX then
-		local oldest, at
-		for k, t in pairs(s.applied) do if not at or t < at then oldest, at = k, t end end
-		if oldest then s.applied[oldest] = nil end
-	end
 	Record(a, words)
 	-- The punished player's own client: told; and, of a guild action, his own word on the channel.
 	if ns.me and Same(a.target, ns.me) and a.scope ~= "S" then
@@ -1281,7 +1301,8 @@ function WC.Act(op, target, opts)
 	local msg = ActionWire(a)
 	if not msg then return false, "size" end
 	local dist = scope == "G" and "GUILD" or "CHANNEL"
-	Apply(a)
+	local applied, why = Apply(a)
+	if not applied then return false, why end
 	Send(dist, msg, "md:" .. seq, ActionPermit(a, msg, scope, dist))
 	Remember(a)
 	return true, scope
@@ -1475,7 +1496,8 @@ local function TakeSelf(dist, sender, f)
 	-- (His guild's own clients have the guild action already; the S entry under it is harmless.)
 	local s = Store()
 	local id = "S#" .. Key(sender) .. "#" .. Key(actor) .. "#" .. seq
-	if s.applied[id] then return true, "repeat" end
+	if s.selfApplied[id] then return true, "repeat" end
+	if not ReplayRoom(s.selfApplied, id, WC.SELF_APPLIED_MAX) then return false, "full" end
 	if op == "D" then ApplyDelete(sender, a.refs, at, "S")
 	elseif op == "P" then ApplyPurge(sender, a.window, at, "S")
 	elseif op == "T" then
@@ -1486,7 +1508,7 @@ local function TakeSelf(dist, sender, f)
 		a.by = sender
 		KeepLift(a)
 	end
-	s.applied[id] = at
+	s.selfApplied[id] = at
 	a.by = actor
 	Record(a)
 	ns.Fire("WATCHCHAT_CHANGED", op, sender)
@@ -2118,7 +2140,8 @@ function WC.Prune()
 		local t = s.tombs[i]
 		if type(t) ~= "table" or mono - (tonumber(t.t) or 0) > WC.TOMB_KEEP then table.remove(s.tombs, i) end
 	end
-	for k, at in pairs(s.applied) do if type(at) ~= "number" or now - at > WC.KEEP then s.applied[k] = nil end end
+	PruneReplayFloors(s.applied)
+	PruneReplayFloors(s.selfApplied)
 	for k, at in pairs(s.sentS) do if type(at) ~= "number" or now - at > WC.KEEP then s.sentS[k] = nil end end
 	for k, at in pairs(s.toldJ) do if type(at) ~= "number" or now - at > WC.KEEP then s.toldJ[k] = nil end end
 	for k, e in pairs(s.appeals) do if type(e) ~= "table" or now - (tonumber(e.at) or 0) > WC.KEEP then s.appeals[k] = nil end end

@@ -786,6 +786,90 @@ end)
 -- Watchers and Olympus moderators
 ---------------------------------------------------------------------------
 
+test("watch: chat moderation: full action replay history refuses overflow without losing live floors or sending rejected local actions", function()
+	World(function(w)
+		local G, A, B, D = Standard(w)
+		A.WC.APPLIED_MAX = 2
+		assert(w.As(A, A.WC.Purge, B.name, "first")); w.Run()
+		w.epoch = w.epoch + 61
+		assert(w.As(A, A.WC.Purge, B.name, "second")); w.Run()
+		local s, retained, n = A.WC.Store(), {}, 0
+		for key, at in pairs(s.applied) do retained[key] = at; n = n + 1 end
+		eq(n, 2)
+		local sent, audit = #w.sent, #s.audit
+		w.epoch = w.epoch + 61
+		local ok, why = w.As(A, A.WC.Purge, B.name, "overflow")
+		eq(ok, false); eq(why, "full"); w.Run()
+		eq(#w.sent, sent, "a rejected local action sends nothing"); eq(#s.audit, audit)
+		for key, at in pairs(retained) do eq(s.applied[key], at, "live replay floors are not evicted") end
+		D.WC.APPLIED_MAX = 1
+		local function Wire(seq)
+			return ("MD~1~P~G~%d~%d~%s~%s~60~-~-~"):format(seq, w.epoch, X, B.name)
+		end
+		w.epoch = w.epoch + 61
+		-- D already received the two old actions. Lowering the cap is a legacy oversize store,
+		-- which must stop growing without forgetting valid entries.
+		local before = #D.WC.Store().audit
+		eq(select(2, w.Inject("GUILD", A.name, D, Wire(900))), "full")
+		eq(#D.WC.Store().audit, before)
+	end)
+end)
+
+test("watch: chat moderation: self testimony has a separate bounded replay history and cannot crowd moderator actions", function()
+	World(function(w)
+		local G, A, B, D = Standard(w)
+		D.WC.SELF_APPLIED_MAX, D.WC.APPLIED_MAX = 2, 1
+		local function Word(seq)
+			return ("MD~1~S~U~%d~%d~%s~%s~-~-~"):format(seq, w.epoch, X, A.name)
+		end
+		local first = Word(901)
+		eq(w.Inject("CHANNEL", B.name, D, first), true)
+		w.epoch = w.epoch + 61
+		eq(w.Inject("CHANNEL", B.name, D, Word(902)), true)
+		w.epoch = w.epoch + 61
+		local before = #D.WC.Store().audit
+		eq(select(2, w.Inject("CHANNEL", B.name, D, Word(903))), "full")
+		eq(#D.WC.Store().audit, before)
+		w.epoch = w.epoch + 61
+		eq(select(2, w.Inject("CHANNEL", B.name, D, first)), "repeat")
+		local timeout = ("MD~1~T~G~%d~%d~%s~%s~%d~-~-~"):format(904, w.epoch, X, B.name, w.epoch + 300)
+		eq(w.Inject("GUILD", A.name, D, timeout), true, "self messages did not consume the moderator's room")
+		eq(w.As(D, D.WC.Silenced, B.name), true)
+		local n = 0; for _ in pairs(D.WC.Store().selfApplied) do n = n + 1 end
+		eq(n, 2)
+		w.epoch = w.epoch + D.WC.KEEP + 1
+		w.As(D, D.WC.Prune)
+		eq(next(D.WC.Store().selfApplied), nil); eq(next(D.WC.Store().applied), nil)
+		eq(select(2, w.Inject("CHANNEL", B.name, D, first)), "time", "expired packets cannot reuse released space")
+		w.epoch = w.epoch + 61
+		eq(w.Inject("CHANNEL", B.name, D, Word(905)), true)
+	end)
+end)
+
+test("watch: chat moderation: legacy mixed replay history migrates without forgetting self floors, including an already oversized saved map", function()
+	World(function(w)
+		local G, A, B, D = Standard(w)
+		local s = D.WC.Store()
+		local key1 = "S#" .. Fold(B.name) .. "#" .. Fold(A.name) .. "#906"
+		local key2 = "S#" .. Fold(B.name) .. "#" .. Fold(A.name) .. "#907"
+		s.applied, s.selfApplied, s.replaySplit = { [key1] = w.epoch, [key2] = w.epoch, ["moderator#1"] = w.epoch }, nil, nil
+		w.As(D, function() assert(loadfile(ROOT .. "Olympus/WatchChat.lua"))("Olympus", D.ns) end)
+		D.WC = D.ns.WatchChat
+		D.WC.SELF_APPLIED_MAX = 1
+		s = D.WC.Store()
+		eq(s.applied[key1], nil); eq(s.applied["moderator#1"], w.epoch)
+		eq(s.selfApplied[key1], w.epoch); eq(s.selfApplied[key2], w.epoch, "live legacy floors are retained, not truncated")
+		local function Word(seq)
+			return ("MD~1~S~U~%d~%d~%s~%s~-~-~"):format(seq, w.epoch, X, A.name)
+		end
+		eq(select(2, w.Inject("CHANNEL", B.name, D, Word(906))), "repeat")
+		w.epoch = w.epoch + 61
+		eq(select(2, w.Inject("CHANNEL", B.name, D, Word(908))), "full")
+		D.ns.rdb = { guilds = {} }
+		eq(w.Inject("CHANNEL", B.name, D, Word(908)), true, "a different realm's store initializes its own migration")
+	end)
+end)
+
 test("watch: chat moderation: the guild master names and removes Watchers; only his list counts, while he is the guild master", function()
 	World(function(w)
 		local G, A, B, D, Y1 = Standard(w)
