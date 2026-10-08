@@ -1,7 +1,8 @@
-# Olympus 1.2.1 candidate
+# Olympus 1.2.1
 
-This is a local candidate, not a published release. Automated checks and live multiplayer checks
-are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
+This correction release contains the completed subset below, not the entire longer-term backlog.
+Automated checks and live multiplayer checks are separate gates; use
+[the beta checklist](BETA-TESTING.md) for the latter. Cross-client acceptance remains ongoing.
 
 ## Player-facing changes
 
@@ -54,6 +55,16 @@ are separate gates; use [the beta checklist](BETA-TESTING.md) for the latter.
 
 ## Reliability and review work
 
+- Guild Masters can publish bounded guild charters. Recruitment uses corroborated guild fit
+  rather than treating a claimed rank as authority; invitations and transfers remain manual.
+- Officers can post a twenty-minute, zone-only muster. Participation requires existing location
+  consent and the matching faction and realm scope; it does not publish exact coordinates or
+  automatically invite anyone.
+- The actual King and pinned Treasurer can inspect a private five-week contribution history.
+  Missing snapshots stay unknown. This is reporting, not an automatic charge or feature lock.
+- Moderation replay and appeal quotas are bounded separately from target self-testimony.
+  Arena relays reject known identity contradictions while preserving valid late testimony.
+  Capacity limits preserve active Arena records instead of evicting an ongoing event.
 - Bones resync cannot invent the local player's decisions; reload retains locally witnessed
   retry proof. An opponent's instant departure claim is not accepted without local observation
   of the full grace period.
@@ -93,9 +104,9 @@ An unknown evidence identity is refused rather than placed in an unverified revi
 the sender's original local observation stays saved. There is not yet a reviewer acceptance
 receipt or guaranteed same-session automatic retry.
 
-This candidate does not claim that every longer-term governance, recruitment, identity-backend
-or contribution proposal is implemented. It must still be checked in the actual supported client
-and across real players before publication.
+Not every longer-term governance, recruitment, identity-backend or contribution proposal is
+implemented. Real-client and multiplayer verification is still needed. The reported Y shortcut
+problem is deferred and is not claimed fixed in this release; `/oly` remains available.
 
 If the beta client fails to restore SavedVariables, the addon cannot distinguish another login
 from a new installation or recognize a later upgrade reliably. The automatic letter stays quiet
