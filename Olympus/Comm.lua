@@ -355,7 +355,7 @@ end
 --   Workshop HA HI HK HQ HR HS HT V1 V2 V3 V4 V5 V6 | Link DA DB DC DE DK DR DV DW
 --   Authority H2 H3
 --   Other 1.1 work: Recruit J1 J3 | Alts AL | Filter BW | Dues FA FB FC FD FQ FS FU
---   Board G0 G1 GQ | Keys K3 K4 K5 | Channels N1 | Moderation O1 | The Watch MW | Treasury TA TD TW
+--   Board G0 G1 GQ | Groups GA GL GM GR GW GX | Keys K3 K4 K5 | Channels N1 | Moderation O1 | The Watch MW | Treasury TA TD TW
 --   Bank TL TN TO TS | Week Y2 | Wanted WS WX WY. Reserved: J2 (#20's route answer),
 --   FK (a 1.1 build's copy of the dues' amount from the Treasurer's client, read by nobody now).
 --   Bank UP UQ UG (the guild keeper's grant, reader's ask and own-guild snapshot).

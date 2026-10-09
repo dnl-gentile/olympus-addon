@@ -530,7 +530,8 @@ end
 --   hop, treasury, patrol a layer hop, a donation, a patrol's player without the tabard
 --   update                the author's update notice
 --   arena, watch, craft   1.2's Blood Arena, private guild moderation notices, crafting requests
-ns.SOUND_KINDS = { "arms", "muster", "royal", "court", "vox", "agenda", "throne", "help", "hop", "treasury", "patrol", "update", "arena", "watch", "craft" }
+--   groups                1.2: someone applied to your group on the Board (Groups.lua)
+ns.SOUND_KINDS = { "arms", "muster", "royal", "court", "vox", "agenda", "throne", "help", "hop", "treasury", "patrol", "update", "arena", "watch", "craft", "groups" }
 local SOUND_KIND = {}
 for _, k in ipairs(ns.SOUND_KINDS) do SOUND_KIND[k] = true end
 
@@ -2023,6 +2024,7 @@ local function Help()
 	print(L.HELP_TALK)
 	print(L.HELP_VOX)
 	print(L.HELP_BOARD)
+	print(L.HELP_GROUPS)
 	print(L.HELP_CAMP)
 	print(L.HELP_WEEK)
 	print(L.HELP_CMD_MATES)
@@ -2342,7 +2344,7 @@ local function Slash(input)
 		elseif cmd == "discord" then
 			-- Olympus Link (Link.lua): this character's Discord role; confirmers' keys; watchers.
 			ns.Link.Slash(rest)
-		elseif cmd == "lfg" or cmd == "board" or cmd == "camp" or cmd == "camps" or cmd == "week" then
+		elseif cmd == "lfg" or cmd == "board" or cmd == "camp" or cmd == "camps" or cmd == "week" or cmd == "group" or cmd == "groups" then
 			-- The Board (Board.lua, 1.1): who is looking for a group, and where; camps; the King's week.
 			ns.Board.Slash(cmd, rest)
 		elseif cmd == "netoff" or cmd == "neton" then

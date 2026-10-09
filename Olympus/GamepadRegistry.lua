@@ -149,7 +149,7 @@ ns.GAMEPAD = {
 	{ id = "mail-trade-fill", kind = "frame-fill", files = { "Dues.lua", "ArenaMoney.lua" },
 		guard = "gate", toPad = "stays", toMouse = "on", safe = "off",
 		why = "Filling the game's mail and trade windows for the dues (1.2: and the Arena's gold, ArenaMoney.lua): with the gamepad UI a line saying what to send instead." },
-	{ id = "roster-actions", kind = "restricted", files = { "Members.lua", "Dues.lua", "Recruit.lua", "UI.lua", "ChatRooms.lua" },
+	{ id = "roster-actions", kind = "restricted", files = { "Members.lua", "Dues.lua", "Recruit.lua", "UI.lua", "ChatRooms.lua", "Groups.lua" },
 		guard = "click", toPad = "stays", toMouse = "nothing", safe = "off",
 		why = "Invites, whispers sent and guild actions: only from the player's click on an Olympus button." },
 	{ id = "inspect-patrol", kind = "inspect", files = { "Inspect.lua" },
