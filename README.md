@@ -235,9 +235,13 @@ channels; the same charter and Join controls work for each side.
   correspondent. Since 1.2.4, up to 25
   Legates and one correspondent per department (6 at most), members of his own guild only: the
   addon refuses a 26th Legate, a second correspondent for a department, one name twice and
-  anyone outside his roster, and says why. Correspondents retain Max's bronze border without
-  wings. Legates no longer receive that portrait border merely for this office; a separate badge
-  design has not been chosen or enabled. Offices count only while verified in the guild.
+  anyone outside his roster, and says why. By decision of the High Council, Legates and
+  correspondents no longer receive the bronze dragon frame merely for their office: a Legate gets
+  the Legate shield and a correspondent gets their department's shield. A signed High Councillor
+  likewise gets their department shield without replacing the Council's silver frame. Earned
+  honours remain round the portrait underneath the separate badge. Offices count only while
+  verified in the guild. Existing appointees receive this explanation once; a real office or
+  department change explains the new badge again.
   His own client sends the list on the Olympus channel; every addon takes it from that guild's
   master alone (proven as for his bronze wings: your roster for your own guild, two census senders
   for another), retains accepted bounded lists across logouts and offline periods, and drops the
@@ -513,12 +517,13 @@ WoW channel number to join). Each channel is exclusive to a rank:
   channels (General, Trade, LocalDefense, LookingForGroup and any other), say, yell, emote,
   party, raid, instance chat and whispers both ways: the mark of their border's tier, the game's
   gold elite dragon for the King, its silver one for a High Councillor (then the icon they
-  picked), the bronze for a guild master of an Olympus guild and the legates and correspondents
-  he names (1.1.5, in his guild alone), and Olympus's star for any other
+  picked), the bronze for a guild master of an Olympus guild, the Legate or department shield for
+  a verified Legate or correspondent, and Olympus's star for any other
   member your addon can check: your guild's roster, or for another guild its census, naming them
   in the guild their own Olympus messages speak for (someone else's report alone proves nothing,
   and a plain member of another guild is in no census, so gets none). Guild and officer chat show
-  the dragons alone (the King's gold, a High Councillor's silver, the bronze of a guild master and the people he names), never
+  the office marks alone (the King's gold, a High Councillor's silver, a guild master's bronze and
+  the verified Legate or department shields), never
   the star: everyone there is of your guild, and you know who they are. Never on Olympus's own
   lines ([Olympus], [Captains], [Lords] and the Chat tab), which show the name in its colour alone.
   Through the game's own name filter, so the name's link, right-click and /r stay the game's. On
@@ -641,6 +646,10 @@ bottom-to-top always gives the same tab order; changing role or debug view never
   lines, like the pinned line, how many your filter hides in the channel (no room while it hides
   none), and a click there shows them all (another hides them again). A link shows its tooltip
   when you hover it, and a Shift-click puts it in the tab's box.
+- Right-click any saved line and choose **Reply**. The box shows a compact reference to its writer
+  and words; the sent bubble draws that reference above your answer. Older addon versions still
+  see a readable text prefix. Replying changes no identity, delivery, permissions or moderation
+  authority, and the **x** beside the reference cancels it without sending.
 - **The box** runs across the bottom, where the other tabs have their buttons, with no Send
   button: Enter sends. It is Olympus's own, not the game's chat box: it takes the keyboard only
   when you click into it or press your open-chat key (Enter, unless you changed it) while the tab
@@ -2801,9 +2810,9 @@ Other limits:
 | `/oly layerhelp on` · `/oly layerhelp off` | get (or not) requests to invite players to your layer (1.1: not until you say yes) |
 | `/oly layerauto on` · `/oly layerauto off` | invite layer requests without the window |
 | `/oly location on` · `/oly location off` | share (or not) your zone and layer on the Olympus channel |
-| `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus, party members and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council, Max's bronze wings for the guild masters of Olympus guilds, and his bronze without wings for the correspondents a guild master names, while they are in his guild (none for a character or a guild the moderators took off, net-off). Since 1.1.5 the rank borders (gold for Lords, silver for Captains, bronze for Raiders and Veterans) are gone, and any other member has the nameplate star alone. On by default, hidden with the gamepad UI. Off, the nameplate marks go too |
-| `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V), like an elite creature's dragon: the game's gold elite mark for the King, its silver for the High Council, bronze for guild masters and the people they name, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
-| `/oly chatmarks on` · `/oly chatmarks off` | 1.1.5: the mark of a player's border tier before their name in the game's own chat (channels, say, yell, emote, party, raid, instance and whispers; guild and officer chat the dragons alone, never the star): the King's gold dragon, a High Councillor's silver then their icon, the bronze of a guild master and the people he names, the star for any other member your addon can check. Olympus's own lines carry none. Through the game's own name filter, so the name's link, right-click and /r stay the game's; on by default, hidden with the gamepad UI, and a councillor's on the King's screen while the council's names are hidden |
+| `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus, party members and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council and Max's bronze wings for Olympus guild masters (none for a character or guild the moderators took off, net-off). Legates and correspondents use separate verified office shields instead of the old wingless bronze role frame; signed High Council departments use the same shield family without replacing silver, and earned honours remain. Since 1.1.5 the old rank borders (gold for Lords, silver for Captains, bronze for Raiders and Veterans) are gone, and any other member has the nameplate star alone. On by default, hidden with the gamepad UI. Off, the nameplate marks go too |
+| `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V): the game's gold elite mark for the King, silver for the High Council, bronze for guild masters, the verified Legate or department shield for an appointee, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
+| `/oly chatmarks on` · `/oly chatmarks off` | 1.1.5: the verified mark before a player's name in the game's own chat (channels, say, yell, emote, party, raid, instance and whispers; guild and officer chat the office marks alone, never the star): the King's gold dragon, a High Councillor's silver then their icon, a guild master's bronze, the Legate or department shield for an appointee, and the star for any other member your addon can check. Olympus's own lines carry none. Through the game's own name filter, so the name's link, right-click and /r stay the game's; on by default, hidden with the gamepad UI, and a councillor's on the King's screen while the council's names are hidden |
 | `/oly key <secret>` | officers: seal the Olympus channel |
 | `/oly key rotate` | the King or his Steward: a new key for the whole army, by whisper to the Lords and Captains his /who saw in the guilds he picks and over guild chat, never on the Olympus channel (also on the Throne) (1.1) |
 | `/oly block <name>` | ignore a player |
@@ -3142,7 +3151,7 @@ Gundlach and contributors (speedata, 3-clause BSD) for Olympus Link's QR code
   shenanigans_ (the nameplate marks), Valdericht (`<OLYMPIAN>`), Pyralis Ashandar (taking
   donations), Zeal (what the King hides stays off the channel), and FedGuy / Fed Olympus
   (nameplate-assisted layer hopping).
-- **Art:** Max (the bronze elite borders, drawn over the game's own: the winged one is the guild masters' since 1.1.5, the plain one their correspondents').
+- **Art:** Max (the bronze elite borders, drawn over the game's own; the winged one remains the guild masters').
 - **Reports from the field:** Riukensei and PartyRockAce (the gamepad UI), Ignitheus (whispers
   to Forever names), Pyralis Ashandar, the Treasurer (the treasury and the guild bank), and the
   player who told us WoW had handed him the channel.

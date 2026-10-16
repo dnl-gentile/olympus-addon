@@ -9,10 +9,10 @@ local L = ns.L
 -- guild master of an Olympus guild Max's bronze. The rank tiers of 1.0.1 (Lords gold, Captains
 -- silver, Raiders bronze wings, Veterans bronze) are gone: new borders are to come, and one that
 -- nearly everybody has is worth nothing. Any other member: the nameplate star alone, no border.
--- Then two without wings (1.1.5, the author's asks after the High Council's yes): Max's plain
--- bronze for a correspondent per council department, while they are of his guild; appointed
--- Legates keep their identity mark, but no extra portrait frame until their badge is chosen. The bronze
--- mark on nameplates and in the game's chat; and the game's plain silver for the dev's own
+-- Administrative offices use a separate shield badge (the later High Council decision): one for
+-- Legates and one for each correspondent department. They do not grant Max's plain bronze portrait
+-- frame, and never replace an honour a player earned. The same shield is their identity mark on
+-- nameplates and in the game's chat. The game's plain silver remains for the dev's own
 -- character (ns.AUTHOR on his realm group), on the unit frames alone: no mark of its own.
 --
 -- How, on Forever's unit frames (Blizzard_UnitFrame, the "Camelot" family: TargetFrameTemplate
@@ -156,7 +156,7 @@ Borders.TIERS = {
 	{ name = "bronze-elite", file = MEDIA .. "bronze-winged", coords = { 0, 220 / 256, 0, 180 / 256 }, width = 110, height = 90,
 		metal = "bronze", x = 11, y = -4, fallback = WINGED, leader = true },
 	{ name = "bronze", file = MEDIA .. "bronze-plain", coords = { 0, 200 / 256, 0, 200 / 256 }, width = 100, height = 100,
-		metal = "bronze", x = 0, y = 1, fallback = PLAIN, nominee = true },
+		metal = "bronze", x = 0, y = 1, fallback = PLAIN },
 }
 -- Kept for borders to come, given to nobody (1.1.5): no texture is made for it, no unit matches it
 -- and the preview leaves it out. The plain gold.
@@ -178,19 +178,25 @@ local HONOR_SHAPES = {
 	winged = { coords = { 0, 220 / 256, 0, 180 / 256 }, width = 110, height = 90, x = 11, y = -4 },
 	plain = { coords = { 0, 200 / 256, 0, 200 / 256 }, width = 100, height = 100, x = 0, y = 1 },
 }
--- 1.2.4 (the author, of the red cross: "parece meio pequena... Podia ser um pouco maior"): the
--- crosses (the red one, an Apostle's own look, and the gold, silver and bronze of the Church's top
--- 3 Apostles, worn as honours) have a slimmer ring than the beasts' and reach less far (about 37
--- units from the portrait's centre against the others' 38 to 48), so their plain box is drawn 10%
--- bigger, 110 across, about the portrait's centre: that is art 88, 100 of the box's 200 on your own
--- portrait (turned round) and an Olympus portrait (x = 0.56 x width - 56, y = width / 2 - 49), and
--- 90, 98 on the target's and the focus's, the same offsets within 0.1 of a unit. The crook's size
--- then, the game's ring whole inside the cross's, and the art itself (not its box) still within
--- the plain's reach (Borders.PortraitReach). By the art's family (Honors.ArtOf's stem, "cross-red":
--- "cross"); a texture of its own on each rig.
-local HONOR_SIZED = {
-	cross = { coords = { 0, 200 / 256, 0, 200 / 256 }, width = 110, height = 110, x = 5.6, y = 6 },
+-- The finished plain honour families do not occupy the same share of their common 200 x 200 art
+-- box. Draw each at a family-specific box size so its visible art reaches about 90 portrait units,
+-- without stretching it or moving its centre. This replaces the one-off cross correction with one
+-- rule for every shipped family. The values are static because the WoW client cannot inspect a
+-- texture's alpha bounds; they come from the shipped TGAs and therefore remain deterministic.
+local HONOR_BOX_SIZE = {
+	boar = 91, charm = 117, comet = 92, cornucopia = 96, crook = 108, cross = 110,
+	druid = 102, hunter = 94, kodo = 92, koi = 94, lion = 103, mage = 95,
+	mechanostrider = 93, nightsaber = 98, ["orc-wolf"] = 96, owlcat = 101,
+	paladin = 96, priest = 96, ram = 95, raptor = 99, raven = 105, rogue = 97,
+	shaman = 95, ["skeletal-horse"] = 92, warlock = 93,
 }
+local HONOR_SIZED = {}
+for family, size in pairs(HONOR_BOX_SIZE) do
+	HONOR_SIZED[family] = {
+		coords = { 0, 200 / 256, 0, 200 / 256 }, width = size, height = size,
+		x = size / 2 - 50, y = size / 2 - 49,
+	}
+end
 -- An honour's geometry: its family's own size (HONOR_SIZED, plain ones alone) or its shape's, and
 -- the rig's texture it goes on (that family's, or that shape's).
 local function HonorSpec(file, shape)
@@ -204,10 +210,33 @@ end
 -- game's updates. Your own portrait sits on the left, so there the art is mirrored. (The party's
 -- frames come from a pool, not globals: MapParty and PartyRig below.)
 local RIGS = {
-	{ unit = "target", frame = "TargetFrame", container = "TargetFrameContainer", hook = "CheckClassification" },
-	{ unit = "focus", frame = "FocusFrame", container = "TargetFrameContainer", hook = "CheckClassification" },
-	{ unit = "player", frame = "PlayerFrame", container = "PlayerFrameContainer", mirror = true },
+	{ unit = "target", frame = "TargetFrame", container = "TargetFrameContainer", hook = "CheckClassification",
+		content = "TargetFrameContent", contextual = "TargetFrameContentContextual", badgePoint = "TOPRIGHT", badgeX = -75, badgeY = -71, badgeMirror = true },
+	{ unit = "focus", frame = "FocusFrame", container = "TargetFrameContainer", hook = "CheckClassification",
+		content = "TargetFrameContent", contextual = "TargetFrameContentContextual", badgePoint = "TOPRIGHT", badgeX = -75, badgeY = -71, badgeMirror = true },
+	{ unit = "player", frame = "PlayerFrame", container = "PlayerFrameContainer", mirror = true,
+		content = "PlayerFrameContent", contextual = "PlayerFrameContentContextual", badgePoint = "TOPLEFT", badgeX = 83, badgeY = -72 },
 }
+local BADGE_MEDIA = "Interface\\AddOns\\Olympus\\media\\pauldrons\\"
+Borders.ROLE_BADGES = {
+	olympus = { file = BADGE_MEDIA .. "olympus", label = "Olympus" },
+	legate = { file = BADGE_MEDIA .. "legate", label = "Legate" },
+	["federal-treasury"] = { file = BADGE_MEDIA .. "federal-treasury", label = "Federal Treasury" },
+	["department-of-war"] = { file = BADGE_MEDIA .. "department-of-war", label = "Department of War" },
+	["council-of-justice"] = { file = BADGE_MEDIA .. "council-of-justice", label = "Council of Justice" },
+	["association-of-artisanry"] = { file = BADGE_MEDIA .. "association-of-artisanry", label = "Association of Artisanry" },
+	["department-of-heraldry"] = { file = BADGE_MEDIA .. "department-of-heraldry", label = "Department of Heraldry" },
+	["missionary-church-of-olympus"] = { file = BADGE_MEDIA .. "missionary-church-of-olympus", label = "Missionary Church of Olympus" },
+}
+Borders.DEPARTMENT_BADGE = {
+	["Federal Treasury"] = "federal-treasury",
+	["Department of War"] = "department-of-war",
+	["Council of Justice"] = "council-of-justice",
+	["Association of Artisanry"] = "association-of-artisanry",
+	["Department of Heraldry"] = "department-of-heraldry",
+	["The Missionary Church of Olympus"] = "missionary-church-of-olympus",
+}
+Borders.ROLE_BADGE_SIZE = 36
 -- The party's places (see the top of the file), and where its portraits sit against the target's.
 local PARTY = { "party1", "party2", "party3", "party4" }
 local IN_PARTY = { party1 = true, party2 = true, party3 = true, party4 = true }
@@ -252,13 +281,44 @@ local function IsDev(who)
 end
 Borders.IsDevName = IsDev -- (1.2.3: HonorsNet's The Royal Dev title asks the core, never naming the author)
 
--- Existing nominee identity marks remain; only correspondents wear the supplied plain bronze.
--- A Legate's distinct badge has not been supplied, so never guess another role's portrait art.
-local function Nominee(who, guild, portrait)
+-- A verified office is presentation metadata, never a rank or an honour.
+local function Nominee(who, guild)
 	local N = ns.Nominees
 	if type(N) ~= "table" or type(N.RoleOf) ~= "function" then return false end
-	local role = N.RoleOf(who, guild)
-	return portrait and role == "correspondent" or not portrait and role ~= nil
+	return N.RoleOf(who, guild) ~= nil
+end
+
+function Borders.RoleBadgeOfName(who, guild)
+	local N = ns.Nominees
+	if type(who) ~= "string" or type(guild) ~= "string" then return nil end
+	if type(N) == "table" and type(N.RoleOf) == "function" then
+		local role, department = N.RoleOf(who, guild)
+		if role == "centurion" then return "legate" end
+		if role == "correspondent" then return Borders.DEPARTMENT_BADGE[department] end
+	end
+	-- A signed High Councillor keeps the silver rank frame and receives the small badge of the
+	-- department named by the same signed titles list. It is presentation only: a missing title or
+	-- unknown department yields no badge and never invents authority.
+	if type(ns.CouncilTitle) == "function" then
+		local title = ns.CouncilTitle(who)
+		if type(title) == "table" then return Borders.DEPARTMENT_BADGE[title.dept] end
+	end
+	return nil
+end
+
+function Borders.RoleBadgeTexture(mark)
+	local key = type(mark) == "string" and mark:match("^role%-(.+)$") or mark
+	local badge = key and Borders.ROLE_BADGES[key]
+	return badge and badge.file or nil
+end
+
+function Borders.MarkTexture(mark)
+	return Borders.RoleBadgeTexture(mark)
+end
+
+local function RoleMark(who, guild)
+	local key = Borders.RoleBadgeOfName(who, guild)
+	return key and ("role-" .. key) or nil
 end
 
 -- What decides a unit's border, or nil for anyone no border is for: not a player, of the other
@@ -313,7 +373,7 @@ local function Match(f, marked)
 	if not f or f.off then return nil end
 	for _, t in ipairs(Borders.TIERS) do
 		if ((t.king and f.king) or (t.council and f.council) or (t.dev and f.dev) or (t.leader and f.leader)
-			or (t.nominee and f.nominee and (marked or Nominee(f.who, f.guild, true))) or (t.treasurer and f.treasurer)) and not (marked and not Borders.MARK_OF[t.name]) then
+			or (t.treasurer and f.treasurer)) and not (marked and not Borders.MARK_OF[t.name]) then
 			return t
 		end
 	end
@@ -389,7 +449,9 @@ function Borders.MarkOf(unit)
 	local mark
 	if f and not f.off then -- (1.1: none for net-off)
 		local t = Match(f, true)
-		mark = t and Borders.MARK_OF[t.name] or (f.olympus and "member" or nil)
+		mark = t and Borders.MARK_OF[t.name]
+			or (f.olympus and f.nominee and RoleMark(f.who, f.guild) or nil)
+			or (f.olympus and "member" or nil)
 	end
 	return mark, Inputs(f)
 end
@@ -446,7 +508,9 @@ function Borders.MarkOfName(who, guild)
 		f.leader = rank == 0
 	end
 	local t = Match(f, true)
-	return t and Borders.MARK_OF[t.name] or (f.olympus and f.proven and "member" or nil), f
+	return t and Borders.MARK_OF[t.name]
+		or (f.olympus and f.proven and f.nominee and RoleMark(f.who, f.guild) or nil)
+		or (f.olympus and f.proven and "member" or nil), f
 end
 
 function Borders.Enabled() return not (ns.db and ns.db.borders == false) end
@@ -603,10 +667,15 @@ end
 -- portrait as is. (An honour's frame never shows here: ShowHonor, the rank's borders alone.)
 local function PartyRig(frame)
 	local s = PARTY_SCALE
-	return MakeRig(frame, true, s, function(tex, t)
+	local rig = MakeRig(frame, true, s, function(tex, t)
 		local p = type(t.party) == "table" and t.party or t
 		tex:SetPoint("TOPLEFT", frame, "TOPLEFT", PARTY_LEFT - ((p.x or t.x) + TARGET_RIGHT) * s, ((p.y or t.y) + TARGET_TOP) * s - PARTY_TOP)
 	end, PARTY_SUBLEVEL)
+	-- Same authored shield, scaled with the 37 px party portrait and kept inside its lower-right
+	-- corner so it does not become a second frame or push the member's name.
+	rig.badgeOwner, rig.badgeAnchor, rig.badgePoint = frame, frame, "TOPLEFT"
+	rig.badgeX, rig.badgeY, rig.badgeSize = PARTY_LEFT + PARTY_PORTRAIT - 5, -(PARTY_TOP + PARTY_PORTRAIT - 5), math.floor(Borders.ROLE_BADGE_SIZE * PARTY_SCALE + 0.5)
+	return rig
 end
 
 -- Forever's PartyFrame (its member frames from a pool) beside Forever's unit frames, or nil.
@@ -642,7 +711,10 @@ local function MapParty()
 		if rig then mapped[rig] = true end
 	end
 	for _, rig in pairs(partyRigs) do
-		if not mapped[rig] then Show(rig, nil) end
+		if not mapped[rig] then
+			Show(rig, nil)
+			if Borders.ShowRoleBadge then Borders.ShowRoleBadge(rig, nil) end
+		end
 	end
 end
 
@@ -661,7 +733,14 @@ function Borders.Install() -- gp:borders
 		local frame = _G[spec.frame]
 		local container = type(frame) == "table" and frame[spec.container] or nil
 		if type(container) == "table" and type(container.CreateTexture) == "function" then
-			rigs[spec.unit] = Borders.Rig(container, spec.mirror)
+			local rig = Borders.Rig(container, spec.mirror)
+			local content = type(frame) == "table" and frame[spec.content] or nil
+			local owner = type(content) == "table" and content[spec.contextual] or nil
+			if type(owner) == "table" and type(owner.CreateTexture) == "function" then
+				rig.badgeOwner, rig.badgeAnchor, rig.badgePoint = owner, container, spec.badgePoint
+				rig.badgeX, rig.badgeY, rig.badgeSize, rig.badgeMirror = spec.badgeX, spec.badgeY, Borders.ROLE_BADGE_SIZE, spec.badgeMirror
+			end
+			rigs[spec.unit] = rig
 			if spec.hook and type(frame[spec.hook]) == "function" and type(hooksecurefunc) == "function" then
 				local unit, where = spec.unit, "borders " .. spec.unit
 				hooksecurefunc(frame, spec.hook, function() ns.SafeCall(where, Borders.Refresh, unit) end)
@@ -677,6 +756,45 @@ function Borders.Install() -- gp:borders
 		hooksecurefunc(party, "InitializePartyMemberFrames", function() ns.SafeCall("borders party", Borders.RefreshParty) end)
 	end
 	ns.Log("borders: set up on %s", Borders.Frames())
+	return true
+end
+
+-- An office badge is a separate, normalized 256-square shield over the native portrait. It never
+-- participates in border precedence, so a verified honour, Crown frame or guild-master frame
+-- remains untouched. Creation, anchoring and texture changes wait for combat to end; hiding is
+-- safe immediately. Every role in this family uses the same box and placement.
+function Borders.ShowRoleBadge(rig, key)
+	if not rig then return false end
+	local badge = type(key) == "string" and Borders.ROLE_BADGES[key] or nil
+	if not badge or not rig.badgeOwner then
+		if rig.roleBadge then rig.roleBadge:Hide(); rig.roleBadgeKey = nil end
+		return false
+	end
+	if InCombatLockdown and InCombatLockdown() then
+		if rig.roleBadge then rig.roleBadge:Hide() end
+		waiting = true
+		return false
+	end
+	local tex = rig.roleBadge
+	if not tex then
+		local ok
+		ok, tex = pcall(rig.badgeOwner.CreateTexture, rig.badgeOwner, nil, "OVERLAY", nil, 7)
+		if not ok or type(tex) ~= "table" then return false end
+		tex:Hide()
+		tex:SetSize(rig.badgeSize, rig.badgeSize)
+		tex:SetPoint("CENTER", rig.badgeAnchor, rig.badgePoint, rig.badgeX, rig.badgeY)
+		if rig.badgeMirror then tex:SetTexCoord(1, 0, 0, 1) end
+		if type(tex.SetSnapToPixelGrid) == "function" then pcall(tex.SetSnapToPixelGrid, tex, false) end
+		if type(tex.SetTexelSnappingBias) == "function" then pcall(tex.SetTexelSnappingBias, tex, 0) end
+		rig.roleBadge = tex
+	end
+	if rig.roleBadgeKey ~= key then
+		tex:Hide()
+		local ok, loaded = pcall(tex.SetTexture, tex, badge.file)
+		if not ok or loaded == false then rig.roleBadgeKey = nil return false end
+		rig.roleBadgeKey = key
+	end
+	tex:Show()
 	return true
 end
 
@@ -952,8 +1070,8 @@ end
 -- How far the art round an Olympus portrait may reach past the portrait's square, in its own
 -- units (60 across): { left, right, top, bottom }, the most of every shape, turned round as yours
 -- (the winged 37 left, 13 right, 15 up and down; the plain 26 left, 14 right, 20 up and down), so
--- a screen keeps its words clear of it. (1.2.4: the crosses' bigger box, HONOR_SIZED, is left out:
--- their art at that size, not their box, stays within the plain's.) With `size`, for a portrait
+-- a screen keeps its words clear of it. (The normalized family boxes, HONOR_SIZED, are left out:
+-- their visible art, not the transparent box, stays within the plain's.) With `size`, for a portrait
 -- that size across on screen: whole pixels (times size / 60, rounded up).
 function Borders.PortraitReach(size)
 	local P = Borders.PORTRAIT
@@ -988,7 +1106,7 @@ end
 -- while it is us, the author's preview instead while it is on.
 function Borders.Refresh(unit, fresh)
 	if not Active() then
-		if rigs[unit] then Show(rigs[unit], nil) end
+		if rigs[unit] then Show(rigs[unit], nil); Borders.ShowRoleBadge(rigs[unit], nil) end
 		return
 	end
 	if not installed and not Borders.Install() then return end
@@ -1003,6 +1121,7 @@ function Borders.Refresh(unit, fresh)
 	if Secret(guid) then guid = nil end
 	local k = known[unit]
 	if fresh or not k or guid == nil or k.guid ~= guid then k = Compute(unit, guid) end
+	Borders.ShowRoleBadge(rig, not k.off and k.who and k.guild and Borders.RoleBadgeOfName(k.who, k.guild) or nil)
 	local chosen = preview and UnitExists(unit) and IsMe(unit, guid) and preview or nil
 	if chosen then return ShowPreview(rig, chosen) end
 	-- 1.2.1: an Apostle's own look, on his own portrait on his own screen (Borders.OwnLook).
@@ -1041,7 +1160,7 @@ end
 -- its frames out anew meanwhile): Refresh works it out again for a member when they are back.
 function Borders.RefreshParty(fresh)
 	if not Active() then
-		for _, rig in pairs(partyRigs) do Show(rig, nil) end
+		for _, rig in pairs(partyRigs) do Show(rig, nil); Borders.ShowRoleBadge(rig, nil) end
 		for _, unit in ipairs(PARTY) do rigs[unit] = nil end
 		return
 	end
@@ -1309,6 +1428,7 @@ Borders.CHAT_STAR = "|T" .. CHAT_STAR_FILE .. ":14:14|t"
 local CHAT_ATLAS = { gold = "nameplates-icon-elite-gold", silver = "nameplates-icon-elite-silver", bronze = "nameplates-icon-elite-gold" }
 local CHAT_BRONZE_TINT = ":0:0:158:118:86" -- (Nameplates.BRONZE x 255)
 local CHAT_RANK = { gold = 4, silver = 3, bronze = 2, member = 1 }
+for key in pairs(Borders.ROLE_BADGES) do CHAT_RANK["role-" .. key] = 1.5 end
 Borders.CHAT_PREVIEWS = { gold = true, silver = true, bronze = true, member = true }
 
 -- A mark's own art at `size` px ("gold", "silver", "bronze", "member"), or nil for another word or
@@ -1316,6 +1436,8 @@ Borders.CHAT_PREVIEWS = { gold = true, silver = true, bronze = true, member = tr
 local function ChatArt(mark, size)
 	size = math.floor(tonumber(size) or Borders.CHAT_SIZE)
 	if mark == "member" then return ("|T%s:%d:%d|t"):format(CHAT_STAR_FILE, size, size) end
+	local role = Borders.RoleBadgeTexture(mark)
+	if role then return ("|T%s:%d:%d|t"):format(role, size, size) end
 	local atlas = CHAT_ATLAS[mark]
 	if not atlas or not AtlasExists(atlas) then return nil end
 	return ("|A:%s:%d:%d%s|a"):format(atlas, size, size, mark == "bronze" and CHAT_BRONZE_TINT or "")
@@ -1326,7 +1448,7 @@ end
 -- (Workshop.lua's council icon picker shows the silver with the icon it picks.)
 local function ChatText(mark, who)
 	if mark == "member" then return Borders.CHAT_STAR, "member" end
-	if not CHAT_ATLAS[mark] then return nil end
+	if not CHAT_ATLAS[mark] and not Borders.RoleBadgeTexture(mark) then return nil end
 	local text = ChatArt(mark)
 	if not text then return Borders.CHAT_STAR, "member" end
 	if mark == "silver" and who then text = text .. ns.CouncilIcon(who) end

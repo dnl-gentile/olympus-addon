@@ -73,19 +73,24 @@ end)
 
 test("nominees retention: duty notice is local and once for an actual continuous Legate appointment, not heartbeats, unrelated edits or reload; removal re-arms it", function()
 	World(function(w, c)
+		local function Count(needle)
+			local n = 0; for _, line in ipairs(w.prints) do if line:find(needle or c.L.NOMINEES_LEGATE_DUTY, 1, true) then n = n + 1 end end
+			return n
+		end
 		w.take(w.guild, "Peer-Realm", w.now, "c=Adept")
 		eq(c.db.legateNotices, nil, "spoofed appointment has no notice or saved stamp")
 		w.quiet = true
 		w.take(w.guild, "Guildmaster-Realm", w.now, "c=Adept")
 		eq(c.db.legateNotices, nil, "quiet context does not spend the notice")
 		w.quiet = false
+		-- An appointment already acknowledged by the old policy is told exactly once about the High
+		-- Council's new badge/frame rule; it is not treated as a new appointment.
+		c.db.legateNotices = { [c.me:lower()] = { guild = w.guild, role = "centurion", active = true, rev = w.now } }
 		eq(c.Nominees.AppointmentNotice(c.Nominees.ListOf(w.guild)), true)
 		local first = c.db.legateNotices[c.me:lower()].rev
-		local function Count()
-			local n = 0; for _, line in ipairs(w.prints) do if line:find(c.L.NOMINEES_LEGATE_DUTY, 1, true) then n = n + 1 end end
-			return n
-		end
-		eq(Count(), 1); eq(#w.packets, 0, "no peer message or native invitation")
+		eq(Count(), 1); eq(Count(c.L.NOMINEES_BADGE_DECISION), 1, "the decision and replacement are explained")
+		eq(c.db.legateNotices[c.me:lower()].rule, c.Nominees.NOTICE_RULE)
+		eq(#w.packets, 0, "no peer message or native invitation")
 		w.take(w.guild, "Guildmaster-Realm", w.now, "c=Adept")
 		w.take(w.guild, "Guildmaster-Realm", w.now + 1, "c=Adept;c=Peer")
 		eq(Count(), 1, "another nominee's revision is not our new appointment")
@@ -96,6 +101,23 @@ test("nominees retention: duty notice is local and once for an actual continuous
 		w.take(w.guild, "Guildmaster-Realm", w.now + 3, "c=Adept;c=Peer")
 		eq(Count(), 2, "an actual reappointment explains the duty again")
 		eq(c.db.legateNotices[c.me:lower()].rev, w.now + 3)
+	end)
+end)
+
+test("nominees retention: a correspondent receives the one-time department badge notice, including an office change", function()
+	World(function(w, c)
+		local function Count()
+			local n = 0; for _, line in ipairs(w.prints) do if line:find(c.L.NOMINEES_CORRESPONDENT_DUTY, 1, true) then n = n + 1 end end
+			return n
+		end
+		w.take(w.guild, "Guildmaster-Realm", w.now, "d=Department of War=Adept")
+		eq(Count(), 1)
+		local badge = false; for _, line in ipairs(w.prints) do if line:find(c.L.NOMINEES_BADGE_DECISION, 1, true) then badge = true end end
+		assert(badge, "the correspondent's notice includes the badge decision")
+		w.take(w.guild, "Guildmaster-Realm", w.now + 1, "d=Department of War=Adept;c=Peer")
+		eq(Count(), 1, "an unrelated appointment does not repeat it")
+		w.take(w.guild, "Guildmaster-Realm", w.now + 2, "d=Federal Treasury=Adept;c=Peer")
+		eq(Count(), 2, "a real department change explains the new badge")
 	end)
 end)
 

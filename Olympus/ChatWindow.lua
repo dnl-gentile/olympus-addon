@@ -200,6 +200,32 @@ function ChatWindow.Localized(key, fallback)
 	local value = L[key]
 	return type(value) == "string" and value ~= key and value or fallback
 end
+
+-- A reply stays readable on older clients: it is an ordinary text prefix, not a new transport
+-- packet. Updated clients recognize that bounded prefix and draw it as a compact quote. It is
+-- presentation only and grants no identity or moderation authority.
+function ChatWindow.ReplyPart(value, limit)
+	local s = ns.Codec.Plain(tostring(value or "")):gsub("[%c%[%]]", " "):gsub("%s+", " ")
+	s = Trim(s)
+	limit = tonumber(limit) or 72
+	if #s > limit then
+		s = s:sub(1, limit):gsub("[\128-\191]+$", "") .. "..."
+	end
+	return s
+end
+function ChatWindow.DecodeReply(text)
+	if type(text) ~= "string" then return nil, text end
+	local who, quote, body = text:match("^%[reply @([^%]]+)%] ([^\n]*)\n([%s%S]*)$")
+	if not who or who == "" or quote == "" then return nil, text end
+	return { who = ChatWindow.ReplyPart(who, 48), text = ChatWindow.ReplyPart(quote, 84) }, body
+end
+function ChatWindow.EncodeReply(reply, text)
+	if type(reply) ~= "table" then return text end
+	local who = ChatWindow.ReplyPart(reply.who or reply.sender, 48)
+	local quote = ChatWindow.ReplyPart(reply.text, 84)
+	if who == "" or quote == "" then return text end
+	return ("[reply @%s] %s\n%s"):format(who, quote, text)
+end
 local function Dynamic(t) return type(t) == "string" and dynamicRooms[t] or nil end
 -- (1.2.3: kept for the era, ChatWindow.logicalOf. ChatRooms.Info makes a new description at each
 -- call and asks every provider of private rooms about the id first: the tab asked it a few
@@ -356,7 +382,9 @@ end
 
 function ChatWindow.LoadDraft(t)
 	if not frame or not frame.input then return end
+	if frame.reply and frame.reply.chat ~= t then ChatWindow.ClearReply(frame) end
 	frame.input:SetText(ChatWindow.drafts[t] or "")
+	ChatWindow.UpdateReplyComposer(frame)
 end
 
 -- The choices in the Chat page's existing switch: its three rank-gated channels, unchanged and
@@ -613,6 +641,14 @@ local function NewBubble(pane)
 	b.body:SetWordWrap(true)
 	if b.body.SetNonSpaceWrap then b.body:SetNonSpaceWrap(true) end
 	b.body:SetTextColor(0.95, 0.95, 0.95)
+	-- A referenced line: deliberately smaller and quieter than the new words, with the same gold
+	-- accent used by native Olympus detail strips. The wire prefix itself is never shown twice.
+	b.replyBar = b:CreateTexture(nil, "ARTWORK")
+	b.replyBar:SetWidth(2); b.replyBar:SetColorTexture(1, 0.82, 0, 0.9); b.replyBar:Hide()
+	b.replyWho = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	b.replyWho:SetJustifyH("LEFT"); b.replyWho:SetTextColor(1, 0.82, 0); b.replyWho:Hide()
+	b.replyText = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	b.replyText:SetJustifyH("LEFT"); b.replyText:SetWordWrap(true); b.replyText:SetTextColor(0.65, 0.65, 0.68); b.replyText:Hide()
 	-- Its links: a tooltip on hover, into our own box with Shift.
 	if b.SetHyperlinksEnabled then b:SetHyperlinksEnabled(true) end
 	b:SetScript("OnHyperlinkEnter", function(self, link) ns.SafeCall("chat tab link", LinkTip, self, link) end)
@@ -745,7 +781,10 @@ function ChatWindow.ViewOf(e, hides)
 		local t = tonumber(e.t) or 0
 		v.at, v.when, v.day = t, Grey(date("%H:%M", t)), date("%Y-%m-%d", t)
 		v.dayRow, v.full = Grey(v.day), ns.FullName(e.sender)
-		v.body = ns.Codec.SanitizeChat(e.text)
+		local reply, body = ChatWindow.DecodeReply(e.text)
+		v.replyWho = reply and ns.Codec.SanitizeChat(reply.who) or nil
+		v.replyText = reply and ns.Codec.SanitizeChat(reply.text) or nil
+		v.body = ns.Codec.SanitizeChat(body)
 		v.era, v.found = nil, nil
 	end
 	if v.era ~= ChatWindow.era or v.hides ~= hides or v.del ~= e.del then
@@ -824,6 +863,7 @@ local function Bubble(i, e, start, y, maxInner, hides, pane, room)
 	local who, when, whisper, full
 	if start then who, when, whisper, full = ChatWindow.HeaderOf(v, e, deleted) end
 	local text = deleted and ns.WatchChat.DeletedBody() or hidden and Grey(L.CHATWIN_HIDDEN) or v.shown
+	local replyWho, replyText = not deleted and not hidden and v.replyWho or nil, not deleted and not hidden and v.replyText or nil
 	local bodyFont, bodySize, bodyFlags = ChatWindow.FontOf(b.body)
 	local whoFont, whoSize, whoFlags = ChatWindow.FontOf(b.who)
 	-- (Written into the bubble's second look, b.lookNext, not a new table: no garbage each redraw.)
@@ -831,8 +871,9 @@ local function Bubble(i, e, start, y, maxInner, hides, pane, room)
 	b.lookNext = k
 	k[1], k[2], k[3], k[4], k[5], k[6], k[7], k[8], k[9], k[10] = ChatWindow.lookEra, start == true, maxInner, mine,
 		veiled, modRoom, c[1], c[2], c[3], who
-	k[11], k[12], k[13], k[14], k[15], k[16], k[17], k[18], k[19], k[20], k.n = when, whisper, full, text,
-		bodyFont, bodySize, bodyFlags, whoFont, whoSize, whoFlags, 20
+	k[11], k[12], k[13], k[14], k[15], k[16], k[17], k[18], k[19], k[20] = when, whisper, full, text,
+		bodyFont, bodySize, bodyFlags, whoFont, whoSize, whoFlags
+	k[21], k[22], k.n = replyWho, replyText, 22
 	if ChatWindow.SameLook(b, k) then
 		b:ClearAllPoints()
 		if mine then
@@ -867,7 +908,10 @@ local function Bubble(i, e, start, y, maxInner, hides, pane, room)
 		b.header:Hide()
 	end
 	b.body:SetText(text)
-	local inner = math.min(maxInner, math.max(math.ceil(TextWidth(b.body)), headerW, 1))
+	b.replyWho:SetText(replyWho or "")
+	b.replyText:SetText(replyText or "")
+	local replyWidth = replyWho and math.max(math.ceil(TextWidth(b.replyWho)), math.ceil(TextWidth(b.replyText)) + 6) or 0
+	local inner = math.min(maxInner, math.max(math.ceil(TextWidth(b.body)), headerW, replyWidth, 1))
 	b.body:SetWidth(inner)
 	local bodyH = TextHeight(b.body, inner)
 	local top = PAD
@@ -875,6 +919,19 @@ local function Bubble(i, e, start, y, maxInner, hides, pane, room)
 		b.header:SetWidth(inner)
 		b.who:SetWidth(math.max(1, inner - timeW - 8 - (modRoom and 18 or 0)))
 		top = top + HEADER_H + 2
+	end
+	if replyWho then
+		local quoteWidth = math.max(1, inner - 8)
+		b.replyWho:SetWidth(quoteWidth)
+		b.replyText:SetWidth(quoteWidth)
+		local replyH = 12 + TextHeight(b.replyText, quoteWidth)
+		b.replyBar:ClearAllPoints(); b.replyBar:SetPoint("TOPLEFT", b, "TOPLEFT", PAD, -top); b.replyBar:SetHeight(replyH)
+		b.replyWho:ClearAllPoints(); b.replyWho:SetPoint("TOPLEFT", b.replyBar, "TOPRIGHT", 6, 0)
+		b.replyText:ClearAllPoints(); b.replyText:SetPoint("TOPLEFT", b.replyWho, "BOTTOMLEFT", 0, -1)
+		b.replyBar:Show(); b.replyWho:Show(); b.replyText:Show()
+		top = top + replyH + 5
+	else
+		b.replyBar:Hide(); b.replyWho:Hide(); b.replyText:Hide()
 	end
 	-- (The moderator's button, while hovered: left of the time in a header, else the top corner.)
 	if b.mod then
@@ -959,11 +1016,10 @@ end
 
 function ChatWindow.ModerateLine(b)
 	if b and b.mod then b.mod:Hide() end
-	local e, WC = ChatWindow.ModEntry(b)
-	-- (1.2.1: a line this client may not act on: Report to Olympus on it instead, for any member.)
-	if not e then return ChatWindow.ReportLine(b) end
+	local e = b and b.entry
+	if type(e) ~= "table" or e.del then return false end
 	if b.embedded then return b.embedded.moderate(b) end
-	ChatWindow.OpenSubMenu({ kind = "moderation", bubble = b, target = e, chat = b.chat }, b)
+	ChatWindow.OpenSubMenu({ kind = "line", bubble = b, target = e, chat = b.chat }, b)
 	return true
 end
 
@@ -1017,6 +1073,58 @@ function ChatWindow.ModerationOptions(entry)
 	if type(WC.TimeoutOf) == "function" and WC.TimeoutOf(e.sender) then
 		out[#out + 1] = { label = L.WATCHCHAT_LIFT_BTN, onClick = Action("lift") }
 	end
+	return out
+end
+
+function ChatWindow.ReplyEntry(b)
+	if not b or type(b.entry) ~= "table" or b.entry.del or type(b.chat) ~= "string" then return nil end
+	return b.entry
+end
+
+function ChatWindow.BeginReply(b)
+	local e = ChatWindow.ReplyEntry(b)
+	if not e then return false end
+	local p = b.embedded or frame
+	if not p or not p.input then return false end
+	local _, body = ChatWindow.DecodeReply(e.text)
+	p.reply = {
+		entry = e, chat = b.chat, sender = e.sender,
+		who = ns.DisplayName(e.sender) or ns.ShortName(e.sender) or "?",
+		text = body,
+	}
+	ChatWindow.UpdateReplyComposer(p)
+	if ns.Focus then ns.Focus(p.input) end
+	return true
+end
+
+function ChatWindow.ClearReply(p, redraw)
+	if not p or not p.reply then return false end
+	p.reply = nil
+	ChatWindow.UpdateReplyComposer(p)
+	if redraw then
+		if p.embedded and p.Render then p:Render(true) else MarkDirty() end
+	end
+	return true
+end
+
+function ChatWindow.ReplyOptions(entry)
+	local e = ChatWindow.ReplyEntry(entry.bubble)
+	if not e or e ~= entry.target or entry.bubble.chat ~= entry.chat then return {} end
+	return { { label = ChatWindow.Localized("CHATWIN_REPLY", "Reply"), onClick = function()
+		local current = ChatWindow.ReplyEntry(entry.bubble)
+		if current == e and entry.bubble.chat == entry.chat then ChatWindow.BeginReply(entry.bubble) end
+	end } }
+end
+
+function ChatWindow.LineOptions(entry)
+	local out = {}
+	local moderated = ChatWindow.ModerationOptions(entry)
+	if #moderated > 0 then
+		for _, option in ipairs(moderated) do out[#out + 1] = option end
+	else
+		for _, option in ipairs(ChatWindow.ReportOptions(entry)) do out[#out + 1] = option end
+	end
+	for _, option in ipairs(ChatWindow.ReplyOptions(entry)) do out[#out + 1] = option end
 	return out
 end
 
@@ -1373,6 +1481,7 @@ end
 function ChatWindow.SubMenuOptions(entry)
 	if entry.kind == "moderation" then return ChatWindow.ModerationOptions(entry) end
 	if entry.kind == "report" then return ChatWindow.ReportOptions(entry) end
+	if entry.kind == "line" then return ChatWindow.LineOptions(entry) end
 	local R = ns.ChatRooms
 	return entry.kind == "arena" and ChatWindow.ArenaOptions(true)
 		or (type(R) == "table" and type(R.Options) == "function" and R.Options(entry.kind) or {})
@@ -1622,7 +1731,7 @@ function ChatWindow.OpenSubMenu(entry, owner, page)
 	local menu = frame.subMenu
 	local menuWidth = ChatWindow.FillMenu(menu, items, math.max(80, frame:GetWidth() - 24))
 	menu:ClearAllPoints()
-	if entry.kind == "moderation" or entry.kind == "report" then
+	if entry.kind == "moderation" or entry.kind == "report" or entry.kind == "line" then
 		menu:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, -2)
 	else
 	local top = owner:GetBottom() - frame:GetTop() - 2
@@ -2566,6 +2675,7 @@ local function ShowParts(mode)
 	local lines = mode == "lines"
 	frame.scroll:SetShown(lines)
 	frame.input:SetShown(lines)
+	if frame.replyComposer then frame.replyComposer:SetShown(lines and frame.reply ~= nil) end
 	frame.off:SetShown(mode == "off")
 	frame.setScroll:SetShown(mode == "settings")
 	if not lines then
@@ -2898,21 +3008,23 @@ local function Submit()
 		-- channels retain their old keepMute behaviour.
 		local room = Dynamic(tier)
 		local logical = ChatWindow.Logical(tier)
+		local outgoing = ChatWindow.EncodeReply(frame.reply, text)
 		local ok, why, left
 		if room then
 			local A = ns.ArenaChat
-			if type(A) == "table" and type(A.Send) == "function" then ok, why = A.Send(room.id, text) else ok, why = false, "room" end
+			if type(A) == "table" and type(A.Send) == "function" then ok, why = A.Send(room.id, outgoing) else ok, why = false, "room" end
 		elseif logical then
 			local R = ns.ChatRooms
-			if type(R) == "table" and type(R.Send) == "function" then ok, why, left = R.Send(tier, text) else ok, why = false, "room" end
+			if type(R) == "table" and type(R.Send) == "function" then ok, why, left = R.Send(tier, outgoing) else ok, why = false, "room" end
 			if not ok and type(R) == "table" and type(R.Own) == "function" and R.Own(tier) then ChatWindow.Refused(tier, why) end
 		else
-			ok, why = ns.Channels.Send(tier, text, nil, true)
+			ok, why = ns.Channels.Send(tier, outgoing, nil, true)
 		end
 		-- Sent, or held by the privacy warning (it sends the line on the player's OK): the box
 		-- empties. Refused: the text stays (Send said why).
 		if ok or why == "confirm" then
 			eb:SetText("")
+			ChatWindow.ClearReply(frame)
 			if ok and not room then notes[tier] = nil end
 			local R = ns.ChatRooms
 			if ok and logical and (tonumber(left) or 0) > 0 and type(R) == "table" and type(R.NotReachedText) == "function" then
@@ -3434,16 +3546,18 @@ function ChatWindow.CreateEmbedded(parent, opts)
 		if text == "" then self:SetText(""); keep = false
 		elseif text:sub(1, 1) == "/" then ns.Print(L.CHATWIN_NO_SLASH:format(opts.label and opts.label() or "Bones"))
 		elseif opts.maySend() then
-			local sent, why = opts.send(text)
-			if sent or why == "confirm" then self:SetText(""); p:Render(true) end
+			local sent, why = opts.send(ChatWindow.EncodeReply(p.reply, text))
+			if sent or why == "confirm" then
+				self:SetText(""); ChatWindow.ClearReply(p); p:Render(true)
+			end
 			if why == "confirm" then keep = false end
 		end
 		if not keep then self:ClearFocus() end
 	end)
 	function p.moderate(b)
-		local e = ChatWindow.ModEntry(b)
+		local e = ChatWindow.ReplyEntry(b)
 		if not e then return false end
-		local options = ChatWindow.ModerationOptions({ bubble = b, target = e, chat = b.chat })
+		local options = ChatWindow.LineOptions({ kind = "line", bubble = b, target = e, chat = b.chat })
 		if #options == 0 then return false end
 		local menu = p.modMenu
 		if not menu then
@@ -3451,7 +3565,7 @@ function ChatWindow.CreateEmbedded(parent, opts)
 			local wash = menu:CreateTexture(nil, "BACKGROUND"); wash:SetAllPoints(); wash:SetColorTexture(0.08, 0.08, 0.1, 1)
 			menu:SetFrameLevel(p:GetFrameLevel() + 30)
 		end
-		menu:ClearAllPoints(); menu:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", 4, 36); menu:SetSize(math.max(160, p:GetWidth() - 8), #options * 22 + 8)
+		menu:ClearAllPoints(); menu:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", 4, p.reply and 65 or 36); menu:SetSize(math.max(160, p:GetWidth() - 8), #options * 22 + 8)
 		p.modBubble, p.modTarget = b, e
 		for i, option in ipairs(options) do
 			local row = menu.rows[i] or CreateFrame("Button", nil, menu)
@@ -3483,6 +3597,7 @@ function ChatWindow.CreateEmbedded(parent, opts)
 		if self.modMenu and ChatWindow.ModEntry(self.modBubble) ~= self.modTarget then self.modMenu:Hide() end
 		self.content:SetHeight(math.max(1, y + 8))
 		self.input:SetShown(opts.maySend() == true)
+		ChatWindow.UpdateReplyComposer(self)
 		local label = opts.label and opts.label() or "Bones"
 		eb.label:SetText("|c" .. Hex(self.colour) .. "[" .. label .. "]:|r")
 		local lw = math.ceil(TextWidth(eb.label)); eb:SetTextInsets(lw + 6, 6, 0, 0)
@@ -3492,7 +3607,10 @@ function ChatWindow.CreateEmbedded(parent, opts)
 		scroll:SetVerticalScroll((bottom or following) and scroll:GetVerticalScrollRange() or math.min(at, scroll:GetVerticalScrollRange()))
 	end
 	p.render = function() p:Render() end
-	p:HookScript("OnHide", function() eb:ClearFocus(); p.search:ClearFocus(); if p.modMenu then p.modMenu:Hide() end end)
+	ChatWindow.MakeReplyComposer(p)
+	p:HookScript("OnHide", function()
+		ChatWindow.ClearReply(p); eb:ClearFocus(); p.search:ClearFocus(); if p.modMenu then p.modMenu:Hide() end
+	end)
 	return p
 end
 
@@ -3504,6 +3622,46 @@ function ChatWindow.InputBorder(eb)
 	local mid = eb:CreateTexture(nil, "BACKGROUND")
 	mid:SetTexture("Interface\\ChatFrame\\UI-ChatInputBorder-Mid2"); if mid.SetHorizTile then mid:SetHorizTile(true) end
 	mid:SetHeight(32); mid:SetPoint("TOPLEFT", left, "TOPRIGHT", 0, 0); mid:SetPoint("TOPRIGHT", right, "TOPLEFT", 0, 0)
+end
+
+-- The composer quote is owned by its pane. It occupies one compact row immediately above that
+-- pane's input, and moves only the conversation's lower edge; cancelling it sends nothing.
+function ChatWindow.MakeReplyComposer(p)
+	local c = CreateFrame("Frame", nil, p)
+	c.bg = c:CreateTexture(nil, "BACKGROUND"); c.bg:SetAllPoints(); c.bg:SetColorTexture(0.07, 0.07, 0.09, 0.96)
+	c.bar = c:CreateTexture(nil, "ARTWORK"); c.bar:SetWidth(2); c.bar:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0); c.bar:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 0, 0); c.bar:SetColorTexture(1, 0.82, 0, 1)
+	c.label = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); c.label:SetPoint("TOPLEFT", c, "TOPLEFT", 8, -2); c.label:SetTextColor(1, 0.82, 0)
+	c.text = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); c.text:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 8, 2); c.text:SetPoint("RIGHT", c, "RIGHT", -22, 0); c.text:SetJustifyH("LEFT"); c.text:SetWordWrap(false); c.text:SetTextColor(0.65, 0.65, 0.68)
+	c.cancel = CreateFrame("Button", nil, c); c.cancel:SetSize(18, 18); c.cancel:SetPoint("RIGHT", c, "RIGHT", -2, 0)
+	c.cancel.text = c.cancel:CreateFontString(nil, "OVERLAY", "GameFontNormal"); c.cancel.text:SetPoint("CENTER", c.cancel, "CENTER", 0, 1); c.cancel.text:SetText("x")
+	c.cancel:SetScript("OnClick", function() ChatWindow.ClearReply(p, true) end)
+	c.cancel:SetScript("OnEnter", function(self)
+		Tip(self, function(tt) tt:AddLine(ChatWindow.Localized("CHATWIN_REPLY_CANCEL", "Cancel reply"), 1, 0.82, 0) end)
+	end)
+	c.cancel:SetScript("OnLeave", function(self) Untip(self) end)
+	c:SetHeight(27); c:Hide(); p.replyComposer = c
+	return c
+end
+
+function ChatWindow.UpdateReplyComposer(p)
+	if not p or not p.replyComposer or not p.box then return end
+	local c, r = p.replyComposer, p.reply
+	c:ClearAllPoints()
+	if p.embedded then
+		c:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", 6, 35); c:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -6, 35)
+		p.box:ClearAllPoints(); p.box:SetPoint("TOPLEFT", p, "TOPLEFT", 0, -54)
+		p.box:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", 0, r and 64 or 36)
+	elseif p.places then
+		local input, box = p.places.input, p.places.box
+		c:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", input.left + 4, input.y + input.h + 2)
+		c:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", input.right - 4, input.y + input.h + 2)
+		p.box:ClearAllPoints(); p.box:SetPoint("TOPLEFT", p, "TOPLEFT", box.left, box.top)
+		p.box:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", box.right, box.bottom + (r and 29 or 0))
+	end
+	if not r then c:Hide(); return end
+	c.label:SetText(ChatWindow.Localized("CHATWIN_REPLYING_TO", "Replying to %s"):format(ChatWindow.ReplyPart(r.who, 48)))
+	c.text:SetText(ChatWindow.ReplyPart(r.text, 92))
+	c:Show()
 end
 
 local function Build(h)
@@ -3679,8 +3837,10 @@ local function Build(h)
 	eb:SetScript("OnEditFocusLost", function() ns.SafeCall("chat tab box", Hint) end)
 	eb:SetScript("OnHide", function(self) self:ClearFocus() end)
 	p.input = eb
+	ChatWindow.MakeReplyComposer(p)
 
 	p:HookScript("OnHide", function()
+		ChatWindow.ClearReply(p)
 		eb:ClearFocus()
 		sb:ClearFocus()
 		p.menu:Hide()
@@ -3720,6 +3880,7 @@ local function Place(p, places)
 	eb:SetHeight(input.h)
 	eb:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", input.left + 10, input.y)
 	PlaceInput(p)
+	ChatWindow.UpdateReplyComposer(p)
 end
 
 ---------------------------------------------------------------------------
@@ -4153,16 +4314,16 @@ end
 ns.On("DATA_CHANGED", function()
 	if frame and frame.subEntry then
 		local entry, available = frame.subEntry, false
-		if entry.kind == "moderation" or entry.kind == "report" then available = #ChatWindow.SubMenuOptions(entry) > 0 end
+		if entry.kind == "moderation" or entry.kind == "report" or entry.kind == "line" then available = #ChatWindow.SubMenuOptions(entry) > 0 end
 		for _, current in ipairs(ChatWindow.SubtabEntries()) do if current.kind == entry.kind then available = true; break end end
 		if not available or frame.subSignature ~= ChatWindow.SubMenuSignature(entry, ChatWindow.SubMenuOptions(entry)) then ChatWindow.CloseSubMenu() end
 	end
 	if Shown() then dataPending = true end
 end)
 ns.On("WATCHCHAT_CHANGED", function()
-	if frame and frame.subEntry and frame.subEntry.kind == "moderation" then
+	if frame and frame.subEntry and (frame.subEntry.kind == "moderation" or frame.subEntry.kind == "line") then
 		local entry = frame.subEntry
-		if frame.subSignature ~= ChatWindow.SubMenuSignature(entry, ChatWindow.ModerationOptions(entry)) then ChatWindow.CloseSubMenu() end
+		if frame.subSignature ~= ChatWindow.SubMenuSignature(entry, ChatWindow.SubMenuOptions(entry)) then ChatWindow.CloseSubMenu() end
 	end
 end)
 -- A line of ours that did not leave (Channels.lua: the channel changed before it went, it waited

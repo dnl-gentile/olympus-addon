@@ -1,39 +1,89 @@
 local ns, test, eq, WithBorders, BorderUnit, king = ...
-test("Legate portrait: manual Legate has no supplied rank frame, correspondent and guild-master frames stay, identity marks stay", function()
+test("office badges: Legates and correspondents lose the bronze role frame, keep distinct signed badges, and never replace earned or guild-master frames", function()
 	WithBorders(function(w)
-		local roles = { ["Legate-Realm"] = "centurion", ["Correspondent-Realm"] = "correspondent" }
-		w.ns.Nominees = { RoleOf = function(name, guild) if guild == "Olympus II" then return roles[name] end end }
+		local roles = { ["Legate-Realm"] = { "centurion" }, ["Correspondent-Realm"] = { "correspondent", "Department of War" } }
+		w.ns.Nominees = { RoleOf = function(name, guild) if guild == "Olympus II" and roles[name] then return unpack(roles[name]) end end }
 		w.ns.Roster = { RankOf = function(name) if roles[name] then return 3 end end }
 		w.internal("LOGIN")
 		w.target(BorderUnit("Legate", "Olympus II", "Member", 3))
-		eq(w.B.TierOf("target"), nil, "Legate badge is unprovided, never guessed as wingless bronze")
-		eq(w.shown("target"), nil)
-		eq(w.B.TierOfName("Legate-Realm", "Olympus II"), nil, "Olympus portraits use the same rule")
-		eq(w.B.MarkOf("target"), "bronze", "existing nameplate identity retained separately")
-		eq(w.B.MarkOfName("Legate-Realm", "Olympus II"), "bronze", "existing chat identity retained separately")
+		eq(w.B.TierOf("target"), nil); eq(w.shown("target"), nil, "the old bronze role frame is gone")
+		eq(w.B.TierOfName("Legate-Realm", "Olympus II"), nil, "Olympus portraits use the same frame rule")
+		eq(w.B.MarkOf("target"), "role-legate"); eq(w.B.MarkOfName("Legate-Realm", "Olympus II"), "role-legate")
+		eq(assert(w.roleBadge("target")).file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\legate")
+		eq(w.roleBadge("target").size, "36 36")
 		w.target(BorderUnit("Correspondent", "Olympus II", "Member", 3))
-		eq(w.B.TierOf("target"), "bronze"); eq(w.shown("target"), "bronze")
+		eq(w.B.TierOf("target"), nil); eq(w.shown("target"), nil, "a correspondent also has no bronze role frame")
+		eq(w.B.MarkOf("target"), "role-department-of-war")
+		eq(assert(w.roleBadge("target")).file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\department-of-war")
 		w.target(BorderUnit("Guildmaster", "Olympus II", "Master", 0))
 		eq(w.B.TierOf("target"), "bronze-elite", "guild-master wings unchanged")
+		eq(w.roleBadge("target"), nil)
 		w.ns.HonorsNet = { Verified = function(name) if name == "Legate-Realm" then return { frame = "retained-honour", metal = "bronze" } end end,
 			FrameTexture = function() return "Interface\\AddOns\\Olympus\\media\\borders\\bronze-plain", "plain" end }
 		w.target(BorderUnit("Legate", "Olympus II", "Member", 3))
 		eq(w.B.TierOf("target"), nil)
 		eq(w.shownTexture("target").file, "Interface\\AddOns\\Olympus\\media\\borders\\bronze-plain", "a verified earned frame is not removed with the role frame")
+		eq(assert(w.roleBadge("target")).file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\legate", "the office badge remains separate from the honour")
 	end)
 end)
 
-test("Legate portrait: missing client art falls back only for correspondents, never installs a stand-in Legate badge", function()
+test("office badges: a missing badge invents no fallback frame, and signed High Council department badges do not replace silver", function()
 	WithBorders(function(w)
-		w.ns.Nominees = { RoleOf = function(name) return name == "Legate-Realm" and "centurion" or name == "Correspondent-Realm" and "correspondent" end }
-		w.noFile["Interface\\AddOns\\Olympus\\media\\borders\\bronze-plain"] = true
+		w.ns.Nominees = { RoleOf = function(name)
+			if name == "Legate-Realm" then return "centurion" end
+			if name == "Correspondent-Realm" then return "correspondent", "Federal Treasury" end
+		end }
+		w.ns.CouncilTitle = function(name)
+			if name == "Sage Owl-Realm" then return { dept = "Council of Justice" } end
+		end
+		w.noFile["Interface\\AddOns\\Olympus\\media\\pauldrons\\legate"] = true
 		w.internal("LOGIN")
-		w.target(BorderUnit("Legate", "Olympus II", "Member", 3)); eq(w.shown("target"), nil)
-		w.target(BorderUnit("Correspondent", "Olympus II", "Member", 3)); eq(w.shown("target"), "bronze")
-		eq(w.shownTexture("target").atlas, "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold", "existing correspondent fallback retained")
+		w.target(BorderUnit("Legate", "Olympus II", "Member", 3)); eq(w.shown("target"), nil); eq(w.roleBadge("target"), nil)
+		w.target(BorderUnit("Correspondent", "Olympus II", "Member", 3)); eq(w.shown("target"), nil)
+		eq(assert(w.roleBadge("target")).file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\federal-treasury")
+		w.target(BorderUnit("Sage Owl", "Olympus II", "Member", 3)); eq(w.shown("target"), "silver-elite")
+		eq(assert(w.roleBadge("target")).file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\council-of-justice")
 		w.style = 1; w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0); eq(w.shown("target"), nil)
 		w.style = 0; w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-		w.target(BorderUnit("Legate", "Olympus II", "Member", 3)); eq(w.shown("target"), nil)
+		w.target(BorderUnit("Correspondent", "Olympus II", "Member", 3)); eq(w.shown("target"), nil); assert(w.roleBadge("target"))
+	end)
+end)
+
+test("office badge assets: the complete approved family is square, RGBA and consistently authored", function()
+	local root = debug.getinfo(1, "S").source:match("^@(.*)tests[/\\]treasurer%-dragon%.lua$") or "./"
+	for _, name in ipairs({ "olympus", "legate", "federal-treasury", "department-of-war", "council-of-justice",
+		"association-of-artisanry", "department-of-heraldry", "missionary-church-of-olympus" }) do
+		local f = assert(io.open(root .. "Olympus/media/pauldrons/" .. name .. ".tga", "rb"), name)
+		local s = f:read(18); f:close()
+		eq(s:byte(13) + 256 * s:byte(14), 256, name .. " width")
+		eq(s:byte(15) + 256 * s:byte(16), 256, name .. " height")
+		eq(s:byte(17), 32, name .. " RGBA")
+	end
+end)
+
+test("honour frames: every plain family uses its normalized visible size without moving the portrait centre", function()
+	WithBorders(function(w)
+		local current
+		local sizes = {
+			boar = 91, charm = 117, comet = 92, cornucopia = 96, crook = 108, cross = 110,
+			druid = 102, hunter = 94, kodo = 92, koi = 94, lion = 103, mage = 95,
+			mechanostrider = 93, nightsaber = 98, ["orc-wolf"] = 96, owlcat = 101,
+			paladin = 96, priest = 96, ram = 95, raptor = 99, raven = 105, rogue = 97,
+			shaman = 95, ["skeletal-horse"] = 92, warlock = 93,
+		}
+		w.ns.HonorsNet = {
+			Verified = function() return { frame = current, metal = "bronze" } end,
+			FrameTexture = function(key) return "Interface\\AddOns\\Olympus\\media\\honors\\" .. key .. "-bronze", "plain" end,
+		}
+		w.internal("LOGIN")
+		for family, size in pairs(sizes) do
+			current = family
+			w.target(BorderUnit("Honor " .. family, "Olympus II", "Member", 3))
+			local tex = assert(w.shownTexture("target"), family)
+			eq(tex.size, size .. " " .. size, family .. " normalized box")
+			eq(tex.at.x - size / 2, -50, family .. " horizontal centre")
+			eq(tex.at.y - size / 2, -49, family .. " vertical centre")
+		end
 	end)
 end)
 

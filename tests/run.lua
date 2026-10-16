@@ -24736,7 +24736,12 @@ end
 local BORDER_GLOBALS = { "TargetFrame", "FocusFrame", "PlayerFrame", "hooksecurefunc", "UnitExists", "UnitIsPlayer", "UnitGUID",
 	"UnitFactionGroup", "UnitFullName", "GetUnitName", "GetGuildInfo", "IsInGuild", "InCombatLockdown", "issecretvalue", "C_Texture",
 	"C_InputInterfaceStyle", "PartyFrame" }
-local CONTAINER_OF = { target = "TargetFrame.TargetFrameContainer", focus = "FocusFrame.TargetFrameContainer", player = "PlayerFrame.PlayerFrameContainer" }
+local CONTAINER_OF = {
+	target = "TargetFrame.TargetFrameContainer", focus = "FocusFrame.TargetFrameContainer", player = "PlayerFrame.PlayerFrameContainer",
+	targetBadge = "TargetFrame.TargetFrameContent.TargetFrameContentContextual",
+	focusBadge = "FocusFrame.TargetFrameContent.TargetFrameContentContextual",
+	playerBadge = "PlayerFrame.PlayerFrameContent.PlayerFrameContentContextual",
+}
 
 -- A player as the unit functions give it; its GUID one of its own (the same character: the same GUID).
 local function BorderUnit(name, guild, rank, rankIndex, extra)
@@ -24801,9 +24806,12 @@ local function WithBorders(fn, setup)
 		end)
 		return c
 	end
-	local function UnitFrameStandIn(label, key, classification)
+	local function UnitFrameStandIn(label, key, classification, contentKey, contextualKey)
 		local f = Logged(label, { label = label })
 		rawset(f, key, Container(label .. "." .. key))
+		local content = Logged(label .. "." .. contentKey, { label = label .. "." .. contentKey })
+		rawset(content, contextualKey, Container(label .. "." .. contentKey .. "." .. contextualKey))
+		rawset(f, contentKey, content)
 		if classification then
 			rawset(f, "CheckClassification", function(self)
 				-- The game's, for a player: no classification of note, its elite art hidden.
@@ -24815,9 +24823,9 @@ local function WithBorders(fn, setup)
 		return f
 	end
 	local ok, err = pcall(function()
-		TargetFrame = UnitFrameStandIn("TargetFrame", "TargetFrameContainer", true)
-		FocusFrame = UnitFrameStandIn("FocusFrame", "TargetFrameContainer", true)
-		PlayerFrame = UnitFrameStandIn("PlayerFrame", "PlayerFrameContainer", false)
+		TargetFrame = UnitFrameStandIn("TargetFrame", "TargetFrameContainer", true, "TargetFrameContent", "TargetFrameContentContextual")
+		FocusFrame = UnitFrameStandIn("FocusFrame", "TargetFrameContainer", true, "TargetFrameContent", "TargetFrameContentContextual")
+		PlayerFrame = UnitFrameStandIn("PlayerFrame", "PlayerFrameContainer", false, "PlayerFrameContent", "PlayerFrameContentContextual")
 		PartyFrame = nil
 		w.partyRegions = {
 			Portrait = { layer = "BACKGROUND", sub = 0, x = 7, y = -6, width = 37, height = 37 },
@@ -24947,7 +24955,7 @@ local function WithBorders(fn, setup)
 		w.shownTextureOn = function(owner)
 			local found
 			for _, tex in ipairs(w.textures) do
-				if owner ~= nil and tex.owner == owner and tex.sub ~= 2 and tex.shown then
+				if owner ~= nil and tex.owner == owner and tex.sub ~= 2 and tex.sub ~= 7 and tex.shown then
 					assert(not found, "two borders at once on " .. owner)
 					found = tex
 				end
@@ -24983,6 +24991,21 @@ local function WithBorders(fn, setup)
 			local found = w.shownTexture(unit)
 			return found and w.tierOf(found) or nil
 		end
+		w.roleBadge = function(unit)
+			local owner = CONTAINER_OF[unit .. "Badge"]
+			if not owner then
+				local f = w.partyFrame(unit)
+				owner = f and f.label
+			end
+			local found
+			for _, tex in ipairs(w.textures) do
+				if owner ~= nil and tex.owner == owner and tex.sub == 7 and tex.shown then
+					assert(not found, "two role badges at once on " .. owner)
+					found = tex
+				end
+			end
+			return found
+		end
 		w.computed = function() return w.B.stats.computed end
 		w.container = Container -- (1.2: a frame of Olympus's own whose textures are recorded the same way)
 		-- Once the frame textures exist, combat updates may only switch tier art and
@@ -25000,7 +25023,7 @@ local function WithBorders(fn, setup)
 					if tex.sub == 2 then
 						assert(underlayMethods[method], "underlay in combat: " .. method)
 					else
-						assert(tex.sub == 3 or tex.sub == -1, "tier art's sublevel (a party member's frame: -1)")
+						assert(tex.sub == 3 or tex.sub == -1 or tex.sub == 7, "tier art or badge sublevel")
 						assert(method == "Show" or method == "Hide", "tier art in combat: " .. method)
 					end
 				end
@@ -27382,31 +27405,33 @@ do
 		assert(comm:find("Nominees NM", 1, true), "in Comm.lua's list")
 	end)
 
-	test("1.2.4 nominees' border: a Legate keeps native rank and earned honours, with no extra portrait; a guild-verified correspondent retains the bronze, removed with its title", function()
+	test("1.2.4 office badges: Legates and correspondents keep native rank and earned honours, lose the bronze role frame, and show their verified shield only", function()
 		local savedRoster = ns.Roster.byName
 		N.Reset()
 		local ok, err = pcall(WithBorders, function(w)
 			-- Our own guild's master (our roster), and Zeusy, <Olympus Zeus>'s (its census).
 			ns.Roster.byName = { [MASTER] = 0, ["Tester-Realm"] = 2, ["Ada-Realm"] = 3 }
-			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now(), "c=Ada;d=Lore=Bea"))
+			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now(), "c=Ada;d=Department of Heraldry=Bea"))
 			N.Handle("CHANNEL", MASTER, Msg(OURS, ns.Now(), "c=Tester;c=Ada"))
 			w.party()
 			w.units.party1 = BorderUnit("Ada", THEIRS, "Member", 4)
 			w.internal("LOGIN")
 			eq(w.shown("party1"), nil, "a manual Legate has no added portrait border")
+			eq(assert(w.roleBadge("party1")).file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\legate")
 			eq(w.shown("player"), nil, "the appointment itself does not change your portrait")
 			w.target(BorderUnit("Bea", THEIRS, "Member", 4))
-			eq(w.shown("target"), "bronze", "a correspondent")
-			local tex = w.shownTexture("target")
-			eq(tex.file, MEDIA .. "bronze-plain", "Max's plain bronze"); eq(tex.size, "100 100")
-			eq(tex.point, "TOPRIGHT TargetFrame.TargetFrameContainer TOPRIGHT 0 1")
+			eq(w.shown("target"), nil, "a correspondent has no bronze role frame")
+			local tex = assert(w.roleBadge("target"))
+			eq(tex.file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\department-of-heraldry")
+			eq(tex.size, "36 36")
 			w.units.focus = BorderUnit("Bea", THEIRS, "Member", 4)
 			w.fire("PLAYER_FOCUS_CHANGED")
-			eq(w.shown("focus"), "bronze")
-			eq(w.B.MarkOf("target"), "bronze", "the nameplate's bronze, a guild master's mark")
-			eq(w.B.MarkOfName("Bea-Realm", THEIRS), "bronze", "the game's chat: the bronze")
+			eq(w.shown("focus"), nil)
+			eq(assert(w.roleBadge("focus")).file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\department-of-heraldry")
+			eq(w.B.MarkOf("target"), "role-department-of-heraldry", "the nameplate's verified office shield")
+			eq(w.B.MarkOfName("Bea-Realm", THEIRS), "role-department-of-heraldry", "the game's chat: the office shield")
 			eq(N.RoleOf("Ada-Realm", OURS), "centurion", "the legitimate manual appointment is actually accepted")
-			eq(w.B.MarkOfName("Ada-Realm", OURS), "bronze", "existing nomination identity mark is not a portrait border")
+			eq(w.B.MarkOfName("Ada-Realm", OURS), "role-legate", "the Legate identity is its shield, not a portrait border")
 			-- Nobody can borrow it: the same name in another guild, guildless, on another realm.
 			w.target(BorderUnit("Bea", OURS, "Member", 4))
 			eq(w.shown("target"), nil, "in another guild"); eq(w.B.MarkOf("target"), "member", "the star")
@@ -27422,16 +27447,17 @@ do
 			-- The plain bronze's file the client can't load: the plain gold under it, without colour.
 			-- (Below, with the file's own WithBorders.)
 			-- Taken back (his master's new list without him): gone at the next refresh.
-			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now() + 1, "d=Lore=Bea"))
+			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now() + 1, "d=Department of Heraldry=Bea"))
 			w.internal("DATA_CHANGED")
 			eq(w.shown("party1"), nil, "no longer named")
-			eq(w.shown("focus"), "bronze", "Bea still is")
-			-- Her guild master no longer its master (the census proves another): her border goes too.
+			eq(w.roleBadge("party1"), nil, "the revoked Legate shield is removed")
+			eq(assert(w.roleBadge("focus")).file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\department-of-heraldry", "Bea still is")
+			-- Her guild master no longer its master (the census proves another): her shield goes too.
 			ns.rdb.guilds[THEIRS] = Vouched({ guild = THEIRS, leader = "Newboss", officers = { { name = "Zeusy" } }, realm = "Realm", t = ns.Now() },
 				"W1-Realm", "W2-Realm")
 			N.Prune()
 			w.internal("DATA_CHANGED")
-			eq(w.shown("focus"), nil, "her master's list ended")
+			eq(w.roleBadge("focus"), nil, "her master's list ended")
 			eq(w.shown("player"), nil, "still no appointment-specific Legate portrait")
 			local status = ns.StatusText()
 			assert(status:find("\nnominees: <Olympus II> 2 by Boss Hammer (heard ", 1, true), status)
@@ -27439,36 +27465,36 @@ do
 		ns.Roster.byName = savedRoster
 		N.Reset()
 		if not ok then error(err, 0) end
-		-- Max's plain bronze not loaded: the game's plain gold it was drawn over, without colour.
+		-- A missing office asset invents no fallback border or badge.
 		ok, err = pcall(WithBorders, function(w)
-			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now(), "d=Lore=Ada"))
-			w.noFile[MEDIA .. "bronze-plain"] = true
+			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now(), "d=Department of Heraldry=Ada"))
+			w.noFile["Interface\\AddOns\\Olympus\\media\\pauldrons\\department-of-heraldry"] = true
 			w.internal("LOGIN")
 			w.target(BorderUnit("Ada", THEIRS, "Member", 4))
-			eq(w.shown("target"), "bronze")
-			local tex = w.shownTexture("target")
-			eq(tex.atlas, "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold"); eq(tex.desaturated, true)
+			eq(w.shown("target"), nil)
+			eq(w.roleBadge("target"), nil)
 		end)
 		N.Reset()
 		if not ok then error(err, 0) end
 		-- The gamepad UI: none, as every border.
 		ok, err = pcall(WithBorders, function(w)
-			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now(), "d=Lore=Ada"))
+			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now(), "d=Department of Heraldry=Ada"))
 			w.style = 1
 			w.internal("LOGIN")
 			w.target(BorderUnit("Ada", THEIRS, "Member", 4))
 			eq(w.shown("target"), nil); eq(#w.textures, 0, "nothing made"); eq(#w.hooks, 0)
 			w.style = 0
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-			eq(w.shown("target"), "bronze", "back with mouse and keyboard")
+			eq(w.shown("target"), nil, "no office frame after returning to mouse and keyboard")
+			eq(assert(w.roleBadge("target")).file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\department-of-heraldry")
 		end)
 		N.Reset()
 		if not ok then error(err, 0) end
 	end)
 
-	-- Manual Legates have the bronze chat identity, not a bronze portrait. The High Council's
+	-- Manual Legates have their own shield identity, not a bronze portrait. The High Council's
 	-- own silver portrait still wins. The legacy c= wire is retained for compatible nominations.
-	test("1.2.4 the King's guild's Legates: a manual authorized list gives bronze chat identity but no bronze portrait; a High Councillor wears silver", function()
+	test("1.2.4 the King's guild's Legates: a manual authorized list gives the Legate shield but no bronze portrait; a High Councillor wears silver", function()
 		N.Reset()
 		local ok, err = pcall(WithBorders, function(w)
 			ns.rdb.council.names["vera councillor"] = true
@@ -27478,7 +27504,8 @@ do
 			w.target(BorderUnit("Ada", "Olympus", "Member", 4))
 			eq(w.shown("target"), nil, "no bronze from a list in the King's guild")
 			eq(N.RoleOf("Ada-Realm", "Olympus"), "centurion", "actual compatible manual nomination")
-			eq(w.B.MarkOfName("Ada-Realm", "Olympus"), "bronze", "the game's chat keeps the Legate identity mark")
+			eq(w.B.MarkOfName("Ada-Realm", "Olympus"), "role-legate", "the game's chat keeps the Legate shield")
+			eq(assert(w.roleBadge("target")).file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\legate")
 			w.target(nil); w.target(BorderUnit("Vera Councillor", "Olympus", "Member", 4))
 			eq(w.shown("target"), "silver-elite", "a High Councillor of the King's guild: one of the King's centurions, in his silver")
 			ns.rdb.council.names["vera councillor"] = nil
@@ -27487,25 +27514,29 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	test("1.1.5 borders, who wins when several hold: the King, the High Council, the dev's silver, a guild master, a nominee, then the star; the dev's plain silver (ns.AUTHOR on his realm group) with its mark, the silver dragon, on nameplates and in the game's chat (1.2.3)", function()
+	test("1.2.4 borders and office shields: the King, High Council, developer, guild master and earned honour keep their frame precedence while a verified office remains a separate badge", function()
 		local savedRoster = ns.Roster.byName
 		N.Reset()
 		local ok, err = pcall(WithBorders, function(w)
 			local AUTHOR_REALM = ns.AUTHOR_REALM
 			local dev = ns.AUTHOR .. "-" .. AUTHOR_REALM
 			ns.Roster.byName = { [MASTER] = 0, ["Tester-Realm"] = 2 }
-			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now(), "d=Lore=Ada;c=Zeusy;c=" .. dev))
+			N.Handle("CHANNEL", "Zeusy-Realm", Msg(THEIRS, ns.Now(), "d=Department of Heraldry=Ada;c=Zeusy;c=" .. dev))
 			w.internal("LOGIN")
 			local function Tier(unit) w.target(nil); w.target(unit) return w.shown("target"), w.B.MarkOf("target") end
 			local ada = BorderUnit("Ada", THEIRS, "Member", 4)
-			eq(Tier(ada), "bronze", "a correspondent retains the plain bronze portrait")
+			local border, mark = Tier(ada)
+			eq(border, nil, "a correspondent has no role frame")
+			eq(mark, "role-department-of-heraldry", "the correspondent has the department shield")
+			eq(assert(w.roleBadge("target")).file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\department-of-heraldry")
 			-- A guild master before a nominee (named in a list of his own guild's).
-			local border, mark = Tier(BorderUnit("Zeusy", THEIRS, "Zeus", 0))
+			border, mark = Tier(BorderUnit("Zeusy", THEIRS, "Zeus", 0))
 			eq(border, "bronze-elite"); eq(mark, "bronze")
 			-- The High Council before a nominee.
 			ns.rdb.council.names["ada"] = true
 			border, mark = Tier(ada)
 			eq(border, "silver-elite"); eq(mark, "silver")
+			eq(assert(w.roleBadge("target")).file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\department-of-heraldry", "office badge remains separate from the council frame")
 			ns.rdb.council.names["ada"] = nil
 			-- The dev: his plain silver, in any guild or none, before a guild master and a nominee. 1.2.3
 			-- (the author's ask: "minhas msgs no chat têm o dragão prata, né?"): it has its mark, the
@@ -27516,7 +27547,7 @@ do
 			border, mark = Tier(BorderUnit(ns.AUTHOR, OURS, "Member", 3, { realm = AUTHOR_REALM }))
 			eq(border, "silver"); eq(mark, "silver", "before an Olympus member's star")
 			border, mark = Tier(BorderUnit(ns.AUTHOR, THEIRS, "Member", 3, { realm = AUTHOR_REALM }))
-			eq(border, "silver", "before a nominee's bronze"); eq(mark, "silver", "before a nominee's mark")
+			eq(border, "silver", "before an office role mark"); eq(mark, "silver", "before an office role mark")
 			border, mark = Tier(BorderUnit(ns.AUTHOR, OURS, "Zeus", 0, { realm = AUTHOR_REALM }))
 			eq(border, "silver", "before a guild master's wings"); eq(mark, "silver", "before a guild master's mark")
 			eq(w.B.MarkOfName(dev, nil), "silver", "the game's chat: the silver dragon")
@@ -63145,10 +63176,11 @@ end)()
 			assert(doc:find("| `/oly letters [version]` |", 1, true), path .. ": the command")
 			assert(doc:find("**Marks in the game's own chat (1.1.5).**", 1, true), path .. ": the marks")
 			assert(doc:find("in the guild their own Olympus messages speak for (someone else's report alone proves nothing", 1, true), path .. ": what proves a mark")
-			-- (1.1.5, the guild masters' nominees: the bronze there is also the people a guild master names.)
-			assert(doc:find("Guild and officer chat show the dragons alone (the King's gold, a High Councillor's silver, the bronze of a guild master and the people he names), never the star", 1, true),
-				path .. ": the dragons in guild chat")
-			assert(doc:find("guild and officer chat the dragons alone, never the star", 1, true), path .. ": the command's row")
+			-- The High Council's later badge decision keeps rank dragons and gives verified appointees
+			-- their own shields; guild/officer chat still omits the ordinary-member star.
+			assert(doc:find("Guild and officer chat show the office marks alone (the King's gold, a High Councillor's silver, a guild master's bronze and the verified Legate or department shields), never the star", 1, true),
+				path .. ": the role marks in guild chat")
+			assert(doc:find("guild and officer chat the office marks alone, never the star", 1, true), path .. ": the command's row")
 			eq(doc:find("never guild or officer chat", 1, true), nil, path .. ": nothing says no mark there")
 		end
 		-- The letters are from the dev (L.LETTER_SIGNED), and the pages players read say so: the King's

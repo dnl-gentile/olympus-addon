@@ -690,7 +690,7 @@ test("1.2 the fights part review: a nameplate whose honour's mark can't load, ne
 	W3.NoErrors(w)
 end)
 
-test("1.2 the fights part: 80 honour picks make one honour texture per shape per rig; with the textures made, a target change in combat re-textures them without SetPoint or SetSize", function()
+test("1.2 the fights part: 80 honour picks make one texture per normalized family or winged shape per rig; with the textures made, a target change in combat re-textures them without SetPoint or SetSize", function()
 	local w, cast = W3.New()
 	local viewer = cast.spectator
 	local r = Frames(w, viewer)
@@ -720,13 +720,18 @@ test("1.2 the fights part: 80 honour picks make one honour texture per shape per
 	r.B.Refresh("target", true)
 	local base = r.Count("target")
 	eq(base, #viewer.ns.Borders.TIERS + 1, "the rank's frames and their shared underlay")
+	local slots = {}
 	for _, key in ipairs(picks) do
 		local art, shape = viewer.ns.Honors.ArtOf(key)
+		local family = art and art:match("^(.+)%-[^%-]+$")
+		slots[shape == "plain" and family or shape] = true
 		current = { frame = key, mark = art, art = art, shape = shape }
 		r.B.Refresh("target", true)
 		eq(r.Shown("target"), "Interface\\AddOns\\Olympus\\media\\honors\\" .. art, key)
 	end
-	eq(r.Count("target") - base, 2, "one winged, one plain")
+	local slotCount = 0
+	for _ in pairs(slots) do slotCount = slotCount + 1 end
+	eq(r.Count("target") - base, slotCount, "one texture for every normalized family, plus each unsized shape")
 	-- In combat now: a new target's frame is only retextured.
 	r.combat = true
 	local marks = {}
@@ -742,7 +747,7 @@ test("1.2 the fights part: 80 honour picks make one honour texture per shape per
 			assert(m ~= "SetPoint" and m ~= "SetSize" and m ~= "ClearAllPoints", "in combat: " .. m)
 		end
 	end
-	eq(r.Count("target") - base, 2, "nothing made in combat")
+	eq(r.Count("target") - base, slotCount, "nothing made in combat")
 	W3.NoErrors(w)
 end)
 
@@ -759,7 +764,7 @@ test("1.2 the fights part: the author's preview (Borders.SetPreview) takes an ho
 	local t
 	for _, x in ipairs(r.textures) do if x.owner == "player" and x.shown then t = x end end
 	eq(t.coord, "0.78125 0 0 0.78125", "turned round on his own frame")
-	eq(t.size, "100x100")
+	eq(t.size, "95x95", "the mage family's normalized box")
 	r.NP.RefreshAll(true)
 	eq(r.Shown("plate"), "Interface\\AddOns\\Olympus\\media\\honors\\mage-silver-mark")
 	local lines = {}
@@ -793,7 +798,12 @@ test("1.2.1 the new frames: /oly borders test apostle-1/2/3, bones-1/2/3, arena-
 		{ "arena-race-skyborn", "owlcat-gold" }, { "arena-race-skyborn-2", "owlcat-silver" }, { "arena-race-skyborn-3", "owlcat-bronze" },
 		{ "apostle-red", "cross-red", "0.24 0.24 0.27 1" },
 	}
-	local CROSSES = { ["apostle-1"] = true, ["apostle-2"] = true, ["apostle-3"] = true, ["apostle-red"] = true }
+	local SIZES = {
+		["apostle-1"] = "110x110", ["apostle-2"] = "110x110", ["apostle-3"] = "110x110",
+		["bones-1"] = "117x117", ["bones-2"] = "117x117", ["bones-3"] = "117x117",
+		["arena-race-skyborn"] = "101x101", ["arena-race-skyborn-2"] = "101x101", ["arena-race-skyborn-3"] = "101x101",
+		["apostle-red"] = "110x110",
+	}
 	for _, row in ipairs(want) do
 		local key, art, color = row[1], row[2], row[3]
 		eq(r.B.SetPreview(key), true, key)
@@ -803,9 +813,9 @@ test("1.2.1 the new frames: /oly borders test apostle-1/2/3, bones-1/2/3, arena-
 		local t
 		for _, x in ipairs(r.textures) do if x.owner == "player" and x.sublevel ~= 2 and x.shown then t = x end end
 		eq(t.coord, "0.78125 0 0 0.78125", key .. ": the plain box, turned round on his own frame")
-		-- (1.2.4, the author's ask of the red cross, "um pouco maior": the crosses' box 110 across,
-		-- 10% bigger than a plain honour's; the charm and the owlcat as ever: tests/arena/honors-own-look.lua.)
-		eq(t.size, CROSSES[key] and "110x110" or "100x100", key)
+		-- The complete normalization gives every plain family its own box while keeping the
+		-- portrait-centre alignment: tests/arena/honors-own-look.lua and tests/treasurer-dragon.lua.
+		eq(t.size, SIZES[key], key)
 		-- (1.2.4, the author's call: no plain dragon under any honour, the red cross's black one
 		-- too; the portrait's own ring alone.)
 		local under = r.Underlay("player")

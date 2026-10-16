@@ -215,6 +215,11 @@ end
 local function Dress(tex, mark)
 	local m = Nameplates.MARKS[mark]
 	if not m then
+		local B = ns.Borders
+		local badge = type(B) == "table" and type(B.MarkTexture) == "function" and B.MarkTexture(mark) or nil
+		if type(badge) == "string" then m = { file = badge } end
+	end
+	if not m then
 		local H = ns.HonorsNet
 		local ok, file = false, nil
 		if type(H) == "table" and type(H.MarkTexture) == "function" then ok, file = pcall(H.MarkTexture, mark) end

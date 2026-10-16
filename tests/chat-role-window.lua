@@ -54,7 +54,10 @@ test("watch chat context menu: actions are opt-in and recheck permission and tar
 			allowed = true; w.CW.ModerateLine(b); allowed = false; w.fire("WATCHCHAT_CHANGED"); eq(f.subMenu:IsShown(), false)
 			allowed = true; w.CW.ModerateLine(b); b.entry = { sender = "Other-Realm" }; f.subMenu.rows[1]:Click(); eq(#calls, 4, "reused bubble cannot change the target")
 			b.entry = e; w.CW.ModerateLine(b); e.del = true; w.fire("DATA_CHANGED"); eq(f.subMenu:IsShown(), false)
-			e.del = nil; timed = false; w.CW.ModerateLine(b); eq(f.subMenu.rows[4]:IsShown(), false)
+			e.del = nil; timed = false; w.CW.ModerateLine(b)
+			eq(f.subMenu.rows[4].text:GetText(), ns.L.CHATWIN_REPLY)
+			eq(f.subMenu.rows[4]:IsShown(), true, "reply remains available when there is no timeout to lift")
+			eq(f.subMenu.rows[5]:IsShown(), false)
 			f.subCatcher:Click(); eq(f.subMenu:IsShown(), false)
 		end)
 		rawset(ns, "WatchChat", saved)
@@ -167,8 +170,9 @@ test("chat: an ordinary member right-clicks another player's Olympus line, its w
 		local saved = { history = C.History, watch = rawget(ns, "Watch"), wc = rawget(ns, "WatchChat") }
 		local theirs = { t = 100, sender = "Rude Guy-Realm", guild = "Olympus II", text = "rude words" }
 		local mine = { t = 101, sender = ns.me, guild = "Olympus II", text = "my own words", mine = true }
-		local asked, reported = {}, {}
+		local asked, reported, sent = {}, {}, {}
 		C.History = function(t) if t == "A" then return { theirs, mine } end return {} end
+		C.Send = function(tier, text) sent[#sent + 1] = { tier = tier, text = text }; return true end
 		rawset(ns, "WatchChat", { StripText = function() return nil end, RecordLines = function() return {} end,
 			CanModerateAny = function() return false end, CanModerateEntry = function() return false end })
 		rawset(ns, "Watch", {
@@ -187,7 +191,8 @@ test("chat: an ordinary member right-clicks another player's Olympus line, its w
 			local b = BubbleOf(theirs)
 			b:Fire("OnMouseUp", "RightButton")
 			eq(f.subMenu:IsShown(), true, "the right-click opens the line's menu")
-			eq(f.subMenu.rows[1].text:GetText(), ns.L.WATCH_REPORT); eq(f.subMenu.rows[2]:IsShown(), false, "one choice")
+			eq(f.subMenu.rows[1].text:GetText(), ns.L.WATCH_REPORT)
+			eq(f.subMenu.rows[2].text:GetText(), ns.L.CHATWIN_REPLY); eq(f.subMenu.rows[2]:IsShown(), true, "report and reply")
 			eq(asked[#asked].entry, theirs); eq(asked[#asked].chat, "A", "asked about that line, in the Olympus channel")
 			eq(#reported, 0, "nothing before the click")
 			w.fire("DATA_CHANGED"); eq(f.subMenu:IsShown(), true, "a census redraw leaves it open")
@@ -206,16 +211,38 @@ test("chat: an ordinary member right-clicks another player's Olympus line, its w
 			w.CW.ModerateLine(b); eq(f.subMenu:IsShown(), true)
 			theirs.del = true; w.fire("DATA_CHANGED"); eq(f.subMenu:IsShown(), false, "closed once it may no longer go")
 			theirs.del = nil
-			-- His own line: no menu, and nothing asked.
+			-- His own line: reply is available, but reporting himself is not.
 			local n = #asked
-			eq(w.CW.ModerateLine(BubbleOf(mine)), false); eq(f.subMenu:IsShown(), false); eq(#asked, n)
-			-- A client updated without a restart (The Watch a stand-in): nothing.
+			eq(w.CW.ModerateLine(BubbleOf(mine)), true); eq(f.subMenu:IsShown(), true); eq(#asked, n)
+			eq(f.subMenu.rows[1].text:GetText(), ns.L.CHATWIN_REPLY); eq(f.subMenu.rows[2]:IsShown(), false)
+			f.subMenu.rows[1]:Click(); eq(f.replyComposer:IsShown(), true)
+			assert(f.replyComposer.label:GetText():find(ns.DisplayName(ns.me), 1, true))
+			f.input:SetText("answer from me"); f.input:Fire("OnEnterPressed")
+			eq(#sent, 1); eq(sent[1].tier, "A")
+			local quote, answer = w.CW.DecodeReply(sent[1].text)
+			eq(quote.who, ns.DisplayName(ns.me)); eq(quote.text, "my own words"); eq(answer, "answer from me")
+			eq(f.replyComposer:IsShown(), false); eq(f.input:GetText(), "")
+			-- A client updated without a restart (The Watch a stand-in): reply still works by itself.
 			rawset(ns, "Watch", { missing = true })
-			eq(w.CW.ModerateLine(b), false); eq(f.subMenu:IsShown(), false)
+			eq(w.CW.ModerateLine(b), true); eq(f.subMenu:IsShown(), true)
+			eq(f.subMenu.rows[1].text:GetText(), ns.L.CHATWIN_REPLY)
 		end)
 		C.History = saved.history
 		rawset(ns, "Watch", saved.watch); rawset(ns, "WatchChat", saved.wc)
 		if not ok then error(err, 0) end
+	end)
+end)
+
+test("chat replies: the compatible prefix round-trips safely and leaves ordinary text unchanged", function()
+	WithWindow(function(w)
+		local reply = { who = "Rude Guy-Realm", text = "a referenced line with [brackets]\nand controls\t" }
+		local wire = w.CW.EncodeReply(reply, "new answer")
+		assert(wire:find("^%[reply @Rude Guy%-Realm%] "), wire)
+		local decoded, body = w.CW.DecodeReply(wire)
+		eq(decoded.who, "Rude Guy-Realm"); eq(decoded.text, "a referenced line with brackets and controls")
+		eq(body, "new answer")
+		local none, plain = w.CW.DecodeReply("ordinary line")
+		eq(none, nil); eq(plain, "ordinary line")
 	end)
 end)
 

@@ -563,6 +563,7 @@ end
 -- invites anyone. Missing/incomplete roster proof waits for the existing minute tick. One current
 -- stamp per character, 50 characters at most; heartbeat/reload cannot repeat the same revision.
 Nominees.NOTICES_MAX = 50
+Nominees.NOTICE_RULE = 2 -- the High Council's role-badge change, shown once to existing appointments too
 function Nominees.AppointmentNotice(l)
 	local V, K = ns.ViewAs, ns.King
 	if Nominees.DevView() or (K and K.Preview and K.Preview()) or (V and V.Previewing and V.Previewing())
@@ -574,19 +575,22 @@ function Nominees.AppointmentNotice(l)
 	local all = ns.db.legateNotices
 	local old = type(all) == "table" and all[key] or nil
 	local e = l.set and l.set[key]
-	if not e or e.role ~= "centurion" then
+	if not e or (e.role ~= "centurion" and e.role ~= "correspondent") then
 		if type(old) == "table" and old.guild == guild then old.active = false end
 		return false
 	end
 	-- A different player's appointment or an authorized relay of the same roster is not a new
-	-- appointment of us. Only our actual removal/reappointment re-arms this notice.
-	if type(old) == "table" and old.guild == guild and old.active == true then return false end
+	-- appointment of us. An office/department change, an actual removal/reappointment, or this
+	-- notice policy's first run re-arms it; ordinary heartbeats and relays do not.
+	if type(old) == "table" and old.guild == guild and old.active == true and old.role == e.role
+		and old.dept == e.dept and old.rule == Nominees.NOTICE_RULE then return false end
 	local R = ns.Roster
 	if not R or not R.Fresh or not R.Fresh() or not R.RankOf
 		or R.RankOf(ns.FullName(ns.me)) == nil or (ns.ChatLocked and ns.ChatLocked())
 		or (ns.Quiet and ns.Quiet()) then return false end
 	if type(all) ~= "table" then all = {}; ns.db.legateNotices = all end
-	all[key] = { guild = guild, by = l.by, rev = l.rev, at = ns.Now(), active = true }
+	all[key] = { guild = guild, by = l.by, rev = l.rev, at = ns.Now(), active = true,
+		role = e.role, dept = e.dept, rule = Nominees.NOTICE_RULE }
 	local keys = {}
 	for name, x in pairs(all) do keys[#keys + 1] = { name = name, at = type(x) == "table" and tonumber(x.at) or 0 } end
 	table.sort(keys, function(a, b)
@@ -594,7 +598,12 @@ function Nominees.AppointmentNotice(l)
 		return (a.at or 0) > (b.at or 0)
 	end)
 	for i = Nominees.NOTICES_MAX + 1, #keys do all[keys[i].name] = nil end
-	ns.Print(L.NOMINEES_LEGATE_APPOINTED:format(ns.DisplayName(l.by) or l.by, guild, L.NOMINEES_LEGATE_DUTY))
+	local by = ns.DisplayName(l.by) or l.by
+	if e.role == "centurion" then
+		ns.Print(L.NOMINEES_LEGATE_APPOINTED:format(by, guild, L.NOMINEES_LEGATE_DUTY, L.NOMINEES_BADGE_DECISION))
+	else
+		ns.Print(L.NOMINEES_CORRESPONDENT_APPOINTED:format(by, e.dept or "?", guild, L.NOMINEES_CORRESPONDENT_DUTY, L.NOMINEES_BADGE_DECISION))
+	end
 	return true
 end
 
@@ -820,10 +829,10 @@ local function Take(sender, guild, rev, entries, set)
 		lists[key] = l
 	end
 	Nominees.Keep(key, #entries > 0 and l or nil)
-	Nominees.AppointmentNotice(l)
+	local noticed = Nominees.AppointmentNotice(l)
 	local now = #entries > 0 and set[tostring(ns.me):lower()] or nil
 	if mine and guild == mine then
-		if now and not (was and was.role == now.role and was.dept == now.dept) then
+		if now and not noticed and not (was and was.role == now.role and was.dept == now.dept) then
 			ns.Print(L.NOMINEES_YOU:format(ns.DisplayName(sender) or "?", Nominees.RoleLabel(now.role, now.dept), guild))
 		elseif was and not now then
 			ns.Print(L.NOMINEES_NO_LONGER:format(Nominees.RoleLabel(was.role, was.dept), guild))

@@ -193,13 +193,11 @@ test("1.2.1 an Apostle's own look: never offered to anyone the signed Apostles l
 	W3.NoErrors(w)
 end)
 
--- 1.2.4 (the author, of the red cross round an Apostle's own portrait: "Ela parece meio pequena,
--- essa da cruz... Podia ser um pouco maior"): the crosses' ring is slimmer than the beasts', so the
--- red cross (and the top 3 Apostles' gold, silver and bronze crosses, its family) is drawn 10% bigger
--- than a plain honour, about the portrait's centre: the same point of its art on the portrait's
--- centre as a plain honour's (the crook here), on his unit frame, his target while it is himself
--- and his Olympus portraits; and every visible pixel of its art still within the reach the
--- screens keep their words clear of (Borders.PortraitReach).
+-- 1.2.4 began by making the Apostle crosses larger. The complete honours normalization now gives
+-- every plain family its own measured box: the cross is 110 and the crook is 108. Both remain
+-- aligned about the portrait's centre on the player frame, the target while it is the player and
+-- Olympus portraits; every visible cross pixel remains within the reach the screens keep clear
+-- of text (Borders.PortraitReach).
 -- A TGA's alpha (32-bit, uncompressed, as scripts/make-honors.py ships them): width, height and
 -- alpha(x, y), from the canvas's top left.
 local function Alpha(path)
@@ -236,7 +234,7 @@ local function At(t, ax, ay)
 end
 local function Near(a, b, within, why) assert(math.abs(a - b) <= within, ("%s: %.3f, not %.3f"):format(why, a, b)) end
 
-test("1.2.4 the red cross a little bigger: 110 across on a plain honour's 100, about the portrait's centre (the same art point on it as the crook's) on his unit frame, his target while it is himself and his Olympus portraits, the Apostles' crosses too; its art within the portraits' reach", function()
+test("1.2.4 normalized cross: 110 across beside the crook's normalized 108, aligned about the portrait's centre on his unit frame, target and Olympus portraits; the Apostles' crosses too; its art within the portraits' reach", function()
 	local w, cast = W3.New()
 	local apostle = cast.A
 	SignedApostles({ apostle }, { apostle.short })
@@ -250,11 +248,11 @@ test("1.2.4 the red cross a little bigger: 110 across on a plain honour's 100, a
 	local P = B.PORTRAIT
 	local ownX, ownY = P.x + P.size / 2, P.y - P.size / 2
 	local targetX, targetY = -26 - 29, -19 - 29
-	-- A plain honour on the same rigs, as ever: the crook (the missionaries'), 100 across.
+	-- Another normalized plain family on the same rigs: the missionaries' crook, 108 across.
 	local plainOwn, plainTarget = B.Rig(mine.Container("plain-own"), true, true), B.Rig(mine.Container("plain-target"), false)
 	eq(B.ShowHonour(plainOwn, "missionary-1"), true); eq(B.ShowHonour(plainTarget, "missionary-1"), true)
 	local crookOwn, crookTarget = mine.ShownTexture("plain-own"), mine.ShownTexture("plain-target")
-	eq(crookOwn.file, MEDIA .. "crook-gold"); eq(crookOwn.size, "100x100"); eq(crookTarget.size, "100x100")
+	eq(crookOwn.file, MEDIA .. "crook-gold"); eq(crookOwn.size, "108x108"); eq(crookTarget.size, "108x108")
 	local function Centred(t, plain, px, py, why)
 		local ax, ay = ArtAt(t, px, py)
 		local bx, by = ArtAt(plain, px, py)
@@ -262,14 +260,14 @@ test("1.2.4 the red cross a little bigger: 110 across on a plain honour's 100, a
 		Near(ax, bx, 0.3, why .. ": the art across at the portrait's centre")
 		Near(ay, by, 0.3, why .. ": the art down at the portrait's centre")
 	end
-	-- His unit frame: the red cross, 10% bigger, turned round, centred as the crook.
+	-- His unit frame: the red cross, turned round and centred by the same family rule as the crook.
 	B.Refresh("player", true)
 	local own = mine.ShownTexture("player")
 	eq(own.file, MEDIA .. "cross-red")
 	eq(own.size, "110x110", "the red cross 110 across")
-	Near(own.w / crookOwn.w, 1.1, 1e-9, "10% bigger than a plain honour")
+	Near(own.w / crookOwn.w, 110 / 108, 1e-9, "the two normalized family boxes")
 	eq(own.coord, "0.78125 0 0 0.78125", "the plain box, turned round")
-	eq(own.point[1], "TOPLEFT"); Near(own.point[4], -7.6, 1e-9, "across"); Near(own.point[5], 6, 1e-9, "up")
+	eq(own.point[1], "TOPLEFT"); Near(own.point[4], -7, 1e-9, "across"); Near(own.point[5], 6, 1e-9, "up")
 	Centred(own, crookOwn, ownX, ownY, "his own portrait")
 	eq(mine.Underlay("player").shown, false, "no underlay under it")
 	-- His target while it is himself: from the target's top right, not turned round.
@@ -278,7 +276,7 @@ test("1.2.4 the red cross a little bigger: 110 across on a plain honour's 100, a
 	local target = mine.ShownTexture("target")
 	eq(target.file, MEDIA .. "cross-red"); eq(target.size, "110x110")
 	eq(target.coord, "0 0.78125 0 0.78125")
-	eq(target.point[1], "TOPRIGHT"); Near(target.point[4], 5.6, 1e-9, "across"); Near(target.point[5], 6, 1e-9, "up")
+	eq(target.point[1], "TOPRIGHT"); Near(target.point[4], 5, 1e-9, "across"); Near(target.point[5], 6, 1e-9, "up")
 	Centred(target, crookTarget, targetX, targetY, "his target")
 	-- His Olympus portraits: as round his own.
 	local arena = B.Rig(mine.Container("arena"), true, true)
@@ -287,9 +285,9 @@ test("1.2.4 the red cross a little bigger: 110 across on a plain honour's 100, a
 	local onArena = mine.ShownTexture("arena")
 	eq(onArena.file, MEDIA .. "cross-red"); eq(onArena.size, "110x110")
 	Centred(onArena, crookOwn, ownX, ownY, "his Olympus portrait")
-	-- The same rig shows the crook again at a plain honour's size (one texture for each geometry).
+	-- The same rig shows the crook again at its own normalized size (one texture per family).
 	eq(B.ShowHonour(arena, "missionary-1"), true)
-	eq(mine.ShownTexture("arena").size, "100x100", "the crook as ever")
+	eq(mine.ShownTexture("arena").size, "108x108", "the normalized crook")
 	-- Each cross, the red and the top 3 Apostles', on an Olympus portrait: 110 across, and every
 	-- visible pixel of its art (over 8 of 255 opaque) within Borders.PortraitReach past the
 	-- portrait's square.
