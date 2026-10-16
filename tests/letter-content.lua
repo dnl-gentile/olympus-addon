@@ -15,6 +15,54 @@ local function Language(locale)
 	return cns
 end
 
+test("1.2.5 letter content: both languages describe only the shipped reply, office, Wanted and relay follow-ups", function()
+	local order
+	local expected = {
+		enUS = {
+			"Right-click a saved line in Olympus Chat and choose Reply",
+			"Legates now use the chosen Legate shield",
+			"High Council decision",
+			"normalized visible sizes and centering",
+			"/oly borders test role-legate",
+			"Leaving Most Wanted collapses all three back to five",
+			"Only rows with independent membership evidence",
+			"deterministic across clients",
+			"fair per-sender limit",
+			"Unverified public-channel strangers cannot create layer-hop demand",
+		},
+		ptBR = {
+			"Clique com o botão direito numa linha salva do Chat do Olympus e escolha Responder",
+			"Legates agora usam o badge escolhido de Legate",
+			"decisão do High Council",
+			"tamanhos visíveis e centralização normalizados",
+			"/oly borders test role-legate",
+			"Sair de Most Wanted recolhe as três listas para cinco",
+			"Somente linhas com prova independente de filiação",
+			"determinística entre clientes",
+			"limite justo por remetente",
+			"Estranhos não verificados no canal público não podem criar demanda de troca de layer",
+		},
+	}
+	for _, locale in ipairs({ "enUS", "ptBR" }) do
+		local cns = Language(locale)
+		local title, body = cns.Letters.Text("1.2.5")
+		assert(type(title) == "string" and title ~= "", locale .. ": title")
+		assert(type(body) == "string" and #body > 2000 and body:find("1.2.5", 1, true), locale .. ": detailed current letter")
+		local raw, marks = cns.L.LETTER_1_2_5, {}
+		for mark in raw:gmatch("{(%a+)}") do marks[#marks + 1] = mark end
+		local sequence = table.concat(marks, ",")
+		if order then eq(sequence, order, "same sections and icon order") else order = sequence end
+		assert(not body:find("{[%a]+}"), locale .. ": all icons render or have text fallback")
+		local previous
+		for _, phrase in ipairs(expected[locale]) do
+			local at = assert(raw:find(phrase, 1, true), locale .. ": " .. phrase)
+			assert(not previous or at > previous, locale .. ": release points stay ordered")
+			previous = at
+		end
+		eq(cns.Letters.Versions()[1], "1.2.5", locale .. ": current release first")
+	end
+end)
+
 test("1.2.4 letter content: both languages describe verified records and retain privacy, free-game and live-test limits", function()
 	local order
 	for _, locale in ipairs({ "enUS", "ptBR" }) do

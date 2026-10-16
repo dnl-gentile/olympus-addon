@@ -312,6 +312,15 @@ function Borders.RoleBadgeTexture(mark)
 	return badge and badge.file or nil
 end
 
+-- An author's local office preview is written in the same `role-<key>` spelling as the mark on
+-- chat and nameplates. It never enters RoleBadgeOfName, so it cannot manufacture an appointment,
+-- permission or wire record.
+local function PreviewRole(word)
+	local key = type(word) == "string" and word:match("^role%-(.+)$") or nil
+	return key and Borders.ROLE_BADGES[key] and key or nil
+end
+function Borders.PreviewRole(word) return PreviewRole(word) end
+
 function Borders.MarkTexture(mark)
 	return Borders.RoleBadgeTexture(mark)
 end
@@ -1049,6 +1058,9 @@ end
 function Borders.ShowPreviewOn(rig, who)
 	if type(who) ~= "string" or who == "" or type(ns.me) ~= "string" or not Active() then return false end
 	if ns.FullName(who):lower() ~= ns.me:lower() then return false end
+	-- The small office shield is anchored to the native unit-frame portrait, not to Olympus's
+	-- compact portraits. Leave those portraits wearing their real frame during a badge preview.
+	if PreviewRole(preview) then return false end
 	if preview then return true, ShowPreview(rig, preview) end
 	if ShowOwnLook(rig) then return true, "honour" end
 	return false
@@ -1123,7 +1135,13 @@ function Borders.Refresh(unit, fresh)
 	if fresh or not k or guid == nil or k.guid ~= guid then k = Compute(unit, guid) end
 	Borders.ShowRoleBadge(rig, not k.off and k.who and k.guild and Borders.RoleBadgeOfName(k.who, k.guild) or nil)
 	local chosen = preview and UnitExists(unit) and IsMe(unit, guid) and preview or nil
-	if chosen then return ShowPreview(rig, chosen) end
+	local rolePreview = PreviewRole(chosen)
+	if rolePreview then
+		-- A badge is an overlay, never a replacement for the author's real rank or earned honour.
+		Borders.ShowRoleBadge(rig, rolePreview)
+	elseif chosen then
+		return ShowPreview(rig, chosen)
+	end
 	-- 1.2.1: an Apostle's own look, on his own portrait on his own screen (Borders.OwnLook).
 	if Borders.OwnLook() and UnitExists(unit) and IsMe(unit, guid) and ShowOwnLook(rig) then return end
 	if k.off then return Show(rig, nil) end
@@ -1147,7 +1165,7 @@ end
 -- while Edit Mode forces the party frames shown, else nil. Read only, Edit Mode's own getter.
 function Borders.EditModeStandIn()
 	if not ns.Gate.Allowed("borders") then return nil end
-	if not preview or preview == Borders.MEMBER then return nil end
+	if not preview or preview == Borders.MEMBER or PreviewRole(preview) then return nil end
 	local em = rawget(_G, "EditModeManagerFrame") -- gp:borders
 	if type(em) ~= "table" or type(em.ArePartyFramesForcedShown) ~= "function" then return nil end
 	local ok, on = pcall(em.ArePartyFramesForcedShown, em) -- gp:borders
@@ -1252,6 +1270,10 @@ function Borders.SetPreview(word)
 	if word == "off" then
 		preview = nil
 		ns.Print(L.BORDERS_PREVIEW_OFF)
+	elseif PreviewRole(word) then
+		preview = word
+		local badge = Borders.ROLE_BADGES[PreviewRole(word)]
+		ns.Print(L.BORDERS_BADGE_PREVIEW_ON:format(badge.label, word))
 	elseif TierNamed(word) or HonorNamed(word) then
 		preview = word
 		-- (1.1: with the marks off, it says no mark shows with the border.)
@@ -1278,6 +1300,9 @@ function Borders.SetPreview(word)
 			-- (no border: the marks alone, and only while they are on)
 			if ns.Nameplates.Enabled() == false then ns.Print(L.NAMEPLATES_PREVIEW_WHEN_OFF) end
 		elseif not installed then ns.Print(L.BORDERS_PREVIEW_COMBAT) -- (only combat keeps them from being made)
+		elseif PreviewRole(preview) then
+			local key = PreviewRole(preview)
+			if not (rigs.player and rigs.player.roleBadgeKey == key) then ns.Print(L.BORDERS_PREVIEW_MISSING) end
 		elseif not HonorNamed(preview) and not (rigs.player and rigs.player.tex[preview]) then ns.Print(L.BORDERS_PREVIEW_MISSING) end
 	end
 	ns.Fire("WORKSHOP_CHANGED")

@@ -25992,6 +25992,48 @@ do
 		end)
 	end)
 
+	test("1.2.5 office badge preview: the author's local command overlays each role shield on self without replacing the real frame or sending anything", function()
+		WithBorders(function(w)
+			ns.Borders = w.B
+			w.internal("LOGIN")
+			eq(w.shown("player"), "silver", "the author's real frame before preview")
+			RecordingSends(function(sent)
+				SlashCmdList.OLYMPUS("borders test role-legate")
+				eq(w.B.Preview(), "role-legate")
+				eq(w.B.PreviewRole(w.B.Preview()), "legate")
+				eq(w.printed[#w.printed], ns.L.BORDERS_BADGE_PREVIEW_ON:format("Legate", "role-legate"))
+				eq(w.shown("player"), "silver", "the real silver remains underneath")
+				local badge = assert(w.roleBadge("player"), "Legate shield on the author's portrait")
+				eq(badge.file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\legate")
+				eq(badge.size, "36 36")
+				w.target(w.units.player)
+				eq(w.shown("target"), "silver", "targeting self keeps the real frame")
+				eq(assert(w.roleBadge("target")).file, badge.file, "and shows the preview shield")
+				w.units.focus = w.units.player
+				w.fire("PLAYER_FOCUS_CHANGED")
+				eq(w.shown("focus"), "silver")
+				eq(assert(w.roleBadge("focus")).file, badge.file)
+				w.target(BorderUnit("Stranger", "Stormwind Traders", "Member", 3))
+				eq(w.roleBadge("target"), nil, "the preview is never put on another player")
+				for _, key in ipairs({ "olympus", "federal-treasury", "department-of-war", "council-of-justice",
+					"association-of-artisanry", "department-of-heraldry", "missionary-church-of-olympus" }) do
+					SlashCmdList.OLYMPUS("borders test role-" .. key)
+					eq(w.B.Preview(), "role-" .. key)
+					eq(assert(w.roleBadge("player")).file, "Interface\\AddOns\\Olympus\\media\\pauldrons\\" .. key, key)
+					eq(w.shown("player"), "silver", key .. ": the real frame remains")
+				end
+				SlashCmdList.OLYMPUS("borders test role-not-an-office")
+				eq(w.B.Preview(), "role-missionary-church-of-olympus", "an unknown role does not replace the preview")
+				SlashCmdList.OLYMPUS("borders test off")
+				eq(w.B.Preview(), nil)
+				eq(w.roleBadge("player"), nil, "preview badge removed")
+				eq(w.roleBadge("focus"), nil, "focus restored too")
+				eq(w.shown("player"), "silver", "real frame unchanged after preview")
+				eq(#sent, 0, "the preview has no chat, addon or whisper traffic")
+			end)
+		end, AsAuthor)
+	end)
+
 	test("1.0.0 borders preview: the Workshop lists the tiers for the author; a click shows one, a click on it again ends it; not in the copy for Discord", function()
 		WithBorders(function(w)
 			ns.Borders = w.B
@@ -62092,9 +62134,9 @@ end)()
 	end)
 
 	test("1.2.1: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.2.4") -- the consolidated correction candidate has one identity in both folders
+		eq(ns.VERSION, "1.2.5") -- the focused follow-up candidate has one identity in both folders
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.2.4", 1, true))
+		assert(toc:find("## Version: 1.2.5", 1, true))
 		local at = {}
 		local n = 0
 		for line in toc:gmatch("[^\n]+") do n = n + 1; at[line:gsub("%s+$", "")] = n end
@@ -62494,8 +62536,8 @@ end)()
 		return n
 	end
 
-	test("1.2.4 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
-		eq(ns.VERSION, "1.2.4")
+	test("1.2.5 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
+		eq(ns.VERSION, "1.2.5")
 		for _, path in ipairs({ "Olympus/Olympus.toc", "Olympus_Arena/Olympus_Arena.toc" }) do
 			local toc = assert(ReadFile(ROOT .. path))
 			eq(toc:match("## Version:%s*(%S+)"), ns.VERSION, path)
@@ -62516,7 +62558,7 @@ end)()
 				assert(lns.Letters.Has("1.2.0"), code .. ": previous release letter retained")
 				assert(lns.Letters.Has("1.2.1"), code .. ": the published 1.2.1 letter retained")
 				assert(lns.Letters.Has("1.2.2"), code .. ": the published 1.2.2 letter retained")
-				assert(body:lower():find(code == "ptBR" and "sem apostas" or "no bets", 1, true), code .. ": free-game policy")
+				assert(body:find(code == "ptBR" and "Responder" or "Reply", 1, true), code .. ": reply interaction")
 			end)
 			GetLocale = savedLocale
 			if not ok then error(err, 0) end
@@ -62531,7 +62573,7 @@ end)()
 		end)
 		-- A reader of all previous published letters gets the new candidate's alone.
 		WithLetters(function(w)
-			ns.db.lettersRead = { ["1.2.0"] = true, ["1.2.1"] = true, ["1.2.2"] = true, ["1.2.3"] = true }
+			ns.db.lettersRead = { ["1.2.0"] = true, ["1.2.1"] = true, ["1.2.2"] = true, ["1.2.3"] = true, ["1.2.4"] = true }
 			ns.Consent.Show():Hide()
 			eq(w.Letters.Ask("update"), true, "a reader of the previous published letter gets the new one's")
 			eq(w.Letters.Frame().version, ns.VERSION)
@@ -62767,7 +62809,8 @@ end)()
 				w.login(); eq(w.after[1].sec, w.Letters.LOGIN_WAIT); eq(#w.every, 1)
 				ns.Consent.Show():Hide(); w.run()
 				eq(w.Letters.Frame():IsShown(), true); eq(w.Letters.Frame().version, savedVersion)
-				eq(w.Letters.IsRead("1.2.0"), true, "unread previous letter included before current release")
+				eq(w.Letters.IsRead("1.2.4"), true, "the current release's configured catch-up letter is included")
+				eq(w.Letters.IsRead("1.2.0"), false, "older history stays available without expanding the update popup")
 				eq(w.Letters.IsRead(savedVersion), true)
 				baseline, read = ns.db.lettersAutoVersion, ns.db.lettersRead
 				w.Letters.Hide(); w.tick(); eq(w.every[1].cancelled, true)
@@ -62922,7 +62965,7 @@ end)()
 			eq(f.title:IsShown(), false); eq(f.body:IsShown(), false); eq(f.all:IsShown(), false)
 			local versions = Lt.Versions()
 			eq(#versions, #Lt.LIST, "a letter for every version listed")
-			eq(table.concat(versions, " "), "1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
+			eq(table.concat(versions, " "), "1.2.5 1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
 			for i, v in ipairs(versions) do
 				local r = f.rows[i]
 				eq(r:IsShown(), true); eq(r.version, v)

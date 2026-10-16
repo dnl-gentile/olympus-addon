@@ -29,10 +29,8 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
 
 ## Recent versions
 
-- **1.2.4**: Implementation candidate: role rooms, retained signed game records, guild average levels,
-  Church appointment catch-up, Heraldry guild duties and Wanted count fixes. Not published;
-  Windows visual and multiplayer acceptance remain separate gates. Undefined departmental metrics
-  and unrelated future backlog are not included as finished features.
+- **1.2.5**: Follow-up candidate: chat replies, finalized office shields, normalized honour presentation,
+  safer shared rankings and relay queues, and predictable Most Wanted list expansion.
 - **1.2.3**: The King's stream fixes; the Chat tab's memory; guild masters' decrees to their own guild; Most Wanted
   from members' own kills and deaths, bounties by office and level; the missionaries' crook
 - **1.2.2**: The stutter fixed (the level race's checks off the message handler, data changes taken once

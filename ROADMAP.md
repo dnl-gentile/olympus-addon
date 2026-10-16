@@ -41,12 +41,17 @@
   the King and the High Council; [Olympus] links; Shift + the guild key; the security reviews' fixes
 - v1.2.3 The King's stream fixes; the Chat tab's memory; guild masters' decrees to their own guild; Most Wanted
   from members' own kills and deaths, bounties by office and level; the missionaries' crook
+- v1.2.5 Follow-up candidate: chat replies, finalized office shields, normalized honour presentation,
+  safer shared rankings and relay queues, and predictable Most Wanted list expansion.
 - v1.2.4 Implementation candidate: role rooms, retained signed game records, guild average levels,
   Church appointment catch-up, Heraldry guild duties and Wanted count fixes. Not published;
   Windows visual and multiplayer acceptance remain separate gates. Undefined departmental metrics
   and unrelated future backlog are not included as finished features.
 
 ## Next (after the base is proven in game)
+- **Compact reply cards after sending** - keep the existing reply composer, but render a sent reply in
+  Olympus Chat with a short, visually separate quote card above the new message (WhatsApp-style)
+  instead of exposing the full textual reply prefix inline. Deferred beyond v1.2.5.
 - ~~Guild leader offline for X days~~ (v0.3)
 - ~~**Guild leader offline for X days (alerts)** - `GetGuildRosterLastOnline(i)` gives years/months/days/hours for
   our own guild; add `leaderLastSeen` to the report so every guild's leader age shows up. Alert above N days.~~
