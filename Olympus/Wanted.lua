@@ -2475,6 +2475,14 @@ function Wanted.VisibleRows(kind, total)
 	return math.min(math.max(0, tonumber(total) or 0), math.max(Wanted.LIST_FIRST, shown))
 end
 
+-- Expanding a ranking is useful only while reading this visit to Most Wanted. There is no collapse
+-- affordance in the compact page, so leaving the outer tab restores its three short previews.
+function Wanted.CollapseLists()
+	Wanted.listShown.wanted = Wanted.LIST_FIRST
+	Wanted.listShown.month = Wanted.LIST_FIRST
+	Wanted.listShown.all = Wanted.LIST_FIRST
+end
+
 function Wanted.MoreLine(lines, kind, id, total)
 	local shown = Wanted.VisibleRows(kind, total)
 	if shown >= total then return false end
@@ -6561,7 +6569,8 @@ end
 
 if ns.UI and ns.UI.AddTab then
 	ns.UI.AddTab({ key = "wanted", label = "TAB_WANTED", after = "realm",
-		icon = Wanted.Icon, visible = function() return ns.IsMember and ns.IsMember() end, build = Wanted.Build, buttons = buttons })
+		icon = Wanted.Icon, visible = function() return ns.IsMember and ns.IsMember() end, build = Wanted.Build,
+		onLeave = Wanted.CollapseLists, buttons = buttons })
 end
 
 -- Never COMBAT_LOG_EVENT_UNFILTERED: on Forever it is a restricted event (HasRestrictions in the

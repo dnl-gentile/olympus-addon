@@ -3718,9 +3718,10 @@ test("1.2 UI.AddTab: a tab joins at its canonical position with its list and but
 	local ok, err = pcall(WithUI, function()
 		local w, UI = ForeverWorld(true)
 		local n = #UI.TABS
-		local extra, shown, clicked = true, true, 0
+		local extra, shown, clicked, left = true, true, 0, 0
 		eq(UI.AddTab({ key = "core-tab", label = "TAB_REALM", icon = "Interface\\Icons\\Ability_Warrior_BattleShout", after = "chat",
 			visible = function() return shown end, build = function() return { { text = "Torvin Hale v Selka Drummond" } }, "Blood Arena", "" end,
+			onLeave = function() left = left + 1 end,
 			buttons = { { "WHO", function() clicked = clicked + 1 end } } }), true)
 		eq(UI.AddTab({ key = "core-extra", label = "TAB_REALM", icon = "Interface\\Icons\\INV_Letter_15", after = "core-tab",
 			visible = function() return extra end }), true)
@@ -3738,6 +3739,8 @@ test("1.2 UI.AddTab: a tab joins at its canonical position with its list and but
 		-- Its list is its builder's (Views.Register), its buttons its own.
 		Tab("core-tab"):Click()
 		eq(main.tab, "core-tab")
+		Tab("core-tab"):Click()
+		eq(left, 0, "reselecting the same tab does not leave it")
 		local found = false
 		for _, row in ipairs(main.views["core-tab"] and main.views["core-tab"].rows or {}) do
 			if (RowText(row) or ""):find("Torvin Hale v Selka Drummond", 1, true) then found = true end
@@ -3750,6 +3753,7 @@ test("1.2 UI.AddTab: a tab joins at its canonical position with its list and but
 		shown = false
 		UI.Refresh()
 		eq(Tab("core-tab"):IsShown(), false); eq(main.tab, "census")
+		eq(left, 1, "a successful move to another tab runs the registered leave cleanup")
 		shown = true
 		local function Keys(onLeft)
 			local out = {}

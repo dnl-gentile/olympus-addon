@@ -133,13 +133,14 @@ UI.PARCHMENTS = { "Interface\\QuestFrame\\QuestBG", "Interface\\Stationery\\Stat
 UI.TABS = TABS
 
 -- 1.2: a tab another file adds (the Blood Arena's, ArenaHome.lua), before the window is built:
---   UI.AddTab{ key, label, icon, after, visible, build, buttons, view }
+--   UI.AddTab{ key, label, icon, after, visible, build, buttons, view, onLeave }
 -- label: its L key; icon: as TABS' (a texture or a function giving one); after: the key of the tab
 -- it follows (the end when there is none such, or nil); visible(): whether it shows now (UI.Refresh
 -- asks it, as it asks the Throne's); build(s): its lines, detail title and text (Views.Register);
 -- buttons: its bottom buttons (as BUTTONS'); view(): the key of the view a section of it shows now,
 -- whose buttons, detail buttons and columns it takes (The Watch's Tabards: "heraldry"), or nil for
--- its own. The HD side columns always preserve this canonical
+-- its own; onLeave(): optional session-UI cleanup after another tab successfully opens. The HD side
+-- columns always preserve this canonical
 -- TABS order: right top-to-bottom, then left bottom-to-top. Refused (false, why) once a window was built (its tabs are made
 -- with it), for a key taken ("taken"), without a key and a label ("shape"), or when Views refuses
 -- its builder ("view": a tab of the same key there).
@@ -153,7 +154,8 @@ function UI.AddTab(t)
 	if type(t.build) == "function" and not (ns.Views and ns.Views.Register and ns.Views.Register(t.key, t.build)) then return false, "view" end
 	local at = #TABS + 1
 	for i, x in ipairs(TABS) do if t.after and x.key == t.after then at = i + 1 end end
-	local definition = { key = t.key, label = t.label, icon = t.icon }
+	local definition = { key = t.key, label = t.label, icon = t.icon,
+		onLeave = type(t.onLeave) == "function" and t.onLeave or nil }
 	table.insert(TABS, at, definition)
 	TAB_BY_KEY[t.key] = definition
 	added[t.key] = type(t.visible) == "function" and t.visible or function() return true end
@@ -1880,6 +1882,10 @@ local function ShowTab(key, focus)
 	-- Only a successful destination leaves a profile. A rejected or hidden surface must not make the
 	-- page currently in front of the player disappear.
 	LeaveProfile()
+	local previous = main.tab and TAB_BY_KEY[main.tab]
+	if previous and previous.key ~= key and previous.onLeave then
+		ns.SafeCall("leave tab " .. previous.key, previous.onLeave)
+	end
 	if key ~= "realm" and ns.Views.CloseChat then ns.Views.CloseChat() end
 	main.tab = key
 	for k, v in pairs(main.views) do v:SetShown(not surface and k == key) end

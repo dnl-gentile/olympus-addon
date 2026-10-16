@@ -430,6 +430,13 @@ test("wanted 1.2.4 page: Wanted and both local Slayers boards start at five and 
 		state = State(W.Build())
 		eq(state.all, 16); eq(state.more["slayers-all-more"], nil)
 		assert(w.refreshed >= 6, "each click refreshes the visible page")
+
+		assert(w.tab and w.tab.onLeave, "the Most Wanted tab supplies its leave cleanup")
+		w.tab.onLeave()
+		state = State(W.Build())
+		eq(state.wanted, 5, "returning to Most Wanted collapses the Wanted preview")
+		eq(state.month, 5, "returning collapses the monthly Slayers preview")
+		eq(state.all, 5, "returning collapses the all-time Slayers preview")
 	end)
 end)
 
