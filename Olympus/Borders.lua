@@ -1134,13 +1134,16 @@ function Borders.Refresh(unit, fresh)
 	local k = known[unit]
 	if fresh or not k or guid == nil or k.guid ~= guid then k = Compute(unit, guid) end
 	Borders.ShowRoleBadge(rig, not k.off and k.who and k.guild and Borders.RoleBadgeOfName(k.who, k.guild) or nil)
-	local chosen = preview and UnitExists(unit) and IsMe(unit, guid) and preview or nil
-	local rolePreview = PreviewRole(chosen)
+	local rolePreview = PreviewRole(preview)
 	if rolePreview then
-		-- A badge is an overlay, never a replacement for the author's real rank or earned honour.
-		Borders.ShowRoleBadge(rig, rolePreview)
-	elseif chosen then
-		return ShowPreview(rig, chosen)
+		-- The local office preview follows the three native player portraits where this overlay may
+		-- appear. It grants nothing, sends nothing and never appears on an NPC or an empty frame.
+		if unit == "player" or ((unit == "target" or unit == "focus") and UnitExists(unit) and UnitIsPlayer(unit)) then
+			Borders.ShowRoleBadge(rig, rolePreview)
+		end
+	else
+		local chosen = preview and UnitExists(unit) and IsMe(unit, guid) and preview or nil
+		if chosen then return ShowPreview(rig, chosen) end
 	end
 	-- 1.2.1: an Apostle's own look, on his own portrait on his own screen (Borders.OwnLook).
 	if Borders.OwnLook() and UnitExists(unit) and IsMe(unit, guid) and ShowOwnLook(rig) then return end

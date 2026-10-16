@@ -3730,11 +3730,17 @@ if ns.Consent and ns.Consent.Register then
 	ns.Consent.Register({
 		key = "wantedsightings", label = "CONSENT_WANTED_SIGHTINGS", text = "CONSENT_WANTED_SIGHTINGS_TEXT",
 		shown = function() return ns.IsMember() == true and ns.faction ~= "Horde" end,
-		get = function() return SightingsOn() end,
+		-- Keep unanswered distinct from No on the authorization page. Runtime collection still uses
+		-- SightingsOn(), where both nil and false are safely off.
+		get = function()
+			local answer
+			if type(ns.db) == "table" then answer = ns.db.wantedSightings end
+			if answer == true or answer == false then return answer end
+			return nil
+		end,
 		set = function(on) Wanted.SetSightings(on) end,
-		-- 1.2.0: off until its own Yes, and asked like the page's other lines until it is answered
-		-- (1.2.1: the page opens by itself for it once, never again once shown); the bulk Yes never
-		-- turns it on.
+		-- Off until an explicit choice. Authorize all includes every visible pending line, including
+		-- this one; an earlier No remains a No because it is no longer pending.
 		pending = function() return type(ns.db) == "table" and ns.db.wantedSightings == nil end,
 		explicit = true,
 	})

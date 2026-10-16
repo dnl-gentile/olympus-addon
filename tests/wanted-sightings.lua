@@ -438,7 +438,7 @@ test("wanted sightings (1.2.0): off until the member's own Yes, a line of its ow
 		eq(world:As(o, W.SightingsOn), false, "off until a Yes")
 		local item = assert(o.consent, "its line on the privacy page")
 		eq(item.key, "wantedsightings")
-		eq(world:As(o, item.get), false, "the page shows it off")
+		eq(world:As(o, item.get), nil, "the page keeps unanswered distinct from No")
 		eq(item.explicit, true, "its own Yes only")
 		-- (Review: with pending always false the page never opened for it, so a member who had
 		-- answered every other line was never shown it. It waits for an answer like the others,
@@ -456,7 +456,7 @@ test("wanted sightings (1.2.0): off until the member's own Yes, a line of its ow
 			"15 minutes", "whispered to one reviewer", "the one you choose with Sightings to on the Most Wanted page", "the King, a High Councillor or the author",
 			"until you choose one, nobody gets it", "seen nearby", "Nothing goes while you keep your zone and layer private",
 			"the King's only while his crown shows on the map", "Never anyone off the list", "never on the Olympus channel", "never in an instance", "nothing saved",
-			"Accept all does not turn it on",
+			"Authorize all while it is pending",
 			"No stops it at once", "take your pins off his map", "before you logged out stays there until its 15 minutes are up",
 			"/oly sightings on|off" }) do
 			assert(text:find(part, 1, true), "the page says: " .. part)
@@ -518,7 +518,7 @@ test("wanted sightings (1.2.0): off until the member's own Yes, a line of its ow
 	assert(table.concat(lines, "\n"):find(L.HELP_SIGHTINGS, 1, true), "in /oly help")
 end)
 
-test("wanted sightings on the real privacy page (Consent.lua): it opens by itself for a member who answered every other line, once a session; the bulk Yes never turns it on (1.2.0); its own Yes does; answered, it opens no more", function()
+test("wanted sightings on the real privacy page (Consent.lua): it opens by itself for a member who answered every other line, once a session; Authorize all turns the pending line on; an earlier No remains No", function()
 	WithSightings(function(world)
 		-- A 1.1 member who answered every line the page had before this one.
 		local db = { shareLocation = false, layerHelp = false, royalInspection = false, rollCall = true, addonChat = true }
@@ -531,19 +531,16 @@ test("wanted sightings on the real privacy page (Consent.lua): it opens by itsel
 			return table.concat(keys, ",")
 		end
 		eq(Waiting(), "wantedsightings", "this line alone waits")
-		eq(world:As(o, P.Answer, "wantedsightings"), false, "off while it waits")
+		eq(world:As(o, P.Answer, "wantedsightings"), nil, "unanswered while runtime collection stays off")
 		eq(world:As(o, P.Ask, "login"), true, "the page opens by itself for it")
 		eq(P.Frame():IsShown(), true)
 		P.Hide()
 		eq(world:As(o, P.Ask, "login"), false, "once a session")
-		-- Its main button, nothing chosen: authorize all leaves it unanswered and off.
+		-- Its main button authorizes every visible pending line, including this explicit one.
 		world:As(o, P.Show)
 		world:As(o, P.AuthorizePending)
-		eq(o.db.wantedSightings, nil, "the bulk Yes never answers it"); eq(Waiting(), "wantedsightings")
-		-- Its own Yes turns it on.
-		eq(world:As(o, P.Choose, "wantedsightings", true), true)
-		eq(o.db.wantedSightings, true, "a yes, recorded"); eq(Waiting(), "")
-		-- A No, then the bulk Yes again: the No stands.
+		eq(o.db.wantedSightings, true, "Authorize all answers it"); eq(Waiting(), "")
+		-- A No, then Authorize all again: the No stands.
 		eq(world:As(o, P.Choose, "wantedsightings", false), true)
 		eq(o.db.wantedSightings, false)
 		eq(world:As(o, P.AuthorizePending), true)

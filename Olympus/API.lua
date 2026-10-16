@@ -20,8 +20,9 @@ local L = ns.L
 --     a private list). Each row is built here field by field from those pages' own functions, so
 --     what a module adds to its tables later never reaches an addon by itself.
 --   - Asked, one addon at a time. OlympusAPI.Register("TheirAddon") gives that addon its handle and
---     a line of its own on the privacy page (Consent.lua): explicit, so the page's Accept all never
---     answers it, and the page opens by itself for it once (Consent.Ask). Nothing comes back before
+--     a line of its own on the privacy page (Consent.lua): explicit, so nothing comes back before
+--     its own Yes or the page's clearly labelled Authorize all. The page opens by itself for it once
+--     (Consent.Ask). Nothing comes back before
 --     the player's Yes, nor after his No; the answer is kept for the account (ns.db.apiAddons) and
 --     asked again when what the API gives changes (API.CONSENT_VERSION). Outside an Olympus guild a
 --     granted addon learns that the player is in none, and nothing else.
@@ -447,7 +448,8 @@ local function SetAnswer(c, on)
 	Tell(c, "PERMISSION_CHANGED", Status(c))
 end
 
--- The addon's line on the privacy page (Consent.lua): its own Yes and No, never Accept all's. A new
+-- The addon's line on the privacy page (Consent.lua): its own Yes and No, or the page's deliberately
+-- labelled Authorize all. A new
 -- question, never one of the lines 1.2.1 and 1.2.2 showed at every login (adopt = false: review of
 -- 1.2.4, an account updating from 1.2.2 straight to 1.2.4 had it taken as asked, and the page never
 -- opened by itself for it).

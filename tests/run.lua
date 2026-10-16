@@ -25992,7 +25992,7 @@ do
 		end)
 	end)
 
-	test("1.2.5 office badge preview: the author's local command overlays each role shield on self without replacing the real frame or sending anything", function()
+	test("1.2.5 office badge preview: the author's local command overlays each role shield on player target and focus portraits without replacing real frames or sending anything", function()
 		WithBorders(function(w)
 			ns.Borders = w.B
 			w.internal("LOGIN")
@@ -26014,7 +26014,14 @@ do
 				eq(w.shown("focus"), "silver")
 				eq(assert(w.roleBadge("focus")).file, badge.file)
 				w.target(BorderUnit("Stranger", "Stormwind Traders", "Member", 3))
-				eq(w.roleBadge("target"), nil, "the preview is never put on another player")
+				eq(assert(w.roleBadge("target")).file, badge.file, "another player target shows the local preview")
+				w.units.focus = BorderUnit("Other Player", "Stormwind Traders", "Member", 3)
+				w.fire("PLAYER_FOCUS_CHANGED")
+				eq(assert(w.roleBadge("focus")).file, badge.file, "another player focus shows the local preview")
+				local npc = BorderUnit("Innkeeper", nil, nil, nil)
+				npc.npc = true
+				w.target(npc)
+				eq(w.roleBadge("target"), nil, "an NPC never shows the office preview")
 				for _, key in ipairs({ "olympus", "federal-treasury", "department-of-war", "council-of-justice",
 					"association-of-artisanry", "department-of-heraldry", "missionary-church-of-olympus" }) do
 					SlashCmdList.OLYMPUS("borders test role-" .. key)
@@ -36367,11 +36374,19 @@ do
 					end
 					assert(RowOf(page, "chat").text:GetText():find("neither sends nor shows", 1, true))
 					assert(RowOf(page, "layerhelp").text:GetText():find(ns.L.CONSENT_NEEDS_LOCATION, 1, true), "needs the location, while it is off")
-					-- X: nothing answered for the player; and once a session. Lines wait: Accept all
-					-- beside Done (1.1.6, the owner's ask; it was the untouched page's Done before).
+					-- Nothing answered for the player; and once a session. Lines wait: the primary
+					-- Authorize all on the right; the equal-sized conservative action on the left,
+					-- muted in the same way as the game's secondary dialog choices.
 					eq(page.all:IsShown(), true); eq(page.all:GetText(), ns.L.CONSENT_ACCEPT_ALL)
-					eq(page.done:GetText(), ns.L.CONSENT_DONE)
-					page.close:Click()
+					eq(page.done:GetText(), ns.L.CONSENT_KEEP_CURRENT)
+					eq(page.all:GetWidth(), page.done:GetWidth(), "equal widths")
+					eq(page.all:GetHeight(), page.done:GetHeight(), "equal heights")
+					eq(page.done:GetAlpha(), 0.8, "the secondary action is muted, not disabled")
+					eq(page.done.normalFont, "GameFontDisable", "the game's dim secondary font")
+					eq(page.all.points[#page.all.points][1], "TOPRIGHT", "primary action on the right")
+					eq(page.done.points[#page.done.points][1], "TOPLEFT", "secondary action on the left")
+					assert(page.close == nil or not page.close:IsShown(), "there is no X")
+					page.done:Click()
 					eq(page:IsShown(), false)
 					for _, k in ipairs(SWITCHES) do eq(ns.db[k], nil, k .. ": still unanswered, off") end
 					eq(ns.TabardsV2.Consent("self"), nil); eq(ns.TabardsV2.Consent("nearby"), nil)
@@ -36382,16 +36397,16 @@ do
 					-- /oly privacy opens it whenever; No to each sets each switch.
 					SlashCmdList.OLYMPUS("privacy")
 					eq(page:IsShown(), true)
-					-- An individual choice keeps Accept all while another line waits (it went away before).
+					-- An individual choice keeps Authorize all while another line waits (it went away before).
 					Rows(page)[1].no:Click()
-					eq(page.all:IsShown(), true, "Accept all stays while a line waits, after an individual choice")
+					eq(page.all:IsShown(), true, "Authorize all stays while a line waits, after an individual choice")
 					for _, r in ipairs(Rows(page)) do r.no:Click() end
-					eq(page.all:IsShown(), false, "every line answered: no Accept all")
+					eq(page.all:IsShown(), false, "every line answered: no Authorize all")
 					eq(page.done:GetText(), ns.L.CONSENT_DONE)
 					for _, k in ipairs(SWITCHES) do eq(ns.db[k], false, k .. ": No") end
 					eq(ns.TabardsV2.Consent("self"), false); eq(ns.TabardsV2.Consent("nearby"), false)
 					for _, r in ipairs(Rows(page)) do assert(r.state:GetText():find(ns.L.CONSENT_STATE_NO, 1, true), r.key) end
-					page.close:Click()
+					page.done:Click()
 					-- Every answer No: the window, the census and our own guild still work.
 					UI.SelectTab("census")
 					eq(OlympusFrame:IsShown(), true)
@@ -36421,7 +36436,7 @@ do
 		end)
 	end)
 
-	test("1.2 authorizations: Accept all authorizes every visible unanswered line, preserves No and hidden roles, fires the real events, and can be revoked", function()
+	test("1.2 authorizations: Authorize all authorizes every visible unanswered line, preserves No and hidden roles, fires the real events, and can be revoked", function()
 		local savedPatrol, savedFire = ns.db.patrolShare, ns.Fire
 		local events = {}
 		local ok, err = pcall(function()
@@ -36448,7 +36463,7 @@ do
 					eq(table.concat(events, ","), "location:true,layerhelp:true,inspection:true,chat:true,chatrooms:true,tabardselfv2:true,tabardnearbyv2:true")
 					-- Reopening has no bulk work. A later No uses the same real setter and persists.
 					page = ns.Consent.Show()
-					eq(page.all:IsShown(), false, "nothing waits: no Accept all")
+					eq(page.all:IsShown(), false, "nothing waits: no Authorize all")
 					RowOf(page, "chat").no:Click()
 					eq(ns.db.addonChat, false)
 					eq(page.all:IsShown(), false)
@@ -36457,6 +36472,43 @@ do
 			end)
 		end)
 		ns.db.patrolShare, ns.Fire = savedPatrol, savedFire
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.2.5 authorizations: a new explicit permission offers Authorize all, while Keep current choices closes without granting it", function()
+		local visible, answer = false, nil
+		assert(ns.Consent.Register({
+			key = "test-explicit-consent", label = "Explicit test choice", text = "Test-only explicit choice.",
+			explicit = true, shown = function() return visible end, get = function() return answer end,
+			set = function(on) answer = on and true or false end,
+		}))
+		local saved = {}
+		for _, k in ipairs(SWITCHES) do saved[k] = ns.db[k]; ns.db[k] = false end
+		local savedTabards = ns.db.tabardsV2
+		ns.db.tabardsV2 = { consent = {
+			self = { v = ns.TabardsV2.CONTRACT, value = false },
+			nearby = { v = ns.TabardsV2.CONTRACT, value = false },
+		} }
+		local ok, err = pcall(function()
+			WithUI(function()
+				GetGuildInfo = function() return "Olympus II", "Member", 3 end
+				visible = true
+				local page = ns.Consent.Show()
+				eq(Keys(page), "location,layerhelp,inspection,rollcall,chat,chatrooms,tabardselfv2,tabardnearbyv2,test-explicit-consent")
+				eq(page.all:IsShown(), true, "the explicit pending line has the primary action")
+				eq(page.all:GetText(), ns.L.CONSENT_ACCEPT_ALL)
+				eq(page.done:GetText(), ns.L.CONSENT_KEEP_CURRENT)
+				page.done:Click()
+				eq(page:IsShown(), false); eq(answer, nil, "keeping current choices grants nothing")
+				page = ns.Consent.Show()
+				page.all:Click()
+				eq(page:IsShown(), false); eq(answer, true, "Authorize all deliberately grants the explicit line")
+			end)
+		end)
+		visible, answer = false, nil
+		for _, k in ipairs(SWITCHES) do ns.db[k] = saved[k] end
+		ns.db.tabardsV2 = savedTabards
+		ns.Consent.Reset()
 		if not ok then error(err, 0) end
 	end)
 
@@ -36575,7 +36627,7 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	test("1.2 authorizations: Accept all stays open when a visible setter fails and does not emit a saved-choice event", function()
+	test("1.2 authorizations: Authorize all stays open when a visible setter fails and does not emit a saved-choice event", function()
 		local visible, answer = false, nil
 		assert(ns.Consent.Register({
 			key = "test-broken-consent", label = "Broken test choice", text = "Test-only choice.",
@@ -36613,7 +36665,7 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	test("1.1 first-open page (#11): with Blizzard's gamepad UI it is Olympus's own window, answered with the cursor, never the game's popup nor on the escape list; with mouse and keyboard Escape closes it", function()
+	test("1.1 first-open page (#11): it is Olympus's own window, answered with its choices, never the game's popup, X or escape list", function()
 		Unanswered(function()
 			WithUI(function()
 				WithGamepadUI(true, function(game)
@@ -36628,9 +36680,9 @@ do
 				ns.Consent.Reset()
 				WithGamepadUI(false, function(game)
 					local page = ns.Consent.Show()
-					local listed = false
-					for _, name in ipairs(UISpecialFrames) do if name == "OlympusConsentFrame" then listed = true end end
-					eq(listed, true, "Escape closes it with mouse and keyboard"); eq(#game.shown, 0)
+					for _, name in ipairs(UISpecialFrames) do assert(name ~= "OlympusConsentFrame", "not on the mouse and keyboard escape list") end
+					assert(page.close == nil or not page.close:IsShown(), "no X with mouse and keyboard either")
+					eq(#game.shown, 0)
 				end)
 			end)
 		end)
@@ -36675,7 +36727,7 @@ do
 		local ok, err = pcall(function() assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", pt) end)
 		GetLocale = savedLocale
 		if not ok then error(err, 0) end
-		local keys = { "CONSENT_TITLE", "CONSENT_INTRO", "CONSENT_OPTIONAL", "CONSENT_FOOTER", "CONSENT_DONE", "CONSENT_ACCEPT_ALL", "CONSENT_YES", "CONSENT_NO",
+		local keys = { "CONSENT_TITLE", "CONSENT_INTRO", "CONSENT_OPTIONAL", "CONSENT_FOOTER", "CONSENT_DONE", "CONSENT_ACCEPT_ALL", "CONSENT_KEEP_CURRENT", "CONSENT_YES", "CONSENT_NO",
 			"CONSENT_STATE_YES", "CONSENT_STATE_NO", "CONSENT_STATE_NONE", "CONSENT_LOCATION", "CONSENT_LOCATION_TEXT", "CONSENT_LAYERHELP",
 			"CONSENT_LAYERHELP_TEXT", "CONSENT_NEEDS_LOCATION", "CONSENT_TREASURER", "CONSENT_TREASURER_TEXT", "CONSENT_INSPECTION",
 			"CONSENT_INSPECTION_TEXT", "CONSENT_ROLLCALL", "CONSENT_ROLLCALL_TEXT", "CONSENT_CHAT", "CONSENT_CHAT_TEXT", "CHAT_ON_MSG",
@@ -48656,7 +48708,7 @@ do
 	-- (1.1.5: the page was the game's opaque dialog box, the "gold" dialog family; now the Olympus
 	-- window's metal without its portrait, whose rock ground and inset box are opaque as well, and the
 	-- plain frame's marble inset on a client without the metal.)
-	test("1.1 the first-open page stands on an opaque ground: the Olympus window's metal (its rock and inset box), else the plain frame's; its title in the title bar, the page under it, its X closes it in combat too", function()
+	test("1.1 the first-open page stands on an opaque ground with its title in the title bar and no dismiss X", function()
 	local saved = TEMPLATES.DefaultPanelTemplate
 	local ok, err = pcall(function()
 		WithUI(function()
@@ -48668,7 +48720,8 @@ do
 			Harness.Win.UnderBar(page, { intro = page.intro }, "the privacy page")
 			assert(page.rows[1] and page.rows[1].yes:IsShown(), "its lines, each with its Yes and No")
 			eq(page.close, page.CloseButton)
-			Harness.Win.XInCombat(page, "the privacy page")
+			assert(page.close == nil or not page.close:IsShown(), "the privacy page has no dismiss X")
+			for _, name in ipairs(UISpecialFrames) do assert(name ~= "OlympusConsentFrame", "the privacy page is not closed by Escape") end
 		end)
 		-- A client without it: the plain frame, its own marble inset.
 		TEMPLATES.DefaultPanelTemplate = nil
@@ -48809,8 +48862,8 @@ test("1.1 review (#11): for the Treasurer whose 0.9.3 yes stands, his line says 
 						assert(page:IsShown(), "the minute after")
 						eq(ns.Layers.AskChoice(), false, "the page is up: nothing more")
 						eq(#game.shown, 0)
-						-- Closed unanswered with X: once a session, by any of them.
-						page.close:Click()
+						-- Keeping current choices unanswered: once a session, by any of them.
+						page.done:Click()
 						eq(ns.Layers.AskChoice(), false); timers[2].fn(); eq(ns.Consent.Ask("window"), false)
 						eq(page:IsShown(), false); eq(#game.shown, 0)
 						-- A player who answered the location in 1.0 still gets the page by itself, for the rest.
@@ -62872,9 +62925,9 @@ end)()
 		end)
 	end)
 
-	-- (1.2.3, the King's stream: the privacy page asked first and he closed it with its X; the
+	-- (1.2.3, the King's stream: the privacy page asked first and he closed it without answering; the
 	-- letter came long after, on the minute's next try, 60 to 120 seconds after login at first.)
-	test("1.2.3 version letters: the privacy page closed after the letter's wait, the letter comes HANDOFF (2 s) after its X, not at the next try; the page hidden with the whole interface (Alt+Z) is no close", function()
+	test("1.2.3 version letters: after the privacy page closes, the letter comes after HANDOFF, not at the next try; hiding the whole interface is no close", function()
 		WithLetters(function(w)
 			local Lt = w.Letters
 			ns.db.addonChat = nil
@@ -62888,7 +62941,7 @@ end)()
 			-- Hidden with the whole interface (OnHide while it still says shown): nothing yet.
 			for _, h in ipairs(page.hooks.OnHide or {}) do h(page) end
 			eq(#w.after, 0, "not a close")
-			page:Hide() -- (its X)
+			page:Hide() -- (a completed privacy-page close)
 			local a = w.after[1]
 			assert(a, "the letter is asked again after the page's close")
 			eq(a.sec, Lt.HANDOFF); assert(Lt.HANDOFF <= 2, tostring(Lt.HANDOFF))

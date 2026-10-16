@@ -85,8 +85,9 @@ answer there at any time, and change the answer whenever he likes.
 - `"granted"`: the player said Yes. Your calls return data.
 - `"refused"`: the player said No. Your calls return nothing.
 
-The page's **Accept all** button never answers for an addon: only the player's own Yes on your
-line does. Each addon is asked on its own. The answer is kept for the player's account and stays
+The page's **Authorize all** button deliberately answers every visible pending line, including an
+addon's; **Keep current choices** closes without granting it. Each addon also has its own Yes and
+No. The answer is kept for the player's account and stays
 across sessions. When a later API version gives more than version 1 does, every addon's line is
 asked again. This answer gates only the data methods and their data events. A registered UI surface
 works while the answer is pending or refused and receives no data from Olympus by doing so.

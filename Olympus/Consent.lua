@@ -20,9 +20,9 @@ local L = ns.L
 -- `/oly privacy` opens it again to change any answer; each answer also has its own command.
 -- Olympus's own frame, never the game's popup: with Blizzard's gamepad UI the game's popups break
 -- when an addon opens one (Dialog.lua). It has no edit box (nothing takes the keyboard), and it
--- goes on the escape list only with mouse and keyboard (ns.EscapeCloses). Escape or the X closes
--- it with the unanswered left off. Before an individual choice, its main button authorizes every
--- visible unanswered line and closes; after a choice it is the plain Done button.
+-- has no X and never goes on the escape list: while a question waits, the player closes it only by
+-- authorizing every visible unanswered line or keeping the choices already made. Once nothing
+-- waits, that secondary action becomes the plain Done button.
 -- The one place such a choice lives: later features that share something on their own (a group
 -- board's raised flag, a camp pin...) add their line here with Consent.Register:
 --   Consent.Register({ key = "camp", label = "L key or text", text = "L key, text or function",
@@ -31,17 +31,18 @@ local L = ns.L
 --     pending = function() return true while it waits for an answer end })
 -- (`get` is what goes out now, shown on the line; `pending`, when given, says whether the line
 -- still waits for the player's answer: by default, while `get` is nil.)
--- A line with `explicit = true` (1.2.0: Most Wanted sightings, Wanted.lua) is off until its own
--- Yes: it is pending until answered, so the page opens by itself for it once (a member who
--- answered every other line before is shown it too), but the bulk Yes never answers it (BulkPending).
+-- A line with `explicit = true` (1.2.0: Most Wanted sightings, Wanted.lua) is off until a deliberate
+-- answer: it is pending until answered, so the page opens by itself for it once (a member who
+-- answered every other line before is shown it too). The page's clearly labelled Authorize all is
+-- also a deliberate answer; Keep current choices leaves that line off and unanswered.
 -- (1.2.4) Each other addon that asks to read through the Olympus API (API.lua, OlympusAPI.Register)
 -- gets such a line of its own, "api:<its name>", once a session it registers: explicit, versioned
 -- by what the API gives (API.CONSENT_VERSION), its answer kept for the account (ns.db.apiAddons),
 -- and `adopt = false`: never taken as asked by 1.2.3's adoption of 1.2.1's lines (below).
 -- (1.2.1, a player's report: "how many times do I need to update my settings?") A line the page
 -- showed counts as asked for good, kept in the saved data (ns.db.consentAsked): the page opens by
--- itself once for each new question, never again for one closed unanswered or left off by Accept
--- all. `version` (a value or a function) makes a changed question a new one; `perCharacter` keeps
+-- itself once for each new question, never again for one closed unanswered or left off by Keep
+-- current choices. `version` (a value or a function) makes a changed question a new one; `perCharacter` keeps
 -- the record per character, for an answer kept per character (a keeper's book).
 -- A focused status section may also register a `readonly` item with `section`, `status` and no
 -- setter. It describes local/shared/derived/hidden/unknown/unavailable state and is never part of
@@ -170,7 +171,7 @@ local function MarkAsked(item)
 end
 
 -- (1.2.3, the King's stream: the page opened by itself again right after the update to 1.2.2,
--- though he had always closed it with its X.) Up to 1.2.1 the page kept the lines it showed for
+-- though he had always closed it without answering.) Up to 1.2.1 the page kept the lines it showed for
 -- the session alone (each login asked again), but its games notice for good (Consent.Show:
 -- ns.db.consentNotices.games). An account with that notice and no record of the lines yet was
 -- shown the page at every login and left its unanswered lines as they are: they count as asked,
@@ -332,15 +333,15 @@ end
 local function BulkPending()
 	local out = {}
 	for _, item in ipairs(Consent.Items(activeSection)) do
-		if Waits(item) and Get(item) ~= false and not item.explicit then out[#out + 1] = item end
+		if Waits(item) and Get(item) ~= false then out[#out + 1] = item end
 	end
 	return out
 end
 
 -- Use every item's real setter and event. Close only after every requested choice is observable;
 -- on a partial failure the page stays open and the same button can retry what remains. Every
--- visible line still waiting counts as asked: an explicit one stays off, unanswered, and never
--- opens the page by itself again (1.2.1).
+-- visible line still waiting counts as asked. A prior No stays No; every other visible pending line,
+-- including an explicit permission, is authorized by this deliberately labelled action.
 function Consent.AuthorizePending()
 	for _, item in ipairs(Consent.Pending(activeSection)) do MarkAsked(item) end
 	local targets = BulkPending()
@@ -351,6 +352,16 @@ function Consent.AuthorizePending()
 	Consent.Refresh()
 	if all and frame then frame:Hide() end
 	return all
+end
+
+-- Close without broadening any permission. A line that appeared while the page was open is also
+-- remembered as shown, so it does not interrupt every later login; nil remains off and may still
+-- be answered from /oly privacy.
+function Consent.KeepCurrent()
+	for _, item in ipairs(Consent.Pending(activeSection)) do MarkAsked(item) end
+	Consent.Refresh()
+	if frame then frame:Hide() end
+	return true
 end
 
 ---------------------------------------------------------------------------
@@ -398,10 +409,9 @@ end
 -- (1.1.5) The Olympus window's metal without its portrait (ns.Window, Dialog.lua), the page's title in
 -- its title bar. An opaque ground: the page is read line by line, and a dialog's lets the world
 -- show through; the metal's rock and its inset box hide it (the plain frame's too).
--- Escape closes it with mouse and keyboard; with the gamepad UI its X and Done do (ns.EscapeCloses,
--- checked each time it shows).
+-- No X and no Escape close: the two named actions below are the only close paths.
 local function Make()
-	local f = ns.Window("OlympusConsentFrame", UIParent, { title = L.CONSENT_TITLE })
+	local f = ns.Window("OlympusConsentFrame", UIParent, { title = L.CONSENT_TITLE, close = false, escape = false })
 	f:SetFrameStrata("DIALOG")
 	f:SetToplevel(true)
 	f:EnableMouse(true)
@@ -438,13 +448,16 @@ local function Make()
 		if f.body.SetVerticalScroll then f.body:SetVerticalScroll(0) end
 		Consent.Refresh()
 	end)
-	-- 1.1.6 (the owner's ask): Accept all beside Done whenever a line still waits for its answer,
-	-- an individual choice or not (it was the untouched page's Done before). It says Yes to the
-	-- lines that wait; a No given before stays No (BulkPending).
-	f.all = Button(f, L.CONSENT_ACCEPT_ALL, 140)
+	-- The game's dialog pattern: equal-sized actions, conservative choice on the left and primary
+	-- choice on the right. Keep current choices is muted, not disabled; it brightens on hover.
+	f.all = Button(f, L.CONSENT_ACCEPT_ALL, 180)
+	f.all:SetHeight(24)
 	f.all:SetScript("OnClick", function() Consent.AuthorizePending() end)
-	f.done = Button(f, L.CONSENT_DONE, 120)
-	f.done:SetScript("OnClick", function() f:Hide() end)
+	f.done = Button(f, L.CONSENT_KEEP_CURRENT, 180)
+	f.done:SetHeight(24)
+	f.done:SetScript("OnClick", function()
+		if #BulkPending() > 0 then Consent.KeepCurrent() else f:Hide() end
+	end)
 	-- An answer given elsewhere meanwhile (a slash command): the page follows, once a second.
 	local elapsed = 0
 	f:SetScript("OnUpdate", function(_, dt)
@@ -454,7 +467,7 @@ local function Make()
 		ns.SafeCall("privacy page", Consent.Refresh)
 	end)
 	f:Hide()
-	-- Closed (its X, Done, Accept all, Escape), not hidden with the whole interface (Alt+Z: it still
+	-- Closed (one of its two actions), not hidden with the whole interface (Alt+Z: it still
 	-- says shown): the version letter that waited for it comes a moment after (1.2.3, Letters.lua).
 	f:HookScript("OnHide", function(self) if not self:IsShown() then ns.Fire("CONSENT_CLOSED") end end)
 	return f
@@ -619,10 +632,20 @@ function Consent.Refresh()
 	f.done:ClearAllPoints()
 	f.all:ClearAllPoints()
 	if #BulkPending() > 0 then
+		f.all:SetText(L.CONSENT_ACCEPT_ALL)
+		f.done:SetText(L.CONSENT_KEEP_CURRENT)
+		if f.all.SetNormalFontObject then f.all:SetNormalFontObject("GameFontNormal") end
+		if f.all.SetAlpha then f.all:SetAlpha(1) end
+		if f.done.SetNormalFontObject then f.done:SetNormalFontObject("GameFontDisable") end
+		if f.done.SetHighlightFontObject then f.done:SetHighlightFontObject("GameFontHighlight") end
+		if f.done.SetAlpha then f.done:SetAlpha(0.8) end
 		f.all:SetPoint("TOPRIGHT", f, "TOP", -6, y)
 		f.done:SetPoint("TOPLEFT", f, "TOP", 6, y)
 		f.all:Show()
 	else
+		f.done:SetText(L.CONSENT_DONE)
+		if f.done.SetNormalFontObject then f.done:SetNormalFontObject("GameFontNormal") end
+		if f.done.SetAlpha then f.done:SetAlpha(1) end
 		f.done:SetPoint("TOP", f, "TOP", 0, y)
 		f.all:Hide()
 	end

@@ -1624,8 +1624,8 @@ Another addon can read, with your permission, what Olympus already shows you: th
 and its bounties, the public rankings (the Slayers, the Church's top three, the games the King
 made public, the donors' top three while he shows the Treasury's ranking), your own frame and
 title, and your Olympus guild, rank and role. An addon that asks gets its own line on the privacy
-page and nothing until your **Yes** there (**Accept all** never answers for it; `/oly privacy`
-changes it at any time). Olympus sends nothing for it and gives it no way to send anything for
+page and nothing until your **Yes** there or the page's deliberate **Authorize all** action
+(`/oly privacy` changes it at any time; **Keep current choices** grants nothing). Olympus sends nothing for it and gives it no way to send anything for
 you, nor your location, the census, other players' private data or Olympus's keys; each addon
 gets its own copy, a limited number of calls at a time. What that addon then does with what it
 read is up to it: say **Yes** only to addons you trust. After the update it loads once the game

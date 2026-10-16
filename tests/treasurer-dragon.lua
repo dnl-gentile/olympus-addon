@@ -49,15 +49,22 @@ test("office badges: a missing badge invents no fallback frame, and signed High 
 	end)
 end)
 
-test("office badge assets: the complete approved family is square, RGBA and consistently authored", function()
+test("office badge assets: the complete approved yellow-on-black family is square, RGBA and consistently authored", function()
 	local root = debug.getinfo(1, "S").source:match("^@(.*)tests[/\\]treasurer%-dragon%.lua$") or "./"
 	for _, name in ipairs({ "olympus", "legate", "federal-treasury", "department-of-war", "council-of-justice",
 		"association-of-artisanry", "department-of-heraldry", "missionary-church-of-olympus" }) do
 		local f = assert(io.open(root .. "Olympus/media/pauldrons/" .. name .. ".tga", "rb"), name)
-		local s = f:read(18); f:close()
+		local s = f:read("*a"); f:close()
 		eq(s:byte(13) + 256 * s:byte(14), 256, name .. " width")
 		eq(s:byte(15) + 256 * s:byte(16), 256, name .. " height")
 		eq(s:byte(17), 32, name .. " RGBA")
+		eq(#s, 18 + 256 * 256 * 4, name .. " uncompressed pixels")
+		local red, blue = 0, 0
+		for i = 19, #s, 4 do
+			blue = blue + s:byte(i)
+			red = red + s:byte(i + 2)
+		end
+		assert(red > blue * 2.5, name .. ": the approved warm yellow-on-black art, not the old blue-backed asset")
 	end
 end)
 

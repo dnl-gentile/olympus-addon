@@ -4132,7 +4132,7 @@ L.WANTED_SIGHT_OTHER_LAYER = "On another layer than yours"
 L.WANTED_SIGHT_NEARBY = "The pin is where the Olympian who saw him stood, not his own position."
 L.HELP_SIGHTINGS = "  /oly sightings on | off - Most Wanted: the Horde players you see, on your map and whispered to the reviewer you chose (Sightings to; off until you say on)"
 L.CONSENT_WANTED_SIGHTINGS = "Most Wanted sightings (off until you say Yes)"
-L.CONSENT_WANTED_SIGHTINGS_TEXT = "When your client sees a Horde player who is on your Most Wanted list (a nameplate, your target, the mouse), it notes his name and GUID as the game shows them, your own map position (rounded) and layer at that moment, the time, your name and your guild. That shows on your own map for 15 minutes. It is also whispered to one reviewer: the one you choose with Sightings to on the Most Wanted page (the King, a High Councillor or the author), while he is online and takes sightings, three a minute at most; until you choose one, nobody gets it. He gets a pin where you stood, labelled seen nearby, with your name, for 15 minutes. Nothing goes while you keep your zone and layer private, and the King's only while his crown shows on the map. Never anyone off the list, never on the Olympus channel, never in an instance, nothing saved. Off until you say Yes on this line (Accept all does not turn it on): No stops it at once, drops what has not gone yet and asks the reviewer's client to take your pins off his map; what reached him before you logged out stays there until its 15 minutes are up. (/oly sightings on|off)"
+L.CONSENT_WANTED_SIGHTINGS_TEXT = "When your client sees a Horde player who is on your Most Wanted list (a nameplate, your target, the mouse), it notes his name and GUID as the game shows them, your own map position (rounded) and layer at that moment, the time, your name and your guild. That shows on your own map for 15 minutes. It is also whispered to one reviewer: the one you choose with Sightings to on the Most Wanted page (the King, a High Councillor or the author), while he is online and takes sightings, three a minute at most; until you choose one, nobody gets it. He gets a pin where you stood, labelled seen nearby, with your name, for 15 minutes. Nothing goes while you keep your zone and layer private, and the King's only while his crown shows on the map. Never anyone off the list, never on the Olympus channel, never in an instance, nothing saved. Off until you say Yes on this line or choose Authorize all while it is pending: No stops it at once, drops what has not gone yet and asks the reviewer's client to take your pins off his map; what reached him before you logged out stays there until its 15 minutes are up. (/oly sightings on|off)"
 
 if GetLocale and GetLocale() == "ptBR" then
 	L.TAB_WANTED = "Wanted"
@@ -4292,7 +4292,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.WANTED_SIGHT_NEARBY = "O marcador é onde estava o Olympian que o viu, não a posição dele."
 	L.HELP_SIGHTINGS = "  /oly sightings on | off - Mais Procurados: os jogadores da Horda que você vê, no seu mapa e sussurrados ao revisor que você escolheu (Avistamentos para; desligado até você dizer on)"
 	L.CONSENT_WANTED_SIGHTINGS = "Avistamentos dos Mais Procurados (desligado até você dizer Sim)"
-	L.CONSENT_WANTED_SIGHTINGS_TEXT = "Quando o seu cliente vê um jogador da Horda que está na sua lista de Mais Procurados (uma placa de nome, o seu alvo, o mouse), ele anota o nome e o GUID dele como o jogo mostra, a sua própria posição no mapa (arredondada) e o seu layer naquele momento, a hora, o seu nome e a sua guilda. Isso aparece no seu próprio mapa por 15 minutos. Também vai por sussurro a um revisor: aquele que você escolhe em Avistamentos para, na página dos Mais Procurados (o Rei, um Alto Conselheiro ou o autor), enquanto ele está online e recebe avistamentos, três por minuto no máximo; até você escolher um, ninguém recebe. Ele recebe um marcador onde você estava, marcado como visto por perto, com o seu nome, por 15 minutos. Nada sai enquanto você mantém a sua zona e o seu layer privados, e os do Rei só enquanto a coroa dele aparece no mapa. Nunca quem não está na lista, nunca no canal Olympus, nunca numa instância, nada guardado. Desligado até você dizer Sim nesta linha (Aceitar tudo não liga): o Não para na hora, descarta o que ainda não saiu e pede ao cliente do revisor que tire os seus marcadores do mapa dele; o que chegou a ele antes de você sair do jogo fica lá até completar os 15 minutos. (/oly sightings on|off)"
+	L.CONSENT_WANTED_SIGHTINGS_TEXT = "Quando o seu cliente vê um jogador da Horda que está na sua lista de Mais Procurados (uma placa de nome, o seu alvo, o mouse), ele anota o nome e o GUID dele como o jogo mostra, a sua própria posição no mapa (arredondada) e o seu layer naquele momento, a hora, o seu nome e a sua guilda. Isso aparece no seu próprio mapa por 15 minutos. Também vai por sussurro a um revisor: aquele que você escolhe em Avistamentos para, na página dos Mais Procurados (o Rei, um Alto Conselheiro ou o autor), enquanto ele está online e recebe avistamentos, três por minuto no máximo; até você escolher um, ninguém recebe. Ele recebe um marcador onde você estava, marcado como visto por perto, com o seu nome, por 15 minutos. Nada sai enquanto você mantém a sua zona e o seu layer privados, e os do Rei só enquanto a coroa dele aparece no mapa. Nunca quem não está na lista, nunca no canal Olympus, nunca numa instância, nada guardado. Desligado até você dizer Sim nesta linha ou escolher Autorizar tudo enquanto ela está pendente: o Não para na hora, descarta o que ainda não saiu e pede ao cliente do revisor que tire os seus marcadores do mapa dele; o que chegou a ele antes de você sair do jogo fica lá até completar os 15 minutos. (/oly sightings on|off)"
 end
 
 local localeReport -- { code, taken, skipped = { key, ... }, lines } for the language taken
@@ -4337,7 +4337,8 @@ L.CONSENT_INTRO = "While you are in an Olympus guild, two things always go out. 
 L.CONSENT_OPTIONAL = "Nothing below goes out, or shows, until you say Yes, and until you answer each one stays off, unless its line says a yes you gave before still stands."
 L.CONSENT_FOOTER = "The window, the census and your own guild's roster work whatever you answer. Change any answer later: /oly privacy opens this page again."
 L.CONSENT_DONE = "Done"
-L.CONSENT_ACCEPT_ALL = "Accept all"
+L.CONSENT_ACCEPT_ALL = "Authorize all"
+L.CONSENT_KEEP_CURRENT = "Keep current choices"
 L.CONSENT_YES = "Yes"
 L.CONSENT_NO = "No"
 L.CONSENT_STATE_YES = "Yes"
@@ -4407,7 +4408,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CONSENT_OPTIONAL = "Nada abaixo sai, nem aparece, até você dizer Sim, e até você responder cada um fica desligado, a menos que a linha diga que um sim que você deu antes ainda vale."
 	L.CONSENT_FOOTER = "A janela, o censo e o rol da sua própria guilda funcionam seja qual for a resposta. Para mudar depois: /oly privacy abre esta página de novo."
 	L.CONSENT_DONE = "Pronto"
-	L.CONSENT_ACCEPT_ALL = "Aceitar tudo"
+	L.CONSENT_ACCEPT_ALL = "Autorizar tudo"
+	L.CONSENT_KEEP_CURRENT = "Manter escolhas atuais"
 	L.CONSENT_YES = "Sim"
 	L.CONSENT_NO = "Não"
 	L.CONSENT_STATE_YES = "Sim"

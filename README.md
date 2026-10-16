@@ -2150,8 +2150,8 @@ Another addon can read, with your permission, what Olympus already shows you: th
 and its bounties, the public rankings (the Slayers, the Church's top three, the games the King
 made public, the donors' top three while he shows the Treasury's ranking), your own frame and
 title, and your Olympus guild, rank and role. An addon that asks gets its own line on the privacy
-page and nothing until your **Yes** there (**Accept all** never answers for it; `/oly privacy`
-changes it at any time). Olympus sends nothing for it and gives it no way to send anything for
+page and nothing until your **Yes** there or the page's deliberate **Authorize all** action
+(`/oly privacy` changes it at any time; **Keep current choices** grants nothing). Olympus sends nothing for it and gives it no way to send anything for
 you, nor your location, the census, other players' private data or Olympus's keys; each addon
 gets its own copy, a limited number of calls at a time. What that addon then does with what it
 read is up to it: say **Yes** only to addons you trust. After the update it loads once the game
@@ -2342,7 +2342,7 @@ message (the game adds it). What goes where:
 | A games' rankings publish word you hold (AU, 1.2.4): the game, shown or hidden, when, and who gave it (the King or a councillor he named) | the lane the ask came on: the Olympus channel, or your guild | only in answer to an ask, a few seconds after it, from about three holders whatever the army's size, unless the same word went out meanwhile; once every 30 seconds at most |
 | A Bones game's ask for its other half (KN, 1.2.4): the game's id, its two players and its target, nothing else; and the answer, your own signed half of that game (the one your addon said on the channel when it ended) | the ask: the game's other player, alone (a whisper); the answer: the player who asked, alone (a whisper) | the ask only when your client holds your own half of a counted game of this month or the last and never got his: at a later login, an hour apart at least, 8 times at most; the answer only to that game's other player's ask, once a session per game |
 | The Royal Writs' ask (T7, 1.2.4): nothing but your name | everyone on the Olympus channel | once a login, a minute and a half after it; only the King's addon answers, with his writs of the last seven days, once every 5 minutes at most |
-| A Most Wanted sighting (WS, 1.2.0): a listed Horde player's name and GUID, your map position (rounded) and layer, the time, your name and guild | the one reviewer you chose (**Sightings to** on the Most Wanted page; 1.2.2: the one you sent evidence to), alone (whispers), three a minute at most | only after your own Yes on its privacy line (**Accept all** does not turn it on), only while you share your zone and layer, only for players on your Most Wanted list, never in an instance; `/oly sightings off` stops it |
+| A Most Wanted sighting (WS, 1.2.0): a listed Horde player's name and GUID, your map position (rounded) and layer, the time, your name and guild | the one reviewer you chose (**Sightings to** on the Most Wanted page; 1.2.2: the one you sent evidence to), alone (whispers), three a minute at most | only after your own Yes on its privacy line, or **Authorize all** while that visible line is pending; only while you share your zone and layer, only for players on your Most Wanted list, never in an instance; `/oly sightings off` stops it |
 | A reviewer's word that he takes sightings (WS) | everyone on the Olympus channel | from a reviewer who said Yes to sightings: 45 seconds after login and every 5 minutes, and off at once on his No |
 
 Decrees and the King's calls go out when someone sends one (a decree carries its sender's

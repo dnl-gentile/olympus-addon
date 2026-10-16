@@ -229,7 +229,7 @@ test("1.2.4 the API: VERSION and Has; Register only for an installed addon, once
 	-- The privacy page's line: the addon's title, plain (its colour and texture codes gone).
 	local item = Line(w, viewer, "api:mappins")
 	assert(item, "its line on the privacy page")
-	eq(item.explicit, true, "its own Yes: Accept all never answers it")
+	eq(item.explicit, true, "its own line is explicit, while the clearly labelled Authorize all may answer it")
 	eq(item.label(), viewer.ns.L.API_CONSENT_LABEL:format("Map Pins"))
 	eq(item.text, "API_CONSENT_TEXT")
 	-- MAX_ADDONS a session.
@@ -314,7 +314,7 @@ test("1.2.4 the API: UI surfaces work while data consent is pending or refused; 
 	W3.NoErrors(w)
 end)
 
-test("1.2.4 the API: nothing before the player's Yes (Accept all never gives it) nor after his No; the page opens by itself once for a new addon; the answer is the account's, kept across sessions", function()
+test("1.2.4 the API: nothing before a deliberate authorization nor after No; Keep current choices grants nothing and Authorize all grants visible pending lines", function()
 	local w, cast, viewer, API = Setup()
 	local O, C = viewer.OlympusAPI, viewer.Consent
 	-- Every line the page had shown already (the player closed it): no question waits.
@@ -332,9 +332,9 @@ test("1.2.4 the API: nothing before the player's Yes (Accept all never gives it)
 		local data, why = Do(w, viewer, api, m)
 		eq(data, nil, m); eq(why, "pending", m)
 	end
-	-- Accept all: the other lines' Yes, never the addon's.
-	w:As(viewer, function() C.Show() C.AuthorizePending() end)
-	eq(Do(w, viewer, api, "Status"), "pending", "Accept all never answers for an addon")
+	-- The secondary action closes without granting this explicit line.
+	w:As(viewer, function() C.Show() C.KeepCurrent() end)
+	eq(Do(w, viewer, api, "Status"), "pending", "Keep current choices grants nothing")
 	eq(Do(w, viewer, api, "GetWanted"), nil)
 	eq(#told, 0)
 	-- No: nothing, and the addon is told.
@@ -354,6 +354,8 @@ test("1.2.4 the API: nothing before the player's Yes (Accept all never gives it)
 	local other = w:As(viewer, O.Register, "BountyBoard")
 	eq(Do(w, viewer, other, "Status"), "pending")
 	eq(Do(w, viewer, other, "GetWanted"), nil)
+	w:As(viewer, function() C.Show() C.AuthorizePending() end)
+	eq(Do(w, viewer, other, "Status"), "granted", "Authorize all deliberately grants the visible pending addon")
 	-- The next session: the account's answer stands, and the page asks nothing again for it.
 	w:Logout(viewer); w:Login(viewer)
 	W3.Rules(w, viewer)
@@ -738,7 +740,7 @@ test("1.2.4 the API: its words in English and pt-BR; docs/API.md names every met
 	for k in head:gmatch("\nL%.([%w_]+) =") do en[k] = true end
 	for k in tail:gmatch("\n\tL%.([%w_]+) =") do pt[k] = true end
 	eq(Keys(en), "API_CONSENT_LABEL,API_CONSENT_TEXT"); eq(Keys(pt), Keys(en))
-	for _, word in ipairs({ "location", "census", "keys", "sends nothing", "Accept all" }) do
+	for _, word in ipairs({ "location", "census", "keys", "sends nothing", "Authorize all" }) do
 		assert(src:find(word, 1, true), "the line says: " .. word)
 	end
 	-- (Review of 1.2.4) Its promises are Olympus's own: it never promised for the other addon that it

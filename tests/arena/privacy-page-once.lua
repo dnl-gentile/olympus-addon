@@ -2,7 +2,7 @@
 -- settings?"): the privacy page (Consent.lua) opens by itself once for each question, never at every
 -- login for a line left unanswered. A line the page showed counts as asked in the saved data, so a
 -- new session (the world's Logout and Login: the files load again, OlympusDB kept) does not open it
--- again; the Most Wanted sightings line (explicit: Accept all never answers it) included. /oly
+-- again; the Most Wanted sightings line included. /oly
 -- privacy still shows every line. Every name is invented.
 local H = ...
 local test, eq, World = H.test, H.eq, H.World
@@ -62,7 +62,7 @@ test("1.2.1 privacy page: closed with lines unanswered, it never opens by itself
 	NoErrors(w)
 end)
 
-test("1.2.1 privacy page: Accept all counts as asked for the Most Wanted sightings line: it stays off and unanswered, and the page never opens by itself for it again", function()
+test("1.2.5 privacy page: Authorize all includes the visible pending Most Wanted sightings line, and the page does not ask again", function()
 	local w = World.New({ compliance = "shipped" })
 	local a = w:Client("Parric Stowe")
 	LoadWanted(w, a)
@@ -70,23 +70,19 @@ test("1.2.1 privacy page: Accept all counts as asked for the Most Wanted sightin
 	-- (The zone and layer's lines: their modules are not in the test world; his answers of 1.1.)
 	a.db.shareLocation, a.db.layerHelp = false, false
 	eq(C.Ask("login"), true, "the page asks")
-	eq(C.AuthorizePending(), true, "Accept all")
+	eq(C.AuthorizePending(), true, "Authorize all")
 	eq(C.Frame():IsShown(), false, "closed")
-	eq(a.db.wantedSightings, nil, "the sightings line: never answered by the bulk Yes")
-	eq(Keys(C.Pending()), "wantedsightings", "it alone still waits")
+	eq(a.db.wantedSightings, true, "the visible pending sightings line is authorized")
+	eq(Keys(C.Pending()), "", "nothing still waits")
 	for session = 2, 3 do
 		Relog(w, a)
 		C = a.Consent
-		eq(Keys(C.Pending()), "wantedsightings")
+		eq(Keys(C.Pending()), "")
 		eq(C.Waiting(), false, "session " .. session)
 		w:Run(C.LOGIN_WAIT + 125)
 		eq(C.Frame(), nil, "session " .. session .. ": the page does not open by itself for it")
-		eq(a.db.wantedSightings, nil, "still off")
+		eq(a.db.wantedSightings, true, "still authorized")
 	end
-	-- Its own Yes, any time from the page.
-	C.Show()
-	eq(C.Choose("wantedsightings", true), true)
-	eq(a.db.wantedSightings, true)
 	NoErrors(w)
 end)
 
@@ -250,7 +246,7 @@ test("1.2.3 privacy page: an account whose page 1.2.1 showed and was closed unan
 		w:Run(C.LOGIN_WAIT + 125)
 		eq(C.Frame(), nil, "session " .. session .. ": not by itself either")
 	end
-	-- /oly privacy: every line on the page, Accept all with them.
+	-- /oly privacy: every line on the page, Authorize all with them.
 	local page = C.Show()
 	eq(page:IsShown(), true); eq(page.all:IsShown(), true)
 	page:Hide()
