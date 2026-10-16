@@ -1997,6 +1997,10 @@ function Widget:SetColorTexture(...) self.colorTexture = { ... } end
 function Widget:SetTextColor(...) self.textColor = { ... } end
 function Widget:SetFrameStrata(strata) self.strata = strata end
 function Widget:GetFrameStrata() return self.strata end
+-- Buttons in the real client inherit Region's alpha API. Keep it observable here so consent's
+-- conservative action can be tested as visually muted without pretending it is disabled.
+function Widget:SetAlpha(alpha) self.alpha = alpha end
+function Widget:GetAlpha() return self.alpha or 1 end
 -- (1.2: a window moved into another one stops being movable and on top, Workshop.IconPickerHost.)
 function Widget:SetMovable(on) self.movable = on and true or false end
 function Widget:IsMovable() return self.movable == true end
@@ -63624,7 +63628,12 @@ end)()
 				-- The privacy page.
 				local page = ns.Consent.Show()
 				Harness.Win.Metal(page, ns.L.CONSENT_TITLE, "the privacy page")
-				Harness.Win.XInCombat(page, "the privacy page")
+				-- A pending privacy choice has no ambiguous dismiss path: its two named actions are
+				-- the only way out, and Escape is deliberately unavailable too.
+				assert(page.CloseButton == nil or not page.CloseButton:IsShown(), "the privacy page: no X")
+				for _, n in ipairs(UISpecialFrames) do assert(n ~= page:GetName(), "the privacy page: not on the escape list") end
+				eq(page.done:GetText(), ns.L.CONSENT_KEEP_CURRENT)
+				eq(page.all:GetText(), ns.L.CONSENT_ACCEPT_ALL)
 				-- A Royal Writ.
 				ns.Acts.Reset()
 				ns.Acts.ShowWrit({ id = 7, to = "L", text = "Hold the bridge", by = "Testking", mine = true })
