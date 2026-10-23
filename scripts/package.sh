@@ -37,8 +37,8 @@ clean_source() {
 			*) printf 'package.sh refuses untracked or ignored addon file: %s\n' "$path" >&2; found=true ;;
 		esac
 	done < <(
-		git ls-files -z --others --exclude-standard -- Olympus Olympus_Arena
-		git ls-files -z --others --ignored --exclude-standard -- Olympus Olympus_Arena
+		git ls-files -z --others --exclude-standard -- Olympus Olympus_Arena OlympusSiteAggregate
+		git ls-files -z --others --ignored --exclude-standard -- Olympus Olympus_Arena OlympusSiteAggregate
 	)
 	if $found; then exit 1; fi
 }
@@ -56,7 +56,7 @@ sha256_file() {
 	fi
 }
 
-FOLDERS=(Olympus Olympus_Arena)
+FOLDERS=(Olympus Olympus_Arena OlympusSiteAggregate)
 
 MODE=release
 N=
@@ -84,7 +84,7 @@ clean_source
 # silently producing a package that drops the load-on-demand Arena module. The module handoff
 # already requires the two base versions to match at runtime; enforce the same invariant before
 # publishing so a mixed install cannot be created by this script.
-for toc in Olympus/Olympus.toc Olympus_Arena/Olympus_Arena.toc; do
+for toc in Olympus/Olympus.toc Olympus_Arena/Olympus_Arena.toc OlympusSiteAggregate/OlympusSiteAggregate.toc; do
 	git cat-file -e "HEAD:$toc" 2>/dev/null || fail "package.sh requires $toc in the Olympus release bundle"
 done
 VERSION=$(git show HEAD:Olympus/Olympus.toc | awk '/^## Version:/ { sub(/\r$/, "", $3); print $3; exit }')
