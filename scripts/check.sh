@@ -16,6 +16,7 @@ lua_files="$check_tmp/lua-files"
 lua_dirs=(Olympus tests)
 [ -d Olympus_Arena ] && lua_dirs+=(Olympus_Arena) # (1.2: the Olympus Arena module)
 [ -d OlympusCompanionBridge ] && lua_dirs+=(OlympusCompanionBridge)
+[ -d OlympusSiteAggregate ] && lua_dirs+=(OlympusSiteAggregate)
 find "${lua_dirs[@]}" -type f -name '*.lua' -print0 > "$lua_files"
 while IFS= read -r -d '' file; do
 	# Compile to a listing without executing addon code or writing bytecode files.
@@ -42,6 +43,7 @@ for _, pair in ipairs({
 	{ "Olympus", "Olympus/Olympus.toc" },
 	{ "Olympus_Arena", "Olympus_Arena/Olympus_Arena.toc" },
 	{ "OlympusCompanionBridge", "OlympusCompanionBridge/OlympusCompanionBridge.toc" },
+	{ "OlympusSiteAggregate", "OlympusSiteAggregate/OlympusSiteAggregate.toc" },
 }) do
 	local toc = io.open(pair[2], "r")
 	if not toc and pair[1] == "Olympus" then

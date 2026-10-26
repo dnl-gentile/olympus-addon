@@ -29,12 +29,13 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
 
 ## Recent versions
 
+- **1.3.3**: Deliberate site export: an optional Site Aggregate folder writes a masked own-guild count for the
+  Olympus website on /oly site export and /reload, never uploads, and empties at the next logout or reload.
 - **1.3.2**: Correction: explicitly approximate Census people counts, preserve accepted Treasury rows,
   fix full-suite ordering regressions and export consented Companion identity evidence.
-- **1.2.5.1**: Hotfix: officers can return a guild separated by a mismatched private realm key to the
-  public Olympus channel, restoring shared chat and live census relay without accepting an older key again.
-- **1.2.5**: Follow-up candidate: chat replies, finalized office shields, normalized honour presentation,
-  safer shared rankings and relay queues, and predictable Most Wanted list expansion.
+- **1.3.0**: Shared durable records and rankings; Church catch-up; Wanted and Slayers pagination,
+  rebalanced history and recent map sightings; the current Legate structure; safer Watch records;
+  Companion exports after the Accord; and integrated Arena, Bones and chat fixes.
 
 Every version's notes are in the [GitHub releases](https://github.com/dnl-gentile/olympus-addon/releases). This page is the short one for CurseForge: the [README](https://github.com/dnl-gentile/olympus-addon#olympus) has every section in full.
 
@@ -769,6 +770,10 @@ game in the app, not Classic Era.
    Careful: Windows' *Extract All* adds a folder named after the zip
    (`AddOns\Olympus-0.8.1\Olympus\...`). If that happens, move the `Olympus` folder up into
    `AddOns`; the game only loads it from `AddOns\Olympus\`.
+   From 1.3.3 the zip holds three folders: `Olympus`, `Olympus_Arena` (the Blood Arena's screens,
+   loaded only when you open the arena) and `OlympusSiteAggregate` (the deliberate, no-upload
+   website reporter). All three go in `AddOns`, and all three move up if *Extract All* added a
+   folder. Keep them together and update them together; both additional folders need Olympus enabled.
 5. **Restart the game.** If the addon list says *out of date*, tick **Load out of date AddOns**.
 
 The addon only shows **live data**: guilds appear as soon as one of their members with the

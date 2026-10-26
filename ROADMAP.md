@@ -41,19 +41,21 @@
   the King and the High Council; [Olympus] links; Shift + the guild key; the security reviews' fixes
 - v1.2.3 The King's stream fixes; the Chat tab's memory; guild masters' decrees to their own guild; Most Wanted
   from members' own kills and deaths, bounties by office and level; the missionaries' crook
-- v1.2.5 Follow-up candidate: chat replies, finalized office shields, normalized honour presentation,
-  safer shared rankings and relay queues, and predictable Most Wanted list expansion.
-- v1.2.5.1 Hotfix: officers can return a guild separated by a mismatched private realm key to the
-  public Olympus channel, restoring shared chat and live census relay without accepting an older key again.
-- v1.3.2 Correction: explicitly approximate Census people counts, preserve accepted Treasury rows,
-  fix full-suite ordering regressions and export consented Companion identity evidence.
-- v1.3.0 Shared durable records and rankings; Church catch-up; Wanted and Slayers pagination,
-  rebalanced history and recent map sightings; the current Legate structure; safer Watch records;
-  Companion exports after the Accord; and integrated Arena, Bones and chat fixes.
 - v1.2.4 Implementation candidate: role rooms, retained signed game records, guild average levels,
   Church appointment catch-up, Heraldry guild duties and Wanted count fixes. Not published;
   Windows visual and multiplayer acceptance remain separate gates. Undefined departmental metrics
   and unrelated future backlog are not included as finished features.
+- v1.2.5 Follow-up candidate: chat replies, finalized office shields, normalized honour presentation,
+  safer shared rankings and relay queues, and predictable Most Wanted list expansion.
+- v1.2.5.1 Hotfix: officers can return a guild separated by a mismatched private realm key to the
+  public Olympus channel, restoring shared chat and live census relay without accepting an older key again.
+- v1.3.0 Shared durable records and rankings; Church catch-up; Wanted and Slayers pagination,
+  rebalanced history and recent map sightings; the current Legate structure; safer Watch records;
+  Companion exports after the Accord; and integrated Arena, Bones and chat fixes.
+- v1.3.2 Correction: explicitly approximate Census people counts, preserve accepted Treasury rows,
+  fix full-suite ordering regressions and export consented Companion identity evidence.
+- v1.3.3 Deliberate site export: an optional Site Aggregate folder writes a masked own-guild count for the
+  Olympus website on /oly site export and /reload, never uploads, and empties at the next logout or reload.
 
 ## Next (after the base is proven in game)
 - **Compact reply cards after sending** - keep the existing reply composer, but render a sent reply in

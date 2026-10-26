@@ -1757,6 +1757,10 @@ game in the app, not Classic Era.
    Careful: Windows' *Extract All* adds a folder named after the zip
    (`AddOns\Olympus-0.8.1\Olympus\...`). If that happens, move the `Olympus` folder up into
    `AddOns`; the game only loads it from `AddOns\Olympus\`.
+   From 1.3.3 the zip holds three folders: `Olympus`, `Olympus_Arena` (the Blood Arena's screens,
+   loaded only when you open the arena) and `OlympusSiteAggregate` (the deliberate, no-upload
+   website reporter). All three go in `AddOns`, and all three move up if *Extract All* added a
+   folder. Keep them together and update them together; both additional folders need Olympus enabled.
 5. **Restart the game.** If the addon list says *out of date*, tick **Load out of date AddOns**.
 
 The addon only shows **live data**: guilds appear as soon as one of their members with the

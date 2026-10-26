@@ -39,7 +39,7 @@ local Letters = {}
 ns.Letters = Letters
 
 -- Every version with a letter, newest first.
-Letters.LIST = { "1.3.2", "1.3.0", "1.2.5.1", "1.2.5", "1.2.4", "1.2.3", "1.2.2", "1.2.1", "1.2.0", "1.1.5", "1.1.4", "1.1.3", "1.1.2", "1.1.1", "1.1.0" }
+Letters.LIST = { "1.3.3", "1.3.2", "1.3.0", "1.2.5.1", "1.2.5", "1.2.4", "1.2.3", "1.2.2", "1.2.1", "1.2.0", "1.1.5", "1.1.4", "1.1.3", "1.1.2", "1.1.1", "1.1.0" }
 -- 1.2.3 (the author's ask: "why a minute later? why not when opening the game?"): a few seconds
 -- after login, once the loading screen is gone; a privacy question still to ask comes first
 -- (PageFirst: the letter waits for the page, then HANDOFF after it closes).
@@ -132,7 +132,7 @@ end
 -- carries 1.2.2's, the fixes before the King's stream, and 1.2.0's): a version or a list.
 Letters.CATCH_UP = { ["1.2.1"] = "1.2.0", ["1.2.2"] = "1.2.0", ["1.2.3"] = { "1.2.2", "1.2.0" },
 	["1.2.4"] = { "1.2.3", "1.2.0" }, ["1.2.5"] = "1.2.4", ["1.2.5.1"] = "1.2.5", ["1.3.0"] = "1.2.5.1",
-	["1.3.2"] = { "1.3.0", "1.2.5.1" } }
+	["1.3.2"] = { "1.3.0", "1.2.5.1" }, ["1.3.3"] = { "1.3.2", "1.3.0" } }
 
 -- A version's letter: its title and its text as the page shows them (its marks drawn), or nil when
 -- it has none.

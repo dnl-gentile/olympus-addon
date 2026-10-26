@@ -67,7 +67,7 @@ ns.GAMEPAD = {
 		why = "An opt-in Bones row and local dialogue inside a capability-checked unprotected NPC panel; mouse only. A switch restores geometry and hides the addon choices, but native font registration and ScrollBox calls retain taint until reload. Missing native capabilities retain the Olympus dialogue." },
 	-- P0: confirmed in Forever's source to reach the refused call in a session played with the gamepad alone.
 	{ id = "slash", kind = "slash", files = { "Core.lua", "Channels.lua" },
-		globals = { "SLASH_OLYMPUS1", "SLASH_OLYMPUS2", "SLASH_OLYMPUSARENA1", "SLASH_OLYMPUSALL1", "SLASH_OLYMPUSCAPTAINS1", "SLASH_OLYMPUSLORDS1" },
+		globals = { "SLASH_OLYMPUS1", "SLASH_OLYMPUS2", "SLASH_OLYMPUSARMY1", "SLASH_OLYMPUSSITEAGGREGATE1", "SLASH_OLYMPUSARENA1", "SLASH_OLYMPUSALL1", "SLASH_OLYMPUSCAPTAINS1", "SLASH_OLYMPUSLORDS1" },
 		guard = "gate", toPad = "reload", toMouse = "install", safe = "off",
 		why = "The chat box calls a slash command's function directly, then closes itself (ClearChat, its focus lost, ClearGamepadFocus) in that function's taint: nothing the function does can prevent it, so none is registered at a gamepad login.",
 		pins = { "Blizzard_ChatFrameBase/Shared/ChatFrameEditBox.lua:267 hash_SlashCmdList[command](strtrim(msg), self);",
@@ -191,7 +191,7 @@ ns.GAMEPAD = {
 		why = "Reads only (taint probe, stacks), and the notices in Olympus's own windows." },
 
 	-- Found by the audit (scripts/gamepad-audit.lua), registered with it.
-	{ id = "lookups", kind = "reads", files = { "ArenaMatch.lua", "ArenaParse.lua", "Borders.lua", "Channels.lua", "ChatWindow.lua", "Dialog.lua", "GuildFrame.lua", "Treasury.lua", "UI.lua", "Views.lua", "Who.lua", "Workshop.lua" },
+	{ id = "lookups", kind = "reads", files = { "ArmyExport.lua", "ArenaMatch.lua", "ArenaParse.lua", "Borders.lua", "Channels.lua", "ChatWindow.lua", "Dialog.lua", "GuildFrame.lua", "Treasury.lua", "UI.lua", "Views.lua", "Who.lua", "Workshop.lua" },
 		guard = "own", toPad = "stays", toMouse = "nothing", safe = "keep",
 		why = "Looked up by name and only read: Olympus's own frames' parts, the game's fonts and strings, where the game's popups and main chat tab are (Olympus's own windows go under or point at them), whether the who windows are open, the client's icon lists." },
 	{ id = "own-templates", kind = "frame-helper", files = { "UI.lua" },

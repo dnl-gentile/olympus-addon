@@ -59,9 +59,23 @@ test("1.2.5 letter content: both languages describe only the shipped reply, offi
 			assert(not previous or at > previous, locale .. ": release points stay ordered")
 			previous = at
 		end
-		eq(cns.Letters.Versions()[1], "1.3.2", locale .. ": current release first")
-		eq(cns.Letters.Versions()[2], "1.3.0", locale .. ": previous release retained")
-		eq(cns.Letters.Versions()[3], "1.2.5.1", locale .. ": hotfix retained")
+		eq(cns.Letters.Versions()[1], "1.3.3", locale .. ": current release first")
+		eq(cns.Letters.Versions()[2], "1.3.2", locale .. ": previous release retained")
+		eq(cns.Letters.Versions()[3], "1.3.0", locale .. ": the 1.3 line retained")
+	end
+end)
+
+test("1.3.3 letter content: both languages explain the deliberate site export, that nothing is uploaded, and the login clear", function()
+	for _, locale in ipairs({ "enUS", "ptBR" }) do
+		local cns = Language(locale)
+		local title, body = cns.Letters.Text("1.3.3")
+		assert(type(title) == "string" and title ~= "", locale .. ": title")
+		assert(type(body) == "string" and body:find("1.3.3", 1, true), locale .. ": current letter")
+		assert(body:find("/oly site export", 1, true) and body:find("/reload", 1, true), locale .. ": the two steps")
+		assert(body:find(locale == "ptBR" and "Nada é enviado" or "Nothing is uploaded", 1, true), locale .. ": stays local")
+		assert(body:find(locale == "ptBR" and "o próximo logout ou /reload o esvazia" or "your next logout or /reload empties it", 1, true), locale .. ": when the file is emptied")
+		assert(body:find(locale == "ptBR" and "guilda da Aliança chamada Olympus ou Olympus I a X" or "Alliance guild named Olympus or Olympus I to X", 1, true), locale .. ": who can export")
+		assert(not body:find("{[%a]+}"), locale .. ": all icons render or have text fallback")
 	end
 end)
 

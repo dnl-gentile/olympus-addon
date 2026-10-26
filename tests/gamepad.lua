@@ -2511,7 +2511,7 @@ test("gamepad pass 3: the gamepad UI and mouse and keyboard, back and forth thre
 	eq(#C.menus.MENU_UNIT_PLAYER, 1, "the player menu's callback, once")
 	local slash = 0
 	for k in pairs(E.SlashCmdList) do if k:find("^OLYMPUS") then slash = slash + 1 end end
-	eq(slash, 5, "/oly and /ol, /olc, /oll, and /ola (1.2: a line in the fight room), once")
+	eq(slash, 7, "/oly and /ol, /olc, /oll, /ola (1.2: a line in the fight room), /ogarmy and /olysite (1.3.3), once")
 	GP.Covers("player-menu"); GP.Covers("slash"); GP.Covers("minimap")
 	assert(rawget(E, "OlympusMinimapButton"):IsVisible(), "the minimap button in both modes")
 end)

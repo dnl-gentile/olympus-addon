@@ -44,9 +44,11 @@ while true; do
 		sha=$(git rev-parse FETCH_HEAD)
 		if [ "$sha" != "$last" ]; then
 			rm -rf "$WORK/tree" && mkdir -p "$WORK/tree"
-			# (1.2: the Olympus Arena module folder too, on a branch that has it.)
+			# (1.2: the Olympus Arena module folder too, on a branch that has it; 1.3.3: and the site
+			# export's, which scripts/deploy.sh requires there.)
 			paths="Olympus scripts"
-			git cat-file -e "$sha:Olympus_Arena" 2>/dev/null && paths="Olympus Olympus_Arena scripts"
+			git cat-file -e "$sha:Olympus_Arena" 2>/dev/null && paths="$paths Olympus_Arena"
+			git cat-file -e "$sha:OlympusSiteAggregate" 2>/dev/null && paths="$paths OlympusSiteAggregate"
 			git archive "$sha" $paths | tar -xf - -C "$WORK/tree"
 			if deploy; then
 				last=$sha

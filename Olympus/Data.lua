@@ -1014,6 +1014,10 @@ local function SummaryGuilds()
 	for name, g in pairs(ns.rdb.guilds or {}) do
 		out[name], direct[name:lower()] = g, true
 	end
+	-- 1.3.3: our own guild comes straight from our roster, never from a relayed copy of another
+	-- member's report (as in Take), so Stats and the site export keep our own count.
+	local mine = GetGuildInfo("player")
+	mine = mine and mine:lower()
 	for _, e in ipairs(GlobalRows()) do
 		local key, current, currentName = e.name:lower(), out[e.name], out[e.name] and e.name or nil
 		if not current then
@@ -1021,7 +1025,8 @@ local function SummaryGuilds()
 				if name:lower() == key then current, currentName = g, name; break end
 			end
 		end
-		if not current or ObservationTime(current) < e.observed then
+		local ours = current and current.mine and key == mine
+		if not ours and (not current or ObservationTime(current) < e.observed) then
 			-- A normalized display row, intentionally missing leaders, ranks, zones and votes.
 			if currentName and currentName ~= e.name then out[currentName] = nil end
 			out[e.name] = { total = e.total, online = e.online, avgLevel = e.avg10 / 10,

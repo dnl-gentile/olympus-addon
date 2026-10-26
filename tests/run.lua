@@ -163,7 +163,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "HopSightings", "Vox", "Court", "Board", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Ed25519", "libs/QREncode/qrencode", "Link", "Recruit", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "Inspect", "King", "HopSightings", "Vox", "Court", "Board", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Ed25519", "libs/QREncode/qrencode", "Link", "ArmyExport", "Recruit", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -30120,6 +30120,50 @@ test("1.1 companion checkpoint API: guild and seen-only arrays are sorted and bo
 	if not ok then error(err, 0) end
 end)
 
+-- 1.3.3: a relay's census snapshot can carry another member's newer report of our own guild.
+-- Our own roster row stays the source for our guild (as Take refuses such reports), so the
+-- deliberate site export, which accepts only a roster row, is not refused for it.
+test("1.3.3 companion checkpoint: a newer relayed copy never replaces our own guild's roster row", function()
+	local B, D = OlympusBridge, ns.Data
+	local saved = { rdb = ns.rdb, now = ns.Now, server = D.ServerTime, realm = ns.realm, group = ns.group,
+		faction = ns.faction, guild = GetGuildInfo }
+	local ok, err = pcall(function()
+		local clock = 1800000000
+		local guild = "Olympus II"
+		ns.Now = function() return clock end
+		D.ServerTime = function() return clock end
+		GetGuildInfo = function(unit) if unit == "player" then return guild end end
+		ns.realm, ns.group, ns.faction = "Realm", "Realm", "Alliance"
+		ns.rdb = { seen = {},
+			guilds = {
+				["Olympus II"] = { guild = "Olympus II", total = 900, online = 200, t = clock - 10, st = clock - 10, mine = true },
+				["Olympus III"] = { guild = "Olympus III", total = 500, online = 50, t = clock - 30, st = clock - 30 },
+			},
+			censusGlobal = {
+				["olympus ii"] = { name = "Olympus II", total = 899, online = 201, avg10 = 500, observed = clock - 5, by = "Relay-Realm", heard = clock },
+				["olympus iii"] = { name = "Olympus III", total = 510, online = 60, avg10 = 500, observed = clock - 5, by = "Relay-Realm", heard = clock },
+			},
+		}
+		local function Row(checkpoint, name)
+			for _, g in ipairs(checkpoint.guilds) do if g.name == name then return g end end
+		end
+		local checkpoint = B.GetCensusCheckpoint()
+		local own, other = assert(Row(checkpoint, "Olympus II")), assert(Row(checkpoint, "Olympus III"))
+		eq(own.provenance.source, "roster", "our own guild keeps its roster row")
+		eq(own.members, 900); eq(own.online, 200)
+		eq(other.provenance.source, "relay", "another guild still takes the newer relayed row")
+		eq(other.members, 510)
+		-- After a guild change the old roster row is no longer ours: the newer relay replaces it.
+		guild = "Olympus III"
+		own = assert(Row(B.GetCensusCheckpoint(), "Olympus II"))
+		eq(own.provenance.source, "relay", "a former guild's roster row is not ours any more")
+		eq(own.members, 899)
+	end)
+	ns.rdb, ns.Now, D.ServerTime, ns.realm, ns.group, ns.faction = saved.rdb, saved.now, saved.server, saved.realm, saved.group, saved.faction
+	GetGuildInfo = saved.guild
+	if not ok then error(err, 0) end
+end)
+
 test("1.1 private companion bridge: logout checkpoints, tombstones block old resurrection, malformed sources keep the last good one", function()
 	local realBridge, D = OlympusBridge, ns.Data
 	local saved = { db = OlympusCompanionDB, rdb = ns.rdb, now = ns.Now, server = D.ServerTime,
@@ -30563,7 +30607,7 @@ test("1.1 private companion bridge: its TOC has one separate SavedVariable and d
 		assert(readme:find(text, 1, true), "bridge docs: " .. text)
 	end
 	local package = Read("scripts/package.sh")
-	assert(package:find("FOLDERS=(Olympus Olympus_Arena)", 1, true), "the public package always includes the complete Olympus bundle")
+	assert(package:find("FOLDERS=(Olympus Olympus_Arena OlympusSiteAggregate)", 1, true), "the public package always includes the complete Olympus bundle")
 	assert(not package:find("OlympusCompanionBridge", 1, true), "the private bridge is not in the public package")
 end)
 
@@ -30858,7 +30902,9 @@ do
 		-- The addon's own: Core.lua's /oly and Channels.lua's /ol registered with it (taken over).
 		eq(ns.Gate.missing, nil, "the harness loads Gamepad.lua")
 		local fresh = {}
-		local savedEvents, savedPrint, savedSlash, savedNames = #EVENT_SCRIPTS, print, SlashCmdList.OLYMPUS, { SLASH_OLYMPUS1, SLASH_OLYMPUS2 }
+		local savedEvents, savedPrint, savedSlash, savedArmy, savedSite, savedNames = #EVENT_SCRIPTS, print,
+			SlashCmdList.OLYMPUS, SlashCmdList.OLYMPUSARMY, SlashCmdList.OLYMPUSSITEAGGREGATE,
+			{ SLASH_OLYMPUS1, SLASH_OLYMPUS2, SLASH_OLYMPUSARMY1, SLASH_OLYMPUSSITEAGGREGATE1 }
 		local printed = {}
 		local ok, err = pcall(function()
 			for _, file in ipairs({ "Bootstrap", "Locales", "Core" }) do assert(loadfile(ADDON_DIR .. file .. ".lua"))("Olympus", fresh) end
@@ -30882,7 +30928,9 @@ do
 			assert(SlashCmdList.OLYMPUS ~= savedSlash and type(SlashCmdList.OLYMPUS) == "function", "its /oly")
 		end)
 		print = savedPrint
-		SlashCmdList.OLYMPUS, SLASH_OLYMPUS1, SLASH_OLYMPUS2 = savedSlash, savedNames[1], savedNames[2]
+		SlashCmdList.OLYMPUS, SlashCmdList.OLYMPUSARMY, SlashCmdList.OLYMPUSSITEAGGREGATE = savedSlash, savedArmy, savedSite
+		SLASH_OLYMPUS1, SLASH_OLYMPUS2, SLASH_OLYMPUSARMY1, SLASH_OLYMPUSSITEAGGREGATE1 =
+			savedNames[1], savedNames[2], savedNames[3], savedNames[4]
 		for i = #EVENT_SCRIPTS, savedEvents + 1, -1 do EVENT_SCRIPTS[i] = nil end
 		if not ok then error(err, 0) end
 	end)
@@ -30891,9 +30939,10 @@ do
 	-- ParseText calls hash_SlashCmdList[command] directly, then ClearChat hides the box, its focus
 	-- lost runs ClearGamepadFocus): none registered with the gamepad UI. Core.lua and the gate as the
 	-- game loads them, in a namespace of their own, its login and switches through its own events.
-	test("1.1.5 the gamepad gate, typed commands: a login with the gamepad UI registers no /olympus, /oly, /ol, /olc or /oll; mouse and keyboard does, once a session however many switches; after a switch to the gamepad UI they do nothing, and the player is told a /reload completes it", function()
-		local NAMES = { "OLYMPUS", "OLYMPUSALL", "OLYMPUSCAPTAINS", "OLYMPUSLORDS" }
-		local GLOBALS = { "SLASH_OLYMPUS1", "SLASH_OLYMPUS2", "SLASH_OLYMPUSALL1", "SLASH_OLYMPUSCAPTAINS1", "SLASH_OLYMPUSLORDS1" }
+	test("1.1.5 the gamepad gate, typed commands: a gamepad login registers no /olympus, /oly, /ogarmy, /olysite, /ol, /olc or /oll; mouse and keyboard does, once a session however many switches; after a switch to gamepad they do nothing, and the player is told a /reload completes it", function()
+		local NAMES = { "OLYMPUS", "OLYMPUSARMY", "OLYMPUSSITEAGGREGATE", "OLYMPUSALL", "OLYMPUSCAPTAINS", "OLYMPUSLORDS" }
+		local GLOBALS = { "SLASH_OLYMPUS1", "SLASH_OLYMPUS2", "SLASH_OLYMPUSARMY1", "SLASH_OLYMPUSSITEAGGREGATE1", "SLASH_OLYMPUSALL1", "SLASH_OLYMPUSCAPTAINS1", "SLASH_OLYMPUSLORDS1" }
+		local savedSiteCommand = OlympusSiteAggregateCommand
 		local saved = { list = {}, globals = {}, events = #EVENT_SCRIPTS, after = C_Timer.After, print = print, debug = ns.db.debug,
 			dialogs = { StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN },
 			chatInfo = C_ChatInfo }
@@ -30931,11 +30980,34 @@ do
 			local sns, event = Load()
 			sns.Fire("LOGIN")
 			eq(SlashCmdList.OLYMPUS, nil, "no /oly with the gamepad UI"); eq(SLASH_OLYMPUS1, nil); eq(SLASH_OLYMPUS2, nil)
+			eq(SlashCmdList.OLYMPUSARMY, nil, "no /ogarmy with the gamepad UI"); eq(SLASH_OLYMPUSARMY1, nil)
+			eq(SlashCmdList.OLYMPUSSITEAGGREGATE, nil, "no /olysite with the gamepad UI"); eq(SLASH_OLYMPUSSITEAGGREGATE1, nil)
 			eq(#sns.Gate.leftovers, 0)
 			-- Switched to mouse and keyboard: registered, and they work.
 			Switch(event, false)
 			local oly = SlashCmdList.OLYMPUS
+			local army = SlashCmdList.OLYMPUSARMY
+			local site = SlashCmdList.OLYMPUSSITEAGGREGATE
 			eq(type(oly), "function", "registered at the switch"); eq(SLASH_OLYMPUS1, "/olympus"); eq(SLASH_OLYMPUS2, "/oly")
+			eq(type(army), "function"); eq(SLASH_OLYMPUSARMY1, "/ogarmy")
+			eq(type(site), "function"); eq(SLASH_OLYMPUSSITEAGGREGATE1, "/olysite")
+			local armyCalls = 0
+			local siteCalls = 0
+			sns.ArmyExport = { Slash = function() armyCalls = armyCalls + 1 end }
+			OlympusSiteAggregateCommand = function() siteCalls = siteCalls + 1 end
+			army("test"); eq(armyCalls, 1, "/ogarmy works with mouse and keyboard")
+			site("test"); eq(siteCalls, 1, "/olysite works with mouse and keyboard")
+			oly("site test"); eq(siteCalls, 2, "/oly site is the canonical route")
+			-- 1.3.3: the optional sidecar disabled in the AddOns list: both routes say so, by name.
+			local siteCommand = OlympusSiteAggregateCommand
+			OlympusSiteAggregateCommand = nil
+			printed = {}
+			site("export"); oly("site export")
+			local notLoaded = 0
+			for _, line in ipairs(printed) do if line:find(ns.L.SITE_NOT_LOADED, 1, true) then notLoaded = notLoaded + 1 end end
+			eq(notLoaded, 2, "both routes name the missing Site Aggregate addon")
+			assert(ns.L.SITE_NOT_LOADED:find("Site Aggregate", 1, true))
+			OlympusSiteAggregateCommand = siteCommand
 			ns.db.debug = false
 			oly("debug")
 			eq(ns.db.debug, true, "/oly debug works")
@@ -30948,8 +31020,10 @@ do
 			local said = table.concat(printed, "\n")
 			assert(said:find(ns.L.GATE_NOTICE, 1, true), said)
 			printed = {}
-			oly("debug"); oly("")
+			oly("debug"); oly(""); oly("site test"); army("test"); site("test")
 			eq(ns.db.debug, true, "nothing done with the gamepad UI"); eq(#printed, 0, "nothing said")
+			eq(armyCalls, 1, "/ogarmy also becomes inert after a gamepad switch")
+			eq(siteCalls, 2, "both site aggregate routes become inert after a gamepad switch")
 			-- Back and forth: the same commands, registered once; told once a session.
 			Switch(event, false)
 			eq(SlashCmdList.OLYMPUS, oly, "the same function: registered once")
@@ -30996,6 +31070,7 @@ do
 		for _, k in ipairs(NAMES) do SlashCmdList[k] = saved.list[k] end
 		for _, k in ipairs(GLOBALS) do _G[k] = saved.globals[k] end
 		for i = #EVENT_SCRIPTS, saved.events + 1, -1 do EVENT_SCRIPTS[i] = nil end
+		OlympusSiteAggregateCommand = savedSiteCommand
 		if not ok then error(err, 0) end
 	end)
 
@@ -63699,13 +63774,13 @@ end)()
 		assert(#pt.VERSION_INVITE_TEXT:format("https://www.curseforge.com/wow/addons/olympus-guild") <= 255)
 	end)
 
-	test("1.3.2: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.3.2") -- the release has one identity in both folders
+	test("1.3.3: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
+		eq(ns.VERSION, "1.3.3") -- the release has one identity in both folders
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.3.2", 1, true))
-		eq(ns.Workshop.Newer("1.3.2", "1.3.0"), true, "the new patch is newer")
-		eq(ns.Workshop.Newer("1.3.0", "1.3.2"), false)
-		eq(ns.Workshop.Newer("1.3.3", "1.3.2"), true, "the next patch remains newer")
+		assert(toc:find("## Version: 1.3.3", 1, true))
+		eq(ns.Workshop.Newer("1.3.3", "1.3.2"), true, "the new patch is newer")
+		eq(ns.Workshop.Newer("1.3.2", "1.3.3"), false)
+		eq(ns.Workshop.Newer("1.3.4", "1.3.3"), true, "the next patch remains newer")
 		eq(ns.Workshop.Newer("1.2.5.", "1.2.5"), false, "a trailing dot is not a version")
 		eq(ns.Codec.Versions({ ["1.2.5.1"] = 2, broken = 9 })["1.2.5.1"], 2, "the census carries hotfix versions")
 		local at = {}
@@ -63789,7 +63864,7 @@ assert(loadfile(ROOT .. "tests/hop-regressions.lua"))(ns, test, eq, WithHop)
 local focused = Harness.watchOnly and { "watch", "watch-chat", "chat-strikes", "watch-council-view" }
 		or { "hop", "hop-sightings", "player-sightings", "transport", "admission", "privacy", "census", "authority", "chat-rooms", "war", "watch", "watch-chat", "chat-strikes", "wanted", "wanted-guilds", "wanted-sightings", "map-wanted", "king-arrow",
 		"church", "church-count", "church-fullness", "church-view", "church-head", "department-access", "nominees-durable", "watch-council-view", "innkeeper-arrow", "squads", "king-centurions", "court-calls", "weekly-brief", "main-key", "guild-charter", "officer-muster", "dues-history", "accord", "tag-follow",
-		"campaign", "guild-finance", "dues-grace", "dues-roster-checkpoints", "justice-tasks", "justice-shared", "chat-channel-links", "perf", "roster", "census-avg-level", "ranking-rules", "profile-menu", "history-carry", "carry-history", "carry-merger", "party-guard", "profile-effects", "quiet-presence", "record", "realm-pages", "census-clean", "census-stats", "cover", "bridge-people", "bridge-affairs", "selftest" }
+		"campaign", "guild-finance", "dues-grace", "dues-roster-checkpoints", "justice-tasks", "justice-shared", "chat-channel-links", "perf", "roster", "census-avg-level", "ranking-rules", "profile-menu", "history-carry", "carry-history", "carry-merger", "party-guard", "profile-effects", "quiet-presence", "record", "realm-pages", "census-clean", "census-stats", "cover", "bridge-people", "bridge-affairs", "site-aggregate", "selftest" }
 for _, name in ipairs(focused) do
 	print("tests/" .. name .. ".lua")
 	-- (1.1.6: the Church's files get the harness's UI helpers.)
@@ -63811,6 +63886,7 @@ for _, name in ipairs(focused) do
 		or name == "census-stats" and { WithUI = WithUI, LoadUI = LoadUI } -- (CR-02 / KH-08)
 		or name == "cover" and { FreshComm = FreshComm, WithGamepadUI = WithGamepadUI }
 		or name == "bridge-affairs" and { WithWindow = Harness.WithChatWindow, ROOT = ROOT } -- (931: the Companion's tabs of affairs)
+		or name == "site-aggregate" and { ROOT = ROOT }
 		or (name == "census" or name == "authority") and { FreshComm = FreshComm }
 		or name == "quiet-presence" and { FreshComm = FreshComm, WithHop = WithHop, Fire = CoreFire } -- (1.2.5.1)
 		or name == "selftest" and { WithUI = WithUI, LoadUI = LoadUI, WithGamepadUI = WithGamepadUI, FreshComm = FreshComm } -- (/oly selftest)
@@ -64143,8 +64219,8 @@ end)()
 		return n
 	end
 
-	test("1.3.2 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
-		eq(ns.VERSION, "1.3.2")
+	test("1.3.3 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
+		eq(ns.VERSION, "1.3.3")
 		for _, path in ipairs({ "Olympus/Olympus.toc", "Olympus_Arena/Olympus_Arena.toc" }) do
 			local toc = assert(ReadFile(ROOT .. path))
 			eq(toc:match("## Version:%s*(%S+)"), ns.VERSION, path)
@@ -64165,7 +64241,9 @@ end)()
 				assert(lns.Letters.Has("1.2.0"), code .. ": previous release letter retained")
 				assert(lns.Letters.Has("1.2.1"), code .. ": the published 1.2.1 letter retained")
 				assert(lns.Letters.Has("1.2.2"), code .. ": the published 1.2.2 letter retained")
-				assert(body:find(code == "ptBR" and "estimativa" or "estimate", 1, true), code .. ": estimate correction")
+				assert(body:find("/oly site export", 1, true), code .. ": the site export")
+				local correctionTitle, correctionBody = lns.Letters.Text("1.3.2")
+				assert(correctionTitle and correctionBody and correctionBody:find(code == "ptBR" and "estimativa" or "estimate", 1, true), code .. ": 1.3.2 estimate correction retained")
 				local majorTitle, majorBody = lns.Letters.Text("1.3.0")
 				assert(majorTitle and majorBody and majorBody:find(code == "ptBR" and "estado perene" or "durable state", 1, true), code .. ": 1.3.0 durable relay retained")
 				local hotfixTitle, hotfixBody = lns.Letters.Text("1.2.5.1")
@@ -64186,7 +64264,7 @@ end)()
 		end)
 		-- A reader of all previous published letters gets the new candidate's alone.
 		WithLetters(function(w)
-			ns.db.lettersRead = { ["1.2.0"] = true, ["1.2.1"] = true, ["1.2.2"] = true, ["1.2.3"] = true, ["1.2.4"] = true, ["1.2.5"] = true, ["1.2.5.1"] = true, ["1.3.0"] = true }
+			ns.db.lettersRead = { ["1.2.0"] = true, ["1.2.1"] = true, ["1.2.2"] = true, ["1.2.3"] = true, ["1.2.4"] = true, ["1.2.5"] = true, ["1.2.5.1"] = true, ["1.3.0"] = true, ["1.3.2"] = true }
 			ns.Consent.Show():Hide()
 			eq(w.Letters.Ask("update"), true, "a reader of the previous published letter gets the new one's")
 			eq(w.Letters.Frame().version, ns.VERSION)
@@ -64422,8 +64500,10 @@ end)()
 				w.login(); eq(w.after[1].sec, w.Letters.LOGIN_WAIT); eq(#w.every, 1)
 				ns.Consent.Show():Hide(); w.run()
 				eq(w.Letters.Frame():IsShown(), true); eq(w.Letters.Frame().version, savedVersion)
-				eq(w.Letters.IsRead("1.2.5.1"), true, "the previous hotfix's configured catch-up letter is included")
-				eq(w.Letters.IsRead("1.2.0"), false, "older history stays available without expanding the update popup")
+				eq(w.Letters.IsRead("1.3.2"), true, "the previous patch's configured catch-up letter is included")
+				eq(w.Letters.IsRead("1.3.0"), true, "with the 1.3 line's opening letter")
+				eq(w.Letters.IsRead("1.2.5.1"), false, "older history stays available without expanding the update popup")
+				eq(w.Letters.IsRead("1.2.0"), false)
 				eq(w.Letters.IsRead(savedVersion), true)
 				baseline, read = ns.db.lettersAutoVersion, ns.db.lettersRead
 				w.Letters.Hide(); w.tick(); eq(w.every[1].cancelled, true)
@@ -64606,7 +64686,7 @@ end)()
 			eq(f.title:IsShown(), false); eq(f.body:IsShown(), false); eq(f.all:IsShown(), false)
 			local versions = Lt.Versions()
 			eq(#versions, #Lt.LIST, "a letter for every version listed")
-			eq(table.concat(versions, " "), "1.3.2 1.3.0 1.2.5.1 1.2.5 1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
+			eq(table.concat(versions, " "), "1.3.3 1.3.2 1.3.0 1.2.5.1 1.2.5 1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
 			for i, v in ipairs(versions) do
 				local r = f.rows[i]
 				eq(r:IsShown(), true); eq(r.version, v)
@@ -65361,6 +65441,9 @@ end)()
 		end)
 	end)
 end)()
+
+print("tests/army-export.lua")
+assert(loadfile(ROOT .. "tests/army-export.lua"))(ns, test, eq, ADDON_DIR, WithUI)
 
 -- 1.1.5: the gamepad pass (tests/gamepad.lua): whole sessions with Blizzard's gamepad UI simulated, in
 -- a model of Forever's client of their own, from a gamepad login and across switches both ways.

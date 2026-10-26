@@ -70,6 +70,19 @@ expect_failure 'syntax error in the Olympus Arena module' 'Broken.lua'
 printf 'local function readValue() return laterValue end\nlocal laterValue = 1\n' > "$case_root/Olympus_Arena/Broken.lua"
 expect_failure 'local/global lint failure in the Olympus Arena module' "Olympus_Arena/Broken.lua: 'laterValue' is read as a global"
 
+# The bundled site reporter is an addon of its own, so its unlisted syntax, TOC and globals are
+# held to the same gates rather than trusted because the main two folders passed.
+fixture 'Olympus site aggregate checks'
+mkdir -p "$case_root/OlympusSiteAggregate"
+printf 'return {}\n' > "$case_root/OlympusSiteAggregate/SiteAggregate.lua"
+printf '## Interface: 16001\r\n\r\nSiteAggregate.lua\r\nMissing.lua\r\n' > "$case_root/OlympusSiteAggregate/OlympusSiteAggregate.toc"
+expect_failure 'missing Olympus site aggregate TOC file' 'Cannot read TOC entry: OlympusSiteAggregate/Missing.lua'
+printf '## Interface: 16001\r\n\r\nSiteAggregate.lua\r\n' > "$case_root/OlympusSiteAggregate/OlympusSiteAggregate.toc"
+printf 'local =\n' > "$case_root/OlympusSiteAggregate/Broken.lua"
+expect_failure 'syntax error in the Olympus site aggregate' 'OlympusSiteAggregate/Broken.lua'
+printf 'local function readValue() return laterValue end\nlocal laterValue = 1\n' > "$case_root/OlympusSiteAggregate/Broken.lua"
+expect_failure 'local/global lint failure in the Olympus site aggregate' "OlympusSiteAggregate/Broken.lua: 'laterValue' is read as a global"
+
 fixture 'lint error'
 printf 'local function readValue() return laterValue end\nlocal laterValue = 1\n' > "$case_root/Olympus/Main.lua"
 expect_failure 'local/global lint failure' "'laterValue' is read as a global"
@@ -189,8 +202,38 @@ else
 	printf 'skip: Python syntax error (python3 not found)\n'
 fi
 
-# 1.2 (the Blood Arena): scripts/package.sh in a temporary copy. The release zip holds both folders,
-# Olympus and Olympus_Arena, and no test build; --test N writes TestBuild.lua after Core.lua and the
+# Deploy is an atomic three-folder operation too. A partial OLY_TREE must be refused before the
+# first SSH command, otherwise the remote delete would remove a component the source cannot put
+# back in the same run.
+for missing in Olympus_Arena OlympusSiteAggregate; do
+	deploy_root="$scratch_root/deploy-missing-$missing"
+	mkdir -p "$deploy_root/scripts" "$deploy_root/bin"
+	cp "$repo_root/scripts/deploy.sh" "$deploy_root/scripts/"
+	for folder in Olympus Olympus_Arena OlympusSiteAggregate; do
+		mkdir -p "$deploy_root/$folder"
+		printf '## Interface: 16001\n' > "$deploy_root/$folder/$folder.toc"
+	done
+	rm -rf "$deploy_root/$missing"
+	printf '#!/usr/bin/env bash\ntouch "$DEPLOY_SSH_CALLED"\nexit 99\n' > "$deploy_root/bin/ssh"
+	chmod +x "$deploy_root/bin/ssh"
+	if (cd "$deploy_root" && PATH="$deploy_root/bin:$PATH" WOW_HOST=fixture.invalid \
+		DEPLOY_SSH_CALLED="$deploy_root/ssh-called" bash scripts/deploy.sh > result.txt 2>&1); then
+		printf 'FAIL: deploy.sh accepted a tree missing %s\n' "$missing" >&2
+		exit 1
+	fi
+	grep -Fq "no $missing/$missing.toc" "$deploy_root/result.txt" || {
+		printf 'FAIL: deploy.sh did not explain the missing %s\n' "$missing" >&2
+		exit 1
+	}
+	[ ! -e "$deploy_root/ssh-called" ] || {
+		printf 'FAIL: deploy.sh reached SSH before refusing missing %s\n' "$missing" >&2
+		exit 1
+	}
+	printf 'ok: deploy.sh refuses missing %s before remote mutation\n' "$missing"
+done
+
+# scripts/package.sh in a temporary copy. The release zip holds Olympus, Olympus_Arena and the
+# deliberate site reporter, and no test build; --test N writes TestBuild.lua after Core.lua and the
 # -test.N version in its copy of Olympus.toc alone (the repository's untouched), the Olympus Arena
 # module keeping the base version, which its handoff accepts; a release is refused while
 # Olympus/TestBuild.lua exists.
@@ -229,7 +272,7 @@ package_has_no_wager_modules() {
 		[ -f "$pkg/$path" ] || package_fail "the repository copy lost $path"
 	done < "$repo_root/scripts/bets-only.txt"
 	[ "$left_out" -ge 1 ] || package_fail 'bets-only.txt names no file'
-	for folder in Olympus Olympus_Arena; do
+	for folder in Olympus Olympus_Arena OlympusSiteAggregate; do
 		unzip -p "$zip" "$folder/$folder.toc" | tr -d '\r' | while IFS= read -r entry; do
 			case "$entry" in ''|'#'*) continue ;; esac
 			grep -qxF "$folder/${entry//\\//}" "$listing" || { printf 'FAIL: package.sh: %s.toc lists %s, not in %s\n' "$folder" "$entry" "$zip" >&2; exit 1; }
@@ -261,9 +304,29 @@ if command -v git >/dev/null 2>&1 && command -v zip >/dev/null 2>&1 && command -
 		package_fail 'the missing-Arena refusal says why'
 	printf 'ok: package.sh refuses a commit missing the Olympus_Arena half of the release bundle\n'
 
+	missing_site="$scratch_root/package-missing-site-aggregate"
+	mkdir -p "$missing_site/scripts"
+	cp -R "$repo_root/Olympus" "$repo_root/Olympus_Arena" "$missing_site/"
+	cp "$repo_root/scripts/package.sh" "$repo_root/scripts/bets-only.txt" "$missing_site/scripts/"
+	rm -f "$missing_site/Olympus/TestBuild.lua"
+	(
+		cd "$missing_site"
+		git init -q
+		git config user.name "Package Test"
+		git config user.email "package-test@example.invalid"
+		git add Olympus Olympus_Arena scripts/package.sh scripts/bets-only.txt
+		git commit -qm "package fixture without site aggregate"
+	)
+	if (cd "$missing_site" && bash scripts/package.sh > out.txt 2>&1); then
+		package_fail 'a release without OlympusSiteAggregate unexpectedly built'
+	fi
+	grep -Fq 'requires OlympusSiteAggregate/OlympusSiteAggregate.toc in the Olympus release bundle' "$missing_site/out.txt" ||
+		package_fail 'the missing-site-aggregate refusal says why'
+	printf 'ok: package.sh refuses a commit missing the bundled OlympusSiteAggregate addon\n'
+
 	mismatch_pkg="$scratch_root/package-version-mismatch"
 	mkdir -p "$mismatch_pkg/scripts"
-	cp -R "$repo_root/Olympus" "$repo_root/Olympus_Arena" "$mismatch_pkg/"
+	cp -R "$repo_root/Olympus" "$repo_root/Olympus_Arena" "$repo_root/OlympusSiteAggregate" "$mismatch_pkg/"
 	cp "$repo_root/scripts/package.sh" "$repo_root/scripts/bets-only.txt" "$mismatch_pkg/scripts/"
 	rm -f "$mismatch_pkg/Olympus/TestBuild.lua"
 	awk '{ line = $0; sub(/\r$/, "", line); if (line ~ /^## Version:/) print "## Version: 9.9.9"; else print line }' \
@@ -274,7 +337,7 @@ if command -v git >/dev/null 2>&1 && command -v zip >/dev/null 2>&1 && command -
 		git init -q
 		git config user.name "Package Test"
 		git config user.email "package-test@example.invalid"
-		git add Olympus Olympus_Arena scripts/package.sh scripts/bets-only.txt
+		git add Olympus Olympus_Arena OlympusSiteAggregate scripts/package.sh scripts/bets-only.txt
 		git commit -qm "package fixture with mismatched versions"
 	)
 	if (cd "$mismatch_pkg" && bash scripts/package.sh > out.txt 2>&1); then
@@ -283,9 +346,31 @@ if command -v git >/dev/null 2>&1 && command -v zip >/dev/null 2>&1 && command -
 	grep -Fq 'requires one bundle version:' "$mismatch_pkg/out.txt" || package_fail 'the version-mismatch refusal says why'
 	printf 'ok: package.sh refuses mismatched Olympus and Olympus_Arena base versions\n'
 
+	site_mismatch="$scratch_root/package-site-version-mismatch"
+	mkdir -p "$site_mismatch/scripts"
+	cp -R "$repo_root/Olympus" "$repo_root/Olympus_Arena" "$repo_root/OlympusSiteAggregate" "$site_mismatch/"
+	cp "$repo_root/scripts/package.sh" "$repo_root/scripts/bets-only.txt" "$site_mismatch/scripts/"
+	rm -f "$site_mismatch/Olympus/TestBuild.lua"
+	awk '{ line = $0; sub(/\r$/, "", line); if (line ~ /^## Version:/) print "## Version: 1.3.1-site.9"; else print line }' \
+		"$site_mismatch/OlympusSiteAggregate/OlympusSiteAggregate.toc" > "$site_mismatch/OlympusSiteAggregate/OlympusSiteAggregate.toc.mismatch"
+	mv "$site_mismatch/OlympusSiteAggregate/OlympusSiteAggregate.toc.mismatch" "$site_mismatch/OlympusSiteAggregate/OlympusSiteAggregate.toc"
+	(
+		cd "$site_mismatch"
+		git init -q
+		git config user.name "Package Test"
+		git config user.email "package-test@example.invalid"
+		git add Olympus Olympus_Arena OlympusSiteAggregate scripts/package.sh scripts/bets-only.txt
+		git commit -qm "package fixture with stale site aggregate"
+	)
+	if (cd "$site_mismatch" && bash scripts/package.sh > out.txt 2>&1); then
+		package_fail 'a release with a stale OlympusSiteAggregate version unexpectedly built'
+	fi
+	grep -Fq 'requires the site reporter for Olympus' "$site_mismatch/out.txt" || package_fail 'the site-version refusal says why'
+	printf 'ok: package.sh refuses a site reporter built for another Olympus base version\n'
+
 	pkg="$scratch_root/package"
 	mkdir -p "$pkg/scripts"
-	cp -R "$repo_root/Olympus" "$repo_root/Olympus_Arena" "$pkg/"
+	cp -R "$repo_root/Olympus" "$repo_root/Olympus_Arena" "$repo_root/OlympusSiteAggregate" "$pkg/"
 	cp "$repo_root/scripts/package.sh" "$repo_root/scripts/bets-only.txt" "$pkg/scripts/"
 	rm -f "$pkg/Olympus/TestBuild.lua"
 	(
@@ -293,7 +378,7 @@ if command -v git >/dev/null 2>&1 && command -v zip >/dev/null 2>&1 && command -
 		git init -q
 		git config user.name "Package Test"
 		git config user.email "package-test@example.invalid"
-		git add Olympus Olympus_Arena scripts/package.sh scripts/bets-only.txt
+		git add Olympus Olympus_Arena OlympusSiteAggregate scripts/package.sh scripts/bets-only.txt
 		git commit -qm "package fixture"
 	)
 	version=$(grep '^## Version:' "$pkg/Olympus/Olympus.toc" | awk '{print $3}' | tr -d '\r')
@@ -306,9 +391,13 @@ if command -v git >/dev/null 2>&1 && command -v zip >/dev/null 2>&1 && command -
 	unzip -l "$release" > "$pkg/list.txt"
 	grep -q ' Olympus/Olympus.toc$' "$pkg/list.txt" || package_fail 'the release lacks Olympus'
 	grep -q ' Olympus_Arena/Olympus_Arena.toc$' "$pkg/list.txt" || package_fail 'the release lacks Olympus_Arena'
+	grep -q ' OlympusSiteAggregate/OlympusSiteAggregate.toc$' "$pkg/list.txt" || package_fail 'the release lacks OlympusSiteAggregate'
+	grep -q ' OlympusSiteAggregate/SiteAggregate.lua$' "$pkg/list.txt" || package_fail 'the release lacks the site reporter code'
+	[ "$(grep -c '^OlympusSiteAggregate/' "${release%.zip}.files.txt")" -eq 2 ] || package_fail 'the site reporter ships files outside its TOC and one Lua file'
+	unzip -p "$release" OlympusSiteAggregate/OlympusSiteAggregate.toc | tr -d '\r' | grep -qx '## SavedVariables: OlympusSiteAggregate' || package_fail 'the site reporter does not own exactly its dedicated variable'
 	grep -q 'TestBuild.lua' "$pkg/list.txt" && package_fail 'the release carries a test build'
 	unzip -p "$release" Olympus/Olympus.toc | tr -d '\r' | grep -q "^## Version: $version$" || package_fail 'the release version'
-	printf 'ok: package.sh: the release zip holds both folders, no test build and no wager-only modules; manifest and checksum match\n'
+	printf 'ok: package.sh: the release zip holds all three isolated addon folders, no test build and no wager-only modules; manifest and checksum match\n'
 
 	(cd "$pkg" && bash scripts/package.sh --test 3 > out.txt) || package_fail 'the test build did not build'
 	testzip="$pkg/dist/Olympus-$version-test3.zip"
@@ -320,6 +409,9 @@ if command -v git >/dev/null 2>&1 && command -v zip >/dev/null 2>&1 && command -
 	grep -qx 'Olympus/TestBuild.lua' "${testzip%.zip}.files.txt" || package_fail 'the test manifest lacks TestBuild.lua'
 	unzip -l "$testzip" > "$pkg/list.txt"
 	grep -q ' Olympus_Arena/Olympus_Arena.toc$' "$pkg/list.txt" || package_fail 'the test build lacks Olympus_Arena'
+	grep -q ' OlympusSiteAggregate/OlympusSiteAggregate.toc$' "$pkg/list.txt" || package_fail 'the test build lacks OlympusSiteAggregate'
+	grep -Fq 'Interface/AddOns/OlympusSiteAggregate' "$pkg/dist/Olympus-$version-test3.txt" || package_fail 'the test install steps do not replace the site reporter'
+	grep -Fq 'delete all three folders' "$pkg/dist/Olympus-$version-test3.txt" || package_fail 'the rollback steps do not remove all three folders'
 	unzip -p "$testzip" Olympus/Olympus.toc | tr -d '\r' > "$pkg/toc.txt"
 	grep -q "^## Version: $version-test.3$" "$pkg/toc.txt" || package_fail 'the test version'
 	grep -q '(arena test 3)' "$pkg/toc.txt" || package_fail 'the test title'
@@ -349,7 +441,7 @@ assert(loadfile(dir .. "/Olympus_Arena/Handoff.lua"))("Olympus_Arena", own)
 assert(OlympusArenaHandoff == nil, "the handoff is taken")
 assert(ns.Arena.companionReady == true and own.host == ns, "the handoff refused the test build's Olympus Arena module")
 LUA
-	printf 'ok: package.sh --test 3: both folders, no wager-only modules, TestBuild.lua after Core.lua, manifest and checksum match, the handoff takes it\n'
+	printf 'ok: package.sh --test 3: all three folders, no wager-only modules, TestBuild.lua after Core.lua, manifest and checksum match, the handoff takes it\n'
 
 	# 1.1.6: --release116 leaves out the files only the bets need (scripts/bets-only.txt) and their
 	# TOC lines; both folders, the compliance gate and every other file the TOCs list ship.
@@ -360,7 +452,7 @@ LUA
 	package_checksum_matches "$cut"
 	package_has_no_wager_modules "$cut"
 	unzip -Z1 "$cut" > "$pkg/list.txt"
-	for need in Olympus/Olympus.toc Olympus/Compliance.lua Olympus/Locales/ComplianceText.lua Olympus/Lottery.lua Olympus/Stakes.lua Olympus_Arena/Olympus_Arena.toc; do
+	for need in Olympus/Olympus.toc Olympus/Compliance.lua Olympus/Locales/ComplianceText.lua Olympus/Lottery.lua Olympus/Stakes.lua Olympus_Arena/Olympus_Arena.toc OlympusSiteAggregate/OlympusSiteAggregate.toc OlympusSiteAggregate/SiteAggregate.lua; do
 		grep -qxF "$need" "$pkg/list.txt" || package_fail "the 1.1.6 package lacks $need"
 	done
 	grep -q TestBuild.lua "$pkg/list.txt" && package_fail 'the 1.1.6 package carries a test build'
@@ -384,6 +476,11 @@ LUA
 	grep -Fq 'refuses untracked or ignored addon file: Olympus/UntrackedWouldShip.lua' "$pkg/out.txt" || package_fail 'the untracked-file refusal says why'
 	rm -f "$pkg/Olympus/UntrackedWouldShip.lua"
 	printf 'ok: package.sh refuses an untracked file under an addon folder\n'
+	printf 'return {}\n' > "$pkg/OlympusSiteAggregate/UntrackedWouldShip.lua"
+	if (cd "$pkg" && bash scripts/package.sh > out.txt 2>&1); then package_fail 'an untracked site reporter file silently shipped'; fi
+	grep -Fq 'refuses untracked or ignored addon file: OlympusSiteAggregate/UntrackedWouldShip.lua' "$pkg/out.txt" || package_fail 'the site reporter untracked-file refusal says why'
+	rm -f "$pkg/OlympusSiteAggregate/UntrackedWouldShip.lua"
+	printf 'ok: package.sh refuses an untracked file under the site reporter folder\n'
 
 	printf '\n-- a tracked packaging-test change\n' >> "$pkg/Olympus/Core.lua"
 	if (cd "$pkg" && bash scripts/package.sh > out.txt 2>&1); then package_fail 'a tracked change silently shipped'; fi
@@ -401,8 +498,8 @@ else
 	printf 'skip: package.sh (git, zip, unzip, luajit or a SHA-256 tool not found)\n'
 fi
 
-# The private checkpoint sidecar has its own one-folder package and must remain outside every
-# public Olympus + Olympus_Arena ZIP. Its focused fixture also exercises dirty/untracked/secret
+# The private Companion checkpoint sidecar has its own one-folder package and must remain outside
+# the public three-addon ZIP. Its focused fixture also exercises dirty/untracked/secret
 # refusals without trying to package this development checkout.
 if [ -f "$repo_root/tests/package-companion-bridge.sh" ]; then
 	"$bash_bin" "$repo_root/tests/package-companion-bridge.sh"
