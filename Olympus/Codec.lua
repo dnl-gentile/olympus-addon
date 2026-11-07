@@ -620,6 +620,7 @@ end
 -- Pieces waiting for the rest are bounded (0.9.3): a few open messages per sender and a few
 -- hundred in all, so nobody can fill memory with pieces that never complete.
 Codec.OPEN_PER_SENDER = 4
+Codec.ASM_MAX_AGE = 300 -- an assembly never waits longer than this, however steadily its pieces come
 Codec.OPEN_MAX = 400
 function Codec.NewAssembler()
 	return { buf = {}, open = 0, bySender = {}, refused = 0, evicted = 0, changes = 0, none = -1, noneFor = 0 }
@@ -703,6 +704,10 @@ function Codec.Feed(asm, sender, msg, now)
 	if not e.parts[i] then
 		e.parts[i] = body
 		e.got = e.got + 1
+		-- Keep an assembly alive while its pieces keep arriving: the window below is meant
+		-- to catch senders that stopped, not slow ones. ASM_MAX_AGE bounds the total wait.
+		e.first = e.first or e.t
+		e.t = now
 	end
 	if e.got == n then
 		Codec.Close(asm, key)
@@ -726,7 +731,7 @@ end
 function Codec.Gc(asm, now)
 	local dropped, sample = 0, nil
 	for k, e in pairs(asm.buf) do
-		if now - e.t > (e.n > 30 and 70 or 60) then
+		if now - e.t > (e.n > 30 and 70 or 60) or now - (e.first or e.t) > Codec.ASM_MAX_AGE then
 			dropped = dropped + 1
 			sample = sample or ("%s %d/%d"):format(k, e.got, e.n)
 			Codec.Close(asm, k)
