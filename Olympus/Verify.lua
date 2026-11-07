@@ -21,8 +21,8 @@ local L = ns.L
 -- verifier's start reaches it, a client counts from its own first sighting (ns.rdb.verify.seen).
 -- Within GRACE the guild is pending: only its guild master sees "GM verification pending" (once a
 -- session, reopened with /oly verify or the line on top of the Census). Past it the guild is
--- overdue: every member sees, once a session, that it is not sanctioned yet (ask the guild master
--- to verify, or find another Olympus guild); the verifiers keep it on their list, marked overdue,
+-- overdue: member-facing notices are temporarily paused; the guild master still sees the
+-- reminder and the verifiers keep the guild on their list, marked overdue,
 -- for follow-up; and while ns.VERIFY_HOLD is on (Core.lua, as it ships) its guild master's own
 -- powers wait for his verification (ns.MasterHeld: Data.AuthorizedRank gives him an officer's
 -- standing; his public card, his Legates and correspondents, his guild decrees and his guild bank
@@ -726,16 +726,16 @@ function Verify.Duration(seconds)
 	return L.VERIFY_HOURS:format(h, math.floor((s % 3600) / 60))
 end
 
--- What our own guild asks of this player now: "master" or "member", the guild, its status and
--- info; nil when nothing (verified, exempt, no Olympus guild, or a member while it is pending).
+-- Member-facing notices are paused, including overdue guilds. The master still has the original
+-- deadline and reminder. Approval state and the verifiers' follow-up are independent of notices.
 function Verify.Mine(now)
 	if not ns.IsMember() then return nil end
 	local guild, _, rank = GetGuildInfo("player")
 	local status, info = Verify.Status(guild, now)
 	if status == nil or status == "verified" or status == "exempt" then return nil end
 	local master = rank == 0
-	if status == "pending" and not master then return nil end
-	return master and "master" or "member", guild, status, info
+	if not master then return nil end
+	return "master", guild, status, info
 end
 
 function Verify.WhisperText(guild)

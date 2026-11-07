@@ -1,7 +1,7 @@
 ## Interface: 11509, 11510, 16001, 16002, 16003, 16004, 16005, 16010, 16100, 20506, 20507
 ## Title: Olympus - Site Aggregate
 ## Notes: Deliberate masked own-guild aggregate export for the Olympus website. Never uploads automatically.
-## Version: 1.5.2-site.1
+## Version: 1.5.3-site.1
 ## Dependencies: Olympus
 ## SavedVariables: OlympusSiteAggregate
 ## X-License: MIT

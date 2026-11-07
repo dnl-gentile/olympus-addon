@@ -394,7 +394,32 @@ end)
 -- The notices
 ---------------------------------------------------------------------------
 
-test("verify: within 48 hours only the guild master sees \"GM verification pending\", once a session; after them every member is told", function()
+test("verify: paused member notices leave overdue state and GM follow-up intact", function()
+	World(function(w)
+		local gm = w.Client(GM, GUILD, 0)
+		local member = w.Client(MEMBER, GUILD, 3)
+		w.Census(GUILD, "Bram Hollow", 120)
+		w.As(gm, gm.Verify.Observe)
+		w.As(member, member.Verify.Observe)
+		w.now = T0 + 48 * H + 1
+		w.As(member, member.Verify.Login)
+		w.now = w.now + member.Verify.NOTICE_AFTER
+		eq(w.Status(member, GUILD), "overdue", "the original deadline stays")
+		eq(w.As(member, member.Verify.Tick), false, "no automatic warning")
+		eq(#member.copies, 0, "no member popup")
+		assert(not Find(member.printed, "find another Olympus guild"), "no instruction to leave")
+		eq(#w.As(member, member.Verify.Lines), 0, "no member warning banner")
+		eq(w.As(member, member.Verify.ShowNotice), false, "no manual warning popup either")
+		eq(w.As(member, member.GuildSanctioned, GUILD), true, "members keep access")
+		w.As(gm, gm.Verify.Login)
+		w.now = w.now + gm.Verify.NOTICE_AFTER
+		eq(w.As(gm, gm.Verify.Tick), true, "GM still gets follow-up")
+		assert(Find(gm.printed, "GM verification overdue"))
+		eq(w.As(gm, gm.MasterHeld, GUILD), true, "GM rules stay intact")
+	end)
+end)
+
+test("verify: within 48 hours only the guild master sees \"GM verification pending\", once a session; overdue notices stay with the guild master", function()
 	World(function(w)
 		local gm = w.Client(GM, GUILD, 0)
 		local member = w.Client(MEMBER, GUILD, 3)
@@ -423,18 +448,15 @@ test("verify: within 48 hours only the guild master sees \"GM verification pendi
 		w.As(gm, gm.Verify.Slash, "")
 		eq(#gm.copies, 3, "reopened twice")
 		eq(gm.copies[3].opts.auto, nil, "a click's: the keyboard may follow")
-		-- 48 hours on, a new session each: every member is told; the guild master's powers wait.
+		-- 48 hours on, a new session each: members stay quiet; the guild master's powers wait.
 		w.now = T0 + 48 * H + 1
 		for _, c in ipairs({ gm, member }) do w.As(c, c.Verify.Login) end
 		w.now = w.now + member.Verify.NOTICE_AFTER
-		eq(w.As(member, member.Verify.Tick), true)
+		eq(w.As(member, member.Verify.Tick), false)
 		eq(w.As(gm, gm.Verify.Tick), true)
-		assert(Find(member.printed, "ask your guild master to verify it, or find another Olympus guild"), "the member's chat line")
-		local told = member.copies[1]
-		assert(told.text:find("not sanctioned", 1, true) and told.text:find("Bram Hollow", 1, true), told.text)
-		assert(told.text:find(member.L.VERIFY_NO_GATE, 1, true), "nothing is taken")
-		eq(told.action, nil, "a member has no verifier buttons")
-		assert(w.As(member, member.Verify.Lines)[1].text:find("not sanctioned", 1, true))
+		eq(#member.copies, 0, "member notices are paused after the deadline too")
+		assert(not Find(member.printed, "find another Olympus guild"))
+		eq(#w.As(member, member.Verify.Lines), 0)
 		assert(gm.copies[#gm.copies].text:find(gm.L.VERIFY_NOTICE_HOLD, 1, true), "the guild master learns his powers wait")
 		assert(Find(gm.printed, "GM verification overdue for <" .. GUILD .. ">"))
 		-- Verified: nobody is told any more.
