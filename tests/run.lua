@@ -6943,6 +6943,8 @@ local function RelayWorld(me, guild)
 end
 
 assert(loadfile(ROOT .. "tests/census-relay.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
+assert(loadfile(ROOT .. "tests/relay-fanout.lua"))(ns, test, eq, { RelayWorld = RelayWorld })
+assert(loadfile(ROOT .. "tests/roster-subrealm.lua"))(ns, test, eq)
 
 test("1.4.3 the relay: where names split, a channel message goes to the picked signed relay by whisper (RL), pinged once; a chat line goes logged; the relay registers reporters (RR), forwards to each guild's reporter (RM) and hears it itself; a reporter takes it once and hands it to its guild (RG); a guildmate takes it once; a stranger's RM is dropped", function()
 	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild }

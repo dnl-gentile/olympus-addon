@@ -219,19 +219,21 @@ test("verification recovery: snapshot reservation rejects untrusted, malformed, 
 		Send(HC, "Cs:1:3:" .. first .. "x")
 		Send(HC, "Cp:2:3:" .. middle)
 		Flush(); eq(hub.c.Relay.Stats().forwarded, 4, "no unreserved fragment bypasses the exhausted trickle")
+		-- (#76) A reserved snapshot is held until every piece is here, then goes to each reporter
+		-- as one whole batch: `forwarded` counts that batch once, not each piece as it came.
 		Send(HC, "Cg:1:3:" .. first); Flush()
-		eq(hub.c.Relay.Stats().forwarded, 5)
+		eq(hub.c.Relay.Stats().forwarded, 4, "a reserved piece waits for the rest of its set")
 		Send(HC, "Cg:1:3:" .. first)
 		Send(HC, "Cg:2:4:" .. middle)
 		Send(HC, "Ch:1:3:" .. first)
-		Flush(); eq(hub.c.Relay.Stats().forwarded, 5, "one id/total per origin; repeats do not reserve twice")
+		Flush(); eq(hub.c.Relay.Stats().forwarded, 4, "one id/total per origin; repeats do not reserve twice")
 		Send(HC, "Cg:2:3:" .. middle); Send(HC, "Cg:3:3:tail"); Flush()
-		eq(hub.c.Relay.Stats().forwarded, 7, "every admitted fragment can finish")
+		eq(hub.c.Relay.Stats().forwarded, 5, "every admitted fragment can finish: the whole set, one batch")
 		Advance(61)
 		-- Exhaust the ordinary allowance again, then a new snapshot can reserve.
 		for i = 5, 8 do Send("Ordinary Member-Realm", "X1~" .. i) end
 		Send(HC, "Cn:1:3:" .. first); Flush()
-		eq(hub.c.Relay.Stats().forwarded, 12, "a new transfer is eligible after the fixed window")
+		eq(hub.c.Relay.Stats().forwarded, 9, "a new transfer is eligible after the fixed window (its set still waits for the rest)")
 	end)
 end)
 

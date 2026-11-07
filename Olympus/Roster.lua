@@ -445,8 +445,25 @@ function Roster.Scan()
 end
 
 -- Rank of a member of OUR guild, from the roster the server gave us (nil if not a member).
+--
+-- (Forever) The roster lists every member by his bare name, even one who plays on another
+-- sub-realm of our realm family, so his row is filed as "Name-<our sub-realm>". His whispers and
+-- relayed words arrive stamped with his own sub-realm ("Name-CAMWOWUS2Realm7PvE"), which missed
+-- that row: a guildmate was a stranger to his own guild (no layer hop, his guild chat "forged").
+-- Forever's names are unique across the region, so the same name on a sub-realm of our own
+-- family is the same character: looked up as the roster filed him. Another family (PvE / PvP)
+-- or any realm outside Forever is never matched this way.
 function Roster.RankOf(name)
-	return Roster.byName and name and Roster.byName[ns.FullName(name)]
+	local byName = Roster.byName
+	if not byName or not name then return nil end
+	local full = ns.FullName(name)
+	local rank = byName[full]
+	if rank ~= nil or not ns.splitNames then return rank end
+	local base, realm = full:match("^(.+)%-([^%-]+)$")
+	if not realm or realm == ns.realm then return nil end
+	local family = ns.ForeverFamily(realm)
+	if not family or family ~= ns.ForeverFamily(ns.realm) then return nil end
+	return byName[ns.FullName(base)]
 end
 
 -- Our own rank index (0 = guild master), used for layer names and decree permission.

@@ -127,6 +127,10 @@ function ns.DisplayName(name)
 	if not name then return nil end
 	local realm = ns.RealmOf(name)
 	if not realm or realm == ns.realm then return ns.ShortName(name) end
+	-- (Forever) Names are unique across the region and the game's own chat shows them plain, so a
+	-- player stamped with another sub-realm ("Name-CAMWOWUS1Realm5PvE") shows plain too, as
+	-- ns.TellName already sends him.
+	if ns.splitNames then return ns.ShortName(name) end
 	return name
 end
 
