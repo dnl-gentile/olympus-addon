@@ -454,6 +454,108 @@ local function SnapshotPart(origin, body, now)
 	transfer.parts[index], transfer.bytes = true, transfer.bytes + #part
 	return true
 end
+-- Whole sets, one reporter at a time (GitHub #76: the census showed only the player's own guild).
+--
+-- A word in pieces that skips the trickle (the relay's own global census snapshot, another relay's
+-- signed snapshot) used to go out piece by piece to every reporter at once. With 46 guilds, an
+-- 8-piece snapshot was 368 whispers; the send queue holds 60 (Comm's MAX_QUEUE) and dropped the
+-- rest, so every reporter got one or two pieces of a message he could never put together.
+--
+-- Now the relay waits until it holds every piece of such a word, then hands each reporter the
+-- whole set as one batch, and the next reporter's batch only once that one is done. A batch that
+-- has begun is never dropped by the queue and reaches its reporter in seconds, well inside the
+-- 60 seconds a receiver waits for missing pieces. Nothing new is trusted and nothing on the wire
+-- changes: a reporter receives the same whispers as before, only all of them.
+Relay.SET_WAIT = 60 -- seconds the relay waits for a set's missing pieces (as receivers do)
+local sets = {}   -- origin#id -> { n = pieces expected, got = pieces held, pieces = { [i] = body }, t = first piece }
+local drip = {}   -- batches waiting, first in first out: { name = reporter, word = what it is, whispers = { ... } }
+local dripSince   -- when the batch in flight was handed to the queue (nil: none in flight)
+local dripping = false
+
+-- The pieces of a word, in order, once all of them are here; false while some are missing;
+-- nil when the body is not a piece of a larger word (it goes on as before).
+local function CollectSet(origin, body, now)
+	local id, i, n = body:match("^C(%w+):(%d+):(%d+):")
+	i, n = tonumber(i), tonumber(n)
+	if not id or n < 2 or n > ns.Codec.MAX_CHUNKS or i < 1 or i > n then return nil end
+	for key, s in pairs(sets) do
+		if now - s.t > Relay.SET_WAIT then sets[key] = nil end -- (a set that never completed)
+	end
+	local key = Lower(origin) .. "#" .. id
+	local s = sets[key]
+	if not s or s.n ~= n then
+		s = { n = n, got = 0, pieces = {}, t = now }
+		sets[key] = s
+	end
+	if not s.pieces[i] then s.pieces[i], s.got = body, s.got + 1 end
+	if s.got < n then return false end
+	sets[key] = nil
+	return s.pieces
+end
+
+-- Sends the next waiting batch, unless one is still in flight. Called again when it is done.
+local function Drip()
+	if dripping then return end
+	if dripSince and Now() - dripSince < Relay.SET_WAIT then return end
+	dripping, dripSince = true, nil
+	while not dripSince and drip[1] do
+		local d = drip[1]
+		-- A batch waits for room in the queue: forced in, it would push out the words already
+		-- waiting there (a verifier's approval among them). Tried again in a second.
+		if ns.Comm.QueueRoom() < #d.whispers then
+			dripSince = Now()
+			ns.After(1, "relay drip", function() dripSince = nil; Drip() end)
+			break
+		end
+		table.remove(drip, 1)
+		Quiet(d.name) -- (a reporter gone offline since: the server's line out of the chat)
+		if not d.tried then stats.forwarded, d.tried = stats.forwarded + 1, true end
+		dripSince = Now()
+		-- done runs once, whatever happens. A batch the queue had no room for, or pushed out for
+		-- newer words, goes back to the front while it is fresh; otherwise the next batch goes.
+		ns.Comm.SendBatch("WHISPER", d.whispers, nil, d.name, false, function(sent, why)
+			if not sent and (why == "full" or why == "dropped") and Now() - d.t < Relay.SET_WAIT then
+				table.insert(drip, 1, d)
+				ns.After(1, "relay drip", function() dripSince = nil; Drip() end)
+				return
+			end
+			dripSince = nil
+			Drip()
+		end)
+	end
+	dripping = false
+end
+
+-- Queues a whole set for one reporter. A newer copy of the same word for him replaces one still
+-- waiting, so a busy relay sends the latest snapshot, never a backlog.
+local function DripSet(name, word, whispers)
+	for _, d in ipairs(drip) do
+		if d.name == name and d.word == word then
+			d.whispers = whispers
+			return Drip()
+		end
+	end
+	drip[#drip + 1] = { name = name, word = word, whispers = whispers, t = Now() }
+	Drip()
+end
+
+-- The whispers that carry a whole set to a reporter, cut into batches the queue accepts.
+local function SetBatches(flag, origin, set)
+	local whispers = {}
+	for _, body in ipairs(set) do
+		for _, e in ipairs(Envelope("RM", "RM~" .. flag .. "~" .. origin .. "~" .. body)) do
+			whispers[#whispers + 1] = e
+		end
+	end
+	local batches, size = {}, ns.Codec.MAX_CHUNKS
+	for first = 1, #whispers, size do
+		local batch = {}
+		for k = first, math.min(first + size - 1, #whispers) do batch[#batch + 1] = whispers[k] end
+		batches[#batches + 1] = batch
+	end
+	return batches
+end
+
 local function ToReporters(flag, origin, body, sender)
 	local now = Now()
 	local own = ns.FullName(origin) == ns.me
@@ -462,12 +564,21 @@ local function ToReporters(flag, origin, body, sender)
 	-- snapshot mid-transfer. This admits no new authority and does not bypass
 	-- Comm's queue/throughput limits; malformed or unreserved parts use the trickle.
 	local snapshot = SnapshotPart(origin, body, now)
+	-- A trickle-exempt word in pieces goes to the other reporters as a whole set (above).
+	local set, batches
+	if (own or snapshot) and flag ~= "L" then set = CollectSet(origin, body, now) end
 	local pieces
 	for g, r in pairs(reporters) do
 		if now - r.t > Relay.REPORTER_FOR then
 			reporters[g] = nil
 		elseif r.name == ns.me then
 			if Deliver(origin, body, flag == "L") then ToGuild(flag, origin, body) end
+		elseif set == false then
+			-- (Some pieces of the set are still on their way: the whole set goes once they are here.)
+		elseif set then
+			batches = batches or SetBatches(flag, origin, set)
+			local word = Lower(origin) .. " " .. (set[1]:match("^C%w+:%d+:%d+:(..)") or "")
+			for k, batch in ipairs(batches) do DripSet(r.name, word .. " " .. k, batch) end
 		else
 			pieces = pieces or Envelope("RM", "RM~" .. flag .. "~" .. origin .. "~" .. body)
 			-- (1.5.0) Another client's word that is not a chat line: within the reporter's trickle
@@ -693,5 +804,7 @@ function Relay.Reset()
 	seenCount, lastRegister, holding, flushing, lastGlobal = 0, -math.huge, false, false, -math.huge
 	lastVerifyAsk = -math.huge
 	wipe(snapshotTransfers)
+	wipe(sets); wipe(drip)
+	dripSince, dripping = nil, false
 	for k in pairs(stats) do stats[k] = 0 end
 end
