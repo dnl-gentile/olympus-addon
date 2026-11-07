@@ -649,7 +649,7 @@ local function Room(asm, sender, trusted, mine)
 	if not trusted and asm.none == (asm.changes or 0) and mine >= (asm.noneFor or 0) then return false end
 	local oldest = {} -- each stranger's oldest open message (its key), but the sender's own
 	for key, e in pairs(asm.buf) do
-		if e.trusted == nil then e.trusted = Codec.Trusted(e.sender) end
+		if e.trusted == nil then e.trusted = Codec.Trusted(e.from or e.sender) end
 		if not e.trusted and e.sender ~= sender then
 			local o = oldest[e.sender]
 			if not o or e.t < asm.buf[o].t or (e.t == asm.buf[o].t and key < o) then oldest[e.sender] = key end
@@ -674,12 +674,28 @@ local function Room(asm, sender, trusted, mine)
 	return true
 end
 
+-- The name a sender's pieces are filed under (#79). On WoW: Forever one character's pieces reach
+-- us stamped with different sub-realms of one family: his own on the channel, ours when a relay
+-- hands his bare name on (Relay.Deliver -> Comm.Inject, ns.FullName). Filed apart, neither half
+-- ever completed ("incomplete report dropped: X-...Realm1PvE#137 1/17" while X is on Realm7).
+-- Forever's names are unique within a family (Roster.RankOf, the census), so the family stands in
+-- for the sub-realm here. Every other realm keeps the name exactly as stamped.
+function Codec.AssemblyName(sender)
+	if type(sender) ~= "string" then return sender end
+	local base, realm = sender:match("^(.+)%-([^%-]+)$")
+	local family = realm and type(ns.ForeverFamily) == "function" and ns.ForeverFamily(realm) or nil
+	if not family then return sender end
+	return base .. "-" .. family
+end
+
 -- Returns the full payload once every chunk from this sender/id arrived.
 function Codec.Feed(asm, sender, msg, now)
 	local id, i, n, body = msg:match("^C(%w+):(%d+):(%d+):(.*)$")
 	if not id then return nil end
 	i, n = tonumber(i), tonumber(n)
 	if n < 1 or n > Codec.MAX_CHUNKS or i < 1 or i > n then return nil end
+	local from = sender
+	sender = Codec.AssemblyName(sender)
 	local key = sender .. "#" .. id
 	local e = asm.buf[key]
 	if not e or e.n ~= n then
@@ -687,7 +703,7 @@ function Codec.Feed(asm, sender, msg, now)
 		if not e then
 			local mine = asm.bySender[sender] or 0
 			if mine < Codec.OPEN_PER_SENDER and asm.open >= Codec.OPEN_MAX then
-				trusted = Codec.Trusted(sender)
+				trusted = Codec.Trusted(from)
 				Room(asm, sender, trusted, mine)
 			end
 			if mine >= Codec.OPEN_PER_SENDER or asm.open >= Codec.OPEN_MAX then
@@ -697,7 +713,7 @@ function Codec.Feed(asm, sender, msg, now)
 			asm.bySender[sender], asm.open = mine + 1, asm.open + 1
 			asm.changes = (asm.changes or 0) + 1
 		end
-		e = { n = n, parts = {}, got = 0, t = now, sender = sender, trusted = trusted }
+		e = { n = n, parts = {}, got = 0, t = now, sender = sender, from = from, trusted = trusted }
 		asm.buf[key] = e
 	end
 	if not e.parts[i] then
