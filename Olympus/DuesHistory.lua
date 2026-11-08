@@ -227,10 +227,12 @@ local function Parse(text)
 end
 function History.Ask()
 	if not History.IsKing() or ns.Now() - lastAsk < History.ASK_GAP then return false end
+	local treasurer = ns.TreasurerFull()
+	if not treasurer or (T.Unavailable and T.Unavailable(treasurer)) then return false end
 	nextId = math.max(nextId + 1, Clock() * 1000)
 	local p = Identity(); p.id, p.week, p.at = nextId, D.Week(), Clock()
 	pending, lastAsk = p, ns.Now()
-	local ok = T.Private(ns.TreasurerFull(), "DH", ("DH~1~Q~%.0f~%d"):format(p.id, p.week), "dues history ask")
+	local ok = T.Private(treasurer, "DH", ("DH~1~Q~%.0f~%d"):format(p.id, p.week), "dues history ask")
 	if not ok then pending = nil end
 	return ok
 end

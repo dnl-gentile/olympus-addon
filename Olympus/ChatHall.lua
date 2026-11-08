@@ -16,7 +16,9 @@ local ADDON, ns = ...
 local Hall = {}
 ns.ChatHall = Hall
 local pending = {} -- msg -> when: sent as text, its echo counted
+local carryQueue, carryPending = {}, false
 local stats = { sent = 0, echoed = 0, heard = 0 }
+Hall.CARRY_GAP = 1.2
 function Hall.Stats() return { sent = stats.sent, echoed = stats.echoed, heard = stats.heard, carried = stats.carried or 0, on = Hall.On() } end
 
 function Hall.On() -- gp:chat-box
@@ -25,6 +27,9 @@ function Hall.On() -- gp:chat-box
 	if (ns.Comm.ChannelIndex() or 0) <= 0 then return false end
 	if type(ns.GamepadUI) == "function" and ns.GamepadUI() then return false end
 	return type(SendChatMessage) == "function" -- gp:chat-box
+end
+local function Sent(ok, result)
+	return ok and (result == nil or result == true or result == 0)
 end
 
 -- A tier's chat line (M1, the hidden message's text) as the player's own text in the channel,
@@ -39,8 +44,8 @@ function Hall.Send(msg) -- gp:chat-box
 	if not Hall.On() or type(msg) ~= "string" or msg:sub(1, 3) ~= "M1~" or #msg > 255 then return false end
 	local index = ns.Comm.ChannelIndex()
 	pending[msg] = ns.Now()
-	local ok = pcall(SendChatMessage, msg, "CHANNEL", nil, index) -- gp:chat-box
-	if not ok then pending[msg] = nil return false end
+	local ok, result = pcall(SendChatMessage, msg, "CHANNEL", nil, index) -- gp:chat-box
+	if not Sent(ok, result) then pending[msg] = nil return false end
 	stats.sent = stats.sent + 1
 	return true
 end
@@ -52,18 +57,28 @@ end
 -- hidden way chunks it ("C<id>:<i>:<n>:..."), goes as its reporter's own text in the joined
 -- channel while no relay answers (Relay.Out), and is taken from it by everyone in the channel.
 local function Report(text) return type(text) == "string" and #text <= 255 and text:find("^C%d+:%d+:%d+:") ~= nil end
+local function PumpCarry()
+	carryPending = false
+	local item = table.remove(carryQueue, 1)
+	if not item then return 0 end
+	local sent = 0
+	if Hall.On() then
+		local ok, result = pcall(SendChatMessage, item, "CHANNEL", nil, ns.Comm.ChannelIndex()) -- gp:chat-box
+		if Sent(ok, result) then stats.carried = (stats.carried or 0) + 1; sent = 1 end
+	end
+	if #carryQueue > 0 then
+		carryPending = true
+		ns.After(Hall.CARRY_GAP, "chat hall carry", PumpCarry)
+	end
+	return sent
+end
 function Hall.Carry(parts) -- gp:chat-box
 	if not ns.Gate.Allowed("chat-box") then return 0 end
 	if not Hall.On() or type(parts) ~= "table" then return 0 end
-	local index, n = ns.Comm.ChannelIndex(), 0
 	for _, p in ipairs(parts) do
-		if Report(p) then
-			local ok = pcall(SendChatMessage, p, "CHANNEL", nil, index) -- gp:chat-box
-			if ok then n = n + 1 end
-		end
+		if Report(p) then carryQueue[#carryQueue + 1] = p end
 	end
-	stats.carried = (stats.carried or 0) + n
-	return n
+	return not carryPending and PumpCarry() or 0
 end
 
 function Hall.OnChannel(text, sender, _, _, _, _, _, _, baseName)
@@ -84,4 +99,7 @@ ns.On("LOGIN", function()
 	pcall(ns.RegisterEvent, "CHAT_MSG_CHANNEL", function(...) ns.SafeCall("chat hall", Hall.OnChannel, ...) end)
 end)
 
-function Hall.Reset() wipe(pending); for k in pairs(stats) do stats[k] = 0 end end
+function Hall.Reset()
+	wipe(pending); wipe(carryQueue); carryPending = false
+	for k in pairs(stats) do stats[k] = 0 end
+end

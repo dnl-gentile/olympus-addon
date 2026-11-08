@@ -431,7 +431,7 @@ local function SnapshotPart(origin, body, now)
 	if not Relay.IsRelay(origin) then return false end
 	local id, index, total, part = body:match("^C(%w+):(%d+):(%d+):(.*)$")
 	index, total = tonumber(index), tonumber(total)
-	if not id or #id > 16 or total < 1 or total > ns.Codec.MAX_CHUNKS
+	if not id or #id > 16 or not index or not total or total < 1 or total > ns.Codec.MAX_CHUNKS
 		or index < 1 or index > total or #part > ns.Codec.CHUNK
 		or (index < total and #part ~= ns.Codec.CHUNK) then return false end
 	local key = Lower(ns.FullName(origin))
@@ -446,13 +446,26 @@ local function SnapshotPart(origin, body, now)
 			else count = count + 1 end
 		end
 		if count >= Relay.MAX_RELAYS then return false end
-		transfer = { id = id, total = total, at = now, bytes = 0, parts = {} }
+		transfer = { id = id, total = total, at = now, bytes = 0, count = 0, parts = {} }
 		snapshotTransfers[key] = transfer
 	end
-	if transfer.id ~= id or transfer.total ~= total or transfer.parts[index] then return false end
+	if transfer.id ~= id or transfer.total ~= total then return false end
+	if transfer.parts[index] then return transfer, false end
 	if transfer.bytes + #part > ns.Codec.CHUNK * ns.Codec.MAX_CHUNKS then return false end
-	transfer.parts[index], transfer.bytes = true, transfer.bytes + #part
-	return true
+	transfer.parts[index], transfer.bytes = part, transfer.bytes + #part
+	transfer.count = transfer.count + 1
+	transfer.complete = transfer.count == transfer.total
+	return transfer, true
+end
+local function SnapshotEnvelope(transfer, flag, origin)
+	local out = {}
+	for i = 1, transfer.total do
+		local body = ("C%s:%d:%d:%s"):format(transfer.id, i, transfer.total, transfer.parts[i])
+		for _, piece in ipairs(Envelope("RM", "RM~" .. flag .. "~" .. origin .. "~" .. body)) do
+			out[#out + 1] = piece
+		end
+	end
+	return out
 end
 local function ToReporters(flag, origin, body, sender)
 	local now = Now()
@@ -461,7 +474,8 @@ local function ToReporters(flag, origin, body, sender)
 	-- fragment against the four-piece ordinary trickle stranded every larger
 	-- snapshot mid-transfer. This admits no new authority and does not bypass
 	-- Comm's queue/throughput limits; malformed or unreserved parts use the trickle.
-	local snapshot = SnapshotPart(origin, body, now)
+	local snapshot, freshSnapshotPart = SnapshotPart(origin, body, now)
+	local snapshotPieces = snapshot and snapshot.complete and SnapshotEnvelope(snapshot, flag, origin) or nil
 	local pieces
 	for g, r in pairs(reporters) do
 		if now - r.t > Relay.REPORTER_FOR then
@@ -469,20 +483,26 @@ local function ToReporters(flag, origin, body, sender)
 		elseif r.name == ns.me then
 			if Deliver(origin, body, flag == "L") then ToGuild(flag, origin, body) end
 		else
-			pieces = pieces or Envelope("RM", "RM~" .. flag .. "~" .. origin .. "~" .. body)
-			-- (1.5.0) Another client's word that is not a chat line: within the reporter's trickle
-			-- (REPORTER_RATE) or not sent to him; the relay's own words and chat lines always.
-			if flag == "L" or own or snapshot or Afford(r.name, #pieces, now) then
-				stats.forwarded = stats.forwarded + 1
-				Quiet(r.name) -- (a reporter gone offline since: the server's line out of the chat)
-				-- A word that is not a chat line is keyed by its origin, kind and reporter: a newer
-				-- census of the same guild takes the waiting one's place in the queue (Comm's keyed
-				-- jobs), so a busy relay sends the latest, never a backlog.
-				local key = flag ~= "L" and ("relay " .. r.name .. " " .. Lower(origin) .. " " .. QueueWord(body)) or nil
-				if #pieces == 1 then ns.Comm.Whisper(r.name, pieces[1], key, false, false)
-				else ns.Comm.SendBatch("WHISPER", pieces, key, r.name, false) end
-			else
-				stats.trickled = (stats.trickled or 0) + 1
+			-- A census fragment is held at the relay until its complete transfer is known.
+			-- Sending each fragment independently lets Comm's bounded queue evict the head
+			-- of a fan-out, leaving every reporter with an unusable partial snapshot.
+			if not snapshot or (snapshot.complete and freshSnapshotPart) then
+				pieces = snapshotPieces or (pieces or Envelope("RM", "RM~" .. flag .. "~" .. origin .. "~" .. body))
+				-- (1.5.0) Another client's word that is not a chat line: within the reporter's trickle
+				-- (REPORTER_RATE) or not sent to him; the relay's own words and chat lines always.
+				if flag == "L" or own or snapshot or Afford(r.name, #pieces, now) then
+					stats.forwarded = stats.forwarded + 1
+					Quiet(r.name) -- (a reporter gone offline since: the server's line out of the chat)
+					-- A word that is not a chat line is keyed by its origin, kind and reporter: a newer
+					-- census of the same guild takes the waiting one's place in the queue (Comm's keyed
+					-- jobs), so a busy relay sends the latest, never a backlog.
+					local key = flag ~= "L" and ("relay " .. r.name .. " " .. Lower(origin) .. " "
+						.. (snapshot and ("snapshot " .. snapshot.id) or QueueWord(body))) or nil
+					if #pieces == 1 then ns.Comm.Whisper(r.name, pieces[1], key, snapshot ~= nil, false)
+					else ns.Comm.SendBatch("WHISPER", pieces, key, r.name, snapshot ~= nil) end
+				else
+					stats.trickled = (stats.trickled or 0) + 1
+				end
 			end
 		end
 	end

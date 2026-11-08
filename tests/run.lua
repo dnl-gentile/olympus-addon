@@ -7603,14 +7603,14 @@ end)
 test("1.5.0 the chat hall: on Forever a tier's chat line leaves as the player's own text in the joined channel beside the hidden way; the channel's lines are taken as the hidden one; another channel's, plain text and other kinds are ignored; off under the chat box gate, off the channel, or off Forever", function()
 	local savedSend = rawget(_G, "SendChatMessage")
 	local ok, err = pcall(function()
-		local said, received = {}, {}
+		local said, received, timers = {}, {}, {}
 		local cns = setmetatable({
 			splitNames = true, me = "Me-Realm", clock = 5000,
 			Comm = { ChannelIndex = function() return 6 end, ChannelName = function() return "OlympusNet1" end,
 				Inject = function(dist, sender, text, logged) received[#received + 1] = { dist = dist, sender = sender, text = text, logged = logged } end },
 			Gate = { Allowed = function() return true end },
 			On = function() end, RegisterEvent = function() end,
-			After = function() end,
+			After = function(_, _, fn) timers[#timers + 1] = fn end,
 			SafeCall = function(_, fn, ...) return fn(...) end,
 		}, { __index = ns })
 		cns.Now = function() return cns.clock end
@@ -7632,11 +7632,16 @@ test("1.5.0 the chat hall: on Forever a tier's chat line leaves as the player's 
 		eq(H.OnChannel("EC~room~1~hey", "Other-Realm", "", "", "", "", 0, 6, "OlympusNet1"), false, "another kind")
 		eq(#received, 2)
 		-- (1.5.2) A census report's pieces are carried as text (Relay.Out, no relay answering) and taken.
-		eq(H.Carry({ "C12:1:2:abc", "C12:2:2:def", "H3~hello", "X1~one" }), 2, "the report's pieces alone")
-		eq(#said, 3); eq(said[2].text, "C12:1:2:abc"); eq(said[3].text, "C12:2:2:def"); eq(said[3].target, 6)
+		eq(H.Carry({ "C12:1:2:abc", "C12:2:2:def", "H3~hello", "X1~one" }), 1, "one fallback part is sent immediately")
+		eq(#said, 2); eq(said[2].text, "C12:1:2:abc")
+		local carry = table.remove(timers, 1); assert(carry); carry()
+		eq(#said, 3); eq(said[3].text, "C12:2:2:def"); eq(said[3].target, 6)
 		eq(H.OnChannel("C7:1:1:zzz", "Far Away-Realm", "", "", "", "", 0, 6, "OlympusNet1"), true)
 		eq(#received, 3); eq(received[3].text, "C7:1:1:zzz"); eq(received[3].dist, "CHANNEL")
 		eq(H.OnChannel("H3~hello", "Far Away-Realm", "", "", "", "", 0, 6, "OlympusNet1"), false, "no other kind")
+		eq(H.Stats().carried, 2)
+		SendChatMessage = function() return false end
+		eq(H.Carry({ "C12:1:1:failed" }), 0, "a false native result is not counted as delivered")
 		eq(H.Stats().carried, 2)
 		-- Off: the chat box gate (the gamepad UI), no channel, off Forever.
 		cns.Gate = { Allowed = function() return false end }
@@ -7809,6 +7814,27 @@ test("1.5.0 the relay: another client's words that are not chat lines reach a re
 		eq(R.Relay.SendGlobal(), true); eq(R.Relay.SendGlobal(), false, "not again yet")
 		R.clock = R.clock + R.Relay.GLOBAL_EVERY
 		eq(R.Relay.SendGlobal(), true); eq(sentGlobal, 2)
+		-- A trusted relay snapshot is admitted as one complete batch per reporter: no
+		-- reporter can receive the tail of a census whose head was evicted by fan-out.
+		local batches, sendBatch = {}, R.Comm.SendBatch
+		R.Comm.SendBatch = function(dist, pieces, key, target, urgent)
+			batches[#batches + 1] = { dist = dist, pieces = pieces, key = key, target = target, urgent = urgent }
+			return true
+		end
+		for i = 1, 7 do
+			R.Relay.HandleIn("WHISPER", ("New Rep%d-Realm"):format(i), "RL~P~RR~Olympus New" .. i)
+		end
+		local head = "CG~1~S~1800000000~"
+		local first = "Cglobal:1:2:" .. head .. string.rep("x", ns.Codec.CHUNK - #head)
+		local second = "Cglobal:2:2:" .. string.rep("y", 12)
+		R.Relay.HandleIn("WHISPER", "Max Ran-Realm", "RL~P~" .. first)
+		eq(#batches, 0, "a partial snapshot is held")
+		R.Relay.HandleIn("WHISPER", "Max Ran-Realm", "RL~P~" .. second)
+		eq(#batches, 8, "each reporter receives one whole transfer")
+		for _, batch in ipairs(batches) do
+			eq(batch.dist, "WHISPER"); eq(batch.urgent, true); assert(#batch.pieces >= 2)
+		end
+		R.Comm.SendBatch = sendBatch
 		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
 		O.Data = { SendGlobalCensus = function() error("not a relay") end }
 		eq(O.Relay.SendGlobal(true), false, "a client that is no relay sends none")

@@ -120,6 +120,18 @@ test("transport: impossible batch admission preserves unrelated accepted work", 
 	end)
 end)
 
+test("transport: a lower trusted lane converges once and stale higher hellos cannot oscillate it", function()
+	WithComm(function(w, C, c)
+		c.rdb.channelLane = 3
+		eq(C.Lane(), 3)
+		assert(C.TakeLane(1, "Captain-Realm"))
+		eq(C.Lane(), 1)
+		eq(C.TakeLane(3, "Captain-Realm"), false, "a stale higher hello cannot undo convergence")
+		assert(C.NextLane("refused"))
+		eq(C.Lane(), 2, "a real channel refusal may move upward again")
+	end)
+end)
+
 test("transport: a chunked signed-authority whisper is assembled privately and exactly once", function()
 	WithComm(function(w, C, c)
 		w.login()

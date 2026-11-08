@@ -90,6 +90,24 @@ test("Dues history: duplicate private wire reply preserves accepted history", fu
 	end)
 end)
 
+test("Dues history: a pinned Treasurer known offline is not whispered, and a later retry remains possible", function()
+	local w, _, king = Setup()
+	local T = king.ns.Treasury
+	local private, unavailable, calls = T.Private, T.Unavailable, 0
+	T.Private = function() calls = calls + 1; return true end
+	T.Unavailable = function() return true end
+	w:As(king, function()
+		eq(king.ns.DuesHistory.Ask(), false)
+		eq(calls, 0, "known-offline Treasurer is skipped before the whisper path")
+	end)
+	T.Unavailable = unavailable
+	w:As(king, function()
+		eq(king.ns.DuesHistory.Ask(), true, "the offline guard does not consume the retry window")
+		eq(calls, 1)
+	end)
+	T.Private = private
+end)
+
 local function Boundary(w, c, gap)
 	local D, DH = c.ns.Dues, c.ns.DuesHistory
 	local week

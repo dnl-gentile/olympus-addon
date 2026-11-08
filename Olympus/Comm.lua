@@ -81,6 +81,7 @@ local askedAgain = false    -- the second census request is on its way, or went 
 local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
 -- 1.4.1: the channel lane (declared here: SendNow and Comm.Stats, above the lane's own code, use them).
 local laneRefused, laneProbe = 0, false
+local laneConverged = false -- a trusted lower-lane hello wins until a real channel refusal requires moving up
 local Lane
 local peerRealm = {} -- guild peer -> realm from its hello, "old" for versions that send none
 local peerVersion = {} -- guild peer -> the addon version its hello named
@@ -1030,19 +1031,21 @@ function Comm.ChannelSpec()
 end
 -- To lane n (TakeLane: a higher one a guild officer's hello names) or the next one (NextLane): the
 -- old channel is left and the new one joined (JoinChannel), the census asked there 10 s on.
-local function MoveLane(n, why)
+local function MoveLane(n, why, forced)
 	if not ns.rdb then return false end
 	n = tonumber(n)
-	if not n or n ~= n or n <= Lane() or n > Comm.LANE_MAX then return false end
 	local was = Lane()
+	if not n or n ~= n or n < 0 or n > Comm.LANE_MAX or n == was then return false end
+	if n > was and laneConverged and not forced then return false end
 	ns.rdb.channelLane = math.floor(n)
 	laneRefused, laneProbe = 0, false
+	laneConverged = n < was
 	stats.lanes = (stats.lanes or 0) + 1
 	ns.Log("channel lane %d -> %d (%s)", was, Lane(), tostring(why))
 	if ns.IsMember() then Comm.JoinChannel() end
 	return true
 end
-function Comm.NextLane(why) return MoveLane(Lane() + 1, why or "refused") end
+function Comm.NextLane(why) return MoveLane(Lane() + 1, why or "refused", true) end
 function Comm.TakeLane(n, who) return MoveLane(n, tostring(who) .. "'s hello") end
 function Comm.LaneStats() return { lane = Lane(), refused = laneRefused, moves = stats.lanes or 0 } end
 

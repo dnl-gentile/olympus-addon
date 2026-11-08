@@ -220,18 +220,18 @@ test("verification recovery: snapshot reservation rejects untrusted, malformed, 
 		Send(HC, "Cp:2:3:" .. middle)
 		Flush(); eq(hub.c.Relay.Stats().forwarded, 4, "no unreserved fragment bypasses the exhausted trickle")
 		Send(HC, "Cg:1:3:" .. first); Flush()
-		eq(hub.c.Relay.Stats().forwarded, 5)
+		eq(hub.c.Relay.Stats().forwarded, 4, "a reserved snapshot waits until complete")
 		Send(HC, "Cg:1:3:" .. first)
 		Send(HC, "Cg:2:4:" .. middle)
 		Send(HC, "Ch:1:3:" .. first)
-		Flush(); eq(hub.c.Relay.Stats().forwarded, 5, "one id/total per origin; repeats do not reserve twice")
+		Flush(); 		eq(hub.c.Relay.Stats().forwarded, 4, "one id/total per origin; repeats do not reserve twice")
 		Send(HC, "Cg:2:3:" .. middle); Send(HC, "Cg:3:3:tail"); Flush()
-		eq(hub.c.Relay.Stats().forwarded, 7, "every admitted fragment can finish")
+		eq(hub.c.Relay.Stats().forwarded, 5, "a complete snapshot forwards as one whole transfer")
 		Advance(61)
 		-- Exhaust the ordinary allowance again, then a new snapshot can reserve.
 		for i = 5, 8 do Send("Ordinary Member-Realm", "X1~" .. i) end
 		Send(HC, "Cn:1:3:" .. first); Flush()
-		eq(hub.c.Relay.Stats().forwarded, 12, "a new transfer is eligible after the fixed window")
+		eq(hub.c.Relay.Stats().forwarded, 9, "a new transfer is eligible after the fixed window")
 	end)
 end)
 
