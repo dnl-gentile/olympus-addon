@@ -90,9 +90,9 @@ who may not have the addon yet; **Copy the list** opens it in a window to copy f
 back. The verifiers are told once of each pending guild (and of each new guild master to check)
 and reminded 12 hours before its deadline. A verification belongs to the guild **and** its guild
 master: while the census names someone else as guild master, it lapses until the new one is
-verified, on the guild's same clock. Past 48 hours an unverified guild is overdue: every member
-sees, once a session, that it is not sanctioned yet (ask the guild master to verify, or find
-another Olympus guild); it stays on the verifiers' list, marked overdue; and its guild master's own
+verified, on the guild's same clock. Past 48 hours an unverified guild is overdue. Member-facing popups, chat warnings and Census
+notices are temporarily paused; the guild master still receives the verification reminder.
+The guild stays on the verifiers' list, marked overdue; and its guild master's own
 powers in Olympus wait for his verification (others take him as an officer: his public card, his
 Legates and correspondents, his guild decrees and his guild bank grant wait too). Nothing is taken
 from the members and nobody is removed. The King's guild needs none. Verified guilds carry a mark

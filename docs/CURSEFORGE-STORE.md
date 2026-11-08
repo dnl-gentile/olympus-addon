@@ -29,11 +29,10 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
 
 ## Recent versions
 
+- **1.5.3**: Temporarily pause overdue verification notices for guild members. Guild master reminders, verification deadlines, approvals and High Council follow-up continue. Existing clients need this update to stop their local notice.
 - **1.5.2**: While no relay of the High Council answers, a guild's census report goes as its reporter's own text in the joined channel (which Forever delivers to everyone in it) and everyone takes it from there, so the census keeps moving in a realm family whose relays are offline; a relay's copy later is the same report again. The dev's second PvP character is a launch pin of that family. A family's store also drops another family's counts-only rows at open, a plain Forever realm's group row counts as its family's server (never "another" beside it), and its ruleset is its family's.
 - **1.3.3**: Deliberate site export: an optional Site Aggregate folder writes a masked own-guild count for the
   Olympus website on /oly site export and /reload, never uploads, and empties at the next logout or reload.
-- **1.3.2**: Correction: explicitly approximate Census people counts, preserve accepted Treasury rows,
-  fix full-suite ordering regressions and export consented Companion identity evidence.
 
 Every version's notes are in the [GitHub releases](https://github.com/dnl-gentile/olympus-addon/releases). This page is the short one for CurseForge: the [README](https://github.com/dnl-gentile/olympus-addon#olympus) has every section in full.
 

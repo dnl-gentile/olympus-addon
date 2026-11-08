@@ -62618,9 +62618,9 @@ end)()
 	end)
 
 	test("1.4.0: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.5.2") -- the release has one identity in both folders
+		eq(ns.VERSION, "1.5.3") -- the release has one identity in both folders
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.5.2", 1, true))
+		assert(toc:find("## Version: 1.5.3", 1, true))
 		eq(ns.Workshop.Newer("1.4.0", "1.3.3"), true, "the launch release is newer")
 		eq(ns.Workshop.Newer("1.3.3", "1.4.0"), false)
 		eq(ns.Workshop.Newer("1.4.1", "1.4.0"), true, "the next patch remains newer")
@@ -63067,7 +63067,7 @@ end)()
 	end
 
 	test("1.4.0 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
-		eq(ns.VERSION, "1.5.2")
+		eq(ns.VERSION, "1.5.3")
 		for _, path in ipairs({ "Olympus/Olympus.toc", "Olympus_Arena/Olympus_Arena.toc" }) do
 			local toc = assert(ReadFile(ROOT .. path))
 			eq(toc:match("## Version:%s*(%S+)"), ns.VERSION, path)
@@ -63566,7 +63566,7 @@ end)()
 			eq(f.title:IsShown(), false); eq(f.body:IsShown(), false); eq(f.all:IsShown(), false)
 			local versions = Lt.Versions()
 			eq(#versions, #Lt.LIST, "a letter for every version listed")
-			eq(table.concat(versions, " "), "1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2 1.3.0 1.2.5.1 1.2.5 1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
+			eq(table.concat(versions, " "), "1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2 1.3.0 1.2.5.1 1.2.5 1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
 			for i, v in ipairs(versions) do
 				local r = f.rows[i]
 				eq(r:IsShown(), true); eq(r.version, v)
@@ -63750,6 +63750,30 @@ end)()
 			end)
 		end)
 		ns.Borders, C_Texture, GetLocale = saved.borders, saved.tex, saved.locale
+		if not ok then error(err, 0) end
+	end)
+
+	test("version letters: every historical title and window heading is unique", function()
+		local savedLocale = GetLocale
+		local ok, err = pcall(function()
+			for _, code in ipairs({ "enUS", "ptBR" }) do
+				GetLocale = function() return code end
+				local lns = setmetatable({ L = {}, On = function() end }, { __index = ns })
+				assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", lns)
+				assert(loadfile(ADDON_DIR .. "Letters.lua"))("Olympus", lns)
+				local titles, heads = {}, {}
+				for _, version in ipairs(lns.Letters.LIST) do
+					local title, body = lns.Letters.Text(version)
+					assert(title and body, code .. ": letter " .. version)
+					assert(not titles[title], code .. ": repeated title " .. title)
+					titles[title] = true
+					local head = rawget(lns.L, "LETTER_" .. version:gsub("%.", "_") .. "_HEAD") or lns.L.LETTER_TITLE:format(version)
+					assert(not heads[head], code .. ": repeated window heading " .. head)
+					heads[head] = true
+				end
+			end
+		end)
+		GetLocale = savedLocale
 		if not ok then error(err, 0) end
 	end)
 

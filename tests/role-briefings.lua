@@ -704,13 +704,13 @@ test("role briefings: the 1.4.0 release writes its own launch letter (the dev's,
 			assert(loadfile(ADDON .. "Letters.lua"))("Olympus", lns)
 			local Lt = lns.Letters
 			local RB = Fresh({ Letters = Lt, L = own })
-			eq(Lt.LIST[1], "1.5.2"); eq(Lt.LIST[10], "1.4.0"); eq(Lt.Has("1.4.0"), true) -- (1.4.1: the launch letter stays listed after the fix)
+			eq(Lt.LIST[1], "1.5.3"); eq(Lt.LIST[11], "1.4.0"); eq(Lt.Has("1.4.0"), true) -- (1.4.1: the launch letter stays listed after the fix)
 			RB.LIVE = false
 			eq(RB.RegisterLaunch(), false, "not LIVE")
 			RB.LIVE = true
 			eq(RB.RegisterLaunch(), false, "LIVE: the release's own letter is kept")
 			eq(own.LETTER_1_4_0_TITLE, L.LETTER_1_4_0_TITLE); eq(own.LETTER_1_4_0, L.LETTER_1_4_0)
-			eq(Lt.LIST[10], "1.4.0"); eq(Lt.LIST[11] ~= "1.4.0", true, "listed once")
+			eq(Lt.LIST[11], "1.4.0"); eq(Lt.LIST[12] ~= "1.4.0", true, "listed once")
 			ns.db.lettersRead = {}
 			eq(Lt.Show("1.4.0"), true)
 			local f = Lt.Frame()
