@@ -7012,6 +7012,7 @@ assert(loadfile(ROOT .. "tests/relay-admit.lua"))(ns, test, eq, { RelayWorld = R
 -- 1.5.5: the provisional relays and Forever's no-channel rule (tests/relay-fallback.lua).
 assert(loadfile(ROOT .. "tests/relay-fallback.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
 assert(loadfile(ROOT .. "tests/roster-subrealm.lua"))(ns, test, eq)
+assert(loadfile(ROOT .. "tests/roster-guid.lua"))(ns, test, eq)
 -- 1.5.5: every chat line reaches every member once (tests/chat-delivery.lua).
 assert(loadfile(ROOT .. "tests/chat-delivery.lua"))(ns, test, eq, { RelayWorld = RelayWorld })
 assert(loadfile(ROOT .. "tests/king-crown-relay.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })

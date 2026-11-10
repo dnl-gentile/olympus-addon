@@ -545,8 +545,10 @@ does not reset its own proven streak. No new honour, gold rule or public/general
 
 ### Olympus Link: your Discord role (its own addon since 1.4.0)
 Olympus Link lets players in game prove to the Olympus bot on Discord that a character is yours,
-so the bot gives you your role. It is not part of this addon: since 1.4.0 it is its own addon,
-**Olympus_Link**, kept and released separately, and it is not open yet. Without it,
+so the bot gives you your role: an online High Councillor's addon confirms your character, the
+page hands that proof to the bot, and the role follows. It is not part of this addon: since 1.4.0
+it is its own addon, **Olympus_Link**, a separate download that goes in AddOns next to Olympus.
+It is not open to the army yet. Without it,
 `/oly discord` says it is not installed and nothing of it runs; everything else in Olympus works
 the same. Installed next to Olympus, it loads by itself at login (the README's
 [Integrating with Olympus](https://github.com/dnl-gentile/olympus-addon#integrating-with-olympus)),
