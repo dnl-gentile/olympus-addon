@@ -3326,8 +3326,8 @@ friendly nameplates with no guild shown. Review each player and the editable mes
 **Send** for that one recipient or **Skip**. Either choice moves to the next eligible player.
 Olympus checks the native identity and guild information again when you press Send.
 
-An officer can review an independent JOIN or a response to their recent outreach. Recent
-outreach replies can open a window with the sender's message. During combat or while an
+An officer can review an independent JOIN or a response to their recent outreach. Either
+can open a window with the sender's message. During combat or while an
 invite window is open, new replies stay in the queue. Olympus saves no prospect list to disk.
 **Prepare invite** opens the `/ginvite` command. Copy it, paste it into the game's chat, and
 press Enter. You can dismiss the request after sending. Turning recruiting off clears the

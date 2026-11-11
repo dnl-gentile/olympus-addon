@@ -838,7 +838,7 @@ local function ReviewReply(req)
 	return ns.Dialog.Show("OLYMPUS_RECRUIT_REPLY", caption, nil, req) ~= nil
 end
 
--- A reply to an outreach whisper gets a choice in an Olympus window. Combat, a busy
+-- An accepted recruiting whisper gets a choice in an Olympus window. Combat, a busy
 -- invite window or several close replies leave the request in the Census/Church queue.
 local function PromptReply(req, now)
 	if (InCombatLockdown and InCombatLockdown()) or not ns.Dialog or ns.Dialog.missing then return end
@@ -980,7 +980,7 @@ function Recruit.OnWhisper(text, sender)
 				local shown = ns.Codec.SanitizeChat(ns.Cut(reply, 180))
 				if shown ~= "" then
 					local accepted, req = AddRequest(key, recruitingGuild, nil, nil, shown, true)
-					if accepted and recent then PromptReply(req, now) end
+					if accepted then PromptReply(req, now) end
 				end
 			end
 		end

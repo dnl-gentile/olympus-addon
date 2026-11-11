@@ -3605,12 +3605,23 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		end
 		eq(C.chatBox, nil, "nothing was entered in Blizzard chat")
 		eq(#C.said, sends + 2, "intake and invite preparation sent nothing")
+		C.now = C.now + 21
 		C.Fire("CHAT_MSG_WHISPER", "  jOiN  ", "Stranger-Realm")
+		eq(#R.requests, 2, "an open invite draft queues the request")
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), nil, "keep the current invite draft")
+		C.Click(copy.buttons[1])
+		C.combat = true
 		C.Fire("CHAT_MSG_WHISPER", "JOIN OLYMPUS", "Another-Realm")
-		eq(#R.requests, 3, "exact JOIN and the former phrase work without prior contact")
-		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), nil, "an unrelated sender cannot force a popup")
+		eq(#R.requests, 3, "the former keyword also queues while in combat")
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), nil, "no recruiting popup in combat")
+		C.combat = false
+		C.Fire("CHAT_MSG_WHISPER", "  jOiN  ", "Interested-Realm")
+		eq(#R.requests, 4)
+		local independent = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), "JOIN opens the action without prior outreach")
+		assert(independent.text:GetText():find("Interested", 1, true))
+		eq(#C.said, sends + 2, "a new request never sends anything by itself")
 		InClick(C, function() ToggleLine().onClick() end)
-		eq(#R.requests, 0); eq(copy:IsShown(), false)
+		eq(#R.requests, 0); eq(independent:IsShown(), false)
 		Check(C.ledger, "recruiting through both input styles")
 		NoErrors(C, "recruiting")
 	end
