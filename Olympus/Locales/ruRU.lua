@@ -4723,7 +4723,7 @@ ns.Locale("ruRU", {
 	VERIFY_STATUS_WAITING = "<%s>: проверка гильдий в этих мирах ещё не началась (здесь нет проверяющих). Пока от вашей гильдии ничего не требуется.",
 	VERIFY_TITLE = "Подтверждение гильдии",
 	VERIFY_SELF_TITLE = "Моя проверка в Discord",
-	VERIFY_SELF_GUIDE = "Получи личный код командой /verify в Discord. Текущий доступ можно проверить через /verify-status в Discord, а доставку запроса — через /olv status. Доставка не подтверждает проверку и не выдаёт роль.",
+	VERIFY_SELF_GUIDE = "Получи личный код командой /verify в Discord. Текущий доступ можно проверить через /verify-status в Discord, а доставку запроса - через /olv status. Доставка не подтверждает проверку и не выдаёт роль.",
 	VERIFY_SELF_UNAVAILABLE = "Установи или обнови Olympus Verify и перезагрузи интерфейс, чтобы отправить код здесь.",
 	VERIFY_SELF_STATUS_UNAVAILABLE = "Статус доставки недоступен.",
 	VERIFY_SELF_ENTER = "Ввести код",
