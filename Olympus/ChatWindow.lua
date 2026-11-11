@@ -603,18 +603,39 @@ end
 ---------------------------------------------------------------------------
 -- A name's header: the name, a tag, the guild. No mark before the name since 1.1.5 (the author's
 -- call: Olympus's marks are where players outside Olympus are, the game's own chat,
--- Borders.ChatName); the High Council's colour and the Treasurer's coin stay.
+-- Borders.ChatName). The Treasurer's coin stays, and other rooms keep the High Council colour.
 ---------------------------------------------------------------------------
 
-local function NameText(e)
+-- Guild chat distinguishes speakers by identity. Interpolate between light colours that
+-- stay readable on the dark bubbles, with no history-dependent assignment or saved settings.
+ChatWindow.GUILD_SENDER_COLOURS = {
+	{ 1.00, 0.61, 0.57 }, { 1.00, 0.82, 0.47 }, { 0.65, 0.91, 0.55 },
+	{ 0.51, 0.91, 0.88 }, { 0.62, 0.75, 1.00 }, { 0.89, 0.67, 1.00 },
+}
+function ChatWindow.GuildSenderColour(who)
+	local hash = ns.Comm and ns.Comm.Hash36
+	if type(who) ~= "string" or who == "" or type(hash) ~= "function" then return nil end
+	who = ns.FullName(ns.Normal(who))
+	local family = ns.ForeverFamily(ns.RealmOf(who))
+	if family then who = ns.ShortName(who) .. "-" .. family end
+	local colours = ChatWindow.GUILD_SENDER_COLOURS
+	local step = tonumber(hash(ns.Fold(who)), 36) % (#colours * 256)
+	local i, mix = math.floor(step / 256) + 1, (step % 256) / 256
+	local a, b = colours[i], colours[i % #colours + 1]
+	return Hex({ a[1] + (b[1] - a[1]) * mix, a[2] + (b[2] - a[2]) * mix, a[3] + (b[3] - a[3]) * mix })
+end
+
+local function NameText(e, nativeGuild)
 	local who = ns.FullName(e.sender)
 	local guild = e.guild
 	-- A moderator's cover name (Cover.lua): that name, and none of the colours or tags below.
 	local covered = ns.IsCovered(who)
-	local council = not covered and ns.IsHighCouncillor(who) and not ns.CouncilMasked()
 	local name = ns.Codec.Plain(ns.CoverSwap(ns.DisplayName(e.sender)) or "?")
 	local lead = not covered and ns.Channels.RoleBadge and ns.Channels.RoleBadge(who) or ""
-	if council then
+	if nativeGuild then
+		local colour = not covered and ChatWindow.GuildSenderColour(who)
+		if colour then name = "|c" .. colour .. name .. "|r" end
+	elseif not covered and ns.IsHighCouncillor(who) and not ns.CouncilMasked() then
 		name = "|c" .. ns.HIGH_COUNCIL_COLOR .. name .. "|r"
 	else
 		local file = e.class and ns.CLASS_FILES[e.class]
@@ -994,11 +1015,12 @@ end
 -- The header of a group's first bubble, for view `v` of line `e` (deleted: a moderator took its
 -- words): who, when, the name a whisper goes to and its tooltip's full name. Worked out at the
 -- first bubble of the era that starts a group with it; a writer's name and whisper once an era
--- for all his lines (ChatWindow.nameOf, ChatWindow.tellOf: NameText rests on his name, guild and
--- class alone, with what the era keeps).
+-- for all his lines (ChatWindow.nameOf, ChatWindow.tellOf: NameText rests on his identity, guild,
+-- class and whether this is native guild chat, with what the era keeps).
 ChatWindow.nameOf, ChatWindow.tellOf = {}, {}
-function ChatWindow.HeaderOf(v, e, deleted)
-	if not v.headed then
+function ChatWindow.HeaderOf(v, e, deleted, chat)
+	local nativeGuild = chat == "guild" and e.native == true
+	if not v.headed or v.nativeGuild ~= nativeGuild then
 		local mine = v.own
 		if mine then
 			v.who, v.whisper, v.tip = L.CHATWIN_YOU, nil, nil
@@ -1009,9 +1031,10 @@ function ChatWindow.HeaderOf(v, e, deleted)
 				v.who = Grey(who .. deletedGuild)
 			else
 				local key = tostring(e.sender) .. "\1" .. tostring(e.guild or "\2") .. "\1" .. type(e.class) .. tostring(e.class)
+					.. (nativeGuild and "\1guild" or "")
 				local named = ChatWindow.nameOf[key]
 				if not named then
-					named = NameText(e)
+					named = NameText(e, nativeGuild)
 					ChatWindow.nameOf[key] = named
 				end
 				v.who = named
@@ -1025,7 +1048,7 @@ function ChatWindow.HeaderOf(v, e, deleted)
 			v.tip = who .. "  <" .. ns.Codec.Plain(e.guild or "?") .. ">"
 		end
 		if not mine and tier == "A" then v.who = ns.Channels.GroupTag(tier, e.sender) .. v.who end
-		v.headed = true
+		v.headed, v.nativeGuild = true, nativeGuild
 	end
 	return v.who, v.when, v.whisper, v.tip
 end
@@ -1056,7 +1079,7 @@ local function Bubble(i, e, start, y, maxInner, hides, pane, room)
 	local c = pane.colour or Colour(tier)
 	-- Its words: the header's at a group's start, then the line's.
 	local who, when, whisper, full
-	if start then who, when, whisper, full = ChatWindow.HeaderOf(v, e, deleted) end
+	if start then who, when, whisper, full = ChatWindow.HeaderOf(v, e, deleted, b.chat) end
 	-- CH-04: a reply's quote over its answer while this client holds the line it quotes (its words
 	-- gone with it when a moderator deleted that line); else the reply's words as written.
 	local quoted = not deleted and not hidden and v.reply and ChatWindow.QuoteOf(v, e, ChatWindow.drawing, hides) or nil
