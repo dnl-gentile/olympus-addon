@@ -1081,7 +1081,8 @@ function UI.CensusHeader(s, now)
 	local heard = ns.Data.Rebuilding and ns.Data.Rebuilding(now)
 	if s.snapshot then
 		local observed = date("%m/%d %H:%M", s.snapshot.observed)
-		header.sub = L.CENSUS_HEADER_SAVED:format(observed, s.live and s.live.guilds or 0)
+		local live = s.live or {}
+		header.sub = L.CENSUS_HEADER_SAVED:format(observed, F(live.freshCharacters or 0), live.freshGuilds or 0)
 		header.note = L.CENSUS_HEADER_SAVED_TIP:format(observed)
 	elseif s.history then
 		local label = s.history.unscoped and L.CENSUS_HEADER_UNSCOPED or L.CENSUS_HEADER_HISTORY

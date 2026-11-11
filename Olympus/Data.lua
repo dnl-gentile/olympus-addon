@@ -1492,19 +1492,16 @@ end
 local function SummaryGuilds()
 	local out, direct, now = {}, {}, ns.Now()
 	for name, g in pairs(ns.rdb.guilds or {}) do
-		if LocalReport(g) then out[name], direct[name:lower()] = g, true end
+		if LocalReport(g) then out[name], direct[name:lower()] = g, name end
 	end
 	-- 1.3.3: our own guild comes straight from our roster, never from a relayed copy of another
 	-- member's report (as in Take), so Stats and the site export keep our own count.
 	local mine = GetGuildInfo("player")
 	mine = mine and mine:lower()
 	for _, e in ipairs(GlobalRows()) do
-		local key, current, currentName = e.name:lower(), out[e.name], out[e.name] and e.name or nil
-		if not current then
-			for name, g in pairs(out) do
-				if name:lower() == key then current, currentName = g, name; break end
-			end
-		end
+		local key = e.name:lower()
+		local currentName = out[e.name] and e.name or direct[key]
+		local current = out[currentName]
 		local ours = current and current.mine and key == mine
 		if not ours and (not current or ObservationTime(current) < e.observed) then
 			-- A normalized display row, intentionally missing leaders, ranks, zones and votes.
@@ -1805,11 +1802,16 @@ function Data.ApplyGroupSnapshot(s, now)
 			and (not held or e.observed > held.observed) then held = e end
 	end
 	if not held then return end
-	local counted, refreshed = 0, 0
+	local counted, refreshed, freshGuilds, freshCharacters = 0, 0, 0, 0
 	for _, e in ipairs(s.guilds) do
 		if e.counted then
 			counted = counted + 1
-			if ObservationTime(e.g) >= held.observed then refreshed = refreshed + 1 end
+			local observed = ObservationTime(e.g)
+			if observed >= held.observed then refreshed = refreshed + 1 end
+			if now - observed <= Data.FRESH then
+				freshGuilds = freshGuilds + 1
+				freshCharacters = freshCharacters + math.min(e.g.total or 0, ns.Codec.GUILD_CAP)
+			end
 		end
 	end
 	-- Enough newer guild reports reconcile the saved coverage. An extra older row cannot veto them.
@@ -1819,7 +1821,10 @@ function Data.ApplyGroupSnapshot(s, now)
 		age = math.max(0, now - held.observed), unscoped = held.unscoped,
 		counted = not held.unscoped and now - held.observed <= Data.TOTAL_KEEP }
 	if not snapshot.counted then s.history = snapshot; return end
-	s.live = { characters = s.characters, people = s.total, alts = s.alts, guilds = counted }
+	-- The last-day sum can include old reports. Show the fresh subset separately so the retained
+	-- total cannot hide changes in the guilds that are still reporting.
+	s.live = { characters = s.characters, people = s.total, alts = s.alts, guilds = counted,
+		freshGuilds = freshGuilds, freshCharacters = freshCharacters }
 	s.snapshot = snapshot
 	s.characters, s.total, s.alts = held.characters, held.people, held.characters - held.people
 end

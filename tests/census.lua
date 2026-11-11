@@ -123,6 +123,28 @@ test("global census: a trusted holder restores normalized guild counts to a late
 	eq(late.D.Summary().characters, 987, "one witness alone moves nothing")
 end)
 
+test("global census: merging a full relayed census uses bounded guild-name lookups", function()
+	local w = CensusWorld()
+	local relay, rows = "Council-Realm", {}
+	w.ns.Church = { IsLedgerRelay = function(name) return name == relay end }
+	for i = 1, 150 do
+		rows[i] = ("Olympus Guild %03d,100,10,200,%d"):format(i, w.clock)
+	end
+	w.ns.rdb.guilds["OLYMPUS GUILD 001"] = { total = 90, online = 1, t = w.clock - 1 }
+	assert(w.D.ReceiveGlobalCensus("CHANNEL", relay, ("CG~1~S~%d~%s"):format(w.clock, table.concat(rows, ";"))))
+	local lower, folds = string.lower, 0
+	string.lower = function(s)
+		if type(s) == "string" and s:find("^[Oo][Ll][Yy][Mm][Pp][Uu][Ss] [Gg][Uu][Ii][Ll][Dd] ") then folds = folds + 1 end
+		return lower(s)
+	end
+	local ok, s = pcall(w.D.Summary)
+	string.lower = lower
+	assert(ok, s)
+	eq(s.characters, 15000, "the newer relayed row replaces the differently spelled direct row")
+	eq(#s.guilds, #rows, "one row per guild")
+	assert(folds <= 15 * #rows, "too many guild-name folds for one summary: " .. folds)
+end)
+
 test("global census: an ordinary late client may ask a trusted holder for the public snapshot", function()
 	local holder = CensusWorld()
 	local relay, sent = "Council-Realm", 0
@@ -669,6 +691,32 @@ test("census continuity: older counted guilds cannot fill a gap in newer coverag
 	eq(s.snapshot.guilds, 2); eq(s.snapshot.observed, w.clock - 600)
 	eq(s.live.characters, 750); eq(s.live.guilds, 2, "live coverage still includes every counted guild")
 	eq(s.online, 20)
+end)
+
+test("census continuity: an incomplete saved view also carries current partial totals from original observations", function()
+	local w = GroupWorld()
+	local at = w.clock
+	w.ns.rdb.guilds["Olympus Dawn"] = { total = 640, online = 40, t = at - 600 }
+	w.ns.rdb.guilds["Olympus Dusk"] = { total = 360, online = 30, t = at - 300 }
+	assert(w.D.RecordGroupCensus())
+	w.ns.Comm.loginAt = at
+	w.clock = at + w.D.REBUILD_FOR + 1
+	w.ns.rdb.guilds["Olympus Dawn"] = { total = 630, online = 20, t = w.clock }
+	w.ns.rdb.guilds["Olympus Dusk"] = nil
+	w.ns.rdb.guilds["Olympus Ash"] = { total = 120, online = 5, t = w.clock, st = at - w.D.FRESH }
+	local s = w.D.Summary()
+	eq(s.characters, 1000, "saved population stays visible while coverage is incomplete")
+	eq(s.snapshot.observed, at - 600)
+	eq(s.live.guilds, 2, "the last-day partial sum still includes the older guild")
+	eq(s.live.freshGuilds, 1, "receiving a stale report now does not make its observation fresh")
+	eq(s.live.freshCharacters, 630)
+	w.ns.rdb.guilds["Olympus Dawn"].total = 620
+	s = w.D.Summary()
+	eq(s.characters, 1000); eq(s.live.freshCharacters, 620, "live movement appears before every guild is heard")
+	w.ns.rdb.guilds["Olympus Dusk"] = { total = 350, online = 10, t = w.clock }
+	s = w.D.Summary()
+	eq(s.snapshot, nil, "complete coverage releases the saved view")
+	eq(s.characters, 1090)
 end)
 
 test("census continuity: incoming origins and witnesses are bounded and retain no authority or private fields", function()
