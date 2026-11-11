@@ -416,7 +416,9 @@ of `/oly status` (and of `/oly bug`) says what your addon knows of him: online a
 his realm, his layer and his crown, and how long ago each was heard.
 
 **On WoW: Forever (1.5.4, experimental).** Forever splits a realm group into sub-realms, and a
-group invite alone does not move you between them. A guildmate's layer on another sub-realm is
+group invite alone does not move you between them. The request goes to your own guild. A layer
+can be listed even when no guildmate there has enabled location sharing and layer help, or can
+invite you at that moment. A guildmate's layer on another sub-realm is
 listed apart from a same-numbered layer on yours, with that server's label (`[Realm5]`), and
 asking for it works the same up to the group: once you are in the helper's group, Olympus tells
 you to log out to the character screen and back in (the others' portraits show dark blue until
