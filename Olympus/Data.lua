@@ -314,15 +314,16 @@ local senderGuild = {} -- "Name-Realm" -> { guild, t }, or the guild alone once 
 
 -- One guild per sender, shared by reports and chat: a name that speaks for one guild can't
 -- speak for another. A player who really moved guilds speaks again after CLAIM_TTL quiet.
-function Data.ClaimGuild(sender, guild)
+-- A read-only check applies the same expiry and conflict rules without claiming or renewing it.
+function Data.ClaimGuild(sender, guild, readOnly)
 	local who, now = ns.FullName(sender), ns.Now()
 	local c = senderGuild[who]
 	if type(c) ~= "table" then
-		senderGuild[who] = { guild = guild, t = now }
+		if not readOnly then senderGuild[who] = { guild = guild, t = now } end
 		return true
 	end
 	if c.guild:lower() ~= guild:lower() and now - c.t < Data.CLAIM_TTL then return false end
-	c.guild, c.t = guild, now -- (1.2.3: his claim's own table, not a new one each report or line)
+	if not readOnly then c.guild, c.t = guild, now end -- keep his claim's own table
 	return true
 end
 

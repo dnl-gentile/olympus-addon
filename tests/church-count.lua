@@ -1625,8 +1625,15 @@ test("Church keeper discovery: quiet keepers and unverified requesters receive n
 	eq(SentTo(w, c.wes, c.a1, "w"), 0)
 	eq(Outbox(w, c.wes), 1)
 	c.a1.c.QuietPresence = function() return false end
+	local noted
+	local hides = c.a1.c.Moderation.Hides
+	c.a1.c.Moderation.Hides = function(sender, guild, readOnly)
+		if not readOnly then noted = guild end
+		return hides(sender)
+	end
 	local outside = "NK~1~q~f123~ForeverPvE:Alliance~" .. World.GUILD2
 	eq(w:As(c.a1, c.a1.Church.ReceivePresence, "WHISPER", c.vik.name, outside), false)
+	eq(noted, nil, "an unverified probe never updates the sender's guild in moderation")
 	eq(#w:Sent(c.a1, "NK", "WHISPER", "a"), 0, "a guild claim alone discloses no presence")
 	w.off[c.wes.key] = true
 	local sameGuild = "NK~1~q~f124~ForeverPvE:Alliance~" .. World.GUILD

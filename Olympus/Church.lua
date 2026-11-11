@@ -1492,11 +1492,11 @@ end
 local function ProbeRequester(sender, guild)
 	if not guild or not ns.IsFederation(guild) then return false end
 	local R, C, M = ns.Roster, ns.Channels, ns.Moderation
-	if M and M.Hides and M.Hides(sender, guild) then return false end
+	if M and M.Hides and M.Hides(sender, guild, true) then return false end
 	if Church.InAudience(sender) then return true end
 	if guild == OwnGuild() then return R and R.Fresh and R.Fresh() and R.RankOf and R.RankOf(sender) ~= nil end
 	if not (C and C.VerifiedLevel) then return false end
-	local level, verified = C.VerifiedLevel(sender, guild)
+	local level, verified = C.VerifiedLevel(sender, guild, true)
 	return verified == true and (tonumber(level) or 0) >= 1
 end
 

@@ -169,7 +169,7 @@ end
 -- boundary is activated; then only the expiring leadership manifest grants a tier. Returns 0
 -- when the legacy guild claim is false.
 -- Verified, the rank index it was read from too (0: the guild master; the King's Crown: 0).
-function Channels.VerifiedLevel(sender, guild)
+function Channels.VerifiedLevel(sender, guild, readOnly)
 	if Channels.OtherFamily(sender) then return 1, false end
 	local who = ns.FullName(sender)
 	local rank = ns.Roster.RankOf(who)
@@ -189,7 +189,7 @@ function Channels.VerifiedLevel(sender, guild)
 		return Channels.LevelOf(guild, 0), true, 0
 	end
 	local enforcing = ns.Authority and ns.Authority.Enforced and ns.Authority.Enforced()
-	if not enforcing and not ns.Data.ClaimGuild(who, guild) then return 0, false end
+	if not enforcing and not ns.Data.ClaimGuild(who, guild, readOnly) then return 0, false end
 	local known = ns.Data.AuthorizedRank(who, guild)
 	if known == nil then return 1, false end
 	return Channels.LevelOf(guild, known), true, known

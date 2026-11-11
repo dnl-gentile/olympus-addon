@@ -415,6 +415,16 @@ test("chat delivery (1.5.5, Forever): guildmates on other sub-realms and under t
 	end)
 end)
 
+test("chat guild verification can look up a sender without writing a guild claim", function()
+	ForeverGuild(function()
+		local name, guild = "Readonly Sender-CAMWOWUS1Realm7PvE", "Olympus Other"
+		eq(ns.Data.ClaimedGuild(name), nil)
+		local _, verified = ns.Channels.VerifiedLevel(name, guild, true)
+		eq(verified, false)
+		eq(ns.Data.ClaimedGuild(name), nil, "checking an unverified request must not bind the sender")
+	end)
+end)
+
 test("chat delivery (1.5.5): /oly status names the chat windows open beside the ones chosen, so a window \"gone\" can be told apart from one never made", function()
 	local saved = { frame = rawget(_G, "ChatFrame3"), info = rawget(_G, "GetChatWindowInfo"), windows = ns.db.chatWindows }
 	local ok, err = pcall(function()
