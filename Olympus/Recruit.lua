@@ -717,6 +717,22 @@ local REMINDER_MINUTES = { 0, 15, 30, 60 }
 local ANNOUNCEMENT_GAP = 120
 local publicRecruitmentAt = {}
 
+local function PruneAnnouncements(now)
+	for name, entry in pairs(publicRecruitmentAt) do
+		if now - entry.at >= ANNOUNCEMENT_GAP then publicRecruitmentAt[name] = nil end
+	end
+end
+
+local function AnnouncementReady(name)
+	local now = ns.Now()
+	PruneAnnouncements(now)
+	local entry = publicRecruitmentAt[name]
+	if not entry then return true end
+	local tip = entry.observed and L.RECRUIT_ANNOUNCE_WAIT or L.RECRUIT_ANNOUNCE_POST_WAIT
+	ns.Print(tip:format(math.ceil(ANNOUNCEMENT_GAP - (now - entry.at))))
+	return false
+end
+
 local function PublicChannels()
 	local infoOf = C_ChatInfo and C_ChatInfo.GetChannelInfoFromIdentifier
 	if type(GetChannelList) ~= "function" or type(infoOf) ~= "function" then return {} end
@@ -736,6 +752,14 @@ local function PublicChannels()
 	end
 	table.sort(rows, function(a, b) return a.id < b.id end)
 	return rows
+end
+
+local function CurrentPublicChannel(channel)
+	for _, current in ipairs(PublicChannels()) do
+		if current.id == channel.id and current.name == channel.name and current.zoneID == channel.zoneID then
+			return current
+		end
+	end
 end
 
 local function AnnouncementCount()
@@ -777,13 +801,13 @@ local function ObserveAnnouncement(text, _, _, _, _, _, zoneID, index)
 	if not keyword and not recruiting then return end
 	if not WhisperGuild() then return end
 	local now = ns.Now()
-	for key, at in pairs(publicRecruitmentAt) do if now - at >= ANNOUNCEMENT_GAP then publicRecruitmentAt[key] = nil end end
+	PruneAnnouncements(now)
 	for _, current in ipairs(PublicChannels()) do
 		if current.id == index and current.zoneID == zoneID then
 			local channel = current.name:lower()
-			publicRecruitmentAt[channel] = now
+			publicRecruitmentAt[channel] = { at = now, observed = true }
 			local draft = ns.Dialog and ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT")
-			if draft and draft.data.channel == channel then
+			if draft and type(draft.data) == "table" and draft.data.channel == channel then
 				draft:Hide()
 				ns.Print(L.RECRUIT_ANNOUNCE_WAIT:format(ANNOUNCEMENT_GAP))
 			end
@@ -793,29 +817,60 @@ local function ObserveAnnouncement(text, _, _, _, _, _, zoneID, index)
 end
 
 local function CopyAnnouncement(channel)
-	if not WhisperGuild() or not ns.Dialog or ns.Dialog.missing then return false end
-	for _, current in ipairs(PublicChannels()) do
-		if current.id == channel.id and current.name == channel.name and current.zoneID == channel.zoneID then
-			local at = publicRecruitmentAt[current.name:lower()]
-			local wait = at and ANNOUNCEMENT_GAP - (ns.Now() - at) or 0
-			if wait > 0 then ns.Print(L.RECRUIT_ANNOUNCE_WAIT:format(wait)); return false end
-			local command = ("/%d %s"):format(current.id, AnnouncementText())
-			local name = ns.Codec.SanitizeChat(current.name)
-			local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_ANNOUNCEMENT", name, nil,
-				{ channel = current.name:lower(), command = command })
-			if not draft then return false end
-			announcementVariant = (announcementVariant + 1) % 3
-			return true
-		end
+	local guild = WhisperGuild()
+	if not guild or not ns.Dialog or ns.Dialog.missing then return false end
+	local current = CurrentPublicChannel(channel)
+	if not current then
+		ns.Print(L.RECRUIT_ANNOUNCE_CHANNEL_CHANGED)
+		ns.Fire("DATA_CHANGED")
+		return false
 	end
-	ns.Print(L.RECRUIT_ANNOUNCE_CHANNEL_CHANGED)
-	ns.Fire("DATA_CHANGED")
-	return false
+	local name = current.name:lower()
+	if not AnnouncementReady(name) then return false end
+	local message = AnnouncementText()
+	local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_ANNOUNCEMENT", ns.Codec.SanitizeChat(current.name), nil,
+		{ channel = name, public = current, guild = guild, message = message, command = ("/%d %s"):format(current.id, message) })
+	if not draft then return false end
+	announcementVariant = (announcementVariant + 1) % 3
+	return true
+end
+
+local function PostAnnouncement(f, draft, reason) -- gp:recruit-public-post
+	if reason ~= "clicked" then return end
+	if not ns.Gate.Allowed("recruit-public-post") then return true end
+	if type(draft) ~= "table" or not draft.public or draft.guild ~= WhisperGuild() or not CurrentPublicChannel(draft.public) then
+		ns.Print(L.RECRUIT_ANNOUNCE_CHANNEL_CHANGED)
+		return true
+	end
+	if not AnnouncementReady(draft.channel) then return true end
+	local send = C_ChatInfo and C_ChatInfo.SendChatMessage
+	if type(send) ~= "function" or ns.ChatLocked() then
+		ns.Print(L.RECRUIT_ANNOUNCE_POST_FALLBACK)
+		return true
+	end
+	if f.editBox:GetText() ~= draft.command then
+		ns.Print(L.RECRUIT_ANNOUNCE_POST_EDITED)
+		return true
+	end
+	-- The API returns no delivery result. Reserve this channel before the call in case
+	-- the game supplies its chat echo immediately. A successful call keeps the draft copyable.
+	local attempt = { at = ns.Now() }
+	publicRecruitmentAt[draft.channel] = attempt
+	local ok = pcall(send, draft.message, "CHANNEL", nil, tostring(draft.public.id))
+	if not ok and publicRecruitmentAt[draft.channel] == attempt then
+		publicRecruitmentAt[draft.channel] = nil
+		ns.Print(L.RECRUIT_ANNOUNCE_POST_FALLBACK)
+	elseif publicRecruitmentAt[draft.channel] == attempt then
+		ns.Print(L.RECRUIT_ANNOUNCE_POST_CHECK)
+	end
+	return true
 end
 
 StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 	text = L.RECRUIT_ANNOUNCE_COPY,
 	button1 = L.RECRUIT_WHISPER_CLOSE,
+	button2 = L.RECRUIT_ANNOUNCE_POST,
+	OnCancel = PostAnnouncement,
 	hasEditBox = true,
 	editBoxWidth = 470,
 	OnShow = function(f, draft)

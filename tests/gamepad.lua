@@ -3817,11 +3817,51 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 		assert(Printed(L.RECRUIT_ANNOUNCE_REMIND, before), "a local chat reminder")
 		eq(Draft(), nil, "the reminder opens no draft")
 		eq(#(C.said or {}), sends, "neither drafts nor reminders sent a public message")
+
+		C.now = C.now + 121
+		ClickLine(trade)
+		draft = assert(Draft())
+		eq(draft.buttons[2]:GetText(), L.RECRUIT_ANNOUNCE_POST)
+		local original = draft.editBox:GetText()
+		draft.editBox:SetText(original .. " edited")
+		C.Click(draft.buttons[2])
+		eq(#(C.said or {}), sends, "an edited draft remains copy-only")
+		assert(Printed(L.RECRUIT_ANNOUNCE_POST_EDITED))
+		draft.editBox:SetText(original)
+		C.env.C_ChatInfo.InChatMessagingLockdown = function() return true end
+		C.Click(draft.buttons[2])
+		eq(#(C.said or {}), sends, "the native lockdown leaves the preview as a copy fallback")
+		assert(Printed(L.RECRUIT_ANNOUNCE_POST_FALLBACK))
+		C.env.C_ChatInfo.InChatMessagingLockdown = function() return false end
+		C.channels.Trade = 4
+		C.Click(draft.buttons[2])
+		eq(#(C.said or {}), sends, "the live channel must still match the preview")
+		C.channels.Trade = 2
+
+		local native = C.env.C_ChatInfo.SendChatMessage
+		C.env.C_ChatInfo.SendChatMessage = function() error("blocked by the game") end
+		C.Click(draft.buttons[2])
+		eq(Draft(), draft, "a native failure keeps the copy fallback")
+		eq(draft.editBox:GetText(), original)
+		C.env.C_ChatInfo.SendChatMessage = native
+		C.Click(draft.buttons[2])
+		eq(#C.said, sends + 1, "one explicit Post")
+		eq(C.said[#C.said][1], original:gsub("^/2 ", ""), "the preview is posted as plain chat text")
+		eq(C.said[#C.said][2], "CHANNEL")
+		eq(C.said[#C.said][3], "2")
+		assert(Printed(L.RECRUIT_ANNOUNCE_POST_CHECK), "a nil API return does not confirm delivery")
+		C.Click(draft.buttons[2])
+		eq(#C.said, sends + 1, "a repeated click waits even without a channel echo")
+		assert(Printed(L.RECRUIT_ANNOUNCE_POST_WAIT:format(120)))
+		Post(C.said[#C.said][1], ns.me, 2, 22, "Trade")
+		eq(Draft(), nil, "the observed echo closes the draft")
+		eq(C.chatBox, nil, "Post does not touch the game's chat editor")
 		C.Switch(initialPad); C.Advance(1)
-		Check(C.ledger, "manual recruiting announcement")
-		NoErrors(C, "manual recruiting announcement")
+		Check(C.ledger, "recruiting announcement")
+		NoErrors(C, "recruiting announcement")
 	end
 	GP.Covers("dialogs")
+	GP.Covers("recruit-public-post")
 end)
 
 -- 1.2.5.1: the Olympus Accord (Accord.lua) on a fresh account's first session, gamepad UI on from the
