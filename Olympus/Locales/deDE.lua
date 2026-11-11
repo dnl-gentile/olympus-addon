@@ -9,6 +9,19 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "deDE" then return end
 ns.Locale("deDE", {
+	LETTER_1_5_7_TITLE = "Zensusfortschritt und Abgleich",
+	LETTER_1_5_7_HEAD = "Zensusfortschritt und Abgleich",
+	LETTER_1_5_7_SIGNED = "Euer ergebener Tüftler, der Entwickler von Olympus",
+	LETTER_1_5_7_LINK = ns.L.LETTER_1_5_7_LINK,
+	LETTER_1_5_7 = [==[Eure Majestät. Soldaten von Olympus.
+
+- {guild} Während der Zensus aktualisiert wird, behält die gespeicherte Gesamtzahl ihr ursprüngliches Datum. Darunter steht, von wie vielen Gilden deines Regelwerks seit der Anmeldung Berichte eingegangen sind.
+- {guild} Relays leiten große Zensus-Momentaufnahmen, die auf mehrere Nachrichten verteilt sind, zuverlässiger weiter. Die Zustellung hängt weiterhin davon ab, welche Relays erreichbar sind.
+- {church} Kirchenpunkte und Aufzeichnungen werden zuverlässiger von erreichbaren Spielern nachgeladen. Eine Rangliste für die Rekrutierung durch alle Gildenmitglieder ist für ein späteres Update geplant.
+
+Schließe WoW nach dem Update und öffne es erneut. Wenn weiterhin keine Berichte eintreffen, sende mit /oly bug einen Bericht und nenne deine Gilde und dein Regelwerk.
+
+Lang lebe der König. Lang lebe Olympus.]==],
 	CHATWIN_GROUP_ALL = "Alle",
 	CHATWIN_GROUP_PVP = "PvP",
 	CHATWIN_GROUP_PVE = "PvE",
@@ -54,6 +67,8 @@ ns.Locale("deDE", {
 	MAPNAME_DECREE_HELP = "Wähle Karte bearbeiten, prüfe die Vorschau und bestätige den Ortsnamen.",
 	MAPNAME_DECREE_LIMIT = "Mit Maus und Tastatur, außerhalb des Kampfes.",
 	CENSUS_HEADER_ALL = "%s auf allen Servern",
+	CENSUS_HEADER_RECEIVING = "Stand %s · Empfang: %d Gilden",
+	CENSUS_HEADER_RECEIVING_TIP = "Die große Zahl zeigt die gespeicherte Zählung vom %s. Darunter steht, von wie vielen anderen Gilden dein Addon seit dem Einloggen Berichte erhalten hat.",
 	CENSUS_HEADER_SAVED = "Stand %s · Aktuell: %s Soldaten in %d Gilden",
 	CENSUS_HEADER_SAVED_TIP = "Die große Zahl zeigt die gespeicherte Zählung vom %s. Die Teilzählung darunter umfasst Gilden mit Berichten aus den letzten 15 Minuten und wird bei neuen Berichten aktualisiert.",
 	CENSUS_HEADER_UNSCOPED = "Gespeichert: %s am %s (Herkunft unbestätigt; nicht gezählt)",
@@ -4692,6 +4707,22 @@ ns.Locale("deDE", {
 	VERIFY_STATUS_VERIFIED = "<%s> ist verifiziert: Gildenmeister %s, genehmigt von %s (%s).",
 	VERIFY_STATUS_WAITING = "<%s>: Die Gildenverifizierung hat auf diesen Realms noch nicht begonnen (hier gibt es keinen Verifizierer). Von deiner Gilde wird vorerst nichts verlangt.",
 	VERIFY_TITLE = "Gildenverifizierung",
+	VERIFY_SELF_TITLE = "Meine Discord-Verifizierung",
+	VERIFY_SELF_GUIDE = "Hol dir deinen persönlichen Code mit /verify auf Discord. Prüfe deinen aktuellen Zugang mit /verify-status auf Discord und die lokale Zustellung mit /olv status. Die Zustellung bestätigt weder die Verifizierung noch eine Rolle.",
+	VERIFY_SELF_UNAVAILABLE = "Installiere oder aktualisiere Olympus Verify und lade die Oberfläche neu, um hier einen Code einzureichen.",
+	VERIFY_SELF_STATUS_UNAVAILABLE = "Zustellstatus nicht verfügbar.",
+	VERIFY_SELF_ENTER = "Code eingeben",
+	VERIFY_SELF_SEND = "Code einreichen",
+	VERIFY_SELF_PROMPT = "Füge den persönlichen Code aus Discord (/verify) ein.",
+	VERIFY_SELF_QUEUED = "Lokale Anfrage erstellt. Zustellung und Discord-Zugang sind noch nicht bestätigt.",
+	VERIFY_SELF_REFUSED = "Keine lokale Anfrage erstellt. Prüfe deinen Code und /olv status, bevor du es erneut versuchst.",
+	VERIFY_SELF_TOTAL = "Lokale Anfragen: %d",
+	VERIFY_SELF_TRUNCATED = "Zustellstatus für %d von %d Anfragen.",
+	VERIFY_SELF_PENDING = "Ausstehend",
+	VERIFY_SELF_DELIVERED = "Zustellung bestätigt",
+	VERIFY_SELF_REJECTED = "Abgelehnt",
+	VERIFY_SELF_UNSUPPORTED = "Keine Rückmeldung zur Zustellung verfügbar",
+	VERIFY_SELF_UNKNOWN = "Unbestätigt",
 	VERIFY_USAGE = "/oly verify: die Verifizierung deiner Gilde. Prüfer: /oly verify approve <Gilde> [Gildenmeister] | <Code>, /oly verify revoke <Gilde>, /oly verify list.",
 	VERIFY_WHISPER_BTN = "Einen Prüfer anflüstern",
 	VERIFY_WHISPER_GM_BTN = "Anflüstern",

@@ -9,6 +9,19 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "frFR" then return end
 ns.Locale("frFR", {
+	LETTER_1_5_7_TITLE = "Progression et rattrapage du recensement",
+	LETTER_1_5_7_HEAD = "Progression et rattrapage du recensement",
+	LETTER_1_5_7_SIGNED = "Votre humble artisan, le dev d'Olympus",
+	LETTER_1_5_7_LINK = ns.L.LETTER_1_5_7_LINK,
+	LETTER_1_5_7 = [==[Votre Majesté. Soldats d'Olympus.
+
+- {guild} Pendant la mise à jour du recensement, le total sauvegardé garde sa date d'origine. La ligne en dessous indique le nombre de guildes de ton type de royaume dont un rapport est arrivé depuis ta connexion.
+- {guild} Les relais transmettent plus sûrement les gros relevés de recensement répartis sur plusieurs messages. La transmission dépend toujours des relais disponibles.
+- {church} Les points de l'Église et les Registres se mettent à jour plus facilement grâce aux joueurs disponibles. Un classement de recrutement pour tous les membres des guildes est prévu dans une prochaine mise à jour.
+
+Ferme et rouvre WoW après la mise à jour. Si les rapports n'arrivent toujours pas, envoie un rapport avec /oly bug en précisant ta guilde et ton type de royaume.
+
+Vive le Roi. Vive Olympus.]==],
 	CHATWIN_GROUP_ALL = "Tous",
 	CHATWIN_GROUP_PVP = "JcJ",
 	CHATWIN_GROUP_PVE = "JcE",
@@ -54,6 +67,8 @@ ns.Locale("frFR", {
 	MAPNAME_DECREE_HELP = "Choisissez Modifier la carte, puis prévisualisez et confirmez le nom du lieu.",
 	MAPNAME_DECREE_LIMIT = "Souris et clavier, hors combat.",
 	CENSUS_HEADER_ALL = "%s sur tous les serveurs",
+	CENSUS_HEADER_RECEIVING = "Relevé du %s · Réception : %d guildes",
+	CENSUS_HEADER_RECEIVING_TIP = "Le grand nombre est le recensement sauvegardé du %s. En dessous figure le nombre d’autres guildes dont ton addon a reçu un rapport depuis ta connexion.",
 	CENSUS_HEADER_SAVED = "Relevé du %s · Récent : %s soldats dans %d guildes",
 	CENSUS_HEADER_SAVED_TIP = "Le grand nombre est le recensement sauvegardé du %s. Le décompte partiel en dessous couvre les guildes ayant envoyé un rapport dans les 15 dernières minutes et se met à jour à chaque nouveau rapport.",
 	CENSUS_HEADER_UNSCOPED = "Sauvegardé : %s le %s (origine non confirmée ; exclu)",
@@ -4692,6 +4707,22 @@ ns.Locale("frFR", {
 	VERIFY_STATUS_VERIFIED = "<%s> est vérifiée : maître de guilde %s, approuvée par %s (%s).",
 	VERIFY_STATUS_WAITING = "<%s> : la vérification des guildes n'a pas encore commencé sur ces royaumes (aucun vérificateur ici). Rien n'est demandé à ta guilde pour l'instant.",
 	VERIFY_TITLE = "Vérification de la guilde",
+	VERIFY_SELF_TITLE = "Ma vérification Discord",
+	VERIFY_SELF_GUIDE = "Récupère ton code personnel avec /verify sur Discord. Consulte ton accès actuel avec /verify-status sur Discord et la livraison locale avec /olv status. La livraison ne confirme pas la vérification et n’attribue aucun rôle.",
+	VERIFY_SELF_UNAVAILABLE = "Installe ou mets à jour Olympus Verify, puis recharge l’interface pour envoyer un code ici.",
+	VERIFY_SELF_STATUS_UNAVAILABLE = "Le statut de livraison est indisponible.",
+	VERIFY_SELF_ENTER = "Saisir le code",
+	VERIFY_SELF_SEND = "Envoyer le code",
+	VERIFY_SELF_PROMPT = "Colle le code personnel reçu avec /verify sur Discord.",
+	VERIFY_SELF_QUEUED = "Demande locale créée. La livraison et l’accès à Discord restent à confirmer.",
+	VERIFY_SELF_REFUSED = "Aucune demande locale créée. Vérifie ton code et /olv status avant de réessayer.",
+	VERIFY_SELF_TOTAL = "Demandes locales : %d",
+	VERIFY_SELF_TRUNCATED = "Statut de livraison de %d demandes sur %d.",
+	VERIFY_SELF_PENDING = "En attente",
+	VERIFY_SELF_DELIVERED = "Livraison confirmée",
+	VERIFY_SELF_REJECTED = "Refusée",
+	VERIFY_SELF_UNSUPPORTED = "Retour de livraison indisponible",
+	VERIFY_SELF_UNKNOWN = "Non confirmée",
 	VERIFY_USAGE = "/oly verify : la vérification de ta guilde. Vérificateurs : /oly verify approve <Guilde> [Maître de guilde] | <code>, /oly verify revoke <Guilde>, /oly verify list.",
 	VERIFY_WHISPER_BTN = "Chuchoter à un vérificateur",
 	VERIFY_WHISPER_GM_BTN = "Lui chuchoter",

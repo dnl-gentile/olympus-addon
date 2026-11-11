@@ -167,10 +167,39 @@ ns.On("LOGIN", function() ns.RegisterEvent("PLAYER_LOGOUT", function()
 	end
 end) end)
 
+local function SavedTime(value)
+	local n = tonumber(value)
+	if n and n > 0 and n < math.huge then return n end
+end
+
+local function SavedCount(value)
+	if value == nil then return 0 end
+	local n = tonumber(value)
+	if n and n >= 0 and n < math.huge and n == math.floor(n) then return n end
+end
+
+-- Read old numeric strings as numbers and discard a row whose census data cannot be read.
+-- The next roster scan or peer report can replace it without clearing any other saved state.
+local function CleanSavedReport(name, g, now)
+	if type(name) ~= "string" or type(g) ~= "table" then return false end
+	local at, total, online = SavedTime(g.t), SavedCount(g.total), SavedCount(g.online)
+	if not at or now - at > Data.KEEP or not total or not online then return false end
+	if g.zones ~= nil then
+		if type(g.zones) ~= "table" then return false end
+		for key, count in pairs(g.zones) do
+			local n = SavedCount(count)
+			if type(key) ~= "string" or not n then return false end
+			g.zones[key] = n
+		end
+	end
+	g.t, g.st, g.total, g.online = at, SavedTime(g.st), total, online
+	return true
+end
+
 ns.On("INIT", function()
 	local now = ns.Now()
 	for name, g in pairs(ns.rdb.guilds) do
-		if type(g) ~= "table" or now - (g.t or 0) > Data.KEEP then
+		if not CleanSavedReport(name, g, now) then
 			ns.rdb.guilds[name] = nil
 		elseif ns.Codec.Dirty(name) or ns.Codec.Dirty(g) then
 			-- Kept by versions before 0.9.2, which let escape codes (colours, textures, links)
@@ -211,7 +240,10 @@ ns.On("INIT", function()
 	DropDeadVotes(now) -- (1.2.3)
 	local seen = Data.Seen()
 	for name, e in pairs(seen) do
-		if type(e) ~= "table" or now - (e.t or 0) > Data.KEEP then seen[name] = nil end
+		local at, online
+		if type(e) == "table" then at, online = SavedTime(e.t), SavedCount(e.online) end
+		if type(name) ~= "string" or not at or now - at > Data.KEEP or not online then seen[name] = nil
+		else e.t, e.online = at, online end
 	end
 	-- Sightings kept before v0.7.11 may carry a "-Realm" of our census group on the guild's
 	-- name (Who.GuildName): they go under its plain name, the newest one kept, or the guild
@@ -234,7 +266,7 @@ end)
 -- totals, and must never pass for a report (the conflict and rank checks trust
 -- ns.rdb.guilds). The census lists the guilds seen that nobody reports, in grey.
 function Data.Seen()
-	ns.rdb.seen = ns.rdb.seen or {}
+	ns.rdb.seen = type(ns.rdb.seen) == "table" and ns.rdb.seen or {}
 	return ns.rdb.seen
 end
 
@@ -481,20 +513,6 @@ Data.CROWN_AFTER = 200
 -- how many guilds were heard since. A line and nothing else: no /who (the game takes it from a
 -- click alone), no window or popup of any kind.
 Data.REBUILD_FOR = 200
-
--- The guilds heard since login while the census is being rebuilt (0 or more), nil once it is
--- (or outside an Olympus guild, or before login).
-function Data.Rebuilding(now)
-	local login = ns.Comm and ns.Comm.loginAt
-	if not login or not ns.IsMember() then return nil end
-	now = now or ns.Now()
-	if now - login >= Data.REBUILD_FOR then return nil end
-	local heard = 0
-	for _, g in pairs(ns.rdb and ns.rdb.guilds or {}) do
-		if type(g) == "table" and not g.mine and (g.t or 0) >= login then heard = heard + 1 end
-	end
-	return heard
-end
 
 -- At login: the window drawn once more when the rebuild is over, so its line goes. That redraw
 -- is all it does (UI.RefreshSoon searches nothing, and does nothing while the window is closed).
@@ -992,7 +1010,7 @@ function Data.MigrateCensusScope()
 				for key, e in pairs(type(R.censusWitness) == "table" and R.censusWitness or {}) do
 					witnesses[key] = e
 				end
-				if next(legacy) or next(witnesses) or next(R.censusForeign or {}) then
+				if next(legacy) or next(witnesses) or (type(R.censusForeign) == "table" and next(R.censusForeign)) then
 					R.censusUnscoped = { global = legacy, witnesses = witnesses, snapshots = {}, details = {} }
 					R.censusWitness = {}
 					for key, e in pairs(type(ns.db.groupCensus) == "table" and ns.db.groupCensus or {}) do
@@ -1037,6 +1055,34 @@ local function GlobalGuildField(name)
 	if ns.Codec.LongGuild(name) or not ns.IsFederation(name) then return nil end
 	return name
 end
+
+-- Guilds heard since login, deduplicated across roster reports and accepted relay counts.
+function Data.Rebuilding(now)
+	local login = ns.Comm and ns.Comm.loginAt
+	if not login or not ns.IsMember() then return nil end
+	now = now or ns.Now()
+	if now - login >= Data.REBUILD_FOR then return nil end
+	local seen, count = {}, 0
+	local own = (GetGuildInfo("player") or ""):lower()
+	local function Add(name, received, observed)
+		if type(name) ~= "string" or (tonumber(received) or 0) < login
+			or now - observed > Data.TOTAL_KEEP or NetOff(name) then return end
+		local key = name:lower()
+		if key == own or seen[key] then return end
+		seen[key], count = true, count + 1
+	end
+	for name, g in pairs(ns.rdb and ns.rdb.guilds or {}) do
+		if LocalReport(g) and not g.mine then Add(name, g.t, ObservationTime(g)) end
+	end
+	local scoped = ScopedGroup(ns.group)
+	for _, g in pairs(ns.rdb and ns.rdb.censusGlobal or {}) do
+		if type(g) == "table" and (not scoped or g.scope == ns.group) and g.by ~= ns.me then
+			Add(g.name, g.heard, tonumber(g.observed) or 0)
+		end
+	end
+	return count
+end
+
 local function GlobalNumber(v, low, high)
 	local n = tonumber(v)
 	if not n or n ~= math.floor(n) or n < low or n > high then return nil end
@@ -1134,7 +1180,11 @@ local function GlobalTake(name, total, online, avg10, observed, by, heardAt, wit
 	if type(old) == "table" and (tonumber(old.observed) or 0) > row.observed then return false end
 	store[key] = { name = row.name, total = row.total, online = row.online, avg10 = row.avg10,
 		observed = row.observed, by = ns.FullName(by), heard = heardAt or now, w = witnesses, scope = ns.group, rg = rg or nil }
-	return old == nil or old.total ~= row.total or old.online ~= row.online or old.avg10 ~= row.avg10 or old.observed ~= row.observed
+	if old == nil or old.total ~= row.total or old.online ~= row.online or old.avg10 ~= row.avg10 or old.observed ~= row.observed then return true end
+	-- Even the same observation advances the startup status on its first receipt this login.
+	local login = ns.Comm and ns.Comm.loginAt
+	return login ~= nil and now - login < Data.REBUILD_FOR and (tonumber(old.heard) or 0) < login
+		and now - row.observed <= Data.TOTAL_KEEP and not OwnWord(by)
 end
 
 -- 1.4.0, the witnesses (see Data.WITNESS_WINDOW above). ns.rdb.censusWitness[guild lower] =
@@ -1794,9 +1844,11 @@ local function PruneGroups(now)
 		local store = GroupStore(which)
 		local per = {}
 		for key, e in pairs(store) do
-			if type(e) ~= "table" or not GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed) then
+			local row = type(e) == "table" and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed)
+			if not row then
 				store[key] = nil
 			else
+				e.characters, e.people, e.guilds, e.observed = row.characters, row.people, row.guilds, row.observed
 				per[e.faction] = per[e.faction] or {}
 				table.insert(per[e.faction], { key = key, observed = e.observed })
 			end
@@ -2745,7 +2797,9 @@ ns.On("INIT", function()
 	Data.MigrateCensusScope()
 	local store, now = GlobalStore(), ns.Now()
 	for key, e in pairs(store) do
-		if type(e) ~= "table" or not GlobalGuildField(e.name) or now - (tonumber(e.observed) or 0) > Data.KEEP then store[key] = nil end
+		local row = type(key) == "string" and type(e) == "table" and GlobalRow(e.name, e.total, e.online, e.avg10, e.observed)
+		if not row then store[key] = nil
+		else e.total, e.online, e.avg10, e.observed = row.total, row.online, row.avg10, row.observed end
 	end
 	-- (1.4.0) The witnesses kept past a day, or of a guild no longer Olympus, go.
 	local ws = ns.rdb.censusWitness

@@ -403,6 +403,36 @@ local function Say(w, rows)
 	return ("CX~1~S~%d~%s"):format(w.clock, table.concat(out, ";"))
 end
 
+test("census saved variables: malformed and legacy rows cannot stop a valid saved census from loading", function()
+	local w = GroupWorld()
+	w.ns.group = "ForeverPvE"
+	w.ns.Comm.loginAt = w.clock
+	local guilds, sightings = w.ns.rdb.guilds, w.ns.rdb.seen
+	guilds["Olympus Broken Time"] = { total = 900, t = {} }
+	guilds["Olympus Broken Count"] = { total = "unknown", t = w.clock }
+	guilds["Olympus Broken Zones"] = { total = 90, zones = true, t = w.clock }
+	guilds["Olympus Good"] = { total = 630, online = 40, t = w.clock }
+	guilds["Olympus Legacy"] = { total = "120", online = "8", t = tostring(w.clock - w.D.FRESH - 1) }
+	sightings["Olympus Seen"] = { online = "6", t = tostring(w.clock) }
+	sightings["Olympus Broken Sighting"] = { online = 1, t = false }
+	w.ns.db.groupCensus = {
+		["Alliance|ForeverPvE"] = { group = "ForeverPvE", faction = "Alliance", characters = "1000", people = "995", guilds = "3", observed = tostring(w.clock - 200) },
+		["Alliance|ForeverPvP"] = { group = "ForeverPvP", faction = "Alliance", characters = 500, people = 500, guilds = 2, observed = w.clock - 200 },
+	}
+	w.ns.rdb.censusGlobal = {
+		["olympus global"] = { name = "Olympus Global", total = "200", online = "10", avg10 = "330", observed = tostring(w.clock), scope = "ForeverPvE" },
+		["olympus global bad"] = { name = "Olympus Global Bad", total = {}, online = 7, avg10 = 330, observed = w.clock, scope = "ForeverPvE" },
+	}
+	w.Fire("INIT")
+	local s = w.D.Summary()
+	eq(s.characters, 1000, "the valid retained snapshot is still displayed")
+	eq(s.live.characters, 950, "valid direct and relayed rows are still counted")
+	eq(s.live.freshCharacters, 830)
+	eq(s.online, 50)
+	eq(s.seen[1].name, "Olympus Seen"); eq(s.seen[1].online, 6); eq(#s.seen, 1)
+	eq(w.D.Groups(s, w.clock).characters, 1500, "the other ruleset remains separate and is still counted globally")
+end)
+
 test("census scope: legacy relay-stamped mixed counts remain saved but cannot populate the local census or renew its snapshot", function()
 	local w = GroupWorld()
 	w.ns.group, w.ns.realm = "ForeverPvP", "CAMWOWUS1Realm8PvP"
@@ -458,6 +488,40 @@ test("census scope: scoped count snapshots reject another ruleset and legacy uns
 	eq(pve.D.Summary().characters, 640)
 	eq(pve.ns.rdb.censusGlobal["olympus foreign"].scope, "ForeverPvE")
 	eq(next(pve.ns.rdb.guilds), nil, "counts never become authority")
+end)
+
+test("census rebuilding: count accepted relay snapshot receipts once per current ruleset guild", function()
+	local w, relay = GroupWorld(), "Council-Realm"
+	w.ns.group, w.ns.IsMember = "ForeverPvE", function() return true end
+	w.ns.Church.IsLedgerRelay = function(name) return name == relay end
+	w.ns.Comm.loginAt = w.clock
+	local function Receive(sender, group, guild, observed)
+		return w.D.ReceiveGlobalCensus("CHANNEL", sender,
+			("CG~2~S~%d~%s~Alliance~%s,640,40,300,%d"):format(w.clock, group, guild, observed or w.clock))
+	end
+	eq(w.D.Rebuilding(), 0)
+	assert(Receive("First-Realm", "ForeverPvE", "Olympus Dawn"))
+	eq(w.D.Rebuilding(), 0, "one witness's unaccepted counts do not show as progress")
+	assert(not Receive(relay, "ForeverPvP", "Olympus PvP"))
+	eq(w.D.Rebuilding(), 0)
+	assert(Receive(relay, "ForeverPvE", "Olympus Dawn", w.clock - 60))
+	eq(w.D.Rebuilding(), 1, "new receipt of an older but countable observation")
+	w.ns.rdb.guilds["OLYMPUS DAWN"] = { t = w.clock, from = "CAMWOWUS1Realm1PvE" }
+	w.ns.rdb.guilds["Olympus Wrong Ruleset"] = { t = w.clock, from = "CAMWOWUS1Realm1PvP" }
+	eq(w.D.Rebuilding(), 1, "the same guild arriving by two paths only counts once")
+
+	w.Run()
+	w.clock = w.clock + 20
+	w.ns.Comm.loginAt = w.clock
+	eq(w.D.Rebuilding(), 0, "the last session's receipts stay out")
+	local fired = w.fires
+	assert(Receive(relay, "ForeverPvE", "Olympus Dawn", w.clock - 80))
+	eq(w.D.Rebuilding(), 1, "an identical accepted observation is still a first receipt")
+	w.Run()
+	eq(w.fires, fired + 1, "the first receipt refreshes the visible count")
+	assert(Receive(relay, "ForeverPvE", "Olympus Dawn", w.clock - 80))
+	w.Run()
+	eq(w.fires, fired + 1, "repeat receipts do not schedule another redraw")
 end)
 
 test("census origin labels: pinned Forever aliases count once and mixed rulesets stay out", function()

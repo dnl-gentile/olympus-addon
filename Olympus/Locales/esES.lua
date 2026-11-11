@@ -9,6 +9,19 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "esES" and code ~= "esMX" then return end
 ns.Locale({ "esES", "esMX" }, {
+	LETTER_1_5_7_TITLE = "Progreso y sincronización del censo",
+	LETTER_1_5_7_HEAD = "Progreso y sincronización del censo",
+	LETTER_1_5_7_SIGNED = "Vuestro humilde artífice, el desarrollador de Olympus",
+	LETTER_1_5_7_LINK = ns.L.LETTER_1_5_7_LINK,
+	LETTER_1_5_7 = [==[Su Majestad. Soldados de Olympus.
+
+- {guild} Mientras el censo se actualiza, el total guardado conserva su fecha original. Debajo se indica de cuántas hermandades de tus mismas reglas han llegado informes desde que entraste.
+- {guild} Los relays transmiten con mayor fiabilidad las instantáneas grandes del censo divididas en varios mensajes. La entrega sigue dependiendo de qué relays estén disponibles.
+- {church} Las puntuaciones de la Iglesia y los Registros se ponen al día con mayor fiabilidad gracias a los jugadores disponibles. Está prevista una clasificación de reclutamiento para todos los miembros de las hermandades en una actualización futura.
+
+Cierra y vuelve a abrir WoW después de actualizar. Si los informes siguen sin llegar, envía un informe con /oly bug e indica tu hermandad y tus reglas.
+
+Larga vida al Rey. Larga vida a Olympus.]==],
 	CHATWIN_GROUP_ALL = "Todos",
 	CHATWIN_GROUP_PVP = "JcJ",
 	CHATWIN_GROUP_PVE = "JcE",
@@ -54,6 +67,8 @@ ns.Locale({ "esES", "esMX" }, {
 	MAPNAME_DECREE_HELP = "Elige Editar mapa, revisa la vista previa y confirma el nombre del lugar.",
 	MAPNAME_DECREE_LIMIT = "Ratón y teclado, fuera de combate.",
 	CENSUS_HEADER_ALL = "%s en todos los servidores",
+	CENSUS_HEADER_RECEIVING = "Guardado %s · Recibiendo: %d hermandades",
+	CENSUS_HEADER_RECEIVING_TIP = "La cifra grande es el censo guardado el %s. Debajo se indica de cuántas otras hermandades ha recibido informes tu addon desde que entraste.",
 	CENSUS_HEADER_SAVED = "Guardado %s · Reciente: %s soldados en %d hermandades",
 	CENSUS_HEADER_SAVED_TIP = "La cifra grande es el censo guardado el %s. El recuento parcial de abajo incluye hermandades con informes de los últimos 15 minutos y se actualiza cuando llegan nuevos informes.",
 	CENSUS_HEADER_UNSCOPED = "Guardado: %s el %s (origen sin confirmar; excluido)",
@@ -4692,6 +4707,22 @@ ns.Locale({ "esES", "esMX" }, {
 	VERIFY_STATUS_VERIFIED = "<%s> está verificada: maestro de hermandad %s, aprobada por %s (%s).",
 	VERIFY_STATUS_WAITING = "<%s>: la verificación de hermandades aún no ha empezado en estos reinos (no hay verificador aquí). Por ahora no se pide nada a tu hermandad.",
 	VERIFY_TITLE = "Verificación de la hermandad",
+	VERIFY_SELF_TITLE = "Mi verificación de Discord",
+	VERIFY_SELF_GUIDE = "Obtén tu código personal con /verify en Discord. Consulta tu acceso actual con /verify-status en Discord y la entrega local con /olv status. La entrega no confirma la verificación ni concede un rol.",
+	VERIFY_SELF_UNAVAILABLE = "Instala o actualiza Olympus Verify y recarga la interfaz para enviar un código aquí.",
+	VERIFY_SELF_STATUS_UNAVAILABLE = "El estado de entrega no está disponible.",
+	VERIFY_SELF_ENTER = "Introducir código",
+	VERIFY_SELF_SEND = "Enviar código",
+	VERIFY_SELF_PROMPT = "Pega el código personal que recibiste con /verify en Discord.",
+	VERIFY_SELF_QUEUED = "Solicitud local creada. La entrega y el acceso a Discord aún no se han confirmado.",
+	VERIFY_SELF_REFUSED = "No se creó ninguna solicitud local. Comprueba tu código y /olv status antes de volver a intentarlo.",
+	VERIFY_SELF_TOTAL = "Solicitudes locales: %d",
+	VERIFY_SELF_TRUNCATED = "Mostrando el estado de entrega de %d de %d solicitudes.",
+	VERIFY_SELF_PENDING = "Pendiente",
+	VERIFY_SELF_DELIVERED = "Entrega confirmada",
+	VERIFY_SELF_REJECTED = "Rechazada",
+	VERIFY_SELF_UNSUPPORTED = "Respuesta de entrega no disponible",
+	VERIFY_SELF_UNKNOWN = "Sin confirmar",
 	VERIFY_USAGE = "/oly verify: la verificación de tu hermandad. Verificadores: /oly verify approve <Hermandad> [Maestro de hermandad] | <código>, /oly verify revoke <Hermandad>, /oly verify list.",
 	VERIFY_WHISPER_BTN = "Susurrar a un verificador",
 	VERIFY_WHISPER_GM_BTN = "Susurrarle",

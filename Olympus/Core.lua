@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "1.5.6"
+ns.VERSION = "1.5.7"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -527,6 +527,8 @@ local function OpenStore(db, group)
 	local R = db.realms[group]
 	if type(R) ~= "table" then R = {} end
 	db.realms[group] = R
+	R.guilds = type(R.guilds) == "table" and R.guilds or {}
+	R.seen = type(R.seen) == "table" and R.seen or {}
 	local members = {}
 	for _, realm in ipairs(ns.GroupRealms(group)) do members[realm] = true end
 	local family = ForeverFamily(group) == nil and group:match("^Forever%a+$") or nil
@@ -553,7 +555,7 @@ local function OpenStore(db, group)
 		if key ~= group and type(key) == "string" and Inside(key) then merge[#merge + 1] = key end
 	end
 	local function Isolate()
-		for k, g in pairs(type(R.guilds) == "table" and R.guilds or {}) do
+		for k, g in pairs(R.guilds) do
 			if not ns.ReportInGroup(g, group) then
 				R.censusForeign = type(R.censusForeign) == "table" and R.censusForeign or {}
 				R.censusForeign[k], R.guilds[k] = g, nil
@@ -2563,8 +2565,6 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 	ns.faction = ns.Faction()
 	ns.Log("---- session %d, v%s, realm %s, census %s, %s ----", db.sessions, ns.VERSION, ns.realm, ns.group, ns.faction)
 	local R = OpenStore(Stores(db), ns.group)
-	R.guilds = R.guilds or {}
-	R.seen = R.seen or {} -- Olympus guilds seen with /who (Data.lua), never mixed with the reports
 	-- Old account-wide census and key: there is no telling which realm they came from, so
 	-- drop them. The census refills from the channel within minutes and officers hand the
 	-- key out again over guild chat (K0/K1) at login.
@@ -2855,8 +2855,6 @@ function ns.CheckFaction()
 	if not ns.db or f == ns.faction then return false end
 	ns.faction = f
 	local R = OpenStore(Stores(ns.db), ns.group)
-	R.guilds = R.guilds or {}
-	R.seen = R.seen or {}
 	ns.rdb = R
 	ns.Log("faction is %s: using its census", f)
 	return true

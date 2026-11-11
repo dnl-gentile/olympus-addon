@@ -277,6 +277,17 @@ This update improves how guilds exchange census reports and recover missing piec
 Close and reopen WoW after updating so the new network modules load. If census reports still fail to arrive, send an /oly bug report with your guild and ruleset.
 
 Long live the King. Long live Olympus.]==]
+L.LETTER_1_5_7_TITLE = "Census progress and catch-up"
+L.LETTER_1_5_7_HEAD, L.LETTER_1_5_7_SIGNED, L.LETTER_1_5_7_LINK = L.LETTER_1_5_7_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+L.LETTER_1_5_7 = [==[Your Majesty. Soldiers of Olympus.
+
+- {guild} While the census catches up, the saved total keeps its original date. The line below shows how many guilds in your ruleset we've heard from since login.
+- {guild} Relays handle large census snapshots split across several messages more reliably. Delivery still depends on which relays are reachable.
+- {church} Church scores and Records catch up more reliably from available peers. A recruitment ranking for all guild members is planned for a future update.
+
+Close and reopen WoW after updating. If reports still aren't arriving, send an /oly bug report with your guild and ruleset.
+
+Long live the King. Long live Olympus.]==]
 L.LETTER_1_3_3_TITLE = "Your guild on the website"
 L.LETTER_1_3_3 = [==[Version 1.3.3.
 
@@ -461,6 +472,17 @@ Esta atualização melhora a troca de relatórios do censo entre guildas e a rec
 - {team} A primeira lição de Bones continua mesmo se a lista da guilda atualizar durante o fechamento do diálogo do taverneiro. O taverneiro começa a lição e mostra os grupos de pontuação mais devagar. O guia pausa a demonstração até você fechá-lo.
 
 Feche e abra o WoW depois de atualizar para carregar os novos módulos da rede. Se os relatórios do censo continuarem sem chegar, envie um /oly bug com sua guilda e ruleset.
+
+Vida longa ao Rei. Vida longa ao Olympus.]==]
+	L.LETTER_1_5_7_TITLE = "Progresso do censo e sincronização"
+	L.LETTER_1_5_7_HEAD, L.LETTER_1_5_7_SIGNED, L.LETTER_1_5_7_LINK = L.LETTER_1_5_7_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+	L.LETTER_1_5_7 = [==[Vossa Majestade. Soldados do Olympus.
+
+- {guild} Enquanto o censo atualiza, o total salvo mantém a data original. A linha de baixo mostra de quantas guildas do seu ruleset o addon recebeu dados desde o login.
+- {guild} Os relays lidam melhor com snapshots grandes do censo divididos em várias mensagens. A entrega ainda depende de quais relays estão acessíveis.
+- {church} A pontuação da Igreja e os Registros recuperam dados com mais consistência a partir dos jogadores disponíveis. Um ranking de recrutamento para todos os membros das guildas está previsto para uma atualização futura.
+
+Feche e abra o WoW depois de atualizar. Se os relatórios continuarem sem chegar, envie um /oly bug com sua guilda e ruleset.
 
 Vida longa ao Rei. Vida longa ao Olympus.]==]
 	L.LETTER_1_3_3_TITLE = "Sua guilda no site"
@@ -6452,6 +6474,8 @@ L.PLAYERMENU_TITLE = "Olympus"
 L.PLAYERMENU_COLLAPSE = "Collapse Olympus menu"
 L.PLAYERMENU_EXPAND = "Expand Olympus menu"
 L.CENSUS_HEADER_ALL = "%s all servers"
+L.CENSUS_HEADER_RECEIVING = "Saved %s · Receiving: %d guilds"
+L.CENSUS_HEADER_RECEIVING_TIP = "The large number is the saved census from %s. The count below it shows how many other guilds your addon has heard from since login."
 L.CENSUS_HEADER_SAVED = "Saved %s · Recent: %s soldiers in %d guilds"
 L.CENSUS_HEADER_SAVED_TIP = "The large number is the saved census from %s. The partial count below it covers guilds with reports from the last 15 minutes and updates as reports arrive."
 L.CENSUS_HEADER_UNSCOPED = "Saved %s on %s (origin not confirmed; excluded)"
@@ -6582,6 +6606,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.PLAYERMENU_COLLAPSE = "Recolher menu Olympus"
 	L.PLAYERMENU_EXPAND = "Expandir menu Olympus"
 	L.CENSUS_HEADER_ALL = "%s em todos os servidores"
+	L.CENSUS_HEADER_RECEIVING = "Salvo em %s · Recebendo: %d guildas"
+	L.CENSUS_HEADER_RECEIVING_TIP = "O número maior é o censo salvo em %s. A contagem abaixo indica quantas outras guildas o addon ouviu desde que você entrou."
 	L.CENSUS_HEADER_SAVED = "Salvo em %s · Recentes: %s soldados em %d guildas"
 	L.CENSUS_HEADER_SAVED_TIP = "O número maior é o censo salvo em %s. A contagem parcial abaixo inclui guildas com relatos dos últimos 15 minutos e é atualizada conforme chegam novos relatos."
 	L.CENSUS_HEADER_UNSCOPED = "Salvo: %s em %s (origem não confirmada; fora da soma)"

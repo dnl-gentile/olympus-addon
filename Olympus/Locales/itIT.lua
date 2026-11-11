@@ -9,6 +9,19 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "itIT" then return end
 ns.Locale("itIT", {
+	LETTER_1_5_7_TITLE = "Avanzamento e recupero del censimento",
+	LETTER_1_5_7_HEAD = "Avanzamento e recupero del censimento",
+	LETTER_1_5_7_SIGNED = "Il vostro umile artefice, lo sviluppatore di Olympus",
+	LETTER_1_5_7_LINK = ns.L.LETTER_1_5_7_LINK,
+	LETTER_1_5_7 = [==[Vostra Maestà. Soldati di Olympus.
+
+- {guild} Mentre il censimento si aggiorna, il totale salvato conserva la sua data originale. La riga sottostante indica da quante gilde del tuo stesso tipo di reame sono arrivati rapporti dopo l'accesso.
+- {guild} I relay trasmettono con più affidabilità le istantanee grandi del censimento suddivise in più messaggi. La consegna dipende ancora dai relay raggiungibili.
+- {church} I punteggi della Chiesa e i Registri si aggiornano con più affidabilità grazie ai giocatori disponibili. Una classifica del reclutamento per tutti i membri delle gilde è prevista in un aggiornamento futuro.
+
+Chiudi e riapri WoW dopo l'aggiornamento. Se i rapporti non arrivano ancora, invia una segnalazione con /oly bug e indica la tua gilda e il tuo tipo di reame.
+
+Lunga vita al Re. Lunga vita a Olympus.]==],
 	CHATWIN_GROUP_ALL = "Tutti",
 	CHATWIN_GROUP_PVP = "PvP",
 	CHATWIN_GROUP_PVE = "PvE",
@@ -54,6 +67,8 @@ ns.Locale("itIT", {
 	MAPNAME_DECREE_HELP = "Scegli Modifica mappa, poi visualizza l'anteprima e conferma il nome del luogo.",
 	MAPNAME_DECREE_LIMIT = "Mouse e tastiera, fuori dal combattimento.",
 	CENSUS_HEADER_ALL = "%s su tutti i server",
+	CENSUS_HEADER_RECEIVING = "Salvato %s · Ricezione: %d gilde",
+	CENSUS_HEADER_RECEIVING_TIP = "Il numero grande è il censimento salvato il %s. Sotto è indicato da quante altre gilde il tuo addon ha ricevuto rapporti dopo l’accesso.",
 	CENSUS_HEADER_SAVED = "Salvato %s · Recenti: %s soldati in %d gilde",
 	CENSUS_HEADER_SAVED_TIP = "Il numero grande è il censimento salvato il %s. Il conteggio parziale sotto include le gilde con rapporti degli ultimi 15 minuti e si aggiorna quando arrivano nuovi rapporti.",
 	CENSUS_HEADER_UNSCOPED = "Salvato: %s il %s (origine non confermata; escluso)",
@@ -4692,6 +4707,22 @@ ns.Locale("itIT", {
 	VERIFY_STATUS_VERIFIED = "<%s> è verificata: capogilda %s, approvata da %s (%s).",
 	VERIFY_STATUS_WAITING = "<%s>: la verifica delle gilde non è ancora iniziata su questi reami (nessun verificatore qui). Per ora alla tua gilda non si chiede nulla.",
 	VERIFY_TITLE = "Verifica della gilda",
+	VERIFY_SELF_TITLE = "La mia verifica Discord",
+	VERIFY_SELF_GUIDE = "Ottieni il tuo codice personale con /verify su Discord. Controlla l’accesso attuale con /verify-status su Discord e la consegna locale con /olv status. La consegna non conferma la verifica e non assegna ruoli.",
+	VERIFY_SELF_UNAVAILABLE = "Installa o aggiorna Olympus Verify e ricarica l’interfaccia per inviare un codice qui.",
+	VERIFY_SELF_STATUS_UNAVAILABLE = "Lo stato di consegna non è disponibile.",
+	VERIFY_SELF_ENTER = "Inserisci il codice",
+	VERIFY_SELF_SEND = "Invia il codice",
+	VERIFY_SELF_PROMPT = "Incolla il codice personale ricevuto con /verify su Discord.",
+	VERIFY_SELF_QUEUED = "Richiesta locale creata. La consegna e l’accesso a Discord non sono ancora confermati.",
+	VERIFY_SELF_REFUSED = "Nessuna richiesta locale creata. Controlla il codice e /olv status prima di riprovare.",
+	VERIFY_SELF_TOTAL = "Richieste locali: %d",
+	VERIFY_SELF_TRUNCATED = "Stato di consegna di %d richieste su %d.",
+	VERIFY_SELF_PENDING = "In attesa",
+	VERIFY_SELF_DELIVERED = "Consegna confermata",
+	VERIFY_SELF_REJECTED = "Rifiutata",
+	VERIFY_SELF_UNSUPPORTED = "Riscontro di consegna non disponibile",
+	VERIFY_SELF_UNKNOWN = "Non confermata",
 	VERIFY_USAGE = "/oly verify: la verifica della tua gilda. Verificatori: /oly verify approve <Gilda> [Capogilda] | <codice>, /oly verify revoke <Gilda>, /oly verify list.",
 	VERIFY_WHISPER_BTN = "Sussurra a un verificatore",
 	VERIFY_WHISPER_GM_BTN = "Sussurragli",
