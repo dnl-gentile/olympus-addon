@@ -161,6 +161,27 @@ test("verify mesh: a member that was offline recovers an approval its own relay 
 	end)
 end)
 
+test("verify mesh: a missed startup snapshot is requested once more after the relay window", function()
+	World(function(Node, As, Flush, Advance)
+		local hub = Node(HUB, "Olympus Relay")
+		local member = Member(Node, As, "Late Member-Realm", "Olympus Late", hub)
+		As(member, member.c.Verify.Login)
+		Advance(member.c.Verify.ASK_AFTER)
+		eq(Count(member, "RL~P~GV~1~Q~"), 1)
+		eq(As(member, member.c.Verify.Status, GUILD), "pending")
+
+		-- The verifier reconnects after the member's first ask with its saved decision.
+		local hc = Node(HC, "Olympus Council")
+		As(hc, hc.c.Verify.Handle, "CHANNEL", HC, "GV~1~A~" .. T0 .. "~" .. GUILD .. "~" .. MASTER)
+		Advance(member.c.Verify.STARTUP_RETRY)
+		eq(Count(member, "RL~P~GV~1~Q~"), 2, "the missed startup ask is retried before the periodic ask")
+		Advance(10)
+		eq(As(member, member.c.Verify.Status, GUILD), "verified")
+		Advance(220)
+		eq(Count(member, "RL~P~GV~1~Q~"), 2, "startup recovery is bounded")
+	end)
+end)
+
 test("verify mesh: bounded: verification never makes relays forward everything to each other, an answer is one transfer to the asker", function()
 	World(function(Node, As, Flush, Advance)
 		local hub = Node(HUB, "Olympus Hearth")

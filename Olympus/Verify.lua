@@ -76,6 +76,7 @@ Verify.REMIND_LEFT = 12 * 3600   -- the verifiers are reminded of a pending guil
 Verify.NOTICE_AFTER = 90         -- the session's notices wait this long after login (roster and census in)
 Verify.TICK = 60                 -- the guilds seen and the notices, every minute
 Verify.ASK_AFTER, Verify.ASK_SPREAD = 25, 35 -- the login's ask, 25 to 60 s after it
+Verify.STARTUP_RETRY, Verify.STARTUP_SPREAD = 315, 45 -- past the relay's identical-word window
 Verify.ASK_EVERY = 30 * 60       -- and every half hour
 Verify.ANSWER_GAP = 180          -- a verifier's client answers asks this often at most
 Verify.RELAY_ANSWER_GAP = 900    -- (1.5.4) and each relay that asked (relays first agree among themselves) this often
@@ -103,6 +104,7 @@ function Verify.Clock()
 end
 
 local stats = { taken = 0, starts = 0, refused = 0, bad = 0, asked = 0, answered = 0, unsent = 0 }
+local snapshots, startup = 0, nil
 function Verify.Stats() return stats end -- (unsent: answers refused a send, the review of the 1.5.4 candidate)
 
 local function Key(s) return ns.Fold(tostring(s or "")) end
@@ -736,6 +738,7 @@ function Verify.Handle(dist, sender, text)
 			end
 		end
 		if pending and not bad then pending.coverage = coverage end
+		if count > 0 and not bad then snapshots = snapshots + 1 end
 		if changed then Changed() end
 		if bad then stats.bad = stats.bad + 1 end
 		return not bad
@@ -1288,7 +1291,19 @@ end
 function Verify.Login(now)
 	loginAt, told = now or Verify.Clock(), false
 	Verify.Observe(loginAt)
-	ns.After(Verify.ASK_AFTER + Verify.random(0, Verify.ASK_SPREAD), "verify ask", Verify.Ask)
+	local session = {}
+	startup = session
+	ns.After(Verify.ASK_AFTER + Verify.random(0, Verify.ASK_SPREAD), "verify ask", function()
+		if startup ~= session then return end
+		local before = snapshots
+		Verify.Ask()
+		if not Direct() then return end
+		-- A cold client can ask while nobody can answer, or when the shared relay ask is still
+		-- on cooldown. Give it one more turn without changing the periodic traffic or trust rules.
+		ns.After(Verify.STARTUP_RETRY + Verify.random(0, Verify.STARTUP_SPREAD), "verify startup retry", function()
+			if startup == session and snapshots == before then Verify.Ask() end
+		end)
+	end)
 	if not ticking then
 		ticking = true
 		ns.Every(Verify.TICK, "verify", function() Verify.Tick() end)
