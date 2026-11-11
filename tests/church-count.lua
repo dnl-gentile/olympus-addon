@@ -3019,6 +3019,141 @@ test("global Church ledger: which ledger a client reads is looked for once a sec
 	K.Church.IsKeeper = orig
 end)
 
+local function LedgerPageWorld()
+	local w, c = KeeperProbeWorld()
+	c.a2.online = true
+	w:Presence()
+	w:ClearSent()
+	return w, c
+end
+
+local function LedgerMessages(w, cl, version, subtype)
+	local out = {}
+	local prefix = "NL~" .. version .. "~" .. subtype .. "~"
+	for _, e in ipairs(w:Sent(cl, "NL", "WHISPER")) do
+		if e.msg:sub(1, #prefix) == prefix then out[#out + 1] = e end
+	end
+	return out
+end
+
+test("Church ledger v2 proves every distinct row before moving past a silently lost packet", function()
+	local w, c = LedgerPageWorld()
+	Give(w, c.a2, "Silent Reca", "Mira Wells", 2)
+	Give(w, c.a2, "Silent Recb", "Mira Wells", 2)
+	w:Run(2)
+	local whisper, lost = c.a2.c.Comm.Whisper, false
+	c.a2.c.Comm.Whisper = function(target, msg, key, urgent, logged, done, options)
+		if target == A1 and msg:match("^NL~2~d~%w+~2~") and not lost then
+			lost = true
+			done(true) -- The sender's game API accepts it, but no network packet reaches the recipient.
+			return true
+		end
+		return whisper(target, msg, key, urgent, logged, done, options)
+	end
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	assert(lost, "the simulated connection swallowed a modern page row")
+	local rows, ends = LedgerMessages(w, c.a2, 2, "d"), LedgerMessages(w, c.a2, 2, "e")
+	eq(#rows, 1); eq(#ends, 1)
+	local from = w:As(c.a1, c.a1.Count.Led).from
+	eq(from[Key(A2)], nil)
+	local function Take(sender, text) return w:As(c.a1, c.a1.Count.Receive, "NL", "WHISPER", sender, text) end
+	eq(select(2, Take(A2, rows[1].msg:gsub("^(NL~2~d~%w+~)1~", "%12~"))), "duplicate", "a repeated record cannot stand in for slot 2")
+	eq(Take("Bera Stone-CAMWOWUS1Realm1PvP", ends[1].msg), false, "a matching name on another ruleset")
+	eq(Take(A2, "NL~1~e~0~" .. c.a1.Church.B36(w.clock)), false, "a legacy terminal cannot finish this modern request")
+	w:Run(c.a1.Count.CATCHUP_RETRY + 1)
+	eq(#LedgerMessages(w, c.a1, 1, "q"), 0, "the acknowledged modern keeper never falls back")
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	assert(from[Key(A2)], "the complete response can commit")
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 2, "both records converge without a duplicate")
+	eq(Take(A2, ends[1].msg), false, "the stale terminal cannot affect the next request")
+end)
+
+test("Church ledger v2 paginates timestamp ties while keeping the original source cutoff", function()
+	local w, c = LedgerPageWorld()
+	c.a2.Count.CATCHUP_LINES = 1
+	Give(w, c.a2, "Tied Reca", "Mira Wells", 2)
+	Give(w, c.a2, "Tied Recb", "Mira Wells", 2)
+	local stamp = w.clock
+	w:Run(1)
+	Give(w, c.a2, "Older Rec", "Mira Wells", 2)
+	w:Run(2)
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	local from = w:As(c.a1, c.a1.Count.Led).from
+	eq(from[Key(A2)], stamp - 1, "the persisted checkpoint cannot cross a split second")
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 1)
+	w:Run(1)
+	Give(w, c.a2, "Later Rec", "Mira Wells", 2)
+	w:Run(12)
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 3, "the tied and older rows arrived within the frozen cutoff")
+	eq(from[Key(A2)], stamp + 1)
+	local q = LedgerMessages(w, c.a1, 2, "q")
+	eq(#q, 3, "a distinct bounded request carried each continuation")
+	assert(q[1].msg:match("^NL~2~q~([^~]+)") ~= q[2].msg:match("^NL~2~q~([^~]+)"))
+	w:Run(4)
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 4, "newer records stay available to the next sweep")
+end)
+
+test("Church ledger v2 fits maximal canonical records within native whisper and refuses an oversized page", function()
+	local w, c = LedgerPageWorld()
+	local recruit, recruiter = ("A"):rep(30), ("B"):rep(30)
+	local guild = "Olympus " .. ("C"):rep(40)
+	local id = Key(recruit) .. ":" .. Key(recruiter)
+	w:As(c.a2, c.a2.Count.MergeIn, id, { n = recruit .. "-" .. ("R"):rep(20), bn = recruiter .. "-" .. ("R"):rep(20),
+		g = guild, kind = "i", tc = w.clock - 7200, tj = w.clock - 3600, ws = { ("d"):rep(30), ("e"):rep(30) },
+		s = 1, t = 1, a = 1, x = 1, c = 1, y = 1, q7 = 9, rq = 9 }, false)
+	local held = w:As(c.a2, c.a2.Count.Led).r[id]
+	local old = w:As(c.a2, c.a2.Count.RecordLine, id, held)
+	assert(#old <= 255 and #old > 240, "a wide but legal older record")
+	w:Run(2)
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	local rows = LedgerMessages(w, c.a2, 2, "d")
+	eq(#rows, 1)
+	assert(#rows[1].msg <= 255 and #rows[1].msg > 220, "the full canonical row passes the native boundary")
+	assert(w:As(c.a1, c.a1.Count.Led).r[id], "the maximal row reached the ledger")
+
+	w:Run(5)
+	Give(w, c.a2, "Too Big", "Mira Wells", 2)
+	local damaged = w:As(c.a2, c.a2.Count.Led).r[Key("Too Big") .. ":" .. Key("Mira Wells")]
+	damaged.ws = { ("z"):rep(260) }
+	local from = w:As(c.a1, c.a1.Count.Led).from
+	local before = from[Key(A2)]
+	w:Run(2)
+	w:ClearSent()
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	eq(#LedgerMessages(w, c.a2, 2, "d"), 0)
+	eq(#LedgerMessages(w, c.a2, 2, "e"), 0)
+	eq(w:As(c.a2, c.a2.Count.Stats).dropped["wire size"], 1)
+	eq(from[Key(A2)], before, "refusal kept the previous cursor")
+	damaged.ws = { Key(c.a2.name) }
+	w:Run(c.a1.Count.CATCHUP_RETRY + 1)
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	assert(from[Key(A2)] > before, "a subsequent complete page can recover")
+end)
+
+test("Church ledger v2 falls back once for an older keeper and keeps the existing cursor", function()
+	local w, c = LedgerPageWorld()
+	local before = w.clock - 100
+	local from = w:As(c.a1, c.a1.Count.Led).from
+	from[Key(A2)] = before
+	Give(w, c.a2, "Legacy Rec", "Mira Wells", 2)
+	w:Run(2)
+	local receive = c.a2.handlers.NL
+	c.a2.handlers.NL = function(dist, sender, text)
+		if text:sub(1, 5) == "NL~1~" then return receive(dist, sender, text) end
+	end
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	w:Run(c.a1.Count.CATCHUP_LEGACY_WAIT - 1)
+	eq(#LedgerMessages(w, c.a1, 1, "q"), 0)
+	eq(from[Key(A2)], before)
+	w:Run(10)
+	local q = LedgerMessages(w, c.a1, 1, "q")
+	eq(#q, 1)
+	eq(q[1].msg, "NL~1~q~" .. c.a1.Church.B36(before))
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 1)
+	assert(from[Key(A2)] > before)
+end)
+
 test("Church ledger catch-up withholds its terminal on a failed queued row and recovers without skipping it", function()
 	local w, c = Cast()
 	Give(w, c.a2, "Lost Reca", "Mira Wells", 2)
