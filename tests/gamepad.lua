@@ -2832,12 +2832,15 @@ test("gamepad pass 4: blocked calls with the gamepad UI: counted, told once in a
 end)
 
 test("gamepad personal verification opens in both window styles and submits only by choice", function()
-	local linkCalls = {}
+	local linkCalls, linkReady = {}, false
 	local C, ns = Session(true, { setup = function(c)
 		c.addOnFiles = { Olympus_Link = function(env)
 			local host = rawget(env, "OlympusLinkHandoff")
 			rawset(env, "OlympusLinkHandoff", nil)
-			host.Link = { Slash = function(rest) linkCalls[#linkCalls + 1] = rest end }
+			host.Link = {
+				Slash = function(rest) linkCalls[#linkCalls + 1] = rest end,
+				BotReady = function() return linkReady end,
+			}
 		end }
 	end })
 	local function OpenFromCensus()
@@ -2853,17 +2856,23 @@ test("gamepad personal verification opens in both window styles and submits only
 	ns.UI.SelectTab("census")
 	local panel = OpenFromCensus()
 	eq(panel.action:IsShown(), false, "Verify is missing at login")
-	assert(panel.third and panel.third:IsShown(), "Link works even without the ordinary Verify bridge")
+	eq(rawget(panel, "third"), nil, "the installed module cannot invite a code while the bot is unconfigured")
+	linkReady = true
 	C.Click(panel.second)
+	assert(panel.third and panel.third:IsShown(), "ready Link works even without the ordinary Verify bridge")
 	eq(#linkCalls, 0, "opening and refreshing do not start Link")
 	C.Click(panel.third)
 	eq(#linkCalls, 1); eq(linkCalls[1], "", "explicit click opens the existing Link prompt, with no pasted code")
+	linkReady = false
+	C.Click(panel.third)
+	eq(#linkCalls, 1, "the click checks that Link is still ready")
+	eq(panel.third:IsShown(), false, "the launcher is hidden when Link is unconfigured")
 	local link = ns.Link
 	ns.Link = nil
-	C.Click(panel.third)
-	eq(#linkCalls, 1, "the click checks that Link is still available")
+	C.Click(panel.second)
 	eq(panel.third:IsShown(), false, "the launcher is hidden when Link is absent")
 	ns.Link = link
+	linkReady = true
 
 	local calls = 0
 	C.env.OlympusVerifyBridge242 = {
