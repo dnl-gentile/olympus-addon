@@ -911,6 +911,31 @@ test("1.1.6 Church: the author's close reaches a desk and a member who missed it
 	eq((w:As(c.wes, c.wes.Church.Public)), true)
 end)
 
+test("Church public rows retry without spending the publication interval when the relay refuses the list", function()
+	local w, c = Cast()
+	c.author.online = true
+	w:Presence()
+	w:Act(c.m1, c.m1.Count.SetPublicRow, true)
+	w:Act(c.author, c.author.Church.SetPublic, true)
+	local desk = c.a1
+	local sendList, attempts = desk.c.Comm.SendList, 0
+	desk.c.Comm.SendList = function(kind, words, ...)
+		if kind == "NR" then
+			attempts = attempts + 1
+			if attempts == 1 then return false end
+		end
+		return sendList(kind, words, ...)
+	end
+
+	eq(w:As(desk, desk.Count.SendPublic), false, "the publisher sees the refusal")
+	eq(w:As(c.wes, c.wes.Count.PublicView), nil)
+	w:Run(desk.Church.TICK)
+	eq(w:Act(desk, desk.Count.SendPublic), true, "the next tick can publish the list")
+	eq(attempts, 2)
+	assert(w:As(c.wes, c.wes.Count.PublicView), "the eligible public view was delivered")
+	eq(w:As(desk, desk.Count.SendPublic), false, "a successful publication still spends the interval")
+end)
+
 test("1.1.6 Church: the public view drops the row of one who hides it, an emptied list too (each list's rows end with their count)", function()
 	local w, c = Cast()
 	c.author.online = true

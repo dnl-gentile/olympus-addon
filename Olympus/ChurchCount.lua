@@ -2348,8 +2348,8 @@ function Count.SendPublic(now)
 	-- (Its rows go together: only with room for all of them, the list's pieces or its rows one by
 	-- one, past what the chat and the census keep.)
 	if ns.Comm.QueueRoom() < Count.SEND_ROOM + ns.Comm.ListRoom("NR", rows) then return false end
+	if not ns.Comm.SendList("NR", rows) then return false end
 	lastPublic, lastPublicAt = t, at
-	ns.Comm.SendList("NR", rows)
 	return true
 end
 
