@@ -1323,6 +1323,7 @@ local function SelfLinkReady()
 	local loader, link = ns.LinkLoader, ns.Link
 	return loader and type(loader.Loaded) == "function" and type(loader.Slash) == "function" and loader.Loaded()
 		and type(link) == "table" and type(link.Slash) == "function"
+		and type(link.BotReady) == "function" and link.BotReady() == true
 end
 
 local function OpenSelfLink()
