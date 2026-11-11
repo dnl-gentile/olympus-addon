@@ -932,7 +932,9 @@ local function QueueWord(body)
 	-- (The review of the 1.5.4 candidate.) And each of the Treasurer's mail characters' books apart
 	-- (TR~<name>~): Treasury.Relay passes on one per mail character in one tick, and keyed "TR" alone
 	-- the last took the others' places, in the drip and in Comm's queue alike.
-	return body:match("^(C[^:]+:%d+):%d+:") or body:match("^(T1~%a)~") or body:match("^(TR~[^~]+)~") or body:sub(1, 2)
+	-- Arena splits long records before they reach Comm. Keep their own id and index too.
+	return body:match("^(C[^:]+:%d+):%d+:") or body:match("^(EP~[LT]%d+~[0-9a-z]+~[0-9a-z]+)~[0-9a-z]+~")
+		or body:match("^(T1~%a)~") or body:match("^(TR~[^~]+)~") or body:sub(1, 2)
 end
 
 local function SetExpired(s, now)

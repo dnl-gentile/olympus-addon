@@ -247,6 +247,22 @@ local function TransferWords(R, sent, kind)
 	return words
 end
 
+test("relay keeps each pending Arena record fragment distinct", function()
+	WithTransfer(function(R, _, sent, Run)
+		R.Relay.HandleIn("WHISPER", "Late-Realm", "RL~P~RR~Olympus Late")
+		local parts = {
+			"EP~L1~abc~1~2~" .. ("RD~L1~" .. string.rep("x", 220)):sub(1, 220),
+			"EP~L1~abc~2~2~" .. string.rep("y", 56),
+			"EP~L1~abd~1~2~" .. ("RD~L1~" .. string.rep("a", 220)):sub(1, 220),
+			"EP~L1~abd~2~2~" .. string.rep("b", 56),
+		}
+		for _, part in ipairs(parts) do R.Relay.HandleIn("WHISPER", R.me, "RL~P~" .. part) end
+		Run(12)
+		local words = TransferWords(R, sent, "RM").Late or {}
+		for _, part in ipairs(parts) do eq(words[part], 1, "every Arena fragment reaches the reporter once") end
+	end)
+end)
+
 test("relay admission hardening: an ordinary or nested native handler cannot reuse the envelope's token", function()
 	WithTransfer(function(R, deliver)
 		R.db = { blocked = {} }
