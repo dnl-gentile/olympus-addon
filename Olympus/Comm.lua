@@ -525,6 +525,7 @@ end
 --   client whose version is no release, over GUILD and on the channel; the record the right-click
 --   menu and /oly builds show, and the lock on such a client's words).
 --   1.5.5, RelayTree RN RF RQ RC | Relay RJ RB | RelayFallback RE RO | Data QA
+--   RelayTree RZ (what a registrant's tree reads beside the word as written: the packed census snapshot)
 local handlers = {}
 local dispatchSender, injectedSender
 local function Dispatch(handler, dist, sender, text)
@@ -1706,6 +1707,7 @@ end
 function Comm.ChannelName() return joinedName end
 function Comm.ChannelIndex() return channelIndex end -- (1.5.0: the chat hall writes its text there)
 Comm.MAX_QUEUE = MAX_QUEUE
+Comm.SEND_INTERVAL = SEND_INTERVAL -- (for the tests: tests/relay-tree-load.lua steps its clock by it)
 function Comm.DeliveredLogged() return deliveredLogged end
 
 -- Who can read the channel, as the privacy questions tell the player (Layers, Channels):

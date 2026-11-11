@@ -673,6 +673,74 @@ function Codec.DecodeChat(s)
 	return { tier = tier, guild = guild, id = tonumber(id), class = class ~= "" and class or nil, text = text }
 end
 
+-- A global census snapshot, packed for the relay's tree (RelayTree.lua: what a tree costs is the
+-- word's pieces, at the relay and at every seed). The snapshot as Data writes it
+-- (CG~<v>~S~<made>~[<group>~<faction>~]name,total,online,avg10,observed;...) is some 40 bytes a row;
+-- packed, some 24: the name without its "OLYMPUS " (a "*" for it; "+" for "Olympus "; "!" before a
+-- name that begins with one of the three), the three counts as two base-36 digits each, and the
+-- observation as the seconds before the snapshot was made, in base 36 ("-" before it for one after):
+--   CP~1~<v>~<made>~[<group>~<faction>~]<name>,<TT><OO><AA><ago>;...
+-- Nothing is rounded: UnpackCensus gives back the snapshot byte for byte, and PackCensus answers
+-- nil for anything it could not give back so (a count past two digits, a row it does not know, any
+-- other word), which then travels as it is. A registrant unpacks it before anything else reads it
+-- and hands its guild the snapshot as written, so only relays and registrants need know this form.
+Codec.PACK_VERSION = 1
+local PACK_NAMES = { ["OLYMPUS "] = "*", ["Olympus "] = "+" }
+local PACK_MARKS = { ["*"] = "OLYMPUS ", ["+"] = "Olympus ", ["!"] = "" }
+local PACK_MAX = 36 * 36 - 1 -- two base-36 digits
+local function packTwo(n)
+	local digits = Codec.Base36(n)
+	return #digits == 1 and ("0" .. digits) or digits
+end
+local function packScope(ver, rest)
+	if ver ~= "2" then return "", rest end
+	local group, faction, rows = rest:match("^([^~]+)~(%a+)~(.*)$")
+	if not group then return nil end
+	return group .. "~" .. faction .. "~", rows
+end
+function Codec.UnpackCensus(packed)
+	if type(packed) ~= "string" then return nil end
+	local form, ver, made, rest = packed:match("^CP~(%d+)~([12])~(%d+)~(.*)$")
+	if tonumber(form) ~= Codec.PACK_VERSION or #made > 10 then return nil end
+	local scope, rows = packScope(ver, rest)
+	if not scope then return nil end
+	local at, out = tonumber(made), {}
+	for row in rows:gmatch("[^;]+") do
+		local name, total, online, avg, after, ago = row:match("^([^,]+),(%w%w)(%w%w)(%w%w)(%-?)(%w+)$")
+		total, online, avg, ago = unBase36(total), unBase36(online), unBase36(avg), unBase36(ago)
+		if not (name and total and online and avg and ago) then return nil end
+		local mark = PACK_MARKS[name:sub(1, 1)]
+		if mark then name = mark .. name:sub(2) end
+		out[#out + 1] = ("%s,%d,%d,%d,%d"):format(name, total, online, avg, after == "-" and at + ago or at - ago)
+	end
+	local text = ("CG~%s~S~%s~%s"):format(ver, made, scope) .. table.concat(out, ";")
+	if #text > Codec.CHUNK * Codec.MAX_CHUNKS then return nil end
+	return text
+end
+function Codec.PackCensus(text)
+	if type(text) ~= "string" or #text > Codec.CHUNK * Codec.MAX_CHUNKS then return nil end
+	local ver, made, rest = text:match("^CG~([12])~S~(%d+)~(.*)$")
+	if not ver or #made > 10 then return nil end
+	local scope, rows = packScope(ver, rest)
+	if not scope then return nil end
+	local at, out = tonumber(made), {}
+	for row in rows:gmatch("[^;]+") do
+		local name, total, online, avg, observed = row:match("^([^,]+),(%d+),(%d+),(%d+),(%d+)$")
+		if not name or #total > 4 or #online > 4 or #avg > 4 or #observed > 10 then return nil end
+		total, online, avg = tonumber(total), tonumber(online), tonumber(avg)
+		if total > PACK_MAX or online > PACK_MAX or avg > PACK_MAX then return nil end
+		local ago = at - tonumber(observed)
+		local short = PACK_NAMES[name:sub(1, 8)]
+		if short and #name > 8 then name = short .. name:sub(9)
+		elseif PACK_MARKS[name:sub(1, 1)] then name = "!" .. name end
+		out[#out + 1] = name .. "," .. packTwo(total) .. packTwo(online) .. packTwo(avg) .. (ago < 0 and "-" or "") .. Codec.Base36(math.abs(ago))
+	end
+	local packed = ("CP~%d~%s~%s~%s"):format(Codec.PACK_VERSION, ver, made, scope) .. table.concat(out, ";")
+	-- Byte for byte, or not at all: whatever this form cannot carry exactly goes as it is.
+	if Codec.UnpackCensus(packed) ~= text then return nil end
+	return packed
+end
+
 function Codec.Chunk(payload, id)
 	local n = math.max(1, math.ceil(#payload / Codec.CHUNK))
 	local out = {}
