@@ -152,6 +152,9 @@ function H.Receive(dist, sender, word)
 			local ref = incoming[id]
 			if not ref or ref.state ~= "claiming" or ref.expires ~= expires or not SamePlayer(ref.peer, sender)
 				or ref.from ~= from or ref.to ~= to or not InScope(applicant) or SamePlayer(applicant, ns.me) then return false end
+			for _, req in ipairs(R.requests) do
+				if SamePlayer(applicant, req.name) then return false end
+			end
 			if not R.TakeHandoff(applicant, sender) then return false end
 			ref.state = "received"
 			Transmit("A", ref, sender, nil, function()

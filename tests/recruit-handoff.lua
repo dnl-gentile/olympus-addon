@@ -1,4 +1,4 @@
-local ns, test, eq = ...
+local ns, test, eq, FreshComm = ...
 local R, H = ns.Recruit, ns.Recruit.Handoff
 local home, other = "CAMWOWUS2Realm1PvE", "CAMWOWUS2Realm2PvE"
 local me, mate, officer = "Local Recruiter-" .. home, "Guild Recruiter-" .. home, "Sister Recruiter-" .. other
@@ -150,5 +150,26 @@ test("recruit handoff: expired offer can be offered again, and changed permissio
 		eq(H.Offer(req, mate, own), true)
 		scene.permission = false
 		eq(scene.packets[2].guard(), false, "loss of native invite permission cancels the queued offer")
+	end)
+end)
+
+test("recruit handoff: real addon transport rejects public offers and duplicate applicant sub-realm stamps", function()
+	WithHandoff(function(scene)
+		local savedChat = C_ChatInfo
+		local cns, deliver = FreshComm()
+		C_ChatInfo = savedChat
+		cns.clock = scene.now
+		cns.Comm.Handle("J4", H.Receive)
+		local label = ns.L.RECRUIT_HANDOFF_CLAIM:format("Sister Recruiter", sister)
+		eq(H.Toggle(), true)
+		deliver("GUILD", officer, Packet(scene, "O", sister, own))
+		eq(Find(R.WhisperLines(), label), nil, "no offers arrive through public channels or GUILD")
+		deliver("WHISPER", officer, Packet(scene, "O", sister, own))
+		assert(Find(R.WhisperLines(), label)).onClick()
+		eq(#scene.packets, 1)
+		R.OnWhisper("JOIN", "New Recruit-" .. other)
+		deliver("WHISPER", officer, Packet(scene, "N", sister, own, applicant))
+		eq(#R.requests, 1, "an existing direct request wins even if another sub-realm stamped the same character")
+		eq(#scene.packets, 1, "the origin is not told the handoff was accepted")
 	end)
 end)
