@@ -891,6 +891,31 @@ local function Held(c, fn)
 	c.ns.Comm.QueueSize = size
 	if not ok then error(err, 0) end
 end
+test("records: two validated witnesses can arrive before the record body", function()
+	local w = Quiet()
+	local _, h1, h2, body, day, hash = Witnessing(w)
+	local late = w:Player(N.bettor1)
+	local stale = w:Player(STALE[3] .. " Tarrow")
+	stale.ns.Records.WITNESS_FRESH = 8
+	for _, holder in ipairs({ h1, h2 }) do assert(Do(w, holder, "SendKey")) end
+	w:Run(3)
+	for _, holder in ipairs({ h1, h2 }) do assert(Do(w, holder, "SendWitness", "b", body, day, true)) end
+	w:Run(5)
+	eq(Do(w, late, "WitnessesSince", "b", hash, 0), 2, "both witnesses were verified before the body arrived")
+	eq(Do(w, late, "Pending", "b"), 0)
+	eq(Do(w, late, "Count", "b"), 0, "a witness alone cannot count a record")
+	Take(w, late, body)
+	eq(Do(w, late, "Count", "b"), 1, "the body is admitted after verifying the players' signatures")
+	eq(Do(w, late, "Pending", "b"), 0)
+	eq(#w:As(late, late.ns.FarkleTable.Best, "L"), 2)
+	eq(Do(w, stale, "WitnessesSince", "b", hash, 0), 2, "the other client also received both validations")
+	w:Run(stale.ns.Records.WITNESS_FRESH)
+	Take(w, stale, body)
+	eq(Do(w, stale, "Count", "b"), 0, "expired validations cannot establish the players' keys")
+	eq(Do(w, stale, "Pending", "b"), 1)
+	Errors(w)
+end)
+
 test("records: a holder whose validation waits on its low lane stays home once two others' validations of that record were heard since the ask", function()
 	local w = Quiet()
 	local c, h1, h2, body, day, hash = Witnessing(w)
