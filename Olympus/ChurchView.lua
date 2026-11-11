@@ -100,6 +100,8 @@ function View.Pages()
 	if r.apostle or r.missionary or r.correspondent then out[#out + 1] = "name" end
 	if r.root then out[#out + 1] = "review" end
 	if not audience and Count.PublicView() then out[#out + 1] = "public" end
+	local R = ns.Recruit
+	if not PreviewRole() and R and R.WhisperAvailable and R.WhisperAvailable() then out[#out + 1] = "invites" end
 	return out
 end
 
@@ -130,7 +132,7 @@ local function CloseRules()
 end
 
 local PAGE_LABEL = { ranking = "CHURCH_NAV_RANKING", mine = "CHURCH_NAV_MINE", people = "CHURCH_NAV_PEOPLE", name = "CHURCH_NAV_NAME",
-	review = "CHURCH_NAV_REVIEW", public = "CHURCH_NAV_PUBLIC" }
+	review = "CHURCH_NAV_REVIEW", public = "CHURCH_NAV_PUBLIC", invites = "CHURCH_NAV_INVITES" }
 
 local function Nav(current)
 	local nav = {}
@@ -307,8 +309,7 @@ end
 function View.RankingLines()
 	local lines = { Nav("ranking"), Filters(true) }
 	if ns.Recruit and not PreviewRole() then
-		for _, line in ipairs(ns.Recruit.WhisperLines()) do lines[#lines + 1] = line end
-		for _, line in ipairs(ns.Recruit.RequestLines()) do lines[#lines + 1] = line end
+		for _, line in ipairs(ns.Recruit.RequestLines(false)) do lines[#lines + 1] = line end
 	end
 	local switch = SwitchLine()
 	if switch then lines[#lines + 1] = switch end
@@ -705,8 +706,7 @@ end
 function View.PublicLines()
 	local lines = { Nav("public") }
 	if ns.Recruit and not PreviewRole() then
-		for _, line in ipairs(ns.Recruit.WhisperLines()) do lines[#lines + 1] = line end
-		for _, line in ipairs(ns.Recruit.RequestLines()) do lines[#lines + 1] = line end
+		for _, line in ipairs(ns.Recruit.RequestLines(false)) do lines[#lines + 1] = line end
 	end
 	local v = Count.PublicView()
 	lines[#lines + 1] = { header = true, text = L.CHURCH_TITLE }
@@ -727,6 +727,14 @@ function View.PublicLines()
 		if n == 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.CHURCH_RANKING_EMPTY) } end
 	end
 	return lines, L.CHURCH_TITLE, L.CHURCH_PUBLIC_DETAIL
+end
+
+local function InviteLines()
+	local R = ns.Recruit
+	local lines = { Nav("invites") }
+	for _, line in ipairs(R.WhisperLines()) do lines[#lines + 1] = line end
+	for _, line in ipairs(R.RequestLines(true)) do lines[#lines + 1] = line end
+	return lines, L.CHURCH_NAV_INVITES
 end
 
 ---------------------------------------------------------------------------
@@ -758,7 +766,8 @@ function View.Build()
 	elseif page == "people" then return View.PeopleLines()
 	elseif page == "name" then return View.NameLines()
 	elseif page == "review" then return View.ReviewLines()
-	elseif page == "public" then return View.PublicLines() end
+	elseif page == "public" then return View.PublicLines()
+	elseif page == "invites" then return InviteLines() end
 	return {}, L.CHURCH_TITLE, L.CHURCH_NO_ACCESS
 end
 

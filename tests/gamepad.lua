@@ -3536,15 +3536,28 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
 		local R = ns.Recruit
+		assert(ns.UI.SelectTab("church"))
+		local frame = assert(Main(C))
+		local function FindLine(predicate)
+			for _, line in ipairs(ns.UI.SelfTestView().lines) do if predicate(line) then return line end end
+		end
 		local function ToggleLine()
-			for _, line in ipairs(ns.Views.Build("census")) do
-				if line.onClick == R.ToggleWhisperRecruiting then return line end
+			return FindLine(function(line) return line.onClick == R.ToggleWhisperRecruiting end)
+		end
+		eq(ToggleLine(), nil, "the Church's ordinary pages do not show the experiment")
+		local invite
+		for _, strip in ipairs(rawget(frame, "pageNavRows") or {}) do
+			for _, tab in ipairs(rawget(strip, "nav") or {}) do
+				if tab.item and tab.item.text == ns.L.CHURCH_NAV_INVITES then invite = tab end
 			end
 		end
+		assert(invite and invite:IsVisible(), "Invites is in the Church tab strip")
+		C.Click(invite); C.Advance(1)
+		eq(ns.UI.PageId(), "church/invites")
 		assert(ToggleLine().text:find(ns.L.RECRUIT_WHISPER_OFF, 1, true))
 		C.Fire("CHAT_MSG_WHISPER", "JOIN OLYMPUS", "Stranger-Realm")
 		eq(#R.requests, 0, "off by default")
-		InClick(C, function() ToggleLine().onClick() end)
+		InClick(C, function() ToggleLine().onClick() end); ns.UI.Refresh()
 		assert(ToggleLine().text:find(ns.L.RECRUIT_WHISPER_ON, 1, true))
 		C.Fire("CHAT_MSG_WHISPER", "join me later", "Stranger-Realm")
 		eq(#R.requests, 0, "ordinary unsolicited whispers do not queue anyone")
@@ -3629,6 +3642,14 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		local independent = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), "JOIN opens the action without prior outreach")
 		assert(independent.text:GetText():find("Interested", 1, true))
 		eq(#C.said, sends + 2, "a new request never sends anything by itself")
+		local function HasQueue(line) return line.text == ns.L.JOIN_REQUESTS:format(4) end
+		ns.UI.Refresh()
+		assert(FindLine(HasQueue), "Church Invites shows the incoming JOIN queue")
+		assert(ns.UI.SelectTab("census"))
+		eq(FindLine(HasQueue), nil, "the experiment's queue stays out of Census")
+		eq(ToggleLine(), nil)
+		eq(assert(Main(C)).buttons[2]:GetText(), ns.L.REFRESH, "manual Census Refresh remains")
+		assert(ns.UI.SelectTab("church"))
 		InClick(C, function() ToggleLine().onClick() end)
 		eq(#R.requests, 0); eq(independent:IsShown(), false)
 		Check(C.ledger, "recruiting through both input styles")

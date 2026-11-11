@@ -3319,7 +3319,7 @@ cancellation, compatibility and the in-game checks for the transport queue.
 
 ### Recruiting by whisper (experiment branch)
 
-On the recruiting experiment branch, turn **Recruiting by whisper** on in Census or Church.
+On the recruiting experiment branch, turn **Recruiting by whisper** on in **Church → Invites**.
 It starts off each session. Interested players can whisper you **JOIN**, even without
 Olympus installed. **Review nearby players** prepares a list from the selected player and visible
 friendly nameplates with no guild shown. Review each player and the editable message, then press
@@ -3335,7 +3335,7 @@ experimental requests and pending outreach draft.
 
 ### Public recruiting announcement (experiment branch)
 
-In Census or Church, open **Public recruitment announcement** and select a joined public
+In **Church → Invites**, open **Public recruitment announcement** and select a joined public
 channel. Copy the English draft into the game's own chat, verify the channel, then send it.
 A rounded lower bound appears only when the current census holds fresh accepted character
 counts. A recent Olympus recruitment message heard in that same channel delays preparing

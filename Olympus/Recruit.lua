@@ -523,6 +523,10 @@ local function WhisperGuild()
 	if ns.IsMember() then return GetGuildInfo("player") end
 end
 
+function Recruit.WhisperAvailable()
+	return WhisperGuild() ~= nil
+end
+
 local function Recruiting()
 	return recruitingGuild ~= nil and recruitingGuild == WhisperGuild()
 end
@@ -1011,7 +1015,7 @@ local function ReviewReply(req)
 end
 
 -- An accepted recruiting whisper gets a choice in an Olympus window. Combat, a busy
--- invite window or several close replies leave the request in the Census/Church queue.
+-- invite window or several close replies leave the request on the Church's Invites page.
 local function PromptReply(req, now)
 	if (InCombatLockdown and InCombatLockdown()) or not ns.Dialog or ns.Dialog.missing then return end
 	if lastReplyPrompt and now - lastReplyPrompt < ASK_COOLDOWN then return end
@@ -1068,19 +1072,25 @@ function Recruit.Point(req)
 end
 function Recruit.Dismiss(req) Drop(req) end
 
--- The requests on top of the Census: an officer's Invite and Decline, one click each; anyone
--- else's pointer to an officer online. Dismiss sends nothing.
-function Recruit.RequestLines()
+-- An officer reviews or declines requests. Other members can point to an officer online.
+-- viaWhisper separates manual recruitment replies from the usual Join Olympus requests.
+function Recruit.RequestLines(viaWhisper)
 	if not ns.IsMember() then return {} end
 	Prune(ns.Now())
 	local reqs = Recruit.requests
+	if viaWhisper ~= nil then
+		reqs = {}
+		for _, req in ipairs(Recruit.requests) do
+			if (req.viaWhisper == true) == viaWhisper then reqs[#reqs + 1] = req end
+		end
+	end
 	if #reqs == 0 then return {} end
 	local V = ns.Views
 	local lines = { {
 		header = true, text = L.JOIN_REQUESTS:format(#reqs),
 		tooltip = function(tt)
 			tt:AddLine(L.JOIN_REQUESTS:format(#reqs), 1, 0.82, 0)
-			tt:AddLine(L.JOIN_REQUESTS_TIP, 1, 1, 1, true)
+			tt:AddLine(viaWhisper and L.RECRUIT_WHISPER_HINT or L.JOIN_REQUESTS_TIP, 1, 1, 1, true)
 		end,
 	} }
 	local canInvite, officer = CanInvite(), Recruit.Officer()

@@ -2134,6 +2134,7 @@ local function PageOf(tab, locked)
 	elseif tab == "treasury" then sub = ns.Treasury and ns.Treasury.mode
 	elseif tab == "wanted" then sub = ns.Wanted and ns.Wanted.PageId and ns.Wanted.PageId()
 	elseif tab == "census" then sub = CensusStatsShown() and "stats" or nil -- (KH-08, CensusStats.lua)
+	elseif tab == "church" and ns.ChurchView and ns.ChurchView.page == "invites" then sub = "invites"
 	elseif tab == "watch" then sub = ns.Watch and ns.Watch.PageId and ns.Watch.PageId() end -- (1.1.6: desk, reports, cases, case)
 	return tab .. "/" .. tostring(sub or "")
 end

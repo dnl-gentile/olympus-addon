@@ -5590,9 +5590,7 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 		-- (Changed on purpose, 1.2.4: the average level's column before the Lord's, unknown too.)
 		eq(lines[4].cols[4], Grey("?"), "no average level known"); eq(lines[4].cols[5], Grey(L.NO_ADDON))
 		eq(lines[5].text, Grey(L.SEEN_HINT))
-		eq(lines[6].text, Grey(L.RECRUIT_WHISPER_OFF), "the recruiting control follows the census")
-		assert(lines[6].onClick and lines[7].onClick and lines[7].text:find(L.RECRUIT_ANNOUNCE_OPEN, 1, true))
-		eq(#lines, 7)
+		eq(#lines, 5, "the Invites shortcut does not add Census data rows")
 		local tip = {}
 		local tt = { AddLine = function(_, text) tip[#tip + 1] = text end,
 			AddDoubleLine = function(_, a, b) tip[#tip + 1] = a .. "=" .. b end }
@@ -5602,8 +5600,7 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 		-- Nothing seen: no grey rows and no hint.
 		ns.rdb.seen = {}
 		lines = ns.Views.Build("census")
-		eq(#lines, 6, "the search box, the King's layer line, 2 guilds and the recruiting controls")
-		eq(lines[5].text, Grey(L.RECRUIT_WHISPER_OFF))
+		eq(#lines, 4, "the search box, the King's layer line and 2 guilds")
 	end)
 end)
 
