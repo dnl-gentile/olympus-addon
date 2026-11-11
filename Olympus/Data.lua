@@ -940,6 +940,9 @@ Data.GLOBAL_MAX_BYTES = ns.Codec.CHUNK * ns.Codec.MAX_CHUNKS
 -- left. One taken may still be the whole GLOBAL_MAX_BYTES (an older relay's).
 Data.GLOBAL_SEND_BYTES = Data.GLOBAL_MAX_BYTES - 64
 Data.GLOBAL_MAX_ROWS = 180
+-- Hold an overflow page across several sends while coverage is steady. The tree and
+-- cross-relay mesh deliver on slower cadences than the local 120-second broadcast.
+Data.GLOBAL_ROTATE_EVERY = 7 * 60
 -- 1.4.0, the witnesses (the author's rule of 10-20: one person is one witness; a count is confirmed
 -- by a moderator alone, or by two or more people agreeing: observed within half an hour of each
 -- other, sizes within max(5, 5%)). A trusted relay's row (above) stands alone; any other member's
@@ -1324,19 +1327,70 @@ function Data.GlobalDigest()
 	return n, newest
 end
 
--- One bounded chunked snapshot.  The freshest rows win the bound; with the current army the
--- complete snapshot is well below it.  A later ask repeats it, so queue pressure loses no state.
+local function GlobalWireRow(e)
+	return ("%s,%d,%d,%d,%d"):format(e.name, e.total, e.online, e.avg10, e.observed)
+end
+
+-- A CG receiver merges rows; an omitted guild is never a deletion. In an overflowing Forever
+-- census, keep the newest rows at the front and give the other countable guilds a turn. Use the
+-- original payload's actual row and byte counts, so this does not buy coverage with extra traffic.
+local function RotateGlobalRows(rows, baseline, budget, now)
+	local wire, largest = {}, 0
+	for i, e in ipairs(rows) do
+		if now - e.observed > Data.TOTAL_KEEP then break end
+		wire[i] = baseline[i] or GlobalWireRow(e)
+		largest = math.max(largest, #wire[i] + 1)
+	end
+	if largest > budget then return baseline end
+
+	local out, included, room = {}, {}, budget
+	local function Add(i)
+		local cost = #wire[i] + 1
+		if included[i] or #out == #baseline or cost > room then return end
+		out[#out + 1], included[i], room = wire[i], true, room - cost
+	end
+	for i = 1, math.max(1, math.floor(#baseline / 3)) do
+		if room - #wire[i] - 1 < largest then break end
+		Add(i)
+	end
+	local tail = {}
+	for i = #out + 1, #wire do tail[#tail + 1] = { i = i, key = rows[i].name:lower() } end
+	table.sort(tail, function(a, b) return a.key < b.key end)
+
+	-- Build pages using actual row sizes. A row with a long name starts the next page
+	-- instead of being stepped over whenever it cannot fit at the end of this one.
+	local pages, first, used = { 1 }, 1, 0
+	local capacity = #baseline - #out
+	for i, e in ipairs(tail) do
+		local cost = #wire[e.i] + 1
+		if i - first >= capacity or used + cost > room then
+			pages[#pages + 1], first, used = i, i, 0
+		end
+		used = used + cost
+	end
+	local page = math.floor(now / Data.GLOBAL_ROTATE_EVERY) % #pages + 1
+	for i = pages[page], (pages[page + 1] or #tail + 1) - 1 do Add(tail[i].i) end
+	-- Use any slack on the last page for newer guilds that have not yet been included.
+	for i = 1, #baseline do Add(i) end
+	return out
+end
+
 function Data.GlobalCensusPayload()
 	if not GlobalTrusted(ns.me) and not GlobalMember() then return nil end
-	local head, out = ("CG~%d~S~%d~"):format(Data.GLOBAL_PROTOCOL, math.floor(ns.Now())), {}
-	if ScopedGroup(ns.group) then head = ("CG~2~S~%d~%s~%s~"):format(math.floor(ns.Now()), ns.group, ns.faction or "Alliance") end
-	local bytes = #head
-	for _, e in ipairs(SendableRows()) do
+	local now, scoped = math.floor(ns.Now()), ScopedGroup(ns.group)
+	local head, out = ("CG~%d~S~%d~"):format(Data.GLOBAL_PROTOCOL, now), {}
+	if scoped then head = ("CG~2~S~%d~%s~%s~"):format(now, ns.group, ns.faction or "Alliance") end
+	local rows, bytes = SendableRows(), #head
+	for _, e in ipairs(rows) do
 		if #out >= Data.GLOBAL_MAX_ROWS then break end
-		local row = ("%s,%d,%d,%d,%d"):format(e.name, e.total, e.online, e.avg10, e.observed)
+		local row = GlobalWireRow(e)
 		local extra = #row + (#out > 0 and 1 or 0)
 		if bytes + extra > Data.GLOBAL_SEND_BYTES then break end
 		out[#out + 1], bytes = row, bytes + extra
+	end
+	local omitted = rows[#out + 1]
+	if scoped and #out > 1 and omitted and now - omitted.observed <= Data.TOTAL_KEEP then
+		out = RotateGlobalRows(rows, out, bytes - #head + 1, now)
 	end
 	return head .. table.concat(out, ";")
 end

@@ -460,6 +460,52 @@ test("census scope: scoped count snapshots reject another ruleset and legacy uns
 	eq(next(pve.ns.rdb.guilds), nil, "counts never become authority")
 end)
 
+test("census overflow: scoped snapshots cover row and byte overflow at the existing receiver cadences", function()
+	for _, byteLimited in ipairs({ false, true }) do
+		local source, tree, mesh, foreign = GroupWorld("Trusted-Realm"), GroupWorld(), GroupWorld(), GroupWorld()
+		for _, w in ipairs({ source, tree, mesh, foreign }) do
+			w.ns.group = "ForeverPvP"
+			w.ns.Church.IsLedgerRelay = function(name) return name == source.ns.me end
+		end
+		foreign.ns.group = "ForeverPvE"
+		local D, start, guilds = source.D, source.clock, {}
+		local count = byteLimited and 45 or 245
+		if byteLimited then D.GLOBAL_SEND_BYTES = 1000 end
+		for i = 1, count do
+			local name = ("Olympus Unit %03d%s"):format(i, byteLimited and ("X"):rep(i % 8) or "")
+			guilds[i] = name
+			source.ns.rdb.guilds[name] = { total = 100, online = 10, avgLevel = 30, t = start - i, st = start - i,
+				from = "CAMWOWUS1Realm8PvP" }
+		end
+		local maxBytes = D.GLOBAL_SEND_BYTES
+		if not byteLimited then
+			local header = ("CG~2~S~%d~ForeverPvP~Alliance~"):format(start)
+			local row = ("%s,100,10,300,%d;"):format(guilds[1], start - 1)
+			maxBytes = #header + D.GLOBAL_MAX_ROWS * #row - 1
+		end
+		for tick = 0, 39 do
+			source.clock = start + tick * 120
+			local wire = assert(D.GlobalCensusPayload())
+			assert(#wire <= maxBytes, "overflow keeps the original transfer budget")
+			assert(wire:find(guilds[1] .. ",", 1, true), "the freshest guild always has space")
+			assert(not foreign.D.ReceiveGlobalCensus("CHANNEL", source.ns.me, wire))
+			for _, target in ipairs({ { tree, 2 }, { mesh, 3 } }) do
+				local w, every = target[1], target[2]
+				w.clock = source.clock
+				if tick % every == 0 then assert(w.D.ReceiveGlobalCensus("CHANNEL", source.ns.me, wire)) end
+			end
+		end
+		for _, w in ipairs({ tree, mesh }) do
+			eq(w.D.Summary().characters, 100 * count, "overflow guilds arrive without erasing other rows")
+			eq(next(w.ns.rdb.guilds), nil, "counts grant no guild authority")
+			for i, name in ipairs(guilds) do
+				local row = w.ns.rdb.censusGlobal[name:lower()]
+				eq(row.observed, start - i, "relay receipt never renews the observation")
+			end
+		end
+	end
+end)
+
 test("census scope: explicit foreign observation and guild home never enter local summary, votes or outbound counts", function()
 	local w = GroupWorld()
 	w.ns.group, w.ns.realm = "ForeverPvP", "CAMWOWUS1Realm8PvP"
