@@ -3340,8 +3340,8 @@ end
 -- opts (1.1.2): { key = a window of its own (the author's bug reports "bug", his version checks
 -- "versions", his /oly status "status"; the help and every Copy share "copy"), big = larger, with
 -- a Select all button (the reports: long, and read before copied), auto = opened by itself (no
--- keyboard: see the end), second = (1.1.5) a { label, fn } button after the first (the help's
--- version letters) }. Each key's window keeps its place and text while another one shows.
+-- keyboard: see the end), second and third = optional { label, fn } buttons after the first }.
+-- Each key's window keeps its place and text while another one shows.
 local copyFrames = {}
 local COPY_PLACES = { bug = { 0, 30 }, versions = { 60, -30 }, status = { -60, 30 } }
 
@@ -3414,6 +3414,31 @@ local function CopyFrame(key, big)
 	return f
 end
 
+local function PlaceCopyButton(frame, field, def, after)
+	local shown = type(def) == "table" and type(def.fn) == "function"
+	-- Only use a button this window created: client frame mixins can expose methods by the same name.
+	local b = rawget(frame, field)
+	if not b and shown then
+		b = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+		b:SetHeight(20)
+		b:SetScript("OnClick", function(self)
+			ns.SafeCall("copy " .. field, function() if self.fn then self.fn() end end)
+		end)
+		frame[field] = b
+	end
+	if not b then return nil end
+	b.fn = shown and def.fn or nil
+	b:SetShown(shown)
+	if not shown then return nil end
+	b:SetText(def.label)
+	local fs = b:GetFontString()
+	local textW = fs and (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()) or 120
+	b:SetWidth(math.max(110, math.ceil(textW) + 24))
+	b:ClearAllPoints()
+	if after then b:SetPoint("LEFT", after, "RIGHT", 6, 0) else b:SetPoint("BOTTOMLEFT", 10, 6) end
+	return b
+end
+
 -- (1.2.1) Its first opening's parts each in a ns.SafeCall of their own (the window made, its text
 -- set, shown, the Issue Reporter's step, the keyboard), so the in-game timer that measured 2.7 s
 -- for a whole first opening of the help on a slow laptop says which part takes it.
@@ -3453,38 +3478,16 @@ function UI.ShowCopy(title, text, action, opts)
 		selectAll:ClearAllPoints()
 		if action then selectAll:SetPoint("LEFT", button, "RIGHT", 6, 0) else selectAll:SetPoint("BOTTOMLEFT", 10, 6) end
 	end
-	-- (1.1.5) A second button after the first (and Select all), made the first time one is asked for.
-	local second = type(opts.second) == "table" and type(opts.second.fn) == "function" and opts.second or nil
-	-- As with selectAll, only a button this window created counts.  Frame
-	-- metatables may expose a method named "second" on some clients/mocks.
-	local secondButton = rawget(copyFrame, "second")
-	if second and not secondButton then
-		local b = CreateFrame("Button", nil, copyFrame, "UIPanelButtonTemplate")
-		b:SetSize(140, 20)
-		b:SetScript("OnClick", function(self) ns.SafeCall("copy second", function() if self.fn then self.fn() end end) end)
-		copyFrame.second = b
-		secondButton = b
-	end
-	if secondButton then
-		local b = secondButton
-		b.fn = second and second.fn or nil
-		b:SetShown(second ~= nil)
-		if second then
-			b:SetText(second.label)
-			local fs = b:GetFontString()
-			local textW = fs and (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()) or 120
-			b:SetWidth(math.max(110, math.ceil(textW) + 24))
-			b:ClearAllPoints()
-			local after = selectAll or (action and button) or nil
-			if after then b:SetPoint("LEFT", after, "RIGHT", 6, 0) else b:SetPoint("BOTTOMLEFT", 10, 6) end
-			-- The hint takes the room right of the buttons, wrapped there if it must (a longer
-			-- language's), never under them.
-			copyFrame.hint:ClearAllPoints()
-			copyFrame.hint:SetPoint("BOTTOMLEFT", b, "BOTTOMRIGHT", 8, 0)
-			copyFrame.hint:SetPoint("BOTTOMRIGHT", copyFrame, "BOTTOMRIGHT", -12, 6)
-			copyFrame.hint:SetJustifyH("RIGHT")
-			if copyFrame.hint.SetWordWrap then copyFrame.hint:SetWordWrap(true) end
-		end
+	local after = selectAll or (action and button) or nil
+	local second = PlaceCopyButton(copyFrame, "second", opts.second, after)
+	local last = PlaceCopyButton(copyFrame, "third", opts.third, second or after) or second
+	if last then
+		-- The hint takes the room to the right of the buttons, wrapped there if it must.
+		copyFrame.hint:ClearAllPoints()
+		copyFrame.hint:SetPoint("BOTTOMLEFT", last, "BOTTOMRIGHT", 8, 0)
+		copyFrame.hint:SetPoint("BOTTOMRIGHT", copyFrame, "BOTTOMRIGHT", -12, 6)
+		copyFrame.hint:SetJustifyH("RIGHT")
+		if copyFrame.hint.SetWordWrap then copyFrame.hint:SetWordWrap(true) end
 	end
 	ns.SetWindowTitle(copyFrame, title)
 	-- (1.2.1) The text the box shows already (the help opened again): kept as it is laid out, never

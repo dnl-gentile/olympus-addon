@@ -1272,6 +1272,7 @@ local deliveryStates = {
 	{ "unknown", "VERIFY_SELF_UNKNOWN" },
 }
 local deliveryTypes = { verify = true, role = true, guild = true, donation = true }
+local lastSelfSubmission
 local function SelfBridge()
 	local b = rawget(_G, "OlympusVerifyBridge242")
 	return type(b) == "table" and b or nil
@@ -1318,12 +1319,22 @@ local function EnterSelfCode()
 	ns.Dialog.Show("OLYMPUS_VERIFY_SELF", nil, nil, {})
 end
 
-function Verify.OpenSelf(result)
+local function SelfLinkReady()
+	local loader, link = ns.LinkLoader, ns.Link
+	return loader and type(loader.Loaded) == "function" and type(loader.Slash) == "function" and loader.Loaded()
+		and type(link) == "table" and type(link.Slash) == "function"
+end
+
+local function OpenSelfLink()
+	if SelfLinkReady() then ns.LinkLoader.Slash("") else Verify.OpenSelf() end
+end
+
+function Verify.OpenSelf()
 	local b = SelfBridge()
 	local summary = SelfDelivery(b)
 	local ready = b and type(b.QueueSelf) == "function" and summary and ns.Dialog and not ns.Dialog.missing
 	local lines = { L.VERIFY_SELF_GUIDE, "" }
-	if result ~= nil then lines[#lines + 1] = result and L.VERIFY_SELF_QUEUED or L.VERIFY_SELF_REFUSED end
+	if lastSelfSubmission then lines[#lines + 1] = L[lastSelfSubmission] end
 	if not ready then lines[#lines + 1] = L.VERIFY_SELF_UNAVAILABLE end
 	if not summary then
 		lines[#lines + 1] = L.VERIFY_SELF_STATUS_UNAVAILABLE
@@ -1337,7 +1348,8 @@ function Verify.OpenSelf(result)
 	end
 	return ns.UI.ShowCopy(L.VERIFY_SELF_TITLE, table.concat(lines, "\n"),
 		ready and { label = L.VERIFY_SELF_ENTER, fn = EnterSelfCode } or nil,
-		{ key = "verifySelf", auto = true, second = { label = L.REFRESH, fn = function() Verify.OpenSelf() end } })
+		{ key = "verifySelf", auto = true, second = { label = L.REFRESH, fn = Verify.OpenSelf },
+			third = SelfLinkReady() and { label = L.VERIFY_SELF_OPEN_LINK, fn = OpenSelfLink } or nil })
 end
 
 StaticPopupDialogs["OLYMPUS_VERIFY_SELF"] = {
@@ -1360,12 +1372,18 @@ StaticPopupDialogs["OLYMPUS_VERIFY_SELF"] = {
 		attempt.used = true -- before the callback, including reentrant or duplicate clicks
 		local code = self.editBox:GetText()
 		self.editBox:SetText("")
-		local b, ok, queued = SelfBridge(), false, false
+		local b = SelfBridge()
+		lastSelfSubmission = "VERIFY_SELF_REFUSED"
 		if b and type(b.QueueSelf) == "function" and SelfDelivery(b) and type(code) == "string"
 			and not (issecretvalue and issecretvalue(code)) and code:find("%S") and #code <= 128 then
-			ok, queued = pcall(b.QueueSelf, code)
+			local ok, queued = pcall(b.QueueSelf, code)
+			if not ok or type(queued) ~= "boolean" then
+				lastSelfSubmission = "VERIFY_SELF_SUBMISSION_UNKNOWN"
+			elseif queued then
+				lastSelfSubmission = "VERIFY_SELF_QUEUED"
+			end
 		end
-		Verify.OpenSelf(ok and queued == true)
+		Verify.OpenSelf()
 	end,
 	timeout = 0,
 	whileDead = true,
