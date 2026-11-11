@@ -40,7 +40,8 @@ local function World(fn)
 		GetGuildInfo = function() return n.guild, "Member", 3 end
 		return f(...)
 	end
-	-- opts.old: a 1.5.4 client (no RelayTree.lua; opts.relayFile its Relay.lua).
+	-- opts.old: a 1.5.4 client (no RelayTree.lua; opts.relayFile its Relay.lua). opts.tree: another
+	-- version's RelayTree.lua (a 1.5.6 client). opts.packed: it says it reads the packed snapshot (RZ).
 	function w.Node(name, guild, opts)
 		opts = opts or {}
 		local c, deliver, sent, _, pump = extra.RelayWorld(name, guild, opts.relayFile)
@@ -59,7 +60,10 @@ local function World(fn)
 		-- What reaches the census on this node (Data.ReceiveGlobalCensus's place): every CG word it takes.
 		c.Comm.Handle("CG", function(dist, sender, text) n.got[#n.got + 1] = { dist = dist, sender = sender, text = text } end)
 		if opts.old then c.RelayTree = false
-		else w.As(n, function() assert(loadfile(extra.addon .. "RelayTree.lua"))("Olympus", c) end) end
+		else w.As(n, function() assert(loadfile(opts.tree or (extra.addon .. "RelayTree.lua")))("Olympus", c) end) end
+		-- The tests above the packed snapshot's are of the word as written, the tree of a registrant that
+		-- reads nothing else (1.5.6): a node says it reads the packed snapshot only where a test asks (packed).
+		if not opts.old and not opts.tree and not opts.packed then c.RelayTree.READS = "" end
 		w.nodes[#w.nodes + 1] = n
 		return n
 	end
@@ -572,5 +576,220 @@ test("relay tree (1.5.5): a 34-piece transfer missing pieces 33 and 34 asks for 
 		eq(T.Stats().orphans, 0, "past DIGEST_WAIT the unknown transfer's piece is gone")
 		w.Advance(900, nil, 30)
 		eq(T.Stats().expired, 1); eq(T.Stats().last[1].outcome, "expired")
+	end)
+end)
+
+---------------------------------------------------------------------------
+-- The packed census snapshot (Codec.PackCensus; RZ) and the order a seed serves its list in.
+-- tests/relay-tree-load.lua measures what they buy, with the game's timing.
+---------------------------------------------------------------------------
+
+local OLD_TREE = extra.fixtures .. "relay-tree-1.5.6.lua"
+-- Whether any node sent `target` a whisper that starts with `prefix`.
+local function AnyTo(w, prefix, target)
+	for _, n in ipairs(w.nodes) do
+		if Count(n, prefix, 0, target.c.me) > 0 then return true end
+	end
+	return false
+end
+
+-- Fails before: no packed form; every registrant took the word as written, 28 pieces.
+test("relay tree: the packed snapshot: registrants that said RZ take the packed word under its own digest, in fewer pieces; those that did not, and 1.5.6 clients, the word as written; every one takes the same snapshot byte for byte and hands its guild the snapshot as written; the seeds are shared by the work", function()
+	World(function(w)
+		w.relays = { "Tree Relay" }
+		local R = w.Node("Tree Relay-Realm", "Olympus Relay")
+		w.Trust(R, { ["Tree Relay"] = true }, { ["Tree Relay"] = true })
+		local regs = {}
+		for i = 1, 40 do
+			-- 24 that read the packed snapshot, 8 on 1.5.6 (their own RelayTree.lua), 8 that say nothing of it.
+			local opts = (i <= 24 and { packed = true }) or (i <= 32 and { tree = OLD_TREE }) or nil
+			regs[i] = w.Registrant(("Reg Number%02d-Realm"):format(i), ("Olympus Tree %02d"):format(i), R, opts)
+		end
+		w.Advance(400, nil, 20)
+		for _, m in ipairs(regs) do w.Register(m, R) end
+		for i, m in ipairs(regs) do eq(w.Tree(R).Reads(m.c.me, "c"), i <= 24, m.name .. ": what the relay holds of its RZ") end
+		eq(w.Tree(R).Stats().readers, 24)
+		local word = Snapshot(140, w.now)
+		local packed = ns.Codec.PackCensus(word)
+		local n, np = math.ceil(#word / 230), math.ceil(#packed / 230)
+		eq(n, 28)
+		assert(np <= 17, ("the packed snapshot is %d pieces"):format(np))
+		local tidW, tidP = Tid(word), Tid(packed)
+		local mark = #R.sent
+		w.Own(R, word)
+		w.Advance(600, nil, 2)
+		eq(Count(R, "RN~1~" .. tidP, mark), 24, "the packed word's digest to each registrant that reads it")
+		eq(Count(R, "RN~1~" .. tidW, mark), 16, "the digest of the word as written to each of the others")
+		-- The seeds: 13 for 40 registrants (2 x sqrt), each tree's part its part of registrants x pieces.
+		local workP, workW = 24 * np, 16 * n
+		local kP = math.max(2, math.floor(13 * workP / (workP + workW) + 0.5))
+		local kW = math.max(2, math.floor(13 * workW / (workP + workW) + 0.5))
+		eq(Count(R, "RF~1~" .. tidP, mark), kP * np, ("the packed word whole to %d seeds"):format(kP))
+		eq(Count(R, "RF~1~" .. tidW, mark), kW * n, ("the word as written whole to %d seeds"):format(kW))
+		for i, m in ipairs(regs) do
+			eq(Got(m, word, R.c.me), 1, m.name .. " takes the snapshot as the relay wrote it, once")
+			eq(#m.got, 1, "and no other word")
+			eq(HandedToGuild(m, R.c.me, word), true, m.name .. " hands its guild the snapshot as written")
+			eq(AnyTo(w, "RF~1~" .. (i <= 24 and tidW or tidP), m), false, m.name .. " is sent no piece of the other form")
+			eq(AnyTo(w, "RN~1~" .. (i <= 24 and tidW or tidP), m), false, "nor its digest")
+			local s = w.Tree(m).Stats()
+			eq(s.complete, 1)
+			eq(s.unpacked or 0, i <= 24 and 1 or 0)
+			eq(s.forged, 0)
+		end
+		local round = w.Tree(R).Stats().round
+		eq(round.registrants, 40)
+		eq(round.seeds, kP + kW)
+		eq(round.packed.tid, tidP); eq(round.packed.n, np); eq(round.packed.registrants, 24)
+		eq(round.tid, tidW, "the round's line names the word as written, the packed one beside it")
+	end)
+end)
+
+-- Fails before: no RZ, no packed form.
+test("relay tree: the packed snapshot: an RZ is kept PRESENT_FOR and no longer, a malformed one counted and without effect, none taken by a client that is no relay; a snapshot Codec cannot give back byte for byte goes as written; a packed word that does not unpack is taken by nobody and handed on to nobody", function()
+	World(function(w)
+		w.relays = { "Tree Relay" }
+		local R = w.Node("Tree Relay-Realm", "Olympus Relay")
+		w.Trust(R, { ["Tree Relay"] = true }, { ["Tree Relay"] = true })
+		local S = w.Registrant("Seed Alpha-Realm", "Olympus Seed", R, { packed = true })
+		w.Advance(400, nil, 20)
+		w.Register(S, R)
+		local X = w.Registrant("Late Receiver-Realm", "Olympus Late", R, { packed = true })
+		local T = w.Tree(R)
+		T.TREE_STAR_MAX = 0 -- (two registrants: the tree is what is tested)
+		eq(T.Reads(S.c.me, "c"), true); eq(T.Reads(X.c.me, "c"), true)
+		eq(T.Reads(S.c.me, "d"), false, "a letter it did not say")
+		eq(T.Reads("Nobody Known", "c"), false)
+		-- Malformed: counted, and what the relay holds stays.
+		local bad = T.Stats().bad
+		for _, text in ipairs({ "RZ~1~", "RZ~1~C", "RZ~1~c1", "RZ~2~c", "RZ~1~" .. ("c"):rep(17), "RZ~1~c~x" }) do
+			eq(w.As(R, T.HandleRZ, "WHISPER", X.c.me, text), false, text)
+		end
+		eq(T.Stats().bad, bad + 6)
+		eq(T.Reads(X.c.me, "c"), true)
+		eq(w.As(R, T.HandleRZ, "GUILD", X.c.me, "RZ~1~c"), false, "by whisper alone")
+		eq(w.As(S, w.Tree(S).HandleRZ, "WHISPER", X.c.me, "RZ~1~c"), false, "a client that is no relay keeps none")
+		eq(w.Tree(S).Reads(X.c.me, "c"), false)
+
+		-- A snapshot Codec cannot give back (a count past two base-36 digits): as written to both.
+		local odd = Snapshot(140, w.now) .. (";Olympus Vast,1296,40,300,%d"):format(w.now - 60)
+		eq(ns.Codec.PackCensus(odd), nil)
+		w.Own(R, odd)
+		w.Advance(60, nil, 2)
+		eq(Got(S, odd, R.c.me), 1); eq(Got(X, odd, R.c.me), 1)
+		eq(w.Tree(S).Stats().unpacked, 0); eq(w.Tree(X).Stats().unpacked, 0)
+		eq(T.Stats().round.packed, nil, "no packed tree in that round")
+
+		-- A packed word that does not unpack (no relay sends one: PackCensus checks every word it packs):
+		-- its digest matches, and nobody takes it, hands it to its guild or serves it.
+		w.Advance(T.TREE_ROUND_EVERY, nil, 20)
+		w.Register(S, R); w.Register(X, R)
+		local broken = "CP~1~2~" .. tostring(w.now) .. "~ForeverPvE~Alliance~no row"
+		R.c.Codec = setmetatable({ PackCensus = function() return broken end }, { __index = ns.Codec })
+		local word = Snapshot(140, w.now)
+		local served, took = Count(S, "RF~"), #S.got
+		w.Own(R, word)
+		w.Advance(60, nil, 2)
+		R.c.Codec = nil
+		eq(Count(R, "RN~1~" .. Tid(broken)), 2, "the round went out as the packed word")
+		eq(w.Tree(S).Stats().unreadable, 1, "the seed counts it")
+		eq(#S.got, took, "and takes nothing")
+		eq(HandedToGuild(S, R.c.me, broken), false)
+		eq(Count(S, "RF~"), served, "nor serves its list")
+		local lines = table.concat(w.Tree(S).Stats().lines, "\n")
+		assert(lines:find("tree packed: unpacked 0, unreadable 1", 1, true), lines)
+
+		-- The next snapshot packs again; then nothing is heard of what S reads for PRESENT_FOR: forgotten.
+		w.Advance(T.TREE_ROUND_EVERY, nil, 20)
+		w.Register(S, R); w.Register(X, R)
+		local good = Snapshot(140, w.now)
+		w.Own(R, good)
+		w.Advance(60, nil, 2)
+		eq(Got(S, good, R.c.me), 1); eq(Got(X, good, R.c.me), 1)
+		eq(w.Tree(S).Stats().unpacked, 1); eq(w.Tree(X).Stats().unpacked, 1)
+		assert(table.concat(T.Stats().lines, "\n"):find("tree round packed " .. Tid(ns.Codec.PackCensus(good)), 1, true),
+			"the relay's /oly bug names the packed round")
+		w.Tree(S).READS = "" -- (S says RC from here on, and nothing of what it reads)
+		w.Advance(R.c.Relay.PRESENT_FOR, nil, 60)
+		for _, m in ipairs({ S, X }) do
+			w.As(m, m.deliver, "WHISPER", R.c.me, "RY~") -- (the relay answers its ping again)
+			w.Register(m, R)
+		end
+		eq(T.Reads(S.c.me, "c"), false, "forgotten")
+		eq(T.Reads(X.c.me, "c"), true, "X said it again with its registration")
+		eq(T.Stats().readers, 1)
+	end)
+end)
+
+-- Fails before: a seed sorted its list by name, so the same registrants were last in every round.
+test("relay tree: a seed serves its list in the order the relay wrote it in the digest; the relay writes the registrants its last round did not reach first", function()
+	World(function(w)
+		-- The seed's side: a digest whose list is in no order of the names.
+		w.relays = { "Tree Relay" }
+		local R = w.Node("Tree Relay-Realm", "Olympus Relay")
+		local S = w.Registrant("Seed Alpha-Realm", "Olympus Seed", R)
+		local word = Snapshot(20, w.now)
+		local n = math.ceil(#word / 230)
+		local hash = Hex(ns.Sign.SHA256(word):sub(1, 12))
+		local list = { "Zoe Last", "Abe First", "Mid Dle", "Bea Second" }
+		w.As(S, S.deliver, "WHISPER", R.c.me, ("RN~1~%s~%d~%s~~%s"):format(hash:sub(1, 8), n, hash, table.concat(list, ",")))
+		for i = 1, n do
+			w.As(S, S.deliver, "WHISPER", R.c.me, ("RF~1~%s~%d~%d~%s"):format(hash:sub(1, 8), i, n, word:sub((i - 1) * 230 + 1, i * 230)))
+		end
+		w.Advance(60, nil, 2)
+		local order, seen = {}, {}
+		for _, p in ipairs(S.sent) do
+			if p.dist == "WHISPER" and p.msg:match("^RF~") and not seen[p.target] then
+				seen[p.target] = true
+				order[#order + 1] = p.target
+			end
+		end
+		eq(table.concat(order, ","), table.concat(list, ","), "the relay's order")
+	end)
+	World(function(w)
+		-- The relay's side: 40 registrants; in the first round ten of them get no piece from their seed.
+		local R, regs = TreeWorld(w, 40)
+		local missed, names, count = {}, {}, 0
+		local first = Snapshot(140, w.now)
+		local function Route(p, from, to)
+			if not p.msg:match("^RF~") or from == R then return end
+			if missed[to] == nil then
+				missed[to] = count < 10
+				if missed[to] then count = count + 1 end
+			end
+			if missed[to] then return false end
+		end
+		w.Own(R, first)
+		w.Advance(120, Route, 2)
+		eq(count, 10)
+		for m, yes in pairs(missed) do
+			if yes then
+				names[Short(m.c.me)] = true
+				eq(Got(m, first), 0, m.name .. " missed the round")
+			end
+		end
+		w.Advance(w.Tree(R).TREE_ROUND_EVERY, Route, 20)
+		for _, m in ipairs(regs) do w.Register(m, R) end
+		local mark = #R.sent
+		local second = Snapshot(140, w.now)
+		w.Own(R, second)
+		w.Advance(120, nil, 2)
+		local placed = 0
+		for i = mark + 1, #R.sent do
+			local serve = R.sent[i].msg:match("^RN~1~%x+~%d+~%x+~~(.+)$")
+			if serve then
+				local reached = false
+				for name in serve:gmatch("[^,]+") do
+					if names[name] then
+						placed = placed + 1
+						eq(reached, false, name .. " comes before every registrant the last round reached, in its seed's list")
+					else
+						reached = true
+					end
+				end
+			end
+		end
+		eq(placed, 10, "none of them is a seed, each is in a list")
+		for _, m in ipairs(regs) do eq(Got(m, second, R.c.me), 1, m.name .. " takes the second round's") end
 	end)
 end)
