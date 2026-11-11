@@ -1264,6 +1264,114 @@ StaticPopupDialogs["OLYMPUS_VERIFY_REVOKE"] = {
 	preferredIndex = 3,
 }
 
+-- Optional local delivery view. The other addon installs its bridge at PLAYER_LOGIN;
+-- neither file loading nor a refresh can submit a code. Keep the guild approval flow separate.
+local deliveryStates = {
+	{ "pending", "VERIFY_SELF_PENDING" }, { "delivered", "VERIFY_SELF_DELIVERED" },
+	{ "rejected", "VERIFY_SELF_REJECTED" }, { "unsupported_callback", "VERIFY_SELF_UNSUPPORTED" },
+	{ "unknown", "VERIFY_SELF_UNKNOWN" },
+}
+local deliveryTypes = { verify = true, role = true, guild = true, donation = true }
+local function SelfBridge()
+	local b = rawget(_G, "OlympusVerifyBridge242")
+	return type(b) == "table" and b or nil
+end
+local function DeliverySummary(s)
+	if type(s) ~= "table" or s.version ~= 243 or s.deliveryOnly ~= true or s.membershipProof ~= false
+		or s.roleAuthority ~= false or type(s.requests) ~= "table" or type(s.truncated) ~= "boolean" then return nil end
+	local total = s.total
+	if type(total) ~= "number" or total < 0 or total > 2147483647 or total ~= math.floor(total) then return nil end
+	local counts, n = {}, 0
+	for _, state in ipairs(deliveryStates) do counts[state[1]] = 0 end
+	-- Display only known labels and counts. Never forward descriptors, raw fields or opaque IDs to the UI.
+	for i = 1, math.min(total, 20) do
+		local row = rawget(s.requests, i)
+		if type(row) == "table" and type(row.type) == "string" and deliveryTypes[row.type]
+			and type(row.deliveryState) == "string" and counts[row.deliveryState] ~= nil then
+			counts[row.deliveryState] = counts[row.deliveryState] + 1
+			n = n + 1
+		end
+	end
+	return { total = total, counts = counts, shown = n, truncated = s.truncated or n < total }
+end
+local function SelfDelivery(b)
+	if b and type(b.Status) == "function" then
+		local ok, status = pcall(b.Status)
+		local summary = ok and DeliverySummary(status)
+		if summary then return summary end
+	end
+	local generic = rawget(_G, "OlympusBridge")
+	if type(generic) == "table" and generic.API_VERSION == 1 and type(generic.GetSection) == "function" then
+		local ok, section = pcall(generic.GetSection, "verification")
+		if ok and type(section) == "table" and section.name == "verification" and section.version == 243 then
+			return DeliverySummary(section.data)
+		end
+	end
+end
+
+local function EnterSelfCode()
+	local b = SelfBridge()
+	if not (b and type(b.QueueSelf) == "function" and SelfDelivery(b)) or not ns.Dialog or ns.Dialog.missing then
+		Verify.OpenSelf()
+		return
+	end
+	ns.Dialog.Show("OLYMPUS_VERIFY_SELF", nil, nil, {})
+end
+
+function Verify.OpenSelf(result)
+	local b = SelfBridge()
+	local summary = SelfDelivery(b)
+	local ready = b and type(b.QueueSelf) == "function" and summary and ns.Dialog and not ns.Dialog.missing
+	local lines = { L.VERIFY_SELF_GUIDE, "" }
+	if result ~= nil then lines[#lines + 1] = result and L.VERIFY_SELF_QUEUED or L.VERIFY_SELF_REFUSED end
+	if not ready then lines[#lines + 1] = L.VERIFY_SELF_UNAVAILABLE end
+	if not summary then
+		lines[#lines + 1] = L.VERIFY_SELF_STATUS_UNAVAILABLE
+	else
+		lines[#lines + 1] = L.VERIFY_SELF_TOTAL:format(summary.total)
+		for _, state in ipairs(deliveryStates) do
+			local n = summary.counts[state[1]]
+			if n > 0 then lines[#lines + 1] = L[state[2]] .. ": " .. n end
+		end
+		if summary.truncated then lines[#lines + 1] = L.VERIFY_SELF_TRUNCATED:format(summary.shown, summary.total) end
+	end
+	return ns.UI.ShowCopy(L.VERIFY_SELF_TITLE, table.concat(lines, "\n"),
+		ready and { label = L.VERIFY_SELF_ENTER, fn = EnterSelfCode } or nil,
+		{ key = "verifySelf", auto = true, second = { label = L.REFRESH, fn = function() Verify.OpenSelf() end } })
+end
+
+StaticPopupDialogs["OLYMPUS_VERIFY_SELF"] = {
+	text = L.VERIFY_SELF_PROMPT,
+	button1 = L.VERIFY_SELF_SEND,
+	button2 = CANCEL or "Cancel",
+	hasEditBox = true,
+	editBoxWidth = 350,
+	maxLetters = 128,
+	maxBytes = 128,
+	OnShow = function(self)
+		if self.editBox.SetPassword then self.editBox:SetPassword(true) end
+	end,
+	OnHide = function(self)
+		self.editBox:SetText("")
+		if self.editBox.SetPassword then self.editBox:SetPassword(false) end
+	end,
+	OnAccept = function(self, attempt)
+		if type(attempt) ~= "table" or attempt.used then return end
+		attempt.used = true -- before the callback, including reentrant or duplicate clicks
+		local code = self.editBox:GetText()
+		self.editBox:SetText("")
+		local b, ok, queued = SelfBridge(), false, false
+		if b and type(b.QueueSelf) == "function" and SelfDelivery(b) and type(code) == "string"
+			and not (issecretvalue and issecretvalue(code)) and code:find("%S") and #code <= 128 then
+			ok, queued = pcall(b.QueueSelf, code)
+		end
+		Verify.OpenSelf(ok and queued == true)
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
 ---------------------------------------------------------------------------
 -- The session: the guilds seen, the notices, the asks
 ---------------------------------------------------------------------------

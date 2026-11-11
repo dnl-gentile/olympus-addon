@@ -2827,6 +2827,26 @@ test("gamepad pass 4: blocked calls with the gamepad UI: counted, told once in a
 	NoErrors(C, "blocked calls")
 end)
 
+test("gamepad personal verification opens and submits in Olympus-owned windows", function()
+	local C = Session(true)
+	local calls = 0
+	C.env.OlympusVerifyBridge242 = {
+		Status = function() return { version = 243, deliveryOnly = true, membershipProof = false, roleAuthority = false,
+			total = 0, truncated = false, requests = {} } end,
+		QueueSelf = function(code) eq(code, "test-personal-code"); calls = calls + 1; return true end,
+	}
+	local before = C.gamePopups or 0
+	local panel = assert(C.ns.Verify.OpenSelf())
+	eq(calls, 0)
+	InClick(C, function() panel.action:Click() end)
+	local prompt = assert(C.ns.Dialog.Find("OLYMPUS_VERIFY_SELF"))
+	prompt.editBox:SetText("test-personal-code")
+	InClick(C, function() prompt.buttons[1]:Click() end)
+	eq(calls, 1); eq(prompt.editBox:GetText(), "")
+	eq(C.gamePopups or 0, before, "no Blizzard popup for the personal code")
+	NoErrors(C, "personal verification")
+end)
+
 test("gamepad pass 5: the rest of the list with the gamepad UI on: the Issue Reporter, the map library half-loaded or loaded on demand, the layer hop's group, focus in Olympus's own boxes, the game's look-ups", function()
 	-- A test client's Issue Reporter (Blizzard_PTRFeedback): Olympus's Hide button on it with
 	-- mouse and keyboard, a gamepad target no more after the switch; none at a gamepad login.

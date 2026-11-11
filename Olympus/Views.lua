@@ -1832,6 +1832,9 @@ local function CensusLines(s, q)
 		for _ = 1, #verification do table.remove(lines, verificationAt) end
 		for _, l in ipairs(verification) do lines[#lines + 1] = l end
 	end
+	if V and V.OpenSelf then
+		lines[#lines + 1] = { id = "verify-self", text = L.VERIFY_SELF_TITLE, onClick = function() V.OpenSelf() end }
+	end
 	-- Record mode on (Record.lua, the Guinness attempt's witnesses): its line first; a click opens its
 	-- status. Put in last, so the lines above count as before ("No reports yet").
 	local record = ns.Record and ns.Record.Line and ns.Record.Line()
