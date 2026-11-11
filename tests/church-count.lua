@@ -3012,6 +3012,35 @@ test("global Church ledger: which ledger a client reads is looked for once a sec
 	K.Church.IsKeeper = orig
 end)
 
+test("Church ledger catch-up withholds its terminal on a failed queued row and recovers without skipping it", function()
+	local w, c = Cast()
+	Give(w, c.a2, "Lost Reca", "Mira Wells", 2)
+	Give(w, c.a2, "Lost Recb", "Mira Wells", 2)
+	w:Run(2) -- Both source changes are before the terminal's cursor.
+	w:ClearSent()
+	local whisper, complete, interrupted = c.a2.c.Comm.Whisper, nil, false
+	c.a2.c.Comm.Whisper = function(target, msg, key, urgent, logged, done, options)
+		if target == A1 and msg:match("^NL~1~r~Lost Recb~") and not interrupted then
+			interrupted, complete = true, done
+			return true -- The native queue will evict this accepted row before sending it.
+		end
+		return whisper(target, msg, key, urgent, logged, done, options)
+	end
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	eq(#w:Sent(c.a2, "NL", "WHISPER", "e"), 0, "the last row is still in the native queue")
+	assert(interrupted and complete)
+	assert(Rec(w, c.a1, "Lost Reca", "Mira Wells"))
+	eq(Rec(w, c.a1, "Lost Recb", "Mira Wells"), nil)
+	w:As(c.a2, complete, false, "dropped")
+	w:Run(5)
+	eq(#w:Sent(c.a2, "NL", "WHISPER", "e"), 0, "the first round never completed")
+	eq(w:As(c.a1, c.a1.Count.Led).from[Key(A2)], nil, "the cursor did not advance")
+
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	eq(#w:Sent(c.a2, "NL", "WHISPER", "e"), 1)
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 2, "both source records converge once")
+end)
+
 test("global Church ledger: a record changed in the second a catch-up ended comes with the next catch-up", function()
 	local w, c = Cast()
 	Give(w, c.a2, "Gap Reca", "Mira Wells", 2)

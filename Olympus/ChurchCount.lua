@@ -1711,16 +1711,39 @@ end
 
 -- The transfers waiting go out one after another, leaving room in Comm's queue.
 local pumping = false
+local function LedgerEnd(o)
+	if not o.terminal or not o.closed or o.pending > 0 or o.failed then return end
+	local line = o.terminal
+	o.terminal = nil
+	local function Send()
+		if ns.Comm.QueueRoom() > Count.SEND_ROOM then
+			ns.Comm.Whisper(o.target, line, nil, false, false, nil, { owner = Count })
+		end
+	end
+	if ns.Comm.QueueRoom() > Count.SEND_ROOM then Send() else Count.after(3, "church ledger terminal", Send) end
+end
+
 local function PumpOut()
 	pumping = false
-	while outq[1] do
+	while outq[1] and ns.Comm.QueueRoom() > Count.SEND_ROOM do
 		local o = outq[1]
-		while o.i <= #o.list and ns.Comm.QueueRoom() > Count.SEND_ROOM do
-			ns.Comm.Whisper(o.target, o.list[o.i], nil, false, false, nil, { owner = Count })
+		while o.i <= #o.list and not o.failed and ns.Comm.QueueRoom() > Count.SEND_ROOM do
+			local done
+			if o.terminal then
+				o.pending = o.pending + 1
+				done = function(ok)
+					o.pending = o.pending - 1
+					if not ok then o.failed = true end
+					LedgerEnd(o)
+				end
+			end
+			ns.Comm.Whisper(o.target, o.list[o.i], nil, false, false, done, { owner = Count })
 			o.i = o.i + 1
 		end
-		if o.i <= #o.list then break end
+		if o.i <= #o.list and not o.failed then break end
 		table.remove(outq, 1)
+		o.closed = true
+		LedgerEnd(o)
 	end
 	if outq[1] then
 		pumping = true
@@ -1728,10 +1751,10 @@ local function PumpOut()
 	end
 end
 
-local function SendLines(target, list)
-	if #list == 0 then return true end
+local function SendLines(target, list, terminal)
+	if #list == 0 and not terminal then return true end
 	if #outq >= 8 then return Drop("busy") end
-	outq[#outq + 1] = { target = target, list = list, i = 1 }
+	outq[#outq + 1] = { target = target, list = list, i = 1, terminal = terminal, pending = 0 }
 	if not pumping then PumpOut() end
 	return true
 end
@@ -1871,8 +1894,9 @@ function Count.AnswerCatchUp(sender, since)
 	end
 	local more = cut < #list
 	if not more then last = math.min(last, Clock() - 1) end
-	lines[#lines + 1] = ("NL~1~e~%s~%s"):format(more and "1" or "0", B36(last))
-	return SendLines(ns.FullName(sender), lines)
+	-- A failed native row must not advance the recipient's cursor past a record it could not receive.
+	local terminal = ("NL~1~e~%s~%s"):format(more and "1" or "0", B36(last))
+	return SendLines(ns.FullName(sender), lines, terminal)
 end
 
 -- (1.2.1) Person lines refused while this book did not place their person yet (a naming it has not
