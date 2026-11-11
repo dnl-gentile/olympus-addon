@@ -3344,7 +3344,8 @@ recruiter's native roster can show whether the player actually joined.
 ### Public recruiting announcement (experiment branch)
 
 In **Church → Invites**, open **Public recruitment announcement** and select a joined public
-channel. Copy the English draft into the game's own chat, verify the channel, then send it.
+channel. Press **Post** to ask the game to send the displayed draft, then check the channel.
+To edit or send it yourself, copy the draft into the game's own chat and press Enter.
 A rounded lower bound appears only when the current census holds fresh accepted character
 counts. A recent Olympus recruitment message heard in that same channel delays preparing
 another draft for two minutes on this client.

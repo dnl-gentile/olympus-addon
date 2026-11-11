@@ -710,8 +710,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 	preferredIndex = 3,
 }
 
--- Public drafts are prepared only on a click. The chosen channel is checked again before
--- writing the copy box. This never opens Blizzard's chat or calls a chat-send API.
+-- Check the joined channel when preparing the draft and again on an explicit Post click.
 local announceOpen, reminderIndex, reminderTimer, announcementVariant = false, 1, nil, 0
 local REMINDER_MINUTES = { 0, 15, 30, 60 }
 local ANNOUNCEMENT_GAP = 120
@@ -870,7 +869,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 	text = L.RECRUIT_ANNOUNCE_COPY,
 	button1 = L.RECRUIT_WHISPER_CLOSE,
 	button2 = L.RECRUIT_ANNOUNCE_POST,
-	OnCancel = PostAnnouncement,
+	OnButton2 = PostAnnouncement,
 	hasEditBox = true,
 	editBoxWidth = 470,
 	OnShow = function(f, draft)

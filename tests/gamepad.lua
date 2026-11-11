@@ -3822,6 +3822,20 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 		ClickLine(trade)
 		draft = assert(Draft())
 		eq(draft.buttons[2]:GetText(), L.RECRUIT_ANNOUNCE_POST)
+		C.Fire1(draft.editBox, "OnEnterPressed")
+		C.Fire1(draft.editBox, "OnEscapePressed")
+		eq(#(C.said or {}), sends, "the copy box's Enter and Escape do not post")
+		if initialPad then
+			-- The earlier input switch puts this session in mouse/keyboard mode.
+			ns.Dialog.CloseOnEscape(draft)
+			local escape = assert(C.env.OlympusQuestionEscape)
+			escape:Hide()
+			C.Advance(1)
+			eq(Draft(), nil, "Escape dismisses the dialog")
+			eq(#(C.said or {}), sends, "the Escape dismissal does not post")
+			ClickLine(trade)
+			draft = assert(Draft())
+		end
 		local original = draft.editBox:GetText()
 		draft.editBox:SetText(original .. " edited")
 		C.Click(draft.buttons[2])
