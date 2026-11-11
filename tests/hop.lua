@@ -25,7 +25,7 @@ local function WithHop(fn)
 		StaticPopup_Hide, StaticPopup_FindVisible = function() end, function() end
 		C_ChatInfo = { RegisterAddonMessagePrefix = function() end, SendAddonMessage = function(_, msg, dist, target)
 			w.sent[#w.sent + 1] = { msg = msg, dist = dist, target = target, at = w.clock }
-			return not w.fail
+			return not w.fail and (not w.failTo or target ~= w.failTo)
 		end }
 		local c = setmetatable({ me = "Tester-Realm", realm = "Realm", db = { layerHelp = false }, rdb = { guilds = {} } }, { __index = ns })
 		c.Now = function() return w.clock end
@@ -192,6 +192,24 @@ test("hop: joining a friend's group cancels a queued helper request", function()
 		H.OnRoster()
 		eq(H.State().phase, "done"); eq(C.QueueSize(), 0)
 		w.step(); eq(w.count("LR~"), 0)
+	end)
+end)
+
+test("hop: a failed whisper to the first helper tries the next offer without trusting the failed helper", function()
+	WithHop(function(w, H)
+		H.Ask(1453, 8, "target"); w.step()
+		w.offer("Aaa"); w.offer("Bbb")
+		w.failTo = "Aaa"
+		w.advance(H.WINDOW); w.step()
+		eq(w.count("LR~", "Aaa"), 1)
+		eq(H.State().helper, "Bbb-Realm")
+		H.OnInvite("Aaa")
+		eq(w.accepted, 0, "a failed send does not authorize accepting an invite")
+		w.step()
+		eq(w.count("LR~", "Bbb"), 1)
+		eq(H.State().phase, "requested")
+		H.OnInvite("Bbb")
+		eq(w.accepted, 1)
 	end)
 end)
 
