@@ -1288,6 +1288,7 @@ ns.Locale("frFR", {
 	CHURCH_ASOF_CATCHING = "D'après le propre registre de ce client, qui rattrape encore les autres gardiens : des recrues comptées pendant que tu étais hors ligne peuvent manquer jusqu'à ce qu'il ait fini.",
 	CHURCH_ASOF_LIVE = "En direct, d'après le propre registre de ce client.",
 	CHURCH_ASOF_NONE = "Pas encore de chiffres.",
+	CHURCH_ASOF_WAITING = "En attente d’une mise à jour complète.",
 	CHURCH_ASOF_TIP = "Les Apôtres et l'auteur tiennent les chiffres de l'Église. Le client d'Asmongold ne fait pas de travail de registre en arrière-plan. Ton addon interroge un gardien en ligne et affiche la dernière réponse quand aucun n'est en ligne.",
 	CHURCH_ASOF_TITLE = "D'où viennent les chiffres",
 	CHURCH_AWAY = "tient %s, entendu en %s",

@@ -1288,6 +1288,7 @@ ns.Locale("itIT", {
 	CHURCH_ASOF_CATCHING = "Dal registro di questo client, che si sta ancora allineando con gli altri custodi: le reclute contate mentre eri offline possono mancare finché non ha finito.",
 	CHURCH_ASOF_LIVE = "In tempo reale, dal registro di questo client.",
 	CHURCH_ASOF_NONE = "Ancora nessun numero.",
+	CHURCH_ASOF_WAITING = "In attesa di un aggiornamento completo.",
 	CHURCH_ASOF_TIP = "Gli Apostoli e l'autore tengono i numeri della Chiesa. Il client di Asmongold non fa lavoro di registro in background. Il tuo addon chiede a un custode online e mostra l'ultima risposta mentre nessuno è online.",
 	CHURCH_ASOF_TITLE = "Da dove vengono i numeri",
 	CHURCH_AWAY = "tiene %s, sentito in %s",

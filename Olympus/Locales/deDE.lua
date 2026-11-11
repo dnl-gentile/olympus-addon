@@ -1288,6 +1288,7 @@ ns.Locale("deDE", {
 	CHURCH_ASOF_CATCHING = "Aus dem eigenen Buch dieses Clients, das noch zu den anderen Verwahrern aufholt: Rekruten, die gezählt wurden, während du offline warst, können fehlen, bis es fertig ist.",
 	CHURCH_ASOF_LIVE = "Live, aus dem eigenen Buch dieses Clients.",
 	CHURCH_ASOF_NONE = "Noch keine Zahlen.",
+	CHURCH_ASOF_WAITING = "Vollständige Aktualisierung steht noch aus.",
 	CHURCH_ASOF_TIP = "Die Apostel und der Autor führen die Zahlen der Kirche. Asmongolds Client erledigt keine Buchführung im Hintergrund. Dein Addon fragt einen Verwahrer, der online ist, und zeigt die letzte Antwort, solange keiner online ist.",
 	CHURCH_ASOF_TITLE = "Woher die Zahlen kommen",
 	CHURCH_AWAY = "verwahrt %s, gehört in %s",

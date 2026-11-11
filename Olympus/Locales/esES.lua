@@ -1288,6 +1288,7 @@ ns.Locale({ "esES", "esMX" }, {
 	CHURCH_ASOF_CATCHING = "Del propio registro de este cliente, aún poniéndose al día con los demás custodios: pueden faltar reclutas contados mientras estabas desconectado hasta que termine.",
 	CHURCH_ASOF_LIVE = "En directo, del propio registro de este cliente.",
 	CHURCH_ASOF_NONE = "Aún no hay cifras.",
+	CHURCH_ASOF_WAITING = "Esperando una actualización completa.",
 	CHURCH_ASOF_TIP = "Los Apóstoles y el autor llevan las cifras de la Iglesia. El cliente de Asmongold no hace trabajo de registro en segundo plano. Tu addon pregunta a un custodio conectado y muestra la última respuesta mientras no haya ninguno conectado.",
 	CHURCH_ASOF_TITLE = "De dónde salen las cifras",
 	CHURCH_AWAY = "lleva %s, oído en %s",
