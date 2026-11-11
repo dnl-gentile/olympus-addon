@@ -987,6 +987,7 @@ local sets = {}   -- origin#id -> { n = pieces expected, got = pieces held, piec
 local drip = {}   -- whole transfers, including the one in flight: { name, word, batches, index, started }
 local dripBusy = false -- a queue callback or a retry timer owns the next turn
 local dripping = false
+local refillCensusAcross -- assigned by the mesh; run when an across slot is freed
 
 -- The pieces of a word, in order, once all of them are here; false while some are missing;
 -- nil when the body is not a piece of a larger word (it goes on as before).
@@ -1184,13 +1185,16 @@ local function Drip()
 		local d = drip[1]
 		local current = d.started
 		if not current then
-			if d.across then
+			if d.censusAt then
+				current = Now() - d.censusAt <= Relay.SET_MAX_AGE and Relay.IsSignedRelay(ns.me) and Relay.MeshPeer(d.name)
+			elseif d.across then
 				current = Relay.IsRelay(d.name) and Now() - (verified[Lower(d.name)] or -math.huge) < Relay.VERIFIED_FOR
 			else current = StillReporter(d.name) end
 		end
 		local batch = d.batches[d.index]
 		if not current then
 			table.remove(drip, 1) -- a complete transfer, before its first batch
+			if d.across and refillCensusAcross then refillCensusAcross() end
 		elseif ns.Comm.QueueRoom() < #batch then
 			dripBusy = true
 			ns.After(1, "relay drip", function() dripBusy = false; Drip() end)
@@ -1221,6 +1225,8 @@ local function Drip()
 				else
 					-- Terminal transport refusals (privacy, net-off, leaving, etc.) still stop it.
 					table.remove(drip, 1)
+					if sent and d.censusSent then d.censusSent() end
+					if d.across and refillCensusAcross then refillCensusAcross() end
 				end
 				dripBusy = false
 				Drip()
@@ -1285,16 +1291,17 @@ local function DripBatches(name, word, batches, waitingOnly, across)
 		for i, d in ipairs(drip) do
 			if d.across then
 				total = total + 1
-				if not d.started then oldest = oldest or i end
+				local evictable = not d.started and not d.kingCensus
+				if evictable then oldest = oldest or i end
 				if d.name == name then
 					peer = peer + 1
-					if not d.started then peerOldest = peerOldest or i end
+					if evictable then peerOldest = peerOldest or i end
 				end
 			end
 		end
 		local evict = peer >= Relay.ACROSS_PER_PEER and peerOldest or oldest
 		if peer >= Relay.ACROSS_PER_PEER or total >= Relay.ACROSS_MAX then
-			-- No room when only an in-flight tail could be removed.
+			-- No room when only an in-flight tail or the King's census could be removed.
 			if peer >= Relay.ACROSS_PER_PEER and not peerOldest then return end
 			if not evict then return end
 			table.remove(drip, evict)
@@ -2041,7 +2048,7 @@ Relay.CROSS_KINDS = { T1 = true, D1 = true, O1 = true, O2 = true, MD = true, TF 
 -- seen: peer (short name, lower) -> when its RJ came; peers: -> { regs, tree } its RJ named; sent: ->
 -- when ours went to it; cg: -> when our census snapshot last went across to it; plain: guild (lower)
 -- -> when a registration came from a client that is not tree-capable; n: counters (/oly bug).
-local mesh = { seen = {}, peers = {}, sent = {}, cg = {}, plain = {}, n = {} }
+local mesh = { seen = {}, peers = {}, sent = {}, cg = {}, cgTurn = {}, plain = {}, n = {} }
 -- Whether a signed relay (short name, lower) is a mesh peer now (Relay.MeshPeer asks its signature too).
 function mesh.Fresh(key, now)
 	return now - (verified[key] or -math.huge) < Relay.VERIFIED_FOR and now - (mesh.seen[key] or -math.huge) < Relay.MESH_FOR
@@ -2056,19 +2063,81 @@ function Relay.StaffWord(origin, body)
 	return StaffKind(body) and type(origin) == "string" and Relay.IsSignedRelay(origin)
 end
 
--- (1.4.6) The same word to the other relays (RX), each to hand to its own reporters. The origin,
--- when it is a relay itself, is not sent its own word. (1.5.5) To mesh peers alone, and only: this
--- relay's own census snapshots (CG, CX and GV "S" words) and lists (LS), whole, its CG snapshot to
--- each peer once a MESH_CROSS_EVERY at most (a newer copy takes a waiting one's place); and the chat
--- lines. Every other word stays on its island, as in 1.5.4: the guilds' reports and the members' own
--- snapshots (the author's relay heard hundreds of 30-piece ones, two whispers a piece to each peer)
--- travel as rows of each relay's own snapshot, which carries every trusted row it took from its peers.
+-- Hold only the newest complete CG while the cross-relay queue is busy. Fill free slots
+-- in least-recently-offered order, with the King first. A missed slot never advances a
+-- peer's send cadence; the clock starts only after the complete transfer has left Comm.
+refillCensusAcross = function()
+	local p = mesh.census
+	if not p then return end
+	local now = Now()
+	if now - p.at > Relay.SET_MAX_AGE or not Relay.On() or not Relay.IsSignedRelay(ns.me) then
+		mesh.census = nil
+		return
+	end
+	local total, occupied, waiting = 0, {}, {}
+	for _, d in ipairs(drip) do
+		if d.across then
+			total = total + 1
+			occupied[d.name] = (occupied[d.name] or 0) + 1
+			if d.word == p.word then waiting[d.name] = d end
+		end
+	end
+	local due, blocked = {}, false
+	for _, name in ipairs(Relay.Names(false, true)) do
+		local key = name:lower()
+		if key ~= p.from and mesh.Fresh(key, now) then
+			local d = waiting[name]
+			if d then
+				-- In-flight batches are immutable. Only a still-waiting copy can be replaced.
+				if not d.started then
+					d.batches, d.censusAt, p.tried[key] = p.batches, p.at, true
+				elseif not p.tried[key] then
+					blocked = true
+				end
+			elseif not p.tried[key] then
+				if now - (mesh.cg[key] or -math.huge) >= Relay.MESH_CROSS_EVERY then
+					due[#due + 1] = { name = name, key = key, turn = mesh.cgTurn[key] or -math.huge,
+						king = ns.IsKingCharacter and ns.IsKingCharacter(ns.FullName(name)) == true or false }
+				else
+					p.tried[key] = true
+					mesh.n.cgHeld = (mesh.n.cgHeld or 0) + 1
+				end
+			end
+		end
+	end
+	table.sort(due, function(a, b)
+		if a.king ~= b.king then return a.king end
+		if a.turn ~= b.turn then return a.turn < b.turn end
+		return a.key < b.key
+	end)
+	for _, peer in ipairs(due) do
+		if total >= Relay.ACROSS_MAX then blocked = true; break end
+		if (occupied[peer.name] or 0) >= Relay.ACROSS_PER_PEER then
+			blocked = true
+		else
+			local key = peer.key
+			mesh.cgTurn[key], p.tried[key] = now, true
+			local job = { name = peer.name, word = p.word, batches = p.batches, index = 1, across = true,
+				censusAt = p.at, kingCensus = peer.king, censusSent = function() mesh.cg[key] = Now() end }
+			-- The King's one due copy waits behind an active transfer, not behind the
+			-- whole local reporter queue. Every waiting job keeps its place behind it.
+			if peer.king then table.insert(drip, drip[1] and drip[1].started and 2 or 1, job)
+			else drip[#drip + 1] = job end
+			total = total + 1
+			stats.across = (stats.across or 0) + p.parts
+		end
+	end
+	if not blocked then mesh.census = nil end
+end
+
+-- (1.4.6) The same word to the other relays (RX), each to hand to its own reporters. (1.5.5)
+-- Only mesh peers hear this relay's own census snapshots (CG, CX and GV "S" words), lists (LS)
+-- and chat lines. The guilds' individual reports stay on their relay and are reflected in CG.
 local function Across(flag, origin, body, set)
 	if set == false then return end -- the whole transfer follows its last piece
 	local mine, from = Lower(ns.ShortName(ns.me or "")), Lower(ns.ShortName(origin))
-	local kind, cg -- (a chat line: neither; it goes unkeyed, as ever)
+	local kind -- (a chat line is unkeyed, as ever)
 	if flag == "L" then
-		-- (A logged word is a chat line here, as Comm's own lane has it; our own staff word goes as RW.)
 		if set or (ns.FullName(origin) == ns.me and StaffKind(body)) then return end
 	else
 		if ns.FullName(origin) ~= ns.me then return end
@@ -2077,22 +2146,25 @@ local function Across(flag, origin, body, set)
 		kind = head:match("^(CG~[12]~S)~%d+~") or head:match("^(GV~1~S)~%d+~") or ListKind(head)
 			or (type(set) == "table" and #set > 1 and head:match("^(CX~[123]~S)~")) or nil
 		if not kind then return end
-		cg = kind:sub(1, 2) == "CG"
+		if kind:sub(1, 2) == "CG" then
+			local whole = type(set) == "table"
+			local batches = whole and SetBatches(flag, origin, set, "RX") or { Envelope("RX", "RX~" .. flag .. "~" .. origin .. "~" .. body) }
+			mesh.census = { at = Now(), word = "across " .. from .. " CG", from = from, batches = batches, parts = whole and #set or 1, tried = {} }
+			refillCensusAcross()
+			Drip()
+			return
+		end
 	end
 	local now = Now()
 	local pieces, batches
 	for _, name in ipairs(Relay.Names(false, true)) do
 		local key = name:lower()
 		if key ~= mine and key ~= from and mesh.Fresh(key, now) then
-			local held = cg and now - (mesh.cg[key] or -math.huge) < Relay.MESH_CROSS_EVERY
-			if cg and not held then mesh.cg[key] = now end
-			if held then mesh.n.cgHeld = (mesh.n.cgHeld or 0) + 1 end
 			if type(set) == "table" then
-				-- (Within MESH_CROSS_EVERY a census snapshot only takes a waiting copy's place.)
 				batches = batches or SetBatches(flag, origin, set, "RX")
-				DripBatches(name, "across " .. from .. " " .. kind, batches, held, true)
-				if not held then stats.across = (stats.across or 0) + #set end
-			elseif not held then
+				DripBatches(name, "across " .. from .. " " .. kind, batches, false, true)
+				stats.across = (stats.across or 0) + #set
+			else
 				pieces = pieces or Envelope("RX", "RX~" .. flag .. "~" .. origin .. "~" .. body)
 				stats.across = (stats.across or 0) + 1
 				if flag == "L" then
@@ -2996,7 +3068,8 @@ function Relay.BugLines(maxBytes)
 	return out
 end
 Relay.ResetHooks[#Relay.ResetHooks + 1] = function() -- (the mesh's)
-	wipe(mesh.seen); wipe(mesh.peers); wipe(mesh.sent); wipe(mesh.cg); wipe(mesh.plain); wipe(mesh.n)
+	wipe(mesh.seen); wipe(mesh.peers); wipe(mesh.sent); wipe(mesh.cg); wipe(mesh.cgTurn); wipe(mesh.plain); wipe(mesh.n)
+	mesh.census = nil
 end
 
 -- Tests: a clean slate.
