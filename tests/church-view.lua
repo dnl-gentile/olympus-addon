@@ -73,6 +73,39 @@ test("Church Mine: an appointed Missionary can reopen his letter from the King, 
 	eq(Find(Build(w, c.member, "mine"), L.RB_CHURCH_LETTER_LINK), nil)
 end)
 
+test("1.5.6 Church rank recovery: the King's visible page tries another keeper after a silent desk", function()
+	local w, c = Cast()
+	local king = c.king
+	king.View.page, king.View.list, king.View.window = "ranking", "m", "m"
+	local page = "church/"
+	king.c.UI.IsShown = function() return true end
+	king.c.UI.PageId = function() return page end
+	c.a1.handlers.NR = nil
+	GiveAll(w, c, "Mira Wells", "New Recruit")
+	w:ClearSent()
+	local lines = Build(w, king)
+	assert(Find(lines, L.CHURCH_ASOF_WAITING), Texts(lines))
+	w:Run(king.Count.ASK_GAP)
+	local sent = w:Sent(king, "NR", "WHISPER", "q")
+	eq(#sent, 1)
+	eq(Key(sent[1].target), Key(A1), "the first request still goes to the desk")
+	w:Tick({ king })
+	sent = w:Sent(king, "NR", "WHISPER", "q")
+	eq(#sent, 2, "the visible page retries without a click")
+	eq(Key(sent[2].target), Key(A2), "a present but silent desk does not block the other keeper")
+	eq(#(w:As(king, king.Count.RankingView, "m", "m")), 1)
+	lines = Build(w, king)
+	assert(Find(lines, L.CHURCH_DESK:format("Bera Stone")), Texts(lines))
+	eq(Find(lines, L.CHURCH_ASOF_WAITING), nil, "a complete answer ends the waiting label")
+	w:Run(king.Count.ASK_GAP)
+	w:Tick({ king })
+	eq(#w:Sent(king, "NR", "WHISPER", "q"), 2, "a complete page refreshes less often")
+	page = "realm/guilds"
+	w:Run(king.Count.ASK_GAP)
+	w:Tick({ king })
+	eq(#w:Sent(king, "NR", "WHISPER", "q"), 2, "the King's client stops polling when he leaves Church")
+end)
+
 test("1.2.4 Church ranking rules: the highlighted in-window page preserves the exact list and time window on Back", function()
 	local w = World.New()
 	local c = w:Client(World.AUTHOR, { view = true })

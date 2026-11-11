@@ -76,6 +76,7 @@ Verify.REMIND_LEFT = 12 * 3600   -- the verifiers are reminded of a pending guil
 Verify.NOTICE_AFTER = 90         -- the session's notices wait this long after login (roster and census in)
 Verify.TICK = 60                 -- the guilds seen and the notices, every minute
 Verify.ASK_AFTER, Verify.ASK_SPREAD = 25, 35 -- the login's ask, 25 to 60 s after it
+Verify.STARTUP_RETRY, Verify.STARTUP_SPREAD = 315, 45 -- past the relay's identical-word window
 Verify.ASK_EVERY = 30 * 60       -- and every half hour
 Verify.ANSWER_GAP = 180          -- a verifier's client answers asks this often at most
 Verify.RELAY_ANSWER_GAP = 900    -- (1.5.4) and each relay that asked (relays first agree among themselves) this often
@@ -103,6 +104,7 @@ function Verify.Clock()
 end
 
 local stats = { taken = 0, starts = 0, refused = 0, bad = 0, asked = 0, answered = 0, unsent = 0 }
+local snapshots, startup = 0, nil
 function Verify.Stats() return stats end -- (unsent: answers refused a send, the review of the 1.5.4 candidate)
 
 local function Key(s) return ns.Fold(tostring(s or "")) end
@@ -736,6 +738,7 @@ function Verify.Handle(dist, sender, text)
 			end
 		end
 		if pending and not bad then pending.coverage = coverage end
+		if count > 0 and not bad then snapshots = snapshots + 1 end
 		if changed then Changed() end
 		if bad then stats.bad = stats.bad + 1 end
 		return not bad
@@ -1261,6 +1264,114 @@ StaticPopupDialogs["OLYMPUS_VERIFY_REVOKE"] = {
 	preferredIndex = 3,
 }
 
+-- Optional local delivery view. The other addon installs its bridge at PLAYER_LOGIN;
+-- neither file loading nor a refresh can submit a code. Keep the guild approval flow separate.
+local deliveryStates = {
+	{ "pending", "VERIFY_SELF_PENDING" }, { "delivered", "VERIFY_SELF_DELIVERED" },
+	{ "rejected", "VERIFY_SELF_REJECTED" }, { "unsupported_callback", "VERIFY_SELF_UNSUPPORTED" },
+	{ "unknown", "VERIFY_SELF_UNKNOWN" },
+}
+local deliveryTypes = { verify = true, role = true, guild = true, donation = true }
+local function SelfBridge()
+	local b = rawget(_G, "OlympusVerifyBridge242")
+	return type(b) == "table" and b or nil
+end
+local function DeliverySummary(s)
+	if type(s) ~= "table" or s.version ~= 243 or s.deliveryOnly ~= true or s.membershipProof ~= false
+		or s.roleAuthority ~= false or type(s.requests) ~= "table" or type(s.truncated) ~= "boolean" then return nil end
+	local total = s.total
+	if type(total) ~= "number" or total < 0 or total > 2147483647 or total ~= math.floor(total) then return nil end
+	local counts, n = {}, 0
+	for _, state in ipairs(deliveryStates) do counts[state[1]] = 0 end
+	-- Display only known labels and counts. Never forward descriptors, raw fields or opaque IDs to the UI.
+	for i = 1, math.min(total, 20) do
+		local row = rawget(s.requests, i)
+		if type(row) == "table" and type(row.type) == "string" and deliveryTypes[row.type]
+			and type(row.deliveryState) == "string" and counts[row.deliveryState] ~= nil then
+			counts[row.deliveryState] = counts[row.deliveryState] + 1
+			n = n + 1
+		end
+	end
+	return { total = total, counts = counts, shown = n, truncated = s.truncated or n < total }
+end
+local function SelfDelivery(b)
+	if b and type(b.Status) == "function" then
+		local ok, status = pcall(b.Status)
+		local summary = ok and DeliverySummary(status)
+		if summary then return summary end
+	end
+	local generic = rawget(_G, "OlympusBridge")
+	if type(generic) == "table" and generic.API_VERSION == 1 and type(generic.GetSection) == "function" then
+		local ok, section = pcall(generic.GetSection, "verification")
+		if ok and type(section) == "table" and section.name == "verification" and section.version == 243 then
+			return DeliverySummary(section.data)
+		end
+	end
+end
+
+local function EnterSelfCode()
+	local b = SelfBridge()
+	if not (b and type(b.QueueSelf) == "function" and SelfDelivery(b)) or not ns.Dialog or ns.Dialog.missing then
+		Verify.OpenSelf()
+		return
+	end
+	ns.Dialog.Show("OLYMPUS_VERIFY_SELF", nil, nil, {})
+end
+
+function Verify.OpenSelf(result)
+	local b = SelfBridge()
+	local summary = SelfDelivery(b)
+	local ready = b and type(b.QueueSelf) == "function" and summary and ns.Dialog and not ns.Dialog.missing
+	local lines = { L.VERIFY_SELF_GUIDE, "" }
+	if result ~= nil then lines[#lines + 1] = result and L.VERIFY_SELF_QUEUED or L.VERIFY_SELF_REFUSED end
+	if not ready then lines[#lines + 1] = L.VERIFY_SELF_UNAVAILABLE end
+	if not summary then
+		lines[#lines + 1] = L.VERIFY_SELF_STATUS_UNAVAILABLE
+	else
+		lines[#lines + 1] = L.VERIFY_SELF_TOTAL:format(summary.total)
+		for _, state in ipairs(deliveryStates) do
+			local n = summary.counts[state[1]]
+			if n > 0 then lines[#lines + 1] = L[state[2]] .. ": " .. n end
+		end
+		if summary.truncated then lines[#lines + 1] = L.VERIFY_SELF_TRUNCATED:format(summary.shown, summary.total) end
+	end
+	return ns.UI.ShowCopy(L.VERIFY_SELF_TITLE, table.concat(lines, "\n"),
+		ready and { label = L.VERIFY_SELF_ENTER, fn = EnterSelfCode } or nil,
+		{ key = "verifySelf", auto = true, second = { label = L.REFRESH, fn = function() Verify.OpenSelf() end } })
+end
+
+StaticPopupDialogs["OLYMPUS_VERIFY_SELF"] = {
+	text = L.VERIFY_SELF_PROMPT,
+	button1 = L.VERIFY_SELF_SEND,
+	button2 = CANCEL or "Cancel",
+	hasEditBox = true,
+	editBoxWidth = 350,
+	maxLetters = 128,
+	maxBytes = 128,
+	OnShow = function(self)
+		if self.editBox.SetPassword then self.editBox:SetPassword(true) end
+	end,
+	OnHide = function(self)
+		self.editBox:SetText("")
+		if self.editBox.SetPassword then self.editBox:SetPassword(false) end
+	end,
+	OnAccept = function(self, attempt)
+		if type(attempt) ~= "table" or attempt.used then return end
+		attempt.used = true -- before the callback, including reentrant or duplicate clicks
+		local code = self.editBox:GetText()
+		self.editBox:SetText("")
+		local b, ok, queued = SelfBridge(), false, false
+		if b and type(b.QueueSelf) == "function" and SelfDelivery(b) and type(code) == "string"
+			and not (issecretvalue and issecretvalue(code)) and code:find("%S") and #code <= 128 then
+			ok, queued = pcall(b.QueueSelf, code)
+		end
+		Verify.OpenSelf(ok and queued == true)
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
 ---------------------------------------------------------------------------
 -- The session: the guilds seen, the notices, the asks
 ---------------------------------------------------------------------------
@@ -1288,7 +1399,19 @@ end
 function Verify.Login(now)
 	loginAt, told = now or Verify.Clock(), false
 	Verify.Observe(loginAt)
-	ns.After(Verify.ASK_AFTER + Verify.random(0, Verify.ASK_SPREAD), "verify ask", Verify.Ask)
+	local session = {}
+	startup = session
+	ns.After(Verify.ASK_AFTER + Verify.random(0, Verify.ASK_SPREAD), "verify ask", function()
+		if startup ~= session then return end
+		local before = snapshots
+		Verify.Ask()
+		if not Direct() then return end
+		-- A cold client can ask while nobody can answer, or when the shared relay ask is still
+		-- on cooldown. Give it one more turn without changing the periodic traffic or trust rules.
+		ns.After(Verify.STARTUP_RETRY + Verify.random(0, Verify.STARTUP_SPREAD), "verify startup retry", function()
+			if startup == session and snapshots == before then Verify.Ask() end
+		end)
+	end)
 	if not ticking then
 		ticking = true
 		ns.Every(Verify.TICK, "verify", function() Verify.Tick() end)

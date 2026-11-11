@@ -33,6 +33,71 @@ local function Find(list, needle)
 	return nil
 end
 
+test("verify: personal delivery detects the bridge on open, submits once and redacts its status", function()
+	local saved = { bridge = _G.OlympusVerifyBridge242, generic = _G.OlympusBridge,
+		guild = StaticPopupDialogs.OLYMPUS_VERIFY_GUILD, revoke = StaticPopupDialogs.OLYMPUS_VERIFY_REVOKE,
+		self = StaticPopupDialogs.OLYMPUS_VERIFY_SELF }
+	local text, action, opts, attempt
+	local ok, err = pcall(function()
+		_G.OlympusVerifyBridge242, _G.OlympusBridge = nil, nil
+		local v = setmetatable({ UI = { ShowCopy = function(_, body, a, o) text, action, opts = body, a, o end },
+			Dialog = { Show = function(which, _, _, data) eq(which, "OLYMPUS_VERIFY_SELF"); attempt = data end },
+			On = function() end, Comm = { Handle = function() end } }, { __index = ns })
+		assert(loadfile(ADDON_DIR .. "Verify.lua"))("Olympus", v)
+		assert(type(v.Verify.OpenSelf) == "function", "personal verification panel exists")
+		v.Verify.OpenSelf()
+		eq(action, nil, "Verify missing at file load or panel open is harmless")
+		assert(text:find(ns.L.VERIFY_SELF_UNAVAILABLE, 1, true))
+		local s = { version = 243, deliveryOnly = true, membershipProof = false, roleAuthority = false,
+			total = 22, truncated = true, requests = {} }
+		for _, state in ipairs({ "pending", "delivered", "rejected", "unsupported_callback", "unknown" }) do
+			s.requests[#s.requests + 1] = { type = "verify", deliveryState = state, id = "opaque-hidden-id", code = "not-for-the-panel" }
+		end
+		for i = 6, 22 do s.requests[i] = { type = "donation", deliveryState = "pending" } end
+		local calls, accepted = 0, true
+		_G.OlympusVerifyBridge242 = { QueueSelf = function(code, extra)
+			eq(code, "my-personal-code"); eq(extra, nil, "bridge is called with dot syntax")
+			calls = calls + 1; return accepted
+		end, Status = function(extra) eq(extra, nil); return s end }
+		opts.second.fn()
+		eq(calls, 0, "opening and refreshing only reads")
+		for _, key in ipairs({ "PENDING", "DELIVERED", "REJECTED", "UNSUPPORTED", "UNKNOWN" }) do
+			assert(text:find(ns.L["VERIFY_SELF_" .. key], 1, true), key)
+		end
+		assert(text:find(ns.L.VERIFY_SELF_TRUNCATED:format(20, 22), 1, true))
+		assert(not text:find("opaque-hidden-id", 1, true) and not text:find("not-for-the-panel", 1, true))
+		action.fn()
+		eq(calls, 0, "opening the entry prompt does not submit")
+		local value = "my-personal-code"
+		local frame = { editBox = { GetText = function() return value end, SetText = function(_, v) value = v end } }
+		local def = StaticPopupDialogs.OLYMPUS_VERIFY_SELF
+		def.OnAccept(frame, attempt)
+		def.OnAccept(frame, attempt)
+		eq(calls, 1); eq(value, "", "the code is cleared")
+		assert(text:find(ns.L.VERIFY_SELF_QUEUED, 1, true))
+		assert(not text:find("my-personal-code", 1, true))
+		accepted, value = false, "my-personal-code"
+		action.fn()
+		def.OnAccept(frame, attempt)
+		eq(calls, 2)
+		assert(text:find(ns.L.VERIFY_SELF_REFUSED, 1, true) and not text:find(ns.L.VERIFY_SELF_QUEUED, 1, true))
+		_G.OlympusVerifyBridge242.Status = nil
+		local wrapper = { name = "verification", version = 242, data = s }
+		_G.OlympusBridge = { API_VERSION = 1, GetSection = function(name) eq(name, "verification"); return wrapper end }
+		v.Verify.OpenSelf(); eq(action, nil, "old section wrapper is refused")
+		wrapper.version, s.version = 243, 242
+		v.Verify.OpenSelf(); eq(action, nil, "old envelope is refused too")
+		s.version, s.roleAuthority = 243, true
+		v.Verify.OpenSelf(); eq(action, nil, "the envelope cannot grant authority")
+		s.roleAuthority = false
+		v.Verify.OpenSelf(); assert(action, "version 1 API with a safe v243 wrapper is accepted")
+		eq(calls, 2, "status never resubmits an unknown outcome")
+	end)
+	_G.OlympusVerifyBridge242, _G.OlympusBridge = saved.bridge, saved.generic
+	StaticPopupDialogs.OLYMPUS_VERIFY_GUILD, StaticPopupDialogs.OLYMPUS_VERIFY_REVOKE, StaticPopupDialogs.OLYMPUS_VERIFY_SELF = saved.guild, saved.revoke, saved.self
+	if not ok then error(err, 0) end
+end)
+
 -- A world: w.Client(name, guild, rank) makes a client; w.As(c, fn, ...) runs fn as that client (the
 -- game's guild functions answer for it); w.Census(guild, leader, total) puts a census row on every
 -- client; w.Run() runs the timers due. Everything put back after.

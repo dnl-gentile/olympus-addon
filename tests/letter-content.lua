@@ -61,23 +61,10 @@ test("1.2.5 letter content: both languages describe only the shipped reply, offi
 			assert(not previous or at > previous, locale .. ": release points stay ordered")
 			previous = at
 		end
-		eq(cns.Letters.Versions()[1], "1.5.6", locale .. ": current release first")
-		-- (1.4.1: the launch night fix first, the launch letter, then the 1.3 line.)
-		eq(cns.Letters.Versions()[2], "1.5.5", locale .. ": previous census/chat release retained")
-		eq(cns.Letters.Versions()[3], "1.5.4", locale .. ": catching up with Forever retained")
-		eq(cns.Letters.Versions()[4], "1.5.3", locale .. ": the verification reminders retained")
-		eq(cns.Letters.Versions()[5], "1.5.2", locale .. ": cross-server census retained")
-		eq(cns.Letters.Versions()[6], "1.5.1", locale .. ": the PvP store fix retained")
-		eq(cns.Letters.Versions()[7], "1.5.0", locale .. ": the chat hall retained")
-		eq(cns.Letters.Versions()[8], "1.4.6", locale .. ": the realm family retained")
-		eq(cns.Letters.Versions()[9], "1.4.5", locale .. ": the reporter fix retained")
-		eq(cns.Letters.Versions()[10], "1.4.4", locale .. ": the morning fix retained")
-		eq(cns.Letters.Versions()[11], "1.4.3", locale .. ": the relay retained")
-		eq(cns.Letters.Versions()[12], "1.4.2", locale .. ": the key fix retained")
-		eq(cns.Letters.Versions()[13], "1.4.1", locale .. ": the launch night fix retained")
-		eq(cns.Letters.Versions()[14], "1.4.0", locale .. ": the launch letter retained")
-		eq(cns.Letters.Versions()[15], "1.3.3", locale .. ": previous release retained")
-		eq(cns.Letters.Versions()[16], "1.3.2", locale .. ": the 1.3 line retained")
+		local versions = cns.Letters.Versions()
+		eq(table.concat(versions, " ", 1, 17),
+			"1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2",
+			locale .. ": latest releases and earlier letters in order")
 	end
 end)
 
@@ -348,13 +335,13 @@ test("Version letter content: the actual letters limit level bands to duels and 
 end)
 
 
-test("1.5.6 letter content: the network update opens first and both languages explain peer updates, saved coverage and restarting WoW", function()
+test("1.5.6 letter content: both languages explain peer updates, saved coverage and restarting WoW", function()
 	for _, locale in ipairs({ "enUS", "ptBR" }) do
 		local cns = Language(locale)
 		local key = "LETTER_1_5_6"
 		local raw = assert(cns.L[key])
 		local title, body = cns.Letters.Text("1.5.6")
-		eq(cns.Letters.Versions()[1], "1.5.6")
+		eq(cns.Letters.Versions()[2], "1.5.6")
 		eq(title, cns.L[key .. "_HEAD"])
 		assert(title ~= cns.L.LETTER_1_5_5_HEAD, "the update has its own title")
 		assert(type(body) == "string" and #body > 0)
@@ -368,4 +355,29 @@ test("1.5.6 letter content: the network update opens first and both languages ex
 		}
 		for _, phrase in ipairs(phrases) do assert(raw:find(phrase, 1, true), locale .. ": " .. phrase) end
 	end
+end)
+
+test("1.5.7 letter content: each locale explains census progress, relay availability and the planned recruitment ranking", function()
+	local english = Language("enUS").L.LETTER_1_5_7
+	local previous
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local file = code == "esMX" and "esES" or code ~= "enUS" and code ~= "ptBR" and code or nil
+		local cns = Language(code, file)
+		local raw = assert(cns.L.LETTER_1_5_7)
+		local title, body = cns.Letters.Text("1.5.7")
+		eq(cns.Letters.Versions()[1], "1.5.7", code)
+		eq(cns.Letters.Versions()[2], "1.5.6", code)
+		eq(title, cns.L.LETTER_1_5_7_HEAD, code)
+		assert(title ~= cns.L.LETTER_1_5_6_HEAD, code .. ": distinct release title")
+		assert(type(body) == "string" and body:find("/oly bug", 1, true), code .. ": rendered bug report instructions")
+		if code == "esMX" then eq(raw, previous, code .. ": Spanish translation")
+		elseif code ~= "enUS" then assert(raw ~= english, code .. ": translation loaded") end
+		local marks = {}
+		for mark in raw:gmatch("\n- {([%a]+)}") do marks[#marks + 1] = mark end
+		eq(table.concat(marks, ","), "guild,guild,church", code .. ": release topics")
+		previous = raw
+	end
+	assert(english:find("original date", 1, true) and english:find("since login", 1, true))
+	assert(english:find("depends on which relays are reachable", 1, true))
+	assert(english:find("A recruitment ranking for all guild members is planned for a future update.", 1, true))
 end)

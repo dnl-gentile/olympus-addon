@@ -449,7 +449,8 @@ function CS.ServerLines(lines, s, now)
 			return f == "Horde" and L.CENSUS_STATS_FACTION_HORDE or L.CENSUS_STATS_FACTION_ALLIANCE
 		end, "faction")
 	end
-	if unknownKind or unknownRegion then lines[#lines + 1] = { text = Grey(L.CENSUS_STATS_KIND_WAIT), indent = 1 } end
+	if unknownKind then lines[#lines + 1] = { text = Grey(L.CENSUS_STATS_KIND_WAIT), indent = 1 } end
+	if unknownRegion then lines[#lines + 1] = { text = Grey(L.CENSUS_STATS_REGION_UNAVAILABLE), indent = 1 } end
 	lines[#lines + 1] = { text = L.CENSUS_STATS_EACH_SERVER, indent = 1 }
 	for _, r in ipairs(g.rows) do
 		local detailKey = r.faction .. "|" .. r.group

@@ -541,12 +541,9 @@ local function OnKey(dist, sender, mode, body)
 end
 ns.Comm.Handle("RK", ns.Arena.Handle("RK", OnKey))
 
--- The evidence is session-only. A late client must hear each validating holder live, which binds
--- that holder's signed word to the character name stamped by the game on RK and RV.
 local function WitnessText(name, letter, hash, t, pk64)
 	return ("OLYV1|%s|%s|%s|%s|%s"):format(ns.FullName(name), letter, hash, t, pk64)
 end
-local witnesses = {} -- [letter][record hash][live sender] = true
 
 ---------------------------------------------------------------------------
 -- Taking a record
@@ -719,6 +716,7 @@ end
 
 -- A record of type letter heard from sender. how: "self" (this client's own module made it from
 -- halves it heard), "relay" (RR), "pending" (its key arrived). Returns ok, why, and its day.
+local PinWitnessed -- below, with the verified witness cache
 Take = function(letter, body, sender, how)
 	local spec = R.TYPES[letter]
 	if not spec then return Count("type") end
@@ -748,6 +746,7 @@ Take = function(letter, body, sender, how)
 	end
 	for _, p in ipairs(rec.parts) do
 		local keys = R.KeysOf(p.name)
+		if not keys and PinWitnessed(letter, body, rec) then keys = R.KeysOf(p.name) end
 		if not keys then
 			if how == "relay" then FromCount(sender, true) end
 			local _, w = Pend(letter, s, rec, body, d, sender)
@@ -1381,10 +1380,10 @@ ns.Comm.Handle("RD", ns.Arena.Handle("RD", OnDigest))
 -- the ask told all its own would. One reply round of a type a DISCOVERY_GAP, whoever asked: an ask
 -- heard while a round waits makes the digests heard before it count for nothing (its asker may not
 -- have heard them) and never puts a slot later.
-local discovered, discoverySent = false, 0
+local discoveryPending, discoveryRetry, discoverySent = nil, nil, 0
 local replyRound, replyStarted = {}, {} -- [letter] = { base, at } (the round waiting); [letter] = when the last began
 local function SendDiscovery()
-	if discoverySent >= R.DISCOVERY_MAX or Quiet() then return false end
+	if discoveryPending or discoveryRetry or discoverySent >= R.DISCOVERY_MAX or Quiet() then return false end
 	local list = {}
 	for letter in pairs(R.TYPES) do if not digestHeard[letter] then list[#list + 1] = letter end end
 	if not list[1] then return false end
@@ -1392,18 +1391,32 @@ local function SendDiscovery()
 	-- Relay remembers origin+body for five minutes. A bounded per-attempt tag keeps the
 	-- ninety-second retry distinct while copies of that same request still deduplicate.
 	local request = A().B36(Now()) .. "." .. tostring(discoverySent + 1)
-	if A().Send("RH", "L", "1~" .. table.concat(list) .. "~" .. request, { dist = "CHANNEL", key = "records discovery", low = true }) ~= true then return false end
-	discoverySent = discoverySent + 1
-	stats.discovery = discoverySent
-	if discoverySent < R.DISCOVERY_MAX then ns.After(R.DISCOVERY_RETRY, "records discovery", SendDiscovery) end
+	local pending = {}
+	discoveryPending = pending
+	local function Done(sent)
+		if discoveryPending ~= pending then return end
+		discoveryPending = nil
+		if not sent then return end
+		discoverySent = discoverySent + 1
+		stats.discovery = discoverySent
+		if discoverySent >= R.DISCOVERY_MAX then return end
+		discoveryRetry = pending
+		ns.After(R.DISCOVERY_RETRY, "records discovery", function()
+			if discoveryRetry ~= pending then return end
+			discoveryRetry = nil
+			SendDiscovery()
+		end)
+	end
+	if A().Send("RH", "L", "1~" .. table.concat(list) .. "~" .. request,
+		{ dist = "CHANNEL", key = "records discovery", low = true, done = Done }) ~= true then
+		Done(false)
+		return false
+	end
 	return true
 end
--- The player opened a ranking view: the first time this session, the ask (true when it went).
+-- The player opened a ranking view: start the ask or try again if transport dropped it.
 function R.Discover()
-	if discovered or Quiet() then return false end
-	if not SendDiscovery() then return false end
-	discovered = true
-	return true
+	return SendDiscovery()
 end
 local function ReplyRound(letter, now)
 	local s = Store(letter)
@@ -1504,12 +1517,11 @@ Promote = function(letter)
 	end
 end
 
--- Validations heard, by record and sender (the answers' "already confirmed since the ask"; not what
--- admits a record: that is `witnesses`, above). The newest few senders of a record, RV_HEARD_MAX
--- records a type.
-local rvHeard = {} -- [letter] = { n, pruned, items = { [hash] = { at, by = { [sender] = at } } } }
+-- Verified, session-only validations by record and sender. Receipt time suppresses repeat answers;
+-- the signed time bounds how long a witness can establish a record's missing identity keys.
+local rvHeard = {} -- [letter] = { n, pruned, items = { [hash] = { at, by = { [sender] = { heard, signed } } } } }
 local RV_SENDERS = 8
-local function HeardWitness(letter, hash, by, now)
+local function HeardWitness(letter, hash, by, now, signed)
 	local r = rvHeard[letter]
 	if not r then r = { n = 0, pruned = -math.huge, items = {} } rvHeard[letter] = r end
 	local e = r.items[hash]
@@ -1525,20 +1537,44 @@ local function HeardWitness(letter, hash, by, now)
 	if not e.by[by] then
 		if e.n >= RV_SENDERS then
 			local oldest, at
-			for k, t in pairs(e.by) do if not at or t < at then oldest, at = k, t end end
+			for k, v in pairs(e.by) do if not at or v.heard < at then oldest, at = k, v.heard end end
 			e.by[oldest], e.n = nil, e.n - 1
 		end
 		e.n = e.n + 1
 	end
-	e.by[by], e.at = now, now
+	local previous = e.by[by]
+	e.by[by], e.at = { heard = now, signed = max(signed, previous and previous.signed or signed) }, now
 end
 -- Distinct holders whose validation of that record (its RecordHash) was heard here since `since`.
 function R.WitnessesSince(letter, hash, since)
 	local r = rvHeard[letter]
 	local e = r and r.items[hash]
 	local n = 0
-	for _, at in pairs(e and e.by or {}) do if at >= since then n = n + 1 end end
+	for _, v in pairs(e and e.by or {}) do if v.heard >= since then n = n + 1 end end
 	return n
+end
+
+local function WitnessQuorum(letter, hash, now)
+	local r = rvHeard[letter]
+	local e = r and r.items[hash]
+	local n = 0
+	for _, v in pairs(e and e.by or {}) do
+		if now - v.signed <= R.WITNESS_FRESH then n = n + 1 end
+	end
+	return n >= R.WITNESSES
+end
+
+PinWitnessed = function(letter, body, rec)
+	if not rvHeard[letter] or not WitnessQuorum(letter, RecordHash(letter, body), Now()) then return false end
+	for _, part in ipairs(rec.parts) do
+		local keys = R.KeysOf(part.name)
+		if keys and not keys[part.pk64] then return false end
+	end
+	for _, part in ipairs(rec.parts) do
+		if not R.HasKey(part.name, part.pk64) then R.Pin(part.name, part.pk64, nil, true) end
+	end
+	stats.witnessed = stats.witnessed + 1
+	return true
 end
 
 local function OnAsk(dist, sender, mode, body)
@@ -1685,24 +1721,13 @@ local function OnWitness(dist, sender, mode, body)
 	if not pk or not sig then return Count("witness-shape") end
 	A().Check("rv " .. sig64, { pk = pk, msg = WitnessText(sender, letter, hash, t, pk64), sig = sig }, function(good)
 		if good ~= true then if good == false then Count("witness-signature") end return end
-		local byLetter = witnesses[letter]
-		if not byLetter then byLetter = {} witnesses[letter] = byLetter end
-		local set = byLetter[hash]
-		if not set then set = {} byLetter[hash] = set end
-		set[Low(sender)] = true
-		HeardWitness(letter, hash, Low(sender), Now())
-		local count = 0
-		for _ in pairs(set) do count = count + 1 end
-		if count < R.WITNESSES then return end
+		local now = Now()
+		HeardWitness(letter, hash, Low(sender), now, at)
+		if not WitnessQuorum(letter, hash, now) then return end
 		local s = Store(letter)
 		for _, pending in pairs(s and s.pend or {}) do
 			if type(pending) == "table" and type(pending.b) == "string" and RecordHash(letter, pending.b) == hash then
-				local ok, rec = pcall(R.TYPES[letter].Read, pending.b)
-				if ok and type(rec) == "table" and type(rec.parts) == "table" then
-					for _, part in ipairs(rec.parts) do R.Pin(part.name, part.pk64, nil, true) end
-					stats.witnessed = stats.witnessed + 1
-					Take(letter, pending.b, pending.by or sender, "pending")
-				end
+				Take(letter, pending.b, pending.by or sender, "pending")
 			end
 		end
 	end)
@@ -2103,11 +2128,10 @@ function R.Reset()
 	lag = { n = 0, sum = 0, max = 0 }
 	mySent, jobsAt, askerJobs, heardBody, rvHeard, witnessSince = {}, {}, {}, {}, {}, {}
 	askWait = {}
-	digestHeard, discovered, discoverySent, replyRound, replyStarted = {}, false, 0, {}, {}
+	digestHeard, discoveryPending, discoveryRetry, discoverySent, replyRound, replyStarted = {}, nil, nil, 0, {}, {}
 	askedSeal, heardSealAsk, asm = {}, {}, {}
 	from, attempts, fromDay = {}, {}, -1
 	keySentAt, keyDue = nil, false
-	witnesses = {}
 	fingerprints = {}
 	if ticker and ticker.Cancel then ticker.Cancel() end
 	ticker = nil

@@ -7,7 +7,7 @@ local PRODUCER = "1.3.2-site.1"
 local CHECKPOINT_MAX_AGE = 60
 local OBSERVATION_MAX_AGE = 15 * 60
 
-local NAMES = { ["Olympus"] = true, ["Olympus I"] = true, ["Olympus II"] = true,
+local NAMES = { ["Olympus"] = true, ["OLYMPUS PRIME"] = true, ["Olympus I"] = true, ["Olympus II"] = true,
 	["Olympus III"] = true, ["Olympus IV"] = true, ["Olympus V"] = true,
 	["Olympus VI"] = true, ["Olympus VII"] = true, ["Olympus VIII"] = true,
 	["Olympus IX"] = true, ["Olympus X"] = true }
@@ -59,7 +59,7 @@ local function Prepare()
 	OlympusSiteAggregate = nil
 	local own = CurrentGuild()
 	if not own then
-		return false, "Only your current Olympus or Olympus I-X roster can be exported. Alt coverage is unavailable."
+		return false, "Only your current Olympus, OLYMPUS PRIME, or Olympus I-X roster can be exported. Alt coverage is unavailable."
 	end
 	local now = ServerNow()
 	if not now then return false, "The game server clock is unavailable; no export was prepared." end
@@ -70,7 +70,7 @@ local function Prepare()
 	end
 	local ok, c = pcall(b.GetCensusCheckpoint)
 	if ok and type(c) == "table" and type(c.scope) == "table" and c.scope.faction ~= nil and c.scope.faction ~= "Alliance" then
-		return false, "Only the Alliance Olympus and Olympus I-X guilds can be exported; no export was prepared."
+		return false, "Only the Alliance Olympus, OLYMPUS PRIME, and Olympus I-X guilds can be exported."
 	end
 	if not ok or type(c) ~= "table" or c.schema ~= "olympus-census-checkpoint" or c.version ~= 1
 		or c.timeSource ~= "server" or not Age(now, c.capturedAtServer, CHECKPOINT_MAX_AGE)
@@ -118,7 +118,7 @@ OlympusSiteAggregateCommand = function(msg)
 		return
 	end
 	if msg ~= "export" then
-		Say("Use /oly site export or /oly site clear (/olysite is a compatibility alias). Only the dedicated export file is safe for the site.")
+		Say("Use /oly site export for your current Alliance Olympus, OLYMPUS PRIME, or Olympus I-X roster. Use /oly site clear to withdraw it. /olysite is a compatibility alias. Only the dedicated export file is safe for the site.")
 		return
 	end
 	local _, why = Prepare()

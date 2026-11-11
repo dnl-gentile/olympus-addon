@@ -247,6 +247,22 @@ local function TransferWords(R, sent, kind)
 	return words
 end
 
+test("relay keeps each pending Arena record fragment distinct", function()
+	WithTransfer(function(R, _, sent, Run)
+		R.Relay.HandleIn("WHISPER", "Late-Realm", "RL~P~RR~Olympus Late")
+		local parts = {
+			"EP~L1~abc~1~2~" .. ("RD~L1~" .. string.rep("x", 220)):sub(1, 220),
+			"EP~L1~abc~2~2~" .. string.rep("y", 56),
+			"EP~L1~abd~1~2~" .. ("RD~L1~" .. string.rep("a", 220)):sub(1, 220),
+			"EP~L1~abd~2~2~" .. string.rep("b", 56),
+		}
+		for _, part in ipairs(parts) do R.Relay.HandleIn("WHISPER", R.me, "RL~P~" .. part) end
+		Run(12)
+		local words = TransferWords(R, sent, "RM").Late or {}
+		for _, part in ipairs(parts) do eq(words[part], 1, "every Arena fragment reaches the reporter once") end
+	end)
+end)
+
 test("relay admission hardening: an ordinary or nested native handler cannot reuse the envelope's token", function()
 	WithTransfer(function(R, deliver)
 		R.db = { blocked = {} }
@@ -331,6 +347,14 @@ test("relay transfer hardening: signed RX progress survives sixty seconds while 
 	end
 end)
 
+local function AcrossDepth(R)
+	for _, line in ipairs(R.Relay.BugLines(4096)) do
+		local count = line:match("drip=%d+ waiting %((%d+) across%)")
+		if count then return tonumber(count) end
+	end
+	error("the across queue depth must be reported")
+end
+
 test("relay transfer hardening: flood bounds count whole transfers globally and per peer, keeping the active tail and current census", function()
 	for _, peers in ipairs({ 1, 6 }) do
 		WithTransfer(function(R, _, sent, Run)
@@ -349,23 +373,80 @@ test("relay transfer hardening: flood bounds count whole transfers globally and 
 				R.rdb.council.names[origin:lower()] = origin
 				OfferTransfer(R, TransferWord(R, "CG~2~S~1~ForeverPvE~Alliance~" .. i, 34), tostring(860 + i), origin .. "-Realm")
 			end
+			local otherWork = AcrossDepth(R)
+			assert(otherWork <= R.Relay.ACROSS_MAX, "the flood never expands the across queue")
 			local newest = TransferWord(R, "CG~2~S~2~ForeverPvE~Alliance~", 34)
 			OfferTransfer(R, newest, "899")
+			assert(AcrossDepth(R) <= R.Relay.ACROSS_MAX, "CG waits without overflowing the queue")
 			Run(250)
 			local words, total, firstSent = TransferWords(R, sent, "RX"), 0, 0
 			for i = 1, peers do
 				local got, count = words["Peer " .. i] or {}, 0
 				for _, copies in pairs(got) do count = count + copies end
-				assert(count <= 2, "one peer has only its bounded share")
+				assert(count <= R.Relay.ACROSS_PER_PEER + 1, "only one new census after that peer's bounded earlier work")
 				eq(got[newest], 1, "the current census reaches every peer after the flood")
 				firstSent = firstSent + (got[first] or 0)
 				total = total + count
 			end
 			eq(firstSent, 1, "the started transfer survives all evictions")
-			assert(total <= 8, "the global backlog is bounded across distinct origins and kinds")
+			eq(total, otherWork + peers, "earlier admitted work drains before one new census per peer")
+			eq(AcrossDepth(R), 0)
 			eq(R.Comm.QueueSize(), 0)
 		end)
 	end
+end)
+
+test("census RX fairness: a busy mesh sends the newest whole snapshot to the King and peers beyond the queue cap", function()
+	WithTransfer(function(R, _, sent, Run)
+		local king = "Zed Crown"
+		R.KingCharacter = function() return king end
+		R.IsKingCharacter = function(name) return R.ShortName(name) == king end
+		local peers = { king }
+		for i = 1, R.Relay.ACROSS_MAX + 3 do
+			local name = ("Peer %02d"):format(i)
+			R.rdb.council.names[name:lower()] = name
+			peers[#peers + 1] = name
+		end
+		for _, name in ipairs(peers) do Mesh(R, name .. "-Realm") end
+		Run(10) -- send the RJ replies before filling the normal queue
+		for i = 1, R.Comm.QueueRoom() do assert(R.Comm.Whisper("Busy-Realm", "X1~" .. i, nil, true)) end
+		local first = TransferWord(R, "CG~2~S~1~ForeverPvE~Alliance~", 3)
+		local latest = TransferWord(R, "CG~2~S~2~ForeverPvE~Alliance~", 3)
+		OfferTransfer(R, first, "921")
+		OfferTransfer(R, latest, "922") -- no snapshot's first batch has entered the full native queue
+		local start = #sent
+		Run(100)
+		local firstPeer
+		for i = start + 1, #sent do
+			if R.ShortName(sent[i].target or "") ~= "Busy" then firstPeer = sent[i].target; break end
+		end
+		eq(firstPeer, king, "the King's pending census gets the first across turn")
+		local words = TransferWords(R, sent, "RX")
+		for _, name in ipairs(peers) do
+			eq((words[name] or {})[latest], 1, name .. " receives the latest whole word")
+			eq((words[name] or {})[first], nil, "a waiting obsolete copy was replaced")
+		end
+		local early = TransferWord(R, "CG~2~S~3~ForeverPvE~Alliance~", 3)
+		OfferTransfer(R, early, "923")
+		Run(40)
+		words = TransferWords(R, sent, "RX")
+		for _, name in ipairs(peers) do eq(words[name][early], nil, name .. " stays under the existing cadence") end
+	end)
+end)
+
+test("census RX fairness: a queued local snapshot stays home when presence becomes private before it starts", function()
+	WithTransfer(function(R, _, sent, Run)
+		Mesh(R, "Hildryn Payne-Realm")
+		Run(10)
+		for i = 1, R.Comm.QueueRoom() do assert(R.Comm.Whisper("Busy-Realm", "X1~" .. i, nil, true)) end
+		local word = TransferWord(R, "CG~2~S~1~ForeverPvE~Alliance~", 3)
+		OfferTransfer(R, word, "924")
+		eq(AcrossDepth(R), 1)
+		R.QuietPresence = function() return true end
+		Run(100)
+		eq(TransferWords(R, sent, "RX")["Hildryn Payne"], nil)
+		eq(AcrossDepth(R), 0)
+	end)
 end)
 
 test("relay transfer hardening: a full bound never evicts the sole in-flight transfer", function()

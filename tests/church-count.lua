@@ -911,6 +911,31 @@ test("1.1.6 Church: the author's close reaches a desk and a member who missed it
 	eq((w:As(c.wes, c.wes.Church.Public)), true)
 end)
 
+test("Church public rows retry without spending the publication interval when the relay refuses the list", function()
+	local w, c = Cast()
+	c.author.online = true
+	w:Presence()
+	w:Act(c.m1, c.m1.Count.SetPublicRow, true)
+	w:Act(c.author, c.author.Church.SetPublic, true)
+	local desk = c.a1
+	local sendList, attempts = desk.c.Comm.SendList, 0
+	desk.c.Comm.SendList = function(kind, words, ...)
+		if kind == "NR" then
+			attempts = attempts + 1
+			if attempts == 1 then return false end
+		end
+		return sendList(kind, words, ...)
+	end
+
+	eq(w:As(desk, desk.Count.SendPublic), false, "the publisher sees the refusal")
+	eq(w:As(c.wes, c.wes.Count.PublicView), nil)
+	w:Run(desk.Church.TICK)
+	eq(w:Act(desk, desk.Count.SendPublic), true, "the next tick can publish the list")
+	eq(attempts, 2)
+	assert(w:As(c.wes, c.wes.Count.PublicView), "the eligible public view was delivered")
+	eq(w:As(desk, desk.Count.SendPublic), false, "a successful publication still spends the interval")
+end)
+
 test("1.1.6 Church: the public view drops the row of one who hides it, an emptied list too (each list's rows end with their count)", function()
 	local w, c = Cast()
 	c.author.online = true
@@ -1525,6 +1550,169 @@ local function SentTo(w, from, to, sub, name)
 	end
 	return n
 end
+
+local function WitnessInvite(w, c, recruit)
+	Join(w, World.GUILD, recruit)
+	w:LogEvent(World.GUILD, "invite", "Mira Wells", recruit, 0)
+	w:LogEvent(World.GUILD, "join", recruit, nil, 0)
+	w:ReadLog(c.wes)
+	w.log[World.GUILD] = {}
+end
+
+-- Old channel presence has expired, and the two guilds now use distinct relay islands.
+local function KeeperProbeWorld()
+	local w, c = Cast()
+	w:SignedList({ A1, A2 }, false, w.titles.at + 1)
+	for _, cl in pairs(c) do
+		cl.c.group = "ForeverPvE"
+		cl.c.Relay = { On = function() return true end }
+		cl.c.ForeverFamily = function(realm) return realm == "Realm" and "ForeverPvE" or ns.ForeverFamily(realm) end
+		cl.Church.random = function(a) return a end
+	end
+	c.a2.online = false
+	w:Run(c.a1.Church.KEEPER_EVERY * 3)
+	w:ClearSent()
+	return w, c
+end
+
+test("Church keeper discovery: a guild witness delivers verified evidence without channel presence", function()
+	local w, c = KeeperProbeWorld()
+	eq(#w:As(c.wes, c.wes.Church.KeepersOnline, false), 0)
+	WitnessInvite(w, c, "Across Rec")
+	local queries = w:Sent(c.wes, "NK", "WHISPER", "q")
+	eq(#queries, 1)
+	eq(queries[1].target, A1, "the signed Apostle is tried by direct whisper")
+	assert(not queries[1].msg:find("Across Rec", 1, true), "discovery contains no evidence")
+	w:Run(15)
+	eq(SentTo(w, c.wes, c.a1, "w"), 1)
+	eq(Joins(w, c.a1, "Mira Wells", "m"), 1)
+	eq(Outbox(w, c.wes), 0)
+end)
+
+test("Church keeper discovery: a ranking ask accepts only its own signed and scoped direct reply", function()
+	local w, c = KeeperProbeWorld()
+	Give(w, c.a1, "Desk Rec", "Mira Wells", 2)
+	local ask = function() return w:As(c.m1, c.m1.Count.Ask, "m", "m", nil, true) end
+	eq(select(2, ask()), "no keeper")
+	for _ = 1, 4 do ask() end
+	local queries = w:Sent(c.m1, "NK", "WHISPER", "q")
+	eq(#queries, 1, "refreshing the tab cannot fan out discovery")
+	local nonce = assert(queries[1].msg:match("^NK~1~q~(%w+)~"))
+	local reply = "NK~1~a~" .. nonce .. "~ForeverPvE:Alliance"
+	local function Take(dist, sender, text) return w:As(c.m1, c.m1.Church.ReceivePresence, dist, sender, text) end
+	eq(Take("WHISPER", A2, reply), false, "another signed Apostle did not get this request")
+	eq(Take("WHISPER", A1, reply:gsub("ForeverPvE", "ForeverPvP")), false)
+	eq(Take("WHISPER", "Aldric Vane-CAMWOWUS1Realm1PvP", reply), false)
+	eq(Take("WHISPER", A1, reply:gsub(nonce, nonce .. "z")), false)
+	eq(Take("CHANNEL", A1, reply), false)
+	eq(#w:As(c.m1, c.m1.Church.KeepersOnline, false), 0)
+	w:Flush()
+	eq(#w:Sent(c.a1, "NK", "WHISPER", "a"), 1)
+	eq(ask(), true)
+	w:Run(30)
+	local rows = w:As(c.m1, c.m1.Count.RankingView, "m", "m")
+	eq(rows[1].name, "Mira Wells")
+	eq(rows[1].score, 10)
+	eq(Take("WHISPER", A1, reply), false, "the completed request cannot be replayed")
+end)
+
+test("Church keeper discovery: quiet keepers and unverified requesters receive no presence", function()
+	local w, c = KeeperProbeWorld()
+	c.a1.c.QuietPresence = function() return true end
+	WitnessInvite(w, c, "Quiet Rec")
+	eq(#w:Sent(c.wes, "NK", "WHISPER", "q"), 1)
+	eq(#w:Sent(c.a1, "NK", "WHISPER", "a"), 0)
+	eq(SentTo(w, c.wes, c.a1, "w"), 0)
+	eq(Outbox(w, c.wes), 1)
+	c.a1.c.QuietPresence = function() return false end
+	local noted
+	local hides = c.a1.c.Moderation.Hides
+	c.a1.c.Moderation.Hides = function(sender, guild, readOnly)
+		if not readOnly then noted = guild end
+		return hides(sender)
+	end
+	local outside = "NK~1~q~f123~ForeverPvE:Alliance~" .. World.GUILD2
+	eq(w:As(c.a1, c.a1.Church.ReceivePresence, "WHISPER", c.vik.name, outside), false)
+	eq(noted, nil, "an unverified probe never updates the sender's guild in moderation")
+	eq(#w:Sent(c.a1, "NK", "WHISPER", "a"), 0, "a guild claim alone discloses no presence")
+	w.off[c.wes.key] = true
+	local sameGuild = "NK~1~q~f124~ForeverPvE:Alliance~" .. World.GUILD
+	eq(w:As(c.a1, c.a1.Church.ReceivePresence, "WHISPER", c.wes.name, sameGuild), false)
+	eq(#w:Sent(c.a1, "NK", "WHISPER", "a"), 0, "moderation still applies to a known guildmate")
+end)
+
+test("Church keeper discovery: an unreachable signed Apostle yields to the next one on the bounded cadence", function()
+	local w, c = KeeperProbeWorld()
+	c.a1.online, c.a2.online = false, true
+	local ask = function() return w:Act(c.m1, c.m1.Count.Ask, "m", "m", nil, true) end
+	eq(select(2, ask()), "no keeper")
+	w:Run(c.m1.Church.PROBE_GAP - 1)
+	eq(select(2, ask()), "no keeper")
+	eq(#w:Sent(c.m1, "NK", "WHISPER", "q"), 1)
+	w:Run(1)
+	eq(select(2, ask()), "no keeper")
+	local queries = w:Sent(c.m1, "NK", "WHISPER", "q")
+	eq(#queries, 2)
+	eq(queries[2].target, A2)
+	eq(w:As(c.m1, c.m1.Church.KeepersOnline, false)[1].name, A2)
+end)
+
+test("Church evidence retries: a delayed whisper is not repeated while queued and a failed send reaches the same keeper", function()
+	local w, c = Cast()
+	c.a2.online = false
+	w:Run(c.a1.Church.KEEPER_EVERY * 3)
+	w:Presence()
+	local recruit = "Delayed Rec"
+	local whisper, complete, attempts = c.wes.c.Comm.Whisper, nil, 0
+	c.wes.c.Comm.Whisper = function(target, msg, key, urgent, logged, done, options)
+		if target == A1 and msg:sub(1, 7) == "NV~1~w~" then
+			attempts = attempts + 1
+			if attempts == 1 then complete = done; return true end
+		end
+		return whisper(target, msg, key, urgent, logged, done, options)
+	end
+
+	WitnessInvite(w, c, recruit)
+	eq(attempts, 1)
+	w:Run(c.wes.Count.RESEND_GAP); w:Presence(); w:Tick(); w:Run(15)
+	eq(attempts, 1, "a pending send already occupies a queue slot")
+	eq(Joins(w, c.a1, "Mira Wells", "m"), 0)
+	assert(complete, "the native queue must report completion")
+	w:As(c.wes, complete, false, "full")
+	w:As(c.wes, c.wes.Count.Flush)
+	eq(attempts, 1, "the retry backs off from the real failure")
+
+	w:Run(c.wes.Count.RESEND_GAP); w:Presence(); w:Tick(); w:Run(30)
+	eq(attempts, 2)
+	eq(Joins(w, c.a1, "Mira Wells", "m"), 1)
+	eq(Outbox(w, c.wes), 0, "the keeper's receipt retires the evidence")
+end)
+
+test("Church evidence retries: a lost receipt can be recovered without awarding points twice", function()
+	local w, c = Cast()
+	c.a2.online = false
+	w:Run(c.a1.Church.KEEPER_EVERY * 3)
+	w:Presence()
+	local whisper, receipts = c.a1.c.Comm.Whisper, 0
+	c.a1.c.Comm.Whisper = function(target, msg, key, urgent, logged, done, options)
+		if target == c.wes.name and msg:sub(1, 7) == "NV~1~k~" then
+			receipts = receipts + 1
+			if receipts == 1 then return true end -- Native send succeeds, but the recipient never hears it.
+		end
+		return whisper(target, msg, key, urgent, logged, done, options)
+	end
+
+	WitnessInvite(w, c, "Unacked Rec")
+	w:Run(c.a1.Count.RECEIPT_GAP + 1)
+	eq(receipts, 1)
+	eq(Joins(w, c.a1, "Mira Wells", "m"), 1)
+	eq(Outbox(w, c.wes), 1)
+
+	w:Run(c.wes.Count.RESEND_GAP); w:Presence(); w:Tick(); w:Run(30)
+	eq(receipts, 2)
+	eq(Joins(w, c.a1, "Mira Wells", "m"), 1, "the same evidence is idempotent")
+	eq(Outbox(w, c.wes), 0)
+end)
 
 test("1.2.1 Church: a report the keeper who can vouch refused for now goes to him again, however long he was away: a missionary named while he was away has every recruit confirmed on every keeper", function()
 	local w, c = Cast()
@@ -2198,6 +2386,94 @@ test("global Church ledger: an audience page asks in the desk's order, the Apost
 	eq(Key(q[1].target), Key(Z), "the Apostle, the desk, not the author whose name sorts first")
 end)
 
+test("1.5.6 Church rank recovery: a partial or repeated page cannot replace the last complete page", function()
+	local w, c = Cast()
+	local reader = c.m2
+	-- Deliver replies explicitly so the model can drop one row and duplicate another.
+	c.a1.handlers.NR, c.a2.handlers.NR = nil, nil
+	local function Ask() return w:As(reader, reader.Count.Ask, "m", "m", nil, true) end
+	local function Answer(from, text) return w:As(reader, reader.Count.TakeAnswerLine, from, text) end
+	local function Row(rank, name, score)
+		return ("NR~1~r~m~m~%d~%s~%d~%d~0~1~0~1~1"):format(rank, name, score, score)
+	end
+	local function End(n)
+		return ("NR~1~e~m~m~-~%d~%s"):format(n, ns.Codec.Base36(w.clock))
+	end
+	local function View() return w:As(reader, reader.Count.RankingView, "m", "m") end
+	eq(Ask(), true)
+	eq(Answer(A1, Row(1, "Mira Wells", 100)), true)
+	eq(Answer(A1, End(1)), true)
+	local rows, savedAt = View()
+	eq(rows[1].score, 10)
+	w:Run(reader.Count.ASK_GAP)
+	eq(Ask(), true)
+	eq(Answer(A1, Row(1, "Mira Wells", 300)), true)
+	Answer(A1, Row(1, "Mira Wells", 300))
+	eq(Answer(A1, End(2)), false, "two delivered packets with one rank do not make a complete two-row page")
+	local kept, at = View()
+	eq(kept[1].score, 10)
+	eq(at, savedAt, "incomplete replies do not make the old page appear newer")
+	w:Run(reader.Count.ASK_GAP)
+	eq(Ask(), true)
+	eq(Answer(A1, End(0)), false, "the previous keeper's late reply is unasked")
+	eq(Answer(A2, End(0)), true, "a complete empty result from the new keeper still replaces the old page")
+	eq(#View(), 0)
+end)
+
+test("Church rank timing: a queued request and a reply still making progress are not replaced", function()
+	local w, c = Cast()
+	local reader, sendDone, sends = c.m2, nil, 0
+	reader.ns.Comm.Whisper = function(_, msg, _, _, _, done)
+		assert(msg:find("NR~1~q~", 1, true) == 1)
+		sends, sendDone = sends + 1, done
+		return true
+	end
+	local function Ask() return w:As(reader, reader.Count.Ask, "m", "m") end
+	local function Answer(text) return w:As(reader, reader.Count.TakeAnswerLine, A1, text) end
+	local gap = reader.Count.ASK_GAP
+	eq(Ask(), true)
+	w:Run(gap + 1)
+	eq(Ask(), false, "a request waiting to be sent does not start the response timeout")
+	eq(sends, 1)
+	w:As(reader, assert(sendDone), true)
+	w:Run(gap - 1)
+	eq(Answer("NR~1~r~m~m~1~Mira Wells~200~200~0~2~0~1~1"), true)
+	w:Run(2)
+	eq(Ask(), false, "a response that is still making progress keeps its receiver")
+	eq(Answer("NR~1~r~m~m~2~Nils Ford~100~100~0~1~0~1~1"), true)
+	eq(Answer(("NR~1~e~m~m~-~2~%s"):format(ns.Codec.Base36(w.clock))), true)
+	local rows = w:As(reader, reader.Count.RankingView, "m", "m")
+	eq(#rows, 2)
+	eq(rows[1].score, 20)
+end)
+
+test("Church rank timing: duplicate rows cannot delay fallback or reopen an unfinished keeper", function()
+	local w, c = Cast()
+	local reader = c.m2
+	c.a1.handlers.NR, c.a2.handlers.NR = nil, nil
+	local function Ask() return w:As(reader, reader.Count.Ask, "m", "m") end
+	local function LastTarget()
+		local sent = w:Sent(reader, "NR", "WHISPER", "q")
+		return sent[#sent].target
+	end
+	local row = "NR~1~r~m~m~1~Mira Wells~200~200~0~2~0~1~1"
+	local gap = reader.Count.ASK_GAP
+	eq(Ask(), true)
+	eq(LastTarget(), A1)
+	eq(w:As(reader, reader.Count.TakeAnswerLine, A1, row), true)
+	w:Run(gap - 1)
+	eq(w:As(reader, reader.Count.TakeAnswerLine, A1, row), false)
+	w:Run(1)
+	eq(Ask(), true, "a repeated packet is not progress")
+	eq(LastTarget(), A2)
+	w:Run(gap)
+	eq(Ask(), false, "both keepers have unanswered requests for this page")
+	w:Run(reader.Church.ASKED_WINDOW - 2 * gap)
+	w:Presence()
+	eq(Ask(), true, "the previous request's answer lifetime is bounded")
+	eq(LastTarget(), A1)
+end)
+
 test("global Church ledger: after a reload a keeper first asks the keeper it never completed a catch-up from: not the first by name again, and one a reload cut short before one it completed later", function()
 	local w, c = Cast()
 	Give(w, c.a1, "Rot Recb", "Mira Wells", 2)
@@ -2741,6 +3017,35 @@ test("global Church ledger: which ledger a client reads is looked for once a sec
 	eq(w:As(K, K.Count.Led) == store.led, true, "his ledger again at once")
 	eq(Joins(w, K, "Mira Wells", "a"), 100)
 	K.Church.IsKeeper = orig
+end)
+
+test("Church ledger catch-up withholds its terminal on a failed queued row and recovers without skipping it", function()
+	local w, c = Cast()
+	Give(w, c.a2, "Lost Reca", "Mira Wells", 2)
+	Give(w, c.a2, "Lost Recb", "Mira Wells", 2)
+	w:Run(2) -- Both source changes are before the terminal's cursor.
+	w:ClearSent()
+	local whisper, complete, interrupted = c.a2.c.Comm.Whisper, nil, false
+	c.a2.c.Comm.Whisper = function(target, msg, key, urgent, logged, done, options)
+		if target == A1 and msg:match("^NL~1~r~Lost Recb~") and not interrupted then
+			interrupted, complete = true, done
+			return true -- The native queue will evict this accepted row before sending it.
+		end
+		return whisper(target, msg, key, urgent, logged, done, options)
+	end
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	eq(#w:Sent(c.a2, "NL", "WHISPER", "e"), 0, "the last row is still in the native queue")
+	assert(interrupted and complete)
+	assert(Rec(w, c.a1, "Lost Reca", "Mira Wells"))
+	eq(Rec(w, c.a1, "Lost Recb", "Mira Wells"), nil)
+	w:As(c.a2, complete, false, "dropped")
+	w:Run(5)
+	eq(#w:Sent(c.a2, "NL", "WHISPER", "e"), 0, "the first round never completed")
+	eq(w:As(c.a1, c.a1.Count.Led).from[Key(A2)], nil, "the cursor did not advance")
+
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	eq(#w:Sent(c.a2, "NL", "WHISPER", "e"), 1)
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 2, "both source records converge once")
 end)
 
 test("global Church ledger: a record changed in the second a catch-up ended comes with the next catch-up", function()

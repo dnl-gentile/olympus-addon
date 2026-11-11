@@ -542,7 +542,12 @@ local function Failed(nobody)
 	-- Nobody free because a crowd asks for that layer too: not ours to wait longer for.
 	local crowded = ask and Hop.Crowd(ask.mapID, ask.zoneUID, ns.Now()) > Hop.BRAKE_ASKS
 	if not crowded then fails, failedAt = fails + 1, ns.Now() end
-	Finish((nobody and L.HOP_NOBODY_WAIT or L.HOP_GAVE_UP_WAIT):format(math.ceil(Hop.WaitLeft())))
+	local message = L.HOP_GAVE_UP_WAIT
+	if nobody then
+		local R = ns.Relay
+		message = R and R.On and R.On() and L.HOP_NO_GUILD_HELPER_WAIT or L.HOP_NOBODY_WAIT
+	end
+	Finish(message:format(math.ceil(Hop.WaitLeft())))
 end
 
 -- An ask heard on the channel (HandleAsk), counted once per asker.
@@ -569,7 +574,7 @@ end
 function Hop.Pick(offers, tried)
 	local pool, total = {}, 0
 	for name, o in pairs(offers) do
-		if not tried[name] then
+		if not tried[name] and not o.sendFailed then
 			local w = (o.group == 0 and 2 or 1) / (1 + o.load)
 			if o.trusted then w = w * 3 end -- a helper the addon can vouch for comes first
 			pool[#pool + 1] = { o = o, w = w }
@@ -610,17 +615,23 @@ function Hop.Next()
 			a.phase = "asking"
 			return Changed()
 		end
-		return Failed(a.tries == 0)
+		return Failed(a.count == 0)
 	end
 	a.helper, a.phase, a.asked = o.name, "requesting", nil
+	a.tries = a.tries + 1
 	ns.Comm.Whisper(o.name, ("LR~%d"):format(a.id), nil, true, nil, function(sent)
 		if ask ~= a or a.phase ~= "requesting" or a.helper ~= o.name then return end
 		if not sent then
 			Hop.OnRoster()
-			if a.phase == "requesting" then Finish(L.HOP_GAVE_UP) end
+			if a.phase ~= "requesting" then return end
+			if not Current(a) then return Finish(L.HOP_CONTEXT_CHANGED) end
+			-- A refused whisper does not authorize this helper's invite. Try another
+			-- offer within the existing request budget while it is still relevant.
+			o.sendFailed, a.phase = true, "asking"
+			Hop.Next()
 			return
 		end
-		a.tried[o.name], a.tries = true, a.tries + 1
+		a.tried[o.name] = true
 		a.phase, a.asked = "requested", ns.Now()
 		ns.Print(L.HOP_REQUESTED:format(ns.DisplayName(o.name)))
 		Changed()
@@ -1111,7 +1122,7 @@ function Hop.Tick()
 		if now - ask.t >= Hop.WINDOW and ask.count > 0 then
 			Hop.Next()
 		elseif now - ask.t >= Hop.NOBODY then
-			Failed(ask.tries == 0)
+			Failed(ask.count == 0)
 		end
 	elseif ask.phase == "requested" then
 		if now - ask.asked >= Hop.WAIT then Hop.Next() end

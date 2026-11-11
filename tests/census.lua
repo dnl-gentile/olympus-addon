@@ -123,6 +123,28 @@ test("global census: a trusted holder restores normalized guild counts to a late
 	eq(late.D.Summary().characters, 987, "one witness alone moves nothing")
 end)
 
+test("global census: merging a full relayed census uses bounded guild-name lookups", function()
+	local w = CensusWorld()
+	local relay, rows = "Council-Realm", {}
+	w.ns.Church = { IsLedgerRelay = function(name) return name == relay end }
+	for i = 1, 150 do
+		rows[i] = ("Olympus Guild %03d,100,10,200,%d"):format(i, w.clock)
+	end
+	w.ns.rdb.guilds["OLYMPUS GUILD 001"] = { total = 90, online = 1, t = w.clock - 1 }
+	assert(w.D.ReceiveGlobalCensus("CHANNEL", relay, ("CG~1~S~%d~%s"):format(w.clock, table.concat(rows, ";"))))
+	local lower, folds = string.lower, 0
+	string.lower = function(s)
+		if type(s) == "string" and s:find("^[Oo][Ll][Yy][Mm][Pp][Uu][Ss] [Gg][Uu][Ii][Ll][Dd] ") then folds = folds + 1 end
+		return lower(s)
+	end
+	local ok, s = pcall(w.D.Summary)
+	string.lower = lower
+	assert(ok, s)
+	eq(s.characters, 15000, "the newer relayed row replaces the differently spelled direct row")
+	eq(#s.guilds, #rows, "one row per guild")
+	assert(folds <= 15 * #rows, "too many guild-name folds for one summary: " .. folds)
+end)
+
 test("global census: an ordinary late client may ask a trusted holder for the public snapshot", function()
 	local holder = CensusWorld()
 	local relay, sent = "Council-Realm", 0
@@ -381,6 +403,36 @@ local function Say(w, rows)
 	return ("CX~1~S~%d~%s"):format(w.clock, table.concat(out, ";"))
 end
 
+test("census saved variables: malformed and legacy rows cannot stop a valid saved census from loading", function()
+	local w = GroupWorld()
+	w.ns.group = "ForeverPvE"
+	w.ns.Comm.loginAt = w.clock
+	local guilds, sightings = w.ns.rdb.guilds, w.ns.rdb.seen
+	guilds["Olympus Broken Time"] = { total = 900, t = {} }
+	guilds["Olympus Broken Count"] = { total = "unknown", t = w.clock }
+	guilds["Olympus Broken Zones"] = { total = 90, zones = true, t = w.clock }
+	guilds["Olympus Good"] = { total = 630, online = 40, t = w.clock }
+	guilds["Olympus Legacy"] = { total = "120", online = "8", t = tostring(w.clock - w.D.FRESH - 1) }
+	sightings["Olympus Seen"] = { online = "6", t = tostring(w.clock) }
+	sightings["Olympus Broken Sighting"] = { online = 1, t = false }
+	w.ns.db.groupCensus = {
+		["Alliance|ForeverPvE"] = { group = "ForeverPvE", faction = "Alliance", characters = "1000", people = "995", guilds = "3", observed = tostring(w.clock - 200) },
+		["Alliance|ForeverPvP"] = { group = "ForeverPvP", faction = "Alliance", characters = 500, people = 500, guilds = 2, observed = w.clock - 200 },
+	}
+	w.ns.rdb.censusGlobal = {
+		["olympus global"] = { name = "Olympus Global", total = "200", online = "10", avg10 = "330", observed = tostring(w.clock), scope = "ForeverPvE" },
+		["olympus global bad"] = { name = "Olympus Global Bad", total = {}, online = 7, avg10 = 330, observed = w.clock, scope = "ForeverPvE" },
+	}
+	w.Fire("INIT")
+	local s = w.D.Summary()
+	eq(s.characters, 1000, "the valid retained snapshot is still displayed")
+	eq(s.live.characters, 950, "valid direct and relayed rows are still counted")
+	eq(s.live.freshCharacters, 830)
+	eq(s.online, 50)
+	eq(s.seen[1].name, "Olympus Seen"); eq(s.seen[1].online, 6); eq(#s.seen, 1)
+	eq(w.D.Groups(s, w.clock).characters, 1500, "the other ruleset remains separate and is still counted globally")
+end)
+
 test("census scope: legacy relay-stamped mixed counts remain saved but cannot populate the local census or renew its snapshot", function()
 	local w = GroupWorld()
 	w.ns.group, w.ns.realm = "ForeverPvP", "CAMWOWUS1Realm8PvP"
@@ -436,6 +488,152 @@ test("census scope: scoped count snapshots reject another ruleset and legacy uns
 	eq(pve.D.Summary().characters, 640)
 	eq(pve.ns.rdb.censusGlobal["olympus foreign"].scope, "ForeverPvE")
 	eq(next(pve.ns.rdb.guilds), nil, "counts never become authority")
+end)
+
+test("census rebuilding: count accepted relay snapshot receipts once per current ruleset guild", function()
+	local w, relay = GroupWorld(), "Council-Realm"
+	w.ns.group, w.ns.IsMember = "ForeverPvE", function() return true end
+	w.ns.Church.IsLedgerRelay = function(name) return name == relay end
+	w.ns.Comm.loginAt = w.clock
+	local function Receive(sender, group, guild, observed)
+		return w.D.ReceiveGlobalCensus("CHANNEL", sender,
+			("CG~2~S~%d~%s~Alliance~%s,640,40,300,%d"):format(w.clock, group, guild, observed or w.clock))
+	end
+	eq(w.D.Rebuilding(), 0)
+	assert(Receive("First-Realm", "ForeverPvE", "Olympus Dawn"))
+	eq(w.D.Rebuilding(), 0, "one witness's unaccepted counts do not show as progress")
+	assert(not Receive(relay, "ForeverPvP", "Olympus PvP"))
+	eq(w.D.Rebuilding(), 0)
+	assert(Receive(relay, "ForeverPvE", "Olympus Dawn", w.clock - 60))
+	eq(w.D.Rebuilding(), 1, "new receipt of an older but countable observation")
+	w.ns.rdb.guilds["OLYMPUS DAWN"] = { t = w.clock, from = "CAMWOWUS1Realm1PvE" }
+	w.ns.rdb.guilds["Olympus Wrong Ruleset"] = { t = w.clock, from = "CAMWOWUS1Realm1PvP" }
+	eq(w.D.Rebuilding(), 1, "the same guild arriving by two paths only counts once")
+
+	w.Run()
+	w.clock = w.clock + 20
+	w.ns.Comm.loginAt = w.clock
+	eq(w.D.Rebuilding(), 0, "the last session's receipts stay out")
+	local fired = w.fires
+	assert(Receive(relay, "ForeverPvE", "Olympus Dawn", w.clock - 80))
+	eq(w.D.Rebuilding(), 1, "an identical accepted observation is still a first receipt")
+	w.Run()
+	eq(w.fires, fired + 1, "the first receipt refreshes the visible count")
+	assert(Receive(relay, "ForeverPvE", "Olympus Dawn", w.clock - 80))
+	w.Run()
+	eq(w.fires, fired + 1, "repeat receipts do not schedule another redraw")
+end)
+
+test("census origin labels: pinned Forever aliases count once and mixed rulesets stay out", function()
+	local w, council = GroupWorld(), "Council-Realm"
+	w.ns.group = "ForeverRP"
+	w.ns.Church.IsLedgerRelay = function(name) return name == council end
+	w.ns.GroupRealms = function(group) return group == "ForeverPvE" and { "CAMWOWEU1Realm1PvE" } or {} end
+	w.ns.RealmInfo = function(realm) return realm == "CAMWOWEU1Realm1PvE" and { kind = "pve", region = "EU" } or nil end
+	local function Hear(sender, group, characters, at)
+		w.D.ReceiveGroupCensus("CHANNEL", sender, Say(w, { { group, "Alliance", characters, characters, 3, at or w.clock } }))
+	end
+	Hear(council, "ForeverPvE+CAMWOWUS1Realm3PvE", 600, w.clock - 10)
+	Hear(council, "ForeverPvP+CAMWOWAU1Realm1PvP", 500)
+	Hear(council, "ForeverPvE", 700)
+	for _, group in ipairs({ "ForeverPvE+ForeverPvP", "ForeverPvP+CAMWOWEU1Realm1PvE", "ForeverPvE+AnotherWorld" }) do
+		Hear(council, group, 999)
+	end
+	-- A compound alias already saved by an earlier client still counts with the canonical row.
+	local saved = w.ns.db.groupCensus
+	saved["Alliance|ForeverPvE+ForeverPvE"] = { group = "ForeverPvE+ForeverPvE", faction = "Alliance",
+		characters = 600, people = 600, guilds = 3, observed = w.clock - 5, src = "relay" }
+	assert(saved["Alliance|ForeverPvP"], "an alias can establish the pinned canonical origin")
+	Hear("First-Realm", "AnotherWorld+NeighborRealm", 120)
+	Hear("Second-Realm", "AnotherWorld+NeighborRealm", 120)
+	local groups = w.D.Groups()
+	eq(groups.characters, 1320)
+	eq(#groups.rows, 3)
+	eq(groups.kinds.pve.characters, 700); eq(groups.kinds.pvp.characters, 500)
+	eq(groups.kinds["?"].characters, 120, "unknown non-Forever groups remain interoperable")
+	eq(groups.regions.EU, nil, "the known realm region does not label an entire Forever population")
+	eq(groups.regions["?"].characters, 1320)
+end)
+
+test("census overflow: scoped snapshots cover row and byte overflow at the existing receiver cadences", function()
+	for _, byteLimited in ipairs({ false, true }) do
+		local source, tree, mesh, foreign = GroupWorld("Trusted-Realm"), GroupWorld(), GroupWorld(), GroupWorld()
+		for _, w in ipairs({ source, tree, mesh, foreign }) do
+			w.ns.group = "ForeverPvP"
+			w.ns.Church.IsLedgerRelay = function(name) return name == source.ns.me end
+		end
+		foreign.ns.group = "ForeverPvE"
+		local D, start, guilds = source.D, source.clock, {}
+		local count = byteLimited and 45 or 245
+		if byteLimited then D.GLOBAL_SEND_BYTES = 1000 end
+		for i = 1, count do
+			local name = ("Olympus Unit %03d%s"):format(i, byteLimited and ("X"):rep(i % 8) or "")
+			guilds[i] = name
+			source.ns.rdb.guilds[name] = { total = 100, online = 10, avgLevel = 30, t = start - i, st = start - i,
+				from = "CAMWOWUS1Realm8PvP" }
+		end
+		local maxBytes = D.GLOBAL_SEND_BYTES
+		if not byteLimited then
+			local header = ("CG~2~S~%d~ForeverPvP~Alliance~"):format(start)
+			local row = ("%s,100,10,300,%d;"):format(guilds[1], start - 1)
+			maxBytes = #header + D.GLOBAL_MAX_ROWS * #row - 1
+		end
+		for tick = 0, 39 do
+			source.clock = start + tick * 120
+			local wire = assert(D.GlobalCensusPayload())
+			assert(#wire <= maxBytes, "overflow keeps the original transfer budget")
+			assert(wire:find(guilds[1] .. ",", 1, true), "the freshest guild always has space")
+			assert(not foreign.D.ReceiveGlobalCensus("CHANNEL", source.ns.me, wire))
+			for _, target in ipairs({ { tree, 2 }, { mesh, 3 } }) do
+				local w, every = target[1], target[2]
+				w.clock = source.clock
+				if tick % every == 0 then assert(w.D.ReceiveGlobalCensus("CHANNEL", source.ns.me, wire)) end
+			end
+		end
+		for _, w in ipairs({ tree, mesh }) do
+			eq(w.D.Summary().characters, 100 * count, "overflow guilds arrive without erasing other rows")
+			eq(next(w.ns.rdb.guilds), nil, "counts grant no guild authority")
+			for i, name in ipairs(guilds) do
+				local row = w.ns.rdb.censusGlobal[name:lower()]
+				eq(row.observed, start - i, "relay receipt never renews the observation")
+			end
+		end
+	end
+end)
+
+test("census observed freshness: a late direct report ages like its relayed copy", function()
+	local direct, relayed = GroupWorld("Trusted-Realm"), GroupWorld()
+	local realm = "CAMWOWUS1Realm8PvP"
+	for _, w in ipairs({ direct, relayed }) do
+		w.ns.group, w.ns.realm = "ForeverPvP", realm
+		w.ns.Church.IsLedgerRelay = function(name) return name == direct.ns.me end
+	end
+	local D, at = direct.D, direct.clock
+	local function Receive(guild, sender, stamp)
+		local r = assert(Decode({ guild = guild, total = 100, online = 10, zones = { m1453 = 10 }, from = realm, st = stamp }))
+		assert(D.Receive(r, sender .. "-" .. realm))
+		eq(r.t, at, "receive time remains available separately")
+		return r
+	end
+	Receive("Olympus Old", "Older", at - D.FRESH - 1)
+	Receive("Olympus Ancient", "Ancient", at - D.TOTAL_KEEP - 1)
+	assert(relayed.D.ReceiveGlobalCensus("CHANNEL", direct.ns.me, assert(D.GlobalCensusPayload())))
+	for _, w in ipairs({ direct, relayed }) do
+		local s = w.D.Summary()
+		eq(s.characters, 100, "a day-old observation is no longer counted even if just received")
+		eq(s.online, 0, "a late observation does not make old online figures live")
+		eq(s.fresh, 0)
+		eq(s.newest, 0)
+		eq(next(s.zones), nil)
+		eq(s.guilds[1].fresh, false)
+	end
+	Receive("Olympus Legacy", "Legacy", nil)
+	Receive("Olympus Ahead", "Ahead", at + 1200)
+	local s = D.Summary()
+	eq(s.characters, 300)
+	eq(s.online, 20, "an unstamped report still uses receipt time")
+	eq(s.fresh, 2)
+	eq(s.newest, at, "a future stamp cannot extend the receipt-based age")
 end)
 
 test("census scope: explicit foreign observation and guild home never enter local summary, votes or outbound counts", function()
@@ -514,6 +712,54 @@ test("census scope: a validated scoped snapshot restores an empty login immediat
 	late.clock = source.clock
 	assert(late.D.ReceiveGlobalCensus("CHANNEL", source.ns.me, assert(source.D.GlobalCensusPayload())))
 	eq(late.D.Summary().characters, 900); eq(late.D.Summary().snapshot, nil)
+end)
+
+test("census Top Levels: fresh same-scope player details survive a newer count-only snapshot", function()
+	local w, realm = GroupWorld(), "CAMWOWUS1Realm8PvP"
+	local relay = "Council-" .. realm
+	w.ns.group, w.ns.realm = "ForeverPvP", realm
+	w.ns.Church.IsLedgerRelay = function(name) return name == relay end
+	assert(loadfile(ROOT .. "Olympus/Views.lua"))("Olympus", w.ns)
+	local function Detail(name, at, home)
+		return { total = 90, online = 10, t = w.clock - 10, st = at, from = home, realm = home,
+			top = { { name = name, level = 40, class = "WA" } } }
+	end
+	local guilds = w.ns.rdb.guilds
+	guilds["OLYMPUS DAWN"] = Detail("Fresh Scout", w.clock - 10, realm)
+	guilds["Olympus Dusk"] = Detail("Stale Scout", w.clock - w.D.FRESH - 1, realm)
+	guilds["Olympus Noon"] = Detail("Foreign Scout", w.clock - 10, "CAMWOWUS1Realm8PvE")
+	local rows = {}
+	for i, guild in ipairs({ "Olympus Dawn", "Olympus Dusk", "Olympus Noon" }) do
+		rows[i] = ("%s,100,10,400,%d"):format(guild, w.clock)
+	end
+	local wire = ("CG~2~S~%d~ForeverPvP~Alliance~%s"):format(w.clock, table.concat(rows, ";"))
+	assert(w.D.ReceiveGlobalCensus("CHANNEL", relay, wire))
+	local s = w.D.Summary()
+	eq(s.characters, 300, "newer accepted counts still win")
+	for _, e in ipairs(s.guilds) do eq(e.g.top, nil, "the count-only row acquires no rank authority") end
+	local function Read()
+		local players, note = {}, nil
+		local label = w.ns.L.LEVEL_RACE_REPORTS_PENDING
+		local expected = label and label:format(1, 3)
+		for _, line in ipairs(w.ns.Views.RealmLines()) do
+			if line.key then players[line.key] = true end
+			if expected and line.text and line.text:find(expected, 1, true) then note = line end
+		end
+		return players, note
+	end
+	local players, note = Read()
+	assert(players["Fresh Scout"], "a fresh in-scope top player survives the count-only relay update")
+	eq(players["Stale Scout"], nil, "receipt time cannot make an old player report fresh")
+	eq(players["Foreign Scout"], nil, "another ruleset cannot fill the missing detail")
+	assert(note and note.tooltip, "players are told that only one guild has recent level data")
+	local explanation
+	note.tooltip({ AddLine = function(_, line) explanation = line end })
+	assert(explanation and explanation:find("/oly bug", 1, true), "the tooltip includes the reporting command")
+	guilds["Olympus Dusk"] = Detail("New Scout", w.clock - 5, realm)
+	guilds["Olympus Noon"] = Detail("Local Scout", w.clock - 5, realm)
+	players, note = Read()
+	assert(players["New Scout"] and players["Local Scout"], "fresh details fill the gaps")
+	eq(note, nil, "complete coverage removes the pending label")
 end)
 
 -- 1.5.4 (the dev's account store of 2026-11-07, replayed through 1.5.3: in 45 minutes his PvE client
@@ -669,6 +915,32 @@ test("census continuity: older counted guilds cannot fill a gap in newer coverag
 	eq(s.snapshot.guilds, 2); eq(s.snapshot.observed, w.clock - 600)
 	eq(s.live.characters, 750); eq(s.live.guilds, 2, "live coverage still includes every counted guild")
 	eq(s.online, 20)
+end)
+
+test("census continuity: an incomplete saved view also carries current partial totals from original observations", function()
+	local w = GroupWorld()
+	local at = w.clock
+	w.ns.rdb.guilds["Olympus Dawn"] = { total = 640, online = 40, t = at - 600 }
+	w.ns.rdb.guilds["Olympus Dusk"] = { total = 360, online = 30, t = at - 300 }
+	assert(w.D.RecordGroupCensus())
+	w.ns.Comm.loginAt = at
+	w.clock = at + w.D.REBUILD_FOR + 1
+	w.ns.rdb.guilds["Olympus Dawn"] = { total = 630, online = 20, t = w.clock }
+	w.ns.rdb.guilds["Olympus Dusk"] = nil
+	w.ns.rdb.guilds["Olympus Ash"] = { total = 120, online = 5, t = w.clock, st = at - w.D.FRESH }
+	local s = w.D.Summary()
+	eq(s.characters, 1000, "saved population stays visible while coverage is incomplete")
+	eq(s.snapshot.observed, at - 600)
+	eq(s.live.guilds, 2, "the last-day partial sum still includes the older guild")
+	eq(s.live.freshGuilds, 1, "receiving a stale report now does not make its observation fresh")
+	eq(s.live.freshCharacters, 630)
+	w.ns.rdb.guilds["Olympus Dawn"].total = 620
+	s = w.D.Summary()
+	eq(s.characters, 1000); eq(s.live.freshCharacters, 620, "live movement appears before every guild is heard")
+	w.ns.rdb.guilds["Olympus Dusk"] = { total = 350, online = 10, t = w.clock }
+	s = w.D.Summary()
+	eq(s.snapshot, nil, "complete coverage releases the saved view")
+	eq(s.characters, 1090)
 end)
 
 test("census continuity: incoming origins and witnesses are bounded and retain no authority or private fields", function()

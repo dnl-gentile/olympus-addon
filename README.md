@@ -416,7 +416,9 @@ of `/oly status` (and of `/oly bug`) says what your addon knows of him: online a
 his realm, his layer and his crown, and how long ago each was heard.
 
 **On WoW: Forever (1.5.4, experimental).** Forever splits a realm group into sub-realms, and a
-group invite alone does not move you between them. A guildmate's layer on another sub-realm is
+group invite alone does not move you between them. The request goes to your own guild. A layer
+can be listed even when no guildmate there has enabled location sharing and layer help, or can
+invite you at that moment. A guildmate's layer on another sub-realm is
 listed apart from a same-numbered layer on yours, with that server's label (`[Realm5]`), and
 asking for it works the same up to the group: once you are in the helper's group, Olympus tells
 you to log out to the character screen and back in (the others' portraits show dark blue until
@@ -2259,8 +2261,10 @@ explicit consent and recipient limits.
 
 ### Olympus Link: your Discord role (its own addon since 1.4.0)
 Olympus Link lets players in game prove to the Olympus bot on Discord that a character is yours,
-so the bot gives you your role. It is not part of this addon: since 1.4.0 it is its own addon,
-**Olympus_Link**, kept and released separately, and it is not open yet. Without it,
+so the bot gives you your role: an online High Councillor's addon confirms your character, the
+page hands that proof to the bot, and the role follows. It is not part of this addon: since 1.4.0
+it is its own addon, **Olympus_Link**, a separate download that goes in AddOns next to Olympus.
+It is not open to the army yet. Without it,
 `/oly discord` says it is not installed and nothing of it runs; everything else in Olympus works
 the same. Installed next to Olympus, it loads by itself at login (see
 [Integrating with Olympus](#integrating-with-olympus)), `/oly discord` and its line in `/oly help`
@@ -2480,7 +2484,7 @@ or remove it in your addon app. Your settings stay in `WTF` until you delete the
 
 `/oly site export` (or the compatibility alias `/olysite export`) prepares a fresh, masked
 aggregate for the current character's own exact Alliance
-`Olympus` or `Olympus I-X` guild, then `/reload` writes only the dedicated
+`Olympus`, `OLYMPUS PRIME`, or `Olympus I-X` guild, then `/reload` writes only the dedicated
 `OlympusSiteAggregate.lua` file. Choose that file on the website while the game is still open:
 the next logout or `/reload` empties it, so an older export never lingers. It never uploads
 automatically. Small counts and remainders are

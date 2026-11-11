@@ -891,6 +891,31 @@ local function Held(c, fn)
 	c.ns.Comm.QueueSize = size
 	if not ok then error(err, 0) end
 end
+test("records: two validated witnesses can arrive before the record body", function()
+	local w = Quiet()
+	local _, h1, h2, body, day, hash = Witnessing(w)
+	local late = w:Player(N.bettor1)
+	local stale = w:Player(STALE[3] .. " Tarrow")
+	stale.ns.Records.WITNESS_FRESH = 8
+	for _, holder in ipairs({ h1, h2 }) do assert(Do(w, holder, "SendKey")) end
+	w:Run(3)
+	for _, holder in ipairs({ h1, h2 }) do assert(Do(w, holder, "SendWitness", "b", body, day, true)) end
+	w:Run(5)
+	eq(Do(w, late, "WitnessesSince", "b", hash, 0), 2, "both witnesses were verified before the body arrived")
+	eq(Do(w, late, "Pending", "b"), 0)
+	eq(Do(w, late, "Count", "b"), 0, "a witness alone cannot count a record")
+	Take(w, late, body)
+	eq(Do(w, late, "Count", "b"), 1, "the body is admitted after verifying the players' signatures")
+	eq(Do(w, late, "Pending", "b"), 0)
+	eq(#w:As(late, late.ns.FarkleTable.Best, "L"), 2)
+	eq(Do(w, stale, "WitnessesSince", "b", hash, 0), 2, "the other client also received both validations")
+	w:Run(stale.ns.Records.WITNESS_FRESH)
+	Take(w, stale, body)
+	eq(Do(w, stale, "Count", "b"), 0, "expired validations cannot establish the players' keys")
+	eq(Do(w, stale, "Pending", "b"), 1)
+	Errors(w)
+end)
+
 test("records: a holder whose validation waits on its low lane stays home once two others' validations of that record were heard since the ask", function()
 	local w = Quiet()
 	local c, h1, h2, body, day, hash = Witnessing(w)
@@ -1178,9 +1203,9 @@ test("records: a late client that opens a ranking view asks once for the holders
 	eq(Do(w, late, "Count", "b"), 0)
 	local opened = w.clock
 	eq(Do(w, late, "Discover"), true, "the first view of the session asks")
-	eq(Timers(w, late, "records discovery"), 1, "one retry armed")
 	w:Run(2)
 	eq(#RHs(w, late), 1, "one ask")
+	eq(Timers(w, late, "records discovery"), 1, "one retry armed after the ask leaves")
 	assert(RHs(w, late)[1].msg:match("^RH~L1~1~bcd~[0-9a-z]+%.1$"), "every unheard type and the first bounded attempt")
 	eq(Do(w, late, "Discover"), false, "a second view asks nothing")
 	local bound = DiscoveryBound(R, w:As(c, c.ns.Records.DigestWindow))
@@ -1427,6 +1452,28 @@ test("1.5.2 records: a temporarily refused discovery send does not consume the f
 	eq(Do(w, c, "Discover"), true, "reopening can try once transport recovers")
 	w:Run(2)
 	eq(#RHs(w, c), 1)
+	Errors(w)
+end)
+
+test("records: a discovery accepted by the queue but dropped can be retried on reopening", function()
+	local w, _, _, asker = Quiet()
+	local send = asker.ns.Arena.Send
+	local finish
+	asker.ns.Arena.Send = function(kind, mode, body, opts)
+		if kind ~= "RH" then return send(kind, mode, body, opts) end
+		finish = opts.done
+		return true
+	end
+	eq(Do(w, asker, "Discover"), true)
+	eq(Do(w, asker, "Discover"), false, "one in flight")
+	eq(Timers(w, asker, "records discovery"), 0, "admission does not arm a retry")
+	assert(type(finish) == "function", "transport reports completion")
+	w:As(asker, finish, false, "dropped")
+	asker.ns.Arena.Send = send
+	eq(Do(w, asker, "Discover"), true, "reopening retries a dropped ask")
+	w:Run(2)
+	eq(#RHs(w, asker), 1)
+	assert(RHs(w, asker)[1].msg:match("%.1$"), "only the completed send consumes the first attempt")
 	Errors(w)
 end)
 

@@ -4600,8 +4600,13 @@ end
 ns.On("DATA_CHANGED", function()
 	if frame and frame.subEntry then
 		local entry, available = frame.subEntry, false
-		if entry.kind == "moderation" or entry.kind == "report" or entry.kind == "line" then available = #ChatWindow.SubMenuOptions(entry) > 0 end
-		for _, current in ipairs(ChatWindow.SubtabEntries()) do if current.kind == entry.kind then available = true; break end end
+		if entry.kind == "groups" then
+			available = frame.groups:IsShown()
+		elseif entry.kind == "moderation" or entry.kind == "report" or entry.kind == "line" then
+			available = #ChatWindow.SubMenuOptions(entry) > 0
+		else
+			for _, current in ipairs(ChatWindow.SubtabEntries()) do if current.kind == entry.kind then available = true; break end end
+		end
 		if not available or frame.subSignature ~= ChatWindow.SubMenuSignature(entry, ChatWindow.SubMenuOptions(entry)) then ChatWindow.CloseSubMenu() end
 	end
 	if Shown() then dataPending = true end

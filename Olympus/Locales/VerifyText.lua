@@ -3,6 +3,22 @@ local L = ns.L
 -- Guild verification (Verify.lua, /oly verify): a guild master verifies his guild once with a
 -- verifier (the King, a High Councillor or the addon's author), who approves it in The Watch.
 L.VERIFY_TITLE = "Guild verification"
+L.VERIFY_SELF_TITLE = "My Discord verification"
+L.VERIFY_SELF_GUIDE = "Get your personal code from Discord /verify. Use Discord /verify-status for current access and /olv status for local delivery. Delivery does not confirm verification or grant a role."
+L.VERIFY_SELF_UNAVAILABLE = "Install or update Olympus Verify and reload to submit a code here."
+L.VERIFY_SELF_STATUS_UNAVAILABLE = "Delivery status is unavailable."
+L.VERIFY_SELF_ENTER = "Enter code"
+L.VERIFY_SELF_SEND = "Submit code"
+L.VERIFY_SELF_PROMPT = "Paste the personal code you received from Discord /verify."
+L.VERIFY_SELF_QUEUED = "Local request created. Delivery and Discord access are not confirmed."
+L.VERIFY_SELF_REFUSED = "No local request was created. Check your code and /olv status before trying again."
+L.VERIFY_SELF_TOTAL = "Local requests: %d"
+L.VERIFY_SELF_TRUNCATED = "Showing delivery states for %d of %d requests."
+L.VERIFY_SELF_PENDING = "Pending"
+L.VERIFY_SELF_DELIVERED = "Delivery acknowledged"
+L.VERIFY_SELF_REJECTED = "Rejected"
+L.VERIFY_SELF_UNSUPPORTED = "Delivery callback unavailable"
+L.VERIFY_SELF_UNKNOWN = "Unconfirmed"
 -- Who a guild master contacts to verify, as the notice says it. A text, never a name in the code.
 L.VERIFY_CONTACT = "a member of the High Council, or the Olympus website team"
 -- A character the Whisper button writes to first ("": none, the verifiers online instead). A
@@ -87,6 +103,22 @@ L.HELP_VERIFY = "  /oly verify - your guild's verification (guild masters verify
 
 if GetLocale and GetLocale() == "ptBR" then
 	L.VERIFY_TITLE = "Verificação da guilda"
+	L.VERIFY_SELF_TITLE = "Minha verificação do Discord"
+	L.VERIFY_SELF_GUIDE = "Peça seu código pessoal no Discord com /verify. Veja seu acesso atual no Discord com /verify-status e a entrega local com /olv status. A entrega não confirma a verificação nem concede cargos."
+	L.VERIFY_SELF_UNAVAILABLE = "Instale ou atualize o Olympus Verify e recarregue a interface para enviar um código aqui."
+	L.VERIFY_SELF_STATUS_UNAVAILABLE = "O status da entrega está indisponível."
+	L.VERIFY_SELF_ENTER = "Inserir código"
+	L.VERIFY_SELF_SEND = "Enviar código"
+	L.VERIFY_SELF_PROMPT = "Cole o código pessoal que você recebeu no Discord com /verify."
+	L.VERIFY_SELF_QUEUED = "Pedido criado neste cliente. A entrega e o acesso ao Discord ainda não estão confirmados."
+	L.VERIFY_SELF_REFUSED = "Nenhum pedido local foi criado. Confira o código e /olv status antes de tentar de novo."
+	L.VERIFY_SELF_TOTAL = "Pedidos locais: %d"
+	L.VERIFY_SELF_TRUNCATED = "Mostrando a entrega de %d de %d pedidos."
+	L.VERIFY_SELF_PENDING = "Pendente"
+	L.VERIFY_SELF_DELIVERED = "Entrega reconhecida"
+	L.VERIFY_SELF_REJECTED = "Recusado"
+	L.VERIFY_SELF_UNSUPPORTED = "Retorno de entrega indisponível"
+	L.VERIFY_SELF_UNKNOWN = "Sem confirmação"
 	L.VERIFY_CONTACT = "um membro do High Council, ou a equipe do site do Olympus"
 	L.VERIFY_WHISPER_TO = "" -- (o mesmo personagem nas duas línguas: vazio, os verificadores online)
 	L.VERIFY_NOTICE_MASTER_GRACE = "Verificação do GM pendente: a sua guilda <%s> ainda não foi verificada pelo Olympus.\n\nConclua a verificação da sua guilda em %s. Fale com um verificador seguindo os passos abaixo.\n\nComo verificar:\n1. Sussurre para %s. O botão Sussurrar abaixo escreve para você; Pedir ao High Council pergunta a quem está online.\n2. Diga a sua guilda, o seu personagem e este código: %s\n3. Quando aprovarem, a sua guilda fica verificada em todos os clientes do Olympus. Mais nada a fazer."

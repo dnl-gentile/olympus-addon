@@ -167,10 +167,39 @@ ns.On("LOGIN", function() ns.RegisterEvent("PLAYER_LOGOUT", function()
 	end
 end) end)
 
+local function SavedTime(value)
+	local n = tonumber(value)
+	if n and n > 0 and n < math.huge then return n end
+end
+
+local function SavedCount(value)
+	if value == nil then return 0 end
+	local n = tonumber(value)
+	if n and n >= 0 and n < math.huge and n == math.floor(n) then return n end
+end
+
+-- Read old numeric strings as numbers and discard a row whose census data cannot be read.
+-- The next roster scan or peer report can replace it without clearing any other saved state.
+local function CleanSavedReport(name, g, now)
+	if type(name) ~= "string" or type(g) ~= "table" then return false end
+	local at, total, online = SavedTime(g.t), SavedCount(g.total), SavedCount(g.online)
+	if not at or now - at > Data.KEEP or not total or not online then return false end
+	if g.zones ~= nil then
+		if type(g.zones) ~= "table" then return false end
+		for key, count in pairs(g.zones) do
+			local n = SavedCount(count)
+			if type(key) ~= "string" or not n then return false end
+			g.zones[key] = n
+		end
+	end
+	g.t, g.st, g.total, g.online = at, SavedTime(g.st), total, online
+	return true
+end
+
 ns.On("INIT", function()
 	local now = ns.Now()
 	for name, g in pairs(ns.rdb.guilds) do
-		if type(g) ~= "table" or now - (g.t or 0) > Data.KEEP then
+		if not CleanSavedReport(name, g, now) then
 			ns.rdb.guilds[name] = nil
 		elseif ns.Codec.Dirty(name) or ns.Codec.Dirty(g) then
 			-- Kept by versions before 0.9.2, which let escape codes (colours, textures, links)
@@ -211,7 +240,10 @@ ns.On("INIT", function()
 	DropDeadVotes(now) -- (1.2.3)
 	local seen = Data.Seen()
 	for name, e in pairs(seen) do
-		if type(e) ~= "table" or now - (e.t or 0) > Data.KEEP then seen[name] = nil end
+		local at, online
+		if type(e) == "table" then at, online = SavedTime(e.t), SavedCount(e.online) end
+		if type(name) ~= "string" or not at or now - at > Data.KEEP or not online then seen[name] = nil
+		else e.t, e.online = at, online end
 	end
 	-- Sightings kept before v0.7.11 may carry a "-Realm" of our census group on the guild's
 	-- name (Who.GuildName): they go under its plain name, the newest one kept, or the guild
@@ -234,7 +266,7 @@ end)
 -- totals, and must never pass for a report (the conflict and rank checks trust
 -- ns.rdb.guilds). The census lists the guilds seen that nobody reports, in grey.
 function Data.Seen()
-	ns.rdb.seen = ns.rdb.seen or {}
+	ns.rdb.seen = type(ns.rdb.seen) == "table" and ns.rdb.seen or {}
 	return ns.rdb.seen
 end
 
@@ -314,15 +346,16 @@ local senderGuild = {} -- "Name-Realm" -> { guild, t }, or the guild alone once 
 
 -- One guild per sender, shared by reports and chat: a name that speaks for one guild can't
 -- speak for another. A player who really moved guilds speaks again after CLAIM_TTL quiet.
-function Data.ClaimGuild(sender, guild)
+-- A read-only check applies the same expiry and conflict rules without claiming or renewing it.
+function Data.ClaimGuild(sender, guild, readOnly)
 	local who, now = ns.FullName(sender), ns.Now()
 	local c = senderGuild[who]
 	if type(c) ~= "table" then
-		senderGuild[who] = { guild = guild, t = now }
+		if not readOnly then senderGuild[who] = { guild = guild, t = now } end
 		return true
 	end
 	if c.guild:lower() ~= guild:lower() and now - c.t < Data.CLAIM_TTL then return false end
-	c.guild, c.t = guild, now -- (1.2.3: his claim's own table, not a new one each report or line)
+	if not readOnly then c.guild, c.t = guild, now end -- keep his claim's own table
 	return true
 end
 
@@ -480,20 +513,6 @@ Data.CROWN_AFTER = 200
 -- how many guilds were heard since. A line and nothing else: no /who (the game takes it from a
 -- click alone), no window or popup of any kind.
 Data.REBUILD_FOR = 200
-
--- The guilds heard since login while the census is being rebuilt (0 or more), nil once it is
--- (or outside an Olympus guild, or before login).
-function Data.Rebuilding(now)
-	local login = ns.Comm and ns.Comm.loginAt
-	if not login or not ns.IsMember() then return nil end
-	now = now or ns.Now()
-	if now - login >= Data.REBUILD_FOR then return nil end
-	local heard = 0
-	for _, g in pairs(ns.rdb and ns.rdb.guilds or {}) do
-		if type(g) == "table" and not g.mine and (g.t or 0) >= login then heard = heard + 1 end
-	end
-	return heard
-end
 
 -- At login: the window drawn once more when the rebuild is over, so its line goes. That redraw
 -- is all it does (UI.RefreshSoon searches nothing, and does nothing while the window is closed).
@@ -940,6 +959,9 @@ Data.GLOBAL_MAX_BYTES = ns.Codec.CHUNK * ns.Codec.MAX_CHUNKS
 -- left. One taken may still be the whole GLOBAL_MAX_BYTES (an older relay's).
 Data.GLOBAL_SEND_BYTES = Data.GLOBAL_MAX_BYTES - 64
 Data.GLOBAL_MAX_ROWS = 180
+-- Hold an overflow page across several sends while coverage is steady. The tree and
+-- cross-relay mesh deliver on slower cadences than the local 120-second broadcast.
+Data.GLOBAL_ROTATE_EVERY = 7 * 60
 -- 1.4.0, the witnesses (the author's rule of 10-20: one person is one witness; a count is confirmed
 -- by a moderator alone, or by two or more people agreeing: observed within half an hour of each
 -- other, sizes within max(5, 5%)). A trusted relay's row (above) stands alone; any other member's
@@ -957,11 +979,14 @@ Data.MEMBER_ANSWER_AFTER, Data.MEMBER_ANSWER_SPREAD, Data.MEMBER_ANSWERS = 12, 6
 local globalLastSent, globalLastHeard, globalAnswerPending = 0, 0, false
 local answersHeard = {} -- { t, trusted } of the claims and snapshots heard, the last few minutes
 
+local function ScopedRealm(realm)
+	return realm:match("^Forever%a+$") or (ns.ForeverFamily and ns.ForeverFamily(realm))
+end
 local function ScopedGroup(group)
 	if type(group) ~= "string" then return nil end
 	local family
 	for realm in group:gmatch("[^+]+") do
-		local f = realm:match("^Forever%a+$") or (ns.ForeverFamily and ns.ForeverFamily(realm))
+		local f = ScopedRealm(realm)
 		if not f or (family and family ~= f) then return nil end
 		family = f
 	end
@@ -985,7 +1010,7 @@ function Data.MigrateCensusScope()
 				for key, e in pairs(type(R.censusWitness) == "table" and R.censusWitness or {}) do
 					witnesses[key] = e
 				end
-				if next(legacy) or next(witnesses) or next(R.censusForeign or {}) then
+				if next(legacy) or next(witnesses) or (type(R.censusForeign) == "table" and next(R.censusForeign)) then
 					R.censusUnscoped = { global = legacy, witnesses = witnesses, snapshots = {}, details = {} }
 					R.censusWitness = {}
 					for key, e in pairs(type(ns.db.groupCensus) == "table" and ns.db.groupCensus or {}) do
@@ -1030,6 +1055,34 @@ local function GlobalGuildField(name)
 	if ns.Codec.LongGuild(name) or not ns.IsFederation(name) then return nil end
 	return name
 end
+
+-- Guilds heard since login, deduplicated across roster reports and accepted relay counts.
+function Data.Rebuilding(now)
+	local login = ns.Comm and ns.Comm.loginAt
+	if not login or not ns.IsMember() then return nil end
+	now = now or ns.Now()
+	if now - login >= Data.REBUILD_FOR then return nil end
+	local seen, count = {}, 0
+	local own = (GetGuildInfo("player") or ""):lower()
+	local function Add(name, received, observed)
+		if type(name) ~= "string" or (tonumber(received) or 0) < login
+			or now - observed > Data.TOTAL_KEEP or NetOff(name) then return end
+		local key = name:lower()
+		if key == own or seen[key] then return end
+		seen[key], count = true, count + 1
+	end
+	for name, g in pairs(ns.rdb and ns.rdb.guilds or {}) do
+		if LocalReport(g) and not g.mine then Add(name, g.t, ObservationTime(g)) end
+	end
+	local scoped = ScopedGroup(ns.group)
+	for _, g in pairs(ns.rdb and ns.rdb.censusGlobal or {}) do
+		if type(g) == "table" and (not scoped or g.scope == ns.group) and g.by ~= ns.me then
+			Add(g.name, g.heard, tonumber(g.observed) or 0)
+		end
+	end
+	return count
+end
+
 local function GlobalNumber(v, low, high)
 	local n = tonumber(v)
 	if not n or n ~= math.floor(n) or n < low or n > high then return nil end
@@ -1127,7 +1180,11 @@ local function GlobalTake(name, total, online, avg10, observed, by, heardAt, wit
 	if type(old) == "table" and (tonumber(old.observed) or 0) > row.observed then return false end
 	store[key] = { name = row.name, total = row.total, online = row.online, avg10 = row.avg10,
 		observed = row.observed, by = ns.FullName(by), heard = heardAt or now, w = witnesses, scope = ns.group, rg = rg or nil }
-	return old == nil or old.total ~= row.total or old.online ~= row.online or old.avg10 ~= row.avg10 or old.observed ~= row.observed
+	if old == nil or old.total ~= row.total or old.online ~= row.online or old.avg10 ~= row.avg10 or old.observed ~= row.observed then return true end
+	-- Even the same observation advances the startup status on its first receipt this login.
+	local login = ns.Comm and ns.Comm.loginAt
+	return login ~= nil and now - login < Data.REBUILD_FOR and (tonumber(old.heard) or 0) < login
+		and now - row.observed <= Data.TOTAL_KEEP and not OwnWord(by)
 end
 
 -- 1.4.0, the witnesses (see Data.WITNESS_WINDOW above). ns.rdb.censusWitness[guild lower] =
@@ -1324,19 +1381,70 @@ function Data.GlobalDigest()
 	return n, newest
 end
 
--- One bounded chunked snapshot.  The freshest rows win the bound; with the current army the
--- complete snapshot is well below it.  A later ask repeats it, so queue pressure loses no state.
+local function GlobalWireRow(e)
+	return ("%s,%d,%d,%d,%d"):format(e.name, e.total, e.online, e.avg10, e.observed)
+end
+
+-- A CG receiver merges rows; an omitted guild is never a deletion. In an overflowing Forever
+-- census, keep the newest rows at the front and give the other countable guilds a turn. Use the
+-- original payload's actual row and byte counts, so this does not buy coverage with extra traffic.
+local function RotateGlobalRows(rows, baseline, budget, now)
+	local wire, largest = {}, 0
+	for i, e in ipairs(rows) do
+		if now - e.observed > Data.TOTAL_KEEP then break end
+		wire[i] = baseline[i] or GlobalWireRow(e)
+		largest = math.max(largest, #wire[i] + 1)
+	end
+	if largest > budget then return baseline end
+
+	local out, included, room = {}, {}, budget
+	local function Add(i)
+		local cost = #wire[i] + 1
+		if included[i] or #out == #baseline or cost > room then return end
+		out[#out + 1], included[i], room = wire[i], true, room - cost
+	end
+	for i = 1, math.max(1, math.floor(#baseline / 3)) do
+		if room - #wire[i] - 1 < largest then break end
+		Add(i)
+	end
+	local tail = {}
+	for i = #out + 1, #wire do tail[#tail + 1] = { i = i, key = rows[i].name:lower() } end
+	table.sort(tail, function(a, b) return a.key < b.key end)
+
+	-- Build pages using actual row sizes. A row with a long name starts the next page
+	-- instead of being stepped over whenever it cannot fit at the end of this one.
+	local pages, first, used = { 1 }, 1, 0
+	local capacity = #baseline - #out
+	for i, e in ipairs(tail) do
+		local cost = #wire[e.i] + 1
+		if i - first >= capacity or used + cost > room then
+			pages[#pages + 1], first, used = i, i, 0
+		end
+		used = used + cost
+	end
+	local page = math.floor(now / Data.GLOBAL_ROTATE_EVERY) % #pages + 1
+	for i = pages[page], (pages[page + 1] or #tail + 1) - 1 do Add(tail[i].i) end
+	-- Use any slack on the last page for newer guilds that have not yet been included.
+	for i = 1, #baseline do Add(i) end
+	return out
+end
+
 function Data.GlobalCensusPayload()
 	if not GlobalTrusted(ns.me) and not GlobalMember() then return nil end
-	local head, out = ("CG~%d~S~%d~"):format(Data.GLOBAL_PROTOCOL, math.floor(ns.Now())), {}
-	if ScopedGroup(ns.group) then head = ("CG~2~S~%d~%s~%s~"):format(math.floor(ns.Now()), ns.group, ns.faction or "Alliance") end
-	local bytes = #head
-	for _, e in ipairs(SendableRows()) do
+	local now, scoped = math.floor(ns.Now()), ScopedGroup(ns.group)
+	local head, out = ("CG~%d~S~%d~"):format(Data.GLOBAL_PROTOCOL, now), {}
+	if scoped then head = ("CG~2~S~%d~%s~%s~"):format(now, ns.group, ns.faction or "Alliance") end
+	local rows, bytes = SendableRows(), #head
+	for _, e in ipairs(rows) do
 		if #out >= Data.GLOBAL_MAX_ROWS then break end
-		local row = ("%s,%d,%d,%d,%d"):format(e.name, e.total, e.online, e.avg10, e.observed)
+		local row = GlobalWireRow(e)
 		local extra = #row + (#out > 0 and 1 or 0)
 		if bytes + extra > Data.GLOBAL_SEND_BYTES then break end
 		out[#out + 1], bytes = row, bytes + extra
+	end
+	local omitted = rows[#out + 1]
+	if scoped and #out > 1 and omitted and now - omitted.observed <= Data.TOTAL_KEEP then
+		out = RotateGlobalRows(rows, out, bytes - #head + 1, now)
 	end
 	return head .. table.concat(out, ";")
 end
@@ -1492,19 +1600,16 @@ end
 local function SummaryGuilds()
 	local out, direct, now = {}, {}, ns.Now()
 	for name, g in pairs(ns.rdb.guilds or {}) do
-		if LocalReport(g) then out[name], direct[name:lower()] = g, true end
+		if LocalReport(g) then out[name], direct[name:lower()] = g, name end
 	end
 	-- 1.3.3: our own guild comes straight from our roster, never from a relayed copy of another
 	-- member's report (as in Take), so Stats and the site export keep our own count.
 	local mine = GetGuildInfo("player")
 	mine = mine and mine:lower()
 	for _, e in ipairs(GlobalRows()) do
-		local key, current, currentName = e.name:lower(), out[e.name], out[e.name] and e.name or nil
-		if not current then
-			for name, g in pairs(out) do
-				if name:lower() == key then current, currentName = g, name; break end
-			end
-		end
+		local key = e.name:lower()
+		local currentName = out[e.name] and e.name or direct[key]
+		local current = out[currentName]
 		local ours = current and current.mine and key == mine
 		if not ours and (not current or ObservationTime(current) < e.observed) then
 			-- A normalized display row, intentionally missing leaders, ranks, zones and votes.
@@ -1518,24 +1623,37 @@ end
 
 function Data.Summary()
 	local guilds, direct, now = SummaryGuilds()
+	local localGuilds, scoped = ns.rdb.guilds or {}, ScopedGroup(ns.group)
 	local known = {}
 	for name in pairs(guilds) do known[name:lower()] = true end
 	local s = { total = 0, online = 0, fresh = 0, newest = 0, guilds = {}, zones = {}, zoneGuilds = {}, zoneList = {} }
 	for name, g in pairs(guilds) do
 		if ns.IsFederation(name) and not NetOff(name) then
-			local age = now - (g.t or 0)
+			-- A forwarded report can arrive long after its roster was read. Keep the
+			-- receipt for transport and votes, while Forever census totals use the read.
+			local received, stamp = tonumber(g.t) or 0, ObservationTime(g)
+			local observed = scoped and stamp > 0 and math.min(stamp, received) or received
+			local age = now - observed
 			local fresh = age <= Data.FRESH
 			-- A guild keeps its size from its last report when its reporters log off (the army
 			-- does not shrink every night), for a day; listed (grey) for a week; who is online
 			-- and where only count while fresh.
 			if age <= Data.KEEP then
-				s.guilds[#s.guilds + 1] = { name = name, g = g, fresh = fresh, counted = age <= Data.TOTAL_KEEP }
+				local row = { name = name, g = g, observed = observed, fresh = fresh, counted = age <= Data.TOTAL_KEEP }
+				-- A count-only snapshot can be newer than a valid roster detail report. Keep
+				-- recent player levels beside the display row, without attaching ranks to it.
+				local levels = g.relayed and localGuilds[direct[name:lower()]] or g
+				if fresh and type(levels.top) == "table" and #levels.top > 0 and now - ObservationTime(levels) <= Data.FRESH
+					and (levels.faction or "Alliance") == (ns.faction or "Alliance") then
+					row.topLevels, row.topRealm = levels.top, levels.realm
+				end
+				s.guilds[#s.guilds + 1] = row
 				if age <= Data.TOTAL_KEEP then s.total = s.total + math.min(g.total or 0, ns.Codec.GUILD_CAP) end
 			end
 			if fresh then
 				s.fresh = s.fresh + 1
 				s.online = s.online + (g.online or 0)
-				if (g.t or 0) > s.newest then s.newest = g.t end
+				if observed > s.newest then s.newest = observed end
 				for key, n in pairs(g.zones or {}) do
 					s.zones[key] = (s.zones[key] or 0) + n
 					s.zoneGuilds[key] = s.zoneGuilds[key] or {}
@@ -1590,8 +1708,8 @@ end
 -- a group's numbers are taken when two people's agree (the author's rule of 10-20), with a window and
 -- a share wider than the guilds' (GROUP_WINDOW, GROUP_SHARE): they looked at different moments. A
 -- lone witness is listed grey and stays out of the totals. The beta's realm groups never count on a
--- launch realm. A group's kind (PvP, PvE...) and region (NA, EU) come from the realm table the
--- author signs (ns.RealmInfo); unknown, it is listed as such.
+-- launch realm. A Forever origin names its ruleset and has no assigned region. Other realm groups
+-- get their ruleset and region from the author's signed realm table (ns.RealmInfo).
 ---------------------------------------------------------------------------
 Data.GROUP_PROTOCOL = 1
 Data.GROUP_KEEP = 7 * 24 * 60 * 60  -- listed this long after it was seen
@@ -1628,7 +1746,7 @@ local function GroupField(group)
 	-- voting or comparing with ours; mixed rulesets can never name one census origin.
 	local family, other
 	for realm in group:gmatch("[^+]+") do
-		local f = ns.ForeverFamily and ns.ForeverFamily(realm)
+		local f = ScopedRealm(realm)
 		if f then
 			if family and family ~= f then return nil end
 			family = f
@@ -1726,9 +1844,11 @@ local function PruneGroups(now)
 		local store = GroupStore(which)
 		local per = {}
 		for key, e in pairs(store) do
-			if type(e) ~= "table" or not GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed) then
+			local row = type(e) == "table" and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed)
+			if not row then
 				store[key] = nil
 			else
+				e.characters, e.people, e.guilds, e.observed = row.characters, row.people, row.guilds, row.observed
 				per[e.faction] = per[e.faction] or {}
 				table.insert(per[e.faction], { key = key, observed = e.observed })
 			end
@@ -1805,11 +1925,16 @@ function Data.ApplyGroupSnapshot(s, now)
 			and (not held or e.observed > held.observed) then held = e end
 	end
 	if not held then return end
-	local counted, refreshed = 0, 0
+	local counted, refreshed, freshGuilds, freshCharacters = 0, 0, 0, 0
 	for _, e in ipairs(s.guilds) do
 		if e.counted then
 			counted = counted + 1
-			if ObservationTime(e.g) >= held.observed then refreshed = refreshed + 1 end
+			local observed = ObservationTime(e.g)
+			if observed >= held.observed then refreshed = refreshed + 1 end
+			if now - observed <= Data.FRESH then
+				freshGuilds = freshGuilds + 1
+				freshCharacters = freshCharacters + math.min(e.g.total or 0, ns.Codec.GUILD_CAP)
+			end
 		end
 	end
 	-- Enough newer guild reports reconcile the saved coverage. An extra older row cannot veto them.
@@ -1819,7 +1944,10 @@ function Data.ApplyGroupSnapshot(s, now)
 		age = math.max(0, now - held.observed), unscoped = held.unscoped,
 		counted = not held.unscoped and now - held.observed <= Data.TOTAL_KEEP }
 	if not snapshot.counted then s.history = snapshot; return end
-	s.live = { characters = s.characters, people = s.total, alts = s.alts, guilds = counted }
+	-- The last-day sum can include old reports. Show the fresh subset separately so the retained
+	-- total cannot hide changes in the guilds that are still reporting.
+	s.live = { characters = s.characters, people = s.total, alts = s.alts, guilds = counted,
+		freshGuilds = freshGuilds, freshCharacters = freshCharacters }
 	s.snapshot = snapshot
 	s.characters, s.total, s.alts = held.characters, held.people, held.characters - held.people
 end
@@ -2063,22 +2191,22 @@ function Data.Groups(s, now)
 	local out = { rows = {}, characters = 0, people = 0, kinds = {}, regions = {}, factions = {} }
 	local seen = {}
 	local function Add(e, counted, ours)
-		-- (1.5.2) A plain Forever realm's row (a group learned before 1.4.6, kept on some client) is
-		-- its family's: one server, not "another" beside it; the newest of them is the one kept.
-		local first = type(e.group) == "string" and e.group:match("^[^+]+") or nil
-		local family = first and ns.ForeverFamily and ns.ForeverFamily(first) or nil
-		local groupName = family or e.group
+		-- A saved plain Forever realm or compound alias describes the same ruleset as the
+		-- canonical group. Keep just the newest row for that population.
+		local groupName = GroupField(e.group)
+		if not groupName then return end
 		local key = GroupKey(e.faction, groupName)
 		if seen[key] then return end
 		seen[key] = true
 		local kind, region = Data.GroupInfo(groupName)
+		local forever = ScopedRealm(groupName) ~= nil
 		-- A Forever family can contain homes in several regions. Its relay's or
 		-- first known realm's region does not locate the aggregate's population.
-		if ScopedGroup(groupName) then region = nil end
+		if forever then region = nil end
 		local row = { group = groupName, faction = e.faction, characters = e.characters, people = e.people, guilds = e.guilds,
 			observed = e.observed, src = e.src, w = e.w, kind = kind, region = region, counted = counted, ours = ours,
-			canonicalGroup = groupName, product = ScopedGroup(groupName) and "forever" or nil,
-			era = Data.IsBetaGroup(groupName) and "beta" or (ScopedGroup(groupName) and "launch" or nil),
+			canonicalGroup = groupName, product = forever and "forever" or nil,
+			era = Data.IsBetaGroup(groupName) and "beta" or (forever and "launch" or nil),
 			unscoped = e.unscoped, validation = e.unscoped and "origin-unknown" or (e.src == "heard" and "reported" or "accepted"),
 			fresh = now - e.observed <= Data.FRESH }
 		out.rows[#out.rows + 1] = row
@@ -2669,7 +2797,9 @@ ns.On("INIT", function()
 	Data.MigrateCensusScope()
 	local store, now = GlobalStore(), ns.Now()
 	for key, e in pairs(store) do
-		if type(e) ~= "table" or not GlobalGuildField(e.name) or now - (tonumber(e.observed) or 0) > Data.KEEP then store[key] = nil end
+		local row = type(key) == "string" and type(e) == "table" and GlobalRow(e.name, e.total, e.online, e.avg10, e.observed)
+		if not row then store[key] = nil
+		else e.total, e.online, e.avg10, e.observed = row.total, row.online, row.avg10, row.observed end
 	end
 	-- (1.4.0) The witnesses kept past a day, or of a guild no longer Olympus, go.
 	local ws = ns.rdb.censusWitness

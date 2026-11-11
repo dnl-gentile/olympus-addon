@@ -103,7 +103,9 @@ end
 function Views.PresenceNow(e, name, online, days)
 	if type(e) ~= "table" or e.name == GetGuildInfo("player") then return online, days, false end
 	if Views.SeenNow(e.name, name) then return true, 0, false end
-	if e.fresh == false and online then return nil, nil, true, type(e.g) == "table" and tonumber(e.g.t) or nil end
+	if e.fresh == false and online then
+		return nil, nil, true, e.observed or (type(e.g) == "table" and tonumber(e.g.t) or nil)
+	end
 	return online, days, e.fresh == false
 end
 
@@ -1344,7 +1346,7 @@ local function GuildTooltip(e)
 			end
 		end
 		tt:AddLine(" ")
-		tt:AddLine(L.REPORTED_BY:format(g.reporter or "?", ns.Ago(g.t)), 0.6, 0.6, 0.6)
+		tt:AddLine(L.REPORTED_BY:format(g.reporter or "?", ns.Ago(e.observed or g.t)), 0.6, 0.6, 0.6)
 		if not e.fresh then tt:AddLine(L.STALE, 1, 0.4, 0.4) end
 		DisputeTooltip(tt, ns.Data.Dispute(g))
 		local V = VerifyModule()
@@ -1829,6 +1831,9 @@ local function CensusLines(s, q)
 	if ns.KingsScreen() then
 		for _ = 1, #verification do table.remove(lines, verificationAt) end
 		for _, l in ipairs(verification) do lines[#lines + 1] = l end
+	end
+	if V and V.OpenSelf then
+		lines[#lines + 1] = { id = "verify-self", text = L.VERIFY_SELF_TITLE, onClick = function() V.OpenSelf() end }
 	end
 	-- Record mode on (Record.lua, the Guinness attempt's witnesses): its line first; a click opens its
 	-- status. Put in last, so the lines above count as before ("No reports yet").
@@ -2540,10 +2545,16 @@ local function RealmLines(s, q)
 		return lines
 	end
 
-	local racers = {}
+	local racers, covered, expected = {}, 0, 0
 	for _, e in ipairs(s.guilds) do
-		if e.fresh then
-			for _, p in ipairs(e.g.top or {}) do racers[#racers + 1] = { name = p.name, realm = e.g.realm, level = p.level, class = p.class, guild = e.name } end
+		if e.fresh and (e.g.total or 0) > 0 then
+			expected = expected + 1
+			if e.topLevels then
+				covered = covered + 1
+				for _, p in ipairs(e.topLevels) do
+					racers[#racers + 1] = { name = p.name, realm = e.topRealm, level = p.level, class = p.class, guild = e.name }
+				end
+			end
 		end
 	end
 	table.sort(racers, function(a, b)
@@ -2553,7 +2564,13 @@ local function RealmLines(s, q)
 	lines[#lines + 1] = { header = true, text = L.LEVEL_RACE }
 	local rules = ns.RankingRules and ns.RankingRules.Link("realm-level", function() ns.RankingRules.OpenRealm("realm-level") end)
 	if rules then lines[#lines + 1] = rules end
-	if #racers == 0 then lines[#lines + 1] = { text = Grey(L.NONE_REPORTED) } end
+	if covered < expected then
+		lines[#lines + 1] = { text = Grey(L.LEVEL_RACE_REPORTS_PENDING:format(covered, expected)), tooltip = function(tt)
+			tt:AddLine(L.LEVEL_RACE_REPORTS_TIP, 0.8, 0.8, 0.8, true)
+		end }
+	elseif #racers == 0 then
+		lines[#lines + 1] = { text = Grey(L.NONE_REPORTED) }
+	end
 	-- The top 100, shown 25 at a time (0.9.7): the window stays light.
 	local shownRacers = math.min(#racers, Views.RACE_MAX, Views.raceShown)
 	for i = 1, shownRacers do

@@ -132,7 +132,12 @@ function World:Client(name, opts)
 	c.Comm = {
 		Handle = function(kind, fn) cl.handlers[kind] = fn end,
 		Send = function(dist, msg, _, _, logged) return w:Queue(cl, dist, msg, nil, logged) end,
-		Whisper = function(target, msg, _, _, logged) return w:Queue(cl, "WHISPER", msg, target, logged) end,
+		Whisper = function(target, msg, _, _, logged, done)
+			local ok = w:Queue(cl, "WHISPER", msg, target, logged)
+			-- This model has no local send delay. A test can hold the completion callback.
+			if done then done(ok) end
+			return ok
+		end,
 		-- (1.5.4) A list of words of one kind (Comm.SendList): this world's channel works, so each
 		-- word goes on its own, as Comm sends them where the channel works.
 		SendList = function(_, words)

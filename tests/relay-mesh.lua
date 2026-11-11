@@ -115,16 +115,16 @@ test("relay mesh (1.5.6): answered mesh-capable bridges are preferred to public 
 	end)
 end)
 
-test("relay mesh (1.5.6): default published versions admit the release and its test builds while explicit relay rules retain their authority", function()
+test("relay mesh: default published versions admit the release and its test builds while explicit relay rules retain their authority", function()
 	World(function(Node)
 		local m = Node("Release Member-Realm", "Olympus Release")
 		local R = m.c.Relay
-		eq(R.Published("1.5.6"), true)
-		eq(R.Published("1.5.6-test.1"), true)
-		eq(R.Published("1.5.5"), true, "the previous public release remains admitted")
-		eq(R.Published("1.5.7"), false, "a future unpublished release is not admitted")
+		eq(R.Published("1.5.7"), true)
+		eq(R.Published("1.5.7-test.1"), true)
+		eq(R.Published("1.5.6"), true, "the previous public release remains admitted")
+		eq(R.Published("1.5.8"), false, "a future unpublished release is not admitted")
 		m.c.rdb.relayRules = { rev = 1, on = true, at = T0, versions = { "1.5.5" } }
-		eq(R.Published("1.5.6"), false, "a retained author-issued version list still takes precedence")
+		eq(R.Published("1.5.7"), false, "a retained author-issued version list still takes precedence")
 		eq(R.Published("1.5.5"), true)
 	end)
 end)
