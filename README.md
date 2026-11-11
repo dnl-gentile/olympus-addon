@@ -3333,6 +3333,17 @@ invite window is open, new replies stay in the queue. Olympus saves no prospect 
 press Enter. You can dismiss the request after sending. Turning recruiting off clears the
 experimental requests and pending outreach draft.
 
+### Public recruiting announcement (experiment branch)
+
+In Census or Church, open **Public recruitment announcement** and select a joined public
+channel. Copy the English draft into the game's own chat, verify the channel, then send it.
+A rounded lower bound appears only when the current census holds fresh accepted character
+counts. A recent Olympus recruitment message heard in that same channel delays preparing
+another draft for two minutes on this client.
+
+The local reminder starts off. Click its line to choose 15, 30 or 60 minutes, or to turn it
+off again. It only reminds you to prepare a new draft.
+
 ### Attended Army snapshot (not active in releases)
 
 `Olympus/ArmyExport.lua` contains an independent OLCS2 v2 encoder for a future, attended

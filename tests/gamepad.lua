@@ -3639,6 +3639,91 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 	GP.Covers("arena-clicks")
 end)
 
+test("gamepad public recruiting announcement: channel selection, accepted census, local cooldown and reminder", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		local L, R = ns.L, ns.Recruit
+		C.channels.General, C.channels.Trade, C.channels.Private = 1, 2, 3
+		C.env.C_ChatInfo.GetChannelInfoFromIdentifier = function(name)
+			local ids = { General = 11, Trade = 22, Private = 0 }
+			return ids[name] and { zoneChannelID = ids[name] } or nil
+		end
+		local census = {
+			{ counted = true, fresh = true, validation = "accepted", src = "own", characters = 35001 },
+			{ counted = true, fresh = true, validation = "accepted", src = "witnessed", characters = 9999 },
+			{ counted = true, fresh = false, validation = "accepted", src = "author", characters = 50000 },
+			{ counted = false, fresh = true, validation = "reported", src = "heard", characters = 60000 },
+			{ counted = true, fresh = true, validation = "accepted", src = "own", era = "beta", characters = 80000 },
+		}
+		ns.Data.Groups = function() return { rows = census } end
+		local function Find(text)
+			for _, line in ipairs(R.WhisperLines()) do if line.text:find(text, 1, true) then return line end end
+		end
+		local function ClickLine(text)
+			InClick(C, function() assert(Find(text), text).onClick() end)
+		end
+		local function Printed(text, start)
+			for i = (start or 0) + 1, #C.printed do if C.printed[i]:find(text, 1, true) then return true end end
+			return false
+		end
+		local function Draft() return ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT") end
+		local function Post(text, sender, index, zoneID, channel)
+			C.Fire("CHAT_MSG_CHANNEL", text, sender, "", channel, "", "", zoneID, index, channel)
+		end
+
+		ClickLine(L.RECRUIT_ANNOUNCE_OPEN)
+		local general, trade = L.RECRUIT_ANNOUNCE_CHANNEL:format(1, "General"), L.RECRUIT_ANNOUNCE_CHANNEL:format(2, "Trade")
+		eq(Find(L.RECRUIT_ANNOUNCE_CHANNEL:format(3, "Private")), nil, "private channels are omitted")
+		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_OFF), "off by default")
+		local sends = #(C.said or {})
+		ClickLine(general)
+		local draft = assert(Draft())
+		eq(draft.editBox:GetText(), "/1 Olympus is recruiting! Over 44,000 characters across servers and counting. Whisper JOIN if you're interested.")
+		C.Click(draft.buttons[1])
+		eq(C.chatBox, nil, "no game chat box was opened")
+
+		Post("I plan to join Olympus tomorrow", "Other-Realm", 1, 11, "General")
+		ClickLine(general); assert(Draft(), "a casual line does not trigger the recruiting cooldown")
+		C.Click(Draft().buttons[1])
+		Post("Olympus is recruiting. Whisper JOIN!", "Other-Realm", 1, 11, "General")
+		ClickLine(general); eq(Draft(), nil, "a recent recruitment post blocks preparing the same channel")
+		assert(Printed(L.RECRUIT_ANNOUNCE_WAIT:format(120)))
+		C.Switch(not initialPad); C.Advance(1)
+		ClickLine(trade)
+		assert(Draft().editBox:GetText():find("Tester", 1, true), "an unchanged separate channel can use the named variant")
+		local tradeText = Draft().editBox:GetText():gsub("^/2 ", "")
+		C.Click(Draft().buttons[1])
+		Post(tradeText, ns.me, 2, 22, "Trade")
+		ClickLine(trade); eq(Draft(), nil, "own native echo starts the local cooldown as well")
+		C.now = C.now + 119
+		ClickLine(general); eq(Draft(), nil, "holds for two full minutes")
+		C.now = C.now + 1
+		census[1].fresh, census[2].fresh = false, false
+		ClickLine(general)
+		local fallback = assert(Draft()).editBox:GetText()
+		assert(fallback:find("Whisper JOIN", 1, true) and not fallback:find("Over", 1, true), "no unsupported number")
+		C.Click(Draft().buttons[1])
+
+		local oldRow = assert(Find(general))
+		C.channels.General, C.channels.Other = nil, 1
+		InClick(C, oldRow.onClick)
+		eq(Draft(), nil, "a stale row does not prepare for a reassigned channel index")
+		ClickLine(L.RECRUIT_ANNOUNCE_REMINDER_OFF)
+		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_ON:format(15)))
+		local before = #C.printed
+		C.Advance(15 * 60 - 1)
+		eq(Printed(L.RECRUIT_ANNOUNCE_REMIND, before), false, "no reminder before fifteen minutes")
+		C.Advance(62)
+		assert(Printed(L.RECRUIT_ANNOUNCE_REMIND, before), "a local chat reminder")
+		eq(Draft(), nil, "the reminder opens no draft")
+		eq(#(C.said or {}), sends, "neither drafts nor reminders sent a public message")
+		C.Switch(initialPad); C.Advance(1)
+		Check(C.ledger, "manual recruiting announcement")
+		NoErrors(C, "manual recruiting announcement")
+	end
+	GP.Covers("dialogs")
+end)
+
 -- 1.2.5.1: the Olympus Accord (Accord.lua) on a fresh account's first session, gamepad UI on from the
 -- login: the Accord asks first, in Olympus's own window (no game popup, nothing of the game's UI
 -- reached); the controller's click on I accept starts Olympus; the privacy page comes after it.

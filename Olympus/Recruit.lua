@@ -698,6 +698,142 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 	preferredIndex = 3,
 }
 
+-- Public drafts are prepared only on a click. The chosen channel is checked again before
+-- writing the copy box. This never opens Blizzard's chat or calls a chat-send API.
+local announceOpen, reminderIndex, reminderTimer, announcementVariant = false, 1, nil, 0
+local REMINDER_MINUTES = { 0, 15, 30, 60 }
+local ANNOUNCEMENT_GAP = 120
+local publicRecruitmentAt = {}
+
+local function PublicChannels()
+	local infoOf = C_ChatInfo and C_ChatInfo.GetChannelInfoFromIdentifier
+	if type(GetChannelList) ~= "function" or type(infoOf) ~= "function" then return {} end
+	local ok, list = pcall(function() return { GetChannelList() } end)
+	if not ok or ns.IsSecret(list[3]) then return {} end
+	local rows, stride = {}, type(list[3]) == "boolean" and 3 or 2
+	for i = 1, #list, stride do
+		local id, name, disabled = list[i], list[i + 1], stride == 3 and list[i + 2]
+		if not ns.IsSecret(id, name, disabled) and type(id) == "number" and id > 0 and id == math.floor(id)
+			and type(name) == "string" and name ~= "" and not disabled then
+			local got, info = pcall(infoOf, name)
+			local zoneID = got and not ns.IsSecret(info) and type(info) == "table" and info.zoneChannelID
+			if not ns.IsSecret(zoneID) and type(zoneID) == "number" and zoneID > 0 then
+				rows[#rows + 1] = { id = id, name = name, zoneID = zoneID }
+			end
+		end
+	end
+	table.sort(rows, function(a, b) return a.id < b.id end)
+	return rows
+end
+
+local function AnnouncementCount()
+	local total, groups = 0, 0
+	-- The same census rows the All Servers page uses. Only the fresh, accepted subset can
+	-- support a public lower bound, and the unit is characters rather than estimated people.
+	for _, row in ipairs(ns.Data.Groups().rows) do
+		if row.counted and row.fresh and row.validation == "accepted" and row.src ~= "heard" and row.era ~= "beta" then
+			local n = tonumber(row.characters)
+			if n and n > 0 then total, groups = total + n, groups + 1 end
+		end
+	end
+	local step = total > 1000 and 1000 or 100
+	local lower = math.floor((total - 1) / step) * step
+	if lower <= 0 then return nil end
+	local number = tostring(lower):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+	return (groups > 1 and L.RECRUIT_ANNOUNCE_COUNT_GROUPS or L.RECRUIT_ANNOUNCE_COUNT_LOCAL):format(number)
+end
+
+local function AnnouncementText()
+	local name = NameForCommand(ns.me)
+	local opening = L.RECRUIT_ANNOUNCE_OPENING
+	if name and announcementVariant == 1 then opening = L.RECRUIT_ANNOUNCE_OPENING_NAMED:format(name)
+	elseif name and announcementVariant == 2 then opening = L.RECRUIT_ANNOUNCE_OPENING_PLAY:format(name) end
+	local count = AnnouncementCount()
+	return opening .. (count and " " .. count or "") .. " " .. L.RECRUIT_ANNOUNCE_JOIN
+end
+
+-- The native channel index and zone ID must both agree with a channel WoW exposes as joined.
+-- Keep only a timestamp per local channel. Neither the text nor the speaker is retained.
+local function ObserveAnnouncement(text, _, _, _, _, _, zoneID, index)
+	if ns.IsSecret(text, zoneID, index) or type(text) ~= "string" or #text > 255
+		or type(zoneID) ~= "number" or zoneID <= 0 or type(index) ~= "number" or index <= 0 then return end
+	local lower = text:lower()
+	if not lower:match("%f[%a]olympus%f[%A]") or not lower:match("%f[%a]join%f[%A]")
+		or not (lower:match("%f[%a]whisper%f[%A]") or lower:match("%f[%a]reply%f[%A]")) then return end
+	if not WhisperGuild() then return end
+	local now = ns.Now()
+	for key, at in pairs(publicRecruitmentAt) do if now - at >= ANNOUNCEMENT_GAP then publicRecruitmentAt[key] = nil end end
+	for _, current in ipairs(PublicChannels()) do
+		if current.id == index and current.zoneID == zoneID then
+			publicRecruitmentAt[current.name:lower()] = now
+			return
+		end
+	end
+end
+
+local function CopyAnnouncement(channel)
+	if not WhisperGuild() or not ns.Dialog or ns.Dialog.missing then return false end
+	for _, current in ipairs(PublicChannels()) do
+		if current.id == channel.id and current.name == channel.name and current.zoneID == channel.zoneID then
+			local at = publicRecruitmentAt[current.name:lower()]
+			local wait = at and ANNOUNCEMENT_GAP - (ns.Now() - at) or 0
+			if wait > 0 then ns.Print(L.RECRUIT_ANNOUNCE_WAIT:format(wait)); return false end
+			local command = ("/%d %s"):format(current.id, AnnouncementText())
+			local name = ns.Codec.SanitizeChat(current.name)
+			local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_ANNOUNCEMENT", name, nil, command)
+			if not draft then return false end
+			announcementVariant = (announcementVariant + 1) % 3
+			return true
+		end
+	end
+	ns.Print(L.RECRUIT_ANNOUNCE_CHANNEL_CHANGED)
+	ns.Fire("DATA_CHANGED")
+	return false
+end
+
+StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
+	text = L.RECRUIT_ANNOUNCE_COPY,
+	button1 = L.RECRUIT_WHISPER_CLOSE,
+	hasEditBox = true,
+	editBoxWidth = 470,
+	OnShow = function(f, command)
+		f.editBox:SetText(command)
+		ns.Focus(f.editBox)
+		f.editBox:HighlightText()
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+local function ChangeReminder()
+	if reminderTimer then reminderTimer.Cancel(); reminderTimer = nil end
+	reminderIndex = reminderIndex % #REMINDER_MINUTES + 1
+	local minutes = REMINDER_MINUTES[reminderIndex]
+	if minutes > 0 then
+		reminderTimer = ns.Every(minutes * 60, "recruiting reminder", function()
+			if WhisperGuild() then ns.Print(L.RECRUIT_ANNOUNCE_REMIND) end
+		end)
+	end
+	ns.Fire("DATA_CHANGED")
+end
+
+local function AnnouncementLines(lines, V)
+	lines[#lines + 1] = { text = V.Gold(L.RECRUIT_ANNOUNCE_OPEN), gapAfter = not announceOpen,
+		onClick = function() announceOpen = not announceOpen; ns.Fire("DATA_CHANGED") end }
+	if not announceOpen then return end
+	local rows = PublicChannels()
+	if #rows == 0 then lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_ANNOUNCE_NO_CHANNELS) } end
+	for _, row in ipairs(rows) do
+		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_ANNOUNCE_CHANNEL:format(row.id, ns.Codec.SanitizeChat(row.name))),
+			onClick = function() CopyAnnouncement(row) end }
+	end
+	local minutes = REMINDER_MINUTES[reminderIndex]
+	local reminder = minutes > 0 and L.RECRUIT_ANNOUNCE_REMINDER_ON:format(minutes) or L.RECRUIT_ANNOUNCE_REMINDER_OFF
+	lines[#lines + 1] = { indent = 1, text = V.Grey(reminder), onClick = ChangeReminder, gapAfter = true }
+end
+
 function Recruit.WhisperLines()
 	if not WhisperGuild() then return {} end
 	local V, on = ns.Views, Recruiting()
@@ -707,6 +843,7 @@ function Recruit.WhisperLines()
 		lines[#lines + 1] = { indent = 1, text = L.RECRUIT_WHISPER_HINT }
 		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_WHISPER_TARGET), onClick = Recruit.PromptOutreach, gapAfter = true }
 	end
+	AnnouncementLines(lines, V)
 	return lines
 end
 
@@ -975,6 +1112,9 @@ end
 
 function Recruit.ResetForTests()
 	StopRecruiting()
+	if reminderTimer then reminderTimer.Cancel(); reminderTimer = nil end
+	announceOpen, reminderIndex, announcementVariant = false, 1, 0
+	wipe(publicRecruitmentAt)
 	wipe(contacted)
 	lastOutreach, lastReplyPrompt = nil, nil
 	wipe(routeAsked); wipe(routeAnswered); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
@@ -1035,6 +1175,7 @@ end
 ns.On("LOGIN", function()
 	ns.After(12, "daily nag", DailyNag)
 	ns.RegisterEvent("CHAT_MSG_WHISPER", function(text, sender) Recruit.OnWhisper(text, sender) end)
+	ns.RegisterEvent("CHAT_MSG_CHANNEL", ObserveAnnouncement)
 	ns.RegisterEvent("PLAYER_GUILD_UPDATE", function(unit)
 		if (not unit or unit == "player") and recruitingGuild and not Recruiting() then StopRecruiting() end
 	end)
