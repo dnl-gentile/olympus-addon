@@ -2908,16 +2908,31 @@ test("gamepad pass 5: the rest of the list with the gamepad UI on: the Issue Rep
 	local realmOf = Hh.ns.Layers.RealmOf
 	Hh.ns.Layers.RealmOf = function(n) if type(n) == "string" and n:find("^Bbb") then return "CAMWOWUS2Realm1PvE" end return realmOf(n) end
 	Hh.ns.Roster.RankOf = function(n) if type(n) == "string" and n:find("^Bbb") then return 3 end return rankOf(n) end -- (the helper is a guildmate)
+	local function WaitForHop(phase)
+		-- Comm pumps every 1.2 seconds. Wait for the actual completion callback through
+		-- the real queue, allowing for its tick phase and a few login jobs ahead of us.
+		for _ = 1, 24 do
+			if hop.State().phase == phase then break end
+			Hh.Advance(0.25)
+		end
+	end
 	hop.Ask(1429, 8, "a layer there", "CAMWOWUS2Realm1PvE")
 	id = assert(hop.State() and hop.State().id, "asked for the layer there")
-	Hh.Advance(1) -- (the ask leaves through the paced queue: the offers' window opens then)
+	WaitForHop("asking") -- the offers' window opens when the ask leaves
 	eq(hop.State().phase, "asking", "the ask went out")
 	hop.HandleOffer("WHISPER", "Bbb-Realm", ("LO~%d~0~0"):format(id))
 	eq(hop.State().count, 1, "the guildmate's offer, his hello placing him on that sub-realm, is taken")
 	Hh.now = Hh.now + hop.WINDOW + 1 -- (the offers' window, on the wall clock the hop reads: time())
+	local beforeRequest = #Hh.sent
 	hop.Tick()
-	Hh.Advance(1) -- (the request to him leaves through the queue)
+	WaitForHop("requested")
 	eq(hop.State().phase, "requested", "asked him for the invite"); eq(hop.State().helper, "Bbb-Realm")
+	local sentRequest
+	for i = beforeRequest + 1, #Hh.sent do
+		local packet = Hh.sent[i]
+		if packet[2] == "LR~" .. id and packet[3] == "WHISPER" and Hh.ns.ShortName(packet[4]) == "Bbb" then sentRequest = true end
+	end
+	assert(sentRequest, "the paced request was actually sent to the chosen helper")
 	hop.OnInvite("Bbb")
 	eq(Hh.accepted, nil, "nothing accepted for the player under the gamepad UI")
 	eq(hop.State().invitedBy, "Bbb-Realm", "his invite is the player's to accept")
