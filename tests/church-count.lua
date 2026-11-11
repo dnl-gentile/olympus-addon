@@ -2232,6 +2232,60 @@ test("1.5.6 Church rank recovery: a partial or repeated page cannot replace the 
 	eq(#View(), 0)
 end)
 
+test("Church rank timing: a queued request and a reply still making progress are not replaced", function()
+	local w, c = Cast()
+	local reader, sendDone, sends = c.m2, nil, 0
+	reader.ns.Comm.Whisper = function(_, msg, _, _, _, done)
+		assert(msg:find("NR~1~q~", 1, true) == 1)
+		sends, sendDone = sends + 1, done
+		return true
+	end
+	local function Ask() return w:As(reader, reader.Count.Ask, "m", "m") end
+	local function Answer(text) return w:As(reader, reader.Count.TakeAnswerLine, A1, text) end
+	local gap = reader.Count.ASK_GAP
+	eq(Ask(), true)
+	w:Run(gap + 1)
+	eq(Ask(), false, "a request waiting to be sent does not start the response timeout")
+	eq(sends, 1)
+	w:As(reader, assert(sendDone), true)
+	w:Run(gap - 1)
+	eq(Answer("NR~1~r~m~m~1~Mira Wells~200~200~0~2~0~1~1"), true)
+	w:Run(2)
+	eq(Ask(), false, "a response that is still making progress keeps its receiver")
+	eq(Answer("NR~1~r~m~m~2~Nils Ford~100~100~0~1~0~1~1"), true)
+	eq(Answer(("NR~1~e~m~m~-~2~%s"):format(ns.Codec.Base36(w.clock))), true)
+	local rows = w:As(reader, reader.Count.RankingView, "m", "m")
+	eq(#rows, 2)
+	eq(rows[1].score, 20)
+end)
+
+test("Church rank timing: duplicate rows cannot delay fallback or reopen an unfinished keeper", function()
+	local w, c = Cast()
+	local reader = c.m2
+	c.a1.handlers.NR, c.a2.handlers.NR = nil, nil
+	local function Ask() return w:As(reader, reader.Count.Ask, "m", "m") end
+	local function LastTarget()
+		local sent = w:Sent(reader, "NR", "WHISPER", "q")
+		return sent[#sent].target
+	end
+	local row = "NR~1~r~m~m~1~Mira Wells~200~200~0~2~0~1~1"
+	local gap = reader.Count.ASK_GAP
+	eq(Ask(), true)
+	eq(LastTarget(), A1)
+	eq(w:As(reader, reader.Count.TakeAnswerLine, A1, row), true)
+	w:Run(gap - 1)
+	eq(w:As(reader, reader.Count.TakeAnswerLine, A1, row), false)
+	w:Run(1)
+	eq(Ask(), true, "a repeated packet is not progress")
+	eq(LastTarget(), A2)
+	w:Run(gap)
+	eq(Ask(), false, "both keepers have unanswered requests for this page")
+	w:Run(reader.Church.ASKED_WINDOW - 2 * gap)
+	w:Presence()
+	eq(Ask(), true, "the previous request's answer lifetime is bounded")
+	eq(LastTarget(), A1)
+end)
+
 test("global Church ledger: after a reload a keeper first asks the keeper it never completed a catch-up from: not the first by name again, and one a reload cut short before one it completed later", function()
 	local w, c = Cast()
 	Give(w, c.a1, "Rot Recb", "Mira Wells", 2)

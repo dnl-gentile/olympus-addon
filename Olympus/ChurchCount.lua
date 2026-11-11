@@ -2111,38 +2111,60 @@ function Count.Ask(what, window, person, force)
 	local pk = what == "me" and Key(ns.me) or (person and Key(person)) or "-"
 	local key = what .. ":" .. window .. ":" .. tostring(pk)
 	local t, previous = ns.Now(), asks[key]
-	if previous and (not force or not previous.complete) then
-		local gap = previous.complete and (what == "a" or what == "m") and Count.RANK_REFRESH or Count.ASK_GAP
-		if t - previous.t < gap then return false, "gap" end
-	end
-	local keepers = Church.KeepersOnline(false)
-	local keeper = keepers[1]
-	if not keeper then return false, "no keeper" end
-	-- A desk can be present while still catching up, or its answer can be lost. Try the next
-	-- keeper after the page's normal refresh gap. A successful request restores desk priority.
-	if previous and not previous.complete then
-		for i, k in ipairs(keepers) do
-			if Key(k.name) == previous.k then keeper = keepers[i % #keepers + 1]; break end
+	if previous then
+		local elapsed = t - (previous.sent or previous.t)
+		if previous.complete then
+			local gap = (what == "a" or what == "m") and Count.RANK_REFRESH or Count.ASK_GAP
+			if not force and elapsed < gap then return false, "gap" end
+		elseif elapsed < Count.ASK_GAP or (previous.rows and t < previous.expires
+			and (not previous.sent or t - (previous.progress or previous.sent) < Count.ASK_GAP)) then
+			return false, "gap"
 		end
 	end
+	local keepers = Church.KeepersOnline(false)
+	if #keepers == 0 then return false, "no keeper" end
+	-- Prefer the next keeper when an answer stalls. NR~1 carries no request identifier, so
+	-- do not ask one for this page again until its previous answer ends or expires.
+	local first = 1
+	if previous and not previous.complete then
+		for i, k in ipairs(keepers) do
+			if Key(k.name) == previous.k then first = i % #keepers + 1; break end
+		end
+	end
+	local open = previous and previous.open or {}
+	for k, expires in pairs(open) do if t >= expires then open[k] = nil end end
+	local keeper, keeperKey
+	for i = 0, #keepers - 1 do
+		local candidate = keepers[(first + i - 1) % #keepers + 1]
+		local ck = Key(candidate.name)
+		if not open[ck] then keeper, keeperKey = candidate, ck; break end
+	end
+	if not keeper then return false, "gap" end
+	local a = { k = keeperKey, t = t, expires = t + Church.ASKED_WINDOW, rows = {}, seen = {}, open = open }
 	local sent = ns.Comm.Whisper(keeper.name, ("NR~1~q~%s~%s~%s"):format(what, window, person and Short(person) or "-"),
-		nil, false, false, nil, { owner = Count })
+		nil, false, false, function(ok)
+			if not ok then a.rows, a.seen = nil, nil; return end
+			a.sent = ns.Now()
+			a.expires = a.sent + Church.ASKED_WINDOW
+			open[keeperKey] = a.expires
+		end, { owner = Count, guard = function() return asks[key] == a and ns.Now() < a.expires end })
 	if not sent then return false, "queue" end
 	if not previous then Church.Capped(asks, Count.PEOPLE_MAX) end
-	asks[key] = { k = Key(keeper.name), t = t, rows = {}, seen = {} }
+	asks[key] = a
 	return true
 end
 
 -- Accept only the active request from the keeper this client asked for that page.
 local function Asked(sender, key)
 	local a = asks[key]
-	if a and a.rows and a.k == Key(sender) and ns.Now() - a.t <= Church.ASKED_WINDOW then return a end
+	if a and a.rows and a.sent and a.k == Key(sender) and ns.Now() < a.expires then return a end
 end
 
 local function StageAnswer(a, key, row, limit)
 	if a.seen[key] then return false, "duplicate" end
 	if #a.rows >= limit then a.overflow = true; return Drop("shape") end
 	a.seen[key] = true
+	a.progress = ns.Now()
 	a.rows[#a.rows + 1] = row
 	return true
 end
@@ -2176,6 +2198,7 @@ function Count.TakeAnswerLine(sender, text)
 		local a = Asked(sender, key)
 		if not a then return Drop("unasked") end
 		local rows = a.rows
+		a.open[a.k] = nil
 		a.rows, a.seen = nil, nil
 		if a.overflow or #rows ~= tonumber(n) then return Drop("incomplete page") end
 		local view = View()
@@ -2206,7 +2229,7 @@ function Count.RankingView(list, window)
 	local key = list .. ":" .. window .. ":-"
 	local v, a = View()[key], asks[key]
 	if not v and OwnCopy() then return Count.Ranking(list, window), Clock(), false end
-	return v and v.rows or {}, v and v.asOf, true, a and not a.complete and ns.Now() - a.t <= Church.ASKED_WINDOW, v and v.from
+	return v and v.rows or {}, v and v.asOf, true, a and not a.complete and ns.Now() < a.expires, v and v.from
 end
 function Count.DetailView(person, window)
 	local k = Key(person)
