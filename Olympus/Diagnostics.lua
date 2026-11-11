@@ -604,6 +604,20 @@ local function RelayReporterLine()
 		tostring(c.bad or 0), tostring(c.partial or 0))
 end
 
+-- The fallback's election and queue counts only. Its detailed stats contain peer names.
+local function RelayFallbackLine()
+	local F = ns.RelayFallback
+	if type(F) ~= "table" or type(F.Stats) ~= "function" then return "fallback: not loaded" end
+	local s = Try(F.Stats)
+	if type(s) ~= "table" then return "fallback: unavailable" end
+	local source = s.source == "list" and "list" or s.source == "rendezvous" and "rendezvous" or "unknown"
+	local elected = type(s.elected) == "table" and #s.elected or 0
+	local function N(value) return tonumber(value) or 0 end
+	return ("fallback: source %s, candidates %d, asked %d, yes %d, no %d, no answer %d, elected %d, serving %s, held %d, dropped %d")
+		:format(source, N(s.candidates), N(s.pinged), N(s.yes), N(s.no), N(s.none), elected,
+			s.serving and "yes" or "no", N(s.held), N(s.holdDropped))
+end
+
 -- The census's sources: our realm group's guild reports (how many, how fresh, from which realms), and
 -- each other realm group's numbers this account looked at or heard, newest first (six at most).
 local function CensusLines()
@@ -669,6 +683,7 @@ function ns.DebugLines()
 	add(Try(ns.InstallFilesLine) or "install files: ?")
 	add(Try(PiecesLine) or "pieces: ?")
 	add(Try(RelayReporterLine) or "relay: ?")
+	add(Try(RelayFallbackLine) or "fallback: unavailable")
 	for _, line in ipairs(Try(CensusLines) or { "census: ?" }) do add(line) end
 	add(Try(SignedLine) or "signed: ?")
 	add("secret values left unread: " .. CountList(ns.SecretSkips and ns.SecretSkips() or nil))

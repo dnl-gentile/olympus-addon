@@ -344,6 +344,42 @@ test("1.5.5 /oly bug debug: the relay, the reporter, the census's sources per re
 	if not ok then error(err, 0) end
 end)
 
+test("/oly bug debug: fallback relay shows bounded aggregate counters without peer identities", function()
+	local saved = ns.RelayFallback
+	local ok, err = pcall(function()
+		local stats = {
+			source = "list", candidates = 4, pinged = 5, yes = 2, no = 1, none = 2, serving = true,
+			elected = { "ElectedPeerOne-Realm", "ElectedPeerTwo-Realm" }, held = 7, holdDropped = 3,
+			listFrom = "FallbackListKeeper-Realm", picks = { { to = "FallbackPicker-Realm" } },
+			line = "PrivateFallbackDebugLine-Realm",
+		}
+		ns.RelayFallback = { Stats = function() return stats end }
+		local report = ns.BuildBugReport()
+		local line = assert(report:match("\nfallback: ([^\n]+)"), "the copyable report includes fallback counters")
+		eq(line, "source list, candidates 4, asked 5, yes 2, no 1, no answer 2, elected 2, serving yes, held 7, dropped 3")
+		assert(#("fallback: " .. line) <= ns.DEBUG_LINE, "within the debug line limit")
+		for _, private in ipairs({ "ElectedPeerOne", "ElectedPeerTwo", "FallbackListKeeper", "FallbackPicker", "PrivateFallbackDebugLine" }) do
+			assert(not report:find(private, 1, true), "peer data is not copied: " .. private)
+		end
+
+		stats.source = "UnknownPeerName-Realm"
+		stats.serving = false
+		report = ns.BuildBugReport()
+		assert(report:find("\nfallback: source unknown,", 1, true), "candidate source is restricted to known labels")
+		assert(report:find("elected 2, serving no,", 1, true), "the fallback can be idle")
+		assert(not report:find(stats.source, 1, true), "an unrecognized source stays private")
+
+		ns.RelayFallback = nil
+		assert(ns.BuildBugReport():find("\nfallback: not loaded\n", 1, true), "a missing module still produces a report")
+		ns.RelayFallback = { Stats = function() error("PrivateFallbackError-Realm") end }
+		report = ns.BuildBugReport()
+		assert(report:find("\nfallback: unavailable\n", 1, true), "a failed stats read still produces a report")
+		assert(not report:find("PrivateFallbackError", 1, true), "errors from the module stay private")
+	end)
+	ns.RelayFallback = saved
+	if not ok then error(err, 0) end
+end)
+
 test("1.5.5 /oly bug debug: the whole section is cut at DEBUG_MAX, said so, and /oly bug still builds when a part fails", function()
 	local savedMax, savedLine = ns.DEBUG_MAX, ns.InstallLine
 	local ok, err = pcall(function()
