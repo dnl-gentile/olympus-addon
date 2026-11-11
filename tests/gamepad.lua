@@ -3684,17 +3684,22 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 
 		Post("I plan to join Olympus tomorrow", "Other-Realm", 1, 11, "General")
 		ClickLine(general); assert(Draft(), "a casual line does not trigger the recruiting cooldown")
-		C.Click(Draft().buttons[1])
-		Post("Olympus is recruiting. Whisper JOIN!", "Other-Realm", 1, 11, "General")
+		Post("Olympus is recruiting, PST for an invite!", "Other-Realm", 2, 22, "Trade")
+		assert(Draft(), "an ad in another channel leaves the current draft alone")
+		Post("Olympus is recruiting, PST for an invite!", "Other-Realm", 1, 11, "General")
+		eq(Draft(), nil, "another recruiter's ad closes an open draft for the same channel")
 		ClickLine(general); eq(Draft(), nil, "a recent recruitment post blocks preparing the same channel")
 		assert(Printed(L.RECRUIT_ANNOUNCE_WAIT:format(120)))
 		C.Switch(not initialPad); C.Advance(1)
+		ClickLine(trade); eq(Draft(), nil, "the other channel has its own cooldown")
+		C.now = C.now + 120
 		ClickLine(trade)
-		assert(Draft().editBox:GetText():find("Tester", 1, true), "an unchanged separate channel can use the named variant")
+		assert(Draft().editBox:GetText():find("Tester", 1, true), "Trade can use the named variant after the cooldown")
 		local tradeText = Draft().editBox:GetText():gsub("^/2 ", "")
 		C.Click(Draft().buttons[1])
 		Post(tradeText, ns.me, 2, 22, "Trade")
 		ClickLine(trade); eq(Draft(), nil, "own native echo starts the local cooldown as well")
+		Post("Olympus is recruiting. Whisper JOIN!", "Other-Realm", 1, 11, "General")
 		C.now = C.now + 119
 		ClickLine(general); eq(Draft(), nil, "holds for two full minutes")
 		C.now = C.now + 1

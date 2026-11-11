@@ -758,14 +758,23 @@ local function ObserveAnnouncement(text, _, _, _, _, _, zoneID, index)
 	if ns.IsSecret(text, zoneID, index) or type(text) ~= "string" or #text > 255
 		or type(zoneID) ~= "number" or zoneID <= 0 or type(index) ~= "number" or index <= 0 then return end
 	local lower = text:lower()
-	if not lower:match("%f[%a]olympus%f[%A]") or not lower:match("%f[%a]join%f[%A]")
-		or not (lower:match("%f[%a]whisper%f[%A]") or lower:match("%f[%a]reply%f[%A]")) then return end
+	if not lower:match("%f[%a]olympus%f[%A]") then return end
+	local reply = lower:match("%f[%a]whisper%f[%A]") or lower:match("%f[%a]reply%f[%A]")
+	local keyword = reply and lower:match("%f[%a]join%f[%A]")
+	local recruiting = (reply or lower:match("%f[%a]pst%f[%A]")) and lower:match("%f[%a]recruiting%f[%A]")
+	if not keyword and not recruiting then return end
 	if not WhisperGuild() then return end
 	local now = ns.Now()
 	for key, at in pairs(publicRecruitmentAt) do if now - at >= ANNOUNCEMENT_GAP then publicRecruitmentAt[key] = nil end end
 	for _, current in ipairs(PublicChannels()) do
 		if current.id == index and current.zoneID == zoneID then
-			publicRecruitmentAt[current.name:lower()] = now
+			local channel = current.name:lower()
+			publicRecruitmentAt[channel] = now
+			local draft = ns.Dialog and ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT")
+			if draft and draft.data.channel == channel then
+				draft:Hide()
+				ns.Print(L.RECRUIT_ANNOUNCE_WAIT:format(ANNOUNCEMENT_GAP))
+			end
 			return
 		end
 	end
@@ -780,7 +789,8 @@ local function CopyAnnouncement(channel)
 			if wait > 0 then ns.Print(L.RECRUIT_ANNOUNCE_WAIT:format(wait)); return false end
 			local command = ("/%d %s"):format(current.id, AnnouncementText())
 			local name = ns.Codec.SanitizeChat(current.name)
-			local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_ANNOUNCEMENT", name, nil, command)
+			local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_ANNOUNCEMENT", name, nil,
+				{ channel = current.name:lower(), command = command })
 			if not draft then return false end
 			announcementVariant = (announcementVariant + 1) % 3
 			return true
@@ -796,8 +806,8 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 	button1 = L.RECRUIT_WHISPER_CLOSE,
 	hasEditBox = true,
 	editBoxWidth = 470,
-	OnShow = function(f, command)
-		f.editBox:SetText(command)
+	OnShow = function(f, draft)
+		f.editBox:SetText(draft.command)
 		ns.Focus(f.editBox)
 		f.editBox:HighlightText()
 	end,
