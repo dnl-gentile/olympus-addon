@@ -166,6 +166,32 @@ test("chat groups (1.5.5): under PvE, the RP character's [Olympus] shows the PvE
 	end)
 end)
 
+test("chat groups: a census update leaves the ruleset menu open while the player chooses PvE", function()
+	AsRpCharacter(function()
+		WithWindow(function(w)
+			ns.me = ME
+			ns.rdb.chat = { A = History() }
+			local f = w.CW.Open("A")
+			f.groups:Click()
+			assert(f.subMenu:IsShown(), "the menu opens from All")
+			f.groups:GetScript("OnLeave")(f.groups)
+			w.fire("DATA_CHANGED")
+			assert(f.subMenu:IsShown(), "an incoming census report must not close the menu")
+			local rows = MenuRows(f)
+			local pve = rows[3]
+			eq(pve.text:GetText(), L.CHATWIN_GROUP_PVE)
+			pve:GetScript("OnEnter")(pve)
+			w.fire("DATA_CHANGED")
+			assert(f.subMenu:IsShown(), "an incoming report must not cancel the hovered option")
+			pve:Click()
+			eq(f.subMenu:IsShown(), false)
+			eq(f.groups.text:GetText(), L.CHATWIN_GROUP_PVE)
+			assert(Bubbles(f)["from the PvE realms"])
+			eq(Bubbles(f)["from the PvP realms"], nil)
+		end)
+	end)
+end)
+
 test("chat groups (1.5.5): the choice is this character's and survives a /reload: the Chat tab made anew shows PvE and its lines alone; another character of the account shows All", function()
 	AsRpCharacter(function()
 		WithWindow(function(w)
