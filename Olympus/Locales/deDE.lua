@@ -2666,6 +2666,7 @@ ns.Locale("deDE", {
 	HOP_NETWORK_READY = "Olympus-Kanal verbunden. Helfer müssen sowohl dem Teilen des Standorts als auch der Layer-Hilfe zustimmen.",
 	HOP_NOBODY = "Niemand auf diesem Layer kann dich gerade einladen. Versuch es in einer Minute erneut.",
 	HOP_NOBODY_WAIT = "Niemand auf diesem Layer kann dich gerade einladen. Versuch es in %d Sek. erneut.",
+	HOP_NO_GUILD_HELPER_WAIT = "Kein Gildenmitglied auf diesem Layer hat geantwortet. Versuch es in %d Sek. erneut.",
 	HOP_NOT_NOW = "Nicht jetzt",
 	HOP_NO_ALTERNATIVE = "Hier ist kein passender Layer bekannt. Nimm einen NPC in der Nähe ins Ziel und gib den Layer-Meldungen von Olympus etwas Zeit; /oly hop list zeigt, was bekannt ist.",
 	HOP_NO_LAYER = "Dieser Layer ist noch unbekannt.",

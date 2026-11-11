@@ -2666,6 +2666,7 @@ ns.Locale({ "esES", "esMX" }, {
 	HOP_NETWORK_READY = "Canal de Olympus conectado. Los ayudantes deben aceptar tanto compartir su ubicación como ayudar con las capas.",
 	HOP_NOBODY = "Nadie en esa capa puede invitarte ahora mismo. Prueba de nuevo en un minuto.",
 	HOP_NOBODY_WAIT = "Nadie en esa capa puede invitarte ahora mismo. Prueba de nuevo en %ds.",
+	HOP_NO_GUILD_HELPER_WAIT = "Ningún miembro de tu hermandad respondió en esa capa. Prueba de nuevo en %d s.",
 	HOP_NOT_NOW = "Ahora no",
 	HOP_NO_ALTERNATIVE = "Aquí no se conoce ninguna capa que coincida. Selecciona un PNJ cercano y da tiempo a los informes de capa de Olympus; /oly hop list muestra lo que se conoce.",
 	HOP_NO_LAYER = "Esa capa aún no se conoce.",

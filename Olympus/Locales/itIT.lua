@@ -2666,6 +2666,7 @@ ns.Locale("itIT", {
 	HOP_NETWORK_READY = "Canale Olympus connesso. Gli aiutanti devono aderire sia alla condivisione della posizione sia all'aiuto con i layer.",
 	HOP_NOBODY = "Nessuno in quel layer può invitarti in questo momento. Riprova tra un minuto.",
 	HOP_NOBODY_WAIT = "Nessuno in quel layer può invitarti in questo momento. Riprova tra %ds.",
+	HOP_NO_GUILD_HELPER_WAIT = "Nessun compagno di gilda su quel layer ha risposto. Riprova tra %d s.",
 	HOP_NOT_NOW = "Non ora",
 	HOP_NO_ALTERNATIVE = "Nessun layer corrispondente è noto qui. Prendi come bersaglio un PNG vicino e lascia tempo ai rapporti sui layer di Olympus; /oly hop list mostra ciò che è noto.",
 	HOP_NO_LAYER = "Quel layer non è ancora noto.",

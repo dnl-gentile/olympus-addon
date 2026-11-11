@@ -2666,6 +2666,7 @@ ns.Locale("frFR", {
 	HOP_NETWORK_READY = "Canal Olympus connecté. Les aides doivent accepter à la fois le partage de position et l'aide aux couches.",
 	HOP_NOBODY = "Personne sur cette couche ne peut t'inviter pour le moment. Réessaie dans une minute.",
 	HOP_NOBODY_WAIT = "Personne sur cette couche ne peut t'inviter pour le moment. Réessaie dans %d s.",
+	HOP_NO_GUILD_HELPER_WAIT = "Aucun membre de ta guilde sur cette couche n’a répondu. Réessaie dans %d s.",
 	HOP_NOT_NOW = "Pas maintenant",
 	HOP_NO_ALTERNATIVE = "Aucune couche correspondante n'est connue ici. Cible un PNJ proche et laisse le temps aux rapports de couche d'Olympus ; /oly hop list montre ce qui est connu.",
 	HOP_NO_LAYER = "Cette couche n'est pas encore connue.",
