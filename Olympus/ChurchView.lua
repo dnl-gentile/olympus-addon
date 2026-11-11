@@ -270,13 +270,16 @@ end
 ---------------------------------------------------------------------------
 
 -- (catching: a keeper's own numbers while its first catch-up goes on, Count.RankingView.)
-local function AsOfLine(asOf, remote, catching)
-	local desk = Church.Desk()
+local function AsOfLine(asOf, remote, catching, source)
 	local text
 	if not remote then text = catching and L.CHURCH_ASOF_CATCHING or L.CHURCH_ASOF_LIVE
 	elseif asOf then text = L.CHURCH_ASOF:format(ns.Ago(asOf))
 	else text = L.CHURCH_ASOF_NONE end
-	if remote then text = text .. "  " .. (desk and L.CHURCH_DESK:format(Name(desk)) or L.CHURCH_NO_KEEPER) end
+	if remote then
+		if source then text = text .. "  " .. L.CHURCH_DESK:format(Name(source)) end
+		if not Church.Desk() then text = text .. "  " .. L.CHURCH_NO_KEEPER end
+		if catching then text = text .. "  " .. L.CHURCH_ASOF_WAITING end
+	end
 	return { text = Grey(text), tooltip = Tip(L.CHURCH_ASOF_TITLE, L.CHURCH_ASOF_TIP) }
 end
 
@@ -323,9 +326,9 @@ function View.RankingLines()
 		if #rows == 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.CHURCH_RANKING_EMPTY) } end
 		return lines, L.CHURCH_TITLE, L.CHURCH_FULLNESS_RULE
 	end
-	local rows, asOf, remote, catching = Count.RankingView(View.list, View.window)
-	if remote and not PreviewRole() then Count.Ask(View.list, View.window) end
-	lines[#lines + 1] = AsOfLine(asOf, remote, catching)
+	local rows, asOf, remote, catching, source = Count.RankingView(View.list, View.window)
+	if remote and not PreviewRole() then catching = Count.Ask(View.list, View.window) or catching end
+	lines[#lines + 1] = AsOfLine(asOf, remote, catching, source)
 	lines[#lines + 1] = { header = true, text = L["CHURCH_RANKING_" .. View.list:upper()],
 		tooltip = Tip(L["CHURCH_RANKING_" .. View.list:upper()], L.CHURCH_POINTS_TIP) }
 	local rules = ns.RankingRules and ns.RankingRules.Link("church-score", function() ShowRules("church-score") end)
@@ -363,12 +366,12 @@ local STATE_LABEL = { open = "CHURCH_REG_OPEN", credited = "CHURCH_REG_CREDITED"
 	transfer = "CHURCH_REG_TRANSFER", alt = "CHURCH_REG_TRANSFER", withdrawn = "CHURCH_REG_WITHDRAWN", expired = "CHURCH_REG_EXPIRED" }
 
 local function DetailLinesFor(person, lines, skipRegs)
-	local detail, asOf, remote, catching = Count.DetailView(person, View.window)
+	local detail, asOf, remote, catching, source = Count.DetailView(person, View.window)
 	if remote then
 		local mine = Church.Key(person) == Church.Key(ns.me)
 		Count.Ask(mine and "me" or "p", View.window, not mine and person or nil)
 	end
-	lines[#lines + 1] = AsOfLine(asOf, remote, catching)
+	lines[#lines + 1] = AsOfLine(asOf, remote, catching, source)
 	local seen = false
 	for _, d in ipairs(detail or {}) do
 		seen = true
@@ -764,6 +767,16 @@ function View.OpenChat()
 	if type(CW) ~= "table" or CW.missing then return ns.Print(L.RESTART_NEEDED) end
 	if CW.Open then CW.Open() end
 	if CW.SelectLogical then CW.SelectLogical("church") end
+end
+
+-- Refresh only the displayed rankings. The King's client still keeps no ledger and sends
+-- no page requests in the background. Count.Ask retries at most once a minute and refreshes
+-- a complete board only every five minutes.
+function View.PollRanking()
+	local ui = ns.UI
+	if View.page ~= "ranking" or View.list == "c" or not ui or not ui.IsShown or not ui.IsShown()
+		or not ui.PageId or ui.PageId() ~= "church/" or PreviewRole() then return end
+	if Count.Ask(View.list, View.window) then Redraw() end
 end
 
 function View.Refresh()

@@ -137,6 +137,7 @@ Count.PUBLIC_EVERY, Count.PUBLIC_FRESH, Count.TOP_EVERY = 1800, 7200, 1800
 -- a word older than this names nobody (Honors.CHURCH_MAX_AGE's).
 Count.TOP_FIRST, Count.TOP_GRACE, Count.TOP_JITTER, Count.TOP_KING_AFTER, Count.TOP_MAX_AGE = 300, 120, 300, 480, 30 * 86400
 Count.ASK_GAP, Count.ANSWERS_PER, Count.ANSWER_WINDOW = 60, 12, 300
+Count.RANK_REFRESH = 300 -- a complete board needs fewer whispers than a failed first load
 Count.CATCHUP_EVERY, Count.CATCHUP_LINES = 1800, 150
 -- A silent active keeper is retried through another source after CATCHUP_RETRY, even after a
 -- previous successful catch-up. A completed source sweeps the others; CATCHUP_REASK bounds each
@@ -164,10 +165,8 @@ local lastGeneration
 local evidenceRate = {}     -- sender key -> { hour, n, day, d }
 local checks, checkTimes, nextCheck = {}, {}, 0
 local heardChecks = {}      -- keeper key -> { times }
-local asks = {}             -- what|window|person -> when we asked
-local askedOf = {}          -- what:window:person key -> { k = the keeper asked, t } (1.2.1: only his answer is taken)
+local asks = {}             -- page -> the keeper asked, when, and rows staged for that reply
 local answersTo = {}        -- asker key -> { times }
-local incoming = {}         -- sender key|what|window|person -> rows being received
 local catch = { asked = {}, last = -math.huge, heard = -math.huge, settled = false } -- heard: a line from the active keeper only
 local lastPublic, lastTop, lastPublicAt = -math.huge, -math.huge, nil
 local topHeard, topRelayAt = nil, nil -- (1.3.4) when the last same-or-newer top 3 was heard; our next relay
@@ -2109,61 +2108,85 @@ function Count.Ask(what, window, person, force)
 	if not WHATS[what] or not WINDOWS[window] then return false end
 	if Church.IsKeeper(ns.me) and not Church.IsKing(ns.me) then return false, "local" end
 	if not Church.InAudience(ns.me) or Off() then return false, "audience" end
-	local key = what .. ":" .. window .. ":" .. tostring(person or "-")
-	local t = ns.Now()
-	if not force and asks[key] and t - asks[key] < Count.ASK_GAP then return false, "gap" end
-	local k = Church.KeepersOnline(false)[1]
-	if not k then return false, "no keeper" end
-	asks[key] = t
 	local pk = what == "me" and Key(ns.me) or (person and Key(person)) or "-"
-	askedOf[what .. ":" .. window .. ":" .. tostring(pk)] = { k = Key(k.name), t = t }
-	ns.Comm.Whisper(k.name, ("NR~1~q~%s~%s~%s"):format(what, window, person and Short(person) or "-"), nil, false, false, nil, { owner = Count })
+	local key = what .. ":" .. window .. ":" .. tostring(pk)
+	local t, previous = ns.Now(), asks[key]
+	if previous and (not force or not previous.complete) then
+		local gap = previous.complete and (what == "a" or what == "m") and Count.RANK_REFRESH or Count.ASK_GAP
+		if t - previous.t < gap then return false, "gap" end
+	end
+	local keepers = Church.KeepersOnline(false)
+	local keeper = keepers[1]
+	if not keeper then return false, "no keeper" end
+	-- A desk can be present while still catching up, or its answer can be lost. Try the next
+	-- keeper after the page's normal refresh gap. A successful request restores desk priority.
+	if previous and not previous.complete then
+		for i, k in ipairs(keepers) do
+			if Key(k.name) == previous.k then keeper = keepers[i % #keepers + 1]; break end
+		end
+	end
+	local sent = ns.Comm.Whisper(keeper.name, ("NR~1~q~%s~%s~%s"):format(what, window, person and Short(person) or "-"),
+		nil, false, false, nil, { owner = Count })
+	if not sent then return false, "queue" end
+	if not previous then Church.Capped(asks, Count.PEOPLE_MAX) end
+	asks[key] = { k = Key(keeper.name), t = t, rows = {}, seen = {} }
 	return true
 end
 
--- (1.2.1) An answer is taken only from the keeper this client asked for it, while Church.ASKED_WINDOW:
--- any keeper's unasked rows replaced the page's numbers.
+-- Accept only the active request from the keeper this client asked for that page.
 local function Asked(sender, key)
-	local a = askedOf[key]
-	return a ~= nil and a.k == Key(sender) and ns.Now() - a.t <= Church.ASKED_WINDOW
+	local a = asks[key]
+	if a and a.rows and a.k == Key(sender) and ns.Now() - a.t <= Church.ASKED_WINDOW then return a end
+end
+
+local function StageAnswer(a, key, row, limit)
+	if a.seen[key] then return false, "duplicate" end
+	if #a.rows >= limit then a.overflow = true; return Drop("shape") end
+	a.seen[key] = true
+	a.rows[#a.rows + 1] = row
+	return true
 end
 
 function Count.TakeAnswerLine(sender, text)
 	if not Church.IsKeeper(sender) then return Drop("keeper") end
+	if not Church.InAudience(ns.me) or Off() then return Drop("audience") end
 	local kind = text:match("^NR~1~(%a)~")
-	local view = View()
 	if kind == "r" then
 		local list, window, rank, name, score, own, share, joins, stays, net, pub =
 			text:match("^NR~1~r~([amc])~([wma])~(%d+)~([^~]+)~(%d+)~(%d+)~(%d+)~(%d+)~(%d+)~(%d+)~([01])$")
-		if not list or not WireName(name) then return Drop("shape") end
-		if not Asked(sender, list .. ":" .. window .. ":-") then return Drop("unasked") end
-		local key = Key(sender) .. ":" .. list .. ":" .. window .. ":-"
-		incoming[key] = incoming[key] or {}
-		if #incoming[key] < Count.RANK_ROWS + 1 then
-			table.insert(incoming[key], { rank = tonumber(rank), name = Short(WireName(name)), key = Key(name), score = tonumber(score) / 10,
-				own = tonumber(own) / 10, share = tonumber(share) / 10, joins = tonumber(joins), stays = tonumber(stays), net = tonumber(net), pub = pub == "1" })
-		end
-		return true
+		rank = tonumber(rank)
+		if not list or not WireName(name) or not rank or rank < 1 then return Drop("shape") end
+		local a = Asked(sender, list .. ":" .. window .. ":-")
+		if not a then return Drop("unasked") end
+		return StageAnswer(a, rank, { rank = rank, name = Short(WireName(name)), key = Key(name), score = tonumber(score) / 10,
+			own = tonumber(own) / 10, share = tonumber(share) / 10, joins = tonumber(joins), stays = tonumber(stays),
+			net = tonumber(net), pub = pub == "1" }, Count.RANK_ROWS + 1)
 	elseif kind == "m" then
 		local what, window, person, line, a, b, c, d = text:match("^NR~1~m~(%a+)~([wma])~([^~]+)~(%a)~([^~]*)~([^~]*)~([^~]*)~([^~]*)$")
 		if not what or not WireName(person) then return Drop("shape") end
-		if not Asked(sender, what .. ":" .. window .. ":" .. Key(person)) then return Drop("unasked") end
-		local key = Key(sender) .. ":" .. what .. ":" .. window .. ":" .. Key(person)
-		incoming[key] = incoming[key] or {}
-		if #incoming[key] < 40 then
-			local function Num(v) return tonumber(v) or v end
-			table.insert(incoming[key], { line, Num(a), Num(b), Num(c), Num(d) })
-		end
-		return true
+		local request = Asked(sender, what .. ":" .. window .. ":" .. Key(person))
+		if not request then return Drop("unasked") end
+		local function Num(v) return tonumber(v) or v end
+		return StageAnswer(request, text, { line, Num(a), Num(b), Num(c), Num(d) }, 40)
 	elseif kind == "e" then
 		local what, window, person, n, asOf = text:match("^NR~1~e~(%a+)~([wma])~([^~]+)~(%d+)~([0-9a-z]+)$")
 		if not what then return Drop("shape") end
 		local pk = person == "-" and "-" or Key(person)
-		if not Asked(sender, what .. ":" .. window .. ":" .. tostring(pk)) then return Drop("unasked") end
-		local key = Key(sender) .. ":" .. what .. ":" .. window .. ":" .. tostring(pk)
-		local rows = incoming[key] or {}
-		incoming[key] = nil
-		view[what .. ":" .. window .. ":" .. tostring(pk)] = { rows = rows, asOf = UnB36(asOf), from = Church.Key(sender) and ns.ShortName(sender) }
+		local key = what .. ":" .. window .. ":" .. tostring(pk)
+		local a = Asked(sender, key)
+		if not a then return Drop("unasked") end
+		local rows = a.rows
+		a.rows, a.seen = nil, nil
+		if a.overflow or #rows ~= tonumber(n) then return Drop("incomplete page") end
+		local view = View()
+		asOf = UnB36(asOf)
+		if not asOf or asOf <= 0 or asOf > Clock() + Church.DATE_AHEAD then return Drop("page time") end
+		if view[key] and asOf < (tonumber(view[key].asOf) or 0) then return Drop("older page") end
+		if what == "a" or what == "m" or what == "c" then
+			table.sort(rows, function(left, right) return left.rank < right.rank end)
+		end
+		a.complete = true
+		view[key] = { rows = rows, asOf = asOf, from = Church.Key(sender) and ns.ShortName(sender) }
 		ViewChanged()
 		return true
 	end
@@ -2180,9 +2203,10 @@ local function OwnCopy() return Church.IsLedgerRelay(ns.me) and not Church.IsKin
 function Count.RankingView(list, window)
 	if list == "c" then return ns.ChurchFullness.Ranking(), Clock(), false end
 	if Church.IsKeeper(ns.me) and not Church.IsKing(ns.me) then return Count.Ranking(list, window), Clock(), false, not Count.Settled() end
-	local v = View()[list .. ":" .. window .. ":-"]
+	local key = list .. ":" .. window .. ":-"
+	local v, a = View()[key], asks[key]
 	if not v and OwnCopy() then return Count.Ranking(list, window), Clock(), false end
-	return v and v.rows or {}, v and v.asOf, true
+	return v and v.rows or {}, v and v.asOf, true, a and not a.complete and ns.Now() - a.t <= Church.ASKED_WINDOW, v and v.from
 end
 function Count.DetailView(person, window)
 	local k = Key(person)
@@ -2193,7 +2217,7 @@ function Count.DetailView(person, window)
 	local what = k == Key(ns.me) and "me" or "p"
 	local v = View()[what .. ":" .. window .. ":" .. tostring(k)]
 	if not v and OwnCopy() then return Count.DetailLines(k, window), Clock(), false end
-	return v and v.rows or {}, v and v.asOf, true
+	return v and v.rows or {}, v and v.asOf, true, nil, v and v.from
 end
 
 ---------------------------------------------------------------------------
@@ -2652,6 +2676,7 @@ function Count.Tick(now)
 	end
 	-- (1.3.4) The King's and the High Council's: the top 3 said again (a keeper of the Council's too).
 	Count.RelayTop(now)
+	if ns.ChurchView and ns.ChurchView.PollRanking then ns.ChurchView.PollRanking() end
 end
 
 function Count.Stats() return stats end

@@ -2198,6 +2198,40 @@ test("global Church ledger: an audience page asks in the desk's order, the Apost
 	eq(Key(q[1].target), Key(Z), "the Apostle, the desk, not the author whose name sorts first")
 end)
 
+test("1.5.6 Church rank recovery: a partial or repeated page cannot replace the last complete page", function()
+	local w, c = Cast()
+	local reader = c.m2
+	-- Deliver replies explicitly so the model can drop one row and duplicate another.
+	c.a1.handlers.NR, c.a2.handlers.NR = nil, nil
+	local function Ask() return w:As(reader, reader.Count.Ask, "m", "m", nil, true) end
+	local function Answer(from, text) return w:As(reader, reader.Count.TakeAnswerLine, from, text) end
+	local function Row(rank, name, score)
+		return ("NR~1~r~m~m~%d~%s~%d~%d~0~1~0~1~1"):format(rank, name, score, score)
+	end
+	local function End(n)
+		return ("NR~1~e~m~m~-~%d~%s"):format(n, ns.Codec.Base36(w.clock))
+	end
+	local function View() return w:As(reader, reader.Count.RankingView, "m", "m") end
+	eq(Ask(), true)
+	eq(Answer(A1, Row(1, "Mira Wells", 100)), true)
+	eq(Answer(A1, End(1)), true)
+	local rows, savedAt = View()
+	eq(rows[1].score, 10)
+	w:Run(reader.Count.ASK_GAP)
+	eq(Ask(), true)
+	eq(Answer(A1, Row(1, "Mira Wells", 300)), true)
+	Answer(A1, Row(1, "Mira Wells", 300))
+	eq(Answer(A1, End(2)), false, "two delivered packets with one rank do not make a complete two-row page")
+	local kept, at = View()
+	eq(kept[1].score, 10)
+	eq(at, savedAt, "incomplete replies do not make the old page appear newer")
+	w:Run(reader.Count.ASK_GAP)
+	eq(Ask(), true)
+	eq(Answer(A1, End(0)), false, "the previous keeper's late reply is unasked")
+	eq(Answer(A2, End(0)), true, "a complete empty result from the new keeper still replaces the old page")
+	eq(#View(), 0)
+end)
+
 test("global Church ledger: after a reload a keeper first asks the keeper it never completed a catch-up from: not the first by name again, and one a reload cut short before one it completed later", function()
 	local w, c = Cast()
 	Give(w, c.a1, "Rot Recb", "Mira Wells", 2)
