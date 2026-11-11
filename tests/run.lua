@@ -6835,7 +6835,9 @@ local function FreshComm(old)
 	local cns = setmetatable({}, { __index = ns })
 	cns.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
 	cns.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
-	cns.After, cns.Every = function() end, function() end
+	cns.timers = {}
+	cns.After = function() end
+	cns.Every = function(_, name, fn) cns.timers[name] = fn end
 	cns.clock = 100000
 	cns.Now = function() return cns.clock end
 	C_ChatInfo = { RegisterAddonMessagePrefix = function() end }
@@ -6854,6 +6856,188 @@ local function FreshComm(old)
 		for _, c in ipairs(ns.Codec.Chunk(ns.Codec.EncodeReport(r), tostring(id))) do Deliver("CHANNEL", sender, c) end
 	end
 	return cns, Deliver, Report, DeliverLogged
+end
+
+-- A fresh Comm client on `start`, with real hello delivery, housekeeping registration and send
+-- refusal handling. The game's ten fallback channel names are all already joined for the model.
+do
+local function WithLaneCrowd(start, fn)
+	local saved = { channel = GetChannelName, join = JoinChannelByName, leave = LeaveChannelByName,
+		member = ns.IsMember, info = C_ChatInfo }
+	local ok, err = pcall(function()
+		local indexes = { OlympusNet = 5 }
+		for lane = 1, 9 do indexes["OlympusNet" .. lane] = 5 + lane end
+		GetChannelName = function(name) return indexes[name] or 0 end
+		local w = { joined = {}, left = {}, sent = {}, refuse = {} }
+		JoinChannelByName = function(name) w.joined[#w.joined + 1] = name end
+		LeaveChannelByName = function(name) w.left[#w.left + 1] = name end
+		ns.IsMember = function() return true end
+		local cns, Deliver = FreshComm()
+		cns.rdb = { channelLane = start }
+		cns.Relay = { On = function() return false end }
+		cns.Roster = setmetatable({ RankOf = function() end }, { __index = ns.Roster })
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist, target)
+			w.sent[#w.sent + 1] = { msg = msg, dist = dist, target = target }
+			return dist == "CHANNEL" and w.refuse[target] and 7 or 0
+		end
+		C_ChatInfo.SendAddonMessageLogged = C_ChatInfo.SendAddonMessage
+		local C = cns.Comm
+		C.JoinChannel()
+		w.housekeeping = cns.timers.housekeeping
+		w.hello = function(name, lane, relay, laneField, realm)
+			realm = realm or "Realm"
+			if laneField == nil then laneField = lane == 0 and "" or ("L" .. tostring(lane)) end
+			Deliver("GUILD", name .. "-" .. realm, "H1~1.5.5~" .. realm .. "~p~~~" .. laneField .. (relay == false and "" or "~R"))
+		end
+		fn(w, C, cns)
+	end)
+	GetChannelName, JoinChannelByName, LeaveChannelByName, ns.IsMember = saved.channel, saved.join, saved.leave, saved.member
+	C_ChatInfo = saved.info
+	if not ok then error(err, 0) end
+end
+
+test("1.5.6 channel lanes: housekeeping moves a minority client down to a decisive recent majority", function()
+	WithLaneCrowd(2, function(w, C)
+		for i = 1, 5 do w.hello("Crowd" .. i, 1) end
+		w.hello("Minority", 2)
+		w.housekeeping()
+		eq(C.Lane(), 1, "the recent five-to-one crowd brings lane 2 back down to lane 1")
+		eq(C.LaneStats().moves, 1)
+		w.housekeeping()
+		eq(C.LaneStats().moves, 1, "the next housekeeping pass makes no extra move or send storm")
+	end)
+end)
+
+test("1.5.6 channel lanes: a decisive crowd correction also moves upward", function()
+	WithLaneCrowd(1, function(w, C)
+		for i = 1, 5 do w.hello("High" .. i, 3) end
+		w.hello("Low", 1)
+		w.housekeeping()
+		eq(C.Lane(), 3, "the fallback names are convergence lanes, not one-way shards")
+	end)
+end)
+
+test("1.5.6 channel lanes: relay mode freezes refusal and officer moves but permits crowd convergence", function()
+	WithLaneCrowd(1, function(w, C, cns)
+		cns.Relay.On = function() return true end
+		eq(C.NextLane("refused"), false, "the refusal path keeps the relay safety gate")
+		eq(C.TakeLane(3, "Lord-Realm"), false, "the officer path keeps the relay safety gate")
+		for i = 1, 5 do w.hello("Relayed" .. i, 2) end
+		w.housekeeping()
+		eq(C.Lane(), 2, "only the corrective crowd move passes the relay gate")
+	end)
+end)
+
+test("1.5.6 channel lanes: no crowd, four peers and a near-even split do not move; ties choose the lower lane", function()
+	WithLaneCrowd(3, function(w, C)
+		w.housekeeping()
+		eq(C.Lane(), 3, "no reports")
+		for i = 1, 4 do w.hello("Low" .. i, 1) end
+		w.housekeeping()
+		eq(C.Lane(), 3, "four reports do not meet the five-peer quorum")
+		for i = 1, 4 do w.hello("High" .. i, 2) end
+		local best, n, total = C.CrowdLane()
+		eq(best, 1, "an equal count deterministically picks the lower lane"); eq(n, 4); eq(total, 8)
+		w.housekeeping()
+		eq(C.Lane(), 3, "an even split does not move")
+		w.hello("Low5", 1)
+		w.housekeeping()
+		eq(C.Lane(), 3, "five to four is not the documented two-thirds supermajority")
+	end)
+end)
+
+test("1.5.6 channel lanes: stale peer hellos are excluded from the quorum", function()
+	WithLaneCrowd(2, function(w, C, cns)
+		for i = 1, 5 do w.hello("Old" .. i, 1) end
+		cns.clock = cns.clock + C.CROWD_RECENT + 1
+		for i = 1, 4 do w.hello("Fresh" .. i, 1) end
+		local _, n, total = C.CrowdLane()
+		eq(n, 4); eq(total, 4, "only the four recent hellos count")
+		w.housekeeping()
+		eq(C.Lane(), 2, "stale votes cannot complete a quorum")
+	end)
+end)
+
+test("1.5.6 channel lanes: peers on another unshared realm cannot steer this realm's lane", function()
+	WithLaneCrowd(2, function(w, C)
+		for i = 1, 5 do w.hello("Foreign" .. i, 1, true, nil, "Other") end
+		local best, n, total = C.CrowdLane()
+		eq(best, nil); eq(n, 0); eq(total, 0, "another realm's separate channel is not our lane domain")
+		w.housekeeping()
+		eq(C.Lane(), 2, "foreign-realm votes cannot move this realm")
+	end)
+end)
+
+test("1.5.6 channel lanes: a refused lane stays out, fallback still moves up, and its move starts the crowd cooldown", function()
+	WithLaneCrowd(0, function(w, C, cns)
+		w.refuse[5] = true
+		for i = 1, C.LANE_AFTER do C.Send("CHANNEL", "X" .. i .. "~refused"); C.Pump() end
+		eq(C.Lane(), 1, "three real InvalidChannel results still trigger the upward fallback")
+		w.refuse[5] = nil
+		for i = 1, 5 do w.hello("Crowd" .. i, 2) end
+		w.housekeeping()
+		eq(C.Lane(), 1, "the refusal move starts the settle cooldown")
+		cns.clock = cns.clock + C.CROWD_SETTLE
+		w.housekeeping()
+		eq(C.Lane(), 2, "the healthy crowd may correct upward after settling")
+		for i = 1, 5 do w.hello("Crowd" .. i, 0) end
+		cns.clock = cns.clock + C.CROWD_SETTLE
+		w.housekeeping()
+		eq(C.Lane(), 2, "the session never deliberately returns to refused lane 0")
+	end)
+end)
+
+test("1.5.6 channel lanes: crowd and officer moves both start the convergence cooldown", function()
+	WithLaneCrowd(2, function(w, C, cns)
+		for i = 1, 5 do w.hello("Peer" .. i, 1) end
+		w.housekeeping()
+		eq(C.Lane(), 1)
+		for i = 1, 5 do w.hello("Peer" .. i, 2) end
+		w.housekeeping()
+		eq(C.Lane(), 1, "a crowd move cannot immediately oscillate back")
+		cns.clock = cns.clock + C.CROWD_SETTLE
+		w.housekeeping()
+		eq(C.Lane(), 2, "it may converge again after the settle period")
+	end)
+	WithLaneCrowd(0, function(w, C, cns)
+		cns.Roster.RankOf = function(name) return name == "Lord-Realm" and 0 or nil end
+		w.hello("Lord", 1, false)
+		eq(C.Lane(), 1, "the existing officer move still works")
+		for i = 1, 5 do w.hello("Peer" .. i, 2) end
+		w.housekeeping()
+		eq(C.Lane(), 1, "an officer move also starts the crowd cooldown")
+		cns.clock = cns.clock + C.CROWD_SETTLE
+		w.housekeeping()
+		eq(C.Lane(), 2)
+	end)
+end)
+
+test("1.5.6 channel lanes: an officer hello cannot pull a client away from a clear healthy crowd", function()
+	WithLaneCrowd(1, function(w, C, cns)
+		cns.Roster.RankOf = function(name) return name == "Lord-Realm" and 0 or nil end
+		for i = 1, 5 do w.hello("Crowd" .. i, 1) end
+		w.hello("Lord", 2)
+		eq(C.Lane(), 1, "the officer's minority lane does not override five recent peers")
+	end)
+end)
+
+test("1.5.6 channel lanes: only relay-capable hellos with canonical in-range lane data count", function()
+	WithLaneCrowd(2, function(w, C)
+		for i = 1, 5 do w.hello("Old" .. i, 1, false) end
+		w.hello("BadA", 0, true, "LX")
+		w.hello("BadB", 0, true, "L-1")
+		w.hello("BadC", 0, true, "L1.5")
+		w.hello("BadD", 0, true, "L10")
+		w.hello("BadE", 0, true, "L01")
+		local best, n, total = C.CrowdLane()
+		eq(best, nil); eq(n, 0); eq(total, 0, "old, malformed and out-of-range reports are ignored")
+		w.housekeeping()
+		eq(C.Lane(), 2)
+		for i = 1, 5 do w.hello("First" .. i, 0) end
+		w.housekeeping()
+		eq(C.Lane(), 0, "an empty lane field from relay-capable peers is valid lane 0")
+	end)
+end)
 end
 
 -- 1.4.1 (launch night, 2026-11-04: WoW: Forever refused every send on "OlympusNet" with
@@ -6934,7 +7118,7 @@ test("1.4.1 channel lanes: three InvalidChannel refusals on our channel move us 
 		cns.rdb.realmKey = nil
 		-- Older clients read nothing new: a hello without the field names no lane.
 		Deliver("GUILD", "Old-Realm", "H1~1.3.3~Realm~p")
-		eq(table.concat(C.Stats().peerLanes, ","), "Lord:99,Member:2", "each peer's last word noted, the old client none")
+		eq(table.concat(C.Stats().peerLanes, ","), "Member:2", "the valid peer lane alone; out-of-range and absent data ignored")
 	end)
 	GetChannelName, JoinChannelByName, LeaveChannelByName, ns.IsMember, ns.Roster = saved.channel, saved.join, saved.leave, saved.member, saved.roster
 	C_ChatInfo = nil
