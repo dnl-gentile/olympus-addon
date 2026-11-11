@@ -418,6 +418,21 @@ test("census RX fairness: a busy mesh sends the newest whole snapshot to the Kin
 	end)
 end)
 
+test("census RX fairness: a queued local snapshot stays home when presence becomes private before it starts", function()
+	WithTransfer(function(R, _, sent, Run)
+		Mesh(R, "Hildryn Payne-Realm")
+		Run(10)
+		for i = 1, R.Comm.QueueRoom() do assert(R.Comm.Whisper("Busy-Realm", "X1~" .. i, nil, true)) end
+		local word = TransferWord(R, "CG~2~S~1~ForeverPvE~Alliance~", 3)
+		OfferTransfer(R, word, "924")
+		eq(AcrossDepth(R), 1)
+		R.QuietPresence = function() return true end
+		Run(100)
+		eq(TransferWords(R, sent, "RX")["Hildryn Payne"], nil)
+		eq(AcrossDepth(R), 0)
+	end)
+end)
+
 test("relay transfer hardening: a full bound never evicts the sole in-flight transfer", function()
 	for _, bound in ipairs({ "ACROSS_MAX", "ACROSS_PER_PEER" }) do
 		WithTransfer(function(R, _, sent, Run)

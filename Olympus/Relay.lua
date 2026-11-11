@@ -989,6 +989,10 @@ local dripBusy = false -- a queue callback or a retry timer owns the next turn
 local dripping = false
 local refillCensusAcross -- assigned by the mesh; run when an across slot is freed
 
+local function CensusAcrossAllowed()
+	return Relay.On() and Relay.IsSignedRelay(ns.me) and not (ns.QuietPresence and ns.QuietPresence())
+end
+
 -- The pieces of a word, in order, once all of them are here; false while some are missing;
 -- nil when the body is not a piece of a larger word (it goes on as before).
 local function CollectSet(origin, body, now)
@@ -1186,7 +1190,7 @@ local function Drip()
 		local current = d.started
 		if not current then
 			if d.censusAt then
-				current = Now() - d.censusAt <= Relay.SET_MAX_AGE and Relay.IsSignedRelay(ns.me) and Relay.MeshPeer(d.name)
+				current = Now() - d.censusAt <= Relay.SET_MAX_AGE and CensusAcrossAllowed() and Relay.MeshPeer(d.name)
 			elseif d.across then
 				current = Relay.IsRelay(d.name) and Now() - (verified[Lower(d.name)] or -math.huge) < Relay.VERIFIED_FOR
 			else current = StillReporter(d.name) end
@@ -2070,7 +2074,7 @@ refillCensusAcross = function()
 	local p = mesh.census
 	if not p then return end
 	local now = Now()
-	if now - p.at > Relay.SET_MAX_AGE or not Relay.On() or not Relay.IsSignedRelay(ns.me) then
+	if now - p.at > Relay.SET_MAX_AGE or not CensusAcrossAllowed() then
 		mesh.census = nil
 		return
 	end
