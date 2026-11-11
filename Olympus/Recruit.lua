@@ -1135,7 +1135,11 @@ function Recruit.RequestLines(viaWhisper)
 			end,
 		}
 		local handoff = req.viaWhisper and Recruit.Handoff
-		if handoff and handoff.State(req) then
+		local joined = req.viaWhisper and req.guild == GetGuildInfo("player") and ns.Roster.Fresh()
+			and ns.Roster.RankOf(req.name) ~= nil
+		if joined then
+			lines[#lines + 1] = { indent = 1, text = V.Green(L.RECRUIT_WHISPER_JOINED) }
+		elseif handoff and handoff.State(req) then
 			handoff.RequestLines(lines, V, req)
 		elseif canInvite then
 			local label = req.viaWhisper and L.RECRUIT_WHISPER_REVIEW or L.JOIN_INVITE

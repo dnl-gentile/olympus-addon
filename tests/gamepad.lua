@@ -3708,6 +3708,17 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		local function HasQueue(line) return line.text == ns.L.JOIN_REQUESTS:format(4) end
 		ns.UI.Refresh()
 		assert(FindLine(HasQueue), "Church Invites shows the incoming JOIN queue")
+		local fresh, rankOf = ns.Roster.Fresh, ns.Roster.RankOf
+		local joined = function(line) return line.text:find(ns.L.RECRUIT_WHISPER_JOINED, 1, true) end
+		eq(FindLine(joined), nil, "an invite draft alone does not show anyone as joined")
+		ns.Roster.RankOf = function(name) if name == req.name then return 3 end return rankOf(name) end
+		ns.Roster.Fresh = function() return false end
+		ns.UI.Refresh()
+		eq(FindLine(joined), nil, "a stale roster cannot confirm joining")
+		ns.Roster.Fresh = function() return true end
+		ns.UI.Refresh()
+		assert(FindLine(joined), "a fresh roster confirms the applicant is in this guild")
+		ns.Roster.Fresh, ns.Roster.RankOf = fresh, rankOf
 		assert(ns.UI.SelectTab("census"))
 		eq(FindLine(HasQueue), nil, "the experiment's queue stays out of Census")
 		eq(ToggleLine(), nil)
