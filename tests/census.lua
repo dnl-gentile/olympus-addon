@@ -460,6 +460,37 @@ test("census scope: scoped count snapshots reject another ruleset and legacy uns
 	eq(next(pve.ns.rdb.guilds), nil, "counts never become authority")
 end)
 
+test("census origin labels: pinned Forever aliases count once and mixed rulesets stay out", function()
+	local w, council = GroupWorld(), "Council-Realm"
+	w.ns.group = "ForeverRP"
+	w.ns.Church.IsLedgerRelay = function(name) return name == council end
+	w.ns.GroupRealms = function(group) return group == "ForeverPvE" and { "CAMWOWEU1Realm1PvE" } or {} end
+	w.ns.RealmInfo = function(realm) return realm == "CAMWOWEU1Realm1PvE" and { kind = "pve", region = "EU" } or nil end
+	local function Hear(sender, group, characters, at)
+		w.D.ReceiveGroupCensus("CHANNEL", sender, Say(w, { { group, "Alliance", characters, characters, 3, at or w.clock } }))
+	end
+	Hear(council, "ForeverPvE+CAMWOWUS1Realm3PvE", 600, w.clock - 10)
+	Hear(council, "ForeverPvP+CAMWOWAU1Realm1PvP", 500)
+	Hear(council, "ForeverPvE", 700)
+	for _, group in ipairs({ "ForeverPvE+ForeverPvP", "ForeverPvP+CAMWOWEU1Realm1PvE", "ForeverPvE+AnotherWorld" }) do
+		Hear(council, group, 999)
+	end
+	-- A compound alias already saved by an earlier client still counts with the canonical row.
+	local saved = w.ns.db.groupCensus
+	saved["Alliance|ForeverPvE+ForeverPvE"] = { group = "ForeverPvE+ForeverPvE", faction = "Alliance",
+		characters = 600, people = 600, guilds = 3, observed = w.clock - 5, src = "relay" }
+	assert(saved["Alliance|ForeverPvP"], "an alias can establish the pinned canonical origin")
+	Hear("First-Realm", "AnotherWorld+NeighborRealm", 120)
+	Hear("Second-Realm", "AnotherWorld+NeighborRealm", 120)
+	local groups = w.D.Groups()
+	eq(groups.characters, 1320)
+	eq(#groups.rows, 3)
+	eq(groups.kinds.pve.characters, 700); eq(groups.kinds.pvp.characters, 500)
+	eq(groups.kinds["?"].characters, 120, "unknown non-Forever groups remain interoperable")
+	eq(groups.regions.EU, nil, "the known realm region does not label an entire Forever population")
+	eq(groups.regions["?"].characters, 1320)
+end)
+
 test("census overflow: scoped snapshots cover row and byte overflow at the existing receiver cadences", function()
 	for _, byteLimited in ipairs({ false, true }) do
 		local source, tree, mesh, foreign = GroupWorld("Trusted-Realm"), GroupWorld(), GroupWorld(), GroupWorld()

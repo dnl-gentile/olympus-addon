@@ -111,6 +111,22 @@ test("census continuity: server and ruleset hovers retain the original date and 
 	end
 end)
 
+test("census origin labels: a known ruleset shows unavailable region without a ruleset warning", function()
+	local w = World()
+	local row = { group = "ForeverPvE", faction = "Alliance", kind = "pve", characters = 700, people = 700,
+		guilds = 2, observed = T0 - 600, src = "live", counted = true, ours = true }
+	w.ns.Data.Groups = function()
+		return { characters = 700, people = 700, rows = { row }, kinds = { pve = row }, regions = { ["?"] = row }, factions = {} }
+	end
+	local labels, lines = {}, {}
+	w.CS.ServerLines(lines, w.census, T0)
+	for _, line in ipairs(lines) do labels[Bare(line.text)] = true end
+	assert(labels[L.CENSUS_STATS_BY_KIND], "the available ruleset still appears")
+	assert(labels["Region unavailable for these totals."], "regional coverage is explained separately")
+	eq(labels[L.CENSUS_STATS_KIND_WAIT], nil)
+	eq(labels[L.CENSUS_STATS_BY_REGION], nil)
+end)
+
 test("census history: a sample every 15 minutes once the census is rebuilt after login, the day's highest counts kept; nothing sent", function()
 	local w = World({ loginAt = T0 - 60 })
 	local CS = w.CS
@@ -334,10 +350,11 @@ test("census page (1.4.0): every server: the totals, by ruleset and by region, e
 			-- no server row.)
 			assert(not lines[each + 5] or lines[each + 5].indent ~= 2, "the beta's realms: not listed on a launch realm")
 			for _, line in ipairs(lines) do assert(not tostring(line.text):find("ClassicBeta", 1, true), "no beta anywhere") end
-			-- No realm table yet: the rulesets and regions wait for it.
+			-- With no realm table, each missing breakdown has its own status.
 			ns.RealmInfo = nil
 			lines = World({ realData = true, clock = now }).CS.Build()
-			assert(Find(lines, L.CENSUS_STATS_KIND_WAIT), "the page says they will come")
+			assert(Find(lines, L.CENSUS_STATS_KIND_WAIT), "the missing ruleset is explained")
+			assert(Find(lines, L.CENSUS_STATS_REGION_UNAVAILABLE), "the missing region is explained separately")
 			eq(Find(lines, L.CENSUS_STATS_BY_KIND), nil)
 		end)
 	end)

@@ -960,11 +960,14 @@ Data.MEMBER_ANSWER_AFTER, Data.MEMBER_ANSWER_SPREAD, Data.MEMBER_ANSWERS = 12, 6
 local globalLastSent, globalLastHeard, globalAnswerPending = 0, 0, false
 local answersHeard = {} -- { t, trusted } of the claims and snapshots heard, the last few minutes
 
+local function ScopedRealm(realm)
+	return realm:match("^Forever%a+$") or (ns.ForeverFamily and ns.ForeverFamily(realm))
+end
 local function ScopedGroup(group)
 	if type(group) ~= "string" then return nil end
 	local family
 	for realm in group:gmatch("[^+]+") do
-		local f = realm:match("^Forever%a+$") or (ns.ForeverFamily and ns.ForeverFamily(realm))
+		local f = ScopedRealm(realm)
 		if not f or (family and family ~= f) then return nil end
 		family = f
 	end
@@ -1654,8 +1657,8 @@ end
 -- a group's numbers are taken when two people's agree (the author's rule of 10-20), with a window and
 -- a share wider than the guilds' (GROUP_WINDOW, GROUP_SHARE): they looked at different moments. A
 -- lone witness is listed grey and stays out of the totals. The beta's realm groups never count on a
--- launch realm. A group's kind (PvP, PvE...) and region (NA, EU) come from the realm table the
--- author signs (ns.RealmInfo); unknown, it is listed as such.
+-- launch realm. A Forever origin names its ruleset and has no assigned region. Other realm groups
+-- get their ruleset and region from the author's signed realm table (ns.RealmInfo).
 ---------------------------------------------------------------------------
 Data.GROUP_PROTOCOL = 1
 Data.GROUP_KEEP = 7 * 24 * 60 * 60  -- listed this long after it was seen
@@ -1692,7 +1695,7 @@ local function GroupField(group)
 	-- voting or comparing with ours; mixed rulesets can never name one census origin.
 	local family, other
 	for realm in group:gmatch("[^+]+") do
-		local f = ns.ForeverFamily and ns.ForeverFamily(realm)
+		local f = ScopedRealm(realm)
 		if f then
 			if family and family ~= f then return nil end
 			family = f
@@ -2135,22 +2138,22 @@ function Data.Groups(s, now)
 	local out = { rows = {}, characters = 0, people = 0, kinds = {}, regions = {}, factions = {} }
 	local seen = {}
 	local function Add(e, counted, ours)
-		-- (1.5.2) A plain Forever realm's row (a group learned before 1.4.6, kept on some client) is
-		-- its family's: one server, not "another" beside it; the newest of them is the one kept.
-		local first = type(e.group) == "string" and e.group:match("^[^+]+") or nil
-		local family = first and ns.ForeverFamily and ns.ForeverFamily(first) or nil
-		local groupName = family or e.group
+		-- A saved plain Forever realm or compound alias describes the same ruleset as the
+		-- canonical group. Keep just the newest row for that population.
+		local groupName = GroupField(e.group)
+		if not groupName then return end
 		local key = GroupKey(e.faction, groupName)
 		if seen[key] then return end
 		seen[key] = true
 		local kind, region = Data.GroupInfo(groupName)
+		local forever = ScopedRealm(groupName) ~= nil
 		-- A Forever family can contain homes in several regions. Its relay's or
 		-- first known realm's region does not locate the aggregate's population.
-		if ScopedGroup(groupName) then region = nil end
+		if forever then region = nil end
 		local row = { group = groupName, faction = e.faction, characters = e.characters, people = e.people, guilds = e.guilds,
 			observed = e.observed, src = e.src, w = e.w, kind = kind, region = region, counted = counted, ours = ours,
-			canonicalGroup = groupName, product = ScopedGroup(groupName) and "forever" or nil,
-			era = Data.IsBetaGroup(groupName) and "beta" or (ScopedGroup(groupName) and "launch" or nil),
+			canonicalGroup = groupName, product = forever and "forever" or nil,
+			era = Data.IsBetaGroup(groupName) and "beta" or (forever and "launch" or nil),
 			unscoped = e.unscoped, validation = e.unscoped and "origin-unknown" or (e.src == "heard" and "reported" or "accepted"),
 			fresh = now - e.observed <= Data.FRESH }
 		out.rows[#out.rows + 1] = row

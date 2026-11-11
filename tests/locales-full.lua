@@ -67,7 +67,8 @@ test("languages (1.4.0): each language file takes every line it carries, nearly 
 		assert(taken, file .. ": " .. report)
 		assert(taken >= math.floor(total * 0.99), ("%s: %d of %d English lines"):format(file, taken, total))
 		-- Lines a member reads first are in the language.
-		for _, k in ipairs({ "TAB_CENSUS", "ARMS", "ARMY_PEOPLE", "CENSUS_STATS_SERVERS", "CONSENT_TITLE", "ACCORD_ACCEPT" }) do
+		for _, k in ipairs({ "TAB_CENSUS", "ARMS", "ARMY_PEOPLE", "CENSUS_STATS_SERVERS", "CENSUS_STATS_KIND_WAIT",
+			"CENSUS_STATS_REGION_UNAVAILABLE", "CONSENT_TITLE", "ACCORD_ACCEPT" }) do
 			assert(lns.L[k] ~= english.L[k], file .. " translates " .. k)
 		end
 	end
