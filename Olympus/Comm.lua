@@ -560,7 +560,7 @@ Comm.QUIET_WORDS = {
 	"^CG~%d+~S~",   -- a global census snapshot (Data.lua)
 	"^CX~%d+~S~",   -- carried origin totals or guild detail (Data.lua)
 	"^V[248]~",     -- a roll call's answer, the author's presence, a version check's answer (Workshop.lua, Versions.lua)
-	"^NK~1~p~",     -- the Church's presence (Church.lua)
+	"^NK~1~[pqa]~", -- the Church's presence and direct keeper discovery (Church.lua)
 	"^D[VW]~",      -- Olympus Link's confirmer and watcher presence (its own addon, Olympus_Link, when installed)
 	-- The arena auditors' and fee receiver's hello, and an auditor's whispered check of a bank
 	-- snapshot (ZQ~<mode>~H~<epoch>~<seq>, Wallet.CheckSnapshot), which marks him as heard too: a

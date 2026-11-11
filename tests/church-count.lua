@@ -1559,6 +1559,97 @@ local function WitnessInvite(w, c, recruit)
 	w.log[World.GUILD] = {}
 end
 
+-- Old channel presence has expired, and the two guilds now use distinct relay islands.
+local function KeeperProbeWorld()
+	local w, c = Cast()
+	w:SignedList({ A1, A2 }, false, w.titles.at + 1)
+	for _, cl in pairs(c) do
+		cl.c.group = "ForeverPvE"
+		cl.c.Relay = { On = function() return true end }
+		cl.c.ForeverFamily = function(realm) return realm == "Realm" and "ForeverPvE" or ns.ForeverFamily(realm) end
+		cl.Church.random = function(a) return a end
+	end
+	c.a2.online = false
+	w:Run(c.a1.Church.KEEPER_EVERY * 3)
+	w:ClearSent()
+	return w, c
+end
+
+test("Church keeper discovery: a guild witness delivers verified evidence without channel presence", function()
+	local w, c = KeeperProbeWorld()
+	eq(#w:As(c.wes, c.wes.Church.KeepersOnline, false), 0)
+	WitnessInvite(w, c, "Across Rec")
+	local queries = w:Sent(c.wes, "NK", "WHISPER", "q")
+	eq(#queries, 1)
+	eq(queries[1].target, A1, "the signed Apostle is tried by direct whisper")
+	assert(not queries[1].msg:find("Across Rec", 1, true), "discovery contains no evidence")
+	w:Run(15)
+	eq(SentTo(w, c.wes, c.a1, "w"), 1)
+	eq(Joins(w, c.a1, "Mira Wells", "m"), 1)
+	eq(Outbox(w, c.wes), 0)
+end)
+
+test("Church keeper discovery: a ranking ask accepts only its own signed and scoped direct reply", function()
+	local w, c = KeeperProbeWorld()
+	Give(w, c.a1, "Desk Rec", "Mira Wells", 2)
+	local ask = function() return w:As(c.m1, c.m1.Count.Ask, "m", "m", nil, true) end
+	eq(select(2, ask()), "no keeper")
+	for _ = 1, 4 do ask() end
+	local queries = w:Sent(c.m1, "NK", "WHISPER", "q")
+	eq(#queries, 1, "refreshing the tab cannot fan out discovery")
+	local nonce = assert(queries[1].msg:match("^NK~1~q~(%w+)~"))
+	local reply = "NK~1~a~" .. nonce .. "~ForeverPvE:Alliance"
+	local function Take(dist, sender, text) return w:As(c.m1, c.m1.Church.ReceivePresence, dist, sender, text) end
+	eq(Take("WHISPER", A2, reply), false, "another signed Apostle did not get this request")
+	eq(Take("WHISPER", A1, reply:gsub("ForeverPvE", "ForeverPvP")), false)
+	eq(Take("WHISPER", "Aldric Vane-CAMWOWUS1Realm1PvP", reply), false)
+	eq(Take("WHISPER", A1, reply:gsub(nonce, nonce .. "z")), false)
+	eq(Take("CHANNEL", A1, reply), false)
+	eq(#w:As(c.m1, c.m1.Church.KeepersOnline, false), 0)
+	w:Flush()
+	eq(#w:Sent(c.a1, "NK", "WHISPER", "a"), 1)
+	eq(ask(), true)
+	w:Run(30)
+	local rows = w:As(c.m1, c.m1.Count.RankingView, "m", "m")
+	eq(rows[1].name, "Mira Wells")
+	eq(rows[1].score, 10)
+	eq(Take("WHISPER", A1, reply), false, "the completed request cannot be replayed")
+end)
+
+test("Church keeper discovery: quiet keepers and unverified requesters receive no presence", function()
+	local w, c = KeeperProbeWorld()
+	c.a1.c.QuietPresence = function() return true end
+	WitnessInvite(w, c, "Quiet Rec")
+	eq(#w:Sent(c.wes, "NK", "WHISPER", "q"), 1)
+	eq(#w:Sent(c.a1, "NK", "WHISPER", "a"), 0)
+	eq(SentTo(w, c.wes, c.a1, "w"), 0)
+	eq(Outbox(w, c.wes), 1)
+	c.a1.c.QuietPresence = function() return false end
+	local outside = "NK~1~q~f123~ForeverPvE:Alliance~" .. World.GUILD2
+	eq(w:As(c.a1, c.a1.Church.ReceivePresence, "WHISPER", c.vik.name, outside), false)
+	eq(#w:Sent(c.a1, "NK", "WHISPER", "a"), 0, "a guild claim alone discloses no presence")
+	w.off[c.wes.key] = true
+	local sameGuild = "NK~1~q~f124~ForeverPvE:Alliance~" .. World.GUILD
+	eq(w:As(c.a1, c.a1.Church.ReceivePresence, "WHISPER", c.wes.name, sameGuild), false)
+	eq(#w:Sent(c.a1, "NK", "WHISPER", "a"), 0, "moderation still applies to a known guildmate")
+end)
+
+test("Church keeper discovery: an unreachable signed Apostle yields to the next one on the bounded cadence", function()
+	local w, c = KeeperProbeWorld()
+	c.a1.online, c.a2.online = false, true
+	local ask = function() return w:Act(c.m1, c.m1.Count.Ask, "m", "m", nil, true) end
+	eq(select(2, ask()), "no keeper")
+	w:Run(c.m1.Church.PROBE_GAP - 1)
+	eq(select(2, ask()), "no keeper")
+	eq(#w:Sent(c.m1, "NK", "WHISPER", "q"), 1)
+	w:Run(1)
+	eq(select(2, ask()), "no keeper")
+	local queries = w:Sent(c.m1, "NK", "WHISPER", "q")
+	eq(#queries, 2)
+	eq(queries[2].target, A2)
+	eq(w:As(c.m1, c.m1.Church.KeepersOnline, false)[1].name, A2)
+end)
+
 test("Church evidence retries: a delayed whisper is not repeated while queued and a failed send reaches the same keeper", function()
 	local w, c = Cast()
 	c.a2.online = false

@@ -73,6 +73,8 @@ local L = ns.L
 --       in its own book. Actual publishers' switches are taken either way, and a closed one
 --       from any keeper (closing is the private direction): a client that missed the publisher's
 --       close learns it from the first keeper who heard it.
+--   NK~1~q~<id>~<family:faction>~<guild>   find a signed Apostle by native WHISPER on Forever
+--   NK~1~a~<id>~<family:faction>           only the requested Apostle's direct reply counts.
 
 local Church = {}
 ns.Church = Church
@@ -94,6 +96,7 @@ Church.PENDING_MAX, Church.PENDING_KEEP = 20, 30 * 60
 Church.HEARD_MAX = 500
 Church.KEEPER_EVERY, Church.MEMBER_EVERY = 300, 600 -- presence
 Church.FRESH_FACTOR = 2.2
+Church.PROBE_GAP, Church.PROBE_WAIT, Church.PROBE_REPLY_GAP = 120, 60, 3
 Church.ASK_GAP = 600           -- an audience client asks for pages this often at most
 Church.ASK_AFTER, Church.ASK_SPREAD = 40, 40
 Church.ASKED_WINDOW = 600      -- pages are taken from a keeper this long after we asked him
@@ -1442,6 +1445,91 @@ function Church.TakePresence(dist, sender, text)
 	return true
 end
 
+-- A Forever relay may never hear a keeper on another relay. Ask one signed Apostle directly
+-- when an outbox or open ranking has no keeper. The answer carries only a request ID and scope.
+local probe = { at = -math.huge, seq = 0, replyAt = -math.huge, replied = {} }
+local function ProbeScope()
+	local R, group = ns.Relay, ns.group
+	if not (R and R.On and R.On()) or not ns.IsMember() or Off() then return nil end
+	if ns.QuietPresence and ns.QuietPresence() then return nil end
+	if type(group) ~= "string" or not group:match("^Forever%a+$") or not ns.faction then return nil end
+	return group .. ":" .. ns.faction
+end
+
+local function SignedKeeper(name)
+	local k = Key(name)
+	local row = k and Church.State().apostle[k]
+	return row and row.signed and not Church.IsKing(name)
+		and ns.ForeverFamily(ns.RealmOf(name)) == ns.group
+end
+
+function Church.FindKeeper()
+	local scope, now = ProbeScope(), Now()
+	if not scope or now - probe.at < Church.PROBE_GAP or ns.Comm.QueueRoom() <= Church.SEND_ROOM then return false end
+	local guild, signers = CleanGuild(OwnGuild()), Church.SignedApostles()
+	if not guild or #signers == 0 then return false end
+	local first = probe.next or Church.random(1, #signers)
+	for i = 0, #signers - 1 do
+		local j = (first + i - 1) % #signers + 1
+		local name = signers[j].n
+		if not Same(name, ns.me) and SignedKeeper(name) then
+			probe.next, probe.at, probe.seq = j % #signers + 1, now, probe.seq + 1
+			local q = { k = Key(name), id = B36(Clock()) .. B36(probe.seq), untilAt = now + Church.PROBE_WAIT }
+			probe.pending = q
+			local text = ("NK~1~q~%s~%s~%s"):format(q.id, scope, guild)
+			return ns.Comm.Whisper(name, text, nil, false, false, function(ok)
+				if probe.pending ~= q then return end
+				if ok then q.sent, q.untilAt = true, Now() + Church.PROBE_WAIT else probe.pending = nil end
+			end, { owner = Church, guard = function()
+				return probe.pending == q and Now() < q.untilAt and ProbeScope() == scope
+					and OwnGuild() == guild and SignedKeeper(name)
+			end })
+		end
+	end
+	return false
+end
+
+local function ProbeRequester(sender, guild)
+	if not guild or not ns.IsFederation(guild) then return false end
+	local R, C, M = ns.Roster, ns.Channels, ns.Moderation
+	if M and M.Hides and M.Hides(sender, guild) then return false end
+	if Church.InAudience(sender) then return true end
+	if guild == OwnGuild() then return R and R.Fresh and R.Fresh() and R.RankOf and R.RankOf(sender) ~= nil end
+	if not (C and C.VerifiedLevel) then return false end
+	local level, verified = C.VerifiedLevel(sender, guild)
+	return verified == true and (tonumber(level) or 0) >= 1
+end
+
+local function TakeKeeperProbe(sender, text)
+	local scope, now, k = ProbeScope(), Now(), Key(sender)
+	if not scope or not k or ns.ForeverFamily(ns.RealmOf(sender)) ~= ns.group then return Drop("scope") end
+	local kind, id, body = text:match("^NK~1~([qa])~([0-9a-z]+)~(.+)$")
+	if not id or #id > 16 then return Drop("shape") end
+	if kind == "a" then
+		local q = probe.pending
+		if body ~= scope or not q or not q.sent or now >= q.untilAt or q.k ~= k or q.id ~= id
+			or not SignedKeeper(sender) then return Drop("unasked") end
+		probe.pending = nil
+		if Church.Online(sender) then return true end
+		return Church.TakePresence("WHISPER", sender, "NK~1~p~A~-~-~-")
+	end
+	local theirs, guild = body:match("^([^~]+)~([^~]+)$")
+	if theirs ~= scope or not SignedKeeper(ns.me) then return Drop("keeper") end
+	if now - probe.replyAt < Church.PROBE_REPLY_GAP or now - (probe.replied[k] or -math.huge) < Church.PROBE_GAP
+		or ns.Comm.QueueRoom() <= Church.SEND_ROOM then return Drop("rate") end
+	guild = CleanGuild(guild)
+	if not ProbeRequester(sender, guild) then return Drop("requester") end
+	local accepted = ns.Comm.Whisper(sender, ("NK~1~a~%s~%s"):format(id, scope), nil, false, false, nil,
+		{ owner = Church, guard = function()
+			return ProbeScope() == scope and SignedKeeper(ns.me) and ProbeRequester(sender, guild)
+		end })
+	if accepted then
+		if not probe.replied[k] then Capped(probe.replied, Church.HEARD_MAX) end
+		probe.replyAt, probe.replied[k] = now, now
+	end
+	return accepted
+end
+
 -- Heard lately with a role this client's book confirms (presence alone grants nothing).
 function Church.Online(name)
 	local h = heard[Key(name) or ""]
@@ -1590,6 +1678,7 @@ end
 function Church.ReceivePresence(dist, sender, text)
 	if type(text) ~= "string" or type(sender) ~= "string" then return end
 	if text:match("^NK~([^~]+)~") ~= "1" then return Drop("version") end
+	if dist == "WHISPER" then return TakeKeeperProbe(ns.FullName(sender), text) end
 	if dist ~= "CHANNEL" and dist ~= "GUILD" then return Drop("lane") end
 	return Church.TakePresence(dist, ns.FullName(sender), text)
 end

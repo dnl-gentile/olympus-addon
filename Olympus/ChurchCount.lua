@@ -620,6 +620,7 @@ function Count.Flush()
 		local kk = Key(k.name)
 		if kk then keepers[#keepers + 1] = { name = k.name, key = kk } end
 	end
+	if #keepers == 0 and #out > 0 then Church.FindKeeper() end
 	local sent = 0
 	for _, o in ipairs(#keepers > 0 and out or {}) do
 		o.h = o.h or ns.Comm.Hash36(o.text)
@@ -2118,7 +2119,7 @@ function Count.Ask(what, window, person, force)
 		end
 	end
 	local keepers = Church.KeepersOnline(false)
-	if #keepers == 0 then return false, "no keeper" end
+	if #keepers == 0 then Church.FindKeeper(); return false, "no keeper" end
 	-- Prefer the next keeper when an answer stalls. NR~1 carries no request identifier, so
 	-- do not ask one for this page again until its previous answer ends or expires.
 	local first = 1
