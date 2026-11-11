@@ -2540,10 +2540,16 @@ local function RealmLines(s, q)
 		return lines
 	end
 
-	local racers = {}
+	local racers, covered, expected = {}, 0, 0
 	for _, e in ipairs(s.guilds) do
-		if e.fresh then
-			for _, p in ipairs(e.g.top or {}) do racers[#racers + 1] = { name = p.name, realm = e.g.realm, level = p.level, class = p.class, guild = e.name } end
+		if e.fresh and (e.g.total or 0) > 0 then
+			expected = expected + 1
+			if e.topLevels then
+				covered = covered + 1
+				for _, p in ipairs(e.topLevels) do
+					racers[#racers + 1] = { name = p.name, realm = e.topRealm, level = p.level, class = p.class, guild = e.name }
+				end
+			end
 		end
 	end
 	table.sort(racers, function(a, b)
@@ -2553,7 +2559,13 @@ local function RealmLines(s, q)
 	lines[#lines + 1] = { header = true, text = L.LEVEL_RACE }
 	local rules = ns.RankingRules and ns.RankingRules.Link("realm-level", function() ns.RankingRules.OpenRealm("realm-level") end)
 	if rules then lines[#lines + 1] = rules end
-	if #racers == 0 then lines[#lines + 1] = { text = Grey(L.NONE_REPORTED) } end
+	if covered < expected then
+		lines[#lines + 1] = { text = Grey(L.LEVEL_RACE_REPORTS_PENDING:format(covered, expected)), tooltip = function(tt)
+			tt:AddLine(L.LEVEL_RACE_REPORTS_TIP, 0.8, 0.8, 0.8, true)
+		end }
+	elseif #racers == 0 then
+		lines[#lines + 1] = { text = Grey(L.NONE_REPORTED) }
+	end
 	-- The top 100, shown 25 at a time (0.9.7): the window stays light.
 	local shownRacers = math.min(#racers, Views.RACE_MAX, Views.raceShown)
 	for i = 1, shownRacers do

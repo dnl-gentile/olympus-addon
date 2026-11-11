@@ -2956,6 +2956,8 @@ ns.Locale("frFR", {
 	LETTER_TITLE = "Olympus %s",
 	LEVEL_N = "niveau %d",
 	LEVEL_RACE = "Plus hauts niveaux",
+	LEVEL_RACE_REPORTS_PENDING = "Niveaux reçus de %d guildes sur %d qui ont fait un rapport",
+	LEVEL_RACE_REPORTS_TIP = "Les effectifs des guildes peuvent arriver avant les niveaux des joueurs. Cette liste utilise les rapports de niveaux récents de votre mode de jeu. Si des rapports manquent toujours, utilisez /oly bug et transmettez le rapport au développeur.",
 	LOCATION_ASK = "|cffe6c35cOlympus : partager ta zone et ta couche ?|r\n\nSi tu partages, l'addon peut annoncer sur le canal Olympus ta zone, ta couche, ton rang de guilde et ta guilde, avec ton nom sur chaque message (le jeu l'ajoute) : les officiers et un membre sur huit le font, toutes les 10 minutes et quand leur couche change. Le recensement de ta guilde nomme alors ta zone si tu la diriges ou si tu es officier, et compte les membres par zone quand c'est ton addon qui l'envoie.\n\nTout le monde sur le canal Olympus le reçoit. %s\n\nGarde-le privé et rien de cela n'est envoyé. Demander à changer de couche envoie quand même la zone où tu es et la couche voulue.\n\nChange-le quand tu veux avec /oly location on ou /oly location off.",
 	LOCATION_KEEP = "Garder privé",
 	LOCATION_OFF = "Ta zone et ta couche restent privées : l'addon n'envoie ni l'une ni l'autre. /oly location on les partage.",

@@ -2956,6 +2956,8 @@ ns.Locale({ "esES", "esMX" }, {
 	LETTER_TITLE = "Olympus %s",
 	LEVEL_N = "nivel %d",
 	LEVEL_RACE = "Niveles más altos",
+	LEVEL_RACE_REPORTS_PENDING = "Niveles recibidos de %d de %d hermandades con informes",
+	LEVEL_RACE_REPORTS_TIP = "Las cifras de las hermandades pueden llegar antes que los niveles de los jugadores. Esta lista usa informes recientes de tu modo de juego. Si siguen faltando datos, usa /oly bug y envía el informe al desarrollador.",
 	LOCATION_ASK = "|cffe6c35cOlympus: ¿compartir tu zona y tu capa?|r\n\nSi compartes, el addon puede anunciar en el canal de Olympus tu zona, tu capa, tu rango y tu hermandad, con tu nombre en cada mensaje (lo añade el juego): lo hacen los oficiales y uno de cada ocho miembros, cada 10 minutos y cuando cambia su capa. El censo de tu hermandad nombra entonces tu zona si la lideras o eres oficial, y cuenta los miembros por zona cuando es tu addon el que lo envía.\n\nTodos en el canal de Olympus lo reciben. %s\n\nSi lo mantienes privado, no se envía nada de eso. Pedir saltar a una capa sigue enviando la zona en la que estás y la capa que quieres.\n\nCámbialo cuando quieras con /oly location on o /oly location off.",
 	LOCATION_KEEP = "Mantener privado",
 	LOCATION_OFF = "Tu zona y tu capa siguen privadas: el addon no envía ninguna. /oly location on las comparte.",

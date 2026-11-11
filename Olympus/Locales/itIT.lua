@@ -2956,6 +2956,8 @@ ns.Locale("itIT", {
 	LETTER_TITLE = "Olympus %s",
 	LEVEL_N = "livello %d",
 	LEVEL_RACE = "Livelli più alti",
+	LEVEL_RACE_REPORTS_PENDING = "Livelli ricevuti da %d delle %d gilde con rapporti",
+	LEVEL_RACE_REPORTS_TIP = "I totali delle gilde possono arrivare prima dei livelli dei giocatori. Questa lista usa rapporti recenti della tua modalità di gioco. Se mancano ancora dati, usa /oly bug e invia il rapporto allo sviluppatore.",
 	LOCATION_ASK = "|cffe6c35cOlympus: condividere la tua zona e il tuo layer?|r\n\nSe condividi, l'addon può annunciare sul canale di Olympus la tua zona, il tuo layer, il tuo grado di gilda e la tua gilda, con il tuo nome su ogni messaggio (lo aggiunge il gioco): lo fanno gli ufficiali e un membro su otto, ogni 10 minuti e quando cambiano layer. Il censimento della tua gilda indica poi la tua zona se guidi la tua gilda o sei un ufficiale, e conta i membri per zona quando è il tuo addon a inviarlo.\n\nTutti sul canale di Olympus lo ricevono. %s\n\nSe lo tieni privato, nulla di tutto questo viene inviato. Chiedere di saltare a un layer invia comunque la zona in cui sei e il layer che vuoi.\n\nCambialo quando vuoi con /oly location on o /oly location off.",
 	LOCATION_KEEP = "Tieni privato",
 	LOCATION_OFF = "La tua zona e il tuo layer restano privati: l'addon non invia né l'una né l'altro. /oly location on li condivide.",

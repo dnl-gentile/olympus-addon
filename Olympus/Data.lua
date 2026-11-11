@@ -1515,6 +1515,7 @@ end
 
 function Data.Summary()
 	local guilds, direct, now = SummaryGuilds()
+	local localGuilds = ns.rdb.guilds or {}
 	local known = {}
 	for name in pairs(guilds) do known[name:lower()] = true end
 	local s = { total = 0, online = 0, fresh = 0, newest = 0, guilds = {}, zones = {}, zoneGuilds = {}, zoneList = {} }
@@ -1526,7 +1527,15 @@ function Data.Summary()
 			-- does not shrink every night), for a day; listed (grey) for a week; who is online
 			-- and where only count while fresh.
 			if age <= Data.KEEP then
-				s.guilds[#s.guilds + 1] = { name = name, g = g, fresh = fresh, counted = age <= Data.TOTAL_KEEP }
+				local row = { name = name, g = g, fresh = fresh, counted = age <= Data.TOTAL_KEEP }
+				-- A count-only snapshot can be newer than a valid roster detail report. Keep
+				-- recent player levels beside the display row, without attaching ranks to it.
+				local levels = g.relayed and localGuilds[direct[name:lower()]] or g
+				if fresh and type(levels.top) == "table" and #levels.top > 0 and now - ObservationTime(levels) <= Data.FRESH
+					and (levels.faction or "Alliance") == (ns.faction or "Alliance") then
+					row.topLevels, row.topRealm = levels.top, levels.realm
+				end
+				s.guilds[#s.guilds + 1] = row
 				if age <= Data.TOTAL_KEEP then s.total = s.total + math.min(g.total or 0, ns.Codec.GUILD_CAP) end
 			end
 			if fresh then

@@ -2956,6 +2956,8 @@ ns.Locale("deDE", {
 	LETTER_TITLE = "Olympus %s",
 	LEVEL_N = "Stufe %d",
 	LEVEL_RACE = "Höchste Stufen",
+	LEVEL_RACE_REPORTS_PENDING = "Stufenberichte von %d von %d meldenden Gilden",
+	LEVEL_RACE_REPORTS_TIP = "Gildenzahlen können vor den Stufen der Spieler eintreffen. Diese Liste nutzt aktuelle Stufenberichte deines Spielmodus. Wenn Berichte weiter fehlen, verwende /oly bug und sende den Bericht an den Entwickler.",
 	LOCATION_ASK = "|cffe6c35cOlympus: deine Zone und deinen Layer teilen?|r\n\nWenn du teilst, kann das Addon im Olympus-Kanal deine Zone, deinen Layer, deinen Gildenrang und deine Gilde bekanntgeben, mit deinem Namen auf jeder Nachricht (das Spiel fügt ihn hinzu): Offiziere und eines von acht Mitgliedern tun das, alle 10 Minuten und wenn sich ihr Layer ändert. Der Zensus deiner Gilde nennt dann deine Zone, wenn du sie führst oder Offizier bist, und zählt Mitglieder pro Zone, wenn dein Addon ihn sendet.\n\nJeder im Olympus-Kanal empfängt es. %s\n\nHältst du es privat, wird nichts davon gesendet. Eine Bitte um einen Layerwechsel sendet trotzdem die Zone, in der du bist, und den gewünschten Layer.\n\nÄndere es jederzeit mit /oly location on oder /oly location off.",
 	LOCATION_KEEP = "Privat halten",
 	LOCATION_OFF = "Deine Zone und dein Layer bleiben privat: das Addon sendet keins von beiden. /oly location on teilt sie.",

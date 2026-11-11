@@ -538,6 +538,54 @@ test("census scope: a validated scoped snapshot restores an empty login immediat
 	eq(late.D.Summary().characters, 900); eq(late.D.Summary().snapshot, nil)
 end)
 
+test("census Top Levels: fresh same-scope player details survive a newer count-only snapshot", function()
+	local w, realm = GroupWorld(), "CAMWOWUS1Realm8PvP"
+	local relay = "Council-" .. realm
+	w.ns.group, w.ns.realm = "ForeverPvP", realm
+	w.ns.Church.IsLedgerRelay = function(name) return name == relay end
+	assert(loadfile(ROOT .. "Olympus/Views.lua"))("Olympus", w.ns)
+	local function Detail(name, at, home)
+		return { total = 90, online = 10, t = w.clock - 10, st = at, from = home, realm = home,
+			top = { { name = name, level = 40, class = "WA" } } }
+	end
+	local guilds = w.ns.rdb.guilds
+	guilds["OLYMPUS DAWN"] = Detail("Fresh Scout", w.clock - 10, realm)
+	guilds["Olympus Dusk"] = Detail("Stale Scout", w.clock - w.D.FRESH - 1, realm)
+	guilds["Olympus Noon"] = Detail("Foreign Scout", w.clock - 10, "CAMWOWUS1Realm8PvE")
+	local rows = {}
+	for i, guild in ipairs({ "Olympus Dawn", "Olympus Dusk", "Olympus Noon" }) do
+		rows[i] = ("%s,100,10,400,%d"):format(guild, w.clock)
+	end
+	local wire = ("CG~2~S~%d~ForeverPvP~Alliance~%s"):format(w.clock, table.concat(rows, ";"))
+	assert(w.D.ReceiveGlobalCensus("CHANNEL", relay, wire))
+	local s = w.D.Summary()
+	eq(s.characters, 300, "newer accepted counts still win")
+	for _, e in ipairs(s.guilds) do eq(e.g.top, nil, "the count-only row acquires no rank authority") end
+	local function Read()
+		local players, note = {}, nil
+		local label = w.ns.L.LEVEL_RACE_REPORTS_PENDING
+		local expected = label and label:format(1, 3)
+		for _, line in ipairs(w.ns.Views.RealmLines()) do
+			if line.key then players[line.key] = true end
+			if expected and line.text and line.text:find(expected, 1, true) then note = line end
+		end
+		return players, note
+	end
+	local players, note = Read()
+	assert(players["Fresh Scout"], "a fresh in-scope top player survives the count-only relay update")
+	eq(players["Stale Scout"], nil, "receipt time cannot make an old player report fresh")
+	eq(players["Foreign Scout"], nil, "another ruleset cannot fill the missing detail")
+	assert(note and note.tooltip, "players are told that only one guild has recent level data")
+	local explanation
+	note.tooltip({ AddLine = function(_, line) explanation = line end })
+	assert(explanation and explanation:find("/oly bug", 1, true), "the tooltip includes the reporting command")
+	guilds["Olympus Dusk"] = Detail("New Scout", w.clock - 5, realm)
+	guilds["Olympus Noon"] = Detail("Local Scout", w.clock - 5, realm)
+	players, note = Read()
+	assert(players["New Scout"] and players["Local Scout"], "fresh details fill the gaps")
+	eq(note, nil, "complete coverage removes the pending label")
+end)
+
 -- 1.5.4 (the dev's account store of 2026-11-07, replayed through 1.5.3: in 45 minutes his PvE client
 -- said 21 carried looks, each another player's one-guild look, and never its own 19-guild look of
 -- PvP). Fails before: the carrier walked every observer's look of an origin, and a newer one stood
