@@ -7,7 +7,7 @@ main addon's SavedVariables.
 
 ## What it can export
 
-Only an exact Alliance guild named `Olympus` or `Olympus I` through `Olympus X` is eligible. The
+Only an exact Alliance guild named `Olympus`, `OLYMPUS PRIME`, or `Olympus I` through `Olympus X` is eligible. The
 source must be Olympus's public census-checkpoint API v1 and the matching row must be:
 
 - the current character's native roster, never a relay or `/who` row;
@@ -60,7 +60,7 @@ These client-dependent checks cannot be proven by the offline Lua harness:
 
 1. Install the generated ZIP and confirm the AddOns screen lists `Olympus`, `Olympus Arena` and
    `Olympus - Site Aggregate` on Forever, Classic Era and Anniversary/TBC.
-2. On an Alliance character in each of `Olympus`, `Olympus I` and `Olympus X`, open the roster,
+2. On an Alliance character in each of `Olympus`, `OLYMPUS PRIME`, `Olympus I` and `Olympus X`, open the roster,
    run `/oly site export`, and confirm the success line names only that current guild.
 3. Run `/reload`; inspect only the dedicated file and confirm it has exactly the fixed seven-key
    `.198` contract above and no name other than the guild name.

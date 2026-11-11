@@ -127,6 +127,36 @@
 		end)
 	end)
 
+	test("site aggregate: Prime exports only its own fresh masked Alliance roster", function()
+		With(function(s)
+			local prime = Base(s.now).guilds[1]
+			prime.name, prime.members, prime.online = "Olympus Prime", 10, 8
+			s.guild = "OLYMPUS PRIME"
+			s.checkpoint.guilds[2] = prime
+			local out = assert(Export(), "Prime has an eligible own roster")
+			eq(out.schema, "olympus-site-aggregate"); eq(out.version, 1); eq(out.producer, "1.3.2-site.1")
+			eq(out.guild.name, "OLYMPUS PRIME"); eq(out.guild.characters, 10)
+			eq(out.guild.online, "unavailable", "the offline remainder of two stays masked")
+			assert(not Contains(out, "PRIVATE"), "Prime exports no roster identifiers or private data")
+			OlympusSiteAggregateCommand("")
+			assert(s.messages[#s.messages]:find("OLYMPUS PRIME", 1, true), "help lists the eligible Prime roster")
+			eq(s.bridgeCalls, 1, "help does not prepare a new export")
+
+			prime.observedAtServer = s.now - 901
+			eq(Export(), nil, "the other eligible guild does not replace a stale Prime row")
+			prime.observedAtServer = s.now - 10
+			prime.provenance.disputed = true
+			eq(Export(), nil, "a disputed Prime row is refused")
+			prime.provenance.disputed = false
+			s.checkpoint.scope.faction = "Horde"
+			eq(Export(), nil, "the Prime name does not bypass the Alliance scope")
+			assert(s.messages[#s.messages]:find("OLYMPUS PRIME", 1, true), "the faction refusal includes Prime")
+			s.checkpoint.scope.faction, s.guild = "Alliance", "OLYMPUS PRIME ALT"
+			eq(Export(), nil, "Prime lookalikes stay ineligible")
+			assert(s.messages[#s.messages]:find("OLYMPUS PRIME", 1, true), "the guild refusal includes Prime")
+		end)
+	end)
+
 	test("site aggregate: positive counts and complementary remainders below five are masked before SavedVariables", function()
 		With(function(s)
 			local row = s.checkpoint.guilds[1]
