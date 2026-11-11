@@ -516,7 +516,7 @@ ns.Comm.Handle("J1", Recruit.OnRouteAsk)
 -- Join requests (J3) to us: newest last. { name, guild, level, class, t, text }
 Recruit.requests = {}
 local requestAt, lineTimes, whispers = {}, {}, {}
-local recruitingGuild, lastOutreach
+local recruitingGuild, lastOutreach, lastReplyPrompt
 local contacted = {}
 
 local function WhisperGuild()
@@ -533,7 +533,7 @@ local function StopRecruiting()
 		if Recruit.requests[i].viaWhisper then table.remove(Recruit.requests, i) end
 	end
 	if ns.Dialog and ns.Dialog.Find then
-		for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_INVITE_DRAFT" }) do
+		for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT" }) do
 			local draft = ns.Dialog.Find(id)
 			if draft then draft:Hide() end
 		end
@@ -610,7 +610,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 	editBoxWidth = 380,
 	maxLetters = 250,
 	maxBytes = 251,
-	OnShow = function(f, data) f.editBox:SetText(L.RECRUIT_WHISPER_MESSAGE:format(data.guild)) end,
+	OnShow = function(f) f.editBox:SetText(L.RECRUIT_WHISPER_MESSAGE) end,
 	OnAccept = function(f, data) return not SendOutreach(f, data) end,
 	timeout = 0,
 	whileDead = true,
@@ -676,7 +676,7 @@ local function AddRequest(sender, own, level, class, text, viaWhisper)
 	end
 	if not viaWhisper then ns.Log("recruit: %s asks to join %s", sender, own) end
 	ns.Fire("DATA_CHANGED")
-	return true
+	return true, req
 end
 function Recruit.OnJoinRequest(dist, sender, text)
 	if dist ~= "WHISPER" or not ns.IsMember() then return false end
@@ -684,7 +684,8 @@ function Recruit.OnJoinRequest(dist, sender, text)
 	local own = GetGuildInfo("player")
 	if not guild or not own or guild:lower() ~= own:lower() then return false end
 	local w = whispers[sender]
-	return AddRequest(sender, own, level, class, w and ns.Now() - w.t <= 120 and w.text or nil)
+	local accepted = AddRequest(sender, own, level, class, w and ns.Now() - w.t <= 120 and w.text or nil)
+	return accepted
 end
 ns.Comm.Handle("J3", Recruit.OnJoinRequest)
 
@@ -770,6 +771,30 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 		ns.Focus(f.editBox)
 		f.editBox:HighlightText()
 	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+-- A reply to an outreach whisper gets a choice in an Olympus window. Combat, a busy
+-- invite window or several close replies leave the request in the Census/Church queue.
+local function PromptReply(req, now)
+	if not CanInvite() or ns.ChatLocked() or (InCombatLockdown and InCombatLockdown()) then return end
+	if lastReplyPrompt and now - lastReplyPrompt < ASK_COOLDOWN then return end
+	if not ns.Dialog or ns.Dialog.missing then return end
+	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
+		if ns.Dialog.Find(id) then return end
+	end
+	local shown = ns.Dialog.Show("OLYMPUS_RECRUIT_REPLY", ns.DisplayName(req.name), req.guild, req)
+	if shown then lastReplyPrompt = now end
+end
+
+StaticPopupDialogs["OLYMPUS_RECRUIT_REPLY"] = {
+	text = L.RECRUIT_WHISPER_REPLY,
+	button1 = L.RECRUIT_WHISPER_PREPARE_BUTTON,
+	button2 = L.RECRUIT_WHISPER_QUEUE,
+	OnAccept = function(_, req) Recruit.Accept(req) end,
 	timeout = 0,
 	whileDead = true,
 	hideOnEscape = true,
@@ -865,7 +890,7 @@ end
 function Recruit.ResetForTests()
 	StopRecruiting()
 	wipe(contacted)
-	lastOutreach = nil
+	lastOutreach, lastReplyPrompt = nil, nil
 	wipe(routeAsked); wipe(routeAnswered); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
 	wipe(lineTimes); wipe(whispers)
 	lastRoute = -math.huge
@@ -889,8 +914,10 @@ function Recruit.OnWhisper(text, sender)
 			local reply = text:match("^%s*(.-)%s*$"):upper()
 			local to = NameForCommand(key)
 			local asked = to and contacted[to:lower()]
-			if to and key ~= ns.me and (reply == "JOIN OLYMPUS" or reply == "JOIN" and asked and now - asked < Recruit.REQUEST_EACH) then
-				AddRequest(key, recruitingGuild, nil, nil, reply, true)
+			local recent = asked and now - asked < Recruit.REQUEST_EACH
+			if to and key ~= ns.me and (reply == "JOIN OLYMPUS" or reply == "JOIN" and recent) then
+				local accepted, req = AddRequest(key, recruitingGuild, nil, nil, reply, true)
+				if accepted and recent then PromptReply(req, now) end
 			end
 		end
 		if key and not whispers[key] then

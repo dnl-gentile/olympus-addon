@@ -3553,7 +3553,7 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		local sends = #(C.said or {})
 		InClick(C, function() eq(R.PromptOutreach(), true) end)
 		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"))
-		assert(draft.editBox:GetText():find("whisper JOIN back", 1, true))
+		eq(draft.editBox:GetText(), "Hey! Want to join Olympus? Over 45,000 strong across all servers and counting. Whisper JOIN OLYMPUS if you're interested.")
 		eq(#(C.said or {}), sends, "only a draft was opened")
 		C.Switch(not initialPad); C.Advance(1)
 		C.units.target = { name = "Other", realm = "Realm", guid = "Player-1-00000003" }
@@ -3564,16 +3564,18 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		eq(#C.said, sends + 1); eq(C.said[#C.said][2], "WHISPER"); eq(C.said[#C.said][3], "Newbie")
 		C.Switch(initialPad); C.Advance(1)
 		InClick(C, function() eq(R.PromptOutreach(), false, "paced, with no repeat to the same target") end)
-		C.Fire("CHAT_MSG_WHISPER", " join ", "Newbie-Realm")
+		C.Fire("CHAT_MSG_WHISPER", " join olympus ", "Newbie-Realm")
 		C.Fire("CHAT_MSG_WHISPER", "JOIN OLYMPUS", "Newbie-Realm")
 		eq(#R.requests, 1, "the player's reply queues one request")
+		local reply = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), "a direct reply shows the invite action")
+		eq(C.chatBox, nil, "the prompt has not touched Blizzard chat")
 		local req = R.requests[1]
 		eq(req.name, "Newbie-Realm")
 		C.env.CanGuildInvite = function() return false end
 		InClick(C, function() eq(R.Accept(req), false, "rank changed before the click") end)
 		C.env.CanGuildInvite = function() return true end
 		local mark = C.Mark()
-		InClick(C, function() eq(R.Accept(req), true) end)
+		C.Click(reply.buttons[1])
 		local copy = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"))
 		eq(copy.editBox:GetText(), "/ginvite Newbie")
 		eq(#R.requests, 1, "preparing a command does not count it as sent")
@@ -3582,6 +3584,9 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		end
 		eq(C.chatBox, nil, "nothing was entered in Blizzard chat")
 		eq(#C.said, sends + 1, "intake and invite preparation sent nothing")
+		C.Fire("CHAT_MSG_WHISPER", "JOIN OLYMPUS", "Stranger-Realm")
+		eq(#R.requests, 2, "an independent request is still available in the queue")
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), nil, "an unrelated sender cannot force a popup")
 		InClick(C, function() ToggleLine().onClick() end)
 		eq(#R.requests, 0); eq(copy:IsShown(), false)
 		Check(C.ledger, "recruiting through both input styles")

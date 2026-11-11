@@ -3323,8 +3323,10 @@ On the recruiting experiment branch, turn **Recruiting by whisper** on in Census
 It starts off each session. Interested players can whisper you **JOIN OLYMPUS**, even without
 Olympus installed. For someone who wants details, select that friendly player without a guild
 and choose **Write to your selected player**. Review the text and press **Send** for that one
-recipient. They can reply **JOIN** for the next ten minutes. The session queues no automatic
-outreach, and stores no prospect list on disk.
+recipient. They can reply **JOIN OLYMPUS**. An officer who contacted them recently can
+prepare the invite from the reply window or find it in the queue. During combat or while
+an invite window is open, new replies stay in the queue. Olympus saves no prospect list
+to disk.
 
 An officer can click **Prepare invite** on a request to copy its `/ginvite` command. Paste it
 into the game's own chat and press Enter. The game decides whether the invitation can be sent.
