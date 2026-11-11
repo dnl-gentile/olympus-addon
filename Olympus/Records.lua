@@ -1381,10 +1381,10 @@ ns.Comm.Handle("RD", ns.Arena.Handle("RD", OnDigest))
 -- the ask told all its own would. One reply round of a type a DISCOVERY_GAP, whoever asked: an ask
 -- heard while a round waits makes the digests heard before it count for nothing (its asker may not
 -- have heard them) and never puts a slot later.
-local discovered, discoverySent = false, 0
+local discoveryPending, discoveryRetry, discoverySent = nil, nil, 0
 local replyRound, replyStarted = {}, {} -- [letter] = { base, at } (the round waiting); [letter] = when the last began
 local function SendDiscovery()
-	if discoverySent >= R.DISCOVERY_MAX or Quiet() then return false end
+	if discoveryPending or discoveryRetry or discoverySent >= R.DISCOVERY_MAX or Quiet() then return false end
 	local list = {}
 	for letter in pairs(R.TYPES) do if not digestHeard[letter] then list[#list + 1] = letter end end
 	if not list[1] then return false end
@@ -1392,18 +1392,32 @@ local function SendDiscovery()
 	-- Relay remembers origin+body for five minutes. A bounded per-attempt tag keeps the
 	-- ninety-second retry distinct while copies of that same request still deduplicate.
 	local request = A().B36(Now()) .. "." .. tostring(discoverySent + 1)
-	if A().Send("RH", "L", "1~" .. table.concat(list) .. "~" .. request, { dist = "CHANNEL", key = "records discovery", low = true }) ~= true then return false end
-	discoverySent = discoverySent + 1
-	stats.discovery = discoverySent
-	if discoverySent < R.DISCOVERY_MAX then ns.After(R.DISCOVERY_RETRY, "records discovery", SendDiscovery) end
+	local pending = {}
+	discoveryPending = pending
+	local function Done(sent)
+		if discoveryPending ~= pending then return end
+		discoveryPending = nil
+		if not sent then return end
+		discoverySent = discoverySent + 1
+		stats.discovery = discoverySent
+		if discoverySent >= R.DISCOVERY_MAX then return end
+		discoveryRetry = pending
+		ns.After(R.DISCOVERY_RETRY, "records discovery", function()
+			if discoveryRetry ~= pending then return end
+			discoveryRetry = nil
+			SendDiscovery()
+		end)
+	end
+	if A().Send("RH", "L", "1~" .. table.concat(list) .. "~" .. request,
+		{ dist = "CHANNEL", key = "records discovery", low = true, done = Done }) ~= true then
+		Done(false)
+		return false
+	end
 	return true
 end
--- The player opened a ranking view: the first time this session, the ask (true when it went).
+-- The player opened a ranking view: start the ask or try again if transport dropped it.
 function R.Discover()
-	if discovered or Quiet() then return false end
-	if not SendDiscovery() then return false end
-	discovered = true
-	return true
+	return SendDiscovery()
 end
 local function ReplyRound(letter, now)
 	local s = Store(letter)
@@ -2103,7 +2117,7 @@ function R.Reset()
 	lag = { n = 0, sum = 0, max = 0 }
 	mySent, jobsAt, askerJobs, heardBody, rvHeard, witnessSince = {}, {}, {}, {}, {}, {}
 	askWait = {}
-	digestHeard, discovered, discoverySent, replyRound, replyStarted = {}, false, 0, {}, {}
+	digestHeard, discoveryPending, discoveryRetry, discoverySent, replyRound, replyStarted = {}, nil, nil, 0, {}, {}
 	askedSeal, heardSealAsk, asm = {}, {}, {}
 	from, attempts, fromDay = {}, {}, -1
 	keySentAt, keyDue = nil, false
