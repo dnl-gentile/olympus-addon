@@ -3333,6 +3333,14 @@ invite window is open, new replies stay in the queue. Olympus saves no prospect 
 press Enter. You can dismiss the request after sending. Turning recruiting off clears the
 experimental requests and pending outreach draft.
 
+For a referral, the receiving officer turns on **Accept recruitment handoffs** in the same tab.
+Open **Offer to another officer** on the applicant's request and choose a listed officer.
+The recipient claims the offer before Olympus shares the character name in a private addon
+message. **JOIN** can be referred inside the same guild. **JOIN OLYMPUS** can also be referred
+to a sister guild in the same faction, region and ruleset. The recipient prepares and sends
+their own invite through the game's chat. A handoff confirms who received the request. The
+recruiter's native roster can show whether the player actually joined.
+
 ### Public recruiting announcement (experiment branch)
 
 In **Church → Invites**, open **Public recruitment announcement** and select a joined public

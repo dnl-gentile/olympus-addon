@@ -446,7 +446,7 @@ end
 --   Authority H2 H3
 --   GuildCharter GC (master's public card), QC (outsider's bounded ask), QD (corroborated Join card)
 --   OfficerMuster OM (bounded, zone-only officer gathering, logged)
---   Other 1.1 work: Recruit J1 J3 | Alts AL | Filter BW | Dues FA FB FC FD FQ FS FU
+--   Other 1.1 work: Recruit J1 J3 | RecruitHandoff J4 | Alts AL | Filter BW | Dues FA FB FC FD FQ FS FU
 --   Board G0 G1 GQ | Groups GA GL GM GR GW GX | Keys K3 K4 K5 K7 K8 | Channels N1 | Moderation O1 | ProfileEffects FX | The Watch MW | Treasury TA TD TW
 --   Bank TL TN TO TS | Week Y2 | Wanted WS WY W4 W5, and 1.2.3's WK (a member's own kill or death,
 --   and a reviewer's relay of one) WV (a reviewer's removal or void), and 1.2.4's W7 (a member's

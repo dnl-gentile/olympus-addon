@@ -26,6 +26,7 @@ Locales\ArenaLotteryText.lua
 Locales\ArenaMatchText.lua
 Locales\ComplianceText.lua
 Locales\ChurchText.lua
+Locales\RecruitHandoffText.lua
 Locales\ChurchFullnessText.lua
 Locales\WeeklyBriefText.lua
 Locales\RoleBriefingsText.lua
@@ -121,6 +122,7 @@ LinkLoader.lua
 ArmyExport.lua
 GuildCharter.lua
 Recruit.lua
+RecruitHandoff.lua
 PartyGuard.lua
 AnswerBank.lua
 Answers.lua

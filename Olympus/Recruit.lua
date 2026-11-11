@@ -533,6 +533,7 @@ end
 
 local function StopRecruiting()
 	recruitingGuild = nil
+	if Recruit.Handoff then Recruit.Handoff.Reset() end
 	for i = #Recruit.requests, 1, -1 do
 		if Recruit.requests[i].viaWhisper then table.remove(Recruit.requests, i) end
 	end
@@ -864,6 +865,7 @@ function Recruit.WhisperLines()
 		lines[#lines + 1] = { indent = 1, text = L.RECRUIT_WHISPER_HINT }
 		lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_WHISPER_MANUAL) }
 		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_WHISPER_TARGET), onClick = Recruit.PromptOutreach, gapAfter = true }
+		if Recruit.Handoff then Recruit.Handoff.Controls(lines, V) end
 	end
 	AnnouncementLines(lines, V)
 	return lines
@@ -933,13 +935,25 @@ Recruit.CanInvite = CanInvite
 
 -- A warning may wait while ranks, guild membership or the request change. Only a current
 -- request for this guild can reach the native invitation, and only from the officer's click.
-local function CurrentRequest(req)
+local function CurrentRequest(req, allowHandoff)
 	if type(req) ~= "table" or type(req.name) ~= "string" or req.name == "" or not CanInvite() or not ns.IsMember() then return false end
 	if req.guild ~= GetGuildInfo("player") or ns.Roster.RankOf(req.name) ~= nil then return false end
 	if req.viaWhisper and (not Recruiting() or ns.ChatLocked()) then return false end
+	if not allowHandoff and Recruit.Handoff and Recruit.Handoff.State(req) then return false end
 	Prune(ns.Now())
 	for _, pending in ipairs(Recruit.requests) do if pending == req then return true end end
 	return false
+end
+
+function Recruit.HandoffSource(req)
+	return type(req) == "table" and req.viaWhisper and req.handoffIntent ~= nil and not req.invitePrepared
+		and CurrentRequest(req, true)
+end
+
+function Recruit.TakeHandoff(name, officer)
+	if not Recruiting() or not CanInvite() or not NameForCommand(name) then return false end
+	local shown = L.RECRUIT_HANDOFF_RECEIVED:format(ns.DisplayName(officer) or officer)
+	return AddRequest(name, recruitingGuild, nil, nil, shown, true)
 end
 
 local function SameWarning(data, req, word)
@@ -973,7 +987,9 @@ local function AcceptRequest(req, confirmed)
 		if not ns.Dialog or ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return false end
 		-- Forever also rejects addon-prefilled native chat. Leave the game's edit box alone.
 		-- The officer copies this command into Blizzard chat and sends it there.
-		return ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", to, nil, "/ginvite " .. to) ~= nil
+		local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", to, nil, "/ginvite " .. to)
+		if draft then req.invitePrepared = true end
+		return draft ~= nil
 	end
 	invite(ns.TellName(req.name))
 	ns.Print(L.JOIN_INVITED:format(ns.DisplayName(req.name) or req.name, req.guild))
@@ -1059,6 +1075,7 @@ end
 -- An officer's no: one whisper, from the click, pointing where there is room.
 function Recruit.Decline(req)
 	if not CanInvite() or type(req) ~= "table" then return false end
+	if Recruit.Handoff and Recruit.Handoff.State(req) then return false end
 	SendChatMessage(Recruit.DeclineText(req), "WHISPER", nil, ns.TellName(req.name)) -- gp:roster-actions
 	Drop(req)
 	return true
@@ -1078,7 +1095,10 @@ function Recruit.Point(req)
 	Drop(req)
 	return true
 end
-function Recruit.Dismiss(req) Drop(req) end
+function Recruit.Dismiss(req)
+	if Recruit.Handoff and Recruit.Handoff.State(req) then return end
+	Drop(req)
+end
 
 -- An officer reviews or declines requests. Other members can point to an officer online.
 -- viaWhisper separates manual recruitment replies from the usual Join Olympus requests.
@@ -1114,7 +1134,10 @@ function Recruit.RequestLines(viaWhisper)
 				if req.text then tt:AddLine('"' .. ns.Codec.SanitizeChat(req.text) .. '"', 1, 1, 1, true) end
 			end,
 		}
-		if canInvite then
+		local handoff = req.viaWhisper and Recruit.Handoff
+		if handoff and handoff.State(req) then
+			handoff.RequestLines(lines, V, req)
+		elseif canInvite then
 			local label = req.viaWhisper and L.RECRUIT_WHISPER_REVIEW or L.JOIN_INVITE
 			local action = req.viaWhisper and ReviewReply or Recruit.Accept
 			lines[#lines + 1] = { indent = 1, text = V.Green(label:format(req.guild)), onClick = function() action(req) end }
@@ -1125,13 +1148,16 @@ function Recruit.RequestLines(viaWhisper)
 					tt:AddLine('"' .. Recruit.DeclineText(req) .. '"', 1, 1, 1, true)
 				end,
 			}
+			if handoff then handoff.RequestLines(lines, V, req) end
 		elseif officer then
 			lines[#lines + 1] = {
 				indent = 1, text = V.Gold(L.JOIN_POINT:format(officer)), onClick = function() Recruit.Point(req) end,
 				tooltip = function(tt) tt:AddLine('"' .. L.JOIN_POINT_TEXT:format(officer) .. '"', 1, 1, 1, true) end,
 			}
 		end
-		lines[#lines + 1] = { indent = 1, text = V.Grey(L.JOIN_DISMISS), onClick = function() Recruit.Dismiss(req) end }
+		if not handoff or not handoff.State(req) then
+			lines[#lines + 1] = { indent = 1, text = V.Grey(L.JOIN_DISMISS), onClick = function() Recruit.Dismiss(req) end }
+		end
 	end
 	if #reqs > Recruit.REQUESTS_SHOWN then lines[#lines + 1] = { indent = 1, text = V.Grey(L.JOIN_MORE:format(#reqs - Recruit.REQUESTS_SHOWN)) } end
 	lines[#lines].gapAfter = true
@@ -1173,7 +1199,10 @@ function Recruit.OnWhisper(text, sender)
 				local shown = ns.Codec.SanitizeChat(ns.Cut(reply, 180))
 				if shown ~= "" then
 					local accepted, req = AddRequest(key, recruitingGuild, nil, nil, shown, true)
-					if accepted then PromptReply(req, now) end
+					if accepted then
+						req.handoffIntent = keyword == "JOIN OLYMPUS" and "federation" or keyword == "JOIN" and "guild" or nil
+						PromptReply(req, now)
+					end
 				end
 			end
 		end
