@@ -3552,14 +3552,23 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		local target = { name = "Newbie", realm = "Realm", guid = "Player-1-00000002", guild = "Another Guild" }
 		C.units.target = target
 		InClick(C, function() eq(R.PromptOutreach(), false, "do not prompt for a player with a guild") end)
+		local function Printed(text)
+			for _, line in ipairs(C.printed) do if line:find(text, 1, true) then return true end end
+			return false
+		end
+		assert(Printed(ns.L.RECRUIT_WHISPER_SCAN:format(1, 0, 0, 0)), "the target was seen without a nameplate")
+		assert(Printed(ns.L.RECRUIT_WHISPER_FILTERS:format(1, 0, 0, 0, 0, 0)), "the target's guild explains the exclusion")
+		assert(Printed(ns.L.RECRUIT_WHISPER_EMPTY), "the empty scan explains the nameplate and target options")
 		target.guild = nil
 		C.units.nameplate1 = target -- duplicate unit token for the selected player
 		C.units.nameplate2 = { name = "Nearby", realm = "Realm", guid = "Player-1-00000004" }
-		C.units.nameplate3 = { name = "Last", realm = "Realm", guid = "Player-1-00000005" }
+		C.units.nameplate97 = { name = "Last", realm = "Realm", guid = "Player-1-00000005" }
 		C.units.nameplate4 = { name = "Invisible", realm = "Realm", guid = "Player-1-00000006", visible = false }
 		local sends = #(C.said or {})
 		InClick(C, function() eq(R.PromptOutreach(), true) end)
 		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"))
+		assert(Printed(ns.L.RECRUIT_WHISPER_SCAN:format(1, 0, 4, 3)), "nameplate indices above 40 are scanned")
+		assert(Printed(ns.L.RECRUIT_WHISPER_FILTERS:format(0, 1, 0, 0, 0, 1)), "hidden and duplicate units are counted")
 		eq(draft.editBox:GetText(), "Hey! Want to join Olympus? Over 45,000 strong across all servers and counting. Whisper JOIN if you're interested.")
 		eq(#(C.said or {}), sends, "only a draft was opened")
 		C.Switch(not initialPad); C.Advance(1)

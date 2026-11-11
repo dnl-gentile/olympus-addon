@@ -561,18 +561,32 @@ end
 -- No /who, position cache, addon transport or native frame is involved.
 local function NearbyPlayer(unit)
 	local exists = UnitExists(unit)
-	if (issecretvalue and issecretvalue(exists)) or not exists then return nil end
+	if issecretvalue and issecretvalue(exists) then return nil, nil, "unknown" end
+	if not exists then return nil, nil, "absent" end
 	local player, visible, friendly = UnitIsPlayer(unit), UnitIsVisible(unit), UnitIsFriend("player", unit)
-	local guid, self = UnitGUID(unit), UnitGUID("player")
-	local ok, guild = pcall(GetGuildInfo, unit)
-	if not ok then return nil end
+	if issecretvalue and (issecretvalue(player) or issecretvalue(visible) or issecretvalue(friendly)) then
+		return nil, nil, "unknown"
+	end
+	if not player then return nil, nil, "other" end
+	if not visible or not friendly then return nil, nil, "unfriendly" end
+	local guidOK, guid = pcall(UnitGUID, unit)
+	local self = UnitGUID("player")
+	local guildOK, guild = pcall(GetGuildInfo, unit)
 	local faction, mine = UnitFactionGroup(unit), UnitFactionGroup("player")
-	if issecretvalue and (issecretvalue(player) or issecretvalue(visible) or issecretvalue(friendly)
-		or issecretvalue(guid) or issecretvalue(self) or issecretvalue(guild) or issecretvalue(faction) or issecretvalue(mine)) then return nil end
-	if not player or not visible or not friendly or guild or not faction or faction ~= mine then return nil end
-	if type(guid) ~= "string" or guid:sub(1, 7) ~= "Player-" or guid == self then return nil end
-	local name = NameForCommand(ns.UnitFullName(unit))
-	if name then return name, guid end
+	if not guidOK or not guildOK or (issecretvalue and (issecretvalue(guid) or issecretvalue(self)
+		or issecretvalue(guild) or issecretvalue(faction) or issecretvalue(mine))) then
+		return nil, nil, "unknown"
+	end
+	if guild and guild ~= "" then return nil, nil, "guild" end
+	if type(guid) ~= "string" or guid:sub(1, 7) ~= "Player-" or not faction or not mine or guild == "" then
+		return nil, nil, "unknown"
+	end
+	if guid == self then return nil, nil, "other" end
+	if faction ~= mine then return nil, nil, "unfriendly" end
+	local nameOK, fullName = pcall(ns.UnitFullName, unit)
+	local name = nameOK and NameForCommand(fullName)
+	if not name then return nil, nil, "unknown" end
+	return name, guid
 end
 
 local function RecentlyContacted(name, now)
@@ -582,20 +596,26 @@ end
 
 local function OutreachQueue()
 	local queue, seen, now = { index = 1 }, {}, ns.Now()
+	local counts = { target = 0, mouseover = 0, plates = 0, other = 0, guild = 0, unfriendly = 0,
+		unknown = 0, contacted = 0, duplicate = 0 }
 	for who, at in pairs(contacted) do
 		if now - at >= Recruit.REQUEST_EACH then contacted[who] = nil end
 	end
-	local function Add(unit)
-		local name, guid = NearbyPlayer(unit)
-		if name and not seen[guid] and not RecentlyContacted(name, now) then
-			seen[guid] = true
-			queue[#queue + 1] = { name = name, guid = guid, unit = unit }
-		end
+	local function Add(unit, source)
+		local name, guid, why = NearbyPlayer(unit)
+		if why == "absent" then return end
+		counts[source] = counts[source] + 1
+		if why then counts[why] = counts[why] + 1; return end
+		if seen[guid] then counts.duplicate = counts.duplicate + 1; return end
+		seen[guid] = true
+		if RecentlyContacted(name, now) then counts.contacted = counts.contacted + 1; return end
+		queue[#queue + 1] = { name = name, guid = guid, unit = unit }
 	end
-	Add("target")
-	Add("mouseover")
-	for i = 1, 40 do Add("nameplate" .. i) end
-	return queue
+	Add("target", "target")
+	Add("mouseover", "mouseover")
+	-- The game hands out numbered tokens, including indices over 40 in a busy area.
+	for i = 1, ns.API and ns.API.NAMEPLATE_MAX or 200 do Add("nameplate" .. i, "plates") end
+	return queue, counts
 end
 
 local function SameOutreachPlayer(recipient)
@@ -608,9 +628,14 @@ local function OutreachTitle(queue)
 end
 
 function Recruit.PromptOutreach()
-	if not Recruiting() or ns.ChatLocked() then return false end
-	local queue = OutreachQueue()
-	if #queue == 0 then ns.Print(L.RECRUIT_WHISPER_TARGET_REQUIRED) return false end
+	if not Recruiting() then return false end
+	if ns.ChatLocked() then ns.Print(L.WHISPER_LOCKDOWN) return false end
+	local queue, seen = OutreachQueue()
+	ns.Print(L.RECRUIT_WHISPER_SCAN:format(seen.target, seen.mouseover, seen.plates, #queue))
+	if seen.other + seen.guild + seen.unfriendly + seen.unknown + seen.contacted + seen.duplicate > 0 then
+		ns.Print(L.RECRUIT_WHISPER_FILTERS:format(seen.guild, seen.unfriendly, seen.other, seen.unknown, seen.contacted, seen.duplicate))
+	end
+	if #queue == 0 then ns.Print(L.RECRUIT_WHISPER_EMPTY) return false end
 	if not ns.Dialog or ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return false end
 	local f = ns.Dialog.Show("OLYMPUS_RECRUIT_OUTREACH", OutreachTitle(queue), nil, { queue = queue, guild = recruitingGuild })
 	return f ~= nil
