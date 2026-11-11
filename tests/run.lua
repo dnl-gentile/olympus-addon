@@ -4921,7 +4921,7 @@ local WHO_GLOBALS = { "C_FriendList", "hooksecurefunc", "GetMaxPlayerLevel", "Fr
 local function WithWho(fn)
 	local server = { sent = {}, toUi = {}, rows = {}, timers = {}, printed = {}, clock = 5000 }
 	local saved = { After = C_Timer.After, GetTime = GetTime, Print = ns.Print, CaptureError = ns.CaptureError,
-		guilds = ns.rdb.guilds, seen = ns.rdb.seen, found = ns.Recruit.found }
+		guilds = ns.rdb.guilds, seen = ns.rdb.seen, found = ns.Recruit.found, realmKey = ns.rdb.realmKey, sort = ns.Views.sort }
 	local captured
 	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
 	ns.Print = function(msg) server.printed[#server.printed + 1] = msg end
@@ -4975,6 +4975,7 @@ local function WithWho(fn)
 	ns.Who.lastAuto, ns.Who.AUTO_GAP = -math.huge, autoGap
 	C_Timer.After, GetTime, ns.Print, ns.CaptureError = saved.After, saved.GetTime, saved.Print, saved.CaptureError
 	ns.rdb.guilds, ns.rdb.seen, ns.Recruit.found = saved.guilds, saved.seen, saved.found
+	ns.rdb.realmKey, ns.Views.sort = saved.realmKey, saved.sort
 	for _, name in ipairs(WHO_GLOBALS) do _G[name] = nil end
 	if not ok then error(err, 0) end
 	eq(captured, nil, "error caught")
@@ -5572,7 +5573,6 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 		ns.UI = { StatusLine = function() return "status" end }
 		ns.Views.sort = { key = "members", desc = false } -- sorting moves reported guilds only
 		-- (1.1: a sealed channel. On a public one a warning goes above the guilds: its own test.)
-		local savedKey = ns.rdb.realmKey
 		ns.rdb.realmKey = "shared secret"
 		local lines = ns.Views.Build("census")
 		-- (1.0.0: the search box tops the list; nothing typed, the list under it as before.)
@@ -5589,7 +5589,10 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 		eq(lines[4].cols[3], Grey("12+"), "capped: at least")
 		-- (Changed on purpose, 1.2.4: the average level's column before the Lord's, unknown too.)
 		eq(lines[4].cols[4], Grey("?"), "no average level known"); eq(lines[4].cols[5], Grey(L.NO_ADDON))
-		eq(lines[5].text, Grey(L.SEEN_HINT)); eq(#lines, 5)
+		eq(lines[5].text, Grey(L.SEEN_HINT))
+		eq(lines[6].text, Grey(L.RECRUIT_WHISPER_OFF), "the recruiting control follows the census")
+		assert(lines[6].onClick and lines[7].onClick and lines[7].text:find(L.RECRUIT_ANNOUNCE_OPEN, 1, true))
+		eq(#lines, 7)
 		local tip = {}
 		local tt = { AddLine = function(_, text) tip[#tip + 1] = text end,
 			AddDoubleLine = function(_, a, b) tip[#tip + 1] = a .. "=" .. b end }
@@ -5598,9 +5601,9 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 		assert(text:find(L.SEEN_TIP, 1, true) and text:find(L.SEEN_CAPPED_TIP, 1, true) and text:find("12+", 1, true), text)
 		-- Nothing seen: no grey rows and no hint.
 		ns.rdb.seen = {}
-		eq(#ns.Views.Build("census"), 4, "the search box, the King's layer line and 2 guilds")
-		ns.Views.sort = { key = "members", desc = true }
-		ns.rdb.realmKey = savedKey
+		lines = ns.Views.Build("census")
+		eq(#lines, 6, "the search box, the King's layer line, 2 guilds and the recruiting controls")
+		eq(lines[5].text, Grey(L.RECRUIT_WHISPER_OFF))
 	end)
 end)
 
@@ -5611,7 +5614,6 @@ test("census Refresh: the roster, and one /who per click for the grey guilds", f
 			C_GuildInfo = { GuildRoster = function() scans = scans + 1 end }
 			local UI = LoadUI()
 			-- (1.1: a sealed channel. On a public one a warning goes above the guilds: its own test.)
-			local savedKey = ns.rdb.realmKey
 			ns.rdb.realmKey = "shared secret"
 			UI.SelectTab("census")
 			eq(#server.sent, 0, "opening a tab never starts a hidden /who")
@@ -5633,7 +5635,6 @@ test("census Refresh: the roster, and one /who per click for the grey guilds", f
 			OlympusPersonFrame.who:Click()
 			eq(server.sent[#server.sent], 'n-"Aa"', "our realm left out, as the server wants it")
 			C_GuildInfo = nil
-			ns.rdb.realmKey = savedKey
 		end)
 	end)
 end)
