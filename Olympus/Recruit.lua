@@ -557,61 +557,116 @@ local function NameForCommand(name)
 	return to
 end
 
-local function UnguildedTarget()
-	if ns.ChatLocked() then return nil end
-	local player, friendly, guild = UnitIsPlayer("target"), UnitIsFriend("player", "target"), GetGuildInfo("target")
-	if issecretvalue and (issecretvalue(player) or issecretvalue(friendly) or issecretvalue(guild)) then return nil end
-	if not player or not friendly or guild then return nil end
-	local name = ns.UnitFullName("target")
-	if not name or name == ns.me then return nil end
-	return NameForCommand(name)
+-- A native unit token the client currently sees. A nil guild is only "no guild shown".
+-- No /who, position cache, addon transport or native frame is involved.
+local function NearbyPlayer(unit)
+	local exists = UnitExists(unit)
+	if (issecretvalue and issecretvalue(exists)) or not exists then return nil end
+	local player, visible, friendly = UnitIsPlayer(unit), UnitIsVisible(unit), UnitIsFriend("player", unit)
+	local guid, self = UnitGUID(unit), UnitGUID("player")
+	local ok, guild = pcall(GetGuildInfo, unit)
+	if not ok then return nil end
+	local faction, mine = UnitFactionGroup(unit), UnitFactionGroup("player")
+	if issecretvalue and (issecretvalue(player) or issecretvalue(visible) or issecretvalue(friendly)
+		or issecretvalue(guid) or issecretvalue(self) or issecretvalue(guild) or issecretvalue(faction) or issecretvalue(mine)) then return nil end
+	if not player or not visible or not friendly or guild or not faction or faction ~= mine then return nil end
+	if type(guid) ~= "string" or guid:sub(1, 7) ~= "Player-" or guid == self then return nil end
+	local name = NameForCommand(ns.UnitFullName(unit))
+	if name then return name, guid end
 end
 
-local function OutreachReady(name, now)
-	if not Recruiting() or not name then return false end
-	if lastOutreach and now - lastOutreach < ASK_COOLDOWN then return false end
-	local count = 0
+local function RecentlyContacted(name, now)
+	local at = contacted[name:lower()]
+	return at and now - at < Recruit.REQUEST_EACH
+end
+
+local function OutreachQueue()
+	local queue, seen, now = { index = 1 }, {}, ns.Now()
 	for who, at in pairs(contacted) do
-		if now - at >= Recruit.REQUEST_EACH then contacted[who] = nil
-		else count = count + 1 end
+		if now - at >= Recruit.REQUEST_EACH then contacted[who] = nil end
 	end
-	return count < Recruit.REQUESTS_MAX and not contacted[name:lower()]
+	local function Add(unit)
+		local name, guid = NearbyPlayer(unit)
+		if name and not seen[guid] and not RecentlyContacted(name, now) then
+			seen[guid] = true
+			queue[#queue + 1] = { name = name, guid = guid, unit = unit }
+		end
+	end
+	Add("target")
+	Add("mouseover")
+	for i = 1, 40 do Add("nameplate" .. i) end
+	return queue
+end
+
+local function SameOutreachPlayer(recipient)
+	local name, guid = NearbyPlayer(recipient.unit)
+	return name == recipient.name and guid == recipient.guid
+end
+
+local function OutreachTitle(queue)
+	return L.RECRUIT_WHISPER_CONFIRM:format(queue[queue.index].name)
 end
 
 function Recruit.PromptOutreach()
-	if not Recruiting() then return false end
-	local target = UnguildedTarget()
-	if not target then ns.Print(L.RECRUIT_WHISPER_TARGET_REQUIRED) return false end
-	if not OutreachReady(target, ns.Now()) then ns.Print(L.RECRUIT_WHISPER_WAIT) return false end
+	if not Recruiting() or ns.ChatLocked() then return false end
+	local queue = OutreachQueue()
+	if #queue == 0 then ns.Print(L.RECRUIT_WHISPER_TARGET_REQUIRED) return false end
 	if not ns.Dialog or ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return false end
-	local f = ns.Dialog.Show("OLYMPUS_RECRUIT_OUTREACH", target, nil, { name = target, guild = recruitingGuild })
+	local f = ns.Dialog.Show("OLYMPUS_RECRUIT_OUTREACH", OutreachTitle(queue), nil, { queue = queue, guild = recruitingGuild })
 	return f ~= nil
 end
 
 local function SendOutreach(f, data)
 	if not ns.Gate.Allowed("roster-actions") then return false end
-	if not data or data.guild ~= recruitingGuild or not Recruiting() or data.name ~= UnguildedTarget() then
+	local recipient = data and data.queue[data.queue.index]
+	if not recipient or data.guild ~= recruitingGuild or not Recruiting() or ns.ChatLocked()
+		or not SameOutreachPlayer(recipient) then
 		ns.Print(L.RECRUIT_WHISPER_TARGET_REQUIRED)
 		return false
 	end
 	local now, text = ns.Now(), f.editBox:GetText():match("^%s*(.-)%s*$")
-	if text == "" or not OutreachReady(data.name, now) then return false end
-	local ok, sent = pcall(ns.SayTo, data.name, text)
+	if text == "" then return false end
+	if (lastOutreach and now - lastOutreach < ASK_COOLDOWN) or RecentlyContacted(recipient.name, now) then
+		ns.Print(L.RECRUIT_WHISPER_WAIT)
+		return false
+	end
+	local ok, sent = pcall(ns.SayTo, recipient.name, text)
 	if not ok or not sent then ns.Print(L.RECRUIT_WHISPER_SEND_FAILED) return false end
-	contacted[data.name:lower()], lastOutreach = now, now
+	contacted[recipient.name:lower()], lastOutreach = now, now
 	return true
 end
 
+local function AdvanceOutreach(f, queue)
+	if ns.ChatLocked() then return false end
+	for i = queue.index + 1, #queue do
+		local nextPlayer = queue[i]
+		if not RecentlyContacted(nextPlayer.name, ns.Now()) and SameOutreachPlayer(nextPlayer) then
+			queue.index = i
+			f.text:SetText(OutreachTitle(queue))
+			f.editBox:SetText(L.RECRUIT_WHISPER_MESSAGE)
+			return true
+		end
+	end
+	return false
+end
+
 StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
-	text = L.RECRUIT_WHISPER_CONFIRM,
+	text = "%s",
 	button1 = SEND_LABEL or "Send",
-	button2 = CANCEL or "Cancel",
+	button2 = L.RECRUIT_WHISPER_NEXT,
+	button3 = CANCEL or "Cancel",
 	hasEditBox = true,
 	editBoxWidth = 380,
 	maxLetters = 250,
 	maxBytes = 251,
 	OnShow = function(f) f.editBox:SetText(L.RECRUIT_WHISPER_MESSAGE) end,
-	OnAccept = function(f, data) return not SendOutreach(f, data) end,
+	OnAccept = function(f, data)
+		if not SendOutreach(f, data) then return true end
+		return AdvanceOutreach(f, data.queue)
+	end,
+	OnCancel = function(f, data, reason)
+		if reason == "clicked" then return AdvanceOutreach(f, data.queue) end
+	end,
 	timeout = 0,
 	whileDead = true,
 	hideOnEscape = true,
@@ -777,21 +832,25 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 	preferredIndex = 3,
 }
 
+local function ReviewReply(req)
+	if not req.viaWhisper or not CurrentRequest(req) or not ns.Dialog or ns.Dialog.missing then return false end
+	local caption = L.RECRUIT_WHISPER_REPLY:format(ns.DisplayName(req.name) or req.name, req.guild, req.text)
+	return ns.Dialog.Show("OLYMPUS_RECRUIT_REPLY", caption, nil, req) ~= nil
+end
+
 -- A reply to an outreach whisper gets a choice in an Olympus window. Combat, a busy
 -- invite window or several close replies leave the request in the Census/Church queue.
 local function PromptReply(req, now)
-	if not CanInvite() or ns.ChatLocked() or (InCombatLockdown and InCombatLockdown()) then return end
+	if (InCombatLockdown and InCombatLockdown()) or not ns.Dialog or ns.Dialog.missing then return end
 	if lastReplyPrompt and now - lastReplyPrompt < ASK_COOLDOWN then return end
-	if not ns.Dialog or ns.Dialog.missing then return end
 	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
 		if ns.Dialog.Find(id) then return end
 	end
-	local shown = ns.Dialog.Show("OLYMPUS_RECRUIT_REPLY", ns.DisplayName(req.name), req.guild, req)
-	if shown then lastReplyPrompt = now end
+	if ReviewReply(req) then lastReplyPrompt = now end
 end
 
 StaticPopupDialogs["OLYMPUS_RECRUIT_REPLY"] = {
-	text = L.RECRUIT_WHISPER_REPLY,
+	text = "%s",
 	button1 = L.RECRUIT_WHISPER_PREPARE_BUTTON,
 	button2 = L.RECRUIT_WHISPER_QUEUE,
 	OnAccept = function(_, req) Recruit.Accept(req) end,
@@ -866,7 +925,9 @@ function Recruit.RequestLines()
 			end,
 		}
 		if canInvite then
-			lines[#lines + 1] = { indent = 1, text = V.Green((req.viaWhisper and L.RECRUIT_WHISPER_PREPARE or L.JOIN_INVITE):format(req.guild)), onClick = function() Recruit.Accept(req) end }
+			local label = req.viaWhisper and L.RECRUIT_WHISPER_REVIEW or L.JOIN_INVITE
+			local action = req.viaWhisper and ReviewReply or Recruit.Accept
+			lines[#lines + 1] = { indent = 1, text = V.Green(label:format(req.guild)), onClick = function() action(req) end }
 			lines[#lines + 1] = {
 				indent = 1, text = V.Gold(L.JOIN_DECLINE), onClick = function() Recruit.Decline(req) end,
 				tooltip = function(tt)
@@ -911,13 +972,16 @@ function Recruit.OnWhisper(text, sender)
 		local now = ns.Now()
 		local key = Key(sender)
 		if Recruiting() and type(text) == "string" then
-			local reply = text:match("^%s*(.-)%s*$"):upper()
+			local reply = text:match("^%s*(.-)%s*$")
+			local keyword = reply:upper()
 			local to = NameForCommand(key)
-			local asked = to and contacted[to:lower()]
-			local recent = asked and now - asked < Recruit.REQUEST_EACH
-			if to and key ~= ns.me and (reply == "JOIN OLYMPUS" or reply == "JOIN" and recent) then
-				local accepted, req = AddRequest(key, recruitingGuild, nil, nil, reply, true)
-				if accepted and recent then PromptReply(req, now) end
+			local recent = to and RecentlyContacted(to, now)
+			if to and key ~= ns.me and (keyword == "JOIN" or keyword == "JOIN OLYMPUS" or (recent and reply ~= "")) then
+				local shown = ns.Codec.SanitizeChat(ns.Cut(reply, 180))
+				if shown ~= "" then
+					local accepted, req = AddRequest(key, recruitingGuild, nil, nil, shown, true)
+					if accepted and recent then PromptReply(req, now) end
+				end
 			end
 		end
 		if key and not whispers[key] then

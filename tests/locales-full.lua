@@ -10,7 +10,7 @@ local LANGS = { deDE = "deDE", esES = "esES", esMX = "esES", frFR = "frFR", itIT
 -- Lines whispered to another player stay English, the network's own language: the one who reads
 -- them may not share the sender's. Every language file leaves them out.
 local WHISPERS = { MENTOR_TO_CAPTAIN = true, MENTOR_TO_RECRUIT = true, JOIN_POINT_TEXT = true,
-	CHARTER_LETTER_TEXT = true, VERSION_ASK_WHISPER = true, WANTED_THANK_TEXT = true,
+	CHARTER_LETTER_TEXT = true, VERSION_ASK_WHISPER = true, WANTED_THANK_TEXT = true, RECRUIT_WHISPER_MESSAGE = true,
 	-- (1.4.0, the guild verification: the guild master's whisper to a verifier, the ask to the High
 	-- Council and a verifier's nudge to a guild master.)
 	VERIFY_WHISPER_TEXT = true, VERIFY_ASK_TEXT = true, VERIFY_NUDGE_TEXT = true }

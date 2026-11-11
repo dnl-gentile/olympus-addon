@@ -790,6 +790,9 @@ local function NewClient(opts)
 	E.UnitGUID = function(unit) local u = U(unit); return u and u.guid end
 	E.UnitFactionGroup = function(unit) if U(unit) then return "Alliance", "Alliance" end end
 	E.UnitExists = function(unit) return U(unit) ~= nil end
+	-- Forever's generated UnitDocumentation exposes UnitIsVisible separately from UnitExists.
+	assert(FIX.globals.UnitIsVisible == "api")
+	E.UnitIsVisible = function(unit) local u = U(unit); return u ~= nil and u.visible ~= false end
 	E.UnitIsPlayer = function(unit) local u = U(unit); return u ~= nil and tostring(u.guid):find("^Player%-") ~= nil end
 	E.UnitLevel = function(unit) return U(unit) and 60 or 0 end
 	E.UnitClass = function(unit) if U(unit) then return "Warrior", "WARRIOR", 1 end end
@@ -3543,17 +3546,21 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		eq(#R.requests, 0, "off by default")
 		InClick(C, function() ToggleLine().onClick() end)
 		assert(ToggleLine().text:find(ns.L.RECRUIT_WHISPER_ON, 1, true))
-		C.Fire("CHAT_MSG_WHISPER", "join", "Stranger-Realm")
-		eq(#R.requests, 0, "an unrelated keyword alone does not queue anyone")
+		C.Fire("CHAT_MSG_WHISPER", "join me later", "Stranger-Realm")
+		eq(#R.requests, 0, "ordinary unsolicited whispers do not queue anyone")
 
 		local target = { name = "Newbie", realm = "Realm", guid = "Player-1-00000002", guild = "Another Guild" }
 		C.units.target = target
 		InClick(C, function() eq(R.PromptOutreach(), false, "do not prompt for a player with a guild") end)
 		target.guild = nil
+		C.units.nameplate1 = target -- duplicate unit token for the selected player
+		C.units.nameplate2 = { name = "Nearby", realm = "Realm", guid = "Player-1-00000004" }
+		C.units.nameplate3 = { name = "Last", realm = "Realm", guid = "Player-1-00000005" }
+		C.units.nameplate4 = { name = "Invisible", realm = "Realm", guid = "Player-1-00000006", visible = false }
 		local sends = #(C.said or {})
 		InClick(C, function() eq(R.PromptOutreach(), true) end)
 		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"))
-		eq(draft.editBox:GetText(), "Hey! Want to join Olympus? Over 45,000 strong across all servers and counting. Whisper JOIN OLYMPUS if you're interested.")
+		eq(draft.editBox:GetText(), "Hey! Want to join Olympus? Over 45,000 strong across all servers and counting. Whisper JOIN if you're interested.")
 		eq(#(C.said or {}), sends, "only a draft was opened")
 		C.Switch(not initialPad); C.Advance(1)
 		C.units.target = { name = "Other", realm = "Realm", guid = "Player-1-00000003" }
@@ -3562,12 +3569,26 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		C.units.target = target
 		C.Click(draft.buttons[1])
 		eq(#C.said, sends + 1); eq(C.said[#C.said][2], "WHISPER"); eq(C.said[#C.said][3], "Newbie")
-		C.Switch(initialPad); C.Advance(1)
-		InClick(C, function() eq(R.PromptOutreach(), false, "paced, with no repeat to the same target") end)
-		C.Fire("CHAT_MSG_WHISPER", " join olympus ", "Newbie-Realm")
+		assert(draft.text:GetText():find("Nearby", 1, true), "the next visible name is ready for review")
+		C.Click(draft.buttons[1])
+		eq(#C.said, sends + 1, "each Send stays paced")
+		C.Switch(initialPad); C.Advance(21)
+		C.now = C.now + 21
+		C.units.nameplate2.guild = "Another Guild"
+		C.Click(draft.buttons[1])
+		eq(#C.said, sends + 1, "a newly guilded unit is refused")
+		C.Click(draft.buttons[2])
+		assert(draft.text:GetText():find("Last", 1, true))
+		eq(#C.said, sends + 1, "Skip prepares another draft and sends nothing")
+		C.Click(draft.buttons[1])
+		eq(#C.said, sends + 2); eq(C.said[#C.said][3], "Last")
+		eq(draft:IsShown(), false, "the queue ignores invisible and already contacted units")
+		InClick(C, function() eq(R.PromptOutreach(), false, "recent contacts are not offered again") end)
+		C.Fire("CHAT_MSG_WHISPER", " Interested if you raid Tuesdays |cffaabbcc ", "Newbie-Realm")
 		C.Fire("CHAT_MSG_WHISPER", "JOIN OLYMPUS", "Newbie-Realm")
-		eq(#R.requests, 1, "the player's reply queues one request")
+		eq(#R.requests, 1, "the contacted player's ordinary reply queues one request")
 		local reply = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), "a direct reply shows the invite action")
+		assert(reply.text:GetText():find("Interested if you raid Tuesdays ||cffaabbcc", 1, true), "reply content is shown safely")
 		eq(C.chatBox, nil, "the prompt has not touched Blizzard chat")
 		local req = R.requests[1]
 		eq(req.name, "Newbie-Realm")
@@ -3583,9 +3604,10 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 			assert(call.sym ~= "C_GuildInfo.Invite" and call.sym ~= "GuildInvite", "no native guild call")
 		end
 		eq(C.chatBox, nil, "nothing was entered in Blizzard chat")
-		eq(#C.said, sends + 1, "intake and invite preparation sent nothing")
-		C.Fire("CHAT_MSG_WHISPER", "JOIN OLYMPUS", "Stranger-Realm")
-		eq(#R.requests, 2, "an independent request is still available in the queue")
+		eq(#C.said, sends + 2, "intake and invite preparation sent nothing")
+		C.Fire("CHAT_MSG_WHISPER", "  jOiN  ", "Stranger-Realm")
+		C.Fire("CHAT_MSG_WHISPER", "JOIN OLYMPUS", "Another-Realm")
+		eq(#R.requests, 3, "exact JOIN and the former phrase work without prior contact")
 		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), nil, "an unrelated sender cannot force a popup")
 		InClick(C, function() ToggleLine().onClick() end)
 		eq(#R.requests, 0); eq(copy:IsShown(), false)

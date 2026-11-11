@@ -3320,18 +3320,18 @@ cancellation, compatibility and the in-game checks for the transport queue.
 ### Recruiting by whisper (experiment branch)
 
 On the recruiting experiment branch, turn **Recruiting by whisper** on in Census or Church.
-It starts off each session. Interested players can whisper you **JOIN OLYMPUS**, even without
-Olympus installed. For someone who wants details, select that friendly player without a guild
-and choose **Write to your selected player**. Review the text and press **Send** for that one
-recipient. They can reply **JOIN OLYMPUS**. An officer who contacted them recently can
-prepare the invite from the reply window or find it in the queue. During combat or while
-an invite window is open, new replies stay in the queue. Olympus saves no prospect list
-to disk.
+It starts off each session. Interested players can whisper you **JOIN**, even without
+Olympus installed. **Review nearby players** prepares a list from the selected player and visible
+friendly nameplates with no guild shown. Review each player and the editable message, then press
+**Send** for that one recipient or **Skip**. Either choice moves to the next eligible player.
+Olympus checks the native identity and guild information again when you press Send.
 
-An officer can click **Prepare invite** on a request to copy its `/ginvite` command. Paste it
-into the game's own chat and press Enter. The game decides whether the invitation can be sent.
-You can dismiss the request after sending. Turning recruiting off clears the experimental requests
-and pending outreach draft.
+An officer can review an independent JOIN or a response to their recent outreach. Recent
+outreach replies can open a window with the sender's message. During combat or while an
+invite window is open, new replies stay in the queue. Olympus saves no prospect list to disk.
+**Prepare invite** opens the `/ginvite` command. Copy it, paste it into the game's chat, and
+press Enter. You can dismiss the request after sending. Turning recruiting off clears the
+experimental requests and pending outreach draft.
 
 ### Attended Army snapshot (not active in releases)
 
