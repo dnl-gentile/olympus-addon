@@ -377,8 +377,8 @@ local function Sound(r)
 	eq(r.tree.unreadable, 0, "no packed word failed to unpack")
 end
 
--- Fails before: 92 registrants (the author's relay on 2026-11-10) took the 140-guild snapshot in 26
--- pieces each. The relay needed most of a round to seed it, a seed 31 s for every registrant of its
+-- Fails before: 92 registrants (the author's relay on 2026-11-10) took the 140-guild snapshot in 25
+-- pieces each. The relay needed most of a round to seed it, a seed 30 s for every registrant of its
 -- list, the next round's digest ended the round, and each seed served its list by name: the last
 -- names of each list got no snapshot for half an hour and more.
 test("relay tree under load: 92 registrants on one relay, a 140-guild snapshot every two minutes, every guild reporting: with the packed snapshot and the relay's order no registrant goes Data.FRESH without a new census", function()
