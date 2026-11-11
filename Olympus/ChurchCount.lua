@@ -580,8 +580,7 @@ function Count.SendEvidence(text)
 	return took or #Church.KeepersOnline(false) > 0
 end
 
--- What a report sent one keeper: { n = how many times, w = when last, l = 1 the keeper refused it for now
--- since (NV l) }. (An earlier 1.2.1 build kept true: once.)
+-- Attempts to one keeper, persisted as { n = how many, w = when last }. An earlier build kept true.
 local function SentTo(o, k)
 	local s = o.to[k]
 	if s == true then s = { n = 1, w = tonumber(o.w) or tonumber(o.at) or 0 }; o.to[k] = s end
@@ -602,13 +601,10 @@ local function RetryOwn(out, now)
 	end
 end
 
--- The outbox (1.2.1: every report waits here for a keeper's receipt, NV k, as Church.DeliverActs hands
--- acts on). Each goes once to every keeper heard online, leaving room in Comm's queue (a busy read's
--- reports, one whisper to each keeper, overflowed it and were lost), a keeper first heard later at once.
--- One a keeper refused for now (NV l: over its budget, a missionary its book did not place yet, a recruit
--- its roster did not show yet) goes to that keeper again RESEND_GAP after it last did, RESEND_TRIES sends
--- to each keeper at most: counted for each keeper, so the hours one was away spend none of his. OUTBOX_DAYS
--- and OUTBOX_MAX at most. One this keeper's own ledger took goes once to each keeper online. The number sent.
+-- An ordinary report stays until a keeper's receipt. A send API success or an NV l may itself
+-- be lost, so an unacknowledged report retries with the same hourly and per-keeper limits.
+-- A keeper's own accepted report goes once to each keeper online, with ledger catch-up as backup.
+local sendingEvidence = {}
 function Count.Flush()
 	local out = Out()
 	if not out or #out == 0 or Off() or (ns.ChatLocked and ns.ChatLocked()) then return 0 end
@@ -629,11 +625,17 @@ function Count.Flush()
 		o.h = o.h or ns.Comm.Hash36(o.text)
 		for _, k in ipairs(keepers) do
 			local s = SentTo(o, k.key)
-			if not s or (not o.own and s.l and s.n < Count.RESEND_TRIES and now - (tonumber(s.w) or 0) >= Count.RESEND_GAP) then
+			local attempts = s and tonumber(s.n) or 0
+			local retry = s and not o.own and not sendingEvidence[s] and attempts < Count.RESEND_TRIES
+				and now - (tonumber(s.w) or 0) >= Count.RESEND_GAP
+			if not s or retry then
 				if ns.Comm.QueueRoom() <= Count.SEND_ROOM then return sent end
-				o.to[k.key] = { n = (s and s.n or 0) + 1, w = now }
-				ns.Comm.Whisper(k.name, o.text, nil, false, false, nil, { owner = Count })
-				sent, stats.sent = sent + 1, stats.sent + 1
+				local attempt = { n = attempts + 1, w = now }
+				o.to[k.key], sendingEvidence[attempt] = attempt, true
+				local accepted = ns.Comm.Whisper(k.name, o.text, nil, false, false, function()
+					sendingEvidence[attempt], attempt.w = nil, Clock()
+				end, { owner = Count })
+				if accepted then sent, stats.sent = sent + 1, stats.sent + 1 end
 			end
 		end
 	end
@@ -662,16 +664,10 @@ function Count.TakeReceipt(sender, text)
 	return true
 end
 
--- A keeper refused some of this client's reports for now (1.2.1, NV l): each it had and gave no receipt for
--- goes to it again, RESEND_GAP after it last did (Count.Flush).
+-- A keeper may still tell us it needs another try (NV l). The outbox also retries if that reply is lost.
 function Count.TakeLater(sender, text)
 	if not tostring(text or ""):match("^NV~1~l~%w+$") then return Drop("shape") end
 	if not Church.IsKeeper(sender) or Church.IsKing(sender) then return Drop("keeper") end
-	local k = Key(sender)
-	for _, o in ipairs(Out() or {}) do
-		local s = type(o) == "table" and type(o.to) == "table" and SentTo(o, k)
-		if s then s.l = 1 end
-	end
 	stats.later = (stats.later or 0) + 1
 	return true
 end

@@ -1526,6 +1526,71 @@ local function SentTo(w, from, to, sub, name)
 	return n
 end
 
+local function WitnessInvite(w, c, recruit)
+	Join(w, World.GUILD, recruit)
+	w:LogEvent(World.GUILD, "invite", "Mira Wells", recruit, 0)
+	w:LogEvent(World.GUILD, "join", recruit, nil, 0)
+	w:ReadLog(c.wes)
+	w.log[World.GUILD] = {}
+end
+
+test("Church evidence retries: a delayed whisper is not repeated while queued and a failed send reaches the same keeper", function()
+	local w, c = Cast()
+	c.a2.online = false
+	w:Run(c.a1.Church.KEEPER_EVERY * 3)
+	w:Presence()
+	local recruit = "Delayed Rec"
+	local whisper, complete, attempts = c.wes.c.Comm.Whisper, nil, 0
+	c.wes.c.Comm.Whisper = function(target, msg, key, urgent, logged, done, options)
+		if target == A1 and msg:sub(1, 7) == "NV~1~w~" then
+			attempts = attempts + 1
+			if attempts == 1 then complete = done; return true end
+		end
+		return whisper(target, msg, key, urgent, logged, done, options)
+	end
+
+	WitnessInvite(w, c, recruit)
+	eq(attempts, 1)
+	w:Run(c.wes.Count.RESEND_GAP); w:Presence(); w:Tick(); w:Run(15)
+	eq(attempts, 1, "a pending send already occupies a queue slot")
+	eq(Joins(w, c.a1, "Mira Wells", "m"), 0)
+	assert(complete, "the native queue must report completion")
+	w:As(c.wes, complete, false, "full")
+	w:As(c.wes, c.wes.Count.Flush)
+	eq(attempts, 1, "the retry backs off from the real failure")
+
+	w:Run(c.wes.Count.RESEND_GAP); w:Presence(); w:Tick(); w:Run(30)
+	eq(attempts, 2)
+	eq(Joins(w, c.a1, "Mira Wells", "m"), 1)
+	eq(Outbox(w, c.wes), 0, "the keeper's receipt retires the evidence")
+end)
+
+test("Church evidence retries: a lost receipt can be recovered without awarding points twice", function()
+	local w, c = Cast()
+	c.a2.online = false
+	w:Run(c.a1.Church.KEEPER_EVERY * 3)
+	w:Presence()
+	local whisper, receipts = c.a1.c.Comm.Whisper, 0
+	c.a1.c.Comm.Whisper = function(target, msg, key, urgent, logged, done, options)
+		if target == c.wes.name and msg:sub(1, 7) == "NV~1~k~" then
+			receipts = receipts + 1
+			if receipts == 1 then return true end -- Native send succeeds, but the recipient never hears it.
+		end
+		return whisper(target, msg, key, urgent, logged, done, options)
+	end
+
+	WitnessInvite(w, c, "Unacked Rec")
+	w:Run(c.a1.Count.RECEIPT_GAP + 1)
+	eq(receipts, 1)
+	eq(Joins(w, c.a1, "Mira Wells", "m"), 1)
+	eq(Outbox(w, c.wes), 1)
+
+	w:Run(c.wes.Count.RESEND_GAP); w:Presence(); w:Tick(); w:Run(30)
+	eq(receipts, 2)
+	eq(Joins(w, c.a1, "Mira Wells", "m"), 1, "the same evidence is idempotent")
+	eq(Outbox(w, c.wes), 0)
+end)
+
 test("1.2.1 Church: a report the keeper who can vouch refused for now goes to him again, however long he was away: a missionary named while he was away has every recruit confirmed on every keeper", function()
 	local w, c = Cast()
 	-- Aldric, the only keeper who can vouch for Wes, is away; Mira names Nova then (Bera's book and Wes's have her).
