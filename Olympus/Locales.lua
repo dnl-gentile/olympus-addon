@@ -2131,6 +2131,7 @@ L.RECRUIT_WHISPER_ON = "Recruiting by whisper: On"
 L.RECRUIT_WHISPER_OFF = "Recruiting by whisper: Off"
 L.RECRUIT_WHISPER_HINT = "Interested players can whisper JOIN. Replies appear here."
 L.RECRUIT_WHISPER_TARGET = "Review nearby players"
+L.RECRUIT_WHISPER_MANUAL = "One click per whisper. No autoclickers. Your mouse does not have an officer rank."
 L.RECRUIT_WHISPER_NEXT = "Skip"
 L.RECRUIT_WHISPER_TARGET_REQUIRED = "No eligible player found. Refresh the list or skip this player."
 L.RECRUIT_WHISPER_SCAN = "Recruiting scan: target %d, mouseover %d, nameplates %d. Ready to review: %d."
@@ -4609,6 +4610,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_WHISPER_OFF = "Recrutamento por sussurro desativado"
 	L.RECRUIT_WHISPER_HINT = "Jogadores interessados podem sussurrar JOIN. As respostas aparecem aqui."
 	L.RECRUIT_WHISPER_TARGET = "Ver jogadores próximos"
+	L.RECRUIT_WHISPER_MANUAL = "Um clique por sussurro. Sem autoclicker. Seu mouse não é oficial da guilda."
 	L.RECRUIT_WHISPER_NEXT = "Pular"
 	L.RECRUIT_WHISPER_TARGET_REQUIRED = "Nenhum jogador disponível. Atualize a lista ou pule este jogador."
 	L.RECRUIT_WHISPER_SCAN = "Recrutamento: alvo %d, sob o cursor %d, placas de nome %d. Disponíveis para revisão: %d."
@@ -4616,6 +4618,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_WHISPER_EMPTY = "Nenhum jogador elegível. Selecione um jogador amistoso sem guilda ou ative as placas de nome de jogadores amistosos no WoW e tente de novo."
 	L.RECRUIT_WHISPER_WAIT = "Aguarde um pouco antes de enviar para outro jogador."
 	L.RECRUIT_WHISPER_CONFIRM = "Sussurre para %s apenas se houver interesse. Nenhuma guilda exibida."
+	L.RECRUIT_WHISPER_MESSAGE = "Hey! Want to join Olympus? Over 45,000 strong across all servers and counting. Whisper JOIN if you're interested."
 	L.RECRUIT_WHISPER_SEND_FAILED = "O jogo não aceitou este sussurro. Seu rascunho continua aberto."
 	L.RECRUIT_WHISPER_ASKED = "%s respondeu sobre entrar em <%s>. Abra Convites na Igreja para ver a resposta."
 	L.RECRUIT_WHISPER_ASKED_TIP = "%s respondeu sobre entrar em <%s>."
@@ -4634,6 +4637,13 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_ANNOUNCE_REMINDER_OFF = "Lembrete local desativado (clique para mudar)"
 	L.RECRUIT_ANNOUNCE_REMIND = "Lembrete de recrutamento. Abra Convites na Igreja para revisar um novo anúncio."
 	L.RECRUIT_ANNOUNCE_WAIT = "Houve um anúncio de recrutamento da Olympus neste canal. Aguarde %d s antes de preparar outro."
+	-- Public announcements use the same English keyword and wording across locales.
+	L.RECRUIT_ANNOUNCE_OPENING = "Olympus is recruiting!"
+	L.RECRUIT_ANNOUNCE_OPENING_NAMED = "Looking for a guild? I'm %s from Olympus."
+	L.RECRUIT_ANNOUNCE_OPENING_PLAY = "Come play with Olympus! I'm %s."
+	L.RECRUIT_ANNOUNCE_COUNT_GROUPS = "Over %s characters across servers and counting."
+	L.RECRUIT_ANNOUNCE_COUNT_LOCAL = "Over %s characters in Olympus and counting."
+	L.RECRUIT_ANNOUNCE_JOIN = "Whisper JOIN if you're interested."
 end -- (the Portuguese lines)
 
 ---------------------------------------------------------------------------

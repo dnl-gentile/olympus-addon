@@ -647,7 +647,8 @@ end
 
 local function SendOutreach(f, data)
 	if not ns.Gate.Allowed("roster-actions") then return false end
-	local recipient = data and data.queue[data.queue.index]
+	local queue = type(data) == "table" and data.queue
+	local recipient = type(queue) == "table" and queue[queue.index]
 	if not recipient or data.guild ~= recruitingGuild or not Recruiting() or ns.ChatLocked()
 		or not SameOutreachPlayer(recipient) then
 		ns.Print(L.RECRUIT_WHISPER_TARGET_REQUIRED)
@@ -666,7 +667,7 @@ local function SendOutreach(f, data)
 end
 
 local function AdvanceOutreach(f, queue)
-	if ns.ChatLocked() then return false end
+	if type(queue) ~= "table" or type(queue.index) ~= "number" or ns.ChatLocked() then return false end
 	for i = queue.index + 1, #queue do
 		local nextPlayer = queue[i]
 		if not RecentlyContacted(nextPlayer.name, ns.Now()) and SameOutreachPlayer(nextPlayer) then
@@ -679,6 +680,11 @@ local function AdvanceOutreach(f, queue)
 	return false
 end
 
+local function ConfirmOutreach(f, data)
+	if not SendOutreach(f, data) then return true end
+	return AdvanceOutreach(f, data.queue)
+end
+
 StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 	text = "%s",
 	button1 = SEND_LABEL or "Send",
@@ -689,12 +695,13 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 	maxLetters = 250,
 	maxBytes = 251,
 	OnShow = function(f) f.editBox:SetText(L.RECRUIT_WHISPER_MESSAGE) end,
-	OnAccept = function(f, data)
-		if not SendOutreach(f, data) then return true end
-		return AdvanceOutreach(f, data.queue)
+	OnAccept = ConfirmOutreach,
+	EditBoxOnEnterPressed = function(editBox, data)
+		local f = editBox:GetParent()
+		if not ConfirmOutreach(f, data) then f:Hide() end
 	end,
 	OnCancel = function(f, data, reason)
-		if reason == "clicked" then return AdvanceOutreach(f, data.queue) end
+		if reason == "clicked" and type(data) == "table" then return AdvanceOutreach(f, data.queue) end
 	end,
 	timeout = 0,
 	whileDead = true,
@@ -855,6 +862,7 @@ function Recruit.WhisperLines()
 		onClick = Recruit.ToggleWhisperRecruiting, gapAfter = not on } }
 	if on then
 		lines[#lines + 1] = { indent = 1, text = L.RECRUIT_WHISPER_HINT }
+		lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_WHISPER_MANUAL) }
 		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_WHISPER_TARGET), onClick = Recruit.PromptOutreach, gapAfter = true }
 	end
 	AnnouncementLines(lines, V)

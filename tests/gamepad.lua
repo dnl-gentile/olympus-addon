@@ -3602,7 +3602,7 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		C.Click(draft.buttons[2])
 		assert(draft.text:GetText():find("Last", 1, true))
 		eq(#C.said, sends + 1, "Skip prepares another draft and sends nothing")
-		C.Click(draft.buttons[1])
+		InClick(C, function() draft.editBox:GetScript("OnEnterPressed")(draft.editBox) end)
 		eq(#C.said, sends + 2); eq(C.said[#C.said][3], "Last")
 		eq(draft:IsShown(), false, "the queue ignores invisible and already contacted units")
 		InClick(C, function() eq(R.PromptOutreach(), false, "recent contacts are not offered again") end)
