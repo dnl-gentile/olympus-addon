@@ -1779,6 +1779,7 @@ local function CensusLines(s, q)
 	local V = VerifyModule()
 	local verification, verificationAt = V and V.Lines and V.Lines() or {}, #lines + 1
 	for _, l in ipairs(verification) do lines[#lines + 1] = l end
+	for _, l in ipairs(ns.Recruit and ns.Recruit.WhisperLines and ns.Recruit.WhisperLines() or {}) do lines[#lines + 1] = l end
 	-- Recruits asking to join our guild (1.1, Recruit.lua): an officer's Invite and Decline.
 	for _, l in ipairs(ns.Recruit and ns.Recruit.RequestLines and ns.Recruit.RequestLines() or {}) do lines[#lines + 1] = l end
 	-- Clear party-invite whispers while the King is online (1.2.5.1): local, short-lived and

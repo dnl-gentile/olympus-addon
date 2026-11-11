@@ -3317,6 +3317,20 @@ harness's own suite files are called, where Olympus Link's tests ran when it shi
 The [transport lifecycle notes](docs/transport-lifecycle.md) describe queue completion,
 cancellation, compatibility and the in-game checks for the transport queue.
 
+### Recruiting by whisper (experiment branch)
+
+On the recruiting experiment branch, turn **Recruiting by whisper** on in Census or Church.
+It starts off each session. Interested players can whisper you **JOIN OLYMPUS**, even without
+Olympus installed. For someone who wants details, select that friendly player without a guild
+and choose **Write to your selected player**. Review the text and press **Send** for that one
+recipient. They can reply **JOIN** for the next ten minutes. The session queues no automatic
+outreach, and stores no prospect list on disk.
+
+An officer can click **Prepare invite** on a request to copy its `/ginvite` command. Paste it
+into the game's own chat and press Enter. The game decides whether the invitation can be sent.
+You can dismiss the request after sending. Turning recruiting off clears the experimental requests
+and pending outreach draft.
+
 ### Attended Army snapshot (not active in releases)
 
 `Olympus/ArmyExport.lua` contains an independent OLCS2 v2 encoder for a future, attended

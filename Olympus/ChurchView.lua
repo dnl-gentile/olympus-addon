@@ -306,6 +306,10 @@ end
 
 function View.RankingLines()
 	local lines = { Nav("ranking"), Filters(true) }
+	if ns.Recruit and not PreviewRole() then
+		for _, line in ipairs(ns.Recruit.WhisperLines()) do lines[#lines + 1] = line end
+		for _, line in ipairs(ns.Recruit.RequestLines()) do lines[#lines + 1] = line end
+	end
 	local switch = SwitchLine()
 	if switch then lines[#lines + 1] = switch end
 	if View.list == "c" then
@@ -700,6 +704,10 @@ end
 
 function View.PublicLines()
 	local lines = { Nav("public") }
+	if ns.Recruit and not PreviewRole() then
+		for _, line in ipairs(ns.Recruit.WhisperLines()) do lines[#lines + 1] = line end
+		for _, line in ipairs(ns.Recruit.RequestLines()) do lines[#lines + 1] = line end
+	end
 	local v = Count.PublicView()
 	lines[#lines + 1] = { header = true, text = L.CHURCH_TITLE }
 	local rules = ns.RankingRules and ns.RankingRules.Link("church-score", function() ShowRules("church-score") end)

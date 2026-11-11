@@ -3529,6 +3529,69 @@ test("gamepad recruit popup isolation: no native popup on either login or either
 	GP.Covers("dialogs")
 end)
 
+test("gamepad whisper recruiting: deliberate outreach and native invite copy in both input modes", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		local R = ns.Recruit
+		local function ToggleLine()
+			for _, line in ipairs(ns.Views.Build("census")) do
+				if line.onClick == R.ToggleWhisperRecruiting then return line end
+			end
+		end
+		assert(ToggleLine().text:find(ns.L.RECRUIT_WHISPER_OFF, 1, true))
+		C.Fire("CHAT_MSG_WHISPER", "JOIN OLYMPUS", "Stranger-Realm")
+		eq(#R.requests, 0, "off by default")
+		InClick(C, function() ToggleLine().onClick() end)
+		assert(ToggleLine().text:find(ns.L.RECRUIT_WHISPER_ON, 1, true))
+		C.Fire("CHAT_MSG_WHISPER", "join", "Stranger-Realm")
+		eq(#R.requests, 0, "an unrelated keyword alone does not queue anyone")
+
+		local target = { name = "Newbie", realm = "Realm", guid = "Player-1-00000002", guild = "Another Guild" }
+		C.units.target = target
+		InClick(C, function() eq(R.PromptOutreach(), false, "do not prompt for a player with a guild") end)
+		target.guild = nil
+		local sends = #(C.said or {})
+		InClick(C, function() eq(R.PromptOutreach(), true) end)
+		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"))
+		assert(draft.editBox:GetText():find("whisper JOIN back", 1, true))
+		eq(#(C.said or {}), sends, "only a draft was opened")
+		C.Switch(not initialPad); C.Advance(1)
+		C.units.target = { name = "Other", realm = "Realm", guid = "Player-1-00000003" }
+		C.Click(draft.buttons[1])
+		eq(#(C.said or {}), sends, "the selected target changed before Send")
+		C.units.target = target
+		C.Click(draft.buttons[1])
+		eq(#C.said, sends + 1); eq(C.said[#C.said][2], "WHISPER"); eq(C.said[#C.said][3], "Newbie")
+		C.Switch(initialPad); C.Advance(1)
+		InClick(C, function() eq(R.PromptOutreach(), false, "paced, with no repeat to the same target") end)
+		C.Fire("CHAT_MSG_WHISPER", " join ", "Newbie-Realm")
+		C.Fire("CHAT_MSG_WHISPER", "JOIN OLYMPUS", "Newbie-Realm")
+		eq(#R.requests, 1, "the player's reply queues one request")
+		local req = R.requests[1]
+		eq(req.name, "Newbie-Realm")
+		C.env.CanGuildInvite = function() return false end
+		InClick(C, function() eq(R.Accept(req), false, "rank changed before the click") end)
+		C.env.CanGuildInvite = function() return true end
+		local mark = C.Mark()
+		InClick(C, function() eq(R.Accept(req), true) end)
+		local copy = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"))
+		eq(copy.editBox:GetText(), "/ginvite Newbie")
+		eq(#R.requests, 1, "preparing a command does not count it as sent")
+		for _, call in ipairs(C.Since(mark)) do
+			assert(call.sym ~= "C_GuildInfo.Invite" and call.sym ~= "GuildInvite", "no native guild call")
+		end
+		eq(C.chatBox, nil, "nothing was entered in Blizzard chat")
+		eq(#C.said, sends + 1, "intake and invite preparation sent nothing")
+		InClick(C, function() ToggleLine().onClick() end)
+		eq(#R.requests, 0); eq(copy:IsShown(), false)
+		Check(C.ledger, "recruiting through both input styles")
+		NoErrors(C, "recruiting")
+	end
+	GP.Covers("dialogs")
+	GP.Covers("roster-actions")
+	GP.Covers("arena-clicks")
+end)
+
 -- 1.2.5.1: the Olympus Accord (Accord.lua) on a fresh account's first session, gamepad UI on from the
 -- login: the Accord asks first, in Olympus's own window (no game popup, nothing of the game's UI
 -- reached); the controller's click on I accept starts Olympus; the privacy page comes after it.

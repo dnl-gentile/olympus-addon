@@ -172,7 +172,7 @@ ns.GAMEPAD = {
 		why = "Filling the game's mail and trade windows for the dues (1.2: and the Arena's gold, ArenaMoney.lua): with the gamepad UI a line saying what to send instead." },
 	{ id = "roster-actions", kind = "restricted", files = { "Members.lua", "Dues.lua", "Recruit.lua", "PartyGuard.lua", "UI.lua", "ChatRooms.lua", "Groups.lua" },
 		guard = "click", toPad = "stays", toMouse = "nothing", safe = "off",
-		why = "Invites, whispers sent and guild actions: only from the player's click on an Olympus button." },
+		why = "Invites, whispers sent and guild actions: only from the player's click on an Olympus button. The experimental recruiting whisper has a per-target confirmation in both modes; its invite command is copied by the officer from an Olympus window without touching native chat." },
 	{ id = "inspect-patrol", kind = "inspect", files = { "Inspect.lua" },
 		guard = "exempt", toPad = "stays", toMouse = "nothing", safe = "off",
 		approved = APPROVED .. "; widened 2026-10-19, Daniel's duel-view request",

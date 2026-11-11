@@ -516,6 +516,119 @@ ns.Comm.Handle("J1", Recruit.OnRouteAsk)
 -- Join requests (J3) to us: newest last. { name, guild, level, class, t, text }
 Recruit.requests = {}
 local requestAt, lineTimes, whispers = {}, {}, {}
+local recruitingGuild, lastOutreach
+local contacted = {}
+
+local function WhisperGuild()
+	if ns.IsMember() then return GetGuildInfo("player") end
+end
+
+local function Recruiting()
+	return recruitingGuild ~= nil and recruitingGuild == WhisperGuild()
+end
+
+local function StopRecruiting()
+	recruitingGuild = nil
+	for i = #Recruit.requests, 1, -1 do
+		if Recruit.requests[i].viaWhisper then table.remove(Recruit.requests, i) end
+	end
+	if ns.Dialog and ns.Dialog.Find then
+		for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_INVITE_DRAFT" }) do
+			local draft = ns.Dialog.Find(id)
+			if draft then draft:Hide() end
+		end
+	end
+end
+
+function Recruit.ToggleWhisperRecruiting()
+	if Recruiting() then StopRecruiting()
+	else
+		StopRecruiting()
+		recruitingGuild = WhisperGuild()
+	end
+	ns.Fire("DATA_CHANGED")
+	return Recruiting()
+end
+
+local function NameForCommand(name)
+	local to = ns.TellName(name)
+	if type(to) ~= "string" or #to > 120 or not to:find("[%a\128-\255]")
+		or to:find("[^%a%d\128-\255 %-]") then return nil end
+	return to
+end
+
+local function UnguildedTarget()
+	if ns.ChatLocked() then return nil end
+	local player, friendly, guild = UnitIsPlayer("target"), UnitIsFriend("player", "target"), GetGuildInfo("target")
+	if issecretvalue and (issecretvalue(player) or issecretvalue(friendly) or issecretvalue(guild)) then return nil end
+	if not player or not friendly or guild then return nil end
+	local name = ns.UnitFullName("target")
+	if not name or name == ns.me then return nil end
+	return NameForCommand(name)
+end
+
+local function OutreachReady(name, now)
+	if not Recruiting() or not name then return false end
+	if lastOutreach and now - lastOutreach < ASK_COOLDOWN then return false end
+	local count = 0
+	for who, at in pairs(contacted) do
+		if now - at >= Recruit.REQUEST_EACH then contacted[who] = nil
+		else count = count + 1 end
+	end
+	return count < Recruit.REQUESTS_MAX and not contacted[name:lower()]
+end
+
+function Recruit.PromptOutreach()
+	if not Recruiting() then return false end
+	local target = UnguildedTarget()
+	if not target then ns.Print(L.RECRUIT_WHISPER_TARGET_REQUIRED) return false end
+	if not OutreachReady(target, ns.Now()) then ns.Print(L.RECRUIT_WHISPER_WAIT) return false end
+	if not ns.Dialog or ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return false end
+	local f = ns.Dialog.Show("OLYMPUS_RECRUIT_OUTREACH", target, nil, { name = target, guild = recruitingGuild })
+	return f ~= nil
+end
+
+local function SendOutreach(f, data)
+	if not ns.Gate.Allowed("roster-actions") then return false end
+	if not data or data.guild ~= recruitingGuild or not Recruiting() or data.name ~= UnguildedTarget() then
+		ns.Print(L.RECRUIT_WHISPER_TARGET_REQUIRED)
+		return false
+	end
+	local now, text = ns.Now(), f.editBox:GetText():match("^%s*(.-)%s*$")
+	if text == "" or not OutreachReady(data.name, now) then return false end
+	local ok, sent = pcall(ns.SayTo, data.name, text)
+	if not ok or not sent then ns.Print(L.RECRUIT_WHISPER_SEND_FAILED) return false end
+	contacted[data.name:lower()], lastOutreach = now, now
+	return true
+end
+
+StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
+	text = L.RECRUIT_WHISPER_CONFIRM,
+	button1 = SEND_LABEL or "Send",
+	button2 = CANCEL or "Cancel",
+	hasEditBox = true,
+	editBoxWidth = 380,
+	maxLetters = 250,
+	maxBytes = 251,
+	OnShow = function(f, data) f.editBox:SetText(L.RECRUIT_WHISPER_MESSAGE:format(data.guild)) end,
+	OnAccept = function(f, data) return not SendOutreach(f, data) end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+function Recruit.WhisperLines()
+	if not WhisperGuild() then return {} end
+	local V, on = ns.Views, Recruiting()
+	local lines = { { text = on and V.Green(L.RECRUIT_WHISPER_ON) or V.Grey(L.RECRUIT_WHISPER_OFF),
+		onClick = Recruit.ToggleWhisperRecruiting, gapAfter = not on } }
+	if on then
+		lines[#lines + 1] = { indent = 1, text = L.RECRUIT_WHISPER_HINT }
+		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_WHISPER_TARGET), onClick = Recruit.PromptOutreach, gapAfter = true }
+	end
+	return lines
+end
 
 local function Prune(now)
 	for i = #Recruit.requests, 1, -1 do
@@ -532,11 +645,7 @@ local function Drop(req)
 	ns.Fire("DATA_CHANGED")
 end
 
-function Recruit.OnJoinRequest(dist, sender, text)
-	if dist ~= "WHISPER" or not ns.IsMember() then return false end
-	local guild, level, class = tostring(text):match("^J3~([^~]+)~(%d+)~(%u*)$")
-	local own = GetGuildInfo("player")
-	if not guild or not own or guild:lower() ~= own:lower() then return false end
+local function AddRequest(sender, own, level, class, text, viaWhisper)
 	if ns.Roster.RankOf(sender) then return false end -- one of us already
 	local now = ns.Now()
 	Prune(now)
@@ -547,13 +656,14 @@ function Recruit.OnJoinRequest(dist, sender, text)
 	end
 	if #Recruit.requests >= Recruit.REQUESTS_MAX then table.remove(Recruit.requests, 1) end
 	level = tonumber(level)
-	local w = whispers[sender]
 	local req = { name = sender, guild = own, level = level and level >= 1 and level <= 100 and level or nil,
-		class = class ~= "" and #class <= 12 and class or nil, t = now, text = w and now - w.t <= 120 and w.text or nil }
+		class = class and class ~= "" and #class <= 12 and class or nil, t = now, text = text, viaWhisper = viaWhisper }
 	Recruit.requests[#Recruit.requests + 1] = req
 	-- Officers using The Watch are notified, but the request is never rejected automatically.
 	-- A related character counts only when Alts.lua already holds its two-sided confirmation.
-	if ns.Watch and ns.Watch.EntryAttempt then ns.SafeCall("watch entry attempt", ns.Watch.EntryAttempt, sender) end
+	if not viaWhisper and ns.Watch and ns.Watch.EntryAttempt then
+		ns.SafeCall("watch entry attempt", ns.Watch.EntryAttempt, sender)
+	end
 	-- One chat line, REQUEST_LINES a minute at most (the rest wait in the Census).
 	for i = #lineTimes, 1, -1 do
 		if now - lineTimes[i] >= 60 then table.remove(lineTimes, i) end
@@ -561,11 +671,20 @@ function Recruit.OnJoinRequest(dist, sender, text)
 	if #lineTimes < Recruit.REQUEST_LINES then
 		lineTimes[#lineTimes + 1] = now
 		local className = req.class and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[req.class] or ""
-		ns.Print(L.JOIN_ASKED:format(ns.DisplayName(sender) or sender, req.level or 0, className, own))
+		local who = ns.DisplayName(sender) or sender
+		ns.Print(viaWhisper and L.RECRUIT_WHISPER_ASKED:format(who, own) or L.JOIN_ASKED:format(who, req.level or 0, className, own))
 	end
-	ns.Log("recruit: %s asks to join %s", sender, own)
+	if not viaWhisper then ns.Log("recruit: %s asks to join %s", sender, own) end
 	ns.Fire("DATA_CHANGED")
 	return true
+end
+function Recruit.OnJoinRequest(dist, sender, text)
+	if dist ~= "WHISPER" or not ns.IsMember() then return false end
+	local guild, level, class = tostring(text):match("^J3~([^~]+)~(%d+)~(%u*)$")
+	local own = GetGuildInfo("player")
+	if not guild or not own or guild:lower() ~= own:lower() then return false end
+	local w = whispers[sender]
+	return AddRequest(sender, own, level, class, w and ns.Now() - w.t <= 120 and w.text or nil)
 end
 ns.Comm.Handle("J3", Recruit.OnJoinRequest)
 
@@ -577,6 +696,7 @@ Recruit.CanInvite = CanInvite
 local function CurrentRequest(req)
 	if type(req) ~= "table" or type(req.name) ~= "string" or req.name == "" or not CanInvite() or not ns.IsMember() then return false end
 	if req.guild ~= GetGuildInfo("player") or ns.Roster.RankOf(req.name) ~= nil then return false end
+	if req.viaWhisper and (not Recruiting() or ns.ChatLocked()) then return false end
 	Prune(ns.Now())
 	for _, pending in ipairs(Recruit.requests) do if pending == req then return true end end
 	return false
@@ -590,8 +710,11 @@ end
 local function AcceptRequest(req, confirmed)
 	if not CurrentRequest(req) then return false end
 	if confirmed and (confirmed.name ~= req.name or confirmed.guild ~= req.guild) then return false end
-	local invite = (C_GuildInfo and C_GuildInfo.Invite) or GuildInvite -- gp:roster-actions
-	if type(invite) ~= "function" then return false end
+	local invite
+	if not req.viaWhisper then
+		invite = (C_GuildInfo and C_GuildInfo.Invite) or GuildInvite -- gp:roster-actions
+		if type(invite) ~= "function" then return false end
+	end
 	local M = ns.Moderation
 	local word = M and M.Hidden and M.Hidden(req.name)
 	if word and not SameWarning(confirmed, req, word) then
@@ -603,6 +726,14 @@ local function AcceptRequest(req, confirmed)
 		ns.Dialog.Show("OLYMPUS_RECRUIT_NETOFF", L.JOIN_NETOFF_PROMPT:format(ns.DisplayName(req.name) or req.name,
 			M.When(word), M.ReasonShown(word)), nil, data)
 		return "warning"
+	end
+	if req.viaWhisper then
+		local to = NameForCommand(req.name)
+		if not to then return false end
+		if not ns.Dialog or ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return false end
+		-- Forever also rejects addon-prefilled native chat. Leave the game's edit box alone.
+		-- The officer copies this command into Blizzard chat and sends it there.
+		return ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", to, nil, "/ginvite " .. to) ~= nil
 	end
 	invite(ns.TellName(req.name))
 	ns.Print(L.JOIN_INVITED:format(ns.DisplayName(req.name) or req.name, req.guild))
@@ -622,6 +753,22 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
 		if type(data) ~= "table" then return end
 		-- A changed word presents its new context and keeps the question open for another click.
 		return AcceptRequest(data.req, data) == "warning"
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
+	text = L.RECRUIT_WHISPER_INVITE_COPY,
+	button1 = L.RECRUIT_WHISPER_CLOSE,
+	hasEditBox = true,
+	editBoxWidth = 360,
+	OnShow = function(f, command)
+		f.editBox:SetText(command)
+		ns.Focus(f.editBox)
+		f.editBox:HighlightText()
 	end,
 	timeout = 0,
 	whileDead = true,
@@ -686,15 +833,15 @@ function Recruit.RequestLines()
 		local who = ns.DisplayName(req.name) or req.name
 		local className = req.class and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[req.class] or ""
 		lines[#lines + 1] = {
-			text = V.ClassColored(who, req.class) .. "  " .. V.Grey(L.LEVEL_N:format(req.level or 0) .. " " .. className),
+			text = V.ClassColored(who, req.class) .. (req.viaWhisper and "" or "  " .. V.Grey(L.LEVEL_N:format(req.level or 0) .. " " .. className)),
 			right = V.Grey(ns.Ago(req.t)),
 			tooltip = function(tt)
-				tt:AddLine(L.JOIN_ASKED_TIP:format(who, req.guild), 1, 0.82, 0, true)
+				tt:AddLine((req.viaWhisper and L.RECRUIT_WHISPER_ASKED_TIP or L.JOIN_ASKED_TIP):format(who, req.guild), 1, 0.82, 0, true)
 				if req.text then tt:AddLine('"' .. ns.Codec.SanitizeChat(req.text) .. '"', 1, 1, 1, true) end
 			end,
 		}
 		if canInvite then
-			lines[#lines + 1] = { indent = 1, text = V.Green(L.JOIN_INVITE:format(req.guild)), onClick = function() Recruit.Accept(req) end }
+			lines[#lines + 1] = { indent = 1, text = V.Green((req.viaWhisper and L.RECRUIT_WHISPER_PREPARE or L.JOIN_INVITE):format(req.guild)), onClick = function() Recruit.Accept(req) end }
 			lines[#lines + 1] = {
 				indent = 1, text = V.Gold(L.JOIN_DECLINE), onClick = function() Recruit.Decline(req) end,
 				tooltip = function(tt)
@@ -716,6 +863,9 @@ function Recruit.RequestLines()
 end
 
 function Recruit.ResetForTests()
+	StopRecruiting()
+	wipe(contacted)
+	lastOutreach = nil
 	wipe(routeAsked); wipe(routeAnswered); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
 	wipe(lineTimes); wipe(whispers)
 	lastRoute = -math.huge
@@ -731,9 +881,18 @@ function Recruit.OnWhisper(text, sender)
 	-- an encounter its text and sender can be secret, and even a comparison raises in our code.
 	-- Nothing can be read from such a whisper: left alone before any string or table operation.
 	if type(issecretvalue) == "function" and (issecretvalue(text) or issecretvalue(sender)) then return end
+	if type(sender) ~= "string" or sender == "" then return end
 	if ns.IsMember() then
 		local now = ns.Now()
 		local key = Key(sender)
+		if Recruiting() and type(text) == "string" then
+			local reply = text:match("^%s*(.-)%s*$"):upper()
+			local to = NameForCommand(key)
+			local asked = to and contacted[to:lower()]
+			if to and key ~= ns.me and (reply == "JOIN OLYMPUS" or reply == "JOIN" and asked and now - asked < Recruit.REQUEST_EACH) then
+				AddRequest(key, recruitingGuild, nil, nil, reply, true)
+			end
+		end
 		if key and not whispers[key] then
 			local n = 0
 			for name, w in pairs(whispers) do
@@ -760,6 +919,9 @@ end
 ns.On("LOGIN", function()
 	ns.After(12, "daily nag", DailyNag)
 	ns.RegisterEvent("CHAT_MSG_WHISPER", function(text, sender) Recruit.OnWhisper(text, sender) end)
+	ns.RegisterEvent("PLAYER_GUILD_UPDATE", function(unit)
+		if (not unit or unit == "player") and recruitingGuild and not Recruiting() then StopRecruiting() end
+	end)
 end)
 
 StaticPopupDialogs["OLYMPUS_RECRUIT"] = {
