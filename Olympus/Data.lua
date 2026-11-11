@@ -1569,19 +1569,23 @@ end
 
 function Data.Summary()
 	local guilds, direct, now = SummaryGuilds()
-	local localGuilds = ns.rdb.guilds or {}
+	local localGuilds, scoped = ns.rdb.guilds or {}, ScopedGroup(ns.group)
 	local known = {}
 	for name in pairs(guilds) do known[name:lower()] = true end
 	local s = { total = 0, online = 0, fresh = 0, newest = 0, guilds = {}, zones = {}, zoneGuilds = {}, zoneList = {} }
 	for name, g in pairs(guilds) do
 		if ns.IsFederation(name) and not NetOff(name) then
-			local age = now - (g.t or 0)
+			-- A forwarded report can arrive long after its roster was read. Keep the
+			-- receipt for transport and votes, while Forever census totals use the read.
+			local received, stamp = tonumber(g.t) or 0, ObservationTime(g)
+			local observed = scoped and stamp > 0 and math.min(stamp, received) or received
+			local age = now - observed
 			local fresh = age <= Data.FRESH
 			-- A guild keeps its size from its last report when its reporters log off (the army
 			-- does not shrink every night), for a day; listed (grey) for a week; who is online
 			-- and where only count while fresh.
 			if age <= Data.KEEP then
-				local row = { name = name, g = g, fresh = fresh, counted = age <= Data.TOTAL_KEEP }
+				local row = { name = name, g = g, observed = observed, fresh = fresh, counted = age <= Data.TOTAL_KEEP }
 				-- A count-only snapshot can be newer than a valid roster detail report. Keep
 				-- recent player levels beside the display row, without attaching ranks to it.
 				local levels = g.relayed and localGuilds[direct[name:lower()]] or g
@@ -1595,7 +1599,7 @@ function Data.Summary()
 			if fresh then
 				s.fresh = s.fresh + 1
 				s.online = s.online + (g.online or 0)
-				if (g.t or 0) > s.newest then s.newest = g.t end
+				if observed > s.newest then s.newest = observed end
 				for key, n in pairs(g.zones or {}) do
 					s.zones[key] = (s.zones[key] or 0) + n
 					s.zoneGuilds[key] = s.zoneGuilds[key] or {}

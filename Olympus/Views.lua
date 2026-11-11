@@ -103,7 +103,9 @@ end
 function Views.PresenceNow(e, name, online, days)
 	if type(e) ~= "table" or e.name == GetGuildInfo("player") then return online, days, false end
 	if Views.SeenNow(e.name, name) then return true, 0, false end
-	if e.fresh == false and online then return nil, nil, true, type(e.g) == "table" and tonumber(e.g.t) or nil end
+	if e.fresh == false and online then
+		return nil, nil, true, e.observed or (type(e.g) == "table" and tonumber(e.g.t) or nil)
+	end
 	return online, days, e.fresh == false
 end
 
@@ -1344,7 +1346,7 @@ local function GuildTooltip(e)
 			end
 		end
 		tt:AddLine(" ")
-		tt:AddLine(L.REPORTED_BY:format(g.reporter or "?", ns.Ago(g.t)), 0.6, 0.6, 0.6)
+		tt:AddLine(L.REPORTED_BY:format(g.reporter or "?", ns.Ago(e.observed or g.t)), 0.6, 0.6, 0.6)
 		if not e.fresh then tt:AddLine(L.STALE, 1, 0.4, 0.4) end
 		DisputeTooltip(tt, ns.Data.Dispute(g))
 		local V = VerifyModule()

@@ -506,6 +506,41 @@ test("census overflow: scoped snapshots cover row and byte overflow at the exist
 	end
 end)
 
+test("census observed freshness: a late direct report ages like its relayed copy", function()
+	local direct, relayed = GroupWorld("Trusted-Realm"), GroupWorld()
+	local realm = "CAMWOWUS1Realm8PvP"
+	for _, w in ipairs({ direct, relayed }) do
+		w.ns.group, w.ns.realm = "ForeverPvP", realm
+		w.ns.Church.IsLedgerRelay = function(name) return name == direct.ns.me end
+	end
+	local D, at = direct.D, direct.clock
+	local function Receive(guild, sender, stamp)
+		local r = assert(Decode({ guild = guild, total = 100, online = 10, zones = { m1453 = 10 }, from = realm, st = stamp }))
+		assert(D.Receive(r, sender .. "-" .. realm))
+		eq(r.t, at, "receive time remains available separately")
+		return r
+	end
+	Receive("Olympus Old", "Older", at - D.FRESH - 1)
+	Receive("Olympus Ancient", "Ancient", at - D.TOTAL_KEEP - 1)
+	assert(relayed.D.ReceiveGlobalCensus("CHANNEL", direct.ns.me, assert(D.GlobalCensusPayload())))
+	for _, w in ipairs({ direct, relayed }) do
+		local s = w.D.Summary()
+		eq(s.characters, 100, "a day-old observation is no longer counted even if just received")
+		eq(s.online, 0, "a late observation does not make old online figures live")
+		eq(s.fresh, 0)
+		eq(s.newest, 0)
+		eq(next(s.zones), nil)
+		eq(s.guilds[1].fresh, false)
+	end
+	Receive("Olympus Legacy", "Legacy", nil)
+	Receive("Olympus Ahead", "Ahead", at + 1200)
+	local s = D.Summary()
+	eq(s.characters, 300)
+	eq(s.online, 20, "an unstamped report still uses receipt time")
+	eq(s.fresh, 2)
+	eq(s.newest, at, "a future stamp cannot extend the receipt-based age")
+end)
+
 test("census scope: explicit foreign observation and guild home never enter local summary, votes or outbound counts", function()
 	local w = GroupWorld()
 	w.ns.group, w.ns.realm = "ForeverPvP", "CAMWOWUS1Realm8PvP"
