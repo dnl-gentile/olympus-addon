@@ -723,6 +723,11 @@ function Recruit.CanEnableWhisperRecruiting()
 	return guild ~= nil and recruitingGuild ~= guild
 end
 
+function Recruit.ShouldOfferWhisperRecruiting()
+	local guild = EligibleRecruitingGuild()
+	return guild ~= nil and recruitingGuild ~= guild and RecruitmentPreference(guild) == nil
+end
+
 function Recruit.EnableWhisperRecruiting()
 	if not Recruit.CanEnableWhisperRecruiting() or not Recruit.ToggleWhisperRecruiting() then return false end
 	ns.Print(L.RECRUIT_CENSUS_ENABLED)

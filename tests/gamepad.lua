@@ -3800,6 +3800,10 @@ test("gamepad centered Census recruitment offers the Church intake and both dism
 		end
 
 		R.WhisperLines()[1].onClick()
+		Reopen()
+		eq(Row("enable"), nil, "turning recruitment off in Church leaves it off without another offer")
+		-- Exercise the separate Never choice on an account with no recruiting decision yet.
+		ns.rdb.recruitmentPreference[ns.me] = nil
 		local oldRecord, oldVerify = ns.Record.Line, ns.Verify.Lines
 		ns.Record.Line = function() return { id = "test-record", text = "Record" } end
 		ns.Verify.Lines = function() return { { id = "test-verify", text = "Verification" } } end

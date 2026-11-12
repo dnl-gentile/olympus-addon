@@ -2426,7 +2426,7 @@ end
 local function CensusRecruitment(previewing)
 	if previewing or main.tab ~= "census" or not main.recruitmentOffer or not ns.db or ns.db.hideRecruitmentOffer then return end
 	local R = ns.Recruit
-	if not R or not R.CanEnableWhisperRecruiting or not R.CanEnableWhisperRecruiting() then return end
+	if not R or not R.ShouldOfferWhisperRecruiting or not R.ShouldOfferWhisperRecruiting() then return end
 	local function Later()
 		main.recruitmentOffer = nil
 		UI.Refresh()
