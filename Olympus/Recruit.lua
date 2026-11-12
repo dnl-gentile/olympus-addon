@@ -1250,15 +1250,16 @@ function Recruit.OnWhisper(text, sender)
 		local key = Key(sender)
 		if Recruiting() and type(text) == "string" then
 			local reply = text:match("^%s*(.-)%s*$")
-			local keyword = reply:upper()
+			local keyword = reply:upper():gsub("%s+", " "):gsub("[.!?]+$", "")
+			local federation = keyword == "JOIN OLYMPUS" or keyword == "GINVITE OLYMPUS"
 			local to = NameForCommand(key)
 			local recent = to and RecentlyContacted(to, now)
-			if to and key ~= ns.me and (keyword == "JOIN" or keyword == "JOIN OLYMPUS" or (recent and reply ~= "")) then
+			if to and key ~= ns.me and (keyword == "JOIN" or federation or (recent and reply ~= "")) then
 				local shown = ns.Codec.SanitizeChat(ns.Cut(reply, 180))
 				if shown ~= "" then
 					local accepted, req = AddRequest(key, recruitingGuild, nil, nil, shown, true)
 					if accepted then
-						req.handoffIntent = keyword == "JOIN OLYMPUS" and "federation" or keyword == "JOIN" and "guild" or nil
+						req.handoffIntent = federation and "federation" or keyword == "JOIN" and "guild" or nil
 						PromptReply(req, now)
 					end
 				end
