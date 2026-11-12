@@ -1518,13 +1518,17 @@ StaticPopupDialogs["OLYMPUS_VERIFY_REVOKE"] = {
 }
 
 -- Optional local delivery view. The other addon installs its bridge at PLAYER_LOGIN;
--- neither file loading nor a refresh can submit a code. Keep the guild approval flow separate.
+-- opening the popup only reads local state. Keep the guild approval flow separate.
 local deliveryStates = {
 	{ "pending", "VERIFY_SELF_PENDING" }, { "delivered", "VERIFY_SELF_DELIVERED" },
 	{ "rejected", "VERIFY_SELF_REJECTED" }, { "unsupported_callback", "VERIFY_SELF_UNSUPPORTED" },
 	{ "unknown", "VERIFY_SELF_UNKNOWN" },
 }
 local deliveryTypes = { verify = true, role = true, guild = true, donation = true }
+-- (1.5.8) A submission's answer shows once, in its result. Only an unconfirmed one stays on the
+-- panel for the session: the bridge's status may not list it, and the player is asked to check
+-- before sending the code again. A created request is listed by the status itself.
+local unconfirmedSelf = false
 local function SelfBridge()
 	local b = rawget(_G, "OlympusVerifyBridge242")
 	return type(b) == "table" and b or nil
@@ -1562,47 +1566,109 @@ local function SelfDelivery(b)
 	end
 end
 
-local function EnterSelfCode()
-	local b = SelfBridge()
-	if not (b and type(b.QueueSelf) == "function" and SelfDelivery(b)) or not ns.Dialog or ns.Dialog.missing then
-		Verify.OpenSelf()
-		return
-	end
-	ns.Dialog.Show("OLYMPUS_VERIFY_SELF", nil, nil, {})
+local function SelfLinkReady()
+	local loader, link = ns.LinkLoader, ns.Link
+	return loader and type(loader.Loaded) == "function" and type(loader.Slash) == "function" and loader.Loaded()
+		and type(link) == "table" and type(link.Slash) == "function"
+		and type(link.BotReady) == "function" and link.BotReady() == true
 end
 
-function Verify.OpenSelf(result)
-	local b = SelfBridge()
-	local summary = SelfDelivery(b)
-	local ready = b and type(b.QueueSelf) == "function" and summary and ns.Dialog and not ns.Dialog.missing
-	local lines = { L.VERIFY_SELF_GUIDE, "" }
-	if result ~= nil then lines[#lines + 1] = result and L.VERIFY_SELF_QUEUED or L.VERIFY_SELF_REFUSED end
-	if not ready then lines[#lines + 1] = L.VERIFY_SELF_UNAVAILABLE end
+local linkAction = {
+	label = L.VERIFY_SELF_OPEN_LINK,
+	shown = SelfLinkReady,
+	onClick = function(f)
+		if not SelfLinkReady() then return end
+		f:Hide()
+		ns.LinkLoader.Slash("")
+	end,
+}
+
+local function SelfStatusLines(summary, submission)
+	local lines = {}
+	submission = submission or (unconfirmedSelf and "VERIFY_SELF_SUBMISSION_UNKNOWN") or nil
+	if submission then lines[#lines + 1] = L[submission] end
 	if not summary then
 		lines[#lines + 1] = L.VERIFY_SELF_STATUS_UNAVAILABLE
-	else
+	elseif summary.total > 0 then
 		lines[#lines + 1] = L.VERIFY_SELF_TOTAL:format(summary.total)
 		for _, state in ipairs(deliveryStates) do
 			local n = summary.counts[state[1]]
 			if n > 0 then lines[#lines + 1] = L[state[2]] .. ": " .. n end
 		end
 		if summary.truncated then lines[#lines + 1] = L.VERIFY_SELF_TRUNCATED:format(summary.shown, summary.total) end
+		-- (1.5.8, the author could not tell what "Pending" meant after Discord had verified him) What
+		-- the states a player asks about mean, below the counts.
+		if summary.counts.pending > 0 then lines[#lines + 1] = "\n" .. L.VERIFY_SELF_PENDING_NOTE end
+		if summary.counts.rejected > 0 then lines[#lines + 1] = "\n" .. L.VERIFY_SELF_REJECTED_NOTE end
 	end
-	return ns.UI.ShowCopy(L.VERIFY_SELF_TITLE, table.concat(lines, "\n"),
-		ready and { label = L.VERIFY_SELF_ENTER, fn = EnterSelfCode } or nil,
-		{ key = "verifySelf", auto = true, second = { label = L.REFRESH, fn = function() Verify.OpenSelf() end } })
+	return table.concat(lines, "\n")
 end
 
+-- (1.5.8) The guild the Discord bot verifies (Olympus Verify's FLAGSHIP_GUILD_NAME): there the rank
+-- opens the member channels once the bot's checks pass. Elsewhere the link is offered for itself,
+-- with no role promised. Only a text: the bot alone grants access and roles.
+Verify.DISCORD_GUILD = "OLYMPUS PRIME"
+function Verify.SelfWhy()
+	local inGuild = IsInGuild()
+	local guild = inGuild and GetGuildInfo("player")
+	-- Right after login or a /reload the game knows the player is in a guild before it knows the
+	-- guild's name: no reason until it does (the steps still show), never the wrong guild's.
+	if inGuild and type(guild) ~= "string" then return nil end
+	if type(guild) == "string" and guild:lower() == Verify.DISCORD_GUILD:lower() then return L.VERIFY_SELF_WHY_ROLE end
+	return L.VERIFY_SELF_WHY_COMMUNITY:format(Verify.DISCORD_GUILD)
+end
+
+function Verify.SelfLine()
+	local b = SelfBridge()
+	return { id = "verify-self", text = L.VERIFY_SELF_TITLE,
+		right = b and type(b.QueueSelf) == "function" and L.VERIFY_SELF_ENTER or nil, gapAfter = true,
+		onClick = Verify.OpenSelf }
+end
+
+function Verify.OpenSelf()
+	if not ns.Dialog or ns.Dialog.missing then return end
+	local b = SelfBridge()
+	local summary = SelfDelivery(b)
+	local ready = b and type(b.QueueSelf) == "function" and summary
+	local why = Verify.SelfWhy()
+	local text = (why and (why .. "\n\n") or "") .. L.VERIFY_SELF_GUIDE
+	if not ready then text = text .. "\n\n" .. L.VERIFY_SELF_UNAVAILABLE end
+	local status = SelfStatusLines(summary)
+	if status ~= "" then text = text .. "\n\n" .. status end
+	-- Requests already sent: Discord's answer is the one that counts.
+	if summary and summary.total > 0 then text = text .. "\n\n" .. L.VERIFY_SELF_CHECK_DISCORD end
+	return ns.Dialog.Show(ready and "OLYMPUS_VERIFY_SELF" or "OLYMPUS_VERIFY_SELF_UNAVAILABLE", text, nil, {})
+end
+
+StaticPopupDialogs["OLYMPUS_VERIFY_SELF_UNAVAILABLE"] = {
+	text = "%s",
+	button1 = OKAY or "OK",
+	extra = linkAction,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
+StaticPopupDialogs["OLYMPUS_VERIFY_SELF_RESULT"] = {
+	text = "%s",
+	button1 = OKAY or "OK",
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
 StaticPopupDialogs["OLYMPUS_VERIFY_SELF"] = {
-	text = L.VERIFY_SELF_PROMPT,
+	text = "%s",
 	button1 = L.VERIFY_SELF_SEND,
 	button2 = CANCEL or "Cancel",
+	extra = linkAction,
 	hasEditBox = true,
 	editBoxWidth = 350,
 	maxLetters = 128,
 	maxBytes = 128,
 	OnShow = function(self)
 		if self.editBox.SetPassword then self.editBox:SetPassword(true) end
+		ns.Focus(self.editBox)
 	end,
 	OnHide = function(self)
 		self.editBox:SetText("")
@@ -1613,12 +1679,21 @@ StaticPopupDialogs["OLYMPUS_VERIFY_SELF"] = {
 		attempt.used = true -- before the callback, including reentrant or duplicate clicks
 		local code = self.editBox:GetText()
 		self.editBox:SetText("")
-		local b, ok, queued = SelfBridge(), false, false
+		local b = SelfBridge()
+		local submission = "VERIFY_SELF_REFUSED"
 		if b and type(b.QueueSelf) == "function" and SelfDelivery(b) and type(code) == "string"
 			and not (issecretvalue and issecretvalue(code)) and code:find("%S") and #code <= 128 then
-			ok, queued = pcall(b.QueueSelf, code)
+			local ok, queued = pcall(b.QueueSelf, code)
+			if not ok or type(queued) ~= "boolean" then
+				submission = "VERIFY_SELF_SUBMISSION_UNKNOWN"
+			elseif queued then
+				submission = "VERIFY_SELF_QUEUED"
+			end
 		end
-		Verify.OpenSelf(ok and queued == true)
+		unconfirmedSelf = submission == "VERIFY_SELF_SUBMISSION_UNKNOWN"
+		self:Hide()
+		local status = SelfStatusLines(SelfDelivery(b), submission)
+		ns.Dialog.Show("OLYMPUS_VERIFY_SELF_RESULT", status .. "\n\n" .. L.VERIFY_SELF_CHECK_DISCORD)
 	end,
 	timeout = 0,
 	whileDead = true,

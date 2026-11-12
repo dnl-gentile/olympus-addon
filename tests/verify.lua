@@ -36,66 +36,162 @@ end
 test("verify: personal delivery detects the bridge on open, submits once and redacts its status", function()
 	local saved = { bridge = _G.OlympusVerifyBridge242, generic = _G.OlympusBridge,
 		guild = StaticPopupDialogs.OLYMPUS_VERIFY_GUILD, revoke = StaticPopupDialogs.OLYMPUS_VERIFY_REVOKE,
-		self = StaticPopupDialogs.OLYMPUS_VERIFY_SELF }
-	local text, action, opts, attempt
+		self = StaticPopupDialogs.OLYMPUS_VERIFY_SELF, unavailable = StaticPopupDialogs.OLYMPUS_VERIFY_SELF_UNAVAILABLE,
+		result = StaticPopupDialogs.OLYMPUS_VERIFY_SELF_RESULT }
+	local which, text, attempt
 	local ok, err = pcall(function()
 		_G.OlympusVerifyBridge242, _G.OlympusBridge = nil, nil
-		local v = setmetatable({ UI = { ShowCopy = function(_, body, a, o) text, action, opts = body, a, o end },
-			Dialog = { Show = function(which, _, _, data) eq(which, "OLYMPUS_VERIFY_SELF"); attempt = data end },
+		local L = setmetatable({}, { __index = ns.L })
+		local v = setmetatable({ L = L,
+			Dialog = { Show = function(id, body, _, data) which, text, attempt = id, body, data end },
 			On = function() end, Comm = { Handle = function() end } }, { __index = ns })
+		assert(loadfile(ADDON_DIR .. "Locales/VerifyText.lua"))("Olympus", v)
 		assert(loadfile(ADDON_DIR .. "Verify.lua"))("Olympus", v)
 		assert(type(v.Verify.OpenSelf) == "function", "personal verification panel exists")
 		v.Verify.OpenSelf()
-		eq(action, nil, "Verify missing at file load or panel open is harmless")
-		assert(text:find(ns.L.VERIFY_SELF_UNAVAILABLE, 1, true))
+		eq(which, "OLYMPUS_VERIFY_SELF_UNAVAILABLE", "Verify missing at file load or popup open is harmless")
+		assert(text:find(L.VERIFY_SELF_UNAVAILABLE, 1, true))
 		local s = { version = 243, deliveryOnly = true, membershipProof = false, roleAuthority = false,
 			total = 22, truncated = true, requests = {} }
 		for _, state in ipairs({ "pending", "delivered", "rejected", "unsupported_callback", "unknown" }) do
 			s.requests[#s.requests + 1] = { type = "verify", deliveryState = state, id = "opaque-hidden-id", code = "not-for-the-panel" }
 		end
 		for i = 6, 22 do s.requests[i] = { type = "donation", deliveryState = "pending" } end
-		local calls, accepted = 0, true
+		local calls, accepted, callbackError = 0, true, false
+		local def, frame
 		_G.OlympusVerifyBridge242 = { QueueSelf = function(code, extra)
 			eq(code, "my-personal-code"); eq(extra, nil, "bridge is called with dot syntax")
-			calls = calls + 1; return accepted
+			calls = calls + 1
+			eq(frame.editBox:GetText(), "", "the code is cleared before the bridge receives it")
+			def.OnAccept(frame, attempt) -- a reentrant callback cannot reuse this attempt
+			if callbackError then error("private detail and my-personal-code") end
+			return accepted
 		end, Status = function(extra) eq(extra, nil); return s end }
-		opts.second.fn()
-		eq(calls, 0, "opening and refreshing only reads")
+		v.Verify.OpenSelf()
+		eq(which, "OLYMPUS_VERIFY_SELF", "opening shows the masked code field directly")
+		eq(calls, 0, "opening only reads")
 		for _, key in ipairs({ "PENDING", "DELIVERED", "REJECTED", "UNSUPPORTED", "UNKNOWN" }) do
-			assert(text:find(ns.L["VERIFY_SELF_" .. key], 1, true), key)
+			assert(text:find(L["VERIFY_SELF_" .. key] .. ": ", 1, true), key)
 		end
-		assert(text:find(ns.L.VERIFY_SELF_TRUNCATED:format(20, 22), 1, true))
+		-- (1.5.8) What waiting and a refusal mean, and that Discord's own status is the answer.
+		assert(text:find(L.VERIFY_SELF_PENDING_NOTE, 1, true), "a waiting request is explained")
+		assert(text:find(L.VERIFY_SELF_REJECTED_NOTE, 1, true), "a refused request says what to do")
+		assert(text:find(L.VERIFY_SELF_CHECK_DISCORD, 1, true), "with requests sent, Discord has the final word")
+		assert(text:find(L.VERIFY_SELF_GUIDE, 1, true), "the steps stay with the code field")
+		assert(text:find(L.VERIFY_SELF_TRUNCATED:format(20, 22), 1, true))
 		assert(not text:find("opaque-hidden-id", 1, true) and not text:find("not-for-the-panel", 1, true))
-		action.fn()
 		eq(calls, 0, "opening the entry prompt does not submit")
 		local value = "my-personal-code"
-		local frame = { editBox = { GetText = function() return value end, SetText = function(_, v) value = v end } }
-		local def = StaticPopupDialogs.OLYMPUS_VERIFY_SELF
-		def.OnAccept(frame, attempt)
-		def.OnAccept(frame, attempt)
+		frame = { Hide = function() end,
+			editBox = { GetText = function() return value end, SetText = function(_, v) value = v end } }
+		def = StaticPopupDialogs.OLYMPUS_VERIFY_SELF
+		local submitted = attempt
+		def.OnAccept(frame, submitted)
+		def.OnAccept(frame, submitted)
 		eq(calls, 1); eq(value, "", "the code is cleared")
-		assert(text:find(ns.L.VERIFY_SELF_QUEUED, 1, true))
+		eq(which, "OLYMPUS_VERIFY_SELF_RESULT")
+		assert(text:find(L.VERIFY_SELF_CHECK_DISCORD, 1, true))
+		assert(text:find(L.VERIFY_SELF_QUEUED, 1, true))
 		assert(not text:find("my-personal-code", 1, true))
 		accepted, value = false, "my-personal-code"
-		action.fn()
+		v.Verify.OpenSelf()
+		assert(not text:find(L.VERIFY_SELF_QUEUED, 1, true), "a created request's answer shows once, the status lists it")
 		def.OnAccept(frame, attempt)
 		eq(calls, 2)
-		assert(text:find(ns.L.VERIFY_SELF_REFUSED, 1, true) and not text:find(ns.L.VERIFY_SELF_QUEUED, 1, true))
+		assert(text:find(L.VERIFY_SELF_REFUSED, 1, true) and not text:find(L.VERIFY_SELF_QUEUED, 1, true))
+		for _, raised in ipairs({ true, false }) do
+			accepted, value, callbackError = nil, "my-personal-code", raised
+			v.Verify.OpenSelf()
+			def.OnAccept(frame, attempt)
+			assert(text:find("Submission unconfirmed", 1, true), "an error or non-Boolean return may have left a local request")
+			assert(not text:find(L.VERIFY_SELF_REFUSED, 1, true), "an unknown outcome is not a refusal")
+			assert(not text:find("my-personal-code", 1, true) and not text:find("private detail", 1, true))
+			v.Verify.OpenSelf()
+			assert(text:find("Submission unconfirmed", 1, true), "reopening does not hide an unconfirmed submission")
+		end
 		_G.OlympusVerifyBridge242.Status = nil
 		local wrapper = { name = "verification", version = 242, data = s }
 		_G.OlympusBridge = { API_VERSION = 1, GetSection = function(name) eq(name, "verification"); return wrapper end }
-		v.Verify.OpenSelf(); eq(action, nil, "old section wrapper is refused")
+		v.Verify.OpenSelf(); eq(which, "OLYMPUS_VERIFY_SELF_UNAVAILABLE", "old section wrapper is refused")
 		wrapper.version, s.version = 243, 242
-		v.Verify.OpenSelf(); eq(action, nil, "old envelope is refused too")
+		v.Verify.OpenSelf(); eq(which, "OLYMPUS_VERIFY_SELF_UNAVAILABLE", "old envelope is refused too")
 		s.version, s.roleAuthority = 243, true
-		v.Verify.OpenSelf(); eq(action, nil, "the envelope cannot grant authority")
+		v.Verify.OpenSelf(); eq(which, "OLYMPUS_VERIFY_SELF_UNAVAILABLE", "the envelope cannot grant authority")
 		s.roleAuthority = false
-		v.Verify.OpenSelf(); assert(action, "version 1 API with a safe v243 wrapper is accepted")
-		eq(calls, 2, "status never resubmits an unknown outcome")
+		v.Verify.OpenSelf(); eq(which, "OLYMPUS_VERIFY_SELF", "version 1 API with a safe v243 wrapper is accepted")
+		eq(calls, 4, "status never resubmits an unknown outcome")
+		-- (1.5.8, the author: "get your role on Discord" where a rank opens it, "be part of the
+		-- community" elsewhere, promising nothing the bot does not do) The bot verifies one guild.
+		local inGuild, getInfo = _G.IsInGuild, _G.GetGuildInfo
+		local guild
+		_G.IsInGuild = function() return guild ~= nil end
+		_G.GetGuildInfo = function(unit) eq(unit, "player"); return guild, "Member", 4 end
+		local why = {}
+		for _, g in ipairs({ "OLYMPUS PRIME", "Olympus Prime", "Olympus Embers", false }) do
+			guild = g or nil
+			v.Verify.OpenSelf()
+			why[#why + 1] = text
+		end
+		_G.IsInGuild, _G.GetGuildInfo = inGuild, getInfo
+		for i = 1, 2 do
+			assert(why[i]:find(L.VERIFY_SELF_WHY_ROLE, 1, true), "the bot's guild, any case: the rank's role")
+			assert(not why[i]:find(L.VERIFY_SELF_WHY_COMMUNITY:format(v.Verify.DISCORD_GUILD), 1, true))
+		end
+		for i = 3, 4 do
+			assert(why[i]:find(L.VERIFY_SELF_WHY_COMMUNITY:format("OLYMPUS PRIME"), 1, true), "elsewhere: the community, no role promised")
+			assert(not why[i]:find(L.VERIFY_SELF_WHY_ROLE, 1, true))
+		end
+		-- Fails before: right after login or a /reload the game says the player is in a guild before
+		-- it knows the guild's name (GetGuildInfo nil until the roster loads), and a member of the
+		-- bot's guild was told the other guilds' reason. Neither reason until the name is known.
+		_G.IsInGuild = function() return true end
+		_G.GetGuildInfo = function() return nil end
+		v.Verify.OpenSelf()
+		_G.IsInGuild, _G.GetGuildInfo = inGuild, getInfo
+		eq(which, "OLYMPUS_VERIFY_SELF", "the code field still opens")
+		assert(text:find(L.VERIFY_SELF_GUIDE, 1, true), "the steps still show")
+		assert(not text:find(L.VERIFY_SELF_WHY_COMMUNITY:format(v.Verify.DISCORD_GUILD), 1, true), "no guild's reason before its name is known")
+		assert(not text:find(L.VERIFY_SELF_WHY_ROLE, 1, true))
+		eq(calls, 4, "the reason never submits")
 	end)
 	_G.OlympusVerifyBridge242, _G.OlympusBridge = saved.bridge, saved.generic
 	StaticPopupDialogs.OLYMPUS_VERIFY_GUILD, StaticPopupDialogs.OLYMPUS_VERIFY_REVOKE, StaticPopupDialogs.OLYMPUS_VERIFY_SELF = saved.guild, saved.revoke, saved.self
+	StaticPopupDialogs.OLYMPUS_VERIFY_SELF_UNAVAILABLE, StaticPopupDialogs.OLYMPUS_VERIFY_SELF_RESULT = saved.unavailable, saved.result
 	if not ok then error(err, 0) end
+end)
+
+-- Fails before: in every language the waiting note said Olympus Verify keeps trying to pass the code
+-- on and that there was no need to send it again (nothing in this game retries it), and the reason
+-- shown outside the bot's guild said no code was needed while the same window asks for one.
+test("verify: the personal panel's waiting note points to Discord, and no language waives the code it asks for", function()
+	local function Words(code)
+		local lns, saved = {}, GetLocale
+		GetLocale = function() return code end
+		local ok, err = pcall(function()
+			assert(loadfile(ROOT .. "Olympus/Locales.lua"))("Olympus", lns)
+			assert(loadfile(ADDON_DIR .. "Locales/VerifyText.lua"))("Olympus", lns)
+			if code ~= "enUS" and code ~= "ptBR" then assert(loadfile(ADDON_DIR .. "Locales/" .. code .. ".lua"))("Olympus", lns) end
+		end)
+		GetLocale = saved
+		if not ok then error(err, 0) end
+		return lns.L
+	end
+	local english = Words("enUS")
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "frFR", "itIT", "ruRU" }) do
+		local W = Words(code)
+		if code ~= "enUS" then
+			for _, key in ipairs({ "VERIFY_SELF_QUEUED", "VERIFY_SELF_PENDING_NOTE", "VERIFY_SELF_WHY_COMMUNITY" }) do
+				assert(W[key] ~= english[key], code .. " translates " .. key)
+			end
+		end
+		assert(W.VERIFY_SELF_PENDING_NOTE:find("/verify-status", 1, true), code .. ": waiting says where to check before sending again")
+		local community = W.VERIFY_SELF_WHY_COMMUNITY:format("OLYMPUS PRIME")
+		assert(community:find("OLYMPUS PRIME", 1, true), code .. ": the bot's guild is named")
+		assert(not community:find("#olympus-chat", 1, true), code .. ": no channel is promised without the code the window asks for")
+	end
+	local en = english.VERIFY_SELF_PENDING_NOTE:lower() .. " " .. english.VERIFY_SELF_QUEUED:lower()
+	assert(not en:find("keeps trying", 1, true) and not en:find("passes it on", 1, true), "no delivery the game does not do is claimed")
+	assert(not english.VERIFY_SELF_WHY_COMMUNITY:lower():find("no code", 1, true), "the window asks for a code")
 end)
 
 -- A world: w.Client(name, guild, rank) makes a client; w.As(c, fn, ...) runs fn as that client (the

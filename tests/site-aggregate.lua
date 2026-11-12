@@ -142,6 +142,9 @@
 			assert(s.messages[#s.messages]:find("OLYMPUS PRIME", 1, true), "help lists the eligible Prime roster")
 			eq(s.bridgeCalls, 1, "help does not prepare a new export")
 
+			prime.counted = false
+			eq(Export(), nil, "a partial Prime observation is refused even when marked fresh")
+			prime.counted = true
 			prime.observedAtServer = s.now - 901
 			eq(Export(), nil, "the other eligible guild does not replace a stale Prime row")
 			prime.observedAtServer = s.now - 10

@@ -1502,6 +1502,7 @@ local function World(C, opts)
 	-- source).
 	E.FriendsFrame = Blizz("FriendsFrame", "Frame")
 	E.FriendsFrame.shown, E.FriendsFrame.w, E.FriendsFrame.h = false, 338, 424
+	E.FriendsFrameTab1 = Blizz("FriendsFrameTab1", "Button", E.FriendsFrame)
 	E.CommunitiesFrame = Blizz("CommunitiesFrame", "Frame")
 	E.CommunitiesFrame.shown, E.CommunitiesFrame.w, E.CommunitiesFrame.h = false, 814, 576
 	E.LFGWhoListFrame = Blizz("LFGWhoListFrame", "Frame")
@@ -2833,22 +2834,112 @@ test("gamepad pass 4: blocked calls with the gamepad UI: counted, told once in a
 	NoErrors(C, "blocked calls")
 end)
 
-test("gamepad personal verification opens and submits in Olympus-owned windows", function()
-	local C = Session(true)
-	local calls = 0
+test("gamepad personal verification opens in both window styles and submits only by choice", function()
+	local linkCalls, linkReady = {}, false
+	local C, ns = Session(true, { setup = function(c)
+		c.addOnFiles = { Olympus_Link = function(env)
+			local host = rawget(env, "OlympusLinkHandoff")
+			rawset(env, "OlympusLinkHandoff", nil)
+			host.Link = {
+				Slash = function(rest) linkCalls[#linkCalls + 1] = rest end,
+				BotReady = function() return linkReady end,
+			}
+		end }
+	end })
+	local function OpenFromRealm(which)
+		for _, row in ipairs(Main(C).views.realm.rows) do
+			if row:IsShown() and row.line and row.line.id == "verify-self" then
+				eq(row.line.text, ns.L.VERIFY_SELF_TITLE)
+				C.Click(row)
+				return assert(ns.Dialog.Find(which))
+			end
+		end
+		error("The Realm must offer My Discord Verification")
+	end
+
+	ns.UI.SelectTab("census")
+	for _, row in ipairs(Main(C).views.census.rows) do
+		assert(not (row:IsShown() and row.line and row.line.id == "verify-self"), "verification moved from Census")
+	end
+	ns.UI.SelectTab("realm")
+	local list = ns.Views.Build("realm")
+	eq(list[3].id, "verify-self", "verification is the first action below The Realm navigation and search")
+	local missing = "OLYMPUS_VERIFY_SELF_UNAVAILABLE"
+	local panel = OpenFromRealm(missing)
+	eq(panel.editBox:IsShown(), false, "Verify is missing at login")
+	eq(panel.extraButton:IsShown(), false, "the unconfigured module cannot invite a code")
+	linkReady = true
+	panel = OpenFromRealm(missing)
+	assert(panel.extraButton:IsShown(), "ready Link works even without the ordinary Verify bridge")
+	eq(#linkCalls, 0, "opening does not start Link")
+	C.Click(panel.extraButton)
+	eq(#linkCalls, 1); eq(linkCalls[1], "", "explicit click opens the existing Link prompt, with no pasted code")
+	panel = OpenFromRealm(missing)
+	linkReady = false
+	C.Click(panel.extraButton)
+	eq(#linkCalls, 1, "the click checks that Link is still ready")
+	panel = OpenFromRealm(missing)
+	eq(panel.extraButton:IsShown(), false, "the launcher is hidden when Link is unconfigured")
+	local link = ns.Link
+	ns.Link = nil
+	panel = OpenFromRealm(missing)
+	eq(panel.extraButton:IsShown(), false, "the launcher is hidden when Link is absent")
+	ns.Link = link
+	linkReady = true
+	panel:Hide()
+
+	local calls, deliveryState = 0, nil
 	C.env.OlympusVerifyBridge242 = {
-		Status = function() return { version = 243, deliveryOnly = true, membershipProof = false, roleAuthority = false,
-			total = 0, truncated = false, requests = {} } end,
-		QueueSelf = function(code) eq(code, "test-personal-code"); calls = calls + 1; return true end,
+		Status = function()
+			local requests = deliveryState and { { type = "verify", deliveryState = deliveryState } } or {}
+			return { version = 243, deliveryOnly = true, membershipProof = false, roleAuthority = false,
+				total = #requests, truncated = false, requests = requests }
+		end,
+		QueueSelf = function(code) eq(code, "test-personal-code"); calls = calls + 1; deliveryState = "pending"; return true end,
 	}
 	local before = C.gamePopups or 0
-	local panel = assert(C.ns.Verify.OpenSelf())
+	local prompt = OpenFromRealm("OLYMPUS_VERIFY_SELF")
+	assert(prompt.editBox:IsShown(), "Verify is detected after login")
+	assert(prompt.editBox:HasFocus(), "the code field is ready for a paste")
+	local guide = prompt.text:GetText()
+	assert(guide:find("/verify", 1, true), "instructions live with the code field")
+	assert(guide:find("Asmongold", 1, true) and guide:find("#olympus-verify", 1, true), "the guide names the bot's server and channel")
 	eq(calls, 0)
-	InClick(C, function() panel.action:Click() end)
-	local prompt = assert(C.ns.Dialog.Find("OLYMPUS_VERIFY_SELF"))
 	prompt.editBox:SetText("test-personal-code")
-	InClick(C, function() prompt.buttons[1]:Click() end)
+	C.Fire1(prompt.editBox, "OnEnterPressed")
+	eq(calls, 0, "Enter in the editor does not submit")
+	C.Click(prompt.buttons[1])
 	eq(calls, 1); eq(prompt.editBox:GetText(), "")
+	local result = assert(ns.Dialog.Find("OLYMPUS_VERIFY_SELF_RESULT"))
+	assert(result.text:GetText():find("/verify-status", 1, true), "the bot is authoritative for access and roles")
+	assert(result.text:GetText():find(ns.L.VERIFY_SELF_QUEUED, 1, true), "the immediate result shows the submission outcome")
+	result:Hide()
+	local pending = OpenFromRealm("OLYMPUS_VERIFY_SELF")
+	assert(pending.text:GetText():find(ns.L.VERIFY_SELF_PENDING .. ": 1", 1, true), "reopening shows the pending delivery")
+	eq(pending.text:GetText():find(ns.L.VERIFY_SELF_QUEUED, 1, true), nil, "the immediate result does not persist")
+	assert(pending.text:GetText():find(ns.L.VERIFY_SELF_PENDING_NOTE, 1, true), "waiting is explained where it shows")
+	assert(pending.text:GetText():find(ns.L.VERIFY_SELF_CHECK_DISCORD, 1, true), "and Discord's own status is the answer")
+	assert(pending.editBox:IsShown() and pending.buttons[1]:IsShown(), "one prompt: the code field and Submit code")
+	pending:Hide()
+	deliveryState = "delivered"
+
+	C.Switch(false); C.Advance(1)
+	local host = C.NewWidget("Frame", nil, C.env.UIParent)
+	host:SetSize(384, 512)
+	for _, style in ipairs({ "old", "hd" }) do
+		ns.UI.OpenDocked(host, "realm", false, style)
+		eq(ns.UI.WindowStyle(), style)
+		local dialog = OpenFromRealm("OLYMPUS_VERIFY_SELF")
+		assert(dialog.editBox:IsShown() and dialog.extraButton:IsShown())
+		assert(dialog.text:GetText():find(ns.L.VERIFY_SELF_DELIVERED .. ": 1", 1, true), "reopening shows the acknowledged delivery")
+		eq(dialog.text:GetText():find(ns.L.VERIFY_SELF_QUEUED, 1, true), nil, "delivery does not bring back a stale outcome")
+		dialog:Hide()
+	end
+	C.env.SlashCmdList.OLYMPUS("discord status")
+	eq(#linkCalls, 2); eq(linkCalls[2], "status", "the slash command still forwards its original argument")
+	C.Switch(true); C.Advance(1)
+	assert(OpenFromRealm("OLYMPUS_VERIFY_SELF").editBox:IsShown())
+	eq(calls, 1, "neither transition nor reopening resubmits")
 	eq(C.gamePopups or 0, before, "no Blizzard popup for the personal code")
 	NoErrors(C, "personal verification")
 end)
