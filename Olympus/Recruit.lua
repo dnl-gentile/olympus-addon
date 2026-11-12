@@ -355,10 +355,27 @@ function Recruit.ToggleJoinGuilds()
 	ns.Fire("RECRUIT_CHANGED")
 end
 
+local function ScheduleJoinReminder(reminder)
+	local function Remind()
+		if join.reminder ~= reminder or not Recruit.SimpleJoin() then return end
+		if JoinVisible() and not join.search and join.request and join.request.untilAt <= GetTime()
+			and not ns.ChatLocked() and not ns.QuietPresence() and not ns.Quiet()
+			and not (InCombatLockdown and InCombatLockdown())
+			and not ns.Dialog.missing and not ns.Dialog.Find("OLYMPUS_RECRUIT")
+			and not ns.Dialog.Find("OLYMPUS_RECRUIT_RETRY") then
+			ns.Dialog.CloseOnEscape(ns.Dialog.Show("OLYMPUS_RECRUIT_RETRY"))
+		end
+		ns.After(JOIN_REMINDER, "join reminder", Remind)
+	end
+	ns.After(JOIN_REMINDER, "join reminder", Remind)
+end
+
 local function JoinWait(contact)
 	if not Recruit.SimpleJoin() or not JoinVisible() then return end
+	local first = not join.request
 	local request = { contact = contact, untilAt = GetTime() + JOIN_WAIT }
 	join.request = request
+	if first and join.reminder then ScheduleJoinReminder(join.reminder) end
 	local function Tick()
 		if join.request ~= request or not Recruit.SimpleJoin() then return end
 		if JoinVisible() then ns.Fire("RECRUIT_CHANGED") end
@@ -394,25 +411,13 @@ function Recruit.RequestJoin()
 end
 
 function Recruit.ToggleJoinReminder()
-	if not Recruit.SimpleJoin() or not join.request then return end
+	if not Recruit.SimpleJoin() then return end
 	if join.reminder then
 		join.reminder = nil
 		if not ns.Dialog.missing then ns.Dialog.Hide("OLYMPUS_RECRUIT_RETRY") end
 	else
-		local reminder = {}
-		join.reminder = reminder
-		local function Remind()
-			if join.reminder ~= reminder or not Recruit.SimpleJoin() then return end
-			if JoinVisible() and not join.search and join.request.untilAt <= GetTime()
-				and not ns.ChatLocked() and not ns.QuietPresence() and not ns.Quiet()
-				and not (InCombatLockdown and InCombatLockdown())
-				and not ns.Dialog.missing and not ns.Dialog.Find("OLYMPUS_RECRUIT")
-				and not ns.Dialog.Find("OLYMPUS_RECRUIT_RETRY") then
-				ns.Dialog.CloseOnEscape(ns.Dialog.Show("OLYMPUS_RECRUIT_RETRY"))
-			end
-			ns.After(JOIN_REMINDER, "join reminder", Remind)
-		end
-		ns.After(JOIN_REMINDER, "join reminder", Remind)
+		join.reminder = {}
+		if join.request then ScheduleJoinReminder(join.reminder) end
 	end
 	ns.Fire("RECRUIT_CHANGED")
 end

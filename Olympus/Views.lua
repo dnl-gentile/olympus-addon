@@ -3525,17 +3525,16 @@ function Views.JoinLines(height)
 		or ns.Who.Searched() and #R.found == 0 and L.RECRUIT_NONE_FOUND
 	local lines = {
 		{ text = L.RECRUIT_JOIN_TITLE, center = true, color = "GameFontNormalLarge", gapAfter = true,
-			spaceBefore = guilds and 6 or math.max(6, math.floor(((height or 0) - 180) / 2)) },
+			spaceBefore = guilds and 6 or math.max(6, math.floor(((height or 0) - 210) / 2)) },
 		{ text = L.RECRUIT_JOIN_ABOUT, center = true },
+		{ text = L.RECRUIT_JOIN_ACTIVITIES, center = true },
 		{ text = L.RECRUIT_JOIN_HINT, center = true, gapAfter = true },
 		{ text = last and L.RECRUIT_JOIN_AGAIN or L.RECRUIT_JOIN_REQUEST, primary = true,
 			onClick = not pending and R.RequestJoin or nil, gapAfter = true },
 	}
 	if status then lines[#lines + 1] = { text = status, center = true, gapAfter = true } end
-	if last and left == 0 then
-		lines[#lines + 1] = { text = Gold(reminder and L.RECRUIT_JOIN_REMINDER_ON or L.RECRUIT_JOIN_REMINDER_OFF),
-			center = true, onClick = R.ToggleJoinReminder }
-	end
+	lines[#lines + 1] = { text = Gold((reminder and "[x] " or "[ ] ") .. L.RECRUIT_JOIN_REMINDER),
+		center = true, onClick = R.ToggleJoinReminder }
 	lines[#lines + 1] = { text = Gold(guilds and L.RECRUIT_JOIN_HIDE_GUILDS or L.RECRUIT_JOIN_SHOW_GUILDS),
 		center = true, onClick = R.ToggleJoinGuilds }
 	if guilds then

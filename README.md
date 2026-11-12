@@ -124,10 +124,10 @@ replace a retained revocation.
 First it asks the obvious question: *"<Your Guild>? Disband immediately. What are you
 doing?"* If you are in no guild, Olympus opens the **Join Olympus** page on your first login
 with the addon. **Request to join** searches for an online Olympus member and opens a request
-you can edit. Click **Send** to whisper it. The screen gives the guild
-45 seconds to reply before offering **Request again** with another contact. You can turn
-on a reminder every 90 seconds while this screen is open. Each reminder asks for a click
-before preparing a new request. **Browse Olympus guilds** opens the optional guild list.
+you can edit. Click **Send** to whisper it. The screen waits 45 seconds before offering
+**Request again** with another contact. You can opt in to reminders before sending the
+first request. They start after you send and ask you to confirm before preparing a new
+request. **Browse Olympus guilds** opens the optional guild list.
 
 The list uses the game's own `/who`, which returns up to 50 players per search. When there
 are more, each new click searches a range of levels and adds to the list. Replies are
