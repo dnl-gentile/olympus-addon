@@ -66,6 +66,7 @@ local L = ns.L
 --   RA letter~d~day~prefixes                 an ask for a day's records (the prefixes it holds)
 --   RA letter~s~month~hash8|-                an ask for a month's seal and its totals
 --   RA letter~w~day~prefixes                 an ask for validations alone (RV) of records it holds, waiting
+--   RA letter~x~day~scope~hash~id            Forever mesh only: direct ask for one exact pending record's RV
 --   RR letter~body                           a record
 --   RV letter~hash~t~pk~sig                  a live holder's validation of that exact record
 --   RS RS1~at~group~faction~letter~month~n~hash~sig   a seal (decimal; sig: RSA, Sign.lua)
@@ -498,7 +499,8 @@ local keySentAt
 -- this client's quiet presence is on (1.4.0): it says the character is online; the next tick after
 -- it is off declares it.
 local function Quiet() return type(ns.QuietPresence) == "function" and ns.QuietPresence() == true end
-function R.SendKey()
+local cross = {}
+local function KeyBody()
 	if Quiet() then return false end
 	local D = ns.Debts
 	if type(D) ~= "table" or type(D.MyKey) ~= "function" or type(D.Sign) ~= "function" then return false end
@@ -507,9 +509,14 @@ function R.SendKey()
 	local pk64, t = B64(pk), B36(Now())
 	local signed, sig = pcall(D.Sign, KeyText(Me(), gk, pk64, t))
 	if not signed or type(sig) ~= "string" or #sig ~= 64 then return false end
-	keySentAt = Now()
 	R.Pin(Me(), pk64, gk, true)
-	return A().Send("RK", "L", table.concat({ gk, pk64, t, B64(sig) }, "~"), { dist = "CHANNEL", key = "records key", low = true }) == true
+	return table.concat({ gk, pk64, t, B64(sig) }, "~")
+end
+function R.SendKey()
+	local body = KeyBody()
+	if not body then return false end
+	keySentAt = Now()
+	return A().Send("RK", "L", body, { dist = "CHANNEL", key = "records key", low = true }) == true
 end
 local keyDue = false
 local function KeyLater()
@@ -531,13 +538,17 @@ local function OnKey(dist, sender, mode, body)
 		local root = Root(false)
 		local k = root and root.keys[Low(sender)]
 		if type(k) == "table" and k.k == pk64 then k.at = Now() end
+		if cross.KeyArrived then cross.KeyArrived(sender, pk64) end
 		return
 	end
 	local pk, sig = Raw(pk64, 32), Raw(sig64, 64)
 	if not pk or not sig then return Count("key-shape") end
 	local claim = KeyText(sender, gk, pk64, t)
 	A().Check("rk " .. sig64 .. " " .. claim, { pk = pk, msg = claim, sig = sig }, function(good)
-		if good then R.Pin(sender, pk64, gk) elseif good == false then Count("key-signature") end
+		if good then
+			R.Pin(sender, pk64, gk)
+			if cross.KeyArrived then cross.KeyArrived(sender, pk64) end
+		elseif good == false then Count("key-signature") end
 	end)
 end
 ns.Comm.Handle("RK", ns.Arena.Handle("RK", OnKey))
@@ -853,6 +864,12 @@ function R.OutSize() return #outq end
 -- silences an answer to it (a validation the asker refused, its sender's key not yet with it,
 -- must not keep the next ask from fresh ones). One already waiting takes the newest ask's time.)
 local witnessSince = {} -- [the RV's Out key] = the newest ask's time it answers
+local function WitnessBody(letter, hash, pk64, sign)
+	local t = B36(Now())
+	local signed, sig = pcall(sign, WitnessText(Me(), letter, hash, t, pk64))
+	if not signed or type(sig) ~= "string" or #sig ~= 64 then return nil end
+	return table.concat({ letter, hash, t, pk64, B64(sig) }, "~")
+end
 function R.SendWitness(letter, body, day, keyed, hash, since)
 	if not R.TYPES[letter] or type(body) ~= "string" or Barred() then return false end
 	local okRecord, rec = pcall(R.TYPES[letter].Read, body)
@@ -878,10 +895,7 @@ function R.SendWitness(letter, body, day, keyed, hash, since)
 			stats.witnessCovered = (stats.witnessCovered or 0) + 1
 			return nil
 		end
-		local t = B36(Now())
-		local signed, sig = pcall(D.Sign, WitnessText(Me(), letter, hash, t, pk64))
-		if not signed or type(sig) ~= "string" or #sig ~= 64 then return nil end
-		return table.concat({ letter, hash, t, pk64, B64(sig) }, "~")
+		return WitnessBody(letter, hash, pk64, D.Sign)
 	end, day)
 	if not ok and not queued then witnessSince[k] = nil end
 	return ok
@@ -1293,6 +1307,7 @@ function R.AskWitness(letter, d)
 		end
 	end
 	if not list[1] then return false end
+	if cross.Ask then cross.Ask(letter, d) end
 	table.sort(list)
 	while #list > R.ASK_PREFIX_MAX do list[#list] = nil end
 	return A().Send("RA", "L", letter .. "~w~" .. B36(d) .. "~" .. table.concat(list), { dist = "CHANNEL", key = "records witness ask " .. letter .. d, low = true }) == true
@@ -1434,7 +1449,8 @@ local function SendDiscovery()
 end
 -- The player opened a ranking view: start the ask or try again if transport dropped it.
 function R.Discover()
-	return SendDiscovery()
+	local recovered = cross.Ask and cross.Ask()
+	return SendDiscovery() or recovered == true
 end
 local function ReplyRound(letter, now)
 	local s = Store(letter)
@@ -1595,7 +1611,131 @@ PinWitnessed = function(letter, body, rec)
 	return true
 end
 
+-- A relay may already hold the record, while the two confirmations were heard in
+-- different relay pockets. Ask at most two current signed peers for one exact record.
+-- A reply uses only first-hand RK and RV and never enters the mesh or guild fan-out.
+local CROSS_GAP, CROSS_REPLY_GAP, CROSS_WAIT = 600, 30, 120
+local function CrossScope()
+	local relay, arena = ns.Relay, A()
+	if not relay or type(relay.On) ~= "function" or not relay.On()
+		or type(relay.IsSignedRelay) ~= "function" or not relay.IsSignedRelay(Me()) or not ns.IsMember()
+		or type(ns.realm) ~= "string" or Barred() or arena.Off() or arena.Sim() or arena.TestBuild() then return nil end
+	local region = ns.realm:match("^CAMWOW(%u%u)")
+	if region and ns.ForeverFamily(ns.realm) == ns.group and ns.faction then
+		return region .. ":" .. ns.group .. ":" .. ns.faction
+	end
+end
+
+local function CrossPeer(name)
+	if not name or not ns.Relay.MeshPeer(name) or not ns.Relay.AtLeast(ns.Relay.RelayVersion(name), "1.5.8") then return nil end
+	local realm = ns.RealmOf(ns.FullName(name))
+	if ns.ForeverFamily(realm) ~= ns.group or realm:sub(1, 8) ~= ns.realm:sub(1, 8) then return nil end
+	local moderation = ns.Moderation
+	if moderation and not moderation.missing and moderation.Hides and moderation.Hides(name) then return nil end
+	return ns.ShortName(name):lower()
+end
+
+local function CrossWhisper(name, kind, body, guard, done)
+	local arena = A()
+	local function Allowed()
+		return not arena.Blocked() and not arena.Refusal(kind, "L") and guard()
+	end
+	if ns.Comm.QueueRoom() < 4 or not Allowed() then return false end
+	return ns.Comm.Whisper(name, kind .. "~L" .. arena.PROTO .. "~" .. body, nil, false, false, done, { owner = R, guard = Allowed })
+end
+
+local function CrossDay(d, now)
+	return type(d) == "number" and d >= floor(now / 86400) - R.DIGEST_DAYS and d <= floor((now + R.AHEAD) / 86400)
+end
+
+function cross.Ask(letter, day)
+	local scope, now = CrossScope(), Now()
+	if not scope or now - (cross.askedAt or -math.huge) < CROSS_GAP then return false end
+	local first, nextRow
+	for kind in pairs(letter and { [letter] = true } or R.TYPES) do
+		local s = Store(kind)
+		for key, p in pairs(s and s.pend or {}) do
+			if type(p) == "table" and type(p.id) == "string" and #p.id <= 120 and not p.id:find("[~|%c]")
+				and type(p.b) == "string" and CrossDay(p.d, now) and (not day or day == p.d) then
+				local cursor = kind .. ":" .. key
+				if not first or cursor < first.cursor then first = { kind = kind, row = p, cursor = cursor, store = s.pend, key = key } end
+				if cursor > (cross.cursor or "") and (not nextRow or cursor < nextRow.cursor) then
+					nextRow = { kind = kind, row = p, cursor = cursor, store = s.pend, key = key }
+				end
+			end
+		end
+	end
+	local row = nextRow or first
+	if not row then return false end
+	local peers, king = {}, nil
+	for _, name in ipairs(ns.Relay.Names(false, true)) do
+		if CrossPeer(name) then
+			local bar = R.Bar(name)
+			if bar == "last" then king = name elseif not bar then peers[#peers + 1] = name end
+		end
+	end
+	if #peers < 2 and king then peers[#peers + 1] = king end
+	if #peers == 0 then return false end
+	local p, kind = row.row, row.kind
+	local q = { hash = RecordHash(kind, p.b), letter = kind, expires = now + CROSS_WAIT, peers = {}, early = {} }
+	cross.pending = q
+	local request = table.concat({ kind, "x", B36(p.d), scope, q.hash, p.id }, "~")
+	local any = false
+	local count, offset = min(2, #peers), (cross.peerOffset or 0) % #peers
+	for i = 1, count do
+		local name = peers[(offset + i - 1) % #peers + 1]
+		local key = CrossPeer(name)
+		if key and CrossWhisper(name, "RA", request, function()
+			return cross.pending == q and row.store[row.key] == p and Now() < q.expires
+				and CrossScope() == scope and CrossPeer(name) == key
+		end, function(sent)
+			if sent then q.peers[key] = true stats.crossAsked = (stats.crossAsked or 0) + 1 end
+		end) then any = true end
+	end
+	if any then cross.cursor, cross.askedAt, cross.peerOffset = row.cursor, now, offset + count end
+	return any
+end
+
+local function OnCrossAsk(letter, day, rest, sender)
+	local scope, now = CrossScope(), Now()
+	local peer = scope and CrossPeer(sender)
+	local theirs, hash, id = A().Fields(rest, 3)
+	local d = N36(day, 0, 400000)
+	if not scope or not peer or theirs ~= scope or not CrossDay(d, now) or not hash or #hash ~= 64
+		or not hash:match("^%x+$") or not id or #id > 120 or id:find("[~|%c]") then return false end
+	local replies = cross.replies or {}
+	if now - (cross.repliedAt or -math.huge) < CROSS_REPLY_GAP or now - (replies[peer] or -math.huge) < CROSS_GAP then return false end
+	local s = Store(letter)
+	local held = s and s.days[d]
+	local record = held and held[id]
+	if type(record) ~= "string" or s.clash[id] or RecordHash(letter, record) ~= hash then return false end
+	local function Allowed()
+		return Now() - now < CROSS_WAIT and CrossScope() == scope and CrossPeer(sender) == peer
+			and s.days[d] == held and held[id] == record and not s.clash[id]
+	end
+	local key = KeyBody()
+	if not key then return false end
+	local _, pk64 = A().Fields(key, 4)
+	if not CrossWhisper(sender, "RK", key, Allowed, function(sent)
+		if not sent or not Allowed() then return end
+		local witness = WitnessBody(letter, hash, pk64, ns.Debts.Sign)
+		if witness then
+			CrossWhisper(sender, "RV", witness, Allowed, function(ok)
+				if ok then stats.crossAnswered = (stats.crossAnswered or 0) + 1 end
+			end)
+		end
+	end) then return false end
+	for name, at in pairs(replies) do if now - at >= CROSS_GAP then replies[name] = nil end end
+	replies[peer], cross.replies, cross.repliedAt = now, replies, now
+	return true
+end
+
 local function OnAsk(dist, sender, mode, body)
+	if dist == "WHISPER" and mode == "L" then
+		if type(body) ~= "string" or #body > 248 then return Count("shape") end
+		local letter, kind, day, rest = A().Fields(body, 4)
+		if R.TYPES[letter] and kind == "x" then return OnCrossAsk(letter, day, rest, sender) end
+	end
 	if mode ~= "L" or dist ~= "CHANNEL" then return Count("lane") end
 	if type(body) ~= "string" or #body > 9000 then return Count("shape") end
 	local letter, kind, what, rest = A().Fields(body, 4)
@@ -1734,14 +1874,28 @@ local function OnWitness(dist, sender, mode, body)
 		or not at or at > Now() + R.AHEAD or Now() - at > R.WITNESS_FRESH
 		or not KeyShape(pk64) or type(sig64) ~= "string" or #sig64 ~= 86 then return Count("witness-shape") end
 	hash, sender = hash:lower(), ns.FullName(sender)
-	if not R.HasKey(sender, pk64) then return Count("witness-key") end
+	if not R.HasKey(sender, pk64) then
+		-- The native key declaration may still be in the signature verifier. Keep one
+		-- matching reply per requested peer until that first-hand key is actually pinned.
+		local q = cross.pending
+		local peer = q and dist == "WHISPER" and CrossScope() and CrossPeer(sender)
+		if q and peer and q.peers[peer] and Now() < q.expires and q.letter == letter and q.hash == hash then
+			q.early[peer] = { sender = sender, pk = pk64, body = body }
+			return
+		end
+		return Count("witness-key")
+	end
 	local pk, sig = Raw(pk64, 32), Raw(sig64, 64)
 	if not pk or not sig then return Count("witness-shape") end
 	local claim = WitnessText(sender, letter, hash, t, pk64)
 	A().Check("rv " .. sig64 .. " " .. claim, { pk = pk, msg = claim, sig = sig }, function(good)
 		if good ~= true then if good == false then Count("witness-signature") end return end
 		local now = Now()
-		HeardWitness(letter, hash, Low(sender), now, at)
+		local by = Low(sender)
+		if ns.splitNames and ns.ForeverFamily(ns.RealmOf(sender)) == ns.group then
+			by = ns.ShortName(sender):lower() -- different native realm stamps are still one Forever character
+		end
+		HeardWitness(letter, hash, by, now, at)
 		if not WitnessQuorum(letter, hash, now) then return end
 		local s = Store(letter)
 		for _, pending in pairs(s and s.pend or {}) do
@@ -1752,6 +1906,16 @@ local function OnWitness(dist, sender, mode, body)
 	end)
 end
 ns.Comm.Handle("RV", ns.Arena.Handle("RV", OnWitness))
+
+function cross.KeyArrived(sender, pk64)
+	local q = cross.pending
+	local peer = q and CrossScope() and CrossPeer(sender)
+	local early = q and peer and q.early[peer]
+	if early and Now() < q.expires and early.sender == sender and early.pk == pk64 and R.HasKey(sender, pk64) then
+		q.early[peer] = nil
+		OnWitness("WHISPER", sender, "L", early.body)
+	end
+end
 
 ---------------------------------------------------------------------------
 -- The seal (the author's, signed as the council lists are)
@@ -2140,6 +2304,7 @@ StaticPopupDialogs["OLYMPUS_RECORDS_SEAL"] = {
 
 -- Tests only: a clean state (a new world's client starts clean anyway).
 function R.Reset()
+	for key in pairs(cross) do if type(cross[key]) ~= "function" then cross[key] = nil end end
 	idx, checking, checkingBy, inflight, waitq = {}, {}, {}, 0, {}
 	outq, outSet = {}, {}
 	lastDigest, askedAt, heardAsk, answeredAt, heardRecordAt, answering, askCursor, witnessedAt = {}, {}, {}, {}, {}, {}, {}, {}
