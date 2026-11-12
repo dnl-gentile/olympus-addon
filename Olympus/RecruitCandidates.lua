@@ -9,6 +9,9 @@ R.Candidates = Q
 -- player who joined a guild since the /who.
 local MAX, LIVE_TTL, WHO_TTL, PROMPT_GAP = 24, 90, 180, 15
 local rows, byName, byGUID = {}, {}, {}
+-- (Review of 1.5.8) Names this session already popped up, took to chat, passed or whispered: a
+-- row dropped from the bounded list (or pruned) and found again does not pop up a second time.
+local done = {}
 local guild, prompts, timer
 local raceFaction = {
 	Human = "Alliance", Dwarf = "Alliance", Gnome = "Alliance", NightElf = "Alliance",
@@ -29,6 +32,7 @@ local function Drop(index)
 	local row = table.remove(rows, index)
 	byName[row.key] = nil
 	if row.guid then byGUID[row.guid] = nil end
+	if row.prompted or row.invitePrepared or row.passWanted or row.whisperPrompted then done[row.key] = true end
 end
 
 local function Prune(now)
@@ -43,8 +47,14 @@ local function Add(full, name, now)
 	local row = byName[key]
 	if row then return row end
 	Prune(now)
-	if #rows >= MAX then Drop(1) end
-	row = { key = key, full = full, name = name, scanned = true }
+	-- (Review of 1.5.8) A full list drops its oldest row, never one whose popup or whisper
+	-- review is on screen, nor one whose invite popup comes back after his whisper.
+	if #rows >= MAX then
+		for i, old in ipairs(rows) do
+			if not old.inviteAfterWhisper and not R.CandidatePromptOpen(old) then Drop(i); break end
+		end
+	end
+	row = { key = key, full = full, name = name, scanned = true, prompted = done[key] }
 	rows[#rows + 1], byName[key] = row, row
 	return row
 end
@@ -154,7 +164,7 @@ end
 function Q.Reset()
 	if timer then timer.Cancel(); timer = nil end
 	guild, prompts = nil, nil
-	wipe(rows); wipe(byName); wipe(byGUID)
+	wipe(rows); wipe(byName); wipe(byGUID); wipe(done)
 	if ns.Dialog and ns.Dialog.Find then
 		for _, which in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_OUTREACH" }) do
 			local draft = ns.Dialog.Find(which)

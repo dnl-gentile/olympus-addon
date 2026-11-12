@@ -83,6 +83,7 @@ local function Dialogs()
 	function D.Show(which, a, _, data)
 		local f = { which = which, text = a, data = data, open = true, def = StaticPopupDialogs[which] }
 		f.Hide = function() f.open = false end
+		f.IsShown = function() return f.open end
 		shown[#shown + 1] = f
 		return f
 	end
@@ -756,6 +757,125 @@ test("recruit overflow (1.5.8): after a turn over the known members a probe goes
 			eq(asked[4], mate); eq(asked[5], second); eq(asked[6], unheard)
 		end)
 		V.HasOlympus = saved
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- Review of 1.5.8 (P2): a clock of frames for the paste watch. Input lands first in a frame, then
+-- the timers due by then run, as the game does (ns.After and GetTime follow this clock).
+local function WithFrames(scene, fn)
+	local saved = { after = ns.After, time = GetTime, util = rawget(_G, "ChatFrameUtil"), box = rawget(_G, "ACTIVE_CHAT_EDIT_BOX") }
+	local clock, pending = 1000, {}
+	ns.After = function(seconds, _, callback) pending[#pending + 1] = { at = clock + (tonumber(seconds) or 0), fn = callback } end
+	GetTime = function() return clock end
+	local box = { text = "" }
+	function box.GetText(self) return self.text end
+	ChatFrameUtil = { OpenChat = function() box.text = ""; ACTIVE_CHAT_EDIT_BOX = box end }
+	local frames = {}
+	function frames.Step(input)
+		clock = clock + 1 / 60
+		if input then input(box) end
+		local due = {}
+		for i = #pending, 1, -1 do if pending[i].at <= clock then table.insert(due, 1, table.remove(pending, i)) end end
+		for _, t in ipairs(due) do t.fn() end
+	end
+	local ok, err = pcall(fn, frames, box)
+	ns.After, GetTime, ChatFrameUtil, ACTIVE_CHAT_EDIT_BOX = saved.after, saved.time, saved.util, saved.box
+	if not ok then error(err, 0) end
+end
+
+local function Paste(box) box.text = "/ginvite " .. box.command end
+local function Enter() ACTIVE_CHAT_EDIT_BOX = nil end
+
+test("recruit invite (review of 1.5.8): a paste and Enter on the next frames still close the popup", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		WithFrames(scene, function(frames, box)
+			R.OnWhisper("JOIN", "Quick Hands-" .. home)
+			eq(R.Accept(R.requests[1]), true)
+			local draft = assert(D.Find(DRAFT))
+			box.command = "Quick Hands"
+			draft.def.extra.onClick(draft, draft.data) -- Ctrl+C: empty chat opens
+			eq(ACTIVE_CHAT_EDIT_BOX, box)
+			frames.Step()
+			frames.Step(Paste) -- Ctrl+V
+			frames.Step(Enter) -- Enter, the next frame: the invite went and chat closed
+			for _ = 1, 30 do frames.Step() end
+			eq(draft.open, false, "the popup closed on the paste the frame before Enter")
+		end)
+	end)
+end)
+
+test("recruit invite (review of 1.5.8): a paste long after Ctrl+C, chat open all along, still closes the popup", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		WithFrames(scene, function(frames, box)
+			R.OnWhisper("JOIN", "Slow Hands-" .. home)
+			eq(R.Accept(R.requests[1]), true)
+			local draft = assert(D.Find(DRAFT))
+			box.command = "Slow Hands"
+			draft.def.extra.onClick(draft, draft.data)
+			for _ = 1, 40 * 60 do frames.Step() end -- 40 s with chat open and empty
+			eq(draft.open, true, "nothing pasted yet: the popup stays")
+			frames.Step(Paste)
+			frames.Step()
+			eq(draft.open, false, "the paste closes it")
+		end)
+	end)
+end)
+
+-- Review of 1.5.8 (P2): the scan's list keeps 24 players. A /who answer that fills it must not drop
+-- the player whose popup is on screen, and a player already popped up who is found again (after his
+-- row was dropped or went stale) does not pop up a second time.
+local function Letters(i) return string.char(97 + (i - 1) % 26) .. string.char(97 + math.floor((i - 1) / 26)) end
+
+test("recruit scan (review of 1.5.8): a full list keeps the player whose invite popup is up", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local saved = rawget(_G, "ChatFrameUtil")
+		ChatFrameUtil = { OpenChat = function() end }
+		local ok, err = pcall(function()
+			local tick = ScanOne(scene, "Lone Wolf-" .. home)
+			tick()
+			local draft = assert(D.Find(DRAFT), "his invite popup")
+			local row = assert(draft.data.candidate)
+			for i = 1, 30 do R.Candidates.ObserveWho(("Wander%s-%s"):format(Letters(i), home), "", "Human") end
+			assert(R.Candidates.Check(row), "his row is kept while his popup is up")
+			draft.def.extra.onClick(draft, draft.data) -- Ctrl+C
+			eq(row.invitePrepared, true, "his command still goes to chat")
+		end)
+		ChatFrameUtil = saved
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("recruit scan (review of 1.5.8): a player already popped up, found again later, does not pop up twice", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local savedTime, clock = GetTime, 2000
+		GetTime = function() return clock end
+		local ok, err = pcall(function()
+			local wolf = "Lone Wolf-" .. home
+			local tick = ScanOne(scene, wolf)
+			tick()
+			local draft = assert(D.Find(DRAFT), "his invite popup")
+			draft:Hide()
+			clock = clock + 181 -- his /who answer goes stale and his row leaves the list
+			tick()
+			R.Candidates.ObserveWho(wolf, "", "Human") -- the rotation's next /who finds him again
+			tick()
+			eq(D.Find(DRAFT), nil, "no second popup for him")
+			for i = 1, 30 do R.Candidates.ObserveWho(("Wander%s-%s"):format(Letters(i), home), "", "Human") end
+			R.Candidates.ObserveWho(wolf, "", "Human")
+			tick()
+			local next = D.Find(DRAFT)
+			assert(next and next.data.candidate.name ~= "Lone Wolf", "another player pops up, not him")
+		end)
+		GetTime = savedTime
 		if not ok then error(err, 0) end
 	end)
 end)

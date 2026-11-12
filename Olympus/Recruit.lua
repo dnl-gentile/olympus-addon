@@ -1533,39 +1533,43 @@ function Recruit.CandidatePromptOpen(row)
 end
 
 -- (1.5.8, the author's ask: "deveria fechar só no Ctrl-V") After Ctrl+C the popup stays up until
--- the command is pasted into the game's chat box: a short look at the open chat box's text (read
--- only, ACTIVE_CHAT_EDIT_BOX, nil while chat is closed) closes it then. A chat box closed without
--- the command leaves the popup up for another Ctrl+C.
-local PASTE_STEP, PASTE_LOOKS = 0.1, 300
+-- the command is pasted into the game's chat box: a look at the open chat box's text each frame
+-- (read only, ACTIVE_CHAT_EDIT_BOX, nil while chat is closed) closes it then. A chat box closed
+-- without the command leaves the popup up for another Ctrl+C. (Review of 1.5.8: each frame, so a
+-- paste and Enter on the next frames are still seen; 30 s, or up to 2 minutes while chat stays open.)
+local PASTE_STEP, PASTE_WINDOW, PASTE_OPEN = 0.01, 30, 120
 local function InviteCommand(data)
 	if type(data) ~= "table" then return nil end
 	local name = data.candidate and data.candidate.name or data.req and NameForCommand(data.req.name)
 	return name and ("/ginvite " .. name) or nil
 end
 
+-- Returns whether the open chat box holds the command, and whether a chat box is open at all.
 local function PastedInvite(command) -- gp:chat-box
-	if not ns.Gate.Allowed("chat-box") then return false end
+	if not ns.Gate.Allowed("chat-box") then return false, false end
 	local box = ACTIVE_CHAT_EDIT_BOX -- gp:chat-box
-	if type(box) ~= "table" or type(box.GetText) ~= "function" then return false end
+	if type(box) ~= "table" or type(box.GetText) ~= "function" then return false, false end
 	local ok, text = pcall(box.GetText, box)
-	if not ok or type(text) ~= "string" then return false end
-	return text:match("^%s*(.-)%s*$"):lower() == command:lower()
+	if not ok or type(text) ~= "string" then return false, true end
+	return text:match("^%s*(.-)%s*$"):lower() == command:lower(), true
 end
 
 local function WatchPaste(draft, data)
 	local command = InviteCommand(data)
 	if not command then return end
-	local token, left = {}, PASTE_LOOKS
+	local token, start = {}, GetTime()
 	draft.pasteWatch = token
 	local function Look()
 		if draft.pasteWatch ~= token or draft.data ~= data or not draft:IsShown() then return end
-		if PastedInvite(command) then
+		local pasted, open = PastedInvite(command)
+		if pasted then
 			draft.pasteWatch = nil
 			draft:Hide()
 			return
 		end
-		left = left - 1
-		if left > 0 then ns.After(PASTE_STEP, "invite paste", Look) else draft.pasteWatch = nil end
+		local waited = GetTime() - start
+		if waited < PASTE_WINDOW or (open and waited < PASTE_OPEN) then ns.After(PASTE_STEP, "invite paste", Look)
+		else draft.pasteWatch = nil end
 	end
 	ns.After(PASTE_STEP, "invite paste", Look)
 end
