@@ -963,6 +963,11 @@ local function SnapshotPart(origin, body, now)
 		or index < 1 or index > total or #part > ns.Codec.CHUNK
 		or (index < total and #part ~= ns.Codec.CHUNK) then return false end
 	local key = Lower(ns.FullName(origin))
+	-- (1.5.8) A signed look (QA) has a slot of its own beside the origin's census snapshot: in one slot, a
+	-- look said less than SNAPSHOT_WINDOW before the relay's census snapshot sent that snapshot through
+	-- the trickle, where its many pieces reach a registrant whole or not at all.
+	local look = snapshotTransfers[key .. "#qa"]
+	if (index == 1 and part:match("^QA~1~")) or (index > 1 and look and look.id == id) then key = key .. "#qa" end
 	local transfer = snapshotTransfers[key]
 	if transfer and SnapshotExpired(transfer, now) then transfer = nil; snapshotTransfers[key] = nil end
 	if not transfer then

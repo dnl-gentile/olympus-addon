@@ -427,5 +427,11 @@ test("relay mesh (1.5.8): a relay's own signed look (QA) crosses to a mesh peer 
 		local took = Took(reg, qa)
 		assert(took, "B's registrant takes it whole")
 		eq(took.sender, A_NAME, "under its origin, the relay that said it")
+		-- A's census snapshot right after its look (within SNAPSHOT_WINDOW): the look takes no place of it.
+		local cg = Word(("CG~2~S~%d~ForeverPvE~Alliance~after the look"):format(T0), 3)
+		Own(a, As, cg, "83")
+		Flush(); Advance(2)
+		assert(Took(b, cg), "B's client takes A's snapshot")
+		assert(Took(reg, cg), "and B's registrant takes it whole, past the trickle, though A's look came just before")
 	end)
 end)
