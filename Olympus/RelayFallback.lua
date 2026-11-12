@@ -8,8 +8,8 @@ local ADDON, ns = ...
 -- On Forever the relays are the signed list's characters (Relay.lua). When none of them is online or
 -- answers (every one left out after a sweep), a guild's registrant (Comm.isRegistrant; the reporter
 -- where no registrant is named) elects up to K provisional relays among the candidates a signed relay
--- published (RE~1~L, kept a week in the realm group's store), or, with no list, among the reporters
--- its census heard within a day. Each candidate answers yes while it has no signed relay, serves
+-- published (RE~1~L, kept a week in the realm group's store), followed by the reporters its census
+-- heard within a day. Each candidate answers yes while it has no signed relay, serves
 -- fewer than PROVISIONAL_MAX guilds and is no quiet, net-off or modified client. A provisional relay
 -- carries numbers, member weight only: it takes the words of the clients that whisper it first-hand
 -- (hop "L"), sends its own census snapshots (CG) and carried totals (CX) to its registrants and to its
@@ -104,7 +104,7 @@ local function Stored(now)
 	if now - c.made > F.CANDIDATES_KEEP or c.made > now + 300 then return nil end
 	return c
 end
--- With no list: the reporters our census heard within a day, the first RENDEZVOUS_TOP by a hash of
+-- The reporters our census heard within a day, the first RENDEZVOUS_TOP by a hash of
 -- the name and the day (two clients that heard the same reporters ask the same ones).
 local function Rendezvous(now)
 	local list, seen = {}, {}
@@ -129,9 +129,25 @@ end
 function F.Candidates(now)
 	now = now or Now()
 	local c = Stored(now)
-	if c and #c.names > 0 then return c.names, "list", c end
-	if not cache.list or now < cache.at or now - cache.at >= 60 then cache.list, cache.at = Rendezvous(now), now end
-	return cache.list, "rendezvous", nil
+	if not cache.list or now < cache.at or now - cache.at >= 60 then
+		cache.list, cache.at, cache.combined = Rendezvous(now), now, nil
+	end
+	if not c or #c.names == 0 then return cache.list, "rendezvous", nil end
+	if cache.held ~= c or not cache.combined then
+		local names, seen = {}, {}
+		-- Try the published list first. A recent reporter can take a seat if those candidates
+		-- did not fill it, including when the saved list is still valid but everybody on it left.
+		for _, source in ipairs({ c.names, cache.list }) do
+			for _, name in ipairs(source) do
+				local key = Key(name)
+				if key ~= "" and not seen[key] then
+					names[#names + 1], seen[key] = name, true
+				end
+			end
+		end
+		cache.held, cache.combined = c, names
+	end
+	return cache.combined, "list", c
 end
 
 -- A signed relay's list heard (its own word, on the channel: by its reporters' hand-over or across).
@@ -227,12 +243,14 @@ local function WantsElection(now)
 	return R.SignedLive(now) == 0
 end
 
--- An answer still good: a wait until PING_WAIT, a yes while it (or its ping's answer) is within
+-- An answer still good: a wait until its timeout callback, a yes while it (or its ping's answer) is within
 -- VERIFIED_FOR, a no or a silence DEAD_FOR (then the candidate is asked again). Our own yes holds
 -- while we serve, and no longer: a client that stopped serving is no relay of its own words.
 local function Fresh(a, now)
 	local R = ns.Relay
-	if a.kind == "wait" then return now - a.at <= R.PING_WAIT end
+	-- Several timeout callbacks can become due together. Let each close its own ask, so the
+	-- first callback to re-run the election does not start a second ask in place of a due one.
+	if a.kind == "wait" then return true end
 	if a.kind == "Y" then
 		if Key(a.name) == Key(ns.me) then return serving ~= nil end
 		return now - math.max(a.at, R.AnsweredAt(a.name) or -math.huge) < R.VERIFIED_FOR
@@ -828,7 +846,7 @@ end
 function F.Reset() -- (tests: Relay.Reset calls it through Relay.ResetHooks)
 	wipe(answers); wipe(registrants); wipe(drip); wipe(sets); wipe(picks); wipe(strikes); wipe(rowsHeard); wipe(firstSeen)
 	serving, dripBusy, lastPick, lastWhy, lastPublish = nil, false, false, nil, -math.huge
-	cache.list, cache.at = nil, -math.huge
+	cache.list, cache.at, cache.held, cache.combined = nil, -math.huge, nil, nil
 	for k in pairs(stats) do stats[k] = 0 end
 	local R = ns.Relay
 	if type(R) == "table" and type(R.ResetHold) == "function" then R.ResetHold() end

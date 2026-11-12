@@ -23,6 +23,23 @@ local ADDON, ns = ...
 -- What a seed misses it asks the seed once and the relay once. Old clients (1.5.3, 1.5.4, and 1.5.5
 -- before a restart, with this file's stand-in) never say RC, and still get the snapshot from the relay
 -- as an RM batch (Relay.lua's ToReporters).
+--
+-- The packed snapshot. What a tree costs is the word's pieces: the relay sends them to each seed at
+-- some 200 whispers a minute, and a seed to each registrant of its list at one whisper every 1.2 s,
+-- before the next round's digest ends the round (tests/relay-tree-load.lua measures it). A census
+-- snapshot packed by Codec.PackCensus is the same snapshot in about three fifths of the pieces,
+-- nothing rounded, so a round reaches about as many more registrants. A registrant says its tree reads
+-- that form beside its RC:
+--
+--   RZ~1~<letters>                          registrant -> relay: what its tree reads beside the word as
+--                                           written (READS; "c": a packed census snapshot)
+--
+-- and a round is then two trees, each with its own digest, seeds and lists: the packed word among the
+-- registrants that said so, the word as written among the others (1.5.6, which has no handler for RZ
+-- at either end: a 1.5.6 relay ignores it and sends the word as written to all). The digest of a packed
+-- word is the packed word's, and that is what a seed hands on; a receiver unpacks it once the digest
+-- matches, takes the snapshot as the relay wrote it, byte for byte, and hands its guild that (RG), so
+-- no guildmate ever sees the packed form. The seeds are shared between the two trees by their work.
 local RelayTree = {}
 ns.RelayTree = RelayTree
 
@@ -44,14 +61,17 @@ RelayTree.UNKNOWN_MAX = 8          -- and in all
 RelayTree.ROUNDS_KEPT = 4          -- rounds a relay keeps for repairs
 RelayTree.CAPABLE_MAX = 1000       -- registrants a relay keeps the word RC of
 RelayTree.NAME_MAX = 60            -- bytes of a name on the wire
+RelayTree.READS = "c"              -- what this client's tree reads beside the word as written (RZ)
+RelayTree.READS_MAX = 16           -- letters of an RZ at most
 RelayTree.TICK = 5
 local LAST = 8 -- assemblies Stats shows
 
 local stats = { rnGot = 0, complete = 0, repaired = 0, expired = 0, forged = 0, superseded = 0, rqSent = 0,
 	rqAnswered = 0, rqRefused = 0, seedsServed = 0, seedRepairs = 0, seedWaits = 0, rounds = 0, deferred = 0,
-	rnSent = 0, bad = 0, unknownDropped = 0 }
+	rnSent = 0, bad = 0, unknownDropped = 0, unpacked = 0, unreadable = 0 }
 -- (on a relay)
 local capable, capableN = {}, 0 -- registrant (short, lower) -> { name, t, since, done, doneAt }: its RC
+local reads, readsN = {}, 0     -- registrant (short, lower) -> { f, t }: its RZ, the letters and when
 local rounds = {}               -- tid -> { tid, hash, n, pieces, t, seeds, repaired, rt, k, left }
 local lastRound, lastRoundAt = nil, -math.huge
 local decision                  -- Offer's answer for the set ToReporters hands out now: { set, active }
@@ -138,7 +158,44 @@ function RelayTree.Announce(force)
 	if not force and announced.to == Key(relay) and now >= announced.t and now - announced.t < Relay.REGISTER_EVERY then return false end
 	announced.to, announced.t = Key(relay), now
 	Quiet(relay)
-	return ns.Comm.Whisper(relay, "RC~1~-", "tree rc", false, false) ~= false
+	local said = ns.Comm.Whisper(relay, "RC~1~-", "tree rc", false, false) ~= false
+	-- What our tree reads beside the word as written (the top of the file), under a key of its own: a
+	-- relay that has no handler for it (1.5.6) ignores it and sends the word as written.
+	if RelayTree.READS ~= "" then ns.Comm.Whisper(relay, "RZ~1~" .. RelayTree.READS, "tree rz", false, false) end
+	return said
+end
+
+-- (We are a relay.) What a registrant's tree reads (RZ), kept as its RC is: PRESENT_FOR past its last
+-- word, CAPABLE_MAX registrants at most. It changes the form of what that registrant is sent, never
+-- whether it is sent anything.
+function RelayTree.Reads(name, letter)
+	local e = reads[Key(name)]
+	if not e then return false end
+	local now = Now()
+	return now >= e.t and now - e.t < ns.Relay.PRESENT_FOR and e.f:find(letter, 1, true) ~= nil
+end
+function RelayTree.HandleRZ(dist, sender, text)
+	if dist ~= "WHISPER" or not On() or not ns.Relay.IsRelay(ns.me) then return false end
+	local letters = tostring(text):match("^RZ~1~(%l+)$")
+	if not letters or #letters > RelayTree.READS_MAX then
+		stats.bad = stats.bad + 1
+		return false
+	end
+	local key = Key(sender)
+	if key == "" or key == Key(ns.me) then return false end
+	local now = Now()
+	if not reads[key] then
+		if readsN >= RelayTree.CAPABLE_MAX then
+			local oldest
+			for k, x in pairs(reads) do
+				if not oldest or x.t < reads[oldest].t then oldest = k end
+			end
+			if oldest then reads[oldest], readsN = nil, readsN - 1 end
+		end
+		readsN = readsN + 1
+	end
+	reads[key] = { f = letters, t = now }
+	return true
 end
 
 -- (We are a relay.) A registrant's word that it takes a tree, or completed one.
@@ -256,15 +313,12 @@ local function SeedsWaiting()
 	return false
 end
 
--- A round: the word to the seeds whole (the front of the relay's drip), to the registrants no seed can
--- serve (after the drip's other transfers), and a digest to every one. At most each TREE_ROUND_EVERY,
--- never while the last round's seeds wait for theirs.
-local function Round(word, n, regs, now)
-	if (now >= lastRoundAt and now - lastRoundAt < RelayTree.TREE_ROUND_EVERY) or SeedsWaiting() then
-		stats.deferred = stats.deferred + 1
-		return
-	end
+-- One form of the word as a tree among the registrants that read it: its pieces, k seeds, each seed's
+-- list, the registrants no seed can serve (left), and the digest for every one (the seeds' first).
+-- done: the transfers of the last round, for the registrants that completed theirs.
+local function Plan(word, regs, k, now, done)
 	local Relay = ns.Relay
+	local n = math.ceil(#word / RelayTree.RF_DATA)
 	local hash = Digest(word)
 	local tid = hash:sub(1, 8)
 	local pieces = {}
@@ -273,13 +327,11 @@ local function Round(word, n, regs, now)
 	end
 	-- The seeds: k of the registrants registered (said RC) 2 x REGISTER_EVERY ago at least, those that
 	-- completed the last round first, the rest by their name and this word's id (a round's own spread).
-	local k = math.max(RelayTree.SEEDS_MIN, math.min(RelayTree.SEEDS_MAX, math.ceil(2 * math.sqrt(#regs))))
-	local done = lastRound and lastRound.tid
 	local eligible, rest = {}, {}
 	for _, r in ipairs(regs) do
 		local c = capable[r.key]
 		r.h = Hash(r.key .. tid)
-		r.recent = done ~= nil and c ~= nil and c.done == done
+		r.recent = c ~= nil and c.done ~= nil and done[c.done] == true
 		if c and now - c.since >= 2 * Relay.REGISTER_EVERY then eligible[#eligible + 1] = r else rest[#rest + 1] = r end
 	end
 	table.sort(eligible, function(a, b)
@@ -291,7 +343,10 @@ local function Round(word, n, regs, now)
 	for i, r in ipairs(eligible) do
 		if i <= k then seeds[#seeds + 1] = r else rest[#rest + 1] = r end
 	end
+	-- The lists: the registrants the last round did not reach (none of them said it completed) before
+	-- those it did, so that the ones a seed had no time for come first in its next list.
 	table.sort(rest, function(a, b)
+		if a.recent ~= b.recent then return b.recent end
 		if a.h ~= b.h then return a.h < b.h end
 		return a.key < b.key
 	end)
@@ -313,25 +368,89 @@ local function Round(word, n, regs, now)
 		if not placed then left[#left + 1] = r end
 	end
 	local round = { tid = tid, hash = hash, n = n, pieces = pieces, t = now, seeds = {}, repaired = {}, rt = #regs, k = #seeds, left = #left }
-	for _, s in ipairs(seeds) do
-		Relay.DripTo(s.name, "tree word", { pieces }, { front = true })
-		round.seeds[s.key] = s.name
+	for _, s in ipairs(seeds) do round.seeds[s.key] = s.name end
+	local first, others = {}, {}
+	for i, s in ipairs(seeds) do first[i] = { name = s.name, key = s.key, text = RNText(tid, n, hash, "", table.concat(serve[i], ",")) } end
+	for i, r in ipairs(rest) do others[i] = { name = r.name, key = r.key, text = RNText(tid, n, hash, srcOf[r.key] or "", "") } end
+	return round, seeds, left, first, others
+end
+
+-- The packed form of a census snapshot of n pieces (Codec.PackCensus), where it is fewer pieces; else nil.
+local function Packed(word, n)
+	local Pack = ns.Codec.PackCensus
+	local packed = type(Pack) == "function" and Pack(word) or nil
+	if type(packed) ~= "string" or math.ceil(#packed / RelayTree.RF_DATA) >= n then return nil end
+	return packed
+end
+
+-- A round: the word to the seeds whole (the front of the relay's drip), to the registrants no seed can
+-- serve (after the drip's other transfers), and a digest to every one. At most each TREE_ROUND_EVERY,
+-- never while the last round's seeds wait for theirs. Where some registrants read the packed form
+-- (RelayTree.Reads), two trees: the packed word among them, the word as written among the others, the
+-- round's seeds shared between the two by their work (SEEDS_MIN each at least), the packed tree's first.
+local function Round(word, n, regs, now)
+	if (now >= lastRoundAt and now - lastRoundAt < RelayTree.TREE_ROUND_EVERY) or SeedsWaiting() then
+		stats.deferred = stats.deferred + 1
+		return
 	end
-	for _, r in ipairs(left) do Relay.DripTo(r.name, "tree word", { pieces }) end
-	local list = {}
-	for i, s in ipairs(seeds) do list[#list + 1] = { name = s.name, key = s.key, text = RNText(tid, n, hash, "", table.concat(serve[i], ",")) } end
-	for _, r in ipairs(rest) do list[#list + 1] = { name = r.name, key = r.key, text = RNText(tid, n, hash, srcOf[r.key] or "", "") } end
-	rnWaiting = list
-	rounds[tid] = round
-	lastRound, lastRoundAt = round, now
+	local Relay = ns.Relay
+	local forms = { { word = word, regs = regs } }
+	local packed = Packed(word, n)
+	if packed then
+		local readers, others = {}, {}
+		for _, r in ipairs(regs) do
+			if RelayTree.Reads(r.name, "c") then readers[#readers + 1] = r else others[#others + 1] = r end
+		end
+		if #readers > 0 then
+			forms = { { word = packed, regs = readers, packed = true } }
+			if #others > 0 then forms[2] = { word = word, regs = others } end
+		end
+	end
+	local k = math.max(RelayTree.SEEDS_MIN, math.min(RelayTree.SEEDS_MAX, math.ceil(2 * math.sqrt(#regs))))
+	-- A tree's part of the seeds is its part of the work, registrants x pieces: a seed of the word as
+	-- written needs about twice as long for each registrant of its list, so its list is half as long.
+	local work = 0
+	for _, f in ipairs(forms) do
+		f.work = #f.regs * math.ceil(#f.word / RelayTree.RF_DATA)
+		work = work + f.work
+	end
+	local done = lastRound and lastRound.tids or {}
+	local all = { t = now, seeds = {}, tids = {}, rt = #regs, k = 0, left = 0 }
+	local leftAll, first, others = {}, {}, {}
+	for _, f in ipairs(forms) do
+		local share = #forms == 1 and k or math.max(RelayTree.SEEDS_MIN, math.floor(k * f.work / work + 0.5))
+		local round, seeds, left, firstRN, otherRN = Plan(f.word, f.regs, share, now, done)
+		for _, s in ipairs(seeds) do
+			Relay.DripTo(s.name, "tree word", { round.pieces }, { front = true })
+			all.seeds[s.key] = s.name
+		end
+		for _, r in ipairs(left) do leftAll[#leftAll + 1] = { name = r.name, pieces = round.pieces } end
+		for _, job in ipairs(firstRN) do first[#first + 1] = job end
+		for _, job in ipairs(otherRN) do others[#others + 1] = job end
+		rounds[round.tid], all.tids[round.tid] = round, true
+		all.k, all.left = all.k + round.k, all.left + round.left
+		if f.packed then all.packed = { tid = round.tid, n = round.n, registrants = round.rt }
+		else all.tid, all.n = round.tid, round.n end
+		ns.Log("relay tree: round %s%s, %d registrants, %d seeds, %d from the relay, %d pieces", round.tid,
+			f.packed and " (packed)" or "", round.rt, round.k, round.left, round.n)
+	end
+	if not all.tid then all.tid, all.n = all.packed.tid, all.packed.n end
+	for _, x in ipairs(leftAll) do Relay.DripTo(x.name, "tree word", { x.pieces }) end
+	for _, job in ipairs(others) do first[#first + 1] = job end
+	rnWaiting = first
+	lastRound, lastRoundAt = all, now
+	-- The rounds kept for repairs: those of the last ROUNDS_KEPT round times, within TREE_HOLD.
 	local kept = {}
 	for t, x in pairs(rounds) do
 		if now - x.t >= RelayTree.TREE_HOLD or now < x.t then rounds[t] = nil else kept[#kept + 1] = x end
 	end
 	table.sort(kept, function(a, b) return a.t > b.t end)
-	for i = RelayTree.ROUNDS_KEPT + 1, #kept do rounds[kept[i].tid] = nil end
+	local times, lastT = 0, nil
+	for _, x in ipairs(kept) do
+		if x.t ~= lastT then times, lastT = times + 1, x.t end
+		if times > RelayTree.ROUNDS_KEPT then rounds[x.tid] = nil end
+	end
 	stats.rounds = stats.rounds + 1
-	ns.Log("relay tree: round %s, %d registrants, %d seeds, %d from the relay, %d pieces", tid, #regs, #seeds, #left, n)
 	FeedRN()
 end
 
@@ -503,20 +622,36 @@ local function Complete(a, now)
 		return
 	end
 	local Relay = ns.Relay
+	-- A packed census snapshot (the top of the file): the digest proved the packed word, and that is what
+	-- a seed hands on; what is taken here and handed to our guild is the snapshot as the relay wrote it.
+	-- One that does not unpack is nobody's word (a relay packs only what comes back byte for byte).
+	local taken = word
+	if word:sub(1, 3) == "CP~" then
+		local Unpack = ns.Codec.UnpackCensus
+		taken = type(Unpack) == "function" and Unpack(word) or nil
+		if not taken then
+			stats.unreadable = stats.unreadable + 1
+			ns.Log("relay tree: %s is a packed word that does not unpack", a.tid)
+			Finish(a, "unreadable", now)
+			return
+		end
+		stats.unpacked = stats.unpacked + 1
+	end
 	a.done, a.outcome = now, a.asked and "repaired" or "complete"
 	stats.complete = stats.complete + 1
 	if a.asked then stats.repaired = stats.repaired + 1 end
 	Remember(a)
-	if Relay.TakeVia("T", a.relay, a.relay, word) then Relay.HandOn("P", a.relay, word) end
+	if Relay.TakeVia("T", a.relay, a.relay, taken) then Relay.HandOn("P", a.relay, taken) end
 	Quiet(a.relay)
 	ns.Comm.Whisper(Short(a.relay), "RC~1~" .. a.tid, "tree rc", false, false)
 	if next(a.serve) then
 		a.rf = {}
 		for i = 1, a.n do a.rf[i] = ("RF~1~%s~%d~%d~%s"):format(a.tid, i, a.n, a.pieces[i]) end
-		local keys = {}
-		for key in pairs(a.serve) do keys[#keys + 1] = key end
-		table.sort(keys)
-		for _, key in ipairs(keys) do seedJobs[#seedJobs + 1] = { name = a.serve[key], tid = a.tid, batch = a.rf } end
+		-- In the order the relay wrote the list, which it draws anew for each round (Plan: by each name and
+		-- the word's id). Sorted by name here, the same registrants were last in every round, and a round
+		-- ends at the next one's digest: on a relay too busy for its seeds to finish a round, the last of
+		-- each list got no snapshot in any round (tests/relay-tree-load.lua).
+		for _, key in ipairs(a.order) do seedJobs[#seedJobs + 1] = { name = a.serve[key], tid = a.tid, batch = a.rf } end
 	end
 	a.pieces = nil
 	SeedPump()
@@ -585,9 +720,13 @@ function RelayTree.HandleRN(dist, sender, text)
 		end
 	end
 	local a = { tid = tid, n = n, hash = hash, src = src, relay = sender, t = now, pieces = {}, got = 0, from = {},
-		stage = 0, serve = {}, repairs = {} }
+		stage = 0, serve = {}, order = {}, repairs = {} }
 	for name in serve:gmatch("[^,]+") do
-		if #name <= RelayTree.NAME_MAX then a.serve[Key(name)] = name end
+		local key = Key(name)
+		if #name <= RelayTree.NAME_MAX and key ~= "" then
+			if not a.serve[key] then a.order[#a.order + 1] = key end
+			a.serve[key] = name
+		end
 	end
 	asm[tid] = a
 	local o = orphans[tid]
@@ -705,12 +844,17 @@ function RelayTree.Stats()
 	for _, c in pairs(capable) do
 		if now - c.t < ns.Relay.PRESENT_FOR then cap = cap + 1 end
 	end
+	local readers = 0
+	for _, e in pairs(reads) do
+		if now >= e.t and now - e.t < ns.Relay.PRESENT_FOR then readers = readers + 1 end
+	end
+	out.readers = readers
 	out.open, out.capable, out.orphans, out.rnWaiting, out.rnQueued, out.seedJobs = open, cap, orphanN, #rnWaiting, rnQueued, #seedJobs
 	out.registrant = type(ns.Comm) == "table" and ns.Comm.isRegistrant == true
 	out.last = shown
 	if lastRound then
 		out.round = { tid = lastRound.tid, n = lastRound.n, registrants = lastRound.rt, seeds = lastRound.k,
-			fromRelay = lastRound.left, age = math.floor(now - lastRound.t) }
+			fromRelay = lastRound.left, age = math.floor(now - lastRound.t), packed = lastRound.packed }
 	end
 	local lines = { ("tree: rn %d, complete %d, repaired %d, expired %d, forged %d, superseded %d; rq sent %d, answered %d, refused %d; served %d (+%d repairs, %d waits); rounds %d (deferred %d), capable %d, open %d, registrant %s")
 		:format(out.rnGot, out.complete, out.repaired, out.expired, out.forged, out.superseded, out.rqSent, out.rqAnswered,
@@ -718,6 +862,14 @@ function RelayTree.Stats()
 	if out.round then
 		lines[#lines + 1] = ("tree round %s: %d pieces, %d registrants, %d seeds, %d from the relay, %ds ago")
 			:format(out.round.tid, out.round.n, out.round.registrants, out.round.seeds, out.round.fromRelay, out.round.age)
+		local p = out.round.packed
+		if p then
+			lines[#lines + 1] = ("tree round packed %s: %d pieces to %d of the registrants (%d read it)")
+				:format(p.tid, p.n, p.registrants, readers)
+		end
+	end
+	if out.unpacked > 0 or out.unreadable > 0 then
+		lines[#lines + 1] = ("tree packed: unpacked %d, unreadable %d"):format(out.unpacked, out.unreadable)
 	end
 	for _, s in ipairs(shown) do
 		lines[#lines + 1] = ("tree %s %d/%d missing [%s] from %s: %s, %ds"):format(s.tid, s.got, s.n, s.missing,
@@ -730,7 +882,8 @@ end
 -- Tests: a clean slate (Relay.Reset runs it, Relay.ResetHooks).
 function RelayTree.Reset()
 	wipe(capable); wipe(rounds); wipe(rnIn); wipe(asm); wipe(orphans); wipe(orphanBy); wipe(recent); wipe(seedJobs)
-	capableN, orphanN, rnQueued = 0, 0, 0
+	wipe(reads)
+	capableN, orphanN, rnQueued, readsN = 0, 0, 0, 0
 	lastRound, lastRoundAt, decision, ownPieces = nil, -math.huge, nil, nil
 	rnWaiting, rnFeeding, seedBusy = {}, false, false
 	announced.to, announced.t = nil, -math.huge
@@ -744,6 +897,7 @@ ns.Comm.Handle("RN", function(...) RelayTree.HandleRN(...) end)
 ns.Comm.Handle("RF", function(...) RelayTree.HandleRF(...) end)
 ns.Comm.Handle("RQ", function(...) RelayTree.HandleRQ(...) end)
 ns.Comm.Handle("RC", function(...) RelayTree.HandleRC(...) end)
+ns.Comm.Handle("RZ", function(...) RelayTree.HandleRZ(...) end)
 
 ns.On("LOGIN", function()
 	if ns.Every then ns.Every(RelayTree.TICK, "relay tree", function() ns.SafeCall("relay tree", RelayTree.Tick) end) end

@@ -1824,7 +1824,7 @@ function Church.Stats()
 end
 function Church.Pending() return pending end
 
--- /oly church [status | name <Name> | apostle <Name> | register <Name> | remove <Name>]
+-- /oly church [status | recover | name <Name> | apostle <Name> | register <Name> | remove <Name>]
 function Church.Slash(rest)
 	local verb, arg = Trim(rest):match("^(%S*)%s*(.-)$")
 	verb = ns.Fold(verb or "")
@@ -1836,6 +1836,11 @@ function Church.Slash(rest)
 		if ns.UI and ns.UI.ShowCopy then return ns.UI.ShowCopy(L.CHURCH_TITLE, table.concat(lines, "\n")) end
 		for _, line in ipairs(lines) do ns.Print(line) end
 		return
+	elseif verb == "recover" then
+		local C = ns.ChurchCount
+		local started = C and C.ReplayRecent and C.ReplayRecent()
+		ns.Print(started and L.CHURCH_RECOVER_STARTED or L.CHURCH_RECOVER_WAIT)
+		return started == true
 	elseif verb == "name" or verb == "nomear" then
 		return Church.NameMissionary(arg)
 	elseif verb == "apostle" or verb == "apostolo" or verb == "apóstolo" then

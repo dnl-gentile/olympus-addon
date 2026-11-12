@@ -3019,6 +3019,242 @@ test("global Church ledger: which ledger a client reads is looked for once a sec
 	K.Church.IsKeeper = orig
 end)
 
+local function LedgerPageWorld()
+	local w, c = KeeperProbeWorld()
+	c.a2.online = true
+	w:Presence()
+	w:ClearSent()
+	return w, c
+end
+
+local function LedgerMessages(w, cl, version, subtype)
+	local out = {}
+	local prefix = "NL~" .. version .. "~" .. subtype .. "~"
+	for _, e in ipairs(w:Sent(cl, "NL", "WHISPER")) do
+		if e.msg:sub(1, #prefix) == prefix then out[#out + 1] = e end
+	end
+	return out
+end
+
+test("Church ledger v2 proves every distinct row before moving past a silently lost packet", function()
+	local w, c = LedgerPageWorld()
+	Give(w, c.a2, "Silent Reca", "Mira Wells", 2)
+	Give(w, c.a2, "Silent Recb", "Mira Wells", 2)
+	w:Run(2)
+	local whisper, lost = c.a2.c.Comm.Whisper, false
+	c.a2.c.Comm.Whisper = function(target, msg, key, urgent, logged, done, options)
+		if target == A1 and msg:match("^NL~2~d~%w+~2~") and not lost then
+			lost = true
+			done(true) -- The sender's game API accepts it, but no network packet reaches the recipient.
+			return true
+		end
+		return whisper(target, msg, key, urgent, logged, done, options)
+	end
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	assert(lost, "the simulated connection swallowed a modern page row")
+	local rows, ends = LedgerMessages(w, c.a2, 2, "d"), LedgerMessages(w, c.a2, 2, "e")
+	eq(#rows, 1); eq(#ends, 1)
+	local from = w:As(c.a1, c.a1.Count.Led).from
+	eq(from[Key(A2)], nil)
+	local function Take(sender, text) return w:As(c.a1, c.a1.Count.Receive, "NL", "WHISPER", sender, text) end
+	eq(select(2, Take(A2, rows[1].msg:gsub("^(NL~2~d~%w+~)1~", "%12~"))), "duplicate", "a repeated record cannot stand in for slot 2")
+	eq(Take("Bera Stone-CAMWOWUS1Realm1PvP", ends[1].msg), false, "a matching name on another ruleset")
+	eq(Take(A2, "NL~1~e~0~" .. c.a1.Church.B36(w.clock)), false, "a legacy terminal cannot finish this modern request")
+	w:Run(c.a1.Count.CATCHUP_RETRY + 1)
+	eq(#LedgerMessages(w, c.a1, 1, "q"), 0, "the acknowledged modern keeper never falls back")
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	assert(from[Key(A2)], "the complete response can commit")
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 2, "both records converge without a duplicate")
+	eq(Take(A2, ends[1].msg), false, "the stale terminal cannot affect the next request")
+end)
+
+test("Church ledger v2 paginates timestamp ties while keeping the original source cutoff", function()
+	local w, c = LedgerPageWorld()
+	c.a2.Count.CATCHUP_LINES = 1
+	Give(w, c.a2, "Tied Reca", "Mira Wells", 2)
+	Give(w, c.a2, "Tied Recb", "Mira Wells", 2)
+	local stamp = w.clock
+	w:Run(1)
+	Give(w, c.a2, "Older Rec", "Mira Wells", 2)
+	w:Run(2)
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	local from = w:As(c.a1, c.a1.Count.Led).from
+	eq(from[Key(A2)], stamp - 1, "the persisted checkpoint cannot cross a split second")
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 1)
+	w:Run(1)
+	Give(w, c.a2, "Later Rec", "Mira Wells", 2)
+	w:Run(12)
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 3, "the tied and older rows arrived within the frozen cutoff")
+	eq(from[Key(A2)], stamp + 1)
+	local q = LedgerMessages(w, c.a1, 2, "q")
+	eq(#q, 3, "a distinct bounded request carried each continuation")
+	assert(q[1].msg:match("^NL~2~q~([^~]+)") ~= q[2].msg:match("^NL~2~q~([^~]+)"))
+	w:Run(4)
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 4, "newer records stay available to the next sweep")
+end)
+
+test("Church ledger v2 fits maximal canonical records within native whisper and refuses an oversized page", function()
+	local w, c = LedgerPageWorld()
+	local recruit, recruiter = ("A"):rep(30), ("B"):rep(30)
+	local guild = "Olympus " .. ("C"):rep(40)
+	local id = Key(recruit) .. ":" .. Key(recruiter)
+	w:As(c.a2, c.a2.Count.MergeIn, id, { n = recruit .. "-" .. ("R"):rep(20), bn = recruiter .. "-" .. ("R"):rep(20),
+		g = guild, kind = "i", tc = w.clock - 7200, tj = w.clock - 3600, ws = { ("d"):rep(30), ("e"):rep(30) },
+		s = 1, t = 1, a = 1, x = 1, c = 1, y = 1, q7 = 9, rq = 9 }, false)
+	local held = w:As(c.a2, c.a2.Count.Led).r[id]
+	local old = w:As(c.a2, c.a2.Count.RecordLine, id, held)
+	assert(#old <= 255 and #old > 240, "a wide but legal older record")
+	w:Run(2)
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	local rows = LedgerMessages(w, c.a2, 2, "d")
+	eq(#rows, 1)
+	assert(#rows[1].msg <= 255 and #rows[1].msg > 220, "the full canonical row passes the native boundary")
+	assert(w:As(c.a1, c.a1.Count.Led).r[id], "the maximal row reached the ledger")
+
+	w:Run(5)
+	Give(w, c.a2, "Too Big", "Mira Wells", 2)
+	local damaged = w:As(c.a2, c.a2.Count.Led).r[Key("Too Big") .. ":" .. Key("Mira Wells")]
+	damaged.ws = { ("z"):rep(260) }
+	local from = w:As(c.a1, c.a1.Count.Led).from
+	local before = from[Key(A2)]
+	w:Run(2)
+	w:ClearSent()
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	eq(#LedgerMessages(w, c.a2, 2, "d"), 0)
+	eq(#LedgerMessages(w, c.a2, 2, "e"), 0)
+	eq(w:As(c.a2, c.a2.Count.Stats).dropped["wire size"], 1)
+	eq(from[Key(A2)], before, "refusal kept the previous cursor")
+	damaged.ws = { Key(c.a2.name) }
+	w:Run(c.a1.Count.CATCHUP_RETRY + 1)
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	assert(from[Key(A2)] > before, "a subsequent complete page can recover")
+end)
+
+test("Church ledger v2 falls back once for an older keeper and keeps the existing cursor", function()
+	local w, c = LedgerPageWorld()
+	local before = w.clock - 100
+	local from = w:As(c.a1, c.a1.Count.Led).from
+	from[Key(A2)] = before
+	Give(w, c.a2, "Legacy Rec", "Mira Wells", 2)
+	w:Run(2)
+	local receive = c.a2.handlers.NL
+	c.a2.handlers.NL = function(dist, sender, text)
+		if text:sub(1, 5) == "NL~1~" then return receive(dist, sender, text) end
+	end
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	w:Run(c.a1.Count.CATCHUP_LEGACY_WAIT - 1)
+	eq(#LedgerMessages(w, c.a1, 1, "q"), 0)
+	eq(from[Key(A2)], before)
+	w:Run(10)
+	local q = LedgerMessages(w, c.a1, 1, "q")
+	eq(#q, 1)
+	eq(q[1].msg, "NL~1~q~" .. c.a1.Church.B36(before))
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 1)
+	assert(from[Key(A2)] > before)
+end)
+
+test("Church ledger v2 cannot move a pending keeper page into a council copy", function()
+	local w, c = LedgerPageWorld()
+	Give(w, c.a2, "Delayed Rec", "Mira Wells", 2)
+	w:Run(2)
+	local whisper, delayed = c.a2.c.Comm.Whisper, {}
+	c.a2.c.Comm.Whisper = function(target, msg, key, urgent, logged, done, options)
+		if target == A1 and msg:match("^NL~2~[de]~") then
+			delayed[#delayed + 1] = msg
+			if done then done(true) end
+			return true
+		end
+		return whisper(target, msg, key, urgent, logged, done, options)
+	end
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	eq(#delayed, 2)
+	local kept = w:As(c.a1, c.a1.Count.Led)
+	local isKeeper = c.a1.Church.IsKeeper
+	c.a1.Church.IsKeeper = function(name) return Key(name or A1) ~= Key(A1) and isKeeper(name) end
+	c.a1.c.IsHighCouncillor = function(name) return Key(name) == Key(A1) end
+	w:Run(1)
+	local copy = w:As(c.a1, c.a1.Count.Led)
+	assert(copy ~= kept, "the client has switched to the separate council copy")
+	for _, msg in ipairs(delayed) do
+		eq(select(2, w:As(c.a1, c.a1.Count.Receive, "NL", "WHISPER", A2, msg)), "unasked")
+	end
+	eq(kept.from[Key(A2)], nil); eq(copy.from[Key(A2)], nil)
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 0)
+end)
+
+test("Church ledger v2 rechecks queued private rows when the recipient loses its role", function()
+	local w, c = LedgerPageWorld()
+	Give(w, c.a2, "Queued Rec", "Mira Wells", 2)
+	w:Run(2)
+	local whisper, offered = c.a2.c.Comm.Whisper, nil
+	c.a2.c.Comm.Whisper = function(target, msg, key, urgent, logged, done, options)
+		if target == A1 and msg:match("^NL~2~d~") then
+			offered = { done = done, guard = options.guard }
+			return true
+		end
+		return whisper(target, msg, key, urgent, logged, done, options)
+	end
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	assert(offered and type(offered.guard) == "function", "queued row has an authority guard")
+	eq(w:As(c.a2, offered.guard), true)
+	local isRelay = c.a2.Church.IsLedgerRelay
+	c.a2.Church.IsLedgerRelay = function(name) return Key(name or A2) ~= Key(A1) and isRelay(name) end
+	eq(w:As(c.a2, offered.guard), false)
+	w:As(c.a2, offered.done, false, "guard")
+	eq(#LedgerMessages(w, c.a2, 2, "e"), 0, "the cancelled row cannot emit its terminal")
+end)
+
+test("Church ledger retains a deferred person row with its original ledger when roles change", function()
+	local w, c = LedgerPageWorld()
+	local c1 = c.a1
+	local original, isPerson, isKeeper = w:As(c1, c1.Count.Led), c1.Church.IsPerson, c1.Church.IsKeeper
+	local line = ("NL~1~p~Mira Wells~0~0~10~1~0~%s"):format(c1.Church.B36(w.clock))
+	c1.Church.IsPerson = function(name) return Key(name) ~= Key("Mira Wells") and isPerson(name) end
+	eq(select(2, w:As(c1, c1.Count.Receive, "NL", "WHISPER", A2, line)), "person")
+	eq(#c1.Count.LaterLines(), 1)
+	c1.Church.IsKeeper = function(name) return Key(name or A1) ~= Key(A1) and isKeeper(name) end
+	c1.c.IsHighCouncillor = function(name) return Key(name) == Key(A1) end
+	c1.Church.IsPerson = isPerson
+	w:Run(1)
+	eq(w:As(c1, c1.Count.RetryLater), 0)
+	eq(Joins(w, c1, "Mira Wells", "a"), 0)
+	eq(#c1.Count.LaterLines(), 1)
+	c1.Church.IsKeeper = isKeeper
+	w:Run(1)
+	eq(w:As(c1, c1.Count.Led), original)
+	eq(w:As(c1, c1.Count.RetryLater), 1)
+	eq(Joins(w, c1, "Mira Wells", "a"), 1)
+end)
+
+test("Church ledger recovery replays verified recent records without advancing a saved cursor", function()
+	local w, c = LedgerPageWorld()
+	Give(w, c.a2, "Earlier Rec", "Mira Wells", 200)
+	Rec(w, c.a2, "Earlier Rec", "Mira Wells").u = w.clock - 8 * DAY
+	Give(w, c.a2, "Missed Reca", "Mira Wells", 2)
+	Give(w, c.a2, "Missed Recb", "Mira Wells", 2)
+	w:Run(2)
+	local peer, saved = Key(A2), w.clock - 1
+	local ledger = w:As(c.a1, c.a1.Count.Led)
+	ledger.from[peer] = saved
+	eq(w:Act(c.a1, c.a1.Church.Slash, "recover"), false, "the peer has not proved v2 support")
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	eq(ledger.nl2[peer], true)
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 0, "ordinary catch-up cannot see rows behind the old cursor")
+	c.a2.Count.CATCHUP_LINES = 1
+	w:Run(6) -- beyond the source's minimum request spacing
+	local caught = ledger.caught[peer]
+	eq(w:Act(c.wes, c.wes.Church.Slash, "recover"), false, "only keepers can request recovery")
+	eq(w:Act(c.a1, c.a1.Church.Slash, "recover"), true)
+	eq(w:Act(c.a1, c.a1.Church.Slash, "recover"), false, "one transfer at a time")
+	w:Run(6)
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 2, "both recent pages merged")
+	eq(Rec(w, c.a1, "Earlier Rec", "Mira Wells"), nil, "outside the seven-day recovery window")
+	eq(ledger.from[peer], saved); eq(ledger.caught[peer], caught)
+	assert(table.concat(w:As(c.a1, c.a1.Count.StatusLines), "\n"):find("complete (2 complete pages)", 1, true))
+	eq(w:Act(c.a1, c.a1.Church.Slash, "recover"), false, "a completed replay still observes the cooldown")
+end)
+
 test("Church ledger catch-up withholds its terminal on a failed queued row and recovers without skipping it", function()
 	local w, c = Cast()
 	Give(w, c.a2, "Lost Reca", "Mira Wells", 2)
@@ -3277,4 +3513,153 @@ test("1.5.5 Church (regression): a member whose own list names a Church person o
 	local lone = w:Client("Lone Wolf", { guild = "Olympus Lone" })
 	eq(w:As(lone, lone.Count.MaybeRead, w.clock + 400), false, "no Church person in his guild")
 	eq(lone.queries, 0)
+end)
+
+-- 1.5.8 (regression): the recruiters ranking showed only the pairs the author's own client had
+-- witnessed since its last /reload (a session-only table), so a ledger that already credited other
+-- recruiters, from an earlier session or another keeper's catch-up, showed one or two names. It now
+-- ranks everyone the ledger credits, by the points an Apostle earns for his own recruits.
+test("1.5.8 Church recruiters (regression): everyone the ledger credits, from earlier sessions and other keepers too, ranked by own points only", function()
+	local w, c = Cast()
+	-- The author's client after a /reload: a keeper, its saved ledger and nothing witnessed this session.
+	local K = c.author
+	-- Mira (a missionary): two recruits a guildmate's read confirmed, one still in after 7 days.
+	Give(w, K, "Rank Reca", "Mira Wells", 30, false, { y = 1 })
+	Give(w, K, "Rank Recb", "Mira Wells", 2)
+	-- A recruiter with no place in the Church now: the saved ledger still credits him.
+	Give(w, K, "Rank Recc", "Old Hand", 5)
+	-- One from another keeper's catch-up line, never witnessed by this client.
+	local id = Key("Rank Recd") .. ":" .. Key("Nils Ford")
+	Give(w, c.a2, "Rank Recd", "Nils Ford", 4)
+	local line = w:As(c.a2, c.a2.Count.RecordLine, id, w:As(c.a2, c.a2.Count.Led).r[id])
+	assert(w:As(K, K.Count.TakeLine, c.a2.name, line), "the catch-up line is taken")
+	-- Never a recruit: a pair only its recruiter's client stands behind, a transfer, an alt, a registration
+	-- still open.
+	Give(w, K, "Rank Rece", "Pending Pal", 2, true)
+	Give(w, K, "Rank Recf", "Transfer Tom", 2, false, { t = 1 })
+	Give(w, K, "Rank Recg", "Alt Annie", 2, false, { a = 1 })
+	w:As(K, K.Count.MergeIn, Key("Rank Rech") .. ":" .. Key("Open Owen"),
+		{ n = "Rank Rech", bn = "Open Owen", kind = "g", tc = w.clock - 3600 }, false)
+	local rows = w:As(K, K.Count.Ranking, "u", "a")
+	local names = {}
+	for _, row in ipairs(rows) do names[#names + 1] = row.name end
+	eq(table.concat(names, ","), "Mira Wells,Nils Ford,Old Hand", "every credited recruiter, none of the others")
+	local function Row(row) return ("%d %d %d %g %g"):format(row.rank, row.joins, row.stays, row.score, row.share) end
+	eq(Row(rows[1]), "1 2 1 25 0", "10 a confirmed recruit, 5 more for the one still in, no network share")
+	eq(Row(rows[2]), "2 1 0 10 0")
+	eq(Row(rows[3]), "3 1 0 10 0")
+	eq(rows[1].score, w:As(K, K.Count.Own, Key("Mira Wells"), "a").points, "the same direct points as an Apostle's own")
+	-- Each window: the recruiter's own numbers in it.
+	for _, window in ipairs({ "w", "m" }) do
+		for _, row in ipairs(w:As(K, K.Count.Ranking, "u", window)) do
+			local o = w:As(K, K.Count.Own, row.key, window)
+			eq(("%d %g"):format(row.joins, row.score), ("%d %g"):format(o.joins, o.points), window .. " " .. row.name)
+		end
+	end
+end)
+
+test("1.5.8 Church recruiters: only the author, the King and the High Council see or ask; any keeper answers them", function()
+	local w, c = Cast()
+	local K = c.a1
+	Give(w, K, "Seen Reca", "Mira Wells", 2)
+	Give(w, K, "Seen Recb", "Old Hand", 3)
+	local hc = w:Client(World.COUNCILLOR)
+	c.king.online, hc.online, c.a2.online = true, true, false
+	w:Presence()
+	-- A keeper (an Apostle) holds the ledger but is no staff: no page, no question, no answer to non-staff.
+	eq(#w:As(K, K.Count.RankingView, "u", "a"), 0, "an Apostle does not see it")
+	eq(select(2, w:As(K, K.Count.Ask, "u", "a")), "audience")
+	eq(#w:As(c.m1, c.m1.Count.RankingView, "u", "a"), 0, "a missionary does not see it")
+	eq(#w:As(c.wes, c.wes.Count.RankingView, "u", "a"), 0, "a member does not see it")
+	K.Count.Settled = function() return true end
+	eq(w:As(K, K.Count.Answer, c.m1.name, "u", "a"), false, "a missionary's question is not answered")
+	eq(#w:Sent(K, "NR", "WHISPER", "r"), 0, "nothing sent to him")
+	-- The King's and a High Councillor's pages ask the keeper online (an Apostle, not the author) and show his rows.
+	for _, staff in ipairs({ c.king, hc }) do
+		assert(w:As(staff, staff.Count.Ask, "u", "a"), "asked")
+		w:Flush()
+		local seen = w:As(staff, staff.Count.RankingView, "u", "a")
+		eq(#seen, 2)
+		eq(("%s %d %g"):format(seen[1].name, seen[1].joins, seen[1].score), "Mira Wells 1 10")
+		eq(("%s %d %g"):format(seen[2].name, seen[2].joins, seen[2].score), "Old Hand 1 10")
+	end
+	-- The author's own client (a keeper) works it out from his ledger.
+	c.author.online = true
+	w:Presence()
+	Give(w, c.author, "Seen Recc", "Mira Wells", 2)
+	local own = w:As(c.author, c.author.Count.RankingView, "u", "a")
+	eq(#own, 1)
+	eq(own[1].name, "Mira Wells")
+end)
+
+-- 1.5.8 (regression, review): the author's characters are keepers, so their recruiters page worked
+-- it out from their own ledger only and never asked another keeper: a ledger whose catch-up never
+-- finished showed its two recruiters while an Apostle's held more. The page now asks a keeper online
+-- for list u too and shows the answer that counts more recruits; its own ledger's otherwise.
+test("1.5.8 Church recruiters (regression): the author's page asks a keeper online too and shows the larger of the two ledgers", function()
+	local w, c = Cast()
+	local K, author = c.a1, c.author
+	author.online = true
+	w:Presence()
+	K.Count.Settled = function() return true end
+	Give(w, K, "Wide Reca", "Mira Wells", 2); Give(w, K, "Wide Recb", "Mira Wells", 3)
+	Give(w, K, "Wide Recc", "Nils Ford", 4); Give(w, K, "Wide Recd", "Old Hand", 5)
+	Give(w, author, "Wide Reca", "Mira Wells", 2)
+	local function Names(rows)
+		local out = {}
+		for _, row in ipairs(rows) do out[#out + 1] = ("%s %d"):format(row.name, row.joins) end
+		return table.concat(out, ",")
+	end
+	local rows, _, remote = w:As(author, author.Count.RankingView, "u", "a")
+	eq(Names(rows), "Mira Wells 1", "before an answer: his own ledger")
+	eq(remote, false)
+	assert(w:As(author, author.Count.Ask, "u", "a"), "the author's keeper client asks for the recruiters too")
+	w:Flush()
+	local source
+	rows, _, remote, _, source = w:As(author, author.Count.RankingView, "u", "a")
+	eq(Names(rows), "Mira Wells 2,Nils Ford 1,Old Hand 1", "the Apostle's ledger counts more: his answer shows")
+	eq(remote, true)
+	eq(source, "Aldric Vane")
+	-- The other lists stay his own ledger's, never asked.
+	eq(select(2, w:As(author, author.Count.Ask, "a", "a")), "local")
+	-- His own ledger counting more again: his own shows.
+	for i = 1, 4 do Give(w, author, "Own Rec" .. string.char(96 + i), "Nils Ford", 2 + i) end
+	rows, _, remote = w:As(author, author.Count.RankingView, "u", "a")
+	eq(Names(rows), "Nils Ford 4,Mira Wells 1", "his own ledger's when it counts more")
+	eq(remote, false)
+end)
+
+-- 1.5.8 (review): a recruiter whose recruit only stayed in the window (he joined before it) was left
+-- out though the missionaries' ranking lists him; one known only from another keeper's archived
+-- record (no person line came with it) was never listed though Count.Own credits him; and a person
+-- line Count.Prune made showed its folded key as his name.
+test("1.5.8 Church recruiters: a stay-only recruiter, an archive-only one and a pruned one are ranked under their own names", function()
+	local w, c = Cast()
+	local K = c.a1
+	-- Mira's recruit joined 35 days ago and was still in after 7: the last 30 days hold his stay only.
+	Give(w, K, "Stay Reca", "Mira Wells", 35 * 24, false, { y = 1 })
+	local function RowOf(list, window, name)
+		for _, row in ipairs(w:As(K, K.Count.Ranking, list, window)) do
+			if row.key == Key(name) then return row end
+		end
+	end
+	local m, u = RowOf("m", "m", "Mira Wells"), RowOf("u", "m", "Mira Wells")
+	eq(("%g %d"):format(m.own, m.joins), "5 0", "the missionaries' ranking lists her stay")
+	assert(u, "the recruiters' ranking lists her too")
+	eq(("%s %g %d %d"):format(u.name, u.score, u.joins, u.stays), "Mira Wells 5 0 1")
+	-- Nils's recruit came from another keeper's archive alone.
+	local hour = math.floor(w.clock / 3600) * 3600
+	assert(w:As(K, K.Count.TakeArchived, Key("Arch Reca") .. ":" .. Key("Nils Ford"), { h = hour - 10 * 3600 }), "taken")
+	local nils = RowOf("u", "a", "Nils Ford")
+	assert(nils, "an archive-only recruiter is ranked")
+	eq(("%s %g %d"):format(nils.name, nils.score, nils.joins), "Nils Ford 10 1")
+	-- Bera's archived recruit ages out of every window: Prune folds it into a person line named by his key.
+	local keep = (K.Count.MONTH_DAYS + K.Count.STAY_DAYS) * DAY
+	assert(w:As(K, K.Count.TakeArchived, Key("Arch Recb") .. ":" .. Key(A2), { h = hour - keep + 7200 }), "taken")
+	w.clock = w.clock + 5 * 3600
+	w:As(K, K.Count.Prune)
+	eq(w:As(K, K.Count.Led).p[Key(A2)].n, Key(A2), "the person line holds his folded key")
+	local bera = RowOf("u", "a", A2)
+	assert(bera, "a pruned recruiter is ranked")
+	eq(("%s %g %d"):format(bera.name, bera.score, bera.joins), "Bera Stone 10 1")
 end)

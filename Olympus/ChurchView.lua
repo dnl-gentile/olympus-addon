@@ -1,8 +1,8 @@
 local ADDON, ns = ...
 local L = ns.L
 
--- The Missionary Church of Olympus (1.1.6): its tab in the Olympus window. Ranking | Mine | People |
--- Name | Review, each page shown only to who can use it, in the Realm's subtab row; the public
+-- The Missionary Church of Olympus (1.1.6): its tab in the Olympus window. Invites | Ranking |
+-- People | Name | Reassignments | Mine, each page shown only to who can use it; the public
 -- ranking for everyone else while the author's switch is open. Everything is read from Church.lua
 -- (places) and ChurchCount.lua (numbers); a click names, removes or registers through the same
 -- calls /oly church makes. Dialogs go through ns.ShowDialog (Olympus's own window under the gamepad
@@ -23,7 +23,7 @@ local View = {}
 ns.ChurchView = View
 local Church, Count = ns.Church, ns.ChurchCount
 
-View.page, View.list, View.window = "ranking", "a", "m"
+View.list, View.window = "a", "m"
 View.open = {}
 View.rulesReturn = nil
 
@@ -92,13 +92,15 @@ end
 function View.Pages()
 	local out = {}
 	if not View.Visible() then return out end
+	local R = ns.Recruit
+	if not PreviewRole() and R and R.WhisperAvailable and R.WhisperAvailable() then out[#out + 1] = "invites" end
 	local audience = Audience()
 	if audience then out[#out + 1] = "ranking" end
-	if Person() then out[#out + 1] = "mine" end
 	out[#out + 1] = "people"
 	local r = Rights()
 	if r.apostle or r.missionary or r.correspondent then out[#out + 1] = "name" end
 	if r.root then out[#out + 1] = "review" end
+	if Person() then out[#out + 1] = "mine" end
 	if not audience and Count.PublicView() then out[#out + 1] = "public" end
 	return out
 end
@@ -130,7 +132,7 @@ local function CloseRules()
 end
 
 local PAGE_LABEL = { ranking = "CHURCH_NAV_RANKING", mine = "CHURCH_NAV_MINE", people = "CHURCH_NAV_PEOPLE", name = "CHURCH_NAV_NAME",
-	review = "CHURCH_NAV_REVIEW", public = "CHURCH_NAV_PUBLIC" }
+	review = "CHURCH_NAV_REVIEW", public = "CHURCH_NAV_PUBLIC", invites = "CHURCH_NAV_INVITES" }
 
 local function Nav(current)
 	local nav = {}
@@ -143,7 +145,11 @@ end
 
 local function ListFilter()
 	local nav, value = {}, nil
-	for _, it in ipairs({ { "a", "CHURCH_LIST_APOSTLES" }, { "m", "CHURCH_LIST_MISSIONARIES" }, { "c", "CHURCH_LIST_CORRESPONDENTS" } }) do
+	local lists = { { "a", "CHURCH_LIST_APOSTLES" }, { "m", "CHURCH_LIST_MISSIONARIES" }, { "c", "CHURCH_LIST_CORRESPONDENTS" } }
+	if not PreviewRole() and Count.CanSeeRecruiters(ns.me) then
+		lists[#lists + 1] = { "u", "CHURCH_LIST_RECRUITERS" }
+	end
+	for _, it in ipairs(lists) do
 		local key = it[1]
 		if View.list == key then value = L[it[2]] end
 		nav[#nav + 1] = { text = L[it[2]], selected = View.list == key, onClick = View.list ~= key and function() View.list = key; Redraw() end or nil }
@@ -305,7 +311,11 @@ local function MyLevels()
 end
 
 function View.RankingLines()
+	if View.list == "u" and (PreviewRole() or not Count.CanSeeRecruiters(ns.me)) then View.list = "a" end
 	local lines = { Nav("ranking"), Filters(true) }
+	if ns.Recruit and not PreviewRole() then
+		for _, line in ipairs(ns.Recruit.RequestLines(false)) do lines[#lines + 1] = line end
+	end
 	local switch = SwitchLine()
 	if switch then lines[#lines + 1] = switch end
 	if View.list == "c" then
@@ -327,8 +337,34 @@ function View.RankingLines()
 		return lines, L.CHURCH_TITLE, L.CHURCH_FULLNESS_RULE
 	end
 	local rows, asOf, remote, catching, source = Count.RankingView(View.list, View.window)
-	if remote and not PreviewRole() then catching = Count.Ask(View.list, View.window) or catching end
+	-- (1.5.8: the recruiters list is asked of another keeper even when this keeper's own ledger shows.)
+	if (remote or View.list == "u") and not PreviewRole() then
+		local asked = Count.Ask(View.list, View.window)
+		if remote then catching = asked or catching end
+	end
 	lines[#lines + 1] = AsOfLine(asOf, remote, catching, source)
+	if View.list == "u" then
+		-- (1.5.8) Everyone the Church credits with a recruit: two numbers each, his confirmed recruits and
+		-- his points, in the Apostles' columns so the two rankings read alike (no network share here).
+		local rule = L.CHURCH_RECRUITERS_RULE:format(Count.POINTS_JOIN, Count.POINTS_STAY, Count.STAY_DAYS)
+		lines[#lines + 1] = { header = true, text = L.CHURCH_RANKING_U, tooltip = Tip(L.CHURCH_RANKING_U, rule) }
+		lines[#lines + 1] = { text = rule }
+		lines[#lines + 1] = { text = L.CHURCH_RECRUITERS_COMPARE }
+		lines[#lines + 1] = { text = Grey(L.CHURCH_RECRUITERS_STAFF), gapAfter = true }
+		if #rows == 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.CHURCH_RANKING_EMPTY) } end
+		local me = Church.Key(ns.me)
+		for _, row in ipairs(rows) do
+			local nameText = ("%d.  %s"):format(row.rank, Name(row.name))
+			lines[#lines + 1] = {
+				cols = { row.key == me and Gold(nameText) or nameText, Pts(row.score), L.CHURCH_SPLIT:format(Pts(row.own), Pts(0)),
+					L.CHURCH_RECRUITS:format(row.joins, row.stays) },
+				player = ns.FullName(row.name), key = row.key,
+				tooltip = Tip(Name(row.name), L.CHURCH_RECRUITERS_ROW_TIP:format(Pts(row.score), row.joins, row.stays, Count.STAY_DAYS)),
+				onClick = Count.MaySeeDetail(ns.me, ns.FullName(row.name)) and function() View.Show("detail", ns.FullName(row.name)) end or nil,
+			}
+		end
+		return lines, L.CHURCH_TITLE, rule
+	end
 	lines[#lines + 1] = { header = true, text = L["CHURCH_RANKING_" .. View.list:upper()],
 		tooltip = Tip(L["CHURCH_RANKING_" .. View.list:upper()], L.CHURCH_POINTS_TIP) }
 	local rules = ns.RankingRules and ns.RankingRules.Link("church-score", function() ShowRules("church-score") end)
@@ -700,6 +736,9 @@ end
 
 function View.PublicLines()
 	local lines = { Nav("public") }
+	if ns.Recruit and not PreviewRole() then
+		for _, line in ipairs(ns.Recruit.RequestLines(false)) do lines[#lines + 1] = line end
+	end
 	local v = Count.PublicView()
 	lines[#lines + 1] = { header = true, text = L.CHURCH_TITLE }
 	local rules = ns.RankingRules and ns.RankingRules.Link("church-score", function() ShowRules("church-score") end)
@@ -719,6 +758,16 @@ function View.PublicLines()
 		if n == 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.CHURCH_RANKING_EMPTY) } end
 	end
 	return lines, L.CHURCH_TITLE, L.CHURCH_PUBLIC_DETAIL
+end
+
+local function InviteLines()
+	local R = ns.Recruit
+	local lines = { Nav("invites") }
+	for _, line in ipairs(R.WhisperLines()) do lines[#lines + 1] = line end
+	for _, line in ipairs(R.RequestLines(true)) do lines[#lines + 1] = line end
+	local charter = ns.GuildCharter
+	for _, line in ipairs(charter and charter.HelpLines and charter.HelpLines() or {}) do lines[#lines + 1] = line end
+	return lines, L.CHURCH_NAV_INVITES
 end
 
 ---------------------------------------------------------------------------
@@ -750,7 +799,8 @@ function View.Build()
 	elseif page == "people" then return View.PeopleLines()
 	elseif page == "name" then return View.NameLines()
 	elseif page == "review" then return View.ReviewLines()
-	elseif page == "public" then return View.PublicLines() end
+	elseif page == "public" then return View.PublicLines()
+	elseif page == "invites" then return InviteLines() end
 	return {}, L.CHURCH_TITLE, L.CHURCH_NO_ACCESS
 end
 

@@ -369,3 +369,59 @@ test("Guild charter (1.2.4): an edit of a card past seven days keeps its other f
 		eq(got and got.purpose, "Friendly dungeon groups", "kept across a /reload")
 	end)
 end)
+
+test("Guild recruiting help: only the master can ask and the Church can contact them until withdrawal or expiry", function()
+	local sender, a = Client()
+	local listener, b = Client()
+	local master, guild = a.me, sender.guild
+	sender:As(function()
+		local G = a.GuildCharter
+		sender.rank = 1
+		eq(G.ToggleHelp(guild), false)
+		sender.rank = 0
+		eq(G.ToggleHelp(guild), true)
+		eq(#sender.jobs, 1)
+		assert(sender.jobs[1].logged and sender.jobs[1].opts.guard())
+		eq(G.ToggleHelp(guild), false, "same-second toggles cannot race the last accepted state")
+	end)
+	listener:As(function()
+		local G = b.GuildCharter
+		b.me = "Reed Reader-Realm"
+		b.Church = { Role = function() return "A" end }
+		listener.ranks[master] = 0
+		listener.rank = 1
+		local first = sender.jobs[1].msg
+		eq(G.ReceiveHelp("WHISPER", master, first), false)
+		eq(G.ReceiveHelp("CHANNEL", "Pretender-Realm", first), false)
+		eq(G.ReceiveHelp("CHANNEL", master, first:gsub("~A~", "~H~", 1)), false)
+		listener.logged = false
+		eq(G.ReceiveHelp("CHANNEL", master, first), false)
+		listener.logged = true
+		eq(G.ReceiveHelp("CHANNEL", master, first), true)
+		eq(G.ReceiveHelp("CHANNEL", master, first), false)
+		local lines = G.HelpLines()
+		eq(#lines, 2)
+		lines[2].onClick()
+		eq(listener.letter.text, b.L.CHARTER_HELP_WHISPER:format(guild))
+		listener.letter = nil
+		listener.ranks[master] = 1
+		lines[2].onClick()
+		eq(listener.letter, nil, "stale actions cannot contact a former master")
+		eq(#G.HelpLines(), 0)
+		listener.ranks[master] = 0
+		listener.clock = listener.clock + 86401
+		eq(#G.HelpLines(), 0)
+	end)
+	sender.clock = sender.clock + 2
+	sender:As(function()
+		eq(a.GuildCharter.ToggleHelp(guild), true)
+		assert(not sender.jobs[1].opts.guard(), "the queued request is stale after withdrawal")
+	end)
+	listener.clock = sender.clock
+	listener:As(function()
+		local G = b.GuildCharter
+		eq(G.ReceiveHelp("CHANNEL", master, sender.jobs[2].msg), true)
+		eq(G.ReceiveHelp("CHANNEL", master, sender.jobs[1].msg), false, "a delayed request cannot revive a withdrawal")
+		eq(#G.HelpLines(), 0)
+	end)
+end)

@@ -3,7 +3,7 @@ local L = ns.L
 
 L.RANK_RULES_LINK = "Ranking rules"
 L.RANK_RULES_BACK = "< Back"
-L.RANK_RULES_NOTE = "How this ranking is calculated from the records held by this client. Missing evidence stays unknown."
+L.RANK_RULES_NOTE = "How this ranking is calculated from the records held on this computer. Missing evidence stays unknown."
 L.RANK_RULES_LINK_TIP = "Open the scoring, ordering, evidence and visibility rules in this window."
 L.RANK_RULES_SCORE = "Scoring"
 L.RANK_RULES_ORDER = "Order and ties"

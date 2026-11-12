@@ -62,8 +62,8 @@ test("1.2.5 letter content: both languages describe only the shipped reply, offi
 			previous = at
 		end
 		local versions = cns.Letters.Versions()
-		eq(table.concat(versions, " ", 1, 17),
-			"1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2",
+		eq(table.concat(versions, " ", 1, 18),
+			"1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2",
 			locale .. ": latest releases and earlier letters in order")
 	end
 end)
@@ -341,7 +341,7 @@ test("1.5.6 letter content: both languages explain peer updates, saved coverage 
 		local key = "LETTER_1_5_6"
 		local raw = assert(cns.L[key])
 		local title, body = cns.Letters.Text("1.5.6")
-		eq(cns.Letters.Versions()[2], "1.5.6")
+		eq(cns.Letters.Versions()[3], "1.5.6")
 		eq(title, cns.L[key .. "_HEAD"])
 		assert(title ~= cns.L.LETTER_1_5_5_HEAD, "the update has its own title")
 		assert(type(body) == "string" and #body > 0)
@@ -365,8 +365,8 @@ test("1.5.7 letter content: each locale explains census progress, relay availabi
 		local cns = Language(code, file)
 		local raw = assert(cns.L.LETTER_1_5_7)
 		local title, body = cns.Letters.Text("1.5.7")
-		eq(cns.Letters.Versions()[1], "1.5.7", code)
-		eq(cns.Letters.Versions()[2], "1.5.6", code)
+		eq(cns.Letters.Versions()[2], "1.5.7", code)
+		eq(cns.Letters.Versions()[3], "1.5.6", code)
 		eq(title, cns.L.LETTER_1_5_7_HEAD, code)
 		assert(title ~= cns.L.LETTER_1_5_6_HEAD, code .. ": distinct release title")
 		assert(type(body) == "string" and body:find("/oly bug", 1, true), code .. ": rendered bug report instructions")
@@ -380,4 +380,84 @@ test("1.5.7 letter content: each locale explains census progress, relay availabi
 	assert(english:find("original date", 1, true) and english:find("since login", 1, true))
 	assert(english:find("depends on which relays are reachable", 1, true))
 	assert(english:find("A recruitment ranking for all guild members is planned for a future update.", 1, true))
+end)
+
+-- 1.5.8: the letter tells the shipped recruiting (JOIN, the copied /ginvite the player sends,
+-- Church > Invites, announcements, the unguilded scan, the Join page) and the census, relay and
+-- Church fixes, in every shipped language. Each letter names the pages by the labels that
+-- language's player sees (the Church's Invites, the Join page), so it loads the Church's and
+-- Verify's words as the TOC does, before the language's own file. Discord verification is held
+-- out of 1.5.8 for its own review, so the letter does not describe it.
+test("1.5.8 letter content: each locale explains recruiting, the Join page and the census fixes with the labels the player sees", function()
+	local function Client(locale, file)
+		local saved = GetLocale
+		local cns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
+		GetLocale = function() return locale end
+		local ok, why = pcall(function()
+			assert(loadfile(ROOT .. "Olympus/Locales.lua"))("Olympus", cns)
+			assert(loadfile(ROOT .. "Olympus/Locales/ChurchText.lua"))("Olympus", cns)
+			assert(loadfile(ROOT .. "Olympus/Locales/VerifyText.lua"))("Olympus", cns)
+			if file then assert(loadfile(ROOT .. "Olympus/Locales/" .. file .. ".lua"))("Olympus", cns) end
+			assert(loadfile(ROOT .. "Olympus/Letters.lua"))("Olympus", cns)
+		end)
+		GetLocale = saved
+		if not ok then error(why, 0) end
+		return cns
+	end
+	local english = Client("enUS").L.LETTER_1_5_8
+	local previous
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local file = code == "esMX" and "esES" or code ~= "enUS" and code ~= "ptBR" and code or nil
+		local cns = Client(code, file)
+		local L = cns.L
+		local raw = assert(L.LETTER_1_5_8)
+		local title, body = cns.Letters.Text("1.5.8")
+		eq(cns.Letters.Versions()[1], "1.5.8", code)
+		eq(cns.Letters.Versions()[2], "1.5.7", code)
+		eq(title, L.LETTER_1_5_8_HEAD, code)
+		assert(title ~= L.LETTER_1_5_7_HEAD, code .. ": distinct release title")
+		assert(type(body) == "string" and not body:find("{[%a]+}"), code .. ": every mark renders or has its words")
+		if code == "esMX" then eq(raw, previous, code .. ": Spanish translation")
+		elseif code ~= "enUS" then assert(raw ~= english, code .. ": translation loaded") end
+		local marks = {}
+		for mark in raw:gmatch("\n- {([%a]+)}") do marks[#marks + 1] = mark end
+		eq(table.concat(marks, ","), "church,church,guild,guild,news,watch", code .. ": release topics")
+		for _, word in ipairs({ "JOIN", "/ginvite", code == "deDE" and "Strg+C" or "Ctrl+C", "/who", "/oly recent", "/oly bug", "45", "24" }) do
+			assert(raw:find(word, 1, true), code .. ": " .. word)
+		end
+		-- The pages as this language's player sees them named.
+		for _, key in ipairs({ "CHURCH_NAV_INVITES", "TAB_CHURCH", "RECRUIT_JOIN_TITLE", "RECRUIT_JOIN_REQUEST" }) do
+			local label = assert(rawget(L, key), code .. ": " .. key)
+			assert(raw:find(label, 1, true), code .. ": the letter names " .. key .. " as shown: " .. label)
+		end
+		-- 1.5.8 (the author's ask, 11-12): the opening says the King asked, the game's ten invites a
+		-- minute and the army's forty thousand, and that more comes next; the bullets name the paste,
+		-- Whisper them first and the experimental handoffs as this language shows them.
+		assert(raw:find("10", 1, true) and raw:find("40", 1, true), code .. ": the invite math")
+		for _, word in ipairs({ code == "deDE" and "Strg+V" or "Ctrl+V", L.RECRUIT_CANDIDATE_WHISPER_FIRST, L.RECRUIT_EXPERIMENTAL }) do
+			assert(raw:find(word, 1, true), code .. ": " .. word)
+		end
+		local scan = L.RECRUIT_CANDIDATES_ON:match("^(.-)%s*:")
+		assert(scan and raw:find(scan, 1, true), code .. ": the unguilded scan as shown: " .. tostring(scan))
+		-- One reminder takes the public channels in turn (Recruit.lua), in every language.
+		local turn = ({ enUS = "taking your public channels in turn", ptBR = "canais públicos em rodízio",
+			deDE = "reihum durch deine öffentlichen Kanäle", esES = "por turnos tus canales públicos", esMX = "por turnos tus canales públicos",
+			frFR = "tour à tour par tes canaux publics", itIT = "a turno per i tuoi canali pubblici", ruRU = "по очереди в ваших публичных каналах" })[code]
+		assert(raw:find(turn, 1, true), code .. ": the reminder takes the public channels in turn")
+		previous = raw
+	end
+	-- What the game decides stays plain: the invite is the player's own command, and verification
+	-- requests access or a role rather than promising one.
+	assert(english:find("The game does not let addons send guild invites, so that step stays yours.", 1, true))
+	assert(english:find("Anyone can whisper you JOIN, even without Olympus.", 1, true))
+	assert(english:find("with 4,000 of us online, that is 40,000 invites a minute", 1, true))
+	assert(english:find("Passing requests between members is still experimental", 1, true))
+	-- (The author's ask, 11-12: the thanks at the end, naming who helped most.)
+	assert(english:find("To everyone who sent ideas, bug reports and fixes: thank you.", 1, true))
+	-- (Changed on purpose after review: the letter said reminders were timed separately for each
+	-- channel, but Recruit.lua runs one reminder timer that takes the joined public channels in
+	-- turn; what each channel keeps is its own wait after a post.)
+	assert(english:find("A reminder can open one every 2 to 30 minutes, taking your public channels in turn; each channel keeps its own wait after a post.", 1, true))
+	assert(not english:find("timed separately", 1, true), "no reminder interval per channel is promised")
+	assert(english:find("The Watch can resend a guild approval", 1, true))
 end)

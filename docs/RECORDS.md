@@ -42,7 +42,7 @@ continue to use the established rating rules.
 ## Requesting an inventory from a ranking page (1.5.2)
 
 The first visible games or crafting ranking opened in a session requests the record types whose
-inventory this client has not heard yet (`RH`). It retries once after 90 seconds if inventories
+inventory has not been heard yet (`RH`). It retries once after 90 seconds if inventories
 are still missing. A refused transport send does not consume the first attempt. Quiet presence
 suppresses these requests. Opening a tab without a visible ranking sends none.
 Each attempt carries a bounded time/attempt tag so the relay's five-minute duplicate window

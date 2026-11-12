@@ -791,11 +791,12 @@ test("census page: a member's people as before; a team client's ~ estimate, its 
 		local row = Find(lines, L.CENSUS_STATS_PEOPLE)
 		eq(Bare(row.right), "1,196")
 		eq(Tip(row)[2], L.CENSUS_STATS_PEOPLE_TIP); eq(#Tip(row), 2)
-		eq(Tip(Find(lines, L.CENSUS_STATS_ALTS))[2], L.CENSUS_STATS_PEOPLE_TIP)
+		eq(Tip(Find(lines, L.CENSUS_STATS_ALTS))[2], L.CENSUS_STATS_ALTS_TIP)
 		eq(detail, L.CENSUS_STATS_DETAIL)
 		local all = Said(lines)
 		assert(not all:find(L.PEOPLE_ESTIMATE_TIP, 1, true), "no ~ to explain:\n" .. all)
 		eq(Find(lines, L.CENSUS_STATS_VALIDATED), nil); eq(Find(lines, L.CENSUS_STATS_UNVALIDATED), nil); eq(Find(lines, L.CENSUS_STATS_RATE), nil)
+		eq(Find(lines, L.CENSUS_STATS_TAG_EXTRAS), nil, "a member sees no private sample")
 		assert(not all:find("Staff", 1, true), "nothing the staff alone see:\n" .. all)
 		-- A moderation team client: 24 validated accounts of 30 characters in the guilds counted (the
 		-- two rows of a guild out of the census aside): 24 + 1,170 / 1.25 = 960.
@@ -817,12 +818,17 @@ test("census page: a member's people as before; a team client's ~ estimate, its 
 		eq(Bare(lines[at + 1].text), L.CENSUS_STATS_UNVALIDATED); eq(Bare(lines[at + 1].right), "1,170")
 		eq(Bare(lines[at + 2].text), L.CENSUS_STATS_RATE); eq(Bare(lines[at + 2].right), "1.25 " .. L.CENSUS_STATS_RATE_TAGS:format("24"))
 		eq(Tip(validated)[2], staff)
+		local extras = assert(Find(lines, L.CENSUS_STATS_TAG_EXTRAS))
+		eq(Bare(extras.right), "6", "additional characters in the scoped private sample")
+		eq(Tip(extras)[2], L.CENSUS_STATS_TAG_EXTRAS_TIP)
+		eq(Bare(Find(lines, L.CENSUS_STATS_ALTS).right), "4", "explicitly linked alts remain separate")
 		NoTagOrName(Said(lines), "the team's page")
 		-- The King's stream: the estimate, nothing of the staff's.
 		o.stream = true
 		lines = w.CS.Build()
 		eq(Bare(Find(lines, L.CENSUS_STATS_PEOPLE).right), L.CENSUS_STATS_APPROX:format("960"))
 		eq(Find(lines, L.CENSUS_STATS_VALIDATED), nil); eq(#Tip(Find(lines, L.CENSUS_STATS_PEOPLE)), 2)
+		eq(Find(lines, L.CENSUS_STATS_TAG_EXTRAS), nil, "the private sample is hidden on stream")
 		o.stream = false
 		-- Too few validated accounts: the count as members see it, in their words; the staff told why.
 		ns.rdb.battletags = { v = 1, rows = TagRows(3, 0) }
@@ -830,9 +836,10 @@ test("census page: a member's people as before; a team client's ~ estimate, its 
 		row = Find(lines, L.CENSUS_STATS_PEOPLE)
 		eq(Bare(row.right), "1,196"); eq(detail, L.CENSUS_STATS_DETAIL)
 		eq(Bare(Find(lines, L.CENSUS_STATS_RATE).right), "-")
+		eq(Find(lines, L.CENSUS_STATS_TAG_EXTRAS), nil, "the private sample needs the minimum account count")
 		tip = Tip(row)
 		eq(tip[2], L.CENSUS_STATS_PEOPLE_TIP); eq(tip[3], L.PEOPLE_STAFF_NONE:format("3", "1,197", tostring(w.CS.SAMPLE_MIN))); eq(#tip, 3)
-		eq(Tip(Find(lines, L.CENSUS_STATS_ALTS))[2], L.CENSUS_STATS_PEOPLE_TIP)
+		eq(Tip(Find(lines, L.CENSUS_STATS_ALTS))[2], L.CENSUS_STATS_ALTS_TIP)
 	end)
 end)
 

@@ -101,6 +101,23 @@ test("Recruit net-off warning: a changed moderation record requires a new decisi
 	end)
 end)
 
+test("Recruit net-off warning: incoming JOIN requires confirmation before showing the command", function()
+	Scene(function(w)
+		Word(w, WHO, true, "Review before inviting")
+		R.ToggleWhisperRecruiting()
+		R.OnWhisper("JOIN", WHO)
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil)
+		local warning = Warning()
+		assert(warning.text:GetText():find("Review before inviting", 1, true))
+		local req = R.requests[1]
+		eq(req.invitePrepared, nil)
+		warning.buttons[1]:Click()
+		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"))
+		eq(draft.editBox:GetText(), "/ginvite New Recruit")
+		eq(#w.invites, 0, "confirmation only opens the command")
+	end)
+end)
+
 test("Recruit net-off warning: permission, guild, request expiry, dismissal and missing API are rechecked", function()
 	for _, change in ipairs({ "permission", "guild", "expiry", "dismiss", "api", "target" }) do
 		Scene(function(w)

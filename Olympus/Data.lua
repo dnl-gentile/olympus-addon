@@ -976,7 +976,8 @@ Data.WITNESS_MAX = 8
 -- one) were already heard since the ask. Each answer is announced first by a one-piece claim
 -- ("CG~1~C~t"), which reaches everyone long before a snapshot of many pieces, so the rest hold back.
 Data.MEMBER_ANSWER_AFTER, Data.MEMBER_ANSWER_SPREAD, Data.MEMBER_ANSWERS = 12, 60, 2
-local globalLastSent, globalLastHeard, globalAnswerPending = 0, 0, false
+-- Periodic broadcasts must not advance the cooldown for answering a census request.
+local globalLastAnswered, globalLastHeard, globalAnswerPending = 0, 0, false
 local answersHeard = {} -- { t, trusted } of the claims and snapshots heard, the last few minutes
 
 local function ScopedRealm(realm)
@@ -1466,15 +1467,13 @@ function Data.SendGlobalCensus()
 	-- the channel's lane alone, and only while this client still holds what it sent as (a trusted
 	-- relay's trust, or a member's membership).
 	local key = "census-global"
-	local ok = ns.Comm.SendChunked(payload, false, "CHANNEL", nil, { owner = Data, key = key,
+	return ns.Comm.SendChunked(payload, false, "CHANNEL", nil, { owner = Data, key = key,
 		permit = function(_, guardKey, dist, target)
 			if guardKey ~= key or dist ~= "CHANNEL" or target ~= nil then return false, "lane" end
 			if trusted and not GlobalTrusted(ns.me) then return false, "trust" end
 			if not trusted and not GlobalMember() then return false, "member" end
 			return true
 		end })
-	if ok then globalLastSent = ns.Now() end
-	return ok
 end
 
 -- The answers (claims and snapshots) heard lately, and how many came since a time.
@@ -1506,7 +1505,7 @@ end
 local function AnswerAsk(body, now)
 	local trusted = GlobalTrusted(ns.me)
 	if not trusted and not GlobalMember() then return true end
-	if now - globalLastSent < Data.GLOBAL_ANSWER_GAP or globalAnswerPending then return true end
+	if now - globalLastAnswered < Data.GLOBAL_ANSWER_GAP or globalAnswerPending then return true end
 	local n, newest = tostring(body or ""):match("^(%d+)~(%d+)$")
 	if not Behind(tonumber(n), tonumber(newest)) then return true end
 	globalAnswerPending = true
@@ -1514,14 +1513,14 @@ local function AnswerAsk(body, now)
 	local delay = trusted and math.random(2, 9) or (Data.MEMBER_ANSWER_AFTER + math.random(0, Data.MEMBER_ANSWER_SPREAD))
 	ns.After(delay, "global census answer", function()
 		globalAnswerPending = false
-		if ns.Now() - globalLastSent < Data.GLOBAL_ANSWER_GAP then return end
+		if ns.Now() - globalLastAnswered < Data.GLOBAL_ANSWER_GAP then return end
 		if GlobalTrusted(ns.me) then
-			if globalLastHeard <= heardAt then Data.SendGlobalCensus() end
+			if globalLastHeard <= heardAt and Data.SendGlobalCensus() then globalLastAnswered = ns.Now() end
 			return
 		end
 		local count, byTrusted = AnswersSince(now)
 		if byTrusted or count >= Data.MEMBER_ANSWERS then return end
-		if GlobalMember() then Data.SendGlobalCensus() end
+		if GlobalMember() and Data.SendGlobalCensus() then globalLastAnswered = ns.Now() end
 	end)
 	return true
 end
@@ -1713,7 +1712,7 @@ end
 ---------------------------------------------------------------------------
 Data.GROUP_PROTOCOL = 1
 Data.GROUP_KEEP = 7 * 24 * 60 * 60  -- listed this long after it was seen
-Data.GROUP_COUNT = 48 * 60 * 60     -- counted in the totals this long after it was seen
+Data.GROUP_COUNT = 48 * 60 * 60     -- (1.5.8) a held look covering more guilds is kept against a newer narrow one this long
 Data.GROUP_WINDOW = 2 * 60 * 60     -- two people's looks agree within this...
 Data.GROUP_SHARE = 0.10             -- ...and within max(WITNESS_SLACK, this share)
 Data.GROUP_MAX = 64                 -- groups kept per faction
@@ -2075,6 +2074,9 @@ end
 -- from the author keeps it quiet no more, only what it heard from a ledger relay (groupHeardLedger),
 -- which those clients counted. No trusted client says a row it took over a guildmate's hand-over (rg).
 local AUTHOR_SAYS = { own = true, relay = true, witnessed = true, author = true }
+-- (1.5.8) The rows a trusted source gave (our own look, a trusted origin's, the author's): counted until
+-- a newer one replaces them (Data.Groups). A witnessed row or a guildmate's hand-over (rg) counts GROUP_COUNT.
+local LASTING_SRC = { own = true, relay = true, author = true }
 function Data.GroupCensusPayload(now)
 	now = now or ns.Now()
 	local trusted = GlobalTrusted(ns.me)
@@ -2085,10 +2087,12 @@ function Data.GroupCensusPayload(now)
 		local row = type(e) == "table" and e.faction == side and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed)
 		local key = row and GroupKey(row.faction, row.group)
 		local say, heard = row and not ScopedGroup(row.group), groupHeard
+		-- (1.5.8) The newest trusted look held is said however old it is (GROUP_KEEP at most, GroupRow): it
+		-- counts until a newer one replaces it (Data.Groups), so a holder keeps carrying it to late clients.
+		-- A witnessed row (two untrusted looks agreeing) is said only while it counts, GROUP_COUNT.
 		if row and not say and trusted and e.group == row.group and not e.rg then
-			local counted = now - row.observed <= Data.GROUP_COUNT
-			if author then say = AUTHOR_SAYS[e.src] == true and counted
-			else say, heard = e.src == "own" or (e.src == "author" and counted), groupHeardLedger end
+			if author then say = AUTHOR_SAYS[e.src] == true and (LASTING_SRC[e.src] == true or now - row.observed <= Data.GROUP_COUNT)
+			else say, heard = e.src == "own" or e.src == "author", groupHeardLedger end
 		end
 		if say and not e.unscoped and row.group ~= GroupField(ns.group) and Listed(row.group)
 			and row.observed > (heard[key] or 0) + Data.FRESH then
@@ -2241,9 +2245,17 @@ function Data.Groups(s, now)
 		if type(e) == "table" and e.faction == side and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed) and Listed(e.group) then kept[#kept + 1] = e end
 	end
 	table.sort(kept, GroupLater)
+	-- (1.5.8, the author, 11-12: "ele deveria redistribuir esses dados enquanto não tivessem dados novos
+	-- na rede") Another origin's trusted look (LASTING_SRC, not a hand-over) counts until a newer accepted
+	-- look of that origin takes its place (TakeGroup), dated as it was observed (the census page's "As
+	-- of"): it no longer leaves the totals after GROUP_COUNT, which emptied the PvP count on every client
+	-- two days after the last look anyone carried. A witnessed row (two untrusted looks agreeing) or a
+	-- guildmate's hand-over still counts GROUP_COUNT. Our own origin's saved row keeps the day of a guild
+	-- report (TOTAL_KEEP).
 	for _, e in ipairs(kept) do
 		local ours = GroupField(e.group) == group
-		Add(e, not e.unscoped and now - e.observed <= (ours and Data.TOTAL_KEEP or Data.GROUP_COUNT), ours)
+		local lasting = not ours and LASTING_SRC[e.src] == true and not e.rg
+		Add(e, not e.unscoped and (lasting or now - e.observed <= (ours and Data.TOTAL_KEEP or Data.GROUP_COUNT)), ours)
 	end
 	local heard = {}
 	for _, e in pairs(GroupStore("heard")) do
@@ -2682,6 +2694,13 @@ end
 -- own family's author character made (both his, on the observer's own family: Relay.IsLaunchAuthor or
 -- the signed list), on a trusted hop. The author's client carrying anyone else's look would launder it:
 -- unproven, as any forwarder's.
+-- (1.5.8, the review of the census-pvp candidate) A look a signed councillor's character took counts
+-- when that character itself sends it (direct, above), never when another trusted character carries
+-- it: every client keeps each look it hears (TakeLook, unproven ones too) and says the widest of an
+-- origin (PortablePayload), so a member's forged look naming a councillor's character, heard by a
+-- trusted client with no own look of that origin, came out under that client's trusted name and
+-- counted everywhere. A councillor has no signing key: only the author's looks prove themselves
+-- whoever carries them (QA below), and they cross the relay mesh (Relay.lua's Across).
 local function AuthorLook(sender, look)
 	if not (AuthorIdentity(look.observer) and AuthorIdentity(sender) and GlobalTrusted(sender)) then return false end
 	local family = ScopedGroup(look.row.group)

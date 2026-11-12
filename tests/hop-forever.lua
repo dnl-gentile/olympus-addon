@@ -9,7 +9,7 @@ local ns, test, eq, extra = ...
 local GLOBALS = { "GetChannelName", "GetGuildInfo", "IsInGuild", "IsInGroup", "IsInRaid", "GetNumGroupMembers",
 	"UnitFullName", "GetUnitName", "UnitName", "UnitIsGroupLeader", "UnitIsGroupAssistant", "C_PartyInfo", "AcceptGroup",
 	"StaticPopup_Show", "StaticPopup_Hide", "StaticPopup_FindVisible", "InCombatLockdown", "IsInInstance" }
-local DIALOGS = { "OLYMPUS_HOP_REQUEST", "OLYMPUS_HOP_REQUEST_RELOG", "OLYMPUS_HOP_LEAVE", "OLYMPUS_HOP_CONFIRM", "OLYMPUS_HOP_RELOG" }
+local DIALOGS = { "OLYMPUS_HOP_REQUEST", "OLYMPUS_HOP_REQUEST_RELOG", "OLYMPUS_HOP_REQUEST_SISTER", "OLYMPUS_HOP_LEAVE", "OLYMPUS_HOP_CONFIRM", "OLYMPUS_HOP_RELOG" }
 local function Saved()
 	local s = { member = ns.IsMember, realm = ns.realm, globals = {}, dialogs = {} }
 	for _, g in ipairs(GLOBALS) do s.globals[g] = _G[g] end
@@ -255,6 +255,127 @@ local function LoadLayers(W)
 	W.Fire = function() end
 	assert(loadfile(extra.addon .. "Layers.lua"))("Olympus", W)
 end
+
+test("Forever layer hop: sister-guild fallback is bounded, scoped and requires both players to confirm", function()
+	local s = Saved()
+	local ok, err = pcall(function()
+		GetChannelName = function() return 0 end
+		IsInGuild = function() return true end
+		ns.IsMember = function() return true end
+		ns.realm = REALM5
+		local asker, helper = "Asker Name-" .. REALM5, "Helper One-" .. REALM5
+		local ow, hw = {}, { zoneUID = 9 }
+		local O, odeliver, osent, _, opump, osentOf = extra.RelayWorld(asker, "Olympus II")
+		O.faction = "Alliance"
+		LoadLayers(O)
+		local realLayers = O.Layers
+		LoadHop(O, ow)
+		local hopLayers = O.Layers
+		O.Layers = realLayers
+		for _, k in ipairs({ "Mine", "CurrentMap", "Sharing", "RealmOf" }) do O.Layers[k] = hopLayers[k] end
+		O.Data.KnownRank = function() return nil end
+		local peerGuild, verified = {}, {}
+		O.Moderation.GuildOf = function(name) return peerGuild[name] end
+		O.Channels = { VerifiedLevel = function(name, _, readOnly)
+			eq(readOnly, true, "no guild binding is created by an ask")
+			return 1, verified[name] == true
+		end }
+		StubGroup(ow)
+		local function Observe(name, guild, valid, zoneUID)
+			peerGuild[name], verified[name] = guild, valid
+			O.Layers.Receive(name, { mapID = 1453, zoneUID = zoneUID or 9, guild = guild })
+		end
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		Observe("Stale Peer-" .. REALM5, "Olympus III", true)
+		O.clock = O.clock + 1300
+		Observe("Own Guild-" .. REALM5, "Olympus II", true)
+		Observe("Unverified Peer-" .. REALM5, "Olympus III", false)
+		ow.realms["Other Realm"] = REALM1
+		Observe("Other Realm-" .. REALM5, "Olympus III", true)
+		Observe("Other Layer-" .. REALM5, "Olympus III", true, 42)
+		Observe("Changed Layer-" .. REALM5, "Olympus III", true)
+		Observe(helper, "Olympus III", true)
+		Observe("Spare One-" .. REALM5, "Olympus III", true)
+		Observe("Spare Two-" .. REALM5, "Olympus III", true)
+		Bind(osent)
+		O.Hop.Ask(1453, 9, "Another layer")
+		opump()
+		eq(#osentOf("RG~P~Asker Name~LQ~"), 1)
+		eq(#osentOf("LQ~"), 0, "only the asker's guild is asked first")
+		local id = O.Hop.State().id
+		O.clock = O.clock + O.Hop.NOBODY
+		O.Hop.Tick()
+		Observe("Changed Layer-" .. REALM5, "Olympus III", true, 42)
+		opump()
+		local lq = osentOf("LQ~")
+		eq(#lq, 2, "at most three queued asks, one now on another layer stays home")
+		eq(lq[1].dist, "WHISPER"); eq(lq[1].target, "Helper One")
+		eq(lq[1].msg, ("LQ~%d~1453~9~%s~%s"):format(id, O.faction, REALM5))
+		eq(lq[2].target, "Spare One")
+		eq(#osentOf("RL~"), 0, "no new relay fanout")
+		local H, hdeliver, hsent, _, hpump, hsentOf = extra.RelayWorld(helper, "Olympus III")
+		H.faction = "Alliance"
+		LoadHop(H, hw)
+		hw.sharing = true
+		H.Layers.Sharing = function() return hw.sharing end
+		H.Moderation.GuildOf = function(name) return name == asker and "Olympus II" or nil end
+		local recognized = false
+		H.Channels = { VerifiedLevel = function(name) return 1, recognized and name == asker end }
+		H.Hop.Trusted = function() return true end
+		H.db.layerAutoInvite = true
+		GetGuildInfo = function() return "Olympus III", "Member", 3 end
+		StubGroup(hw)
+		hdeliver("WHISPER", "Asker Name", lq[1].msg)
+		recognized = true
+		hdeliver("WHISPER", "Asker Name", lq[1].msg:gsub(REALM5, REALM1))
+		hw.sharing = false
+		hdeliver("WHISPER", "Asker Name", lq[1].msg)
+		hpump()
+		eq(#hsentOf("LO~"), 0, "unknown members, wrong realms and private helpers do not offer")
+		hw.sharing = true
+		hdeliver("WHISPER", "Asker Name", lq[1].msg)
+		hpump()
+		local lo = hsentOf("LO~")
+		eq(#lo, 1); eq(lo[1].target, "Asker Name")
+		eq(H.Hop.Crowd(1453, 9, H.clock), 0, "direct fallback is not a public crowd signal")
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		Bind(osent)
+		odeliver("WHISPER", "Spare Two", lo[1].msg)
+		eq(O.Hop.State().count, 0, "an unasked peer cannot volunteer for the private fallback")
+		odeliver("WHISPER", "Helper One", lo[1].msg)
+		eq(O.Hop.State().count, 1)
+		O.clock = O.clock + O.Hop.WINDOW
+		O.Hop.Tick()
+		opump()
+		local lr = osentOf("LR~")
+		eq(#lr, 1); eq(lr[1].target, "Helper One")
+		GetGuildInfo = function() return "Olympus III", "Member", 3 end
+		Bind(hsent)
+		hdeliver("WHISPER", "Asker Name", lr[1].msg)
+		eq(#hw.invited, 0, "even a trusted requester needs manual confirmation in a sister guild")
+		eq(Popups(hw, "OLYMPUS_HOP_REQUEST_SISTER"), 1)
+		local dialog = StaticPopupDialogs.OLYMPUS_HOP_REQUEST_SISTER
+		eq(dialog.button3, nil, "no Always invite shortcut")
+		dialog.OnAccept(nil, hw.popups[#hw.popups].data)
+		eq(#hw.invited, 1)
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		StubGroup(ow)
+		O.Hop.Trusted = function() return true end
+		O.Hop.OnInvite("Helper One")
+		eq(ow.accepted, 0, "the requester still answers Blizzard's invite")
+		O.Hop.Cancel()
+		O.clock = O.clock + O.Hop.ASK_GAP
+		O.Hop.Ask(1453, 9, "A layer in another realm", REALM1)
+		opump()
+		O.clock = O.clock + O.Hop.NOBODY
+		O.Hop.Tick()
+		opump()
+		eq(#osentOf("LQ~"), 2, "cross-sub-realm requests stay guild-only")
+	end)
+	Restore(s)
+	if not ok then error(err, 0) end
+end)
+
 -- The players a world counts on the layer the word below names (Layers.ForMap) and its muster
 -- head count there (Layers.CountSharedInZone).
 local LAYER = "L1~1453~7~3~Olympus II"

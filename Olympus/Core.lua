@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "1.5.7"
+ns.VERSION = "1.5.8"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -2817,11 +2817,16 @@ end
 -- The keyboard to one of our edit boxes (setFocus: its own SetFocus). With the gamepad UI,
 -- not while another box has it (the chat's): its focus change would run the game's gamepad
 -- code from ours, and the game blocks it (see Dialog.lua); the player clicks into ours.
-function ns.Focus(eb, setFocus) -- gp:popup-focus
+-- A dialog shown in response to incoming data can preserve any editor in both input modes.
+function ns.KeyboardFocus() -- gp:popup-focus
+	if GetCurrentKeyBoardFocus then return GetCurrentKeyBoardFocus() end
+end
+
+function ns.Focus(eb, setFocus, preserve) -- gp:popup-focus
 	setFocus = setFocus or eb.SetFocus
-	if ns.GamepadUI() and GetCurrentKeyBoardFocus then
-		local current = GetCurrentKeyBoardFocus()
-		if current and current ~= eb and not current.olympusBox then return false end
+	if preserve or ns.GamepadUI() then
+		local current = ns.KeyboardFocus()
+		if current and current ~= eb and (preserve or not current.olympusBox) then return false end
 	end
 	setFocus(eb)
 	return true
@@ -3011,6 +3016,7 @@ local function Help()
 	print(L.HELP_CMD_LAYER)
 	print(L.HELP_CMD_MINIMAP)
 	print(L.HELP_CMD_DEBUG)
+	print(L.HELP_CMD_RECENT)
 	print(L.HELP_CMD_RESET)
 	print(L.HELP_ARENA) -- (1.2)
 end
@@ -3272,6 +3278,16 @@ local function Slash(input)
 			ns.Print(ns.L.DEMO_REMOVED)
 		elseif cmd == "bug" then
 			ns.UI.ShowBugReport()
+		elseif cmd == "recruit" or cmd == "recrutar" then
+			-- 1.5.8: the recruiting event log (RecruitHandoff.lua): log; testjoin on a test build.
+			ns.Recruit.Handoff.Slash(rest)
+		elseif cmd == "recent" then
+			local kind = rest:lower()
+			if kind == "" or kind == "errors" or kind == "census" then
+				ns.UI.ShowCopy("/oly recent" .. (kind ~= "" and " " .. kind or ""), ns.RecentDiagnostics(kind), nil, { key = "recent", big = true })
+			else
+				ns.Print(L.HELP_CMD_RECENT)
+			end
 		elseif cmd == "builds" then
 			-- 1.5.4: the modified builds this client saw, and those the guild masters, officers and the
 			-- High Council reported (Builds.lua), in a copy window.

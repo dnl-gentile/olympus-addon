@@ -35,7 +35,11 @@ local function World(fn)
 		c.UI = { Refresh = function() end }
 		c.After = function(delay, _, f) timers[#timers + 1] = { at = now + delay, n = n, f = f } end
 		c.Every = function() end
-		As(n, function() assert(loadfile(ADDON_DIR .. "Verify.lua"))("Olympus", c) end)
+		c.L = setmetatable({}, { __index = ns.L })
+		As(n, function()
+			assert(loadfile(ADDON_DIR .. "Locales/VerifyText.lua"))("Olympus", c)
+			assert(loadfile(ADDON_DIR .. "Verify.lua"))("Olympus", c)
+		end)
 		c.Verify.Clock = function() return now end
 		c.Verify.random = function(a) return a end
 		nodes[#nodes + 1] = n
@@ -115,6 +119,77 @@ test("verification recovery: a request crosses signed relays to the verifier and
 		As(member, member.c.Verify.Observe)
 		member.c.rdb = original
 		eq(As(member, member.c.Verify.Status, GUILD), "verified")
+	end)
+end)
+
+test("verification recovery: the Watch resends an original approval across relays only to its own guild", function()
+	World(function(Node, As, Flush, Advance)
+		local member = Node("New Member-Realm", GUILD)
+		local other = Node("Other Member-Realm", REVOKED)
+		local hub = Node("Hildryn Payne-Realm", "Olympus Hearth")
+		local verifier = Node(HC, "Olympus Crown")
+		As(hub, hub.deliver, "WHISPER", member.c.me, "RL~P~RR~" .. GUILD)
+		As(hub, hub.deliver, "WHISPER", other.c.me, "RL~P~RR~" .. REVOKED)
+		As(verifier, verifier.c.Verify.Observe)
+		local decision = ("GV~1~A~%d~%s~%s"):format(T0, GUILD, MASTER)
+		eq(As(verifier, verifier.c.Verify.Handle, "CHANNEL", HC, decision), true)
+		local start = As(verifier, verifier.c.Verify.Start, GUILD)
+		Advance(1)
+		assert(As(member, member.c.Verify.Status, GUILD) ~= "verified")
+		eq(As(verifier, verifier.c.Verify.ResendApproval, GUILD), true)
+		Flush()
+		local status, info = As(member, member.c.Verify.Status, GUILD)
+		eq(status, "verified"); eq(info.entry.at, T0); eq(info.entry.by, HC); eq(info.entry.gm, MASTER)
+		eq(As(verifier, verifier.c.Verify.Start, GUILD), start)
+		assert(As(other, other.c.Verify.Status, GUILD) ~= "verified", "the other guild did not receive this row")
+		eq(As(verifier, verifier.c.Verify.ResendApproval, GUILD), false, "clicking repeatedly does not resend")
+
+		-- The sender still thinks the approval holds, but the receiving relay knows a newer revocation.
+		member.c.rdb.verify.list[ns.Fold(GUILD)] = nil
+		eq(As(hub, hub.c.Verify.Handle, "CHANNEL", HC, ("GV~1~R~%d~%s~%s"):format(T0 + 1, GUILD, MASTER)), true)
+		Advance(verifier.c.Verify.RESEND_GAP + 1)
+		eq(As(verifier, verifier.c.Verify.ResendApproval, GUILD), true)
+		Flush()
+		assert(As(member, member.c.Verify.Status, GUILD) ~= "verified", "a relay with a revocation does not forward a stale approval")
+		local _, relay = As(hub, hub.c.Verify.Status, GUILD)
+		eq(relay.revoked.at, T0 + 1)
+	end)
+end)
+
+test("verification recovery: the Watch polls one reporter for a fresh native guild master without updating authority", function()
+	World(function(Node, As, Flush, Advance)
+		local reporter = Node("Town Herald-Realm", GUILD)
+		local stranger = Node("Unknown-Realm", GUILD)
+		local verifier = Node(HC, "Olympus Crown")
+		for _, n in ipairs({ reporter, stranger, verifier }) do n.c.group, n.c.faction = "Realm", "Alliance" end
+		local row = verifier.c.rdb.guilds[GUILD]
+		row.t, row.reporterFull = T0, reporter.c.me
+		local scans, fresh = 0, true
+		local roster = { guild = GUILD, generation = 3, byName = { [MASTER] = 0 } }
+		roster.Fresh = function() if fresh then return roster end end
+		roster.RequestScan = function(force) eq(force, true); scans = scans + 1 end
+		reporter.c.Roster = roster
+		local printed = {}
+		verifier.c.Print = function(text) printed[#printed + 1] = text end
+		As(reporter, reporter.deliver, "WHISPER", stranger.c.me, "GV~1~M~1800000000-1~Alliance~" .. GUILD)
+		As(reporter, reporter.deliver, "WHISPER", HC, "GV~1~M~1800000000-1~Horde~" .. GUILD)
+		eq(scans, 0, "a non-verifier or wrong faction cannot request a roster scan")
+		eq(As(verifier, verifier.c.Verify.PollGuild, GUILD), true)
+		eq(As(verifier, verifier.c.Verify.PollGuild, GUILD), false, "only one pending poll")
+		Flush()
+		eq(scans, 1)
+		eq(#verifier.sentOf("GV~1~M~"), 1, "the poll uses one private whisper")
+		eq(verifier.sentOf("GV~1~M~")[1].target, "Town Herald")
+		local response = "GV~1~N~1800000000-1~Alliance~" .. GUILD .. "~Wrong Master-Realm"
+		As(verifier, verifier.deliver, "WHISPER", stranger.c.me, response)
+		assert(not table.concat(printed, " "):find("Wrong Master", 1, true), "a matching request ID is insufficient")
+		Advance(5)
+		eq(#reporter.sentOf("GV~1~N~"), 0, "the earlier complete scan is insufficient")
+		roster.generation, roster.byName = 4, { ["New Master-Realm"] = 0 }
+		Advance(5)
+		eq(#reporter.sentOf("GV~1~N~"), 1)
+		assert(table.concat(printed, " "):find("New Master is the guild master reported by Town Herald", 1, true))
+		eq(As(verifier, verifier.c.Verify.GuildMaster, GUILD), MASTER, "a poll does not replace stored authority")
 	end)
 end)
 

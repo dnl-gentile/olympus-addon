@@ -556,7 +556,16 @@ function Views.DrawFilters(holder, filters, width)
 				menu.catcher:SetFrameLevel((self:GetFrameLevel() or 1) + 30)
 				menu:SetFrameLevel(menu.catcher:GetFrameLevel() + 1)
 				menu:ClearAllPoints()
-				menu:SetPoint(self.rightmost and "TOPRIGHT" or "TOPLEFT", self, self.rightmost and "BOTTOMRIGHT" or "BOTTOMLEFT", 0, -2)
+				-- (11-12, the author's: a text-like picker's menu opened far from its words, at the row's
+				-- right edge; it opens under its words now, and closes once the page scrolls under it.)
+				local right = self.rightmost and not spec.understated
+				menu:SetPoint(right and "TOPRIGHT" or "TOPLEFT", self, right and "BOTTOMRIGHT" or "BOTTOMLEFT", 0, -2)
+				menu.owner, menu.ownerTop = self, self.GetTop and self:GetTop() or nil
+				menu:SetScript("OnUpdate", function(m)
+					local owner = m.owner
+					local top = owner and owner.GetTop and owner:GetTop()
+					if not owner or not owner:IsVisible() or (m.ownerTop and top and math.abs(top - m.ownerTop) > 0.5) then m:Hide() end
+				end)
 				FillChoices(menu, spec)
 				menu.catcher:Show()
 				menu:Show()
@@ -576,6 +585,11 @@ function Views.DrawFilters(holder, filters, width)
 		b:SetSize(math.max(1, cell - 4), 22)
 		local label = (filter.understated and Grey(filter.label .. ":") or filter.label .. ":") .. " " .. filter.value .. " " .. Views.PickerMark()
 		if b.label then b.label:SetText(label); b.label:SetTextColor(1, 1, 1) else b:SetText(label) end
+		-- (A text-like picker is as wide as its words, so its menu opens under them.)
+		if filter.understated and b.label and b.label.GetStringWidth then
+			local ok, w = pcall(b.label.GetStringWidth, b.label)
+			if ok and type(w) == "number" and w > 0 then b:SetWidth(math.min(math.max(1, cell - 4), math.floor(w + 14))) end
+		end
 		b:Show()
 	end
 	for i = #filters + 1, #holder.filters do holder.filters[i]:Hide() end
@@ -970,6 +984,7 @@ function Views.Render(content, lines, layout)
 	local y = -2
 	local inputRow
 	for i, line in ipairs(lines) do
+		y = y - (line.spaceBefore or 0)
 		local r = Row(content, i)
 		r.line = line
 		r.top = -y -- how far down the list the row starts (UI.lua keeps the list's place)
@@ -977,7 +992,23 @@ function Views.Render(content, lines, layout)
 		r:SetPoint("TOPLEFT", content, "TOPLEFT", 0, y)
 		r:SetWidth(width)
 		local height = rowH
-		if line.items then
+		if line.primary then
+			r.left:Hide()
+			r.right:Hide()
+			for c = 1, #r.cols do r.cols[c]:Hide() end
+			if not r.primary then
+				r.primary = CreateFrame("Button", nil, r, "UIPanelButtonTemplate")
+				r.primary:SetPoint("CENTER")
+				r.primary:SetScript("OnClick", function()
+					if r.line and r.line.onClick then ns.SafeCall("primary action", r.line.onClick) end
+				end)
+			end
+			r.primary:SetSize(math.max(1, math.min(width - 12, 220)), 26)
+			r.primary:SetText(line.text or "")
+			r.primary:SetEnabled(line.onClick ~= nil)
+			r.primary:Show()
+			height = 32
+		elseif line.items then
 			-- Items in a grid. line.slots and line.columns: a bank tab as the game draws it (every
 			-- slot, empty ones too, items where they sit: it.s); without them, the items one after
 			-- another, as many per row as fit. The row grows to hold them all.
@@ -1044,13 +1075,19 @@ function Views.Render(content, lines, layout)
 			r.right:SetFontObject(font or "GameFontHighlightSmall")
 			local leftX = 4 + (line.indent or 0) * 12
 			r.left:ClearAllPoints()
+			if r.center ~= line.center then
+				r.left:SetJustifyH(line.center and "CENTER" or "LEFT")
+				r.center = line.center
+			end
 			r.left:SetPoint("LEFT", leftX, line.meter and 4 or 0)
 			r.left:SetText(line.text or "")
 			r.right:SetText(line.right or "")
 			r.right:ClearAllPoints()
 			r.right:SetPoint("RIGHT", -RIGHT_INSET, line.meter and 4 or 0)
 			-- A text box's line: its text as wide as it is, the box after it (PlaceInput).
-			if line.input and not inputRow then
+			if line.center then
+				r.left:SetPoint("RIGHT", r, "RIGHT", -leftX, 0)
+			elseif line.input and not inputRow then
 				inputRow, height = r, ROW_H_INPUT
 			else
 				r.left:SetPoint("RIGHT", r.right, "LEFT", -RIGHT_GAP, 0)
@@ -1060,6 +1097,7 @@ function Views.Render(content, lines, layout)
 		end
 		Views.DrawMeter(r, not line.items and not line.filters and not line.nav and not line.cols and not line.graph and line.meter or nil, width, 4 + (line.indent or 0) * 12)
 		if not line.items then for k = 1, #(r.items or {}) do r.items[k]:Hide() end end
+		if not line.primary and r.primary then r.primary:Hide() end
 		if not line.nav then for k = 1, #(r.nav or {}) do r.nav[k]:Hide() end end
 		if not line.filters then for k = 1, #(r.filters or {}) do r.filters[k]:Hide() end end
 		if not line.graph and r.graph then r.graph:Hide() end
@@ -1069,9 +1107,9 @@ function Views.Render(content, lines, layout)
 			r.panelFrame = nil
 		end
 		r:SetHeight(height)
-		r:EnableMouse(line.onClick ~= nil or line.tooltip ~= nil)
+		r:EnableMouse(not line.primary and (line.onClick ~= nil or line.tooltip ~= nil))
 		if hd then
-			r.stripe:SetShown(line.cols ~= nil or line.onClick ~= nil)
+			r.stripe:SetShown(line.cols ~= nil or (line.onClick ~= nil and not line.center and not line.primary))
 			if line.key and line.key == content.selectedKey then r:LockHighlight() else r:UnlockHighlight() end
 		end
 		r:Show()
@@ -1094,7 +1132,9 @@ function Views.LinesHeight(lines, hd, width)
 	local y, input = 2, false
 	for _, line in ipairs(lines or {}) do
 		local height
-		if line.items then
+		if line.primary then
+			height = 32
+		elseif line.items then
 			local slot, step, columns, gap = ItemGrid(line, ITEM_GAME, tonumber(width) or 0)
 			height = GridHeight(math.ceil(math.max(1, line.slots or #line.items) / columns), slot, step, gap)
 		elseif line.filters or line.panel then
@@ -1108,7 +1148,7 @@ function Views.LinesHeight(lines, hd, width)
 		else
 			height = rowH
 		end
-		y = y + height + (line.header and 4 or 0) + (line.gapAfter and 6 or 0)
+		y = y + (line.spaceBefore or 0) + height + (line.header and 4 or 0) + (line.gapAfter and 6 or 0)
 	end
 	return y + 8
 end
@@ -1347,6 +1387,9 @@ local function GuildTooltip(e)
 		end
 		tt:AddLine(" ")
 		tt:AddLine(L.REPORTED_BY:format(g.reporter or "?", ns.Ago(e.observed or g.t)), 0.6, 0.6, 0.6)
+		if e.observed and g.t and g.t > e.observed then
+			tt:AddLine(L.CENSUS_RECEIVED_AGE:format(ns.Ago(g.t)), 0.6, 0.6, 0.6)
+		end
 		if not e.fresh then tt:AddLine(L.STALE, 1, 0.4, 0.4) end
 		DisputeTooltip(tt, ns.Data.Dispute(g))
 		local V = VerifyModule()
@@ -1739,12 +1782,76 @@ local function PersonLine(e, p)
 	}
 end
 
+function Views.CensusConnectionLine(s)
+	local relay, comm = ns.Relay, ns.Comm
+	if not relay or not relay.On() or not comm or not comm.LaneStats then return end
+	local lane = comm.LaneStats()
+	local relayName, confirmed = relay.Pick()
+	local newest = 0
+	for _, row in ipairs(s.guilds) do
+		if not row.g.mine then newest = math.max(newest, row.observed or 0) end
+	end
+	local state = confirmed and L.CENSUS_RELAY_READY or (relayName and L.CENSUS_RELAY_WAIT or L.CENSUS_RELAY_NONE)
+	local age = newest > 0 and L.CENSUS_REMOTE_AGE:format(ns.Ago(newest)) or L.CENSUS_REMOTE_NONE
+	local label = L.CENSUS_CONNECTION:format(lane.lane or 0, state, age)
+	if lane.mismatch and lane.dominant then
+		label = label .. " · " .. L.CENSUS_LANE_MISMATCH:format(lane.dominant)
+	end
+	return { id = "census-connection", text = (confirmed and newest > 0 and ns.Now() - newest <= ns.Data.FRESH and not lane.mismatch) and Grey(label) or Gold(label),
+		onClick = function() ns.UI.ShowCopy("/oly status", ns.StatusText(), nil, { key = "status" }) end }
+end
+
+-- 1.5.8 (the author's ask): the Census offer's switches. Answering JOIN requests is recruiting
+-- itself (Recruit.lua), with the requests other members pass on; the ads and the scan need it, as
+-- their replies come back as whispered JOINs: turning either on turns it on, and turning it off
+-- turns them off. Passing this player's own requests to others stays manual (Church > Invites).
+local RECRUIT_MARK_ON = "|TInterface\\RaidFrame\\ReadyCheck-Ready:14:14|t "
+local RECRUIT_MARK_OFF = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:14:14|t "
+local RECRUIT_SWITCHES = {
+	{ key = "join", label = "RECRUIT_CENSUS_JOIN", hint = "RECRUIT_CENSUS_JOIN_HINT" },
+	{ key = "ads", label = "RECRUIT_CENSUS_ADS", hint = "RECRUIT_CENSUS_ADS_HINT" },
+	{ key = "scan", label = "RECRUIT_CENSUS_SCAN", hint = "RECRUIT_CENSUS_SCAN_HINT" },
+}
+Views.RECRUIT_AD_MINUTES = 5
+
+function Views.RecruitOfferState()
+	local R = ns.Recruit
+	local on = R.IsWhisperRecruiting() == true
+	local Q = R.Candidates
+	return { join = on, ads = on and R.AnnounceReminderMinutes() > 0,
+		scan = on and Q ~= nil and Q.Enabled() == true }
+end
+
+function Views.RecruitOfferSwitch(key)
+	local R = ns.Recruit
+	local H, Q, state = R.Handoff, R.Candidates, Views.RecruitOfferState()
+	if key == "join" and state.join then
+		if Q then Q.SetEnabled(false) end
+		R.SetAnnounceReminder(0)
+		if H then H.SetAccepting(false) end
+		if H and H.SetAuto then H.SetAuto(false) end
+		R.ToggleWhisperRecruiting()
+		return
+	end
+	if not state.join and not R.EnableWhisperRecruiting() then return end
+	-- Recruiting turned on, or the scan, takes what other members pass on too (the handoffs).
+	if H and (not state.join or (key == "scan" and not state.scan)) then H.SetAccepting(true) end
+	-- (11-12, the author's: and offers its own waiting JOINs and scanned players to them, on with
+	-- recruiting.)
+	if H and H.SetAuto and not state.join then H.SetAuto(true) end
+	if key == "ads" then
+		R.SetAnnounceReminder(state.ads and 0 or Views.RECRUIT_AD_MINUTES)
+	elseif key == "scan" and Q then
+		Q.SetEnabled(not state.scan)
+	end
+end
+
 -- `q`, the search (Views.Query): "recruiting" (every guild with room), the zones whose name holds
 -- it (1.1), then the guilds whose name or Lord holds it, and those where it finds a Captain, a
 -- player of the top five or one seen online (under its row), the reported ones then the ones only
 -- seen (by name: nobody knows their Lord), in the same order as ever. Letters that look alike
 -- read as one (Lookalike, 1.2.1).
-local function CensusLines(s, q)
+local function CensusLines(s, q, recruitment)
 	local lines = {}
 	if q then
 		local min = RecruitQuery(q)
@@ -1773,6 +1880,11 @@ local function CensusLines(s, q)
 		if #lines == 0 then lines[1] = NoMatch() end
 		return lines
 	end
+	-- (1.5.8) After the offer's Don't ask again: where its switches are, one click away (UI.lua).
+	if recruitment and recruitment.notice then
+		lines[1] = { id = "census-recruit-notice", text = Gold(L.RECRUIT_CENSUS_ELSEWHERE), onClick = recruitment.notice, gapAfter = true }
+		recruitment = nil
+	end
 	QuietLine(lines)
 	-- Our guild's verification (Verify.lua): its guild master's "GM verification pending", or its
 	-- members' notice once it is overdue; a click opens it.
@@ -1780,7 +1892,7 @@ local function CensusLines(s, q)
 	local verification, verificationAt = V and V.Lines and V.Lines() or {}, #lines + 1
 	for _, l in ipairs(verification) do lines[#lines + 1] = l end
 	-- Recruits asking to join our guild (1.1, Recruit.lua): an officer's Invite and Decline.
-	for _, l in ipairs(ns.Recruit and ns.Recruit.RequestLines and ns.Recruit.RequestLines() or {}) do lines[#lines + 1] = l end
+	for _, l in ipairs(ns.Recruit and ns.Recruit.RequestLines and ns.Recruit.RequestLines(false) or {}) do lines[#lines + 1] = l end
 	-- Clear party-invite whispers while the King is online (1.2.5.1): local, short-lived and
 	-- manually verified. Nothing interrupts the game or trusts what the whisper claimed.
 	for _, l in ipairs(ns.PartyGuard and ns.PartyGuard.Lines and ns.PartyGuard.Lines() or {}) do lines[#lines + 1] = l end
@@ -1795,6 +1907,65 @@ local function CensusLines(s, q)
 	-- While the King is online: one click asks for an invite to his layer (Hop.lua).
 	for _, hop in ipairs(ns.Hop and ns.Hop.KingLines and ns.Hop.KingLines() or {}) do lines[#lines + 1] = hop end
 	local kings = #lines -- (the King's lines above: "No reports yet" counts what comes below them)
+	local record = ns.Record and ns.Record.Line and ns.Record.Line()
+	if recruitment then
+		-- Keep verification, urgent notices and requests usable above the offer.
+		if record then table.insert(lines, 1, record) end
+		local padding = math.max(6, math.floor((recruitment.height - 260) / 2) - #lines * 28)
+		lines[#lines + 1] = { text = L.RECRUIT_CENSUS_TITLE, center = true, color = "GameFontNormalLarge",
+			spaceBefore = padding, gapAfter = true }
+		-- 1.5.8 (the author's ask): the player's own guild in numbers, its open spots out of the
+		-- game's cap, and what filling them does for Olympus. Without a roster count, no number.
+		local own, size = GetGuildInfo("player"), nil
+		if type(GetNumGuildMembers) == "function" then
+			local ok, n = pcall(GetNumGuildMembers)
+			if ok and type(n) == "number" and n > 0 then size = math.floor(n) end
+		end
+		if own and size then
+			local cap = ns.Codec.GUILD_CAP
+			local open = math.max(0, cap - size)
+			-- (11-12, the author's: no member count on it; one line, never cut off.)
+			local spots = open > 0 and L.RECRUIT_CENSUS_SPOTS:format(own, open) or L.RECRUIT_CENSUS_FULL:format(own)
+			lines[#lines + 1] = { text = Gold(spots), center = true, wrap = true }
+		end
+		lines[#lines + 1] = { text = L.RECRUIT_CENSUS_GROW, center = true, wrap = true, gapAfter = true }
+		-- 1.5.8 (the author's ask: "Esses 3 naquela página"): three switches, red while off and green
+		-- while on, each one click; the page stays until Done or a dismissal.
+		local state, any = Views.RecruitOfferState(), false
+		for _, switch in ipairs(RECRUIT_SWITCHES) do
+			local on = state[switch.key]
+			any = any or on
+			lines[#lines + 1] = { id = "census-recruit-" .. switch.key, center = true,
+				text = on and Green(RECRUIT_MARK_ON .. L[switch.label]) or Red(RECRUIT_MARK_OFF .. L[switch.label]),
+				onClick = function() recruitment.switch(switch.key) end }
+			local hint = L[switch.hint]
+			if switch.key == "ads" then hint = hint:format(Views.RECRUIT_AD_MINUTES) end
+			lines[#lines + 1] = { text = Grey(hint), center = true, wrap = true, gapAfter = true }
+		end
+		-- (1.5.8, the author's ask: the handoffs marked experimental; one short line of its own, as a
+		-- longer hint is cut off in the window, 11-12.)
+		lines[#lines + 1] = { id = "census-recruit-experimental", text = Grey(L.RECRUIT_CENSUS_EXPERIMENTAL), center = true, gapAfter = true }
+		if any then
+			lines[#lines + 1] = { id = "census-recruit-thanks", text = Gold(L.RECRUIT_CENSUS_THANKS), center = true }
+			-- (11-12, the author's: where to stop the popups, said right after turning them on.)
+			lines[#lines + 1] = { id = "census-recruit-stop", text = Grey(L.RECRUIT_CENSUS_STOP), center = true, gapAfter = true }
+			lines[#lines + 1] = { id = "census-recruit-done", text = L.RECRUIT_CENSUS_DONE, primary = true,
+				onClick = recruitment.done }
+		else
+			-- 1.5.8 (the author's ask, 11-12: "se você não tiver selecionado nenhuma, deveria ser activate
+			-- all"): with every switch off, one button turns the three on, as their own clicks would.
+			lines[#lines + 1] = { id = "census-recruit-all", text = L.RECRUIT_CENSUS_ALL, primary = true,
+				onClick = function()
+					recruitment.switch("ads")
+					if Views.RecruitOfferState().join then recruitment.switch("scan") end
+				end }
+			lines[#lines + 1] = { id = "census-recruit-later", text = Gold(L.RECRUIT_CENSUS_LATER), center = true,
+				onClick = recruitment.later }
+			lines[#lines + 1] = { id = "census-recruit-never", text = Grey(L.RECRUIT_CENSUS_NEVER), center = true,
+				onClick = recruitment.never }
+		end
+		return lines, true
+	end
 	-- Above the guilds (1.1): the channel is public (who can read it), and right after login the
 	-- census being rebuilt (said instead of "No reports yet").
 	PublicLines(lines)
@@ -1814,6 +1985,8 @@ local function CensusLines(s, q)
 		lines[#lines + 1] = evening
 	end
 	WhoStatus(lines)
+	local connection = Views.CensusConnectionLine(s)
+	if connection then lines[#lines + 1] = connection end
 	-- The addon's author online: Report a bug reaches him directly (Workshop.lua).
 	local author = ns.Workshop and ns.Workshop.AuthorOnline and ns.Workshop.AuthorOnline() and ns.Workshop.AuthorName()
 	if author then
@@ -1837,7 +2010,6 @@ local function CensusLines(s, q)
 	end
 	-- Record mode on (Record.lua, the Guinness attempt's witnesses): its line first; a click opens its
 	-- status. Put in last, so the lines above count as before ("No reports yet").
-	local record = ns.Record and ns.Record.Line and ns.Record.Line()
 	if record then table.insert(lines, 1, record) end
 	return lines
 end
@@ -3462,6 +3634,35 @@ function Views.RecruitLines()
 	return ApprovedHint(lines)
 end
 
+function Views.JoinLines(height)
+	local R = ns.Recruit
+	local searching, left, last, reminder, guilds = R.JoinStatus()
+	local pending = searching or left > 0
+	local status = searching and L.RECRUIT_SEARCHING
+		or left > 0 and L.RECRUIT_JOIN_WAITING:format(left)
+		or last and L.RECRUIT_JOIN_TIMEOUT
+		or ns.Who.Searched() and #R.found == 0 and L.RECRUIT_NONE_FOUND
+	local lines = {
+		{ text = L.RECRUIT_JOIN_TITLE, center = true, color = "GameFontNormalLarge", gapAfter = true,
+			spaceBefore = guilds and 6 or math.max(6, math.floor(((height or 0) - 210) / 2)) },
+		{ text = L.RECRUIT_JOIN_ABOUT, center = true },
+		{ text = L.RECRUIT_JOIN_ACTIVITIES, center = true },
+		{ text = L.RECRUIT_JOIN_HINT, center = true, gapAfter = true },
+		{ text = last and L.RECRUIT_JOIN_AGAIN or L.RECRUIT_JOIN_REQUEST, primary = true,
+			onClick = not pending and R.RequestJoin or nil, gapAfter = true },
+	}
+	if status then lines[#lines + 1] = { text = status, center = true, gapAfter = true } end
+	lines[#lines + 1] = { text = Gold((reminder and "[x] " or "[ ] ") .. L.RECRUIT_JOIN_REMINDER),
+		center = true, onClick = R.ToggleJoinReminder }
+	lines[#lines + 1] = { text = Gold(guilds and L.RECRUIT_JOIN_HIDE_GUILDS or L.RECRUIT_JOIN_SHOW_GUILDS),
+		center = true, onClick = R.ToggleJoinGuilds }
+	if guilds then
+		lines[#lines + 1] = { text = Gold(L.RECRUIT_FIND), center = true, onClick = not pending and R.Search or nil, gapAfter = true }
+		for _, line in ipairs(Views.RecruitLines()) do lines[#lines + 1] = line end
+	end
+	return lines
+end
+
 ---------------------------------------------------------------------------
 -- Entry point used by UI.lua
 ---------------------------------------------------------------------------
@@ -3475,12 +3676,14 @@ end
 -- Each tab's lines, detail title and detail text. A tab missing here (a new one being
 -- added) is an empty list.
 local BUILD = {
-	census = function(s)
+	census = function(s, recruitment)
 		-- (CR-02 / KH-08: the census's own page, opened from the header's count, CensusStats.lua.)
 		local stats = ns.CensusStats
 		if type(stats) == "table" and not stats.missing and type(stats.Shown) == "function" and stats.Shown() then return stats.Build(s) end
+		local lines, offer = CensusLines(s, Views.Query("census"), recruitment)
+		if offer then return lines, nil, nil, true end
 		local title, text = CensusDetail(s)
-		return Searched(CensusLines(s, Views.Query("census")), "census", "CENSUS"), title, text
+		return Searched(lines, "census", "CENSUS"), title, text
 	end,
 	realm = function(s)
 		local title, text = RealmDetail(s)
@@ -3566,10 +3769,10 @@ local BUILD = {
 -- s (1.2.3): the census's summary the caller read a moment ago (UI.Refresh's, for the window's
 -- header), else read here. The window's redraw summed the census twice, once for its header and
 -- once for its tab, a few hundred KB each time on a big census.
-function Views.Build(tab, s)
+function Views.Build(tab, s, recruitment)
 	local build = BUILD[tab]
 	if not build then return {}, nil, nil end
-	return build(s or ns.Data.Summary())
+	return build(s or ns.Data.Summary(), recruitment)
 end
 
 -- 1.2: another file's tab (UI.AddTab: the Blood Arena's, ArenaHome.lua): builder(s) returns its

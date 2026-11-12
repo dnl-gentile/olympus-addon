@@ -34,7 +34,7 @@ website parser release; the addon does not pretend a newer schema is already acc
 
 1. Log into the character in the guild being reported and open the game's Guild roster. Wait for
    Olympus to have a current own-roster census row.
-2. Type `/oly site export` (or the compatibility alias `/olysite export`). No event, timer or
+2. Type `/oly site export` (or `/olysite export`, which works too). No event, timer or
    network path invokes its private preparation
    function; this command is the deliberate product flow to prepare a local file, not consent to
    publish it. WoW addons share one Lua environment, so this is not a security boundary against
@@ -52,7 +52,7 @@ The addon clears an older session's value as soon as the game restores it at log
 (on `ADDON_LOADED`), so only an export made in this session is written. After the `/reload` that
 writes a new export, upload it before another logout or reload, which writes the cleared state.
 Changing guild after `/oly site export` also withdraws the pending value. `/oly site clear` plus
-`/reload` explicitly removes it. Both commands have `/olysite` compatibility aliases.
+`/reload` explicitly removes it. Both also work as `/olysite` commands.
 
 ## In-game acceptance before publication
 

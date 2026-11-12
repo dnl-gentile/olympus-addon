@@ -151,7 +151,8 @@ test("1.2.4 Church fullness ranking rules: the private link opens in place and B
 	local inAudience = c.Church.InAudience
 	c.Church.InAudience = function() return false end
 	lines = Build(w, c)
-	eq(c.View.page, "people", "loss of the private Church audience closes the rules page")
+	-- 1.5.8 (the author's order: Invites, Ranking, People, Name, Assignments): the Church's first page is Invites.
+	eq(c.View.page, "invites", "loss of the private Church audience closes the rules page")
 	for _, line in ipairs(lines) do
 		assert(line.id ~= "ranking-rules-back" and line.id ~= "ranking-rules:church-fullness", "private rules remained discoverable")
 	end
@@ -226,16 +227,22 @@ test("Church publication authority UI: actual King/council switches, no preview 
 	eq(Find(Build(w, c.a1, "ranking"), L.CHURCH_PUBLIC_SWITCH), nil, "Apostle alone gets no switch")
 end)
 
-test("1.1.6 Church member view: people only, no naming or personal results, and explicit previews override the author's real role", function()
+test("1.1.6 Church member view: people and invites, no naming or personal results, and explicit previews override the author's real role", function()
 	local w, c = Cast()
-	eq(Pages(w, c.member), "people")
-	eq(Pages(w, c.councillor), "ranking,people,name")
-	eq(Pages(w, c.author), "ranking,people,name,review")
-	eq(Pages(w, c.head), "ranking,mine,people,name", "legacy marked Apostle has no root review page")
+	eq(Pages(w, c.member), "invites,people")
+	local initial = Build(w, c.member)
+	eq(c.member.View.page, "invites", "a member lands on the first accessible Church page")
+	eq(initial[1].nav[1].text, L.CHURCH_NAV_INVITES)
+	eq(Pages(w, c.councillor), "invites,ranking,people,name")
+	eq(Pages(w, c.author), "invites,ranking,people,name,review")
+	eq(Pages(w, c.head), "invites,ranking,people,name,mine", "legacy marked Apostle has no root review page")
 	local role = "member"
 	c.author.c.ViewAs = { Available = function() return true end, Previewing = function() return true end,
 		Role = function() return role end }
 	eq(Pages(w, c.author), "people")
+	local inviteLines = Build(w, c.author, "invites")
+	eq(c.author.View.page, "people", "an explicit preview cannot operate the live invite tools")
+	eq(Find(inviteLines, L.RECRUIT_WHISPER_OFF), nil)
 	local lines = Build(w, c.author, "review")
 	eq(c.author.View.page, "people", "a stale staff page returns to the member's page")
 	eq(Find(lines, L.CHURCH_ACT_NAME_APOSTLE), nil)
@@ -269,24 +276,24 @@ test("1.1.6 Church: everyone sees the people, private numbers and duties follow 
 	for _, cl in ipairs({ c.author, c.king, c.head, c.councillor, c.a1, c.m1 }) do eq(Visible(cl), true, cl.name) end
 	eq(Visible(c.member), true); eq(Visible(c.other), true)
 	eq(Visible(c.gm), true, "a guild master: to name his guild's correspondent")
-	eq(Pages(w, c.gm), "people,name")
-	eq(Pages(w, c.m1), "ranking,mine,people,name")
-	eq(Pages(w, c.councillor), "ranking,people,name", "a councillor names Apostles, has no personal results")
-	eq(Pages(w, c.author), "ranking,people,name,review")
+	eq(Pages(w, c.gm), "invites,people,name")
+	eq(Pages(w, c.m1), "invites,ranking,people,name,mine")
+	eq(Pages(w, c.councillor), "invites,ranking,people,name", "a councillor names Apostles, has no personal results")
+	eq(Pages(w, c.author), "invites,ranking,people,name,review")
 	-- The public view opens the Public page to everyone else.
 	GiveAll(w, c, "Mira Wells", "R Aa")
 	w:Act(c.m1, c.m1.Count.SetPublicRow, true)
 	w:Act(c.author, c.author.Church.SetPublic, true)
 	w:Tick()
 	eq(Visible(c.member), true)
-	eq(Pages(w, c.member), "people,public")
+	eq(Pages(w, c.member), "invites,people,public")
 	local lines = Build(w, c.member, "public")
 	assert(Find(lines, "Mira Wells"), Texts(lines))
-	-- Closing the public ranking leaves the people, never private numbers.
+	-- Closing the public ranking returns to the first allowed page without exposing private numbers.
 	w:Act(c.author, c.author.Church.SetPublic, false)
-	local empty, title, text = Build(w, c.member)
-	assert(#empty > 0); eq(title, L.CHURCH_TITLE); eq(text, L.CHURCH_PEOPLE_DETAIL)
-	eq(c.member.View.page, "people")
+	local empty, title = Build(w, c.member)
+	assert(#empty > 0); eq(title, L.CHURCH_NAV_INVITES)
+	eq(c.member.View.page, "invites")
 end)
 
 test("1.1.6 Church: the Ranking page: the two rankings and the correspondents, three windows, columns, the viewer's own line with how his score is made", function()
@@ -719,4 +726,73 @@ test("1.2.4 Church: the root's Name page shows each guild's correspondent its ma
 	w:As(author, author.ns.Fire, "INIT")
 	assert(Row(author):find("Vale Helper", 1, true), "after a reload, his guild offline: " .. Row(author))
 	assert(Find(Build(w, author, "people"), L.CHURCH_CORRESPONDENTS:format(1)), "still counted")
+end)
+
+test("1.5.8 Church recruiters: the staff list explains its points and shows each recruiter's recruits and points in the Apostles' columns", function()
+	local w, c = Cast()
+	GiveAll(w, c, "Mira Wells", "Tab Reca"); GiveAll(w, c, "Mira Wells", "Tab Recb"); GiveAll(w, c, "Old Hand", "Tab Recc")
+	local function Options(cl)
+		cl.View.list = "a"
+		local out = {}
+		for _, o in ipairs(Build(w, cl, "ranking")[2].filters[1].options) do out[#out + 1] = o.text end
+		return table.concat(out, ",")
+	end
+	-- The list is offered to the author, the King and the High Council, never to an Apostle or a missionary.
+	for _, cl in ipairs({ c.author, c.king, c.councillor }) do
+		assert(Options(cl):find(L.CHURCH_LIST_RECRUITERS, 1, true), cl.name)
+	end
+	for _, cl in ipairs({ c.a1, c.m1 }) do
+		assert(not Options(cl):find(L.CHURCH_LIST_RECRUITERS, 1, true), cl.name)
+	end
+	c.a1.View.list = "u"
+	Build(w, c.a1, "ranking")
+	eq(c.a1.View.list, "a", "a stale choice falls back to the Apostles")
+	c.author.View.list, c.author.View.window = "u", "a"
+	local lines = Build(w, c.author, "ranking")
+	local text = Texts(lines)
+	for _, key in ipairs({ "CHURCH_RANKING_U", "CHURCH_RECRUITERS_COMPARE", "CHURCH_RECRUITERS_STAFF" }) do
+		assert(text:find(L[key], 1, true), key)
+	end
+	assert(text:find(L.CHURCH_RECRUITERS_RULE:format(10, 5, 7), 1, true), "10 a recruit, 5 more after 7 days")
+	local mira, old = Find(lines, "Mira Wells"), Find(lines, "Old Hand")
+	assert(mira and old, text)
+	eq(mira.cols[1], "1.  Mira Wells")
+	eq(mira.cols[2], "20", "points")
+	eq(mira.cols[3], L.CHURCH_SPLIT:format("20", "0"), "own points, no network share")
+	eq(mira.cols[4], L.CHURCH_RECRUITS:format(2, 0), "recruits")
+	eq(old.cols[2], "10")
+	assert(mira.onClick, "staff may open a recruiter's detail")
+	-- The rule comes before the first row.
+	local ruleAt, rowAt
+	for i, line in ipairs(lines) do
+		if line.text == L.CHURCH_RECRUITERS_RULE:format(10, 5, 7) then ruleAt = i end
+		if line == mira then rowAt = i end
+	end
+	assert(ruleAt and rowAt and ruleAt < rowAt, "the explanation sits above the rows")
+end)
+
+-- 1.5.8 (review): the author's page showed his own ledger's recruiters only; it now asks a keeper
+-- online and shows his answer when it counts more. The row's tooltip names Count.STAY_DAYS, as the
+-- rule above the rows does (it said "7 days" whatever the rule).
+test("1.5.8 Church recruiters: the author's page asks a keeper online and its rows' days follow the rule's", function()
+	local w, c = Cast()
+	GiveAll(w, c, "Mira Wells", "Tab Reca")
+	for _, k in ipairs({ c.head, c.a1, c.a2 }) do
+		w:As(k, k.Count.MergeIn, Key("Tab Recb") .. ":" .. Key("Old Hand"), { n = "Tab Recb", bn = "Old Hand", g = World.GUILD, kind = "i",
+			tc = w.clock - 7200, tj = w.clock - 3600, ws = { "wes brook" } }, false)
+		k.Count.Settled = function() return true end
+	end
+	c.author.Count.STAY_DAYS = 10
+	c.author.View.list, c.author.View.window = "u", "a"
+	local lines = Build(w, c.author, "ranking")
+	assert(not Find(lines, "Old Hand"), "his own ledger first")
+	w:Flush()
+	lines = Build(w, c.author, "ranking")
+	local mira, old = Find(lines, "Mira Wells"), Find(lines, "Old Hand")
+	assert(mira and old, "a keeper's larger answer shows: " .. Texts(lines))
+	assert(Texts(lines):find(L.CHURCH_RECRUITERS_RULE:format(10, 5, 10), 1, true), "the rule's days")
+	local said = {}
+	mira.tooltip({ AddLine = function(_, text) said[#said + 1] = text end })
+	eq(said[2], L.CHURCH_RECRUITERS_ROW_TIP:format("10", 1, 0, 10), "the row's days are the rule's")
+	assert(said[2]:find("after 10 days", 1, true), said[2])
 end)

@@ -267,6 +267,21 @@ function Layers.Of(name, exact)
 	return nil
 end
 
+-- The local sub-realm only. Layer hop verifies guild membership before contacting a peer.
+function Layers.HopPeers(mapID, zoneUID)
+	local peers, now = {}, ns.Now()
+	for name, member in pairs((seen[mapID] and seen[mapID][zoneUID]) or {}) do
+		if name ~= ns.me and member.t <= now and now - member.t <= EXPIRE then
+			peers[#peers + 1] = { name = name, guild = member.guild, t = member.t }
+		end
+	end
+	table.sort(peers, function(a, b)
+		if a.t ~= b.t then return a.t > b.t end
+		return a.name < b.name
+	end)
+	return peers
+end
+
 function Layers.InSample()
 	local h = 0
 	for i = 1, #(ns.me or "") do h = (h * 31 + ns.me:byte(i)) % 1000003 end

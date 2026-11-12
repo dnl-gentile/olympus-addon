@@ -383,13 +383,122 @@ function Charter.Lines()
 	end
 	return lines
 end
+-- A guild master may ask the Church for recruiting help for one day. The request
+-- carries only the guild and its expiry, and uses the charter's existing rank checks.
+local HELP_LIFE = 86400
+local helpSent = -math.huge
+
+local function HelpStore()
+	local rdb = ns.rdb
+	if type(rdb.guildRecruitHelp) ~= "table" then rdb.guildRecruitHelp = {} end
+	return rdb.guildRecruitHelp
+end
+
+local function OwnHelp()
+	local master, guild = Charter.IsMaster()
+	local request = master and ns.rdb and ns.rdb.guildRecruitHelpOwn
+	if type(request) == "table" and request.guild == guild and request.by == ns.me
+		and request.faction == Faction() and type(request.at) == "number" and request.at > Clock() - HELP_LIFE then
+		return request
+	end
+end
+
+function Charter.SendHelp(force)
+	local request, now = OwnHelp(), ns.Now()
+	if not request or (not force and now - helpSent < Charter.EVERY) then return false end
+	local message = ("J5~1~%s~%s~%d~%s"):format(request.faction, request.guild, request.at, request.active and "Y" or "N")
+	if not ns.Comm.Send("CHANNEL", message, "guildrecruithelp", false, true, nil, {
+		guard = function() return OwnHelp() == request end,
+	}) then return false end
+	helpSent = now
+	return true
+end
+
+function Charter.ToggleHelp(expectedGuild)
+	local master, guild = Charter.IsMaster()
+	if not master or guild ~= expectedGuild or not ns.rdb or not Field(guild, 40) then return false end
+	local old = OwnHelp()
+	local now = Clock()
+	if old and old.at >= now then return false end
+	ns.rdb.guildRecruitHelpOwn = { guild = guild, by = ns.me, faction = Faction(), at = now,
+		active = not (old and old.active) }
+	Charter.SendHelp(true)
+	ns.Fire("RECRUIT_CHANGED")
+	return true
+end
+
+function Charter.ReceiveHelp(dist, sender, text)
+	if dist ~= "CHANNEL" or not ns.rdb or not ns.IsMember() or type(text) ~= "string" or #text > 80 then return false end
+	local faction, guild, stamp, flag = text:match("^J5~1~([AH])~([^~]+)~(%d+)~([YN])$")
+	local at, by, now = tonumber(stamp), Key(sender), Clock()
+	if faction ~= Faction() or not Field(guild, 40) or not at or at <= now - HELP_LIFE or at > now + 60
+		or not Authorized(by, guild) then return false end
+	if C_ChatInfo and C_ChatInfo.SendAddonMessageLogged and ns.Comm.DeliveredLogged and not ns.Comm.DeliveredLogged() then return false end
+	local store, key = HelpStore(), guild:lower()
+	local old = store[key]
+	if type(old) == "table" and old.by == by and (tonumber(old.at) or 0) >= at then return false end
+	if not old then
+		local n = 0
+		for id, request in pairs(store) do
+			if type(request) ~= "table" or (tonumber(request.at) or 0) <= now - HELP_LIFE then store[id] = nil
+			else n = n + 1 end
+		end
+		if n >= Charter.MAX then return false end
+	end
+	store[key] = { guild = guild, by = by, at = at, faction = faction, active = flag == "Y" }
+	ns.Fire("RECRUIT_CHANGED")
+	return true
+end
+
+function Charter.HelpLines()
+	if not ns.rdb or not ns.IsMember() then return {} end
+	local master, guild = Charter.IsMaster()
+	local role = ns.Church and ns.Church.Role and ns.Church.Role(ns.me)
+	local lines = {}
+	if master then
+		local own = OwnHelp()
+		lines[#lines + 1] = { text = own and own.active and L.CHARTER_HELP_WITHDRAW or L.CHARTER_HELP_REQUEST,
+			onClick = function() Charter.ToggleHelp(guild) end }
+	end
+	if role ~= "A" and role ~= "H" and role ~= "W" then return lines end
+	local requests, now = {}, Clock()
+	for _, request in pairs(HelpStore()) do
+		if type(request) == "table" and request.active == true and request.faction == Faction()
+			and (tonumber(request.at) or 0) > now - HELP_LIFE and request.by ~= ns.me
+			and type(request.guild) == "string" and Authorized(request.by, request.guild) then
+			requests[#requests + 1] = request
+		end
+	end
+	if #requests == 0 then return lines end
+	table.sort(requests, function(a, b) return a.guild < b.guild end)
+	lines[#lines + 1] = { header = true, text = L.CHARTER_HELP_TITLE }
+	for _, request in ipairs(requests) do
+		local row = request
+		lines[#lines + 1] = { indent = 1, text = row.guild, right = L.CHARTER_HELP_CONTACT,
+			onClick = function()
+				if HelpStore()[row.guild:lower()] ~= row or Clock() - row.at >= HELP_LIFE or not Authorized(row.by, row.guild) then return end
+				ns.UI.WhisperText(ns.TellName(row.by), L.CHARTER_HELP_WHISPER:format(row.guild))
+			end }
+	end
+	return lines
+end
+
 function Charter.ResetForTests()
-	if type(ns.rdb) == "table" then ns.rdb.guildCards = nil end
+	if type(ns.rdb) == "table" then
+		ns.rdb.guildCards, ns.rdb.guildRecruitHelp, ns.rdb.guildRecruitHelpOwn = nil, nil, nil
+	end
+	helpSent = -math.huge
 	held, heldFor, reports, asked, answered, answerTimes = {}, nil, {}, {}, {}, {}
 	lastSent, sending = -math.huge, false
 end
 ns.RealmPages = ns.RealmPages or {}
 table.insert(ns.RealmPages, { key = "guildcharter", Link = Charter.Link, Lines = Charter.Lines, tip = "CHARTER_HINT" })
 ns.Comm.Handle("GC", Charter.Handle)
+ns.Comm.Handle("J5", Charter.ReceiveHelp)
 ns.Comm.Handle("QC", Charter.HandleAsk)
-ns.On("LOGIN", function() ns.Every(Charter.EVERY, "guild charter", function() Charter.Send() end) end)
+ns.On("LOGIN", function()
+	ns.Every(Charter.EVERY, "guild charter", function()
+		Charter.Send()
+		Charter.SendHelp()
+	end)
+end)

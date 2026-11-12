@@ -3,8 +3,8 @@ local L = ns.L
 -- 1.2.1: the High Council's own sections in The Watch (Watch.lua: its reports and cases, apart from
 -- any guild's), and what a trusted council collector keeps of a report.
 L.WATCH_CASES_TITLE_COUNCIL = "Cases of the High Council"
-L.WATCH_COUNCIL_TIP = "Reports from members of every Olympus guild, taken and passed on by a trusted council collector (the King's client or the pinned addon author): only from a reporter it already knows in the guild he names, and only with the lines that collector heard itself in the Olympus channel. The King and the High Council act on them in Olympus's chats, never with a guild's Watch. A report proves nothing by itself."
-L.WATCH_REPORT_LINES_COUNCIL = "%d of the %d lines it named, each one heard by the receiving collector itself in the Olympus channel (any other was left out)."
+L.WATCH_COUNCIL_TIP = "Reports from members of every Olympus guild, taken and passed on by a trusted council collector (the King's addon or the pinned addon author). It takes a report only from a reporter it already knows in the guild he names, and only with the lines it heard itself in the Olympus channel. The King and the High Council act on them in Olympus's chats, never with a guild's Watch. A report alone proves nothing."
+L.WATCH_REPORT_LINES_COUNCIL = "%d of the %d lines it named. Only lines the receiving collector heard itself in the Olympus channel are kept."
 L.WATCH_COUNCIL_DETAIL = "The High Council's reports and cases: from members of every Olympus guild, through a trusted council collector. Nothing here is a sanction until the King or a councillor chooses one in Olympus's chats."
 if GetLocale and GetLocale() == "ptBR" then
 	L.WATCH_CASES_TITLE_COUNCIL = "Casos do High Council"

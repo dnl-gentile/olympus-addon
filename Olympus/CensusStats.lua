@@ -799,12 +799,16 @@ function CS.Build(s, now)
 			end
 		end
 	end
-	lines[#lines + 1] = Row(L.CENSUS_STATS_ALTS, Grey(F(s.alts or 0)), est.approx and L.CENSUS_STATS_ALTS_TIP or L.CENSUS_STATS_PEOPLE_TIP, 1)
+	lines[#lines + 1] = Row(L.CENSUS_STATS_ALTS, Grey(F(s.alts or 0)), L.CENSUS_STATS_ALTS_TIP, 1)
 	if staff then
 		local rate = est.sample and est.sample.kind == "battletag" and Rate(est.rate) .. " " .. L.CENSUS_STATS_RATE_TAGS:format(F(est.sample.size)) or "-"
 		lines[#lines + 1] = Row(L.CENSUS_STATS_VALIDATED, Grey(F(est.validated)), staff, 1)
 		lines[#lines + 1] = Row(L.CENSUS_STATS_UNVALIDATED, Grey(F(est.unvalidated)), staff, 1)
 		lines[#lines + 1] = Row(L.CENSUS_STATS_RATE, Grey(rate), staff, 1)
+		if est.sample and est.sample.kind == "battletag" then
+			lines[#lines + 1] = Row(L.CENSUS_STATS_TAG_EXTRAS, Grey(F(est.validatedCharacters - est.validated)),
+				L.CENSUS_STATS_TAG_EXTRAS_TIP, 1)
+		end
 	end
 	lines[#lines + 1] = Row(L.CENSUS_STATS_ONLINE, Green(F(s.online or 0)))
 	lines[#lines + 1] = Row(L.CENSUS_STATS_GUILDS, White(tostring(counted)) .. "  " .. Grey(L.CENSUS_STATS_GUILDS_LIVE:format(live)), L.CENSUS_STATS_GUILDS_TIP)

@@ -83,7 +83,7 @@ Relay.PRESENT_FOR = 1800     -- a presentation is kept this long past its last w
 Relay.PRESENT_GAP = 60       -- a client presents itself to one relay once this long at most
 Relay.MAX_PRESENTED = 4000   -- characters a relay keeps a presentation for: every client that may whisper it, not only reporters
 Relay.MAX_REFUSED = 200      -- refusals a relay notes for /oly relay admitted
-Relay.PUBLISHED = { "1.4.0", "1.4.1", "1.4.3", "1.4.4", "1.4.5", "1.4.6", "1.5.0", "1.5.1", "1.5.2", "1.5.3", "1.5.4", "1.5.5", "1.5.6", "1.5.7" }
+Relay.PUBLISHED = { "1.4.0", "1.4.1", "1.4.3", "1.4.4", "1.4.5", "1.4.6", "1.5.0", "1.5.1", "1.5.2", "1.5.3", "1.5.4", "1.5.5", "1.5.6", "1.5.7", "1.5.8" }
 Relay.RULES_EVERY = 1800     -- a relay asks the others for the rules this often; the author's client hands them out this often
 Relay.MAX_RULE_VERSIONS = 40 -- versions one word of rules may name
 Relay.VERIFY_ASK_EVERY = 180 -- one recovery ask across the signed relays, never per reporter
@@ -697,6 +697,8 @@ end
 local function GuildCopy(parts)
 	local p = parts[1]
 	if #parts ~= 1 or type(p) ~= "string" then return false end
+	local approval = Relay.ApprovalResendGuild(p)
+	if approval then return Lower(approval) == Lower(GetGuildInfo("player") or "") end
 	if p:match("^C%w+:%d+:%d+:") or p:match("^RR~") or GuildRoute(p) then return false end
 	if Relay.NO_FORWARD[p:sub(1, 2)] and not p:match("^GV~1~[ARS]~") then return false end
 	return true
@@ -925,6 +927,12 @@ end
 
 -- A word to every guild's reporter we hold (ours included: delivered here and handed to our
 -- guild), and heard here (a relay in a guild whose reporter is elsewhere, or none).
+-- A Watch resend carries one original approval in the existing snapshot format. Its final
+-- semicolon separates it from automatic snapshot replies, which must never fan out this way.
+function Relay.ApprovalResendGuild(body)
+	return body:match("^GV~1~S~%d+~A,%d+,([^,;~]+),[^,;~]+,[^,;~]+;$")
+end
+
 local function QueueWord(body)
 	-- Fragment i and fragment i+1 are both required. Coalescing them by the first
 	-- two bytes (C1, etc.) discarded all but the last before the queue could send.
@@ -933,6 +941,8 @@ local function QueueWord(body)
 	-- (TR~<name>~): Treasury.Relay passes on one per mail character in one tick, and keyed "TR" alone
 	-- the last took the others' places, in the drip and in Comm's queue alike.
 	-- Arena splits long records before they reach Comm. Keep their own id and index too.
+	local approval = Relay.ApprovalResendGuild(body)
+	if approval then return "GV resend " .. Lower(approval) end
 	return body:match("^(C[^:]+:%d+):%d+:") or body:match("^(EP~[LT]%d+~[0-9a-z]+~[0-9a-z]+)~[0-9a-z]+~")
 		or body:match("^(T1~%a)~") or body:match("^(TR~[^~]+)~") or body:sub(1, 2)
 end
@@ -953,11 +963,18 @@ local function SnapshotPart(origin, body, now)
 		or index < 1 or index > total or #part > ns.Codec.CHUNK
 		or (index < total and #part ~= ns.Codec.CHUNK) then return false end
 	local key = Lower(ns.FullName(origin))
+	-- (1.5.8) A signed look (QA) has a slot of its own beside the origin's census snapshot: in one slot, a
+	-- look said less than SNAPSHOT_WINDOW before the relay's census snapshot sent that snapshot through
+	-- the trickle, where its many pieces reach a registrant whole or not at all.
+	local look = snapshotTransfers[key .. "#qa"]
+	if (index == 1 and part:match("^QA~1~")) or (index > 1 and look and look.id == id) then key = key .. "#qa" end
 	local transfer = snapshotTransfers[key]
 	if transfer and SnapshotExpired(transfer, now) then transfer = nil; snapshotTransfers[key] = nil end
 	if not transfer then
+		-- (1.5.8) And the author's signed look (QA, Data.lua) a relay says or another relay's copy brings:
+		-- it proves itself, and in pieces through the trickle it reached a registrant whole or not at all.
 		if index ~= 1 or not (part:match("^GV~1~S~%d+~")
-			or part:match("^CG~[12]~S~%d+~") or part:match("^CX~[123]~S~")) then return false end
+			or part:match("^CG~[12]~S~%d+~") or part:match("^CX~[123]~S~") or part:match("^QA~1~")) then return false end
 		local count = 0
 		for who, entry in pairs(snapshotTransfers) do
 			if SnapshotExpired(entry, now) then snapshotTransfers[who] = nil
@@ -1899,6 +1916,8 @@ local function ToReporters(flag, origin, body, sender)
 		return CrownToReporters(flag, origin, body, now)
 	end
 	local own = ns.FullName(origin) == ns.me
+	local approvalGuild = Relay.ApprovalResendGuild(body)
+	if approvalGuild then approvalGuild = Lower(approvalGuild) end
 	local fresh = 0
 	for _, r in pairs(reporters) do
 		if now - r.t <= Relay.REPORTER_FOR then fresh = fresh + 1 end
@@ -1951,6 +1970,8 @@ local function ToReporters(flag, origin, body, sender)
 	for g, r in pairs(reporters) do
 		if now - r.t > Relay.REPORTER_FOR or Quarantined(r.name) then
 			reporters[g] = nil
+		elseif approvalGuild and g ~= approvalGuild then
+			-- The re-send is for the guild whose approval it carries.
 		elseif not Served(r, body, now) then
 			-- (1.5.4) A reporter the relay does not serve (no presentation from the deadline on, or
 			-- denied): nothing to him (counted, Stats().unserved).
@@ -2149,8 +2170,12 @@ local function Across(flag, origin, body, set)
 		if ns.FullName(origin) ~= ns.me then return end
 		local first = type(set) == "table" and set[1] or body
 		local head = first:match("^C%w+:%d+:%d+:(.*)$") or first
+		-- (1.5.8, the author, 11-12: "não tá redistribuindo na rede") The author's signed look (QA) this
+		-- relay's client says (Data.AttestPayload: the newest it holds of each origin, once each
+		-- GROUP_SAY_EVERY unless heard meanwhile) crosses too: it proves itself whoever carries it, and it
+		-- reached only this relay's own guilds, so the PvP look left other relays' guilds with the author.
 		kind = head:match("^(CG~[12]~S)~%d+~") or head:match("^(GV~1~S)~%d+~") or ListKind(head)
-			or (type(set) == "table" and #set > 1 and head:match("^(CX~[123]~S)~")) or nil
+			or (type(set) == "table" and #set > 1 and (head:match("^(CX~[123]~S)~") or head:match("^(QA~1)~"))) or nil
 		if not kind then return end
 		if kind:sub(1, 2) == "CG" then
 			local whole = type(set) == "table"
@@ -2312,6 +2337,12 @@ function Relay.HandleIn(dist, sender, text)
 	-- (1.5.4) A word from a character the relay does not serve (Admit): dropped, answered by nobody.
 	if not Admitted("RL", sender, body, now) then return true end
 	local fresh = not Remembered(origin, body, now)
+	if Relay.ApprovalResendGuild(body) then
+		if not (fresh and ns.Verify and ns.Verify.CanForwardResend and ns.Verify.CanForwardResend(body, origin)) then return true end
+		ToRelays("P", origin, body)
+		WithHop("L", sender, ToReporters, "P", origin, body, sender)
+		return true
+	end
 	local localOnly = Relay.NO_FORWARD[body:sub(1, 2)]
 	-- Verification queries are periodic background traffic; decisions and recovery snapshots
 	-- must reach the guilds. Keeping the entire GV prefix here swallowed a verifier's direct
@@ -2420,6 +2451,11 @@ function Relay.HandleVerify(dist, sender, text)
 	if Decision(body) then
 		if not Signed(origin) then stats.dropped = stats.dropped + 1 return false end
 		WithHop("W", sender, ToReporters, flag, origin, body, sender) -- (heard here too)
+		return true
+	end
+	if Relay.ApprovalResendGuild(body) then
+		if not (ns.Verify and ns.Verify.CanForwardResend and ns.Verify.CanForwardResend(body, origin)) then return false end
+		WithHop("W", sender, ToReporters, "P", origin, body, sender)
 		return true
 	end
 	acrossFrom = Lower(ns.ShortName(sender))

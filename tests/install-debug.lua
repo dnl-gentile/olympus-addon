@@ -307,8 +307,11 @@ test("1.5.5 /oly bug debug: the relay, the reporter, the census's sources per re
 			["Olympus Far"] = { guild = "Olympus Far", leader = "Faraway Leaderperson", t = now - 90, from = "CAMWOWUS2Realm3PvE", by = "Reporting Personname" },
 			["Olympus Near"] = { guild = "Olympus Near", leader = "Nearby Leaderperson", t = now - 7200 },
 		}
-		ns.db.groupCensus = { ["Alliance|ForeverPvP"] = { group = "ForeverPvP", faction = "Alliance", people = 2000, characters = 2400, observed = now - 3 * 3600 } }
-		ns.db.groupHeard = { ["Alliance|ForeverRP"] = { group = "ForeverRP", faction = "Alliance", people = 300, observed = now - 600, by = "Witness Personname" } }
+		-- (1.5.8: each with its source and guilds, as the store keeps them, for the source and counted fields.)
+		ns.db.groupCensus = { ["Alliance|ForeverPvP"] = { group = "ForeverPvP", faction = "Alliance", people = 2000, characters = 2400,
+			guilds = 12, observed = now - 3 * 3600, src = "author", by = "Carrying Personname" } }
+		ns.db.groupHeard = { ["Alliance|ForeverRP"] = { group = "ForeverRP", faction = "Alliance", people = 300, characters = 300, guilds = 2,
+			observed = now - 600, src = "heard", by = "Witness Personname" } }
 		ns.Relay = setmetatable({ Stats = function()
 			return { on = true, relay = "Relaying Personname", sure = true, reporters = 3, pending = 1, out = 4, delivered = 5, dead = 2, dropped = 0, trickled = 7 }
 		end, IsRelay = function() return false end, Rules = function() return { rev = 2 } end }, { __index = R })
@@ -329,7 +332,8 @@ test("1.5.5 /oly bug debug: the relay, the reporter, the census's sources per re
 		assert(text:find("reporter: this client no, guild's known yes, guild peers 7, reports heard 12, bad 1, incomplete 3", 1, true), text)
 		assert(text:find("census: group ForeverPvE: 2 guild reports, newest 90s, oldest 2h", 1, true), text)
 		assert(text:find("by realm CAMWOWUS2Realm3PvE=1 old=1", 1, true), text)
-		assert(text:find("census: other groups Alliance|ForeverRP heard 10m (300), Alliance|ForeverPvP look 3h (2000)", 1, true), text)
+		-- (1.5.8) Each with its source and whether the all-server total counts it.
+		assert(text:find("census: other groups Alliance|ForeverRP heard 10m (300) heard uncounted, Alliance|ForeverPvP look 3h (2000) author counted", 1, true), text)
 		assert(text:find("signed: titles ", 1, true) and text:find("relay rules rev 2", 1, true), text)
 		assert(text:find("secret values left unread: relay not found=1", 1, true), text)
 		-- No other player's name or data: neither the relay's, the reporter's, a leader's nor a witness's.
@@ -341,6 +345,42 @@ test("1.5.5 /oly bug debug: the relay, the reporter, the census's sources per re
 	ns.rdb.guilds, ns.db.groupCensus, ns.db.groupHeard, Cm.Stats, issecretvalue, ns.Relay, ns.group =
 		saved.guilds, saved.census, saved.heard, saved.commStats, saved.check, saved.relay, saved.group
 	ns.ResetSecretSkips()
+	if not ok then error(err, 0) end
+end)
+
+test("/oly bug debug: fallback relay shows bounded aggregate counters without peer identities", function()
+	local saved = ns.RelayFallback
+	local ok, err = pcall(function()
+		local stats = {
+			source = "list", candidates = 4, pinged = 5, yes = 2, no = 1, none = 2, serving = true,
+			elected = { "ElectedPeerOne-Realm", "ElectedPeerTwo-Realm" }, held = 7, holdDropped = 3,
+			listFrom = "FallbackListKeeper-Realm", picks = { { to = "FallbackPicker-Realm" } },
+			line = "PrivateFallbackDebugLine-Realm",
+		}
+		ns.RelayFallback = { Stats = function() return stats end }
+		local report = ns.BuildBugReport()
+		local line = assert(report:match("\nfallback: ([^\n]+)"), "the copyable report includes fallback counters")
+		eq(line, "source list, candidates 4, asked 5, yes 2, no 1, no answer 2, elected 2, serving yes, held 7, dropped 3")
+		assert(#("fallback: " .. line) <= ns.DEBUG_LINE, "within the debug line limit")
+		for _, private in ipairs({ "ElectedPeerOne", "ElectedPeerTwo", "FallbackListKeeper", "FallbackPicker", "PrivateFallbackDebugLine" }) do
+			assert(not report:find(private, 1, true), "peer data is not copied: " .. private)
+		end
+
+		stats.source = "UnknownPeerName-Realm"
+		stats.serving = false
+		report = ns.BuildBugReport()
+		assert(report:find("\nfallback: source unknown,", 1, true), "candidate source is restricted to known labels")
+		assert(report:find("elected 2, serving no,", 1, true), "the fallback can be idle")
+		assert(not report:find(stats.source, 1, true), "an unrecognized source stays private")
+
+		ns.RelayFallback = nil
+		assert(ns.BuildBugReport():find("\nfallback: not loaded\n", 1, true), "a missing module still produces a report")
+		ns.RelayFallback = { Stats = function() error("PrivateFallbackError-Realm") end }
+		report = ns.BuildBugReport()
+		assert(report:find("\nfallback: unavailable\n", 1, true), "a failed stats read still produces a report")
+		assert(not report:find("PrivateFallbackError", 1, true), "errors from the module stay private")
+	end)
+	ns.RelayFallback = saved
 	if not ok then error(err, 0) end
 end)
 
@@ -359,5 +399,80 @@ test("1.5.5 /oly bug debug: the whole section is cut at DEBUG_MAX, said so, and 
 		assert(report:find("\ndebug (1.5.5):\ninstall: ?\n", 1, true), "a part that fails says so, the rest stays")
 	end)
 	ns.DEBUG_MAX, ns.InstallLine = savedMax, savedLine
+	if not ok then error(err, 0) end
+end)
+
+test("/oly recent: bounded local diagnostics, filter selection and sealed channel scrubbing", function()
+	local savedLog, savedErrors, savedSpec = ns.db.log, ns.db.errors, ns.Comm.ChannelSpec
+	local ok, err = pcall(function()
+		ns.db.log, ns.db.errors = {}, {}
+		eq(ns.RecentDiagnostics("errors"), ns.L.RECENT_EMPTY)
+		for i = 1, 41 do ns.db.log[i] = ("unrelated line %02d"):format(i) end
+		ns.db.log[42] = "relay joined channel Oly1234abcd"
+		ns.Comm.ChannelSpec = function() return "Oly1234abcd", "test key" end
+		local all = ns.RecentDiagnostics("")
+		assert(all:find("unrelated line 03", 1, true))
+		assert(not all:find("unrelated line 02", 1, true))
+		eq(ns.RecentDiagnostics("census"), "relay joined channel (sealed channel)")
+		ns.db.errors[1] = { count = 2, where = "test", first = "10:00", last = "10:01", version = "1.5.7", msg = "channel Oly1234abcd" }
+		eq(ns.RecentDiagnostics("errors"), "[2x] test (10:00 .. 10:01, v1.5.7): channel (sealed channel)")
+	end)
+	ns.db.log, ns.db.errors, ns.Comm.ChannelSpec = savedLog, savedErrors, savedSpec
+	if not ok then error(err, 0) end
+end)
+
+-- 1.5.8 (Daniel, 11-12: why other guilds see fewer servers). Fails before: /oly bug showed none of the
+-- census's counters, the relay tree's registrant line or the relayed rows (Relay.BugLines has no caller),
+-- and "other groups" said neither a row's source nor whether it counts.
+test("1.5.8 /oly bug debug: the census counters, the tree's registrant line and the relayed rows come last, after a whole signed line; their counters move with what the census takes; bounded and nameless", function()
+	local saved = { census = ns.db.groupCensus, heard = ns.db.groupHeard, global = ns.rdb.censusGlobal, group = ns.group, tree = ns.RelayTree }
+	local ok, err = pcall(function()
+		local now = ns.Now()
+		ns.group = "ForeverPvE"
+		-- Our own group's saved look: "here" (its live count stands in the total), never "counted" twice.
+		ns.db.groupCensus = { ["Alliance|ForeverPvE"] = { group = "ForeverPvE", faction = "Alliance", people = 900, characters = 1000,
+			guilds = 8, observed = now - 300, src = "own", by = "Own Personname" } }
+		ns.db.groupHeard = {}
+		ns.rdb.censusGlobal = {
+			["olympus relayed"] = { name = "Olympus Relayed", total = 300, online = 20, avg10 = 300, observed = now - 120, by = "Relaying Personname", heard = now },
+			["olympus stale"] = { name = "Olympus Stale", total = 200, online = 0, avg10 = 300, observed = now - 2 * 86400, by = "Relaying Personname", heard = now },
+		}
+		local function Section() return table.concat(ns.DebugLines(), "\n") end
+		local function Refused(text) return tonumber(text:match("census counters: [^\n]-| cx a%d+ t%d+ w%d+ h%d+ u%d+ r(%d+)")) end
+		local text = Section()
+		local counters = text:match("\n(census counters: [^\n]+)")
+		assert(counters, "the census counters: " .. text)
+		eq(counters, "census counters: " .. ns.Data.CensusStats().line, "Data.CensusStats().line, whole")
+		assert(text:find("census: other groups Alliance|ForeverPvE look 5m (900) own here", 1, true), text)
+		local before = assert(Refused(text), counters)
+		-- A malformed CX word from a member: refused, and the line says one more.
+		eq(ns.Data.ReceiveGroupCensus("CHANNEL", "Plain Personname-Realm", "CX~1~S~x~broken"), false)
+		eq(Refused(Section()), before + 1, "the counter moved by the refusal")
+		eq(text:find("\ntree: not loaded", 1, true) ~= nil, true, "no tree here: said so")
+		-- The tree's first line alone: the later ones name the registrants a piece came from.
+		ns.RelayTree = { Stats = function()
+			return { lines = { "tree: rn 3, complete 2, rounds 1 (deferred 0), capable 4, open 0, registrant true", "tree 7 1/2 missing [2] from Seeding Personname: open, 4s" } }
+		end }
+		text = Section()
+		assert(text:find("\ntree: rn 3, complete 2, rounds 1 (deferred 0), capable 4, open 0, registrant true\n", 1, true), "the tree's first line, with registrant: " .. text)
+		assert(text:find("\ncensus relayed: rows 1 within a day, newest 2m", 1, true), "the relayed rows a client could count: " .. text)
+		-- After the signed line, which stays whole, and the whole section within DEBUG_MAX.
+		local lines = ns.DebugLines()
+		local signedAt, countersAt, size = nil, nil, 0
+		for i, line in ipairs(lines) do
+			if line:find("^signed: ") then signedAt = i end
+			if line:find("^census counters: ") then countersAt = i end
+			assert(#line <= ns.DEBUG_LINE, "a bounded line: " .. line)
+			size = size + #line + 1
+		end
+		assert(signedAt and countersAt and signedAt < countersAt, "the new lines come after the signed line")
+		assert(lines[signedAt]:find("relay rules rev ", 1, true) and not lines[signedAt]:find("%.%.%.$"), "the signed line whole: " .. lines[signedAt])
+		assert(size <= ns.DEBUG_MAX, "bounded in all: " .. size)
+		eq(lines[#lines]:find("(debug cut)", 1, true), nil, "nothing cut")
+		for _, name in ipairs({ "Personname", "Olympus Relayed", "Olympus Stale" }) do
+			assert(not text:find(name, 1, true), "no player's, relay's or guild's name: " .. name)
+		end
+	end)
+	ns.db.groupCensus, ns.db.groupHeard, ns.rdb.censusGlobal, ns.group, ns.RelayTree = saved.census, saved.heard, saved.global, saved.group, saved.tree
 	if not ok then error(err, 0) end
 end)
