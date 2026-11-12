@@ -107,8 +107,10 @@ test("census header: retained count shows its original date and live partial pop
 end)
 
 test("census connection: reports from the local guild do not mask missing remote data", function()
-	local R, C, V = ns.Relay, ns.Comm, ns.Views
-	local savedOn, savedPick, savedLane = R.On, R.Pick, C.LaneStats
+	local C, V, savedRelay = ns.Comm, ns.Views, ns.Relay
+	local savedLane = C.LaneStats
+	local R = {}
+	ns.Relay = R
 	local ok, err = pcall(function()
 		local at = ns.Now()
 		local s = { guilds = { { g = { mine = true }, observed = at } } }
@@ -127,6 +129,6 @@ test("census connection: reports from the local guild do not mask missing remote
 		assert(line.text:find(ns.L.CENSUS_RELAY_READY, 1, true))
 		assert(line.text:find(ns.L.CENSUS_REMOTE_AGE:format(ns.Ago(at - 60)), 1, true))
 	end)
-	R.On, R.Pick, C.LaneStats = savedOn, savedPick, savedLane
+	ns.Relay, C.LaneStats = savedRelay, savedLane
 	if not ok then error(err, 0) end
 end)
