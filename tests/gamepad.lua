@@ -3810,14 +3810,21 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 		C.channels.General, C.channels.Other = nil, 1
 		InClick(C, oldRow.onClick)
 		eq(Draft(), nil, "a stale row does not prepare for a reassigned channel index")
+		local every, reminderTick = ns.Every
+		ns.Every = function(seconds, where, callback)
+			eq(seconds, 15 * 60); eq(where, "recruiting reminder")
+			reminderTick = callback
+			return every(seconds, where, callback)
+		end
 		ClickLine(L.RECRUIT_ANNOUNCE_REMINDER_OFF)
+		ns.Every = every
 		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_ON:format(15)))
 		local before = #C.printed
 		C.Advance(15 * 60 - 1)
 		eq(Printed(L.RECRUIT_ANNOUNCE_REMIND, before), false, "no reminder before fifteen minutes")
 		C.Advance(62)
-		assert(Printed(L.RECRUIT_ANNOUNCE_REMIND, before), "a local chat reminder")
-		eq(Draft(), nil, "the reminder opens no draft")
+		eq(Printed(L.RECRUIT_ANNOUNCE_REMIND, before), false, "recruiting is off")
+		eq(Draft(), nil)
 		eq(#(C.said or {}), sends, "neither drafts nor reminders sent a public message")
 
 		C.now = C.now + 121
@@ -3872,6 +3879,30 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 		Post(C.said[#C.said][1], ns.me, 2, 22, "Trade")
 		eq(Draft(), nil, "the observed echo closes the draft")
 		eq(C.chatBox, nil, "Post does not touch the game's chat editor")
+		assert(R.ToggleWhisperRecruiting())
+		reminderTick()
+		eq(Draft(), nil, "a recent post suppresses the popup")
+		C.now = C.now + 120
+		C.combat = true
+		reminderTick()
+		eq(Draft(), nil, "combat suppresses the popup")
+		C.combat = false
+		C.channels.Trade = 4
+		reminderTick()
+		eq(Draft(), nil, "a changed channel index does not redirect the announcement")
+		C.channels.Trade = 2
+		reminderTick()
+		draft = assert(Draft(), "a reminder opens the last selected channel")
+		assert(draft.editBox:GetText():find("^/2 "))
+		local reminderData = draft.data
+		reminderTick()
+		eq(draft.data, reminderData, "an existing draft is left alone")
+		eq(#C.said, sends + 1, "the timer never posts")
+		C.Click(draft.buttons[2])
+		eq(#C.said, sends + 2, "a single Post click sends the reminder's draft")
+		eq(C.said[#C.said][3], "2")
+		eq(R.ToggleWhisperRecruiting(), false)
+		eq(Draft(), nil, "stopping recruitment closes its reminder")
 		C.Switch(initialPad); C.Advance(1)
 		Check(C.ledger, "recruiting announcement")
 		NoErrors(C, "recruiting announcement")

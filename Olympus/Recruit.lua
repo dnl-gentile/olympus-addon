@@ -531,8 +531,14 @@ local function Recruiting()
 	return recruitingGuild ~= nil and recruitingGuild == WhisperGuild()
 end
 
+local function CloseReminderDraft()
+	local draft = ns.Dialog and ns.Dialog.Find and ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT")
+	if draft and draft.data and draft.data.reminder then draft:Hide() end
+end
+
 local function StopRecruiting()
 	recruitingGuild = nil
+	CloseReminderDraft()
 	if Recruit.Handoff then Recruit.Handoff.Reset() end
 	for i = #Recruit.requests, 1, -1 do
 		if Recruit.requests[i].viaWhisper then table.remove(Recruit.requests, i) end
@@ -715,6 +721,7 @@ local announceOpen, reminderIndex, reminderTimer, announcementVariant = false, 1
 local REMINDER_MINUTES = { 0, 15, 30, 60 }
 local ANNOUNCEMENT_GAP = 120
 local publicRecruitmentAt = {}
+local lastAnnouncement
 
 local function PruneAnnouncements(now)
 	for name, entry in pairs(publicRecruitmentAt) do
@@ -722,13 +729,15 @@ local function PruneAnnouncements(now)
 	end
 end
 
-local function AnnouncementReady(name)
+local function AnnouncementReady(name, silent)
 	local now = ns.Now()
 	PruneAnnouncements(now)
 	local entry = publicRecruitmentAt[name]
 	if not entry then return true end
-	local tip = entry.observed and L.RECRUIT_ANNOUNCE_WAIT or L.RECRUIT_ANNOUNCE_POST_WAIT
-	ns.Print(tip:format(math.ceil(ANNOUNCEMENT_GAP - (now - entry.at))))
+	if not silent then
+		local tip = entry.observed and L.RECRUIT_ANNOUNCE_WAIT or L.RECRUIT_ANNOUNCE_POST_WAIT
+		ns.Print(tip:format(math.ceil(ANNOUNCEMENT_GAP - (now - entry.at))))
+	end
 	return false
 end
 
@@ -815,23 +824,31 @@ local function ObserveAnnouncement(text, _, _, _, _, _, zoneID, index)
 	end
 end
 
-local function CopyAnnouncement(channel)
+local function CopyAnnouncement(channel, reminder)
 	local guild = WhisperGuild()
 	if not guild or not ns.Dialog or ns.Dialog.missing then return false end
 	local current = CurrentPublicChannel(channel)
 	if not current then
-		ns.Print(L.RECRUIT_ANNOUNCE_CHANNEL_CHANGED)
-		ns.Fire("DATA_CHANGED")
+		if not reminder then
+			ns.Print(L.RECRUIT_ANNOUNCE_CHANNEL_CHANGED)
+			ns.Fire("DATA_CHANGED")
+		end
 		return false
 	end
 	local name = current.name:lower()
-	if not AnnouncementReady(name) then return false end
+	if not AnnouncementReady(name, reminder) then return false end
 	local message = AnnouncementText()
 	local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_ANNOUNCEMENT", ns.Codec.SanitizeChat(current.name), nil,
-		{ channel = name, public = current, guild = guild, message = message, command = ("/%d %s"):format(current.id, message) })
+		{ channel = name, public = current, guild = guild, message = message, command = ("/%d %s"):format(current.id, message), reminder = reminder })
 	if not draft then return false end
+	if not reminder then lastAnnouncement = { public = current, guild = guild } end
 	announcementVariant = (announcementVariant + 1) % 3
 	return true
+end
+
+local function ReminderAllowed()
+	return Recruiting() and not ns.QuietPresence() and not ns.Quiet() and not ns.ChatLocked()
+		and not (InCombatLockdown and InCombatLockdown()) and not (IsInInstance and IsInInstance())
 end
 
 local function PostAnnouncement(f, draft, reason) -- gp:recruit-public-post
@@ -841,6 +858,7 @@ local function PostAnnouncement(f, draft, reason) -- gp:recruit-public-post
 		ns.Print(L.RECRUIT_ANNOUNCE_CHANNEL_CHANGED)
 		return true
 	end
+	if draft.reminder and not ReminderAllowed() then return end
 	if not AnnouncementReady(draft.channel) then return true end
 	local send = C_ChatInfo and C_ChatInfo.SendChatMessage
 	if type(send) ~= "function" or ns.ChatLocked() then
@@ -874,8 +892,10 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 	editBoxWidth = 470,
 	OnShow = function(f, draft)
 		f.editBox:SetText(draft.command)
-		ns.Focus(f.editBox)
-		f.editBox:HighlightText()
+		if not draft.reminder then
+			ns.Focus(f.editBox)
+			f.editBox:HighlightText()
+		end
 	end,
 	timeout = 0,
 	whileDead = true,
@@ -883,14 +903,24 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 	preferredIndex = 3,
 }
 
+local function RemindAnnouncement()
+	if not ReminderAllowed() or not ns.Dialog or ns.Dialog.missing then return end
+	if ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT") then return end
+	if lastAnnouncement and lastAnnouncement.guild == recruitingGuild then
+		CopyAnnouncement(lastAnnouncement.public, true)
+	else
+		ns.Print(L.RECRUIT_ANNOUNCE_REMIND)
+	end
+end
+
 local function ChangeReminder()
 	if reminderTimer then reminderTimer.Cancel(); reminderTimer = nil end
 	reminderIndex = reminderIndex % #REMINDER_MINUTES + 1
 	local minutes = REMINDER_MINUTES[reminderIndex]
 	if minutes > 0 then
-		reminderTimer = ns.Every(minutes * 60, "recruiting reminder", function()
-			if WhisperGuild() then ns.Print(L.RECRUIT_ANNOUNCE_REMIND) end
-		end)
+		reminderTimer = ns.Every(minutes * 60, "recruiting reminder", RemindAnnouncement)
+	else
+		CloseReminderDraft()
 	end
 	ns.Fire("DATA_CHANGED")
 end
@@ -1224,7 +1254,7 @@ end
 function Recruit.ResetForTests()
 	StopRecruiting()
 	if reminderTimer then reminderTimer.Cancel(); reminderTimer = nil end
-	announceOpen, reminderIndex, announcementVariant = false, 1, 0
+	announceOpen, reminderIndex, announcementVariant, lastAnnouncement = false, 1, 0, nil
 	wipe(publicRecruitmentAt)
 	wipe(contacted)
 	lastOutreach, lastReplyPrompt = nil, nil
