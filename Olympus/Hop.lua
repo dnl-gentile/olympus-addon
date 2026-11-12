@@ -17,7 +17,9 @@ local L = ns.L
 -- go after a while: the guest's addon leaves, since only a click may remove someone from a
 -- group).
 --   LQ~<id>~<mapID>~<zoneUID>    (channel) who on this layer can invite me?
+--   LQ~<id>~<mapID>~<zoneUID>~<faction>~<realm> (whisper) fallback to a known sister-guild helper
 --   LO~<id>~<group>~<load>       (whisper) I can: my group size (0 = none), my recent invites
+--   LO~<id>~<group>~<load>~S     (whisper) offer in response to the sister-guild fallback
 --   LR~<id>                      (whisper) please invite me
 --   LN~<id>                      (whisper) I can't now
 --   LX~<id>                      (whisper) your time in my group is up: please leave it
@@ -41,6 +43,7 @@ ns.Hop = Hop
 Hop.OFFERS = 6          -- offers wanted per ask, however crowded the layer
 Hop.WINDOW = 3          -- seconds the asker collects offers before choosing
 Hop.NOBODY = 15         -- no offer at all this long after the ask: nobody can
+Hop.SISTER_TRIES = 3    -- bounded direct asks after the guild search finds no offer
 Hop.WAIT = 30           -- seconds a chosen helper has to invite (their window closes at 20)
 Hop.POPUP_TIME = 20     -- the helper's window
 Hop.ACCEPT_WAIT = 15    -- invite accepted, and no group this long after: next helper
@@ -273,20 +276,50 @@ local function Member(sender)
 end
 Hop.Member = Member
 
+-- A layer announcement chooses whom we ask. It does not establish their membership.
+local function Sister(name, expectedGuild)
+	if ns.IsKingCharacter(name) or Hop.SubRealmOf(name) or ns.RealmOf(name) ~= ns.realm then return nil end
+	local guild = (ns.Moderation.GuildOf and ns.Moderation.GuildOf(name))
+		or (ns.Data.ClaimedGuild and ns.Data.ClaimedGuild(name))
+	if not guild or (expectedGuild and guild ~= expectedGuild) or not ns.IsFederation(guild)
+		or ns.Fold(guild) == ns.Fold(GetGuildInfo("player") or "") then return nil end
+	if ns.Moderation.Hides and ns.Moderation.Hides(name, guild, true) then return nil end
+	local C = ns.Channels
+	if not C or not C.VerifiedLevel then return nil end
+	local level, verified = C.VerifiedLevel(name, guild, true)
+	if verified and type(level) == "number" and level >= 1 then return guild end
+end
+
+local function Eligible(name, sisterGuild)
+	if sisterGuild then return Sister(name, sisterGuild) ~= nil end
+	return Member(name)
+end
+
 function Hop.HandleAsk(dist, sender, text)
-	if dist ~= "CHANNEL" then return end
-	local id, mapID, zoneUID = text:match("^LQ~(%d+)~(%d+)~(%d+)$")
+	local id, mapID, zoneUID, faction, realm
+	local sisterGuild
+	if dist == "CHANNEL" then
+		id, mapID, zoneUID = text:match("^LQ~(%d+)~(%d+)~(%d+)$")
+	elseif dist == "WHISPER" and ns.Relay and ns.Relay.On and ns.Relay.On() then
+		id, mapID, zoneUID, faction, realm = text:match("^LQ~(%d+)~(%d+)~(%d+)~(%a+)~([%w_%-]+)$")
+		if not id or faction ~= ns.faction or realm ~= ns.realm then return end
+		sisterGuild = Sister(ns.FullName(sender))
+		if not sisterGuild then return end
+	else
+		return
+	end
 	id, mapID, zoneUID = tonumber(id), tonumber(mapID), tonumber(zoneUID)
 	if not id then return end
+	if sisterGuild and (id < 1 or id > 99999 or mapID < 1 or zoneUID < 1) then return end
 	sender = ns.FullName(sender)
 	-- 1.1: a name the moderators took off (net-off, Moderation.lua) gets no offer.
 	if ns.Moderation.Hides and ns.Moderation.Hides(sender) then return end
 	local short = ns.ShortName(sender)
 	local now = ns.Now()
-	if not Member(sender) then stats.strangers = (stats.strangers or 0) + 1 return end
+	if not Eligible(sender, sisterGuild) then stats.strangers = (stats.strangers or 0) + 1 return end
 	-- Only an admitted Olympus member contributes to the crowd/backoff state.  A stranger may
 	-- still send an addon packet on the public channel, but cannot manipulate a layer's demand.
-	Hop.Hear(mapID, zoneUID, short, now)
+	if not sisterGuild then Hop.Hear(mapID, zoneUID, short, now) end
 	-- Quiet presence (Core.lua): no offer of ours, which would say we are online and on that layer.
 	if Quiet() then return end
 	if now - (answeredAt[short] or -math.huge) < Hop.HELP_GAP then return end
@@ -294,13 +327,15 @@ function Hop.HandleAsk(dist, sender, text)
 	if not Hop.CanHelp(mapID, zoneUID) then return end
 	-- Few announce their layer since sharing is a choice (0.9.1), so Chance can think a busy
 	-- layer empty: with several askers at once, each ask takes a share of the helpers, not all.
-	local chance = Hop.Chance(mapID, zoneUID)
-	local asking = Hop.Crowd(mapID, zoneUID, now)
-	if asking > 1 then chance = math.min(chance, math.max(1 / asking, 0.1)) end
-	if Hop.random() > chance then return end
+	if not sisterGuild then
+		local chance = Hop.Chance(mapID, zoneUID)
+		local asking = Hop.Crowd(mapID, zoneUID, now)
+		if asking > 1 then chance = math.min(chance, math.max(1 / asking, 0.1)) end
+		if Hop.random() > chance then return end
+	end
 	answeredAt[short] = now
-	local key = id .. short
-	local offer = { t = now, mapID = mapID, zoneUID = zoneUID }
+	local key = id .. ":" .. short
+	local offer = { t = now, mapID = mapID, zoneUID = zoneUID, sisterGuild = sisterGuild, from = sender }
 	offered[key] = offer
 	lastOffer = now
 	-- A random pause spreads the offers of a crowd over a couple of seconds.
@@ -308,13 +343,13 @@ function Hop.HandleAsk(dist, sender, text)
 		-- We may have moved, entered combat or stopped sharing during that pause.
 		if offered[key] ~= offer then return end
 		local function Allowed()
-			return offered[key] == offer and Member(sender)
+			return offered[key] == offer and Eligible(sender, sisterGuild)
 				and not (ns.Moderation.Hides and ns.Moderation.Hides(sender))
 				and Hop.CanHelp(mapID, zoneUID) and not Quiet()
 		end
 		if not Allowed() then offered[key] = nil; return end
 		local group, load = Hop.GroupState(), Load()
-		local body = ("LO~%d~%d~%d"):format(id, group, load)
+		local body = ("LO~%d~%d~%d"):format(id, group, load) .. (sisterGuild and "~S" or "")
 		ns.Comm.Whisper(sender, body, nil, true, false, function(sent)
 			if not sent and offered[key] == offer then offered[key] = nil end
 		end, { owner = Hop, key = "hop-offer:" .. key, permit = function(_, _, dist, target, msg)
@@ -351,10 +386,12 @@ function Hop.HandleRequest(dist, sender, text)
 	local id = tonumber(text:match("^LR~(%d+)$"))
 	sender = ns.FullName(sender)
 	if ns.Moderation.Hides and ns.Moderation.Hides(sender) then return end -- (1.1: net-off)
-	if not Member(sender) then stats.strangers = (stats.strangers or 0) + 1 return end
-	local key = id and (id .. ns.ShortName(sender))
+	local key = id and (id .. ":" .. ns.ShortName(sender))
 	local offer = key and offered[key]
+	local sisterGuild = offer and offer.sisterGuild
+	if not Eligible(sender, sisterGuild) then stats.strangers = (stats.strangers or 0) + 1 return end
 	if not offer or ns.Now() - offer.t > 120 then return end
+	if sisterGuild and sender ~= offer.from then return end
 	offered[key] = nil
 	-- Quiet presence (Core.lua) since our offer: no invite and no answer; the asker's next offer
 	-- comes once this one lapses (Hop.WAIT), as after a logout.
@@ -368,7 +405,7 @@ function Hop.HandleRequest(dist, sender, text)
 	-- 1.2.1: both, only for a player the addon can vouch for (Hop.Trusted: roster, signed or
 	-- pinned); a member of another guild the census names gets the window, a click.
 	local wanted = ns.db.layerAutoInvite or (KingChoice() == "auto" and OnKingLayer(true))
-	local auto = wanted and Hop.Trusted(sender)
+	local auto = wanted and not sisterGuild and Hop.Trusted(sender)
 	-- (1.5.4) An asker on another Forever sub-realm arrives only after logging out and back in: his
 	-- window says so, and he is kept RELOG_WINDOW (Invite).
 	local other = Hop.SubRealmOf(sender)
@@ -380,11 +417,11 @@ function Hop.HandleRequest(dist, sender, text)
 	-- unvouched: the player chose not to be asked, and only Hop.Trusted brought this window up
 	-- (Answer: its no is no step towards the pause).
 	pending = { from = sender, id = id, t = ns.Now(), mapID = offer.mapID, zoneUID = offer.zoneUID,
-		unvouched = (wanted and not auto) and true or nil, other = other }
+		unvouched = (sisterGuild or (wanted and not auto)) and true or nil, other = other, sisterGuild = sisterGuild }
 	-- In an instance or on Busy (1.1, ns.Alert): no sound and no window; they come once the player
 	-- is out, while the asker still waits (Hop.WAIT), else the request only lapses.
 	local ask = pending
-	local which = other and "OLYMPUS_HOP_REQUEST_RELOG" or "OLYMPUS_HOP_REQUEST"
+	local which = sisterGuild and "OLYMPUS_HOP_REQUEST_SISTER" or (other and "OLYMPUS_HOP_REQUEST_RELOG" or "OLYMPUS_HOP_REQUEST")
 	ns.Alert("hop", "soft", { what = L.HELD_HOP:format(ns.DisplayName(sender)), key = "hop:" .. id,
 		open = function() return pending == ask and ns.Now() - ask.t <= Hop.WAIT end,
 		show = function() if pending == ask then ns.ShowDialog(which, ns.DisplayName(sender), nil, ask) end end })
@@ -395,12 +432,13 @@ local function Answer(data, invite, always)
 	if not data or pending ~= data then return end
 	pending = nil
 	-- A button can be clicked long after its offer. Recheck every eligibility gate.
-	if invite and (ns.Now() - data.t > Hop.WAIT or not Member(data.from)
+	if invite and (Quiet() or ns.Now() - data.t > Hop.WAIT or not Eligible(data.from, data.sisterGuild)
 		or (ns.Moderation.Hides and ns.Moderation.Hides(data.from))
 		or not Hop.CanHelp(data.mapID, data.zoneUID)) then
 		SayNo(data.from, data.id)
 		return Changed()
 	end
+	always = always and not data.sisterGuild
 	if always then
 		ns.db.layerAutoInvite = true
 		-- The kept setting still asks first in a group of our own (OnlyGuests). Clicked in one, the
@@ -438,6 +476,17 @@ StaticPopupDialogs["OLYMPUS_HOP_REQUEST"] = {
 	OnAlt = function(self, data) ns.SafeCall("hop invite", Answer, data or self.data, true, true) end,
 	-- Not now, Escape or the timeout: the asker moves on to someone else.
 	OnCancel = function(self, data) ns.SafeCall("hop no", Answer, data or self.data, false) end,
+	timeout = Hop.POPUP_TIME,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+StaticPopupDialogs["OLYMPUS_HOP_REQUEST_SISTER"] = {
+	text = L.HOP_REQUEST,
+	button1 = L.HOP_INVITE,
+	button2 = L.HOP_NOT_NOW,
+	OnAccept = StaticPopupDialogs["OLYMPUS_HOP_REQUEST"].OnAccept,
+	OnCancel = StaticPopupDialogs["OLYMPUS_HOP_REQUEST"].OnCancel,
 	timeout = Hop.POPUP_TIME,
 	whileDead = true,
 	hideOnEscape = true,
@@ -545,7 +594,7 @@ local function Failed(nobody)
 	local message = L.HOP_GAVE_UP_WAIT
 	if nobody then
 		local R = ns.Relay
-		message = R and R.On and R.On() and L.HOP_NO_GUILD_HELPER_WAIT or L.HOP_NOBODY_WAIT
+		message = R and R.On and R.On() and not (ask and ask.sisterTargets) and L.HOP_NO_GUILD_HELPER_WAIT or L.HOP_NOBODY_WAIT
 	end
 	Finish(message:format(math.ceil(Hop.WaitLeft())))
 end
@@ -603,6 +652,35 @@ local function CanSend(a)
 	return Current(a) and RequestProblem() == nil
 end
 
+local function SisterOnLayer(a, name, guild)
+	if not Sister(name, guild) then return false end
+	local current = ns.Layers.Of(name, true)
+	return current and not current.realm and current.mapID == a.mapID and current.zoneUID == a.zoneUID
+end
+
+local function TrySisterHelpers(a)
+	local R = ns.Relay
+	if a.realm or a.sisterTargets or not (R and R.On and R.On()) or not ns.Layers.HopPeers or not ns.faction or not ns.realm then
+		return false
+	end
+	local body = ("LQ~%d~%d~%d~%s~%s"):format(a.id, a.mapID, a.zoneUID, ns.faction, ns.realm)
+	local targets, count = {}, 0
+	for _, peer in ipairs(ns.Layers.HopPeers(a.mapID, a.zoneUID)) do
+		local name, guild = peer.name, peer.guild
+		if Sister(name, guild) and ns.Comm.Whisper(name, body, nil, true, false, nil, { owner = a, guard = function()
+			return a.phase == "asking" and CanSend(a) and SisterOnLayer(a, name, guild)
+		end }) then
+			targets[name], count = guild, count + 1
+			if count >= Hop.SISTER_TRIES then break end
+		end
+	end
+	if count == 0 then return false end
+	a.sisterTargets, a.t = targets, ns.Now()
+	ns.Print(L.HOP_SISTER_SEARCH)
+	Changed()
+	return true
+end
+
 function Hop.Next()
 	if not ask or (ask.phase ~= "asking" and ask.phase ~= "requested" and ask.phase ~= "accepted") then return end
 	local problem = RequestProblem()
@@ -615,6 +693,7 @@ function Hop.Next()
 			a.phase = "asking"
 			return Changed()
 		end
+		if a.count == 0 and TrySisterHelpers(a) then return end
 		return Failed(a.count == 0)
 	end
 	a.helper, a.phase, a.asked = o.name, "requesting", nil
@@ -635,7 +714,10 @@ function Hop.Next()
 		a.phase, a.asked = "requested", ns.Now()
 		ns.Print(L.HOP_REQUESTED:format(ns.DisplayName(o.name)))
 		Changed()
-	end, { owner = a, guard = function() return a.phase == "requesting" and a.helper == o.name and CanSend(a) end })
+	end, { owner = a, guard = function()
+		return a.phase == "requesting" and a.helper == o.name and CanSend(a)
+			and (not o.sisterGuild or SisterOnLayer(a, o.name, o.sisterGuild))
+	end })
 	Changed()
 end
 
@@ -767,12 +849,20 @@ end
 function Hop.HandleOffer(dist, sender, text)
 	if dist ~= "WHISPER" or not ask or not ask.t or ask.phase == "done" or ask.phase == "joined" then return end
 	local id, group, load = text:match("^LO~(%d+)~(%d+)~(%d+)$")
+	local sister = not id
+	if sister then id, group, load = text:match("^LO~(%d+)~(%d+)~(%d+)~S$") end
 	if tonumber(id) ~= ask.id then return end
 	sender = ns.FullName(sender)
 	if ns.Moderation.Hides and ns.Moderation.Hides(sender) then return end -- (1.1: net-off: no offer of theirs)
 	if ask.offers[sender] or ask.count >= Hop.MAX_OFFERS then return end
 	-- 1.2.1: only a member's offer (Member): the ask's id is on the channel for anyone to answer.
-	if not Member(sender) then stats.strangers = (stats.strangers or 0) + 1 return end
+	local sisterGuild = sister and ask.sisterTargets and ask.sisterTargets[sender]
+	if sister then
+		if not sisterGuild or ns.Now() - ask.t > Hop.NOBODY or not SisterOnLayer(ask, sender, sisterGuild) then return end
+	elseif not Member(sender) then
+		stats.strangers = (stats.strangers or 0) + 1
+		return
+	end
 	-- (1.5.4) The ask names a zone UID, which on another Forever sub-realm is another layer: for a
 	-- layer there only a helper his hello places there (Hop.SubRealmOf), for one here none his hello
 	-- places elsewhere. Anyone else's offer would group the asker on the wrong layer.
@@ -782,7 +872,7 @@ function Hop.HandleOffer(dist, sender, text)
 		return
 	end
 	ask.offers[sender] = { name = sender, group = math.min(tonumber(group), 40), load = math.min(tonumber(load), 99), t = ns.Now(),
-		trusted = Hop.Trusted(sender) }
+		trusted = not sisterGuild and Hop.Trusted(sender), sisterGuild = sisterGuild or nil }
 	ask.count = ask.count + 1
 	Changed()
 end
@@ -816,6 +906,7 @@ function Hop.OnInvite(name) -- gp:party-invite
 	-- and the game's invite window is the one a controller answers. (1.2.1: asked again now, not
 	-- only when the offer came: a signed role can lapse, a guildmate leave, in between.)
 	local o = ask.offers[helper]
+	if o and o.sisterGuild and not Sister(helper, o.sisterGuild) then return end
 	if not (o and o.trusted and Hop.Trusted(helper)) or ns.GamepadUI() then
 		-- The player decides: the wait starts over from this invite, and the group they may
 		-- join counts as this helper's (OnRoster) even before the game names its members.
@@ -1023,7 +1114,8 @@ function Hop.OnRoster()
 	-- other group (a friend's) and the hop is off: the addon never leaves that one.
 	local names, helper, named = GroupNames(), nil, false
 	for name in pairs(ask.tried) do
-		if names[ns.ShortName(name)] then helper = name end
+		local offer = ask.offers[name]
+		if names[ns.ShortName(name)] and (not (offer and offer.sisterGuild) or ask.invitedBy == name) then helper = name end
 	end
 	for short in pairs(names) do
 		if short ~= "" and short ~= (UNKNOWNOBJECT or "Unknown") then named = true end
@@ -1119,10 +1211,8 @@ function Hop.Tick()
 	if ask.phase == "queued" then
 		if now >= ask.sendAt then Hop.SendAsk() end
 	elseif ask.phase == "asking" then
-		if now - ask.t >= Hop.WINDOW and ask.count > 0 then
+		if (now - ask.t >= Hop.WINDOW and ask.count > 0) or now - ask.t >= Hop.NOBODY then
 			Hop.Next()
-		elseif now - ask.t >= Hop.NOBODY then
-			Failed(ask.count == 0)
 		end
 	elseif ask.phase == "requested" then
 		if now - ask.asked >= Hop.WAIT then Hop.Next() end

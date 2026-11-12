@@ -1570,6 +1570,7 @@ L.THRONE_NOT_NAMED = "The addon does not know the King's character on your side 
 -- 0.9.1: scale
 L.HOP_NOBODY_WAIT = "Nobody on that layer can invite you right now. Try again in %ds."
 L.HOP_NO_GUILD_HELPER_WAIT = "No guildmate on that layer answered. Try again in %ds."
+L.HOP_SISTER_SEARCH = "No guildmate answered. Asking sister-guild helpers on that layer..."
 L.HOP_GAVE_UP_WAIT = "No invite came. Try again in %ds."
 L.HOP_CROWDED = "Many players are asking for that layer right now: your request goes out in %ds."
 L.SHAME_COOLDOWN = "Wait %ds before publishing the Wall of Shame again."
@@ -4082,6 +4083,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	-- 0.9.1: scale
 	L.HOP_NOBODY_WAIT = "Ninguém nesse layer pode te convidar agora. Tente de novo em %ds."
 	L.HOP_NO_GUILD_HELPER_WAIT = "Nenhum colega de guilda respondeu nesse layer. Tente de novo em %ds."
+	L.HOP_SISTER_SEARCH = "Nenhum colega respondeu. Pedindo ajuda a membros de guildas irmãs nesse layer..."
 	L.HOP_GAVE_UP_WAIT = "O convite não veio. Tente de novo em %ds."
 	L.HOP_CROWDED = "Muitos jogadores estão pedindo esse layer agora: seu pedido sai em %ds."
 	L.SHAME_COOLDOWN = "Espere %ds para publicar o Mural da Vergonha de novo."

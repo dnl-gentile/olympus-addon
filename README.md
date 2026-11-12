@@ -411,6 +411,11 @@ off` stops the requests, `/oly layerhelp on` also forgets the answer to the King
 window, `/oly layerauto on` invites them without the window. Helpers must be in the same zone
 as the layer they are on, and the King himself is never asked.
 
+On Forever, if nobody in your guild offers to help, Olympus can ask up to three known members
+of sister guilds who recently shared the selected layer on your sub-realm. Both clients must
+recognize each other's Olympus membership. Helpers still need to opt in to location sharing
+and layer help, and both players confirm the group invitation by hand.
+
 Layers are known from the members who share their zone and layer (see Privacy, below):
 the more share, the better hopping works. Asking works either way, and says on the channel
 the zone you are in and the layer you want. If the King's own layer announcement has not
@@ -2602,7 +2607,7 @@ goes where:
 | A verification ask: how many verifications and guild starts your client holds, the newest one's time and a sum of the starts (no names) | everyone on the Olympus channel | after login, then every half hour; never in quiet presence |
 | A verifier's answer: every verification it holds (guild, guild master, time, who approved) and each guild's start (the first time a verifier's client saw it) | everyone on the Olympus channel | only from a verifier's client, when a client that holds less asks, at most every 3 minutes; never in quiet presence. Kept: a guild's start 90 days after it was last seen, your own client's first sighting of each guild 30 days |
 | Your zone, layer, guild rank and guild (layer announcements) | everyone on the Olympus channel | only if you share: officers and one member in eight announce, every 10 minutes and when their layer changes |
-| A layer hop ask: the zone you are in and the layer you want; or a King-layer discovery question: the map and current crown lease, but no claimed destination layer | everyone on the Olympus channel | when you ask to hop or explicitly click the King's unknown-layer line |
+| A layer hop ask: the zone you are in and the layer you want; or a King-layer discovery question: the map and current crown lease, but no claimed destination layer | Olympus channel, or your guild on Forever; a same-sub-realm hop on Forever can then privately ask up to three recognized members of sister guilds | when you ask to hop or explicitly click the King's unknown-layer line |
 | An answer to an ask for your layer (it tells the asker you are on it), including a direct sighting when an active asker is discovering the King's layer | the asker alone (a whisper; a direct sighting is never broadcast by itself) | only if you share your zone and layer and said yes to layer help (1.1: off until you answer, on the first-open page or with `/oly layerhelp on`; `/oly layerhelp off` stops it); direct sightings require two independent answers, last only for that request and are withdrawn on opt-out while it remains active |
 | [Olympus], [Captains] and [Lords] lines | everyone on the Olympus channel, all three | when you write one, only while the Olympus chats are on (1.1: off until you say yes, on the first-open page or with `/oly chat on`) |
 | A pinned line (1.1): its words, your guild and, as on every message, your name | the King's, his Stewards' and Hands': everyone on the Olympus channel. A guild master's, and a higher rank's takedown of it: his guild alone (over guild chat) | when you pin one (only while your Olympus chats are on, never while the moderators have you off), again every 5 minutes while it lasts (2 hours at most, a `/reload` included), and when you take it down (`/oly pin off` with nothing pinned on your screen too, once a minute at most: a `/reload` on the Forever beta forgets your pin); a pin you took down (its number and your guild), when you take it down and again when its setter's addon repeats it, once a minute at most, never while the moderators have you off |
