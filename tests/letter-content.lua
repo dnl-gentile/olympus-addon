@@ -452,6 +452,8 @@ test("1.5.8 letter content: each locale explains recruiting, the Join page and t
 	assert(english:find("Anyone can whisper you JOIN, even without Olympus.", 1, true))
 	assert(english:find("with 4,000 of us online, that is 40,000 invites a minute", 1, true))
 	assert(english:find("Passing requests between members is still experimental", 1, true))
+	-- (The author's ask, 11-12: the thanks at the end, naming who helped most.)
+	assert(english:find("To everyone who sent ideas, bug reports and fixes: thank you.", 1, true))
 	-- (Changed on purpose after review: the letter said reminders were timed separately for each
 	-- channel, but Recruit.lua runs one reminder timer that takes the joined public channels in
 	-- turn; what each channel keeps is its own wait after a post.)

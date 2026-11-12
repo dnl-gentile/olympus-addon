@@ -469,7 +469,8 @@ function H.Receive(dist, sender, word)
 	Changed()
 	return true
 end
-ns.Comm.Handle("J4", H.Receive)
+-- (The handler is bound late: H.Receive is wrapped below by the recruiting log, one registration.)
+ns.Comm.Handle("J4", function(...) return H.Receive(...) end)
 
 local function Contacts(req, own)
 	local result, seen = {}, {}
@@ -706,7 +707,6 @@ function H.Receive(dist, sender, word)
 	if op then H.LogPacket(ok and "RX" or "REFUSED", op, sender, op == "N" and word:match("~([^~]*)$") or nil) end
 	return ok
 end
-ns.Comm.Handle("J4", H.Receive)
 
 local function Stamp(t)
 	return date and date("%H:%M:%S", t) or tostring(t)
