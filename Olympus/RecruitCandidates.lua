@@ -146,11 +146,20 @@ end
 
 local function Tick()
 	if not Q.Enabled() then Q.Reset(); Change(); return end
-	local before, now = #rows, GetTime()
+	local before, now, quiet = #rows, GetTime(), Quiet()
+	if not quiet then
+		-- A stationary nameplate can stay visible longer than a reminder interval.
+		-- Recheck only the exact unit tokens already kept in the bounded queue.
+		for _, row in ipairs(rows) do
+			if row.guid and (UnitMatches(row, row.plate) or (row.target and UnitMatches(row, "target"))) then
+				row.seen = now
+			end
+		end
+	end
 	Prune(now)
 	if #rows ~= before then Change() end
 	local whisperDue = whisperAt and now >= whisperAt
-	if (not prompts and not whisperDue) or Quiet() or not ns.Dialog or ns.Dialog.missing then return end
+	if (not prompts and not whisperDue) or quiet or not ns.Dialog or ns.Dialog.missing then return end
 	for _, which in ipairs(blockingDrafts) do if ns.Dialog.Find(which) then return end end
 	if whisperDue then
 		for _, row in ipairs(rows) do

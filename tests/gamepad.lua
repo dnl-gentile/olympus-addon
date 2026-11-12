@@ -3911,11 +3911,10 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 		ClickLine(function(line) return line.id == "recruit-candidate-whisper-reminder" end)
 		Refresh()
 		assert(QueueLine(ns.L.RECRUIT_CANDIDATE_WHISPER_EVERY:format(2)))
+		Plate(6, "TimedWhisper", nil, "Alliance")
 		C.Advance(105)
-		Plate(2, "NearTest", nil, "Alliance")
 		who[1].fullName = "WhoOnlyAgain-Realm"
 		C.Fire("WHO_LIST_UPDATE")
-		Plate(6, "TimedWhisper", nil, "Alliance")
 		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"), nil, "the reminder waits for its interval")
 		C.Advance(35)
 		local timed = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"))
