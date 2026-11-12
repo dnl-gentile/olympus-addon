@@ -211,7 +211,7 @@ ns.GAMEPAD = {
 		why = "ReloadUI, from the Reload button of Olympus's own gamepad notice (1.2: and the Arena bank's Save, Wallet.lua): the player's click." },
 	{ id = "recruit-public-post", kind = "restricted", files = { "Recruit.lua" },
 		guard = "click", toPad = "stays", toMouse = "nothing", safe = "off",
-		why = "One public chat message to the selected, joined channel from an explicit Post click in Olympus's announcement preview." },
+		why = "One public chat message to the selected, joined channel from an explicit Post click or Enter in the focused draft in Olympus's announcement preview." },
 	{ id = "hop-group", kind = "restricted", files = { "Hop.lua", "ArenaMatch.lua" },
 		guard = "exempt", toPad = "stays", toMouse = "nothing", safe = "off", approved = APPROVED,
 		why = "The layer hop's group: the helper's addon invites a vouched guest (InviteUnit) and either side leaves after the hop (LeaveParty), from Olympus's own messages and timers; neither is protected, and the game's group frames follow from its own events. (1.2: a match's group the same way, ArenaMatch.lua: the invite inside the player's click, the leave at the match's end.) (1.5.4: a hop to a layer on another Forever sub-realm leaves the same way once the player is back in the game on that sub-realm and the layer is confirmed, and from the Leave group button of Olympus's relog window; its wait never leaves a group on its own.)" },

@@ -986,7 +986,7 @@ local function ReminderAllowed()
 end
 
 local function PostAnnouncement(f, draft, reason) -- gp:recruit-public-post
-	if reason ~= "clicked" then return end
+	if reason ~= "clicked" and reason ~= "enter" then return end
 	if not ns.Gate.Allowed("recruit-public-post") then return true end
 	if type(draft) ~= "table" or not draft.public or draft.guild ~= WhisperGuild() or not CurrentPublicChannel(draft.public) then
 		ns.Print(L.RECRUIT_ANNOUNCE_CHANNEL_CHANGED)
@@ -1023,6 +1023,9 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 	button1 = L.RECRUIT_WHISPER_CLOSE,
 	button2 = L.RECRUIT_ANNOUNCE_POST,
 	OnButton2 = PostAnnouncement,
+	EditBoxOnEnterPressed = function(box, draft)
+		if box:HasFocus() then PostAnnouncement(box:GetParent(), draft, "enter") end
+	end,
 	hasEditBox = true,
 	editBoxWidth = 470,
 	OnShow = function(f, draft)
@@ -1083,18 +1086,18 @@ local function AnnouncementLines(lines, V)
 		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_ANNOUNCE_CHANNEL:format(row.id, ns.Codec.SanitizeChat(row.name))),
 			onClick = function() CopyAnnouncement(row) end }
 	end
-	lines[#lines + 1] = { text = L.RECRUIT_ANNOUNCE_REMINDER_TITLE, header = true, spaceBefore = 6 }
 	local intervals = {}
 	for index, minutes in ipairs(REMINDER_MINUTES) do
 		intervals[index] = {
 			text = minutes == 0 and L.RECRUIT_ANNOUNCE_REMINDER_OFF or L.RECRUIT_ANNOUNCE_REMINDER_ON:format(minutes),
 			selected = reminderIndex == index, onClick = function() SetReminder(index) end,
-			tooltip = function(tt) tt:AddLine(L.RECRUIT_ANNOUNCE_REMINDER_TIP, 1, 1, 1, true) end,
 		}
 	end
-	lines[#lines + 1] = { id = "recruit-announcement-reminder", nav = intervals }
+	lines[#lines + 1] = { id = "recruit-announcement-reminder", spaceBefore = 6,
+		filters = { { label = L.RECRUIT_ANNOUNCE_REMINDER_TITLE, value = intervals[reminderIndex].text, options = intervals } } }
 	lines[#lines + 1] = { indent = 1, gapAfter = true,
 		text = V.Grey(rotateReminder and L.RECRUIT_ANNOUNCE_REMINDER_ROTATE or L.RECRUIT_ANNOUNCE_REMINDER_SELECTED),
+		tooltip = function(tt) tt:AddLine(L.RECRUIT_ANNOUNCE_REMINDER_TIP, 1, 1, 1, true) end,
 		onClick = function()
 			rotateReminder, lastReminderChannel = not rotateReminder, nil
 			CloseReminderDraft()

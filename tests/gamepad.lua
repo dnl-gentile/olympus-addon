@@ -4195,7 +4195,7 @@ test("gamepad Forever Join requests can copy a command and open empty game chat 
 	GP.Covers("chat-box")
 end)
 
-test("gamepad public recruiting announcement: visible channels, accepted census, cooldown and reminder intervals", function()
+test("gamepad public recruiting announcement: reminder dropdown, independent channels and explicit Post or Enter", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
 		local L, R = ns.L, ns.Recruit
@@ -4220,7 +4220,7 @@ test("gamepad public recruiting announcement: visible channels, accepted census,
 		end
 		local function ReminderChoices()
 			for _, line in ipairs(R.WhisperLines()) do
-				if line.id == "recruit-announcement-reminder" then return line.nav end
+				if line.id == "recruit-announcement-reminder" then return line.filters[1].options end
 			end
 		end
 		local function Printed(text, start)
@@ -4247,7 +4247,7 @@ test("gamepad public recruiting announcement: visible channels, accepted census,
 			eq(intervals[i + 1].selected, false)
 		end
 		local tip
-		intervals[1].tooltip({ AddLine = function(_, message) tip = message end })
+		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_ROTATE)).tooltip({ AddLine = function(_, message) tip = message end })
 		eq(tip, L.RECRUIT_ANNOUNCE_REMINDER_TIP, "the control explains the draft and the explicit Post action")
 		local sends = #(C.said or {})
 		ClickLine(general)
@@ -4295,7 +4295,21 @@ test("gamepad public recruiting announcement: visible channels, accepted census,
 			reminderTick = callback
 			return every(seconds, where, callback)
 		end
-		InClick(C, intervals[2].onClick)
+		assert(ns.UI.SelectTab("church"))
+		local invite
+		for _, strip in ipairs(rawget(assert(Main(C)), "pageNavRows") or {}) do
+			for _, tab in ipairs(rawget(strip, "nav") or {}) do
+				if tab.item and tab.item.text == L.CHURCH_NAV_INVITES then invite = tab end
+			end
+		end
+		C.Click(assert(invite)); ns.UI.Refresh()
+		local picker
+		for _, row in ipairs(ns.UI.SelfTestView().rows) do
+			if row:IsShown() and row.line and row.line.id == "recruit-announcement-reminder" then picker = row.filters[1] end
+		end
+		C.Click(assert(picker, "the interval renders as a dropdown"))
+		assert(picker.choices:IsShown())
+		C.Click(picker.choices.buttons[2])
 		ns.Every = every
 		eq(ReminderChoices()[2].selected, true)
 		local before = #C.printed
@@ -4310,9 +4324,9 @@ test("gamepad public recruiting announcement: visible channels, accepted census,
 		ClickLine(trade)
 		draft = assert(Draft())
 		eq(draft.buttons[2]:GetText(), L.RECRUIT_ANNOUNCE_POST)
-		C.Fire1(draft.editBox, "OnEnterPressed")
 		C.Fire1(draft.editBox, "OnEscapePressed")
-		eq(#(C.said or {}), sends, "the copy box's Enter and Escape do not post")
+		InClick(C, function() C.Fire1(draft.editBox, "OnEnterPressed") end)
+		eq(#(C.said or {}), sends, "Escape and unfocused Enter do not post")
 		if initialPad then
 			-- The earlier input switch puts this session in mouse/keyboard mode.
 			ns.Dialog.CloseOnEscape(draft)
@@ -4326,7 +4340,7 @@ test("gamepad public recruiting announcement: visible channels, accepted census,
 		end
 		local original = draft.editBox:GetText()
 		draft.editBox:SetText(original .. " edited")
-		C.Click(draft.buttons[2])
+		InClick(C, function() draft.editBox:SetFocus(); C.Fire1(draft.editBox, "OnEnterPressed") end)
 		eq(#(C.said or {}), sends, "an edited draft remains copy-only")
 		assert(Printed(L.RECRUIT_ANNOUNCE_POST_EDITED))
 		draft.editBox:SetText(original)
@@ -4380,8 +4394,11 @@ test("gamepad public recruiting announcement: visible channels, accepted census,
 		reminderTick()
 		eq(draft.data, reminderData, "an existing draft is left alone")
 		eq(#C.said, sends + 1, "the timer never posts")
-		C.Click(draft.buttons[2])
-		eq(#C.said, sends + 2, "a single Post click sends the reminder's draft")
+		eq(draft.editBox:HasFocus(), false, "the timed popup never takes the keyboard")
+		InClick(C, function() C.Fire1(draft.editBox, "OnEnterPressed") end)
+		eq(#C.said, sends + 1, "unfocused Enter cannot submit a timed draft")
+		InClick(C, function() draft.editBox:SetFocus(); C.Fire1(draft.editBox, "OnEnterPressed") end)
+		eq(#C.said, sends + 2, "one focused Enter sends the reminder's draft")
 		eq(C.said[#C.said][3], "2")
 		eq(Draft(), nil, "one reminder can't post twice even without a channel echo")
 		ClickLine(L.RECRUIT_ANNOUNCE_REMINDER_SELECTED)
@@ -4393,6 +4410,9 @@ test("gamepad public recruiting announcement: visible channels, accepted census,
 		draft = assert(Draft(), "rotation skips the recently advertised General channel")
 		assert(draft.editBox:GetText():find("^/2 "))
 		C.Click(draft.buttons[1])
+		ClickLine(trade)
+		eq(assert(Draft()).data.public.name, "Trade", "an observed General ad does not block a manual Trade draft")
+		C.Click(Draft().buttons[1])
 		C.now = C.now + 120
 		reminderTick()
 		draft = assert(Draft(), "rotation comes back around to General")
@@ -4404,6 +4424,12 @@ test("gamepad public recruiting announcement: visible channels, accepted census,
 		eq(#C.said, sends + 2, "rotation never posts when opening or dismissing a draft")
 		eq(R.ToggleWhisperRecruiting(), false)
 		eq(Draft(), nil, "stopping recruitment closes its reminder")
+		ClickLine(general)
+		C.Click(assert(Draft()).buttons[2])
+		eq(#C.said, sends + 3)
+		ClickLine(trade)
+		eq(assert(Draft()).data.public.name, "Trade", "a successful General Post also leaves Trade ready")
+		C.Click(Draft().buttons[1])
 		C.Switch(initialPad); C.Advance(1)
 		Check(C.ledger, "recruiting announcement")
 		NoErrors(C, "recruiting announcement")
