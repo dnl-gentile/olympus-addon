@@ -4145,6 +4145,8 @@ test("gamepad Census offer: Turn on all turns every switch on", function()
 		end
 		U.Toggle()
 		eq(U.PageId(), "census/recruitment")
+		-- (The author's ask: the handoffs marked experimental, in a short line that is never cut off.)
+		assert(assert(Row("experimental"), "the experimental line").line.text:find(L.RECRUIT_CENSUS_EXPERIMENTAL, 1, true))
 		local all = assert(Row("all"), "with every switch off, a Turn on all button")
 		eq(all.primary:GetText(), L.RECRUIT_CENSUS_ALL)
 		assert(Row("later") and Row("never"), "the two dismissals stay under it")
@@ -4155,6 +4157,11 @@ test("gamepad Census offer: Turn on all turns every switch on", function()
 		eq(R.Candidates.Enabled(), true, "the unguilded scan on")
 		eq(ns.rdb.recruitmentPreference[ns.me].offerOverflow, true, "and the automatic offers of his own waiting requests")
 		eq(ns.rdb.recruitmentPreference[ns.me].acceptHandoffs, true, "and the requests others pass on")
+		local tagged = false
+		for _, line in ipairs(R.WhisperLines()) do
+			if line.text and line.text:find(L.RECRUIT_EXPERIMENTAL, 1, true) then tagged = true end
+		end
+		eq(tagged, true, "Church > Invites marks the handoffs experimental too")
 		eq(Row("all"), nil, "no Turn on all once a switch is on")
 		eq(assert(Row("done")).primary:GetText(), L.RECRUIT_CENSUS_DONE, "Done in its place")
 		NoErrors(C, "Census Turn on all")
