@@ -3415,6 +3415,87 @@ test("gamepad pass: a link in the Chat tab: a left click opens the game's link w
 	GP.Covers("item-ref")
 end)
 
+-- 1.5.9 (the dev on RP-PvP, 2026-11-12: a PvE line under RP-PvP, and "não tá mandando uma mensagem só
+-- lá"): the [Olympus] picker on Forever. A line of the channel's text is filed by its sender's GUID,
+-- CHAT_MSG_CHANNEL's twelfth value (read: nothing of the game's touched); a line written in the Chat tab
+-- under PvE goes as PvE's: with mouse and keyboard as the player's own text in the channel too
+-- (SendChatMessage from his Enter, the gate's chat-box), with the gamepad UI the hidden way alone, the
+-- same line. Both logins, and a switch each way.
+test("gamepad pass: the [Olympus] rulesets on Forever: the channel's lines filed by their GUID's server, a line written under PvE sent as PvE's, as text in the channel with mouse and keyboard alone; both logins and both switches", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad, { realmFrom = function() return "CAMWOWUS2Realm1RPPvP" end, surname = "Thornwood" })
+		local Chan = ns.Channels
+		assert(ns.splitNames == true, "names split: Forever")
+		eq(Chan.MyKind(), "rppvp")
+		local chan, index = ns.Comm.ChannelName(), ns.Comm.ChannelIndex()
+		assert(type(chan) == "string" and (index or 0) > 0, "the Olympus channel joined: " .. tostring(chan) .. " " .. tostring(index))
+		local n = 0
+		local function Hear(sender, guid, guild, text)
+			n = n + 1
+			C.Fire("CHAT_MSG_CHANNEL", ns.Codec.EncodeChat("A", guild, 10 + n, "WA", text), sender, "", index .. ". " .. chan, "", "",
+				0, index, chan, 0, n, guid)
+		end
+		local function Kept(text)
+			for _, e in ipairs(ns.rdb.chat and ns.rdb.chat.A or {}) do if e.text == text then return e end end
+		end
+		-- Someone of another guild on our own server (this character's GUID's: Player-1-...), someone on a
+		-- server nobody named, heard while the picker shows RP-PvP: our ruleset's line printed in the game's
+		-- chat (an addon's print, the gate's chat-output), the unknown one kept unprinted.
+		eq(Chan.SetGroupView("rppvp"), true)
+		local mark, printed = C.Mark(), #C.printed
+		Hear("Near-Neighbour", "Player-1-000000AA", "Olympus Elsewhere", "from our own server")
+		Hear("Far-Stranger", "Player-77-000000BB", "Olympus Nowhere", "from a server nobody named")
+		local heard = C.Since(mark)
+		Check(heard, "hearing the channel's text")
+		for _, r in ipairs(heard) do eq(table.concat(r.ids or {}, ","), "chat-output", "only a line printed: " .. Describe(r)) end
+		local shown = {}
+		for i = printed + 1, #C.printed do shown[#shown + 1] = C.printed[i] end
+		eq(#shown, 1, table.concat(shown, " | ")); assert(shown[1]:find("from our own server", 1, true), shown[1])
+		eq(Kept("from our own server").kind, "rppvp", "by its GUID's server")
+		eq(Kept("from a server nobody named").kind, false, "unknown: All alone")
+		local status = Chan.RulesetStatus()
+		assert(status:find("filed to=0 guid=1 known=0 unknown=1", 1, true) and status:find("with GUID 2", 1, true), status)
+		-- Written under PvE in the Chat tab, with each input style in turn. (Each line as Channels.Send hands
+		-- it to the chat lane, observed on its way: on Forever our echo waits for a relay, which the model
+		-- has none of; tests/chat-rulesets.lua checks the echo.)
+		eq(Chan.SetGroupView("pve"), true)
+		local f = assert(ns.ChatWindow.Open("A"), "the Chat tab")
+		C.Advance(1)
+		local handed, lane = {}, ns.Comm.SendChat
+		ns.Comm.SendChat = function(msg, ...) handed[#handed + 1] = msg; return lane(msg, ...) end
+		local function Write(text)
+			local said, before = #(C.said or {}), #handed
+			f.input:SetText(text)
+			local m = C.Mark()
+			InClick(C, function() C.RunScript(f.input, "OnEnterPressed") end)
+			C.Advance(2)
+			eq(#handed, before + 1, "one line to the lane: " .. text)
+			assert(handed[#handed]:find("^M1~A~Olympus II~02%d%d~WA~" .. text .. "$"), "a PvE line: " .. handed[#handed])
+			return #(C.said or {}) - said, C.Since(m)
+		end
+		local function AsText(text, pad)
+			local said, ledger = Write(text)
+			if pad then
+				eq(said, 0, "with the gamepad UI: the hidden way alone")
+			else
+				eq(said, 1, "with mouse and keyboard: the player's own text in the channel too")
+				local line = C.said[#C.said]
+				eq(line[1], handed[#handed], "the same line"); eq(line[2], "CHANNEL"); eq(line[3], index)
+				eq(Ids(ledger)["chat-box"], 1, "the gate's chat-box")
+			end
+			Check(ledger, text)
+		end
+		AsText("first for PvE", initialPad)
+		C.Switch(not initialPad); C.Advance(1)
+		AsText("second for PvE", not initialPad)
+		C.Switch(initialPad); C.Advance(1)
+		AsText("third for PvE", initialPad)
+		Check(C.ledger, "the rulesets' session")
+		NoErrors(C, "the rulesets' session")
+	end
+	GP.Covers("chat-box")
+end)
+
 test("gamepad pass: named item colours in the Chat tab use the client's RGB without changing its table, at either login and across both switches", function()
 	for _, loginPad in ipairs({ false, true }) do
 		local C, ns = Session(loginPad)

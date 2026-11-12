@@ -8245,6 +8245,9 @@ L.CHATWIN_GROUP_TITLE = "Rulesets"
 L.CHATWIN_GROUP_TIP = "Choose which rulesets appear in Olympus chat. All labels messages from other rulesets."
 L.CHATWIN_GROUP_EMPTY = "No messages for this ruleset."
 L.CHATWIN_GROUP_HARDCORE = "Hardcore"
+-- (1.5.9) A line written under one ruleset goes to that ruleset alone (Channels.Send, Codec.EncodeChat).
+L.CHATWIN_GROUP_SEND = "With one ruleset chosen, what you write goes to that ruleset alone. Older versions of Olympus still show it to everyone."
+L.CHATWIN_PLACEHOLDER_TO = "Write in [%s] to %s..."
 if GetLocale and GetLocale() == "ptBR" then
 	L.CHATWIN_GROUP_ALL = "Todos"
 	L.CHATWIN_GROUP_PVP = "PvP"
@@ -8254,4 +8257,6 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CHATWIN_GROUP_TITLE = "Conjuntos de regras"
 	L.CHATWIN_GROUP_TIP = "Escolha quais conjuntos de regras aparecem no chat Olympus. Todos identifica as mensagens de outros conjuntos."
 	L.CHATWIN_GROUP_EMPTY = "Nenhuma mensagem deste conjunto de regras."
+	L.CHATWIN_GROUP_SEND = "Com um conjunto escolhido, o que você escreve vai só para ele. Versões antigas do Olympus ainda mostram para todos."
+	L.CHATWIN_PLACEHOLDER_TO = "Escreva em [%s] para %s..."
 end

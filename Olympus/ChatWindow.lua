@@ -1047,7 +1047,7 @@ function ChatWindow.HeaderOf(v, e, deleted, chat)
 			v.whisper = tell or nil
 			v.tip = who .. "  <" .. ns.Codec.Plain(e.guild or "?") .. ">"
 		end
-		if not mine and tier == "A" then v.who = ns.Channels.GroupTag(tier, e.sender) .. v.who end
+		if not mine and tier == "A" then v.who = ns.Channels.GroupTag(tier, e) .. v.who end
 		v.headed, v.nativeGuild = true, nativeGuild
 	end
 	return v.who, v.when, v.whisper, v.tip
@@ -2764,7 +2764,10 @@ local function DrawInput()
 		local logical = ChatWindow.Logical(tier)
 		local public = logical and logical.scope == "topic"
 			or not room and not logical and ns.Comm and type(ns.Comm.IsPublic) == "function" and ns.Comm.IsPublic()
-		hint = L.CHATWIN_PLACEHOLDER:format(Label(tier)) .. (public and L.CHATWIN_PUBLIC or "")
+		-- (1.5.9) [Olympus] under one ruleset of the picker: the line goes to that ruleset alone (Channels.Send).
+		local to = tier == "A" and not room and not logical and ns.Channels.SendTo() or nil
+		hint = (to and L.CHATWIN_PLACEHOLDER_TO:format(Label(tier), L["CHATWIN_GROUP_" .. to:upper()])
+			or L.CHATWIN_PLACEHOLDER:format(Label(tier))) .. (public and L.CHATWIN_PUBLIC or "")
 	end
 	eb.hint:SetText(hint)
 	eb.hint:ClearAllPoints()
@@ -3010,13 +3013,8 @@ local function Draw()
 		-- (Read once, for the count and the lines. 1.2.3: with this era's memo of whom a moderator's
 		-- word hides, Channels.History: a line already asked about is not asked again.)
 		all = C.History(tier, ChatWindow.offMemo)
-		if tier == "A" and ns.splitNames and C.GroupView() ~= "all" then
-			local visible = {}
-			for _, entry in ipairs(all) do
-				if C.GroupVisible(tier, entry.sender, Own(entry)) then visible[#visible + 1] = entry end
-			end
-			all = visible
-		end
+		-- (The picker's rulesets: 1.5.9, a line sent to another ruleset leaves All too, Channels.GroupFilter.)
+		if tier == "A" then all = C.GroupFilter(tier, all, Own) end
 	end
 	if on then
 		if logical then y = y - ChatWindow.DrawTopicStatus(y) else frame.topicStatus:Hide() end
@@ -3417,6 +3415,7 @@ function ChatWindow.MakeGroups(p)
 		Tip(self, function(tip)
 			tip:AddLine(L.CHATWIN_GROUP_TITLE, 1, 0.82, 0)
 			tip:AddLine(L.CHATWIN_GROUP_TIP, 1, 1, 1, true)
+			tip:AddLine(L.CHATWIN_GROUP_SEND, 1, 1, 1, true) -- (1.5.9: where a line written under one goes)
 		end)
 	end)
 	button:SetScript("OnLeave", function(self) Untip(self) end)
@@ -4563,9 +4562,10 @@ end
 ns.On("CHAT_CHANGED", function(t)
 	if t == nil then ChatWindow.Changed() elseif t == tier then MarkDirty() end
 end)
-ns.On("CHAT_LINE", function(t, sender)
+-- (1.5.9: the line kept rides in it, filed under its ruleset as it came: Channels.LineRoom.)
+ns.On("CHAT_LINE", function(t, sender, _, line)
 	if not Shown() or not ns.Channels.TIERS[t] then return end
-	if not ns.Channels.GroupVisible(t, sender, false) then return end
+	if not ns.Channels.GroupVisible(t, line, false) then return end
 	if t ~= tier then
 		unread[t] = (unread[t] or 0) + 1
 	elseif not stick then
