@@ -917,6 +917,89 @@ test("census continuity: older counted guilds cannot fill a gap in newer coverag
 	eq(s.online, 20)
 end)
 
+test("census continuity: confirmed growth advances a retained headline before every saved guild refreshes", function()
+	local w = GroupWorld()
+	w.ns.rdb.guilds["Olympus Growing"] = { total = 200, online = 20, t = w.clock - 600 }
+	w.ns.rdb.guilds["Olympus Missing"] = { total = 800, online = 30, t = w.clock - 300 }
+	assert(w.D.RecordGroupCensus())
+	w.ns.Comm.loginAt = w.clock
+	w.ns.rdb.guilds["Olympus Growing"] = { total = 1000, online = 100, t = w.clock }
+	w.ns.rdb.guilds["Olympus Missing"] = nil
+	local s = w.D.Summary()
+	eq(s.snapshot.guilds, 2, "the saved view remains active until its second guild refreshes")
+	eq(s.snapshot.characters, 1000, "the dated snapshot keeps its original observation")
+	eq(s.snapshot.growth, 800, "only confirmed positive growth from a refreshed saved guild is overlaid")
+	eq(s.live.characters, 1000, "the partial live subtotal remains separately available")
+	eq(s.characters, 1800, "the prominent headline advances by confirmed growth instead of freezing")
+	eq(s.total, 1800)
+end)
+
+test("census continuity: a saved guild decrease does not lower a retained headline", function()
+	local w = GroupWorld()
+	w.ns.Alts = { Duplicates = function() return 100 end }
+	w.ns.rdb.guilds["Olympus Lower"] = { total = 600, online = 20, t = w.clock - 600 }
+	w.ns.rdb.guilds["Olympus Missing"] = { total = 400, online = 30, t = w.clock - 300 }
+	assert(w.D.RecordGroupCensus())
+	w.ns.Comm.loginAt = w.clock
+	w.ns.rdb.guilds["Olympus Lower"] = { total = 500, online = 10, t = w.clock }
+	w.ns.rdb.guilds["Olympus Missing"] = nil
+	local s = w.D.Summary()
+	eq(s.snapshot.growth, nil, "a decrease is not overlaid")
+	eq(s.live.characters, 500, "the lower live subtotal remains available")
+	eq(s.characters, 1000, "the retained character headline does not fall on partial coverage")
+	eq(s.total, 900, "the retained people estimate stays paired with the headline")
+	eq(s.alts, 100, "the retained linked-alt estimate remains non-negative and consistent")
+end)
+
+test("census continuity: an unknown guild neither overlays nor completes a retained headline", function()
+	local w = GroupWorld()
+	w.ns.rdb.guilds["Olympus Saved"] = { total = 200, online = 20, t = w.clock - 600 }
+	w.ns.rdb.guilds["Olympus Missing"] = { total = 800, online = 30, t = w.clock - 300 }
+	assert(w.D.RecordGroupCensus())
+	w.ns.Comm.loginAt = w.clock
+	w.ns.rdb.guilds["Olympus Saved"] = { total = 200, online = 20, t = w.clock }
+	w.ns.rdb.guilds["Olympus Missing"] = nil
+	w.ns.rdb.guilds["Olympus New"] = { total = 500, online = 50, t = w.clock }
+	local s = w.D.Summary()
+	assert(s.snapshot, "a new guild cannot stand in for a missing saved guild")
+	eq(s.snapshot.growth, nil, "the new guild has no saved baseline to grow from")
+	eq(s.live.characters, 700, "the new guild remains visible in the live subtotal")
+	eq(s.characters, 1000, "the retained headline is not replaced or overlaid by the new guild")
+end)
+
+test("census continuity: legacy, malformed, remote and stale baselines fail closed", function()
+	local function Partial(changeSaved, currentAt)
+		local w = GroupWorld()
+		w.ns.rdb.guilds["Olympus Growing"] = { total = 200, online = 20, t = w.clock - 600 }
+		w.ns.rdb.guilds["Olympus Missing"] = { total = 800, online = 30, t = w.clock - 300 }
+		assert(w.D.RecordGroupCensus())
+		local saved = w.ns.db.groupCensus["Alliance|Launchpve"]
+		changeSaved(saved)
+		w.ns.Comm.loginAt = w.clock
+		w.ns.rdb.guilds["Olympus Growing"] = { total = 1000, online = 100, t = currentAt and currentAt(saved, w) or w.clock }
+		w.ns.rdb.guilds["Olympus Missing"] = nil
+		return w, w.D.Summary()
+	end
+
+	local legacy, s = Partial(function(saved) saved.baseline = nil end)
+	eq(s.snapshot.growth, nil); eq(s.characters, 1000, "a legacy snapshot cannot gain an inferred baseline")
+	legacy.ns.rdb.guilds["Olympus Missing"] = { total = 700, online = 20, t = legacy.clock }
+	s = legacy.D.Summary()
+	eq(s.snapshot, nil, "complete newer coverage still releases a legacy snapshot")
+	eq(s.characters, 1700)
+
+	legacy, s = Partial(function(saved)
+		saved.baseline = { ["olympus growing"] = 100, ["olympus missing"] = 100 }
+	end)
+	eq(s.snapshot.growth, nil); eq(s.characters, 1000, "baseline totals must match the saved headline")
+
+	legacy, s = Partial(function(saved) saved.src = "relay" end)
+	eq(s.snapshot.growth, nil); eq(s.characters, 1000, "a remote snapshot cannot use an injected baseline")
+
+	legacy, s = Partial(function() end, function(saved) return saved.observed - 1 end)
+	eq(s.snapshot.growth, nil); eq(s.characters, 1000, "an older current observation cannot grow the saved view")
+end)
+
 test("census continuity: an incomplete saved view also carries current partial totals from original observations", function()
 	local w = GroupWorld()
 	local at = w.clock

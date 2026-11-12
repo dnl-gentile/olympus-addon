@@ -1897,19 +1897,45 @@ function Data.RecordGroupCensus(s, now)
 	if not group then return false end
 	s, now = s or Data.Summary(), now or ns.Now()
 	if s.snapshot then return false end -- a displayed fallback is never a new observation
-	local counted, observed = 0, now
+	local counted, observed, baseline = 0, now, {}
 	for _, e in ipairs(s.guilds or {}) do
-		if e.counted then counted, observed = counted + 1, math.min(observed, ObservationTime(e.g)) end
+		if e.counted then
+			local name = GlobalGuildField(e.name)
+			local total = type(e.g) == "table" and GlobalNumber(e.g.total, 0, ns.Codec.GUILD_CAP)
+			if not name or not total or baseline[name:lower()] ~= nil then return false end
+			counted, observed = counted + 1, math.min(observed, ObservationTime(e.g))
+			if counted > Data.MAX_GUILDS then return false end
+			baseline[name:lower()] = total
+		end
 	end
 	local row = GroupRow(group, OurFaction(), tonumber(s.characters or s.total) or 0, tonumber(s.total) or 0, counted, observed)
 	if not row then return false end
-	row.src = "own"
+	-- This comparison baseline is local SavedVariables state. Every census serializer below
+	-- rebuilds its wire row from the aggregate's established scalar fields alone.
+	row.src, row.baseline = "own", baseline
 	GroupStore()[GroupKey(row.faction, row.group)] = row
 	GroupStore("heard")[GroupKey(row.faction, row.group)] = nil
 	if Data.CaptureGroupDetails then Data.CaptureGroupDetails(s, now) end
 	if Data.CapturePortable then Data.CapturePortable(row) end
 	PruneGroups(now)
 	return true
+end
+
+local function SavedGroupBaseline(held)
+	if held.src ~= "own" or type(held.baseline) ~= "table" then return nil end
+	local baseline, count, characters = {}, 0, 0
+	for name, total in pairs(held.baseline) do
+		local validName = GlobalGuildField(name)
+		local validTotal = GlobalNumber(total, 0, ns.Codec.GUILD_CAP)
+		count = count + 1
+		if count > Data.MAX_GUILDS or not validName or validName ~= name or name ~= name:lower()
+			or not validTotal then return nil end
+		baseline[name] = validTotal
+		characters = characters + validTotal
+	end
+	-- One malformed entry invalidates the whole comparison; partial baselines could invent growth.
+	if count ~= held.guilds or characters ~= held.characters then return nil end
+	return baseline
 end
 
 -- During reconciliation, a partial roster must not erase the last counted view of this
@@ -1925,12 +1951,17 @@ function Data.ApplyGroupSnapshot(s, now)
 			and (not held or e.observed > held.observed) then held = e end
 	end
 	if not held then return end
-	local counted, refreshed, freshGuilds, freshCharacters = 0, 0, 0, 0
+	local baseline = SavedGroupBaseline(held)
+	local counted, refreshed, freshGuilds, freshCharacters, growth = 0, 0, 0, 0, 0
 	for _, e in ipairs(s.guilds) do
 		if e.counted then
 			counted = counted + 1
 			local observed = ObservationTime(e.g)
-			if observed >= held.observed then refreshed = refreshed + 1 end
+			local before = baseline and baseline[e.name:lower()]
+			if observed >= held.observed and (not baseline or before ~= nil) then refreshed = refreshed + 1 end
+			if before and observed >= held.observed and e.g.total > before then
+				growth = growth + e.g.total - before
+			end
 			if now - observed <= Data.FRESH then
 				freshGuilds = freshGuilds + 1
 				freshCharacters = freshCharacters + math.min(e.g.total or 0, ns.Codec.GUILD_CAP)
@@ -1948,8 +1979,10 @@ function Data.ApplyGroupSnapshot(s, now)
 	-- total cannot hide changes in the guilds that are still reporting.
 	s.live = { characters = s.characters, people = s.total, alts = s.alts, guilds = counted,
 		freshGuilds = freshGuilds, freshCharacters = freshCharacters }
+	if baseline and growth > 0 then snapshot.growth = growth end
 	s.snapshot = snapshot
-	s.characters, s.total, s.alts = held.characters, held.people, held.characters - held.people
+	s.characters, s.total = held.characters + growth, held.people + growth
+	s.alts = math.max(0, s.characters - s.total)
 end
 
 local function GroupAgree(a, b)
