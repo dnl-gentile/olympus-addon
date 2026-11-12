@@ -1425,7 +1425,16 @@ end
 -- still in Olympus STAY_DAYS later, the same direct points an Apostle earns, and no share of anyone
 -- else's. Only a credited claim counts: a report only its recruiter's client stands behind, an open
 -- registration, a transfer, an alt or a recruit another claim took never do. The archive's joins
--- count too (Archive keeps a person line for each recruiter it holds).
+-- count too: its records (another keeper's, Count.TakeArchived, come with no person line) and its
+-- totals. A recruiter with only a stay in the window is listed, as the missionaries' ranking does.
+-- (A person line Count.Prune made holds his folded key as his name: the Church's own spelling first.)
+local function RecruiterName(key, name)
+	if type(name) == "string" and name ~= "" and Key(name) ~= name then return Short(name) end
+	local S = Church.State()
+	local place = Church.Place(key)
+	local corr = S.corrOf[key] and S.corr[S.corrOf[key]]
+	return (place and Short(place.n)) or (corr and Short(corr.n)) or Short(name) or key
+end
 local function RecruiterRanking(window)
 	local C, l = Count.Credits(), Led()
 	local rows, seen = {}, {}
@@ -1433,8 +1442,8 @@ local function RecruiterRanking(window)
 		if not key or seen[key] then return end
 		seen[key] = true
 		local o = Count.Own(key, window)
-		if o.joins <= 0 then return end
-		rows[#rows + 1] = { key = key, name = Short(name) or key, score = o.points, own = o.points, share = 0,
+		if o.joins <= 0 and o.points <= 0 then return end
+		rows[#rows + 1] = { key = key, name = RecruiterName(key, name), score = o.points, own = o.points, share = 0,
 			joins = o.joins, stays = o.stays, net = o.joins, pub = PublicOf(key) }
 	end
 	for key, ids in pairs(C.byPerson) do
@@ -1442,6 +1451,7 @@ local function RecruiterRanking(window)
 		Add(key, r and r.bn)
 	end
 	for key, p in pairs(l.p) do Add(key, type(p) == "table" and p.n or nil) end
+	for key in pairs(Arc()) do Add(key, nil) end
 	table.sort(rows, function(a, b)
 		if a.score ~= b.score then return a.score > b.score end
 		if a.joins ~= b.joins then return a.joins > b.joins end

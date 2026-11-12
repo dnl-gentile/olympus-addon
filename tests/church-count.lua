@@ -3629,3 +3629,37 @@ test("1.5.8 Church recruiters (regression): the author's page asks a keeper onli
 	eq(remote, false)
 end)
 
+-- 1.5.8 (review): a recruiter whose recruit only stayed in the window (he joined before it) was left
+-- out though the missionaries' ranking lists him; one known only from another keeper's archived
+-- record (no person line came with it) was never listed though Count.Own credits him; and a person
+-- line Count.Prune made showed its folded key as his name.
+test("1.5.8 Church recruiters: a stay-only recruiter, an archive-only one and a pruned one are ranked under their own names", function()
+	local w, c = Cast()
+	local K = c.a1
+	-- Mira's recruit joined 35 days ago and was still in after 7: the last 30 days hold his stay only.
+	Give(w, K, "Stay Reca", "Mira Wells", 35 * 24, false, { y = 1 })
+	local function RowOf(list, window, name)
+		for _, row in ipairs(w:As(K, K.Count.Ranking, list, window)) do
+			if row.key == Key(name) then return row end
+		end
+	end
+	local m, u = RowOf("m", "m", "Mira Wells"), RowOf("u", "m", "Mira Wells")
+	eq(("%g %d"):format(m.own, m.joins), "5 0", "the missionaries' ranking lists her stay")
+	assert(u, "the recruiters' ranking lists her too")
+	eq(("%s %g %d %d"):format(u.name, u.score, u.joins, u.stays), "Mira Wells 5 0 1")
+	-- Nils's recruit came from another keeper's archive alone.
+	local hour = math.floor(w.clock / 3600) * 3600
+	assert(w:As(K, K.Count.TakeArchived, Key("Arch Reca") .. ":" .. Key("Nils Ford"), { h = hour - 10 * 3600 }), "taken")
+	local nils = RowOf("u", "a", "Nils Ford")
+	assert(nils, "an archive-only recruiter is ranked")
+	eq(("%s %g %d"):format(nils.name, nils.score, nils.joins), "Nils Ford 10 1")
+	-- Bera's archived recruit ages out of every window: Prune folds it into a person line named by his key.
+	local keep = (K.Count.MONTH_DAYS + K.Count.STAY_DAYS) * DAY
+	assert(w:As(K, K.Count.TakeArchived, Key("Arch Recb") .. ":" .. Key(A2), { h = hour - keep + 7200 }), "taken")
+	w.clock = w.clock + 5 * 3600
+	w:As(K, K.Count.Prune)
+	eq(w:As(K, K.Count.Led).p[Key(A2)].n, Key(A2), "the person line holds his folded key")
+	local bera = RowOf("u", "a", A2)
+	assert(bera, "a pruned recruiter is ranked")
+	eq(("%s %g %d"):format(bera.name, bera.score, bera.joins), "Bera Stone 10 1")
+end)
