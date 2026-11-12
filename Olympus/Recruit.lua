@@ -1145,6 +1145,10 @@ local function AnnouncementLines(lines, V)
 	end
 	lines[#lines + 1] = { id = "recruit-announcement-reminder", spaceBefore = 6,
 		filters = { { label = L.RECRUIT_ANNOUNCE_REMINDER_TITLE, value = intervals[reminderIndex].text, options = intervals } } }
+	local minutes = REMINDER_MINUTES[reminderIndex]
+	if minutes > 0 then
+		lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_ANNOUNCE_REMINDER_PREVIEW:format(minutes)) }
+	end
 	lines[#lines + 1] = { indent = 1, gapAfter = true,
 		text = V.Grey(rotateReminder and L.RECRUIT_ANNOUNCE_REMINDER_ROTATE or L.RECRUIT_ANNOUNCE_REMINDER_SELECTED),
 		tooltip = function(tt) tt:AddLine(L.RECRUIT_ANNOUNCE_REMINDER_TIP, 1, 1, 1, true) end,
@@ -1166,9 +1170,12 @@ function Recruit.WhisperLines()
 		lines[#lines + 1] = { id = "recruit-whisper-arrival", indent = 1,
 			text = V.Gold(QueueOnly() and L.RECRUIT_WHISPER_QUEUE_ONLY or L.RECRUIT_WHISPER_POPUP_ON),
 			onClick = ToggleQueueOnly }
-		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_WHISPER_TARGET), onClick = Recruit.PromptOutreach, gapAfter = true }
 		if Recruit.Handoff then Recruit.Handoff.Controls(lines, V) end
-		if Recruit.Candidates then Recruit.Candidates.Lines(lines, V) end
+		if Recruit.Candidates then
+			Recruit.Candidates.Lines(lines, V)
+		else
+			lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_WHISPER_TARGET), onClick = Recruit.PromptOutreach, gapAfter = true }
+		end
 	end
 	return lines
 end

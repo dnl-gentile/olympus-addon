@@ -3351,12 +3351,9 @@ It starts off for each character. An officer's choice to enable recruiting is re
 that character in the same guild, as long as the game still allows that character to invite.
 **Incoming JOIN** defaults to a pop-up. Choose **Queue only** to keep the chat notice and
 the request in **Church → Invites**. Pending requests are cleared at login.
-Interested players can whisper you **JOIN**, even without Olympus installed. **Review nearby players now** prepares a list from the selected player and visible
-friendly nameplates with no guild shown. Review each player and the editable message, then press
-**Send** for that one recipient or **Skip**. Either choice moves to the next eligible player.
-Olympus checks the native identity and guild information again when you press Send.
+Interested players can whisper you **JOIN**, even without Olympus installed.
 
-The **Nearby and /who queue** is off by default. When enabled in **Church → Invites**, it
+**Scan unguilded players** is off by default. When enabled in **Church → Invites**, it
 keeps up to 24 candidates locally for the current session. It learns from friendly visible
 players and from results the game exposes to the addon after a Who search, when the result
 explicitly shows no guild and establishes the same faction and realm group. Click a name to
