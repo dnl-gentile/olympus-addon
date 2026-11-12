@@ -3154,6 +3154,57 @@ test("Church ledger v2 falls back once for an older keeper and keeps the existin
 	assert(from[Key(A2)] > before)
 end)
 
+test("Church ledger v2 cannot move a pending keeper page into a council copy", function()
+	local w, c = LedgerPageWorld()
+	Give(w, c.a2, "Delayed Rec", "Mira Wells", 2)
+	w:Run(2)
+	local whisper, delayed = c.a2.c.Comm.Whisper, {}
+	c.a2.c.Comm.Whisper = function(target, msg, key, urgent, logged, done, options)
+		if target == A1 and msg:match("^NL~2~[de]~") then
+			delayed[#delayed + 1] = msg
+			if done then done(true) end
+			return true
+		end
+		return whisper(target, msg, key, urgent, logged, done, options)
+	end
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	eq(#delayed, 2)
+	local kept = w:As(c.a1, c.a1.Count.Led)
+	local isKeeper = c.a1.Church.IsKeeper
+	c.a1.Church.IsKeeper = function(name) return Key(name or A1) ~= Key(A1) and isKeeper(name) end
+	c.a1.c.IsHighCouncillor = function(name) return Key(name) == Key(A1) end
+	w:Run(1)
+	local copy = w:As(c.a1, c.a1.Count.Led)
+	assert(copy ~= kept, "the client has switched to the separate council copy")
+	for _, msg in ipairs(delayed) do
+		eq(select(2, w:As(c.a1, c.a1.Count.Receive, "NL", "WHISPER", A2, msg)), "unasked")
+	end
+	eq(kept.from[Key(A2)], nil); eq(copy.from[Key(A2)], nil)
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 0)
+end)
+
+test("Church ledger v2 rechecks queued private rows when the recipient loses its role", function()
+	local w, c = LedgerPageWorld()
+	Give(w, c.a2, "Queued Rec", "Mira Wells", 2)
+	w:Run(2)
+	local whisper, offered = c.a2.c.Comm.Whisper, nil
+	c.a2.c.Comm.Whisper = function(target, msg, key, urgent, logged, done, options)
+		if target == A1 and msg:match("^NL~2~d~") then
+			offered = { done = done, guard = options.guard }
+			return true
+		end
+		return whisper(target, msg, key, urgent, logged, done, options)
+	end
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	assert(offered and type(offered.guard) == "function", "queued row has an authority guard")
+	eq(w:As(c.a2, offered.guard), true)
+	local isRelay = c.a2.Church.IsLedgerRelay
+	c.a2.Church.IsLedgerRelay = function(name) return Key(name or A2) ~= Key(A1) and isRelay(name) end
+	eq(w:As(c.a2, offered.guard), false)
+	w:As(c.a2, offered.done, false, "guard")
+	eq(#LedgerMessages(w, c.a2, 2, "e"), 0, "the cancelled row cannot emit its terminal")
+end)
+
 test("Church ledger catch-up withholds its terminal on a failed queued row and recovers without skipping it", function()
 	local w, c = Cast()
 	Give(w, c.a2, "Lost Reca", "Mira Wells", 2)
