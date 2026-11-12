@@ -537,6 +537,9 @@ end
 --   menu and /oly builds show, and the lock on such a client's words).
 --   1.5.5, RelayTree RN RF RQ RC | Relay RJ RB | RelayFallback RE RO | Data QA
 --   RelayTree RZ (what a registrant's tree reads beside the word as written: the packed census snapshot)
+--   1.5.9, RecruitRanking NE (the recruiting ranking for everyone: any member's invite and join to the
+--   Church's keepers, their ledger between them, a member's ask for the ranking and its answer; whispers
+--   only, whole messages, version 1; never the Church's own ledger)
 local handlers = {}
 local dispatchSender, injectedSender
 local function Dispatch(handler, dist, sender, text)

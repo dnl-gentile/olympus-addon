@@ -322,6 +322,36 @@ test("recruit handoff: a claimed request opens the copy command at once, after a
 	end)
 end)
 
+-- 1.5.9 (the author, 11-12: the member who passed a JOIN or a scanned player on gets a share of that
+-- recruit's points once he joins, "tipo os pontos da rede"): the name that arrives keeps who passed it,
+-- on the request and for the recruiting ranking (RecruitRanking.HandedIn, its own file's tests).
+test("1.5.9 recruit handoff: the name a member passed on keeps who passed it, for the recruiting ranking for everyone", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local saved, handed = rawget(ns, "RecruitRanking"), {}
+		ns.RecruitRanking = { HandedIn = function(name, by) handed[#handed + 1] = { name = name, by = by } return true end }
+		local ok, err = pcall(function()
+			eq(H.Toggle(), true)
+			H.Receive("WHISPER", officer, Packet(scene, "O", sister, own))
+			local claim = assert(D.Find(CLAIM))
+			claim.def.OnAccept(claim, claim.data)
+			claim:Hide()
+			eq(#handed, 0, "nothing before the name")
+			H.Receive("WHISPER", officer, Packet(scene, "N", sister, own, applicant))
+			local req = assert(R.requests[1])
+			eq(req.handedBy, officer)
+			eq(#handed, 1)
+			eq(handed[1].name, applicant); eq(handed[1].by, officer)
+			-- The same name again is no second handoff.
+			H.Receive("WHISPER", officer, Packet(scene, "N", sister, own, applicant))
+			eq(#handed, 1)
+		end)
+		ns.RecruitRanking = saved
+		if not ok then error(err, 0) end
+	end)
+end)
+
 -- 1.5.8 (the author, 11-12: "ele mostrar tantas pessoas na fila depois dessa. E aí você clica no
 -- botão e fala tipo, é repassar os negócios pra outros offices").
 test("recruit handoff: the JOIN popup counts the requests behind it and passes them to opted-in officers", function()

@@ -1398,7 +1398,12 @@ function Recruit.TakeHandoff(name, officer)
 	local shown = L.RECRUIT_HANDOFF_RECEIVED:format(ns.DisplayName(officer) or officer)
 	local accepted, req = AddRequest(name, recruitingGuild, nil, nil, shown, true)
 	if not accepted then return false end
-	req.handedIn = true
+	req.handedIn, req.handedBy = true, officer
+	-- (1.5.9, the author: the member who passed a JOIN or a scanned player on gets a share of that
+	-- recruit's points once he joins, "tipo os pontos da rede": this client's own read of the log names
+	-- him in its report of the invite and the join, RecruitRanking.lua.)
+	local ranking = ns.RecruitRanking
+	if ranking and ranking.HandedIn then ns.SafeCall("recruit ranking source", ranking.HandedIn, name, officer) end
 	PromptReply()
 	return true
 end

@@ -65,7 +65,8 @@ World.Copy = Copy
 
 -- A client. opts: guild (World.GUILD by default; false: none), rank (0: guild master), old (a client
 -- before 1.1.6: none of the Church files), view (ChurchView.lua too), real (no stand-ins for the
--- council: the harness's own signed lists), rdb (saved data to start from).
+-- council: the harness's own signed lists), rdb (saved data to start from), release158 (1.5.9: a client
+-- of 1.5.4 to 1.5.8, the Church's files without RecruitRanking.lua: no handler for its NE words).
 function World:Client(name, opts)
 	opts = opts or {}
 	local w = self
@@ -186,10 +187,13 @@ function World:Client(name, opts)
 			assert(loadfile(ROOT .. "Olympus/Church.lua"))("Olympus", c)
 			assert(loadfile(ROOT .. "Olympus/ChurchCount.lua"))("Olympus", c)
 			assert(loadfile(ROOT .. "Olympus/ChurchFullness.lua"))("Olympus", c)
+			if not opts.release158 then assert(loadfile(ROOT .. "Olympus/RecruitRanking.lua"))("Olympus", c) end
 			if opts.view then assert(loadfile(ROOT .. "Olympus/ChurchView.lua"))("Olympus", c) end
 		end)
 		c.Church.after = function(seconds, _, fn) w:Later(cl, seconds, fn) end
 		c.ChurchCount.after = c.Church.after
+		if c.RecruitRanking then c.RecruitRanking.after = c.Church.after end
+		cl.RR = c.RecruitRanking
 		c.Church.random = function(a) return a end
 		c.ChurchCount.random = function(a) return a end
 		c.Church.chance = function() return 0 end

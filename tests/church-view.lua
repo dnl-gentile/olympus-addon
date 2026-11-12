@@ -152,7 +152,11 @@ test("1.2.4 Church fullness ranking rules: the private link opens in place and B
 	c.Church.InAudience = function() return false end
 	lines = Build(w, c)
 	-- 1.5.8 (the author's order: Invites, Ranking, People, Name, Assignments): the Church's first page is Invites.
-	eq(c.View.page, "invites", "loss of the private Church audience closes the rules page")
+	-- (1.5.9, the author: "O ranking para todo mundo": the Ranking page is every member's now, with the
+	-- recruiting ranking for everyone alone outside the Church's audience: the private rules page closes
+	-- onto it, and none of the private rules stays.)
+	eq(c.View.page, "ranking", "loss of the private Church audience closes the rules page")
+	eq(c.View.list, "e", "onto the ranking for everyone")
 	for _, line in ipairs(lines) do
 		assert(line.id ~= "ranking-rules-back" and line.id ~= "ranking-rules:church-fullness", "private rules remained discoverable")
 	end
@@ -229,7 +233,9 @@ end)
 
 test("1.1.6 Church member view: people and invites, no naming or personal results, and explicit previews override the author's real role", function()
 	local w, c = Cast()
-	eq(Pages(w, c.member), "invites,people")
+	-- (1.5.9, the author: "O ranking para todo mundo": every member has the Ranking page now, with the
+	-- recruiting ranking for everyone alone; the Church's own lists stay its audience's.)
+	eq(Pages(w, c.member), "invites,ranking,people")
 	local initial = Build(w, c.member)
 	eq(c.member.View.page, "invites", "a member lands on the first accessible Church page")
 	eq(initial[1].nav[1].text, L.CHURCH_NAV_INVITES)
@@ -239,12 +245,12 @@ test("1.1.6 Church member view: people and invites, no naming or personal result
 	local role = "member"
 	c.author.c.ViewAs = { Available = function() return true end, Previewing = function() return true end,
 		Role = function() return role end }
-	eq(Pages(w, c.author), "people")
+	eq(Pages(w, c.author), "ranking,people")
 	local inviteLines = Build(w, c.author, "invites")
-	eq(c.author.View.page, "people", "an explicit preview cannot operate the live invite tools")
+	eq(c.author.View.page, "ranking", "an explicit preview cannot operate the live invite tools")
 	eq(Find(inviteLines, L.RECRUIT_WHISPER_OFF), nil)
 	local lines = Build(w, c.author, "review")
-	eq(c.author.View.page, "people", "a stale staff page returns to the member's page")
+	eq(c.author.View.page, "ranking", "a stale staff page returns to the member's first page")
 	eq(Find(lines, L.CHURCH_ACT_NAME_APOSTLE), nil)
 	eq(Find(lines, L.CHURCH_REGISTER:format(0, c.author.Count.REG_OPEN)), nil)
 	local before = #w.sent
@@ -276,7 +282,8 @@ test("1.1.6 Church: everyone sees the people, private numbers and duties follow 
 	for _, cl in ipairs({ c.author, c.king, c.head, c.councillor, c.a1, c.m1 }) do eq(Visible(cl), true, cl.name) end
 	eq(Visible(c.member), true); eq(Visible(c.other), true)
 	eq(Visible(c.gm), true, "a guild master: to name his guild's correspondent")
-	eq(Pages(w, c.gm), "invites,people,name")
+	-- (1.5.9, the author: "O ranking para todo mundo": the Ranking page is every member's.)
+	eq(Pages(w, c.gm), "invites,ranking,people,name")
 	eq(Pages(w, c.m1), "invites,ranking,people,name,mine")
 	eq(Pages(w, c.councillor), "invites,ranking,people,name", "a councillor names Apostles, has no personal results")
 	eq(Pages(w, c.author), "invites,ranking,people,name,review")
@@ -286,7 +293,7 @@ test("1.1.6 Church: everyone sees the people, private numbers and duties follow 
 	w:Act(c.author, c.author.Church.SetPublic, true)
 	w:Tick()
 	eq(Visible(c.member), true)
-	eq(Pages(w, c.member), "invites,people,public")
+	eq(Pages(w, c.member), "invites,ranking,people,public")
 	local lines = Build(w, c.member, "public")
 	assert(Find(lines, "Mira Wells"), Texts(lines))
 	-- Closing the public ranking returns to the first allowed page without exposing private numbers.
@@ -335,7 +342,9 @@ test("1.1.6 Church: page tabs and Who/When filters stay distinct and filter choi
 	eq(lines[1].pageNav, true)
 	local who, when = lines[2].filters[1], lines[2].filters[2]
 	eq(who.label, L.CHURCH_FILTER_WHO); eq(when.label, L.CHURCH_FILTER_WHEN)
-	eq(#who.options, 3); eq(#when.options, 3)
+	-- (1.5.9, the author: "O ranking para todo mundo": a fourth list, Everyone, the recruiting ranking for everyone.)
+	eq(#who.options, 4); eq(#when.options, 3)
+	eq(who.options[4].text, L.CHURCH_LIST_EVERYONE)
 	eq(who.value, L.CHURCH_LIST_APOSTLES); eq(when.value, L.CHURCH_WINDOW_WEEK)
 	local before = #w.sent
 	w:As(K, who.options[2].onClick)

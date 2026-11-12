@@ -30,6 +30,12 @@ L.RANK_RULE_CHURCH_ORDER = "Higher total score comes first; ties use higher own 
 L.RANK_RULE_CHURCH_EVIDENCE = "Only confirmed recruit and later-stay records held by the Church books count. Missing records are unknown and do not create points."
 L.RANK_RULE_CHURCH_VISIBILITY = "The Church audience sees the full ranking. The public page shows only opted-in rows while the authorized publication switch is open."
 
+L.RANK_RULE_EVERYONE_TITLE = "Recruiters of Olympus"
+L.RANK_RULE_EVERYONE_SCORE = "Each confirmed recruit gives his inviter %d points, and %d more when he is still in the guild %d days after joining. The member who passed that player on, a JOIN request or a scanned player, gets %d%% of those points, as the Church's first network level does. Nothing counts for an invite whose player never joined."
+L.RANK_RULE_EVERYONE_ORDER = "Higher total comes first; ties use more recruits, then more players passed on, then name. Week, 30-day and all-time windows count only evidence dated in that window."
+L.RANK_RULE_EVERYONE_EVIDENCE = "Members' addons read their guild's log: an invite, then that player's join. A recruit is pending while only the inviter's addon saw it, and confirmed once another member's addon did and a Church keeper can vouch for that member. A player counts once, for the earliest confirmed invite: never an alt, a player who was in another Olympus guild in the last %d days, or one coming back to his guild."
+L.RANK_RULE_EVERYONE_VISIBILITY = "Every Olympus member sees the top %d and their own place. The Church's keepers (the Apostles and the author) keep these numbers; your addon asks one online and keeps the last answer."
+
 L.RANK_RULE_CHURCH_FULLNESS_TITLE = "Guild fullness ranking"
 L.RANK_RULE_CHURCH_FULLNESS_ORDER = "More completed qualifying days come first. Ties use the higher average of the qualifying daily averages, then guild name."
 L.RANK_RULE_CHURCH_FULLNESS_VISIBILITY = "This is private to the Church audience; it is not part of the public Church ranking."
@@ -98,6 +104,12 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.RANK_RULE_CHURCH_ORDER = "Maior pontuacao vem primeiro; empates usam mais pontos proprios e depois o nome. As janelas semanal, de 30 dias e historica contam apenas evidencias datadas no periodo."
 	L.RANK_RULE_CHURCH_EVIDENCE = "Somente registros confirmados de recrutamento e permanencia posterior guardados nos livros da Igreja contam. Registros ausentes sao desconhecidos e nao criam pontos."
 	L.RANK_RULE_CHURCH_VISIBILITY = "O publico da Igreja ve o ranking completo. A pagina publica mostra somente linhas autorizadas enquanto a publicacao estiver aberta."
+
+	L.RANK_RULE_EVERYONE_TITLE = "Recrutadores do Olympus"
+	L.RANK_RULE_EVERYONE_SCORE = "Cada recruta confirmado da %d pontos a quem convidou, e mais %d quando ainda esta na guilda %d dias depois de entrar. O membro que repassou esse jogador, um pedido JOIN ou um jogador escaneado, ganha %d%% desses pontos, como o primeiro nivel da rede da Igreja. Um convite cujo jogador nunca entrou nao conta nada."
+	L.RANK_RULE_EVERYONE_ORDER = "Maior total vem primeiro; empates usam mais recrutas, depois mais jogadores repassados e depois o nome. As janelas semanal, de 30 dias e historica contam apenas evidencias datadas no periodo."
+	L.RANK_RULE_EVERYONE_EVIDENCE = "Os addons dos membros leem o registro da guilda: um convite e depois a entrada desse jogador. Um recruta fica pendente enquanto so o addon de quem convidou o viu, e confirmado quando o addon de outro membro tambem viu e um guardiao da Igreja pode atestar esse membro. Um jogador conta uma vez, pelo convite confirmado mais antigo: nunca um alt, um jogador que esteve em outra guilda do Olympus nos ultimos %d dias, ou um que volta para a guilda dele."
+	L.RANK_RULE_EVERYONE_VISIBILITY = "Todo membro do Olympus ve os %d primeiros e a propria posicao. Os guardioes da Igreja (os Apostolos e o autor) guardam esses numeros; o seu addon pergunta a um que esteja online e guarda a ultima resposta."
 
 	L.RANK_RULE_CHURCH_FULLNESS_TITLE = "Ranking de lotacao das guildas"
 	L.RANK_RULE_CHURCH_FULLNESS_ORDER = "Mais dias completos qualificados vem primeiro. Empates usam a maior media das medias diarias qualificadas e depois o nome da guilda."

@@ -89,13 +89,20 @@ function View.Visible()
 	return ns.IsMember() == true and PreviewRole() ~= "outsider"
 end
 
+-- (1.5.9, the author: "O ranking para todo mundo") The recruiting ranking for everyone
+-- (RecruitRanking.lua): its list on the Ranking page, which every member sees from now on.
+local function Everyone()
+	local RR = ns.RecruitRanking
+	return type(RR) == "table" and type(RR.RankingView) == "function"
+end
+
 function View.Pages()
 	local out = {}
 	if not View.Visible() then return out end
 	local R = ns.Recruit
 	if not PreviewRole() and R and R.WhisperAvailable and R.WhisperAvailable() then out[#out + 1] = "invites" end
 	local audience = Audience()
-	if audience then out[#out + 1] = "ranking" end
+	if audience or Everyone() then out[#out + 1] = "ranking" end
 	out[#out + 1] = "people"
 	local r = Rights()
 	if r.apostle or r.missionary or r.correspondent then out[#out + 1] = "name" end
@@ -146,6 +153,7 @@ end
 local function ListFilter()
 	local nav, value = {}, nil
 	local lists = { { "a", "CHURCH_LIST_APOSTLES" }, { "m", "CHURCH_LIST_MISSIONARIES" }, { "c", "CHURCH_LIST_CORRESPONDENTS" } }
+	if Everyone() then lists[#lists + 1] = { "e", "CHURCH_LIST_EVERYONE" } end
 	if not PreviewRole() and Count.CanSeeRecruiters(ns.me) then
 		lists[#lists + 1] = { "u", "CHURCH_LIST_RECRUITERS" }
 	end
@@ -310,8 +318,69 @@ local function MyLevels()
 	return nil
 end
 
+local function Pct(share) return math.floor((tonumber(share) or 0) * 100 + 0.5) end
+
+-- (1.5.9) The recruiting ranking for everyone: every member's confirmed recruits, the points a member
+-- earns for a player he passed on, the player's own place, then the rows. The only list a member
+-- outside the Church's audience has (no Who filter for him); short lines, the rest in tooltips and on
+-- the rules page.
+function View.EveryoneLines()
+	local RR = ns.RecruitRanking
+	local audience = Audience()
+	local lines = { Nav("ranking"), Filters(audience) }
+	if ns.Recruit and not PreviewRole() then
+		for _, line in ipairs(ns.Recruit.RequestLines(false)) do lines[#lines + 1] = line end
+	end
+	local rows, asOf, remote, waiting, source, mine, ranked, pending = RR.RankingView(View.window)
+	-- (A keeper asks another too: one whose catch-up is behind shows the other's larger answer.)
+	if not PreviewRole() then
+		local asked = RR.Ask(View.window)
+		if remote then waiting = asked or waiting end
+	end
+	lines[#lines + 1] = AsOfLine(asOf, remote, waiting, source)
+	local rule = L.CHURCH_EVERYONE_TIP:format(RR.POINTS_JOIN, RR.POINTS_STAY, RR.STAY_DAYS, Pct(RR.SHARE))
+	local tip = Tip(L.CHURCH_RANKING_E, rule)
+	lines[#lines + 1] = { header = true, text = L.CHURCH_RANKING_E, tooltip = tip }
+	local rules = ns.RankingRules and ns.RankingRules.Link("recruit-everyone", function() ShowRules("recruit-everyone") end)
+	if rules then lines[#lines + 1] = rules end
+	lines[#lines + 1] = { text = L.CHURCH_EVERYONE_POINTS:format(RR.POINTS_JOIN, RR.POINTS_STAY, RR.STAY_DAYS), tooltip = tip }
+	lines[#lines + 1] = { text = L.CHURCH_EVERYONE_SHARE:format(Pct(RR.SHARE)), tooltip = tip, gapAfter = true }
+	if mine then
+		lines[#lines + 1] = { text = Gold(L.CHURCH_EVERYONE_YOU:format(mine.rank, math.max(tonumber(ranked) or 0, mine.rank), Pts(mine.score))),
+			tooltip = Tip(L.CHURCH_EVERYONE_YOU_TITLE, L.CHURCH_EVERYONE_ROW_TIP:format(Pts(mine.score), mine.joins, mine.stays, RR.STAY_DAYS, mine.passed)) }
+	else
+		lines[#lines + 1] = { text = Grey(L.CHURCH_EVERYONE_YOU_NONE), tooltip = Tip(L.CHURCH_EVERYONE_YOU_TITLE, rule) }
+	end
+	if (tonumber(pending) or 0) > 0 then
+		lines[#lines + 1] = { indent = 1, text = Grey(L.CHURCH_EVERYONE_PENDING:format(pending)),
+			tooltip = Tip(L.CHURCH_EVERYONE_YOU_TITLE, L.CHURCH_EVERYONE_PENDING_TIP) }
+	end
+	lines[#lines].gapAfter = true
+	if #rows == 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.CHURCH_RANKING_EMPTY) } end
+	local me, last = Church.Key(ns.me), 0
+	for _, row in ipairs(rows) do
+		local own = row.key == me
+		if row.rank <= RR.RANK_ROWS or own then
+			if row.rank > last + 1 then lines[#lines + 1] = { indent = 1, text = Grey("...") } end
+			last = row.rank
+			local nameText = ("%d.  %s"):format(row.rank, Name(row.name))
+			lines[#lines + 1] = {
+				cols = { own and Gold(nameText) or nameText, Pts(row.score), L.CHURCH_SPLIT:format(Pts(row.own), Pts(row.share)),
+					L.CHURCH_RECRUITS:format(row.joins, row.stays) },
+				player = ns.FullName(row.name), key = row.key,
+				tooltip = Tip(Name(row.name), L.CHURCH_EVERYONE_ROW_TIP:format(Pts(row.score), row.joins, row.stays, RR.STAY_DAYS, row.passed)),
+			}
+		end
+	end
+	return lines, L.CHURCH_TITLE, rule
+end
+
 function View.RankingLines()
 	if View.list == "u" and (PreviewRole() or not Count.CanSeeRecruiters(ns.me)) then View.list = "a" end
+	-- (1.5.9) A member outside the Church's audience has the ranking for everyone alone.
+	if not Audience() then View.list = "e" end
+	if View.list == "e" and not Everyone() then View.list = "a" end
+	if View.list == "e" then return View.EveryoneLines() end
 	local lines = { Nav("ranking"), Filters(true) }
 	if ns.Recruit and not PreviewRole() then
 		for _, line in ipairs(ns.Recruit.RequestLines(false)) do lines[#lines + 1] = line end
@@ -826,11 +895,18 @@ function View.PollRanking()
 	local ui = ns.UI
 	if View.page ~= "ranking" or View.list == "c" or not ui or not ui.IsShown or not ui.IsShown()
 		or not ui.PageId or ui.PageId() ~= "church/" or PreviewRole() then return end
+	-- (1.5.9) The ranking for everyone, asked the same way, by every member whose page shows it.
+	if View.list == "e" then
+		if Everyone() and ns.RecruitRanking.Ask(View.window) then Redraw() end
+		return
+	end
 	if Count.Ask(View.list, View.window) then Redraw() end
 end
 
 function View.Refresh()
-	if Audience() and not PreviewRole() then
+	if View.page == "ranking" and View.list == "e" and Everyone() and not PreviewRole() then
+		ns.RecruitRanking.Ask(View.window, true)
+	elseif Audience() and not PreviewRole() then
 		if View.page == "ranking" then Count.Ask(View.list, View.window, nil, true)
 		elseif View.page == "mine" then Count.Ask("me", View.window, nil, true)
 		elseif View.page == "detail" and View.arg then Count.Ask("p", View.window, View.arg, true) end
@@ -857,6 +933,21 @@ if ns.RankingRules then
 				{ topic = "order", text = L.RANK_RULE_CHURCH_ORDER },
 				{ topic = "evidence", text = L.RANK_RULE_CHURCH_EVIDENCE },
 				{ topic = "visibility", text = L.RANK_RULE_CHURCH_VISIBILITY },
+			}
+		end,
+	})
+	-- (1.5.9) The recruiting ranking for everyone: every member reads its rules.
+	ns.RankingRules.Register("recruit-everyone", {
+		title = L.RANK_RULE_EVERYONE_TITLE,
+		icon = "Interface\\Icons\\INV_Misc_GroupLooking",
+		allowed = function() return View.Visible() and Everyone() end,
+		sections = function()
+			local RR = ns.RecruitRanking
+			return {
+				{ topic = "score", text = L.RANK_RULE_EVERYONE_SCORE:format(RR.POINTS_JOIN, RR.POINTS_STAY, RR.STAY_DAYS, Pct(RR.SHARE)) },
+				{ topic = "order", text = L.RANK_RULE_EVERYONE_ORDER },
+				{ topic = "evidence", text = L.RANK_RULE_EVERYONE_EVIDENCE:format(RR.NEW_DAYS) },
+				{ topic = "visibility", text = L.RANK_RULE_EVERYONE_VISIBILITY:format(RR.RANK_ROWS) },
 			}
 		end,
 	})
@@ -915,7 +1006,7 @@ if ns.PlayerMenu and ns.PlayerMenu.Add then
 	ns.PlayerMenu.Add("church", function(target, menu) View.MenuLines(target, menu) end, 40, { olympus = true })
 end
 
-for _, event in ipairs({ "CHURCH_CHANGED", "CHURCH_COUNT_CHANGED", "CHURCH_PUBLIC_CHANGED", "CHURCH_FULLNESS_CHANGED" }) do
+for _, event in ipairs({ "CHURCH_CHANGED", "CHURCH_COUNT_CHANGED", "CHURCH_PUBLIC_CHANGED", "CHURCH_FULLNESS_CHANGED", "RECRUIT_RANKING_CHANGED" }) do
 	ns.On(event, function()
 		if ns.UI and ns.UI.IsShown and ns.UI.IsShown() then Redraw() end
 	end)

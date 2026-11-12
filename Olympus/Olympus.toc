@@ -151,6 +151,7 @@ ViewAs.lua
 Church.lua
 ChurchCount.lua
 ChurchFullness.lua
+RecruitRanking.lua
 ChurchView.lua
 TabardsV2.lua
 Letters.lua
