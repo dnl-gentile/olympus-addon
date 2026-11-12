@@ -1906,8 +1906,8 @@ local function CensusLines(s, q, recruitment)
 		if own and size then
 			local cap = ns.Codec.GUILD_CAP
 			local open = math.max(0, cap - size)
-			local spots = open > 0 and L.RECRUIT_CENSUS_SPOTS:format(own, open, size, cap)
-				or L.RECRUIT_CENSUS_FULL:format(own, size, cap)
+			-- (11-12, the author's: no member count on it; one line, never cut off.)
+			local spots = open > 0 and L.RECRUIT_CENSUS_SPOTS:format(own, open) or L.RECRUIT_CENSUS_FULL:format(own)
 			lines[#lines + 1] = { text = Gold(spots), center = true, wrap = true }
 		end
 		lines[#lines + 1] = { text = L.RECRUIT_CENSUS_GROW, center = true, wrap = true, gapAfter = true }
@@ -1929,6 +1929,13 @@ local function CensusLines(s, q, recruitment)
 			lines[#lines + 1] = { id = "census-recruit-done", text = L.RECRUIT_CENSUS_DONE, primary = true,
 				onClick = recruitment.done }
 		else
+			-- 1.5.8 (the author's ask, 11-12: "se você não tiver selecionado nenhuma, deveria ser activate
+			-- all"): with every switch off, one button turns the three on, as their own clicks would.
+			lines[#lines + 1] = { id = "census-recruit-all", text = L.RECRUIT_CENSUS_ALL, primary = true,
+				onClick = function()
+					recruitment.switch("ads")
+					if Views.RecruitOfferState().join then recruitment.switch("scan") end
+				end }
 			lines[#lines + 1] = { id = "census-recruit-later", text = Gold(L.RECRUIT_CENSUS_LATER), center = true,
 				onClick = recruitment.later }
 			lines[#lines + 1] = { id = "census-recruit-never", text = Grey(L.RECRUIT_CENSUS_NEVER), center = true,

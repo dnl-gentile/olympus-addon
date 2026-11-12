@@ -3717,13 +3717,15 @@ test("gamepad centered Census recruitment offers three switches, Done and both d
 		end
 		local guild, cap = C.env.GetGuildInfo("player"), ns.Codec.GUILD_CAP
 		local size = C.env.GetNumGuildMembers()
-		local spots = Text(L.RECRUIT_CENSUS_SPOTS:format(guild, cap - size, size, cap))
+		local spots = Text(L.RECRUIT_CENSUS_SPOTS:format(guild, cap - size))
 		assert(spots and spots.center, "the offer names the guild's open spots")
+		-- (Changed on purpose, the author's ask 11-12: the member count came off this line.)
+		assert(not spots.text:find(tostring(size), 1, true), "and no member count")
 		assert(Text(L.RECRUIT_CENSUS_GROW), "and asks to help fill it and grow Olympus")
 		local realCount = C.env.GetNumGuildMembers
 		C.env.GetNumGuildMembers = function() return cap, 0, 0 end
 		U.Refresh()
-		assert(Text(L.RECRUIT_CENSUS_FULL:format(guild, cap, cap)), "a full guild is said to be full")
+		assert(Text(L.RECRUIT_CENSUS_FULL:format(guild)), "a full guild is said to be full")
 		C.env.GetNumGuildMembers = function() return nil end
 		U.Refresh()
 		eq(Text("<" .. guild .. ">"), nil, "no roster count shows no number")
@@ -4119,6 +4121,33 @@ test("gamepad Census switches clicked before the roster loads keep taking handof
 		reloaded.Advance(1)
 		eq(nextNS.Recruit.Handoff.Accepting(), true, "and after the next login")
 		NoErrors(reloaded, "Census switches after the login")
+	end
+end)
+
+-- 1.5.8 (the author's ask, 11-12: "se você não tiver selecionado nenhuma, deveria ser activate all"):
+-- with every switch off, one button turns the three on, as their own clicks would, and Done follows.
+test("gamepad Census offer: Turn on all turns every switch on", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		local U, R, L = ns.UI, ns.Recruit, ns.L
+		local function Row(id)
+			for _, row in ipairs(U.SelfTestView().rows) do
+				if row:IsShown() and row.line.id == "census-recruit-" .. id then return row end
+			end
+		end
+		U.Toggle()
+		eq(U.PageId(), "census/recruitment")
+		local all = assert(Row("all"), "with every switch off, a Turn on all button")
+		eq(all.primary:GetText(), L.RECRUIT_CENSUS_ALL)
+		assert(Row("later") and Row("never"), "the two dismissals stay under it")
+		C.Click(all.primary)
+		eq(U.PageId(), "census/recruitment", "the page stays")
+		eq(R.IsWhisperRecruiting(), true, "JOIN answers on")
+		eq(R.AnnounceReminderMinutes(), 5, "ads every 5 minutes")
+		eq(R.Candidates.Enabled(), true, "the unguilded scan on")
+		eq(Row("all"), nil, "no Turn on all once a switch is on")
+		eq(assert(Row("done")).primary:GetText(), L.RECRUIT_CENSUS_DONE, "Done in its place")
+		NoErrors(C, "Census Turn on all")
 	end
 end)
 
