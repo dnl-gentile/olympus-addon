@@ -50873,7 +50873,9 @@ local function TreasurySim(opts)
 		local saved = { split = ns.splitNames, after = ns.After, time = GetTime, cci = C_ChatInfo, chan = GetChannelName, now = ns.Now,
 			chunked = ns.Comm.SendChunked, size = ns.Comm.QueueSize, batch = ns.Comm.SendBatch, cancel = ns.Comm.Cancel }
 		local ok, err = pcall(function()
-			ns.splitNames = true
+			-- Measure a native-channel client. Forever's guild fanout and relay
+			-- each have their own coverage and never use the native addon channel.
+			ns.splitNames = false
 			GetChannelName = function() return 5 end
 			local cns = FreshComm()
 			local t, base = 0, w.clock
