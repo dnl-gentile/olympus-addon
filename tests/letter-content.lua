@@ -432,12 +432,21 @@ test("1.5.8 letter content: each locale explains recruiting, the Join page, Disc
 		end
 		local scan = L.RECRUIT_CANDIDATES_ON:match("^(.-)%s*:")
 		assert(scan and raw:find(scan, 1, true), code .. ": the unguilded scan as shown: " .. tostring(scan))
+		-- One reminder takes the public channels in turn (Recruit.lua), in every language.
+		local turn = ({ enUS = "taking your public channels in turn", ptBR = "canais públicos em rodízio",
+			deDE = "reihum durch deine öffentlichen Kanäle", esES = "por turnos tus canales públicos", esMX = "por turnos tus canales públicos",
+			frFR = "tour à tour par tes canaux publics", itIT = "a turno per i tuoi canali pubblici", ruRU = "по очереди в ваших публичных каналах" })[code]
+		assert(raw:find(turn, 1, true), code .. ": the reminder takes the public channels in turn")
 		previous = raw
 	end
 	-- What the game decides stays plain: the invite is the player's own command, and verification
 	-- requests access or a role rather than promising one.
 	assert(english:find("The game does not let addons send guild invites, so that step stays yours.", 1, true))
 	assert(english:find("Anyone can whisper you JOIN, even without Olympus.", 1, true))
-	assert(english:find("timed separately for each channel", 1, true))
+	-- (Changed on purpose after review: the letter said reminders were timed separately for each
+	-- channel, but Recruit.lua runs one reminder timer that takes the joined public channels in
+	-- turn; what each channel keeps is its own wait after a post.)
+	assert(english:find("A reminder can open one every 2 to 30 minutes, taking your public channels in turn; each channel keeps its own wait after a post.", 1, true))
+	assert(not english:find("timed separately", 1, true), "no reminder interval per channel is promised")
 	assert(english:find("The Watch can resend a guild approval", 1, true))
 end)
