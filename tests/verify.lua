@@ -193,6 +193,13 @@ local function World(fn)
 	if not ok then error(err, 0) end
 end
 
+local function ClickWatch(w, c, label)
+	for _, line in ipairs(w.As(c, c.Verify.CouncilLines)) do
+		if line.onClick and line.text:find(label, 1, true) then return w.As(c, line.onClick) end
+	end
+	error("Watch action missing: " .. label)
+end
+
 test("verify: verification recovery distinguishes different words with the same counts and clock", function()
 	World(function(w)
 		local hc = w.Client(HC, HEARTH, 3)
@@ -240,6 +247,7 @@ test("verify: the Watch sends the retained approval and cancels a queued resend 
 		end
 		assert(row, "the verified guild is visible in The Watch")
 		w.As(verifier, row.onClick)
+		ClickWatch(w, verifier, verifier.L.VERIFY_GUILD_ACTIONS)
 		local data = verifier.dialogs[#verifier.dialogs].data
 		local dialog = StaticPopupDialogs.OLYMPUS_VERIFY_REVOKE
 		eq(dialog.button3, verifier.L.VERIFY_RESEND_APPROVAL)
@@ -261,6 +269,33 @@ test("verify: the Watch sends the retained approval and cancels a queued resend 
 		eq(w.As(origin, origin.Verify.Revoke, GUILD), true)
 		eq(w.As(verifier, verifier.Verify.ResendApproval, GUILD), false, "a revoked decision cannot be resent")
 		eq(w.As(member, member.Verify.ResendApproval, GUILD), false, "member cannot resend")
+	end)
+end)
+
+test("verify: hiding and restoring a guild affects the local Watch list and reminders only", function()
+	World(function(w)
+		local verifier = w.Client(HC, HEARTH, 3)
+		local peer = w.Client(HC2, OTHER, 3)
+		local master = w.Client(GM, GUILD, 0)
+		w.Census(GUILD, "Bram Hollow", 120)
+		w.As(verifier, verifier.Verify.Observe)
+		local payload = w.As(verifier, verifier.Verify.Payload)
+		local _, before = w.Status(verifier, GUILD)
+		ClickWatch(w, verifier, "<" .. GUILD .. ">")
+		ClickWatch(w, verifier, verifier.L.VERIFY_COPY_GUILD)
+		eq(verifier.copies[#verifier.copies].text, GUILD, "copy contains the exact, uncolored spelling")
+		ClickWatch(w, verifier, verifier.L.VERIFY_IGNORE_GUILD)
+		assert(not w.As(verifier, verifier.Verify.ListText):find("<" .. GUILD .. ">", 1, true))
+		assert(w.As(peer, peer.Verify.ListText):find("<" .. GUILD .. ">", 1, true), "peer's Watch is unchanged")
+		eq(w.As(verifier, verifier.Verify.Payload), payload, "hide preferences never enter a verification snapshot")
+		local _, after = w.Status(verifier, GUILD)
+		eq(before.deadline, after.deadline)
+		w.As(verifier, verifier.Verify.CouncilNotices)
+		assert(not Find(verifier.printed, "<" .. GUILD .. ">"), "the local verifier gets no reminder for the hidden guild")
+		eq(w.As(master, master.Verify.SetIgnored, GUILD, true), false, "only the verifiers can use this Watch setting")
+		ClickWatch(w, verifier, verifier.L.VERIFY_MANAGE_IGNORED:format(1))
+		ClickWatch(w, verifier, verifier.L.VERIFY_RESTORE_IGNORED:format(GUILD))
+		assert(w.As(verifier, verifier.Verify.ListText):find("<" .. GUILD .. ">", 1, true), "restore shows the guild again")
 	end)
 end)
 
@@ -752,6 +787,7 @@ test("verify: 1.5.4 a verifier's whisper to an overdue guild's master says nothi
 			end
 			assert(row, "the guild's row on the verifiers' page")
 			w.As(c, row.onClick)
+			ClickWatch(w, c, c.L.VERIFY_GUILD_ACTIONS)
 			local d = c.dialogs[#c.dialogs]
 			eq(d.which, "OLYMPUS_VERIFY_GUILD"); eq(d.data.gm, GM)
 			eq(w.As(c, c.Verify.Nudge, d.data), true)
@@ -1073,6 +1109,7 @@ test("verify: the verifiers' page lists pending and overdue guilds with guild ma
 		assert(Find(tip, "Members: 120") and Find(tip, "First seen here: 7 d 1 h ago") and Find(tip, "Code: "), table.concat(tip, " / "))
 		-- A click: the question, with approve and whisper.
 		w.As(hc, first.onClick)
+		ClickWatch(w, hc, hc.L.VERIFY_GUILD_ACTIONS)
 		local d = hc.dialogs[#hc.dialogs]
 		eq(d.which, "OLYMPUS_VERIFY_GUILD"); eq(d.data.guild, GUILD); eq(d.data.gm, GM)
 		local def = StaticPopupDialogs.OLYMPUS_VERIFY_GUILD
@@ -1086,7 +1123,8 @@ test("verify: the verifiers' page lists pending and overdue guilds with guild ma
 		local done
 		for _, l in ipairs(lines) do if l.text and l.text:find(hc.Verify.MARK_OK .. "<" .. GUILD .. ">", 1, true) then done = l end end
 		assert(done and done.right:find("by Vera Stone", 1, true), "verified, and by whom")
-		w.As(hc, done.onClick)
+		-- The same expanded row remains selected across its verification status change.
+		ClickWatch(w, hc, hc.L.VERIFY_GUILD_ACTIONS)
 		eq(hc.dialogs[#hc.dialogs].which, "OLYMPUS_VERIFY_REVOKE")
 		w.As(hc, hc.Verify.RevokeInput, hc.dialogs[#hc.dialogs].data.guild)
 		eq(w.Status(member, GUILD), "overdue")

@@ -1086,6 +1086,29 @@ function Verify.CouncilShown()
 	return ns.IsMember() and Verify.Trusted(ns.me)
 end
 
+local function Ignored()
+	local list = ns.rdb and ns.rdb.verifyIgnored
+	return type(list) == "table" and list or nil
+end
+
+function Verify.SetIgnored(guild, on)
+	if not Verify.CouncilShown() or type(guild) ~= "string" then return false end
+	local list, key = Ignored(), Key(guild)
+	if on then
+		guild = GuildField(guild)
+		if not guild then return false end
+		if not list then list = {}; ns.rdb.verifyIgnored = list end
+		local count = 0
+		for _ in pairs(list) do count = count + 1 end
+		if not list[key] and count >= Verify.MAX then return false end
+		list[key] = guild
+	elseif list and list[key] then
+		list[key] = nil
+	else return false end
+	Changed()
+	return true
+end
+
 -- The guilds still to verify (the census's and our own; overdue first, then the least time left,
 -- then the biggest) and the verified ones (by name), each { guild, status, info, total }.
 -- (1.5.5) And every guild with a valid start: the starts cross the relays with the approvals (a
@@ -1095,11 +1118,11 @@ end
 -- with its start, no guild master and no member count until it does.
 function Verify.Pending(now)
 	now = now or Verify.Clock()
-	local pending, verified, done = {}, {}, {}
+	local pending, verified, done, ignored = {}, {}, {}, Ignored()
 	local function Add(guild)
 		if type(guild) ~= "string" then return end
 		local key = Key(guild)
-		if done[key] then return end
+		if done[key] or (ignored and type(ignored[key]) == "string") then return end
 		done[key] = true
 		local status, info = Verify.Status(guild, now)
 		if not status or status == "exempt" then return end
@@ -1220,6 +1243,24 @@ function Verify.Count()
 	return #(Verify.Pending())
 end
 
+local selectedGuild, managingIgnored
+local function SelectGuild(guild)
+	selectedGuild = selectedGuild ~= guild and guild or nil
+	Changed()
+end
+
+local function CouncilActions(lines, r, approval)
+	if selectedGuild ~= r.guild then return end
+	lines[#lines + 1] = { indent = 2, text = Gold(L.VERIFY_GUILD_ACTIONS), onClick = approval }
+	lines[#lines + 1] = { indent = 2, text = Gold(L.VERIFY_COPY_GUILD), onClick = function()
+		if not Verify.CouncilShown() then return end
+		if ns.UI and ns.UI.ShowCopy then ns.UI.ShowCopy(L.VERIFY_COPY_GUILD, r.guild, nil, { key = "verify-guild-name" }) end
+	end }
+	lines[#lines + 1] = { indent = 2, text = Gold(L.VERIFY_IGNORE_GUILD), onClick = function()
+		if Verify.SetIgnored(r.guild, true) then selectedGuild = nil end
+	end }
+end
+
 function Verify.CouncilLines(now)
 	if not Verify.CouncilShown() then return {} end
 	now = now or Verify.Clock()
@@ -1229,6 +1270,24 @@ function Verify.CouncilLines(now)
 		{ text = Grey(L.VERIFY_COUNCIL_SCOPE), wrap = true },
 		{ id = "verify-copy", text = Gold(L.VERIFY_COUNCIL_COPY), onClick = function() Verify.ShowList() end, gapAfter = true },
 	}
+	local ignored = {}
+	for key, guild in pairs(Ignored() or {}) do
+		if type(guild) == "string" and #guild <= 72 and not guild:find("[~;,|%c]") and key == Key(guild) then
+			ignored[#ignored + 1] = guild
+		end
+	end
+	table.sort(ignored, function(a, b) return Key(a) < Key(b) end)
+	lines[#lines + 1] = { id = "verify-ignored", text = Gold(L.VERIFY_MANAGE_IGNORED:format(#ignored)), gapAfter = true,
+		onClick = function() managingIgnored = not managingIgnored; Changed() end }
+	if managingIgnored then
+		lines[#lines + 1] = { indent = 1, text = Grey(L.VERIFY_IGNORED_HINT), wrap = true }
+		for _, guild in ipairs(ignored) do
+			lines[#lines + 1] = { indent = 1, text = Gold(L.VERIFY_RESTORE_IGNORED:format(guild)), onClick = function()
+				Verify.SetIgnored(guild, false)
+			end }
+		end
+		lines[#lines].gapAfter = true
+	end
 	if #pending == 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.VERIFY_COUNCIL_EMPTY) } end
 	for _, r in ipairs(pending) do
 		local late = r.status == "overdue"
@@ -1244,8 +1303,9 @@ function Verify.CouncilLines(now)
 				tt:AddLine(StateText(r), late and 1 or 0.7, late and 0.4 or 0.7, late and 0.4 or 0.7, true)
 				tt:AddLine(L.VERIFY_COUNCIL_CLICK, 0.25, 1, 0.25, true)
 			end,
-			onClick = function() Verify.AskGuild(r) end,
+			onClick = function() SelectGuild(r.guild) end,
 		}
+		CouncilActions(lines, r, function() Verify.AskGuild(r) end)
 	end
 	lines[#lines].gapAfter = true
 	lines[#lines + 1] = { header = true, text = L.VERIFY_COUNCIL_VERIFIED, right = Grey(#verified) }
@@ -1259,11 +1319,12 @@ function Verify.CouncilLines(now)
 				tt:AddLine(L.VERIFY_COUNCIL_MASTER:format(Shown(e.gm)), 1, 1, 1)
 				tt:AddLine(L.VERIFY_COUNCIL_REVOKE_CLICK, 1, 0.4, 0.4, true)
 			end,
-			onClick = function()
-				ns.ShowDialog("OLYMPUS_VERIFY_REVOKE", L.VERIFY_REVOKE_PROMPT:format(r.guild, Shown(e.gm)), nil,
-					{ guild = r.guild, entry = e })
-			end,
+			onClick = function() SelectGuild(r.guild) end,
 		}
+		CouncilActions(lines, r, function()
+			ns.ShowDialog("OLYMPUS_VERIFY_REVOKE", L.VERIFY_REVOKE_PROMPT:format(r.guild, Shown(e.gm)), nil,
+				{ guild = r.guild, entry = e })
+		end)
 	end
 	return lines
 end
