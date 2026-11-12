@@ -262,10 +262,12 @@ end
 -- Who.WantName), for the guild it shows (Who.SeenGuild); the round goes on where it was too.
 -- With the gamepad UI only the player's own searches go, plainly (see the top of this file):
 -- the round's, and one guild's his click asked for (Who.SearchGuild with `own`); never a name.
+-- `recruit` (1.5.8): the recruitment scan's own query (RecruitCandidates.lua's Search more), quiet,
+-- its answer read for the scan alone; the round goes on where it was. Never with the gamepad UI.
 local toldPlain = false
-function Who.Search(quiet, guild, name)
+function Who.Search(quiet, guild, name, recruit)
 	local plain = ns.GamepadUI()
-	if plain and (quiet or name) then return false end
+	if plain and (quiet or name or recruit) then return false end
 	local now = GetTime()
 	local wait = Wait(now, math.max(Who.lastSend, Who.lastPlain))
 	if wait > 0 then
@@ -283,12 +285,12 @@ function Who.Search(quiet, guild, name)
 	local old = sweep.started and now - sweep.started > Who.ROUND_TTL
 	if not sweep.done and old then NewSweep() end
 	-- The round done: the misspelled names next (VARIANTS), then it starts over.
-	local own = guild or name -- one guild's or one player's search: the round stays where it is
+	local own = guild or name or recruit -- one guild's, one player's or the scan's: the round stays where it is
 	local variant = not own and sweep.done and not old and sweep.variant < #Who.VARIANTS and sweep.variant + 1 or nil
 	if sweep.done and not own and not variant then sweep.step = 0 end
 	-- A level range is a plain "lo-hi" in the filter, like the Who window's default search.
 	local b = not own and not variant and sweep.step > 0 and sweep.brackets[sweep.step]
-	local query = guild and ('g-"%s"'):format(guild) or name and ('n-"%s"'):format(ns.TellName(name))
+	local query = recruit or guild and ('g-"%s"'):format(guild) or name and ('n-"%s"'):format(ns.TellName(name))
 		or variant and ('g-"%s"'):format(Who.VARIANTS[variant]) or b and ("%s %d-%d"):format(Who.QUERY, b[1], b[2]) or Who.QUERY
 	local frames, names = {}, {}
 	if not plain then
@@ -297,7 +299,8 @@ function Who.Search(quiet, guild, name)
 	end
 	lastId = lastId + 1
 	local id = lastId
-	pending = { id = id, frames = frames, step = sweep.step, query = query, guild = guild, name = name, variant = variant }
+	pending = { id = id, frames = frames, step = sweep.step, query = query, guild = guild, name = name, variant = variant,
+		recruit = recruit and true or nil }
 	owed = nil -- a search given up before this one: its answer would now pass for this one's
 	Who.lastSend = now
 	-- Scheduled first: whatever fails from here on, the who windows get their event back.
@@ -552,8 +555,9 @@ local function OnAnswer()
 	end
 	local rows, shown, total = Read()
 	local first = not p.answered
-	if p.name then
-		-- One player's search (Who.WantName): Read kept the guild it showed.
+	if p.name or p.recruit then
+		-- One player's search (Who.WantName): Read kept the guild it showed. (1.5.8) The recruitment
+		-- scan's: Read gave its unguilded players to the scan; the round is not touched.
 		if first then
 			p.answered = true
 			ns.After(Who.SETTLE, "who settle", function() if pending == p then Release("answered") end end)

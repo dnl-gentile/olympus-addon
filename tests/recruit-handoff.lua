@@ -83,6 +83,7 @@ local function Dialogs()
 	function D.Show(which, a, _, data)
 		local f = { which = which, text = a, data = data, open = true, def = StaticPopupDialogs[which] }
 		f.Hide = function() f.open = false end
+		f.IsShown = function() return f.open end
 		shown[#shown + 1] = f
 		return f
 	end
@@ -557,7 +558,9 @@ test("recruit handoff (1.5.8): at ten invites a minute new JOINs and sightings g
 				local draft = assert(D.Find(DRAFT))
 				eq(R.AtInviteLimit(), false, "under the limit until the tenth command goes to chat")
 				draft.def.extra.onClick(draft, draft.data)
-				eq(D.Find(DRAFT), nil, "the command went to chat")
+				-- (1.5.8, the author: the popup closes on the paste in chat, not when chat opens.)
+				eq(D.Find(DRAFT), draft, "the popup waits for the paste")
+				draft:Hide()
 			end
 			eq(R.AtInviteLimit(), true, "ten commands taken to chat in a minute reach the limit")
 			-- Automatic offers off: the popup says so and offers Pass.
@@ -614,6 +617,7 @@ test("recruit handoff (1.5.8): what the invite limit sent on comes back to his p
 				eq(R.Accept(R.requests[i]), true)
 				local draft = assert(D.Find(DRAFT))
 				draft.def.extra.onClick(draft, draft.data)
+				draft:Hide() -- (1.5.8: the paste in chat closes it)
 			end
 			eq(R.AtInviteLimit(), true)
 			-- With the offers off, the popup offers Pass, and his click passes this one for good.
@@ -674,6 +678,7 @@ test("recruit handoff (1.5.8): turning the offers off brings back what the limit
 				eq(R.Accept(R.requests[i]), true)
 				local draft = assert(D.Find(DRAFT))
 				draft.def.extra.onClick(draft, draft.data)
+				draft:Hide() -- (1.5.8: the paste in chat closes it)
 			end
 			eq(H.ToggleAuto(), true)
 			scene.now = scene.now + 21
@@ -1334,5 +1339,156 @@ test("recruit overflow (review of 1.5.8): a no sends the next probe a second lat
 		assert(second.word:match("^J4~P~"))
 		assert(second.peer ~= first.peer, "to the next member")
 		for _, req in ipairs(R.requests) do eq(H.State(req), nil, "no applicant left the local queue") end
+	end)
+end)
+
+-- Review of 1.5.8 (P2): a clock of frames for the paste watch. Input lands first in a frame, then
+-- the timers due by then run, as the game does (ns.After and GetTime follow this clock).
+local function WithFrames(scene, fn)
+	local saved = { after = ns.After, time = GetTime, util = rawget(_G, "ChatFrameUtil"), box = rawget(_G, "ACTIVE_CHAT_EDIT_BOX") }
+	local clock, pending = 1000, {}
+	ns.After = function(seconds, _, callback) pending[#pending + 1] = { at = clock + (tonumber(seconds) or 0), fn = callback } end
+	GetTime = function() return clock end
+	local box = { text = "" }
+	function box.GetText(self) return self.text end
+	ChatFrameUtil = { OpenChat = function() box.text = ""; ACTIVE_CHAT_EDIT_BOX = box end }
+	local frames = {}
+	function frames.Step(input)
+		clock = clock + 1 / 60
+		if input then input(box) end
+		local due = {}
+		for i = #pending, 1, -1 do if pending[i].at <= clock then table.insert(due, 1, table.remove(pending, i)) end end
+		for _, t in ipairs(due) do t.fn() end
+	end
+	local ok, err = pcall(fn, frames, box)
+	ns.After, GetTime, ChatFrameUtil, ACTIVE_CHAT_EDIT_BOX = saved.after, saved.time, saved.util, saved.box
+	if not ok then error(err, 0) end
+end
+
+local function Paste(box) box.text = "/ginvite " .. box.command end
+local function Enter() ACTIVE_CHAT_EDIT_BOX = nil end
+
+test("recruit invite (review of 1.5.8): a paste and Enter on the next frames still close the popup", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		WithFrames(scene, function(frames, box)
+			R.OnWhisper("JOIN", "Quick Hands-" .. home)
+			eq(R.Accept(R.requests[1]), true)
+			local draft = assert(D.Find(DRAFT))
+			box.command = "Quick Hands"
+			draft.def.extra.onClick(draft, draft.data) -- Ctrl+C: empty chat opens
+			eq(ACTIVE_CHAT_EDIT_BOX, box)
+			frames.Step()
+			frames.Step(Paste) -- Ctrl+V
+			frames.Step(Enter) -- Enter, the next frame: the invite went and chat closed
+			for _ = 1, 30 do frames.Step() end
+			eq(draft.open, false, "the popup closed on the paste the frame before Enter")
+		end)
+	end)
+end)
+
+test("recruit invite (review of 1.5.8): a paste long after Ctrl+C, chat open all along, still closes the popup", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		WithFrames(scene, function(frames, box)
+			R.OnWhisper("JOIN", "Slow Hands-" .. home)
+			eq(R.Accept(R.requests[1]), true)
+			local draft = assert(D.Find(DRAFT))
+			box.command = "Slow Hands"
+			draft.def.extra.onClick(draft, draft.data)
+			for _ = 1, 40 * 60 do frames.Step() end -- 40 s with chat open and empty
+			eq(draft.open, true, "nothing pasted yet: the popup stays")
+			frames.Step(Paste)
+			frames.Step()
+			eq(draft.open, false, "the paste closes it")
+		end)
+	end)
+end)
+
+-- Review of 1.5.8 (P2): the scan's list keeps 24 players. A /who answer that fills it must not drop
+-- the player whose popup is on screen, and a player already popped up who is found again (after his
+-- row was dropped or went stale) does not pop up a second time.
+local function Letters(i) return string.char(97 + (i - 1) % 26) .. string.char(97 + math.floor((i - 1) / 26)) end
+
+test("recruit scan (review of 1.5.8): a full list keeps the player whose invite popup is up", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local saved = rawget(_G, "ChatFrameUtil")
+		ChatFrameUtil = { OpenChat = function() end }
+		local ok, err = pcall(function()
+			local tick = ScanOne(scene, "Lone Wolf-" .. home)
+			tick()
+			local draft = assert(D.Find(DRAFT), "his invite popup")
+			local row = assert(draft.data.candidate)
+			for i = 1, 30 do R.Candidates.ObserveWho(("Wander%s-%s"):format(Letters(i), home), "", "Human") end
+			assert(R.Candidates.Check(row), "his row is kept while his popup is up")
+			draft.def.extra.onClick(draft, draft.data) -- Ctrl+C
+			eq(row.invitePrepared, true, "his command still goes to chat")
+		end)
+		ChatFrameUtil = saved
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("recruit scan (review of 1.5.8): a player already popped up, found again later, does not pop up twice", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local savedTime, clock = GetTime, 2000
+		GetTime = function() return clock end
+		local ok, err = pcall(function()
+			local wolf = "Lone Wolf-" .. home
+			local tick = ScanOne(scene, wolf)
+			tick()
+			local draft = assert(D.Find(DRAFT), "his invite popup")
+			draft:Hide()
+			clock = clock + 181 -- his /who answer goes stale and his row leaves the list
+			tick()
+			R.Candidates.ObserveWho(wolf, "", "Human") -- the rotation's next /who finds him again
+			tick()
+			eq(D.Find(DRAFT), nil, "no second popup for him")
+			for i = 1, 30 do R.Candidates.ObserveWho(("Wander%s-%s"):format(Letters(i), home), "", "Human") end
+			R.Candidates.ObserveWho(wolf, "", "Human")
+			tick()
+			local next = D.Find(DRAFT)
+			assert(next and next.data.candidate.name ~= "Lone Wolf", "another player pops up, not him")
+		end)
+		GetTime = savedTime
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- Review of 1.5.8 (P2): most of the scan's list now comes from its own /who and the mouseover. Such
+-- a player's invite popup offers "Whisper them first" too (the author: "um botão com opção, Whisper
+-- him first"): the whisper goes to the same name as his /ginvite, then his invite popup comes back.
+test("recruit scan (review of 1.5.8): a /who-found player's popup offers Whisper them first, then comes back", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local savedSay, said = ns.SayTo, {}
+		ns.SayTo = function(name, text) said[#said + 1] = { name = name, text = text }; return true end
+		local ok, err = pcall(function()
+			local tick = ScanOne(scene, "Lone Wolf-" .. home)
+			tick()
+			local draft = assert(D.Find(DRAFT), "his invite popup")
+			local row = draft.data.candidate
+			eq(draft.def.button3Shown(draft, draft.data), true, "a /who-found player can be whispered first")
+			draft.def.OnAlt(draft, draft.data)
+			draft:Hide()
+			local review = assert(D.Find("OLYMPUS_RECRUIT_OUTREACH"), "his whisper review opens")
+			eq(review.data.candidate, row)
+			review.editBox = { GetText = function() return "Hello there" end, SetText = function() end }
+			review.def.OnAccept(review, review.data)
+			eq(said[1] and said[1].name, row.name, "the whisper goes to the name his /ginvite carries")
+			review:Hide(); review.def.OnHide(review, review.data)
+			for _, fn in ipairs(scene.later) do fn() end
+			local back = assert(D.Find(DRAFT), "his invite popup comes back after the whisper")
+			eq(back.data.candidate, row)
+		end)
+		ns.SayTo = savedSay
+		if not ok then error(err, 0) end
 	end)
 end)
