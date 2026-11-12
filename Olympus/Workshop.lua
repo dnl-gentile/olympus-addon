@@ -615,8 +615,8 @@ StaticPopupDialogs["OLYMPUS_AUTHOR_UPDATE"] = {
 }
 
 -- (1.5.9) His update notice to the outdated clients his relay serves. Clients still on 1.5.4 showed 3 to
--- 8 thousand characters on every server while 1.5.8 showed 38 to 39 thousand (the author, 11-12): their
--- census trusts the Church's ledger relays alone. His presence (V4) tells a client behind the version he
+-- 8 thousand characters on every server while 1.5.8 showed 38 to 39 thousand (the reports of 11-12):
+-- their census trusts the Church's ledger relays alone. His presence (V4) tells a client behind the version he
 -- marked as out once a session in chat and at the foot of the Census; his update notice (V3, the window
 -- every version shows) went only where he clicked. Now his relay client gives it to each client it serves
 -- that presented an older version (Relay.Presentations: the version each named, PRESENT_FOR past its last
