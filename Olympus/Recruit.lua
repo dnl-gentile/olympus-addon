@@ -839,13 +839,14 @@ local function OutreachQueue()
 		if now - at >= Recruit.REQUEST_EACH then contacted[who] = nil end
 	end
 	local function Add(unit, source)
-		local name, guid, why = NearbyPlayer(unit)
+		local name, guid, why, full = NearbyPlayer(unit)
 		if why == "absent" then return end
 		counts[source] = counts[source] + 1
 		if why then counts[why] = counts[why] + 1; return end
 		if seen[guid] then counts.duplicate = counts.duplicate + 1; return end
 		seen[guid] = true
-		if RecentlyContacted(name, now) then counts.contacted = counts.contacted + 1; return end
+		-- (1.5.9) One who declined this client's invite counts as contacted: not whispered again.
+		if RecentlyContacted(name, now) or Recruit.Declined(full) then counts.contacted = counts.contacted + 1; return end
 		queue[#queue + 1] = { name = name, guid = guid, unit = unit }
 	end
 	Add("target", "target")
@@ -1290,8 +1291,144 @@ local function Drop(req)
 	ns.Fire("DATA_CHANGED")
 end
 
+-- (1.5.9, the author's ask, 11-12: "Só recusou, já não vamos perturbar ela") A player who declines a
+-- guild invite this client took to chat is not bothered again. The game tells the inviter in a
+-- system line, in its own format ERR_GUILD_DECLINE_S ("%s declines your guild invitation."), read
+-- where the client has it (nothing happens where it does not; tests/fixtures/forever-api.lua does
+-- not list it until it is made again from Forever's Interface folder). The name is kept DECLINE_DAYS
+-- days in this realm group's storage, DECLINE_MAX names at most (the oldest out): the scan leaves him
+-- out, his popups close, a reply of his pops up nothing, he is not offered to other members, and a
+-- handoff of him is not taken here. Only his own JOIN clears it (ClearDeclined).
+Recruit.DECLINE_DAYS, Recruit.DECLINE_MAX = 7, 200
+local invitedHere, declinedHere, declinePattern = {}, {}, nil
+
+local function DeclineKey(name)
+	if type(name) ~= "string" or name == "" or ns.IsSecret(name) then return nil end
+	local who = ns.FullName(ns.Normal(name))
+	if type(who) ~= "string" or who == "" then return nil end
+	return ns.Fold(ns.splitNames and ns.ShortName(who) or who)
+end
+
+local function DeclinedList(create)
+	if type(ns.rdb) ~= "table" then return nil end
+	local list = ns.rdb.recruitDeclined
+	if type(list) ~= "table" then
+		if not create then return nil end
+		list = {}
+		ns.rdb.recruitDeclined = list
+	end
+	return list
+end
+
+local function KeepDeclined(list, now)
+	local count = 0
+	for key, t in pairs(list) do
+		if type(key) ~= "string" or type(t) ~= "number" or now - t >= Recruit.DECLINE_DAYS * 86400 then list[key] = nil
+		else count = count + 1 end
+	end
+	while count > Recruit.DECLINE_MAX do
+		local oldest, at
+		for key, t in pairs(list) do if not at or t < at then oldest, at = key, t end end
+		list[oldest] = nil
+		count = count - 1
+	end
+end
+
+-- Whether `name` declined this client's invite less than DECLINE_DAYS days ago. (Asked of every
+-- player the scan sees: with nobody declined, no name is looked at.)
+function Recruit.Declined(name)
+	local list = DeclinedList()
+	if next(declinedHere) == nil and (not list or next(list) == nil) then return false end
+	local key = DeclineKey(name)
+	if not key then return false end
+	local t = declinedHere[key] or (list and list[key])
+	if type(t) ~= "number" then return false end
+	if ns.Now() - t < Recruit.DECLINE_DAYS * 86400 then return true end
+	declinedHere[key] = nil
+	if list then list[key] = nil end
+	return false
+end
+
+-- His own JOIN (whispered, or sent by his Olympus) after a decline is his choice to come back:
+-- it goes through, and the decline is forgotten.
+local function ClearDeclined(name)
+	local key = DeclineKey(name)
+	local list = DeclinedList()
+	if not key or not (declinedHere[key] or (list and list[key])) then return end
+	declinedHere[key] = nil
+	if list then list[key] = nil end
+	if Recruit.Handoff and Recruit.Handoff.Log then Recruit.Handoff.Log("UNDECLINED", Recruit.Handoff.Tag(Key(name))) end
+end
+
+-- The invite command for `item` (a JOIN or a scanned player) went to chat here: his decline counts.
+local function NoteInvited(item)
+	local full = type(item) == "table" and (item.scanned and item.full or item.name) or nil
+	local key = DeclineKey(full)
+	if not key then return end
+	if not invitedHere[key] then
+		local n, oldest, at = 0, nil, nil
+		for k, entry in pairs(invitedHere) do
+			n = n + 1
+			if not at or entry.t < at then oldest, at = k, entry.t end
+		end
+		if n >= Recruit.DECLINE_MAX then invitedHere[oldest] = nil end
+	end
+	invitedHere[key] = { t = ns.Now(), full = full }
+end
+
+-- His popups still on screen (an invite command whose paste was not seen, his whisper review, his
+-- reply): closed, as nothing in them works for him any more and they hold the next ones back.
+local DECLINE_DIALOGS = { "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_NETOFF" }
+local function CloseDeclinedPopups(key)
+	local D = ns.Dialog
+	if not D or D.missing or not D.Find then return end
+	for _, which in ipairs(DECLINE_DIALOGS) do
+		local f = D.Find(which)
+		local data = f and f.data
+		local item = type(data) == "table" and (data.candidate or data.req or (data.name and data)) or nil
+		local name = type(item) == "table" and (item.scanned and item.full or item.name) or nil
+		if name and DeclineKey(name) == key then f:Hide() end
+	end
+end
+
+-- A system line (CHAT_MSG_SYSTEM). The game's decline of a player this client invited: his JOIN
+-- and his scan row go, and he is remembered as declined.
+function Recruit.OnSystemLine(text)
+	if type(text) ~= "string" or next(invitedHere) == nil or ns.IsSecret(text) then return false end
+	if not declinePattern then
+		local f = type(ERR_GUILD_DECLINE_S) == "string" and ERR_GUILD_DECLINE_S or nil
+		if not f or not f:find("%s", 1, true) then return false end
+		declinePattern = "^" .. (f:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0"):gsub("%%%%s", "(.+)")) .. "$"
+	end
+	local key = DeclineKey(text:match(declinePattern))
+	local entry = key and invitedHere[key]
+	if not entry then return false end
+	invitedHere[key] = nil
+	local now = ns.Now()
+	declinedHere[key] = now
+	local list = DeclinedList(true)
+	if list then
+		list[key] = now
+		KeepDeclined(list, now)
+	end
+	local H = Recruit.Handoff
+	for i = #Recruit.requests, 1, -1 do
+		local req = Recruit.requests[i]
+		if DeclineKey(req.name) == key and not (H and H.State(req)) then table.remove(Recruit.requests, i) end
+	end
+	if Recruit.Candidates and Recruit.Candidates.DropDeclined then Recruit.Candidates.DropDeclined() end
+	CloseDeclinedPopups(key)
+	if H and H.Log then H.Log("DECLINED", H.Tag(entry.full)) end
+	ns.Print(L.RECRUIT_DECLINED:format(ns.DisplayName(entry.full) or entry.full))
+	ns.Fire("DATA_CHANGED")
+	return true
+end
+
 local function AddRequest(sender, own, level, class, text, viaWhisper)
 	if ns.Roster.RankOf(sender) then return false end -- one of us already
+	-- (1.5.9) A player who declined this client's invite: only his own JOIN, which clears that first,
+	-- comes in; a reply to our whisper does not.
+	if Recruit.Declined(sender) then return false end
 	local now = ns.Now()
 	Prune(now)
 	if requestAt[sender] then return false end
@@ -1337,6 +1474,7 @@ function Recruit.OnJoinRequest(dist, sender, text)
 	local guild, level, class = tostring(text):match("^J3~([^~]+)~(%d+)~(%u*)$")
 	local own = GetGuildInfo("player")
 	if not guild or not own or guild:lower() ~= own:lower() then return false end
+	ClearDeclined(sender) -- (1.5.9) his own JOIN: he comes back by his own choice
 	local w = whispers[sender]
 	local accepted = AddRequest(sender, own, level, class, w and ns.Now() - w.t <= 120 and w.text or nil)
 	return accepted
@@ -1395,6 +1533,12 @@ end
 -- JOIN whispered to us opens (no Prepare step), and it is never offered onward (no intent).
 function Recruit.TakeHandoff(name, officer)
 	if not Recruiting() or not CanInvite() or not NameForCommand(name) then return false end
+	-- (1.5.9) A player who declined this client's invite is not taken from another member (the
+	-- recruiting log says why the name was refused).
+	if Recruit.Declined(name) then
+		if Recruit.Handoff then Recruit.Handoff.Log("DECLINED", Recruit.Handoff.Tag(name) .. " handoff not taken") end
+		return false
+	end
 	local shown = L.RECRUIT_HANDOFF_RECEIVED:format(ns.DisplayName(officer) or officer)
 	local accepted, req = AddRequest(name, recruitingGuild, nil, nil, shown, true)
 	if not accepted then return false end
@@ -1613,6 +1757,7 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 	if pcall(open, "", DEFAULT_CHAT_FRAME) then
 		if req then req.invitePrepared = true end
 		if data.candidate then data.candidate.invitePrepared = true end
+		NoteInvited(data.candidate or req)
 		-- (Counted once a popup: a second Ctrl+C after closing chat is the same command.)
 		if not data.taken then
 			data.taken = true
@@ -1908,7 +2053,8 @@ function Recruit.ResetForTests()
 	wipe(contacted)
 	lastOutreach, lastReplyPrompt = nil, nil
 	wipe(routeAsked); wipe(routeAnswered); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
-	wipe(lineTimes); wipe(whispers); wipe(invitesTaken)
+	wipe(lineTimes); wipe(whispers); wipe(invitesTaken); wipe(invitedHere); wipe(declinedHere)
+	declinePattern = nil
 	lastRoute = -math.huge
 	Recruit.route, Recruit.pending, Recruit.lastAsk, Recruit.lastContact = nil, nil, 0, nil
 	Recruit.found, Recruit.asked, Recruit.replied, Recruit.requests = {}, {}, {}, {}
@@ -1934,6 +2080,8 @@ function Recruit.OnWhisper(text, sender)
 			if to and key ~= ns.me and (keyword == "JOIN" or keyword == "JOIN OLYMPUS" or (recent and reply ~= "")) then
 				local shown = ns.Codec.SanitizeChat(ns.Cut(reply, 180))
 				if shown ~= "" then
+					-- (1.5.9) His JOIN after a decline: he comes back by his own choice.
+					if keyword == "JOIN" or keyword == "JOIN OLYMPUS" then ClearDeclined(key) end
 					local accepted, req = AddRequest(key, recruitingGuild, nil, nil, shown, true)
 					if Recruit.Handoff then
 						Recruit.Handoff.Log(accepted and "JOIN" or "JOINDROP", Recruit.Handoff.Tag(key)
@@ -1976,6 +2124,8 @@ ns.On("LOGIN", function()
 	ns.After(12, "daily nag", DailyNag)
 	ns.RegisterEvent("CHAT_MSG_WHISPER", function(text, sender) Recruit.OnWhisper(text, sender) end)
 	ns.RegisterEvent("CHAT_MSG_CHANNEL", ObserveAnnouncement)
+	-- (1.5.9) The game's line when a player declines this client's guild invite.
+	pcall(ns.RegisterEvent, "CHAT_MSG_SYSTEM", function(text) ns.SafeCall("recruit declined", Recruit.OnSystemLine, text) end)
 	ns.RegisterEvent("PLAYER_GUILD_UPDATE", function(unit)
 		if unit and unit ~= "player" then return end
 		RestoreRecruiting()

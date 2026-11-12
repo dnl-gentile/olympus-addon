@@ -4430,6 +4430,69 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 	end
 end)
 
+-- 1.5.9 (the author's ask, 11-12: "Ele não está identificando quando a pessoa recusou o convite para a
+-- guilda... Só recusou, já não vamos perturbar ela"): a player who declined this client's guild invite
+-- (kept in the realm group's saved list) stays out of the scan, on a nameplate, as the target, under
+-- the mouse and from a /who, and out of the nearby whispers, while the player beside him is offered.
+-- The game's decline line needs its text, ERR_GUILD_DECLINE_S, which tests/fixtures/forever-api.lua
+-- does not list yet: the fixture is made from Forever's own UI source, which only the author has.
+-- Until it is made again (scripts/forever-api.lua) the text reads as missing here, and the line,
+-- after an invite taken to chat, changes nothing and raises nothing.
+test("gamepad recruit (1.5.9): a declined player stays out of the scan; the decline line waits for the client's text", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		C.Absent("ERR_GUILD_DECLINE_S", "the decline line's text: not in the client fixture until it is made again (scripts/forever-api.lua)")
+		local R = ns.Recruit
+		-- (The saved form of a decline: the folded name and when, here an hour ago.)
+		ns.rdb.recruitDeclined = { [ns.Fold("Declined-Realm")] = ns.Now() - 3600 }
+		local function Line(id)
+			for _, line in ipairs(R.WhisperLines()) do if line.id == id then return line end end
+		end
+		local function Listed(name)
+			for _, line in ipairs(R.WhisperLines()) do
+				if line.text and line.text:find(name, 1, true) then return true end
+			end
+			return false
+		end
+		InClick(C, function() eq(R.EnableWhisperRecruiting(), true) end)
+		ns.EVERY_SPREAD = 0 -- (the scan's own ticker, with no random start)
+		local declined = { name = "Declined", realm = "Realm", guid = "Player-1-00000077" }
+		C.units.nameplate1 = declined
+		C.units.nameplate2 = { name = "Plain", realm = "Realm", guid = "Player-1-00000078" }
+		InClick(C, assert(Line("recruit-candidate-toggle")).onClick)
+		eq(R.Candidates.Enabled(), true)
+		assert(Listed("Plain"), "the unguilded player on a nameplate is listed")
+		eq(Listed("Declined"), false, "the one who declined is not")
+		C.units.target = declined
+		C.Fire("PLAYER_TARGET_CHANGED")
+		C.units.mouseover = declined
+		C.Fire("UPDATE_MOUSEOVER_UNIT")
+		C.units.mouseover = nil
+		local who = { { fullName = "Declined-Realm", fullGuildName = "", raceStr = "Human" } }
+		C.env.C_FriendList.GetNumWhoResults = function() return #who, #who end
+		C.env.C_FriendList.GetWhoInfo = function(i) return who[i] end
+		C.Fire("WHO_LIST_UPDATE")
+		eq(Listed("Declined"), false, "nor as the target, under the mouse or from a /who")
+		InClick(C, function() eq(R.PromptOutreach(), true) end)
+		local review = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"))
+		assert(review.text:GetText():find("Plain", 1, true), "the nearby whispers start with the other player")
+		C.Click(review.buttons[2])
+		eq(review:IsShown(), false, "and end there: no whisper for the one who declined")
+		C.Advance(15.1)
+		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), "the scan's timed popup")
+		eq(draft.editBox:GetText(), "/ginvite Plain")
+		if initialPad then C.Switch(false); C.Advance(1) end
+		C.Click(draft.extraButton)
+		assert(C.chatBox, "his invite command went to chat")
+		C.Fire("CHAT_MSG_SYSTEM", "Plain declines your guild invitation.")
+		eq(R.Declined("Plain-Realm"), false, "without the client's text the line changes nothing")
+		assert(Listed("Plain"))
+		if initialPad then C.Switch(true); C.Advance(1) end
+		Check(C.ledger, "a declined player and the scan")
+		NoErrors(C, "a declined player and the scan")
+	end
+end)
+
 test("gamepad whisper recruiting: deliberate outreach and native invite copy in both input modes", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)

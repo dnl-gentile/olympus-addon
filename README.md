@@ -3369,7 +3369,11 @@ no Who searches and clears when turned off or when you leave your guild.
 An officer can review an independent JOIN or a response to their recent outreach. JOIN
 opens the `/ginvite` command directly. In popup mode, the next request waits for the previous
 draft and game chat to close, the cooldown to end, and combat to finish. Olympus saves
-no prospect list to disk. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
+no prospect list to disk. The one list of names it saves (1.5.9) is the opposite: players who
+declined a guild invite you took to chat, read from the game's own decline line, kept 7 days
+(200 names at most) in the realm group's saved variables. Such a player does not pop up again,
+is left out of the scan and of whispers, is not passed to other members and is not taken from
+them; his own **JOIN** whisper later clears it. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
 copies the selected command and hands focus to empty game chat. You can also copy it and
 click **Open game chat**. Paste the command and press Enter. Dismiss the request after sending. Turning recruiting off clears the
 experimental requests and pending outreach draft.

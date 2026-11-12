@@ -24,6 +24,7 @@ L.RECRUIT_NO_INVITE_RIGHT = "You can't invite to your guild. Ask your guild mast
 L.RECRUIT_INVITE_LIMIT = "You took %d invites to chat in the last minute, the game's limit. Wait a moment before the next one."
 L.RECRUIT_INVITE_LIMIT_PASS = "You took %d invites to chat in the last minute, the game's limit. Pass this player to other members, or wait a moment."
 L.RECRUIT_CANDIDATE_PASSING = "%s - offered to other members"
+L.RECRUIT_DECLINED = "%s declined the guild invite: not offered again for 7 days."
 
 if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_HANDOFF_OFF = "Aceitar repasses de recrutamento: desligado"
@@ -50,6 +51,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_INVITE_LIMIT = "Você levou %d convites ao chat no último minuto, o limite do jogo. Espere um pouco antes do próximo."
 	L.RECRUIT_INVITE_LIMIT_PASS = "Você levou %d convites ao chat no último minuto, o limite do jogo. Repasse este jogador a outros membros, ou espere um pouco."
 	L.RECRUIT_CANDIDATE_PASSING = "%s - oferecido a outros membros"
+	L.RECRUIT_DECLINED = "%s recusou o convite da guilda: não será oferecido de novo por 7 dias."
 end
 
 -- 1.5.8: the recruiting event log (/oly recruit log, /oly bug) and the test builds' test JOIN.

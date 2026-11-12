@@ -144,6 +144,8 @@ end
 local function Duplicate(item)
 	local name = NameOf(item)
 	if handed[NameKey(name)] then return true end
+	-- (1.5.9) A player who declined this client's invite is not offered to other members either.
+	if R.Declined and R.Declined(name) then return true end
 	for _, ref in pairs(outgoing) do
 		if ref.request ~= item and H.State(ref.request) and SamePlayer(NameOf(ref.request), name) then return true end
 	end

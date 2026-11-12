@@ -1540,3 +1540,153 @@ test("recruit scan (1.5.8): the /who rotation searches level ranges anywhere fir
 	end)
 end)
 
+-- 1.5.9 (the author's ask, 11-12: "Ele não está identificando quando a pessoa recusou o convite para
+-- a guilda... Só recusou, já não vamos perturbar ela"): the game's decline line (ERR_GUILD_DECLINE_S)
+-- for a player whose invite this client took to chat keeps him from popping up again, after a reload
+-- too, for 7 days; his own JOIN later lets him through. (The string is the client's: these tests set
+-- it as the enUS client has it, tests/fixtures/forever-api.lua does not list it yet.)
+local DECLINE = "%s declines your guild invitation." -- (the enUS client's ERR_GUILD_DECLINE_S)
+local function WithDecline(fn)
+	local saved = { err = rawget(_G, "ERR_GUILD_DECLINE_S"), util = rawget(_G, "ChatFrameUtil"), time = GetTime }
+	ERR_GUILD_DECLINE_S = DECLINE
+	ChatFrameUtil = { OpenChat = function() end }
+	local clock = 2000
+	GetTime = function() return clock end
+	local ok, err = pcall(fn, function(seconds) clock = clock + seconds end)
+	ERR_GUILD_DECLINE_S, ChatFrameUtil, GetTime = saved.err, saved.util, saved.time
+	if not ok then error(err, 0) end
+end
+
+local function ScanRows()
+	local list = {}
+	R.Candidates.EachRow(function(row) list[#list + 1] = row.full end)
+	return list
+end
+
+test("recruit scan (1.5.9): a player who declines the invite taken to chat does not pop up again, after a reload too, for 7 days", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			WithDecline(function(advance)
+				local D = Dialogs()
+				ns.Dialog = D
+				local wolf = "Lone Wolf-" .. home
+				local tick = ScanOne(scene, wolf)
+				tick()
+				local draft = assert(D.Find(DRAFT), "his invite popup")
+				eq(R.OnSystemLine(DECLINE:format("Lone Wolf")), false, "no invite taken to chat yet: nothing")
+				draft.def.extra.onClick(draft, draft.data) -- Ctrl+C
+				draft:Hide()
+				eq(R.OnSystemLine(DECLINE:format("Never Asked")), false, "a decline of a name never invited here changes nothing")
+				eq(R.OnSystemLine("Lone Wolf is already in a guild."), false, "another system line changes nothing")
+				eq(ns.rdb.recruitDeclined, nil, "nothing saved yet")
+				eq(R.OnSystemLine(DECLINE:format("Lone Wolf")), true, "his decline")
+				eq(R.Declined(wolf), true)
+				assert(LogHas("DECLINED " .. H.Tag(wolf)), "logged, by tag")
+				LogNever("Lone Wolf")
+				eq(scene.printed[#scene.printed], ns.L.RECRUIT_DECLINED:format(ns.DisplayName(wolf)), "the player is told")
+				eq(#ScanRows(), 0, "his row leaves the list")
+				advance(181)
+				R.Candidates.ObserveWho(wolf, "", "Human") -- the next /who finds him again
+				tick()
+				eq(D.Find(DRAFT), nil, "no popup for him")
+				eq(#ScanRows(), 0, "not listed either")
+				eq(R.TakeHandoff(wolf, mate), false, "a member's handoff of him is not taken here")
+				-- A reload: the session's memory goes, the saved list stays.
+				R.ResetForTests()
+				R.Candidates.Reset()
+				R.ToggleWhisperRecruiting()
+				if not R.Candidates.Enabled() then assert(Find(R.WhisperLines(), ns.L.RECRUIT_CANDIDATES_OFF)).onClick() end
+				assert(R.Candidates.Enabled(), "the scan is on again")
+				tick = assert(scene.timers["recruit candidates"])
+				R.Candidates.ObserveWho(wolf, "", "Human")
+				tick()
+				eq(D.Find(DRAFT), nil, "after a reload, still no popup for him")
+				eq(R.Declined(wolf), true, "kept in the saved list")
+				-- Seven days later he is like any other player again.
+				scene.now = scene.now + 7 * 86400
+				advance(181)
+				R.Candidates.ObserveWho(wolf, "", "Human")
+				tick()
+				local back = assert(D.Find(DRAFT), "after 7 days he pops up again")
+				eq(back.data.candidate.full, wolf)
+				eq(next(ns.rdb.recruitDeclined), nil, "the expired name left the saved list")
+			end)
+		end)
+	end)
+end)
+
+test("recruit (1.5.9): a JOIN whose invite he declined leaves, is not taken from a member, and his own JOIN later lets him through", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			WithDecline(function()
+				local D = Dialogs()
+				ns.Dialog = D
+				eq(R.OnSystemLine(DECLINE:format("New Recruit")), false, "nobody invited yet: nothing")
+				R.OnWhisper("JOIN", applicant)
+				local draft = assert(D.Find(DRAFT), "his JOIN popup")
+				draft.def.extra.onClick(draft, draft.data) -- Ctrl+C
+				draft:Hide()
+				eq(R.OnSystemLine(DECLINE:format("New Recruit")), true, "his decline")
+				eq(#R.requests, 0, "his JOIN leaves the queue")
+				assert(LogHas("DECLINED " .. H.Tag(applicant)))
+				scene.now = scene.now + R.REQUEST_EACH + 1
+				eq(R.TakeHandoff(applicant, mate), false, "a member's handoff of him is not taken here")
+				eq(#R.requests, 0)
+				eq(D.Find(DRAFT), nil)
+				R.OnWhisper("JOIN", applicant) -- he asks again, on his own
+				eq(R.Declined(applicant), false, "his own JOIN clears the decline")
+				eq(#R.requests, 1, "his JOIN is let through")
+				assert(D.Find(DRAFT), "and pops up")
+				assert(LogHas("UNDECLINED " .. H.Tag(applicant)))
+			end)
+		end)
+	end)
+end)
+
+-- 1.5.9 (the same ask): his invite popup, still up because its paste was not seen (the gamepad UI
+-- reads no chat box), closes at his decline, as it would hold the next popups back; a reply of his to
+-- the whisper sent first pops up nothing; the recruiting log says why a member's handoff of him was
+-- not taken.
+test("recruit (1.5.9): a decline closes his popup waiting for the paste, and his reply to our whisper pops up nothing", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			WithDecline(function()
+				local D = Dialogs()
+				ns.Dialog = D
+				local savedSay = ns.SayTo
+				ns.SayTo = function() return true end
+				local ok, err = pcall(function()
+					local wolf = "Lone Wolf-" .. home
+					local tick = ScanOne(scene, wolf)
+					tick()
+					local draft = assert(D.Find(DRAFT), "his invite popup")
+					draft.def.OnAlt(draft, draft.data) -- Whisper them first
+					draft:Hide()
+					local review = assert(D.Find("OLYMPUS_RECRUIT_OUTREACH"), "his whisper review")
+					review.editBox = { GetText = function() return "Hello there" end, SetText = function() end }
+					review.def.OnAccept(review, review.data)
+					review:Hide(); review.def.OnHide(review, review.data)
+					for _, fn in ipairs(scene.later) do fn() end
+					local back = assert(D.Find(DRAFT), "his invite popup back after the whisper")
+					back.def.extra.onClick(back, back.data) -- Ctrl+C; the paste is not seen
+					eq(back:IsShown(), true, "the popup waits for the paste")
+					eq(R.OnSystemLine(DECLINE:format("Lone Wolf")), true, "his decline")
+					eq(back:IsShown(), false, "his popup closes")
+					R.OnWhisper("No thanks", wolf)
+					eq(#R.requests, 0, "his reply to the whisper makes no request")
+					eq(D.Find("OLYMPUS_RECRUIT_REPLY"), nil, "and pops up nothing")
+					eq(D.Find(DRAFT), nil)
+					assert(LogHas("JOINDROP " .. H.Tag(wolf) .. " reply"), "the log keeps the reply dropped")
+					eq(R.TakeHandoff(wolf, mate), false)
+					assert(LogHas("DECLINED " .. H.Tag(wolf) .. " handoff not taken"), "and the handoff refused")
+					LogNever("Lone Wolf")
+					R.OnWhisper("JOIN", wolf) -- his own JOIN still comes in
+					eq(#R.requests, 1)
+					eq(R.Declined(wolf), false)
+				end)
+				ns.SayTo = savedSay
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+end)
