@@ -2634,7 +2634,8 @@ end
 local function PortableBetter(a, b, now)
 	if (a.own == true) ~= (b.own == true) then return a.own == true end
 	-- (1.5.9) Own looks last now (PortableTrim): one past GROUP_COUNT yields to a newer one, however few
-	-- guilds that covers, as a held look does (TakeGroup). Two characters' looks, the old one never won.
+	-- guilds that covers, as a held look does (TakeGroup). Else of two of his characters' looks the older,
+	-- covering more guilds, would take every turn for good.
 	local aOld, bOld = now - a.observed > Data.GROUP_COUNT, now - b.observed > Data.GROUP_COUNT
 	if aOld ~= bOld then return bOld end
 	local ga, gb = PortableGuilds(a), PortableGuilds(b)
@@ -2742,6 +2743,12 @@ local function TakeLook(look, direct, trusted, src)
 	Data.ChangedSoon() -- reported-only origins and details are visible too
 	return true
 end
+-- Whether the look's observer plays on the look's own family (a look of no family: always).
+local function ObserverOfFamily(look)
+	local family = ScopedGroup(look.row.group)
+	if family == nil then return true end
+	return type(ns.ForeverFamily) == "function" and ns.ForeverFamily(ns.RealmOf(ns.FullName(look.observer)) or "") == family
+end
 -- (1.5.5) A look is direct when its observer sends it, or when the author's client carries a look its
 -- own family's author character made (both his, on the observer's own family: Relay.IsLaunchAuthor or
 -- the signed list), on a trusted hop. The author's client carrying anyone else's look would launder it:
@@ -2753,12 +2760,6 @@ end
 -- trusted client with no own look of that origin, came out under that client's trusted name and
 -- counted everywhere. A councillor has no signing key: only the author's looks prove themselves
 -- whoever carries them (QA below), and they cross the relay mesh (Relay.lua's Across).
--- Whether the look's observer plays on the look's own family (a look of no family: always).
-local function ObserverOfFamily(look)
-	local family = ScopedGroup(look.row.group)
-	if family == nil then return true end
-	return type(ns.ForeverFamily) == "function" and ns.ForeverFamily(ns.RealmOf(ns.FullName(look.observer)) or "") == family
-end
 local function AuthorLook(sender, look)
 	if not (AuthorIdentity(look.observer) and AuthorIdentity(sender) and GlobalTrusted(sender)) then return false end
 	return ObserverOfFamily(look)
