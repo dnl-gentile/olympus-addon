@@ -3353,8 +3353,9 @@ Olympus checks the native identity and guild information again when you press Se
 An officer can review an independent JOIN or a response to their recent outreach. Either
 can open a window with the sender's message. During combat or while an
 invite window is open, new replies stay in the queue. Olympus saves no prospect list to disk.
-**Prepare invite** opens the `/ginvite` command. Copy it, paste it into the game's chat, and
-press Enter. You can dismiss the request after sending. Turning recruiting off clears the
+**Prepare invite** opens the `/ginvite` command. On Windows with mouse and keyboard, Ctrl+C
+copies the selected command and hands focus to empty game chat. You can also copy it and
+click **Open game chat**. Paste the command and press Enter. Dismiss the request after sending. Turning recruiting off clears the
 experimental requests and pending outreach draft.
 
 For a referral, the receiving officer turns on **Accept recruitment handoffs** in the same tab.
@@ -3365,7 +3366,7 @@ to a sister guild in the same faction, region and ruleset. The recipient prepare
 their own invite through the game's chat. A handoff confirms who received the request. The
 recruiter's native roster can show whether the player actually joined.
 
-### Public recruiting announcement (experiment branch)
+### Public recruiting announcement
 
 In **Church → Invites**, open **Public recruitment announcement** and select a joined public
 channel. Press **Post** to ask the game to send the displayed draft, then check the channel.
@@ -3375,8 +3376,8 @@ counts. A recent Olympus recruitment message heard in that same channel delays p
 another draft for two minutes on this client.
 
 The local reminder starts off. Click its line to choose 15, 30 or 60 minutes, or to turn it
-off again. Choose the last public channel you selected or rotate through the public channels
-you have joined. While recruitment is on, a reminder opens one preview per interval and skips
+off again. It rotates through joined public channels by default. You can switch to the last
+public channel you selected. While recruitment is on, a reminder opens one preview per interval and skips
 unavailable channels and channels where someone recently posted. Every preview needs a Post
 click. The reminder waits if you are busy or already have a preview open.
 
