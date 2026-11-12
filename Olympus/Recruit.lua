@@ -879,17 +879,21 @@ function Recruit.PromptOutreach()
 end
 
 function Recruit.PromptCandidateWhisper(candidate)
-	local unit = Recruit.Candidates.Check(candidate, true)
+	local unit = Recruit.Candidates.Check(candidate)
 	if not unit or RecentlyContacted(candidate.name, ns.Now()) or not ns.Dialog or ns.Dialog.missing then return false end
 	if ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH") then return false end
-	local queue = { index = 1, { name = candidate.name, guid = candidate.guid, unit = unit } }
+	-- (Review of 1.5.8) A fresh /who or mouseover sighting is whispered by name, the same name his
+	-- copied /ginvite carries; a player on screen is still checked against his unit.
+	local entry = unit == true and { name = candidate.name, byName = true }
+		or { name = candidate.name, guid = candidate.guid, unit = unit }
+	local queue = { index = 1, entry }
 	return ns.Dialog.Show("OLYMPUS_RECRUIT_OUTREACH", OutreachTitle(queue), nil,
 		{ queue = queue, guild = recruitingGuild, candidate = candidate }) ~= nil
 end
 
 -- (1.5.8) A scanned player his whisper review can open for now (a live one, not just contacted).
 function Recruit.CanWhisperCandidate(candidate)
-	return Recruit.Candidates.Check(candidate, true) ~= nil and not RecentlyContacted(candidate.name, ns.Now())
+	return Recruit.Candidates.Check(candidate) ~= nil and not RecentlyContacted(candidate.name, ns.Now())
 end
 
 local function SendOutreach(f, data)
@@ -897,8 +901,8 @@ local function SendOutreach(f, data)
 	local queue = type(data) == "table" and data.queue
 	local recipient = type(queue) == "table" and queue[queue.index]
 	if not recipient or data.guild ~= recruitingGuild or not Recruiting() or ns.ChatLocked()
-		or (data.candidate and not Recruit.Candidates.Check(data.candidate, true))
-		or not SameOutreachPlayer(recipient) then
+		or (data.candidate and not Recruit.Candidates.Check(data.candidate, not recipient.byName))
+		or not (recipient.byName and data.candidate or SameOutreachPlayer(recipient)) then
 		ns.Print(L.RECRUIT_WHISPER_TARGET_REQUIRED)
 		return false
 	end

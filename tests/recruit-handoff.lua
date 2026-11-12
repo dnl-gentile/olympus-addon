@@ -879,3 +879,35 @@ test("recruit scan (review of 1.5.8): a player already popped up, found again la
 		if not ok then error(err, 0) end
 	end)
 end)
+
+-- Review of 1.5.8 (P2): most of the scan's list now comes from its own /who and the mouseover. Such
+-- a player's invite popup offers "Whisper them first" too (the author: "um botão com opção, Whisper
+-- him first"): the whisper goes to the same name as his /ginvite, then his invite popup comes back.
+test("recruit scan (review of 1.5.8): a /who-found player's popup offers Whisper them first, then comes back", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local savedSay, said = ns.SayTo, {}
+		ns.SayTo = function(name, text) said[#said + 1] = { name = name, text = text }; return true end
+		local ok, err = pcall(function()
+			local tick = ScanOne(scene, "Lone Wolf-" .. home)
+			tick()
+			local draft = assert(D.Find(DRAFT), "his invite popup")
+			local row = draft.data.candidate
+			eq(draft.def.button3Shown(draft, draft.data), true, "a /who-found player can be whispered first")
+			draft.def.OnAlt(draft, draft.data)
+			draft:Hide()
+			local review = assert(D.Find("OLYMPUS_RECRUIT_OUTREACH"), "his whisper review opens")
+			eq(review.data.candidate, row)
+			review.editBox = { GetText = function() return "Hello there" end, SetText = function() end }
+			review.def.OnAccept(review, review.data)
+			eq(said[1] and said[1].name, row.name, "the whisper goes to the name his /ginvite carries")
+			review:Hide(); review.def.OnHide(review, review.data)
+			for _, fn in ipairs(scene.later) do fn() end
+			local back = assert(D.Find(DRAFT), "his invite popup comes back after the whisper")
+			eq(back.data.candidate, row)
+		end)
+		ns.SayTo = savedSay
+		if not ok then error(err, 0) end
+	end)
+end)

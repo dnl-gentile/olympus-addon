@@ -4,9 +4,9 @@ local Q = {}
 R.Candidates = Q
 
 -- Local observations for this recruiting session. A fresh WHO result (from a /who the player
--- ran) or a current friendly unit can open the copy draft, by hand or as the timed popup;
--- reviewing a whisper needs a current friendly unit. The game itself refuses an invite to a
--- player who joined a guild since the /who.
+-- ran) or a current friendly unit can open the copy draft, by hand or as the timed popup, and
+-- his whisper review (a /who one by the name his /ginvite carries, review of 1.5.8). The game
+-- itself refuses an invite to a player who joined a guild since the /who.
 local MAX, LIVE_TTL, WHO_TTL, PROMPT_GAP = 24, 90, 180, 15
 local rows, byName, byGUID = {}, {}, {}
 -- (Review of 1.5.8) Names this session already popped up, took to chat, passed or whispered: a
