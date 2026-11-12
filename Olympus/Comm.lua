@@ -65,7 +65,11 @@ local WHISPER_PIECES = { H2 = true } -- ...and over WHISPER (1.4.3: the relay's 
 function Comm.RelayPieces(kinds)
 	for k in pairs(kinds or {}) do GUILD_PIECES[k], WHISPER_PIECES[k] = true, true end
 end
-local function RelayOn() local R = ns.Relay return type(R) == "table" and R.On() == true and R.Pick() ~= nil end -- ...put together for these types alone: signed lists, loot, War recovery and bounded squad assignments
+local function RelayOn()
+	local R = ns.Relay
+	return type(R) == "table" and type(R.On) == "function" and R.On() == true
+		and type(R.Pick) == "function" and R.Pick() ~= nil
+end
 local msgId = 0
 local lastBroadcast = 0
 local early -- { every, due }: the report due then went out early, as a census answer (see Q1)
@@ -336,9 +340,12 @@ local function NormalizeOptions(options)
 	}
 end
 
--- (1.5.5) Where the relay carries the channel (Forever), whether a relay answers now or not: there
--- the channel delivers nothing, so no word goes on it (Enqueue, SendChatPart).
-local function Forever() local R = ns.Relay return type(R) == "table" and R.On() == true end
+-- Forever's native addon channel cannot carry these words, even if the relay is unavailable.
+local function Forever()
+	if ns.splitNames == true or ns.OnForever() then return true end
+	local R = ns.Relay
+	return type(R) == "table" and type(R.On) == "function" and R.On() == true
+end
 -- A callback told once, whoever tells it (Relay.Out holds a word and tells it later).
 local function Once(done)
 	if done == nil then return nil end
@@ -349,6 +356,13 @@ local function Once(done)
 		return done(...)
 	end
 end
+local function SendThroughRelay(parts, logged, done, key, urgent, options)
+	local R = ns.Relay
+	local once = Once(done)
+	if type(R) == "table" and type(R.Out) == "function" and R.Out(parts, logged, once, key, urgent, options) then return true end
+	if once then ns.SafeCall("send done", once, false, "norelay") end
+	return false
+end
 local function Enqueue(dist, parts, key, target, urgent, logged, done, options)
 	SyncGuild()
 	-- 1.4.3: on Forever the channel delivers nothing; what was for it goes to our relay by whisper
@@ -356,11 +370,8 @@ local function Enqueue(dist, parts, key, target, urgent, logged, done, options)
 	-- holds it for one (HOLD_FOR), our guild hearing a single word at once, and tells its callback once.
 	-- 1.5.4 made a channel job when no relay could be picked (lost), and when Relay.Out refused a word,
 	-- with the callback it had told already.
-	if dist == "CHANNEL" and Forever() and not (options and options.relayed) then
-		local once = Once(done)
-		if ns.Relay.Out(parts, logged, once, key, urgent, options) then return true end
-		if once then ns.SafeCall("send done", once, false, "norelay") end
-		return false
+	if dist == "CHANNEL" and Forever() then
+		return SendThroughRelay(parts, logged, done, key, urgent, options)
 	end
 	local job = { dist = dist, parts = parts, i = 1, key = key, target = target,
 		urgent = urgent and true or false, logged = logged == true, done = done,
@@ -864,6 +875,7 @@ local function InLockdown() return ns.ChatLocked ~= nil and ns.ChatLocked() == t
 -- Player text goes through the logged API, Blizzard's function for plain text payloads
 -- (receivers get CHAT_MSG_ADDON_LOGGED). Clients without it use the usual one.
 local function SendNow(dist, msg, logged, whisperTo)
+	if dist == "CHANNEL" and Forever() then return false, "norelay" end
 	-- (1.4.0: during a chat lockdown the game refuses it anyway: no call, no failure logged.)
 	if InLockdown() then
 		stats.locked = (stats.locked or 0) + 1
@@ -1073,8 +1085,7 @@ local function SendChatPart()
 	-- there, relay or none (Relay.Out: our guild has it at once, the line waits for a relay); its
 	-- callback hears how it went once, when it left or was dropped ("norelay" past HOLD_FOR).
 	if Forever() then
-		local once = Once(item.done)
-		if not ns.Relay.Out({ item.msg }, true, once, nil, true) and once then ns.SafeCall("chat sent", once, false, "norelay") end
+		SendThroughRelay({ item.msg }, true, item.done, nil, true)
 		return
 	end
 	local sent = SendNow("CHANNEL", item.msg, true)
@@ -2115,8 +2126,7 @@ function Comm.AskCensus(force)
 	if not ns.IsMember() then return end
 	-- (1.5.5) Not while the relays carry the channel (Relay.On): a relay keeps the ask to itself (Q1 is
 	-- never fanned out), and every guild's report reaches its relay on the reporter's own clock.
-	local R = ns.Relay
-	if type(R) == "table" and type(R.On) == "function" and R.On() == true then return end
+	if Forever() then return end
 	if not Comm.ChannelReady() then
 		askTries = askTries + 1
 		if askTries < 3 then ns.After(20, "census request", Comm.AskCensus) end

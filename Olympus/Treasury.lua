@@ -3605,16 +3605,14 @@ function Treasury.DonationsLogout()
 	donating = nil
 	-- (Quiet presence: nothing at logout either; the others' line had lapsed or lapses.)
 	if ns.QuietPresence and ns.QuietPresence() then return end
-	-- (1.5.5) On WoW: Forever (Relay.On; where names split, should Relay.lua be missing) the channel
+	-- (1.5.5) On WoW: Forever the native addon channel
 	-- delivers nothing, and the relay's whispers wait in the send queue, which no longer runs at logout:
 	-- the off goes to his own guild alone, over GUILD, as the relay's hand-over from himself (RG,
 	-- Relay.lua's OwnGuild), which every guildmate takes as this word. The other guilds' line lapses
 	-- (DONATIONS_FRESH). Nothing goes on the channel.
 	local R = ns.Relay
-	local relayed
-	if type(R) == "table" and not R.missing and type(R.On) == "function" then relayed = R.On() == true
-	else relayed = ns.splitNames == true end
-	if relayed then
+	if ns.splitNames == true or ns.OnForever()
+		or (type(R) == "table" and not R.missing and type(R.On) == "function" and R.On() == true) then
 		local me = ns.ShortName(ns.me or "") or ""
 		local wrapped = "RG~P~" .. me .. "~" .. DonationMessage(false)
 		if me ~= "" and #wrapped <= 255 and IsInGuild() and C_ChatInfo and C_ChatInfo.SendAddonMessage then

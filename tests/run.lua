@@ -7954,6 +7954,34 @@ test("verification migration: same-scope legacy stores preserve every decision a
 	if not ok then error(err, 0) end
 end)
 
+test("Forever transport: a missing or disabled relay never sends addon data or logged chat on the native channel", function()
+	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild, chat = C_ChatInfo }
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		ns.IsMember = function() return true end
+		IsInGuild = function() return true end
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		for _, missing in ipairs({ true, false }) do
+			local O, _, sent, _, pump = RelayWorld("Orig Inal-Realm", "Olympus II")
+			if missing then O.Relay = false else O.rdb.relayOff = true end
+			O.ChatHall = false
+			local C = O.Comm
+			C.JoinChannel()
+			local results = {}
+			local function Done(success, why) results[#results + 1] = { success, why } end
+			eq(C.Send("CHANNEL", "X1~do not fall through", nil, false, false, Done), false)
+			assert(C.SendChat("M1~do not fall through", Done))
+			assert(C.Send("GUILD", "X1~local guild still works"))
+			pump()
+			eq(#sent, 1); eq(sent[1].dist, "GUILD")
+			eq(#results, 2)
+			for _, result in ipairs(results) do eq(result[1], false); eq(result[2], "norelay") end
+		end
+	end)
+	GetChannelName, ns.IsMember, GetGuildInfo, IsInGuild, C_ChatInfo = saved.channel, saved.member, saved.guild, saved.inGuild, saved.chat
+	if not ok then error(err, 0) end
+end)
+
 -- 1.5.4 (the dev's error log of 2026-11-06, GitHub #79/#85): 1.5.2 handed a word's pieces to the chat
 -- hall while no relay answered, to go as the reporter's own text; Forever blocks that SendChatMessage
 -- from a timer (ADDON_ACTION_BLOCKED) and nothing was ever delivered. Fails before: the hall got it.
@@ -48936,12 +48964,19 @@ test("1.1 taking donations (the Treasurer's idea): a keeper's switch, a line on 
 			T.SetDonations(true)
 			T.DonationsLogout()
 			eq(#says, 2); eq(said[3], "GUILD", "where names split, no relay loaded: still not the channel")
+			-- A relay disabled in the local store must not cause a raw channel send at logout either.
+			T.SetDonations(true)
+			ns.Relay = { On = function() return false end }
+			done, why = pcall(T.DonationsLogout)
+			ns.Relay = relay
+			assert(done, why)
+			eq(#says, 3); eq(said[3], "GUILD", "Forever's guild copy still clears the notice")
 			-- Off Forever (names whole, no relay): the channel, as before.
 			ns.splitNames = false
 			T.SetDonations(true)
 			T.DonationsLogout()
 			ns.splitNames = true
-			eq(#says, 3); eq(said[2], "TD~Olympus~0~0~"); eq(said[3], "CHANNEL"); eq(said[4], 7)
+			eq(#says, 4); eq(said[2], "TD~Olympus~0~0~"); eq(said[3], "CHANNEL"); eq(said[4], 7)
 			eq(T.TakingDonations(), false)
 			-- A 1.0 client's addon leaves it unread.
 			C_ChatInfo = saved.cci

@@ -298,9 +298,9 @@ test("relay mesh (1.5.5): while the relays carry the channel (Relay.On), the lan
 		for _, forever in ipairs({ true, false }) do
 			local R, deliver, sent = RelayWorld("Lane Keeper-Realm", "Olympus II")
 			R.Roster = setmetatable({ RankOf = function(name) return name == "Lord-Realm" and 0 or nil end }, { __index = ns.Roster })
-			if not forever then R.rdb.relayOff = true end
+			if not forever then R.splitNames = false end
 			eq(R.Relay.On(), forever)
-			-- No relay to pick (both left out): what is said for the channel becomes a native job, refused.
+			-- No relay to pick (both left out): only off Forever does a channel word become a native job.
 			R.Relay.LeaveOut("Max Ran"); R.Relay.LeaveOut("Hildryn Payne")
 			eq(R.Relay.Pick(), nil)
 			C_ChatInfo.SendAddonMessage = function(_, msg, dist, target)
