@@ -3591,3 +3591,41 @@ test("1.5.8 Church recruiters: only the author, the King and the High Council se
 	eq(#own, 1)
 	eq(own[1].name, "Mira Wells")
 end)
+
+-- 1.5.8 (regression, review): the author's characters are keepers, so their recruiters page worked
+-- it out from their own ledger only and never asked another keeper: a ledger whose catch-up never
+-- finished showed its two recruiters while an Apostle's held more. The page now asks a keeper online
+-- for list u too and shows the answer that counts more recruits; its own ledger's otherwise.
+test("1.5.8 Church recruiters (regression): the author's page asks a keeper online too and shows the larger of the two ledgers", function()
+	local w, c = Cast()
+	local K, author = c.a1, c.author
+	author.online = true
+	w:Presence()
+	K.Count.Settled = function() return true end
+	Give(w, K, "Wide Reca", "Mira Wells", 2); Give(w, K, "Wide Recb", "Mira Wells", 3)
+	Give(w, K, "Wide Recc", "Nils Ford", 4); Give(w, K, "Wide Recd", "Old Hand", 5)
+	Give(w, author, "Wide Reca", "Mira Wells", 2)
+	local function Names(rows)
+		local out = {}
+		for _, row in ipairs(rows) do out[#out + 1] = ("%s %d"):format(row.name, row.joins) end
+		return table.concat(out, ",")
+	end
+	local rows, _, remote = w:As(author, author.Count.RankingView, "u", "a")
+	eq(Names(rows), "Mira Wells 1", "before an answer: his own ledger")
+	eq(remote, false)
+	assert(w:As(author, author.Count.Ask, "u", "a"), "the author's keeper client asks for the recruiters too")
+	w:Flush()
+	local source
+	rows, _, remote, _, source = w:As(author, author.Count.RankingView, "u", "a")
+	eq(Names(rows), "Mira Wells 2,Nils Ford 1,Old Hand 1", "the Apostle's ledger counts more: his answer shows")
+	eq(remote, true)
+	eq(source, "Aldric Vane")
+	-- The other lists stay his own ledger's, never asked.
+	eq(select(2, w:As(author, author.Count.Ask, "a", "a")), "local")
+	-- His own ledger counting more again: his own shows.
+	for i = 1, 4 do Give(w, author, "Own Rec" .. string.char(96 + i), "Nils Ford", 2 + i) end
+	rows, _, remote = w:As(author, author.Count.RankingView, "u", "a")
+	eq(Names(rows), "Nils Ford 4,Mira Wells 1", "his own ledger's when it counts more")
+	eq(remote, false)
+end)
+

@@ -337,7 +337,11 @@ function View.RankingLines()
 		return lines, L.CHURCH_TITLE, L.CHURCH_FULLNESS_RULE
 	end
 	local rows, asOf, remote, catching, source = Count.RankingView(View.list, View.window)
-	if remote and not PreviewRole() then catching = Count.Ask(View.list, View.window) or catching end
+	-- (1.5.8: the recruiters list is asked of another keeper even when this keeper's own ledger shows.)
+	if (remote or View.list == "u") and not PreviewRole() then
+		local asked = Count.Ask(View.list, View.window)
+		if remote then catching = asked or catching end
+	end
 	lines[#lines + 1] = AsOfLine(asOf, remote, catching, source)
 	if View.list == "u" then
 		-- (1.5.8) Everyone the Church credits with a recruit: two numbers each, his confirmed recruits and

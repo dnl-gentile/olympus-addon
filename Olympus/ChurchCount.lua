@@ -70,8 +70,9 @@ local L = ns.L
 --   NL~2~a~<id>, NL~2~d~<id>~<index>~<v1 row after its version>, NL~2~e~<id>~<count>~<more>~<u36>~<cutoff36>~<tie|->
 --       acknowledge it, deliver rows and prove completeness before advancing the cursor.
 --   NR~1~q~<a|m|c|u|me|p>~<w|m|a>~<person|->   an audience client asks a keeper (1.5.8 u: the recruiters,
---                        asked and answered for the author, the King and the High Council only; before
---                        1.5.8 a keeper drops it, and the page asks the next one)
+--                        asked and answered for the author, the King and the High Council only, the
+--                        author's keeper client asking too; before 1.5.8 a keeper drops it, and the
+--                        page asks the next one)
 --   NR~1~r~<list>~<window>~<rank>~<name>~<score*10>~<own*10>~<share*10>~<recruits>~<stays>~<network>~<pub>
 --   NR~1~m~<me|p>~<window>~<person>~<line>~<a>~<b>~<c>~<d>   a detail line (Count.DetailLines)
 --   NR~1~e~<what>~<window>~<person|->~<lines>~<asOf36>   the end of an answer
@@ -2403,7 +2404,9 @@ end
 function Count.Ask(what, window, person, force)
 	if not WHATS[what] or not WINDOWS[window] then return false end
 	if what == "u" and not Count.CanSeeRecruiters(ns.me) then return false, "audience" end
-	if Church.IsKeeper(ns.me) and not Church.IsKing(ns.me) then return false, "local" end
+	-- (1.5.8: the recruiters list is asked of another keeper too, even by one: the author's own ledger
+	-- held two recruiters while the Apostles' held more. Count.RankingView shows the larger.)
+	if Church.IsKeeper(ns.me) and not Church.IsKing(ns.me) and what ~= "u" then return false, "local" end
 	if not Church.InAudience(ns.me) or Off() then return false, "audience" end
 	local pk = what == "me" and Key(ns.me) or (person and Key(person)) or "-"
 	local key = what .. ":" .. window .. ":" .. tostring(pk)
@@ -2524,11 +2527,25 @@ end
 -- own copy only with no answer kept and no keeper online to ask; the King's client, which keeps none
 -- (Count.TakeLine), never.
 local function OwnCopy() return Church.IsLedgerRelay(ns.me) and not Church.IsKing(ns.me) and #Church.KeepersOnline(false) == 0 end
+local function RecruitsIn(rows)
+	local n = 0
+	for _, row in ipairs(rows or {}) do n = n + (tonumber(row.joins) or 0) end
+	return n
+end
 function Count.RankingView(list, window)
 	if list == "u" and not Count.CanSeeRecruiters(ns.me) then return {}, nil, false end
 	if list == "c" then return ns.ChurchFullness.Ranking(), Clock(), false end
-	if Church.IsKeeper(ns.me) and not Church.IsKing(ns.me) then return Count.Ranking(list, window), Clock(), false, not Count.Settled() end
 	local key = list .. ":" .. window .. ":-"
+	if Church.IsKeeper(ns.me) and not Church.IsKing(ns.me) then
+		local rows = Count.Ranking(list, window)
+		-- (1.5.8) The recruiters list: another keeper's answer while it counts more recruits than this
+		-- ledger does (one whose catch-up never finished held a few); this ledger's own otherwise.
+		local v, a = list == "u" and (View() or {})[key], asks[key]
+		if v and RecruitsIn(v.rows) > RecruitsIn(rows) then
+			return v.rows, v.asOf, true, a and not a.complete and ns.Now() < a.expires, v.from
+		end
+		return rows, Clock(), false, not Count.Settled()
+	end
 	local v, a = View()[key], asks[key]
 	if not v and OwnCopy() then return Count.Ranking(list, window), Clock(), false end
 	return v and v.rows or {}, v and v.asOf, true, a and not a.complete and ns.Now() < a.expires, v and v.from
