@@ -678,6 +678,38 @@ test("census author (1.5.8): another origin's accepted look keeps counting, date
 	end)
 end)
 
+-- 1.5.8, the review of the census-pvp candidate. Fails on the candidate: every held row of another
+-- origin counted to GROUP_KEEP (seven days), a witnessed row (two untrusted looks agreeing) and a
+-- guildmate's hand-over (rg) among them, and the author's client said a witnessed row however old.
+test("census author (1.5.8): a witnessed row or a guildmate's hand-over still counts two days only, and the author's client stops saying a witnessed row then", function()
+	World(function(Node)
+		local DAY = 86400
+		local function Held(N, src, rg, age)
+			N.db.groupCensus = { ["Alliance|ForeverPvP"] = { group = "ForeverPvP", faction = "Alliance", characters = 5498,
+				people = 5400, guilds = 24, observed = N.clock - age, src = src, by = "Some One-" .. PVE, w = 2, rg = rg } }
+		end
+		for _, case in ipairs({ { "witnessed", nil, false }, { "relay", true, false }, { "author", true, false },
+			{ "relay", nil, true }, { "author", nil, true }, { "own", nil, true } }) do
+			local L = Node(LISTENER)
+			L.clock = 20 * DAY
+			local label = case[1] .. (case[2] and " (hand-over)" or "")
+			Held(L, case[1], case[2], DAY)
+			eq(assert(PvP(L.Data.Groups()), label).counted, true, label .. " counts inside two days")
+			Held(L, case[1], case[2], 3 * DAY)
+			local row = assert(PvP(L.Data.Groups()), label .. " still listed")
+			eq(row.counted, case[3], label .. " three days old"); eq(row.observed, L.clock - 3 * DAY)
+		end
+		local A = Node(AUTHOR)
+		A.clock = 20 * DAY
+		Held(A, "witnessed", nil, DAY)
+		assert(tostring(A.Data.GroupCensusPayload()):find("ForeverPvP,Alliance,5498,", 1, true), "said while it counts")
+		Held(A, "witnessed", nil, 3 * DAY)
+		eq(A.Data.GroupCensusPayload(), nil, "a witnessed row past two days is not said")
+		Held(A, "relay", nil, 3 * DAY)
+		assert(tostring(A.Data.GroupCensusPayload()):find("ForeverPvP,Alliance,5498,", 1, true), "a trusted origin's row is")
+	end)
+end)
+
 -- 1.5.8, the review of the census-pvp candidate. Fails on the candidate: a look naming a signed
 -- councillor's character counted whenever any trusted character carried it, and every client keeps the
 -- looks it hears (unproven ones too) and says the widest of an origin, so a member's forged look a

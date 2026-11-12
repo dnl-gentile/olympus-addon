@@ -2074,6 +2074,9 @@ end
 -- from the author keeps it quiet no more, only what it heard from a ledger relay (groupHeardLedger),
 -- which those clients counted. No trusted client says a row it took over a guildmate's hand-over (rg).
 local AUTHOR_SAYS = { own = true, relay = true, witnessed = true, author = true }
+-- (1.5.8) The rows a trusted source gave (our own look, a trusted origin's, the author's): counted until
+-- a newer one replaces them (Data.Groups). A witnessed row or a guildmate's hand-over (rg) counts GROUP_COUNT.
+local LASTING_SRC = { own = true, relay = true, author = true }
 function Data.GroupCensusPayload(now)
 	now = now or ns.Now()
 	local trusted = GlobalTrusted(ns.me)
@@ -2084,10 +2087,11 @@ function Data.GroupCensusPayload(now)
 		local row = type(e) == "table" and e.faction == side and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed)
 		local key = row and GroupKey(row.faction, row.group)
 		local say, heard = row and not ScopedGroup(row.group), groupHeard
-		-- (1.5.8) The newest look held is said however old it is (GROUP_KEEP at most, GroupRow): it counts
-		-- until a newer one replaces it (Data.Groups), so a holder keeps carrying it to late clients.
+		-- (1.5.8) The newest trusted look held is said however old it is (GROUP_KEEP at most, GroupRow): it
+		-- counts until a newer one replaces it (Data.Groups), so a holder keeps carrying it to late clients.
+		-- A witnessed row (two untrusted looks agreeing) is said only while it counts, GROUP_COUNT.
 		if row and not say and trusted and e.group == row.group and not e.rg then
-			if author then say = AUTHOR_SAYS[e.src] == true
+			if author then say = AUTHOR_SAYS[e.src] == true and (LASTING_SRC[e.src] == true or now - row.observed <= Data.GROUP_COUNT)
 			else say, heard = e.src == "own" or e.src == "author", groupHeardLedger end
 		end
 		if say and not e.unscoped and row.group ~= GroupField(ns.group) and Listed(row.group)
@@ -2242,13 +2246,16 @@ function Data.Groups(s, now)
 	end
 	table.sort(kept, GroupLater)
 	-- (1.5.8, the author, 11-12: "ele deveria redistribuir esses dados enquanto não tivessem dados novos
-	-- na rede") Another origin's accepted look counts until a newer accepted look of that origin takes
-	-- its place (TakeGroup), dated as it was observed (the census page's "As of"): it no longer leaves
-	-- the totals after GROUP_COUNT, which emptied the PvP count on every client two days after the last
-	-- look anyone carried. Our own origin's saved row keeps the day of a guild report (TOTAL_KEEP).
+	-- na rede") Another origin's trusted look (LASTING_SRC, not a hand-over) counts until a newer accepted
+	-- look of that origin takes its place (TakeGroup), dated as it was observed (the census page's "As
+	-- of"): it no longer leaves the totals after GROUP_COUNT, which emptied the PvP count on every client
+	-- two days after the last look anyone carried. A witnessed row (two untrusted looks agreeing) or a
+	-- guildmate's hand-over still counts GROUP_COUNT. Our own origin's saved row keeps the day of a guild
+	-- report (TOTAL_KEEP).
 	for _, e in ipairs(kept) do
 		local ours = GroupField(e.group) == group
-		Add(e, not e.unscoped and (not ours or now - e.observed <= Data.TOTAL_KEEP), ours)
+		local lasting = not ours and LASTING_SRC[e.src] == true and not e.rg
+		Add(e, not e.unscoped and (lasting or now - e.observed <= (ours and Data.TOTAL_KEEP or Data.GROUP_COUNT)), ours)
 	end
 	local heard = {}
 	for _, e in pairs(GroupStore("heard")) do
