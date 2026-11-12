@@ -341,7 +341,7 @@ test("1.5.6 letter content: both languages explain peer updates, saved coverage 
 		local key = "LETTER_1_5_6"
 		local raw = assert(cns.L[key])
 		local title, body = cns.Letters.Text("1.5.6")
-		eq(cns.Letters.Versions()[2], "1.5.6")
+		eq(cns.Letters.Versions()[3], "1.5.6")
 		eq(title, cns.L[key .. "_HEAD"])
 		assert(title ~= cns.L.LETTER_1_5_5_HEAD, "the update has its own title")
 		assert(type(body) == "string" and #body > 0)
