@@ -245,7 +245,7 @@ Do not claim the enabled/disabled comparison passed from a Lua fixture or a shor
   no membership. Enter must yield an echo/history entry or an explanation of failure/partial
   delivery. With many rooms, selection and drafting remain responsive. Finish a Bones game:
   participants can continue its conversation; spectators retain read-only history. Reload and
-  reconnect within retention limits; a lifecycle update must not open the window by itself.
+  reconnect within retention limits; a lifecycle update must not open the window unasked.
 - **Guild authority:** an ordinary sister-guild master cannot send a global Crown decree,
   muster, agenda or moderation action. Their own authorized guild actions stay available.
   Verify Heraldry correspondent revocation while a message is queued. Explicitly appoint a
@@ -391,7 +391,7 @@ offline tests stub Battle.net (`BNGetInfo`, `BNConnected`), which proves nothing
 6. Two clients: log the player in first, then the moderator's (or a High Councillor's) client, or
    `/reload` it. Its client asks 90 seconds after its login and the player's answer comes up to 4
    minutes later, so **BattleTags (n)** shows in The Watch within about 5.5 minutes of the
-   moderator's login, and the open page counts up by itself. A player who logs in while the
+   moderator's login, and the open page counts up as answers arrive. A player who logs in while the
    moderator is already online is reached at the moderator's next ask, up to about 35 minutes
    later. The digits show as `#****` until the page's **Show**, and hide again after ten seconds.
    Two alts of one account are grouped, and the person page says "Same BattleTag". An ordinary

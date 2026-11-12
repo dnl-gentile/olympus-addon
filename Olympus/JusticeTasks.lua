@@ -786,7 +786,7 @@ function J.Lines()
 	if not J.Visible() then return {} end
 	local lines = { { header = true, text = Word("JUSTICE_TASKS_TITLE", "Justice requests - private activity") },
 		{ text = Word("JUSTICE_TASKS_EVIDENCE", "Native action attempted and later roster absence are separate observations, not proof of who caused the removal. Completion needs the issuer's explicit human review."), wrap = true },
-		{ text = Word("JUSTICE_TASKS_COVERAGE", "Only tasks retained on this client: at most 60, for 30 days. Unknown or offline delivery is not time spent by the correspondent."), wrap = true } }
+		{ text = Word("JUSTICE_TASKS_COVERAGE", "Only tasks retained here: at most 60, for 30 days. Unknown or offline delivery is not time spent by the correspondent."), wrap = true } }
 	if not J.Staff() then lines[#lines + 1] = { text = Word("JUSTICE_TASKS_OWN", "Only your assigned requests and own activity are shown."), wrap = true } end
 	if J.CanIssue() then lines[#lines + 1] = { text = Word("JUSTICE_TASKS_NEW", "Request a deliberate guild removal"), onClick = function()
 		if J.CanIssue() then ns.ShowDialog("OLYMPUS_JUSTICE_NEW", nil, nil) end

@@ -15,9 +15,9 @@ copying its shell. This page is the whole contract of version 1 (`OlympusAPI.VER
   public rankings, the player's own frame and title, his own Olympus guild, rank and role, the
   leader's presence as the leader lines, the leader's map crown and the Realm tab's layer list show
   it, whether a player the game shows him right now (a live unit token) is in an Olympus guild, and
-  (1.4.0) the Board's group listings and players looking as its sections show them, with the
+  the Board's group listings and players looking as its sections show them, with the
   player's own listing's applications and his own group.
-- **The player's own group, as the Board's buttons act on it (1.4.0).** A companion addon may invite
+- **The player's own group, as the Board's buttons act on it.** A companion addon may invite
   (the game's own invite) or decline an applicant of the player's own listing, invite a player
   looking, set his group members' roles and lower his listing, each through Olympus's own handler,
   and open Olympus's own card, listing composer and flag dialog. It never posts a listing, raises a
@@ -147,7 +147,7 @@ says, in Olympus's own words, what a Yes lets your addon read and, where the sig
 which exact-name request, visible name-rotation session, five-minute hostile-area search or bounded
 host-owned profile presentation it may start, and the quiet presence it may turn on (an addon
 the Olympus team has not authorized for the reserved features below is asked only about the
-ordinary reads). The page opens by itself once for a new line, outside combat and instances,
+ordinary reads). The page opens once for a new line, outside combat and instances,
 while the player is in an Olympus guild; the player can
 answer there at any time, and change the answer whenever he likes.
 
@@ -218,9 +218,9 @@ separate from the 16 addons that may register data handles.
 | `"ui.guild-tools"` | `handle:OpenGuildTools([section[, target]])`, which opens an authorized section of Olympus's own Watch workspace without returning its records |
 | `"callbacks"`, and each event's name | `handle:On(...)` |
 | `"ui.surface"` | one page through `handle:RegisterSurface(...)` and its lifecycle methods |
-| `"groups"` | (1.4.0) `handle:GetGroups([kind])`, `handle:GetLooking([kind])`, `handle:GetMyGroup()` and `GROUPS_CHANGED`, `LOOKING_CHANGED`, `MY_GROUP_CHANGED` |
-| `"groups.manage"` | (1.4.0) the own-group actions: `InviteApplicant`, `DeclineApplicant`, `SetMemberRole`, `InviteLooking`, `LowerListing`, `OpenGroup`, `OpenListingDialog`, `OpenFlagDialog` |
-| `"ui.board-groups"` | (1.4.0) one panel in place of the Board's Your group: `RegisterGroupPanel`, `UnregisterGroupPanel`, `RefreshGroupPanel`, `IsGroupPanelShown` |
+| `"groups"` | `handle:GetGroups([kind])`, `handle:GetLooking([kind])`, `handle:GetMyGroup()` and `GROUPS_CHANGED`, `LOOKING_CHANGED`, `MY_GROUP_CHANGED` |
+| `"groups.manage"` | the own-group actions: `InviteApplicant`, `DeclineApplicant`, `SetMemberRole`, `InviteLooking`, `LowerListing`, `OpenGroup`, `OpenListingDialog`, `OpenFlagDialog` |
+| `"ui.board-groups"` | one panel in place of the Board's Your group: `RegisterGroupPanel`, `UnregisterGroupPanel`, `RefreshGroupPanel`, `IsGroupPanelShown` |
 
 **Reserved features.** `"leader"`, `"network.sightings"`, `"network.sightings.area-scope"`,
 `"network.profile-effects"`, `"presence.quiet"` and `"queen.identity"` are reserved for
@@ -476,7 +476,7 @@ Olympus draws host-owned dots on the world map (mouse and keyboard only; the gam
 none) and on the minimap, and writes the tooltip itself from those fields: the name, the category (or its `label`),
 the marks or "Not marked", how long ago (Olympus's clock against `seenAt`) and the precision (an exact
 point, nearby within about N yards, or the observer's encounter point), and "Seen by you" for an own
-row. A dot fades as it ages and goes by itself soon after its row's `expiresAt` (at most 15 minutes
+row. A dot fades as it ages and goes soon after its row's `expiresAt` (at most 15 minutes
 after `seenAt`; Olympus looks every 15 seconds, with no call needed). A row past its `expiresAt`, with an unknown category, an invalid
 point or a map the game cannot place, is neither drawn nor counted. It never opens the map. Each
 call replaces this handle's whole set (a row at the same point as before keeps its dot) and returns
@@ -604,7 +604,7 @@ Registers this handle's one client-owned page in the Olympus tab rail. The share
 client-owned slot per session (`OlympusAPI.SURFACE_LIMIT` is `1`); data handles remain available
 when that slot is already occupied. Olympus places the page immediately before the built-in
 Workshop tab. The caller cannot choose an internal key, replace an Olympus page or reorder the
-normal pages. Registration does not select or build the page by itself.
+normal pages. Registration does not select or build the page.
 
 `spec` is a table with these fields:
 
@@ -727,7 +727,7 @@ profile shows: an honour's key, `"rank"` (his rank's frame) or `"none"`. `title`
 words, or `nil`.
 
 Outside an Olympus guild, or before the player accepted the Olympus Accord (Olympus's terms of
-use, 1.2.5.1), it is `{ member = false }`, and `GetWanted` and `GetRankings` return
+use), it is `{ member = false }`, and `GetWanted` and `GetRankings` return
 `nil, "guild"`.
 
 ### `handle:IsOlympusMember(unit)`
@@ -1010,8 +1010,8 @@ Every data method returns `nil` and a reason when it gives nothing:
 | `"busy"` | more than 20 data calls from your addon in 10 seconds (or more than 80 `IsOlympusMember` calls, on their own budget): wait, or use the callbacks |
 | `"unit"` | `IsOlympusMember` was given something that is not one of the unit tokens it takes |
 | `"kind"` | `GetRankings`, a group read or a group dialog was given an unknown kind |
-| `"combat"` | (1.4.0) an own-group action during combat |
-| `"not-leader"`, `"role"`, `"invited"`, `"invite"` | (1.4.0) another player leads the group; a role not applied as, not named or no longer wanted; already invited; the game refused the invite |
+| `"combat"` | an own-group action during combat |
+| `"not-leader"`, `"role"`, `"invited"`, `"invite"` | another player leads the group; a role not applied as, not named or no longer wanted; already invited; the game refused the invite |
 | `"unauthorized"` | a reserved feature's method, from an addon the Olympus team has not authorized (see `OlympusAPI.Has`) |
 | `"unavailable"` | this build does not provide the requested optional capability |
 | `"member"`, `"authority"` | the player is not a current member or their signed Olympus role cannot start that guild-tools request or turn on the quiet presence |
@@ -1022,7 +1022,7 @@ Every data method returns `nil` and a reason when it gives nothing:
 | `"map"` | an area search was given a secret, unknown, non-zone/non-micro map, or a map that is neither current nor backed by this handle's fresh exact result |
 | `"active"`, `"cooldown"` | this handle already has a live area, or its previous successful area start was less than 60 seconds ago |
 | `"capacity"`, `"queue"` | the bounded sighting-session or send queue cannot accept the request |
-| `"unknown"` | that search id was not started by this handle, or `IsOlympusMember` cannot tell for that unit (see there); (1.4.0) no such listing, applicant, member or player looking |
+| `"unknown"` | that search id was not started by this handle, or `IsOlympusMember` cannot tell for that unit (see there); no such listing, applicant, member or player looking |
 | `"unsupported"`, `"empty"`, `"ended"`, `"failed"` | an explicit area map view is unsupported, has no current rows, has ended, or its guarded draw failed |
 | `"none"` | no bounded profile-presentation session is live |
 | `"style"`, `"state"`, `"caption"` | an unknown host style, non-boolean enable state, or caption that is not the exact pre-approved text |

@@ -35,9 +35,9 @@ and the confirmed alt links. Nothing is sent.
    count once: `Data.Summary().total`, the page's people. The BattleTag never leaves the moderation
    team, so it cannot join characters in a public figure.
 2. **Banned guilds apart.** A guild the moderators took off the network (net-off,
-   `Moderation.lua`) is in no total. Its last size this client holds (its own report from before, or
-   a relay row) gives `charactersWithBanned`, and it is listed apart; a banned guild this client
-   never heard is listed with its size unknown.
+   `Moderation.lua`) is in no total. Its last size held here (its own report from before, or
+   a relay row) gives `charactersWithBanned`, and it is listed apart; a banned guild never
+   heard here is listed with its size unknown.
 3. **Agreement preferred, disputes flagged.** Each counted guild's confidence:
    `own` (our roster), `confirmed` (two or more reporters, `Data.Dispute` has nothing to say),
    `relayed` (a trusted keeper's row), `single` (one reporter), `disputed` (`Data.Dispute().disputed`:

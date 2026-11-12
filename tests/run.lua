@@ -54655,7 +54655,7 @@ end
 		end)
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
-			for _, must in ipairs({ "its Vox Populi votes, its Olympus chats and pinned lines, and (1.1, Konig's review) its members' entries and signups on the King's week, their flags and camps on the Board, and their listings, answers and recipe lists on the crafters' board",
+			for _, must in ipairs({ "its Vox Populi votes, its Olympus chats and pinned lines, and its members' entries and signups on the King's week, their flags and camps on the Board, and their listings, answers and recipe lists on the crafters' board",
 				"Every addon also drops its members' requests at court, and shows them with no elite border or nameplate mark" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
@@ -63786,7 +63786,7 @@ end
 		Refused((full:gsub("\n## Privacy\n", "\n## Your privacy\n")), readme, roadmap, version, 'docs/CURSEFORGE.md has no heading "Privacy"')
 		-- Any cut whose opening comes to lead into the part cut gets the same: the Treasury's, ended
 		-- on a colon here.
-		local led = gen.Build((full:gsub("\nalone until then%)%.\n", "\nalone until then). What it holds:\n", 1)), readme, roadmap, version, size)
+		local led = gen.Build((full:gsub("\nalone until that happens%)%.\n", "\nalone until that happens). What it holds:\n", 1)), readme, roadmap, version, size)
 		assert(led:find("What it holds:\n\n*The list is in the README, with the rest of this section: [The Treasury (its keepers, the King, and the army when the King says so)](", 1, true),
 			"the Treasury's opening, led into its list")
 		-- scripts/check.sh runs both checks.

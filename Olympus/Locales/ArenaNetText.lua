@@ -26,7 +26,7 @@ L.WORKSHOP_ARENA_SIM_TIP = "The Blood Arena's screens with sample data, on your 
 L.ARENA_UI_COMBAT = "The arena's window opens after combat."
 L.ARENA_UI_DISABLED = "Enable Olympus Arena in the AddOns list, then open the arena again."
 L.ARENA_UI_MISSING = "The Olympus_Arena folder is missing: reinstall both folders (Olympus and Olympus_Arena)."
-L.ARENA_UI_OUTDATED = "Olympus Arena is out of date for this client: update both folders."
+L.ARENA_UI_OUTDATED = "Olympus Arena is out of date: update both folders."
 L.ARENA_UI_DEP = "Olympus Arena needs Olympus enabled."
 L.ARENA_UI_REASON = "Olympus Arena did not load: %s"
 L.ARENA_UI_EARLY = "Another addon loaded Olympus Arena too early: /reload to use the arena."
@@ -90,11 +90,11 @@ L.BACKUP_ARENA_TICKETS = "your tickets"
 L.BACKUP_ARENA_HALVES = "your own halves of the games and duels that count"
 L.BACKUP_ARENA_KEY_WARNING = "never paste this anywhere; it is your key"
 L.BACKUP_ARENA_FAILED = "The Blood Arena: left out, not readable: %s."
-L.BACKUP_ARENA_ELSEWHERE = "The Blood Arena: the parts of %s stay there (made on that realm): only your key and copper lines come back here."
+L.BACKUP_ARENA_ELSEWHERE = "The Blood Arena: the parts of %s made on that realm stay there. Only your key and copper lines come back here."
 L.PROFILE_EDIT_BTN = "Edit my profile"
 
 -- 1.2.4, the shared records (Records.lua): /oly arena records and the author's seal.
-L.RECORDS_HELP = "/oly arena records [seal] - the games and duels this client holds and passes on; seal: paste the author's signed seal"
+L.RECORDS_HELP = "/oly arena records [seal] - the games and duels this computer holds and passes on; seal: paste the author's signed seal"
 L.RECORDS_TITLE = "Olympus: the shared records"
 L.RECORDS_LINE = "%s: %d held, %d waiting for a player's key, %d in conflict, %d months sealed"
 L.RECORDS_TYPE_b = "Bones games"
@@ -106,7 +106,7 @@ L.RECORDS_LAG = "Digests from their slot to the wire: %d, %.1f s on average, %.1
 L.RECORDS_REQUESTS = "Seal requests (closed months, for scripts/council-sign.py seal):"
 L.RECORDS_SEAL_PROMPT = "Paste the signed seal (the line scripts/council-sign.py seal printed):"
 L.RECORDS_SEAL_TAKEN = "Olympus: the seal is taken; it goes to the army now."
-L.RECORDS_SEAL_BAD = "Olympus: that is no seal this client takes (its signature, its realm group, or an older one than held)."
+L.RECORDS_SEAL_BAD = "Olympus: that is no seal this computer accepts (its signature, its realm group, or an older one than held)."
 
 if GetLocale and GetLocale() == "ptBR" then
 	L.ARENA_TEST_LINE = "Versão de teste da arena %d da %s · feita %s · expira %s · canal: %s · commit %s"

@@ -109,9 +109,9 @@ Comm dispatcher and scheduler, Loot book and Court/Chronicle readers. Coverage i
 both consents, sender/recipient forgery, other-character subjects, missing consent,
 faction/realm scope, replay, conflicts, revocation, expiry, malformed/oversized packets,
 bounded state, stale rosters, role/guild changes and cancellation before native send.
-The original WIP's binary SHA256 digest failed transport tests; encoding its binary digest
-as hexadecimal restores successful bounded packets. A signed destination role also now
-keeps the multiple return values that the WIP's Lua `and` expression discarded.
+The binary SHA256 digest failed transport tests, so the digest goes out as hexadecimal,
+which restores successful bounded packets. A signed destination role also keeps the
+multiple return values that the Lua `and` expression discarded.
 
 `OLYMPUS_TEST_FILTER='carry-history:' luajit tests/run.lua` adds actual Ed25519 account
 signing and native GUID binding, source-event captures, 12-record archives larger than

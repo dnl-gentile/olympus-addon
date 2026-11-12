@@ -11,7 +11,7 @@ L.CENSUS_STATS_TITLE = "The census in numbers"
 L.CENSUS_STATS_CHARACTERS = "Characters"
 L.CENSUS_STATS_CHARACTERS_TIP = "Every character on the rosters of the Olympus guilds counted: each guild's newest report, counted for a day after it."
 L.CENSUS_STATS_PEOPLE = "Estimated people"
-L.CENSUS_STATS_PEOPLE_TIP = "Estimate = characters - confirmed linked alts. A link counts only after both the main and that alt confirmed it; installing this version does not create a link. Characters not linked by their player, or whose two confirmations have not reached this client, still count separately; the estimate can therefore be higher than the real number of people and fall as confirmations arrive. Olympus never reads account data to guess."
+L.CENSUS_STATS_PEOPLE_TIP = "Estimate = characters - confirmed linked alts. A link counts only after both the main and that alt confirmed it. Characters not linked by their player, or whose two confirmations have not reached this computer, still count separately; the estimate can therefore be higher than the real number of people and fall as confirmations arrive. Olympus never reads account data to guess."
 L.CENSUS_STATS_ALTS = "Linked alts known here"
 L.CENSUS_STATS_ONLINE = "Online now"
 L.CENSUS_STATS_GUILDS = "Guilds counted"
@@ -22,7 +22,7 @@ L.CENSUS_STATS_AVG_TIP = "Each guild's average level, weighted by its size, over
 
 L.CENSUS_STATS_ARMY_GRAPH = "Characters, last 30 days"
 L.CENSUS_STATS_ONLINE_GRAPH = "Online, last 24 hours"
-L.CENSUS_STATS_EMPTY_GRAPH = "No samples yet: this client takes one every 15 minutes while you play."
+L.CENSUS_STATS_EMPTY_GRAPH = "No samples yet: one is taken every 15 minutes while you play."
 L.CENSUS_STATS_TODAY = "today"
 L.CENSUS_STATS_NOW = "now"
 L.CENSUS_STATS_DAYS_AGO = "%d days ago"
@@ -30,7 +30,7 @@ L.CENSUS_STATS_HOURS_AGO = "%d h ago"
 L.CENSUS_STATS_DAY_FORMAT = "%b %d"
 L.CENSUS_STATS_TIME_FORMAT = "%H:%M"
 L.CENSUS_STATS_AROUND = "Around %s"
-L.CENSUS_STATS_NO_SAMPLE = "No sample: this client was not on then."
+L.CENSUS_STATS_NO_SAMPLE = "No sample: you were not on then."
 L.CENSUS_STATS_PEAK_ONLINE = "Most online"
 L.CENSUS_STATS_SAMPLES = "Samples"
 L.CENSUS_STATS_HIGHEST = "Highest"
@@ -77,7 +77,7 @@ L.CENSUS_STATS_LEVELS_TIP = "Who is online now, by level: from the guilds report
 
 L.CENSUS_STATS_DETAIL_TITLE = "How the people estimate is calculated"
 L.CENSUS_STATS_DETAIL = "People = counted characters - confirmed linked alts known here. Updating alone does not link alts. Missing confirmations count separately, so the estimate can be high."
-L.CENSUS_STATS_KEPT = "Kept on this client since %s."
+L.CENSUS_STATS_KEPT = "Kept here since %s."
 
 -- (The author, 2026-10-20) A moderation team client's people estimate (CensusStats.PeopleEstimate):
 -- "~" and the number, what it means, its detail, and the staff's own line and rows. A member's client
