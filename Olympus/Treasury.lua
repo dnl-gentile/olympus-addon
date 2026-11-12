@@ -3611,8 +3611,8 @@ function Treasury.DonationsLogout()
 	-- Relay.lua's OwnGuild), which every guildmate takes as this word. The other guilds' line lapses
 	-- (DONATIONS_FRESH). Nothing goes on the channel.
 	local R = ns.Relay
-	if ns.splitNames == true or ns.OnForever()
-		or (type(R) == "table" and not R.missing and type(R.On) == "function" and R.On() == true) then
+	local hasRelay = type(R) == "table" and not R.missing and type(R.On) == "function"
+	if ns.OnForever() or (hasRelay and R.On() == true) or (not hasRelay and ns.splitNames == true) then
 		local me = ns.ShortName(ns.me or "") or ""
 		local wrapped = "RG~P~" .. me .. "~" .. DonationMessage(false)
 		if me ~= "" and #wrapped <= 255 and IsInGuild() and C_ChatInfo and C_ChatInfo.SendAddonMessage then

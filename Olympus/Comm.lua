@@ -342,7 +342,7 @@ end
 
 -- Forever's native addon channel cannot carry these words, even if the relay is unavailable.
 local function Forever()
-	if ns.splitNames == true or ns.OnForever() then return true end
+	if ns.OnForever() then return true end
 	local R = ns.Relay
 	return type(R) == "table" and type(R.On) == "function" and R.On() == true
 end

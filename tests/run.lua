@@ -7963,7 +7963,13 @@ test("Forever transport: a missing or disabled relay never sends addon data or l
 		GetGuildInfo = function() return "Olympus II", "Member", 3 end
 		for _, missing in ipairs({ true, false }) do
 			local O, _, sent, _, pump = RelayWorld("Orig Inal-Realm", "Olympus II")
-			if missing then O.Relay = false else O.rdb.relayOff = true end
+			O.realm = "CAMWOWUS2Realm1PvE"
+			O.OnForever = function() return O.ForeverFamily(O.realm) ~= nil end
+			if missing then
+				O.Relay, O.splitNames = false, false
+			else
+				O.rdb.relayOff = true
+			end
 			O.ChatHall = false
 			local C = O.Comm
 			C.JoinChannel()
@@ -48966,9 +48972,10 @@ test("1.1 taking donations (the Treasurer's idea): a keeper's switch, a line on 
 			eq(#says, 2); eq(said[3], "GUILD", "where names split, no relay loaded: still not the channel")
 			-- A relay disabled in the local store must not cause a raw channel send at logout either.
 			T.SetDonations(true)
-			ns.Relay = { On = function() return false end }
+			local realm = ns.realm
+			ns.realm, ns.Relay = "CAMWOWUS2Realm1PvE", { On = function() return false end }
 			done, why = pcall(T.DonationsLogout)
-			ns.Relay = relay
+			ns.realm, ns.Relay = realm, relay
 			assert(done, why)
 			eq(#says, 3); eq(said[3], "GUILD", "Forever's guild copy still clears the notice")
 			-- Off Forever (names whole, no relay): the channel, as before.
