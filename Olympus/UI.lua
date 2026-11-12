@@ -1495,7 +1495,14 @@ local function CreateMain(style)
 		if ChatPaneReady() then ns.ChatWindow.Detach(self) end
 		-- (1.2.4: and the person page shown, for what it held: ProfileLeft.)
 		if self == main then
-			if not self:IsShown() then self.recruitmentOffer, self.recruitmentNotice = nil, nil end
+			if not self:IsShown() then
+				-- (1.5.8) The Census offer closed with every switch off asks again, as its Leave it off
+				-- for now does (a switch turned on and off again made a choice).
+				if self.recruitmentOffer == "open" and ns.Recruit and ns.Recruit.ForgetUnusedChoice then
+					ns.SafeCall("recruitment offer", ns.Recruit.ForgetUnusedChoice)
+				end
+				self.recruitmentOffer, self.recruitmentNotice = nil, nil
+			end
 			ProfileLeft(playerProfile)
 		end
 	end)

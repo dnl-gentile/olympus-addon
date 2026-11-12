@@ -1787,11 +1787,6 @@ function Views.CensusConnectionLine(s)
 		onClick = function() ns.UI.ShowCopy("/oly status", ns.StatusText(), nil, { key = "status" }) end }
 end
 
--- `q`, the search (Views.Query): "recruiting" (every guild with room), the zones whose name holds
--- it (1.1), then the guilds whose name or Lord holds it, and those where it finds a Captain, a
--- player of the top five or one seen online (under its row), the reported ones then the ones only
--- seen (by name: nobody knows their Lord), in the same order as ever. Letters that look alike
--- read as one (Lookalike, 1.2.1).
 -- 1.5.8 (the author's ask): the Census offer's switches. Answering JOIN requests is recruiting
 -- itself (Recruit.lua), with the requests other members pass on; the ads and the scan need it, as
 -- their replies come back as whispered JOINs: turning either on turns it on, and turning it off
@@ -1833,6 +1828,11 @@ function Views.RecruitOfferSwitch(key)
 	end
 end
 
+-- `q`, the search (Views.Query): "recruiting" (every guild with room), the zones whose name holds
+-- it (1.1), then the guilds whose name or Lord holds it, and those where it finds a Captain, a
+-- player of the top five or one seen online (under its row), the reported ones then the ones only
+-- seen (by name: nobody knows their Lord), in the same order as ever. Letters that look alike
+-- read as one (Lookalike, 1.2.1).
 local function CensusLines(s, q, recruitment)
 	local lines = {}
 	if q then

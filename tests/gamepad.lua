@@ -3766,7 +3766,7 @@ test("gamepad centered Census recruitment offers three switches, Done and both d
 		eq(IsOn("join"), true, "the JOIN switch turns green")
 		eq(IsOn("ads"), false); eq(IsOn("scan"), false)
 		assert(Text(L.RECRUIT_CENSUS_THANKS), "a switch on thanks the player")
-		eq(assert(Row("done")).line.primary, true, "Done closes the page")
+		eq(assert(Row("done")).primary:GetText(), L.RECRUIT_CENSUS_DONE, "a Done button closes the page")
 		eq(Row("later"), nil, "no Leave it off with a switch on"); eq(Row("never"), nil)
 		assert(R.WhisperLines()[1].text:find(L.RECRUIT_WHISPER_ON, 1, true), "Church shows the active intake")
 		local printed
@@ -3794,7 +3794,8 @@ test("gamepad centered Census recruitment offers three switches, Done and both d
 		eq(IsOn("ads"), true, "the ads switch turns green")
 		eq(IsOn("join"), true, "ads need JOIN answers: it turns on with them")
 		eq(R.AnnounceReminderMinutes(), 5, "the reminder runs every 5 minutes")
-		C.Click(Row("done"))
+		-- (The Done line is a button: its row takes no clicks in game, Views.lua.)
+		C.Click(assert(Row("done")).primary)
 		eq(U.PageId(), "census/", "Done closes the page")
 		Reopen()
 		eq(Row("join"), nil, "a switch left on is a choice: no new offer")
@@ -4030,7 +4031,7 @@ test("gamepad Census recruitment switches turn on their features and the handoff
 		eq(choice.enabled, true); eq(choice.acceptHandoffs, true); eq(choice.scan, true)
 		eq(choice.announceReminder, 5); eq(choice.offerOverflow, nil)
 		eq(#(C.said or {}), 0, "the switches send nothing")
-		C.Click(Row(U, "done"))
+		C.Click(assert(Row(U, "done")).primary)
 		eq(U.PageId(), "census/")
 		NoErrors(C, "Census recruitment switches")
 
@@ -4053,6 +4054,79 @@ test("gamepad Census recruitment switches turn on their features and the handoff
 		eq(lastNS.Recruit.AnnounceReminderMinutes(), 0, "the reminder turned off in Church stays off")
 		eq(lastNS.Recruit.Candidates.Enabled(), true)
 		NoErrors(last, "Census recruitment after the reminder went off")
+	end
+end)
+
+-- 1.5.8 (review of the Census switches): a click right after a login, before the roster confirms
+-- the officer, used to clear the saved handoff choice while the JOIN switch showed green, so the
+-- requests other members pass on were never taken. The choice is kept and takes effect once the
+-- roster loads, and after the next login.
+test("gamepad Census switches clicked before the roster loads keep taking handoffs", function()
+	local function Officer(saved)
+		return { saved = saved, setup = function(c) c.units.player.rank, c.units.player.rankIndex = "Titan", 1 end,
+			roster = {
+				{ "Tester-Realm", "Titan", 1, 60, "Warrior", "Elwynn Forest", "", "", true, 0, "WARRIOR" },
+				{ "Zeusmaster-Realm", "Zeus", 0, 60, "Mage", "Stormwind City", "", "", true, 0, "MAGE" },
+			} }
+	end
+	local function Row(U, id)
+		for _, row in ipairs(U.SelfTestView().rows) do
+			if row:IsShown() and row.line.id == "census-recruit-" .. id then return row end
+		end
+	end
+	for _, initialPad in ipairs({ false, true }) do
+		local saved = Answered()
+		local opts = Officer(saved)
+		opts.gamepad = initialPad
+		local C, ns = Boot(opts)
+		Login(C, 2) -- (the roster's first scan comes 8 seconds after a login)
+		eq(#C.loadErrors, 0)
+		local U, R = ns.UI, ns.Recruit
+		eq(ns.Roster.Fresh(), nil, "the roster is still loading")
+		U.Toggle()
+		eq(U.PageId(), "census/recruitment")
+		C.Click(assert(Row(U, "join")))
+		eq(R.IsWhisperRecruiting(), true)
+		eq(R.Handoff.Accepting(), false, "the roster cannot confirm the officer yet")
+		eq(ns.rdb.recruitmentPreference[ns.me].acceptHandoffs, true, "the handoff choice is kept")
+		C.Click(assert(Row(U, "scan")))
+		eq(ns.rdb.recruitmentPreference[ns.me].acceptHandoffs, true, "the scan switch keeps it too")
+		C.Advance(15)
+		assert(ns.Roster.Fresh(), "the roster has loaded")
+		eq(R.Handoff.Accepting(), true, "handoffs are taken once the roster confirms the officer")
+		NoErrors(C, "Census switches before the roster")
+		local reloaded, nextNS = Session(initialPad, Officer(saved))
+		reloaded.Advance(1)
+		eq(nextNS.Recruit.Handoff.Accepting(), true, "and after the next login")
+		NoErrors(reloaded, "Census switches after the login")
+	end
+end)
+
+-- 1.5.8 (review of the Census switches): a switch turned on and off again, then the window closed
+-- without Leave it off for now, asks again next time, as closing without a choice did before.
+test("gamepad Census offer closed with every switch off asks again", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		local U, R = ns.UI, ns.Recruit
+		local function Row(id)
+			for _, row in ipairs(U.SelfTestView().rows) do
+				if row:IsShown() and row.line.id == "census-recruit-" .. id then return row end
+			end
+		end
+		U.Toggle()
+		C.Click(assert(Row("join")))
+		C.Click(assert(Row("join")))
+		eq(R.IsWhisperRecruiting(), false)
+		U.Toggle()
+		eq(U.IsShown(), false, "the window closed without a choice")
+		U.Toggle()
+		eq(U.PageId(), "census/recruitment", "the offer comes back")
+		assert(Row("join"), "with its switches")
+		C.Click(assert(Row("ads")))
+		U.Toggle(); U.Toggle()
+		eq(U.PageId(), "census/", "a switch left on is a choice: closing keeps it")
+		eq(R.AnnounceReminderMinutes(), 5)
+		NoErrors(C, "Census offer closed")
 	end
 end)
 
