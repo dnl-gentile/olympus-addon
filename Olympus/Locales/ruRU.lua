@@ -2833,6 +2833,8 @@ ns.Locale("ruRU", {
 	RECRUIT_CANDIDATE_WHISPER_OFF = "Напоминания о шёпоте: Выкл.",
 	RECRUIT_CANDIDATE_WHISPER_EVERY = "Напоминание о шёпоте каждые %d мин",
 	RECRUIT_CANDIDATE_WHISPER = "Проверить шёпот",
+	RECRUIT_WHISPER_POPUP_ON = "Запросы JOIN: Окно",
+	RECRUIT_WHISPER_QUEUE_ONLY = "Запросы JOIN: Только очередь",
 	RECRUIT_WHISPER_ON = "Набор через шепот: включен",
 	RECRUIT_WHISPER_OFF = "Набор через шепот: выключен",
 	RECRUIT_WHISPER_HINT = "Заинтересованные игроки могут написать JOIN шепотом. Ответы появятся здесь.",

@@ -3344,11 +3344,14 @@ harness's own suite files are called, where Olympus Link's tests ran when it shi
 The [transport lifecycle notes](docs/transport-lifecycle.md) describe queue completion,
 cancellation, compatibility and the in-game checks for the transport queue.
 
-### Recruiting by whisper (experiment branch)
+### Recruiting by whisper
 
 Turn **Recruiting by whisper** on in **Church → Invites**.
-It starts off each session. Interested players can whisper you **JOIN**, even without
-Olympus installed. **Review nearby players now** prepares a list from the selected player and visible
+It starts off for each character. An officer's choice to enable recruiting is remembered for
+that character in the same guild, as long as the game still allows that character to invite.
+**Incoming JOIN** defaults to a pop-up. Choose **Queue only** to keep the chat notice and
+the request in **Church → Invites**. Pending requests are cleared at login.
+Interested players can whisper you **JOIN**, even without Olympus installed. **Review nearby players now** prepares a list from the selected player and visible
 friendly nameplates with no guild shown. Review each player and the editable message, then press
 **Send** for that one recipient or **Skip**. Either choice moves to the next eligible player.
 Olympus checks the native identity and guild information again when you press Send.

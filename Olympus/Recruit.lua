@@ -626,11 +626,48 @@ function Recruit.WhisperAvailable()
 	return WhisperGuild() ~= nil
 end
 
+local function EligibleRecruitingGuild()
+	local guild = WhisperGuild()
+	if type(guild) == "string" and not ns.IsSecret(guild) and guild ~= ""
+		and Recruit.CanInvite and Recruit.CanInvite() then return guild end
+end
+
 local function Recruiting()
-	return recruitingGuild ~= nil and recruitingGuild == WhisperGuild()
+	return recruitingGuild ~= nil and recruitingGuild == EligibleRecruitingGuild()
 end
 
 Recruit.IsWhisperRecruiting = Recruiting
+
+-- Realm-group and faction storage already comes from rdb. Within it, retain one
+-- exact guild choice for this character. Requests, drafts and handoffs stay in memory.
+local function RecruitmentPreference(guild, create)
+	if type(ns.rdb) ~= "table" or type(ns.me) ~= "string" or ns.me == "" or ns.me == "?" then return end
+	local choices = ns.rdb.recruitmentPreference
+	if type(choices) ~= "table" then
+		if not create then return end
+		choices = {}
+		ns.rdb.recruitmentPreference = choices
+	end
+	local saved = choices[ns.me]
+	if type(saved) == "table" and (not guild or saved.guild == guild) then return saved end
+	if not create then return end
+	saved = { guild = guild }
+	choices[ns.me] = saved
+	return saved
+end
+
+local function QueueOnly()
+	local saved = recruitingGuild and RecruitmentPreference(recruitingGuild)
+	return saved ~= nil and saved.queueOnly == true
+end
+
+local function ToggleQueueOnly()
+	if not Recruiting() then return end
+	local saved = RecruitmentPreference(recruitingGuild, true)
+	if not saved then return end
+	saved.queueOnly = not (saved.queueOnly == true)
+	ns.Fire("RECRUIT_CHANGED")
+end
 
 local function CloseReminderDraft()
 	local draft = ns.Dialog and ns.Dialog.Find and ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT")
@@ -655,19 +692,32 @@ local function StopRecruiting()
 	end
 end
 
-function Recruit.ToggleWhisperRecruiting()
-	if Recruiting() then StopRecruiting()
-	else
-		StopRecruiting()
-		recruitingGuild = WhisperGuild()
-	end
+local function RestoreRecruiting()
+	local saved = RecruitmentPreference()
+	if not recruitingGuild and (not saved or saved.enabled ~= true) then return end
+	local guild = EligibleRecruitingGuild()
+	local restore = saved and saved.enabled == true and saved.guild == guild and guild or nil
+	if restore == recruitingGuild then return end
+	if recruitingGuild then StopRecruiting() end
+	recruitingGuild = restore
 	ns.Fire("DATA_CHANGED")
-	return Recruiting()
+end
+
+function Recruit.ToggleWhisperRecruiting()
+	local guild = EligibleRecruitingGuild()
+	if not guild then return false end
+	local on = recruitingGuild ~= guild
+	StopRecruiting()
+	local saved = RecruitmentPreference(guild, true)
+	if saved then saved.enabled = on end
+	if on then recruitingGuild = guild end
+	ns.Fire("DATA_CHANGED")
+	return on
 end
 
 function Recruit.CanEnableWhisperRecruiting()
-	local guild = WhisperGuild()
-	return guild ~= nil and recruitingGuild ~= guild and Recruit.CanInvite and Recruit.CanInvite()
+	local guild = EligibleRecruitingGuild()
+	return guild ~= nil and recruitingGuild ~= guild
 end
 
 function Recruit.EnableWhisperRecruiting()
@@ -1113,6 +1163,9 @@ function Recruit.WhisperLines()
 	AnnouncementLines(lines, V)
 	if on then
 		lines[#lines + 1] = { indent = 1, text = L.RECRUIT_WHISPER_HINT }
+		lines[#lines + 1] = { id = "recruit-whisper-arrival", indent = 1,
+			text = V.Gold(QueueOnly() and L.RECRUIT_WHISPER_QUEUE_ONLY or L.RECRUIT_WHISPER_POPUP_ON),
+			onClick = ToggleQueueOnly }
 		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_WHISPER_TARGET), onClick = Recruit.PromptOutreach, gapAfter = true }
 		if Recruit.Handoff then Recruit.Handoff.Controls(lines, V) end
 		if Recruit.Candidates then Recruit.Candidates.Lines(lines, V) end
@@ -1188,7 +1241,10 @@ function Recruit.OnJoinRequest(dist, sender, text)
 end
 ns.Comm.Handle("J3", Recruit.OnJoinRequest)
 
-local function CanInvite() return type(CanGuildInvite) == "function" and CanGuildInvite() and true or false end
+local function CanInvite()
+	local allowed = type(CanGuildInvite) == "function" and CanGuildInvite()
+	return not ns.IsSecret(allowed) and allowed and true or false
+end
 Recruit.CanInvite = CanInvite
 
 -- A warning may wait while ranks, guild membership or the request change. Only a current
@@ -1367,6 +1423,7 @@ end
 -- An accepted recruiting whisper gets a choice in an Olympus window. Combat, a busy
 -- invite window or several close replies leave the request on the Church's Invites page.
 local function PromptReply(req, now)
+	if QueueOnly() then return end
 	if (InCombatLockdown and InCombatLockdown()) or not ns.Dialog or ns.Dialog.missing then return end
 	if lastReplyPrompt and now - lastReplyPrompt < ASK_COOLDOWN then return end
 	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
@@ -1567,18 +1624,22 @@ function Recruit.OnWhisper(text, sender)
 end
 
 ns.On("LOGIN", function()
+	RestoreRecruiting()
+	ns.RegisterEvent("PLAYER_ENTERING_WORLD", RestoreRecruiting)
+	ns.RegisterEvent("GUILD_ROSTER_UPDATE", RestoreRecruiting)
 	ns.After(12, "daily nag", DailyNag)
 	ns.RegisterEvent("CHAT_MSG_WHISPER", function(text, sender) Recruit.OnWhisper(text, sender) end)
 	ns.RegisterEvent("CHAT_MSG_CHANNEL", ObserveAnnouncement)
 	ns.RegisterEvent("PLAYER_GUILD_UPDATE", function(unit)
 		if unit and unit ~= "player" then return end
-		if recruitingGuild and not Recruiting() then StopRecruiting() end
+		RestoreRecruiting()
 		if not Recruit.SimpleJoin() then
 			join = {}
 			if not ns.Dialog.missing then ns.Dialog.Hide("OLYMPUS_RECRUIT_RETRY") end
 		end
 	end)
 end)
+ns.On("ACCORD_CHANGED", RestoreRecruiting)
 
 StaticPopupDialogs["OLYMPUS_RECRUIT_RETRY"] = {
 	text = L.RECRUIT_JOIN_REMINDER_PROMPT,

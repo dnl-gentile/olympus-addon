@@ -3828,6 +3828,72 @@ test("gamepad centered Census recruitment offers the Church intake and both dism
 	end
 end)
 
+test("gamepad recruitment restores only this guild choice and keeps JOIN in the queue", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local saved = Answered()
+		local C, ns = Session(initialPad, { saved = saved })
+		local R = ns.Recruit
+		local function ArrivalLine(recruit)
+			for _, line in ipairs(recruit.WhisperLines()) do
+				if line.id == "recruit-whisper-arrival" then return line end
+			end
+		end
+		eq(R.IsWhisperRecruiting(), false, "a new character starts opted out")
+		InClick(C, function() eq(R.EnableWhisperRecruiting(), true) end)
+		local choice = assert(ArrivalLine(R))
+		assert(choice.text:find(ns.L.RECRUIT_WHISPER_POPUP_ON, 1, true), "pop-up is the default")
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "FirstApplicant-Realm")
+		eq(#R.requests, 1)
+		assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") or ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"))
+		InClick(C, choice.onClick)
+
+		local reloaded, nextNS = Session(initialPad, { saved = saved })
+		local nextR = nextNS.Recruit
+		eq(nextR.IsWhisperRecruiting(), true, "restores the explicit opt-in for the current guild")
+		eq(#nextR.requests, 0, "no previously received names are loaded")
+		assert(ArrivalLine(nextR).text:find(nextNS.L.RECRUIT_WHISPER_QUEUE_ONLY, 1, true))
+		local sends = #(reloaded.said or {})
+		reloaded.Fire("CHAT_MSG_WHISPER", "JOIN", "NewApplicant-Realm")
+		eq(#nextR.requests, 1, "the new request reaches the Church queue")
+		assert(nextR.requests[1].name:find("NewApplicant", 1, true))
+		eq(nextNS.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil)
+		eq(nextNS.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), nil)
+		local announced = false
+		for _, line in ipairs(reloaded.printed) do
+			if line:find("NewApplicant", 1, true) then announced = true end
+		end
+		eq(announced, true, "queue-only still prints the normal chat notice")
+		eq(#(reloaded.said or {}), sends, "restored intake does not send anything")
+
+		local permission = true
+		reloaded.env.CanGuildInvite = function() return permission end
+		permission = false
+		reloaded.Fire("GUILD_ROSTER_UPDATE")
+		eq(nextR.IsWhisperRecruiting(), false, "lost native invite permission suspends recruiting")
+		eq(#nextR.requests, 0, "loss of eligibility clears pending requests")
+		permission = true
+		reloaded.Fire("GUILD_ROSTER_UPDATE")
+		eq(nextR.IsWhisperRecruiting(), true, "the opt-in returns when the same guild restores permission")
+		reloaded.units.player.guild = "Olympus III"
+		reloaded.Fire("PLAYER_GUILD_UPDATE", "player")
+		eq(nextR.IsWhisperRecruiting(), false, "the saved choice cannot activate a different guild")
+		reloaded.units.player.guild = "Olympus II"
+		reloaded.Fire("PLAYER_GUILD_UPDATE", "player")
+		eq(nextR.IsWhisperRecruiting(), true)
+		local other, otherNS = Session(initialPad, { saved = saved, setup = function(client)
+			client.units.player.name = "OtherCharacter"
+		end })
+		eq(otherNS.Recruit.IsWhisperRecruiting(), false, "another character on the same account starts off")
+		InClick(reloaded, function() eq(nextR.ToggleWhisperRecruiting(), false) end)
+		local afterOff, offNS = Session(initialPad, { saved = saved })
+		eq(offNS.Recruit.IsWhisperRecruiting(), false, "explicitly turning it off survives login")
+		NoErrors(C, "original recruitment session")
+		NoErrors(reloaded, "reloaded recruitment session")
+		NoErrors(other, "different recruiting character")
+		NoErrors(afterOff, "recruitment disabled session")
+	end
+end)
+
 test("gamepad attended recruit candidate queue uses scoped sightings and explicit WHO records", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
