@@ -11,6 +11,7 @@ local incoming, outgoing = {}, {}
 local acceptingGuild, choosing, serial
 local autoGuild, autoTimer, autoProbe, autoCursor
 local repliedAt = -math.huge
+local Notify
 serial = 0
 
 local function Field(s, limit)
@@ -196,6 +197,54 @@ function H.ToggleAuto()
 	return autoGuild ~= nil
 end
 
+-- A JOIN this officer can still hand on: its invite not prepared (or, `blocked`, prepared and
+-- refused by the game, in his own words), and no handoff under way.
+function H.CanPass(req, blocked)
+	return type(req) == "table" and LocalGuild() ~= nil and not H.State(req)
+		and R.HandoffSource(req, blocked) and true or false
+end
+
+-- The officer's click: this JOIN (`all`: and the ones waiting behind it) goes to the guild's
+-- officers who accept handoffs, one at a time, through the same probe and claim as the
+-- automatic overflow, which this turns on. Until one claims it, it stays in his queue.
+function H.Pass(req, all)
+	if not H.CanPass(req) then return false end
+	req.passWanted = true
+	if all then
+		for _, other in ipairs(R.requests) do
+			if other ~= req and not other.passWanted and H.CanPass(other) then other.passWanted = true end
+		end
+	end
+	if autoGuild ~= LocalGuild() then
+		if autoGuild then H.ToggleAuto() end
+		H.ToggleAuto()
+	end
+	ns.Print(L.RECRUIT_HANDOFF_PASSING)
+	ns.After(0, "recruit pass", AutoStep)
+	Changed()
+	return true
+end
+
+function H.PassBlocked(req)
+	if not H.CanPass(req, true) then return false end
+	req.invitePrepared = nil
+	return H.Pass(req)
+end
+
+-- An offer for an officer who accepts handoffs: a chat line, and a Claim question when nothing
+-- else of the recruitment is on screen. The name still comes only after his Claim click.
+local CLAIM_DIALOG = "OLYMPUS_RECRUIT_HANDOFF_CLAIM"
+local busyDialogs = { CLAIM_DIALOG, "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_NETOFF" }
+
+Notify = function(ref)
+	local who = ns.DisplayName(ref.peer) or ref.peer
+	ns.Print(L.RECRUIT_HANDOFF_ARRIVED:format(who, ref.from))
+	local D = ns.Dialog
+	if not D or D.missing or not D.Show or not AvailableNow() then return end
+	for _, which in ipairs(busyDialogs) do if D.Find(which) then return end end
+	D.Show(CLAIM_DIALOG, L.RECRUIT_HANDOFF_CLAIM_PROMPT:format(who, ref.from), nil, ref)
+end
+
 function H.Receive(dist, sender, word)
 	if dist ~= "WHISPER" or type(word) ~= "string" or #word > 255 or SamePlayer(sender, ns.me) then return false end
 	local op, id, expires, group, faction, from, to, applicant =
@@ -229,6 +278,7 @@ function H.Receive(dist, sender, word)
 		if op == "O" then
 			if incoming[id] or not Room(incoming) then return false end
 			incoming[id] = { id = id, expires = expires, from = from, to = to, peer = sender, state = "offered" }
+			Notify(incoming[id])
 		else
 			local ref = incoming[id]
 			if not ref or ref.state ~= "claiming" or ref.expires ~= expires or not SamePlayer(ref.peer, sender)
@@ -347,6 +397,17 @@ function H.RequestLines(lines, V, req)
 			onClick = function() H.Offer(req, contact.name, contact.guild) end }
 	end
 end
+
+StaticPopupDialogs[CLAIM_DIALOG] = {
+	text = "%s",
+	button1 = L.RECRUIT_HANDOFF_TAKE,
+	button2 = L.RECRUIT_HANDOFF_SKIP,
+	OnAccept = function(_, ref) H.Claim(ref) end,
+	timeout = 60,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
 
 function H.Reset()
 	acceptingGuild, choosing = nil, nil

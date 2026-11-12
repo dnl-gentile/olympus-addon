@@ -1285,8 +1285,9 @@ local function CurrentRequest(req, allowHandoff)
 	return false
 end
 
-function Recruit.HandoffSource(req)
-	return type(req) == "table" and req.viaWhisper and req.handoffIntent ~= nil and not req.invitePrepared
+-- `blocked`: the officer said the game refused the invite he pasted, so a prepared one counts.
+function Recruit.HandoffSource(req, blocked)
+	return type(req) == "table" and req.viaWhisper and req.handoffIntent ~= nil and (blocked or not req.invitePrepared)
 		and CurrentRequest(req, true)
 end
 
@@ -1305,6 +1306,8 @@ function Recruit.OverflowRequest()
 	local waiting, candidate = 0, nil
 	for _, req in ipairs(Recruit.requests) do
 		if not Recruit.Handoff.State(req) and Recruit.HandoffSource(req) then
+			-- The officer asked to pass this one on: it goes first, once its own popup is closed.
+			if req.passWanted and not Recruit.HandoffPromptOpen(req) then return req end
 			waiting = waiting + 1
 			if waiting > 1 and not candidate and not Recruit.HandoffPromptOpen(req) then candidate = req end
 		end
@@ -1312,15 +1315,38 @@ function Recruit.OverflowRequest()
 	if waiting >= 3 then return candidate end
 end
 
+-- The applicant's JOIN reached another officer first. Here it opens the same copy command a
+-- JOIN whispered to us opens (no Prepare step), and it is never offered onward (no intent).
 function Recruit.TakeHandoff(name, officer)
 	if not Recruiting() or not CanInvite() or not NameForCommand(name) then return false end
 	local shown = L.RECRUIT_HANDOFF_RECEIVED:format(ns.DisplayName(officer) or officer)
-	return AddRequest(name, recruitingGuild, nil, nil, shown, true)
+	local accepted, req = AddRequest(name, recruitingGuild, nil, nil, shown, true)
+	if not accepted then return false end
+	req.handedIn = true
+	PromptReply()
+	return true
 end
 
 local function SameWarning(data, req, word)
 	return type(data) == "table" and data.req == req and data.name == req.name and data.guild == req.guild
 		and data.on == word.name and data.at == word.at and data.by == word.by and data.reason == word.reason
+end
+
+-- Whisper requests still waiting for this officer besides `req` (the count on its popup).
+local function WaitingAfter(req)
+	local n = 0
+	for _, pending in ipairs(Recruit.requests) do
+		if pending ~= req and pending.viaWhisper and not pending.invitePrepared and not pending.passWanted
+			and not (Recruit.Handoff and Recruit.Handoff.State(pending)) and CurrentRequest(pending) then n = n + 1 end
+	end
+	return n
+end
+
+local function InviteDraftText(name, req)
+	local text = L.RECRUIT_WHISPER_INVITE_COPY:format(name)
+	local waiting = req and WaitingAfter(req) or 0
+	if waiting > 0 then text = text .. "\n\n" .. L.RECRUIT_HANDOFF_MORE:format(waiting) end
+	return text
 end
 
 local function AcceptRequest(req, confirmed, automatic)
@@ -1349,7 +1375,8 @@ local function AcceptRequest(req, confirmed, automatic)
 		if not to then return false end
 		if not ns.Dialog or ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return false end
 		-- The officer copies and pastes the command. Forever blocks addon-prefilled invites.
-		local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", to, nil, { req = req, automatic = automatic })
+		local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(to, req), nil,
+			{ req = req, automatic = automatic })
 		if draft and not automatic then req.invitePrepared = true end
 		return draft ~= nil
 	end
@@ -1381,7 +1408,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
 function Recruit.CopyCandidateInvite(candidate, automatic)
 	if not Recruit.Candidates.Check(candidate) or not ns.Dialog or ns.Dialog.missing then return false end
 	if ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") then return false end
-	return ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", candidate.name, nil,
+	return ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(candidate.name), nil,
 		{ candidate = candidate, automatic = automatic }) ~= nil
 end
 
@@ -1403,8 +1430,17 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 end
 
 StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
-	text = L.RECRUIT_WHISPER_INVITE_COPY,
+	text = "%s",
 	button1 = L.RECRUIT_WHISPER_CLOSE,
+	-- Before the command reaches chat, a JOIN (and the ones waiting behind it) can go to the
+	-- other officers who accept handoffs. Not OnCancel: Escape and replacement pass nothing.
+	button2 = L.RECRUIT_HANDOFF_PASS,
+	button2Shown = function(_, data)
+		return type(data) == "table" and data.req ~= nil and Recruit.Handoff ~= nil and Recruit.Handoff.CanPass(data.req)
+	end,
+	OnButton2 = function(_, data)
+		if type(data) == "table" and data.req and Recruit.Handoff then Recruit.Handoff.Pass(data.req, true) end
+	end,
 	extra = { label = L.RECRUIT_WHISPER_INVITE_CHAT, onClick = OpenInviteChat },
 	hasEditBox = true,
 	editBoxWidth = 360,
@@ -1464,7 +1500,7 @@ PromptReply = function()
 	local now, req = ns.Now(), nil
 	Prune(now)
 	for _, pending in ipairs(Recruit.requests) do
-		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared
+		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
 			and (not Recruit.Handoff or not Recruit.Handoff.State(pending)) then
 			req = pending
 			break
@@ -1479,9 +1515,10 @@ PromptReply = function()
 		if ns.Dialog.Find(id) then return RetryReply(2) end
 	end
 	for _, pending in ipairs(Recruit.requests) do
-		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and CurrentRequest(pending) then
+		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
+			and CurrentRequest(pending) then
 			local shown
-			if pending.handoffIntent then shown = AcceptRequest(pending, nil, true)
+			if pending.handoffIntent or pending.handedIn then shown = AcceptRequest(pending, nil, true)
 			else shown = ReviewReply(pending) end
 			if shown then
 				pending.popupShown, lastReplyPrompt = true, now
@@ -1584,7 +1621,7 @@ function Recruit.RequestLines(viaWhisper)
 		elseif handoff and handoff.State(req) then
 			handoff.RequestLines(lines, V, req)
 		elseif canInvite then
-			local reply = req.viaWhisper and not req.handoffIntent
+			local reply = req.viaWhisper and not req.handoffIntent and not req.handedIn
 			local label = reply and L.RECRUIT_WHISPER_REVIEW:format(req.guild)
 				or ((req.viaWhisper or ns.OnForever()) and L.RECRUIT_WHISPER_PREPARE_BUTTON or L.JOIN_INVITE:format(req.guild))
 			local action = reply and ReviewReply or Recruit.Accept
@@ -1596,7 +1633,15 @@ function Recruit.RequestLines(viaWhisper)
 					tt:AddLine('"' .. Recruit.DeclineText(req) .. '"', 1, 1, 1, true)
 				end,
 			}
-			if handoff then handoff.RequestLines(lines, V, req) end
+			if handoff then
+				handoff.RequestLines(lines, V, req)
+				-- The command went to chat, but the game refused it (too many invites): the officer's
+				-- click says so, and only then may another officer invite the same player.
+				if req.invitePrepared and req.handoffIntent and handoff.CanPass(req, true) then
+					lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_HANDOFF_BLOCKED),
+						onClick = function() handoff.PassBlocked(req) end }
+				end
+			end
 		elseif officer then
 			lines[#lines + 1] = {
 				indent = 1, text = V.Gold(L.JOIN_POINT:format(officer)), onClick = function() Recruit.Point(req) end,

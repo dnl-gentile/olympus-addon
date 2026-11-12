@@ -12,14 +12,15 @@ local function WithHandoff(fn)
 		realm = ns.realm, splitNames = ns.splitNames, whisper = ns.Comm.Whisper,
 		fresh = ns.Roster.Fresh, rank = ns.Roster.RankOf, online = ns.Roster.online,
 		canRank = ns.Data.CanRank, authorized = ns.Data.AuthorizedRank,
-		every = ns.Every, quiet = ns.QuietPresence,
+		every = ns.Every, quiet = ns.QuietPresence, after = ns.After,
 	}
 	R.ResetForTests()
-	local scene = { now = 5000, fresh = true, permission = true, support = 2, packets = {} }
+	local scene = { now = 5000, fresh = true, permission = true, support = 2, packets = {}, later = {} }
 	GetGuildInfo = function() return own end
 	CanGuildInvite = function() return scene.permission end
 	ns.IsMember = function() return true end
-	ns.ChatLocked = function() return false end
+	ns.ChatLocked = function() return scene.locked == true end
+	ns.After = function(_, _, fn) scene.later[#scene.later + 1] = fn end
 	ns.QuietPresence = function() return scene.quiet == true end
 	ns.Every = function(_, _, callback)
 		scene.tick = callback
@@ -54,13 +55,34 @@ local function WithHandoff(fn)
 	ns.realm, ns.splitNames, ns.Comm.Whisper = saved.realm, saved.splitNames, saved.whisper
 	ns.Roster.Fresh, ns.Roster.RankOf, ns.Roster.online = saved.fresh, saved.rank, saved.online
 	ns.Data.CanRank, ns.Data.AuthorizedRank = saved.canRank, saved.authorized
-	ns.Every, ns.QuietPresence = saved.every, saved.quiet
+	ns.Every, ns.QuietPresence, ns.After = saved.every, saved.quiet, saved.after
 	if not ok then error(err, 0) end
 end
 
 local function Packet(scene, verb, from, to, name, id)
 	return ("J4~%s~%s~%d~ForeverPvE~Alliance~%s~%s~%s"):format(verb, id or "1234-ab-1", scene.now + 90, from, to, name or "")
 end
+
+-- Olympus's dialogs as the officer sees them: shown, found, closed. Each keeps its definition.
+local function Dialogs()
+	local shown, D = {}, {}
+	function D.Find(which, data)
+		for i = #shown, 1, -1 do
+			local f = shown[i]
+			if f.which == which and f.open and (data == nil or f.data == data) then return f end
+		end
+	end
+	function D.Show(which, a, _, data)
+		local f = { which = which, text = a, data = data, open = true, def = StaticPopupDialogs[which] }
+		f.Hide = function() f.open = false end
+		shown[#shown + 1] = f
+		return f
+	end
+	function D.Hide(which) local f = D.Find(which); if f then f.open = false end end
+	function D.CloseOnEscape() end
+	return D
+end
+local DRAFT, CLAIM = "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_HANDOFF_CLAIM"
 
 local function Find(rows, text)
 	for _, row in ipairs(rows) do if row.text and row.text:find(text, 1, true) then return row end end
@@ -259,5 +281,89 @@ test("recruit handoff: real addon transport rejects public offers and duplicate 
 		deliver("WHISPER", officer, Packet(scene, "N", sister, own, applicant))
 		eq(#R.requests, 1, "an existing direct request wins even if another sub-realm stamped the same character")
 		eq(#scene.packets, 1, "the origin is not told the handoff was accepted")
+	end)
+end)
+
+-- 1.5.8 (the author, 11-12: "quando um invite aparecer, não tem que clicar em prepare invite").
+test("recruit handoff: a claimed request opens the copy command at once, after a Claim question", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		eq(H.Toggle(), true)
+		H.Receive("WHISPER", officer, Packet(scene, "O", sister, own))
+		local claim = assert(D.Find(CLAIM), "an offer asks the opted-in officer to claim it")
+		eq(claim.text:find("New Recruit", 1, true), nil, "the question carries no applicant name")
+		eq(#scene.packets, 0, "showing the question claims nothing")
+		claim.def.OnAccept(claim, claim.data)
+		claim:Hide()
+		eq(#scene.packets, 1)
+		assert(scene.packets[1].word:match("^J4~C~"))
+		H.Receive("WHISPER", officer, Packet(scene, "N", sister, own, applicant))
+		local req = assert(R.requests[1])
+		eq(req.name, applicant)
+		eq(D.Find("OLYMPUS_RECRUIT_REPLY"), nil, "no Prepare step for a handed-over request")
+		local draft = assert(D.Find(DRAFT), "the copy command opens as soon as the name arrives")
+		eq(draft.data.req, req)
+		eq(draft.def.button2Shown(draft, draft.data), false, "a handed-over request is not passed on again")
+		eq(Find(R.RequestLines(true), ns.L.RECRUIT_WHISPER_REVIEW:format(own)), nil, "its queue line skips the review step too")
+	end)
+end)
+
+-- 1.5.8 (the author, 11-12: "ele mostrar tantas pessoas na fila depois dessa. E aí você clica no
+-- botão e fala tipo, é repassar os negócios pra outros offices").
+test("recruit handoff: the JOIN popup counts the requests behind it and passes them to opted-in officers", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		scene.locked = true
+		for i = 1, 3 do R.OnWhisper("JOIN", ("Waiting %d-%s"):format(i, home)) end
+		eq(D.Find(DRAFT), nil, "no popup while game chat is locked")
+		scene.locked = false
+		R.OnWhisper("JOIN", "Fourth Recruit-" .. home)
+		local first = R.requests[1]
+		local draft = assert(D.Find(DRAFT))
+		eq(draft.data.req, first, "the earliest JOIN is shown first")
+		assert(draft.text:find(ns.L.RECRUIT_HANDOFF_MORE:format(3), 1, true), "the popup counts the JOINs behind it")
+		assert(draft.def.button2Shown(draft, draft.data), "a JOIN on screen can be passed on")
+		eq(draft.def.OnCancel, nil, "Escape or a replaced popup never passes a request")
+		eq(#scene.packets, 0)
+		draft.def.OnButton2(draft, draft.data)
+		draft:Hide()
+		for _, req in ipairs(R.requests) do eq(req.passWanted, true, "the waiting JOINs go with it") end
+		assert(Find(R.WhisperLines(), ns.L.RECRUIT_OVERFLOW_ON), "passing turns on the automatic offers")
+		scene.tick()
+		local probe = assert(scene.packets[1])
+		eq(probe.peer, mate)
+		assert(probe.word:match("^J4~P~") and probe.word:sub(-1) == "~", "the probe carries no applicant name")
+		eq(H.Receive("WHISPER", mate, (probe.word:gsub("^J4~P~", "J4~V~"))), true)
+		scene.tick()
+		local offer = assert(scene.packets[2])
+		assert(offer.word:match("^J4~O~"))
+		eq(H.State(first), "offered", "the request that was on screen goes first")
+		scene.now = scene.now + 21
+		R.OnWhisper("JOIN", "Fifth Recruit-" .. home)
+		eq(assert(D.Find(DRAFT)).data.req.name, "Fifth Recruit-" .. home, "passed requests do not pop up here again")
+	end)
+end)
+
+test("recruit handoff: an invite the game blocked is passed on only by the officer's word", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		R.OnWhisper("JOIN", applicant)
+		local req = R.requests[1]
+		assert(D.Find(DRAFT)):Hide()
+		eq(Find(R.RequestLines(true), ns.L.RECRUIT_HANDOFF_BLOCKED), nil, "nothing to report before the command went to chat")
+		eq(R.Accept(req), true)
+		eq(req.invitePrepared, true)
+		assert(D.Find(DRAFT)):Hide()
+		eq(H.CanPass(req), false, "a prepared invite is never passed on silently")
+		assert(Find(R.RequestLines(true), ns.L.RECRUIT_HANDOFF_BLOCKED)).onClick()
+		eq(req.invitePrepared, nil)
+		eq(req.passWanted, true)
+		scene.tick()
+		eq(H.Receive("WHISPER", mate, (assert(scene.packets[1]).word:gsub("^J4~P~", "J4~V~"))), true)
+		scene.tick()
+		eq(H.State(req), "offered")
 	end)
 end)
