@@ -3515,47 +3515,79 @@ test("1.5.5 Church (regression): a member whose own list names a Church person o
 	eq(lone.queries, 0)
 end)
 
-test("Church recruiter preview counts only exact independently witnessed native joins for staff", function()
+-- 1.5.8 (regression): the recruiters ranking showed only the pairs the author's own client had
+-- witnessed since its last /reload (a session-only table), so a ledger that already credited other
+-- recruiters, from an earlier session or another keeper's catch-up, showed one or two names. It now
+-- ranks everyone the ledger credits, by the points an Apostle earns for his own recruits.
+test("1.5.8 Church recruiters (regression): everyone the ledger credits, from earlier sessions and other keepers too, ranked by own points only", function()
 	local w, c = Cast()
-	local author, king, ordinary = c.author, c.king, c.wes
-	author.online, king.online = true, true
+	-- The author's client after a /reload: a keeper, its saved ledger and nothing witnessed this session.
+	local K = c.author
+	-- Mira (a missionary): two recruits a guildmate's read confirmed, one still in after 7 days.
+	Give(w, K, "Rank Reca", "Mira Wells", 30, false, { y = 1 })
+	Give(w, K, "Rank Recb", "Mira Wells", 2)
+	-- A recruiter with no place in the Church now: the saved ledger still credits him.
+	Give(w, K, "Rank Recc", "Old Hand", 5)
+	-- One from another keeper's catch-up line, never witnessed by this client.
+	local id = Key("Rank Recd") .. ":" .. Key("Nils Ford")
+	Give(w, c.a2, "Rank Recd", "Nils Ford", 4)
+	local line = w:As(c.a2, c.a2.Count.RecordLine, id, w:As(c.a2, c.a2.Count.Led).r[id])
+	assert(w:As(K, K.Count.TakeLine, c.a2.name, line), "the catch-up line is taken")
+	-- Never a recruit: a pair only its recruiter's client stands behind, a transfer, an alt, a registration
+	-- still open.
+	Give(w, K, "Rank Rece", "Pending Pal", 2, true)
+	Give(w, K, "Rank Recf", "Transfer Tom", 2, false, { t = 1 })
+	Give(w, K, "Rank Recg", "Alt Annie", 2, false, { a = 1 })
+	w:As(K, K.Count.MergeIn, Key("Rank Rech") .. ":" .. Key("Open Owen"),
+		{ n = "Rank Rech", bn = "Open Owen", kind = "g", tc = w.clock - 3600 }, false)
+	local rows = w:As(K, K.Count.Ranking, "u", "a")
+	local names = {}
+	for _, row in ipairs(rows) do names[#names + 1] = row.name end
+	eq(table.concat(names, ","), "Mira Wells,Nils Ford,Old Hand", "every credited recruiter, none of the others")
+	local function Row(row) return ("%d %d %d %g %g"):format(row.rank, row.joins, row.stays, row.score, row.share) end
+	eq(Row(rows[1]), "1 2 1 25 0", "10 a confirmed recruit, 5 more for the one still in, no network share")
+	eq(Row(rows[2]), "2 1 0 10 0")
+	eq(Row(rows[3]), "3 1 0 10 0")
+	eq(rows[1].score, w:As(K, K.Count.Own, Key("Mira Wells"), "a").points, "the same direct points as an Apostle's own")
+	-- Each window: the recruiter's own numbers in it.
+	for _, window in ipairs({ "w", "m" }) do
+		for _, row in ipairs(w:As(K, K.Count.Ranking, "u", window)) do
+			local o = w:As(K, K.Count.Own, row.key, window)
+			eq(("%d %g"):format(row.joins, row.score), ("%d %g"):format(o.joins, o.points), window .. " " .. row.name)
+		end
+	end
+end)
+
+test("1.5.8 Church recruiters: only the author, the King and the High Council see or ask; any keeper answers them", function()
+	local w, c = Cast()
+	local K = c.a1
+	Give(w, K, "Seen Reca", "Mira Wells", 2)
+	Give(w, K, "Seen Recb", "Old Hand", 3)
+	local hc = w:Client(World.COUNCILLOR)
+	c.king.online, hc.online, c.a2.online = true, true, false
 	w:Presence()
-	local count = author.Count
-	local recruiter = "Mira Wells"
-	local function Merge(recruit, by, changes)
-		return w:As(author, count.MergeIn, Key(recruit) .. ":" .. Key(by), changes, false)
+	-- A keeper (an Apostle) holds the ledger but is no staff: no page, no question, no answer to non-staff.
+	eq(#w:As(K, K.Count.RankingView, "u", "a"), 0, "an Apostle does not see it")
+	eq(select(2, w:As(K, K.Count.Ask, "u", "a")), "audience")
+	eq(#w:As(c.m1, c.m1.Count.RankingView, "u", "a"), 0, "a missionary does not see it")
+	eq(#w:As(c.wes, c.wes.Count.RankingView, "u", "a"), 0, "a member does not see it")
+	K.Count.Settled = function() return true end
+	eq(w:As(K, K.Count.Answer, c.m1.name, "u", "a"), false, "a missionary's question is not answered")
+	eq(#w:Sent(K, "NR", "WHISPER", "r"), 0, "nothing sent to him")
+	-- The King's and a High Councillor's pages ask the keeper online (an Apostle, not the author) and show his rows.
+	for _, staff in ipairs({ c.king, hc }) do
+		assert(w:As(staff, staff.Count.Ask, "u", "a"), "asked")
+		w:Flush()
+		local seen = w:As(staff, staff.Count.RankingView, "u", "a")
+		eq(#seen, 2)
+		eq(("%s %d %g"):format(seen[1].name, seen[1].joins, seen[1].score), "Mira Wells 1 10")
+		eq(("%s %d %g"):format(seen[2].name, seen[2].joins, seen[2].score), "Old Hand 1 10")
 	end
-	local function Observe(recruit, by, source)
-		assert(w:As(author, count.TakeEvidence, source or World.COUNCILLOR, PairText(w, by, recruit, 2)))
-		assert(Merge(recruit, by, { c = 1 }))
-	end
-	Observe("Native Recruit", recruiter)
-	Observe("Another Recruit", recruiter)
-	Observe("Self Report", recruiter, "Mira Wells-Realm")
-	Observe("Known Transfer", recruiter)
-	assert(Merge("Known Transfer", recruiter, { t = 1 }))
-	Observe("Disputed Invite", recruiter)
-	Observe("Disputed Invite", ns.ShortName(A1))
-	local h = math.floor(w.clock / 3600) * 3600
-	assert(Merge("Old Registration", recruiter, {
-		n = "Old Registration", bn = recruiter, g = World.GUILD,
-		kind = "g", tc = h - 7200, tj = h - 3600, c = 1, ws = { Key("Wes Brook") },
-	}))
-	assert(Merge("Old Registration", recruiter, { kind = "i" }))
-	assert(Merge("Native Recruit", recruiter, { y = 1 }))
-	local rows = w:As(author, count.Ranking, "u", "a")
-	eq(#rows, 1, "a conflicting equal-time invite remains disputed")
-	eq(rows[1].name, recruiter)
-	eq(rows[1].joins, 2, "transfer, self-report and merged legacy witness are excluded")
-	eq(rows[1].score, 20, "exactly ten points per recruit without a stay bonus")
-	eq(#w:As(ordinary, ordinary.Count.RankingView, "u", "a"), 0, "ordinary member cannot see the staff preview")
-	eq(w:As(author, count.Answer, c.a1.name, "u", "a"), false, "an Apostle cannot ask for the private preview")
-	eq(w:As(c.a1, c.a1.Count.Answer, king.name, "u", "a"), false, "the author's client alone serves its observed preview")
-	count.Settled = function() return true end
-	assert(w:As(king, king.Count.Ask, "u", "a"))
-	w:Flush()
-	local remote = w:As(king, king.Count.RankingView, "u", "a")
-	eq(#remote, 1)
-	eq(remote[1].joins, 2)
-	eq(remote[1].score, 20)
+	-- The author's own client (a keeper) works it out from his ledger.
+	c.author.online = true
+	w:Presence()
+	Give(w, c.author, "Seen Recc", "Mira Wells", 2)
+	local own = w:As(c.author, c.author.Count.RankingView, "u", "a")
+	eq(#own, 1)
+	eq(own[1].name, "Mira Wells")
 end)

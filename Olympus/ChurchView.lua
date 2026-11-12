@@ -146,8 +146,8 @@ end
 local function ListFilter()
 	local nav, value = {}, nil
 	local lists = { { "a", "CHURCH_LIST_APOSTLES" }, { "m", "CHURCH_LIST_MISSIONARIES" }, { "c", "CHURCH_LIST_CORRESPONDENTS" } }
-	if not PreviewRole() and Count.CanSeeRecruiterPreview(ns.me) then
-		lists[#lists + 1] = { "u", "CHURCH_LIST_RECRUITER_PREVIEW" }
+	if not PreviewRole() and Count.CanSeeRecruiters(ns.me) then
+		lists[#lists + 1] = { "u", "CHURCH_LIST_RECRUITERS" }
 	end
 	for _, it in ipairs(lists) do
 		local key = it[1]
@@ -311,7 +311,7 @@ local function MyLevels()
 end
 
 function View.RankingLines()
-	if View.list == "u" and (PreviewRole() or not Count.CanSeeRecruiterPreview(ns.me)) then View.list = "a" end
+	if View.list == "u" and (PreviewRole() or not Count.CanSeeRecruiters(ns.me)) then View.list = "a" end
 	local lines = { Nav("ranking"), Filters(true) }
 	if ns.Recruit and not PreviewRole() then
 		for _, line in ipairs(ns.Recruit.RequestLines(false)) do lines[#lines + 1] = line end
@@ -340,15 +340,26 @@ function View.RankingLines()
 	if remote and not PreviewRole() then catching = Count.Ask(View.list, View.window) or catching end
 	lines[#lines + 1] = AsOfLine(asOf, remote, catching, source)
 	if View.list == "u" then
-		lines[#lines + 1] = { header = true, text = L.CHURCH_LIST_RECRUITER_PREVIEW }
-		lines[#lines + 1] = { text = L.CHURCH_RECRUITER_PREVIEW_RULE:format(Count.POINTS_JOIN) }
-		lines[#lines + 1] = { text = Grey(L.CHURCH_RECRUITER_PREVIEW_COVERAGE), gapAfter = true }
+		-- (1.5.8) Everyone the Church credits with a recruit: two numbers each, his confirmed recruits and
+		-- his points, in the Apostles' columns so the two rankings read alike (no network share here).
+		local rule = L.CHURCH_RECRUITERS_RULE:format(Count.POINTS_JOIN, Count.POINTS_STAY, Count.STAY_DAYS)
+		lines[#lines + 1] = { header = true, text = L.CHURCH_RANKING_U, tooltip = Tip(L.CHURCH_RANKING_U, rule) }
+		lines[#lines + 1] = { text = rule }
+		lines[#lines + 1] = { text = L.CHURCH_RECRUITERS_COMPARE }
+		lines[#lines + 1] = { text = Grey(L.CHURCH_RECRUITERS_STAFF), gapAfter = true }
 		if #rows == 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.CHURCH_RANKING_EMPTY) } end
+		local me = Church.Key(ns.me)
 		for _, row in ipairs(rows) do
-			lines[#lines + 1] = { text = ("%d.  %s"):format(row.rank, Name(row.name)),
-				right = L.CHURCH_RECRUITER_PREVIEW_ROW:format(row.joins, row.score), player = ns.FullName(row.name) }
+			local nameText = ("%d.  %s"):format(row.rank, Name(row.name))
+			lines[#lines + 1] = {
+				cols = { row.key == me and Gold(nameText) or nameText, Pts(row.score), L.CHURCH_SPLIT:format(Pts(row.own), Pts(0)),
+					L.CHURCH_RECRUITS:format(row.joins, row.stays) },
+				player = ns.FullName(row.name), key = row.key,
+				tooltip = Tip(Name(row.name), L.CHURCH_RECRUITERS_ROW_TIP:format(Pts(row.score), row.joins, row.stays)),
+				onClick = Count.MaySeeDetail(ns.me, ns.FullName(row.name)) and function() View.Show("detail", ns.FullName(row.name)) end or nil,
+			}
 		end
-		return lines, L.CHURCH_TITLE, L.CHURCH_RECRUITER_PREVIEW_RULE:format(Count.POINTS_JOIN)
+		return lines, L.CHURCH_TITLE, rule
 	end
 	lines[#lines + 1] = { header = true, text = L["CHURCH_RANKING_" .. View.list:upper()],
 		tooltip = Tip(L["CHURCH_RANKING_" .. View.list:upper()], L.CHURCH_POINTS_TIP) }

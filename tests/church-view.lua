@@ -726,3 +726,46 @@ test("1.2.4 Church: the root's Name page shows each guild's correspondent its ma
 	assert(Row(author):find("Vale Helper", 1, true), "after a reload, his guild offline: " .. Row(author))
 	assert(Find(Build(w, author, "people"), L.CHURCH_CORRESPONDENTS:format(1)), "still counted")
 end)
+
+test("1.5.8 Church recruiters: the staff list explains its points and shows each recruiter's recruits and points in the Apostles' columns", function()
+	local w, c = Cast()
+	GiveAll(w, c, "Mira Wells", "Tab Reca"); GiveAll(w, c, "Mira Wells", "Tab Recb"); GiveAll(w, c, "Old Hand", "Tab Recc")
+	local function Options(cl)
+		cl.View.list = "a"
+		local out = {}
+		for _, o in ipairs(Build(w, cl, "ranking")[2].filters[1].options) do out[#out + 1] = o.text end
+		return table.concat(out, ",")
+	end
+	-- The list is offered to the author, the King and the High Council, never to an Apostle or a missionary.
+	for _, cl in ipairs({ c.author, c.king, c.councillor }) do
+		assert(Options(cl):find(L.CHURCH_LIST_RECRUITERS, 1, true), cl.name)
+	end
+	for _, cl in ipairs({ c.a1, c.m1 }) do
+		assert(not Options(cl):find(L.CHURCH_LIST_RECRUITERS, 1, true), cl.name)
+	end
+	c.a1.View.list = "u"
+	Build(w, c.a1, "ranking")
+	eq(c.a1.View.list, "a", "a stale choice falls back to the Apostles")
+	c.author.View.list, c.author.View.window = "u", "a"
+	local lines = Build(w, c.author, "ranking")
+	local text = Texts(lines)
+	for _, key in ipairs({ "CHURCH_RANKING_U", "CHURCH_RECRUITERS_COMPARE", "CHURCH_RECRUITERS_STAFF" }) do
+		assert(text:find(L[key], 1, true), key)
+	end
+	assert(text:find(L.CHURCH_RECRUITERS_RULE:format(10, 5, 7), 1, true), "10 a recruit, 5 more after 7 days")
+	local mira, old = Find(lines, "Mira Wells"), Find(lines, "Old Hand")
+	assert(mira and old, text)
+	eq(mira.cols[1], "1.  Mira Wells")
+	eq(mira.cols[2], "20", "points")
+	eq(mira.cols[3], L.CHURCH_SPLIT:format("20", "0"), "own points, no network share")
+	eq(mira.cols[4], L.CHURCH_RECRUITS:format(2, 0), "recruits")
+	eq(old.cols[2], "10")
+	assert(mira.onClick, "staff may open a recruiter's detail")
+	-- The rule comes before the first row.
+	local ruleAt, rowAt
+	for i, line in ipairs(lines) do
+		if line.text == L.CHURCH_RECRUITERS_RULE:format(10, 5, 7) then ruleAt = i end
+		if line == mira then rowAt = i end
+	end
+	assert(ruleAt and rowAt and ruleAt < rowAt, "the explanation sits above the rows")
+end)
