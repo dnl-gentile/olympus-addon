@@ -3523,14 +3523,15 @@ function Views.JoinLines(height)
 		or left > 0 and L.RECRUIT_JOIN_WAITING:format(left)
 		or last and (R.replied[last.name] and L.RECRUIT_REPLIED:format(Plain(ns.ShortName(last.name))) or L.RECRUIT_JOIN_TIMEOUT)
 		or ns.Who.Searched() and #R.found == 0 and L.RECRUIT_NONE_FOUND
-		or L.RECRUIT_JOIN_HINT
 	local lines = {
 		{ text = L.RECRUIT_JOIN_TITLE, center = true, color = "GameFontNormalLarge", gapAfter = true,
-			spaceBefore = guilds and 6 or math.max(6, math.floor(((height or 0) - 150) / 2)) },
-		{ text = status, center = true, gapAfter = true },
+			spaceBefore = guilds and 6 or math.max(6, math.floor(((height or 0) - 180) / 2)) },
+		{ text = L.RECRUIT_JOIN_ABOUT, center = true },
+		{ text = L.RECRUIT_JOIN_HINT, center = true, gapAfter = true },
 		{ text = last and L.RECRUIT_JOIN_AGAIN or L.RECRUIT_JOIN_REQUEST, primary = true,
 			onClick = not pending and R.RequestJoin or nil, gapAfter = true },
 	}
+	if status then lines[#lines + 1] = { text = status, center = true, gapAfter = true } end
 	if last and left == 0 then
 		lines[#lines + 1] = { text = Gold(reminder and L.RECRUIT_JOIN_REMINDER_ON or L.RECRUIT_JOIN_REMINDER_OFF),
 			center = true, onClick = R.ToggleJoinReminder }

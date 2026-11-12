@@ -3609,6 +3609,49 @@ test("gamepad recruit popup isolation: no native popup on either login or either
 	GP.Covers("dialogs")
 end)
 
+test("gamepad first unguilded login opens Join once and sends nothing", function()
+	local function Unguilded(C)
+		C.units.player.guild = nil
+		C.env.IsInGuild = function() return false end
+	end
+	for _, pad in ipairs({ false, true }) do
+		local C, ns = Session(pad, { fresh = true, setup = Unguilded })
+		local U = ns.UI
+		eq(ns.db.sessions, 1)
+		assert(U.IsShown(), "opens after the first login without a guild")
+		eq(U.PageId(), "join")
+		local view = U.SelfTestView()
+		eq(view.frame.total:GetText(), "")
+		eq(view.frame.sub:GetText(), "")
+		eq(view.lines[2].text, ns.L.RECRUIT_JOIN_ABOUT)
+		eq(view.rows[2].left.justifyH, "CENTER")
+		assert(view.lines[4].primary, "the only primary action asks to join")
+		eq(#(C.whos or {}), 0, "opening the page runs no search")
+		eq(#(C.said or {}), 0, "opening the page sends no whisper")
+		eq(ns.Accord.Frame(), nil, "the Accord waits until the player is in Olympus")
+		U.Toggle()
+		C.Fire("PLAYER_ENTERING_WORLD", false, false)
+		C.Advance(10)
+		eq(U.IsShown(), false, "a zoning event cannot reopen a dismissed page")
+		Check(C.ledger, "first Join window")
+		NoErrors(C, "first Join window")
+
+		local nextC, nextNs = Session(pad, { saved = { sessions = 1 }, setup = Unguilded })
+		assert(not nextNs.UI.IsShown(), "later sessions do not auto-open Join")
+		NoErrors(nextC, "later Join window")
+	end
+	local C, ns = Session(true, { fresh = true, setup = function(c)
+		Unguilded(c)
+		c.combat = true
+	end })
+	assert(not ns.UI.IsShown(), "waits out combat")
+	C.combat = false
+	C.Fire("PLAYER_REGEN_ENABLED")
+	assert(ns.UI.IsShown(), "opens when combat ends")
+	Check(C.ledger, "first Join window after combat")
+	NoErrors(C, "first Join window after combat")
+end)
+
 test("gamepad Join Olympus onboarding searches, waits and retries through attended clicks", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad, { setup = function(c)
@@ -3623,7 +3666,7 @@ test("gamepad Join Olympus onboarding searches, waits and retries through attend
 		end
 		local function Draft() return ns.Dialog.Find("OLYMPUS_RECRUIT") end
 		local function Retry() return ns.Dialog.Find("OLYMPUS_RECRUIT_RETRY") end
-		ns.UI.Toggle()
+		assert(ns.UI.SelectTab("census"))
 		eq(ns.UI.PageId(), "join")
 		local title = assert(Row(L.RECRUIT_JOIN_TITLE))
 		eq(title.left.justifyH, "CENTER")

@@ -2647,26 +2647,26 @@ end)
 
 test("header lines stay inside the window: smaller font first, then cut", function()
 	WithUI(function()
-		GetGuildInfo = function() return nil end
+		GetGuildInfo = function() return "Riven Ash" end
 		local UI = LoadUI()
 		UI.Toggle()
 		local main = OlympusFrame
+		main:SetSize(320, 424)
 		local w = main:GetWidth()
-		eq(w, 338, "the narrow window")
-		-- "No guild? What are you doing?" is too wide in the large font, fits in the normal one.
-		eq(main.total:GetText(), ns.L.ROAST_NOGUILD)
+		-- A long guild name drops from the large font to the normal one.
+		eq(main.total:GetText(), ns.L.ROAST_GUILD:format("Riven Ash"))
 		eq(main.total.font, "GameFontNormal", "dropped to the smaller font")
 		eq(main.total.w, w - 62 - 26); eq(main.total:IsTruncated(), false)
 		-- The long line drops to the tiny font, and is cut ("...") at the window's edge
 		-- instead of running past it when even that does not fit.
-		eq(main.sub:GetText(), ns.L.ROAST_NOGUILD_SUB)
+		eq(main.sub:GetText(), ns.L.ROAST_GUILD_SUB)
 		eq(main.sub.w, w - 62 - 8); eq(main.sub.wrap, false); eq(main.sub.justifyH, "LEFT")
 		eq(main.sub.font, "GameFontWhiteTiny")
 		eq(main.sub:IsTruncated(), true)
 		assert(62 + main.sub:GetStringWidth() <= w, "inside the window")
-		-- Forever's window is wider: the Join line fits whole in the tiny font.
-		main:SetSize(385, 424)
-		eq(main.sub.w, 385 - 62 - 8)
+		-- With more space the Join line fits whole in the tiny font.
+		main:SetSize(365, 424)
+		eq(main.sub.w, 365 - 62 - 8)
 		eq(main.sub.font, "GameFontWhiteTiny"); eq(main.sub:IsTruncated(), false)
 		-- A client without the tiny font keeps the small one, cut.
 		GameFontWhiteTiny = nil

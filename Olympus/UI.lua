@@ -2513,9 +2513,14 @@ function UI.Refresh()
 			lines = simpleJoin and ns.Views.JoinLines(main.scroll:GetHeight()) or ns.Views.RecruitLines()
 			if inert then lines = views.Inert(lines) end
 			title, text = L.MEMBERS_ONLY, L.MEMBERS_ONLY_HINT
-			local header, sub = ns.Recruit.Roast()
-			main.total:SetText(header)
-			main.sub:SetText(sub)
+			if simpleJoin then
+				main.total:SetText("")
+				main.sub:SetText("")
+			else
+				local header, sub = ns.Recruit.Roast()
+				main.total:SetText(header)
+				main.sub:SetText(sub)
+			end
 			main.peopleText = nil
 		elseif playerProfile and ns.PlayerProfile and ns.PlayerProfile.Build then
 			-- (1.2.4: his own page, "My profile", gives its portrait's art too: ShowOwnPortrait.)
@@ -3600,8 +3605,26 @@ ns.Gate.Hooks("minimap", {
 	install = function() if minimapButton then UI.UpdateMinimapButton() end end,
 })
 
+-- First session only. Guild members have the normal Accord flow; the unguilded player
+-- gets our standalone Join page after entering the world, without starting a search.
+local function OpenFirstJoin()
+	if main or ns.Gate.missing or not ns.Recruit or not ns.Recruit.SimpleJoin or not ns.Recruit.SimpleJoin() then return end
+	local inGuild = IsInGuild()
+	if ns.IsSecret(inGuild) or inGuild or (IsInInstance and IsInInstance()) then return end
+	local accord = ns.Accord.Frame and ns.Accord.Frame()
+	if not accord or not accord:IsShown() then UI.SelectTab("census") end
+end
+
 ns.On("LOGIN", function()
 	UI.UpdateMinimapButton()
+	if ns.db and ns.db.sessions == 1 then
+		local scheduled = false
+		ns.RegisterEvent("PLAYER_ENTERING_WORLD", function()
+			if scheduled then return end
+			scheduled = true
+			ns.After(2, "first Join page", function() ns.OutOfCombat("first Join page", OpenFirstJoin) end)
+		end)
+	end
 	ns.Log("ui ready")
 end)
 
