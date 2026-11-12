@@ -804,6 +804,9 @@ test("recruit log (1.5.8): a JOIN, its popup and command, and a handoff each way
 				assert(LogHas("POPUP " .. tag .. " auto"), "its popup, shown on its own")
 				draft.def.extra.onClick(draft, draft.data)
 				assert(LogHas("TOCHAT " .. tag .. " 1/10"), "the command taken to chat")
+				-- (Since the 1.5.8 merge the popup stays until the command is pasted into chat, which
+				-- closes it: the player pastes.)
+				draft:Hide()
 				-- He passes the next JOIN; a member answers the probe, claims and gets the name.
 				local second = "Second Recruit-" .. home
 				R.OnWhisper("JOIN", second)
@@ -943,6 +946,7 @@ local function SimDialogs(defs)
 	function D.Show(which, a, _, data)
 		local f = { which = which, text = a, data = data, open = true, def = defs[which] or StaticPopupDialogs[which] }
 		f.Hide = function() f.open = false end
+		f.IsShown = function() return f.open end -- (a frame's, as the game's popups have)
 		shown[#shown + 1] = f
 		return f
 	end
@@ -1014,10 +1018,11 @@ local function SimTake(c, world)
 	local data = draft.data
 	local who = data.req and data.req.name
 	draft.def.extra.onClick(draft, data)
-	if not draft.open and who then
+	-- (Since the 1.5.8 merge the popup stays until the paste: the command went to chat when it counted.)
+	if data.taken and who then
 		world.taken[#world.taken + 1] = { by = c, name = who, at = world.scene.now }
 	end
-	draft:Hide()
+	draft:Hide() -- (the player's paste closes it)
 end
 
 local function SimStep(world, c)
