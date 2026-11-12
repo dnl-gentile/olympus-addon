@@ -4824,7 +4824,7 @@ ns.Locale("ruRU", {
 	VERIFY_STATUS_WAITING = "<%s>: проверка гильдий в этих мирах ещё не началась (здесь нет проверяющих). Пока от вашей гильдии ничего не требуется.",
 	VERIFY_TITLE = "Подтверждение гильдии",
 	VERIFY_SELF_TITLE = "Моя проверка в Discord",
-	VERIFY_SELF_GUIDE = "Подтверди персонажа Olympus, чтобы запросить доступ в Discord или подходящую роль.\n\n1. В Discord Olympus введи /verify и скопируй личный код.\n2. Вернись сюда, вставь код и нажми «Отправить код».",
+	VERIFY_SELF_GUIDE = "Подтверди персонажа Olympus, чтобы запросить доступ в Discord или подходящую роль.\n\n1. В Discord Asmongold открой #olympus-verify, введи /verify и скопируй личный код.\n2. Вернись сюда, вставь код и нажми «Отправить код».",
 	VERIFY_SELF_CHECK_DISCORD = "Проверь доступ и роли командой /verify-status в Discord. Статус доставки в WoW доступен по команде /olv status.",
 	VERIFY_SELF_UNAVAILABLE = "Установи или обнови Olympus Verify и перезагрузи интерфейс, чтобы отправить код здесь.",
 	VERIFY_SELF_STATUS_UNAVAILABLE = "Статус доставки недоступен.",

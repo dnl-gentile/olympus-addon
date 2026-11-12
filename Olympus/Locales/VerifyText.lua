@@ -4,7 +4,7 @@ local L = ns.L
 -- verifier (the King, a High Councillor or the addon's author), who approves it in The Watch.
 L.VERIFY_TITLE = "Guild verification"
 L.VERIFY_SELF_TITLE = "My Discord Verification"
-L.VERIFY_SELF_GUIDE = "Verify your Olympus character to request Discord access or a role you qualify for.\n\n1. In the Olympus Discord, run /verify and copy your personal code.\n2. Return here, paste the code, and select Submit code."
+L.VERIFY_SELF_GUIDE = "Verify your Olympus character to request Discord access or a role you qualify for.\n\n1. In the Asmongold Discord, open #olympus-verify, run /verify and copy your personal code.\n2. Return here, paste the code, and select Submit code."
 L.VERIFY_SELF_CHECK_DISCORD = "Check your access and roles with /verify-status in Discord. For local delivery details, use /olv status in WoW."
 L.VERIFY_SELF_UNAVAILABLE = "Install or update Olympus Verify and reload to submit a code here."
 L.VERIFY_SELF_STATUS_UNAVAILABLE = "Delivery status is unavailable."
@@ -121,7 +121,7 @@ L.HELP_VERIFY = "  /oly verify - your guild's verification (guild masters verify
 if GetLocale and GetLocale() == "ptBR" then
 	L.VERIFY_TITLE = "Verificação da guilda"
 	L.VERIFY_SELF_TITLE = "Minha verificação do Discord"
-	L.VERIFY_SELF_GUIDE = "Verifique seu personagem da Olympus para solicitar acesso ao Discord ou um cargo para o qual você tenha direito.\n\n1. No Discord da Olympus, use /verify e copie seu código pessoal.\n2. Volte aqui, cole o código e selecione Enviar código."
+	L.VERIFY_SELF_GUIDE = "Verifique seu personagem da Olympus para solicitar acesso ao Discord ou um cargo para o qual você tenha direito.\n\n1. No Discord do Asmongold, abra #olympus-verify, use /verify e copie seu código pessoal.\n2. Volte aqui, cole o código e selecione Enviar código."
 	L.VERIFY_SELF_CHECK_DISCORD = "Confira seu acesso e seus cargos com /verify-status no Discord. Para detalhes da entrega local, use /olv status no WoW."
 	L.VERIFY_SELF_UNAVAILABLE = "Instale ou atualize o Olympus Verify e recarregue a interface para enviar um código aqui."
 	L.VERIFY_SELF_STATUS_UNAVAILABLE = "O status da entrega está indisponível."
