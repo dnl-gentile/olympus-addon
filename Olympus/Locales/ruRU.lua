@@ -1603,7 +1603,7 @@ ns.Locale("ruRU", {
 	COPY_BTN = "Копировать",
 	COPY_BTN_TIP = "Открывает текст, готовый для вставки в Discord (Ctrl+C).",
 	COPY_DISCORD = "Копировать для Discord",
-	COPY_HINT = "Нажми Ctrl+C, чтобы скопировать, затем вставь в Discord.",
+	COPY_HINT = "Скопируй через Ctrl+C или Cmd+C (Mac), затем вставь в Discord.",
 	COPY_SELECT_ALL = "Выделить всё",
 	COUNCIL_ASKED = "|cffb048f8Высший совет:|r %s просит помощи: %s",
 	COUNCIL_ASK_BTN = "Обратиться к советнику",
