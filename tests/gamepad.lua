@@ -2843,36 +2843,47 @@ test("gamepad personal verification opens in both window styles and submits only
 			}
 		end }
 	end })
-	local function OpenFromCensus()
-		for _, row in ipairs(Main(C).views.census.rows) do
+	local function OpenFromRealm(which)
+		for _, row in ipairs(Main(C).views.realm.rows) do
 			if row:IsShown() and row.line and row.line.id == "verify-self" then
+				eq(row.line.text, ns.L.VERIFY_SELF_TITLE)
 				C.Click(row)
-				return assert(ns.UI.CopyFrame("verifySelf"))
+				return assert(ns.Dialog.Find(which))
 			end
 		end
-		error("the Census must offer the personal verification panel")
+		error("The Realm must offer My Discord Verification")
 	end
 
 	ns.UI.SelectTab("census")
-	local panel = OpenFromCensus()
-	eq(panel.action:IsShown(), false, "Verify is missing at login")
-	eq(rawget(panel, "third"), nil, "the installed module cannot invite a code while the bot is unconfigured")
+	for _, row in ipairs(Main(C).views.census.rows) do
+		assert(not (row:IsShown() and row.line and row.line.id == "verify-self"), "verification moved from Census")
+	end
+	ns.UI.SelectTab("realm")
+	local list = ns.Views.Build("realm")
+	eq(list[3].id, "verify-self", "verification is the first action below The Realm navigation and search")
+	local missing = "OLYMPUS_VERIFY_SELF_UNAVAILABLE"
+	local panel = OpenFromRealm(missing)
+	eq(panel.editBox:IsShown(), false, "Verify is missing at login")
+	eq(panel.extraButton:IsShown(), false, "the unconfigured module cannot invite a code")
 	linkReady = true
-	C.Click(panel.second)
-	assert(panel.third and panel.third:IsShown(), "ready Link works even without the ordinary Verify bridge")
-	eq(#linkCalls, 0, "opening and refreshing do not start Link")
-	C.Click(panel.third)
+	panel = OpenFromRealm(missing)
+	assert(panel.extraButton:IsShown(), "ready Link works even without the ordinary Verify bridge")
+	eq(#linkCalls, 0, "opening does not start Link")
+	C.Click(panel.extraButton)
 	eq(#linkCalls, 1); eq(linkCalls[1], "", "explicit click opens the existing Link prompt, with no pasted code")
+	panel = OpenFromRealm(missing)
 	linkReady = false
-	C.Click(panel.third)
+	C.Click(panel.extraButton)
 	eq(#linkCalls, 1, "the click checks that Link is still ready")
-	eq(panel.third:IsShown(), false, "the launcher is hidden when Link is unconfigured")
+	panel = OpenFromRealm(missing)
+	eq(panel.extraButton:IsShown(), false, "the launcher is hidden when Link is unconfigured")
 	local link = ns.Link
 	ns.Link = nil
-	C.Click(panel.second)
-	eq(panel.third:IsShown(), false, "the launcher is hidden when Link is absent")
+	panel = OpenFromRealm(missing)
+	eq(panel.extraButton:IsShown(), false, "the launcher is hidden when Link is absent")
 	ns.Link = link
 	linkReady = true
+	panel:Hide()
 
 	local calls = 0
 	C.env.OlympusVerifyBridge242 = {
@@ -2881,34 +2892,35 @@ test("gamepad personal verification opens in both window styles and submits only
 		QueueSelf = function(code) eq(code, "test-personal-code"); calls = calls + 1; return true end,
 	}
 	local before = C.gamePopups or 0
-	C.Click(panel.second)
-	assert(panel.action:IsShown(), "Verify is detected after login")
+	local prompt = OpenFromRealm("OLYMPUS_VERIFY_SELF")
+	assert(prompt.editBox:IsShown(), "Verify is detected after login")
+	assert(prompt.editBox:HasFocus(), "the code field is ready for a paste")
+	assert(prompt.text:GetText():find("/verify", 1, true), "instructions live with the code field")
 	eq(calls, 0)
-	C.Click(panel.action)
-	local prompt = assert(ns.Dialog.Find("OLYMPUS_VERIFY_SELF"))
 	prompt.editBox:SetText("test-personal-code")
 	C.Fire1(prompt.editBox, "OnEnterPressed")
 	eq(calls, 0, "Enter in the editor does not submit")
 	C.Click(prompt.buttons[1])
 	eq(calls, 1); eq(prompt.editBox:GetText(), "")
+	local result = assert(ns.Dialog.Find("OLYMPUS_VERIFY_SELF_RESULT"))
+	assert(result.text:GetText():find("/verify-status", 1, true), "the bot is authoritative for access and roles")
+	result:Hide()
 
 	C.Switch(false); C.Advance(1)
 	local host = C.NewWidget("Frame", nil, C.env.UIParent)
 	host:SetSize(384, 512)
 	for _, style in ipairs({ "old", "hd" }) do
-		panel:Hide()
-		ns.UI.OpenDocked(host, "census", false, style)
+		ns.UI.OpenDocked(host, "realm", false, style)
 		eq(ns.UI.WindowStyle(), style)
-		eq(OpenFromCensus(), panel, "the same Olympus panel opens from either Census window")
-		C.Click(panel.second)
-		assert(panel.action:IsShown() and panel.third:IsShown())
+		local dialog = OpenFromRealm("OLYMPUS_VERIFY_SELF")
+		assert(dialog.editBox:IsShown() and dialog.extraButton:IsShown())
+		dialog:Hide()
 	end
 	C.env.SlashCmdList.OLYMPUS("discord status")
 	eq(#linkCalls, 2); eq(linkCalls[2], "status", "the slash command still forwards its original argument")
 	C.Switch(true); C.Advance(1)
-	panel:Hide()
-	eq(OpenFromCensus(), panel, "the personal verification panel still opens after switching back")
-	eq(calls, 1, "neither transition, refresh nor reopening resubmits")
+	assert(OpenFromRealm("OLYMPUS_VERIFY_SELF").editBox:IsShown())
+	eq(calls, 1, "neither transition nor reopening resubmits")
 	eq(C.gamePopups or 0, before, "no Blizzard popup for the personal code")
 	NoErrors(C, "personal verification")
 end)

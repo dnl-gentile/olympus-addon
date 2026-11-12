@@ -1856,9 +1856,6 @@ local function CensusLines(s, q)
 		for _ = 1, #verification do table.remove(lines, verificationAt) end
 		for _, l in ipairs(verification) do lines[#lines + 1] = l end
 	end
-	if V and V.OpenSelf then
-		lines[#lines + 1] = { id = "verify-self", text = L.VERIFY_SELF_TITLE, onClick = function() V.OpenSelf() end }
-	end
 	-- Record mode on (Record.lua, the Guinness attempt's witnesses): its line first; a click opens its
 	-- status. Put in last, so the lines above count as before ("No reports yet").
 	local record = ns.Record and ns.Record.Line and ns.Record.Line()
@@ -3515,6 +3512,10 @@ local BUILD = {
 		-- (One box for the tab: a page's lines are searched with it while it shows.)
 		local members = ns.Members and ns.Members.Shown and ns.Members.Shown()
 		local page = pageShown and RealmPage(pageShown)
+		local V = ns.Verify
+		if not q and V and V.SelfLine and (realmMode ~= "guilds" or not (boardShown or page or members)) then
+			table.insert(lines, 2, V.SelfLine())
+		end
 		local tip = realmMode == "guilds" and (boardShown and "BOARD" or (page and page.tip) or members and "MEMBERS" or "REALM") or "REALM_PEOPLE"
 		return Searched(lines, "realm", tip, filterKey), title, text
 	end,
