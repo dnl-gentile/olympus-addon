@@ -3367,6 +3367,13 @@ to a sister guild in the same faction, region and ruleset. The recipient prepare
 their own invite through the game's chat. A handoff confirms who received the request. The
 recruiter's native roster can show whether the player actually joined.
 
+In the overflow prototype, the sending officer can also turn on **Offer queued JOINs to other
+guild officers**. With at least three eligible requests waiting, it asks one current officer of
+the same guild at a time. Only a recipient who enabled **Accept recruitment handoffs** and has
+room replies. The offer carries no applicant name until the recipient claims it. The sender's
+oldest eligible request and any open reply window stay with the sender. Officers still prepare
+and send invitations themselves.
+
 ### Public recruiting announcement
 
 In **Church → Invites**, open **Public recruitment announcement** and select a joined public

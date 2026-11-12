@@ -1,6 +1,8 @@
 local _, ns = ...
 local L = ns.L
 L.RECRUIT_HANDOFF_OFF = "Accept recruitment handoffs: Off"
+L.RECRUIT_OVERFLOW_ON = "Offer queued JOINs to other guild officers: On"
+L.RECRUIT_OVERFLOW_OFF = "Offer queued JOINs to other guild officers: Off"
 L.RECRUIT_HANDOFF_ON = "Accept recruitment handoffs: On"
 L.RECRUIT_HANDOFF_PICK = "Offer to another officer"
 L.RECRUIT_HANDOFF_EMPTY = "No eligible officers were found."
@@ -13,6 +15,8 @@ L.RECRUIT_HANDOFF_RECEIVED = "Recruitment request handed off by %s."
 
 if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_HANDOFF_OFF = "Aceitar repasses de recrutamento: desligado"
+	L.RECRUIT_OVERFLOW_ON = "Repassar pedidos JOIN a outros oficiais da guilda: ligado"
+	L.RECRUIT_OVERFLOW_OFF = "Repassar pedidos JOIN a outros oficiais da guilda: desligado"
 	L.RECRUIT_HANDOFF_ON = "Aceitar repasses de recrutamento: ligado"
 	L.RECRUIT_HANDOFF_PICK = "Oferecer a outro oficial"
 	L.RECRUIT_HANDOFF_EMPTY = "Nenhum oficial disponível na lista."

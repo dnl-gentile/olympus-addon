@@ -12,6 +12,7 @@ local function WithHandoff(fn)
 		realm = ns.realm, splitNames = ns.splitNames, whisper = ns.Comm.Whisper,
 		fresh = ns.Roster.Fresh, rank = ns.Roster.RankOf, online = ns.Roster.online,
 		canRank = ns.Data.CanRank, authorized = ns.Data.AuthorizedRank,
+		every = ns.Every, quiet = ns.QuietPresence,
 	}
 	R.ResetForTests()
 	local scene = { now = 5000, fresh = true, permission = true, support = 2, packets = {} }
@@ -19,6 +20,11 @@ local function WithHandoff(fn)
 	CanGuildInvite = function() return scene.permission end
 	ns.IsMember = function() return true end
 	ns.ChatLocked = function() return false end
+	ns.QuietPresence = function() return scene.quiet == true end
+	ns.Every = function(_, _, callback)
+		scene.tick = callback
+		return { Cancel = function() scene.cancelled = true end }
+	end
 	ns.Now = function() return scene.now end
 	ns.me, ns.faction, ns.group, ns.realm, ns.splitNames = me, "Alliance", "ForeverPvE", home, true
 	ns.Dialog = nil
@@ -32,10 +38,10 @@ local function WithHandoff(fn)
 	ns.Data.AuthorizedRank = function(name, guild)
 		if name == officer and guild == sister then return 0, "census", scene.support end
 	end
-	ns.Comm.Whisper = function(peer, word, _, _, logged, _, options)
+	ns.Comm.Whisper = function(peer, word, _, _, logged, done, options)
 		eq(logged, false, "handoff packets do not go to the chat log")
 		assert(options.guard(), "queued handoff is permitted at the point of enqueue")
-		scene.packets[#scene.packets + 1] = { peer = peer, word = word, guard = options.guard }
+		scene.packets[#scene.packets + 1] = { peer = peer, word = word, guard = options.guard, done = done }
 		return true
 	end
 	R.ToggleWhisperRecruiting()
@@ -48,6 +54,7 @@ local function WithHandoff(fn)
 	ns.realm, ns.splitNames, ns.Comm.Whisper = saved.realm, saved.splitNames, saved.whisper
 	ns.Roster.Fresh, ns.Roster.RankOf, ns.Roster.online = saved.fresh, saved.rank, saved.online
 	ns.Data.CanRank, ns.Data.AuthorizedRank = saved.canRank, saved.authorized
+	ns.Every, ns.QuietPresence = saved.every, saved.quiet
 	if not ok then error(err, 0) end
 end
 
@@ -97,6 +104,87 @@ test("recruit handoff: opt-in applicant intent and one trusted claimant gate sha
 		scene.now = scene.now + 91
 		eq(H.Offer(req, mate, own), false, "an acknowledged assignment stays single-owner after the offer expires")
 		eq(R.Accept(req), false)
+	end)
+end)
+
+test("recruit overflow: a burst preserves the visible prompt and offers one pending JOIN after availability", function()
+	WithHandoff(function(scene)
+		R.OnWhisper("JOIN", "First Recruit-" .. home)
+		R.OnWhisper("JOIN", "Visible Recruit-" .. home)
+		local visible = R.requests[2]
+		ns.Dialog = { Find = function(which, data)
+			if which == "OLYMPUS_RECRUIT_REPLY" and (data == nil or data == visible) then
+				return { data = visible, Hide = function() end }
+			end
+		end }
+		for i = 1, 60 do R.OnWhisper("JOIN OLYMPUS", ("Batch %d-%s"):format(i, home)) end
+		eq(#R.requests, 30)
+		eq(R.requests[1], visible, "overflow retains the applicant already on screen")
+		eq(#scene.packets, 0, "automatic offers are off by default")
+		eq(H.ToggleAuto(), true)
+		scene.tick()
+		local probe = assert(scene.packets[1]); eq(probe.peer, mate)
+		assert(probe.word:match("^J4~P~") and probe.word:sub(-1) == "~", "probe contains no applicant name")
+		scene.tick(); eq(#scene.packets, 1, "only one probe remains in flight")
+		local available = probe.word:gsub("^J4~P~", "J4~V~")
+		eq(H.Receive("WHISPER", officer, available), false, "sister guild cannot enter automatic handoff")
+		eq(H.Receive("WHISPER", mate, available), true)
+		eq(H.Receive("WHISPER", mate, available), false, "availability reply is consumed once")
+		scene.tick()
+		local offer = assert(scene.packets[2]); eq(offer.peer, mate)
+		assert(offer.word:match("^J4~O~") and offer.word:sub(-1) == "~", "offer contains no applicant name")
+		eq(H.State(visible), nil, "auto never takes over the visible request")
+		local candidate = assert(R.requests[2]); eq(H.State(candidate), "offered")
+		local claim = offer.word:gsub("^J4~O~", "J4~C~")
+		eq(H.Receive("WHISPER", mate, claim), true)
+		local assignment = assert(scene.packets[3]); eq(assignment.peer, mate)
+		assert(assignment.word:match("^J4~N~") and assignment.word:sub(-#candidate.name) == candidate.name)
+		eq(H.Receive("WHISPER", mate, claim), false)
+		eq(#scene.packets, 3)
+		eq(H.ToggleAuto(), false); eq(scene.cancelled, true)
+		local allowed, why = assignment.guard()
+		eq(allowed, false, "stopping automatic handoffs cancels the queued name transfer")
+		assignment.done(false, why)
+		eq(H.State(candidate), nil, "a known unsent assignment returns to the local queue")
+	end)
+end)
+
+test("recruit overflow: an empty or unresponsive eligible roster keeps JOINs local", function()
+	WithHandoff(function(scene)
+		for i = 1, 3 do R.OnWhisper("JOIN", ("Pending %d-%s"):format(i, home)) end
+		local roster = ns.Roster.online
+		ns.Roster.online = {}
+		eq(H.ToggleAuto(), true)
+		scene.tick()
+		eq(#scene.packets, 0, "no eligible officer means no traffic")
+		ns.Roster.online = roster
+		scene.tick()
+		local first = assert(scene.packets[1]); assert(first.word:match("^J4~P~"))
+		scene.now = scene.now + 19; scene.tick()
+		eq(#scene.packets, 1, "one outstanding probe, no guessed offer")
+		scene.now = scene.now + 2; scene.tick()
+		eq(#scene.packets, 2); eq(first.guard(), false, "stale probe is invalidated")
+		eq(H.Receive("WHISPER", mate, first.word:gsub("^J4~P~", "J4~V~")), false, "late opt-in reply ignored")
+		for _, req in ipairs(R.requests) do eq(H.State(req), nil, "no applicant left the local queue") end
+	end)
+end)
+
+test("recruit overflow: an eligible recipient privately replies only while opted in and available", function()
+	WithHandoff(function(scene)
+		local function Probe(id)
+			return ("J4~P~%s~%d~ForeverPvE~Alliance~%s~%s~"):format(id, scene.now + 20, own, own)
+		end
+		eq(H.Receive("WHISPER", mate, Probe("1234-ab-1")), false)
+		eq(H.Toggle(), true)
+		scene.quiet = true
+		eq(H.Receive("WHISPER", mate, Probe("1234-ab-1")), false)
+		scene.quiet = false
+		eq(H.Receive("WHISPER", mate, Probe("1234-ab-1")), true)
+		local answer = assert(scene.packets[1]); eq(answer.peer, mate)
+		assert(answer.word:match("^J4~V~") and answer.word:sub(-1) == "~")
+		eq(H.Receive("WHISPER", mate, Probe("1234-ab-2")), false, "response cadence is bounded")
+		eq(H.Toggle(), false)
+		eq(answer.guard(), false)
 	end)
 end)
 

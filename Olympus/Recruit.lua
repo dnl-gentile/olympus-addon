@@ -1113,7 +1113,16 @@ local function AddRequest(sender, own, level, class, text, viaWhisper)
 	for i, r in ipairs(Recruit.requests) do
 		if r.name == sender then table.remove(Recruit.requests, i) break end
 	end
-	if #Recruit.requests >= Recruit.REQUESTS_MAX then table.remove(Recruit.requests, 1) end
+	if #Recruit.requests >= Recruit.REQUESTS_MAX then
+		for i, older in ipairs(Recruit.requests) do
+			local state = Recruit.Handoff and Recruit.Handoff.State(older)
+			if state ~= "offered" and state ~= "assigning" and not Recruit.HandoffPromptOpen(older) then
+				table.remove(Recruit.requests, i)
+				break
+			end
+		end
+		if #Recruit.requests >= Recruit.REQUESTS_MAX then return false end
+	end
 	level = tonumber(level)
 	local req = { name = sender, guild = own, level = level and level >= 1 and level <= 100 and level or nil,
 		class = class and class ~= "" and #class <= 12 and class or nil, t = now, text = text, viaWhisper = viaWhisper }
@@ -1166,6 +1175,26 @@ end
 function Recruit.HandoffSource(req)
 	return type(req) == "table" and req.viaWhisper and req.handoffIntent ~= nil and not req.invitePrepared
 		and CurrentRequest(req, true)
+end
+
+function Recruit.HandoffPromptOpen(req)
+	local D = ns.Dialog
+	if not D or D.missing or not D.Find then return false end
+	local reply = D.Find("OLYMPUS_RECRUIT_REPLY", req)
+	local warning = D.Find("OLYMPUS_RECRUIT_NETOFF")
+	return reply ~= nil or (warning and warning.data and warning.data.req == req) or false
+end
+
+function Recruit.OverflowRequest()
+	Prune(ns.Now())
+	local waiting, candidate = 0, nil
+	for _, req in ipairs(Recruit.requests) do
+		if not Recruit.Handoff.State(req) and Recruit.HandoffSource(req) then
+			waiting = waiting + 1
+			if waiting > 1 and not candidate and not Recruit.HandoffPromptOpen(req) then candidate = req end
+		end
+	end
+	if waiting >= 3 then return candidate end
 end
 
 function Recruit.TakeHandoff(name, officer)

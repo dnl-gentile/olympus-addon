@@ -6,8 +6,11 @@ R.Handoff = H
 -- Private, in-memory referral. The offer and claim contain no applicant data. The
 -- origin gives the applicant's name to one officer only after that officer claims.
 local TTL, LIMIT, MAX_GUILD, MAX_NAME = 90, 6, 64, 100
+local PROBE_TTL, AUTO_EVERY = 20, 8
 local incoming, outgoing = {}, {}
 local acceptingGuild, choosing, serial
+local autoGuild, autoTimer, autoProbe, autoCursor
+local repliedAt = -math.huge
 serial = 0
 
 local function Field(s, limit)
@@ -65,16 +68,16 @@ local function Prune(now)
 	for id, r in pairs(outgoing) do if r.expires <= now then outgoing[id] = nil end end
 end
 
-local function Room(rows)
+local function Room(rows, limit)
 	local n = 0
 	for _ in pairs(rows) do n = n + 1 end
-	return n < LIMIT
+	return n < (limit or LIMIT)
 end
 
-local function Transmit(op, ref, peer, applicant, guard)
+local function Transmit(op, ref, peer, applicant, guard, done)
 	local word = table.concat({ "J4", op, ref.id, ref.expires, ns.group, ns.faction, ref.from, ref.to, applicant or "" }, "~")
 	if #word > 255 then return false end
-	return ns.Comm.Whisper(peer, word, nil, false, false, nil, { guard = guard })
+	return ns.Comm.Whisper(peer, word, nil, false, false, done, { guard = guard })
 end
 
 function H.State(req)
@@ -94,21 +97,40 @@ function H.Toggle()
 	return Accepting()
 end
 
-function H.Offer(req, peer, guild)
+local function AvailableNow()
+	return not ns.ChatLocked() and not ns.QuietPresence() and not (InCombatLockdown and InCombatLockdown())
+end
+
+local function AutoAllowed(own)
+	return own ~= nil and autoGuild == own and AvailableNow()
+end
+
+local function SourceReady(ref)
+	return R.HandoffSource(ref.request) and (not ref.automatic
+		or (AutoAllowed(ref.from) and not R.HandoffPromptOpen(ref.request)))
+end
+
+local function NextID(now)
+	serial = serial + 1
+	return ("%d-%x-%d"):format(now, math.random(1, 1073741823), serial)
+end
+
+function H.Offer(req, peer, guild, automatic)
 	local own, now = LocalGuild(), math.floor(ns.Now())
 	Prune(now)
 	if not own or not R.HandoffSource(req) or H.State(req) or not Room(outgoing)
 		or not Officer(peer, guild) or SamePlayer(peer, ns.me)
 		or (req.handoffIntent ~= "federation" and not Same(own, guild)) then return false end
-	serial = serial + 1
+	if automatic and (not AutoAllowed(own) or not Same(own, guild)
+		or R.HandoffPromptOpen(req) or not Room(outgoing, LIMIT - 1)) then return false end
 	local ref = {
-		id = ("%d-%x-%d"):format(now, math.random(1, 1073741823), serial),
-		expires = now + TTL, from = own, to = guild, peer = peer, request = req, state = "offered",
+		id = NextID(now), expires = now + TTL, from = own, to = guild, peer = peer,
+		request = req, state = "offered", automatic = automatic,
 	}
 	req.handoff, outgoing[ref.id] = ref, ref
 	local function Guard()
 		return ref.expires > ns.Now() and ref.from == LocalGuild() and ref.state == "offered"
-			and R.HandoffSource(req) and Officer(peer, guild)
+			and SourceReady(ref) and Officer(peer, guild)
 	end
 	if not Transmit("O", ref, peer, nil, Guard) then
 		req.handoff, outgoing[ref.id] = nil, nil
@@ -133,16 +155,75 @@ function H.Claim(ref)
 	return true
 end
 
+local function AutoStep()
+	local own, now = LocalGuild(), math.floor(ns.Now())
+	if not AutoAllowed(own) then autoProbe = nil; return end
+	Prune(now)
+	local req = Room(outgoing, LIMIT - 1) and R.OverflowRequest()
+	if not req then autoProbe = nil; return end
+	if autoProbe and autoProbe.expires > now then
+		if not autoProbe.available then return end
+		local peer = autoProbe.peer
+		autoProbe = nil
+		H.Offer(req, peer, own, true)
+		return
+	end
+	autoProbe = nil
+	local roster, peer = ns.Roster.online or {}, nil
+	for offset = 1, #roster do
+		local i = ((autoCursor or 0) + offset - 1) % #roster + 1
+		local name = ns.FullName(roster[i].name)
+		if not SamePlayer(name, ns.me) and Officer(name, own) then
+			autoCursor, peer = i, name
+			break
+		end
+	end
+	if not peer then return end
+	local ref = { id = NextID(now), expires = now + PROBE_TTL, from = own, to = own, peer = peer }
+	autoProbe = ref
+	local function Guard()
+		return autoProbe == ref and ref.expires > ns.Now() and LocalGuild() == own
+			and AutoAllowed(own) and Officer(ref.peer, own) and R.OverflowRequest() ~= nil
+	end
+	if not Transmit("P", ref, ref.peer, nil, Guard) then autoProbe = nil end
+end
+
+function H.ToggleAuto()
+	if autoTimer then autoTimer.Cancel(); autoTimer = nil end
+	autoGuild, autoProbe, autoCursor = not autoGuild and LocalGuild() or nil, nil, nil
+	if autoGuild then autoTimer = ns.Every(AUTO_EVERY, "recruit overflow", AutoStep) end
+	Changed()
+	return autoGuild ~= nil
+end
+
 function H.Receive(dist, sender, word)
 	if dist ~= "WHISPER" or type(word) ~= "string" or #word > 255 or SamePlayer(sender, ns.me) then return false end
 	local op, id, expires, group, faction, from, to, applicant =
-		word:match("^J4~([OCNA])~([%d%x%-]+)~(%d+)~([^~]+)~([^~]+)~([^~]+)~([^~]+)~([^~]*)$")
+		word:match("^J4~([OCNAPV])~([%d%x%-]+)~(%d+)~([^~]+)~([^~]+)~([^~]+)~([^~]+)~([^~]*)$")
 	expires = tonumber(expires)
 	local now, own = ns.Now(), LocalGuild()
 	if not own or not expires or expires <= now or expires - now > TTL + 5 or #id > 40
 		or group ~= ns.group or faction ~= ns.faction or not Field(from, MAX_GUILD) or not Field(to, MAX_GUILD)
 		or (op ~= "N" and applicant ~= "") then return false end
 	Prune(now)
+	if op == "P" or op == "V" then
+		if not AvailableNow() or expires - now > PROBE_TTL + 5 or not Same(own, from) or not Same(own, to)
+			or not Officer(sender, own) then return false end
+		if op == "V" then
+			local ref = autoProbe
+			if not AutoAllowed(own) or not ref or ref.available or id ~= ref.id or expires ~= ref.expires
+				or not SamePlayer(sender, ref.peer) then return false end
+			ref.available = true
+			return true
+		end
+		if not Accepting() or not Room(incoming) or now - repliedAt < AUTO_EVERY then return false end
+		local ref = { id = id, expires = expires, from = own, to = own }
+		repliedAt = now
+		return Transmit("V", ref, sender, nil, function()
+			return expires > ns.Now() and acceptingGuild == own and Accepting() and AvailableNow()
+				and Room(incoming) and Officer(sender, own)
+		end)
+	end
 	if op == "O" or op == "N" then
 		if not Accepting() or not Same(own, to) or not Officer(sender, from) then return false end
 		if op == "O" then
@@ -166,15 +247,24 @@ function H.Receive(dist, sender, word)
 		if not ref or ref.expires ~= expires or ref.from ~= from or ref.to ~= to or not SamePlayer(ref.peer, sender)
 			or ref.from ~= own or not Officer(sender, to) then return false end
 		if op == "C" then
-			if ref.state ~= "offered" or not R.HandoffSource(ref.request) then return false end
+			if ref.state ~= "offered" or not SourceReady(ref) then return false end
 			-- A queued or delivered name might have been acted on even without an
 			-- acknowledgement, so the origin stays locked rather than retry elsewhere.
 			ref.state = "assigning"
 			local function Guard()
-				return ref.expires > ns.Now() and ref.from == LocalGuild() and R.HandoffSource(ref.request)
+				local ready = ref.expires > ns.Now() and ref.from == LocalGuild() and SourceReady(ref)
 					and Officer(sender, to) and ref.state == "assigning"
+				return ready, "invalid"
 			end
-			if not Transmit("N", ref, sender, ref.request.name, Guard) then
+			local function Done(sent, why)
+				-- Only a guard refusal proves the queued name never left. Retain the lock for
+				-- an ambiguous transport result so a second officer cannot receive that name.
+				if not sent and why == "invalid" and ref.automatic and ref.request.handoff == ref then
+					ref.request.handoff, outgoing[ref.id] = nil, nil
+					Changed()
+				end
+			end
+			if not Transmit("N", ref, sender, ref.request.name, Guard, Done) then
 				ref.state = "offered"
 				return false
 			end
@@ -224,6 +314,8 @@ function H.Controls(lines, V)
 	lines[#lines + 1] = {
 		text = Accepting() and V.Green(L.RECRUIT_HANDOFF_ON) or V.Grey(L.RECRUIT_HANDOFF_OFF), onClick = H.Toggle,
 	}
+	lines[#lines + 1] = { text = autoGuild == own and V.Green(L.RECRUIT_OVERFLOW_ON) or V.Grey(L.RECRUIT_OVERFLOW_OFF),
+		onClick = H.ToggleAuto }
 	if not Accepting() then return end
 	for _, ref in pairs(incoming) do
 		if Same(ref.to, own) and Officer(ref.peer, ref.from) and ref.state ~= "received" then
@@ -258,6 +350,8 @@ end
 
 function H.Reset()
 	acceptingGuild, choosing = nil, nil
+	if autoTimer then autoTimer.Cancel(); autoTimer = nil end
+	autoGuild, autoProbe, autoCursor, repliedAt = nil, nil, nil, -math.huge
 	wipe(incoming)
 	wipe(outgoing)
 end
