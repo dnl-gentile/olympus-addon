@@ -1265,7 +1265,6 @@ local function MoveLane(n, why, crowd)
 	return true
 end
 function Comm.NextLane(why) return MoveLane(Lane() + 1, why or "refused") end
-function Comm.LaneStats() return { lane = Lane(), refused = laneRefused, moves = stats.lanes or 0 } end
 
 -- A lane belongs to this realm's custom-channel domain. Another realm's guild hello crosses realms
 -- even when its OlympusNet does not; count it only after this session proved the channel itself is
@@ -1281,8 +1280,10 @@ end
 function Comm.CrowdLane(now)
 	now = now or ns.Now()
 	local count, total, shared = {}, 0, Comm.ElectsAcrossRealms(now)
+	local _, key = Comm.ChannelSpec()
+	local audience = key and "s" or "p"
 	for name, t in pairs(peers) do
-		if peerRelay[name] and peerLaneUsable[name] and type(t) == "number"
+		if peerRelay[name] and peerLaneUsable[name] and peerSealed[name] == audience and type(t) == "number"
 			and t <= now and now - t <= Comm.CROWD_RECENT and (shared or PeerOnOurChannelRealm(name)) then
 			local lane = peerLane[name] or 0
 			count[lane] = (count[lane] or 0) + 1
@@ -1301,6 +1302,19 @@ end
 local function CrowdClear(best, n, total, runner)
 	return best ~= nil and total > 0 and n >= Comm.CROWD_MIN
 		and n / total >= Comm.CROWD_SHARE and n - runner >= Comm.CROWD_LEAD
+end
+
+-- A read-only view of the same recent guild hellos housekeeping uses to converge.
+function Comm.LaneStats(now)
+	now = now or ns.Now()
+	local lane = Lane()
+	local best, n, total, _, runner = Comm.CrowdLane(now)
+	local dominant = CrowdClear(best, n, total, runner) and best or nil
+	return { lane = lane, refused = laneRefused, moves = stats.lanes or 0,
+		joined = channelIndex > 0, dominant = dominant, dominantPeers = dominant and n or 0,
+		eligiblePeers = total, mismatch = dominant ~= nil and dominant ~= lane,
+		dominantRefused = dominant ~= nil and laneBad[dominant] == true,
+		cooldown = math.max(0, math.ceil(Comm.CROWD_SETTLE - (now - laneMovedAt))) }
 end
 
 function Comm.FollowCrowd(now)

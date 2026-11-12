@@ -6884,10 +6884,10 @@ local function WithLaneCrowd(start, fn)
 		local C = cns.Comm
 		C.JoinChannel()
 		w.housekeeping = cns.timers.housekeeping
-		w.hello = function(name, lane, relay, laneField, realm)
+		w.hello = function(name, lane, relay, laneField, realm, seal)
 			realm = realm or "Realm"
 			if laneField == nil then laneField = lane == 0 and "" or ("L" .. tostring(lane)) end
-			Deliver("GUILD", name .. "-" .. realm, "H1~1.5.5~" .. realm .. "~p~~~" .. laneField .. (relay == false and "" or "~R"))
+			Deliver("GUILD", name .. "-" .. realm, "H1~1.5.5~" .. realm .. "~" .. (seal or "p") .. "~~~" .. laneField .. (relay == false and "" or "~R"))
 		end
 		fn(w, C, cns)
 	end)
@@ -6914,6 +6914,27 @@ test("1.5.6 channel lanes: a decisive crowd correction also moves upward", funct
 		w.hello("Low", 1)
 		w.housekeeping()
 		eq(C.Lane(), 3, "the fallback names are convergence lanes, not one-way shards")
+	end)
+end)
+
+test("channel lanes: the connection summary shows the same mismatch and cooldown without moving or sending", function()
+	WithLaneCrowd(2, function(w, C, cns)
+		local summary = C.LaneStats()
+		eq(summary.joined, true); eq(summary.dominant, nil); eq(summary.eligiblePeers, 0)
+		for i = 1, 5 do w.hello("Crowd" .. i, 0) end
+		w.hello("Minority", 2)
+		local before = #w.sent
+		summary = C.LaneStats()
+		eq(summary.lane, 2); eq(summary.dominant, 0); eq(summary.dominantPeers, 5)
+		eq(summary.eligiblePeers, 6); eq(summary.mismatch, true); eq(summary.dominantRefused, false)
+		eq(summary.cooldown, 0); eq(C.Lane(), 2); eq(#w.sent, before)
+		w.housekeeping()
+		summary = C.LaneStats()
+		eq(summary.lane, 0); eq(summary.dominant, 0); eq(summary.mismatch, false)
+		eq(summary.cooldown, C.CROWD_SETTLE)
+		cns.clock = cns.clock + C.CROWD_RECENT + 1
+		summary = C.LaneStats()
+		eq(summary.dominant, nil); eq(summary.eligiblePeers, 0); eq(summary.cooldown, 0)
 	end)
 end)
 
@@ -6965,6 +6986,17 @@ test("1.5.6 channel lanes: peers on another unshared realm cannot steer this rea
 		eq(best, nil); eq(n, 0); eq(total, 0, "another realm's separate channel is not our lane domain")
 		w.housekeeping()
 		eq(C.Lane(), 2, "foreign-realm votes cannot move this realm")
+	end)
+end)
+
+test("channel lanes: public and sealed channel audiences converge independently", function()
+	WithLaneCrowd(2, function(w, C)
+		for i = 1, 5 do w.hello("Sealed" .. i, 1, true, nil, nil, "s") end
+		for i = 1, 5 do w.hello("Public" .. i, 3) end
+		local summary = C.LaneStats()
+		eq(summary.dominant, 3); eq(summary.eligiblePeers, 5)
+		w.housekeeping()
+		eq(C.Lane(), 3, "sealed reports cannot tie or move the public crowd")
 	end)
 end)
 
