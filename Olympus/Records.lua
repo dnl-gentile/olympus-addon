@@ -535,7 +535,8 @@ local function OnKey(dist, sender, mode, body)
 	end
 	local pk, sig = Raw(pk64, 32), Raw(sig64, 64)
 	if not pk or not sig then return Count("key-shape") end
-	A().Check("rk " .. sig64, { pk = pk, msg = KeyText(sender, gk, pk64, t), sig = sig }, function(good)
+	local claim = KeyText(sender, gk, pk64, t)
+	A().Check("rk " .. sig64 .. " " .. claim, { pk = pk, msg = claim, sig = sig }, function(good)
 		if good then R.Pin(sender, pk64, gk) elseif good == false then Count("key-signature") end
 	end)
 end
@@ -1736,7 +1737,8 @@ local function OnWitness(dist, sender, mode, body)
 	if not R.HasKey(sender, pk64) then return Count("witness-key") end
 	local pk, sig = Raw(pk64, 32), Raw(sig64, 64)
 	if not pk or not sig then return Count("witness-shape") end
-	A().Check("rv " .. sig64, { pk = pk, msg = WitnessText(sender, letter, hash, t, pk64), sig = sig }, function(good)
+	local claim = WitnessText(sender, letter, hash, t, pk64)
+	A().Check("rv " .. sig64 .. " " .. claim, { pk = pk, msg = claim, sig = sig }, function(good)
 		if good ~= true then if good == false then Count("witness-signature") end return end
 		local now = Now()
 		HeardWitness(letter, hash, Low(sender), now, at)

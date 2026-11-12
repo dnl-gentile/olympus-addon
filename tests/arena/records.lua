@@ -835,6 +835,34 @@ local function Quiet()
 	return w, a, b, c
 end
 
+test("records: a cached witness signature remains bound to its signed sender", function()
+	local w, a, b, holder = Quiet()
+	local body = Pair(w, a, b, "Krcache")
+	Keys(w, a, b)
+	Take(w, holder, body)
+	w:Logout(a)
+	w:Logout(b)
+	local late = w:Player(N.bettor1)
+	local other = w:Player(N.bettor2)
+	Take(w, late, body)
+	eq(Do(w, late, "Pending", "b"), 1)
+	assert(Do(w, holder, "SendKey"))
+	w:Run(5)
+	assert(Do(w, holder, "SendWitness", "b", body, nil, true))
+	w:Run(5)
+	local packet = assert(w:Sent({ from = holder, type = "RV" })[1])
+	local R, A = late.ns.Records, late.ns.Arena
+	local _, hash, _, pk = A.Fields(packet.msg:sub(7), 5)
+	eq(Do(w, late, "WitnessesSince", "b", hash, 0), 1)
+	-- An account key may be held for two characters. It only verifies the name in the signature.
+	assert(Do(w, late, "Pin", other.name, pk))
+	w:As(late, A.Inject, "WHISPER", other.name, packet.msg)
+	w:Run(5)
+	eq(Do(w, late, "WitnessesSince", "b", hash, 0), 1, "cache cannot turn a different sender into another witness")
+	eq(Do(w, late, "Count", "b"), 0)
+	Errors(w)
+end)
+
 test("records: an unsent ranking day request retries its bucket and a sent one advances", function()
 	local w, _, _, asker = Quiet()
 	local R = asker.ns.Records
