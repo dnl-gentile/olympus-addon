@@ -2917,6 +2917,9 @@ test("gamepad personal verification opens in both window styles and submits only
 	local pending = OpenFromRealm("OLYMPUS_VERIFY_SELF")
 	assert(pending.text:GetText():find(ns.L.VERIFY_SELF_PENDING .. ": 1", 1, true), "reopening shows the pending delivery")
 	eq(pending.text:GetText():find(ns.L.VERIFY_SELF_QUEUED, 1, true), nil, "the immediate result does not persist")
+	assert(pending.text:GetText():find(ns.L.VERIFY_SELF_PENDING_NOTE, 1, true), "waiting is explained where it shows")
+	assert(pending.text:GetText():find(ns.L.VERIFY_SELF_CHECK_DISCORD, 1, true), "and Discord's own status is the answer")
+	assert(pending.editBox:IsShown() and pending.buttons[1]:IsShown(), "one prompt: the code field and Submit code")
 	pending:Hide()
 	deliveryState = "delivered"
 

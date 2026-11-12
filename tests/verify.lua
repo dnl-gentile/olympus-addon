@@ -71,8 +71,13 @@ test("verify: personal delivery detects the bridge on open, submits once and red
 		eq(which, "OLYMPUS_VERIFY_SELF", "opening shows the masked code field directly")
 		eq(calls, 0, "opening only reads")
 		for _, key in ipairs({ "PENDING", "DELIVERED", "REJECTED", "UNSUPPORTED", "UNKNOWN" }) do
-			assert(text:find(L["VERIFY_SELF_" .. key], 1, true), key)
+			assert(text:find(L["VERIFY_SELF_" .. key] .. ": ", 1, true), key)
 		end
+		-- (1.5.8) What waiting and a refusal mean, and that Discord's own status is the answer.
+		assert(text:find(L.VERIFY_SELF_PENDING_NOTE, 1, true), "a waiting request is explained")
+		assert(text:find(L.VERIFY_SELF_REJECTED_NOTE, 1, true), "a refused request says what to do")
+		assert(text:find(L.VERIFY_SELF_CHECK_DISCORD, 1, true), "with requests sent, Discord has the final word")
+		assert(text:find(L.VERIFY_SELF_GUIDE, 1, true), "the steps stay with the code field")
 		assert(text:find(L.VERIFY_SELF_TRUNCATED:format(20, 22), 1, true))
 		assert(not text:find("opaque-hidden-id", 1, true) and not text:find("not-for-the-panel", 1, true))
 		eq(calls, 0, "opening the entry prompt does not submit")
@@ -90,6 +95,7 @@ test("verify: personal delivery detects the bridge on open, submits once and red
 		assert(not text:find("my-personal-code", 1, true))
 		accepted, value = false, "my-personal-code"
 		v.Verify.OpenSelf()
+		assert(not text:find(L.VERIFY_SELF_QUEUED, 1, true), "a created request's answer shows once, the status lists it")
 		def.OnAccept(frame, attempt)
 		eq(calls, 2)
 		assert(text:find(L.VERIFY_SELF_REFUSED, 1, true) and not text:find(L.VERIFY_SELF_QUEUED, 1, true))
@@ -114,6 +120,28 @@ test("verify: personal delivery detects the bridge on open, submits once and red
 		s.roleAuthority = false
 		v.Verify.OpenSelf(); eq(which, "OLYMPUS_VERIFY_SELF", "version 1 API with a safe v243 wrapper is accepted")
 		eq(calls, 4, "status never resubmits an unknown outcome")
+		-- (1.5.8, the author: "get your role on Discord" where a rank opens it, "be part of the
+		-- community" elsewhere, promising nothing the bot does not do) The bot verifies one guild.
+		local inGuild, getInfo = _G.IsInGuild, _G.GetGuildInfo
+		local guild
+		_G.IsInGuild = function() return guild ~= nil end
+		_G.GetGuildInfo = function(unit) eq(unit, "player"); return guild, "Member", 4 end
+		local why = {}
+		for _, g in ipairs({ "OLYMPUS PRIME", "Olympus Prime", "Olympus Embers", false }) do
+			guild = g or nil
+			v.Verify.OpenSelf()
+			why[#why + 1] = text
+		end
+		_G.IsInGuild, _G.GetGuildInfo = inGuild, getInfo
+		for i = 1, 2 do
+			assert(why[i]:find(L.VERIFY_SELF_WHY_ROLE, 1, true), "the bot's guild, any case: the rank's role")
+			assert(not why[i]:find(L.VERIFY_SELF_WHY_COMMUNITY:format(v.Verify.DISCORD_GUILD), 1, true))
+		end
+		for i = 3, 4 do
+			assert(why[i]:find(L.VERIFY_SELF_WHY_COMMUNITY:format("OLYMPUS PRIME"), 1, true), "elsewhere: the community, no role promised")
+			assert(not why[i]:find(L.VERIFY_SELF_WHY_ROLE, 1, true))
+		end
+		eq(calls, 4, "the reason never submits")
 	end)
 	_G.OlympusVerifyBridge242, _G.OlympusBridge = saved.bridge, saved.generic
 	StaticPopupDialogs.OLYMPUS_VERIFY_GUILD, StaticPopupDialogs.OLYMPUS_VERIFY_REVOKE, StaticPopupDialogs.OLYMPUS_VERIFY_SELF = saved.guild, saved.revoke, saved.self

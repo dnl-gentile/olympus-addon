@@ -1596,8 +1596,22 @@ local function SelfStatusLines(summary, submission)
 			if n > 0 then lines[#lines + 1] = L[state[2]] .. ": " .. n end
 		end
 		if summary.truncated then lines[#lines + 1] = L.VERIFY_SELF_TRUNCATED:format(summary.shown, summary.total) end
+		-- (1.5.8, the author could not tell what "Pending" meant after Discord had verified him) What
+		-- the states a player asks about mean, below the counts.
+		if summary.counts.pending > 0 then lines[#lines + 1] = "\n" .. L.VERIFY_SELF_PENDING_NOTE end
+		if summary.counts.rejected > 0 then lines[#lines + 1] = "\n" .. L.VERIFY_SELF_REJECTED_NOTE end
 	end
 	return table.concat(lines, "\n")
+end
+
+-- (1.5.8) The guild the Discord bot verifies (Olympus Verify's FLAGSHIP_GUILD_NAME): there the rank
+-- opens the member channels once the bot's checks pass. Other Olympus guilds are welcome in the
+-- Olympus chat channel without a code. Only a text: the bot alone grants access and roles.
+Verify.DISCORD_GUILD = "OLYMPUS PRIME"
+function Verify.SelfWhy()
+	local guild = IsInGuild() and GetGuildInfo("player")
+	if type(guild) == "string" and guild:lower() == Verify.DISCORD_GUILD:lower() then return L.VERIFY_SELF_WHY_ROLE end
+	return L.VERIFY_SELF_WHY_COMMUNITY:format(Verify.DISCORD_GUILD)
 end
 
 function Verify.SelfLine()
@@ -1612,10 +1626,12 @@ function Verify.OpenSelf()
 	local b = SelfBridge()
 	local summary = SelfDelivery(b)
 	local ready = b and type(b.QueueSelf) == "function" and summary
-	local text = L.VERIFY_SELF_GUIDE
+	local text = Verify.SelfWhy() .. "\n\n" .. L.VERIFY_SELF_GUIDE
 	if not ready then text = text .. "\n\n" .. L.VERIFY_SELF_UNAVAILABLE end
 	local status = SelfStatusLines(summary)
 	if status ~= "" then text = text .. "\n\n" .. status end
+	-- Requests already sent: Discord's answer is the one that counts.
+	if summary and summary.total > 0 then text = text .. "\n\n" .. L.VERIFY_SELF_CHECK_DISCORD end
 	return ns.Dialog.Show(ready and "OLYMPUS_VERIFY_SELF" or "OLYMPUS_VERIFY_SELF_UNAVAILABLE", text, nil, {})
 end
 
