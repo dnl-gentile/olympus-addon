@@ -1583,14 +1583,19 @@ function Workshop.Build(report)
 	local lines = {}
 	if Workshop.Preview() then lines[#lines + 1] = { text = Grey(L.WORKSHOP_PREVIEW), gapAfter = true } end
 	-- (1.2: View as is in the window's title bar, UI.lua, on every tab.)
-	-- The version his presence tells the army is out (1.1): /oly released marks it.
+	-- The version his presence tells the army is out (1.1): /oly released marks it. (1.5.8: the line
+	-- names it as the last release marked in game, beside this build's version, which read as the
+	-- release itself; a build other than the one marked adds the reminder to mark it once listed.)
+	local released = Workshop.Released()
+	local unmarked = released ~= ns.VERSION
 	lines[#lines + 1] = {
-		text = L.WORKSHOP_RELEASED:format(Workshop.Released() or "-", ns.VERSION), noReport = true, gapAfter = true,
+		text = L.WORKSHOP_RELEASED:format(released or "-", ns.VERSION), noReport = true, gapAfter = not unmarked,
 		tooltip = function(tt)
 			tt:AddLine(L.WORKSHOP_RELEASED:format(Workshop.Released() or "-", ns.VERSION), 1, 0.82, 0)
 			tt:AddLine(L.WORKSHOP_RELEASED_TIP, 1, 1, 1, true)
 		end,
 	}
+	if unmarked then lines[#lines + 1] = { text = Grey(L.WORKSHOP_RELEASED_NEXT:format(ns.VERSION)), noReport = true, gapAfter = true } end
 	-- 1.2: an arena test build says which, and the arena's solo simulation opens from here (no
 	-- slash command needed: the gamepad UI).
 	local tb = TestBuild()

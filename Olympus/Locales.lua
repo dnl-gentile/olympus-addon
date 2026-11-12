@@ -1941,8 +1941,9 @@ L.INSTALL_FLAVOR_ANNIVERSARY = "If Olympus does not update: in the CurseForge ap
 L.RELEASED_DONE = "Marked %s as released: addons behind it are told to update (your presence says so on the Olympus channel now, and every 5 minutes)."
 L.RELEASED_USAGE = "/oly released [version]: marks the version CurseForge lists as released (yours, %s, when none is given; never a newer one)."
 L.RELEASED_ONLY_AUTHOR = "Only the addon's author marks a version as released."
-L.WORKSHOP_RELEASED = "Released: %s (you run %s)"
-L.WORKSHOP_RELEASED_TIP = "The version your presence tells the army is out: addons older than it show a line to update. A build you run before CurseForge lists it is never named: once it is listed, /oly released marks it."
+L.WORKSHOP_RELEASED = "Last release marked in game (/oly released): %s  -  This build: %s"
+L.WORKSHOP_RELEASED_TIP = "The last version you marked with /oly released (saved for your account). Your presence tells the army it is out, and addons older than it show a line to update. Publishing does not change it: once CurseForge lists the new build, type /oly released."
+L.WORKSHOP_RELEASED_NEXT = "This build is newer than the marked release. Once CurseForge lists %s, type /oly released so older addons are told to update."
 -- 1.1: the warning while the Olympus channel is public (request #8).
 L.PUBLIC_NET = "Public channel: anyone who joins %s can read Olympus's census and chats."
 L.PUBLIC_NET_OFFICER = "Officers: seal it with the key the other guilds use (/oly key)."
@@ -4483,8 +4484,9 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.RELEASED_DONE = "%s marcada como lançada: os addons atrás dela são avisados para atualizar (a sua presença diz isso no canal de Olympus agora e a cada 5 minutos)."
 	L.RELEASED_USAGE = "/oly released [versão]: marca como lançada a versão que o CurseForge lista (a sua, %s, se nenhuma for dada; nunca uma mais nova)."
 	L.RELEASED_ONLY_AUTHOR = "Só o autor do addon marca uma versão como lançada."
-	L.WORKSHOP_RELEASED = "Lançada: %s (você usa a %s)"
-	L.WORKSHOP_RELEASED_TIP = "A versão que a sua presença diz ao exército que já saiu: addons mais antigos que ela mostram uma linha para atualizar. Uma versão que você usa antes de o CurseForge listar nunca é anunciada: depois de listada, /oly released marca."
+	L.WORKSHOP_RELEASED = "Último lançamento marcado no jogo (/oly released): %s  -  Esta versão: %s"
+	L.WORKSHOP_RELEASED_TIP = "A última versão que você marcou com /oly released (salva na sua conta). A sua presença diz ao exército que ela já saiu, e addons mais antigos que ela mostram uma linha para atualizar. Publicar não muda isso: quando o CurseForge listar a versão nova, digite /oly released."
+	L.WORKSHOP_RELEASED_NEXT = "Esta versão é mais nova que o lançamento marcado. Quando o CurseForge listar a %s, digite /oly released para avisar os addons mais antigos."
 	-- 1.1: o aviso enquanto o canal de Olympus é público (pedido #8).
 	L.PUBLIC_NET = "Canal público: qualquer um que entrar em %s lê o censo e os chats de Olympus."
 	L.PUBLIC_NET_OFFICER = "Oficiais: selem com a chave que as outras guildas usam (/oly key)."

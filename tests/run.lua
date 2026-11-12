@@ -33296,6 +33296,41 @@ test("1.1 behind the author: /oly released marks the version CurseForge lists; h
 	if not ok then error(err, 0) end
 end)
 
+-- 1.5.8 (the author, 2026-11-12: the Workshop said the release was 1.5.4, not 1.5.7): the tab's line read
+-- "Released: 1.5.4 (you run 1.5.7)", the last version marked with /oly released, as if it were the
+-- published release. It now names it as the last release marked in game, beside this build's
+-- version, and a build other than the one marked is reminded to mark it once CurseForge lists it.
+test("1.5.8 Workshop: the release line names the last release marked in game beside this build, and reminds the author to mark a newer build", function()
+	local saved = ns.db.releasedVersion
+	ns.db.releasedVersion = "0.9.9"
+	local ok, err = pcall(function()
+		WithWorkshop(AUTHOR_FULL, function(w, W)
+			local L = ns.L
+			local function Find(text)
+				for _, l in ipairs((W.Build())) do
+					if type(l.text) == "string" and l.text:find(text, 1, true) then return l end
+				end
+			end
+			local label = assert(Find(L.WORKSHOP_RELEASED:format("0.9.9", ns.VERSION)), "the marked release and this build on one line")
+			assert(label.text:find("/oly released", 1, true), "the line says where the marked release comes from: " .. label.text)
+			assert(label.text:find("0.9.9", 1, true) and label.text:find(ns.VERSION, 1, true), "both versions shown")
+			local reminder = L.WORKSHOP_RELEASED_NEXT:format(ns.VERSION)
+			assert(reminder:find("/oly released", 1, true) and reminder:find(ns.VERSION, 1, true), reminder)
+			assert(Find(reminder), "a build newer than the marked release is reminded to mark it")
+			-- Nothing marked: the same reminder.
+			ns.db.releasedVersion = nil
+			assert(Find(L.WORKSHOP_RELEASED:format("-", ns.VERSION)), "no release marked")
+			assert(Find(reminder), "the reminder with nothing marked")
+			-- Once he marks this build, the reminder goes.
+			eq(W.MarkReleased(), true)
+			assert(Find(L.WORKSHOP_RELEASED:format(ns.VERSION, ns.VERSION)), "this build marked")
+			eq(Find(reminder), nil, "no reminder once this build is the marked release")
+		end)
+	end)
+	ns.db.releasedVersion = saved
+	if not ok then error(err, 0) end
+end)
+
 test("1.1 behind the author: /oly status carries the line", function()
 	local saved = ns.db.authorRelease
 	ns.Workshop.ResetVersion()
@@ -33316,7 +33351,7 @@ test("1.1 behind the author: its lines in both languages", function()
 	GetLocale = savedLocale
 	if not ok then error(err, 0) end
 	for _, k in ipairs({ "BEHIND_LINE", "BEHIND_TIP", "BEHIND_CHAT", "RELEASED_DONE", "RELEASED_USAGE", "RELEASED_ONLY_AUTHOR",
-		"WORKSHOP_RELEASED", "WORKSHOP_RELEASED_TIP" }) do
+		"WORKSHOP_RELEASED", "WORKSHOP_RELEASED_TIP", "WORKSHOP_RELEASED_NEXT" }) do
 		assert(rawget(ns.L, k) and rawget(ns.L, k) ~= k, "English: " .. k)
 		assert(rawget(pt.L, k) and rawget(pt.L, k) ~= rawget(ns.L, k), "pt-BR: " .. k)
 	end
