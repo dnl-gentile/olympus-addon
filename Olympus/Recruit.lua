@@ -15,8 +15,9 @@ local L = ns.L
 -- when asked (J2), and the screen never offers him. The request itself stays one whisper per
 -- click, the player's own words (no dues line), and goes with a J3 to the same member, whose
 -- addon shows it with Invite and Decline (an officer's yes or no, one click each) instead of a
--- raw whisper. These three are the only messages the addon exchanges outside an Olympus guild
--- (Comm.WhisperOutside); versions before 1.1 ignore all three.
+-- raw whisper (1.5.9: at a member recruiting by whisper, as a JOIN is, OnJoinRequest). These three
+-- are the only messages the addon exchanges outside an Olympus guild (Comm.WhisperOutside);
+-- versions before 1.1 ignore all three.
 --
 -- Whom a recruit whispers stays the server's word, as before 1.1: a J2 only orders. A member's
 -- census names a guild only when the census does not mark it (Data.Dispute: two senders or more
@@ -700,9 +701,6 @@ local function StopRecruiting()
 	CloseReminderDraft()
 	if Recruit.Handoff then Recruit.Handoff.Reset() end
 	if Recruit.Candidates then Recruit.Candidates.Reset() end
-	for i = #Recruit.requests, 1, -1 do
-		if Recruit.requests[i].viaWhisper then table.remove(Recruit.requests, i) end
-	end
 	if ns.Dialog and ns.Dialog.Find then
 		for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT" }) do
 			local draft = ns.Dialog.Find(id)
@@ -710,6 +708,20 @@ local function StopRecruiting()
 		end
 		local warning = ns.Dialog.Find("OLYMPUS_RECRUIT_NETOFF")
 		if warning and warning.data and warning.data.req and warning.data.req.viaWhisper then warning:Hide() end
+	end
+	for i = #Recruit.requests, 1, -1 do
+		local req = Recruit.requests[i]
+		if req.viaWhisper then
+			-- (1.5.9) A Join screen request was in this queue only while recruiting was on: it goes back
+			-- to the Census as it came, unless a handoff may have given its name to another member.
+			local state = Recruit.Handoff and Recruit.Handoff.State(req)
+			if req.joinScreen and (state == nil or state == "offered") then
+				req.viaWhisper, req.handoff, req.handoffIntent, req.popupShown = nil, nil, nil, nil
+				req.passWanted, req.limitPassed = nil, nil
+			else
+				table.remove(Recruit.requests, i)
+			end
+		end
 	end
 end
 
@@ -1290,7 +1302,9 @@ local function Drop(req)
 	ns.Fire("DATA_CHANGED")
 end
 
-local function AddRequest(sender, own, level, class, text, viaWhisper)
+-- `viaWhisper`: in the recruiting queue (Church > Invites), not the Census. `joinScreen`: sent from
+-- the Join Olympus screen (a J3), in either one.
+local function AddRequest(sender, own, level, class, text, viaWhisper, joinScreen)
 	if ns.Roster.RankOf(sender) then return false end -- one of us already
 	local now = ns.Now()
 	Prune(now)
@@ -1311,11 +1325,13 @@ local function AddRequest(sender, own, level, class, text, viaWhisper)
 	end
 	level = tonumber(level)
 	local req = { name = sender, guild = own, level = level and level >= 1 and level <= 100 and level or nil,
-		class = class and class ~= "" and #class <= 12 and class or nil, t = now, text = text, viaWhisper = viaWhisper }
+		class = class and class ~= "" and #class <= 12 and class or nil, t = now, text = text, viaWhisper = viaWhisper,
+		joinScreen = joinScreen }
 	Recruit.requests[#Recruit.requests + 1] = req
 	-- Officers using The Watch are notified, but the request is never rejected automatically.
 	-- A related character counts only when Alts.lua already holds its two-sided confirmation.
-	if not viaWhisper and ns.Watch and ns.Watch.EntryAttempt then
+	-- (1.5.9) A Join screen request is, as it always was, in the recruiting queue too.
+	if (not viaWhisper or joinScreen) and ns.Watch and ns.Watch.EntryAttempt then
 		ns.SafeCall("watch entry attempt", ns.Watch.EntryAttempt, sender)
 	end
 	-- One chat line, REQUEST_LINES a minute at most (the rest wait in the Census).
@@ -1326,19 +1342,39 @@ local function AddRequest(sender, own, level, class, text, viaWhisper)
 		lineTimes[#lineTimes + 1] = now
 		local className = req.class and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[req.class] or ""
 		local who = ns.DisplayName(sender) or sender
-		ns.Print(viaWhisper and L.RECRUIT_WHISPER_ASKED:format(who, own) or L.JOIN_ASKED:format(who, req.level or 0, className, own))
+		local line
+		if not viaWhisper then line = L.JOIN_ASKED:format(who, req.level or 0, className, own)
+		elseif joinScreen then line = L.JOIN_ASKED_INVITES:format(who, req.level or 0, className, own)
+		else line = L.RECRUIT_WHISPER_ASKED:format(who, own) end
+		ns.Print(line)
 	end
-	if not viaWhisper then ns.Log("recruit: %s asks to join %s", sender, own) end
+	if not viaWhisper or joinScreen then ns.Log("recruit: %s asks to join %s", sender, own) end
 	ns.Fire("DATA_CHANGED")
 	return true, req
 end
+-- (1.5.9, the author's ask, 11-12, about the Join screen's request: "podia aparecer o pop-up também
+-- para dar Ctrl-C, Ctrl-V e Enter, que nem outro fluxo") At a member whose recruiting is on, a J3
+-- is a JOIN to his guild: the same invite popup on its own, the minute's invites, the handoffs to
+-- other members and the recruiting log. With recruiting off it is the Census row it always was.
 function Recruit.OnJoinRequest(dist, sender, text)
 	if dist ~= "WHISPER" or not ns.IsMember() then return false end
 	local guild, level, class = tostring(text):match("^J3~([^~]+)~(%d+)~(%u*)$")
 	local own = GetGuildInfo("player")
 	if not guild or not own or guild:lower() ~= own:lower() then return false end
 	local w = whispers[sender]
-	local accepted = AddRequest(sender, own, level, class, w and ns.Now() - w.t <= 120 and w.text or nil)
+	local said = w and ns.Now() - w.t <= 120 and w.text or nil
+	if not Recruiting() or not NameForCommand(sender) then
+		return (AddRequest(sender, own, level, class, said, nil, true))
+	end
+	said = type(said) == "string" and ns.Codec.SanitizeChat(ns.Cut(said, 180)) or ""
+	local accepted, req = AddRequest(sender, own, level, class, said ~= "" and said or nil, true, true)
+	if Recruit.Handoff then
+		Recruit.Handoff.Log(accepted and "JOIN" or "JOINDROP", Recruit.Handoff.Tag(sender) .. " join screen")
+	end
+	if accepted then
+		req.handoffIntent = "guild"
+		PromptReply()
+	end
 	return accepted
 end
 ns.Comm.Handle("J3", Recruit.OnJoinRequest)
@@ -1846,11 +1882,13 @@ function Recruit.RequestLines(viaWhisper)
 		local req = reqs[i]
 		local who = ns.DisplayName(req.name) or req.name
 		local className = req.class and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[req.class] or ""
+		-- (1.5.9) A Join screen request in the recruiting queue shows its level and class, as in the Census.
+		local whisperOnly = req.viaWhisper and not req.joinScreen
 		lines[#lines + 1] = {
-			text = V.ClassColored(who, req.class) .. (req.viaWhisper and "" or "  " .. V.Grey(L.LEVEL_N:format(req.level or 0) .. " " .. className)),
+			text = V.ClassColored(who, req.class) .. (whisperOnly and "" or "  " .. V.Grey(L.LEVEL_N:format(req.level or 0) .. " " .. className)),
 			right = V.Grey(ns.Ago(req.t)),
 			tooltip = function(tt)
-				tt:AddLine((req.viaWhisper and L.RECRUIT_WHISPER_ASKED_TIP or L.JOIN_ASKED_TIP):format(who, req.guild), 1, 0.82, 0, true)
+				tt:AddLine((whisperOnly and L.RECRUIT_WHISPER_ASKED_TIP or L.JOIN_ASKED_TIP):format(who, req.guild), 1, 0.82, 0, true)
 				if req.text then tt:AddLine('"' .. ns.Codec.SanitizeChat(req.text) .. '"', 1, 1, 1, true) end
 			end,
 		}

@@ -1,4 +1,4 @@
-local ns, test, eq, FreshComm = ...
+local ns, test, eq, FreshComm, FIXTURES = ...
 local R, H = ns.Recruit, ns.Recruit.Handoff
 local home, other = "CAMWOWUS2Realm1PvE", "CAMWOWUS2Realm2PvE"
 local me, mate, officer = "Local Recruiter-" .. home, "Guild Recruiter-" .. home, "Sister Recruiter-" .. other
@@ -1540,3 +1540,364 @@ test("recruit scan (1.5.8): the /who rotation searches level ranges anywhere fir
 	end)
 end)
 
+
+---------------------------------------------------------------------------
+-- 1.5.9: a request from the Join Olympus screen (J3) at a member recruiting by whisper. (The author,
+-- 11-12, about that request: "a pessoa que recebe do outro lado que tem o addon... podia aparecer o
+-- pop-up também para dar Ctrl-C, Ctrl-V e Enter, que nem outro fluxo".)
+---------------------------------------------------------------------------
+local J3 = ("J3~%s~12~MAGE"):format(own)
+local WORDS = "Hi! I'd love to join Olympus. Does <Olympus Prime> have room for one more?"
+local function ClassName(file) return LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[file] or "" end
+
+-- The Watch's notice of a join request (Watch.EntryAttempt; its own tests are in tests/watch.lua).
+local function WithWatchNotice(fn)
+	local saved, noticed = rawget(ns, "Watch"), {}
+	ns.Watch = { EntryAttempt = function(name) noticed[#noticed + 1] = name end }
+	local ok, err = pcall(fn, noticed)
+	ns.Watch = saved
+	if not ok then error(err, 0) end
+end
+
+-- Fails before 1.5.9: the J3 made a Census row alone (no popup, no handoff, nothing logged).
+test("join screen request (1.5.9): at a recruiting member a J3 pops up the JOIN's invite command, counts in the minute and is logged", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			WithWatchNotice(function(noticed)
+				local D = Dialogs()
+				ns.Dialog = D
+				local savedUtil, savedBox = ChatFrameUtil, rawget(_G, "ACTIVE_CHAT_EDIT_BOX")
+				ChatFrameUtil = { OpenChat = function() end }
+				local ok, err = pcall(function()
+					R.OnWhisper(WORDS, applicant)
+					eq(#R.requests, 0, "his whisper alone is no JOIN")
+					eq(R.OnJoinRequest("WHISPER", applicant, J3), true)
+					local req = assert(R.requests[1])
+					eq(req.viaWhisper, true, "in the recruiting queue, as a JOIN")
+					eq(req.handoffIntent, "guild", "a JOIN to this guild: passed on inside it only")
+					eq(req.level, 12); eq(req.class, "MAGE"); eq(req.text, WORDS, "with his whisper")
+					eq(noticed[1], applicant, "The Watch is told, as of every Join screen request")
+					eq(scene.printed[#scene.printed], ns.L.JOIN_ASKED_INVITES:format(ns.DisplayName(applicant), 12, ClassName("MAGE"), own))
+					local draft = assert(D.Find(DRAFT), "the invite popup opens on its own")
+					eq(draft.data.req, req); eq(draft.data.automatic, true)
+					assert(draft.text:find(ns.L.RECRUIT_WHISPER_INVITE_COPY:format("New Recruit"), 1, true), draft.text)
+					local tag = H.Tag(applicant)
+					assert(LogHas("JOIN " .. tag .. " join screen"), "the request in the recruiting log")
+					assert(LogHas("POPUP " .. tag .. " auto"), "and its popup")
+					local row = assert(Find(R.RequestLines(true), "New Recruit"), "listed in Church > Invites")
+					assert(row.text:find(ns.L.LEVEL_N:format(12), 1, true), "with its level, as in the Census")
+					assert(Find(R.RequestLines(true), ns.L.RECRUIT_WHISPER_PREPARE_BUTTON), "Prepare invite, as for a JOIN")
+					eq(Find(R.RequestLines(false), "New Recruit"), nil, "not in the Census too")
+					eq(R.InvitesTaken(), 0)
+					draft.def.extra.onClick(draft, draft.data)
+					eq(R.InvitesTaken(), 1, "the command taken to chat counts in the minute's ten")
+					assert(LogHas("TOCHAT " .. tag .. " 1/10"))
+					eq(D.Find(DRAFT), draft, "the popup waits for the paste")
+					ACTIVE_CHAT_EDIT_BOX = { GetText = function() return "/ginvite New Recruit" end }
+					local later = scene.later
+					scene.later = {}
+					for _, fn in ipairs(later) do fn() end
+					eq(D.Find(DRAFT), nil, "the command pasted in chat closes it")
+					LogNever("New Recruit")
+				end)
+				ChatFrameUtil, ACTIVE_CHAT_EDIT_BOX = savedUtil, savedBox
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+end)
+
+test("join screen request (1.5.9): with recruiting off a J3 is the Census row it always was", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			WithWatchNotice(function(noticed)
+				local D = Dialogs()
+				ns.Dialog = D
+				eq(R.ToggleWhisperRecruiting(), false, "recruiting off")
+				R.OnWhisper(WORDS, applicant)
+				eq(R.OnJoinRequest("WHISPER", applicant, J3), true)
+				local req = assert(R.requests[1])
+				eq(req.viaWhisper, nil); eq(req.handoffIntent, nil)
+				eq(req.text, WORDS)
+				eq(D.Find(DRAFT), nil, "no popup")
+				eq(noticed[1], applicant)
+				eq(scene.printed[#scene.printed], ns.L.JOIN_ASKED:format(ns.DisplayName(applicant), 12, ClassName("MAGE"), own))
+				assert(Find(R.RequestLines(false), "New Recruit"), "on top of the Census")
+				eq(Find(R.RequestLines(true), "New Recruit"), nil)
+				eq(LogHas(H.Tag(applicant)), nil, "not in the recruiting log")
+			end)
+		end)
+	end)
+end)
+
+test("join screen request (1.5.9): past the minute's ten invites a J3 says so and passes, or goes to the members on its own; its name only after a claim", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			local D = Dialogs()
+			ns.Dialog = D
+			local savedUtil = ChatFrameUtil
+			ChatFrameUtil = { OpenChat = function() end }
+			local ok, err = pcall(function()
+				for i = 1, 10 do R.OnWhisper("JOIN", ("Fast %d-%s"):format(i, home)) end
+				for i = 1, 10 do
+					local open = D.Find(DRAFT)
+					if open then open:Hide() end
+					eq(R.Accept(R.requests[i]), true)
+					local draft = assert(D.Find(DRAFT))
+					draft.def.extra.onClick(draft, draft.data)
+					draft:Hide()
+				end
+				eq(R.AtInviteLimit(), true)
+				-- The automatic offers off: its popup says the limit and offers Pass, as a JOIN's does.
+				scene.now = scene.now + 21
+				eq(R.OnJoinRequest("WHISPER", applicant, J3), true)
+				local draft = assert(D.Find(DRAFT), "the J3 pops up at the limit")
+				local req = draft.data.req
+				eq(req.name, applicant)
+				assert(draft.text:find(ns.L.RECRUIT_INVITE_LIMIT_PASS:format(10), 1, true), "the popup says the limit")
+				assert(draft.def.button2Shown(draft, draft.data), "and offers Pass")
+				draft.def.OnButton2(draft, draft.data)
+				draft:Hide()
+				eq(req.passWanted, true)
+				-- The probe and the offer carry no name; the member who claims gets it.
+				scene.tick()
+				local probe = assert(scene.packets[1])
+				assert(probe.word:match("^J4~P~") and probe.word:sub(-1) == "~", "no name with the probe")
+				eq(H.Receive("WHISPER", mate, (probe.word:gsub("^J4~P~", "J4~V~"))), true)
+				scene.tick()
+				local offer = assert(scene.packets[2])
+				assert(offer.word:match("^J4~O~") and offer.word:sub(-1) == "~", "no name with the offer")
+				eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~C~"))), true)
+				local named = assert(scene.packets[3])
+				assert(named.word:match("^J4~N~"))
+				eq(named.word:sub(-#applicant), applicant, "the Join screen's player, to the member who claimed")
+				eq(named.peer, mate)
+				eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~A~"))), true)
+				eq(H.State(req), "assigned")
+				assert(LogHas("HANDED " .. H.Tag(applicant) .. " > Guild Recruiter"))
+				-- Pass turned the offers on: the next J3 at the limit goes to the members, no popup.
+				local second = "Second Recruit-" .. home
+				scene.now = scene.now + 21
+				eq(R.OnJoinRequest("WHISPER", second, J3), true)
+				local queued = R.requests[#R.requests]
+				eq(queued.name, second)
+				eq(D.Find(DRAFT), nil, "no popup at the limit with the offers on")
+				eq(queued.passWanted, true, "it goes to the other members")
+				assert(LogHas("OVERFLOW " .. H.Tag(second)))
+			end)
+			ChatFrameUtil = savedUtil
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
+
+test("join screen request (1.5.9): Decline still whispers; recruiting off sends a J3 back to the Census unless a member has its name; without the invite right it points to an officer", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local savedSay, said = SendChatMessage, {}
+		SendChatMessage = function(text, kind, _, to) said[#said + 1] = { text = text, kind = kind, to = to } end
+		local ok, err = pcall(function()
+			ns.Roster.online = { { name = mate, rankIndex = 1 } }
+			-- Decline in Church > Invites: one whisper, the Census's.
+			eq(R.OnJoinRequest("WHISPER", applicant, J3), true)
+			local first = R.requests[1]
+			assert(D.Find(DRAFT)):Hide()
+			local text = R.DeclineText(first)
+			assert(Find(R.RequestLines(true), ns.L.JOIN_DECLINE)).onClick()
+			eq(#said, 1); eq(said[1].kind, "WHISPER"); eq(said[1].to, "New Recruit"); eq(said[1].text, text)
+			eq(#R.requests, 0, "declined: gone")
+			-- One given to a member (passed, claimed), one still on screen: recruiting off.
+			local given, back = "Given Recruit-" .. home, "Back Recruit-" .. home
+			scene.now = scene.now + 21 -- (one automatic popup every 20 seconds)
+			eq(R.OnJoinRequest("WHISPER", given, J3), true)
+			local givenReq = R.requests[1]
+			local draft = assert(D.Find(DRAFT))
+			draft.def.OnButton2(draft, draft.data)
+			draft:Hide()
+			scene.tick()
+			eq(H.Receive("WHISPER", mate, (assert(scene.packets[1]).word:gsub("^J4~P~", "J4~V~"))), true)
+			scene.tick()
+			eq(H.Receive("WHISPER", mate, (assert(scene.packets[2]).word:gsub("^J4~O~", "J4~C~"))), true)
+			eq(H.State(givenReq), "assigning", "its name went to the member")
+			scene.now = scene.now + 21
+			eq(R.OnJoinRequest("WHISPER", back, J3), true)
+			local req = R.requests[#R.requests]
+			eq(req.name, back)
+			eq(assert(D.Find(DRAFT)).data.req, req)
+			eq(R.ToggleWhisperRecruiting(), false, "recruiting off")
+			eq(D.Find(DRAFT), nil, "its popup closes with recruiting")
+			eq(#R.requests, 1, "the one a member has is gone")
+			eq(R.requests[1], req, "the other one stays")
+			eq(req.viaWhisper, nil)
+			eq(Find(R.RequestLines(true), "Back Recruit"), nil)
+			assert(Find(R.RequestLines(false), "Back Recruit"), "back in the Census as it came")
+			-- In the Census on Forever: Prepare invite (the command to copy, from the click) and Decline.
+			assert(Find(R.RequestLines(false), ns.L.RECRUIT_WHISPER_PREPARE_BUTTON)).onClick()
+			local copy = assert(D.Find(DRAFT), "the command to copy")
+			eq(copy.data.req, req); eq(copy.data.automatic, nil, "from the officer's click")
+			copy:Hide()
+			assert(Find(R.RequestLines(false), ns.L.JOIN_DECLINE)).onClick()
+			eq(#said, 2); eq(said[2].to, "Back Recruit"); eq(#R.requests, 0)
+			-- Without the game's invite right nobody recruits: a J3 is a Census row pointing to an officer.
+			scene.permission = false
+			local pointed = "Pointed Recruit-" .. home
+			eq(R.OnJoinRequest("WHISPER", pointed, J3), true)
+			eq(R.requests[1].viaWhisper, nil)
+			eq(D.Find(DRAFT), nil)
+			assert(Find(R.RequestLines(false), ns.L.JOIN_POINT:format(mate))).onClick()
+			eq(#said, 3); eq(said[3].to, "Pointed Recruit"); eq(said[3].text, ns.L.JOIN_POINT_TEXT:format(mate))
+		end)
+		SendChatMessage = savedSay
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- An unguilded player on the Join Olympus screen: the whispers he sends, his addon whispers outside
+-- Olympus and his timers, on a clock the test moves. w.Send() clicks the request window's Send.
+local function WithJoinScreen(fn)
+	local saved = { guild = GetGuildInfo, inGuild = IsInGuild, level = UnitLevel, class = UnitClass, time = GetTime,
+		say = SendChatMessage, outside = ns.Comm.WhisperOutside, dialog = ns.Dialog, after = ns.After, now = ns.Now,
+		locked = ns.ChatLocked, quiet = ns.Quiet, reminder = ns.db.joinReminderOff }
+	R.ResetForTests()
+	local w = { clock = 1000, said = {}, out = {}, timers = {} }
+	GetGuildInfo = function() return nil end
+	IsInGuild = function() return false end
+	UnitLevel = function() return 12 end
+	UnitClass = function() return "Mage", "MAGE" end
+	GetTime = function() return w.clock end
+	ns.Now = function() return w.clock end
+	SendChatMessage = function(text, kind, _, to) w.said[#w.said + 1] = { text = text, kind = kind, to = to } end
+	ns.Comm.WhisperOutside = function(to, msg) w.out[#w.out + 1] = { to = to, msg = msg } return true end
+	ns.Dialog = Dialogs()
+	ns.After = function(delay, _, callback) w.timers[#w.timers + 1] = { at = w.clock + (delay or 0), fn = callback } end
+	ns.ChatLocked = function() return false end
+	ns.Quiet = function() return nil end
+	ns.db.joinReminderOff = nil
+	function w.Advance(seconds)
+		w.clock = w.clock + seconds
+		local due = true
+		while due do
+			due = false
+			for i, t in ipairs(w.timers) do
+				if t.at <= w.clock then
+					table.remove(w.timers, i)
+					t.fn()
+					due = true
+					break
+				end
+			end
+		end
+	end
+	function w.Send()
+		local f = assert(ns.Dialog.Find("OLYMPUS_RECRUIT"), "the request window")
+		local box = { text = "" }
+		function box.SetText(self, t) self.text = t end
+		function box.GetText(self) return self.text end
+		function box.HighlightText() end
+		function box.SetFocus() end
+		f.editBox = box
+		f.def.OnShow(f, f.data)
+		f.def.OnAccept(f, f.data)
+		f:Hide()
+		return box.text
+	end
+	local ok, err = pcall(fn, w)
+	R.ResetForTests()
+	GetGuildInfo, IsInGuild, UnitLevel, UnitClass, GetTime = saved.guild, saved.inGuild, saved.level, saved.class, saved.time
+	SendChatMessage, ns.Comm.WhisperOutside, ns.Dialog, ns.After, ns.Now = saved.say, saved.outside, saved.dialog, saved.after, saved.now
+	ns.ChatLocked, ns.Quiet, ns.db.joinReminderOff = saved.locked, saved.quiet, saved.reminder
+	if not ok then error(err, 0) end
+end
+
+-- 1.5.8's Recruit.lua (tests/fixtures/recruit-1.5.8.lua) as another player's addon: its handlers,
+-- listeners and dialogs stay its own, and this build's dialogs are put back.
+local function OldRecruit()
+	local handlers, dialogs = {}, {}
+	for name, d in pairs(StaticPopupDialogs) do dialogs[name] = d end
+	local ons = setmetatable({
+		Comm = setmetatable({ Handle = function(kind, fn) handlers[kind] = fn end, HandleOutside = function() end }, { __index = ns.Comm }),
+		Who = setmetatable({ Listen = function() end }, { __index = ns.Who }),
+		On = function() end,
+	}, { __index = ns })
+	local ok, err = pcall(assert(loadfile(FIXTURES .. "recruit-1.5.8.lua")), "Olympus", ons)
+	for name in pairs(StaticPopupDialogs) do StaticPopupDialogs[name] = dialogs[name] end
+	if not ok then error(err, 0) end
+	return ons.Recruit, handlers
+end
+
+test("join screen request (1.5.9): to a member without Olympus the plain whisper goes, and the wait, the timeout and the next member are unchanged", function()
+	WithJoinScreen(function(w)
+		local L = ns.L
+		local function Line(text)
+			for _, line in ipairs(ns.Views.JoinLines(400)) do if line.text == text then return line end end
+		end
+		local function Primary()
+			for _, line in ipairs(ns.Views.JoinLines(400)) do if line.primary then return line end end
+		end
+		R.OnFound({ { name = "Aaa-Realm", guild = own, level = 20, class = "MAGE" }, { name = "Bbb-Realm", guild = own, level = 21, class = "PRIEST" } })
+		eq(R.RequestJoin(), true)
+		eq(assert(ns.Dialog.Find("OLYMPUS_RECRUIT")).data.name, "Aaa-Realm")
+		local text = w.Send()
+		eq(#w.said, 1, "one whisper, from Send")
+		eq(w.said[1].kind, "WHISPER"); eq(w.said[1].to, "Aaa"); eq(w.said[1].text, text, "the request as the window wrote it")
+		local last = w.out[#w.out]
+		eq(last.to, "Aaa"); eq(last.msg, J3, "its J3 to the same member, as 1.5.8 sends it")
+		for _, o in ipairs(w.out) do assert(o.msg:match("^J[13]~"), "only J1 and J3 leave the Join screen: " .. o.msg) end
+		-- A member without Olympus answers neither: the screen waits 45 seconds...
+		assert(Line(L.RECRUIT_JOIN_WAITING:format(45)), "waiting for an invite")
+		eq(Primary().onClick, nil, "no new request while waiting")
+		eq(R.RequestJoin(), false)
+		eq(#w.said, 1)
+		w.Advance(44)
+		assert(Line(L.RECRUIT_JOIN_WAITING:format(1)))
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_RETRY"), nil)
+		-- ...then says no invite came, with its reminder, and Request again asks the next member.
+		w.Advance(1)
+		assert(Line(L.RECRUIT_JOIN_TIMEOUT), "no invite yet: try another member")
+		assert(ns.Dialog.Find("OLYMPUS_RECRUIT_RETRY"), "the reminder")
+		local again = Primary()
+		eq(again.text, L.RECRUIT_JOIN_AGAIN); eq(again.onClick, R.RequestJoin)
+		eq(again.onClick(), true)
+		eq(assert(ns.Dialog.Find("OLYMPUS_RECRUIT")).data.name, "Bbb-Realm", "the next member, not the same one")
+		w.Send()
+		eq(#w.said, 2); eq(w.said[2].to, "Bbb")
+		eq(w.out[#w.out].to, "Bbb"); eq(w.out[#w.out].msg, J3)
+	end)
+end)
+
+test("join screen request (1.5.9): mixed versions: a 1.5.8 member takes this build's J3 as the Census row, a 1.5.9 one pops up a 1.5.8 player's", function()
+	local whisper, sent, oldSent
+	WithJoinScreen(function(w)
+		R.OnFound({ { name = "Aaa-Realm", guild = own, level = 20, class = "MAGE" } })
+		eq(R.RequestJoin(), true)
+		whisper = w.Send()
+		sent = assert(w.out[#w.out]).msg
+		-- A 1.5.8 player's request, from 1.5.8's own Send.
+		local old = OldRecruit()
+		eq(old.Ask({ name = "Ccc-Realm", guild = own }, whisper), true)
+		eq(w.said[#w.said].to, "Ccc")
+		oldSent = assert(w.out[#w.out]).msg
+		eq(oldSent, sent, "1.5.8 and 1.5.9 send the same J3")
+	end)
+	-- A 1.5.8 member who recruits: the Census row 1.5.8 makes of a J3, never the JOIN's popup.
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local old, handlers = OldRecruit()
+		eq(old.ToggleWhisperRecruiting(), true, "the 1.5.8 member recruits too")
+		old.OnWhisper(whisper, applicant)
+		eq(assert(handlers.J3)("WHISPER", applicant, sent), true)
+		local req = assert(old.requests[1])
+		eq(req.viaWhisper, nil, "a Census request")
+		eq(D.Find(DRAFT), nil, "no popup")
+		eq(req.text, whisper)
+		assert(Find(old.RequestLines(false), "New Recruit"), "on top of the Census")
+		eq(scene.printed[#scene.printed], ns.L.JOIN_ASKED:format(ns.DisplayName(applicant), 12, ClassName("MAGE"), own))
+		-- This build's member, recruiting: the 1.5.8 player's J3 pops up as a JOIN.
+		R.OnWhisper(whisper, applicant)
+		eq(R.OnJoinRequest("WHISPER", applicant, oldSent), true)
+		local draft = assert(D.Find(DRAFT), "the JOIN's popup")
+		eq(draft.data.req.name, applicant)
+	end)
+end)

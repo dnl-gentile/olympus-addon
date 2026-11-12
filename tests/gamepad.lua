@@ -4715,6 +4715,58 @@ test("gamepad Forever Join requests can copy a command and open empty game chat 
 	GP.Covers("chat-box")
 end)
 
+-- 1.5.9 (the author, 11-12, about the Join screen's request: "podia aparecer o pop-up também para dar
+-- Ctrl-C, Ctrl-V e Enter, que nem outro fluxo"): at a member recruiting by whisper a J3 opens the
+-- JOIN's own invite popup in either input mode; the invite right lost at a roster update stops
+-- recruiting, and the request is a Census row again.
+test("gamepad a Join screen request (J3) at a recruiting member opens the JOIN's invite popup, then goes back to the Census", function()
+	for _, pad in ipairs({ false, true }) do
+		local C, ns = Session(pad, { realmFrom = function() return "CAMWOWUS2Realm1PvE" end, surname = "Recruiter" })
+		local R, guild = ns.Recruit, C.units.player.guild
+		local sender = "New Recruit-CAMWOWUS2Realm1PvE"
+		local function Draft() return ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") end
+		local function InCensus()
+			for _, row in ipairs(R.RequestLines(false)) do
+				if row.text and row.text:find("New Recruit", 1, true) then return true end
+			end
+			return false
+		end
+		InClick(C, function() eq(R.EnableWhisperRecruiting(), true) end)
+		local mark = C.Mark()
+		C.Fire("CHAT_MSG_WHISPER", "Hi! I'd love to join Olympus.", sender)
+		eq(Draft(), nil, "his whisper alone is no JOIN")
+		eq(R.OnJoinRequest("WHISPER", sender, ("J3~%s~12~MAGE"):format(guild)), true)
+		local req = assert(R.requests[1])
+		eq(req.viaWhisper, true)
+		local draft = assert(Draft(), "the JOIN's popup, on its own")
+		eq(draft.editBox:GetText(), "/ginvite New Recruit")
+		eq(InCensus(), false, "in Church > Invites, not the Census")
+		-- The command goes to the game's chat from the mouse and keyboard's Open game chat.
+		if pad then C.Switch(false) end
+		C.Click(draft.extraButton)
+		eq(assert(C.chatBox).text, "", "the player pastes into empty game chat")
+		eq(R.InvitesTaken(), 1, "one of the minute's ten")
+		C.env.ChatFrame1EditBox.text = "/ginvite New Recruit"
+		C.Advance(0.25)
+		eq(draft:IsShown(), false, "the paste closes the popup")
+		if pad then C.Switch(true) end
+		C.env.CanGuildInvite = function() return false end
+		C.Fire("GUILD_ROSTER_UPDATE")
+		eq(R.IsWhisperRecruiting(), false, "no invite right: recruiting stops")
+		eq(R.requests[1], req, "the Join screen request is kept")
+		eq(req.viaWhisper, nil)
+		eq(InCensus(), true, "back in the Census")
+		eq(#(C.said or {}), 0, "nothing sent")
+		for _, call in ipairs(C.Since(mark)) do
+			assert(call.sym ~= "C_GuildInfo.Invite" and call.sym ~= "GuildInvite", "no protected guild call")
+		end
+		Check(C.ledger, "a Join screen request at a recruiting member")
+		NoErrors(C, "a Join screen request at a recruiting member")
+	end
+	GP.Covers("chat-box")
+	GP.Covers("popup-focus")
+end)
+
 test("gamepad public recruiting announcement: reminder dropdown, independent channels and explicit Post or Enter", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
