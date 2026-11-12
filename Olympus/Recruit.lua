@@ -1540,8 +1540,10 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 		invitesTaken[#invitesTaken + 1] = ns.Now()
 		local H = Recruit.Handoff
 		if H then
-			H.LogItem("TOCHAT", req or data.candidate, ("%d/%d"):format(#invitesTaken, Recruit.INVITES_PER_MINUTE))
-			if #invitesTaken == Recruit.INVITES_PER_MINUTE then H.Log("LIMIT", ("%d invites in a minute"):format(#invitesTaken)) end
+			-- (The minute's own count: a popup can stay open past it.)
+			local taken = Recruit.InvitesTaken()
+			H.LogItem("TOCHAT", req or data.candidate, ("%d/%d"):format(taken, Recruit.INVITES_PER_MINUTE))
+			if taken == Recruit.INVITES_PER_MINUTE then H.Log("LIMIT", ("%d invites in a minute"):format(taken)) end
 		end
 		draft:Hide()
 	end

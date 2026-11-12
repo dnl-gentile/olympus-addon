@@ -1153,6 +1153,13 @@ test("recruit handoff simulation (1.5.8): forty JOINs at a busy recruiter each e
 					back = back + 1
 				end
 			end
+			-- Each command taken to chat says how many the minute holds, never more than the limit.
+			for _, c in ipairs({ busy, ableOne, ableTwo, full }) do
+				for _, line in ipairs(c.ns.db.recruitLog) do
+					local n = line:match(" TOCHAT .- (%d+)/10$")
+					assert(not n or tonumber(n) <= 10, "a minute's count past the limit: " .. line)
+				end
+			end
 			assert(handed > 0, "some JOINs were handed on")
 			assert(back > 0, "some came back to his own popups once his minute cleared")
 			-- Nobody else ever got an offer or a name, and no member got more than ten names a minute.
@@ -1180,5 +1187,40 @@ test("recruit handoff simulation (1.5.8): forty JOINs at a busy recruiter each e
 		end)
 		ChatFrameUtil, ns.Roster.RankOf, ns.Roster.online = savedUtil, savedRank, savedOnline
 		if not ok then error(err, 0) end
+	end)
+end)
+
+-- The log's count of a minute's commands: a popup left open past the minute counted the commands
+-- already gone from it ("11/10"), since nothing had looked at the limit while it stayed open.
+test("recruit log (1.5.8): a popup left open past the minute logs that minute's own count", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			local D = Dialogs()
+			ns.Dialog = D
+			local savedUtil = ChatFrameUtil
+			ChatFrameUtil = { OpenChat = function() end }
+			local ok, err = pcall(function()
+				for i = 1, 10 do R.OnWhisper("JOIN", ("Early %d-%s"):format(i, home)) end
+				for i = 1, 10 do
+					local open = D.Find(DRAFT)
+					if open then open:Hide() end
+					eq(R.Accept(R.requests[i]), true)
+					local draft = assert(D.Find(DRAFT))
+					draft.def.extra.onClick(draft, draft.data)
+				end
+				assert(LogHas("TOCHAT " .. H.Tag("Early 10-" .. home) .. " 10/10"))
+				assert(LogHas("LIMIT 10 invites in a minute"), "the limit reached")
+				R.OnWhisper("JOIN", "Late Recruit-" .. home)
+				local late = R.requests[#R.requests]
+				eq(late.name, "Late Recruit-" .. home)
+				eq(R.Accept(late), true)
+				local draft = assert(D.Find(DRAFT))
+				scene.now = scene.now + 61
+				draft.def.extra.onClick(draft, draft.data)
+				assert(LogHas("TOCHAT " .. H.Tag(late.name) .. " 1/10"), "the minute holds only this one")
+			end)
+			ChatFrameUtil = savedUtil
+			if not ok then error(err, 0) end
+		end)
 	end)
 end)
