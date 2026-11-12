@@ -3205,6 +3205,34 @@ test("Church ledger v2 rechecks queued private rows when the recipient loses its
 	eq(#LedgerMessages(w, c.a2, 2, "e"), 0, "the cancelled row cannot emit its terminal")
 end)
 
+test("Church ledger recovery replays verified recent records without advancing a saved cursor", function()
+	local w, c = LedgerPageWorld()
+	Give(w, c.a2, "Earlier Rec", "Mira Wells", 200)
+	Rec(w, c.a2, "Earlier Rec", "Mira Wells").u = w.clock - 8 * DAY
+	Give(w, c.a2, "Missed Reca", "Mira Wells", 2)
+	Give(w, c.a2, "Missed Recb", "Mira Wells", 2)
+	w:Run(2)
+	local peer, saved = Key(A2), w.clock - 1
+	local ledger = w:As(c.a1, c.a1.Count.Led)
+	ledger.from[peer] = saved
+	eq(w:Act(c.a1, c.a1.Church.Slash, "recover"), false, "the peer has not proved v2 support")
+	eq(w:Act(c.a1, c.a1.Count.CatchUp, true), true)
+	eq(ledger.nl2[peer], true)
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 0, "ordinary catch-up cannot see rows behind the old cursor")
+	c.a2.Count.CATCHUP_LINES = 1
+	w:Run(6) -- beyond the source's minimum request spacing
+	local caught = ledger.caught[peer]
+	eq(w:Act(c.wes, c.wes.Church.Slash, "recover"), false, "only keepers can request recovery")
+	eq(w:Act(c.a1, c.a1.Church.Slash, "recover"), true)
+	eq(w:Act(c.a1, c.a1.Church.Slash, "recover"), false, "one transfer at a time")
+	w:Run(6)
+	eq(Joins(w, c.a1, "Mira Wells", "a"), 2, "both recent pages merged")
+	eq(Rec(w, c.a1, "Earlier Rec", "Mira Wells"), nil, "outside the seven-day recovery window")
+	eq(ledger.from[peer], saved); eq(ledger.caught[peer], caught)
+	assert(table.concat(w:As(c.a1, c.a1.Count.StatusLines), "\n"):find("complete (2 complete pages)", 1, true))
+	eq(w:Act(c.a1, c.a1.Church.Slash, "recover"), false, "a completed replay still observes the cooldown")
+end)
+
 test("Church ledger catch-up withholds its terminal on a failed queued row and recovers without skipping it", function()
 	local w, c = Cast()
 	Give(w, c.a2, "Lost Reca", "Mira Wells", 2)

@@ -3205,6 +3205,7 @@ Other limits:
 | `/oly craft [item or name]` · `/oly crafter on\|off` | who can make it (the top-level Crafters tab: shift-click an item after `/oly craft`); list your professions read so far, or take them off |
 | `/oly approved` · `/oly approved paste` | the guilds of Asmon's Olympus the author's signed list makes Olympus guilds (their names don't say Olympus), and whether yours is one; paste that signed list (the first member of such a guild: his addon then passes it to the guild) |
 | `/oly church` · `/oly church status` · `/oly church name <Name>` · `/oly church register <Name>` | the Missionary Church of Olympus's tab; its status in a window you can copy from; name a missionary of your network; register a recruit you brought |
+| `/oly church recover` | a Church keeper on Forever requests records changed in the last seven days from one online keeper known to support complete ledger pages. It merges evidence already held by that keeper and preserves normal catch-up checkpoints. Check progress with `/oly church status` |
 | `/oly arms [text]` · `/oly muster [text]` | send a decree (`test` = local preview) |
 | `/ol <text>` · `/olc <text>` · `/oll <text>` | write in [Olympus], [Captains] or [Lords]; alone (`/ol`, `/olc`, `/oll`): open the Chat tab on that channel (1.1.1) |
 | `/oly all <text>` · `/oly captains <text>` · `/oly lords <text>` | the same, as `/oly` commands |

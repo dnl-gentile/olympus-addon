@@ -23,7 +23,9 @@ L.CHURCH_ROLE_AUTHOR = "The addon's author"
 L.CHURCH_ROLE_KING = "The King"
 L.CHURCH_ROLE_COUNCIL = "High Council"
 L.CHURCH_NO_ACCESS = "Join an Olympus guild to see the Church's people. Church duties and private numbers appear only for the people who hold those roles."
-L.CHURCH_USAGE = "/oly church [status | name <Name> | apostle <Name> | register <Name> | remove <Name>]"
+L.CHURCH_USAGE = "/oly church [status | recover | name <Name> | apostle <Name> | register <Name> | remove <Name>]"
+L.CHURCH_RECOVER_STARTED = "Requested the last seven days from another Church keeper. See /oly church status for progress."
+L.CHURCH_RECOVER_WAIT = "A Church keeper can check recent records once every ten minutes, with another keeper on the new protocol online and no catch-up in progress."
 
 -- Places
 L.CHURCH_YOU_APOSTLE = "You are now one of the Twelve Apostles of the Missionary Church of Olympus."
@@ -244,7 +246,9 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CHURCH_ROLE_KING = "O Rei"
 	L.CHURCH_ROLE_COUNCIL = "Alto Conselho"
 	L.CHURCH_NO_ACCESS = "Entre numa guilda Olympus para ver as pessoas da Igreja. As funções e os números privados aparecem só para quem ocupa os cargos correspondentes."
-	L.CHURCH_USAGE = "/oly church [status | name <Nome> | apostle <Nome> | register <Nome> | remove <Nome>]"
+	L.CHURCH_USAGE = "/oly church [status | recover | name <Nome> | apostle <Nome> | register <Nome> | remove <Nome>]"
+	L.CHURCH_RECOVER_STARTED = "Os últimos sete dias foram pedidos a outro guardião da Igreja. Acompanhe em /oly church status."
+	L.CHURCH_RECOVER_WAIT = "Um guardião da Igreja pode conferir registros recentes uma vez a cada dez minutos, com outro guardião online usando o novo protocolo e sem sincronização em andamento."
 
 	L.CHURCH_YOU_APOSTLE = "Agora você é um dos Doze Apóstolos da Igreja Missionária de Olympus."
 	L.CHURCH_YOU_MISSIONARY = "Agora você é missionário da Igreja, na rede de %s."

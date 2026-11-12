@@ -1806,7 +1806,7 @@ local function LedgerAccess(name)
 	return true
 end
 
-local function SendCatchUp(name, k, since, tie, legacy, cutoff)
+local function SendCatchUp(name, k, since, tie, legacy, cutoff, replay)
 	catch.page = nil
 	local scope, ledger = LedgerScope(), catch.ledger
 	if scope and not LedgerPeer(name, scope) then return false end
@@ -1820,13 +1820,15 @@ local function SendCatchUp(name, k, since, tie, legacy, cutoff)
 	catch.seq = (catch.seq or 0) + 1
 	catch.salt = catch.salt or Count.random(0, 2147483647)
 	local id = B36(Clock()) .. B36(catch.salt) .. B36(catch.seq)
-	local page = { k = k, id = id, scope = scope, since = since, tie = tie, cutoff = cutoff, slots = {}, keys = {}, count = 0, high = 0 }
+	local page = { k = k, id = id, scope = scope, since = since, tie = tie, cutoff = cutoff, replay = replay,
+		slots = {}, keys = {}, count = 0, high = 0 }
 	catch.page = page
 	local text = ("NL~2~q~%s~%s~%s~%s~%s"):format(id, scope, B36(since), B36(cutoff or 0), tie or "-")
 	return ns.Comm.Whisper(name, text, nil, false, false, function(ok)
 		if not ok or catch.page ~= page then return end
 		page.sent = true
 		catch.last = ns.Now()
+		if replay then return end -- replay only runs with a known v2 peer
 		Count.after(Count.CATCHUP_LEGACY_WAIT, "church legacy catch-up", function()
 			if catch.page ~= page or page.modern or not Guard() then return end
 			if type(ledger.nl2) == "table" and ledger.nl2[k] then return end
@@ -1835,6 +1837,35 @@ local function SendCatchUp(name, k, since, tie, legacy, cutoff)
 	end, { owner = Count, guard = function()
 		return catch.page == page and Guard()
 	end })
+end
+
+local function EndReplay(replay, result)
+	catch.active, catch.page = nil, nil
+	catch.last, catch.heard = replay.last, replay.heard
+	replay.result = result
+end
+
+-- A keeper can revisit recent records a pre-v2 transfer skipped. This is a separate
+-- read of already verified records, so neither its scope nor its progress changes a normal cursor.
+function Count.ReplayRecent()
+	local scope, now = LedgerScope(), ns.Now()
+	if not scope or not Church.IsKeeper(ns.me) or Church.IsKing(ns.me) or Off() or catch.active then return false end
+	if now - (catch.replay and catch.replay.at or -math.huge) < Count.CATCHUP_REASK then return false end
+	local l = Led()
+	for _, peer in ipairs(Church.KeepersOnline(false)) do
+		local k = Key(peer.name)
+		if type(l.nl2) == "table" and l.nl2[k] and LedgerPeer(peer.name, scope) then
+			local replay = { at = now, last = catch.last, heard = catch.heard, pages = 0, result = "waiting" }
+			catch.ledger, catch.active, catch.last, catch.heard = l, k, now, -math.huge
+			if not SendCatchUp(peer.name, k, math.max(0, Clock() - 7 * DAY), nil, false, nil, replay) then
+				EndReplay(replay, "unsent")
+				return false
+			end
+			catch.replay = replay
+			return true
+		end
+	end
+	return false
 end
 
 -- A keeper asks another for what changed since its last catch-up from him: the one asked or caught
@@ -1860,11 +1891,16 @@ function Count.CatchUp(force, sweep)
 	-- A character can change role without reloading. A request for the council copy
 	-- must never commit a cursor in the keeper's separate ledger, or the reverse.
 	if catch.ledger and catch.ledger ~= l then
+		if catch.page and catch.page.replay then EndReplay(catch.page.replay, "interrupted") end
 		catch.active, catch.page, catch.last, catch.heard = nil, nil, -math.huge, -math.huge
 		catch.ledger, catch.asked, catch.settled = l, {}, false
 	end
 	local t = ns.Now()
 	local retry = catch.active ~= nil and t - math.max(catch.last, catch.heard) >= Count.CATCHUP_RETRY
+	if catch.page and catch.page.replay then
+		if not retry and not force then return false end
+		EndReplay(catch.page.replay, "interrupted")
+	end
 	if sweep and catch.active ~= nil then return false end
 	local rotating = sweep or catch.rotate
 	if not force and (((not rotating and t - catch.last < Count.CATCHUP_EVERY) and not retry)
@@ -2029,7 +2065,13 @@ end
 local function FinishCatchUp(sender, more, u, tie, page)
 	local k, l = Key(sender), Led()
 	local before = l.from[k] or 0
-	l.from[k] = math.max(before, tie and u - 1 or u)
+	local replay = page and page.replay
+	if replay then
+		replay.pages = replay.pages + 1
+		if not more then EndReplay(replay, "complete"); return true end
+	else
+		l.from[k] = math.max(before, tie and u - 1 or u)
+	end
 	if not more then
 		if not catch.settled then catch.settled = true; ViewChanged() end
 		if catch.active == k then catch.active, catch.page = nil, nil end
@@ -2040,14 +2082,15 @@ local function FinishCatchUp(sender, more, u, tie, page)
 		end)
 		return true
 	end
-	if l.from[k] > before and type(l.asked) == "table" then l.asked[k] = nil end
+	if not replay and l.from[k] > before and type(l.asked) == "table" then l.asked[k] = nil end
 	if catch.active == k then
 		local who = ns.FullName(sender)
 		Count.after(5, "church catch-up", function()
 			if catch.active ~= k or catch.page ~= page or catch.ledger ~= l or Led() ~= l then return end
 			local now = ns.Now()
-			catch.last, catch.asked[k] = now, now
-			SendCatchUp(who, k, page and u or (Led().from[k] or 0), tie, not page, page and page.terminal.cutoff)
+			catch.last = now
+			if not replay then catch.asked[k] = now end
+			SendCatchUp(who, k, page and u or (Led().from[k] or 0), tie, not page, page and page.terminal.cutoff, replay)
 		end)
 	end
 	return true
@@ -2918,13 +2961,15 @@ function Count.StatusLines()
 	local dropped = {}
 	for why, k in pairs(stats.dropped) do dropped[#dropped + 1] = why .. "=" .. k end
 	table.sort(dropped)
-	return {
+	local lines = {
 		("log reads %d, events %d, pairs %d, evidence sent %d, outbox %d, receipts %d, refused for now %d, memory %d names"):format(stats.reads,
 			stats.events, stats.pairs, stats.sent, #(Out() or {}), stats.receipts or 0, stats.later or 0, mem and mem.count or 0),
 		("ledger %d records, %d people, %d archived, %d let go; checks sent %d, open %d, answers %d"):format(n, p, archived, marks,
 			stats.checks, open, stats.answers),
 		"count dropped: " .. (#dropped > 0 and table.concat(dropped, ", ") or "-"),
 	}
+	if catch.replay then lines[#lines + 1] = ("recent ledger check: %s (%d complete pages)"):format(catch.replay.result, catch.replay.pages) end
+	return lines
 end
 
 ns.On("INIT", function() Count.CheckSaved() end)
