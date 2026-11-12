@@ -3870,6 +3870,7 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 			C.Fire("CHAT_MSG_CHANNEL", text, sender, "", channel, "", "", zoneID, index, channel)
 		end
 
+		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_OFF), "reminder control is visible with the channel picker closed")
 		ClickLine(L.RECRUIT_ANNOUNCE_OPEN)
 		local general, trade = L.RECRUIT_ANNOUNCE_CHANNEL:format(1, "General"), L.RECRUIT_ANNOUNCE_CHANNEL:format(2, "Trade")
 		eq(Find(L.RECRUIT_ANNOUNCE_CHANNEL:format(3, "Private")), nil, "private channels are omitted")

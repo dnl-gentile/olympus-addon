@@ -1014,8 +1014,12 @@ local function ChangeReminder()
 end
 
 local function AnnouncementLines(lines, V)
-	lines[#lines + 1] = { text = V.Gold(L.RECRUIT_ANNOUNCE_OPEN), gapAfter = not announceOpen,
+	lines[#lines + 1] = { text = V.Gold(L.RECRUIT_ANNOUNCE_OPEN),
 		onClick = function() announceOpen = not announceOpen; ns.Fire("DATA_CHANGED") end }
+	local minutes = REMINDER_MINUTES[reminderIndex]
+	local reminder = minutes > 0 and L.RECRUIT_ANNOUNCE_REMINDER_ON:format(minutes) or L.RECRUIT_ANNOUNCE_REMINDER_OFF
+	lines[#lines + 1] = { indent = 1, text = V.Grey(reminder), onClick = ChangeReminder, gapAfter = not announceOpen,
+		tooltip = function(tt) tt:AddLine(L.RECRUIT_ANNOUNCE_REMINDER_TIP, 1, 1, 1, true) end }
 	if not announceOpen then return end
 	local rows = PublicChannels()
 	if #rows == 0 then lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_ANNOUNCE_NO_CHANNELS) } end
@@ -1023,23 +1027,20 @@ local function AnnouncementLines(lines, V)
 		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_ANNOUNCE_CHANNEL:format(row.id, ns.Codec.SanitizeChat(row.name))),
 			onClick = function() CopyAnnouncement(row) end }
 	end
-	local minutes = REMINDER_MINUTES[reminderIndex]
-	local reminder = minutes > 0 and L.RECRUIT_ANNOUNCE_REMINDER_ON:format(minutes) or L.RECRUIT_ANNOUNCE_REMINDER_OFF
-	lines[#lines + 1] = { indent = 1, text = V.Grey(reminder), onClick = ChangeReminder, gapAfter = true,
-		tooltip = function(tt) tt:AddLine(L.RECRUIT_ANNOUNCE_REMINDER_TIP, 1, 1, 1, true) end }
+	lines[#lines].gapAfter = true
 end
 
 function Recruit.WhisperLines()
 	if not WhisperGuild() then return {} end
 	local V, on = ns.Views, Recruiting()
 	local lines = { { text = on and V.Green(L.RECRUIT_WHISPER_ON) or V.Grey(L.RECRUIT_WHISPER_OFF),
-		onClick = Recruit.ToggleWhisperRecruiting, gapAfter = not on } }
+		onClick = Recruit.ToggleWhisperRecruiting, gapAfter = true } }
+	AnnouncementLines(lines, V)
 	if on then
 		lines[#lines + 1] = { indent = 1, text = L.RECRUIT_WHISPER_HINT }
 		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_WHISPER_TARGET), onClick = Recruit.PromptOutreach, gapAfter = true }
 		if Recruit.Handoff then Recruit.Handoff.Controls(lines, V) end
 	end
-	AnnouncementLines(lines, V)
 	return lines
 end
 
