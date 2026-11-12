@@ -3911,15 +3911,16 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 			if line.text and line.text:find("NearTest", 1, true) then copies = copies + 1 end
 		end
 		eq(copies, 1, "target and plate observations are deduplicated")
-		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "collection defaults to list only")
+		-- (1.5.8, the author: scanning unguilded players brings the same invite popup as a JOIN.)
+		assert(QueueLine(ns.L.RECRUIT_CANDIDATE_PROMPTS_ON), "invite popups come on with the scan")
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "no popup before the first interval")
 		local function Draft() return ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") end
 		ClickLine(function(line) return line.text and line.text:find("WhoTest", 1, true) end)
 		eq(assert(Draft()).editBox:GetText(), "/ginvite WhoTest")
 		Draft():Hide()
-		ClickLine(function(line) return line.id == "recruit-candidate-prompts" end)
 		C.Advance(15.1)
 		local copy = assert(Draft())
-		eq(copy.editBox:GetText(), "/ginvite NearTest", "only a live observation opens an automatic draft")
+		eq(copy.editBox:GetText(), "/ginvite NearTest", "the timed popup opens the next unprompted candidate")
 		Plate(5, "NextTest", nil, "Alliance")
 		C.Advance(15.1)
 		eq(Draft(), copy, "an open draft is never replaced by the timer")
@@ -3927,8 +3928,14 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 		C.units.nameplate5.guild = "New Guild"
 		C.Advance(15.1)
 		eq(Draft(), nil, "fresh native recheck refuses a player who joined a guild")
+		who[#who + 1] = { fullName = "WhoPopup-Realm", fullGuildName = "", raceStr = "Human" }
+		C.Fire("WHO_LIST_UPDATE")
+		C.Advance(15.1)
+		local whoCopy = assert(Draft(), "a fresh WHO result from the player's /who opens the timed popup")
+		eq(whoCopy.editBox:GetText(), "/ginvite WhoPopup")
+		whoCopy:Hide()
 		Refresh()
-		eq(QueueLine("WhoTest"), nil, "WHO results expire quickly")
+		assert(QueueLine("WhoTest"), "a WHO result stays in the queue for a few minutes")
 		eq(#(C.said or {}), sends, "observation and copy drafts send no chat")
 		eq(#(C.whos or {}), searches, "the queue issues no WHO queries")
 		ClickLine(function(line) return line.text and line.text:find(ns.L.RECRUIT_CANDIDATE_WHISPER, 1, true) end)
@@ -3956,6 +3963,8 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"), timed, "a later interval leaves the pending draft alone")
 		eq(#(C.said or {}), sends + 1)
 		timed:Hide()
+		Refresh()
+		eq(QueueLine("WhoTest"), nil, "WHO results expire after a few minutes")
 		for _, call in ipairs(C.Since(start)) do
 			assert(call.sym ~= "C_GuildInfo.Invite" and call.sym ~= "GuildInvite", "no native guild invitation")
 		end

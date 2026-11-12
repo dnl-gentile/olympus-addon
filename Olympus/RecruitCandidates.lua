@@ -3,9 +3,11 @@ local L, R = ns.L, ns.Recruit
 local Q = {}
 R.Candidates = Q
 
--- Local observations for this recruiting session. WHO can offer a short-lived copy draft;
--- opening a popup automatically or reviewing a whisper needs a current friendly unit.
-local MAX, LIVE_TTL, WHO_TTL, PROMPT_GAP = 24, 90, 30, 15
+-- Local observations for this recruiting session. A fresh WHO result (from a /who the player
+-- ran) or a current friendly unit can open the copy draft, by hand or as the timed popup;
+-- reviewing a whisper needs a current friendly unit. The game itself refuses an invite to a
+-- player who joined a guild since the /who.
+local MAX, LIVE_TTL, WHO_TTL, PROMPT_GAP = 24, 90, 180, 15
 local rows, byName, byGUID = {}, {}, {}
 local WHISPER_MINUTES = { 0, 2, 5, 10, 15, 30 }
 local guild, prompts, timer
@@ -172,7 +174,7 @@ local function Tick()
 	end
 	if not prompts then return end
 	for _, row in ipairs(rows) do
-		if not row.prompted and Q.Check(row, true) and R.CopyCandidateInvite(row, true) then
+		if not row.prompted and Q.Check(row) and R.CopyCandidateInvite(row, true) then
 			row.prompted = true
 			return
 		end
@@ -190,6 +192,8 @@ local function Toggle()
 	if guild then Q.Reset(); Change(); return end
 	guild = LocalGuild()
 	if not guild then return end
+	-- The invite popups come with the scan; the player can keep it to the list instead.
+	prompts = true
 	timer = ns.Every(PROMPT_GAP, "recruit candidates", Tick)
 	if not Quiet() then
 		Remember("target")
