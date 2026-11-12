@@ -710,7 +710,8 @@ test("role briefings: the 1.4.0 release writes its own launch letter (the dev's,
 			RB.LIVE = true
 			eq(RB.RegisterLaunch(), false, "LIVE: the release's own letter is kept")
 			eq(own.LETTER_1_4_0_TITLE, L.LETTER_1_4_0_TITLE); eq(own.LETTER_1_4_0, L.LETTER_1_4_0)
-			eq(Lt.LIST[15], "1.4.0"); eq(Lt.LIST[16] ~= "1.4.0", true, "listed once")
+			-- (1.5.8: its letter at the top moves every older one down a place.)
+			eq(Lt.LIST[16], "1.4.0"); eq(Lt.LIST[17] ~= "1.4.0", true, "listed once")
 			ns.db.lettersRead = {}
 			eq(Lt.Show("1.4.0"), true)
 			local f = Lt.Frame()

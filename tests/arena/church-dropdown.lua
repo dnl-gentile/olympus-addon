@@ -4,6 +4,8 @@ local test, eq, ns = H.test, H.eq, H.ns
 local World = assert(loadfile(H.ROOT .. "tests/church-world.lua"))(ns, H.ROOT)
 
 local function Filters(w, c)
+	-- 1.5.8: the Church opens on Invites (the author's order); its Who and When filters are Ranking's.
+	if c.View.page ~= "ranking" then c.View.page = "ranking" end
 	for _, line in ipairs(w:As(c, c.View.Build)) do if line.id == "church-filters" then return line.filters end end
 	error("Church filter row missing")
 end
@@ -85,6 +87,7 @@ end)
 test("Church dropdown: a redraw that changes none of its choices keeps Who or When open; a page without that filter closes it", function()
 	local w = World.New()
 	local c = w:Client(World.AUTHOR, { view = true })
+	c.View.page = "ranking" -- (1.5.8: the Church opens on Invites; the filters are Ranking's)
 	H.WithUI(function()
 		local content = CreateFrame("Frame", nil, UIParent)
 		content:SetWidth(300)

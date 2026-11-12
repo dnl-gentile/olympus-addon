@@ -151,7 +151,8 @@ test("1.2.4 Church fullness ranking rules: the private link opens in place and B
 	local inAudience = c.Church.InAudience
 	c.Church.InAudience = function() return false end
 	lines = Build(w, c)
-	eq(c.View.page, "people", "loss of the private Church audience closes the rules page")
+	-- 1.5.8 (the author's order: Invites, Ranking, People, Name, Assignments): the Church's first page is Invites.
+	eq(c.View.page, "invites", "loss of the private Church audience closes the rules page")
 	for _, line in ipairs(lines) do
 		assert(line.id ~= "ranking-rules-back" and line.id ~= "ranking-rules:church-fullness", "private rules remained discoverable")
 	end
