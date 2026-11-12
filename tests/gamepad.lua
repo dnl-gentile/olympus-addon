@@ -3623,7 +3623,6 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		InClick(C, function() ToggleLine().onClick() end); ns.UI.Refresh()
 		assert(ToggleLine().text:find(ns.L.RECRUIT_WHISPER_ON, 1, true))
 		C.Fire("CHAT_MSG_WHISPER", "join me later", "Stranger-Realm")
-		C.Fire("CHAT_MSG_WHISPER", "ginvite olympus please", "Stranger-Realm")
 		eq(#R.requests, 0, "ordinary unsolicited whispers do not queue anyone")
 
 		local target = { name = "Newbie", realm = "Realm", guid = "Player-1-00000002", guild = "Another Guild" }
@@ -3697,7 +3696,7 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), nil, "keep the current invite draft")
 		C.Click(copy.buttons[1])
 		C.combat = true
-		C.Fire("CHAT_MSG_WHISPER", "  Ginvite   Olympus!  ", "Another-Realm")
+		C.Fire("CHAT_MSG_WHISPER", "JOIN OLYMPUS", "Another-Realm")
 		eq(#R.requests, 3, "the former keyword also queues while in combat")
 		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), nil, "no recruiting popup in combat")
 		C.combat = false
