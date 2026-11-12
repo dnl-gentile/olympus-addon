@@ -12,19 +12,25 @@ local function WithHandoff(fn)
 		realm = ns.realm, splitNames = ns.splitNames, whisper = ns.Comm.Whisper,
 		fresh = ns.Roster.Fresh, rank = ns.Roster.RankOf, online = ns.Roster.online,
 		canRank = ns.Data.CanRank, authorized = ns.Data.AuthorizedRank,
-		every = ns.Every, quiet = ns.QuietPresence, after = ns.After, rdb = ns.rdb,
+		every = ns.Every, quiet = ns.QuietPresence, after = ns.After, rdb = ns.rdb, print = ns.Print,
+		candidates = R.Candidates, unitExists = UnitExists,
 	}
+	-- (The scan looks at the target and the nameplates: in these tests nobody stands nearby.)
+	UnitExists = function() return false end
 	ns.rdb = {}
 	R.ResetForTests()
-	local scene = { now = 5000, fresh = true, permission = true, support = 2, packets = {}, later = {} }
+	local scene = { now = 5000, fresh = true, permission = true, support = 2, packets = {}, later = {}, timers = {}, printed = {} }
+	ns.Print = function(msg) scene.printed[#scene.printed + 1] = tostring(msg) end
 	GetGuildInfo = function() return own end
 	CanGuildInvite = function() return scene.permission end
 	ns.IsMember = function() return true end
 	ns.ChatLocked = function() return scene.locked == true end
 	ns.After = function(_, _, fn) scene.later[#scene.later + 1] = fn end
 	ns.QuietPresence = function() return scene.quiet == true end
-	ns.Every = function(_, _, callback)
-		scene.tick = callback
+	ns.Every = function(_, name, callback)
+		scene.timers[name] = callback
+		-- scene.tick stays the automatic offers' step; the unguilded scan keeps its own timer.
+		if name ~= "recruit candidates" then scene.tick = callback end
 		return { Cancel = function() scene.cancelled = true end }
 	end
 	ns.Now = function() return scene.now end
@@ -56,7 +62,8 @@ local function WithHandoff(fn)
 	ns.realm, ns.splitNames, ns.Comm.Whisper = saved.realm, saved.splitNames, saved.whisper
 	ns.Roster.Fresh, ns.Roster.RankOf, ns.Roster.online = saved.fresh, saved.rank, saved.online
 	ns.Data.CanRank, ns.Data.AuthorizedRank = saved.canRank, saved.authorized
-	ns.Every, ns.QuietPresence, ns.After, ns.rdb = saved.every, saved.quiet, saved.after, saved.rdb
+	ns.Every, ns.QuietPresence, ns.After, ns.rdb, ns.Print = saved.every, saved.quiet, saved.after, saved.rdb, saved.print
+	R.Candidates, UnitExists = saved.candidates, saved.unitExists
 	if not ok then error(err, 0) end
 end
 
@@ -366,5 +373,385 @@ test("recruit handoff: an invite the game blocked is passed on only by the offic
 		eq(H.Receive("WHISPER", mate, (assert(scene.packets[1]).word:gsub("^J4~P~", "J4~V~"))), true)
 		scene.tick()
 		eq(H.State(req), "offered")
+	end)
+end)
+
+-- 1.5.8 (the author's, 11-12: "o repasse tem que ir para qualquer pessoa que esteja com a feature
+-- ativa. Não precisa ser só para officer, porque, por exemplo, eu não sou officer das minhas guildas
+-- e eu consigo convidar"): any member of the guild whose client recruits, accepts handoffs and can
+-- invite gives and takes them, whatever his rank; the game's invite permission is the only gate.
+test("recruit handoff (1.5.8): members of any rank who can invite give and take handoffs", function()
+	WithHandoff(function(scene)
+		ns.Roster.RankOf = function(name)
+			if name == me then return 5 end
+			if name == mate then return 6 end
+		end
+		local accept = assert(Find(R.WhisperLines(), ns.L.RECRUIT_HANDOFF_OFF), "a member sees the handoff switch")
+		eq(accept.onClick(), true, "a member who can invite accepts handoffs")
+		for i = 1, 3 do R.OnWhisper("JOIN", ("Member Queue %d-%s"):format(i, home)) end
+		eq(H.ToggleAuto(), true, "a member offers his waiting JOINs")
+		scene.tick()
+		local probe = assert(scene.packets[1], "the probe goes to a member, not only an officer")
+		eq(probe.peer, mate)
+		eq(H.Receive("WHISPER", mate, (probe.word:gsub("^J4~P~", "J4~V~"))), true)
+		scene.tick()
+		local offer = assert(scene.packets[2]); assert(offer.word:match("^J4~O~"))
+		eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~C~"))), true, "a member's claim is taken")
+		assert(scene.packets[3].word:match("^J4~N~"), "the name goes to the member who claimed")
+		-- The receiving side: a member's offer reaches this member, who claims it.
+		local D = Dialogs()
+		ns.Dialog = D
+		H.Receive("WHISPER", mate, Packet(scene, "O", own, own, nil, "5555-cd-1"))
+		local claim = assert(D.Find(CLAIM), "a member's offer asks this member to claim it")
+		claim.def.OnAccept(claim, claim.data)
+		assert(scene.packets[4].word:match("^J4~C~"))
+		-- Someone outside the roster is never a party, whatever he claims.
+		eq(H.Receive("WHISPER", "Stranger-" .. home, Packet(scene, "O", own, own, nil, "6666-ef-1")), false)
+		-- A member whose rank cannot invite takes no handoff.
+		scene.permission = false
+		eq(H.Receive("WHISPER", mate, Packet(scene, "O", own, own, nil, "7777-ab-1")), false,
+			"without the game's invite permission no offer is taken")
+		eq(Find(R.WhisperLines(), ns.L.RECRUIT_HANDOFF_ON), nil, "nor are the handoff switches shown")
+	end)
+end)
+
+-- 1.5.8 (the author's: "se ela tentar ativar e ela não puder convidar pessoas, vai avisar, tipo,
+-- você não pode convidar mesmo para sua guilda, fale com o seu GM").
+test("recruit (1.5.8): turning recruiting on without the game's invite permission says why and stays off", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		eq(R.ToggleWhisperRecruiting(), false, "turned off first")
+		scene.permission = false
+		local toggle = assert(R.WhisperLines()[1], "Church > Invites shows the switch to every member")
+		eq(toggle.onClick(), false)
+		eq(R.IsWhisperRecruiting(), false, "recruiting stays off")
+		eq(scene.printed[#scene.printed], ns.L.RECRUIT_NO_INVITE_RIGHT)
+		local notice = assert(D.Find("OLYMPUS_RECRUIT_NO_INVITE"), "the reason opens in a window too")
+		eq(notice.text, ns.L.RECRUIT_NO_INVITE_RIGHT)
+		notice:Hide()
+		local before = #scene.printed
+		eq(R.EnableWhisperRecruiting(), false, "the Census button refuses too")
+		eq(#scene.printed, before + 1)
+		eq(scene.printed[#scene.printed], ns.L.RECRUIT_NO_INVITE_RIGHT)
+		scene.permission = true
+		D.Find("OLYMPUS_RECRUIT_NO_INVITE"):Hide()
+		before = #scene.printed
+		eq(R.ToggleWhisperRecruiting(), true, "a member who can invite turns it on as before")
+		eq(D.Find("OLYMPUS_RECRUIT_NO_INVITE"), nil)
+		for i = before + 1, #scene.printed do
+			assert(scene.printed[i] ~= ns.L.RECRUIT_NO_INVITE_RIGHT, "no warning for a member who can invite")
+		end
+	end)
+end)
+
+-- RecruitCandidates.lua, which the offline harness leaves out, loaded once for the scan's tests and
+-- present only inside them (WithHandoff puts the harness's own value back).
+local candidates
+local function UseCandidates()
+	if not candidates then
+		local dir = debug.getinfo(1, "S").source:match("^@(.-)tests/[^/]*$") or ""
+		local saved = R.Candidates
+		assert(loadfile(dir .. "Olympus/RecruitCandidates.lua"))("Olympus", ns)
+		candidates, R.Candidates = R.Candidates, saved
+	end
+	R.Candidates = candidates
+end
+
+-- Starts the unguilded scan and lists one player a /who found with no guild.
+local function ScanOne(scene, name)
+	UseCandidates()
+	assert(Find(R.WhisperLines(), ns.L.RECRUIT_CANDIDATES_OFF)).onClick()
+	assert(R.Candidates.Enabled(), "the scan is on")
+	R.Candidates.ObserveWho(name, "", "Human")
+	return assert(scene.timers["recruit candidates"])
+end
+
+-- 1.5.8 (the author's: "parada de unguilded players se vc n puder chamar na hora quem vc viu pode
+-- repassar pra outro player convidar tbm").
+test("recruit handoff (1.5.8): a scanned unguilded player is passed from his popup and goes out only after a claim", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local wolf = "Lone Wolf-" .. home
+		local tick = ScanOne(scene, wolf)
+		tick()
+		local draft = assert(D.Find(DRAFT), "the scan pops the copy command")
+		local row = assert(draft.data.candidate)
+		assert(draft.def.button2Shown(draft, draft.data), "a scanned player can be passed from his popup")
+		draft.def.OnButton2(draft, draft.data)
+		draft:Hide()
+		eq(row.passWanted, true)
+		assert(Find(R.WhisperLines(), ns.L.RECRUIT_OVERFLOW_ON), "passing turns on the automatic offers")
+		assert(Find(R.WhisperLines(), ns.L.RECRUIT_CANDIDATE_PASSING:format("Lone Wolf")), "the scan list says so")
+		tick()
+		eq(D.Find(DRAFT), nil, "a passed player does not pop up here again")
+		scene.tick()
+		local probe = assert(scene.packets[1]); eq(probe.peer, mate)
+		eq(H.Receive("WHISPER", mate, (probe.word:gsub("^J4~P~", "J4~V~"))), true)
+		scene.tick()
+		local offer = assert(scene.packets[2])
+		assert(offer.word:match("^J4~O~") and not offer.word:find("Lone Wolf", 1, true), "the offer carries no name")
+		eq(H.State(row), "offered")
+		eq(R.CopyCandidateInvite(row), false, "no second copy here while the offer is out")
+		eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~C~"))), true)
+		local named = assert(scene.packets[3])
+		assert(named.word:match("^J4~N~") and named.word:sub(-#wolf) == wolf, "the name goes after the claim")
+		eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~A~"))), true)
+		eq(H.State(row), "assigned")
+		-- The same player, now whispering JOIN, is never offered a second time, and (review of 1.5.8)
+		-- his JOIN does not pop the same /ginvite here: the member has his name.
+		R.OnWhisper("JOIN", wolf)
+		local again = assert(R.requests[1])
+		eq(again.name, wolf)
+		eq(H.CanPass(again), false, "no duplicate offer of a name already handed on")
+		eq(D.Find(DRAFT), nil, "no second invite of the same player here")
+	end)
+end)
+
+-- Review of 1.5.8 (P3): a sighting offered to a member, then the same player's JOIN here: the
+-- member's later claim must not get his name too, or both invite him.
+test("recruit handoff (1.5.8): a sighting's offer claimed after the same player's JOIN gives no name", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local wolf = "Lone Wolf-" .. home
+		local tick = ScanOne(scene, wolf)
+		tick()
+		local draft = assert(D.Find(DRAFT))
+		local row = draft.data.candidate
+		draft.def.OnButton2(draft, draft.data)
+		draft:Hide()
+		scene.tick()
+		eq(H.Receive("WHISPER", mate, (assert(scene.packets[1]).word:gsub("^J4~P~", "J4~V~"))), true)
+		scene.tick()
+		local offer = assert(scene.packets[2])
+		eq(H.State(row), "offered")
+		R.OnWhisper("JOIN", wolf)
+		local join = assert(D.Find(DRAFT), "his JOIN pops up here")
+		eq(join.data.req.name, wolf)
+		eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~C~"))), false, "the claim is refused")
+		eq(#scene.packets, 2, "his name does not go out to the member as well")
+	end)
+end)
+
+-- 1.5.8 (the author's message to the streamer: "it lines them up for him up to his 10 a minute and
+-- passes the rest to other members accepting requests").
+test("recruit handoff (1.5.8): at ten invites a minute new JOINs and sightings go to other members or say the limit", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local savedUtil = ChatFrameUtil
+		ChatFrameUtil = { OpenChat = function() end }
+		local ok, err = pcall(function()
+			eq(R.INVITES_PER_MINUTE, 10)
+			for i = 1, 10 do R.OnWhisper("JOIN", ("Fast %d-%s"):format(i, home)) end
+			for i = 1, 10 do
+				local open = D.Find(DRAFT)
+				if open then open:Hide() end
+				eq(R.Accept(R.requests[i]), true)
+				local draft = assert(D.Find(DRAFT))
+				eq(R.AtInviteLimit(), false, "under the limit until the tenth command goes to chat")
+				draft.def.extra.onClick(draft, draft.data)
+				eq(D.Find(DRAFT), nil, "the command went to chat")
+			end
+			eq(R.AtInviteLimit(), true, "ten commands taken to chat in a minute reach the limit")
+			-- Automatic offers off: the popup says so and offers Pass.
+			scene.now = scene.now + 21
+			R.OnWhisper("JOIN", "Eleventh Recruit-" .. home)
+			local draft = assert(D.Find(DRAFT), "with the offers off the JOIN still pops up")
+			eq(draft.data.req.name, "Eleventh Recruit-" .. home)
+			assert(draft.text:find(ns.L.RECRUIT_INVITE_LIMIT_PASS:format(10), 1, true), "the popup says the limit is reached")
+			assert(draft.def.button2Shown(draft, draft.data), "and offers Pass")
+			draft:Hide()
+			-- Automatic offers on: the next JOIN and the next sighting go to other members, no popup.
+			eq(H.ToggleAuto(), true)
+			scene.now = scene.now + 21
+			R.OnWhisper("JOIN", "Twelfth Recruit-" .. home)
+			local twelfth = R.requests[#R.requests]
+			eq(twelfth.name, "Twelfth Recruit-" .. home)
+			eq(D.Find(DRAFT), nil, "no popup at the limit with the offers on")
+			eq(twelfth.passWanted, true, "the JOIN is offered to the other members")
+			local tick = ScanOne(scene, "Far Walker-" .. home)
+			tick()
+			eq(D.Find(DRAFT), nil, "nor for a new sighting")
+			scene.tick()
+			eq(H.Receive("WHISPER", mate, (assert(scene.packets[1]).word:gsub("^J4~P~", "J4~V~"))), true)
+			scene.tick()
+			eq(H.State(twelfth), "offered", "the JOIN goes out first")
+			eq(#scene.packets, 2, "one offer at a time")
+			-- A minute after the commands, popups come back.
+			scene.now = scene.now + 61
+			eq(R.AtInviteLimit(), false)
+			R.OnWhisper("JOIN", "Later Recruit-" .. home)
+			local later = assert(D.Find(DRAFT), "under the limit the JOIN pops up again")
+			eq(later.data.req.name, "Later Recruit-" .. home)
+			eq(later.text:find(ns.L.RECRUIT_INVITE_LIMIT_PASS:format(10), 1, true), nil)
+		end)
+		ChatFrameUtil = savedUtil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- Review of 1.5.8 (P2): what the limit sent on, when no member claimed it, never came back to his
+-- own popups once the minute was over ("lines them up for him up to his 10 a minute"). A player he
+-- passed himself stays passed.
+test("recruit handoff (1.5.8): what the invite limit sent on comes back to his popups when the minute is over", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local savedUtil = ChatFrameUtil
+		ChatFrameUtil = { OpenChat = function() end }
+		local ok, err = pcall(function()
+			for i = 1, 10 do R.OnWhisper("JOIN", ("Quick %d-%s"):format(i, home)) end
+			for i = 1, 10 do
+				local open = D.Find(DRAFT)
+				if open then open:Hide() end
+				eq(R.Accept(R.requests[i]), true)
+				local draft = assert(D.Find(DRAFT))
+				draft.def.extra.onClick(draft, draft.data)
+			end
+			eq(R.AtInviteLimit(), true)
+			-- With the offers off, the popup offers Pass, and his click passes this one for good.
+			scene.now = scene.now + 21
+			R.OnWhisper("JOIN", "Passed Recruit-" .. home)
+			local passed = R.requests[#R.requests]
+			local draft = assert(D.Find(DRAFT))
+			eq(draft.data.req, passed)
+			draft.def.OnButton2(draft, draft.data)
+			draft:Hide()
+			eq(H.AutoOn(), true, "his Pass turns the automatic offers on")
+			-- With the offers on, the limit sends the next JOIN and sighting on.
+			scene.now = scene.now + 21
+			R.OnWhisper("JOIN", "Held Recruit-" .. home)
+			local held = R.requests[#R.requests]
+			eq(held.passWanted, true, "at the limit the JOIN goes to the other members")
+			local tick = ScanOne(scene, "Held Walker-" .. home)
+			tick()
+			eq(D.Find(DRAFT), nil, "nor does the sighting pop up at the limit")
+			scene.tick()
+			assert(assert(scene.packets[1]).word:match("^J4~P~"), "the probe goes out, and nobody answers")
+			scene.tick()
+			eq(D.Find(DRAFT), nil, "still at the limit, nothing comes back")
+			-- The minute is over and no member claimed them.
+			scene.now = scene.now + 19
+			eq(R.AtInviteLimit(), false)
+			scene.tick()
+			local back = assert(D.Find(DRAFT), "the JOIN the limit sent on pops up here again")
+			eq(back.data.req, held)
+			eq(held.passWanted, nil)
+			assert(back.def.button2Shown(back, back.data), "and can still be passed by hand")
+			eq(back.text:find(ns.L.RECRUIT_INVITE_LIMIT_PASS:format(10), 1, true), nil)
+			eq(passed.passWanted, true, "the one he passed himself stays with the other members")
+			back:Hide()
+			tick()
+			local walker = assert(D.Find(DRAFT), "the sighting the limit sent on pops up again too")
+			eq(walker.data.candidate.full, "Held Walker-" .. home)
+			eq(walker.data.candidate.passWanted, nil)
+		end)
+		ChatFrameUtil = savedUtil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- Review of 1.5.8 (P2): with the offers off again, what the limit sent on comes back at once (its
+-- popup says the limit and offers Pass), unless a member's claim is under way.
+test("recruit handoff (1.5.8): turning the offers off brings back what the limit sent on", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local savedUtil = ChatFrameUtil
+		ChatFrameUtil = { OpenChat = function() end }
+		local ok, err = pcall(function()
+			for i = 1, 10 do R.OnWhisper("JOIN", ("Rapid %d-%s"):format(i, home)) end
+			for i = 1, 10 do
+				local open = D.Find(DRAFT)
+				if open then open:Hide() end
+				eq(R.Accept(R.requests[i]), true)
+				local draft = assert(D.Find(DRAFT))
+				draft.def.extra.onClick(draft, draft.data)
+			end
+			eq(H.ToggleAuto(), true)
+			scene.now = scene.now + 21
+			R.OnWhisper("JOIN", "Offered Recruit-" .. home)
+			local offered = R.requests[#R.requests]
+			scene.now = scene.now + 21
+			R.OnWhisper("JOIN", "Waiting Recruit-" .. home)
+			local waiting = R.requests[#R.requests]
+			eq(offered.passWanted, true); eq(waiting.passWanted, true)
+			scene.tick()
+			eq(H.Receive("WHISPER", mate, (assert(scene.packets[1]).word:gsub("^J4~P~", "J4~V~"))), true)
+			scene.tick()
+			eq(H.State(offered), "offered", "the first one is offered to a member")
+			local queued = #scene.later
+			eq(H.ToggleAuto(), false)
+			for i = queued + 1, #scene.later do scene.later[i]() end
+			local back = assert(D.Find(DRAFT), "the one nobody took pops up here")
+			eq(back.data.req, waiting)
+			assert(back.text:find(ns.L.RECRUIT_INVITE_LIMIT_PASS:format(10), 1, true), "saying the limit is reached")
+			eq(offered.passWanted, true, "an offer under way stays with the member")
+		end)
+		ChatFrameUtil = savedUtil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- 1.5.8: with every member a possible taker, a guild of hundreds online must not wait twenty
+-- seconds on each member without Olympus: the probe goes to one this client heard run it.
+test("recruit overflow (1.5.8): the probe goes first to members known to run Olympus", function()
+	WithHandoff(function(scene)
+		local V = ns.Versions
+		local saved = V.HasOlympus
+		local quiet = "Quiet Member-" .. home
+		ns.Roster.online = { { name = quiet }, { name = mate } }
+		ns.Roster.RankOf = function(name)
+			if name == me then return 5 end
+			if name == mate or name == quiet then return 6 end
+		end
+		local ok, err = pcall(function()
+			V.HasOlympus = function(name) return name == mate end
+			for i = 1, 3 do R.OnWhisper("JOIN", ("Known Queue %d-%s"):format(i, home)) end
+			eq(H.ToggleAuto(), true)
+			scene.tick()
+			eq(assert(scene.packets[1]).peer, mate, "the member without Olympus is skipped")
+			V.HasOlympus = function() return false end
+			scene.now = scene.now + 21
+			scene.tick()
+			eq(assert(scene.packets[2]).peer, quiet, "knowing none, every member is tried in turn")
+		end)
+		V.HasOlympus = saved
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- Review of 1.5.8 (P3): the probes rotated only over the members whose hello this client heard, so
+-- one who accepts handoffs but was never heard was never asked. After each turn over the known ones,
+-- one probe goes to the next of the others.
+test("recruit overflow (1.5.8): after a turn over the known members a probe goes to one not heard from", function()
+	WithHandoff(function(scene)
+		local V = ns.Versions
+		local saved = V.HasOlympus
+		local second, unheard = "Second Member-" .. home, "Unheard Member-" .. home
+		ns.Roster.online = { { name = mate }, { name = second }, { name = unheard } }
+		ns.Roster.RankOf = function(name)
+			if name == me then return 5 end
+			if name == mate or name == second or name == unheard then return 6 end
+		end
+		local ok, err = pcall(function()
+			V.HasOlympus = function(name) return name == mate or name == second end
+			for i = 1, 3 do R.OnWhisper("JOIN", ("Turn Queue %d-%s"):format(i, home)) end
+			eq(H.ToggleAuto(), true)
+			local asked = {}
+			for i = 1, 6 do
+				scene.tick()
+				asked[i] = assert(scene.packets[i], "one probe a step").peer
+				scene.now = scene.now + 21
+			end
+			eq(asked[1], mate); eq(asked[2], second)
+			eq(asked[3], unheard, "after the known members, the one not heard from is asked")
+			eq(asked[4], mate); eq(asked[5], second); eq(asked[6], unheard)
+		end)
+		V.HasOlympus = saved
+		if not ok then error(err, 0) end
 	end)
 end)

@@ -3765,7 +3765,25 @@ test("gamepad centered Census recruitment offers the Church intake and both dism
 		C.env.CanGuildInvite = function() return false end
 		Reopen()
 		eq(Row("enable"), nil, "players without native invite permission see the normal Census")
+		-- 1.5.8 (the author's: "se ela tentar ativar e ela não puder convidar pessoas, vai avisar, tipo,
+		-- você não pode convidar mesmo para sua guilda, fale com o seu GM"): a stale Enable click and the
+		-- Church switch both say why, in Olympus's own window in either input style, and stay off.
+		local function Warned()
+			local n = 0
+			for _, line in ipairs(C.printed) do
+				if line:find(L.RECRUIT_NO_INVITE_RIGHT, 1, true) then n = n + 1 end
+			end
+			return n
+		end
+		local warned = Warned()
 		eq(R.EnableWhisperRecruiting(), false)
+		eq(Warned(), warned + 1, "the Census button says the rank cannot invite")
+		local notice = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_NO_INVITE"), "and opens the reason in a window")
+		notice:Hide()
+		InClick(C, function() eq(R.WhisperLines()[1].onClick(), false) end)
+		eq(Warned(), warned + 2, "the Church switch says it too")
+		eq(R.IsWhisperRecruiting(), false, "recruiting stays off")
+		assert(ns.Dialog.Find("OLYMPUS_RECRUIT_NO_INVITE")):Hide()
 		C.units.player.guild = nil
 		C.env.IsInGuild = function() return false end
 		C.Fire("PLAYER_GUILD_UPDATE", "player")
@@ -3843,11 +3861,13 @@ end)
 
 -- 1.5.8 (the author, 11-12: "E quando você deslogar e logar tem que continuar ativo").
 test("gamepad recruitment keeps the unguilded scan and handoff switches across a login", function()
-	-- The player is one of the guild's officers (rank Titan), as a handoff needs.
+	-- The player is a plain member (rank Recruit) whose rank the game lets invite. This test had him
+	-- an officer, as handoffs needed until 1.5.8; the author's decision changed that: "o repasse tem
+	-- que ir para qualquer pessoa que esteja com a feature ativa. Não precisa ser só para officer".
 	local function Officer(saved)
-		return { saved = saved, setup = function(c) c.units.player.rank, c.units.player.rankIndex = "Titan", 1 end,
+		return { saved = saved, setup = function(c) c.units.player.rank, c.units.player.rankIndex = "Recruit", 3 end,
 			roster = {
-				{ "Tester-Realm", "Titan", 1, 60, "Warrior", "Elwynn Forest", "", "", true, 0, "WARRIOR" },
+				{ "Tester-Realm", "Recruit", 3, 60, "Warrior", "Elwynn Forest", "", "", true, 0, "WARRIOR" },
 				{ "Zeusmaster-Realm", "Zeus", 0, 60, "Mage", "Stormwind City", "", "", true, 0, "MAGE" },
 			} }
 	end
@@ -3864,7 +3884,7 @@ test("gamepad recruitment keeps the unguilded scan and handoff switches across a
 		eq(R.Candidates.Enabled(), true)
 		InClick(C, assert(Line(R, "recruit-candidate-prompts")).onClick)
 		assert(Line(R, "recruit-candidate-prompts").text:find(L.RECRUIT_CANDIDATE_PROMPTS_OFF, 1, true))
-		InClick(C, assert(Line(R, "recruit-handoff-accept"), "an officer sees the handoff switch").onClick)
+		InClick(C, assert(Line(R, "recruit-handoff-accept"), "a member who can invite sees the handoff switch").onClick)
 		assert(Line(R, "recruit-handoff-accept").text:find(L.RECRUIT_HANDOFF_ON, 1, true))
 		InClick(C, assert(Line(R, "recruit-handoff-overflow")).onClick)
 		assert(Line(R, "recruit-handoff-overflow").text:find(L.RECRUIT_OVERFLOW_ON, 1, true))

@@ -46,7 +46,7 @@ local function Add(full, name, now)
 	if row then return row end
 	Prune(now)
 	if #rows >= MAX then Drop(1) end
-	row = { key = key, full = full, name = name }
+	row = { key = key, full = full, name = name, scanned = true }
 	rows[#rows + 1], byName[key] = row, row
 	return row
 end
@@ -133,6 +133,26 @@ function Q.Check(row, live)
 	if not live and not row.guid and row.who and GetTime() - row.who < WHO_TTL then return true end
 end
 
+-- (1.5.8) A scanned player another member may still invite instead: current, and his command
+-- not yet taken to chat here.
+function Q.Passable(row)
+	return type(row) == "table" and byName[row.key] == row and not row.invitePrepared and Q.Check(row) ~= nil
+end
+
+-- The next scanned player the Pass button (or the invite limit) gave to the automatic offers.
+function Q.Overflow(skip)
+	local H = R.Handoff
+	for _, row in ipairs(rows) do
+		if row.passWanted and not (H and H.State(row)) and Q.Passable(row) and not R.CandidatePromptOpen(row)
+			and not (skip and skip(row)) then return row end
+	end
+end
+
+-- Each scanned player, for the invite limit's release (Recruit.ReleaseLimited).
+function Q.EachRow(fn)
+	for _, row in ipairs(rows) do fn(row) end
+end
+
 function Q.Reset()
 	if timer then timer.Cancel(); timer = nil end
 	guild, prompts = nil, nil
@@ -173,10 +193,18 @@ local function Tick()
 		end
 	end
 	if not prompts then return end
+	-- (1.5.8) At the invite limit with the automatic offers on, new sightings go to other members.
+	local H = R.Handoff
+	local overflow = H and H.AutoOn() and R.AtInviteLimit()
 	for _, row in ipairs(rows) do
-		if not row.prompted and Q.Check(row) and R.CopyCandidateInvite(row, true) then
-			row.prompted = true
-			return
+		if not row.prompted and not row.passWanted and not (H and (H.State(row) or H.Taken(row))) and Q.Check(row) then
+			if overflow then
+				-- (Not marked prompted: once the limit clears it pops up here, unless a member took it.)
+				H.Overflow(row)
+			elseif R.CopyCandidateInvite(row, true) then
+				row.prompted = true
+				return
+			end
 		end
 	end
 end
@@ -235,8 +263,19 @@ function Q.Lines(lines, V)
 	for _, row in ipairs(rows) do
 		local display = ns.DisplayName(row.full) or row.name
 		local label = row.guid and L.RECRUIT_CANDIDATE_SEEN or L.RECRUIT_CANDIDATE_WHO
-		lines[#lines + 1] = { indent = 1, text = V.Gold(label:format(display)),
-			onClick = function() if R.CopyCandidateInvite(row) then row.prompted = true end end }
+		local state = R.Handoff and R.Handoff.State(row)
+		if state then
+			local ref = row.handoff
+			label = (state == "assigned" and L.RECRUIT_HANDOFF_DONE or L.RECRUIT_HANDOFF_PENDING)
+				:format(ns.DisplayName(ref.peer) or ref.peer, ref.to)
+			lines[#lines + 1] = { indent = 1, text = V.Grey(display .. " - " .. label) }
+		elseif row.passWanted then
+			lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_CANDIDATE_PASSING:format(display)),
+				onClick = function() if R.CopyCandidateInvite(row) then row.prompted = true end end }
+		else
+			lines[#lines + 1] = { indent = 1, text = V.Gold(label:format(display)),
+				onClick = function() if R.CopyCandidateInvite(row) then row.prompted = true end end }
+		end
 		if row.guid then
 			lines[#lines + 1] = { indent = 2, text = V.Grey(L.RECRUIT_CANDIDATE_WHISPER),
 				onClick = function() if R.PromptCandidateWhisper(row) then row.whisperPrompted = true end end }
