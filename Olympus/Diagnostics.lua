@@ -994,6 +994,17 @@ function ns.BuildBugReport()
 	out[#out + 1] = "Last log lines:"
 	local log = ns.db.log
 	for i = math.max(1, #log - 25), #log do out[#out + 1] = "  " .. log[i] end
+	-- 1.5.8: the recruiting section (RecruitHandoff.lua's event log), last: the window shows it whole.
+	local H = ns.Recruit and ns.Recruit.Handoff
+	if H and H.BugLines then
+		local okR, recruit = pcall(H.BugLines, 40)
+		out[#out + 1] = ""
+		if okR and type(recruit) == "table" then
+			for _, line in ipairs(recruit) do out[#out + 1] = line end
+		else
+			out[#out + 1] = "Recruiting: failed: " .. tostring(recruit)
+		end
+	end
 	out[#out + 1] = "```"
 	-- (1.2.1) The log and the errors name the sealed channel too: scrubbed with the status.
 	return Scrub(table.concat(out, "\n"))

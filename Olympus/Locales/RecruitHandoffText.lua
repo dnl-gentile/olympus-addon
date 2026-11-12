@@ -51,3 +51,15 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_INVITE_LIMIT_PASS = "Você levou %d convites ao chat no último minuto, o limite do jogo. Repasse este jogador a outros membros, ou espere um pouco."
 	L.RECRUIT_CANDIDATE_PASSING = "%s - oferecido a outros membros"
 end
+
+-- 1.5.8: the recruiting event log (/oly recruit log, /oly bug) and the test builds' test JOIN.
+L.RECRUIT_LOG_EMPTY = "No recruiting events yet."
+L.RECRUIT_LOG_USAGE = "/oly recruit log - the recruiting log (JOINs, popups, handoffs), to copy."
+L.RECRUIT_TESTJOIN_OFF = "/oly recruit testjoin is only in test builds."
+L.RECRUIT_TESTJOIN_SENT = "Test JOIN from %s sent to your recruiting."
+if GetLocale and GetLocale() == "ptBR" then
+	L.RECRUIT_LOG_EMPTY = "Nenhum evento de recrutamento ainda."
+	L.RECRUIT_LOG_USAGE = "/oly recruit log - o registro do recrutamento (JOINs, pop-ups, repasses), para copiar."
+	L.RECRUIT_TESTJOIN_OFF = "/oly recruit testjoin só existe nas builds de teste."
+	L.RECRUIT_TESTJOIN_SENT = "JOIN de teste de %s enviado ao seu recrutamento."
+end

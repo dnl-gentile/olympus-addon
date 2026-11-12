@@ -76,6 +76,7 @@ local function Remember(unit)
 	local changed = not row.seen or row.guid ~= guid
 	row.guid, row.seen = guid, now
 	if unit == "target" then row.target = true else row.plate = unit end
+	if changed and R.Handoff then R.Handoff.LogSeen(unit == "target" and "target" or "nameplate", full) end
 	return changed
 end
 
@@ -111,6 +112,7 @@ function Q.ObserveWho(name, rawGuild, race)
 	local row = Add(full, command, now)
 	local first = not row.who
 	row.who = now
+	if first and R.Handoff then R.Handoff.LogSeen("who", full) end
 	if first then Change() end
 end
 

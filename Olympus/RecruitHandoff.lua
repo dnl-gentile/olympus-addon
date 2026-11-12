@@ -92,9 +92,20 @@ local function Changed()
 	ns.Fire("DATA_CHANGED")
 end
 
+local Unclaimed = { offered = true, claiming = true, assigning = true } -- (the log's EXPIRED lines)
 local function Prune(now)
-	for id, r in pairs(incoming) do if r.expires <= now then incoming[id] = nil end end
-	for id, r in pairs(outgoing) do if r.expires <= now then outgoing[id] = nil end end
+	for id, r in pairs(incoming) do
+		if r.expires <= now then
+			if Unclaimed[r.state] then H.Log("EXPIRED", ("%s < %s"):format(r.state, ns.ShortName(r.peer) or "?")) end
+			incoming[id] = nil
+		end
+	end
+	for id, r in pairs(outgoing) do
+		if r.expires <= now then
+			if Unclaimed[r.state] then H.LogItem("EXPIRED", r.request, ("%s > %s"):format(r.state, ns.ShortName(r.peer) or "?")) end
+			outgoing[id] = nil
+		end
+	end
 end
 
 local function Room(rows, limit)
@@ -106,7 +117,19 @@ end
 local function Transmit(op, ref, peer, applicant, guard, done)
 	local word = table.concat({ "J4", op, ref.id, ref.expires, ns.group, ns.faction, ref.from, ref.to, applicant or "" }, "~")
 	if #word > 255 then return false end
-	return ns.Comm.Whisper(peer, word, nil, false, false, done, { guard = guard })
+	-- (1.5.8) The recruiting log: each packet sent, and its check refusing it at the send, once.
+	local refused
+	local function Checked(...)
+		local ok, why = guard(...)
+		if not ok and not refused then
+			refused = true
+			H.LogPacket("GUARD", op, peer, applicant)
+		end
+		return ok, why
+	end
+	local sent = ns.Comm.Whisper(peer, word, nil, false, false, done, { guard = guard and Checked })
+	H.LogPacket(sent and "TX" or "TXFAIL", op, peer, applicant)
+	return sent
 end
 
 function H.State(req)
@@ -224,6 +247,7 @@ local function AutoStep()
 		H.Offer(req, peer, own, true)
 		return
 	end
+	if autoProbe then H.Log("EXPIRED", "probe > " .. (ns.ShortName(autoProbe.peer) or "?")) end
 	autoProbe = nil
 	-- (1.5.8) Any member may take handoffs now, so in a large guild the probes go first, in turn, to
 	-- the members this client knows run Olympus (their hello). After each turn over them one goes to
@@ -307,6 +331,7 @@ function H.Pass(req, all)
 		end
 	end
 	Want(req)
+	H.LogItem("PASS", req, all and not req.scanned and "and waiting" or nil)
 	ns.Print(L.RECRUIT_HANDOFF_PASSING)
 	return true
 end
@@ -316,6 +341,7 @@ end
 function H.Overflow(item)
 	if not H.AutoOn() or not H.CanPass(item) then return false end
 	Want(item, true)
+	H.LogItem("OVERFLOW", item)
 	return true
 end
 
@@ -418,6 +444,7 @@ function H.Receive(dist, sender, word)
 		else
 			if ref.state ~= "assigning" then return false end
 			ref.state = "assigned"
+			H.LogItem("HANDED", ref.request, "> " .. (ns.ShortName(sender) or "?"))
 		end
 	end
 	Changed()
@@ -560,3 +587,157 @@ function H.SetAccepting(on)
 end
 
 function H.Accepting() return Accepting() end
+
+-- 1.5.8 (the author's ask: "que vai mostrar pra gente que ele recebeu"): the recruiting event log,
+-- a bounded ring in the account's saved variables (OlympusDB.recruitLog, LOG_MAX lines, the oldest
+-- dropped), read by /oly bug and /oly recruit log after a /reload. Each line: epoch seconds, a short
+-- code, a short detail. Applicants and scanned strangers appear only as a tag (their first two
+-- letters and four hex digits of a hash of the full name), never by name; members by character.
+H.LOG_MAX, H.SEEN_PER_MINUTE = 200, 6
+local PACKET = { P = "probe", V = "available", O = "offer", C = "claim", N = "name", A = "ack" }
+local seenTags, seenAt = {}, {}
+
+function H.Tag(name)
+	if type(name) ~= "string" or name == "" then return "?" end
+	local key, h = NameKey(name), 5381
+	for i = 1, #key do h = (h * 33 + key:byte(i)) % 65536 end
+	local letters, n = {}, 0
+	for ch in (ns.ShortName(name) or name):gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+		n = n + 1
+		letters[n] = ch
+		if n == 2 then break end
+	end
+	return ("%s%04x"):format(table.concat(letters), h)
+end
+
+local function MemberShort(name)
+	return type(name) == "string" and (ns.ShortName(name) or name) or "?"
+end
+
+function H.Log(code, detail)
+	local db = ns.db
+	if type(db) ~= "table" or type(code) ~= "string" then return end
+	local log = db.recruitLog
+	if type(log) ~= "table" then
+		log = {}
+		db.recruitLog = log
+	end
+	local t = (GetServerTime and GetServerTime()) or (time and time()) or 0
+	detail = ns.Cut(tostring(detail or ""):gsub("[%c|]", ""), 120)
+	log[#log + 1] = ("%d %s %s"):format(t, code, detail)
+	while #log > H.LOG_MAX do table.remove(log, 1) end
+end
+
+-- A handoff packet sent (`kind` "TX", or "GUARD" when its check refused it at the send) or heard
+-- ("RX", or "REFUSED"), with the member and, for a name, the applicant's tag.
+function H.LogPacket(kind, op, peer, applicant)
+	local name = applicant and applicant ~= "" and (" " .. H.Tag(applicant)) or ""
+	local arrow = (kind == "RX" or kind == "REFUSED") and "<" or ">"
+	H.Log(kind, ("%s%s %s %s"):format(PACKET[op] or tostring(op), name, arrow, MemberShort(peer)))
+end
+
+-- A scanned player seen (`source`: target, nameplate, who, mouseover): once a session per player
+-- and SEEN_PER_MINUTE a minute at most, so a crowded city does not push the handoffs out.
+function H.LogSeen(source, name)
+	local tag = H.Tag(name)
+	if seenTags[tag] then return end
+	local now = ns.Now()
+	for i = #seenAt, 1, -1 do if now - seenAt[i] >= 60 then table.remove(seenAt, i) end end
+	if #seenAt >= H.SEEN_PER_MINUTE then return end
+	seenAt[#seenAt + 1] = now
+	seenTags[tag] = true
+	H.Log("SEEN", ("%s %s"):format(tostring(source), tag))
+end
+
+function H.LogItem(code, item, extra)
+	if type(item) ~= "table" then return end
+	H.Log(code, ("%s%s%s"):format(item.scanned and "scan " or "", H.Tag(NameOf(item)), extra and (" " .. extra) or ""))
+end
+
+-- Every J4 packet heard, accepted or refused (the transport's handler is this one).
+local ReceivePacket = H.Receive
+function H.Receive(dist, sender, word)
+	local ok = ReceivePacket(dist, sender, word)
+	local op = dist == "WHISPER" and type(word) == "string" and #word <= 255 and word:match("^J4~(%u)~") or nil
+	if op then H.LogPacket(ok and "RX" or "REFUSED", op, sender, op == "N" and word:match("~([^~]*)$") or nil) end
+	return ok
+end
+ns.Comm.Handle("J4", H.Receive)
+
+local function Stamp(t)
+	return date and date("%H:%M:%S", t) or tostring(t)
+end
+
+-- The newest `max` lines (all with none), newest last, each "hh:mm:ss CODE detail".
+function H.LogLines(max)
+	local log = type(ns.db) == "table" and type(ns.db.recruitLog) == "table" and ns.db.recruitLog or {}
+	local out = {}
+	for i = math.max(1, #log - (max or #log) + 1), #log do
+		local t, rest = tostring(log[i]):match("^(%d+) (.*)$")
+		if t then out[#out + 1] = Stamp(tonumber(t)) .. " " .. rest end
+	end
+	return out
+end
+
+-- One line of where this client stands: recruiting, accepting, offering, scanning, the invites
+-- taken this minute, and the members online this client heard run Olympus.
+function H.Summary()
+	local known, online = 0, 0
+	local V = ns.Versions
+	for _, row in ipairs(ns.Roster and ns.Roster.online or {}) do
+		online = online + 1
+		if V and V.HasOlympus and V.HasOlympus(ns.FullName(row.name)) then known = known + 1 end
+	end
+	local function On(v) return v and "on" or "off" end
+	local scan = R.Candidates and R.Candidates.Enabled and R.Candidates.Enabled()
+	return ("recruiting %s, can invite %s, accepting handoffs %s, automatic offers %s, scan %s, invites this minute %d/%d, members with Olympus %d of %d online"):format(
+		On(R.IsWhisperRecruiting and R.IsWhisperRecruiting()), On(R.CanInvite and R.CanInvite()), On(Accepting()),
+		On(H.AutoOn()), On(scan), R.InvitesTaken and R.InvitesTaken() or 0, R.INVITES_PER_MINUTE or 0, known, online)
+end
+
+-- /oly bug's section: the summary and the newest `max` lines.
+function H.BugLines(max)
+	local out = { "Recruiting: " .. H.Summary() }
+	local lines = H.LogLines(max or 40)
+	if #lines == 0 then out[#out + 1] = "  (no recruiting events yet)" end
+	for _, line in ipairs(lines) do out[#out + 1] = "  " .. line end
+	return out
+end
+
+local testSerial = 0
+-- /oly recruit: `log` opens the whole log in the copy window; `testjoin [Name]`, on a test build
+-- only, feeds a JOIN whisper from that name (or a made-up one with digits, never a real character)
+-- to the same handler the game's whisper reaches.
+function H.Slash(rest)
+	local word, arg = tostring(rest or ""):match("^%s*(%S*)%s*(.-)%s*$")
+	word = (word or ""):lower()
+	if word == "log" or word == "registro" then
+		local lines = H.LogLines()
+		local text = H.Summary() .. "\n\n" .. (#lines > 0 and table.concat(lines, "\n") or L.RECRUIT_LOG_EMPTY)
+		if ns.UI and ns.UI.ShowCopy then ns.UI.ShowCopy("/oly recruit log", text, nil, { key = "recruitlog", big = true }) end
+		return true
+	elseif word == "testjoin" then
+		if not rawget(ns, "TEST_BUILD") then
+			ns.Print(L.RECRUIT_TESTJOIN_OFF)
+			return false
+		end
+		local name = arg
+		if name == "" then
+			testSerial = testSerial + 1
+			local t = (time and time()) or 0
+			name = ("Olytest%d%d"):format(t % 100000, testSerial)
+		end
+		H.Log("TESTJOIN", H.Tag(ns.FullName(name)))
+		ns.Print(L.RECRUIT_TESTJOIN_SENT:format(name))
+		R.OnWhisper("JOIN", name)
+		return true
+	end
+	ns.Print(L.RECRUIT_LOG_USAGE)
+	return false
+end
+
+function H.ResetLogForTests()
+	wipe(seenTags)
+	wipe(seenAt)
+	testSerial = 0
+end

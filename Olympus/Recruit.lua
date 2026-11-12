@@ -1473,6 +1473,7 @@ local function AcceptRequest(req, confirmed, automatic)
 		local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(to, req), nil,
 			{ req = req, automatic = automatic })
 		if draft and not automatic then req.invitePrepared = true end
+		if draft and Recruit.Handoff then Recruit.Handoff.LogItem("POPUP", req, automatic and "auto" or "click") end
 		return draft ~= nil
 	end
 	invite(ns.TellName(req.name))
@@ -1504,8 +1505,10 @@ function Recruit.CopyCandidateInvite(candidate, automatic)
 	if not Recruit.Candidates.Check(candidate) or not ns.Dialog or ns.Dialog.missing then return false end
 	if Recruit.Handoff and Recruit.Handoff.State(candidate) then return false end
 	if ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") then return false end
-	return ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(candidate.name, nil, candidate), nil,
+	local shown = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(candidate.name, nil, candidate), nil,
 		{ candidate = candidate, automatic = automatic }) ~= nil
+	if shown and Recruit.Handoff then Recruit.Handoff.LogItem("POPUP", candidate, automatic and "auto" or "click") end
+	return shown
 end
 
 -- A scanned player's own popup (his invite draft or whisper review) is on screen.
@@ -1535,6 +1538,11 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 		if req then req.invitePrepared = true end
 		if data.candidate then data.candidate.invitePrepared = true end
 		invitesTaken[#invitesTaken + 1] = ns.Now()
+		local H = Recruit.Handoff
+		if H then
+			H.LogItem("TOCHAT", req or data.candidate, ("%d/%d"):format(#invitesTaken, Recruit.INVITES_PER_MINUTE))
+			if #invitesTaken == Recruit.INVITES_PER_MINUTE then H.Log("LIMIT", ("%d invites in a minute"):format(#invitesTaken)) end
+		end
 		draft:Hide()
 	end
 end
@@ -1595,7 +1603,9 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 local function ReviewReply(req)
 	if not req.viaWhisper or not CurrentRequest(req) or not ns.Dialog or ns.Dialog.missing then return false end
 	local caption = L.RECRUIT_WHISPER_REPLY:format(ns.DisplayName(req.name) or req.name, req.guild, req.text)
-	return ns.Dialog.Show("OLYMPUS_RECRUIT_REPLY", caption, nil, req) ~= nil
+	local shown = ns.Dialog.Show("OLYMPUS_RECRUIT_REPLY", caption, nil, req) ~= nil
+	if shown and Recruit.Handoff then Recruit.Handoff.LogItem("POPUP", req, "reply") end
+	return shown
 end
 
 local function RetryReply(delay)
@@ -1826,6 +1836,10 @@ function Recruit.OnWhisper(text, sender)
 				local shown = ns.Codec.SanitizeChat(ns.Cut(reply, 180))
 				if shown ~= "" then
 					local accepted, req = AddRequest(key, recruitingGuild, nil, nil, shown, true)
+					if Recruit.Handoff then
+						Recruit.Handoff.Log(accepted and "JOIN" or "JOINDROP", Recruit.Handoff.Tag(key)
+							.. (keyword == "JOIN OLYMPUS" and " olympus" or keyword == "JOIN" and "" or " reply"))
+					end
 					if accepted then
 						req.handoffIntent = keyword == "JOIN OLYMPUS" and "federation" or keyword == "JOIN" and "guild" or nil
 						PromptReply()
@@ -1950,4 +1964,10 @@ function Recruit.ForgetUnusedChoice()
 	if not saved or saved.enabled == true or Recruiting() then return false end
 	ns.rdb.recruitmentPreference[ns.me] = nil
 	return true
+end
+
+-- 1.5.8: the invite commands taken to chat in the last minute (the recruiting log's summary).
+function Recruit.InvitesTaken()
+	Recruit.AtInviteLimit()
+	return #invitesTaken
 end

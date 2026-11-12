@@ -3278,6 +3278,9 @@ local function Slash(input)
 			ns.Print(ns.L.DEMO_REMOVED)
 		elseif cmd == "bug" then
 			ns.UI.ShowBugReport()
+		elseif cmd == "recruit" or cmd == "recrutar" then
+			-- 1.5.8: the recruiting event log (RecruitHandoff.lua): log; testjoin on a test build.
+			ns.Recruit.Handoff.Slash(rest)
 		elseif cmd == "recent" then
 			local kind = rest:lower()
 			if kind == "" or kind == "errors" or kind == "census" then

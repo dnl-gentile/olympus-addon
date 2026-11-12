@@ -755,3 +755,162 @@ test("recruit overflow (1.5.8): after a turn over the known members a probe goes
 		if not ok then error(err, 0) end
 	end)
 end)
+
+-- 1.5.8 (the author's ask: a build to hand another member "que vai mostrar pra gente que ele
+-- recebeu e no reload você já poder pegar"): the recruiting event log in the saved variables, its
+-- /oly bug section and /oly recruit log. Applicants appear as a tag, members by character name.
+local function WithLog(fn)
+	local saved = ns.db.recruitLog
+	ns.db.recruitLog = nil
+	H.ResetLogForTests()
+	local ok, err = pcall(fn)
+	ns.db.recruitLog = saved
+	H.ResetLogForTests()
+	if not ok then error(err, 0) end
+end
+
+local function LogHas(text)
+	for _, line in ipairs(H.LogLines()) do if line:find(text, 1, true) then return line end end
+end
+
+local function LogNever(text)
+	for _, line in ipairs(H.LogLines()) do assert(not line:find(text, 1, true), "the log names an applicant: " .. line) end
+end
+
+test("recruit log (1.5.8): a JOIN, its popup and command, and a handoff each way are logged, applicants by tag", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			local D = Dialogs()
+			ns.Dialog = D
+			local savedUtil = ChatFrameUtil
+			ChatFrameUtil = { OpenChat = function() end }
+			local ok, err = pcall(function()
+				local tag = H.Tag(applicant)
+				assert(tag:match("^Ne%x%x%x%x$"), "two letters and four hex digits: " .. tag)
+				eq(H.Tag("New Recruit"), tag, "the same player, with or without his realm, has the same tag")
+				assert(H.Tag("Other Recruit-" .. home) ~= tag)
+				R.OnWhisper("JOIN", applicant)
+				assert(LogHas("JOIN " .. tag), "the JOIN whisper")
+				local draft = assert(D.Find(DRAFT))
+				assert(LogHas("POPUP " .. tag .. " auto"), "its popup, shown on its own")
+				draft.def.extra.onClick(draft, draft.data)
+				assert(LogHas("TOCHAT " .. tag .. " 1/10"), "the command taken to chat")
+				-- He passes the next JOIN; a member answers the probe, claims and gets the name.
+				local second = "Second Recruit-" .. home
+				R.OnWhisper("JOIN", second)
+				local req = R.requests[#R.requests]
+				eq(req.name, second)
+				eq(H.Pass(req), true)
+				local tag2 = H.Tag(second)
+				assert(LogHas("PASS " .. tag2), "his Pass")
+				scene.tick()
+				local probe = assert(scene.packets[#scene.packets])
+				assert(probe.word:match("^J4~P~"))
+				assert(LogHas("TX probe > Guild Recruiter"), "the probe sent")
+				eq(H.Receive("WHISPER", mate, (probe.word:gsub("^J4~P~", "J4~V~"))), true)
+				assert(LogHas("RX available < Guild Recruiter"), "the member's answer")
+				scene.tick()
+				local offer = assert(scene.packets[#scene.packets])
+				assert(offer.word:match("^J4~O~"))
+				assert(LogHas("TX offer > Guild Recruiter"), "the offer sent")
+				eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~C~"))), true)
+				assert(LogHas("RX claim < Guild Recruiter"), "the claim heard")
+				assert(LogHas("TX name " .. tag2 .. " > Guild Recruiter"), "the name sent, by tag")
+				eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~A~"))), true)
+				assert(LogHas("HANDED " .. tag2 .. " > Guild Recruiter"), "handed off to the member")
+				eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~A~"))), false)
+				assert(LogHas("REFUSED ack < Guild Recruiter"), "a repeated ack is refused, and said")
+				-- The other way: this member accepts handoffs and takes one from his guildmate.
+				eq(H.Toggle(), true)
+				local third = "Third Recruit-" .. home
+				eq(H.Receive("WHISPER", mate, Packet(scene, "O", own, own, nil, "77-ab-1")), true)
+				assert(LogHas("RX offer < Guild Recruiter"), "the offer heard")
+				local ask = assert(D.Find(CLAIM), "the Claim question")
+				eq(H.Claim(ask.data), true)
+				assert(LogHas("TX claim > Guild Recruiter"), "his claim sent")
+				eq(H.Receive("WHISPER", mate, Packet(scene, "N", own, own, third, "77-ab-1")), true)
+				local tag3 = H.Tag(third)
+				assert(LogHas("RX name " .. tag3 .. " < Guild Recruiter"), "the name received, by tag")
+				LogNever("New Recruit")
+				LogNever("Second Recruit")
+				LogNever("Third Recruit")
+				-- /oly bug: a summary line and the newest lines; /oly recruit log: all of it, to copy.
+				local bug = H.BugLines(40)
+				assert(bug[1]:find("^Recruiting: recruiting on, can invite on, accepting handoffs on, automatic offers on, scan off, invites this minute 1/10"), bug[1])
+				assert(#bug <= 41)
+				-- (WithHandoff gives the census an empty realm store; the status line counts its guilds.)
+				ns.rdb.guilds = ns.rdb.guilds or {}
+				local report = ns.BuildBugReport()
+				assert(report:find("Recruiting: recruiting on", 1, true), "the bug report has the recruiting section")
+				assert(report:find("HANDED " .. tag2 .. " > Guild Recruiter", 1, true))
+				local savedUI, copied = rawget(ns, "UI"), nil
+				ns.UI = { ShowCopy = function(title, text, _, opts) copied = { title = title, text = text, opts = opts } end }
+				local okSlash, errSlash = pcall(SlashCmdList.OLYMPUS, "recruit log")
+				ns.UI = savedUI
+				assert(okSlash, errSlash)
+				assert(copied, "/oly recruit log opens the copy window")
+				eq(copied.opts.key, "recruitlog")
+				eq(copied.opts.big, true)
+				assert(copied.text:find("TX name " .. tag2 .. " > Guild Recruiter", 1, true))
+			end)
+			ChatFrameUtil = savedUtil
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
+
+test("recruit log (1.5.8): the ring keeps the newest 200 lines and a crowd's sightings stay few", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			for i = 1, H.LOG_MAX + 5 do H.Log("TEST", "line " .. i) end
+			eq(#ns.db.recruitLog, H.LOG_MAX, "bounded")
+			assert(ns.db.recruitLog[1]:find("TEST line 6$"), "the oldest dropped")
+			assert(ns.db.recruitLog[H.LOG_MAX]:find("TEST line 205$"))
+			H.Log("TEST", "bad|cffff0000\ncolour")
+			assert(ns.db.recruitLog[H.LOG_MAX]:find("TEST badcffff0000colour$"), "no escapes or line breaks are kept")
+			ns.db.recruitLog = nil
+			for i = 1, 10 do H.LogSeen("nameplate", ("Walker %s-%s"):format(("abcdefghij"):sub(i, i), home)) end
+			H.LogSeen("who", "Walker a-" .. home)
+			eq(#ns.db.recruitLog, H.SEEN_PER_MINUTE, "a few sightings a minute, each player once")
+			scene.now = scene.now + 61
+			H.LogSeen("who", "Walker a-" .. home)
+			H.LogSeen("who", "Walker z-" .. home)
+			eq(#ns.db.recruitLog, H.SEEN_PER_MINUTE + 1, "a minute later a new one is logged, not the same again")
+			assert(ns.db.recruitLog[#ns.db.recruitLog]:find("SEEN who Wa%x%x%x%x$"))
+		end)
+	end)
+end)
+
+-- The test builds' "/oly recruit testjoin [Name]": the same handler a JOIN whisper reaches, so the
+-- popup, the limit, Pass and the automatic offers run for real. A release build says it is not there.
+test("recruit log (1.5.8): /oly recruit testjoin feeds a JOIN on a test build only", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			local D = Dialogs()
+			ns.Dialog = D
+			local savedBuild = rawget(ns, "TEST_BUILD")
+			local ok, err = pcall(function()
+				ns.TEST_BUILD = nil
+				eq(H.Slash("testjoin"), false)
+				eq(#R.requests, 0, "a release build feeds nothing")
+				eq(scene.printed[#scene.printed], ns.L.RECRUIT_TESTJOIN_OFF)
+				eq(D.Find(DRAFT), nil)
+				ns.TEST_BUILD = { n = 1, base = ns.VERSION }
+				pcall(SlashCmdList.OLYMPUS, "recruit testjoin")
+				local req = assert(R.requests[1], "a test build creates the request")
+				assert(req.name:match("^Olytest%d+%-"), "a made-up name with digits: " .. req.name)
+				eq(req.viaWhisper, true)
+				eq(req.handoffIntent, "guild", "as a plain JOIN whisper")
+				local draft = assert(D.Find(DRAFT), "and its popup")
+				eq(draft.data.req, req)
+				assert(LogHas("TESTJOIN " .. H.Tag(req.name)))
+				assert(LogHas("JOIN " .. H.Tag(req.name)))
+				draft:Hide()
+				eq(H.Slash("testjoin Named Tester"), true)
+				eq(R.requests[2].name, "Named Tester-" .. home, "or from the name given")
+			end)
+			ns.TEST_BUILD = savedBuild
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
