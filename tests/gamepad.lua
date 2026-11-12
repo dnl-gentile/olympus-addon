@@ -4136,6 +4136,31 @@ end)
 
 -- 1.5.8 (the author's ask, 11-12: "se você não tiver selecionado nenhuma, deveria ser activate all"):
 -- with every switch off, one button turns the three on, as their own clicks would, and Done follows.
+-- 1.5.9 (the author's report, 11-12: a player did not know where to turn recruiting off while its
+-- popups kept coming: "your recruiting is on. Click here to go to settings"): while recruiting is on,
+-- a line at the top of the Census says so and opens Church > Invites; off, no line.
+test("gamepad Census: a recruiting-on line opens Church > Invites", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		local U, R, L = ns.UI, ns.Recruit, ns.L
+		local function Line()
+			for _, row in ipairs(U.SelfTestView().rows) do
+				if row:IsShown() and row.line.id == "census-recruiting-on" then return row end
+			end
+		end
+		U.Toggle()
+		eq(Line(), nil, "no line while recruiting is off")
+		InClick(C, function() eq(R.EnableWhisperRecruiting(), true) end)
+		U.Toggle(); U.Toggle()
+		if U.PageId() ~= "census/" then assert(U.SelectTab("census")) end
+		local row = assert(Line(), "the line while recruiting is on")
+		assert(row.line.text:find(L.RECRUIT_CENSUS_ON_LINE, 1, true))
+		C.Click(row)
+		eq(U.PageId(), "church/invites", "its click opens Church > Invites")
+		NoErrors(C, "Census recruiting line")
+	end
+end)
+
 test("gamepad Census offer: Turn on all turns every switch on", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)

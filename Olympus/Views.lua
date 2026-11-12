@@ -1886,6 +1886,17 @@ local function CensusLines(s, q, recruitment)
 		recruitment = nil
 	end
 	QuietLine(lines)
+	-- 1.5.9 (the author's report, 11-12: a player "não estava sabendo onde desligar... porque elas
+	-- ficam toda hora aparecendo na tela... your recruiting is on. Click here to go to settings"):
+	-- while recruiting is on, one line here says so and opens Church > Invites, where it turns off.
+	local R = ns.Recruit
+	if R and R.IsWhisperRecruiting and R.IsWhisperRecruiting() then
+		lines[#lines + 1] = { id = "census-recruiting-on", text = Gold(L.RECRUIT_CENSUS_ON_LINE), onClick = function()
+			if ns.UI and ns.UI.SelectTab and ns.UI.SelectTab("church") and ns.ChurchView and ns.ChurchView.Show then
+				ns.ChurchView.Show("invites")
+			end
+		end }
+	end
 	-- Our guild's verification (Verify.lua): its guild master's "GM verification pending", or its
 	-- members' notice once it is overdue; a click opens it.
 	local V = VerifyModule()
