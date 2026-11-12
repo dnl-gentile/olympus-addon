@@ -3530,7 +3530,7 @@ function Views.JoinLines(height)
 	local pending = searching or left > 0
 	local status = searching and L.RECRUIT_SEARCHING
 		or left > 0 and L.RECRUIT_JOIN_WAITING:format(left)
-		or last and (R.replied[last.name] and L.RECRUIT_REPLIED:format(Plain(ns.ShortName(last.name))) or L.RECRUIT_JOIN_TIMEOUT)
+		or last and L.RECRUIT_JOIN_TIMEOUT
 		or ns.Who.Searched() and #R.found == 0 and L.RECRUIT_NONE_FOUND
 	local lines = {
 		{ text = L.RECRUIT_JOIN_TITLE, center = true, color = "GameFontNormalLarge", gapAfter = true,

@@ -125,9 +125,9 @@ First it asks the obvious question: *"<Your Guild>? Disband immediately. What ar
 doing?"* If you are in no guild, Olympus opens the **Join Olympus** page on your first login
 with the addon. **Request to join** searches for an online Olympus member and opens a request
 you can edit. Click **Send** to whisper it. The screen waits 45 seconds before offering
-**Request again** with another contact. You can opt in to reminders before sending the
-first request. They start after you send and ask you to confirm before preparing a new
-request. **Browse Olympus guilds** opens the optional guild list.
+**Request again** with another contact. If you enable reminders, the same prompt appears
+when the 45 seconds expire, even if you received a whisper reply or closed the Join page.
+Confirm to prepare a new request. **Browse Olympus guilds** opens the optional guild list.
 
 The list uses the game's own `/who`, which returns up to 50 players per search. When there
 are more, each new click searches a range of levels and adds to the list. Replies are

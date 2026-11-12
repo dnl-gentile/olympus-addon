@@ -33,7 +33,7 @@ local Recruit = {}
 ns.Recruit = Recruit
 
 local ASK_COOLDOWN = 20
-local JOIN_WAIT, JOIN_REMINDER = 45, 90
+local JOIN_WAIT, JOIN_REMINDER_DEFER = 45, 3
 local join = {}
 
 Recruit.ROUTE_GAP = 15      -- seconds between two J1 of the searches (an Ask click checks its own member)
@@ -355,27 +355,33 @@ function Recruit.ToggleJoinGuilds()
 	ns.Fire("RECRUIT_CHANGED")
 end
 
-local function ScheduleJoinReminder(reminder)
+local function JoinBusy()
+	return ns.ChatLocked() or ns.QuietPresence() or ns.Quiet() or (InCombatLockdown and InCombatLockdown())
+end
+
+local function ScheduleJoinReminder(request, reminder)
 	local function Remind()
-		if join.reminder ~= reminder or not Recruit.SimpleJoin() then return end
-		if JoinVisible() and not join.search and join.request and join.request.untilAt <= GetTime()
-			and not ns.ChatLocked() and not ns.QuietPresence() and not ns.Quiet()
-			and not (InCombatLockdown and InCombatLockdown())
-			and not ns.Dialog.missing and not ns.Dialog.Find("OLYMPUS_RECRUIT")
-			and not ns.Dialog.Find("OLYMPUS_RECRUIT_RETRY") then
-			ns.Dialog.CloseOnEscape(ns.Dialog.Show("OLYMPUS_RECRUIT_RETRY"))
+		if join.reminder ~= reminder or join.request ~= request or request.reminded
+			or not Recruit.SimpleJoin() or ns.Dialog.missing then return end
+		if JoinBusy() or join.search or ns.Dialog.Find("OLYMPUS_RECRUIT") then
+			ns.After(JOIN_REMINDER_DEFER, "join reminder", Remind)
+			return
 		end
-		ns.After(JOIN_REMINDER, "join reminder", Remind)
+		local popup = ns.Dialog.Show("OLYMPUS_RECRUIT_RETRY", nil, nil, request)
+		if popup then
+			request.reminded = true
+			ns.Dialog.CloseOnEscape(popup)
+		end
 	end
-	ns.After(JOIN_REMINDER, "join reminder", Remind)
+	ns.After(math.max(0, request.untilAt - GetTime()), "join reminder", Remind)
 end
 
 local function JoinWait(contact)
-	if not Recruit.SimpleJoin() or not JoinVisible() then return end
-	local first = not join.request
+	if not Recruit.SimpleJoin() then return end
+	if not ns.Dialog.missing then ns.Dialog.Hide("OLYMPUS_RECRUIT_RETRY") end
 	local request = { contact = contact, untilAt = GetTime() + JOIN_WAIT }
 	join.request = request
-	if first and join.reminder then ScheduleJoinReminder(join.reminder) end
+	if join.reminder then ScheduleJoinReminder(request, join.reminder) end
 	local function Tick()
 		if join.request ~= request or not Recruit.SimpleJoin() then return end
 		if JoinVisible() then ns.Fire("RECRUIT_CHANGED") end
@@ -417,7 +423,7 @@ function Recruit.ToggleJoinReminder()
 		if not ns.Dialog.missing then ns.Dialog.Hide("OLYMPUS_RECRUIT_RETRY") end
 	else
 		join.reminder = {}
-		if join.request then ScheduleJoinReminder(join.reminder) end
+		if join.request then ScheduleJoinReminder(join.request, join.reminder) end
 	end
 	ns.Fire("RECRUIT_CHANGED")
 end
@@ -1575,7 +1581,12 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_RETRY"] = {
 	text = L.RECRUIT_JOIN_REMINDER_PROMPT,
 	button1 = L.RECRUIT_JOIN_AGAIN,
 	button2 = CANCEL or "Cancel",
-	OnAccept = function() Recruit.RequestJoin() end,
+	OnAccept = function(_, request)
+		if join.request ~= request or not join.reminder or not Recruit.SimpleJoin() then return end
+		if JoinBusy() then return true end
+		if not JoinVisible() and (not ns.UI or not ns.UI.SelectTab("census")) then return true end
+		return not Recruit.RequestJoin()
+	end,
 	timeout = 0,
 	whileDead = true,
 	hideOnEscape = true,
