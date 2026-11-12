@@ -678,42 +678,36 @@ test("census author (1.5.8): another origin's accepted look keeps counting, date
 	end)
 end)
 
--- 1.5.8 (the author, 11-12: "E já tem um outro membro do High Council que já está assinado do PVP").
--- Fails before: only the author's client carrying his own look made a carried look count; a signed
--- councillor's PvP look his PvE character carried stayed "reported" everywhere.
-test("census author (1.5.8): a signed councillor's look carried by a trusted character counts; a member carrying it, a councillor carrying someone else's, another family's or a provisional relay's copy stays unproven", function()
+-- 1.5.8, the review of the census-pvp candidate. Fails on the candidate: a look naming a signed
+-- councillor's character counted whenever any trusted character carried it, and every client keeps the
+-- looks it hears (unproven ones too) and says the widest of an origin, so a member's forged look a
+-- councillor's (or the author's) client heard came out under that trusted name and counted everywhere.
+test("census author (1.5.8): a look naming a councillor's character counts only from that character itself; a forged one a trusted client heard and says again stays unproven", function()
 	World(function(Node)
-		local function Look(N, observer, group)
-			return ("CX~3~S~%s~%s~Alliance~5551,5400,29,%d~"):format(observer, group or "ForeverPvP", N.clock - 900)
+		local COUNCIL_PVP = "Sage Ledger-" .. PVP
+		local forged = ("CX~3~S~%s~ForeverPvP~Alliance~90000,90000,290,%%d~"):format(COUNCIL_PVP)
+		-- A councillor's PvE client hears a member's forged look; it keeps it unproven, and, holding no
+		-- own look of that origin, says it again under its own name.
+		local H = Node("Sage Warden-" .. PVE)
+		local word = forged:format(H.clock - 60)
+		assert(H.Data.ReceivePortable("Plain Member-" .. PVE, word))
+		eq(assert(PvP(H.Data.Groups())).counted, false, "unproven where it was heard")
+		eq(H.Data.PortablePayload(), word, "the councillor's client carries it on")
+		-- Every listener that hears it from that trusted client: still unproven, never in the total.
+		for _, carrier in ipairs({ "Sage Warden-" .. PVE, AUTHOR }) do
+			local L = Node(LISTENER)
+			local before = L.Data.CensusStats().cx3.unproven
+			L.Relay.TakeVia("M", "Sage Ledger", carrier, forged:format(L.clock - 60))
+			local g = L.Data.Groups()
+			local row = assert(PvP(g), "listed")
+			eq(row.counted, false, carrier .. " carrying a look naming a councillor"); eq(row.src, "heard")
+			eq(L.Data.CensusStats().cx3.unproven - before, 1, "tallied unproven")
+			for _, r in ipairs(g.rows) do assert(r.ours or not r.counted, "nothing else counted") end
 		end
-		local COUNCIL_PVP = "Sage Warden-" .. PVP
-		local A = Node(LISTENER)
-		local before = A.Data.CensusStats().cx3.council
-		A.Relay.TakeVia("M", "Sage Ledger", "Sage Warden-" .. PVE, Look(A, COUNCIL_PVP))
-		local row = assert(PvP(A.Data.Groups()))
-		eq(row.counted, true, "the councillor's own look, carried by his trusted character"); eq(row.characters, 5551)
-		eq(row.src, "relay"); eq(row.observed, A.clock - 900, "dated as observed")
-		eq(A.Data.CensusStats().cx3.council - before, 1, "counted as a councillor's look")
-		-- Another councillor, or the author, carrying it: trusted carriers too.
-		local B = Node(LISTENER)
-		B.Relay.TakeVia("M", "Sage Ledger", AUTHOR, Look(B, COUNCIL_PVP))
-		eq(assert(PvP(B.Data.Groups())).counted, true, "the author carrying a councillor's look")
-		-- A plain member carrying the councillor's look: a forwarder, no observer.
-		local C = Node(LISTENER)
-		C.Relay.TakeVia("M", "Sage Ledger", "Plain Member-" .. PVE, Look(C, COUNCIL_PVP))
-		row = assert(PvP(C.Data.Groups()))
-		eq(row.counted, false, "a member forwarding it stays unproven"); eq(row.src, "heard")
-		-- The councillor carrying a plain player's look: never laundered.
+		-- The councillor's own character sending its look itself (direct): counted, as before.
 		local D = Node(LISTENER)
-		D.Relay.TakeVia("M", "Sage Ledger", "Sage Warden-" .. PVE, Look(D, "Other Observer-" .. PVP))
-		eq(assert(PvP(D.Data.Groups())).counted, false, "someone else's look stays unproven")
-		-- A look of another family than the councillor's observer's.
-		local E = Node(LISTENER)
-		E.Relay.TakeVia("M", "Sage Ledger", "Sage Warden-" .. PVE, Look(E, COUNCIL_PVP, "ForeverRP"))
-		eq(assert(Row(E.Data.Groups(), "ForeverRP")).counted, false, "the observer must be of the look's own family")
-		-- Through a provisional relay (RO): member weight, no trusted carrier.
-		local F = Node(LISTENER)
-		F.Relay.TakeVia("O", "Pro Visional-" .. PVE, "Sage Warden-" .. PVE, Look(F, COUNCIL_PVP))
-		eq(assert(PvP(F.Data.Groups())).counted, false, "a provisional relay carries no councillor")
+		D.Relay.TakeVia("M", "Sage Ledger", COUNCIL_PVP, ("CX~3~S~%s~ForeverPvP~Alliance~5551,5400,29,%d~"):format(COUNCIL_PVP, D.clock - 900))
+		local row = assert(PvP(D.Data.Groups()))
+		eq(row.counted, true, "direct, as before"); eq(row.characters, 5551); eq(row.observed, D.clock - 900, "dated as observed")
 	end)
 end)

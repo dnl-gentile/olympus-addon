@@ -1140,7 +1140,7 @@ end
 Data.CENSUS_REFUSALS = 5 -- the last refusals kept, with their reason
 local censusStats = { cg = { trusted = 0, witnessed = 0, lone = 0, refused = 0 },
 	cx = { author = 0, trusted = 0, witnessed = 0, heard = 0, unproven = 0, refused = 0 },
-	cx3 = { direct = 0, author = 0, unproven = 0, council = 0 }, qa = { verified = 0, refused = 0, signed = 0 } }
+	cx3 = { direct = 0, author = 0, unproven = 0 }, qa = { verified = 0, refused = 0, signed = 0 } }
 local censusRefusals = {} -- { kind, why, from, t }, oldest first
 local function Tally(kind, what) censusStats[kind][what] = censusStats[kind][what] + 1 end
 local function Refused(kind, why, from)
@@ -2687,20 +2687,15 @@ end
 -- own family's author character made (both his, on the observer's own family: Relay.IsLaunchAuthor or
 -- the signed list), on a trusted hop. The author's client carrying anyone else's look would launder it:
 -- unproven, as any forwarder's.
--- (1.5.8, the author, 11-12: "qualquer player meu do PVP deveria atualizar. Eu não só tenho [um] ... E já
--- tem um outro membro do High Council que já está assinado do PVP") The same for a look a member of
--- the signed High Council took (Church.IsLedgerRelay: the councillors, the King, the keepers, the
--- census's trusted origins already), carried by such a character on a trusted hop: a councillor's PvP
--- look his PvE character carries counts as his, as the author's does. Its observer must be signed and
--- of the look's own family; anyone else carrying it, or carrying anyone else's look, stays unproven.
--- (A councillor has no signing key of his own: only the author's looks prove themselves, QA below.)
+-- (1.5.8, the review of the census-pvp candidate) A look a signed councillor's character took counts
+-- when that character itself sends it (direct, above), never when another trusted character carries
+-- it: every client keeps each look it hears (TakeLook, unproven ones too) and says the widest of an
+-- origin (PortablePayload), so a member's forged look naming a councillor's character, heard by a
+-- trusted client with no own look of that origin, came out under that client's trusted name and
+-- counted everywhere. A councillor has no signing key: only the author's looks prove themselves
+-- whoever carries them (QA below), and they cross the relay mesh (Relay.lua's Across).
 local function AuthorLook(sender, look)
 	if not (AuthorIdentity(look.observer) and AuthorIdentity(sender) and GlobalTrusted(sender)) then return false end
-	local family = ScopedGroup(look.row.group)
-	return family == nil or ns.ForeverFamily(ns.RealmOf(ns.FullName(look.observer)) or "") == family
-end
-local function CouncilLook(sender, look)
-	if not (LedgerRelay(look.observer) and TrustedCensusOrigin(sender) and GlobalTrusted(sender)) then return false end
 	local family = ScopedGroup(look.row.group)
 	return family == nil or ns.ForeverFamily(ns.RealmOf(ns.FullName(look.observer)) or "") == family
 end
@@ -2709,8 +2704,7 @@ function Data.ReceivePortable(sender, text)
 	if not look then return Refused("cx", "look", sender) end
 	local direct = ns.FullName(sender):lower() == ns.FullName(look.observer):lower()
 	local trusted, how = direct and GlobalTrusted(sender), direct and "direct" or "unproven"
-	if not direct and AuthorLook(sender, look) then direct, trusted, how = true, true, "author"
-	elseif not direct and CouncilLook(sender, look) then direct, trusted, how = true, true, "council" end
+	if not direct and AuthorLook(sender, look) then direct, trusted, how = true, true, "author" end
 	Tally("cx3", how)
 	return TakeLook(look, direct, trusted)
 end
@@ -2776,7 +2770,7 @@ end
 -- (1.5.5) What the census took, left unproven and refused since login, for /oly bug (the relay's
 -- BugLines "census:" line): a copy, with the last refusals newest first and the whole as one line.
 --   cg: trusted, witnessed, lone, refused (global rows)       cx: author, trusted, witnessed, heard, unproven, refused
---   cx3: direct, author, unproven, council (looks)            qa: verified, refused, signed (the author's checked looks)
+--   cx3: direct, author, unproven (looks)                     qa: verified, refused, signed (the author's checked looks)
 function Data.CensusStats()
 	local out, now = { last = {} }, ns.Now()
 	for kind, counts in pairs(censusStats) do
@@ -2791,9 +2785,9 @@ function Data.CensusStats()
 		last[#last + 1] = r.kind .. ":" .. r.why
 	end
 	local g, x, l, q = out.cg, out.cx, out.cx3, out.qa
-	out.line = ("cg t%d w%d l%d r%d | cx a%d t%d w%d h%d u%d r%d | cx3 d%d a%d u%d c%d | qa v%d r%d s%d"):format(
+	out.line = ("cg t%d w%d l%d r%d | cx a%d t%d w%d h%d u%d r%d | cx3 d%d a%d u%d | qa v%d r%d s%d"):format(
 		g.trusted, g.witnessed, g.lone, g.refused, x.author, x.trusted, x.witnessed, x.heard, x.unproven, x.refused,
-		l.direct, l.author, l.unproven, l.council, q.verified, q.refused, q.signed) .. (#last > 0 and (" | last " .. table.concat(last, ",")) or "")
+		l.direct, l.author, l.unproven, q.verified, q.refused, q.signed) .. (#last > 0 and (" | last " .. table.concat(last, ",")) or "")
 	return out
 end
 
