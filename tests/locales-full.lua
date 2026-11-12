@@ -240,3 +240,19 @@ test("languages (1.5.9): Church > Invites' headings and rows in every language, 
 	eq(english.L.RECRUIT_ANNOUNCE_REMINDER_TITLE, "Ad reminder", "the ads' word for it, as the section's")
 end)
 
+-- 1.5.9, the review of 1.5.8: the handoffs' chat lines, Claim question, popup count and switches stayed
+-- English in the five language files. Each in its own words now, its codes the English line's.
+local HANDOFF_LINES = { "RECRUIT_OVERFLOW_ON", "RECRUIT_OVERFLOW_OFF", "RECRUIT_HANDOFF_MORE", "RECRUIT_HANDOFF_PASSING",
+	"RECRUIT_HANDOFF_BLOCKED", "RECRUIT_HANDOFF_ARRIVED", "RECRUIT_HANDOFF_CLAIM_PROMPT", "RECRUIT_HANDOFF_TAKE", "RECRUIT_HANDOFF_SKIP" }
+test("languages (1.5.9, regression): the recruiting handoffs' lines in every language", function()
+	for code, file in pairs(LANGS) do
+		local L = Load(code).L
+		for _, k in ipairs(HANDOFF_LINES) do
+			assert(type(english.L[k]) == "string", "English " .. k)
+			assert(L[k] ~= english.L[k], file .. " " .. k .. ": its own words")
+			eq(ns.LocaleCodes(L[k]), ns.LocaleCodes(english.L[k]), file .. " " .. k .. " codes")
+		end
+		-- Where the lines send the player, in the words of that language's tabs.
+		assert(L.RECRUIT_HANDOFF_PASSING:find(L.CHURCH_NAV_INVITES, 1, true), file .. ": Church > Invites named as its tab is")
+	end
+end)
