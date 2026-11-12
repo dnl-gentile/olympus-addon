@@ -96,6 +96,9 @@ local DRAFT, CLAIM = "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_HANDOFF_CL
 local function Find(rows, text)
 	for _, row in ipairs(rows) do if row.text and row.text:find(text, 1, true) then return row end end
 end
+local function Id(rows, id)
+	for _, row in ipairs(rows) do if row.id == id then return row end end
+end
 
 test("recruit handoff: opt-in applicant intent and one trusted claimant gate sharing and acknowledgement", function()
 	WithHandoff(function(scene)
@@ -428,7 +431,9 @@ test("recruit (1.5.8): turning recruiting on without the game's invite permissio
 		ns.Dialog = D
 		eq(R.ToggleWhisperRecruiting(), false, "turned off first")
 		scene.permission = false
-		local toggle = assert(R.WhisperLines()[1], "Church > Invites shows the switch to every member")
+		-- (Changed on purpose, 1.5.9, the author's ask for a page "muito claro": the Recruiting section's
+		-- heading comes first now; the switch is found by its id.)
+		local toggle = assert(Id(R.WhisperLines(), "recruit-whisper-toggle"), "Church > Invites shows the switch to every member")
 		eq(toggle.onClick(), false)
 		eq(R.IsWhisperRecruiting(), false, "recruiting stays off")
 		eq(scene.printed[#scene.printed], ns.L.RECRUIT_NO_INVITE_RIGHT)
@@ -1537,6 +1542,113 @@ test("recruit scan (1.5.8): the /who rotation searches level ranges anywhere fir
 		end)
 		GetRealZoneText, GetMaxPlayerLevel = savedZone, savedTop
 		if not ok then error(err, 0) end
+	end)
+end)
+
+
+---------------------------------------------------------------------------
+-- 1.5.9: Church > Invites in sections, and the handoffs' network fixes from the 1.5.8 reviews.
+---------------------------------------------------------------------------
+
+-- The headings of a page's lines, by id, in order.
+local function Headings(lines)
+	local out = {}
+	for _, line in ipairs(lines) do
+		if line.header then
+			assert(not line.onClick, "a heading takes no click: " .. tostring(line.text))
+			out[#out + 1] = line.id or ("?" .. tostring(line.text))
+		end
+	end
+	return table.concat(out, ",")
+end
+-- The lines from the heading `id` to the next heading (the heading first).
+local function SectionOf(lines, id)
+	local out
+	for _, line in ipairs(lines) do
+		if line.header and out then break end
+		if line.id == id then out = {} end
+		if out then out[#out + 1] = line end
+	end
+	return assert(out, "no section " .. id)
+end
+local SECTIONS = "recruit-section-recruiting,recruit-section-ads,recruit-section-scan,recruit-section-handoffs"
+
+-- 1.5.9 (the author, 11-12: "ainda tô achando meio bagunçado... public recruitment announcement... ele
+-- tá maior do que o de cima, aí parece que o de cima não tem tanta importância... talvez precisasse de
+-- uma seção aqui com esse título maior... para as pessoas lerem e ser muito claro"): every part of the
+-- page under a heading of the same kind, in the order they are used; the JOINs waiting inside the
+-- Recruiting section, not under a heading of their own.
+test("recruit Invites page (1.5.9): four sections in order under headings of one weight, the JOINs waiting inside Recruiting", function()
+	WithHandoff(function(scene)
+		UseCandidates()
+		local L = ns.L
+		eq(R.ToggleWhisperRecruiting(), false, "recruiting off first")
+		local off = R.WhisperLines()
+		eq(Headings(off), SECTIONS, "off, the four sections all the same")
+		eq(off[1].text, L.RECRUIT_SECTION_RECRUITING, "the page opens with Recruiting's heading")
+		local recruiting = SectionOf(off, "recruit-section-recruiting")
+		eq(recruiting[2].id, "recruit-whisper-toggle", "its switch under it")
+		assert(recruiting[2].text:find(L.RECRUIT_WHISPER_OFF, 1, true) and recruiting[2].onClick)
+		assert(recruiting[3].text:find(L.RECRUIT_WHISPER_OFF_HINT, 1, true), "and what turning it on does")
+		eq(SectionOf(off, "recruit-section-ads")[1].text, L.RECRUIT_ANNOUNCE_OPEN)
+		assert(SectionOf(off, "recruit-section-ads")[2].text:find(L.RECRUIT_ADS_HINT, 1, true))
+		for _, id in ipairs({ "recruit-section-scan", "recruit-section-handoffs" }) do
+			local section = SectionOf(off, id)
+			eq(#section, 2, id .. ": its heading and one line")
+			assert(section[2].text:find(L.RECRUIT_SECTION_NEEDS_ON, 1, true), id .. " says recruiting comes first")
+		end
+		for i = 2, #off do
+			if off[i].header then eq(off[i - 1].gapAfter, true, "a gap before " .. off[i].id) end
+		end
+
+		eq(R.ToggleWhisperRecruiting(), true)
+		R.OnWhisper("JOIN", "First Waiting-" .. home)
+		R.OnWhisper("JOIN", "Second Waiting-" .. home)
+		local on = R.WhisperLines()
+		eq(Headings(on), SECTIONS, "on, with JOINs waiting: the same four headings, none for the JOINs")
+		recruiting = SectionOf(on, "recruit-section-recruiting")
+		assert(recruiting[2].text:find(L.RECRUIT_WHISPER_ON, 1, true))
+		assert(recruiting[3].text:find(L.RECRUIT_WHISPER_HINT, 1, true))
+		eq(recruiting[4].id, "recruit-whisper-arrival", "how a JOIN comes in")
+		local count = assert(Id(recruiting, "recruit-requests"), "the JOINs waiting are in the Recruiting section")
+		eq(count.text, L.JOIN_REQUESTS:format(2)); eq(count.header, nil); eq(count.indent, 1)
+		local first = assert(Find(recruiting, "First Waiting"), "each JOIN under it")
+		assert((first.indent or 0) >= 1, "one step in")
+		assert(Find(recruiting, L.RECRUIT_WHISPER_PREPARE_BUTTON).indent >= 2, "and its actions one more")
+		assert(Id(SectionOf(on, "recruit-section-scan"), "recruit-candidate-toggle"), "the scan's switch in its section")
+		assert(SectionOf(on, "recruit-section-scan")[2].text:find(L.RECRUIT_SCAN_HINT, 1, true))
+		local handoffs = SectionOf(on, "recruit-section-handoffs")
+		eq(handoffs[1].text, L.RECRUIT_SECTION_HANDOFFS .. " " .. L.RECRUIT_EXPERIMENTAL, "Experimental on the heading")
+		assert(handoffs[2].text:find(L.RECRUIT_HANDOFFS_HINT, 1, true))
+		assert(Id(handoffs, "recruit-handoff-accept") and Id(handoffs, "recruit-handoff-overflow"), "both handoff switches in it")
+		local tagged = 0
+		for _, line in ipairs(on) do
+			if line.text and line.text:find(L.RECRUIT_EXPERIMENTAL, 1, true) then tagged = tagged + 1 end
+		end
+		eq(tagged, 1, "said once, on the heading, not cut off the end of each switch")
+	end)
+end)
+
+-- 1.5.9, the review of 1.5.8 (the author's: "se ela tentar ativar e ela não puder convidar pessoas, vai
+-- avisar, tipo, você não pode convidar mesmo para sua guilda, fale com o seu GM"): the reason showed
+-- only after a click on the switch. Now it is under the switch, and the sections he can't use are gone
+-- (an ad asking for JOIN whispers he could not answer helped nobody).
+test("recruit Invites page (1.5.9, regression): a member whose rank can't invite reads why under the switch", function()
+	WithHandoff(function(scene)
+		UseCandidates()
+		eq(R.ToggleWhisperRecruiting(), false)
+		scene.permission = false
+		local lines = R.WhisperLines()
+		eq(Headings(lines), "recruit-section-recruiting", "only the Recruiting section")
+		eq(lines[2].id, "recruit-whisper-toggle")
+		local why = assert(Id(lines, "recruit-no-invite"), "the reason is on the page, no click needed")
+		assert(why.text:find(ns.L.RECRUIT_NO_INVITE_SHORT, 1, true))
+		local tip = {}
+		why.tooltip({ AddLine = function(_, text) tip[#tip + 1] = text end })
+		eq(tip[1], ns.L.RECRUIT_NO_INVITE_RIGHT, "the whole sentence in its tooltip")
+		eq(Find(lines, ns.L.RECRUIT_ADS_HINT), nil, "no ads to post")
+		scene.permission = true
+		eq(Id(R.WhisperLines(), "recruit-no-invite"), nil, "a member who can invite reads none")
 	end)
 end)
 

@@ -1213,8 +1213,20 @@ local function SetReminder(index)
 	ns.Fire("DATA_CHANGED")
 end
 
-local function AnnouncementLines(lines, V)
-	lines[#lines + 1] = { text = L.RECRUIT_ANNOUNCE_OPEN, header = true }
+-- 1.5.9 (the author's ask, 11-12: "uma coisa que faz sentido depois da outra... Eu pedi uma
+-- reestruturação de visual e de interface, de experiência do usuário, justamente para isso, para as
+-- pessoas lerem e ser muito claro"): Church > Invites in sections, each under a heading of the same
+-- weight (the Recruiting switch had none, so the ads' heading looked the more important), in the
+-- order they are used, with one short line under a heading at most.
+local function Section(lines, id, text, hint, V)
+	if #lines > 0 then lines[#lines].gapAfter = true end
+	lines[#lines + 1] = { id = id, header = true, text = text }
+	if hint then lines[#lines + 1] = { indent = 1, text = V.Grey(hint) } end
+end
+
+-- `on`: recruiting is on (a reminder only opens a draft then).
+local function AnnouncementLines(lines, V, on)
+	Section(lines, "recruit-section-ads", L.RECRUIT_ANNOUNCE_OPEN, L.RECRUIT_ADS_HINT, V)
 	local rows = PublicChannels()
 	if #rows == 0 then lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_ANNOUNCE_NO_CHANNELS) } end
 	for _, row in ipairs(rows) do
@@ -1233,9 +1245,10 @@ local function AnnouncementLines(lines, V)
 		filters = { { label = L.RECRUIT_ANNOUNCE_REMINDER_TITLE, value = intervals[reminderIndex].text, options = intervals, understated = true } } }
 	local minutes = REMINDER_MINUTES[reminderIndex]
 	if minutes > 0 then
-		lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_ANNOUNCE_REMINDER_PREVIEW:format(minutes)) }
+		lines[#lines + 1] = { indent = 1, text = V.Grey(on and L.RECRUIT_ANNOUNCE_REMINDER_PREVIEW:format(minutes)
+			or L.RECRUIT_ANNOUNCE_REMINDER_PAUSED) }
 	end
-	lines[#lines + 1] = { indent = 1, gapAfter = true,
+	lines[#lines + 1] = { id = "recruit-announcement-channels", indent = 1,
 		text = V.Grey(rotateReminder and L.RECRUIT_ANNOUNCE_REMINDER_ROTATE or L.RECRUIT_ANNOUNCE_REMINDER_SELECTED),
 		tooltip = function(tt) tt:AddLine(L.RECRUIT_ANNOUNCE_REMINDER_TIP, 1, 1, 1, true) end,
 		onClick = function()
@@ -1254,22 +1267,46 @@ local function ChurchSwitch()
 	return on
 end
 
+-- Church > Invites (ChurchView.lua): Recruiting (its switch, how a JOIN comes in, the JOINs waiting),
+-- Recruiting ads, Find unguilded players, Handoffs (Experimental). With recruiting off the last two
+-- say it comes first. (1.5.9, the review of 1.5.8: a member whose rank the game does not let invite
+-- read nothing on the page until he clicked the switch; the reason is under it now, and the sections
+-- he can't use are left out: an ad asking for JOIN whispers he could not answer helps nobody.)
 function Recruit.WhisperLines()
 	if not WhisperGuild() then return {} end
 	local V, on = ns.Views, Recruiting()
-	local lines = { { id = "recruit-whisper-toggle", text = on and V.Green(L.RECRUIT_WHISPER_ON) or V.Grey(L.RECRUIT_WHISPER_OFF),
-		onClick = ChurchSwitch, gapAfter = true } }
-	AnnouncementLines(lines, V)
+	local lines = {}
+	Section(lines, "recruit-section-recruiting", L.RECRUIT_SECTION_RECRUITING, nil, V)
+	lines[#lines + 1] = { id = "recruit-whisper-toggle", text = on and V.Green(L.RECRUIT_WHISPER_ON) or V.Grey(L.RECRUIT_WHISPER_OFF),
+		onClick = ChurchSwitch, tooltip = function(tt) tt:AddLine(L.RECRUIT_WHISPER_SWITCH_TIP, 1, 1, 1, true) end }
+	if not Recruit.CanInvite() then
+		lines[#lines + 1] = { id = "recruit-no-invite", indent = 1, text = V.Red(L.RECRUIT_NO_INVITE_SHORT),
+			tooltip = function(tt) tt:AddLine(L.RECRUIT_NO_INVITE_RIGHT, 1, 1, 1, true) end }
+		return lines
+	end
+	lines[#lines + 1] = { indent = 1, text = V.Grey(on and L.RECRUIT_WHISPER_HINT or L.RECRUIT_WHISPER_OFF_HINT) }
 	if on then
-		lines[#lines + 1] = { indent = 1, text = L.RECRUIT_WHISPER_HINT }
 		lines[#lines + 1] = { id = "recruit-whisper-arrival", indent = 1,
 			text = V.Gold(QueueOnly() and L.RECRUIT_WHISPER_QUEUE_ONLY or L.RECRUIT_WHISPER_POPUP_ON),
 			onClick = ToggleQueueOnly }
-		if Recruit.Handoff then Recruit.Handoff.Controls(lines, V) end
-		if Recruit.Candidates then
-			Recruit.Candidates.Lines(lines, V)
-		else
-			lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_WHISPER_TARGET), onClick = Recruit.PromptOutreach, gapAfter = true }
+		for _, line in ipairs(Recruit.RequestLines(true, true)) do lines[#lines + 1] = line end
+	end
+	AnnouncementLines(lines, V, on)
+	-- (Off, the two sections that need recruiting say so instead of what they do.)
+	Section(lines, "recruit-section-scan", L.RECRUIT_CENSUS_SCAN, on and L.RECRUIT_SCAN_HINT or L.RECRUIT_SECTION_NEEDS_ON, V)
+	if on and Recruit.Candidates then
+		Recruit.Candidates.Lines(lines, V)
+	elseif on then
+		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_WHISPER_TARGET), onClick = Recruit.PromptOutreach }
+	end
+	if Recruit.Handoff then
+		-- (Its switches need the roster to confirm this member: until it does, no section.)
+		local handoffs = {}
+		if on then Recruit.Handoff.Controls(handoffs, V) end
+		if #handoffs > 0 or not on then
+			Section(lines, "recruit-section-handoffs", L.RECRUIT_SECTION_HANDOFFS .. " " .. L.RECRUIT_EXPERIMENTAL,
+				on and L.RECRUIT_HANDOFFS_HINT or L.RECRUIT_SECTION_NEEDS_ON, V)
+			for _, line in ipairs(handoffs) do lines[#lines + 1] = line end
 		end
 	end
 	return lines
@@ -1822,7 +1859,9 @@ end
 
 -- An officer reviews or declines requests. Other members can point to an officer online.
 -- viaWhisper separates manual recruitment replies from the usual Join Olympus requests.
-function Recruit.RequestLines(viaWhisper)
+-- `nested` (1.5.9, Church > Invites): inside the Recruiting section, the count a line of its own
+-- instead of a heading, and every row one step further in.
+function Recruit.RequestLines(viaWhisper, nested)
 	if not ns.IsMember() then return {} end
 	Prune(ns.Now())
 	local reqs = Recruit.requests
@@ -1894,6 +1933,12 @@ function Recruit.RequestLines(viaWhisper)
 		end
 	end
 	if #reqs > Recruit.REQUESTS_SHOWN then lines[#lines + 1] = { indent = 1, text = V.Grey(L.JOIN_MORE:format(#reqs - Recruit.REQUESTS_SHOWN)) } end
+	if nested then
+		-- (Plain, not gold: on this page gold lines are the ones a click acts on.)
+		lines[1].header, lines[1].id = nil, "recruit-requests"
+		for _, line in ipairs(lines) do line.indent = (line.indent or 0) + 1 end
+		return lines
+	end
 	lines[#lines].gapAfter = true
 	return lines
 end

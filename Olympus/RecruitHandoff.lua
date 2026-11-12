@@ -526,17 +526,17 @@ function H.Restore(saved)
 	end
 end
 
+-- Church > Invites' Handoffs section (Recruit.WhisperLines). (1.5.8, the author's ask: "botar
+-- experimental nessa feature": since 1.5.9 its heading says it, not each switch, which it cut off.)
 function H.Controls(lines, V)
 	local own = LocalGuild()
 	if not own then return end
 	Prune(ns.Now())
-	-- (1.5.8, the author's ask: "botar experimental nessa feature")
-	local tag = " " .. L.RECRUIT_EXPERIMENTAL
 	lines[#lines + 1] = { id = "recruit-handoff-accept",
-		text = Accepting() and V.Green(L.RECRUIT_HANDOFF_ON .. tag) or V.Grey(L.RECRUIT_HANDOFF_OFF .. tag), onClick = ToggleSaved,
+		text = Accepting() and V.Green(L.RECRUIT_HANDOFF_ON) or V.Grey(L.RECRUIT_HANDOFF_OFF), onClick = ToggleSaved,
 	}
 	lines[#lines + 1] = { id = "recruit-handoff-overflow",
-		text = autoGuild == own and V.Green(L.RECRUIT_OVERFLOW_ON .. tag) or V.Grey(L.RECRUIT_OVERFLOW_OFF .. tag),
+		text = autoGuild == own and V.Green(L.RECRUIT_OVERFLOW_ON) or V.Grey(L.RECRUIT_OVERFLOW_OFF),
 		onClick = ToggleAutoSaved }
 	if not Accepting() then return end
 	for _, ref in pairs(incoming) do
