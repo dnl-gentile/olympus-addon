@@ -3205,6 +3205,28 @@ test("Church ledger v2 rechecks queued private rows when the recipient loses its
 	eq(#LedgerMessages(w, c.a2, 2, "e"), 0, "the cancelled row cannot emit its terminal")
 end)
 
+test("Church ledger retains a deferred person row with its original ledger when roles change", function()
+	local w, c = LedgerPageWorld()
+	local c1 = c.a1
+	local original, isPerson, isKeeper = w:As(c1, c1.Count.Led), c1.Church.IsPerson, c1.Church.IsKeeper
+	local line = ("NL~1~p~Mira Wells~0~0~10~1~0~%s"):format(c1.Church.B36(w.clock))
+	c1.Church.IsPerson = function(name) return Key(name) ~= Key("Mira Wells") and isPerson(name) end
+	eq(select(2, w:As(c1, c1.Count.Receive, "NL", "WHISPER", A2, line)), "person")
+	eq(#c1.Count.LaterLines(), 1)
+	c1.Church.IsKeeper = function(name) return Key(name or A1) ~= Key(A1) and isKeeper(name) end
+	c1.c.IsHighCouncillor = function(name) return Key(name) == Key(A1) end
+	c1.Church.IsPerson = isPerson
+	w:Run(1)
+	eq(w:As(c1, c1.Count.RetryLater), 0)
+	eq(Joins(w, c1, "Mira Wells", "a"), 0)
+	eq(#c1.Count.LaterLines(), 1)
+	c1.Church.IsKeeper = isKeeper
+	w:Run(1)
+	eq(w:As(c1, c1.Count.Led), original)
+	eq(w:As(c1, c1.Count.RetryLater), 1)
+	eq(Joins(w, c1, "Mira Wells", "a"), 1)
+end)
+
 test("Church ledger recovery replays verified recent records without advancing a saved cursor", function()
 	local w, c = LedgerPageWorld()
 	Give(w, c.a2, "Earlier Rec", "Mira Wells", 200)

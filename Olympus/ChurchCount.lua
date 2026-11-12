@@ -2023,18 +2023,23 @@ Count.LATER_MAX, Count.LATER_KEEP = 200, 1800
 local later, retrying = {}, false
 local function Later(sender, text)
 	if retrying then return end
-	for _, l in ipairs(later) do if l.text == text then return end end
+	local ledger = Led()
+	for _, l in ipairs(later) do if l.ledger == ledger and l.text == text then return end end
 	if #later >= Count.LATER_MAX then table.remove(later, 1) end
-	later[#later + 1] = { sender = sender, text = text, t = ns.Now() }
+	later[#later + 1] = { sender = sender, text = text, t = ns.Now(), ledger = ledger }
 end
 function Count.RetryLater()
 	if #later == 0 then return 0 end
-	local list, t, taken = later, ns.Now(), 0
+	local list, t, ledger, taken = later, ns.Now(), Led(), 0
 	later, retrying = {}, true
 	for _, l in ipairs(list) do
 		if t - l.t <= Count.LATER_KEEP then
-			local ok, why = Count.TakeLine(l.sender, l.text)
-			if ok then taken = taken + 1 elseif why == "person" then later[#later + 1] = l end
+			if l.ledger == ledger then
+				local ok, why = Count.TakeLine(l.sender, l.text)
+				if ok then taken = taken + 1 elseif why == "person" then later[#later + 1] = l end
+			else
+				later[#later + 1] = l
+			end
 		end
 	end
 	retrying = false
