@@ -894,6 +894,7 @@ local jobsAt, askerJobs = {}, {} -- the budget: when our jobs went (all of them;
 local heardBody = {}     -- [letter] = { [Hash36 of a record's body] = when an RR of it was heard }
 local lag = { n = 0, sum = 0, max = 0 } -- seconds from a digest's slot to the wire (Comm sent it)
 local askedAt, heardAsk, answeredAt, heardRecordAt, answering, askCursor, witnessedAt = {}, {}, {}, {}, {}, {}, {}
+local asking = {} -- one day request in transport per letter, until its send completes
 local function Per(t, letter)
 	local x = t[letter]
 	if not x then x = {} t[letter] = x end
@@ -1177,26 +1178,42 @@ local function AskBody(letter, d, remoteCount)
 	table.sort(held)
 	-- Large days are requested in hash buckets. The packet and the receiver's scan stay bounded;
 	-- repeated requests advance the bucket rather than repeatedly sending a truncated prefix list.
-	local bucket = ""
+	local bucket, nextCursor = "", nil
 	if max(#held, tonumber(remoteCount) or 0) > R.ASK_PREFIX_MAX then
 		local width = max(#held, tonumber(remoteCount) or 0) > R.ASK_PREFIX_MAX * 16 and 2 or 1
 		local cursors = Per(askCursor, letter)
 		local value = cursors[d] or 0
 		local span = 16 ^ width
 		bucket = ("%0" .. width .. "x"):format(value % span)
-		cursors[d] = value + 1
+		nextCursor = value + 1
 		local selected = {}
 		for _, prefix in ipairs(held) do if prefix:sub(1, width) == bucket and #selected < R.ASK_PREFIX_MAX then selected[#selected + 1] = prefix end end
 		held = selected
 	end
-	return letter .. "~d~" .. B36(d) .. "~" .. (bucket ~= "" and bucket .. ":" or "") .. table.concat(held)
+	return letter .. "~d~" .. B36(d) .. "~" .. (bucket ~= "" and bucket .. ":" or "") .. table.concat(held), nextCursor
+end
+
+local function BeginAsk(letter, d, remoteCount)
+	local pending = Per(asking, letter)
+	if pending[d] then return nil end
+	local body, nextCursor = AskBody(letter, d, remoteCount)
+	local ticket = {}
+	pending[d] = ticket
+	return body, function(sent)
+		if asking[letter] ~= pending or pending[d] ~= ticket then return end
+		pending[d] = nil
+		if not sent then return end
+		Per(askedAt, letter)[d] = Now()
+		if nextCursor then Per(askCursor, letter)[d] = nextCursor end
+		stats.asked = stats.asked + 1
+		R.AskWitness(letter, d)
+	end
 end
 function R.Ask(letter, d, remoteCount)
-	local body = AskBody(letter, d, remoteCount)
-	Per(askedAt, letter)[d] = Now()
-	stats.asked = stats.asked + 1
-	local sent = A().Send("RA", "L", body, { dist = "CHANNEL", key = "records ask " .. letter .. d, low = true }) == true
-	R.AskWitness(letter, d)
+	local body, done = BeginAsk(letter, d, remoteCount)
+	if not body then return false end
+	local sent = A().Send("RA", "L", body, { dist = "CHANNEL", key = "records ask " .. letter .. d, low = true, done = done }) == true
+	if not sent then done(false) end
 	return sent
 end
 
@@ -1223,13 +1240,13 @@ local function AskTurn(letter, d)
 			if not e.witnessCovered then R.AskWitness(letter, d) end
 			return nil
 		end
-		Per(askedAt, letter)[d] = Now()
-		stats.asked = stats.asked + 1
-		return AskBody(letter, d, e.n), { done = function(sent) if sent then R.AskWitness(letter, d) end end }
+		local body, done = BeginAsk(letter, d, e.n)
+		return body, { done = done }
 	end, d)
 	if not ok then waits[d] = nil end
 end
 local function QueueAsk(letter, d, n, x, now)
+	if asking[letter] and asking[letter][d] then return false end
 	local waits = askWait[letter]
 	if not waits then waits = {} askWait[letter] = waits end
 	local e = waits[d]
@@ -2124,6 +2141,7 @@ function R.Reset()
 	idx, checking, checkingBy, inflight, waitq = {}, {}, {}, 0, {}
 	outq, outSet = {}, {}
 	lastDigest, askedAt, heardAsk, answeredAt, heardRecordAt, answering, askCursor, witnessedAt = {}, {}, {}, {}, {}, {}, {}, {}
+	asking = {}
 	heard, digestSerial, roundHeard, roundDue = {}, {}, {}, {}
 	lag = { n = 0, sum = 0, max = 0 }
 	mySent, jobsAt, askerJobs, heardBody, rvHeard, witnessSince = {}, {}, {}, {}, {}, {}

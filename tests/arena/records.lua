@@ -834,6 +834,62 @@ local function Quiet()
 	for _, client in ipairs(w.clients) do Small(client) end
 	return w, a, b, c
 end
+
+test("records: an unsent ranking day request retries its bucket and a sent one advances", function()
+	local w, _, _, asker = Quiet()
+	local R = asker.ns.Records
+	local day = math.floor(w.clock / 86400)
+	local bodies, finish = {}, nil
+	local send = asker.ns.Arena.Send
+	asker.ns.Arena.Send = function(kind, mode, body, opts)
+		if kind ~= "RA" then return send(kind, mode, body, opts) end
+		bodies[#bodies + 1], finish = body, opts.done
+		return #bodies ~= 1
+	end
+	local function Ask() return Do(w, asker, "Ask", "b", day, R.ASK_PREFIX_MAX + 1) end
+	eq(Ask(), false, "the first send is refused before queueing")
+	eq(Ask(), true)
+	eq(Ask(), false, "only one request for this day is in transport")
+	w:As(asker, finish, false, "dropped")
+	eq(Ask(), true)
+	eq(bodies[1], bodies[2]); eq(bodies[2], bodies[3])
+	assert(bodies[3]:match("~0:$"), "the first bucket stays pending until sent")
+	w:As(asker, finish, true)
+	eq(Ask(), true)
+	assert(bodies[4]:match("~1:$"), "a successful send moves to the next bucket")
+	eq(Do(w, asker, "Stats").asked, 1)
+	asker.ns.Arena.Send = send
+	Errors(w)
+end)
+
+test("records: a refused or dropped digest-triggered ask does not consume the ranking day cooldown", function()
+	local w, holder, _, asker = Quiet()
+	local R = asker.ns.Records
+	local day = asker.ns.Arena.B36(math.floor(w.clock / 86400))
+	local digest = "RD~L1~b~" .. day .. ".1.1~"
+	local send = asker.ns.Arena.Send
+	local attempts = 0
+	asker.ns.Arena.Send = function(kind, mode, body, opts)
+		if kind == "RA" then
+			attempts = attempts + 1
+			if attempts == 1 then return false, "off" end
+			if attempts == 2 then opts.done(false, "dropped"); return true end
+		end
+		return send(kind, mode, body, opts)
+	end
+	local function Digest()
+		w:As(asker, asker.comm.handlers.RD, "CHANNEL", holder.name, digest)
+		w:Run(R.ASK_SPREAD + 4)
+	end
+	Digest(); eq(attempts, 1); eq(R.Stats().asked, 0)
+	Digest(); eq(attempts, 2); eq(R.Stats().asked, 0)
+	Digest(); eq(attempts, 3); eq(R.Stats().asked, 1)
+	eq(#w:Sent({ from = asker, type = "RA" }), 1)
+	Digest(); eq(attempts, 3, "success enables the ordinary cooldown")
+	asker.ns.Arena.Send = send
+	Errors(w)
+end)
+
 local function RawAsk(w, from, day)
 	assert(w:As(from, from.ns.Arena.Send, "RA", "L", "b~d~" .. from.ns.Arena.B36(day) .. "~", { dist = "CHANNEL" }))
 end

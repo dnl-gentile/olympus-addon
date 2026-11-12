@@ -1220,7 +1220,8 @@ local function Produce(key)
 	if ok and type(a) == "string" then
 		local o = type(d) == "table" and d or {}
 		o.low = true
-		Arena.Send(a, b, c, o)
+		local accepted, why = Arena.Send(a, b, c, o)
+		if not accepted and type(o.done) == "function" then ns.SafeCall("arena producer send done", o.done, false, why) end
 		return lowq[1] ~= nil
 	end
 	if not ok or a == nil then
