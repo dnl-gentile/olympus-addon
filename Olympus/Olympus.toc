@@ -123,6 +123,7 @@ ArmyExport.lua
 GuildCharter.lua
 Recruit.lua
 RecruitHandoff.lua
+RecruitCandidates.lua
 PartyGuard.lua
 AnswerBank.lua
 Answers.lua

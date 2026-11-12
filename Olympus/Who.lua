@@ -499,13 +499,18 @@ function Who.RaceOf(name)
 end
 
 -- The answer's Olympus players, each once.
-local function Read()
+local function Read(onlyCandidates)
+	local candidates = ns.Recruit and ns.Recruit.Candidates
+	if candidates and not candidates.Enabled() then candidates = nil end
+	if onlyCandidates and not candidates then return end
 	local shown, total = Counts()
+	if onlyCandidates then shown = math.min(shown, Who.MAX) end
 	local rows, byName = {}, {}
 	for i = 1, shown do
 		local name, guild, level, class, zone, race, raceName = Info(i)
-		if name and name ~= "" then Saw(name, guild) end
-		if name and name ~= "" and not byName[name] and ns.IsFederation(guild) then
+		if candidates and i <= Who.MAX and name and name ~= "" then candidates.ObserveWho(name, guild, race) end
+		if not onlyCandidates and name and name ~= "" then Saw(name, guild) end
+		if not onlyCandidates and name and name ~= "" and not byName[name] and ns.IsFederation(guild) then
 			local gname, gRealm = Who.GuildName(guild)
 			local p = { name = name, guild = gname, guildRealm = gRealm, level = tonumber(level), class = class,
 				zone = zone, race = race, raceName = raceName }
@@ -536,6 +541,8 @@ end
 local function OnAnswer()
 	local p = pending
 	if not p then
+		-- Observe a manual result only when the local recruitment queue is enabled.
+		Read(true)
 		-- The answer to a search given up (or to the next one): results to chat again.
 		if owed then
 			ToChat()

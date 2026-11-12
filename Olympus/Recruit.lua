@@ -624,6 +624,8 @@ local function Recruiting()
 	return recruitingGuild ~= nil and recruitingGuild == WhisperGuild()
 end
 
+Recruit.IsWhisperRecruiting = Recruiting
+
 local function CloseReminderDraft()
 	local draft = ns.Dialog and ns.Dialog.Find and ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT")
 	if draft and draft.data and draft.data.reminder then draft:Hide() end
@@ -633,6 +635,7 @@ local function StopRecruiting()
 	recruitingGuild = nil
 	CloseReminderDraft()
 	if Recruit.Handoff then Recruit.Handoff.Reset() end
+	if Recruit.Candidates then Recruit.Candidates.Reset() end
 	for i = #Recruit.requests, 1, -1 do
 		if Recruit.requests[i].viaWhisper then table.remove(Recruit.requests, i) end
 	end
@@ -676,6 +679,8 @@ end
 
 -- A native unit token the client currently sees. A nil guild is only "no guild shown".
 -- No /who, position cache, addon transport or native frame is involved.
+Recruit.CandidateCommandName = NameForCommand
+
 local function NearbyPlayer(unit)
 	local exists = UnitExists(unit)
 	if issecretvalue and issecretvalue(exists) then return nil, nil, "unknown" end
@@ -703,8 +708,9 @@ local function NearbyPlayer(unit)
 	local nameOK, fullName = pcall(ns.UnitFullName, unit)
 	local name = nameOK and NameForCommand(fullName)
 	if not name then return nil, nil, "unknown" end
-	return name, guid
+	return name, guid, nil, fullName
 end
+Recruit.ReadCandidateUnit = NearbyPlayer
 
 local function RecentlyContacted(name, now)
 	local at = contacted[name:lower()]
@@ -758,11 +764,20 @@ function Recruit.PromptOutreach()
 	return f ~= nil
 end
 
+function Recruit.PromptCandidateWhisper(candidate)
+	local unit = Recruit.Candidates.Check(candidate, true)
+	if not unit or not ns.Dialog or ns.Dialog.missing then return false end
+	local queue = { index = 1, { name = candidate.name, guid = candidate.guid, unit = unit } }
+	return ns.Dialog.Show("OLYMPUS_RECRUIT_OUTREACH", OutreachTitle(queue), nil,
+		{ queue = queue, guild = recruitingGuild, candidate = candidate }) ~= nil
+end
+
 local function SendOutreach(f, data)
 	if not ns.Gate.Allowed("roster-actions") then return false end
 	local queue = type(data) == "table" and data.queue
 	local recipient = type(queue) == "table" and queue[queue.index]
 	if not recipient or data.guild ~= recruitingGuild or not Recruiting() or ns.ChatLocked()
+		or (data.candidate and not Recruit.Candidates.Check(data.candidate, true))
 		or not SameOutreachPlayer(recipient) then
 		ns.Print(L.RECRUIT_WHISPER_TARGET_REQUIRED)
 		return false
@@ -1090,6 +1105,7 @@ function Recruit.WhisperLines()
 		lines[#lines + 1] = { indent = 1, text = L.RECRUIT_WHISPER_HINT }
 		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_WHISPER_TARGET), onClick = Recruit.PromptOutreach, gapAfter = true }
 		if Recruit.Handoff then Recruit.Handoff.Controls(lines, V) end
+		if Recruit.Candidates then Recruit.Candidates.Lines(lines, V) end
 	end
 	return lines
 end
@@ -1270,16 +1286,26 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
 	preferredIndex = 3,
 }
 
+function Recruit.CopyCandidateInvite(candidate, automatic)
+	if not Recruit.Candidates.Check(candidate) or not ns.Dialog or ns.Dialog.missing then return false end
+	if ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") then return false end
+	return ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", candidate.name, nil,
+		{ candidate = candidate, automatic = automatic }) ~= nil
+end
+
 local function OpenInviteChat(draft, data) -- gp:chat-box
 	if not ns.Gate.Allowed("chat-box") then return end
+	if ns.ChatLocked() or (InCombatLockdown and InCombatLockdown()) then return end
 	local req = data.req
-	if not CurrentRequest(req) or ns.ChatLocked() or (InCombatLockdown and InCombatLockdown()) then return end
+	if data.candidate then
+		if not Recruit.Candidates.Check(data.candidate) then return end
+	elseif not CurrentRequest(req) then return end
 	local util = ChatFrameUtil
 	local open = type(util) == "table" and type(util.OpenChat) == "function" and util.OpenChat or ChatFrame_OpenChat
 	if type(open) ~= "function" then return end
 	ns.Gate.Used("chat-box")
 	if pcall(open, "", DEFAULT_CHAT_FRAME) then
-		req.invitePrepared = true
+		if req then req.invitePrepared = true end
 		draft:Hide()
 	end
 end
@@ -1292,7 +1318,8 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 	editBoxWidth = 360,
 	OnShow = function(f, data)
 		local box = f.editBox
-		box:SetText("/ginvite " .. NameForCommand(data.req.name))
+		local name = data.candidate and data.candidate.name or NameForCommand(data.req.name)
+		box:SetText("/ginvite " .. name)
 		box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
 		if ns.Focus(box, nil, data.automatic) then box:HighlightText() end
 		-- Let the game's edit box copy first. Remember Ctrl at key-down because the

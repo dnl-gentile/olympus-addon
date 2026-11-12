@@ -3346,12 +3346,23 @@ cancellation, compatibility and the in-game checks for the transport queue.
 
 ### Recruiting by whisper (experiment branch)
 
-On the recruiting experiment branch, turn **Recruiting by whisper** on in **Church → Invites**.
+Turn **Recruiting by whisper** on in **Church → Invites**.
 It starts off each session. Interested players can whisper you **JOIN**, even without
 Olympus installed. **Review nearby players** prepares a list from the selected player and visible
 friendly nameplates with no guild shown. Review each player and the editable message, then press
 **Send** for that one recipient or **Skip**. Either choice moves to the next eligible player.
 Olympus checks the native identity and guild information again when you press Send.
+
+**Nearby recruitment queue** is off by default. When enabled in **Church → Invites**, it
+keeps up to 24 candidates locally for the current session. It learns from friendly visible
+players and from results the game exposes to the addon after a Who search, when the result
+explicitly shows no guild and establishes the same faction and realm group. Click a name to
+open a copyable invite command. For a currently visible candidate you can also open a
+private whisper draft to review and send. **Invite pop-ups** is a separate opt-in: one
+current visible candidate at a time, at most every 15 seconds. Each invite still needs your
+paste and Enter. The queue starts no Who searches, sends no messages by itself, and clears
+when turned off or when you leave your guild.
+
 
 An officer can review an independent JOIN or a response to their recent outreach. JOIN
 opens the `/ginvite` command directly. During combat, while another invite is open or
@@ -3369,7 +3380,7 @@ to a sister guild in the same faction, region and ruleset. The recipient prepare
 their own invite through the game's chat. A handoff confirms who received the request. The
 recruiter's native roster can show whether the player actually joined.
 
-In the overflow prototype, the sending officer can also turn on **Offer queued JOINs to other
+The sending officer can also turn on **Offer queued JOINs to other
 guild officers**. With at least three eligible requests waiting, it asks one current officer of
 the same guild at a time. Only a recipient who enabled **Accept recruitment handoffs** and has
 room replies. The offer carries no applicant name until the recipient claims it. The sender's

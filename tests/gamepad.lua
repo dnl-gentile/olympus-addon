@@ -3811,6 +3811,115 @@ test("gamepad centered Census recruitment offers the Church intake and both dism
 	end
 end)
 
+test("gamepad attended recruit candidate queue uses scoped sightings and explicit WHO records", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		local R = ns.Recruit
+		assert(ns.UI.SelectTab("church"))
+		local frame = assert(Main(C))
+		local function ClickLine(predicate)
+			for _, row in ipairs(ns.UI.SelfTestView().rows) do
+				if row:IsShown() and row.line and predicate(row.line) then C.Click(row); return end
+			end
+			error("missing recruitment line")
+		end
+		local function QueueLine(fragment)
+			for _, line in ipairs(ns.UI.SelfTestView().lines) do
+				if line.text and line.text:find(fragment, 1, true) then return line end
+			end
+		end
+		local function Refresh() ns.UI.Refresh() end
+		local invite
+		for _, strip in ipairs(rawget(frame, "pageNavRows") or {}) do
+			for _, tab in ipairs(rawget(strip, "nav") or {}) do
+				if tab.item and tab.item.text == ns.L.CHURCH_NAV_INVITES then invite = tab end
+			end
+		end
+		C.Click(assert(invite)); Refresh()
+		ClickLine(function(line) return line.onClick == R.ToggleWhisperRecruiting end)
+		Refresh()
+		-- Keep the real ticker, with no random start spread in this scenario.
+		ns.EVERY_SPREAD = 0
+		ClickLine(function(line) return line.id == "recruit-candidate-toggle" end)
+		local function Plate(index, name, guild, faction)
+			local unit = "nameplate" .. index
+			C.units[unit] = { name = name, realm = "Realm", guild = guild, faction = faction, guid = "Player-1-" .. index }
+			C.Fire("NAME_PLATE_UNIT_ADDED", unit)
+		end
+		local sends, searches = #(C.said or {}), #(C.whos or {})
+		local start = C.Mark()
+		-- This scenario has both factions on screen, unlike the default all-Alliance model.
+		C.env.UnitFactionGroup = function(unit)
+			local player = C.units[unit]
+			if player then return player.faction or "Alliance" end
+		end
+		Plate(2, "NearTest", nil, "Alliance")
+		C.units.target = C.units.nameplate2
+		C.Fire("PLAYER_TARGET_CHANGED")
+		Plate(3, "WrongSide", nil, "Horde")
+		Plate(4, "AlreadyGuilded", "Sister Guild", "Alliance")
+		local who = {
+			{ fullName = "WhoTest-Realm", fullGuildName = "", raceStr = "Human" },
+			{ fullName = "UnknownWho-Realm", raceStr = "Human" },
+			{ fullName = "HordeWho-Realm", fullGuildName = "", raceStr = "Orc" },
+			{ fullName = "OtherRealm-Elsewhere", fullGuildName = "", raceStr = "Human" },
+		}
+		C.env.C_FriendList.GetNumWhoResults = function() return #who, #who end
+		C.env.C_FriendList.GetWhoInfo = function(i) return who[i] end
+		C.Fire("WHO_LIST_UPDATE")
+		Refresh()
+		assert(QueueLine("NearTest"), "a live unguilded friendly player is in the queue")
+		assert(QueueLine("WhoTest"), "an explicitly empty, scoped WHO result is in the same queue")
+		for _, name in ipairs({ "WrongSide", "AlreadyGuilded", "UnknownWho", "HordeWho", "OtherRealm" }) do
+			eq(QueueLine(name), nil, "unsupported candidate " .. name)
+		end
+		local copies = 0
+		for _, line in ipairs(ns.UI.SelfTestView().lines) do
+			if line.text and line.text:find("NearTest", 1, true) then copies = copies + 1 end
+		end
+		eq(copies, 1, "target and plate observations are deduplicated")
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "collection defaults to list only")
+		local function Draft() return ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") end
+		ClickLine(function(line) return line.text and line.text:find("WhoTest", 1, true) end)
+		eq(assert(Draft()).editBox:GetText(), "/ginvite WhoTest")
+		Draft():Hide()
+		ClickLine(function(line) return line.id == "recruit-candidate-prompts" end)
+		C.Advance(15.1)
+		local copy = assert(Draft())
+		eq(copy.editBox:GetText(), "/ginvite NearTest", "only a live observation opens an automatic draft")
+		Plate(5, "NextTest", nil, "Alliance")
+		C.Advance(15.1)
+		eq(Draft(), copy, "an open draft is never replaced by the timer")
+		copy:Hide()
+		C.units.nameplate5.guild = "New Guild"
+		C.Advance(15.1)
+		eq(Draft(), nil, "fresh native recheck refuses a player who joined a guild")
+		Refresh()
+		eq(QueueLine("WhoTest"), nil, "WHO results expire quickly")
+		eq(#(C.said or {}), sends, "observation and copy drafts send no chat")
+		eq(#(C.whos or {}), searches, "the queue issues no WHO queries")
+		ClickLine(function(line) return line.text and line.text:find(ns.L.RECRUIT_CANDIDATE_WHISPER, 1, true) end)
+		local whisper = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"))
+		eq(#(C.said or {}), sends, "opening the private draft does not whisper")
+		C.Click(whisper.buttons[1])
+		eq(#(C.said or {}), sends + 1, "one explicit Send whispers the live player")
+		for _, call in ipairs(C.Since(start)) do
+			assert(call.sym ~= "C_GuildInfo.Invite" and call.sym ~= "GuildInvite", "no native guild invitation")
+		end
+		for i = 10, 41 do Plate(i, "Candidate" .. i, nil, "Alliance") end
+		Refresh()
+		local bounded = 0
+		for _, line in ipairs(ns.UI.SelfTestView().lines) do
+			if line.text and line.text:find("Copy invite (nearby)", 1, true) then bounded = bounded + 1 end
+		end
+		eq(bounded, 24, "the session queue is bounded")
+		ClickLine(function(line) return line.id == "recruit-candidate-toggle" end)
+		Refresh()
+		eq(QueueLine("Candidate41"), nil, "turning collection off discards observations")
+		NoErrors(C, "recruit candidate queue")
+	end
+end)
+
 test("gamepad whisper recruiting: deliberate outreach and native invite copy in both input modes", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
