@@ -3709,6 +3709,27 @@ test("gamepad centered Census recruitment offers the Church intake and both dism
 			assert(not line.input, "the search returns after leaving the centered offer")
 		end
 		eq(title, true, "the offer's heading is centered")
+		-- 1.5.8 (the author's ask): the player's own guild in numbers, then the call to grow Olympus.
+		local function Text(wanted)
+			for _, line in ipairs(U.SelfTestView().lines) do
+				if line.text and line.text:find(wanted, 1, true) then return line end
+			end
+		end
+		local guild, cap = C.env.GetGuildInfo("player"), ns.Codec.GUILD_CAP
+		local size = C.env.GetNumGuildMembers()
+		local spots = Text(L.RECRUIT_CENSUS_SPOTS:format(guild, cap - size, size, cap))
+		assert(spots and spots.center, "the offer names the guild's open spots")
+		assert(Text(L.RECRUIT_CENSUS_GROW), "and asks to help fill it and grow Olympus")
+		local realCount = C.env.GetNumGuildMembers
+		C.env.GetNumGuildMembers = function() return cap, 0, 0 end
+		U.Refresh()
+		assert(Text(L.RECRUIT_CENSUS_FULL:format(guild, cap, cap)), "a full guild is said to be full")
+		C.env.GetNumGuildMembers = function() return nil end
+		U.Refresh()
+		eq(Text("<" .. guild .. ">"), nil, "no roster count shows no number")
+		assert(Text(L.RECRUIT_CENSUS_GROW), "the call to grow Olympus stays")
+		C.env.GetNumGuildMembers = realCount
+		U.Refresh()
 		eq(view.frame.colHeader:IsShown(), false, "guild columns are absent from the offer")
 		eq(view.frame.detail:IsShown(), false, "the offer fills the Census body")
 		for _, button in ipairs(view.buttons) do eq(button:IsShown(), false, "hide regular footer actions") end

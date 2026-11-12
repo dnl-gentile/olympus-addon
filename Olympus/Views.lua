@@ -1850,6 +1850,21 @@ local function CensusLines(s, q, recruitment)
 		local padding = math.max(6, math.floor((recruitment.height - 155) / 2) - #lines * 28)
 		lines[#lines + 1] = { text = L.RECRUIT_CENSUS_TITLE, center = true, color = "GameFontNormalLarge",
 			spaceBefore = padding, gapAfter = true }
+		-- 1.5.8 (the author's ask): the player's own guild in numbers, its open spots out of the
+		-- game's cap, and what filling them does for Olympus. Without a roster count, no number.
+		local own, size = GetGuildInfo("player"), nil
+		if type(GetNumGuildMembers) == "function" then
+			local ok, n = pcall(GetNumGuildMembers)
+			if ok and type(n) == "number" and n > 0 then size = math.floor(n) end
+		end
+		if own and size then
+			local cap = ns.Codec.GUILD_CAP
+			local open = math.max(0, cap - size)
+			local spots = open > 0 and L.RECRUIT_CENSUS_SPOTS:format(own, open, size, cap)
+				or L.RECRUIT_CENSUS_FULL:format(own, size, cap)
+			lines[#lines + 1] = { text = Gold(spots), center = true, wrap = true }
+		end
+		lines[#lines + 1] = { text = L.RECRUIT_CENSUS_GROW, center = true, wrap = true }
 		lines[#lines + 1] = { text = L.RECRUIT_CENSUS_HINT, center = true, wrap = true, gapAfter = true }
 		lines[#lines + 1] = { id = "census-recruit-enable", text = L.RECRUIT_CENSUS_ENABLE,
 			primary = true, onClick = recruitment.enable, gapAfter = true }
