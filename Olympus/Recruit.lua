@@ -1428,6 +1428,7 @@ end
 local function OpenInviteChat(draft, data) -- gp:chat-box
 	if not ns.Gate.Allowed("chat-box") then return end
 	if ns.ChatLocked() or (InCombatLockdown and InCombatLockdown()) then return end
+	if type(data) ~= "table" then return end
 	local req = data.req
 	if data.candidate then
 		if not Recruit.Candidates.Check(data.candidate) then return end
@@ -1459,7 +1460,11 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 	editBoxWidth = 360,
 	OnShow = function(f, data)
 		local box = f.editBox
-		local name = data.candidate and data.candidate.name or NameForCommand(data.req.name)
+		-- Only a JOIN request or a scanned candidate carries a name; anything else shows no command.
+		local candidate = type(data) == "table" and data.candidate or nil
+		local req = type(data) == "table" and data.req or nil
+		local name = candidate and candidate.name or req and NameForCommand(req.name)
+		if not name then box:SetText("") return end
 		box:SetText("/ginvite " .. name)
 		box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
 		if ns.Focus(box, nil, data.automatic) then box:HighlightText() end
