@@ -966,8 +966,10 @@ local function SnapshotPart(origin, body, now)
 	local transfer = snapshotTransfers[key]
 	if transfer and SnapshotExpired(transfer, now) then transfer = nil; snapshotTransfers[key] = nil end
 	if not transfer then
+		-- (1.5.8) And the author's signed look (QA, Data.lua) a relay says or another relay's copy brings:
+		-- it proves itself, and in pieces through the trickle it reached a registrant whole or not at all.
 		if index ~= 1 or not (part:match("^GV~1~S~%d+~")
-			or part:match("^CG~[12]~S~%d+~") or part:match("^CX~[123]~S~")) then return false end
+			or part:match("^CG~[12]~S~%d+~") or part:match("^CX~[123]~S~") or part:match("^QA~1~")) then return false end
 		local count = 0
 		for who, entry in pairs(snapshotTransfers) do
 			if SnapshotExpired(entry, now) then snapshotTransfers[who] = nil
@@ -2163,8 +2165,12 @@ local function Across(flag, origin, body, set)
 		if ns.FullName(origin) ~= ns.me then return end
 		local first = type(set) == "table" and set[1] or body
 		local head = first:match("^C%w+:%d+:%d+:(.*)$") or first
+		-- (1.5.8, the author, 11-12: "não tá redistribuindo na rede") The author's signed look (QA) this
+		-- relay's client says (Data.AttestPayload: the newest it holds of each origin, once each
+		-- GROUP_SAY_EVERY unless heard meanwhile) crosses too: it proves itself whoever carries it, and it
+		-- reached only this relay's own guilds, so the PvP look left other relays' guilds with the author.
 		kind = head:match("^(CG~[12]~S)~%d+~") or head:match("^(GV~1~S)~%d+~") or ListKind(head)
-			or (type(set) == "table" and #set > 1 and head:match("^(CX~[123]~S)~")) or nil
+			or (type(set) == "table" and #set > 1 and (head:match("^(CX~[123]~S)~") or head:match("^(QA~1)~"))) or nil
 		if not kind then return end
 		if kind:sub(1, 2) == "CG" then
 			local whole = type(set) == "table"
