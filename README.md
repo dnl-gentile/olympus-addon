@@ -3348,12 +3348,12 @@ cancellation, compatibility and the in-game checks for the transport queue.
 
 Turn **Recruiting by whisper** on in **Church → Invites**.
 It starts off each session. Interested players can whisper you **JOIN**, even without
-Olympus installed. **Review nearby players** prepares a list from the selected player and visible
+Olympus installed. **Review nearby players now** prepares a list from the selected player and visible
 friendly nameplates with no guild shown. Review each player and the editable message, then press
 **Send** for that one recipient or **Skip**. Either choice moves to the next eligible player.
 Olympus checks the native identity and guild information again when you press Send.
 
-**Nearby recruitment queue** is off by default. When enabled in **Church → Invites**, it
+The **Nearby and /who queue** is off by default. When enabled in **Church → Invites**, it
 keeps up to 24 candidates locally for the current session. It learns from friendly visible
 players and from results the game exposes to the addon after a Who search, when the result
 explicitly shows no guild and establishes the same faction and realm group. Click a name to
