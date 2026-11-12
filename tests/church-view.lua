@@ -769,3 +769,29 @@ test("1.5.8 Church recruiters: the staff list explains its points and shows each
 	end
 	assert(ruleAt and rowAt and ruleAt < rowAt, "the explanation sits above the rows")
 end)
+
+-- 1.5.8 (review): the author's page showed his own ledger's recruiters only; it now asks a keeper
+-- online and shows his answer when it counts more. The row's tooltip names Count.STAY_DAYS, as the
+-- rule above the rows does (it said "7 days" whatever the rule).
+test("1.5.8 Church recruiters: the author's page asks a keeper online and its rows' days follow the rule's", function()
+	local w, c = Cast()
+	GiveAll(w, c, "Mira Wells", "Tab Reca")
+	for _, k in ipairs({ c.head, c.a1, c.a2 }) do
+		w:As(k, k.Count.MergeIn, Key("Tab Recb") .. ":" .. Key("Old Hand"), { n = "Tab Recb", bn = "Old Hand", g = World.GUILD, kind = "i",
+			tc = w.clock - 7200, tj = w.clock - 3600, ws = { "wes brook" } }, false)
+		k.Count.Settled = function() return true end
+	end
+	c.author.Count.STAY_DAYS = 10
+	c.author.View.list, c.author.View.window = "u", "a"
+	local lines = Build(w, c.author, "ranking")
+	assert(not Find(lines, "Old Hand"), "his own ledger first")
+	w:Flush()
+	lines = Build(w, c.author, "ranking")
+	local mira, old = Find(lines, "Mira Wells"), Find(lines, "Old Hand")
+	assert(mira and old, "a keeper's larger answer shows: " .. Texts(lines))
+	assert(Texts(lines):find(L.CHURCH_RECRUITERS_RULE:format(10, 5, 10), 1, true), "the rule's days")
+	local said = {}
+	mira.tooltip({ AddLine = function(_, text) said[#said + 1] = text end })
+	eq(said[2], L.CHURCH_RECRUITERS_ROW_TIP:format("10", 1, 0, 10), "the row's days are the rule's")
+	assert(said[2]:find("after 10 days", 1, true), said[2])
+end)

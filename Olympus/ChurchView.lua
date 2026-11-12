@@ -359,7 +359,7 @@ function View.RankingLines()
 				cols = { row.key == me and Gold(nameText) or nameText, Pts(row.score), L.CHURCH_SPLIT:format(Pts(row.own), Pts(0)),
 					L.CHURCH_RECRUITS:format(row.joins, row.stays) },
 				player = ns.FullName(row.name), key = row.key,
-				tooltip = Tip(Name(row.name), L.CHURCH_RECRUITERS_ROW_TIP:format(Pts(row.score), row.joins, row.stays)),
+				tooltip = Tip(Name(row.name), L.CHURCH_RECRUITERS_ROW_TIP:format(Pts(row.score), row.joins, row.stays, Count.STAY_DAYS)),
 				onClick = Count.MaySeeDetail(ns.me, ns.FullName(row.name)) and function() View.Show("detail", ns.FullName(row.name)) end or nil,
 			}
 		end
