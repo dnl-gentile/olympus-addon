@@ -9,6 +9,15 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "itIT" then return end
 ns.Locale("itIT", {
+	LETTER_1_5_8_TITLE = "Censimento e reclutamento",
+	LETTER_1_5_8_HEAD = "Censimento e reclutamento",
+	LETTER_1_5_8_SIGNED = "Il vostro umile artefice, lo sviluppatore di Olympus",
+	LETTER_1_5_8_LINK = ns.L.LETTER_1_5_8_LINK,
+	LETTER_1_5_8 = [==[- {guild} Il censimento recupera i rapporti in ritardo e mostra lo stato della connessione. /oly recent apre la diagnostica recente.
+- {church} In Chiesa > Inviti, gli ufficiali possono esaminare e inoltrare le richieste JOIN. I capi gilda possono chiedere aiuto agli apostoli.
+- {watch} La Guardia può inviare di nuovo una conferma al relatore della gilda.
+
+Riavvia WoW dopo aver aggiornato. Se qualcosa non funziona, usa /oly bug.]==],
 	LETTER_1_5_7_TITLE = "Avanzamento e recupero del censimento",
 	LETTER_1_5_7_HEAD = "Avanzamento e recupero del censimento",
 	LETTER_1_5_7_SIGNED = "Il vostro umile artefice, lo sviluppatore di Olympus",

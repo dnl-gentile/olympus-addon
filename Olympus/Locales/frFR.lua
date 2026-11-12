@@ -9,6 +9,15 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "frFR" then return end
 ns.Locale("frFR", {
+	LETTER_1_5_8_TITLE = "Recensement et recrutement",
+	LETTER_1_5_8_HEAD = "Recensement et recrutement",
+	LETTER_1_5_8_SIGNED = "Votre humble artisan, le dev d'Olympus",
+	LETTER_1_5_8_LINK = ns.L.LETTER_1_5_8_LINK,
+	LETTER_1_5_8 = [==[- {guild} Le recensement récupère les rapports en retard et affiche l'état de la connexion. /oly recent ouvre le diagnostic récent.
+- {church} Dans Église > Invitations, les officiers peuvent consulter et transmettre les demandes JOIN. Les maîtres de guilde peuvent demander l'aide des apôtres.
+- {watch} La Garde peut renvoyer une approbation existante au rapporteur de la guilde.
+
+Relance WoW après la mise à jour. En cas de problème, utilise /oly bug.]==],
 	LETTER_1_5_7_TITLE = "Progression et rattrapage du recensement",
 	LETTER_1_5_7_HEAD = "Progression et rattrapage du recensement",
 	LETTER_1_5_7_SIGNED = "Votre humble artisan, le dev d'Olympus",

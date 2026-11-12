@@ -9,6 +9,15 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "deDE" then return end
 ns.Locale("deDE", {
+	LETTER_1_5_8_TITLE = "Zensus und Rekrutierung",
+	LETTER_1_5_8_HEAD = "Zensus und Rekrutierung",
+	LETTER_1_5_8_SIGNED = "Euer ergebener Tüftler, der Entwickler von Olympus",
+	LETTER_1_5_8_LINK = ns.L.LETTER_1_5_8_LINK,
+	LETTER_1_5_8 = [==[- {guild} Der Zensus holt verspätete Berichte nach und zeigt den Verbindungsstatus. /oly recent öffnet die aktuelle Diagnose.
+- {church} Unter Kirche > Einladungen können Offiziere JOIN-Anfragen prüfen und weitergeben. Gildenmeister können die Apostel um Hilfe bitten.
+- {watch} Die Wacht kann eine bestehende Gildengenehmigung erneut an den Melder senden.
+
+Starte WoW nach dem Update neu. Melde Probleme mit /oly bug.]==],
 	LETTER_1_5_7_TITLE = "Zensusfortschritt und Abgleich",
 	LETTER_1_5_7_HEAD = "Zensusfortschritt und Abgleich",
 	LETTER_1_5_7_SIGNED = "Euer ergebener Tüftler, der Entwickler von Olympus",

@@ -277,6 +277,13 @@ This update improves how guilds exchange census reports and recover missing piec
 Close and reopen WoW after updating so the new network modules load. If census reports still fail to arrive, send an /oly bug report with your guild and ruleset.
 
 Long live the King. Long live Olympus.]==]
+L.LETTER_1_5_8_TITLE = "Census and recruitment"
+L.LETTER_1_5_8_HEAD, L.LETTER_1_5_8_SIGNED, L.LETTER_1_5_8_LINK = L.LETTER_1_5_8_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+L.LETTER_1_5_8 = [==[- {guild} Census recovery, connection details and the recent diagnostics window help when data arrives late.
+- {church} Church > Invites lets officers review JOIN whispers and hand requests to another officer. Guild masters can ask the Apostles for recruiting help.
+- {watch} The Watch can resend an existing guild approval to its reporter.
+
+Close and reopen WoW after updating. Use /oly bug if something still fails.]==]
 L.LETTER_1_5_7_TITLE = "Census progress and catch-up"
 L.LETTER_1_5_7_HEAD, L.LETTER_1_5_7_SIGNED, L.LETTER_1_5_7_LINK = L.LETTER_1_5_7_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 L.LETTER_1_5_7 = [==[Your Majesty. Soldiers of Olympus.
@@ -474,6 +481,13 @@ Esta atualização melhora a troca de relatórios do censo entre guildas e a rec
 Feche e abra o WoW depois de atualizar para carregar os novos módulos da rede. Se os relatórios do censo continuarem sem chegar, envie um /oly bug com sua guilda e ruleset.
 
 Vida longa ao Rei. Vida longa ao Olympus.]==]
+	L.LETTER_1_5_8_TITLE = "Censo e recrutamento"
+	L.LETTER_1_5_8_HEAD, L.LETTER_1_5_8_SIGNED, L.LETTER_1_5_8_LINK = L.LETTER_1_5_8_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+	L.LETTER_1_5_8 = [==[- {guild} O censo recupera relatórios atrasados e mostra o estado da conexão. O comando /oly recent abre o diagnóstico recente.
+- {church} Em Church > Invites, oficiais podem revisar sussurros JOIN e repassar pedidos. Mestres de guilda podem pedir ajuda aos Apóstolos.
+- {watch} O The Watch pode reenviar uma aprovação de guilda ao seu repórter.
+
+Feche e abra o WoW após atualizar. Se algo falhar, use /oly bug.]==]
 	L.LETTER_1_5_7_TITLE = "Progresso do censo e sincronização"
 	L.LETTER_1_5_7_HEAD, L.LETTER_1_5_7_SIGNED, L.LETTER_1_5_7_LINK = L.LETTER_1_5_7_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 	L.LETTER_1_5_7 = [==[Vossa Majestade. Soldados do Olympus.

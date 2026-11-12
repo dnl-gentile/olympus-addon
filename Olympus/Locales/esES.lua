@@ -9,6 +9,15 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "esES" and code ~= "esMX" then return end
 ns.Locale({ "esES", "esMX" }, {
+	LETTER_1_5_8_TITLE = "Censo y reclutamiento",
+	LETTER_1_5_8_HEAD = "Censo y reclutamiento",
+	LETTER_1_5_8_SIGNED = "Vuestro humilde artífice, el desarrollador de Olympus",
+	LETTER_1_5_8_LINK = ns.L.LETTER_1_5_8_LINK,
+	LETTER_1_5_8 = [==[- {guild} El censo recupera informes atrasados y muestra el estado de la conexión. /oly recent abre el diagnóstico reciente.
+- {church} En Iglesia > Invitaciones, los oficiales pueden revisar y transferir solicitudes JOIN. Los maestros pueden pedir ayuda a los apóstoles.
+- {watch} La Guardia puede reenviar una aprobación existente al informante de la hermandad.
+
+Cierra y vuelve a abrir WoW tras actualizar. Usa /oly bug si algo falla.]==],
 	LETTER_1_5_7_TITLE = "Progreso y sincronización del censo",
 	LETTER_1_5_7_HEAD = "Progreso y sincronización del censo",
 	LETTER_1_5_7_SIGNED = "Vuestro humilde artífice, el desarrollador de Olympus",
