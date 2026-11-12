@@ -344,9 +344,15 @@ local function JoinVisible()
 	return U and U.IsShown and U.IsShown() and U.PageId and U.PageId() == "join"
 end
 
+-- The retry reminder is on unless the player turned it off; that choice is saved, so a
+-- /reload or a new login keeps it.
+local function JoinReminderOn()
+	return not (type(ns.db) == "table" and ns.db.joinReminderOff == true)
+end
+
 function Recruit.JoinStatus()
 	local left = join.request and math.max(0, math.ceil(join.request.untilAt - GetTime())) or 0
-	return join.search ~= nil, left, join.request and join.request.contact, join.reminder ~= nil, join.guilds == true
+	return join.search ~= nil, left, join.request and join.request.contact, JoinReminderOn(), join.guilds == true
 end
 
 function Recruit.ToggleJoinGuilds()
@@ -381,7 +387,10 @@ local function JoinWait(contact)
 	if not ns.Dialog.missing then ns.Dialog.Hide("OLYMPUS_RECRUIT_RETRY") end
 	local request = { contact = contact, untilAt = GetTime() + JOIN_WAIT }
 	join.request = request
-	if join.reminder then ScheduleJoinReminder(request, join.reminder) end
+	if JoinReminderOn() then
+		join.reminder = join.reminder or {}
+		ScheduleJoinReminder(request, join.reminder)
+	end
 	local function Tick()
 		if join.request ~= request or not Recruit.SimpleJoin() then return end
 		if JoinVisible() then ns.Fire("RECRUIT_CHANGED") end
@@ -418,10 +427,12 @@ end
 
 function Recruit.ToggleJoinReminder()
 	if not Recruit.SimpleJoin() then return end
-	if join.reminder then
+	if JoinReminderOn() then
+		if type(ns.db) == "table" then ns.db.joinReminderOff = true end
 		join.reminder = nil
 		if not ns.Dialog.missing then ns.Dialog.Hide("OLYMPUS_RECRUIT_RETRY") end
 	else
+		if type(ns.db) == "table" then ns.db.joinReminderOff = nil end
 		join.reminder = {}
 		if join.request then ScheduleJoinReminder(join.request, join.reminder) end
 	end
@@ -1691,7 +1702,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_RETRY"] = {
 	button1 = L.RECRUIT_JOIN_AGAIN,
 	button2 = CANCEL or "Cancel",
 	OnAccept = function(_, request)
-		if join.request ~= request or not join.reminder or not Recruit.SimpleJoin() then return end
+		if join.request ~= request or not JoinReminderOn() or not Recruit.SimpleJoin() then return end
 		if JoinBusy() then return true end
 		if not JoinVisible() and (not ns.UI or not ns.UI.SelectTab("census")) then return true end
 		return not Recruit.RequestJoin()

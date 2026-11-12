@@ -3599,13 +3599,20 @@ test("gamepad Join Olympus onboarding searches, waits and retries through attend
 		local sends = #(C.said or {})
 		local searches = #(C.whos or {})
 		local reminderOff, reminderOn = "[ ] " .. L.RECRUIT_JOIN_REMINDER, "[x] " .. L.RECRUIT_JOIN_REMINDER
-		C.Click(assert(Row(reminderOff), "reminders start unchecked before the first request"))
+		-- (1.5.8, the author: "passou o tempo e não abriu o pop-up automaticamente". The reminder
+		-- is on until the player turns it off, and that choice is saved.)
+		C.Click(assert(Row(reminderOn), "reminders start checked before the first request"))
+		C.Advance(1)
+		assert(Row(reminderOff), "the option shows that reminders are off")
+		eq(ns.db.joinReminderOff, true, "turning reminders off is saved")
+		C.Click(assert(Row(reminderOff)))
 		C.Advance(1)
 		assert(Row(reminderOn), "the option shows that reminders are on")
+		eq(ns.db.joinReminderOff, nil, "turning them back on clears the saved choice")
 		C.Advance(91)
-		eq(Retry(), nil, "opting in alone cannot open a reminder")
-		eq(#(C.said or {}), sends, "opting in alone sends no whisper")
-		eq(#(C.whos or {}), searches, "opting in alone starts no native search")
+		eq(Retry(), nil, "the option alone cannot open a reminder")
+		eq(#(C.said or {}), sends, "the option alone sends no whisper")
+		eq(#(C.whos or {}), searches, "the option alone starts no native search")
 		C.Click(assert(Row(L.RECRUIT_JOIN_REQUEST)).primary)
 		eq(#C.whos, searches + 1, "one native search from the player's click")
 		eq(Draft(), nil, "no draft without a discovered contact")
@@ -3665,6 +3672,19 @@ test("gamepad Join Olympus onboarding searches, waits and retries through attend
 		C.Advance(100)
 		eq(Retry(), nil, "joining or turning reminders off stops future popups")
 		NoErrors(C, "Join Olympus")
+		if not initialPad then
+			local nextC, nextNs = Session(initialPad, { saved = ns.db, setup = function(c)
+				c.units.player.guild = nil
+				c.env.IsInGuild = function() return c.units.player.guild ~= nil end
+			end })
+			assert(nextNs.UI.SelectTab("census"))
+			local kept
+			for _, row in ipairs(nextNs.UI.SelfTestView().rows) do
+				if row:IsShown() and row.line.text and row.line.text:find(reminderOff, 1, true) then kept = row end
+			end
+			assert(kept, "a new login keeps reminders off")
+			NoErrors(nextC, "Join Olympus after login")
+		end
 	end
 end)
 
