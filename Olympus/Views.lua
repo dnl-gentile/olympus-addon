@@ -3569,7 +3569,8 @@ local BUILD = {
 		local page = pageShown and RealmPage(pageShown)
 		local V = ns.Verify
 		if not q and V and V.SelfLine and (realmMode ~= "guilds" or not (boardShown or page or members)) then
-			table.insert(lines, 2, V.SelfLine())
+			local verification = V.SelfLine()
+			if verification then table.insert(lines, 2, verification) end
 		end
 		local tip = realmMode == "guilds" and (boardShown and "BOARD" or (page and page.tip) or members and "MEMBERS" or "REALM") or "REALM_PEOPLE"
 		return Searched(lines, "realm", tip, filterKey), title, text
