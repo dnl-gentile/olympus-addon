@@ -1886,6 +1886,13 @@ local function CensusLines(s, q)
 	-- status. Put in last, so the lines above count as before ("No reports yet").
 	local record = ns.Record and ns.Record.Line and ns.Record.Line()
 	if record then table.insert(lines, 1, record) end
+	local recruit = ns.Recruit
+	if recruit and recruit.CanEnableWhisperRecruiting and recruit.CanEnableWhisperRecruiting() then
+		local at = record and 2 or 1
+		table.insert(lines, at, { id = "census-recruit-hint", text = L.RECRUIT_CENSUS_HINT, center = true })
+		table.insert(lines, at + 1, { id = "census-recruit-enable", text = L.RECRUIT_CENSUS_ENABLE,
+			primary = true, onClick = recruit.EnableWhisperRecruiting, gapAfter = true })
+	end
 	return lines
 end
 

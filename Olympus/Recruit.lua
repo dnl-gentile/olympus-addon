@@ -649,6 +649,17 @@ function Recruit.ToggleWhisperRecruiting()
 	return Recruiting()
 end
 
+function Recruit.CanEnableWhisperRecruiting()
+	local guild = WhisperGuild()
+	return guild ~= nil and recruitingGuild ~= guild
+end
+
+function Recruit.EnableWhisperRecruiting()
+	if not Recruit.CanEnableWhisperRecruiting() or not Recruit.ToggleWhisperRecruiting() then return false end
+	ns.Print(L.RECRUIT_CENSUS_ENABLED)
+	return true
+end
+
 local function NameForCommand(name)
 	local to = ns.TellName(name)
 	if type(to) ~= "string" or #to > 120 or not to:find("[%a\128-\255]")

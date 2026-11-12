@@ -3671,6 +3671,55 @@ test("gamepad Join Olympus onboarding searches, waits and retries through attend
 	end
 end)
 
+test("gamepad Census recruitment enables the Church's JOIN intake", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		local U, R, V, L = ns.UI, ns.Recruit, ns.Views, ns.L
+		local function Offer()
+			for _, row in ipairs(U.SelfTestView().rows) do
+				if row:IsShown() and row.line.id == "census-recruit-enable" then return row end
+			end
+		end
+		assert(U.SelectTab("census"))
+		local view = U.SelfTestView()
+		assert(view.lines[1].input, "the Census search remains first")
+		eq(view.lines[2].text, L.RECRUIT_CENSUS_HINT)
+		local button = assert(Offer()).primary
+		eq(button:GetText(), L.RECRUIT_CENSUS_ENABLE)
+		V.SetFilter("census", "anything"); U.Refresh()
+		eq(Offer(), nil, "search shows its results without the offer")
+		V.SetFilter("census", ""); U.Refresh()
+		local mark = C.Mark()
+		local sends = #(C.said or {})
+		C.Click(assert(Offer()).primary)
+		U.Refresh()
+		eq(Offer(), nil, "the offer disappears while active")
+		assert(R.WhisperLines()[1].text:find(L.RECRUIT_WHISPER_ON, 1, true), "Church shows the active intake")
+		local printed
+		for _, line in ipairs(C.printed) do
+			if line:find(L.RECRUIT_CENSUS_ENABLED, 1, true) then printed = true end
+		end
+		eq(printed, true, "the click confirms activation")
+		eq(R.EnableWhisperRecruiting(), false, "a stale click cannot turn it off")
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Recruit-Realm")
+		eq(#R.requests, 1, "the normal JOIN intake is active")
+		eq(#(C.said or {}), sends, "activation sends no whispers")
+		for _, reach in ipairs(C.Since(mark)) do
+			assert(reach.sym ~= "C_GuildInfo.Invite", "activation grants no native invite")
+		end
+		R.WhisperLines()[1].onClick()
+		U.Refresh()
+		assert(Offer(), "the offer returns after turning it off in Church")
+		C.units.player.guild = nil
+		C.env.IsInGuild = function() return false end
+		C.Fire("PLAYER_GUILD_UPDATE", "player")
+		U.Refresh()
+		eq(Offer(), nil, "outsiders cannot enable recruitment")
+		eq(R.EnableWhisperRecruiting(), false)
+		NoErrors(C, "Census recruitment")
+	end
+end)
+
 test("gamepad whisper recruiting: deliberate outreach and native invite copy in both input modes", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
