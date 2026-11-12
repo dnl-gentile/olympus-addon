@@ -2794,7 +2794,7 @@ ns.Locale("ruRU", {
 	JOIN_NETOFF_CANCEL = "Оставить запрос",
 	RECRUIT_CENSUS_ENABLE = "Включить набор",
 	RECRUIT_CENSUS_HINT = "Игроки могут написать JOIN, чтобы попросить приглашение.",
-	RECRUIT_CENSUS_ENABLED = "Набор включён. Запросы JOIN находятся в разделе «Церковь → Приглашения».",
+	RECRUIT_CENSUS_ENABLED = "Набор включён. Запросы JOIN находятся в разделе «Церковь > Приглашения».",
 	RECRUIT_WHISPER_ON = "Набор через шепот: включен",
 	RECRUIT_WHISPER_OFF = "Набор через шепот: выключен",
 	RECRUIT_WHISPER_HINT = "Заинтересованные игроки могут написать JOIN шепотом. Ответы появятся здесь.",

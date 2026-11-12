@@ -5629,8 +5629,14 @@ test("census Refresh: the roster, and one /who per click for the grey guilds", f
 			eq(scans, 2, "the roster every click"); eq(#server.sent, 1, "/who at most every 10 seconds")
 			server.Answer({ { "Aa", "OLYMPUS VII", 12 } })
 			UI.Refresh()
-			local row = OlympusFrame.views.census.rows[5] -- after the search box (1.0.0), the King's layer line and 2 guilds
-			eq(row.cols[1]:GetText(), ns.Views.Grey("OLYMPUS VII"), "the grey row is drawn")
+			local row
+			for _, candidate in ipairs(OlympusFrame.views.census.rows) do
+				if candidate:IsShown() and candidate.line.cols and candidate.line.cols[1] == ns.Views.Grey("OLYMPUS VII") then
+					row = candidate
+				end
+			end
+			assert(row, "the grey row is drawn alongside the visible recruiting offer")
+			eq(row.cols[1]:GetText(), ns.Views.Grey("OLYMPUS VII"))
 			-- The person panel's Who goes through Who.lua: not right after our search.
 			UI.ShowPerson({ name = "Aa-Realm", guild = "OLYMPUS VII" })
 			OlympusPersonFrame.who:Click()

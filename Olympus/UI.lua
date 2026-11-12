@@ -2524,7 +2524,7 @@ function UI.Refresh()
 			main.sub:SetText(profileSubheader or "")
 			main.peopleText = nil
 		else
-			lines, title, text = ns.Views.Build(main.tab, s) -- (1.2.3: the header's summary, not a second one)
+			lines, title, text = ns.Views.Build(main.tab, s, main.tab == "census") -- the visible Census has its recruiting offer
 			-- The treasury next to the soldiers, on the Treasury tab (Treasury.HeaderText; 1.1.5, the
 			-- author's call: no longer on the Throne, the treasury has its own tab).
 			if main.tab == "treasury" then
