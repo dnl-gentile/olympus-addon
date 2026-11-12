@@ -3688,7 +3688,7 @@ test("gamepad Join Olympus onboarding searches, waits and retries through attend
 	end
 end)
 
-test("gamepad centered Census recruitment offers the Church intake and both dismissal choices", function()
+test("gamepad centered Census recruitment offers three switches, Done and both dismissal choices", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
 		local U, R, V, L = ns.UI, ns.Recruit, ns.Views, ns.L
@@ -3733,22 +3733,41 @@ test("gamepad centered Census recruitment offers the Church intake and both dism
 		eq(view.frame.colHeader:IsShown(), false, "guild columns are absent from the offer")
 		eq(view.frame.detail:IsShown(), false, "the offer fills the Census body")
 		for _, button in ipairs(view.buttons) do eq(button:IsShown(), false, "hide regular footer actions") end
-		eq(assert(Row("enable")).primary:GetText(), L.RECRUIT_CENSUS_ENABLE)
+		-- 1.5.8 (the author's ask, 11-12: "dois checkbox... negócios verdinhos que estão vermelhos, que
+		-- ficam verdinhos"): the single Enable recruitment button became three switches on the same
+		-- page, each red while off and green while on, and the page stays while they are set.
+		local function IsOn(id)
+			local text = assert(Row(id), id).line.text
+			if text:find("ReadyCheck-Ready", 1, true) and text:find("|cff40ff40", 1, true) then return true end
+			assert(text:find("ReadyCheck-NotReady", 1, true) and text:find("|cffff4040", 1, true), id .. " shows its state")
+			return false
+		end
+		for _, id in ipairs({ "join", "ads", "scan" }) do eq(IsOn(id), false, id .. " starts off, in red") end
+		assert(Row("join").line.text:find(L.RECRUIT_CENSUS_JOIN, 1, true))
+		assert(Row("ads").line.text:find(L.RECRUIT_CENSUS_ADS, 1, true))
+		assert(Row("scan").line.text:find(L.RECRUIT_CENSUS_SCAN, 1, true))
+		assert(Text(L.RECRUIT_CENSUS_ADS_HINT:format(5)), "the ads switch says a popup comes up every 5 minutes")
+		eq(Row("thanks"), nil); eq(Row("done"), nil)
 		C.Click(assert(Row("later")))
 		eq(U.PageId(), "census/")
 		assert(U.SelfTestView().lines[1].input, "leaving it off immediately restores the Census")
 		U.Refresh()
-		eq(Row("enable"), nil, "background refresh does not reopen the offer")
+		eq(Row("join"), nil, "background refresh does not reopen the offer")
 		Reopen()
-		assert(Row("enable"), "leaving it off defers the offer until the next window opening")
+		assert(Row("join"), "leaving it off defers the offer until the next window opening")
 		V.SetFilter("census", "anything"); U.Refresh()
-		eq(Row("enable"), nil, "search keeps its ordinary results")
+		eq(Row("join"), nil, "search keeps its ordinary results")
 		V.SetFilter("census", ""); U.Refresh()
 
 		local mark = C.Mark()
 		local sends = #(C.said or {})
-		C.Click(assert(Row("enable")).primary)
-		eq(Row("enable"), nil, "the offer disappears while active")
+		C.Click(Row("join"))
+		eq(U.PageId(), "census/recruitment", "the offer stays after the first switch")
+		eq(IsOn("join"), true, "the JOIN switch turns green")
+		eq(IsOn("ads"), false); eq(IsOn("scan"), false)
+		assert(Text(L.RECRUIT_CENSUS_THANKS), "a switch on thanks the player")
+		eq(assert(Row("done")).line.primary, true, "Done closes the page")
+		eq(Row("later"), nil, "no Leave it off with a switch on"); eq(Row("never"), nil)
 		assert(R.WhisperLines()[1].text:find(L.RECRUIT_WHISPER_ON, 1, true), "Church shows the active intake")
 		local printed
 		for _, line in ipairs(C.printed) do
@@ -3759,13 +3778,30 @@ test("gamepad centered Census recruitment offers the Church intake and both dism
 		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Recruit-Realm")
 		eq(#R.requests, 1, "the normal JOIN intake is active")
 		eq(#(C.said or {}), sends, "activation sends no whispers")
+		eq(ns.rdb.recruitmentPreference[ns.me].offerOverflow, nil, "passing own requests on stays manual")
 		for _, reach in ipairs(C.Since(mark)) do
 			assert(reach.sym ~= "C_GuildInfo.Invite", "activation grants no native invite")
 		end
+		C.Click(Row("join"))
+		eq(IsOn("join"), false, "a second click turns it off again")
+		eq(R.IsWhisperRecruiting(), false)
+		eq(Text(L.RECRUIT_CENSUS_THANKS), nil, "no thanks with every switch off")
+		assert(Row("later") and Row("never"), "both dismissals come back")
+		C.Click(Row("later"))
+		Reopen()
+		assert(Row("join"), "with every switch off, Leave it off for now asks again next time")
+		C.Click(Row("ads"))
+		eq(IsOn("ads"), true, "the ads switch turns green")
+		eq(IsOn("join"), true, "ads need JOIN answers: it turns on with them")
+		eq(R.AnnounceReminderMinutes(), 5, "the reminder runs every 5 minutes")
+		C.Click(Row("done"))
+		eq(U.PageId(), "census/", "Done closes the page")
+		Reopen()
+		eq(Row("join"), nil, "a switch left on is a choice: no new offer")
 
 		R.WhisperLines()[1].onClick()
 		Reopen()
-		eq(Row("enable"), nil, "turning recruitment off in Church leaves it off without another offer")
+		eq(Row("join"), nil, "turning recruitment off in Church leaves it off without another offer")
 		-- Exercise the separate Never choice on an account with no recruiting decision yet.
 		ns.rdb.recruitmentPreference[ns.me] = nil
 		local oldRecord, oldVerify = ns.Record.Line, ns.Verify.Lines
@@ -3776,22 +3812,39 @@ test("gamepad centered Census recruitment offers the Church intake and both dism
 		eq(view.lines[1].id, "test-record", "Record remains above the prompt")
 		eq(view.lines[2].id, "test-verify", "verification stays reachable above the prompt")
 		ns.Record.Line, ns.Verify.Lines = oldRecord, oldVerify
+		local chat = #C.printed
 		C.Click(assert(Row("never")))
 		eq(ns.db.hideRecruitmentOffer, true, "the opt-out lives in the account database")
+		-- 1.5.8 (the author's ask: "a gente pode avisar que... você pode ativar essas features na tab
+		-- Invites, na aba Church... Clicando"): a chat line, and a line at the top of the Census that
+		-- opens Church > Invites.
+		local told = false
+		for i = chat + 1, #C.printed do
+			if C.printed[i]:find(L.RECRUIT_CENSUS_ELSEWHERE, 1, true) then told = true end
+		end
+		eq(told, true, "Don't ask again says where the switches are")
+		eq(U.PageId(), "census/")
+		local notice = assert(Row("notice"), "the Census points to Church > Invites")
+		assert(notice.line.text:find(L.RECRUIT_CENSUS_ELSEWHERE, 1, true))
+		C.Click(notice)
+		eq(U.PageId(), "church/invites", "its click opens Church > Invites")
+		assert(U.SelectTab("census"))
+		eq(Row("notice"), nil, "the pointer shows once")
 		Reopen()
-		eq(Row("enable"), nil, "the opt-out survives window reopening")
+		eq(Row("join"), nil, "the opt-out survives window reopening")
+		eq(Row("notice"), nil)
 		assert(R.WhisperLines()[1].text:find(L.RECRUIT_WHISPER_OFF, 1, true), "Church can still turn it on")
 
 		ns.db.hideRecruitmentOffer = nil
 		C.env.CanGuildInvite = function() return false end
 		Reopen()
-		eq(Row("enable"), nil, "players without native invite permission see the normal Census")
+		eq(Row("join"), nil, "players without native invite permission see the normal Census")
 		eq(R.EnableWhisperRecruiting(), false)
 		C.units.player.guild = nil
 		C.env.IsInGuild = function() return false end
 		C.Fire("PLAYER_GUILD_UPDATE", "player")
 		U.Refresh()
-		eq(Row("enable"), nil, "outsiders cannot enable recruitment")
+		eq(Row("join"), nil, "outsiders cannot enable recruitment")
 		NoErrors(C, "Census recruitment")
 	end
 end)
@@ -3911,6 +3964,95 @@ test("gamepad recruitment keeps the unguilded scan and handoff switches across a
 		last.Advance(1)
 		eq(lastNS.Recruit.Candidates.Enabled(), false, "turning the scan off is saved too")
 		assert(Line(lastNS.Recruit, "recruit-handoff-accept").text:find(L.RECRUIT_HANDOFF_OFF, 1, true))
+	end
+end)
+
+-- 1.5.8 (the author, 11-12: "quando ela ativa a feature de recrutamento, ativa também a feature dela
+-- receber de outras pessoas da rede qualquer pedido de recrutamento... quando ela ativa a busca de
+-- pessoas que estão sem guilda, vai ativar o recebimento também da rede"): each Census switch turns
+-- its feature on with what other members pass on, the player's own passing stays manual, and the
+-- choices come back after a login.
+test("gamepad Census recruitment switches turn on their features and the handoffs, and come back after a login", function()
+	local function Officer(saved)
+		return { saved = saved, setup = function(c) c.units.player.rank, c.units.player.rankIndex = "Titan", 1 end,
+			roster = {
+				{ "Tester-Realm", "Titan", 1, 60, "Warrior", "Elwynn Forest", "", "", true, 0, "WARRIOR" },
+				{ "Zeusmaster-Realm", "Zeus", 0, 60, "Mage", "Stormwind City", "", "", true, 0, "MAGE" },
+			} }
+	end
+	local function Row(U, id)
+		for _, row in ipairs(U.SelfTestView().rows) do
+			if row:IsShown() and row.line.id == "census-recruit-" .. id then return row end
+		end
+	end
+	local function On(U, id)
+		return assert(Row(U, id), id).line.text:find("ReadyCheck-Ready", 1, true) ~= nil
+	end
+	local function Line(R, id)
+		for _, line in ipairs(R.WhisperLines()) do if line.id == id then return line end end
+	end
+	for _, initialPad in ipairs({ false, true }) do
+		local saved = Answered()
+		local C, ns = Session(initialPad, Officer(saved))
+		C.Advance(1)
+		local U, R, L = ns.UI, ns.Recruit, ns.L
+		U.Toggle()
+		eq(U.PageId(), "census/recruitment")
+		C.Click(Row(U, "scan"))
+		eq(R.Candidates.Enabled(), true, "Find unguilded players turns the scan on")
+		eq(R.Handoff.Accepting(), true, "and takes the players other members pass on")
+		eq(R.IsWhisperRecruiting(), true, "the scan's replies need JOIN answers: on with it")
+		eq(On(U, "scan"), true); eq(On(U, "join"), true); eq(On(U, "ads"), false)
+		assert(Line(R, "recruit-handoff-accept").text:find(L.RECRUIT_HANDOFF_ON, 1, true), "Church shows the handoffs on")
+		assert(Line(R, "recruit-handoff-overflow").text:find(L.RECRUIT_OVERFLOW_OFF, 1, true),
+			"passing the player's own requests on stays manual")
+		C.Click(Row(U, "ads"))
+		eq(R.AnnounceReminderMinutes(), 5, "Post recruiting ads turns the reminder on every 5 minutes")
+		eq(On(U, "ads"), true)
+		eq(Line(R, "recruit-announcement-reminder").filters[1].value, L.RECRUIT_ANNOUNCE_REMINDER_ON:format(5),
+			"Church shows the same interval")
+		C.Click(Row(U, "join"))
+		eq(R.IsWhisperRecruiting(), false, "turning JOIN answers off turns recruiting off")
+		eq(R.Candidates.Enabled(), false, "and the scan with it")
+		eq(R.AnnounceReminderMinutes(), 0, "and the ads")
+		eq(R.Handoff.Accepting(), false, "and the handoffs")
+		for _, id in ipairs({ "join", "ads", "scan" }) do eq(On(U, id), false, id .. " back in red") end
+		C.Click(Row(U, "join"))
+		eq(R.IsWhisperRecruiting(), true, "Answer JOIN requests turns the JOIN intake on")
+		eq(R.Handoff.Accepting(), true, "with the requests other members pass on")
+		eq(R.Candidates.Enabled(), false, "and nothing else"); eq(R.AnnounceReminderMinutes(), 0)
+		C.Click(Row(U, "ads")); C.Click(Row(U, "scan"))
+		C.Click(Row(U, "scan"))
+		eq(R.Candidates.Enabled(), false, "the scan switch turns it off again")
+		eq(R.Handoff.Accepting(), true, "JOIN answers keep taking handoffs")
+		C.Click(Row(U, "scan"))
+		local choice = ns.rdb.recruitmentPreference[ns.me]
+		eq(choice.enabled, true); eq(choice.acceptHandoffs, true); eq(choice.scan, true)
+		eq(choice.announceReminder, 5); eq(choice.offerOverflow, nil)
+		eq(#(C.said or {}), 0, "the switches send nothing")
+		C.Click(Row(U, "done"))
+		eq(U.PageId(), "census/")
+		NoErrors(C, "Census recruitment switches")
+
+		local reloaded, nextNS = Session(initialPad, Officer(saved))
+		reloaded.Advance(1)
+		local nextR = nextNS.Recruit
+		eq(nextR.IsWhisperRecruiting(), true, "JOIN answers come back after a login")
+		eq(nextR.Handoff.Accepting(), true, "the handoffs come back")
+		eq(nextR.Candidates.Enabled(), true, "the scan comes back")
+		eq(nextR.AnnounceReminderMinutes(), 5, "the ads come back")
+		nextNS.UI.Toggle()
+		eq(nextNS.UI.PageId(), "census/", "a choice made asks no more")
+		-- The Church's own interval menu is kept the same way: off there stays off after a login.
+		InClick(reloaded, Line(nextR, "recruit-announcement-reminder").filters[1].options[1].onClick)
+		eq(nextR.AnnounceReminderMinutes(), 0)
+		eq(#(reloaded.said or {}), 0, "restored switches send nothing")
+		NoErrors(reloaded, "restored Census recruitment switches")
+		local last, lastNS = Session(initialPad, Officer(saved))
+		last.Advance(1)
+		eq(lastNS.Recruit.AnnounceReminderMinutes(), 0, "the reminder turned off in Church stays off")
+		eq(lastNS.Recruit.Candidates.Enabled(), true)
+		NoErrors(last, "Census recruitment after the reminder went off")
 	end
 end)
 

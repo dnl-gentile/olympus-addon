@@ -248,3 +248,15 @@ ns.RegisterEvent("PLAYER_TARGET_CHANGED", function() Observe("target") end)
 pcall(ns.RegisterEvent, "NAME_PLATE_UNIT_ADDED", function(unit)
 	if type(unit) == "string" and not ns.IsSecret(unit) and unit:match("^nameplate%d+$") then Observe(unit) end
 end)
+
+-- 1.5.8 (the author's ask): the Census offer's switch, the scan on (with its popups) or off as
+-- asked, saved as the Church's own switch saves it. Returns whether it scans now.
+function Q.SetEnabled(on)
+	if on and not Q.Enabled() then
+		if guild then Toggle() end -- (another guild's leftover goes off first)
+		Toggle()
+	elseif not on and guild then
+		Toggle()
+	end
+	return Q.Enabled()
+end

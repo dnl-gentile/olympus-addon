@@ -727,6 +727,7 @@ local function RestoreRecruiting()
 	if recruitingGuild and saved then
 		if Recruit.Handoff and Recruit.Handoff.Restore then Recruit.Handoff.Restore(saved) end
 		if Recruit.Candidates and Recruit.Candidates.Restore then Recruit.Candidates.Restore(saved) end
+		if Recruit.RestoreAnnounceReminder then Recruit.RestoreAnnounceReminder(saved) end
 	end
 end
 
@@ -1157,6 +1158,9 @@ local function SetReminder(index)
 	if minutes > 0 then
 		reminderTimer = ns.Every(minutes * 60, "recruiting reminder", RemindAnnouncement)
 	end
+	-- (1.5.8) Kept with the recruiting choice, as the scan and handoff switches are (RestoreRecruiting).
+	local saved = Recruit.Preference(true)
+	if saved then saved.announceReminder = minutes > 0 and minutes or nil end
 	ns.Fire("DATA_CHANGED")
 end
 
@@ -1806,3 +1810,34 @@ StaticPopupDialogs["OLYMPUS_RECRUIT"] = {
 	hideOnEscape = true,
 	preferredIndex = 3,
 }
+
+-- 1.5.8 (the author's ask): the Census offer's switches. The public-channel reminder's interval in
+-- minutes (0: off), set by minutes, and brought back with the recruiting choice after a login.
+function Recruit.AnnounceReminderMinutes()
+	return REMINDER_MINUTES[reminderIndex] or 0
+end
+
+function Recruit.SetAnnounceReminder(minutes)
+	for index, m in ipairs(REMINDER_MINUTES) do
+		if m == minutes then
+			SetReminder(index)
+			return true
+		end
+	end
+	return false
+end
+
+function Recruit.RestoreAnnounceReminder(saved)
+	if type(saved) ~= "table" or REMINDER_MINUTES[reminderIndex] ~= 0 then return end
+	if type(saved.announceReminder) == "number" then Recruit.SetAnnounceReminder(saved.announceReminder) end
+end
+
+-- "Leave it off for now" with every switch off: this character's choice for the guild is
+-- forgotten, so the offer asks again (a switch turned on and off again made one).
+function Recruit.ForgetUnusedChoice()
+	local guild = EligibleRecruitingGuild()
+	local saved = guild and RecruitmentPreference(guild)
+	if not saved or saved.enabled == true or Recruiting() then return false end
+	ns.rdb.recruitmentPreference[ns.me] = nil
+	return true
+end

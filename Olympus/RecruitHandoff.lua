@@ -442,3 +442,17 @@ function H.Reset()
 	wipe(incoming)
 	wipe(outgoing)
 end
+
+-- 1.5.8 (the author's ask): the Census offer turns accepting handoffs on with its JOIN and scan
+-- switches, saved as the Church's own switch saves it. Returns whether it accepts now.
+function H.SetAccepting(on)
+	if on and not Accepting() then
+		if acceptingGuild then H.Toggle() end -- (another guild's leftover goes off first)
+		H.Toggle()
+	elseif not on and acceptingGuild then
+		H.Toggle()
+	end
+	return Save("acceptHandoffs", Accepting())
+end
+
+function H.Accepting() return Accepting() end

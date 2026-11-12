@@ -1495,7 +1495,7 @@ local function CreateMain(style)
 		if ChatPaneReady() then ns.ChatWindow.Detach(self) end
 		-- (1.2.4: and the person page shown, for what it held: ProfileLeft.)
 		if self == main then
-			if not self:IsShown() then self.recruitmentOffer = nil end
+			if not self:IsShown() then self.recruitmentOffer, self.recruitmentNotice = nil, nil end
 			ProfileLeft(playerProfile)
 		end
 	end)
@@ -2423,23 +2423,48 @@ function UI.CompanionTabs()
 	return out
 end
 
+-- 1.5.8 (the author's ask): the offer's three switches (Views.RecruitOfferSwitch) keep it open
+-- while they are set ("open": a switch turned on makes a choice, which no longer offers it), until
+-- Done, Leave it off for now or Don't ask again. Don't ask again leaves a line at the top of the
+-- Census, until clicked or the window closes, that opens Church > Invites.
 local function CensusRecruitment(previewing)
-	if previewing or main.tab ~= "census" or not main.recruitmentOffer or not ns.db or ns.db.hideRecruitmentOffer then return end
+	if previewing or main.tab ~= "census" or not ns.db then return end
 	local R = ns.Recruit
-	if not R or not R.ShouldOfferWhisperRecruiting or not R.ShouldOfferWhisperRecruiting() then return end
-	local function Later()
+	if not R or not R.ShouldOfferWhisperRecruiting then return end
+	if main.recruitmentNotice then
+		return { notice = function()
+			main.recruitmentNotice = nil
+			if UI.SelectTab("church") and ns.ChurchView and ns.ChurchView.Show then ns.ChurchView.Show("invites") end
+		end }
+	end
+	if not main.recruitmentOffer or ns.db.hideRecruitmentOffer then return end
+	if main.recruitmentOffer == "open" then
+		if not R.IsWhisperRecruiting() and not R.CanEnableWhisperRecruiting() then main.recruitmentOffer = nil; return end
+	elseif R.ShouldOfferWhisperRecruiting() then
+		main.recruitmentOffer = "open"
+	else
+		return
+	end
+	local function Close()
 		main.recruitmentOffer = nil
 		UI.Refresh()
 	end
 	return {
 		height = main.scroll:GetHeight() + (main.layoutCensusRecruit and 0 or DETAIL_H),
-		enable = function()
-			if R.EnableWhisperRecruiting() then Later() end
+		switch = function(key)
+			ns.Views.RecruitOfferSwitch(key)
+			UI.Refresh()
 		end,
-		later = Later,
+		done = Close,
+		later = function()
+			R.ForgetUnusedChoice()
+			Close()
+		end,
 		never = function()
 			ns.db.hideRecruitmentOffer = true
-			Later()
+			main.recruitmentNotice = true
+			ns.Print(L.RECRUIT_CENSUS_ELSEWHERE)
+			Close()
 		end,
 	}
 end
