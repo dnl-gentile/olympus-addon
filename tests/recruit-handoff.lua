@@ -112,9 +112,9 @@ test("recruit overflow: a burst preserves the visible prompt and offers one pend
 		R.OnWhisper("JOIN", "First Recruit-" .. home)
 		R.OnWhisper("JOIN", "Visible Recruit-" .. home)
 		local visible = R.requests[2]
-		ns.Dialog = { Find = function(which, data)
-			if which == "OLYMPUS_RECRUIT_REPLY" and (data == nil or data == visible) then
-				return { data = visible, Hide = function() end }
+		ns.Dialog = { Find = function(which)
+			if which == "OLYMPUS_RECRUIT_INVITE_DRAFT" then
+				return { data = { req = visible, automatic = true }, Hide = function() end }
 			end
 		end }
 		for i = 1, 60 do R.OnWhisper("JOIN OLYMPUS", ("Batch %d-%s"):format(i, home)) end

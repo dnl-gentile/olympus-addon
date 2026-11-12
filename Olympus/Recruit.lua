@@ -1182,9 +1182,11 @@ end
 function Recruit.HandoffPromptOpen(req)
 	local D = ns.Dialog
 	if not D or D.missing or not D.Find then return false end
-	local reply = D.Find("OLYMPUS_RECRUIT_REPLY", req)
+	if D.Find("OLYMPUS_RECRUIT_REPLY", req) then return true end
+	local copy = D.Find("OLYMPUS_RECRUIT_INVITE_DRAFT")
+	if copy and copy.data and copy.data.req == req then return true end
 	local warning = D.Find("OLYMPUS_RECRUIT_NETOFF")
-	return reply ~= nil or (warning and warning.data and warning.data.req == req) or false
+	return (warning and warning.data and warning.data.req == req) or false
 end
 
 function Recruit.OverflowRequest()
