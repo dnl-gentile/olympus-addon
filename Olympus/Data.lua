@@ -977,6 +977,12 @@ Data.WITNESS_MAX = 8
 -- ("CG~1~C~t"), which reaches everyone long before a snapshot of many pieces, so the rest hold back.
 Data.MEMBER_ANSWER_AFTER, Data.MEMBER_ANSWER_SPREAD, Data.MEMBER_ANSWERS = 12, 60, 2
 local globalLastSent, globalLastHeard, globalAnswerPending = 0, 0, false
+-- GLOBAL_ANSWER_GAP throttles ANSWERS, so it needs a clock of its own. Keyed to globalLastSent it
+-- also counted a relay's own periodic broadcast (Relay.SendGlobal, every Relay.GLOBAL_EVERY = 120),
+-- and 120 is inside the 180 s gap: on a relay the gate was therefore never open, no relay ever
+-- answered a census ask, and a client that fell behind had no way back. The relay's broadcast is
+-- the fan-out; this is the recovery path, and they throttle separately.
+local globalLastAnswered = 0
 local answersHeard = {} -- { t, trusted } of the claims and snapshots heard, the last few minutes
 
 local function ScopedRealm(realm)
@@ -1506,7 +1512,7 @@ end
 local function AnswerAsk(body, now)
 	local trusted = GlobalTrusted(ns.me)
 	if not trusted and not GlobalMember() then return true end
-	if now - globalLastSent < Data.GLOBAL_ANSWER_GAP or globalAnswerPending then return true end
+	if now - globalLastAnswered < Data.GLOBAL_ANSWER_GAP or globalAnswerPending then return true end
 	local n, newest = tostring(body or ""):match("^(%d+)~(%d+)$")
 	if not Behind(tonumber(n), tonumber(newest)) then return true end
 	globalAnswerPending = true
@@ -1514,14 +1520,14 @@ local function AnswerAsk(body, now)
 	local delay = trusted and math.random(2, 9) or (Data.MEMBER_ANSWER_AFTER + math.random(0, Data.MEMBER_ANSWER_SPREAD))
 	ns.After(delay, "global census answer", function()
 		globalAnswerPending = false
-		if ns.Now() - globalLastSent < Data.GLOBAL_ANSWER_GAP then return end
+		if ns.Now() - globalLastAnswered < Data.GLOBAL_ANSWER_GAP then return end
 		if GlobalTrusted(ns.me) then
-			if globalLastHeard <= heardAt then Data.SendGlobalCensus() end
+			if globalLastHeard <= heardAt and Data.SendGlobalCensus() then globalLastAnswered = ns.Now() end
 			return
 		end
 		local count, byTrusted = AnswersSince(now)
 		if byTrusted or count >= Data.MEMBER_ANSWERS then return end
-		if GlobalMember() then Data.SendGlobalCensus() end
+		if GlobalMember() and Data.SendGlobalCensus() then globalLastAnswered = ns.Now() end
 	end)
 	return true
 end
