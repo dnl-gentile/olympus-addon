@@ -3728,29 +3728,45 @@ test("gamepad Join Olympus onboarding searches, waits and retries through attend
 	end
 end)
 
-test("gamepad Census recruitment enables the Church's JOIN intake", function()
+test("gamepad centered Census recruitment offers the Church intake and both dismissal choices", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
 		local U, R, V, L = ns.UI, ns.Recruit, ns.Views, ns.L
-		local function Offer()
+		local function Row(id)
 			for _, row in ipairs(U.SelfTestView().rows) do
-				if row:IsShown() and row.line.id == "census-recruit-enable" then return row end
+				if row:IsShown() and row.line.id == "census-recruit-" .. id then return row end
 			end
 		end
-		assert(U.SelectTab("census"))
+		local function Reopen()
+			U.Toggle(); U.Toggle()
+		end
+		U.Toggle()
 		local view = U.SelfTestView()
-		assert(view.lines[1].input, "the Census search remains first")
-		eq(view.lines[2].text, L.RECRUIT_CENSUS_HINT)
-		local button = assert(Offer()).primary
-		eq(button:GetText(), L.RECRUIT_CENSUS_ENABLE)
+		eq(U.PageId(), "census/recruitment")
+		local title = false
+		for _, line in ipairs(view.lines) do
+			if line.text == L.RECRUIT_CENSUS_TITLE then title = line.center end
+			assert(not line.input, "the search returns after leaving the centered offer")
+		end
+		eq(title, true, "the offer's heading is centered")
+		eq(view.frame.colHeader:IsShown(), false, "guild columns are absent from the offer")
+		eq(view.frame.detail:IsShown(), false, "the offer fills the Census body")
+		eq(assert(Row("enable")).primary:GetText(), L.RECRUIT_CENSUS_ENABLE)
+		C.Click(assert(Row("later")))
+		eq(U.PageId(), "census/")
+		assert(U.SelfTestView().lines[1].input, "leaving it off immediately restores the Census")
+		U.Refresh()
+		eq(Row("enable"), nil, "background refresh does not reopen the offer")
+		Reopen()
+		assert(Row("enable"), "leaving it off defers the offer until the next window opening")
 		V.SetFilter("census", "anything"); U.Refresh()
-		eq(Offer(), nil, "search shows its results without the offer")
+		eq(Row("enable"), nil, "search keeps its ordinary results")
 		V.SetFilter("census", ""); U.Refresh()
+
 		local mark = C.Mark()
 		local sends = #(C.said or {})
-		C.Click(assert(Offer()).primary)
-		U.Refresh()
-		eq(Offer(), nil, "the offer disappears while active")
+		C.Click(assert(Row("enable")).primary)
+		eq(Row("enable"), nil, "the offer disappears while active")
 		assert(R.WhisperLines()[1].text:find(L.RECRUIT_WHISPER_ON, 1, true), "Church shows the active intake")
 		local printed
 		for _, line in ipairs(C.printed) do
@@ -3764,15 +3780,32 @@ test("gamepad Census recruitment enables the Church's JOIN intake", function()
 		for _, reach in ipairs(C.Since(mark)) do
 			assert(reach.sym ~= "C_GuildInfo.Invite", "activation grants no native invite")
 		end
+
 		R.WhisperLines()[1].onClick()
-		U.Refresh()
-		assert(Offer(), "the offer returns after turning it off in Church")
+		local oldRecord, oldVerify = ns.Record.Line, ns.Verify.Lines
+		ns.Record.Line = function() return { id = "test-record", text = "Record" } end
+		ns.Verify.Lines = function() return { { id = "test-verify", text = "Verification" } } end
+		Reopen()
+		view = U.SelfTestView()
+		eq(view.lines[1].id, "test-record", "Record remains above the prompt")
+		eq(view.lines[2].id, "test-verify", "verification stays reachable above the prompt")
+		ns.Record.Line, ns.Verify.Lines = oldRecord, oldVerify
+		C.Click(assert(Row("never")))
+		eq(ns.db.hideRecruitmentOffer, true, "the opt-out lives in the account database")
+		Reopen()
+		eq(Row("enable"), nil, "the opt-out survives window reopening")
+		assert(R.WhisperLines()[1].text:find(L.RECRUIT_WHISPER_OFF, 1, true), "Church can still turn it on")
+
+		ns.db.hideRecruitmentOffer = nil
+		C.env.CanGuildInvite = function() return false end
+		Reopen()
+		eq(Row("enable"), nil, "players without native invite permission see the normal Census")
+		eq(R.EnableWhisperRecruiting(), false)
 		C.units.player.guild = nil
 		C.env.IsInGuild = function() return false end
 		C.Fire("PLAYER_GUILD_UPDATE", "player")
 		U.Refresh()
-		eq(Offer(), nil, "outsiders cannot enable recruitment")
-		eq(R.EnableWhisperRecruiting(), false)
+		eq(Row("enable"), nil, "outsiders cannot enable recruitment")
 		NoErrors(C, "Census recruitment")
 	end
 end)

@@ -1494,7 +1494,10 @@ local function CreateMain(style)
 		-- (The Chat tab goes with it: its boxes let go of the keyboard.)
 		if ChatPaneReady() then ns.ChatWindow.Detach(self) end
 		-- (1.2.4: and the person page shown, for what it held: ProfileLeft.)
-		if self == main then ProfileLeft(playerProfile) end
+		if self == main then
+			if not self:IsShown() then self.recruitmentOffer = nil end
+			ProfileLeft(playerProfile)
+		end
 	end)
 	-- (1.2.4: his own page, "My profile", drawn again for its new room: its Icons fill it.)
 	f:SetScript("OnSizeChanged", function(self)
@@ -1819,7 +1822,7 @@ function UI.Layout()
 	-- (KH-08: the census's own page has no column titles.)
 	main.statsLaid = main.tab == "census" and CensusStatsShown()
 	local hasCols = not surface and not playerProfile and not main.layoutLocked and ns.Views.COLUMNS[main.tab] ~= nil and main.tab == "census"
-		and not main.statsLaid
+		and not main.statsLaid and not main.layoutCensusRecruit
 	main.colHeader:SetShown(hasCols)
 	-- The Chat tab: the header's counts, the list and the detail box give their place to its parts.
 	local chat = not surface and not playerProfile and not main.layoutLocked and main.tab == "chat" and ChatPaneReady()
@@ -1827,7 +1830,8 @@ function UI.Layout()
 	for _, key in ipairs({ "total", "sub", "listBox", "scroll", "detail" }) do
 		if main[key] then main[key]:SetShown(not chat and not surface) end
 	end
-	if main.layoutSimpleJoin then main.detail:Hide() end
+	local centered = main.layoutSimpleJoin or main.layoutCensusRecruit
+	if centered then main.detail:Hide() end
 	-- The count's hover and the page answer describe tabs, not a player profile.
 	if main.headerHover then main.headerHover:SetShown(not chat and not surface and not playerProfile) end
 	if main.pageHelp then main.pageHelp:SetShown(not surface and not playerProfile) end
@@ -1835,12 +1839,12 @@ function UI.Layout()
 	if main.listBox then
 		main.listBox:ClearAllPoints()
 		main.listBox:SetPoint("TOPLEFT", g.box.left, hasCols and g.box.top or (g.box.topNoCols or g.box.top) - navHeight)
-		main.listBox:SetPoint("BOTTOMRIGHT", g.box.right, g.box.bottom - (main.layoutSimpleJoin and DETAIL_H or 0))
+		main.listBox:SetPoint("BOTTOMRIGHT", g.box.right, g.box.bottom - (centered and DETAIL_H or 0))
 	end
 	local right = main.scrollRight or g.scroll.right
 	main.scroll:ClearAllPoints()
 	main.scroll:SetPoint("TOPLEFT", g.scroll.left, hasCols and g.scroll.top or g.scroll.topNoCols - navHeight)
-	main.scroll:SetPoint("BOTTOMRIGHT", right, g.scroll.bottom - (main.layoutSimpleJoin and DETAIL_H or 0))
+	main.scroll:SetPoint("BOTTOMRIGHT", right, g.scroll.bottom - (centered and DETAIL_H or 0))
 	local listW = ListWidth()
 	for _, v in pairs(main.views) do v:SetWidth(listW) end
 	if hasCols then
@@ -1996,6 +2000,7 @@ local function ShowTab(key, focus)
 	-- (KH-08: a tab opened shows its own list, the Census's too: CensusStats.lua's page closes.)
 	if CensusStatsReady() then ns.CensusStats.Close() end
 	main.tab = key
+	if key ~= "census" then main.layoutCensusRecruit = nil end
 	for k, v in pairs(main.views) do v:SetShown(not surface and k == key) end
 	for k, v in pairs(main.apiSurfaceViews or {}) do v:SetShown(surface ~= nil and k == key) end
 	if not surface then
@@ -2067,8 +2072,11 @@ end
 
 -- Opening the window picks its look again, from the guild window in use (UI.Style).
 -- Called from clicks and slash commands. `focus`: see ShowTab.
-function UI.SelectTab(key, focus)
-	if not (main and main:IsShown()) then UseStyle(UI.Style()) end
+function UI.SelectTab(key, focus, offerRecruitment)
+	if not (main and main:IsShown()) then
+		UseStyle(UI.Style())
+		main.recruitmentOffer = offerRecruitment
+	end
 	local ok, reason = ShowTab(key, focus)
 	if ok then UI.Clicked() end
 	return ok, reason
@@ -2135,7 +2143,7 @@ local function PageOf(tab, locked)
 	elseif tab == "decrees" then sub = ns.Views.DecreePageShown and ns.Views.DecreePageShown() -- (the officer musters')
 	elseif tab == "treasury" then sub = ns.Treasury and ns.Treasury.mode
 	elseif tab == "wanted" then sub = ns.Wanted and ns.Wanted.PageId and ns.Wanted.PageId()
-	elseif tab == "census" then sub = CensusStatsShown() and "stats" or nil -- (KH-08, CensusStats.lua)
+	elseif tab == "census" then sub = CensusStatsShown() and "stats" or main.layoutCensusRecruit and "recruitment" or nil -- (KH-08, CensusStats.lua)
 	elseif tab == "church" and ns.ChurchView and ns.ChurchView.page == "invites" then sub = "invites"
 	elseif tab == "watch" then sub = ns.Watch and ns.Watch.PageId and ns.Watch.PageId() end -- (1.1.6: desk, reports, cases, case)
 	return tab .. "/" .. tostring(sub or "")
@@ -2415,6 +2423,27 @@ function UI.CompanionTabs()
 	return out
 end
 
+local function CensusRecruitment(previewing)
+	if previewing or main.tab ~= "census" or not main.recruitmentOffer or not ns.db or ns.db.hideRecruitmentOffer then return end
+	local R = ns.Recruit
+	if not R or not R.CanEnableWhisperRecruiting or not R.CanEnableWhisperRecruiting() then return end
+	local function Later()
+		main.recruitmentOffer = nil
+		UI.Refresh()
+	end
+	return {
+		height = main.scroll:GetHeight() + (main.layoutCensusRecruit and 0 or DETAIL_H),
+		enable = function()
+			if R.EnableWhisperRecruiting() then Later() end
+		end,
+		later = Later,
+		never = function()
+			ns.db.hideRecruitmentOffer = true
+			Later()
+		end,
+	}
+end
+
 function UI.Refresh()
 	if not main or not main:IsShown() then return end
 	UI.lastRedraw = GetTime()
@@ -2499,7 +2528,7 @@ function UI.Refresh()
 				if not locked and not tabsWere then ns.SafeCall("issue reporter", ClearOfIssueReporter, MainClearOfIssueReporter) end
 				return
 			end
-		local lines, title, text, profileButtons, profileHeader, profileSubheader, profileArt
+		local lines, title, text, profileButtons, profileHeader, profileSubheader, profileArt, recruitment
 		if locked and not inert and UI.AccordLocked() then
 			-- 1.2.5.1: in an Olympus guild, the Olympus Accord not accepted yet: its page alone.
 			local A = ns.Accord
@@ -2529,7 +2558,7 @@ function UI.Refresh()
 			main.sub:SetText(profileSubheader or "")
 			main.peopleText = nil
 		else
-			lines, title, text = ns.Views.Build(main.tab, s, main.tab == "census") -- the visible Census has its recruiting offer
+			lines, title, text, recruitment = ns.Views.Build(main.tab, s, CensusRecruitment(previewing))
 			-- The treasury next to the soldiers, on the Treasury tab (Treasury.HeaderText; 1.1.5, the
 			-- author's call: no longer on the Throne, the treasury has its own tab).
 			if main.tab == "treasury" then
@@ -2564,8 +2593,10 @@ function UI.Refresh()
 		local previousSearch = main.pageSearchLine ~= nil
 		main.pageNavLines, main.pageNavTab = navigation, main.tab
 		main.pageSearchLine = search
-		if previous ~= #navigation or previousTab ~= main.tab or previousSearch ~= (search ~= nil) then UI.Layout() else DrawPageNavigation() end
-		ns.Views.Render(content, lines, not locked and not playerProfile and ns.Views.COLUMNS[view] or nil)
+		local offerChanged = main.layoutCensusRecruit ~= recruitment
+		main.layoutCensusRecruit = recruitment
+		if offerChanged or previous ~= #navigation or previousTab ~= main.tab or previousSearch ~= (search ~= nil) then UI.Layout() else DrawPageNavigation() end
+		ns.Views.Render(content, lines, not locked and not playerProfile and not recruitment and ns.Views.COLUMNS[view] or nil)
 		UI.KeepPlace(content, offset, click, PageOf(main.tab, locked), focus)
 		main.detailTitle:SetText(title or "")
 		main.detailText:SetText(text or "")
@@ -2610,8 +2641,9 @@ end
 -- it (GuildFrame.lua hooks that).
 -- (1.1.5, the gamepad gate: with the gamepad UI on, never by the game's guild windows: on its own.)
 function UI.OpenDocked(host, tab, heightOnly, style)
-	if not ns.Gate.Allowed("communities-button") then return UI.SelectTab(tab or "census") end
+	if not ns.Gate.Allowed("communities-button") then return UI.SelectTab(tab or "census", nil, true) end
 	UseStyle(style or UI.Style())
+	if not main:IsShown() then main.recruitmentOffer = true end
 	main.host, main.heightOnly = host, heightOnly
 	main:SetSize(UI.DockSize(host:GetWidth(), host:GetHeight(), heightOnly, SocialSize()))
 	DockTo(host)
@@ -3159,8 +3191,8 @@ function UI.Toggle()
 		main:Hide()
 		return
 	end
-	local ok = UI.SelectTab(main and main.tab or "census")
-	if not ok then UI.SelectTab("census") end
+	local ok = UI.SelectTab(main and main.tab or "census", nil, true)
+	if not ok then UI.SelectTab("census", nil, true) end
 end
 
 -- Reports come in bursts (every guild answers a census request within seconds, a patrol

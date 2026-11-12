@@ -656,7 +656,7 @@ end
 
 function Recruit.CanEnableWhisperRecruiting()
 	local guild = WhisperGuild()
-	return guild ~= nil and recruitingGuild ~= guild
+	return guild ~= nil and recruitingGuild ~= guild and Recruit.CanInvite and Recruit.CanInvite()
 end
 
 function Recruit.EnableWhisperRecruiting()

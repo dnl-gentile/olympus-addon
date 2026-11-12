@@ -2339,8 +2339,10 @@ are its own, and its own documentation says what it does and what it sends.
   hand the key out in game as ever, or `/oly key`); the confirm says a key in a text is left out,
   and warns when it is one your guild replaced. The players it would block are named one by one
   in the confirm (30 at most) and added only on your yes.
-- **Enable recruitment**: use the action at the top of the Census to receive requests from
-  players who whisper `JOIN`. Review requests or turn recruiting off in **Church → Invites**.
+- **Enable recruitment**: the Census offers guild inviters a centered page to receive requests
+  from players who whisper `JOIN`. Choose **Leave it off for now** to return to the Census until
+  you reopen the window, or **Don't ask again** to dismiss the offer for your account. Review
+  requests or change recruiting in **Church → Invites**.
 - **Search**: a box on top of the Census (guilds, Lords, Captains, players, zones, recruiting),
   the Realm (guilds, Lords, Captains, members seen online), Crafters (crafter, guild or profession), the
   Tabards in The Watch (inspected and untabarded players, by name or guild), the Treasury (donors in the

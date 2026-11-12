@@ -1792,7 +1792,7 @@ end
 -- player of the top five or one seen online (under its row), the reported ones then the ones only
 -- seen (by name: nobody knows their Lord), in the same order as ever. Letters that look alike
 -- read as one (Lookalike, 1.2.1).
-local function CensusLines(s, q, includeRecruitment)
+local function CensusLines(s, q, recruitment)
 	local lines = {}
 	if q then
 		local min = RecruitQuery(q)
@@ -1843,11 +1843,21 @@ local function CensusLines(s, q, includeRecruitment)
 	-- While the King is online: one click asks for an invite to his layer (Hop.lua).
 	for _, hop in ipairs(ns.Hop and ns.Hop.KingLines and ns.Hop.KingLines() or {}) do lines[#lines + 1] = hop end
 	local kings = #lines -- (the King's lines above: "No reports yet" counts what comes below them)
-	local recruit = ns.Recruit
-	if includeRecruitment and recruit and recruit.CanEnableWhisperRecruiting and recruit.CanEnableWhisperRecruiting() then
-		lines[#lines + 1] = { id = "census-recruit-hint", text = L.RECRUIT_CENSUS_HINT, center = true }
+	local record = ns.Record and ns.Record.Line and ns.Record.Line()
+	if recruitment then
+		-- Keep verification, urgent notices and requests usable above the offer.
+		if record then table.insert(lines, 1, record) end
+		local padding = math.max(6, math.floor((recruitment.height - 155) / 2) - #lines * 28)
+		lines[#lines + 1] = { text = L.RECRUIT_CENSUS_TITLE, center = true, color = "GameFontNormalLarge",
+			spaceBefore = padding, gapAfter = true }
+		lines[#lines + 1] = { text = L.RECRUIT_CENSUS_HINT, center = true, wrap = true, gapAfter = true }
 		lines[#lines + 1] = { id = "census-recruit-enable", text = L.RECRUIT_CENSUS_ENABLE,
-			primary = true, onClick = recruit.EnableWhisperRecruiting, gapAfter = true }
+			primary = true, onClick = recruitment.enable, gapAfter = true }
+		lines[#lines + 1] = { id = "census-recruit-later", text = Gold(L.RECRUIT_CENSUS_LATER), center = true,
+			onClick = recruitment.later }
+		lines[#lines + 1] = { id = "census-recruit-never", text = Grey(L.RECRUIT_CENSUS_NEVER), center = true,
+			onClick = recruitment.never }
+		return lines, true
 	end
 	-- Above the guilds (1.1): the channel is public (who can read it), and right after login the
 	-- census being rebuilt (said instead of "No reports yet").
@@ -1890,7 +1900,6 @@ local function CensusLines(s, q, includeRecruitment)
 	end
 	-- Record mode on (Record.lua, the Guinness attempt's witnesses): its line first; a click opens its
 	-- status. Put in last, so the lines above count as before ("No reports yet").
-	local record = ns.Record and ns.Record.Line and ns.Record.Line()
 	if record then table.insert(lines, 1, record) end
 	return lines
 end
@@ -3557,12 +3566,14 @@ end
 -- Each tab's lines, detail title and detail text. A tab missing here (a new one being
 -- added) is an empty list.
 local BUILD = {
-	census = function(s, includeRecruitment)
+	census = function(s, recruitment)
 		-- (CR-02 / KH-08: the census's own page, opened from the header's count, CensusStats.lua.)
 		local stats = ns.CensusStats
 		if type(stats) == "table" and not stats.missing and type(stats.Shown) == "function" and stats.Shown() then return stats.Build(s) end
+		local lines, offer = CensusLines(s, Views.Query("census"), recruitment)
+		if offer then return lines, nil, nil, true end
 		local title, text = CensusDetail(s)
-		return Searched(CensusLines(s, Views.Query("census"), includeRecruitment), "census", "CENSUS"), title, text
+		return Searched(lines, "census", "CENSUS"), title, text
 	end,
 	realm = function(s)
 		local title, text = RealmDetail(s)
@@ -3653,10 +3664,10 @@ local BUILD = {
 -- s (1.2.3): the census's summary the caller read a moment ago (UI.Refresh's, for the window's
 -- header), else read here. The window's redraw summed the census twice, once for its header and
 -- once for its tab, a few hundred KB each time on a big census.
-function Views.Build(tab, s, includeRecruitment)
+function Views.Build(tab, s, recruitment)
 	local build = BUILD[tab]
 	if not build then return {}, nil, nil end
-	return build(s or ns.Data.Summary(), includeRecruitment)
+	return build(s or ns.Data.Summary(), recruitment)
 end
 
 -- 1.2: another file's tab (UI.AddTab: the Blood Arena's, ArenaHome.lua): builder(s) returns its
