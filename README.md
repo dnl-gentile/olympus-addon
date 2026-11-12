@@ -3366,8 +3366,8 @@ no Who searches and clears when turned off or when you leave your guild.
 
 
 An officer can review an independent JOIN or a response to their recent outreach. JOIN
-opens the `/ginvite` command directly. During combat, while another invite is open or
-while prompts are on cooldown, requests stay in the Church's Invites queue. Olympus saves
+opens the `/ginvite` command directly. In popup mode, the next request waits for the previous
+draft and game chat to close, the cooldown to end, and combat to finish. Olympus saves
 no prospect list to disk. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
 copies the selected command and hands focus to empty game chat. You can also copy it and
 click **Open game chat**. Paste the command and press Enter. Dismiss the request after sending. Turning recruiting off clears the

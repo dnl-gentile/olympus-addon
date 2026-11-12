@@ -182,7 +182,7 @@ ns.GAMEPAD = {
 		why = "Post-hooks on the mail functions (hooksecurefunc keeps them the game's own) that only read what was sent and taken (1.2: the Arena's gold and the crafting requests' items too)." },
 	{ id = "popup-focus", kind = "focus", files = { "Dialog.lua", "Core.lua" },
 		guard = "own", toPad = "stays", toMouse = "nothing", safe = "keep",
-		why = "Edit boxes of Olympus's own dialogs take the keyboard only through ns.Focus, never from the chat's box under the gamepad UI. Automatically shown invite drafts preserve the current editor in both input modes." },
+		why = "Edit boxes of Olympus's own dialogs take the keyboard only through ns.Focus, never from the chat's box under the gamepad UI. Queued recruit drafts wait while an editor has focus in either input mode." },
 	{ id = "calendar", kind = "panel", files = { "Week.lua" },
 		guard = "gate", toPad = "stays", toMouse = "on", safe = "off",
 		why = "Opening the game's calendar for the King's week: with the gamepad UI it only says how to open it." },

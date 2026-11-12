@@ -616,6 +616,7 @@ ns.Comm.Handle("J1", Recruit.OnRouteAsk)
 Recruit.requests = {}
 local requestAt, lineTimes, whispers = {}, {}, {}
 local recruitingGuild, lastOutreach, lastReplyPrompt
+local PromptReply, replyTimer
 local contacted = {}
 
 local function WhisperGuild()
@@ -666,6 +667,7 @@ local function ToggleQueueOnly()
 	local saved = RecruitmentPreference(recruitingGuild, true)
 	if not saved then return end
 	saved.queueOnly = not (saved.queueOnly == true)
+	if saved.queueOnly then replyTimer = nil else PromptReply() end
 	ns.Fire("RECRUIT_CHANGED")
 end
 
@@ -676,6 +678,7 @@ end
 
 local function StopRecruiting()
 	recruitingGuild = nil
+	replyTimer = nil
 	CloseReminderDraft()
 	if Recruit.Handoff then Recruit.Handoff.Reset() end
 	if Recruit.Candidates then Recruit.Candidates.Reset() end
@@ -1427,19 +1430,49 @@ local function ReviewReply(req)
 	return ns.Dialog.Show("OLYMPUS_RECRUIT_REPLY", caption, nil, req) ~= nil
 end
 
--- An accepted recruiting whisper gets a choice in an Olympus window. Combat, a busy
--- invite window or several close replies leave the request on the Church's Invites page.
-local function PromptReply(req, now)
-	if QueueOnly() then return end
-	if (InCombatLockdown and InCombatLockdown()) or not ns.Dialog or ns.Dialog.missing then return end
-	if lastReplyPrompt and now - lastReplyPrompt < ASK_COOLDOWN then return end
-	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
-		if ns.Dialog.Find(id) then return end
+local function RetryReply(delay)
+	if replyTimer then return end
+	local timer = {}
+	replyTimer = timer
+	ns.After(delay, "next recruitment reply", function()
+		if replyTimer ~= timer then return end
+		replyTimer = nil
+		PromptReply()
+	end)
+end
+
+-- Offer each valid queued reply once, in order. When the player is busy, only one retry
+-- waits, and only while there is a reply left to show.
+PromptReply = function()
+	if not Recruiting() or QueueOnly() or not ns.Dialog or ns.Dialog.missing then return end
+	local now, req = ns.Now(), nil
+	Prune(now)
+	for _, pending in ipairs(Recruit.requests) do
+		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared
+			and (not Recruit.Handoff or not Recruit.Handoff.State(pending)) then
+			req = pending
+			break
+		end
 	end
-	local shown
-	if req.handoffIntent then shown = AcceptRequest(req, nil, true)
-	else shown = ReviewReply(req) end
-	if shown then lastReplyPrompt = now end
+	if not req then return end
+	if lastReplyPrompt and now - lastReplyPrompt < ASK_COOLDOWN then
+		return RetryReply(ASK_COOLDOWN - (now - lastReplyPrompt))
+	end
+	if (InCombatLockdown and InCombatLockdown()) or ns.ChatLocked() or ns.KeyboardFocus() then return RetryReply(2) end
+	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
+		if ns.Dialog.Find(id) then return RetryReply(2) end
+	end
+	for _, pending in ipairs(Recruit.requests) do
+		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and CurrentRequest(pending) then
+			local shown
+			if pending.handoffIntent then shown = AcceptRequest(pending, nil, true)
+			else shown = ReviewReply(pending) end
+			if shown then
+				pending.popupShown, lastReplyPrompt = true, now
+				return RetryReply(ASK_COOLDOWN)
+			end
+		end
+	end
 end
 
 StaticPopupDialogs["OLYMPUS_RECRUIT_REPLY"] = {
@@ -1602,7 +1635,7 @@ function Recruit.OnWhisper(text, sender)
 					local accepted, req = AddRequest(key, recruitingGuild, nil, nil, shown, true)
 					if accepted then
 						req.handoffIntent = keyword == "JOIN OLYMPUS" and "federation" or keyword == "JOIN" and "guild" or nil
-						PromptReply(req, now)
+						PromptReply()
 					end
 				end
 			end

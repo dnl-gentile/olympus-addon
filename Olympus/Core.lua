@@ -2818,10 +2818,14 @@ end
 -- not while another box has it (the chat's): its focus change would run the game's gamepad
 -- code from ours, and the game blocks it (see Dialog.lua); the player clicks into ours.
 -- A dialog shown in response to incoming data can preserve any editor in both input modes.
+function ns.KeyboardFocus() -- gp:popup-focus
+	if GetCurrentKeyBoardFocus then return GetCurrentKeyBoardFocus() end
+end
+
 function ns.Focus(eb, setFocus, preserve) -- gp:popup-focus
 	setFocus = setFocus or eb.SetFocus
-	if (preserve or ns.GamepadUI()) and GetCurrentKeyBoardFocus then
-		local current = GetCurrentKeyBoardFocus()
+	if preserve or ns.GamepadUI() then
+		local current = ns.KeyboardFocus()
 		if current and current ~= eb and (preserve or not current.olympusBox) then return false end
 	end
 	setFocus(eb)

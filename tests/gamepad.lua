@@ -4031,6 +4031,7 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		local C, ns = Session(initialPad)
 		local R = ns.Recruit
 		assert(ns.UI.SelectTab("church"))
+		ns.ChurchView.Show("people"); ns.UI.Refresh()
 		local frame = assert(Main(C))
 		local function FindLine(predicate)
 			for _, line in ipairs(ns.UI.SelfTestView().lines) do if predicate(line) then return line end end
@@ -4135,9 +4136,9 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		C.combat = false
 		C.Fire("CHAT_MSG_WHISPER", "  jOiN  ", "Interested-Realm")
 		eq(#R.requests, 4)
-		local independent = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), "JOIN opens the copy dialog without prior outreach")
-		local incoming = R.requests[4]
-		eq(independent.editBox:GetText(), "/ginvite Interested")
+		local independent = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), "the earliest waiting JOIN opens without prior outreach")
+		local incoming = R.requests[2]
+		eq(independent.editBox:GetText(), "/ginvite Stranger")
 		assert(independent.editBox:HasFocus(), "the command can be copied immediately")
 		eq(independent.editBox.selectionStart, 0)
 		eq(independent.editBox.selectionEnd, #independent.editBox:GetText())
@@ -4172,29 +4173,54 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 	GP.Covers("arena-clicks")
 end)
 
-test("gamepad incoming JOIN preserves existing focus, queues during cooldown and rechecks invitation rights", function()
+test("gamepad incoming JOIN advances the pending replies in order without interrupting game chat", function()
 	for _, pad in ipairs({ false, true }) do
 		local C, ns = Session(pad)
 		local R = ns.Recruit
 		R.ToggleWhisperRecruiting()
 		local chat = C.env.ChatFrame1EditBox
+		local function Draft() return ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") end
+		local function Advance(seconds) C.now = C.now + seconds; C.Advance(seconds) end
 		chat:Show(); chat:SetText("a message in progress"); C.focus = chat
 		C.Fire("CHAT_MSG_WHISPER", "JOIN OLYMPUS", "First-Realm")
-		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"))
-		eq(draft.editBox:GetText(), "/ginvite First")
-		eq(C.focus, chat, "the incoming popup keeps the current editor focused")
-		eq(chat:GetText(), "a message in progress")
-		C.Click(draft.buttons[1])
-		assert(R.HandoffSource(R.requests[1]), "closing the popup still leaves a transferable request")
-		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Second-Realm")
-		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "cooldown prevents a new popup")
-		eq(#R.requests, 2)
-		C.now = C.now + 21
-		C.env.CanGuildInvite = function() return false end
-		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Third-Realm")
-		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "only a player with invite authority sees the command")
-		eq(#R.requests, 3, "the requests remain available to review")
+		Advance(4)
+		eq(Draft(), nil, "while game chat has focus, the request stays queued")
 		eq(C.focus, chat)
+		eq(chat:GetText(), "a message in progress")
+		chat:ClearFocus(); chat:Hide(); Advance(2)
+		local draft = assert(Draft()); eq(draft.editBox:GetText(), "/ginvite First")
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Second-Realm")
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Third-Realm")
+		Advance(20)
+		eq(Draft(), draft, "later JOINs never replace the open draft")
+		eq(draft.editBox:GetText(), "/ginvite First")
+		if pad then C.Click(draft.buttons[1]) else C.Click(draft.extraButton) end
+		eq(Draft(), nil)
+		chat:Show(); C.focus = chat
+		Advance(20)
+		eq(Draft(), nil, "closing the Olympus window waits for the native chat editor")
+		chat:ClearFocus(); chat:Hide()
+		C.combat = true; Advance(4)
+		eq(Draft(), nil, "combat also defers a queued popup")
+		C.combat = false; Advance(2)
+		draft = assert(Draft()); eq(draft.editBox:GetText(), "/ginvite Second")
+		C.Click(draft.buttons[1])
+		assert(R.HandoffSource(R.requests[2]), "closing still leaves a transferable request")
+		local arrival
+		for _, line in ipairs(R.WhisperLines()) do if line.id == "recruit-whisper-arrival" then arrival = line end end
+		InClick(C, assert(arrival).onClick)
+		Advance(21)
+		eq(Draft(), nil, "queue-only prevents the next automatic popup")
+		InClick(C, arrival.onClick)
+		draft = assert(Draft()); eq(draft.editBox:GetText(), "/ginvite Third")
+		C.Click(draft.buttons[1])
+		Advance(21)
+		eq(Draft(), nil, "shown requests do not reappear")
+		C.env.CanGuildInvite = function() return false end
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Fourth-Realm")
+		eq(Draft(), nil, "only a player with invite authority sees the command")
+		eq(#R.requests, 3, "the shown requests remain available to review")
+		eq(#(C.said or {}), 0, "advancing never sends chat or an invitation")
 		Check(C.ledger, "incoming JOIN focus and permissions")
 		NoErrors(C, "incoming JOIN focus and permissions")
 	end
