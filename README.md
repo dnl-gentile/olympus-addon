@@ -3375,9 +3375,10 @@ counts. A recent Olympus recruitment message heard in that same channel delays p
 another draft for two minutes on this client.
 
 The local reminder starts off. Click its line to choose 15, 30 or 60 minutes, or to turn it
-off again. While recruitment is on, it can show a fresh preview for the last public channel
-you selected. The preview still needs a Post click. It waits until a later interval if you're
-busy, the channel is unavailable, or another recruiter just posted there.
+off again. Choose the last public channel you selected or rotate through the public channels
+you have joined. While recruitment is on, a reminder opens one preview per interval and skips
+unavailable channels and channels where someone recently posted. Every preview needs a Post
+click. The reminder waits if you are busy or already have a preview open.
 
 ### Attended Army snapshot (not active in releases)
 

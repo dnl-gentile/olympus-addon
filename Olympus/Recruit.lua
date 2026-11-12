@@ -821,6 +821,7 @@ local REMINDER_MINUTES = { 0, 15, 30, 60 }
 local ANNOUNCEMENT_GAP = 120
 local publicRecruitmentAt = {}
 local lastAnnouncement
+local rotateReminder, lastReminderChannel = false, nil
 
 local function PruneAnnouncements(now)
 	for name, entry in pairs(publicRecruitmentAt) do
@@ -849,7 +850,7 @@ local function PublicChannels()
 	for i = 1, #list, stride do
 		local id, name, disabled = list[i], list[i + 1], stride == 3 and list[i + 2]
 		if not ns.IsSecret(id, name, disabled) and type(id) == "number" and id > 0 and id == math.floor(id)
-			and type(name) == "string" and name ~= "" and not disabled then
+			and type(name) == "string" and name ~= "" and not name:lower():match("^olympus") and not disabled then
 			local got, info = pcall(infoOf, name)
 			local zoneID = got and not ns.IsSecret(info) and type(info) == "table" and info.zoneChannelID
 			if not ns.IsSecret(zoneID) and type(zoneID) == "number" and zoneID > 0 then
@@ -984,6 +985,7 @@ local function PostAnnouncement(f, draft, reason) -- gp:recruit-public-post
 	elseif publicRecruitmentAt[draft.channel] == attempt then
 		ns.Print(L.RECRUIT_ANNOUNCE_POST_CHECK)
 	end
+	if ok and draft.reminder and f.data == draft then f:Hide() end
 	return true
 end
 
@@ -1010,6 +1012,21 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 local function RemindAnnouncement()
 	if not ReminderAllowed() or not ns.Dialog or ns.Dialog.missing then return end
 	if ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT") then return end
+	if rotateReminder then
+		local channels = PublicChannels()
+		local last = 0
+		for i, row in ipairs(channels) do
+			if row.name == lastReminderChannel then last = i; break end
+		end
+		for offset = 1, #channels do
+			local row = channels[(last + offset - 1) % #channels + 1]
+			if CopyAnnouncement(row, true) then
+				lastReminderChannel = row.name
+				return
+			end
+		end
+		return
+	end
 	if lastAnnouncement and lastAnnouncement.guild == recruitingGuild then
 		CopyAnnouncement(lastAnnouncement.public, true)
 	else
@@ -1034,8 +1051,15 @@ local function AnnouncementLines(lines, V)
 		onClick = function() announceOpen = not announceOpen; ns.Fire("DATA_CHANGED") end }
 	local minutes = REMINDER_MINUTES[reminderIndex]
 	local reminder = minutes > 0 and L.RECRUIT_ANNOUNCE_REMINDER_ON:format(minutes) or L.RECRUIT_ANNOUNCE_REMINDER_OFF
-	lines[#lines + 1] = { indent = 1, text = V.Grey(reminder), onClick = ChangeReminder, gapAfter = not announceOpen,
+	lines[#lines + 1] = { indent = 1, text = V.Grey(reminder), onClick = ChangeReminder,
 		tooltip = function(tt) tt:AddLine(L.RECRUIT_ANNOUNCE_REMINDER_TIP, 1, 1, 1, true) end }
+	lines[#lines + 1] = { indent = 1, gapAfter = not announceOpen,
+		text = V.Grey(rotateReminder and L.RECRUIT_ANNOUNCE_REMINDER_ROTATE or L.RECRUIT_ANNOUNCE_REMINDER_SELECTED),
+		onClick = function()
+			rotateReminder, lastReminderChannel = not rotateReminder, nil
+			CloseReminderDraft()
+			ns.Fire("DATA_CHANGED")
+		end }
 	if not announceOpen then return end
 	local rows = PublicChannels()
 	if #rows == 0 then lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_ANNOUNCE_NO_CHANNELS) } end
@@ -1364,6 +1388,7 @@ function Recruit.ResetForTests()
 	StopRecruiting()
 	if reminderTimer then reminderTimer.Cancel(); reminderTimer = nil end
 	announceOpen, reminderIndex, announcementVariant, lastAnnouncement = false, 1, 0, nil
+	rotateReminder, lastReminderChannel = false, nil
 	wipe(publicRecruitmentAt)
 	wipe(contacted)
 	lastOutreach, lastReplyPrompt = nil, nil

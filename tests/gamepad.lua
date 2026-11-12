@@ -3891,9 +3891,9 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
 		local L, R = ns.L, ns.Recruit
-		C.channels.General, C.channels.Trade, C.channels.Private = 1, 2, 3
+		C.channels.General, C.channels.Trade, C.channels.Private, C.channels.OlympusNet = 1, 2, 3, 5
 		C.env.C_ChatInfo.GetChannelInfoFromIdentifier = function(name)
-			local ids = { General = 11, Trade = 22, Private = 0 }
+			local ids = { General = 11, Trade = 22, Private = 0, OlympusNet = 55 }
 			return ids[name] and { zoneChannelID = ids[name] } or nil
 		end
 		local census = {
@@ -3923,6 +3923,7 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 		ClickLine(L.RECRUIT_ANNOUNCE_OPEN)
 		local general, trade = L.RECRUIT_ANNOUNCE_CHANNEL:format(1, "General"), L.RECRUIT_ANNOUNCE_CHANNEL:format(2, "Trade")
 		eq(Find(L.RECRUIT_ANNOUNCE_CHANNEL:format(3, "Private")), nil, "private channels are omitted")
+		eq(Find(L.RECRUIT_ANNOUNCE_CHANNEL:format(5, "OlympusNet")), nil, "Olympus is omitted even if reported with a zone ID")
 		local reminder = assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_OFF), "off by default")
 		local tip
 		reminder.tooltip({ AddLine = function(_, message) tip = message end })
@@ -4058,6 +4059,25 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 		C.Click(draft.buttons[2])
 		eq(#C.said, sends + 2, "a single Post click sends the reminder's draft")
 		eq(C.said[#C.said][3], "2")
+		eq(Draft(), nil, "one reminder can't post twice even without a channel echo")
+		ClickLine(L.RECRUIT_ANNOUNCE_REMINDER_SELECTED)
+		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_ROTATE))
+		C.channels.General, C.channels.Other = 1, nil
+		C.now = C.now + 120
+		Post("Olympus is recruiting. Whisper JOIN!", "Other-Realm", 1, 11, "General")
+		reminderTick()
+		draft = assert(Draft(), "rotation skips the recently advertised General channel")
+		assert(draft.editBox:GetText():find("^/2 "))
+		C.Click(draft.buttons[1])
+		C.now = C.now + 120
+		reminderTick()
+		draft = assert(Draft(), "rotation comes back around to General")
+		assert(draft.editBox:GetText():find("^/1 "))
+		C.Click(draft.buttons[1])
+		reminderTick()
+		draft = assert(Draft(), "the next eligible channel is Trade")
+		assert(draft.editBox:GetText():find("^/2 "))
+		eq(#C.said, sends + 2, "rotation never posts when opening or dismissing a draft")
 		eq(R.ToggleWhisperRecruiting(), false)
 		eq(Draft(), nil, "stopping recruitment closes its reminder")
 		C.Switch(initialPad); C.Advance(1)
