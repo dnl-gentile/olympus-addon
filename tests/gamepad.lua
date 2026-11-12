@@ -4533,7 +4533,12 @@ test("gamepad incoming JOIN advances the pending replies in order without interr
 		Advance(20)
 		eq(Draft(), draft, "later JOINs never replace the open draft")
 		eq(draft.editBox:GetText(), "/ginvite First")
-		if pad then C.Click(draft.buttons[1]) else C.Click(draft.extraButton) end
+		if pad then C.Click(draft.buttons[1]) else
+			C.Click(draft.extraButton)
+			-- (1.5.8, the author's ask) It closes on the paste in game chat, not when chat opens.
+			eq(Draft(), draft, "the popup waits for the paste")
+			chat:SetText("/ginvite First"); Advance(0.25)
+		end
 		eq(Draft(), nil)
 		chat:Show(); C.focus = chat
 		Advance(20)
