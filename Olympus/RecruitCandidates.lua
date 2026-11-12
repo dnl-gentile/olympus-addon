@@ -219,7 +219,10 @@ end
 
 local function Toggle()
 	if guild then Q.Reset(); Save("scan", nil); Change(); return end
-	if Start() then Save("scan", true); Save("scanListOnly", nil) end
+	if Start() then
+		Save("scan", true); Save("scanListOnly", nil)
+		Q.SearchMore() -- (1.5.8: the switch's click sends the first /who)
+	end
 end
 
 function Q.Restore(saved)
@@ -236,6 +239,10 @@ function Q.Lines(lines, V)
 	lines[#lines + 1] = { id = "recruit-candidate-prompts", indent = 1,
 		text = (prompts and V.Green or V.Grey)(prompts and L.RECRUIT_CANDIDATE_PROMPTS_ON or L.RECRUIT_CANDIDATE_PROMPTS_OFF),
 		onClick = function() prompts = not prompts; Save("scanListOnly", not prompts or nil); Change() end }
+	if Q.CanSearch() then
+		lines[#lines + 1] = { id = "recruit-candidate-search", indent = 1, text = V.Gold(L.RECRUIT_CANDIDATE_SEARCH_MORE),
+			onClick = function() Q.SearchMore(true) end }
+	end
 	Prune(GetTime())
 	if #rows == 0 then lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_CANDIDATE_EMPTY) } end
 	for _, row in ipairs(rows) do
@@ -276,4 +283,67 @@ function Q.SetEnabled(on)
 		Toggle()
 	end
 	return Q.Enabled()
+end
+
+-- (1.5.8, the author's ask: "o mais automático possível") The scan's own quiet /who: one when the
+-- player turns the scan on, one each click of "Search more", and one at a Ctrl+C on a scanned
+-- player's popup when few are left. SendWho needs the player's click or key, so it goes from
+-- those only; never with the gamepad UI (no quiet search goes there, Who.lua), never while one
+-- waits for its answer or within the client's wait (Who.COOLDOWN). Each sends the next query of a
+-- rotation: the player's zone by level range, then the same ranges anywhere, so each click shows
+-- other players. Blizzard's who list is never opened (Who.Search keeps the answer out of it).
+Q.SEARCH_STEP, Q.FEW_LEFT = 10, 2
+local searchIndex = 0
+
+function Q.SearchQuery(index)
+	local top = tonumber(GetMaxPlayerLevel and GetMaxPlayerLevel()) or 60
+	top = math.max(1, math.floor(top))
+	local n = math.ceil(top / Q.SEARCH_STEP)
+	local zone = GetRealZoneText and GetRealZoneText()
+	if type(zone) ~= "string" or zone == "" or zone:find('"', 1, true) then zone = nil end
+	local total = zone and 2 * n or n
+	index = (index - 1) % total + 1
+	local k = (index - 1) % n
+	local range = ("%d-%d"):format(k * Q.SEARCH_STEP + 1, math.min(top, (k + 1) * Q.SEARCH_STEP))
+	if zone and index <= n then return ('z-"%s" %s'):format(zone, range), index end
+	return range, index
+end
+
+function Q.CanSearch()
+	local Who = ns.Who
+	return Q.Enabled() and Who ~= nil and Who.Search ~= nil and not ns.GamepadUI()
+end
+
+-- Returns whether a /who went. `told`: the player's own click, told when it has to wait.
+function Q.SearchMore(told)
+	local Who = ns.Who
+	if not Q.CanSearch() or Quiet() then return false end
+	if (Who.IsPending and Who.IsPending()) or (Who.WindowOpen and Who.WindowOpen()) then
+		if told then ns.Print(L.RECRUIT_CANDIDATE_SEARCH_WAIT) end
+		return false
+	end
+	local query, index = Q.SearchQuery(searchIndex + 1)
+	-- (A client without SendWho, or one that refuses it: no search, the scan goes on.)
+	local ok, sent = pcall(Who.Search, true, nil, nil, query)
+	if not ok or not sent then
+		if told then ns.Print(L.RECRUIT_CANDIDATE_SEARCH_WAIT) end
+		return false
+	end
+	searchIndex = index
+	return true
+end
+
+-- Scanned players still to pop up here (not shown yet, current, not passed or handed off).
+function Q.Remaining()
+	local H, n = R.Handoff, 0
+	for _, row in ipairs(rows) do
+		if not row.prompted and not row.passWanted and not (H and (H.State(row) or H.Taken(row))) and Q.Check(row) then n = n + 1 end
+	end
+	return n
+end
+
+-- The Ctrl+C (or click) that took a scanned player's command to chat: with few left, the next /who.
+function Q.TopUp()
+	if Q.Remaining() <= Q.FEW_LEFT then return Q.SearchMore() end
+	return false
 end

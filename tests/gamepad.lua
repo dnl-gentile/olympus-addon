@@ -4183,9 +4183,20 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 		-- Keep the real ticker, with no random start spread in this scenario.
 		ns.EVERY_SPREAD = 0
 		C.units.nameplate2 = { name = "NearTest", realm = "Realm", guid = "Player-1-2" }
+		local whosBefore = #(C.whos or {})
 		ClickLine(function(line) return line.id == "recruit-candidate-toggle" end)
 		Refresh()
 		assert(QueueLine("NearTest"), "opting in captures already visible nameplates")
+		-- (1.5.8, the author's ask: "o mais automático possível") The switch's click sends one quiet
+		-- /who (the player's zone, the first level range); none with the gamepad UI.
+		if initialPad then
+			eq(#(C.whos or {}), whosBefore, "no quiet /who with the gamepad UI")
+			eq(QueueLine(ns.L.RECRUIT_CANDIDATE_SEARCH_MORE), nil, "no Search more with the gamepad UI")
+		else
+			eq(#C.whos, whosBefore + 1, "the switch's click sends one /who")
+			eq(C.whos[#C.whos], 'z-"Elwynn Forest" 1-10')
+			assert(QueueLine(ns.L.RECRUIT_CANDIDATE_SEARCH_MORE), "Search more under the scan")
+		end
 		local function Plate(index, name, guild, faction)
 			local unit = "nameplate" .. index
 			C.units[unit] = { name = name, realm = "Realm", guild = guild, faction = faction, guid = "Player-1-" .. index }
@@ -4282,7 +4293,19 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 		local back = assert(Draft(), "his invite popup comes back after the whisper")
 		eq(back.data.candidate.name, "WhisperFirst"); eq(back.editBox:GetText(), "/ginvite WhisperFirst")
 		eq(back.buttons[3]:IsShown(), false, "just whispered: no second whisper offered")
-		back:Hide()
+		-- (1.5.8) Its command taken to chat with none left to pop up: that click sends the next /who.
+		local whosAtCopy = #(C.whos or {})
+		C.Click(back.extraButton)
+		if initialPad then
+			eq(#(C.whos or {}), whosAtCopy, "no quiet /who with the gamepad UI")
+			back:Hide()
+		else
+			eq(#C.whos, whosAtCopy + 1, "few left: the copy's click sends the next /who")
+			eq(C.whos[#C.whos], 'z-"Elwynn Forest" 11-20')
+			C.env.ChatFrame1EditBox.text = "/ginvite WhisperFirst"
+			C.Advance(0.25)
+			eq(back:IsShown(), false, "the paste closes it")
+		end
 		ns.Recruit.OnJoinRequest("WHISPER", "Joiner Test-Realm", ("J3~%s~12~MAGE"):format(C.units.player.guild))
 		local join = ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT")
 		if join and join.data.req then eq(join.buttons[3]:IsShown(), false, "a JOIN popup has no whisper button") end
@@ -4295,6 +4318,25 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"), nil, "still no whisper popup on its own")
 		Refresh()
 		eq(QueueLine("WhoTest"), nil, "WHO results expire after a few minutes")
+		if not initialPad then
+			-- Search more: each click the next query of the rotation, never while one waits.
+			C.env.C_FriendList.GetNumWhoResults = function() return 0, 0 end
+			C.Fire("WHO_LIST_UPDATE"); C.Advance(11)
+			local n0 = #C.whos
+			ClickLine(function(line) return line.id == "recruit-candidate-search" end)
+			eq(#C.whos, n0 + 1); eq(C.whos[#C.whos], 'z-"Elwynn Forest" 21-30', "each click the next range")
+			ClickLine(function(line) return line.id == "recruit-candidate-search" end)
+			eq(#C.whos, n0 + 1, "not again while the last waits for its answer")
+			C.Fire("WHO_LIST_UPDATE"); C.Advance(11)
+			ClickLine(function(line) return line.id == "recruit-candidate-search" end)
+			eq(#C.whos, n0 + 2); eq(C.whos[#C.whos], 'z-"Elwynn Forest" 31-40')
+			eq(rawget(C.env, "WhoFrame") and C.env.WhoFrame:IsShown() or false, false, "Blizzard's who list stays closed")
+			C.Fire("WHO_LIST_UPDATE"); C.Advance(11)
+			for _, which in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_OUTREACH" }) do
+				local open = ns.Dialog.Find(which)
+				if open then open:Hide() end
+			end
+		end
 		for _, call in ipairs(C.Since(start)) do
 			assert(call.sym ~= "C_GuildInfo.Invite" and call.sym ~= "GuildInvite", "no native guild invitation")
 		end

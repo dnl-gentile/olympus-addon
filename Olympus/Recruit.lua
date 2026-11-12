@@ -1592,6 +1592,8 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 			invitesTaken[#invitesTaken + 1] = ns.Now()
 		end
 		WatchPaste(draft, data)
+		-- (1.5.8) A scanned player's: few left, this key or click sends the scan's next /who.
+		if data.candidate and Recruit.Candidates.TopUp then Recruit.Candidates.TopUp() end
 	end
 end
 
