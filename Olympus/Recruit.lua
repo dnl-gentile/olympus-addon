@@ -730,9 +730,33 @@ local function RestoreRecruiting()
 	end
 end
 
+-- (1.5.8, the author's: "se ela tentar ativar e ela não puder convidar pessoas, vai avisar, tipo,
+-- você não pode convidar mesmo para sua guilda, fale com o seu GM"): a member whose rank the game
+-- does not let invite is told so when he turns recruiting on, and it stays off.
+local function NoInviteRight()
+	if not WhisperGuild() or (Recruit.CanInvite and Recruit.CanInvite()) then return false end
+	ns.Print(L.RECRUIT_NO_INVITE_RIGHT)
+	if ns.Dialog and not ns.Dialog.missing and not ns.Dialog.Find("OLYMPUS_RECRUIT_NO_INVITE") then
+		ns.Dialog.Show("OLYMPUS_RECRUIT_NO_INVITE", L.RECRUIT_NO_INVITE_RIGHT)
+	end
+	return true
+end
+
+StaticPopupDialogs["OLYMPUS_RECRUIT_NO_INVITE"] = {
+	text = "%s",
+	button1 = OKAY or "OK",
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
 function Recruit.ToggleWhisperRecruiting()
 	local guild = EligibleRecruitingGuild()
-	if not guild then return false end
+	if not guild then
+		NoInviteRight()
+		return false
+	end
 	local on = recruitingGuild ~= guild
 	StopRecruiting()
 	local saved = RecruitmentPreference(guild, true)
@@ -753,6 +777,7 @@ function Recruit.ShouldOfferWhisperRecruiting()
 end
 
 function Recruit.EnableWhisperRecruiting()
+	if NoInviteRight() then return false end
 	if not Recruit.CanEnableWhisperRecruiting() or not Recruit.ToggleWhisperRecruiting() then return false end
 	ns.Print(L.RECRUIT_CENSUS_ENABLED)
 	return true
@@ -1314,11 +1339,11 @@ function Recruit.HandoffPromptOpen(req)
 	return (warning and warning.data and warning.data.req == req) or false
 end
 
-function Recruit.OverflowRequest()
+function Recruit.OverflowRequest(skip)
 	Prune(ns.Now())
 	local waiting, candidate = 0, nil
 	for _, req in ipairs(Recruit.requests) do
-		if not Recruit.Handoff.State(req) and Recruit.HandoffSource(req) then
+		if not Recruit.Handoff.State(req) and Recruit.HandoffSource(req) and not (skip and skip(req)) then
 			-- The officer asked to pass this one on: it goes first, once its own popup is closed.
 			if req.passWanted and not Recruit.HandoffPromptOpen(req) then return req end
 			waiting = waiting + 1
@@ -1355,10 +1380,28 @@ local function WaitingAfter(req)
 	return n
 end
 
-local function InviteDraftText(name, req)
+-- (1.5.8) Forever lets a player send INVITES_PER_MINUTE guild invites a minute. The invite
+-- commands this player took to chat (OpenInviteChat) in the last minute count against it. At the
+-- limit a new JOIN or scanned player goes to other members when the automatic offers are on;
+-- otherwise its popup says the limit is reached and offers Pass.
+Recruit.INVITES_PER_MINUTE = 10
+local invitesTaken = {}
+function Recruit.AtInviteLimit()
+	local now = ns.Now()
+	for i = #invitesTaken, 1, -1 do
+		if now - invitesTaken[i] >= 60 then table.remove(invitesTaken, i) end
+	end
+	return #invitesTaken >= Recruit.INVITES_PER_MINUTE
+end
+
+local function InviteDraftText(name, req, item)
 	local text = L.RECRUIT_WHISPER_INVITE_COPY:format(name)
 	local waiting = req and WaitingAfter(req) or 0
 	if waiting > 0 then text = text .. "\n\n" .. L.RECRUIT_HANDOFF_MORE:format(waiting) end
+	if Recruit.AtInviteLimit() then
+		local pass = Recruit.Handoff and Recruit.Handoff.CanPass(item or req)
+		text = text .. "\n\n" .. (pass and L.RECRUIT_INVITE_LIMIT_PASS or L.RECRUIT_INVITE_LIMIT):format(Recruit.INVITES_PER_MINUTE)
+	end
 	return text
 end
 
@@ -1420,9 +1463,21 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
 
 function Recruit.CopyCandidateInvite(candidate, automatic)
 	if not Recruit.Candidates.Check(candidate) or not ns.Dialog or ns.Dialog.missing then return false end
+	if Recruit.Handoff and Recruit.Handoff.State(candidate) then return false end
 	if ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") then return false end
-	return ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(candidate.name), nil,
+	return ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(candidate.name, nil, candidate), nil,
 		{ candidate = candidate, automatic = automatic }) ~= nil
+end
+
+-- A scanned player's own popup (his invite draft or whisper review) is on screen.
+function Recruit.CandidatePromptOpen(row)
+	local D = ns.Dialog
+	if not D or D.missing or not D.Find then return false end
+	for _, which in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_OUTREACH" }) do
+		local f = D.Find(which)
+		if f and type(f.data) == "table" and f.data.candidate == row then return true end
+	end
+	return false
 end
 
 local function OpenInviteChat(draft, data) -- gp:chat-box
@@ -1439,6 +1494,8 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 	ns.Gate.Used("chat-box")
 	if pcall(open, "", DEFAULT_CHAT_FRAME) then
 		if req then req.invitePrepared = true end
+		if data.candidate then data.candidate.invitePrepared = true end
+		invitesTaken[#invitesTaken + 1] = ns.Now()
 		draft:Hide()
 	end
 end
@@ -1446,14 +1503,16 @@ end
 StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 	text = "%s",
 	button1 = L.RECRUIT_WHISPER_CLOSE,
-	-- Before the command reaches chat, a JOIN (and the ones waiting behind it) can go to the
-	-- other officers who accept handoffs. Not OnCancel: Escape and replacement pass nothing.
+	-- Before the command reaches chat, a JOIN (and the ones waiting behind it) or a scanned player
+	-- can go to the other members who accept handoffs. Not OnCancel: Escape and replacement pass nothing.
 	button2 = L.RECRUIT_HANDOFF_PASS,
 	button2Shown = function(_, data)
-		return type(data) == "table" and data.req ~= nil and Recruit.Handoff ~= nil and Recruit.Handoff.CanPass(data.req)
+		local item = type(data) == "table" and (data.req or data.candidate) or nil
+		return item ~= nil and Recruit.Handoff ~= nil and Recruit.Handoff.CanPass(item)
 	end,
 	OnButton2 = function(_, data)
-		if type(data) == "table" and data.req and Recruit.Handoff then Recruit.Handoff.Pass(data.req, true) end
+		local item = type(data) == "table" and (data.req or data.candidate) or nil
+		if item and Recruit.Handoff then Recruit.Handoff.Pass(item, data.req ~= nil) end
 	end,
 	extra = { label = L.RECRUIT_WHISPER_INVITE_CHAT, onClick = OpenInviteChat },
 	hasEditBox = true,
@@ -1517,6 +1576,14 @@ PromptReply = function()
 	if not Recruiting() or QueueOnly() or not ns.Dialog or ns.Dialog.missing then return end
 	local now, req = ns.Now(), nil
 	Prune(now)
+	-- (1.5.8) At the invite limit with the automatic offers on, a new JOIN goes to other members.
+	local H = Recruit.Handoff
+	if H and H.AutoOn() and Recruit.AtInviteLimit() then
+		for _, pending in ipairs(Recruit.requests) do
+			if pending.viaWhisper and pending.handoffIntent and not pending.popupShown and not pending.invitePrepared
+				and not pending.passWanted then H.Overflow(pending) end
+		end
+	end
 	for _, pending in ipairs(Recruit.requests) do
 		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
 			and (not Recruit.Handoff or not Recruit.Handoff.State(pending)) then
@@ -1685,7 +1752,7 @@ function Recruit.ResetForTests()
 	wipe(contacted)
 	lastOutreach, lastReplyPrompt = nil, nil
 	wipe(routeAsked); wipe(routeAnswered); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
-	wipe(lineTimes); wipe(whispers)
+	wipe(lineTimes); wipe(whispers); wipe(invitesTaken)
 	lastRoute = -math.huge
 	Recruit.route, Recruit.pending, Recruit.lastAsk, Recruit.lastContact = nil, nil, 0, nil
 	Recruit.found, Recruit.asked, Recruit.replied, Recruit.requests = {}, {}, {}, {}
