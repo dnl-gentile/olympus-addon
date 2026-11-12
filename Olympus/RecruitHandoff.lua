@@ -542,6 +542,29 @@ function H.Reset()
 	wipe(handed)
 end
 
+-- 1.5.8 (the author's ask, 11-12: "esse negócio de oferecer para entrar, players escaneados para
+-- outros membros, deveria ser ativar automático também... quando você ativa, deveria ativar tudo"):
+-- the Census offer turns the automatic offers on with recruiting and off with it, saved as the
+-- Church's own switch saves them. As SetAccepting below, kept for the guild this character recruits
+-- for while the roster cannot confirm the player yet (each step checks LocalGuild() again).
+-- Returns whether the offers run now.
+function H.SetAuto(on)
+	local saved = R.Preference and R.Preference(true)
+	local guild = on and (LocalGuild() or (R.IsWhisperRecruiting() and saved and saved.guild)) or nil
+	if autoGuild and autoGuild ~= guild then H.ToggleAuto() end -- (off, or another guild's leftover off first)
+	if guild and not autoGuild then
+		if LocalGuild() == guild then
+			H.ToggleAuto()
+		else
+			autoGuild, autoProbe, autoCursor = guild, nil, nil
+			autoTimer = ns.Every(AUTO_EVERY, "recruit overflow", AutoStep)
+			Changed()
+		end
+	end
+	Save("offerOverflow", guild ~= nil)
+	return H.AutoOn()
+end
+
 -- 1.5.8 (the author's ask): the Census offer turns accepting handoffs on with its JOIN and scan
 -- switches, saved as the Church's own switch saves it. Turned on, it is kept for the guild this
 -- character recruits for even while the roster cannot confirm the player yet (right after a login,

@@ -3780,7 +3780,9 @@ test("gamepad centered Census recruitment offers three switches, Done and both d
 		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Recruit-Realm")
 		eq(#R.requests, 1, "the normal JOIN intake is active")
 		eq(#(C.said or {}), sends, "activation sends no whispers")
-		eq(ns.rdb.recruitmentPreference[ns.me].offerOverflow, nil, "passing own requests on stays manual")
+		-- (Changed on purpose, the author's ask 11-12 16:15: "quando você ativa, deveria ativar tudo", the
+		-- automatic offers of his own waiting requests included; they were manual before.)
+		eq(ns.rdb.recruitmentPreference[ns.me].offerOverflow, true, "passing own requests on turns on with recruiting")
 		for _, reach in ipairs(C.Since(mark)) do
 			assert(reach.sym ~= "C_GuildInfo.Invite", "activation grants no native invite")
 		end
@@ -4027,8 +4029,10 @@ test("gamepad Census recruitment switches turn on their features and the handoff
 		eq(R.IsWhisperRecruiting(), true, "the scan's replies need JOIN answers: on with it")
 		eq(On(U, "scan"), true); eq(On(U, "join"), true); eq(On(U, "ads"), false)
 		assert(Line(R, "recruit-handoff-accept").text:find(L.RECRUIT_HANDOFF_ON, 1, true), "Church shows the handoffs on")
-		assert(Line(R, "recruit-handoff-overflow").text:find(L.RECRUIT_OVERFLOW_OFF, 1, true),
-			"passing the player's own requests on stays manual")
+		-- (Changed on purpose, the author's ask 11-12 16:15: "quando você ativa, deveria ativar tudo",
+		-- the automatic offers included; they stayed manual before.)
+		assert(Line(R, "recruit-handoff-overflow").text:find(L.RECRUIT_OVERFLOW_ON, 1, true),
+			"passing the player's own requests on turns on with recruiting")
 		C.Click(Row(U, "ads"))
 		eq(R.AnnounceReminderMinutes(), 5, "Post recruiting ads turns the reminder on every 5 minutes")
 		eq(On(U, "ads"), true)
@@ -4036,6 +4040,7 @@ test("gamepad Census recruitment switches turn on their features and the handoff
 			"Church shows the same interval")
 		C.Click(Row(U, "join"))
 		eq(R.IsWhisperRecruiting(), false, "turning JOIN answers off turns recruiting off")
+		eq(R.Handoff.AutoOn(), false, "and the automatic offers")
 		eq(R.Candidates.Enabled(), false, "and the scan with it")
 		eq(R.AnnounceReminderMinutes(), 0, "and the ads")
 		eq(R.Handoff.Accepting(), false, "and the handoffs")
@@ -4051,7 +4056,7 @@ test("gamepad Census recruitment switches turn on their features and the handoff
 		C.Click(Row(U, "scan"))
 		local choice = ns.rdb.recruitmentPreference[ns.me]
 		eq(choice.enabled, true); eq(choice.acceptHandoffs, true); eq(choice.scan, true)
-		eq(choice.announceReminder, 5); eq(choice.offerOverflow, nil)
+		eq(choice.announceReminder, 5); eq(choice.offerOverflow, true) -- (on with recruiting since 11-12, the author's ask)
 		eq(#(C.said or {}), 0, "the switches send nothing")
 		C.Click(assert(Row(U, "done")).primary)
 		eq(U.PageId(), "census/")
@@ -4145,6 +4150,8 @@ test("gamepad Census offer: Turn on all turns every switch on", function()
 		eq(R.IsWhisperRecruiting(), true, "JOIN answers on")
 		eq(R.AnnounceReminderMinutes(), 5, "ads every 5 minutes")
 		eq(R.Candidates.Enabled(), true, "the unguilded scan on")
+		eq(ns.rdb.recruitmentPreference[ns.me].offerOverflow, true, "and the automatic offers of his own waiting requests")
+		eq(ns.rdb.recruitmentPreference[ns.me].acceptHandoffs, true, "and the requests others pass on")
 		eq(Row("all"), nil, "no Turn on all once a switch is on")
 		eq(assert(Row("done")).primary:GetText(), L.RECRUIT_CENSUS_DONE, "Done in its place")
 		NoErrors(C, "Census Turn on all")

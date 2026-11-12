@@ -1815,12 +1815,16 @@ function Views.RecruitOfferSwitch(key)
 		if Q then Q.SetEnabled(false) end
 		R.SetAnnounceReminder(0)
 		if H then H.SetAccepting(false) end
+		if H and H.SetAuto then H.SetAuto(false) end
 		R.ToggleWhisperRecruiting()
 		return
 	end
 	if not state.join and not R.EnableWhisperRecruiting() then return end
 	-- Recruiting turned on, or the scan, takes what other members pass on too (the handoffs).
 	if H and (not state.join or (key == "scan" and not state.scan)) then H.SetAccepting(true) end
+	-- (11-12, the author's: and offers its own waiting JOINs and scanned players to them, on with
+	-- recruiting.)
+	if H and H.SetAuto and not state.join then H.SetAuto(true) end
 	if key == "ads" then
 		R.SetAnnounceReminder(state.ads and 0 or Views.RECRUIT_AD_MINUTES)
 	elseif key == "scan" and Q then
