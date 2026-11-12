@@ -3413,34 +3413,6 @@ test("gamepad pass 7: the chat's channel names as links: hooked once with mouse 
 	GP.Covers("chat-links"); GP.Covers("chat-box")
 end)
 
-test("chat composer: a long draft grows above the history footer and returns to one line", function()
-	for _, pad in ipairs({ false, true }) do
-		local C, ns = Session(pad)
-		ns.db.addonChat = true
-		local pane = assert(ns.ChatWindow.Open("A"))
-		local eb = pane.input
-		local base = pane.places.input.h
-		eq(eb:GetHeight(), base)
-		eq(eb.multiLine, true, "the native editor can wrap")
-		local lines = 2
-		eb.GetNumLines = function() return lines end
-		eb:SetText(("long draft "):rep(15))
-		C.RunScript(eb, "OnTextChanged", true)
-		local grown = eb:GetHeight()
-		assert(grown > base, "two visible lines grow the editor")
-		eq(pane.box.points[2][5], pane.places.box.bottom + grown - base, "history gives the editor space")
-		lines = 20
-		C.RunScript(eb, "OnTextChanged", true)
-		eq(eb:GetHeight() - base, (grown - base) * 2, "the editor grows to at most three lines")
-		lines = 1
-		eb:SetText("")
-		C.RunScript(eb, "OnTextChanged", true)
-		eq(eb:GetHeight(), base)
-		eq(pane.box.points[2][5], pane.places.box.bottom)
-		NoErrors(C, "the chat composer")
-	end
-end)
-
 -- 1.5.4: a link in a line of the Chat tab (ChatWindow.lua). A left click opens the game's link
 -- window as the game's chat does (SetItemRef, the gate's item-ref) with mouse and keyboard; with
 -- the gamepad UI the click reaches nothing of the game's, and the hover tooltip (GameTooltip owned

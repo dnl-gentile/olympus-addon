@@ -2060,18 +2060,6 @@ end
 -- Council and the Stewards) at that row's end while it shows, the box ending before it. Never on
 -- the top row (1.1.2's review: next to the switch, the search box there shrank to nothing for a
 -- Lord of the High Council in the default window), and by the box it fills.
-function ChatWindow.FitInput(p)
-	local input = p and p.places and p.places.input
-	local eb = p and p.input
-	if not input or not eb or type(eb.GetNumLines) ~= "function" then return end
-	local count = math.max(1, math.min(3, tonumber(eb:GetNumLines()) or 1))
-	local _, size = eb:GetFont()
-	local height = input.h + (count - 1) * (math.ceil(tonumber(size) or 12) + 2)
-	if eb:GetHeight() == height then return end
-	eb:SetHeight(height)
-	ChatWindow.UpdateReplyComposer(p)
-end
-
 local function PlaceInput(p)
 	local input = p.places and p.places.input
 	if not input then return end
@@ -2083,7 +2071,6 @@ local function PlaceInput(p)
 	end
 	-- (The box's border art reaches 10 past its ends.)
 	p.input:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", input.right - 10 - room, input.y)
-	ChatWindow.FitInput(p)
 end
 
 -- The row: the gear at its end; the switch left of it while the lines show and the rank reads more
@@ -2763,11 +2750,7 @@ local function DrawInput()
 		or (L.ARENA_CHAT_ROOM_LABEL or "Fight")) or Label(tier)
 	eb.label:SetText("|c" .. Hex(Colour(tier)) .. "[" .. short .. "]:|r")
 	local lw = math.ceil(TextWidth(eb.label))
-	local _, size = eb:GetFont()
-	local top = math.max(0, math.floor((frame.places.input.h - (tonumber(size) or 12)) / 2))
-	eb:SetTextInsets(lw + 6, 6, top, top)
-	eb.label:SetPoint("TOPLEFT", eb, "TOPLEFT", 0, -top)
-	ChatWindow.FitInput(frame)
+	eb:SetTextInsets(lw + 6, 6, 0, 0)
 	local M = ns.Moderation
 	local off = M and type(M.SelfOff) == "function" and M.SelfOff() or nil
 	local hint
@@ -3262,7 +3245,7 @@ end
 local function Submit()
 	if not frame or not tier then return end
 	local eb = frame.input
-	local text = Trim((eb:GetText() or ""):gsub("[\r\n]+", " "))
+	local text = Trim(eb:GetText())
 	-- With mouse and keyboard the cursor stays for the next line (the owner's ask: Enter, type,
 	-- Enter, type), with a refused line or a command kept in the box too; an empty Enter lets the
 	-- keyboard go back to the game, and so does the privacy warning (its Send or Cancel is next).
@@ -3976,11 +3959,10 @@ function ChatWindow.UpdateReplyComposer(p)
 		p.box:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", 0, r and 64 or 36)
 	elseif p.places then
 		local input, box = p.places.input, p.places.box
-		local height = p.input:GetHeight()
-		c:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", input.left + 4, input.y + height + 2)
-		c:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", input.right - 4, input.y + height + 2)
+		c:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", input.left + 4, input.y + input.h + 2)
+		c:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", input.right - 4, input.y + input.h + 2)
 		p.box:ClearAllPoints(); p.box:SetPoint("TOPLEFT", p, "TOPLEFT", box.left, box.top)
-		p.box:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", box.right, box.bottom + height - input.h + (r and 29 or 0))
+		p.box:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", box.right, box.bottom + (r and 29 or 0))
 	end
 	if not r then c:Hide(); return end
 	c.label:SetText(ChatWindow.Localized("CHATWIN_REPLYING_TO", "Replying to %s"):format(ChatWindow.ReplyPart(r.who, 48)))
@@ -4135,8 +4117,6 @@ local function Build(h)
 	-- section above), and no Send button (Enter sends).
 	local eb = CreateFrame("EditBox", base .. "Input", p)
 	eb:SetAutoFocus(false)
-	eb:SetMultiLine(true)
-	eb:SetJustifyV("TOP")
 	eb.olympusBox = true
 	eb:SetFontObject("ChatFontNormal")
 	eb:SetMaxBytes(ns.Codec.CHAT_PARTS * 210 + 1) -- (three parts; Channels.Send splits the line and says when it cuts)
@@ -4144,6 +4124,7 @@ local function Build(h)
 	-- The Communities box's border art (CommunitiesChatEditBoxTemplate).
 	ChatWindow.InputBorder(eb)
 	eb.label = eb:CreateFontString(nil, "OVERLAY", "ChatFontNormal")
+	eb.label:SetPoint("LEFT", eb, "LEFT", 0, 0)
 	eb.hint = eb:CreateFontString(nil, "OVERLAY", "ChatFontNormal")
 	eb.hint:SetTextColor(0.5, 0.5, 0.5)
 	eb.hint:SetJustifyH("LEFT")
@@ -4158,7 +4139,6 @@ local function Build(h)
 			if Trim(text) == "" then ChatWindow.Unrefused(tier) end
 		end
 		ns.SafeCall("chat tab box", Hint)
-		ns.SafeCall("chat tab draft size", ChatWindow.FitInput, p)
 	end)
 	eb:SetScript("OnEditFocusGained", function() ns.SafeCall("chat tab box", Hint) end)
 	eb:SetScript("OnEditFocusLost", function() ns.SafeCall("chat tab box", Hint) end)
