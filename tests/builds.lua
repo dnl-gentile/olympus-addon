@@ -846,6 +846,64 @@ test("1.5.4 modified builds prompt: the author's asks are 20 at most each 30 min
 	end)
 end)
 
+-- 1.5.9 (the census items left from 1.5.8: clients still on 1.5.4 showed 3 to 8 thousand characters on every
+-- server). Fails before: the author's update notice (V3) reached an outdated client only where he clicked.
+test("1.5.9 outdated clients: the author's relay client gives each client it serves on an older version than the one he marked as out his update notice (V3), once a day at most, a few each tick, never the up to date, never without a marked release, never in quiet presence", function()
+	AsAuthorRelay(function(w)
+		local W = ns.Workshop
+		local saved = { asked = ns.db.outdatedAsked, released = ns.db.releasedVersion, quiet = ns.QuietPresence }
+		local ok, err = pcall(function()
+			ns.db.outdatedAsked, ns.QuietPresence = nil, function() return false end
+			local R = rawget(ns, "Relay")
+			-- What his relay holds: the version each client it serves presented, and when (Relay.Presentations).
+			w.presented = { { name = "Old Four", v = "1.5.4", t = w.clock - 60 }, { name = "Old Six", v = "1.5.6", t = w.clock - 120 },
+				{ name = "Up Todate", v = ns.VERSION, t = w.clock - 30 }, { name = "Test Build", v = ns.VERSION .. "-test.3", t = w.clock - 30 } }
+			R.Presentations = function() return w.presented end
+			ns.db.releasedVersion = nil
+			eq(W.AskServedOutdated(), 0, "no version marked as out: nobody asked"); eq(#w.whispered, 0)
+			ns.db.releasedVersion = ns.VERSION
+			eq(W.AskServedOutdated(), 2)
+			local asked = AskedTo(w)
+			eq(asked[ns.FullName("Old Four")], 1, "the 1.5.4 client"); eq(asked[ns.FullName("Old Six")], 1, "the 1.5.6 one")
+			eq(#w.whispered, 2, "never the up to date one, nor a test build")
+			eq(w.whispered[1].key:sub(1, 10), "askupdate:", "his usual notice (Workshop.AskUpdate)")
+			eq(#w.quieted, 2, "an offline answer kept out of his chat")
+			-- Once a day at most, a /reload or a new session too (kept in ns.db.outdatedAsked).
+			w.clock = w.clock + W.UPDATE_GAP + 1
+			W.Reset()
+			eq(W.AskServedOutdated(), 0, "not again the same day"); eq(#w.whispered, 2)
+			w.clock = w.clock + W.OUTDATED_EVERY
+			eq(W.AskServedOutdated(), 2, "the next day again, while still outdated")
+			W.Reset() -- (a new session: its tick free)
+			-- A few each tick, the latest word first; never into the places his queue keeps.
+			w.whispered, ns.db.outdatedAsked = {}, nil
+			w.presented = {}
+			for i = 1, 8 do w.presented[i] = { name = ("Old%02d One"):format(i), v = "1.5.4", t = w.clock - i } end
+			w.clock = w.clock + W.OUTDATED_TICK
+			eq(W.AskServedOutdated(), W.OUTDATED_PER_TICK, "five a tick")
+			eq(w.whispered[1].to, ns.FullName("Old01 One"), "the latest word first")
+			eq(W.AskServedOutdated(), 0, "nothing more before the next tick")
+			w.clock = w.clock + W.OUTDATED_TICK
+			eq(W.AskServedOutdated(), 3, "the rest the next tick")
+			w.whispered, ns.db.outdatedAsked, w.room = {}, nil, W.OUTDATED_ROOM
+			w.clock = w.clock + W.OUTDATED_TICK
+			eq(W.AskServedOutdated(), 0, "a busy queue: nothing now"); eq(#w.whispered, 0)
+			w.room = nil
+			-- Quiet presence: nothing.
+			ns.QuietPresence = function() return true end
+			eq(W.AskServedOutdated(), 0, "his presence quiet: no whisper gives him away")
+		end)
+		ns.db.outdatedAsked, ns.db.releasedVersion, ns.QuietPresence = saved.asked, saved.released, saved.quiet
+		if not ok then error(err, 0) end
+	end)
+	-- Any other client, a relay's among them, asks nobody.
+	WithBuilds("Hildryn Payne-Realm", function(w)
+		w.relays, w.relayOn = { ["Hildryn Payne"] = true }, true
+		rawget(ns, "Relay").Presentations = function() return { { name = "Old Four", v = "1.5.4", t = w.clock } } end
+		eq(ns.Workshop.AskServedOutdated(), 0); eq(#w.whispered, 0)
+	end)
+end)
+
 test("1.5.4 modified builds prompt: Comm's door counts a locked client as online while its words reach it (its refused registration among them), and no longer after five minutes", function()
 	RelaySetup(function()
 		local R, Deliver = Relayed(RELAY)
