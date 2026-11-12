@@ -1,8 +1,8 @@
 local ADDON, ns = ...
 local L = ns.L
 
--- The Missionary Church of Olympus (1.1.6): its tab in the Olympus window. Ranking | Mine | People |
--- Name | Review, each page shown only to who can use it, in the Realm's subtab row; the public
+-- The Missionary Church of Olympus (1.1.6): its tab in the Olympus window. Invites | Ranking |
+-- People | Name | Reassignments | Mine, each page shown only to who can use it; the public
 -- ranking for everyone else while the author's switch is open. Everything is read from Church.lua
 -- (places) and ChurchCount.lua (numbers); a click names, removes or registers through the same
 -- calls /oly church makes. Dialogs go through ns.ShowDialog (Olympus's own window under the gamepad
@@ -23,7 +23,7 @@ local View = {}
 ns.ChurchView = View
 local Church, Count = ns.Church, ns.ChurchCount
 
-View.page, View.list, View.window = "ranking", "a", "m"
+View.list, View.window = "a", "m"
 View.open = {}
 View.rulesReturn = nil
 
@@ -92,16 +92,16 @@ end
 function View.Pages()
 	local out = {}
 	if not View.Visible() then return out end
+	local R = ns.Recruit
+	if not PreviewRole() and R and R.WhisperAvailable and R.WhisperAvailable() then out[#out + 1] = "invites" end
 	local audience = Audience()
 	if audience then out[#out + 1] = "ranking" end
-	if Person() then out[#out + 1] = "mine" end
 	out[#out + 1] = "people"
 	local r = Rights()
 	if r.apostle or r.missionary or r.correspondent then out[#out + 1] = "name" end
 	if r.root then out[#out + 1] = "review" end
+	if Person() then out[#out + 1] = "mine" end
 	if not audience and Count.PublicView() then out[#out + 1] = "public" end
-	local R = ns.Recruit
-	if not PreviewRole() and R and R.WhisperAvailable and R.WhisperAvailable() then out[#out + 1] = "invites" end
 	return out
 end
 
