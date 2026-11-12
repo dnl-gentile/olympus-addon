@@ -901,8 +901,8 @@ test("census author (1.5.9): no client keeps or says again a look naming its own
 		-- The author's PvE client, with no own look of PvP, hears a member's forged look naming his PvP character.
 		local A = Node(AUTHOR, { pk = PK })
 		A.clock = 30 * DAY
-		eq(A.Data.ReceivePortable("Plain Member-" .. PVE, Forged(AUTHOR_PVP .. "-" .. PVP, A.clock - 60)), false, "refused")
-		eq(A.Data.CensusStats().last[1].why, "named")
+		eq(A.Data.ReceivePortable("Plain Member-" .. PVE, Forged(AUTHOR_PVP .. "-" .. PVP, A.clock - 60)), true, "heard, no news")
+		eq(A.db.groupPortable and next(A.db.groupPortable), nil, "not kept")
 		eq(A.Data.PortablePayload(A.clock, true), nil, "never said again under his name")
 		eq(PvP(A.Data.Groups()), nil, "nor kept or shown")
 		-- One his account kept while on another character (or an older version kept): never said on his.
@@ -924,8 +924,9 @@ test("census author (1.5.9): no client keeps or says again a look naming its own
 		-- A councillor's PvE client hears a forged look naming its very character: refused, never said again.
 		local H = Node("Sage Warden-" .. PVE)
 		H.clock = 30 * DAY
-		eq(H.Data.ReceivePortable("Plain Member-" .. PVE, Forged("Sage Warden-" .. PVE, H.clock - 60)), false)
-		eq(H.Data.PortablePayload(H.clock, true), nil)
+		eq(H.Data.ReceivePortable("Plain Member-" .. PVE, Forged("Sage Warden-" .. PVE, H.clock - 60)), true)
+		eq(H.Data.PortablePayload(H.clock, true), nil, "never said again under its name")
+		eq(PvP(H.Data.Groups()), nil, "nor shown")
 		-- An older councillor's client said it anyway: from a character of another family, no direct look.
 		local D = Node(LISTENER)
 		D.clock = 30 * DAY

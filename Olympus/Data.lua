@@ -2772,10 +2772,11 @@ function Data.ReceivePortable(sender, text)
 	local direct = ns.FullName(sender):lower() == ns.FullName(look.observer):lower() and ObserverOfFamily(look)
 	local trusted, how = direct and GlobalTrusted(sender), direct and "direct" or "unproven"
 	if not direct and AuthorLook(sender, look) then direct, trusted, how = true, true, "author" end
-	-- (1.5.9) Past GROUP_KEEP only a trusted look is taken (it lasts); a look naming us (NamesUs) that this
-	-- account did not take is no word of ours: never kept, counted or shown here.
+	-- (1.5.9) Past GROUP_KEEP only a trusted look is taken (it lasts). A look naming us (NamesUs) that this
+	-- account did not take is our own look carried back, or a forgery: no news, never kept, counted or
+	-- shown here (as our own word back, OwnWord), and no refusal either (members carry our looks on).
 	if look.stale and not trusted then return Refused("cx", "look", sender) end
-	if not trusted and NamesUs(look.observer) then return Refused("cx", "named", sender) end
+	if not trusted and NamesUs(look.observer) then return true end
 	Tally("cx3", how)
 	return TakeLook(look, direct, trusted)
 end
