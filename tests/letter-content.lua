@@ -383,12 +383,12 @@ test("1.5.7 letter content: each locale explains census progress, relay availabi
 end)
 
 -- 1.5.8: the letter tells the shipped recruiting (JOIN, the copied /ginvite the player sends,
--- Church > Invites, announcements, the unguilded scan, the Join page), the Discord verification
--- in The Realm and the census, relay and Church fixes, in every shipped language. Each letter names
--- the pages by the labels that language's player sees (the Church's Invites, the Join page, the
--- Discord verification), so it loads the Church's and Verify's words as the TOC does, before the
--- language's own file.
-test("1.5.8 letter content: each locale explains recruiting, the Join page, Discord verification and the census fixes with the labels the player sees", function()
+-- Church > Invites, announcements, the unguilded scan, the Join page) and the census, relay and
+-- Church fixes, in every shipped language. Each letter names the pages by the labels that
+-- language's player sees (the Church's Invites, the Join page), so it loads the Church's and
+-- Verify's words as the TOC does, before the language's own file. Discord verification is held
+-- out of 1.5.8 for its own review, so the letter does not describe it.
+test("1.5.8 letter content: each locale explains recruiting, the Join page and the census fixes with the labels the player sees", function()
 	local function Client(locale, file)
 		local saved = GetLocale
 		local cns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
@@ -421,12 +421,12 @@ test("1.5.8 letter content: each locale explains recruiting, the Join page, Disc
 		elseif code ~= "enUS" then assert(raw ~= english, code .. ": translation loaded") end
 		local marks = {}
 		for mark in raw:gmatch("\n- {([%a]+)}") do marks[#marks + 1] = mark end
-		eq(table.concat(marks, ","), "church,church,guild,crown,guild,news,watch", code .. ": release topics")
-		for _, word in ipairs({ "JOIN", "/ginvite", code == "deDE" and "Strg+C" or "Ctrl+C", "/who", "/verify", "#olympus-verify", "Asmongold", "/oly recent", "/oly bug", "45", "24" }) do
+		eq(table.concat(marks, ","), "church,church,guild,guild,news,watch", code .. ": release topics")
+		for _, word in ipairs({ "JOIN", "/ginvite", code == "deDE" and "Strg+C" or "Ctrl+C", "/who", "/oly recent", "/oly bug", "45", "24" }) do
 			assert(raw:find(word, 1, true), code .. ": " .. word)
 		end
 		-- The pages as this language's player sees them named.
-		for _, key in ipairs({ "CHURCH_NAV_INVITES", "TAB_CHURCH", "RECRUIT_JOIN_TITLE", "RECRUIT_JOIN_REQUEST", "VERIFY_SELF_TITLE" }) do
+		for _, key in ipairs({ "CHURCH_NAV_INVITES", "TAB_CHURCH", "RECRUIT_JOIN_TITLE", "RECRUIT_JOIN_REQUEST" }) do
 			local label = assert(rawget(L, key), code .. ": " .. key)
 			assert(raw:find(label, 1, true), code .. ": the letter names " .. key .. " as shown: " .. label)
 		end

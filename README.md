@@ -2292,14 +2292,6 @@ the same. Installed next to Olympus, it loads by itself at login (see
 [Integrating with Olympus](#integrating-with-olympus)), `/oly discord` and its line in `/oly help`
 are its own, and its own documentation says what it does and what it sends.
 
-### My Discord Verification (1.5.8)
-**My Discord Verification** is at the top of **The Realm**. In the Asmongold Discord, open
-#olympus-verify, run `/verify` and copy your personal code; back in game, click it, paste the code
-and choose **Submit code**. Olympus hands the code to the separate Olympus Verify addon, which
-delivers it; without that addon the window says to install it. The window shows only the local
-delivery state of your requests: delivery confirms no verification and grants no role. Check your
-access and roles with `/verify-status` in Discord.
-
 ### Everywhere
 - **Copy**: every tab produces a ready-to-paste text for Discord.
 - **Version letters** (1.1.5): after the addon updates, once a version, a short letter on
