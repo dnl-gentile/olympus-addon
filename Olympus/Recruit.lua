@@ -1041,19 +1041,26 @@ local function AnnouncementCount()
 	return (groups > 1 and L.RECRUIT_ANNOUNCE_COUNT_GROUPS or L.RECRUIT_ANNOUNCE_COUNT_LOCAL):format(number)
 end
 
-local function AnnouncementText(guild)
+-- 1.5.8 (the author's ask, 11-12: "tem que ter as variações... que tem uma vibe da Olympus", and
+-- "Come play with" read with a double meaning): five openings, one a draft, in turn.
+Recruit.ANNOUNCE_OPENINGS = 5
+local function AnnouncementText(guild, variant)
+	variant = variant or announcementVariant
 	local name = NameForCommand(ns.me)
 	local destination = ns.Codec.SanitizeChat(guild)
 	local opening = L.RECRUIT_ANNOUNCE_OPENING:format(destination)
 	local line = opening
-	if name and announcementVariant == 1 then line = L.RECRUIT_ANNOUNCE_OPENING_NAMED:format(name, destination)
-	elseif name and announcementVariant == 2 then line = L.RECRUIT_ANNOUNCE_OPENING_PLAY:format(destination, name) end
+	if name and variant == 1 then line = L.RECRUIT_ANNOUNCE_OPENING_NAMED:format(name, destination)
+	elseif name and variant == 2 then line = L.RECRUIT_ANNOUNCE_OPENING_PLAY:format(destination, name)
+	elseif variant == 3 then line = L.RECRUIT_ANNOUNCE_OPENING_KING:format(destination)
+	elseif variant == 4 then line = L.RECRUIT_ANNOUNCE_OPENING_MARCH:format(destination) end
 	local count = AnnouncementCount()
 	local suffix = destination:lower():match("%f[%a]olympus%f[%A]") and "" or " Part of Olympus."
 	suffix = suffix .. (count and " " .. count or "") .. " " .. L.RECRUIT_ANNOUNCE_JOIN
 	if #line + #suffix > 255 then line = opening end
 	return line .. suffix
 end
+Recruit.AnnouncementText = AnnouncementText
 
 -- The native channel index and zone ID must both agree with a channel WoW exposes as joined.
 -- Keep only a timestamp per local channel. Neither the text nor the speaker is retained.
@@ -1101,7 +1108,7 @@ local function CopyAnnouncement(channel, reminder)
 		{ channel = name, public = current, guild = guild, message = message, command = ("/%d %s"):format(current.id, message), reminder = reminder })
 	if not draft then return false end
 	if not reminder then lastAnnouncement = { public = current, guild = guild } end
-	announcementVariant = (announcementVariant + 1) % 3
+	announcementVariant = (announcementVariant + 1) % Recruit.ANNOUNCE_OPENINGS
 	return true
 end
 

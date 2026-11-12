@@ -1497,3 +1497,22 @@ test("recruit scan (review of 1.5.8): a /who-found player's popup offers Whisper
 		if not ok then error(err, 0) end
 	end)
 end)
+
+-- 1.5.8 (the author's ask, 11-12: "tem que ter as variações, mas você tem que avaliar... que tem uma
+-- vibe da Olympus"; "Come play with" read with a double meaning): five openings in turn, each naming
+-- Olympus and keeping the JOIN line other recruiters' clients recognize.
+test("recruit ads (1.5.8): five different openings, each with Olympus and the JOIN line, none with a double meaning", function()
+	WithHandoff(function()
+		eq(R.ANNOUNCE_OPENINGS, 5)
+		local seen = {}
+		for variant = 0, R.ANNOUNCE_OPENINGS - 1 do
+			local text = R.AnnouncementText("Stormguard", variant)
+			assert(text:find("Whisper JOIN", 1, true), "the JOIN line: " .. text)
+			assert(#text <= 255, "fits a chat line: " .. text)
+			assert(text:lower():find("olympus", 1, true), "names Olympus: " .. text)
+			assert(not text:lower():find("come play", 1, true), "no double meaning: " .. text)
+			assert(not seen[text], "each opening differs: " .. text)
+			seen[text] = true
+		end
+	end)
+end)

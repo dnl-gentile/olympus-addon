@@ -16,6 +16,7 @@ local WHISPERS = { MENTOR_TO_CAPTAIN = true, MENTOR_TO_RECRUIT = true, JOIN_POIN
 	VERIFY_WHISPER_TEXT = true, VERIFY_ASK_TEXT = true, VERIFY_NUDGE_TEXT = true,
 	-- Public drafts are also meant for players who may not share the sender's client language.
 	RECRUIT_ANNOUNCE_OPENING = true, RECRUIT_ANNOUNCE_OPENING_NAMED = true, RECRUIT_ANNOUNCE_OPENING_PLAY = true,
+	RECRUIT_ANNOUNCE_OPENING_KING = true, RECRUIT_ANNOUNCE_OPENING_MARCH = true,
 	RECRUIT_ANNOUNCE_COUNT_GROUPS = true, RECRUIT_ANNOUNCE_COUNT_LOCAL = true, RECRUIT_ANNOUNCE_JOIN = true }
 local function Whisper(k) return WHISPERS[k] or k:match("^MATCH_SAY_") ~= nil end
 
