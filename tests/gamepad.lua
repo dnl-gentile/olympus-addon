@@ -4066,6 +4066,9 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 		eq(Draft(), nil, "the observed echo closes the draft")
 		eq(C.chatBox, nil, "Post does not touch the game's chat editor")
 		assert(R.ToggleWhisperRecruiting())
+		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_ROTATE), "new reminders rotate public channels by default")
+		ClickLine(L.RECRUIT_ANNOUNCE_REMINDER_ROTATE)
+		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_SELECTED), "the recruiter can opt into one channel")
 		reminderTick()
 		eq(Draft(), nil, "a recent post suppresses the popup")
 		C.now = C.now + 120

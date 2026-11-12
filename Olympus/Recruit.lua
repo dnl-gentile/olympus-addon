@@ -821,7 +821,7 @@ local REMINDER_MINUTES = { 0, 15, 30, 60 }
 local ANNOUNCEMENT_GAP = 120
 local publicRecruitmentAt = {}
 local lastAnnouncement
-local rotateReminder, lastReminderChannel = false, nil
+local rotateReminder, lastReminderChannel = true, nil
 
 local function PruneAnnouncements(now)
 	for name, entry in pairs(publicRecruitmentAt) do
@@ -1417,7 +1417,7 @@ function Recruit.ResetForTests()
 	StopRecruiting()
 	if reminderTimer then reminderTimer.Cancel(); reminderTimer = nil end
 	announceOpen, reminderIndex, announcementVariant, lastAnnouncement = false, 1, 0, nil
-	rotateReminder, lastReminderChannel = false, nil
+	rotateReminder, lastReminderChannel = true, nil
 	wipe(publicRecruitmentAt)
 	wipe(contacted)
 	lastOutreach, lastReplyPrompt = nil, nil
