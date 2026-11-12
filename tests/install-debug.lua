@@ -429,7 +429,10 @@ test("1.5.8 /oly bug debug: the census counters, the tree's registrant line and 
 	local ok, err = pcall(function()
 		local now = ns.Now()
 		ns.group = "ForeverPvE"
-		ns.db.groupCensus, ns.db.groupHeard = {}, {}
+		-- Our own group's saved look: "here" (its live count stands in the total), never "counted" twice.
+		ns.db.groupCensus = { ["Alliance|ForeverPvE"] = { group = "ForeverPvE", faction = "Alliance", people = 900, characters = 1000,
+			guilds = 8, observed = now - 300, src = "own", by = "Own Personname" } }
+		ns.db.groupHeard = {}
 		ns.rdb.censusGlobal = {
 			["olympus relayed"] = { name = "Olympus Relayed", total = 300, online = 20, avg10 = 300, observed = now - 120, by = "Relaying Personname", heard = now },
 			["olympus stale"] = { name = "Olympus Stale", total = 200, online = 0, avg10 = 300, observed = now - 2 * 86400, by = "Relaying Personname", heard = now },
@@ -440,6 +443,7 @@ test("1.5.8 /oly bug debug: the census counters, the tree's registrant line and 
 		local counters = text:match("\n(census counters: [^\n]+)")
 		assert(counters, "the census counters: " .. text)
 		eq(counters, "census counters: " .. ns.Data.CensusStats().line, "Data.CensusStats().line, whole")
+		assert(text:find("census: other groups Alliance|ForeverPvE look 5m (900) own here", 1, true), text)
 		local before = assert(Refused(text), counters)
 		-- A malformed CX word from a member: refused, and the line says one more.
 		eq(ns.Data.ReceiveGroupCensus("CHANNEL", "Plain Personname-Realm", "CX~1~S~x~broken"), false)

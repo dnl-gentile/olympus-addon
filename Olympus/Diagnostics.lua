@@ -645,7 +645,8 @@ local function CensusLines()
 	local D = ns.Data
 	local groups = type(D) == "table" and type(D.Groups) == "function" and Try(D.Groups) or nil
 	for _, r in ipairs(type(groups) == "table" and type(groups.rows) == "table" and groups.rows or {}) do
-		if type(r) == "table" and r.counted and not r.ours then counted[tostring(r.faction) .. "|" .. tostring(r.group)] = true end
+		-- (Our own group's stored look: its live count stands in the total, "here".)
+		if type(r) == "table" and (r.counted or r.ours) then counted[tostring(r.faction) .. "|" .. tostring(r.group)] = r.ours and "here" or true end
 	end
 	local SRC = { author = true, own = true, relay = true, witnessed = true, heard = true }
 	local rows = {}
@@ -655,7 +656,7 @@ local function CensusLines()
 			if type(e) == "table" and type(key) == "string" then
 				rows[#rows + 1] = { key = key, how = which == "groupCensus" and "look" or "heard", t = tonumber(e.observed or e.t) or 0,
 					people = tonumber(e.people or e.total), src = SRC[e.src] and e.src or "?",
-					counts = which == "groupCensus" and counted[key] == true }
+					counts = which == "groupCensus" and counted[key] or false }
 			end
 		end
 	end
@@ -664,7 +665,7 @@ local function CensusLines()
 	for i = 1, math.min(5, #rows) do
 		local r = rows[i]
 		parts[#parts + 1] = ("%s %s %s (%s) %s %s"):format(r.key, r.how, Age(r.t), r.people and tostring(r.people) or "?", r.src,
-			r.counts and "counted" or "uncounted")
+			r.counts == "here" and "here" or r.counts and "counted" or "uncounted")
 	end
 	if #rows > 5 then parts[#parts + 1] = "+" .. (#rows - 5) end
 	out[#out + 1] = Cap("census: other groups " .. (#parts > 0 and table.concat(parts, ", ") or "none"))
