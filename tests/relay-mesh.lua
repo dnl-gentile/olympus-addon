@@ -22,8 +22,9 @@ local function World(fn)
 		GetGuildInfo = function() return n.guild, "Member", 3 end
 		return f(...)
 	end
-	local function Node(name, guild)
-		local c, deliver, sent, heard, pump = RelayWorld(name, guild)
+	-- relayFile (1.5.9): another release's Relay.lua (tests/fixtures/relay-1.5.8.lua: a mesh peer on 1.5.8).
+	local function Node(name, guild, relayFile)
+		local c, deliver, sent, heard, pump = RelayWorld(name, guild, relayFile)
 		local n = { c = c, deliver = deliver, sent = sent, heard = heard, pump = pump, guild = guild,
 			chat = C_ChatInfo, cursor = 0, got = {}, logs = {} }
 		c.Log = function(fmt, ...) local ok, msg = pcall(string.format, fmt, ...) n.logs[#n.logs + 1] = ok and msg or tostring(fmt) end
@@ -433,5 +434,104 @@ test("relay mesh (1.5.8): a relay's own signed look (QA) crosses to a mesh peer 
 		Flush(); Advance(2)
 		assert(Took(b, cg), "B's client takes A's snapshot")
 		assert(Took(reg, cg), "and B's registrant takes it whole, past the trickle, though A's look came just before")
+	end)
+end)
+
+-- 1.5.9 (the census items left from 1.5.8). Fails before: Across took a signed look (QA) only in two or
+-- more pieces, so a look with no guild rows (one piece) reached the guilds of the relay that said it alone.
+test("relay mesh (1.5.9): a relay's own one-piece signed look (QA) crosses to a mesh peer, one on 1.5.8 too, and reaches its registrant past the trickle; a member's stays on its relay's island", function()
+	World(function(Node, As, Flush, Advance)
+		local a, b = Node(A_NAME, "Olympus Alpha"), Node(B_NAME, "Olympus Beta")
+		local reg = Node("Reg One-Realm", "Olympus Gamma")
+		for _, n in ipairs({ a, b, reg }) do
+			n.c.Comm.Handle("QA", function(dist, sender, text) n.got[#n.got + 1] = { dist = dist, sender = sender, text = text } end)
+		end
+		Register(b, As, reg.c.me, "Olympus Gamma")
+		Mesh(a, As); Mesh(b, As)
+		Flush(); Advance(a.c.Relay.PING_WAIT + 1)
+		eq(As(a, a.c.Relay.MeshPeer, B_NAME), true)
+		-- The registrant's trickle spent: only a word past it reaches him now.
+		for i = 1, 6 do As(b, b.deliver, "WHISPER", "Some Client-Realm", "RL~P~X1~filler " .. i) end
+		Flush()
+		local base = Count(a, "RX~", B_NAME)
+		local member = Word("QA~1~" .. ("m"):rep(86) .. "~CX~3~S~", 1)
+		eq(#ns.Codec.Chunk(member, "90"), 1, "a look with no guild rows is one piece")
+		From(a, As, "Mem Ber-Realm", member, "91")
+		Flush(); Advance(2)
+		eq(Count(a, "RX~", B_NAME), base, "a member's one-piece QA is not sent across")
+		local qa = Word("QA~1~" .. ("s"):rep(86) .. "~CX~3~S~", 1)
+		Own(a, As, qa, "92")
+		Flush(); Advance(2)
+		eq(Count(a, "RX~", B_NAME) - base > 0, true, "A's own one-piece QA crosses to its mesh peer")
+		assert(Took(b, qa), "B's client takes it")
+		local took = Took(reg, qa)
+		assert(took, "B's registrant takes it, past the spent trickle")
+		eq(took.sender, A_NAME, "under its origin, the relay that said it")
+	end)
+	-- Mixed versions: a mesh peer still on 1.5.8 takes the one-piece look A sends across, as it takes the
+	-- pieces of a longer one, and hands it to its registrant past the trickle.
+	World(function(Node, As, Flush, Advance)
+		local a, b = Node(A_NAME, "Olympus Alpha"), Node(B_NAME, "Olympus Beta", extra.fixtures .. "relay-1.5.8.lua")
+		local reg = Node("Reg One-Realm", "Olympus Gamma")
+		for _, n in ipairs({ a, b, reg }) do
+			n.c.Comm.Handle("QA", function(dist, sender, text) n.got[#n.got + 1] = { dist = dist, sender = sender, text = text } end)
+		end
+		Register(b, As, reg.c.me, "Olympus Gamma")
+		Mesh(a, As); Mesh(b, As)
+		Flush(); Advance(a.c.Relay.PING_WAIT + 1)
+		eq(As(a, a.c.Relay.MeshPeer, B_NAME), true, "the 1.5.8 relay is a mesh peer")
+		eq(b.c.Relay.MAX_SIGNED_LOOKS, nil, "(B runs 1.5.8's Relay.lua)")
+		for i = 1, 6 do As(b, b.deliver, "WHISPER", "Some Client-Realm", "RL~P~X1~filler " .. i) end
+		Flush()
+		local qa = Word("QA~1~" .. ("t"):rep(86) .. "~CX~3~S~", 1)
+		Own(a, As, qa, "89")
+		Flush(); Advance(2)
+		assert(Took(b, qa), "the 1.5.8 relay's client takes it")
+		local took = Took(reg, qa)
+		assert(took, "and its registrant, past the spent trickle")
+		eq(took.sender, A_NAME)
+	end)
+end)
+
+-- 1.5.9. Fails before: the signed looks in flight (QA, a slot of each relay's own) counted toward the
+-- census snapshots' MAX_RELAYS slots: with every relay's look open, a relay's census snapshot found no
+-- slot and went piece by piece through the registrant's spent trickle, whole or not at all.
+test("relay mesh (1.5.9): signed looks in flight (QA) have their own budget: with every relay's look open, a relay's census snapshot still reaches a registrant whole; the looks' budget holds", function()
+	World(function(Node, As, Flush, Advance)
+		local a, b, c = Node(A_NAME, "Olympus Alpha"), Node(B_NAME, "Olympus Beta"), Node(C_NAME, "Olympus Delta")
+		local reg = Node("Reg One-Realm", "Olympus Gamma")
+		Register(b, As, reg.c.me, "Olympus Gamma")
+		Mesh(a, As); Mesh(b, As); Mesh(c, As)
+		Flush(); Advance(a.c.Relay.PING_WAIT + 1)
+		b.c.Relay.MAX_RELAYS = 3 -- (the three relays this realm group knows, one census slot each)
+		eq(#b.c.Relay.Names(true), 3, "every relay still known")
+		for i = 1, 6 do As(b, b.deliver, "WHISPER", "Some Client-Realm", "RL~P~X1~filler " .. i) end
+		Flush()
+		-- Each relay's own look open at B: the first of its two pieces, the second still on its way.
+		local function FirstPiece(tag, id) return ns.Codec.Chunk(Word("QA~1~" .. tag:rep(86) .. "~CX~3~S~", 2), id)[1] end
+		As(b, b.deliver, "WHISPER", A_NAME, "RX~P~" .. A_NAME .. "~" .. FirstPiece("a", "93"))
+		As(b, b.deliver, "WHISPER", C_NAME, "RX~P~" .. C_NAME .. "~" .. FirstPiece("c", "94"))
+		As(b, b.c.Relay.HandleIn, "WHISPER", b.c.me, "RL~P~" .. FirstPiece("b", "95"))
+		-- A's census snapshot, whole, across to B.
+		local cg = Word(("CG~2~S~%d~ForeverPvE~Alliance~beside three looks"):format(T0), 3)
+		for _, p in ipairs(ns.Codec.Chunk(cg, "96")) do As(b, b.deliver, "WHISPER", A_NAME, "RX~P~" .. A_NAME .. "~" .. p) end
+		Flush(); Advance(2)
+		assert(Took(reg, cg), "B's registrant takes A's snapshot whole, past the trickle, with three looks open")
+		-- The looks' own budget: past it, a look gets no slot (its pieces take the spent trickle).
+		reg.c.Comm.Handle("QA", function(dist, sender, text) reg.got[#reg.got + 1] = { dist = dist, sender = sender, text = text } end)
+		Advance(b.c.Relay.SET_WAIT + 1) -- (the open looks lapse)
+		for i = 1, 6 do As(b, b.deliver, "WHISPER", "Some Client-Realm", "RL~P~X1~filler again " .. i) end
+		Flush()
+		b.c.Relay.MAX_SIGNED_LOOKS = 1
+		As(b, b.deliver, "WHISPER", C_NAME, "RX~P~" .. C_NAME .. "~" .. FirstPiece("d", "97"))
+		local function Whole(tag, id)
+			local word = Word("QA~1~" .. tag:rep(86) .. "~CX~3~S~", 2)
+			for _, p in ipairs(ns.Codec.Chunk(word, id)) do As(b, b.deliver, "WHISPER", A_NAME, "RX~P~" .. A_NAME .. "~" .. p) end
+			Flush(); Advance(2)
+			return word
+		end
+		eq(Took(reg, Whole("e", "98")), nil, "a look past the looks' budget gets no slot")
+		b.c.Relay.MAX_SIGNED_LOOKS = 2
+		assert(Took(reg, Whole("f", "99")), "within it, a look reaches the registrant whole")
 	end)
 end)
