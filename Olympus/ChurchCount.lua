@@ -1069,6 +1069,11 @@ local function OpenRegs(by, now)
 	return n, all
 end
 
+-- Session-only provenance keyed by the exact retained record. The Church ledger
+-- can merge registrations and invitations, so its combined witnesses do not
+-- independently prove any particular native invite and join.
+local recruiterPreviewProofs = setmetatable({}, { __mode = "k" })
+
 -- Evidence a keeper takes (from a whisper, or this client's own). True when taken.
 function Count.TakeEvidence(sender, text)
 	if not Church.IsKeeper(ns.me) or Church.IsKing(ns.me) then return Drop("not keeper") end
@@ -1112,6 +1117,10 @@ function Count.TakeEvidence(sender, text)
 		-- keepers online at once, when the queue has room; the catch-up carries it otherwise. Our own
 		-- report reaches them all itself: a keeper is signed.)
 		local r = Led().r[id]
+		if r and independent and how ~= "census" and Church.IsAuthor(ns.me)
+			and r.tc == ti * 3600 and r.tj == tj * 3600 and r.g == guild then
+			recruiterPreviewProofs[r] = { id = id, invited = r.tc, joined = r.tj, guild = guild }
+		end
 		if independent and not had and r and r.ws and sk ~= Key(ns.me)
 			and ns.Comm.QueueRoom() > Count.SEND_ROOM + #Church.KeepersOnline(false) then Count.Push(id) end
 		return true
@@ -1409,9 +1418,56 @@ local function PublicOf(key)
 	return p and p.pub == true or false
 end
 
+function Count.CanSeeRecruiterPreview(name)
+	return Church.IsAuthor(name) or Church.IsKing(name)
+end
+
+-- Only a separately observed, independently verified native pair can be ranked.
+-- Require the retained recruit's new-member check for those same times and guild.
+local function RecruiterPreview(window)
+	if not Church.IsAuthor(ns.me) then return {} end
+	local now, winners, rows, by = Clock(), {}, {}, {}
+	local from, gone, retained = WindowFrom(window, now), Gone(), Led().r
+	for r, proof in pairs(recruiterPreviewProofs) do
+		local recruit, recruiter = Key(r.n), Key(r.bn)
+		if retained[proof.id] == r and r.tc == proof.invited and r.tj == proof.joined and r.g == proof.guild
+			and r.kind == "i" and r.c and Confirmed(r) and not r.a and not r.t and not r.x
+			and recruit and recruiter and recruit ~= recruiter and not gone[recruit .. ":"]
+			and type(r.tc) == "number" and type(r.tj) == "number" and r.tj <= now then
+			local earlier = winners[recruit]
+			if not earlier or r.tc < earlier.claim.tc then
+				winners[recruit] = { claim = r, recruiter = recruiter }
+			elseif r.tc == earlier.claim.tc and recruiter ~= earlier.recruiter then
+				earlier.disputed = true
+			end
+		end
+	end
+	for _, winner in pairs(winners) do
+		local r, key = winner.claim, winner.recruiter
+		if not winner.disputed and r.tj >= from then
+			local row = by[key]
+			if not row then
+				row = { key = key, name = Short(r.bn), joins = 0, score = 0, own = 0, share = 0, stays = 0, net = 0 }
+				by[key], rows[#rows + 1] = row, row
+			end
+			row.joins = row.joins + 1
+		end
+	end
+	table.sort(rows, function(a, b)
+		if a.joins ~= b.joins then return a.joins > b.joins end
+		return a.key < b.key
+	end)
+	for i, row in ipairs(rows) do
+		local points = row.joins * Count.POINTS_JOIN
+		row.rank, row.score, row.own, row.net = i, points, points, row.joins
+	end
+	return rows
+end
+
 -- A ranking on this keeper's own ledger: list a (Apostles), m (missionaries), c (correspondents);
 -- window w, m, a. Rows: { rank, key, name, role, score, own, share, levels, joins, stays, net, pub }.
 function Count.Ranking(list, window)
+	if list == "u" then return RecruiterPreview(window) end
 	-- The invitation wire has no guild/day evidence. It must never masquerade as fullness.
 	if list == "c" then return {} end
 	local S = Church.State()
@@ -2255,7 +2311,7 @@ end
 -- Asking a keeper for the numbers, and answering
 ---------------------------------------------------------------------------
 
-local WHATS = { a = true, m = true, c = true, me = true, p = true }
+local WHATS = { a = true, m = true, c = true, u = true, me = true, p = true }
 local WINDOWS = { w = true, m = true, a = true }
 
 -- May `asker` see `person`'s detail? Himself, the Head, the Apostles, the High Council, the King
@@ -2315,6 +2371,13 @@ end
 function Count.Answer(sender, what, window, person)
 	if not Church.IsKeeper(ns.me) or Church.IsKing(ns.me) or Off() then return Drop("not keeper") end
 	if not Church.InAudience(sender) then return Drop("audience") end
+	local guard
+	if what == "u" then
+		guard = function()
+			return Church.IsAuthor(ns.me) and Count.CanSeeRecruiterPreview(sender) and not Off()
+		end
+		if not guard() then return Drop("audience") end
+	end
 	-- (1.2.1: a desk just logged in held a ledger behind the others': every audience page asking it
 	-- took its smaller numbers over the ones it had. Unanswered, a page keeps its last answer.)
 	if not Count.Settled() then return Drop("catching up") end
@@ -2327,7 +2390,7 @@ function Count.Answer(sender, what, window, person)
 	h[#h + 1] = t
 	local lines = {}
 	local who = person
-	if what == "a" or what == "m" or what == "c" then
+	if what == "a" or what == "m" or what == "c" or what == "u" then
 		local rows = Count.Ranking(what, window)
 		for i, row in ipairs(rows) do
 			if i <= Count.RANK_ROWS or row.key == k then lines[#lines + 1] = RowText(what, window, row) end
@@ -2344,7 +2407,7 @@ function Count.Answer(sender, what, window, person)
 		who = Short(name)
 	end
 	lines[#lines + 1] = ("NR~1~e~%s~%s~%s~%d~%s"):format(what, window, who, #lines, B36(Clock()))
-	return SendLines(ns.FullName(sender), lines)
+	return SendLines(ns.FullName(sender), lines, nil, guard)
 end
 
 -- Asks the desk (or another keeper online) for a page's numbers; a keeper computes them itself. A
@@ -2353,6 +2416,7 @@ end
 -- that asked the first relay online asked the author before the Apostles.
 function Count.Ask(what, window, person, force)
 	if not WHATS[what] or not WINDOWS[window] then return false end
+	if what == "u" and not Count.CanSeeRecruiterPreview(ns.me) then return false, "audience" end
 	if Church.IsKeeper(ns.me) and not Church.IsKing(ns.me) then return false, "local" end
 	if not Church.InAudience(ns.me) or Off() then return false, "audience" end
 	local pk = what == "me" and Key(ns.me) or (person and Key(person)) or "-"
@@ -2361,7 +2425,7 @@ function Count.Ask(what, window, person, force)
 	if previous then
 		local elapsed = t - (previous.sent or previous.t)
 		if previous.complete then
-			local gap = (what == "a" or what == "m") and Count.RANK_REFRESH or Count.ASK_GAP
+			local gap = (what == "a" or what == "m" or what == "u") and Count.RANK_REFRESH or Count.ASK_GAP
 			if not force and elapsed < gap then return false, "gap" end
 		elseif elapsed < Count.ASK_GAP or (previous.rows and t < previous.expires
 			and (not previous.sent or t - (previous.progress or previous.sent) < Count.ASK_GAP)) then
@@ -2369,7 +2433,10 @@ function Count.Ask(what, window, person, force)
 		end
 	end
 	local keepers = Church.KeepersOnline(false)
-	if #keepers == 0 then Church.FindKeeper(); return false, "no keeper" end
+	if #keepers == 0 then
+		if what ~= "u" then Church.FindKeeper() end
+		return false, "no keeper"
+	end
 	-- Prefer the next keeper when an answer stalls. NR~1 carries no request identifier, so
 	-- do not ask one for this page again until its previous answer ends or expires.
 	local first = 1
@@ -2384,7 +2451,7 @@ function Count.Ask(what, window, person, force)
 	for i = 0, #keepers - 1 do
 		local candidate = keepers[(first + i - 1) % #keepers + 1]
 		local ck = Key(candidate.name)
-		if not open[ck] then keeper, keeperKey = candidate, ck; break end
+		if not open[ck] and (what ~= "u" or Church.IsAuthor(candidate.name)) then keeper, keeperKey = candidate, ck; break end
 	end
 	if not keeper then return false, "gap" end
 	local a = { k = keeperKey, t = t, expires = t + Church.ASKED_WINDOW, rows = {}, seen = {}, open = open }
@@ -2394,7 +2461,9 @@ function Count.Ask(what, window, person, force)
 			a.sent = ns.Now()
 			a.expires = a.sent + Church.ASKED_WINDOW
 			open[keeperKey] = a.expires
-		end, { owner = Count, guard = function() return asks[key] == a and ns.Now() < a.expires end })
+		end, { owner = Count, guard = function()
+			return asks[key] == a and ns.Now() < a.expires and (what ~= "u" or Count.CanSeeRecruiterPreview(ns.me))
+		end })
 	if not sent then return false, "queue" end
 	if not previous then Church.Capped(asks, Count.PEOPLE_MAX) end
 	asks[key] = a
@@ -2422,9 +2491,10 @@ function Count.TakeAnswerLine(sender, text)
 	local kind = text:match("^NR~1~(%a)~")
 	if kind == "r" then
 		local list, window, rank, name, score, own, share, joins, stays, net, pub =
-			text:match("^NR~1~r~([amc])~([wma])~(%d+)~([^~]+)~(%d+)~(%d+)~(%d+)~(%d+)~(%d+)~(%d+)~([01])$")
+			text:match("^NR~1~r~([amcu])~([wma])~(%d+)~([^~]+)~(%d+)~(%d+)~(%d+)~(%d+)~(%d+)~(%d+)~([01])$")
 		rank = tonumber(rank)
 		if not list or not WireName(name) or not rank or rank < 1 then return Drop("shape") end
+		if list == "u" and not (Church.IsAuthor(sender) and Count.CanSeeRecruiterPreview(ns.me)) then return Drop("audience") end
 		local a = Asked(sender, list .. ":" .. window .. ":-")
 		if not a then return Drop("unasked") end
 		return StageAnswer(a, rank, { rank = rank, name = Short(WireName(name)), key = Key(name), score = tonumber(score) / 10,
@@ -2440,6 +2510,7 @@ function Count.TakeAnswerLine(sender, text)
 	elseif kind == "e" then
 		local what, window, person, n, asOf = text:match("^NR~1~e~(%a+)~([wma])~([^~]+)~(%d+)~([0-9a-z]+)$")
 		if not what then return Drop("shape") end
+		if what == "u" and not (Church.IsAuthor(sender) and Count.CanSeeRecruiterPreview(ns.me)) then return Drop("audience") end
 		local pk = person == "-" and "-" or Key(person)
 		local key = what .. ":" .. window .. ":" .. tostring(pk)
 		local a = Asked(sender, key)
@@ -2452,7 +2523,7 @@ function Count.TakeAnswerLine(sender, text)
 		asOf = UnB36(asOf)
 		if not asOf or asOf <= 0 or asOf > Clock() + Church.DATE_AHEAD then return Drop("page time") end
 		if view[key] and asOf < (tonumber(view[key].asOf) or 0) then return Drop("older page") end
-		if what == "a" or what == "m" or what == "c" then
+		if what == "a" or what == "m" or what == "c" or what == "u" then
 			table.sort(rows, function(left, right) return left.rank < right.rank end)
 		end
 		a.complete = true
@@ -2471,6 +2542,7 @@ end
 -- (Count.TakeLine), never.
 local function OwnCopy() return Church.IsLedgerRelay(ns.me) and not Church.IsKing(ns.me) and #Church.KeepersOnline(false) == 0 end
 function Count.RankingView(list, window)
+	if list == "u" and not Count.CanSeeRecruiterPreview(ns.me) then return {}, nil, false end
 	if list == "c" then return ns.ChurchFullness.Ranking(), Clock(), false end
 	if Church.IsKeeper(ns.me) and not Church.IsKing(ns.me) then return Count.Ranking(list, window), Clock(), false, not Count.Settled() end
 	local key = list .. ":" .. window .. ":-"

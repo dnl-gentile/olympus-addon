@@ -3514,3 +3514,48 @@ test("1.5.5 Church (regression): a member whose own list names a Church person o
 	eq(w:As(lone, lone.Count.MaybeRead, w.clock + 400), false, "no Church person in his guild")
 	eq(lone.queries, 0)
 end)
+
+test("Church recruiter preview counts only exact independently witnessed native joins for staff", function()
+	local w, c = Cast()
+	local author, king, ordinary = c.author, c.king, c.wes
+	author.online, king.online = true, true
+	w:Presence()
+	local count = author.Count
+	local recruiter = "Mira Wells"
+	local function Merge(recruit, by, changes)
+		return w:As(author, count.MergeIn, Key(recruit) .. ":" .. Key(by), changes, false)
+	end
+	local function Observe(recruit, by, source)
+		assert(w:As(author, count.TakeEvidence, source or World.COUNCILLOR, PairText(w, by, recruit, 2)))
+		assert(Merge(recruit, by, { c = 1 }))
+	end
+	Observe("Native Recruit", recruiter)
+	Observe("Another Recruit", recruiter)
+	Observe("Self Report", recruiter, "Mira Wells-Realm")
+	Observe("Known Transfer", recruiter)
+	assert(Merge("Known Transfer", recruiter, { t = 1 }))
+	Observe("Disputed Invite", recruiter)
+	Observe("Disputed Invite", ns.ShortName(A1))
+	local h = math.floor(w.clock / 3600) * 3600
+	assert(Merge("Old Registration", recruiter, {
+		n = "Old Registration", bn = recruiter, g = World.GUILD,
+		kind = "g", tc = h - 7200, tj = h - 3600, c = 1, ws = { Key("Wes Brook") },
+	}))
+	assert(Merge("Old Registration", recruiter, { kind = "i" }))
+	assert(Merge("Native Recruit", recruiter, { y = 1 }))
+	local rows = w:As(author, count.Ranking, "u", "a")
+	eq(#rows, 1, "a conflicting equal-time invite remains disputed")
+	eq(rows[1].name, recruiter)
+	eq(rows[1].joins, 2, "transfer, self-report and merged legacy witness are excluded")
+	eq(rows[1].score, 20, "exactly ten points per recruit without a stay bonus")
+	eq(#w:As(ordinary, ordinary.Count.RankingView, "u", "a"), 0, "ordinary member cannot see the staff preview")
+	eq(w:As(author, count.Answer, c.a1.name, "u", "a"), false, "an Apostle cannot ask for the private preview")
+	eq(w:As(c.a1, c.a1.Count.Answer, king.name, "u", "a"), false, "the author's client alone serves its observed preview")
+	count.Settled = function() return true end
+	assert(w:As(king, king.Count.Ask, "u", "a"))
+	w:Flush()
+	local remote = w:As(king, king.Count.RankingView, "u", "a")
+	eq(#remote, 1)
+	eq(remote[1].joins, 2)
+	eq(remote[1].score, 20)
+end)
