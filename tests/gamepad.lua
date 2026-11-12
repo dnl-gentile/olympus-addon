@@ -4340,6 +4340,21 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 		for _, call in ipairs(C.Since(start)) do
 			assert(call.sym ~= "C_GuildInfo.Invite" and call.sym ~= "GuildInvite", "no native guild invitation")
 		end
+		-- (1.5.8) The player under the mouse joins the list too, kept by name as a /who answer is.
+		C.units.mouseover = { name = "HoverTest", realm = "Realm", guid = "Player-1-90" }
+		C.Fire("UPDATE_MOUSEOVER_UNIT")
+		C.units.mouseover = nil
+		Refresh()
+		assert(QueueLine("HoverTest"), "a moused-over unguilded player is in the list")
+		ClickLine(function(line) return line.text and line.text:find("HoverTest", 1, true) end)
+		local hover = assert(Draft(), "his invite popup after the mouse left him")
+		eq(hover.editBox:GetText(), "/ginvite HoverTest")
+		hover:Hide()
+		C.units.mouseover = { name = "HoverGuilded", realm = "Realm", guid = "Player-1-91", guild = "Sister Guild" }
+		C.Fire("UPDATE_MOUSEOVER_UNIT")
+		C.units.mouseover = nil
+		Refresh()
+		eq(QueueLine("HoverGuilded"), nil, "a guilded one under the mouse is not")
 		for i = 10, 41 do Plate(i, "Candidate" .. i, nil, "Alliance") end
 		Refresh()
 		local bounded = 0

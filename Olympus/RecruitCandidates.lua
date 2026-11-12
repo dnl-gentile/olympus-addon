@@ -273,6 +273,22 @@ pcall(ns.RegisterEvent, "NAME_PLATE_UNIT_ADDED", function(unit)
 	if type(unit) == "string" and not ns.IsSecret(unit) and unit:match("^nameplate%d+$") then Observe(unit) end
 end)
 
+-- (1.5.8, the author's ask: as many unguilded players as can be seen) The player under the mouse
+-- too. "mouseover" names him only while the mouse is on him, so he is kept by name as a /who
+-- answer is, for WHO_TTL (the game itself refuses the invite of one who joined a guild since).
+local function ObserveMouseover()
+	if not Q.Enabled() or Quiet() then return end
+	local name, guid, _, full = R.ReadCandidateUnit("mouseover")
+	if not name or Hidden(full) or byGUID[guid] then return end
+	local now = GetTime()
+	local row = Add(full, name, now)
+	if row.guid then return end
+	local first = not row.who
+	row.who = now
+	if first then Change() end
+end
+pcall(ns.RegisterEvent, "UPDATE_MOUSEOVER_UNIT", ObserveMouseover)
+
 -- 1.5.8 (the author's ask): the Census offer's switch, the scan on (with its popups) or off as
 -- asked, saved as the Church's own switch saves it. Returns whether it scans now.
 function Q.SetEnabled(on)
