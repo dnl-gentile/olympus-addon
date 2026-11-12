@@ -641,6 +641,8 @@ local function StopRecruiting()
 			local draft = ns.Dialog.Find(id)
 			if draft then draft:Hide() end
 		end
+		local warning = ns.Dialog.Find("OLYMPUS_RECRUIT_NETOFF")
+		if warning and warning.data and warning.data.req and warning.data.req.viaWhisper then warning:Hide() end
 	end
 end
 
@@ -1208,7 +1210,7 @@ local function SameWarning(data, req, word)
 		and data.on == word.name and data.at == word.at and data.by == word.by and data.reason == word.reason
 end
 
-local function AcceptRequest(req, confirmed)
+local function AcceptRequest(req, confirmed, automatic)
 	if not CurrentRequest(req) then return false end
 	if confirmed and (confirmed.name ~= req.name or confirmed.guild ~= req.guild) then return false end
 	local prepare = req.viaWhisper or ns.OnForever()
@@ -1234,8 +1236,8 @@ local function AcceptRequest(req, confirmed)
 		if not to then return false end
 		if not ns.Dialog or ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return false end
 		-- The officer copies and pastes the command. Forever blocks addon-prefilled invites.
-		local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", to, nil, req)
-		if draft then req.invitePrepared = true end
+		local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", to, nil, { req = req, automatic = automatic })
+		if draft and not automatic then req.invitePrepared = true end
 		return draft ~= nil
 	end
 	invite(ns.TellName(req.name))
@@ -1263,14 +1265,18 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
 	preferredIndex = 3,
 }
 
-local function OpenInviteChat(draft, req) -- gp:chat-box
+local function OpenInviteChat(draft, data) -- gp:chat-box
 	if not ns.Gate.Allowed("chat-box") then return end
+	local req = data.req
 	if not CurrentRequest(req) or ns.ChatLocked() or (InCombatLockdown and InCombatLockdown()) then return end
 	local util = ChatFrameUtil
 	local open = type(util) == "table" and type(util.OpenChat) == "function" and util.OpenChat or ChatFrame_OpenChat
 	if type(open) ~= "function" then return end
 	ns.Gate.Used("chat-box")
-	if pcall(open, "", DEFAULT_CHAT_FRAME) then draft:Hide() end
+	if pcall(open, "", DEFAULT_CHAT_FRAME) then
+		req.invitePrepared = true
+		draft:Hide()
+	end
 end
 
 StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
@@ -1279,11 +1285,11 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 	extra = { label = L.RECRUIT_WHISPER_INVITE_CHAT, onClick = OpenInviteChat },
 	hasEditBox = true,
 	editBoxWidth = 360,
-	OnShow = function(f, req)
+	OnShow = function(f, data)
 		local box = f.editBox
-		box:SetText("/ginvite " .. NameForCommand(req.name))
-		ns.Focus(box)
-		box:HighlightText()
+		box:SetText("/ginvite " .. NameForCommand(data.req.name))
+		box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+		if ns.Focus(box, nil, data.automatic) then box:HighlightText() end
 		-- Let the game's edit box copy first. Remember Ctrl at key-down because the
 		-- player can release it before C. The only handoff is opening empty chat.
 		local copying
@@ -1294,13 +1300,14 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 			if key ~= "C" then return end
 			local handoff = copying
 			copying = nil
-			if handoff and self:HasFocus() then OpenInviteChat(f, req) end
+			if handoff and self:HasFocus() then OpenInviteChat(f, data) end
 		end)
 		box:SetScript("OnEditFocusLost", function() copying = nil end)
 	end,
 	OnHide = function(f)
 		f.editBox:SetScript("OnKeyDown", nil)
 		f.editBox:SetScript("OnKeyUp", nil)
+		f.editBox:SetScript("OnEditFocusGained", nil)
 		f.editBox:SetScript("OnEditFocusLost", nil)
 	end,
 	timeout = 0,
@@ -1320,10 +1327,13 @@ end
 local function PromptReply(req, now)
 	if (InCombatLockdown and InCombatLockdown()) or not ns.Dialog or ns.Dialog.missing then return end
 	if lastReplyPrompt and now - lastReplyPrompt < ASK_COOLDOWN then return end
-	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
+	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
 		if ns.Dialog.Find(id) then return end
 	end
-	if ReviewReply(req) then lastReplyPrompt = now end
+	local shown
+	if req.handoffIntent then shown = AcceptRequest(req, nil, true)
+	else shown = ReviewReply(req) end
+	if shown then lastReplyPrompt = now end
 end
 
 StaticPopupDialogs["OLYMPUS_RECRUIT_REPLY"] = {
@@ -1419,9 +1429,10 @@ function Recruit.RequestLines(viaWhisper)
 		elseif handoff and handoff.State(req) then
 			handoff.RequestLines(lines, V, req)
 		elseif canInvite then
-			local label = req.viaWhisper and L.RECRUIT_WHISPER_REVIEW:format(req.guild)
-				or (ns.OnForever() and L.RECRUIT_WHISPER_PREPARE_BUTTON or L.JOIN_INVITE:format(req.guild))
-			local action = req.viaWhisper and ReviewReply or Recruit.Accept
+			local reply = req.viaWhisper and not req.handoffIntent
+			local label = reply and L.RECRUIT_WHISPER_REVIEW:format(req.guild)
+				or ((req.viaWhisper or ns.OnForever()) and L.RECRUIT_WHISPER_PREPARE_BUTTON or L.JOIN_INVITE:format(req.guild))
+			local action = reply and ReviewReply or Recruit.Accept
 			lines[#lines + 1] = { indent = 1, text = V.Green(label), onClick = function() action(req) end }
 			lines[#lines + 1] = {
 				indent = 1, text = V.Gold(L.JOIN_DECLINE), onClick = function() Recruit.Decline(req) end,

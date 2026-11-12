@@ -3353,10 +3353,10 @@ friendly nameplates with no guild shown. Review each player and the editable mes
 **Send** for that one recipient or **Skip**. Either choice moves to the next eligible player.
 Olympus checks the native identity and guild information again when you press Send.
 
-An officer can review an independent JOIN or a response to their recent outreach. Either
-can open a window with the sender's message. During combat or while an
-invite window is open, new replies stay in the queue. Olympus saves no prospect list to disk.
-**Prepare invite** opens the `/ginvite` command. On Windows with mouse and keyboard, Ctrl+C
+An officer can review an independent JOIN or a response to their recent outreach. JOIN
+opens the `/ginvite` command directly. During combat, while another invite is open or
+while prompts are on cooldown, requests stay in the Church's Invites queue. Olympus saves
+no prospect list to disk. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
 copies the selected command and hands focus to empty game chat. You can also copy it and
 click **Open game chat**. Paste the command and press Enter. Dismiss the request after sending. Turning recruiting off clears the
 experimental requests and pending outreach draft.
