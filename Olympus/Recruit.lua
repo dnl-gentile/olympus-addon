@@ -652,19 +652,49 @@ Recruit.IsWhisperRecruiting = Recruiting
 
 -- Realm-group and faction storage already comes from rdb. Within it, retain one
 -- exact guild choice for this character. Requests, drafts and handoffs stay in memory.
+-- (1.5.9, the author's report, 11-12: "As configurações não devem mudar entre login") The character's
+-- key: where names split (WoW: Forever) his name alone, as it stays his on whichever sub-realm of his
+-- family he logs in (ns.me carries that sub-realm: a login on another one found no choice, or an older
+-- one, so recruiting came back on or off on its own); elsewhere "Name-Realm", as before.
+local function ChoiceKey()
+	local me = ns.me
+	if type(me) ~= "string" or me == "" or me == "?" then return nil end
+	return ns.splitNames and ns.ShortName(me) or me
+end
+
+-- (1.5.9) A choice 1.5.8 kept under "Name-<sub-realm>": moved under the name alone, the one of the
+-- sub-realm he is on first (what 1.5.8 read at this login), else the first by name; the others go.
+local function MoveOldChoice(choices, key)
+	local old = {}
+	for name, value in pairs(choices) do
+		if type(name) == "string" and name ~= key and type(value) == "table" and ns.ShortName(name) == key then
+			old[#old + 1] = name
+		end
+	end
+	if #old == 0 then return nil end
+	table.sort(old)
+	local saved = choices[ns.me]
+	if type(saved) ~= "table" then saved = choices[old[1]] end
+	for _, name in ipairs(old) do choices[name] = nil end
+	choices[key] = saved
+	return saved
+end
+
 local function RecruitmentPreference(guild, create)
-	if type(ns.rdb) ~= "table" or type(ns.me) ~= "string" or ns.me == "" or ns.me == "?" then return end
+	local key = type(ns.rdb) == "table" and ChoiceKey() or nil
+	if not key then return end
 	local choices = ns.rdb.recruitmentPreference
 	if type(choices) ~= "table" then
 		if not create then return end
 		choices = {}
 		ns.rdb.recruitmentPreference = choices
 	end
-	local saved = choices[ns.me]
+	local saved = choices[key]
+	if saved == nil and key ~= ns.me then saved = MoveOldChoice(choices, key) end
 	if type(saved) == "table" and (not guild or saved.guild == guild) then return saved end
 	if not create then return end
 	saved = { guild = guild }
-	choices[ns.me] = saved
+	choices[key] = saved
 	return saved
 end
 
@@ -673,6 +703,17 @@ end
 function Recruit.Preference(create)
 	if not recruitingGuild then return nil end
 	return RecruitmentPreference(recruitingGuild, create)
+end
+
+-- (1.5.9) The record that keeps the ads reminder's interval and channels, which Church > Invites
+-- shows recruiting on or off (they run only while it is on): the one recruiting uses (made with
+-- `create`), else this character's earlier choice for his guild, never a new one, so setting them
+-- alone does not answer the Census offer.
+local function AdChoiceRecord(create)
+	if recruitingGuild then return RecruitmentPreference(recruitingGuild, create) end
+	local guild = WhisperGuild()
+	if type(guild) ~= "string" or guild == "" or ns.IsSecret(guild) then return nil end
+	return RecruitmentPreference(guild)
 end
 
 local function QueueOnly()
@@ -713,7 +754,16 @@ local function StopRecruiting()
 	end
 end
 
+-- The scan and handoff switches as this character left them for this guild.
+local function RestoreSwitches(saved)
+	if Recruit.Handoff and Recruit.Handoff.Restore then Recruit.Handoff.Restore(saved) end
+	if Recruit.Candidates and Recruit.Candidates.Restore then Recruit.Candidates.Restore(saved) end
+end
+
 local function RestoreRecruiting()
+	-- (1.5.9) The ads reminder's interval and channels come back recruiting on or off: Church > Invites
+	-- shows them either way, and an off login showed them off until recruiting was on again.
+	if Recruit.RestoreAdChoices then Recruit.RestoreAdChoices(AdChoiceRecord()) end
 	local saved = RecruitmentPreference()
 	if not recruitingGuild and (not saved or saved.enabled ~= true) then return end
 	local guild = EligibleRecruitingGuild()
@@ -724,11 +774,7 @@ local function RestoreRecruiting()
 		ns.Fire("DATA_CHANGED")
 	end
 	-- The scan and handoff switches come back with recruiting, after a /reload or a login.
-	if recruitingGuild and saved then
-		if Recruit.Handoff and Recruit.Handoff.Restore then Recruit.Handoff.Restore(saved) end
-		if Recruit.Candidates and Recruit.Candidates.Restore then Recruit.Candidates.Restore(saved) end
-		if Recruit.RestoreAnnounceReminder then Recruit.RestoreAnnounceReminder(saved) end
-	end
+	if recruitingGuild and saved then RestoreSwitches(saved) end
 end
 
 -- (1.5.8, the author's: "se ela tentar ativar e ela não puder convidar pessoas, vai avisar, tipo,
@@ -760,9 +806,22 @@ function Recruit.ToggleWhisperRecruiting()
 	end
 	local on = recruitingGuild ~= guild
 	StopRecruiting()
-	local saved = RecruitmentPreference(guild, true)
+	local earlier = RecruitmentPreference(guild)
+	local saved = earlier or RecruitmentPreference(guild, true)
 	if saved then saved.enabled = on end
-	if on then recruitingGuild = guild end
+	if on then
+		recruitingGuild = guild
+		-- (1.5.9, the author's report, 11-12: "ele parece ativar sozinho") What this character left on
+		-- for this guild comes back with recruiting at once, as after a login: before, the switches
+		-- showed off here and came on by themselves at the next roster update, seconds later. A new
+		-- choice keeps the ads reminder as Church > Invites shows it now.
+		if earlier then
+			RestoreSwitches(saved)
+			if Recruit.RestoreAdChoices then Recruit.RestoreAdChoices(saved) end
+		elseif saved and Recruit.KeepAdChoices then
+			Recruit.KeepAdChoices(saved)
+		end
+	end
 	ns.Fire("DATA_CHANGED")
 	return on
 end
@@ -1199,19 +1258,46 @@ local function RemindAnnouncement()
 	end
 end
 
-local function SetReminder(index)
-	if reminderIndex == index then return end
-	if reminderTimer then reminderTimer.Cancel(); reminderTimer = nil end
-	CloseReminderDraft()
-	reminderIndex = index
-	local minutes = REMINDER_MINUTES[index]
-	if minutes > 0 then
-		reminderTimer = ns.Every(minutes * 60, "recruiting reminder", RemindAnnouncement)
+-- (1.5.8) The interval is kept with the recruiting choice, as the scan and handoff switches are
+-- (RestoreRecruiting). (1.5.9, the author's report, 11-12: "As configurações não devem mudar entre
+-- login") So are the reminder's channels (rotate, or the last selected), and both are kept and come
+-- back recruiting on or off (AdChoiceRecord): Church > Invites shows them either way.
+local function KeepAdChoices(saved)
+	saved = saved or AdChoiceRecord(true)
+	if type(saved) ~= "table" then return end
+	local minutes = REMINDER_MINUTES[reminderIndex] or 0
+	saved.announceReminder = minutes > 0 and minutes or nil
+	saved.reminderSelected = not rotateReminder or nil
+end
+Recruit.KeepAdChoices = KeepAdChoices
+
+-- `keep` false: the saved interval coming back, not the player's choice.
+local function SetReminder(index, keep)
+	if reminderIndex ~= index then
+		if reminderTimer then reminderTimer.Cancel(); reminderTimer = nil end
+		CloseReminderDraft()
+		reminderIndex = index
+		local minutes = REMINDER_MINUTES[index]
+		if minutes > 0 then
+			reminderTimer = ns.Every(minutes * 60, "recruiting reminder", RemindAnnouncement)
+		end
+		ns.Fire("DATA_CHANGED")
 	end
-	-- (1.5.8) Kept with the recruiting choice, as the scan and handoff switches are (RestoreRecruiting).
-	local saved = Recruit.Preference(true)
-	if saved then saved.announceReminder = minutes > 0 and minutes or nil end
-	ns.Fire("DATA_CHANGED")
+	if keep ~= false then KeepAdChoices() end
+end
+
+function Recruit.RestoreAdChoices(saved)
+	if type(saved) ~= "table" then return end
+	local minutes = type(saved.announceReminder) == "number" and saved.announceReminder or 0
+	for index, m in ipairs(REMINDER_MINUTES) do
+		if m == minutes then SetReminder(index, false); break end
+	end
+	local rotate = saved.reminderSelected ~= true
+	if rotate ~= rotateReminder then
+		rotateReminder, lastReminderChannel = rotate, nil
+		CloseReminderDraft()
+		ns.Fire("DATA_CHANGED")
+	end
 end
 
 local function AnnouncementLines(lines, V)
@@ -1236,23 +1322,23 @@ local function AnnouncementLines(lines, V)
 	if minutes > 0 then
 		lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_ANNOUNCE_REMINDER_PREVIEW:format(minutes)) }
 	end
-	lines[#lines + 1] = { indent = 1, gapAfter = true,
+	lines[#lines + 1] = { id = "recruit-announcement-rotate", indent = 1, gapAfter = true,
 		text = V.Grey(rotateReminder and L.RECRUIT_ANNOUNCE_REMINDER_ROTATE or L.RECRUIT_ANNOUNCE_REMINDER_SELECTED),
 		tooltip = function(tt) tt:AddLine(L.RECRUIT_ANNOUNCE_REMINDER_TIP, 1, 1, 1, true) end,
 		onClick = function()
 			rotateReminder, lastReminderChannel = not rotateReminder, nil
 			CloseReminderDraft()
+			KeepAdChoices()
 			ns.Fire("DATA_CHANGED")
 		end }
 end
 
--- 1.5.8 (the author's ask, 11-12: turned off here, "Ele não tá aparecendo de novo para ativar as
--- coisas... deveria aparecer"): recruiting turned off in Church > Invites brings the Census offer
--- back at the next opening, unless the player chose Don't ask again there.
+-- 1.5.9 (the author's report, 11-12: "quando eu desativo... ele parece ativar sozinho de novo na
+-- próxima vez que eu faço o login... As configurações não devem mudar entre login"): recruiting
+-- turned off in Church > Invites is kept off, as the player left it. (1.5.8 forgot the choice there
+-- to bring the Census offer back, which lost the off.)
 local function ChurchSwitch()
-	local on = Recruit.ToggleWhisperRecruiting()
-	if not on and not Recruiting() then Recruit.ForgetUnusedChoice() end
-	return on
+	return Recruit.ToggleWhisperRecruiting()
 end
 
 function Recruit.WhisperLines()
@@ -2185,7 +2271,8 @@ StaticPopupDialogs["OLYMPUS_RECRUIT"] = {
 }
 
 -- 1.5.8 (the author's ask): the Census offer's switches. The public-channel reminder's interval in
--- minutes (0: off), set by minutes, and brought back with the recruiting choice after a login.
+-- minutes (0: off), set by minutes, and brought back with the recruiting choice after a login
+-- (Recruit.RestoreAdChoices).
 function Recruit.AnnounceReminderMinutes()
 	return REMINDER_MINUTES[reminderIndex] or 0
 end
@@ -2198,11 +2285,6 @@ function Recruit.SetAnnounceReminder(minutes)
 		end
 	end
 	return false
-end
-
-function Recruit.RestoreAnnounceReminder(saved)
-	if type(saved) ~= "table" or REMINDER_MINUTES[reminderIndex] ~= 0 then return end
-	if type(saved.announceReminder) == "number" then Recruit.SetAnnounceReminder(saved.announceReminder) end
 end
 
 -- 1.5.8 (the author's ask, 11-12: "tem que ter um aviso... enquanto essas features estiverem ativadas,
@@ -2220,8 +2302,11 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ACTIVATED"] = {
 function Recruit.ActivatedNotice()
 	if not Recruiting() or not ns.Dialog or ns.Dialog.missing then return false end
 	ns.db.recruitNoticeSeen = type(ns.db.recruitNoticeSeen) == "table" and ns.db.recruitNoticeSeen or {}
-	if ns.db.recruitNoticeSeen[ns.me] then return false end
-	ns.db.recruitNoticeSeen[ns.me] = true
+	-- (1.5.9) By the character's key (ChoiceKey), so another sub-realm of his family does not show it
+	-- again; 1.5.8 kept it by ns.me.
+	local seen, key = ns.db.recruitNoticeSeen, ChoiceKey() or ns.me
+	if seen[key] or seen[ns.me] then return false end
+	seen[key] = true
 	return ns.Dialog.Show("OLYMPUS_RECRUIT_ACTIVATED", L.RECRUIT_ACTIVATED_NOTICE) ~= nil
 end
 
@@ -2231,7 +2316,7 @@ function Recruit.ForgetUnusedChoice()
 	local guild = EligibleRecruitingGuild()
 	local saved = guild and RecruitmentPreference(guild)
 	if not saved or saved.enabled == true or Recruiting() then return false end
-	ns.rdb.recruitmentPreference[ns.me] = nil
+	ns.rdb.recruitmentPreference[ChoiceKey()] = nil
 	return true
 end
 

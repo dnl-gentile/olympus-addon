@@ -3350,6 +3350,10 @@ cancellation, compatibility and the in-game checks for the transport queue.
 Turn **Recruiting by whisper** on in **Church → Invites**.
 It starts off for each character. An officer's choice to enable recruiting is remembered for
 that character in the same guild, as long as the game still allows that character to invite.
+Each switch in **Church → Invites** (1.5.9) shows after a `/reload` or a login what you left it
+at, off as much as on, on WoW: Forever on any sub-realm of your character's family. Recruiting
+turned off stays off (no Census offer asks again), and turned on again brings the other switches
+back as you left them.
 **Incoming JOIN** defaults to a pop-up. Choose **Queue only** to keep the chat notice and
 the request in **Church → Invites**. Pending requests are cleared at login.
 Interested players can whisper you **JOIN**, even without Olympus installed.

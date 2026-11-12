@@ -243,8 +243,12 @@ end
 
 local function Toggle()
 	if guild then Q.Reset(); Save("scan", nil); Change(); return end
-	if Start() then
-		Save("scan", true); Save("scanListOnly", nil)
+	-- (1.5.9, the author's report, 11-12: "Ele tem que ficar desativado se ele estava desativado") The
+	-- popups as the player left them: on unless he chose the list alone. Turning the scan on again put
+	-- them back on, after a login too.
+	local saved = R.Preference and R.Preference()
+	if Start(type(saved) == "table" and saved.scanListOnly == true) then
+		Save("scan", true)
 		Q.SearchMore() -- (1.5.8: the switch's click sends the first /who)
 	end
 end
