@@ -914,3 +914,271 @@ test("recruit log (1.5.8): /oly recruit testjoin feeds a JOIN on a test build on
 		end)
 	end)
 end)
+
+-- 1.5.8 (the author's: "roda a simulação, faz teste todos os testes possíveis"): a guild of six,
+-- each member his own copy of Recruit.lua and RecruitHandoff.lua (their own queues, limits, offers
+-- and logs), whispering each other through one in-memory transport that checks each packet's guard
+-- when it leaves. One busy recruiter is at his 10 invites a minute with the automatic offers on;
+-- two members accept handoffs and can invite, one accepts but is at his own limit, two do not
+-- accept. Forty JOINs reach the busy recruiter over a few minutes.
+local addonDir = debug.getinfo(1, "S").source:match("^@(.-)tests/[^/]*$") or ""
+
+local function SimDialogs(defs)
+	local shown, D = {}, {}
+	function D.Find(which, data)
+		for i = #shown, 1, -1 do
+			local f = shown[i]
+			if f.which == which and f.open and (data == nil or f.data == data) then return f end
+		end
+	end
+	function D.Show(which, a, _, data)
+		local f = { which = which, text = a, data = data, open = true, def = defs[which] or StaticPopupDialogs[which] }
+		f.Hide = function() f.open = false end
+		shown[#shown + 1] = f
+		return f
+	end
+	function D.Hide(which) local f = D.Find(which); if f then f.open = false end end
+	function D.CloseOnEscape() end
+	return D
+end
+
+local function SimClient(world, name)
+	local c = { name = name, later = {}, timers = {}, printed = {}, defs = {} }
+	local cns = setmetatable({}, { __index = ns })
+	cns.me, cns.db, cns.rdb = name, { log = {}, errors = {} }, {}
+	cns.Comm = setmetatable({
+		Handle = function() end, HandleOutside = function() end,
+		WhisperOutside = function() return true end,
+		Whisper = function(peer, word, _, _, logged, done, options)
+			eq(logged, false, "handoff packets do not go to the chat log")
+			world.queue[#world.queue + 1] = { from = c, peer = peer, word = word, done = done, guard = options and options.guard }
+			return true
+		end,
+	}, { __index = ns.Comm })
+	cns.On, cns.RegisterEvent = function() end, function() end
+	cns.Print = function(msg) c.printed[#c.printed + 1] = tostring(msg) end
+	cns.After = function(delay, _, fn) c.later[#c.later + 1] = { due = world.scene.now + (tonumber(delay) or 0), fn = fn } end
+	cns.Every = function(every, label, fn)
+		local timer = { every = every, next = world.scene.now + every, fn = fn }
+		timer.Cancel = function() if c.timers[label] == timer then c.timers[label] = nil end end
+		c.timers[label] = timer
+		return timer
+	end
+	cns.Dialog = SimDialogs(c.defs)
+	c.D = cns.Dialog
+	-- The copies define their own popups; the harness's stay as they were.
+	local before = {}
+	for k, v in pairs(StaticPopupDialogs) do before[k] = v end
+	assert(loadfile(addonDir .. "Olympus/Recruit.lua"))("Olympus", cns)
+	assert(loadfile(addonDir .. "Olympus/RecruitHandoff.lua"))("Olympus", cns)
+	for k, v in pairs(StaticPopupDialogs) do if before[k] ~= v then c.defs[k] = v end end
+	for k in pairs(c.defs) do StaticPopupDialogs[k] = before[k] end
+	c.ns, c.R, c.H = cns, cns.Recruit, cns.Recruit.Handoff
+	world.byName[name] = c
+	world.clients[#world.clients + 1] = c
+	return c
+end
+
+-- One packet at a time, in order; a guard that refuses drops it (as Comm's queue does).
+local function SimDeliver(world)
+	local n = 0
+	while #world.queue > 0 do
+		n = n + 1
+		assert(n < 5000, "the packets settle")
+		local p = table.remove(world.queue, 1)
+		local ok, why = true, nil
+		if p.guard then ok, why = p.guard() end
+		if p.done then p.done(ok and true or false, not ok and why or nil) end
+		local to = world.byName[p.peer]
+		if ok and to then
+			local op, id, applicantName = p.word:match("^J4~(%u)~([^~]+)~.*~([^~]*)$")
+			if op ~= "N" then eq(applicantName, "", "only a name packet carries a name") end
+			world.sent[#world.sent + 1] = { from = p.from, to = to, op = op, id = id, name = applicantName, at = world.scene.now }
+			to.H.Receive("WHISPER", p.from.name, p.word)
+		end
+	end
+end
+
+local function SimTake(c, world)
+	local draft = c.D.Find(DRAFT)
+	if not draft then return end
+	local data = draft.data
+	local who = data.req and data.req.name
+	draft.def.extra.onClick(draft, data)
+	if not draft.open and who then
+		world.taken[#world.taken + 1] = { by = c, name = who, at = world.scene.now }
+	end
+	draft:Hide()
+end
+
+local function SimStep(world, c)
+	local now = world.scene.now
+	local due = c.later
+	c.later = {}
+	for _, item in ipairs(due) do
+		if item.due <= now then item.fn() else c.later[#c.later + 1] = item end
+	end
+	for _, timer in pairs(c.timers) do
+		if timer.next <= now then
+			timer.next = now + timer.every
+			timer.fn()
+		end
+	end
+end
+
+test("recruit handoff simulation (1.5.8): forty JOINs at a busy recruiter each end with exactly one inviter", function()
+	WithHandoff(function(scene)
+		local savedUtil, savedRank, savedOnline = ChatFrameUtil, ns.Roster.RankOf, ns.Roster.online
+		ChatFrameUtil = { OpenChat = function() end }
+		local world = { scene = scene, queue = {}, byName = {}, clients = {}, sent = {}, taken = {} }
+		local ok, err = pcall(function()
+			local function Full(short) return short .. "-" .. home end
+			local busy = SimClient(world, Full("Busy Recruiter"))
+			local ableOne = SimClient(world, Full("Able Inviter"))
+			local ableTwo = SimClient(world, Full("Ready Inviter"))
+			local full = SimClient(world, Full("Full Inviter"))
+			local offA = SimClient(world, Full("Quiet Member"))
+			local offB = SimClient(world, Full("Silent Member"))
+			local ranks = {}
+			ns.Roster.online = {}
+			for i, c in ipairs(world.clients) do
+				ranks[c.name] = i == 1 and 0 or 2
+				ns.Roster.online[#ns.Roster.online + 1] = { name = c.name }
+			end
+			ns.Roster.RankOf = function(name) return ranks[ns.FullName(name)] end
+			for _, c in ipairs(world.clients) do eq(c.R.ToggleWhisperRecruiting(), true, c.name .. " recruits") end
+			for _, c in ipairs({ ableOne, ableTwo, full }) do eq(c.H.Toggle(), true, c.name .. " accepts handoffs") end
+			-- A member's own JOINs, each taken to chat: his invite limit, reached the real way.
+			local own = 0
+			local function FillLimit(c)
+				while not c.R.AtInviteLimit() do
+					own = own + 1
+					local walker = ("Own Walker %s-%s"):format(("abcdefghijklmnopqrstuvwxyz"):sub(own % 26 + 1, own % 26 + 1) .. own, home)
+					c.R.OnWhisper("JOIN", walker)
+					local req = c.R.requests[#c.R.requests]
+					assert(req and req.name == walker)
+					if not c.D.Find(DRAFT, nil) or c.D.Find(DRAFT).data.req ~= req then c.R.Accept(req) end
+					local draft = assert(c.D.Find(DRAFT))
+					draft.def.extra.onClick(draft, draft.data)
+					while c.D.Find(DRAFT) do c.D.Find(DRAFT):Hide() end
+				end
+			end
+			FillLimit(busy)
+			eq(busy.R.AtInviteLimit(), true, "the busy recruiter is at his limit")
+			eq(busy.H.ToggleAuto(), true, "with the automatic offers on")
+			FillLimit(full)
+			-- (A long run fills more than the ring holds: here each copy keeps all of it, to check every handoff.)
+			for _, c in ipairs(world.clients) do c.H.LOG_MAX = 100000 end
+			local applicants, tags = {}, {}
+			for i = 1, 40 do
+				applicants[i] = Full(("Applicant %s"):format(("abcdefghijklmnopqrstuvwxyzabcdefghijklmn"):sub(i, i) .. i))
+				tags[applicants[i]] = busy.H.Tag(applicants[i])
+			end
+			local isApplicant = {}
+			for _, name in ipairs(applicants) do isApplicant[name] = true end
+			local next, start = 1, scene.now
+			local function Resolved()
+				local count = 0
+				for _, name in ipairs(applicants) do
+					local n = 0
+					for _, p in ipairs(world.sent) do if p.op == "N" and p.name == name then n = n + 1 end end
+					for _, t in ipairs(world.taken) do if t.by == busy and t.name == name then n = n + 1 end end
+					if n > 0 then count = count + 1 end
+				end
+				return count
+			end
+			while scene.now - start < 1200 do
+				scene.now = scene.now + 1
+				if next <= #applicants and (scene.now - start) % 5 == 0 then
+					busy.R.OnWhisper("JOIN", applicants[next])
+					next = next + 1
+				end
+				FillLimit(full)
+				for _, c in ipairs(world.clients) do SimStep(world, c) end
+				SimDeliver(world)
+				-- What each member does with what is on his screen.
+				for _, c in ipairs({ ableOne, ableTwo, full }) do
+					local ask = c.D.Find(CLAIM)
+					if ask then
+						ask:Hide()
+						ask.def.OnAccept(ask, ask.data)
+					end
+				end
+				SimDeliver(world)
+				for _, c in ipairs({ busy, ableOne, ableTwo }) do SimTake(c, world) end
+				SimDeliver(world)
+				if next > #applicants and Resolved() == #applicants then break end
+			end
+			-- Every JOIN ended with exactly one inviter: one member who claimed it, or the busy
+			-- recruiter himself once his minute cleared, never both and never two members.
+			local handedTo, takenBy = {}, {}
+			for _, p in ipairs(world.sent) do
+				if p.op == "N" then
+					assert(isApplicant[p.name], "only the applicants' names are handed on")
+					handedTo[p.name] = handedTo[p.name] or {}
+					table.insert(handedTo[p.name], p)
+				end
+			end
+			for _, t in ipairs(world.taken) do
+				if t.by == busy and isApplicant[t.name] then takenBy[t.name] = (takenBy[t.name] or 0) + 1 end
+			end
+			local handed, back = 0, 0
+			for _, name in ipairs(applicants) do
+				local n = handedTo[name] and #handedTo[name] or 0
+				local own = takenBy[name] or 0
+				eq(n + own, 1, "exactly one inviter for " .. tags[name] .. " (handed " .. n .. ", his own " .. own .. ")")
+				if n == 1 then
+					handed = handed + 1
+					local p = handedTo[name][1]
+					assert(p.to == ableOne or p.to == ableTwo, "only a member who accepts and can invite gets a name")
+					-- The name went only after that member's claim of that very offer.
+					local claimed, offered = false, false
+					for _, q in ipairs(world.sent) do
+						if q.id == p.id and q.op == "O" and q.to == p.to and q.at <= p.at then offered = true end
+						if q.id == p.id and q.op == "C" and q.from == p.to and q.at <= p.at then claimed = true end
+					end
+					assert(offered and claimed, "the name followed an offer and its claim")
+					-- Both sides' logs show it: sent on one, received on the other.
+					local short = ns.ShortName(p.to.name)
+					local sentLine, gotLine = false, false
+					for _, line in ipairs(busy.ns.db.recruitLog) do
+						if line:find("TX name " .. tags[name] .. " > " .. short, 1, true) then sentLine = true end
+					end
+					for _, line in ipairs(p.to.ns.db.recruitLog) do
+						if line:find("RX name " .. tags[name] .. " < Busy Recruiter", 1, true) then gotLine = true end
+					end
+					assert(sentLine, "the busy recruiter's log shows the name sent to " .. short)
+					assert(gotLine, short .. "'s log shows the name received")
+				else
+					back = back + 1
+				end
+			end
+			assert(handed > 0, "some JOINs were handed on")
+			assert(back > 0, "some came back to his own popups once his minute cleared")
+			-- Nobody else ever got an offer or a name, and no member got more than ten names a minute.
+			for _, p in ipairs(world.sent) do
+				if p.op == "O" or p.op == "N" then
+					assert(p.to == ableOne or p.to == ableTwo, "no offer or name to " .. p.to.name)
+				end
+			end
+			for _, c in ipairs({ ableOne, ableTwo }) do
+				local times = {}
+				for _, p in ipairs(world.sent) do if p.op == "N" and p.to == c then times[#times + 1] = p.at end end
+				for i = 1, #times do
+					local inMinute = 0
+					for j = i, #times do if times[j] - times[i] < 60 then inMinute = inMinute + 1 end end
+					assert(inMinute <= 10, c.name .. " was given more than ten names in a minute")
+				end
+			end
+			-- The member at his own limit and the two who do not accept were asked and said no.
+			local probed = {}
+			for _, p in ipairs(world.sent) do if p.op == "P" then probed[p.to] = true end end
+			assert(probed[full] or probed[offA] or probed[offB], "the probes also reached the members who said no")
+			for _, line in ipairs(busy.ns.db.recruitLog) do
+				for _, name in ipairs(applicants) do assert(not line:find(ns.ShortName(name), 1, true), "no applicant's name in the log") end
+			end
+		end)
+		ChatFrameUtil, ns.Roster.RankOf, ns.Roster.online = savedUtil, savedRank, savedOnline
+		if not ok then error(err, 0) end
+	end)
+end)
