@@ -1050,6 +1050,9 @@ local function World(C, opts)
 		E.ChatFrame1EditBox:Show()
 		E.ChatFrame1EditBox.text = text
 	end
+	-- No chat box open: the client's ACTIVE_CHAT_EDIT_BOX is nil until one opens, and again once
+	-- it closes (Blizzard_ChatFrameBase's edit box deactivation clears it).
+	C.Absent("ACTIVE_CHAT_EDIT_BOX", "no chat box open")
 	E.ChatFrame_OpenChat = Fn("ChatFrame_OpenChat", function(text) ChatBox(text) end)
 	E.ChatFrame_SendTell = Fn("ChatFrame_SendTell", function(name) ChatBox("/w " .. tostring(name) .. " ") end)
 	E.ChatEdit_InsertLink = Fn("ChatEdit_InsertLink", function(link) if C.chatBox then C.chatBox.text = (C.chatBox.text or "") .. link return true end return false end)
@@ -4252,26 +4255,44 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 		eq(#(C.said or {}), sends, "opening the private draft does not whisper")
 		C.Click(whisper.buttons[1])
 		eq(#(C.said or {}), sends + 1, "one explicit Send whispers the live player")
-		ClickLine(function(line) return line.id == "recruit-candidate-prompts" end)
-		assert(QueueLine(ns.L.RECRUIT_CANDIDATE_WHISPER_OFF), "whisper reminders start disabled")
-		ClickLine(function(line) return line.id == "recruit-candidate-whisper-reminder" end)
+		-- (1.5.8, the author's ask) No whisper popup comes on its own any more: the timed popup of a
+		-- scanned player is the invite popup, with "Whisper them first"; his invite popup comes
+		-- back once that whisper closes. A JOIN's popup has no such button.
 		Refresh()
-		assert(QueueLine(ns.L.RECRUIT_CANDIDATE_WHISPER_EVERY:format(2)))
-		Plate(6, "TimedWhisper", nil, "Alliance")
-		C.Advance(105)
-		who[1].fullName = "WhoOnlyAgain-Realm"
-		C.Fire("WHO_LIST_UPDATE")
-		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"), nil, "the reminder waits for its interval")
-		C.Advance(35)
-		local timed = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"))
-		eq(timed.data.queue[1].name, "TimedWhisper", "skip recently contacted and WHO-only candidates")
-		eq(#(C.said or {}), sends + 1, "the scheduled draft sends nothing on its own")
-		C.Advance(105)
-		Plate(7, "AnotherWhisper", nil, "Alliance")
-		C.Advance(35)
-		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"), timed, "a later interval leaves the pending draft alone")
-		eq(#(C.said or {}), sends + 1)
-		timed:Hide()
+		eq(QueueLine(ns.L.RECRUIT_CANDIDATE_WHISPER_OFF), nil, "no whisper reminder switch")
+		C.Advance(20); C.now = C.now + 21 -- (past the whisper wait after the one above)
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"), nil, "no whisper popup on its own")
+		Plate(6, "WhisperFirst", nil, "Alliance")
+		C.Advance(15.1)
+		local first = assert(Draft(), "the timed popup of a scanned player is the invite popup")
+		eq(first.editBox:GetText(), "/ginvite WhisperFirst")
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"), nil, "no whisper popup on its own")
+		local whisperFirst = first.buttons[3]
+		eq(whisperFirst:IsShown(), true, "a live scanned player can be whispered first")
+		eq(whisperFirst:GetText(), ns.L.RECRUIT_CANDIDATE_WHISPER_FIRST)
+		C.Click(whisperFirst)
+		eq(Draft(), nil, "the invite popup gives way to the whisper")
+		local review = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"))
+		eq(review.data.queue[1].name, "WhisperFirst")
+		eq(#(C.said or {}), sends + 1, "opening the whisper sends nothing")
+		C.Click(review.buttons[1])
+		eq(#(C.said or {}), sends + 2, "Send whispers him")
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"), nil)
+		C.Advance(0.1)
+		local back = assert(Draft(), "his invite popup comes back after the whisper")
+		eq(back.data.candidate.name, "WhisperFirst"); eq(back.editBox:GetText(), "/ginvite WhisperFirst")
+		eq(back.buttons[3]:IsShown(), false, "just whispered: no second whisper offered")
+		back:Hide()
+		ns.Recruit.OnJoinRequest("WHISPER", "Joiner Test-Realm", ("J3~%s~12~MAGE"):format(C.units.player.guild))
+		local join = ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT")
+		if join and join.data.req then eq(join.buttons[3]:IsShown(), false, "a JOIN popup has no whisper button") end
+		if join then join:Hide() end
+		C.Advance(181)
+		for _, which in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY" }) do
+			local open = ns.Dialog.Find(which)
+			if open then open:Hide() end
+		end
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"), nil, "still no whisper popup on its own")
 		Refresh()
 		eq(QueueLine("WhoTest"), nil, "WHO results expire after a few minutes")
 		for _, call in ipairs(C.Since(start)) do
@@ -4540,7 +4561,24 @@ test("gamepad Forever Join requests can copy a command and open empty game chat 
 		end
 		eq(assert(C.chatBox).text, "", "the player pastes into empty game chat")
 		eq(target, C.env.DEFAULT_CHAT_FRAME, "an unrelated focus override cannot receive the paste")
-		eq(draft:IsShown(), false)
+		-- (1.5.8, the author: close on Ctrl+V, not on Ctrl+C) The popup waits for the paste.
+		C.Advance(1)
+		eq(draft:IsShown(), true, "Ctrl+C keeps the popup up while chat is open")
+		-- The chat box closed without the command (Escape): the popup stays for another Ctrl+C
+		-- (ChatFrameEditBox: closing the box clears ACTIVE_CHAT_EDIT_BOX).
+		C.env.ACTIVE_CHAT_EDIT_BOX = nil
+		C.env.ChatFrame1EditBox:Hide(); C.env.ChatFrame1EditBox.text = ""
+		C.Advance(1)
+		eq(draft:IsShown(), true, "chat closed empty leaves the popup up")
+		ctrl = true
+		Key("OnKeyDown", "C")
+		ctrl = false
+		Key("OnKeyUp", "C")
+		if pad then eq(draft:IsShown(), true); C.Click(draft.extraButton) end
+		eq(assert(C.chatBox).text, "", "chat opens again for the paste")
+		C.env.ChatFrame1EditBox.text = "/ginvite New Recruit"
+		C.Advance(0.25)
+		eq(draft:IsShown(), false, "Ctrl+V of the command in the chat box closes the popup")
 		eq(R.requests[1], req)
 		for _, call in ipairs(C.Since(mark)) do
 			assert(call.sym ~= "C_GuildInfo.Invite" and call.sym ~= "GuildInvite", "no protected guild call")

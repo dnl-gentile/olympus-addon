@@ -9,9 +9,7 @@ R.Candidates = Q
 -- player who joined a guild since the /who.
 local MAX, LIVE_TTL, WHO_TTL, PROMPT_GAP = 24, 90, 180, 15
 local rows, byName, byGUID = {}, {}, {}
-local WHISPER_MINUTES = { 0, 2, 5, 10, 15, 30 }
 local guild, prompts, timer
-local whisperChoice, whisperAt = 1, nil
 local raceFaction = {
 	Human = "Alliance", Dwarf = "Alliance", Gnome = "Alliance", NightElf = "Alliance",
 	Draenei = "Alliance", Worgen = "Alliance",
@@ -156,7 +154,6 @@ end
 function Q.Reset()
 	if timer then timer.Cancel(); timer = nil end
 	guild, prompts = nil, nil
-	whisperChoice, whisperAt = 1, nil
 	wipe(rows); wipe(byName); wipe(byGUID)
 	if ns.Dialog and ns.Dialog.Find then
 		for _, which in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_OUTREACH" }) do
@@ -180,19 +177,10 @@ local function Tick()
 	end
 	Prune(now)
 	if #rows ~= before then Change() end
-	local whisperDue = whisperAt and now >= whisperAt
-	if (not prompts and not whisperDue) or quiet or not ns.Dialog or ns.Dialog.missing then return end
+	-- (1.5.8, the author's ask) Only the invite popup comes on its own; a whisper is its
+	-- "Whisper them first" button's, or the list's.
+	if not prompts or quiet or not ns.Dialog or ns.Dialog.missing then return end
 	for _, which in ipairs(blockingDrafts) do if ns.Dialog.Find(which) then return end end
-	if whisperDue then
-		for _, row in ipairs(rows) do
-			if not row.whisperPrompted and R.PromptCandidateWhisper(row) then
-				row.whisperPrompted = true
-				whisperAt = now + WHISPER_MINUTES[whisperChoice] * 60
-				return
-			end
-		end
-	end
-	if not prompts then return end
 	-- (1.5.8) At the invite limit with the automatic offers on, new sightings go to other members.
 	local H = R.Handoff
 	local overflow = H and H.AutoOn() and R.AtInviteLimit()
@@ -207,13 +195,6 @@ local function Tick()
 			end
 		end
 	end
-end
-
-local function ChangeWhisperReminder()
-	whisperChoice = whisperChoice % #WHISPER_MINUTES + 1
-	local minutes = WHISPER_MINUTES[whisperChoice]
-	whisperAt = minutes > 0 and GetTime() + minutes * 60 or nil
-	Change()
 end
 
 local function Start(listOnly)
@@ -255,9 +236,6 @@ function Q.Lines(lines, V)
 	lines[#lines + 1] = { id = "recruit-candidate-prompts", indent = 1,
 		text = (prompts and V.Green or V.Grey)(prompts and L.RECRUIT_CANDIDATE_PROMPTS_ON or L.RECRUIT_CANDIDATE_PROMPTS_OFF),
 		onClick = function() prompts = not prompts; Save("scanListOnly", not prompts or nil); Change() end }
-	lines[#lines + 1] = { id = "recruit-candidate-whisper-reminder", indent = 1,
-		text = whisperAt and V.Green(L.RECRUIT_CANDIDATE_WHISPER_EVERY:format(WHISPER_MINUTES[whisperChoice]))
-			or V.Grey(L.RECRUIT_CANDIDATE_WHISPER_OFF), onClick = ChangeWhisperReminder }
 	Prune(GetTime())
 	if #rows == 0 then lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_CANDIDATE_EMPTY) } end
 	for _, row in ipairs(rows) do

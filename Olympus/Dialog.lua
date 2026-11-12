@@ -369,6 +369,8 @@ function Dialog.Show(which, a, b, data)
 	local labels, used = { def.button1, def.button2, def.button3 }, {}
 	-- (1.5.8) A definition's button2Shown(self, data) leaves its second button out for this dialog.
 	if def.button2Shown and not Call(f, "button2 shown", def.button2Shown, f, data) then labels[2] = nil end
+	-- (1.5.8) button3Shown(self, data) likewise for the third.
+	if def.button3Shown and not Call(f, "button3 shown", def.button3Shown, f, data) then labels[3] = nil end
 	for i, b in ipairs(f.buttons) do
 		if labels[i] then
 			b:SetText(labels[i])

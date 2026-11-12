@@ -553,7 +553,9 @@ test("recruit handoff (1.5.8): at ten invites a minute new JOINs and sightings g
 				local draft = assert(D.Find(DRAFT))
 				eq(R.AtInviteLimit(), false, "under the limit until the tenth command goes to chat")
 				draft.def.extra.onClick(draft, draft.data)
-				eq(D.Find(DRAFT), nil, "the command went to chat")
+				-- (1.5.8, the author: the popup closes on the paste in chat, not when chat opens.)
+				eq(D.Find(DRAFT), draft, "the popup waits for the paste")
+				draft:Hide()
 			end
 			eq(R.AtInviteLimit(), true, "ten commands taken to chat in a minute reach the limit")
 			-- Automatic offers off: the popup says so and offers Pass.
@@ -610,6 +612,7 @@ test("recruit handoff (1.5.8): what the invite limit sent on comes back to his p
 				eq(R.Accept(R.requests[i]), true)
 				local draft = assert(D.Find(DRAFT))
 				draft.def.extra.onClick(draft, draft.data)
+				draft:Hide() -- (1.5.8: the paste in chat closes it)
 			end
 			eq(R.AtInviteLimit(), true)
 			-- With the offers off, the popup offers Pass, and his click passes this one for good.
@@ -670,6 +673,7 @@ test("recruit handoff (1.5.8): turning the offers off brings back what the limit
 				eq(R.Accept(R.requests[i]), true)
 				local draft = assert(D.Find(DRAFT))
 				draft.def.extra.onClick(draft, draft.data)
+				draft:Hide() -- (1.5.8: the paste in chat closes it)
 			end
 			eq(H.ToggleAuto(), true)
 			scene.now = scene.now + 21

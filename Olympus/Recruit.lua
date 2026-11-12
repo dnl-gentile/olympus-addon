@@ -887,6 +887,11 @@ function Recruit.PromptCandidateWhisper(candidate)
 		{ queue = queue, guild = recruitingGuild, candidate = candidate }) ~= nil
 end
 
+-- (1.5.8) A scanned player his whisper review can open for now (a live one, not just contacted).
+function Recruit.CanWhisperCandidate(candidate)
+	return Recruit.Candidates.Check(candidate, true) ~= nil and not RecentlyContacted(candidate.name, ns.Now())
+end
+
 local function SendOutreach(f, data)
 	if not ns.Gate.Allowed("roster-actions") then return false end
 	local queue = type(data) == "table" and data.queue
@@ -945,6 +950,14 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 	end,
 	OnCancel = function(f, data, reason)
 		if reason == "clicked" and type(data) == "table" then return AdvanceOutreach(f, data.queue) end
+	end,
+	-- (1.5.8, the author's ask) A whisper asked from a scanned player's invite popup ("Whisper them
+	-- first"): once it closes, sent or not, his invite popup comes back.
+	OnHide = function(_, data)
+		local candidate = type(data) == "table" and data.candidate or nil
+		if type(candidate) ~= "table" or not candidate.inviteAfterWhisper then return end
+		candidate.inviteAfterWhisper = nil
+		ns.After(0, "invite after whisper", function() Recruit.CopyCandidateInvite(candidate) end)
 	end,
 	timeout = 0,
 	whileDead = true,
@@ -1519,6 +1532,45 @@ function Recruit.CandidatePromptOpen(row)
 	return false
 end
 
+-- (1.5.8, the author's ask: "deveria fechar só no Ctrl-V") After Ctrl+C the popup stays up until
+-- the command is pasted into the game's chat box: a short look at the open chat box's text (read
+-- only, ACTIVE_CHAT_EDIT_BOX, nil while chat is closed) closes it then. A chat box closed without
+-- the command leaves the popup up for another Ctrl+C.
+local PASTE_STEP, PASTE_LOOKS = 0.1, 300
+local function InviteCommand(data)
+	if type(data) ~= "table" then return nil end
+	local name = data.candidate and data.candidate.name or data.req and NameForCommand(data.req.name)
+	return name and ("/ginvite " .. name) or nil
+end
+
+local function PastedInvite(command) -- gp:chat-box
+	if not ns.Gate.Allowed("chat-box") then return false end
+	local box = ACTIVE_CHAT_EDIT_BOX -- gp:chat-box
+	if type(box) ~= "table" or type(box.GetText) ~= "function" then return false end
+	local ok, text = pcall(box.GetText, box)
+	if not ok or type(text) ~= "string" then return false end
+	return text:match("^%s*(.-)%s*$"):lower() == command:lower()
+end
+
+local function WatchPaste(draft, data)
+	local command = InviteCommand(data)
+	if not command then return end
+	local token, left = {}, PASTE_LOOKS
+	draft.pasteWatch = token
+	local function Look()
+		if draft.pasteWatch ~= token or draft.data ~= data or not draft:IsShown() then return end
+		if PastedInvite(command) then
+			draft.pasteWatch = nil
+			draft:Hide()
+			return
+		end
+		left = left - 1
+		if left > 0 then ns.After(PASTE_STEP, "invite paste", Look) else draft.pasteWatch = nil end
+	end
+	ns.After(PASTE_STEP, "invite paste", Look)
+end
+Recruit.PASTE_STEP = PASTE_STEP
+
 local function OpenInviteChat(draft, data) -- gp:chat-box
 	if not ns.Gate.Allowed("chat-box") then return end
 	if ns.ChatLocked() or (InCombatLockdown and InCombatLockdown()) then return end
@@ -1534,8 +1586,12 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 	if pcall(open, "", DEFAULT_CHAT_FRAME) then
 		if req then req.invitePrepared = true end
 		if data.candidate then data.candidate.invitePrepared = true end
-		invitesTaken[#invitesTaken + 1] = ns.Now()
-		draft:Hide()
+		-- (Counted once a popup: a second Ctrl+C after closing chat is the same command.)
+		if not data.taken then
+			data.taken = true
+			invitesTaken[#invitesTaken + 1] = ns.Now()
+		end
+		WatchPaste(draft, data)
 	end
 end
 
@@ -1552,6 +1608,20 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 	OnButton2 = function(_, data)
 		local item = type(data) == "table" and (data.req or data.candidate) or nil
 		if item and Recruit.Handoff then Recruit.Handoff.Pass(item, data.req ~= nil) end
+	end,
+	-- (1.5.8, the author's ask) Only a scanned player's popup offers to whisper him first: his
+	-- whisper review opens instead, and this popup comes back for him when it closes.
+	button3 = L.RECRUIT_CANDIDATE_WHISPER_FIRST,
+	button3Shown = function(_, data)
+		local candidate = type(data) == "table" and data.candidate or nil
+		return candidate ~= nil and Recruit.CanWhisperCandidate(candidate)
+	end,
+	OnAlt = function(_, data)
+		local candidate = type(data) == "table" and data.candidate or nil
+		if not candidate then return end
+		candidate.inviteAfterWhisper = true
+		if Recruit.PromptCandidateWhisper(candidate) then candidate.whisperPrompted = true
+		else candidate.inviteAfterWhisper = nil end
 	end,
 	extra = { label = L.RECRUIT_WHISPER_INVITE_CHAT, onClick = OpenInviteChat },
 	hasEditBox = true,
@@ -1581,6 +1651,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 		box:SetScript("OnEditFocusLost", function() copying = nil end)
 	end,
 	OnHide = function(f)
+		f.pasteWatch = nil
 		f.editBox:SetScript("OnKeyDown", nil)
 		f.editBox:SetScript("OnKeyUp", nil)
 		f.editBox:SetScript("OnEditFocusGained", nil)
