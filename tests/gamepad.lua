@@ -3861,7 +3861,7 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 	GP.Covers("arena-clicks")
 end)
 
-test("gamepad Forever Join requests prepare a native guild command without invoking protected chat or invite", function()
+test("gamepad Forever Join requests can copy a command and open empty game chat only in mouse mode", function()
 	for _, pad in ipairs({ false, true }) do
 		local C, ns = Session(pad, { realmFrom = function() return "CAMWOWUS2Realm1PvE" end, surname = "Recruiter" })
 		assert(ns.OnForever(), "the live Forever rules")
@@ -3883,8 +3883,36 @@ test("gamepad Forever Join requests prepare a native guild command without invok
 		for _, call in ipairs(C.Since(mark)) do
 			assert(call.sym ~= "C_GuildInfo.Invite" and call.sym ~= "GuildInvite", "no native guild call")
 		end
+		local function Key(script, key)
+			local action = assert(draft.editBox:GetScript(script), "the copy box handles the keyboard shortcut")
+			InClick(C, function() action(draft.editBox, key) end)
+		end
+		local ctrl = false
+		C.env.IsControlKeyDown = function() return ctrl end
+		Key("OnKeyDown", "C"); Key("OnKeyUp", "C")
+		eq(C.chatBox, nil, "typing C is not a copy")
+		ctrl = true
+		Key("OnKeyDown", "C")
+		eq(C.chatBox, nil, "the copy box still has focus during the native copy")
+		ctrl = false
+		Key("OnKeyUp", "C")
+		if pad then
+			eq(C.chatBox, nil, "gamepad leaves the copy box open")
+			eq(draft:IsShown(), true)
+			C.Switch(false)
+			C.Click(draft.extraButton)
+		end
+		eq(assert(C.chatBox).text, "", "the player pastes into empty game chat")
+		eq(draft:IsShown(), false)
+		eq(R.requests[1], req)
+		for _, call in ipairs(C.Since(mark)) do
+			assert(call.sym ~= "C_GuildInfo.Invite" and call.sym ~= "GuildInvite", "no protected guild call")
+		end
+		C.Switch(true)
+		Check(C.ledger, "copy and hand off to game chat")
 		NoErrors(C, "Forever Join requests")
 	end
+	GP.Covers("chat-box")
 end)
 
 test("gamepad public recruiting announcement: channel selection, accepted census, local cooldown and reminder", function()

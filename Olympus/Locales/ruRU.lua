@@ -2826,6 +2826,7 @@ ns.Locale("ruRU", {
 	RECRUIT_HANDOFF_RECEIVED = "Заявку на вступление передал игрок %s.",
 	RECRUIT_WHISPER_QUEUE = "Оставить в очереди",
 	RECRUIT_WHISPER_INVITE_COPY = "Скопируй команду для %s, вставь ее в игровой чат и нажми Enter, чтобы пригласить игрока.",
+	RECRUIT_WHISPER_INVITE_CHAT = "Открыть игровой чат",
 	RECRUIT_ANNOUNCE_OPEN = "Публичное объявление о наборе",
 	RECRUIT_ANNOUNCE_NO_CHANNELS = "Нет доступных публичных каналов, к которым ты присоединился.",
 	RECRUIT_ANNOUNCE_CHANNEL = "Подготовить для /%d %s",

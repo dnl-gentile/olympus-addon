@@ -1199,9 +1199,8 @@ local function AcceptRequest(req, confirmed)
 		local to = NameForCommand(req.name)
 		if not to then return false end
 		if not ns.Dialog or ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return false end
-		-- Forever also rejects addon-prefilled native chat. Leave the game's edit box alone.
-		-- The officer copies this command into Blizzard chat and sends it there.
-		local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", to, nil, "/ginvite " .. to)
+		-- The officer copies and pastes the command. Forever blocks addon-prefilled invites.
+		local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", to, nil, req)
 		if draft then req.invitePrepared = true end
 		return draft ~= nil
 	end
@@ -1230,15 +1229,45 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
 	preferredIndex = 3,
 }
 
+local function OpenInviteChat(draft, req) -- gp:chat-box
+	if not ns.Gate.Allowed("chat-box") then return end
+	if not CurrentRequest(req) or ns.ChatLocked() or (InCombatLockdown and InCombatLockdown()) then return end
+	local util = ChatFrameUtil
+	local open = type(util) == "table" and type(util.OpenChat) == "function" and util.OpenChat or ChatFrame_OpenChat
+	if type(open) ~= "function" then return end
+	ns.Gate.Used("chat-box")
+	if pcall(open, "") then draft:Hide() end
+end
+
 StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 	text = L.RECRUIT_WHISPER_INVITE_COPY,
 	button1 = L.RECRUIT_WHISPER_CLOSE,
+	extra = { label = L.RECRUIT_WHISPER_INVITE_CHAT, onClick = OpenInviteChat },
 	hasEditBox = true,
 	editBoxWidth = 360,
-	OnShow = function(f, command)
-		f.editBox:SetText(command)
-		ns.Focus(f.editBox)
-		f.editBox:HighlightText()
+	OnShow = function(f, req)
+		local box = f.editBox
+		box:SetText("/ginvite " .. NameForCommand(req.name))
+		ns.Focus(box)
+		box:HighlightText()
+		-- Let the game's edit box copy first. Remember Ctrl at key-down because the
+		-- player can release it before C. The only handoff is opening empty chat.
+		local copying
+		box:SetScript("OnKeyDown", function(self, key)
+			if key == "C" then copying = self:HasFocus() and IsControlKeyDown() end
+		end)
+		box:SetScript("OnKeyUp", function(self, key)
+			if key ~= "C" then return end
+			local handoff = copying
+			copying = nil
+			if handoff and self:HasFocus() then OpenInviteChat(f, req) end
+		end)
+		box:SetScript("OnEditFocusLost", function() copying = nil end)
+	end,
+	OnHide = function(f)
+		f.editBox:SetScript("OnKeyDown", nil)
+		f.editBox:SetScript("OnKeyUp", nil)
+		f.editBox:SetScript("OnEditFocusLost", nil)
 	end,
 	timeout = 0,
 	whileDead = true,
