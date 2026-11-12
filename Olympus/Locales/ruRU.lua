@@ -4934,6 +4934,8 @@ ns.Locale("ruRU", {
 	VERIFY_SELF_PROMPT = "Вставь личный код, полученный через /verify в Discord.",
 	VERIFY_SELF_QUEUED = "Локальный запрос создан. Доставка и доступ к Discord пока не подтверждены.",
 	VERIFY_SELF_REFUSED = "Локальный запрос не создан. Проверь код и /olv status, прежде чем повторить попытку.",
+	VERIFY_SELF_SUBMISSION_UNKNOWN = "Отправка не подтверждена. Проверь /olv status или обратись к команде перед повторной отправкой.",
+	VERIFY_SELF_OPEN_LINK = "Открыть Olympus Link",
 	VERIFY_SELF_TOTAL = "Локальные запросы: %d",
 	VERIFY_SELF_TRUNCATED = "Показан статус доставки %d из %d запросов.",
 	VERIFY_SELF_PENDING = "В ожидании",
