@@ -44,13 +44,10 @@ end
 local function WithRealm(fn)
 	H.WithUI(function()
 		local db, rdb = {}, {}
-		local hadGuild, accord = IsInGuild, ns.db.accord
 		for k in pairs(ns.db) do db[k] = true end
 		for k in pairs(ns.rdb) do rdb[k] = true end
 		QuestFont, QuestTitleFont = { font = "QuestFont" }, { font = "QuestTitleFont" }
 		local ok, err = pcall(function()
-			IsInGuild = function() return true end
-			ns.db.accord = { v = ns.ACCORD_VERSION, yes = true }
 			GetGuildInfo = function() return "Olympus II", "Member", 3 end
 			local w, c = Client()
 			local ui, uns = H.LoadUI()
@@ -61,7 +58,6 @@ local function WithRealm(fn)
 			fn(ui, frame, w, c)
 		end)
 		QuestFont, QuestTitleFont = nil, nil
-		IsInGuild, ns.db.accord = hadGuild, accord
 		for k in pairs(ns.db) do if not db[k] then ns.db[k] = nil end end
 		for k in pairs(ns.rdb) do if not rdb[k] then ns.rdb[k] = nil end end
 		if not ok then error(err, 0) end

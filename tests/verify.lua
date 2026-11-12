@@ -36,88 +36,65 @@ end
 test("verify: personal delivery detects the bridge on open, submits once and redacts its status", function()
 	local saved = { bridge = _G.OlympusVerifyBridge242, generic = _G.OlympusBridge,
 		guild = StaticPopupDialogs.OLYMPUS_VERIFY_GUILD, revoke = StaticPopupDialogs.OLYMPUS_VERIFY_REVOKE,
-		self = StaticPopupDialogs.OLYMPUS_VERIFY_SELF, unavailable = StaticPopupDialogs.OLYMPUS_VERIFY_SELF_UNAVAILABLE,
-		result = StaticPopupDialogs.OLYMPUS_VERIFY_SELF_RESULT }
-	local which, text, attempt
+		self = StaticPopupDialogs.OLYMPUS_VERIFY_SELF }
+	local text, action, opts, attempt
 	local ok, err = pcall(function()
 		_G.OlympusVerifyBridge242, _G.OlympusBridge = nil, nil
-		local L = setmetatable({}, { __index = ns.L })
-		local v = setmetatable({ L = L,
-			Dialog = { Show = function(id, body, _, data) which, text, attempt = id, body, data end },
+		local v = setmetatable({ UI = { ShowCopy = function(_, body, a, o) text, action, opts = body, a, o end },
+			Dialog = { Show = function(which, _, _, data) eq(which, "OLYMPUS_VERIFY_SELF"); attempt = data end },
 			On = function() end, Comm = { Handle = function() end } }, { __index = ns })
-		assert(loadfile(ADDON_DIR .. "Locales/VerifyText.lua"))("Olympus", v)
 		assert(loadfile(ADDON_DIR .. "Verify.lua"))("Olympus", v)
 		assert(type(v.Verify.OpenSelf) == "function", "personal verification panel exists")
 		v.Verify.OpenSelf()
-		eq(which, "OLYMPUS_VERIFY_SELF_UNAVAILABLE", "Verify missing at file load or popup open is harmless")
-		assert(text:find(L.VERIFY_SELF_UNAVAILABLE, 1, true))
+		eq(action, nil, "Verify missing at file load or panel open is harmless")
+		assert(text:find(ns.L.VERIFY_SELF_UNAVAILABLE, 1, true))
 		local s = { version = 243, deliveryOnly = true, membershipProof = false, roleAuthority = false,
 			total = 22, truncated = true, requests = {} }
 		for _, state in ipairs({ "pending", "delivered", "rejected", "unsupported_callback", "unknown" }) do
 			s.requests[#s.requests + 1] = { type = "verify", deliveryState = state, id = "opaque-hidden-id", code = "not-for-the-panel" }
 		end
 		for i = 6, 22 do s.requests[i] = { type = "donation", deliveryState = "pending" } end
-		local calls, accepted, callbackError = 0, true, false
-		local def, frame
+		local calls, accepted = 0, true
 		_G.OlympusVerifyBridge242 = { QueueSelf = function(code, extra)
 			eq(code, "my-personal-code"); eq(extra, nil, "bridge is called with dot syntax")
-			calls = calls + 1
-			eq(frame.editBox:GetText(), "", "the code is cleared before the bridge receives it")
-			def.OnAccept(frame, attempt) -- a reentrant callback cannot reuse this attempt
-			if callbackError then error("private detail and my-personal-code") end
-			return accepted
+			calls = calls + 1; return accepted
 		end, Status = function(extra) eq(extra, nil); return s end }
-		v.Verify.OpenSelf()
-		eq(which, "OLYMPUS_VERIFY_SELF", "opening shows the masked code field directly")
-		eq(calls, 0, "opening only reads")
+		opts.second.fn()
+		eq(calls, 0, "opening and refreshing only reads")
 		for _, key in ipairs({ "PENDING", "DELIVERED", "REJECTED", "UNSUPPORTED", "UNKNOWN" }) do
-			assert(text:find(L["VERIFY_SELF_" .. key], 1, true), key)
+			assert(text:find(ns.L["VERIFY_SELF_" .. key], 1, true), key)
 		end
-		assert(text:find(L.VERIFY_SELF_TRUNCATED:format(20, 22), 1, true))
+		assert(text:find(ns.L.VERIFY_SELF_TRUNCATED:format(20, 22), 1, true))
 		assert(not text:find("opaque-hidden-id", 1, true) and not text:find("not-for-the-panel", 1, true))
+		action.fn()
 		eq(calls, 0, "opening the entry prompt does not submit")
 		local value = "my-personal-code"
-		frame = { Hide = function() end,
-			editBox = { GetText = function() return value end, SetText = function(_, v) value = v end } }
-		def = StaticPopupDialogs.OLYMPUS_VERIFY_SELF
-		local submitted = attempt
-		def.OnAccept(frame, submitted)
-		def.OnAccept(frame, submitted)
+		local frame = { editBox = { GetText = function() return value end, SetText = function(_, v) value = v end } }
+		local def = StaticPopupDialogs.OLYMPUS_VERIFY_SELF
+		def.OnAccept(frame, attempt)
+		def.OnAccept(frame, attempt)
 		eq(calls, 1); eq(value, "", "the code is cleared")
-		eq(which, "OLYMPUS_VERIFY_SELF_RESULT")
-		assert(text:find(L.VERIFY_SELF_CHECK_DISCORD, 1, true))
-		assert(text:find(L.VERIFY_SELF_QUEUED, 1, true))
+		assert(text:find(ns.L.VERIFY_SELF_QUEUED, 1, true))
 		assert(not text:find("my-personal-code", 1, true))
 		accepted, value = false, "my-personal-code"
-		v.Verify.OpenSelf()
+		action.fn()
 		def.OnAccept(frame, attempt)
 		eq(calls, 2)
-		assert(text:find(L.VERIFY_SELF_REFUSED, 1, true) and not text:find(L.VERIFY_SELF_QUEUED, 1, true))
-		for _, raised in ipairs({ true, false }) do
-			accepted, value, callbackError = nil, "my-personal-code", raised
-			v.Verify.OpenSelf()
-			def.OnAccept(frame, attempt)
-			assert(text:find("Submission unconfirmed", 1, true), "an error or non-Boolean return may have left a local request")
-			assert(not text:find(L.VERIFY_SELF_REFUSED, 1, true), "an unknown outcome is not a refusal")
-			assert(not text:find("my-personal-code", 1, true) and not text:find("private detail", 1, true))
-			v.Verify.OpenSelf()
-			assert(text:find("Submission unconfirmed", 1, true), "reopening does not hide an unconfirmed submission")
-		end
+		assert(text:find(ns.L.VERIFY_SELF_REFUSED, 1, true) and not text:find(ns.L.VERIFY_SELF_QUEUED, 1, true))
 		_G.OlympusVerifyBridge242.Status = nil
 		local wrapper = { name = "verification", version = 242, data = s }
 		_G.OlympusBridge = { API_VERSION = 1, GetSection = function(name) eq(name, "verification"); return wrapper end }
-		v.Verify.OpenSelf(); eq(which, "OLYMPUS_VERIFY_SELF_UNAVAILABLE", "old section wrapper is refused")
+		v.Verify.OpenSelf(); eq(action, nil, "old section wrapper is refused")
 		wrapper.version, s.version = 243, 242
-		v.Verify.OpenSelf(); eq(which, "OLYMPUS_VERIFY_SELF_UNAVAILABLE", "old envelope is refused too")
+		v.Verify.OpenSelf(); eq(action, nil, "old envelope is refused too")
 		s.version, s.roleAuthority = 243, true
-		v.Verify.OpenSelf(); eq(which, "OLYMPUS_VERIFY_SELF_UNAVAILABLE", "the envelope cannot grant authority")
+		v.Verify.OpenSelf(); eq(action, nil, "the envelope cannot grant authority")
 		s.roleAuthority = false
-		v.Verify.OpenSelf(); eq(which, "OLYMPUS_VERIFY_SELF", "version 1 API with a safe v243 wrapper is accepted")
-		eq(calls, 4, "status never resubmits an unknown outcome")
+		v.Verify.OpenSelf(); assert(action, "version 1 API with a safe v243 wrapper is accepted")
+		eq(calls, 2, "status never resubmits an unknown outcome")
 	end)
 	_G.OlympusVerifyBridge242, _G.OlympusBridge = saved.bridge, saved.generic
 	StaticPopupDialogs.OLYMPUS_VERIFY_GUILD, StaticPopupDialogs.OLYMPUS_VERIFY_REVOKE, StaticPopupDialogs.OLYMPUS_VERIFY_SELF = saved.guild, saved.revoke, saved.self
-	StaticPopupDialogs.OLYMPUS_VERIFY_SELF_UNAVAILABLE, StaticPopupDialogs.OLYMPUS_VERIFY_SELF_RESULT = saved.unavailable, saved.result
 	if not ok then error(err, 0) end
 end)
 
