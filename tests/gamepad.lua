@@ -4257,7 +4257,9 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 			eq(QueueLine(ns.L.RECRUIT_CANDIDATE_SEARCH_MORE), nil, "no Search more with the gamepad UI")
 		else
 			eq(#C.whos, whosBefore + 1, "the switch's click sends one /who")
-			eq(C.whos[#C.whos], 'z-"Elwynn Forest" 1-10')
+			-- (Changed on purpose, the author's test 11-12: the zone first found almost nobody, the
+			-- game's zone being a subzone's name there; level ranges anywhere come first now.)
+			eq(C.whos[#C.whos], '1-10')
 			assert(QueueLine(ns.L.RECRUIT_CANDIDATE_SEARCH_MORE), "Search more under the scan")
 		end
 		local function Plate(index, name, guild, faction)
@@ -4364,7 +4366,7 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 			back:Hide()
 		else
 			eq(#C.whos, whosAtCopy + 1, "few left: the copy's click sends the next /who")
-			eq(C.whos[#C.whos], 'z-"Elwynn Forest" 11-20')
+			eq(C.whos[#C.whos], '11-20')
 			C.env.ChatFrame1EditBox.text = "/ginvite WhisperFirst"
 			C.Advance(0.25)
 			eq(back:IsShown(), false, "the paste closes it")
@@ -4383,12 +4385,12 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 			C.Fire("WHO_LIST_UPDATE"); C.Advance(11)
 			local n0 = #C.whos
 			ClickLine(function(line) return line.id == "recruit-candidate-search" end)
-			eq(#C.whos, n0 + 1); eq(C.whos[#C.whos], 'z-"Elwynn Forest" 21-30', "each click the next range")
+			eq(#C.whos, n0 + 1); eq(C.whos[#C.whos], '21-30', "each click the next range")
 			ClickLine(function(line) return line.id == "recruit-candidate-search" end)
 			eq(#C.whos, n0 + 1, "not again while the last waits for its answer")
 			C.Fire("WHO_LIST_UPDATE"); C.Advance(11)
 			ClickLine(function(line) return line.id == "recruit-candidate-search" end)
-			eq(#C.whos, n0 + 2); eq(C.whos[#C.whos], 'z-"Elwynn Forest" 31-40')
+			eq(#C.whos, n0 + 2); eq(C.whos[#C.whos], '31-40')
 			eq(rawget(C.env, "WhoFrame") and C.env.WhoFrame:IsShown() or false, false, "Blizzard's who list stays closed")
 			C.Fire("WHO_LIST_UPDATE"); C.Advance(11)
 			for _, which in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_OUTREACH" }) do

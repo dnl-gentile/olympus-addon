@@ -1516,3 +1516,27 @@ test("recruit ads (1.5.8): five different openings, each with Olympus and the JO
 		end
 	end)
 end)
+
+-- 1.5.8 (the author's test, 11-12: the scan's /who searched z-"Anvilmar", a subzone's name, and found
+-- almost nobody): level ranges anywhere first, then the same ranges in the player's zone.
+test("recruit scan (1.5.8): the /who rotation searches level ranges anywhere first, then the zone", function()
+	WithHandoff(function()
+		UseCandidates()
+		local Q = R.Candidates
+		local savedZone, savedTop = rawget(_G, "GetRealZoneText"), rawget(_G, "GetMaxPlayerLevel")
+		GetRealZoneText = function() return "Dun Morogh" end
+		GetMaxPlayerLevel = function() return 60 end
+		local ok, err = pcall(function()
+			eq(Q.SearchQuery(1), "1-10")
+			eq(Q.SearchQuery(6), "51-60")
+			eq(Q.SearchQuery(7), 'z-"Dun Morogh" 1-10')
+			eq(Q.SearchQuery(12), 'z-"Dun Morogh" 51-60')
+			eq(Q.SearchQuery(13), "1-10", "and round again")
+			GetRealZoneText = function() return "" end
+			eq(Q.SearchQuery(7), "1-10", "no zone: the ranges alone")
+		end)
+		GetRealZoneText, GetMaxPlayerLevel = savedZone, savedTop
+		if not ok then error(err, 0) end
+	end)
+end)
+

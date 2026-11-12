@@ -556,7 +556,16 @@ function Views.DrawFilters(holder, filters, width)
 				menu.catcher:SetFrameLevel((self:GetFrameLevel() or 1) + 30)
 				menu:SetFrameLevel(menu.catcher:GetFrameLevel() + 1)
 				menu:ClearAllPoints()
-				menu:SetPoint(self.rightmost and "TOPRIGHT" or "TOPLEFT", self, self.rightmost and "BOTTOMRIGHT" or "BOTTOMLEFT", 0, -2)
+				-- (11-12, the author's: a text-like picker's menu opened far from its words, at the row's
+				-- right edge; it opens under its words now, and closes once the page scrolls under it.)
+				local right = self.rightmost and not spec.understated
+				menu:SetPoint(right and "TOPRIGHT" or "TOPLEFT", self, right and "BOTTOMRIGHT" or "BOTTOMLEFT", 0, -2)
+				menu.owner, menu.ownerTop = self, self.GetTop and self:GetTop() or nil
+				menu:SetScript("OnUpdate", function(m)
+					local owner = m.owner
+					local top = owner and owner.GetTop and owner:GetTop()
+					if not owner or not owner:IsVisible() or (m.ownerTop and top and math.abs(top - m.ownerTop) > 0.5) then m:Hide() end
+				end)
 				FillChoices(menu, spec)
 				menu.catcher:Show()
 				menu:Show()
@@ -576,6 +585,11 @@ function Views.DrawFilters(holder, filters, width)
 		b:SetSize(math.max(1, cell - 4), 22)
 		local label = (filter.understated and Grey(filter.label .. ":") or filter.label .. ":") .. " " .. filter.value .. " " .. Views.PickerMark()
 		if b.label then b.label:SetText(label); b.label:SetTextColor(1, 1, 1) else b:SetText(label) end
+		-- (A text-like picker is as wide as its words, so its menu opens under them.)
+		if filter.understated and b.label and b.label.GetStringWidth then
+			local ok, w = pcall(b.label.GetStringWidth, b.label)
+			if ok and type(w) == "number" and w > 0 then b:SetWidth(math.min(math.max(1, cell - 4), math.floor(w + 14))) end
+		end
 		b:Show()
 	end
 	for i = #filters + 1, #holder.filters do holder.filters[i]:Hide() end

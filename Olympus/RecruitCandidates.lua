@@ -318,8 +318,10 @@ end
 -- player's popup when few are left. SendWho needs the player's click or key, so it goes from
 -- those only; never with the gamepad UI (no quiet search goes there, Who.lua), never while one
 -- waits for its answer or within the client's wait (Who.COOLDOWN). Each sends the next query of a
--- rotation: the player's zone by level range, then the same ranges anywhere, so each click shows
--- other players. Blizzard's who list is never opened (Who.Search keeps the answer out of it).
+-- rotation: level ranges anywhere first, then the same ranges in the player's zone, so each click
+-- shows other players. (11-12, the author's test: the zone first found almost nobody, the game's
+-- zone name being a subzone's there, "Anvilmar", and a /who with no zone lists the most unguilded
+-- players.) Blizzard's who list is never opened (Who.Search keeps the answer out of it).
 Q.SEARCH_STEP, Q.FEW_LEFT = 10, 2
 local searchIndex = 0
 
@@ -333,7 +335,7 @@ function Q.SearchQuery(index)
 	index = (index - 1) % total + 1
 	local k = (index - 1) % n
 	local range = ("%d-%d"):format(k * Q.SEARCH_STEP + 1, math.min(top, (k + 1) * Q.SEARCH_STEP))
-	if zone and index <= n then return ('z-"%s" %s'):format(zone, range), index end
+	if zone and index > n then return ('z-"%s" %s'):format(zone, range), index end
 	return range, index
 end
 
