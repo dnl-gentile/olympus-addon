@@ -554,7 +554,8 @@ end)
 -- (1.5.5) /oly bug's debug section: short, bounded lines (DEBUG_LINE bytes each, DEBUG_MAX in all), no
 -- other player's name or data and no BattleTag: counts, ages, this client's own state, realm names.
 ---------------------------------------------------------------------------
-ns.DEBUG_LINE, ns.DEBUG_MAX = 320, 2400
+-- (1.5.8: 3700, for the census and tree lines added last, so the signed line before them is never cut.)
+ns.DEBUG_LINE, ns.DEBUG_MAX = 320, 3700
 local function Age(t)
 	t = tonumber(t)
 	if not t then return "?" end
@@ -638,23 +639,35 @@ local function CensusLines()
 	end
 	out[#out + 1] = Cap(("census: group %s: %d guild reports, newest %s, oldest %s  |  by realm %s"):format(tostring(ns.group or "?"), n,
 		newest and Age(newest) or "-", oldest and Age(oldest) or "-", CountList(from)))
+	-- (1.5.8) Each row's source (author, own, relay, witnessed, heard; "?" for none) and whether the
+	-- "all servers" total counts it now (Data.Groups: our side's accepted rows), never who said it.
+	local counted = {}
+	local D = ns.Data
+	local groups = type(D) == "table" and type(D.Groups) == "function" and Try(D.Groups) or nil
+	for _, r in ipairs(type(groups) == "table" and type(groups.rows) == "table" and groups.rows or {}) do
+		-- (Our own group's stored look: its live count stands in the total, "here".)
+		if type(r) == "table" and (r.counted or r.ours) then counted[tostring(r.faction) .. "|" .. tostring(r.group)] = r.ours and "here" or true end
+	end
+	local SRC = { author = true, own = true, relay = true, witnessed = true, heard = true }
 	local rows = {}
 	for _, which in ipairs({ "groupCensus", "groupHeard" }) do
 		local store = ns.db and ns.db[which]
 		for key, e in pairs(type(store) == "table" and store or {}) do
 			if type(e) == "table" and type(key) == "string" then
 				rows[#rows + 1] = { key = key, how = which == "groupCensus" and "look" or "heard", t = tonumber(e.observed or e.t) or 0,
-					people = tonumber(e.people or e.total) }
+					people = tonumber(e.people or e.total), src = SRC[e.src] and e.src or "?",
+					counts = which == "groupCensus" and counted[key] or false }
 			end
 		end
 	end
 	table.sort(rows, function(a, b) if a.t ~= b.t then return a.t > b.t end return a.key < b.key end)
 	local parts = {}
-	for i = 1, math.min(6, #rows) do
+	for i = 1, math.min(5, #rows) do
 		local r = rows[i]
-		parts[#parts + 1] = ("%s %s %s (%s)"):format(r.key, r.how, Age(r.t), r.people and tostring(r.people) or "?")
+		parts[#parts + 1] = ("%s %s %s (%s) %s %s"):format(r.key, r.how, Age(r.t), r.people and tostring(r.people) or "?", r.src,
+			r.counts == "here" and "here" or r.counts and "counted" or "uncounted")
 	end
-	if #rows > 6 then parts[#parts + 1] = "+" .. (#rows - 6) end
+	if #rows > 5 then parts[#parts + 1] = "+" .. (#rows - 5) end
 	out[#out + 1] = Cap("census: other groups " .. (#parts > 0 and table.concat(parts, ", ") or "none"))
 	return out
 end
@@ -676,6 +689,37 @@ local function SignedLine()
 		tostring(ns.PinsStatus and Try(ns.PinsStatus) or "?"))
 end
 
+-- (1.5.8) The census's counters (Data.CensusStats: what it took, left unproven and refused since login,
+-- kinds and reasons only), the relay tree's first line (whether this client is its guild's registrant),
+-- and the guild rows this client could count: no player's or relay's name.
+local function CensusMoreLines()
+	local out, D = {}, ns.Data
+	local st = type(D) == "table" and type(D.CensusStats) == "function" and Try(D.CensusStats) or nil
+	out[#out + 1] = "census counters: " .. (type(st) == "table" and type(st.line) == "string" and st.line or "?")
+	local T = ns.RelayTree
+	local tree = type(T) == "table" and not T.missing and type(T.Stats) == "function" and Try(T.Stats) or nil
+	local first = type(tree) == "table" and type(tree.lines) == "table" and tree.lines[1]
+	out[#out + 1] = type(first) == "string" and first or "tree: not loaded"
+	local n, newest = nil, nil
+	if type(D) == "table" and type(D.GlobalDigest) == "function" then
+		local ok, a, b = pcall(D.GlobalDigest)
+		if ok then n, newest = tonumber(a), tonumber(b) end
+	end
+	local relayed, relayedNewest, keep = 0, nil, type(D) == "table" and tonumber(D.TOTAL_KEEP) or 86400
+	local now = ns.Now and ns.Now() or time()
+	local store = ns.rdb and ns.rdb.censusGlobal
+	for _, e in pairs(type(store) == "table" and store or {}) do
+		local t = type(e) == "table" and tonumber(e.observed)
+		if t and now - t <= keep then
+			relayed = relayed + 1
+			if not relayedNewest or t > relayedNewest then relayedNewest = t end
+		end
+	end
+	out[#out + 1] = ("census relayed: rows %d within a day, newest %s  |  countable guilds %s, newest %s"):format(relayed,
+		relayedNewest and Age(relayedNewest) or "-", n and tostring(n) or "?", newest and newest > 0 and Age(newest) or "-")
+	return out
+end
+
 function ns.DebugLines()
 	local lines = { "debug (1.5.5):" }
 	local function add(line) lines[#lines + 1] = Cap(tostring(line)) end
@@ -687,6 +731,8 @@ function ns.DebugLines()
 	for _, line in ipairs(Try(CensusLines) or { "census: ?" }) do add(line) end
 	add(Try(SignedLine) or "signed: ?")
 	add("secret values left unread: " .. CountList(ns.SecretSkips and ns.SecretSkips() or nil))
+	-- (1.5.8) Last, so the lines before them (signed: above all) are never the ones cut.
+	for _, line in ipairs(Try(CensusMoreLines) or { "census counters: ?" }) do add(line) end
 	-- Bounded in all: the lines past DEBUG_MAX are left out, said so.
 	local size, out = 0, {}
 	for _, line in ipairs(lines) do

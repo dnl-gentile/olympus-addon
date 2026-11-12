@@ -396,3 +396,42 @@ test("relay mesh (1.5.5): /oly bug's relay lines (Relay.BugLines): the relay, th
 		eq(Bytes(As(a, a.c.Relay.BugLines)) <= 1500, true, "1500 bytes when none are named")
 	end)
 end)
+
+-- 1.5.8 (the author, 11-12: "não tá redistribuindo na rede"). Fails before: the author's signed look (QA,
+-- two pieces) a relay's client said reached that relay's own guilds alone (Across took no QA), so the
+-- PvP look left every other relay's guilds when the author logged off.
+test("relay mesh (1.5.8): a relay's own signed look (QA) crosses to a mesh peer whole and reaches its registrant whole past the trickle; a member's QA stays on its relay's island", function()
+	World(function(Node, As, Flush, Advance)
+		local a, b = Node(A_NAME, "Olympus Alpha"), Node(B_NAME, "Olympus Beta")
+		local reg = Node("Reg One-Realm", "Olympus Gamma")
+		for _, n in ipairs({ a, b, reg }) do
+			n.c.Comm.Handle("QA", function(dist, sender, text) n.got[#n.got + 1] = { dist = dist, sender = sender, text = text } end)
+		end
+		Register(b, As, reg.c.me, "Olympus Gamma")
+		Mesh(a, As); Mesh(b, As)
+		Flush(); Advance(a.c.Relay.PING_WAIT + 1)
+		eq(As(a, a.c.Relay.MeshPeer, B_NAME), true)
+		-- The registrant's trickle spent: a word in pieces through it reaches him whole or not at all.
+		for i = 1, 6 do As(b, b.deliver, "WHISPER", "Some Client-Realm", "RL~P~X1~filler " .. i) end
+		Flush()
+		local base = Count(a, "RX~", B_NAME)
+		local member = Word("QA~1~" .. ("m"):rep(86) .. "~CX~3~S~", 2)
+		From(a, As, "Mem Ber-Realm", member, "81")
+		Flush(); Advance(2)
+		eq(Count(a, "RX~", B_NAME), base, "a member's QA is not sent across")
+		local qa = Word("QA~1~" .. ("s"):rep(86) .. "~CX~3~S~", 2)
+		Own(a, As, qa, "82")
+		Flush(); Advance(2)
+		eq(Count(a, "RX~", B_NAME) - base > 0, true, "A's own QA crosses to its mesh peer")
+		assert(Took(b, qa), "B's client takes it whole")
+		local took = Took(reg, qa)
+		assert(took, "B's registrant takes it whole")
+		eq(took.sender, A_NAME, "under its origin, the relay that said it")
+		-- A's census snapshot right after its look (within SNAPSHOT_WINDOW): the look takes no place of it.
+		local cg = Word(("CG~2~S~%d~ForeverPvE~Alliance~after the look"):format(T0), 3)
+		Own(a, As, cg, "83")
+		Flush(); Advance(2)
+		assert(Took(b, cg), "B's client takes A's snapshot")
+		assert(Took(reg, cg), "and B's registrant takes it whole, past the trickle, though A's look came just before")
+	end)
+end)
