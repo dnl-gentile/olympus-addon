@@ -33,6 +33,8 @@ local Recruit = {}
 ns.Recruit = Recruit
 
 local ASK_COOLDOWN = 20
+local JOIN_WAIT, JOIN_REMINDER = 45, 90
+local join = {}
 
 Recruit.ROUTE_GAP = 15      -- seconds between two J1 of the searches (an Ask click checks its own member)
 Recruit.ROUTE_WAIT = 60     -- a J2 counts from a member asked this recently
@@ -163,6 +165,7 @@ function Recruit.OnFound(list)
 			AskAnother()
 		end
 	end
+	Recruit.JoinFound()
 	ns.Fire("RECRUIT_CHANGED")
 end
 ns.Who.Listen(function(list) Recruit.OnFound(list) end)
@@ -330,6 +333,90 @@ function Recruit.NextContact(guild)
 	return nil
 end
 
+-- The short Join flow uses the same discovered contacts and the same editable request as the guild list.
+function Recruit.SimpleJoin()
+	local guild = GetGuildInfo("player")
+	return not ns.IsSecret(guild) and not ns.InOlympusGuild() and (guild == nil or guild == "")
+end
+
+local function JoinVisible()
+	local U = ns.UI
+	return U and U.IsShown and U.IsShown() and U.PageId and U.PageId() == "join"
+end
+
+function Recruit.JoinStatus()
+	local left = join.request and math.max(0, math.ceil(join.request.untilAt - GetTime())) or 0
+	return join.search ~= nil, left, join.request and join.request.contact, join.reminder ~= nil, join.guilds == true
+end
+
+function Recruit.ToggleJoinGuilds()
+	if not Recruit.SimpleJoin() then return end
+	join.guilds = not join.guilds
+	ns.Fire("RECRUIT_CHANGED")
+end
+
+local function JoinWait(contact)
+	if not Recruit.SimpleJoin() or not JoinVisible() then return end
+	local request = { contact = contact, untilAt = GetTime() + JOIN_WAIT }
+	join.request = request
+	local function Tick()
+		if join.request ~= request or not Recruit.SimpleJoin() then return end
+		if JoinVisible() then ns.Fire("RECRUIT_CHANGED") end
+		if request.untilAt > GetTime() then ns.After(1, "join countdown", Tick) end
+	end
+	ns.After(1, "join countdown", Tick)
+end
+
+function Recruit.JoinFound()
+	if not join.search then return end
+	join.search = nil
+	if Recruit.SimpleJoin() and JoinVisible() and not ns.ChatLocked() then
+		local contact = Recruit.NextContact()
+		if contact then Recruit.Prompt(contact) end
+	end
+end
+
+function Recruit.RequestJoin()
+	if not Recruit.SimpleJoin() or join.search or ns.ChatLocked() then return false end
+	if join.request and join.request.untilAt > GetTime() then return false end
+	local contact = Recruit.NextContact()
+	if contact then return Recruit.Prompt(contact) ~= nil end
+	local search = {}
+	join.search = search
+	if not Recruit.Search() then join.search = nil; return false end
+	ns.After(ns.Who.TIMEOUT + 0.25, "join search", function()
+		if join.search ~= search then return end
+		join.search = nil
+		ns.Fire("RECRUIT_CHANGED")
+	end)
+	ns.Fire("RECRUIT_CHANGED")
+	return true
+end
+
+function Recruit.ToggleJoinReminder()
+	if not Recruit.SimpleJoin() or not join.request then return end
+	if join.reminder then
+		join.reminder = nil
+		if not ns.Dialog.missing then ns.Dialog.Hide("OLYMPUS_RECRUIT_RETRY") end
+	else
+		local reminder = {}
+		join.reminder = reminder
+		local function Remind()
+			if join.reminder ~= reminder or not Recruit.SimpleJoin() then return end
+			if JoinVisible() and not join.search and join.request.untilAt <= GetTime()
+				and not ns.ChatLocked() and not ns.QuietPresence() and not ns.Quiet()
+				and not (InCombatLockdown and InCombatLockdown())
+				and not ns.Dialog.missing and not ns.Dialog.Find("OLYMPUS_RECRUIT")
+				and not ns.Dialog.Find("OLYMPUS_RECRUIT_RETRY") then
+				ns.Dialog.CloseOnEscape(ns.Dialog.Show("OLYMPUS_RECRUIT_RETRY"))
+			end
+			ns.After(JOIN_REMINDER, "join reminder", Remind)
+		end
+		ns.After(JOIN_REMINDER, "join reminder", Remind)
+	end
+	ns.Fire("RECRUIT_CHANGED")
+end
+
 function Recruit.Message(contact)
 	local level = UnitLevel("player")
 	local className = UnitClass("player") or ""
@@ -359,6 +446,7 @@ function Recruit.Ask(contact, message)
 	local _, classFile = UnitClass("player")
 	ns.Comm.WhisperOutside(to, ("J3~%s~%d~%s"):format(Field(contact.guild), tonumber(UnitLevel("player")) or 0, Field(classFile)))
 	ns.Log("recruit: asked %s <%s>", contact.name, contact.guild)
+	JoinWait(contact)
 	ns.Fire("RECRUIT_CHANGED")
 	return true
 end
@@ -1254,6 +1342,7 @@ function Recruit.RequestLines(viaWhisper)
 end
 
 function Recruit.ResetForTests()
+	join = {}
 	StopRecruiting()
 	if reminderTimer then reminderTimer.Cancel(); reminderTimer = nil end
 	announceOpen, reminderIndex, announcementVariant, lastAnnouncement = false, 1, 0, nil
@@ -1323,9 +1412,25 @@ ns.On("LOGIN", function()
 	ns.RegisterEvent("CHAT_MSG_WHISPER", function(text, sender) Recruit.OnWhisper(text, sender) end)
 	ns.RegisterEvent("CHAT_MSG_CHANNEL", ObserveAnnouncement)
 	ns.RegisterEvent("PLAYER_GUILD_UPDATE", function(unit)
-		if (not unit or unit == "player") and recruitingGuild and not Recruiting() then StopRecruiting() end
+		if unit and unit ~= "player" then return end
+		if recruitingGuild and not Recruiting() then StopRecruiting() end
+		if not Recruit.SimpleJoin() then
+			join = {}
+			if not ns.Dialog.missing then ns.Dialog.Hide("OLYMPUS_RECRUIT_RETRY") end
+		end
 	end)
 end)
+
+StaticPopupDialogs["OLYMPUS_RECRUIT_RETRY"] = {
+	text = L.RECRUIT_JOIN_REMINDER_PROMPT,
+	button1 = L.RECRUIT_JOIN_AGAIN,
+	button2 = CANCEL or "Cancel",
+	OnAccept = function() Recruit.RequestJoin() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
 
 StaticPopupDialogs["OLYMPUS_RECRUIT"] = {
 	text = "%s  <%s>",

@@ -970,6 +970,7 @@ function Views.Render(content, lines, layout)
 	local y = -2
 	local inputRow
 	for i, line in ipairs(lines) do
+		y = y - (line.spaceBefore or 0)
 		local r = Row(content, i)
 		r.line = line
 		r.top = -y -- how far down the list the row starts (UI.lua keeps the list's place)
@@ -977,7 +978,23 @@ function Views.Render(content, lines, layout)
 		r:SetPoint("TOPLEFT", content, "TOPLEFT", 0, y)
 		r:SetWidth(width)
 		local height = rowH
-		if line.items then
+		if line.primary then
+			r.left:Hide()
+			r.right:Hide()
+			for c = 1, #r.cols do r.cols[c]:Hide() end
+			if not r.primary then
+				r.primary = CreateFrame("Button", nil, r, "UIPanelButtonTemplate")
+				r.primary:SetPoint("CENTER")
+				r.primary:SetScript("OnClick", function()
+					if r.line and r.line.onClick then ns.SafeCall("primary action", r.line.onClick) end
+				end)
+			end
+			r.primary:SetSize(math.max(1, math.min(width - 12, 220)), 26)
+			r.primary:SetText(line.text or "")
+			r.primary:SetEnabled(line.onClick ~= nil)
+			r.primary:Show()
+			height = 32
+		elseif line.items then
 			-- Items in a grid. line.slots and line.columns: a bank tab as the game draws it (every
 			-- slot, empty ones too, items where they sit: it.s); without them, the items one after
 			-- another, as many per row as fit. The row grows to hold them all.
@@ -1044,13 +1061,19 @@ function Views.Render(content, lines, layout)
 			r.right:SetFontObject(font or "GameFontHighlightSmall")
 			local leftX = 4 + (line.indent or 0) * 12
 			r.left:ClearAllPoints()
+			if r.center ~= line.center then
+				r.left:SetJustifyH(line.center and "CENTER" or "LEFT")
+				r.center = line.center
+			end
 			r.left:SetPoint("LEFT", leftX, line.meter and 4 or 0)
 			r.left:SetText(line.text or "")
 			r.right:SetText(line.right or "")
 			r.right:ClearAllPoints()
 			r.right:SetPoint("RIGHT", -RIGHT_INSET, line.meter and 4 or 0)
 			-- A text box's line: its text as wide as it is, the box after it (PlaceInput).
-			if line.input and not inputRow then
+			if line.center then
+				r.left:SetPoint("RIGHT", r, "RIGHT", -leftX, 0)
+			elseif line.input and not inputRow then
 				inputRow, height = r, ROW_H_INPUT
 			else
 				r.left:SetPoint("RIGHT", r.right, "LEFT", -RIGHT_GAP, 0)
@@ -1060,6 +1083,7 @@ function Views.Render(content, lines, layout)
 		end
 		Views.DrawMeter(r, not line.items and not line.filters and not line.nav and not line.cols and not line.graph and line.meter or nil, width, 4 + (line.indent or 0) * 12)
 		if not line.items then for k = 1, #(r.items or {}) do r.items[k]:Hide() end end
+		if not line.primary and r.primary then r.primary:Hide() end
 		if not line.nav then for k = 1, #(r.nav or {}) do r.nav[k]:Hide() end end
 		if not line.filters then for k = 1, #(r.filters or {}) do r.filters[k]:Hide() end end
 		if not line.graph and r.graph then r.graph:Hide() end
@@ -1069,9 +1093,9 @@ function Views.Render(content, lines, layout)
 			r.panelFrame = nil
 		end
 		r:SetHeight(height)
-		r:EnableMouse(line.onClick ~= nil or line.tooltip ~= nil)
+		r:EnableMouse(not line.primary and (line.onClick ~= nil or line.tooltip ~= nil))
 		if hd then
-			r.stripe:SetShown(line.cols ~= nil or line.onClick ~= nil)
+			r.stripe:SetShown(line.cols ~= nil or (line.onClick ~= nil and not line.center and not line.primary))
 			if line.key and line.key == content.selectedKey then r:LockHighlight() else r:UnlockHighlight() end
 		end
 		r:Show()
@@ -1094,7 +1118,9 @@ function Views.LinesHeight(lines, hd, width)
 	local y, input = 2, false
 	for _, line in ipairs(lines or {}) do
 		local height
-		if line.items then
+		if line.primary then
+			height = 32
+		elseif line.items then
 			local slot, step, columns, gap = ItemGrid(line, ITEM_GAME, tonumber(width) or 0)
 			height = GridHeight(math.ceil(math.max(1, line.slots or #line.items) / columns), slot, step, gap)
 		elseif line.filters or line.panel then
@@ -1108,7 +1134,7 @@ function Views.LinesHeight(lines, hd, width)
 		else
 			height = rowH
 		end
-		y = y + height + (line.header and 4 or 0) + (line.gapAfter and 6 or 0)
+		y = y + (line.spaceBefore or 0) + height + (line.header and 4 or 0) + (line.gapAfter and 6 or 0)
 	end
 	return y + 8
 end
@@ -3481,6 +3507,35 @@ function Views.RecruitLines()
 		lines[#lines].gapAfter = true
 	end
 	return ApprovedHint(lines)
+end
+
+function Views.JoinLines(height)
+	local R = ns.Recruit
+	local searching, left, last, reminder, guilds = R.JoinStatus()
+	local pending = searching or left > 0
+	local status = searching and L.RECRUIT_SEARCHING
+		or left > 0 and L.RECRUIT_JOIN_WAITING:format(left)
+		or last and (R.replied[last.name] and L.RECRUIT_REPLIED:format(Plain(ns.ShortName(last.name))) or L.RECRUIT_JOIN_TIMEOUT)
+		or ns.Who.Searched() and #R.found == 0 and L.RECRUIT_NONE_FOUND
+		or L.RECRUIT_JOIN_HINT
+	local lines = {
+		{ text = L.RECRUIT_JOIN_TITLE, center = true, color = "GameFontNormalLarge", gapAfter = true,
+			spaceBefore = guilds and 6 or math.max(6, math.floor(((height or 0) - 150) / 2)) },
+		{ text = status, center = true, gapAfter = true },
+		{ text = last and L.RECRUIT_JOIN_AGAIN or L.RECRUIT_JOIN_REQUEST, primary = true,
+			onClick = not pending and R.RequestJoin or nil, gapAfter = true },
+	}
+	if last and left == 0 then
+		lines[#lines + 1] = { text = Gold(reminder and L.RECRUIT_JOIN_REMINDER_ON or L.RECRUIT_JOIN_REMINDER_OFF),
+			center = true, onClick = R.ToggleJoinReminder }
+	end
+	lines[#lines + 1] = { text = Gold(guilds and L.RECRUIT_JOIN_HIDE_GUILDS or L.RECRUIT_JOIN_SHOW_GUILDS),
+		center = true, onClick = R.ToggleJoinGuilds }
+	if guilds then
+		lines[#lines + 1] = { text = Gold(L.RECRUIT_FIND), center = true, onClick = not pending and R.Search or nil, gapAfter = true }
+		for _, line in ipairs(Views.RecruitLines()) do lines[#lines + 1] = line end
+	end
+	return lines
 end
 
 ---------------------------------------------------------------------------

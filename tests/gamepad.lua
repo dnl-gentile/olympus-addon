@@ -3607,6 +3607,68 @@ test("gamepad recruit popup isolation: no native popup on either login or either
 	GP.Covers("dialogs")
 end)
 
+test("gamepad Join Olympus onboarding searches, waits and retries through attended clicks", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad, { setup = function(c)
+			c.units.player.guild = nil
+			c.env.IsInGuild = function() return c.units.player.guild ~= nil end
+		end })
+		local L = ns.L
+		local function Row(label)
+			for _, row in ipairs(ns.UI.SelfTestView().rows) do
+				if row:IsShown() and row.line.text and row.line.text:find(label, 1, true) then return row end
+			end
+		end
+		local function Draft() return ns.Dialog.Find("OLYMPUS_RECRUIT") end
+		local function Retry() return ns.Dialog.Find("OLYMPUS_RECRUIT_RETRY") end
+		ns.UI.Toggle()
+		eq(ns.UI.PageId(), "join")
+		local title = assert(Row(L.RECRUIT_JOIN_TITLE))
+		eq(title.left.justifyH, "CENTER")
+		eq(Row(L.RECRUIT_TITLE), nil, "the guild list is collapsed")
+		local sends = #(C.said or {})
+		local searches = #(C.whos or {})
+		C.Click(assert(Row(L.RECRUIT_JOIN_REQUEST)).primary)
+		eq(#C.whos, searches + 1, "one native search from the player's click")
+		eq(Draft(), nil, "no draft without a discovered contact")
+		eq(#(C.said or {}), sends, "the initial action sends no chat")
+		local contacts = {
+			{ fullName = "Alice-Realm", fullGuildName = "Olympus II", level = 12, filename = "MAGE" },
+			{ fullName = "Zoe-Realm", fullGuildName = "Olympus II", level = 13, filename = "MAGE" },
+		}
+		C.env.C_FriendList.GetNumWhoResults = function() return #contacts, #contacts end
+		C.env.C_FriendList.GetWhoInfo = function(i) return contacts[i] end
+		C.Fire("WHO_LIST_UPDATE")
+		local draft = assert(Draft(), "a completed search prepares one request")
+		eq(draft.data.name, "Alice-Realm")
+		eq(#(C.said or {}), sends, "the game results send no chat")
+		C.Click(draft.buttons[1])
+		C.Advance(1)
+		eq(#C.said, sends + 1, "one whisper after Send")
+		assert(Row(L.RECRUIT_JOIN_WAITING:format(44)), "countdown in the Join window")
+		eq(Row(L.RECRUIT_JOIN_AGAIN).line.onClick, nil, "no retry while waiting")
+		C.Advance(45)
+		assert(Row(L.RECRUIT_JOIN_TIMEOUT), "retry becomes available when the countdown ends")
+		C.Click(assert(Row(L.RECRUIT_JOIN_REMINDER_OFF)))
+		C.Advance(89)
+		eq(Retry(), nil)
+		C.Advance(2)
+		assert(Retry(), "an opt-in reminder asks before retrying")
+		eq(#C.said, sends + 1, "a reminder sends no whisper")
+		eq(#C.whos, searches + 1, "a reminder issues no native search")
+		C.Click(Retry().buttons[1])
+		eq(assert(Draft()).data.name, "Zoe-Realm", "the next contact has not already been asked")
+		eq(#C.said, sends + 1)
+		C.Click(Draft().buttons[2])
+		C.Switch(not initialPad)
+		C.units.player.guild = "Olympus II"
+		C.Fire("PLAYER_GUILD_UPDATE", "player")
+		C.Advance(100)
+		eq(Retry(), nil, "joining stops reminders")
+		NoErrors(C, "Join Olympus")
+	end
+end)
+
 test("gamepad whisper recruiting: deliberate outreach and native invite copy in both input modes", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)

@@ -122,14 +122,15 @@ replace a retained revocation.
 
 ### Not in Olympus yet?
 First it asks the obvious question: *"<Your Guild>? Disband immediately. What are you
-doing?"* Then it helps you get in. The **Join Olympus** screen uses the game's own `/who` to
-find Olympus members online, groups them by guild, and whispers one of them a ready-made
-request that you can edit ("Hi! I'd love to join Olympus. Does <Olympus II> have room for
-one more?"). No answer? **Try someone else** picks a member you have not asked yet. Replies
-are highlighted. It is rate limited, so nobody gets spammed. The game lists 50 players per
-`/who`. When there are more, each new click searches a range of levels and adds to the list.
-The editable request uses Olympus's own confirmation window
-in both input modes.
+doing?"* If you are in no guild, **Request to join** searches for an online Olympus member
+and opens a request you can edit. Click **Send** to whisper it. The screen gives the guild
+45 seconds to reply before offering **Request again** with another contact. You can turn
+on a reminder every 90 seconds while this screen is open. Each reminder asks for a click
+before preparing a new request. **Browse Olympus guilds** opens the optional guild list.
+
+The list uses the game's own `/who`, which returns up to 50 players per search. When there
+are more, each new click searches a range of levels and adds to the list. Replies are
+highlighted. Olympus uses its own editable confirmation window in both input modes.
 
 **Where to go**: a search also asks one member's addon (an addon whisper, not a chat line)
 where recruits should go, and its census answers: the guild the King opened **the gates** of

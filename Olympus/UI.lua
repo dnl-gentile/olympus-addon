@@ -1811,6 +1811,7 @@ function UI.Layout()
 	LayoutButtons()
 	LayoutDetailButtons()
 	main.layoutLocked = UI.Locked()
+	main.layoutSimpleJoin = main.layoutLocked and ns.Recruit.SimpleJoin()
 	-- Set visibility of the secondary count before fitting the header.
 	if main.people then main.people:SetShown(PeopleShown(main.layoutLocked)) end
 	FitHeader()
@@ -1826,6 +1827,7 @@ function UI.Layout()
 	for _, key in ipairs({ "total", "sub", "listBox", "scroll", "detail" }) do
 		if main[key] then main[key]:SetShown(not chat and not surface) end
 	end
+	if main.layoutSimpleJoin then main.detail:Hide() end
 	-- The count's hover and the page answer describe tabs, not a player profile.
 	if main.headerHover then main.headerHover:SetShown(not chat and not surface and not playerProfile) end
 	if main.pageHelp then main.pageHelp:SetShown(not surface and not playerProfile) end
@@ -1833,12 +1835,12 @@ function UI.Layout()
 	if main.listBox then
 		main.listBox:ClearAllPoints()
 		main.listBox:SetPoint("TOPLEFT", g.box.left, hasCols and g.box.top or (g.box.topNoCols or g.box.top) - navHeight)
-		main.listBox:SetPoint("BOTTOMRIGHT", g.box.right, g.box.bottom)
+		main.listBox:SetPoint("BOTTOMRIGHT", g.box.right, g.box.bottom - (main.layoutSimpleJoin and DETAIL_H or 0))
 	end
 	local right = main.scrollRight or g.scroll.right
 	main.scroll:ClearAllPoints()
 	main.scroll:SetPoint("TOPLEFT", g.scroll.left, hasCols and g.scroll.top or g.scroll.topNoCols - navHeight)
-	main.scroll:SetPoint("BOTTOMRIGHT", right, g.scroll.bottom)
+	main.scroll:SetPoint("BOTTOMRIGHT", right, g.scroll.bottom - (main.layoutSimpleJoin and DETAIL_H or 0))
 	local listW = ListWidth()
 	for _, v in pairs(main.views) do v:SetWidth(listW) end
 	if hasCols then
@@ -2432,10 +2434,11 @@ function UI.Refresh()
 		local views = AuthorView()
 		local previewing = views ~= nil and views.Previewing() == true
 		local inert = locked and ns.IsMember() -- (locked by the preview alone)
+		local simpleJoin = locked and ns.Recruit.SimpleJoin()
 		if locked and playerProfile then LeaveProfile() end
 		-- Joined or left a guild while the window is open: lay it out again (KH-08: and the census's
 		-- own page opened or closed: its column titles).
-		if locked ~= main.layoutLocked or (main.tab == "census" and CensusStatsShown()) ~= main.statsLaid then UI.Layout() end
+		if locked ~= main.layoutLocked or simpleJoin ~= main.layoutSimpleJoin or (main.tab == "census" and CensusStatsShown()) ~= main.statsLaid then UI.Layout() end
 			-- Role-only native pages keep their existing rules (the Companion reads the same rules,
 			-- without the presentation-only View-as override).
 			local only = TabRules(locked, views)
@@ -2507,7 +2510,7 @@ function UI.Refresh()
 			main.sub:SetText(L.ACCORD_LOCKED_HINT)
 		elseif locked then
 			-- Not an Olympus member yet: the only thing on offer is joining one.
-			lines = ns.Views.RecruitLines()
+			lines = simpleJoin and ns.Views.JoinLines(main.scroll:GetHeight()) or ns.Views.RecruitLines()
 			if inert then lines = views.Inert(lines) end
 			title, text = L.MEMBERS_ONLY, L.MEMBERS_ONLY_HINT
 			local header, sub = ns.Recruit.Roast()
@@ -2562,8 +2565,14 @@ function UI.Refresh()
 		main.detailTitle:SetText(title or "")
 		main.detailText:SetText(text or "")
 		ShowOwnPortrait(not locked and playerProfile and profileArt or nil)
-		local recruit = inert and InertButtons(RECRUIT_BUTTONS) or RECRUIT_BUTTONS
-		SetButtons(main.buttons, locked and (not inert and UI.AccordLocked() and ACCORD_BUTTONS or recruit) or profileButtons or Shown(BUTTONS[view] or addedButtons[view]))
+		local actions
+		if locked then
+			if not inert and UI.AccordLocked() then actions = ACCORD_BUTTONS
+			elseif not simpleJoin then actions = inert and InertButtons(RECRUIT_BUTTONS) or RECRUIT_BUTTONS end
+		else
+			actions = profileButtons or Shown(BUTTONS[view] or addedButtons[view])
+		end
+		SetButtons(main.buttons, actions)
 			-- Preserve the internal tab contract: its builder runs before a role or surface rule sends
 			-- the window back to Census (some builders create state used by the next interaction).
 		if only[main.tab] == false then return ShowTab("census") end

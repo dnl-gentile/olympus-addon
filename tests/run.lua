@@ -3263,7 +3263,14 @@ test("HD Join screen: no tabs or column titles, next to a Communities window wit
 		eq(main.listBox:Anchor("TOPLEFT")[5], -60); eq(main.scroll:Anchor("TOPLEFT")[5], -63)
 		local shown = {}
 		for _, b in ipairs(main.buttons) do if b:IsShown() then shown[#shown + 1] = b end end
-		eq(#shown, 2); eq(shown[1].w, 186); eq(shown[2].w, 186); eq(shown[1].h, 20)
+		eq(#shown, 0, "the new Join action lives in the body")
+		local join
+		for _, row in ipairs(main.views[main.tab].rows) do
+			if row.line.primary then join = row.primary end
+		end
+		assert(join and join:IsShown(), "one visible Join action")
+		eq(join:GetText(), ns.L.RECRUIT_JOIN_REQUEST)
+		eq(join:Anchor("CENTER")[1], "CENTER")
 		-- Joins an Olympus guild with both windows open: the Communities side tabs appear too.
 		GetGuildInfo = function() return "Olympus II" end
 		CommunitiesFrame.ChatTab:Show()
