@@ -59,6 +59,8 @@ local L = ns.L
 --     T,<at>,<Guild>,<by>              then the guilds' starts (the unverified first)
 -- A single approval with a final semicolon is an explicit Watch resend. Older clients read the
 -- same snapshot row; relays that know the marker can send it to the named guild's reporter.
+--   GV~1~M~<id>~<faction>~<Guild>                  private request to one known reporter
+--   GV~1~N~<id>~<faction>~<Guild>~<Guild master>   private reply after a complete native roster scan
 --                                      in MAX_ROWS rows and MAX_BYTES at most (names without a realm
 --                                      are the sender's realm's)
 -- Each client keeps, per guild, the newest word by its time (the approver's server time, which a
@@ -85,6 +87,8 @@ Verify.RELAY_ANSWER_GAP = 900    -- (1.5.4) and each relay that asked (relays fi
 Verify.ANSWER_RETRIES, Verify.ANSWER_RETRY_EVERY = 6, 5 -- (1.5.4) a relay's answer its full queue refused, tried again
 Verify.REQUEST_GAP = 300         -- a guild master's queued request, kept across reloads
 Verify.RESEND_GAP = 15           -- a verifier can resend one existing decision at a time
+Verify.POLL_GAP = 30             -- at most one roster poll per client in this interval
+Verify.POLL_WAIT = 20            -- private replies only count for this long
 Verify.REVOKE_KEEP = 30 * 86400  -- a revocation is kept (and relayed) this long
 Verify.START_KEEP = 90 * 86400   -- a guild's start, this long after it was last seen or heard
 Verify.SEEN_KEEP = 30 * 86400    -- a guild's own first sighting, this long after it was last seen
@@ -684,6 +688,7 @@ function Verify.Ask()
 end
 
 function Verify.Handle(dist, sender, text)
+	if dist == "WHISPER" then return Verify.HandleGuildPoll(sender, text) end
 	if dist ~= "CHANNEL" or type(sender) ~= "string" or sender == "" or type(text) ~= "string" then return false end
 	local ver, kind, body = text:match("^GV~(%d+)~(%u)~(.*)$")
 	if tonumber(ver) ~= Verify.PROTOCOL then return false end
@@ -890,6 +895,124 @@ function Verify.ResendClick(data)
 	if why == "none" then return ns.Print(L.VERIFY_RESEND_FAILED:format(data.guild)) end
 	if not ok and why then return SayWhy(why, data.guild) end
 	return ok
+end
+
+local poll, pollResult, pollSerial, lastPoll, lastRosterPoll = nil, nil, 0, -math.huge, -math.huge
+local function PollPeer(name)
+	local realm = type(name) == "string" and ns.RealmOf(name) or ns.realm
+	if type(name) ~= "string" or name == "" or not ns.group or ns.GroupOf(realm) ~= ns.group then return false end
+	local region = tostring(ns.realm or ""):match("^CAMWOW(%u%u)")
+	local reported = ns.Comm.PeerRealm and ns.Comm.PeerRealm(name)
+	if region and (tostring(reported or realm):match("^CAMWOW(%u%u)") ~= region) then return false end
+	local M = ns.Moderation
+	return not (M and M.Hidden and M.Hidden(name))
+end
+
+local function NativeMaster(guild, previous)
+	local R = ns.Roster and ns.Roster.Fresh and ns.Roster.Fresh()
+	if not R or Key(R.guild) ~= Key(guild) or R.generation <= previous then return nil end
+	local found
+	for name, rank in pairs(R.byName) do
+		if rank == 0 then
+			if found then return nil end
+			found = NameField(name)
+		end
+	end
+	return found
+end
+
+local function ScanMaster(guild, allowed, finished)
+	local R, now = ns.Roster, Verify.Clock()
+	if now - lastRosterPoll < Verify.POLL_GAP or not R or not R.RequestScan or not allowed() then return false end
+	lastRosterPoll = now
+	local generation = tonumber(R.generation) or 0
+	R.RequestScan(true)
+	local function Read(again)
+		if not allowed() then return end
+		local gm = NativeMaster(guild, generation)
+		if gm then finished(gm, generation)
+		elseif again then ns.After(5, "watch roster poll", function() Read(false) end) end
+	end
+	ns.After(5, "watch roster poll", function() Read(true) end)
+	return true
+end
+
+local function PollCurrent(p)
+	return poll == p and p.store == ns.rdb and p.group == ns.group and p.faction == ns.faction
+		and Verify.Clock() <= p.deadline and Verify.CouncilShown() and not Quiet()
+end
+
+local function ReportMaster(p, gm, reporter)
+	poll = nil
+	local text = L.VERIFY_POLL_RESULT:format(p.guild, Shown(gm), Shown(reporter))
+	pollResult = { guild = p.guild, store = p.store, at = Verify.Clock(), text = text }
+	ns.Print(text)
+	Changed()
+end
+
+function Verify.PollGuild(guild)
+	guild = GuildField(guild)
+	if not guild or not Verify.CouncilShown() or Quiet() or not ns.group or not ns.faction then return false end
+	local now = Verify.Clock()
+	if poll or now - lastPoll < Verify.POLL_GAP then ns.Print(L.VERIFY_POLL_BUSY); return false end
+	local own = Key(GetGuildInfo("player")) == Key(guild)
+	local row = not own and Row(guild)
+	local reporter = own and ns.me or (row and not row.conflict and row.reporterFull)
+	local age = row and type(row.t) == "number" and ns.Now() - row.t
+	if not PollPeer(reporter) or (not own and (not age or age < 0 or age > ns.Data.FRESH)) then
+		ns.Print(L.VERIFY_POLL_UNAVAILABLE:format(guild)); return false
+	end
+	pollSerial = pollSerial + 1
+	local p = { guild = guild, reporter = reporter, id = ("%d-%d"):format(now, pollSerial), store = ns.rdb,
+		group = ns.group, faction = ns.faction, deadline = now + Verify.POLL_WAIT }
+	poll, lastPoll = p, now
+	local function Allowed() return PollCurrent(p) and PollPeer(reporter) end
+	local function Failed()
+		if poll ~= p then return end
+		poll = nil
+		if p.store == ns.rdb and Verify.CouncilShown() then ns.Print(L.VERIFY_POLL_UNAVAILABLE:format(guild)) end
+	end
+	local accepted
+	if own then
+		accepted = ScanMaster(guild, function() return Allowed() and Key(GetGuildInfo("player")) == Key(guild) end,
+			function(gm) ReportMaster(p, gm, ns.me) end)
+	else
+		local text = ("GV~%d~M~%s~%s~%s"):format(Verify.PROTOCOL, p.id, p.faction, guild)
+		accepted = ns.Comm.Whisper(reporter, text, nil, false, false, function(sent) if not sent then Failed() end end,
+			{ owner = Verify, guard = Allowed })
+	end
+	if not accepted then Failed(); return false end
+	if poll == p then ns.Print(L.VERIFY_POLL_SENT:format(guild)) end
+	ns.After(Verify.POLL_WAIT, "watch roster poll timeout", Failed)
+	return true
+end
+
+function Verify.HandleGuildPoll(sender, text)
+	if type(text) ~= "string" or not PollPeer(sender) or Quiet() or not ns.IsMember() then return false end
+	local id, faction, guild = text:match("^GV~1~M~(%d+%-%d+)~(%a+)~([^~]+)$")
+	if id then
+		guild = GuildField(guild)
+		if #id > 32 or not guild or faction ~= ns.faction or not Verify.Trusted(sender) then return false end
+		local store, group = ns.rdb, ns.group
+		local function Allowed()
+			return ns.rdb == store and ns.group == group and ns.faction == faction and ns.IsMember() and not Quiet()
+				and PollPeer(sender) and Verify.Trusted(sender) and Key(GetGuildInfo("player")) == Key(guild)
+		end
+		return ScanMaster(guild, Allowed, function(gm, previous)
+			ns.Comm.Whisper(sender, ("GV~%d~N~%s~%s~%s~%s"):format(Verify.PROTOCOL, id, faction, guild, gm),
+				nil, false, false, nil, { owner = Verify, guard = function()
+					return Allowed() and NativeMaster(guild, previous) == gm
+				end })
+		end)
+	end
+	local p, gm = poll
+	id, faction, guild, gm = text:match("^GV~1~N~(%d+%-%d+)~(%a+)~([^~]+)~([^~]+)$")
+	if not id or not p or not PollCurrent(p) or id ~= p.id or faction ~= p.faction or Key(guild) ~= Key(p.guild)
+		or not SamePerson(sender, p.reporter) then return false end
+	gm = NameField(gm, ns.RealmOf(sender))
+	if not PollPeer(gm) then return false end
+	ReportMaster(p, gm, sender)
+	return true
 end
 
 function Verify.ApproveInput(input)
@@ -1252,6 +1375,13 @@ end
 local function CouncilActions(lines, r, approval)
 	if selectedGuild ~= r.guild then return end
 	lines[#lines + 1] = { indent = 2, text = Gold(L.VERIFY_GUILD_ACTIONS), onClick = approval }
+	lines[#lines + 1] = { indent = 2, text = Gold(L.VERIFY_POLL_GUILD), onClick = function() Verify.PollGuild(r.guild) end }
+	if pollResult and pollResult.guild == r.guild and pollResult.store == ns.rdb then
+		local age = Verify.Clock() - pollResult.at
+		if age >= 0 and age <= 300 then
+			lines[#lines + 1] = { indent = 3, text = Grey(pollResult.text), right = Grey(ns.Ago(pollResult.at)), wrap = true }
+		end
+	end
 	lines[#lines + 1] = { indent = 2, text = Gold(L.VERIFY_COPY_GUILD), onClick = function()
 		if not Verify.CouncilShown() then return end
 		if ns.UI and ns.UI.ShowCopy then ns.UI.ShowCopy(L.VERIFY_COPY_GUILD, r.guild, nil, { key = "verify-guild-name" }) end

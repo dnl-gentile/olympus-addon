@@ -112,6 +112,10 @@ restart verification or the grace period. A newer decision takes precedence. On 
 relay forwards the resend to the named guild's reporter through the existing verification route.
 Guild rows in The Watch open actions to review verification, copy the exact spelling, or hide
 the row and its verifier reminders on this installation. **Manage hidden guilds** restores a row.
+**Check current guild master** requests a fresh native roster scan from this client for its own
+guild, or privately from one recently heard reporter for another guild. The result names its
+source and stays informational. An older client, an offline reporter or an incomplete roster can
+leave the poll unanswered.
 A missing local record still needs a valid verifier's copy. A member's claimed approver name, an
 old census total or a guild-start clock cannot create an approval, and an older approval cannot
 replace a retained revocation.
