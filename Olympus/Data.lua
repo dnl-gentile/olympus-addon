@@ -2205,6 +2205,7 @@ end
 -- people, guilds, observed, src, w, kind, region, counted, ours } }, characters, people, kinds =
 -- { [kind or "?"] = { characters, people } }, regions = { [region or "?"] = {...} }, factions = {...} }.
 -- Ours is the census held now (Data.Summary); the others as kept; a lone witness listed, not counted.
+-- (1.5.9) oldestOther: the oldest look of another origin the totals count (the census page's "As of").
 function Data.Groups(s, now)
 	now = now or ns.Now()
 	s = s or Data.Summary()
@@ -2234,6 +2235,7 @@ function Data.Groups(s, now)
 		out.characters, out.people = out.characters + e.characters, out.people + e.people
 		out.oldest = out.oldest and math.min(out.oldest, e.observed) or e.observed
 		out.newest = math.max(out.newest or 0, e.observed)
+		if not ours then out.oldestOther = math.min(out.oldestOther or e.observed, e.observed) end
 		for _, pair in ipairs({ { out.kinds, kind or "?" }, { out.regions, region or "?" }, { out.factions, e.faction } }) do
 			local t = pair[1][pair[2]] or { characters = 0, people = 0 }
 			t.characters, t.people = t.characters + e.characters, t.people + e.people

@@ -945,3 +945,30 @@ test("census author (1.5.9): no client keeps or says again a look naming its own
 		eq(assert(PvP(C.Data.Groups())).counted, true, "direct from its own family")
 	end)
 end)
+
+-- 1.5.9. Fails before: Data.Groups named no date for the other servers' looks its totals counted, which
+-- since 1.5.9 can be days old (the census page's "Other servers as of").
+test("census author (1.5.9): Data.Groups names the oldest other server's look its totals count (oldestOther), never our live count nor an uncounted row", function()
+	World(function(Node)
+		local DAY = 86400
+		local L = Node(LISTENER)
+		L.clock = 30 * DAY
+		local T = L.clock
+		L.Data.SetLocal({ guild = "Olympus II", total = 90, online = 9, zones = {} })
+		local function Held(group, src, age)
+			return { group = group, faction = "Alliance", characters = 500, people = 490, guilds = 5, observed = T - age,
+				src = src, by = "Some One-" .. PVE, w = 1 }
+		end
+		L.db.groupCensus = { ["Alliance|ForeverPvP"] = Held("ForeverPvP", "author", 9 * DAY), ["Alliance|ForeverRP"] = Held("ForeverRP", "relay", 3600) }
+		L.db.groupHeard = { ["Alliance|ForeverHardcore"] = Held("ForeverHardcore", "heard", 20 * 3600) }
+		local g = L.Data.Groups()
+		assert(g.characters > 1000, "ours and both others counted")
+		eq(g.oldestOther, T - 9 * DAY, "the oldest other look counted")
+		L.db.groupCensus["Alliance|ForeverPvP"] = nil
+		eq(L.Data.Groups().oldestOther, T - 3600, "the uncounted heard row is no part of it")
+		L.db.groupCensus = {}
+		g = L.Data.Groups()
+		assert(g.characters >= 90, "our live count alone")
+		eq(g.oldestOther, nil, "none while no other server counts")
+	end)
+end)
