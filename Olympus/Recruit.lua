@@ -917,7 +917,6 @@ function Recruit.WhisperLines()
 		onClick = Recruit.ToggleWhisperRecruiting, gapAfter = not on } }
 	if on then
 		lines[#lines + 1] = { indent = 1, text = L.RECRUIT_WHISPER_HINT }
-		lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_WHISPER_MANUAL) }
 		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_WHISPER_TARGET), onClick = Recruit.PromptOutreach, gapAfter = true }
 		if Recruit.Handoff then Recruit.Handoff.Controls(lines, V) end
 	end

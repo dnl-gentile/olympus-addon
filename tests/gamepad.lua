@@ -3622,6 +3622,8 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		eq(#R.requests, 0, "off by default")
 		InClick(C, function() ToggleLine().onClick() end); ns.UI.Refresh()
 		assert(ToggleLine().text:find(ns.L.RECRUIT_WHISPER_ON, 1, true))
+		eq(FindLine(function(line) return line.text and line.text:find("Your mouse does not", 1, true) end), nil,
+			"the recruiting panel omits the autoclicker joke")
 		C.Fire("CHAT_MSG_WHISPER", "join me later", "Stranger-Realm")
 		eq(#R.requests, 0, "ordinary unsolicited whispers do not queue anyone")
 
