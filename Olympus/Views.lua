@@ -1787,6 +1787,47 @@ function Views.CensusConnectionLine(s)
 		onClick = function() ns.UI.ShowCopy("/oly status", ns.StatusText(), nil, { key = "status" }) end }
 end
 
+-- 1.5.8 (the author's ask): the Census offer's switches. Answering JOIN requests is recruiting
+-- itself (Recruit.lua), with the requests other members pass on; the ads and the scan need it, as
+-- their replies come back as whispered JOINs: turning either on turns it on, and turning it off
+-- turns them off. Passing this player's own requests to others stays manual (Church > Invites).
+local RECRUIT_MARK_ON = "|TInterface\\RaidFrame\\ReadyCheck-Ready:14:14|t "
+local RECRUIT_MARK_OFF = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:14:14|t "
+local RECRUIT_SWITCHES = {
+	{ key = "join", label = "RECRUIT_CENSUS_JOIN", hint = "RECRUIT_CENSUS_JOIN_HINT" },
+	{ key = "ads", label = "RECRUIT_CENSUS_ADS", hint = "RECRUIT_CENSUS_ADS_HINT" },
+	{ key = "scan", label = "RECRUIT_CENSUS_SCAN", hint = "RECRUIT_CENSUS_SCAN_HINT" },
+}
+Views.RECRUIT_AD_MINUTES = 5
+
+function Views.RecruitOfferState()
+	local R = ns.Recruit
+	local on = R.IsWhisperRecruiting() == true
+	local Q = R.Candidates
+	return { join = on, ads = on and R.AnnounceReminderMinutes() > 0,
+		scan = on and Q ~= nil and Q.Enabled() == true }
+end
+
+function Views.RecruitOfferSwitch(key)
+	local R = ns.Recruit
+	local H, Q, state = R.Handoff, R.Candidates, Views.RecruitOfferState()
+	if key == "join" and state.join then
+		if Q then Q.SetEnabled(false) end
+		R.SetAnnounceReminder(0)
+		if H then H.SetAccepting(false) end
+		R.ToggleWhisperRecruiting()
+		return
+	end
+	if not state.join and not R.EnableWhisperRecruiting() then return end
+	-- Recruiting turned on, or the scan, takes what other members pass on too (the handoffs).
+	if H and (not state.join or (key == "scan" and not state.scan)) then H.SetAccepting(true) end
+	if key == "ads" then
+		R.SetAnnounceReminder(state.ads and 0 or Views.RECRUIT_AD_MINUTES)
+	elseif key == "scan" and Q then
+		Q.SetEnabled(not state.scan)
+	end
+end
+
 -- `q`, the search (Views.Query): "recruiting" (every guild with room), the zones whose name holds
 -- it (1.1), then the guilds whose name or Lord holds it, and those where it finds a Captain, a
 -- player of the top five or one seen online (under its row), the reported ones then the ones only
@@ -1821,6 +1862,11 @@ local function CensusLines(s, q, recruitment)
 		if #lines == 0 then lines[1] = NoMatch() end
 		return lines
 	end
+	-- (1.5.8) After the offer's Don't ask again: where its switches are, one click away (UI.lua).
+	if recruitment and recruitment.notice then
+		lines[1] = { id = "census-recruit-notice", text = Gold(L.RECRUIT_CENSUS_ELSEWHERE), onClick = recruitment.notice, gapAfter = true }
+		recruitment = nil
+	end
 	QuietLine(lines)
 	-- Our guild's verification (Verify.lua): its guild master's "GM verification pending", or its
 	-- members' notice once it is overdue; a click opens it.
@@ -1847,16 +1893,47 @@ local function CensusLines(s, q, recruitment)
 	if recruitment then
 		-- Keep verification, urgent notices and requests usable above the offer.
 		if record then table.insert(lines, 1, record) end
-		local padding = math.max(6, math.floor((recruitment.height - 155) / 2) - #lines * 28)
+		local padding = math.max(6, math.floor((recruitment.height - 260) / 2) - #lines * 28)
 		lines[#lines + 1] = { text = L.RECRUIT_CENSUS_TITLE, center = true, color = "GameFontNormalLarge",
 			spaceBefore = padding, gapAfter = true }
-		lines[#lines + 1] = { text = L.RECRUIT_CENSUS_HINT, center = true, wrap = true, gapAfter = true }
-		lines[#lines + 1] = { id = "census-recruit-enable", text = L.RECRUIT_CENSUS_ENABLE,
-			primary = true, onClick = recruitment.enable, gapAfter = true }
-		lines[#lines + 1] = { id = "census-recruit-later", text = Gold(L.RECRUIT_CENSUS_LATER), center = true,
-			onClick = recruitment.later }
-		lines[#lines + 1] = { id = "census-recruit-never", text = Grey(L.RECRUIT_CENSUS_NEVER), center = true,
-			onClick = recruitment.never }
+		-- 1.5.8 (the author's ask): the player's own guild in numbers, its open spots out of the
+		-- game's cap, and what filling them does for Olympus. Without a roster count, no number.
+		local own, size = GetGuildInfo("player"), nil
+		if type(GetNumGuildMembers) == "function" then
+			local ok, n = pcall(GetNumGuildMembers)
+			if ok and type(n) == "number" and n > 0 then size = math.floor(n) end
+		end
+		if own and size then
+			local cap = ns.Codec.GUILD_CAP
+			local open = math.max(0, cap - size)
+			local spots = open > 0 and L.RECRUIT_CENSUS_SPOTS:format(own, open, size, cap)
+				or L.RECRUIT_CENSUS_FULL:format(own, size, cap)
+			lines[#lines + 1] = { text = Gold(spots), center = true, wrap = true }
+		end
+		lines[#lines + 1] = { text = L.RECRUIT_CENSUS_GROW, center = true, wrap = true, gapAfter = true }
+		-- 1.5.8 (the author's ask: "Esses 3 naquela página"): three switches, red while off and green
+		-- while on, each one click; the page stays until Done or a dismissal.
+		local state, any = Views.RecruitOfferState(), false
+		for _, switch in ipairs(RECRUIT_SWITCHES) do
+			local on = state[switch.key]
+			any = any or on
+			lines[#lines + 1] = { id = "census-recruit-" .. switch.key, center = true,
+				text = on and Green(RECRUIT_MARK_ON .. L[switch.label]) or Red(RECRUIT_MARK_OFF .. L[switch.label]),
+				onClick = function() recruitment.switch(switch.key) end }
+			local hint = L[switch.hint]
+			if switch.key == "ads" then hint = hint:format(Views.RECRUIT_AD_MINUTES) end
+			lines[#lines + 1] = { text = Grey(hint), center = true, wrap = true, gapAfter = true }
+		end
+		if any then
+			lines[#lines + 1] = { id = "census-recruit-thanks", text = Gold(L.RECRUIT_CENSUS_THANKS), center = true, gapAfter = true }
+			lines[#lines + 1] = { id = "census-recruit-done", text = L.RECRUIT_CENSUS_DONE, primary = true,
+				onClick = recruitment.done }
+		else
+			lines[#lines + 1] = { id = "census-recruit-later", text = Gold(L.RECRUIT_CENSUS_LATER), center = true,
+				onClick = recruitment.later }
+			lines[#lines + 1] = { id = "census-recruit-never", text = Grey(L.RECRUIT_CENSUS_NEVER), center = true,
+				onClick = recruitment.never }
+		end
 		return lines, true
 	end
 	-- Above the guilds (1.1): the channel is public (who can read it), and right after login the

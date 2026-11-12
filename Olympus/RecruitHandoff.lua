@@ -541,3 +541,22 @@ function H.Reset()
 	wipe(outgoing)
 	wipe(handed)
 end
+
+-- 1.5.8 (the author's ask): the Census offer turns accepting handoffs on with its JOIN and scan
+-- switches, saved as the Church's own switch saves it. Turned on, it is kept for the guild this
+-- character recruits for even while the roster cannot confirm the player yet (right after a login,
+-- or a roster gone stale): as after a login (H.Restore), each use checks LocalGuild() again, so
+-- handoffs are taken once the roster does. Returns whether it accepts now.
+function H.SetAccepting(on)
+	local saved = R.Preference and R.Preference(true)
+	local guild = on and (LocalGuild() or (R.IsWhisperRecruiting() and saved and saved.guild)) or nil
+	if acceptingGuild and acceptingGuild ~= guild then H.Toggle() end -- (off, or another guild's leftover off first)
+	if guild and not acceptingGuild then
+		acceptingGuild = guild
+		Changed()
+	end
+	Save("acceptHandoffs", guild ~= nil)
+	return Accepting()
+end
+
+function H.Accepting() return Accepting() end
