@@ -3736,6 +3736,32 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 	GP.Covers("arena-clicks")
 end)
 
+test("gamepad Forever Join requests prepare a native guild command without invoking protected chat or invite", function()
+	for _, pad in ipairs({ false, true }) do
+		local C, ns = Session(pad, { realmFrom = function() return "CAMWOWUS2Realm1PvE" end, surname = "Recruiter" })
+		assert(ns.OnForever(), "the live Forever rules")
+		local R, guild = ns.Recruit, C.units.player.guild
+		local sender = "New Recruit-CAMWOWUS2Realm1PvE"
+		eq(R.OnJoinRequest("WHISPER", sender, ("J3~%s~12~MAGE"):format(guild)), true)
+		local req = assert(R.requests[1])
+		local action
+		for _, row in ipairs(R.RequestLines(false)) do
+			if row.text:find(ns.L.RECRUIT_WHISPER_PREPARE_BUTTON, 1, true) then action = row.onClick end
+		end
+		assert(action, "the guild officer can prepare the native command")
+		local mark = C.Mark()
+		InClick(C, action)
+		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"))
+		eq(draft.editBox:GetText(), "/ginvite New Recruit")
+		eq(R.requests[1], req, "preparing the command does not send the invitation")
+		eq(C.chatBox, nil, "the command is not injected into Blizzard's chat")
+		for _, call in ipairs(C.Since(mark)) do
+			assert(call.sym ~= "C_GuildInfo.Invite" and call.sym ~= "GuildInvite", "no native guild call")
+		end
+		NoErrors(C, "Forever Join requests")
+	end
+end)
+
 test("gamepad public recruiting announcement: channel selection, accepted census, local cooldown and reminder", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)

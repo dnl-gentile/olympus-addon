@@ -1047,8 +1047,9 @@ end
 local function AcceptRequest(req, confirmed)
 	if not CurrentRequest(req) then return false end
 	if confirmed and (confirmed.name ~= req.name or confirmed.guild ~= req.guild) then return false end
+	local prepare = req.viaWhisper or ns.OnForever()
 	local invite
-	if not req.viaWhisper then
+	if not prepare then
 		invite = (C_GuildInfo and C_GuildInfo.Invite) or GuildInvite -- gp:roster-actions
 		if type(invite) ~= "function" then return false end
 	end
@@ -1064,7 +1065,7 @@ local function AcceptRequest(req, confirmed)
 			M.When(word), M.ReasonShown(word)), nil, data)
 		return "warning"
 	end
-	if req.viaWhisper then
+	if prepare then
 		local to = NameForCommand(req.name)
 		if not to then return false end
 		if not ns.Dialog or ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return false end
@@ -1218,16 +1219,17 @@ function Recruit.RequestLines(viaWhisper)
 			end,
 		}
 		local handoff = req.viaWhisper and Recruit.Handoff
-		local joined = req.viaWhisper and req.guild == GetGuildInfo("player") and ns.Roster.Fresh()
+		local joined = (req.viaWhisper or req.invitePrepared) and req.guild == GetGuildInfo("player") and ns.Roster.Fresh()
 			and ns.Roster.RankOf(req.name) ~= nil
 		if joined then
 			lines[#lines + 1] = { indent = 1, text = V.Green(L.RECRUIT_WHISPER_JOINED) }
 		elseif handoff and handoff.State(req) then
 			handoff.RequestLines(lines, V, req)
 		elseif canInvite then
-			local label = req.viaWhisper and L.RECRUIT_WHISPER_REVIEW or L.JOIN_INVITE
+			local label = req.viaWhisper and L.RECRUIT_WHISPER_REVIEW:format(req.guild)
+				or (ns.OnForever() and L.RECRUIT_WHISPER_PREPARE_BUTTON or L.JOIN_INVITE:format(req.guild))
 			local action = req.viaWhisper and ReviewReply or Recruit.Accept
-			lines[#lines + 1] = { indent = 1, text = V.Green(label:format(req.guild)), onClick = function() action(req) end }
+			lines[#lines + 1] = { indent = 1, text = V.Green(label), onClick = function() action(req) end }
 			lines[#lines + 1] = {
 				indent = 1, text = V.Gold(L.JOIN_DECLINE), onClick = function() Recruit.Decline(req) end,
 				tooltip = function(tt)
