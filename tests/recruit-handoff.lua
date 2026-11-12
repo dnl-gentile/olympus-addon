@@ -1652,3 +1652,169 @@ test("recruit Invites page (1.5.9, regression): a member whose rank can't invite
 	end)
 end)
 
+-- Hellos as a guildmate's client hears them (the real Comm.lua, FreshComm), lent to the main
+-- namespace's Comm for the time of `fn`: what RecruitHandoff and Versions read of the hellos.
+local function WithHellos(hellos, fn)
+	local savedChat, savedPeers, savedVersion = C_ChatInfo, ns.Comm.HandoffPeers, ns.Comm.PeerVersion
+	local ok, err = pcall(function()
+		local cns, deliver = FreshComm()
+		for _, hello in ipairs(hellos) do deliver("GUILD", hello[1], hello[2]) end
+		ns.Comm.HandoffPeers, ns.Comm.PeerVersion = cns.Comm.HandoffPeers, cns.Comm.PeerVersion
+		fn(cns, deliver)
+	end)
+	C_ChatInfo, ns.Comm.HandoffPeers, ns.Comm.PeerVersion = savedChat, savedPeers, savedVersion
+	if not ok then error(err, 0) end
+end
+local function Hello(version, flag) return ("H1~%s~%s~p~~~~R~N%s"):format(version, home, flag and "~J" or "") end
+
+-- 1.5.9, the review of 1.5.8: "Offer to another member" listed the first six members online by rank,
+-- so a plain member who takes handoffs (any rank may, since 1.5.8) was never there. Those whose hello
+-- says they take them come first now; one whose hello says he takes none is not listed.
+test("recruit handoff picker (1.5.9, regression): members who take handoffs come first, past the six highest ranks", function()
+	WithHandoff(function(scene)
+		local online, ranks = {}, { [me] = 5 }
+		for i = 1, 7 do
+			local name = ("Officer %s-%s"):format(string.char(64 + i), home)
+			online[#online + 1] = { name = name }
+			ranks[name] = 1
+		end
+		local plain, refuser = "Plain Taker-" .. home, "Officer B-" .. home
+		online[#online + 1] = { name = plain }
+		ranks[plain] = 6
+		ns.Roster.online = online
+		ns.Roster.RankOf = function(name) return ranks[name] end
+		WithHellos({ { plain, Hello("1.5.9", true) }, { refuser, Hello("1.5.9", false) }, { "Officer C-" .. home, Hello("1.5.8") } }, function()
+			R.OnWhisper("JOIN", applicant)
+			assert(Find(R.RequestLines(true), ns.L.RECRUIT_HANDOFF_PICK)).onClick()
+			local offers = {}
+			for _, line in ipairs(R.RequestLines(true)) do
+				if line.indent == 2 and line.onClick then offers[#offers + 1] = line.text end
+			end
+			eq(#offers, 6, "six members offered")
+			assert(offers[1]:find("Plain Taker", 1, true), "the member whose hello says he takes handoffs first: " .. offers[1])
+			assert(offers[2]:find("Officer C", 1, true), "then one known to run Olympus (1.5.8): " .. offers[2])
+			for _, text in ipairs(offers) do
+				eq(text:find("Officer B", 1, true), nil, "never one whose hello says he takes none")
+			end
+			-- The listed taker's offer goes to him.
+			for _, line in ipairs(R.RequestLines(true)) do
+				if line.text and line.text:find("Plain Taker", 1, true) and line.onClick then line.onClick(); break end
+			end
+			local offer = assert(scene.packets[1], "the offer went")
+			eq(offer.peer, plain)
+			assert(offer.word:match("^J4~O~"))
+		end)
+	end)
+end)
+
+-- 1.5.9, the review of 1.5.8 (throughput): a member without Olympus never answers a probe, and each
+-- costs PROBE_TTL (20 s). Clients that take handoffs say so in their hello (Comm.Hello's "J"); the
+-- probes ask them first, members known to run Olympus otherwise after a turn over them (a 1.5.8
+-- hello has no flag yet), and never a member whose hello says he takes none or names a version
+-- before handoffs. The unheard still get one probe after each turn (review of 1.5.8).
+test("recruit overflow (1.5.9, regression): the probes ask members whose hello says they take handoffs first", function()
+	WithHandoff(function(scene)
+		local taker, mate158, old, refuser, quiet = "Taker Member-" .. home, "Older Member-" .. home,
+			"Ancient Member-" .. home, "Refusing Member-" .. home, "Quiet Member-" .. home
+		-- (Roster order: the unheard and the ones who can't take handoffs ahead of the taker.)
+		ns.Roster.online = { { name = quiet }, { name = old }, { name = refuser }, { name = mate158 }, { name = taker } }
+		ns.Roster.RankOf = function(name)
+			if name == me then return 5 end
+			for _, row in ipairs(ns.Roster.online) do if row.name == name then return 6 end end
+		end
+		WithHellos({ { taker, Hello("1.5.9", true) }, { mate158, Hello("1.5.8") }, { old, Hello("1.5.7") },
+			{ refuser, Hello("1.5.9", false) } }, function()
+			for i = 1, 3 do R.OnWhisper("JOIN", ("Flag Queue %d-%s"):format(i, home)) end
+			eq(H.ToggleAuto(), true)
+			local asked = {}
+			for i = 1, 6 do
+				scene.tick()
+				asked[i] = assert(scene.packets[i], "one probe a step").peer
+				scene.now = scene.now + 21
+			end
+			eq(asked[1], taker, "first the member whose hello says he takes handoffs")
+			eq(asked[2], mate158, "after a turn over those, one whose 1.5.8 hello could not say")
+			eq(asked[3], taker)
+			eq(asked[4], quiet, "after a turn over both, one never heard from")
+			eq(asked[5], taker); eq(asked[6], mate158)
+			for _, peer in ipairs(asked) do
+				assert(peer ~= old and peer ~= refuser, "never a client that can't take handoffs or said no: " .. peer)
+			end
+		end)
+	end)
+end)
+
+-- Older clients only (no hello carries the flag): the 1.5.8 order, from the hellos themselves.
+test("recruit overflow (1.5.9): with 1.5.8 clients only, those heard run Olympus first and the unheard after each turn", function()
+	WithHandoff(function(scene)
+		local first, second, quiet = "First Older-" .. home, "Second Older-" .. home, "Quiet Member-" .. home
+		ns.Roster.online = { { name = quiet }, { name = first }, { name = second } }
+		ns.Roster.RankOf = function(name)
+			if name == me then return 5 end
+			if name == first or name == second or name == quiet then return 6 end
+		end
+		WithHellos({ { first, Hello("1.5.8") }, { second, "H1~1.5.8~" .. home .. "~p~~~~R" } }, function()
+			for i = 1, 3 do R.OnWhisper("JOIN", ("Old Queue %d-%s"):format(i, home)) end
+			eq(H.ToggleAuto(), true)
+			local asked = {}
+			for i = 1, 6 do
+				scene.tick()
+				asked[i] = assert(scene.packets[i]).peer
+				scene.now = scene.now + 21
+			end
+			eq(table.concat(asked, ","), table.concat({ first, second, quiet, first, second, quiet }, ","))
+		end)
+	end)
+end)
+
+-- 1.5.9: the flag a member's hello carries. "J", its 9th field, only while he takes handoffs; a quiet
+-- member (other guildmates sort before him: he says hello every ten minutes) says it at his next tick
+-- (HELLO_EVERY) after it turns, either way. A hello without it reads as before, here and on a 0.9.8
+-- client (older clients read the fields before it), and the fields before it read the same with it.
+test("recruit hello (1.5.9, regression): a member who takes handoffs says so in his hello at the next tick", function()
+	WithHandoff(function(scene)
+		local savedChat, savedTime = C_ChatInfo, GetTime
+		local ok, err = pcall(function()
+			local cns, deliver = FreshComm()
+			-- Twelve guildmates who sort before this member: he is a quiet one.
+			for i = 1, 12 do deliver("GUILD", ("Aa%02d Peer-%s"):format(i, home), Hello("1.5.8")) end
+			local sent = {}
+			C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
+			local function Tick()
+				local before, hello = #sent, nil
+				cns.Comm.Hello()
+				for _ = 1, 4 do cns.Comm.Pump() end
+				for i = before + 1, #sent do if sent[i]:find("^GUILD H1~") then hello = sent[i] end end
+				return hello
+			end
+			local first = assert(Tick(), "the first hello")
+			eq(first:match("^GUILD H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~([^~]*)"), nil, "no flag: he takes none")
+			eq(Tick(), nil, "a quiet member says nothing more within ten minutes")
+			eq(H.Toggle(), true, "he takes handoffs now")
+			local flagged = assert(Tick(), "the next tick says so")
+			eq(flagged:match("^GUILD H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~([^~]*)"), "J", "J, the 9th field")
+			eq((flagged:match("^(.*)~J$"):gsub("~+$", "")), first, "the fields before it as they were")
+			eq(Tick(), nil, "once")
+			eq(H.Toggle(), false)
+			eq(Tick(), first, "turned off: the next tick says it, without the flag")
+
+			-- A guildmate's client reads it; a hello without it reads as before.
+			local reader, hear = FreshComm()
+			reader.me = "Reader Member-" .. home -- (a client drops its own words)
+			hear("GUILD", me, flagged:sub(7))
+			hear("GUILD", mate, first:sub(7))
+			local heard = reader.Comm.HandoffPeers()
+			eq(heard.full[me].takes, true); eq(heard.full[me].version, ns.VERSION)
+			eq(heard.full[mate].takes, false)
+			eq(heard.short[ns.Fold(ns.ShortName(me))], heard.full[me], "by the short name too")
+			eq(reader.Comm.PeerRealm(me), reader.Comm.PeerRealm(mate), "the realm field reads the same")
+			-- A 0.9.8 client (the fixture) counts the flagged hello's version as any other.
+			local oldest, hearOld = FreshComm(true)
+			oldest.me = "Reader Member-" .. home
+			hearOld("GUILD", me, flagged:sub(7))
+			eq(oldest.Comm.PeerVersions()[ns.VERSION], 2, "ours and the flagged peer's, its flag ignored")
+		end)
+		C_ChatInfo, GetTime = savedChat, savedTime
+		if not ok then error(err, 0) end
+	end)
+end)

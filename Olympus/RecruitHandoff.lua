@@ -10,8 +10,10 @@ local PROBE_TTL, AUTO_EVERY = 20, 8
 local incoming, outgoing = {}, {}
 local handed = {} -- [folded name] = true: a player this client gave to another member
 local acceptingGuild, choosing, serial
-local autoGuild, autoTimer, autoProbe, autoCursor
-local openCursor, knownTurn = nil, 0
+local autoGuild, autoTimer, autoProbe
+-- The probes' rotation (NextPeer): per tier, the roster index asked last, and how many of its
+-- members were asked since one below it was.
+local cursor, turn = {}, {}
 local repliedAt = -math.huge
 local Notify
 serial = 0
@@ -232,6 +234,95 @@ function H.Claim(ref)
 	return true
 end
 
+-- (1.5.9) What a guildmate's hello says of handoffs (Comm.HandoffPeers, Comm.Hello's "J"), for the
+-- probes and the Offer picker. Tiers:
+--   1 his hello says he takes them;
+--   2 he runs Olympus as far as this client knows and may take them: a 1.5.8 hello (it had no flag
+--     yet), one whose version can't be read, a stale hello or a version check's answer (HasOlympus);
+--   3 never heard from: his hello may not have reached this client (review of 1.5.8);
+--   nil: his hello says he takes none (H.FLAG_SINCE and newer without the flag), or names a version
+--     before handoffs: asked, he would answer no, or nothing at all.
+H.FLAG_SINCE, H.HANDOFFS_SINCE = "1.5.9", "1.5.8"
+local function Before(version, since)
+	local W = ns.Workshop
+	return type(version) == "string" and type(W) == "table" and type(W.Newer) == "function" and W.Newer(since, version) == true
+end
+local function HandoffIndex()
+	local C = ns.Comm
+	return C and type(C.HandoffPeers) == "function" and C.HandoffPeers() or nil
+end
+local function Tier(name, index, known)
+	local full = ns.FullName(name)
+	local e = index and (index.full[full] or index.short[ns.Fold(ns.ShortName(full))])
+	if e then
+		if e.takes then return 1 end
+		if type(e.version) ~= "string" or e.version == "?" then return 2 end
+		if not Before(e.version, H.FLAG_SINCE) or Before(e.version, H.HANDOFFS_SINCE) then return nil end
+		return 2
+	end
+	if known and known(full) then return 2 end
+	return 3
+end
+
+-- The next member of `list` (roster indices of one tier, in order) after the one this tier asked
+-- last, going round; tier 3's members are checked here, as they come.
+local function Pick(tier, list, roster, own)
+	local start = 1
+	for k, i in ipairs(list) do
+		if i > (cursor[tier] or 0) then start = k; break end
+	end
+	for step = 0, #list - 1 do
+		local i = list[(start + step - 1) % #list + 1]
+		local name = ns.FullName(roster[i].name)
+		if tier < 3 or Member(name, own) then
+			cursor[tier] = i
+			return name
+		end
+	end
+end
+
+-- (1.5.9) The member the next probe goes to: those whose hello says they take handoffs first, in
+-- turn; after each turn over them, one probe to the next of tier 2; after each turn over tier 2,
+-- one to the next of tier 3. A tier with nobody is passed over, and whoever's hello says he takes
+-- none is never asked: a member without Olympus never answers a probe, and it waits PROBE_TTL.
+local function NextPeer(own)
+	local roster = ns.Roster.online or {}
+	local V = ns.Versions
+	local known, index = V and V.HasOlympus, HandoffIndex()
+	local tiers = { {}, {}, {} }
+	for i, row in ipairs(roster) do
+		local name = ns.FullName(row.name)
+		if not SamePlayer(name, ns.me) then
+			local tier = Tier(name, index, known)
+			-- (Tiers 1 and 2 are the members heard to run Olympus, few: checked now, so that a turn
+			-- counts only those who may be asked.)
+			if tier and (tier == 3 or Member(name, own)) then tiers[tier][#tiers[tier] + 1] = i end
+		end
+	end
+	for _ = 1, 2 do
+		for t = 1, 3 do
+			local list = tiers[t]
+			if #list > 0 and (t == 3 or (turn[t] or 0) < #list) then
+				local peer = Pick(t, list, roster, own)
+				if peer then
+					if t < 3 then turn[t] = (turn[t] or 0) + 1 end
+					for above = 1, t - 1 do turn[above] = 0 end
+					return peer
+				end
+			end
+		end
+		-- Nobody below the turns that are over: the lowest tier with members starts its turn again.
+		for t = 2, 1, -1 do
+			if #tiers[t] > 0 then turn[t] = 0; break end
+		end
+	end
+end
+
+local function ResetTurns()
+	wipe(cursor)
+	wipe(turn)
+end
+
 local function AutoStep()
 	-- (1.5.8, review) What the invite limit sent on and no member claimed comes back once it clears.
 	if R.ReleaseLimited then R.ReleaseLimited() end
@@ -249,33 +340,9 @@ local function AutoStep()
 	end
 	if autoProbe then H.Log("EXPIRED", "probe > " .. (ns.ShortName(autoProbe.peer) or "?")) end
 	autoProbe = nil
-	-- (1.5.8) Any member may take handoffs now, so in a large guild the probes go first, in turn, to
-	-- the members this client knows run Olympus (their hello). After each turn over them one goes to
-	-- the next of the others (review: a member whose hello never reached this client is still asked),
-	-- and every probe does when it knows none.
-	local roster, peer = ns.Roster.online or {}, nil
-	local V = ns.Versions
-	local known = V and V.HasOlympus
-	local count = 0
-	if known then
-		for _, row in ipairs(roster) do if known(ns.FullName(row.name)) then count = count + 1 end end
-	end
-	local first = count > 0 and knownTurn < count and 1 or 2
-	knownTurn = first == 1 and knownTurn + 1 or 0
-	for pass = first, 2 do
-		local cursor = pass == 1 and autoCursor or openCursor
-		for offset = 1, #roster do
-			local i = ((cursor or 0) + offset - 1) % #roster + 1
-			local name = ns.FullName(roster[i].name)
-			local heard = known and known(name) and true or false
-			if heard == (pass == 1) and not SamePlayer(name, ns.me) and Member(name, own) then
-				if pass == 1 then autoCursor = i else openCursor = i end
-				peer = name
-				break
-			end
-		end
-		if peer then break end
-	end
+	-- (1.5.8) Any member may take handoffs, so in a large guild the probes must not wait on members
+	-- without Olympus: NextPeer's order (1.5.9: who says he takes them first).
+	local peer = NextPeer(own)
 	if not peer then return end
 	local ref = { id = NextID(now), expires = now + PROBE_TTL, from = own, to = own, peer = peer }
 	autoProbe = ref
@@ -288,8 +355,8 @@ end
 
 function H.ToggleAuto()
 	if autoTimer then autoTimer.Cancel(); autoTimer = nil end
-	autoGuild, autoProbe, autoCursor = not autoGuild and LocalGuild() or nil, nil, nil
-	openCursor, knownTurn = nil, 0
+	autoGuild, autoProbe = not autoGuild and LocalGuild() or nil, nil
+	ResetTurns()
 	if autoGuild then autoTimer = ns.Every(AUTO_EVERY, "recruit overflow", AutoStep)
 	-- With the offers off, what the invite limit sent on comes back to his popups.
 	elseif R.ReleaseLimited then ns.After(0, "recruit limit release", R.ReleaseLimited) end
@@ -483,9 +550,23 @@ local function Contacts(req, own)
 		result[#result + 1] = { name = who, guild = guild }
 	end
 	local ownLimit = req.handoffIntent == "federation" and LIMIT / 2 or LIMIT
-	for _, row in ipairs(ns.Roster.online or {}) do
+	-- (1.5.9, the review of 1.5.8: the first members online by rank were listed, so a plain member who
+	-- takes handoffs, any rank since 1.5.8, was never there.) Those whose hello says they take them
+	-- first, then those known to run Olympus, then the rest, each in the roster's order (Tier); never
+	-- one whose hello says he takes none, whose client would let the offer expire unanswered.
+	local V = ns.Versions
+	local known, index, ranked = V and V.HasOlympus, HandoffIndex(), {}
+	for i, row in ipairs(ns.Roster.online or {}) do
+		local tier = Tier(row.name, index, known)
+		if tier then ranked[#ranked + 1] = { name = row.name, tier = tier, i = i } end
+	end
+	table.sort(ranked, function(a, b)
+		if a.tier ~= b.tier then return a.tier < b.tier end
+		return a.i < b.i
+	end)
+	for _, entry in ipairs(ranked) do
 		if #result >= ownLimit then break end
-		Add(row.name, own)
+		Add(entry.name, own)
 	end
 	if req.handoffIntent == "federation" then
 		for _, entry in ipairs(R.OpenGuilds()) do
@@ -520,7 +601,8 @@ function H.Restore(saved)
 		Changed()
 	end
 	if saved.offerOverflow == true and not autoGuild then
-		autoGuild, autoProbe, autoCursor = saved.guild, nil, nil
+		autoGuild, autoProbe = saved.guild, nil
+		ResetTurns()
 		autoTimer = ns.Every(AUTO_EVERY, "recruit overflow", AutoStep)
 		Changed()
 	end
@@ -584,8 +666,8 @@ StaticPopupDialogs[CLAIM_DIALOG] = {
 function H.Reset()
 	acceptingGuild, choosing = nil, nil
 	if autoTimer then autoTimer.Cancel(); autoTimer = nil end
-	autoGuild, autoProbe, autoCursor, repliedAt = nil, nil, nil, -math.huge
-	openCursor, knownTurn = nil, 0
+	autoGuild, autoProbe, repliedAt = nil, nil, -math.huge
+	ResetTurns()
 	wipe(incoming)
 	wipe(outgoing)
 	wipe(handed)
@@ -605,7 +687,8 @@ function H.SetAuto(on)
 		if LocalGuild() == guild then
 			H.ToggleAuto()
 		else
-			autoGuild, autoProbe, autoCursor = guild, nil, nil
+			autoGuild, autoProbe = guild, nil
+			ResetTurns()
 			autoTimer = ns.Every(AUTO_EVERY, "recruit overflow", AutoStep)
 			Changed()
 		end
