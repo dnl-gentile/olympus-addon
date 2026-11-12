@@ -33331,6 +33331,54 @@ test("1.5.8 Workshop: the release line names the last release marked in game bes
 	if not ok then error(err, 0) end
 end)
 
+-- 1.5.8: the author's signed relay rules (rev 1, live) listed versions up to 1.5.6, and from their
+-- deadline every relay holding them refuses a client whose version is not listed, this release's
+-- too: the code's own list (Relay.PUBLISHED) gives way to signed rules. The Workshop says so while
+-- the rules held here leave this build off, and its click opens the command that keeps their
+-- deadline and versions and adds this build; run, it admits the build and the line goes.
+test("1.5.8 Workshop: signed relay rules that leave this build off are shown with the command that admits it", function()
+	local savedRelay, savedUI, savedChat = ns.Relay, ns.UI, C_ChatInfo
+	local ok, err = pcall(function()
+		WithWorkshop(AUTHOR_FULL, function(w, W)
+			-- The real Relay.lua, in a relay world of its own (its store is that world's), as the
+			-- Workshop and /oly relay reach it through ns.Relay.
+			local rns = Harness.RelayWorld(AUTHOR_FULL, "Olympus II")
+			ns.Relay = rns.Relay
+			local L, Relay = ns.L, ns.Relay
+			local function Warning(rev)
+				for _, l in ipairs((W.Build())) do
+					if type(l.text) == "string" and l.text:find(L.WORKSHOP_RELAY_RULES_MISSING:format(rev, ns.VERSION), 1, true) then return l end
+				end
+			end
+			-- The code's own rules (no signed word held): this build is on them, nothing said.
+			rns.rdb.relayRules = nil
+			eq(Relay.Rules().rev, 0); eq(Relay.Published(ns.VERSION), true)
+			eq(Warning(0), nil, "nothing while the code's own list admits this build")
+			-- Signed rules that list older versions only: the line, and the command on its click.
+			rns.rdb.relayRules = { rev = 2, on = true, at = 1794787200, versions = { "1.5.5", "1.5.6" }, from = "Author", t = w.clock }
+			eq(Relay.Published(ns.VERSION), false, "the signed list refuses this build")
+			local line = assert(Warning(2), "the warning while the signed rules leave this build off")
+			local copied
+			ns.UI = setmetatable({ ShowCopy = function(title, text) copied = { title = title, text = text } end }, { __index = savedUI })
+			line.onClick()
+			eq(copied and copied.title, L.WORKSHOP_RELAY_RULES_COPY)
+			eq(copied.text, "/oly relay rules on 1794787200 1.5.5,1.5.6," .. ns.VERSION)
+			-- The command as the author types it: a new revision, same deadline, this build admitted.
+			SlashCmdList.OLYMPUS((copied.text:gsub("^/oly ", "")))
+			local r = Relay.Rules()
+			eq(r.rev, 3); eq(r.at, 1794787200); eq(r.on, true)
+			eq(table.concat(r.versions, ","), "1.5.5,1.5.6," .. ns.VERSION)
+			eq(Relay.Published(ns.VERSION), true)
+			eq(Warning(3), nil, "no warning once the rules admit this build")
+			-- Rules switched off refuse nobody: nothing said.
+			rns.rdb.relayRules = { rev = 4, on = false, at = 1794787200, versions = { "1.5.5" }, from = "Author", t = w.clock }
+			eq(Warning(4), nil, "nothing while the requirement is off")
+		end)
+	end)
+	ns.Relay, ns.UI, C_ChatInfo = savedRelay, savedUI, savedChat
+	if not ok then error(err, 0) end
+end)
+
 test("1.1 behind the author: /oly status carries the line", function()
 	local saved = ns.db.authorRelease
 	ns.Workshop.ResetVersion()

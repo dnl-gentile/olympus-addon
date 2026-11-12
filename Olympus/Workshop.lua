@@ -1596,6 +1596,24 @@ function Workshop.Build(report)
 		end,
 	}
 	if unmarked then lines[#lines + 1] = { text = Grey(L.WORKSHOP_RELEASED_NEXT:format(ns.VERSION)), noReport = true, gapAfter = true } end
+	-- (1.5.8) The relay rules in force (Relay.lua): the author's signed rules, held here, that leave
+	-- this build off their list would have every relay refuse its players from their deadline on
+	-- (rev 1 listed up to 1.5.6). The line says so, and a click opens the command that keeps their
+	-- deadline and versions and adds this build, to copy.
+	local Relay = ns.Relay
+	local rules = Relay and type(Relay.Rules) == "function" and type(Relay.Published) == "function" and Relay.Rules()
+	if rules and rules.rev > 0 and rules.on ~= false and not Relay.Published(ns.VERSION) then
+		local list = {}
+		for i, v in ipairs(rules.versions) do list[i] = v end
+		list[#list + 1] = ns.VERSION
+		local command = ("/oly relay rules on %d %s"):format(rules.at, table.concat(list, ","))
+		lines[#lines + 1] = {
+			text = Red(L.WORKSHOP_RELAY_RULES_MISSING:format(rules.rev, ns.VERSION)), noReport = true, gapAfter = true,
+			onClick = function()
+				if ns.UI and type(ns.UI.ShowCopy) == "function" then ns.UI.ShowCopy(L.WORKSHOP_RELAY_RULES_COPY, command) end
+			end,
+		}
+	end
 	-- 1.2: an arena test build says which, and the arena's solo simulation opens from here (no
 	-- slash command needed: the gamepad UI).
 	local tb = TestBuild()

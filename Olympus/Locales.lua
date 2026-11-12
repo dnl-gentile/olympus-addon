@@ -1960,6 +1960,8 @@ L.RELEASED_ONLY_AUTHOR = "Only the addon's author marks a version as released."
 L.WORKSHOP_RELEASED = "Last release marked in game (/oly released): %s  -  This build: %s"
 L.WORKSHOP_RELEASED_TIP = "The last version you marked with /oly released (saved for your account). Your presence tells the army it is out, and addons older than it show a line to update. Publishing does not change it: once CurseForge lists the new build, type /oly released."
 L.WORKSHOP_RELEASED_NEXT = "This build is newer than the marked release. Once CurseForge lists %s, type /oly released so older addons are told to update."
+L.WORKSHOP_RELAY_RULES_MISSING = "Relay rules rev %d do not admit %s: from their deadline the relays refuse its players. Click for the command that adds it."
+L.WORKSHOP_RELAY_RULES_COPY = "Admit this build in the relay rules"
 -- 1.1: the warning while the Olympus channel is public (request #8).
 L.PUBLIC_NET = "Public channel: anyone who joins %s can read Olympus's census and chats."
 L.PUBLIC_NET_OFFICER = "Officers: seal it with the key the other guilds use (/oly key)."
@@ -4503,6 +4505,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.WORKSHOP_RELEASED = "Último lançamento marcado no jogo (/oly released): %s  -  Esta versão: %s"
 	L.WORKSHOP_RELEASED_TIP = "A última versão que você marcou com /oly released (salva na sua conta). A sua presença diz ao exército que ela já saiu, e addons mais antigos que ela mostram uma linha para atualizar. Publicar não muda isso: quando o CurseForge listar a versão nova, digite /oly released."
 	L.WORKSHOP_RELEASED_NEXT = "Esta versão é mais nova que o lançamento marcado. Quando o CurseForge listar a %s, digite /oly released para avisar os addons mais antigos."
+	L.WORKSHOP_RELAY_RULES_MISSING = "As regras dos relays (rev %d) não admitem a %s: a partir do prazo delas, os relays recusam os jogadores dessa versão. Clique para ver o comando que a inclui."
+	L.WORKSHOP_RELAY_RULES_COPY = "Admitir esta versão nas regras dos relays"
 	-- 1.1: o aviso enquanto o canal de Olympus é público (pedido #8).
 	L.PUBLIC_NET = "Canal público: qualquer um que entrar em %s lê o censo e os chats de Olympus."
 	L.PUBLIC_NET_OFFICER = "Oficiais: selem com a chave que as outras guildas usam (/oly key)."
