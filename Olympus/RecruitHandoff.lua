@@ -368,27 +368,46 @@ end
 function H.Receive(dist, sender, word)
 	if dist ~= "WHISPER" or type(word) ~= "string" or #word > 255 or SamePlayer(sender, ns.me) then return false end
 	local op, id, expires, group, faction, from, to, applicant =
-		word:match("^J4~([OCNAPV])~([%d%x%-]+)~(%d+)~([^~]+)~([^~]+)~([^~]+)~([^~]+)~([^~]*)$")
+		word:match("^J4~([OCNAPVD])~([%d%x%-]+)~(%d+)~([^~]+)~([^~]+)~([^~]+)~([^~]+)~([^~]*)$")
 	expires = tonumber(expires)
 	local now, own = ns.Now(), LocalGuild()
+	-- (Review of 1.5.8) A member who may not invite still answers a probe, with a no (below).
+	if not own and op == "P" then
+		local guild = ns.group and ns.faction and ns.IsMember() and GetGuildInfo("player") or nil
+		if guild and Member(ns.me, guild) then own = guild end
+	end
 	if not own or not expires or expires <= now or expires - now > TTL + 5 or #id > 40
 		or group ~= ns.group or faction ~= ns.faction or not Field(from, MAX_GUILD) or not Field(to, MAX_GUILD)
 		or (op ~= "N" and applicant ~= "") then return false end
 	Prune(now)
-	if op == "P" or op == "V" then
+	if op == "P" or op == "V" or op == "D" then
 		if not AvailableNow() or expires - now > PROBE_TTL + 5 or not Same(own, from) or not Same(own, to)
 			or not Member(sender, own) then return false end
-		if op == "V" then
+		if op == "V" or op == "D" then
 			local ref = autoProbe
 			if not AutoAllowed(own) or not ref or ref.available or id ~= ref.id or expires ~= ref.expires
 				or not SamePlayer(sender, ref.peer) then return false end
+			if op == "D" then
+				-- (Review of 1.5.8) He takes no names now: the next member is asked in a second, not
+				-- once the probe's PROBE_TTL is over.
+				autoProbe = nil
+				ns.After(1, "recruit probe declined", AutoStep)
+				return true
+			end
 			ref.available = true
 			return true
 		end
-		-- (1.5.8) A member at his own invite limit is not available for more names.
-		if not Accepting() or not Room(incoming) or now - repliedAt < AUTO_EVERY or R.AtInviteLimit() then return false end
+		if now - repliedAt < AUTO_EVERY then return false end
 		local ref = { id = id, expires = expires, from = own, to = own }
 		repliedAt = now
+		-- (1.5.8) A member at his own invite limit is not available for more names. (Review of 1.5.8)
+		-- He, and a member who takes no handoffs or may not invite, says so at once ("D"): a probe
+		-- nobody answered held the busy recruiter's next one back PROBE_TTL seconds.
+		if not Accepting() or not Room(incoming) or R.AtInviteLimit() then
+			return Transmit("D", ref, sender, nil, function()
+				return expires > ns.Now() and AvailableNow() and Member(sender, own)
+			end)
+		end
 		return Transmit("V", ref, sender, nil, function()
 			return expires > ns.Now() and acceptingGuild == own and Accepting() and AvailableNow()
 				and Room(incoming) and Member(sender, own)
@@ -594,7 +613,7 @@ function H.Accepting() return Accepting() end
 -- code, a short detail. Applicants and scanned strangers appear only as a tag (their first two
 -- letters and four hex digits of a hash of the full name), never by name; members by character.
 H.LOG_MAX, H.SEEN_PER_MINUTE = 200, 6
-local PACKET = { P = "probe", V = "available", O = "offer", C = "claim", N = "name", A = "ack" }
+local PACKET = { P = "probe", V = "available", D = "declined", O = "offer", C = "claim", N = "name", A = "ack" }
 local seenTags, seenAt = {}, {}
 
 function H.Tag(name)

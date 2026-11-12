@@ -204,13 +204,17 @@ test("recruit overflow: an eligible recipient privately replies only while opted
 		local function Probe(id)
 			return ("J4~P~%s~%d~ForeverPvE~Alliance~%s~%s~"):format(id, scene.now + 20, own, own)
 		end
-		eq(H.Receive("WHISPER", mate, Probe("1234-ab-1")), false)
+		-- (Review of 1.5.8: not opted in, he says no at once, "D", instead of nothing; the test
+		-- "a member who takes no names says no to a probe at once" covers it.)
+		eq(H.Receive("WHISPER", mate, Probe("1234-ab-1")), true)
+		assert(scene.packets[1].word:match("^J4~D~"), "not opted in, a no")
+		scene.now = scene.now + 9
 		eq(H.Toggle(), true)
 		scene.quiet = true
 		eq(H.Receive("WHISPER", mate, Probe("1234-ab-1")), false)
 		scene.quiet = false
 		eq(H.Receive("WHISPER", mate, Probe("1234-ab-1")), true)
-		local answer = assert(scene.packets[1]); eq(answer.peer, mate)
+		local answer = assert(scene.packets[2]); eq(answer.peer, mate)
 		assert(answer.word:match("^J4~V~") and answer.word:sub(-1) == "~")
 		eq(H.Receive("WHISPER", mate, Probe("1234-ab-2")), false, "response cadence is bounded")
 		eq(H.Toggle(), false)
@@ -1181,6 +1185,12 @@ test("recruit handoff simulation (1.5.8): forty JOINs at a busy recruiter each e
 			local probed = {}
 			for _, p in ipairs(world.sent) do if p.op == "P" then probed[p.to] = true end end
 			assert(probed[full] or probed[offA] or probed[offB], "the probes also reached the members who said no")
+			-- (Review of 1.5.8) Each one asked answered with a no, so the next member was asked at once.
+			local declined = {}
+			for _, p in ipairs(world.sent) do if p.op == "D" then declined[p.from] = true end end
+			for _, c in ipairs({ full, offA, offB }) do
+				if probed[c] then assert(declined[c], c.name .. " said no to the probe") end
+			end
 			for _, line in ipairs(busy.ns.db.recruitLog) do
 				for _, name in ipairs(applicants) do assert(not line:find(ns.ShortName(name), 1, true), "no applicant's name in the log") end
 			end
@@ -1222,5 +1232,65 @@ test("recruit log (1.5.8): a popup left open past the minute logs that minute's 
 			ChatFrameUtil = savedUtil
 			if not ok then error(err, 0) end
 		end)
+	end)
+end)
+
+-- Review of 1.5.8 (P2): a member who took no names (handoffs off, at his own limit, or not allowed
+-- to invite) never answered a probe, and each such probe held the busy recruiter's next one back
+-- for its twenty seconds: about one JOIN a minute handed on when few members accept. He now says
+-- no at once, and the recruiter asks the next member a second later.
+test("recruit overflow (review of 1.5.8): a member who takes no names says no to a probe at once", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			local function Probe(id)
+				return ("J4~P~%s~%d~ForeverPvE~Alliance~%s~%s~"):format(id, scene.now + 20, own, own)
+			end
+			eq(H.Accepting(), false)
+			eq(H.Receive("WHISPER", mate, Probe("1-a-1")), true, "the probe is answered")
+			local no = assert(scene.packets[1], "a no goes back")
+			eq(no.peer, mate)
+			assert(no.word:match("^J4~D~1%-a%-1~"), no.word)
+			eq(no.word:sub(-1), "~", "the no carries no name")
+			assert(LogHas("TX declined > Guild Recruiter"), "his no, in his log")
+			eq(H.Receive("WHISPER", mate, Probe("1-a-2")), false, "one answer each few seconds at most")
+			eq(#scene.packets, 1)
+			-- Taking handoffs he is available, as before.
+			scene.now = scene.now + 9
+			eq(H.Toggle(), true)
+			eq(H.Receive("WHISPER", mate, Probe("1-a-3")), true)
+			assert(scene.packets[2].word:match("^J4~V~"), "taking handoffs, he says yes")
+			-- A member the game does not let invite says no too.
+			scene.now = scene.now + 9
+			scene.permission = false
+			eq(H.Receive("WHISPER", mate, Probe("1-a-4")), true)
+			assert(scene.packets[3].word:match("^J4~D~"), "a member who may not invite says no")
+			eq(H.Receive("WHISPER", mate, Packet(scene, "O", own, own, nil, "1-a-5")), false, "and takes no offer")
+		end)
+	end)
+end)
+
+test("recruit overflow (review of 1.5.8): a no sends the next probe a second later, not after twenty", function()
+	WithHandoff(function(scene)
+		for i = 1, 3 do R.OnWhisper("JOIN", ("Waiting %d-%s"):format(i, home)) end
+		local nextMember = "Next Member-" .. home
+		ns.Roster.online = { { name = mate }, { name = nextMember } }
+		local rank = ns.Roster.RankOf
+		ns.Roster.RankOf = function(name) if name == nextMember then return 2 end return rank(name) end
+		eq(H.ToggleAuto(), true)
+		scene.tick()
+		local first = assert(scene.packets[1]); assert(first.word:match("^J4~P~"))
+		local no = (first.word:gsub("^J4~P~", "J4~D~"))
+		eq(H.Receive("WHISPER", nextMember == first.peer and mate or nextMember, no), false, "only the member asked can say no")
+		eq(H.Receive("WHISPER", first.peer, no), true, "his no is heard")
+		eq(H.Receive("WHISPER", first.peer, no), false, "once")
+		eq(H.Receive("WHISPER", first.peer, (first.word:gsub("^J4~P~", "J4~V~"))), false, "nor a yes after his no")
+		scene.now = scene.now + 1
+		local later = scene.later
+		scene.later = {}
+		for _, fn in ipairs(later) do fn() end
+		local second = assert(scene.packets[2], "the next probe goes a second later, not after the first one's twenty")
+		assert(second.word:match("^J4~P~"))
+		assert(second.peer ~= first.peer, "to the next member")
+		for _, req in ipairs(R.requests) do eq(H.State(req), nil, "no applicant left the local queue") end
 	end)
 end)
