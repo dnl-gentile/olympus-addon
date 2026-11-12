@@ -3881,7 +3881,7 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 		local sends = #(C.said or {})
 		ClickLine(general)
 		local draft = assert(Draft())
-		eq(draft.editBox:GetText(), "/1 Olympus is recruiting! Over 44,000 characters across servers and counting. Whisper JOIN if you're interested.")
+		eq(draft.editBox:GetText(), ("/1 %s is recruiting! Over 44,000 characters across servers and counting. Whisper JOIN if you're interested."):format(C.units.player.guild))
 		C.Click(draft.buttons[1])
 		eq(C.chatBox, nil, "no game chat box was opened")
 
@@ -3897,7 +3897,9 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 		ClickLine(trade); eq(Draft(), nil, "the other channel has its own cooldown")
 		C.now = C.now + 120
 		ClickLine(trade)
-		assert(Draft().editBox:GetText():find("Tester", 1, true), "Trade can use the named variant after the cooldown")
+		local named = Draft().editBox:GetText()
+		assert(named:find("Tester", 1, true) and named:find(C.units.player.guild, 1, true),
+			"the named variant identifies the recruiter and the destination guild")
 		local tradeText = Draft().editBox:GetText():gsub("^/2 ", "")
 		C.Click(Draft().buttons[1])
 		Post(tradeText, ns.me, 2, 22, "Trade")

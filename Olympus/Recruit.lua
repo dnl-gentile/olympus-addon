@@ -875,13 +875,18 @@ local function AnnouncementCount()
 	return (groups > 1 and L.RECRUIT_ANNOUNCE_COUNT_GROUPS or L.RECRUIT_ANNOUNCE_COUNT_LOCAL):format(number)
 end
 
-local function AnnouncementText()
+local function AnnouncementText(guild)
 	local name = NameForCommand(ns.me)
-	local opening = L.RECRUIT_ANNOUNCE_OPENING
-	if name and announcementVariant == 1 then opening = L.RECRUIT_ANNOUNCE_OPENING_NAMED:format(name)
-	elseif name and announcementVariant == 2 then opening = L.RECRUIT_ANNOUNCE_OPENING_PLAY:format(name) end
+	local destination = ns.Codec.SanitizeChat(guild)
+	local opening = L.RECRUIT_ANNOUNCE_OPENING:format(destination)
+	local line = opening
+	if name and announcementVariant == 1 then line = L.RECRUIT_ANNOUNCE_OPENING_NAMED:format(name, destination)
+	elseif name and announcementVariant == 2 then line = L.RECRUIT_ANNOUNCE_OPENING_PLAY:format(destination, name) end
 	local count = AnnouncementCount()
-	return opening .. (count and " " .. count or "") .. " " .. L.RECRUIT_ANNOUNCE_JOIN
+	local suffix = destination:lower():match("%f[%a]olympus%f[%A]") and "" or " Part of Olympus."
+	suffix = suffix .. (count and " " .. count or "") .. " " .. L.RECRUIT_ANNOUNCE_JOIN
+	if #line + #suffix > 255 then line = opening end
+	return line .. suffix
 end
 
 -- The native channel index and zone ID must both agree with a channel WoW exposes as joined.
@@ -925,7 +930,7 @@ local function CopyAnnouncement(channel, reminder)
 	end
 	local name = current.name:lower()
 	if not AnnouncementReady(name, reminder) then return false end
-	local message = AnnouncementText()
+	local message = AnnouncementText(guild)
 	local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_ANNOUNCEMENT", ns.Codec.SanitizeChat(current.name), nil,
 		{ channel = name, public = current, guild = guild, message = message, command = ("/%d %s"):format(current.id, message), reminder = reminder })
 	if not draft then return false end
