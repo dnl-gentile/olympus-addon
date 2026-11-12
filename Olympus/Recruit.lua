@@ -1025,7 +1025,8 @@ local function AnnouncementLines(lines, V)
 	end
 	local minutes = REMINDER_MINUTES[reminderIndex]
 	local reminder = minutes > 0 and L.RECRUIT_ANNOUNCE_REMINDER_ON:format(minutes) or L.RECRUIT_ANNOUNCE_REMINDER_OFF
-	lines[#lines + 1] = { indent = 1, text = V.Grey(reminder), onClick = ChangeReminder, gapAfter = true }
+	lines[#lines + 1] = { indent = 1, text = V.Grey(reminder), onClick = ChangeReminder, gapAfter = true,
+		tooltip = function(tt) tt:AddLine(L.RECRUIT_ANNOUNCE_REMINDER_TIP, 1, 1, 1, true) end }
 end
 
 function Recruit.WhisperLines()

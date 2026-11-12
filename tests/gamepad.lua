@@ -3871,7 +3871,10 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 		ClickLine(L.RECRUIT_ANNOUNCE_OPEN)
 		local general, trade = L.RECRUIT_ANNOUNCE_CHANNEL:format(1, "General"), L.RECRUIT_ANNOUNCE_CHANNEL:format(2, "Trade")
 		eq(Find(L.RECRUIT_ANNOUNCE_CHANNEL:format(3, "Private")), nil, "private channels are omitted")
-		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_OFF), "off by default")
+		local reminder = assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_OFF), "off by default")
+		local tip
+		reminder.tooltip({ AddLine = function(_, message) tip = message end })
+		eq(tip, L.RECRUIT_ANNOUNCE_REMINDER_TIP, "the control explains the draft and the explicit Post action")
 		local sends = #(C.said or {})
 		ClickLine(general)
 		local draft = assert(Draft())
