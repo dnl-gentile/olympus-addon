@@ -1712,7 +1712,7 @@ end
 ---------------------------------------------------------------------------
 Data.GROUP_PROTOCOL = 1
 Data.GROUP_KEEP = 7 * 24 * 60 * 60  -- listed this long after it was seen
-Data.GROUP_COUNT = 48 * 60 * 60     -- counted in the totals this long after it was seen
+Data.GROUP_COUNT = 48 * 60 * 60     -- (1.5.8) a held look covering more guilds is kept against a newer narrow one this long
 Data.GROUP_WINDOW = 2 * 60 * 60     -- two people's looks agree within this...
 Data.GROUP_SHARE = 0.10             -- ...and within max(WITNESS_SLACK, this share)
 Data.GROUP_MAX = 64                 -- groups kept per faction
@@ -2084,10 +2084,11 @@ function Data.GroupCensusPayload(now)
 		local row = type(e) == "table" and e.faction == side and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed)
 		local key = row and GroupKey(row.faction, row.group)
 		local say, heard = row and not ScopedGroup(row.group), groupHeard
+		-- (1.5.8) The newest look held is said however old it is (GROUP_KEEP at most, GroupRow): it counts
+		-- until a newer one replaces it (Data.Groups), so a holder keeps carrying it to late clients.
 		if row and not say and trusted and e.group == row.group and not e.rg then
-			local counted = now - row.observed <= Data.GROUP_COUNT
-			if author then say = AUTHOR_SAYS[e.src] == true and counted
-			else say, heard = e.src == "own" or (e.src == "author" and counted), groupHeardLedger end
+			if author then say = AUTHOR_SAYS[e.src] == true
+			else say, heard = e.src == "own" or e.src == "author", groupHeardLedger end
 		end
 		if say and not e.unscoped and row.group ~= GroupField(ns.group) and Listed(row.group)
 			and row.observed > (heard[key] or 0) + Data.FRESH then
@@ -2240,9 +2241,14 @@ function Data.Groups(s, now)
 		if type(e) == "table" and e.faction == side and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed) and Listed(e.group) then kept[#kept + 1] = e end
 	end
 	table.sort(kept, GroupLater)
+	-- (1.5.8, the author, 11-12: "ele deveria redistribuir esses dados enquanto não tivessem dados novos
+	-- na rede") Another origin's accepted look counts until a newer accepted look of that origin takes
+	-- its place (TakeGroup), dated as it was observed (the census page's "As of"): it no longer leaves
+	-- the totals after GROUP_COUNT, which emptied the PvP count on every client two days after the last
+	-- look anyone carried. Our own origin's saved row keeps the day of a guild report (TOTAL_KEEP).
 	for _, e in ipairs(kept) do
 		local ours = GroupField(e.group) == group
-		Add(e, not e.unscoped and now - e.observed <= (ours and Data.TOTAL_KEEP or Data.GROUP_COUNT), ours)
+		Add(e, not e.unscoped and (not ours or now - e.observed <= Data.TOTAL_KEEP), ours)
 	end
 	local heard = {}
 	for _, e in pairs(GroupStore("heard")) do

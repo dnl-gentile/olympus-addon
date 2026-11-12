@@ -630,3 +630,50 @@ test("census author (1.5.5): Data.CensusStats counts the rows trusted, witnessed
 		eq(#R.Data.CensusStats().last, 5)
 	end)
 end)
+
+-- 1.5.8 (the author, 11-12: "ele deveria redistribuir esses dados enquanto não tivessem dados novos na
+-- rede"). Fails before: another origin's accepted look left the "all servers" total GROUP_COUNT (48 h)
+-- after it was observed, on every client at once, and its holders stopped saying it then too.
+test("census author (1.5.8): another origin's accepted look keeps counting, dated, past two days until a newer accepted look replaces it; its holders keep saying it", function()
+	World(function(Node)
+		local DAY = 86400
+		local L = Node(LISTENER)
+		L.clock = 20 * DAY
+		local seen = L.clock - 600
+		L.Relay.TakeVia("M", "Sage Ledger", AUTHOR, ("CX~1~S~%d~ForeverPvP,Alliance,5498,5400,24,%d"):format(L.clock, seen))
+		eq(assert(PvP(L.Data.Groups())).counted, true, "counted when heard")
+		L.clock = L.clock + 3 * DAY -- past GROUP_COUNT, inside GROUP_KEEP
+		local g = L.Data.Groups()
+		local row = assert(PvP(g), "still listed")
+		eq(row.counted, true, "still counted with no newer look"); eq(row.observed, seen, "dated as it was observed")
+		eq(row.src, "author")
+		local here = 0
+		for _, r in ipairs(g.rows) do if r.ours and r.counted then here = here + r.characters end end
+		eq(g.characters, here + 5498, "in the all-server total")
+		-- A newer accepted look of the origin replaces it, even one covering fewer guilds now that the held
+		-- one is past the two days in which a wider look is kept against a narrow one.
+		L.Relay.TakeVia("M", "Sage Ledger", AUTHOR, ("CX~1~S~%d~ForeverPvP,Alliance,4100,4000,9,%d"):format(L.clock, L.clock - 60))
+		row = assert(PvP(L.Data.Groups()))
+		eq(row.characters, 4100, "the newer look replaces it"); eq(row.observed, L.clock - 60); eq(row.counted, true)
+		-- An older look never takes its place back.
+		L.Relay.TakeVia("M", "Sage Ledger", AUTHOR, ("CX~1~S~%d~ForeverPvP,Alliance,5498,5400,24,%d"):format(L.clock, seen))
+		eq(assert(PvP(L.Data.Groups())).characters, 4100)
+		-- The author's client says the newest look it holds however old it is, and a councillor re-says the
+		-- author's (for the clients that trust only the Church's ledger relays).
+		local A = Node(AUTHOR)
+		A.clock = 20 * DAY
+		A.db.groupCensus = { ["Alliance|ForeverPvP"] = { group = "ForeverPvP", faction = "Alliance", characters = 5498,
+			people = 5400, guilds = 24, observed = A.clock - 3 * DAY, src = "own", by = AUTHOR_PVP .. "-" .. PVP, w = 1 } }
+		local said = tostring(A.Data.GroupCensusPayload())
+		assert(said:find("ForeverPvP,Alliance,5498,5400,24," .. (A.clock - 3 * DAY), 1, true), "the author says it: " .. said)
+		local H = Node("Sage Warden-" .. PVE)
+		H.clock = 20 * DAY
+		H.db.groupCensus = { ["Alliance|ForeverPvP"] = { group = "ForeverPvP", faction = "Alliance", characters = 5498,
+			people = 5400, guilds = 24, observed = H.clock - 3 * DAY, src = "author", by = AUTHOR, w = 1 } }
+		local resaid = tostring(H.Data.GroupCensusPayload())
+		assert(resaid:find("ForeverPvP,Alliance,5498,5400,24," .. (H.clock - 3 * DAY), 1, true), "the councillor re-says it: " .. resaid)
+		-- Past GROUP_KEEP (seven days) it is gone, as before: nothing older is listed or said.
+		L.clock = L.clock + 8 * DAY
+		eq(PvP(L.Data.Groups()), nil, "a look older than GROUP_KEEP is dropped")
+	end)
+end)
