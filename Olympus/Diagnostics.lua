@@ -672,6 +672,32 @@ local function CensusLines()
 	return out
 end
 
+-- (1.5.9) One compact census line near the top of the status: a report sent in game stops at
+-- Workshop.BUG_MAX bytes, and the debug section's census lines came last, cut from the reports the author
+-- got. The all-server totals, each server they count (its source and age; ours "here"), how many are
+-- listed uncounted, and the census's counters (Data.CensusStats). Realm groups and counts, no names.
+local function CensusBriefLine()
+	local D = ns.Data
+	local g = type(D) == "table" and type(D.Groups) == "function" and Try(D.Groups) or nil
+	if type(g) ~= "table" or type(g.rows) ~= "table" then return "census brief: ?" end
+	local parts = { ("all %s chars %s people"):format(tostring(tonumber(g.characters) or 0), tostring(tonumber(g.people) or 0)) }
+	local shown, more, uncounted = 0, 0, 0
+	for _, r in ipairs(g.rows) do
+		if type(r) == "table" and r.counted then
+			if shown < 6 then
+				shown = shown + 1
+				parts[#parts + 1] = r.ours and ("%s here %s"):format(tostring(r.group), tostring(r.characters))
+					or ("%s %s %s %s"):format(tostring(r.group), tostring(r.src or "?"), Age(r.observed), tostring(r.characters))
+			else more = more + 1 end
+		elseif type(r) == "table" then uncounted = uncounted + 1 end
+	end
+	if more > 0 then parts[#parts + 1] = "+" .. more .. " counted" end
+	if uncounted > 0 then parts[#parts + 1] = uncounted .. " uncounted" end
+	local st = type(D.CensusStats) == "function" and Try(D.CensusStats) or nil
+	parts[#parts + 1] = type(st) == "table" and type(st.line) == "string" and st.line or "counters ?"
+	return Cap("census brief: " .. table.concat(parts, "; ")) -- (";": a report sent in game turns "|" into "!")
+end
+
 -- The signed lists held here, by kind and age (no names: ns.PinsStatus says signed, code or none).
 local function SignedLine()
 	local t = type(ns.CouncilTitles) == "function" and Try(ns.CouncilTitles) or (ns.rdb and ns.rdb.councilTitles)
@@ -756,6 +782,8 @@ function ns.StatusText()
 	local realm, census = RealmLines()
 	add("%s", realm)
 	add("%s", census)
+	-- (1.5.9) Here, near the top: a report sent in game keeps it (CensusBriefLine).
+	add("%s", Try(CensusBriefLine) or "census brief: ?")
 	local st = ns.Roster and ns.Roster.lastStats
 	if st then
 		add("roster: total=%s online=%s rowsRead=%d offlineRows=%d leader=%s (%s) zones=%d scanMs=%.1f %s",

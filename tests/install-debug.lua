@@ -476,3 +476,36 @@ test("1.5.8 /oly bug debug: the census counters, the tree's registrant line and 
 	ns.db.groupCensus, ns.db.groupHeard, ns.rdb.censusGlobal, ns.group, ns.RelayTree = saved.census, saved.heard, saved.global, saved.group, saved.tree
 	if not ok then error(err, 0) end
 end)
+
+-- 1.5.9 (the census items left from 1.5.8). Fails before: a report sent in game stops at Workshop.BUG_MAX
+-- bytes, and the census's lines came last (the debug section), cut from a busy client's report: the
+-- author never saw which servers it counted, from what, or how old.
+test("1.5.9 /oly bug: a compact census line near the top of the status survives the in-game cut: the totals, each counted server with its source and age, the counters; no names", function()
+	local saved = { census = ns.db.groupCensus, heard = ns.db.groupHeard, group = ns.group, lines = ns.statusLines }
+	local ok, err = pcall(function()
+		local now = ns.Now()
+		ns.group = "ForeverPvE"
+		ns.db.groupCensus = { ["Alliance|ForeverPvP"] = { group = "ForeverPvP", faction = "Alliance", people = 5900, characters = 6012,
+			guilds = 24, observed = now - 9 * 86400, src = "author", by = "Author Personname" } }
+		ns.db.groupHeard = { ["Alliance|ForeverRP"] = { group = "ForeverRP", faction = "Alliance", people = 300, characters = 300,
+			guilds = 2, observed = now - 3600, src = "heard", by = "Some Personname" } }
+		-- A busy client: its status runs past what a report sent in game carries.
+		ns.statusLines = { function(lines)
+			for i = 1, 80 do lines[#lines + 1] = ("busy status line %02d %s"):format(i, ("x"):rep(60)) end
+		end }
+		local report = ns.BuildBugReport()
+		local sent = ns.Workshop.Outgoing(report)
+		assert(#report > ns.Workshop.BUG_MAX, "the whole report is longer than one sent in game")
+		assert(not sent:find("census counters: ", 1, true), "the debug section's census lines are cut from it")
+		local brief = sent:match("\n(census brief: [^\n]+)")
+		assert(brief, "the compact census line is in the report sent")
+		assert(brief:find("; ForeverPvP author 9d 6012;", 1, true), "the counted server, its source and age: " .. brief)
+		assert(brief:find("; 1 uncounted;", 1, true), "the server listed uncounted: " .. brief)
+		assert(brief:find((ns.Data.CensusStats().line:gsub("|", "!")), 1, true), "the counters (sent with \"!\" for \"|\"): " .. brief)
+		assert(#brief <= ns.DEBUG_LINE, "one bounded line")
+		assert(not brief:find("Personname", 1, true), "no names")
+		assert(ns.StatusText():find("\ncensus brief: ", 1, true), "/oly status has it too")
+	end)
+	ns.db.groupCensus, ns.db.groupHeard, ns.group, ns.statusLines = saved.census, saved.heard, saved.group, saved.lines
+	if not ok then error(err, 0) end
+end)
