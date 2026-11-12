@@ -3011,6 +3011,7 @@ local function Help()
 	print(L.HELP_CMD_LAYER)
 	print(L.HELP_CMD_MINIMAP)
 	print(L.HELP_CMD_DEBUG)
+	print(L.HELP_CMD_RECENT)
 	print(L.HELP_CMD_RESET)
 	print(L.HELP_ARENA) -- (1.2)
 end
@@ -3272,6 +3273,13 @@ local function Slash(input)
 			ns.Print(ns.L.DEMO_REMOVED)
 		elseif cmd == "bug" then
 			ns.UI.ShowBugReport()
+		elseif cmd == "recent" then
+			local kind = rest:lower()
+			if kind == "" or kind == "errors" or kind == "census" then
+				ns.UI.ShowCopy("/oly recent" .. (kind ~= "" and " " .. kind or ""), ns.RecentDiagnostics(kind), nil, { key = "recent", big = true })
+			else
+				ns.Print(L.HELP_CMD_RECENT)
+			end
 		elseif cmd == "builds" then
 			-- 1.5.4: the modified builds this client saw, and those the guild masters, officers and the
 			-- High Council reported (Builds.lua), in a copy window.

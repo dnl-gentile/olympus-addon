@@ -1347,6 +1347,9 @@ local function GuildTooltip(e)
 		end
 		tt:AddLine(" ")
 		tt:AddLine(L.REPORTED_BY:format(g.reporter or "?", ns.Ago(e.observed or g.t)), 0.6, 0.6, 0.6)
+		if e.observed and g.t and g.t > e.observed then
+			tt:AddLine(L.CENSUS_RECEIVED_AGE:format(ns.Ago(g.t)), 0.6, 0.6, 0.6)
+		end
 		if not e.fresh then tt:AddLine(L.STALE, 1, 0.4, 0.4) end
 		DisputeTooltip(tt, ns.Data.Dispute(g))
 		local V = VerifyModule()
@@ -1739,6 +1742,25 @@ local function PersonLine(e, p)
 	}
 end
 
+function Views.CensusConnectionLine(s)
+	local relay, comm = ns.Relay, ns.Comm
+	if not relay or not relay.On() or not comm or not comm.LaneStats then return end
+	local lane = comm.LaneStats()
+	local relayName, confirmed = relay.Pick()
+	local newest = 0
+	for _, row in ipairs(s.guilds) do
+		if not row.g.mine then newest = math.max(newest, row.observed or 0) end
+	end
+	local state = confirmed and L.CENSUS_RELAY_READY or (relayName and L.CENSUS_RELAY_WAIT or L.CENSUS_RELAY_NONE)
+	local age = newest > 0 and L.CENSUS_REMOTE_AGE:format(ns.Ago(newest)) or L.CENSUS_REMOTE_NONE
+	local label = L.CENSUS_CONNECTION:format(lane.lane or 0, state, age)
+	if lane.mismatch and lane.dominant then
+		label = label .. " · " .. L.CENSUS_LANE_MISMATCH:format(lane.dominant)
+	end
+	return { id = "census-connection", text = (confirmed and newest > 0 and ns.Now() - newest <= ns.Data.FRESH and not lane.mismatch) and Grey(label) or Gold(label),
+		onClick = function() ns.UI.ShowCopy("/oly status", ns.StatusText(), nil, { key = "status" }) end }
+end
+
 -- `q`, the search (Views.Query): "recruiting" (every guild with room), the zones whose name holds
 -- it (1.1), then the guilds whose name or Lord holds it, and those where it finds a Captain, a
 -- player of the top five or one seen online (under its row), the reported ones then the ones only
@@ -1814,6 +1836,8 @@ local function CensusLines(s, q)
 		lines[#lines + 1] = evening
 	end
 	WhoStatus(lines)
+	local connection = Views.CensusConnectionLine(s)
+	if connection then lines[#lines + 1] = connection end
 	-- The addon's author online: Report a bug reaches him directly (Workshop.lua).
 	local author = ns.Workshop and ns.Workshop.AuthorOnline and ns.Workshop.AuthorOnline() and ns.Workshop.AuthorName()
 	if author then

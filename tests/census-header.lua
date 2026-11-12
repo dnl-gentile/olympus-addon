@@ -105,3 +105,28 @@ test("census header: retained count shows its original date and live partial pop
 		if not ok then error(err, 0) end
 	end)
 end)
+
+test("census connection: reports from the local guild do not mask missing remote data", function()
+	local R, C, V = ns.Relay, ns.Comm, ns.Views
+	local savedOn, savedPick, savedLane = R.On, R.Pick, C.LaneStats
+	local ok, err = pcall(function()
+		local at = ns.Now()
+		local s = { guilds = { { g = { mine = true }, observed = at } } }
+		R.On = function() return false end
+		eq(V.CensusConnectionLine(s), nil)
+		R.On = function() return true end
+		R.Pick = function() return nil, false end
+		C.LaneStats = function() return { lane = 9, dominant = 7, mismatch = true } end
+		local line = V.CensusConnectionLine(s)
+		assert(line.text:find(ns.L.CENSUS_REMOTE_NONE, 1, true))
+		assert(line.text:find(ns.L.CENSUS_RELAY_NONE, 1, true))
+		assert(line.text:find(ns.L.CENSUS_LANE_MISMATCH:format(7), 1, true))
+		R.Pick = function() return "Relay", true end
+		s.guilds[2] = { g = {}, observed = at - 60 }
+		line = V.CensusConnectionLine(s)
+		assert(line.text:find(ns.L.CENSUS_RELAY_READY, 1, true))
+		assert(line.text:find(ns.L.CENSUS_REMOTE_AGE:format(ns.Ago(at - 60)), 1, true))
+	end)
+	R.On, R.Pick, C.LaneStats = savedOn, savedPick, savedLane
+	if not ok then error(err, 0) end
+end)

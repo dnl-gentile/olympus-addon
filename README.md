@@ -148,6 +148,11 @@ The same Realm page lists known sister-guild cards. **Write to this guild's Lord
 an editable letter for the member to send; a transfer remains a conversation and the destination
 officer's manual invitation, with no automatic removal from the member's current guild.
 
+Under **Church → Invites**, a guild master can ask the Apostles for help with recruiting.
+The request shares the guild name, faction and time with the Olympus network in that ruleset
+for 24 hours. The guild master can withdraw it. An Apostle can open an editable whisper to
+the current guild master and choose whether to send it.
+
 The Join screen can request at most three cards from each queried member, with at most three
 queried members. Two distinct queried members must report the exact same author, revision and
 card before it helps routing; a conflicting or missing card gives no affinity. This is a

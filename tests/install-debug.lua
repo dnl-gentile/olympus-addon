@@ -397,3 +397,22 @@ test("1.5.5 /oly bug debug: the whole section is cut at DEBUG_MAX, said so, and 
 	ns.DEBUG_MAX, ns.InstallLine = savedMax, savedLine
 	if not ok then error(err, 0) end
 end)
+
+test("/oly recent: bounded local diagnostics, filter selection and sealed channel scrubbing", function()
+	local savedLog, savedErrors, savedSpec = ns.db.log, ns.db.errors, ns.Comm.ChannelSpec
+	local ok, err = pcall(function()
+		ns.db.log, ns.db.errors = {}, {}
+		eq(ns.RecentDiagnostics("errors"), ns.L.RECENT_EMPTY)
+		for i = 1, 41 do ns.db.log[i] = ("unrelated line %02d"):format(i) end
+		ns.db.log[42] = "relay joined channel Oly1234abcd"
+		ns.Comm.ChannelSpec = function() return "Oly1234abcd", "test key" end
+		local all = ns.RecentDiagnostics("")
+		assert(all:find("unrelated line 03", 1, true))
+		assert(not all:find("unrelated line 02", 1, true))
+		eq(ns.RecentDiagnostics("census"), "relay joined channel (sealed channel)")
+		ns.db.errors[1] = { count = 2, where = "test", first = "10:00", last = "10:01", version = "1.5.7", msg = "channel Oly1234abcd" }
+		eq(ns.RecentDiagnostics("errors"), "[2x] test (10:00 .. 10:01, v1.5.7): channel (sealed channel)")
+	end)
+	ns.db.log, ns.db.errors, ns.Comm.ChannelSpec = savedLog, savedErrors, savedSpec
+	if not ok then error(err, 0) end
+end)

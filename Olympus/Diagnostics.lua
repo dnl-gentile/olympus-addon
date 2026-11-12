@@ -897,6 +897,32 @@ function ns.StatusText()
 	return Scrub(table.concat(lines, "\n"))
 end
 
+function ns.RecentDiagnostics(kind)
+	local db = ns.db or {}
+	local out = {}
+	if kind == "errors" then
+		local errors = db.errors or {}
+		for i = #errors, math.max(1, #errors - 11), -1 do
+			local e = errors[i]
+			out[#out + 1] = Cap(("[%dx] %s (%s .. %s, v%s): %s"):format(
+				e.count or 1, tostring(e.where), tostring(e.first), tostring(e.last), tostring(e.version), tostring(e.msg)))
+		end
+	else
+		local log = db.log or {}
+		for i = #log, 1, -1 do
+			local line = log[i]
+			if type(line) == "string" then
+				local lower = line:lower()
+				if kind ~= "census" or lower:find("census", 1, true) or lower:find("relay", 1, true) or lower:find("lane", 1, true) then
+					out[#out + 1] = Cap(line)
+					if #out == 40 then break end
+				end
+			end
+		end
+	end
+	return Scrub(#out > 0 and table.concat(out, "\n") or ns.L.RECENT_EMPTY)
+end
+
 function ns.BuildBugReport()
 	local out = { "```" }
 	-- (1.5.5) An install that does not fit this game, first: it explains every count below.

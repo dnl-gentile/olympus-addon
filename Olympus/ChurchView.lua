@@ -734,6 +734,8 @@ local function InviteLines()
 	local lines = { Nav("invites") }
 	for _, line in ipairs(R.WhisperLines()) do lines[#lines + 1] = line end
 	for _, line in ipairs(R.RequestLines(true)) do lines[#lines + 1] = line end
+	local charter = ns.GuildCharter
+	for _, line in ipairs(charter and charter.HelpLines and charter.HelpLines() or {}) do lines[#lines + 1] = line end
 	return lines, L.CHURCH_NAV_INVITES
 end
 
