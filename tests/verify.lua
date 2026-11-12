@@ -141,12 +141,57 @@ test("verify: personal delivery detects the bridge on open, submits once and red
 			assert(why[i]:find(L.VERIFY_SELF_WHY_COMMUNITY:format("OLYMPUS PRIME"), 1, true), "elsewhere: the community, no role promised")
 			assert(not why[i]:find(L.VERIFY_SELF_WHY_ROLE, 1, true))
 		end
+		-- Fails before: right after login or a /reload the game says the player is in a guild before
+		-- it knows the guild's name (GetGuildInfo nil until the roster loads), and a member of the
+		-- bot's guild was told the other guilds' reason. Neither reason until the name is known.
+		_G.IsInGuild = function() return true end
+		_G.GetGuildInfo = function() return nil end
+		v.Verify.OpenSelf()
+		_G.IsInGuild, _G.GetGuildInfo = inGuild, getInfo
+		eq(which, "OLYMPUS_VERIFY_SELF", "the code field still opens")
+		assert(text:find(L.VERIFY_SELF_GUIDE, 1, true), "the steps still show")
+		assert(not text:find(L.VERIFY_SELF_WHY_COMMUNITY:format(v.Verify.DISCORD_GUILD), 1, true), "no guild's reason before its name is known")
+		assert(not text:find(L.VERIFY_SELF_WHY_ROLE, 1, true))
 		eq(calls, 4, "the reason never submits")
 	end)
 	_G.OlympusVerifyBridge242, _G.OlympusBridge = saved.bridge, saved.generic
 	StaticPopupDialogs.OLYMPUS_VERIFY_GUILD, StaticPopupDialogs.OLYMPUS_VERIFY_REVOKE, StaticPopupDialogs.OLYMPUS_VERIFY_SELF = saved.guild, saved.revoke, saved.self
 	StaticPopupDialogs.OLYMPUS_VERIFY_SELF_UNAVAILABLE, StaticPopupDialogs.OLYMPUS_VERIFY_SELF_RESULT = saved.unavailable, saved.result
 	if not ok then error(err, 0) end
+end)
+
+-- Fails before: in every language the waiting note said Olympus Verify keeps trying to pass the code
+-- on and that there was no need to send it again (nothing in this game retries it), and the reason
+-- shown outside the bot's guild said no code was needed while the same window asks for one.
+test("verify: the personal panel's waiting note points to Discord, and no language waives the code it asks for", function()
+	local function Words(code)
+		local lns, saved = {}, GetLocale
+		GetLocale = function() return code end
+		local ok, err = pcall(function()
+			assert(loadfile(ROOT .. "Olympus/Locales.lua"))("Olympus", lns)
+			assert(loadfile(ADDON_DIR .. "Locales/VerifyText.lua"))("Olympus", lns)
+			if code ~= "enUS" and code ~= "ptBR" then assert(loadfile(ADDON_DIR .. "Locales/" .. code .. ".lua"))("Olympus", lns) end
+		end)
+		GetLocale = saved
+		if not ok then error(err, 0) end
+		return lns.L
+	end
+	local english = Words("enUS")
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "frFR", "itIT", "ruRU" }) do
+		local W = Words(code)
+		if code ~= "enUS" then
+			for _, key in ipairs({ "VERIFY_SELF_QUEUED", "VERIFY_SELF_PENDING_NOTE", "VERIFY_SELF_WHY_COMMUNITY" }) do
+				assert(W[key] ~= english[key], code .. " translates " .. key)
+			end
+		end
+		assert(W.VERIFY_SELF_PENDING_NOTE:find("/verify-status", 1, true), code .. ": waiting says where to check before sending again")
+		local community = W.VERIFY_SELF_WHY_COMMUNITY:format("OLYMPUS PRIME")
+		assert(community:find("OLYMPUS PRIME", 1, true), code .. ": the bot's guild is named")
+		assert(not community:find("#olympus-chat", 1, true), code .. ": no channel is promised without the code the window asks for")
+	end
+	local en = english.VERIFY_SELF_PENDING_NOTE:lower() .. " " .. english.VERIFY_SELF_QUEUED:lower()
+	assert(not en:find("keeps trying", 1, true) and not en:find("passes it on", 1, true), "no delivery the game does not do is claimed")
+	assert(not english.VERIFY_SELF_WHY_COMMUNITY:lower():find("no code", 1, true), "the window asks for a code")
 end)
 
 -- A world: w.Client(name, guild, rank) makes a client; w.As(c, fn, ...) runs fn as that client (the

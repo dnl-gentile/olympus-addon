@@ -1605,11 +1605,15 @@ local function SelfStatusLines(summary, submission)
 end
 
 -- (1.5.8) The guild the Discord bot verifies (Olympus Verify's FLAGSHIP_GUILD_NAME): there the rank
--- opens the member channels once the bot's checks pass. Other Olympus guilds are welcome in the
--- Olympus chat channel without a code. Only a text: the bot alone grants access and roles.
+-- opens the member channels once the bot's checks pass. Elsewhere the link is offered for itself,
+-- with no role promised. Only a text: the bot alone grants access and roles.
 Verify.DISCORD_GUILD = "OLYMPUS PRIME"
 function Verify.SelfWhy()
-	local guild = IsInGuild() and GetGuildInfo("player")
+	local inGuild = IsInGuild()
+	local guild = inGuild and GetGuildInfo("player")
+	-- Right after login or a /reload the game knows the player is in a guild before it knows the
+	-- guild's name: no reason until it does (the steps still show), never the wrong guild's.
+	if inGuild and type(guild) ~= "string" then return nil end
 	if type(guild) == "string" and guild:lower() == Verify.DISCORD_GUILD:lower() then return L.VERIFY_SELF_WHY_ROLE end
 	return L.VERIFY_SELF_WHY_COMMUNITY:format(Verify.DISCORD_GUILD)
 end
@@ -1626,7 +1630,8 @@ function Verify.OpenSelf()
 	local b = SelfBridge()
 	local summary = SelfDelivery(b)
 	local ready = b and type(b.QueueSelf) == "function" and summary
-	local text = Verify.SelfWhy() .. "\n\n" .. L.VERIFY_SELF_GUIDE
+	local why = Verify.SelfWhy()
+	local text = (why and (why .. "\n\n") or "") .. L.VERIFY_SELF_GUIDE
 	if not ready then text = text .. "\n\n" .. L.VERIFY_SELF_UNAVAILABLE end
 	local status = SelfStatusLines(summary)
 	if status ~= "" then text = text .. "\n\n" .. status end
