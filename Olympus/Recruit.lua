@@ -1176,7 +1176,8 @@ local function AnnouncementLines(lines, V)
 		}
 	end
 	lines[#lines + 1] = { id = "recruit-announcement-reminder", spaceBefore = 6,
-		filters = { { label = L.RECRUIT_ANNOUNCE_REMINDER_TITLE, value = intervals[reminderIndex].text, options = intervals } } }
+		-- 1.5.8 (the author's ask): text with its dropdown, not a full-width button.
+		filters = { { label = L.RECRUIT_ANNOUNCE_REMINDER_TITLE, value = intervals[reminderIndex].text, options = intervals, understated = true } } }
 	local minutes = REMINDER_MINUTES[reminderIndex]
 	if minutes > 0 then
 		lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_ANNOUNCE_REMINDER_PREVIEW:format(minutes)) }

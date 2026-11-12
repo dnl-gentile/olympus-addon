@@ -2848,7 +2848,7 @@ ns.Locale("ruRU", {
 	RECRUIT_CANDIDATES_ON = "Искать игроков без гильдии: вкл.",
 	RECRUIT_CANDIDATE_PROMPTS_OFF = "Окна приглашения: Выкл.",
 	RECRUIT_CANDIDATE_PROMPTS_ON = "Окна приглашения: Вкл.",
-	RECRUIT_CANDIDATE_EMPTY = "Подходящие игроки пока не найдены.",
+	RECRUIT_CANDIDATE_EMPTY = "Игроки без гильдии пока не найдены. Включите таблички союзников (Shift+V), выберите кого-нибудь или используйте /who.",
 	RECRUIT_CANDIDATE_SEEN = "%s - Скопировать приглашение (рядом)",
 	RECRUIT_CANDIDATE_WHO = "%s - Скопировать приглашение (Поиск)",
 	RECRUIT_CANDIDATE_WHISPER_OFF = "Напоминания о шёпоте: Выкл.",
