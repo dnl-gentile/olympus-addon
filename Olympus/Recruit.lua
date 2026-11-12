@@ -668,6 +668,13 @@ local function RecruitmentPreference(guild, create)
 	return saved
 end
 
+-- This character's saved choices for the guild it recruits for now (the scan and handoff
+-- switches keep theirs here too), or nil while it does not recruit.
+function Recruit.Preference(create)
+	if not recruitingGuild then return nil end
+	return RecruitmentPreference(recruitingGuild, create)
+end
+
 local function QueueOnly()
 	local saved = recruitingGuild and RecruitmentPreference(recruitingGuild)
 	return saved ~= nil and saved.queueOnly == true
@@ -711,10 +718,16 @@ local function RestoreRecruiting()
 	if not recruitingGuild and (not saved or saved.enabled ~= true) then return end
 	local guild = EligibleRecruitingGuild()
 	local restore = saved and saved.enabled == true and saved.guild == guild and guild or nil
-	if restore == recruitingGuild then return end
-	if recruitingGuild then StopRecruiting() end
-	recruitingGuild = restore
-	ns.Fire("DATA_CHANGED")
+	if restore ~= recruitingGuild then
+		if recruitingGuild then StopRecruiting() end
+		recruitingGuild = restore
+		ns.Fire("DATA_CHANGED")
+	end
+	-- The scan and handoff switches come back with recruiting, after a /reload or a login.
+	if recruitingGuild and saved then
+		if Recruit.Handoff and Recruit.Handoff.Restore then Recruit.Handoff.Restore(saved) end
+		if Recruit.Candidates and Recruit.Candidates.Restore then Recruit.Candidates.Restore(saved) end
+	end
 end
 
 function Recruit.ToggleWhisperRecruiting()

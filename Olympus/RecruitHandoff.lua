@@ -357,15 +357,41 @@ local function Contacts(req, own)
 	return result
 end
 
+-- The two switches, as the officer sets them, are saved with his recruiting choice (a Pass
+-- click turns the overflow on for this session only).
+local function Save(field, on)
+	local saved = R.Preference and R.Preference(true)
+	if saved then saved[field] = on or nil end
+	return on
+end
+local function ToggleSaved() return Save("acceptHandoffs", H.Toggle()) end
+local function ToggleAutoSaved() return Save("offerOverflow", H.ToggleAuto()) end
+
+-- (Each use checks the guild against LocalGuild() again, so a roster still loading at login
+-- leaves both switches idle until it confirms this officer.)
+function H.Restore(saved)
+	if type(saved) ~= "table" or type(saved.guild) ~= "string" then return end
+	if saved.acceptHandoffs == true and not acceptingGuild then
+		acceptingGuild = saved.guild
+		Changed()
+	end
+	if saved.offerOverflow == true and not autoGuild then
+		autoGuild, autoProbe, autoCursor = saved.guild, nil, nil
+		autoTimer = ns.Every(AUTO_EVERY, "recruit overflow", AutoStep)
+		Changed()
+	end
+end
+
 function H.Controls(lines, V)
 	local own = LocalGuild()
 	if not own then return end
 	Prune(ns.Now())
-	lines[#lines + 1] = {
-		text = Accepting() and V.Green(L.RECRUIT_HANDOFF_ON) or V.Grey(L.RECRUIT_HANDOFF_OFF), onClick = H.Toggle,
+	lines[#lines + 1] = { id = "recruit-handoff-accept",
+		text = Accepting() and V.Green(L.RECRUIT_HANDOFF_ON) or V.Grey(L.RECRUIT_HANDOFF_OFF), onClick = ToggleSaved,
 	}
-	lines[#lines + 1] = { text = autoGuild == own and V.Green(L.RECRUIT_OVERFLOW_ON) or V.Grey(L.RECRUIT_OVERFLOW_OFF),
-		onClick = H.ToggleAuto }
+	lines[#lines + 1] = { id = "recruit-handoff-overflow",
+		text = autoGuild == own and V.Green(L.RECRUIT_OVERFLOW_ON) or V.Grey(L.RECRUIT_OVERFLOW_OFF),
+		onClick = ToggleAutoSaved }
 	if not Accepting() then return end
 	for _, ref in pairs(incoming) do
 		if Same(ref.to, own) and Officer(ref.peer, ref.from) and ref.state ~= "received" then

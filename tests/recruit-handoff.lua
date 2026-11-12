@@ -12,8 +12,9 @@ local function WithHandoff(fn)
 		realm = ns.realm, splitNames = ns.splitNames, whisper = ns.Comm.Whisper,
 		fresh = ns.Roster.Fresh, rank = ns.Roster.RankOf, online = ns.Roster.online,
 		canRank = ns.Data.CanRank, authorized = ns.Data.AuthorizedRank,
-		every = ns.Every, quiet = ns.QuietPresence, after = ns.After,
+		every = ns.Every, quiet = ns.QuietPresence, after = ns.After, rdb = ns.rdb,
 	}
+	ns.rdb = {}
 	R.ResetForTests()
 	local scene = { now = 5000, fresh = true, permission = true, support = 2, packets = {}, later = {} }
 	GetGuildInfo = function() return own end
@@ -55,7 +56,7 @@ local function WithHandoff(fn)
 	ns.realm, ns.splitNames, ns.Comm.Whisper = saved.realm, saved.splitNames, saved.whisper
 	ns.Roster.Fresh, ns.Roster.RankOf, ns.Roster.online = saved.fresh, saved.rank, saved.online
 	ns.Data.CanRank, ns.Data.AuthorizedRank = saved.canRank, saved.authorized
-	ns.Every, ns.QuietPresence, ns.After = saved.every, saved.quiet, saved.after
+	ns.Every, ns.QuietPresence, ns.After, ns.rdb = saved.every, saved.quiet, saved.after, saved.rdb
 	if not ok then error(err, 0) end
 end
 

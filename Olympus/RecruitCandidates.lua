@@ -188,18 +188,34 @@ local function ChangeWhisperReminder()
 	Change()
 end
 
-local function Toggle()
-	if guild then Q.Reset(); Change(); return end
+local function Start(listOnly)
 	guild = LocalGuild()
-	if not guild then return end
+	if not guild then return false end
 	-- The invite popups come with the scan; the player can keep it to the list instead.
-	prompts = true
+	prompts = not listOnly
 	timer = ns.Every(PROMPT_GAP, "recruit candidates", Tick)
 	if not Quiet() then
 		Remember("target")
 		for i = 1, ns.API and ns.API.NAMEPLATE_MAX or 200 do Remember("nameplate" .. i) end
 	end
 	Change()
+	return true
+end
+
+-- The player's switches are saved with this character's recruiting choice.
+local function Save(field, value)
+	local saved = R.Preference and R.Preference(true)
+	if saved then saved[field] = value end
+end
+
+local function Toggle()
+	if guild then Q.Reset(); Save("scan", nil); Change(); return end
+	if Start() then Save("scan", true); Save("scanListOnly", nil) end
+end
+
+function Q.Restore(saved)
+	if guild or type(saved) ~= "table" or saved.scan ~= true then return end
+	Start(saved.scanListOnly == true)
 end
 
 function Q.Lines(lines, V)
@@ -210,7 +226,7 @@ function Q.Lines(lines, V)
 	if not on then return end
 	lines[#lines + 1] = { id = "recruit-candidate-prompts", indent = 1,
 		text = (prompts and V.Green or V.Grey)(prompts and L.RECRUIT_CANDIDATE_PROMPTS_ON or L.RECRUIT_CANDIDATE_PROMPTS_OFF),
-		onClick = function() prompts = not prompts; Change() end }
+		onClick = function() prompts = not prompts; Save("scanListOnly", not prompts or nil); Change() end }
 	lines[#lines + 1] = { id = "recruit-candidate-whisper-reminder", indent = 1,
 		text = whisperAt and V.Green(L.RECRUIT_CANDIDATE_WHISPER_EVERY:format(WHISPER_MINUTES[whisperChoice]))
 			or V.Grey(L.RECRUIT_CANDIDATE_WHISPER_OFF), onClick = ChangeWhisperReminder }

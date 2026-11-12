@@ -3841,6 +3841,58 @@ test("gamepad recruitment restores only this guild choice and keeps JOIN in the 
 	end
 end)
 
+-- 1.5.8 (the author, 11-12: "E quando você deslogar e logar tem que continuar ativo").
+test("gamepad recruitment keeps the unguilded scan and handoff switches across a login", function()
+	-- The player is one of the guild's officers (rank Titan), as a handoff needs.
+	local function Officer(saved)
+		return { saved = saved, setup = function(c) c.units.player.rank, c.units.player.rankIndex = "Titan", 1 end,
+			roster = {
+				{ "Tester-Realm", "Titan", 1, 60, "Warrior", "Elwynn Forest", "", "", true, 0, "WARRIOR" },
+				{ "Zeusmaster-Realm", "Zeus", 0, 60, "Mage", "Stormwind City", "", "", true, 0, "MAGE" },
+			} }
+	end
+	for _, initialPad in ipairs({ false, true }) do
+		local saved = Answered()
+		local C, ns = Session(initialPad, Officer(saved))
+		C.Advance(1)
+		local R, L = ns.Recruit, ns.L
+		local function Line(recruit, id)
+			for _, line in ipairs(recruit.WhisperLines()) do if line.id == id then return line end end
+		end
+		InClick(C, function() eq(R.EnableWhisperRecruiting(), true) end)
+		InClick(C, assert(Line(R, "recruit-candidate-toggle")).onClick)
+		eq(R.Candidates.Enabled(), true)
+		InClick(C, assert(Line(R, "recruit-candidate-prompts")).onClick)
+		assert(Line(R, "recruit-candidate-prompts").text:find(L.RECRUIT_CANDIDATE_PROMPTS_OFF, 1, true))
+		InClick(C, assert(Line(R, "recruit-handoff-accept"), "an officer sees the handoff switch").onClick)
+		assert(Line(R, "recruit-handoff-accept").text:find(L.RECRUIT_HANDOFF_ON, 1, true))
+		InClick(C, assert(Line(R, "recruit-handoff-overflow")).onClick)
+		assert(Line(R, "recruit-handoff-overflow").text:find(L.RECRUIT_OVERFLOW_ON, 1, true))
+		NoErrors(C, "recruitment switches")
+
+		local reloaded, nextNS = Session(initialPad, Officer(saved))
+		reloaded.Advance(1)
+		local nextR = nextNS.Recruit
+		eq(nextR.IsWhisperRecruiting(), true)
+		eq(nextR.Candidates.Enabled(), true, "the scan comes back after a login")
+		assert(Line(nextR, "recruit-candidate-prompts").text:find(L.RECRUIT_CANDIDATE_PROMPTS_OFF, 1, true),
+			"the list-only choice comes back with it")
+		assert(Line(nextR, "recruit-handoff-accept").text:find(L.RECRUIT_HANDOFF_ON, 1, true),
+			"accepting handoffs comes back")
+		assert(Line(nextR, "recruit-handoff-overflow").text:find(L.RECRUIT_OVERFLOW_ON, 1, true),
+			"offering queued JOINs comes back")
+		eq(#(reloaded.said or {}), 0, "restored switches send nothing")
+		InClick(reloaded, Line(nextR, "recruit-candidate-toggle").onClick)
+		InClick(reloaded, Line(nextR, "recruit-handoff-accept").onClick)
+		NoErrors(reloaded, "restored recruitment switches")
+
+		local last, lastNS = Session(initialPad, Officer(saved))
+		last.Advance(1)
+		eq(lastNS.Recruit.Candidates.Enabled(), false, "turning the scan off is saved too")
+		assert(Line(lastNS.Recruit, "recruit-handoff-accept").text:find(L.RECRUIT_HANDOFF_OFF, 1, true))
+	end
+end)
+
 test("gamepad attended recruit candidate queue uses scoped sightings and explicit WHO records", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
