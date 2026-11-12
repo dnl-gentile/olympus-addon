@@ -2558,7 +2558,9 @@ function UI.Refresh()
 			main.sub:SetText(profileSubheader or "")
 			main.peopleText = nil
 		else
-			lines, title, text, recruitment = ns.Views.Build(main.tab, s, CensusRecruitment(previewing))
+			local offer = CensusRecruitment(previewing)
+			lines, title, text, recruitment = ns.Views.Build(main.tab, s, offer)
+			recruitment = offer and recruitment == true or nil
 			-- The treasury next to the soldiers, on the Treasury tab (Treasury.HeaderText; 1.1.5, the
 			-- author's call: no longer on the Throne, the treasury has its own tab).
 			if main.tab == "treasury" then
@@ -2605,7 +2607,7 @@ function UI.Refresh()
 		if locked then
 			if not inert and UI.AccordLocked() then actions = ACCORD_BUTTONS
 			elseif not simpleJoin then actions = inert and InertButtons(RECRUIT_BUTTONS) or RECRUIT_BUTTONS end
-		else
+		elseif not recruitment then
 			actions = profileButtons or Shown(BUTTONS[view] or addedButtons[view])
 		end
 		SetButtons(main.buttons, actions)

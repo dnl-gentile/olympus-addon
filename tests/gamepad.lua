@@ -3751,6 +3751,7 @@ test("gamepad centered Census recruitment offers the Church intake and both dism
 		eq(title, true, "the offer's heading is centered")
 		eq(view.frame.colHeader:IsShown(), false, "guild columns are absent from the offer")
 		eq(view.frame.detail:IsShown(), false, "the offer fills the Census body")
+		for _, button in ipairs(view.buttons) do eq(button:IsShown(), false, "hide regular footer actions") end
 		eq(assert(Row("enable")).primary:GetText(), L.RECRUIT_CENSUS_ENABLE)
 		C.Click(assert(Row("later")))
 		eq(U.PageId(), "census/")
