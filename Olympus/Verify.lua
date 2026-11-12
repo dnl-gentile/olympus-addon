@@ -1525,7 +1525,10 @@ local deliveryStates = {
 	{ "unknown", "VERIFY_SELF_UNKNOWN" },
 }
 local deliveryTypes = { verify = true, role = true, guild = true, donation = true }
-local lastSelfSubmission
+-- (1.5.8) A submission's answer shows once, in its result. Only an unconfirmed one stays on the
+-- panel for the session: the bridge's status may not list it, and the player is asked to check
+-- before sending the code again. A created request is listed by the status itself.
+local unconfirmedSelf = false
 local function SelfBridge()
 	local b = rawget(_G, "OlympusVerifyBridge242")
 	return type(b) == "table" and b or nil
@@ -1580,9 +1583,10 @@ local linkAction = {
 	end,
 }
 
-local function SelfStatusLines(summary)
+local function SelfStatusLines(summary, submission)
 	local lines = {}
-	if lastSelfSubmission then lines[#lines + 1] = L[lastSelfSubmission] end
+	submission = submission or (unconfirmedSelf and "VERIFY_SELF_SUBMISSION_UNKNOWN") or nil
+	if submission then lines[#lines + 1] = L[submission] end
 	if not summary then
 		lines[#lines + 1] = L.VERIFY_SELF_STATUS_UNAVAILABLE
 	elseif summary.total > 0 then
@@ -1655,18 +1659,19 @@ StaticPopupDialogs["OLYMPUS_VERIFY_SELF"] = {
 		local code = self.editBox:GetText()
 		self.editBox:SetText("")
 		local b = SelfBridge()
-		lastSelfSubmission = "VERIFY_SELF_REFUSED"
+		local submission = "VERIFY_SELF_REFUSED"
 		if b and type(b.QueueSelf) == "function" and SelfDelivery(b) and type(code) == "string"
 			and not (issecretvalue and issecretvalue(code)) and code:find("%S") and #code <= 128 then
 			local ok, queued = pcall(b.QueueSelf, code)
 			if not ok or type(queued) ~= "boolean" then
-				lastSelfSubmission = "VERIFY_SELF_SUBMISSION_UNKNOWN"
+				submission = "VERIFY_SELF_SUBMISSION_UNKNOWN"
 			elseif queued then
-				lastSelfSubmission = "VERIFY_SELF_QUEUED"
+				submission = "VERIFY_SELF_QUEUED"
 			end
 		end
+		unconfirmedSelf = submission == "VERIFY_SELF_SUBMISSION_UNKNOWN"
 		self:Hide()
-		local status = SelfStatusLines(SelfDelivery(b))
+		local status = SelfStatusLines(SelfDelivery(b), submission)
 		ns.Dialog.Show("OLYMPUS_VERIFY_SELF_RESULT", status .. "\n\n" .. L.VERIFY_SELF_CHECK_DISCORD)
 	end,
 	timeout = 0,

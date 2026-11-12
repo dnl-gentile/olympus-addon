@@ -2888,11 +2888,14 @@ test("gamepad personal verification opens in both window styles and submits only
 	linkReady = true
 	panel:Hide()
 
-	local calls = 0
+	local calls, deliveryState = 0, nil
 	C.env.OlympusVerifyBridge242 = {
-		Status = function() return { version = 243, deliveryOnly = true, membershipProof = false, roleAuthority = false,
-			total = 0, truncated = false, requests = {} } end,
-		QueueSelf = function(code) eq(code, "test-personal-code"); calls = calls + 1; return true end,
+		Status = function()
+			local requests = deliveryState and { { type = "verify", deliveryState = deliveryState } } or {}
+			return { version = 243, deliveryOnly = true, membershipProof = false, roleAuthority = false,
+				total = #requests, truncated = false, requests = requests }
+		end,
+		QueueSelf = function(code) eq(code, "test-personal-code"); calls = calls + 1; deliveryState = "pending"; return true end,
 	}
 	local before = C.gamePopups or 0
 	local prompt = OpenFromRealm("OLYMPUS_VERIFY_SELF")
@@ -2909,7 +2912,13 @@ test("gamepad personal verification opens in both window styles and submits only
 	eq(calls, 1); eq(prompt.editBox:GetText(), "")
 	local result = assert(ns.Dialog.Find("OLYMPUS_VERIFY_SELF_RESULT"))
 	assert(result.text:GetText():find("/verify-status", 1, true), "the bot is authoritative for access and roles")
+	assert(result.text:GetText():find(ns.L.VERIFY_SELF_QUEUED, 1, true), "the immediate result shows the submission outcome")
 	result:Hide()
+	local pending = OpenFromRealm("OLYMPUS_VERIFY_SELF")
+	assert(pending.text:GetText():find(ns.L.VERIFY_SELF_PENDING .. ": 1", 1, true), "reopening shows the pending delivery")
+	eq(pending.text:GetText():find(ns.L.VERIFY_SELF_QUEUED, 1, true), nil, "the immediate result does not persist")
+	pending:Hide()
+	deliveryState = "delivered"
 
 	C.Switch(false); C.Advance(1)
 	local host = C.NewWidget("Frame", nil, C.env.UIParent)
@@ -2919,6 +2928,8 @@ test("gamepad personal verification opens in both window styles and submits only
 		eq(ns.UI.WindowStyle(), style)
 		local dialog = OpenFromRealm("OLYMPUS_VERIFY_SELF")
 		assert(dialog.editBox:IsShown() and dialog.extraButton:IsShown())
+		assert(dialog.text:GetText():find(ns.L.VERIFY_SELF_DELIVERED .. ": 1", 1, true), "reopening shows the acknowledged delivery")
+		eq(dialog.text:GetText():find(ns.L.VERIFY_SELF_QUEUED, 1, true), nil, "delivery does not bring back a stale outcome")
 		dialog:Hide()
 	end
 	C.env.SlashCmdList.OLYMPUS("discord status")
