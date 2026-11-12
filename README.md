@@ -2292,6 +2292,14 @@ the same. Installed next to Olympus, it loads by itself at login (see
 [Integrating with Olympus](#integrating-with-olympus)), `/oly discord` and its line in `/oly help`
 are its own, and its own documentation says what it does and what it sends.
 
+### My Discord Verification (1.5.8)
+**My Discord Verification** is at the top of **The Realm**. In the Asmongold Discord, open
+#olympus-verify, run `/verify` and copy your personal code; back in game, click it, paste the code
+and choose **Submit code**. Olympus hands the code to the separate Olympus Verify addon, which
+delivers it; without that addon the window says to install it. The window shows only the local
+delivery state of your requests: delivery confirms no verification and grants no role. Check your
+access and roles with `/verify-status` in Discord.
+
 ### Everywhere
 - **Copy**: every tab produces a ready-to-paste text for Discord.
 - **Version letters** (1.1.5): after the addon updates, once a version, a short letter on
@@ -2914,7 +2922,8 @@ announces on the channel (his presence): newer than yours, the Census, `/oly sta
 line a session tell you to update. That is local to your client, sends nothing, and shows
 whatever `/oly rollcall` says. He runs a new build on his own PC before it is published, so his
 presence names only the version he marked as out with `/oly released [version]` (his character
-only; the Workshop tab shows it) once CurseForge lists it, never the build he runs, and never one
+only; the Workshop tab shows it as the last release marked in game, beside the build he runs) once
+CurseForge lists it, never the build he runs, and never one
 newer than that build; addons before 1.1 read none of it. The addon's error catcher keeps only Olympus's own errors (for
 `/oly bug`), never another addon's. For the store's screenshots he has a photo mode (`/oly
 photo`, his character only): on his own screen it fades everything but Olympus and the world

@@ -2056,7 +2056,8 @@ announces on the channel (his presence): newer than yours, the Census, `/oly sta
 line a session tell you to update. That is local to your client, sends nothing, and shows
 whatever `/oly rollcall` says. He runs a new build on his own PC before it is published, so his
 presence names only the version he marked as out with `/oly released [version]` (his character
-only; the Workshop tab shows it) once CurseForge lists it, never the build he runs, and never one
+only; the Workshop tab shows it as the last release marked in game, beside the build he runs) once
+CurseForge lists it, never the build he runs, and never one
 newer than that build; addons before 1.1 read none of it. The addon's error catcher keeps only Olympus's own errors (for
 `/oly bug`), never another addon's. For the store's screenshots he has a photo mode (`/oly
 photo`, his character only): on his own screen it fades everything but Olympus and the world
