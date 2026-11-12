@@ -1013,6 +1013,10 @@ test("verify: the King's guild needs no verification; the gate switch off change
 		for _, c in ipairs({ king, hc, member }) do w.As(c, c.Verify.Login) end
 		w.now = T0 + GRACE + 12 * H -- (1.5.4: 12 hours past the 7-day grace, where 60 hours were 12 past 48)
 		eq(w.Status(member, "Olympus"), "exempt")
+		-- (1.5.9, the author's: "bota o checkzinho para ela") The King's guild wears the verified mark,
+		-- whoever its guild master is, with no approval held.
+		eq(w.As(member, member.Verify.Mark, "Olympus"), member.Verify.MARK_OK, "the King's guild shows verified")
+		eq(w.As(hc, hc.Verify.Mark, "Olympus"), hc.Verify.MARK_OK)
 		eq(w.As(king, king.Verify.Mine), nil, "the King is told nothing")
 		eq(w.As(king, king.Verify.Tick), false)
 		eq(#king.copies, 0)
