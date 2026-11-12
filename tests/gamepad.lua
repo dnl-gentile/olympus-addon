@@ -4306,10 +4306,6 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 			C.Advance(0.25)
 			eq(back:IsShown(), false, "the paste closes it")
 		end
-		ns.Recruit.OnJoinRequest("WHISPER", "Joiner Test-Realm", ("J3~%s~12~MAGE"):format(C.units.player.guild))
-		local join = ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT")
-		if join and join.data.req then eq(join.buttons[3]:IsShown(), false, "a JOIN popup has no whisper button") end
-		if join then join:Hide() end
 		C.Advance(181)
 		for _, which in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY" }) do
 			local open = ns.Dialog.Find(which)
@@ -4587,6 +4583,8 @@ test("gamepad Forever Join requests can copy a command and open empty game chat 
 		InClick(C, action)
 		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"))
 		eq(draft.editBox:GetText(), "/ginvite New Recruit")
+		-- (1.5.8, the author's ask) "Whisper them first" is a scanned player's alone.
+		eq(draft.buttons[3]:IsShown(), false, "a JOIN's popup offers no whisper first")
 		eq(R.requests[1], req, "preparing the command does not send the invitation")
 		eq(C.chatBox, nil, "the command is not injected into Blizzard's chat")
 		for _, call in ipairs(C.Since(mark)) do
