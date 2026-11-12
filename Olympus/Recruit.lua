@@ -1245,11 +1245,20 @@ local function AnnouncementLines(lines, V)
 		end }
 end
 
+-- 1.5.8 (the author's ask, 11-12: turned off here, "Ele não tá aparecendo de novo para ativar as
+-- coisas... deveria aparecer"): recruiting turned off in Church > Invites brings the Census offer
+-- back at the next opening, unless the player chose Don't ask again there.
+local function ChurchSwitch()
+	local on = Recruit.ToggleWhisperRecruiting()
+	if not on and not Recruiting() then Recruit.ForgetUnusedChoice() end
+	return on
+end
+
 function Recruit.WhisperLines()
 	if not WhisperGuild() then return {} end
 	local V, on = ns.Views, Recruiting()
-	local lines = { { text = on and V.Green(L.RECRUIT_WHISPER_ON) or V.Grey(L.RECRUIT_WHISPER_OFF),
-		onClick = Recruit.ToggleWhisperRecruiting, gapAfter = true } }
+	local lines = { { id = "recruit-whisper-toggle", text = on and V.Green(L.RECRUIT_WHISPER_ON) or V.Grey(L.RECRUIT_WHISPER_OFF),
+		onClick = ChurchSwitch, gapAfter = true } }
 	AnnouncementLines(lines, V)
 	if on then
 		lines[#lines + 1] = { indent = 1, text = L.RECRUIT_WHISPER_HINT }
@@ -2044,6 +2053,26 @@ end
 function Recruit.RestoreAnnounceReminder(saved)
 	if type(saved) ~= "table" or REMINDER_MINUTES[reminderIndex] ~= 0 then return end
 	if type(saved.announceReminder) == "number" then Recruit.SetAnnounceReminder(saved.announceReminder) end
+end
+
+-- 1.5.8 (the author's ask, 11-12: "tem que ter um aviso... enquanto essas features estiverem ativadas,
+-- os pop-ups irão aparecer para te ajudar... Desative em... para os pop-ups pararem de aparecer...
+-- Tem que ser bem claro depois da pessoa ativar. A primeira vez"): after the Census offer's Done, the
+-- first time on each character, a window says what the popups are for and where to stop them.
+StaticPopupDialogs["OLYMPUS_RECRUIT_ACTIVATED"] = {
+	text = "%s",
+	button1 = OKAY or "OK",
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+function Recruit.ActivatedNotice()
+	if not Recruiting() or not ns.Dialog or ns.Dialog.missing then return false end
+	ns.db.recruitNoticeSeen = type(ns.db.recruitNoticeSeen) == "table" and ns.db.recruitNoticeSeen or {}
+	if ns.db.recruitNoticeSeen[ns.me] then return false end
+	ns.db.recruitNoticeSeen[ns.me] = true
+	return ns.Dialog.Show("OLYMPUS_RECRUIT_ACTIVATED", L.RECRUIT_ACTIVATED_NOTICE) ~= nil
 end
 
 -- "Leave it off for now" with every switch off: this character's choice for the guild is

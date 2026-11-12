@@ -3809,7 +3809,9 @@ test("gamepad centered Census recruitment offers three switches, Done and both d
 
 		R.WhisperLines()[1].onClick()
 		Reopen()
-		eq(Row("join"), nil, "turning recruitment off in Church leaves it off without another offer")
+		-- (Changed on purpose, the author's ask 11-12: "Ele não tá aparecendo de novo para ativar as
+		-- coisas... deveria aparecer": turned off in Church, the offer comes back at the next opening.)
+		assert(Row("join"), "turning recruitment off in Church brings the offer back")
 		-- Exercise the separate Never choice on an account with no recruiting decision yet.
 		ns.rdb.recruitmentPreference[ns.me] = nil
 		local oldRecord, oldVerify = ns.Record.Line, ns.Verify.Lines
@@ -4164,6 +4166,24 @@ test("gamepad Census offer: Turn on all turns every switch on", function()
 		eq(tagged, true, "Church > Invites marks the handoffs experimental too")
 		eq(Row("all"), nil, "no Turn on all once a switch is on")
 		eq(assert(Row("done")).primary:GetText(), L.RECRUIT_CENSUS_DONE, "Done in its place")
+		-- 1.5.8 (the author's ask, 11-12: "Tem que ser bem claro depois da pessoa ativar"): where to stop
+		-- the popups, on the page and in a window after Done, the first time.
+		assert(assert(Row("stop"), "the stop line").line.text:find(L.RECRUIT_CENSUS_STOP, 1, true))
+		C.Click(Row("done").primary)
+		local notice = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_ACTIVATED"), "a window says where to stop the popups")
+		notice:Hide()
+		eq(R.ActivatedNotice(), false, "once a character")
+		-- (11-12, the author's: "Ele não tá aparecendo de novo para ativar as coisas... deveria aparecer")
+		-- Recruiting turned off in Church > Invites brings the offer back at the next opening.
+		local switch = R.WhisperLines()[1]
+		assert(switch.text:find(L.RECRUIT_WHISPER_ON, 1, true))
+		switch.onClick()
+		eq(R.IsWhisperRecruiting(), false)
+		U.Toggle(); U.Toggle()
+		eq(U.PageId(), "census/recruitment", "the offer comes back")
+		C.Click(assert(Row("never")))
+		U.Toggle(); U.Toggle()
+		eq(U.PageId() == "census/recruitment", false, "Don't ask again keeps it away")
 		NoErrors(C, "Census Turn on all")
 	end
 end)
@@ -4221,7 +4241,7 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 			end
 		end
 		C.Click(assert(invite)); Refresh()
-		ClickLine(function(line) return line.onClick == R.ToggleWhisperRecruiting end)
+		ClickLine(function(line) return line.id == "recruit-whisper-toggle" end)
 		Refresh()
 		-- Keep the real ticker, with no random start spread in this scenario.
 		ns.EVERY_SPREAD = 0
@@ -4419,7 +4439,7 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 			for _, line in ipairs(ns.UI.SelfTestView().lines) do if predicate(line) then return line end end
 		end
 		local function ToggleLine()
-			return FindLine(function(line) return line.onClick == R.ToggleWhisperRecruiting end)
+			return FindLine(function(line) return line.id == "recruit-whisper-toggle" end)
 		end
 		eq(ToggleLine(), nil, "the Church's ordinary pages do not show the experiment")
 		local invite

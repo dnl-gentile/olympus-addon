@@ -1932,7 +1932,9 @@ local function CensusLines(s, q, recruitment)
 		-- longer hint is cut off in the window, 11-12.)
 		lines[#lines + 1] = { id = "census-recruit-experimental", text = Grey(L.RECRUIT_CENSUS_EXPERIMENTAL), center = true, gapAfter = true }
 		if any then
-			lines[#lines + 1] = { id = "census-recruit-thanks", text = Gold(L.RECRUIT_CENSUS_THANKS), center = true, gapAfter = true }
+			lines[#lines + 1] = { id = "census-recruit-thanks", text = Gold(L.RECRUIT_CENSUS_THANKS), center = true }
+			-- (11-12, the author's: where to stop the popups, said right after turning them on.)
+			lines[#lines + 1] = { id = "census-recruit-stop", text = Grey(L.RECRUIT_CENSUS_STOP), center = true, gapAfter = true }
 			lines[#lines + 1] = { id = "census-recruit-done", text = L.RECRUIT_CENSUS_DONE, primary = true,
 				onClick = recruitment.done }
 		else

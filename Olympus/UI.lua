@@ -2462,7 +2462,10 @@ local function CensusRecruitment(previewing)
 			ns.Views.RecruitOfferSwitch(key)
 			UI.Refresh()
 		end,
-		done = Close,
+		done = function()
+			Close()
+			R.ActivatedNotice()
+		end,
 		later = function()
 			R.ForgetUnusedChoice()
 			Close()
