@@ -381,3 +381,63 @@ test("1.5.7 letter content: each locale explains census progress, relay availabi
 	assert(english:find("depends on which relays are reachable", 1, true))
 	assert(english:find("A recruitment ranking for all guild members is planned for a future update.", 1, true))
 end)
+
+-- 1.5.8: the letter tells the shipped recruiting (JOIN, the copied /ginvite the player sends,
+-- Church > Invites, announcements, the unguilded scan, the Join page), the Discord verification
+-- in The Realm and the census, relay and Church fixes, in every shipped language. Each letter names
+-- the pages by the labels that language's player sees (the Church's Invites, the Join page, the
+-- Discord verification), so it loads the Church's and Verify's words as the TOC does, before the
+-- language's own file.
+test("1.5.8 letter content: each locale explains recruiting, the Join page, Discord verification and the census fixes with the labels the player sees", function()
+	local function Client(locale, file)
+		local saved = GetLocale
+		local cns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
+		GetLocale = function() return locale end
+		local ok, why = pcall(function()
+			assert(loadfile(ROOT .. "Olympus/Locales.lua"))("Olympus", cns)
+			assert(loadfile(ROOT .. "Olympus/Locales/ChurchText.lua"))("Olympus", cns)
+			assert(loadfile(ROOT .. "Olympus/Locales/VerifyText.lua"))("Olympus", cns)
+			if file then assert(loadfile(ROOT .. "Olympus/Locales/" .. file .. ".lua"))("Olympus", cns) end
+			assert(loadfile(ROOT .. "Olympus/Letters.lua"))("Olympus", cns)
+		end)
+		GetLocale = saved
+		if not ok then error(why, 0) end
+		return cns
+	end
+	local english = Client("enUS").L.LETTER_1_5_8
+	local previous
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local file = code == "esMX" and "esES" or code ~= "enUS" and code ~= "ptBR" and code or nil
+		local cns = Client(code, file)
+		local L = cns.L
+		local raw = assert(L.LETTER_1_5_8)
+		local title, body = cns.Letters.Text("1.5.8")
+		eq(cns.Letters.Versions()[1], "1.5.8", code)
+		eq(cns.Letters.Versions()[2], "1.5.7", code)
+		eq(title, L.LETTER_1_5_8_HEAD, code)
+		assert(title ~= L.LETTER_1_5_7_HEAD, code .. ": distinct release title")
+		assert(type(body) == "string" and not body:find("{[%a]+}"), code .. ": every mark renders or has its words")
+		if code == "esMX" then eq(raw, previous, code .. ": Spanish translation")
+		elseif code ~= "enUS" then assert(raw ~= english, code .. ": translation loaded") end
+		local marks = {}
+		for mark in raw:gmatch("\n- {([%a]+)}") do marks[#marks + 1] = mark end
+		eq(table.concat(marks, ","), "church,church,guild,crown,guild,news,watch", code .. ": release topics")
+		for _, word in ipairs({ "JOIN", "/ginvite", code == "deDE" and "Strg+C" or "Ctrl+C", "/who", "/verify", "#olympus-verify", "Asmongold", "/oly recent", "/oly bug", "45", "24" }) do
+			assert(raw:find(word, 1, true), code .. ": " .. word)
+		end
+		-- The pages as this language's player sees them named.
+		for _, key in ipairs({ "CHURCH_NAV_INVITES", "TAB_CHURCH", "RECRUIT_JOIN_TITLE", "RECRUIT_JOIN_REQUEST", "VERIFY_SELF_TITLE" }) do
+			local label = assert(rawget(L, key), code .. ": " .. key)
+			assert(raw:find(label, 1, true), code .. ": the letter names " .. key .. " as shown: " .. label)
+		end
+		local scan = L.RECRUIT_CANDIDATES_ON:match("^(.-)%s*:")
+		assert(scan and raw:find(scan, 1, true), code .. ": the unguilded scan as shown: " .. tostring(scan))
+		previous = raw
+	end
+	-- What the game decides stays plain: the invite is the player's own command, and verification
+	-- requests access or a role rather than promising one.
+	assert(english:find("The game does not let addons send guild invites, so that step stays yours.", 1, true))
+	assert(english:find("Anyone can whisper you JOIN, even without Olympus.", 1, true))
+	assert(english:find("timed separately for each channel", 1, true))
+	assert(english:find("The Watch can resend a guild approval", 1, true))
+end)

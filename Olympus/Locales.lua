@@ -279,11 +279,19 @@ Close and reopen WoW after updating so the new network modules load. If census r
 Long live the King. Long live Olympus.]==]
 L.LETTER_1_5_8_TITLE = "Census and recruitment"
 L.LETTER_1_5_8_HEAD, L.LETTER_1_5_8_SIGNED, L.LETTER_1_5_8_LINK = L.LETTER_1_5_8_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
-L.LETTER_1_5_8 = [==[- {guild} Census recovery, connection details and the recent diagnostics window help when data arrives late.
-- {church} Church > Invites lets officers review JOIN whispers and hand requests to another officer. Guild masters can ask the Apostles for recruiting help.
-- {watch} The Watch can resend an existing guild approval to its reporter.
+L.LETTER_1_5_8 = [==[Your Majesty. Soldiers of Olympus.
 
-Close and reopen WoW after updating. Use /oly bug if something still fails.]==]
+- {church} Recruiting. If you can invite to your guild, turn it on at the top of the Census or in Church > Invites. Anyone can whisper you JOIN, even without Olympus. A window shows the /ginvite command: press Ctrl+C, paste it into the game's chat and press Enter. The game does not let addons send guild invites, so that step stays yours. You can also offer a request to another officer who accepts handoffs.
+- {church} Church > Invites is now the Church's first page. Public announcements name your guild and post with one click or Enter. A reminder can open one every 2 to 30 minutes, timed separately for each channel. Scan unguilded players lists players without a guild that you see nearby or in your own /who results, ready to invite. Guild masters can ask the Apostles for recruiting help for 24 hours.
+- {guild} Without a guild, the Join Olympus page opens at your first login. Request to join asks an online member for an invite. If none arrives within 45 seconds, you can ask another member, and a reminder can prompt you.
+- {crown} My Discord Verification is at the top of The Realm. Get your personal code with /verify in #olympus-verify on the Asmongold Discord, then paste it there.
+- {guild} The Census shows its connection: your lane, whether a relay is ready and when another guild last reported. Relays answer census requests sooner, send snapshots in fewer pieces and try other recent reporters when a saved one is gone. Church keepers recover recent verified history they missed. /oly recent shows recent diagnostics.
+- {news} In the Olympus chat window, guild chat gives each speaker a colour of their own. Layer hop can ask helpers in sister guilds when no guildmate answers.
+- {watch} The Watch can resend a guild approval, check a guild's current guild master, hide guilds and copy names.
+
+Close and reopen WoW after updating. If something still fails, send an /oly bug report.
+
+Long live the King. Long live Olympus.]==]
 L.LETTER_1_5_7_TITLE = "Census progress and catch-up"
 L.LETTER_1_5_7_HEAD, L.LETTER_1_5_7_SIGNED, L.LETTER_1_5_7_LINK = L.LETTER_1_5_7_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 L.LETTER_1_5_7 = [==[Your Majesty. Soldiers of Olympus.
@@ -483,11 +491,19 @@ Feche e abra o WoW depois de atualizar para carregar os novos módulos da rede. 
 Vida longa ao Rei. Vida longa ao Olympus.]==]
 	L.LETTER_1_5_8_TITLE = "Censo e recrutamento"
 	L.LETTER_1_5_8_HEAD, L.LETTER_1_5_8_SIGNED, L.LETTER_1_5_8_LINK = L.LETTER_1_5_8_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
-	L.LETTER_1_5_8 = [==[- {guild} O censo recupera relatórios atrasados e mostra o estado da conexão. O comando /oly recent abre o diagnóstico recente.
-- {church} Em Church > Invites, oficiais podem revisar sussurros JOIN e repassar pedidos. Mestres de guilda podem pedir ajuda aos Apóstolos.
-- {watch} O The Watch pode reenviar uma aprovação de guilda ao seu repórter.
+	L.LETTER_1_5_8 = [==[Vossa Majestade. Soldados do Olympus.
 
-Feche e abra o WoW após atualizar. Se algo falhar, use /oly bug.]==]
+- {church} Recrutamento. Se você pode convidar para a sua guilda, ative no topo do Censo ou em Igreja > Convites. Qualquer jogador pode sussurrar JOIN para você, mesmo sem o Olympus. Uma janela mostra o comando /ginvite: aperte Ctrl+C, cole no chat do jogo e aperte Enter. O jogo não deixa addons enviarem convites de guilda, então esse passo continua sendo seu. Você também pode oferecer um pedido a outro oficial que aceite repasses.
+- {church} Igreja > Convites agora é a primeira página da Igreja. Os anúncios públicos levam o nome da sua guilda e saem com um clique ou Enter. Um lembrete pode abrir um anúncio a cada 2 a 30 minutos, com tempo separado para cada canal. Buscar jogadores sem guilda lista quem está sem guilda perto de você ou nos resultados do seu próprio /who, pronto para convidar. Mestres de guilda podem pedir ajuda aos Apóstolos para recrutar por 24 horas.
+- {guild} Sem guilda, a página Entre na Olympus abre no seu primeiro login. Pedir para entrar pede um convite a um membro online. Se nenhum convite chegar em 45 segundos, você pode pedir a outro membro, e um lembrete pode te avisar.
+- {crown} Minha verificação do Discord fica no topo de O Reino. Pegue seu código pessoal com /verify em #olympus-verify no Discord do Asmongold e cole lá.
+- {guild} O Censo mostra a conexão: o seu canal, se há um relay pronto e quando outra guilda informou por último. Os relays respondem antes aos pedidos de censo, mandam os snapshots em menos partes e tentam outros repórteres recentes quando um salvo some. Os guardiões da Igreja recuperam o histórico verificado recente que perderam. /oly recent mostra o diagnóstico recente.
+- {news} Na janela de chat do Olympus, o chat da guilda dá a cada personagem uma cor própria. O salto de layer pode pedir ajuda a membros de guildas irmãs quando nenhum colega de guilda responde.
+- {watch} The Watch pode reenviar uma aprovação de guilda, conferir o mestre de guilda atual, ocultar guildas e copiar nomes.
+
+Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
+
+Vida longa ao Rei. Vida longa ao Olympus.]==]
 	L.LETTER_1_5_7_TITLE = "Progresso do censo e sincronização"
 	L.LETTER_1_5_7_HEAD, L.LETTER_1_5_7_SIGNED, L.LETTER_1_5_7_LINK = L.LETTER_1_5_7_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 	L.LETTER_1_5_7 = [==[Vossa Majestade. Soldados do Olympus.

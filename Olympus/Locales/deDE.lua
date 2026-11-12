@@ -38,11 +38,19 @@ ns.Locale("deDE", {
 	LETTER_1_5_8_HEAD = "Zensus und Rekrutierung",
 	LETTER_1_5_8_SIGNED = "Euer ergebener Tüftler, der Entwickler von Olympus",
 	LETTER_1_5_8_LINK = ns.L.LETTER_1_5_8_LINK,
-	LETTER_1_5_8 = [==[- {guild} Der Zensus holt verspätete Berichte nach und zeigt den Verbindungsstatus. /oly recent öffnet die aktuelle Diagnose.
-- {church} Unter Kirche > Einladungen können Offiziere JOIN-Anfragen prüfen und weitergeben. Gildenmeister können die Apostel um Hilfe bitten.
-- {watch} Die Wacht kann eine bestehende Gildengenehmigung erneut an den Melder senden.
+	LETTER_1_5_8 = [==[Eure Majestät. Soldaten von Olympus.
 
-Starte WoW nach dem Update neu. Melde Probleme mit /oly bug.]==],
+- {church} Rekrutierung. Wenn du in deine Gilde einladen darfst, schalte sie oben im Zensus oder unter Kirche > Einladungen ein. Jeder kann dir JOIN flüstern, auch ohne Olympus. Ein Fenster zeigt den Befehl /ginvite: Drücke Strg+C, füge ihn in den Spielchat ein und drücke Enter. Das Spiel lässt Addons keine Gildeneinladungen senden, daher bleibt dieser Schritt bei dir. Du kannst eine Anfrage auch einem anderen Offizier anbieten, der Weitergaben annimmt.
+- {church} Kirche > Einladungen ist jetzt die erste Seite der Kirche. Öffentliche Ankündigungen nennen deine Gilde und werden mit einem Klick oder Enter gesendet. Eine Erinnerung kann alle 2 bis 30 Minuten eine öffnen, für jeden Kanal getrennt. Spieler ohne Gilde suchen listet gildenlose Spieler in deiner Nähe oder aus deinen eigenen /who-Ergebnissen auf, bereit zum Einladen. Gildenmeister können die Apostel 24 Stunden lang um Hilfe bei der Rekrutierung bitten.
+- {guild} Ohne Gilde öffnet sich bei deiner ersten Anmeldung die Seite Olympus beitreten. Um Einladung bitten fragt ein Mitglied, das online ist, nach einer Einladung. Kommt innerhalb von 45 Sekunden keine, kannst du ein anderes Mitglied fragen, und eine Erinnerung kann dich daran erinnern.
+- {crown} Meine Discord-Verifizierung steht oben in Das Reich. Hol dir deinen persönlichen Code mit /verify in #olympus-verify auf dem Asmongold-Discord und füge ihn dort ein.
+- {guild} Der Zensus zeigt seine Verbindung: deinen Kanal, ob ein Relay bereit ist und wann zuletzt eine andere Gilde berichtet hat. Relays beantworten Zensusanfragen schneller, senden Momentaufnahmen in weniger Teilen und versuchen andere aktuelle Melder, wenn ein gespeicherter fehlt. Die Hüter der Kirche holen verpasste, verifizierte Einträge der letzten Zeit nach. /oly recent zeigt die aktuelle Diagnose.
+- {news} Im Olympus-Chatfenster bekommt im Gildenchat jeder Sprecher eine eigene Farbe. Der Layerwechsel kann Helfer aus Schwestergilden fragen, wenn kein Gildenmitglied antwortet.
+- {watch} Die Wache kann eine Gildengenehmigung erneut senden, den aktuellen Gildenmeister prüfen, Gilden ausblenden und Namen kopieren.
+
+Schließe WoW nach dem Update und öffne es erneut. Wenn noch etwas nicht funktioniert, sende einen Bericht mit /oly bug.
+
+Lang lebe der König. Lang lebe Olympus.]==],
 	LETTER_1_5_7_TITLE = "Zensusfortschritt und Abgleich",
 	LETTER_1_5_7_HEAD = "Zensusfortschritt und Abgleich",
 	LETTER_1_5_7_SIGNED = "Euer ergebener Tüftler, der Entwickler von Olympus",

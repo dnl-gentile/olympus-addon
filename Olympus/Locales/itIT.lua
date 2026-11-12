@@ -38,11 +38,19 @@ ns.Locale("itIT", {
 	LETTER_1_5_8_HEAD = "Censimento e reclutamento",
 	LETTER_1_5_8_SIGNED = "Il vostro umile artefice, lo sviluppatore di Olympus",
 	LETTER_1_5_8_LINK = ns.L.LETTER_1_5_8_LINK,
-	LETTER_1_5_8 = [==[- {guild} Il censimento recupera i rapporti in ritardo e mostra lo stato della connessione. /oly recent apre la diagnostica recente.
-- {church} In Chiesa > Inviti, gli ufficiali possono esaminare e inoltrare le richieste JOIN. I capi gilda possono chiedere aiuto agli apostoli.
-- {watch} La Guardia può inviare di nuovo una conferma al relatore della gilda.
+	LETTER_1_5_8 = [==[Vostra Maestà. Soldati di Olympus.
 
-Riavvia WoW dopo aver aggiornato. Se qualcosa non funziona, usa /oly bug.]==],
+- {church} Reclutamento. Se puoi invitare nella tua gilda, attivalo in cima al Censimento o in Chiesa > Inviti. Chiunque può sussurrarti JOIN, anche senza Olympus. Una finestra mostra il comando /ginvite: premi Ctrl+C, incollalo nella chat del gioco e premi Invio. Il gioco non permette agli addon di inviare inviti di gilda, quindi quel passo resta tuo. Puoi anche offrire una richiesta a un altro ufficiale che accetta i passaggi.
+- {church} Chiesa > Inviti ora è la prima pagina della Chiesa. Gli annunci pubblici nominano la tua gilda e partono con un clic o con Invio. Un promemoria può aprirne uno ogni 2-30 minuti, con un tempo separato per ogni canale. Cerca giocatori senza gilda elenca i giocatori senza gilda che vedi vicino a te o nei tuoi risultati di /who, pronti da invitare. I capi gilda possono chiedere aiuto agli apostoli per reclutare per 24 ore.
+- {guild} Senza gilda, la pagina Unisciti a Olympus si apre al tuo primo accesso. Chiedi un invito chiede un invito a un membro online. Se non arriva nulla entro 45 secondi, puoi chiederlo a un altro membro, e un promemoria può avvisarti.
+- {crown} La mia verifica Discord si trova in cima al Reame. Ottieni il tuo codice personale con /verify in #olympus-verify sul Discord di Asmongold, poi incollalo lì.
+- {guild} Il Censimento mostra la sua connessione: il tuo canale, se un relay è pronto e quando un'altra gilda ha inviato l'ultimo rapporto. I relay rispondono prima alle richieste di censimento, inviano le istantanee in meno parti e provano altri relatori recenti quando ne manca uno salvato. I custodi della Chiesa recuperano lo storico verificato recente che avevano perso. /oly recent mostra la diagnostica recente.
+- {news} Nella finestra di chat di Olympus, la chat di gilda dà a ogni personaggio un colore proprio. Il cambio di layer può chiedere aiuto ai membri delle gilde sorelle quando nessuno della tua gilda risponde.
+- {watch} La Guardia può inviare di nuovo un'approvazione di gilda, controllare il capo gilda attuale, nascondere gilde e copiare nomi.
+
+Chiudi e riapri WoW dopo l'aggiornamento. Se qualcosa non funziona ancora, invia una segnalazione con /oly bug.
+
+Lunga vita al Re. Lunga vita a Olympus.]==],
 	LETTER_1_5_7_TITLE = "Avanzamento e recupero del censimento",
 	LETTER_1_5_7_HEAD = "Avanzamento e recupero del censimento",
 	LETTER_1_5_7_SIGNED = "Il vostro umile artefice, lo sviluppatore di Olympus",

@@ -38,11 +38,19 @@ ns.Locale("frFR", {
 	LETTER_1_5_8_HEAD = "Recensement et recrutement",
 	LETTER_1_5_8_SIGNED = "Votre humble artisan, le dev d'Olympus",
 	LETTER_1_5_8_LINK = ns.L.LETTER_1_5_8_LINK,
-	LETTER_1_5_8 = [==[- {guild} Le recensement récupère les rapports en retard et affiche l'état de la connexion. /oly recent ouvre le diagnostic récent.
-- {church} Dans Église > Invitations, les officiers peuvent consulter et transmettre les demandes JOIN. Les maîtres de guilde peuvent demander l'aide des apôtres.
-- {watch} La Garde peut renvoyer une approbation existante au rapporteur de la guilde.
+	LETTER_1_5_8 = [==[Votre Majesté. Soldats d'Olympus.
 
-Relance WoW après la mise à jour. En cas de problème, utilise /oly bug.]==],
+- {church} Recrutement. Si tu peux inviter dans ta guilde, active-le en haut du Recensement ou dans Église > Invitations. N'importe qui peut te chuchoter JOIN, même sans Olympus. Une fenêtre affiche la commande /ginvite : appuie sur Ctrl+C, colle-la dans le chat du jeu et appuie sur Entrée. Le jeu ne laisse pas les addons envoyer d'invitations de guilde, cette étape reste donc la tienne. Tu peux aussi proposer une demande à un autre officier qui accepte les transmissions.
+- {church} Église > Invitations est désormais la première page de l'Église. Les annonces publiques nomment ta guilde et partent en un clic ou avec Entrée. Un rappel peut en ouvrir une toutes les 2 à 30 minutes, avec un délai propre à chaque canal. Repérer les joueurs sans guilde liste les joueurs sans guilde que tu vois près de toi ou dans tes propres résultats de /who, prêts à être invités. Les maîtres de guilde peuvent demander l'aide des apôtres pour recruter pendant 24 heures.
+- {guild} Sans guilde, la page Rejoindre Olympus s'ouvre à ta première connexion. Demander une invitation demande une invitation à un membre en ligne. Si rien n'arrive en 45 secondes, tu peux demander à un autre membre, et un rappel peut te prévenir.
+- {crown} Ma vérification Discord se trouve en haut du Royaume. Obtiens ton code personnel avec /verify dans #olympus-verify sur le Discord d'Asmongold, puis colle-le là.
+- {guild} Le Recensement affiche sa connexion : ton canal, si un relais est prêt et quand une autre guilde a envoyé son dernier rapport. Les relais répondent plus vite aux demandes de recensement, envoient les relevés en moins de morceaux et essaient d'autres rapporteurs récents quand un rapporteur enregistré manque. Les gardiens de l'Église récupèrent l'historique vérifié récent qu'ils ont manqué. /oly recent affiche le diagnostic récent.
+- {news} Dans la fenêtre de chat d'Olympus, le chat de guilde donne à chaque personnage sa propre couleur. Le changement de couche peut demander l'aide de membres de guildes soeurs quand personne de ta guilde ne répond.
+- {watch} La Garde peut renvoyer une approbation de guilde, vérifier le maître de guilde actuel, masquer des guildes et copier des noms.
+
+Ferme et rouvre WoW après la mise à jour. Si quelque chose ne marche toujours pas, envoie un rapport avec /oly bug.
+
+Vive le Roi. Vive Olympus.]==],
 	LETTER_1_5_7_TITLE = "Progression et rattrapage du recensement",
 	LETTER_1_5_7_HEAD = "Progression et rattrapage du recensement",
 	LETTER_1_5_7_SIGNED = "Votre humble artisan, le dev d'Olympus",
