@@ -2830,6 +2830,8 @@ ns.Locale("ruRU", {
 	RECRUIT_CANDIDATE_EMPTY = "Подходящие игроки пока не найдены.",
 	RECRUIT_CANDIDATE_SEEN = "%s - Скопировать приглашение (рядом)",
 	RECRUIT_CANDIDATE_WHO = "%s - Скопировать приглашение (Поиск)",
+	RECRUIT_CANDIDATE_WHISPER_OFF = "Напоминания о шёпоте: Выкл.",
+	RECRUIT_CANDIDATE_WHISPER_EVERY = "Напоминание о шёпоте каждые %d мин",
 	RECRUIT_CANDIDATE_WHISPER = "Проверить шёпот",
 	RECRUIT_WHISPER_ON = "Набор через шепот: включен",
 	RECRUIT_WHISPER_OFF = "Набор через шепот: выключен",

@@ -766,7 +766,8 @@ end
 
 function Recruit.PromptCandidateWhisper(candidate)
 	local unit = Recruit.Candidates.Check(candidate, true)
-	if not unit or not ns.Dialog or ns.Dialog.missing then return false end
+	if not unit or RecentlyContacted(candidate.name, ns.Now()) or not ns.Dialog or ns.Dialog.missing then return false end
+	if ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH") then return false end
 	local queue = { index = 1, { name = candidate.name, guid = candidate.guid, unit = unit } }
 	return ns.Dialog.Show("OLYMPUS_RECRUIT_OUTREACH", OutreachTitle(queue), nil,
 		{ queue = queue, guild = recruitingGuild, candidate = candidate }) ~= nil

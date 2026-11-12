@@ -3840,7 +3840,10 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 		Refresh()
 		-- Keep the real ticker, with no random start spread in this scenario.
 		ns.EVERY_SPREAD = 0
+		C.units.nameplate2 = { name = "NearTest", realm = "Realm", guid = "Player-1-2" }
 		ClickLine(function(line) return line.id == "recruit-candidate-toggle" end)
+		Refresh()
+		assert(QueueLine("NearTest"), "opting in captures already visible nameplates")
 		local function Plate(index, name, guild, faction)
 			local unit = "nameplate" .. index
 			C.units[unit] = { name = name, realm = "Realm", guild = guild, faction = faction, guid = "Player-1-" .. index }
@@ -3903,6 +3906,27 @@ test("gamepad attended recruit candidate queue uses scoped sightings and explici
 		eq(#(C.said or {}), sends, "opening the private draft does not whisper")
 		C.Click(whisper.buttons[1])
 		eq(#(C.said or {}), sends + 1, "one explicit Send whispers the live player")
+		ClickLine(function(line) return line.id == "recruit-candidate-prompts" end)
+		assert(QueueLine(ns.L.RECRUIT_CANDIDATE_WHISPER_OFF), "whisper reminders start disabled")
+		ClickLine(function(line) return line.id == "recruit-candidate-whisper-reminder" end)
+		Refresh()
+		assert(QueueLine(ns.L.RECRUIT_CANDIDATE_WHISPER_EVERY:format(2)))
+		C.Advance(105)
+		Plate(2, "NearTest", nil, "Alliance")
+		who[1].fullName = "WhoOnlyAgain-Realm"
+		C.Fire("WHO_LIST_UPDATE")
+		Plate(6, "TimedWhisper", nil, "Alliance")
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"), nil, "the reminder waits for its interval")
+		C.Advance(35)
+		local timed = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"))
+		eq(timed.data.queue[1].name, "TimedWhisper", "skip recently contacted and WHO-only candidates")
+		eq(#(C.said or {}), sends + 1, "the scheduled draft sends nothing on its own")
+		C.Advance(105)
+		Plate(7, "AnotherWhisper", nil, "Alliance")
+		C.Advance(35)
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"), timed, "a later interval leaves the pending draft alone")
+		eq(#(C.said or {}), sends + 1)
+		timed:Hide()
 		for _, call in ipairs(C.Since(start)) do
 			assert(call.sym ~= "C_GuildInfo.Invite" and call.sym ~= "GuildInvite", "no native guild invitation")
 		end

@@ -3360,8 +3360,9 @@ explicitly shows no guild and establishes the same faction and realm group. Clic
 open a copyable invite command. For a currently visible candidate you can also open a
 private whisper draft to review and send. **Invite pop-ups** is a separate opt-in: one
 current visible candidate at a time, at most every 15 seconds. Each invite still needs your
-paste and Enter. The queue starts no Who searches, sends no messages by itself, and clears
-when turned off or when you leave your guild.
+paste and Enter. **Whisper reminders** can open one private draft every 2, 5, 10, 15 or 30
+minutes. A player must still be visible and each whisper requires **Send**. The queue starts
+no Who searches and clears when turned off or when you leave your guild.
 
 
 An officer can review an independent JOIN or a response to their recent outreach. JOIN

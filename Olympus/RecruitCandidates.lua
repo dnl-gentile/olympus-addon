@@ -7,7 +7,9 @@ R.Candidates = Q
 -- opening a popup automatically or reviewing a whisper needs a current friendly unit.
 local MAX, LIVE_TTL, WHO_TTL, PROMPT_GAP = 24, 90, 30, 15
 local rows, byName, byGUID = {}, {}, {}
+local WHISPER_MINUTES = { 0, 2, 5, 10, 15, 30 }
 local guild, prompts, timer
+local whisperChoice, whisperAt = 1, nil
 local raceFaction = {
 	Human = "Alliance", Dwarf = "Alliance", Gnome = "Alliance", NightElf = "Alliance",
 	Draenei = "Alliance", Worgen = "Alliance",
@@ -60,8 +62,7 @@ local function Hidden(full)
 	return M and M.Hidden and M.Hidden(full) ~= nil
 end
 
-local function Observe(unit)
-	if not Q.Enabled() or Quiet() then return end
+local function Remember(unit)
 	local name, guid, _, full = R.ReadCandidateUnit(unit)
 	if not name or Hidden(full) then return end
 	local now = GetTime()
@@ -73,7 +74,11 @@ local function Observe(unit)
 	local changed = not row.seen or row.guid ~= guid
 	row.guid, row.seen = guid, now
 	if unit == "target" then row.target = true else row.plate = unit end
-	if changed then Change() end
+	return changed
+end
+
+local function Observe(unit)
+	if Q.Enabled() and not Quiet() and Remember(unit) then Change() end
 end
 
 local function WhoFaction(race)
@@ -129,18 +134,34 @@ end
 function Q.Reset()
 	if timer then timer.Cancel(); timer = nil end
 	guild, prompts = nil, nil
+	whisperChoice, whisperAt = 1, nil
 	wipe(rows); wipe(byName); wipe(byGUID)
-	local draft = ns.Dialog and ns.Dialog.Find and ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT")
-	if draft and draft.data and draft.data.candidate then draft:Hide() end
+	if ns.Dialog and ns.Dialog.Find then
+		for _, which in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_OUTREACH" }) do
+			local draft = ns.Dialog.Find(which)
+			if draft and draft.data and draft.data.candidate then draft:Hide() end
+		end
+	end
 end
 
 local function Tick()
 	if not Q.Enabled() then Q.Reset(); Change(); return end
-	local before = #rows
-	Prune(GetTime())
+	local before, now = #rows, GetTime()
+	Prune(now)
 	if #rows ~= before then Change() end
-	if not prompts or Quiet() or not ns.Dialog or ns.Dialog.missing then return end
+	local whisperDue = whisperAt and now >= whisperAt
+	if (not prompts and not whisperDue) or Quiet() or not ns.Dialog or ns.Dialog.missing then return end
 	for _, which in ipairs(blockingDrafts) do if ns.Dialog.Find(which) then return end end
+	if whisperDue then
+		for _, row in ipairs(rows) do
+			if not row.whisperPrompted and R.PromptCandidateWhisper(row) then
+				row.whisperPrompted = true
+				whisperAt = now + WHISPER_MINUTES[whisperChoice] * 60
+				return
+			end
+		end
+	end
+	if not prompts then return end
 	for _, row in ipairs(rows) do
 		if not row.prompted and Q.Check(row, true) and R.CopyCandidateInvite(row, true) then
 			row.prompted = true
@@ -149,12 +170,22 @@ local function Tick()
 	end
 end
 
+local function ChangeWhisperReminder()
+	whisperChoice = whisperChoice % #WHISPER_MINUTES + 1
+	local minutes = WHISPER_MINUTES[whisperChoice]
+	whisperAt = minutes > 0 and GetTime() + minutes * 60 or nil
+	Change()
+end
+
 local function Toggle()
 	if guild then Q.Reset(); Change(); return end
 	guild = LocalGuild()
 	if not guild then return end
 	timer = ns.Every(PROMPT_GAP, "recruit candidates", Tick)
-	Observe("target")
+	if not Quiet() then
+		Remember("target")
+		for i = 1, ns.API and ns.API.NAMEPLATE_MAX or 200 do Remember("nameplate" .. i) end
+	end
 	Change()
 end
 
@@ -167,6 +198,9 @@ function Q.Lines(lines, V)
 	lines[#lines + 1] = { id = "recruit-candidate-prompts", indent = 1,
 		text = (prompts and V.Green or V.Grey)(prompts and L.RECRUIT_CANDIDATE_PROMPTS_ON or L.RECRUIT_CANDIDATE_PROMPTS_OFF),
 		onClick = function() prompts = not prompts; Change() end }
+	lines[#lines + 1] = { id = "recruit-candidate-whisper-reminder", indent = 1,
+		text = whisperAt and V.Green(L.RECRUIT_CANDIDATE_WHISPER_EVERY:format(WHISPER_MINUTES[whisperChoice]))
+			or V.Grey(L.RECRUIT_CANDIDATE_WHISPER_OFF), onClick = ChangeWhisperReminder }
 	Prune(GetTime())
 	if #rows == 0 then lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_CANDIDATE_EMPTY) } end
 	for _, row in ipairs(rows) do
@@ -176,7 +210,7 @@ function Q.Lines(lines, V)
 			onClick = function() if R.CopyCandidateInvite(row) then row.prompted = true end end }
 		if row.guid then
 			lines[#lines + 1] = { indent = 2, text = V.Grey(L.RECRUIT_CANDIDATE_WHISPER),
-				onClick = function() if R.PromptCandidateWhisper(row) then row.prompted = true end end }
+				onClick = function() if R.PromptCandidateWhisper(row) then row.whisperPrompted = true end end }
 		end
 	end
 end
