@@ -210,14 +210,21 @@ local function AutoStep()
 		return
 	end
 	autoProbe = nil
+	-- (1.5.8) Any member may take handoffs now, so in a large guild the probes go first, in turn, to
+	-- the members this client knows run Olympus (their hello); the others only when it knows none.
 	local roster, peer = ns.Roster.online or {}, nil
-	for offset = 1, #roster do
-		local i = ((autoCursor or 0) + offset - 1) % #roster + 1
-		local name = ns.FullName(roster[i].name)
-		if not SamePlayer(name, ns.me) and Member(name, own) then
-			autoCursor, peer = i, name
-			break
+	local V = ns.Versions
+	local known = V and V.HasOlympus
+	for pass = known and 1 or 2, 2 do
+		for offset = 1, #roster do
+			local i = ((autoCursor or 0) + offset - 1) % #roster + 1
+			local name = ns.FullName(roster[i].name)
+			if (pass == 2 or known(name)) and not SamePlayer(name, ns.me) and Member(name, own) then
+				autoCursor, peer = i, name
+				break
+			end
 		end
+		if peer then break end
 	end
 	if not peer then return end
 	local ref = { id = NextID(now), expires = now + PROBE_TTL, from = own, to = own, peer = peer }

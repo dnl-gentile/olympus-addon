@@ -564,3 +564,31 @@ test("recruit handoff (1.5.8): at ten invites a minute new JOINs and sightings g
 		if not ok then error(err, 0) end
 	end)
 end)
+
+-- 1.5.8: with every member a possible taker, a guild of hundreds online must not wait twenty
+-- seconds on each member without Olympus: the probe goes to one this client heard run it.
+test("recruit overflow (1.5.8): the probe goes first to members known to run Olympus", function()
+	WithHandoff(function(scene)
+		local V = ns.Versions
+		local saved = V.HasOlympus
+		local quiet = "Quiet Member-" .. home
+		ns.Roster.online = { { name = quiet }, { name = mate } }
+		ns.Roster.RankOf = function(name)
+			if name == me then return 5 end
+			if name == mate or name == quiet then return 6 end
+		end
+		local ok, err = pcall(function()
+			V.HasOlympus = function(name) return name == mate end
+			for i = 1, 3 do R.OnWhisper("JOIN", ("Known Queue %d-%s"):format(i, home)) end
+			eq(H.ToggleAuto(), true)
+			scene.tick()
+			eq(assert(scene.packets[1]).peer, mate, "the member without Olympus is skipped")
+			V.HasOlympus = function() return false end
+			scene.now = scene.now + 21
+			scene.tick()
+			eq(assert(scene.packets[2]).peer, quiet, "knowing none, every member is tried in turn")
+		end)
+		V.HasOlympus = saved
+		if not ok then error(err, 0) end
+	end)
+end)
