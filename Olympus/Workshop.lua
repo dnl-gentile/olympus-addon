@@ -1597,22 +1597,37 @@ function Workshop.Build(report)
 	}
 	if unmarked then lines[#lines + 1] = { text = Grey(L.WORKSHOP_RELEASED_NEXT:format(ns.VERSION)), noReport = true, gapAfter = true } end
 	-- (1.5.8) The relay rules in force (Relay.lua): the author's signed rules, held here, that leave
-	-- this build off their list would have every relay refuse its players from their deadline on
-	-- (rev 1 listed up to 1.5.6). The line says so, and a click opens the command that keeps their
-	-- deadline and versions and adds this build, to copy.
+	-- a published version off their list would have every relay refuse its players from their
+	-- deadline on (rev 1 listed up to 1.5.6, and 1.5.7 came out after it). The line names every
+	-- version left off: this build, and each release on the code's own list (Relay.PUBLISHED) not
+	-- older than every version the signed list names (the older ones stay as the author left them).
+	-- A click opens the command that keeps their deadline and versions and adds those, to copy.
 	local Relay = ns.Relay
 	local rules = Relay and type(Relay.Rules) == "function" and type(Relay.Published) == "function" and Relay.Rules()
-	if rules and rules.rev > 0 and rules.on ~= false and not Relay.Published(ns.VERSION) then
-		local list = {}
-		for i, v in ipairs(rules.versions) do list[i] = v end
-		list[#list + 1] = ns.VERSION
-		local command = ("/oly relay rules on %d %s"):format(rules.at, table.concat(list, ","))
-		lines[#lines + 1] = {
-			text = Red(L.WORKSHOP_RELAY_RULES_MISSING:format(rules.rev, ns.VERSION)), noReport = true, gapAfter = true,
-			onClick = function()
-				if ns.UI and type(ns.UI.ShowCopy) == "function" then ns.UI.ShowCopy(L.WORKSHOP_RELAY_RULES_COPY, command) end
-			end,
-		}
+	if rules and rules.rev > 0 and rules.on ~= false then
+		local oldest
+		for _, v in ipairs(rules.versions) do
+			if Parts(v) and (not oldest or Workshop.Newer(oldest, v)) then oldest = v end
+		end
+		local missing, seen = {}, {}
+		for _, v in ipairs(type(Relay.PUBLISHED) == "table" and Relay.PUBLISHED or {}) do
+			if not seen[v] and not Relay.Published(v) and not (oldest and Workshop.Newer(oldest, v)) then
+				missing[#missing + 1], seen[v] = v, true
+			end
+		end
+		if not seen[ns.VERSION] and not Relay.Published(ns.VERSION) then missing[#missing + 1] = ns.VERSION end
+		if #missing > 0 then
+			local list = {}
+			for i, v in ipairs(rules.versions) do list[i] = v end
+			for _, v in ipairs(missing) do list[#list + 1] = v end
+			local command = ("/oly relay rules on %d %s"):format(rules.at, table.concat(list, ","))
+			lines[#lines + 1] = {
+				text = Red(L.WORKSHOP_RELAY_RULES_MISSING:format(rules.rev, table.concat(missing, ", "))), noReport = true, gapAfter = true,
+				onClick = function()
+					if ns.UI and type(ns.UI.ShowCopy) == "function" then ns.UI.ShowCopy(L.WORKSHOP_RELAY_RULES_COPY, command) end
+				end,
+			}
+		end
 	end
 	-- 1.2: an arena test build says which, and the arena's solo simulation opens from here (no
 	-- slash command needed: the gamepad UI).

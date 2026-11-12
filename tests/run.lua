@@ -33332,11 +33332,15 @@ test("1.5.8 Workshop: the release line names the last release marked in game bes
 end)
 
 -- 1.5.8: the author's signed relay rules (rev 1, live) listed versions up to 1.5.6, and from their
--- deadline every relay holding them refuses a client whose version is not listed, this release's
--- too: the code's own list (Relay.PUBLISHED) gives way to signed rules. The Workshop says so while
--- the rules held here leave this build off, and its click opens the command that keeps their
--- deadline and versions and adds this build; run, it admits the build and the line goes.
-test("1.5.8 Workshop: signed relay rules that leave this build off are shown with the command that admits it", function()
+-- deadline every relay holding them refuses a client whose version is not listed: the code's own
+-- list (Relay.PUBLISHED) gives way to signed rules. The Workshop says so while the rules held here
+-- leave off a published version, this build or one released since they were signed (1.5.7, out
+-- while rev 1 still ended at 1.5.6), and its click opens the command that keeps their deadline and
+-- versions and adds every one left off; run, it admits them and the line goes. (Changed on purpose
+-- after review: the line first named this build alone, so its command left 1.5.7 refused and the
+-- line went once this build alone was admitted.) Published versions older than every version on
+-- the signed list stay as the author left them.
+test("1.5.8 Workshop: signed relay rules that leave published versions off are shown with the command that admits them", function()
 	local savedRelay, savedUI, savedChat = ns.Relay, ns.UI, C_ChatInfo
 	local ok, err = pcall(function()
 		WithWorkshop(AUTHOR_FULL, function(w, W)
@@ -33345,34 +33349,55 @@ test("1.5.8 Workshop: signed relay rules that leave this build off are shown wit
 			local rns = Harness.RelayWorld(AUTHOR_FULL, "Olympus II")
 			ns.Relay = rns.Relay
 			local L, Relay = ns.L, ns.Relay
-			local function Warning(rev)
+			-- The releases out: an old one, two the signed rules list, one released after they
+			-- were signed, and this build.
+			Relay.PUBLISHED = { "1.4.0", "1.5.5", "1.5.6", "1.5.7", ns.VERSION }
+			local function Warning(rev, versions)
 				for _, l in ipairs((W.Build())) do
-					if type(l.text) == "string" and l.text:find(L.WORKSHOP_RELAY_RULES_MISSING:format(rev, ns.VERSION), 1, true) then return l end
+					if type(l.text) == "string" and l.text:find(L.WORKSHOP_RELAY_RULES_MISSING:format(rev, versions), 1, true) then return l end
 				end
 			end
-			-- The code's own rules (no signed word held): this build is on them, nothing said.
-			rns.rdb.relayRules = nil
-			eq(Relay.Rules().rev, 0); eq(Relay.Published(ns.VERSION), true)
-			eq(Warning(0), nil, "nothing while the code's own list admits this build")
-			-- Signed rules that list older versions only: the line, and the command on its click.
-			rns.rdb.relayRules = { rev = 2, on = true, at = 1794787200, versions = { "1.5.5", "1.5.6" }, from = "Author", t = w.clock }
-			eq(Relay.Published(ns.VERSION), false, "the signed list refuses this build")
-			local line = assert(Warning(2), "the warning while the signed rules leave this build off")
+			local function Lines()
+				local n = 0
+				for _, l in ipairs((W.Build())) do
+					if type(l.text) == "string" and l.text:find(L.WORKSHOP_RELAY_RULES_MISSING:match("^[^%%]*"), 1, true) then n = n + 1 end
+				end
+				return n
+			end
 			local copied
 			ns.UI = setmetatable({ ShowCopy = function(title, text) copied = { title = title, text = text } end }, { __index = savedUI })
+			-- The code's own rules (no signed word held): every published version is on them.
+			rns.rdb.relayRules = nil
+			eq(Relay.Rules().rev, 0); eq(Relay.Published(ns.VERSION), true)
+			eq(Lines(), 0, "nothing while the code's own list admits this build")
+			-- Signed rules that list older versions only: the line names the release out since
+			-- and this build, and its command adds both; 1.4.0, older than the list, stays off.
+			rns.rdb.relayRules = { rev = 2, on = true, at = 1794787200, versions = { "1.5.5", "1.5.6" }, from = "Author", t = w.clock }
+			eq(Relay.Published("1.5.7"), false); eq(Relay.Published(ns.VERSION), false)
+			local line = assert(Warning(2, "1.5.7, " .. ns.VERSION), "the warning names every published version left off")
+			eq(Lines(), 1, "one line")
 			line.onClick()
 			eq(copied and copied.title, L.WORKSHOP_RELAY_RULES_COPY)
-			eq(copied.text, "/oly relay rules on 1794787200 1.5.5,1.5.6," .. ns.VERSION)
-			-- The command as the author types it: a new revision, same deadline, this build admitted.
+			eq(copied.text, "/oly relay rules on 1794787200 1.5.5,1.5.6,1.5.7," .. ns.VERSION)
+			-- The command as the author types it: a new revision, same deadline, both admitted.
 			SlashCmdList.OLYMPUS((copied.text:gsub("^/oly ", "")))
 			local r = Relay.Rules()
 			eq(r.rev, 3); eq(r.at, 1794787200); eq(r.on, true)
-			eq(table.concat(r.versions, ","), "1.5.5,1.5.6," .. ns.VERSION)
+			eq(table.concat(r.versions, ","), "1.5.5,1.5.6,1.5.7," .. ns.VERSION)
+			eq(Relay.Published("1.5.7"), true); eq(Relay.Published(ns.VERSION), true)
+			eq(Relay.Published("1.4.0"), false, "the old release stays as the author left it")
+			eq(Lines(), 0, "no warning once the rules admit them")
+			-- Rules that admit this build but skip the release before it (the first command's
+			-- result): the line stays, and its command adds that release.
+			rns.rdb.relayRules = { rev = 4, on = true, at = 1794787200, versions = { "1.5.5", "1.5.6", ns.VERSION }, from = "Author", t = w.clock }
 			eq(Relay.Published(ns.VERSION), true)
-			eq(Warning(3), nil, "no warning once the rules admit this build")
+			line = assert(Warning(4, "1.5.7"), "the warning while a release before this build is left off")
+			copied = nil
+			line.onClick()
+			eq(copied and copied.text, "/oly relay rules on 1794787200 1.5.5,1.5.6," .. ns.VERSION .. ",1.5.7")
 			-- Rules switched off refuse nobody: nothing said.
-			rns.rdb.relayRules = { rev = 4, on = false, at = 1794787200, versions = { "1.5.5" }, from = "Author", t = w.clock }
-			eq(Warning(4), nil, "nothing while the requirement is off")
+			rns.rdb.relayRules = { rev = 5, on = false, at = 1794787200, versions = { "1.5.5" }, from = "Author", t = w.clock }
+			eq(Lines(), 0, "nothing while the requirement is off")
 		end)
 	end)
 	ns.Relay, ns.UI, C_ChatInfo = savedRelay, savedUI, savedChat
