@@ -697,6 +697,8 @@ end
 local function GuildCopy(parts)
 	local p = parts[1]
 	if #parts ~= 1 or type(p) ~= "string" then return false end
+	local approval = Relay.ApprovalResendGuild(p)
+	if approval then return Lower(approval) == Lower(GetGuildInfo("player") or "") end
 	if p:match("^C%w+:%d+:%d+:") or p:match("^RR~") or GuildRoute(p) then return false end
 	if Relay.NO_FORWARD[p:sub(1, 2)] and not p:match("^GV~1~[ARS]~") then return false end
 	return true
@@ -925,6 +927,12 @@ end
 
 -- A word to every guild's reporter we hold (ours included: delivered here and handed to our
 -- guild), and heard here (a relay in a guild whose reporter is elsewhere, or none).
+-- A Watch resend carries one original approval in the existing snapshot format. Its final
+-- semicolon separates it from automatic snapshot replies, which must never fan out this way.
+function Relay.ApprovalResendGuild(body)
+	return body:match("^GV~1~S~%d+~A,%d+,([^,;~]+),[^,;~]+,[^,;~]+;$")
+end
+
 local function QueueWord(body)
 	-- Fragment i and fragment i+1 are both required. Coalescing them by the first
 	-- two bytes (C1, etc.) discarded all but the last before the queue could send.
@@ -933,6 +941,8 @@ local function QueueWord(body)
 	-- (TR~<name>~): Treasury.Relay passes on one per mail character in one tick, and keyed "TR" alone
 	-- the last took the others' places, in the drip and in Comm's queue alike.
 	-- Arena splits long records before they reach Comm. Keep their own id and index too.
+	local approval = Relay.ApprovalResendGuild(body)
+	if approval then return "GV resend " .. Lower(approval) end
 	return body:match("^(C[^:]+:%d+):%d+:") or body:match("^(EP~[LT]%d+~[0-9a-z]+~[0-9a-z]+)~[0-9a-z]+~")
 		or body:match("^(T1~%a)~") or body:match("^(TR~[^~]+)~") or body:sub(1, 2)
 end
@@ -1899,6 +1909,8 @@ local function ToReporters(flag, origin, body, sender)
 		return CrownToReporters(flag, origin, body, now)
 	end
 	local own = ns.FullName(origin) == ns.me
+	local approvalGuild = Relay.ApprovalResendGuild(body)
+	if approvalGuild then approvalGuild = Lower(approvalGuild) end
 	local fresh = 0
 	for _, r in pairs(reporters) do
 		if now - r.t <= Relay.REPORTER_FOR then fresh = fresh + 1 end
@@ -1951,6 +1963,8 @@ local function ToReporters(flag, origin, body, sender)
 	for g, r in pairs(reporters) do
 		if now - r.t > Relay.REPORTER_FOR or Quarantined(r.name) then
 			reporters[g] = nil
+		elseif approvalGuild and g ~= approvalGuild then
+			-- The re-send is for the guild whose approval it carries.
 		elseif not Served(r, body, now) then
 			-- (1.5.4) A reporter the relay does not serve (no presentation from the deadline on, or
 			-- denied): nothing to him (counted, Stats().unserved).
@@ -2312,6 +2326,12 @@ function Relay.HandleIn(dist, sender, text)
 	-- (1.5.4) A word from a character the relay does not serve (Admit): dropped, answered by nobody.
 	if not Admitted("RL", sender, body, now) then return true end
 	local fresh = not Remembered(origin, body, now)
+	if Relay.ApprovalResendGuild(body) then
+		if not (fresh and ns.Verify and ns.Verify.CanForwardResend and ns.Verify.CanForwardResend(body, origin)) then return true end
+		ToRelays("P", origin, body)
+		WithHop("L", sender, ToReporters, "P", origin, body, sender)
+		return true
+	end
 	local localOnly = Relay.NO_FORWARD[body:sub(1, 2)]
 	-- Verification queries are periodic background traffic; decisions and recovery snapshots
 	-- must reach the guilds. Keeping the entire GV prefix here swallowed a verifier's direct
@@ -2420,6 +2440,11 @@ function Relay.HandleVerify(dist, sender, text)
 	if Decision(body) then
 		if not Signed(origin) then stats.dropped = stats.dropped + 1 return false end
 		WithHop("W", sender, ToReporters, flag, origin, body, sender) -- (heard here too)
+		return true
+	end
+	if Relay.ApprovalResendGuild(body) then
+		if not (ns.Verify and ns.Verify.CanForwardResend and ns.Verify.CanForwardResend(body, origin)) then return false end
+		WithHop("W", sender, ToReporters, "P", origin, body, sender)
 		return true
 	end
 	acrossFrom = Lower(ns.ShortName(sender))

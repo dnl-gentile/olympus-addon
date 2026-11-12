@@ -216,6 +216,54 @@ test("verify: verification recovery distinguishes different words with the same 
 	end)
 end)
 
+test("verify: the Watch sends the retained approval and cancels a queued resend after the guild master changes", function()
+	World(function(w)
+		local origin = w.Client(HC, HEARTH, 3)
+		local member = w.Client(MEMBER, GUILD, 3)
+		local verifier = w.Client(HC2, OTHER, 3)
+		w.Census(GUILD, "Bram Hollow", 120)
+		member.online = false
+		eq(w.As(origin, origin.Verify.Approve, GUILD), true)
+		member.online = true
+		local approval = verifier.rdb.verify.list[ns.Fold(GUILD)]
+		w.now = T0 + 20
+		local action
+		verifier.Comm.Send = function(dist, text, _, _, logged, done, options)
+			action = { text = text, guard = options.guard, finish = function()
+				if w.As(verifier, options.guard) then w.Deliver(verifier, dist, text, logged); done(true) else done(false) end
+			end }
+			return true
+		end
+		local row
+		for _, line in ipairs(w.As(verifier, verifier.Verify.CouncilLines)) do
+			if line.text:find(verifier.Verify.MARK_OK .. "<" .. GUILD .. ">", 1, true) then row = line end
+		end
+		assert(row, "the verified guild is visible in The Watch")
+		w.As(verifier, row.onClick)
+		local data = verifier.dialogs[#verifier.dialogs].data
+		local dialog = StaticPopupDialogs.OLYMPUS_VERIFY_REVOKE
+		eq(dialog.button3, verifier.L.VERIFY_RESEND_APPROVAL)
+		w.As(verifier, dialog.OnAlt, nil, data)
+		assert(action and w.As(verifier, action.guard), "the click queued one original approval")
+		eq(w.As(verifier, verifier.Verify.ResendApproval, GUILD), false, "a second click while waiting does not queue")
+		action.finish()
+		local status, info = w.Status(member, GUILD)
+		eq(status, "verified"); eq(info.entry.at, T0); eq(info.entry.by, HC); eq(info.entry.gm, GM)
+		eq(verifier.rdb.verify.list[ns.Fold(GUILD)], approval, "the sender's approval was never replaced")
+		w.now = w.now + verifier.Verify.RESEND_GAP
+		w.As(verifier, dialog.OnAlt, nil, data)
+		assert(w.As(verifier, action.guard))
+		w.Census(GUILD, "Corin Ash", 120)
+		eq(w.As(verifier, action.guard), false, "the newest guild master is checked at send time")
+		action.finish()
+		eq(w.As(verifier, verifier.Verify.ResendApproval, GUILD), false, "a lapsed decision cannot be resent")
+		w.Census(GUILD, "Bram Hollow", 120)
+		eq(w.As(origin, origin.Verify.Revoke, GUILD), true)
+		eq(w.As(verifier, verifier.Verify.ResendApproval, GUILD), false, "a revoked decision cannot be resent")
+		eq(w.As(member, member.Verify.ResendApproval, GUILD), false, "member cannot resend")
+	end)
+end)
+
 ---------------------------------------------------------------------------
 -- Who approves
 ---------------------------------------------------------------------------

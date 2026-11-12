@@ -106,6 +106,10 @@ exemptions are one predicate, `Verify.Exempt`.
 Verification catch-up crosses signed relays to an available verifier without sending requests to
 every guild. It compares the contents of saved decisions as well as their counts, and recovers an
 approval with its original verifier and date; rebuilding census rows does not erase that decision.
+In **The Watch → Guilds → Verified guilds**, click a guild and choose **Resend approval** to send
+the one decision already held, with the original verifier, guild master and date. It doesn't
+restart verification or the grace period. A newer decision takes precedence. On Forever an updated
+relay forwards the resend to the named guild's reporter through the existing verification route.
 A missing local record still needs a valid verifier's copy. A member's claimed approver name, an
 old census total or a guild-start clock cannot create an approval, and an older approval cannot
 replace a retained revocation.

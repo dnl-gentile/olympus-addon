@@ -57,6 +57,8 @@ local L = ns.L
 --   GV~1~S~<made>~<row>;<row>;...                             a verifier's client's answer, rows
 --     A|R,<at>,<Guild>,<master>,<by>   every word it holds, the newest first
 --     T,<at>,<Guild>,<by>              then the guilds' starts (the unverified first)
+-- A single approval with a final semicolon is an explicit Watch resend. Older clients read the
+-- same snapshot row; relays that know the marker can send it to the named guild's reporter.
 --                                      in MAX_ROWS rows and MAX_BYTES at most (names without a realm
 --                                      are the sender's realm's)
 -- Each client keeps, per guild, the newest word by its time (the approver's server time, which a
@@ -82,6 +84,7 @@ Verify.ANSWER_GAP = 180          -- a verifier's client answers asks this often 
 Verify.RELAY_ANSWER_GAP = 900    -- (1.5.4) and each relay that asked (relays first agree among themselves) this often
 Verify.ANSWER_RETRIES, Verify.ANSWER_RETRY_EVERY = 6, 5 -- (1.5.4) a relay's answer its full queue refused, tried again
 Verify.REQUEST_GAP = 300         -- a guild master's queued request, kept across reloads
+Verify.RESEND_GAP = 15           -- a verifier can resend one existing decision at a time
 Verify.REVOKE_KEEP = 30 * 86400  -- a revocation is kept (and relayed) this long
 Verify.START_KEEP = 90 * 86400   -- a guild's start, this long after it was last seen or heard
 Verify.SEEN_KEEP = 30 * 86400    -- a guild's own first sighting, this long after it was last seen
@@ -705,6 +708,9 @@ function Verify.Handle(dist, sender, text)
 		return true
 	end
 	if kind == "S" then
+		local relay = ns.Relay
+		if relay and relay.ApprovalResendGuild and relay.ApprovalResendGuild(text)
+			and not Verify.CanForwardResend(text, sender) then return false end
 		local made, rows = body:match("^(%d+)~(.*)$")
 		if not TimeField(made) then
 			stats.bad = stats.bad + 1
@@ -830,12 +836,60 @@ function Verify.Revoke(guild)
 	return Say("R", e.guild, e.gm)
 end
 
+-- Called by the relay before it shares a Watch resend. Its retained revocation or newer approval
+-- must win even if the originating verifier missed it. Ordinary snapshots retain their own path.
+function Verify.CanForwardResend(body, origin)
+	if type(body) ~= "string" or #body > 255 or not Verify.Trusted(origin) then return false end
+	local made, at, guild, gm, by = body:match("^GV~1~S~(%d+)~A,(%d+),([^,;]+),([^,;]+),([^,;]+);$")
+	local realm = ns.RealmOf(origin)
+	at, guild, gm, by = TimeField(at), GuildField(guild), NameField(gm, realm), NameField(by, realm)
+	if not (TimeField(made) and at and guild and gm and by) or Verify.Exempt(guild) then return false end
+	local status, info = Verify.Status(guild)
+	if info.gm and not SamePerson(info.gm, gm) then return false end
+	if info.revoked and info.revoked.at >= at then return false end
+	local old = info.entry
+	return not old or old.at < at or (status == "verified" and old.at == at and SamePerson(old.gm, gm) and SamePerson(old.by, by))
+end
+
+local resendPending, lastResend
+function Verify.ResendApproval(guild, expected)
+	if not Verify.CouncilShown() or Quiet() then return false, "trust" end
+	local status, info = Verify.Status(guild)
+	local entry = status == "verified" and info.entry
+	if not entry or (expected and expected ~= entry) then return false, "none" end
+	local now = Verify.Clock()
+	if resendPending or (lastResend and now - lastResend < Verify.RESEND_GAP) then return false, "busy" end
+	local body = ("GV~%d~S~%d~A,%d,%s,%s,%s;"):format(Verify.PROTOCOL, now, entry.at, entry.guild, Relative(entry.gm), Relative(entry.by))
+	if not Verify.CanForwardResend(body, ns.me) then return false, "none" end
+	local store, group, faction = ns.rdb, ns.group, ns.faction
+	local function StillCurrent()
+		if not Verify.CouncilShown() or Quiet() or ns.rdb ~= store or ns.group ~= group or ns.faction ~= faction then return false end
+		local current, details = Verify.Status(guild)
+		return current == "verified" and details.entry == entry and Verify.CanForwardResend(body, ns.me)
+	end
+	resendPending = true
+	return ns.Comm.Send("CHANNEL", body, "verify resend#" .. Key(guild), true, false, function(sent)
+		resendPending = false
+		if sent then lastResend = Verify.Clock() end
+		ns.Print((sent and L.VERIFY_RESEND_SENT or L.VERIFY_RESEND_FAILED):format(guild))
+	end, { owner = Verify, guard = StillCurrent }) == true
+end
+
 local function SayWhy(why, guild)
 	if why == "trust" then return ns.Print(L.VERIFY_ONLY) end
 	if why == "master" then return ns.Print(L.VERIFY_NO_MASTER:format(guild)) end
 	if why == "none" then return ns.Print(L.VERIFY_NOTHING:format(guild)) end
 	if why == "older" then return ns.Print(L.VERIFY_REFUSED:format(guild)) end
 	return ns.Print(L.VERIFY_BAD_GUILD)
+end
+
+function Verify.ResendClick(data)
+	if type(data) ~= "table" or not data.entry then return false end
+	local ok, why = Verify.ResendApproval(data.guild, data.entry)
+	if why == "busy" then return ns.Print(L.VERIFY_RESEND_BUSY) end
+	if why == "none" then return ns.Print(L.VERIFY_RESEND_FAILED:format(data.guild)) end
+	if not ok and why then return SayWhy(why, data.guild) end
+	return ok
 end
 
 function Verify.ApproveInput(input)
@@ -1206,7 +1260,8 @@ function Verify.CouncilLines(now)
 				tt:AddLine(L.VERIFY_COUNCIL_REVOKE_CLICK, 1, 0.4, 0.4, true)
 			end,
 			onClick = function()
-				ns.ShowDialog("OLYMPUS_VERIFY_REVOKE", L.VERIFY_REVOKE_PROMPT:format(r.guild, Shown(e.gm)), nil, { guild = r.guild })
+				ns.ShowDialog("OLYMPUS_VERIFY_REVOKE", L.VERIFY_REVOKE_PROMPT:format(r.guild, Shown(e.gm)), nil,
+					{ guild = r.guild, entry = e })
 			end,
 		}
 	end
@@ -1253,11 +1308,18 @@ StaticPopupDialogs["OLYMPUS_VERIFY_REVOKE"] = {
 	text = "%s",
 	button1 = L.VERIFY_REVOKE_BTN,
 	button2 = CANCEL or "Cancel",
+	button3 = L.VERIFY_RESEND_APPROVAL,
 	OnAccept = function(_, data)
 		ns.SafeCall("verify revoke", function()
-			if type(data) == "table" then Verify.RevokeInput(data.guild) end
+			if type(data) ~= "table" then return end
+			local _, info = Verify.Status(data.guild)
+			if not info or not data.entry or info.entry ~= data.entry then return SayWhy("older", data.guild) end
+			local ok, why = Verify.Revoke(data.guild)
+			if not ok then return SayWhy(why, data.guild) end
+			ns.Print(L.VERIFY_REVOKED:format(data.guild))
 		end)
 	end,
+	OnAlt = function(_, data) ns.SafeCall("verify resend", Verify.ResendClick, data) end,
 	timeout = 0,
 	whileDead = true,
 	hideOnEscape = true,
