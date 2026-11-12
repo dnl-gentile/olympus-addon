@@ -3887,6 +3887,11 @@ test("gamepad Forever Join requests can copy a command and open empty game chat 
 			local action = assert(draft.editBox:GetScript(script), "the copy box handles the keyboard shortcut")
 			InClick(C, function() action(draft.editBox, key) end)
 		end
+		local open, target = C.env.ChatFrameUtil.OpenChat
+		C.env.ChatFrameUtil.OpenChat = function(text, frame)
+			target = frame
+			return open(text, frame)
+		end
 		local ctrl = false
 		C.env.IsControlKeyDown = function() return ctrl end
 		Key("OnKeyDown", "C"); Key("OnKeyUp", "C")
@@ -3903,6 +3908,7 @@ test("gamepad Forever Join requests can copy a command and open empty game chat 
 			C.Click(draft.extraButton)
 		end
 		eq(assert(C.chatBox).text, "", "the player pastes into empty game chat")
+		eq(target, C.env.DEFAULT_CHAT_FRAME, "an unrelated focus override cannot receive the paste")
 		eq(draft:IsShown(), false)
 		eq(R.requests[1], req)
 		for _, call in ipairs(C.Since(mark)) do

@@ -1236,7 +1236,7 @@ local function OpenInviteChat(draft, req) -- gp:chat-box
 	local open = type(util) == "table" and type(util.OpenChat) == "function" and util.OpenChat or ChatFrame_OpenChat
 	if type(open) ~= "function" then return end
 	ns.Gate.Used("chat-box")
-	if pcall(open, "") then draft:Hide() end
+	if pcall(open, "", DEFAULT_CHAT_FRAME) then draft:Hide() end
 end
 
 StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
