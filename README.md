@@ -3378,15 +3378,15 @@ and send invitations themselves.
 
 ### Public recruiting announcement
 
-In **Church → Invites**, open **Public recruitment announcement** and select a joined public
-channel. Press **Post** to ask the game to send the displayed draft, then check the channel.
+In **Church → Invites**, select a joined public channel under **Public recruitment announcement**.
+Press **Post** to ask the game to send the displayed draft, then check the channel.
 To edit or send it yourself, copy the draft into the game's own chat and press Enter.
 A rounded lower bound appears only when the current census holds fresh accepted character
 counts. A recent Olympus recruitment message heard in that same channel delays preparing
 another draft for two minutes on this client.
 
-The local reminder starts off. Click its line to choose 15, 30 or 60 minutes, or to turn it
-off again. It rotates through joined public channels by default. You can switch to the last
+The local reminder starts off. Choose 2, 5, 10, 15 or 30 minutes, or select **Off**. It rotates
+through joined public channels by default. You can switch to the last
 public channel you selected. While recruitment is on, a reminder opens one preview per interval and skips
 unavailable channels and channels where someone recently posted. Every preview needs a Post
 click. The reminder waits if you are busy or already have a preview open.

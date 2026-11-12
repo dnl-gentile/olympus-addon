@@ -823,8 +823,8 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 }
 
 -- Check the joined channel when preparing the draft and again on an explicit Post click.
-local announceOpen, reminderIndex, reminderTimer, announcementVariant = false, 1, nil, 0
-local REMINDER_MINUTES = { 0, 15, 30, 60 }
+local reminderIndex, reminderTimer, announcementVariant = 1, nil, 0
+local REMINDER_MINUTES = { 0, 2, 5, 10, 15, 30 }
 local ANNOUNCEMENT_GAP = 120
 local publicRecruitmentAt = {}
 local lastAnnouncement
@@ -1041,40 +1041,43 @@ local function RemindAnnouncement()
 	end
 end
 
-local function ChangeReminder()
+local function SetReminder(index)
+	if reminderIndex == index then return end
 	if reminderTimer then reminderTimer.Cancel(); reminderTimer = nil end
-	reminderIndex = reminderIndex % #REMINDER_MINUTES + 1
-	local minutes = REMINDER_MINUTES[reminderIndex]
+	CloseReminderDraft()
+	reminderIndex = index
+	local minutes = REMINDER_MINUTES[index]
 	if minutes > 0 then
 		reminderTimer = ns.Every(minutes * 60, "recruiting reminder", RemindAnnouncement)
-	else
-		CloseReminderDraft()
 	end
 	ns.Fire("DATA_CHANGED")
 end
 
 local function AnnouncementLines(lines, V)
-	lines[#lines + 1] = { text = V.Gold(L.RECRUIT_ANNOUNCE_OPEN),
-		onClick = function() announceOpen = not announceOpen; ns.Fire("DATA_CHANGED") end }
-	local minutes = REMINDER_MINUTES[reminderIndex]
-	local reminder = minutes > 0 and L.RECRUIT_ANNOUNCE_REMINDER_ON:format(minutes) or L.RECRUIT_ANNOUNCE_REMINDER_OFF
-	lines[#lines + 1] = { indent = 1, text = V.Grey(reminder), onClick = ChangeReminder,
-		tooltip = function(tt) tt:AddLine(L.RECRUIT_ANNOUNCE_REMINDER_TIP, 1, 1, 1, true) end }
-	lines[#lines + 1] = { indent = 1, gapAfter = not announceOpen,
-		text = V.Grey(rotateReminder and L.RECRUIT_ANNOUNCE_REMINDER_ROTATE or L.RECRUIT_ANNOUNCE_REMINDER_SELECTED),
-		onClick = function()
-			rotateReminder, lastReminderChannel = not rotateReminder, nil
-			CloseReminderDraft()
-			ns.Fire("DATA_CHANGED")
-		end }
-	if not announceOpen then return end
+	lines[#lines + 1] = { text = L.RECRUIT_ANNOUNCE_OPEN, header = true }
 	local rows = PublicChannels()
 	if #rows == 0 then lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_ANNOUNCE_NO_CHANNELS) } end
 	for _, row in ipairs(rows) do
 		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_ANNOUNCE_CHANNEL:format(row.id, ns.Codec.SanitizeChat(row.name))),
 			onClick = function() CopyAnnouncement(row) end }
 	end
-	lines[#lines].gapAfter = true
+	lines[#lines + 1] = { text = L.RECRUIT_ANNOUNCE_REMINDER_TITLE, header = true, spaceBefore = 6 }
+	local intervals = {}
+	for index, minutes in ipairs(REMINDER_MINUTES) do
+		intervals[index] = {
+			text = minutes == 0 and L.RECRUIT_ANNOUNCE_REMINDER_OFF or L.RECRUIT_ANNOUNCE_REMINDER_ON:format(minutes),
+			selected = reminderIndex == index, onClick = function() SetReminder(index) end,
+			tooltip = function(tt) tt:AddLine(L.RECRUIT_ANNOUNCE_REMINDER_TIP, 1, 1, 1, true) end,
+		}
+	end
+	lines[#lines + 1] = { id = "recruit-announcement-reminder", nav = intervals }
+	lines[#lines + 1] = { indent = 1, gapAfter = true,
+		text = V.Grey(rotateReminder and L.RECRUIT_ANNOUNCE_REMINDER_ROTATE or L.RECRUIT_ANNOUNCE_REMINDER_SELECTED),
+		onClick = function()
+			rotateReminder, lastReminderChannel = not rotateReminder, nil
+			CloseReminderDraft()
+			ns.Fire("DATA_CHANGED")
+		end }
 end
 
 function Recruit.WhisperLines()
@@ -1463,7 +1466,7 @@ function Recruit.ResetForTests()
 	join = {}
 	StopRecruiting()
 	if reminderTimer then reminderTimer.Cancel(); reminderTimer = nil end
-	announceOpen, reminderIndex, announcementVariant, lastAnnouncement = false, 1, 0, nil
+	reminderIndex, announcementVariant, lastAnnouncement = 1, 0, nil
 	rotateReminder, lastReminderChannel = true, nil
 	wipe(publicRecruitmentAt)
 	wipe(contacted)

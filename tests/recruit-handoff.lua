@@ -63,7 +63,7 @@ local function Packet(scene, verb, from, to, name, id)
 end
 
 local function Find(rows, text)
-	for _, row in ipairs(rows) do if row.text:find(text, 1, true) then return row end end
+	for _, row in ipairs(rows) do if row.text and row.text:find(text, 1, true) then return row end end
 end
 
 test("recruit handoff: opt-in applicant intent and one trusted claimant gate sharing and acknowledgement", function()

@@ -3932,7 +3932,7 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		ns.UI.Refresh()
 		assert(FindLine(HasQueue), "Church Invites shows the incoming JOIN queue")
 		local fresh, rankOf = ns.Roster.Fresh, ns.Roster.RankOf
-		local joined = function(line) return line.text:find(ns.L.RECRUIT_WHISPER_JOINED, 1, true) end
+		local joined = function(line) return line.text and line.text:find(ns.L.RECRUIT_WHISPER_JOINED, 1, true) end
 		eq(FindLine(joined), nil, "an invite draft alone does not show anyone as joined")
 		ns.Roster.RankOf = function(name) if name == req.name then return 3 end return rankOf(name) end
 		ns.Roster.Fresh = function() return false end
@@ -4046,7 +4046,7 @@ test("gamepad Forever Join requests can copy a command and open empty game chat 
 	GP.Covers("chat-box")
 end)
 
-test("gamepad public recruiting announcement: channel selection, accepted census, local cooldown and reminder", function()
+test("gamepad public recruiting announcement: visible channels, accepted census, cooldown and reminder intervals", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
 		local L, R = ns.L, ns.Recruit
@@ -4064,10 +4064,15 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 		}
 		ns.Data.Groups = function() return { rows = census } end
 		local function Find(text)
-			for _, line in ipairs(R.WhisperLines()) do if line.text:find(text, 1, true) then return line end end
+			for _, line in ipairs(R.WhisperLines()) do if line.text and line.text:find(text, 1, true) then return line end end
 		end
 		local function ClickLine(text)
 			InClick(C, function() assert(Find(text), text).onClick() end)
+		end
+		local function ReminderChoices()
+			for _, line in ipairs(R.WhisperLines()) do
+				if line.id == "recruit-announcement-reminder" then return line.nav end
+			end
 		end
 		local function Printed(text, start)
 			for i = (start or 0) + 1, #C.printed do if C.printed[i]:find(text, 1, true) then return true end end
@@ -4078,14 +4083,22 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 			C.Fire("CHAT_MSG_CHANNEL", text, sender, "", channel, "", "", zoneID, index, channel)
 		end
 
-		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_OFF), "reminder control is visible with the channel picker closed")
-		ClickLine(L.RECRUIT_ANNOUNCE_OPEN)
+		local header = assert(Find(L.RECRUIT_ANNOUNCE_OPEN))
+		assert(header.header and not header.onClick, "the announcement heading needs no click")
 		local general, trade = L.RECRUIT_ANNOUNCE_CHANNEL:format(1, "General"), L.RECRUIT_ANNOUNCE_CHANNEL:format(2, "Trade")
+		assert(Find(general) and Find(trade), "joined public channels are immediately visible")
 		eq(Find(L.RECRUIT_ANNOUNCE_CHANNEL:format(3, "Private")), nil, "private channels are omitted")
 		eq(Find(L.RECRUIT_ANNOUNCE_CHANNEL:format(5, "OlympusNet")), nil, "Olympus is omitted even if reported with a zone ID")
-		local reminder = assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_OFF), "off by default")
+		local intervals = assert(ReminderChoices())
+		eq(#intervals, 6)
+		eq(intervals[1].text, L.RECRUIT_ANNOUNCE_REMINDER_OFF)
+		eq(intervals[1].selected, true, "off by default")
+		for i, minutes in ipairs({ 2, 5, 10, 15, 30 }) do
+			eq(intervals[i + 1].text, L.RECRUIT_ANNOUNCE_REMINDER_ON:format(minutes))
+			eq(intervals[i + 1].selected, false)
+		end
 		local tip
-		reminder.tooltip({ AddLine = function(_, message) tip = message end })
+		intervals[1].tooltip({ AddLine = function(_, message) tip = message end })
 		eq(tip, L.RECRUIT_ANNOUNCE_REMINDER_TIP, "the control explains the draft and the explicit Post action")
 		local sends = #(C.said or {})
 		ClickLine(general)
@@ -4129,16 +4142,16 @@ test("gamepad public recruiting announcement: channel selection, accepted census
 		eq(Draft(), nil, "a stale row does not prepare for a reassigned channel index")
 		local every, reminderTick = ns.Every
 		ns.Every = function(seconds, where, callback)
-			eq(seconds, 15 * 60); eq(where, "recruiting reminder")
+			eq(seconds, 2 * 60); eq(where, "recruiting reminder")
 			reminderTick = callback
 			return every(seconds, where, callback)
 		end
-		ClickLine(L.RECRUIT_ANNOUNCE_REMINDER_OFF)
+		InClick(C, intervals[2].onClick)
 		ns.Every = every
-		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_ON:format(15)))
+		eq(ReminderChoices()[2].selected, true)
 		local before = #C.printed
-		C.Advance(15 * 60 - 1)
-		eq(Printed(L.RECRUIT_ANNOUNCE_REMIND, before), false, "no reminder before fifteen minutes")
+		C.Advance(2 * 60 - 1)
+		eq(Printed(L.RECRUIT_ANNOUNCE_REMIND, before), false, "no reminder before two minutes")
 		C.Advance(62)
 		eq(Printed(L.RECRUIT_ANNOUNCE_REMIND, before), false, "recruiting is off")
 		eq(Draft(), nil)
