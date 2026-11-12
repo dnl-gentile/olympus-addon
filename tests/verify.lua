@@ -1407,3 +1407,26 @@ test("verify: Brazilian Portuguese has every line, with the same codes as the En
 	end
 	assert(n >= 60, "the lines")
 end)
+
+-- 1.5.9 (the author's report, 11-12: "a Olympus Prime aparece como não validada... bota o checkzinho
+-- para ela"): on Forever's Alliance the King's guild is <OLYMPUS PRIME> (ns.KING_GUILD_FOREVER), which
+-- needs no verification and wears the verified mark, whoever its guild master is.
+test("verify: on Forever the King's guild, OLYMPUS PRIME, is exempt and wears the verified mark", function()
+	local savedRealm, savedFaction = ns.realm, ns.faction
+	ns.realm, ns.faction = "CAMWOWUS2Realm1PvE", "Alliance"
+	local ok, err = pcall(function()
+		eq(ns.OnForever(), true)
+		eq(ns.IsKingGuild("OLYMPUS PRIME"), true, "the King's guild on Forever")
+		World(function(w)
+			local member = w.Client(MEMBER, "OLYMPUS PRIME", 3)
+			w.Census("OLYMPUS PRIME", "Some Leader", 900)
+			w.As(member, member.Verify.Login)
+			eq(w.Status(member, "OLYMPUS PRIME"), "exempt")
+			eq(w.As(member, member.Verify.Mark, "OLYMPUS PRIME"), member.Verify.MARK_OK, "the check mark")
+			w.Census("OLYMPUS PRIME", "Another Leader", 900)
+			eq(w.As(member, member.Verify.Mark, "OLYMPUS PRIME"), member.Verify.MARK_OK, "a new guild master changes nothing")
+		end)
+	end)
+	ns.realm, ns.faction = savedRealm, savedFaction
+	if not ok then error(err, 0) end
+end)
