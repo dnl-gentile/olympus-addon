@@ -1235,6 +1235,48 @@ test("recruit log (1.5.8): a popup left open past the minute logs that minute's 
 	end)
 end)
 
+-- Review of 1.5.8 (P2): "send bug" stops at Workshop.BUG_MAX bytes and the recruiting section comes
+-- last, past the status, debug and log sections, so what another member sent back lost the very
+-- lines that show he received a player. /oly recruit send sends the log alone, to fit.
+test("recruit log (review of 1.5.8): /oly recruit send sends the newest lines to the author whole", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			local W = ns.Workshop
+			local savedOnline, savedSend = W.AuthorOnline, W.SendBug
+			local online, sent = true, {}
+			W.AuthorOnline = function() return online end
+			W.SendBug = function(text) sent[#sent + 1] = text; return true end
+			local ok, err = pcall(function()
+				for i = 1, H.LOG_MAX do H.Log("TEST", ("an earlier line %d %s"):format(i, ("x"):rep(40))) end
+				local received, walker = "Handed Recruit-" .. home, "Passing Walker-" .. home
+				H.LogPacket("RX", "O", mate)
+				H.LogPacket("TX", "C", mate)
+				H.LogPacket("RX", "N", mate, received)
+				H.LogItem("POPUP", { name = received }, "handoff")
+				local okSlash, errSlash = pcall(SlashCmdList.OLYMPUS, "recruit send")
+				assert(okSlash, errSlash)
+				local text = assert(sent[1], "the log goes to the author")
+				local out = W.Outgoing(text)
+				eq(out:find("[cut]", 1, true), nil, "it fits what a report carries")
+				assert(out:find("^Recruiting log of Local Recruiter"), out:sub(1, 80))
+				assert(out:find("recruiting on, can invite on", 1, true), "with the summary")
+				assert(out:find("RX offer < Guild Recruiter", 1, true), "the offer heard")
+				assert(out:find("RX name " .. H.Tag(received) .. " < Guild Recruiter", 1, true), "the name received")
+				assert(out:find("POPUP " .. H.Tag(received) .. " handoff", 1, true), "and its popup, the newest line")
+				eq(out:find("Handed Recruit", 1, true), nil, "the applicant by tag only")
+				-- The author offline: nothing sent, and the log to copy is pointed to.
+				online = false
+				scene.printed = {}
+				pcall(SlashCmdList.OLYMPUS, "recruit send")
+				eq(#sent, 1)
+				eq(scene.printed[#scene.printed], ns.L.RECRUIT_SEND_OFFLINE)
+			end)
+			W.AuthorOnline, W.SendBug = savedOnline, savedSend
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
+
 -- Review of 1.5.8 (P2): a member who took no names (handoffs off, at his own limit, or not allowed
 -- to invite) never answered a probe, and each such probe held the busy recruiter's next one back
 -- for its twenty seconds: about one JOIN a minute handed on when few members accept. He now says

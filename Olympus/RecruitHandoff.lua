@@ -723,6 +723,23 @@ function H.BugLines(max)
 	return out
 end
 
+-- Review of 1.5.8: a bug report sent in game stops at Workshop.BUG_MAX bytes, and its recruiting
+-- section comes last, past the status, debug and log sections: what another member sent back lost
+-- the lines that show he received a player. /oly recruit send sends the log alone instead: who sent
+-- it, the summary and the newest lines that fit, newest last.
+function H.SendText()
+	local W = ns.Workshop
+	local budget = (W and W.BUG_MAX or 4800) - 16
+	local head = ("Recruiting log of %s (Olympus %s)\n%s"):format(MemberShort(ns.me), tostring(ns.VERSION), H.Summary())
+	local lines, picked, size = H.LogLines(), {}, #head + 2
+	for i = #lines, 1, -1 do
+		size = size + #lines[i] + 2 -- (a line break travels as two bytes)
+		if size > budget then break end
+		table.insert(picked, 1, lines[i])
+	end
+	return head .. "\n" .. (#picked > 0 and table.concat(picked, "\n") or L.RECRUIT_LOG_EMPTY)
+end
+
 local testSerial = 0
 -- /oly recruit: `log` opens the whole log in the copy window; `testjoin [Name]`, on a test build
 -- only, feeds a JOIN whisper from that name (or a made-up one with digits, never a real character)
@@ -735,6 +752,13 @@ function H.Slash(rest)
 		local text = H.Summary() .. "\n\n" .. (#lines > 0 and table.concat(lines, "\n") or L.RECRUIT_LOG_EMPTY)
 		if ns.UI and ns.UI.ShowCopy then ns.UI.ShowCopy("/oly recruit log", text, nil, { key = "recruitlog", big = true }) end
 		return true
+	elseif word == "send" or word == "enviar" then
+		local W = ns.Workshop
+		if not (W and W.AuthorOnline and W.AuthorOnline()) then
+			ns.Print(L.RECRUIT_SEND_OFFLINE)
+			return false
+		end
+		return W.SendBug(H.SendText()) and true or false
 	elseif word == "testjoin" then
 		if not rawget(ns, "TEST_BUILD") then
 			ns.Print(L.RECRUIT_TESTJOIN_OFF)

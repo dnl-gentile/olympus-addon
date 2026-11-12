@@ -54,12 +54,14 @@ end
 
 -- 1.5.8: the recruiting event log (/oly recruit log, /oly bug) and the test builds' test JOIN.
 L.RECRUIT_LOG_EMPTY = "No recruiting events yet."
-L.RECRUIT_LOG_USAGE = "/oly recruit log - the recruiting log (JOINs, popups, handoffs), to copy."
+L.RECRUIT_LOG_USAGE = "/oly recruit log - the recruiting log (JOINs, popups, handoffs), to copy. /oly recruit send - sends it to the author."
+L.RECRUIT_SEND_OFFLINE = "The author is not online. /oly recruit log opens the log to copy."
 L.RECRUIT_TESTJOIN_OFF = "/oly recruit testjoin is only in test builds."
 L.RECRUIT_TESTJOIN_SENT = "Test JOIN from %s sent to your recruiting."
 if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_LOG_EMPTY = "Nenhum evento de recrutamento ainda."
-	L.RECRUIT_LOG_USAGE = "/oly recruit log - o registro do recrutamento (JOINs, pop-ups, repasses), para copiar."
+	L.RECRUIT_LOG_USAGE = "/oly recruit log - o registro do recrutamento (JOINs, pop-ups, repasses), para copiar. /oly recruit send - envia ao autor."
+	L.RECRUIT_SEND_OFFLINE = "O autor não está online. /oly recruit log abre o registro para copiar."
 	L.RECRUIT_TESTJOIN_OFF = "/oly recruit testjoin só existe nas builds de teste."
 	L.RECRUIT_TESTJOIN_SENT = "JOIN de teste de %s enviado ao seu recrutamento."
 end
