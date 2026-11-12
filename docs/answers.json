@@ -953,8 +953,8 @@
         "How does a case reach the King?",
         "How does the High Council vote on a case?"
       ],
-      "answer": "An officer sends a case from its page to the King: the card's facts and his finding, never who reported it. The High Council votes for 24 hours (the majority of those who answered), then the King's word is final. Nothing happens by itself: the officers decide what to do.",
-      "in_game": "A case's page sends it to the King. The High Council votes for 24 hours, then the King's word is final. No sanction comes of it by itself.",
+      "answer": "An officer sends a case from its page to the King: the card's facts and his finding, never who reported it. The High Council votes for 24 hours (the majority of those who answered), then the King's word is final. Nothing happens until the officers decide what to do.",
+      "in_game": "A case's page sends it to the King. The High Council votes for 24 hours, then the King's word is final. No sanction follows until the officers choose.",
       "sources": [
         "README.md: The Watch (1.2), Send it to the King"
       ]
@@ -1111,7 +1111,7 @@
         "Who opened the gates?",
         "What's /oly log?"
       ],
-      "answer": "What this client saw: decrees, gates, pardons and the King's switches, each with who did it. It's on the Decrees tab or /oly log, kept on your computer only and never sent.",
+      "answer": "What you saw: decrees, gates, pardons and the King's switches, each with who did it. It's on the Decrees tab or /oly log, kept on your computer only and never sent.",
       "in_game": "Type /oly log: decrees, gates and pardons your client saw, with who did them. Kept on your PC only.",
       "sources": [
         "README.md:1231-1241"
@@ -1617,7 +1617,7 @@
         "How do moderators answer questions so fast?"
       ],
       "answer": "The author, the High Council and the Stewards get an Answers button at the end of the Chat tab's box and in Olympus's whisper window: short ready answers by topic, searchable. A click puts one in the box to edit; nothing is sent until you do.",
-      "in_game": "The author, High Council and Stewards have an Answers button: a click puts a ready answer in the box to edit, nothing is sent by itself.",
+      "in_game": "The author, High Council and Stewards have an Answers button: a click puts a ready answer in the box to edit, nothing is sent until you send it.",
       "sources": [
         "Answers.lua"
       ]
@@ -1810,7 +1810,7 @@
         "How do I see someone's Olympus version?",
         "Is my guildmate on the latest version?"
       ],
-      "answer": "Right-click the player (their name in chat, the guild roster or their portrait): the Olympus line shows their addon version and whether it's up to date. Guildmates show by themselves; for anyone else pick Check version and their addon answers in seconds.",
+      "answer": "Right-click the player (their name in chat, the guild roster or their portrait): the Olympus line shows their addon version and whether it's up to date. Guildmates show automatically; for anyone else pick Check version and their addon answers in seconds.",
       "in_game": "Right-click them: the Olympus line shows their version. Not seen yet? Pick Check version and their addon answers in a few seconds.",
       "notes": "Guildmates' versions come from their hello (every 60 s, or every 10 min for quiet members). Check version is one addon whisper (V7) that the other addon answers (V8).",
       "sources": [
@@ -1827,8 +1827,8 @@
         "Why can't I see the version of someone in another guild?",
         "It says not seen for a player from another guild"
       ],
-      "answer": "Your addon only hears your own guild's versions by itself. For anyone else, right-click them and pick Check version: their addon answers with its version. Only 1.1.2 and newer answer, so no answer can mean no Olympus, an older one, a dungeon or raid, or no Olympus guild.",
-      "in_game": "Your addon only hears your own guild by itself. Right-click them and pick Check version; only 1.1.2 and newer answer, so no answer can mean an older one.",
+      "answer": "Your addon only hears your own guild's versions automatically. For anyone else, right-click them and pick Check version: their addon answers with its version. Only 1.1.2 and newer answer, so no answer can mean no Olympus, an older one, a dungeon or raid, or no Olympus guild.",
+      "in_game": "Your addon only hears your own guild automatically. Right-click them and pick Check version; only 1.1.2 and newer answer, so no answer can mean an older one.",
       "notes": "Only players in an Olympus guild answer: outside one the addon sends nothing. The author's Check version is his roll call to that player alone (every version since 0.9.9 answers it, after the player's yes).",
       "sources": [
         "Versions.lua",
@@ -1843,7 +1843,7 @@
         "How do I ask someone to update?",
         "Can I tell a guildmate their addon is old?"
       ],
-      "answer": "Only the author, the King and the High Council can (1.2.1): right-click them, Ask to update (it shows when they're behind). On 1.1.2 or newer they get a small notice with where to update; older ones get a whisper you send. One ask per player a day, 5 an hour.",
+      "answer": "Only the author, the King and the High Council can: right-click them, Ask to update (it shows when they're behind). On 1.1.2 or newer they get a small notice with where to update; older ones get a whisper you send. One ask per player a day, 5 an hour.",
       "in_game": "The author, the King and the High Council: right-click them, Ask to update (when they're behind). 1.1.2+ get a small notice; older ones a whisper you send.",
       "notes": "The author's pick sends his usual update window (V3), which every version shows, naming the version he marked as released. The King's and a councillor's send V9, shown once a day at most, 7 days of quiet after Don't remind me; since 1.2.1 a V9 from anyone else is dropped (older versions still send them). On the beta the limits last until logout (addon data isn't loaded back).",
       "sources": [
@@ -1874,7 +1874,7 @@
         "Does right-clicking send anything?",
         "Can people see when I check their version?"
       ],
-      "answer": "Opening the menu sends nothing. Check version sends one tiny addon message that their addon answers with its version, nothing else. Ask to update sends one notice (or opens a whisper for an old version). Tell them about Olympus only opens a whisper you send yourself.",
+      "answer": "Opening the menu sends nothing. Check version sends one tiny addon message that their addon answers with its version only. Ask to update sends one notice (or opens a whisper for an old version). Tell them about Olympus only opens a whisper you send yourself.",
       "in_game": "Opening the menu sends nothing. Check version sends one tiny addon message; Tell them about Olympus opens a whisper you send yourself.",
       "sources": [
         "Versions.lua"

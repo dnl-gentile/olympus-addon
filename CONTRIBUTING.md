@@ -16,7 +16,7 @@ line of anything left out, and the offline suite runs the gamepad pass.
 
 Olympus shows its text in the game's language when it has lines for it. English
 (`Olympus/Locales.lua`, the `L.KEY = "..."` lines at the top) is the reference, and Portuguese
-(the `ptBR` block in the same file) is complete. Spanish, French and German (1.1) have files of
+(the `ptBR` block in the same file) is complete. Spanish, French and German have files of
 their own under `Olympus/Locales/` and cover the main screens, the alerts and decrees, the Join
 screen and its whisper, the chats and the privacy questions. Any line a language leaves out stays
 English, so a language can grow a few lines at a time.

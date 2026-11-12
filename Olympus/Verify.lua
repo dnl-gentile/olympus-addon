@@ -57,6 +57,10 @@ local L = ns.L
 --   GV~1~S~<made>~<row>;<row>;...                             a verifier's client's answer, rows
 --     A|R,<at>,<Guild>,<master>,<by>   every word it holds, the newest first
 --     T,<at>,<Guild>,<by>              then the guilds' starts (the unverified first)
+-- A single approval with a final semicolon is an explicit Watch resend. Older clients read the
+-- same snapshot row; relays that know the marker can send it to the named guild's reporter.
+--   GV~1~M~<id>~<faction>~<Guild>                  private request to one known reporter
+--   GV~1~N~<id>~<faction>~<Guild>~<Guild master>   private reply after a complete native roster scan
 --                                      in MAX_ROWS rows and MAX_BYTES at most (names without a realm
 --                                      are the sender's realm's)
 -- Each client keeps, per guild, the newest word by its time (the approver's server time, which a
@@ -82,6 +86,9 @@ Verify.ANSWER_GAP = 180          -- a verifier's client answers asks this often 
 Verify.RELAY_ANSWER_GAP = 900    -- (1.5.4) and each relay that asked (relays first agree among themselves) this often
 Verify.ANSWER_RETRIES, Verify.ANSWER_RETRY_EVERY = 6, 5 -- (1.5.4) a relay's answer its full queue refused, tried again
 Verify.REQUEST_GAP = 300         -- a guild master's queued request, kept across reloads
+Verify.RESEND_GAP = 15           -- a verifier can resend one existing decision at a time
+Verify.POLL_GAP = 30             -- at most one roster poll per client in this interval
+Verify.POLL_WAIT = 20            -- private replies only count for this long
 Verify.REVOKE_KEEP = 30 * 86400  -- a revocation is kept (and relayed) this long
 Verify.START_KEEP = 90 * 86400   -- a guild's start, this long after it was last seen or heard
 Verify.SEEN_KEEP = 30 * 86400    -- a guild's own first sighting, this long after it was last seen
@@ -681,6 +688,7 @@ function Verify.Ask()
 end
 
 function Verify.Handle(dist, sender, text)
+	if dist == "WHISPER" then return Verify.HandleGuildPoll(sender, text) end
 	if dist ~= "CHANNEL" or type(sender) ~= "string" or sender == "" or type(text) ~= "string" then return false end
 	local ver, kind, body = text:match("^GV~(%d+)~(%u)~(.*)$")
 	if tonumber(ver) ~= Verify.PROTOCOL then return false end
@@ -705,6 +713,9 @@ function Verify.Handle(dist, sender, text)
 		return true
 	end
 	if kind == "S" then
+		local relay = ns.Relay
+		if relay and relay.ApprovalResendGuild and relay.ApprovalResendGuild(text)
+			and not Verify.CanForwardResend(text, sender) then return false end
 		local made, rows = body:match("^(%d+)~(.*)$")
 		if not TimeField(made) then
 			stats.bad = stats.bad + 1
@@ -830,12 +841,178 @@ function Verify.Revoke(guild)
 	return Say("R", e.guild, e.gm)
 end
 
+-- Called by the relay before it shares a Watch resend. Its retained revocation or newer approval
+-- must win even if the originating verifier missed it. Ordinary snapshots retain their own path.
+function Verify.CanForwardResend(body, origin)
+	if type(body) ~= "string" or #body > 255 or not Verify.Trusted(origin) then return false end
+	local made, at, guild, gm, by = body:match("^GV~1~S~(%d+)~A,(%d+),([^,;]+),([^,;]+),([^,;]+);$")
+	local realm = ns.RealmOf(origin)
+	at, guild, gm, by = TimeField(at), GuildField(guild), NameField(gm, realm), NameField(by, realm)
+	if not (TimeField(made) and at and guild and gm and by) or Verify.Exempt(guild) then return false end
+	local status, info = Verify.Status(guild)
+	if info.gm and not SamePerson(info.gm, gm) then return false end
+	if info.revoked and info.revoked.at >= at then return false end
+	local old = info.entry
+	return not old or old.at < at or (status == "verified" and old.at == at and SamePerson(old.gm, gm) and SamePerson(old.by, by))
+end
+
+local resendPending, lastResend
+function Verify.ResendApproval(guild, expected)
+	if not Verify.CouncilShown() or Quiet() then return false, "trust" end
+	local status, info = Verify.Status(guild)
+	local entry = status == "verified" and info.entry
+	if not entry or (expected and expected ~= entry) then return false, "none" end
+	local now = Verify.Clock()
+	if resendPending or (lastResend and now - lastResend < Verify.RESEND_GAP) then return false, "busy" end
+	local body = ("GV~%d~S~%d~A,%d,%s,%s,%s;"):format(Verify.PROTOCOL, now, entry.at, entry.guild, Relative(entry.gm), Relative(entry.by))
+	if not Verify.CanForwardResend(body, ns.me) then return false, "none" end
+	local store, group, faction = ns.rdb, ns.group, ns.faction
+	local function StillCurrent()
+		if not Verify.CouncilShown() or Quiet() or ns.rdb ~= store or ns.group ~= group or ns.faction ~= faction then return false end
+		local current, details = Verify.Status(guild)
+		return current == "verified" and details.entry == entry and Verify.CanForwardResend(body, ns.me)
+	end
+	resendPending = true
+	return ns.Comm.Send("CHANNEL", body, "verify resend#" .. Key(guild), true, false, function(sent)
+		resendPending = false
+		if sent then lastResend = Verify.Clock() end
+		ns.Print((sent and L.VERIFY_RESEND_SENT or L.VERIFY_RESEND_FAILED):format(guild))
+	end, { owner = Verify, guard = StillCurrent }) == true
+end
+
 local function SayWhy(why, guild)
 	if why == "trust" then return ns.Print(L.VERIFY_ONLY) end
 	if why == "master" then return ns.Print(L.VERIFY_NO_MASTER:format(guild)) end
 	if why == "none" then return ns.Print(L.VERIFY_NOTHING:format(guild)) end
 	if why == "older" then return ns.Print(L.VERIFY_REFUSED:format(guild)) end
 	return ns.Print(L.VERIFY_BAD_GUILD)
+end
+
+function Verify.ResendClick(data)
+	if type(data) ~= "table" or not data.entry then return false end
+	local ok, why = Verify.ResendApproval(data.guild, data.entry)
+	if why == "busy" then return ns.Print(L.VERIFY_RESEND_BUSY) end
+	if why == "none" then return ns.Print(L.VERIFY_RESEND_FAILED:format(data.guild)) end
+	if not ok and why then return SayWhy(why, data.guild) end
+	return ok
+end
+
+local poll, pollResult, pollSerial, lastPoll, lastRosterPoll = nil, nil, 0, -math.huge, -math.huge
+local function PollPeer(name)
+	local realm = type(name) == "string" and ns.RealmOf(name) or ns.realm
+	if type(name) ~= "string" or name == "" or not ns.group or ns.GroupOf(realm) ~= ns.group then return false end
+	local region = tostring(ns.realm or ""):match("^CAMWOW(%u%u)")
+	local reported = ns.Comm.PeerRealm and ns.Comm.PeerRealm(name)
+	if region and (tostring(reported or realm):match("^CAMWOW(%u%u)") ~= region) then return false end
+	local M = ns.Moderation
+	return not (M and M.Hidden and M.Hidden(name))
+end
+
+local function NativeMaster(guild, previous)
+	local R = ns.Roster and ns.Roster.Fresh and ns.Roster.Fresh()
+	if not R or Key(R.guild) ~= Key(guild) or R.generation <= previous then return nil end
+	local found
+	for name, rank in pairs(R.byName) do
+		if rank == 0 then
+			if found then return nil end
+			found = NameField(name)
+		end
+	end
+	return found
+end
+
+local function ScanMaster(guild, allowed, finished)
+	local R, now = ns.Roster, Verify.Clock()
+	if now - lastRosterPoll < Verify.POLL_GAP or not R or not R.RequestScan or not allowed() then return false end
+	lastRosterPoll = now
+	local generation = tonumber(R.generation) or 0
+	R.RequestScan(true)
+	local function Read(again)
+		if not allowed() then return end
+		local gm = NativeMaster(guild, generation)
+		if gm then finished(gm, generation)
+		elseif again then ns.After(5, "watch roster poll", function() Read(false) end) end
+	end
+	ns.After(5, "watch roster poll", function() Read(true) end)
+	return true
+end
+
+local function PollCurrent(p)
+	return poll == p and p.store == ns.rdb and p.group == ns.group and p.faction == ns.faction
+		and Verify.Clock() <= p.deadline and Verify.CouncilShown() and not Quiet()
+end
+
+local function ReportMaster(p, gm, reporter)
+	poll = nil
+	local text = L.VERIFY_POLL_RESULT:format(p.guild, Shown(gm), Shown(reporter))
+	pollResult = { guild = p.guild, store = p.store, at = Verify.Clock(), text = text }
+	ns.Print(text)
+	Changed()
+end
+
+function Verify.PollGuild(guild)
+	guild = GuildField(guild)
+	if not guild or not Verify.CouncilShown() or Quiet() or not ns.group or not ns.faction then return false end
+	local now = Verify.Clock()
+	if poll or now - lastPoll < Verify.POLL_GAP then ns.Print(L.VERIFY_POLL_BUSY); return false end
+	local own = Key(GetGuildInfo("player")) == Key(guild)
+	local row = not own and Row(guild)
+	local reporter = own and ns.me or (row and not row.conflict and row.reporterFull)
+	local age = row and type(row.t) == "number" and ns.Now() - row.t
+	if not PollPeer(reporter) or (not own and (not age or age < 0 or age > ns.Data.FRESH)) then
+		ns.Print(L.VERIFY_POLL_UNAVAILABLE:format(guild)); return false
+	end
+	pollSerial = pollSerial + 1
+	local p = { guild = guild, reporter = reporter, id = ("%d-%d"):format(now, pollSerial), store = ns.rdb,
+		group = ns.group, faction = ns.faction, deadline = now + Verify.POLL_WAIT }
+	poll, lastPoll = p, now
+	local function Allowed() return PollCurrent(p) and PollPeer(reporter) end
+	local function Failed()
+		if poll ~= p then return end
+		poll = nil
+		if p.store == ns.rdb and Verify.CouncilShown() then ns.Print(L.VERIFY_POLL_UNAVAILABLE:format(guild)) end
+	end
+	local accepted
+	if own then
+		accepted = ScanMaster(guild, function() return Allowed() and Key(GetGuildInfo("player")) == Key(guild) end,
+			function(gm) ReportMaster(p, gm, ns.me) end)
+	else
+		local text = ("GV~%d~M~%s~%s~%s"):format(Verify.PROTOCOL, p.id, p.faction, guild)
+		accepted = ns.Comm.Whisper(reporter, text, nil, false, false, function(sent) if not sent then Failed() end end,
+			{ owner = Verify, guard = Allowed })
+	end
+	if not accepted then Failed(); return false end
+	if poll == p then ns.Print(L.VERIFY_POLL_SENT:format(guild)) end
+	ns.After(Verify.POLL_WAIT, "watch roster poll timeout", Failed)
+	return true
+end
+
+function Verify.HandleGuildPoll(sender, text)
+	if type(text) ~= "string" or not PollPeer(sender) or Quiet() or not ns.IsMember() then return false end
+	local id, faction, guild = text:match("^GV~1~M~(%d+%-%d+)~(%a+)~([^~]+)$")
+	if id then
+		guild = GuildField(guild)
+		if #id > 32 or not guild or faction ~= ns.faction or not Verify.Trusted(sender) then return false end
+		local store, group = ns.rdb, ns.group
+		local function Allowed()
+			return ns.rdb == store and ns.group == group and ns.faction == faction and ns.IsMember() and not Quiet()
+				and PollPeer(sender) and Verify.Trusted(sender) and Key(GetGuildInfo("player")) == Key(guild)
+		end
+		return ScanMaster(guild, Allowed, function(gm, previous)
+			ns.Comm.Whisper(sender, ("GV~%d~N~%s~%s~%s~%s"):format(Verify.PROTOCOL, id, faction, guild, gm),
+				nil, false, false, nil, { owner = Verify, guard = function()
+					return Allowed() and NativeMaster(guild, previous) == gm
+				end })
+		end)
+	end
+	local p, gm = poll
+	id, faction, guild, gm = text:match("^GV~1~N~(%d+%-%d+)~(%a+)~([^~]+)~([^~]+)$")
+	if not id or not p or not PollCurrent(p) or id ~= p.id or faction ~= p.faction or Key(guild) ~= Key(p.guild)
+		or not SamePerson(sender, p.reporter) then return false end
+	gm = NameField(gm, ns.RealmOf(sender))
+	if not PollPeer(gm) then return false end
+	ReportMaster(p, gm, sender)
+	return true
 end
 
 function Verify.ApproveInput(input)
@@ -1032,6 +1209,29 @@ function Verify.CouncilShown()
 	return ns.IsMember() and Verify.Trusted(ns.me)
 end
 
+local function Ignored()
+	local list = ns.rdb and ns.rdb.verifyIgnored
+	return type(list) == "table" and list or nil
+end
+
+function Verify.SetIgnored(guild, on)
+	if not Verify.CouncilShown() or type(guild) ~= "string" then return false end
+	local list, key = Ignored(), Key(guild)
+	if on then
+		guild = GuildField(guild)
+		if not guild then return false end
+		if not list then list = {}; ns.rdb.verifyIgnored = list end
+		local count = 0
+		for _ in pairs(list) do count = count + 1 end
+		if not list[key] and count >= Verify.MAX then return false end
+		list[key] = guild
+	elseif list and list[key] then
+		list[key] = nil
+	else return false end
+	Changed()
+	return true
+end
+
 -- The guilds still to verify (the census's and our own; overdue first, then the least time left,
 -- then the biggest) and the verified ones (by name), each { guild, status, info, total }.
 -- (1.5.5) And every guild with a valid start: the starts cross the relays with the approvals (a
@@ -1041,11 +1241,11 @@ end
 -- with its start, no guild master and no member count until it does.
 function Verify.Pending(now)
 	now = now or Verify.Clock()
-	local pending, verified, done = {}, {}, {}
+	local pending, verified, done, ignored = {}, {}, {}, Ignored()
 	local function Add(guild)
 		if type(guild) ~= "string" then return end
 		local key = Key(guild)
-		if done[key] then return end
+		if done[key] or (ignored and type(ignored[key]) == "string") then return end
 		done[key] = true
 		local status, info = Verify.Status(guild, now)
 		if not status or status == "exempt" then return end
@@ -1166,6 +1366,31 @@ function Verify.Count()
 	return #(Verify.Pending())
 end
 
+local selectedGuild, managingIgnored
+local function SelectGuild(guild)
+	selectedGuild = selectedGuild ~= guild and guild or nil
+	Changed()
+end
+
+local function CouncilActions(lines, r, approval)
+	if selectedGuild ~= r.guild then return end
+	lines[#lines + 1] = { indent = 2, text = Gold(L.VERIFY_GUILD_ACTIONS), onClick = approval }
+	lines[#lines + 1] = { indent = 2, text = Gold(L.VERIFY_POLL_GUILD), onClick = function() Verify.PollGuild(r.guild) end }
+	if pollResult and pollResult.guild == r.guild and pollResult.store == ns.rdb then
+		local age = Verify.Clock() - pollResult.at
+		if age >= 0 and age <= 300 then
+			lines[#lines + 1] = { indent = 3, text = Grey(pollResult.text), right = Grey(ns.Ago(pollResult.at)), wrap = true }
+		end
+	end
+	lines[#lines + 1] = { indent = 2, text = Gold(L.VERIFY_COPY_GUILD), onClick = function()
+		if not Verify.CouncilShown() then return end
+		if ns.UI and ns.UI.ShowCopy then ns.UI.ShowCopy(L.VERIFY_COPY_GUILD, r.guild, nil, { key = "verify-guild-name" }) end
+	end }
+	lines[#lines + 1] = { indent = 2, text = Gold(L.VERIFY_IGNORE_GUILD), onClick = function()
+		if Verify.SetIgnored(r.guild, true) then selectedGuild = nil end
+	end }
+end
+
 function Verify.CouncilLines(now)
 	if not Verify.CouncilShown() then return {} end
 	now = now or Verify.Clock()
@@ -1175,6 +1400,24 @@ function Verify.CouncilLines(now)
 		{ text = Grey(L.VERIFY_COUNCIL_SCOPE), wrap = true },
 		{ id = "verify-copy", text = Gold(L.VERIFY_COUNCIL_COPY), onClick = function() Verify.ShowList() end, gapAfter = true },
 	}
+	local ignored = {}
+	for key, guild in pairs(Ignored() or {}) do
+		if type(guild) == "string" and #guild <= 72 and not guild:find("[~;,|%c]") and key == Key(guild) then
+			ignored[#ignored + 1] = guild
+		end
+	end
+	table.sort(ignored, function(a, b) return Key(a) < Key(b) end)
+	lines[#lines + 1] = { id = "verify-ignored", text = Gold(L.VERIFY_MANAGE_IGNORED:format(#ignored)), gapAfter = true,
+		onClick = function() managingIgnored = not managingIgnored; Changed() end }
+	if managingIgnored then
+		lines[#lines + 1] = { indent = 1, text = Grey(L.VERIFY_IGNORED_HINT), wrap = true }
+		for _, guild in ipairs(ignored) do
+			lines[#lines + 1] = { indent = 1, text = Gold(L.VERIFY_RESTORE_IGNORED:format(guild)), onClick = function()
+				Verify.SetIgnored(guild, false)
+			end }
+		end
+		lines[#lines].gapAfter = true
+	end
 	if #pending == 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.VERIFY_COUNCIL_EMPTY) } end
 	for _, r in ipairs(pending) do
 		local late = r.status == "overdue"
@@ -1190,8 +1433,9 @@ function Verify.CouncilLines(now)
 				tt:AddLine(StateText(r), late and 1 or 0.7, late and 0.4 or 0.7, late and 0.4 or 0.7, true)
 				tt:AddLine(L.VERIFY_COUNCIL_CLICK, 0.25, 1, 0.25, true)
 			end,
-			onClick = function() Verify.AskGuild(r) end,
+			onClick = function() SelectGuild(r.guild) end,
 		}
+		CouncilActions(lines, r, function() Verify.AskGuild(r) end)
 	end
 	lines[#lines].gapAfter = true
 	lines[#lines + 1] = { header = true, text = L.VERIFY_COUNCIL_VERIFIED, right = Grey(#verified) }
@@ -1205,10 +1449,12 @@ function Verify.CouncilLines(now)
 				tt:AddLine(L.VERIFY_COUNCIL_MASTER:format(Shown(e.gm)), 1, 1, 1)
 				tt:AddLine(L.VERIFY_COUNCIL_REVOKE_CLICK, 1, 0.4, 0.4, true)
 			end,
-			onClick = function()
-				ns.ShowDialog("OLYMPUS_VERIFY_REVOKE", L.VERIFY_REVOKE_PROMPT:format(r.guild, Shown(e.gm)), nil, { guild = r.guild })
-			end,
+			onClick = function() SelectGuild(r.guild) end,
 		}
+		CouncilActions(lines, r, function()
+			ns.ShowDialog("OLYMPUS_VERIFY_REVOKE", L.VERIFY_REVOKE_PROMPT:format(r.guild, Shown(e.gm)), nil,
+				{ guild = r.guild, entry = e })
+		end)
 	end
 	return lines
 end
@@ -1253,11 +1499,18 @@ StaticPopupDialogs["OLYMPUS_VERIFY_REVOKE"] = {
 	text = "%s",
 	button1 = L.VERIFY_REVOKE_BTN,
 	button2 = CANCEL or "Cancel",
+	button3 = L.VERIFY_RESEND_APPROVAL,
 	OnAccept = function(_, data)
 		ns.SafeCall("verify revoke", function()
-			if type(data) == "table" then Verify.RevokeInput(data.guild) end
+			if type(data) ~= "table" then return end
+			local _, info = Verify.Status(data.guild)
+			if not info or not data.entry or info.entry ~= data.entry then return SayWhy("older", data.guild) end
+			local ok, why = Verify.Revoke(data.guild)
+			if not ok then return SayWhy(why, data.guild) end
+			ns.Print(L.VERIFY_REVOKED:format(data.guild))
 		end)
 	end,
+	OnAlt = function(_, data) ns.SafeCall("verify resend", Verify.ResendClick, data) end,
 	timeout = 0,
 	whileDead = true,
 	hideOnEscape = true,
@@ -1265,13 +1518,14 @@ StaticPopupDialogs["OLYMPUS_VERIFY_REVOKE"] = {
 }
 
 -- Optional local delivery view. The other addon installs its bridge at PLAYER_LOGIN;
--- neither file loading nor a refresh can submit a code. Keep the guild approval flow separate.
+-- opening the popup only reads local state. Keep the guild approval flow separate.
 local deliveryStates = {
 	{ "pending", "VERIFY_SELF_PENDING" }, { "delivered", "VERIFY_SELF_DELIVERED" },
 	{ "rejected", "VERIFY_SELF_REJECTED" }, { "unsupported_callback", "VERIFY_SELF_UNSUPPORTED" },
 	{ "unknown", "VERIFY_SELF_UNKNOWN" },
 }
 local deliveryTypes = { verify = true, role = true, guild = true, donation = true }
+local lastSelfSubmission
 local function SelfBridge()
 	local b = rawget(_G, "OlympusVerifyBridge242")
 	return type(b) == "table" and b or nil
@@ -1309,25 +1563,29 @@ local function SelfDelivery(b)
 	end
 end
 
-local function EnterSelfCode()
-	local b = SelfBridge()
-	if not (b and type(b.QueueSelf) == "function" and SelfDelivery(b)) or not ns.Dialog or ns.Dialog.missing then
-		Verify.OpenSelf()
-		return
-	end
-	ns.Dialog.Show("OLYMPUS_VERIFY_SELF", nil, nil, {})
+local function SelfLinkReady()
+	local loader, link = ns.LinkLoader, ns.Link
+	return loader and type(loader.Loaded) == "function" and type(loader.Slash) == "function" and loader.Loaded()
+		and type(link) == "table" and type(link.Slash) == "function"
+		and type(link.BotReady) == "function" and link.BotReady() == true
 end
 
-function Verify.OpenSelf(result)
-	local b = SelfBridge()
-	local summary = SelfDelivery(b)
-	local ready = b and type(b.QueueSelf) == "function" and summary and ns.Dialog and not ns.Dialog.missing
-	local lines = { L.VERIFY_SELF_GUIDE, "" }
-	if result ~= nil then lines[#lines + 1] = result and L.VERIFY_SELF_QUEUED or L.VERIFY_SELF_REFUSED end
-	if not ready then lines[#lines + 1] = L.VERIFY_SELF_UNAVAILABLE end
+local linkAction = {
+	label = L.VERIFY_SELF_OPEN_LINK,
+	shown = SelfLinkReady,
+	onClick = function(f)
+		if not SelfLinkReady() then return end
+		f:Hide()
+		ns.LinkLoader.Slash("")
+	end,
+}
+
+local function SelfStatusLines(summary)
+	local lines = {}
+	if lastSelfSubmission then lines[#lines + 1] = L[lastSelfSubmission] end
 	if not summary then
 		lines[#lines + 1] = L.VERIFY_SELF_STATUS_UNAVAILABLE
-	else
+	elseif summary.total > 0 then
 		lines[#lines + 1] = L.VERIFY_SELF_TOTAL:format(summary.total)
 		for _, state in ipairs(deliveryStates) do
 			local n = summary.counts[state[1]]
@@ -1335,21 +1593,57 @@ function Verify.OpenSelf(result)
 		end
 		if summary.truncated then lines[#lines + 1] = L.VERIFY_SELF_TRUNCATED:format(summary.shown, summary.total) end
 	end
-	return ns.UI.ShowCopy(L.VERIFY_SELF_TITLE, table.concat(lines, "\n"),
-		ready and { label = L.VERIFY_SELF_ENTER, fn = EnterSelfCode } or nil,
-		{ key = "verifySelf", auto = true, second = { label = L.REFRESH, fn = function() Verify.OpenSelf() end } })
+	return table.concat(lines, "\n")
 end
 
+function Verify.SelfLine()
+	local b = SelfBridge()
+	return { id = "verify-self", text = L.VERIFY_SELF_TITLE,
+		right = b and type(b.QueueSelf) == "function" and L.VERIFY_SELF_ENTER or nil, gapAfter = true,
+		onClick = Verify.OpenSelf }
+end
+
+function Verify.OpenSelf()
+	if not ns.Dialog or ns.Dialog.missing then return end
+	local b = SelfBridge()
+	local summary = SelfDelivery(b)
+	local ready = b and type(b.QueueSelf) == "function" and summary
+	local text = L.VERIFY_SELF_GUIDE
+	if not ready then text = text .. "\n\n" .. L.VERIFY_SELF_UNAVAILABLE end
+	local status = SelfStatusLines(summary)
+	if status ~= "" then text = text .. "\n\n" .. status end
+	return ns.Dialog.Show(ready and "OLYMPUS_VERIFY_SELF" or "OLYMPUS_VERIFY_SELF_UNAVAILABLE", text, nil, {})
+end
+
+StaticPopupDialogs["OLYMPUS_VERIFY_SELF_UNAVAILABLE"] = {
+	text = "%s",
+	button1 = OKAY or "OK",
+	extra = linkAction,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
+StaticPopupDialogs["OLYMPUS_VERIFY_SELF_RESULT"] = {
+	text = "%s",
+	button1 = OKAY or "OK",
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
 StaticPopupDialogs["OLYMPUS_VERIFY_SELF"] = {
-	text = L.VERIFY_SELF_PROMPT,
+	text = "%s",
 	button1 = L.VERIFY_SELF_SEND,
 	button2 = CANCEL or "Cancel",
+	extra = linkAction,
 	hasEditBox = true,
 	editBoxWidth = 350,
 	maxLetters = 128,
 	maxBytes = 128,
 	OnShow = function(self)
 		if self.editBox.SetPassword then self.editBox:SetPassword(true) end
+		ns.Focus(self.editBox)
 	end,
 	OnHide = function(self)
 		self.editBox:SetText("")
@@ -1360,12 +1654,20 @@ StaticPopupDialogs["OLYMPUS_VERIFY_SELF"] = {
 		attempt.used = true -- before the callback, including reentrant or duplicate clicks
 		local code = self.editBox:GetText()
 		self.editBox:SetText("")
-		local b, ok, queued = SelfBridge(), false, false
+		local b = SelfBridge()
+		lastSelfSubmission = "VERIFY_SELF_REFUSED"
 		if b and type(b.QueueSelf) == "function" and SelfDelivery(b) and type(code) == "string"
 			and not (issecretvalue and issecretvalue(code)) and code:find("%S") and #code <= 128 then
-			ok, queued = pcall(b.QueueSelf, code)
+			local ok, queued = pcall(b.QueueSelf, code)
+			if not ok or type(queued) ~= "boolean" then
+				lastSelfSubmission = "VERIFY_SELF_SUBMISSION_UNKNOWN"
+			elseif queued then
+				lastSelfSubmission = "VERIFY_SELF_QUEUED"
+			end
 		end
-		Verify.OpenSelf(ok and queued == true)
+		self:Hide()
+		local status = SelfStatusLines(SelfDelivery(b))
+		ns.Dialog.Show("OLYMPUS_VERIFY_SELF_RESULT", status .. "\n\n" .. L.VERIFY_SELF_CHECK_DISCORD)
 	end,
 	timeout = 0,
 	whileDead = true,

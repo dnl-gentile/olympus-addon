@@ -122,8 +122,8 @@ end)
 -- guildmates under their own (his guild's copy over GUILD): "layer not known" with his layer known.
 test("1.5.4 the King on Forever: his word stamped with the relay's sub-realm places him on no other realm, and his layer heard under the reader's stamp is his under the relay's", function()
 	WithForever("Olympus Faraway", function()
-		local saved = { print = ns.Print }
-		local printed = {}
+		local saved = { print = ns.Print, relay = ns.Relay, ready = ns.Comm.ChannelReady, map = ns.Layers.CurrentMap }
+		local printed, asked = {}, {}
 		ns.Layers.Reset()
 		local ok, err = pcall(function()
 			ns.Print = function(msg) printed[#printed + 1] = tostring(msg) end
@@ -144,8 +144,18 @@ test("1.5.4 the King on Forever: his word stamped with the relay's sub-realm pla
 			-- tells the flow (tests/hop-forever.lua covers it); as the other hop tests do, it was answered.
 			local confirmed = ns.Hop.confirmed and { same = ns.Hop.confirmed.same, other = ns.Hop.confirmed.other }
 			if ns.Hop.confirmed then ns.Hop.confirmed.same, ns.Hop.confirmed.other = true, true end
+			-- Model a ready relay with its result still pending. Native CHANNEL does not
+			-- deliver this request on Forever and unrelated tests can leave it joined.
+			ns.Comm.ChannelReady = function() return true end
+			ns.Layers.CurrentMap = function() return k.mapID end
+			ns.Relay = { On = function() return true end, Out = function(parts)
+				for _, part in ipairs(parts) do asked[#asked + 1] = part end
+				return true
+			end }
 			ns.Hop.AskKing()
 			if confirmed then ns.Hop.confirmed.same, ns.Hop.confirmed.other = confirmed.same, confirmed.other end
+			eq(#asked, 1, "the click queues a request for the King's layer through the relay")
+			eq(asked[1]:match("^LQ~%d+~(.*)$"), "1453~9")
 			eq(#printed <= 1, true)
 			assert(printed[1] ~= other, "the click never refuses the hop for the relay's sub-realm: " .. tostring(printed[1]))
 			local top = ns.Hop.KingLines()
@@ -156,7 +166,7 @@ test("1.5.4 the King on Forever: his word stamped with the relay's sub-realm pla
 			eq(ns.Hop.KingOtherRealm({ name = k.name, realm = "CAMWOWUS2Realm3PvE" }), true, "off Forever another realm is another realm")
 			ns.splitNames = true
 		end)
-		ns.Print = saved.print
+		ns.Print, ns.Relay, ns.Comm.ChannelReady, ns.Layers.CurrentMap = saved.print, saved.relay, saved.ready, saved.map
 		ns.Layers.Reset()
 		if not ok then error(err, 0) end
 	end)

@@ -43,6 +43,63 @@ test("Chat guild labels: visible by default, explicitly hidden locally, restored
 	end)
 end)
 
+test("Chat guild sender colours: stable by native identity and confined to sender names", function()
+	WithWindow(function(w)
+		local rooms = ns.ChatRooms
+		local alder, bram = "Alder-" .. ns.realm, "Bram-" .. ns.realm
+		local sparrow, moved = "Sparrow Vale-CAMWOWUS2Realm1PvE", "Sparrow Vale-CAMWOWUS2Realm5PvE"
+		local classColours, isCovered, coverSwap = RAID_CLASS_COLORS, ns.IsCovered, ns.CoverSwap
+		local classColour = "ffc79c6e"
+		RAID_CLASS_COLORS = { [ns.CLASS_FILES.WA] = { colorStr = classColour } }
+		local ok, err = pcall(function()
+			ns.db.chatRooms, ns.db.addonChat = true, true
+			local covered = "Covered-" .. ns.realm
+			ns.IsCovered = function(who) return who == covered end
+			ns.CoverSwap = function(name) return name == "Covered" and "Alias" or name end
+			assert(rooms.ReceiveGuild("Alder first", alder))
+			assert(rooms.ReceiveGuild("Original sub-realm", sparrow))
+			assert(rooms.ReceiveGuild("Bram speaks", bram))
+			assert(rooms.ReceiveGuild("Alder again", alder:upper()))
+			assert(rooms.ReceiveGuild("New sub-realm", moved))
+			assert(rooms.ReceiveGuild("Cover line", covered))
+			assert(rooms.ReceiveGuild("My own line", ns.me))
+			for _, line in ipairs(rooms.RawHistory("guild")) do line.class = "WA" end
+			ns.rdb.chat = { A = { { t = ns.Now(), sender = alder, guild = GetGuildInfo("player"),
+				text = "Public line", class = "WA" } } }
+			local frame = w.CW.Open("A")
+			local function Bubble(words)
+				for _, bubble in ipairs(frame.bubbles) do
+					if bubble:IsShown() and bubble.entry and bubble.entry.text == words then return bubble end
+				end
+				error("missing bubble: " .. words)
+			end
+			local function Colour(words, name)
+				local text = Bubble(words).who:GetText()
+				local colour, label = text:match("|c(%x%x%x%x%x%x%x%x)(.-)|r")
+				eq(label, name, text)
+				return colour
+			end
+			eq(Colour("Public line", "Alder"), classColour, "public Olympus keeps its class colours")
+			assert(w.CW.SelectLogical("guild"))
+			local first, second = Colour("Alder first", "Alder"), Colour("Bram speaks", "Bram")
+			assert(first ~= second, "two members of the same class have distinct name colours")
+			eq(Colour("Alder again", ns.DisplayName(alder:upper())), first, "case in the server's name does not change identity")
+			eq(Colour("Original sub-realm", ns.DisplayName(sparrow)), Colour("New sub-realm", ns.DisplayName(moved)),
+				"a new sub-realm stamp on Forever does not change identity")
+			assert(Bubble("Cover line").who:GetText():find("^Alias "), "a cover alias does not reveal the real sender colour")
+			eq(Bubble("Alder first").body:GetText(), "Alder first", "only the sender name changes")
+			eq(Bubble("My own line").who:GetText(), ns.L.CHATWIN_YOU)
+			w.CW.Changed()
+			w.CW.Render()
+			eq(Colour("Alder first", "Alder"), first, "the colour does not depend on render state")
+			w.CW.SelectLegacy("A")
+			eq(Colour("Public line", "Alder"), classColour, "the guild colour cannot enter the public header cache")
+		end)
+		RAID_CLASS_COLORS, ns.IsCovered, ns.CoverSwap = classColours, isCovered, coverSwap
+		if not ok then error(err, 0) end
+	end)
+end)
+
 test("Chat guild labels: the actual gear changes normal and deleted headers while retaining search, tooltip identity and the draft", function()
 	WithWindow(function(w)
 		Choice(function()

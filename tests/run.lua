@@ -166,7 +166,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Locales/MapNamesText", "Locales/PlayerTooltipText", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "MapNames", "Inspect", "PlayerTooltip", "King", "HopSightings", "Vox", "Court", "Board", "Groups", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Builds", "Ed25519", "libs/QREncode/qrencode", "LinkLoader", "ArmyExport", "Recruit", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/MapNamesText", "Locales/PlayerTooltipText", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "MapNames", "Inspect", "PlayerTooltip", "King", "HopSightings", "Vox", "Court", "Board", "Groups", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Builds", "Ed25519", "libs/QREncode/qrencode", "LinkLoader", "ArmyExport", "Recruit", "Locales/RecruitHandoffText", "RecruitHandoff", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -2647,26 +2647,26 @@ end)
 
 test("header lines stay inside the window: smaller font first, then cut", function()
 	WithUI(function()
-		GetGuildInfo = function() return nil end
+		GetGuildInfo = function() return "Riven Ash" end
 		local UI = LoadUI()
 		UI.Toggle()
 		local main = OlympusFrame
+		main:SetSize(320, 424)
 		local w = main:GetWidth()
-		eq(w, 338, "the narrow window")
-		-- "No guild? What are you doing?" is too wide in the large font, fits in the normal one.
-		eq(main.total:GetText(), ns.L.ROAST_NOGUILD)
+		-- A long guild name drops from the large font to the normal one.
+		eq(main.total:GetText(), ns.L.ROAST_GUILD:format("Riven Ash"))
 		eq(main.total.font, "GameFontNormal", "dropped to the smaller font")
 		eq(main.total.w, w - 62 - 26); eq(main.total:IsTruncated(), false)
 		-- The long line drops to the tiny font, and is cut ("...") at the window's edge
 		-- instead of running past it when even that does not fit.
-		eq(main.sub:GetText(), ns.L.ROAST_NOGUILD_SUB)
+		eq(main.sub:GetText(), ns.L.ROAST_GUILD_SUB)
 		eq(main.sub.w, w - 62 - 8); eq(main.sub.wrap, false); eq(main.sub.justifyH, "LEFT")
 		eq(main.sub.font, "GameFontWhiteTiny")
 		eq(main.sub:IsTruncated(), true)
 		assert(62 + main.sub:GetStringWidth() <= w, "inside the window")
-		-- Forever's window is wider: the Join line fits whole in the tiny font.
-		main:SetSize(385, 424)
-		eq(main.sub.w, 385 - 62 - 8)
+		-- With more space the Join line fits whole in the tiny font.
+		main:SetSize(365, 424)
+		eq(main.sub.w, 365 - 62 - 8)
 		eq(main.sub.font, "GameFontWhiteTiny"); eq(main.sub:IsTruncated(), false)
 		-- A client without the tiny font keeps the small one, cut.
 		GameFontWhiteTiny = nil
@@ -3263,7 +3263,14 @@ test("HD Join screen: no tabs or column titles, next to a Communities window wit
 		eq(main.listBox:Anchor("TOPLEFT")[5], -60); eq(main.scroll:Anchor("TOPLEFT")[5], -63)
 		local shown = {}
 		for _, b in ipairs(main.buttons) do if b:IsShown() then shown[#shown + 1] = b end end
-		eq(#shown, 2); eq(shown[1].w, 186); eq(shown[2].w, 186); eq(shown[1].h, 20)
+		eq(#shown, 0, "the new Join action lives in the body")
+		local join
+		for _, row in ipairs(main.views[main.tab].rows) do
+			if row.line.primary then join = row.primary end
+		end
+		assert(join and join:IsShown(), "one visible Join action")
+		eq(join:GetText(), ns.L.RECRUIT_JOIN_REQUEST)
+		eq(join:Anchor("CENTER")[1], "CENTER")
 		-- Joins an Olympus guild with both windows open: the Communities side tabs appear too.
 		GetGuildInfo = function() return "Olympus II" end
 		CommunitiesFrame.ChatTab:Show()
@@ -4921,7 +4928,7 @@ local WHO_GLOBALS = { "C_FriendList", "hooksecurefunc", "GetMaxPlayerLevel", "Fr
 local function WithWho(fn)
 	local server = { sent = {}, toUi = {}, rows = {}, timers = {}, printed = {}, clock = 5000 }
 	local saved = { After = C_Timer.After, GetTime = GetTime, Print = ns.Print, CaptureError = ns.CaptureError,
-		guilds = ns.rdb.guilds, seen = ns.rdb.seen, found = ns.Recruit.found }
+		guilds = ns.rdb.guilds, seen = ns.rdb.seen, found = ns.Recruit.found, realmKey = ns.rdb.realmKey, sort = ns.Views.sort }
 	local captured
 	ns.CaptureError = function(where, err) captured = captured or (where .. ": " .. tostring(err)) end
 	ns.Print = function(msg) server.printed[#server.printed + 1] = msg end
@@ -4975,6 +4982,7 @@ local function WithWho(fn)
 	ns.Who.lastAuto, ns.Who.AUTO_GAP = -math.huge, autoGap
 	C_Timer.After, GetTime, ns.Print, ns.CaptureError = saved.After, saved.GetTime, saved.Print, saved.CaptureError
 	ns.rdb.guilds, ns.rdb.seen, ns.Recruit.found = saved.guilds, saved.seen, saved.found
+	ns.rdb.realmKey, ns.Views.sort = saved.realmKey, saved.sort
 	for _, name in ipairs(WHO_GLOBALS) do _G[name] = nil end
 	if not ok then error(err, 0) end
 	eq(captured, nil, "error caught")
@@ -5572,7 +5580,6 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 		ns.UI = { StatusLine = function() return "status" end }
 		ns.Views.sort = { key = "members", desc = false } -- sorting moves reported guilds only
 		-- (1.1: a sealed channel. On a public one a warning goes above the guilds: its own test.)
-		local savedKey = ns.rdb.realmKey
 		ns.rdb.realmKey = "shared secret"
 		local lines = ns.Views.Build("census")
 		-- (1.0.0: the search box tops the list; nothing typed, the list under it as before.)
@@ -5589,7 +5596,8 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 		eq(lines[4].cols[3], Grey("12+"), "capped: at least")
 		-- (Changed on purpose, 1.2.4: the average level's column before the Lord's, unknown too.)
 		eq(lines[4].cols[4], Grey("?"), "no average level known"); eq(lines[4].cols[5], Grey(L.NO_ADDON))
-		eq(lines[5].text, Grey(L.SEEN_HINT)); eq(#lines, 5)
+		eq(lines[5].text, Grey(L.SEEN_HINT))
+		eq(#lines, 5, "the Invites shortcut does not add Census data rows")
 		local tip = {}
 		local tt = { AddLine = function(_, text) tip[#tip + 1] = text end,
 			AddDoubleLine = function(_, a, b) tip[#tip + 1] = a .. "=" .. b end }
@@ -5598,9 +5606,8 @@ test("census: guilds only seen with /who are grey rows after the reported ones",
 		assert(text:find(L.SEEN_TIP, 1, true) and text:find(L.SEEN_CAPPED_TIP, 1, true) and text:find("12+", 1, true), text)
 		-- Nothing seen: no grey rows and no hint.
 		ns.rdb.seen = {}
-		eq(#ns.Views.Build("census"), 4, "the search box, the King's layer line and 2 guilds")
-		ns.Views.sort = { key = "members", desc = true }
-		ns.rdb.realmKey = savedKey
+		lines = ns.Views.Build("census")
+		eq(#lines, 4, "the search box, the King's layer line and 2 guilds")
 	end)
 end)
 
@@ -5611,7 +5618,6 @@ test("census Refresh: the roster, and one /who per click for the grey guilds", f
 			C_GuildInfo = { GuildRoster = function() scans = scans + 1 end }
 			local UI = LoadUI()
 			-- (1.1: a sealed channel. On a public one a warning goes above the guilds: its own test.)
-			local savedKey = ns.rdb.realmKey
 			ns.rdb.realmKey = "shared secret"
 			UI.SelectTab("census")
 			eq(#server.sent, 0, "opening a tab never starts a hidden /who")
@@ -5623,8 +5629,14 @@ test("census Refresh: the roster, and one /who per click for the grey guilds", f
 			eq(scans, 2, "the roster every click"); eq(#server.sent, 1, "/who at most every 10 seconds")
 			server.Answer({ { "Aa", "OLYMPUS VII", 12 } })
 			UI.Refresh()
-			local row = OlympusFrame.views.census.rows[5] -- after the search box (1.0.0), the King's layer line and 2 guilds
-			eq(row.cols[1]:GetText(), ns.Views.Grey("OLYMPUS VII"), "the grey row is drawn")
+			local row
+			for _, candidate in ipairs(OlympusFrame.views.census.rows) do
+				if candidate:IsShown() and candidate.line.cols and candidate.line.cols[1] == ns.Views.Grey("OLYMPUS VII") then
+					row = candidate
+				end
+			end
+			assert(row, "the grey row is drawn alongside the visible recruiting offer")
+			eq(row.cols[1]:GetText(), ns.Views.Grey("OLYMPUS VII"))
 			-- The person panel's Who goes through Who.lua: not right after our search.
 			UI.ShowPerson({ name = "Aa-Realm", guild = "OLYMPUS VII" })
 			OlympusPersonFrame.who:Click()
@@ -5633,7 +5645,6 @@ test("census Refresh: the roster, and one /who per click for the grey guilds", f
 			OlympusPersonFrame.who:Click()
 			eq(server.sent[#server.sent], 'n-"Aa"', "our realm left out, as the server wants it")
 			C_GuildInfo = nil
-			ns.rdb.realmKey = savedKey
 		end)
 	end)
 end)
@@ -6837,7 +6848,9 @@ local function FreshComm(old)
 	local cns = setmetatable({}, { __index = ns })
 	cns.RegisterEvent = function(event, fn) events[event] = events[event] or {}; table.insert(events[event], fn) end
 	cns.On = function(name, fn) if name == "LOGIN" then table.insert(login, fn) end end
-	cns.After, cns.Every = function() end, function() end
+	cns.timers = {}
+	cns.After = function() end
+	cns.Every = function(_, name, fn) cns.timers[name] = fn end
 	cns.clock = 100000
 	cns.Now = function() return cns.clock end
 	C_ChatInfo = { RegisterAddonMessagePrefix = function() end }
@@ -6856,6 +6869,220 @@ local function FreshComm(old)
 		for _, c in ipairs(ns.Codec.Chunk(ns.Codec.EncodeReport(r), tostring(id))) do Deliver("CHANNEL", sender, c) end
 	end
 	return cns, Deliver, Report, DeliverLogged
+end
+
+-- A fresh Comm client on `start`, with real hello delivery, housekeeping registration and send
+-- refusal handling. The game's ten fallback channel names are all already joined for the model.
+do
+local function WithLaneCrowd(start, fn)
+	local saved = { channel = GetChannelName, join = JoinChannelByName, leave = LeaveChannelByName,
+		member = ns.IsMember, info = C_ChatInfo }
+	local ok, err = pcall(function()
+		local indexes = { OlympusNet = 5 }
+		for lane = 1, 9 do indexes["OlympusNet" .. lane] = 5 + lane end
+		GetChannelName = function(name) return indexes[name] or 0 end
+		local w = { joined = {}, left = {}, sent = {}, refuse = {} }
+		JoinChannelByName = function(name) w.joined[#w.joined + 1] = name end
+		LeaveChannelByName = function(name) w.left[#w.left + 1] = name end
+		ns.IsMember = function() return true end
+		local cns, Deliver = FreshComm()
+		cns.rdb = { channelLane = start }
+		cns.Relay = { On = function() return false end }
+		cns.Roster = setmetatable({ RankOf = function() end }, { __index = ns.Roster })
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist, target)
+			w.sent[#w.sent + 1] = { msg = msg, dist = dist, target = target }
+			return dist == "CHANNEL" and w.refuse[target] and 7 or 0
+		end
+		C_ChatInfo.SendAddonMessageLogged = C_ChatInfo.SendAddonMessage
+		local C = cns.Comm
+		C.JoinChannel()
+		w.housekeeping = cns.timers.housekeeping
+		w.hello = function(name, lane, relay, laneField, realm, seal)
+			realm = realm or "Realm"
+			if laneField == nil then laneField = lane == 0 and "" or ("L" .. tostring(lane)) end
+			Deliver("GUILD", name .. "-" .. realm, "H1~1.5.5~" .. realm .. "~" .. (seal or "p") .. "~~~" .. laneField .. (relay == false and "" or "~R"))
+		end
+		fn(w, C, cns)
+	end)
+	GetChannelName, JoinChannelByName, LeaveChannelByName, ns.IsMember = saved.channel, saved.join, saved.leave, saved.member
+	C_ChatInfo = saved.info
+	if not ok then error(err, 0) end
+end
+
+test("1.5.6 channel lanes: housekeeping moves a minority client down to a decisive recent majority", function()
+	WithLaneCrowd(2, function(w, C)
+		for i = 1, 5 do w.hello("Crowd" .. i, 1) end
+		w.hello("Minority", 2)
+		w.housekeeping()
+		eq(C.Lane(), 1, "the recent five-to-one crowd brings lane 2 back down to lane 1")
+		eq(C.LaneStats().moves, 1)
+		w.housekeeping()
+		eq(C.LaneStats().moves, 1, "the next housekeeping pass makes no extra move or send storm")
+	end)
+end)
+
+test("1.5.6 channel lanes: a decisive crowd correction also moves upward", function()
+	WithLaneCrowd(1, function(w, C)
+		for i = 1, 5 do w.hello("High" .. i, 3) end
+		w.hello("Low", 1)
+		w.housekeeping()
+		eq(C.Lane(), 3, "the fallback names are convergence lanes, not one-way shards")
+	end)
+end)
+
+test("channel lanes: the connection summary shows the same mismatch and cooldown without moving or sending", function()
+	WithLaneCrowd(2, function(w, C, cns)
+		local summary = C.LaneStats()
+		eq(summary.joined, true); eq(summary.dominant, nil); eq(summary.eligiblePeers, 0)
+		for i = 1, 5 do w.hello("Crowd" .. i, 0) end
+		w.hello("Minority", 2)
+		local before = #w.sent
+		summary = C.LaneStats()
+		eq(summary.lane, 2); eq(summary.dominant, 0); eq(summary.dominantPeers, 5)
+		eq(summary.eligiblePeers, 6); eq(summary.mismatch, true); eq(summary.dominantRefused, false)
+		eq(summary.cooldown, 0); eq(C.Lane(), 2); eq(#w.sent, before)
+		w.housekeeping()
+		summary = C.LaneStats()
+		eq(summary.lane, 0); eq(summary.dominant, 0); eq(summary.mismatch, false)
+		eq(summary.cooldown, C.CROWD_SETTLE)
+		cns.clock = cns.clock + C.CROWD_RECENT + 1
+		summary = C.LaneStats()
+		eq(summary.dominant, nil); eq(summary.eligiblePeers, 0); eq(summary.cooldown, 0)
+	end)
+end)
+
+test("1.5.6 channel lanes: relay mode freezes refusal and officer moves but permits crowd convergence", function()
+	WithLaneCrowd(1, function(w, C, cns)
+		cns.Relay.On = function() return true end
+		eq(C.NextLane("refused"), false, "the refusal path keeps the relay safety gate")
+		eq(C.TakeLane(3, "Lord-Realm"), false, "the officer path keeps the relay safety gate")
+		for i = 1, 5 do w.hello("Relayed" .. i, 2) end
+		w.housekeeping()
+		eq(C.Lane(), 2, "only the corrective crowd move passes the relay gate")
+	end)
+end)
+
+test("1.5.6 channel lanes: no crowd, four peers and a near-even split do not move; ties choose the lower lane", function()
+	WithLaneCrowd(3, function(w, C)
+		w.housekeeping()
+		eq(C.Lane(), 3, "no reports")
+		for i = 1, 4 do w.hello("Low" .. i, 1) end
+		w.housekeeping()
+		eq(C.Lane(), 3, "four reports do not meet the five-peer quorum")
+		for i = 1, 4 do w.hello("High" .. i, 2) end
+		local best, n, total = C.CrowdLane()
+		eq(best, 1, "an equal count deterministically picks the lower lane"); eq(n, 4); eq(total, 8)
+		w.housekeeping()
+		eq(C.Lane(), 3, "an even split does not move")
+		w.hello("Low5", 1)
+		w.housekeeping()
+		eq(C.Lane(), 3, "five to four is not the documented two-thirds supermajority")
+	end)
+end)
+
+test("1.5.6 channel lanes: stale peer hellos are excluded from the quorum", function()
+	WithLaneCrowd(2, function(w, C, cns)
+		for i = 1, 5 do w.hello("Old" .. i, 1) end
+		cns.clock = cns.clock + C.CROWD_RECENT + 1
+		for i = 1, 4 do w.hello("Fresh" .. i, 1) end
+		local _, n, total = C.CrowdLane()
+		eq(n, 4); eq(total, 4, "only the four recent hellos count")
+		w.housekeeping()
+		eq(C.Lane(), 2, "stale votes cannot complete a quorum")
+	end)
+end)
+
+test("1.5.6 channel lanes: peers on another unshared realm cannot steer this realm's lane", function()
+	WithLaneCrowd(2, function(w, C)
+		for i = 1, 5 do w.hello("Foreign" .. i, 1, true, nil, "Other") end
+		local best, n, total = C.CrowdLane()
+		eq(best, nil); eq(n, 0); eq(total, 0, "another realm's separate channel is not our lane domain")
+		w.housekeeping()
+		eq(C.Lane(), 2, "foreign-realm votes cannot move this realm")
+	end)
+end)
+
+test("channel lanes: public and sealed channel audiences converge independently", function()
+	WithLaneCrowd(2, function(w, C)
+		for i = 1, 5 do w.hello("Sealed" .. i, 1, true, nil, nil, "s") end
+		for i = 1, 5 do w.hello("Public" .. i, 3) end
+		local summary = C.LaneStats()
+		eq(summary.dominant, 3); eq(summary.eligiblePeers, 5)
+		w.housekeeping()
+		eq(C.Lane(), 3, "sealed reports cannot tie or move the public crowd")
+	end)
+end)
+
+test("1.5.6 channel lanes: a refused lane stays out, fallback still moves up, and its move starts the crowd cooldown", function()
+	WithLaneCrowd(0, function(w, C, cns)
+		w.refuse[5] = true
+		for i = 1, C.LANE_AFTER do C.Send("CHANNEL", "X" .. i .. "~refused"); C.Pump() end
+		eq(C.Lane(), 1, "three real InvalidChannel results still trigger the upward fallback")
+		w.refuse[5] = nil
+		for i = 1, 5 do w.hello("Crowd" .. i, 2) end
+		w.housekeeping()
+		eq(C.Lane(), 1, "the refusal move starts the settle cooldown")
+		cns.clock = cns.clock + C.CROWD_SETTLE
+		w.housekeeping()
+		eq(C.Lane(), 2, "the healthy crowd may correct upward after settling")
+		for i = 1, 5 do w.hello("Crowd" .. i, 0) end
+		cns.clock = cns.clock + C.CROWD_SETTLE
+		w.housekeeping()
+		eq(C.Lane(), 2, "the session never deliberately returns to refused lane 0")
+	end)
+end)
+
+test("1.5.6 channel lanes: crowd and officer moves both start the convergence cooldown", function()
+	WithLaneCrowd(2, function(w, C, cns)
+		for i = 1, 5 do w.hello("Peer" .. i, 1) end
+		w.housekeeping()
+		eq(C.Lane(), 1)
+		for i = 1, 5 do w.hello("Peer" .. i, 2) end
+		w.housekeeping()
+		eq(C.Lane(), 1, "a crowd move cannot immediately oscillate back")
+		cns.clock = cns.clock + C.CROWD_SETTLE
+		w.housekeeping()
+		eq(C.Lane(), 2, "it may converge again after the settle period")
+	end)
+	WithLaneCrowd(0, function(w, C, cns)
+		cns.Roster.RankOf = function(name) return name == "Lord-Realm" and 0 or nil end
+		w.hello("Lord", 1, false)
+		eq(C.Lane(), 1, "the existing officer move still works")
+		for i = 1, 5 do w.hello("Peer" .. i, 2) end
+		w.housekeeping()
+		eq(C.Lane(), 1, "an officer move also starts the crowd cooldown")
+		cns.clock = cns.clock + C.CROWD_SETTLE
+		w.housekeeping()
+		eq(C.Lane(), 2)
+	end)
+end)
+
+test("1.5.6 channel lanes: an officer hello cannot pull a client away from a clear healthy crowd", function()
+	WithLaneCrowd(1, function(w, C, cns)
+		cns.Roster.RankOf = function(name) return name == "Lord-Realm" and 0 or nil end
+		for i = 1, 5 do w.hello("Crowd" .. i, 1) end
+		w.hello("Lord", 2)
+		eq(C.Lane(), 1, "the officer's minority lane does not override five recent peers")
+	end)
+end)
+
+test("1.5.6 channel lanes: only relay-capable hellos with canonical in-range lane data count", function()
+	WithLaneCrowd(2, function(w, C)
+		for i = 1, 5 do w.hello("Old" .. i, 1, false) end
+		w.hello("BadA", 0, true, "LX")
+		w.hello("BadB", 0, true, "L-1")
+		w.hello("BadC", 0, true, "L1.5")
+		w.hello("BadD", 0, true, "L10")
+		w.hello("BadE", 0, true, "L01")
+		local best, n, total = C.CrowdLane()
+		eq(best, nil); eq(n, 0); eq(total, 0, "old, malformed and out-of-range reports are ignored")
+		w.housekeeping()
+		eq(C.Lane(), 2)
+		for i = 1, 5 do w.hello("First" .. i, 0) end
+		w.housekeeping()
+		eq(C.Lane(), 0, "an empty lane field from relay-capable peers is valid lane 0")
+	end)
+end)
 end
 
 -- 1.4.1 (launch night, 2026-11-04: WoW: Forever refused every send on "OlympusNet" with
@@ -6936,7 +7163,7 @@ test("1.4.1 channel lanes: three InvalidChannel refusals on our channel move us 
 		cns.rdb.realmKey = nil
 		-- Older clients read nothing new: a hello without the field names no lane.
 		Deliver("GUILD", "Old-Realm", "H1~1.3.3~Realm~p")
-		eq(table.concat(C.Stats().peerLanes, ","), "Lord:99,Member:2", "each peer's last word noted, the old client none")
+		eq(table.concat(C.Stats().peerLanes, ","), "Member:2", "the valid peer lane alone; out-of-range and absent data ignored")
 	end)
 	GetChannelName, JoinChannelByName, LeaveChannelByName, ns.IsMember, ns.Roster = saved.channel, saved.join, saved.leave, saved.member, saved.roster
 	C_ChatInfo = nil
@@ -7007,12 +7234,17 @@ end
 Harness.RelayWorld = RelayWorld -- (1.5.4: the Chat tab's link tests, tests/chat-item-links.lua)
 
 assert(loadfile(ROOT .. "tests/census-relay.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
+assert(loadfile(ROOT .. "tests/census-ask-answer.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
 -- 1.5.5: the mesh between the signed relays (tests/relay-mesh.lua).
 assert(loadfile(ROOT .. "tests/relay-mesh.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
 assert(loadfile(ROOT .. "tests/hop-forever.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR, fixtures = ROOT .. "tests/fixtures/" })
 assert(loadfile(ROOT .. "tests/relay-fanout.lua"))(ns, test, eq, { RelayWorld = RelayWorld })
 -- 1.5.5: the census snapshot to the registrants as a tree, one snapshot per registrant (tests/relay-tree.lua).
 assert(loadfile(ROOT .. "tests/relay-tree.lua"))(ns, test, eq, { RelayWorld = RelayWorld, FreshComm = FreshComm, addon = ADDON_DIR, fixtures = ROOT .. "tests/fixtures/" })
+-- The packed census snapshot the tree carries (tests/census-pack.lua).
+assert(loadfile(ROOT .. "tests/census-pack.lua"))(ns, test, eq)
+-- The tree with the game's timing, the packed census snapshot and the relay's order (tests/relay-tree-load.lua).
+assert(loadfile(ROOT .. "tests/relay-tree-load.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR, fixtures = ROOT .. "tests/fixtures/" })
 -- 1.5.4: lists as one word by the relay (Comm.SendList, LS), the Church's public rows first.
 assert(loadfile(ROOT .. "tests/relay-lists.lua"))(ns, test, eq, { RelayWorld = RelayWorld, FreshComm = FreshComm, addon = ADDON_DIR, ROOT = ROOT })
 -- 1.5.5: the author as the census's trusted distributor, his signed looks (QA) and Data.CensusStats.
@@ -7732,6 +7964,40 @@ test("verification migration: same-scope legacy stores preserve every decision a
 		end
 	end)
 	ns.db, ns.rdb, ns.realm, ns.group, ns.faction, UnitFactionGroup = saved.db, saved.rdb, saved.realm, saved.group, saved.faction, saved.factionAPI
+	if not ok then error(err, 0) end
+end)
+
+test("Forever transport: a missing or disabled relay never sends addon data or logged chat on the native channel", function()
+	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild, chat = C_ChatInfo }
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		ns.IsMember = function() return true end
+		IsInGuild = function() return true end
+		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		for _, missing in ipairs({ true, false }) do
+			local O, _, sent, _, pump = RelayWorld("Orig Inal-Realm", "Olympus II")
+			O.realm = "CAMWOWUS2Realm1PvE"
+			O.OnForever = function() return O.ForeverFamily(O.realm) ~= nil end
+			if missing then
+				O.Relay, O.splitNames = false, false
+			else
+				O.rdb.relayOff = true
+			end
+			O.ChatHall = false
+			local C = O.Comm
+			C.JoinChannel()
+			local results = {}
+			local function Done(success, why) results[#results + 1] = { success, why } end
+			eq(C.Send("CHANNEL", "X1~do not fall through", nil, false, false, Done), false)
+			assert(C.SendChat("M1~do not fall through", Done))
+			assert(C.Send("GUILD", "X1~local guild still works"))
+			pump()
+			eq(#sent, 1); eq(sent[1].dist, "GUILD")
+			eq(#results, 2)
+			for _, result in ipairs(results) do eq(result[1], false); eq(result[2], "norelay") end
+		end
+	end)
+	GetChannelName, ns.IsMember, GetGuildInfo, IsInGuild, C_ChatInfo = saved.channel, saved.member, saved.guild, saved.inGuild, saved.chat
 	if not ok then error(err, 0) end
 end)
 
@@ -41183,6 +41449,8 @@ end)
 	print("tests/recruit-netoff.lua")
 	assert(loadfile(ROOT .. "tests/recruit-netoff.lua"))(ns, test, eq, { WithNetoff = WithNetoff, KING = KING, HC = HC,
 		AsSoldier = AsSoldier, AsKing = AsKing, WithUI = WithUI, WithGamepadUI = WithGamepadUI, PtBR = PtBR })
+	print("tests/recruit-handoff.lua")
+	assert(loadfile(ROOT .. "tests/recruit-handoff.lua"))(ns, test, eq, FreshComm)
 	print("tests/netoff-battleground.lua")
 	assert(loadfile(ROOT .. "tests/netoff-battleground.lua"))(ns, test, eq, { WithNetoff = WithNetoff, KING = KING, HC = HC,
 		AsSoldier = AsSoldier, AsKing = AsKing, WithUI = WithUI, LoadUI = LoadUI, LoadWatch = Harness.LoadWatch })
@@ -48715,12 +48983,20 @@ test("1.1 taking donations (the Treasurer's idea): a keeper's switch, a line on 
 			T.SetDonations(true)
 			T.DonationsLogout()
 			eq(#says, 2); eq(said[3], "GUILD", "where names split, no relay loaded: still not the channel")
+			-- A relay disabled in the local store must not cause a raw channel send at logout either.
+			T.SetDonations(true)
+			local realm = ns.realm
+			ns.realm, ns.Relay = "CAMWOWUS2Realm1PvE", { On = function() return false end }
+			done, why = pcall(T.DonationsLogout)
+			ns.realm, ns.Relay = realm, relay
+			assert(done, why)
+			eq(#says, 3); eq(said[3], "GUILD", "Forever's guild copy still clears the notice")
 			-- Off Forever (names whole, no relay): the channel, as before.
 			ns.splitNames = false
 			T.SetDonations(true)
 			T.DonationsLogout()
 			ns.splitNames = true
-			eq(#says, 3); eq(said[2], "TD~Olympus~0~0~"); eq(said[3], "CHANNEL"); eq(said[4], 7)
+			eq(#says, 4); eq(said[2], "TD~Olympus~0~0~"); eq(said[3], "CHANNEL"); eq(said[4], 7)
 			eq(T.TakingDonations(), false)
 			-- A 1.0 client's addon leaves it unread.
 			C_ChatInfo = saved.cci
@@ -50617,7 +50893,9 @@ local function TreasurySim(opts)
 		local saved = { split = ns.splitNames, after = ns.After, time = GetTime, cci = C_ChatInfo, chan = GetChannelName, now = ns.Now,
 			chunked = ns.Comm.SendChunked, size = ns.Comm.QueueSize, batch = ns.Comm.SendBatch, cancel = ns.Comm.Cancel }
 		local ok, err = pcall(function()
-			ns.splitNames = true
+			-- Measure a native-channel client. Forever's guild fanout and relay
+			-- each have their own coverage and never use the native addon channel.
+			ns.splitNames = false
 			GetChannelName = function() return 5 end
 			local cns = FreshComm()
 			local t, base = 0, w.clock
@@ -54655,7 +54933,7 @@ end
 		end)
 		for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 			local doc = assert(ReadFile(ROOT .. path)):gsub("%s+", " ")
-			for _, must in ipairs({ "its Vox Populi votes, its Olympus chats and pinned lines, and (1.1, Konig's review) its members' entries and signups on the King's week, their flags and camps on the Board, and their listings, answers and recipe lists on the crafters' board",
+			for _, must in ipairs({ "its Vox Populi votes, its Olympus chats and pinned lines, and its members' entries and signups on the King's week, their flags and camps on the Board, and their listings, answers and recipe lists on the crafters' board",
 				"Every addon also drops its members' requests at court, and shows them with no elite border or nameplate mark" }) do
 				assert(doc:find(must, 1, true), path .. ": " .. must)
 			end
@@ -63416,9 +63694,9 @@ end)()
 	end)
 
 	test("1.4.0: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.5.7") -- the release has one identity in both folders
+		eq(ns.VERSION, "1.5.8") -- the release has one identity in both folders
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.5.7", 1, true))
+		assert(toc:find("## Version: 1.5.8", 1, true))
 		eq(ns.Workshop.Newer("1.4.0", "1.3.3"), true, "the launch release is newer")
 		eq(ns.Workshop.Newer("1.3.3", "1.4.0"), false)
 		eq(ns.Workshop.Newer("1.4.1", "1.4.0"), true, "the next patch remains newer")
@@ -63786,7 +64064,7 @@ end
 		Refused((full:gsub("\n## Privacy\n", "\n## Your privacy\n")), readme, roadmap, version, 'docs/CURSEFORGE.md has no heading "Privacy"')
 		-- Any cut whose opening comes to lead into the part cut gets the same: the Treasury's, ended
 		-- on a colon here.
-		local led = gen.Build((full:gsub("\nalone until then%)%.\n", "\nalone until then). What it holds:\n", 1)), readme, roadmap, version, size)
+		local led = gen.Build((full:gsub("\nalone until that happens%)%.\n", "\nalone until that happens). What it holds:\n", 1)), readme, roadmap, version, size)
 		assert(led:find("What it holds:\n\n*The list is in the README, with the rest of this section: [The Treasury (its keepers, the King, and the army when the King says so)](", 1, true),
 			"the Treasury's opening, led into its list")
 		-- scripts/check.sh runs both checks.
@@ -63865,7 +64143,7 @@ end)()
 	end
 
 	test("1.4.0 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
-		eq(ns.VERSION, "1.5.7")
+		eq(ns.VERSION, "1.5.8")
 		for _, path in ipairs({ "Olympus/Olympus.toc", "Olympus_Arena/Olympus_Arena.toc" }) do
 			local toc = assert(ReadFile(ROOT .. path))
 			eq(toc:match("## Version:%s*(%S+)"), ns.VERSION, path)

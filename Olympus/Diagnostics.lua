@@ -604,6 +604,20 @@ local function RelayReporterLine()
 		tostring(c.bad or 0), tostring(c.partial or 0))
 end
 
+-- The fallback's election and queue counts only. Its detailed stats contain peer names.
+local function RelayFallbackLine()
+	local F = ns.RelayFallback
+	if type(F) ~= "table" or type(F.Stats) ~= "function" then return "fallback: not loaded" end
+	local s = Try(F.Stats)
+	if type(s) ~= "table" then return "fallback: unavailable" end
+	local source = s.source == "list" and "list" or s.source == "rendezvous" and "rendezvous" or "unknown"
+	local elected = type(s.elected) == "table" and #s.elected or 0
+	local function N(value) return tonumber(value) or 0 end
+	return ("fallback: source %s, candidates %d, asked %d, yes %d, no %d, no answer %d, elected %d, serving %s, held %d, dropped %d")
+		:format(source, N(s.candidates), N(s.pinged), N(s.yes), N(s.no), N(s.none), elected,
+			s.serving and "yes" or "no", N(s.held), N(s.holdDropped))
+end
+
 -- The census's sources: our realm group's guild reports (how many, how fresh, from which realms), and
 -- each other realm group's numbers this account looked at or heard, newest first (six at most).
 local function CensusLines()
@@ -669,6 +683,7 @@ function ns.DebugLines()
 	add(Try(ns.InstallFilesLine) or "install files: ?")
 	add(Try(PiecesLine) or "pieces: ?")
 	add(Try(RelayReporterLine) or "relay: ?")
+	add(Try(RelayFallbackLine) or "fallback: unavailable")
 	for _, line in ipairs(Try(CensusLines) or { "census: ?" }) do add(line) end
 	add(Try(SignedLine) or "signed: ?")
 	add("secret values left unread: " .. CountList(ns.SecretSkips and ns.SecretSkips() or nil))
@@ -880,6 +895,32 @@ function ns.StatusText()
 		end
 	end
 	return Scrub(table.concat(lines, "\n"))
+end
+
+function ns.RecentDiagnostics(kind)
+	local db = ns.db or {}
+	local out = {}
+	if kind == "errors" then
+		local errors = db.errors or {}
+		for i = #errors, math.max(1, #errors - 11), -1 do
+			local e = errors[i]
+			out[#out + 1] = Cap(("[%dx] %s (%s .. %s, v%s): %s"):format(
+				e.count or 1, tostring(e.where), tostring(e.first), tostring(e.last), tostring(e.version), tostring(e.msg)))
+		end
+	else
+		local log = db.log or {}
+		for i = #log, 1, -1 do
+			local line = log[i]
+			if type(line) == "string" then
+				local lower = line:lower()
+				if kind ~= "census" or lower:find("census", 1, true) or lower:find("relay", 1, true) or lower:find("lane", 1, true) then
+					out[#out + 1] = Cap(line)
+					if #out == 40 then break end
+				end
+			end
+		end
+	end
+	return Scrub(#out > 0 and table.concat(out, "\n") or ns.L.RECENT_EMPTY)
 end
 
 function ns.BuildBugReport()

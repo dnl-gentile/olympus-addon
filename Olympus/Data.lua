@@ -976,7 +976,8 @@ Data.WITNESS_MAX = 8
 -- one) were already heard since the ask. Each answer is announced first by a one-piece claim
 -- ("CG~1~C~t"), which reaches everyone long before a snapshot of many pieces, so the rest hold back.
 Data.MEMBER_ANSWER_AFTER, Data.MEMBER_ANSWER_SPREAD, Data.MEMBER_ANSWERS = 12, 60, 2
-local globalLastSent, globalLastHeard, globalAnswerPending = 0, 0, false
+-- Periodic broadcasts must not advance the cooldown for answering a census request.
+local globalLastAnswered, globalLastHeard, globalAnswerPending = 0, 0, false
 local answersHeard = {} -- { t, trusted } of the claims and snapshots heard, the last few minutes
 
 local function ScopedRealm(realm)
@@ -1466,15 +1467,13 @@ function Data.SendGlobalCensus()
 	-- the channel's lane alone, and only while this client still holds what it sent as (a trusted
 	-- relay's trust, or a member's membership).
 	local key = "census-global"
-	local ok = ns.Comm.SendChunked(payload, false, "CHANNEL", nil, { owner = Data, key = key,
+	return ns.Comm.SendChunked(payload, false, "CHANNEL", nil, { owner = Data, key = key,
 		permit = function(_, guardKey, dist, target)
 			if guardKey ~= key or dist ~= "CHANNEL" or target ~= nil then return false, "lane" end
 			if trusted and not GlobalTrusted(ns.me) then return false, "trust" end
 			if not trusted and not GlobalMember() then return false, "member" end
 			return true
 		end })
-	if ok then globalLastSent = ns.Now() end
-	return ok
 end
 
 -- The answers (claims and snapshots) heard lately, and how many came since a time.
@@ -1506,7 +1505,7 @@ end
 local function AnswerAsk(body, now)
 	local trusted = GlobalTrusted(ns.me)
 	if not trusted and not GlobalMember() then return true end
-	if now - globalLastSent < Data.GLOBAL_ANSWER_GAP or globalAnswerPending then return true end
+	if now - globalLastAnswered < Data.GLOBAL_ANSWER_GAP or globalAnswerPending then return true end
 	local n, newest = tostring(body or ""):match("^(%d+)~(%d+)$")
 	if not Behind(tonumber(n), tonumber(newest)) then return true end
 	globalAnswerPending = true
@@ -1514,14 +1513,14 @@ local function AnswerAsk(body, now)
 	local delay = trusted and math.random(2, 9) or (Data.MEMBER_ANSWER_AFTER + math.random(0, Data.MEMBER_ANSWER_SPREAD))
 	ns.After(delay, "global census answer", function()
 		globalAnswerPending = false
-		if ns.Now() - globalLastSent < Data.GLOBAL_ANSWER_GAP then return end
+		if ns.Now() - globalLastAnswered < Data.GLOBAL_ANSWER_GAP then return end
 		if GlobalTrusted(ns.me) then
-			if globalLastHeard <= heardAt then Data.SendGlobalCensus() end
+			if globalLastHeard <= heardAt and Data.SendGlobalCensus() then globalLastAnswered = ns.Now() end
 			return
 		end
 		local count, byTrusted = AnswersSince(now)
 		if byTrusted or count >= Data.MEMBER_ANSWERS then return end
-		if GlobalMember() then Data.SendGlobalCensus() end
+		if GlobalMember() and Data.SendGlobalCensus() then globalLastAnswered = ns.Now() end
 	end)
 	return true
 end

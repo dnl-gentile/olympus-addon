@@ -216,6 +216,34 @@ test("1.5.5 fallback: three registrants holding one candidates list elect the sa
 	end)
 end)
 
+test("fallback: an unreachable saved candidate list gives way to fresh census reporters without losing its reachable first choice", function()
+	World(function(W)
+		local first = W.Node("First Choice", "Olympus First")
+		local a = W.Node("Recent Reporter", "Olympus Recent")
+		local b = W.Node("Other Reporter", "Olympus Other")
+		local e = W.Node("Elector Reach", "Olympus Reach", { registrant = true })
+		e.c.rdb.guilds = {
+			[first.guild] = { reporterFull = first.c.me, t = W.now },
+			[a.guild] = { reporterFull = a.c.me, t = W.now },
+			[b.guild] = { reporterFull = b.c.me, t = W.now },
+			["Olympus Stale"] = { reporterFull = "Stale Reporter-Realm", t = W.now - 86401 },
+		}
+		W.GiveList(e, { first.name, "Offline One", "Offline Two" })
+		W.LeaveOut(e)
+		W.Advance(1)
+		eq(W.Elected(e), first.name, "the saved candidates get the first try")
+		eq(#W.Sent(e, "RE~1~P", a.name) + #W.Sent(e, "RE~1~P", b.name), 0, "wait for the first candidates to answer")
+		W.Advance(e.c.Relay.PING_WAIT + 2)
+		local elected = W.As(e, e.c.RelayFallback.Elected)
+		eq(#elected, 3, "the two fresh reporters fill the seats the offline names could not")
+		eq(elected[1], first.name, "the reachable signed-list candidate keeps its seat")
+		eq(#W.Sent(e, "RE~1~P", first.name), 1, "the name in both sources is asked only once")
+		eq(#W.Sent(e, "RE~1~P", "Offline One") + #W.Sent(e, "RE~1~P", "Offline Two"), 2, "simultaneously due timeouts close both asks before either can be retried")
+		eq(#W.Sent(e, "RE~1~P", "Stale Reporter"), 0, "an old report cannot supply a candidate")
+		eq(#W.channel, 0, "the election does not use Forever's channel")
+	end)
+end)
+
 -- The world of the next tests: three provisional relays every registrant elects, all serving.
 local PROV = { "Prov One", "Prov Two", "Prov Three" }
 local function Provisional(W, opts)

@@ -1303,7 +1303,7 @@ test("1.2 the Bone Throw tables board: the create panel: the prefill (a match's 
 	check(not cp.send.enabled and cp.why:GetText() == "accept the arena's rules first (the Arena tab)", "why not yet: %s", cp.why:GetText())
 	w:As(a, function() a.ns.Arena.SetRules(true) end)
 	w:As(a, function() Board(a).Refresh() end)
-	check(not cp.send.enabled and cp.why:GetText() == "this client doesn't keep its saved data: no gold owed or traded", "the persistence gate: %s", cp.why:GetText())
+	check(not cp.send.enabled and cp.why:GetText() == "your saved data isn't kept here: no gold owed or traded", "the persistence gate: %s", cp.why:GetText())
 	Click(w, a, cp.arb)
 	check(cp.arbName:IsShown() and cp.wallet:IsShown(), "an arbiter: who, and the wallet")
 	Click(w, a, cp.none)

@@ -66,6 +66,9 @@ local L = ns.L
 --   NL~1~z~<recruit>~<recruiter>~<tj36>~<y 0|1>~<u36>   (1.2.1) a credited record a ledger archived to
 --       make room, while a window still counts it (Count.TakeArchived); clients before 1.2.1 drop it
 --   NL~1~e~<more 0|1>~<u36>   the end of a catch-up
+--   Forever NL~2~q~<id>~<family:faction>~<u36>~<cutoff36|0>~<tie|-> starts a bounded, direct catch-up page.
+--   NL~2~a~<id>, NL~2~d~<id>~<index>~<v1 row after its version>, NL~2~e~<id>~<count>~<more>~<u36>~<cutoff36>~<tie|->
+--       acknowledge it, deliver rows and prove completeness before advancing the cursor.
 --   NR~1~q~<a|m|c|me|p>~<w|m|a>~<person|->   an audience client asks a keeper
 --   NR~1~r~<list>~<window>~<rank>~<name>~<score*10>~<own*10>~<share*10>~<recruits>~<stays>~<network>~<pub>
 --   NR~1~m~<me|p>~<window>~<person>~<line>~<a>~<b>~<c>~<d>   a detail line (Count.DetailLines)
@@ -143,6 +146,8 @@ Count.CATCHUP_EVERY, Count.CATCHUP_LINES = 1800, 150
 -- previous successful catch-up. A completed source sweeps the others; CATCHUP_REASK bounds each
 -- source across those attempts and reloads.
 Count.CATCHUP_RETRY, Count.CATCHUP_REASK = 120, 600
+Count.CATCHUP_V2_MAX, Count.CATCHUP_LEGACY_WAIT = 150, 45
+local LEDGER_WHISPER_BYTES = 255
 -- (1.2.1) Just logged in, a keeper answers no audience ask, nor another keeper's catch-up ask, until its
 -- first catch-up ends: its ledger missed what came while it was away. It waits to hear every keeper
 -- online first (Count.SettledSinceLogin); with none heard by then, it is settled without one, else
@@ -1669,8 +1674,10 @@ local function Flags(r)
 	return f
 end
 
-function Count.RecordLine(id, r)
-	return ("NL~1~r~%s~%s~%s~%s~%s~%s~%s~%s~%s"):format(r.n, r.bn, CleanGuild(r.g) or "-", r.kind == "g" and "g" or "i", B36(r.tc or 0),
+function Count.RecordLine(id, r, shortNames)
+	local n, bn = r.n, r.bn
+	if shortNames then n, bn = Short(n), Short(bn) end
+	return ("NL~1~r~%s~%s~%s~%s~%s~%s~%s~%s~%s"):format(n, bn, CleanGuild(r.g) or "-", r.kind == "g" and "g" or "i", B36(r.tc or 0),
 		r.tj and B36(r.tj) or "-", Flags(r), r.ws and table.concat(r.ws, ",") or "-", B36(r.u or 0))
 end
 
@@ -1716,8 +1723,8 @@ local function LedgerEnd(o)
 	local line = o.terminal
 	o.terminal = nil
 	local function Send()
-		if ns.Comm.QueueRoom() > Count.SEND_ROOM then
-			ns.Comm.Whisper(o.target, line, nil, false, false, nil, { owner = Count })
+		if ns.Comm.QueueRoom() > Count.SEND_ROOM and (not o.guard or o.guard()) then
+			ns.Comm.Whisper(o.target, line, nil, false, false, nil, { owner = Count, guard = o.guard })
 		end
 	end
 	if ns.Comm.QueueRoom() > Count.SEND_ROOM then Send() else Count.after(3, "church ledger terminal", Send) end
@@ -1727,6 +1734,7 @@ local function PumpOut()
 	pumping = false
 	while outq[1] and ns.Comm.QueueRoom() > Count.SEND_ROOM do
 		local o = outq[1]
+		if o.guard and not o.guard() then o.failed = true end
 		while o.i <= #o.list and not o.failed and ns.Comm.QueueRoom() > Count.SEND_ROOM do
 			local done
 			if o.terminal then
@@ -1737,7 +1745,7 @@ local function PumpOut()
 					LedgerEnd(o)
 				end
 			end
-			ns.Comm.Whisper(o.target, o.list[o.i], nil, false, false, done, { owner = Count })
+			ns.Comm.Whisper(o.target, o.list[o.i], nil, false, false, done, { owner = Count, guard = o.guard })
 			o.i = o.i + 1
 		end
 		if o.i <= #o.list and not o.failed then break end
@@ -1751,10 +1759,10 @@ local function PumpOut()
 	end
 end
 
-local function SendLines(target, list, terminal)
+local function SendLines(target, list, terminal, guard)
 	if #list == 0 and not terminal then return true end
 	if #outq >= 8 then return Drop("busy") end
-	outq[#outq + 1] = { target = target, list = list, i = 1, terminal = terminal, pending = 0 }
+	outq[#outq + 1] = { target = target, list = list, i = 1, terminal = terminal, pending = 0, guard = guard }
 	if not pumping then PumpOut() end
 	return true
 end
@@ -1782,6 +1790,84 @@ function Count.Push(id)
 	Count.ToRelays(Count.RecordLine(id, r))
 end
 
+local function LedgerScope()
+	local group = ns.group
+	if type(group) == "string" and group:match("^Forever%a+$") and ns.faction then return group .. ":" .. ns.faction end
+end
+
+local function LedgerPeer(name, scope)
+	return scope ~= nil and LedgerScope() == scope and ns.ForeverFamily(ns.RealmOf(name)) == ns.group
+end
+
+local function LedgerAccess(name)
+	if not Church.IsLedgerRelay(ns.me) or not Church.IsLedgerRelay(name) then return false, "relay" end
+	if Church.IsKing(ns.me) or Church.IsKing(name) then return false, "king" end
+	if Church.IsKeeper(ns.me) and not Church.IsKeeper(name) then return false, "keeper" end
+	return true
+end
+
+local function SendCatchUp(name, k, since, tie, legacy, cutoff, replay)
+	catch.page = nil
+	local scope, ledger = LedgerScope(), catch.ledger
+	if scope and not LedgerPeer(name, scope) then return false end
+	local function Guard()
+		return catch.active == k and catch.ledger == ledger and Led() == ledger and not Off()
+			and LedgerScope() == scope and LedgerAccess(name)
+	end
+	if legacy or not scope then
+		return ns.Comm.Whisper(name, "NL~1~q~" .. B36(since), nil, false, false, nil, { owner = Count, guard = Guard })
+	end
+	catch.seq = (catch.seq or 0) + 1
+	catch.salt = catch.salt or Count.random(0, 2147483647)
+	local id = B36(Clock()) .. B36(catch.salt) .. B36(catch.seq)
+	local page = { k = k, id = id, scope = scope, since = since, tie = tie, cutoff = cutoff, replay = replay,
+		slots = {}, keys = {}, count = 0, high = 0 }
+	catch.page = page
+	local text = ("NL~2~q~%s~%s~%s~%s~%s"):format(id, scope, B36(since), B36(cutoff or 0), tie or "-")
+	return ns.Comm.Whisper(name, text, nil, false, false, function(ok)
+		if not ok or catch.page ~= page then return end
+		page.sent = true
+		catch.last = ns.Now()
+		if replay then return end -- replay only runs with a known v2 peer
+		Count.after(Count.CATCHUP_LEGACY_WAIT, "church legacy catch-up", function()
+			if catch.page ~= page or page.modern or not Guard() then return end
+			if type(ledger.nl2) == "table" and ledger.nl2[k] then return end
+			SendCatchUp(name, k, ledger.from[k] or 0, nil, true)
+		end)
+	end, { owner = Count, guard = function()
+		return catch.page == page and Guard()
+	end })
+end
+
+local function EndReplay(replay, result)
+	catch.active, catch.page = nil, nil
+	catch.last, catch.heard = replay.last, replay.heard
+	replay.result = result
+end
+
+-- A keeper can revisit recent records a pre-v2 transfer skipped. This is a separate
+-- read of already verified records, so neither its scope nor its progress changes a normal cursor.
+function Count.ReplayRecent()
+	local scope, now = LedgerScope(), ns.Now()
+	if not scope or not Church.IsKeeper(ns.me) or Church.IsKing(ns.me) or Off() or catch.active then return false end
+	if now - (catch.replay and catch.replay.at or -math.huge) < Count.CATCHUP_REASK then return false end
+	local l = Led()
+	for _, peer in ipairs(Church.KeepersOnline(false)) do
+		local k = Key(peer.name)
+		if type(l.nl2) == "table" and l.nl2[k] and LedgerPeer(peer.name, scope) then
+			local replay = { at = now, last = catch.last, heard = catch.heard, pages = 0, result = "waiting" }
+			catch.ledger, catch.active, catch.last, catch.heard = l, k, now, -math.huge
+			if not SendCatchUp(peer.name, k, math.max(0, Clock() - 7 * DAY), nil, false, nil, replay) then
+				EndReplay(replay, "unsent")
+				return false
+			end
+			catch.replay = replay
+			return true
+		end
+	end
+	return false
+end
+
 -- A keeper asks another for what changed since its last catch-up from him: the one asked or caught
 -- up from least lately, the desk first (1.2.1: each keeper online in turn. Asking only the first,
 -- nobody ever asked one further down the list, and the records only he held, taken while he was the
@@ -1801,8 +1887,20 @@ end
 -- CATCHUP_RETRY of silence. Each source still waits at least CATCHUP_REASK between fresh attempts.
 function Count.CatchUp(force, sweep)
 	if not Church.IsLedgerRelay(ns.me) or Church.IsKing(ns.me) or Off() then return false end
+	local l = Led()
+	-- A character can change role without reloading. A request for the council copy
+	-- must never commit a cursor in the keeper's separate ledger, or the reverse.
+	if catch.ledger and catch.ledger ~= l then
+		if catch.page and catch.page.replay then EndReplay(catch.page.replay, "interrupted") end
+		catch.active, catch.page, catch.last, catch.heard = nil, nil, -math.huge, -math.huge
+		catch.ledger, catch.asked, catch.settled = l, {}, false
+	end
 	local t = ns.Now()
 	local retry = catch.active ~= nil and t - math.max(catch.last, catch.heard) >= Count.CATCHUP_RETRY
+	if catch.page and catch.page.replay then
+		if not retry and not force then return false end
+		EndReplay(catch.page.replay, "interrupted")
+	end
 	if sweep and catch.active ~= nil then return false end
 	local rotating = sweep or catch.rotate
 	if not force and (((not rotating and t - catch.last < Count.CATCHUP_EVERY) and not retry)
@@ -1812,15 +1910,16 @@ function Count.CatchUp(force, sweep)
 		if #list > 0 then return false end
 		list = Church.LedgerRelaysOnline(false)
 	end
-	local l = Led()
 	local caught = type(l.caught) == "table" and l.caught or {}
 	local asked = type(l.asked) == "table" and l.asked or {}
 	local soon = rotating or (not force and t - catch.last < Count.CATCHUP_EVERY)
+	local scope = LedgerScope()
 	local k, at
 	for _, o in ipairs(list) do
 		local rk = Key(o.name)
 		local lastAsked = math.max(tonumber(asked[rk]) or -math.huge, catch.asked[rk] or -math.huge)
-		if not Church.IsKing(o.name) and not (soon and t - lastAsked < Count.CATCHUP_REASK) then
+		if not Church.IsKing(o.name) and (not scope or LedgerPeer(o.name, scope))
+			and not (soon and t - lastAsked < Count.CATCHUP_REASK) then
 			local seen = math.max(tonumber(caught[rk]) or -math.huge, tonumber(asked[rk]) or -math.huge, catch.asked[rk] or -math.huge)
 			if not k or seen < at then k, at = o, seen end
 		end
@@ -1833,19 +1932,19 @@ function Count.CatchUp(force, sweep)
 			-- Preserve `last` and the per-target ask stamp. Clearing those let an ordinary Tick select
 			-- the same one silent keeper again on every frame. `rotate` permits a newly visible/different
 			-- keeper immediately, while CATCHUP_REASK still bounds the silent keeper itself.
-			catch.active, catch.heard, catch.rotate = nil, -math.huge, true
+			catch.active, catch.heard, catch.rotate, catch.page = nil, -math.huge, true, nil
 		end
 		return false
 	end
 	local rk = Key(k.name)
 	catch.last = t
-	catch.active = rk
+	catch.active, catch.ledger = rk, l
 	catch.heard = -math.huge
 	catch.rotate = false
 	catch.asked[rk] = t
 	if type(l.asked) ~= "table" then l.asked = {} end
 	l.asked[rk] = t
-	ns.Comm.Whisper(k.name, "NL~1~q~" .. B36(l.from[rk] or 0), nil, false, false, nil, { owner = Count })
+	SendCatchUp(k.name, rk, l.from[rk] or 0)
 	return true
 end
 
@@ -1859,26 +1958,35 @@ end
 -- keepers just logged in each took the other's ledger, behind a third's, for a catch-up, and
 -- answered pages from it until the next one, half an hour later. Unanswered, the one asking asks the
 -- next keeper (Count.CatchUp).
-function Count.AnswerCatchUp(sender, since)
-	if not Church.IsLedgerRelay(ns.me) or not Church.IsLedgerRelay(sender) then return Drop("relay") end
-	if Church.IsKing(ns.me) or Church.IsKing(sender) then return Drop("king") end
-	if Church.IsKeeper(ns.me) and not Church.IsKeeper(sender) then return Drop("keeper") end
+function Count.AnswerCatchUp(sender, since, request, tie, cutoff)
+	local allowed, why = LedgerAccess(sender)
+	if not allowed then return Drop(why) end
 	if Church.IsKeeper(ns.me) and not Count.Settled() then return Drop("catching up") end
-	local l = Led()
+	local l, scope = Led(), LedgerScope()
+	local function Guard()
+		return Led() == l and LedgerScope() == scope and (not scope or LedgerPeer(sender, scope))
+			and not Off() and LedgerAccess(sender)
+	end
 	local list = {}
-	for id, r in pairs(l.r) do if (r.u or 0) > since then list[#list + 1] = { id = id, r = r, u = r.u or 0 } end end
+	local ceiling = cutoff or math.huge
+	local function AfterCursor(at, id)
+		return at <= ceiling and (at > since or (tie and at == since and id > tie))
+	end
+	for id, r in pairs(l.r) do if AfterCursor(r.u or 0, id) then list[#list + 1] = { id = id, r = r, u = r.u or 0 } end end
 	-- (1.2.1: the archived records too, each before the person line of the same second: "}" < "~".)
 	for by, set in pairs(Arc()) do
 		for xk, a in pairs(type(set) == "table" and set or {}) do
-			if type(a) == "table" and type(a.h) == "number" and (tonumber(a.t) or 0) > since then
-				list[#list + 1] = { id = "}" .. xk .. ":" .. by, z = true, xk = xk, by = by, a = a, u = tonumber(a.t) or 0 }
+			local id = "}" .. xk .. ":" .. by
+			if type(a) == "table" and type(a.h) == "number" and AfterCursor(tonumber(a.t) or 0, id) then
+				list[#list + 1] = { id = id, z = true, xk = xk, by = by, a = a, u = tonumber(a.t) or 0 }
 			end
 		end
 	end
-	for k, p in pairs(l.p) do if (p.u or 0) > since then list[#list + 1] = { id = "~" .. k, k = k, p = p, u = p.u or 0 } end end
+	for k, p in pairs(l.p) do if AfterCursor(p.u or 0, "~" .. k) then list[#list + 1] = { id = "~" .. k, k = k, p = p, u = p.u or 0 } end end
 	table.sort(list, function(a, b) if a.u ~= b.u then return a.u < b.u end return a.id < b.id end)
 	local cut = math.min(#list, Count.CATCHUP_LINES)
-	if cut < #list then
+	if request then cut = math.min(cut, Count.CATCHUP_V2_MAX)
+	elseif cut < #list then
 		local after = list[cut + 1].u
 		local j = cut
 		while j >= 1 and list[j].u == after do j = j - 1 end
@@ -1889,14 +1997,23 @@ function Count.AnswerCatchUp(sender, since)
 	local lines, last = {}, since
 	for i = 1, cut do
 		local e = list[i]
-		lines[#lines + 1] = (e.r and Count.RecordLine(e.id, e.r)) or (e.z and Count.ArchiveLine(e.xk, e.by, e.a)) or Count.PersonLine(e.k, e.p)
+		local row = (e.r and Count.RecordLine(e.id, e.r, request ~= nil)) or (e.z and Count.ArchiveLine(e.xk, e.by, e.a)) or Count.PersonLine(e.k, e.p)
+		lines[i] = request and ("NL~2~d~%s~%d~%s"):format(request, i, row:sub(6)) or row
+		-- Preflight the complete page against the actual Comm.Whisper limit. One bad saved
+		-- row must not emit a terminal that certifies the rows on either side of it.
+		if request and #lines[i] > LEDGER_WHISPER_BYTES then return Drop("wire size") end
 		last = e.u
 	end
 	local more = cut < #list
+	if request then
+		local nextTie = more and list[cut + 1].u == last and list[cut].id or "-"
+		local terminal = ("NL~2~e~%s~%d~%s~%s~%s~%s"):format(request, cut, more and "1" or "0", B36(last), B36(cutoff), nextTie)
+		return SendLines(ns.FullName(sender), lines, terminal, Guard)
+	end
 	if not more then last = math.min(last, Clock() - 1) end
 	-- A failed native row must not advance the recipient's cursor past a record it could not receive.
 	local terminal = ("NL~1~e~%s~%s"):format(more and "1" or "0", B36(last))
-	return SendLines(ns.FullName(sender), lines, terminal)
+	return SendLines(ns.FullName(sender), lines, terminal, Guard)
 end
 
 -- (1.2.1) Person lines refused while this book did not place their person yet (a naming it has not
@@ -1906,18 +2023,23 @@ Count.LATER_MAX, Count.LATER_KEEP = 200, 1800
 local later, retrying = {}, false
 local function Later(sender, text)
 	if retrying then return end
-	for _, l in ipairs(later) do if l.text == text then return end end
+	local ledger = Led()
+	for _, l in ipairs(later) do if l.ledger == ledger and l.text == text then return end end
 	if #later >= Count.LATER_MAX then table.remove(later, 1) end
-	later[#later + 1] = { sender = sender, text = text, t = ns.Now() }
+	later[#later + 1] = { sender = sender, text = text, t = ns.Now(), ledger = ledger }
 end
 function Count.RetryLater()
 	if #later == 0 then return 0 end
-	local list, t, taken = later, ns.Now(), 0
+	local list, t, ledger, taken = later, ns.Now(), Led(), 0
 	later, retrying = {}, true
 	for _, l in ipairs(list) do
 		if t - l.t <= Count.LATER_KEEP then
-			local ok, why = Count.TakeLine(l.sender, l.text)
-			if ok then taken = taken + 1 elseif why == "person" then later[#later + 1] = l end
+			if l.ledger == ledger then
+				local ok, why = Count.TakeLine(l.sender, l.text)
+				if ok then taken = taken + 1 elseif why == "person" then later[#later + 1] = l end
+			else
+				later[#later + 1] = l
+			end
 		end
 	end
 	retrying = false
@@ -1945,6 +2067,135 @@ local function RecheckRecord(id, rec)
 	return true
 end
 
+local function FinishCatchUp(sender, more, u, tie, page)
+	local k, l = Key(sender), Led()
+	local before = l.from[k] or 0
+	local replay = page and page.replay
+	if replay then
+		replay.pages = replay.pages + 1
+		if not more then EndReplay(replay, "complete"); return true end
+	else
+		l.from[k] = math.max(before, tie and u - 1 or u)
+	end
+	if not more then
+		if not catch.settled then catch.settled = true; ViewChanged() end
+		if catch.active == k then catch.active, catch.page = nil, nil end
+		if type(l.caught) ~= "table" then l.caught = {} end
+		l.caught[k] = ns.Now()
+		Count.after(1, "church catch-up sweep", function()
+			if catch.active == nil then Count.CatchUp(false, true) end
+		end)
+		return true
+	end
+	if not replay and l.from[k] > before and type(l.asked) == "table" then l.asked[k] = nil end
+	if catch.active == k then
+		local who = ns.FullName(sender)
+		Count.after(5, "church catch-up", function()
+			if catch.active ~= k or catch.page ~= page or catch.ledger ~= l or Led() ~= l then return end
+			local now = ns.Now()
+			catch.last = now
+			if not replay then catch.asked[k] = now end
+			SendCatchUp(who, k, page and u or (Led().from[k] or 0), tie, not page, page and page.terminal.cutoff, replay)
+		end)
+	end
+	return true
+end
+
+local function LedgerTie(tie)
+	if tie == "-" then return nil, true end
+	if #tie > 62 or tie:gsub("^~", ""):find("[~|%c]") then return nil, false end
+	return tie, true
+end
+
+local function CatchRowId(row)
+	local kind, first, second = row:match("^([rpz])~([^~]+)~([^~]+)~")
+	local name = first and WireName(first)
+	if not name then return nil end
+	if kind == "p" then return "~" .. Key(name) end
+	local recruiter = WireName(second)
+	if not recruiter then return nil end
+	return (kind == "z" and "}" or "") .. Key(name) .. ":" .. Key(recruiter)
+end
+
+local function ProvePage(sender, page)
+	local e = page.terminal
+	if not e or page.count ~= e.count then return true end
+	if page.high ~= e.count or (e.count > 0 and (page.slots[e.count].at ~= e.at
+		or (e.tie and page.slots[e.count].key ~= e.tie))) then return Drop("page") end
+	page.complete = true
+	return FinishCatchUp(sender, e.more, e.at, e.tie, page)
+end
+
+local function RowBefore(a, b)
+	return a.at < b.at or (a.at == b.at and a.key < b.key)
+end
+
+local function TakeCatchPage(sender, text)
+	local scope, k = LedgerScope(), Key(sender)
+	if not LedgerPeer(sender, scope) or not k or Off() then return Drop("scope") end
+	if #text > LEDGER_WHISPER_BYTES then return Drop("wire size") end
+	local kind, id, body = text:match("^NL~2~([qde])~([0-9a-z]+)~(.+)$")
+	if not id then id, kind = text:match("^NL~2~a~([0-9a-z]+)$"), "a" end
+	if not id or #id > 16 then return Drop("shape") end
+	if kind == "q" then
+		local theirs, since, cutoff, tie = body:match("^([^~]+)~([0-9a-z]+)~([0-9a-z]+)~(.+)$")
+		if theirs ~= scope then return Drop("scope") end
+		since, cutoff = UnB36(since), UnB36(cutoff)
+		local latest = Clock() - 1
+		if cutoff == 0 then cutoff = latest end
+		local nextTie, valid = LedgerTie(tie)
+		if not valid or not since or not cutoff or since > cutoff or cutoff > latest then return Drop("shape") end
+		catch.serve = catch.serve or {}
+		local now = ns.Now()
+		if now - (catch.serve[k] or -math.huge) < 4 then return Drop("ask rate") end
+		if not catch.serve[k] then Church.Capped(catch.serve, Church.HEARD_MAX) end
+		catch.serve[k] = now
+		if ns.Comm.QueueRoom() > Count.SEND_ROOM then
+			ns.Comm.Whisper(ns.FullName(sender), "NL~2~a~" .. id, nil, false, false, nil, { owner = Count })
+		end
+		return Count.AnswerCatchUp(sender, since, id, nextTie, cutoff)
+	end
+	local page = catch.page
+	if not page or not page.sent or page.complete or catch.active ~= k or page.k ~= k
+		or page.scope ~= scope or page.id ~= id or catch.ledger ~= Led() then return Drop("unasked") end
+	if not page.modern then
+		local l = Led()
+		if type(l.nl2) ~= "table" then l.nl2 = {} end
+		if not l.nl2[k] then Church.Capped(l.nl2, Church.HEARD_MAX) end
+		l.nl2[k], page.modern = true, true
+	end
+	if kind == "a" then catch.heard = ns.Now(); return true end
+	if kind == "e" then
+		local n, more, at, cutoff, tie = body:match("^(%d+)~([01])~([0-9a-z]+)~([0-9a-z]+)~(.+)$")
+		if not n then return Drop("shape") end
+		n, more, at, cutoff = tonumber(n), more == "1", UnB36(at), UnB36(cutoff)
+		local nextTie, valid = LedgerTie(tie)
+		if not valid or not at or not cutoff or at < page.since or at > cutoff or cutoff > Clock()
+			or (page.cutoff and cutoff ~= page.cutoff) or n > Count.CATCHUP_V2_MAX
+			or page.high > n or (nextTie and not more) or (n == 0 and (more or at ~= page.since))
+			or (more and at == page.since and (not page.tie or (nextTie and nextTie <= page.tie))) then return Drop("page") end
+		if page.terminal then return Drop("duplicate") end
+		page.terminal = { count = n, more = more, at = at, tie = nextTie, cutoff = cutoff }
+	else
+		local i, row = body:match("^(%d+)~(.+)$")
+		i = tonumber(i)
+		local rowId = row and CatchRowId(row)
+		local at = row and UnB36(row:match("~([0-9a-z]+)$"))
+		if not i or i < 1 or i > Count.CATCHUP_V2_MAX or (page.terminal and i > page.terminal.count)
+			or not rowId or not at or at > (page.cutoff or Clock()) or at < page.since
+			or (at == page.since and (not page.tie or rowId <= page.tie)) then return Drop("page") end
+		if page.slots[i] or page.keys[rowId] then return Drop("duplicate") end
+		local slot, previous, following = { key = rowId, at = at }, page.slots[i - 1], page.slots[i + 1]
+		if (previous and not RowBefore(previous, slot)) or (following and not RowBefore(slot, following)) then return Drop("page") end
+		local _, why = Count.TakeLine(sender, "NL~1~" .. row)
+		if why and why ~= "person" then return false, why end
+		page.slots[i], page.keys[rowId] = slot, true
+		page.count, page.high = page.count + 1, math.max(page.high, i)
+	end
+	catch.heard = ns.Now()
+	return ProvePage(sender, page)
+end
+
 -- (As in 1.2.5.1: the King's client neither asks for a catch-up nor answers one, and holds no copy.
 -- On a keeper, every line only from a keeper: a council relay holds copies of the keepers' word and
 -- is no source of it. Taken from one, any council or King client could add records and raise the
@@ -1953,11 +2204,13 @@ end
 -- CATCHUP_LINES whispers.)
 function Count.TakeLine(sender, text)
 	local kind = tostring(text or ""):match("^NL~1~(%a)~")
-	if not Church.IsLedgerRelay(ns.me) or not Church.IsLedgerRelay(sender) then return Drop("relay") end
-	if Church.IsKing(ns.me) or Church.IsKing(sender) then return Drop("king") end
-	if Church.IsKeeper(ns.me) and not Church.IsKeeper(sender) then return Drop("keeper") end
+	local allowed, why = LedgerAccess(sender)
+	if not allowed then return Drop(why) end
+	local scope = LedgerScope()
+	if scope and not LedgerPeer(sender, scope) then return Drop("scope") end
+	if type(text) == "string" and text:sub(1, 5) == "NL~2~" then return TakeCatchPage(sender, text) end
 	-- (A line from one asked for a catch-up: his answer is coming, Count.CatchUp asks no other yet.)
-	if kind ~= "q" and catch.active == Key(sender) then catch.heard = ns.Now() end
+	if kind ~= "q" and catch.active == Key(sender) and not catch.page then catch.heard = ns.Now() end
 	if kind == "q" then
 		local since = UnB36(text:match("^NL~1~q~([0-9a-z]+)$"))
 		if not since then return Drop("shape") end
@@ -1990,37 +2243,10 @@ function Count.TakeLine(sender, text)
 	elseif kind == "e" then
 		local more, u = text:match("^NL~1~e~([01])~([0-9a-z]+)$")
 		u = UnB36(u)
-		local k, l = Key(sender), Led()
-		if not u or not catch.asked[k] then return Drop("unasked") end
-		local before = l.from[k] or 0
-		l.from[k] = math.max(before, u)
-		if more == "0" then
-			-- (A keeper's own tab said it was catching up, Count.RankingView.)
-			if not catch.settled then catch.settled = true; ViewChanged() end
-			if catch.active == k then catch.active = nil end
-			if type(l.caught) ~= "table" then l.caught = {} end
-			l.caught[k] = ns.Now()
-			-- One completed source is not convergence: another keeper may hold records received while
-			-- this one was offline. Sweep the other current keepers promptly, with the same one-active
-			-- and per-target reask bounds as the ordinary retry path.
-			Count.after(1, "church catch-up sweep", function()
-				if catch.active == nil then Count.CatchUp(false, true) end
-			end)
-		elseif l.from[k] > before and type(l.asked) == "table" then
-			-- (A catch-up that brought something, a logout may cut short before its last round: its keeper
-			-- is asked first again, from where it stopped. One never answered stays behind the others.)
-			l.asked[k] = nil
-		end
-		if more == "1" and catch.active == k then
-			local who = ns.FullName(sender)
-			Count.after(5, "church catch-up", function()
-				local now, key = ns.Now(), Key(who)
-				if catch.active ~= key then return end
-				catch.active, catch.last, catch.asked[key] = key, now, now
-				ns.Comm.Whisper(who, "NL~1~q~" .. B36(Led().from[Key(who)] or 0), nil, false, false, nil, { owner = Count })
-			end)
-		end
-		return true
+		local k = Key(sender)
+		if not u or not catch.asked[k] or catch.ledger ~= Led() then return Drop("unasked") end
+		if scope and (catch.active ~= k or catch.page) then return Drop("unasked") end
+		return FinishCatchUp(sender, more == "1", u)
 	end
 	return Drop("kind")
 end
@@ -2548,7 +2774,8 @@ Church.Top3 = function() return Count.Top3() end
 
 function Count.Receive(kind, dist, sender, text)
 	if type(text) ~= "string" or type(sender) ~= "string" then return end
-	if text:match("^%u%u~([^~]+)~") ~= "1" then return Drop("version") end
+	local version = text:match("^%u%u~([^~]+)~")
+	if version ~= "1" and not (kind == "NL" and version == "2") then return Drop("version") end
 	sender = ns.FullName(sender)
 	if kind == "NV" then
 		if dist ~= "WHISPER" then return Drop("lane") end
@@ -2739,13 +2966,15 @@ function Count.StatusLines()
 	local dropped = {}
 	for why, k in pairs(stats.dropped) do dropped[#dropped + 1] = why .. "=" .. k end
 	table.sort(dropped)
-	return {
+	local lines = {
 		("log reads %d, events %d, pairs %d, evidence sent %d, outbox %d, receipts %d, refused for now %d, memory %d names"):format(stats.reads,
 			stats.events, stats.pairs, stats.sent, #(Out() or {}), stats.receipts or 0, stats.later or 0, mem and mem.count or 0),
 		("ledger %d records, %d people, %d archived, %d let go; checks sent %d, open %d, answers %d"):format(n, p, archived, marks,
 			stats.checks, open, stats.answers),
 		"count dropped: " .. (#dropped > 0 and table.concat(dropped, ", ") or "-"),
 	}
+	if catch.replay then lines[#lines + 1] = ("recent ledger check: %s (%d complete pages)"):format(catch.replay.result, catch.replay.pages) end
+	return lines
 end
 
 ns.On("INIT", function() Count.CheckSaved() end)

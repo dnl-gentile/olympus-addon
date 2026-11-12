@@ -65,7 +65,11 @@ local WHISPER_PIECES = { H2 = true } -- ...and over WHISPER (1.4.3: the relay's 
 function Comm.RelayPieces(kinds)
 	for k in pairs(kinds or {}) do GUILD_PIECES[k], WHISPER_PIECES[k] = true, true end
 end
-local function RelayOn() local R = ns.Relay return type(R) == "table" and R.On() == true and R.Pick() ~= nil end -- ...put together for these types alone: signed lists, loot, War recovery and bounded squad assignments
+local function RelayOn()
+	local R = ns.Relay
+	return type(R) == "table" and type(R.On) == "function" and R.On() == true
+		and type(R.Pick) == "function" and R.Pick() ~= nil
+end
 local msgId = 0
 local lastBroadcast = 0
 local early -- { every, due }: the report due then went out early, as a census answer (see Q1)
@@ -82,10 +86,14 @@ local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
 -- 1.4.1: the channel lane (declared here: SendNow and Comm.Stats, above the lane's own code, use them).
 local laneRefused, laneProbe = 0, false
 local Lane
+-- Lanes refused by the game stay bad for this session. Crowd correction waits after every move,
+-- whether refusal-, officer- or crowd-driven, before it may choose another lane.
+local laneBad, laneMovedAt = {}, -math.huge
 local peerRealm = {} -- guild peer -> realm from its hello, "old" for versions that send none
 local peerVersion = {} -- guild peer -> the addon version its hello named
 local peerSealed = {} -- guild peer -> "s" (on the sealed channel) or "p" (public), from its hello
 local peerLane = {}   -- guild peer -> its channel lane when not the first (1.4.1), from its hello
+local peerLaneUsable = {} -- guild peer -> true/false for a present valid/invalid lane field (lane 0 is valid)
 local peerRelay = {}  -- guild peer -> true when its hello says it carries the relay (1.4.3)
 local peerZone = {} -- guild peer -> true when its hello says it shares its zone (0.9.1, Comm.SharesZone)
 local peerBank = {} -- guild peer -> true while its hello says it is an arena bank on duty (1.2, Electable)
@@ -332,9 +340,12 @@ local function NormalizeOptions(options)
 	}
 end
 
--- (1.5.5) Where the relay carries the channel (Forever), whether a relay answers now or not: there
--- the channel delivers nothing, so no word goes on it (Enqueue, SendChatPart).
-local function Forever() local R = ns.Relay return type(R) == "table" and R.On() == true end
+-- Forever's native addon channel cannot carry these words, even if the relay is unavailable.
+local function Forever()
+	if ns.OnForever() then return true end
+	local R = ns.Relay
+	return type(R) == "table" and type(R.On) == "function" and R.On() == true
+end
 -- A callback told once, whoever tells it (Relay.Out holds a word and tells it later).
 local function Once(done)
 	if done == nil then return nil end
@@ -345,6 +356,13 @@ local function Once(done)
 		return done(...)
 	end
 end
+local function SendThroughRelay(parts, logged, done, key, urgent, options)
+	local R = ns.Relay
+	local once = Once(done)
+	if type(R) == "table" and type(R.Out) == "function" and R.Out(parts, logged, once, key, urgent, options) then return true end
+	if once then ns.SafeCall("send done", once, false, "norelay") end
+	return false
+end
 local function Enqueue(dist, parts, key, target, urgent, logged, done, options)
 	SyncGuild()
 	-- 1.4.3: on Forever the channel delivers nothing; what was for it goes to our relay by whisper
@@ -352,11 +370,8 @@ local function Enqueue(dist, parts, key, target, urgent, logged, done, options)
 	-- holds it for one (HOLD_FOR), our guild hearing a single word at once, and tells its callback once.
 	-- 1.5.4 made a channel job when no relay could be picked (lost), and when Relay.Out refused a word,
 	-- with the callback it had told already.
-	if dist == "CHANNEL" and Forever() and not (options and options.relayed) then
-		local once = Once(done)
-		if ns.Relay.Out(parts, logged, once, key, urgent, options) then return true end
-		if once then ns.SafeCall("send done", once, false, "norelay") end
-		return false
+	if dist == "CHANNEL" and Forever() then
+		return SendThroughRelay(parts, logged, done, key, urgent, options)
 	end
 	local job = { dist = dist, parts = parts, i = 1, key = key, target = target,
 		urgent = urgent and true or false, logged = logged == true, done = done,
@@ -446,7 +461,7 @@ end
 --   Authority H2 H3
 --   GuildCharter GC (master's public card), QC (outsider's bounded ask), QD (corroborated Join card)
 --   OfficerMuster OM (bounded, zone-only officer gathering, logged)
---   Other 1.1 work: Recruit J1 J3 | Alts AL | Filter BW | Dues FA FB FC FD FQ FS FU
+--   Other 1.1 work: Recruit J1 J3 | RecruitHandoff J4 | GuildCharter recruiting help J5 | Alts AL | Filter BW | Dues FA FB FC FD FQ FS FU
 --   Board G0 G1 GQ | Groups GA GL GM GR GW GX | Keys K3 K4 K5 K7 K8 | Channels N1 | Moderation O1 | ProfileEffects FX | The Watch MW | Treasury TA TD TW
 --   Bank TL TN TO TS | Week Y2 | Wanted WS WY W4 W5, and 1.2.3's WK (a member's own kill or death,
 --   and a reviewer's relay of one) WV (a reviewer's removal or void), and 1.2.4's W7 (a member's
@@ -521,6 +536,7 @@ end
 --   client whose version is no release, over GUILD and on the channel; the record the right-click
 --   menu and /oly builds show, and the lock on such a client's words).
 --   1.5.5, RelayTree RN RF RQ RC | Relay RJ RB | RelayFallback RE RO | Data QA
+--   RelayTree RZ (what a registrant's tree reads beside the word as written: the packed census snapshot)
 local handlers = {}
 local dispatchSender, injectedSender
 local function Dispatch(handler, dist, sender, text)
@@ -859,6 +875,7 @@ local function InLockdown() return ns.ChatLocked ~= nil and ns.ChatLocked() == t
 -- Player text goes through the logged API, Blizzard's function for plain text payloads
 -- (receivers get CHAT_MSG_ADDON_LOGGED). Clients without it use the usual one.
 local function SendNow(dist, msg, logged, whisperTo)
+	if dist == "CHANNEL" and Forever() then return false, "norelay" end
 	-- (1.4.0: during a chat lockdown the game refuses it anyway: no call, no failure logged.)
 	if InLockdown() then
 		stats.locked = (stats.locked or 0) + 1
@@ -893,6 +910,7 @@ local function SendNow(dist, msg, logged, whisperTo)
 		and (GetChannelName(joinedName) or 0) == channelIndex then
 		laneRefused = laneRefused + 1
 		if laneRefused >= Comm.LANE_AFTER then
+			laneBad[Lane()] = true
 			Comm.NextLane(("InvalidChannel x%d on %s"):format(laneRefused, joinedName))
 		elseif not laneProbe then
 			laneProbe = true
@@ -945,6 +963,7 @@ SyncGuild = function()
 	guildSession = guildSession + 1
 	guildAsm, outsiderAsm, whisperAsm = Codec.NewAssembler(), Codec.NewAssembler(), Codec.NewAssembler()
 	wipe(peers); wipe(peerRealm); wipe(peerVersion); wipe(peerSealed); wipe(peerZone); wipe(peerBank)
+	wipe(peerLane); wipe(peerLaneUsable); wipe(peerRelay)
 	wipe(heardOwn); wipe(benched)
 	watch, lastKeyAsk, early = nil, nil, nil
 	crossedAt, lastBroadcast, lastAnswer = -math.huge, 0, -math.huge
@@ -1066,8 +1085,7 @@ local function SendChatPart()
 	-- there, relay or none (Relay.Out: our guild has it at once, the line waits for a relay); its
 	-- callback hears how it went once, when it left or was dropped ("norelay" past HOLD_FOR).
 	if Forever() then
-		local once = Once(item.done)
-		if not ns.Relay.Out({ item.msg }, true, once, nil, true) and once then ns.SafeCall("chat sent", once, false, "norelay") end
+		SendThroughRelay({ item.msg }, true, item.done, nil, true)
 		return
 	end
 	local sent = SendNow("CHANNEL", item.msg, true)
@@ -1211,6 +1229,14 @@ Comm.Hash36 = Hash36
 Comm.LANE_AFTER = 3
 Comm.LANE_MAX = 9
 Comm.LANE_PROBE = 5 -- seconds after a refusal before the census is asked again, to settle it
+-- Quiet clients say hello every 10 minutes, so 15 minutes admits one delayed round but not old
+-- sessions. Five peers, at least two thirds of all usable reports and a two-peer lead make a lane
+-- clearly dominant; the five-minute settle period prevents a changing crowd from making us flap.
+Comm.CROWD_MIN = 5
+Comm.CROWD_SHARE = 2 / 3
+Comm.CROWD_LEAD = 2
+Comm.CROWD_RECENT = 15 * 60
+Comm.CROWD_SETTLE = 5 * 60
 Lane = function()
 	local n = ns.rdb and tonumber(ns.rdb.channelLane) or 0
 	if n ~= n or n < 0 or n > Comm.LANE_MAX then return 0 end
@@ -1229,16 +1255,20 @@ function Comm.ChannelSpec()
 end
 -- To lane n (TakeLane: a higher one a guild officer's hello names) or the next one (NextLane): the
 -- old channel is left and the new one joined (JoinChannel), the census asked there 10 s on.
--- (1.5.5) Never while the relays carry the channel (Relay.On: Forever, where no channel delivers):
--- a lane moved only up, and each move split the guilds that had not moved yet from those that had.
-local function MoveLane(n, why)
+-- (1.5.5) Refusal and officer moves stay upward-only and frozen while Relay.On(): otherwise they
+-- can split a guild whose remaining clients did not move. A crowd correction is the exception: it
+-- rejoins a decisive split, so it may move down or up and may run while the relay carries traffic.
+local function MoveLane(n, why, crowd)
 	if not ns.rdb then return false end
-	local R = ns.Relay
-	if type(R) == "table" and type(R.On) == "function" and R.On() == true then return false end
 	n = tonumber(n)
-	if not n or n ~= n or n <= Lane() or n > Comm.LANE_MAX then return false end
+	if not n or n ~= n or n ~= math.floor(n) or n < 0 or n > Comm.LANE_MAX or n == Lane() then return false end
+	if n < Lane() and not crowd then return false end
+	local R = ns.Relay
+	if not crowd and type(R) == "table" and type(R.On) == "function" and R.On() == true then return false end
+	if laneBad[n] then return false end
 	local was = Lane()
-	ns.rdb.channelLane = math.floor(n)
+	ns.rdb.channelLane = n
+	laneMovedAt = ns.Now()
 	laneRefused, laneProbe = 0, false
 	stats.lanes = (stats.lanes or 0) + 1
 	ns.Log("channel lane %d -> %d (%s)", was, Lane(), tostring(why))
@@ -1246,8 +1276,72 @@ local function MoveLane(n, why)
 	return true
 end
 function Comm.NextLane(why) return MoveLane(Lane() + 1, why or "refused") end
-function Comm.TakeLane(n, who) return MoveLane(n, tostring(who) .. "'s hello") end
-function Comm.LaneStats() return { lane = Lane(), refused = laneRefused, moves = stats.lanes or 0 } end
+
+-- A lane belongs to this realm's custom-channel domain. Another realm's guild hello crosses realms
+-- even when its OlympusNet does not; count it only after this session proved the channel itself is
+-- shared (ElectsAcrossRealms). The server-stamped sender realm and the hello must both agree.
+local function PeerOnOurChannelRealm(name)
+	local realm, stamped = peerRealm[name], ns.RealmOf(name)
+	return (realm == nil or realm == "old" or realm == ns.realm)
+		and (stamped == nil or stamped == ns.realm)
+end
+
+-- Recent same-guild hellos carrying R are the only lane reports whose protocol includes usable
+-- lane data. Ties choose the lower lane deterministically, though a tie can never pass CrowdClear.
+function Comm.CrowdLane(now)
+	now = now or ns.Now()
+	local count, total, shared = {}, 0, Comm.ElectsAcrossRealms(now)
+	local _, key = Comm.ChannelSpec()
+	local audience = key and "s" or "p"
+	for name, t in pairs(peers) do
+		if peerRelay[name] and peerLaneUsable[name] and peerSealed[name] == audience and type(t) == "number"
+			and t <= now and now - t <= Comm.CROWD_RECENT and (shared or PeerOnOurChannelRealm(name)) then
+			local lane = peerLane[name] or 0
+			count[lane] = (count[lane] or 0) + 1
+			total = total + 1
+		end
+	end
+	local best, bestN, runnerN = nil, 0, 0
+	for lane = 0, Comm.LANE_MAX do
+		local n = count[lane] or 0
+		if n > bestN then runnerN, best, bestN = bestN, lane, n
+		elseif n > runnerN then runnerN = n end
+	end
+	return best, bestN, total, count, runnerN
+end
+
+local function CrowdClear(best, n, total, runner)
+	return best ~= nil and total > 0 and n >= Comm.CROWD_MIN
+		and n / total >= Comm.CROWD_SHARE and n - runner >= Comm.CROWD_LEAD
+end
+
+-- A read-only view of the same recent guild hellos housekeeping uses to converge.
+function Comm.LaneStats(now)
+	now = now or ns.Now()
+	local lane = Lane()
+	local best, n, total, _, runner = Comm.CrowdLane(now)
+	local dominant = CrowdClear(best, n, total, runner) and best or nil
+	return { lane = lane, refused = laneRefused, moves = stats.lanes or 0,
+		joined = channelIndex > 0, dominant = dominant, dominantPeers = dominant and n or 0,
+		eligiblePeers = total, mismatch = dominant ~= nil and dominant ~= lane,
+		dominantRefused = dominant ~= nil and laneBad[dominant] == true,
+		cooldown = math.max(0, math.ceil(Comm.CROWD_SETTLE - (now - laneMovedAt))) }
+end
+
+function Comm.FollowCrowd(now)
+	now = now or ns.Now()
+	if now - laneMovedAt < Comm.CROWD_SETTLE then return false end
+	local best, n, total, _, runner = Comm.CrowdLane(now)
+	if not CrowdClear(best, n, total, runner) or best == Lane() or laneBad[best] then return false end
+	return MoveLane(best, ("crowd: %d of %d peers on lane %d"):format(n, total, best), true)
+end
+
+-- An officer may still lead the existing safe upward move, except away from a clear healthy crowd.
+function Comm.TakeLane(n, who)
+	local best, count, total, _, runner = Comm.CrowdLane()
+	if CrowdClear(best, count, total, runner) and not laneBad[best] and best ~= tonumber(n) then return false end
+	return MoveLane(n, tostring(who) .. "'s hello")
+end
 
 local function HideChannelFromChat(name) -- gp:chat-channels
 	for i = 1, (NUM_CHAT_WINDOWS or 10) do
@@ -1638,6 +1732,7 @@ end
 function Comm.ChannelName() return joinedName end
 function Comm.ChannelIndex() return channelIndex end -- (1.5.0: the chat hall writes its text there)
 Comm.MAX_QUEUE = MAX_QUEUE
+Comm.SEND_INTERVAL = SEND_INTERVAL -- (for the tests: tests/relay-tree-load.lua steps its clock by it)
 function Comm.DeliveredLogged() return deliveredLogged end
 
 -- Who can read the channel, as the privacy questions tell the player (Layers, Channels):
@@ -1861,12 +1956,11 @@ end
 local function Electable(now)
 	local all, pool = Comm.ElectsAcrossRealms(now), {}
 	for name, t in pairs(peers) do
-		local realm, stamped = peerRealm[name], ns.RealmOf(name)
-		local ours = (realm == nil or realm == "old" or realm == ns.realm) and (stamped == nil or stamped == ns.realm)
+		local ours = PeerOnOurChannelRealm(name)
 		-- (1.4.1, launch night: a guild's 1.4.0 clients, stuck on the first lane, were elected by name
 		-- and reported into a channel nobody heard, while its guildmates on the next lane kept quiet.)
 		-- Only a peer on our lane: his hello names it (none named: the first lane).
-		local sameLane = (peerLane[name] or 0) == Lane()
+		local sameLane = peerLaneUsable[name] ~= false and (peerLane[name] or 0) == Lane()
 		-- (1.4.3) Where the relay carries the channel, only a peer that carries it too can report.
 		local relayed = ns.Relay and ns.Relay.On()
 		local carries = not relayed or peerRelay[name] == true
@@ -2032,8 +2126,7 @@ function Comm.AskCensus(force)
 	if not ns.IsMember() then return end
 	-- (1.5.5) Not while the relays carry the channel (Relay.On): a relay keeps the ask to itself (Q1 is
 	-- never fanned out), and every guild's report reaches its relay on the reporter's own clock.
-	local R = ns.Relay
-	if type(R) == "table" and type(R.On) == "function" and R.On() == true then return end
+	if Forever() then return end
 	if not Comm.ChannelReady() then
 		askTries = askTries + 1
 		if askTries < 3 then ns.After(20, "census request", Comm.AskCensus) end
@@ -2358,11 +2451,22 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		peerZone[sender] = text:match("^H1~[^~]*~[^~]*~[^~]*~([^~]*)") == "z" or nil
 		peerBank[sender] = text:match("^H1~[^~]*~[^~]*~[^~]*~[^~]*~([^~]*)") == "b" or nil
 		-- (1.4.1) His channel lane, and ours after it when a Lord or Captain of our guild is ahead.
-		local lane = tonumber(text:match("^H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~L(%d+)")) or 0
-		peerLane[sender] = lane > 0 and lane or nil
-		peerRelay[sender] = text:match("^H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~R") ~= nil or nil -- (1.4.3)
+		-- Relay-capable clients carry an explicit sixth field: empty is lane 0; malformed or
+		-- out-of-range values name no usable lane and never become a crowd vote.
+		local laneField = text:match("^H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~([^~]*)")
+		local lane
+		if laneField == "" then
+			lane = 0
+		elseif laneField then
+			local digits = laneField:match("^L(%d+)$")
+			local candidate = tonumber(digits)
+			if candidate and laneField == "L" .. tostring(candidate) and candidate <= Comm.LANE_MAX then lane = candidate end
+		end
+		peerLane[sender] = lane and lane > 0 and lane or nil
+		if laneField == nil then peerLaneUsable[sender] = nil else peerLaneUsable[sender] = lane ~= nil end
+		peerRelay[sender] = text:match("^H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~([^~]*)") == "R" or nil -- (1.4.3)
 		peerTree[sender] = text:match("^H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~N") ~= nil or nil -- (1.5.5)
-		if lane > Lane() then
+		if lane and lane > Lane() then
 			local rank = ns.Roster and ns.Roster.RankOf and ns.Roster.RankOf(sender)
 			if type(rank) == "number" and rank <= (ns.CAPTAIN_RANK or 2) then Comm.TakeLane(lane, sender) end
 		end
@@ -2511,6 +2615,7 @@ ns.On("LOGIN", function()
 			ns.Log("incomplete report dropped: %s", tostring(sample))
 		end
 		if channelIndex == 0 or GetChannelName(joinedName or (Comm.ChannelSpec())) == 0 then Comm.JoinChannel() end
+		ns.SafeCall("follow crowd lane", Comm.FollowCrowd)
 	end)
 	-- The game joins its own channels (General, Trade...) after ours on a slow login: ours
 	-- moves behind them once the list settles.

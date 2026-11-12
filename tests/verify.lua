@@ -36,65 +36,88 @@ end
 test("verify: personal delivery detects the bridge on open, submits once and redacts its status", function()
 	local saved = { bridge = _G.OlympusVerifyBridge242, generic = _G.OlympusBridge,
 		guild = StaticPopupDialogs.OLYMPUS_VERIFY_GUILD, revoke = StaticPopupDialogs.OLYMPUS_VERIFY_REVOKE,
-		self = StaticPopupDialogs.OLYMPUS_VERIFY_SELF }
-	local text, action, opts, attempt
+		self = StaticPopupDialogs.OLYMPUS_VERIFY_SELF, unavailable = StaticPopupDialogs.OLYMPUS_VERIFY_SELF_UNAVAILABLE,
+		result = StaticPopupDialogs.OLYMPUS_VERIFY_SELF_RESULT }
+	local which, text, attempt
 	local ok, err = pcall(function()
 		_G.OlympusVerifyBridge242, _G.OlympusBridge = nil, nil
-		local v = setmetatable({ UI = { ShowCopy = function(_, body, a, o) text, action, opts = body, a, o end },
-			Dialog = { Show = function(which, _, _, data) eq(which, "OLYMPUS_VERIFY_SELF"); attempt = data end },
+		local L = setmetatable({}, { __index = ns.L })
+		local v = setmetatable({ L = L,
+			Dialog = { Show = function(id, body, _, data) which, text, attempt = id, body, data end },
 			On = function() end, Comm = { Handle = function() end } }, { __index = ns })
+		assert(loadfile(ADDON_DIR .. "Locales/VerifyText.lua"))("Olympus", v)
 		assert(loadfile(ADDON_DIR .. "Verify.lua"))("Olympus", v)
 		assert(type(v.Verify.OpenSelf) == "function", "personal verification panel exists")
 		v.Verify.OpenSelf()
-		eq(action, nil, "Verify missing at file load or panel open is harmless")
-		assert(text:find(ns.L.VERIFY_SELF_UNAVAILABLE, 1, true))
+		eq(which, "OLYMPUS_VERIFY_SELF_UNAVAILABLE", "Verify missing at file load or popup open is harmless")
+		assert(text:find(L.VERIFY_SELF_UNAVAILABLE, 1, true))
 		local s = { version = 243, deliveryOnly = true, membershipProof = false, roleAuthority = false,
 			total = 22, truncated = true, requests = {} }
 		for _, state in ipairs({ "pending", "delivered", "rejected", "unsupported_callback", "unknown" }) do
 			s.requests[#s.requests + 1] = { type = "verify", deliveryState = state, id = "opaque-hidden-id", code = "not-for-the-panel" }
 		end
 		for i = 6, 22 do s.requests[i] = { type = "donation", deliveryState = "pending" } end
-		local calls, accepted = 0, true
+		local calls, accepted, callbackError = 0, true, false
+		local def, frame
 		_G.OlympusVerifyBridge242 = { QueueSelf = function(code, extra)
 			eq(code, "my-personal-code"); eq(extra, nil, "bridge is called with dot syntax")
-			calls = calls + 1; return accepted
+			calls = calls + 1
+			eq(frame.editBox:GetText(), "", "the code is cleared before the bridge receives it")
+			def.OnAccept(frame, attempt) -- a reentrant callback cannot reuse this attempt
+			if callbackError then error("private detail and my-personal-code") end
+			return accepted
 		end, Status = function(extra) eq(extra, nil); return s end }
-		opts.second.fn()
-		eq(calls, 0, "opening and refreshing only reads")
+		v.Verify.OpenSelf()
+		eq(which, "OLYMPUS_VERIFY_SELF", "opening shows the masked code field directly")
+		eq(calls, 0, "opening only reads")
 		for _, key in ipairs({ "PENDING", "DELIVERED", "REJECTED", "UNSUPPORTED", "UNKNOWN" }) do
-			assert(text:find(ns.L["VERIFY_SELF_" .. key], 1, true), key)
+			assert(text:find(L["VERIFY_SELF_" .. key], 1, true), key)
 		end
-		assert(text:find(ns.L.VERIFY_SELF_TRUNCATED:format(20, 22), 1, true))
+		assert(text:find(L.VERIFY_SELF_TRUNCATED:format(20, 22), 1, true))
 		assert(not text:find("opaque-hidden-id", 1, true) and not text:find("not-for-the-panel", 1, true))
-		action.fn()
 		eq(calls, 0, "opening the entry prompt does not submit")
 		local value = "my-personal-code"
-		local frame = { editBox = { GetText = function() return value end, SetText = function(_, v) value = v end } }
-		local def = StaticPopupDialogs.OLYMPUS_VERIFY_SELF
-		def.OnAccept(frame, attempt)
-		def.OnAccept(frame, attempt)
+		frame = { Hide = function() end,
+			editBox = { GetText = function() return value end, SetText = function(_, v) value = v end } }
+		def = StaticPopupDialogs.OLYMPUS_VERIFY_SELF
+		local submitted = attempt
+		def.OnAccept(frame, submitted)
+		def.OnAccept(frame, submitted)
 		eq(calls, 1); eq(value, "", "the code is cleared")
-		assert(text:find(ns.L.VERIFY_SELF_QUEUED, 1, true))
+		eq(which, "OLYMPUS_VERIFY_SELF_RESULT")
+		assert(text:find(L.VERIFY_SELF_CHECK_DISCORD, 1, true))
+		assert(text:find(L.VERIFY_SELF_QUEUED, 1, true))
 		assert(not text:find("my-personal-code", 1, true))
 		accepted, value = false, "my-personal-code"
-		action.fn()
+		v.Verify.OpenSelf()
 		def.OnAccept(frame, attempt)
 		eq(calls, 2)
-		assert(text:find(ns.L.VERIFY_SELF_REFUSED, 1, true) and not text:find(ns.L.VERIFY_SELF_QUEUED, 1, true))
+		assert(text:find(L.VERIFY_SELF_REFUSED, 1, true) and not text:find(L.VERIFY_SELF_QUEUED, 1, true))
+		for _, raised in ipairs({ true, false }) do
+			accepted, value, callbackError = nil, "my-personal-code", raised
+			v.Verify.OpenSelf()
+			def.OnAccept(frame, attempt)
+			assert(text:find("Submission unconfirmed", 1, true), "an error or non-Boolean return may have left a local request")
+			assert(not text:find(L.VERIFY_SELF_REFUSED, 1, true), "an unknown outcome is not a refusal")
+			assert(not text:find("my-personal-code", 1, true) and not text:find("private detail", 1, true))
+			v.Verify.OpenSelf()
+			assert(text:find("Submission unconfirmed", 1, true), "reopening does not hide an unconfirmed submission")
+		end
 		_G.OlympusVerifyBridge242.Status = nil
 		local wrapper = { name = "verification", version = 242, data = s }
 		_G.OlympusBridge = { API_VERSION = 1, GetSection = function(name) eq(name, "verification"); return wrapper end }
-		v.Verify.OpenSelf(); eq(action, nil, "old section wrapper is refused")
+		v.Verify.OpenSelf(); eq(which, "OLYMPUS_VERIFY_SELF_UNAVAILABLE", "old section wrapper is refused")
 		wrapper.version, s.version = 243, 242
-		v.Verify.OpenSelf(); eq(action, nil, "old envelope is refused too")
+		v.Verify.OpenSelf(); eq(which, "OLYMPUS_VERIFY_SELF_UNAVAILABLE", "old envelope is refused too")
 		s.version, s.roleAuthority = 243, true
-		v.Verify.OpenSelf(); eq(action, nil, "the envelope cannot grant authority")
+		v.Verify.OpenSelf(); eq(which, "OLYMPUS_VERIFY_SELF_UNAVAILABLE", "the envelope cannot grant authority")
 		s.roleAuthority = false
-		v.Verify.OpenSelf(); assert(action, "version 1 API with a safe v243 wrapper is accepted")
-		eq(calls, 2, "status never resubmits an unknown outcome")
+		v.Verify.OpenSelf(); eq(which, "OLYMPUS_VERIFY_SELF", "version 1 API with a safe v243 wrapper is accepted")
+		eq(calls, 4, "status never resubmits an unknown outcome")
 	end)
 	_G.OlympusVerifyBridge242, _G.OlympusBridge = saved.bridge, saved.generic
 	StaticPopupDialogs.OLYMPUS_VERIFY_GUILD, StaticPopupDialogs.OLYMPUS_VERIFY_REVOKE, StaticPopupDialogs.OLYMPUS_VERIFY_SELF = saved.guild, saved.revoke, saved.self
+	StaticPopupDialogs.OLYMPUS_VERIFY_SELF_UNAVAILABLE, StaticPopupDialogs.OLYMPUS_VERIFY_SELF_RESULT = saved.unavailable, saved.result
 	if not ok then error(err, 0) end
 end)
 
@@ -176,6 +199,13 @@ local function World(fn)
 	if not ok then error(err, 0) end
 end
 
+local function ClickWatch(w, c, label)
+	for _, line in ipairs(w.As(c, c.Verify.CouncilLines)) do
+		if line.onClick and line.text:find(label, 1, true) then return w.As(c, line.onClick) end
+	end
+	error("Watch action missing: " .. label)
+end
+
 test("verify: verification recovery distinguishes different words with the same counts and clock", function()
 	World(function(w)
 		local hc = w.Client(HC, HEARTH, 3)
@@ -196,6 +226,82 @@ test("verify: verification recovery distinguishes different words with the same 
 		eq(w.Status(member, GUILD), "verified", "equal counts do not prove equal approvals")
 		local _, info = w.Status(member, GUILD)
 		eq(info.entry.at, T0); eq(info.entry.by, HC, "recovered, not approved again")
+	end)
+end)
+
+test("verify: the Watch sends the retained approval and cancels a queued resend after the guild master changes", function()
+	World(function(w)
+		local origin = w.Client(HC, HEARTH, 3)
+		local member = w.Client(MEMBER, GUILD, 3)
+		local verifier = w.Client(HC2, OTHER, 3)
+		w.Census(GUILD, "Bram Hollow", 120)
+		member.online = false
+		eq(w.As(origin, origin.Verify.Approve, GUILD), true)
+		member.online = true
+		local approval = verifier.rdb.verify.list[ns.Fold(GUILD)]
+		w.now = T0 + 20
+		local action
+		verifier.Comm.Send = function(dist, text, _, _, logged, done, options)
+			action = { text = text, guard = options.guard, finish = function()
+				if w.As(verifier, options.guard) then w.Deliver(verifier, dist, text, logged); done(true) else done(false) end
+			end }
+			return true
+		end
+		local row
+		for _, line in ipairs(w.As(verifier, verifier.Verify.CouncilLines)) do
+			if line.text:find(verifier.Verify.MARK_OK .. "<" .. GUILD .. ">", 1, true) then row = line end
+		end
+		assert(row, "the verified guild is visible in The Watch")
+		w.As(verifier, row.onClick)
+		ClickWatch(w, verifier, verifier.L.VERIFY_GUILD_ACTIONS)
+		local data = verifier.dialogs[#verifier.dialogs].data
+		local dialog = StaticPopupDialogs.OLYMPUS_VERIFY_REVOKE
+		eq(dialog.button3, verifier.L.VERIFY_RESEND_APPROVAL)
+		w.As(verifier, dialog.OnAlt, nil, data)
+		assert(action and w.As(verifier, action.guard), "the click queued one original approval")
+		eq(w.As(verifier, verifier.Verify.ResendApproval, GUILD), false, "a second click while waiting does not queue")
+		action.finish()
+		local status, info = w.Status(member, GUILD)
+		eq(status, "verified"); eq(info.entry.at, T0); eq(info.entry.by, HC); eq(info.entry.gm, GM)
+		eq(verifier.rdb.verify.list[ns.Fold(GUILD)], approval, "the sender's approval was never replaced")
+		w.now = w.now + verifier.Verify.RESEND_GAP
+		w.As(verifier, dialog.OnAlt, nil, data)
+		assert(w.As(verifier, action.guard))
+		w.Census(GUILD, "Corin Ash", 120)
+		eq(w.As(verifier, action.guard), false, "the newest guild master is checked at send time")
+		action.finish()
+		eq(w.As(verifier, verifier.Verify.ResendApproval, GUILD), false, "a lapsed decision cannot be resent")
+		w.Census(GUILD, "Bram Hollow", 120)
+		eq(w.As(origin, origin.Verify.Revoke, GUILD), true)
+		eq(w.As(verifier, verifier.Verify.ResendApproval, GUILD), false, "a revoked decision cannot be resent")
+		eq(w.As(member, member.Verify.ResendApproval, GUILD), false, "member cannot resend")
+	end)
+end)
+
+test("verify: hiding and restoring a guild affects the local Watch list and reminders only", function()
+	World(function(w)
+		local verifier = w.Client(HC, HEARTH, 3)
+		local peer = w.Client(HC2, OTHER, 3)
+		local master = w.Client(GM, GUILD, 0)
+		w.Census(GUILD, "Bram Hollow", 120)
+		w.As(verifier, verifier.Verify.Observe)
+		local payload = w.As(verifier, verifier.Verify.Payload)
+		local _, before = w.Status(verifier, GUILD)
+		ClickWatch(w, verifier, "<" .. GUILD .. ">")
+		ClickWatch(w, verifier, verifier.L.VERIFY_COPY_GUILD)
+		eq(verifier.copies[#verifier.copies].text, GUILD, "copy contains the exact, uncolored spelling")
+		ClickWatch(w, verifier, verifier.L.VERIFY_IGNORE_GUILD)
+		assert(not w.As(verifier, verifier.Verify.ListText):find("<" .. GUILD .. ">", 1, true))
+		assert(w.As(peer, peer.Verify.ListText):find("<" .. GUILD .. ">", 1, true), "peer's Watch is unchanged")
+		eq(w.As(verifier, verifier.Verify.Payload), payload, "hide preferences never enter a verification snapshot")
+		local _, after = w.Status(verifier, GUILD)
+		eq(before.deadline, after.deadline)
+		w.As(verifier, verifier.Verify.CouncilNotices)
+		assert(not Find(verifier.printed, "<" .. GUILD .. ">"), "the local verifier gets no reminder for the hidden guild")
+		eq(w.As(master, master.Verify.SetIgnored, GUILD, true), false, "only the verifiers can use this Watch setting")
+		ClickWatch(w, verifier, verifier.L.VERIFY_MANAGE_IGNORED:format(1))
+		ClickWatch(w, verifier, verifier.L.VERIFY_RESTORE_IGNORED:format(GUILD))
+		assert(w.As(verifier, verifier.Verify.ListText):find("<" .. GUILD .. ">", 1, true), "restore shows the guild again")
 	end)
 end)
 
@@ -687,6 +793,7 @@ test("verify: 1.5.4 a verifier's whisper to an overdue guild's master says nothi
 			end
 			assert(row, "the guild's row on the verifiers' page")
 			w.As(c, row.onClick)
+			ClickWatch(w, c, c.L.VERIFY_GUILD_ACTIONS)
 			local d = c.dialogs[#c.dialogs]
 			eq(d.which, "OLYMPUS_VERIFY_GUILD"); eq(d.data.gm, GM)
 			eq(w.As(c, c.Verify.Nudge, d.data), true)
@@ -1008,6 +1115,7 @@ test("verify: the verifiers' page lists pending and overdue guilds with guild ma
 		assert(Find(tip, "Members: 120") and Find(tip, "First seen here: 7 d 1 h ago") and Find(tip, "Code: "), table.concat(tip, " / "))
 		-- A click: the question, with approve and whisper.
 		w.As(hc, first.onClick)
+		ClickWatch(w, hc, hc.L.VERIFY_GUILD_ACTIONS)
 		local d = hc.dialogs[#hc.dialogs]
 		eq(d.which, "OLYMPUS_VERIFY_GUILD"); eq(d.data.guild, GUILD); eq(d.data.gm, GM)
 		local def = StaticPopupDialogs.OLYMPUS_VERIFY_GUILD
@@ -1021,7 +1129,8 @@ test("verify: the verifiers' page lists pending and overdue guilds with guild ma
 		local done
 		for _, l in ipairs(lines) do if l.text and l.text:find(hc.Verify.MARK_OK .. "<" .. GUILD .. ">", 1, true) then done = l end end
 		assert(done and done.right:find("by Vera Stone", 1, true), "verified, and by whom")
-		w.As(hc, done.onClick)
+		-- The same expanded row remains selected across its verification status change.
+		ClickWatch(w, hc, hc.L.VERIFY_GUILD_ACTIONS)
 		eq(hc.dialogs[#hc.dialogs].which, "OLYMPUS_VERIFY_REVOKE")
 		w.As(hc, hc.Verify.RevokeInput, hc.dialogs[#hc.dialogs].data.guild)
 		eq(w.Status(member, GUILD), "overdue")
