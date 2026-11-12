@@ -11,6 +11,7 @@ local incoming, outgoing = {}, {}
 local handed = {} -- [folded name] = true: a player this client gave to another member
 local acceptingGuild, choosing, serial
 local autoGuild, autoTimer, autoProbe, autoCursor
+local openCursor, knownTurn = nil, 0
 local repliedAt = -math.huge
 local Notify
 serial = 0
@@ -43,7 +44,13 @@ local function NameKey(name)
 end
 local function Source(item, blocked)
 	if type(item) ~= "table" then return false end
-	if item.scanned then return R.Candidates ~= nil and R.Candidates.Passable(item) end
+	if item.scanned then
+		-- (Review of 1.5.8) Once the same player whispers JOIN, the JOIN is his entry: a claim of the
+		-- sighting's offer no longer gets his name, so two members never invite him.
+		if not (R.Candidates ~= nil and R.Candidates.Passable(item)) then return false end
+		for _, req in ipairs(R.requests) do if SamePlayer(req.name, item.full) then return false end end
+		return true
+	end
 	return R.HandoffSource(item, blocked)
 end
 local function PromptOpen(item)
@@ -123,6 +130,12 @@ local function Duplicate(item)
 	return false
 end
 
+-- (Review of 1.5.8) This client already gave this player's name to a member (say, a sighting before
+-- his JOIN): a popup of his own here would be a second invite.
+function H.Taken(item)
+	return type(item) == "table" and handed[NameKey(NameOf(item))] == true
+end
+
 local function NextOverflow()
 	return R.OverflowRequest(Duplicate) or (R.Candidates and R.Candidates.Overflow(Duplicate)) or nil
 end
@@ -197,6 +210,8 @@ function H.Claim(ref)
 end
 
 local function AutoStep()
+	-- (1.5.8, review) What the invite limit sent on and no member claimed comes back once it clears.
+	if R.ReleaseLimited then R.ReleaseLimited() end
 	local own, now = LocalGuild(), math.floor(ns.Now())
 	if not AutoAllowed(own) then autoProbe = nil; return end
 	Prune(now)
@@ -211,16 +226,27 @@ local function AutoStep()
 	end
 	autoProbe = nil
 	-- (1.5.8) Any member may take handoffs now, so in a large guild the probes go first, in turn, to
-	-- the members this client knows run Olympus (their hello); the others only when it knows none.
+	-- the members this client knows run Olympus (their hello). After each turn over them one goes to
+	-- the next of the others (review: a member whose hello never reached this client is still asked),
+	-- and every probe does when it knows none.
 	local roster, peer = ns.Roster.online or {}, nil
 	local V = ns.Versions
 	local known = V and V.HasOlympus
-	for pass = known and 1 or 2, 2 do
+	local count = 0
+	if known then
+		for _, row in ipairs(roster) do if known(ns.FullName(row.name)) then count = count + 1 end end
+	end
+	local first = count > 0 and knownTurn < count and 1 or 2
+	knownTurn = first == 1 and knownTurn + 1 or 0
+	for pass = first, 2 do
+		local cursor = pass == 1 and autoCursor or openCursor
 		for offset = 1, #roster do
-			local i = ((autoCursor or 0) + offset - 1) % #roster + 1
+			local i = ((cursor or 0) + offset - 1) % #roster + 1
 			local name = ns.FullName(roster[i].name)
-			if (pass == 2 or known(name)) and not SamePlayer(name, ns.me) and Member(name, own) then
-				autoCursor, peer = i, name
+			local heard = known and known(name) and true or false
+			if heard == (pass == 1) and not SamePlayer(name, ns.me) and Member(name, own) then
+				if pass == 1 then autoCursor = i else openCursor = i end
+				peer = name
 				break
 			end
 		end
@@ -239,7 +265,10 @@ end
 function H.ToggleAuto()
 	if autoTimer then autoTimer.Cancel(); autoTimer = nil end
 	autoGuild, autoProbe, autoCursor = not autoGuild and LocalGuild() or nil, nil, nil
-	if autoGuild then autoTimer = ns.Every(AUTO_EVERY, "recruit overflow", AutoStep) end
+	openCursor, knownTurn = nil, 0
+	if autoGuild then autoTimer = ns.Every(AUTO_EVERY, "recruit overflow", AutoStep)
+	-- With the offers off, what the invite limit sent on comes back to his popups.
+	elseif R.ReleaseLimited then ns.After(0, "recruit limit release", R.ReleaseLimited) end
 	Changed()
 	return autoGuild ~= nil
 end
@@ -256,8 +285,9 @@ function H.AutoOn()
 	return own ~= nil and autoGuild == own
 end
 
-local function Want(item)
-	item.passWanted = true
+-- `limit`: the invite limit sent it on, not his click, so it comes back when the limit clears.
+local function Want(item, limit)
+	item.passWanted, item.limitPassed = true, limit or nil
 	if autoGuild ~= LocalGuild() then
 		if autoGuild then H.ToggleAuto() end
 		H.ToggleAuto()
@@ -285,7 +315,7 @@ end
 -- goes to the other members instead of popping up here (Church > Invites still lists it).
 function H.Overflow(item)
 	if not H.AutoOn() or not H.CanPass(item) then return false end
-	Want(item)
+	Want(item, true)
 	return true
 end
 
@@ -506,6 +536,7 @@ function H.Reset()
 	acceptingGuild, choosing = nil, nil
 	if autoTimer then autoTimer.Cancel(); autoTimer = nil end
 	autoGuild, autoProbe, autoCursor, repliedAt = nil, nil, nil, -math.huge
+	openCursor, knownTurn = nil, 0
 	wipe(incoming)
 	wipe(outgoing)
 	wipe(handed)

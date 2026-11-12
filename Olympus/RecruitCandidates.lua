@@ -148,6 +148,11 @@ function Q.Overflow(skip)
 	end
 end
 
+-- Each scanned player, for the invite limit's release (Recruit.ReleaseLimited).
+function Q.EachRow(fn)
+	for _, row in ipairs(rows) do fn(row) end
+end
+
 function Q.Reset()
 	if timer then timer.Cancel(); timer = nil end
 	guild, prompts = nil, nil
@@ -192,9 +197,10 @@ local function Tick()
 	local H = R.Handoff
 	local overflow = H and H.AutoOn() and R.AtInviteLimit()
 	for _, row in ipairs(rows) do
-		if not row.prompted and not row.passWanted and not (H and H.State(row)) and Q.Check(row) then
+		if not row.prompted and not row.passWanted and not (H and (H.State(row) or H.Taken(row))) and Q.Check(row) then
 			if overflow then
-				if H.Overflow(row) then row.prompted = true end
+				-- (Not marked prompted: once the limit clears it pops up here, unless a member took it.)
+				H.Overflow(row)
 			elseif R.CopyCandidateInvite(row, true) then
 				row.prompted = true
 				return

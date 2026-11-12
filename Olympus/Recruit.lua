@@ -1394,6 +1394,40 @@ function Recruit.AtInviteLimit()
 	return #invitesTaken >= Recruit.INVITES_PER_MINUTE
 end
 
+-- Seconds until the oldest command still counted leaves the minute (call after AtInviteLimit).
+local function InviteLimitWait()
+	local first = invitesTaken[#invitesTaken - Recruit.INVITES_PER_MINUTE + 1]
+	return first and math.max(1, math.ceil(60 - (ns.Now() - first))) or 1
+end
+
+-- (1.5.8, review) A JOIN or scanned player the limit sent to the other members (not one he passed
+-- himself) comes back to his own popups once the limit clears, or at once when the automatic
+-- offers are off, unless a member's claim is under way. Returns whether a JOIN came back and
+-- whether one is still held.
+local function ReleaseLimited()
+	local H = Recruit.Handoff
+	if not H then return false, false end
+	local free = not (H.AutoOn() and Recruit.AtInviteLimit())
+	local back, held = false, false
+	local function Each(item)
+		if not item.limitPassed then return false end
+		local state = H.State(item)
+		if state == nil and free then
+			item.passWanted, item.limitPassed = nil, nil
+			return true
+		end
+		if state == nil or state == "offered" then held = true else item.limitPassed = nil end
+		return false
+	end
+	for _, req in ipairs(Recruit.requests) do if Each(req) then back = true end end
+	if Recruit.Candidates and Recruit.Candidates.EachRow then Recruit.Candidates.EachRow(Each) end
+	return back, held
+end
+
+function Recruit.ReleaseLimited()
+	if ReleaseLimited() then PromptReply() end
+end
+
 local function InviteDraftText(name, req, item)
 	local text = L.RECRUIT_WHISPER_INVITE_COPY:format(name)
 	local waiting = req and WaitingAfter(req) or 0
@@ -1560,8 +1594,10 @@ local function ReviewReply(req)
 end
 
 local function RetryReply(delay)
-	if replyTimer then return end
-	local timer = {}
+	-- (1.5.8) A sooner retry replaces a later one (the invite limit's can wait up to a minute).
+	local due = ns.Now() + delay
+	if replyTimer and replyTimer.due <= due then return end
+	local timer = { due = due }
 	replyTimer = timer
 	ns.After(delay, "next recruitment reply", function()
 		if replyTimer ~= timer then return end
@@ -1576,7 +1612,8 @@ PromptReply = function()
 	if not Recruiting() or QueueOnly() or not ns.Dialog or ns.Dialog.missing then return end
 	local now, req = ns.Now(), nil
 	Prune(now)
-	-- (1.5.8) At the invite limit with the automatic offers on, a new JOIN goes to other members.
+	-- (1.5.8) At the invite limit with the automatic offers on, a new JOIN goes to other members;
+	-- what no member claimed comes back here once the limit clears (ReleaseLimited).
 	local H = Recruit.Handoff
 	if H and H.AutoOn() and Recruit.AtInviteLimit() then
 		for _, pending in ipairs(Recruit.requests) do
@@ -1584,14 +1621,18 @@ PromptReply = function()
 				and not pending.passWanted then H.Overflow(pending) end
 		end
 	end
+	local _, held = ReleaseLimited()
+	local function Later()
+		if held then RetryReply(Recruit.AtInviteLimit() and InviteLimitWait() or 10) end
+	end
 	for _, pending in ipairs(Recruit.requests) do
 		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
-			and (not Recruit.Handoff or not Recruit.Handoff.State(pending)) then
+			and (not H or not (H.State(pending) or H.Taken(pending))) then
 			req = pending
 			break
 		end
 	end
-	if not req then return end
+	if not req then return Later() end
 	if lastReplyPrompt and now - lastReplyPrompt < ASK_COOLDOWN then
 		return RetryReply(ASK_COOLDOWN - (now - lastReplyPrompt))
 	end
@@ -1601,7 +1642,7 @@ PromptReply = function()
 	end
 	for _, pending in ipairs(Recruit.requests) do
 		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
-			and CurrentRequest(pending) then
+			and not (H and H.Taken(pending)) and CurrentRequest(pending) then
 			local shown
 			if pending.handoffIntent or pending.handedIn then shown = AcceptRequest(pending, nil, true)
 			else shown = ReviewReply(pending) end
@@ -1611,6 +1652,7 @@ PromptReply = function()
 			end
 		end
 	end
+	Later()
 end
 
 StaticPopupDialogs["OLYMPUS_RECRUIT_REPLY"] = {

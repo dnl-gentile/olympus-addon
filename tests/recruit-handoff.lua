@@ -499,11 +499,39 @@ test("recruit handoff (1.5.8): a scanned unguilded player is passed from his pop
 		assert(named.word:match("^J4~N~") and named.word:sub(-#wolf) == wolf, "the name goes after the claim")
 		eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~A~"))), true)
 		eq(H.State(row), "assigned")
-		-- The same player, now whispering JOIN, is never offered a second time.
+		-- The same player, now whispering JOIN, is never offered a second time, and (review of 1.5.8)
+		-- his JOIN does not pop the same /ginvite here: the member has his name.
 		R.OnWhisper("JOIN", wolf)
 		local again = assert(R.requests[1])
 		eq(again.name, wolf)
 		eq(H.CanPass(again), false, "no duplicate offer of a name already handed on")
+		eq(D.Find(DRAFT), nil, "no second invite of the same player here")
+	end)
+end)
+
+-- Review of 1.5.8 (P3): a sighting offered to a member, then the same player's JOIN here: the
+-- member's later claim must not get his name too, or both invite him.
+test("recruit handoff (1.5.8): a sighting's offer claimed after the same player's JOIN gives no name", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local wolf = "Lone Wolf-" .. home
+		local tick = ScanOne(scene, wolf)
+		tick()
+		local draft = assert(D.Find(DRAFT))
+		local row = draft.data.candidate
+		draft.def.OnButton2(draft, draft.data)
+		draft:Hide()
+		scene.tick()
+		eq(H.Receive("WHISPER", mate, (assert(scene.packets[1]).word:gsub("^J4~P~", "J4~V~"))), true)
+		scene.tick()
+		local offer = assert(scene.packets[2])
+		eq(H.State(row), "offered")
+		R.OnWhisper("JOIN", wolf)
+		local join = assert(D.Find(DRAFT), "his JOIN pops up here")
+		eq(join.data.req.name, wolf)
+		eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~C~"))), false, "the claim is refused")
+		eq(#scene.packets, 2, "his name does not go out to the member as well")
 	end)
 end)
 
@@ -565,6 +593,109 @@ test("recruit handoff (1.5.8): at ten invites a minute new JOINs and sightings g
 	end)
 end)
 
+-- Review of 1.5.8 (P2): what the limit sent on, when no member claimed it, never came back to his
+-- own popups once the minute was over ("lines them up for him up to his 10 a minute"). A player he
+-- passed himself stays passed.
+test("recruit handoff (1.5.8): what the invite limit sent on comes back to his popups when the minute is over", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local savedUtil = ChatFrameUtil
+		ChatFrameUtil = { OpenChat = function() end }
+		local ok, err = pcall(function()
+			for i = 1, 10 do R.OnWhisper("JOIN", ("Quick %d-%s"):format(i, home)) end
+			for i = 1, 10 do
+				local open = D.Find(DRAFT)
+				if open then open:Hide() end
+				eq(R.Accept(R.requests[i]), true)
+				local draft = assert(D.Find(DRAFT))
+				draft.def.extra.onClick(draft, draft.data)
+			end
+			eq(R.AtInviteLimit(), true)
+			-- With the offers off, the popup offers Pass, and his click passes this one for good.
+			scene.now = scene.now + 21
+			R.OnWhisper("JOIN", "Passed Recruit-" .. home)
+			local passed = R.requests[#R.requests]
+			local draft = assert(D.Find(DRAFT))
+			eq(draft.data.req, passed)
+			draft.def.OnButton2(draft, draft.data)
+			draft:Hide()
+			eq(H.AutoOn(), true, "his Pass turns the automatic offers on")
+			-- With the offers on, the limit sends the next JOIN and sighting on.
+			scene.now = scene.now + 21
+			R.OnWhisper("JOIN", "Held Recruit-" .. home)
+			local held = R.requests[#R.requests]
+			eq(held.passWanted, true, "at the limit the JOIN goes to the other members")
+			local tick = ScanOne(scene, "Held Walker-" .. home)
+			tick()
+			eq(D.Find(DRAFT), nil, "nor does the sighting pop up at the limit")
+			scene.tick()
+			assert(assert(scene.packets[1]).word:match("^J4~P~"), "the probe goes out, and nobody answers")
+			scene.tick()
+			eq(D.Find(DRAFT), nil, "still at the limit, nothing comes back")
+			-- The minute is over and no member claimed them.
+			scene.now = scene.now + 19
+			eq(R.AtInviteLimit(), false)
+			scene.tick()
+			local back = assert(D.Find(DRAFT), "the JOIN the limit sent on pops up here again")
+			eq(back.data.req, held)
+			eq(held.passWanted, nil)
+			assert(back.def.button2Shown(back, back.data), "and can still be passed by hand")
+			eq(back.text:find(ns.L.RECRUIT_INVITE_LIMIT_PASS:format(10), 1, true), nil)
+			eq(passed.passWanted, true, "the one he passed himself stays with the other members")
+			back:Hide()
+			tick()
+			local walker = assert(D.Find(DRAFT), "the sighting the limit sent on pops up again too")
+			eq(walker.data.candidate.full, "Held Walker-" .. home)
+			eq(walker.data.candidate.passWanted, nil)
+		end)
+		ChatFrameUtil = savedUtil
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- Review of 1.5.8 (P2): with the offers off again, what the limit sent on comes back at once (its
+-- popup says the limit and offers Pass), unless a member's claim is under way.
+test("recruit handoff (1.5.8): turning the offers off brings back what the limit sent on", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local savedUtil = ChatFrameUtil
+		ChatFrameUtil = { OpenChat = function() end }
+		local ok, err = pcall(function()
+			for i = 1, 10 do R.OnWhisper("JOIN", ("Rapid %d-%s"):format(i, home)) end
+			for i = 1, 10 do
+				local open = D.Find(DRAFT)
+				if open then open:Hide() end
+				eq(R.Accept(R.requests[i]), true)
+				local draft = assert(D.Find(DRAFT))
+				draft.def.extra.onClick(draft, draft.data)
+			end
+			eq(H.ToggleAuto(), true)
+			scene.now = scene.now + 21
+			R.OnWhisper("JOIN", "Offered Recruit-" .. home)
+			local offered = R.requests[#R.requests]
+			scene.now = scene.now + 21
+			R.OnWhisper("JOIN", "Waiting Recruit-" .. home)
+			local waiting = R.requests[#R.requests]
+			eq(offered.passWanted, true); eq(waiting.passWanted, true)
+			scene.tick()
+			eq(H.Receive("WHISPER", mate, (assert(scene.packets[1]).word:gsub("^J4~P~", "J4~V~"))), true)
+			scene.tick()
+			eq(H.State(offered), "offered", "the first one is offered to a member")
+			local queued = #scene.later
+			eq(H.ToggleAuto(), false)
+			for i = queued + 1, #scene.later do scene.later[i]() end
+			local back = assert(D.Find(DRAFT), "the one nobody took pops up here")
+			eq(back.data.req, waiting)
+			assert(back.text:find(ns.L.RECRUIT_INVITE_LIMIT_PASS:format(10), 1, true), "saying the limit is reached")
+			eq(offered.passWanted, true, "an offer under way stays with the member")
+		end)
+		ChatFrameUtil = savedUtil
+		if not ok then error(err, 0) end
+	end)
+end)
+
 -- 1.5.8: with every member a possible taker, a guild of hundreds online must not wait twenty
 -- seconds on each member without Olympus: the probe goes to one this client heard run it.
 test("recruit overflow (1.5.8): the probe goes first to members known to run Olympus", function()
@@ -587,6 +718,38 @@ test("recruit overflow (1.5.8): the probe goes first to members known to run Oly
 			scene.now = scene.now + 21
 			scene.tick()
 			eq(assert(scene.packets[2]).peer, quiet, "knowing none, every member is tried in turn")
+		end)
+		V.HasOlympus = saved
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- Review of 1.5.8 (P3): the probes rotated only over the members whose hello this client heard, so
+-- one who accepts handoffs but was never heard was never asked. After each turn over the known ones,
+-- one probe goes to the next of the others.
+test("recruit overflow (1.5.8): after a turn over the known members a probe goes to one not heard from", function()
+	WithHandoff(function(scene)
+		local V = ns.Versions
+		local saved = V.HasOlympus
+		local second, unheard = "Second Member-" .. home, "Unheard Member-" .. home
+		ns.Roster.online = { { name = mate }, { name = second }, { name = unheard } }
+		ns.Roster.RankOf = function(name)
+			if name == me then return 5 end
+			if name == mate or name == second or name == unheard then return 6 end
+		end
+		local ok, err = pcall(function()
+			V.HasOlympus = function(name) return name == mate or name == second end
+			for i = 1, 3 do R.OnWhisper("JOIN", ("Turn Queue %d-%s"):format(i, home)) end
+			eq(H.ToggleAuto(), true)
+			local asked = {}
+			for i = 1, 6 do
+				scene.tick()
+				asked[i] = assert(scene.packets[i], "one probe a step").peer
+				scene.now = scene.now + 21
+			end
+			eq(asked[1], mate); eq(asked[2], second)
+			eq(asked[3], unheard, "after the known members, the one not heard from is asked")
+			eq(asked[4], mate); eq(asked[5], second); eq(asked[6], unheard)
 		end)
 		V.HasOlympus = saved
 		if not ok then error(err, 0) end
