@@ -1794,9 +1794,10 @@ end
 local RECRUIT_MARK_ON = "|TInterface\\RaidFrame\\ReadyCheck-Ready:14:14|t "
 local RECRUIT_MARK_OFF = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:14:14|t "
 local RECRUIT_SWITCHES = {
-	{ key = "join", label = "RECRUIT_CENSUS_JOIN", hint = "RECRUIT_CENSUS_JOIN_HINT" },
+	-- (1.5.8, the author's ask) The hints that tell of passed requests say they are experimental.
+	{ key = "join", label = "RECRUIT_CENSUS_JOIN", hint = "RECRUIT_CENSUS_JOIN_HINT", experimental = true },
 	{ key = "ads", label = "RECRUIT_CENSUS_ADS", hint = "RECRUIT_CENSUS_ADS_HINT" },
-	{ key = "scan", label = "RECRUIT_CENSUS_SCAN", hint = "RECRUIT_CENSUS_SCAN_HINT" },
+	{ key = "scan", label = "RECRUIT_CENSUS_SCAN", hint = "RECRUIT_CENSUS_SCAN_HINT", experimental = true },
 }
 Views.RECRUIT_AD_MINUTES = 5
 
@@ -1922,6 +1923,7 @@ local function CensusLines(s, q, recruitment)
 				onClick = function() recruitment.switch(switch.key) end }
 			local hint = L[switch.hint]
 			if switch.key == "ads" then hint = hint:format(Views.RECRUIT_AD_MINUTES) end
+			if switch.experimental then hint = hint .. " " .. L.RECRUIT_EXPERIMENTAL end
 			lines[#lines + 1] = { text = Grey(hint), center = true, wrap = true, gapAfter = true }
 		end
 		if any then

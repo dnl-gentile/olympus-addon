@@ -2865,6 +2865,7 @@ ns.Locale("ruRU", {
 	RECRUIT_CANDIDATE_WHISPER_EVERY = "Напоминание о шёпоте каждые %d мин",
 	RECRUIT_CANDIDATE_WHISPER = "Проверить шёпот",
 	RECRUIT_CANDIDATE_WHISPER_FIRST = "Сначала шепнуть",
+	RECRUIT_EXPERIMENTAL = "(Экспериментально)",
 	RECRUIT_CANDIDATE_SEARCH_MORE = "Искать ещё игроков без гильдии (/who)",
 	RECRUIT_CANDIDATE_SEARCH_WAIT = "Запрос /who ещё выполняется: попробуйте через несколько секунд.",
 	RECRUIT_WHISPER_POPUP_ON = "Запросы JOIN: Окно",
