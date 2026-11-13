@@ -1025,7 +1025,9 @@ end
 
 -- Whether a piece of a bounded snapshot transfer from a relay (below), and (1.5.9's review) that transfer:
 -- its `census` is whether it is census (a census snapshot, CG, or another server's census, CX or QA; not
--- a verification snapshot, GV), which the relay may hand its own guild by the census lane (GuildCensus).
+-- a verification snapshot, GV), which the relay may hand its own guild by the census lane (GuildCensus);
+-- (round 2 of the review) its `look`, whether that census is another server's (QA, CX), which has a turn of
+-- its own there.
 local function SnapshotPart(origin, body, now)
 	if not Relay.IsRelay(origin) then return false end
 	local id, index, total, part = body:match("^C(%w+):(%d+):(%d+):(.*)$")
@@ -1052,7 +1054,8 @@ local function SnapshotPart(origin, body, now)
 			else count = count + 1 end
 		end
 		if count >= Relay.MAX_RELAYS then return false end
-		transfer = { id = id, total = total, t = now, last = now, got = 0, bytes = 0, parts = {}, census = not part:match("^GV~") }
+		transfer = { id = id, total = total, t = now, last = now, got = 0, bytes = 0, parts = {}, census = not part:match("^GV~"),
+			look = part:match("^QA~") ~= nil or part:match("^CX~") ~= nil }
 		snapshotTransfers[key] = transfer
 	end
 	if transfer.id ~= id or transfer.total ~= total or transfer.parts[index] then return false end
@@ -2147,19 +2150,26 @@ end
 
 -- (1.5.9's review) A relay that is its own guild's registrant hands its guild every census word it takes,
 -- piece by piece (ToReporters, hop 3 on its own client): its own snapshot every GLOBAL_EVERY and each
--- mesh peer's as it crosses. One of them every GUILD_CENSUS_EVERY goes by the census lane to our guild
--- (ToGuild), the first whose first piece comes then, its own or (under quiet presence, none of its own)
--- a peer's; the others as before, ordinary: its own snapshot carries its peers' rows, and every census
--- word handed over urgent took the chat lane's and the registrants' census's room at a peak (the offline
--- harness, its own rounds, 90 registrants, 30 minutes, each word urgent in one go: at a line every 35 s,
--- 18 registrants without a census instead of 5; the King's presence reached 27 to 36 of 90, not 45 to 56).
+-- mesh peer's as it crosses. One census snapshot every GUILD_CENSUS_EVERY goes by the census lane to our
+-- guild (ToGuild), the first whose first piece comes then, its own or a mesh peer's (whose rows of ours came
+-- from our own crossing to it); the others as before, ordinary: its own snapshot carries its peers' rows,
+-- and every census word handed over urgent took the chat lane's and the registrants' census's room at a
+-- peak (the offline harness, its own rounds, 90 registrants, 30 minutes, each word urgent in one go: at a
+-- line every 35 s, 18 registrants without a census instead of 5; the King's presence reached 27 to 36 of
+-- 90, not 45 to 56). (Round 2 of the review) Another server's census (a look: QA, CX) has a turn of its own,
+-- one every GUILD_CENSUS_EVERY too: in one turn for both, a look said in the window took the snapshot's,
+-- and the guild's census snapshot went stale past Data.FRESH at a peak (the offline harness, a look every
+-- minute and a chat line every 45 s: 2 of the 10 snapshots by the lane, 569 s without one; a look every
+-- 130 s and a line every 35 s, 1,037 s). A real relay says each origin's look about once in 30 minutes, in
+-- two pieces: its turn costs little.
 Relay.GUILD_CENSUS_EVERY = 300
-local guildCensusAt = -math.huge
+local guildCensusAt = {} -- "snapshot" or "look" -> when that kind's last turn by the lane began
 local function GuildCensus(transfer, now)
 	if type(transfer) ~= "table" or not transfer.census then return false end
 	if transfer.ourGuild == nil then
-		transfer.ourGuild = now - guildCensusAt >= Relay.GUILD_CENSUS_EVERY
-		if transfer.ourGuild then guildCensusAt = now end
+		local kind = transfer.look and "look" or "snapshot"
+		transfer.ourGuild = now - (guildCensusAt[kind] or -math.huge) >= Relay.GUILD_CENSUS_EVERY
+		if transfer.ourGuild then guildCensusAt[kind] = now end
 	end
 	return transfer.ourGuild
 end
@@ -3425,7 +3435,7 @@ function Relay.Reset()
 	dripBusy, dripping = false, false
 	dripBucket.tokens, dripBucket.at, dripOwed = nil, -math.huge, 0 -- (1.5.9's review: the drip's pace)
 	wipe(chatQ); chatFirst, chatLast, chatInflight, chatFeeding = 1, 0, 0, false -- (1.5.5: the chat lane)
-	wipe(guildLane); guildInflight, guildFeeding, guildTimer, guildCensusAt = 0, false, false, -math.huge -- (1.5.9's review)
+	wipe(guildLane); wipe(guildCensusAt); guildInflight, guildFeeding, guildTimer = 0, false, false -- (1.5.9's review)
 	chatWaitUntil, chatTimer, chatBucket.tokens, chatBucket.at = -math.huge, false, Relay.CHAT_BURST, -math.huge
 	for k in pairs(stats) do stats[k] = 0 end
 	hop, hopSender = nil, nil -- (1.5.5)

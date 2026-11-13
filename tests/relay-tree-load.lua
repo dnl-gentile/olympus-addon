@@ -685,6 +685,26 @@ test("relay tree under load (1.5.9's review): a relay that is its own guild's re
 	eq(r.never, 0, "every registrant took a snapshot")
 end)
 
+-- 1.5.9's review (round 2): the census lane's turn every Relay.GUILD_CENSUS_EVERY went to the first census word
+-- whose first piece came after it, of any kind: the relay's own signed look (QA, and CX) as much as a census
+-- snapshot. A look said in the window took the snapshot's turn, and the guild's census snapshot waited for the
+-- next window, or was pushed out at a peak as an ordinary hand-on. A census snapshot and a look each have a turn
+-- of their own now. (A real relay says each origin's look about once in 30 minutes, in two pieces; here the
+-- author's look every minute, in four, so that one is always there to take the turn.) Fails before: the guild
+-- took 2 of the 10 snapshots, and went 569 s without one.
+test("relay tree under load (1.5.9's review): a relay that is its own guild's registrant, its own rounds, 90 registrants (ten on 1.5.4), a chat line every 45 s and the author's signed look every minute for 20 minutes: the looks take no turn of the census snapshots by the lane, and its guild still takes one whole at least every Relay.GUILD_CENSUS_EVERY and a round", function()
+	local r = Run({ registrants = 90, guilds = 140, minutes = 20, chat = 45, mix = { new = 90, ["1.5.4"] = 10 }, ownGuild = true, look = 60 })
+	Sound(r)
+	local og = r.ownGuild
+	local bound = (og.every or 0) + og.round + 60
+	assert(r.look.words >= 15, ("%d looks said"):format(r.look.words))
+	assert(og.took >= 3, ("its guild took %d of the relay's %d snapshots whole"):format(og.took, og.made))
+	eq(og.twice, 0, "each once")
+	assert(og.longest <= bound, ("its guild went %d s without a new census snapshot, past %d"):format(og.longest, bound))
+	eq(r.chat.lost, 0, "no chat whisper lost")
+	eq(r.never, 0, "every registrant took a snapshot")
+end)
+
 -- (T1 of the review) A relay that makes no round of its own (quiet presence: Data.SendGlobalCensus says
 -- nothing) hands every registrant a peer's whole snapshot by the star: about 29 whispers each. Unpaced, that
 -- took the relay's sends and the chat lane lost lines; paced, the chat keeps its share and the census is
