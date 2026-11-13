@@ -305,7 +305,7 @@ test("global census (1.4.0): a late client ends with the same totals as the memb
 	eq(Shown({ { "Third-Realm", 641 }, { "Second-Realm", 643 }, { "First-Realm", 640 } }), 643)
 end)
 
-test("global census (1.4.0): an ask carries what its client holds; a member answers one behind it, late and announced, and holds back after two answers or a trusted one", function()
+test("global census (1.4.0): an ask carries its retained global state; a member answers one behind it, late and announced, and holds back after two answers or a trusted one", function()
 	local function Holder()
 		local w = WitnessWorld()
 		w.ns.me = "Holder-Realm"
@@ -316,12 +316,19 @@ test("global census (1.4.0): an ask carries what its client holds; a member answ
 		}
 		w.ns.rdb.guilds["Olympus Dawn"] = { total = 640, online = 40, avgLevel = 30, t = w.clock, st = w.clock }
 		w.ns.rdb.guilds["Olympus Dusk"] = { total = 980, online = 70, avgLevel = 31, t = w.clock, st = w.clock }
+		w.ns.rdb.censusGlobal = {
+			["olympus dawn"] = { name = "Olympus Dawn", total = 640, online = 40, avg10 = 300,
+				observed = w.clock, scope = w.ns.group },
+			["olympus dusk"] = { name = "Olympus Dusk", total = 980, online = 70, avg10 = 310,
+				observed = w.clock, scope = w.ns.group },
+		}
 		return w
 	end
-	-- What the ask says.
+	-- What the ask says: its equal direct rows are not what proves this retained view.
 	local asker = Holder()
 	asker.D.AskGlobalCensus()
-	eq(asker.sent[1].text, ("CG~1~Q~%d~2~%d"):format(asker.clock, asker.clock), "two guilds, the newest observed now")
+	eq(asker.sent[1].text, ("CG~1~Q~%d~2~%d"):format(asker.clock, asker.clock),
+		"two retained guilds, the newest observed now")
 	-- Behind: answered after the members' delay, a claim first, then the snapshot.
 	local h = Holder()
 	eq(h.D.ReceiveGlobalCensus("CHANNEL", "Latecomer-Realm", ("CG~1~Q~%d~0~0"):format(h.clock)), true)
@@ -332,9 +339,9 @@ test("global census (1.4.0): an ask carries what its client holds; a member answ
 	eq(h.sent[1].text, ("CG~1~C~%d"):format(h.clock), "the claim first")
 	assert(h.sent[2].text:find("^CG~1~S~"), "then the snapshot")
 	assert(h.sent[2].text:find("Olympus Dawn,640,40,300", 1, true) and h.sent[2].text:find("Olympus Dusk,980,70,310", 1, true))
-	-- Not behind: no answer.
+	-- Not behind: the asker's retained global view equals the responder's sendable view.
 	local even = Holder()
-	even.D.ReceiveGlobalCensus("CHANNEL", "Latecomer-Realm", ("CG~1~Q~%d~2~%d"):format(even.clock, even.clock))
+	even.D.ReceiveGlobalCensus("CHANNEL", "Latecomer-Realm", asker.sent[1].text)
 	eq(#even.timers, 0, "the asker holds as much: nothing to send")
 	-- A 1.3.3 ask says nothing of what it holds: answered.
 	local old = Holder()
@@ -367,6 +374,84 @@ test("global census (1.4.0): an ask carries what its client holds; a member answ
 	hidden.D.ReceiveGlobalCensus("CHANNEL", "Latecomer-Realm", ("CG~1~Q~%d~0~0"):format(hidden.clock))
 	eq(#hidden.timers, 0)
 	eq(hidden.D.SendGlobalCensus(), false)
+end)
+
+test("global census (#91): a fresh direct row cannot mask the stale retained view an asker needs healed", function()
+	local function Member(name)
+		local w = WitnessWorld()
+		w.ns.me = name
+		w.sent = {}
+		w.ns.Comm = {
+			Send = function(dist, text) w.sent[#w.sent + 1] = { dist = dist, text = text } return true end,
+			SendChunked = function(payload, _, dist) w.sent[#w.sent + 1] = { dist = dist, text = payload } return true end,
+		}
+		return w
+	end
+	local asker, stale = Member("Asker-Realm"), 65 * 60
+	asker.ns.rdb.censusGlobal = {
+		["olympus dawn"] = { name = "Olympus Dawn", total = 600, online = 30, avg10 = 300,
+			observed = asker.clock - stale, scope = asker.ns.group },
+	}
+	asker.ns.rdb.guilds["Olympus Dawn"] = {
+		total = 640, online = 40, avgLevel = 31, t = asker.clock, st = asker.clock,
+	}
+	assert(asker.D.AskGlobalCensus())
+	eq(asker.sent[1].text, ("CG~1~Q~%d~1~%d"):format(asker.clock, asker.clock - stale),
+		"the ask advertises the retained global view that needs healing")
+
+	local responder = Member("Responder-Realm")
+	responder.ns.rdb.censusGlobal = {
+		["olympus dawn"] = { name = "Olympus Dawn", total = 600, online = 30, avg10 = 300,
+			observed = responder.clock - stale, scope = responder.ns.group },
+	}
+	responder.ns.rdb.guilds["Olympus Dawn"] = {
+		total = 640, online = 40, avgLevel = 31, t = responder.clock, st = responder.clock,
+	}
+	assert(responder.D.ReceiveGlobalCensus("CHANNEL", asker.ns.me, asker.sent[1].text))
+	eq(#responder.timers, 1, "fresh sendable evidence schedules an answer to the stale retained view")
+	responder.Run()
+	eq(#responder.sent, 2, "the member announces and sends the answer")
+	assert(responder.sent[2].text:find("Olympus Dawn,640,40,310", 1, true),
+		"the answer carries the responder's fresh direct evidence")
+	local _, rows = responder.sent[2].text:gsub("Olympus Dawn", "")
+	eq(rows, 1, "the retained and direct copies are deduplicated")
+end)
+
+test("global census (#91): answer comparison excludes older, stale and foreign evidence", function()
+	local function Member()
+		local w = WitnessWorld()
+		w.ns.me = "Responder-Realm"
+		w.ns.Comm = {
+			Send = function() return true end,
+			SendChunked = function() return true end,
+		}
+		return w
+	end
+	local function Ask(w, n, newest)
+		assert(w.D.ReceiveGlobalCensus("CHANNEL", "Asker-Realm",
+			("CG~1~Q~%d~%d~%d"):format(w.clock, n, newest)))
+		return #w.timers
+	end
+
+	local older = Member()
+	older.ns.rdb.guilds["Olympus Dawn"] = { total = 640, online = 40,
+		t = older.clock - 2 * older.D.FRESH, st = older.clock - 2 * older.D.FRESH }
+	eq(Ask(older, 1, older.clock), 0, "an older sendable view cannot roll the asker back")
+
+	local invalid = Member()
+	invalid.ns.group, invalid.ns.realm = "ForeverPvE", "CAMWOWUS1Realm1PvE"
+	invalid.ns.rdb.censusGlobal = {
+		["olympus wrong scope"] = { name = "Olympus Wrong Scope", total = 700, online = 50, avg10 = 300,
+			observed = invalid.clock, scope = "ForeverPvP" },
+	}
+	invalid.ns.rdb.guilds["Olympus Foreign"] = { total = 700, online = 50, t = invalid.clock, st = invalid.clock,
+		from = "CAMWOWUS1Realm1PvP" }
+	eq(Ask(invalid, 0, 0), 0, "foreign direct and wrong-scope retained rows are not sendable evidence")
+
+	local stale = Member()
+	stale.ns.rdb.guilds["Olympus Dawn"] = { total = 640, online = 40,
+		t = stale.clock - stale.D.TOTAL_KEEP - 1, st = stale.clock - stale.D.TOTAL_KEEP - 1 }
+	eq(Ask(stale, 0, 0), 0, "direct evidence outside the countable window does not cause an answer")
 end)
 
 test("global census (1.4.0): asks at login, again after GLOBAL_ASK_AGAIN, then every half hour", function()
