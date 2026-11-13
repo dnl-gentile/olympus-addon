@@ -983,3 +983,38 @@ test("1.5.9 recruiting ranking: the README and the CurseForge page tell of the r
 		end
 	end
 end)
+
+-- 1.5.9's letter (Locales.lua and each language's file) tells the ranking with numbers: the points for a
+-- recruit and for his stay, the days of that stay, the passer's quarter and the rows the page shows. Each
+-- as this file's ranking counts them, in every shipped language (tests/letter-content.lua checks the rest).
+local LETTER_RANKING = {
+	enUS = { "earns you %d points, and %d more if he is still there %d days later", "a quarter of those points", "The page shows the top %d and your place." },
+	ptBR = { "vale %d pontos para você, e mais %d se ainda estiver nela %d dias depois", "um quarto desses pontos", "A página mostra os %d primeiros e a sua posição." },
+	deDE = { "bringt dir %d Punkte, und %d mehr, wenn er %d Tage später noch dabei ist", "ein Viertel dieser Punkte", "Die Seite zeigt die ersten %d und deinen Platz." },
+	esES = { "te da %d puntos, y %d más si sigue en ella %d días después", "una cuarta parte de esos puntos", "La página muestra los %d primeros y tu puesto." },
+	frFR = { "te rapporte %d points, et %d de plus s'il y est encore %d jours plus tard", "un quart de ces points", "La page montre les %d premiers et ta place." },
+	itIT = { "ti dà %d punti, e altri %d se è ancora lì %d giorni dopo", "un quarto di quei punti", "La pagina mostra i primi %d e il tuo posto." },
+	ruRU = { "приносит вам %d очков и ещё %d, если через %d дней он всё ещё в гильдии", "четверть этих очков", "На странице видны первые %d и ваше место." },
+}
+test("1.5.9 recruiting ranking: the 1.5.9 letter tells the points, the stay, the passer's quarter and the rows the page shows as the ranking counts them, in every language", function()
+	local w = World.New({ apostles = { A1 } })
+	local K = w:Client(A1)
+	local Count, RR = K.c.ChurchCount, K.RR
+	eq(RR.SHARE, 0.25, "a quarter, as the letter says")
+	for code, say in pairs(LETTER_RANKING) do
+		local saved = GetLocale
+		local lns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
+		GetLocale = function() return code end
+		local ok, err = pcall(function()
+			assert(loadfile(ROOT .. "Olympus/Locales.lua"))("Olympus", lns)
+			if code ~= "enUS" and code ~= "ptBR" then assert(loadfile(ROOT .. "Olympus/Locales/" .. code .. ".lua"))("Olympus", lns) end
+		end)
+		GetLocale = saved
+		if not ok then error(err, 0) end
+		local letter = assert(rawget(lns.L, "LETTER_1_5_9"), code)
+		assert(letter:find(say[1]:format(RR.POINTS_JOIN, RR.POINTS_STAY, RR.STAY_DAYS), 1, true), code .. ": the points and the stay")
+		assert(letter:find(say[2], 1, true), code .. ": the passer's quarter")
+		assert(letter:find(say[3]:format(RR.RANK_ROWS), 1, true), code .. ": the rows the page shows")
+		eq(RR.POINTS_JOIN, Count.POINTS_JOIN, "the Church's points"); eq(RR.STAY_DAYS, Count.STAY_DAYS, "the Church's stay")
+	end
+end)

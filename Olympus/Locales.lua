@@ -295,6 +295,30 @@ To everyone who sent ideas, bug reports and fixes: thank you. Special thanks to 
 Close and reopen WoW after updating. If something still fails, send an /oly bug report.
 
 Long live the King. Long live Olympus.]==]
+-- 1.5.9 (the author, 11-12: "Você pode, por favor, finalizar 1.5.9? ... tem coisa que a gente deixou
+-- para ela da estrutura da rede, do repasse"): the rest the 1.5.8 letter promised. The ranking for
+-- everyone, Church > Invites in sections, the kept switches, the Join page's request as a JOIN, the
+-- census for the guilds that saw too few of us, the chat by ruleset and the King's guild's mark.
+L.LETTER_1_5_9_TITLE = "The Whole Host Counted"
+L.LETTER_1_5_9_HEAD, L.LETTER_1_5_9_SIGNED, L.LETTER_1_5_9_LINK = L.LETTER_1_5_9_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+L.LETTER_1_5_9 = [==[Your Majesty. Soldiers of Olympus.
+
+As promised, here is the rest. Every member can now climb the recruiting ranking, and guilds that saw only part of the army in the census should now see all of it.
+
+- {church} The ranking is open to everyone: Church > Ranking > Everyone. Each player who joins your guild after your invite earns you 10 points, and 5 more if he is still there 7 days later. The member who passed that player on to you gets a quarter of those points. A recruit counts once another member's addon sees him join too. The page shows the top 10 and your place.
+- {church} Church > Invites is easier to read: Recruiting, Recruiting ads, Find unguilded players and Handoffs, each under its own heading. When you pass a player on, the members who accept handoffs are asked first, and Offer to another member lists them first.
+- {church} A player who declines your guild invite is not offered to you again for 7 days, unless he asks to join again. Your recruiting switches stay as you left them after a /reload or a new login. While recruiting is on, a line at the top of the Census says so: click it to open the settings.
+- {guild} A member who is recruiting now gets a request from the Join Olympus page as a whispered JOIN: the same invite window and the same handoffs.
+- {guild} The census for the guilds that saw too few of us: on WoW: Forever every Olympus guild of your faction now joins the same channel, sealed guilds too, and the relays pass the whole census on again, even when they are busy. Players still on an old version are asked to update, once a day at most.
+- {guild} The other rulesets' totals now stay until a newer count replaces them, and the totals the author's client sees reach every member. The census details show when they were counted.
+- {news} In the Olympus chat, each line shows under its writer's ruleset: lines from other rulesets no longer land under yours. With your own ruleset chosen, what you write goes to your ruleset alone.
+- {crown} The King's guild wears the verified check mark in the Census.
+
+Thank you for the /oly bug reports: they showed us where the census fell short.
+
+Close and reopen WoW after updating. If something still fails, send an /oly bug report.
+
+Long live the King. Long live Olympus.]==]
 L.LETTER_1_5_7_TITLE = "Census progress and catch-up"
 L.LETTER_1_5_7_HEAD, L.LETTER_1_5_7_SIGNED, L.LETTER_1_5_7_LINK = L.LETTER_1_5_7_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 L.LETTER_1_5_7 = [==[Your Majesty. Soldiers of Olympus.
@@ -506,6 +530,26 @@ O Rei pediu ferramentas melhores de recrutamento. Aqui estão. O jogo deixa cada
 - {watch} The Watch pode reenviar uma aprovação de guilda, conferir o mestre de guilda atual, ocultar guildas e copiar nomes.
 
 A todos que mandaram ideias, relatos de bugs e correções: muito obrigado. Um agradecimento especial a Thunder Konig, Fern Melder e Heuto Jerrico.
+
+Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
+
+Vida longa ao Rei. Vida longa ao Olympus.]==]
+	L.LETTER_1_5_9_TITLE = "Todo o exército contado"
+	L.LETTER_1_5_9_HEAD, L.LETTER_1_5_9_SIGNED, L.LETTER_1_5_9_LINK = L.LETTER_1_5_9_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+	L.LETTER_1_5_9 = [==[Vossa Majestade. Soldados do Olympus.
+
+Como prometido, aqui está o resto. Agora todo membro pode subir no ranking de recrutamento, e as guildas que viam só parte do exército no censo devem passar a ver o exército inteiro.
+
+- {church} O ranking está aberto a todos: Igreja > Ranking > Todos. Cada jogador que entra na sua guilda depois do seu convite vale 10 pontos para você, e mais 5 se ainda estiver nela 7 dias depois. O membro que repassou esse jogador para você ganha um quarto desses pontos. Um recruta conta quando o addon de outro membro também vê a entrada dele. A página mostra os 10 primeiros e a sua posição.
+- {church} Igreja > Convites ficou mais fácil de ler: Recrutamento, Anúncios de recrutamento, Buscar jogadores sem guilda e Repasses, cada um com o seu título. Quando você repassa um jogador, os membros que aceitam repasses são consultados primeiro, e Oferecer a outro membro mostra esses membros primeiro.
+- {church} Um jogador que recusa o convite da sua guilda não é oferecido a você de novo por 7 dias, a não ser que peça para entrar outra vez. Suas chaves de recrutamento ficam como você deixou depois de um /reload ou de um novo login. Enquanto o recrutamento está ligado, uma linha no topo do Censo avisa: clique nela para abrir as configurações.
+- {guild} Quem está recrutando agora recebe um pedido da página Entre na Olympus como um JOIN sussurrado: a mesma janela de convite e os mesmos repasses.
+- {guild} O censo das guildas que viam poucos de nós: no WoW: Forever todas as guildas Olympus da sua facção agora entram no mesmo canal, inclusive as seladas, e os relays voltam a repassar o censo inteiro, mesmo quando estão ocupados. Quem ainda usa uma versão antiga recebe um pedido para atualizar, no máximo uma vez por dia.
+- {guild} Os totais dos outros rulesets agora ficam até chegar uma contagem mais nova, e os totais que o cliente do autor vê chegam a todos os membros. Os detalhes do censo mostram quando foram contados.
+- {news} No chat do Olympus, cada linha aparece no ruleset de quem escreveu: linhas de outros rulesets não caem mais no seu. Com o seu próprio ruleset escolhido, o que você escreve vai só para o seu ruleset.
+- {crown} A guilda do Rei aparece no Censo com a marca de guilda verificada.
+
+Obrigado pelos relatos do /oly bug: foram eles que mostraram onde o censo falhava.
 
 Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
 

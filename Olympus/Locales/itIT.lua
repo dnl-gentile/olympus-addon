@@ -42,6 +42,28 @@ ns.Locale("itIT", {
 	PLAYER_TOOLTIP_SIZE = "Dimensione del tooltip: %d%%",
 	RECORDS_LAG = "Tempo dal turno di invio alla trasmissione dei riepiloghi: %d campioni, %.1f s in media, %.1f s al massimo",
 	RECORDS_NET = "Turno %d: riepiloghi ricevuti %s, risposte inviate %d, budget residuo %d di %d, richieste inviate %d",
+	LETTER_1_5_9_TITLE = "Tutto l'esercito contato",
+	LETTER_1_5_9_HEAD = "Tutto l'esercito contato",
+	LETTER_1_5_9_SIGNED = "Il vostro umile artefice, lo sviluppatore di Olympus",
+	LETTER_1_5_9_LINK = ns.L.LETTER_1_5_9_LINK,
+	LETTER_1_5_9 = [==[Vostra Maestà. Soldati di Olympus.
+
+Come promesso, ecco il resto. Ora ogni membro può scalare la classifica del reclutamento, e le gilde che nel censimento vedevano solo una parte dell'esercito dovrebbero vederlo tutto.
+
+- {church} La classifica è aperta a tutti: Chiesa > Classifica > Tutti. Ogni giocatore che entra nella tua gilda dopo il tuo invito ti dà 10 punti, e altri 5 se è ancora lì 7 giorni dopo. Il membro che ti ha passato quel giocatore riceve un quarto di quei punti. Una recluta conta quando anche l'addon di un altro membro vede il suo ingresso. La pagina mostra i primi 10 e il tuo posto.
+- {church} Chiesa > Inviti si legge meglio: Reclutamento, Annunci di reclutamento, Trova giocatori senza gilda e Inoltri, ognuno sotto il suo titolo. Quando passi un giocatore, si chiede prima ai membri che accettano gli inoltri, e Proponi a un altro membro li mostra per primi.
+- {church} Un giocatore che rifiuta l'invito nella tua gilda non ti viene riproposto per 7 giorni, a meno che non chieda di nuovo di entrare. I tuoi interruttori di reclutamento restano come li hai lasciati dopo un /reload o un nuovo accesso. Finché il reclutamento è attivo, una riga in cima al Censimento lo dice: cliccala per aprire le impostazioni.
+- {guild} Un membro che sta reclutando ora riceve una richiesta dalla pagina Unisciti a Olympus come un JOIN sussurrato: la stessa finestra di invito e gli stessi inoltri.
+- {guild} Il censimento delle gilde che vedevano troppo pochi di noi: su WoW: Forever tutte le gilde Olympus della tua fazione entrano ora nello stesso canale, anche quelle sigillate, e i relay passano di nuovo il censimento intero, anche quando sono occupati. Chi usa ancora una versione vecchia riceve una richiesta di aggiornare, al massimo una volta al giorno.
+- {guild} I totali delle altre regole ora restano finché un conteggio più recente non li sostituisce, e i totali che vede il client dell'autore arrivano a ogni membro. I dettagli del censimento mostrano quando sono stati contati.
+- {news} Nella chat di Olympus, ogni riga appare sotto le regole di chi la scrive: le righe di altre regole non finiscono più sotto le tue. Con le tue regole scelte, ciò che scrivi va solo alle tue regole.
+- {crown} La gilda del Re porta nel Censimento il segno di spunta delle gilde verificate.
+
+Grazie per le segnalazioni con /oly bug: ci hanno mostrato dove il censimento non arrivava.
+
+Chiudi e riapri WoW dopo l'aggiornamento. Se qualcosa non funziona ancora, invia una segnalazione con /oly bug.
+
+Lunga vita al Re. Lunga vita a Olympus.]==],
 	LETTER_1_5_8_TITLE = "Per ordine del Re",
 	LETTER_1_5_8_HEAD = "Per ordine del Re",
 	LETTER_1_5_8_SIGNED = "Il vostro umile artefice, lo sviluppatore di Olympus",

@@ -42,6 +42,28 @@ ns.Locale("deDE", {
 	PLAYER_TOOLTIP_SIZE = "Tooltip-Größe: %d%%",
 	RECORDS_LAG = "Zeit vom Sendeplatz bis zum Versand der Prüfsummen: %d Messungen, im Schnitt %.1f s, höchstens %.1f s",
 	RECORDS_NET = "Runde %d: Prüfsummen empfangen %s, Antworten gesendet %d, Budget %d von %d, Suchanfragen gesendet %d",
+	LETTER_1_5_9_TITLE = "Das ganze Heer gezählt",
+	LETTER_1_5_9_HEAD = "Das ganze Heer gezählt",
+	LETTER_1_5_9_SIGNED = "Euer ergebener Tüftler, der Entwickler von Olympus",
+	LETTER_1_5_9_LINK = ns.L.LETTER_1_5_9_LINK,
+	LETTER_1_5_9 = [==[Eure Majestät. Soldaten von Olympus.
+
+Wie versprochen kommt hier der Rest. Jedes Mitglied kann jetzt in der Rekrutierungsrangliste aufsteigen, und Gilden, die im Zensus nur einen Teil der Armee sahen, sollten jetzt die ganze sehen.
+
+- {church} Die Rangliste ist für alle offen: Kirche > Rangliste > Alle. Jeder Spieler, der nach deiner Einladung deiner Gilde beitritt, bringt dir 10 Punkte, und 5 mehr, wenn er 7 Tage später noch dabei ist. Das Mitglied, das dir diesen Spieler weitergegeben hat, bekommt ein Viertel dieser Punkte. Ein Rekrut zählt, sobald auch das Addon eines anderen Mitglieds seinen Beitritt sieht. Die Seite zeigt die ersten 10 und deinen Platz.
+- {church} Kirche > Einladungen ist leichter zu lesen: Rekrutierung, Rekrutierungsanzeigen, Spieler ohne Gilde finden und Weitergaben, jeweils unter einer eigenen Überschrift. Wenn du einen Spieler weitergibst, werden zuerst die Mitglieder gefragt, die Weitergaben annehmen, und Einem anderen Mitglied anbieten listet sie zuerst auf.
+- {church} Ein Spieler, der deine Gildeneinladung ablehnt, wird dir 7 Tage lang nicht mehr angeboten, außer er bittet selbst wieder um Aufnahme. Deine Rekrutierungsschalter bleiben nach einem /reload oder einer neuen Anmeldung so, wie du sie gelassen hast. Solange die Rekrutierung an ist, sagt es eine Zeile oben im Zensus: Ein Klick darauf öffnet die Einstellungen.
+- {guild} Ein Mitglied, das rekrutiert, bekommt eine Anfrage von der Seite Olympus beitreten jetzt wie ein geflüstertes JOIN: dasselbe Einladungsfenster und dieselben Weitergaben.
+- {guild} Der Zensus für die Gilden, die zu wenige von uns sahen: Auf WoW: Forever treten jetzt alle Olympus-Gilden deiner Fraktion demselben Kanal bei, auch versiegelte, und die Relays geben wieder den ganzen Zensus weiter, auch wenn sie ausgelastet sind. Wer noch eine alte Version hat, wird höchstens einmal am Tag gebeten, sie zu aktualisieren.
+- {guild} Die Zahlen der anderen Regelwerke bleiben jetzt, bis eine neuere Zählung sie ersetzt, und die Zahlen, die der Client des Autors sieht, erreichen jedes Mitglied. Die Zensusdetails zeigen, wann sie gezählt wurden.
+- {news} Im Olympus-Chat steht jede Zeile unter dem Regelwerk ihres Schreibers: Zeilen anderer Regelwerke landen nicht mehr unter deinem. Ist dein eigenes Regelwerk gewählt, geht, was du schreibst, nur an dein Regelwerk.
+- {crown} Die Gilde des Königs trägt im Zensus das Häkchen einer verifizierten Gilde.
+
+Danke für die Berichte mit /oly bug: Sie haben gezeigt, wo der Zensus zu kurz kam.
+
+Schließe WoW nach dem Update und öffne es erneut. Wenn noch etwas nicht funktioniert, sende einen Bericht mit /oly bug.
+
+Lang lebe der König. Lang lebe Olympus.]==],
 	LETTER_1_5_8_TITLE = "Auf Befehl des Königs",
 	LETTER_1_5_8_HEAD = "Auf Befehl des Königs",
 	LETTER_1_5_8_SIGNED = "Euer ergebener Tüftler, der Entwickler von Olympus",

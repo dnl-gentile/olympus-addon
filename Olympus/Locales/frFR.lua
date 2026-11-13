@@ -42,6 +42,28 @@ ns.Locale("frFR", {
 	PLAYER_TOOLTIP_SIZE = "Taille de l'infobulle : %d%%",
 	RECORDS_LAG = "Délai entre le créneau et l'envoi des empreintes : %d mesures, %.1f s en moyenne, %.1f s au maximum",
 	RECORDS_NET = "Tour %d : empreintes reçues %s, réponses envoyées %d, budget restant %d sur %d, demandes envoyées %d",
+	LETTER_1_5_9_TITLE = "Toute l'armée comptée",
+	LETTER_1_5_9_HEAD = "Toute l'armée comptée",
+	LETTER_1_5_9_SIGNED = "Votre humble artisan, le dev d'Olympus",
+	LETTER_1_5_9_LINK = ns.L.LETTER_1_5_9_LINK,
+	LETTER_1_5_9 = [==[Votre Majesté. Soldats d'Olympus.
+
+Comme promis, voici la suite. Chaque membre peut maintenant grimper dans le classement du recrutement, et les guildes qui ne voyaient qu'une partie de l'armée dans le recensement devraient maintenant la voir en entier.
+
+- {church} Le classement est ouvert à tous : Église > Classement > Tous. Chaque joueur qui rejoint ta guilde après ton invitation te rapporte 10 points, et 5 de plus s'il y est encore 7 jours plus tard. Le membre qui t'a transmis ce joueur reçoit un quart de ces points. Une recrue compte dès que l'addon d'un autre membre voit aussi son arrivée. La page montre les 10 premiers et ta place.
+- {church} Église > Invitations se lit plus facilement : Recrutement, Annonces de recrutement, Trouver des joueurs sans guilde et Transferts, chacun sous son propre titre. Quand tu transmets un joueur, les membres qui acceptent les transferts sont sollicités en premier, et Proposer à un autre membre les affiche en premier.
+- {church} Un joueur qui refuse l'invitation de ta guilde ne t'est plus proposé pendant 7 jours, sauf s'il redemande à rejoindre. Tes interrupteurs de recrutement restent comme tu les as laissés après un /reload ou une nouvelle connexion. Tant que le recrutement est activé, une ligne en haut du Recensement le dit : clique dessus pour ouvrir les réglages.
+- {guild} Un membre qui recrute reçoit maintenant une demande de la page Rejoindre Olympus comme un JOIN chuchoté : la même fenêtre d'invitation et les mêmes transferts.
+- {guild} Le recensement des guildes qui voyaient trop peu d'entre nous : sur WoW: Forever, toutes les guildes Olympus de ta faction rejoignent maintenant le même canal, les guildes scellées aussi, et les relais transmettent de nouveau le recensement entier, même quand ils sont chargés. Les joueurs encore sur une ancienne version reçoivent une demande de mise à jour, une fois par jour au plus.
+- {guild} Les totaux des autres règles restent maintenant jusqu'à ce qu'un compte plus récent les remplace, et les totaux que voit le client de l'auteur arrivent à chaque membre. Les détails du recensement indiquent quand ils ont été comptés.
+- {news} Dans le chat d'Olympus, chaque ligne apparaît sous les règles de celui qui l'écrit : les lignes des autres règles n'arrivent plus sous les tiennes. Avec tes propres règles choisies, ce que tu écris ne va qu'à tes règles.
+- {crown} La guilde du Roi porte dans le Recensement la coche des guildes vérifiées.
+
+Merci pour les rapports /oly bug : ils nous ont montré où le recensement ne suivait pas.
+
+Ferme et rouvre WoW après la mise à jour. Si quelque chose ne marche toujours pas, envoie un rapport avec /oly bug.
+
+Vive le Roi. Vive Olympus.]==],
 	LETTER_1_5_8_TITLE = "Par ordre du Roi",
 	LETTER_1_5_8_HEAD = "Par ordre du Roi",
 	LETTER_1_5_8_SIGNED = "Votre humble artisan, le dev d'Olympus",
