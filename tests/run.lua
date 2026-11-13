@@ -63817,9 +63817,9 @@ end)()
 	end)
 
 	test("1.4.0: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.5.8") -- the release has one identity in both folders
+		eq(ns.VERSION, "1.5.9") -- the release has one identity in both folders
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.5.8", 1, true))
+		assert(toc:find("## Version: 1.5.9", 1, true))
 		eq(ns.Workshop.Newer("1.4.0", "1.3.3"), true, "the launch release is newer")
 		eq(ns.Workshop.Newer("1.3.3", "1.4.0"), false)
 		eq(ns.Workshop.Newer("1.4.1", "1.4.0"), true, "the next patch remains newer")
@@ -64266,7 +64266,7 @@ end)()
 	end
 
 	test("1.4.0 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
-		eq(ns.VERSION, "1.5.8")
+		eq(ns.VERSION, "1.5.9")
 		for _, path in ipairs({ "Olympus/Olympus.toc", "Olympus_Arena/Olympus_Arena.toc" }) do
 			local toc = assert(ReadFile(ROOT .. path))
 			eq(toc:match("## Version:%s*(%S+)"), ns.VERSION, path)
@@ -64767,7 +64767,7 @@ end)()
 			eq(f.title:IsShown(), false); eq(f.body:IsShown(), false); eq(f.all:IsShown(), false)
 			local versions = Lt.Versions()
 			eq(#versions, #Lt.LIST, "a letter for every version listed")
-			eq(table.concat(versions, " "), "1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2 1.3.0 1.2.5.1 1.2.5 1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
+			eq(table.concat(versions, " "), "1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2 1.3.0 1.2.5.1 1.2.5 1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
 			for i, v in ipairs(versions) do
 				local r = f.rows[i]
 				eq(r:IsShown(), true); eq(r.version, v)
