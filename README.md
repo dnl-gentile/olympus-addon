@@ -766,8 +766,8 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 "OlympusNet" by name; with a key, every member of the guilds that have it. The guild tag on an
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
 On WoW: Forever (1.5.9) every client sits on the public "OlympusNet" whatever its key: there a key
-keeps your guild's typed lines out of it as text, and the relays carry them to every other guild,
-where anyone with the addon reads them. There the officers' grey line says that anyone who joins
+keeps your guild's typed lines out of it as text, and the relays carry them to the other guilds of
+your ruleset alone, where anyone with the addon reads them. There the officers' grey line says that anyone who joins
 reads the guild's typed lines, its tooltip says what a key does instead of how to seal the
 channel, and no count of guildmates on a sealed channel shows.
 Before your first line in each channel the addon tells you this and waits for **Send**.
