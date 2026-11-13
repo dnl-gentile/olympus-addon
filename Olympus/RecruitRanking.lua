@@ -178,6 +178,19 @@ local function Out() return Sub("out", function() return {} end) end
 local function Sources() return Sub("src", function() return {} end) end
 local function Seen() return Sub("seen", function() return {} end) end
 local function Views() return Sub("view", function() return {} end) end
+local function Told() return Sub("told", function() return {} end) end
+
+-- (Review of the 1.5.9 release) One account's characters of a realm group and faction share ns.rdb: the
+-- reports waiting, the pairs seen as a witness and the names passed on are each its character's (by). A
+-- keeper reads a report's sender as its reporter, so an inviter's own report his alt sent was the alt's
+-- word (or refused), never his own. An entry saved before it named its character is the first one's to
+-- take it.
+local function Owned(e)
+	local me = Key(ns.me)
+	if type(e) ~= "table" or not me then return false end
+	if e.by == nil then e.by = me end
+	return e.by == me
+end
 -- (own: the inviters' own reports, hand: the passers' words, both by record id: kept apart from r.)
 local function NewLedger() return { v = 1, n = 0, r = {}, p = {}, gone = {}, from = {}, caught = {}, own = {}, hand = {} } end
 local function Led()
@@ -226,7 +239,7 @@ function RR.HandedIn(name, by)
 	for k, s in pairs(src) do
 		if type(s) ~= "table" or now - (tonumber(s.at) or 0) > RR.SOURCE_HOURS * 3600 then src[k] = nil end
 	end
-	src[xk] = { n = Short(by), at = now }
+	src[xk] = { n = Short(by), at = now, by = Key(ns.me) }
 	Bound(src, RR.SOURCES_MAX, "at")
 	return true
 end
@@ -235,7 +248,7 @@ end
 -- may be one off either way: Count.Events), and no more than SOURCE_HOURS before.
 function RR.SourceOf(recruit, ti)
 	local s = (Sources() or {})[Key(recruit) or ""]
-	if type(s) ~= "table" or type(s.n) ~= "string" then return nil end
+	if type(s) ~= "table" or type(s.n) ~= "string" or not Owned(s) then return nil end
 	local at = tonumber(s.at) or 0
 	if ti and (at > (ti + 2) * 3600 or at < ti * 3600 - RR.SOURCE_HOURS * 3600) then return nil end
 	return s.n
@@ -281,9 +294,10 @@ RR.Reporter = Reporter
 
 -- A pair this client reported as a witness: its stay is told STAY_DAYS after the join (StayReports).
 local function Remember(id, inviter, invitee, guild, tj)
-	local seen = Seen()
-	if not seen or seen[id] then return end
-	seen[id] = { i = Short(inviter), n = Short(invitee), g = guild, h = tj }
+	local seen, me = Seen(), Key(ns.me)
+	local key = me and (id .. "|" .. me)
+	if not seen or not key or seen[key] then return end
+	seen[key] = { i = Short(inviter), n = Short(invitee), g = guild, h = tj, by = me }
 	Bound(seen, RR.SEEN_MAX, "h")
 end
 
@@ -291,48 +305,57 @@ end
 -- Reports to the keepers (an outbox while none takes them)
 ---------------------------------------------------------------------------
 
+-- (Review of the 1.5.9 release: one per text and character. The same pair seen by an inviter's alt as a
+-- witness and by the inviter himself is one text, each its own report.)
 local function Queue(text)
-	local out = Out()
-	if not out then return nil end
-	for _, o in ipairs(out) do if type(o) == "table" and o.text == text then return o end end
+	local out, me = Out(), Key(ns.me)
+	if not out or not me then return nil end
+	for _, o in ipairs(out) do if type(o) == "table" and o.text == text and Owned(o) then return o end end
 	if #out >= RR.OUTBOX_MAX then table.remove(out, 1) end
-	local o = { text = text, h = ns.Comm.Hash36(text), at = Clock(), to = {} }
+	local o = { text = text, h = ns.Comm.Hash36(text), at = Clock(), to = {}, by = me }
 	out[#out + 1] = o
 	return o
 end
 
--- Each report to every keeper online that takes these (RESEND_TRIES times, RESEND_GAP apart, until one
--- sends its receipt), and once to a keeper not heard to take them yet.
+-- Each report of this character's to every keeper online that takes these (RESEND_TRIES times, RESEND_GAP
+-- apart, until one sends its receipt), and once to a keeper not heard to take them yet. Another
+-- character's wait for him.
 function RR.Flush()
 	local out = Out()
 	if not out or #out == 0 or Off() or (ns.ChatLocked and ns.ChatLocked()) then return 0 end
-	local now = Clock()
+	local now, mine = Clock(), 0
 	for i = #out, 1, -1 do
 		local o = out[i]
 		if type(o) ~= "table" or type(o.text) ~= "string" or now - (tonumber(o.at) or 0) > RR.OUTBOX_DAYS * DAY then table.remove(out, i)
-		elseif type(o.to) ~= "table" then o.to = {} end
+		else
+			if type(o.to) ~= "table" then o.to = {} end
+			if Owned(o) then mine = mine + 1 end
+		end
 	end
+	if mine == 0 then return 0 end
 	local keepers = {}
 	for _, k in ipairs(Church.KeepersOnline(false)) do
 		local kk = Key(k.name)
 		if kk then keepers[#keepers + 1] = { name = k.name, key = kk, serving = serving[kk] ~= nil } end
 	end
 	if #keepers == 0 then
-		if #out > 0 then Church.FindKeeper() end
+		Church.FindKeeper()
 		return 0
 	end
-	local sent = 0
+	local sent, me = 0, Key(ns.me)
 	for _, o in ipairs(out) do
-		o.h = o.h or ns.Comm.Hash36(o.text)
-		for _, k in ipairs(keepers) do
-			local s = o.to[k.key]
-			local tries = type(s) == "table" and tonumber(s.n) or 0
-			local limit = k.serving and RR.RESEND_TRIES or 1
-			if tries < limit and (not s or now - (tonumber(s.w) or 0) >= RR.RESEND_GAP) then
-				if not Room() then return sent end
-				o.to[k.key] = { n = tries + 1, w = now }
-				if ns.Comm.Whisper(k.name, o.text, nil, false, false, nil, { owner = RR }) then
-					sent, stats.sent = sent + 1, stats.sent + 1
+		if o.by == me then
+			o.h = o.h or ns.Comm.Hash36(o.text)
+			for _, k in ipairs(keepers) do
+				local s = o.to[k.key]
+				local tries = type(s) == "table" and tonumber(s.n) or 0
+				local limit = k.serving and RR.RESEND_TRIES or 1
+				if tries < limit and (not s or now - (tonumber(s.w) or 0) >= RR.RESEND_GAP) then
+					if not Room() then return sent end
+					o.to[k.key] = { n = tries + 1, w = now }
+					if ns.Comm.Whisper(k.name, o.text, nil, false, false, nil, { owner = RR }) then
+						sent, stats.sent = sent + 1, stats.sent + 1
+					end
 				end
 			end
 		end
@@ -362,7 +385,7 @@ end
 
 -- A keeper's receipt (k): those reports leave the outbox (the keepers' catch-up carries them on). Its
 -- refusal (x): those reports go to that keeper no more, and wait for another (one that can vouch for
--- this witness in its own guild).
+-- this witness in its own guild). Only this character's: the keeper answered him.
 local function TakeReceipt(sender, text)
 	local kind, list = text:match("^NE~1~([kxl])~([0-9a-z,]+)$")
 	if not list then return Drop("shape") end
@@ -376,7 +399,7 @@ local function TakeReceipt(sender, text)
 	local out, k, now = Out() or {}, Key(sender), Clock()
 	for i = #out, 1, -1 do
 		local o = out[i]
-		if type(o) == "table" and type(o.text) == "string" and got[o.h or ns.Comm.Hash36(o.text)] then
+		if type(o) == "table" and type(o.text) == "string" and got[o.h or ns.Comm.Hash36(o.text)] and Owned(o) then
 			if kind == "k" then
 				table.remove(out, i)
 				stats.receipts = stats.receipts + 1
@@ -433,12 +456,30 @@ end
 -- What this client's own read of the log brings (ChurchCount.Process: every pair, any inviter)
 ---------------------------------------------------------------------------
 
-function RR.Pair(inviter, invitee, guild, ti, tj)
+-- (Review of the 1.5.9 release) This character's own pairs he reported, by id: each once. Another character
+-- of his account may have read the log first (its events read are the account's too, ChurchCount.Process),
+-- and his own read hands them in again (`again`).
+local function FirstTell(id)
+	local all, me = Told(), Key(ns.me)
+	if not all or not me then return true end
+	local mine = all[me]
+	if type(mine) ~= "table" then mine = {}; all[me] = mine end
+	local now = Clock()
+	for k, e in pairs(mine) do
+		if type(e) ~= "table" or now - (tonumber(e.at) or 0) > RR.EVIDENCE_DAYS * DAY then mine[k] = nil end
+	end
+	if mine[id] then return false end
+	mine[id] = { at = now }
+	Bound(mine, RR.SEEN_MAX, "at")
+	return true
+end
+
+function RR.Pair(inviter, invitee, guild, ti, tj, again)
 	if Off() or type(guild) ~= "string" or not ns.IsFederation(guild) then return false end
 	local ik, xk, me = Key(inviter), Key(invitee), Key(ns.me)
 	local g = CleanGuild(guild)
 	if not ik or not xk or ik == xk or xk == me or not g or not ti or not tj then return false end
-	stats.pairs = stats.pairs + 1
+	if again and ik ~= me then return false end
 	local id = xk .. ":" .. ik
 	local function Text(source)
 		return table.concat({ "NE~1~w", Short(inviter), Short(invitee), g, B36(ti), B36(tj), source or "-" }, "~")
@@ -446,7 +487,12 @@ function RR.Pair(inviter, invitee, guild, ti, tj)
 	-- (Review of 1.5.9) The inviter's own client reports every pair of his, not only one a member passed
 	-- him: his word is what makes his recruit pending ("N of yours wait for another addon"), and what a
 	-- weak witness's word needs beside it. It names the member who passed him that player, if one did.
-	if ik == me then return RR.Report(Text(RR.SourceOf(invitee, ti))) end
+	if ik == me then
+		if not FirstTell(id) then return false end
+		stats.pairs = stats.pairs + 1
+		return RR.Report(Text(RR.SourceOf(invitee, ti)))
+	end
+	stats.pairs = stats.pairs + 1
 	if not Reporter(id, guild) then return false end
 	Remember(id, inviter, invitee, g, tj)
 	return RR.Report(Text(nil))
@@ -463,7 +509,7 @@ function RR.ReadWanted()
 	if not guild or not ns.IsFederation(guild) then return nil end
 	local now = Clock()
 	for _, s in pairs(Sources() or {}) do
-		if type(s) == "table" and now - (tonumber(s.at) or 0) <= (RR.PAIR_HOURS + 2) * 3600 then return "own" end
+		if type(s) == "table" and now - (tonumber(s.at) or 0) <= (RR.PAIR_HOURS + 2) * 3600 and Owned(s) then return "own" end
 	end
 	local R = ns.Recruit
 	local invited = R and R.LastInviteAt and R.LastInviteAt()
@@ -493,7 +539,7 @@ local function StayReports()
 	for id, s in pairs(seen) do
 		local due = type(s) == "table" and tonumber(s.h) and s.h * 3600 + RR.STAY_DAYS * DAY
 		if not due or now > due + RR.STAY_LATE * DAY then seen[id] = nil
-		elseif now >= due and fresh and guild and ns.Fold(guild) == ns.Fold(s.g or "") then
+		elseif now >= due and fresh and guild and ns.Fold(guild) == ns.Fold(s.g or "") and Owned(s) then
 			Count.Remember(false)
 			local f = Count.Fact(s.n)
 			local here = f ~= nil and f.now == true and ns.Fold(f.guild) == ns.Fold(s.g)
@@ -1609,7 +1655,7 @@ function RR.CheckSaved()
 			end
 		end
 	end
-	for _, key in ipairs({ "out", "src", "seen", "view" }) do
+	for _, key in ipairs({ "out", "src", "seen", "view", "told" }) do
 		if s[key] ~= nil and type(s[key]) ~= "table" then s[key] = nil end
 	end
 	if type(s.out) == "table" and #s.out > RR.OUTBOX_MAX then s.out = nil end
@@ -1648,13 +1694,14 @@ function RR.StatusLines()
 	local dropped = {}
 	for why, n in pairs(stats.dropped) do dropped[#dropped + 1] = why .. "=" .. n end
 	table.sort(dropped)
-	local keepers, own, hand = 0, 0, 0
+	local keepers, own, hand, waiting = 0, 0, 0, 0
 	for _ in pairs(serving) do keepers = keepers + 1 end
+	for _, o in ipairs(Out() or {}) do if type(o) == "table" and o.by == Key(ns.me) then waiting = waiting + 1 end end
 	for _ in pairs(l.own) do own = own + 1 end
 	for _ in pairs(l.hand) do hand = hand + 1 end
 	return {
-		("recruiting ranking (everyone): pairs read %d, reported %d, stays told %d, sent %d, outbox %d, receipts %d"):format(stats.pairs,
-			stats.reported, stats.stays, stats.sent, #(Out() or {}), stats.receipts),
+		("recruiting ranking (everyone): pairs read %d, reported %d, stays told %d, sent %d, outbox %d (%d of this character's), receipts %d"):format(
+			stats.pairs, stats.reported, stats.stays, stats.sent, #(Out() or {}), waiting, stats.receipts),
 		("ranking ledger %d records, %d people, %d marks, taken %d, pushed %d, lines %d, pages %d, answers %d, folded %d, keepers serving %d, settled %s"):format(
 			l.n or 0, p, g, stats.taken, stats.pushed, stats.lines, stats.pages, stats.answers, stats.folded, keepers, tostring(RR.Settled())),
 		("ranking side: inviters' own reports %d, passers' words %d, lines waiting %d"):format(own, hand, #outq),

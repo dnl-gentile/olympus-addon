@@ -499,9 +499,21 @@ function Count.Process(events)
 	local meKey = Key(ns.me)
 	local person = Church.IsPerson(ns.me)
 	local found = 0
+	local RR = ns.RecruitRanking
+	-- (Review of the 1.5.9 release) This player's own invites in this read, seen before or not: one
+	-- account's characters of a realm group share these tables (ns.rdb), so another character of his that
+	-- read the log first left his own read nothing new, and the recruiting ranking for everyone no report
+	-- of his own (RecruitRanking.Pair takes each once a character).
+	local ownInvites = {}
 	for _, e in ipairs(events) do
 		local sig = e.kind .. ":" .. (Key(e.p1) or "") .. ":" .. (Key(e.p2) or "")
-		if not SeenEvent(ev, sig, e.hour) then
+		if e.kind == "invite" and e.p2 and Key(e.p1) == meKey then ownInvites[Key(e.p2)] = { by = e.p1, h = e.hour } end
+		if SeenEvent(ev, sig, e.hour) then
+			local own = e.kind == "join" and ownInvites[Key(e.p1)]
+			if own and e.hour >= own.h - 1 and e.hour <= own.h + Count.PAIR_HOURS and RR and RR.Pair then
+				ns.SafeCall("recruit ranking pair", RR.Pair, own.by, e.p1, guild, own.h, math.max(e.hour, own.h), true)
+			end
+		else
 			ev.k[sig .. ":" .. e.hour], ev.n = today, ev.n + 1
 			stats.events = stats.events + 1
 			local day = Day(e.hour * 3600)
@@ -519,7 +531,6 @@ function Count.Process(events)
 					if Count.Pair(i.by, e.p1, guild, i.h, tj) then found = found + 1 end
 					-- (1.5.9) Every member's pair, whoever invited, for the recruiting ranking for everyone:
 					-- records of its own type (RecruitRanking.lua), never this ledger's.
-					local RR = ns.RecruitRanking
 					if RR and RR.Pair then ns.SafeCall("recruit ranking pair", RR.Pair, i.by, e.p1, guild, i.h, tj) end
 				end
 			elseif e.kind == "quit" or e.kind == "remove" then

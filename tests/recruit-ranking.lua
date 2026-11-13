@@ -1018,3 +1018,70 @@ test("1.5.9 recruiting ranking: the 1.5.9 letter tells the points, the stay, the
 		eq(RR.POINTS_JOIN, Count.POINTS_JOIN, "the Church's points"); eq(RR.STAY_DAYS, Count.STAY_DAYS, "the Church's stay")
 	end
 end)
+
+-- Review of the 1.5.9 release (B2): one account's characters of a realm group and faction share ns.rdb, and
+-- with it the ranking's outbox and the Church's record of the log's events read. An inviter's own report
+-- that waited (no keeper online) went out from whichever character of the account logged in next, under
+-- that one's name: a keeper took it as that character's witness word (or refused it), never as the
+-- inviter's own, and in a guild with no keeper that recruit stayed pending for good. And an alt's read of
+-- the log first left the inviter's own read nothing new: no report of his own at all.
+test("1.5.9 recruiting ranking: one account's characters share the outbox: the inviter's own report waits for him and never goes out under his alt's name; his alt's read first still leaves him his own", function()
+	local shared = {}
+	local w = World.New({ apostles = { A1, A2 } })
+	local c = { a1 = w:Client(A1), a2 = w:Client(A2, { guild = World.GUILD2 }), ivo = w:Client("Ivo Plain", { rdb = shared }),
+		ivy = w:Client("Ivy Plain", { rdb = shared }), wes = w:Client("Wes Brook") }
+	for _, cl in pairs(c) do Loud(cl) end
+	w:Run(3600)
+	w:Presence()
+	-- Ivo invites while no keeper is online (none heard lately): his own report waits.
+	local away = c.ivo.Church.KEEPER_EVERY * c.ivo.Church.FRESH_FACTOR + 60
+	c.a1.online, c.a2.online, c.ivy.online = false, false, false
+	w:Run(away)
+	Recruit(w, World.GUILD, "Ivo Plain", "New Guy", 1)
+	w:ReadLog(c.ivo)
+	eq(Outbox(c.ivo), 1, "his own report waits")
+	-- He logs off; Ivy, another character of his account (same family and faction), logs in; the keepers come.
+	c.ivo.online, c.ivy.online, c.a1.online, c.a2.online = false, true, true, true
+	w:Presence()
+	w:Tick({ c.ivy })
+	w:Run(10)
+	eq(#w:Sent(c.ivy, "NE", "WHISPER"), 0, "his alt sends nothing of his")
+	eq(Outbox(c.ivy), 1, "it waits for him")
+	-- Ivo back: it goes, his own.
+	c.ivo.online = true
+	w:Presence()
+	w:Tick({ c.ivo })
+	w:Run(10)
+	eq(SentTo(w, c.ivo, A1, "w"), 1)
+	assert(w:As(c.a1, c.a1.RR.Led).own[Id("New Guy", "Ivo Plain")], "Aldric holds it as Ivo's own report")
+	eq(Outbox(c.ivo), 0, "the keepers' receipts")
+	w:ReadLog(c.wes)
+	eq(State(w, c.a1, "New Guy", "Ivo Plain"), "credited", "a guildmate's word beside his own report")
+	-- Another invite of his. Ivy reads the log first, no keeper online (her witness word waits), then Ivo.
+	c.a1.online, c.a2.online, c.ivo.online = false, false, false
+	w:Run(away)
+	Recruit(w, World.GUILD, "Ivo Plain", "Alt Seen", 0)
+	w:ReadLog(c.ivy)
+	eq(Outbox(c.ivy), 1, "Ivy's word")
+	c.ivy.online, c.ivo.online = false, true
+	w:ReadLog(c.ivo)
+	eq(Outbox(c.ivo), 2, "his own report beside it: the same text, each character's own")
+	-- The keepers back: each character sends its own.
+	c.a1.online, c.a2.online = true, true
+	w:Presence()
+	w:Tick({ c.ivo })
+	w:Run(10)
+	c.ivo.online, c.ivy.online = false, true
+	w:Presence()
+	w:Tick({ c.ivy })
+	w:Run(10)
+	eq(Outbox(c.ivy), 0)
+	eq(State(w, c.a1, "Alt Seen", "Ivo Plain"), "credited", "Ivy's word beside his own report")
+	eq(Rec(w, c.a1, "Alt Seen", "Ivo Plain").wk[1], Key("Ivy Plain"))
+	-- Read again: nothing twice.
+	c.ivy.online, c.ivo.online = false, true
+	w:ClearSent()
+	w:Run(61)
+	w:ReadLog(c.ivo)
+	eq(#w:Sent(c.ivo, "NE", "WHISPER", "w"), 0, "his own pairs once")
+end)
