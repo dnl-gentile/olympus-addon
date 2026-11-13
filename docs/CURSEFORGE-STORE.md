@@ -740,6 +740,12 @@ Olympus chat, one of its current officers can use `/oly key off`. The recovery i
 inside Blizzard's guild channel, returns updated guildmates to the public Olympus channel, and
 retires the old private key so a delayed message cannot split them again.
 
+**On WoW: Forever (since 1.5.9)** every client sits on its faction's public first lane, "OlympusNet"
+(the Horde's "OlympusNetH"), whatever key or lane it holds, so all guilds meet on one channel and the
+census older clients still broadcast there reaches everyone. A key is still kept, handed out and
+rotated, but there it seals nothing: it only keeps your guild's typed chat lines out of the public
+channel as text, and they reach the other guilds by the relays, which carry the census too.
+
 ## How it works
 
 1. Every guild member can read their own guild's roster: name, level, class, zone, rank,
