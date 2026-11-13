@@ -1133,11 +1133,14 @@ test("1.5.9 recruiting ranking: a join that followed another member's later invi
 end)
 
 -- The same across reads, when another character of the inviter's account read the log first (shared ns.rdb,
--- the Church's record of the events read with it): a join read before is his own only when the invite the
--- first read of that join paired it with was his: of that player's invites read before, the latest one ahead
--- of the join. An invite first read later is no pair of it, even in the join's own hour (the log gives hours,
--- and a read puts an hour's invites before its joins).
-test("1.5.9 recruiting ranking: across reads and an alt's read first, a join read before is the inviter's own only when the latest invite read before it is his", function()
+-- the Church's record of the events read with it): a join read before is his own only when the first read of
+-- that join paired it with his invite. An invite first read later is no pair of it, even in the join's own
+-- hour (the log gives hours, and a read puts an hour's invites before its joins), on that read or any after.
+-- (Second review of 1.5.9: the pair was worked out again from each read, as the latest invite read before the
+-- join. A read after the one that first read another member's invite in the join's hour put that invite ahead
+-- of the join: Quick Leave's next read sent Ivo an own report of Sid's recruit, and Back Twice's read lost
+-- Ivo's own one.)
+test("1.5.9 recruiting ranking: across reads and an alt's read first, a join read before is the inviter's own only when the first read of it paired it with his invite", function()
 	local shared = {}
 	local w = World.New({ apostles = { A1, A2 } })
 	local c = { a1 = w:Client(A1), a2 = w:Client(A2, { guild = World.GUILD2 }), ivo = w:Client("Ivo Plain", { rdb = shared }),
@@ -1178,6 +1181,8 @@ test("1.5.9 recruiting ranking: across reads and an alt's read first, a join rea
 	w:ClearSent()
 	eq(w:ReadLog(c.ivo), true)
 	eq(Naming(w, c.ivo, "Ivo Plain", "Quick Leave"), 0, "his invite came after the join was read")
+	eq(w:ReadLog(c.ivo), true)
+	eq(Naming(w, c.ivo, "Ivo Plain", "Quick Leave"), 0, "nor on his next read, his invite read before it by then")
 	eq(w:As(c.a1, c.a1.RR.Led).own[Id("Quick Leave", "Ivo Plain")], nil)
 	-- And the other way: Ivo's recruit, read by Ivy; he leaves, and Sid invites him in that same hour.
 	w:Presence()
@@ -1189,6 +1194,152 @@ test("1.5.9 recruiting ranking: across reads and an alt's read first, a join rea
 	w:ClearSent()
 	eq(w:ReadLog(c.ivo), true)
 	eq(Naming(w, c.ivo, "Ivo Plain", "Back Again"), 2, "the join followed his invite: his own report, to each keeper")
+	-- The same, with Sid's invite read by Ivy too before Ivo reads.
+	w:Presence()
+	Recruit(w, World.GUILD, "Ivo Plain", "Back Twice", 0)
+	eq(w:ReadLog(c.ivy), true)
+	w:LogEvent(World.GUILD, "quit", "Back Twice", nil, 0)
+	Leave(w, World.GUILD, "Back Twice")
+	w:LogEvent(World.GUILD, "invite", "Sid Pass", "Back Twice", 0)
+	eq(w:ReadLog(c.ivy), true)
+	w:ClearSent()
+	eq(w:ReadLog(c.ivo), true)
+	eq(Naming(w, c.ivo, "Ivo Plain", "Back Twice"), 2, "Sid's invite read before his read: still his own report, to each keeper")
+	assert(w:As(c.a1, c.a1.RR.Led).own[Id("Back Twice", "Ivo Plain")], "Aldric holds it as Ivo's own report")
+end)
+
+-- Second review of 1.5.9: one character, no alt. His client's first read paired a join with another member's
+-- invite (his word as a witness); the player left, and he invited him 15 minutes after the join, in the join's
+-- hour. Once a read had his invite too, the next one put it ahead of the join and sent each keeper his own
+-- report of a recruit not his (an inviter's client reads every 5 minutes for 3 hours after an invite).
+test("1.5.9 recruiting ranking: a join his client paired with another member's invite stays that member's on every later read, though his own invite in the join's hour comes ahead of it", function()
+	local w, c = Cast()
+	-- (The clock is on the hour.) Sid invites Quick Leave 2.5 hours ago; he joins 5 minutes from now.
+	w:LogEvent(World.GUILD, "invite", "Sid Pass", "Quick Leave", 2.5)
+	w:Run(5 * 60)
+	w:LogEvent(World.GUILD, "join", "Quick Leave", nil, 0)
+	Join(w, World.GUILD, "Quick Leave")
+	w:Run(2 * 60)
+	w:Presence()
+	w:ClearSent()
+	eq(w:ReadLog(c.ivo), true)
+	eq(Naming(w, c.ivo, "Sid Pass", "Quick Leave"), 2, "Sid's recruit: Ivo's word as a witness, to each keeper")
+	-- He leaves; Ivo invites him 15 minutes after the join. Ivo's client reads at once, and 5 minutes later.
+	w:Run(3 * 60)
+	w:LogEvent(World.GUILD, "quit", "Quick Leave", nil, 0)
+	Leave(w, World.GUILD, "Quick Leave")
+	w:Run(10 * 60)
+	w:LogEvent(World.GUILD, "invite", "Ivo Plain", "Quick Leave", 0)
+	w:Run(5 * 60)
+	w:Presence()
+	eq(w:ReadLog(c.ivo), true)
+	eq(Naming(w, c.ivo, "Ivo Plain", "Quick Leave"), 0, "the read that first reads his invite")
+	w:Run(5 * 60)
+	w:Presence()
+	eq(w:ReadLog(c.ivo), true)
+	eq(Naming(w, c.ivo, "Ivo Plain", "Quick Leave"), 0, "his next read, his invite read before it")
+	for _, k in ipairs({ c.a1, c.a2 }) do
+		eq(w:As(k, k.RR.Led).own[Id("Quick Leave", "Ivo Plain")], nil, k.name .. ": no own report of Ivo's")
+	end
+	eq(Row(w, c.a1, "Ivo Plain"), nil, "nothing of Ivo's, pending or counted")
+end)
+
+-- Second review of 1.5.9, the other way: his own recruit, read first by another character of his account
+-- (shared ns.rdb); the player left, another member invited him 15 minutes after the join, and the alt read that
+-- invite too. His own read put that invite ahead of the join and sent no report of his: the recruit stayed
+-- without its inviter's word.
+test("1.5.9 recruiting ranking: his recruit an alt's client read first stays his own, though another member's invite in the join's hour, read before his read, comes ahead of it", function()
+	local shared = {}
+	local w = World.New({ apostles = { A1, A2 } })
+	local c = { a1 = w:Client(A1), a2 = w:Client(A2, { guild = World.GUILD2 }), ivo = w:Client("Ivo Plain", { rdb = shared }),
+		ivy = w:Client("Ivy Plain", { rdb = shared }), sid = w:Client("Sid Pass"), wes = w:Client("Wes Brook") }
+	for _, cl in pairs(c) do Loud(cl) end
+	w:Run(3600)
+	w:Presence()
+	-- (The clock is on the hour.) Ivo invites Long Road 2.5 hours ago; he joins 5 minutes from now; Ivy reads.
+	w:LogEvent(World.GUILD, "invite", "Ivo Plain", "Long Road", 2.5)
+	w:Run(5 * 60)
+	w:LogEvent(World.GUILD, "join", "Long Road", nil, 0)
+	Join(w, World.GUILD, "Long Road")
+	w:Run(2 * 60)
+	w:Presence()
+	eq(w:ReadLog(c.ivy), true)
+	-- He leaves; Sid invites him 15 minutes after the join; Ivy reads again, then Ivo.
+	w:Run(3 * 60)
+	w:LogEvent(World.GUILD, "quit", "Long Road", nil, 0)
+	Leave(w, World.GUILD, "Long Road")
+	w:Run(10 * 60)
+	w:LogEvent(World.GUILD, "invite", "Sid Pass", "Long Road", 0)
+	w:Run(5 * 60)
+	w:Presence()
+	eq(w:ReadLog(c.ivy), true)
+	w:ClearSent()
+	eq(w:ReadLog(c.ivo), true)
+	eq(Naming(w, c.ivo, "Ivo Plain", "Long Road"), 2, "the join followed his invite: his own report, to each keeper")
+	eq(Naming(w, c.ivo, "Sid Pass", "Long Road"), 0)
+	for _, k in ipairs({ c.a1, c.a2 }) do
+		assert(w:As(k, k.RR.Led).own[Id("Long Road", "Ivo Plain")], k.name .. " holds it as Ivo's own report")
+	end
+end)
+
+-- Second review of 1.5.9: the pair a join's first read made is saved beside the account's record of that join
+-- (ns.rdb.church.ev: k, the events read; p, the pairs), as long as that record: EV_DAYS, or none past EV_MAX.
+-- A record an earlier build saved has no pairs and is read as before; a saved pair that is not one sends nothing.
+test("1.5.9 recruiting ranking: the pair a join's first read made is kept as long as the account's record of that join, and a record without pairs is read as before", function()
+	local shared = {}
+	local w = World.New({ apostles = { A1, A2 } })
+	local c = { a1 = w:Client(A1), a2 = w:Client(A2, { guild = World.GUILD2 }), ivo = w:Client("Ivo Plain", { rdb = shared }),
+		ivy = w:Client("Ivy Plain", { rdb = shared }), sid = w:Client("Sid Pass") }
+	for _, cl in pairs(c) do Loud(cl) end
+	w:Run(3600)
+	w:Presence()
+	local function Size(t) local n = 0 for _ in pairs(t or {}) do n = n + 1 end return n end
+	-- The saved pair of `recruit`'s join, and its key (the join's record of events read).
+	local function PairOf(recruit)
+		for k, p in pairs(shared.church.ev.p or {}) do if k:find("^join:" .. Key(recruit) .. "::") then return p, k end end
+		return nil
+	end
+	-- An earlier build's record: the events it read, no pairs.
+	Recruit(w, World.GUILD, "Sid Pass", "Old Hand", 1)
+	eq(w:ReadLog(c.ivy), true)
+	shared.church.ev.p = nil
+	-- Ivo's recruits, read first by Ivy: a pair kept beside each one's record, none made for the join read before.
+	Recruit(w, World.GUILD, "Ivo Plain", "New Hand", 0)
+	Recruit(w, World.GUILD, "Ivo Plain", "Odd Hand", 0)
+	Recruit(w, World.GUILD, "Ivo Plain", "Bad Hand", 0)
+	eq(w:ReadLog(c.ivy), true)
+	eq(Size(shared.church.ev.p), 3, "the new joins' pairs")
+	eq(PairOf("Old Hand"), nil)
+	local _, key = PairOf("New Hand")
+	assert(key and shared.church.ev.k[key], "beside the join's record")
+	-- A saved pair that is not one sends nothing, and fails nothing.
+	shared.church.ev.p[select(2, PairOf("Odd Hand"))] = 42
+	shared.church.ev.p[select(2, PairOf("Bad Hand"))] = "Ivo Plain-Realm~zz"
+	w:ClearSent()
+	eq(w:ReadLog(c.ivo), true)
+	eq(Naming(w, c.ivo, "Ivo Plain", "New Hand"), 2, "his own report, from the pair Ivy's read made")
+	eq(Naming(w, c.ivo, "Ivo Plain", "Odd Hand"), 0)
+	eq(Naming(w, c.ivo, "Ivo Plain", "Bad Hand"), 0)
+	-- Past EV_MAX the records go, and every pair with them.
+	c.ivy.Count.EV_MAX = 1
+	eq(w:ReadLog(c.ivy), true)
+	c.ivy.Count.EV_MAX = c.ivo.Count.EV_MAX
+	eq(next(shared.church.ev.k), nil, "no record of events read")
+	eq(next(shared.church.ev.p), nil, "no pair")
+	-- Read again (all new to the account now), then EV_DAYS on, the log no longer holding them: the pairs stay as
+	-- long as their records, and go with them.
+	eq(w:ReadLog(c.ivy), true)
+	eq(Size(shared.church.ev.p), 4, "the pairs made again, Old Hand's too")
+	w.log[World.GUILD] = {}
+	w:Run(c.ivy.Count.EV_DAYS * DAY)
+	w:Presence()
+	eq(w:ReadLog(c.ivy), true)
+	eq(Size(shared.church.ev.p), 4, "EV_DAYS on: kept")
+	w:Run(DAY)
+	w:Presence()
+	eq(w:ReadLog(c.ivy), true)
+	eq(next(shared.church.ev.k), nil, "a day more: the records go")
+	eq(next(shared.church.ev.p), nil, "and their pairs with them")
 end)
 
 -- Review of the 1.5.9 release (B3): a plain member drawn in a guild no keeper is in (most guilds) reported

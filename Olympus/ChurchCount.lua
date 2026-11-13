@@ -213,7 +213,7 @@ local function Sub(key, make)
 	return c[key]
 end
 local function Mem() return Sub("mem", function() return { g = {}, n = {}, count = 0 } end) end
-local function Ev() return Sub("ev", function() return { k = {}, n = 0 } end) end
+local function Ev() return Sub("ev", function() return { k = {}, n = 0, p = {} } end) end
 local function Inv() return Sub("inv", function() return {} end) end
 local function Att() return Sub("att", function() return {} end) end
 local function Out() return Sub("out", function() return {} end) end
@@ -475,8 +475,16 @@ function Count.Events()
 	return out
 end
 
+-- The key of the record an earlier read left of this event, or nil (the log gives how long ago, so the
+-- same event read again can be an hour off).
 local function SeenEvent(ev, sig, hour)
-	return ev.k[sig .. ":" .. hour] or ev.k[sig .. ":" .. (hour - 1)] or ev.k[sig .. ":" .. (hour + 1)]
+	local k = sig .. ":" .. hour
+	if ev.k[k] then return k end
+	k = sig .. ":" .. (hour - 1)
+	if ev.k[k] then return k end
+	k = sig .. ":" .. (hour + 1)
+	if ev.k[k] then return k end
+	return nil
 end
 
 local function FillOf(guild, day)
@@ -502,25 +510,29 @@ function Count.Process(events)
 	local RR = ns.RecruitRanking
 	-- (Review of the 1.5.9 release) One account's characters of a realm group share these tables (ns.rdb),
 	-- so another character of his that read the log first left his own read nothing new, and the recruiting
-	-- ranking for everyone no report of his own (RecruitRanking.Pair takes each once a character). A join read
-	-- before goes to it again, as his, only when the invite its first read paired it with was his: of that
-	-- player's invites read before, the latest one ahead of the join (inv[] is overwritten), never an earlier
-	-- one of his that another member's later invite followed. An invite first read now was not in the log when
-	-- that join was read: no pair of it, even where the log's hours put it ahead.
-	local seenInvite = {}
+	-- ranking for everyone no report of his own (RecruitRanking.Pair takes each once a character). So a join
+	-- read before goes to it again with the pair the first read of that join made, kept beside the join's
+	-- record (ev.p: "inviter~invite hour36~join hour36", gone with that record): his own only when that pair's
+	-- inviter is he. (Worked out again from each read, the pair could name another inviter: the log gives
+	-- hours, and a read puts an hour's invites before its joins, in no set order among themselves, so an invite
+	-- logged after the join in its hour came ahead of it, and two invites of one hour could swap from one read
+	-- to the next.)
+	if type(ev.p) ~= "table" then ev.p = {} end
 	for _, e in ipairs(events) do
 		local sig = e.kind .. ":" .. (Key(e.p1) or "") .. ":" .. (Key(e.p2) or "")
-		if SeenEvent(ev, sig, e.hour) then
-			if e.kind == "invite" and e.p2 then
-				seenInvite[Key(e.p2)] = { by = e.p1, h = e.hour }
-			elseif e.kind == "join" then
-				local i = seenInvite[Key(e.p1)]
-				if i and Key(i.by) == meKey and e.hour >= i.h - 1 and e.hour <= i.h + Count.PAIR_HOURS and RR and RR.Pair then
-					ns.SafeCall("recruit ranking pair", RR.Pair, i.by, e.p1, guild, i.h, math.max(e.hour, i.h), true)
+		local seen = SeenEvent(ev, sig, e.hour)
+		if seen then
+			local p = e.kind == "join" and ev.p[seen]
+			if type(p) == "string" and RR and RR.Pair then
+				local by, ti, tj = p:match("^([^~]+)~([0-9a-z]+)~([0-9a-z]+)$")
+				ti, tj = UnB36(ti), UnB36(tj)
+				if by and ti and tj and Key(by) == meKey then
+					ns.SafeCall("recruit ranking pair", RR.Pair, by, e.p1, guild, ti, tj, true)
 				end
 			end
 		else
-			ev.k[sig .. ":" .. e.hour], ev.n = today, ev.n + 1
+			local key = sig .. ":" .. e.hour
+			ev.k[key], ev.n = today, ev.n + 1
 			stats.events = stats.events + 1
 			local day = Day(e.hour * 3600)
 			if e.kind == "invite" and e.p2 then
@@ -534,6 +546,8 @@ function Count.Process(events)
 				local i = inv[Key(e.p1)]
 				if i and e.hour >= i.h - 1 and e.hour <= i.h + Count.PAIR_HOURS then
 					local tj = math.max(e.hour, i.h)
+					local h36, j36 = B36(i.h), B36(tj)
+					if type(i.by) == "string" and h36 and j36 then ev.p[key] = i.by .. "~" .. h36 .. "~" .. j36 end
 					if Count.Pair(i.by, e.p1, guild, i.h, tj) then found = found + 1 end
 					-- (1.5.9) Every member's pair, whoever invited, for the recruiting ranking for everyone:
 					-- records of its own type (RecruitRanking.lua), never this ledger's.
@@ -550,6 +564,8 @@ function Count.Process(events)
 		for k, d in pairs(ev.k) do if today - d > Count.EV_DAYS then ev.k[k] = nil else n = n + 1 end end
 		ev.n = n
 		if n > Count.EV_MAX then wipe(ev.k); ev.n = 0 end
+		-- (Review of the 1.5.9 release) A join's pair goes with its record.
+		for k in pairs(ev.p) do if not ev.k[k] then ev.p[k] = nil end end
 	end
 	local hourNow = math.floor(Clock() / 3600)
 	local kept = {}
