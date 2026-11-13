@@ -705,7 +705,7 @@ end
 
 function Keys.Rotate()
 	if Previewing() then return ns.Print(L.THRONE_PREVIEW_NOTE) end
-	if not Keys.CanRotate() then return ns.Print(L.KEY_ROTATE_ONLY_KING) end
+	if not Keys.CanRotate() then return ns.Print(Keys.OnlyKingText()) end
 	local rot = Rotation()
 	if rot and not rot.moved then return ns.Print(L.KEY_ROTATE_BUSY) end
 	local at = Clock()
@@ -838,29 +838,38 @@ function Keys.ThroneLines()
 			onClick = function() Keys.RotatePrompt() end,
 			tooltip = function(tt)
 				tt:AddLine(L.KEY_ROTATE, 1, 0.82, 0)
-				tt:AddLine(L.KEY_ROTATE_TIP, 1, 1, 1, true)
+				-- (1.5.9's review) On Forever nobody moves channel: what rotating does there.
+				tt:AddLine(Forever() and L.KEY_ROTATE_TIP_FOREVER or L.KEY_ROTATE_TIP, 1, 1, 1, true)
 			end })
 	end
 	lines[#lines].gapAfter = true
 	return lines
 end
 
+-- (1.5.9's review) The answer to anyone else, on Forever without the officers' sealing of a channel.
+function Keys.OnlyKingText() return Forever() and L.KEY_ROTATE_ONLY_KING_FOREVER or L.KEY_ROTATE_ONLY_KING end
+
 function Keys.RotatePrompt()
 	if Previewing() then return ns.Print(L.THRONE_PREVIEW_NOTE) end
-	if not Keys.CanRotate() then return ns.Print(L.KEY_ROTATE_ONLY_KING) end
-	ns.ShowDialog("OLYMPUS_KEY_ROTATE", tostring(math.ceil(Keys.GRACE / 60)))
+	if not Keys.CanRotate() then return ns.Print(Keys.OnlyKingText()) end
+	-- (1.5.9's review) On Forever its own question: nobody moves channel there (Comm.ChannelSpec).
+	ns.ShowDialog(Forever() and "OLYMPUS_KEY_ROTATE_FOREVER" or "OLYMPUS_KEY_ROTATE", tostring(math.ceil(Keys.GRACE / 60)))
 end
 
-StaticPopupDialogs["OLYMPUS_KEY_ROTATE"] = {
-	text = L.KEY_ROTATE_CONFIRM,
-	button1 = YES or "Yes",
-	button2 = NO or "No",
-	OnAccept = function() ns.SafeCall("key rotate", Keys.Rotate) end,
-	timeout = 0,
-	whileDead = true,
-	hideOnEscape = true,
-	preferredIndex = 3,
-}
+local function RotateDialog(text)
+	return {
+		text = text,
+		button1 = YES or "Yes",
+		button2 = NO or "No",
+		OnAccept = function() ns.SafeCall("key rotate", Keys.Rotate) end,
+		timeout = 0,
+		whileDead = true,
+		hideOnEscape = true,
+		preferredIndex = 3,
+	}
+end
+StaticPopupDialogs["OLYMPUS_KEY_ROTATE"] = RotateDialog(L.KEY_ROTATE_CONFIRM)
+StaticPopupDialogs["OLYMPUS_KEY_ROTATE_FOREVER"] = RotateDialog(L.KEY_ROTATE_CONFIRM_FOREVER)
 StaticPopupDialogs["OLYMPUS_KEY_HAND_OUT"] = {
 	text = L.KEY_HAND_OUT_CONFIRM,
 	button1 = YES or "Yes",

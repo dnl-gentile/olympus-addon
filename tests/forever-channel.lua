@@ -611,3 +611,71 @@ test("1.5.9's review one channel on Forever: a key holder's audience fits any me
 	end
 	InEveryLanguage({ "CHANNEL_SEALED_FOREVER" })
 end)
+
+-- 1.5.9's review (B4): the King's key rotation still promised channel moves on Forever: its tooltip on the
+-- Throne ("stays behind on the old channel"), its question ("move to it", "stays on the old channel") and
+-- the answer to anyone else ("Officers still seal their own guild's channel"), none of which happens there
+-- (Comm.ChannelSpec). On Forever each says what rotating does instead: nobody moves channel, the new key
+-- reaches the picked guilds the same way, and a key, old or new, keeps its holders' typed chat lines out of
+-- the public channel. Off Forever as before. In all seven languages. Keys.lua in a namespace of its own,
+-- /oly key rotate through the harness's Core with it. Fails before (the old texts and question on Forever).
+test("1.5.9's review one channel on Forever: the King's key rotation (the Throne's tooltip, its question, the answer to anyone else, /oly key rotate) says nobody moves channel there and what a key does; off Forever as before; in every language", function()
+	local L = ns.L
+	local savedDialogs = {}
+	for k, v in pairs(StaticPopupDialogs) do if tostring(k):find("^OLYMPUS_KEY_") then savedDialogs[k] = v end end
+	local ok, err = pcall(function()
+		for _, forever in ipairs({ true, false }) do
+			local label = forever and "on Forever" or "off Forever"
+			local printed, shown, author = {}, {}, false
+			local kns = setmetatable({ rdb = { realmKey = "fixture-old" }, OnForever = function() return forever end,
+				Print = function(msg) printed[#printed + 1] = msg end, IsMember = function() return true end,
+				ShowDialog = function(which, a) shown[#shown + 1] = { which = which, a = a } end,
+				Workshop = { IsAuthor = function() return author end }, ViewAs = false,
+				King = { IsKing = function() return false end, IsSteward = function() return false end, Preview = function() return false end,
+					Line = function(text, _, o) local l = o or {} l.text = text return l end, INK = {}, TITLE = {}, Para = function() end },
+				Comm = { Handle = function() end, Hash36 = ns.Comm.Hash36, JoinChannel = function() end, Send = function() end },
+				Log = function() end, On = function() end, Every = function() end, After = function() end }, { __index = ns })
+			assert(loadfile(ADDON .. "Keys.lua"))("Olympus", kns)
+			local K = kns.Keys
+			-- Anyone else: told so, and on Forever not that officers seal a channel.
+			eq(K.Rotate(), nil)
+			eq(printed[#printed], forever and L.KEY_ROTATE_ONLY_KING_FOREVER or L.KEY_ROTATE_ONLY_KING, label .. ": the answer to anyone else")
+			K.RotatePrompt()
+			eq(printed[#printed], forever and L.KEY_ROTATE_ONLY_KING_FOREVER or L.KEY_ROTATE_ONLY_KING, label .. ": and to his prompt")
+			eq(#shown, 0, label .. ": no question for him")
+			-- /oly key rotate typed by him: the harness's own Core, with this Keys.
+			local savedKeys, savedPrint = ns.Keys, ns.Print
+			ns.Keys, ns.Print = K, function(msg) printed[#printed + 1] = msg end
+			local okS, errS = pcall(SlashCmdList.OLYMPUS, "key rotate")
+			ns.Keys, ns.Print = savedKeys, savedPrint
+			assert(okS, errS)
+			eq(printed[#printed], forever and L.KEY_ROTATE_ONLY_KING_FOREVER or L.KEY_ROTATE_ONLY_KING, label .. ": /oly key rotate")
+			-- The one who may rotate (here the author's own view): the Throne's tooltip, then the question.
+			author = true
+			local line
+			for _, l in ipairs(K.ThroneLines()) do if type(l.text) == "string" and l.text:find(L.KEY_ROTATE, 1, true) and l.tooltip then line = l end end
+			assert(line, label .. ": the Throne's rotate line")
+			local tip = {}
+			line.tooltip({ AddLine = function(_, t) tip[#tip + 1] = t end })
+			eq(tip[2], forever and L.KEY_ROTATE_TIP_FOREVER or L.KEY_ROTATE_TIP, label .. ": its tooltip")
+			K.RotatePrompt()
+			local which = forever and "OLYMPUS_KEY_ROTATE_FOREVER" or "OLYMPUS_KEY_ROTATE"
+			eq(shown[#shown] and shown[#shown].which, which, label .. ": the question")
+			eq(shown[#shown].a, tostring(math.ceil(K.GRACE / 60)), label .. ": with its minutes")
+			eq(StaticPopupDialogs[which].text, forever and L.KEY_ROTATE_CONFIRM_FOREVER or L.KEY_ROTATE_CONFIRM, label .. ": its words")
+			-- Its Yes starts the rotation, as the old question's does.
+			StaticPopupDialogs[which].OnAccept()
+			assert(K.Rotation() and K.Rotation().picking, label .. ": the rotation begun")
+		end
+	end)
+	for k in pairs(StaticPopupDialogs) do if tostring(k):find("^OLYMPUS_KEY_") then StaticPopupDialogs[k] = nil end end
+	for k, v in pairs(savedDialogs) do StaticPopupDialogs[k] = v end
+	if not ok then error(err, 0) end
+	-- The Forever words: nobody moves channel, the public channel, the typed chat lines; never a seal or an old channel.
+	for _, k in ipairs({ "KEY_ROTATE_TIP_FOREVER", "KEY_ROTATE_CONFIRM_FOREVER", "KEY_ROTATE_ONLY_KING_FOREVER" }) do
+		assert(L[k]:find("typed chat lines", 1, true) and L[k]:find("public Olympus channel", 1, true), k)
+		assert(not L[k]:find("seal", 1, true) and not L[k]:find("old channel", 1, true), k)
+	end
+	for _, k in ipairs({ "KEY_ROTATE_TIP_FOREVER", "KEY_ROTATE_CONFIRM_FOREVER" }) do assert(L[k]:find("nobody moves channel", 1, true), k) end
+	InEveryLanguage({ "KEY_ROTATE_TIP_FOREVER", "KEY_ROTATE_CONFIRM_FOREVER", "KEY_ROTATE_ONLY_KING_FOREVER" })
+end)
